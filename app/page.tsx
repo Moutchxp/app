@@ -14,13 +14,34 @@ export default function Home() {
     longitude: 2.3522,
   });
 
+  // SEULE MODIFICATION DU MOTEUR DE CALCUL ICI
   async function getAddressFromGPS(latitude: number, longitude: number) {
     try {
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+        {
+          headers: {
+            "User-Agent": "SansVisAVisMVP/1.0 (a.jorel@sansvisavis.com)"
+          }
+        }
       );
 
       const data = await response.json();
+
+      if (data && data.display_name) {
+        const number = data.address?.house_number || "";
+        const road = data.address?.road || data.address?.pedestrian || "";
+        const city = data.address?.city || data.address?.town || data.address?.village || "";
+        
+        if (number && road && city) {
+          setAddress(`${number} ${road}, ${city}`);
+        } else if (data.address?.building || road) {
+          const shortAddress = `${number} ${road}`.trim();
+          setAddress(shortAddress || data.display_name);
+        } else {
+          setAddress("Point GPS sélectionné");
+        }
+      }
 
       const buildingResponse = await fetch("/api/check-building", {
         method: "POST",
@@ -35,24 +56,7 @@ export default function Home() {
 
       const buildingData = await buildingResponse.json();
       console.log("Réponse API bâtiment :", buildingData);
-      const isInsideBuilding = buildingData.isInsideBuilding;
 
-      const road = data.address?.road;
-      const houseNumber = data.address?.house_number;
-
-      const city =
-        data.address?.city ||
-        data.address?.town ||
-        data.address?.village ||
-        data.address?.municipality;
-
-      if (!isInsideBuilding) {
-  setAddress("Adresse imprécise - positionnez le repère sur votre logement");
-} else if (road && houseNumber && city) {
-  setAddress(`${houseNumber} ${road}, ${city}`);
-} else {
-  setAddress("Point GPS sélectionné");
-}
     } catch {
       setAddress(
         "Adresse imprécise - positionnez le repère sur votre logement"

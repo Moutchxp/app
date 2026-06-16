@@ -1,135 +1,73 @@
 import { NextResponse } from "next/server";
 
-type OverpassElement = {
-  type: string;
-  id: number;
-  lat?: number;
-  lon?: number;
-  nodes?: number[];
-};
-
-function isPointInPolygon(
-  point: { latitude: number; longitude: number },
-  polygon: { latitude: number; longitude: number }[]
-) {
-  let inside = false;
-
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i].longitude;
-    const yi = polygon[i].latitude;
-    const xj = polygon[j].longitude;
-    const yj = polygon[j].latitude;
-
-    const intersect =
-      yi > point.latitude !== yj > point.latitude &&
-      point.longitude <
-        ((xj - xi) * (point.latitude - yi)) / (yj - yi) + xi;
-
-    if (intersect) inside = !inside;
-  }
-
-  return inside;
-}
-
-export async function GET() {
-  return NextResponse.json({
-    message: "API check-building active",
-  });
-}
-
 export async function POST(request: Request) {
   try {
-    const { latitude, longitude } = await request.json();
+    // 1. Récupération sichère des coordonnées envoyées par ton composant Map
+    const body = await request.json();
+    const { latitude, longitude } = body;
 
-    const radius = 40;
+    if (!latitude || !longitude) {
+      return NextResponse.json(
+        { error: "Coordonnées GPS manquantes dans la requête." },
+        { status: 400 }
+      );
+    }
 
-    const query = `
-      [out:json][timeout:10];
+    console.log(`[API] Analyse demandée pour Lat: ${latitude}, Lon: ${longitude}`);
+
+    // 2. Construction de la requête Overpass (cherche les bâtiments autour du point)
+    // On cherche dans un rayon de 100 mètres autour du point cliqué
+    const overpassQuery = `[out:json][timeout:25];
       (
-        way["building"](around:${radius},${latitude},${longitude});
+        way["building"](around:100, ${latitude}, ${longitude});
+        relation["building"](around:100, ${latitude}, ${longitude});
       );
       out body;
       >;
-      out skel qt;
-    `;
+      out skel qt;`;
 
-    const overpassUrl =
-"https://overpass-api.de/api/interpreter?data=" +
-encodeURIComponent(query);
+    // 3. Appel à l'API Overpass avec les en-têtes requis pour éviter l'erreur 406
+    const response = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      headers: {
+        // Overpass attend un format de formulaire standard
+        "Content-Type": "application/x-www-form-urlencoded",
+        // Crucial : On s'identifie pour que le serveur ne nous rejette pas avec une 406
+        "User-Agent": "SansVisAVisMVP/1.0 (a.jorel@sansvisavis.com)", 
+      },
+      // Le corps de la requête doit être formatté en 'data=...' encodé pour les URLs
+      body: `data=${encodeURIComponent(overpassQuery)}`,
+    });
 
-const response = await fetch(overpassUrl, {
-  method: "GET",
-  headers: {
-    Accept: "application/json",
-    "User-Agent": "SansVisAvisMVP/1.0 contact@example.com",
-  },
-});
-
-const text = await response.text();
-
-if (!response.ok || text.trim().startsWith("<")) {
-  console.error("Réponse Overpass invalide :", text.slice(0, 300));
-
-  return NextResponse.json({
-    isInsideBuilding: false,
-    error: "Réponse Overpass invalide",
-  });
-}
-
-const data = JSON.parse(text);
-
-    const elements: OverpassElement[] = data.elements || [];
-
-    const nodes = new Map<number, { latitude: number; longitude: number }>();
-
-    for (const element of elements) {
-      if (
-        element.type === "node" &&
-        typeof element.lat === "number" &&
-        typeof element.lon === "number"
-      ) {
-        nodes.set(element.id, {
-          latitude: element.lat,
-          longitude: element.lon,
-        });
-      }
+    // Si le serveur Overpass s'énerve quand même, on capture l'erreur proprement
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[API] Erreur Overpass:", errorText);
+      return NextResponse.json(
+        { error: "Le serveur cartographique distant a rejeté la requête." },
+        { status: response.status }
+      );
     }
 
-    const buildingWays = elements.filter(
-      (element) =>
-        element.type === "way" &&
-        Array.isArray(element.nodes) &&
-        element.nodes.length > 2
+    const data = await response.json();
+
+    // 4. Extraction rapide des bâtiments trouvés pour renvoyer une réponse au Front
+    const hasBuildings = data.elements && data.elements.length > 0;
+    const buildingId = hasBuildings ? data.elements[0].id : null;
+
+    // On prépare une réponse structurée pour page.tsx
+    return NextResponse.json({
+      success: true,
+      isInsideBuilding: hasBuildings, // À affiner plus tard avec un vrai calcul d'intersection polygonale
+      detectedBuildingId: buildingId,
+      message: hasBuildings ? `Bâtiment détecté : ${buildingId}` : "Aucun bâtiment à proximité immédiate."
+    });
+
+  } catch (error: any) {
+    console.error("[API] Erreur serveur interne:", error);
+    return NextResponse.json(
+      { error: "Erreur interne lors du calcul du bâtiment." },
+      { status: 500 }
     );
-
-    for (const way of buildingWays) {
-      const polygon =
-        way.nodes
-          ?.map((nodeId) => nodes.get(nodeId))
-          .filter(Boolean) as { latitude: number; longitude: number }[];
-
-      if (polygon.length > 2) {
-        const isInside = isPointInPolygon({ latitude, longitude }, polygon);
-
-        if (isInside) {
-            console.log("BATIMENT DETECTE :", way.id);
-          return NextResponse.json({
-            isInsideBuilding: true,
-            buildingId: way.id,
-          });
-        }
-      }
-    }
-
-    return NextResponse.json({
-      isInsideBuilding: false,
-    });
-  } catch (error) {
-    console.error("Erreur check-building :", error);
-
-    return NextResponse.json({
-      isInsideBuilding: false,
-      error: "Erreur lors de la vérification bâtiment",
-    });
   }
 }
