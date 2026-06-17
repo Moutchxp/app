@@ -9,9 +9,10 @@ type MapSelectorProps = {
   onPositionChange: (position: { latitude: number; longitude: number }) => void;
 };
 
-const MapContent = dynamic(() => import("./MapContent"), {
-  ssr: false,
-});
+let MapContent: any = () => null;
+if (typeof window !== "undefined") {
+  MapContent = require("./MapContent").default;
+}
 
 export default function MapSelector(props: MapSelectorProps) {
   return <MapContent {...props} />;

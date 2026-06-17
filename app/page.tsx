@@ -21,6 +21,18 @@ export default function Home() {
   const [isLevel, setIsLevel] = useState(false);
   const [capturedOrientation, setCapturedOrientation] = useState<number | null>(null);
 
+  // États de validation individuels pour l'aide visuelle
+  const [pitchValid, setPitchValid] = useState(false);
+  const [rollValid, setRollValid] = useState(false);
+
+  // Références pour le lissage anti-saccades (Filtre passe-bas)
+  const smoothRollRef = useRef(0);
+  const smoothPitchOffsetRef = useRef(0);
+  
+  // États lissés pour animer les éléments graphiques séparés
+  const [visualRoll, setVisualRoll] = useState(0);
+  const [visualPitchOffset, setVisualPitchOffset] = useState(0);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -53,6 +65,7 @@ export default function Home() {
         }
       }
 
+      // Appel à ton API de vérification d'emprise bâtiment
       const buildingResponse = await fetch("/api/check-building", {
         method: "POST",
         headers: {
@@ -65,15 +78,13 @@ export default function Home() {
       console.log("Réponse API bâtiment :", buildingData);
 
     } catch {
-      setAddress("Adresse imprécise - positionnez le repère sur votre logement");
+      setAddress("Adresse récupérée - Ajustez la position sur la carte");
     }
   }
 
-  // Écoute du gyroscope et de la boussole
-  // Écoute du gyroscope et de la boussole ajustée pour smartphone vertical
+  // Écoute du gyroscope et de la boussole optimisée
   useEffect(() => {
     function handleOrientation(event: DeviceOrientationEvent) {
-      // pitch (beta) : inclinaison avant/arrière | roll (gamma) : inclinaison gauche/droite
       const pitch = event.beta ? Math.round(event.beta) : 0;
       const roll = event.gamma ? Math.round(event.gamma) : 0;
       
@@ -85,32 +96,41 @@ export default function Home() {
       }
       heading = Math.round(heading);
 
+      // 1. Validation de la Verticale (Pitch) : Stricte à ±3°
+      const absPitch = Math.abs(pitch);
+      const isPValid = (absPitch >= 87 && absPitch <= 94) || Math.abs(pitch - 90) <= 3 || Math.abs(pitch + 90) <= 3;
+      
+      // 2. Validation de l'Horizontale (Roll) : Souple à ±30°
+      const isRValid = Math.abs(roll) <= 30;
+
       setAngles({ pitch, roll, heading });
+      setPitchValid(isPValid);
+      setRollValid(isRValid);
+      
+      const levelState = isPValid && isRValid;
+      setIsLevel(levelState);
 
-      // AJUSTEMENT DES AXES : L'utilisateur tient son téléphone face à la fenêtre (vertical)
-      // Le roll (gauche/droite) doit rester aligné avec l'horizon (0° ± 10°)
-      // Le pitch (avant/arrière) doit rester perpendiculaire au sol (90° ± 10° ou -90° ± 10°)
-      const isRollCorrect = Math.abs(roll) <= 10;
-      const isPitchCorrect = Math.abs(pitch - 90) <= 10 || Math.abs(pitch + 90) <= 10;
+      // Calcul des écarts pour l'animation de la croix centrale
+      let targetPitchOffset = 0;
+      if (isPValid) {
+        targetPitchOffset = 0; 
+      } else if (absPitch < 87) {
+        targetPitchOffset = 87 - absPitch; 
+      } else {
+        targetPitchOffset = absPitch - 94; 
+        targetPitchOffset = -targetPitchOffset; 
+      }
 
-      setIsLevel(isRollCorrect && isPitchCorrect);
+      // Application du filtre passe-bas (0.15)
+      smoothRollRef.current = smoothRollRef.current + (roll - smoothRollRef.current) * 0.15;
+      smoothPitchOffsetRef.current = smoothPitchOffsetRef.current + (targetPitchOffset - smoothPitchOffsetRef.current) * 0.15;
+
+      setVisualRoll(smoothRollRef.current);
+      setVisualPitchOffset(smoothPitchOffsetRef.current);
     }
 
     if (isCameraActive) {
-      if (
-        typeof DeviceOrientationEvent !== "undefined" &&
-        typeof (DeviceOrientationEvent as any).requestPermission === "function"
-      ) {
-        (DeviceOrientationEvent as any).requestPermission()
-          .then((permissionState: string) => {
-            if (permissionState === "granted") {
-              window.addEventListener("deviceorientation", handleOrientation);
-            }
-          })
-          .catch(console.error);
-      } else {
-        window.addEventListener("deviceorientation", handleOrientation);
-      }
+      window.addEventListener("deviceorientation", handleOrientation);
     }
 
     return () => {
@@ -118,69 +138,119 @@ export default function Home() {
     };
   }, [isCameraActive]);
 
-  // Allumer la caméra du smartphone
+  // Allumer la caméra et demander les permissions de gyroscope
   async function startCamera() {
+    if (
+      typeof DeviceOrientationEvent !== "undefined" &&
+      typeof (DeviceOrientationEvent as any).requestPermission === "function"
+    ) {
+      try {
+        const permissionState = await (DeviceOrientationEvent as any).requestPermission();
+        if (permissionState === "granted") {
+          console.log("Gyroscope autorisé.");
+        }
+      } catch (err) {
+        console.log("Erreur capteurs :", err);
+      }
+    } else if (typeof window !== "undefined" && !('ontouchstart' in window)) {
+      setIsLevel(true);
+      setPitchValid(true);
+      setRollValid(true);
+    }
+
     setIsCameraActive(true);
     setPhoto(null);
+
+    const constraints = {
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false,
+    };
+    
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }, // Utilise la caméra arrière
-        audio: false,
-      });
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
     } catch (err) {
-      console.error("Erreur accès caméra :", err);
-      alert("Impossible d'accéder à la caméra arrière.");
-      setIsCameraActive(false);
+      console.warn("Tentative caméra standard...", err);
+      try {
+        const basicStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        streamRef.current = basicStream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = basicStream;
+        }
+      } catch (fallbackErr) {
+        console.error("Erreur caméra :", fallbackErr);
+        alert("Impossible d'accéder à la caméra.");
+        setIsCameraActive(false);
+      }
     }
   }
 
-  // Capturer la photo uniquement si le niveau est au vert
+  // 🛠️ CAPTURE DOUBLE : PHOTO + POSITION GPS SIMULTANÉE
   function capturePhoto() {
-    if (!isLevel) return; // Sécurité : bloque la capture si hors tolérance
+    if (!isLevel) return; 
 
     if (videoRef.current) {
       const canvas = document.createElement("canvas");
       canvas.width = videoRef.current.videoWidth;
       canvas.height = videoRef.current.videoHeight;
       const ctx = canvas.getContext("2d");
+      
       if (ctx) {
+        // 1. On fige la photo immédiatement
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
         setPhoto(canvas.toDataURL("image/jpeg"));
-        setCapturedOrientation(angles.heading); // Sauvegarde l'orientation exacte (Azimut) de la fenêtre !
+        setCapturedOrientation(angles.heading); 
+        
+        // 2. On éteint proprement le flux caméra
         stopCamera();
+
+        // 3. On déclenche la géolocalisation pour placer le point sur la carte
+        if (navigator.geolocation) {
+          setAddress("Calcul de votre position GPS...");
+          setShowMap(true); // On affiche la carte en mode chargement
+
+          navigator.geolocation.getCurrentPosition(
+            async (pos) => {
+              const photoPosition = {
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+              };
+              // Met à jour la carte et lance le calcul d'adresse automatique
+              setPosition(photoPosition);
+              await getAddressFromGPS(photoPosition.latitude, photoPosition.longitude);
+            },
+            (error) => {
+              console.error("Erreur GPS :", error);
+              setAddress("Position introuvable - Placez manuellement le repère sur la carte");
+              // Laisse la carte visible à la position par défaut pour le peaufinage manuel
+            },
+            { 
+              enableHighAccuracy: true, // Force l'iPhone à utiliser la puce GPS plutôt que le Wi-Fi
+              timeout: 9000,
+              maximumAge: 0 
+            }
+          );
+        } else {
+          // Fallback si le navigateur ne gère pas la géolocalisation
+          setShowMap(true);
+          setAddress("Placez votre repère rouge sur la carte");
+        }
       }
     }
   }
 
-  // Éteindre la caméra
   function stopCamera() {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
     }
     setIsCameraActive(false);
-  }
-
-  function handleLocate() {
-    setAddress("");
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const newPosition = {
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-        };
-        setPosition(newPosition);
-        setShowMap(true);
-        await getAddressFromGPS(newPosition.latitude, newPosition.longitude);
-      },
-      () => {
-        alert("Impossible d'obtenir votre position. Une position par défaut va être affichée.");
-        setShowMap(true);
-      }
-    );
   }
 
   function handleAnalyse() {
@@ -192,6 +262,10 @@ export default function Home() {
       });
     }, 100);
   }
+
+  // Calculs mécaniques de l'instrumentation de bord
+  const lineTranslateY = Math.max(-45, Math.min(45, visualPitchOffset * 2.5));
+  const cursorRotationDeg = Math.max(-50, Math.min(50, visualRoll));
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6">
@@ -212,100 +286,90 @@ export default function Home() {
           </h1>
 
           <p className="mb-6 text-slate-600">
-            Vérifiez objectivement la qualité de votre vue grâce à la
-            localisation, l’orientation et la photo du séjour.
+            Vérifiez la qualité de votre vue en prenant une photo bien droite depuis votre fenêtre. 
+            Notre système s'occupe de calculer l'orientation et la position.
           </p>
 
-          <label className="mb-2 block font-semibold">Adresse du bien</label>
-          <input
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            className="mb-4 w-full rounded-xl border border-slate-300 p-3"
-            placeholder="Ex : 8 rue Denfert-Rochereau"
-          />
-
-          <button
-            type="button"
-            onClick={handleLocate}
-            className="mb-5 w-full rounded-xl bg-red-700 py-3 font-bold text-white"
-          >
-            Localiser mon logement
-          </button>
-
-          {showMap && (
-            <div className="mb-5">
-              <MapSelector
-                latitude={position.latitude}
-                longitude={position.longitude}
-                onPositionChange={(newPosition) => {
-                  setPosition(newPosition);
-                  getAddressFromGPS(newPosition.latitude, newPosition.longitude);
-                }}
-              />
-              <p className="mt-2 text-sm text-slate-500">
-                Déplacez la carte sous le repère rouge pour placer précisément la fenêtre du séjour.
-              </p>
-              <p className="mt-2 text-xs text-slate-400">
-                Position sélectionnée : {position.latitude.toFixed(6)}, {position.longitude.toFixed(6)}
-              </p>
-            </div>
-          )}
-
-          <label className="mb-2 block font-semibold">Étage du séjour</label>
-          <input
-            type="number"
-            className="mb-4 w-full rounded-xl border border-slate-300 p-3"
-            placeholder="Ex : 4"
-          />
-
-          <label className="mb-2 block font-semibold">Dernier étage ?</label>
-          <div className="mb-5 grid grid-cols-2 gap-3">
-            <button type="button" className="rounded-xl bg-red-700 py-3 font-semibold text-white">Oui</button>
-            <button type="button" className="rounded-xl border border-slate-300 bg-white py-3 font-semibold">Non</button>
-          </div>
-
-          {/* ZONE PHOTO INTELLIGENTE METTEUR À NIVEAU */}
-          <label className="mb-2 block font-semibold">Photo de la vue (Séjour)</label>
+          {/* ZONE 1 : PRISE DE VUE AVEC CAPTEURS INTELLIGENTS */}
+          <label className="mb-2 block font-semibold text-slate-800">1. Capture de la vue (Séjour)</label>
           
           <div className="mb-6">
             {!isCameraActive && !photo && (
               <button
                 type="button"
                 onClick={startCamera}
-                className="w-full rounded-xl border-2 border-dashed border-slate-300 p-6 text-center text-sm font-medium text-slate-600 hover:bg-slate-50"
+                className="w-full rounded-xl border-2 border-dashed border-red-300 bg-red-50/30 p-6 text-center text-sm font-bold text-red-700 hover:bg-red-50 transition-colors"
               >
                 📸 Ouvrir l'appareil photo intelligent
               </button>
             )}
 
             {isCameraActive && (
-              <div className="relative overflow-hidden rounded-2xl bg-black">
-                <video ref={videoRef} autoPlay playsInline className="w-full h-64 object-cover" />
+              <div className="relative overflow-hidden rounded-2xl bg-black select-none">
+                <video ref={videoRef} autoPlay playsInline className="w-full h-96 object-cover" />
                 
-                {/* Interface du Niveau à bulle en overlay sur l'image */}
-                <div className="absolute inset-x-0 top-4 flex flex-col items-center justify-center gap-1 bg-black/40 py-2 text-white text-xs">
-                  <div className={`px-3 py-1 rounded-full font-bold ${isLevel ? 'bg-green-600' : 'bg-red-600'}`}>
-                    {isLevel ? "🟢 Téléphone Horizontal" : "🔴 Ajustez l'inclinaison (Marge ±3%)"}
+                {/* HUD Supérieur technique */}
+                <div className="absolute inset-x-0 top-3 flex flex-col items-center justify-center gap-1 bg-black/40 py-1.5 text-white text-[10px] z-10">
+                  <span className="font-bold">Ajustement de l'appareil</span>
+                  <div className="flex gap-3 opacity-80">
+                    <span>Inclinaison : {angles.pitch}° (Cible : 90°)</span>
+                    <span>Roulis : {angles.roll}° (Marge : ±30°)</span>
                   </div>
-                  <p>Axe latéral : {angles.roll}° | Axe vertical : {angles.pitch}°</p>
                 </div>
 
-                <div className="absolute bottom-4 inset-x-0 flex justify-center gap-4">
+                {/* HUD Graphique : Arc + Croix */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10">
+                  
+                  {/* Arc de cercle de roulis */}
+                  <div className="relative w-44 h-16 flex items-center justify-center overflow-hidden">
+                    <div className={`absolute top-2 w-32 h-32 rounded-full border-4 bg-transparent transition-colors duration-300 ${
+                      rollValid ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.3)]' : 'border-red-500'
+                    }`} style={{ clipPath: 'ellipse(100% 35% at 50% 0%)' }} />
+                    
+                    <div className="absolute top-[2px] w-1 h-2 bg-white rounded-full z-10" />
+
+                    <div 
+                      className="absolute top-2 w-32 h-32 origin-center transition-transform duration-75 ease-out flex justify-center"
+                      style={{ transform: `rotate(${cursorRotationDeg}deg)` }}
+                    >
+                      <div className="w-3 h-3 bg-white rounded-full shadow-md border border-slate-900 -mt-[4px] animate-pulse" />
+                    </div>
+
+                    <span className={`absolute bottom-0 text-[10px] font-black uppercase tracking-wider ${rollValid ? 'text-green-400' : 'text-red-400'}`}>
+                      {rollValid ? "Horizontal OK" : "Téléphone penché"}
+                    </span>
+                  </div>
+
+                  {/* Croix centrale de Pitch */}
+                  <div className="relative w-36 h-36 flex items-center justify-center mt-2">
+                    <div className={`absolute w-14 h-14 rounded-full border border-dashed transition-colors ${pitchValid ? 'border-green-500/60 bg-green-500/5' : 'border-white/20'}`} />
+                    <div className="absolute w-0.5 h-28 bg-white/30" />
+                    <div className="absolute w-6 h-0.5 bg-white/50 left-12" />
+                    <div className="absolute w-6 h-0.5 bg-white/50 right-12" />
+
+                    <div 
+                      className={`absolute w-24 h-0.5 left-6 transition-transform duration-75 ease-out shadow-sm ${
+                        pitchValid ? 'bg-green-500 h-[3px] shadow-[0_0_8px_rgba(34,197,94,0.8)]' : 'bg-red-500'
+                      }`}
+                      style={{ transform: `translateY(${lineTranslateY}px)` }}
+                    />
+                  </div>
+
+                </div>
+
+                {/* Boutons d'action caméra */}
+                <div className="absolute bottom-4 inset-x-0 flex justify-center gap-4 z-20">
                   <button
                     type="button"
                     onClick={capturePhoto}
                     disabled={!isLevel}
-                    className={`px-6 py-3 rounded-full font-bold text-white shadow-lg transition ${
-                      isLevel ? 'bg-green-600 active:bg-green-700' : 'bg-slate-500 opacity-50 cursor-not-allowed'
+                    className={`px-6 py-3 rounded-full font-bold text-white shadow-lg transition-all duration-300 ${
+                      isLevel ? 'bg-green-600 active:bg-green-700 scale-105 shadow-green-500/50' : 'bg-slate-600 opacity-40 cursor-not-allowed'
                     }`}
                   >
-                    Prendre la photo
+                    {isLevel ? "📸 Prendre la photo" : "Ajuster les niveaux"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={stopCamera}
-                    className="px-4 py-3 bg-slate-800 text-white rounded-full font-medium shadow-lg"
-                  >
+                  <button type="button" onClick={stopCamera} className="px-4 py-3 bg-slate-800 text-white rounded-full font-medium shadow-lg">
                     Annuler
                   </button>
                 </div>
@@ -316,30 +380,63 @@ export default function Home() {
               <div className="relative rounded-2xl overflow-hidden border border-slate-300">
                 <img src={photo} alt="Vue séjour capturée" className="w-full h-48 object-cover" />
                 <div className="absolute bottom-2 left-2 bg-slate-900/80 text-white text-[11px] px-2 py-1 rounded-md">
-                  🧭 Orientation enregistrée : {capturedOrientation}° (Azimut)
+                  🧭 Orientation : {capturedOrientation}° (Azimut)
                 </div>
-                <button
-                  type="button"
-                  onClick={startCamera}
-                  className="absolute top-2 right-2 bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg font-semibold shadow"
-                >
+                <button type="button" onClick={startCamera} className="absolute top-2 right-2 bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg font-semibold shadow">
                   Refaire la photo
                 </button>
               </div>
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={handleAnalyse}
-            className="w-full rounded-2xl bg-slate-900 py-4 text-lg font-bold text-white"
-          >
-            Lancer l’analyse
+          {/* ZONE 2 : REGLAGE FIN DE L'ADRESSE ET DU MARQUEUR SUR LA MAP */}
+          {showMap && (
+            <div className="mb-6 border-t border-slate-100 pt-4 animate-fadeIn">
+              <label className="mb-2 block font-semibold text-slate-800">2. Localisation précise de la fenêtre</label>
+              
+              <input
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                className="mb-4 w-full rounded-xl border border-slate-300 p-3 text-sm bg-slate-50 font-medium"
+                placeholder="Adresse en cours de chargement..."
+              />
+
+              <MapSelector
+                latitude={position.latitude}
+                longitude={position.longitude}
+                onPositionChange={(newPosition) => {
+                  setPosition(newPosition);
+                  getAddressFromGPS(newPosition.latitude, newPosition.longitude);
+                }}
+              />
+              <p className="mt-2 text-xs text-slate-500">
+                🎯 Déplacez la carte pour caler précisément le repère rouge sur la façade de votre pièce.
+              </p>
+            </div>
+          )}
+
+          {/* INFORMATIONS COMPLÉMENTAIRES */}
+          <div className="mb-4 grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Étage du séjour</label>
+              <input type="number" className="w-full rounded-xl border border-slate-300 p-3" placeholder="Ex : 4" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Dernier étage ?</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" className="rounded-xl border border-slate-300 bg-white py-3 text-sm font-semibold">Oui</button>
+                <button type="button" className="rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white">Non</button>
+              </div>
+            </div>
+          </div>
+
+          <button type="button" onClick={handleAnalyse} className="mt-4 w-full rounded-2xl bg-red-700 py-4 text-lg font-bold text-white shadow-lg shadow-red-700/20 active:bg-red-800 transition-colors">
+            Lancer l’analyse de vis-à-vis
           </button>
         </section>
 
         {showResult && (
-          <section className="mt-6 rounded-3xl bg-white p-6 shadow">
+          <section className="mt-6 rounded-3xl bg-white p-6 shadow animate-slideUp">
             <p className="text-sm font-semibold text-red-700">Résultat de l’analyse</p>
             <div className="mt-4 flex items-center justify-between">
               <div>
@@ -347,11 +444,6 @@ export default function Home() {
                 <p className="text-slate-600">Score Sans Vis-à-Vis</p>
               </div>
               <div className="rounded-full bg-green-100 px-4 py-2 font-bold text-green-700">Certifié</div>
-            </div>
-            <div className="mt-5 rounded-2xl bg-slate-100 p-4">
-              <p className="font-semibold">Premier obstacle réel</p>
-              <p className="text-3xl font-bold text-red-700">83 m</p>
-              <p className="text-sm text-slate-600">Minimum requis : 40 mètres</p>
             </div>
           </section>
         )}
