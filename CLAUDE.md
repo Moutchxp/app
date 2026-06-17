@@ -265,18 +265,13 @@ les couleurs dans le code.
 
 ## 13. POINTS OUVERTS (à définir avant d'implémenter)
 
-- [ ] **Formule exacte du score de qualité de vue** : non définie à ce jour.
-      Inputs possibles : distance du premier obstacle réel, largeur du dégagement,
-      profondeur de vue, qualité paysagère, étage, dernier étage, panorama,
-      horizon visible, éléments remarquables. À spécifier avant codage du moteur
-      de score.
-- [ ] Confirmer la constante de hauteur d'étage (voir §4).
-- [ ] **Stratégie de hauteur des bâtiments** : RGE ALTI® = terrain seulement.
-      Définir la source de la hauteur des bâtiments (attribut `hauteur` de BD TOPO®
-      quand dispo, sinon estimation par nombre d'étages, idéalement MNS où
-      disponible). Le verdict en dépend directement — ne pas coder sans cette
-      décision.
 - [ ] Marges d'erreur tolérées : inclinaison du téléphone, cohérence GPS.
+
+> Points désormais tranchés (déplacés hors de cette liste) :
+> - **Formule du score de qualité de vue** → voir `SPEC_score_qualite_vue.md`.
+> - **Constante de hauteur d'étage (2,90 m) + œil (1,65 m)** → §4 (valeur définitive).
+> - **Stratégie de hauteur des bâtiments (MNS primaire, BD TOPO® fallback)** →
+>   voir `SPEC_module_hauteurs_v3.md`.
 
 ---
 

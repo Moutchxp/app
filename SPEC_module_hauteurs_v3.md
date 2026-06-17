@@ -139,10 +139,21 @@ pour le verdict, mais utile pour la robustesse et le score esthétique :
 
 ---
 
-## 6. Cas « hauteur indéterminée » (mode B)
+## 6. Cas « hauteur indéterminée » (mode B) — DÉFINITIF
 
-Bâtiment dans l'axe à < 40 m de hauteur inconnue (`NONE`) → sortir un état
-**« Indéterminé / non certifiable »** plutôt qu'un faux certifié. À confirmer.
+> **Règle arrêtée (décision d'arbitrage).** Ne pas réinterpréter.
+
+En parcourant l'axe **du plus proche au plus loin** : si on rencontre un bâtiment
+situé à **moins de 40 m** dont la hauteur est inconnue (`source = NONE`) **avant**
+tout obstacle réel confirmé, le verdict est **INDETERMINE** (« Indéterminé / non
+certifiable ») — jamais un faux certifié.
+
+- Un bâtiment de hauteur inconnue (`NONE`) situé à **≥ 40 m** ne déclenche **pas**
+  INDETERMINE : sous le seuil il n'y a aucun obstacle inconnu, donc rien ne peut
+  invalider le dégagement.
+- Si un obstacle réel **confirmé** (sommet ≥ altitude_fenetre) est rencontré
+  **avant** tout `NONE < 40 m`, le verdict est tranché normalement
+  (`SANS_VIS_A_VIS` / `VIS_A_VIS`) : un `NONE` situé au-delà n'a plus d'effet.
 
 ---
 
@@ -241,5 +252,4 @@ export const SVV = {
 - Paramètres anti-pic : rayon du noyau (~3 m), seuil de dépassement, emprise max
   « technique » — calés sur ~20 immeubles connus du secteur.
 - Détection plat/pente explicite : utile pour le score, optionnelle pour le verdict.
-- Cas « indéterminé » (§6) à confirmer.
 - (Phase 2) estimation IA de hauteur en dernier fallback, étiquetée.

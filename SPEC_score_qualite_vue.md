@@ -103,15 +103,22 @@ Départ à **10**, on retire par nuisance, **plancher 0** (la somme des malus pe
 
 ## Affichage et garde-fous
 
-### Note et paliers
-- Sortie : **note /100** = somme Famille 1 (max 50) + Famille 2 (max 50). La **note brute** reste la vérité.
-- **Paliers d'affichage** (libellés terminaux, ne nourrissent aucun calcul) — bandes :
-  - 85 – 100
-  - 70 – 84
-  - 55 – 69
-  - 40 – 54
-  - < 40
-- **Noms des paliers : à définir** (ne pas réutiliser « Certifié », réservé au label binaire).
+### Note et affichage
+
+- Sortie : **note /100** = somme Famille 1 (max 50) + Famille 2 (max 50). La **note 
+  brute** reste la vérité ; l'affichage ne nourrit aucun calcul.
+- **Deux étiquettes de score** (libellés d'affichage uniquement) :
+  - score **≥ 75** → « **Vue exceptionnelle** »
+  - score **60 – 74** → « **Excellente vue** »
+  - score **< 60** → pas d'étiquette (on affiche la note et/ou les cartouches)
+  - Ces étiquettes sont distinctes du label binaire « Sans Vis-à-Vis® certifié » ; elles coexistent.
+- **Cartouches descriptifs (badges verts)** — comme dans la maquette « Firmware », 
+  écran « sans vis-à-vis certifié » : de courtes étiquettes vertes décrivant la vue 
+  (ex. « Vue dégagée sur 800 m », « Exposition sud », « Tour Eiffel visible », 
+  « Vue sur parc »). Purement descriptifs : ils n'affectent ni le score ni le label. 
+  Pour rester fiables sur un certificat, ils sont générés à partir des mêmes constats 
+  vérifiés qui alimentent le score (type de paysage, éléments remarquables, orientation, 
+  dégagement).
 
 ### Auditabilité
 - Les sorties IA (`type` = enum, `remarquables` = flags, `nuisances` = flags) + un **niveau de confiance** sont **stockées avec le test** → score recalculable.
