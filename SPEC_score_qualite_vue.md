@@ -22,7 +22,7 @@
 Calculée sur les **61 faisceaux** (pas de 3°, de −90° à +90° autour de l'axe de vue principal).
 
 - **Part A — largeur (10 pts)** : `10 × (nb faisceaux dégagés ≥ 40 m / 61)`.
-- **Part B — profondeur (10 pts)** : moyenne des distances d'obstacle sur les 61 faisceaux ; un **faisceau dégagé compte 200 m** dans la moyenne. Mapping **continu** : `pts = clamp(1 + (moyenne − 30) / 20, 0, 10)` (30 m → 1 pt, +1 pt tous les 20 m, plafond 10).
+- **Part B — profondeur (10 pts)** : moyenne des distances d'obstacle sur les 61 faisceaux ; un **faisceau dégagé compte `CLEAR_BEAM_DIST_M` (= 200 m)** dans la moyenne. Mapping **continu et linéaire** de **30 m → 1 pt** à **`CLEAR_BEAM_DIST_M` (200 m) → 10 pts** (pente dérivée des constantes) : `pts = clamp(1 + (moyenne − 30) × 9 / (CLEAR_BEAM_DIST_M − 30), 0, 10)`. Ainsi une vue **parfaitement dégagée** (moyenne = 200 m) atteint le **plafond 10**.
 - **Pénalité « angle de L »** : si un **bâtiment réel** se trouve à **< 5 m** dans les **flancs** (extrémités gauche/droite : −90° à −60° **OU** +60° à +90°), alors `amplitude = amplitude / 3`.
   - S'applique **uniquement aux 20 pts d'amplitude**, pas au score global.
   - À noter : ce mur fait déjà baisser Part A (moins de faisceaux ≥ 40 m) et Part B (distances courtes) ; le ÷3 vient en plus.
@@ -155,9 +155,10 @@ AMPLITUDE_BEAM_STEP_DEG = 3
 AMPLITUDE_BEAM_COUNT    = 61
 AMPLITUDE_PART_A_PTS    = 10
 AMPLITUDE_PART_B_PTS    = 10
-AMPLITUDE_PART_B_BASE_M = 30     # 30 m -> 1 pt
-AMPLITUDE_PART_B_STEP_M = 20     # +1 pt / 20 m
-CLEAR_BEAM_DIST_M       = 200    # distance attribuée à un faisceau dégagé
+AMPLITUDE_PART_B_BASE_M   = 30   # ancrage bas : 30 m -> AMPLITUDE_PART_B_BASE_PTS
+AMPLITUDE_PART_B_BASE_PTS = 1    # 1 pt à 30 m
+CLEAR_BEAM_DIST_M         = 200  # distance d'un faisceau dégagé ; ancrage haut : -> 10 pts
+# Part B linéaire : pts = clamp(1 + (moyenne - 30) * 9 / (CLEAR_BEAM_DIST_M - 30), 0, 10)
 
 # Pénalité angle de L
 L_PENALTY_FLANK_DEG = [60, 90]   # secteurs flancs gauche/droite
