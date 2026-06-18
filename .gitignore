@@ -1,5 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# données géographiques volumineuses (dalles LiDAR, etc.) — JAMAIS committées
+/app/data/
+
 # dependencies
 /node_modules
 /.pnp
