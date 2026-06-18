@@ -62,7 +62,7 @@ function Resizer() {
 
 export default function Carte({ center, photoPos, onMoveEnd, onMapReady }: CarteProps) {
   return (
-    <div style={{ position: "relative", width: "100%", height: "70vh", minHeight: "380px" }}>
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <MapContainer
         center={center}
         zoom={18}

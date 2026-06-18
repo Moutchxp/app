@@ -160,20 +160,34 @@ export default function OriginePage() {
   }
 
   return (
-    <main style={{ minHeight: "100vh", background: BG, color: "#eee", fontFamily: "Georgia, 'Times New Roman', serif", padding: "24px" }}>
-      <div style={{ maxWidth: 860, margin: "0 auto" }}>
-        <h1 style={{ color: OR, fontWeight: 400, letterSpacing: "0.04em", marginBottom: 4 }}>
+    <main
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100dvh",
+        overflow: "hidden",
+        background: BG,
+        color: "#eee",
+        fontFamily: "Georgia, 'Times New Roman', serif",
+        maxWidth: 860,
+        margin: "0 auto",
+        width: "100%",
+      }}
+    >
+      {/* ZONE HAUT — titre, import photo, point visé */}
+      <div style={{ flex: "0 0 auto", padding: "14px 20px 8px" }}>
+        <h1 style={{ color: OR, fontWeight: 400, letterSpacing: "0.04em", margin: "0 0 2px" }}>
           Point d'origine
         </h1>
-        <p style={{ color: "#9a9a9a", marginTop: 0, fontSize: 14 }}>
+        <p style={{ color: "#9a9a9a", margin: "0 0 10px", fontSize: 13 }}>
           Sans Vis-à-Vis<span style={{ color: OR }}>®</span> — placez le point d'observation
         </p>
 
         {/* Import photo → centrage carte (GPS EXIF côté client) */}
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <label
             style={{
-              padding: "10px 18px",
+              padding: "8px 16px",
               borderRadius: 6,
               border: `1px solid ${OR}`,
               color: OR,
@@ -181,6 +195,7 @@ export default function OriginePage() {
               cursor: "pointer",
               fontSize: 14,
               letterSpacing: "0.03em",
+              whiteSpace: "nowrap",
             }}
           >
             Importer une photo
@@ -191,74 +206,84 @@ export default function OriginePage() {
             <img
               src={photoUrl}
               alt="aperçu"
-              style={{ height: 56, width: 56, objectFit: "cover", borderRadius: 6, border: `1px solid ${OR}55` }}
+              style={{ height: 40, width: 40, objectFit: "cover", borderRadius: 6, border: `1px solid ${OR}55` }}
             />
           )}
-          <span style={{ color: "#7a7a7a", fontSize: 12 }}>
+          <span style={{ color: "#7a7a7a", fontSize: 11 }}>
             GPS lu localement — la photo n'est pas envoyée.
           </span>
         </div>
 
-        <div style={{ marginTop: 12 }}>
-          <CarteErrorBoundary>
-            <Carte
-              center={[DEFAUT.lat, DEFAUT.lon]}
-              photoPos={photoPos}
-              onMoveEnd={onMoveEnd}
-              onMapReady={onMapReady}
-            />
-          </CarteErrorBoundary>
-        </div>
-
         {/* Point visé = centre de la carte sous le réticule (toujours visible) */}
-        <div style={{ marginTop: 8, color: OR, fontSize: 13, fontFamily: "monospace" }}>
+        <div style={{ marginTop: 8, color: OR, fontSize: 12, fontFamily: "monospace" }}>
           Point visé (centre) : {pos.lat.toFixed(6)}, {pos.lon.toFixed(6)}
         </div>
+      </div>
 
-        {/* Panneau de statut */}
-        <div style={{ marginTop: 16 }}>
-          {!aDeplace && (
-            <div style={{ padding: 16, borderRadius: 8, border: `1px solid ${OR}55`, background: "#161616", color: "#cfcfcf" }}>
-              {messagePhoto ??
-                "Placez le point d'origine : faites glisser la carte pour amener le réticule central sur la fenêtre de votre pièce de vie."}
-            </div>
-          )}
+      {/* ZONE CARTE — occupe tout l'espace restant (minHeight:0 = peut rétrécir dans le flex) */}
+      <div style={{ flex: "1 1 auto", minHeight: 0, padding: "0 20px" }}>
+        <CarteErrorBoundary>
+          <Carte
+            center={[DEFAUT.lat, DEFAUT.lon]}
+            photoPos={photoPos}
+            onMoveEnd={onMoveEnd}
+            onMapReady={onMapReady}
+          />
+        </CarteErrorBoundary>
+      </div>
 
-          {aDeplace && loading && (
-            <div style={{ padding: 16, borderRadius: 8, border: "1px solid #444", background: "#161616", color: OR }}>
-              validation…
-            </div>
-          )}
+      {/* ZONE BAS — statut compact + bouton (toujours visibles, sans scroll) */}
+      <div style={{ flex: "0 0 auto", padding: "8px 20px 14px" }}>
+        {!aDeplace && (
+          <div style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${OR}55`, background: "#161616", color: "#cfcfcf", fontSize: 13 }}>
+            {messagePhoto ??
+              "Faites glisser la carte pour amener le réticule central sur la fenêtre de votre pièce de vie."}
+          </div>
+        )}
 
-          {/* Indicateur LIVE « validable » — purement informatif, ne verrouille rien. */}
-          {aDeplace && !loading && resultat && !origineValidee && (
-            <div
-              style={{
-                padding: 16,
-                borderRadius: 8,
-                border: `1px solid ${couleurs[resultat.statut].bord}`,
-                background: couleurs[resultat.statut].fond,
-                color: "#eee",
-                fontSize: 15,
-              }}
-            >
-              {resultat.statut === "VALIDE" &&
-                `✓ Point validable — à l'intérieur d'un bâtiment (altitude terrain ${resultat.altitudeTerrainOrigineM ?? "n/d"} m). Appuyez sur « Valider ce point d'origine » pour confirmer.`}
-              {resultat.statut === "HORS_BATIMENT" &&
-                "✗ Point non validable — en dehors d'un bâtiment. Déplacez la carte."}
-              {resultat.statut === "SANS_BATIMENT" &&
-                "✗ Point non validable — aucun bâtiment ici."}
-            </div>
-          )}
-        </div>
+        {aDeplace && loading && (
+          <div style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #444", background: "#161616", color: OR, fontSize: 13 }}>
+            validation…
+          </div>
+        )}
+
+        {/* Indicateur LIVE « validable » — purement informatif, ne verrouille rien. */}
+        {aDeplace && !loading && resultat && !origineValidee && (
+          <div
+            style={{
+              padding: "10px 12px",
+              borderRadius: 8,
+              border: `1px solid ${couleurs[resultat.statut].bord}`,
+              background: couleurs[resultat.statut].fond,
+              color: "#eee",
+              fontSize: 13,
+            }}
+          >
+            {resultat.statut === "VALIDE" &&
+              `✓ Point validable — à l'intérieur d'un bâtiment (altitude terrain ${resultat.altitudeTerrainOrigineM ?? "n/d"} m). Appuyez sur « Valider » pour confirmer.`}
+            {resultat.statut === "HORS_BATIMENT" &&
+              "✗ Point non validable — en dehors d'un bâtiment. Déplacez la carte."}
+            {resultat.statut === "SANS_BATIMENT" &&
+              "✗ Point non validable — aucun bâtiment ici."}
+          </div>
+        )}
+
+        {origineValidee && (
+          <div style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #2e7d32", background: "#10240f", color: "#7ee07e", fontSize: 13 }}>
+            ✓ Point d'origine validé : {origineValidee.lat.toFixed(6)}, {origineValidee.lon.toFixed(6)} — altitude
+            terrain {origineValidee.altitudeTerrainOrigineM ?? "n/d"} m
+            {origineValidee.batimentOrigine && ` — bâtiment ${origineValidee.batimentOrigine.cleabs}`}
+          </div>
+        )}
 
         {/* Bouton de confirmation */}
         <button
           onClick={confirmer}
           disabled={!confirmerActif}
           style={{
-            marginTop: 16,
-            padding: "12px 28px",
+            marginTop: 10,
+            width: "100%",
+            padding: "14px 28px",
             borderRadius: 6,
             border: "none",
             fontSize: 15,
@@ -271,14 +296,6 @@ export default function OriginePage() {
         >
           Valider ce point d'origine
         </button>
-
-        {origineValidee && (
-          <div style={{ marginTop: 14, color: "#7ee07e", fontSize: 14 }}>
-            ✓ Point d'origine validé : {origineValidee.lat.toFixed(6)}, {origineValidee.lon.toFixed(6)} —
-            altitude terrain {origineValidee.altitudeTerrainOrigineM ?? "n/d"} m
-            {origineValidee.batimentOrigine && ` — bâtiment ${origineValidee.batimentOrigine.cleabs}`}
-          </div>
-        )}
       </div>
     </main>
   );
