@@ -13,6 +13,7 @@
  */
 import { query } from "./client";
 import { hauteurLidarMaxNettoye } from "./hauteurLidar";
+import { pointDeContact } from "../svv/contact";
 import type { PointWgs84 } from "../svv/geo";
 import type { ObstacleCandidat, SourceHauteur } from "../svv/verdict";
 import { ANALYSIS_RANGE_M, CORRIDOR_HALF_WIDTH_M, FLOOR_HEIGHT_M } from "../svv/config";
@@ -27,6 +28,11 @@ export interface ParametresAxe {
    * PRINCIPAL ; les 61 faisceaux laissent ce flag à false (restent BD TOPO).
    */
   lidar?: boolean;
+  /**
+   * Altitude de la fenêtre (NGF). Requise avec lidar=true pour localiser le
+   * point de contact (distanceM = dContact). Inutile pour les faisceaux.
+   */
+  altitudeFenetreM?: number;
 }
 
 interface LigneObstacle {
@@ -92,7 +98,7 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
     ],
   );
 
-  return Promise.all(
+  const candidats = await Promise.all(
     res.rows.map(async (r): Promise<ObstacleCandidat> => {
       // Couloir principal : LiDAR (max nettoyé) prioritaire sur la cascade BD TOPO.
       if (params.lidar) {
@@ -101,13 +107,33 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
           corridorWkt: r.corridor_wkt,
           axisLineWkt: r.axe_wkt,
         });
+
+        // Hauteur : LiDAR si résolu, sinon repli cascade BD TOPO (ou NONE).
+        let altitudeSommetM: number | null;
+        let source: SourceHauteur;
         if (lidar.hauteurM !== null) {
-          return { distanceM: r.dist_m, altitudeSommetM: lidar.hauteurM, source: "LIDAR_HD" };
+          altitudeSommetM = lidar.hauteurM;
+          source = "LIDAR_HD";
+        } else {
+          ({ altitudeSommetM, source } = resoudreSommet(r));
         }
+
+        // Point de contact (si altitudeFenetreM fourni et hauteur connue).
+        const facade = lidar.dFacadeM ?? r.dist_m;
+        let distanceM = facade;
+        if (params.altitudeFenetreM !== undefined && altitudeSommetM !== null) {
+          const res = pointDeContact(facade, lidar.profil, params.altitudeFenetreM, altitudeSommetM);
+          distanceM = res.obstrue ? res.dContactM ?? facade : facade;
+        }
+        return { distanceM, altitudeSommetM, source };
       }
-      // Repli cascade BD TOPO (ou NONE).
+
+      // Faisceaux (lidar=false) : comportement inchangé, distanceM = distance façade.
       const { altitudeSommetM, source } = resoudreSommet(r);
       return { distanceM: r.dist_m, altitudeSommetM, source };
     }),
   );
+
+  // Le point de contact peut réordonner les candidats : re-tri par distance croissante.
+  return candidats.sort((a, b) => a.distanceM - b.distanceM);
 }

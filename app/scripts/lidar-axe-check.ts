@@ -31,22 +31,6 @@ async function pointInterieur(approx: PointWgs84): Promise<PointWgs84 | null> {
   return res.rows[0] ? { lat: res.rows[0].lat, lon: res.rows[0].lon } : null;
 }
 
-/** Cascade BD TOPO (sommet) par bâtiment d'axe, ordonné par distance (même ordre que obstaclesSurAxe). */
-async function cascadesAxe(point: PointWgs84, origineId: number): Promise<number[]> {
-  const res = await query<{ cascade: number | null }>(
-    `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
-     axe AS (SELECT ST_MakeLine(o.g, ST_Translate(o.g,200*sin(radians($3)),200*cos(radians($3)))) AS ligne FROM o),
-     couloir AS (SELECT ST_Buffer(ligne,1.0) AS corr FROM axe)
-     SELECT COALESCE(b.altitude_maximale_toit, b.altitude_minimale_sol+b.hauteur,
-                     b.altitude_minimale_sol+b.nombre_d_etages*2.90) AS cascade
-     FROM bdtopo_batiment b, couloir c, o
-     WHERE ST_Intersects(ST_Force2D(b.geom), c.corr) AND b.id <> $4
-     ORDER BY ST_Distance(ST_Force2D(b.geom), o.g) ASC;`,
-    [point.lon, point.lat, AZ, origineId],
-  );
-  return res.rows.map((r) => (r.cascade === null ? NaN : Number(r.cascade)));
-}
-
 async function main() {
   const geo = await geocode();
   if (!geo) { console.error("✗ Adresse introuvable."); process.exitCode = 1; return; }
@@ -64,26 +48,25 @@ async function main() {
   const altFenetre = validation.altitudeTerrainOrigineM + hauteurVision(ETAGE);
   console.log(`altitudeTerrainOrigine=${validation.altitudeTerrainOrigineM}  →  altitudeFenetre=${altFenetre.toFixed(2)} m NGF\n`);
 
-  const candidats = await obstaclesSurAxe({
-    point, azimutDeg: AZ, batimentOrigineId: validation.batimentOrigine.id, lidar: true,
-  });
-  const cascades = await cascadesAxe(point, validation.batimentOrigine.id);
+  const origineId = validation.batimentOrigine.id;
+  // distanceM = façade (sans altitudeFenetreM) vs dContact (avec altitudeFenetreM).
+  const facade = await obstaclesSurAxe({ point, azimutDeg: AZ, batimentOrigineId: origineId, lidar: true });
+  const contact = await obstaclesSurAxe({ point, azimutDeg: AZ, batimentOrigineId: origineId, lidar: true, altitudeFenetreM: altFenetre });
 
-  const hdr = `${"#".padStart(3)} ${"dist".padStart(8)} ${"altSommet".padStart(10)} ${"source".padStart(9)} ${"cascadeBDT".padStart(10)} ${"≥fenêtre".padStart(9)}`;
+  const hdr = `${"#".padStart(3)} ${"distFaçade".padStart(10)} ${"dContact".padStart(9)} ${"altSommet".padStart(10)} ${"source".padStart(9)} ${"≥fenêtre".padStart(9)}`;
   console.log(hdr);
   console.log("-".repeat(hdr.length));
-  candidats.forEach((c, i) => {
-    const casc = cascades[i];
+  contact.forEach((c, i) => {
+    const f = facade[i];
     const alt = c.altitudeSommetM === null ? "null" : c.altitudeSommetM.toFixed(2);
-    const cascS = Number.isFinite(casc) ? casc.toFixed(2) : "NONE";
     const bloque = c.altitudeSommetM !== null && c.altitudeSommetM >= altFenetre ? "OUI" : "non";
     console.log(
-      `${String(i + 1).padStart(3)} ${c.distanceM.toFixed(2).padStart(8)} ${alt.padStart(10)} ` +
-      `${c.source.padStart(9)} ${cascS.padStart(10)} ${bloque.padStart(9)}`,
+      `${String(i + 1).padStart(3)} ${(f ? f.distanceM.toFixed(2) : "?").padStart(10)} ` +
+      `${c.distanceM.toFixed(2).padStart(9)} ${alt.padStart(10)} ${c.source.padStart(9)} ${bloque.padStart(9)}`,
     );
   });
 
-  console.log(`\nVERDICT : ${resultat.verdict.verdict}  |  distanceM = ${resultat.verdict.distanceM}`);
+  console.log(`\nVERDICT : ${resultat.verdict.verdict}  |  distanceM (dContact) = ${resultat.verdict.distanceM}`);
   console.log(`raison  : ${resultat.verdict.raison}`);
   if (resultat.verdict.analyseDegradee) console.log(`dégradé : ${resultat.verdict.messageDegrade}`);
 }
