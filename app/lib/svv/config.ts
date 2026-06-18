@@ -154,6 +154,40 @@ export const MONUMENT_CENTRAL_HALF_DEG = 50; // champ central = ±50°
 /** Pas de plafond de distance pour le test de ligne de vue du monument. */
 export const MONUMENT_LOS_MAX_M: number | null = null;
 
+/* Famille 2 — 2.1 type de paysage dominant (25 pts max, un seul type) */
+export const TYPE_PAYSAGE_PTS = {
+  mer_panoramique: 25, // mer/océan ou vue panoramique totale
+  fleuve_lac: 22, // fleuve, lac, grand plan d'eau
+  nature_parc: 20, // grande nature, forêt, parc majeur
+  espaces_verts: 16, // espaces verts de quartier, jardins
+  urbain_harmonieux: 12, // urbain dégagé harmonieux
+  urbain_standard: 8, // urbain standard mixte
+  urbain_dense: 4, // urbain dense / banal
+} as const;
+export type TypePaysage = keyof typeof TYPE_PAYSAGE_PTS;
+
+/* Famille 2 — 2.2 éléments remarquables (15 pts, NON cumulatif) */
+export const REMARQUABLES_MAX_PTS = 15;
+/** Matrice monument : points selon zone × fraction visible (≥ ½ / < ½). */
+export const MONUMENT_PTS = {
+  central: { demiOuPlus: 15, moins: 10 }, // champ central ±50°
+  extremite: { demiOuPlus: 10, moins: 7 }, // extrémités 50–90°
+} as const;
+/** Façades historiques majoritaires (haussmannien/patrimoine). */
+export const FACADES_HISTORIQUES_PTS = 10;
+
+/* Famille 2 — 2.3 propreté visuelle (10 pts, départ 10, plancher 0) */
+export const PROPRETE_BASE_PTS = 10;
+/** Malus de propreté (valeurs positives à soustraire). */
+export const PROPRETE_MALUS = {
+  murAveugle: 4, // mur aveugle / pignon proche dominant (photo)
+  antennesParaboles: 3, // antennes/paraboles/superstructures 1er plan (photo)
+  fouillis: 3, // fouillis visuel (photo)
+  batimentHautParabolesAxe: 3, // hybride : immeuble >10 ét. couvert de paraboles (photo)
+  batimentResidentielHautAxe: 3, // ≥15 ét. dans l'axe ±20° (data)
+  carrefourOuCimetiereCentral: 3, // gros carrefour / cimetière central ±45° (data)
+} as const;
+
 /* Famille 2 — nuisances issues des données */
 export const NUISANCE_AXIS_TALL_DEG = 20; // ±20° : grand immeuble dans l'axe
 export const TALL_RESIDENTIAL_MIN_FLOORS = 15;
