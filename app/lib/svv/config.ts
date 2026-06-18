@@ -62,6 +62,9 @@ export const THRESHOLD_M = 40;
 /** Largeur du couloir de contrôle le long de l'axe (mètres, à calibrer). */
 export const CORRIDOR_WIDTH_M = 2;
 
+/** Demi-largeur du couloir d'analyse (couloir total = 2 m). */
+export const CORRIDOR_HALF_WIDTH_M = 1.0;
+
 /** Pas d'échantillonnage le long de l'axe principal (mètres). */
 export const CORRIDOR_STEP_M = 2;
 
