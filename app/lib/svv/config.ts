@@ -62,6 +62,9 @@ export const THRESHOLD_M = 40;
 /** Largeur du couloir de contrôle le long de l'axe (mètres, à calibrer). */
 export const CORRIDOR_WIDTH_M = 2;
 
+/** Pas d'échantillonnage le long de l'axe principal (mètres). */
+export const CORRIDOR_STEP_M = 2;
+
 /** Pas d'échantillonnage du faisceau = résolution MNS (mètres). */
 export const BEAM_STEP_M = 0.5;
 
