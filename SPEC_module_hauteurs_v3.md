@@ -182,7 +182,11 @@ sur-estimer = refus à tort (sans risque). → **en cas de doute, estimation HAU
 Pour chaque bâtiment candidat traversé par le couloir principal, sur le **profil
 MNS nettoyé** (anti-pic, confiné au toit), **du proche au lointain** :
 
-- `d_facade` = distance origine → **bord d'attaque** du bâtiment sur le couloir.
+- `d_facade` = distance origine → **bord d'attaque** du bâtiment sur le couloir =
+  **entrée du bâtiment DANS LE COULOIR, mesurée le long de l'axe** (plus petite
+  coordonnée le long de l'axe des sommets de `couloir ∩ emprise` ∪ `axe ∩ emprise`).
+  Conservateur ; **même règle de mesure que le franchissement** pour que le
+  milieu soit cohérent.
 - Si le **faîtage** (max nettoyé du toit dans le couloir) **< hauteur de
   référence** → le bâtiment **N'OBSTRUE PAS** → **continuer** au bâtiment suivant.
 - Sinon `d_franchissement` = distance au **PREMIER point** du couloir (dans ce

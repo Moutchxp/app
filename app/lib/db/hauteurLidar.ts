@@ -80,19 +80,34 @@ async function echantillon(
   return res.rows.map((r) => ({ val: Number(r.val), distAlong: Number(r.dist_along) }));
 }
 
-/** Distance le long de l'axe du point d'entrée de l'axe dans l'emprise PLEINE. */
-async function dFacadeAlongAxis(batimentId: number, axisLineWkt: string): Promise<number | null> {
+/**
+ * Distance le long de l'axe de l'ENTRÉE du bâtiment DANS LE COULOIR (emprise
+ * pleine). = plus petite coordonnée le long de l'axe parmi les sommets de
+ * (couloir ∩ emprise) ∪ (axe ∩ emprise). Géométrique, indépendant de l'érosion.
+ * Repli ST_ClosestPoint si l'intersection est vide. Même règle de mesure que
+ * le franchissement, pour que le milieu soit cohérent.
+ */
+async function dFacadeAlongAxis(
+  batimentId: number,
+  axisLineWkt: string,
+  corridorWkt: string,
+): Promise<number | null> {
   const res = await query<{ d: number | null }>(
     `WITH a AS (SELECT ST_GeomFromText($2, 2154) AS g),
-     b AS (SELECT ST_Force2D(geom) AS g FROM bdtopo_batiment WHERE id = $1)
-     SELECT (
-       CASE WHEN ST_IsEmpty(ST_Intersection(a.g, b.g))
-            THEN ST_LineLocatePoint(a.g, ST_ClosestPoint(a.g, b.g))
-            ELSE ST_LineLocatePoint(a.g, ST_ClosestPoint(ST_Intersection(a.g, b.g), ST_StartPoint(a.g)))
-       END
-     ) * ST_Length(a.g) AS d
-     FROM a, b;`,
-    [batimentId, axisLineWkt],
+     b AS (SELECT ST_Force2D(geom) AS g FROM bdtopo_batiment WHERE id = $1),
+     corr AS (SELECT ST_GeomFromText($3, 2154) AS g),
+     inter AS (
+       SELECT ST_Union(ST_Intersection(corr.g, b.g), ST_Intersection(a.g, b.g)) AS ig
+       FROM a, b, corr
+     ),
+     pts AS (
+       SELECT (ST_DumpPoints(inter.ig)).geom AS p FROM inter WHERE NOT ST_IsEmpty(inter.ig)
+     )
+     SELECT COALESCE(
+              (SELECT MIN(ST_LineLocatePoint(a.g, pts.p)) FROM pts, a),
+              (SELECT ST_LineLocatePoint(a.g, ST_ClosestPoint(a.g, b.g)) FROM a, b)
+            ) * (SELECT ST_Length(a.g) FROM a) AS d;`,
+    [batimentId, axisLineWkt, corridorWkt],
   );
   const d = res.rows[0]?.d;
   return d === null || d === undefined ? null : Number(d);
@@ -120,7 +135,7 @@ export async function hauteurLidarMaxNettoye({
   corridorWkt: string;
   axisLineWkt: string;
 }): Promise<HauteurLidar> {
-  const dFacadeM = await dFacadeAlongAxis(batimentId, axisLineWkt);
+  const dFacadeM = await dFacadeAlongAxis(batimentId, axisLineWkt, corridorWkt);
 
   // Zone érodée d'abord ; repli sur le polygone plein si trop peu de pixels.
   let eroded = true;
