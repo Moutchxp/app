@@ -148,6 +148,45 @@ Notes :
 > Récapitulatif des seuils **À CALIBRER** : (a) seuil de pente plat/pente,
 > (b) taille d'un point haut considéré comme artefact (pic). Voir aussi §11.
 
+### Localisation du point de contact de l'obstacle
+
+> Cette sous-section dit **OÙ** commence l'obstruction. La règle de hauteur
+> ci-dessus (§3 bis 1–6) dit **SI** le bâtiment obstrue (faîtage nettoyé ≥
+> altitude de la fenêtre) ; une fois ce « SI » établi, on localise le point de
+> contact retenu pour la distance.
+
+**Hauteur de référence** = altitude de la fenêtre =
+`altitude_terrain_origine + hauteurVision(étage)` ; la ligne de vue est
+**horizontale** à cette altitude.
+
+Pour chaque bâtiment candidat traversé par le couloir principal, sur le **profil
+MNS nettoyé** (anti-pic, confiné au toit), **du proche au lointain** :
+
+- `d_facade` = distance origine → **bord d'attaque** du bâtiment sur le couloir.
+- Si le **faîtage** (max nettoyé du toit dans le couloir) **< hauteur de
+  référence** → le bâtiment **N'OBSTRUE PAS** → **continuer** au bâtiment suivant.
+- Sinon `d_franchissement` = distance au **PREMIER point** du couloir (dans ce
+  bâtiment) où l'altitude du toit nettoyé **≥ hauteur de référence**, **de façon
+  soutenue** (pas un pixel isolé).
+- **Point de contact réel (marge de sécurité)** :
+  `d_contact = (d_facade + d_franchissement) / 2`.
+  - **Toit plat ≥ référence**, ou **égout déjà ≥ référence** →
+    `d_franchissement = d_facade` → `d_contact = d_facade` (inchangé).
+  - **Toit en pente franchi en montant** → `d_contact` à **mi-chemin** entre
+    façade et franchissement.
+
+Ce bâtiment est le **premier obstacle réel** ; le **verdict** (seuil 40 m) **ET**
+le **score** (distance au 1er obstacle) utilisent **`d_contact`**. Le point GPS à
+`d_contact` sur le couloir est **reprojeté en lat/lon** pour le certificat.
+
+**Justification sûreté** : prendre le **milieu** (et non le franchissement réel,
+plus lointain) **raccourcit** la distance annoncée → on ne **sur-estime jamais**
+le dégagement ; la marge joue **en faveur de la validité** du certificat.
+Cohérent avec « **ne jamais sous-estimer un obstacle** ».
+
+**Portée** : **couloir principal uniquement**. Les **61 faisceaux** restent en
+**BD TOPO** (contact = façade, sans cette finesse) pour l'instant.
+
 ---
 
 ## 4. Mode B — BD TOPO® par bâtiment (fallback hors MNS)
