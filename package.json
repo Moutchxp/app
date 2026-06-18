@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "db:check": "tsx app/scripts/db-check.ts",
     "origine:check": "tsx app/scripts/origine-check.ts",
-    "obstacles:check": "tsx app/scripts/obstacles-check.ts"
+    "obstacles:check": "tsx app/scripts/obstacles-check.ts",
+    "faisceaux:check": "tsx app/scripts/faisceaux-check.ts"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
