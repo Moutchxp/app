@@ -112,41 +112,61 @@ Notes :
 
 ## 3 bis. Détermination de hauteur LiDAR (Mode A) — couloir principal uniquement
 
-> Règle arrêtée. Les **seuils** marqués **« À CALIBRER »** sont les seules valeurs
-> à ajuster ; la logique ci-dessous est figée.
+> Règle arrêtée. Constantes **v1** calibrées sur échantillon (voir bloc
+> « CONSTANTES v1 ») ; affinables ultérieurement sans changer la logique.
 
-1. **Zone d'analyse** = (emprise du bâtiment candidat **∩** couloir principal 2 m),
-   **strictement confinée au POLYGONE D'ORIGINE** du candidat. Tous les pixels MNS
-   **hors de ce polygone** sont exclus : sol, chaussée **ET** bâtiments voisins.
-   L'**épicentre** des contrôles est défini dans cette zone (la portion réellement
-   traversée par la ligne de vue), **jamais** au centre de toute la copropriété.
+**NETTOYAGE (couloir principal)**
 
-2. **Détection du type de toit** sur cette zone : altitudes ~constantes → **toit
-   plat** ; pente régulière détectée → **toit en pente**.
-   *Seuil de pente plat/pente : **À CALIBRER**.*
+- **Confinement** : pixels MNS dans (emprise du candidat **∩** couloir 2 m),
+  clippés à `ST_Buffer(emprise, -1 m)` pour **écarter le bandeau façade/parapet** ;
+  si trop peu de pixels après érosion → repli sur le **polygone plein**. NoData
+  `-9999` exclu. Aucun pixel hors emprise (sol, chaussée, voisin) n'entre.
+- **Anti-pic** (AVANT le max) : exclure les pixels `> P95 + 1,0 m` **s'ils
+  forment une faible fraction (< ~10 %)** → pics ponctuels (cheminée, antenne,
+  cage d'ascenseur). Un **toit propre n'est jamais touché** (`max − P95` observé
+  0,07–0,24 m).
 
-3. **Toit plat** : hauteur = **moyenne** des altitudes MNS d'une zone d'**environ
-   10 m²** autour de l'épicentre, dans le polygone, en **excluant les pics
-   d'artefacts** (cheminées, antennes, cages d'ascenseur).
-   *Taille d'un point haut considéré comme artefact : **À CALIBRER**.*
+**HAUTEUR OPÉRATIONNELLE (couloir principal), tous types de toit**
 
-4. **Toit en pente** : **cercle de diagnostic de 3 m de rayon** centré sur
-   l'épicentre, **clippé au polygone** ; hauteur = altitude de l'**arête (faîtage)**
-   déterminée dans cette zone.
+- = **faîtage = MAX du profil nettoyé** le long du couloir.
+- **Conservatrice** (jamais de sous-estimation) **ET robuste à la contamination
+  de façade** : les pixels bas n'affectent pas le max — vérifié sur le bâtiment
+  319902 (max 57,6 m correct malgré un `min` de bord à 51,4 m).
+- Alimente directement la sous-section **« Localisation du point de contact »**
+  (profil MNS nettoyé) et la **confirmation d'obstacle** : `hauteur ≥
+  altitude_fenetre` → obstacle réel, **on s'arrête** ; `< altitude_fenetre` →
+  faux obstacle, **on continue**.
 
-5. **Confinement strict** : aucune zone de contrôle ne déborde hors du polygone
-   d'origine ; si elle déborde (sol ou bâtiment voisin), les pixels extérieurs
-   sont **ignorés** et la statistique ne porte **que sur les pixels intérieurs**.
+**CLASSIFICATION (diagnostic / confiance UNIQUEMENT — pas sélecteur de hauteur)**
 
-6. La hauteur LiDAR ainsi obtenue alimente la **confirmation d'obstacle déjà
-   verrouillée** : `hauteur ≥ altitude_fenetre` → obstacle réel, **on s'arrête** ;
-   `< altitude_fenetre` → faux obstacle, **on continue**.
+Couple (**pente du plan**, **RMS**) sur l'échantillon nettoyé :
 
-7. **Ne s'applique QU'AU couloir principal.** Les **61 faisceaux** d'amplitude
-   restent en **BD TOPO** (Mode B).
+| Type | Critère |
+|------|---------|
+| **plat** | `RMS ≤ 0,6 m` **et** `pente < 8°` |
+| **pente régulière** | `RMS ≤ 0,8 m` **et** `pente ≥ 8°` |
+| **non planaire** (bord/décroché) | `RMS > 0,8 m` |
 
-> Récapitulatif des seuils **À CALIBRER** : (a) seuil de pente plat/pente,
-> (b) taille d'un point haut considéré comme artefact (pic). Voir aussi §11.
+Sert uniquement à **journaliser** le type de toit et un **niveau de confiance** ;
+**ne choisit pas la hauteur** (le max nettoyé suffit pour tous les cas).
+
+**PRINCIPE DE SÛRETÉ**
+
+Sous-estimer un obstacle = **certifier à tort une vue bouchée** (faute grave) ;
+sur-estimer = refus à tort (sans risque). → **en cas de doute, estimation HAUTE.**
+
+- Hauteur LiDAR **non déterminable** (échantillon vide/trop pauvre) → **cascade
+  BD TOPO** (confiance `MEDIUM`).
+- Si la cascade manque aussi → règle **INDÉTERMINÉ** déjà verrouillée (§6).
+- **LiDAR prioritaire** sur le couloir principal ; les **61 faisceaux** restent
+  en **BD TOPO** (Mode B).
+
+**CONSTANTES v1**
+
+- largeur couloir : **2 m** ; buffer façade : **−1,0 m** ; seuil pic :
+  **P95 + 1,0 m**.
+- (diagnostic) seuil pente : **8°** ; RMS plat : **≤ 0,6 m** ; RMS pente :
+  **≤ 0,8 m**.
 
 ### Localisation du point de contact de l'obstacle
 
