@@ -84,6 +84,8 @@ export const LIDAR_EROSION_M = 1.0;
 export const LIDAR_SPIKE_OVER_P95_M = 1.0;
 /** Nombre minimal de pixels sur zone érodée avant repli vers le polygone plein. */
 export const LIDAR_MIN_PX = 20;
+/** Largeur d'un bin du profil le long de l'axe (m). */
+export const LIDAR_PROFIL_BIN_M = 0.5;
 
 /** CRS de travail métrique : Lambert-93. */
 export const CRS_WORK = 2154;

@@ -38,6 +38,7 @@ interface LigneObstacle {
   sol: number | null; // altitude_minimale_sol
   net: number | null; // nombre_d_etages
   corridor_wkt: string; // WKT L93 du couloir (identique sur toutes les lignes)
+  axe_wkt: string; // WKT L93 de l'axe (demi-droite origine→portée)
 }
 
 /** Cascade hauteur Mode B → altitude de sommet (NGF) + source. */
@@ -69,13 +70,14 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
        FROM o
      ),
      couloir AS (
-       SELECT origine, ST_Buffer(ligne, $5) AS corr FROM axe
+       SELECT origine, ligne, ST_Buffer(ligne, $5) AS corr FROM axe
      )
      SELECT b.id, b.cleabs,
             ST_Distance(ST_Force2D(b.geom), c.origine) AS dist_m,
             b.altitude_maximale_toit AS amt, b.hauteur AS h,
             b.altitude_minimale_sol AS sol, b.nombre_d_etages AS net,
-            ST_AsText(c.corr) AS corridor_wkt
+            ST_AsText(c.corr) AS corridor_wkt,
+            ST_AsText(c.ligne) AS axe_wkt
      FROM bdtopo_batiment b, couloir c
      WHERE ST_Intersects(ST_Force2D(b.geom), c.corr)
        AND b.id <> $6
@@ -97,6 +99,7 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
         const lidar = await hauteurLidarMaxNettoye({
           batimentId: r.id,
           corridorWkt: r.corridor_wkt,
+          axisLineWkt: r.axe_wkt,
         });
         if (lidar.hauteurM !== null) {
           return { distanceM: r.dist_m, altitudeSommetM: lidar.hauteurM, source: "LIDAR_HD" };
