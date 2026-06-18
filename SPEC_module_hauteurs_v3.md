@@ -110,6 +110,46 @@ Notes :
 
 ---
 
+## 3 bis. Détermination de hauteur LiDAR (Mode A) — couloir principal uniquement
+
+> Règle arrêtée. Les **seuils** marqués **« À CALIBRER »** sont les seules valeurs
+> à ajuster ; la logique ci-dessous est figée.
+
+1. **Zone d'analyse** = (emprise du bâtiment candidat **∩** couloir principal 2 m),
+   **strictement confinée au POLYGONE D'ORIGINE** du candidat. Tous les pixels MNS
+   **hors de ce polygone** sont exclus : sol, chaussée **ET** bâtiments voisins.
+   L'**épicentre** des contrôles est défini dans cette zone (la portion réellement
+   traversée par la ligne de vue), **jamais** au centre de toute la copropriété.
+
+2. **Détection du type de toit** sur cette zone : altitudes ~constantes → **toit
+   plat** ; pente régulière détectée → **toit en pente**.
+   *Seuil de pente plat/pente : **À CALIBRER**.*
+
+3. **Toit plat** : hauteur = **moyenne** des altitudes MNS d'une zone d'**environ
+   10 m²** autour de l'épicentre, dans le polygone, en **excluant les pics
+   d'artefacts** (cheminées, antennes, cages d'ascenseur).
+   *Taille d'un point haut considéré comme artefact : **À CALIBRER**.*
+
+4. **Toit en pente** : **cercle de diagnostic de 3 m de rayon** centré sur
+   l'épicentre, **clippé au polygone** ; hauteur = altitude de l'**arête (faîtage)**
+   déterminée dans cette zone.
+
+5. **Confinement strict** : aucune zone de contrôle ne déborde hors du polygone
+   d'origine ; si elle déborde (sol ou bâtiment voisin), les pixels extérieurs
+   sont **ignorés** et la statistique ne porte **que sur les pixels intérieurs**.
+
+6. La hauteur LiDAR ainsi obtenue alimente la **confirmation d'obstacle déjà
+   verrouillée** : `hauteur ≥ altitude_fenetre` → obstacle réel, **on s'arrête** ;
+   `< altitude_fenetre` → faux obstacle, **on continue**.
+
+7. **Ne s'applique QU'AU couloir principal.** Les **61 faisceaux** d'amplitude
+   restent en **BD TOPO** (Mode B).
+
+> Récapitulatif des seuils **À CALIBRER** : (a) seuil de pente plat/pente,
+> (b) taille d'un point haut considéré comme artefact (pic). Voir aussi §11.
+
+---
+
 ## 4. Mode B — BD TOPO® par bâtiment (fallback hors MNS)
 
 Pour chaque bâtiment intersecté (trié par distance), résoudre le sommet ; le
