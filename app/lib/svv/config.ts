@@ -106,10 +106,11 @@ export const SCORE_DISTANCE_STEP_M = 8; // +1 pt tous les 8 m
 export const AMPLITUDE_BEAM_STEP_DEG = 3;
 export const AMPLITUDE_BEAM_COUNT = 61;
 export const AMPLITUDE_PART_A_PTS = 10;
-export const AMPLITUDE_PART_B_PTS = 10;
-export const AMPLITUDE_PART_B_BASE_M = 30; // 30 m → 1 pt
-export const AMPLITUDE_PART_B_STEP_M = 20; // +1 pt / 20 m
+export const AMPLITUDE_PART_B_PTS = 10; // plafond Part B (atteint à CLEAR_BEAM_DIST_M)
+export const AMPLITUDE_PART_B_BASE_M = 30; // 30 m → AMPLITUDE_PART_B_BASE_PTS
+export const AMPLITUDE_PART_B_BASE_PTS = 1; // 1 pt à 30 m (ancrage bas)
 export const CLEAR_BEAM_DIST_M = ANALYSIS_RANGE_M; // distance d'un faisceau dégagé
+// Pente Part B linéaire : 30 m → 1 pt, CLEAR_BEAM_DIST_M → 10 pts (dérivée des constantes).
 
 /* Pénalité « angle de L » */
 export const L_PENALTY_FLANK_DEG: readonly [number, number] = [60, 90];
@@ -128,6 +129,22 @@ export const ORIENTATION_PTS = {
   N: 0,
 } as const;
 export type Orientation = keyof typeof ORIENTATION_PTS;
+
+/**
+ * Secteurs d'orientation classés par azimut croissant (45° chacun, centrés
+ * sur N=0, NE=45, E=90, …). Sert à convertir un azimut en secteur sans coder
+ * en dur le pas de 45° : `pas = 360 / ORIENTATION_SECTEURS.length`.
+ */
+export const ORIENTATION_SECTEURS: readonly Orientation[] = [
+  'N',
+  'NE',
+  'E',
+  'SE',
+  'S',
+  'SO',
+  'O',
+  'NO',
+];
 
 /** Bonus dernier étage : +1, uniquement si l'orientation rapporte < 10 pts. */
 export const TOP_FLOOR_BONUS = 1;
