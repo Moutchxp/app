@@ -194,6 +194,9 @@ export const TALL_RESIDENTIAL_MIN_FLOORS = 15;
 export const PARABOLES_MIN_FLOORS = 10;
 export const CARREFOUR_CIMETIERE_DEG = 45; // ±45° champ central
 
+/* Note totale du score de qualité de vue (/100) */
+export const SCORE_TOTAL_MAX = SCORE_FAMILLE_1_WEIGHT + SCORE_FAMILLE_2_WEIGHT; // 50 + 50
+
 /* Étiquettes d'affichage du score (libellés terminaux, ne nourrissent aucun calcul) */
 export const SCORE_LABEL_EXCEPTIONNELLE_MIN = 75; // ≥ 75 → « Vue exceptionnelle »
 export const SCORE_LABEL_EXCELLENTE_MIN = 60; // 60–74 → « Excellente vue »
