@@ -84,7 +84,7 @@ export const CRS_GPS = 4326;
 /* Tolérance du point d'origine (CLAUDE.md « Point d'origine »)        */
 /* ------------------------------------------------------------------ */
 
-/** Tolérance max vers l'extérieur du polygone bâtiment (mètres). */
+/** Tolérance sortante max du point d'origine vers l'extérieur de l'emprise (façades/balcons), en mètres. */
 export const ORIGIN_OUTSIDE_TOLERANCE_M = 0.3;
 
 /* ================================================================== */
