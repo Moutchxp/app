@@ -16,7 +16,7 @@
  * La végétation n'est jamais un obstacle : elle est exclue EN AMONT, donc les
  * candidats reçus ici sont uniquement des constructions humaines.
  */
-import { THRESHOLD_M } from './config';
+import { THRESHOLD_M, ANALYSIS_RANGE_M } from './config';
 
 export type Verdict = 'SANS_VIS_A_VIS' | 'VIS_A_VIS' | 'INDETERMINE';
 
@@ -38,6 +38,47 @@ export interface ResultatVerdict {
   obstacle: ObstacleCandidat | null;
   /** Explication courte et lisible du verdict. */
   raison: string;
+  /**
+   * Analyse dégradée (axe principal uniquement) : true si le verdict est
+   * SANS_VIS_A_VIS mais qu'un bâtiment de hauteur inconnue (NONE) ≥ 40 m se
+   * trouve dans la ligne de vue ouverte (devant l'obstacle confirmé, ou dans
+   * la portée si vue dégagée). N'affecte jamais le verdict.
+   */
+  analyseDegradee: boolean;
+  /** Message expliquant la dégradation, ou `null` si analyse non dégradée. */
+  messageDegrade: string | null;
+}
+
+/** Calcule le signalement de dégradation (axe principal uniquement). */
+function calculerDegradation(
+  base: Omit<ResultatVerdict, 'analyseDegradee' | 'messageDegrade'>,
+  candidats: ObstacleCandidat[],
+): Pick<ResultatVerdict, 'analyseDegradee' | 'messageDegrade'> {
+  if (base.verdict !== 'SANS_VIS_A_VIS') {
+    return { analyseDegradee: false, messageDegrade: null };
+  }
+
+  const distanceObstacle = base.obstacle ? base.obstacle.distanceM : null;
+  const nonesPertinents = candidats.filter(
+    (c) =>
+      c.source === 'NONE' &&
+      c.distanceM >= THRESHOLD_M &&
+      (distanceObstacle === null
+        ? c.distanceM <= ANALYSIS_RANGE_M
+        : c.distanceM < distanceObstacle),
+  );
+
+  if (nonesPertinents.length === 0) {
+    return { analyseDegradee: false, messageDegrade: null };
+  }
+
+  const d = Math.min(...nonesPertinents.map((c) => c.distanceM));
+  const autres = nonesPertinents.length - 1;
+  const suffixe = autres > 0 ? ` (et ${autres} autre(s))` : '';
+  return {
+    analyseDegradee: true,
+    messageDegrade: `Analyse dégradée : un bâtiment sans donnée de hauteur est présent dans l'axe de contrôle à ${d.toFixed(2)} m${suffixe}. Situé à 40 m ou plus, il n'empêche pas la certification Sans Vis-à-Vis, mais le résultat est dégradé.`,
+  };
 }
 
 /**
@@ -52,16 +93,22 @@ export function premierObstacle(
 ): ResultatVerdict {
   const tries = [...candidats].sort((a, b) => a.distanceM - b.distanceM);
 
+  // Détermine le résultat de base (verdict/distanceM/obstacle/raison, inchangé),
+  // puis y ajoute le signalement de dégradation.
+  const finaliser = (
+    base: Omit<ResultatVerdict, 'analyseDegradee' | 'messageDegrade'>,
+  ): ResultatVerdict => ({ ...base, ...calculerDegradation(base, candidats) });
+
   for (const candidat of tries) {
     if (candidat.altitudeSommetM === null) {
       // Hauteur inconnue (source NONE).
       if (candidat.distanceM < THRESHOLD_M) {
-        return {
+        return finaliser({
           verdict: 'INDETERMINE',
           distanceM: candidat.distanceM,
           obstacle: candidat,
           raison: `Bâtiment de hauteur inconnue à ${candidat.distanceM} m (< ${THRESHOLD_M} m) avant tout obstacle confirmé : verdict non certifiable.`,
-        };
+        });
       }
       // NONE à ≥ 40 m : sans effet sur le seuil, on continue.
       continue;
@@ -71,23 +118,23 @@ export function premierObstacle(
     if (candidat.altitudeSommetM >= altitudeFenetreM) {
       // Premier obstacle réel (sommet ≥ altitude de la fenêtre).
       const sansVisAVis = candidat.distanceM >= THRESHOLD_M;
-      return {
+      return finaliser({
         verdict: sansVisAVis ? 'SANS_VIS_A_VIS' : 'VIS_A_VIS',
         distanceM: candidat.distanceM,
         obstacle: candidat,
         raison: sansVisAVis
           ? `Premier obstacle réel à ${candidat.distanceM} m (≥ ${THRESHOLD_M} m) : sans vis-à-vis.`
           : `Premier obstacle réel à ${candidat.distanceM} m (< ${THRESHOLD_M} m) : vis-à-vis détecté.`,
-      };
+      });
     }
     // Sommet sous la fenêtre : ne crée pas de vis-à-vis, on continue.
   }
 
   // Balayage terminé sans obstacle réel confirmé ni zone indéterminée.
-  return {
+  return finaliser({
     verdict: 'SANS_VIS_A_VIS',
     distanceM: null,
     obstacle: null,
     raison: `Aucun obstacle réel dans la portée d'analyse : sans vis-à-vis.`,
-  };
+  });
 }

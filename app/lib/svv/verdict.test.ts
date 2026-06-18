@@ -126,3 +126,72 @@ describe('premierObstacle — cas limites', () => {
     expect(r.distanceM).toBe(12);
   });
 });
+
+describe('premierObstacle — analyse dégradée (axe principal, NONE ≥ 40 m)', () => {
+  it('a) SANS_VIS_A_VIS + NONE ≥ 40 m AVANT l\'obstacle confirmé → dégradée', () => {
+    const candidats: ObstacleCandidat[] = [
+      { distanceM: 45, altitudeSommetM: null, source: 'NONE' }, // NONE ≥ 40, devant
+      { distanceM: 80, altitudeSommetM: 60, source: 'LIDAR_HD' }, // obstacle confirmé
+    ];
+    const r = premierObstacle(candidats, ALTITUDE_FENETRE);
+    expect(r.verdict).toBe('SANS_VIS_A_VIS');
+    expect(r.distanceM).toBe(80); // verdict inchangé
+    expect(r.analyseDegradee).toBe(true);
+    expect(r.messageDegrade).toContain('45.00');
+  });
+
+  it('b) SANS_VIS_A_VIS vue dégagée + NONE à 50 m → dégradée', () => {
+    const candidats: ObstacleCandidat[] = [
+      { distanceM: 50, altitudeSommetM: null, source: 'NONE' },
+    ];
+    const r = premierObstacle(candidats, ALTITUDE_FENETRE);
+    expect(r.verdict).toBe('SANS_VIS_A_VIS');
+    expect(r.distanceM).toBeNull();
+    expect(r.analyseDegradee).toBe(true);
+    expect(r.messageDegrade).toContain('50.00');
+  });
+
+  it('c) SANS_VIS_A_VIS obstacle confirmé à 42 m + NONE à 45 m (DERRIÈRE) → non dégradée', () => {
+    const candidats: ObstacleCandidat[] = [
+      { distanceM: 42, altitudeSommetM: 60, source: 'LIDAR_HD' }, // confirmé
+      { distanceM: 45, altitudeSommetM: null, source: 'NONE' }, // NONE caché derrière
+    ];
+    const r = premierObstacle(candidats, ALTITUDE_FENETRE);
+    expect(r.verdict).toBe('SANS_VIS_A_VIS');
+    expect(r.analyseDegradee).toBe(false);
+    expect(r.messageDegrade).toBeNull();
+  });
+
+  it('d) NONE à 25 m sans obstacle confirmé avant → INDETERMINE, non dégradée', () => {
+    const candidats: ObstacleCandidat[] = [
+      { distanceM: 25, altitudeSommetM: null, source: 'NONE' },
+    ];
+    const r = premierObstacle(candidats, ALTITUDE_FENETRE);
+    expect(r.verdict).toBe('INDETERMINE'); // inchangé
+    expect(r.analyseDegradee).toBe(false);
+    expect(r.messageDegrade).toBeNull();
+  });
+
+  it('e) SANS_VIS_A_VIS sans aucun NONE → non dégradée', () => {
+    const candidats: ObstacleCandidat[] = [
+      { distanceM: 60, altitudeSommetM: 70, source: 'LIDAR_HD' },
+    ];
+    const r = premierObstacle(candidats, ALTITUDE_FENETRE);
+    expect(r.verdict).toBe('SANS_VIS_A_VIS');
+    expect(r.analyseDegradee).toBe(false);
+    expect(r.messageDegrade).toBeNull();
+  });
+
+  it('plusieurs NONE pertinents → mention « (et N autre(s)) » + plus petite distance', () => {
+    const candidats: ObstacleCandidat[] = [
+      { distanceM: 70, altitudeSommetM: null, source: 'NONE' },
+      { distanceM: 55, altitudeSommetM: null, source: 'NONE' },
+      { distanceM: 120, altitudeSommetM: 80, source: 'LIDAR_HD' }, // confirmé
+    ];
+    const r = premierObstacle(candidats, ALTITUDE_FENETRE);
+    expect(r.verdict).toBe('SANS_VIS_A_VIS');
+    expect(r.analyseDegradee).toBe(true);
+    expect(r.messageDegrade).toContain('55.00'); // plus petite distance
+    expect(r.messageDegrade).toContain('(et 1 autre(s))');
+  });
+});

@@ -155,6 +155,28 @@ certifiable ») — jamais un faux certifié.
   **avant** tout `NONE < 40 m`, le verdict est tranché normalement
   (`SANS_VIS_A_VIS` / `VIS_A_VIS`) : un `NONE` situé au-delà n'a plus d'effet.
 
+### Analyse dégradée (axe principal uniquement)
+
+Signalement **additif** qui ne modifie **jamais** le verdict. Il distingue un
+résultat pleinement fiable d'un résultat certifiable mais incertain à cause d'un
+bâtiment sans donnée de hauteur situé dans la ligne de vue ouverte.
+
+- `NONE` **< 40 m** avant tout obstacle confirmé → **INDETERMINE** (cf. ci-dessus),
+  pas une simple dégradation : le verdict n'est pas certifiable.
+- `NONE` **≥ 40 m** dans la **ligne de vue ouverte** (devant l'obstacle confirmé,
+  ou dans la portée d'analyse si la vue est dégagée) → verdict **SANS_VIS_A_VIS
+  certifiable**, mais marqué **analyse dégradée** avec un **message citant la
+  distance** du `NONE` le plus proche (et le nombre d'autres `NONE` pertinents).
+- Un `NONE` **caché derrière** l'obstacle confirmé (distance ≥ celle de
+  l'obstacle) **ne dégrade pas** : il n'est plus dans la ligne de vue ouverte.
+- Cette règle s'applique **uniquement à l'axe principal**. Elle **ne s'applique
+  pas aux 61 faisceaux** d'amplitude du score, qui ne consomment que la distance
+  d'obstacle par faisceau.
+
+Concrètement (`ResultatVerdict`) : champs `analyseDegradee: boolean` et
+`messageDegrade: string | null`, calculés après le verdict, sans en altérer la
+valeur.
+
 ---
 
 ## 7. Interfaces (TypeScript)
