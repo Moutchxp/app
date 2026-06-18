@@ -67,10 +67,12 @@ export default function OriginePage() {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoPos, setPhotoPos] = useState<{ lat: number; lon: number } | null>(null);
   const [messagePhoto, setMessagePhoto] = useState<string | null>(null);
+  const [messagePhotoType, setMessagePhotoType] = useState<"ok" | "warn" | null>(null);
 
   async function valider(lat: number, lon: number) {
     setADeplace(true);
     setMessagePhoto(null);
+    setMessagePhotoType(null);
     setOrigineValidee(null);
     setLoading(true);
     try {
@@ -123,21 +125,26 @@ export default function OriginePage() {
         const lon = gps.longitude;
         // Recentre la VUE uniquement — ne définit PAS l'origine et ne valide PAS.
         skipMoveRef.current = true; // le moveend du setView ne doit pas valider
-        map.setView([lat, lon], map.getZoom());
+        map.setView([lat, lon], map.getZoom()); // recentre la vue, garde le zoom
         setPhotoPos({ lat, lon }); // épingle indicative (où la photo a été prise)
         setADeplace(false); // interacted reste false
         setResultat(null);
         setOrigineValidee(null);
         setMessagePhoto(
-          `Vue recentrée sur la photo (${lat.toFixed(6)}, ${lon.toFixed(6)}). Faites glisser la carte pour amener le réticule sur la fenêtre de votre pièce de vie.`,
+          `Photo importée — carte recentrée sur le GPS de la photo (${lat.toFixed(6)}, ${lon.toFixed(6)}).`,
         );
+        setMessagePhotoType("ok");
       } else {
         // Pas de GPS : ne rien recentrer.
-        setMessagePhoto("Photo sans coordonnées GPS — placez le point manuellement.");
+        setMessagePhoto(
+          "Photo importée, mais aucune coordonnée GPS dans cette photo. Placez le point à la main.",
+        );
+        setMessagePhotoType("warn");
       }
     } catch (err) {
-      console.error("Lecture EXIF échouée :", err);
-      setMessagePhoto("Impossible de lire la photo.");
+      console.error("Lecture de la photo impossible :", err);
+      setMessagePhoto("Lecture de la photo impossible.");
+      setMessagePhotoType("warn");
     }
   }
 
@@ -235,7 +242,17 @@ export default function OriginePage() {
       {/* ZONE BAS — statut compact + bouton (toujours visibles, sans scroll) */}
       <div style={{ flex: "0 0 auto", padding: "8px 20px 14px" }}>
         {!aDeplace && (
-          <div style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${OR}55`, background: "#161616", color: "#cfcfcf", fontSize: 13 }}>
+          <div
+            style={{
+              padding: "10px 12px",
+              borderRadius: 8,
+              border: `1px solid ${messagePhotoType === "warn" ? "#c98a1e" : OR + "55"}`,
+              background: "#161616",
+              color:
+                messagePhotoType === "ok" ? OR : messagePhotoType === "warn" ? "#e0a23c" : "#cfcfcf",
+              fontSize: 13,
+            }}
+          >
             {messagePhoto ??
               "Faites glisser la carte pour amener le réticule central sur la fenêtre de votre pièce de vie."}
           </div>
