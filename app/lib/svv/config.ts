@@ -77,6 +77,14 @@ export const BEAM_RANGE_M = ANALYSIS_RANGE_M;
 /** Périmètre du noyau anti-pic (mètres, à calibrer). */
 export const SPIKE_KERNEL_M = 3;
 
+/* --- Hauteur LiDAR Mode A (couloir principal) — constantes v1 --- */
+/** Buffer façade négatif : érosion de l'emprise pour écarter façade/parapet (m). */
+export const LIDAR_EROSION_M = 1.0;
+/** Anti-pic : seuil au-dessus de P95 pour exclure un pic ponctuel (m). */
+export const LIDAR_SPIKE_OVER_P95_M = 1.0;
+/** Nombre minimal de pixels sur zone érodée avant repli vers le polygone plein. */
+export const LIDAR_MIN_PX = 20;
+
 /** CRS de travail métrique : Lambert-93. */
 export const CRS_WORK = 2154;
 

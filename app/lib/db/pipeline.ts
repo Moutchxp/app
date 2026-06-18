@@ -68,11 +68,12 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
   // b) Altitude de la fenêtre (helper Bloc A).
   const altitudeFenetreM = validation.altitudeTerrainOrigineM + hauteurVision(params.etage);
 
-  // c) Obstacles sur l'axe principal.
+  // c) Obstacles sur l'axe principal (LiDAR prioritaire — couloir principal).
   const obstaclesAxePrincipal = await obstaclesSurAxe({
     point: params.point,
     azimutDeg: params.azimutPrincipalDeg,
     batimentOrigineId: validation.batimentOrigine.id,
+    lidar: true,
   });
 
   // d) 61 faisceaux d'amplitude.

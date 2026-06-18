@@ -12,6 +12,7 @@
  * → direction (dx, dy) = (sin θ, cos θ).
  */
 import { query } from "./client";
+import { hauteurLidarMaxNettoye } from "./hauteurLidar";
 import type { PointWgs84 } from "../svv/geo";
 import type { ObstacleCandidat, SourceHauteur } from "../svv/verdict";
 import { ANALYSIS_RANGE_M, CORRIDOR_HALF_WIDTH_M, FLOOR_HEIGHT_M } from "../svv/config";
@@ -20,6 +21,12 @@ export interface ParametresAxe {
   point: PointWgs84;
   azimutDeg: number;
   batimentOrigineId: number;
+  /**
+   * true → enrichir chaque candidat avec la hauteur LiDAR (max nettoyé,
+   * source LIDAR_HD) prioritaire sur la cascade BD TOPO. Réservé au COULOIR
+   * PRINCIPAL ; les 61 faisceaux laissent ce flag à false (restent BD TOPO).
+   */
+  lidar?: boolean;
 }
 
 interface LigneObstacle {
@@ -30,6 +37,7 @@ interface LigneObstacle {
   h: number | null; // hauteur
   sol: number | null; // altitude_minimale_sol
   net: number | null; // nombre_d_etages
+  corridor_wkt: string; // WKT L93 du couloir (identique sur toutes les lignes)
 }
 
 /** Cascade hauteur Mode B → altitude de sommet (NGF) + source. */
@@ -66,7 +74,8 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
      SELECT b.id, b.cleabs,
             ST_Distance(ST_Force2D(b.geom), c.origine) AS dist_m,
             b.altitude_maximale_toit AS amt, b.hauteur AS h,
-            b.altitude_minimale_sol AS sol, b.nombre_d_etages AS net
+            b.altitude_minimale_sol AS sol, b.nombre_d_etages AS net,
+            ST_AsText(c.corr) AS corridor_wkt
      FROM bdtopo_batiment b, couloir c
      WHERE ST_Intersects(ST_Force2D(b.geom), c.corr)
        AND b.id <> $6
@@ -81,8 +90,21 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
     ],
   );
 
-  return res.rows.map((r) => {
-    const { altitudeSommetM, source } = resoudreSommet(r);
-    return { distanceM: r.dist_m, altitudeSommetM, source };
-  });
+  return Promise.all(
+    res.rows.map(async (r): Promise<ObstacleCandidat> => {
+      // Couloir principal : LiDAR (max nettoyé) prioritaire sur la cascade BD TOPO.
+      if (params.lidar) {
+        const lidar = await hauteurLidarMaxNettoye({
+          batimentId: r.id,
+          corridorWkt: r.corridor_wkt,
+        });
+        if (lidar.hauteurM !== null) {
+          return { distanceM: r.dist_m, altitudeSommetM: lidar.hauteurM, source: "LIDAR_HD" };
+        }
+      }
+      // Repli cascade BD TOPO (ou NONE).
+      const { altitudeSommetM, source } = resoudreSommet(r);
+      return { distanceM: r.dist_m, altitudeSommetM, source };
+    }),
+  );
 }
