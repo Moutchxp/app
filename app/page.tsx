@@ -18,7 +18,6 @@ type Etape = "photo" | "localisation" | "orientation" | "infos" | "resultat";
 
 export default function Home() {
   const [etape, setEtape] = useState<Etape>("photo");
-  const [orientationValidee, setOrientationValidee] = useState(false);
   const [address, setAddress] = useState("");
   const [addressInfo, setAddressInfo] = useState(""); // message d'info SOUS le champ, jamais dans sa valeur
   const origine = useOrigineValidation();
@@ -601,10 +600,7 @@ export default function Home() {
 
               <button
                 type="button"
-                onClick={() => {
-                  setOrientationValidee(true);
-                  setEtape("infos");
-                }}
+                onClick={() => setEtape("infos")}
                 className="w-full rounded-2xl bg-green-600 py-3 text-base font-bold text-white transition-colors active:bg-green-700"
               >
                 Valider mon orientation
