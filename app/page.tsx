@@ -5,15 +5,7 @@ import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import MapSelector from "./MapSelector";
 import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
-
-// Azimut → point cardinal FR (8 secteurs de 45°, Nord centré sur 0° : [337.5,360)∪[0,22.5)).
-function azimutCardinal(deg: number): string {
-  const cardinaux = [
-    "Nord", "Nord-Est", "Est", "Sud-Est", "Sud", "Sud-Ouest", "Ouest", "Nord-Ouest",
-  ];
-  const d = ((deg % 360) + 360) % 360; // normalisation modulo 360
-  return cardinaux[Math.round(d / 45) % 8];
-}
+import { cardinal } from "./lib/cardinal";
 
 type Etape = "photo" | "localisation" | "orientation" | "infos" | "resultat";
 
@@ -31,6 +23,7 @@ export default function Home() {
   const [suggestions, setSuggestions] = useState<{ label: string; lat: number; lon: number }[]>([]);
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ignoreNextReverseRef = useRef(false);
+  const conserverPositionRef = useRef(false); // au redo : garder le marqueur, ne pas réécrire via GPS
 
   const [position, setPosition] = useState({
     latitude: 48.8566,
@@ -312,7 +305,12 @@ export default function Home() {
         stopCamera();
 
         // 3. On déclenche la géolocalisation pour placer le point sur la carte
-        demanderPositionGPS();
+        if (conserverPositionRef.current) {
+          conserverPositionRef.current = false;
+          origine.evaluer(position.latitude, position.longitude); // re-évalue le point conservé (sans GPS)
+        } else {
+          demanderPositionGPS();
+        }
         setEtape("localisation");
       }
     }
@@ -332,6 +330,15 @@ export default function Home() {
         behavior: "smooth",
       });
     }, 100);
+  }
+
+  // « Mauvaise orientation » : reprendre la photo en conservant le point d'origine déjà placé.
+  function reprendrePhoto() {
+    setPhoto(null);
+    setCapturedOrientation(null);
+    origine.reset();                     // repasse en non-validé
+    conserverPositionRef.current = true; // garde la position du marqueur (GPS ne l'écrase pas)
+    setEtape("photo");
   }
 
   // Calculs mécaniques de l'instrumentation de bord
@@ -391,7 +398,7 @@ export default function Home() {
                   <span className="font-semibold">
                     Azimut :{" "}
                     {typeof angles.heading === "number"
-                      ? `${Math.round(angles.heading)}° (${azimutCardinal(angles.heading)})`
+                      ? `${Math.round(angles.heading)}° (${cardinal(angles.heading)})`
                       : "en attente…"}
                   </span>
                 </div>
@@ -448,7 +455,11 @@ export default function Home() {
                   >
                     {isLevel ? "📸 Prendre la photo" : "Ajuster les niveaux"}
                   </button>
-                  <button type="button" onClick={stopCamera} className="px-4 py-3 bg-slate-800 text-white rounded-full font-medium shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => { conserverPositionRef.current = false; stopCamera(); }}
+                    className="px-4 py-3 bg-slate-800 text-white rounded-full font-medium shadow-lg"
+                  >
                     Annuler
                   </button>
                 </div>
@@ -585,18 +596,12 @@ export default function Home() {
                   {/* Croix de visée centrale (faisceau de contrôle) */}
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <div className="relative h-6 w-6">
-                      <div className="absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 bg-white shadow-[0_0_2px_rgba(0,0,0,0.85)]" />
-                      <div className="absolute top-1/2 left-0 h-px w-6 -translate-y-1/2 bg-white shadow-[0_0_2px_rgba(0,0,0,0.85)]" />
+                      <div className="absolute left-1/2 top-1/2 h-12 w-1 -translate-x-1/2 -translate-y-1/2 bg-[#dc2626] shadow-[0_0_2px_rgba(0,0,0,0.85)]" />
+                      <div className="absolute left-1/2 top-1/2 h-px w-9 -translate-x-1/2 -translate-y-1/2 bg-white shadow-[0_0_2px_rgba(0,0,0,0.85)]" />
                     </div>
                   </div>
                 </div>
               )}
-
-              <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-900">
-                {capturedOrientation !== null
-                  ? `Orientation détectée : ${Math.round(capturedOrientation)}° (${azimutCardinal(capturedOrientation)})`
-                  : "Orientation indisponible"}
-              </div>
 
               <div className="mb-3">
                 <FaisceauMap
@@ -612,6 +617,13 @@ export default function Home() {
                 className="w-full rounded-2xl bg-green-600 py-3 text-base font-bold text-white transition-colors active:bg-green-700"
               >
                 Valider mon orientation
+              </button>
+              <button
+                type="button"
+                onClick={reprendrePhoto}
+                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white py-3 text-sm font-semibold text-slate-700 active:bg-slate-100"
+              >
+                Mauvaise orientation — reprendre la photo
               </button>
             </div>
           )}
