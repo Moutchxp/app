@@ -5,6 +5,15 @@ import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import MapSelector from "./MapSelector";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
 
+// Azimut → point cardinal FR (8 secteurs de 45°, Nord centré sur 0° : [337.5,360)∪[0,22.5)).
+function azimutCardinal(deg: number): string {
+  const cardinaux = [
+    "Nord", "Nord-Est", "Est", "Sud-Est", "Sud", "Sud-Ouest", "Ouest", "Nord-Ouest",
+  ];
+  const d = ((deg % 360) + 360) % 360; // normalisation modulo 360
+  return cardinaux[Math.round(d / 45) % 8];
+}
+
 export default function Home() {
   const [showResult, setShowResult] = useState(false);
   const [showMap, setShowMap] = useState(false);
@@ -374,6 +383,12 @@ export default function Home() {
                     <span>Inclinaison : {angles.pitch}° (Cible : 90°)</span>
                     <span>Roulis : {angles.roll}° (Marge : ±30°)</span>
                   </div>
+                  <span className="font-semibold">
+                    Azimut :{" "}
+                    {typeof angles.heading === "number"
+                      ? `${Math.round(angles.heading)}° (${azimutCardinal(angles.heading)})`
+                      : "en attente…"}
+                  </span>
                 </div>
 
                 {/* HUD Graphique : Arc + Croix */}
