@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import MapSelector from "./MapSelector";
+import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
 
 // Azimut → point cardinal FR (8 secteurs de 45°, Nord centré sur 0° : [337.5,360)∪[0,22.5)).
@@ -15,6 +16,9 @@ function azimutCardinal(deg: number): string {
 }
 
 type Etape = "photo" | "localisation" | "orientation" | "infos" | "resultat";
+
+// Carte du faisceau (affichage seul), client-only.
+const FaisceauMap = dynamic(() => import("./FaisceauMap"), { ssr: false });
 
 export default function Home() {
   const [etape, setEtape] = useState<Etape>("photo");
@@ -594,8 +598,12 @@ export default function Home() {
                   : "Orientation indisponible"}
               </div>
 
-              <div className="mb-3 flex h-40 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-400">
-                Carte du faisceau (à venir)
+              <div className="mb-3">
+                <FaisceauMap
+                  lat={origine.valide?.lat ?? position.latitude}
+                  lon={origine.valide?.lon ?? position.longitude}
+                  azimutDeg={capturedOrientation}
+                />
               </div>
 
               <button
