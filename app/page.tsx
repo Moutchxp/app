@@ -17,6 +17,7 @@ export default function Home() {
   const [suggestions, setSuggestions] = useState<{ label: string; lat: number; lon: number }[]>([]);
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ignoreNextReverseRef = useRef(false);
+  const [gpsRefuse, setGpsRefuse] = useState(false);
 
   const [position, setPosition] = useState({
     latitude: 48.8566,
@@ -252,6 +253,49 @@ export default function Home() {
     }
   }
 
+  // Demande de géolocalisation, réutilisable : capturePhoto ET bouton "Utiliser ma position".
+  function demanderPositionGPS() {
+    if (navigator.geolocation) {
+      setAddress("");
+      setAddressInfo("Calcul de votre position GPS…");
+      setShowMap(true); // On affiche la carte en mode chargement
+
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          setGpsRefuse(false);
+          const photoPosition = {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          };
+          // Met à jour la carte et lance le calcul d'adresse automatique (evaluer suit via moveend)
+          setPosition(photoPosition);
+          await getAddressFromGPS(photoPosition.latitude, photoPosition.longitude);
+        },
+        (error) => {
+          console.error("Erreur GPS — code:", error?.code, "message:", error?.message);
+          if (error?.code === 1) {
+            // Refus explicite : on propose le bouton de relance + message clair.
+            setGpsRefuse(true);
+            setAddressInfo(
+              "Géolocalisation refusée — saisissez votre adresse ci-dessus, ou autorisez la position dans les réglages de votre téléphone.",
+            );
+          } else {
+            setAddressInfo("Position introuvable — saisissez l'adresse ou déplacez le repère sur la carte.");
+          }
+        },
+        {
+          enableHighAccuracy: false, // position approx suffit (origine posée à la main) ; évite les timeouts en intérieur
+          timeout: 20000,
+          maximumAge: 60000 // accepte une position en cache (≤ 60 s)
+        }
+      );
+    } else {
+      // Fallback si le navigateur ne gère pas la géolocalisation
+      setShowMap(true);
+      setAddressInfo("Géolocalisation indisponible — saisissez l'adresse ou déplacez le repère.");
+    }
+  }
+
   // 🛠️ CAPTURE DOUBLE : PHOTO + POSITION GPS SIMULTANÉE
   function capturePhoto() {
     if (!isLevel) return; 
@@ -272,37 +316,7 @@ export default function Home() {
         stopCamera();
 
         // 3. On déclenche la géolocalisation pour placer le point sur la carte
-        if (navigator.geolocation) {
-          setAddress("");
-          setAddressInfo("Calcul de votre position GPS…");
-          setShowMap(true); // On affiche la carte en mode chargement
-
-          navigator.geolocation.getCurrentPosition(
-            async (pos) => {
-              const photoPosition = {
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude,
-              };
-              // Met à jour la carte et lance le calcul d'adresse automatique
-              setPosition(photoPosition);
-              await getAddressFromGPS(photoPosition.latitude, photoPosition.longitude);
-            },
-            (error) => {
-              console.error("Erreur GPS — code:", error?.code, "message:", error?.message);
-              setAddressInfo("Position introuvable — saisissez l'adresse ou déplacez le repère sur la carte.");
-              // Laisse la carte visible à la position par défaut pour le peaufinage manuel
-            },
-            {
-              enableHighAccuracy: false, // position approx suffit (origine posée à la main) ; évite les timeouts en intérieur
-              timeout: 20000,
-              maximumAge: 60000 // accepte une position en cache (≤ 60 s)
-            }
-          );
-        } else {
-          // Fallback si le navigateur ne gère pas la géolocalisation
-          setShowMap(true);
-          setAddressInfo("Géolocalisation indisponible — saisissez l'adresse ou déplacez le repère.");
-        }
+        demanderPositionGPS();
       }
     }
   }
@@ -478,6 +492,16 @@ export default function Home() {
               )}
               {addressInfo && (
                 <p className="-mt-3 mb-3 text-xs text-amber-600">{addressInfo}</p>
+              )}
+
+              {gpsRefuse && (
+                <button
+                  type="button"
+                  onClick={demanderPositionGPS}
+                  className="mb-3 w-full rounded-xl border border-slate-300 bg-white py-3 text-sm font-semibold text-slate-800 active:bg-slate-100"
+                >
+                  📍 Utiliser ma position
+                </button>
               )}
 
               <MapSelector
