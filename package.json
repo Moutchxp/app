@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "NEXT_TURBO=0 next dev",
+    "dev:https": "NEXT_TURBO=0 next dev --experimental-https --experimental-https-key ./certs/key.pem --experimental-https-cert ./certs/cert.pem",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
