@@ -8,6 +8,7 @@ export default function Home() {
   const [showResult, setShowResult] = useState(false);
   const [showMap, setShowMap] = useState(false);
   const [address, setAddress] = useState("");
+  const [addressInfo, setAddressInfo] = useState(""); // message d'info SOUS le champ, jamais dans sa valeur
 
   const [position, setPosition] = useState({
     latitude: 48.8566,
@@ -38,6 +39,7 @@ export default function Home() {
 
   // Moteur de calcul de l'adresse et validation bâtiment
   async function getAddressFromGPS(latitude: number, longitude: number) {
+    setAddressInfo(""); // on a un point → plus de message de statut
     try {
       const response = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
@@ -61,7 +63,9 @@ export default function Home() {
           const shortAddress = `${number} ${road}`.trim();
           setAddress(shortAddress || data.display_name);
         } else {
-          setAddress("Point GPS sélectionné");
+          // Pas d'adresse exploitable : champ vide, info sous le champ.
+          setAddress("");
+          setAddressInfo("Position trouvée — saisissez l'adresse ou ajustez le repère");
         }
       }
 
@@ -78,7 +82,7 @@ export default function Home() {
       console.log("Réponse API bâtiment :", buildingData);
 
     } catch {
-      setAddress("Adresse récupérée - Ajustez la position sur la carte");
+      setAddressInfo("Adresse récupérée - Ajustez la position sur la carte");
     }
   }
 
@@ -213,7 +217,8 @@ export default function Home() {
 
         // 3. On déclenche la géolocalisation pour placer le point sur la carte
         if (navigator.geolocation) {
-          setAddress("Calcul de votre position GPS...");
+          setAddress("");
+          setAddressInfo("Calcul de votre position GPS…");
           setShowMap(true); // On affiche la carte en mode chargement
 
           navigator.geolocation.getCurrentPosition(
@@ -227,20 +232,20 @@ export default function Home() {
               await getAddressFromGPS(photoPosition.latitude, photoPosition.longitude);
             },
             (error) => {
-              console.error("Erreur GPS :", error);
-              setAddress("Position introuvable - Placez manuellement le repère sur la carte");
+              console.error("Erreur GPS — code:", error?.code, "message:", error?.message);
+              setAddressInfo("Position introuvable — saisissez l'adresse ou déplacez le repère sur la carte.");
               // Laisse la carte visible à la position par défaut pour le peaufinage manuel
             },
-            { 
-              enableHighAccuracy: true, // Force l'iPhone à utiliser la puce GPS plutôt que le Wi-Fi
-              timeout: 9000,
-              maximumAge: 0 
+            {
+              enableHighAccuracy: false, // position approx suffit (origine posée à la main) ; évite les timeouts en intérieur
+              timeout: 20000,
+              maximumAge: 60000 // accepte une position en cache (≤ 60 s)
             }
           );
         } else {
           // Fallback si le navigateur ne gère pas la géolocalisation
           setShowMap(true);
-          setAddress("Placez votre repère rouge sur la carte");
+          setAddressInfo("Géolocalisation indisponible — saisissez l'adresse ou déplacez le repère.");
         }
       }
     }
@@ -398,8 +403,11 @@ export default function Home() {
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 className="mb-4 w-full rounded-xl border border-slate-300 p-3 text-sm bg-slate-50 font-medium"
-                placeholder="Adresse en cours de chargement..."
+                placeholder="Saisissez l'adresse, ou déplacez le repère sur la carte"
               />
+              {addressInfo && (
+                <p className="-mt-3 mb-3 text-xs text-amber-600">{addressInfo}</p>
+              )}
 
               <MapSelector
                 latitude={position.latitude}
