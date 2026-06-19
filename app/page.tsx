@@ -14,9 +14,11 @@ function azimutCardinal(deg: number): string {
   return cardinaux[Math.round(d / 45) % 8];
 }
 
+type Etape = "photo" | "localisation" | "orientation" | "infos" | "resultat";
+
 export default function Home() {
-  const [showResult, setShowResult] = useState(false);
-  const [showMap, setShowMap] = useState(false);
+  const [etape, setEtape] = useState<Etape>("photo");
+  const [orientationValidee, setOrientationValidee] = useState(false);
   const [address, setAddress] = useState("");
   const [addressInfo, setAddressInfo] = useState(""); // message d'info SOUS le champ, jamais dans sa valeur
   const origine = useOrigineValidation();
@@ -253,7 +255,6 @@ export default function Home() {
     if (navigator.geolocation) {
       setAddress("");
       setAddressInfo("Calcul de votre position GPS…");
-      setShowMap(true); // On affiche la carte en mode chargement
 
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
@@ -284,7 +285,6 @@ export default function Home() {
       );
     } else {
       // Fallback si le navigateur ne gère pas la géolocalisation
-      setShowMap(true);
       setAddressInfo("Géolocalisation indisponible — saisissez l'adresse ou déplacez le repère.");
     }
   }
@@ -310,6 +310,7 @@ export default function Home() {
 
         // 3. On déclenche la géolocalisation pour placer le point sur la carte
         demanderPositionGPS();
+        setEtape("localisation");
       }
     }
   }
@@ -322,7 +323,6 @@ export default function Home() {
   }
 
   function handleAnalyse() {
-    setShowResult(true);
     setTimeout(() => {
       window.scrollTo({
         top: document.body.scrollHeight,
@@ -336,7 +336,7 @@ export default function Home() {
   const cursorRotationDeg = Math.max(-50, Math.min(50, visualRoll));
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-6">
+    <main className="min-h-[100dvh] bg-slate-100 px-4 py-6">
       <div className="mx-auto max-w-md">
         <div className="mb-6 flex justify-center">
           <Image
@@ -349,6 +349,8 @@ export default function Home() {
         </div>
 
         <section className="rounded-3xl bg-white p-6 shadow">
+          {etape === "photo" && (
+            <>
           <h1 className="mb-2 text-3xl font-bold text-slate-900">
             Analyse Sans Vis-à-Vis®
           </h1>
@@ -462,9 +464,11 @@ export default function Home() {
               </div>
             )}
           </div>
+            </>
+          )}
 
-          {/* ZONE 2 : REGLAGE FIN DE L'ADRESSE ET DU MARQUEUR SUR LA MAP */}
-          {showMap && (
+          {/* ZONE 2 : ADRESSE + CARTE */}
+          {etape === "localisation" && (
             <div className="mb-6 border-t border-slate-100 pt-4 animate-fadeIn">
               <label className="mb-2 block font-semibold text-slate-800">2. Votre adresse</label>
               
@@ -540,16 +544,12 @@ export default function Home() {
                 </div>
               )}
 
-              {pointDeplace && origine.valide && (
-                <div className="mt-3 rounded-xl border border-green-300 bg-green-50 p-3 text-sm font-semibold text-green-800">
-                  ✓ Point d'origine validé : {origine.valide.lat.toFixed(6)}, {origine.valide.lon.toFixed(6)} — altitude terrain {origine.valide.altitudeTerrainOrigineM ?? "n/d"} m
-                  {origine.valide.batimentOrigine && ` — bâtiment ${origine.valide.batimentOrigine.cleabs}`}
-                </div>
-              )}
-
               <button
                 type="button"
-                onClick={() => origine.confirmer(position.latitude, position.longitude)}
+                onClick={() => {
+                  origine.confirmer(position.latitude, position.longitude);
+                  setEtape("orientation");
+                }}
                 disabled={!pointDeplace || origine.resultat?.statut !== "VALIDE" || !!origine.valide}
                 className={
                   "mt-3 w-full rounded-xl px-6 py-3 font-bold text-white transition-colors " +
@@ -563,6 +563,48 @@ export default function Home() {
             </div>
           )}
 
+          {/* ÉCRAN 3 : VALIDATION DE L'ORIENTATION */}
+          {etape === "orientation" && (
+            <div className="mb-6 border-t border-slate-100 pt-4 animate-fadeIn">
+              <label className="mb-1 block font-semibold text-slate-800">3. Vérifiez le faisceau d'analyse</label>
+              <p className="mb-3 text-sm text-slate-600">
+                Le faisceau rouge correspond-il bien à l'axe de votre vue ?
+              </p>
+
+              {photo && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={photo}
+                  alt="Vue capturée"
+                  className="mb-3 h-24 w-24 rounded-xl border border-slate-200 object-cover"
+                />
+              )}
+
+              <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-900">
+                {capturedOrientation !== null
+                  ? `Orientation détectée : ${Math.round(capturedOrientation)}° (${azimutCardinal(capturedOrientation)})`
+                  : "Orientation indisponible"}
+              </div>
+
+              <div className="mb-3 flex h-40 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-400">
+                Carte du faisceau (à venir)
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setOrientationValidee(true);
+                  setEtape("infos");
+                }}
+                className="w-full rounded-2xl bg-green-600 py-3 text-base font-bold text-white transition-colors active:bg-green-700"
+              >
+                Valider mon orientation
+              </button>
+            </div>
+          )}
+
+          {etape === "infos" && (
+            <>
           {/* INFORMATIONS COMPLÉMENTAIRES */}
           <div className="mb-4 grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
             <div>
@@ -603,23 +645,25 @@ export default function Home() {
             </div>
           </div>
 
-          <button type="button" onClick={handleAnalyse} className="mt-4 w-full rounded-2xl bg-red-700 py-4 text-lg font-bold text-white shadow-lg shadow-red-700/20 active:bg-red-800 transition-colors">
+          <button type="button" onClick={() => { handleAnalyse(); setEtape("resultat"); }} className="mt-4 w-full rounded-2xl bg-red-700 py-4 text-lg font-bold text-white shadow-lg shadow-red-700/20 active:bg-red-800 transition-colors">
             Lancer l’analyse de vis-à-vis
           </button>
-        </section>
+            </>
+          )}
 
-        {showResult && (
-          <section className="mt-6 rounded-3xl bg-white p-6 shadow animate-slideUp">
-            <p className="text-sm font-semibold text-red-700">Résultat de l’analyse</p>
-            <div className="mt-4 flex items-center justify-between">
-              <div>
-                <p className="text-4xl font-bold text-slate-900">92/100</p>
-                <p className="text-slate-600">Score Sans Vis-à-Vis</p>
+          {etape === "resultat" && (
+            <div className="border-t border-slate-100 pt-4 animate-fadeIn">
+              <p className="text-sm font-semibold text-red-700">Résultat de l’analyse</p>
+              <div className="mt-4 flex items-center justify-between">
+                <div>
+                  <p className="text-4xl font-bold text-slate-900">92/100</p>
+                  <p className="text-slate-600">Score Sans Vis-à-Vis</p>
+                </div>
+                <div className="rounded-full bg-green-100 px-4 py-2 font-bold text-green-700">Certifié</div>
               </div>
-              <div className="rounded-full bg-green-100 px-4 py-2 font-bold text-green-700">Certifié</div>
             </div>
-          </section>
-        )}
+          )}
+        </section>
       </div>
     </main>
   );
