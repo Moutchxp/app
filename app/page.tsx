@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import MapSelector from "./MapSelector";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
 
@@ -14,6 +14,9 @@ export default function Home() {
   const [pointDeplace, setPointDeplace] = useState(false); // true au 1er geste utilisateur sur la carte
   const [etage, setEtage] = useState("");
   const [dernierEtage, setDernierEtage] = useState(false);
+  const [suggestions, setSuggestions] = useState<{ label: string; lat: number; lon: number }[]>([]);
+  const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ignoreNextReverseRef = useRef(false);
 
   const [position, setPosition] = useState({
     latitude: 48.8566,
@@ -44,6 +47,11 @@ export default function Home() {
 
   // Moteur de calcul de l'adresse et validation bâtiment
   async function getAddressFromGPS(latitude: number, longitude: number) {
+    // Après une sélection d'adresse : sauter UN reverse-geocode pour ne pas écraser le label.
+    if (ignoreNextReverseRef.current) {
+      ignoreNextReverseRef.current = false;
+      return;
+    }
     setAddressInfo(""); // on a un point → plus de message de statut
     try {
       const response = await fetch(
@@ -77,6 +85,62 @@ export default function Home() {
       setAddressInfo("Adresse récupérée - Ajustez la position sur la carte");
     }
   }
+
+  // --- Autocomplétion d'adresse (BAN) : parcours de secours sans GPS ---
+  function onChangeAdresse(e: ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value;
+    setAddress(v); // champ contrôlé
+    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    if (v.trim().length < 3) {
+      setSuggestions([]);
+      return;
+    }
+    suggestTimerRef.current = setTimeout(() => fetchSuggestions(v), 300); // débounce ~300 ms
+  }
+
+  async function fetchSuggestions(q: string) {
+    type BanFeature = { properties?: { label?: string }; geometry?: { coordinates?: number[] } };
+    try {
+      const res = await fetch(
+        `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=5&autocomplete=1`,
+      );
+      const data: { features?: BanFeature[] } = await res.json();
+      const items = (data.features ?? [])
+        .map((f) => ({
+          label: f.properties?.label ?? "",
+          lon: f.geometry?.coordinates?.[0],
+          lat: f.geometry?.coordinates?.[1],
+        }))
+        .filter(
+          (s): s is { label: string; lat: number; lon: number } =>
+            s.label !== "" && typeof s.lat === "number" && typeof s.lon === "number",
+        );
+      setSuggestions(items);
+    } catch {
+      setSuggestions([]);
+    }
+  }
+
+  function selectSuggestion(s: { label: string; lat: number; lon: number }) {
+    setAddress(s.label);
+    setAddressInfo(""); // efface "Position introuvable…"
+    setSuggestions([]);
+    // Anti-écrasement : saute le reverse-geocode du moveend déclenché par le recentrage.
+    ignoreNextReverseRef.current = true;
+    // Filet : désarme le flag si aucun moveend ne survient (adresse ~ au centre actuel).
+    setTimeout(() => {
+      ignoreNextReverseRef.current = false;
+    }, 1500);
+    // Recentrage via le MÊME mécanisme que le GPS (setPosition → setView). Ne touche pas pointDeplace.
+    setPosition({ latitude: s.lat, longitude: s.lon });
+  }
+
+  // Purge du timer de débounce au démontage.
+  useEffect(() => {
+    return () => {
+      if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    };
+  }, []);
 
   // Écoute du gyroscope et de la boussole optimisée
   useEffect(() => {
@@ -393,10 +457,25 @@ export default function Home() {
               
               <input
                 value={address}
-                onChange={(e) => setAddress(e.target.value)}
+                onChange={onChangeAdresse}
                 className="mb-4 w-full rounded-xl border border-slate-300 p-3 text-base font-semibold text-slate-900 placeholder:text-slate-400 bg-slate-50"
                 placeholder="Saisissez l'adresse, ou déplacez le repère sur la carte"
               />
+              {suggestions.length > 0 && (
+                <ul className="-mt-3 mb-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow divide-y divide-slate-100">
+                  {suggestions.map((s, i) => (
+                    <li key={i}>
+                      <button
+                        type="button"
+                        onClick={() => selectSuggestion(s)}
+                        className="w-full px-3 py-2 text-left text-sm text-slate-800 active:bg-slate-100"
+                      >
+                        {s.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {addressInfo && (
                 <p className="-mt-3 mb-3 text-xs text-amber-600">{addressInfo}</p>
               )}
