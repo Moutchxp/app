@@ -402,7 +402,7 @@ export default function Home() {
               <input
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
-                className="mb-4 w-full rounded-xl border border-slate-300 p-3 text-sm bg-slate-50 font-medium"
+                className="mb-4 w-full rounded-xl border border-slate-300 p-3 text-base font-semibold text-slate-900 placeholder:text-slate-400 bg-slate-50"
                 placeholder="Saisissez l'adresse, ou déplacez le repère sur la carte"
               />
               {addressInfo && (

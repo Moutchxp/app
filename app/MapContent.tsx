@@ -61,6 +61,18 @@ export default function MapContent({
     };
   }, []);
 
+  // Recentrage parent → carte quand les props lat/lon changent (ex. après succès GPS).
+  // Garde anti-boucle : on ne recentre que si l'écart avec le centre actuel dépasse
+  // ~1e-5 (sinon boucle infinie avec moveend → onPositionChange → setPosition).
+  useEffect(() => {
+    const map = leafletMap.current;
+    if (!map) return;
+    const c = map.getCenter();
+    if (Math.abs(c.lat - latitude) > 0.00001 || Math.abs(c.lng - longitude) > 0.00001) {
+      map.setView([latitude, longitude], map.getZoom());
+    }
+  }, [latitude, longitude]);
+
   useEffect(() => {
     if (!leafletMap.current) return;
 
