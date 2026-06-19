@@ -3,12 +3,14 @@
 import Image from "next/image";
 import { useState, useEffect, useRef } from "react";
 import MapSelector from "./MapSelector";
+import { useOrigineValidation } from "./lib/useOrigineValidation";
 
 export default function Home() {
   const [showResult, setShowResult] = useState(false);
   const [showMap, setShowMap] = useState(false);
   const [address, setAddress] = useState("");
   const [addressInfo, setAddressInfo] = useState(""); // message d'info SOUS le champ, jamais dans sa valeur
+  const origine = useOrigineValidation();
 
   const [position, setPosition] = useState({
     latitude: 48.8566,
@@ -68,19 +70,6 @@ export default function Home() {
           setAddressInfo("Position trouvée — saisissez l'adresse ou ajustez le repère");
         }
       }
-
-      // Appel à ton API de vérification d'emprise bâtiment
-      const buildingResponse = await fetch("/api/check-building", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ latitude, longitude }),
-      });
-
-      const buildingData = await buildingResponse.json();
-      console.log("Réponse API bâtiment :", buildingData);
-
     } catch {
       setAddressInfo("Adresse récupérée - Ajustez la position sur la carte");
     }
@@ -415,11 +404,58 @@ export default function Home() {
                 onPositionChange={(newPosition) => {
                   setPosition(newPosition);
                   getAddressFromGPS(newPosition.latitude, newPosition.longitude);
+                  origine.evaluer(newPosition.latitude, newPosition.longitude);
                 }}
               />
               <p className="mt-2 text-xs text-slate-500">
                 🎯 Déplacez la carte pour caler précisément le repère rouge sur la façade de votre pièce.
               </p>
+
+              {/* Validation du point d'origine (PostGIS via /api/origine) */}
+              {origine.enCours && (
+                <p className="mt-3 text-sm text-slate-500">Vérification du point…</p>
+              )}
+
+              {!origine.enCours && origine.resultat && !origine.valide && (
+                <div
+                  className={
+                    "mt-3 rounded-xl border p-3 text-sm font-medium " +
+                    (origine.resultat.statut === "VALIDE"
+                      ? "border-green-300 bg-green-50 text-green-800"
+                      : origine.resultat.statut === "HORS_BATIMENT"
+                        ? "border-amber-300 bg-amber-50 text-amber-800"
+                        : "border-red-300 bg-red-50 text-red-800")
+                  }
+                >
+                  {origine.resultat.statut === "VALIDE" &&
+                    `✓ Point validable — à l'intérieur d'un bâtiment (altitude terrain ${origine.resultat.altitudeTerrainOrigineM ?? "n/d"} m). Appuyez sur « Valider » pour confirmer.`}
+                  {origine.resultat.statut === "HORS_BATIMENT" &&
+                    `✗ Point non validable — en dehors d'un bâtiment (à ${origine.resultat.distanceAuBatimentM.toFixed(2)} m). Déplacez la carte.`}
+                  {origine.resultat.statut === "SANS_BATIMENT" &&
+                    "✗ Point non validable — aucun bâtiment ici."}
+                </div>
+              )}
+
+              {origine.valide && (
+                <div className="mt-3 rounded-xl border border-green-300 bg-green-50 p-3 text-sm font-semibold text-green-800">
+                  ✓ Point d'origine validé : {origine.valide.lat.toFixed(6)}, {origine.valide.lon.toFixed(6)} — altitude terrain {origine.valide.altitudeTerrainOrigineM ?? "n/d"} m
+                  {origine.valide.batimentOrigine && ` — bâtiment ${origine.valide.batimentOrigine.cleabs}`}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => origine.confirmer(position.latitude, position.longitude)}
+                disabled={origine.resultat?.statut !== "VALIDE" || !!origine.valide}
+                className={
+                  "mt-3 w-full rounded-xl px-6 py-3 font-bold text-white transition-colors " +
+                  (origine.resultat?.statut === "VALIDE" && !origine.valide
+                    ? "bg-green-600 hover:bg-green-700"
+                    : "bg-slate-300 cursor-not-allowed")
+                }
+              >
+                Valider ce point d'origine
+              </button>
             </div>
           )}
 
