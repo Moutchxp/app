@@ -11,6 +11,9 @@ export default function Home() {
   const [address, setAddress] = useState("");
   const [addressInfo, setAddressInfo] = useState(""); // message d'info SOUS le champ, jamais dans sa valeur
   const origine = useOrigineValidation();
+  const [pointDeplace, setPointDeplace] = useState(false); // true au 1er geste utilisateur sur la carte
+  const [etage, setEtage] = useState("");
+  const [dernierEtage, setDernierEtage] = useState(false);
 
   const [position, setPosition] = useState({
     latitude: 48.8566,
@@ -406,17 +409,26 @@ export default function Home() {
                   getAddressFromGPS(newPosition.latitude, newPosition.longitude);
                   origine.evaluer(newPosition.latitude, newPosition.longitude);
                 }}
+                onUserMove={() => setPointDeplace(true)}
               />
               <p className="mt-2 text-xs text-slate-500">
                 🎯 Déplacez la carte pour caler précisément le repère rouge sur la façade de votre pièce.
               </p>
 
-              {/* Validation du point d'origine (PostGIS via /api/origine) */}
-              {origine.enCours && (
+              {/* Tant que l'utilisateur n'a pas déplacé le point : consigne en rouge. */}
+              {!pointDeplace && (
+                <div className="mt-3 rounded-xl border border-red-400 bg-red-50 p-3 text-sm font-semibold text-red-800">
+                  📍 Placez précisément le point GPS sur la fenêtre du point de vue que vous voulez faire
+                  valider : déplacez la carte pour amener le repère rouge sur cette fenêtre.
+                </div>
+              )}
+
+              {/* Validation du point d'origine (PostGIS via /api/origine) — après 1er déplacement */}
+              {pointDeplace && origine.enCours && (
                 <p className="mt-3 text-sm text-slate-500">Vérification du point…</p>
               )}
 
-              {!origine.enCours && origine.resultat && !origine.valide && (
+              {pointDeplace && !origine.enCours && origine.resultat && !origine.valide && (
                 <div
                   className={
                     "mt-3 rounded-xl border p-3 text-sm font-medium " +
@@ -436,7 +448,7 @@ export default function Home() {
                 </div>
               )}
 
-              {origine.valide && (
+              {pointDeplace && origine.valide && (
                 <div className="mt-3 rounded-xl border border-green-300 bg-green-50 p-3 text-sm font-semibold text-green-800">
                   ✓ Point d'origine validé : {origine.valide.lat.toFixed(6)}, {origine.valide.lon.toFixed(6)} — altitude terrain {origine.valide.altitudeTerrainOrigineM ?? "n/d"} m
                   {origine.valide.batimentOrigine && ` — bâtiment ${origine.valide.batimentOrigine.cleabs}`}
@@ -446,10 +458,10 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => origine.confirmer(position.latitude, position.longitude)}
-                disabled={origine.resultat?.statut !== "VALIDE" || !!origine.valide}
+                disabled={!pointDeplace || origine.resultat?.statut !== "VALIDE" || !!origine.valide}
                 className={
                   "mt-3 w-full rounded-xl px-6 py-3 font-bold text-white transition-colors " +
-                  (origine.resultat?.statut === "VALIDE" && !origine.valide
+                  (pointDeplace && origine.resultat?.statut === "VALIDE" && !origine.valide
                     ? "bg-green-600 hover:bg-green-700"
                     : "bg-slate-300 cursor-not-allowed")
                 }
@@ -463,13 +475,38 @@ export default function Home() {
           <div className="mb-4 grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
             <div>
               <label className="mb-1 block text-sm font-semibold text-slate-700">Étage du séjour</label>
-              <input type="number" className="w-full rounded-xl border border-slate-300 p-3" placeholder="Ex : 4" />
+              <input
+                type="number"
+                inputMode="numeric"
+                value={etage}
+                onChange={(e) => setEtage(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 p-3 text-base font-semibold text-slate-900 placeholder:text-slate-400 bg-slate-50"
+                placeholder="Ex : 4"
+              />
             </div>
             <div>
               <label className="mb-1 block text-sm font-semibold text-slate-700">Dernier étage ?</label>
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" className="rounded-xl border border-slate-300 bg-white py-3 text-sm font-semibold">Oui</button>
-                <button type="button" className="rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white">Non</button>
+                <button
+                  type="button"
+                  onClick={() => setDernierEtage(true)}
+                  className={
+                    "rounded-xl py-3 text-sm font-semibold " +
+                    (dernierEtage ? "bg-slate-900 text-white" : "border border-slate-300 bg-white text-slate-800")
+                  }
+                >
+                  Oui
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDernierEtage(false)}
+                  className={
+                    "rounded-xl py-3 text-sm font-semibold " +
+                    (!dernierEtage ? "bg-slate-900 text-white" : "border border-slate-300 bg-white text-slate-800")
+                  }
+                >
+                  Non
+                </button>
               </div>
             </div>
           </div>

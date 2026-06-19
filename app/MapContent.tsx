@@ -11,12 +11,14 @@ type MapContentProps = {
     latitude: number;
     longitude: number;
   }) => void;
+  onUserMove?: () => void;
 };
 
 export default function MapContent({
   latitude,
   longitude,
   onPositionChange,
+  onUserMove,
 }: MapContentProps) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const leafletMap = useRef<L.Map | null>(null);
@@ -51,10 +53,15 @@ export default function MapContent({
       }, 500);
     });
 
+    // Geste utilisateur uniquement : dragstart n'est jamais déclenché par setView.
+    const handleUserMove = () => onUserMove?.();
+    leafletMap.current.on("dragstart", handleUserMove);
+
     return () => {
       if (moveTimer.current) {
         clearTimeout(moveTimer.current);
       }
+      leafletMap.current?.off("dragstart", handleUserMove);
 
       leafletMap.current?.remove();
       leafletMap.current = null;

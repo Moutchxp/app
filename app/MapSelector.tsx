@@ -7,6 +7,7 @@ type MapSelectorProps = {
   latitude: number;
   longitude: number;
   onPositionChange: (position: { latitude: number; longitude: number }) => void;
+  onUserMove?: () => void;
 };
 
 let MapContent: any = () => null;
