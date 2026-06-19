@@ -261,10 +261,10 @@ export default function Home() {
           if (error?.code === 1) {
             // Refus : sans impact (le GPS ne sert qu'au centrage ; le point est posé à la main).
             setAddressInfo(
-              "Position non partagée — saisissez votre adresse ci-dessus, ou déplacez la carte directement sur la fenêtre du logement.",
+              "Géolocalisation non partagée — saisissez votre adresse ci-dessus, ou déplacez la carte directement sur la fenêtre du logement.",
             );
           } else {
-            setAddressInfo("Position introuvable — saisissez l'adresse ou déplacez le repère sur la carte.");
+            setAddressInfo("Géolocalisation introuvable — saisissez l'adresse ou déplacez le repère sur la carte.");
           }
         },
         {
@@ -451,7 +451,7 @@ export default function Home() {
           {/* ZONE 2 : REGLAGE FIN DE L'ADRESSE ET DU MARQUEUR SUR LA MAP */}
           {showMap && (
             <div className="mb-6 border-t border-slate-100 pt-4 animate-fadeIn">
-              <label className="mb-2 block font-semibold text-slate-800">2. Localisation précise de la fenêtre</label>
+              <label className="mb-2 block font-semibold text-slate-800">2. Votre adresse</label>
               
               <input
                 value={address}
