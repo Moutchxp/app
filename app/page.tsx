@@ -55,32 +55,19 @@ export default function Home() {
     }
     setAddressInfo(""); // on a un point → plus de message de statut
     try {
+      // Reverse BAN (cohérent avec l'autocomplétion) : le label inclut le numéro si le point
+      // est proche d'une adresse de type housenumber.
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
-        {
-          headers: {
-            "User-Agent": "SansVisAVisMVP/1.0 (a.jorel@sansvisavis.com)"
-          }
-        }
+        `https://api-adresse.data.gouv.fr/reverse/?lat=${latitude}&lon=${longitude}`,
       );
-
-      const data = await response.json();
-
-      if (data && data.display_name) {
-        const number = data.address?.house_number || "";
-        const road = data.address?.road || data.address?.pedestrian || "";
-        const city = data.address?.city || data.address?.town || data.address?.village || "";
-        
-        if (number && road && city) {
-          setAddress(`${number} ${road}, ${city}`);
-        } else if (data.address?.building || road) {
-          const shortAddress = `${number} ${road}`.trim();
-          setAddress(shortAddress || data.display_name);
-        } else {
-          // Pas d'adresse exploitable : champ vide, info sous le champ.
-          setAddress("");
-          setAddressInfo("Position trouvée — saisissez l'adresse ou ajustez le repère");
-        }
+      const data: { features?: { properties?: { label?: string } }[] } = await response.json();
+      const label = data.features?.[0]?.properties?.label;
+      if (label) {
+        setAddress(label);
+      } else {
+        // Pas d'adresse exploitable (point loin de toute adresse) : champ vide, info de repli.
+        setAddress("");
+        setAddressInfo("Position trouvée — saisissez l'adresse ou ajustez le repère");
       }
     } catch {
       setAddressInfo("Adresse récupérée - Ajustez la position sur la carte");
@@ -272,12 +259,12 @@ export default function Home() {
           await getAddressFromGPS(photoPosition.latitude, photoPosition.longitude);
         },
         (error) => {
-          console.error("Erreur GPS — code:", error?.code, "message:", error?.message);
+          console.warn("Géoloc refusée/indisponible — code:", error?.code, "message:", error?.message);
           if (error?.code === 1) {
-            // Refus explicite : on propose le bouton de relance + message clair.
+            // Refus : sur iOS le prompt ne réapparaît pas dans la session → seul recours = recharger.
             setGpsRefuse(true);
             setAddressInfo(
-              "Géolocalisation refusée — saisissez votre adresse ci-dessus, ou autorisez la position dans les réglages de votre téléphone.",
+              "Géolocalisation refusée — saisissez votre adresse ci-dessus, ou relancez la procédure pour réautoriser la position (la page se recharge, vous reprendrez la photo).",
             );
           } else {
             setAddressInfo("Position introuvable — saisissez l'adresse ou déplacez le repère sur la carte.");
@@ -497,10 +484,10 @@ export default function Home() {
               {gpsRefuse && (
                 <button
                   type="button"
-                  onClick={demanderPositionGPS}
+                  onClick={() => window.location.reload()}
                   className="mb-3 w-full rounded-xl border border-slate-300 bg-white py-3 text-sm font-semibold text-slate-800 active:bg-slate-100"
                 >
-                  📍 Utiliser ma position
+                  🔄 Relancer la procédure
                 </button>
               )}
 
