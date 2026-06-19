@@ -17,7 +17,6 @@ export default function Home() {
   const [suggestions, setSuggestions] = useState<{ label: string; lat: number; lon: number }[]>([]);
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ignoreNextReverseRef = useRef(false);
-  const [gpsRefuse, setGpsRefuse] = useState(false);
 
   const [position, setPosition] = useState({
     latitude: 48.8566,
@@ -249,7 +248,6 @@ export default function Home() {
 
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
-          setGpsRefuse(false);
           const photoPosition = {
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude,
@@ -261,10 +259,9 @@ export default function Home() {
         (error) => {
           console.warn("Géoloc refusée/indisponible — code:", error?.code, "message:", error?.message);
           if (error?.code === 1) {
-            // Refus : sur iOS le prompt ne réapparaît pas dans la session → seul recours = recharger.
-            setGpsRefuse(true);
+            // Refus : sans impact (le GPS ne sert qu'au centrage ; le point est posé à la main).
             setAddressInfo(
-              "Géolocalisation refusée — saisissez votre adresse ci-dessus, ou relancez la procédure pour réautoriser la position (la page se recharge, vous reprendrez la photo).",
+              "Position non partagée — saisissez votre adresse ci-dessus, ou déplacez la carte directement sur la fenêtre du logement.",
             );
           } else {
             setAddressInfo("Position introuvable — saisissez l'adresse ou déplacez le repère sur la carte.");
@@ -479,16 +476,6 @@ export default function Home() {
               )}
               {addressInfo && (
                 <p className="-mt-3 mb-3 text-xs text-amber-600">{addressInfo}</p>
-              )}
-
-              {gpsRefuse && (
-                <button
-                  type="button"
-                  onClick={() => window.location.reload()}
-                  className="mb-3 w-full rounded-xl border border-slate-300 bg-white py-3 text-sm font-semibold text-slate-800 active:bg-slate-100"
-                >
-                  🔄 Relancer la procédure
-                </button>
               )}
 
               <MapSelector
