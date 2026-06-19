@@ -572,12 +572,21 @@ export default function Home() {
               </p>
 
               {photo && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={photo}
-                  alt="Vue capturée"
-                  className="mb-3 h-24 w-24 rounded-xl border border-slate-200 object-cover"
-                />
+                <div className="relative -mx-6 mb-3 aspect-[16/9] overflow-hidden rounded-xl">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo}
+                    alt="Vue capturée"
+                    className="w-full h-full object-cover object-center"
+                  />
+                  {/* Croix de visée centrale (faisceau de contrôle) */}
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="relative h-6 w-6">
+                      <div className="absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 bg-white shadow-[0_0_2px_rgba(0,0,0,0.85)]" />
+                      <div className="absolute top-1/2 left-0 h-px w-6 -translate-y-1/2 bg-white shadow-[0_0_2px_rgba(0,0,0,0.85)]" />
+                    </div>
+                  </div>
+                </div>
               )}
 
               <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-900">
