@@ -802,100 +802,100 @@ export default function Home() {
   </div>
 )}
 
-          {etape === "resultat" && (
-            <div className="border-t border-slate-100 pt-4 animate-fadeIn">
-              <p className="text-sm font-semibold text-red-700">Résultat de l’analyse</p>
+{etape === "resultat" && (
+  <div className="animate-fadeIn">
+    <p className="text-sm font-semibold text-svv-muted">Résultat de l&apos;analyse</p>
 
-              {analyseEnCours ? (
-                /* a) chargement */
-                <p className="mt-4 text-sm text-slate-500">
-                  Analyse en cours… Lecture du terrain et des toits…
-                </p>
-              ) : analyseErreur ? (
-                /* b) erreur */
-                <div className="mt-4 rounded-xl border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-800">
-                  <p>{analyseErreur}</p>
-                  <button
-                    type="button"
-                    onClick={handleAnalyse}
-                    className="mt-3 w-full rounded-xl bg-red-700 py-2.5 text-sm font-bold text-white active:bg-red-800"
-                  >
-                    Réessayer
-                  </button>
-                </div>
-              ) : analyse &&
-                (!analyse.resultat ||
-                  analyse.resultat.verdict.verdict === "INDETERMINE") ? (
-                /* c) indéterminé */
-                <div className="mt-4 rounded-xl border border-slate-300 bg-slate-50 p-4">
-                  <p className="text-lg font-bold text-slate-900">Analyse indéterminée</p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {analyse.resultat?.verdict?.raison ??
-                      analyse.validation?.raison ??
-                      "Couverture insuffisante ou origine hors bâtiment. Aucun certificat ne peut être émis."}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setEtape("localisation")}
-                    className="mt-3 w-full rounded-xl border border-slate-300 bg-white py-2.5 text-sm font-semibold text-slate-700 active:bg-slate-100"
-                  >
-                    Modifier le point
-                  </button>
-                </div>
-              ) : analyse && analyse.resultat ? (
-                /* d) vrai résultat */
-                <>
-                  <div className="mt-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-4xl font-bold text-slate-900">
-                        {Math.round(analyse.resultat.score.total)}/100
-                      </p>
-                      <p className="text-slate-600">Score Sans Vis-à-Vis</p>
-                    </div>
-                    <div
-                      className={
-                        "rounded-full px-4 py-2 font-bold " +
-                        (analyse.resultat.verdict.verdict === "SANS_VIS_A_VIS"
-                          ? "bg-green-100 text-green-700"
-                          : "bg-amber-100 text-amber-800")
-                      }
-                    >
-                      {analyse.resultat.verdict.verdict === "SANS_VIS_A_VIS"
-                        ? "Sans Vis-à-Vis® certifié"
-                        : "Vis-à-vis"}
-                    </div>
-                  </div>
+    {analyseEnCours ? (
+      /* a) chargement */
+      <p className="mt-4 text-sm text-svv-muted">
+        Analyse en cours… Lecture du terrain et des toits…
+      </p>
+    ) : analyseErreur ? (
+      /* b) erreur */
+      <div className="mt-4 rounded-xl border border-svv-red/30 bg-svv-red/5 p-3 text-sm font-medium text-svv-red">
+        <p>{analyseErreur}</p>
+        <button
+          type="button"
+          onClick={handleAnalyse}
+          className="svv-btn svv-btn-primary mt-3"
+        >
+          Réessayer
+        </button>
+      </div>
+    ) : analyse &&
+      (!analyse.resultat ||
+        analyse.resultat.verdict.verdict === "INDETERMINE") ? (
+      /* c) indéterminé */
+      <div className="mt-4 rounded-xl border border-svv-line bg-svv-field p-4">
+        <p className="text-lg font-bold text-svv-ink">Analyse indéterminée</p>
+        <p className="mt-1 text-sm text-svv-muted">
+          {analyse.resultat?.verdict?.raison ??
+            analyse.validation?.raison ??
+            "Couverture insuffisante ou origine hors bâtiment. Aucun certificat ne peut être émis."}
+        </p>
+        <button
+          type="button"
+          onClick={() => setEtape("localisation")}
+          className="svv-btn svv-btn-outline mt-3"
+        >
+          Modifier le point
+        </button>
+      </div>
+    ) : analyse && analyse.resultat ? (
+      /* d) vrai résultat */
+      <>
+        <div className="mt-4 flex items-center justify-between">
+          <div>
+            <p className="text-4xl font-bold text-svv-ink">
+              {Math.round(analyse.resultat.score.total)}/100
+            </p>
+            <p className="text-svv-muted">Score Sans Vis-à-Vis</p>
+          </div>
+          <div
+            className={
+              "rounded-full px-4 py-2 font-bold " +
+              (analyse.resultat.verdict.verdict === "SANS_VIS_A_VIS"
+                ? "bg-svv-green-soft text-svv-green-ink"
+                : "bg-amber-100 text-amber-800")
+            }
+          >
+            {analyse.resultat.verdict.verdict === "SANS_VIS_A_VIS"
+              ? "Sans Vis-à-Vis® certifié"
+              : "Vis-à-vis"}
+          </div>
+        </div>
 
-                  {analyse.resultat.score.libelle && (
-                    <p className="mt-2 text-sm font-medium text-slate-700">
-                      {analyse.resultat.score.libelle}
-                    </p>
-                  )}
-                  {analyse.resultat.score.scorePartiel && (
-                    <p className="mt-1 text-xs text-slate-500">
-                      Score partiel — photo insuffisante
-                    </p>
-                  )}
+        {analyse.resultat.score.libelle && (
+          <p className="mt-2 text-sm font-medium text-svv-ink">
+            {analyse.resultat.score.libelle}
+          </p>
+        )}
+        {analyse.resultat.score.scorePartiel && (
+          <p className="mt-1 text-xs text-svv-muted">
+            Score partiel — photo insuffisante
+          </p>
+        )}
 
-                  <p className="mt-3 text-sm text-slate-700">
-                    {Number.isFinite(analyse.resultat.verdict.distanceM)
-                      ? "Premier obstacle à " +
-                        (analyse.resultat.verdict.distanceM as number)
-                          .toFixed(1)
-                          .replace(".", ",") +
-                        " m"
-                      : "Aucun obstacle détecté sur l'axe (200 m)"}
-                  </p>
+        <p className="mt-3 text-sm text-svv-gray">
+          {Number.isFinite(analyse.resultat.verdict.distanceM)
+            ? "Premier obstacle à " +
+              (analyse.resultat.verdict.distanceM as number)
+                .toFixed(1)
+                .replace(".", ",") +
+              " m"
+            : "Aucun obstacle détecté sur l'axe (200 m)"}
+        </p>
 
-                  {analyse.resultat.verdict.analyseDegradee && (
-                    <p className="mt-2 text-xs text-amber-700">
-                      Analyse dégradée (donnée altimétrique de repli)
-                    </p>
-                  )}
-                </>
-              ) : null}
-            </div>
-          )}
+        {analyse.resultat.verdict.analyseDegradee && (
+          <p className="mt-2 text-xs text-amber-700">
+            Analyse dégradée (donnée altimétrique de repli)
+          </p>
+        )}
+      </>
+    ) : null}
+  </div>
+)}
         </section>
       </div>
     </main>
