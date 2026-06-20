@@ -692,55 +692,57 @@ export default function Home() {
 )}
 
           {/* ÉCRAN 3 : VALIDATION DE L'ORIENTATION */}
-          {etape === "orientation" && (
-            <div className="mb-6 border-t border-slate-100 pt-4 animate-fadeIn">
-              <label className="mb-1 block font-semibold text-slate-800">3. Vérifiez le faisceau d'analyse</label>
-              <p className="mb-3 text-sm text-slate-600">
-                Le faisceau rouge correspond-il bien à l'axe de votre vue ?
-              </p>
+{etape === "orientation" && (
+  <div className="animate-fadeIn">
+    <h1 className="text-[1.6rem] font-extrabold leading-tight tracking-tight text-svv-ink">
+      Vérifiez le faisceau d&apos;analyse
+    </h1>
+    <p className="mt-2 mb-4 text-sm leading-relaxed text-svv-muted">
+      Le faisceau rouge correspond-il bien à l&apos;axe de votre vue ?
+    </p>
 
-              {photo && (
-                <div className="relative -mx-6 mb-3 aspect-[2/1] overflow-hidden rounded-xl">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={photo}
-                    alt="Vue capturée"
-                    className="w-full h-full object-cover object-center"
-                  />
-                  {/* Croix de visée centrale (faisceau de contrôle) */}
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <div className="relative h-6 w-6">
-                      <div className="absolute left-1/2 top-1/2 h-12 w-1 -translate-x-1/2 -translate-y-1/2 bg-[#dc2626] shadow-[0_0_2px_rgba(0,0,0,0.85)]" />
-                      <div className="absolute left-1/2 top-1/2 h-px w-9 -translate-x-1/2 -translate-y-1/2 bg-white shadow-[0_0_2px_rgba(0,0,0,0.85)]" />
-                    </div>
-                  </div>
-                </div>
-              )}
+    {photo && (
+      <div className="relative -mx-6 mb-3 aspect-[2/1] overflow-hidden rounded-xl">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={photo}
+          alt="Vue capturée"
+          className="w-full h-full object-cover object-center"
+        />
+        {/* Croix de visée centrale (faisceau de contrôle) */}
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="relative h-6 w-6">
+            <div className="absolute left-1/2 top-1/2 h-12 w-1 -translate-x-1/2 -translate-y-1/2 bg-[#dc2626] shadow-[0_0_2px_rgba(0,0,0,0.85)]" />
+            <div className="absolute left-1/2 top-1/2 h-px w-9 -translate-x-1/2 -translate-y-1/2 bg-white shadow-[0_0_2px_rgba(0,0,0,0.85)]" />
+          </div>
+        </div>
+      </div>
+    )}
 
-              <div className="mb-3">
-                <FaisceauMap
-                  lat={origine.valide?.lat ?? position.latitude}
-                  lon={origine.valide?.lon ?? position.longitude}
-                  azimutDeg={capturedOrientation}
-                />
-              </div>
+    <div className="mb-3">
+      <FaisceauMap
+        lat={origine.valide?.lat ?? position.latitude}
+        lon={origine.valide?.lon ?? position.longitude}
+        azimutDeg={capturedOrientation}
+      />
+    </div>
 
-              <button
-                type="button"
-                onClick={() => setEtape("infos")}
-                className="w-full rounded-2xl bg-green-600 py-3 text-base font-bold text-white transition-colors active:bg-green-700"
-              >
-                Valider mon orientation
-              </button>
-              <button
-                type="button"
-                onClick={reprendrePhoto}
-                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white py-3 text-sm font-semibold text-slate-700 active:bg-slate-100"
-              >
-                Mauvaise orientation — reprendre la photo
-              </button>
-            </div>
-          )}
+    <button
+      type="button"
+      onClick={() => setEtape("infos")}
+      className="svv-btn svv-btn-primary"
+    >
+      Valider mon orientation
+    </button>
+    <button
+      type="button"
+      onClick={reprendrePhoto}
+      className="svv-btn svv-btn-outline mt-2"
+    >
+      Mauvaise orientation — reprendre la photo
+    </button>
+  </div>
+)}
 
           {etape === "infos" && (
             <>
