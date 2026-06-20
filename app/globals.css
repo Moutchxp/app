@@ -2,7 +2,7 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #16202c;
 }
 
 @theme inline {
@@ -12,15 +12,35 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Charte Sans Vis-à-Vis® */
+@theme {
+  --color-svv-red: #bc1d1d;
+  --color-svv-red-dark: #a60000;
+  --color-svv-ink: #16202c;
+  --color-svv-gray: #454545;
+  --color-svv-muted: #5c6573;
+  --color-svv-green: #2e9e5b;
+  --color-svv-green-soft: #e7f4ec;
+  --color-svv-green-ink: #1e7a3d;
+  --color-svv-line: #e6e8ec;
+  --color-svv-field: #f3f4f6;
+}
+
+@layer components {
+  .svv-btn{display:flex;width:100%;align-items:center;justify-content:center;gap:.55rem;border:0;border-radius:.85rem;padding:1rem;font-weight:700;font-size:1rem;line-height:1;cursor:pointer;transition:background-color .15s ease,border-color .15s ease}
+  .svv-btn-primary{background:var(--color-svv-red);color:#fff;box-shadow:0 10px 22px rgba(166,0,0,.18)}
+  .svv-btn-primary:hover{background:var(--color-svv-red-dark)}
+  .svv-btn-outline{background:#fff;color:var(--color-svv-ink);border:1px solid #d7dbe1}
+  .svv-btn-outline:hover{border-color:#b7bcc6}
+  .svv-link{display:flex;width:100%;align-items:center;justify-content:center;gap:.4rem;background:none;border:0;color:var(--color-svv-muted);font-weight:600;font-size:.875rem;cursor:pointer;padding:.85rem 0 .15rem}
+  .svv-link:hover{color:var(--color-svv-ink)}
+  .svv-card{background:#fff;border:1px solid var(--color-svv-line);border-radius:14px;padding:14px 16px}
+  .svv-pill{display:inline-block;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:700;font-size:12px;border-radius:999px;padding:7px 12px}
+  .svv-label{font-size:11px;font-weight:700;letter-spacing:.02em;color:#8a929e}
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, Arial, Helvetica, sans-serif;
 }
