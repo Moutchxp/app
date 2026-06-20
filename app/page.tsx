@@ -9,6 +9,26 @@ import { cardinal } from "./lib/cardinal";
 
 type Etape = "photo" | "localisation" | "orientation" | "infos" | "resultat";
 
+// Forme (partielle) de la réponse succès de /api/analyse (cf. app/api/analyse/route.ts).
+interface ReponseAnalyse {
+  ok: true;
+  validation: { valide: boolean; raison?: string } & Record<string, unknown>;
+  resultat:
+    | {
+        verdict: {
+          verdict: "SANS_VIS_A_VIS" | "VIS_A_VIS" | "INDETERMINE";
+          distanceM: number | null;
+          obstacle: unknown;
+          analyseDegradee: boolean;
+          messageDegrade: string | null;
+          raison: string;
+        };
+        score: { total: number; libelle: string | null; scorePartiel: boolean } & Record<string, unknown>;
+        distanceAxePrincipalM: number | null;
+      }
+    | null;
+}
+
 // Carte du faisceau (affichage seul), client-only.
 const FaisceauMap = dynamic(() => import("./FaisceauMap"), { ssr: false });
 
@@ -20,6 +40,10 @@ export default function Home() {
   const [pointDeplace, setPointDeplace] = useState(false); // true au 1er geste utilisateur sur la carte
   const [etage, setEtage] = useState("");
   const [dernierEtage, setDernierEtage] = useState(false);
+  // Résultat de l'analyse (/api/analyse) — écran "resultat".
+  const [analyseEnCours, setAnalyseEnCours] = useState(false);
+  const [analyse, setAnalyse] = useState<ReponseAnalyse | null>(null);
+  const [analyseErreur, setAnalyseErreur] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<{ label: string; lat: number; lon: number }[]>([]);
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ignoreNextReverseRef = useRef(false);
@@ -323,13 +347,57 @@ export default function Home() {
     setIsCameraActive(false);
   }
 
-  function handleAnalyse() {
+  async function handleAnalyse() {
+    // Garde-fous AVANT tout appel réseau (restent sur l'écran "infos" si KO).
+    if (!origine.valide) {
+      setAnalyseErreur(
+        "Point d'origine non validé. Revenez à l'étape carte et validez un point dans un bâtiment.",
+      );
+      return;
+    }
+    const lat = origine.valide.lat;
+    const lon = origine.valide.lon;
+    const azimut = capturedOrientation;
+    if (azimut === null) {
+      setAnalyseErreur(
+        "Orientation manquante. Reprenez la photo pour capturer le cap (boussole).",
+      );
+      return;
+    }
+    const etageNum = etage.trim() === "" ? NaN : Number(etage);
+    if (!Number.isInteger(etageNum) || etageNum < 0) {
+      setAnalyseErreur(
+        "Indiquez un étage valide (nombre entier, 0 = rez-de-chaussée).",
+      );
+      return;
+    }
+
+    // Tout est bon : bascule sur l'écran résultat en mode chargement.
+    setAnalyseErreur(null);
+    setAnalyse(null);
+    setAnalyseEnCours(true);
+    setEtape("resultat");
     setTimeout(() => {
-      window.scrollTo({
-        top: document.body.scrollHeight,
-        behavior: "smooth",
-      });
+      window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
     }, 100);
+
+    try {
+      const r = await fetch("/api/analyse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lon, azimut, etage: etageNum, dernierEtage }),
+      });
+      const data = await r.json();
+      if (!r.ok || data.ok === false) {
+        setAnalyseErreur(data?.erreur ?? "Erreur lors de l'analyse.");
+      } else {
+        setAnalyse(data as ReponseAnalyse);
+      }
+    } catch {
+      setAnalyseErreur("Connexion impossible au service d'analyse.");
+    } finally {
+      setAnalyseEnCours(false);
+    }
   }
 
   // « Mauvaise orientation » : reprendre la photo en conservant le point d'origine déjà placé.
@@ -670,22 +738,107 @@ export default function Home() {
             </div>
           </div>
 
-          <button type="button" onClick={() => { handleAnalyse(); setEtape("resultat"); }} className="mt-4 w-full rounded-2xl bg-red-700 py-4 text-lg font-bold text-white shadow-lg shadow-red-700/20 active:bg-red-800 transition-colors">
+          <button type="button" onClick={handleAnalyse} className="mt-4 w-full rounded-2xl bg-red-700 py-4 text-lg font-bold text-white shadow-lg shadow-red-700/20 active:bg-red-800 transition-colors">
             Lancer l’analyse de vis-à-vis
           </button>
+          {analyseErreur && (
+            <p className="mt-3 text-sm font-medium text-red-700">{analyseErreur}</p>
+          )}
             </>
           )}
 
           {etape === "resultat" && (
             <div className="border-t border-slate-100 pt-4 animate-fadeIn">
               <p className="text-sm font-semibold text-red-700">Résultat de l’analyse</p>
-              <div className="mt-4 flex items-center justify-between">
-                <div>
-                  <p className="text-4xl font-bold text-slate-900">92/100</p>
-                  <p className="text-slate-600">Score Sans Vis-à-Vis</p>
+
+              {analyseEnCours ? (
+                /* a) chargement */
+                <p className="mt-4 text-sm text-slate-500">
+                  Analyse en cours… Lecture du terrain et des toits…
+                </p>
+              ) : analyseErreur ? (
+                /* b) erreur */
+                <div className="mt-4 rounded-xl border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-800">
+                  <p>{analyseErreur}</p>
+                  <button
+                    type="button"
+                    onClick={handleAnalyse}
+                    className="mt-3 w-full rounded-xl bg-red-700 py-2.5 text-sm font-bold text-white active:bg-red-800"
+                  >
+                    Réessayer
+                  </button>
                 </div>
-                <div className="rounded-full bg-green-100 px-4 py-2 font-bold text-green-700">Certifié</div>
-              </div>
+              ) : analyse &&
+                (!analyse.resultat ||
+                  analyse.resultat.verdict.verdict === "INDETERMINE") ? (
+                /* c) indéterminé */
+                <div className="mt-4 rounded-xl border border-slate-300 bg-slate-50 p-4">
+                  <p className="text-lg font-bold text-slate-900">Analyse indéterminée</p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {analyse.resultat?.verdict?.raison ??
+                      analyse.validation?.raison ??
+                      "Couverture insuffisante ou origine hors bâtiment. Aucun certificat ne peut être émis."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setEtape("localisation")}
+                    className="mt-3 w-full rounded-xl border border-slate-300 bg-white py-2.5 text-sm font-semibold text-slate-700 active:bg-slate-100"
+                  >
+                    Modifier le point
+                  </button>
+                </div>
+              ) : analyse && analyse.resultat ? (
+                /* d) vrai résultat */
+                <>
+                  <div className="mt-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-4xl font-bold text-slate-900">
+                        {Math.round(analyse.resultat.score.total)}/100
+                      </p>
+                      <p className="text-slate-600">Score Sans Vis-à-Vis</p>
+                    </div>
+                    <div
+                      className={
+                        "rounded-full px-4 py-2 font-bold " +
+                        (analyse.resultat.verdict.verdict === "SANS_VIS_A_VIS"
+                          ? "bg-green-100 text-green-700"
+                          : "bg-amber-100 text-amber-800")
+                      }
+                    >
+                      {analyse.resultat.verdict.verdict === "SANS_VIS_A_VIS"
+                        ? "Sans Vis-à-Vis® certifié"
+                        : "Vis-à-vis"}
+                    </div>
+                  </div>
+
+                  {analyse.resultat.score.libelle && (
+                    <p className="mt-2 text-sm font-medium text-slate-700">
+                      {analyse.resultat.score.libelle}
+                    </p>
+                  )}
+                  {analyse.resultat.score.scorePartiel && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Score partiel — photo insuffisante
+                    </p>
+                  )}
+
+                  <p className="mt-3 text-sm text-slate-700">
+                    {Number.isFinite(analyse.resultat.verdict.distanceM)
+                      ? "Premier obstacle à " +
+                        (analyse.resultat.verdict.distanceM as number)
+                          .toFixed(1)
+                          .replace(".", ",") +
+                        " m"
+                      : "Aucun obstacle détecté sur l'axe (200 m)"}
+                  </p>
+
+                  {analyse.resultat.verdict.analyseDegradee && (
+                    <p className="mt-2 text-xs text-amber-700">
+                      Analyse dégradée (donnée altimétrique de repli)
+                    </p>
+                  )}
+                </>
+              ) : null}
             </div>
           )}
         </section>
