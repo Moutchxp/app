@@ -6,6 +6,16 @@ import MapSelector from "./MapSelector";
 import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
 import { cardinal } from "./lib/cardinal";
+import type { Orientation, TypePaysage } from "./lib/svv/config";
+import type { LibelleScore } from "./lib/svv/scoreTotal";
+import {
+  libelleScore,
+  libelleTypePaysage,
+  libelleOrientation,
+  libelleRemarquables,
+  libelleDegagement,
+  type RemarquablesSource,
+} from "./lib/libelles";
 
 type Etape = "accueil" | "photo" | "localisation" | "orientation" | "infos" | "resultat";
 
@@ -13,17 +23,53 @@ type Etape = "accueil" | "photo" | "localisation" | "orientation" | "infos" | "r
 interface ReponseAnalyse {
   ok: true;
   validation: { valide: boolean; raison?: string } & Record<string, unknown>;
+  // Miroir de ResultatComplet (lib/svv/analyse.ts) — verdict + score (famille1/2).
   resultat:
     | {
         verdict: {
           verdict: "SANS_VIS_A_VIS" | "VIS_A_VIS" | "INDETERMINE";
           distanceM: number | null;
-          obstacle: unknown;
+          obstacle: {
+            distanceM: number;
+            altitudeSommetM: number | null;
+            source: "LIDAR_HD" | "BD_TOPO" | "NONE";
+          } | null;
           analyseDegradee: boolean;
           messageDegrade: string | null;
           raison: string;
         };
-        score: { total: number; libelle: string | null; scorePartiel: boolean } & Record<string, unknown>;
+        score: {
+          total: number;
+          libelle: LibelleScore;
+          scorePartiel: boolean;
+          famille1: {
+            total: number; // /50
+            distance: number; // /20
+            amplitude: number; // /20
+            orientation: number; // /10
+            detail: {
+              amplitudePartA: number;
+              amplitudePartB: number;
+              penaliteFlancAppliquee: boolean;
+              moyenneProfondeurM: number;
+              pourcentageFaisceauxDegages: number;
+              secteurOrientation: Orientation;
+              bonusDernierEtage: number;
+            };
+          };
+          famille2: {
+            total: number; // /50
+            typeDominant: number; // /25
+            remarquables: number; // /15
+            proprete: number; // /10
+            scorePartiel: boolean;
+            detail: {
+              typeEnum: TypePaysage | null;
+              remarquablesSource: RemarquablesSource;
+              malusPropreteApplique: number;
+            };
+          };
+        };
         distanceAxePrincipalM: number | null;
       }
     | null;
@@ -31,6 +77,231 @@ interface ReponseAnalyse {
 
 // Carte du faisceau (affichage seul), client-only.
 const FaisceauMap = dynamic(() => import("./FaisceauMap"), { ssr: false });
+
+// Étapes affichées (présentation uniquement) sur l'écran « Analyse en cours ».
+// N'a AUCUN lien avec le pipeline réel : c'est une checklist animée par minuteur.
+const ETAPES_ANALYSE = [
+  "Localisation",
+  "Obstacles",
+  "Altitudes terrain",
+  "Hauteurs des bâtiments",
+  "Analyse photo (IA)",
+  "Calcul du résultat",
+] as const;
+
+type ResultatReussi = NonNullable<ReponseAnalyse["resultat"]>;
+
+/**
+ * Écran résultat 7A (certifié) / 7B (vis-à-vis) — PRÉSENTATION uniquement.
+ * Ne lit que des champs déjà présents dans la réponse ; aucun calcul de verdict/score.
+ */
+/* onClick TODO (écrans 8 / 10 pas encore construits) — non câblé volontairement. */
+const todoEcranAVenir = () => undefined;
+
+function EcranResultat({
+  resultat,
+  photo,
+  onRecommencer,
+}: {
+  resultat: ResultatReussi;
+  photo: string | null;
+  onRecommencer: () => void;
+}) {
+  const certifie = resultat.verdict.verdict === "SANS_VIS_A_VIS";
+  const score = Math.round(resultat.score.total);
+  const C = 2 * Math.PI * 44; // circonférence de la jauge (rayon 44)
+  const offset = C * (1 - Math.max(0, Math.min(100, resultat.score.total)) / 100);
+  const arc = certifie ? "var(--color-svv-green)" : "var(--color-svv-red)";
+  const f1 = resultat.score.famille1;
+  const f2 = resultat.score.famille2;
+
+  const distanceM = resultat.verdict.distanceM;
+  const distanceTxt = Number.isFinite(distanceM)
+    ? `${Math.round(distanceM as number)} m`
+    : "Aucun (≥ 200 m)";
+
+  const badges = [
+    libelleTypePaysage(f2.detail.typeEnum),
+    libelleDegagement(f1.detail.pourcentageFaisceauxDegages),
+    libelleOrientation(f1.detail.secteurOrientation),
+    libelleRemarquables(f2.detail.remarquablesSource),
+  ].filter((b): b is string => b != null);
+
+  return (
+    <div className="flex flex-1 flex-col">
+      {/* 1. EN-TÊTE — 7A rouge / 7B sombre, pleine largeur, coins hauts arrondis */}
+      <div
+        className={
+          "-mx-6 -mt-6 mb-4 flex items-center gap-3 rounded-t-3xl px-6 py-4 text-white " +
+          (certifie ? "bg-svv-red" : "bg-svv-ink")
+        }
+      >
+        {certifie ? (
+          // sceau (à défaut : coche dans un cercle festonné)
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="10" r="6" />
+            <path d="M8.5 10l2.5 2.5L15.5 8" />
+            <path d="M9 15l-1.5 6L12 19l4.5 2-1.5-6" />
+          </svg>
+        ) : (
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 3l9 16H3z" />
+            <path d="M12 10v4" />
+            <path d="M12 17h.01" />
+          </svg>
+        )}
+        <span className="text-lg font-extrabold leading-tight tracking-tight">
+          {certifie ? "Sans Vis-à-Vis® certifié" : "Vis-à-vis détecté"}
+        </span>
+      </div>
+
+      {/* 2. JAUGE + OBSTACLE */}
+      <div className="flex items-start gap-4">
+        <div className="shrink-0 text-center">
+          <div className="relative h-24 w-24">
+            <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
+              <circle cx="50" cy="50" r="44" fill="none" stroke="var(--color-svv-line)" strokeWidth="9" />
+              <circle
+                cx="50"
+                cy="50"
+                r="44"
+                fill="none"
+                stroke={arc}
+                strokeWidth="9"
+                strokeLinecap="round"
+                strokeDasharray={C}
+                strokeDashoffset={offset}
+              />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
+              <div className="flex items-baseline">
+                <span className="text-2xl font-extrabold text-svv-ink">{score}</span>
+                <span className="ml-0.5 text-[10px] font-semibold text-svv-muted">/100</span>
+              </div>
+            </div>
+          </div>
+          <p className="mt-1 text-xs font-semibold text-svv-muted">Score global</p>
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-svv-muted">Premier obstacle réel</p>
+          <p className="text-2xl font-extrabold text-svv-ink">{distanceTxt}</p>
+          <p className="mt-2 text-xs text-svv-muted">Distance minimale requise</p>
+          <p className="text-base font-bold text-svv-gray">40 m</p>
+        </div>
+      </div>
+
+      {/* 3. ZONE CENTRALE — bascule selon verdict */}
+      {certifie ? (
+        <div className="mt-4">
+          <p className="text-sm font-bold text-svv-ink">Qualité de votre vue</p>
+          {badges.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {badges.map((b) => (
+                <span key={b} className="svv-pill">
+                  {b}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="mt-4">
+          <p className="text-sm font-bold text-svv-ink">Obstacle détecté :</p>
+          <p className="mt-1 text-sm text-svv-gray">
+            Bâtiment à {Number.isFinite(distanceM) ? Math.round(distanceM as number) : "—"}{" "}
+            mètres dans l&apos;axe de vision.
+          </p>
+        </div>
+      )}
+
+      {/* 4. DEUX VIGNETTES — même boîte compacte, côte à côte */}
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <div>
+          <p className="svv-label mb-1">Carte du faisceau</p>
+          <div className="h-24 overflow-hidden rounded-xl border border-svv-line bg-svv-field">
+            {/* PLACEHOLDER (FaisceauMap réel = h-72 + contrôles, non intégrable en petit sans le modifier) */}
+            <svg viewBox="0 0 120 90" preserveAspectRatio="xMidYMid meet" className="h-full w-full" aria-hidden="true">
+              <polygon points="60,80 28,14 92,14" fill={arc} opacity="0.16" />
+              <line x1="60" y1="80" x2="60" y2="14" stroke={arc} strokeWidth="3" />
+              <circle cx="60" cy="80" r="5" fill={arc} />
+            </svg>
+          </div>
+        </div>
+        <div>
+          <p className="svv-label mb-1">Votre photo</p>
+          <div className="relative h-24 overflow-hidden rounded-xl border border-svv-line bg-svv-field">
+            {photo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={photo} alt="Vue capturée" className="absolute inset-0 h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-svv-muted">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <rect x="3" y="7" width="18" height="13" rx="2" />
+                  <path d="M8 7l2-3h4l2 3" />
+                  <circle cx="12" cy="13" r="3.2" />
+                </svg>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 5. NOTES */}
+      {resultat.score.scorePartiel && (
+        <p className="mt-3 text-xs text-svv-muted">Score partiel — photo insuffisante</p>
+      )}
+      {resultat.verdict.analyseDegradee && (
+        <p className="mt-1 text-xs text-amber-700">
+          Analyse dégradée (donnée altimétrique de repli)
+        </p>
+      )}
+
+      {/* 6. BOUTONS + LIEN */}
+      <div className="mt-auto pt-4">
+        {certifie ? (
+          <>
+            <button type="button" onClick={todoEcranAVenir} className="svv-btn svv-btn-primary">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="9" r="6" />
+                <path d="M9 14l-1.5 6L12 18l4.5 2L15 14" />
+              </svg>
+              Obtenir mon certificat
+            </button>
+            <button type="button" onClick={todoEcranAVenir} className="svv-btn svv-btn-outline mt-2">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 3v18h18" />
+                <rect x="7" y="11" width="3" height="7" />
+                <rect x="13" y="7" width="3" height="11" />
+              </svg>
+              Calculer la plus-value de ma vue
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" onClick={onRecommencer} className="svv-btn svv-btn-primary">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+              Refaire le test
+            </button>
+            <button type="button" onClick={todoEcranAVenir} className="svv-btn svv-btn-outline mt-2">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 11l9-7 9 7" />
+                <path d="M5 10v10h14V10" />
+              </svg>
+              Estimation immobilière
+            </button>
+          </>
+        )}
+        <button type="button" onClick={onRecommencer} className="svv-link mt-1">
+          ← Retour à l&apos;accueil
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function Home() {
   const [etape, setEtape] = useState<Etape>("accueil");
@@ -44,6 +315,22 @@ export default function Home() {
   const [analyseEnCours, setAnalyseEnCours] = useState(false);
   const [analyse, setAnalyse] = useState<ReponseAnalyse | null>(null);
   const [analyseErreur, setAnalyseErreur] = useState<string | null>(null);
+  // Étape animée de la checklist « Analyse en cours » (présentation seule, pas le pipeline).
+  const [analyseEtape, setAnalyseEtape] = useState(0);
+
+  // Minuteur d'animation : avance la checklist tant que l'analyse réelle tourne.
+  // Reste sur la dernière étape « en cours » jusqu'à l'arrivée du vrai résultat.
+  // Ne déclenche NI ne modifie l'analyse (aucun appel réseau, aucune logique de verdict).
+  useEffect(() => {
+    if (!analyseEnCours) {
+      setAnalyseEtape(0);
+      return;
+    }
+    const id = setInterval(() => {
+      setAnalyseEtape((e) => Math.min(e + 1, ETAPES_ANALYSE.length - 1));
+    }, 700);
+    return () => clearInterval(id);
+  }, [analyseEnCours]);
   const [suggestions, setSuggestions] = useState<{ label: string; lat: number; lon: number }[]>([]);
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ignoreNextReverseRef = useRef(false);
@@ -413,13 +700,25 @@ export default function Home() {
   const lineTranslateY = Math.max(-45, Math.min(45, visualPitchOffset * 2.5));
   const cursorRotationDeg = Math.max(-50, Math.min(50, visualRoll));
 
+  // L'écran « vrai résultat » (7A/7B) est pleine hauteur comme l'accueil/chargement.
+  const resultatReussi =
+    etape === "resultat" &&
+    !analyseEnCours &&
+    !analyseErreur &&
+    analyse?.resultat != null &&
+    analyse.resultat.verdict.verdict !== "INDETERMINE";
+
   return (
     <main className="flex min-h-[100dvh] flex-col bg-slate-100 px-4 py-6">
       <div className="mx-auto flex w-full max-w-md flex-1 flex-col">
         <section
           className={
             "rounded-3xl bg-white p-6 shadow" +
-            (etape === "accueil" ? " flex flex-1 flex-col" : "")
+            (etape === "accueil" ||
+            (etape === "resultat" && analyseEnCours) ||
+            resultatReussi
+              ? " flex flex-1 flex-col"
+              : "")
           }
         >
           {etape === "accueil" && (
@@ -820,14 +1119,93 @@ export default function Home() {
 )}
 
 {etape === "resultat" && (
-  <div className="animate-fadeIn">
-    <p className="text-sm font-semibold text-svv-muted">Résultat de l&apos;analyse</p>
+  <div className={"animate-fadeIn" + (analyseEnCours || resultatReussi ? " flex flex-1 flex-col" : "")}>
+    {!analyseEnCours && !resultatReussi && (
+      <p className="text-sm font-semibold text-svv-muted">Résultat de l&apos;analyse</p>
+    )}
 
     {analyseEnCours ? (
-      /* a) chargement */
-      <p className="mt-4 text-sm text-svv-muted">
-        Analyse en cours… Lecture du terrain et des toits…
-      </p>
+      /* a) chargement — écran « Analyse en cours » (firmware #6) */
+      <div className="flex flex-1 flex-col">
+        {/* Logo (identique à l'accueil) */}
+        <div className="mb-6 flex justify-center">
+          <Image
+            src="/images/logo-svv-lockup.png"
+            alt="Sans Vis-à-Vis®"
+            width={1840}
+            height={413}
+            priority
+            style={{ width: "auto", height: "auto", maxWidth: "330px" }}
+          />
+        </div>
+
+        <h1 className="text-[1.4rem] font-extrabold leading-tight tracking-tight text-svv-ink">
+          Analyse de votre vue en cours…
+        </h1>
+
+        {/* Checklist animée (présentation seule) */}
+        <ul className="mt-6 flex flex-col gap-3">
+          {ETAPES_ANALYSE.map((label, i) => {
+            const fait = i < analyseEtape;
+            const enCours = i === analyseEtape;
+            return (
+              <li key={label} className="flex items-center gap-3">
+                {fait ? (
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-svv-green-soft">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="text-svv-green"
+                      aria-hidden="true"
+                    >
+                      <path d="M5 13l4 4L19 7" />
+                    </svg>
+                  </span>
+                ) : enCours ? (
+                  <span
+                    className="h-6 w-6 shrink-0 animate-spin rounded-full border-2 border-svv-red border-t-transparent"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <span
+                    className="h-6 w-6 shrink-0 rounded-full border-2 border-svv-line"
+                    aria-hidden="true"
+                  />
+                )}
+                <span
+                  className={
+                    "text-sm " +
+                    (fait || enCours ? "font-medium text-svv-ink" : "text-svv-muted")
+                  }
+                >
+                  {label}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+
+        {/* Barre de progression + mention, ancrées en bas */}
+        <div className="mt-auto pt-8">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-svv-line">
+            <div
+              className="h-full rounded-full bg-svv-green transition-all duration-500"
+              style={{
+                width: `${Math.min(95, Math.round(((analyseEtape + 0.5) / ETAPES_ANALYSE.length) * 100))}%`,
+              }}
+            />
+          </div>
+          <p className="mt-3 text-center text-xs text-svv-muted">
+            Cela peut prendre quelques secondes.
+          </p>
+        </div>
+      </div>
     ) : analyseErreur ? (
       /* b) erreur */
       <div className="mt-4 rounded-xl border border-svv-red/30 bg-svv-red/5 p-3 text-sm font-medium text-svv-red">
@@ -860,56 +1238,12 @@ export default function Home() {
         </button>
       </div>
     ) : analyse && analyse.resultat ? (
-      /* d) vrai résultat */
-      <>
-        <div className="mt-4 flex items-center justify-between">
-          <div>
-            <p className="text-4xl font-bold text-svv-ink">
-              {Math.round(analyse.resultat.score.total)}/100
-            </p>
-            <p className="text-svv-muted">Score Sans Vis-à-Vis</p>
-          </div>
-          <div
-            className={
-              "rounded-full px-4 py-2 font-bold " +
-              (analyse.resultat.verdict.verdict === "SANS_VIS_A_VIS"
-                ? "bg-svv-green-soft text-svv-green-ink"
-                : "bg-amber-100 text-amber-800")
-            }
-          >
-            {analyse.resultat.verdict.verdict === "SANS_VIS_A_VIS"
-              ? "Sans Vis-à-Vis® certifié"
-              : "Vis-à-vis"}
-          </div>
-        </div>
-
-        {analyse.resultat.score.libelle && (
-          <p className="mt-2 text-sm font-medium text-svv-ink">
-            {analyse.resultat.score.libelle}
-          </p>
-        )}
-        {analyse.resultat.score.scorePartiel && (
-          <p className="mt-1 text-xs text-svv-muted">
-            Score partiel — photo insuffisante
-          </p>
-        )}
-
-        <p className="mt-3 text-sm text-svv-gray">
-          {Number.isFinite(analyse.resultat.verdict.distanceM)
-            ? "Premier obstacle à " +
-              (analyse.resultat.verdict.distanceM as number)
-                .toFixed(1)
-                .replace(".", ",") +
-              " m"
-            : "Aucun obstacle détecté sur l'axe (200 m)"}
-        </p>
-
-        {analyse.resultat.verdict.analyseDegradee && (
-          <p className="mt-2 text-xs text-amber-700">
-            Analyse dégradée (donnée altimétrique de repli)
-          </p>
-        )}
-      </>
+      /* d) vrai résultat — écrans 7A (certifié) / 7B (vis-à-vis) */
+      <EcranResultat
+        resultat={analyse.resultat}
+        photo={photo}
+        onRecommencer={() => setEtape("accueil")}
+      />
     ) : null}
   </div>
 )}
