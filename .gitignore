@@ -29,6 +29,7 @@
 
 # certificats HTTPS de dev (clé privée — jamais committée)
 /certs
+certificates/
 
 # debug
 npm-debug.log*
