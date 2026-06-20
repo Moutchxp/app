@@ -42,12 +42,30 @@ Source + confiance tracées par obstacle (audit, certificat).
 
 ## 3. Mode A — méthode MNS (primaire)
 
-### 3.1 Prétraitement — fabrication du « MNS bâti propre » (UNE fois par secteur)
+### 3.1 Source de hauteur MNS — méthode actuelle (brut + nettoyage au runtime)
 
-Tout le travail lourd se fait ici, en amont, pour que les requêtes de verdict
-soient triviales et illimitées (données en local).
+Pas de précompute en base : les dalles MNS LiDAR HD sont importées **brutes**, et le
+nettoyage se fait **par test, à la requête**, dans `hauteurLidar.ts` (algorithme au §3 bis).
 
-Étapes :
+1. **Import (une fois par dalle)** : dalles MNS LiDAR HD (50 cm, GeoTIFF, ~16–24 Mo/dalle)
+   chargées **telles quelles** dans la table `mns_lidar_brut` via `raster2pgsql`
+   (`-s 2154 -t 256x256 -I -C`), cf. `db/import/import_lidar_raster.sh`. Aucun masquage ni
+   rabotage en base ; NoData `-9999`, pixels Float32.
+2. **Nettoyage au runtime (par test, §3 bis)** : confinement (emprise candidat ∩ couloir 2 m,
+   érodé de −1,0 m ; repli polygone plein ; NoData et hors-emprise exclus → la **végétation**
+   n'est jamais un obstacle), **anti-pic** (pixels `> P95 + 1,0 m` si faible fraction), puis
+   **hauteur = MAX du profil nettoyé** (faîtage).
+
+> Conséquence : la propreté du toit (plat → plan, pente → faîtage, pics retirés) est obtenue
+> **à la volée**, sans raster pré-calculé — toute la logique vit dans `hauteurLidar.ts`.
+
+### 3.1 bis Optimisation future — NON implémentée : raster « MNS bâti propre » pré-calculé
+
+> ⚠️ **NON IMPLÉMENTÉ.** Piste pour rendre les requêtes de verdict triviales : déplacer le
+> nettoyage en amont (une fois par secteur) dans une table `mns_bati_propre` (aujourd'hui
+> **vide**). Tant que ce n'est pas fait, la méthode actuelle (§3.1 + §3 bis) fait foi.
+
+Étapes (si précompute un jour) :
 
 1. **Charger** les dalles MNS LiDAR HD du secteur (50 cm, GeoTIFF, ~24 Mo/dalle ;
    Paris + 92 ≈ 280 dalles ≈ ~7 Go).
@@ -79,13 +97,13 @@ soient triviales et illimitées (données en local).
 ### 3.2 Requête de verdict (par test)
 
 ```
-entrées : origine_2154, azimut, altitude_fenetre, mns_propre
+entrées : origine_2154, azimut, altitude_fenetre, mns_lidar_brut
 couloir = bande de LARGEUR_COULOIR_M (≈ 2 m) le long de l'azimut depuis l'origine
          (ou 3 rayons parallèles : central + ±1 m)
 
 pour chaque bâtiment B traversé par le couloir, du plus proche au plus loin :
     region = emprise(B) ∩ couloir
-    h = MAX( mns_propre sur region )      # pics déjà retirés ; nodata ignoré
+    h = hauteur_nettoyee( mns_lidar_brut sur region )   # nettoyage runtime §3 bis (érosion + anti-pic P95) ; nodata ignoré
     si h >= altitude_fenetre :
         return {
           distanceM : distance(origine → bord proche de region),  # brut
@@ -94,7 +112,7 @@ pour chaque bâtiment B traversé par le couloir, du plus proche au plus loin :
           source : 'LIDAR_MNS',
           confidence : 'HIGH'
         }
-    # sinon : seuls des pics techniques dépassaient (déjà rabotés) ou toit trop bas
+    # sinon : seuls des pics techniques dépassaient (retirés au runtime) ou toit trop bas
     #         → on poursuit la marche
 return null   # aucun obstacle réel → dégagement
 ```
@@ -114,6 +132,10 @@ Notes :
 
 > Règle arrêtée. Constantes **v1** calibrées sur échantillon (voir bloc
 > « CONSTANTES v1 ») ; affinables ultérieurement sans changer la logique.
+
+> **Table source = `mns_lidar_brut`** (MNS LiDAR HD brut, grille 50 cm ; import via
+> `db/import/import_lidar_raster.sh`). Le nettoyage ci-dessous s'applique à la lecture,
+> par test — aucun raster pré-nettoyé (§3.1).
 
 **NETTOYAGE (couloir principal)**
 
@@ -323,12 +345,18 @@ WHERE ST_Intersects(geometrie, :couloir_2154)
 ORDER BY distance_m ASC;
 ```
 
-Hauteur max sur la region (mode A, MNS propre) :
+Extraction des cellules MNS sur la region (mode A) — le nettoyage anti-pic + le MAX
+se font ensuite au runtime en TypeScript (§3 bis, `hauteurLidar.ts`) :
 ```sql
-SELECT (ST_SummaryStats(ST_Clip(rast, :region_2154))).max AS h_ngf
-FROM mns_bati_propre
-WHERE ST_Intersects(rast, :region_2154);
+SELECT pc.val AS altitude_ngf
+FROM mns_lidar_brut r,
+     LATERAL ST_PixelAsCentroids(ST_Clip(r.rast, :region_2154, true)) AS pc
+WHERE ST_Intersects(r.rast, :region_2154)
+  AND pc.val IS NOT NULL AND pc.val <> -9999;
 ```
+
+> Variante **future** (si `mns_bati_propre` pré-nettoyé, §3.1 bis) : la requête se réduirait
+> à `SELECT (ST_SummaryStats(ST_Clip(rast, :region_2154))).max FROM mns_bati_propre …`.
 
 ---
 
