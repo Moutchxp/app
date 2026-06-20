@@ -21,9 +21,38 @@ dans les biens à vue dégagée. L'objectif est de transformer un terme subjecti
 - **Stack** : Next.js + TypeScript, Supabase, PostgreSQL/PostGIS.
 - **Langue de l'interface et du domaine** : français. Conserver les termes métier
   en français (faisceau, obstacle, point d'observation, etc.).
-- **Données géographiques** : IGN BD TOPO® (bâtiments + attribut hauteur),
-  RGE ALTI® (altitude **du terrain**, MNT — ne contient pas les bâtiments),
+- **Données géographiques** : MNT LiDAR HD (terrain, table `mnt_lidar_brut`) + MNS LiDAR HD
+  (surfaces/toits, table `mns_lidar_brut`), grille 50 cm — source altimétrique unique.
+  IGN BD TOPO® = emprises de bâtiments + identité (`cleabs`) ; son attribut hauteur ne sert
+  que de fallback NON certifiant. RGE ALTI / table `rge_alti` : non utilisé, vide.
   OSM / cadastre en complément. Licence Etalab (open data).
+
+---
+
+## Principe de calcul du verdict (œil vs toit) — INVARIANT
+
+Le verdict « Sans Vis-à-Vis » est 100 % géométrique : on compare deux altitudes
+ABSOLUES (NGF) le long de l'axe de visée.
+
+- Œil (origine) : A_œil = altitude_terrain_origine (MNT LiDAR, au point exact) + hauteur_vision
+  (hauteur_vision = etage*2.90 + 1.65 — voir §4).
+- Toit (obstacle) : A_toit = altitude du toit lue DIRECTEMENT sur le MNS LiDAR (absolue, nettoyée
+  des artefacts). On ne reconstitue JAMAIS sol + hauteur côté obstacle, et on n'utilise PAS de MNT
+  sous l'obstacle : le MNS donne déjà l'altitude absolue du toit.
+- Un bâtiment est un obstacle réel si A_toit ≥ A_œil.
+- Verdict = distance au premier obstacle réel sur l'axe principal :
+  ≥ 40 m → SANS_VIS_A_VIS  |  < 40 m → VIS_A_VIS.
+- Pas de bâtiment à l'origine, ou hors couverture LiDAR (MNT/MNS) → INDÉTERMINÉ, pas de certificat.
+
+Une seule source par grandeur : terrain = MNT, toits = MNS (même grille LiDAR 50 cm).
+BD TOPO = géométrie d'emprise + identité (cleabs) UNIQUEMENT, jamais l'altimétrie d'un certificat.
+
+> ⚠️ CECI EST LE PRINCIPE, PAS UN CAS TYPE.
+> Les configurations réelles sont innombrables : obstacle très proche (vis-à-vis), aucun obstacle
+> sur 200 m (dégagé → certifié), terrain en pente, plusieurs bâtiments successifs, origine hors
+> bâtiment ou hors LiDAR (indéterminé), 61 faisceaux pour le score d'amplitude, etc.
+> Tout exemple chiffré n'est qu'UNE illustration parmi des millions — n'en déduis aucune règle
+> ni seuil implicite. La règle = la formule + le seuil 40 m, pas l'exemple.
 
 ---
 
@@ -47,7 +76,8 @@ permanent) qui remplit **simultanément** les deux conditions :
 
 1. **Être intersectée par le faisceau d'analyse** (dans l'axe de vue).
 2. **Avoir une altitude de sommet ≥ altitude de la fenêtre d'observation.**
-   `altitude_sommet = altitude_terrain_obstacle + hauteur_batiment`
+   altitude_sommet (toit) = MNS LiDAR à la cellule du toit (absolue, nettoyée des artefacts), lue directement.
+   (Reconstitution altitude_terrain_obstacle + hauteur_batiment = fallback BD TOPO, NON certifiant.)
 
 Une construction dans l'axe mais dont le sommet est **sous** la hauteur de la
 fenêtre n'est **PAS** un obstacle (elle ne crée pas de vis-à-vis), même si elle
@@ -214,7 +244,7 @@ données utilisateur.
 
 1. Géocodage / GPS (adresse → coordonnées).
 2. Validation adresse + point de départ (lat/lon de la fenêtre).
-3. Récupération altitude terrain du point de départ (RGE ALTI®).
+3. Récupération altitude terrain du point d'origine sur le MNT LiDAR HD (point exact).
 4. Prise de photo (caméra grand-angle + niveau numérique + contrôle horizontalité).
 5. Récupération orientation (azimut du téléphone au moment de la photo).
 6. Contrôle de cohérence GPS de la photo vs point de départ validé.
@@ -223,7 +253,8 @@ données utilisateur.
    indispensable — la boussole du téléphone est bruitée).
 9. Récupération des bâtiments dans la zone (IGN BD TOPO® / OSM).
 10. Détection des bâtiments intersectés dans l'axe.
-11. Altitude terrain de chaque obstacle potentiel + hauteur des bâtiments.
+11. Altitude du toit de chaque obstacle, lue directement sur le MNS LiDAR HD (absolue, nettoyée).
+    Pas de terrain obstacle, pas de reconstitution sol + hauteur.
 12. Saisie infos logement (étage + dernier étage).
 13. Calcul altitude réelle de la fenêtre.
 14. Calcul altitude réelle des obstacles.
