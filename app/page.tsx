@@ -744,56 +744,63 @@ export default function Home() {
   </div>
 )}
 
-          {etape === "infos" && (
-            <>
-          {/* INFORMATIONS COMPLÉMENTAIRES */}
-          <div className="mb-4 grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-slate-700">Étage du séjour</label>
-              <input
-                type="number"
-                inputMode="numeric"
-                value={etage}
-                onChange={(e) => setEtage(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 p-3 text-base font-semibold text-slate-900 placeholder:text-slate-400 bg-slate-50"
-                placeholder="Ex : 4"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-slate-700">Dernier étage ?</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setDernierEtage(true)}
-                  className={
-                    "rounded-xl py-3 text-sm font-semibold " +
-                    (dernierEtage ? "bg-slate-900 text-white" : "border border-slate-300 bg-white text-slate-800")
-                  }
-                >
-                  Oui
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDernierEtage(false)}
-                  className={
-                    "rounded-xl py-3 text-sm font-semibold " +
-                    (!dernierEtage ? "bg-slate-900 text-white" : "border border-slate-300 bg-white text-slate-800")
-                  }
-                >
-                  Non
-                </button>
-              </div>
-            </div>
-          </div>
+{etape === "infos" && (
+  <div className="animate-fadeIn">
+    <h1 className="text-[1.6rem] font-extrabold leading-tight tracking-tight text-svv-ink">
+      Votre logement
+    </h1>
+    <p className="mt-2 mb-4 text-sm leading-relaxed text-svv-muted">
+      Encore deux infos avant de lancer l&apos;analyse.
+    </p>
 
-          <button type="button" onClick={handleAnalyse} className="mt-4 w-full rounded-2xl bg-red-700 py-4 text-lg font-bold text-white shadow-lg shadow-red-700/20 active:bg-red-800 transition-colors">
-            Lancer l’analyse de vis-à-vis
+    {/* INFORMATIONS COMPLÉMENTAIRES */}
+    <div className="mb-4 grid grid-cols-2 gap-4">
+      <div>
+        <label className="mb-1 block text-sm font-semibold text-svv-gray">Étage du séjour</label>
+        <input
+          type="number"
+          inputMode="numeric"
+          value={etage}
+          onChange={(e) => setEtage(e.target.value)}
+          className="w-full rounded-xl border border-svv-line bg-white p-3 text-base font-semibold text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
+          placeholder="Ex : 4"
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-sm font-semibold text-svv-gray">Dernier étage ?</label>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setDernierEtage(true)}
+            className={
+              "rounded-xl py-3 text-sm font-semibold " +
+              (dernierEtage ? "bg-svv-ink text-white" : "border border-svv-line bg-white text-svv-ink")
+            }
+          >
+            Oui
           </button>
-          {analyseErreur && (
-            <p className="mt-3 text-sm font-medium text-red-700">{analyseErreur}</p>
-          )}
-            </>
-          )}
+          <button
+            type="button"
+            onClick={() => setDernierEtage(false)}
+            className={
+              "rounded-xl py-3 text-sm font-semibold " +
+              (!dernierEtage ? "bg-svv-ink text-white" : "border border-svv-line bg-white text-svv-ink")
+            }
+          >
+            Non
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <button type="button" onClick={handleAnalyse} className="svv-btn svv-btn-primary mt-4">
+      Lancer l&apos;analyse de vis-à-vis
+    </button>
+    {analyseErreur && (
+      <p className="mt-3 text-sm font-medium text-svv-red">{analyseErreur}</p>
+    )}
+  </div>
+)}
 
           {etape === "resultat" && (
             <div className="border-t border-slate-100 pt-4 animate-fadeIn">
