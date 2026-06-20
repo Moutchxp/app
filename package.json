@@ -10,6 +10,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:check": "tsx app/scripts/db-check.ts",
     "origine:check": "tsx app/scripts/origine-check.ts",
     "obstacles:check": "tsx app/scripts/obstacles-check.ts",
