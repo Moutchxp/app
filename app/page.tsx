@@ -7,7 +7,7 @@ import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
 import { cardinal } from "./lib/cardinal";
 
-type Etape = "photo" | "localisation" | "orientation" | "infos" | "resultat";
+type Etape = "accueil" | "photo" | "localisation" | "orientation" | "infos" | "resultat";
 
 // Forme (partielle) de la réponse succès de /api/analyse (cf. app/api/analyse/route.ts).
 interface ReponseAnalyse {
@@ -33,7 +33,7 @@ interface ReponseAnalyse {
 const FaisceauMap = dynamic(() => import("./FaisceauMap"), { ssr: false });
 
 export default function Home() {
-  const [etape, setEtape] = useState<Etape>("photo");
+  const [etape, setEtape] = useState<Etape>("accueil");
   const [address, setAddress] = useState("");
   const [addressInfo, setAddressInfo] = useState(""); // message d'info SOUS le champ, jamais dans sa valeur
   const origine = useOrigineValidation();
@@ -427,127 +427,167 @@ export default function Home() {
         </div>
 
         <section className="rounded-3xl bg-white p-6 shadow">
-          {etape === "photo" && (
-            <>
-          <h1 className="mb-2 text-3xl font-bold text-slate-900">
-            Analyse Sans Vis-à-Vis®
-          </h1>
+          {etape === "accueil" && (
+            <div className="flex flex-col">
+              <h1 className="text-[1.7rem] font-extrabold leading-tight tracking-tight text-svv-ink">
+                Découvrez <span className="text-svv-red">la vraie qualité</span> de votre vue
+              </h1>
+              <p className="mt-3 text-sm leading-relaxed text-svv-muted">
+                {"Une analyse objective, basée sur la géolocalisation, les altitudes et l'intelligence artificielle."}
+              </p>
 
-          <p className="mb-6 text-slate-600">
-            Vérifiez la qualité de votre vue en prenant une photo bien droite depuis votre fenêtre. 
-            Notre système s'occupe de calculer l'orientation et la position.
-          </p>
-
-          {/* ZONE 1 : PRISE DE VUE AVEC CAPTEURS INTELLIGENTS */}
-          <label className="mb-2 block font-semibold text-slate-800">1. Capture de la vue (Séjour)</label>
-          
-          <div className="mb-6">
-            {!isCameraActive && !photo && (
               <button
                 type="button"
-                onClick={startCamera}
-                className="w-full rounded-xl border-2 border-dashed border-red-300 bg-red-50/30 p-6 text-center text-sm font-bold text-red-700 hover:bg-red-50 transition-colors"
+                onClick={() => setEtape("photo")}
+                className="svv-btn svv-btn-primary relative mt-6"
               >
-                📸 Ouvrir l'appareil photo intelligent
+                Évaluer ma vue
+                <span className="absolute right-5 text-xl leading-none">›</span>
               </button>
-            )}
 
-            {isCameraActive && (
-              <div className="relative overflow-hidden rounded-2xl bg-black select-none">
-                <video ref={videoRef} autoPlay playsInline className="w-full h-96 object-cover" />
-                
-                {/* HUD Supérieur technique */}
-                <div className="absolute inset-x-0 top-3 flex flex-col items-center justify-center gap-1 bg-black/40 py-1.5 text-white text-[10px] z-10">
-                  <span className="font-bold">Ajustement de l'appareil</span>
-                  <div className="flex gap-3 opacity-80">
-                    <span>Inclinaison : {angles.pitch}° (Cible : 90°)</span>
-                    <span>Roulis : {angles.roll}° (Marge : ±30°)</span>
-                  </div>
-                  <span className="font-semibold">
-                    Azimut :{" "}
-                    {typeof angles.heading === "number"
-                      ? `${Math.round(angles.heading)}° (${cardinal(angles.heading)})`
-                      : "en attente…"}
-                  </span>
-                </div>
+              <button
+                type="button"
+                onClick={() => setEtape("photo")}
+                className="svv-btn svv-btn-outline mt-3"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M3 3v18h18" />
+                  <rect x="7" y="11" width="3" height="7" />
+                  <rect x="13" y="7" width="3" height="11" />
+                </svg>
+                <span className="text-left leading-tight">Estimer la valeur<br />de mon bien</span>
+              </button>
 
-                {/* HUD Graphique : Arc + Croix */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10">
-                  
-                  {/* Arc de cercle de roulis */}
-                  <div className="relative w-44 h-16 flex items-center justify-center overflow-hidden">
-                    <div className={`absolute top-2 w-32 h-32 rounded-full border-4 bg-transparent transition-colors duration-300 ${
-                      rollValid ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.3)]' : 'border-red-500'
-                    }`} style={{ clipPath: 'ellipse(100% 35% at 50% 0%)' }} />
-                    
-                    <div className="absolute top-[2px] w-1 h-2 bg-white rounded-full z-10" />
-
-                    <div 
-                      className="absolute top-2 w-32 h-32 origin-center transition-transform duration-75 ease-out flex justify-center"
-                      style={{ transform: `rotate(${cursorRotationDeg}deg)` }}
-                    >
-                      <div className="w-3 h-3 bg-white rounded-full shadow-md border border-slate-900 -mt-[4px] animate-pulse" />
-                    </div>
-
-                    <span className={`absolute bottom-0 text-[10px] font-black uppercase tracking-wider ${rollValid ? 'text-green-400' : 'text-red-400'}`}>
-                      {rollValid ? "Horizontal OK" : "Téléphone penché"}
-                    </span>
-                  </div>
-
-                  {/* Croix centrale de Pitch */}
-                  <div className="relative w-36 h-36 flex items-center justify-center mt-2">
-                    <div className={`absolute w-14 h-14 rounded-full border border-dashed transition-colors ${pitchValid ? 'border-green-500/60 bg-green-500/5' : 'border-white/20'}`} />
-                    <div className="absolute w-0.5 h-28 bg-white/30" />
-                    <div className="absolute w-6 h-0.5 bg-white/50 left-12" />
-                    <div className="absolute w-6 h-0.5 bg-white/50 right-12" />
-
-                    <div 
-                      className={`absolute w-24 h-0.5 left-6 transition-transform duration-75 ease-out shadow-sm ${
-                        pitchValid ? 'bg-green-500 h-[3px] shadow-[0_0_8px_rgba(34,197,94,0.8)]' : 'bg-red-500'
-                      }`}
-                      style={{ transform: `translateY(${lineTranslateY}px)` }}
-                    />
-                  </div>
-
-                </div>
-
-                {/* Boutons d'action caméra */}
-                <div className="absolute bottom-4 inset-x-0 flex justify-center gap-4 z-20">
-                  <button
-                    type="button"
-                    onClick={capturePhoto}
-                    disabled={!isLevel}
-                    className={`px-6 py-3 rounded-full font-bold text-white shadow-lg transition-all duration-300 ${
-                      isLevel ? 'bg-green-600 active:bg-green-700 scale-105 shadow-green-500/50' : 'bg-slate-600 opacity-40 cursor-not-allowed'
-                    }`}
-                  >
-                    {isLevel ? "📸 Prendre la photo" : "Ajuster les niveaux"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { conserverPositionRef.current = false; stopCamera(); }}
-                    className="px-4 py-3 bg-slate-800 text-white rounded-full font-medium shadow-lg"
-                  >
-                    Annuler
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {photo && (
-              <div className="relative rounded-2xl overflow-hidden border border-slate-300">
-                <img src={photo} alt="Vue séjour capturée" className="w-full h-48 object-cover" />
-                <div className="absolute bottom-2 left-2 bg-slate-900/80 text-white text-[11px] px-2 py-1 rounded-md">
-                  🧭 Orientation : {capturedOrientation}° (Azimut)
-                </div>
-                <button type="button" onClick={startCamera} className="absolute top-2 right-2 bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg font-semibold shadow">
-                  Refaire la photo
-                </button>
-              </div>
-            )}
-          </div>
-            </>
+              <p className="mt-5 text-center text-[11.5px] leading-snug text-svv-muted">
+                Sans Vis-à-Vis® : le premier obstacle réel à + de 40 mètres
+              </p>
+            </div>
           )}
+
+{etape === "photo" && (
+  <>
+    <h1 className="text-[1.6rem] font-extrabold leading-tight tracking-tight text-svv-ink">
+      Photo de la vue
+    </h1>
+    <p className="mt-2 mb-5 text-sm leading-relaxed text-svv-muted">
+      {"Prenez une photo bien droite depuis votre fenêtre. Notre système calcule l'orientation et la position automatiquement."}
+    </p>
+
+    <div>
+      {!isCameraActive && !photo && (
+        <button type="button" onClick={startCamera} className="svv-btn svv-btn-primary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" aria-hidden="true">
+            <rect x="3" y="7" width="18" height="13" rx="2" />
+            <path d="M8 7l2-3h4l2 3" />
+            <circle cx="12" cy="13" r="3.2" />
+          </svg>
+          Ouvrir l&apos;appareil photo
+        </button>
+      )}
+
+      {isCameraActive && (
+        <div className="fixed inset-0 z-50 bg-black select-none">
+          <video ref={videoRef} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover" />
+
+          {/* Barre supérieure */}
+          <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-5 pt-12 pb-4">
+            <button
+              type="button"
+              onClick={() => { conserverPositionRef.current = false; stopCamera(); }}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white text-lg"
+              aria-label="Fermer"
+            >
+              ✕
+            </button>
+            <div className="flex flex-col items-center text-center leading-tight">
+              <span className={`text-sm font-semibold ${isLevel ? "text-[#7CE2A0]" : "text-white"}`}>
+                {isLevel ? "Bien droit" : "Ajustez le niveau"}
+              </span>
+              <span className="mt-0.5 text-[11px] text-white/80">
+                Inclinaison {angles.pitch}° · Roulis {angles.roll}°
+              </span>
+              <span className="text-[11px] text-white/80">
+                Azimut{" "}
+                {typeof angles.heading === "number"
+                  ? `${Math.round(angles.heading)}° (${cardinal(angles.heading)})`
+                  : "en attente…"}
+              </span>
+            </div>
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white text-base" aria-hidden="true">⚡</div>
+          </div>
+
+          {/* HUD niveau : arc de roulis + croix de pitch (conservé à l'identique) */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10">
+            <div className="relative w-44 h-16 flex items-center justify-center overflow-hidden">
+              <div className={`absolute top-2 w-32 h-32 rounded-full border-4 bg-transparent transition-colors duration-300 ${
+                rollValid ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.3)]' : 'border-red-500'
+              }`} style={{ clipPath: 'ellipse(100% 35% at 50% 0%)' }} />
+              <div className="absolute top-[2px] w-1 h-2 bg-white rounded-full z-10" />
+              <div
+                className="absolute top-2 w-32 h-32 origin-center transition-transform duration-75 ease-out flex justify-center"
+                style={{ transform: `rotate(${cursorRotationDeg}deg)` }}
+              >
+                <div className="w-3 h-3 bg-white rounded-full shadow-md border border-slate-900 -mt-[4px] animate-pulse" />
+              </div>
+              <span className={`absolute bottom-0 text-[10px] font-black uppercase tracking-wider ${rollValid ? 'text-green-400' : 'text-red-400'}`}>
+                {rollValid ? "Horizontal OK" : "Téléphone penché"}
+              </span>
+            </div>
+
+            <div className="relative w-36 h-36 flex items-center justify-center mt-2">
+              <div className={`absolute w-14 h-14 rounded-full border border-dashed transition-colors ${pitchValid ? 'border-green-500/60 bg-green-500/5' : 'border-white/20'}`} />
+              <div className="absolute w-0.5 h-28 bg-white/30" />
+              <div className="absolute w-6 h-0.5 bg-white/50 left-12" />
+              <div className="absolute w-6 h-0.5 bg-white/50 right-12" />
+              <div
+                className={`absolute w-24 h-0.5 left-6 transition-transform duration-75 ease-out shadow-sm ${
+                  pitchValid ? 'bg-green-500 h-[3px] shadow-[0_0_8px_rgba(34,197,94,0.8)]' : 'bg-red-500'
+                }`}
+                style={{ transform: `translateY(${lineTranslateY}px)` }}
+              />
+            </div>
+          </div>
+
+          {/* Barre inférieure : Grand-angle · déclencheur · Aide */}
+          <div className="absolute inset-x-0 bottom-0 z-20 px-6 pb-10">
+            <p className="mb-5 text-center text-sm text-white/90" style={{ textShadow: "0 1px 6px rgba(0,0,0,.5)" }}>
+              Cadrez votre vue et maintenez votre téléphone bien droit.
+            </p>
+            <div className="flex items-center justify-between">
+              <span className="w-16 text-center text-[11px] text-white/85">Grand-angle</span>
+              <button
+                type="button"
+                onClick={capturePhoto}
+                disabled={!isLevel}
+                aria-label="Prendre la photo"
+                className={`h-[74px] w-[74px] rounded-full border-[5px] transition-all duration-300 ${
+                  isLevel ? "bg-white border-[#7CE2A0]/80 active:scale-95" : "bg-white/50 border-white/30 cursor-not-allowed"
+                }`}
+              />
+              <span className="w-16 text-center text-[11px] text-white/85">Aide</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {photo && (
+        <div className="relative overflow-hidden rounded-2xl border border-svv-line">
+          <img src={photo} alt="Vue séjour capturée" className="h-48 w-full object-cover" />
+          <div className="absolute bottom-2 left-2 rounded-md bg-svv-ink/85 px-2 py-1 text-[11px] text-white">
+            🧭 Orientation : {capturedOrientation}° (Azimut)
+          </div>
+          <button
+            type="button"
+            onClick={startCamera}
+            className="absolute top-2 right-2 rounded-lg bg-svv-red px-3 py-1.5 text-xs font-semibold text-white shadow"
+          >
+            Refaire la photo
+          </button>
+        </div>
+      )}
+    </div>
+  </>
+)}
 
           {/* ZONE 2 : ADRESSE + CARTE */}
           {etape === "localisation" && (
