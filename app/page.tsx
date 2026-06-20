@@ -414,21 +414,28 @@ export default function Home() {
   const cursorRotationDeg = Math.max(-50, Math.min(50, visualRoll));
 
   return (
-    <main className="min-h-[100dvh] bg-slate-100 px-4 py-6">
-      <div className="mx-auto max-w-md">
-        <div className="mb-6 flex justify-center">
-          <Image
-            src="/images/Logo-Jorel-SVV-2019v.2.png"
-            alt="Sans Vis-à-Vis"
-            width={260}
-            height={260}
-            priority
-          />
-        </div>
-
-        <section className="rounded-3xl bg-white p-6 shadow">
+    <main className="flex min-h-[100dvh] flex-col bg-slate-100 px-4 py-6">
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col">
+        <section
+          className={
+            "rounded-3xl bg-white p-6 shadow" +
+            (etape === "accueil" ? " flex flex-1 flex-col" : "")
+          }
+        >
           {etape === "accueil" && (
-            <div className="flex flex-col">
+            <div className="flex flex-1 flex-col">
+              {/* Logo — uniquement sur l'accueil (firmware écran 1) */}
+              <div className="mb-6 flex justify-center">
+                <Image
+                  src="/images/logo-svv-lockup.png"
+                  alt="Sans Vis-à-Vis®"
+                  width={1840}
+                  height={413}
+                  priority
+                  style={{ width: "auto", height: "auto", maxWidth: "330px" }}
+                />
+              </div>
+
               <h1 className="text-[1.7rem] font-extrabold leading-tight tracking-tight text-svv-ink">
                 Découvrez <span className="text-svv-red">la vraie qualité</span> de votre vue
               </h1>
@@ -436,10 +443,20 @@ export default function Home() {
                 {"Une analyse objective, basée sur la géolocalisation, les altitudes et l'intelligence artificielle."}
               </p>
 
+              {/* Skyline (asset stylisé) — bande pleine largeur qui prend la hauteur
+                  de la zone basse, sous le sous-titre et au-dessus des boutons */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/images/skyline.svg"
+                alt=""
+                aria-hidden="true"
+                className="-mx-6 mt-6 mb-9 max-w-none w-[calc(100%+3rem)] flex-1 object-contain object-bottom"
+              />
+
               <button
                 type="button"
                 onClick={() => setEtape("photo")}
-                className="svv-btn svv-btn-primary relative mt-6"
+                className="svv-btn svv-btn-primary relative"
               >
                 Évaluer ma vue
                 <span className="absolute right-5 text-xl leading-none">›</span>
