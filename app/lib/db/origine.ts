@@ -16,7 +16,8 @@ export interface ValidationOrigine {
   valide: boolean;
   raison: string;
   batimentOrigine: { id: number; cleabs: string } | null;
-  altitudeTerrainOrigineM: number | null; // = altitude_minimale_sol du bâtiment d'origine (Mode B)
+  altitudeTerrainOrigineM: number | null; // terrain lu sur le MNT (LiDAR) au point exact ; null si hors couverture MNT / nodata
+  altSolBdTopoM?: number | null; // INFORMATIF : altitude_minimale_sol BD TOPO, pour comparaison en test (NON utilisé dans le calcul)
   distanceAuBatimentM: number; // 0 si à l'intérieur, sinon distance au bâtiment le plus proche
   dansBatiment: boolean; // true si strictement à l'intérieur d'une emprise
 }
@@ -24,7 +25,8 @@ export interface ValidationOrigine {
 interface LigneBatiment {
   id: number;
   cleabs: string;
-  alt_sol: number | null;
+  alt_sol_bdtopo: number | null; // INFORMATIF : altitude_minimale_sol BD TOPO (non utilisé)
+  alt_terrain_mnt: number | null; // terrain MNT LiDAR au point exact (source autoritative)
   dist_m: number;
   dedans: boolean;
 }
@@ -34,7 +36,12 @@ export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigi
     `WITH pt AS (
        SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 2154) AS g
      )
-     SELECT b.id, b.cleabs, b.altitude_minimale_sol AS alt_sol,
+     SELECT b.id, b.cleabs,
+            b.altitude_minimale_sol AS alt_sol_bdtopo,
+            (SELECT ST_Value(m.rast, pt.g)
+               FROM mnt_lidar_brut m
+              WHERE ST_Intersects(m.rast, pt.g)
+              LIMIT 1) AS alt_terrain_mnt,
             ST_Distance(ST_Force2D(b.geom), pt.g) AS dist_m,
             ST_Contains(ST_Force2D(b.geom), pt.g) AS dedans
      FROM bdtopo_batiment b, pt
@@ -49,12 +56,13 @@ export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigi
       raison: "Aucun bâtiment trouvé.",
       batimentOrigine: null,
       altitudeTerrainOrigineM: null,
+      altSolBdTopoM: null,
       distanceAuBatimentM: Infinity,
       dansBatiment: false,
     };
   }
 
-  const { id, cleabs, alt_sol, dist_m, dedans } = res.rows[0];
+  const { id, cleabs, alt_sol_bdtopo, alt_terrain_mnt, dist_m, dedans } = res.rows[0];
 
   const dansBatiment = dedans;
   const distanceAuBatimentM = dedans ? 0 : dist_m;
@@ -73,7 +81,10 @@ export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigi
     valide,
     raison,
     batimentOrigine: valide ? { id, cleabs } : null,
-    altitudeTerrainOrigineM: valide ? alt_sol : null, // alt_sol peut être null en base → garder null
+    // terrain lu sur le MNT (LiDAR) au point exact = même cellule 50 cm que le MNS ;
+    // null si hors couverture MNT ou nodata -9999 → pas de certificat (garde pipeline l.61-63).
+    altitudeTerrainOrigineM: valide ? alt_terrain_mnt : null,
+    altSolBdTopoM: alt_sol_bdtopo, // INFORMATIF uniquement (comparaison en test)
     distanceAuBatimentM,
     dansBatiment,
   };
