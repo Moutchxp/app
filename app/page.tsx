@@ -590,100 +590,106 @@ export default function Home() {
 )}
 
           {/* ZONE 2 : ADRESSE + CARTE */}
-          {etape === "localisation" && (
-            <div className="mb-6 border-t border-slate-100 pt-4 animate-fadeIn">
-              <label className="mb-2 block font-semibold text-slate-800">2. Votre adresse</label>
-              
-              <input
-                value={address}
-                onChange={onChangeAdresse}
-                className="mb-4 w-full rounded-xl border border-slate-300 p-3 text-base font-semibold text-slate-900 placeholder:text-slate-400 bg-slate-50"
-                placeholder="Saisissez l'adresse, ou déplacez le repère sur la carte"
-              />
-              {suggestions.length > 0 && (
-                <ul className="-mt-3 mb-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow divide-y divide-slate-100">
-                  {suggestions.map((s, i) => (
-                    <li key={i}>
-                      <button
-                        type="button"
-                        onClick={() => selectSuggestion(s)}
-                        className="w-full px-3 py-2 text-left text-sm text-slate-800 active:bg-slate-100"
-                      >
-                        {s.label}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {addressInfo && (
-                <p className="-mt-3 mb-3 text-xs text-amber-600">{addressInfo}</p>
-              )}
+{etape === "localisation" && (
+  <div className="animate-fadeIn">
+    <h1 className="text-[1.6rem] font-extrabold leading-tight tracking-tight text-svv-ink">
+      Localisation
+    </h1>
+    <p className="mt-2 mb-4 text-sm leading-relaxed text-svv-muted">
+      Saisissez votre adresse, puis calez précisément le repère rouge sur la façade concernée.
+    </p>
 
-              <MapSelector
-                latitude={position.latitude}
-                longitude={position.longitude}
-                onPositionChange={(newPosition) => {
-                  setPosition(newPosition);
-                  getAddressFromGPS(newPosition.latitude, newPosition.longitude);
-                  origine.evaluer(newPosition.latitude, newPosition.longitude);
-                }}
-                onUserMove={() => setPointDeplace(true)}
-              />
-              <p className="mt-2 text-xs text-slate-500">
-                🎯 Déplacez la carte pour caler précisément le repère rouge sur la façade de votre pièce.
-              </p>
+    <input
+      value={address}
+      onChange={onChangeAdresse}
+      className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
+      placeholder="Saisissez l'adresse, ou déplacez le repère sur la carte"
+    />
+    {suggestions.length > 0 && (
+      <ul className="mt-2 mb-3 overflow-hidden rounded-xl border border-svv-line bg-white shadow-sm divide-y divide-svv-line">
+        {suggestions.map((s, i) => (
+          <li key={i}>
+            <button
+              type="button"
+              onClick={() => selectSuggestion(s)}
+              className="w-full px-3 py-2 text-left text-sm text-svv-ink active:bg-svv-field"
+            >
+              {s.label}
+            </button>
+          </li>
+        ))}
+      </ul>
+    )}
+    {addressInfo && (
+      <p className="mt-2 mb-3 text-xs text-svv-muted">{addressInfo}</p>
+    )}
 
-              {/* Tant que l'utilisateur n'a pas déplacé le point : consigne en rouge. */}
-              {!pointDeplace && (
-                <div className="mt-3 rounded-xl border border-red-400 bg-red-50 p-3 text-sm font-semibold text-red-800">
-                  📍 Placez précisément le point GPS sur la fenêtre du point de vue que vous voulez faire
-                  valider : déplacez la carte pour amener le repère rouge sur cette fenêtre.
-                </div>
-              )}
+    <div className="mt-3 overflow-hidden rounded-2xl border border-svv-line">
+      <MapSelector
+        latitude={position.latitude}
+        longitude={position.longitude}
+        onPositionChange={(newPosition) => {
+          setPosition(newPosition);
+          getAddressFromGPS(newPosition.latitude, newPosition.longitude);
+          origine.evaluer(newPosition.latitude, newPosition.longitude);
+        }}
+        onUserMove={() => setPointDeplace(true)}
+      />
+    </div>
+    <p className="mt-2 text-xs text-svv-muted">
+      🎯 Déplacez la carte pour caler précisément le repère rouge sur la façade de votre pièce.
+    </p>
 
-              {/* Validation du point d'origine (PostGIS via /api/origine) — après 1er déplacement */}
-              {pointDeplace && origine.enCours && (
-                <p className="mt-3 text-sm text-slate-500">Vérification du point…</p>
-              )}
+    {/* Tant que l'utilisateur n'a pas déplacé le point : consigne. */}
+    {!pointDeplace && (
+      <div className="mt-3 rounded-xl border border-svv-red/30 bg-svv-red/5 p-3 text-sm font-semibold text-svv-red">
+        📍 Placez précisément le point GPS sur la fenêtre du point de vue que vous voulez faire valider : déplacez la carte pour amener le repère rouge sur cette fenêtre.
+      </div>
+    )}
 
-              {pointDeplace && !origine.enCours && origine.resultat && !origine.valide && (
-                <div
-                  className={
-                    "mt-3 rounded-xl border p-3 text-sm font-medium " +
-                    (origine.resultat.statut === "VALIDE"
-                      ? "border-green-300 bg-green-50 text-green-800"
-                      : origine.resultat.statut === "HORS_BATIMENT"
-                        ? "border-amber-300 bg-amber-50 text-amber-800"
-                        : "border-red-300 bg-red-50 text-red-800")
-                  }
-                >
-                  {origine.resultat.statut === "VALIDE" &&
-                    `✓ Point validable — à l'intérieur d'un bâtiment (altitude terrain ${origine.resultat.altitudeTerrainOrigineM ?? "n/d"} m). Appuyez sur « Valider » pour confirmer.`}
-                  {origine.resultat.statut === "HORS_BATIMENT" &&
-                    `✗ Point non validable — en dehors d'un bâtiment (à ${origine.resultat.distanceAuBatimentM.toFixed(2)} m). Déplacez la carte.`}
-                  {origine.resultat.statut === "SANS_BATIMENT" &&
-                    "✗ Point non validable — aucun bâtiment ici."}
-                </div>
-              )}
+    {/* Validation du point d'origine (PostGIS via /api/origine) — après 1er déplacement */}
+    {pointDeplace && origine.enCours && (
+      <p className="mt-3 text-sm text-svv-muted">Vérification du point…</p>
+    )}
 
-              <button
-                type="button"
-                onClick={() => {
-                  origine.confirmer(position.latitude, position.longitude);
-                  setEtape("orientation");
-                }}
-                disabled={!pointDeplace || origine.resultat?.statut !== "VALIDE" || !!origine.valide}
-                className={
-                  "mt-3 w-full rounded-xl px-6 py-3 font-bold text-white transition-colors " +
-                  (pointDeplace && origine.resultat?.statut === "VALIDE" && !origine.valide
-                    ? "bg-green-600 hover:bg-green-700"
-                    : "bg-slate-300 cursor-not-allowed")
-                }
-              >
-                Valider ce point d'origine
-              </button>
-            </div>
-          )}
+    {pointDeplace && !origine.enCours && origine.resultat && !origine.valide && (
+      <div
+        className={
+          "mt-3 rounded-xl border p-3 text-sm font-medium " +
+          (origine.resultat.statut === "VALIDE"
+            ? "border-svv-green/40 bg-svv-green-soft text-svv-green-ink"
+            : origine.resultat.statut === "HORS_BATIMENT"
+              ? "border-amber-300 bg-amber-50 text-amber-800"
+              : "border-svv-red/30 bg-svv-red/5 text-svv-red")
+        }
+      >
+        {origine.resultat.statut === "VALIDE" &&
+          `✓ Point validable — à l'intérieur d'un bâtiment (altitude terrain ${origine.resultat.altitudeTerrainOrigineM ?? "n/d"} m). Appuyez sur « Valider » pour confirmer.`}
+        {origine.resultat.statut === "HORS_BATIMENT" &&
+          `✗ Point non validable — en dehors d'un bâtiment (à ${origine.resultat.distanceAuBatimentM.toFixed(2)} m). Déplacez la carte.`}
+        {origine.resultat.statut === "SANS_BATIMENT" &&
+          "✗ Point non validable — aucun bâtiment ici."}
+      </div>
+    )}
+
+    <button
+      type="button"
+      onClick={() => {
+        origine.confirmer(position.latitude, position.longitude);
+        setEtape("orientation");
+      }}
+      disabled={!pointDeplace || origine.resultat?.statut !== "VALIDE" || !!origine.valide}
+      className={
+        "mt-4 " +
+        (pointDeplace && origine.resultat?.statut === "VALIDE" && !origine.valide
+          ? "svv-btn svv-btn-primary"
+          : "svv-btn cursor-not-allowed bg-svv-field text-svv-muted")
+      }
+    >
+      Valider ce point d&apos;origine
+    </button>
+  </div>
+)}
 
           {/* ÉCRAN 3 : VALIDATION DE L'ORIENTATION */}
           {etape === "orientation" && (
