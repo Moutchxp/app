@@ -9,7 +9,7 @@ const RAYON_M = 250;            // axe de contrôle (longueur max du faisceau)
 const RAYON_CONE_M = 220;       // cône un peu plus court → la pointe rouge dépasse
 const DEMI_CONE_VISUEL_DEG = 45; // champ de vision VISUEL (90° total) — tunable
 const ARC_POINTS = 13;
-const FRAME_H = 256;      // hauteur du cadre (h-64)
+const FRAME_H = 288;      // hauteur du cadre (h-72) — DOIT matcher la classe ci-dessous
 
 // Mêmes sources de tuiles que la carte de localisation (cf. MapContent).
 const TUILES = {
@@ -44,6 +44,7 @@ function zoomDepuisMpp(lat: number, mpp: number): number {
 }
 const MARGE_HAUT_PX = 6;  // la pointe rouge touche presque le bord haut
 const MARGE_BAS_PX = 14;  // marge sous l'origine (rayon du point)
+const MARGE_HAUT_PAN_PX = 16; // borne haute du défilement (origine au plus haut)
 
 interface FaisceauMapProps {
   lat: number;
@@ -60,6 +61,8 @@ export default function FaisceauMap({ lat, lon, azimutDeg }: FaisceauMapProps) {
   const mapModeRef = useRef<MapMode>(mapMode);
   mapModeRef.current = mapMode;
   const [echelle, setEchelle] = useState<{ px: number; label: string } | null>(null);
+  const pxOffsetRef = useRef(0); // décalage px de l'origine SOUS le centre (cadrage)
+  const overlayRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,9 +75,9 @@ export default function FaisceauMap({ lat, lon, azimutDeg }: FaisceauMapProps) {
       const spanPx = FRAME_H - MARGE_HAUT_PX - MARGE_BAS_PX;
       const mpp = RAYON_M / spanPx;
       const z = Math.max(3, Math.min(19, zoomDepuisMpp(lat, mpp)));
-      const dCentre = (FRAME_H / 2 - MARGE_BAS_PX) * mpp;
+      pxOffsetRef.current = FRAME_H / 2 - MARGE_BAS_PX; // origine près du bas (défaut)
       const centre: [number, number] =
-        azimutDeg !== null ? destination(lat, lon, azimutDeg, dCentre) : [lat, lon];
+        azimutDeg !== null ? destination(lat, lon, azimutDeg, pxOffsetRef.current * mpp) : [lat, lon];
 
       const map = L.map(divRef.current, {
         center: centre,
@@ -154,10 +157,67 @@ export default function FaisceauMap({ lat, lon, azimutDeg }: FaisceauMapProps) {
     }).addTo(map);
   }, [mapMode]);
 
+  // Applique la vue depuis le décalage px de l'origine (origine fixe → cadrage stable au zoom).
+  function appliquerVue(zoom: number) {
+    const m = mapRef.current;
+    if (!m) return;
+    if (azimutDeg === null) {
+      m.setZoom(zoom);
+      return;
+    }
+    const mpp = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
+    m.setView(destination(lat, lon, azimutDeg, pxOffsetRef.current * mpp), zoom, { animate: false });
+  }
+
+  // Défilement vertical le long de l'axe (drag naturel ; Leaflet natif KO avec rotation CSS).
+  useEffect(() => {
+    const el = overlayRef.current;
+    if (!el || azimutDeg === null) return;
+    const az = azimutDeg; // number
+    const demiH = FRAME_H / 2;
+    let dragging = false;
+    let startY = 0;
+    let px0 = 0;
+    const onDown = (e: PointerEvent) => {
+      if (!mapRef.current) return;
+      dragging = true;
+      startY = e.clientY;
+      px0 = pxOffsetRef.current;
+      el.setPointerCapture(e.pointerId);
+    };
+    const onMove = (e: PointerEvent) => {
+      const m = mapRef.current;
+      if (!dragging || !m) return;
+      const dy = e.clientY - startY; // drag naturel : le contenu suit le doigt
+      // clamp : origine toujours visible — bas = défaut (MARGE_BAS), haut = MARGE_HAUT_PAN.
+      const px = Math.min(demiH - MARGE_BAS_PX, Math.max(MARGE_HAUT_PAN_PX - demiH, px0 + dy));
+      pxOffsetRef.current = px;
+      const zoom = m.getZoom();
+      const mpp = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
+      m.setView(destination(lat, lon, az, px * mpp), zoom, { animate: false });
+    };
+    const onUp = (e: PointerEvent) => {
+      dragging = false;
+      try {
+        el.releasePointerCapture(e.pointerId);
+      } catch {}
+    };
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
+    return () => {
+      el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onUp);
+    };
+  }, [lat, lon, azimutDeg]);
+
   const rot = -(azimutDeg ?? 0); // rotation heading-up
 
   return (
-    <div className="relative -mx-6 h-64 overflow-hidden rounded-xl border border-slate-200 bg-slate-200">
+    <div className="relative -mx-6 h-72 overflow-hidden rounded-xl border border-slate-200 bg-slate-200">
       {/* Couche carte TOURNANTE, sur-dimensionnée (pas de trous aux coins). */}
       <div
         className="absolute"
@@ -173,6 +233,9 @@ export default function FaisceauMap({ lat, lon, azimutDeg }: FaisceauMapProps) {
         <div ref={divRef} className="h-full w-full" />
       </div>
 
+      {/* Capture du défilement vertical (drag naturel le long de l'axe). */}
+      <div ref={overlayRef} className="absolute inset-0 z-[1000]" style={{ touchAction: "none" }} />
+
       {/* Bascule Plan / Satellite (droite). */}
       <button
         type="button"
@@ -184,14 +247,14 @@ export default function FaisceauMap({ lat, lon, azimutDeg }: FaisceauMapProps) {
 
       {/* Zoom +/− (les boutons seuls changent l'échelle ; drag/pinch désactivés). */}
       <div className="absolute left-3 top-3 z-[2000] flex flex-col overflow-hidden rounded-xl shadow">
-        <button type="button" onClick={() => mapRef.current?.zoomIn()} className="bg-white px-3 py-1.5 text-base font-bold text-slate-800 active:bg-slate-100">+</button>
-        <button type="button" onClick={() => mapRef.current?.zoomOut()} className="border-t border-slate-200 bg-white px-3 py-1.5 text-base font-bold text-slate-800 active:bg-slate-100">−</button>
+        <button type="button" onClick={() => appliquerVue(Math.min(19, (mapRef.current?.getZoom() ?? 0) + 1))} className="bg-white px-3 py-1.5 text-base font-bold text-slate-800 active:bg-slate-100">+</button>
+        <button type="button" onClick={() => appliquerVue(Math.max(3, (mapRef.current?.getZoom() ?? 0) - 1))} className="border-t border-slate-200 bg-white px-3 py-1.5 text-base font-bold text-slate-800 active:bg-slate-100">−</button>
       </div>
 
       {/* Boussole (droite, plus grande) : graduations fixes + texte droit + repère Nord tournant. */}
       <div className="absolute bottom-3 right-3 z-[2000] h-20 w-20 rounded-full border border-slate-300 bg-white shadow">
         {/* graduations fixes façon cadran (4 cardinaux marqués) */}
-        <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full">
+        <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full" style={{ transform: `rotate(${rot}deg)`, transformOrigin: "center" }}>
           {Array.from({ length: 24 }).map((_, i) => {
             const a = (i * 15 * Math.PI) / 180;
             const majeur = i % 6 === 0;

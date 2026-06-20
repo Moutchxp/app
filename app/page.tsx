@@ -586,7 +586,7 @@ export default function Home() {
               </p>
 
               {photo && (
-                <div className="relative -mx-6 mb-3 aspect-[16/9] overflow-hidden rounded-xl">
+                <div className="relative -mx-6 mb-3 aspect-[2/1] overflow-hidden rounded-xl">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={photo}
