@@ -612,6 +612,7 @@ export default function Home() {
   const [etape, setEtape] = useState<Etape>("accueil");
   const [address, setAddress] = useState("");
   const [addressInfo, setAddressInfo] = useState(""); // message d'info SOUS le champ, jamais dans sa valeur
+  const [positionGPSObtenue, setPositionGPSObtenue] = useState(false); // AFFICHAGE seul : libellé adresse
   const origine = useOrigineValidation();
   const [pointDeplace, setPointDeplace] = useState(false); // true au 1er geste utilisateur sur la carte
   const [etage, setEtage] = useState("");
@@ -920,6 +921,7 @@ export default function Home() {
   function demanderPositionGPS() {
     if (navigator.geolocation) {
       setAddress("");
+      setPositionGPSObtenue(false);
       setAddressInfo("Calcul de votre position GPS…");
 
       navigator.geolocation.getCurrentPosition(
@@ -931,9 +933,11 @@ export default function Home() {
           // Met à jour la carte et lance le calcul d'adresse automatique (evaluer suit via moveend)
           setPosition(photoPosition);
           await getAddressFromGPS(photoPosition.latitude, photoPosition.longitude);
+          setPositionGPSObtenue(true);
         },
         (error) => {
           console.warn("Géoloc refusée/indisponible — code:", error?.code, "message:", error?.message);
+          setPositionGPSObtenue(false);
           if (error?.code === 1) {
             // Refus : sans impact (le GPS ne sert qu'au centrage ; le point est posé à la main).
             setAddressInfo(
@@ -951,6 +955,7 @@ export default function Home() {
       );
     } else {
       // Fallback si le navigateur ne gère pas la géolocalisation
+      setPositionGPSObtenue(false);
       setAddressInfo("Géolocalisation indisponible — saisissez l'adresse ou déplacez le repère.");
     }
   }
@@ -1097,7 +1102,10 @@ export default function Home() {
           }
         >
           {etape === "accueil" && (
-            <div className="flex flex-1 flex-col">
+            // Carte pleine hauteur (chaîne flex-1 depuis main min-h-[100dvh]) en COLONNE simple.
+            // mt-auto sur la skyline → skyline + boutons + note collés EN BAS ; tout l'espace
+            // libre devient du ciel blanc AU-DESSUS de la skyline. -mb-3 réduit le vide sous la note.
+            <div className="flex flex-1 flex-col -mb-3">
               {/* Logo — uniquement sur l'accueil (firmware écran 1) */}
               <div className="mb-6 flex justify-center">
                 <Image
@@ -1117,14 +1125,13 @@ export default function Home() {
                 {"Une analyse objective, basée sur la géolocalisation, les altitudes et l'intelligence artificielle."}
               </p>
 
-              {/* Skyline (asset stylisé) — bande pleine largeur qui prend la hauteur
-                  de la zone basse, sous le sous-titre et au-dessus des boutons */}
+              {/* Skyline2 (mono-ton, sans ciel vide) — mt-auto pousse tout le bloc bas vers le bas */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/images/skyline.svg"
+                src="/images/skyline2.svg"
                 alt=""
                 aria-hidden="true"
-                className="-mx-6 mt-6 mb-9 max-w-none w-[calc(100%+3rem)] flex-1 object-contain object-bottom"
+                className="-mx-6 mt-auto mb-6 max-w-none w-[calc(100%+3rem)] object-bottom"
               />
 
               <button
@@ -1150,7 +1157,7 @@ export default function Home() {
               </button>
 
               <p className="mt-5 text-center text-[11.5px] leading-snug text-svv-muted">
-                Sans Vis-à-Vis® : le premier obstacle réel à + de 40 mètres
+                Sans Vis-à-Vis® : la première construction à + de 40 mètres face au séjour
               </p>
             </div>
           )}
@@ -1334,13 +1341,15 @@ export default function Home() {
           {/* ZONE 2 : ADRESSE + CARTE */}
 {etape === "localisation" && (
   <div className="animate-fadeIn">
-    <h1 className="text-[1.6rem] font-extrabold leading-tight tracking-tight text-svv-ink">
-      Localisation
-    </h1>
-    <p className="mt-2 mb-4 text-sm leading-relaxed text-svv-muted">
-      Saisissez votre adresse, puis calez précisément le repère rouge sur la façade concernée.
-    </p>
+    <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
+      <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">
+        Localisez la fenêtre de votre séjour
+      </h1>
+    </div>
 
+    <label className="mb-1 block text-lg font-semibold text-svv-ink">
+      {positionGPSObtenue ? "Votre adresse" : "Saisissez votre adresse"}
+    </label>
     <input
       value={address}
       onChange={onChangeAdresse}
@@ -1406,7 +1415,7 @@ export default function Home() {
         }
       >
         {origine.resultat.statut === "VALIDE" &&
-          `✓ Point validable — à l'intérieur d'un bâtiment (altitude terrain ${origine.resultat.altitudeTerrainOrigineM ?? "n/d"} m). Appuyez sur « Valider » pour confirmer.`}
+          "✓ Point validable — à l'intérieur d'un bâtiment"}
         {origine.resultat.statut === "HORS_BATIMENT" &&
           `✗ Point non validable — en dehors d'un bâtiment (à ${origine.resultat.distanceAuBatimentM.toFixed(2)} m). Déplacez la carte.`}
         {origine.resultat.statut === "SANS_BATIMENT" &&
@@ -1428,7 +1437,7 @@ export default function Home() {
           : "svv-btn cursor-not-allowed bg-svv-field text-svv-muted")
       }
     >
-      Valider ce point d&apos;origine
+      Valider votre point de vue
     </button>
   </div>
 )}
