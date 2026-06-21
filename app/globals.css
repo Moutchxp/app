@@ -14,8 +14,8 @@
 
 /* Charte Sans Vis-à-Vis® */
 @theme {
-  --color-svv-red: #bc1d1d;
-  --color-svv-red-dark: #a60000;
+  --color-svv-red: #a30402; /* échantillonné sur le bandeau/bouton rouge du firmware */
+  --color-svv-red-dark: #850302; /* ~15 % plus sombre pour le hover */
   --color-svv-ink: #16202c;
   --color-svv-gray: #454545;
   --color-svv-muted: #5c6573;
