@@ -262,8 +262,8 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
       }, 44);
     };
 
-    // a) pause initiale 1500 ms (titre + pastilles au repos) avant la 1re frappe.
-    after(1500, () => typeLine(0));
+    // a) pause initiale 1200 ms (titre + pastilles au repos) avant la 1re frappe.
+    after(1200, () => typeLine(0));
 
     return () => {
       cancelled = true;
@@ -516,7 +516,7 @@ function EcranResultat({
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="text-xs text-svv-muted">Premier obstacle</p>
+          <p className="text-xs text-svv-muted">Premier obstacle face</p>
           <p className={`${tailleDistance} font-extrabold text-svv-ink whitespace-nowrap`}>{distanceTxt}</p>
           <p className="mt-2 text-xs text-svv-muted">Distance minimale requise</p>
           <p className="text-base font-bold text-svv-gray">40 m</p>
@@ -1663,22 +1663,22 @@ export default function Home() {
           />
         </div>
 
-        <h1 className="text-[1.4rem] font-extrabold leading-tight tracking-tight text-svv-ink">
+        <h1 className="text-[1.75rem] font-extrabold leading-tight tracking-tight text-svv-ink">
           Analyse de votre vue en cours…
         </h1>
 
         {/* Checklist animée (présentation seule) */}
-        <ul className="mt-6 flex flex-col gap-3">
+        <ul className="mt-8 flex flex-1 flex-col justify-center gap-6">
           {ETAPES_ANALYSE.map((label, i) => {
             const fait = i < analyseEtape;
             const enCours = i === analyseEtape;
             return (
               <li key={label} className="flex items-center gap-3">
                 {fait ? (
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-svv-green-soft">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-svv-green-soft">
                     <svg
-                      width="14"
-                      height="14"
+                      width="20"
+                      height="20"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -1693,18 +1693,18 @@ export default function Home() {
                   </span>
                 ) : enCours ? (
                   <span
-                    className="h-6 w-6 shrink-0 animate-spin rounded-full border-2 border-svv-red border-t-transparent"
+                    className="h-9 w-9 shrink-0 animate-spin rounded-full border-[3px] border-svv-red border-t-transparent"
                     aria-hidden="true"
                   />
                 ) : (
                   <span
-                    className="h-6 w-6 shrink-0 rounded-full border-2 border-svv-line"
+                    className="h-9 w-9 shrink-0 rounded-full border-[3px] border-svv-line"
                     aria-hidden="true"
                   />
                 )}
                 <span
                   className={
-                    "text-sm " +
+                    "text-lg " +
                     (fait || enCours ? "font-medium text-svv-ink" : "text-svv-muted")
                   }
                 >
@@ -1717,7 +1717,7 @@ export default function Home() {
 
         {/* Barre de progression + mention, ancrées en bas */}
         <div className="mt-auto pt-8">
-          <div className="h-2 w-full overflow-hidden rounded-full bg-svv-line">
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-svv-line">
             <div
               className="h-full rounded-full bg-svv-green transition-all duration-500"
               style={{
@@ -1725,7 +1725,7 @@ export default function Home() {
               }}
             />
           </div>
-          <p className="mt-3 text-center text-xs text-svv-muted">
+          <p className="mt-3 text-center text-sm text-svv-muted">
             Cela peut prendre quelques secondes.
           </p>
         </div>
