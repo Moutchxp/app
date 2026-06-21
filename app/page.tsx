@@ -427,6 +427,9 @@ function EcranResultat({
   const distanceTxt = Number.isFinite(distanceM)
     ? `${Math.round(distanceM as number)} m`
     : "Aucun (≥ 200 m)";
+  // Taille adaptée à la longueur → la distance tient toujours sur UNE ligne (affichage seul).
+  const tailleDistance =
+    distanceTxt.length <= 6 ? "text-2xl" : distanceTxt.length <= 10 ? "text-xl" : "text-base";
 
   const badges = [
     libelleTypePaysage(f2.detail.typeEnum),
@@ -504,7 +507,7 @@ function EcranResultat({
 
         <div className="min-w-0 flex-1">
           <p className="text-xs text-svv-muted">Premier obstacle réel</p>
-          <p className="text-2xl font-extrabold text-svv-ink">{distanceTxt}</p>
+          <p className={`${tailleDistance} font-extrabold text-svv-ink whitespace-nowrap`}>{distanceTxt}</p>
           <p className="mt-2 text-xs text-svv-muted">Distance minimale requise</p>
           <p className="text-base font-bold text-svv-gray">40 m</p>
         </div>
@@ -1705,7 +1708,7 @@ export default function Home() {
         photo={photo}
         lat={origine.valide?.lat ?? position.latitude}
         lon={origine.valide?.lon ?? position.longitude}
-        azimutDeg={capturedOrientation}
+        azimutDeg={azimutAjuste}
         onRecommencer={() => setEtape("accueil")}
       />
     ) : null}
