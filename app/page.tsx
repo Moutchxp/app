@@ -697,13 +697,26 @@ export default function Home() {
   const motionActiveRef = useRef(false); // DeviceMotion réellement disponible ?
   const sensorSeenRef = useRef(false);   // au moins un échantillon capteur reçu ?
   const pitchValidRef = useRef(false);   // dernier isPValid (pour recomposer isLevel dans le rAF)
-  
+  // Détection du verrouillage de l'aide au niveau (garde-fou anti-saut figé > 0,7 s).
+  const niveauBloqueRef = useRef(false);
+  const [niveauBloque, setNiveauBloque] = useState(false);
+  const divergenceDepuisRef = useRef<number | null>(null);
+  const marquerBloque = (v: boolean) => {
+    if (niveauBloqueRef.current !== v) {
+      niveauBloqueRef.current = v;
+      setNiveauBloque(v);
+    }
+  };
+
   // États lissés pour animer les éléments graphiques séparés
   const [visualRoll, setVisualRoll] = useState(0);
   const [visualPitchOffset, setVisualPitchOffset] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // Détection de l'objectif actif — on vise l'ULTRA grand-angle arrière. + panneau de debug temporaire.
+  const [surUltra, setSurUltra] = useState(false);
+  const [ultraDeviceId, setUltraDeviceId] = useState<string | null>(null);
 
   // Moteur de calcul de l'adresse et validation bâtiment
   async function getAddressFromGPS(latitude: number, longitude: number) {
@@ -848,9 +861,17 @@ export default function Home() {
       if (sensorSeenRef.current) {
         const rollRaw = rollRawRef.current;
         // Garde-fou anti-saut : échantillon glitché (> 45° du lissé) ⇒ ignoré.
-        if (Math.abs(rollRaw - rollSmoothRef.current) <= 45 && dt > 0) {
-          const alpha = dt / (0.18 + dt);
-          rollSmoothRef.current = rollSmoothRef.current + alpha * (rollRaw - rollSmoothRef.current);
+        if (Math.abs(rollRaw - rollSmoothRef.current) <= 45) {
+          if (dt > 0) {
+            const alpha = dt / (0.18 + dt);
+            rollSmoothRef.current = rollSmoothRef.current + alpha * (rollRaw - rollSmoothRef.current);
+          }
+          divergenceDepuisRef.current = null; // conforme → on n'est pas (plus) bloqué
+          marquerBloque(false);
+        } else {
+          // échantillon ignoré (inchangé) ; si la divergence persiste > 0,7 s → verrou détecté.
+          if (divergenceDepuisRef.current == null) divergenceDepuisRef.current = ts;
+          else if (ts - divergenceDepuisRef.current > 700) marquerBloque(true);
         }
         setVisualRoll(rollSmoothRef.current);
 
@@ -877,6 +898,62 @@ export default function Home() {
       motionTsRef.current = 0;
     };
   }, [isCameraActive]);
+
+  // Détecte l'objectif actif et l'ULTRA grand-angle arrière. Appelée après CHAQUE getUserMedia.
+  async function detecterObjectif(stream: MediaStream) {
+    const norm = (l: string) => (l || "").trim().toLowerCase();
+    const estUltraArriere = (l: string) => {
+      const s = norm(l);
+      return /ultra/.test(s) && /arri[èe]re|back/.test(s) && !/avant|front/.test(s);
+    };
+
+    const actif = stream.getVideoTracks()[0]?.label || "";
+    let devices: MediaDeviceInfo[] = [];
+    try {
+      devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+    } catch {}
+
+    const sU = estUltraArriere(actif);
+    const ultraDev = devices.find((d) => estUltraArriere(d.label));
+    setSurUltra(sU);
+    setUltraDeviceId(ultraDev?.deviceId ?? null);
+
+    console.log("[CAM] active:", actif, stream.getVideoTracks()[0]?.getSettings?.());
+    console.log("[CAM] inputs:", devices.map((d) => ({ label: d.label, id: d.deviceId })));
+    return { sU, uId: ultraDev?.deviceId ?? null };
+  }
+
+  // Bascule sur l'ULTRA grand-angle arrière. Ne touche pas aux capteurs.
+  async function passerUltraGrandAngle(idParam?: string) {
+    const id = idParam ?? ultraDeviceId;
+    if (!id) return;
+    try {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      const s = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: id }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      streamRef.current = s;
+      if (videoRef.current) videoRef.current.srcObject = s;
+      await detecterObjectif(s);
+    } catch (e) {
+      console.warn("Bascule ultra grand-angle échouée", e); // on garde l'objectif courant
+    }
+  }
+
+  // Débloque l'aide au niveau (le garde-fou anti-saut peut se verrouiller après un à-plat).
+  // Recale le roulis lissé sur le réel ; conserve le flux et l'objectif.
+  function reinitialiserAideNiveau() {
+    rollSmoothRef.current = rollRawRef.current; // recale le roulis lissé sur le réel → lève le verrou
+    smoothPitchOffsetRef.current = 0;
+    motionTsRef.current = 0;
+    setVisualRoll(rollRawRef.current);
+    setPitchValid(false);
+    setRollValid(false);
+    setIsLevel(false);
+    divergenceDepuisRef.current = null;
+    marquerBloque(false);
+  }
 
   // Allumer la caméra et demander les permissions de gyroscope
   async function startCamera() {
@@ -927,6 +1004,11 @@ export default function Home() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
+      // Détection + bascule AUTO en ultra grand-angle si dispo et pas déjà actif.
+      const { sU, uId } = await detecterObjectif(stream);
+      if (uId && !sU) {
+        await passerUltraGrandAngle(uId);
+      }
     } catch (err) {
       console.warn("Tentative caméra standard...", err);
       try {
@@ -934,6 +1016,10 @@ export default function Home() {
         streamRef.current = basicStream;
         if (videoRef.current) {
           videoRef.current.srcObject = basicStream;
+        }
+        const { sU, uId } = await detecterObjectif(basicStream);
+        if (uId && !sU) {
+          await passerUltraGrandAngle(uId);
         }
       } catch (fallbackErr) {
         console.error("Erreur caméra :", fallbackErr);
@@ -1225,15 +1311,21 @@ export default function Home() {
         <div className="fixed inset-0 z-50 bg-black select-none">
           <video ref={videoRef} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover" />
 
+          {/* Anneau rouge clignotant du bouton « Grand-angle » (incite au tap). */}
+          <style>{`@keyframes svvRing{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,0)}50%{box-shadow:0 0 0 6px rgba(220,38,38,0.9)}}.svvRingPulse{animation:svvRing 1.1s ease-in-out infinite}`}</style>
+
           {/* Barre supérieure */}
           <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-5 pt-12 pb-4">
             <button
               type="button"
-              onClick={() => { conserverPositionRef.current = false; stopCamera(); }}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white text-lg"
-              aria-label="Fermer"
+              onClick={reinitialiserAideNiveau}
+              className={`flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white ${niveauBloque ? "svvRingPulse" : ""}`}
+              aria-label="Réinitialiser le niveau"
             >
-              ✕
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
             </button>
             <div className="flex flex-col items-center text-center leading-tight">
               <span className={`text-sm font-semibold ${isLevel ? "text-[#7CE2A0]" : "text-white"}`}>
@@ -1330,7 +1422,19 @@ export default function Home() {
               Cadrez votre vue et maintenez votre téléphone bien droit.
             </p>
             <div className="flex items-center justify-between">
-              <span className="w-16 text-center text-[11px] text-white/85">Grand-angle</span>
+              {surUltra ? (
+                <span className="w-16 text-center text-[11px] text-white/85">Ultra grand-angle</span>
+              ) : ultraDeviceId !== null ? (
+                <button
+                  type="button"
+                  onClick={() => passerUltraGrandAngle()}
+                  className="svvRingPulse w-16 rounded-full px-2 py-1 text-center text-[11px] text-white"
+                >
+                  Ultra grand-angle
+                </button>
+              ) : (
+                <span className="w-16 text-center text-[11px] text-white/85">Grand-angle</span>
+              )}
               <button
                 type="button"
                 onClick={capturePhoto}
