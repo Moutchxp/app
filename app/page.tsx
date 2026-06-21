@@ -660,9 +660,16 @@ export default function Home() {
   const [pitchValid, setPitchValid] = useState(false);
   const [rollValid, setRollValid] = useState(false);
 
-  // Références pour le lissage anti-saccades (Filtre passe-bas)
-  const smoothRollRef = useRef(0);
-  const smoothPitchOffsetRef = useRef(0);
+  // Références capteurs (AFFICHAGE uniquement — lissage, aucune logique métier)
+  const smoothPitchOffsetRef = useRef(0); // offset pitch lissé (passe-bas)
+  // Roulis : mesuré via DeviceMotion (accel), lissé en rAF (τ ≈ 0,18 s), affichage seulement.
+  const rollRawRef = useRef(0);          // dernier roulis brut (atan2 de l'accélération)
+  const rollSmoothRef = useRef(0);       // roulis lissé qui pilote l'affichage + le code couleur
+  const rafRef = useRef<number | null>(null);
+  const motionTsRef = useRef(0);         // timestamp rAF précédent (lissage indépendant du framerate)
+  const motionActiveRef = useRef(false); // DeviceMotion réellement disponible ?
+  const sensorSeenRef = useRef(false);   // au moins un échantillon capteur reçu ?
+  const pitchValidRef = useRef(false);   // dernier isPValid (pour recomposer isLevel dans le rAF)
   
   // États lissés pour animer les éléments graphiques séparés
   const [visualRoll, setVisualRoll] = useState(0);
@@ -755,77 +762,121 @@ export default function Home() {
     };
   }, []);
 
-  // Écoute du gyroscope et de la boussole optimisée
+  // Capteurs : PITCH + boussole via deviceorientation (inchangé), ROLL via DeviceMotion
+  // (accélération + gravité) lissé en requestAnimationFrame. Mesure plus stable près de
+  // la verticale. Aucune incidence sur verdict/score/géométrie : aide au cadrage seulement.
   useEffect(() => {
+    if (!isCameraActive) return;
+
+    // --- PITCH (beta) + HEADING via deviceorientation ; repli ROLL = gamma si pas de DeviceMotion ---
     function handleOrientation(event: DeviceOrientationEvent) {
+      sensorSeenRef.current = true;
       const pitch = event.beta ? Math.round(event.beta) : 0;
-      const roll = event.gamma ? Math.round(event.gamma) : 0;
-      
+
       let heading = 0;
-      if ('webkitCompassHeading' in event) {
+      if ("webkitCompassHeading" in event) {
         heading = (event as any).webkitCompassHeading;
       } else if (event.alpha) {
         heading = 360 - event.alpha;
       }
       heading = Math.round(heading);
 
-      // 1. Validation de la Verticale (Pitch) : Stricte à ±3°
+      // Validation de la Verticale (Pitch) : seuil INCHANGÉ (±3° / zone 87–94).
       const absPitch = Math.abs(pitch);
-      const isPValid = (absPitch >= 87 && absPitch <= 94) || Math.abs(pitch - 90) <= 3 || Math.abs(pitch + 90) <= 3;
-      
-      // 2. Validation de l'Horizontale (Roll) : Souple à ±30°
-      const isRValid = Math.abs(roll) <= 30;
-
-      setAngles({ pitch, roll, heading });
+      const isPValid =
+        (absPitch >= 87 && absPitch <= 94) || Math.abs(pitch - 90) <= 3 || Math.abs(pitch + 90) <= 3;
+      pitchValidRef.current = isPValid;
       setPitchValid(isPValid);
-      setRollValid(isRValid);
-      
-      const levelState = isPValid && isRValid;
-      setIsLevel(levelState);
+      setAngles((a) => ({ ...a, pitch, heading }));
 
-      // Calcul des écarts pour l'animation de la croix centrale
-      let targetPitchOffset = 0;
-      if (isPValid) {
-        targetPitchOffset = 0; 
-      } else if (absPitch < 87) {
-        targetPitchOffset = 87 - absPitch; 
-      } else {
-        targetPitchOffset = absPitch - 94; 
-        targetPitchOffset = -targetPitchOffset; 
-      }
-
-      // Application du filtre passe-bas (0.15)
-      smoothRollRef.current = smoothRollRef.current + (roll - smoothRollRef.current) * 0.15;
-      smoothPitchOffsetRef.current = smoothPitchOffsetRef.current + (targetPitchOffset - smoothPitchOffsetRef.current) * 0.15;
-
-      setVisualRoll(smoothRollRef.current);
+      // Pitch : offset signé au CENTRE EXACT de la zone OK (90.5° / -90.5°) — affichage.
+      const ciblePitch = pitch >= 0 ? 90.5 : -90.5;
+      const targetPitchOffset = pitch - ciblePitch;
+      smoothPitchOffsetRef.current =
+        smoothPitchOffsetRef.current + (targetPitchOffset - smoothPitchOffsetRef.current) * 0.15;
       setVisualPitchOffset(smoothPitchOffsetRef.current);
+
+      // Repli : si DeviceMotion indisponible, on garde l'ancien roulis (gamma) comme source brute.
+      if (!motionActiveRef.current) {
+        rollRawRef.current = event.gamma ? event.gamma : 0;
+      }
     }
 
-    if (isCameraActive) {
-      window.addEventListener("deviceorientation", handleOrientation);
+    // --- ROLL via DeviceMotion : roulis brut = atan2(ax, -ay), stable près de la verticale ---
+    function handleMotion(event: DeviceMotionEvent) {
+      const g = event.accelerationIncludingGravity;
+      if (!g || g.x == null || g.y == null) return;
+      motionActiveRef.current = true;
+      sensorSeenRef.current = true;
+      // À la verticale & à plat (ax ≈ 0) → 0. Sens : haut vers la droite ⇒ barre vers la droite.
+      // (si inversé sur l'appareil réel : remplacer g.x par -g.x.)
+      rollRawRef.current = Math.atan2(g.x, -g.y) * (180 / Math.PI);
     }
+
+    // --- Boucle d'affichage : lissage exponentiel dt-based (τ ≈ 0,18 s) + garde-fou ---
+    function tick(ts: number) {
+      const dt = motionTsRef.current ? Math.min(0.1, (ts - motionTsRef.current) / 1000) : 0;
+      motionTsRef.current = ts;
+
+      if (sensorSeenRef.current) {
+        const rollRaw = rollRawRef.current;
+        // Garde-fou anti-saut : échantillon glitché (> 45° du lissé) ⇒ ignoré.
+        if (Math.abs(rollRaw - rollSmoothRef.current) <= 45 && dt > 0) {
+          const alpha = dt / (0.18 + dt);
+          rollSmoothRef.current = rollSmoothRef.current + alpha * (rollRaw - rollSmoothRef.current);
+        }
+        setVisualRoll(rollSmoothRef.current);
+
+        // Condition « roulis OK » : sur le roulis LISSÉ, MÊME seuil qu'avant (±30°).
+        const isRValid = Math.abs(rollSmoothRef.current) <= 30;
+        setRollValid(isRValid);
+        setIsLevel(pitchValidRef.current && isRValid);
+        setAngles((a) => {
+          const r = Math.round(rollSmoothRef.current);
+          return a.roll === r ? a : { ...a, roll: r };
+        });
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    }
+
+    window.addEventListener("deviceorientation", handleOrientation);
+    window.addEventListener("devicemotion", handleMotion);
+    rafRef.current = requestAnimationFrame(tick);
 
     return () => {
       window.removeEventListener("deviceorientation", handleOrientation);
+      window.removeEventListener("devicemotion", handleMotion);
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      motionTsRef.current = 0;
     };
   }, [isCameraActive]);
 
   // Allumer la caméra et demander les permissions de gyroscope
   async function startCamera() {
-    if (
+    const hasOrientPerm =
       typeof DeviceOrientationEvent !== "undefined" &&
-      typeof (DeviceOrientationEvent as any).requestPermission === "function"
-    ) {
+      typeof (DeviceOrientationEvent as any).requestPermission === "function";
+    const hasMotionPerm =
+      typeof DeviceMotionEvent !== "undefined" &&
+      typeof (DeviceMotionEvent as any).requestPermission === "function";
+
+    // iOS : permissions orientation ET motion demandées sur CE MÊME geste utilisateur.
+    if (hasOrientPerm) {
       try {
-        const permissionState = await (DeviceOrientationEvent as any).requestPermission();
-        if (permissionState === "granted") {
-          console.log("Gyroscope autorisé.");
-        }
+        await (DeviceOrientationEvent as any).requestPermission();
       } catch (err) {
-        console.log("Erreur capteurs :", err);
+        console.log("Erreur capteur orientation :", err);
       }
-    } else if (typeof window !== "undefined" && !('ontouchstart' in window)) {
+    }
+    if (hasMotionPerm) {
+      try {
+        await (DeviceMotionEvent as any).requestPermission();
+      } catch (err) {
+        console.log("Erreur capteur motion :", err);
+      }
+    }
+    if (!hasOrientPerm && typeof window !== "undefined" && !("ontouchstart" in window)) {
+      // Desktop sans capteurs : aide visuelle neutre (niveau considéré OK).
       setIsLevel(true);
       setPitchValid(true);
       setRollValid(true);
@@ -1004,9 +1055,24 @@ export default function Home() {
     setEtape("photo");
   }
 
-  // Calculs mécaniques de l'instrumentation de bord
-  const lineTranslateY = Math.max(-45, Math.min(45, visualPitchOffset * 2.5));
-  const cursorRotationDeg = Math.max(-50, Math.min(50, visualRoll));
+  // Calculs mécaniques de l'instrumentation de bord (AFFICHAGE uniquement)
+  // Échelle 3.5 px/° : la tolérance OK (±3.5° autour de 90.5°) tient dans ±~12 px du repère.
+  const lineTranslateY = Math.max(-40, Math.min(40, visualPitchOffset * 3.5));
+  // Clamp ±60° : une valeur de roulis aberrante ne fait jamais basculer la barre complètement.
+  const cursorRotationDeg = Math.max(-60, Math.min(60, visualRoll));
+
+  // Niveau combiné (PRÉSENTATION uniquement) — réutilise pitchValid/rollValid existants,
+  // aucun seuil ni calcul de capteur modifié. Code couleur à 3 états + légende d'aide.
+  const niveauTousOk = pitchValid && rollValid;
+  const niveauUnSeulOk = (pitchValid || rollValid) && !niveauTousOk;
+  const couleurNiveau = niveauTousOk ? "#2e9e5b" : niveauUnSeulOk ? "#e08a1e" : "#c0392b";
+  const legendeNiveau = niveauTousOk
+    ? "✓ Parfait — prenez la photo"
+    : !pitchValid && !rollValid
+      ? "Redressez et ajustez l'inclinaison"
+      : !rollValid
+        ? "Redressez le téléphone"
+        : "Ajustez l'inclinaison verticale";
 
   // L'écran « vrai résultat » (7A/7B) est pleine hauteur comme l'accueil/chargement.
   const resultatReussi =
@@ -1152,35 +1218,75 @@ export default function Home() {
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white text-base" aria-hidden="true">⚡</div>
           </div>
 
-          {/* HUD niveau : arc de roulis + croix de pitch (conservé à l'identique) */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10">
-            <div className="relative w-44 h-16 flex items-center justify-center overflow-hidden">
-              <div className={`absolute top-2 w-32 h-32 rounded-full border-4 bg-transparent transition-colors duration-300 ${
-                rollValid ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.3)]' : 'border-red-500'
-              }`} style={{ clipPath: 'ellipse(100% 35% at 50% 0%)' }} />
-              <div className="absolute top-[2px] w-1 h-2 bg-white rounded-full z-10" />
+          {/* HUD niveau combiné : cible fixe + barre flottante (pitch = translateY, roll = rotate) */}
+          <div className="absolute inset-0 pointer-events-none z-10">
+            {/* Cible fixe : fin trait horizontal pleine largeur (discret) */}
+            <div
+              className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2"
+              style={{ background: "rgba(255,255,255,0.18)" }}
+            />
+            {/* Cible fixe : tirets latéraux + point central cerclé (passe au vert quand tout est OK) */}
+            <div
+              className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center"
+              style={{ gap: "14px" }}
+            >
+              <div style={{ width: "26px", height: "2px", background: "rgba(255,255,255,0.6)" }} />
               <div
-                className="absolute top-2 w-32 h-32 origin-center transition-transform duration-75 ease-out flex justify-center"
-                style={{ transform: `rotate(${cursorRotationDeg}deg)` }}
+                className="flex items-center justify-center rounded-full transition-colors duration-150"
+                style={{
+                  width: "16px",
+                  height: "16px",
+                  border: `1.5px solid ${niveauTousOk ? "#2e9e5b" : "rgba(255,255,255,0.6)"}`,
+                }}
               >
-                <div className="w-3 h-3 bg-white rounded-full shadow-md border border-slate-900 -mt-[4px] animate-pulse" />
+                <div
+                  className="rounded-full transition-colors duration-150"
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    background: niveauTousOk ? "#2e9e5b" : "rgba(255,255,255,0.85)",
+                  }}
+                />
               </div>
-              <span className={`absolute bottom-0 text-[10px] font-black uppercase tracking-wider ${rollValid ? 'text-green-400' : 'text-red-400'}`}>
-                {rollValid ? "Horizontal OK" : "Téléphone penché"}
-              </span>
+              <div style={{ width: "26px", height: "2px", background: "rgba(255,255,255,0.6)" }} />
             </div>
 
-            <div className="relative w-36 h-36 flex items-center justify-center mt-2">
-              <div className={`absolute w-14 h-14 rounded-full border border-dashed transition-colors ${pitchValid ? 'border-green-500/60 bg-green-500/5' : 'border-white/20'}`} />
-              <div className="absolute w-0.5 h-28 bg-white/30" />
-              <div className="absolute w-6 h-0.5 bg-white/50 left-12" />
-              <div className="absolute w-6 h-0.5 bg-white/50 right-12" />
+            {/* Barre flottante = niveau horizon combiné (2 demi-segments + gap central) */}
+            <div
+              className="absolute left-1/2 top-1/2 flex items-center"
+              style={{
+                gap: "26px",
+                transform: `translate(-50%, -50%) translateY(${lineTranslateY}px) rotate(${cursorRotationDeg}deg)`,
+                transformOrigin: "center",
+                // AUCUNE transition sur la rotation : le lissage JS (rAF, τ≈0.18s) suffit → pas de traînée.
+                transition: "none",
+              }}
+            >
               <div
-                className={`absolute w-24 h-0.5 left-6 transition-transform duration-75 ease-out shadow-sm ${
-                  pitchValid ? 'bg-green-500 h-[3px] shadow-[0_0_8px_rgba(34,197,94,0.8)]' : 'bg-red-500'
-                }`}
-                style={{ transform: `translateY(${lineTranslateY}px)` }}
+                className="transition-colors duration-150"
+                style={{ width: "90px", height: "9px", borderRadius: "6px", background: couleurNiveau, boxShadow: "0 1px 4px rgba(0,0,0,.35)" }}
               />
+              <div
+                className="transition-colors duration-150"
+                style={{ width: "90px", height: "9px", borderRadius: "6px", background: couleurNiveau, boxShadow: "0 1px 4px rgba(0,0,0,.35)" }}
+              />
+            </div>
+
+            {/* Légende d'aide sous la barre (pilotée par les mêmes booléens) */}
+            <div
+              className="absolute left-1/2 top-1/2 text-center"
+              style={{ transform: "translate(-50%, 54px)", width: "260px" }}
+            >
+              <span
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  color: niveauTousOk ? "#2e9e5b" : "#ffffff",
+                  textShadow: "0 1px 6px rgba(0,0,0,.65)",
+                }}
+              >
+                {legendeNiveau}
+              </span>
             </div>
           </div>
 
