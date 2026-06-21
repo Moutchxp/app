@@ -81,6 +81,10 @@ const FaisceauMap = dynamic(() => import("./FaisceauMap"), { ssr: false });
 // Miniature statique recolorable pour l'écran résultat (compagnon de FaisceauMap).
 const FaisceauMini = dynamic(() => import("./FaisceauMini"), { ssr: false });
 
+// Marge d'ajustement manuel de l'azimut sur l'écran orientation (= marge de roulis tolérée
+// à la prise de photo, ±30°). Correction d'affichage/saisie : n'altère pas le calcul.
+const MARGE_AJUSTEMENT_AZIMUT_DEG = 30;
+
 // Étapes affichées (présentation uniquement) sur l'écran « Analyse en cours ».
 // N'a AUCUN lien avec le pipeline réel : c'est une checklist animée par minuteur.
 const ETAPES_ANALYSE = [
@@ -656,6 +660,13 @@ export default function Home() {
   const [angles, setAngles] = useState({ pitch: 0, roll: 0, heading: 0 });
   const [isLevel, setIsLevel] = useState(false);
   const [capturedOrientation, setCapturedOrientation] = useState<number | null>(null);
+  // Azimut AJUSTABLE à la main sur l'écran orientation (± marge roulis photo autour du capté).
+  // N'affecte PAS le calcul lui-même : c'est juste la valeur d'azimut transmise à l'analyse.
+  const [azimutAjuste, setAzimutAjuste] = useState<number | null>(null);
+  // Resynchronise l'azimut ajustable quand un nouveau cap est capté (nouvelle photo).
+  useEffect(() => {
+    setAzimutAjuste(capturedOrientation);
+  }, [capturedOrientation]);
 
   // États de validation individuels pour l'aide visuelle
   const [pitchValid, setPitchValid] = useState(false);
@@ -1008,7 +1019,8 @@ export default function Home() {
     }
     const lat = origine.valide.lat;
     const lon = origine.valide.lon;
-    const azimut = capturedOrientation;
+    // Azimut transmis = valeur AJUSTÉE par l'internaute (sinon le cap capté). Le calcul est inchangé.
+    const azimut = azimutAjuste;
     if (azimut === null) {
       setAnalyseErreur(
         "Orientation manquante. Reprenez la photo pour capturer le cap (boussole).",
@@ -1470,13 +1482,27 @@ export default function Home() {
       </div>
     )}
 
-    <div className="mb-3">
+    <div className="mb-1">
       <FaisceauMap
         lat={origine.valide?.lat ?? position.latitude}
         lon={origine.valide?.lon ?? position.longitude}
-        azimutDeg={capturedOrientation}
+        azimutDeg={azimutAjuste}
+        azimutInitial={capturedOrientation}
+        onAzimutChange={(propose) =>
+          setAzimutAjuste(
+            capturedOrientation === null
+              ? null
+              : Math.max(
+                  capturedOrientation - MARGE_AJUSTEMENT_AZIMUT_DEG,
+                  Math.min(capturedOrientation + MARGE_AJUSTEMENT_AZIMUT_DEG, propose),
+                ),
+          )
+        }
       />
     </div>
+    <p className="mb-3 text-center text-xs text-svv-muted">
+      Faites pivoter la carte pour aligner le faisceau sur votre vue (±{MARGE_AJUSTEMENT_AZIMUT_DEG}°).
+    </p>
 
     <button
       type="button"
