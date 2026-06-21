@@ -407,6 +407,7 @@ function EcranResultat({
   lon,
   azimutDeg,
   onRecommencer,
+  onRefaireTest,
 }: {
   resultat: ResultatReussi;
   photo: string | null;
@@ -414,6 +415,7 @@ function EcranResultat({
   lon: number;
   azimutDeg: number | null;
   onRecommencer: () => void;
+  onRefaireTest: () => void;
 }) {
   const certifie = resultat.verdict.verdict === "SANS_VIS_A_VIS";
   const score = Math.round(resultat.score.total);
@@ -429,7 +431,7 @@ function EcranResultat({
     : "Aucun (≥ 200 m)";
   // Taille adaptée à la longueur → la distance tient toujours sur UNE ligne (affichage seul).
   const tailleDistance =
-    distanceTxt.length <= 6 ? "text-2xl" : distanceTxt.length <= 10 ? "text-xl" : "text-base";
+    distanceTxt.length <= 6 ? "text-3xl" : distanceTxt.length <= 10 ? "text-2xl" : "text-xl";
 
   const badges = [
     libelleTypePaysage(f2.detail.typeEnum),
@@ -501,12 +503,20 @@ function EcranResultat({
             </div>
           </div>
           <p className="mt-1.5 text-[11px] font-semibold leading-tight text-svv-muted">
-            {resultat.score.scorePartiel ? "Score partiel — photo inexploitable" : "Score global"}
+            {resultat.score.scorePartiel ? (
+              <>
+                Score partiel
+                <br />
+                photo inexploitable
+              </>
+            ) : (
+              "Score global"
+            )}
           </p>
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="text-xs text-svv-muted">Premier obstacle réel</p>
+          <p className="text-xs text-svv-muted">Premier obstacle</p>
           <p className={`${tailleDistance} font-extrabold text-svv-ink whitespace-nowrap`}>{distanceTxt}</p>
           <p className="mt-2 text-xs text-svv-muted">Distance minimale requise</p>
           <p className="text-base font-bold text-svv-gray">40 m</p>
@@ -573,7 +583,7 @@ function EcranResultat({
       )}
 
       {/* 6. BOUTONS + LIEN — gap avant boutons = même rythme que les autres sections */}
-      <div className="mt-6">
+      <div className={certifie ? "mt-6" : "mt-auto pt-6"}>
         {certifie ? (
           <>
             <button type="button" onClick={todoEcranAVenir} className="svv-btn svv-btn-primary">
@@ -591,7 +601,7 @@ function EcranResultat({
           </>
         ) : (
           <>
-            <button type="button" onClick={onRecommencer} className="svv-btn svv-btn-primary">
+            <button type="button" onClick={onRefaireTest} className="svv-btn svv-btn-primary">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
                 <path d="M3 3v5h5" />
@@ -666,6 +676,8 @@ export default function Home() {
   // Azimut AJUSTABLE à la main sur l'écran orientation (± marge roulis photo autour du capté).
   // N'affecte PAS le calcul lui-même : c'est juste la valeur d'azimut transmise à l'analyse.
   const [azimutAjuste, setAzimutAjuste] = useState<number | null>(null);
+  // Pop-up d'aide « Pourquoi ajuster l'orientation ? » (présentation seule).
+  const [infoOrientationOuvert, setInfoOrientationOuvert] = useState(false);
   // Resynchronise l'azimut ajustable quand un nouveau cap est capté (nouvelle photo).
   useEffect(() => {
     setAzimutAjuste(capturedOrientation);
@@ -1460,11 +1472,13 @@ export default function Home() {
           {/* ÉCRAN 3 : VALIDATION DE L'ORIENTATION */}
 {etape === "orientation" && (
   <div className="animate-fadeIn">
-    <h1 className="text-[1.6rem] font-extrabold leading-tight tracking-tight text-svv-ink">
-      Vérifiez le faisceau d&apos;analyse
-    </h1>
+    <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
+      <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">
+        Ajustez votre orientation si nécessaire
+      </h1>
+    </div>
     <p className="mt-2 mb-4 text-sm leading-relaxed text-svv-muted">
-      Le faisceau rouge correspond-il bien à l&apos;axe de votre vue ?
+      Le faisceau rouge correspond-il bien à l&apos;axe principal de votre vue, en face de votre séjour ?
     </p>
 
     {photo && (
@@ -1503,9 +1517,23 @@ export default function Home() {
         }
       />
     </div>
-    <p className="mb-3 text-center text-xs text-svv-muted">
-      Faites pivoter la carte pour aligner le faisceau sur votre vue (±{MARGE_AJUSTEMENT_AZIMUT_DEG}°).
-    </p>
+    <div className="mb-3 flex items-center justify-center gap-1.5">
+      <p className="text-center text-xs text-svv-muted">
+        Faites pivoter la carte pour aligner le faisceau sur votre vue (±{MARGE_AJUSTEMENT_AZIMUT_DEG}°).
+      </p>
+      <button
+        type="button"
+        onClick={() => setInfoOrientationOuvert(true)}
+        aria-label="Pourquoi ajuster l'orientation ?"
+        className="shrink-0 text-svv-muted"
+      >
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v5" />
+          <path d="M12 7.5h.01" />
+        </svg>
+      </button>
+    </div>
 
     <button
       type="button"
@@ -1521,6 +1549,38 @@ export default function Home() {
     >
       Mauvaise orientation — reprendre la photo
     </button>
+
+    {/* Pop-up d'aide « Pourquoi ajuster l'orientation ? » */}
+    {infoOrientationOuvert && (
+      <div
+        onClick={() => setInfoOrientationOuvert(false)}
+        className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/45 p-5"
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+        >
+          <h2 className="text-lg font-extrabold text-svv-ink">Pourquoi ajuster l&apos;orientation ?</h2>
+          <p className="mt-3 text-sm leading-relaxed text-svv-gray">
+            L&apos;azimut — la direction de votre vue — est mesuré automatiquement au moment de la photo. Deux facteurs peuvent toutefois le rendre approximatif :
+          </p>
+          <ul className="mt-3 space-y-2 text-sm leading-relaxed text-svv-gray">
+            <li>• Pour faciliter la prise de vue, une tolérance de ±30° est admise sur l&apos;inclinaison du téléphone. Cette marge se répercute directement sur l&apos;orientation enregistrée.</li>
+            <li>• La boussole des smartphones est très sensible aux champs électromagnétiques : la moindre interférence (appareils électroniques, structures métalliques…) peut fausser sa mesure.</li>
+          </ul>
+          <p className="mt-3 text-sm leading-relaxed text-svv-gray">
+            Pour un résultat fiable, vérifiez et, si besoin, ajustez manuellement le faisceau afin qu&apos;il corresponde à l&apos;axe réel de votre vue, face au séjour.
+          </p>
+          <button
+            type="button"
+            onClick={() => setInfoOrientationOuvert(false)}
+            className="svv-btn svv-btn-primary mt-5"
+          >
+            Compris
+          </button>
+        </div>
+      </div>
+    )}
   </div>
 )}
 
@@ -1710,6 +1770,10 @@ export default function Home() {
         lon={origine.valide?.lon ?? position.longitude}
         azimutDeg={azimutAjuste}
         onRecommencer={() => setEtape("accueil")}
+        onRefaireTest={() => {
+          setEtape("photo");
+          startCamera();
+        }}
       />
     ) : null}
   </div>
