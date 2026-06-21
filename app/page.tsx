@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useEffect, useRef, type ChangeEvent } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, type ChangeEvent } from "react";
 import MapSelector from "./MapSelector";
 import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
@@ -18,7 +18,7 @@ import {
   type RemarquablesSource,
 } from "./lib/libelles";
 
-type Etape = "accueil" | "photo" | "localisation" | "orientation" | "infos" | "resultat";
+type Etape = "accueil" | "etapes" | "photo" | "localisation" | "orientation" | "infos" | "resultat";
 
 // Forme (partielle) de la réponse succès de /api/analyse (cf. app/api/analyse/route.ts).
 interface ReponseAnalyse {
@@ -101,6 +101,301 @@ type ResultatReussi = NonNullable<ReponseAnalyse["resultat"]>;
 /* onClick TODO (écrans 8 / 10 pas encore construits) — non câblé volontairement. */
 const todoEcranAVenir = () => undefined;
 
+const ETAPES_INTRO = [
+  "Photographier votre vue face au séjour",
+  "Valider la position de votre fenêtre",
+  "Valider l'orientation de votre séjour",
+  "Renseigner votre étage",
+];
+
+// Pictos des 4 étapes (présentation) — viewBox 24, stroke svv-ink 1.8, round.
+const PICTOS_ETAPES = [
+  <svg key="cam" width={37} height={37} viewBox="0 0 24 24" fill="none" stroke="var(--color-svv-ink)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="7" width="18" height="13" rx="2.5" />
+    <circle cx="12" cy="13.5" r="3.6" />
+    <path d="M8 7l1.4-2.4h5.2L16 7" />
+  </svg>,
+  <svg key="pin" width={37} height={37} viewBox="0 0 24 24" fill="none" stroke="var(--color-svv-ink)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 21c4.4-6 6.4-9 6.4-12a6.4 6.4 0 1 0-12.8 0c0 3 2 6 6.4 12Z" />
+    <circle cx="12" cy="9" r="2.4" />
+  </svg>,
+  <svg key="boussole" width={37} height={37} viewBox="0 0 24 24" fill="none" stroke="var(--color-svv-ink)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 4.5l3 7.5-3 2.4-3-2.4z" fill="var(--color-svv-red)" stroke="none" />
+  </svg>,
+  <svg key="immeuble" width={37} height={37} viewBox="0 0 24 24" fill="none" stroke="var(--color-svv-ink)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="6" y="3.5" width="12" height="17" />
+    <line x1="6" y1="9" x2="18" y2="9" />
+    <line x1="6" y1="13.5" x2="18" y2="13.5" />
+    <line x1="6" y1="18" x2="18" y2="18" />
+  </svg>,
+];
+
+// Keyframes d'animation (injectées une fois) — bumper du picto + pop de la coche.
+const ETAPES_KEYFRAMES =
+  "@keyframes svvBumper{0%{opacity:0;transform:scale(.3)}48%{opacity:1;transform:scale(1.3)}70%{transform:scale(.88)}86%{transform:scale(1.07)}100%{transform:scale(1)}}" +
+  "@keyframes svvPop{0%{opacity:0;transform:scale(0)}60%{opacity:1;transform:scale(1.18)}100%{transform:scale(1)}}";
+
+const PASTILLE = 62; // diamètre de la pastille
+
+/**
+ * Écran d'intro « Les 4 étapes » (#2 du wizard) — PRÉSENTATION pure (minuteur).
+ * Stepper vertical animé : frappe machine à écrire → pastille rouge + picto (bumper)
+ * → coche verte (pop) → connecteur pointillé vert MESURÉ (getBoundingClientRect) qui se
+ * dessine (scaleY) quand le picto du bas est validé → skyline soft → bouton (+200 ms).
+ * Aucun calcul déclenché ; « C'est parti » garde son action via onContinuer.
+ */
+function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
+  const [counts, setCounts] = useState<number[]>([0, 0, 0, 0]);
+  const [validated, setValidated] = useState<boolean[]>([false, false, false, false]);
+  const [checks, setChecks] = useState<boolean[]>([false, false, false, false]);
+  const [drawn, setDrawn] = useState<boolean[]>([false, false, false]); // segments 0->1,1->2,2->3
+  const [showBtn, setShowBtn] = useState(false);
+  const [instant, setInstant] = useState(false);
+  const [centers, setCenters] = useState<{ x: number; y: number }[]>([]);
+
+  const stepperRef = useRef<HTMLDivElement | null>(null);
+  const pastilleRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Mesure des centres des pastilles (relatifs au conteneur) → géométrie des segments.
+  // Re-mesuré à chaque validation (les lignes au-dessus sont écrites → positions stables)
+  // et au resize. Les segments sont dessinés derrière les pastilles (z-index).
+  useLayoutEffect(() => {
+    const measure = () => {
+      const stepper = stepperRef.current;
+      if (!stepper) return;
+      const sr = stepper.getBoundingClientRect();
+      const next: { x: number; y: number }[] = [];
+      for (let i = 0; i < ETAPES_INTRO.length; i++) {
+        const el = pastilleRefs.current[i];
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        next.push({ x: r.left - sr.left + r.width / 2, y: r.top - sr.top + r.height / 2 });
+      }
+      setCenters(next);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [validated]);
+
+  useEffect(() => {
+    const reduce =
+      typeof window !== "undefined" && window.matchMedia
+        ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        : false;
+    if (reduce) {
+      // Mouvement réduit : tout affiché instantanément, sans la pause de 1,5 s.
+      setInstant(true);
+      setCounts(ETAPES_INTRO.map((l) => l.length));
+      setValidated([true, true, true, true]);
+      setChecks([true, true, true, true]);
+      setDrawn([true, true, true]);
+      setShowBtn(true);
+      return;
+    }
+
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const after = (ms: number, fn: () => void) => {
+      timers.push(
+        setTimeout(() => {
+          if (!cancelled) fn();
+        }, ms),
+      );
+    };
+
+    const valider = (i: number) => {
+      if (cancelled) return;
+      // b) pastille rouge + picto (bumper)
+      setValidated((prev) => {
+        const n = [...prev];
+        n[i] = true;
+        return n;
+      });
+      // d) connecteur précédent -> courant (segment i-1 -> i) se dessine
+      if (i >= 1) {
+        setDrawn((prev) => {
+          const n = [...prev];
+          n[i - 1] = true;
+          return n;
+        });
+      }
+      // c) coche verte (léger délai, petit pop)
+      after(200, () =>
+        setChecks((prev) => {
+          const n = [...prev];
+          n[i] = true;
+          return n;
+        }),
+      );
+      // e) étape suivante 865 ms après la validation
+      if (i < ETAPES_INTRO.length - 1) {
+        after(865, () => typeLine(i + 1));
+      } else {
+        // 4e étape validée → bouton retardé (620 + 200 + 200 ms) pour rester smooth.
+        after(1020, () => setShowBtn(true));
+      }
+    };
+
+    const typeLine = (i: number) => {
+      if (cancelled) return;
+      let c = 0;
+      interval = setInterval(() => {
+        if (cancelled) return;
+        c += 1;
+        setCounts((prev) => {
+          const n = [...prev];
+          n[i] = c;
+          return n;
+        });
+        if (c >= ETAPES_INTRO[i].length) {
+          if (interval) clearInterval(interval);
+          interval = null;
+          valider(i);
+        }
+      }, 44);
+    };
+
+    // a) pause initiale 1500 ms (titre + pastilles au repos) avant la 1re frappe.
+    after(1500, () => typeLine(0));
+
+    return () => {
+      cancelled = true;
+      timers.forEach((t) => clearTimeout(t));
+      if (interval) clearInterval(interval);
+    };
+  }, []);
+
+  return (
+    <div className="flex flex-1 flex-col">
+      <style>{ETAPES_KEYFRAMES}</style>
+
+      {/* 1. HEADER rouge compact — titre blanc, gras, 2 lignes, pas de logo */}
+      <div className="-mx-6 -mt-6 mb-7 rounded-t-3xl bg-svv-red" style={{ padding: "18px 22px" }}>
+        <h1 className="text-white" style={{ fontSize: "23px", fontWeight: 800, lineHeight: 1.15 }}>
+          Les 4 étapes pour évaluer votre vue
+        </h1>
+      </div>
+
+      {/* 2. STEPPER centré verticalement dans l'espace libre entre header et skyline */}
+      <div className="flex flex-1 flex-col justify-center">
+        <div ref={stepperRef} className="relative flex flex-col gap-7">
+        {/* Segments pointillés (position absolue, mesurée) — DERRIÈRE les pastilles */}
+        {centers.length === ETAPES_INTRO.length &&
+          [0, 1, 2].map((k) => (
+            <div
+              key={"seg-" + k}
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: centers[k].x - 1.5 + "px",
+                top: centers[k].y + "px",
+                height: centers[k + 1].y - centers[k].y + "px",
+                width: 0,
+                borderLeft: "3px dashed var(--color-svv-green)",
+                transformOrigin: "top",
+                transform: "scaleY(" + (drawn[k] ? 1 : 0) + ")",
+                transition: instant ? "none" : "transform 0.45s ease-out",
+                zIndex: 0,
+              }}
+            />
+          ))}
+
+        {ETAPES_INTRO.map((line, i) => {
+          const typing = counts[i] > 0 && counts[i] < line.length;
+          return (
+            <div key={line} className="relative flex items-center gap-4">
+              {/* Pastille (au-dessus des segments pour masquer leurs extrémités) */}
+              <div
+                ref={(el) => {
+                  pastilleRefs.current[i] = el;
+                }}
+                className="relative z-10 flex shrink-0 items-center justify-center rounded-full bg-white"
+                style={{
+                  height: PASTILLE + "px",
+                  width: PASTILLE + "px",
+                  border: "3.5px solid",
+                  borderColor: validated[i] ? "var(--color-svv-red)" : "#e6e8ec",
+                  transition: instant ? "none" : "border-color 0.3s ease",
+                }}
+              >
+                {validated[i] && (
+                  <span
+                    className="inline-flex"
+                    style={instant ? undefined : { animation: "svvBumper 0.62s ease-in-out both" }}
+                  >
+                    {PICTOS_ETAPES[i]}
+                  </span>
+                )}
+
+                {/* Coche verte bas-droite : rond blanc + check vert */}
+                {checks[i] && (
+                  <span
+                    className="absolute flex items-center justify-center rounded-full bg-white"
+                    style={{
+                      height: "25px",
+                      width: "25px",
+                      right: "-5px",
+                      bottom: "-5px",
+                      boxShadow: "0 1px 4px rgba(0,0,0,.18)",
+                      animation: instant ? undefined : "svvPop 0.32s ease-out both",
+                    }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--color-svv-green)" strokeWidth={3.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M5 12.5 L10 17.5 L19 7" />
+                    </svg>
+                  </span>
+                )}
+              </div>
+
+              {/* Légende (centrée sur l'axe du picto, même sur 2 lignes) */}
+              <span
+                style={{ fontSize: "23px", fontWeight: 500, lineHeight: 1.28, color: "var(--color-svv-ink)" }}
+              >
+                {line.slice(0, counts[i])}
+                {typing && (
+                  <span
+                    className="ml-0.5 inline-block animate-pulse"
+                    style={{ color: "var(--color-svv-muted)" }}
+                  >
+                    |
+                  </span>
+                )}
+              </span>
+            </div>
+          );
+        })}
+        </div>
+      </div>
+
+      {/* 3. SKYLINE soft — présente dès l'ouverture, pleine largeur, alignée en bas, en retrait (z-0) */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/images/skyline.svg"
+        alt=""
+        aria-hidden="true"
+        className="relative z-0 -mx-6 mt-8 block w-[calc(100%+3rem)] max-w-none"
+        style={{ opacity: 0.3 }}
+      />
+
+      {/* 4. BOUTON « C'est parti » (fondu + glissement) */}
+      <div
+        className={
+          "mt-6 transition-all duration-500 ease-out " +
+          (showBtn ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0")
+        }
+      >
+        <button type="button" onClick={onContinuer} className="svv-btn svv-btn-primary relative">
+          C&apos;est parti
+          <span className="absolute right-5 text-xl leading-none">&rsaquo;</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function EcranResultat({
   resultat,
   photo,
@@ -147,7 +442,7 @@ function EcranResultat({
       >
         {certifie ? (
           // sceau officiel « certifié » (composant SceauCertifie, vectorisé, ratio haut → dimensionné par la hauteur)
-          <SceauCertifie className="h-12 w-auto shrink-0 text-white" />
+          <SceauCertifie className="h-10 w-auto shrink-0 text-white" />
         ) : (
           // triangle d'alerte avec point d'exclamation (inchangé)
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -328,9 +623,12 @@ export default function Home() {
   // Étape animée de la checklist « Analyse en cours » (présentation seule, pas le pipeline).
   const [analyseEtape, setAnalyseEtape] = useState(0);
 
-  // Minuteur d'animation : avance la checklist tant que l'analyse réelle tourne.
-  // Reste sur la dernière étape « en cours » jusqu'à l'arrivée du vrai résultat.
-  // Ne déclenche NI ne modifie l'analyse (aucun appel réseau, aucune logique de verdict).
+  // Minuteur d'animation (présentation seule) : coche une à une les 5 PREMIÈRES étapes.
+  // Délai par étape DOUBLÉ (~1400 ms) — les étapes intermédiaires défilent plus lentement.
+  // La DERNIÈRE étape (« Calcul du résultat ») est la plus longue en pratique : le compteur
+  // est plafonné à length-1, donc elle reste en « en cours » et N'EST JAMAIS cochée au
+  // minuteur ; elle se conclut quand le vrai résultat arrive (analyseEnCours → false →
+  // bascule sur 7A/7B). Ne déclenche NI ne modifie l'analyse (aucun appel réseau).
   useEffect(() => {
     if (!analyseEnCours) {
       setAnalyseEtape(0);
@@ -338,7 +636,7 @@ export default function Home() {
     }
     const id = setInterval(() => {
       setAnalyseEtape((e) => Math.min(e + 1, ETAPES_ANALYSE.length - 1));
-    }, 700);
+    }, 1400);
     return () => clearInterval(id);
   }, [analyseEnCours]);
   const [suggestions, setSuggestions] = useState<{ label: string; lat: number; lon: number }[]>([]);
@@ -725,6 +1023,7 @@ export default function Home() {
           className={
             "rounded-3xl bg-white p-6 shadow" +
             (etape === "accueil" ||
+            etape === "etapes" ||
             (etape === "resultat" && analyseEnCours) ||
             resultatReussi
               ? " flex flex-1 flex-col"
@@ -764,7 +1063,7 @@ export default function Home() {
 
               <button
                 type="button"
-                onClick={() => setEtape("photo")}
+                onClick={() => setEtape("etapes")}
                 className="svv-btn svv-btn-primary relative"
               >
                 Évaluer ma vue
@@ -773,7 +1072,7 @@ export default function Home() {
 
               <button
                 type="button"
-                onClick={() => setEtape("photo")}
+                onClick={() => setEtape("etapes")}
                 className="svv-btn svv-btn-outline mt-3"
               >
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -789,6 +1088,17 @@ export default function Home() {
               </p>
             </div>
           )}
+
+{etape === "etapes" && (
+  <EcranEtapes
+    onContinuer={() => {
+      // « C'est parti » : ouvre directement la caméra (geste utilisateur requis sur iOS)
+      // et démarre le parcours photo — plus de tap « Ouvrir l'appareil photo ».
+      setEtape("photo");
+      startCamera();
+    }}
+  />
+)}
 
 {etape === "photo" && (
   <>
