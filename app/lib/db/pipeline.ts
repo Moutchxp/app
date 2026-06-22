@@ -67,6 +67,7 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
 
   // b) Altitude de la fenêtre (helper Bloc A).
   const altitudeFenetreM = validation.altitudeTerrainOrigineM + hauteurVision(params.etage);
+  console.log('[diag-oeil]', { etage: params.etage, altitudeTerrainOrigineM: validation.altitudeTerrainOrigineM, altitudeFenetreM });
 
   // c) Obstacles sur l'axe principal (LiDAR prioritaire + point de contact).
   const obstaclesAxePrincipal = await obstaclesSurAxe({

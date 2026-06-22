@@ -929,6 +929,42 @@ export default function Home() {
     };
   }, [isCameraActive]);
 
+  // CORRECTION 1 — rattrape la course videoRef : (re)pose srcObject quand le <video>
+  // est monté ET qu'un flux existe (cas où getUserMedia s'est résolu avant le montage).
+  useEffect(() => {
+    if (
+      isCameraActive &&
+      videoRef.current &&
+      streamRef.current &&
+      videoRef.current.srcObject !== streamRef.current
+    ) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play?.().catch(() => {});
+    }
+  }, [isCameraActive]);
+
+  // Réinitialise TOUT l'état de l'aide au niveau (states + refs) à une entrée caméra,
+  // pour ne pas hériter d'un isLevel/refs figés (sinon déclencheur grisé au retour).
+  // Ne touche PAS la logique de calcul du tick : remet seulement les valeurs initiales.
+  function reinitialiserCapteurs() {
+    setIsLevel(false);
+    setPitchValid(false);
+    setRollValid(false);
+    setNiveauBloque(false);
+    pitchValidRef.current = false;
+    sensorSeenRef.current = false;
+    niveauBloqueRef.current = false;
+    divergenceDepuisRef.current = null;
+    rejetRollRef.current = 0;
+    rollSmoothRef.current = 0;
+    rollRawRef.current = 0;
+    smoothPitchOffsetRef.current = 0;
+    motionTsRef.current = 0;
+    motionActiveRef.current = false;
+    setVisualRoll(0);
+    setVisualPitchOffset(0);
+  }
+
   // Détecte l'objectif actif et l'ULTRA grand-angle arrière. Appelée après CHAQUE getUserMedia.
   async function detecterObjectif(stream: MediaStream) {
     const norm = (l: string) => (l || "").trim().toLowerCase();
@@ -1196,6 +1232,7 @@ export default function Home() {
 
   // « Mauvaise orientation » : reprendre la photo en conservant le point d'origine déjà placé.
   function reprendrePhoto() {
+    reinitialiserCapteurs();             // repart d'un état niveau propre (évite le déclencheur grisé)
     setPhoto(null);
     setCapturedOrientation(null);
     origine.reset();                     // repasse en non-validé
@@ -1916,6 +1953,7 @@ export default function Home() {
         azimutDeg={azimutAjuste}
         onRecommencer={() => setEtape("accueil")}
         onRefaireTest={() => {
+          reinitialiserCapteurs();             // repart d'un état niveau propre (évite le déclencheur grisé)
           setPhoto(null);
           setCapturedOrientation(null);
           origine.reset();                     // repasse en « non confirmé » → le bouton « Valider » redevient actif

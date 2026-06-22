@@ -14,9 +14,10 @@
 import { query } from "./client";
 import { hauteurLidarMaxNettoye } from "./hauteurLidar";
 import { pointDeContact } from "../svv/contact";
+import { balayerObstacle, type CelluleCouloir } from "../svv/balayageObstacle";
 import type { PointWgs84 } from "../svv/geo";
 import type { ObstacleCandidat, SourceHauteur } from "../svv/verdict";
-import { ANALYSIS_RANGE_M, CORRIDOR_HALF_WIDTH_M, FLOOR_HEIGHT_M } from "../svv/config";
+import { ANALYSIS_RANGE_M, CORRIDOR_HALF_WIDTH_M, FLOOR_HEIGHT_M, THRESHOLD_M } from "../svv/config";
 
 export interface ParametresAxe {
   point: PointWgs84;
@@ -65,7 +66,189 @@ function resoudreSommet(r: LigneObstacle): { altitudeSommetM: number | null; sou
   return { altitudeSommetM: null, source: "NONE" };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CHEMIN COULOIR PRINCIPAL (params.lidar) — balayage plein-couloir (spec §4-§9).
+// Remplace le faîtage-par-bâtiment + pointDeContact pour l'axe principal UNIQUEMENT.
+// Les 61 faisceaux (lidar=false) NE PASSENT PAS ici (cf. obstaclesSurAxe).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Ligne de grille SQL : altitudes max (NGF) des 4 colonnes pour une ligne i. */
+interface LigneGrilleSql {
+  i: number;
+  dist_m: number | string;
+  a: number | string | null;
+  b: number | string | null;
+  c: number | string | null;
+  d: number | string | null;
+}
+
+/** Une ligne de la grille couloir : indice + distance axe + altitudes des 4 colonnes. */
+interface LigneGrille {
+  i: number;
+  distM: number;
+  alt: (number | null)[]; // [a, b, c, d] ; null = pas de pixel bâti dans la colonne
+}
+
+/**
+ * Échantillonne le couloir (4 colonnes × portée/0,5 lignes) du MNS bâti en UNE
+ * passe : pré-filtre des emprises BD TOPO du couloir (origine exclue), ST_Clip du
+ * MNS sur le couloir, pixels (centroïdes) rangés en (i = distance axe / 0,5,
+ * j = colonne 0..3), max(mns) par cellule. Aucun arrondi (valeurs brutes NGF).
+ */
+async function echantillonnerGrille(params: ParametresAxe): Promise<LigneGrille[]> {
+  const res = await query<LigneGrilleSql>(
+    `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
+     d AS (SELECT sin(radians($3)) dx, cos(radians($3)) dy),      -- axe (x=E, y=N)
+     t AS (SELECT cos(radians($3)) px, -sin(radians($3)) py),     -- transverse (perp.)
+     axe AS (SELECT ST_MakeLine(o.g, ST_Translate(o.g, $5*d.dx, $5*d.dy)) AS ln FROM o,d),
+     corr AS (SELECT ST_Buffer(axe.ln, $6) AS g FROM axe),        -- couloir 2 m (±1)
+     bati AS (
+       SELECT ST_Union(ST_Force2D(b.geom)) AS g
+       FROM bdtopo_batiment b, corr
+       WHERE b.id <> $4 AND ST_Intersects(b.geom, corr.g)         -- index spatial
+     ),
+     px AS (                                                      -- MNS découpé en bloc (1 passe)
+       SELECT (pc).geom AS p, (pc).val AS mns
+       FROM (
+         SELECT ST_PixelAsCentroids(ST_Clip(ST_Union(ST_Clip(r.rast, corr.g)), corr.g)) AS pc
+         FROM mns_lidar_brut r, corr
+         WHERE ST_Intersects(r.rast, corr.g)
+         GROUP BY corr.g
+       ) q
+     ),
+     cl AS (
+       SELECT
+         floor( ST_LineLocatePoint(axe.ln, px.p) * ST_Length(axe.ln) / 0.5 )::int AS i,
+         least(3, greatest(0, floor( ( (ST_X(px.p)-ST_X(o.g))*t.px + (ST_Y(px.p)-ST_Y(o.g))*t.py + $6 ) / 0.5 )::int )) AS j,
+         px.mns
+       FROM px, o, t, axe, bati
+       WHERE px.mns IS NOT NULL AND px.mns <> -9999
+         AND ST_Intersects(px.p, bati.g)                          -- bâti seul
+     )
+     SELECT i, (i*0.5+0.25)::float8 AS dist_m,
+       max(mns) FILTER (WHERE j=0) AS a,
+       max(mns) FILTER (WHERE j=1) AS b,
+       max(mns) FILTER (WHERE j=2) AS c,
+       max(mns) FILTER (WHERE j=3) AS d
+     FROM cl GROUP BY i ORDER BY i;`,
+    [
+      params.point.lon,
+      params.point.lat,
+      params.azimutDeg,
+      params.batimentOrigineId,
+      ANALYSIS_RANGE_M,
+      CORRIDOR_HALF_WIDTH_M,
+    ],
+  );
+  const num = (v: number | string | null): number | null => (v === null ? null : Number(v));
+  return res.rows.map((r) => ({
+    i: r.i,
+    distM: Number(r.dist_m),
+    alt: [num(r.a), num(r.b), num(r.c), num(r.d)],
+  }));
+}
+
+/**
+ * Calage façade sur la cellule retenue : reconstruit son centre L93, cherche le
+ * bord d'emprise BD TOPO qui traverse la cellule de 0,5 m autour, et rend la
+ * distance origine→bord le plus proche (sinon distance origine→centre cellule).
+ */
+async function calageFacade(params: ParametresAxe, distM: number, offM: number): Promise<number> {
+  const res = await query<{ dist_m: number | string }>(
+    `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
+     dir AS (SELECT sin(radians($3)) dx, cos(radians($3)) dy),
+     tr AS (SELECT cos(radians($3)) px, -sin(radians($3)) py),
+     centre AS (
+       SELECT ST_SetSRID(ST_MakePoint(ST_X(o.g)+$4*dir.dx+$5*tr.px,
+                                      ST_Y(o.g)+$4*dir.dy+$5*tr.py),2154) AS c
+       FROM o, dir, tr
+     ),
+     cell AS (SELECT ST_Expand(centre.c, 0.25) AS g FROM centre),  -- cellule 0,5 m
+     bords AS (                                                    -- bord ∩ cellule (segment DANS la cellule)
+       SELECT ST_Intersection(ST_Boundary(ST_Force2D(b.geom)), cell.g) AS seg
+       FROM bdtopo_batiment b, cell
+       WHERE b.id <> $6 AND ST_Intersects(ST_Boundary(ST_Force2D(b.geom)), cell.g)
+     ),
+     bord AS (                                                     -- point du segment le plus proche de l'origine
+       SELECT ST_ClosestPoint(bs.seg, o.g) AS p
+       FROM bords bs, o
+       WHERE NOT ST_IsEmpty(bs.seg)                                -- ignore les intersections vides
+       ORDER BY ST_Distance(bs.seg, o.g) ASC
+       LIMIT 1
+     )
+     SELECT ST_Distance(o.g, COALESCE((SELECT p FROM bord), (SELECT c FROM centre))) AS dist_m
+     FROM o;`,
+    [params.point.lon, params.point.lat, params.azimutDeg, distM, offM, params.batimentOrigineId],
+  );
+  return Number(res.rows[0].dist_m);
+}
+
+/**
+ * Couloir principal : échantillonne la grille, applique le balayage plein-couloir
+ * et mappe le statut vers la sortie ObstacleCandidat[] que premierObstacle attend.
+ *
+ * ⚠️ Hypothèse `couvert=true` partout dans la portée (couverture LiDAR pleine
+ * vérifiée sur la zone). Raison : un test de présence de pixel par cellule sur un
+ * axe TOURNÉ est non fiable (bins 0,5 m vs grille raster → faux trous → faux
+ * INDETERMINE). À affiner par un test de couverture surfacique (étendue des
+ * tuiles MNS), pas par pixel. Sous cette hypothèse, INDETERMINE/degrade sont
+ * dormants mais leur mapping reste implémenté.
+ */
+async function obstaclesParBalayage(params: ParametresAxe, hOeilM: number): Promise<ObstacleCandidat[]> {
+  const grille = await echantillonnerGrille(params);
+
+  const nLignes = Math.floor(ANALYSIS_RANGE_M / 0.5);
+  const colonnes: CelluleCouloir[][] = [0, 1, 2, 3].map(() =>
+    Array.from({ length: nLignes }, (): CelluleCouloir => ({ altM: null, couvert: true })),
+  );
+  for (const g of grille) {
+    if (g.i < 0 || g.i >= nLignes) continue;
+    for (let k = 0; k < 4; k++) {
+      const v = g.alt[k];
+      if (v !== null) colonnes[k][g.i] = { altM: v, couvert: true };
+    }
+  }
+
+  const bal = balayerObstacle({
+    colonnes,
+    hOeilM,
+    pasM: 0.5,
+    profondeurFenetre: 6,
+    seuilM: THRESHOLD_M,
+  });
+  console.log('[diag-balayage]', { hOeilM, statut: bal.statut, ligne: bal.ligne, colonne: bal.colonne, distanceCelluleM: bal.distanceCelluleM, raison: bal.raison });
+
+  // OBSTACLE → un candidat réel (sommet ≥ œil) à la distance calée sur la façade.
+  if (bal.statut === "OBSTACLE" && bal.ligne !== null && bal.colonne !== null) {
+    const altSommet = colonnes[bal.colonne][bal.ligne].altM;
+    if (altSommet !== null) {
+      const distM = (bal.ligne + 0.5) * 0.5;
+      const offM = (bal.colonne - 1.5) * 0.5;
+      const distanceM = await calageFacade(params, distM, offM);
+      return [{ distanceM, altitudeSommetM: altSommet, source: "LIDAR_HD" }];
+    }
+  }
+
+  // INDETERMINE → NONE à < seuil (premierObstacle conclut INDETERMINE). Dormant ici.
+  if (bal.statut === "INDETERMINE") {
+    return [{ distanceM: 0, altitudeSommetM: null, source: "NONE" }];
+  }
+
+  // DEGAGE → aucun obstacle. Si dégradé (trou ≥ seuil), propage via un NONE ≥ seuil
+  // (canal analyseDegradee/messageDegrade existant). Dormant sous l'hypothèse couvert=true.
+  if (bal.degrade) {
+    return [{ distanceM: ANALYSIS_RANGE_M, altitudeSommetM: null, source: "NONE" }];
+  }
+  return [];
+}
+
 export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCandidat[]> {
+  // Couloir principal (lidar + altitude de fenêtre connue) → balayage plein-couloir.
+  // Faisceaux (lidar=false) ET appels lidar sans hOeil (diagnostics) → chemin historique ci-dessous.
+  if (params.lidar && params.altitudeFenetreM !== undefined) {
+    return obstaclesParBalayage(params, params.altitudeFenetreM);
+  }
+
   const res = await query<LigneObstacle>(
     `WITH o AS (
        SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g
