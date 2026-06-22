@@ -97,10 +97,7 @@ export function premierObstacle(
   // puis y ajoute le signalement de dégradation.
   const finaliser = (
     base: Omit<ResultatVerdict, 'analyseDegradee' | 'messageDegrade'>,
-  ): ResultatVerdict => {
-    console.log('[diag-premier]', { distanceM: base.obstacle ? base.obstacle.distanceM : base.distanceM, altitudeSommetM: base.obstacle ? base.obstacle.altitudeSommetM : null, source: base.obstacle ? base.obstacle.source : null, verdict: base.verdict });
-    return { ...base, ...calculerDegradation(base, candidats) };
-  };
+  ): ResultatVerdict => ({ ...base, ...calculerDegradation(base, candidats) });
 
   for (const candidat of tries) {
     if (candidat.altitudeSommetM === null) {

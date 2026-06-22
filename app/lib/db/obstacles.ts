@@ -216,7 +216,6 @@ async function obstaclesParBalayage(params: ParametresAxe, hOeilM: number): Prom
     profondeurFenetre: 6,
     seuilM: THRESHOLD_M,
   });
-  console.log('[diag-balayage]', { hOeilM, statut: bal.statut, ligne: bal.ligne, colonne: bal.colonne, distanceCelluleM: bal.distanceCelluleM, raison: bal.raison });
 
   // OBSTACLE → un candidat réel (sommet ≥ œil) à la distance calée sur la façade.
   if (bal.statut === "OBSTACLE" && bal.ligne !== null && bal.colonne !== null) {

@@ -39,7 +39,6 @@ export async function POST(req: Request) {
       etage,
       dernierEtage,
     });
-    console.log('[diag-api]', JSON.stringify({ ok: true, validation, resultat }, null, 2));
     return NextResponse.json({ ok: true, validation, resultat });
   } catch (e) {
     return NextResponse.json(
