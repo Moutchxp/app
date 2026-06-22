@@ -111,11 +111,16 @@ export default function MapContent({
         {mapMode === "map" ? "Satellite" : "Carte"}
       </button>
 
+      {/* épingle goutte (pointe en bas = point exact) */}
       <div className="pointer-events-none absolute left-1/2 top-1/2 z-[1500] -translate-x-1/2 -translate-y-full">
-        <div className="flex flex-col items-center">
-          <div className="h-7 w-7 rounded-full border-4 border-white bg-red-700 shadow-lg" />
-          <div className="h-6 w-2 rounded-b-full bg-red-700 shadow-lg" />
-        </div>
+        <svg width="34" height="45" viewBox="0 0 24 32" fill="none" aria-hidden="true" style={{ filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.35))" }}>
+          <path d="M12 0C5.92 0 1 4.92 1 11c0 7.7 11 21 11 21s11-13.3 11-21C23 4.92 18.08 0 12 0z" fill="var(--color-svv-red)" stroke="#ffffff" strokeWidth="1.5" />
+          <circle cx="12" cy="11" r="4" fill="#ffffff" />
+        </svg>
+      </div>
+      {/* petit point au sol = emplacement précis (comme le firmware) */}
+      <div className="pointer-events-none absolute left-1/2 top-1/2 z-[1500] -translate-x-1/2 -translate-y-1/2">
+        <div className="svvPointSelect h-1 w-1 rounded-full ring-1 ring-black/40" />
       </div>
     </div>
   );

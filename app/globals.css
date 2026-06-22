@@ -44,3 +44,27 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, Arial, Helvetica, sans-serif;
 }
+
+/* Point « emplacement précis » du repère carte : clignotement doux blanc ↔ rouge charte. */
+@keyframes svvPointSelect {
+  0%, 100% { background-color: #ffffff; }
+  50% { background-color: var(--color-svv-red); }
+}
+.svvPointSelect { animation: svvPointSelect 1.8s ease-in-out infinite; }
+
+/* Picto « i » de l'écran orientation : clignotement noir ↔ rouge tant qu'il n'a pas été consulté. */
+@keyframes svvInfoPulse {
+  0%, 100% { color: var(--color-svv-ink); }
+  50% { color: var(--color-svv-red); }
+}
+.svvInfoPulse { animation: svvInfoPulse 1.8s ease-in-out infinite; }
+
+/* Petit « bump » d'échelle du picto « i » pour attirer l'œil (tant que non consulté). */
+@keyframes svvInfoBump {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.28); }
+  55% { transform: scale(0.92); }
+  75% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+.svvInfoBump { animation: svvInfoBump 0.6s ease-in-out; }

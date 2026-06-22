@@ -262,8 +262,8 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
       }, 44);
     };
 
-    // a) pause initiale 1200 ms (titre + pastilles au repos) avant la 1re frappe.
-    after(1200, () => typeLine(0));
+    // a) pause initiale 200 ms (titre + pastilles au repos) avant la 1re frappe.
+    after(200, () => typeLine(0));
 
     return () => {
       cancelled = true;
@@ -278,8 +278,8 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
 
       {/* 1. HEADER rouge compact — titre blanc, gras, 2 lignes, pas de logo */}
       <div className="-mx-6 -mt-6 mb-7 rounded-t-3xl bg-svv-red" style={{ padding: "18px 22px" }}>
-        <h1 className="text-white" style={{ fontSize: "23px", fontWeight: 800, lineHeight: 1.15 }}>
-          Les 4 étapes pour évaluer votre vue
+        <h1 className="text-white text-center" style={{ fontSize: "23px", fontWeight: 800, lineHeight: 1.15 }}>
+          4 étapes
         </h1>
       </div>
 
@@ -445,7 +445,7 @@ function EcranResultat({
       {/* 1. EN-TÊTE — 7A rouge / 7B sombre ; bandeau haut, icône + titre 2 lignes centrés */}
       <div
         className={
-          "-mx-6 -mt-6 mb-5 flex items-center gap-3.5 rounded-t-3xl px-6 py-4 text-white " +
+          "-mx-6 -mt-6 mb-5 flex items-center justify-center gap-3.5 rounded-t-3xl px-6 py-4 text-white " +
           (certifie ? "bg-svv-red" : "bg-svv-ink")
         }
       >
@@ -460,7 +460,7 @@ function EcranResultat({
             <path d="M12 17.4h.01" />
           </svg>
         )}
-        <span className="text-2xl font-extrabold uppercase leading-[1.05] tracking-tight">
+        <span className="text-center text-2xl font-extrabold uppercase leading-[1.05] tracking-tight">
           {certifie ? (
             <>
               Sans Vis-à-Vis®
@@ -678,6 +678,24 @@ export default function Home() {
   const [azimutAjuste, setAzimutAjuste] = useState<number | null>(null);
   // Pop-up d'aide « Pourquoi ajuster l'orientation ? » (présentation seule).
   const [infoOrientationOuvert, setInfoOrientationOuvert] = useState(false);
+  const [infoOrientationVu, setInfoOrientationVu] = useState(false); // déjà consulté → arrête le clignotement
+  const [bumpInfo, setBumpInfo] = useState(false); // « bump » périodique du picto « i » (tant que non vu)
+  // 1er bump à 12 s après l'arrivée sur l'écran orientation, puis toutes les 5 s. Stoppe au clic.
+  useEffect(() => {
+    if (etape !== "orientation" || infoOrientationVu) return;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+    const bump = () => { setBumpInfo(true); setTimeout(() => setBumpInfo(false), 650); };
+    const firstId = setTimeout(() => { bump(); intervalId = setInterval(bump, 5000); }, 12000);
+    return () => { clearTimeout(firstId); if (intervalId) clearInterval(intervalId); setBumpInfo(false); };
+  }, [etape, infoOrientationVu]);
+  // Révélation de la 2e question (écran infos) : après une pause > 300 ms entre deux clics du stepper.
+  const [montrerQ2, setMontrerQ2] = useState(false);
+  const etageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function ajusterEtage(delta: number) {
+    setEtage((v) => (v === "" ? "0" : String(Math.max(0, Number(v) + delta))));
+    if (etageTimerRef.current) clearTimeout(etageTimerRef.current);
+    etageTimerRef.current = setTimeout(() => setMontrerQ2(true), 400);
+  }
   // Resynchronise l'azimut ajustable quand un nouveau cap est capté (nouvelle photo).
   useEffect(() => {
     setAzimutAjuste(capturedOrientation);
@@ -1171,6 +1189,7 @@ export default function Home() {
     origine.reset();                     // repasse en non-validé
     conserverPositionRef.current = true; // garde la position du marqueur (GPS ne l'écrase pas)
     setEtape("photo");
+    startCamera(); // ouvre directement la caméra, comme « C'est parti »
   }
 
   // Calculs mécaniques de l'instrumentation de bord (AFFICHAGE uniquement)
@@ -1627,15 +1646,17 @@ export default function Home() {
       </p>
       <button
         type="button"
-        onClick={() => setInfoOrientationOuvert(true)}
+        onClick={() => { setInfoOrientationOuvert(true); setInfoOrientationVu(true); }}
         aria-label="Pourquoi ajuster l'orientation ?"
-        className="shrink-0 text-svv-muted"
+        className={`shrink-0 ${infoOrientationVu ? "text-svv-ink" : "svvInfoPulse"}`}
       >
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 11v5" />
-          <path d="M12 7.5h.01" />
-        </svg>
+        <span className={`inline-block ${bumpInfo && !infoOrientationVu ? "svvInfoBump" : ""}`}>
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 11v5" />
+            <path d="M12 7.5h.01" />
+          </svg>
+        </span>
       </button>
     </div>
 
@@ -1690,58 +1711,65 @@ export default function Home() {
 
 {etape === "infos" && (
   <div className="animate-fadeIn">
-    <h1 className="text-[1.6rem] font-extrabold leading-tight tracking-tight text-svv-ink">
-      Votre logement
-    </h1>
-    <p className="mt-2 mb-4 text-sm leading-relaxed text-svv-muted">
-      Encore deux infos avant de lancer l&apos;analyse.
-    </p>
+    {/* HEADER ROUGE */}
+    <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
+      <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Renseigner votre étage</h1>
+    </div>
 
-    {/* INFORMATIONS COMPLÉMENTAIRES */}
-    <div className="mb-4 grid grid-cols-2 gap-4">
-      <div>
-        <label className="mb-1 block text-sm font-semibold text-svv-gray">Étage du séjour</label>
-        <input
-          type="number"
-          inputMode="numeric"
-          value={etage}
-          onChange={(e) => setEtage(e.target.value)}
-          className="w-full rounded-xl border border-svv-line bg-white p-3 text-base font-semibold text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
-          placeholder="Ex : 4"
-        />
-      </div>
-      <div>
-        <label className="mb-1 block text-sm font-semibold text-svv-gray">Dernier étage ?</label>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setDernierEtage(true)}
-            className={
-              "rounded-xl py-3 text-sm font-semibold " +
-              (dernierEtage ? "bg-svv-ink text-white" : "border border-svv-line bg-white text-svv-ink")
-            }
-          >
-            Oui
-          </button>
-          <button
-            type="button"
-            onClick={() => setDernierEtage(false)}
-            className={
-              "rounded-xl py-3 text-sm font-semibold " +
-              (!dernierEtage ? "bg-svv-ink text-white" : "border border-svv-line bg-white text-svv-ink")
-            }
-          >
-            Non
-          </button>
-        </div>
+    {/* ÉLÉMENT 1 — Étage du séjour (stepper) : seul visible au départ */}
+    <div>
+      <label className="mb-2 block text-base font-semibold text-svv-ink">Étage du séjour</label>
+      <div className="flex items-center gap-4">
+        <button type="button" aria-label="Diminuer"
+          onClick={() => ajusterEtage(-1)}
+          className="flex h-12 w-12 items-center justify-center rounded-xl border border-svv-line bg-svv-field text-2xl font-bold text-svv-ink">−</button>
+        <span className="min-w-[72px] rounded-xl border border-svv-line bg-white px-4 py-3 text-center text-2xl font-extrabold text-svv-ink">
+          {etage === "" ? "—" : etage}
+        </span>
+        <button type="button" aria-label="Augmenter"
+          onClick={() => ajusterEtage(1)}
+          className="flex h-12 w-12 items-center justify-center rounded-xl border border-svv-line bg-svv-field text-2xl font-bold text-svv-ink">+</button>
       </div>
     </div>
 
-    <button type="button" onClick={handleAnalyse} className="svv-btn svv-btn-primary mt-4">
-      Lancer l&apos;analyse de vis-à-vis
-    </button>
-    {analyseErreur && (
-      <p className="mt-3 text-sm font-medium text-svv-red">{analyseErreur}</p>
+    {/* ÉLÉMENT 2 + NOTE + BOUTON : apparaissent après une pause > 300 ms entre deux clics */}
+    {montrerQ2 && (
+      <div className="mt-7 animate-fadeIn">
+        <label className="mb-2 block text-base font-semibold text-svv-ink">Dernier étage ?</label>
+        <div className="grid grid-cols-2 gap-3">
+          <button type="button" onClick={() => setDernierEtage(true)}
+            className={"flex items-center justify-center gap-2 rounded-xl py-3 text-base font-semibold " +
+              (dernierEtage ? "bg-svv-red text-white" : "border border-svv-line bg-white text-svv-ink")}>
+            {dernierEtage && (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>)}
+            Oui
+          </button>
+          <button type="button" onClick={() => setDernierEtage(false)}
+            className={"flex items-center justify-center gap-2 rounded-xl py-3 text-base font-semibold " +
+              (!dernierEtage ? "bg-svv-red text-white" : "border border-svv-line bg-white text-svv-ink")}>
+            {!dernierEtage && (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>)}
+            Non
+          </button>
+        </div>
+
+        <div className="mt-5 flex items-start gap-2 rounded-xl bg-svv-field p-3 text-sm leading-relaxed text-svv-muted">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5h.01"/></svg>
+          <span>Ces données nous permettent d&apos;estimer la hauteur de votre champ de vision.</span>
+        </div>
+
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/images/skyline.svg"
+          alt=""
+          aria-hidden="true"
+          className="relative z-0 -mx-6 mt-8 block w-[calc(100%+3rem)] max-w-none"
+          style={{ opacity: 0.3 }}
+        />
+
+        <button type="button" onClick={handleAnalyse} className="svv-btn svv-btn-primary mt-6">
+          Lancer l&apos;analyse
+        </button>
+        {analyseErreur && <p className="mt-3 text-sm font-medium text-svv-red">{analyseErreur}</p>}
+      </div>
     )}
   </div>
 )}
