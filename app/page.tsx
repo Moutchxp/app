@@ -1587,13 +1587,13 @@ export default function Home() {
       />
     </div>
     <p className="mt-2 text-xs text-svv-muted">
-      🎯 Déplacez la carte pour caler précisément le repère rouge sur la façade de votre pièce.
+      Faites glisser la carte avec votre doigt pour amener le repère 📍 sur la fenêtre de votre séjour.
     </p>
 
     {/* Tant que l'utilisateur n'a pas déplacé le point : consigne. */}
     {!pointDeplace && (
       <div className="mt-3 rounded-xl border border-svv-red/30 bg-svv-red/5 p-3 text-sm font-semibold text-svv-red">
-        📍 Placez précisément le point GPS sur la fenêtre du point de vue que vous voulez faire valider : déplacez la carte pour amener le repère rouge sur cette fenêtre.
+        Faites glisser la carte avec votre doigt pour amener le repère 📍 sur la fenêtre de votre séjour.
       </div>
     )}
 

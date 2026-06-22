@@ -4,6 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
+// Indice éphémère « glissez la carte » : fondu (svvHint, repris d'Orientation) + glissement
+// horizontal ample (svvDragSlide, ~±28px). Keyframes injectées en <style> inline (même pattern
+// que FaisceauMap), volontairement PAS dans globals.css. PUREMENT VISUEL : aucun event Leaflet.
+const HINT_KEYFRAMES =
+  "@keyframes svvHint{0%{opacity:0}6%{opacity:1}82%{opacity:1}100%{opacity:0}}" +
+  "@keyframes svvDragSlide{0%{transform:translateX(-28px)}50%{transform:translateX(28px)}100%{transform:translateX(-28px)}}";
+
 type MapContentProps = {
   latitude: number;
   longitude: number;
@@ -26,6 +33,14 @@ export default function MapContent({
   const moveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [mapMode, setMapMode] = useState<"map" | "satellite">("map");
+
+  // Indice éphémère « faites glisser la carte » : visible à l'arrivée, disparaît au 1er geste
+  // ou après 6 s (sécurité). Calque du ghost-beam de FaisceauMap.
+  const [indiceDragVisible, setIndiceDragVisible] = useState(true);
+  useEffect(() => {
+    const id = setTimeout(() => setIndiceDragVisible(false), 6000);
+    return () => clearTimeout(id);
+  }, []);
 
   useEffect(() => {
     if (!mapRef.current || leafletMap.current) return;
@@ -54,7 +69,10 @@ export default function MapContent({
     });
 
     // Geste utilisateur uniquement : dragstart n'est jamais déclenché par setView.
-    const handleUserMove = () => onUserMove?.();
+    const handleUserMove = () => {
+      setIndiceDragVisible(false); // 1er geste → l'indice disparaît (cf. FaisceauMap)
+      onUserMove?.();
+    };
     leafletMap.current.on("dragstart", handleUserMove);
 
     return () => {
@@ -110,6 +128,36 @@ export default function MapContent({
       >
         {mapMode === "map" ? "Satellite" : "Carte"}
       </button>
+
+      {/* Indice éphémère PUREMENT VISUEL (aucun event Leaflet) : l'emoji main 👆 (rendu natif Apple
+          sur iPhone), dans le TIERS BAS de la carte (pas sur le repère central), qui glisse ↔ pour
+          mimer le geste de pan. Le vrai repère central (z-[1500]) reste figé. z-[500] = au-dessus
+          des tuiles, SOUS le repère et le bouton satellite (z-[2000]). AUCUNE ombre / filter. */}
+      {indiceDragVisible && (
+        <>
+          <style>{HINT_KEYFRAMES}</style>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 z-[500]"
+            style={{ animation: "svvHint 5.8s ease-in-out forwards" }}
+          >
+            {/* ancre : tiers bas, centrée horizontalement (transform de centrage) */}
+            <div className="absolute left-1/2 top-[70%] -translate-x-1/2">
+              {/* l'emoji glisse ↔ (transform composé avec le centrage de l'ancre) */}
+              <span
+                style={{
+                  display: "block",
+                  fontSize: "60px",
+                  lineHeight: 1,
+                  animation: "svvDragSlide 2.4s ease-in-out infinite",
+                }}
+              >
+                👆
+              </span>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* épingle goutte (pointe en bas = point exact) */}
       <div className="pointer-events-none absolute left-1/2 top-1/2 z-[1500] -translate-x-1/2 -translate-y-full">
