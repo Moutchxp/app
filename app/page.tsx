@@ -710,6 +710,7 @@ export default function Home() {
   // Roulis : mesuré via DeviceMotion (accel), lissé en rAF (τ ≈ 0,18 s), affichage seulement.
   const rollRawRef = useRef(0);          // dernier roulis brut (atan2 de l'accélération)
   const rollSmoothRef = useRef(0);       // roulis lissé qui pilote l'affichage + le code couleur
+  const rejetRollRef = useRef(0);        // durée cumulée (s) pendant laquelle le garde-fou rejette → auto-resync si ça persiste
   const rafRef = useRef<number | null>(null);
   const motionTsRef = useRef(0);         // timestamp rAF précédent (lissage indépendant du framerate)
   const motionActiveRef = useRef(false); // DeviceMotion réellement disponible ?
@@ -878,18 +879,29 @@ export default function Home() {
 
       if (sensorSeenRef.current) {
         const rollRaw = rollRawRef.current;
-        // Garde-fou anti-saut : échantillon glitché (> 45° du lissé) ⇒ ignoré.
-        if (Math.abs(rollRaw - rollSmoothRef.current) <= 45) {
-          if (dt > 0) {
-            const alpha = dt / (0.18 + dt);
-            rollSmoothRef.current = rollSmoothRef.current + alpha * (rollRaw - rollSmoothRef.current);
-          }
+        const ecartRoll = Math.abs(rollRaw - rollSmoothRef.current);
+        if (ecartRoll <= 45 && dt > 0) {
+          // Cas normal : lissage exponentiel.
+          const alpha = dt / (0.18 + dt);
+          rollSmoothRef.current = rollSmoothRef.current + alpha * (rollRaw - rollSmoothRef.current);
+          rejetRollRef.current = 0; // tout va bien → on remet le compteur de rejet à zéro
           divergenceDepuisRef.current = null; // conforme → on n'est pas (plus) bloqué
           marquerBloque(false);
-        } else {
-          // échantillon ignoré (inchangé) ; si la divergence persiste > 0,7 s → verrou détecté.
-          if (divergenceDepuisRef.current == null) divergenceDepuisRef.current = ts;
-          else if (ts - divergenceDepuisRef.current > 700) marquerBloque(true);
+        } else if (ecartRoll > 45 && dt > 0) {
+          // Garde-fou anti-saut : on ignore les à-coups PONCTUELS…
+          rejetRollRef.current += dt;
+          // …mais si l'écart PERSISTE (> 0,5 s), c'est un blocage réel (lissé figé loin du réel) :
+          // on resynchronise pour ne jamais rester coincé.
+          if (rejetRollRef.current > 0.5) {
+            rollSmoothRef.current = rollRaw;
+            rejetRollRef.current = 0;
+            divergenceDepuisRef.current = null; // resync → plus bloqué
+            marquerBloque(false);
+          } else {
+            // tant que l'auto-resync n'a pas eu lieu, on alimente la détection de blocage (anneau du reset).
+            if (divergenceDepuisRef.current == null) divergenceDepuisRef.current = ts;
+            else if (ts - divergenceDepuisRef.current > 700) marquerBloque(true);
+          }
         }
         setVisualRoll(rollSmoothRef.current);
 
@@ -1719,7 +1731,7 @@ export default function Home() {
     {/* ÉLÉMENT 1 — Étage du séjour (stepper) : seul visible au départ */}
     <div>
       <label className="mb-2 block text-base font-semibold text-svv-ink">Étage du séjour</label>
-      <div className="flex items-center gap-4">
+      <div className="flex items-center justify-center gap-4">
         <button type="button" aria-label="Diminuer"
           onClick={() => ajusterEtage(-1)}
           className="flex h-12 w-12 items-center justify-center rounded-xl border border-svv-line bg-svv-field text-2xl font-bold text-svv-ink">−</button>
@@ -1732,7 +1744,7 @@ export default function Home() {
       </div>
     </div>
 
-    {/* ÉLÉMENT 2 + NOTE + BOUTON : apparaissent après une pause > 300 ms entre deux clics */}
+    {/* ÉLÉMENT 2 + NOTE : révélés après une pause > 400 ms entre deux clics du stepper */}
     {montrerQ2 && (
       <div className="mt-7 animate-fadeIn">
         <label className="mb-2 block text-base font-semibold text-svv-ink">Dernier étage ?</label>
@@ -1755,22 +1767,23 @@ export default function Home() {
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5h.01"/></svg>
           <span>Ces données nous permettent d&apos;estimer la hauteur de votre champ de vision.</span>
         </div>
-
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/images/skyline.svg"
-          alt=""
-          aria-hidden="true"
-          className="relative z-0 -mx-6 mt-8 block w-[calc(100%+3rem)] max-w-none"
-          style={{ opacity: 0.3 }}
-        />
-
-        <button type="button" onClick={handleAnalyse} className="svv-btn svv-btn-primary mt-6">
-          Lancer l&apos;analyse
-        </button>
-        {analyseErreur && <p className="mt-3 text-sm font-medium text-svv-red">{analyseErreur}</p>}
       </div>
     )}
+
+    {/* SKYLINE + BOUTON : toujours affichés (la 1re question suffit pour lancer l'analyse) */}
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    <img
+      src="/images/skyline.svg"
+      alt=""
+      aria-hidden="true"
+      className="relative z-0 -mx-6 mt-8 block w-[calc(100%+3rem)] max-w-none"
+      style={{ opacity: 0.3 }}
+    />
+
+    <button type="button" onClick={handleAnalyse} className="svv-btn svv-btn-primary mt-6">
+      Lancer l&apos;analyse
+    </button>
+    {analyseErreur && <p className="mt-3 text-sm font-medium text-svv-red">{analyseErreur}</p>}
   </div>
 )}
 
@@ -1903,6 +1916,10 @@ export default function Home() {
         azimutDeg={azimutAjuste}
         onRecommencer={() => setEtape("accueil")}
         onRefaireTest={() => {
+          setPhoto(null);
+          setCapturedOrientation(null);
+          origine.reset();                     // repasse en « non confirmé » → le bouton « Valider » redevient actif
+          conserverPositionRef.current = true; // après la nouvelle photo, on garde le dernier point (pas de GPS)
           setEtape("photo");
           startCamera();
         }}
