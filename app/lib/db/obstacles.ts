@@ -146,6 +146,55 @@ async function echantillonnerGrille(params: ParametresAxe): Promise<LigneGrille[
   }));
 }
 
+/** Couverture LiDAR d'une cellule (centre dans l'emprise des dalles MNS) — INDÉPENDANT du bâti. */
+interface LigneCouvertureSql {
+  i: number;
+  j: number;
+  couvert: boolean;
+}
+
+/**
+ * Couverture LiDAR par cellule du damier (4 colonnes × portée/0,5 lignes), TOUT en PostGIS :
+ * emprise = ST_Union(ST_Envelope(rast)) des dalles MNS ∩ couloir (aucun filtre bâti — R1) ;
+ * couvert = centre de cellule ∈ emprise. Aucune dalle → emprise NULL → couvert=false partout
+ * (→ INDÉTERMINÉ, voulu). Centre calculé par la MÊME formule que calageFacade (l. ci-dessus).
+ * Requête SÉPARÉE d'echantillonnerGrille : les altitudes (altM) restent strictement inchangées (R2).
+ */
+async function couvertureCellules(params: ParametresAxe): Promise<LigneCouvertureSql[]> {
+  const nLignes = Math.floor(ANALYSIS_RANGE_M / 0.5);
+  const res = await query<{ i: number; j: number; couvert: boolean }>(
+    `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
+     d AS (SELECT sin(radians($3)) dx, cos(radians($3)) dy),      -- axe (x=E, y=N)
+     t AS (SELECT cos(radians($3)) px, -sin(radians($3)) py),     -- transverse (perp.)
+     axe AS (SELECT ST_MakeLine(o.g, ST_Translate(o.g, $4*d.dx, $4*d.dy)) AS ln FROM o,d),
+     corr AS (SELECT ST_Buffer(axe.ln, $5) AS g FROM axe),        -- couloir 2 m (±1)
+     couverture AS (                                              -- emprise des DALLES (aucun filtre bâti)
+       SELECT ST_Union(ST_Envelope(r.rast)) AS g
+       FROM mns_lidar_brut r, corr
+       WHERE ST_Intersects(r.rast, corr.g)
+     ),
+     centres AS (                                                 -- centre L93 de chaque cellule (i,j)
+       SELECT i, j,
+         ST_SetSRID(ST_MakePoint(
+           ST_X(o.g) + ((i+0.5)*0.5)*d.dx + ((j-1.5)*0.5)*t.px,
+           ST_Y(o.g) + ((i+0.5)*0.5)*d.dy + ((j-1.5)*0.5)*t.py),2154) AS centre
+       FROM generate_series(0, $6-1) AS i, generate_series(0,3) AS j, o, d, t
+     )
+     SELECT i, j,
+       COALESCE(ST_Intersects(centre, (SELECT g FROM couverture)), false) AS couvert
+     FROM centres ORDER BY i, j;`,
+    [
+      params.point.lon,
+      params.point.lat,
+      params.azimutDeg,
+      ANALYSIS_RANGE_M,
+      CORRIDOR_HALF_WIDTH_M,
+      nLignes,
+    ],
+  );
+  return res.rows.map((r) => ({ i: r.i, j: r.j, couvert: r.couvert }));
+}
+
 /**
  * Calage façade sur la cellule retenue : reconstruit son centre L93, cherche le
  * bord d'emprise BD TOPO qui traverse la cellule de 0,5 m autour, et rend la
@@ -185,25 +234,35 @@ async function calageFacade(params: ParametresAxe, distM: number, offM: number):
  * Couloir principal : échantillonne la grille, applique le balayage plein-couloir
  * et mappe le statut vers la sortie ObstacleCandidat[] que premierObstacle attend.
  *
- * ⚠️ Hypothèse `couvert=true` partout dans la portée (couverture LiDAR pleine
- * vérifiée sur la zone). Raison : un test de présence de pixel par cellule sur un
- * axe TOURNÉ est non fiable (bins 0,5 m vs grille raster → faux trous → faux
- * INDETERMINE). À affiner par un test de couverture surfacique (étendue des
- * tuiles MNS), pas par pixel. Sous cette hypothèse, INDETERMINE/degrade sont
- * dormants mais leur mapping reste implémenté.
+ * `couvert` = vraie couverture LiDAR : emprise des dalles MNS (ST_Union(ST_Envelope(rast)))
+ * testée au centre de chaque cellule (cf. couvertureCellules), INDÉPENDANTE du bâti.
+ * Un trou réel (centre hors emprise) → couvert:false → SANS_DONNÉE → rallume INDÉTERMINÉ/degrade.
+ * Les altitudes (altM) viennent uniquement d'echantillonnerGrille (inchangée).
  */
 async function obstaclesParBalayage(params: ParametresAxe, hOeilM: number): Promise<ObstacleCandidat[]> {
-  const grille = await echantillonnerGrille(params);
+  // 2 requêtes parallèles : altitudes (inchangées) + couverture par cellule (nouvelle dimension).
+  const [grille, couverture] = await Promise.all([
+    echantillonnerGrille(params),
+    couvertureCellules(params),
+  ]);
 
   const nLignes = Math.floor(ANALYSIS_RANGE_M / 0.5);
-  const colonnes: CelluleCouloir[][] = [0, 1, 2, 3].map(() =>
-    Array.from({ length: nLignes }, (): CelluleCouloir => ({ altM: null, couvert: true })),
+  // Lookup couvert[colonne][ligne], défaut false (cellules non renvoyées = non couvertes).
+  const couvert: boolean[][] = [0, 1, 2, 3].map(() => Array.from({ length: nLignes }, () => false));
+  for (const c of couverture) {
+    if (c.i >= 0 && c.i < nLignes && c.j >= 0 && c.j < 4) couvert[c.j][c.i] = c.couvert;
+  }
+
+  // Init : altM null + couvert RÉEL (au lieu de true).
+  const colonnes: CelluleCouloir[][] = [0, 1, 2, 3].map((k) =>
+    Array.from({ length: nLignes }, (_, i): CelluleCouloir => ({ altM: null, couvert: couvert[k][i] })),
   );
+  // Remplissage : alt depuis grille (INCHANGÉ) ; couvert depuis couverture (jamais dérivé du bâti).
   for (const g of grille) {
     if (g.i < 0 || g.i >= nLignes) continue;
     for (let k = 0; k < 4; k++) {
       const v = g.alt[k];
-      if (v !== null) colonnes[k][g.i] = { altM: v, couvert: true };
+      if (v !== null) colonnes[k][g.i] = { altM: v, couvert: couvert[k][g.i] };
     }
   }
 
