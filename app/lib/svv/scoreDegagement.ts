@@ -17,12 +17,12 @@ import {
   SCORE_DISTANCE_MAX_PTS,
   SCORE_DISTANCE_STEP_M,
   AMPLITUDE_BEAM_COUNT,
+  AMPLITUDE_NOTE_HALF_ANGLE_DEG,
   AMPLITUDE_PART_A_PTS,
   AMPLITUDE_PART_B_PTS,
   AMPLITUDE_PART_B_BASE_M,
   AMPLITUDE_PART_B_BASE_PTS,
   CLEAR_BEAM_DIST_M,
-  L_PENALTY_FLANK_DEG,
   L_PENALTY_DIST_M,
   L_PENALTY_FACTOR,
   ORIENTATION_PTS,
@@ -105,12 +105,20 @@ export function scoreFamille1(entree: EntreeFamille1): ScoreFamille1 {
       : clamp((d - THRESHOLD_M) / SCORE_DISTANCE_STEP_M, 0, SCORE_DISTANCE_MAX_PTS);
 
   // 2) Amplitude — 20 pts (Part A largeur + Part B profondeur).
-  const nbDegages = entree.faisceaux.filter(estDegage).length;
-  const pourcentageFaisceauxDegages = nbDegages / AMPLITUDE_BEAM_COUNT;
+  // La NOTE ne compte QUE le cône central |offsetDeg| <= AMPLITUDE_NOTE_HALF_ANGLE_DEG ;
+  // les faisceaux de bord (> seuil) ne servent QU'À la pénalité de flanc (ensembles complémentaires).
+  // Le balayage physique reste 61 faisceaux ±90° (AMPLITUDE_BEAM_COUNT inchangé, garde ci-dessus).
+  const faisceauxCentraux = entree.faisceaux.filter(
+    (f) => Math.abs(f.offsetDeg) <= AMPLITUDE_NOTE_HALF_ANGLE_DEG,
+  );
+  const nbCentraux = faisceauxCentraux.length; // dénominateur dynamique (cône central, jamais un littéral)
+
+  const nbDegages = faisceauxCentraux.filter(estDegage).length;
+  const pourcentageFaisceauxDegages = nbDegages / nbCentraux;
   const amplitudePartA = AMPLITUDE_PART_A_PTS * pourcentageFaisceauxDegages;
 
   const moyenneProfondeurM =
-    entree.faisceaux.reduce((acc, f) => acc + profondeur(f), 0) / AMPLITUDE_BEAM_COUNT;
+    faisceauxCentraux.reduce((acc, f) => acc + profondeur(f), 0) / nbCentraux;
   // Linéaire de (30 m → 1 pt) à (CLEAR_BEAM_DIST_M → 10 pts) : une vue 100 %
   // dégagée (moyenne = CLEAR_BEAM_DIST_M) atteint le plafond. Pente dérivée.
   const partBPente =
@@ -124,13 +132,14 @@ export function scoreFamille1(entree: EntreeFamille1): ScoreFamille1 {
 
   let amplitude = amplitudePartA + amplitudePartB;
 
-  // Pénalité « angle de L » : mur réel proche dans un flanc.
-  const [flancMin, flancMax] = L_PENALTY_FLANK_DEG;
-  const penaliteFlancAppliquee = entree.faisceaux.some((f) => {
-    if (f.distanceObstacleM === null) return false;
-    const abs = Math.abs(f.offsetDeg);
-    return abs >= flancMin && abs <= flancMax && f.distanceObstacleM < L_PENALTY_DIST_M;
-  });
+  // Pénalité « angle de L » : mur réel proche dans un FLANC = hors du cône de note,
+  // |offsetDeg| > AMPLITUDE_NOTE_HALF_ANGLE_DEG (strict → complémentaire du cône, aucun chevauchement).
+  const penaliteFlancAppliquee = entree.faisceaux.some(
+    (f) =>
+      f.distanceObstacleM !== null &&
+      Math.abs(f.offsetDeg) > AMPLITUDE_NOTE_HALF_ANGLE_DEG &&
+      f.distanceObstacleM < L_PENALTY_DIST_M,
+  );
   if (penaliteFlancAppliquee) {
     amplitude = amplitude / L_PENALTY_FACTOR;
   }

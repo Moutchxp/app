@@ -124,9 +124,11 @@ export const AMPLITUDE_PART_B_BASE_M = 30; // 30 m → AMPLITUDE_PART_B_BASE_PTS
 export const AMPLITUDE_PART_B_BASE_PTS = 1; // 1 pt à 30 m (ancrage bas)
 export const CLEAR_BEAM_DIST_M = ANALYSIS_RANGE_M; // distance d'un faisceau dégagé
 // Pente Part B linéaire : 30 m → 1 pt, CLEAR_BEAM_DIST_M → 10 pts (dérivée des constantes).
+// Demi-angle du cône retenu pour la NOTE d'amplitude (|offsetDeg| ≤ seuil) ; au-delà, les
+// faisceaux ne comptent QUE pour la pénalité de flanc (ensembles complémentaires, balayage ±90° inchangé).
+export const AMPLITUDE_NOTE_HALF_ANGLE_DEG = 60;
 
-/* Pénalité « angle de L » */
-export const L_PENALTY_FLANK_DEG: readonly [number, number] = [60, 90];
+/* Pénalité « angle de L » : flanc = au-delà du cône de note (|offsetDeg| > AMPLITUDE_NOTE_HALF_ANGLE_DEG). */
 export const L_PENALTY_DIST_M = 5;
 export const L_PENALTY_FACTOR = 3; // amplitude / 3
 

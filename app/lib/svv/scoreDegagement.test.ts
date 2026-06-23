@@ -51,7 +51,7 @@ describe('scoreFamille1 — distance (20 pts)', () => {
 });
 
 describe('scoreFamille1 — amplitude Part A (largeur, 10 pts)', () => {
-  it('61 dégagés → 10', () => {
+  it('cône central tout dégagé → 10', () => {
     expect(scoreFamille1(entree()).detail.amplitudePartA).toBe(10);
   });
 
@@ -61,11 +61,12 @@ describe('scoreFamille1 — amplitude Part A (largeur, 10 pts)', () => {
     expect(scoreFamille1(entree({ faisceaux: f })).detail.amplitudePartA).toBe(0);
   });
 
-  it('30/61 dégagés → 10 × 30/61', () => {
-    // 30 dégagés (null), 31 bloqués (10 m)
+  it('30 dégagés à gauche, mais seuls 20 dans le cône ±60° → 10 × 20/41', () => {
+    // i<30 dégagés (null) ; le cône central est |offset|≤60 = i∈[10,50] (41 faisceaux),
+    // dont les dégagés sont i=10..29 → 20/41. Les i<10 (offset < −60) ne comptent plus.
     const f = faisceaux((i) => (i < 30 ? null : 10));
     expect(scoreFamille1(entree({ faisceaux: f })).detail.amplitudePartA).toBe(
-      (10 * 30) / 61,
+      (10 * 20) / 41,
     );
   });
 });
