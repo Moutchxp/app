@@ -1993,22 +1993,51 @@ export default function Home() {
     ) : analyse &&
       (!analyse.resultat ||
         analyse.resultat.verdict.verdict === "INDETERMINE") ? (
-      /* c) indéterminé */
-      <div className="mt-4 rounded-xl border border-svv-line bg-svv-field p-4">
-        <p className="text-lg font-bold text-svv-ink">Analyse indéterminée</p>
-        <p className="mt-1 text-sm text-svv-muted">
-          {analyse.resultat?.verdict?.raison ??
-            analyse.validation?.raison ??
-            "Couverture insuffisante ou origine hors bâtiment. Aucun certificat ne peut être émis."}
-        </p>
-        <button
-          type="button"
-          onClick={() => setEtape("localisation")}
-          className="svv-btn svv-btn-outline mt-3"
-        >
-          Modifier le point
-        </button>
-      </div>
+      /* c) indéterminé — titre/message/bouton selon la CAUSE (front-only, ordre B→A→C→D) */
+      (() => {
+        const v = analyse.validation;
+        const r = analyse.resultat;
+        let titre: string;
+        let message: string;
+        let bouton: string;
+        if (r != null && r.verdict.verdict === "INDETERMINE") {
+          // (B) Zone non couverte par les données de relief (trou de couverture LiDAR).
+          titre = "Zone non couverte par nos données";
+          message =
+            "Cette zone n'est pas encore couverte par les données de relief nécessaires à l'analyse. Nous ne pouvons donc pas certifier la vue depuis ce point. Notre couverture s'étend régulièrement.";
+          bouton = "Essayer un autre point";
+        } else if (r == null && v.valide === false) {
+          // (A) Point hors bâtiment / origine invalide.
+          titre = "Point en dehors d'un bâtiment";
+          message =
+            "Le repère doit être posé à l'intérieur de votre bâtiment, à l'emplacement de votre fenêtre. Là, il est tombé sur une rue ou un espace extérieur.";
+          bouton = "Repositionner le point";
+        } else if (r == null && v.valide === true && v.altitudeTerrainOrigineM == null) {
+          // (C) Altitude du sol (MNT) indisponible à l'origine.
+          titre = "Altitude du sol indisponible";
+          message =
+            "Nous n'avons pas l'altitude du terrain exactement à cet emplacement. Déplacez légèrement le repère sur votre bâtiment et réessayez.";
+          bouton = "Ajuster le point";
+        } else {
+          // (D) Fallback (autre indétermination).
+          titre = "Analyse indéterminée";
+          message = "L'analyse n'a pas pu aboutir pour ce point. Réessayez ou déplacez légèrement le repère.";
+          bouton = "Modifier le point";
+        }
+        return (
+          <div className="mt-4 rounded-xl border border-svv-line bg-svv-field p-4">
+            <p className="text-lg font-bold text-svv-ink">{titre}</p>
+            <p className="mt-1 text-sm text-svv-muted">{message}</p>
+            <button
+              type="button"
+              onClick={() => setEtape("localisation")}
+              className="svv-btn svv-btn-outline mt-3"
+            >
+              {bouton}
+            </button>
+          </div>
+        );
+      })()
     ) : analyse && analyse.resultat ? (
       /* d) vrai résultat — écrans 7A (certifié) / 7B (vis-à-vis) */
       <EcranResultat
