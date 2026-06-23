@@ -15,7 +15,7 @@ import { ORIGIN_OUTSIDE_TOLERANCE_M } from "../svv/config";
 export interface ValidationOrigine {
   valide: boolean;
   raison: string;
-  batimentOrigine: { id: number; cleabs: string } | null;
+  batimentOrigine: { id: number; cleabs: string; polygoneWkt: string } | null;
   altitudeTerrainOrigineM: number | null; // terrain lu sur le MNT (LiDAR) au point exact ; null si hors couverture MNT / nodata
   altSolBdTopoM?: number | null; // INFORMATIF : altitude_minimale_sol BD TOPO, pour comparaison en test (NON utilisé dans le calcul)
   distanceAuBatimentM: number; // 0 si à l'intérieur, sinon distance au bâtiment le plus proche
@@ -29,6 +29,7 @@ interface LigneBatiment {
   alt_terrain_mnt: number | null; // terrain MNT LiDAR au point exact (source autoritative)
   dist_m: number;
   dedans: boolean;
+  polygone_wkt: string; // emprise L93 (SRID 2154) du bâtiment d'origine, transport pur (non consommé ici)
 }
 
 export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigine> {
@@ -37,6 +38,7 @@ export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigi
        SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 2154) AS g
      )
      SELECT b.id, b.cleabs,
+            ST_AsText(ST_Force2D(b.geom)) AS polygone_wkt,
             b.altitude_minimale_sol AS alt_sol_bdtopo,
             (SELECT ST_Value(m.rast, pt.g)
                FROM mnt_lidar_brut m
@@ -62,7 +64,7 @@ export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigi
     };
   }
 
-  const { id, cleabs, alt_sol_bdtopo, alt_terrain_mnt, dist_m, dedans } = res.rows[0];
+  const { id, cleabs, alt_sol_bdtopo, alt_terrain_mnt, dist_m, dedans, polygone_wkt } = res.rows[0];
 
   const dansBatiment = dedans;
   const distanceAuBatimentM = dedans ? 0 : dist_m;
@@ -80,7 +82,7 @@ export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigi
   return {
     valide,
     raison,
-    batimentOrigine: valide ? { id, cleabs } : null,
+    batimentOrigine: valide ? { id, cleabs, polygoneWkt: polygone_wkt } : null,
     // terrain lu sur le MNT (LiDAR) au point exact = même cellule 50 cm que le MNS ;
     // null si hors couverture MNT ou nodata -9999 → pas de certificat (garde pipeline l.61-63).
     altitudeTerrainOrigineM: valide ? alt_terrain_mnt : null,

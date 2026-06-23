@@ -19,6 +19,8 @@ export interface ParametresFaisceaux {
   point: PointWgs84;
   azimutPrincipalDeg: number;
   batimentOrigineId: number;
+  /** Emprise L93 (WKT, SRID 2154) du bâtiment d'origine. Transport pur : non consommé ici. */
+  batimentOriginePolygoneWkt?: string;
   altitudeFenetreM: number;
 }
 
@@ -38,6 +40,7 @@ export async function faisceauxAmplitude(
       point: params.point,
       azimutDeg: azimut,
       batimentOrigineId: params.batimentOrigineId,
+      batimentOriginePolygoneWkt: params.batimentOriginePolygoneWkt,
     });
     const res = premierObstacle(candidats, params.altitudeFenetreM);
     resultats.push({

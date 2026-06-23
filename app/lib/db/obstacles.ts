@@ -21,6 +21,8 @@ export interface ParametresAxe {
   point: PointWgs84;
   azimutDeg: number;
   batimentOrigineId: number;
+  /** Emprise L93 (WKT, SRID 2154) du bâtiment d'origine. Transport pur : non consommé ici. */
+  batimentOriginePolygoneWkt?: string;
   /**
    * true → enrichir chaque candidat avec la hauteur LiDAR (max nettoyé,
    * source LIDAR_HD) prioritaire sur la cascade BD TOPO. Réservé au COULOIR

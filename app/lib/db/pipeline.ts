@@ -73,6 +73,7 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
     point: params.point,
     azimutDeg: params.azimutPrincipalDeg,
     batimentOrigineId: validation.batimentOrigine.id,
+    batimentOriginePolygoneWkt: validation.batimentOrigine.polygoneWkt,
     lidar: true,
     altitudeFenetreM,
   });
@@ -82,6 +83,7 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
     point: params.point,
     azimutPrincipalDeg: params.azimutPrincipalDeg,
     batimentOrigineId: validation.batimentOrigine.id,
+    batimentOriginePolygoneWkt: validation.batimentOrigine.polygoneWkt,
     altitudeFenetreM,
   });
 
