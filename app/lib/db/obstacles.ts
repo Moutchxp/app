@@ -299,6 +299,65 @@ async function calageFacade(params: ParametresAxe, distM: number, offM: number):
   return Number(res.rows[0].dist_m);
 }
 
+/** Profondeur minimale du creux de cour, sous le toit de l'aile de départ (m). */
+const CREUX_MIN_M = 3;
+/** Cellules consécutives sous le seuil de creux requises pour confirmer la cour. */
+const CREUX_CELLULES_MIN = 5;
+
+/**
+ * Détection « aile opposée d'un bâtiment en U » sur l'AXE PRINCIPAL, à partir de profilAxe (2a).
+ * Automate cellule par cellule (i croissant, du plus proche au plus loin) :
+ *  - DÉPART (dansOrigine=true) : mémorise altDepartM = 1er mnsBrut valide DANS l'origine
+ *    (toit de l'aile de départ). On ignore tout tant qu'on n'est pas sorti.
+ *  - SORTI (dansOrigine=false) : compte les cellules CONSÉCUTIVES où mnsBrut <= altDepart - CREUX_MIN_M.
+ *    mnsBrut=null (trou) = neutre (ni reset, ni incrément) ; toit au-dessus du seuil → reset.
+ *    CREUX_CELLULES_MIN cellules atteint → creux confirmé → MUR_ARMÉ.
+ *  - MUR_ARMÉ : 1ère ré-entrée (dansOrigine=true) avec mnsBrut >= hOeilM → OBSTACLE (aile opposée),
+ *    distance i*0,5 (cohérente avec le balayage). Sinon on continue de chercher la ré-entrée.
+ * Retour : AU PLUS un ObstacleCandidat (LIDAR_HD), ou null (aucune ré-entrée qualifiante).
+ * Ne touche ni estBloquee, ni le seuil 40 m, ni premierObstacle : produit juste un candidat de plus.
+ */
+function detecterAileOpposeeUSurAxe(
+  profilAxe: CelluleProfilOrigine[],
+  hOeilM: number,
+): ObstacleCandidat | null {
+  type Etat = "DEPART" | "SORTI" | "MUR_ARME";
+  let etat: Etat = "DEPART";
+  let altDepartM: number | null = null;
+  let creuxCount = 0;
+
+  for (let i = 0; i < profilAxe.length; i++) {
+    const { dansOrigine, mnsBrutM } = profilAxe[i];
+
+    if (etat === "DEPART") {
+      if (dansOrigine) {
+        if (altDepartM === null && mnsBrutM !== null) altDepartM = mnsBrutM;
+        continue;
+      }
+      etat = "SORTI"; // dansOrigine est passé à false → on évalue cette cellule en SORTI ci-dessous.
+    }
+
+    if (etat === "SORTI") {
+      if (altDepartM === null) return null; // pas de toit de départ mémorisé → règle inapplicable.
+      if (mnsBrutM === null) {
+        // trou : neutre (ne casse ni n'avance la consécutivité).
+      } else if (mnsBrutM <= altDepartM - CREUX_MIN_M) {
+        creuxCount++;
+        if (creuxCount >= CREUX_CELLULES_MIN) etat = "MUR_ARME";
+      } else {
+        creuxCount = 0; // toit clairement au-dessus du seuil de creux → réinitialise.
+      }
+      continue;
+    }
+
+    // etat === "MUR_ARME"
+    if (dansOrigine && mnsBrutM !== null && mnsBrutM >= hOeilM) {
+      return { distanceM: i * 0.5, altitudeSommetM: mnsBrutM, source: "LIDAR_HD" };
+    }
+  }
+  return null;
+}
+
 /**
  * Couloir principal : échantillonne la grille, applique le balayage plein-couloir
  * et mappe le statut vers la sortie ObstacleCandidat[] que premierObstacle attend.
@@ -315,9 +374,11 @@ async function obstaclesParBalayage(params: ParametresAxe, hOeilM: number): Prom
     couvertureCellules(params),
     profilOrigineAxe(params),
   ]);
-  // 2a — plomberie pure : profilAxe[i] = { dansOrigine, mnsBrutM }, aligné par i avec `colonnes`.
-  // NON consommé ici (le verdict reste inchangé) ; la règle creux+mur (2b) le lira.
-  void profilAxe;
+  // 2b — candidat « aile opposée U » (creux + mur sur l'axe), AU PLUS un, calculé sur profilAxe.
+  // Il s'AJOUTE aux candidats du balayage : c'est premierObstacle (seuil 40 m, inchangé) qui tranche.
+  const candidatU = detecterAileOpposeeUSurAxe(profilAxe, hOeilM);
+  const avecU = (base: ObstacleCandidat[]): ObstacleCandidat[] =>
+    candidatU ? [...base, candidatU] : base;
 
   const nLignes = Math.floor(ANALYSIS_RANGE_M / 0.5);
   // Lookup couvert[colonne][ligne], défaut false (cellules non renvoyées = non couvertes).
@@ -354,21 +415,21 @@ async function obstaclesParBalayage(params: ParametresAxe, hOeilM: number): Prom
       const distM = (bal.ligne + 0.5) * 0.5;
       const offM = (bal.colonne - 1.5) * 0.5;
       const distanceM = await calageFacade(params, distM, offM);
-      return [{ distanceM, altitudeSommetM: altSommet, source: "LIDAR_HD" }];
+      return avecU([{ distanceM, altitudeSommetM: altSommet, source: "LIDAR_HD" }]);
     }
   }
 
   // INDETERMINE → NONE à < seuil (premierObstacle conclut INDETERMINE). Dormant ici.
   if (bal.statut === "INDETERMINE") {
-    return [{ distanceM: 0, altitudeSommetM: null, source: "NONE" }];
+    return avecU([{ distanceM: 0, altitudeSommetM: null, source: "NONE" }]);
   }
 
   // DEGAGE → aucun obstacle. Si dégradé (trou ≥ seuil), propage via un NONE ≥ seuil
   // (canal analyseDegradee/messageDegrade existant). Dormant sous l'hypothèse couvert=true.
   if (bal.degrade) {
-    return [{ distanceM: ANALYSIS_RANGE_M, altitudeSommetM: null, source: "NONE" }];
+    return avecU([{ distanceM: ANALYSIS_RANGE_M, altitudeSommetM: null, source: "NONE" }]);
   }
-  return [];
+  return avecU([]);
 }
 
 export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCandidat[]> {
