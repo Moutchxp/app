@@ -688,6 +688,19 @@ export default function Home() {
     const firstId = setTimeout(() => { bump(); intervalId = setInterval(bump, 5000); }, 12000);
     return () => { clearTimeout(firstId); if (intervalId) clearInterval(intervalId); setBumpInfo(false); };
   }, [etape, infoOrientationVu]);
+  // Pop-up d'aide « Pourquoi placer ce point ? » (écran localisation) — états DISTINCTS d'Orientation.
+  const [infoLocalisationOuvert, setInfoLocalisationOuvert] = useState(false);
+  const [infoLocalisationVu, setInfoLocalisationVu] = useState(false); // déjà consulté → arrête le clignotement
+  const [bumpInfoLocalisation, setBumpInfoLocalisation] = useState(false); // « bump » périodique du « i » localisation
+  // Bump du « i » localisation : armé SEULEMENT quand le « i » est visible (pointDeplace === true,
+  // état 2) et tant que non consulté. 1er bump à 12 s, puis toutes les 5 s. (clone d'Orientation)
+  useEffect(() => {
+    if (!pointDeplace || infoLocalisationVu) return;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+    const bump = () => { setBumpInfoLocalisation(true); setTimeout(() => setBumpInfoLocalisation(false), 650); };
+    const firstId = setTimeout(() => { bump(); intervalId = setInterval(bump, 5000); }, 12000);
+    return () => { clearTimeout(firstId); if (intervalId) clearInterval(intervalId); setBumpInfoLocalisation(false); };
+  }, [pointDeplace, infoLocalisationVu]);
   // Révélation de la 2e question (écran infos) : après une pause > 300 ms entre deux clics du stepper.
   const [montrerQ2, setMontrerQ2] = useState(false);
   const etageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1586,14 +1599,37 @@ export default function Home() {
         onUserMove={() => setPointDeplace(true)}
       />
     </div>
-    <p className="mt-2 text-xs text-svv-muted">
-      Le repère 📍 doit être posé sur un bâtiment, pas sur une rue ni un espace extérieur.
-    </p>
+    {/* État 2 (après le 1er déplacement) : règle 1-2 + bouton « i ». Jamais en même temps que le cartouche rouge. */}
+    {pointDeplace && (
+    <div className="mt-2 flex items-center justify-center gap-1.5">
+      <ol className="list-decimal list-inside space-y-0.5 text-xs text-svv-muted">
+        <li>Déplacez la carte pour placer le curseur précisément sur votre fenêtre.</li>
+        <li>Le curseur doit obligatoirement se trouver à l&apos;intérieur d&apos;un bâtiment pour être validé.</li>
+      </ol>
+      <button
+        type="button"
+        onClick={() => { setInfoLocalisationOuvert(true); setInfoLocalisationVu(true); }}
+        aria-label="Pourquoi placer ce point ?"
+        className={`shrink-0 ${infoLocalisationVu ? "text-svv-ink" : "svvInfoPulse"}`}
+      >
+        <span className={`inline-block ${bumpInfoLocalisation && !infoLocalisationVu ? "svvInfoBump" : ""}`}>
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 11v5" />
+            <path d="M12 7.5h.01" />
+          </svg>
+        </span>
+      </button>
+    </div>
+    )}
 
     {/* Tant que l'utilisateur n'a pas déplacé le point : consigne. */}
     {!pointDeplace && (
       <div className="mt-3 rounded-xl border border-svv-red/30 bg-svv-red/5 p-3 text-sm font-semibold text-svv-red">
-        Le repère 📍 doit être posé sur un bâtiment, pas sur une rue ni un espace extérieur.
+        <ol className="list-decimal list-inside space-y-1">
+          <li>Déplacez la carte pour placer le curseur précisément sur votre fenêtre.</li>
+          <li>Le curseur doit obligatoirement se trouver à l&apos;intérieur d&apos;un bâtiment pour être validé.</li>
+        </ol>
       </div>
     )}
 
@@ -1638,6 +1674,36 @@ export default function Home() {
     >
       Valider votre point de vue
     </button>
+
+    {/* Pop-up d'aide « Pourquoi ce point et comment le placer » (calquée sur l'écran orientation) */}
+    {infoLocalisationOuvert && (
+      <div
+        onClick={() => setInfoLocalisationOuvert(false)}
+        className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/45 p-5"
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+        >
+          <h2 className="text-lg font-extrabold text-svv-ink">Pourquoi ce point et comment le placer</h2>
+          <h3 className="mt-4 text-sm font-semibold text-svv-ink">À quoi il sert ?</h3>
+          <p className="mt-1 text-sm leading-relaxed text-svv-gray">
+            C&apos;est le point de départ du calcul : l&apos;application mesure depuis cet endroit précis tout ce qui se trouve devant vous pour déterminer si la vue est dégagée. La position GPS récupérée lors de la géolocalisation n&apos;est pas assez précise pour servir de point d&apos;origine : vous devez l&apos;ajuster vous-même pour garantir un résultat fiable. Mal placé, l&apos;analyse part du mauvais endroit et le résultat sera faux.
+          </p>
+          <h3 className="mt-4 text-sm font-semibold text-svv-ink">Où le poser ?</h3>
+          <p className="mt-1 text-sm leading-relaxed text-svv-gray">
+            Posez-le <span className="font-semibold text-svv-ink">sur la façade de votre immeuble, à l&apos;emplacement de votre fenêtre</span>{" "}d&apos;où vous venez de prendre votre photo — le plus près possible du mur extérieur, mais impérativement à l&apos;intérieur des contours du bâtiment. Évitez la rue ou un espace extérieur : le point doit rester dans votre bâtiment pour être validé.
+          </p>
+          <button
+            type="button"
+            onClick={() => setInfoLocalisationOuvert(false)}
+            className="svv-btn svv-btn-primary mt-5"
+          >
+            Compris
+          </button>
+        </div>
+      </div>
+    )}
   </div>
 )}
 
