@@ -53,4 +53,25 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     // → distance finie (≠ Infinity, qui signalerait SANS_BATIMENT).
     expect(Number.isFinite(validation.distanceAuBatimentM)).toBe(true);
   });
+
+  it('cas INDÉTERMINÉ : couloir sortant de la couverture LiDAR avant 40 m → INDETERMINE', async () => {
+    // Origine couverte (MNS+MNT) dans bdtopo_batiment 486669, à ~2,2 m du bord Nord des dalles ;
+    // couloir plein Nord → sort de la couverture à 2,20 m → < 6 lignes couvertes → aucune fenêtre
+    // d'obstacle possible → trou de données < 40 m avant tout obstacle → INDÉTERMINÉ.
+    const { validation, resultat } = await analyserAdresse({
+      point: { lat: 48.90977883617502, lon: 2.274351016683915 },
+      azimutPrincipalDeg: 0,
+      etage: 0,
+      dernierEtage: false,
+    });
+
+    // L'origine est VALIDE (terrain MNT lu) : l'INDÉTERMINÉ vient du couloir, pas de l'origine.
+    expect(validation.valide).toBe(true);
+    expect(validation.altitudeTerrainOrigineM).not.toBeNull();
+
+    expect(resultat).not.toBeNull();
+    expect(resultat!.verdict.verdict).toBe('INDETERMINE');
+    // distanceM = 0 : sentinelle du mapping INDETERMINE (obstaclesParBalayage → premierObstacle).
+    expect(resultat!.verdict.distanceM).toBe(0);
+  });
 });
