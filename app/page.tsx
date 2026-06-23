@@ -107,7 +107,7 @@ const todoEcranAVenir = () => undefined;
 
 const ETAPES_INTRO = [
   "Photographier votre vue face au séjour",
-  "Valider la position de votre fenêtre",
+  "Valider la position GPS de votre fenêtre",
   "Valider l'orientation de votre séjour",
   "Renseigner votre étage",
 ];
@@ -1555,7 +1555,7 @@ export default function Home() {
   <div className="animate-fadeIn">
     <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
       <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">
-        Déplacez le curseur sur votre fenêtre
+        (Point GPS) Déplacez le curseur sur votre fenêtre
       </h1>
     </div>
 
