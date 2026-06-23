@@ -197,6 +197,73 @@ async function couvertureCellules(params: ParametresAxe): Promise<LigneCouvertur
   return res.rows.map((r) => ({ i: r.i, j: r.j, couvert: r.couvert }));
 }
 
+/** Profil de l'axe (centerline), une ligne par cellule i. */
+interface LigneProfilOrigineSql {
+  i: number;
+  dans_origine: boolean;
+  mns_brut: number | string | null;
+}
+
+/** Cellule du profil d'axe : appartenance au polygone d'origine + MNS brut NON filtré par id. */
+export interface CelluleProfilOrigine {
+  dansOrigine: boolean;
+  mnsBrutM: number | null;
+}
+
+/**
+ * Profil de l'AXE PRINCIPAL (centerline du couloir, offset transverse 0), indexé par
+ * i = floor(distAxe/0,5) → aligné cellule-à-cellule avec le balayage existant. Par cellule :
+ *  - dansOrigine : le centre (sur l'axe) est-il DANS le polygone d'origine (ST_Contains) ;
+ *  - mnsBrutM    : MNS lu sur mns_lidar_brut SANS aucun filtre b.id (le toit de l'origine —
+ *    et de l'aile opposée d'un U, même id — N'EST PAS effacé), nodata nettoyé (NULL / -9999 → null).
+ *
+ * PLOMBERIE PURE (étape 2a) : cette source n'est lue NULLE PART ; la règle creux+mur (2b) la consommera.
+ * Requête SÉPARÉE : n'altère ni echantillonnerGrille, ni son filtre b.id <> $4, ni le verdict.
+ * Polygone absent/undefined → ST_GeomFromText(NULL) = NULL → ST_Contains NULL → dansOrigine=false partout.
+ */
+async function profilOrigineAxe(params: ParametresAxe): Promise<CelluleProfilOrigine[]> {
+  const nLignes = Math.floor(ANALYSIS_RANGE_M / 0.5);
+  const res = await query<LigneProfilOrigineSql>(
+    `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
+     d AS (SELECT sin(radians($3)) dx, cos(radians($3)) dy),      -- axe (x=E, y=N)
+     poly AS (SELECT ST_GeomFromText($5, 2154) AS g),             -- polygone d'origine (NULL si absent)
+     centres AS (                                                 -- centre L93 sur l'axe (offset 0)
+       SELECT i, ST_SetSRID(ST_MakePoint(
+         ST_X(o.g) + ((i+0.5)*0.5)*d.dx,
+         ST_Y(o.g) + ((i+0.5)*0.5)*d.dy),2154) AS centre
+       FROM generate_series(0, $4-1) AS i, o, d
+     )
+     SELECT c.i,
+       COALESCE(ST_Contains(poly.g, c.centre), false) AS dans_origine,
+       (SELECT v.val FROM (
+          SELECT ST_Value(r.rast, c.centre) AS val
+          FROM mns_lidar_brut r WHERE ST_Intersects(r.rast, c.centre) LIMIT 1
+        ) v WHERE v.val IS NOT NULL AND v.val <> -9999) AS mns_brut
+     FROM centres c, poly ORDER BY c.i;`,
+    [
+      params.point.lon,
+      params.point.lat,
+      params.azimutDeg,
+      nLignes,
+      params.batimentOriginePolygoneWkt ?? null,
+    ],
+  );
+  // Aligné par i : un élément par cellule 0..nLignes-1 (défaut neutre si une ligne manque).
+  const profil: CelluleProfilOrigine[] = Array.from({ length: nLignes }, () => ({
+    dansOrigine: false,
+    mnsBrutM: null,
+  }));
+  for (const r of res.rows) {
+    if (r.i >= 0 && r.i < nLignes) {
+      profil[r.i] = {
+        dansOrigine: r.dans_origine,
+        mnsBrutM: r.mns_brut === null ? null : Number(r.mns_brut),
+      };
+    }
+  }
+  return profil;
+}
+
 /**
  * Calage façade sur la cellule retenue : reconstruit son centre L93, cherche le
  * bord d'emprise BD TOPO qui traverse la cellule de 0,5 m autour, et rend la
@@ -243,10 +310,14 @@ async function calageFacade(params: ParametresAxe, distM: number, offM: number):
  */
 async function obstaclesParBalayage(params: ParametresAxe, hOeilM: number): Promise<ObstacleCandidat[]> {
   // 2 requêtes parallèles : altitudes (inchangées) + couverture par cellule (nouvelle dimension).
-  const [grille, couverture] = await Promise.all([
+  const [grille, couverture, profilAxe] = await Promise.all([
     echantillonnerGrille(params),
     couvertureCellules(params),
+    profilOrigineAxe(params),
   ]);
+  // 2a — plomberie pure : profilAxe[i] = { dansOrigine, mnsBrutM }, aligné par i avec `colonnes`.
+  // NON consommé ici (le verdict reste inchangé) ; la règle creux+mur (2b) le lira.
+  void profilAxe;
 
   const nLignes = Math.floor(ANALYSIS_RANGE_M / 0.5);
   // Lookup couvert[colonne][ligne], défaut false (cellules non renvoyées = non couvertes).
