@@ -1542,7 +1542,7 @@ export default function Home() {
   <div className="animate-fadeIn">
     <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
       <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">
-        Localisez la fenêtre de votre séjour
+        Déplacez le curseur sur votre fenêtre
       </h1>
     </div>
 
@@ -1587,13 +1587,13 @@ export default function Home() {
       />
     </div>
     <p className="mt-2 text-xs text-svv-muted">
-      Faites glisser la carte avec votre doigt pour amener le repère 📍 sur la fenêtre de votre séjour.
+      Le repère 📍 doit être posé sur un bâtiment, pas sur une rue ni un espace extérieur.
     </p>
 
     {/* Tant que l'utilisateur n'a pas déplacé le point : consigne. */}
     {!pointDeplace && (
       <div className="mt-3 rounded-xl border border-svv-red/30 bg-svv-red/5 p-3 text-sm font-semibold text-svv-red">
-        Faites glisser la carte avec votre doigt pour amener le repère 📍 sur la fenêtre de votre séjour.
+        Le repère 📍 doit être posé sur un bâtiment, pas sur une rue ni un espace extérieur.
       </div>
     )}
 

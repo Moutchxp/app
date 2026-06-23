@@ -4,11 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-// Indice éphémère « glissez la carte » : fondu (svvHint, repris d'Orientation) + glissement
-// horizontal ample (svvDragSlide, ~±28px). Keyframes injectées en <style> inline (même pattern
-// que FaisceauMap), volontairement PAS dans globals.css. PUREMENT VISUEL : aucun event Leaflet.
+// Indice « glissez la carte » : fondu d'apparition qui RESTE visible (svvFadeIn, opacity 0→1,
+// pas d'extinction) + glissement horizontal en boucle infinie (svvDragSlide, ~±28px). Keyframes
+// injectées en <style> inline, volontairement PAS dans globals.css. PUREMENT VISUEL : aucun event Leaflet.
 const HINT_KEYFRAMES =
-  "@keyframes svvHint{0%{opacity:0}6%{opacity:1}82%{opacity:1}100%{opacity:0}}" +
+  "@keyframes svvFadeIn{0%{opacity:0}100%{opacity:1}}" +
   "@keyframes svvDragSlide{0%{transform:translateX(-28px)}50%{transform:translateX(28px)}100%{transform:translateX(-28px)}}";
 
 type MapContentProps = {
@@ -34,13 +34,9 @@ export default function MapContent({
 
   const [mapMode, setMapMode] = useState<"map" | "satellite">("map");
 
-  // Indice éphémère « faites glisser la carte » : visible à l'arrivée, disparaît au 1er geste
-  // ou après 6 s (sécurité). Calque du ghost-beam de FaisceauMap.
+  // Indice « faites glisser la carte » : la main tourne en boucle JUSQU'AU 1er geste
+  // (disparition gérée dans handleUserMove). Pas de timer de sécurité.
   const [indiceDragVisible, setIndiceDragVisible] = useState(true);
-  useEffect(() => {
-    const id = setTimeout(() => setIndiceDragVisible(false), 6000);
-    return () => clearTimeout(id);
-  }, []);
 
   useEffect(() => {
     if (!mapRef.current || leafletMap.current) return;
@@ -139,7 +135,7 @@ export default function MapContent({
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 z-[500]"
-            style={{ animation: "svvHint 5.8s ease-in-out forwards" }}
+            style={{ animation: "svvFadeIn 0.6s ease-out forwards" }}
           >
             {/* ancre : tiers bas, centrée horizontalement (transform de centrage) */}
             <div className="absolute left-1/2 top-[70%] -translate-x-1/2">
