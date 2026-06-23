@@ -91,36 +91,79 @@ describe('scoreFamille1 — amplitude Part B (profondeur, 10 pts)', () => {
   });
 });
 
-describe('scoreFamille1 — pénalité « angle de L »', () => {
-  it('flanc 75° à 3 m → amplitude ÷3, distance & orientation inchangées', () => {
-    // un seul faisceau flanc bloqué à 3 m
-    const f = faisceaux((_, offset) => (offset === 75 ? 3 : null));
-    const r = scoreFamille1(
-      entree({ faisceaux: f, distanceAxePrincipalM: 120, orientationAzimutDeg: 180 }),
-    );
+describe('scoreFamille1 — pénalité de flanc (deux flancs, suite consécutive, paliers)', () => {
+  /** Construit des faisceaux où les offsets de `cibles` portent `dist`, le reste dégagé. */
+  const flanc = (cibles: number[], dist: number) =>
+    faisceaux((_, offset) => (cibles.includes(offset) ? dist : null));
+
+  it('un seul faisceau de flanc à 3 m (< 3 consécutifs) → PAS de pénalité', () => {
+    const r = scoreFamille1(entree({ faisceaux: flanc([75], 3) }));
+    expect(r.detail.penaliteFlancAppliquee).toBe(false);
+    expect(r.amplitude).toBe(20); // partA 10 + partB 10, inchangé
+  });
+
+  it('obstacle proche au centre (offset 45°) → PAS de pénalité', () => {
+    const r = scoreFamille1(entree({ faisceaux: flanc([45], 3) }));
+    expect(r.detail.penaliteFlancAppliquee).toBe(false);
+  });
+
+  it('flanc 3 consécutifs mais à 10 m (> 7) → PAS de pénalité', () => {
+    const r = scoreFamille1(entree({ faisceaux: flanc([63, 66, 69], 10) }));
+    expect(r.detail.penaliteFlancAppliquee).toBe(false);
+  });
+
+  it('3 consécutifs à 6 m → ÷2', () => {
+    const r = scoreFamille1(entree({ faisceaux: flanc([63, 66, 69], 6) }));
     expect(r.detail.penaliteFlancAppliquee).toBe(true);
-    // amplitude = (partA + partB) / 3
-    expect(r.amplitude).toBeCloseTo(
-      (r.detail.amplitudePartA + r.detail.amplitudePartB) / 3,
-      10,
+    expect(r.amplitude).toBeCloseTo((r.detail.amplitudePartA + r.detail.amplitudePartB) / 2, 10);
+  });
+
+  it('3 consécutifs à 4 m → ÷3, distance & orientation inchangées', () => {
+    const r = scoreFamille1(
+      entree({ faisceaux: flanc([63, 66, 69], 4), distanceAxePrincipalM: 120, orientationAzimutDeg: 180 }),
     );
-    // distance et orientation ne bougent pas
+    expect(r.amplitude).toBeCloseTo((r.detail.amplitudePartA + r.detail.amplitudePartB) / 3, 10);
     expect(r.distance).toBe(10);
     expect(r.orientation).toBe(10);
   });
 
-  it('obstacle proche au centre (offset 45°) → PAS de pénalité', () => {
-    const f = faisceaux((_, offset) => (offset === 45 ? 3 : null));
-    expect(scoreFamille1(entree({ faisceaux: f })).detail.penaliteFlancAppliquee).toBe(
-      false,
-    );
+  it('3 consécutifs à 5 m pile → ÷2', () => {
+    const r = scoreFamille1(entree({ faisceaux: flanc([63, 66, 69], 5) }));
+    expect(r.amplitude).toBeCloseTo((r.detail.amplitudePartA + r.detail.amplitudePartB) / 2, 10);
   });
 
-  it('flanc 75° mais à 10 m (≥ 5) → PAS de pénalité', () => {
-    const f = faisceaux((_, offset) => (offset === 75 ? 10 : null));
-    expect(scoreFamille1(entree({ faisceaux: f })).detail.penaliteFlancAppliquee).toBe(
-      false,
+  it('3 consécutifs à 7 m pile → ÷2', () => {
+    const r = scoreFamille1(entree({ faisceaux: flanc([63, 66, 69], 7) }));
+    expect(r.amplitude).toBeCloseTo((r.detail.amplitudePartA + r.detail.amplitudePartB) / 2, 10);
+  });
+
+  it('suite à 6 m + faisceau isolé à 2 m (même flanc) → ÷3 (le minimum du flanc commande)', () => {
+    // 63,66,69 à 6 m (suite qui déclenche) ; 81 isolé à 2 m (72,75,78 et 84,87,90 dégagés).
+    const f = faisceaux((_, offset) =>
+      offset === 63 || offset === 66 || offset === 69 ? 6 : offset === 81 ? 2 : null,
     );
+    const r = scoreFamille1(entree({ faisceaux: f }));
+    expect(r.detail.penaliteFlancAppliquee).toBe(true);
+    expect(r.amplitude).toBeCloseTo((r.detail.amplitudePartA + r.detail.amplitudePartB) / 3, 10);
+  });
+
+  it('seulement 2 consécutifs ≤ 7 → PAS de pénalité', () => {
+    const r = scoreFamille1(entree({ faisceaux: flanc([63, 66], 6) }));
+    expect(r.detail.penaliteFlancAppliquee).toBe(false);
+  });
+
+  it('suite cassée par un trou (63 et 69 obstrués, 66 dégagé) → PAS de pénalité', () => {
+    const r = scoreFamille1(entree({ faisceaux: flanc([63, 69], 6) }));
+    expect(r.detail.penaliteFlancAppliquee).toBe(false);
+  });
+
+  it('LES DEUX flancs déclenchés → amplitude 0', () => {
+    const f = faisceaux((_, offset) =>
+      [-63, -66, -69, 63, 66, 69].includes(offset) ? 6 : null,
+    );
+    const r = scoreFamille1(entree({ faisceaux: f }));
+    expect(r.detail.penaliteFlancAppliquee).toBe(true);
+    expect(r.amplitude).toBe(0);
   });
 });
 

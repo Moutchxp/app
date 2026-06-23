@@ -17,14 +17,18 @@ import {
   SCORE_DISTANCE_MAX_PTS,
   SCORE_DISTANCE_STEP_M,
   AMPLITUDE_BEAM_COUNT,
+  AMPLITUDE_BEAM_STEP_DEG,
   AMPLITUDE_NOTE_HALF_ANGLE_DEG,
   AMPLITUDE_PART_A_PTS,
   AMPLITUDE_PART_B_PTS,
   AMPLITUDE_PART_B_BASE_M,
   AMPLITUDE_PART_B_BASE_PTS,
   CLEAR_BEAM_DIST_M,
-  L_PENALTY_DIST_M,
-  L_PENALTY_FACTOR,
+  FLANC_DIST_SEVERE_M,
+  FLANC_DIST_MODERE_M,
+  FLANC_DIV_SEVERE,
+  FLANC_DIV_MODERE,
+  FLANC_FAISCEAUX_CONSEC_MIN,
   ORIENTATION_PTS,
   ORIENTATION_SECTEURS,
   TOP_FLOOR_BONUS,
@@ -90,6 +94,41 @@ function profondeur(f: FaisceauResultat): number {
   return f.distanceObstacleM === null ? CLEAR_BEAM_DIST_M : f.distanceObstacleM;
 }
 
+/**
+ * Diviseur d'amplitude d'UN flanc (gauche ou droit), ou `1` si le flanc ne déclenche pas.
+ * Déclenchement : >= FLANC_FAISCEAUX_CONSEC_MIN faisceaux CONSÉCUTIFS (offsets se suivant de
+ * AMPLITUDE_BEAM_STEP_DEG) ayant tous un obstacle <= FLANC_DIST_MODERE_M (null/>7/trou d'offset
+ * cassent la suite). Palier (si déclenché) = plus courte distance d'obstacle de TOUT le flanc :
+ * < FLANC_DIST_SEVERE_M → FLANC_DIV_SEVERE, sinon FLANC_DIV_MODERE. Tri défensif par offset.
+ */
+function diviseurFlanc(beamsFlanc: FaisceauResultat[]): number {
+  const tri = [...beamsFlanc].sort((a, b) => a.offsetDeg - b.offsetDeg);
+  let maxRun = 0;
+  let run = 0;
+  let prevOffset: number | null = null;
+  for (const f of tri) {
+    const obstacleProche =
+      f.distanceObstacleM !== null && f.distanceObstacleM <= FLANC_DIST_MODERE_M;
+    if (!obstacleProche) {
+      run = 0;
+    } else if (prevOffset !== null && f.offsetDeg - prevOffset === AMPLITUDE_BEAM_STEP_DEG) {
+      run += 1;
+    } else {
+      run = 1; // obstacle proche mais début de suite (1er faisceau ou offset non contigu)
+    }
+    prevOffset = f.offsetDeg;
+    if (run > maxRun) maxRun = run;
+  }
+  if (maxRun < FLANC_FAISCEAUX_CONSEC_MIN) return 1; // flanc non déclenché
+
+  // Palier : plus courte distance d'obstacle de TOUT le flanc (pas seulement la suite).
+  const distances = beamsFlanc
+    .map((f) => f.distanceObstacleM)
+    .filter((d): d is number => d !== null);
+  const dMin = Math.min(...distances);
+  return dMin < FLANC_DIST_SEVERE_M ? FLANC_DIV_SEVERE : FLANC_DIV_MODERE;
+}
+
 export function scoreFamille1(entree: EntreeFamille1): ScoreFamille1 {
   if (entree.faisceaux.length !== AMPLITUDE_BEAM_COUNT) {
     throw new Error(
@@ -132,16 +171,23 @@ export function scoreFamille1(entree: EntreeFamille1): ScoreFamille1 {
 
   let amplitude = amplitudePartA + amplitudePartB;
 
-  // Pénalité « angle de L » : mur réel proche dans un FLANC = hors du cône de note,
-  // |offsetDeg| > AMPLITUDE_NOTE_HALF_ANGLE_DEG (strict → complémentaire du cône, aucun chevauchement).
-  const penaliteFlancAppliquee = entree.faisceaux.some(
-    (f) =>
-      f.distanceObstacleM !== null &&
-      Math.abs(f.offsetDeg) > AMPLITUDE_NOTE_HALF_ANGLE_DEG &&
-      f.distanceObstacleM < L_PENALTY_DIST_M,
+  // Pénalité de flanc : deux flancs (gauche < −60°, droit > +60°, complémentaires du cône de note)
+  // traités séparément (suite consécutive ≤ 7 m → paliers ÷3/÷2). Un seul → division ; les deux → 0.
+  const divGauche = diviseurFlanc(
+    entree.faisceaux.filter((f) => f.offsetDeg < -AMPLITUDE_NOTE_HALF_ANGLE_DEG),
   );
-  if (penaliteFlancAppliquee) {
-    amplitude = amplitude / L_PENALTY_FACTOR;
+  const divDroit = diviseurFlanc(
+    entree.faisceaux.filter((f) => f.offsetDeg > AMPLITUDE_NOTE_HALF_ANGLE_DEG),
+  );
+  const gaucheDeclenche = divGauche > 1;
+  const droitDeclenche = divDroit > 1;
+  const penaliteFlancAppliquee = gaucheDeclenche || droitDeclenche;
+  if (gaucheDeclenche && droitDeclenche) {
+    amplitude = 0;
+  } else if (gaucheDeclenche) {
+    amplitude = amplitude / divGauche;
+  } else if (droitDeclenche) {
+    amplitude = amplitude / divDroit;
   }
 
   // 3) Orientation — 10 pts.

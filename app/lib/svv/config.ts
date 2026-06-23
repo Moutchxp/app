@@ -128,9 +128,16 @@ export const CLEAR_BEAM_DIST_M = ANALYSIS_RANGE_M; // distance d'un faisceau dé
 // faisceaux ne comptent QUE pour la pénalité de flanc (ensembles complémentaires, balayage ±90° inchangé).
 export const AMPLITUDE_NOTE_HALF_ANGLE_DEG = 60;
 
-/* Pénalité « angle de L » : flanc = au-delà du cône de note (|offsetDeg| > AMPLITUDE_NOTE_HALF_ANGLE_DEG). */
-export const L_PENALTY_DIST_M = 5;
-export const L_PENALTY_FACTOR = 3; // amplitude / 3
+/* Pénalité de flanc (ex-« angle de L ») : DEUX flancs (gauche < −60°, droit > +60°) traités
+ * séparément. Un flanc DÉCLENCHE si >= FLANC_FAISCEAUX_CONSEC_MIN faisceaux CONSÉCUTIFS (pas
+ * AMPLITUDE_BEAM_STEP_DEG) ont un obstacle <= FLANC_DIST_MODERE_M. Palier = plus courte distance
+ * du flanc : < FLANC_DIST_SEVERE_M → ÷FLANC_DIV_SEVERE, sinon → ÷FLANC_DIV_MODERE.
+ * Un seul flanc déclenché → division ; les DEUX → amplitude = 0. */
+export const FLANC_DIST_SEVERE_M = 5;
+export const FLANC_DIST_MODERE_M = 7;
+export const FLANC_DIV_SEVERE = 3;
+export const FLANC_DIV_MODERE = 2;
+export const FLANC_FAISCEAUX_CONSEC_MIN = 3;
 
 /* Famille 1 — orientation (points par secteur) */
 export const ORIENTATION_PTS = {
