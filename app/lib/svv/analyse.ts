@@ -10,7 +10,8 @@
  */
 import { premierObstacle, type ObstacleCandidat, type ResultatVerdict } from './verdict';
 import { scoreFamille1, type FaisceauResultat } from './scoreDegagement';
-import { scoreFamille2, type EntreeFamille2 } from './scorePaysage';
+import { scorePaysage } from './scorePaysage';
+import type { EntreePaysage } from './entreePaysage';
 import { scoreTotal, type ScoreTotal } from './scoreTotal';
 
 export interface EntreeComplete {
@@ -23,7 +24,7 @@ export interface EntreeComplete {
   // 61 faisceaux (amplitude du score).
   faisceaux: FaisceauResultat[];
   // Paysage (Famille 2) : enums/flags déjà résolus.
-  paysage: EntreeFamille2;
+  paysage: EntreePaysage;
 }
 
 export interface ResultatComplet {
@@ -69,7 +70,7 @@ export function analyser(entree: EntreeComplete): ResultatComplet {
   });
 
   // 4) Score Famille 2 (qualité du paysage).
-  const f2 = scoreFamille2(entree.paysage);
+  const f2 = scorePaysage(entree.paysage);
 
   // 5) Agrégation /100.
   const score = scoreTotal(f1, f2);

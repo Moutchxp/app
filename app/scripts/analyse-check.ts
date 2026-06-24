@@ -98,9 +98,9 @@ async function main() {
     secteur: score.famille1.detail.secteurOrientation,
   });
   console.log("  Famille 2 (paysage)     :", score.famille2.total, {
-    typeDominant: score.famille2.typeDominant,
-    remarquables: score.famille2.remarquables,
-    proprete: score.famille2.proprete,
+    strate1: score.famille2.strate1,
+    strate2: score.famille2.strate2,
+    malusProprete: score.famille2.malusProprete,
     scorePartiel: score.famille2.scorePartiel,
   });
 

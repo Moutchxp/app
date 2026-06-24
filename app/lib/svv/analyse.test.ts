@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { analyser, type EntreeComplete } from './analyse';
 import type { FaisceauResultat } from './scoreDegagement';
-import type { EntreeFamille2 } from './scorePaysage';
+import type { EntreePaysage } from './entreePaysage';
 import type { ObstacleCandidat } from './verdict';
 import { AMPLITUDE_BEAM_COUNT, altitudeFenetre } from './config';
 
@@ -12,23 +12,30 @@ const faisceauxDegages: FaisceauResultat[] = Array.from(
   () => ({ offsetDeg: 0, distanceObstacleM: null }),
 );
 
-const paysageParfait: EntreeFamille2 = {
-  photoExploitable: true,
-  typeDominant: 'mer_panoramique', // 25
-  monument: { zone: 'central', visiblePlusDeMoitie: true, ligneDeVueDegagee: true }, // 15
-  facadesHistoriquesMajoritaires: false,
-  murAveugle: false,
-  antennesParabolesPremierPlan: false,
-  fouillis: false,
-  batimentResidentielHautAxe: false,
-  carrefourOuCimetiereCentral: false,
-  batimentHautParabolesAxe: false,
+/** EntreePaysage neutre (nouveau modèle) — aucune Famille 2 (F2 = 0). */
+const paysageNeutre: EntreePaysage = {
+  photoExploitable: false,
+  faisceauxValorisants: 0,
+  faisceauxConeTotal: 0,
+  monuments: [],
+  nuisancesMajeures: [],
+  nuisancesMineures: [],
+  carrefourMajeur: false,
+  cimetiere: false,
 };
 
-const paysageCorrect: EntreeFamille2 = {
-  ...paysageParfait,
-  typeDominant: 'urbain_harmonieux', // 12
-  monument: null,
+/** EntreePaysage « parfaite » : Strate1 40 (41/41) + Strate2 10 (EIFFEL pleine note) = F2 50. */
+const paysageParfait: EntreePaysage = {
+  photoExploitable: true,
+  faisceauxValorisants: 41,
+  faisceauxConeTotal: 41,
+  monuments: [
+    { id: 'EIFFEL', distanceM: 0, courbe: 'EIFFEL', fractionVisible: 'PLUS_DES_TROIS_QUARTS' },
+  ],
+  nuisancesMajeures: [],
+  nuisancesMineures: [],
+  carrefourMajeur: false,
+  cimetiere: false,
 };
 
 function entree(over: Partial<EntreeComplete> = {}): EntreeComplete {
@@ -38,7 +45,7 @@ function entree(over: Partial<EntreeComplete> = {}): EntreeComplete {
     dernierEtage: true,
     obstaclesAxePrincipal: [],
     faisceaux: faisceauxDegages,
-    paysage: paysageCorrect,
+    paysage: paysageNeutre,
     ...over,
   };
 }
@@ -58,7 +65,21 @@ describe('analyser — vis-à-vis', () => {
     const obstacles: ObstacleCandidat[] = [
       { distanceM: 25, altitudeSommetM: 60, source: 'LIDAR_HD' },
     ];
-    const r = analyser(entree({ obstaclesAxePrincipal: obstacles }));
+    const r = analyser(
+      entree({
+        obstaclesAxePrincipal: obstacles,
+        paysage: {
+          photoExploitable: true,
+          faisceauxValorisants: 20,
+          faisceauxConeTotal: 41,
+          monuments: [],
+          nuisancesMajeures: [],
+          nuisancesMineures: [],
+          carrefourMajeur: false,
+          cimetiere: false,
+        },
+      }),
+    );
     expect(r.verdict.verdict).toBe('VIS_A_VIS');
     expect(r.distanceAxePrincipalM).toBe(25);
     expect(r.score.total).toBeGreaterThan(0);
@@ -130,7 +151,7 @@ describe('analyser — photo partielle', () => {
   it('paysage.photoExploitable=false → score partiel, verdict inchangé', () => {
     const r = analyser(
       entree({
-        paysage: { ...paysageCorrect, photoExploitable: false },
+        paysage: paysageNeutre, // photoExploitable:false → score partiel
         obstaclesAxePrincipal: [], // dégagement → SANS_VIS_A_VIS
       }),
     );

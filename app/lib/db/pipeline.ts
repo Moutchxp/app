@@ -9,6 +9,7 @@ import type { PointWgs84 } from "../svv/geo";
 import { hauteurVision } from "../svv/config";
 import { analyser, type EntreeComplete, type ResultatComplet } from "../svv/analyse";
 import type { EntreeFamille2 } from "../svv/scorePaysage";
+import type { EntreePaysage } from "../svv/entreePaysage";
 import { validerOrigine, type ValidationOrigine } from "./origine";
 import { obstaclesSurAxe } from "./obstacles";
 import { faisceauxAmplitude } from "./faisceaux";
@@ -41,12 +42,31 @@ export function paysageSansPhoto(): EntreeFamille2 {
   };
 }
 
+/**
+ * Entrée Famille 2 neutre, nouveau modèle.
+ * Aucune photo, aucune géométrie de paysage encore branchée : tout à zéro/vide.
+ * photoExploitable=false → scorePartiel. À enrichir plus tard avec la vraie
+ * fusion géométrie + IA.
+ */
+export function paysageVideNouveau(): EntreePaysage {
+  return {
+    photoExploitable: false,
+    faisceauxValorisants: 0,
+    faisceauxConeTotal: 0,
+    monuments: [],
+    nuisancesMajeures: [],
+    nuisancesMineures: [],
+    carrefourMajeur: false,
+    cimetiere: false,
+  };
+}
+
 export interface ParametresAnalyse {
   point: PointWgs84;
   azimutPrincipalDeg: number;
   etage: number;
   dernierEtage: boolean;
-  paysage?: EntreeFamille2;
+  paysage?: EntreePaysage;
 }
 
 export interface ResultatAnalyse {
@@ -88,7 +108,7 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
   });
 
   // e) Paysage (fourni, sinon « sans photo »).
-  const paysage = params.paysage ?? paysageSansPhoto();
+  const paysage = params.paysage ?? paysageVideNouveau();
 
   // f) Assemblage de l'entrée complète.
   const entree: EntreeComplete = {

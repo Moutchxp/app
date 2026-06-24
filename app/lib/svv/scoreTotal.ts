@@ -15,7 +15,7 @@ import {
   SCORE_LABEL_EXCELLENTE_MIN,
 } from './config';
 import type { ScoreFamille1 } from './scoreDegagement';
-import type { ScoreFamille2 } from './scorePaysage';
+import type { ScorePaysage } from './entreePaysage';
 
 /** Clé de libellé ; le texte affiché est une préoccupation de la couche UI. */
 export type LibelleScore = 'EXCEPTIONNELLE' | 'EXCELLENTE' | null;
@@ -25,10 +25,10 @@ export interface ScoreTotal {
   libelle: LibelleScore;
   scorePartiel: boolean;
   famille1: ScoreFamille1;
-  famille2: ScoreFamille2;
+  famille2: ScorePaysage;
 }
 
-export function scoreTotal(famille1: ScoreFamille1, famille2: ScoreFamille2): ScoreTotal {
+export function scoreTotal(famille1: ScoreFamille1, famille2: ScorePaysage): ScoreTotal {
   const total = Math.min(famille1.total + famille2.total, SCORE_TOTAL_MAX);
   const scorePartiel = famille2.scorePartiel;
 
