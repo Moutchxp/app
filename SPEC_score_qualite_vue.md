@@ -63,7 +63,24 @@ Pas de règle « panoramique » : l'ouverture est déjà entièrement récompens
 
 ### 2.2 Strate 2 — Monuments de renommée mondiale (10 pts)
 
-Table curée « monuments remarquables » (nom + position L93 + courbe de distance). Liste de départ : Tour Eiffel, Sacré-Cœur, Notre-Dame, Arc de Triomphe, Louvre + Pyramide, Panthéon, Invalides, Opéra Garnier, Sainte-Chapelle / Conciergerie, Tour Saint-Jacques, Centre Pompidou (75) ; Basilique de Saint-Denis (93) ; Château de Versailles (78).
+Table curée « monuments remarquables » (nom + position L93 + courbe de distance). **Ni altitude ni emprise au sol** (décision explicite : non nécessaires au scoring).
+
+| Monument | X_L93 | Y_L93 | Courbe |
+|---|---|---|---|
+| Tour Eiffel | 648235.8 | 6862268.4 | EIFFEL |
+| Sacré-Cœur | 651829.2 | 6865387.7 | SACRE_COEUR |
+| Notre-Dame de Paris | 652294.0 | 6861631.9 | AUTRES |
+| Arc de Triomphe | 648292.2 | 6863981.5 | AUTRES |
+| Louvre (Pyramide) | 651404.5 | 6862488.9 | AUTRES |
+| Panthéon | 652033.9 | 6860882.4 | AUTRES |
+| Invalides (Dôme) | 649554.6 | 6861876.4 | AUTRES |
+| Opéra Garnier | 650989.6 | 6863756.7 | AUTRES |
+| Conciergerie/Sainte-Chapelle | 651959.6 | 6861928.3 | AUTRES |
+| Tour Saint-Jacques | 652235.2 | 6862153.9 | AUTRES |
+| Centre Pompidou | 652474.2 | 6862493.4 | AUTRES |
+| Grand Palais | 649565.4 | 6863120.7 | AUTRES |
+| Basilique Saint-Denis (93) | 653084.8 | 6870824.1 | AUTRES |
+| Château de Versailles (78) | 635400.6 | 6856445.9 | AUTRES |
 
 Pour chaque monument dont l'azimut depuis la fenêtre tombe dans le cône central (±60°), deux critères de 5 points :
 - Critère A — % visible (0–5) : fraction de la hauteur visible, donnée par l'IA photo (elle gère l'occlusion et la vue plongeante). ≥ 3/4 → 5 ; ≥ 1/2 → 4 ; ≥ 1/4 → 2 ; < 1/4 → 0.
