@@ -6,6 +6,7 @@ import {
   haversineMeters,
   genererPointsAxe,
   genererFaisceauxAmplitude,
+  azimutEntrePointsL93,
 } from './geo';
 import {
   ANALYSIS_RANGE_M,
@@ -89,5 +90,30 @@ describe('geo — genererPointsAxe', () => {
     const last = points[points.length - 1];
     expect(last.x).toBeCloseTo(1000 + ANALYSIS_RANGE_M, 9);
     expect(last.y).toBeCloseTo(2000, 9);
+  });
+});
+
+describe('azimutEntrePointsL93', () => {
+  // Origine au centre, cible à 1000 m dans chaque direction (x = Est, y = Nord).
+  const o = { x: 0, y: 0 };
+  const cas: Array<[string, { x: number; y: number }, number]> = [
+    ['plein Nord', { x: 0, y: 1000 }, 0],
+    ['plein Est', { x: 1000, y: 0 }, 90],
+    ['plein Sud', { x: 0, y: -1000 }, 180],
+    ['plein Ouest', { x: -1000, y: 0 }, 270],
+    ['Nord-Est', { x: 1000, y: 1000 }, 45],
+    ['Sud-Est', { x: 1000, y: -1000 }, 135],
+    ['Sud-Ouest', { x: -1000, y: -1000 }, 225],
+    ['Nord-Ouest', { x: -1000, y: 1000 }, 315],
+  ];
+  for (const [nom, cible, attendu] of cas) {
+    it(`${nom} → ${attendu}°`, () => {
+      expect(azimutEntrePointsL93(o, cible)).toBeCloseTo(attendu, 9);
+    });
+  }
+
+  // origine == cible : atan2(0, 0) = 0 par convention IEEE → azimut 0 (cas dégénéré documenté).
+  it('origine == cible → 0', () => {
+    expect(azimutEntrePointsL93(o, { x: 0, y: 0 })).toBe(0);
   });
 });

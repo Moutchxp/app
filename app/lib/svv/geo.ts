@@ -138,3 +138,13 @@ export function genererFaisceauxAmplitude(azimutPrincipalDeg: number): number[] 
   }
   return azimuts;
 }
+
+/**
+ * Azimut géographique du segment origine→cible, en degrés : 0 = Nord, sens horaire,
+ * normalisé dans [0, 360[. Convention Lambert-93 : x = Est, y = Nord.
+ */
+export function azimutEntrePointsL93(origine: PointL93, cible: PointL93): number {
+  const dEst = cible.x - origine.x;
+  const dNord = cible.y - origine.y;
+  return normalizeAzimut((Math.atan2(dEst, dNord) * 180) / Math.PI);
+}
