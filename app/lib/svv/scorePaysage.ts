@@ -18,8 +18,16 @@ import {
   PROPRETE_MALUS,
   type TypePaysage,
 } from './config';
-import { STRATE1_MAX_PTS, STRATE1_MIN_FAISCEAUX } from './config';
-import type { EntreePaysage } from './entreePaysage';
+import {
+  STRATE1_MAX_PTS,
+  STRATE1_MIN_FAISCEAUX,
+  STRATE2_MAX_PTS,
+  MONUMENT_CRITERE_A_PTS,
+  MONUMENT_DIST_EIFFEL,
+  MONUMENT_DIST_SACRE_COEUR,
+  MONUMENT_DIST_AUTRES,
+} from './config';
+import type { EntreePaysage, MonumentCandidatFusionne } from './entreePaysage';
 
 export type { TypePaysage };
 
@@ -121,4 +129,44 @@ export function calculerStrate1(entree: EntreePaysage): number {
   if (faisceauxConeTotal <= 0) return 0;
   if (faisceauxValorisants < STRATE1_MIN_FAISCEAUX) return 0;
   return (faisceauxValorisants / faisceauxConeTotal) * STRATE1_MAX_PTS;
+}
+
+/**
+ * Courbe de distance générique d'un monument (critère B).
+ * Pleine valeur (pleinPts) si distance < pleinM, décroissance linéaire jusqu'à 0 à zeroM.
+ */
+function pointsDistanceMonument(
+  distanceM: number,
+  courbe: { pleinM: number; zeroM: number; pleinPts: number },
+): number {
+  if (distanceM <= courbe.pleinM) return courbe.pleinPts;
+  if (distanceM >= courbe.zeroM) return 0;
+  const pente = courbe.pleinPts / (courbe.zeroM - courbe.pleinM);
+  return courbe.pleinPts - (distanceM - courbe.pleinM) * pente;
+}
+
+/** Sélectionne les paramètres de courbe selon le type. */
+function courbeParType(courbe: MonumentCandidatFusionne['courbe']) {
+  if (courbe === 'EIFFEL') return MONUMENT_DIST_EIFFEL;
+  if (courbe === 'SACRE_COEUR') return MONUMENT_DIST_SACRE_COEUR;
+  return MONUMENT_DIST_AUTRES;
+}
+
+/**
+ * Strate 2 — monuments de renommée mondiale (10 pts).
+ * Par monument candidat : critère A (visibilité IA, 5 pts) + critère B (distance, 5 pts).
+ * Somme de tous les monuments, plafonnée à STRATE2_MAX_PTS.
+ * Retourne aussi le détail par monument (points = A + B).
+ */
+export function calculerStrate2(
+  monuments: MonumentCandidatFusionne[],
+): { total: number; detail: { id: MonumentCandidatFusionne['id']; points: number }[] } {
+  const detail = monuments.map((m) => {
+    const a = MONUMENT_CRITERE_A_PTS[m.fractionVisible];
+    const b = pointsDistanceMonument(m.distanceM, courbeParType(m.courbe));
+    return { id: m.id, points: a + b };
+  });
+  const somme = detail.reduce((acc, d) => acc + d.points, 0);
+  const total = Math.min(somme, STRATE2_MAX_PTS);
+  return { total, detail };
 }
