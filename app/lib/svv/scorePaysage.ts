@@ -18,6 +18,8 @@ import {
   PROPRETE_MALUS,
   type TypePaysage,
 } from './config';
+import { STRATE1_MAX_PTS, STRATE1_MIN_FAISCEAUX } from './config';
+import type { EntreePaysage } from './entreePaysage';
 
 export type { TypePaysage };
 
@@ -107,4 +109,16 @@ export function scoreFamille2(entree: EntreeFamille2): ScoreFamille2 {
       malusPropreteApplique: malus,
     },
   };
+}
+
+/**
+ * Strate 1 — couverture valorisante (40 pts).
+ * Prorata des faisceaux du cône central touchant au moins un élément valorisant.
+ * Garde-fou : moins de STRATE1_MIN_FAISCEAUX faisceaux valorisants → 0.
+ */
+export function calculerStrate1(entree: EntreePaysage): number {
+  const { faisceauxValorisants, faisceauxConeTotal } = entree;
+  if (faisceauxConeTotal <= 0) return 0;
+  if (faisceauxValorisants < STRATE1_MIN_FAISCEAUX) return 0;
+  return (faisceauxValorisants / faisceauxConeTotal) * STRATE1_MAX_PTS;
 }
