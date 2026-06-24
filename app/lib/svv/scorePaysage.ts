@@ -26,8 +26,11 @@ import {
   MONUMENT_DIST_EIFFEL,
   MONUMENT_DIST_SACRE_COEUR,
   MONUMENT_DIST_AUTRES,
+  PROPRETE_MALUS_CAP,
+  PROPRETE_MAJEURE_PTS,
+  PROPRETE_MINEURE_PTS,
 } from './config';
-import type { EntreePaysage, MonumentCandidatFusionne } from './entreePaysage';
+import type { EntreePaysage, MonumentCandidatFusionne, ScorePaysage } from './entreePaysage';
 
 export type { TypePaysage };
 
@@ -169,4 +172,49 @@ export function calculerStrate2(
   const somme = detail.reduce((acc, d) => acc + d.points, 0);
   const total = Math.min(somme, STRATE2_MAX_PTS);
   return { total, detail };
+}
+
+/**
+ * Propreté — malus (plafond PROPRETE_MALUS_CAP).
+ * Nuisances IA : majeures −PROPRETE_MAJEURE_PTS, mineures −PROPRETE_MINEURE_PTS.
+ * Nuisances géométriques (carrefour, cimetière) comptées comme majeures ; débranchées
+ * tant que les couches ne sont pas importées (l'entrée les laisse à false → contribuent 0).
+ * Retourne la valeur du malus (positive, ≤ plafond).
+ */
+export function calculerMalusProprete(entree: EntreePaysage): number {
+  const majeuresGeo = (entree.carrefourMajeur ? 1 : 0) + (entree.cimetiere ? 1 : 0);
+  const nbMajeures = entree.nuisancesMajeures.length + majeuresGeo;
+  const nbMineures = entree.nuisancesMineures.length;
+  const brut = nbMajeures * PROPRETE_MAJEURE_PTS + nbMineures * PROPRETE_MINEURE_PTS;
+  return Math.min(brut, PROPRETE_MALUS_CAP);
+}
+
+/**
+ * Score Famille 2 complet — assemble les trois strates.
+ * Strate 1 (toujours géométrique) + Strate 2 − malus, clampé [0, 50].
+ * Si photo inexploitable : Strate 2 (critère A IA) et nuisances IA absentes → l'entrée
+ * doit déjà refléter cet état (monuments vides, nuisances IA vides) ; scorePartiel = true.
+ */
+export function scorePaysage(entree: EntreePaysage): ScorePaysage {
+  const strate1 = calculerStrate1(entree);
+  const { total: strate2, detail: monumentsComptes } = calculerStrate2(entree.monuments);
+  const malusProprete = calculerMalusProprete(entree);
+
+  const total = clamp(strate1 + strate2 - malusProprete, 0, 50);
+
+  return {
+    total,
+    strate1,
+    strate2,
+    malusProprete,
+    scorePartiel: !entree.photoExploitable,
+    detail: {
+      faisceauxValorisants: entree.faisceauxValorisants,
+      monumentsComptes,
+      nuisancesMajeuresAppliquees: entree.nuisancesMajeures,
+      nuisancesMineuresAppliquees: entree.nuisancesMineures,
+      carrefourApplique: entree.carrefourMajeur,
+      cimetiereApplique: entree.cimetiere,
+    },
+  };
 }
