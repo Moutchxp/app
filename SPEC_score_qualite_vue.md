@@ -47,57 +47,58 @@ Selon l'azimut de l'axe de vue (fixé par l'internaute) :
 
 ## Famille 2 — Qualité du paysage (50 pts)
 
-Sources : **IA photo** + **données** (BD TOPO / OSM). L'IA renvoie des **catégories structurées** (jamais une note) → mapping en points 100 % déterministe et auditable.
+Sources : BD TOPO IGN (eau, végétation, réseau routier, patrimoine via `batiment.nature`) + IA photo. L'IA ne renvoie que des énumérations / drapeaux (jamais une note) → mapping déterministe et auditable. Aucune donnée OSM (licence incompatible). Le score est calculé après le verdict et ne le modifie jamais.
 
-### 2.1 Type de paysage dominant — 25 pts
-L'IA choisit **un seul** type dominant :
+### 2.1 Strate 1 — Couverture valorisante (40 pts)
 
-| Type dominant | Points |
-|---|---|
-| Mer / océan | 25 |
-| Vue panoramique totale (vaste paysage ouvert et lointain) | 25 |
-| Fleuve, lac, grand plan d'eau | 22 |
-| Grande nature, forêt, parc majeur | 20 |
-| Espaces verts de quartier, jardins | 16 |
-| Urbain dégagé harmonieux (toits, perspective, place) | 12 |
-| Urbain standard mixte | 8 |
-| Urbain dense / banal (cour, façades proches) | 4 |
+On scanne les 41 faisceaux du cône central (±60°, même demi-angle que la note d'amplitude). Un faisceau « compte » s'il rencontre au moins un élément valorisant dans la portée de 200 m :
+- eau : `bdtopo_eau_surface`, `bdtopo_eau_plan`, cours d'eau ;
+- végétation / parcs : `bdtopo_vegetation` ;
+- patrimoine bâti ordinaire : `batiment.nature` ∈ {église, chapelle, château, tour/donjon, monument, moulin, arène/théâtre antique, fort} ;
+- immeuble classé Mérimée (hors monuments de renommée mondiale → strate 2).
 
-> Note : « Vue panoramique totale » recoupe en partie l'amplitude (Famille 1) qui récompense déjà l'ouverture — c'est voulu, les meilleures vues cumulent sur les deux axes.
+Union sans double comptage (un faisceau touchant plusieurs éléments compte une fois).
+Note = (faisceaux valorisants / 41) × 40.
+Garde-fou anti-sliver : moins de 3 faisceaux valorisants → 0.
+Exclus (non valorisants) : silo, château d'eau, bâti industriel.
+Pas de règle « panoramique » : l'ouverture est déjà entièrement récompensée par la Famille 1.
 
-### 2.2 Éléments remarquables — 15 pts
-**Non cumulatif** : on retient la **valeur la plus haute applicable**.
+### 2.2 Strate 2 — Monuments de renommée mondiale (10 pts)
 
-**Monument iconique** — prérequis : le monument est en **ligne de vue dégagée** et dans le champ 180°.
-- Ligne de vue testée par un **rayon dédié vers l'azimut connu du monument** (pas via les 61 faisceaux d'environnement).
-- **Sans plafond à 200 m** : la portée du test monument est longue (jusqu'à la distance réelle du monument), découplée des 200 m servant aux obstacles. *(Sinon on perdrait les vues lointaines iconiques type Tour Eiffel à 1,5 km.)*
-- Nécessite une **couche de données « monuments iconiques »** (liste curée Paris + 92 : Tour Eiffel, Sacré-Cœur, Invalides, Panthéon, Arc de Triomphe, etc.).
+Table curée « monuments remarquables » (nom + position L93 + courbe de distance). Liste de départ : Tour Eiffel, Sacré-Cœur, Notre-Dame, Arc de Triomphe, Louvre + Pyramide, Panthéon, Invalides, Opéra Garnier, Sainte-Chapelle / Conciergerie, Tour Saint-Jacques, Centre Pompidou (75) ; Basilique de Saint-Denis (93) ; Château de Versailles (78).
 
-| Position du monument (par azimut géométrique) | ≥ ½ visible | < ½ visible |
-|---|---|---|
-| **Champ central** (±50° de l'axe, 100°) | 15 | 10 |
-| **Extrémités** (de 50° à 90°, gauche ou droite) | 10 | 7 |
+Pour chaque monument dont l'azimut depuis la fenêtre tombe dans le cône central (±60°), deux critères de 5 points :
+- Critère A — % visible (0–5) : fraction de la hauteur visible, donnée par l'IA photo (elle gère l'occlusion et la vue plongeante). ≥ 3/4 → 5 ; ≥ 1/2 → 4 ; ≥ 1/4 → 2 ; < 1/4 → 0.
+- Critère B — distance (0–5), courbe propre :
+  - Tour Eiffel : < 6 km → 5, puis −1 pt/km, 0 à ≥ 10 km.
+  - Sacré-Cœur : < 2 km → 5, puis −1 pt/km, 0 à ≥ 6 km.
+  - Autres : < 1 km → 5, puis −1 pt/500 m, 0 à ≥ 3 km.
 
-- **Zone** (central / extrémité) = **azimut géométrique** du monument (jamais le cadrage de la photo).
-- **Ligne de vue** = géométrie (occlusion par bâtiments plus hauts).
-- **Fraction visible** (≥ ½ / < ½) = **IA photo en v1** ; calcul d'occlusion géométrique en phase 2.
+Note d'un monument = A + B (max 10).
+Garde-fou azimut : un monument que l'IA prétend voir mais géométriquement hors cône est rejeté.
+Combinaison : on additionne les notes des monuments visibles, plafond 10.
 
-**Majorité de façades historiques** (haussmannien, patrimoine) : **10**.
+### 2.3 Propreté — malus sur la note Famille 2 (plafond −6)
 
-### 2.3 Propreté visuelle — 10 pts
-Départ à **10**, on retire par nuisance, **plancher 0** (la somme des malus peut dépasser 10, on s'arrête à 0).
+L'IA renvoie des drapeaux de nuisance (oui/non) ; chaque drapeau présent applique un malus fixe ; somme plafonnée à −6.
 
-**Détecté par l'IA photo :**
-- Mur aveugle / pignon proche dominant : **−4**
-- Antennes / paraboles / superstructures techniques au 1er plan : **−3**
-- Fouillis visuel (enseignes, parking, dépôt) : **−3**
+Nuisances majeures (−3 chacune) :
+- ligne / pylône haute tension dans le champ (IA) ;
+- zone industrielle ou friche occupant une part visible (IA) ;
+- silo ou château d'eau dominant le premier plan (IA) ;
+- carrefour fonctionnel d'au moins 4 voies au total (toute répartition) dans la vue dégagée, sans élément valorisant en son centre (GÉO — réseau routier BD TOPO ; l'exemption « valorisant au centre » évite de pénaliser l'Étoile, la Concorde, etc.).
+- cimetière dans la vue dégagée (GÉO — emprises de cimetière BD TOPO) : −3.
 
-**Détecté par les données (BD TOPO / OSM — déterministe) :**
-- Immeuble d'**habitation ≥ 15 étages** plein dans l'axe (±20° de l'axe central), **hors tour de bureaux** : **−3**. Via `usage` + `nombre_etages` (BD TOPO). *Fallback : usage inconnu → pas de malus (on ne pénalise pas dans le doute).*
-- **Gros carrefour** ou **cimetière** dans le champ central (±45° de l'axe) : **−3**. Via réseau routier / emprise cimetière (OSM / BD TOPO).
+Nuisances mineures (−1 chacune) :
+- antenne / relais télécom (IA) ;
+- panneau publicitaire grand format (IA) ;
+- mur aveugle / pignon massif au premier plan (IA) ;
+- grand parking de surface (IA).
 
-**Hybride :**
-- Immeuble **> 10 étages couvert de paraboles** dans l'axe : **−3** (hauteur + axe = données ; paraboles = IA photo).
+### Sortie
+
+Famille 2 = clamp(Strate 1 + Strate 2 − malus Propreté, 0, 50).
+Flag `scorePartiel` si la photo est inexploitable : les critères dépendant de la photo sont neutralisés ; le label commercial n'est pas affecté.
 
 ---
 
@@ -122,7 +123,7 @@ Départ à **10**, on retire par nuisance, **plancher 0** (la somme des malus pe
 
 ### Auditabilité
 - Les sorties IA (`type` = enum, `remarquables` = flags, `nuisances` = flags) + un **niveau de confiance** sont **stockées avec le test** → score recalculable.
-- Les composantes « données » (BD TOPO / OSM) sont déterministes par construction.
+- Les composantes « données » (BD TOPO) sont déterministes par construction.
 
 ### Photo inexploitable (trop sombre, floue, reflets de vitre)
 1. Détection de la qualité insuffisante → **message** : « La photo ne permet pas une analyse fiable de la vue. Le volet ‹ qualité de la vue › sera fortement réduit. Reprenez une photo en meilleure lumière pour un score représentatif. » + bouton **Reprendre la photo**.
@@ -169,15 +170,28 @@ L_PENALTY_FACTOR    = 3          # amplitude / 3
 ORIENTATION_PTS = { "S":10, "SO":10, "SE":8, "O":7, "NO":6, "E":4, "NE":2, "N":0 }
 TOP_FLOOR_BONUS = 1              # si orientation < 10
 
-# Famille 2 — monument
-MONUMENT_CENTRAL_HALF_DEG = 50   # champ central = ±50°
-MONUMENT_LOS_MAX_M        = null # pas de plafond obstacle (distance réelle du monument)
+# Famille 2 — couverture valorisante (strate 1)
+STRATE1_MAX_PTS         = 40
+STRATE1_CONE_HALF_DEG   = 60    # demi-angle du cône central (= note d'amplitude), 41 faisceaux
+STRATE1_RANGE_M         = 200
+STRATE1_MIN_FAISCEAUX   = 3     # garde-fou anti-sliver
 
-# Famille 2 — nuisances data
-NUISANCE_AXIS_TALL_DEG       = 20   # ±20° pour grand immeuble dans l'axe
-TALL_RESIDENTIAL_MIN_FLOORS  = 15
-PARABOLES_MIN_FLOORS         = 10
-CARREFOUR_CIMETIERE_DEG      = 45   # ±45° champ central
+# Famille 2 — monuments remarquables (strate 2)
+STRATE2_MAX_PTS         = 10
+MONUMENT_CONE_HALF_DEG  = 60
+MONUMENT_CRITERE_A_PTS  = { sup_3_4: 5, sup_1_2: 4, sup_1_4: 2, inf_1_4: 0 }
+# Critère B — distance par monument : seuil pleine note, pas de décroissance, distance du zéro
+MONUMENT_DIST_EIFFEL      = { seuil_km: 6, pas_km: 1,   zero_km: 10 }
+MONUMENT_DIST_SACRE_COEUR = { seuil_km: 2, pas_km: 1,   zero_km: 6 }
+MONUMENT_DIST_AUTRES      = { seuil_km: 1, pas_km: 0.5, zero_km: 3 }
+
+# Famille 2 — propreté (malus)
+PROPRETE_MALUS_CAP      = 6
+PROPRETE_MAJEURE_PTS    = 3
+PROPRETE_MINEURE_PTS    = 1
+CARREFOUR_MIN_VOIES     = 4     # total, toute répartition
+CARREFOUR_CONE_HALF_DEG = 60
+CIMETIERE_CONE_HALF_DEG = 60
 ```
 
 ---
