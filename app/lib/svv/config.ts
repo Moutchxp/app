@@ -216,6 +216,42 @@ export const TALL_RESIDENTIAL_MIN_FLOORS = 15;
 export const PARABOLES_MIN_FLOORS = 10;
 export const CARREFOUR_CIMETIERE_DEG = 45; // ±45° champ central
 
+// === Famille 2 — nouveau modèle (Strate 1 / Strate 2 / Propreté) ===
+
+/* Strate 1 — couverture valorisante (40 pts) */
+export const STRATE1_MAX_PTS = 40;
+export const STRATE1_CONE_HALF_DEG = 60; // cône central ±60°
+export const STRATE1_RANGE_M = 200; // portée de recherche en mètres
+export const STRATE1_MIN_FAISCEAUX = 3; // garde-fou : < 3 faisceaux touchant un valorisant → 0
+
+/* Strate 2 — monuments de renommée mondiale (10 pts) */
+export const STRATE2_MAX_PTS = 10;
+export const MONUMENT_CONE_HALF_DEG = 60; // cône central ±60°
+/** Critère A (% hauteur visible, donné par l'IA) → points. */
+export const MONUMENT_CRITERE_A_PTS = {
+  PLUS_DES_TROIS_QUARTS: 5,
+  AU_MOINS_LA_MOITIE: 4,
+  AU_MOINS_UN_QUART: 2,
+  MOINS_DUN_QUART: 0,
+} as const;
+/* Critère B (distance) — paramètres des 3 courbes (plein-note jusqu'à pleinM, 0 à zeroM). */
+/** Courbe EIFFEL : 5 pts si < 6 km, −1 pt/km, 0 à 10 km. */
+export const MONUMENT_DIST_EIFFEL = { pleinM: 6000, zeroM: 10000, pleinPts: 5 } as const;
+/** Courbe SACRE_COEUR : plein si < 2 km, 0 à 6 km. */
+export const MONUMENT_DIST_SACRE_COEUR = { pleinM: 2000, zeroM: 6000, pleinPts: 5 } as const;
+/** Courbe AUTRES : plein si < 1 km, −1 pt/500 m, 0 à 3 km. */
+export const MONUMENT_DIST_AUTRES = { pleinM: 1000, zeroM: 3000, pleinPts: 5 } as const;
+
+/* Propreté — malus (plafond −6) */
+export const PROPRETE_MALUS_CAP = 6;
+export const PROPRETE_MAJEURE_PTS = 3;
+export const PROPRETE_MINEURE_PTS = 1;
+
+/* Carrefour / Cimetière — nuisances géométriques (débranchées tant que les couches BD TOPO ne sont pas importées) */
+export const CARREFOUR_MIN_VOIES = 4;
+export const CARREFOUR_CONE_HALF_DEG = 60;
+export const CIMETIERE_CONE_HALF_DEG = 60;
+
 /* Note totale du score de qualité de vue (/100) */
 export const SCORE_TOTAL_MAX = SCORE_FAMILLE_1_WEIGHT + SCORE_FAMILLE_2_WEIGHT; // 50 + 50
 
