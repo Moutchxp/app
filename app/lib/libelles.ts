@@ -81,9 +81,9 @@ export function libelleDegagement(pourcentageFaisceauxDegages: number): string {
 
 /** Famille 1 — Distance au 1er obstacle (/20). */
 export function libelleDistance(distance: number): string {
-  if (distance >= 16) return "Vue très dégagée";
-  if (distance >= 8) return "Dégagement modéré";
-  return "Vue rapprochée";
+  if (distance >= 16) return "Environnement très dégagé";
+  if (distance >= 8) return "Environnement dégagé";
+  return "Environnement encombré";
 }
 
 /** Famille 1 — Amplitude du dégagement (/20). */
