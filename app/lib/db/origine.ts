@@ -5,12 +5,15 @@
  * bâtiments (vue bdtopo_batiment, géométrie L93/2154) et renvoie le bâtiment
  * d'origine + l'altitude du terrain (Mode B = altitude_minimale_sol).
  *
- * Règle métier (CLAUDE.md « Point d'origine ») : le point doit être à
- * l'intérieur d'une emprise, avec une tolérance sortante max de 0,30 m.
+ * Règle métier (snap origine) : un point à l'intérieur de l'emprise OU à <= 1 m à l'extérieur
+ * est SNAPPÉ sur la bordure du bâtiment (ST_ClosestPoint sur ST_Boundary) ; au-delà de 1 m →
+ * hors bâtiment (indéterminé). Remplace l'ancienne tolérance de 0,30 m.
  */
 import { query } from "./client";
-import type { PointWgs84 } from "../svv/geo";
-import { ORIGIN_OUTSIDE_TOLERANCE_M } from "../svv/config";
+import type { PointWgs84, PointL93 } from "../svv/geo";
+
+/** Distance max (m) à l'extérieur du bâtiment pour snapper/valider le point (ex-0,30 m). */
+const ORIGIN_SNAP_TOLERANCE_M = 1.0;
 
 export interface ValidationOrigine {
   valide: boolean;
@@ -18,8 +21,10 @@ export interface ValidationOrigine {
   batimentOrigine: { id: number; cleabs: string; polygoneWkt: string } | null;
   altitudeTerrainOrigineM: number | null; // terrain lu sur le MNT (LiDAR) au point exact ; null si hors couverture MNT / nodata
   altSolBdTopoM?: number | null; // INFORMATIF : altitude_minimale_sol BD TOPO, pour comparaison en test (NON utilisé dans le calcul)
-  distanceAuBatimentM: number; // 0 si à l'intérieur, sinon distance au bâtiment le plus proche
-  dansBatiment: boolean; // true si strictement à l'intérieur d'une emprise
+  distanceAuBatimentM: number; // 0 si couvert (intérieur/bordure), sinon distance au bâtiment le plus proche
+  dansBatiment: boolean; // true si couvert par l'emprise (intérieur OU bordure, ST_Covers)
+  pointSnappeL93: PointL93 | null; // point projeté sur la bordure (L93/2154) ; null si non valide
+  pointSnappeWgs84: PointWgs84 | null; // idem en WGS84 (pour l'aval sans re-transformer)
 }
 
 interface LigneBatiment {
@@ -28,27 +33,41 @@ interface LigneBatiment {
   alt_sol_bdtopo: number | null; // INFORMATIF : altitude_minimale_sol BD TOPO (non utilisé)
   alt_terrain_mnt: number | null; // terrain MNT LiDAR au point exact (source autoritative)
   dist_m: number;
-  dedans: boolean;
+  couvert: boolean; // ST_Covers (intérieur OU bordure)
   polygone_wkt: string; // emprise L93 (SRID 2154) du bâtiment d'origine, transport pur (non consommé ici)
+  snap_x: number; // point snappé sur la bordure — L93
+  snap_y: number;
+  snap_lon: number; // point snappé — WGS84
+  snap_lat: number;
 }
 
 export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigine> {
   const res = await query<LigneBatiment>(
     `WITH pt AS (
        SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 2154) AS g
+     ),
+     nn AS (                                            -- bâtiment le plus proche
+       SELECT b.id, b.cleabs, ST_Force2D(b.geom) AS geom, b.altitude_minimale_sol AS alt_sol_bdtopo
+       FROM bdtopo_batiment b, pt
+       ORDER BY ST_Force2D(b.geom) <-> pt.g
+       LIMIT 1
+     ),
+     snap AS (                                          -- projection sur la bordure
+       SELECT ST_ClosestPoint(ST_Boundary(nn.geom), pt.g) AS g FROM nn, pt
      )
-     SELECT b.id, b.cleabs,
-            ST_AsText(ST_Force2D(b.geom)) AS polygone_wkt,
-            b.altitude_minimale_sol AS alt_sol_bdtopo,
-            (SELECT ST_Value(m.rast, pt.g)
+     SELECT nn.id, nn.cleabs,
+            ST_AsText(nn.geom) AS polygone_wkt,
+            nn.alt_sol_bdtopo,
+            (SELECT ST_Value(m.rast, pt.g)             -- terrain MNT AU POINT BRUT (option B1)
                FROM mnt_lidar_brut m
               WHERE ST_Intersects(m.rast, pt.g)
               LIMIT 1) AS alt_terrain_mnt,
-            ST_Distance(ST_Force2D(b.geom), pt.g) AS dist_m,
-            ST_Contains(ST_Force2D(b.geom), pt.g) AS dedans
-     FROM bdtopo_batiment b, pt
-     ORDER BY ST_Force2D(b.geom) <-> pt.g
-     LIMIT 1;`,
+            ST_Distance(nn.geom, pt.g) AS dist_m,
+            ST_Covers(nn.geom, pt.g) AS couvert,        -- intérieur OU bordure
+            ST_X(snap.g) AS snap_x, ST_Y(snap.g) AS snap_y,
+            ST_X(ST_Transform(snap.g, 4326)) AS snap_lon,
+            ST_Y(ST_Transform(snap.g, 4326)) AS snap_lat
+     FROM nn, pt, snap;`,
     [point.lon, point.lat],
   );
 
@@ -61,33 +80,41 @@ export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigi
       altSolBdTopoM: null,
       distanceAuBatimentM: Infinity,
       dansBatiment: false,
+      pointSnappeL93: null,
+      pointSnappeWgs84: null,
     };
   }
 
-  const { id, cleabs, alt_sol_bdtopo, alt_terrain_mnt, dist_m, dedans, polygone_wkt } = res.rows[0];
+  const {
+    id, cleabs, alt_sol_bdtopo, alt_terrain_mnt, dist_m, couvert, polygone_wkt,
+    snap_x, snap_y, snap_lon, snap_lat,
+  } = res.rows[0];
 
-  const dansBatiment = dedans;
-  const distanceAuBatimentM = dedans ? 0 : dist_m;
-  const valide = dedans || dist_m <= ORIGIN_OUTSIDE_TOLERANCE_M;
+  const dansBatiment = couvert; // ST_Covers : intérieur OU bordure
+  const distanceAuBatimentM = couvert ? 0 : dist_m;
+  const valide = couvert || dist_m <= ORIGIN_SNAP_TOLERANCE_M;
 
   let raison: string;
-  if (dedans) {
-    raison = "Point à l'intérieur du bâtiment.";
-  } else if (dist_m <= ORIGIN_OUTSIDE_TOLERANCE_M) {
-    raison = `Point à ${dist_m.toFixed(2)} m du bâtiment (toléré).`;
+  if (couvert) {
+    raison = "Point sur l'emprise du bâtiment (snappé sur la bordure).";
+  } else if (dist_m <= ORIGIN_SNAP_TOLERANCE_M) {
+    raison = `Point à ${dist_m.toFixed(2)} m du bâtiment (≤ 1 m, snappé sur la bordure).`;
   } else {
-    raison = `Point à ${dist_m.toFixed(2)} m du bâtiment le plus proche : hors tolérance de 0,30 m. Repositionne le marqueur sur le bâtiment.`;
+    raison = `Point à ${dist_m.toFixed(2)} m du bâtiment le plus proche : hors tolérance de 1 m. Repositionne le marqueur sur le bâtiment.`;
   }
 
   return {
     valide,
     raison,
     batimentOrigine: valide ? { id, cleabs, polygoneWkt: polygone_wkt } : null,
-    // terrain lu sur le MNT (LiDAR) au point exact = même cellule 50 cm que le MNS ;
+    // terrain lu sur le MNT (LiDAR) AU POINT BRUT (option B1) = même cellule 50 cm que le MNS ;
     // null si hors couverture MNT ou nodata -9999 → pas de certificat (garde pipeline l.61-63).
+    // (La bascule de l'altitude vers le point snappé se fera en S2.)
     altitudeTerrainOrigineM: valide ? alt_terrain_mnt : null,
     altSolBdTopoM: alt_sol_bdtopo, // INFORMATIF uniquement (comparaison en test)
     distanceAuBatimentM,
     dansBatiment,
+    pointSnappeL93: valide ? { x: snap_x, y: snap_y } : null,
+    pointSnappeWgs84: valide ? { lat: snap_lat, lon: snap_lon } : null,
   };
 }
