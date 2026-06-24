@@ -13,6 +13,8 @@ export interface ReponseOrigine {
   distanceAuBatimentM: number;
   batimentOrigine: { id: number; cleabs: string } | null;
   altitudeTerrainOrigineM: number | null;
+  pointSnappeWgs84: { lat: number; lon: number } | null; // point recalé sur la bordure (pour V2 : affichage)
+  pointSnappeL93: { x: number; y: number } | null;
 }
 
 export interface OrigineValidee {

@@ -56,6 +56,8 @@ export async function POST(req: Request) {
       distanceAuBatimentM: v.distanceAuBatimentM,
       batimentOrigine: v.batimentOrigine,
       altitudeTerrainOrigineM: v.altitudeTerrainOrigineM,
+      pointSnappeWgs84: v.pointSnappeWgs84, // point recalé sur la bordure (null si non valide)
+      pointSnappeL93: v.pointSnappeL93,
     });
   } catch {
     return NextResponse.json({ erreur: "validation indisponible" }, { status: 500 });
