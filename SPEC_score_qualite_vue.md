@@ -21,11 +21,9 @@
 ### 1.2 Amplitude du dégagement — 20 pts
 Calculée sur les **61 faisceaux** (pas de 3°, de −90° à +90° autour de l'axe de vue principal).
 
-- **Part A — largeur (10 pts)** : `10 × (nb faisceaux dégagés ≥ 40 m / 61)`.
-- **Part B — profondeur (10 pts)** : moyenne des distances d'obstacle sur les 61 faisceaux ; un **faisceau dégagé compte `CLEAR_BEAM_DIST_M` (= 200 m)** dans la moyenne. Mapping **continu et linéaire** de **30 m → 1 pt** à **`CLEAR_BEAM_DIST_M` (200 m) → 10 pts** (pente dérivée des constantes) : `pts = clamp(1 + (moyenne − 30) × 9 / (CLEAR_BEAM_DIST_M − 30), 0, 10)`. Ainsi une vue **parfaitement dégagée** (moyenne = 200 m) atteint le **plafond 10**.
-- **Pénalité « angle de L »** : si un **bâtiment réel** se trouve à **< 5 m** dans les **flancs** (extrémités gauche/droite : −90° à −60° **OU** +60° à +90°), alors `amplitude = amplitude / 3`.
-  - S'applique **uniquement aux 20 pts d'amplitude**, pas au score global.
-  - À noter : ce mur fait déjà baisser Part A (moins de faisceaux ≥ 40 m) et Part B (distances courtes) ; le ÷3 vient en plus.
+- **Part A — largeur (10 pts)** : `10 × (nb faisceaux dégagés ≥ 40 m / 41)` — sur les **41 faisceaux du cône central** (±60°).
+- **Part B — profondeur (10 pts)** : moyenne des distances d'obstacle sur les 41 faisceaux du cône central (±60°) ; un **faisceau dégagé compte `CLEAR_BEAM_DIST_M` (= 200 m)** dans la moyenne. Mapping **continu et linéaire** de **30 m → 1 pt** à **`CLEAR_BEAM_DIST_M` (200 m) → 10 pts** (pente dérivée des constantes) : `pts = clamp(1 + (moyenne − 30) × 9 / (CLEAR_BEAM_DIST_M − 30), 0, 10)`. Ainsi une vue **parfaitement dégagée** (moyenne = 200 m) atteint le **plafond 10**.
+- **Pénalité de flanc** (ancien « angle de L »). On traite séparément le **flanc gauche** (faisceaux à offset < −60°) et le **flanc droit** (offset > +60°) — les faisceaux au-delà du cône de note, qui ne comptent pas dans la note d'amplitude elle-même. Un flanc **déclenche** la pénalité si **au moins 3 faisceaux consécutifs** (espacés du pas de 3°) y rencontrent un obstacle **à 7 m ou moins**. Le **palier** est fixé par l'obstacle **le plus proche de tout le flanc** : **moins de 5 m → amplitude ÷ 3** ; **entre 5 et 7 m → amplitude ÷ 2**. Un **seul** flanc déclenché → on applique sa division ; **les deux** → **amplitude = 0**. La pénalité ne touche que les **20 points d'amplitude**, jamais le score global. (Ce resserrement latéral fait déjà baisser Part A et Part B ; la division vient en plus.)
 
 ### 1.3 Orientation — 10 pts
 Selon l'azimut de l'axe de vue (fixé par l'internaute) :
@@ -133,7 +131,7 @@ Flag `scorePartiel` si la photo est inexploitable : les critères dépendant de 
 
 ### Photo — version 1
 - **Une seule photo** dans l'**axe principal** (couvre le champ central). Elle sert au **type de paysage** et à la **fraction visible** des monuments **centraux**.
-- Les **flancs** (±50–90°) sont traités par la **géométrie** (azimut + ligne de vue) et les **données** (nuisances).
+- Les **flancs** (±60–90°) sont traités par la **géométrie** (azimut + ligne de vue) et les **données** (nuisances).
 - Pour un monument en extrémité hors cadre : on retient le **résultat géométrique** (présence + LOS).
 - **Phase 2** : capture **panoramique guidée** (gauche / centre / droite), chaque photo étiquetée par son azimut, pour juger l'esthétique sur tout le champ.
 
@@ -161,10 +159,13 @@ AMPLITUDE_PART_B_BASE_PTS = 1    # 1 pt à 30 m
 CLEAR_BEAM_DIST_M         = 200  # distance d'un faisceau dégagé ; ancrage haut : -> 10 pts
 # Part B linéaire : pts = clamp(1 + (moyenne - 30) * 9 / (CLEAR_BEAM_DIST_M - 30), 0, 10)
 
-# Pénalité angle de L
-L_PENALTY_FLANK_DEG = [60, 90]   # secteurs flancs gauche/droite
-L_PENALTY_DIST_M    = 5
-L_PENALTY_FACTOR    = 3          # amplitude / 3
+# Pénalité de flanc (ex-« angle de L ») — deux flancs traités séparément
+FLANC_DIST_SEVERE_M        = 5    # obstacle < 5 m → division sévère
+FLANC_DIST_MODERE_M        = 7    # obstacle 5–7 m → division modérée
+FLANC_DIV_SEVERE           = 3    # amplitude ÷ 3
+FLANC_DIV_MODERE           = 2    # amplitude ÷ 2
+FLANC_FAISCEAUX_CONSEC_MIN = 3    # faisceaux consécutifs requis (pas = AMPLITUDE_BEAM_STEP_DEG)
+AMPLITUDE_NOTE_HALF_ANGLE_DEG = 60  # cône de la note d'amplitude ; au-delà = flancs (pénalité seulement)
 
 # Famille 1 — orientation
 ORIENTATION_PTS = { "S":10, "SO":10, "SE":8, "O":7, "NO":6, "E":4, "NE":2, "N":0 }
