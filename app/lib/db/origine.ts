@@ -58,9 +58,9 @@ export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigi
      SELECT nn.id, nn.cleabs,
             ST_AsText(nn.geom) AS polygone_wkt,
             nn.alt_sol_bdtopo,
-            (SELECT ST_Value(m.rast, pt.g)             -- terrain MNT AU POINT BRUT (option B1)
+            (SELECT ST_Value(m.rast, snap.g)           -- terrain MNT AU POINT SNAPPÉ (S2, option a)
                FROM mnt_lidar_brut m
-              WHERE ST_Intersects(m.rast, pt.g)
+              WHERE ST_Intersects(m.rast, snap.g)
               LIMIT 1) AS alt_terrain_mnt,
             ST_Distance(nn.geom, pt.g) AS dist_m,
             ST_Covers(nn.geom, pt.g) AS couvert,        -- intérieur OU bordure
@@ -107,9 +107,8 @@ export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigi
     valide,
     raison,
     batimentOrigine: valide ? { id, cleabs, polygoneWkt: polygone_wkt } : null,
-    // terrain lu sur le MNT (LiDAR) AU POINT BRUT (option B1) = même cellule 50 cm que le MNS ;
+    // terrain lu sur le MNT (LiDAR) AU POINT SNAPPÉ (S2, option a) = même cellule 50 cm que le MNS ;
     // null si hors couverture MNT ou nodata -9999 → pas de certificat (garde pipeline l.61-63).
-    // (La bascule de l'altitude vers le point snappé se fera en S2.)
     altitudeTerrainOrigineM: valide ? alt_terrain_mnt : null,
     altSolBdTopoM: alt_sol_bdtopo, // INFORMATIF uniquement (comparaison en test)
     distanceAuBatimentM,

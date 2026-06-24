@@ -80,7 +80,8 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
   if (
     !validation.valide ||
     validation.batimentOrigine === null ||
-    validation.altitudeTerrainOrigineM === null
+    validation.altitudeTerrainOrigineM === null ||
+    validation.pointSnappeWgs84 === null
   ) {
     return { validation, resultat: null };
   }
@@ -90,7 +91,7 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
 
   // c) Obstacles sur l'axe principal (LiDAR prioritaire + point de contact).
   const obstaclesAxePrincipal = await obstaclesSurAxe({
-    point: params.point,
+    point: validation.pointSnappeWgs84,
     azimutDeg: params.azimutPrincipalDeg,
     batimentOrigineId: validation.batimentOrigine.id,
     batimentOriginePolygoneWkt: validation.batimentOrigine.polygoneWkt,
@@ -100,7 +101,7 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
 
   // d) 61 faisceaux d'amplitude.
   const faisceaux = await faisceauxAmplitude({
-    point: params.point,
+    point: validation.pointSnappeWgs84,
     azimutPrincipalDeg: params.azimutPrincipalDeg,
     batimentOrigineId: validation.batimentOrigine.id,
     batimentOriginePolygoneWkt: validation.batimentOrigine.polygoneWkt,
