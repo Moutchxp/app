@@ -78,3 +78,37 @@ export function libelleDegagement(pourcentageFaisceauxDegages: number): string {
   if (p >= 25) return "Partiellement dégagé";
   return "Peu dégagé";
 }
+
+/** Famille 1 — Distance au 1er obstacle (/20). */
+export function libelleDistance(distance: number): string {
+  if (distance >= 16) return "Vue très dégagée";
+  if (distance >= 8) return "Dégagement modéré";
+  return "Vue rapprochée";
+}
+
+/** Famille 1 — Amplitude du dégagement (/20). */
+export function libelleAmplitude(amplitude: number): string {
+  if (amplitude >= 16) return "Panorama large";
+  if (amplitude >= 8) return "Ouverture partielle";
+  return "Vue étroite";
+}
+
+/** Famille 2 — Strate 1, couverture valorisante (/40). null si rien de valorisant. */
+export function libelleCouverture(strate1: number): string | null {
+  if (strate1 >= 28) return "Environnement très valorisant";
+  if (strate1 >= 12) return "Cadre verdoyant ou patrimonial";
+  if (strate1 >= 1) return "Couverture limitée";
+  return null;
+}
+
+/** Famille 2 — Strate 2, monuments (/10). null si aucun monument vu. */
+export function libelleMonuments(strate2: number): string | null {
+  return strate2 > 0 ? "Monument remarquable en vue" : null;
+}
+
+/** Famille 2 — Propreté (malus 0→6, lecture inversée). */
+export function libelleProprete(malusProprete: number): string {
+  if (malusProprete === 0) return "Aucune nuisance visible";
+  if (malusProprete <= 3) return "Quelques nuisances";
+  return "Environnement dégradé";
+}

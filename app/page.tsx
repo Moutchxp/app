@@ -7,15 +7,16 @@ import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
 import { cardinal } from "./lib/cardinal";
 import { SceauCertifie } from "./components/SceauCertifie";
-import type { Orientation, TypePaysage } from "./lib/svv/config";
+import type { Orientation } from "./lib/svv/config";
 import type { LibelleScore } from "./lib/svv/scoreTotal";
 import {
   libelleScore,
-  libelleTypePaysage,
   libelleOrientation,
-  libelleRemarquables,
-  libelleDegagement,
-  type RemarquablesSource,
+  libelleDistance,
+  libelleAmplitude,
+  libelleCouverture,
+  libelleMonuments,
+  libelleProprete,
 } from "./lib/libelles";
 
 type Etape = "accueil" | "etapes" | "photo" | "localisation" | "orientation" | "infos" | "resultat";
@@ -60,14 +61,17 @@ interface ReponseAnalyse {
           };
           famille2: {
             total: number; // /50
-            typeDominant: number; // /25
-            remarquables: number; // /15
-            proprete: number; // /10
+            strate1: number; // /40
+            strate2: number; // /10
+            malusProprete: number; // 0 → 6
             scorePartiel: boolean;
             detail: {
-              typeEnum: TypePaysage | null;
-              remarquablesSource: RemarquablesSource;
-              malusPropreteApplique: number;
+              faisceauxValorisants: number;
+              monumentsComptes: { id: string; points: number }[];
+              nuisancesMajeuresAppliquees: string[];
+              nuisancesMineuresAppliquees: string[];
+              carrefourApplique: boolean;
+              cimetiereApplique: boolean;
             };
           };
         };
@@ -434,10 +438,13 @@ function EcranResultat({
     distanceTxt.length <= 6 ? "text-3xl" : distanceTxt.length <= 10 ? "text-2xl" : "text-xl";
 
   const badges = [
-    libelleTypePaysage(f2.detail.typeEnum),
-    libelleDegagement(f1.detail.pourcentageFaisceauxDegages),
+    libelleDistance(f1.distance),
+    libelleAmplitude(f1.amplitude),
     libelleOrientation(f1.detail.secteurOrientation),
-    libelleRemarquables(f2.detail.remarquablesSource),
+    // Famille 2 — masquées si photo inexploitable (composantes dépendantes de l'IA)
+    f2.scorePartiel ? null : libelleCouverture(f2.strate1),
+    f2.scorePartiel ? null : libelleMonuments(f2.strate2),
+    f2.scorePartiel ? null : libelleProprete(f2.malusProprete),
   ].filter((b): b is string => b != null);
 
   return (
