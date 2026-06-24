@@ -80,3 +80,31 @@ export async function compterFaisceauxValorisants(
   const faisceauxValorisants = Number(res.rows[0].valorisants);
   return { faisceauxValorisants, faisceauxConeTotal };
 }
+
+/** Moitié GÉOMÉTRIQUE de la Famille 2 : Strate 1 (compteurs) + monuments candidats (sans IA). */
+export type PaysageGeometrique = {
+  faisceauxValorisants: number;
+  faisceauxConeTotal: number;
+  monuments: MonumentCandidatGeo[]; // candidats géométriques, SANS fractionVisible (vient de l'IA)
+};
+
+/**
+ * Assemble la moitié géométrique de la Famille 2 : couverture valorisante (Strate 1, DB) +
+ * monuments candidats dans le cône ±60° (Strate 2, pur). La moitié IA (photoExploitable,
+ * fractionVisible des monuments, nuisances) est fusionnée plus tard (pièce C).
+ * Ne branche RIEN dans le pipeline réel (pièce D).
+ */
+export async function preparerPaysageGeometrique(
+  origine: PointL93,
+  azimutPrincipalDeg: number,
+): Promise<PaysageGeometrique> {
+  const [strate1, monuments] = await Promise.all([
+    compterFaisceauxValorisants(origine, azimutPrincipalDeg),
+    Promise.resolve(monumentsDansCone(origine, azimutPrincipalDeg)),
+  ]);
+  return {
+    faisceauxValorisants: strate1.faisceauxValorisants,
+    faisceauxConeTotal: strate1.faisceauxConeTotal,
+    monuments,
+  };
+}

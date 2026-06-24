@@ -7,7 +7,7 @@
  * un cas connu > 0 et des invariants [0, total], total === 41 (cône ±60°).
  */
 import { describe, it, expect, afterAll } from "vitest";
-import { compterFaisceauxValorisants } from "./preparateurPaysage";
+import { compterFaisceauxValorisants, preparerPaysageGeometrique } from "./preparateurPaysage";
 import { genererFaisceauxAmplitude } from "./geo";
 import { AMPLITUDE_NOTE_HALF_ANGLE_DEG } from "./config";
 import { closePool } from "../db/client";
@@ -47,5 +47,36 @@ describe("compterFaisceauxValorisants — Boulogne / Rue de Seine", () => {
     expect(r.faisceauxConeTotal).toBe(41);
     expect(r.faisceauxValorisants).toBeGreaterThanOrEqual(0);
     expect(r.faisceauxValorisants).toBeLessThanOrEqual(r.faisceauxConeTotal);
+  });
+});
+
+describe("preparerPaysageGeometrique — Boulogne / Rue de Seine", () => {
+  it("azimut 90 → moitié géométrique (Strate 1 + monuments candidats, sans IA)", async () => {
+    const r = await preparerPaysageGeometrique(BOULOGNE_SEINE, 90);
+    console.log(`[A4] Boulogne/Seine az 90 → valorisants ${r.faisceauxValorisants}/${r.faisceauxConeTotal}, monuments ${r.monuments.length}`);
+
+    // Les 3 champs géométriques.
+    expect(r).toHaveProperty("faisceauxValorisants");
+    expect(r).toHaveProperty("faisceauxConeTotal");
+    expect(Array.isArray(r.monuments)).toBe(true);
+
+    // Strate 1.
+    expect(r.faisceauxConeTotal).toBe(41);
+    expect(r.faisceauxValorisants).toBeGreaterThan(0);
+    expect(r.faisceauxValorisants).toBeLessThanOrEqual(r.faisceauxConeTotal);
+
+    // Strate 2 — candidats géométriques : forme uniquement (longueur non assertée).
+    for (const m of r.monuments) {
+      expect(m).toHaveProperty("id");
+      expect(typeof m.distanceM).toBe("number");
+      expect(["EIFFEL", "SACRE_COEUR", "AUTRES"]).toContain(m.courbe);
+      expect(m).not.toHaveProperty("fractionVisible"); // l'IA n'intervient pas ici
+    }
+
+    // Tri par distance croissante si au moins 2 candidats.
+    if (r.monuments.length >= 2) {
+      const d = r.monuments.map((m) => m.distanceM);
+      expect([...d].sort((a, b) => a - b)).toEqual(d);
+    }
   });
 });
