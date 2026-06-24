@@ -1604,6 +1604,7 @@ export default function Home() {
           origine.evaluer(newPosition.latitude, newPosition.longitude);
         }}
         onUserMove={() => setPointDeplace(true)}
+        pointSnappe={origine.resultat?.pointSnappeWgs84 ?? null}
       />
     </div>
     {/* État 2 (après le 1er déplacement) : règle 1-2 + bouton « i ». Jamais en même temps que le cartouche rouge. */}

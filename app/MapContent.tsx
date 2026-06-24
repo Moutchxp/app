@@ -19,6 +19,7 @@ type MapContentProps = {
     longitude: number;
   }) => void;
   onUserMove?: () => void;
+  pointSnappe?: { lat: number; lon: number } | null; // point recalé sur la bordure (V2) ; null = pas de fantôme
 };
 
 export default function MapContent({
@@ -26,6 +27,7 @@ export default function MapContent({
   longitude,
   onPositionChange,
   onUserMove,
+  pointSnappe,
 }: MapContentProps) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const leafletMap = useRef<L.Map | null>(null);
@@ -33,6 +35,9 @@ export default function MapContent({
   const moveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [mapMode, setMapMode] = useState<"map" | "satellite">("map");
+
+  // Position pixel (conteneur) du marqueur FANTÔME, recalculée sur move/zoom. null = pas de fantôme.
+  const [fantomePx, setFantomePx] = useState<{ x: number; y: number } | null>(null);
 
   // Indice « faites glisser la carte » : la main tourne en boucle JUSQU'AU 1er geste
   // (disparition gérée dans handleUserMove). Pas de timer de sécurité.
@@ -111,6 +116,27 @@ export default function MapContent({
     }).addTo(leafletMap.current);
   }, [mapMode]);
 
+  // Marqueur FANTÔME : projette le point recalé en pixel conteneur, et le maintient « collé »
+  // à la carte en recalculant sur 'move' et 'zoom'. Pas de snap → fantôme masqué.
+  useEffect(() => {
+    const map = leafletMap.current;
+    if (!map || !pointSnappe) {
+      setFantomePx(null);
+      return;
+    }
+    const maj = () => {
+      const p = map.latLngToContainerPoint([pointSnappe.lat, pointSnappe.lon]);
+      setFantomePx({ x: p.x, y: p.y });
+    };
+    maj(); // position initiale
+    map.on("move", maj);
+    map.on("zoom", maj);
+    return () => {
+      map.off("move", maj);
+      map.off("zoom", maj);
+    };
+  }, [pointSnappe]);
+
   return (
     <div className="relative mt-4 h-80 overflow-hidden rounded-2xl border border-slate-200">
       <div ref={mapRef} className="h-full w-full" />
@@ -166,6 +192,22 @@ export default function MapContent({
       <div className="pointer-events-none absolute left-1/2 top-1/2 z-[1500] -translate-x-1/2 -translate-y-1/2">
         <div className="svvPointSelect h-1 w-1 rounded-full ring-1 ring-black/40" />
       </div>
+
+      {/* Marqueur FANTÔME = point recalé sur la bordure du bâtiment. Élément SÉPARÉ de l'épingle
+          centrale (rouge) : pastille verte discrète, sous l'épingle (z-[1400]). Masqué si pas de snap. */}
+      {pointSnappe && fantomePx && (
+        <div
+          aria-hidden="true"
+          title="Point recalé sur le bâtiment"
+          className="pointer-events-none absolute z-[1400] -translate-x-1/2 -translate-y-1/2"
+          style={{ left: fantomePx.x, top: fantomePx.y }}
+        >
+          <div
+            className="h-3 w-3 rounded-full border-2 border-white"
+            style={{ background: "var(--color-svv-green)", boxShadow: "0 1px 3px rgba(0,0,0,0.4)" }}
+          />
+        </div>
+      )}
     </div>
   );
 }

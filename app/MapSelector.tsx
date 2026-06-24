@@ -8,6 +8,7 @@ type MapSelectorProps = {
   longitude: number;
   onPositionChange: (position: { latitude: number; longitude: number }) => void;
   onUserMove?: () => void;
+  pointSnappe?: { lat: number; lon: number } | null; // point recalé (V2) — forwardé tel quel à MapContent
 };
 
 let MapContent: any = () => null;
