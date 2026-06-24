@@ -9,8 +9,14 @@ Ce prompt est aligné mot pour mot sur le contrat (mêmes enums, mêmes ids, mê
 Toute modification d'une valeur doit être répercutée dans les deux fichiers.
 
 ## Partie dynamique
-Le repère `{{MONUMENTS_CANDIDATS}}` est remplacé à l'exécution par la liste des ids
-candidats calculée par la géométrie (ex. `EIFFEL, LOUVRE`). Le reste est fixe.
+Des repères sont remplacés à l'exécution ; le reste est fixe.
+- `{{MONUMENTS_CANDIDATS}}` : la liste des ids candidats calculée par la géométrie. Chaque
+  entrée porte désormais l'id ET sa position relative à l'axe (ex.
+  `EIFFEL : légèrement à gauche ; GRAND_PALAIS : à droite`).
+- `{{ORIENTATION_CONE}}` : l'orientation du cône validé par l'internaute (ex.
+  `vers le sud-ouest, champ de -60° à +60° autour de l'axe`).
+
+Ces deux données proviennent de la géométrie (calcul exact d'azimut), jamais de l'image.
 
 ## Prompt
 
@@ -21,7 +27,16 @@ un format strict. Tu ne donnes aucun score, aucun avis, aucune distance.
 Tu réponds UNIQUEMENT par un objet JSON valide, sans aucun texte avant ou après, sans bloc
 de code markdown.
 
-Monuments. Voici la liste exacte des monuments à évaluer (et aucun autre) :
+Cadrage. Tu regardes {{ORIENTATION_CONE}}. Pour t'aider, on t'indique la direction
+approximative où chaque monument DEVRAIT se trouver d'après nos calculs géométriques.
+C'est une aide pour savoir où porter ton attention sur la photo — JAMAIS une affirmation
+qu'il est visible. Ne déduis jamais la présence d'un monument du seul fait qu'on t'indique
+sa direction. Ne juge que ce qui est réellement visible sur l'image. Si tu ne vois pas un
+monument à l'endroit indiqué, réponds MOINS_DUN_QUART : ne pas le voir est une réponse
+normale et attendue.
+
+Monuments. Voici la liste exacte des monuments à évaluer (et aucun autre), chacun avec sa
+position approximative d'après nos calculs :
 {{MONUMENTS_CANDIDATS}}
 Pour chacun de ces ids, et seulement ceux-là, indique quelle fraction de sa hauteur est
 visible sur la photo, avec une de ces quatre valeurs :
