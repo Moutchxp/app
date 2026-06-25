@@ -323,7 +323,10 @@ function detecterAileOpposeeUSurAxe(
 ): ObstacleCandidat | null {
   type Etat = "DEPART" | "SORTI" | "MUR_ARME";
   let etat: Etat = "DEPART";
-  let altDepartM: number | null = null;
+  // Amorce le toit de départ avec la 1re cellule de l'axe (toit de l'aile d'origine) pour ne pas
+  // perdre le départ quand l'origine est snappée sur la bordure (régression U corrigée — cf.
+  // pipelineU.itest) ; proxy conservateur, le garde-fou creux empêche tout faux positif.
+  let altDepartM: number | null = profilAxe[0]?.mnsBrutM ?? null;
   let creuxCount = 0;
 
   for (let i = 0; i < profilAxe.length; i++) {
