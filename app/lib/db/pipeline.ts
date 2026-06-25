@@ -6,7 +6,7 @@
  * analyser() (Bloc A). Aucune logique de Bloc A n'est réécrite.
  */
 import type { PointWgs84 } from "../svv/geo";
-import { hauteurVision } from "../svv/config";
+import { hauteurVision, type ModeOrigine } from "../svv/config";
 import { analyser, type EntreeComplete, type ResultatComplet } from "../svv/analyse";
 import type { EntreeFamille2 } from "../svv/scorePaysage";
 import type { EntreePaysage } from "../svv/entreePaysage";
@@ -67,6 +67,7 @@ export interface ParametresAnalyse {
   etage: number;
   dernierEtage: boolean;
   paysage?: EntreePaysage;
+  mode?: ModeOrigine; // saisie de l'origine ; défaut semi_auto (snap façade) si absent
 }
 
 export interface ResultatAnalyse {
@@ -76,7 +77,7 @@ export interface ResultatAnalyse {
 
 export async function analyserAdresse(params: ParametresAnalyse): Promise<ResultatAnalyse> {
   // a) Validation du point d'origine.
-  const validation = await validerOrigine(params.point);
+  const validation = await validerOrigine(params.point, params.mode ?? "semi_auto");
   if (
     !validation.valide ||
     validation.batimentOrigine === null ||

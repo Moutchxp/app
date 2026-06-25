@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { analyserAdresse } from "../../lib/db/pipeline";
+import type { ModeOrigine } from "../../lib/svv/config";
 
 export async function POST(req: Request) {
   let body: unknown;
@@ -32,12 +33,16 @@ export async function POST(req: Request) {
     );
   }
 
+  // mode optionnel et défensif : tout ce qui n'est pas exactement "manuel" → "semi_auto".
+  const mode: ModeOrigine = b.mode === "manuel" ? "manuel" : "semi_auto";
+
   try {
     const { validation, resultat } = await analyserAdresse({
       point: { lat, lon },
       azimutPrincipalDeg: azimut,
       etage,
       dernierEtage,
+      mode,
     });
     return NextResponse.json({ ok: true, validation, resultat });
   } catch (e) {

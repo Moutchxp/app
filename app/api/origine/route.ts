@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
 import { validerOrigine } from "../../lib/db/origine";
+import type { ModeOrigine } from "../../lib/svv/config";
 
 type Statut = "VALIDE" | "HORS_BATIMENT" | "SANS_BATIMENT";
 
 export async function POST(req: Request) {
   let lat: unknown;
   let lon: unknown;
+  let mode: ModeOrigine = "semi_auto";
   try {
     const body = await req.json();
     lat = body?.lat;
     lon = body?.lon;
+    mode = body?.mode === "manuel" ? "manuel" : "semi_auto";
   } catch {
     return NextResponse.json({ erreur: "lat/lon requis" }, { status: 400 });
   }
@@ -19,7 +22,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const v = await validerOrigine({ lat, lon });
+    const v = await validerOrigine({ lat, lon }, mode);
 
     // Statut dérivé.
     // NB : validerOrigine ne renseigne batimentOrigine que si valide. Le signal
