@@ -100,6 +100,12 @@ export const CRS_GPS = 4326;
 /** Tolérance sortante max du point d'origine vers l'extérieur de l'emprise (façades/balcons), en mètres. */
 export const ORIGIN_OUTSIDE_TOLERANCE_M = 0.3;
 
+/**
+ * Mode de saisie du point d'origine : semi_auto (défaut) = point recalé sur la façade ;
+ * manuel = point pris tel quel (cas particuliers, ex. baie en retrait au dernier étage).
+ */
+export type ModeOrigine = "semi_auto" | "manuel";
+
 /* ================================================================== */
 /* SCORE DE QUALITÉ DE VUE (SPEC_score_qualite_vue.md)                 */
 /* Indépendant du label binaire.                                       */
