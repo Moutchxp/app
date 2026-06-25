@@ -1653,28 +1653,35 @@ export default function Home() {
       </div>
     )}
 
-    {/* Validation du point d'origine (PostGIS via /api/origine) — après 1er déplacement */}
-    {pointDeplace && origine.enCours && (
-      <p className="mt-3 text-sm text-svv-muted">Vérification du point…</p>
-    )}
-
-    {pointDeplace && !origine.enCours && origine.resultat && !origine.valide && (
-      <div
-        className={
-          "mt-3 rounded-xl border p-3 text-sm font-medium " +
-          (origine.resultat.statut === "VALIDE"
-            ? "border-svv-green/40 bg-svv-green-soft text-svv-green-ink"
-            : origine.resultat.statut === "HORS_BATIMENT"
-              ? "border-amber-300 bg-amber-50 text-amber-800"
-              : "border-svv-red/30 bg-svv-red/5 text-svv-red")
-        }
-      >
-        {origine.resultat.statut === "VALIDE" &&
-          "✓ Point validable — à l'intérieur d'un bâtiment"}
-        {origine.resultat.statut === "HORS_BATIMENT" &&
-          `✗ Point non validable — en dehors d'un bâtiment (à ${origine.resultat.distanceAuBatimentM.toFixed(2)} m). Déplacez la carte.`}
-        {origine.resultat.statut === "SANS_BATIMENT" &&
-          "✗ Point non validable — aucun bâtiment ici."}
+    {/* Validation du point d'origine (PostGIS via /api/origine) — slot TOUJOURS monté (hauteur
+        réservée min-h) tant qu'on place le point : seuls couleur/texte changent, jamais de
+        démontage, pour que le bouton « Valider » dessous ne saute pas. Atténué pendant le recalcul. */}
+    {pointDeplace && !origine.valide && (
+      <div className="mt-3 min-h-12">
+        {origine.resultat ? (
+          <div
+            className={
+              "rounded-xl border p-3 text-sm font-medium transition-opacity" +
+              (origine.enCours ? " opacity-70" : "") + " " +
+              (origine.resultat.statut === "VALIDE"
+                ? "border-svv-green/40 bg-svv-green-soft text-svv-green-ink"
+                : origine.resultat.statut === "HORS_BATIMENT"
+                  ? "border-amber-300 bg-amber-50 text-amber-800"
+                  : "border-svv-red/30 bg-svv-red/5 text-svv-red")
+            }
+          >
+            {origine.resultat.statut === "VALIDE" &&
+              "✓ Point validable — à l'intérieur d'un bâtiment"}
+            {origine.resultat.statut === "HORS_BATIMENT" &&
+              `✗ Point non validable — en dehors d'un bâtiment (à ${origine.resultat.distanceAuBatimentM.toFixed(2)} m). Déplacez le curseur.`}
+            {origine.resultat.statut === "SANS_BATIMENT" &&
+              "✗ Point non validable — aucun bâtiment ici."}
+          </div>
+        ) : (
+          origine.enCours && (
+            <p className="text-sm text-svv-muted">Vérification du point…</p>
+          )
+        )}
       </div>
     )}
 
