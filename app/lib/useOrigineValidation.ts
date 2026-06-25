@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import type { ModeOrigine } from "./svv/config";
 
 export type StatutOrigine = "VALIDE" | "HORS_BATIMENT" | "SANS_BATIMENT";
 
@@ -34,14 +35,14 @@ export function useOrigineValidation() {
   const [valide, setValide] = useState<OrigineValidee | null>(null);
 
   // Évaluation live (au moveend) : statut "validable". Réinitialise le verrou.
-  const evaluer = useCallback(async (lat: number, lon: number) => {
+  const evaluer = useCallback(async (lat: number, lon: number, mode: ModeOrigine = "semi_auto") => {
     setValide(null);
     setEnCours(true);
     try {
       const res = await fetch("/api/origine", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ lat, lon }),
+        body: JSON.stringify({ lat, lon, mode }),
       });
       setResultat((await res.json()) as ReponseOrigine);
     } catch {

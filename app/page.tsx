@@ -5,6 +5,7 @@ import { useState, useEffect, useLayoutEffect, useRef, type ChangeEvent } from "
 import MapSelector from "./MapSelector";
 import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
+import type { ModeOrigine } from "./lib/svv/config";
 import { cardinal } from "./lib/cardinal";
 import { SceauCertifie } from "./components/SceauCertifie";
 import type { Orientation } from "./lib/svv/config";
@@ -638,6 +639,7 @@ export default function Home() {
   const [addressInfo, setAddressInfo] = useState(""); // message d'info SOUS le champ, jamais dans sa valeur
   const [positionGPSObtenue, setPositionGPSObtenue] = useState(false); // AFFICHAGE seul : libellé adresse
   const origine = useOrigineValidation();
+  const [mode, setMode] = useState<ModeOrigine>("semi_auto"); // saisie origine : semi_auto (snap) | manuel (M4b : boutons)
   const [pointDeplace, setPointDeplace] = useState(false); // true au 1er geste utilisateur sur la carte
   const [etage, setEtage] = useState("");
   const [dernierEtage, setDernierEtage] = useState(false);
@@ -1180,7 +1182,7 @@ export default function Home() {
         // 3. On déclenche la géolocalisation pour placer le point sur la carte
         if (conserverPositionRef.current) {
           conserverPositionRef.current = false;
-          origine.evaluer(position.latitude, position.longitude); // re-évalue le point conservé (sans GPS)
+          origine.evaluer(position.latitude, position.longitude, mode); // re-évalue le point conservé (sans GPS)
         } else {
           demanderPositionGPS();
         }
@@ -1235,7 +1237,7 @@ export default function Home() {
       const r = await fetch("/api/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat, lon, azimut, etage: etageNum, dernierEtage }),
+        body: JSON.stringify({ lat, lon, azimut, etage: etageNum, dernierEtage, mode }),
       });
       const data = await r.json();
       if (!r.ok || data.ok === false) {
@@ -1601,7 +1603,7 @@ export default function Home() {
         onPositionChange={(newPosition) => {
           setPosition(newPosition);
           getAddressFromGPS(newPosition.latitude, newPosition.longitude);
-          origine.evaluer(newPosition.latitude, newPosition.longitude);
+          origine.evaluer(newPosition.latitude, newPosition.longitude, mode);
         }}
         onUserMove={() => setPointDeplace(true)}
         pointSnappe={origine.resultat?.pointSnappeWgs84 ?? null}
