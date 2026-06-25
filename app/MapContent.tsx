@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import type { ModeOrigine } from "./lib/svv/config";
 
 // Indice « glissez la carte » : fondu d'apparition qui RESTE visible (svvFadeIn, opacity 0→1,
 // pas d'extinction) + glissement horizontal en boucle infinie (svvDragSlide, ~±28px). Keyframes
@@ -20,6 +21,8 @@ type MapContentProps = {
   }) => void;
   onUserMove?: () => void;
   pointSnappe?: { lat: number; lon: number } | null; // point recalé sur la bordure (V2) ; null = pas de fantôme
+  mode: ModeOrigine; // mode de saisie de l'origine (semi_auto | manuel)
+  onModeChange: (m: ModeOrigine) => void;
 };
 
 export default function MapContent({
@@ -28,6 +31,8 @@ export default function MapContent({
   onPositionChange,
   onUserMove,
   pointSnappe,
+  mode,
+  onModeChange,
 }: MapContentProps) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const leafletMap = useRef<L.Map | null>(null);
@@ -35,6 +40,7 @@ export default function MapContent({
   const moveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [mapMode, setMapMode] = useState<"map" | "satellite">("map");
+  const [infoModeOuvert, setInfoModeOuvert] = useState(false); // modal local « 2 modes de saisie »
 
   // Position pixel (conteneur) du marqueur FANTÔME, recalculée sur move/zoom. null = pas de fantôme.
   const [fantomePx, setFantomePx] = useState<{ x: number; y: number } | null>(null);
@@ -150,6 +156,46 @@ export default function MapContent({
       >
         {mapMode === "map" ? "Satellite" : "Carte"}
       </button>
+
+      {/* Sélecteur de mode de saisie de l'origine (bas-gauche). Actif = anneau rouge. */}
+      <div className="absolute left-3 bottom-3 z-[2000] flex gap-1">
+        {(["semi_auto", "manuel"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => onModeChange(m)}
+            aria-pressed={mode === m}
+            className={
+              "rounded-lg bg-white px-2 py-1 text-xs font-semibold text-slate-800 shadow" +
+              (mode === m ? " ring-2 ring-red-500" : "")
+            }
+          >
+            {m === "semi_auto" ? "Semi-auto" : "Manuel"}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => setInfoModeOuvert(true)}
+          aria-label="À propos des modes de saisie"
+          className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-slate-800 shadow"
+        >
+          <span className="italic">i</span>
+        </button>
+      </div>
+
+      {/* Modal local « 2 modes de saisie » — overlay FIXED (échappe à l'overflow-hidden de la carte). */}
+      {infoModeOuvert && (
+        <div onClick={() => setInfoModeOuvert(false)} className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/45 p-5">
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+            <h2 className="text-lg font-extrabold text-svv-ink">Deux modes de saisie</h2>
+            <h3 className="mt-4 text-sm font-semibold text-svv-ink">Semi-auto (activé par défaut)</h3>
+            <p className="mt-1 text-sm leading-relaxed text-svv-gray">Votre point est automatiquement recalé sur la façade du bâtiment la plus proche. Cette option est sélectionnée par défaut pour vous aider à fiabiliser votre diagnostic «&nbsp;sans vis-à-vis&nbsp;» : la mesure part toujours de la façade, de façon cohérente d&apos;un bien à l&apos;autre. À conserver dans la grande majorité des cas.</p>
+            <h3 className="mt-4 text-sm font-semibold text-svv-ink">Manuel</h3>
+            <p className="mt-1 text-sm leading-relaxed text-svv-gray">Votre point est conservé exactement là où vous l&apos;avez posé, sans recalage. Utile lorsque la fenêtre est en retrait de la façade, par exemple une terrasse ou une baie au dernier étage. Dans les deux modes, le point doit rester à l&apos;intérieur de l&apos;emprise d&apos;un bâtiment, sinon la mesure n&apos;est pas certifiable.</p>
+            <button type="button" onClick={() => setInfoModeOuvert(false)} className="svv-btn svv-btn-primary mt-5">Compris</button>
+          </div>
+        </div>
+      )}
 
       {/* Indice éphémère PUREMENT VISUEL (aucun event Leaflet) : l'emoji main 👆 (rendu natif Apple
           sur iPhone), dans le TIERS BAS de la carte (pas sur le repère central), qui glisse ↔ pour
