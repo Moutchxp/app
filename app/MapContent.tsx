@@ -42,8 +42,11 @@ export default function MapContent({
   const [mapMode, setMapMode] = useState<"map" | "satellite">("map");
   const [infoModeOuvert, setInfoModeOuvert] = useState(false); // modal local « 2 modes de saisie »
 
-  // Position pixel (conteneur) du marqueur FANTÔME, recalculée sur move/zoom. null = pas de fantôme.
-  const [fantomePx, setFantomePx] = useState<{ x: number; y: number } | null>(null);
+  // Halo du bouton semi_auto pendant le recentrage de la carte sur le point recalé.
+  const [animating, setAnimating] = useState(false);
+  const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Anti-boucle : true quand le PROCHAIN moveend est provoqué par notre flyTo (à ignorer).
+  const programmaticMove = useRef(false);
 
   // Indice « faites glisser la carte » : la main tourne en boucle JUSQU'AU 1er geste
   // (disparition gérée dans handleUserMove). Pas de timer de sécurité.
@@ -59,6 +62,11 @@ export default function MapContent({
     });
 
     leafletMap.current.on("moveend", () => {
+      // moveend provoqué par notre recentrage (flyTo) → ne pas réévaluer (anti-boucle).
+      if (programmaticMove.current) {
+        programmaticMove.current = false;
+        return;
+      }
       if (moveTimer.current) {
         clearTimeout(moveTimer.current);
       }
@@ -122,24 +130,19 @@ export default function MapContent({
     }).addTo(leafletMap.current);
   }, [mapMode]);
 
-  // Marqueur FANTÔME : projette le point recalé en pixel conteneur, et le maintient « collé »
-  // à la carte en recalculant sur 'move' et 'zoom'. Pas de snap → fantôme masqué.
+  // À chaque nouveau point recalé (semi_auto), recentre la carte EN DOUCEUR dessus : le curseur
+  // central fixe « tombe » sur la façade. Anti-boucle via programmaticMove (le moveend du flyTo
+  // est ignoré). Mode manuel : pointSnappe est null → return tôt → aucun recentrage.
   useEffect(() => {
     const map = leafletMap.current;
-    if (!map || !pointSnappe) {
-      setFantomePx(null);
-      return;
-    }
-    const maj = () => {
-      const p = map.latLngToContainerPoint([pointSnappe.lat, pointSnappe.lon]);
-      setFantomePx({ x: p.x, y: p.y });
-    };
-    maj(); // position initiale
-    map.on("move", maj);
-    map.on("zoom", maj);
+    if (!map || !pointSnappe) return;
+    programmaticMove.current = true; // le moveend de ce flyTo ne doit pas réévaluer
+    setAnimating(true);
+    map.flyTo([pointSnappe.lat, pointSnappe.lon], map.getZoom(), { duration: 0.45 });
+    if (animTimerRef.current) clearTimeout(animTimerRef.current);
+    animTimerRef.current = setTimeout(() => setAnimating(false), 450);
     return () => {
-      map.off("move", maj);
-      map.off("zoom", maj);
+      if (animTimerRef.current) clearTimeout(animTimerRef.current);
     };
   }, [pointSnappe]);
 
@@ -167,7 +170,8 @@ export default function MapContent({
             aria-pressed={mode === m}
             className={
               "rounded-lg bg-white px-2 py-1 text-xs font-semibold text-slate-800 shadow" +
-              (mode === m ? " ring-2 ring-red-500" : "")
+              (mode === m ? " ring-2 ring-red-500" : "") +
+              (animating && m === "semi_auto" ? " svvInfoBump" : "")
             }
           >
             {m === "semi_auto" ? "Semi-auto" : "Manuel"}
@@ -238,22 +242,6 @@ export default function MapContent({
       <div className="pointer-events-none absolute left-1/2 top-1/2 z-[1500] -translate-x-1/2 -translate-y-1/2">
         <div className="svvPointSelect h-1 w-1 rounded-full ring-1 ring-black/40" />
       </div>
-
-      {/* Marqueur FANTÔME = point recalé sur la bordure du bâtiment. Élément SÉPARÉ de l'épingle
-          centrale (rouge) : pastille verte discrète, sous l'épingle (z-[1400]). Masqué si pas de snap. */}
-      {pointSnappe && fantomePx && (
-        <div
-          aria-hidden="true"
-          title="Point recalé sur le bâtiment"
-          className="pointer-events-none absolute z-[1400] -translate-x-1/2 -translate-y-1/2"
-          style={{ left: fantomePx.x, top: fantomePx.y }}
-        >
-          <div
-            className="h-3 w-3 rounded-full border-2 border-white"
-            style={{ background: "var(--color-svv-green)", boxShadow: "0 1px 3px rgba(0,0,0,0.4)" }}
-          />
-        </div>
-      )}
     </div>
   );
 }
