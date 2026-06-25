@@ -34,6 +34,14 @@ export default function MapContent({
   mode,
   onModeChange,
 }: MapContentProps) {
+  // Toujours pointer sur la DERNIÈRE prop onPositionChange : le handler moveend est branché une
+  // seule fois (effet deps []) ; sans cette ref il appellerait le onPositionChange du MONTAGE,
+  // dont la closure fige `mode` (ex. "manuel" au retour de « Refaire ») → bug A.
+  const onPositionChangeRef = useRef(onPositionChange);
+  useEffect(() => {
+    onPositionChangeRef.current = onPositionChange;
+  });
+
   const mapRef = useRef<HTMLDivElement | null>(null);
   const leafletMap = useRef<L.Map | null>(null);
   const tileLayer = useRef<L.TileLayer | null>(null);
@@ -45,8 +53,9 @@ export default function MapContent({
   // Halo du bouton semi_auto pendant le recentrage de la carte sur le point recalé.
   const [animating, setAnimating] = useState(false);
   const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Anti-boucle : true quand le PROCHAIN moveend est provoqué par notre flyTo (à ignorer).
-  const programmaticMove = useRef(false);
+  // Cible du dernier recentrage automatique. Si le centre s'y arrête, c'est NOUS → on ignore.
+  // Sinon c'est un vrai déplacement utilisateur → on évalue. Auto-correcteur, aucun blocage possible.
+  const programmaticTarget = useRef<{ lat: number; lon: number } | null>(null);
 
   // Indice « faites glisser la carte » : la main tourne en boucle JUSQU'AU 1er geste
   // (disparition gérée dans handleUserMove). Pas de timer de sécurité.
@@ -62,11 +71,18 @@ export default function MapContent({
     });
 
     leafletMap.current.on("moveend", () => {
-      // moveend provoqué par notre recentrage (flyTo) → ne pas réévaluer (anti-boucle).
-      if (programmaticMove.current) {
-        programmaticMove.current = false;
+      // Notre flyTo de recentrage : si le centre s'arrête à < 0,5 m de la cible mémorisée, c'est
+      // NOUS → on consomme et on ignore. Sinon = vrai déplacement utilisateur → on évalue.
+      const map = leafletMap.current;
+      if (
+        map &&
+        programmaticTarget.current &&
+        map.distance(map.getCenter(), [programmaticTarget.current.lat, programmaticTarget.current.lon]) < 0.5
+      ) {
+        programmaticTarget.current = null; // c'était notre flyTo → consommé et ignoré
         return;
       }
+      programmaticTarget.current = null; // vrai déplacement utilisateur → on continue (débounce → evaluer)
       if (moveTimer.current) {
         clearTimeout(moveTimer.current);
       }
@@ -76,7 +92,7 @@ export default function MapContent({
 
         if (!center) return;
 
-        onPositionChange({
+        onPositionChangeRef.current({
           latitude: center.lat,
           longitude: center.lng,
         });
@@ -131,12 +147,15 @@ export default function MapContent({
   }, [mapMode]);
 
   // À chaque nouveau point recalé (semi_auto), recentre la carte EN DOUCEUR dessus : le curseur
-  // central fixe « tombe » sur la façade. Anti-boucle via programmaticMove (le moveend du flyTo
-  // est ignoré). Mode manuel : pointSnappe est null → return tôt → aucun recentrage.
+  // central fixe « tombe » sur la façade. Anti-boucle via programmaticTarget (le moveend du flyTo,
+  // qui s'arrête sur la cible, est ignoré). Mode manuel : pointSnappe est null → return tôt.
   useEffect(() => {
     const map = leafletMap.current;
     if (!map || !pointSnappe) return;
-    programmaticMove.current = true; // le moveend de ce flyTo ne doit pas réévaluer
+    // Cible déjà (quasi) au centre → flyTo serait un no-op inutile. Rien à recentrer.
+    const distM = map.distance(map.getCenter(), [pointSnappe.lat, pointSnappe.lon]);
+    if (distM < 0.5) return; // seuil sous-métrique
+    programmaticTarget.current = { lat: pointSnappe.lat, lon: pointSnappe.lon };
     setAnimating(true);
     map.flyTo([pointSnappe.lat, pointSnappe.lon], map.getZoom(), { duration: 0.45 });
     if (animTimerRef.current) clearTimeout(animTimerRef.current);

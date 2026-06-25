@@ -670,6 +670,9 @@ export default function Home() {
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ignoreNextReverseRef = useRef(false);
   const conserverPositionRef = useRef(false); // au redo : garder le marqueur, ne pas réécrire via GPS
+  // Vrai dès que l'utilisateur a déplacé la carte. Empêche le GPS photo TARDIF de rappeler la
+  // carte sur le point photo après que l'utilisateur a choisi son point.
+  const userMovedRef = useRef(false);
 
   const [position, setPosition] = useState({
     latitude: 48.8566,
@@ -1119,6 +1122,7 @@ export default function Home() {
 
   // Demande de géolocalisation, réutilisable : capturePhoto ET bouton "Utiliser ma position".
   function demanderPositionGPS() {
+    userMovedRef.current = false; // nouvelle demande GPS : autorise le centrage tant que l'utilisateur n'a pas bougé
     if (navigator.geolocation) {
       setAddress("");
       setPositionGPSObtenue(false);
@@ -1130,8 +1134,11 @@ export default function Home() {
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude,
           };
-          // Met à jour la carte et lance le calcul d'adresse automatique (evaluer suit via moveend)
-          setPosition(photoPosition);
+          // Met à jour la carte et lance le calcul d'adresse automatique (evaluer suit via moveend).
+          // Gâté : si le GPS répond TARD (après que l'utilisateur a déjà bougé), on NE recentre PAS.
+          if (!userMovedRef.current) {
+            setPosition(photoPosition);
+          }
           await getAddressFromGPS(photoPosition.latitude, photoPosition.longitude);
           setPositionGPSObtenue(true);
         },
@@ -1601,11 +1608,12 @@ export default function Home() {
         latitude={position.latitude}
         longitude={position.longitude}
         onPositionChange={(newPosition) => {
+          userMovedRef.current = true; // vrai déplacement → le GPS photo tardif ne recentrera plus
           setPosition(newPosition);
           getAddressFromGPS(newPosition.latitude, newPosition.longitude);
           origine.evaluer(newPosition.latitude, newPosition.longitude, mode);
         }}
-        onUserMove={() => setPointDeplace(true)}
+        onUserMove={() => { userMovedRef.current = true; setPointDeplace(true); }}
         pointSnappe={mode === "manuel" ? null : (origine.resultat?.pointSnappeWgs84 ?? null)}
         mode={mode}
         onModeChange={(x) => { setMode(x); origine.evaluer(position.latitude, position.longitude, x); }}
