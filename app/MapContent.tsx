@@ -53,6 +53,10 @@ export default function MapContent({
   // Halo du bouton semi_auto pendant le recentrage de la carte sur le point recalé.
   const [animating, setAnimating] = useState(false);
   const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Pulse couleur du bouton « Façade » : durée de vie 3 s DÉCOUPLÉE de `animating` (450 ms).
+  // `pulseTick` change la key du bouton → redémarre l'animation à chaque recadrage, même rapproché.
+  const [colorPulsing, setColorPulsing] = useState(false);
+  const [pulseTick, setPulseTick] = useState(0);
   // Cible du dernier recentrage automatique. Si le centre s'y arrête, c'est NOUS → on ignore.
   // Sinon c'est un vrai déplacement utilisateur → on évalue. Auto-correcteur, aucun blocage possible.
   const programmaticTarget = useRef<{ lat: number; lon: number } | null>(null);
@@ -157,11 +161,15 @@ export default function MapContent({
     if (distM < 0.5) return; // seuil sous-métrique
     programmaticTarget.current = { lat: pointSnappe.lat, lon: pointSnappe.lon };
     setAnimating(true);
+    setColorPulsing(true);
+    setPulseTick((t) => t + 1);
     map.flyTo([pointSnappe.lat, pointSnappe.lon], map.getZoom(), { duration: 0.45 });
     if (animTimerRef.current) clearTimeout(animTimerRef.current);
     animTimerRef.current = setTimeout(() => setAnimating(false), 450);
+    const colorTimer = setTimeout(() => setColorPulsing(false), 3000);
     return () => {
       if (animTimerRef.current) clearTimeout(animTimerRef.current);
+      clearTimeout(colorTimer);
     };
   }, [pointSnappe]);
 
@@ -183,17 +191,18 @@ export default function MapContent({
       <div className="absolute left-3 bottom-3 z-[2000] flex gap-1">
         {(["semi_auto", "manuel"] as const).map((m) => (
           <button
-            key={m}
+            key={m === "semi_auto" ? `facade-${pulseTick}` : m}
             type="button"
             onClick={() => onModeChange(m)}
             aria-pressed={mode === m}
             className={
               "rounded-lg bg-white px-2 py-1 text-xs font-semibold text-slate-800 shadow" +
-              (mode === m ? " ring-2 ring-red-500" : "") +
-              (animating && m === "semi_auto" ? " svvInfoBump" : "")
+              (mode === m ? " ring-1 ring-red-500" : "") +
+              (animating && m === "semi_auto" ? " svvInfoBump" : "") +
+              (colorPulsing && m === "semi_auto" ? " svvColorPulse3s" : "")
             }
           >
-            {m === "semi_auto" ? "Semi-auto" : "Manuel"}
+            {m === "semi_auto" ? "Façade" : "Manuel"}
           </button>
         ))}
         <button
@@ -211,7 +220,7 @@ export default function MapContent({
         <div onClick={() => setInfoModeOuvert(false)} className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/45 p-5">
           <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
             <h2 className="text-lg font-extrabold text-svv-ink">Deux modes de saisie</h2>
-            <h3 className="mt-4 text-sm font-semibold text-svv-ink">Semi-auto (activé par défaut)</h3>
+            <h3 className="mt-4 text-sm font-semibold text-svv-ink">Façade (activé par défaut)</h3>
             <p className="mt-1 text-sm leading-relaxed text-svv-gray">Votre point est automatiquement recalé sur la façade du bâtiment la plus proche. Cette option est sélectionnée par défaut pour vous aider à fiabiliser votre diagnostic «&nbsp;sans vis-à-vis&nbsp;» : la mesure part toujours de la façade, de façon cohérente d&apos;un bien à l&apos;autre. À conserver dans la grande majorité des cas.</p>
             <h3 className="mt-4 text-sm font-semibold text-svv-ink">Manuel</h3>
             <p className="mt-1 text-sm leading-relaxed text-svv-gray">Votre point est conservé exactement là où vous l&apos;avez posé, sans recalage. Utile lorsque la fenêtre est en retrait de la façade, par exemple une terrasse ou une baie au dernier étage. Dans les deux modes, le point doit rester à l&apos;intérieur de l&apos;emprise d&apos;un bâtiment, sinon la mesure n&apos;est pas certifiable.</p>

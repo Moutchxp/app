@@ -68,3 +68,24 @@ body {
   100% { transform: scale(1); }
 }
 .svvInfoBump { animation: svvInfoBump 0.6s ease-in-out; }
+
+@keyframes svvColorPulse {
+  0%   { background-color: #ffffff; color: #000000; }
+  35%  { background-color: var(--color-svv-red); color: #ffffff; }
+  65%  { background-color: var(--color-svv-red); color: #ffffff; }
+  100% { background-color: #ffffff; color: #000000; }
+}
+.svvColorPulse {
+  animation: svvColorPulse 3s ease-in-out;
+}
+
+/* Pulse couleur SEUL (sans le bump), 3 s — durée de vie pilotée par `colorPulsing` côté React. */
+.svvColorPulse3s {
+  animation: svvColorPulse 3s ease-in-out;
+}
+
+/* Bouton « Façade » pendant le recadrage : bump (scale 0,6 s) ET pulse couleur (3 s) en parallèle
+   — une seule déclaration `animation` multiple, sinon la 2e classe écraserait la 1re. */
+.svvFacadePulse {
+  animation: svvInfoBump 0.6s ease-in-out, svvColorPulse 3s linear;
+}
