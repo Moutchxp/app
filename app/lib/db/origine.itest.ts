@@ -55,3 +55,32 @@ describe("validerOrigine — snap sur bordure", () => {
     expect(reval.distanceAuBatimentM).toBeLessThan(0.05); // sur/à ras la frontière
   });
 });
+
+describe("validerOrigine — mode de saisie (semi_auto vs manuel)", () => {
+  it("A — manuel : point intérieur valide, NON snappé (≠ semi_auto)", async () => {
+    const man = await validerOrigine(INTERIEUR, "manuel");
+    const semi = await validerOrigine(INTERIEUR, "semi_auto");
+    expect(man.valide).toBe(true);
+    expect(semi.valide).toBe(true);
+    expect(man.pointSnappeL93).not.toBeNull();
+    expect(semi.pointSnappeL93).not.toBeNull();
+    // semi_auto recale sur la bordure (~3,9 m du brut) ; manuel garde le point tel quel → écart franc.
+    const ecart = Math.hypot(
+      man.pointSnappeL93!.x - semi.pointSnappeL93!.x,
+      man.pointSnappeL93!.y - semi.pointSnappeL93!.y,
+    );
+    expect(ecart).toBeGreaterThan(1);
+  });
+
+  it("B — manuel : point hors bâtiment (>1 m) → INDÉTERMINÉ (valide=false)", async () => {
+    const v = await validerOrigine(DEHORS_LOIN, "manuel");
+    expect(v.valide).toBe(false);
+  });
+
+  it("bonus — point à ≤ 1 m dehors : semi_auto valide (snappé), manuel invalide (pas de tolérance)", async () => {
+    const semi = await validerOrigine(DEHORS_PROCHE, "semi_auto");
+    const man = await validerOrigine(DEHORS_PROCHE, "manuel");
+    expect(semi.valide).toBe(true);
+    expect(man.valide).toBe(false);
+  });
+});

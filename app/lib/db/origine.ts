@@ -11,6 +11,7 @@
  */
 import { query } from "./client";
 import type { PointWgs84, PointL93 } from "../svv/geo";
+import type { ModeOrigine } from "../svv/config";
 
 /** Distance max (m) à l'extérieur du bâtiment pour snapper/valider le point (ex-0,30 m). */
 const ORIGIN_SNAP_TOLERANCE_M = 1.0;
@@ -41,7 +42,10 @@ interface LigneBatiment {
   snap_lat: number;
 }
 
-export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigine> {
+export async function validerOrigine(
+  point: PointWgs84,
+  mode: ModeOrigine = "semi_auto",
+): Promise<ValidationOrigine> {
   const res = await query<LigneBatiment>(
     `WITH pt AS (
        SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 2154) AS g
@@ -52,8 +56,10 @@ export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigi
        ORDER BY ST_Force2D(b.geom) <-> pt.g
        LIMIT 1
      ),
-     snap AS (                                          -- projection sur la bordure
-       SELECT ST_ClosestPoint(ST_Boundary(nn.geom), pt.g) AS g FROM nn, pt
+     snap AS (                                          -- semi_auto : projection bordure ; manuel : point brut tel quel
+       SELECT CASE WHEN $3 = 'manuel' THEN pt.g
+                   ELSE ST_ClosestPoint(ST_Boundary(nn.geom), pt.g) END AS g
+       FROM nn, pt
      )
      SELECT nn.id, nn.cleabs,
             ST_AsText(nn.geom) AS polygone_wkt,
@@ -68,7 +74,7 @@ export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigi
             ST_X(ST_Transform(snap.g, 4326)) AS snap_lon,
             ST_Y(ST_Transform(snap.g, 4326)) AS snap_lat
      FROM nn, pt, snap;`,
-    [point.lon, point.lat],
+    [point.lon, point.lat, mode],
   );
 
   if (res.rows.length === 0) {
@@ -92,10 +98,15 @@ export async function validerOrigine(point: PointWgs84): Promise<ValidationOrigi
 
   const dansBatiment = couvert; // ST_Covers : intérieur OU bordure
   const distanceAuBatimentM = couvert ? 0 : dist_m;
-  const valide = couvert || dist_m <= ORIGIN_SNAP_TOLERANCE_M;
+  // manuel : validable SEULEMENT si couvert (aucune tolérance, aucun snap). semi_auto : inchangé.
+  const valide = mode === "manuel" ? couvert : couvert || dist_m <= ORIGIN_SNAP_TOLERANCE_M;
 
   let raison: string;
-  if (couvert) {
+  if (mode === "manuel") {
+    raison = couvert
+      ? "Point validé (mode manuel — point pris tel quel)."
+      : `Point hors d'un bâtiment (mode manuel) : à ${dist_m.toFixed(2)} m. Repositionne le marqueur à l'intérieur de votre habitation.`;
+  } else if (couvert) {
     raison = "Point sur l'emprise du bâtiment (snappé sur la bordure).";
   } else if (dist_m <= ORIGIN_SNAP_TOLERANCE_M) {
     raison = `Point à ${dist_m.toFixed(2)} m du bâtiment (≤ 1 m, snappé sur la bordure).`;
