@@ -215,14 +215,11 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
       );
     };
 
+    const PICTO_LEAD = 200; // ms : délai entre l'apparition du picto et le début de la frappe du texte
+
     const valider = (i: number) => {
       if (cancelled) return;
-      // b) pastille rouge + picto (bumper)
-      setValidated((prev) => {
-        const n = [...prev];
-        n[i] = true;
-        return n;
-      });
+      // b) le picto (pastille rouge + bumper) est désormais révélé par startLine() AVANT la frappe.
       // d) connecteur précédent -> courant (segment i-1 -> i) se dessine
       if (i >= 1) {
         setDrawn((prev) => {
@@ -241,11 +238,22 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
       );
       // e) étape suivante 865 ms après la validation
       if (i < ETAPES_INTRO.length - 1) {
-        after(865, () => typeLine(i + 1));
+        after(865, () => startLine(i + 1));
       } else {
         // 4e étape validée → bouton retardé (620 + 200 + 200 ms) pour rester smooth.
         after(1020, () => setShowBtn(true));
       }
+    };
+
+    // Démarre une ligne : PICTO d'abord (svvBumper), puis la frappe du TEXTE après PICTO_LEAD.
+    const startLine = (i: number) => {
+      if (cancelled) return;
+      setValidated((prev) => {
+        const n = [...prev];
+        n[i] = true;
+        return n;
+      });
+      after(PICTO_LEAD, () => typeLine(i));
     };
 
     const typeLine = (i: number) => {
@@ -267,8 +275,8 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
       }, 44);
     };
 
-    // a) pause initiale 200 ms (titre + pastilles au repos) avant la 1re frappe.
-    after(200, () => typeLine(0));
+    // a) pause initiale 200 ms (titre + pastilles au repos) avant la 1re ligne.
+    after(200, () => startLine(0));
 
     return () => {
       cancelled = true;
@@ -1032,6 +1040,32 @@ export default function Home() {
     }
   }
 
+  // Redémarrage RAPIDE du flux caméra sur le MÊME objectif (pour réparer un flux figé/mort).
+  // Lit le deviceId courant sur la track (sans énumération), stoppe l'ancien flux, rouvre
+  // exactement le même objectif et ré-attache. NE change pas d'objectif, NE re-demande pas de
+  // permission, NE touche pas aux capteurs (le reset niveau reste à reinitialiserAideNiveau).
+  async function redemarrerCamera() {
+    const currentId = streamRef.current?.getVideoTracks()[0]?.getSettings?.().deviceId;
+    // (a) libérer proprement l'ancien flux AVANT de rouvrir (pas de fuite)
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    // (b) rouvrir le MÊME objectif : deviceId exact si connu, sinon mêmes constraints qu'à l'ouverture
+    const constraints = currentId
+      ? { video: { deviceId: { exact: currentId }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }
+      : { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
+    try {
+      const s = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = s;
+      // (c) ré-attacher + relancer la lecture
+      if (videoRef.current) {
+        videoRef.current.srcObject = s;
+        videoRef.current.play?.().catch(() => {});
+      }
+    } catch (e) {
+      // (d) robuste : pas de crash ; l'UI reste utilisable, l'utilisateur peut retaper le refresh
+      console.warn("Redémarrage caméra échoué", e);
+    }
+  }
+
   // Débloque l'aide au niveau (le garde-fou anti-saut peut se verrouiller après un à-plat).
   // Recale le roulis lissé sur le réel ; conserve le flux et l'objectif.
   function reinitialiserAideNiveau() {
@@ -1415,7 +1449,7 @@ export default function Home() {
           <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-5 pt-12 pb-4">
             <button
               type="button"
-              onClick={reinitialiserAideNiveau}
+              onClick={() => { reinitialiserAideNiveau(); redemarrerCamera(); }}
               className={`flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white ${niveauBloque ? "svvRingPulse" : ""}`}
               aria-label="Réinitialiser le niveau"
             >
