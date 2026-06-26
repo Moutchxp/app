@@ -13,6 +13,7 @@ import type { EntreePaysage } from "../svv/entreePaysage";
 import { validerOrigine, type ValidationOrigine } from "./origine";
 import { obstaclesSurAxe } from "./obstacles";
 import { faisceauxAmplitude } from "./faisceaux";
+import { preparerPaysageGeometrique } from "../svv/preparateurPaysage";
 
 /**
  * EntreeFamille2 neutre représentant « aucune photo exploitable ».
@@ -82,7 +83,8 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
     !validation.valide ||
     validation.batimentOrigine === null ||
     validation.altitudeTerrainOrigineM === null ||
-    validation.pointSnappeWgs84 === null
+    validation.pointSnappeWgs84 === null ||
+    validation.pointSnappeL93 === null
   ) {
     return { validation, resultat: null };
   }
@@ -109,8 +111,30 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
     altitudeFenetreM,
   });
 
-  // e) Paysage (fourni, sinon « sans photo »).
-  const paysage = params.paysage ?? paysageVideNouveau();
+  // e) Paysage (pièce D) : moitié GÉOMÉTRIQUE réelle (Strate 1 + monuments candidats) via le
+  // préparateur. PAS d'IA ici (photoExploitable=false, monuments laissés vides → Strate 2=0).
+  // Fallback propre sur le stub si le préparateur échoue (pas de crash).
+  let paysage: EntreePaysage;
+  if (params.paysage) {
+    paysage = params.paysage;
+  } else {
+    try {
+      const geo = await preparerPaysageGeometrique(validation.pointSnappeL93, params.azimutPrincipalDeg);
+      paysage = {
+        photoExploitable: false, // pas d'IA câblée (pièce B/C) → scorePartiel reste true
+        faisceauxValorisants: geo.faisceauxValorisants,
+        faisceauxConeTotal: geo.faisceauxConeTotal,
+        monuments: [], // Strate 2 nécessite l'IA (fractionVisible) → vide pour l'instant
+        nuisancesMajeures: [],
+        nuisancesMineures: [],
+        carrefourMajeur: false,
+        cimetiere: false,
+      };
+    } catch (e) {
+      console.warn("[pipeline] préparateur paysage échoué — fallback stub", e);
+      paysage = paysageVideNouveau();
+    }
+  }
 
   // f) Assemblage de l'entrée complète.
   const entree: EntreeComplete = {
