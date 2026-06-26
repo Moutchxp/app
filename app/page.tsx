@@ -710,6 +710,7 @@ export default function Home() {
   }, [etape, infoOrientationVu]);
   // Pop-up d'aide « Pourquoi placer ce point ? » (écran localisation) — états DISTINCTS d'Orientation.
   const [infoLocalisationOuvert, setInfoLocalisationOuvert] = useState(false);
+  const [showInfoPhoto, setShowInfoPhoto] = useState(false); // modale « À quoi sert cette photo ? »
   const [infoLocalisationVu, setInfoLocalisationVu] = useState(false); // déjà consulté → arrête le clignotement
   const [bumpInfoLocalisation, setBumpInfoLocalisation] = useState(false); // « bump » périodique du « i » localisation
   // Bump du « i » localisation : armé SEULEMENT quand le « i » est visible (pointDeplace === true,
@@ -1575,9 +1576,43 @@ export default function Home() {
                   isLevel ? "bg-white border-[#7CE2A0]/80 active:scale-95" : "bg-white/50 border-white/30 cursor-not-allowed"
                 }`}
               />
-              <span className="w-16 text-center text-[11px] text-white/85">Aide</span>
+              <button
+                type="button"
+                onClick={() => setShowInfoPhoto(true)}
+                aria-label="Informations sur la photo"
+                className="flex w-16 flex-col items-center gap-0.5 text-[11px] text-white/85"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 11v5" />
+                  <path d="M12 7.5h.01" />
+                </svg>
+                Info
+              </button>
             </div>
           </div>
+
+          {/* Modale « À quoi sert cette photo ? » — même motif que la modale Façade (overlay z-[3000]). */}
+          {showInfoPhoto && (
+            <div onClick={() => setShowInfoPhoto(false)} className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/45 p-5">
+              <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+                <h2 className="text-lg font-extrabold text-svv-ink">À quoi sert cette photo ?</h2>
+                <p className="mt-3 text-sm leading-relaxed text-svv-gray">Cette photo nous aide à analyser votre vue de trois façons :</p>
+                <ul className="mt-2 space-y-2 text-sm leading-relaxed text-svv-gray">
+                  <li>• <span className="font-semibold text-svv-ink">Analyse de la vue</span> — notre intelligence artificielle observe le paysage visible (ciel, espaces verts, monuments…) pour évaluer la qualité de la vue.</li>
+                  <li>• <span className="font-semibold text-svv-ink">Localisation</span> — la photo nous indique l&apos;endroit exact d&apos;où elle est prise, pour positionner l&apos;analyse sur la carte.</li>
+                  <li>• <span className="font-semibold text-svv-ink">Orientation</span> — elle nous donne la direction du regard, pour savoir vers où s&apos;ouvre la vue.</li>
+                </ul>
+                <h3 className="mt-4 text-sm font-semibold text-svv-ink">Comment bien la prendre ?</h3>
+                <ul className="mt-2 space-y-2 text-sm leading-relaxed text-svv-gray">
+                  <li>• Tenez le téléphone bien droit : alignez la barre de niveau jusqu&apos;à ce qu&apos;elle passe au vert.</li>
+                  <li>• Cadrez la vue comme vous la voyez depuis la fenêtre ou le balcon.</li>
+                  <li>• Appuyez sur le bouton de capture une fois le niveau validé.</li>
+                </ul>
+                <button type="button" onClick={() => setShowInfoPhoto(false)} className="svv-btn svv-btn-primary mt-5">Compris</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
