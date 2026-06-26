@@ -14,6 +14,7 @@ export type MonumentCandidatGeo = {
   id: MonumentId;
   distanceM: number;
   courbe: MonumentL93["courbe"];
+  ecartDeg: number; // écart angulaire signé au cône, dans [-180, 180]. Convention boussole horaire (0=Nord, sens horaire) : >0 = monument à DROITE de l'axe principal, <0 = à GAUCHE, ≈0 = dans l'axe. Pour le repère gauche/droite du prompt IA (jamais utilisé par le scoring).
 };
 
 /**
@@ -35,7 +36,7 @@ export function monumentsDansCone(
     const az = azimutEntrePointsL93(origine, cible);
     const ecart = ((az - azimutPrincipalDeg + 540) % 360) - 180; // écart signé dans [-180, 180)
     if (Math.abs(ecart) <= AMPLITUDE_NOTE_HALF_ANGLE_DEG) {
-      retenus.push({ id: m.id, distanceM: distanceLambert93(origine, cible), courbe: m.courbe });
+      retenus.push({ id: m.id, distanceM: distanceLambert93(origine, cible), courbe: m.courbe, ecartDeg: ecart });
     }
   }
   return retenus.sort((a, b) => a.distanceM - b.distanceM);
