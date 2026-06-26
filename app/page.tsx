@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useEffect, useLayoutEffect, useRef, type ChangeEvent } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, type ChangeEvent } from "react";
 import MapSelector from "./MapSelector";
 import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
@@ -768,6 +768,22 @@ export default function Home() {
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const [videoReady, setVideoReady] = useState(false); // flux vidéo réellement prêt (frame dispo, track vivante)
+
+  // Recomposition centralisée de videoReady sur les événements du <video> + visibilitychange.
+  const reevaluerVideoReady = useCallback(() => {
+    const el = videoRef.current;
+    const track = streamRef.current?.getVideoTracks?.()[0] ?? null;
+    const trackOk = !!track && track.readyState !== "ended";       // flux vivant (pas mort)
+    const elOk = !!el && el.readyState >= 2 && el.videoWidth > 0;   // frame réellement dispo
+    setVideoReady(trackOk && elOk);
+  }, []);
+
+  useEffect(() => {
+    const onVis = () => reevaluerVideoReady();
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [reevaluerVideoReady]);
   // Détection de l'objectif actif — on vise l'ULTRA grand-angle arrière. + panneau de debug temporaire.
   const [surUltra, setSurUltra] = useState(false);
   const [ultraDeviceId, setUltraDeviceId] = useState<string | null>(null);
@@ -1322,6 +1338,8 @@ export default function Home() {
   const niveauTousOk = pitchValid && rollValid;
   const niveauUnSeulOk = (pitchValid || rollValid) && !niveauTousOk;
   const couleurNiveau = niveauTousOk ? "#2e9e5b" : niveauUnSeulOk ? "#e08a1e" : "#c0392b";
+  // Bouton de capture honnête : vert/actif seulement si niveau OK ET flux vidéo réellement prêt.
+  const peutCapturer = isLevel && videoReady;
   const legendeNiveau = niveauTousOk
     ? "✓ Parfait — prenez la photo"
     : !pitchValid && !rollValid
@@ -1447,7 +1465,18 @@ export default function Home() {
 
       {isCameraActive && (
         <div className="fixed inset-0 z-50 bg-black select-none">
-          <video ref={videoRef} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover" />
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            className="absolute inset-0 w-full h-full object-cover"
+            onLoadedMetadata={reevaluerVideoReady}
+            onCanPlay={reevaluerVideoReady}
+            onPlaying={reevaluerVideoReady}
+            onWaiting={reevaluerVideoReady}
+            onStalled={reevaluerVideoReady}
+            onEmptied={reevaluerVideoReady}
+          />
 
           {/* Anneau rouge clignotant du bouton « Grand-angle » (incite au tap). */}
           <style>{`@keyframes svvRing{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,0)}50%{box-shadow:0 0 0 6px rgba(220,38,38,0.9)}}.svvRingPulse{animation:svvRing 1.1s ease-in-out infinite}`}</style>
@@ -1576,10 +1605,10 @@ export default function Home() {
               <button
                 type="button"
                 onClick={capturePhoto}
-                disabled={!isLevel}
+                disabled={!peutCapturer}
                 aria-label="Prendre la photo"
                 className={`h-[74px] w-[74px] rounded-full border-[5px] transition-all duration-300 ${
-                  isLevel ? "bg-white border-[#7CE2A0]/80 active:scale-95" : "bg-white/50 border-white/30 cursor-not-allowed"
+                  peutCapturer ? "bg-white border-[#7CE2A0]/80 active:scale-95" : "bg-white/50 border-white/30 cursor-not-allowed"
                 }`}
               />
               <button
