@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 
+// TEST UNIQUEMENT — simule la lenteur de l'analyse photo pour voir le spinner.
+// À RETIRER quand l'IA réelle sera câblée.
+const DELAI_TEST_MS = 3000;
+
 export async function POST(req: Request) {
   let body: unknown;
   try {
@@ -29,5 +33,6 @@ export async function POST(req: Request) {
   // BOUCHON : aucun traitement IA pour l'instant.
   // FUTUR : { ok: true, disponible: true, score: <resultat.score mis à jour avec strate2 + malus photo> }
   // Pour l'instant, bouchon : disponible:false → la page résultat garde le score géométrique.
+  await new Promise((res) => setTimeout(res, DELAI_TEST_MS));
   return NextResponse.json({ ok: true, disponible: false });
 }
