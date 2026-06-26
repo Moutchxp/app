@@ -656,6 +656,8 @@ export default function Home() {
   const [analyseEnCours, setAnalyseEnCours] = useState(false);
   const [analyse, setAnalyse] = useState<ReponseAnalyse | null>(null);
   const [analyseErreur, setAnalyseErreur] = useState<string | null>(null);
+  const [etatPhoto, setEtatPhoto] = useState<"en_cours" | "complet" | "indisponible">("indisponible");
+  // en_cours = analyse photo lancée ; complet = score enrichi reçu ; indisponible = pas de photo / échec / timeout
   // Étape animée de la checklist « Analyse en cours » (présentation seule, pas le pipeline).
   const [analyseEtape, setAnalyseEtape] = useState(0);
 
@@ -1291,6 +1293,7 @@ export default function Home() {
     // Tout est bon : bascule sur l'écran résultat en mode chargement.
     setAnalyseErreur(null);
     setAnalyse(null);
+    setEtatPhoto("indisponible"); // repart propre : pas d'analyse photo tant que la phase 1 n'a pas répondu
     setAnalyseEnCours(true);
     setEtape("resultat");
     setTimeout(() => {
@@ -1308,11 +1311,43 @@ export default function Home() {
         setAnalyseErreur(data?.erreur ?? "Erreur lors de l'analyse.");
       } else {
         setAnalyse(data as ReponseAnalyse);
+        // Phase 2 (asynchrone, NON bloquante) : l'écran résultat s'affiche tout de suite avec le
+        // score géométrique ; l'analyse photo enrichira le score plus tard si disponible.
+        void lancerAnalysePhoto(lat, lon, azimut, photo);
       }
     } catch {
       setAnalyseErreur("Connexion impossible au service d'analyse.");
     } finally {
       setAnalyseEnCours(false);
+    }
+  }
+
+  // Phase 2 — analyse photo asynchrone (non bloquante). Bouchon /api/analyse-photo pour l'instant
+  // (disponible:false → indisponible). Timeout 8 s ; abort/réseau/échec → indisponible.
+  async function lancerAnalysePhoto(lat: number, lon: number, azimut: number, photoDataUrl: string | null) {
+    if (!photoDataUrl) { setEtatPhoto("indisponible"); return; }
+    setEtatPhoto("en_cours");
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000); // timeout 8 s
+    try {
+      const r = await fetch("/api/analyse-photo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photo: photoDataUrl, lat, lon, azimut }),
+        signal: ctrl.signal,
+      });
+      const data = await r.json();
+      if (!r.ok || data?.ok !== true || data?.disponible !== true) {
+        setEtatPhoto("indisponible"); // bouchon disponible:false → indisponible (attendu pour l'instant)
+        return;
+      }
+      // FUTUR (IA câblée) : data.disponible === true → enrichir le score
+      // setAnalyse((prev) => prev ? { ...prev, resultat: { ...prev.resultat, score: data.score } } : prev);
+      setEtatPhoto("complet");
+    } catch {
+      setEtatPhoto("indisponible"); // abort/timeout/réseau → indisponible
+    } finally {
+      clearTimeout(timer);
     }
   }
 
