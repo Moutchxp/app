@@ -202,7 +202,7 @@ export default function MapContent({
               (colorPulsing && m === "semi_auto" ? " svvColorPulse3s" : "")
             }
           >
-            {m === "semi_auto" ? "Façade" : "Manuel"}
+            {m === "semi_auto" ? "Façade" : "Libre"}
           </button>
         ))}
         <button
@@ -222,8 +222,8 @@ export default function MapContent({
             <h2 className="text-lg font-extrabold text-svv-ink">Deux modes de saisie</h2>
             <h3 className="mt-4 text-sm font-semibold text-svv-ink">Façade (activé par défaut)</h3>
             <p className="mt-1 text-sm leading-relaxed text-svv-gray">Votre point est automatiquement recalé sur la façade du bâtiment la plus proche. Cette option est sélectionnée par défaut pour vous aider à fiabiliser votre diagnostic «&nbsp;sans vis-à-vis&nbsp;» : la mesure part toujours de la façade, de façon cohérente d&apos;un bien à l&apos;autre. À conserver dans la grande majorité des cas.</p>
-            <h3 className="mt-4 text-sm font-semibold text-svv-ink">Manuel</h3>
-            <p className="mt-1 text-sm leading-relaxed text-svv-gray">Votre point est conservé exactement là où vous l&apos;avez posé, sans recalage. Utile lorsque la fenêtre est en retrait de la façade, par exemple une terrasse ou une baie au dernier étage. Dans les deux modes, le point doit rester à l&apos;intérieur de l&apos;emprise d&apos;un bâtiment, sinon la mesure n&apos;est pas certifiable.</p>
+            <h3 className="mt-4 text-sm font-semibold text-svv-ink">Libre</h3>
+            <p className="mt-1 text-sm leading-relaxed text-svv-gray">En mode Libre, votre point reste exactement là où vous l&apos;avez posé, sans recalage. Utile lorsque la fenêtre est en retrait de la façade, par exemple une terrasse ou une baie au dernier étage. Dans les deux modes, le point doit rester à l&apos;intérieur de l&apos;emprise d&apos;un bâtiment, sinon la mesure n&apos;est pas certifiable.</p>
             <button type="button" onClick={() => setInfoModeOuvert(false)} className="svv-btn svv-btn-primary mt-5">Compris</button>
           </div>
         </div>
