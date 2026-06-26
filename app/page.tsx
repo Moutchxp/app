@@ -1472,7 +1472,7 @@ export default function Home() {
                   : "en attente…"}
               </span>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white text-base" aria-hidden="true">⚡</div>
+            <div className="h-9 w-9" aria-hidden="true" />
           </div>
 
           {/* HUD niveau combiné : cible fixe + barre flottante (pitch = translateY, roll = rotate) */}
