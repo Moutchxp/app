@@ -419,6 +419,7 @@ function EcranResultat({
   lat,
   lon,
   azimutDeg,
+  etatPhoto,
   onRecommencer,
   onRefaireTest,
 }: {
@@ -427,6 +428,7 @@ function EcranResultat({
   lat: number;
   lon: number;
   azimutDeg: number | null;
+  etatPhoto: "en_cours" | "complet" | "indisponible";
   onRecommencer: () => void;
   onRefaireTest: () => void;
 }) {
@@ -511,6 +513,12 @@ function EcranResultat({
                 strokeDashoffset={offset}
               />
             </svg>
+            {etatPhoto === "en_cours" && (
+              <span
+                className="absolute inset-0 animate-spin rounded-full border-[4px] border-svv-red border-t-transparent"
+                aria-hidden="true"
+              />
+            )}
             <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
               <div className="flex items-baseline">
                 <span className="text-3xl font-extrabold text-svv-ink">{score}</span>
@@ -519,11 +527,17 @@ function EcranResultat({
             </div>
           </div>
           <p className="mt-1.5 text-[11px] font-semibold leading-tight text-svv-muted">
-            {resultat.score.scorePartiel ? (
+            {etatPhoto === "en_cours" ? (
               <>
                 Score partiel
                 <br />
-                photo inexploitable
+                Analyse de la photo en cours
+              </>
+            ) : etatPhoto === "indisponible" ? (
+              <>
+                Score estimé
+                <br />
+                sans photo
               </>
             ) : (
               "Score global"
@@ -2217,6 +2231,7 @@ export default function Home() {
         lat={origine.valide?.lat ?? position.latitude}
         lon={origine.valide?.lon ?? position.longitude}
         azimutDeg={azimutAjuste}
+        etatPhoto={etatPhoto}
         onRecommencer={() => setEtape("accueil")}
         onRefaireTest={() => {
           reinitialiserCapteurs();             // repart d'un état niveau propre (évite le déclencheur grisé)
