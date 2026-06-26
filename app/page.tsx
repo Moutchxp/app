@@ -646,6 +646,7 @@ export default function Home() {
   const [address, setAddress] = useState("");
   const [addressInfo, setAddressInfo] = useState(""); // message d'info SOUS le champ, jamais dans sa valeur
   const [positionGPSObtenue, setPositionGPSObtenue] = useState(false); // AFFICHAGE seul : libellé adresse
+  const [carteCentrePret, setCarteCentrePret] = useState(false); // la carte localisation a un VRAI centre (pas le défaut Paris)
   const origine = useOrigineValidation();
   const [mode, setMode] = useState<ModeOrigine>("semi_auto"); // saisie origine : semi_auto (snap) | manuel (M4b : boutons)
   const [pointDeplace, setPointDeplace] = useState(false); // true au 1er geste utilisateur sur la carte
@@ -1158,6 +1159,7 @@ export default function Home() {
   // Demande de géolocalisation, réutilisable : capturePhoto ET bouton "Utiliser ma position".
   function demanderPositionGPS() {
     userMovedRef.current = false; // nouvelle demande GPS : autorise le centrage tant que l'utilisateur n'a pas bougé
+    setCarteCentrePret(false); // on (ré)acquiert un centre → masque la carte le temps de l'avoir (pas de flash Paris)
     if (navigator.geolocation) {
       setAddress("");
       setPositionGPSObtenue(false);
@@ -1174,6 +1176,7 @@ export default function Home() {
           if (!userMovedRef.current) {
             setPosition(photoPosition);
           }
+          setCarteCentrePret(true); // vrai centre connu → la carte peut naître dessus
           await getAddressFromGPS(photoPosition.latitude, photoPosition.longitude);
           setPositionGPSObtenue(true);
         },
@@ -1188,6 +1191,7 @@ export default function Home() {
           } else {
             setAddressInfo("Géolocalisation introuvable — saisissez l'adresse ou déplacez le repère sur la carte.");
           }
+          setCarteCentrePret(true); // pas de GPS → on affiche la carte (placement manuel sur le centre courant)
         },
         {
           enableHighAccuracy: false, // position approx suffit (origine posée à la main) ; évite les timeouts en intérieur
@@ -1198,6 +1202,7 @@ export default function Home() {
     } else {
       // Fallback si le navigateur ne gère pas la géolocalisation
       setPositionGPSObtenue(false);
+      setCarteCentrePret(true); // pas de géoloc → on affiche la carte (placement manuel)
       setAddressInfo("Géolocalisation indisponible — saisissez l'adresse ou déplacez le repère.");
     }
   }
@@ -1224,6 +1229,7 @@ export default function Home() {
         // 3. On déclenche la géolocalisation pour placer le point sur la carte
         if (conserverPositionRef.current) {
           conserverPositionRef.current = false;
+          setCarteCentrePret(true); // point conservé : centre déjà bon, pas d'attente GPS
           origine.evaluer(position.latitude, position.longitude, mode); // re-évalue le point conservé (sans GPS)
         } else {
           demanderPositionGPS();
@@ -1673,20 +1679,25 @@ export default function Home() {
     )}
 
     <div className="mt-3 overflow-hidden rounded-2xl border border-svv-line">
-      <MapSelector
-        latitude={position.latitude}
-        longitude={position.longitude}
-        onPositionChange={(newPosition) => {
-          userMovedRef.current = true; // vrai déplacement → le GPS photo tardif ne recentrera plus
-          setPosition(newPosition);
-          getAddressFromGPS(newPosition.latitude, newPosition.longitude);
-          origine.evaluer(newPosition.latitude, newPosition.longitude, mode);
-        }}
-        onUserMove={() => { userMovedRef.current = true; setPointDeplace(true); }}
-        pointSnappe={mode === "manuel" ? null : (origine.resultat?.pointSnappeWgs84 ?? null)}
-        mode={mode}
-        onModeChange={(x) => { setMode(x); origine.evaluer(position.latitude, position.longitude, x); }}
-      />
+      {carteCentrePret ? (
+        <MapSelector
+          latitude={position.latitude}
+          longitude={position.longitude}
+          onPositionChange={(newPosition) => {
+            userMovedRef.current = true; // vrai déplacement → le GPS photo tardif ne recentrera plus
+            setPosition(newPosition);
+            getAddressFromGPS(newPosition.latitude, newPosition.longitude);
+            origine.evaluer(newPosition.latitude, newPosition.longitude, mode);
+          }}
+          onUserMove={() => { userMovedRef.current = true; setPointDeplace(true); }}
+          pointSnappe={mode === "manuel" ? null : (origine.resultat?.pointSnappeWgs84 ?? null)}
+          mode={mode}
+          onModeChange={(x) => { setMode(x); origine.evaluer(position.latitude, position.longitude, x); }}
+        />
+      ) : (
+        // Placeholder neutre, même hauteur que la carte → pas de flash Paris ni de saut de layout.
+        <div className="h-80 w-full animate-pulse bg-svv-field" aria-hidden="true" />
+      )}
     </div>
     {/* État 2 (après le 1er déplacement) : règle 1-2 + bouton « i ». Jamais en même temps que le cartouche rouge. */}
     {pointDeplace && (
@@ -2126,7 +2137,7 @@ export default function Home() {
             <p className="mt-1 text-sm text-svv-muted">{message}</p>
             <button
               type="button"
-              onClick={() => setEtape("localisation")}
+              onClick={() => { setCarteCentrePret(true); setEtape("localisation"); }}
               className="svv-btn svv-btn-outline mt-3"
             >
               {bouton}
