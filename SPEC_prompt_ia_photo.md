@@ -51,8 +51,12 @@ Nuisances. Signale les éléments laids visibles, par un drapeau, seulement si t
 Majeures possibles : LIGNE_HAUTE_TENSION, INDUSTRIEL_FRICHE, SILO_CHATEAU_EAU.
 Mineures possibles : ANTENNE_TELECOM, PANNEAU_PUBLICITAIRE, MUR_AVEUGLE, GRAND_PARKING.
 
-Photo inexploitable. Si la photo est floue, trop sombre, prise en intérieur, obstruée, ou
-ne montre pas une vue, mets photo_exploitable à false et laisse les listes vides.
+Photo inexploitable — règle stricte. Mets photo_exploitable à false et laisse toutes les listes vides (monuments, nuisances) dans l'un de ces cas :
+- Cadrage : la vue extérieure (le paysage vu à travers la fenêtre) n'occupe pas la très large majorité de l'image, environ 90 % ou plus. Si les battants de la fenêtre, les volets, les rideaux, l'encadrement, un mur, un balcon, ou tout élément intérieur occupent une part notable de l'image, la photo est inexploitable.
+- Sujet : l'image ne montre pas une vue depuis une fenêtre. Par exemple une pièce, un meuble, un écran de télévision, une cuisine, un salon, un objet, une personne, un animal, un selfie, ou toute scène d'intérieur sans paysage extérieur dégagé.
+- Nuit et luminosité : la photo est prise de nuit, ou est trop sombre pour distinguer le paysage. Une prise de vue nocturne est toujours inexploitable, même si l'on devine un paysage ou des lumières de ville.
+- Qualité : la photo est floue, surexposée, ou de qualité insuffisante pour analyser le paysage.
+Biais prudent : dans le moindre doute sur le cadrage, le sujet ou la luminosité, considère la photo comme inexploitable et mets photo_exploitable à false. Ne renvoie une analyse que sur une vue extérieure dégagée, diurne et bien cadrée.
 
 Format de sortie exact :
 ```json
