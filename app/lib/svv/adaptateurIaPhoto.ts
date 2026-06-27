@@ -118,7 +118,9 @@ async function appelerGemini(
   photoBase64SansPrefixe: string,
 ): Promise<{ ok: true; texte: string } | { ok: false; raison: string }> {
   const cle = process.env.GEMINI_API_KEY;
-  if (!cle) return { ok: false, raison: "GEMINI_API_KEY absente" };
+  if (!cle) {
+    return { ok: false, raison: "GEMINI_API_KEY absente" };
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -142,10 +144,14 @@ async function appelerGemini(
         signal: controller.signal,
       },
     );
-    if (!response.ok) return { ok: false, raison: `HTTP ${response.status}` };
+    if (!response.ok) {
+      return { ok: false, raison: `HTTP ${response.status}` };
+    }
     const data = await response.json();
     const texte = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (typeof texte !== "string" || texte.length === 0) return { ok: false, raison: "réponse vide" };
+    if (typeof texte !== "string" || texte.length === 0) {
+      return { ok: false, raison: "réponse vide" };
+    }
     return { ok: true, texte };
   } catch (e) {
     const raison = e instanceof Error ? `${e.name}: ${e.message}` : String(e);

@@ -5,10 +5,6 @@ import { analyserPhotoIa } from "../../lib/svv/adaptateurIaPhoto";
 import { assemblerEntreePaysage } from "../../lib/svv/fusionPaysage";
 import type { ModeOrigine } from "../../lib/svv/config";
 
-// TEST UNIQUEMENT — simule la lenteur de l'analyse photo pour voir le spinner.
-// À RETIRER quand l'affichage "en cours" aura été validé sur iPhone.
-const DELAI_TEST_MS = 3000;
-
 export async function POST(req: Request) {
   // 1) Parse body défensif
   let body: unknown;
@@ -33,9 +29,6 @@ export async function POST(req: Request) {
   ) {
     return NextResponse.json({ ok: false, erreur: "Entrée invalide" }, { status: 400 });
   }
-
-  // Délai de test (garde le spinner visible)
-  await new Promise((res) => setTimeout(res, DELAI_TEST_MS));
 
   // 2) RUN #1 — pipeline géométrique déterministe (sans IA) : donne le snap + le score de repli
   const params1: ParametresAnalyse = {
