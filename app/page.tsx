@@ -414,7 +414,7 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
         }
       >
         <button type="button" onClick={onContinuer} className="svv-btn svv-btn-primary relative">
-          C&apos;est parti
+          Commencer
           <span className="absolute right-5 text-xl leading-none">&rsaquo;</span>
         </button>
       </div>
