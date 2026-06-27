@@ -296,8 +296,9 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
         </h1>
       </div>
 
-      {/* 2. STEPPER centré verticalement dans l'espace libre entre header et skyline */}
-      <div className="flex flex-1 flex-col justify-center">
+      {/* 2. STEPPER centré verticalement dans l'espace libre entre header et skyline.
+          relative z-10 : passe AU-DESSUS du footer (relative z-0) que le -mt-12 fait remonter, sinon le calque déco recouvre le texte des étapes. */}
+      <div className="relative z-10 flex flex-1 flex-col justify-center">
         <div ref={stepperRef} className="relative flex flex-col gap-7">
         {/* Segments pointillés (position absolue, mesurée) — DERRIÈRE les pastilles */}
         {centers.length === ETAPES_INTRO.length &&
@@ -387,14 +388,15 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
         </div>
       </div>
 
-      {/* 3. SKYLINE soft — présente dès l'ouverture, pleine largeur, alignée en bas, en retrait (z-0) */}
+      {/* 3. SKYLINE soft — présente dès l'ouverture, pleine largeur, alignée en bas, en retrait (z-0).
+          -mt-12 (vs mt-8) remonte le bloc footer + bouton « C'est parti » de ~80 px sur l'écran etapes. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/images/skyline.svg"
+        src="/images/FOOTER%203.png"
         alt=""
         aria-hidden="true"
-        className="relative z-0 -mx-6 mt-8 block w-[calc(100%+3rem)] max-w-none"
-        style={{ opacity: 0.3 }}
+        className="relative z-0 -mx-6 -mt-12 block w-[calc(100%+3rem)] max-w-none h-60 object-cover object-bottom"
+        style={{ opacity: 0.85 }}
       />
 
       {/* 4. BOUTON « C'est parti » (fondu + glissement) */}
@@ -1786,14 +1788,20 @@ export default function Home() {
                 {"Une analyse objective, basée sur la géolocalisation, les altitudes et l'intelligence artificielle."}
               </p>
 
-              {/* Skyline2 (mono-ton, sans ciel vide) — mt-auto pousse tout le bloc bas vers le bas */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/images/skyline2.svg"
-                alt=""
-                aria-hidden="true"
-                className="-mx-6 mt-auto mb-6 max-w-none w-[calc(100%+3rem)] object-bottom"
-              />
+              {/* Photo toits de Paris N&B — mt-auto pousse le bloc bas vers le bas ; hauteur fixe + object-bottom = ciel qui respire au-dessus des toits. Pas d'arrondi ; fondu vers le blanc sur 10 px en bas. */}
+              <div className="relative -mx-6 mt-auto mb-6 w-[calc(100%+3rem)]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/images/HOME%20PAGE%202.png"
+                  alt=""
+                  aria-hidden="true"
+                  className="block h-52 w-full max-w-none object-cover object-bottom"
+                />
+                {/* fondu vers le blanc en haut, sur 10 px (jonction avec la trame de fond de la home) */}
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-[10px] bg-gradient-to-t from-transparent to-white" />
+                {/* fondu vers le blanc en bas, sur 10 px */}
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[10px] bg-gradient-to-b from-transparent to-white" />
+              </div>
 
               <button
                 type="button"
@@ -2354,8 +2362,8 @@ export default function Home() {
 
 {etape === "infos" && (
   <div className="animate-fadeIn">
-    {/* HEADER ROUGE */}
-    <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
+    {/* HEADER ROUGE — relative z-10 : passe AU-DESSUS du footer (relative z-0), sinon le calque déco recouvre le titre */}
+    <div className="relative z-10 -mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
       <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Renseigner votre étage</h1>
     </div>
 
@@ -2404,11 +2412,11 @@ export default function Home() {
     {/* SKYLINE + BOUTON : toujours affichés (la 1re question suffit pour lancer l'analyse) */}
     {/* eslint-disable-next-line @next/next/no-img-element */}
     <img
-      src="/images/skyline.svg"
+      src="/images/FOOTER%203.png"
       alt=""
       aria-hidden="true"
-      className="relative z-0 -mx-6 mt-8 block w-[calc(100%+3rem)] max-w-none"
-      style={{ opacity: 0.3 }}
+      className="relative z-0 -mx-6 mt-8 block w-[calc(100%+3rem)] max-w-none h-60 object-cover object-bottom"
+      style={{ opacity: 0.85 }}
     />
 
     <button type="button" onClick={handleAnalyse} className="svv-btn svv-btn-primary mt-6">
