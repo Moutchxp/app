@@ -20,7 +20,7 @@ import {
   libelleProprete,
 } from "./lib/libelles";
 
-type Etape = "accueil" | "etapes" | "photo" | "localisation" | "orientation" | "infos" | "resultat";
+type Etape = "accueil" | "etapes" | "photo" | "localisation" | "orientation" | "infos" | "resultat" | "certificat";
 
 // Forme (partielle) de la réponse succès de /api/analyse (cf. app/api/analyse/route.ts).
 interface ReponseAnalyse {
@@ -422,15 +422,17 @@ function EcranResultat({
   etatPhoto,
   onRecommencer,
   onRefaireTest,
+  onObtenirCertificat,
 }: {
   resultat: ResultatReussi;
   photo: string | null;
   lat: number;
   lon: number;
   azimutDeg: number | null;
-  etatPhoto: "en_cours" | "complet" | "indisponible";
+  etatPhoto: "en_cours" | "exploitable" | "inexploitable" | "echec";
   onRecommencer: () => void;
   onRefaireTest: () => void;
+  onObtenirCertificat: () => void;
 }) {
   const certifie = resultat.verdict.verdict === "SANS_VIS_A_VIS";
   const score = Math.round(resultat.score.total);
@@ -533,14 +535,14 @@ function EcranResultat({
                 <br />
                 Analyse de la photo en cours
               </>
-            ) : etatPhoto === "indisponible" ? (
+            ) : etatPhoto === "exploitable" ? (
+              "Score global"
+            ) : (
               <>
                 Score estimé
                 <br />
                 sans photo
               </>
-            ) : (
-              "Score global"
             )}
           </p>
         </div>
@@ -616,7 +618,7 @@ function EcranResultat({
       <div className={certifie ? "mt-6" : "mt-auto pt-6"}>
         {certifie ? (
           <>
-            <button type="button" onClick={todoEcranAVenir} className="svv-btn svv-btn-primary">
+            <button type="button" onClick={onObtenirCertificat} className="svv-btn svv-btn-primary">
               <SceauCertifie className="h-7 w-auto shrink-0 text-white" />
               Obtenir mon certificat
             </button>
@@ -655,6 +657,207 @@ function EcranResultat({
   );
 }
 
+const TYPES_BIEN = ["Maison", "Appartement", "Studio", "Duplex", "Triplex", "Loft"] as const;
+
+const EPOQUES = [
+  "Inconnu", "Avant 1850", "De 1850 à 1913", "De 1914 à 1947",
+  "De 1948 à 1969", "De 1970 à 1980", "De 1981 à 1991", "De 1992 à 2000",
+  "De 2001 à 2010", "De 2011 à 2020", "À partir de 2021",
+] as const;
+
+function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernierEtage }: {
+  onRetour: () => void;
+  adresseBien: string;
+  lat: number;
+  lon: number;
+  etageInitial: number;
+  dernierEtage: boolean;
+}) {
+  const [prenom, setPrenom] = useState("");
+  const [nom, setNom] = useState("");
+  const [email, setEmail] = useState("");
+  const [telephone, setTelephone] = useState("");
+  const [typeBien, setTypeBien] = useState("");
+  const [surface, setSurface] = useState("");
+  const [nbPieces, setNbPieces] = useState(0);
+  const [epoque, setEpoque] = useState("");
+  const [epoqueModalOuvert, setEpoqueModalOuvert] = useState(false);
+  const [terrasse, setTerrasse] = useState<null | boolean>(null);
+  const [balcon, setBalcon] = useState<null | boolean>(null);
+  const [soumis, setSoumis] = useState(false);
+
+  const emailValide = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const estValide = prenom.trim() !== "" && nom.trim() !== "" && emailValide && typeBien !== "";
+
+  const classeChoix = (actif: boolean) =>
+    `rounded-xl px-3 py-3 text-base font-semibold transition ${
+      actif ? "bg-svv-red text-white" : "border border-svv-line bg-white text-svv-ink"
+    }`;
+
+  const classeStepper =
+    "flex h-12 w-12 items-center justify-center rounded-xl border border-svv-line bg-svv-field text-2xl font-bold text-svv-ink";
+
+  // Écran de confirmation (placeholder étape 1 — pas encore de PDF ni email)
+  if (soumis) {
+    return (
+      <div className="pb-10">
+        <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
+          <div className="flex items-center gap-3">
+            <SceauCertifie className="h-9 w-auto shrink-0 text-white" />
+            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Demande enregistrée</h1>
+          </div>
+        </div>
+        <div className="rounded-xl bg-svv-field p-4 text-base font-semibold text-svv-ink">
+          ✓ Vos informations ont bien été enregistrées.
+        </div>
+        <p className="mt-3 text-sm text-svv-muted">
+          La génération de votre certificat Sans Vis-à-Vis® et son envoi par email arriveront à l'étape suivante.
+        </p>
+        <button type="button" onClick={onRetour} className="svv-btn svv-btn-outline mt-6">Retour</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pb-10">
+      <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
+        <div className="flex items-center gap-3">
+          <SceauCertifie className="h-9 w-auto shrink-0 text-white" />
+          <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Votre certificat</h1>
+        </div>
+      </div>
+
+      <p className="mb-4 text-sm text-svv-muted">Renseignez vos coordonnées et les informations du bien. Le certificat Sans Vis-à-Vis® vous sera envoyé par email.</p>
+
+      {/* IDENTITÉ */}
+      <div className="rounded-2xl bg-svv-field p-5">
+      <h2 className="text-lg font-bold text-svv-ink mb-3">Vos coordonnées</h2>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="mb-1 block text-sm font-semibold text-svv-ink">Prénom <span className="text-svv-red">*</span></label>
+          <input value={prenom} onChange={(e) => setPrenom(e.target.value)} className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none" placeholder="Prénom" />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-semibold text-svv-ink">Nom <span className="text-svv-red">*</span></label>
+          <input value={nom} onChange={(e) => setNom(e.target.value)} className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none" placeholder="Nom" />
+        </div>
+      </div>
+
+      <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Email <span className="text-svv-red">*</span></label>
+      <input
+        type="email"
+        inputMode="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
+        placeholder="vous@exemple.fr"
+      />
+      {email.trim() !== "" && !emailValide && (
+        <p className="mt-1 text-sm text-svv-red">Format d'email invalide.</p>
+      )}
+
+      <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone</label>
+      <input
+        type="tel"
+        inputMode="tel"
+        value={telephone}
+        onChange={(e) => setTelephone(e.target.value)}
+        className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
+        placeholder="06 12 34 56 78"
+      />
+      </div>
+
+      {/* BIEN */}
+      <div className="mt-4 rounded-2xl bg-svv-field p-5">
+      <h2 className="text-lg font-bold text-svv-ink mb-3">Le bien</h2>
+
+      <label className="mb-1 block text-sm font-semibold text-svv-ink">Adresse du bien</label>
+      <input value={adresseBien} readOnly className="w-full cursor-default rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink focus:outline-none" />
+      <p className="mb-3 mt-1 text-xs text-svv-muted">Coordonnées validées : {lat.toFixed(6)}, {lon.toFixed(6)}</p>
+
+      <label className="mb-2 block text-sm font-semibold text-svv-ink">Type de bien <span className="text-svv-red">*</span></label>
+      <div className="grid grid-cols-2 gap-2">
+        {TYPES_BIEN.map((t) => (
+          <button key={t} type="button" onClick={() => setTypeBien(t)} className={classeChoix(typeBien === t)}>{t}</button>
+        ))}
+      </div>
+
+      <label className="mb-1 mt-4 block text-sm font-semibold text-svv-ink">Surface (m²)</label>
+      <input
+        inputMode="decimal"
+        value={surface}
+        onChange={(e) => setSurface(e.target.value)}
+        className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
+        placeholder="Ex. 65"
+      />
+
+      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Nombre de pièces</label>
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={() => setNbPieces((n) => Math.max(0, n - 1))} className={classeStepper}>−</button>
+        <span className="w-10 text-center text-xl font-bold text-svv-ink">{nbPieces}</span>
+        <button type="button" onClick={() => setNbPieces((n) => n + 1)} className={classeStepper}>+</button>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <div>
+          <label className="mb-1 block text-sm font-semibold text-svv-ink">Étage</label>
+          <div className="rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink">{etageInitial}</div>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-semibold text-svv-ink">Dernier étage</label>
+          <div className="rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink">{dernierEtage ? "Oui" : "Non"}</div>
+        </div>
+      </div>
+      <p className="mt-1 text-xs text-svv-muted">Valeurs définies lors du calcul du certificat.</p>
+
+      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Époque de construction</label>
+      <button type="button" onClick={() => setEpoqueModalOuvert(true)} className="flex w-full items-center justify-between rounded-xl border border-svv-line bg-white p-3 text-base focus:border-svv-red focus:outline-none">
+        <span className={epoque ? "text-svv-ink" : "text-svv-muted"}>{epoque || "Sélectionner"}</span>
+        <span className="text-svv-muted">▾</span>
+      </button>
+
+      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Terrasse</label>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => setTerrasse(true)} className={classeChoix(terrasse === true)}>Oui</button>
+        <button type="button" onClick={() => setTerrasse(false)} className={classeChoix(terrasse === false)}>Non</button>
+      </div>
+      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Balcon</label>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => setBalcon(true)} className={classeChoix(balcon === true)}>Oui</button>
+        <button type="button" onClick={() => setBalcon(false)} className={classeChoix(balcon === false)}>Non</button>
+      </div>
+      </div>
+
+      {/* ACTIONS */}
+      <button
+        type="button"
+        disabled={!estValide}
+        onClick={() => setSoumis(true)}
+        className={`svv-btn svv-btn-primary mt-6 ${!estValide ? "opacity-50" : ""}`}
+      >
+        Valider
+      </button>
+      <button type="button" onClick={onRetour} className="svv-btn svv-btn-outline mt-3">Retour</button>
+
+      {/* Modal Époque — calqué sur le motif showInfoPhoto/infoLocalisation du projet */}
+      {epoqueModalOuvert && (
+        <div onClick={() => setEpoqueModalOuvert(false)} className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/45 p-5">
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="mb-3 text-base font-bold text-svv-ink">Époque de construction</h3>
+            <div className="flex flex-col gap-2">
+              {EPOQUES.map((ep) => (
+                <button key={ep} type="button" onClick={() => { setEpoque(ep); setEpoqueModalOuvert(false); }} className={classeChoix(epoque === ep)}>{ep}</button>
+              ))}
+            </div>
+            <button type="button" onClick={() => setEpoqueModalOuvert(false)} className="svv-btn svv-btn-outline mt-3">Fermer</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Home() {
   const [etape, setEtape] = useState<Etape>("accueil");
   const [address, setAddress] = useState("");
@@ -670,7 +873,7 @@ export default function Home() {
   const [analyseEnCours, setAnalyseEnCours] = useState(false);
   const [analyse, setAnalyse] = useState<ReponseAnalyse | null>(null);
   const [analyseErreur, setAnalyseErreur] = useState<string | null>(null);
-  const [etatPhoto, setEtatPhoto] = useState<"en_cours" | "complet" | "indisponible">("indisponible");
+  const [etatPhoto, setEtatPhoto] = useState<"en_cours" | "exploitable" | "inexploitable" | "echec">("echec");
   // en_cours = analyse photo lancée ; complet = score enrichi reçu ; indisponible = pas de photo / échec / timeout
   // Étape animée de la checklist « Analyse en cours » (présentation seule, pas le pipeline).
   const [analyseEtape, setAnalyseEtape] = useState(0);
@@ -1307,7 +1510,7 @@ export default function Home() {
     // Tout est bon : bascule sur l'écran résultat en mode chargement.
     setAnalyseErreur(null);
     setAnalyse(null);
-    setEtatPhoto("indisponible"); // repart propre : pas d'analyse photo tant que la phase 1 n'a pas répondu
+    setEtatPhoto("en_cours"); // repart propre : analyse photo lancée dès la phase 1
     setAnalyseEnCours(true);
     setEtape("resultat");
     setTimeout(() => {
@@ -1339,27 +1542,40 @@ export default function Home() {
   // Phase 2 — analyse photo asynchrone (non bloquante). Bouchon /api/analyse-photo pour l'instant
   // (disponible:false → indisponible). Timeout 8 s ; abort/réseau/échec → indisponible.
   async function lancerAnalysePhoto(lat: number, lon: number, azimut: number, photoDataUrl: string | null) {
-    if (!photoDataUrl) { setEtatPhoto("indisponible"); return; }
+    if (!photoDataUrl) { setEtatPhoto("echec"); return; }
     setEtatPhoto("en_cours");
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000); // timeout 8 s
+    const timer = setTimeout(() => ctrl.abort(), 45000); // timeout 45 s (marge large pour pics de latence Gemini)
     try {
       const r = await fetch("/api/analyse-photo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photo: photoDataUrl, lat, lon, azimut }),
+        body: JSON.stringify({ photo: photoDataUrl, lat, lon, azimut, mode, etage: Number(etage), dernierEtage }),
         signal: ctrl.signal,
       });
       const data = await r.json();
+      // Échec serveur (snap indisponible / préparateur / IA technique) → score géométrique conservé, on signale "sans photo"
       if (!r.ok || data?.ok !== true || data?.disponible !== true) {
-        setEtatPhoto("indisponible"); // bouchon disponible:false → indisponible (attendu pour l'instant)
+        setEtatPhoto("echec");
         return;
       }
-      // FUTUR (IA câblée) : data.disponible === true → enrichir le score
-      // setAnalyse((prev) => prev ? { ...prev, resultat: { ...prev.resultat, score: data.score } } : prev);
-      setEtatPhoto("complet");
-    } catch {
-      setEtatPhoto("indisponible"); // abort/timeout/réseau → indisponible
+      // Photo INEXPLOITABLE (géométrie OK mais photo nulle/floue/intérieur) → on garde le score géométrique, message "sans photo"
+      if (data.exploitable !== true) {
+        setEtatPhoto("inexploitable");
+        return;
+      }
+      // Photo EXPLOITABLE → on applique le score enrichi renvoyé par le serveur dans resultat.score.total
+      if (typeof data.score === "number") {
+        setAnalyse((prev) =>
+          prev && prev.resultat
+            ? { ...prev, resultat: { ...prev.resultat, score: { ...prev.resultat.score, total: data.score } } }
+            : prev
+        );
+      }
+      setEtatPhoto("exploitable");
+    } catch (e) {
+      console.error("[front] analyse-photo catch:", (e as Error)?.name, (e as Error)?.message);
+      setEtatPhoto("echec"); // abort/timeout/réseau → echec
     } finally {
       clearTimeout(timer);
     }
@@ -2232,6 +2448,7 @@ export default function Home() {
         lon={origine.valide?.lon ?? position.longitude}
         azimutDeg={azimutAjuste}
         etatPhoto={etatPhoto}
+        onObtenirCertificat={() => setEtape("certificat")}
         onRecommencer={() => setEtape("accueil")}
         onRefaireTest={() => {
           reinitialiserCapteurs();             // repart d'un état niveau propre (évite le déclencheur grisé)
@@ -2245,6 +2462,17 @@ export default function Home() {
       />
     ) : null}
   </div>
+)}
+
+{etape === "certificat" && (
+  <EcranCertificat
+    onRetour={() => setEtape("resultat")}
+    adresseBien={address}
+    lat={origine.valide?.lat ?? position.latitude}
+    lon={origine.valide?.lon ?? position.longitude}
+    etageInitial={Number(etage) || 0}
+    dernierEtage={dernierEtage}
+  />
 )}
         </section>
       </div>
