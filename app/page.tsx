@@ -674,7 +674,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
   dernierEtage: boolean;
 }) {
   const [adresseChoisie, setAdresseChoisie] = useState(adresseBien); // libellé affiché, init = adresse auto
-  const [adressesAlt, setAdressesAlt] = useState<{ cle: string; libelle: string; distanceM: number }[]>([]);
+  const [adressesAlt, setAdressesAlt] = useState<{ cle: string; libelle: string; distanceM: number; memeParcelle: boolean }[]>([]);
   const [adressePreselectionnee, setAdressePreselectionnee] = useState<string | null>(null);
   const [selecteurOuvert, setSelecteurOuvert] = useState(false);
   const [prenom, setPrenom] = useState("");
@@ -708,6 +708,29 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
   const cleAuto = adressesAlt[0]?.cle ?? null;
   const aDesAlternatives = adressesAlt.some((a) => a.cle !== cleAuto);
 
+  // Tri garanti côté front (parcelle du bien d'abord, puis distance) — l'API trie déjà
+  const adressesTriees = [...adressesAlt].sort((a, b) =>
+    a.memeParcelle === b.memeParcelle ? a.distanceM - b.distanceM : a.memeParcelle ? -1 : 1,
+  );
+  const adressesMemeParcelle = adressesTriees.filter((a) => a.memeParcelle);
+  const adressesVoisine = adressesTriees.filter((a) => !a.memeParcelle);
+  const afficherTitresGroupes = adressesMemeParcelle.length > 0 && adressesVoisine.length > 0;
+
+  // Rendu d'une ligne (réutilisé par les deux groupes) — className EXACTS de l'existant
+  const renderLigneAdresse = (a: { cle: string; libelle: string; distanceM: number; memeParcelle: boolean }) => (
+    <button
+      key={a.cle}
+      type="button"
+      onClick={() => setAdressePreselectionnee(a.libelle)}
+      className={`rounded-xl border p-3 text-left text-sm ${a.libelle === adressePreselectionnee ? "border-svv-red bg-svv-field text-svv-ink" : "border-svv-line bg-white text-svv-ink"}`}
+    >
+      <span className="block font-semibold">{a.libelle}</span>
+      <span className="block text-xs text-svv-muted">
+        {a.cle === cleAuto ? "Adresse détectée automatiquement" : `à ${a.distanceM} m`}
+      </span>
+    </button>
+  );
+
   const classeChoix = (actif: boolean) =>
     `rounded-xl px-3 py-3 text-base font-semibold transition ${
       actif ? "bg-svv-red text-white" : "border border-svv-line bg-white text-svv-ink"
@@ -725,7 +748,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
         const r = await fetch("/api/adresses-proches", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lat, lon, rayonM: 10 }), // lat/lon = point figé, jamais modifié
+          body: JSON.stringify({ lat, lon }), // lat/lon = point figé, jamais modifié
           signal: ctrl.signal,
         });
         const data = await r.json();
@@ -836,31 +859,24 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/45 p-5" onClick={() => setSelecteurOuvert(false)}>
           <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-1 text-base font-bold text-svv-ink">Choisir l'adresse</h3>
-            <p className="mb-3 text-xs text-svv-muted">Adresses situées à moins de 10 m du point validé. Le point GPS ne change pas.</p>
+            <p className="mb-3 text-xs text-svv-muted">Adresses à proximité immédiate du point GPS validé sur la carte.</p>
             <div className="flex flex-col gap-2">
-              {/* adresse auto = la plus proche (API), en tête — une seule fois */}
-              {adressesAlt[0] && (
-                <button
-                  type="button"
-                  onClick={() => setAdressePreselectionnee(adresseAuto)}
-                  className={`rounded-xl border p-3 text-left text-sm ${adressePreselectionnee === adresseAuto ? "border-svv-red bg-svv-field text-svv-ink" : "border-svv-line bg-white text-svv-ink"}`}
-                >
-                  <span className="block font-semibold">{adresseAuto}</span>
-                  <span className="block text-xs text-svv-muted">Adresse détectée automatiquement</span>
-                </button>
+              {adressesMemeParcelle.length > 0 && (
+                <>
+                  {afficherTitresGroupes && (
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-svv-muted">Même parcelle</p>
+                  )}
+                  {adressesMemeParcelle.map(renderLigneAdresse)}
+                </>
               )}
-              {/* toutes les autres adresses du rayon (slice(1)) — aucun doublon structurel */}
-              {adressesAlt.slice(1).map((a) => (
-                <button
-                  key={a.cle}
-                  type="button"
-                  onClick={() => setAdressePreselectionnee(a.libelle)}
-                  className={`rounded-xl border p-3 text-left text-sm ${a.libelle === adressePreselectionnee ? "border-svv-red bg-svv-field text-svv-ink" : "border-svv-line bg-white text-svv-ink"}`}
-                >
-                  <span className="block font-semibold">{a.libelle}</span>
-                  <span className="block text-xs text-svv-muted">à {a.distanceM} m</span>
-                </button>
-              ))}
+              {adressesVoisine.length > 0 && (
+                <>
+                  {afficherTitresGroupes && (
+                    <p className="mt-3 text-[11px] font-medium uppercase tracking-wide text-svv-muted">Parcelle voisine</p>
+                  )}
+                  {adressesVoisine.map(renderLigneAdresse)}
+                </>
+              )}
             </div>
             {adressePreselectionnee && adressePreselectionnee !== adresseChoisie ? (
               <button
@@ -868,7 +884,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
                 onClick={() => { setAdresseChoisie(adressePreselectionnee); setSelecteurOuvert(false); }}
                 className="svv-btn svv-btn-primary mt-3"
               >
-                Changer d'adresse
+                Validation nouvelle adresse
               </button>
             ) : (
               <button
