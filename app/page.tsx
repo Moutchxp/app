@@ -298,7 +298,7 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
 
       {/* 2. STEPPER centré verticalement dans l'espace libre entre header et skyline.
           relative z-10 : passe AU-DESSUS du footer (relative z-0) que le -mt-12 fait remonter, sinon le calque déco recouvre le texte des étapes. */}
-      <div className="relative z-10 flex flex-1 flex-col justify-center">
+      <div className="relative z-10 flex flex-col">
         <div ref={stepperRef} className="relative flex flex-col gap-7">
         {/* Segments pointillés (position absolue, mesurée) — DERRIÈRE les pastilles */}
         {centers.length === ETAPES_INTRO.length &&
@@ -388,21 +388,28 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
         </div>
       </div>
 
-      {/* 3. SKYLINE soft — présente dès l'ouverture, pleine largeur, alignée en bas, en retrait (z-0).
-          -mt-12 (vs mt-8) remonte le bloc footer + bouton « C'est parti » de ~80 px sur l'écran etapes. */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/images/FOOTER%203.png"
-        alt=""
-        aria-hidden="true"
-        className="relative z-0 -mx-6 -mt-12 block w-[calc(100%+3rem)] max-w-none h-60 object-cover object-bottom"
-        style={{ opacity: 0.85 }}
-      />
+      {/* 3. Bandeau toits FOOTER6 — mt-auto pousse l'image en bas. Mask : la marge blanche du fichier
+          fait 48 px à l'affichage (144/872 du PNG, échelle cover 0.3303) → transparente jusqu'à 48 px,
+          puis fondu de 20 px (48→68 px) sur LE DESSIN (toits). Le transparent laisse voir la carte blanche. */}
+      <div className="relative z-0 -mx-6 mt-auto w-[calc(100%+3rem)]">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/images/FOOTER%206.png"
+          alt=""
+          aria-hidden="true"
+          className="block w-full max-w-none h-72 object-cover object-bottom"
+          style={{
+            opacity: 0.85,
+            WebkitMaskImage: "linear-gradient(to top, transparent 0px, transparent 48px, black 68px)",
+            maskImage: "linear-gradient(to top, transparent 0px, transparent 48px, black 68px)",
+          }}
+        />
+      </div>
 
-      {/* 4. BOUTON « C'est parti » (fondu + glissement) */}
+      {/* 4. BOUTON « C'est parti » (fondu + glissement) — relative z-10 -mt-6 : À CHEVAL sur le bas de la photo / la trame de fond. */}
       <div
         className={
-          "mt-6 transition-all duration-500 ease-out " +
+          "relative z-10 -mt-6 transition-all duration-500 ease-out " +
           (showBtn ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0")
         }
       >
@@ -2409,15 +2416,21 @@ export default function Home() {
       </div>
     )}
 
-    {/* SKYLINE + BOUTON : toujours affichés (la 1re question suffit pour lancer l'analyse) */}
-    {/* eslint-disable-next-line @next/next/no-img-element */}
-    <img
-      src="/images/FOOTER%203.png"
-      alt=""
-      aria-hidden="true"
-      className="relative z-0 -mx-6 mt-8 block w-[calc(100%+3rem)] max-w-none h-60 object-cover object-bottom"
-      style={{ opacity: 0.85 }}
-    />
+    {/* SKYLINE + BOUTON : toujours affichés. Image nette (pas de fondu). */}
+    <div className="relative z-0 -mx-6 mt-8 w-[calc(100%+3rem)]">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/images/FOOTER%206.png"
+        alt=""
+        aria-hidden="true"
+        className="block w-full max-w-none h-80 object-cover object-bottom"
+        style={{
+          opacity: 0.85,
+          WebkitMaskImage: "linear-gradient(to top, transparent 0px, transparent 53px, black 73px)",
+          maskImage: "linear-gradient(to top, transparent 0px, transparent 53px, black 73px)",
+        }}
+      />
+    </div>
 
     <button type="button" onClick={handleAnalyse} className="svv-btn svv-btn-primary mt-6">
       Lancer l&apos;analyse
