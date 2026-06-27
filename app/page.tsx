@@ -1044,6 +1044,9 @@ export default function Home() {
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [angles, setAngles] = useState({ pitch: 0, roll: 0, heading: 0 });
   const [isLevel, setIsLevel] = useState(false);
+  // Aucun capteur d'orientation (permission refusée / device sans capteur) → le niveau devient un
+  // simple indicateur « indisponible », JAMAIS bloquant pour la capture (cf. peutCapturer = videoReady).
+  const [niveauIndispo, setNiveauIndispo] = useState(false);
   const [capturedOrientation, setCapturedOrientation] = useState<number | null>(null);
   // Azimut AJUSTABLE à la main sur l'écran orientation (± marge roulis photo autour du capté).
   // N'affecte PAS le calcul lui-même : c'est juste la valeur d'azimut transmise à l'analyse.
@@ -1101,6 +1104,7 @@ export default function Home() {
   const motionTsRef = useRef(0);         // timestamp rAF précédent (lissage indépendant du framerate)
   const motionActiveRef = useRef(false); // DeviceMotion réellement disponible ?
   const sensorSeenRef = useRef(false);   // au moins un échantillon capteur reçu ?
+  const sensorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // repli : aucun capteur après 3 s → niveauIndispo
   const pitchValidRef = useRef(false);   // dernier isPValid (pour recomposer isLevel dans le rAF)
   // Détection du verrouillage de l'aide au niveau (garde-fou anti-saut figé > 0,7 s).
   const niveauBloqueRef = useRef(false);
@@ -1322,11 +1326,13 @@ export default function Home() {
     window.addEventListener("deviceorientation", handleOrientation);
     window.addEventListener("devicemotion", handleMotion);
     rafRef.current = requestAnimationFrame(tick);
+    armerTimerNiveau(); // si aucun capteur vu après 3 s → niveau indisponible (n'affecte PAS la capture)
 
     return () => {
       window.removeEventListener("deviceorientation", handleOrientation);
       window.removeEventListener("devicemotion", handleMotion);
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      if (sensorTimerRef.current) clearTimeout(sensorTimerRef.current);
       motionTsRef.current = 0;
     };
   }, [isCameraActive]);
@@ -1449,21 +1455,45 @@ export default function Home() {
     marquerBloque(false);
   }
 
-  // Allumer la caméra et demander les permissions de gyroscope
-  async function startCamera() {
+  // Bouton « refresh » : recale le niveau, RE-DEMANDE la permission capteurs (redonne sa chance au
+  // niveau), ré-arme le repli 3 s, et redémarre la caméra. La capture reste non bloquante (videoReady).
+  async function rafraichirNiveauEtCamera() {
+    reinitialiserAideNiveau();
+    setNiveauIndispo(false);
+    sensorSeenRef.current = false;
+    const { hasOrientPerm, orientGranted } = await demanderPermissionCapteurs();
+    if (hasOrientPerm && !orientGranted) setNiveauIndispo(true);
+    armerTimerNiveau();
+    redemarrerCamera();
+  }
+
+  // Repli niveau : (ré)arme un timer ; si aucun capteur n'a été vu après 3 s → niveau indisponible.
+  // N'affecte JAMAIS la capture (découplée via peutCapturer = videoReady).
+  function armerTimerNiveau() {
+    if (sensorTimerRef.current) clearTimeout(sensorTimerRef.current);
+    sensorTimerRef.current = setTimeout(() => {
+      if (!sensorSeenRef.current) setNiveauIndispo(true);
+    }, 3000);
+  }
+
+  // Demande les permissions capteurs iOS (orientation + motion) sur un geste utilisateur.
+  // requestPermission DOIT être appelé avant tout autre await pour rester dans le geste.
+  // Renvoie hasOrientPerm (gate iOS présent ?) et orientGranted (orientation accordée ?).
+  async function demanderPermissionCapteurs(): Promise<{ hasOrientPerm: boolean; orientGranted: boolean }> {
     const hasOrientPerm =
       typeof DeviceOrientationEvent !== "undefined" &&
       typeof (DeviceOrientationEvent as any).requestPermission === "function";
     const hasMotionPerm =
       typeof DeviceMotionEvent !== "undefined" &&
       typeof (DeviceMotionEvent as any).requestPermission === "function";
-
-    // iOS : permissions orientation ET motion demandées sur CE MÊME geste utilisateur.
+    let orientGranted = true;
     if (hasOrientPerm) {
       try {
-        await (DeviceOrientationEvent as any).requestPermission();
+        const res = await (DeviceOrientationEvent as any).requestPermission();
+        orientGranted = res === "granted";
       } catch (err) {
         console.log("Erreur capteur orientation :", err);
+        orientGranted = false;
       }
     }
     if (hasMotionPerm) {
@@ -1473,6 +1503,16 @@ export default function Home() {
         console.log("Erreur capteur motion :", err);
       }
     }
+    return { hasOrientPerm, orientGranted };
+  }
+
+  // Allumer la caméra et demander les permissions de gyroscope
+  async function startCamera() {
+    setNiveauIndispo(false);
+    sensorSeenRef.current = false;
+    // iOS : permissions orientation ET motion demandées sur CE MÊME geste utilisateur.
+    const { hasOrientPerm, orientGranted } = await demanderPermissionCapteurs();
+    if (hasOrientPerm && !orientGranted) setNiveauIndispo(true); // refus explicite → niveau indispo (capture non bloquée)
     if (!hasOrientPerm && typeof window !== "undefined" && !("ontouchstart" in window)) {
       // Desktop sans capteurs : aide visuelle neutre (niveau considéré OK).
       setIsLevel(true);
@@ -1576,7 +1616,7 @@ export default function Home() {
 
   // 🛠️ CAPTURE DOUBLE : PHOTO + POSITION GPS SIMULTANÉE
   function capturePhoto() {
-    if (!isLevel) return; 
+    if (!videoReady) return; // niveau non bloquant : on capture dès que la caméra est prête
 
     if (videoRef.current) {
       const canvas = document.createElement("canvas");
@@ -1740,7 +1780,8 @@ export default function Home() {
   const niveauUnSeulOk = (pitchValid || rollValid) && !niveauTousOk;
   const couleurNiveau = niveauTousOk ? "#2e9e5b" : niveauUnSeulOk ? "#e08a1e" : "#c0392b";
   // Bouton de capture honnête : vert/actif seulement si niveau OK ET flux vidéo réellement prêt.
-  const peutCapturer = isLevel && videoReady;
+  // Niveau = aide au cadrage, JAMAIS un verrou : on peut capturer dès que la caméra est prête.
+  const peutCapturer = videoReady;
   const legendeNiveau = niveauTousOk
     ? "✓ Parfait — prenez la photo"
     : !pitchValid && !rollValid
@@ -1892,7 +1933,7 @@ export default function Home() {
           <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-5 pt-12 pb-4">
             <button
               type="button"
-              onClick={() => { reinitialiserAideNiveau(); redemarrerCamera(); }}
+              onClick={rafraichirNiveauEtCamera}
               className={`flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white ${niveauBloque ? "svvRingPulse" : ""}`}
               aria-label="Réinitialiser le niveau"
             >
@@ -1902,12 +1943,20 @@ export default function Home() {
               </svg>
             </button>
             <div className="flex flex-col items-center text-center leading-tight">
-              <span className={`text-sm font-semibold ${isLevel ? "text-[#7CE2A0]" : "text-white"}`}>
-                {isLevel ? "Bien droit" : "Ajustez le niveau"}
-              </span>
-              <span className="mt-0.5 text-[11px] text-white/80">
-                Inclinaison {angles.pitch}° · Roulis {angles.roll}°
-              </span>
+              {niveauIndispo ? (
+                <span className="max-w-[230px] text-[12px] font-medium text-white/80">
+                  Niveau indisponible — vous pouvez quand même prendre la photo
+                </span>
+              ) : (
+                <>
+                  <span className={`text-sm font-semibold ${isLevel ? "text-[#7CE2A0]" : "text-white"}`}>
+                    {isLevel ? "Bien droit" : "Ajustez le niveau"}
+                  </span>
+                  <span className="mt-0.5 text-[11px] text-white/80">
+                    Inclinaison {angles.pitch}° · Roulis {angles.roll}°
+                  </span>
+                </>
+              )}
               <span className="text-[11px] text-white/80">
                 Azimut{" "}
                 {typeof angles.heading === "number"
