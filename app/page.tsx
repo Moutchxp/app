@@ -2481,9 +2481,13 @@ export default function Home() {
       />
     </div>
 
-    <button type="button" onClick={handleAnalyse} className="svv-btn svv-btn-primary mt-6">
-      Lancer l&apos;analyse
-    </button>
+    {/* BOUTON — wrapper relative z-10 -mt-6 : chevauche le bas de l'image (-24 px), au-dessus (z-0),
+        identique à l'écran "etapes". PAS d'animation showBtn : le bouton étage reste toujours visible. */}
+    <div className="relative z-10 -mt-6">
+      <button type="button" onClick={handleAnalyse} className="svv-btn svv-btn-primary">
+        Lancer l&apos;analyse
+      </button>
+    </div>
     {analyseErreur && <p className="mt-3 text-sm font-medium text-svv-red">{analyseErreur}</p>}
   </div>
 )}
