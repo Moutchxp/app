@@ -673,6 +673,10 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
   etageInitial: number;
   dernierEtage: boolean;
 }) {
+  const [adresseChoisie, setAdresseChoisie] = useState(adresseBien); // libellé affiché, init = adresse auto
+  const [adressesAlt, setAdressesAlt] = useState<{ cle: string; libelle: string; distanceM: number }[]>([]);
+  const [adressePreselectionnee, setAdressePreselectionnee] = useState<string | null>(null);
+  const [selecteurOuvert, setSelecteurOuvert] = useState(false);
   const [prenom, setPrenom] = useState("");
   const [nom, setNom] = useState("");
   const [email, setEmail] = useState("");
@@ -687,7 +691,22 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
   const [soumis, setSoumis] = useState(false);
 
   const emailValide = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const estValide = prenom.trim() !== "" && nom.trim() !== "" && emailValide && typeBien !== "";
+  const estValide =
+    prenom.trim() !== "" &&
+    nom.trim() !== "" &&
+    emailValide &&
+    telephone.trim() !== "" &&
+    typeBien !== "" &&
+    surface.trim() !== "" &&
+    nbPieces > 0 &&
+    epoque !== "" &&
+    terrasse !== null &&
+    balcon !== null;
+  // Adresse auto = la PLUS PROCHE renvoyée par l'API (déjà triée par distance), pas adresseBien
+  // (format amont différent : code postal, séparateurs…). Dédup par cle (identifiant BAN unique).
+  const adresseAuto = adressesAlt[0]?.libelle ?? adresseBien;
+  const cleAuto = adressesAlt[0]?.cle ?? null;
+  const aDesAlternatives = adressesAlt.some((a) => a.cle !== cleAuto);
 
   const classeChoix = (actif: boolean) =>
     `rounded-xl px-3 py-3 text-base font-semibold transition ${
@@ -696,6 +715,32 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
 
   const classeStepper =
     "flex h-12 w-12 items-center justify-center rounded-xl border border-svv-line bg-svv-field text-2xl font-bold text-svv-ink";
+
+  // Chargement silencieux au montage : alimente adressesAlt sans ouvrir le modal.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    (async () => {
+      try {
+        const r = await fetch("/api/adresses-proches", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lat, lon, rayonM: 10 }), // lat/lon = point figé, jamais modifié
+          signal: ctrl.signal,
+        });
+        const data = await r.json();
+        if (r.ok && data?.ok === true && Array.isArray(data.adresses)) {
+          setAdressesAlt(data.adresses);
+          if (data.adresses[0]?.libelle) setAdresseChoisie(data.adresses[0].libelle);
+        }
+      } catch {
+        // silencieux : si l'appel échoue, on n'affiche simplement pas le bouton
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
+    return () => { clearTimeout(timer); ctrl.abort(); };
+  }, [lat, lon]);
 
   // Écran de confirmation (placeholder étape 1 — pas encore de PDF ni email)
   if (soumis) {
@@ -757,7 +802,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
         <p className="mt-1 text-sm text-svv-red">Format d'email invalide.</p>
       )}
 
-      <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone</label>
+      <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone <span className="text-svv-red">*</span></label>
       <input
         type="tel"
         inputMode="tel"
@@ -772,18 +817,80 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
       <div className="mt-4 rounded-2xl bg-svv-field p-5">
       <h2 className="text-lg font-bold text-svv-ink mb-3">Le bien</h2>
 
-      <label className="mb-1 block text-sm font-semibold text-svv-ink">Adresse du bien</label>
-      <input value={adresseBien} readOnly className="w-full cursor-default rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink focus:outline-none" />
-      <p className="mb-3 mt-1 text-xs text-svv-muted">Coordonnées validées : {lat.toFixed(6)}, {lon.toFixed(6)}</p>
+      <div className="mb-1 flex items-center justify-between">
+        <label className="text-sm font-semibold text-svv-ink">Adresse du bien</label>
+        {aDesAlternatives && (
+          <button
+            type="button"
+            onClick={() => { setAdressePreselectionnee(adresseChoisie); setSelecteurOuvert(true); }}
+            className="rounded-md border border-svv-line bg-transparent px-2 py-0.5 text-xs font-medium text-svv-muted"
+          >
+            Alternatives
+          </button>
+        )}
+      </div>
+      <input value={adresseChoisie} readOnly className="w-full cursor-default rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink focus:outline-none" />
+      <p className="mt-1 text-xs text-svv-muted">Coordonnées validées : {lat.toFixed(6)}, {lon.toFixed(6)}</p>
 
-      <label className="mb-2 block text-sm font-semibold text-svv-ink">Type de bien <span className="text-svv-red">*</span></label>
+      {selecteurOuvert && (
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/45 p-5" onClick={() => setSelecteurOuvert(false)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-1 text-base font-bold text-svv-ink">Choisir l'adresse</h3>
+            <p className="mb-3 text-xs text-svv-muted">Adresses situées à moins de 10 m du point validé. Le point GPS ne change pas.</p>
+            <div className="flex flex-col gap-2">
+              {/* adresse auto = la plus proche (API), en tête — une seule fois */}
+              {adressesAlt[0] && (
+                <button
+                  type="button"
+                  onClick={() => setAdressePreselectionnee(adresseAuto)}
+                  className={`rounded-xl border p-3 text-left text-sm ${adressePreselectionnee === adresseAuto ? "border-svv-red bg-svv-field text-svv-ink" : "border-svv-line bg-white text-svv-ink"}`}
+                >
+                  <span className="block font-semibold">{adresseAuto}</span>
+                  <span className="block text-xs text-svv-muted">Adresse détectée automatiquement</span>
+                </button>
+              )}
+              {/* toutes les autres adresses du rayon (slice(1)) — aucun doublon structurel */}
+              {adressesAlt.slice(1).map((a) => (
+                <button
+                  key={a.cle}
+                  type="button"
+                  onClick={() => setAdressePreselectionnee(a.libelle)}
+                  className={`rounded-xl border p-3 text-left text-sm ${a.libelle === adressePreselectionnee ? "border-svv-red bg-svv-field text-svv-ink" : "border-svv-line bg-white text-svv-ink"}`}
+                >
+                  <span className="block font-semibold">{a.libelle}</span>
+                  <span className="block text-xs text-svv-muted">à {a.distanceM} m</span>
+                </button>
+              ))}
+            </div>
+            {adressePreselectionnee && adressePreselectionnee !== adresseChoisie ? (
+              <button
+                type="button"
+                onClick={() => { setAdresseChoisie(adressePreselectionnee); setSelecteurOuvert(false); }}
+                className="svv-btn svv-btn-primary mt-3"
+              >
+                Changer d'adresse
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSelecteurOuvert(false)}
+                className="svv-btn svv-btn-outline mt-3"
+              >
+                Fermer
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Type de bien <span className="text-svv-red">*</span></label>
       <div className="grid grid-cols-2 gap-2">
         {TYPES_BIEN.map((t) => (
           <button key={t} type="button" onClick={() => setTypeBien(t)} className={classeChoix(typeBien === t)}>{t}</button>
         ))}
       </div>
 
-      <label className="mb-1 mt-4 block text-sm font-semibold text-svv-ink">Surface (m²)</label>
+      <label className="mb-1 mt-4 block text-sm font-semibold text-svv-ink">Surface (m²) <span className="text-svv-red">*</span></label>
       <input
         inputMode="decimal"
         value={surface}
@@ -792,7 +899,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
         placeholder="Ex. 65"
       />
 
-      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Nombre de pièces</label>
+      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Nombre de pièces <span className="text-svv-red">*</span></label>
       <div className="flex items-center gap-3">
         <button type="button" onClick={() => setNbPieces((n) => Math.max(0, n - 1))} className={classeStepper}>−</button>
         <span className="w-10 text-center text-xl font-bold text-svv-ink">{nbPieces}</span>
@@ -811,18 +918,18 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
       </div>
       <p className="mt-1 text-xs text-svv-muted">Valeurs définies lors du calcul du certificat.</p>
 
-      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Époque de construction</label>
+      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Époque de construction <span className="text-svv-red">*</span></label>
       <button type="button" onClick={() => setEpoqueModalOuvert(true)} className="flex w-full items-center justify-between rounded-xl border border-svv-line bg-white p-3 text-base focus:border-svv-red focus:outline-none">
         <span className={epoque ? "text-svv-ink" : "text-svv-muted"}>{epoque || "Sélectionner"}</span>
         <span className="text-svv-muted">▾</span>
       </button>
 
-      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Terrasse</label>
+      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Terrasse <span className="text-svv-red">*</span></label>
       <div className="grid grid-cols-2 gap-2">
         <button type="button" onClick={() => setTerrasse(true)} className={classeChoix(terrasse === true)}>Oui</button>
         <button type="button" onClick={() => setTerrasse(false)} className={classeChoix(terrasse === false)}>Non</button>
       </div>
-      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Balcon</label>
+      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Balcon <span className="text-svv-red">*</span></label>
       <div className="grid grid-cols-2 gap-2">
         <button type="button" onClick={() => setBalcon(true)} className={classeChoix(balcon === true)}>Oui</button>
         <button type="button" onClick={() => setBalcon(false)} className={classeChoix(balcon === false)}>Non</button>
