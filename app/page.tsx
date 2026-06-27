@@ -975,7 +975,7 @@ export default function Home() {
   const [mode, setMode] = useState<ModeOrigine>("semi_auto"); // saisie origine : semi_auto (snap) | manuel (M4b : boutons)
   const [pointDeplace, setPointDeplace] = useState(false); // true au 1er geste utilisateur sur la carte
   const [etage, setEtage] = useState("");
-  const [dernierEtage, setDernierEtage] = useState(false);
+  const [dernierEtage, setDernierEtage] = useState<null | boolean>(null);
   // Résultat de l'analyse (/api/analyse) — écran "resultat".
   const [analyseEnCours, setAnalyseEnCours] = useState(false);
   const [analyse, setAnalyse] = useState<ReponseAnalyse | null>(null);
@@ -1611,6 +1611,10 @@ export default function Home() {
       setAnalyseErreur(
         "Indiquez un étage valide (nombre entier, 0 = rez-de-chaussée).",
       );
+      return;
+    }
+    if (dernierEtage === null) {
+      setAnalyseErreur("Indiquez si c'est le dernier étage.");
       return;
     }
 
@@ -2362,14 +2366,14 @@ export default function Home() {
         <div className="grid grid-cols-2 gap-3">
           <button type="button" onClick={() => setDernierEtage(true)}
             className={"flex items-center justify-center gap-2 rounded-xl py-3 text-base font-semibold " +
-              (dernierEtage ? "bg-svv-red text-white" : "border border-svv-line bg-white text-svv-ink")}>
-            {dernierEtage && (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>)}
+              (dernierEtage === true ? "bg-svv-red text-white" : "border border-svv-line bg-white text-svv-ink")}>
+            {dernierEtage === true && (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>)}
             Oui
           </button>
           <button type="button" onClick={() => setDernierEtage(false)}
             className={"flex items-center justify-center gap-2 rounded-xl py-3 text-base font-semibold " +
-              (!dernierEtage ? "bg-svv-red text-white" : "border border-svv-line bg-white text-svv-ink")}>
-            {!dernierEtage && (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>)}
+              (dernierEtage === false ? "bg-svv-red text-white" : "border border-svv-line bg-white text-svv-ink")}>
+            {dernierEtage === false && (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>)}
             Non
           </button>
         </div>
@@ -2578,7 +2582,7 @@ export default function Home() {
     lat={origine.valide?.lat ?? position.latitude}
     lon={origine.valide?.lon ?? position.longitude}
     etageInitial={Number(etage) || 0}
-    dernierEtage={dernierEtage}
+    dernierEtage={dernierEtage ?? false}
   />
 )}
         </section>
