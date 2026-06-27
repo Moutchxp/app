@@ -1788,12 +1788,12 @@ export default function Home() {
                 />
               </div>
 
-              <h1 className="text-[1.7rem] font-extrabold leading-tight tracking-tight text-svv-ink">
-                Découvrez <span className="text-svv-red">la vraie qualité</span> de votre vue
-              </h1>
-              <p className="mt-3 text-sm leading-relaxed text-svv-muted">
-                {"Une analyse objective, basée sur la géolocalisation, les altitudes et l'intelligence artificielle."}
-              </p>
+              {/* Titre centré verticalement dans l'espace libre entre le logo (haut) et l'image (bas, mt-auto) */}
+              <div className="flex flex-1 items-center justify-center">
+                <h1 className="text-center text-[1.7rem] font-extrabold leading-tight tracking-tight text-svv-ink">
+                  Découvrez <span className="text-svv-red">la vraie qualité</span> de votre vue
+                </h1>
+              </div>
 
               {/* Photo toits de Paris N&B — mt-auto pousse le bloc bas vers le bas ; hauteur fixe + object-bottom = ciel qui respire au-dessus des toits. Pas d'arrondi ; fondu vers le blanc sur 10 px en bas. */}
               <div className="relative -mx-6 mt-auto mb-6 w-[calc(100%+3rem)]">
