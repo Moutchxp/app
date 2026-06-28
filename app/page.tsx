@@ -1023,6 +1023,13 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
 
 export default function Home() {
   const [etape, setEtape] = useState<Etape>("accueil");
+  // Changement d'écran = changement de state (pas de navigation) → la position de scroll du body
+  // est conservée. On la remet EN HAUT à chaque changement d'étape (saut instantané, pas d'animation).
+  // L'écran resultat re-scrolle ensuite vers le bas via le setTimeout de handleAnalyse (handler,
+  // postérieur à cet effet) → pas de conflit.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, [etape]);
   const [address, setAddress] = useState("");
   const [addressInfo, setAddressInfo] = useState(""); // message d'info SOUS le champ, jamais dans sa valeur
   const [positionGPSObtenue, setPositionGPSObtenue] = useState(false); // AFFICHAGE seul : libellé adresse
@@ -1108,13 +1115,22 @@ export default function Home() {
     const firstId = setTimeout(() => { bump(); intervalId = setInterval(bump, 5000); }, 12000);
     return () => { clearTimeout(firstId); if (intervalId) clearInterval(intervalId); setBumpInfoLocalisation(false); };
   }, [pointDeplace, infoLocalisationVu]);
-  // Révélation de la 2e question (écran infos) : après une pause > 300 ms entre deux clics du stepper.
-  const [montrerQ2, setMontrerQ2] = useState(false);
-  const etageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Pop-up d'aide « Hauteur sous plafond » (écran infos) — clone de localisation/orientation.
+  const [infoHauteurOuvert, setInfoHauteurOuvert] = useState(false);
+  const [infoHauteurVu, setInfoHauteurVu] = useState(false); // déjà consulté → arrête le clignotement
+  const [bumpInfoHauteur, setBumpInfoHauteur] = useState(false); // « bump » périodique du « i » hauteur
+  // Bump du « i » hauteur : 1er bump à 3 s, puis toutes les 5 s. Stoppe au clic (infoHauteurVu).
+  useEffect(() => {
+    if (infoHauteurVu) return;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+    const bump = () => { setBumpInfoHauteur(true); setTimeout(() => setBumpInfoHauteur(false), 650); };
+    const firstId = setTimeout(() => { bump(); intervalId = setInterval(bump, 5000); }, 3000);
+    return () => { clearTimeout(firstId); if (intervalId) clearInterval(intervalId); setBumpInfoHauteur(false); };
+  }, [infoHauteurVu]);
+
   function ajusterEtage(delta: number) {
     setEtage((v) => (v === "" ? "0" : String(Math.max(0, Number(v) + delta))));
-    if (etageTimerRef.current) clearTimeout(etageTimerRef.current);
-    etageTimerRef.current = setTimeout(() => setMontrerQ2(true), 400);
   }
   // Hauteur sous plafond : pas de 0,10 m, bornes 2,40–4,50 m.
   function ajusterHauteur(delta: number) {
@@ -2286,7 +2302,7 @@ export default function Home() {
       >
         <div
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+          className="w-full max-w-sm max-h-[85vh] overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-xl"
         >
           <h2 className="text-lg font-extrabold text-svv-ink">Pourquoi ce point et comment le placer</h2>
           <h3 className="mt-4 text-sm font-semibold text-svv-ink">À quoi il sert ?</h3>
@@ -2401,7 +2417,7 @@ export default function Home() {
       >
         <div
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+          className="w-full max-w-sm max-h-[85vh] overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-xl"
         >
           <h2 className="text-lg font-extrabold text-svv-ink">Pourquoi ajuster l&apos;orientation ?</h2>
           <p className="mt-3 text-sm leading-relaxed text-svv-gray">
@@ -2452,7 +2468,21 @@ export default function Home() {
 
     {/* Hauteur sous plafond — calqué sur le stepper d'étage (pas 0,10 m, bornes 2,40–4,50) */}
     <div className="mt-7">
-      <label className="mb-2 block text-base font-semibold text-svv-ink">Hauteur sous plafond</label>
+      <div className="mb-2 flex items-center gap-2">
+        <label className="block text-base font-semibold text-svv-ink">Hauteur sous plafond</label>
+        <button
+          type="button"
+          onClick={() => { setInfoHauteurOuvert(true); setInfoHauteurVu(true); }}
+          aria-label="Pourquoi cette information ?"
+          className={`shrink-0 ${infoHauteurVu ? "text-svv-ink" : "svvInfoPulse"}`}
+        >
+          <span className={`block leading-none ${bumpInfoHauteur && !infoHauteurVu ? "svvInfoBump" : ""}`}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 7.5h.01" />
+            </svg>
+          </span>
+        </button>
+      </div>
       <div className="flex items-center justify-center gap-4">
         <button type="button" aria-label="Diminuer la hauteur"
           onClick={() => ajusterHauteur(-0.1)}
@@ -2467,9 +2497,8 @@ export default function Home() {
       <p className="mt-2 text-center text-sm text-svv-muted">{libelleHauteur(hauteurSousPlafondM)}</p>
     </div>
 
-    {/* ÉLÉMENT 2 + NOTE : révélés après une pause > 400 ms entre deux clics du stepper */}
-    {montrerQ2 && (
-      <div className="mt-7 animate-fadeIn">
+    {/* Dernier étage ? — toujours affiché (plus de révélation montrerQ2) */}
+    <div className="mt-7">
         <label className="mb-2 block text-base font-semibold text-svv-ink">Dernier étage ?</label>
         <div className="grid grid-cols-2 gap-3">
           <button type="button" onClick={() => setDernierEtage(true)}
@@ -2485,13 +2514,7 @@ export default function Home() {
             Non
           </button>
         </div>
-
-        <div className="mt-5 flex items-start gap-2 rounded-xl bg-svv-field p-3 text-sm leading-relaxed text-svv-muted">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5h.01"/></svg>
-          <span>Ces données nous permettent d&apos;estimer la hauteur de votre champ de vision.</span>
-        </div>
-      </div>
-    )}
+    </div>
 
     {/* SKYLINE + BOUTON : toujours affichés. Image nette (pas de fondu).
         mt-auto : absorbe l'espace libre → image + bouton collés EN BAS quel que soit le nombre de questions (pattern EcranEtapes). */}
@@ -2518,6 +2541,55 @@ export default function Home() {
       </button>
     </div>
     {analyseErreur && <p className="mt-3 text-sm font-medium text-svv-red">{analyseErreur}</p>}
+
+    {infoHauteurOuvert && (
+      <div
+        onClick={() => setInfoHauteurOuvert(false)}
+        className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/45 p-5"
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-sm max-h-[85vh] overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-xl"
+        >
+          <h2 className="text-lg font-extrabold text-svv-ink">Hauteur sous plafond</h2>
+          <p className="mt-4 font-semibold text-svv-ink">Pourquoi ?</p>
+          <p className="mt-1 text-sm leading-relaxed text-svv-gray">
+            Pour déterminer votre champ de vision réel avec le plus de précision et rendre l&apos;analyse la plus fiable.
+          </p>
+          <p className="mt-4 font-semibold text-svv-ink">Quelle hauteur ?</p>
+          <p className="mt-1 text-sm leading-relaxed text-svv-gray">
+            La hauteur intérieure de votre pièce, du sol au plafond. Indiquez la hauteur habituelle de votre immeuble, et non une éventuelle particularité de votre logement : un dernier étage, par exemple, peut avoir une hauteur différente du reste du bâtiment.
+          </p>
+          <p className="mt-4 font-semibold text-svv-ink">Comment la connaître ?</p>
+          <p className="mt-1 text-sm leading-relaxed text-svv-gray">
+            Elle dépend souvent du type d&apos;immeuble et de son époque de construction. Le tableau ci-dessous résume les tendances par période en France.
+          </p>
+          <table className="mt-3 w-full border-collapse text-sm text-svv-gray">
+            <thead>
+              <tr className="border-b border-svv-line text-left">
+                <th className="py-1 pr-2 font-semibold text-svv-ink">Époque</th>
+                <th className="py-1 font-semibold text-svv-ink">Hauteur sous plafond</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-svv-line"><td className="py-1 pr-2">Avant 1900 (haussmannien)</td><td className="py-1">3,00 – 3,60 m</td></tr>
+              <tr className="border-b border-svv-line"><td className="py-1 pr-2">1900 – 1948</td><td className="py-1">2,80 – 3,20 m</td></tr>
+              <tr className="border-b border-svv-line"><td className="py-1 pr-2">1949 – 1974</td><td className="py-1">2,50 – 2,70 m</td></tr>
+              <tr className="border-b border-svv-line"><td className="py-1 pr-2">1975 – 1990</td><td className="py-1">2,45 – 2,60 m</td></tr>
+              <tr className="border-b border-svv-line"><td className="py-1 pr-2">1991 – 2005</td><td className="py-1">2,40 – 2,55 m</td></tr>
+              <tr><td className="py-1 pr-2">Après 2005</td><td className="py-1">2,40 – 2,50 m</td></tr>
+            </tbody>
+          </table>
+          <button
+            type="button"
+            onClick={() => setInfoHauteurOuvert(false)}
+            className="svv-btn svv-btn-primary mt-5"
+          >
+            Compris
+          </button>
+        </div>
+      </div>
+    )}
   </div>
 )}
 
