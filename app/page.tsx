@@ -1620,7 +1620,7 @@ export default function Home() {
 
   // 🛠️ CAPTURE DOUBLE : PHOTO + POSITION GPS SIMULTANÉE
   function capturePhoto() {
-    if (!videoReady) return; // niveau non bloquant : on capture dès que la caméra est prête
+    if (!peutCapturer) return; // niveau bloquant : capture seulement si caméra prête ET téléphone droit
 
     if (videoRef.current) {
       const canvas = document.createElement("canvas");
@@ -1784,8 +1784,8 @@ export default function Home() {
   const niveauUnSeulOk = (pitchValid || rollValid) && !niveauTousOk;
   const couleurNiveau = niveauTousOk ? "#2e9e5b" : niveauUnSeulOk ? "#e08a1e" : "#c0392b";
   // Bouton de capture honnête : vert/actif seulement si niveau OK ET flux vidéo réellement prêt.
-  // Niveau = aide au cadrage, JAMAIS un verrou : on peut capturer dès que la caméra est prête.
-  const peutCapturer = videoReady;
+  // Niveau bloquant : la capture n'est autorisée que si le téléphone est droit (niveauTousOk).
+  const peutCapturer = videoReady && niveauTousOk; // capture autorisée seulement si caméra prête ET téléphone droit
   const legendeNiveau = niveauTousOk
     ? "✓ Parfait — prenez la photo"
     : !pitchValid && !rollValid
