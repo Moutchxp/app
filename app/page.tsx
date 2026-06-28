@@ -1492,22 +1492,14 @@ export default function Home() {
     return { hasOrientPerm, orientGranted };
   }
 
-  // Allumer la caméra et demander les permissions de gyroscope
+  // Allumer la caméra et demander les permissions de gyroscope.
+  // ORDRE iOS : getUserMedia (caméra) D'ABORD, pendant la transient activation du tap ; la permission
+  // orientation/motion (qui n'alimente QUE l'aide au niveau, non bloquante) passe APRÈS.
   async function startCamera() {
     setNiveauIndispo(false);
     sensorSeenRef.current = false;
-    // iOS : permissions orientation ET motion demandées sur CE MÊME geste utilisateur.
-    const { hasOrientPerm, orientGranted } = await demanderPermissionCapteurs();
-    if (hasOrientPerm && !orientGranted) setNiveauIndispo(true); // refus explicite → niveau indispo (capture non bloquée)
-    if (!hasOrientPerm && typeof window !== "undefined" && !("ontouchstart" in window)) {
-      // Desktop sans capteurs : aide visuelle neutre (niveau considéré OK).
-      setIsLevel(true);
-      setPitchValid(true);
-      setRollValid(true);
-    }
-
-    setIsCameraActive(true);
     setPhoto(null);
+    setIsCameraActive(true); // monte l'overlay vidéo AVANT l'affectation srcObject
 
     const constraints = {
       video: {
@@ -1517,12 +1509,20 @@ export default function Home() {
       },
       audio: false,
     };
-    
+
+    // 1) CAMÉRA D'ABORD — getUserMedia appelé pendant le geste (avant tout await de permission).
     try {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.muted = true; // filet : force la propriété DOM .muted (autoplay iOS), en plus de l'attribut JSX
+        try {
+          await videoRef.current.play(); // iOS ne lance pas l'autoplay tout seul → play() explicite dans le geste
+        } catch {
+          // play peut être rejeté ; on retombe sur reevaluerVideoReady via les events / le re-render
+        }
+        reevaluerVideoReady(); // force le recalcul tout de suite (au cas où l'event ne se déclenche pas)
       }
       // Détection + bascule AUTO en ultra grand-angle si dispo et pas déjà actif.
       const { sU, uId } = await detecterObjectif(stream);
@@ -1536,6 +1536,13 @@ export default function Home() {
         streamRef.current = basicStream;
         if (videoRef.current) {
           videoRef.current.srcObject = basicStream;
+          videoRef.current.muted = true; // idem filet muted
+          try {
+            await videoRef.current.play(); // idem : play() explicite
+          } catch {
+            // play peut être rejeté ; on retombe sur reevaluerVideoReady via les events / le re-render
+          }
+          reevaluerVideoReady();
         }
         const { sU, uId } = await detecterObjectif(basicStream);
         if (uId && !sU) {
@@ -1546,6 +1553,17 @@ export default function Home() {
         alert("Impossible d'accéder à la caméra.");
         setIsCameraActive(false);
       }
+    }
+
+    // 2) PERMISSION ORIENTATION/MOTION — APRÈS la caméra (hors geste). N'alimente que l'aide au niveau
+    //    (non bloquante) : si refusée/indispo → niveauIndispo, la capture reste possible (videoReady).
+    const { hasOrientPerm, orientGranted } = await demanderPermissionCapteurs();
+    if (hasOrientPerm && !orientGranted) setNiveauIndispo(true); // refus explicite → niveau indispo (capture non bloquée)
+    if (!hasOrientPerm && typeof window !== "undefined" && !("ontouchstart" in window)) {
+      // Desktop sans capteurs : aide visuelle neutre (niveau considéré OK).
+      setIsLevel(true);
+      setPitchValid(true);
+      setRollValid(true);
     }
   }
 
@@ -1792,6 +1810,7 @@ export default function Home() {
             "rounded-3xl bg-white p-6 shadow" +
             (etape === "accueil" ||
             etape === "etapes" ||
+            etape === "infos" ||
             (etape === "resultat" && analyseEnCours) ||
             resultatReussi
               ? " flex flex-1 flex-col"
@@ -1903,6 +1922,7 @@ export default function Home() {
             ref={videoRef}
             autoPlay
             playsInline
+            muted
             className="absolute inset-0 w-full h-full object-cover"
             onLoadedMetadata={reevaluerVideoReady}
             onCanPlay={reevaluerVideoReady}
@@ -2388,7 +2408,7 @@ export default function Home() {
 )}
 
 {etape === "infos" && (
-  <div className="animate-fadeIn">
+  <div className="flex flex-1 flex-col animate-fadeIn">
     {/* HEADER ROUGE — relative z-10 : passe AU-DESSUS du footer (relative z-0), sinon le calque déco recouvre le titre */}
     <div className="relative z-10 -mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
       <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Renseigner votre étage</h1>
@@ -2436,8 +2456,9 @@ export default function Home() {
       </div>
     )}
 
-    {/* SKYLINE + BOUTON : toujours affichés. Image nette (pas de fondu). */}
-    <div className="relative z-0 -mx-6 mt-8 w-[calc(100%+3rem)]">
+    {/* SKYLINE + BOUTON : toujours affichés. Image nette (pas de fondu).
+        mt-auto : absorbe l'espace libre → image + bouton collés EN BAS quel que soit le nombre de questions (pattern EcranEtapes). */}
+    <div className="relative z-0 -mx-6 mt-auto w-[calc(100%+3rem)]">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/images/FOOTER%206.png"
