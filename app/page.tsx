@@ -691,6 +691,8 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
   const [nom, setNom] = useState("");
   const [email, setEmail] = useState("");
   const [telephone, setTelephone] = useState("");
+  const [bienEstResidence, setBienEstResidence] = useState<boolean | null>(null);
+  const [residenceAdresse, setResidenceAdresse] = useState("");
   const [typeBien, setTypeBien] = useState("");
   const [surface, setSurface] = useState("");
   const [nbPieces, setNbPieces] = useState(0);
@@ -711,7 +713,9 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
     nbPieces > 0 &&
     epoque !== "" &&
     terrasse !== null &&
-    balcon !== null;
+    balcon !== null &&
+    bienEstResidence !== null &&
+    (bienEstResidence === true || residenceAdresse.trim() !== "");
   // Adresse auto = la PLUS PROCHE renvoyée par l'API (déjà triée par distance), pas adresseBien
   // (format amont différent : code postal, séparateurs…). Dédup par cle (identifiant BAN unique).
   const adresseAuto = adressesAlt[0]?.libelle ?? adresseBien;
@@ -844,6 +848,29 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
         className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
         placeholder="06 12 34 56 78"
       />
+
+      <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Le bien analysé est-il votre résidence principale ? <span className="text-svv-red">*</span></label>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => setBienEstResidence(true)} className={classeChoix(bienEstResidence === true)}>Oui</button>
+        <button type="button" onClick={() => setBienEstResidence(false)} className={classeChoix(bienEstResidence === false)}>Non</button>
+      </div>
+      {bienEstResidence === true && (
+        <input
+          value={adresseChoisie}
+          readOnly
+          className="mt-2 w-full cursor-default rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink focus:outline-none"
+        />
+      )}
+      {bienEstResidence === false && (
+        <div className="mt-2">
+          <AdresseAutocomplete
+            value={residenceAdresse}
+            onChange={setResidenceAdresse}
+            onSelect={(s) => setResidenceAdresse(s.label)}
+            placeholder="Saisissez votre adresse de résidence principale"
+          />
+        </div>
+      )}
       </div>
 
       {/* BIEN */}
