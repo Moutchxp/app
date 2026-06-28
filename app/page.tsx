@@ -1116,6 +1116,21 @@ export default function Home() {
     if (etageTimerRef.current) clearTimeout(etageTimerRef.current);
     etageTimerRef.current = setTimeout(() => setMontrerQ2(true), 400);
   }
+  // Hauteur sous plafond : pas de 0,10 m, bornes 2,40–4,50 m.
+  function ajusterHauteur(delta: number) {
+    setHauteurSousPlafondM((h) => {
+      const v = Math.round((h + delta) * 10) / 10; // pas de 0,10 m, évite les flottants
+      return Math.min(4.5, Math.max(2.4, v));       // bornes 2,40–4,50
+    });
+  }
+  // Libellé qualitatif dérivé de la hauteur sous plafond (affichage seul).
+  function libelleHauteur(h: number): string {
+    if (h <= 2.4) return "Mansardé";
+    if (h <= 2.5) return "Standard";
+    if (h <= 2.9) return "Ancien";
+    if (h <= 3.5) return "Haussmannien";
+    return "Exceptionnel";
+  }
   // Resynchronise l'azimut ajustable quand un nouveau cap est capté (nouvelle photo).
   useEffect(() => {
     setAzimutAjuste(capturedOrientation);
@@ -2433,6 +2448,23 @@ export default function Home() {
           onClick={() => ajusterEtage(1)}
           className="flex h-12 w-12 items-center justify-center rounded-xl border border-svv-line bg-svv-field text-2xl font-bold text-svv-ink">+</button>
       </div>
+    </div>
+
+    {/* Hauteur sous plafond — calqué sur le stepper d'étage (pas 0,10 m, bornes 2,40–4,50) */}
+    <div className="mt-7">
+      <label className="mb-2 block text-base font-semibold text-svv-ink">Hauteur sous plafond</label>
+      <div className="flex items-center justify-center gap-4">
+        <button type="button" aria-label="Diminuer la hauteur"
+          onClick={() => ajusterHauteur(-0.1)}
+          className="flex h-12 w-12 items-center justify-center rounded-xl border border-svv-line bg-svv-field text-2xl font-bold text-svv-ink">−</button>
+        <span className="min-w-[96px] rounded-xl border border-svv-line bg-white px-4 py-3 text-center text-2xl font-extrabold text-svv-ink">
+          {hauteurSousPlafondM.toFixed(2)} m
+        </span>
+        <button type="button" aria-label="Augmenter la hauteur"
+          onClick={() => ajusterHauteur(0.1)}
+          className="flex h-12 w-12 items-center justify-center rounded-xl border border-svv-line bg-svv-field text-2xl font-bold text-svv-ink">+</button>
+      </div>
+      <p className="mt-2 text-center text-sm text-svv-muted">{libelleHauteur(hauteurSousPlafondM)}</p>
     </div>
 
     {/* ÉLÉMENT 2 + NOTE : révélés après une pause > 400 ms entre deux clics du stepper */}
