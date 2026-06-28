@@ -28,28 +28,50 @@ export const ANALYSIS_RANGE_M = 200;
 /* Hauteur de vision / point d'origine (CLAUDE.md §4)                  */
 /* ------------------------------------------------------------------ */
 
-/** Hauteur d'un étage complet, en mètres. VALEUR DÉFINITIVE. */
-export const FLOOR_HEIGHT_M = 2.9;
+/** Épaisseur dalle/plancher (m), ajoutée à la hauteur sous plafond → plancher-à-plancher. */
+export const DALLE_M = 0.30;
+
+/** Hauteur sous plafond par défaut (« standard »), en mètres. */
+export const HAUTEUR_SOUS_PLAFOND_DEFAUT_M = 2.50;
 
 /** Hauteur moyenne de l'œil humain à la fenêtre, en mètres. VALEUR DÉFINITIVE. */
 export const EYE_HEIGHT_M = 1.65;
 
+/** Hauteur d'un étage complet (plancher-à-plancher) par défaut = 2.80 m. Conservé pour compat,
+ *  désormais DÉRIVÉ = hauteur sous plafond par défaut + dalle. */
+export const FLOOR_HEIGHT_M = HAUTEUR_SOUS_PLAFOND_DEFAUT_M + DALLE_M;
+
+/** Hauteur d'étage (m) utilisée UNIQUEMENT pour estimer la hauteur d'un immeuble voisin
+ *  quand BD TOPO ne fournit ni altitude de toit ni hauteur (tier 3, obstacles.ts).
+ *  Indépendante de la hauteur sous plafond du demandeur (qui pilote FLOOR_HEIGHT_M).
+ *  Conservée à 2,90 pour ne pas modifier le score d'amplitude existant. */
+export const FLOOR_HEIGHT_OBSTACLE_M = 2.90;
+
 /**
  * Hauteur de vision pour un étage donné (rez-de-chaussée = 0).
- *   hauteur_vision = etage × 2.90 + 1.65
- * Aucun arrondi.
+ *   hauteur_etage = hauteur_sous_plafond + dalle (plancher-à-plancher)
+ *   hauteur_vision = etage × hauteur_etage + 1.65
+ * Aucun arrondi. hauteurSousPlafondM par défaut = 2.50 → étage 2.80.
  */
-export function hauteurVision(etage: number): number {
-  return etage * FLOOR_HEIGHT_M + EYE_HEIGHT_M;
+export function hauteurVision(
+  etage: number,
+  hauteurSousPlafondM: number = HAUTEUR_SOUS_PLAFOND_DEFAUT_M,
+): number {
+  const hauteurEtage = hauteurSousPlafondM + DALLE_M; // plancher-à-plancher
+  return etage * hauteurEtage + EYE_HEIGHT_M;
 }
 
 /**
  * Altitude (NGF) de la fenêtre d'observation.
- *   altitude_fenetre = altitude_terrain_origine + hauteur_vision(etage)
+ *   altitude_fenetre = altitude_terrain_origine + hauteur_vision(etage[, hauteurSousPlafond])
  * Aucun arrondi.
  */
-export function altitudeFenetre(altitudeTerrainOrigine: number, etage: number): number {
-  return altitudeTerrainOrigine + hauteurVision(etage);
+export function altitudeFenetre(
+  altitudeTerrainOrigine: number,
+  etage: number,
+  hauteurSousPlafondM: number = HAUTEUR_SOUS_PLAFOND_DEFAUT_M,
+): number {
+  return altitudeTerrainOrigine + hauteurVision(etage, hauteurSousPlafondM);
 }
 
 /* ------------------------------------------------------------------ */

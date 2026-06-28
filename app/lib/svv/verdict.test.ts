@@ -3,12 +3,12 @@ import { premierObstacle, type ObstacleCandidat } from './verdict';
 import { altitudeFenetre } from './config';
 
 // Vecteur de référence SPEC_module_hauteurs_v3.md §9 :
-// fenêtre 4e étage, terrain 41 m → 41 + (4 × 2.90 + 1.65) = 54.25 m.
+// fenêtre 4e étage, terrain 41 m → 41 + (4 × 2.80 + 1.65) = 53.85 m.
 const ALTITUDE_FENETRE = altitudeFenetre(41, 4);
 
 describe('premierObstacle — vecteur de référence A/B/C/D', () => {
   it('C (55 m / sommet 56) est le 1er obstacle réel ≥ 40 m → SANS_VIS_A_VIS', () => {
-    expect(ALTITUDE_FENETRE).toBe(54.25);
+    expect(ALTITUDE_FENETRE).toBe(53.85);
     const candidats: ObstacleCandidat[] = [
       { distanceM: 18, altitudeSommetM: 48, source: 'BD_TOPO' }, // A — sous fenêtre
       { distanceM: 32, altitudeSommetM: 50, source: 'BD_TOPO' }, // B — sous fenêtre

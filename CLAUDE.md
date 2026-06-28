@@ -130,19 +130,31 @@ On calcule la **hauteur de vision** (et non la simple hauteur de plancher) : ce
 qui compte est le point de vue réel d'un humain à la fenêtre.
 
 ```
-hauteur_vision = (etage * 2.90) + 1.65
+hauteur_etage    = hauteur_sous_plafond (défaut 2,50 m) + dalle (0,30 m)   // = 2,80 m par défaut
+hauteur_vision   = (etage * hauteur_etage) + 1.65
 altitude_fenetre = altitude_terrain_origine + hauteur_vision
 ```
 
-- Hauteur d'un étage complet : **2,90 m**
+- Hauteur sous plafond : **configurable par l'utilisateur**, défaut **2,50 m** (« standard »)
+- Dalle / plancher : **0,30 m**
+- Hauteur d'un étage complet (plancher-à-plancher) : **2,80 m** par défaut (= 2,50 + 0,30)
 - Hauteur moyenne de l'œil humain : **1,65 m**
-- Rez-de-chaussée → `(0 * 2.90) + 1.65 = 1.65 m`
-- 3e étage → `(3 * 2.90) + 1.65 = 10.35 m`
+- Rez-de-chaussée → `(0 * 2.80) + 1.65 = 1.65 m`
+- 3e étage → `(3 * 2.80) + 1.65 = 10.05 m`
 
-> ✅ **VALEUR DÉFINITIVE (décision d'arbitrage).** 2,90 m/étage + 1,65 m de
-> hauteur humaine est la valeur arrêtée et ne doit pas être réinterprétée.
-> Ne pas coder en dur ces constantes de façon dispersée — les centraliser dans
-> une config unique.
+> ⚠️ **Deux hauteurs d'étage DISTINCTES — ne pas confondre :**
+> - **`FLOOR_HEIGHT_M` = 2,80 m** (= sous plafond 2,50 + dalle 0,30) → **OBSERVATEUR**
+>   (calcul de l'altitude de la fenêtre du demandeur, dérivé de la hauteur sous plafond saisie).
+> - **`FLOOR_HEIGHT_OBSTACLE_M` = 2,90 m** → **ESTIMATION D'UN IMMEUBLE VOISIN** sans hauteur
+>   BD TOPO (toit/hauteur absents), tier 3 de `obstacles.ts` : `sol + nombre_etages × 2,90`.
+>   Conservée à 2,90 pour ne pas modifier le score d'amplitude existant ; n'affecte jamais le verdict
+>   (qui passe par le LiDAR/MNS).
+
+> 🔄 **§4 RÉVISÉ — décision porteur du 28/06/2026 :** la hauteur d'étage n'est
+> PLUS fixée à 2,90 m. Elle **dérive** d'une **hauteur sous plafond configurable**
+> (défaut **2,50 m** « standard ») **+ dalle 0,30 m** = **2,80 m par défaut**.
+> La hauteur de l'œil **1,65 m reste VALEUR DÉFINITIVE**. Ne pas coder en dur ces
+> constantes de façon dispersée — les centraliser dans une config unique.
 
 ---
 

@@ -15,7 +15,7 @@ import { query } from "./client";
 import { balayerObstacle, type CelluleCouloir } from "../svv/balayageObstacle";
 import type { PointWgs84 } from "../svv/geo";
 import type { ObstacleCandidat, SourceHauteur } from "../svv/verdict";
-import { ANALYSIS_RANGE_M, CORRIDOR_HALF_WIDTH_M, FLOOR_HEIGHT_M, THRESHOLD_M } from "../svv/config";
+import { ANALYSIS_RANGE_M, CORRIDOR_HALF_WIDTH_M, FLOOR_HEIGHT_OBSTACLE_M, THRESHOLD_M } from "../svv/config";
 
 export interface ParametresAxe {
   point: PointWgs84;
@@ -48,8 +48,8 @@ interface LigneObstacle {
   axe_wkt: string; // WKT L93 de l'axe (demi-droite origine→portée)
 }
 
-/** Cascade hauteur Mode B → altitude de sommet (NGF) + source. */
-function resoudreSommet(r: LigneObstacle): { altitudeSommetM: number | null; source: SourceHauteur } {
+/** Cascade hauteur Mode B → altitude de sommet (NGF) + source. Exportée pour test unitaire (tier 3). */
+export function resoudreSommet(r: LigneObstacle): { altitudeSommetM: number | null; source: SourceHauteur } {
   // 1) altitude maximale de toit fournie.
   if (r.amt !== null) {
     return { altitudeSommetM: r.amt, source: "BD_TOPO" };
@@ -60,7 +60,7 @@ function resoudreSommet(r: LigneObstacle): { altitudeSommetM: number | null; sou
   }
   // 3) nombre d'étages × hauteur d'étage + altitude minimale du sol.
   if (r.net !== null && r.sol !== null) {
-    return { altitudeSommetM: r.sol + r.net * FLOOR_HEIGHT_M, source: "BD_TOPO" };
+    return { altitudeSommetM: r.sol + r.net * FLOOR_HEIGHT_OBSTACLE_M, source: "BD_TOPO" };
   }
   // 4) indéterminé.
   return { altitudeSommetM: null, source: "NONE" };

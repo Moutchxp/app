@@ -28,7 +28,7 @@ describe('config SVV — portée d’analyse partagée', () => {
 
 describe('config SVV — constantes définitives (CLAUDE.md §2 & §4)', () => {
   it('hauteur d’étage et œil humain', () => {
-    expect(FLOOR_HEIGHT_M).toBe(2.9);
+    expect(FLOOR_HEIGHT_M).toBe(2.8); // dérivé : 2.50 (sous plafond défaut) + 0.30 (dalle)
     expect(EYE_HEIGHT_M).toBe(1.65);
   });
 
@@ -42,14 +42,14 @@ describe('config SVV — hauteur de vision (aucun arrondi)', () => {
     expect(hauteurVision(0)).toBe(1.65);
   });
 
-  it('3e étage → 10.35 m', () => {
-    expect(hauteurVision(3)).toBe(3 * 2.9 + 1.65);
-    expect(hauteurVision(3)).toBeCloseTo(10.35, 10);
+  it('3e étage → 10.05 m', () => {
+    expect(hauteurVision(3)).toBe(3 * 2.8 + 1.65);
+    expect(hauteurVision(3)).toBeCloseTo(10.05, 10);
   });
 
   it('altitude fenêtre = terrain + hauteur de vision (vecteur SPEC §9)', () => {
-    // 4e étage, terrain 41 m → 41 + (4 × 2.90 + 1.65) = 54.25 m
-    expect(altitudeFenetre(41, 4)).toBe(41 + (4 * 2.9 + 1.65));
-    expect(altitudeFenetre(41, 4)).toBeCloseTo(54.25, 10);
+    // 4e étage, terrain 41 m → 41 + (4 × 2.80 + 1.65) = 53.85 m
+    expect(altitudeFenetre(41, 4)).toBe(41 + (4 * 2.8 + 1.65));
+    expect(altitudeFenetre(41, 4)).toBeCloseTo(53.85, 10);
   });
 });

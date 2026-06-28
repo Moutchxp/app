@@ -35,7 +35,8 @@ Source + confiance tracées par obstacle (audit, certificat).
 - Distances en mètres (EPSG:2154).
 - Altitude de la fenêtre (point d'origine) :
   ```
-  altitude_fenetre = altitude_terrain_origine + (etage × 2.90 + 1.65)
+  hauteur_etage    = hauteur_sous_plafond (défaut 2,50) + dalle (0,30)   // = 2,80 par défaut
+  altitude_fenetre = altitude_terrain_origine + (etage × hauteur_etage + 1.65)
   ```
 
 ---
@@ -244,9 +245,13 @@ premier dont `sommet >= altitude_fenetre` est l'obstacle.
 |--------|--------|----------|-------------|
 | 1 | `altitude_maximale_toit` (BD TOPO®) | `BDTOPO_ROOF` | `MEDIUM` |
 | 2 | `z_min_sol + hauteur` | `BDTOPO_HEIGHT` | `MEDIUM` |
-| 3 | `z_min_sol + nombre_etages × 2.90` | `ESTIMATE_FLOORS` | `LOW` |
+| 3 | `z_min_sol + nombre_etages × FLOOR_HEIGHT_OBSTACLE_M (2,90)` | `ESTIMATE_FLOORS` | `LOW` |
 | 4 | `terrain + hauteur_estimée_IA` (phase 2) | `ESTIMATE_AI` | `LOW` |
 | — | non résolu | `NONE` | `NONE` |
+
+> ⚠️ Le tier 3 utilise **`FLOOR_HEIGHT_OBSTACLE_M` = 2,90 m**, constante DISTINCTE de la hauteur
+> d'étage de l'observateur (`FLOOR_HEIGHT_M` = 2,80 m, cf. CLAUDE.md §4). Estimer un immeuble voisin
+> sans hauteur BD TOPO n'a rien à voir avec la hauteur sous plafond du demandeur.
 
 > Confiance `MEDIUM` : une hauteur unique par polygone rate décrochés et pics. Le
 > MNS (mode A) reste la référence `HIGH`.
@@ -362,7 +367,7 @@ WHERE ST_Intersects(r.rast, :region_2154)
 
 ## 9. Tests (vecteurs)
 
-Fenêtre 4e étage : `altitude_fenetre = 41 + (4 × 2.90 + 1.65) = 54.25 m`.
+Fenêtre 4e étage : `altitude_fenetre = 41 + (4 × 2.80 + 1.65) = 53.85 m`.
 Obstacles (altitude de toit) : A 18 m/48 m (non), B 32 m/50 m (non),
 C 55 m/56 m → **premier obstacle réel**, D 95 m/59 m. → certifié (C ≥ 40 m).
 
@@ -385,7 +390,9 @@ Cas à couvrir :
 
 ```ts
 export const SVV = {
-  FLOOR_HEIGHT_M: 2.90,
+  DALLE_M: 0.30,                         // dalle/plancher
+  HAUTEUR_SOUS_PLAFOND_DEFAUT_M: 2.50,   // défaut « standard » (configurable par l'utilisateur)
+  FLOOR_HEIGHT_M: 2.80,                  // dérivé = sous plafond défaut + dalle (hauteur d'étage observateur)
   EYE_HEIGHT_M: 1.65,
   THRESHOLD_M: 40,
   CORRIDOR_WIDTH_M: 2,      // largeur du couloir de contrôle
