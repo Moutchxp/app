@@ -291,10 +291,13 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
       <style>{ETAPES_KEYFRAMES}</style>
 
       {/* 1. HEADER rouge compact — titre blanc, gras, 2 lignes, pas de logo */}
-      <div className="-mx-6 -mt-6 mb-7 rounded-t-3xl bg-svv-red" style={{ padding: "18px 22px" }}>
-        <h1 className="text-white text-center" style={{ fontSize: "23px", fontWeight: 800, lineHeight: 1.15 }}>
+      <div className="-mx-6 -mt-6 mb-7 rounded-t-3xl bg-svv-red flex flex-col items-center justify-center" style={{ height: "62px", padding: "0 22px" }}>
+        <h1 className="text-white text-center" style={{ fontSize: "23px", fontWeight: 800, lineHeight: 1.1 }}>
           4 étapes
         </h1>
+        <span className="text-white text-center" style={{ fontSize: "13px", fontWeight: 600, lineHeight: 1.1, opacity: 0.9, marginTop: "2px" }}>
+          (1 minute)
+        </span>
       </div>
 
       {/* 2. STEPPER centré verticalement dans l'espace libre entre header et skyline.
