@@ -35,12 +35,16 @@ export async function POST(req: Request) {
 
   // mode optionnel et défensif : tout ce qui n'est pas exactement "manuel" → "semi_auto".
   const mode: ModeOrigine = b.mode === "manuel" ? "manuel" : "semi_auto";
+  // hauteur sous plafond optionnelle : nombre > 0, sinon undefined → le moteur applique 2,50.
+  const hauteurSousPlafondM =
+    typeof b.hauteurSousPlafondM === "number" && b.hauteurSousPlafondM > 0 ? b.hauteurSousPlafondM : undefined;
 
   try {
     const { validation, resultat } = await analyserAdresse({
       point: { lat, lon },
       azimutPrincipalDeg: azimut,
       etage,
+      hauteurSousPlafondM,
       dernierEtage,
       mode,
     });

@@ -66,6 +66,7 @@ export interface ParametresAnalyse {
   point: PointWgs84;
   azimutPrincipalDeg: number;
   etage: number;
+  hauteurSousPlafondM?: number; // hauteur sous plafond saisie par l'utilisateur (m) ; si absent, hauteurVision applique 2,50
   dernierEtage: boolean;
   paysage?: EntreePaysage;
   mode?: ModeOrigine; // saisie de l'origine ; défaut semi_auto (snap façade) si absent
@@ -90,7 +91,7 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
   }
 
   // b) Altitude de la fenêtre (helper Bloc A).
-  const altitudeFenetreM = validation.altitudeTerrainOrigineM + hauteurVision(params.etage);
+  const altitudeFenetreM = validation.altitudeTerrainOrigineM + hauteurVision(params.etage, params.hauteurSousPlafondM);
 
   // c) Obstacles sur l'axe principal (LiDAR prioritaire + point de contact).
   const obstaclesAxePrincipal = await obstaclesSurAxe({

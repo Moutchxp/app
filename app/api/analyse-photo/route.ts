@@ -18,6 +18,8 @@ export async function POST(req: Request) {
   const { photo, lat, lon, azimut } = b;
   // champs optionnels (le front les ajoutera au commit 3) — défauts défensifs :
   const etage = typeof b.etage === "number" ? b.etage : 0;
+  const hauteurSousPlafondM =
+    typeof b.hauteurSousPlafondM === "number" && b.hauteurSousPlafondM > 0 ? b.hauteurSousPlafondM : undefined;
   const dernierEtage = b.dernierEtage === true;
   const mode: ModeOrigine = b.mode === "manuel" ? "manuel" : "semi_auto";
 
@@ -35,6 +37,7 @@ export async function POST(req: Request) {
     point: { lat, lon },
     azimutPrincipalDeg: azimut,
     etage,
+    hauteurSousPlafondM,
     dernierEtage,
     mode,
   };

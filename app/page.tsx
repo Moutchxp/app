@@ -1031,6 +1031,8 @@ export default function Home() {
   const [mode, setMode] = useState<ModeOrigine>("semi_auto"); // saisie origine : semi_auto (snap) | manuel (M4b : boutons)
   const [pointDeplace, setPointDeplace] = useState(false); // true au 1er geste utilisateur sur la carte
   const [etage, setEtage] = useState("");
+  // Hauteur sous plafond (m) — défaut « standard » 2,5 ; l'UI de réglage viendra plus tard.
+  const [hauteurSousPlafondM, setHauteurSousPlafondM] = useState<number>(2.5);
   const [dernierEtage, setDernierEtage] = useState<null | boolean>(null);
   // Résultat de l'analyse (/api/analyse) — écran "resultat".
   const [analyseEnCours, setAnalyseEnCours] = useState(false);
@@ -1704,7 +1706,7 @@ export default function Home() {
       const r = await fetch("/api/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat, lon, azimut, etage: etageNum, dernierEtage, mode }),
+        body: JSON.stringify({ lat, lon, azimut, etage: etageNum, hauteurSousPlafondM, dernierEtage, mode }),
       });
       const data = await r.json();
       if (!r.ok || data.ok === false) {
@@ -1733,7 +1735,7 @@ export default function Home() {
       const r = await fetch("/api/analyse-photo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photo: photoDataUrl, lat, lon, azimut, mode, etage: Number(etage), dernierEtage }),
+        body: JSON.stringify({ photo: photoDataUrl, lat, lon, azimut, mode, etage: Number(etage), hauteurSousPlafondM, dernierEtage }),
         signal: ctrl.signal,
       });
       const data = await r.json();
