@@ -1,8 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, type ChangeEvent } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import MapSelector from "./MapSelector";
+import { AdresseAutocomplete } from "./components/AdresseAutocomplete";
 import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
 import type { ModeOrigine } from "./lib/svv/config";
@@ -1026,8 +1027,6 @@ export default function Home() {
     }, 1400);
     return () => clearInterval(id);
   }, [analyseEnCours]);
-  const [suggestions, setSuggestions] = useState<{ label: string; lat: number; lon: number }[]>([]);
-  const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ignoreNextReverseRef = useRef(false);
   const conserverPositionRef = useRef(false); // au redo : garder le marqueur, ne pas réécrire via GPS
   // Vrai dès que l'utilisateur a déplacé la carte. Empêche le GPS photo TARDIF de rappeler la
@@ -1171,45 +1170,12 @@ export default function Home() {
     }
   }
 
-  // --- Autocomplétion d'adresse (BAN) : parcours de secours sans GPS ---
-  function onChangeAdresse(e: ChangeEvent<HTMLInputElement>) {
-    const v = e.target.value;
-    setAddress(v); // champ contrôlé
-    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
-    if (v.trim().length < 3) {
-      setSuggestions([]);
-      return;
-    }
-    suggestTimerRef.current = setTimeout(() => fetchSuggestions(v), 300); // débounce ~300 ms
-  }
-
-  async function fetchSuggestions(q: string) {
-    type BanFeature = { properties?: { label?: string }; geometry?: { coordinates?: number[] } };
-    try {
-      const res = await fetch(
-        `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=5&autocomplete=1`,
-      );
-      const data: { features?: BanFeature[] } = await res.json();
-      const items = (data.features ?? [])
-        .map((f) => ({
-          label: f.properties?.label ?? "",
-          lon: f.geometry?.coordinates?.[0],
-          lat: f.geometry?.coordinates?.[1],
-        }))
-        .filter(
-          (s): s is { label: string; lat: number; lon: number } =>
-            s.label !== "" && typeof s.lat === "number" && typeof s.lon === "number",
-        );
-      setSuggestions(items);
-    } catch {
-      setSuggestions([]);
-    }
-  }
-
-  function selectSuggestion(s: { label: string; lat: number; lon: number }) {
+  // Sélection d'une suggestion d'adresse (BAN) : effets de bord CARTE (Home uniquement) — recentrage
+  // + anti-reverse. La saisie/débounce/fetch/liste sont dans <AdresseAutocomplete> ; ce handler n'y est
+  // appelé que via la prop onSelect.
+  function onSelectAdresse(s: { label: string; lat: number; lon: number }) {
     setAddress(s.label);
     setAddressInfo(""); // efface "Position introuvable…"
-    setSuggestions([]);
     // Anti-écrasement : saute le reverse-geocode du moveend déclenché par le recentrage.
     ignoreNextReverseRef.current = true;
     // Filet : désarme le flag si aucun moveend ne survient (adresse ~ au centre actuel).
@@ -1219,13 +1185,6 @@ export default function Home() {
     // Recentrage via le MÊME mécanisme que le GPS (setPosition → setView). Ne touche pas pointDeplace.
     setPosition({ latitude: s.lat, longitude: s.lon });
   }
-
-  // Purge du timer de débounce au démontage.
-  useEffect(() => {
-    return () => {
-      if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
-    };
-  }, []);
 
   // Capteurs : PITCH + boussole via deviceorientation (inchangé), ROLL via DeviceMotion
   // (accélération + gravité) lissé en requestAnimationFrame. Mesure plus stable près de
@@ -2138,27 +2097,12 @@ export default function Home() {
     <label className="mb-1 block text-lg font-semibold text-svv-ink">
       {positionGPSObtenue ? "Votre adresse" : "Saisissez votre adresse"}
     </label>
-    <input
+    <AdresseAutocomplete
       value={address}
-      onChange={onChangeAdresse}
-      className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
+      onChange={setAddress}
+      onSelect={onSelectAdresse}
       placeholder="Saisissez l'adresse, ou déplacez le repère sur la carte"
     />
-    {suggestions.length > 0 && (
-      <ul className="mt-2 mb-3 overflow-hidden rounded-xl border border-svv-line bg-white shadow-sm divide-y divide-svv-line">
-        {suggestions.map((s, i) => (
-          <li key={i}>
-            <button
-              type="button"
-              onClick={() => selectSuggestion(s)}
-              className="w-full px-3 py-2 text-left text-sm text-svv-ink active:bg-svv-field"
-            >
-              {s.label}
-            </button>
-          </li>
-        ))}
-      </ul>
-    )}
     {addressInfo && (
       <p className="mt-2 mb-3 text-xs text-svv-muted">{addressInfo}</p>
     )}
