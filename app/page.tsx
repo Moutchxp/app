@@ -835,7 +835,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
 
       {selecteurOuvert && (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/45 p-5" onClick={() => setSelecteurOuvert(false)}>
-          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-sm max-h-[85vh] overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-1 text-base font-bold text-svv-ink">Choisir l'adresse</h3>
             <p className="mb-3 text-xs text-svv-muted">Adresses à proximité immédiate du point GPS validé sur la carte.</p>
             <div className="flex flex-col gap-2">
@@ -1006,7 +1006,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
       {/* Modal Époque — calqué sur le motif showInfoPhoto/infoLocalisation du projet */}
       {epoqueModalOuvert && (
         <div onClick={() => setEpoqueModalOuvert(false)} className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/45 p-5">
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm max-h-[85vh] overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="mb-3 text-base font-bold text-svv-ink">Époque de construction</h3>
             <div className="flex flex-col gap-2">
               {EPOQUES.map((ep) => (
