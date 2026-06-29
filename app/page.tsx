@@ -814,71 +814,9 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
 
       <p className="mb-4 text-sm text-svv-muted">Renseignez vos coordonnées et les informations du bien. Le certificat Sans Vis-à-Vis® vous sera envoyé par email.</p>
 
-      {/* IDENTITÉ */}
-      <div className="rounded-2xl bg-svv-field p-5">
-      <h2 className="text-lg font-bold text-svv-ink mb-3">Vos coordonnées</h2>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className="mb-1 block text-sm font-semibold text-svv-ink">Prénom <span className="text-svv-red">*</span></label>
-          <input value={prenom} onChange={(e) => setPrenom(e.target.value)} className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none" placeholder="Prénom" />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-semibold text-svv-ink">Nom <span className="text-svv-red">*</span></label>
-          <input value={nom} onChange={(e) => setNom(e.target.value)} className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none" placeholder="Nom" />
-        </div>
-      </div>
-
-      <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Email <span className="text-svv-red">*</span></label>
-      <input
-        type="email"
-        inputMode="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
-        placeholder="vous@exemple.fr"
-      />
-      {email.trim() !== "" && !emailValide && (
-        <p className="mt-1 text-sm text-svv-red">Format d'email invalide.</p>
-      )}
-
-      <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone <span className="text-svv-red">*</span></label>
-      <input
-        type="tel"
-        inputMode="tel"
-        value={telephone}
-        onChange={(e) => setTelephone(e.target.value)}
-        className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
-        placeholder="06 12 34 56 78"
-      />
-
-      <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Le bien analysé est-il votre résidence principale ? <span className="text-svv-red">*</span></label>
-      <div className="grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => setBienEstResidence(true)} className={classeChoix(bienEstResidence === true)}>Oui</button>
-        <button type="button" onClick={() => setBienEstResidence(false)} className={classeChoix(bienEstResidence === false)}>Non</button>
-      </div>
-      {bienEstResidence === true && (
-        <input
-          value={adresseChoisie}
-          readOnly
-          className="mt-2 w-full cursor-default rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink focus:outline-none"
-        />
-      )}
-      {bienEstResidence === false && (
-        <div className="mt-2">
-          <AdresseAutocomplete
-            value={residenceAdresse}
-            onChange={setResidenceAdresse}
-            onSelect={(s) => setResidenceAdresse(s.label)}
-            placeholder="Saisissez votre adresse de résidence principale"
-          />
-        </div>
-      )}
-      </div>
-
       {/* BIEN */}
-      <div className="mt-4 rounded-2xl bg-svv-field p-5">
-      <h2 className="text-lg font-bold text-svv-ink mb-3">Le bien</h2>
+      <div className="rounded-2xl bg-svv-field p-5">
+      <h2 className="text-lg font-bold text-svv-ink mb-3">Identification de votre bien</h2>
 
       <div className="mb-1 flex items-center justify-between">
         <label className="text-sm font-semibold text-svv-ink">Adresse du bien</label>
@@ -990,6 +928,68 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
         <button type="button" onClick={() => setBalcon(true)} className={classeChoix(balcon === true)}>Oui</button>
         <button type="button" onClick={() => setBalcon(false)} className={classeChoix(balcon === false)}>Non</button>
       </div>
+      </div>
+
+      {/* IDENTITÉ */}
+      <div className="mt-4 rounded-2xl bg-svv-field p-5">
+      <h2 className="text-lg font-bold text-svv-ink mb-3">Vos coordonnées</h2>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="mb-1 block text-sm font-semibold text-svv-ink">Prénom <span className="text-svv-red">*</span></label>
+          <input value={prenom} onChange={(e) => setPrenom(e.target.value)} className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none" placeholder="Prénom" />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-semibold text-svv-ink">Nom <span className="text-svv-red">*</span></label>
+          <input value={nom} onChange={(e) => setNom(e.target.value)} className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none" placeholder="Nom" />
+        </div>
+      </div>
+
+      <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Email <span className="text-svv-red">*</span></label>
+      <input
+        type="email"
+        inputMode="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
+        placeholder="vous@exemple.fr"
+      />
+      {email.trim() !== "" && !emailValide && (
+        <p className="mt-1 text-sm text-svv-red">Format d'email invalide.</p>
+      )}
+
+      <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone <span className="text-svv-red">*</span></label>
+      <input
+        type="tel"
+        inputMode="tel"
+        value={telephone}
+        onChange={(e) => setTelephone(e.target.value)}
+        className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
+        placeholder="06 12 34 56 78"
+      />
+
+      <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Le bien analysé est-il votre résidence principale ? <span className="text-svv-red">*</span></label>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => setBienEstResidence(true)} className={classeChoix(bienEstResidence === true)}>Oui</button>
+        <button type="button" onClick={() => setBienEstResidence(false)} className={classeChoix(bienEstResidence === false)}>Non</button>
+      </div>
+      {bienEstResidence === true && (
+        <input
+          value={adresseChoisie}
+          readOnly
+          className="mt-2 w-full cursor-default rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink focus:outline-none"
+        />
+      )}
+      {bienEstResidence === false && (
+        <div className="mt-2">
+          <AdresseAutocomplete
+            value={residenceAdresse}
+            onChange={setResidenceAdresse}
+            onSelect={(s) => setResidenceAdresse(s.label)}
+            placeholder="Saisissez votre adresse de résidence principale"
+          />
+        </div>
+      )}
       </div>
 
       {/* ACTIONS */}
