@@ -2392,7 +2392,7 @@ export default function Home() {
     </div>
     <div className="mb-3 flex items-center justify-center gap-1.5">
       <p className="text-center text-xs text-svv-muted">
-        Si nécessaire, faites pivoter la carte pour que le faisceau rouge suive l&apos;axe de votre vue, face au séjour (±{MARGE_AJUSTEMENT_AZIMUT_DEG}°).
+        Si nécessaire, faites pivoter la carte pour que le faisceau rouge suive l&apos;axe principal de votre vue, face au séjour (±{MARGE_AJUSTEMENT_AZIMUT_DEG}°).
       </p>
       <button
         type="button"
