@@ -3,6 +3,9 @@
 # données géographiques volumineuses (dalles LiDAR, etc.) — JAMAIS committées
 /app/data/
 
+# BDNB open data (année de construction, scratch dept 92) — JAMAIS committée
+/data/bdnb/
+
 # dependencies
 /node_modules
 /.pnp
