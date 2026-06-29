@@ -36,21 +36,20 @@ export async function adressesProches(
       FROM adresse_ban a, par_ok
       WHERE ST_DWithin(par_ok.g, a.geom, 1)
     ),
-    -- parcelle voisine la plus proche du point (hors la parcelle du bien),
-    -- seulement si la parcelle du bien couvre bien le point
-    voisine AS (
-      SELECT p.geom AS g
-      FROM parcelle p, pt
-      WHERE EXISTS (SELECT 1 FROM par_ok)
-        AND p.id <> (SELECT id FROM par_ok)
-      ORDER BY p.geom <-> pt.g
-      LIMIT 1
+    -- toutes les parcelles CONTIGUËS à la parcelle du bien (hors elle-même).
+    -- Tolérance 0,10 m : absorbe les micro-gaps de numérisation cadastrale sans attraper
+    -- les parcelles d'en face. Vide si par_ok l'est (point hors emprise) → aucune voisine.
+    contig AS (
+      SELECT p.id, p.geom AS g
+      FROM parcelle p, par_ok
+      WHERE p.id <> par_ok.id
+        AND ST_DWithin(p.geom, par_ok.g, 0.10)
     ),
-    -- adresses de la parcelle voisine (tolérance 1 m)
+    -- adresses des parcelles contiguës (tolérance 1 m)
     dans_voisine AS (
       SELECT a.cle_d_interoperabilite AS cle, a.geom AS ageom, false AS meme_parcelle
-      FROM adresse_ban a, voisine
-      WHERE ST_DWithin(voisine.g, a.geom, 1)
+      FROM adresse_ban a, contig
+      WHERE ST_DWithin(contig.g, a.geom, 1)
     ),
     -- union dédupliquée par cle : si une adresse est dans les deux, meme_parcelle = true prime
     fusion AS (
