@@ -812,7 +812,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
         </div>
       </div>
 
-      <p className="mb-4 text-sm text-svv-muted">Renseignez vos coordonnées et les informations du bien. Le certificat Sans Vis-à-Vis® vous sera envoyé par email.</p>
+      <p className="mb-4 text-sm text-svv-muted">Ces informations nous sont nécessaires pour identifier avec certitude le bien analysé et l&apos;établir au nom du demandeur. Le certificat Sans Vis-à-Vis® vous sera envoyé par email.</p>
 
       {/* BIEN */}
       <div className="rounded-2xl bg-svv-field p-5">
