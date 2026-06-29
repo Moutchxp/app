@@ -1953,7 +1953,7 @@ export default function Home() {
       )}
 
       {isCameraActive && (
-        <div className="fixed inset-0 z-50 bg-black select-none">
+        <div className="fixed inset-0 z-50 bg-svv-field select-none">
           <video
             ref={videoRef}
             autoPlay
@@ -1968,9 +1968,26 @@ export default function Home() {
             onEmptied={reevaluerVideoReady}
           />
 
+          {/* Trame d'attente (carte + appareil rétro) : couvre la vidéo noire tant que le flux n'est
+              pas prêt. z-[5] = au-dessus de la vidéo (z-auto), SOUS le HUD (z-10) et les barres (z-20).
+              Toujours montée → fondu de sortie (opacity) quand videoReady passe true. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/images/Trame%20ecran%20Photo.png"
+            alt=""
+            aria-hidden="true"
+            className={`pointer-events-none absolute inset-0 z-[5] h-full w-full object-cover object-bottom transition-opacity duration-300 ${
+              videoReady ? "opacity-0" : "opacity-100"
+            }`}
+          />
+
           {/* Anneau rouge clignotant du bouton « Grand-angle » (incite au tap). */}
           <style>{`@keyframes svvRing{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,0)}50%{box-shadow:0 0 0 6px rgba(220,38,38,0.9)}}.svvRingPulse{animation:svvRing 1.1s ease-in-out infinite}`}</style>
 
+          {/* UI caméra (barres + HUD) : masquée pendant l'écran d'attente (trame seule),
+              réapparaît dès que le flux vidéo est prêt (videoReady). */}
+          {videoReady && (
+          <>
           {/* Barre supérieure */}
           <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-5 pt-12 pb-4">
             <button
@@ -2124,6 +2141,8 @@ export default function Home() {
               </button>
             </div>
           </div>
+          </>
+          )}
 
           {/* Modale « À quoi sert cette photo ? » — même motif que la modale Façade (overlay z-[3000]). */}
           {showInfoPhoto && (
