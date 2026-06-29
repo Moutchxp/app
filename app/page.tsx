@@ -859,7 +859,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
                   {adressesVoisine.length > 0 && (
                     <>
                       {afficherTitresGroupes && (
-                        <p className="mt-3 text-[11px] font-medium uppercase tracking-wide text-svv-muted">Parcelle voisine</p>
+                        <p className="mt-3 text-[11px] font-medium uppercase tracking-wide text-svv-muted">Parcelle(s) voisine(s)</p>
                       )}
                       {adressesVoisine.map(renderLigneAdresse)}
                     </>
