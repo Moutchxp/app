@@ -2514,7 +2514,7 @@ export default function Home() {
     </div>
 
     {/* Dernier étage ? — toujours affiché (plus de révélation montrerQ2) */}
-    <div className="mt-7">
+    <div className="mt-[18px]">
         <label className="mb-2 block text-base font-semibold text-svv-ink">Dernier étage ?</label>
         <div className="grid grid-cols-2 gap-3">
           <button type="button" onClick={() => setDernierEtage(true)}
