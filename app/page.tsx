@@ -732,6 +732,8 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
   const adressesMemeParcelle = adressesTriees.filter((a) => a.memeParcelle);
   const adressesVoisine = adressesTriees.filter((a) => !a.memeParcelle);
   const afficherTitresGroupes = adressesMemeParcelle.length > 0 && adressesVoisine.length > 0;
+  // Cœur d'îlot : la parcelle du bien n'a aucune adresse propre → un seul groupe « Adresses possibles ».
+  const coeurIlot = adressesMemeParcelle.length === 0 && adressesVoisine.length > 0;
 
   // Rendu d'une ligne (réutilisé par les deux groupes) — className EXACTS de l'existant
   const renderLigneAdresse = (a: { cle: string; libelle: string; distanceM: number; memeParcelle: boolean }) => (
@@ -839,20 +841,29 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
             <h3 className="mb-1 text-base font-bold text-svv-ink">Choisir l'adresse</h3>
             <p className="mb-3 text-xs text-svv-muted">Adresses à proximité immédiate du point GPS validé sur la carte.</p>
             <div className="flex flex-col gap-2">
-              {adressesMemeParcelle.length > 0 && (
+              {coeurIlot ? (
                 <>
-                  {afficherTitresGroupes && (
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-svv-muted">Même parcelle</p>
-                  )}
-                  {adressesMemeParcelle.map(renderLigneAdresse)}
-                </>
-              )}
-              {adressesVoisine.length > 0 && (
-                <>
-                  {afficherTitresGroupes && (
-                    <p className="mt-3 text-[11px] font-medium uppercase tracking-wide text-svv-muted">Parcelle voisine</p>
-                  )}
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-svv-muted">Adresses possibles</p>
                   {adressesVoisine.map(renderLigneAdresse)}
+                </>
+              ) : (
+                <>
+                  {adressesMemeParcelle.length > 0 && (
+                    <>
+                      {afficherTitresGroupes && (
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-svv-muted">Même parcelle</p>
+                      )}
+                      {adressesMemeParcelle.map(renderLigneAdresse)}
+                    </>
+                  )}
+                  {adressesVoisine.length > 0 && (
+                    <>
+                      {afficherTitresGroupes && (
+                        <p className="mt-3 text-[11px] font-medium uppercase tracking-wide text-svv-muted">Parcelle voisine</p>
+                      )}
+                      {adressesVoisine.map(renderLigneAdresse)}
+                    </>
+                  )}
                 </>
               )}
             </div>
