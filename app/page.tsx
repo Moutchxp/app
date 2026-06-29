@@ -2350,12 +2350,9 @@ export default function Home() {
   <div className="animate-fadeIn">
     <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
       <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">
-        Ajustez votre orientation si nécessaire
+        Ajustez votre orientation
       </h1>
     </div>
-    <p className="mt-2 mb-4 text-sm leading-relaxed text-svv-muted">
-      Le faisceau rouge correspond-il bien à l&apos;axe principal de votre vue, en face de votre séjour ?
-    </p>
 
     {photo && (
       <div className="relative -mx-6 mb-3 aspect-[2/1] overflow-hidden rounded-xl">
