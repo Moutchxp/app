@@ -43,9 +43,15 @@ export async function faisceauxAmplitude(
       batimentOriginePolygoneWkt: params.batimentOriginePolygoneWkt,
     });
     const res = premierObstacle(candidats, params.altitudeFenetreM);
+    const obstacle = res.obstacle; // 1er obstacle retenu (≥ fenêtre) ou null si dégagé
     resultats.push({
       offsetDeg: offsetSigne(azimut, params.azimutPrincipalDeg),
-      distanceObstacleM: res.distanceM, // null si dégagé / non tranchable
+      distanceObstacleM: res.distanceM, // null si dégagé / non tranchable — INCHANGÉ (calcul de A)
+      // Enrichissement Couche 1 B : métadonnées du 1er obstacle (nullables) ; n'affectent pas A.
+      rayonWkt: obstacle?.rayonWkt,
+      impactCleabs: obstacle?.cleabs ?? null,
+      impactNature: obstacle?.nature ?? null,
+      impactPointWkt: obstacle?.impactPointWkt ?? null,
     });
   }
   return resultats;

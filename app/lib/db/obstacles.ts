@@ -44,8 +44,10 @@ interface LigneObstacle {
   h: number | null; // hauteur
   sol: number | null; // altitude_minimale_sol
   net: number | null; // nombre_d_etages
+  nature: string | null; // bdtopo_batiment.nature (F3) — enrichissement Couche 1 B
   corridor_wkt: string; // WKT L93 du couloir (identique sur toutes les lignes)
   axe_wkt: string; // WKT L93 de l'axe (demi-droite origine→portée)
+  impact_pt_wkt: string; // point d'impact L93 sur le rayon (origine + dist·dir) — enrichissement Couche 1 B
 }
 
 /** Cascade hauteur Mode B → altitude de sommet (NGF) + source. Exportée pour test unitaire (tier 3). */
@@ -454,12 +456,16 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
      couloir AS (
        SELECT origine, ligne, ST_Buffer(ligne, $5) AS corr FROM axe
      )
-     SELECT b.id, b.cleabs,
+     SELECT b.id, b.cleabs, b.nature,
             ST_Distance(ST_Force2D(b.geom), c.origine) AS dist_m,
             b.altitude_maximale_toit AS amt, b.hauteur AS h,
             b.altitude_minimale_sol AS sol, b.nombre_d_etages AS net,
             ST_AsText(c.corr) AS corridor_wkt,
-            ST_AsText(c.ligne) AS axe_wkt
+            ST_AsText(c.ligne) AS axe_wkt,
+            ST_AsText(ST_LineInterpolatePoint(
+              c.ligne,
+              LEAST(ST_Distance(ST_Force2D(b.geom), c.origine), $4) / $4::float8
+            )) AS impact_pt_wkt
      FROM bdtopo_batiment b, couloir c
      WHERE ST_Intersects(ST_Force2D(b.geom), c.corr)
        AND b.id <> $6
@@ -478,7 +484,17 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
     res.rows.map(async (r): Promise<ObstacleCandidat> => {
       // Faisceaux (lidar=false) : comportement inchangé, distanceM = distance façade.
       const { altitudeSommetM, source } = resoudreSommet(r);
-      return { distanceM: r.dist_m, altitudeSommetM, source };
+      return {
+        distanceM: r.dist_m,
+        altitudeSommetM,
+        source,
+        // Enrichissement Couche 1 B : on cesse de DROPPER ce que la requête calcule déjà.
+        // N'affecte NI distanceM, NI altitudeSommetM, NI source → aucun impact sur le verdict/A.
+        cleabs: r.cleabs,
+        nature: r.nature,
+        rayonWkt: r.axe_wkt,
+        impactPointWkt: r.impact_pt_wkt,
+      };
     }),
   );
 

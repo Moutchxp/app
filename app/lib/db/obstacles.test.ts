@@ -6,7 +6,8 @@ import { FLOOR_HEIGHT_OBSTACLE_M, FLOOR_HEIGHT_M } from '../svv/config';
 // VOISIN sans altitude de toit ni hauteur BD TOPO) doit utiliser FLOOR_HEIGHT_OBSTACLE_M (2,90),
 // indépendamment de FLOOR_HEIGHT_M (2,80, hauteur d'étage de l'OBSERVATEUR).
 describe('resoudreSommet — tier 3 (estimation par étages, immeuble voisin)', () => {
-  const base = { id: 1, cleabs: 'TEST', dist_m: 30, corridor_wkt: '', axe_wkt: '' };
+  // nature/impact_pt_wkt : champs d'enrichissement Couche 1 B, ignorés par resoudreSommet.
+  const base = { id: 1, cleabs: 'TEST', dist_m: 30, nature: null, corridor_wkt: '', axe_wkt: '', impact_pt_wkt: '' };
 
   it('amt=null, h=null, sol+net renseignés → sol + net × 2,90 (FLOOR_HEIGHT_OBSTACLE_M, PAS 2,80)', () => {
     const r = resoudreSommet({ ...base, amt: null, h: null, sol: 40, net: 5 });

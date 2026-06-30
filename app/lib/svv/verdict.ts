@@ -28,6 +28,17 @@ export interface ObstacleCandidat {
   /** Altitude du sommet (NGF, m). `null` si la hauteur est inconnue (source NONE). */
   altitudeSommetM: number | null;
   source: SourceHauteur;
+  // --- Métadonnées d'enrichissement (Couche 1 du Résultat B) ---------------------------------
+  // OPTIONNELLES et NULLABLES. NON lues par premierObstacle ni par le verdict (zéro impact sur A).
+  // Renseignées côté BD TOPO (faisceaux de score) ; absentes côté LiDAR (verdict).
+  /** cleabs BD TOPO du bâti (jointure F2 `bdnb_annee_batiment` <1900). */
+  cleabs?: string | null;
+  /** `bdtopo_batiment.nature` du bâti (F3 remarquable). */
+  nature?: string | null;
+  /** LineString origine→portée 200 m (SRID 2154) du faisceau (F4 traversée nature/eau). */
+  rayonWkt?: string;
+  /** Point d'impact sur le rayon (SRID 2154) = origine + dist·(sin,cos) (F2/F3). */
+  impactPointWkt?: string | null;
 }
 
 export interface ResultatVerdict {

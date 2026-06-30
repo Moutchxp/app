@@ -40,6 +40,17 @@ export interface FaisceauResultat {
   offsetDeg: number;
   /** Distance du 1er obstacle (m) ; `null` si le faisceau est dégagé. */
   distanceObstacleM: number | null;
+  // --- Enrichissement Couche 1 du Résultat B (OPTIONNEL, NULLABLE) ----------------------------
+  // N'INTERVIENT PAS dans le calcul du Résultat A (distance/amplitude/total). Renseigné quand un
+  // obstacle est retenu (côté BD TOPO) ; sinon undefined. Consommé plus tard par coucheDegagement.
+  /** LineString origine→portée 200 m (SRID 2154) du faisceau (F4 traversée nature/eau). */
+  rayonWkt?: string;
+  /** cleabs du 1er obstacle (jointure F2 `bdnb_annee_batiment` <1900). */
+  impactCleabs?: string | null;
+  /** `bdtopo_batiment.nature` du 1er obstacle (F3 remarquable). */
+  impactNature?: string | null;
+  /** Point d'impact (SRID 2154) = origine + dist·(sin,cos) (F2/F3). */
+  impactPointWkt?: string | null;
 }
 
 export interface EntreeFamille1 {
