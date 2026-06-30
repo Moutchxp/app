@@ -13,7 +13,7 @@
 | **BAN** — `adresse_ban` | Adresses (numéro, voie, `cle_d_interoperabilite`, `parcelles_cadastrales`) | **En base** | Licence Ouverte Etalab | 2154 | `cle_d_interoperabilite` ; géométrie | Points ~0,7 m hors emprise parcellaire (tolérance gérée). |
 | **Cadastre** — `parcelle` | Parcelles (`id` 14 c, `commune`, `section`, `numero`) | **En base** | Licence Ouverte Etalab | 2154 | `parcelle.id` ; géométrie | — |
 | **BDNB** — `bdnb_annee_batiment` | **Année de construction** par `cleabs` | **IMPORTÉE** (table dédiée, **191 262 lignes**, **~76 % année non-null**, jointure `cleabs` **99,65 %**, dédup **`MIN(annee)`**) | Licence Ouverte Etalab | 2154 | `cleabs` → `bdtopo_batiment.cleabs` | Millésime **2026-02.a**. **Année ≠ style ≠ beauté** ; année issue des **Fichiers Fonciers** (approximation, parfois prédite). Alimente la **Famille 2** (ancien < 1900). |
-| **Parcs & jardins publics ouverts au public** (OCS GE, ministère de la Transition écologique / IGN) | Polygones de parcs, squares, jardins (`nature`, `date_ouv`…) | **GO — recon faite, IMPORT À FAIRE** | Licence Ouverte Etalab v2.0 | LAMB93 / 2154 *(attendu, à confirmer sur fichier)* | Géométrique (`ST_Intersection` faisceau ↔ polygone) | **Comble le trou parcs/squares urbains** de BD TOPO végétation (testé : **Square Gilbert-Thomain** près du parc Denfert à Asnières — **absent** de `bdtopo_vegetation`, **présent** ici). MultiPolygon **surfacique**. Millésime **2021-2023**. `data.geopf.fr` permet une **extraction par bbox** (extrait 92). Champ `nature` (parc/square/jardin…) + `date_ouv` (**bonus potentiel** score paysage). **À confirmer sur fichier réel : SRID + colonnes exactes.** Alimente la **Famille 4** (nature). |
+| **Parcs & jardins publics ouverts au public** (OCS GE, ministère de la Transition écologique / IGN) | Polygones de parcs, squares, jardins (`nature`, `date_ouv`…) | **IMPORT BLOQUÉ — source 92 à trouver** | Licence Ouverte Etalab v2.0 | **2154 confirmé** (Lambert-93) | Géométrique (`ST_Force2D` puis `ST_Intersection` / `ST_Length` faisceau ↔ polygone) | **Comble le trou parcs/squares urbains** de BD TOPO végétation (Square Gilbert-Thomain près du parc Denfert, **absent** de `bdtopo_vegetation`). ⚠️ **Téléchargement OCS GE par département ne couvre PAS la petite couronne** (D091–D095 = 0 fichier ; seuls D075/D077/D078 en IdF) → **pas d'extrait 92**. Donnée 92 présente dans le WMS IGN, mais harvest sur grille fragile/non déterministe → non retenu. Schéma confirmé via proxy **D075** (même produit). Alimente la **Famille 4** (nature). |
 | **Mérimée** (monuments historiques classés/inscrits) | Monuments protégés | **À EXPLORER** (recon faisabilité **non faite**) | À vérifier | À vérifier | À vérifier | Destiné à alimenter la **Famille 3** (remarquable/classé). Faisabilité, licence et format non encore évalués. |
 | **OSM** | — | **Écartée** | Licence **incompatible** | — | — | Non utilisée (incompatibilité de licence avec un usage commercial propriétaire). |
 
@@ -27,14 +27,32 @@
 - Dé-duplication : **`MIN(annee)`** par `cleabs` (déterministe ; plus ancienne année non-nulle).
 - **Autonome** : aucune table existante modifiée ; jointure à la requête via `cleabs`.
 
-### Parcs & jardins publics (OCS GE) — import à faire
+### Parcs & jardins publics (OCS GE) — IMPORT BLOQUÉ (source 92 à trouver)
 - Source : data.gouv.fr / cartes.gouv.fr / `data.geopf.fr` (flux WMS/WMTS + GeoPackage en
-  téléchargement ; **pas de WFS**).
-- Schéma observé (via WMS GetFeatureInfo) : `nom`, `nature`, `ouverture`, `date_ouv`, `source`,
-  `id`, `geom` (MultiPolygon). Seuil de représentation **500 m²**. Couverture métropole + Réunion
-  + Martinique.
-- Étape suivante : télécharger un extrait 92 (`data/parcs_jardins/`, **jamais committé**),
-  confirmer SRID 2154 + types de colonnes, puis importer en table dédiée autonome.
+  téléchargement **par département** ; **pas de WFS**).
+- ⚠️ **Blocage couverture** : l'archive de téléchargement par département **ne contient PAS la
+  petite couronne** — **D091, D092, D093, D094, D095 = 0 fichier** (seuls **D075, D077, D078** en
+  Île-de-France). **Le 92 n'est donc PAS disponible en extrait départemental.** La donnée 92
+  existe dans le **WMS IGN national** (le Square Gilbert-Thomain y est interrogeable), mais un
+  **harvest sur grille via GetFeatureInfo est fragile / non déterministe** → **non retenu** pour
+  un import propre et auditable.
+- **Schéma RÉEL confirmé** via le **proxy D075 (Paris)** — même produit, schéma identique pour
+  tous les départements (fichier `.7z` 715 Ko → `PJ_75_2021.gpkg`, lu via `/vsi7z/`) :
+  - **SRID = 2154 (Lambert-93)** ✅ confirmé sur fichier (base RGF93/4171 projetée).
+  - **Géométrie = Polygon ZM (« 3D Measured »)** → **`ST_Force2D` requis** avant
+    `ST_Intersection` / `ST_Length`.
+  - **Colonnes** : `nom`, `nature`, `ouverture`, `date_ouv` (**TEXTE**, ~88 % non-null, min 1564 /
+    max 2018), `source`, `id` (clé stable type **PJIDF…**). **PAS de colonne surface** → calcul
+    `ST_Area` (seuil de représentation **500 m²**).
+  - **`nature` observée** : `Square`, `Jardin`, `Parc` (la doc annonce aussi parc d'étang / parc
+    de château / jardin botanique, absents à Paris).
+- **Test Denfert** : **Square Gilbert-Thomain** présent (id `PJIDF2736`, `nature=Square`,
+  `date_ouv=1902`) — **absent de `bdtopo_vegetation`** → confirme l'intérêt du jeu pour combler le
+  trou parcs/squares urbains.
+- **Source amont = Institut Paris Région (IPR).** **PISTE** : explorer un **jeu régional IdF
+  (IPR)** couvrant le 92 (ex. « Espaces verts »). ⚠️ **LICENCE À VÉRIFIER avant tout import** —
+  une **ODbL (share-alike)** serait **bloquante** pour un usage commercial propriétaire (contrairement
+  à la Licence Ouverte Etalab de l'OCS GE).
 
 ## Limite générale du moteur de verdict (décidée)
 

@@ -6,6 +6,9 @@
 # BDNB open data (année de construction, scratch dept 92) — JAMAIS committée
 /data/bdnb/
 
+# Parcs & jardins OCS GE (scratch d'inspection) — JAMAIS committée
+/data/parcs_jardins/
+
 # dependencies
 /node_modules
 /.pnp
