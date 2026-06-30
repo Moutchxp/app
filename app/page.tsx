@@ -21,7 +21,7 @@ import {
   libelleProprete,
 } from "./lib/libelles";
 
-type Etape = "accueil" | "etapes" | "photo" | "localisation" | "orientation" | "infos" | "resultat" | "certificat";
+type Etape = "accueil" | "etapes" | "consentement" | "photo" | "localisation" | "orientation" | "infos" | "resultat" | "certificat";
 
 // Forme (partielle) de la réponse succès de /api/analyse (cf. app/api/analyse/route.ts).
 interface ReponseAnalyse {
@@ -2002,12 +2002,54 @@ export default function Home() {
 {etape === "etapes" && (
   <EcranEtapes
     onContinuer={() => {
-      // « C'est parti » : ouvre directement la caméra (geste utilisateur requis sur iOS)
-      // et démarre le parcours photo — plus de tap « Ouvrir l'appareil photo ».
-      setEtape("photo");
-      startCamera();
+      // « Commencer » mène désormais à l'écran de consentement permissions ; les accès (caméra,
+      // orientation, géoloc) y seront demandés. Pour CE commit, le démarrage caméra reste sur le
+      // bouton « Autoriser les accès » (comportement permissions inchangé).
+      setEtape("consentement");
     }}
   />
+)}
+
+{/* Écran de consentement permissions — intercalaire entre « 4 étapes » et la photo.
+    Fond plein écran = trame beige (même image que le voile de chargement caméra, instance SÉPARÉE). */}
+{etape === "consentement" && (
+  <div className="fixed inset-0 z-50 flex flex-col bg-svv-field select-none">
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    <img
+      src="/images/Trame%20ecran%20Photo.png"
+      alt=""
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover object-bottom"
+    />
+    <div className="relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6">
+      <div className="rounded-2xl bg-white/95 p-6 shadow-xl">
+        <h1 className="text-[1.6rem] font-extrabold leading-tight tracking-tight text-svv-ink">
+          Avant de photographier la vue
+        </h1>
+        <p className="mt-3 text-sm leading-relaxed text-svv-muted">
+          Pour évaluer le dégagement de votre bien, trois autorisations sont nécessaires :
+        </p>
+        <ul className="mt-4 space-y-3 text-sm leading-relaxed text-svv-gray">
+          <li>
+            <span className="font-semibold text-svv-ink">Appareil photo</span> — pour saisir l&apos;image de votre vue
+          </li>
+          <li>
+            <span className="font-semibold text-svv-ink">Capteur d&apos;orientation</span> — pour déterminer la direction de visée et l&apos;inclinaison de l&apos;appareil
+          </li>
+          <li>
+            <span className="font-semibold text-svv-ink">Localisation</span> — pour centrer la carte sur votre position
+          </li>
+        </ul>
+        <button
+          type="button"
+          onClick={() => { setEtape("photo"); startCamera(); }}
+          className="svv-btn svv-btn-primary mt-6"
+        >
+          Autoriser les accès
+        </button>
+      </div>
+    </div>
+  </div>
 )}
 
 {etape === "photo" && (
