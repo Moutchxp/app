@@ -91,7 +91,7 @@ describe('scoreTotal — score partiel', () => {
 });
 
 describe('scoreTotal — bout-en-bout (moteurs réels)', () => {
-  it('vue parfaite → 100 / EXCEPTIONNELLE', () => {
+  it('vue parfaite → 90 / EXCEPTIONNELLE (A pur, orientation+flanc hors A)', () => {
     const faisceaux: FaisceauResultat[] = Array.from(
       { length: AMPLITUDE_BEAM_COUNT },
       () => ({ offsetDeg: 0, distanceObstacleM: null }),
@@ -115,12 +115,12 @@ describe('scoreTotal — bout-en-bout (moteurs réels)', () => {
       cimetiere: false,
     });
 
-    expect(sf1.total).toBe(50);
+    expect(sf1.total).toBe(40); // A pur = distance 20 + amplitude 20 (orientation migrée Couche 1 B)
     expect(sf2.total).toBe(50);
 
     const r = scoreTotal(sf1, sf2);
-    expect(r.total).toBe(100);
-    expect(r.libelle).toBe('EXCEPTIONNELLE');
+    expect(r.total).toBe(90); // 40 (A) + 50 (paysage) ; orientation+flanc hors Résultat A
+    expect(r.libelle).toBe('EXCEPTIONNELLE'); // 90 ≥ 75
     expect(r.scorePartiel).toBe(false);
     expect(r.famille1).toBe(sf1);
     expect(r.famille2).toBe(sf2);

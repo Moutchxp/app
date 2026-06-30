@@ -101,6 +101,8 @@ function profondeur(f: FaisceauResultat): number {
  * cassent la suite). Palier (si déclenché) = plus courte distance d'obstacle de TOUT le flanc :
  * < FLANC_DIST_SEVERE_M → FLANC_DIV_SEVERE, sinon FLANC_DIV_MODERE. Tri défensif par offset.
  */
+// TODO migration Couche 1 B — flanc : fonction CONSERVÉE mais NON APPELÉE par le Résultat A
+// (la pénalité de flanc sera ré-activée dans la Couche 1 du Résultat B). Ne pas supprimer.
 function diviseurFlanc(beamsFlanc: FaisceauResultat[]): number {
   const tri = [...beamsFlanc].sort((a, b) => a.offsetDeg - b.offsetDeg);
   let maxRun = 0;
@@ -169,28 +171,18 @@ export function scoreFamille1(entree: EntreeFamille1): ScoreFamille1 {
     AMPLITUDE_PART_B_PTS,
   );
 
-  let amplitude = amplitudePartA + amplitudePartB;
+  // Amplitude BRUTE = Part A + Part B (PUR dégagement, Résultat A).
+  const amplitude = amplitudePartA + amplitudePartB;
 
-  // Pénalité de flanc : deux flancs (gauche < −60°, droit > +60°, complémentaires du cône de note)
-  // traités séparément (suite consécutive ≤ 7 m → paliers ÷3/÷2). Un seul → division ; les deux → 0.
-  const divGauche = diviseurFlanc(
-    entree.faisceaux.filter((f) => f.offsetDeg < -AMPLITUDE_NOTE_HALF_ANGLE_DEG),
-  );
-  const divDroit = diviseurFlanc(
-    entree.faisceaux.filter((f) => f.offsetDeg > AMPLITUDE_NOTE_HALF_ANGLE_DEG),
-  );
-  const gaucheDeclenche = divGauche > 1;
-  const droitDeclenche = divDroit > 1;
-  const penaliteFlancAppliquee = gaucheDeclenche || droitDeclenche;
-  if (gaucheDeclenche && droitDeclenche) {
-    amplitude = 0;
-  } else if (gaucheDeclenche) {
-    amplitude = amplitude / divGauche;
-  } else if (droitDeclenche) {
-    amplitude = amplitude / divDroit;
-  }
+  // TODO migration Couche 1 B — flanc, ne pas supprimer.
+  // QUARANTAINE : la pénalité de flanc n'est PLUS appliquée au Résultat A (pur dégagement).
+  // `diviseurFlanc` est conservée mais N'EST PLUS APPELÉE ; la logique (flancs gauche/droit,
+  // paliers ÷2/÷3, double flanc → 0) sera ré-activée dans la Couche 1 du Résultat B.
+  const penaliteFlancAppliquee = false; // neutralisé (flanc hors Résultat A)
 
-  // 3) Orientation — 10 pts.
+  // TODO migration Couche 1 B — orientation, ne pas supprimer.
+  // QUARANTAINE : l'orientation est CALCULÉE (pour information / detail) mais EXCLUE du total A.
+  // Le mapping ORIENTATION_PTS + bonus dernier étage sera réintégré dans la Couche 1 du Résultat B.
   const secteurOrientation = azimutVersSecteur(entree.orientationAzimutDeg);
   const baseOrientation = ORIENTATION_PTS[secteurOrientation];
   const maxOrientation = Math.max(...Object.values(ORIENTATION_PTS)); // plafond = meilleur secteur
@@ -199,7 +191,8 @@ export function scoreFamille1(entree: EntreeFamille1): ScoreFamille1 {
   const orientation = clamp(baseOrientation + bonusDernierEtage, 0, maxOrientation);
 
   return {
-    total: distance + amplitude + orientation,
+    // Résultat A = PUR DÉGAGEMENT (distance + amplitude). Orientation + flanc → Couche 1 B.
+    total: distance + amplitude,
     distance,
     amplitude,
     orientation,

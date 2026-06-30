@@ -91,7 +91,8 @@ describe('scoreFamille1 — amplitude Part B (profondeur, 10 pts)', () => {
   });
 });
 
-describe('scoreFamille1 — pénalité de flanc (deux flancs, suite consécutive, paliers)', () => {
+// TODO migration Couche 1 B — flanc en quarantaine (retiré du Résultat A). Réactiver ces cas en Couche 1 B.
+describe.skip('scoreFamille1 — pénalité de flanc (deux flancs, suite consécutive, paliers)', () => {
   /** Construit des faisceaux où les offsets de `cibles` portent `dist`, le reste dégagé. */
   const flanc = (cibles: number[], dist: number) =>
     faisceaux((_, offset) => (cibles.includes(offset) ? dist : null));
@@ -167,7 +168,8 @@ describe('scoreFamille1 — pénalité de flanc (deux flancs, suite consécutive
   });
 });
 
-describe('scoreFamille1 — orientation (10 pts)', () => {
+// TODO migration Couche 1 B — orientation en quarantaine (exclue du total du Résultat A). Réactiver en Couche 1 B.
+describe.skip('scoreFamille1 — orientation (10 pts)', () => {
   const secteurs: Array<[number, number, string]> = [
     [180, 10, 'S'],
     [225, 10, 'SO'],
@@ -206,28 +208,28 @@ describe('scoreFamille1 — validation', () => {
 });
 
 describe('scoreFamille1 — cas complet réaliste', () => {
-  it('distance 120 + tout dégagé + Sud = 40/50', () => {
+  it('distance 120 + tout dégagé = 30/50 (A pur ; orientation calculée mais hors total)', () => {
     const r = scoreFamille1(
       entree({ distanceAxePrincipalM: 120, faisceaux: tousDegages, orientationAzimutDeg: 180 }),
     );
     expect(r.distance).toBe(10);
-    expect(r.amplitude).toBe(20); // partA 10 + partB 10 (200 m), pas de pénalité
-    expect(r.orientation).toBe(10);
-    expect(r.total).toBe(40);
+    expect(r.amplitude).toBe(20); // partA 10 + partB 10 (200 m), pas de pénalité (flanc quarantaine)
+    expect(r.orientation).toBe(10); // toujours calculée (quarantaine), mais PAS dans total A
+    expect(r.total).toBe(30); // total A = distance + amplitude (orientation migrée Couche 1 B)
   });
 
-  it('vue 100 % dégagée, plein Sud, dernier étage → 50/50 (maximum)', () => {
+  it('vue 100 % dégagée, dernier étage → 40/50 (maximum A : distance+amplitude)', () => {
     const r = scoreFamille1(
       entree({
         distanceAxePrincipalM: null, // aucun obstacle sur l'axe → 20
         faisceaux: tousDegages, // partA 10 + partB 10 → 20
-        orientationAzimutDeg: 180, // Sud → 10 (pas de bonus, déjà au max)
+        orientationAzimutDeg: 180, // Sud → 10 (calculée, hors total A)
         dernierEtage: true,
       }),
     );
     expect(r.distance).toBe(20);
     expect(r.amplitude).toBe(20);
     expect(r.orientation).toBe(10);
-    expect(r.total).toBe(50);
+    expect(r.total).toBe(40); // total A = distance + amplitude (orientation migrée Couche 1 B)
   });
 });

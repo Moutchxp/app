@@ -35,9 +35,9 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     expect(resultat!.verdict.distanceM).toBeCloseTo(42.100339602923526, 2);
     expect(resultat!.verdict.obstacle?.source).toBe('LIDAR_HD');
 
-    // Score global figé (scorePartiel : aucune photo). Re-gelé en S2/S3 : valeur au point
-    // snappé (chantier snap origine ; ancien point brut : 11.856674).
-    expect(resultat!.score.total).toBeCloseTo(11.286702002595051, 3);
+    // golden A = pur degagement (distance+amplitude) ; orientation+flanc migres vers Couche 1 B.
+    // (scorePartiel : aucune photo. Ancien A avec orientation Est=4 : 11.286702002595051.)
+    expect(resultat!.score.total).toBeCloseTo(7.286702002595051, 3);
   });
 
   it('cas NÉGATIF : point « rue » hors emprise → valide=false, resultat=null (HORS_BATIMENT)', async () => {

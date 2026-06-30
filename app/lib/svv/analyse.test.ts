@@ -51,11 +51,12 @@ function entree(over: Partial<EntreeComplete> = {}): EntreeComplete {
 }
 
 describe('analyser — vue parfaite', () => {
-  it('aucun obstacle + tout dégagé + Sud + beau paysage → SANS_VIS_A_VIS & 100/EXCEPTIONNELLE', () => {
+  it('aucun obstacle + tout dégagé + beau paysage → SANS_VIS_A_VIS & 90/EXCEPTIONNELLE', () => {
     const r = analyser(entree({ obstaclesAxePrincipal: [], paysage: paysageParfait }));
     expect(r.verdict.verdict).toBe('SANS_VIS_A_VIS');
     expect(r.distanceAxePrincipalM).toBeNull();
-    expect(r.score.total).toBe(100);
+    // A pur (distance 20 + amplitude 20 = 40) + paysage 50 = 90 (orientation+flanc migrés Couche 1 B).
+    expect(r.score.total).toBe(90);
     expect(r.score.libelle).toBe('EXCEPTIONNELLE');
   });
 });
