@@ -2016,7 +2016,7 @@ export default function Home() {
   <div className="fixed inset-0 z-50 flex flex-col bg-svv-field select-none">
     {/* eslint-disable-next-line @next/next/no-img-element */}
     <img
-      src="/images/Trame%20ecran%20photo%203.png"
+      src="/images/Trame%20ecran%20photo%204.png"
       alt=""
       aria-hidden="true"
       className="pointer-events-none absolute inset-0 z-0 h-full w-full object-contain object-center"
@@ -2024,17 +2024,17 @@ export default function Home() {
     <div className="relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6">
       <div className="rounded-2xl bg-white/95 p-6 shadow-xl">
         <h1 className="text-[1.6rem] font-extrabold leading-tight tracking-tight text-svv-ink">
-          Avant de photographier la vue
+          Autorisations requises
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-svv-muted">
-          Pour évaluer le dégagement de votre bien, trois autorisations sont nécessaires :
+          L&apos;analyse de votre vue nécessite les accès suivants :
         </p>
         <ul className="mt-4 space-y-3 text-sm leading-relaxed text-svv-gray">
           <li>
-            <span className="font-semibold text-svv-ink">Appareil photo</span> — pour saisir l&apos;image de votre vue
+            <span className="text-svv-red" aria-hidden="true">*</span>&thinsp;<span className="font-semibold text-svv-ink">Appareil photo</span> — pour saisir l&apos;image de votre vue
           </li>
           <li>
-            <span className="font-semibold text-svv-ink">Capteur d&apos;orientation</span> — pour déterminer la direction de visée et l&apos;inclinaison de l&apos;appareil
+            <span className="text-svv-red" aria-hidden="true">*</span>&thinsp;<span className="font-semibold text-svv-ink">Capteur d&apos;orientation</span> — pour déterminer la direction de visée de votre cliché
           </li>
           <li>
             <span className="font-semibold text-svv-ink">Localisation</span> — pour centrer la carte sur votre position
@@ -2116,7 +2116,7 @@ export default function Home() {
               Toujours montée → fondu de sortie (opacity) quand videoReady passe true. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/images/Trame%20ecran%20photo%203.png"
+            src="/images/Trame%20ecran%20photo%204.png"
             alt=""
             aria-hidden="true"
             className={`pointer-events-none absolute inset-0 z-[5] h-full w-full object-cover object-bottom transition-opacity duration-300 ${
