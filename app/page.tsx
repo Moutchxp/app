@@ -2073,6 +2073,28 @@ export default function Home() {
         </button>
       )}
 
+      {photo && (
+        <div className="relative overflow-hidden rounded-2xl border border-svv-line">
+          <img src={photo} alt="Vue séjour capturée" className="h-48 w-full object-cover" />
+          <div className="absolute bottom-2 left-2 rounded-md bg-svv-ink/85 px-2 py-1 text-[11px] text-white">
+            🧭 Orientation : {capturedOrientation}° (Azimut)
+          </div>
+          <button
+            type="button"
+            onClick={startCamera}
+            className="absolute top-2 right-2 rounded-lg bg-svv-red px-3 py-1.5 text-xs font-semibold text-white shadow"
+          >
+            Refaire la photo
+          </button>
+        </div>
+      )}
+    </div>
+  </>
+)}
+
+      {/* Affichage caméra + overlays LIBÉRÉS du verrou « etape » — gardés par leurs propres drapeaux
+          (isCameraActive / prepCamera / orientationRefusee / cameraRefusee) pour s'afficher quel que
+          soit l'écran (consentement compris). Indentation conservée volontairement (diff minimal). */}
       {isCameraActive && (
         <div className="fixed inset-0 z-50 bg-svv-field select-none">
           <video
@@ -2289,22 +2311,6 @@ export default function Home() {
         </div>
       )}
 
-      {photo && (
-        <div className="relative overflow-hidden rounded-2xl border border-svv-line">
-          <img src={photo} alt="Vue séjour capturée" className="h-48 w-full object-cover" />
-          <div className="absolute bottom-2 left-2 rounded-md bg-svv-ink/85 px-2 py-1 text-[11px] text-white">
-            🧭 Orientation : {capturedOrientation}° (Azimut)
-          </div>
-          <button
-            type="button"
-            onClick={startCamera}
-            className="absolute top-2 right-2 rounded-lg bg-svv-red px-3 py-1.5 text-xs font-semibold text-white shadow"
-          >
-            Refaire la photo
-          </button>
-        </div>
-      )}
-
       {/* Écran d'attente : tant que les permissions (orientation puis caméra) sont en cours. */}
       {prepCamera && (
         <div className="fixed inset-0 z-[2900] flex flex-col items-center justify-center gap-3 bg-svv-ink/90 px-6 text-center text-white">
@@ -2354,9 +2360,6 @@ export default function Home() {
           </div>
         </div>
       )}
-    </div>
-  </>
-)}
 
           {/* ZONE 2 : ADRESSE + CARTE */}
 {etape === "localisation" && (
