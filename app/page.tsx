@@ -2016,10 +2016,10 @@ export default function Home() {
   <div className="fixed inset-0 z-50 flex flex-col bg-svv-field select-none">
     {/* eslint-disable-next-line @next/next/no-img-element */}
     <img
-      src="/images/Trame%20ecran%20Photo.png"
+      src="/images/Trame%20ecran%20photo%203.png"
       alt=""
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover object-bottom"
+      className="pointer-events-none absolute inset-0 z-0 h-full w-full object-contain object-center"
     />
     <div className="relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6">
       <div className="rounded-2xl bg-white/95 p-6 shadow-xl">
@@ -2116,7 +2116,7 @@ export default function Home() {
               Toujours montée → fondu de sortie (opacity) quand videoReady passe true. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/images/Trame%20ecran%20Photo.png"
+            src="/images/Trame%20ecran%20photo%203.png"
             alt=""
             aria-hidden="true"
             className={`pointer-events-none absolute inset-0 z-[5] h-full w-full object-cover object-bottom transition-opacity duration-300 ${
