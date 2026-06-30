@@ -678,12 +678,13 @@ const EPOQUES = [
   "De 2001 à 2010", "De 2011 à 2020", "À partir de 2021",
 ] as const;
 
-function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, etageInitial, dernierEtage }: {
+function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousPlafond, etageInitial, dernierEtage }: {
   onRetour: () => void;
   adresseBien: string;
   lat: number;
   lon: number;
   azimut: number | null;
+  hauteurSousPlafond: number;
   etageInitial: number;
   dernierEtage: boolean;
 }) {
@@ -704,6 +705,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, etageInitial
   const [epoqueModalOuvert, setEpoqueModalOuvert] = useState(false);
   const [terrasse, setTerrasse] = useState<null | boolean>(null);
   const [balcon, setBalcon] = useState<null | boolean>(null);
+  const [jardin, setJardin] = useState<null | boolean>(null);
   const [soumis, setSoumis] = useState(false);
 
   const emailValide = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -718,6 +720,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, etageInitial
     epoque !== "" &&
     terrasse !== null &&
     balcon !== null &&
+    jardin !== null &&
     bienEstResidence !== null &&
     (bienEstResidence === true || residenceAdresse.trim() !== "");
   // Adresse auto = la PLUS PROCHE renvoyée par l'API (déjà triée par distance), pas adresseBien
@@ -836,7 +839,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, etageInitial
       <input value={adresseChoisie} readOnly className="w-full cursor-default rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink focus:outline-none" />
       <p className="mt-1 text-xs text-svv-red">Coordonnées validées : {lat.toFixed(6)}, {lon.toFixed(6)}</p>
       {azimut != null && (
-        <p className="mt-1 text-xs text-svv-red">Azimut d&apos;analyse : {Math.round(azimut)}°</p>
+        <p className="mt-1 text-xs text-svv-red">Azimut validé : {Math.round(azimut)}°</p>
       )}
 
       {selecteurOuvert && (
@@ -918,11 +921,15 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, etageInitial
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div>
           <label className="mb-1 block text-sm font-semibold text-svv-ink">Étage</label>
-          <div className="rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink">{etageInitial}</div>
+          <div className="rounded-xl border border-svv-line bg-white p-3 text-base text-svv-red">{etageInitial}</div>
         </div>
         <div>
           <label className="mb-1 block text-sm font-semibold text-svv-ink">Dernier étage</label>
-          <div className="rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink">{dernierEtage ? "Oui" : "Non"}</div>
+          <div className="rounded-xl border border-svv-line bg-white p-3 text-base text-svv-red">{dernierEtage ? "Oui" : "Non"}</div>
+        </div>
+        <div className="col-span-2">
+          <label className="mb-1 block text-sm font-semibold text-svv-ink">Hauteur sous plafond</label>
+          <div className="rounded-xl border border-svv-line bg-white p-3 text-base text-svv-red">{hauteurSousPlafond.toFixed(2).replace('.', ',')} m</div>
         </div>
       </div>
       <p className="mt-1 text-xs text-svv-muted">Valeurs définies lors du calcul du certificat.</p>
@@ -933,15 +940,20 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, etageInitial
         <span className="text-svv-muted">▾</span>
       </button>
 
+      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Balcon <span className="text-svv-red">*</span></label>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => setBalcon(true)} className={classeChoix(balcon === true)}>Oui</button>
+        <button type="button" onClick={() => setBalcon(false)} className={classeChoix(balcon === false)}>Non</button>
+      </div>
       <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Terrasse <span className="text-svv-red">*</span></label>
       <div className="grid grid-cols-2 gap-2">
         <button type="button" onClick={() => setTerrasse(true)} className={classeChoix(terrasse === true)}>Oui</button>
         <button type="button" onClick={() => setTerrasse(false)} className={classeChoix(terrasse === false)}>Non</button>
       </div>
-      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Balcon <span className="text-svv-red">*</span></label>
+      <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Jardin <span className="text-svv-red">*</span></label>
       <div className="grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => setBalcon(true)} className={classeChoix(balcon === true)}>Oui</button>
-        <button type="button" onClick={() => setBalcon(false)} className={classeChoix(balcon === false)}>Non</button>
+        <button type="button" onClick={() => setJardin(true)} className={classeChoix(jardin === true)}>Oui</button>
+        <button type="button" onClick={() => setJardin(false)} className={classeChoix(jardin === false)}>Non</button>
       </div>
       </div>
 
@@ -2804,6 +2816,7 @@ export default function Home() {
     lat={origine.valide?.lat ?? position.latitude}
     lon={origine.valide?.lon ?? position.longitude}
     azimut={azimutAjuste}
+    hauteurSousPlafond={hauteurSousPlafondM}
     etageInitial={Number(etage) || 0}
     dernierEtage={dernierEtage ?? false}
   />
