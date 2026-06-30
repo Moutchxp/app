@@ -1652,6 +1652,8 @@ export default function Home() {
       setPitchValid(true);
       setRollValid(true);
     }
+    // Caméra ACCORDÉE → on demande la position GPS (centrage carte uniquement, non bloquant).
+    demanderPositionGPS();
   }
 
   // « Réessayer » de la modale orientation : re-déclenche requestPermission DANS le geste du clic
@@ -1677,6 +1679,7 @@ export default function Home() {
       setCameraRefusee(false);
       setNiveauIndispo(false);
       armerTimerNiveau();
+      demanderPositionGPS(); // caméra ré-accordée → centrage carte (non bloquant)
       return;
     }
     setIsCameraActive(false); // échec → on garde la modale instructions
