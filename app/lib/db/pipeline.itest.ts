@@ -37,9 +37,9 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
 
     // golden = note Couche 1 /80 (distances PERÇUES boostées F2/F3/F4 sur les 61 faisceaux).
     // Couche 2 (Exception) non implémentée → non ajoutée. Verdict (ci-dessus) inchangé.
-    // F4 ADDITIF (base + boostF4×natureTraverseeM, boostF4=2.0) : 11 faisceaux nature retiennent F4.
-    // (Ancien A pur : 7.286702002595051 ; F4 additif boostF4=0.5 : 23.94585240388409 ; boostF4=1.0 : 25.35212316245296.)
-    expect(resultat!.score.total).toBeCloseTo(27.390194425537956, 3);
+    // F4 additif boostF4=2.0 + fallback MNS (bâti BD TOPO sans hauteur → toit LiDAR, côté SCORE seul).
+    // Verdict (balayage) INCHANGÉ. (Avant fallback MNS : 27.390194425537956.)
+    expect(resultat!.score.total).toBeCloseTo(28.754428409826893, 3);
   });
 
   it('cas NÉGATIF : point « rue » hors emprise → valide=false, resultat=null (HORS_BATIMENT)', async () => {

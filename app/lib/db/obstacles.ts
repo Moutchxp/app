@@ -46,6 +46,7 @@ interface LigneObstacle {
   net: number | null; // nombre_d_etages
   nature: string | null; // bdtopo_batiment.nature (F3) — enrichissement Couche 1 B
   annee: number | null; // bdnb_annee_batiment.annee_construction (F2) — null si inconnue/absente
+  mns_toit?: number | null; // altitude toit MNS LiDAR au point du bâtiment — fallback hauteur si BD TOPO NONE (toujours fourni par le SELECT)
   corridor_wkt: string; // WKT L93 du couloir (identique sur toutes les lignes)
   axe_wkt: string; // WKT L93 de l'axe (demi-droite origine→portée)
   impact_pt_wkt: string; // point d'impact L93 sur le rayon (origine + dist·dir) — enrichissement Couche 1 B
@@ -466,7 +467,13 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
             ST_AsText(ST_LineInterpolatePoint(
               c.ligne,
               LEAST(ST_Distance(ST_Force2D(b.geom), c.origine), $4) / $4::float8
-            )) AS impact_pt_wkt
+            )) AS impact_pt_wkt,
+            -- Fallback hauteur : toit MNS LiDAR sur un point garanti DANS l'emprise (nodata -9999/NULL écarté).
+            (SELECT v.val FROM (
+               SELECT ST_Value(m.rast, ST_PointOnSurface(ST_Force2D(b.geom))) AS val
+               FROM mns_lidar_brut m
+               WHERE ST_Intersects(m.rast, ST_PointOnSurface(ST_Force2D(b.geom))) LIMIT 1
+             ) v WHERE v.val IS NOT NULL AND v.val <> -9999) AS mns_toit
      FROM bdtopo_batiment b
        LEFT JOIN bdnb_annee_batiment ba ON ba.cleabs = b.cleabs,  -- F2 : année (PK cleabs, 1:0/1:1)
        couloir c
@@ -487,10 +494,19 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
     res.rows.map(async (r): Promise<ObstacleCandidat> => {
       // Faisceaux (lidar=false) : comportement inchangé, distanceM = distance façade.
       const { altitudeSommetM, source } = resoudreSommet(r);
+      // Fallback MNS LiDAR (SCORE uniquement) : si la hauteur BD TOPO est inconnue (NONE), on lit
+      // l'altitude de toit sur le MNS au point du bâtiment plutôt que de plafonner à tort le faisceau.
+      // Le VERDICT passe par obstaclesParBalayage (chemin distinct) → non concerné.
+      let altSommet = altitudeSommetM;
+      let src = source;
+      if (source === "NONE" && r.mns_toit != null && (r.sol == null || r.mns_toit > r.sol)) {
+        altSommet = r.mns_toit;
+        src = "LIDAR_HD";
+      }
       return {
         distanceM: r.dist_m,
-        altitudeSommetM,
-        source,
+        altitudeSommetM: altSommet,
+        source: src,
         // Enrichissement Couche 1 B : on cesse de DROPPER ce que la requête calcule déjà.
         // N'affecte NI distanceM, NI altitudeSommetM, NI source → aucun impact sur le verdict/A.
         cleabs: r.cleabs,
