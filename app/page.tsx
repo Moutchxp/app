@@ -2119,7 +2119,7 @@ export default function Home() {
             src="/images/Trame%20ecran%20photo%204.png"
             alt=""
             aria-hidden="true"
-            className={`pointer-events-none absolute inset-0 z-[5] h-full w-full object-cover object-bottom transition-opacity duration-300 ${
+            className={`pointer-events-none absolute inset-0 z-[5] h-full w-full bg-svv-field object-contain object-center transition-opacity duration-300 ${
               videoReady ? "opacity-0" : "opacity-100"
             }`}
           />
@@ -2311,17 +2311,10 @@ export default function Home() {
         </div>
       )}
 
-      {/* Écran d'attente : tant que les permissions (orientation puis caméra) sont en cours. */}
-      {prepCamera && (
-        <div className="fixed inset-0 z-[2900] flex flex-col items-center justify-center gap-3 bg-svv-ink/90 px-6 text-center text-white">
-          <svg className="h-9 w-9 animate-spin text-white" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
-            <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-          </svg>
-          <p className="text-sm font-semibold">Préparation de la caméra…</p>
-          <p className="max-w-[260px] text-xs text-white/70">Autorisez l&apos;accès au mouvement, puis à la caméra.</p>
-        </div>
-      )}
+      {/* Note : aucun voile « Préparation… » pendant les demandes — l'écran d'attente caméra (illustration
+          centrée sur fond beige, via l'overlay isCameraActive) reste visible, seuls les prompts natifs iOS
+          s'affichent. L'état prepCamera et ses setters sont conservés (séquence inchangée) mais ne pilotent
+          plus aucun rendu. */}
 
       {/* Refus ORIENTATION : modale applicative — le niveau est requis ; « Réessayer » re-déclenche la
           demande native dans le geste du clic (iOS la réaffiche). */}
