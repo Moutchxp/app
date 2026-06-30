@@ -51,6 +51,14 @@ export interface FaisceauResultat {
   impactNature?: string | null;
   /** Point d'impact (SRID 2154) = origine + dist·(sin,cos) (F2/F3). */
   impactPointWkt?: string | null;
+  /**
+   * F4 — longueur (m) de NATURE valorisante traversée dans le corridor OUVERT
+   * [origine → min(distanceObstacleM, 200)] : union (parcs + eau plan/surface + végétation),
+   * bornée au 1er obstacle (rien au-delà). `null` si non calculé.
+   * Alimenté par le scan ; consommé plus tard par coucheDegagement.ts (Moitié 2-b).
+   * N'affecte NI le verdict NI le Résultat A.
+   */
+  natureTraverseeM?: number | null;
 }
 
 export interface EntreeFamille1 {

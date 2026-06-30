@@ -13,7 +13,8 @@ import type { PointWgs84 } from "../svv/geo";
 import { genererFaisceauxAmplitude } from "../svv/geo";
 import { premierObstacle } from "../svv/verdict";
 import type { FaisceauResultat } from "../svv/scoreDegagement";
-import { obstaclesSurAxe } from "./obstacles";
+import { obstaclesSurAxe, natureTraverseeParFaisceau } from "./obstacles";
+import { ANALYSIS_RANGE_M } from "../svv/config";
 
 export interface ParametresFaisceaux {
   point: PointWgs84;
@@ -54,5 +55,17 @@ export async function faisceauxAmplitude(
       impactPointWkt: obstacle?.impactPointWkt ?? null,
     });
   }
+
+  // F4 — longueur de nature traversée, en UN seul round-trip pour les 61 faisceaux (Option B).
+  // Corridor OUVERT borné au 1er obstacle : min(distanceObstacleM, portée) ; null → portée.
+  // N'altère NI distanceObstacleM NI le calcul du Résultat A.
+  const bornes = resultats.map((r) =>
+    Math.min(r.distanceObstacleM ?? ANALYSIS_RANGE_M, ANALYSIS_RANGE_M),
+  );
+  const naturesM = await natureTraverseeParFaisceau(params.point, azimuts, bornes);
+  resultats.forEach((r, i) => {
+    r.natureTraverseeM = naturesM[i];
+  });
+
   return resultats;
 }

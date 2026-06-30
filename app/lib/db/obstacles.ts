@@ -501,3 +501,54 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
   // Le point de contact peut réordonner les candidats : re-tri par distance croissante.
   return candidats.sort((a, b) => a.distanceM - b.distanceM);
 }
+
+/**
+ * F4 — longueur de NATURE valorisante traversée par faisceau, en UN seul round-trip (61 faisceaux).
+ *
+ * Famille UNIQUE : ST_Union de parcs_jardins_92 + bdtopo_eau_plan + bdtopo_eau_surface +
+ * bdtopo_vegetation (geom NULL filtrées, ST_Force2D pour les ZM), restreinte au disque de
+ * `ANALYSIS_RANGE_M` autour de l'origine (perf). Routes/chemins : JAMAIS dans l'union (transparents).
+ *
+ * Par faisceau : segment OUVERT [origine → min(borneM, portée)] via ST_LineSubstring sur le rayon ;
+ * `nature_m = ST_Length(ST_Intersection(segment, union_nature))`. Aucun cumul au-delà de l'obstacle.
+ * AUCUN score (longueur brute). Retour indexé sur l'ordre des `azimuts` (= ordre des faisceaux).
+ */
+export async function natureTraverseeParFaisceau(
+  point: PointWgs84,
+  azimuts: number[],
+  bornesM: number[],
+): Promise<number[]> {
+  if (azimuts.length === 0) return [];
+  const res = await query<{ ord: number; nature_m: number }>(
+    `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
+     faisc AS (
+       SELECT az, borne, ord
+       FROM unnest($3::float8[], $4::float8[]) WITH ORDINALITY AS t(az, borne, ord)
+     ),
+     nat AS (
+       SELECT ST_Union(g) AS g FROM (
+         SELECT ST_Force2D(p.geom) AS g FROM parcs_jardins_92 p, o
+           WHERE p.geom IS NOT NULL AND ST_DWithin(p.geom, o.g, $5)
+         UNION ALL SELECT ST_Force2D(e.geom) FROM bdtopo_eau_plan e, o    WHERE ST_DWithin(e.geom, o.g, $5)
+         UNION ALL SELECT ST_Force2D(e.geom) FROM bdtopo_eau_surface e, o WHERE ST_DWithin(e.geom, o.g, $5)
+         UNION ALL SELECT ST_Force2D(v.geom) FROM bdtopo_vegetation v, o  WHERE ST_DWithin(v.geom, o.g, $5)
+       ) u
+     ),
+     seg AS (
+       SELECT f.ord,
+              ST_LineSubstring(
+                ST_MakeLine(o.g, ST_Translate(o.g, $5*sin(radians(f.az)), $5*cos(radians(f.az)))),
+                0, LEAST(f.borne, $5) / $5::float8
+              ) AS s
+       FROM faisc f, o
+     )
+     SELECT seg.ord::int AS ord,
+            COALESCE(ST_Length(ST_Intersection(seg.s, nat.g)), 0) AS nature_m
+     FROM seg, nat
+     ORDER BY seg.ord;`,
+    [point.lon, point.lat, azimuts, bornesM, ANALYSIS_RANGE_M],
+  );
+  const out = new Array<number>(azimuts.length).fill(0);
+  for (const r of res.rows) out[r.ord - 1] = Number(r.nature_m);
+  return out;
+}
