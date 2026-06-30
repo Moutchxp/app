@@ -72,8 +72,9 @@ export function analyser(entree: EntreeComplete): ResultatComplet {
   // 4) Score Famille 2 (qualité du paysage).
   const f2 = scorePaysage(entree.paysage);
 
-  // 5) Agrégation /100.
-  const score = scoreTotal(f1, f2);
+  // 5) Score affiché = Résultat B / Couche 1 (note de dégagement /80) sur les 61 faisceaux.
+  //    Le verdict (calculé en 1) n'entre jamais ici ; Résultat A (f1) reste le constat factuel.
+  const score = scoreTotal(f1, f2, entree.faisceaux);
 
   return { verdict, score, distanceAxePrincipalM };
 }

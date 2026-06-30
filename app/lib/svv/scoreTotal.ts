@@ -10,12 +10,13 @@
  * issues de config.ts — rien en dur. Aucun arrondi.
  */
 import {
-  SCORE_TOTAL_MAX,
   SCORE_LABEL_EXCEPTIONNELLE_MIN,
   SCORE_LABEL_EXCELLENTE_MIN,
 } from './config';
-import type { ScoreFamille1 } from './scoreDegagement';
+import type { ScoreFamille1, FaisceauResultat } from './scoreDegagement';
 import type { ScorePaysage } from './entreePaysage';
+import { noteDegagement } from './coucheDegagement';
+import { PROFIL_DEGAGEMENT_DEFAUT } from './profilDegagement';
 
 /** Clé de libellé ; le texte affiché est une préoccupation de la couche UI. */
 export type LibelleScore = 'EXCEPTIONNELLE' | 'EXCELLENTE' | null;
@@ -28,8 +29,17 @@ export interface ScoreTotal {
   famille2: ScorePaysage;
 }
 
-export function scoreTotal(famille1: ScoreFamille1, famille2: ScorePaysage): ScoreTotal {
-  const total = Math.min(famille1.total + famille2.total, SCORE_TOTAL_MAX);
+export function scoreTotal(
+  famille1: ScoreFamille1,
+  famille2: ScorePaysage,
+  faisceaux: FaisceauResultat[],
+): ScoreTotal {
+  // Résultat B / Couche 1 — note de dégagement /80 (distances PERÇUES boostées par famille).
+  // Les 20 du haut de l'échelle /100 sont réservés à la Couche 2 (Exception), NON implémentée →
+  // NON ajoutés (aucun scaling artificiel). `famille1` (Résultat A factuel) et `famille2` (paysage,
+  // future Couche 2) restent CALCULÉS et conservés pour audit, mais N'ALIMENTENT PLUS le total.
+  // Le VERDICT est calculé en amont (analyser) et n'entre jamais ici.
+  const total = noteDegagement(faisceaux, PROFIL_DEGAGEMENT_DEFAUT); // déjà clampé [0, 80]
   const scorePartiel = famille2.scorePartiel;
 
   let libelle: LibelleScore = null;
