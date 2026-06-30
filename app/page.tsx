@@ -830,7 +830,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
           <button
             type="button"
             onClick={() => { setAdressePreselectionnee(adresseChoisie); setSelecteurOuvert(true); }}
-            className="rounded-md border border-svv-line bg-transparent px-2 py-0.5 text-xs font-medium text-svv-muted"
+            className="rounded-md border-2 border-svv-line bg-transparent px-2 py-0.5 text-xs font-medium text-svv-muted"
           >
             Alternatives
           </button>
