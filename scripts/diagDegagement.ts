@@ -87,6 +87,11 @@ async function main(): Promise<void> {
   const percues = fs.map((f) => distancePercueFaisceau(f, P));
   const moyenne = percues.reduce((a, b) => a + b, 0) / (percues.length || 1);
   const note = noteDegagement(fs, P);
+
+  // Comparaison : moyenne BRUTE = base F1 pure (sans aucun bonus F2/F3/F4), déjà calculable.
+  const bases = fs.map((f) => Math.min(f.distanceObstacleM ?? P.distanceMaxM, P.distanceMaxM));
+  const moyenneBrute = bases.reduce((a, b) => a + b, 0) / (bases.length || 1);
+  const noteBrute = (moyenneBrute / P.distanceMaxM) * P.plafondCouche1;
   const nF2 = fs.filter((f) => f.impactAncien === true && f.distanceObstacleM != null).length;
   const nF3 = fs.filter((f) => f.impactNature != null && P.naturesRemarquables.includes(f.impactNature)).length;
   const nF4 = fs.filter((f) => (f.natureTraverseeM ?? 0) > 0).length;
@@ -94,7 +99,9 @@ async function main(): Promise<void> {
   console.log('');
   console.log('=== RÉSUMÉ ===');
   console.log(`faisceaux               : ${fs.length}`);
-  console.log(`moyenne perçue (m)      : ${moyenne.toFixed(4)}`);
+  console.log(`moyenne BRUTE (sans bonus)   : ${moyenneBrute.toFixed(2)} m  → note brute /80 : ${noteBrute.toFixed(4)}`);
+  console.log(`moyenne CORRIGÉE (avec bonus): ${moyenne.toFixed(2)} m  → note /80 : ${note.toFixed(4)}`);
+  console.log(`gain bonus                   : +${(moyenne - moyenneBrute).toFixed(2)} m  (+${(note - noteBrute).toFixed(4)} pts)`);
   console.log(`note Couche 1 /80       : ${note}`);
   console.log(`perçue min / max (m)    : ${Math.min(...percues).toFixed(2)} / ${Math.max(...percues).toFixed(2)}`);
   console.log(`familles déclenchées    : F2(ancien)=${nF2}  F3(remarquable)=${nF3}  F4(nature)=${nF4}`);

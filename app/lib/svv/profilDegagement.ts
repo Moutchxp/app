@@ -30,7 +30,7 @@ export interface ProfilDegagement {
 
 export const PROFIL_DEGAGEMENT_DEFAUT: ProfilDegagement = {
   boostF2: 0.3,
-  boostF4: 0.5,
+  boostF4: 1.0,
   forfaitConeCentral: 300,
   forfaitExtremites: 200,
   coneF3DemiAngleDeg: 60,

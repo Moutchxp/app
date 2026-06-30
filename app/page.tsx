@@ -678,11 +678,12 @@ const EPOQUES = [
   "De 2001 à 2010", "De 2011 à 2020", "À partir de 2021",
 ] as const;
 
-function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernierEtage }: {
+function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, etageInitial, dernierEtage }: {
   onRetour: () => void;
   adresseBien: string;
   lat: number;
   lon: number;
+  azimut: number | null;
   etageInitial: number;
   dernierEtage: boolean;
 }) {
@@ -833,7 +834,10 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, etageInitial, dernie
         )}
       </div>
       <input value={adresseChoisie} readOnly className="w-full cursor-default rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink focus:outline-none" />
-      <p className="mt-1 text-xs text-svv-muted">Coordonnées validées : {lat.toFixed(6)}, {lon.toFixed(6)}</p>
+      <p className="mt-1 text-xs text-svv-red">Coordonnées validées : {lat.toFixed(6)}, {lon.toFixed(6)}</p>
+      {azimut != null && (
+        <p className="mt-1 text-xs text-svv-red">Azimut d&apos;analyse : {Math.round(azimut)}°</p>
+      )}
 
       {selecteurOuvert && (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/45 p-5" onClick={() => setSelecteurOuvert(false)}>
@@ -2799,6 +2803,7 @@ export default function Home() {
     adresseBien={address}
     lat={origine.valide?.lat ?? position.latitude}
     lon={origine.valide?.lon ?? position.longitude}
+    azimut={azimutAjuste}
     etageInitial={Number(etage) || 0}
     dernierEtage={dernierEtage ?? false}
   />
