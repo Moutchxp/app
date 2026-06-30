@@ -53,6 +53,7 @@ export async function faisceauxAmplitude(
       impactCleabs: obstacle?.cleabs ?? null,
       impactNature: obstacle?.nature ?? null,
       impactPointWkt: obstacle?.impactPointWkt ?? null,
+      impactAncien: obstacle?.ancien ?? false, // F2 : dégagé/inconnu → false (jamais supposé ancien)
     });
   }
 

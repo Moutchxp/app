@@ -45,6 +45,7 @@ interface LigneObstacle {
   sol: number | null; // altitude_minimale_sol
   net: number | null; // nombre_d_etages
   nature: string | null; // bdtopo_batiment.nature (F3) — enrichissement Couche 1 B
+  annee: number | null; // bdnb_annee_batiment.annee_construction (F2) — null si inconnue/absente
   corridor_wkt: string; // WKT L93 du couloir (identique sur toutes les lignes)
   axe_wkt: string; // WKT L93 de l'axe (demi-droite origine→portée)
   impact_pt_wkt: string; // point d'impact L93 sur le rayon (origine + dist·dir) — enrichissement Couche 1 B
@@ -456,7 +457,7 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
      couloir AS (
        SELECT origine, ligne, ST_Buffer(ligne, $5) AS corr FROM axe
      )
-     SELECT b.id, b.cleabs, b.nature,
+     SELECT b.id, b.cleabs, b.nature, ba.annee_construction AS annee,
             ST_Distance(ST_Force2D(b.geom), c.origine) AS dist_m,
             b.altitude_maximale_toit AS amt, b.hauteur AS h,
             b.altitude_minimale_sol AS sol, b.nombre_d_etages AS net,
@@ -466,7 +467,9 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
               c.ligne,
               LEAST(ST_Distance(ST_Force2D(b.geom), c.origine), $4) / $4::float8
             )) AS impact_pt_wkt
-     FROM bdtopo_batiment b, couloir c
+     FROM bdtopo_batiment b
+       LEFT JOIN bdnb_annee_batiment ba ON ba.cleabs = b.cleabs,  -- F2 : année (PK cleabs, 1:0/1:1)
+       couloir c
      WHERE ST_Intersects(ST_Force2D(b.geom), c.corr)
        AND b.id <> $6
      ORDER BY dist_m ASC;`,
@@ -494,6 +497,8 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
         nature: r.nature,
         rayonWkt: r.axe_wkt,
         impactPointWkt: r.impact_pt_wkt,
+        // F2 : « avant 1900 » = année CONNUE ET strictement < 1900 (jamais supposé sans preuve).
+        ancien: r.annee !== null && r.annee < 1900,
       };
     }),
   );

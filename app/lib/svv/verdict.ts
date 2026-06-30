@@ -39,6 +39,8 @@ export interface ObstacleCandidat {
   rayonWkt?: string;
   /** Point d'impact sur le rayon (SRID 2154) = origine + dist·(sin,cos) (F2/F3). */
   impactPointWkt?: string | null;
+  /** F2 — bâti construit avant 1900 (année BDNB connue ET < 1900) ; false sinon. */
+  ancien?: boolean;
 }
 
 export interface ResultatVerdict {

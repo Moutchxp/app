@@ -59,6 +59,13 @@ export interface FaisceauResultat {
    * N'affecte NI le verdict NI le Résultat A.
    */
   natureTraverseeM?: number | null;
+  /**
+   * F2 — `true` si le bâtiment HEURTÉ (1er obstacle) est construit avant 1900 (année BDNB
+   * connue ET < 1900) ; `false` sinon (année inconnue, bâti introuvable, ou faisceau dégagé).
+   * Alimenté par le scan (jointure `bdnb_annee_batiment` par cleabs) ; consommé plus tard par
+   * coucheDegagement.ts. N'affecte NI le verdict NI le Résultat A.
+   */
+  impactAncien?: boolean;
 }
 
 export interface EntreeFamille1 {
