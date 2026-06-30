@@ -479,6 +479,10 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
        couloir c
      WHERE ST_Intersects(ST_Force2D(b.geom), c.corr)
        AND b.id <> $6
+       -- Exclusion GÉOMÉTRIQUE (en plus de l'id) : un faisceau ne doit jamais être plafonné à 0 m
+       -- par le bâtiment qui CONTIENT son point de départ (cas où l'id d'origine enregistré diffère
+       -- du polygone réellement sous le marqueur). c.origine = point d'origine snappé, déjà en 2154.
+       AND NOT ST_Contains(ST_Force2D(b.geom), c.origine)
      ORDER BY dist_m ASC;`,
     [
       params.point.lon,
