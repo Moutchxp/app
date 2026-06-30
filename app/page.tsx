@@ -1112,6 +1112,10 @@ export default function Home() {
   // Aucun capteur d'orientation (permission refusée / device sans capteur) → le niveau devient un
   // simple indicateur « indisponible », JAMAIS bloquant pour la capture (cf. peutCapturer = videoReady).
   const [niveauIndispo, setNiveauIndispo] = useState(false);
+  // Flux de permissions de l'écran photo (iOS) : préparation en cours, refus orientation, refus caméra.
+  const [prepCamera, setPrepCamera] = useState(false);               // permissions en cours → écran d'attente
+  const [orientationRefusee, setOrientationRefusee] = useState(false); // DeviceOrientation denied → modale Réessayer
+  const [cameraRefusee, setCameraRefusee] = useState(false);          // getUserMedia NotAllowedError → modale Réglages
   const [capturedOrientation, setCapturedOrientation] = useState<number | null>(null);
   // Azimut AJUSTABLE à la main sur l'écran orientation (± marge roulis photo autour du capté).
   // N'affecte PAS le calcul lui-même : c'est juste la valeur d'azimut transmise à l'analyse.
@@ -1555,79 +1559,127 @@ export default function Home() {
     return { hasOrientPerm, orientGranted };
   }
 
-  // Allumer la caméra et demander les permissions de gyroscope.
-  // ORDRE iOS : getUserMedia (caméra) D'ABORD, pendant la transient activation du tap ; la permission
-  // orientation/motion (qui n'alimente QUE l'aide au niveau, non bloquante) passe APRÈS.
-  async function startCamera() {
-    setNiveauIndispo(false);
-    sensorSeenRef.current = false;
-    setPhoto(null);
-    setIsCameraActive(true); // monte l'overlay vidéo AVANT l'affectation srcObject
-
+  // Allume UNIQUEMENT le flux caméra (sans toucher aux capteurs). Renvoie :
+  //  - "ok"     : flux obtenu (objectif ultra grand-angle basculé si dispo) ;
+  //  - "refus"  : getUserMedia a renvoyé NotAllowedError (permission caméra refusée) ;
+  //  - "erreur" : autre échec matériel.
+  async function allumerCamera(): Promise<"ok" | "refus" | "erreur"> {
     const constraints = {
       video: {
         facingMode: { ideal: "environment" },
         width: { ideal: 1280 },
-        height: { ideal: 720 }
+        height: { ideal: 720 },
       },
       audio: false,
     };
-
-    // 1) CAMÉRA D'ABORD — getUserMedia appelé pendant le geste (avant tout await de permission).
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const attacher = async (stream: MediaStream) => {
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.muted = true; // filet : force la propriété DOM .muted (autoplay iOS), en plus de l'attribut JSX
+        videoRef.current.muted = true; // filet autoplay iOS (en plus de l'attribut JSX)
         try {
-          await videoRef.current.play(); // iOS ne lance pas l'autoplay tout seul → play() explicite dans le geste
+          await videoRef.current.play(); // iOS ne lance pas l'autoplay seul → play() explicite
         } catch {
           // play peut être rejeté ; on retombe sur reevaluerVideoReady via les events / le re-render
         }
-        reevaluerVideoReady(); // force le recalcul tout de suite (au cas où l'event ne se déclenche pas)
+        reevaluerVideoReady();
       }
-      // Détection + bascule AUTO en ultra grand-angle si dispo et pas déjà actif.
       const { sU, uId } = await detecterObjectif(stream);
-      if (uId && !sU) {
-        await passerUltraGrandAngle(uId);
-      }
+      if (uId && !sU) await passerUltraGrandAngle(uId);
+    };
+    try {
+      await attacher(await navigator.mediaDevices.getUserMedia(constraints));
+      return "ok";
     } catch (err) {
+      if ((err as DOMException)?.name === "NotAllowedError") return "refus";
       console.warn("Tentative caméra standard...", err);
       try {
-        const basicStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        streamRef.current = basicStream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = basicStream;
-          videoRef.current.muted = true; // idem filet muted
-          try {
-            await videoRef.current.play(); // idem : play() explicite
-          } catch {
-            // play peut être rejeté ; on retombe sur reevaluerVideoReady via les events / le re-render
-          }
-          reevaluerVideoReady();
-        }
-        const { sU, uId } = await detecterObjectif(basicStream);
-        if (uId && !sU) {
-          await passerUltraGrandAngle(uId);
-        }
+        await attacher(await navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
+        return "ok";
       } catch (fallbackErr) {
+        if ((fallbackErr as DOMException)?.name === "NotAllowedError") return "refus";
         console.error("Erreur caméra :", fallbackErr);
-        alert("Impossible d'accéder à la caméra.");
-        setIsCameraActive(false);
+        return "erreur";
       }
     }
+  }
 
-    // 2) PERMISSION ORIENTATION/MOTION — APRÈS la caméra (hors geste). N'alimente que l'aide au niveau
-    //    (non bloquante) : si refusée/indispo → niveauIndispo, la capture reste possible (videoReady).
+  // Ouvre l'écran photo. ORDRE iOS CORRIGÉ : ORIENTATION D'ABORD (requestPermission DOIT s'exécuter
+  // pendant la transient activation du tap), CAMÉRA ENSUITE — toujours dans le même geste. Tant que les
+  // deux permissions ne sont pas traitées, l'écran affiche « Préparation… » (pas de niveau mort, pas de
+  // refresh manuel). Refus → modale applicative dédiée.
+  async function startCamera() {
+    setPhoto(null);
+    setCameraRefusee(false);
+    setOrientationRefusee(false);
+    setNiveauIndispo(false);
+    sensorSeenRef.current = false;
+    setIsCameraActive(true); // monte l'overlay (écran d'attente tant que prepCamera/!videoReady)
+    setPrepCamera(true);
+
+    // 1) ORIENTATION D'ABORD — dans le geste du tap.
     const { hasOrientPerm, orientGranted } = await demanderPermissionCapteurs();
-    if (hasOrientPerm && !orientGranted) setNiveauIndispo(true); // refus explicite → niveau indispo (capture non bloquée)
+    if (hasOrientPerm && !orientGranted) {
+      setPrepCamera(false);
+      setOrientationRefusee(true); // modale « Réessayer » (re-déclenche requestPermission dans le clic)
+      return; // la caméra n'est PAS allumée tant que l'orientation n'est pas accordée
+    }
+
+    // 2) CAMÉRA ENSUITE — même geste.
+    const statut = await allumerCamera();
+    finaliserOuvertureCamera(statut, hasOrientPerm);
+  }
+
+  // Suite commune (startCamera + retries) une fois le flux caméra résolu.
+  function finaliserOuvertureCamera(statut: "ok" | "refus" | "erreur", hasOrientPerm: boolean) {
+    setPrepCamera(false);
+    if (statut === "refus") {
+      setIsCameraActive(false);
+      setCameraRefusee(true); // modale instructions Réglages (iOS ne redemande pas)
+      return;
+    }
+    if (statut === "erreur") {
+      setIsCameraActive(false);
+      alert("Impossible d'accéder à la caméra.");
+      return;
+    }
+    // Caméra OK. Filet de sécurité capteurs : 3 s sans échantillon → niveau indisponible — UNIQUEMENT
+    // pour les appareils sans gyroscope (Android/desktop) ; sur iOS la permission est déjà accordée ici.
+    setNiveauIndispo(false);
+    armerTimerNiveau();
     if (!hasOrientPerm && typeof window !== "undefined" && !("ontouchstart" in window)) {
-      // Desktop sans capteurs : aide visuelle neutre (niveau considéré OK).
       setIsLevel(true);
       setPitchValid(true);
       setRollValid(true);
     }
+  }
+
+  // « Réessayer » de la modale orientation : re-déclenche requestPermission DANS le geste du clic
+  // (iOS réaffiche la demande native), puis enchaîne la caméra si accordé.
+  async function reessayerOrientation() {
+    const { hasOrientPerm, orientGranted } = await demanderPermissionCapteurs();
+    if (hasOrientPerm && !orientGranted) return; // toujours refusé → la modale reste affichée
+    setOrientationRefusee(false);
+    setIsCameraActive(true);
+    setPrepCamera(true);
+    const statut = await allumerCamera();
+    finaliserOuvertureCamera(statut, hasOrientPerm);
+  }
+
+  // « Réessayer » de la modale caméra : UNE seule tentative getUserMedia ; si elle échoue encore,
+  // la modale (instructions Réglages) reste affichée (iOS a mémorisé le refus, pas de re-prompt natif).
+  async function reessayerCamera() {
+    setIsCameraActive(true);
+    setPrepCamera(true);
+    const statut = await allumerCamera();
+    setPrepCamera(false);
+    if (statut === "ok") {
+      setCameraRefusee(false);
+      setNiveauIndispo(false);
+      armerTimerNiveau();
+      return;
+    }
+    setIsCameraActive(false); // échec → on garde la modale instructions
   }
 
   // Demande de géolocalisation, réutilisable : capturePhoto ET bouton "Utiliser ma position".
@@ -2208,6 +2260,56 @@ export default function Home() {
           >
             Refaire la photo
           </button>
+        </div>
+      )}
+
+      {/* Écran d'attente : tant que les permissions (orientation puis caméra) sont en cours. */}
+      {prepCamera && (
+        <div className="fixed inset-0 z-[2900] flex flex-col items-center justify-center gap-3 bg-svv-ink/90 px-6 text-center text-white">
+          <svg className="h-9 w-9 animate-spin text-white" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
+            <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          </svg>
+          <p className="text-sm font-semibold">Préparation de la caméra…</p>
+          <p className="max-w-[260px] text-xs text-white/70">Autorisez l&apos;accès au mouvement, puis à la caméra.</p>
+        </div>
+      )}
+
+      {/* Refus ORIENTATION : modale applicative — le niveau est requis ; « Réessayer » re-déclenche la
+          demande native dans le geste du clic (iOS la réaffiche). */}
+      {orientationRefusee && (
+        <div className="fixed inset-0 z-[3100] flex items-center justify-center bg-black/60 p-6">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 text-center shadow-xl">
+            <h2 className="text-lg font-extrabold text-svv-ink">Accès au mouvement nécessaire</h2>
+            <p className="mt-3 text-sm leading-relaxed text-svv-gray">
+              Le niveau (inclinaison du téléphone) sert à mesurer l&apos;orientation de votre vue. Sans cette
+              autorisation, l&apos;analyse ne peut pas se faire correctement.
+            </p>
+            <button type="button" onClick={reessayerOrientation} className="svv-btn svv-btn-primary mt-5">
+              Réessayer
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Refus CAMÉRA : modale applicative — iOS ne redemande PAS une fois refusé → instructions Réglages.
+          « Réessayer » retente une seule fois ; si ça échoue encore, la modale reste sur les instructions. */}
+      {cameraRefusee && (
+        <div className="fixed inset-0 z-[3100] flex items-center justify-center bg-black/60 p-6">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 text-center shadow-xl">
+            <h2 className="text-lg font-extrabold text-svv-ink">Accès à la caméra refusé</h2>
+            <p className="mt-3 text-sm leading-relaxed text-svv-gray">
+              La photo de votre vue est indispensable à l&apos;analyse, et l&apos;accès à la caméra a été refusé.
+            </p>
+            <p className="mt-3 rounded-lg bg-svv-field p-3 text-left text-xs leading-relaxed text-svv-gray">
+              Pour réactiver : <span className="font-semibold text-svv-ink">Réglages → Safari → Appareil photo → Autoriser</span>,
+              puis revenez et réessayez. iOS ne redemande pas l&apos;autorisation automatiquement une fois refusée.
+            </p>
+            <div className="mt-5 flex flex-col gap-2">
+              <button type="button" onClick={reessayerCamera} className="svv-btn svv-btn-primary">Réessayer</button>
+              <button type="button" onClick={() => { setCameraRefusee(false); setIsCameraActive(false); }} className="svv-btn svv-btn-outline">Fermer</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
