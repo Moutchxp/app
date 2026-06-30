@@ -37,8 +37,9 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
 
     // golden = note Couche 1 /80 (distances PERÇUES boostées F2/F3/F4 sur les 61 faisceaux).
     // Couche 2 (Exception) non implémentée → non ajoutée. Verdict (ci-dessus) inchangé.
-    // (Ancien Résultat A pur distance+amplitude : 7.286702002595051. F2=1, F3=0, F4=11 déclenchés.)
-    expect(resultat!.score.total).toBeCloseTo(22.59753453107524, 3);
+    // F4 ADDITIF (base + 0.5×natureTraverseeM) : 11 faisceaux nature retiennent F4 (vs 1 en multiplicatif).
+    // (Ancien A pur : 7.286702002595051 ; F4 multiplicatif : 22.59753453107524.)
+    expect(resultat!.score.total).toBeCloseTo(23.94585240388409, 3);
   });
 
   it('cas NÉGATIF : point « rue » hors emprise → valide=false, resultat=null (HORS_BATIMENT)', async () => {

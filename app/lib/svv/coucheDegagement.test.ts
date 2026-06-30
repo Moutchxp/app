@@ -31,7 +31,7 @@ describe('distancePercueFaisceau — F2 (avant 1900)', () => {
 });
 
 describe('distancePercueFaisceau — F4 (nature traversée)', () => {
-  it('50 m de nature (obstacle à 50) → 50 × 1.50 = 75', () => {
+  it('50 m de nature (obstacle à 50) → additif base 50 + 0.5×50 = 75', () => {
     const r = distancePercueFaisceau(f({ distanceObstacleM: 50, natureTraverseeM: 50 }), P);
     expect(r).toBe(75);
   });
@@ -57,7 +57,7 @@ describe('distancePercueFaisceau — F3 (monument remarquable, forfait)', () => 
 });
 
 describe('distancePercueFaisceau — mode max (combinaison)', () => {
-  it('ancien (130) ET nature (75) → max = 130', () => {
+  it('ancien (F2=130) ET nature (F4 additif 100+0.5×50=125) → max = 130', () => {
     const r = distancePercueFaisceau(
       f({ distanceObstacleM: 100, impactAncien: true, natureTraverseeM: 50 }),
       P,

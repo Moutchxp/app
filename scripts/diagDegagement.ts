@@ -32,7 +32,7 @@ function familleRetenue(f: FaisceauResultat): 'F1' | 'F2' | 'F3' | 'F4' {
     });
   }
   if (f.natureTraverseeM != null && f.natureTraverseeM > 0) {
-    cands.push({ fam: 'F4', val: Math.min(f.natureTraverseeM * (1 + P.boostF4), P.distanceMaxM) });
+    cands.push({ fam: 'F4', val: Math.min(base + P.boostF4 * f.natureTraverseeM, P.distanceMaxM) });
   }
   return cands.reduce((a, b) => (b.val > a.val ? b : a), cands[0]).fam;
 }

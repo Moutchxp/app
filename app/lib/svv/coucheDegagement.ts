@@ -18,7 +18,7 @@ const clamp = (v: number, min: number, max: number): number => Math.min(Math.max
  * - F1 (toujours) : base factuelle = min(distanceObstacleM ?? distanceMaxM, distanceMaxM).
  * - F2 (impactAncien && distanceObstacleM != null) : min(distance × (1 + boostF2), distanceMaxM).
  * - F3 (impactNature ∈ naturesRemarquables) : forfait coneCentral / extremites (peut dépasser distanceMaxM).
- * - F4 (natureTraverseeM > 0) : min(longueur × (1 + boostF4), distanceMaxM).
+ * - F4 (natureTraverseeM > 0) : ADDITIF — min(base + boostF4 × longueur, distanceMaxM).
  *
  * F1 étant toujours déclenchée, le résultat ne descend jamais sous la base factuelle.
  */
@@ -43,9 +43,9 @@ export function distancePercueFaisceau(f: FaisceauResultat, profil: ProfilDegage
     );
   }
 
-  // F4 — nature traversée : longueur boostée, bornée à la portée.
+  // F4 — nature traversée : ADDITIF sur la base factuelle (la nature S'AJOUTE à la distance réelle).
   if (f.natureTraverseeM != null && f.natureTraverseeM > 0) {
-    candidates.push(Math.min(f.natureTraverseeM * (1 + profil.boostF4), distanceMaxM));
+    candidates.push(Math.min(base + profil.boostF4 * f.natureTraverseeM, distanceMaxM));
   }
 
   switch (profil.modeCombinaison) {
