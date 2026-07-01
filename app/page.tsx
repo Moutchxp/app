@@ -11,6 +11,9 @@ import { cardinal } from "./lib/cardinal";
 import { SceauCertifie } from "./components/SceauCertifie";
 import type { Orientation } from "./lib/svv/config";
 import type { LibelleScore } from "./lib/svv/scoreTotal";
+import { PhoneInput } from "react-international-phone";
+import "react-international-phone/style.css";
+import { isValidPhoneNumber } from "libphonenumber-js";
 import {
   libelleScore,
   libelleOrientation,
@@ -713,7 +716,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
     prenom.trim() !== "" &&
     nom.trim() !== "" &&
     emailValide &&
-    telephone.trim() !== "" &&
+    (telephone ? isValidPhoneNumber(telephone) : false) &&
     typeBien !== "" &&
     surface.trim() !== "" &&
     nbPieces > 0 &&
@@ -986,13 +989,17 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
       )}
 
       <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone <span className="text-svv-red">*</span></label>
-      <input
-        type="tel"
-        inputMode="tel"
+      <PhoneInput
+        defaultCountry="fr"
+        disableDialCodeAndPrefix
+        showDisabledDialCodeAndPrefix
+        preferredCountries={["fr", "be", "ch", "lu", "mc"]}
+        placeholder="6 12 34 56 78"
         value={telephone}
-        onChange={(e) => setTelephone(e.target.value)}
-        className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
-        placeholder="06 12 34 56 78"
+        onChange={(phone) => setTelephone(phone)}
+        className="w-full"
+        inputClassName="!w-full !rounded-xl !border !border-svv-line !bg-white !p-3 !text-base !text-svv-ink placeholder:!text-svv-muted focus:!border-svv-red focus:!outline-none"
+        inputProps={{ name: "telephone" }}
       />
 
       <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Le bien analysé est-il votre résidence principale ? <span className="text-svv-red">*</span></label>
