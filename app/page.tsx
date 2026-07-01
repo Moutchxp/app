@@ -13,7 +13,8 @@ import type { Orientation } from "./lib/svv/config";
 import type { LibelleScore } from "./lib/svv/scoreTotal";
 import { PhoneInput } from "react-international-phone";
 import "react-international-phone/style.css";
-import { isValidPhoneNumber, getExampleNumber } from "libphonenumber-js";
+import { getActiveFormattingMask } from "react-international-phone";
+import { getExampleNumber, isValidPhoneNumber } from "libphonenumber-js/max";
 import examples from "libphonenumber-js/examples.mobile.json";
 import {
   libelleScore,
@@ -999,15 +1000,19 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
         preferredCountries={["fr", "be", "ch", "lu", "mc"]}
         placeholder={placeholderTel}
         onChange={(phone, meta) => {
-          setTelephone(phone);
           const c: any = meta?.country;
+          // Reconstruit l'E.164 : "+" + indicatif pays + chiffres nationaux saisis
+          const digits = (phone || "").replace(/\D/g, "");
+          const dial = c?.dialCode ? String(c.dialCode).replace(/\D/g, "") : "";
+          let e164 = phone || "";
+          if (dial && digits.startsWith(dial)) {
+            e164 = "+" + digits;
+          } else if (dial) {
+            e164 = "+" + dial + digits;
+          }
+          setTelephone(e164);
           if (c?.iso2) {
-            const fmt = c.format;
-            const masque =
-              typeof fmt === "string"
-                ? fmt
-                : (fmt && typeof fmt === "object" ? (fmt.default ?? "") : "");
-            const ph = placeholderPourPays(c.iso2, masque);
+            const ph = placeholderPourPays(c.iso2, c);
             if (ph) setPlaceholderTel(ph);
           }
         }}
@@ -1084,12 +1089,15 @@ function appliqueMasqueTel(masque: string, chiffres: string): string {
   return out.trim();
 }
 
-function placeholderPourPays(iso2: string, masque: string): string {
+function placeholderPourPays(iso2: string, country: any): string {
   try {
     const ex = getExampleNumber(iso2.toUpperCase() as any, examples);
     if (!ex) return "";
+    const chiffres = ex.nationalNumber;
+    // masque actif choisi par la lib selon les 1ers chiffres (ex : AR /^9/)
+    const masque = getActiveFormattingMask({ phone: chiffres, country });
     if (masque && masque.includes(".")) {
-      return appliqueMasqueTel(masque, ex.nationalNumber);
+      return appliqueMasqueTel(masque, chiffres);
     }
     return ex.formatNational();
   } catch {

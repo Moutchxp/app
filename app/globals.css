@@ -156,6 +156,8 @@ body {
 }
 .tel-valide .react-international-phone-input,
 .tel-valide .react-international-phone-country-selector-button,
+.tel-valide .react-international-phone-country-selector,
+.tel-valide .react-international-phone-flag-emoji,
 .tel-valide .react-international-phone-dial-code-preview {
   background-color: var(--color-svv-green-soft);
   color: var(--color-svv-green-ink);
