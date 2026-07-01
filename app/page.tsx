@@ -13,7 +13,8 @@ import type { Orientation } from "./lib/svv/config";
 import type { LibelleScore } from "./lib/svv/scoreTotal";
 import { PhoneInput } from "react-international-phone";
 import "react-international-phone/style.css";
-import { isValidPhoneNumber } from "libphonenumber-js";
+import { isValidPhoneNumber, getExampleNumber } from "libphonenumber-js";
+import examples from "libphonenumber-js/examples.mobile.json";
 import {
   libelleScore,
   libelleOrientation,
@@ -699,6 +700,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
   const [nom, setNom] = useState("");
   const [email, setEmail] = useState("");
   const [telephone, setTelephone] = useState("");
+  const [placeholderTel, setPlaceholderTel] = useState("6 12 34 56 78");
   const [bienEstResidence, setBienEstResidence] = useState<boolean | null>(null);
   const [residenceAdresse, setResidenceAdresse] = useState("");
   const [typeBien, setTypeBien] = useState("");
@@ -994,11 +996,22 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
         disableDialCodeAndPrefix
         showDisabledDialCodeAndPrefix
         preferredCountries={["fr", "be", "ch", "lu", "mc"]}
-        placeholder="6 12 34 56 78"
+        placeholder={placeholderTel}
         value={telephone}
-        onChange={(phone) => setTelephone(phone)}
+        onChange={(phone, meta) => {
+          setTelephone(phone);
+          const c: any = meta?.country;
+          if (c?.iso2) {
+            const fmt = c.format;
+            const masque =
+              typeof fmt === "string"
+                ? fmt
+                : (fmt && typeof fmt === "object" ? (fmt.default ?? "") : "");
+            const ph = placeholderPourPays(c.iso2, masque);
+            if (ph) setPlaceholderTel(ph);
+          }
+        }}
         className="w-full"
-        inputClassName="!w-full !rounded-xl !border !border-svv-line !bg-white !p-3 !text-base !text-svv-ink placeholder:!text-svv-muted focus:!border-svv-red focus:!outline-none"
         inputProps={{ name: "telephone" }}
       />
 
@@ -1053,6 +1066,35 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
       )}
     </div>
   );
+}
+
+function appliqueMasqueTel(masque: string, chiffres: string): string {
+  let out = "";
+  let i = 0;
+  for (const ch of masque) {
+    if (ch === ".") {
+      if (i >= chiffres.length) break;
+      out += chiffres[i];
+      i++;
+    } else {
+      out += ch;
+    }
+  }
+  if (i < chiffres.length) out += chiffres.slice(i);
+  return out.trim();
+}
+
+function placeholderPourPays(iso2: string, masque: string): string {
+  try {
+    const ex = getExampleNumber(iso2.toUpperCase() as any, examples);
+    if (!ex) return "";
+    if (masque && masque.includes(".")) {
+      return appliqueMasqueTel(masque, ex.nationalNumber);
+    }
+    return ex.formatNational();
+  } catch {
+    return "";
+  }
 }
 
 export default function Home() {
