@@ -701,6 +701,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
   const [email, setEmail] = useState("");
   const [telephone, setTelephone] = useState("");
   const [placeholderTel, setPlaceholderTel] = useState("6 12 34 56 78");
+  const telephoneValide = telephone ? isValidPhoneNumber(telephone) : false;
   const [bienEstResidence, setBienEstResidence] = useState<boolean | null>(null);
   const [residenceAdresse, setResidenceAdresse] = useState("");
   const [typeBien, setTypeBien] = useState("");
@@ -997,7 +998,6 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
         showDisabledDialCodeAndPrefix
         preferredCountries={["fr", "be", "ch", "lu", "mc"]}
         placeholder={placeholderTel}
-        value={telephone}
         onChange={(phone, meta) => {
           setTelephone(phone);
           const c: any = meta?.country;
@@ -1011,7 +1011,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
             if (ph) setPlaceholderTel(ph);
           }
         }}
-        className="w-full"
+        className={telephoneValide ? "w-full tel-valide" : "w-full"}
         inputProps={{ name: "telephone" }}
       />
 
