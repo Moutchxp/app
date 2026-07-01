@@ -89,3 +89,64 @@ body {
 .svvFacadePulse {
   animation: svvInfoBump 0.6s ease-in-out, svvColorPulse 3s linear;
 }
+
+/* === Champ téléphone (react-international-phone) : calage sur la charte des autres champs ===
+   Le widget est présenté comme UNE seule boîte (comme Prénom/Nom). */
+.react-international-phone-input-container {
+  width: 100%;
+  border: 1px solid var(--color-svv-line);
+  border-radius: 0.75rem;            /* rounded-xl */
+  background-color: #fff;
+}
+.react-international-phone-input-container:focus-within {
+  border-color: var(--color-svv-red);
+}
+.react-international-phone-input,
+.react-international-phone-country-selector-button,
+.react-international-phone-dial-code-preview {
+  border: none;
+  background: transparent;
+  height: auto;
+}
+.react-international-phone-input {
+  flex: 1 1 auto;
+  padding: 0.75rem;                  /* p-3 */
+  font-size: 1rem;                   /* text-base */
+  color: var(--color-svv-ink);
+  border-top-right-radius: calc(0.75rem - 1px);
+  border-bottom-right-radius: calc(0.75rem - 1px);
+}
+.react-international-phone-input::placeholder {
+  color: var(--color-svv-muted);
+}
+.react-international-phone-dial-code-preview {
+  color: var(--color-svv-ink);
+  font-size: 1rem;
+  padding: 0 0.25rem 0 0.75rem;
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+.react-international-phone-country-selector-button {
+  padding: 0 0.5rem;
+  display: flex;
+  align-items: center;
+  border-top-left-radius: calc(0.75rem - 1px);
+  border-bottom-left-radius: calc(0.75rem - 1px);
+}
+/* Liste déroulante des pays : passe au-dessus du reste (hauteur/scroll par défaut de la lib). */
+.react-international-phone-country-selector-dropdown {
+  z-index: 50;
+}
+/* Remplissage auto du navigateur : jaune natif → vert pâle de la charte */
+.react-international-phone-input:-webkit-autofill,
+.react-international-phone-input:-webkit-autofill:hover,
+.react-international-phone-input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--color-svv-green-soft) inset;
+  box-shadow: 0 0 0 1000px var(--color-svv-green-soft) inset;
+  -webkit-text-fill-color: var(--color-svv-green-ink);
+  caret-color: var(--color-svv-green-ink);
+}
+.react-international-phone-input-container:has(.react-international-phone-input:-webkit-autofill) {
+  background-color: var(--color-svv-green-soft);
+}
