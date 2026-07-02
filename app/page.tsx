@@ -19,7 +19,6 @@ import examples from "libphonenumber-js/examples.mobile.json";
 import {
   libelleScore,
   libelleOrientation,
-  libelleDistance,
   libelleAmplitude,
   libelleCouverture,
   libelleMonuments,
@@ -83,6 +82,7 @@ interface ReponseAnalyse {
           };
         };
         distanceAxePrincipalM: number | null;
+        contexteDegagement: string;
       }
     | null;
 }
@@ -393,7 +393,7 @@ function EcranResultat({
     distanceTxt.length <= 6 ? "text-3xl" : distanceTxt.length <= 10 ? "text-2xl" : "text-xl";
 
   const badges = [
-    libelleDistance(f1.distance),
+    resultat.contexteDegagement,
     libelleAmplitude(f1.amplitude),
     libelleOrientation(f1.detail.secteurOrientation),
     // Famille 2 — masquées si photo inexploitable (composantes dépendantes de l'IA)
@@ -2008,7 +2008,7 @@ export default function Home() {
     />
     <div className="relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6">
       <div className="rounded-2xl bg-white/95 p-6 shadow-xl">
-        <h1 className="text-[1.6rem] font-extrabold leading-tight tracking-tight text-svv-ink">
+        <h1 className="text-[1.6rem] font-extrabold leading-tight tracking-tight text-svv-ink text-center border-2 border-svv-ink rounded-xl py-[11px] px-4">
           Autorisations requises
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-svv-muted">

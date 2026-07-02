@@ -13,6 +13,8 @@ import { scoreFamille1, type FaisceauResultat } from './scoreDegagement';
 import { scorePaysage } from './scorePaysage';
 import type { EntreePaysage } from './entreePaysage';
 import { scoreTotal, type ScoreTotal } from './scoreTotal';
+import { cartoucheDegagement } from './coucheDegagement';
+import { PROFIL_DEGAGEMENT_DEFAUT } from './profilDegagement';
 
 export interface EntreeComplete {
   // Contexte d'observation.
@@ -31,6 +33,7 @@ export interface ResultatComplet {
   verdict: ResultatVerdict; // sortie de premierObstacle
   score: ScoreTotal; // sortie de scoreTotal
   distanceAxePrincipalM: number | null; // distance retenue pour le sous-score distance
+  contexteDegagement: string; // cartouche de contexte DESCRIPTIVE (SCORE-ONLY : n'entre ni dans score ni verdict)
 }
 
 /**
@@ -76,5 +79,9 @@ export function analyser(entree: EntreeComplete): ResultatComplet {
   //    Le verdict (calculé en 1) n'entre jamais ici ; Résultat A (f1) reste le constat factuel.
   const score = scoreTotal(f1, f2, entree.faisceaux, entree.orientationAzimutDeg);
 
-  return { verdict, score, distanceAxePrincipalM };
+  // 6) Cartouche de contexte « dégagement » — DESCRIPTIVE, sur les 61 faisceaux (score-only) ;
+  //    n'entre NI dans le score NI dans le verdict.
+  const contexteDegagement = cartoucheDegagement(entree.faisceaux, PROFIL_DEGAGEMENT_DEFAUT);
+
+  return { verdict, score, distanceAxePrincipalM, contexteDegagement };
 }

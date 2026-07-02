@@ -14,6 +14,13 @@ import { ORIENTATION_PTS } from './config';
 
 const clamp = (v: number, min: number, max: number): number => Math.min(Math.max(v, min), max);
 
+// ── Cartouche de contexte « dégagement » (descriptive, SCORE-ONLY) — seuils (m) ──
+const SEUIL_DEGAGE_M = 40; // dégagé si distanceObstacleM == null || >= 40
+const SEUIL_LOINTAIN_M = 100; // « lointain »
+const SEUIL_PANORAMA_M = 200; // panorama (portée max)
+const SEUIL_FACE_M = 70; // percée frontale des 5 faisceaux centraux
+const SEUIL_LATERAL_DENT_M = 6; // largeur latérale d'une « dent creuse »
+
 /**
  * Distance PERÇUE d'un faisceau (m) selon la/les famille(s) déclenchée(s) et le profil.
  *
@@ -181,4 +188,64 @@ export function noteDegagement(faisceaux: FaisceauResultat[], profil: ProfilDega
     noteAvecOrientation = note + pts;
   }
   return clamp(noteAvecOrientation, 0, profil.plafondCouche1);   // clamp [0, plafondCouche1=90]
+}
+
+/**
+ * Cartouche de contexte « dégagement » — DESCRIPTIVE, SCORE-ONLY : n'affecte NI le score NI le verdict.
+ * 12 catégories mutuellement exclusives, évaluées dans l'ordre (premier match gagne). Groupes dérivés
+ * du SIGNE de offsetDeg (gauche < 0, droite > 0, axe = 0) ; « centraux » = les 5 plus petits |offsetDeg|.
+ * Réutilise `lateralCouloir` et `detecterChaineCouloir` (mêmes seuils couloir que le malus). Aucun arrondi.
+ */
+export function cartoucheDegagement(faisceaux: FaisceauResultat[], profil: ProfilDegagement): string {
+  const estDegage = (f: FaisceauResultat): boolean =>
+    f.distanceObstacleM == null || f.distanceObstacleM >= SEUIL_DEGAGE_M;
+
+  const gauche = faisceaux.filter((f) => f.offsetDeg < 0);
+  const droite = faisceaux.filter((f) => f.offsetDeg > 0);
+  const centraux = [...faisceaux]
+    .sort((a, b) => Math.abs(a.offsetDeg) - Math.abs(b.offsetDeg))
+    .slice(0, 5);
+
+  const n = faisceaux.length || 1;
+  const partTotal = faisceaux.filter(estDegage).length / n;
+  const partGauche = gauche.length ? gauche.filter(estDegage).length / gauche.length : 0;
+  const partDroite = droite.length ? droite.filter(estDegage).length / droite.length : 0;
+  const partLointain =
+    faisceaux.filter((f) => f.distanceObstacleM == null || f.distanceObstacleM >= SEUIL_LOINTAIN_M).length / n;
+
+  const chaineD = detecterChaineCouloir(faisceaux, profil, 'droite').validee;
+  const chaineG = detecterChaineCouloir(faisceaux, profil, 'gauche').validee;
+
+  // Nb de faisceaux « collés » latéralement (dent creuse) : obstacle proche ET latéral < seuil dent.
+  const dentCote = (arr: FaisceauResultat[]): number =>
+    arr.filter(
+      (f) =>
+        f.distanceObstacleM != null &&
+        f.distanceObstacleM < SEUIL_DEGAGE_M &&
+        lateralCouloir(f) < SEUIL_LATERAL_DENT_M,
+    ).length;
+
+  // Ordre EXACT — premier match gagne.
+  if (
+    partTotal === 1.0 &&
+    faisceaux.every((f) => f.distanceObstacleM == null || f.distanceObstacleM >= SEUIL_PANORAMA_M)
+  )
+    return 'Panoramique';
+  if (partTotal >= 0.9 && partLointain >= 0.6) return 'Totalement dégagée';
+  if (partTotal >= 0.7) return 'Globalement dégagé';
+  if (chaineD && chaineG) return 'Vue couloir';
+  if (chaineD) return 'Enfilade à droite';
+  if (chaineG) return 'Enfilade à gauche';
+  if (partDroite >= 0.7 && partGauche <= 0.4) return 'Dégagé à droite';
+  if (partGauche >= 0.7 && partDroite <= 0.4) return 'Dégagé à gauche';
+  if (centraux.every(estDegage) && dentCote(gauche) >= 2 && dentCote(droite) >= 2 && !chaineD && !chaineG)
+    return 'Dent creuse';
+  if (
+    centraux.every((f) => f.distanceObstacleM == null || f.distanceObstacleM >= SEUIL_FACE_M) &&
+    partGauche < 0.4 &&
+    partDroite < 0.4
+  )
+    return 'Vue face dégagée';
+  if (partTotal >= 0.4) return 'Partiellement dégagée';
+  return 'Environnement dense';
 }

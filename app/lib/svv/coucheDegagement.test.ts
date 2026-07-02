@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { distancePercueFaisceau, noteDegagement, detecterChaineCouloir, diagnostiquerCouloir } from './coucheDegagement';
+import { distancePercueFaisceau, noteDegagement, detecterChaineCouloir, diagnostiquerCouloir, cartoucheDegagement } from './coucheDegagement';
 import { PROFIL_DEGAGEMENT_DEFAUT as P } from './profilDegagement';
 import type { FaisceauResultat } from './scoreDegagement';
 
@@ -131,5 +131,62 @@ describe('noteDegagement — agrégation /90', () => {
   it('moyenne 100 et 200 → 150 → note (150/200)×90 = 67.5', () => {
     const fs = [f({ distanceObstacleM: 100 }), f({ distanceObstacleM: null })]; // 100 et 200
     expect(noteDegagement(fs, P)).toBe(67.5);
+  });
+});
+
+describe('cartoucheDegagement — 12 catégories (descriptif, score-only)', () => {
+  // Champ synthétique de 61 faisceaux (offsets -90..+90 pas 3°), distObst piloté par offset.
+  const champ = (dist: (offset: number) => number | null): FaisceauResultat[] => {
+    const fs: FaisceauResultat[] = [];
+    for (let off = -90; off <= 90; off += 3) fs.push(f({ offsetDeg: off, distanceObstacleM: dist(off) }));
+    return fs;
+  };
+  const cat = (dist: (offset: number) => number | null): string => cartoucheDegagement(champ(dist), P);
+
+  it('1. Panoramique — tout dégagé ≥ 200 (null partout)', () => {
+    expect(cat(() => null)).toBe('Panoramique');
+  });
+  it('2. Totalement dégagée — tout à 150 (dégagé + lointain, mais < 200)', () => {
+    expect(cat(() => 150)).toBe('Totalement dégagée');
+  });
+  it('3. Globalement dégagé — ~74% dégagés à 50 m (non lointain)', () => {
+    expect(cat((o) => (Math.abs(o) <= 66 ? 50 : 20))).toBe('Globalement dégagé');
+  });
+  it('4. Vue couloir — deux chaînes validées, axe ouvert (et NON Dent creuse)', () => {
+    const r = cat((o) => (Math.abs(o) <= 6 ? null : 2));
+    expect(r).toBe('Vue couloir');
+    expect(r).not.toBe('Dent creuse');
+  });
+  it('5. Enfilade à droite — chaîne droite seule', () => {
+    expect(cat((o) => (o > 0 ? 2 : null))).toBe('Enfilade à droite');
+  });
+  it('6. Enfilade à gauche — chaîne gauche seule', () => {
+    expect(cat((o) => (o < 0 ? 2 : null))).toBe('Enfilade à gauche');
+  });
+  it('7. Dégagé à droite — droite 100%, gauche ~33%, sans chaîne (NON Dent creuse / NON Vue face)', () => {
+    const r = cat((o) => (o >= 0 ? null : Math.abs(o) >= 63 ? null : 20));
+    expect(r).toBe('Dégagé à droite');
+    expect(r).not.toBe('Dent creuse');
+    expect(r).not.toBe('Vue face dégagée');
+  });
+  it('8. Dégagé à gauche — symétrique', () => {
+    expect(cat((o) => (o <= 0 ? null : Math.abs(o) >= 63 ? null : 20))).toBe('Dégagé à gauche');
+  });
+  it('9. Dent creuse — axe ouvert + 2 murs collés (latéral<6) par flanc, sans chaîne', () => {
+    expect(cat((o) => { const a = Math.abs(o); return a <= 6 ? null : a === 9 || a === 12 ? 25 : 30; })).toBe(
+      'Dent creuse',
+    );
+  });
+  it('10. Vue face dégagée — 5 centraux ≥ 70, flancs denses ~25 m non collés (NON Dent creuse / NON dense)', () => {
+    const r = cat((o) => (Math.abs(o) <= 12 ? 80 : 25));
+    expect(r).toBe('Vue face dégagée');
+    expect(r).not.toBe('Dent creuse');
+    expect(r).not.toBe('Environnement dense');
+  });
+  it('11. Partiellement dégagée — ~51% dégagés, symétrique, centre mêlé', () => {
+    expect(cat((o) => (Math.abs(o) % 6 === 0 ? null : 20))).toBe('Partiellement dégagée');
+  });
+  it('12. Environnement dense — tout bouché à 20 m (centre compris)', () => {
+    expect(cat(() => 20)).toBe('Environnement dense');
   });
 });
