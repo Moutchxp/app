@@ -17,6 +17,13 @@ import type { PointWgs84 } from "../svv/geo";
 import type { ObstacleCandidat, SourceHauteur } from "../svv/verdict";
 import { ANALYSIS_RANGE_M, CORRIDOR_HALF_WIDTH_M, FLOOR_HEIGHT_OBSTACLE_M, THRESHOLD_M } from "../svv/config";
 
+/**
+ * Tolérance (m) pour identifier le span qui CONTIENT l'origine le long d'un rayon : un span dont la
+ * distance d'entrée ≤ ce seuil est réputé « à l'origine » (d_in ≈ 0) et n'est PAS un obstacle.
+ * Au-delà, une RÉ-ENTRÉE du polygone d'origine (aile opposée d'un L/U) redevient un obstacle.
+ */
+const ORIGINE_SPAN_TOL_M = 0.5;
+
 export interface ParametresAxe {
   point: PointWgs84;
   azimutDeg: number;
@@ -439,6 +446,96 @@ async function obstaclesParBalayage(params: ParametresAxe, hOeilM: number): Prom
   return avecU([]);
 }
 
+interface LigneReentreeSql {
+  dist_m: number | string;
+  amt: number | null;
+  h: number | null;
+  sol: number | null;
+  net: number | null;
+  cleabs: string;
+  impact_pt_wkt: string;
+  axe_wkt: string;
+  mns_toit: number | null;
+}
+
+/**
+ * Candidat ADDITIF « ré-entrée du polygone d'origine » (aile opposée d'un L/U) sur le rayon mono-azimut.
+ *
+ * Le rayon SORT du span qui contient l'origine (d_in ≤ ORIGINE_SPAN_TOL_M, sortie s0) puis RE-RENTRE dans
+ * le MÊME polygone : le 1er span à d_in > s0 est un obstacle bâti pur. On n'intersecte QUE le polygone
+ * d'origine (params.batimentOriginePolygoneWkt) — le candidat voisin (couloir 2 m, ST_Distance(bord)) reste
+ * INCHANGÉ par ailleurs.
+ *
+ * distanceM = d_in du bord de ré-entrée : INCOHÉRENCE MÉTRIQUE ASSUMÉE (le polygone enjambe l'origine, donc
+ * ST_Distance(bord) ≈ 0 est inutilisable ; d_in EST la vraie distance physique de l'aile). Hauteur via la MÊME
+ * cascade (resoudreSommet + fallback MNS si NONE). nature=null / ancien=false → aucun boost valorisant (F2/F3/F4).
+ * SCORE-ONLY : appelé depuis la branche BD TOPO (faisceaux), jamais le verdict (obstaclesParBalayage).
+ * Retourne null si pas de polygone d'origine ou pas de ré-entrée.
+ */
+async function candidatReentreeOrigine(params: ParametresAxe): Promise<ObstacleCandidat | null> {
+  if (!params.batimentOriginePolygoneWkt) return null;
+  const res = await query<LigneReentreeSql>(
+    `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
+     axe AS (
+       SELECT o.g AS origine,
+              ST_MakeLine(o.g, ST_Translate(o.g, $3*sin(radians($4)), $3*cos(radians($4)))) AS ln
+       FROM o
+     ),
+     poly AS (SELECT ST_Force2D(ST_GeomFromText($5, 2154)) AS g),
+     bat AS (
+       SELECT altitude_maximale_toit AS amt, hauteur AS h, altitude_minimale_sol AS sol,
+              nombre_d_etages AS net, cleabs
+       FROM bdtopo_batiment WHERE id = $6
+     ),
+     spans AS (
+       SELECT LEAST(ST_Distance(a.origine, ST_StartPoint(s.geom)), ST_Distance(a.origine, ST_EndPoint(s.geom)))   AS d_in,
+              GREATEST(ST_Distance(a.origine, ST_StartPoint(s.geom)), ST_Distance(a.origine, ST_EndPoint(s.geom))) AS d_out
+       FROM axe a, poly p,
+            LATERAL (SELECT (ST_Dump(ST_Intersection(a.ln, p.g))).geom AS geom) s
+       WHERE ST_GeometryType(s.geom) = 'ST_LineString' AND NOT ST_IsEmpty(s.geom)
+     ),
+     s0 AS (SELECT COALESCE(MAX(d_out) FILTER (WHERE d_in <= $7), 0) AS sortie0 FROM spans),
+     reentree AS (SELECT d_in FROM spans, s0 WHERE d_in > s0.sortie0 + 1e-6 ORDER BY d_in ASC LIMIT 1)
+     SELECT r.d_in AS dist_m, bat.amt, bat.h, bat.sol, bat.net, bat.cleabs,
+            ST_AsText(ST_LineInterpolatePoint(a.ln, LEAST(r.d_in, $3) / $3::float8)) AS impact_pt_wkt,
+            ST_AsText(a.ln) AS axe_wkt,
+            (SELECT v.val FROM (
+               SELECT ST_Value(m.rast, ST_PointOnSurface(p.g)) AS val
+               FROM mns_lidar_brut m WHERE ST_Intersects(m.rast, ST_PointOnSurface(p.g)) LIMIT 1
+             ) v WHERE v.val IS NOT NULL AND v.val <> -9999) AS mns_toit
+     FROM reentree r, axe a, poly p, bat;`,
+    [
+      params.point.lon,
+      params.point.lat,
+      ANALYSIS_RANGE_M,
+      params.azimutDeg,
+      params.batimentOriginePolygoneWkt,
+      params.batimentOrigineId,
+      ORIGINE_SPAN_TOL_M,
+    ],
+  );
+  if (res.rows.length === 0) return null;
+  const r = res.rows[0];
+  // Même résolution de sommet que les voisins (cascade BD TOPO + fallback MNS si NONE).
+  const { altitudeSommetM, source } = resoudreSommet(r as unknown as LigneObstacle);
+  let altSommet = altitudeSommetM;
+  let src = source;
+  if (source === "NONE" && r.mns_toit != null && (r.sol == null || r.mns_toit > r.sol)) {
+    altSommet = r.mns_toit;
+    src = "LIDAR_HD";
+  }
+  return {
+    distanceM: Number(r.dist_m),
+    altitudeSommetM: altSommet,
+    source: src,
+    cleabs: r.cleabs,
+    nature: null, // bâti pur : aucun boost valorisant F2/F3/F4
+    rayonWkt: r.axe_wkt,
+    impactPointWkt: r.impact_pt_wkt,
+    ancien: false, // jamais valorisé comme F2 (avant 1900)
+  };
+}
+
 export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCandidat[]> {
   // Couloir principal (lidar + altitude de fenêtre connue) → balayage plein-couloir.
   // Faisceaux (lidar=false) ET appels lidar sans hOeil (diagnostics) → chemin historique ci-dessous.
@@ -522,6 +619,12 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
       };
     }),
   );
+
+  // Candidat ADDITIF : ré-entrée du polygone d'origine (aile opposée d'un L/U). SCORE-ONLY ;
+  // n'affecte PAS le voisin existant ni le verdict (obstaclesParBalayage). premierObstacle tranche
+  // en aval (altitudeSommetM ≥ fenêtre PUIS min distanceM), comme pour tout candidat.
+  const reentree = await candidatReentreeOrigine(params);
+  if (reentree) candidats.push(reentree);
 
   // Le point de contact peut réordonner les candidats : re-tri par distance croissante.
   return candidats.sort((a, b) => a.distanceM - b.distanceM);
