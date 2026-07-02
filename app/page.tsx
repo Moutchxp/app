@@ -1001,15 +1001,16 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
         placeholder={placeholderTel}
         onChange={(phone, meta) => {
           const c: any = meta?.country;
-          // Reconstruit l'E.164 : "+" + indicatif pays + chiffres nationaux saisis
-          const digits = (phone || "").replace(/\D/g, "");
           const dial = c?.dialCode ? String(c.dialCode).replace(/\D/g, "") : "";
-          let e164 = phone || "";
+          // chiffres saisis, tous non-numériques retirés
+          let digits = (phone || "").replace(/\D/g, "");
+          // si les chiffres commencent déjà par l'indicatif, on ne le remet pas
+          let national = digits;
           if (dial && digits.startsWith(dial)) {
-            e164 = "+" + digits;
-          } else if (dial) {
-            e164 = "+" + dial + digits;
+            national = digits.slice(dial.length);
           }
+          // E.164 = "+" + indicatif + national (toujours préfixé)
+          const e164 = dial ? "+" + dial + national : (phone || "");
           setTelephone(e164);
           if (c?.iso2) {
             const ph = placeholderPourPays(c.iso2, c);
