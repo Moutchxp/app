@@ -73,20 +73,20 @@ describe('distancePercueFaisceau — mode max (combinaison)', () => {
   });
 });
 
-describe('noteDegagement — agrégation /80', () => {
+describe('noteDegagement — agrégation /90', () => {
   it('liste vide → 0', () => {
     expect(noteDegagement([], P)).toBe(0);
   });
-  it('tous perçus 200 → note plafond 80', () => {
+  it('tous perçus 200 → note plafond 90', () => {
     const fs = Array.from({ length: 5 }, () => f({ distanceObstacleM: null })); // base 200
-    expect(noteDegagement(fs, P)).toBe(80);
+    expect(noteDegagement(fs, P)).toBe(90);
   });
   it('tous à 0 → note 0', () => {
     const fs = Array.from({ length: 5 }, () => f({ distanceObstacleM: 0 }));
     expect(noteDegagement(fs, P)).toBe(0);
   });
-  it('moyenne 100 et 200 → 150 → note (150/200)×80 = 60', () => {
+  it('moyenne 100 et 200 → 150 → note (150/200)×90 = 67.5', () => {
     const fs = [f({ distanceObstacleM: 100 }), f({ distanceObstacleM: null })]; // 100 et 200
-    expect(noteDegagement(fs, P)).toBe(60);
+    expect(noteDegagement(fs, P)).toBe(67.5);
   });
 });

@@ -169,14 +169,14 @@ export const FLANC_FAISCEAUX_CONSEC_MIN = 3;
 
 /* Famille 1 — orientation (points par secteur) */
 export const ORIENTATION_PTS = {
-  S: 10,
-  SO: 10,
-  SE: 8,
-  O: 7,
-  NO: 6,
-  E: 4,
-  NE: 2,
   N: 0,
+  NE: 1,
+  E: 5,
+  SE: 8,
+  S: 10,
+  SO: 9,
+  O: 7,
+  NO: 3,
 } as const;
 export type Orientation = keyof typeof ORIENTATION_PTS;
 

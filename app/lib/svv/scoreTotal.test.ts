@@ -4,7 +4,7 @@ import type { ScoreFamille1, FaisceauResultat } from './scoreDegagement';
 import type { ScorePaysage } from './entreePaysage';
 import { PROFIL_DEGAGEMENT_DEFAUT as P } from './profilDegagement';
 
-// NOUVEAU MODÈLE : total = noteDegagement(faisceaux) /80 (Couche 1). famille1 (Résultat A) et
+// NOUVEAU MODÈLE : total = noteDegagement(faisceaux) /90 (Couche 1). famille1 (Résultat A) et
 // famille2 (paysage) sont conservés pour AUDIT mais N'ALIMENTENT PLUS le total. Seul
 // famille2.scorePartiel reste consommé (neutralise le libellé).
 
@@ -33,29 +33,29 @@ function mockF2(scorePartiel = false): ScorePaysage {
 /**
  * 5 faisceaux NEUTRES produisant une note Couche 1 cible :
  * perçue = distanceObstacleM ; note = (moyenne / distanceMaxM) × plafondCouche1
- * ⇒ distanceObstacleM = note × distanceMaxM / plafondCouche1 (= note × 2.5 pour le profil défaut).
+ * ⇒ distanceObstacleM = note × distanceMaxM / plafondCouche1 (= note × 200/90 pour le profil défaut).
  */
 function faisceauxNote(noteCible: number): FaisceauResultat[] {
   const dist = (noteCible * P.distanceMaxM) / P.plafondCouche1;
   return Array.from({ length: 5 }, () => ({ offsetDeg: 0, distanceObstacleM: dist }));
 }
 
-describe('scoreTotal — total = note Couche 1 /80 (sur les faisceaux)', () => {
-  it('faisceaux dégagés → plafond 80', () => {
+describe('scoreTotal — total = note Couche 1 /90 (sur les faisceaux)', () => {
+  it('faisceaux dégagés → plafond 90', () => {
     const fs: FaisceauResultat[] = Array.from({ length: 5 }, () => ({ offsetDeg: 0, distanceObstacleM: null }));
-    expect(scoreTotal(f1(), mockF2(), fs).total).toBe(80);
+    expect(scoreTotal(f1(), mockF2(), fs).total).toBe(90);
   });
   it('faisceaux à 0 → note 0', () => {
     const fs: FaisceauResultat[] = Array.from({ length: 5 }, () => ({ offsetDeg: 0, distanceObstacleM: 0 }));
     expect(scoreTotal(f1(), mockF2(), fs).total).toBe(0);
   });
   it('aucun arrondi : note 73.5 reste 73.5', () => {
-    expect(scoreTotal(f1(), mockF2(), faisceauxNote(73.5)).total).toBe(73.5);
+    expect(scoreTotal(f1(), mockF2(), faisceauxNote(73.5)).total).toBeCloseTo(73.5, 10);
   });
   it('famille1 et famille2 conservés dans le retour (audit), hors total', () => {
     const sf1 = f1(); const sf2 = mockF2();
     const r = scoreTotal(sf1, sf2, faisceauxNote(60));
-    expect(r.total).toBe(60);
+    expect(r.total).toBeCloseTo(60, 10);
     expect(r.famille1).toBe(sf1);
     expect(r.famille2).toBe(sf2);
   });

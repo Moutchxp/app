@@ -8,7 +8,9 @@
  * Résultat A. Toute la pondération est externalisée dans `profilDegagement.ts`. Aucun arrondi.
  */
 import type { FaisceauResultat } from './scoreDegagement';
+import { azimutVersSecteur } from './scoreDegagement';
 import type { ProfilDegagement } from './profilDegagement';
+import { ORIENTATION_PTS } from './config';
 
 const clamp = (v: number, min: number, max: number): number => Math.min(Math.max(v, min), max);
 
@@ -68,10 +70,16 @@ export function distancePercueFaisceau(f: FaisceauResultat, profil: ProfilDegage
  * Note de dégagement /plafondCouche1 : moyenne des distances perçues normalisée par la portée.
  * Liste vide → 0. Résultat clampé [0, plafondCouche1].
  */
-export function noteDegagement(faisceaux: FaisceauResultat[], profil: ProfilDegagement): number {
+export function noteDegagement(faisceaux: FaisceauResultat[], profil: ProfilDegagement, azimutDeg?: number): number {
   if (faisceaux.length === 0) return 0;
   const moyenne =
     faisceaux.reduce((acc, f) => acc + distancePercueFaisceau(f, profil), 0) / faisceaux.length;
   const note = (moyenne / profil.distanceMaxM) * profil.plafondCouche1;
-  return clamp(note, 0, profil.plafondCouche1);
+  let noteAvecOrientation = note;
+  if (typeof azimutDeg === "number") {
+    const secteur = azimutVersSecteur(azimutDeg);          // même découpage que la boussole UI
+    const pts = ORIENTATION_PTS[secteur] ?? 0;             // barème 0-10
+    noteAvecOrientation = note + pts;
+  }
+  return clamp(noteAvecOrientation, 0, profil.plafondCouche1);   // clamp [0, plafondCouche1=90]
 }

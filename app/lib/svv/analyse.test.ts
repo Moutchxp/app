@@ -51,13 +51,13 @@ function entree(over: Partial<EntreeComplete> = {}): EntreeComplete {
 }
 
 describe('analyser — vue parfaite', () => {
-  it('aucun obstacle + tout dégagé → SANS_VIS_A_VIS & 80/EXCEPTIONNELLE (note Couche 1 plafond)', () => {
+  it('aucun obstacle + tout dégagé → SANS_VIS_A_VIS & 90/EXCEPTIONNELLE (note Couche 1 plafond)', () => {
     const r = analyser(entree({ obstaclesAxePrincipal: [], paysage: paysageParfait }));
     expect(r.verdict.verdict).toBe('SANS_VIS_A_VIS');
     expect(r.distanceAxePrincipalM).toBeNull();
-    // Score = note Couche 1 /80 : 61 faisceaux dégagés → perçue 200 chacun → note plafond 80.
+    // Score = note Couche 1 /90 : 61 faisceaux dégagés → perçue 200 chacun → note plafond 90.
     // (paysage f2 conservé pour audit mais NON ajouté ; Couche 2 Exception non implémentée.)
-    expect(r.score.total).toBe(80);
+    expect(r.score.total).toBe(90);
     expect(r.score.libelle).toBe('EXCEPTIONNELLE');
   });
 });

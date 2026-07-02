@@ -35,7 +35,7 @@ export const PROFIL_DEGAGEMENT_DEFAUT: ProfilDegagement = {
   forfaitExtremites: 200,
   coneF3DemiAngleDeg: 60,
   distanceMaxM: 200,
-  plafondCouche1: 80,
+  plafondCouche1: 90,
   modeCombinaison: 'max',
   // Libellés EXACTS de bdtopo_batiment.nature (vérifiés en base).
   naturesRemarquables: ['Eglise', 'Monument', 'Chapelle', 'Château', 'Tour, donjon', 'Arc de triomphe'],
