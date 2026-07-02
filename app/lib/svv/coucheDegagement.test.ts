@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { distancePercueFaisceau, noteDegagement, chaineCouloir } from './coucheDegagement';
+import { distancePercueFaisceau, noteDegagement, detecterChaineCouloir, diagnostiquerCouloir } from './coucheDegagement';
 import { PROFIL_DEGAGEMENT_DEFAUT as P } from './profilDegagement';
 import type { FaisceauResultat } from './scoreDegagement';
 
@@ -73,40 +73,46 @@ describe('distancePercueFaisceau — mode max (combinaison)', () => {
   });
 });
 
-describe('noteDegagement — malus couloir (mur longeant l\'axe)', () => {
-  // Faisceaux fabriqués : SEULS offsetDeg + distanceObstacleM renseignés (enrichissements = défaut,
-  // donc distancePercueFaisceau = base = distanceObstacleM). Profil = PROFIL_DEGAGEMENT_DEFAUT.
-  const faisceaux: FaisceauResultat[] = [
-    f({ offsetDeg: 90, distanceObstacleM: 2.0 }),    // droite — latéral 2.0
-    f({ offsetDeg: 60, distanceObstacleM: 2.5 }),    // droite — latéral 2.165
-    f({ offsetDeg: 30, distanceObstacleM: 4.0 }),    // droite — latéral 2.0 ; axial 3.464
-    f({ offsetDeg: 15, distanceObstacleM: 20.0 }),   // droite — latéral 5.18 > 3 → RUPTURE
-    f({ offsetDeg: -90, distanceObstacleM: 150.0 }), // gauche — latéral 150 → aucune chaîne
-    f({ offsetDeg: -45, distanceObstacleM: 120.0 }), // gauche
-    f({ offsetDeg: 0, distanceObstacleM: 180.0 }),   // axe (ni gauche ni droite)
-  ];
+describe('noteDegagement — malus couloir (latéral, cumul proportionnel)', () => {
+  // Champ de 61 faisceaux (offsets -90..+90 par pas de 3°). Seuls offsetDeg + distanceObstacleM
+  // renseignés → distancePercueFaisceau = base = distanceObstacleM (aucun boost F2/F3/F4).
+  function champ61(dist: (offset: number) => number | null): FaisceauResultat[] {
+    const fs: FaisceauResultat[] = [];
+    for (let off = -90; off <= 90; off += 3) fs.push(f({ offsetDeg: off, distanceObstacleM: dist(off) }));
+    return fs;
+  }
 
-  it('côté droite : chaîne VALIDÉE de 3 faisceaux, mur ≈ 3.464102 m', () => {
-    const ch = chaineCouloir(faisceaux, P, 'droite');
-    expect(ch.validee).toBe(true);
-    expect(ch.faisceaux.length).toBe(3);
-    expect(ch.longueurMur).toBeCloseTo(3.464102, 6); // 4.0 × cos(30°)
+  it('n°3..16 collent tous (droite distObst=2, latéral<3) → validée, n=30, malus = 0.23·S', () => {
+    const fs = champ61((off) => (off > 0 ? 2 : null)); // droite bouchée près, gauche+axe dégagés
+    const droite = detecterChaineCouloir(fs, P, 'droite');
+    expect(droite.validee).toBe(true);
+    expect(droite.indices.length).toBe(30); // positions 1..16 + prolongation 17..30
+    const [dGauche, dDroite] = diagnostiquerCouloir(fs, P);
+    expect(dGauche.validee).toBe(false);
+    expect(dDroite.validee).toBe(true);
+    expect(dDroite.n).toBe(30);
+    // S = 30×2 (droite) + 31×200 (gauche+axe dégagés) = 6260 ; malus = (16×0.01 + 14×0.005)×S
+    expect(dDroite.malusM).toBeCloseTo((16 * 0.01 + 14 * 0.005) * 6260, 6);
+    // note = ((S − malus)/61/200)×90 = (4820.2/12200)×90
+    expect(noteDegagement(fs, P)).toBeCloseTo(35.558852, 5);
   });
 
-  it('côté gauche : AUCUNE chaîne (obstacles trop loin)', () => {
-    const ch = chaineCouloir(faisceaux, P, 'gauche');
-    expect(ch.validee).toBe(false);
-    expect(ch.faisceaux.length).toBe(0);
+  it('n°1 latéral > 3 (toléré) mais n°3..16 collent → validée, n°1 compté (n=30)', () => {
+    const fs = champ61((off) => (off > 0 ? (off === 90 ? 5 : 2) : null)); // +90° : latéral 5 > 3
+    const droite = detecterChaineCouloir(fs, P, 'droite');
+    expect(droite.validee).toBe(true);
+    expect(droite.indices.length).toBe(30);
+    expect(droite.indices).toContain(60); // le faisceau +90° (index 60) EST dans la chaîne (compté au malus)
   });
 
-  it('note AVEC malus (÷2 sur les 3 faisceaux de droite) ≈ 30.4875', () => {
-    // moyenne = (1.0+1.25+2.0+20+150+120+180)/7 = 67.75 → ×90/200 = 30.4875
-    expect(noteDegagement(faisceaux, P)).toBeCloseTo(30.4875, 6);
-  });
-
-  it('note SANS malus (couloirFacteur=1, géométrie identique) ≈ 30.760714 → prouve le ÷2', () => {
-    // moyenne = (2.0+2.5+4.0+20+150+120+180)/7 = 68.357143 → ×90/200 = 30.760714
-    expect(noteDegagement(faisceaux, { ...P, couloirFacteur: 1 })).toBeCloseTo(30.760714, 6);
+  it('un des n°3..16 (offset +63°) latéral > 3 → NON validée, malus 0', () => {
+    const fs = champ61((off) => (off > 0 ? (off === 63 ? 10 : 2) : null)); // +63° : latéral 8.9 > 3
+    const droite = detecterChaineCouloir(fs, P, 'droite');
+    expect(droite.validee).toBe(false);
+    expect(droite.indices.length).toBe(0);
+    const [, dDroite] = diagnostiquerCouloir(fs, P);
+    expect(dDroite.validee).toBe(false);
+    expect(dDroite.malusM).toBe(0);
   });
 });
 

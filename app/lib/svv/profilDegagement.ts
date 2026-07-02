@@ -24,12 +24,16 @@ export interface ProfilDegagement {
   plafondCouche1: number;
   /** Mode de combinaison des familles déclenchées (seul "max" actif ici). */
   modeCombinaison: ModeCombinaison;
-  /** Couloir — largeur du couloir : distance ⊥ à l'axe (m) sous laquelle un obstacle « longe » le regard. */
+  /** Couloir — largeur : distance ⊥ à l'axe (m) sous laquelle un obstacle « longe » le regard. */
   couloirSeuilLateralM: number;
-  /** Couloir — longueur minimale du mur (m, projetée sur l'axe) pour valider la chaîne. */
-  couloirLongueurMinM: number;
-  /** Couloir — facteur appliqué à la distance perçue des faisceaux de la chaîne (0.5 = ÷2). */
-  couloirFacteur: number;
+  /** Couloir — fenêtre (nb de faisceaux depuis le bord) sur laquelle la condition d'enclenchement s'applique. */
+  couloirFenetreConditionN: number;
+  /** Couloir — faisceaux du bord exemptés de la condition (tolérance d'enclenchement). */
+  couloirToleranceBordN: number;
+  /** Couloir — malus (fraction du cumul brut S) par faisceau, positions 1..couloirFenetreConditionN de la chaîne. */
+  couloirMalusPct1: number;
+  /** Couloir — malus (fraction du cumul brut S) par faisceau, positions au-delà de couloirFenetreConditionN. */
+  couloirMalusPct2: number;
   /** Libellés F3 remarquables — calés sur `bdtopo_batiment.nature` (casse/accents EXACTS). */
   naturesRemarquables: readonly string[];
 }
@@ -44,8 +48,10 @@ export const PROFIL_DEGAGEMENT_DEFAUT: ProfilDegagement = {
   plafondCouche1: 90,
   modeCombinaison: 'max',
   couloirSeuilLateralM: 3,
-  couloirLongueurMinM: 3,
-  couloirFacteur: 0.5,
+  couloirFenetreConditionN: 16,
+  couloirToleranceBordN: 2,
+  couloirMalusPct1: 0.01,
+  couloirMalusPct2: 0.005,
   // Libellés EXACTS de bdtopo_batiment.nature (vérifiés en base).
   naturesRemarquables: ['Eglise', 'Monument', 'Chapelle', 'Château', 'Tour, donjon', 'Arc de triomphe'],
 };

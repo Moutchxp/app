@@ -68,16 +68,17 @@ export function distancePercueFaisceau(f: FaisceauResultat, profil: ProfilDegage
 
 // ============================ Couloir (mur longeant l'axe) ============================
 // Un bâtiment qui « longe » l'axe du regard à moins de `couloirSeuilLateralM` (distance ⊥ à
-// l'axe) pénalise la NOTE (jamais le verdict) : la distance perçue des faisceaux de la chaîne
-// est multipliée par `couloirFacteur`. Détecté par côté, cumulable. Réglages EXCLUSIVEMENT via profil.
+// l'axe) pénalise la NOTE (jamais le verdict). Détection 100 % LATÉRALE (distanceObstacleM ×
+// sin|offset|) sur la distance BRUTE, par côté (droite/gauche) indépendants et cumulables. Le
+// malus est PROPORTIONNEL au cumul brut S et au nombre de faisceaux de la chaîne. Réglages via profil.
 
 /** Côté d'analyse du couloir, relatif à l'axe de visée. */
 export type CoteCouloir = 'gauche' | 'droite';
 
 export interface ChaineCouloir {
   validee: boolean;
-  faisceaux: FaisceauResultat[];
-  longueurMur: number;
+  /** Indices (dans le tableau `faisceaux`) des faisceaux de la chaîne. `length` = n. */
+  indices: number[];
   cote: CoteCouloir;
 }
 
@@ -90,86 +91,90 @@ function lateralCouloir(f: FaisceauResultat): number {
     : f.distanceObstacleM * Math.sin(degVersRad(Math.abs(f.offsetDeg)));
 }
 
-/**
- * Chaîne contiguë de faisceaux « collés » à l'axe, depuis le bord (|offset| = 90°) vers l'axe.
- * S'arrête au 1er faisceau dont le latéral dépasse le seuil (ou sans obstacle → Infinity) ; pas de reprise.
- * Lit `distanceObstacleM` (distance RÉELLE du 1er obstacle) — jamais la distance perçue.
- */
-function detecterChaineCouloir(
-  faisceaux: FaisceauResultat[],
-  profil: ProfilDegagement,
-  cote: CoteCouloir,
-): FaisceauResultat[] {
-  const flanc = faisceaux.filter((f) => (cote === 'droite' ? f.offsetDeg > 0 : f.offsetDeg < 0));
-  const tri = [...flanc].sort((a, b) => Math.abs(b.offsetDeg) - Math.abs(a.offsetDeg)); // |offset| DÉCROISSANT
-  const chaine: FaisceauResultat[] = [];
-  for (const f of tri) {
-    if (lateralCouloir(f) > profil.couloirSeuilLateralM) break; // > seuil OU sans obstacle → STOP
-    chaine.push(f);
-  }
-  return chaine;
-}
-
-/** Longueur du mur projetée sur l'axe (m) : dernier.distanceObstacleM × cos(|offset|). Chaîne vide → 0. */
-function longueurMurChaine(chaine: FaisceauResultat[]): number {
-  if (chaine.length === 0) return 0;
-  const dernier = chaine[chaine.length - 1];
-  // `dernier` a passé le filtre latéral → distanceObstacleM non null.
-  return (dernier.distanceObstacleM as number) * Math.cos(degVersRad(Math.abs(dernier.offsetDeg)));
+/** Un faisceau « colle » l'axe : obstacle présent (non dégagé) ET latéral strictement sous le seuil. */
+function colleAxe(f: FaisceauResultat, profil: ProfilDegagement): boolean {
+  return f.distanceObstacleM != null && lateralCouloir(f) < profil.couloirSeuilLateralM;
 }
 
 /**
- * Détecte un « couloir » (bâtiment longeant l'axe) sur un côté. Chaîne contiguë depuis le bord,
- * validée si le mur projeté sur l'axe atteint `couloirLongueurMinM`. Réglages EXCLUSIVEMENT via profil.
+ * Détecte la chaîne « couloir » d'un côté, ordonné du BORD (|offset|=90°) vers l'AXE (|offset|=3°).
+ * - Positions 1..couloirToleranceBordN : tolérées (n'empêchent pas l'enclenchement).
+ * - Enclenchement : positions (tolérance+1)..couloirFenetreConditionN doivent TOUTES coller l'axe.
+ *   Une seule qui échoue → validee=false, indices=[].
+ * - Enclenché → indices = positions 1..couloirFenetreConditionN (tolérance incluse), prolongées aux
+ *   positions suivantes tant que ça colle (rupture au 1er ≥ seuil ou dégagé). validee=true.
+ * Lit `distanceObstacleM` (distance RÉELLE). Le faisceau d'axe (offset 0°) n'appartient à aucun côté.
  */
-export function chaineCouloir(
+export function detecterChaineCouloir(
   faisceaux: FaisceauResultat[],
   profil: ProfilDegagement,
   cote: CoteCouloir,
 ): ChaineCouloir {
-  const chaine = detecterChaineCouloir(faisceaux, profil, cote);
-  if (chaine.length === 0) return { validee: false, faisceaux: [], longueurMur: 0, cote };
-  const longueurMur = longueurMurChaine(chaine);
-  const validee = longueurMur >= profil.couloirLongueurMinM;
-  return { validee, faisceaux: validee ? chaine : [], longueurMur, cote };
+  // Flanc trié du bord (|offset| max) vers l'axe (|offset| min), index d'origine conservé.
+  const flanc = faisceaux
+    .map((f, i) => ({ f, i }))
+    .filter(({ f }) => (cote === 'droite' ? f.offsetDeg > 0 : f.offsetDeg < 0))
+    .sort((a, b) => Math.abs(b.f.offsetDeg) - Math.abs(a.f.offsetDeg));
+
+  const N = profil.couloirFenetreConditionN;
+  const tol = profil.couloirToleranceBordN;
+  if (flanc.length < N) return { validee: false, indices: [], cote };
+
+  // Enclenchement : positions (tol+1)..N (1-based) collent toutes l'axe.
+  for (let p = tol + 1; p <= N; p++) {
+    if (!colleAxe(flanc[p - 1].f, profil)) return { validee: false, indices: [], cote };
+  }
+
+  // Chaîne = positions 1..N (tolérance incluse), puis prolongée tant que ça colle.
+  const indices: number[] = [];
+  for (let p = 1; p <= N; p++) indices.push(flanc[p - 1].i);
+  for (let p = N + 1; p <= flanc.length; p++) {
+    if (!colleAxe(flanc[p - 1].f, profil)) break;
+    indices.push(flanc[p - 1].i);
+  }
+  return { validee: true, indices, cote };
 }
 
-/** Diagnostic couloir des DEUX côtés (lecture seule) : chaîne détectée, latéraux, longueur mur, validation. */
+/** Malus (mètres) d'une chaîne de `n` faisceaux, proportionnel au cumul brut `S` (paliers 1..N puis N+). */
+function malusCouloirM(n: number, S: number, profil: ProfilDegagement): number {
+  const N = profil.couloirFenetreConditionN;
+  return (Math.min(n, N) * profil.couloirMalusPct1 + Math.max(n - N, 0) * profil.couloirMalusPct2) * S;
+}
+
+/** Cumul BRUT des faisceaux : Σ (distanceObstacleM ?? distanceMaxM). Sans boost F2/F3/F4, = cumul perçu. */
+function cumulBrut(faisceaux: FaisceauResultat[], profil: ProfilDegagement): number {
+  return faisceaux.reduce((acc, f) => acc + (f.distanceObstacleM ?? profil.distanceMaxM), 0);
+}
+
+/** Diagnostic couloir des DEUX côtés (lecture seule) : validée, n (faisceaux de la chaîne), malus en m et en points. */
 export function diagnostiquerCouloir(faisceaux: FaisceauResultat[], profil: ProfilDegagement) {
+  const S = cumulBrut(faisceaux, profil);
+  const denom = (faisceaux.length || 1) * profil.distanceMaxM;
   return (['gauche', 'droite'] as const).map((cote) => {
-    const chaine = detecterChaineCouloir(faisceaux, profil, cote);
-    const longueurMur = longueurMurChaine(chaine);
-    const validee = longueurMur >= profil.couloirLongueurMinM;
-    return {
-      cote,
-      offsetsChaine: chaine.map((f) => f.offsetDeg),
-      lateraux: chaine.map(lateralCouloir),
-      longueurMur,
-      validee,
-      nbFaisceauxMalusses: validee ? chaine.length : 0,
-    };
+    const ch = detecterChaineCouloir(faisceaux, profil, cote);
+    const n = ch.indices.length;
+    const malusM = ch.validee ? malusCouloirM(n, S, profil) : 0;
+    const malusPts = (malusM / denom) * profil.plafondCouche1;
+    return { cote, validee: ch.validee, n, malusM, malusPts };
   });
 }
 
 /**
- * Note de dégagement /plafondCouche1 : moyenne des distances perçues normalisée par la portée.
- * Les faisceaux d'une chaîne « couloir » VALIDÉE (gauche et/ou droite) voient leur distance
- * perçue multipliée par `couloirFacteur` DANS la moyenne. Liste vide → 0. Résultat clampé [0, plafondCouche1].
+ * Note de dégagement /plafondCouche1 : cumul des distances perçues, minoré du malus couloir
+ * (chaînes validées droite/gauche cumulables, proportionnel au cumul brut S), normalisé par la
+ * portée × le nombre de faisceaux. Puis orientation (ORIENTATION_PTS), puis clamp [0, plafondCouche1].
  */
 export function noteDegagement(faisceaux: FaisceauResultat[], profil: ProfilDegagement, azimutDeg?: number): number {
   if (faisceaux.length === 0) return 0;
-  // Malus couloir : faisceaux d'une chaîne VALIDÉE (les deux côtés cumulables) à pénaliser.
-  const aMalusser = new Set<FaisceauResultat>();
-  for (const cote of ['gauche', 'droite'] as const) {
-    const ch = chaineCouloir(faisceaux, profil, cote);
-    if (ch.validee) for (const f of ch.faisceaux) aMalusser.add(f);
+  const cumulPercu = faisceaux.reduce((acc, f) => acc + distancePercueFaisceau(f, profil), 0);
+  const S = cumulBrut(faisceaux, profil);
+  let malusTotal = 0;
+  for (const cote of ['droite', 'gauche'] as const) {
+    const ch = detecterChaineCouloir(faisceaux, profil, cote);
+    if (ch.validee) malusTotal += malusCouloirM(ch.indices.length, S, profil);
   }
-  const moyenne =
-    faisceaux.reduce((acc, f) => {
-      const percue = distancePercueFaisceau(f, profil);
-      return acc + (aMalusser.has(f) ? percue * profil.couloirFacteur : percue);
-    }, 0) / faisceaux.length;
-  const note = (moyenne / profil.distanceMaxM) * profil.plafondCouche1;
+  const cumulNet = Math.max(0, cumulPercu - malusTotal);
+  const note = (cumulNet / faisceaux.length / profil.distanceMaxM) * profil.plafondCouche1;
   let noteAvecOrientation = note;
   if (typeof azimutDeg === "number") {
     const secteur = azimutVersSecteur(azimutDeg);          // même découpage que la boussole UI
