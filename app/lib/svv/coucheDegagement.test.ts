@@ -82,7 +82,7 @@ describe('noteDegagement — malus couloir (latéral, cumul proportionnel)', () 
     return fs;
   }
 
-  it('n°3..16 collent tous (droite distObst=2, latéral<3) → validée, n=30, malus = 0.23·S', () => {
+  it('n°3..16 collent tous (droite distObst=2, latéral<3) → validée, n=30, malus = n·0.01·S', () => {
     const fs = champ61((off) => (off > 0 ? 2 : null)); // droite bouchée près, gauche+axe dégagés
     const droite = detecterChaineCouloir(fs, P, 'droite');
     expect(droite.validee).toBe(true);
@@ -91,10 +91,10 @@ describe('noteDegagement — malus couloir (latéral, cumul proportionnel)', () 
     expect(dGauche.validee).toBe(false);
     expect(dDroite.validee).toBe(true);
     expect(dDroite.n).toBe(30);
-    // S = 30×2 (droite) + 31×200 (gauche+axe dégagés) = 6260 ; malus = (16×0.01 + 14×0.005)×S
-    expect(dDroite.malusM).toBeCloseTo((16 * 0.01 + 14 * 0.005) * 6260, 6);
-    // note = ((S − malus)/61/200)×90 = (4820.2/12200)×90
-    expect(noteDegagement(fs, P)).toBeCloseTo(35.558852, 5);
+    // S = 30×2 (droite) + 31×200 (gauche+axe dégagés) = 6260 ; malus LINÉAIRE = 30×0.01×S = 1878
+    expect(dDroite.malusM).toBeCloseTo(30 * 0.01 * 6260, 6);
+    // note = ((S − malus)/61/200)×90 = (4382/12200)×90
+    expect(noteDegagement(fs, P)).toBeCloseTo(32.326230, 5);
   });
 
   it('n°1 latéral > 3 (toléré) mais n°3..16 collent → validée, n°1 compté (n=30)', () => {

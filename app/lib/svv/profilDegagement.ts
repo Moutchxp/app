@@ -30,10 +30,8 @@ export interface ProfilDegagement {
   couloirFenetreConditionN: number;
   /** Couloir — faisceaux du bord exemptés de la condition (tolérance d'enclenchement). */
   couloirToleranceBordN: number;
-  /** Couloir — malus (fraction du cumul brut S) par faisceau, positions 1..couloirFenetreConditionN de la chaîne. */
-  couloirMalusPct1: number;
-  /** Couloir — malus (fraction du cumul brut S) par faisceau, positions au-delà de couloirFenetreConditionN. */
-  couloirMalusPct2: number;
+  /** Couloir — malus (fraction du cumul brut S) par faisceau de la chaîne (linéaire, sans plafond). */
+  couloirMalusPct: number;
   /** Libellés F3 remarquables — calés sur `bdtopo_batiment.nature` (casse/accents EXACTS). */
   naturesRemarquables: readonly string[];
 }
@@ -50,8 +48,7 @@ export const PROFIL_DEGAGEMENT_DEFAUT: ProfilDegagement = {
   couloirSeuilLateralM: 3,
   couloirFenetreConditionN: 16,
   couloirToleranceBordN: 2,
-  couloirMalusPct1: 0.01,
-  couloirMalusPct2: 0.005,
+  couloirMalusPct: 0.01,
   // Libellés EXACTS de bdtopo_batiment.nature (vérifiés en base).
   naturesRemarquables: ['Eglise', 'Monument', 'Chapelle', 'Château', 'Tour, donjon', 'Arc de triomphe'],
 };

@@ -135,10 +135,9 @@ export function detecterChaineCouloir(
   return { validee: true, indices, cote };
 }
 
-/** Malus (mètres) d'une chaîne de `n` faisceaux, proportionnel au cumul brut `S` (paliers 1..N puis N+). */
+/** Malus (mètres) d'une chaîne de `n` faisceaux : `couloirMalusPct` du cumul brut `S` par faisceau (linéaire, sans plafond). */
 function malusCouloirM(n: number, S: number, profil: ProfilDegagement): number {
-  const N = profil.couloirFenetreConditionN;
-  return (Math.min(n, N) * profil.couloirMalusPct1 + Math.max(n - N, 0) * profil.couloirMalusPct2) * S;
+  return n * profil.couloirMalusPct * S;
 }
 
 /** Cumul BRUT des faisceaux : Σ (distanceObstacleM ?? distanceMaxM). Sans boost F2/F3/F4, = cumul perçu. */
