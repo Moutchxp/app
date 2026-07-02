@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, type CSSProperties } from "react";
 import MapSelector from "./MapSelector";
 import { AdresseAutocomplete } from "./components/AdresseAutocomplete";
 import dynamic from "next/dynamic";
@@ -146,22 +146,29 @@ const PICTOS_ETAPES = [
   </svg>,
 ];
 
-// Keyframes d'animation (injectées une fois) — bumper du picto + pop de la coche.
+// Keyframes + classes d'entrée (injectées une fois). Stagger par --i (130ms × i). popBig = pop
+// élastique du picto ; svvFadeIn = fade du label ; svvCheckPop = pop de la coche (léger overshoot).
+// prefers-reduced-motion : aucune animation (état final instantané).
 const ETAPES_KEYFRAMES =
-  "@keyframes svvBumper{0%{opacity:0;transform:scale(.3)}48%{opacity:1;transform:scale(1.3)}70%{transform:scale(.88)}86%{transform:scale(1.07)}100%{transform:scale(1)}}" +
-  "@keyframes svvPop{0%{opacity:0;transform:scale(0)}60%{opacity:1;transform:scale(1.18)}100%{transform:scale(1)}}";
+  "@keyframes popBig{0%{transform:scale(0)}55%{transform:scale(1.35)}72%{transform:scale(.86)}85%{transform:scale(1.08)}100%{transform:scale(1)}}" +
+  "@keyframes svvFadeIn{from{opacity:0}to{opacity:1}}" +
+  "@keyframes svvCheckPop{from{transform:scale(0)}to{transform:scale(1)}}" +
+  ".etape-picto{animation:popBig 600ms both;animation-delay:calc(var(--i)*130ms);transform-origin:center}" +
+  ".etape-label{animation:svvFadeIn 250ms both;animation-delay:calc(var(--i)*130ms)}" +
+  ".etape-check{animation:svvCheckPop 200ms cubic-bezier(0.34,1.56,0.64,1) both;animation-delay:calc(var(--i)*130ms + 420ms)}" +
+  "@media(prefers-reduced-motion:reduce){.etape-picto,.etape-label,.etape-check{animation:none}}";
 
 const PASTILLE = 62; // diamètre de la pastille
 
 /**
  * Écran d'intro « Les 4 étapes » (#2 du wizard) — PRÉSENTATION pure (minuteur).
- * Stepper vertical animé : frappe machine à écrire → pastille rouge + picto (bumper)
- * → coche verte (pop) → connecteur pointillé vert MESURÉ (getBoundingClientRect) qui se
- * dessine (scaleY) quand le picto du bas est validé → skyline soft → bouton (+200 ms).
- * Aucun calcul déclenché ; « C'est parti » garde son action via onContinuer.
+ * Stepper vertical : chaque étape ENTRE en « pop élastique » (picto popBig 600ms) + fade du label,
+ * staggerées de 130ms × i via la variable CSS --i (aucune cascade de setTimeout) ; coche verte
+ * (pop léger overshoot) 420ms après son picto ; connecteur pointillé vert MESURÉ
+ * (getBoundingClientRect) qui se dessine (scaleY). prefers-reduced-motion → tout instantané (CSS).
+ * Aucun calcul déclenché ; « Commencer » garde son action via onContinuer.
  */
 function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
-  const [counts, setCounts] = useState<number[]>([0, 0, 0, 0]);
   const [validated, setValidated] = useState<boolean[]>([false, false, false, false]);
   const [checks, setChecks] = useState<boolean[]>([false, false, false, false]);
   const [drawn, setDrawn] = useState<boolean[]>([false, false, false]); // segments 0->1,1->2,2->3
@@ -199,95 +206,23 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
       typeof window !== "undefined" && window.matchMedia
         ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
         : false;
+    // Les 4 étapes sont montées ensemble ; l'ENTRÉE (pop du picto, fade du label, pop de la coche)
+    // est gérée par les animations CSS (classes etape-*), staggerées par --i et coupées nativement
+    // sous prefers-reduced-motion.
+    setValidated([true, true, true, true]);
+    setChecks([true, true, true, true]);
     if (reduce) {
-      // Mouvement réduit : tout affiché instantanément, sans la pause de 1,5 s.
       setInstant(true);
-      setCounts(ETAPES_INTRO.map((l) => l.length));
-      setValidated([true, true, true, true]);
-      setChecks([true, true, true, true]);
       setDrawn([true, true, true]);
       setShowBtn(true);
       return;
     }
-
-    let cancelled = false;
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    let interval: ReturnType<typeof setInterval> | null = null;
-    const after = (ms: number, fn: () => void) => {
-      timers.push(
-        setTimeout(() => {
-          if (!cancelled) fn();
-        }, ms),
-      );
-    };
-
-    const PICTO_LEAD = 200; // ms : délai entre l'apparition du picto et le début de la frappe du texte
-
-    const valider = (i: number) => {
-      if (cancelled) return;
-      // b) le picto (pastille rouge + bumper) est désormais révélé par startLine() AVANT la frappe.
-      // d) connecteur précédent -> courant (segment i-1 -> i) se dessine
-      if (i >= 1) {
-        setDrawn((prev) => {
-          const n = [...prev];
-          n[i - 1] = true;
-          return n;
-        });
-      }
-      // c) coche verte (léger délai, petit pop)
-      after(200, () =>
-        setChecks((prev) => {
-          const n = [...prev];
-          n[i] = true;
-          return n;
-        }),
-      );
-      // e) étape suivante 865 ms après la validation
-      if (i < ETAPES_INTRO.length - 1) {
-        after(865, () => startLine(i + 1));
-      } else {
-        // 4e étape validée → bouton retardé (620 + 200 + 200 ms) pour rester smooth.
-        after(1020, () => setShowBtn(true));
-      }
-    };
-
-    // Démarre une ligne : PICTO d'abord (svvBumper), puis la frappe du TEXTE après PICTO_LEAD.
-    const startLine = (i: number) => {
-      if (cancelled) return;
-      setValidated((prev) => {
-        const n = [...prev];
-        n[i] = true;
-        return n;
-      });
-      after(PICTO_LEAD, () => typeLine(i));
-    };
-
-    const typeLine = (i: number) => {
-      if (cancelled) return;
-      let c = 0;
-      interval = setInterval(() => {
-        if (cancelled) return;
-        c += 1;
-        setCounts((prev) => {
-          const n = [...prev];
-          n[i] = c;
-          return n;
-        });
-        if (c >= ETAPES_INTRO[i].length) {
-          if (interval) clearInterval(interval);
-          interval = null;
-          valider(i);
-        }
-      }, 44);
-    };
-
-    // a) pause initiale 200 ms (titre + pastilles au repos) avant la 1re ligne.
-    after(200, () => startLine(0));
-
+    // Connecteurs après le début des pops (gardent leur dessin scaleY mesuré) ; bouton après la cascade.
+    const tDraw = setTimeout(() => setDrawn([true, true, true]), 500);
+    const tBtn = setTimeout(() => setShowBtn(true), 1100);
     return () => {
-      cancelled = true;
-      timers.forEach((t) => clearTimeout(t));
-      if (interval) clearInterval(interval);
+      clearTimeout(tDraw);
+      clearTimeout(tBtn);
     };
   }, []);
 
@@ -331,7 +266,6 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
           ))}
 
         {ETAPES_INTRO.map((line, i) => {
-          const typing = counts[i] > 0 && counts[i] < line.length;
           return (
             <div key={line} className="relative flex items-center gap-4">
               {/* Pastille (au-dessus des segments pour masquer leurs extrémités) */}
@@ -349,10 +283,7 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
                 }}
               >
                 {validated[i] && (
-                  <span
-                    className="inline-flex"
-                    style={instant ? undefined : { animation: "svvBumper 0.62s ease-in-out both" }}
-                  >
+                  <span className="etape-picto inline-flex" style={{ "--i": i } as CSSProperties}>
                     {PICTOS_ETAPES[i]}
                   </span>
                 )}
@@ -360,15 +291,15 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
                 {/* Coche verte bas-droite : rond blanc + check vert */}
                 {checks[i] && (
                   <span
-                    className="absolute flex items-center justify-center rounded-full bg-white"
+                    className="etape-check absolute flex items-center justify-center rounded-full bg-white"
                     style={{
                       height: "25px",
                       width: "25px",
                       right: "-5px",
                       bottom: "-5px",
                       boxShadow: "0 1px 4px rgba(0,0,0,.18)",
-                      animation: instant ? undefined : "svvPop 0.32s ease-out both",
-                    }}
+                      "--i": i,
+                    } as CSSProperties}
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--color-svv-green)" strokeWidth={3.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M5 12.5 L10 17.5 L19 7" />
@@ -379,17 +310,10 @@ function EcranEtapes({ onContinuer }: { onContinuer: () => void }) {
 
               {/* Légende (centrée sur l'axe du picto, même sur 2 lignes) */}
               <span
-                style={{ fontSize: "23px", fontWeight: 500, lineHeight: 1.28, color: "var(--color-svv-ink)" }}
+                className="etape-label"
+                style={{ fontSize: "23px", fontWeight: 500, lineHeight: 1.28, color: "var(--color-svv-ink)", "--i": i } as CSSProperties}
               >
-                {line.slice(0, counts[i])}
-                {typing && (
-                  <span
-                    className="ml-0.5 inline-block animate-pulse"
-                    style={{ color: "var(--color-svv-muted)" }}
-                  >
-                    |
-                  </span>
-                )}
+                {line}
               </span>
             </div>
           );
