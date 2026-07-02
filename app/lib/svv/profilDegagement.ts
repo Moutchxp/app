@@ -10,7 +10,7 @@ export type ModeCombinaison = 'max' | 'addition' | 'sequentiel';
 export interface ProfilDegagement {
   /** F2 — bâti construit avant 1900 : boost de la distance perçue (impact × (1 + boostF2)). */
   boostF2: number;
-  /** F4 — longueur de nature traversée : boost de la distance perçue (longueur × (1 + boostF4)). */
+  /** F4 — longueur de nature traversée : boost additif de la distance perçue (min(base + boostF4 × longueur, distanceMaxM)). */
   boostF4: number;
   /** F3 — monument remarquable DANS le cône central : distance perçue forfaitaire. */
   forfaitConeCentral: number;
@@ -30,7 +30,7 @@ export interface ProfilDegagement {
 
 export const PROFIL_DEGAGEMENT_DEFAUT: ProfilDegagement = {
   boostF2: 0.3,
-  boostF4: 2.0,
+  boostF4: 2.5,
   forfaitConeCentral: 300,
   forfaitExtremites: 200,
   coneF3DemiAngleDeg: 60,
