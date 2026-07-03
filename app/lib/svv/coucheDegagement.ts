@@ -309,11 +309,14 @@ export function cartoucheVueNature(
   return dominante.generique;
 }
 
-/** Bâti visible du cône : nb de faisceaux touchant du bâti + liste dédoublonnée par cleabs. Extraite en base. */
+/**
+ * Bâti visible du cône, PAR FAISCEAU : pour chaque faisceau, le 1er bâtiment que le RAYON NU traverse
+ * (jusqu'à 200 m) — `touche=false` si aucun. `annee` = année de CE 1er bâtiment (null si absente en BDNB).
+ * Extraite en base.
+ */
 export interface ExtractionImmobilier {
   nCone: number;
-  nFaisceauxTouchantBati: number;
-  batimentsDistincts: ReadonlyArray<{ cleabs: string; annee: number | null }>;
+  faisceaux: ReadonlyArray<{ annee: number | null; touche: boolean }>;
 }
 
 const NON_DATE = 'non daté';
@@ -328,24 +331,22 @@ function trancheDe(annee: number): string | null {
 
 /**
  * Cartouche « environnement immobilier de proximité » — DESCRIPTIVE, SCORE-ONLY.
- * Déclenchée si ≥ SEUIL_TRIGGER_IMMO des faisceaux du cône touchent ≥ 1 bâtiment. Majorité calculée sur
- * TOUS les bâtiments distincts (datés + non datés, non-datés au dénominateur) : si une tranche ≥
- * SEUIL_MAJORITE_IMMO × total → son libellé (mais « non daté » majoritaire → null). Sinon → null.
+ * Comptage PAR FAISCEAU (chaque faisceau = son 1er bâtiment traversé). Déclenchée si ≥ SEUIL_TRIGGER_IMMO
+ * des faisceaux du cône touchent du bâti. Majorité sur le dénominateur = faisceaux TOUCHANT DU BÂTI (pas nCone) :
+ * si une tranche ≥ SEUIL_MAJORITE_IMMO × nBati → son libellé (mais « non daté » majoritaire → null). Sinon null.
  */
 export function cartoucheImmobilier(
   nCone: number,
-  nFaisceauxTouchantBati: number,
-  batimentsDistincts: ReadonlyArray<{ cleabs: string; annee: number | null }>,
+  faisceaux: ReadonlyArray<{ annee: number | null; touche: boolean }>,
 ): string | null {
-  const denom = nCone || 1;
-  if (nFaisceauxTouchantBati / denom < SEUIL_TRIGGER_IMMO) return null;
-
-  const total = batimentsDistincts.length;
-  if (total === 0) return null;
+  const touchants = faisceaux.filter((f) => f.touche);
+  const nBati = touchants.length;
+  if (nBati / (nCone || 1) < SEUIL_TRIGGER_IMMO) return null;
+  if (nBati === 0) return null;
 
   const compte = new Map<string, number>();
-  for (const b of batimentsDistincts) {
-    const libelle = b.annee == null ? NON_DATE : trancheDe(b.annee) ?? NON_DATE;
+  for (const f of touchants) {
+    const libelle = f.annee == null ? NON_DATE : trancheDe(f.annee) ?? NON_DATE;
     compte.set(libelle, (compte.get(libelle) ?? 0) + 1);
   }
 
@@ -354,7 +355,7 @@ export function cartoucheImmobilier(
   for (const [libelle, n] of compte) {
     if (best === null || n > best.n) best = { libelle, n };
   }
-  if (best !== null && best.n / total >= SEUIL_MAJORITE_IMMO) {
+  if (best !== null && best.n / nBati >= SEUIL_MAJORITE_IMMO) {
     return best.libelle === NON_DATE ? null : best.libelle;
   }
   return null;

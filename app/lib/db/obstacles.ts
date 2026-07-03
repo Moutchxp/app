@@ -749,45 +749,40 @@ export async function resoudreVueNature(
 
 /**
  * Cartouche « environnement immobilier de proximité » (DESCRIPTIVE, SCORE-ONLY) — extraction PARALLÈLE
- * et ADDITIVE (n'altère NI obstaclesSurAxe NI natureTraverseeM NI le score). Même montage rayon/seg/borne
- * visible que resoudreVueNature. Par faisceau du cône, intersecte le SEGMENT VISIBLE avec bdtopo_batiment
- * (LEFT JOIN bdnb_annee_batiment par cleabs, déjà utilisé pour F2). Retourne le nb de faisceaux touchant du
- * bâti + la liste DÉDOUBLONNÉE par cleabs de { cleabs, annee_construction | null }. N'affecte NI verdict NI score.
+ * et ADDITIVE (n'altère NI obstaclesSurAxe NI natureTraverseeM NI le score). PAR FAISCEAU du cône, lance le
+ * RAYON NU jusqu'à ANALYSIS_RANGE_M (200 m) et retient le 1er bâtiment que la LIGNE traverse, ordonné par
+ * distance d'ENTRÉE le long du rayon (= ST_Distance(origine, intersection)). Récupère son cleabs +
+ * annee_construction (LEFT JOIN bdnb_annee_batiment). `touche=false` si aucun bâtiment sur 200 m.
+ * N.B. : on N'utilise PAS distanceObstacleM (couloir 2 m / bord le plus proche, qui tronquait le seg en
+ * espace ouvert AVANT le bâti — bug 6/41). La borne est calculée DANS la requête. N'affecte NI verdict NI score.
  */
 export async function resoudreEpoqueImmobilier(
   point: PointWgs84,
   azimuts: number[],
-  bornesM: number[],
 ): Promise<ExtractionImmobilier> {
   const nCone = azimuts.length;
-  if (nCone === 0) return { nCone: 0, nFaisceauxTouchantBati: 0, batimentsDistincts: [] };
+  const faisceaux: { annee: number | null; touche: boolean }[] = azimuts.map(() => ({ annee: null, touche: false }));
+  if (nCone === 0) return { nCone: 0, faisceaux };
   const res = await query<{ ord: number; cleabs: string; annee: number | string | null }>(
     `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
-     faisc AS (SELECT az, borne, ord FROM unnest($3::float8[], $4::float8[]) WITH ORDINALITY AS t(az, borne, ord)),
-     seg AS (
-       SELECT f.ord,
-              ST_LineSubstring(
-                ST_MakeLine(o.g, ST_Translate(o.g, $5*sin(radians(f.az)), $5*cos(radians(f.az)))),
-                0, LEAST(f.borne, $5) / $5::float8
-              ) AS s
+     faisc AS (SELECT az, ord FROM unnest($3::float8[]) WITH ORDINALITY AS t(az, ord)),
+     ray AS (   -- rayon NU origine → 200 m par faisceau du cône
+       SELECT f.ord, ST_MakeLine(o.g, ST_Translate(o.g, $4*sin(radians(f.az)), $4*cos(radians(f.az)))) AS ln
        FROM faisc f, o
+     ),
+     inter AS (   -- (faisceau, bâtiment traversé par la LIGNE) + distance d'ENTRÉE le long du rayon
+       SELECT r.ord, b.cleabs, ba.annee_construction AS annee,
+              ST_Distance(ST_StartPoint(r.ln), ST_Intersection(r.ln, ST_Force2D(b.geom))) AS d_entree
+       FROM ray r
+       JOIN bdtopo_batiment b ON ST_Intersects(b.geom, r.ln)      -- b.geom NON wrappé → index GiST batiment_geom_geom_idx
+       LEFT JOIN bdnb_annee_batiment ba ON ba.cleabs = b.cleabs
      )
-     SELECT DISTINCT seg.ord::int AS ord, b.cleabs, ba.annee_construction AS annee
-     FROM seg
-     JOIN bdtopo_batiment b ON ST_Intersects(b.geom, seg.s)   -- b.geom NON wrappé → index GiST batiment_geom_geom_idx (ST_Intersects ignore Z)
-     LEFT JOIN bdnb_annee_batiment ba ON ba.cleabs = b.cleabs
-     WHERE NOT ST_IsEmpty(seg.s);`,
-    [point.lon, point.lat, azimuts, bornesM, ANALYSIS_RANGE_M],
+     SELECT DISTINCT ON (ord) ord::int AS ord, cleabs, annee     -- 1er bâtiment (min distance d'entrée) par faisceau
+     FROM inter ORDER BY ord, d_entree ASC;`,
+    [point.lon, point.lat, azimuts, ANALYSIS_RANGE_M],
   );
-  const ordsTouch = new Set<number>();
-  const batimentsMap = new Map<string, number | null>();
   for (const r of res.rows) {
-    ordsTouch.add(r.ord);
-    if (!batimentsMap.has(r.cleabs)) batimentsMap.set(r.cleabs, r.annee == null ? null : Number(r.annee));
+    faisceaux[r.ord - 1] = { annee: r.annee == null ? null : Number(r.annee), touche: true };
   }
-  return {
-    nCone,
-    nFaisceauxTouchantBati: ordsTouch.size,
-    batimentsDistincts: [...batimentsMap.entries()].map(([cleabs, annee]) => ({ cleabs, annee })),
-  };
+  return { nCone, faisceaux };
 }

@@ -102,9 +102,7 @@ export function analyser(entree: EntreeComplete): ResultatComplet {
 
   // 8) Cartouche « environnement immobilier » — DESCRIPTIVE, score-only ; null si extraction absente ou non déclenchée.
   const ei = entree.extractionImmobilier;
-  const contexteImmobilier = ei
-    ? cartoucheImmobilier(ei.nCone, ei.nFaisceauxTouchantBati, ei.batimentsDistincts)
-    : null;
+  const contexteImmobilier = ei ? cartoucheImmobilier(ei.nCone, ei.faisceaux) : null;
 
   return { verdict, score, distanceAxePrincipalM, contexteDegagement, contexteVueNature, contexteImmobilier };
 }

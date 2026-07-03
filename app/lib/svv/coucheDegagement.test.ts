@@ -228,28 +228,36 @@ describe('cartoucheVueNature — badge nature (descriptif, score-only)', () => {
   });
 });
 
-describe('cartoucheImmobilier — badge époque du bâti (descriptif, score-only)', () => {
-  type Bat = { cleabs: string; annee: number | null };
-  const bats = (...annees: (number | null)[]): Bat[] =>
-    annees.map((annee, i) => ({ cleabs: `b${i}`, annee }));
-  const N = 41; // cône ±60° (dénominateur trigger)
+describe('cartoucheImmobilier — badge époque du bâti PAR FAISCEAU (descriptif, score-only)', () => {
+  const N = 41; // cône ±60°
+  // Construit nCone faisceaux : les `touchants` (année | null) touchent du bâti, le reste ne touche pas.
+  const champ = (nCone: number, touchants: (number | null)[]): { annee: number | null; touche: boolean }[] =>
+    Array.from({ length: nCone }, (_, i) =>
+      i < touchants.length ? { annee: touchants[i], touche: true } : { annee: null, touche: false },
+    );
 
-  it('trigger OK + tranche "De 1850 à 1913" à 60% → "De 1850 à 1913"', () => {
-    expect(cartoucheImmobilier(N, N, bats(1900, 1880, 1910, 1975, 2005))).toBe('De 1850 à 1913');
+  it('trigger OK + tranche "De 1850 à 1913" à 60% des touchants → "De 1850 à 1913"', () => {
+    // 33 touchants (33/41 ≥ 0.70) ; 20 en 1850-1913 (20/33 = 0.606 ≥ 0.50)
+    const t = [...Array(20).fill(1900), ...Array(7).fill(1975), ...Array(6).fill(null)];
+    expect(cartoucheImmobilier(N, champ(N, t))).toBe('De 1850 à 1913');
   });
-  it('trigger OK + non-datés à 60% → null (règle 3)', () => {
-    expect(cartoucheImmobilier(N, N, bats(null, null, null, 1975, 2005))).toBeNull();
+  it('trigger OK + non-datés ≥ 50% des touchants → null', () => {
+    const t = [...Array(18).fill(null), ...Array(8).fill(1900), ...Array(7).fill(1975)]; // 33 touchants, non daté 18/33 = 0.545
+    expect(cartoucheImmobilier(N, champ(N, t))).toBeNull();
   });
   it('trigger OK + aucune tranche ≥ 50% (éparpillé) → null', () => {
-    expect(cartoucheImmobilier(N, N, bats(1800, 1900, 1960, 1985, 2015))).toBeNull();
+    const t = [...Array(11).fill(1900), ...Array(11).fill(1975), ...Array(11).fill(2005)]; // 33 touchants, max 11/33 = 0.333
+    expect(cartoucheImmobilier(N, champ(N, t))).toBeNull();
   });
-  it('tranche pile à 50% → affichée (frontière incluse, ≥)', () => {
-    expect(cartoucheImmobilier(N, N, bats(1900, 1880, 1975, null))).toBe('De 1850 à 1913');
+  it('tranche pile à 50% des touchants → affichée (frontière incluse, ≥)', () => {
+    // 4 touchants sur nCone=5 (4/5 = 0.80 ≥ 0.70) ; 1850-1913 = 2/4 = 0.50
+    expect(cartoucheImmobilier(5, champ(5, [1900, 1880, 1975, null]))).toBe('De 1850 à 1913');
   });
   it('sous le trigger 70% → null', () => {
-    expect(cartoucheImmobilier(N, 20, bats(1900, 1900, 1900))).toBeNull(); // 20/41 ≈ 0.49 < 0.70
+    const t = Array(20).fill(1900); // 20/41 = 0.488 < 0.70
+    expect(cartoucheImmobilier(N, champ(N, t))).toBeNull();
   });
-  it('hors dép.92 / extraction vide → null', () => {
-    expect(cartoucheImmobilier(N, 0, [])).toBeNull();
+  it('0 bâti touché → null', () => {
+    expect(cartoucheImmobilier(N, champ(N, []))).toBeNull();
   });
 });

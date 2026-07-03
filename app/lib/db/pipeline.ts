@@ -120,9 +120,10 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
   const coneBornes = coneFaisc.map((f) => Math.min(f.distanceObstacleM ?? ANALYSIS_RANGE_M, ANALYSIS_RANGE_M));
   const extractionVueNature = await resoudreVueNature(validation.pointSnappeWgs84, coneAzimuts, coneBornes);
 
-  // d-ter) Cartouche « environnement immobilier » (DESCRIPTIVE, SCORE-ONLY) — MÊME cône visible (±60°,
-  //        CONE_VUE_NATURE_DEG). Extraction parallèle : bâti du cône avec année (bdnb).
-  const extractionImmobilier = await resoudreEpoqueImmobilier(validation.pointSnappeWgs84, coneAzimuts, coneBornes);
+  // d-ter) Cartouche « environnement immobilier » (DESCRIPTIVE, SCORE-ONLY) — MÊME cône (±60°). Rayon NU
+  //        jusqu'à 200 m, 1er bâtiment traversé PAR FAISCEAU (la borne bâti est calculée DANS la requête,
+  //        PAS coneBornes/distanceObstacleM — cf. bug troncature). coneBornes reste pour resoudreVueNature.
+  const extractionImmobilier = await resoudreEpoqueImmobilier(validation.pointSnappeWgs84, coneAzimuts);
 
   // e) Paysage (pièce D) : moitié GÉOMÉTRIQUE réelle (Strate 1 + monuments candidats) via le
   // préparateur. PAS d'IA ici (photoExploitable=false, monuments laissés vides → Strate 2=0).
