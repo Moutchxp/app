@@ -15,6 +15,7 @@ import { query } from "./client";
 import { balayerObstacle, type CelluleCouloir } from "../svv/balayageObstacle";
 import type { PointWgs84 } from "../svv/geo";
 import type { ObstacleCandidat, SourceHauteur } from "../svv/verdict";
+import type { ExtractionVueNature } from "../svv/coucheDegagement";
 import { ANALYSIS_RANGE_M, CORRIDOR_HALF_WIDTH_M, FLOOR_HEIGHT_OBSTACLE_M, THRESHOLD_M } from "../svv/config";
 
 /**
@@ -679,4 +680,69 @@ export async function natureTraverseeParFaisceau(
   const out = new Array<number>(azimuts.length).fill(0);
   for (const r of res.rows) out[r.ord - 1] = Number(r.nature_m);
   return out;
+}
+
+/**
+ * Cartouche « vue nature » (DESCRIPTIVE, SCORE-ONLY) — extraction PARALLÈLE et ADDITIVE à
+ * natureTraverseeParFaisceau (celle-ci INCHANGÉE). Sur l'union des segments VISIBLES des faisceaux du
+ * cône (même montage rayon/seg/borne : seg = ST_LineSubstring(rayon, 0, LEAST(borne,200)/200)), calcule
+ * PAR CATÉGORIE : verdure = parcs ∪ végétation, plan_eau = bdtopo_eau_plan, cours_eau = bdtopo_eau_surface.
+ * Longueur d'intersection + nom du parc / toponyme du plan le PLUS intersecté (cours d'eau : nom toujours
+ * null — cpx_toponyme vide en base). N'affecte NI le verdict NI le score.
+ */
+export async function resoudreVueNature(
+  point: PointWgs84,
+  azimuts: number[],
+  bornesM: number[],
+): Promise<ExtractionVueNature> {
+  const vide: ExtractionVueNature = { verdureM: 0, planEauM: 0, coursEauM: 0, nomVerdure: null, nomPlanEau: null };
+  if (azimuts.length === 0) return vide;
+  const res = await query<{
+    verdure_m: number | string;
+    plan_eau_m: number | string;
+    cours_eau_m: number | string;
+    nom_verdure: string | null;
+    nom_plan_eau: string | null;
+  }>(
+    `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
+     faisc AS (SELECT az, borne FROM unnest($3::float8[], $4::float8[]) AS t(az, borne)),
+     segs AS (                                                          -- union des segments visibles du cône
+       SELECT ST_Union(
+         ST_LineSubstring(
+           ST_MakeLine(o.g, ST_Translate(o.g, $5*sin(radians(f.az)), $5*cos(radians(f.az)))),
+           0, LEAST(f.borne, $5) / $5::float8
+         )
+       ) AS g
+       FROM faisc f, o
+     ),
+     verdure_geom AS (
+       SELECT ST_Union(g) AS g FROM (
+         SELECT ST_Force2D(p.geom) AS g FROM parcs_jardins_92 p, o WHERE p.geom IS NOT NULL AND ST_DWithin(p.geom, o.g, $5)
+         UNION ALL SELECT ST_Force2D(v.geom) FROM bdtopo_vegetation v, o WHERE ST_DWithin(v.geom, o.g, $5)
+       ) u
+     ),
+     plan_geom AS (SELECT ST_Union(ST_Force2D(e.geom)) AS g FROM bdtopo_eau_plan e, o WHERE ST_DWithin(e.geom, o.g, $5)),
+     cours_geom AS (SELECT ST_Union(ST_Force2D(e.geom)) AS g FROM bdtopo_eau_surface e, o WHERE ST_DWithin(e.geom, o.g, $5))
+     SELECT
+       COALESCE(ST_Length(ST_Intersection(segs.g, verdure_geom.g)), 0) AS verdure_m,
+       COALESCE(ST_Length(ST_Intersection(segs.g, plan_geom.g)), 0) AS plan_eau_m,
+       COALESCE(ST_Length(ST_Intersection(segs.g, cours_geom.g)), 0) AS cours_eau_m,
+       (SELECT p.nom FROM parcs_jardins_92 p
+          WHERE p.nom IS NOT NULL AND segs.g IS NOT NULL AND ST_Intersects(ST_Force2D(p.geom), segs.g)
+          ORDER BY ST_Length(ST_Intersection(segs.g, ST_Force2D(p.geom))) DESC LIMIT 1) AS nom_verdure,
+       (SELECT e.toponyme FROM bdtopo_eau_plan e
+          WHERE e.toponyme IS NOT NULL AND segs.g IS NOT NULL AND ST_Intersects(ST_Force2D(e.geom), segs.g)
+          ORDER BY ST_Length(ST_Intersection(segs.g, ST_Force2D(e.geom))) DESC LIMIT 1) AS nom_plan_eau
+     FROM segs, verdure_geom, plan_geom, cours_geom;`,
+    [point.lon, point.lat, azimuts, bornesM, ANALYSIS_RANGE_M],
+  );
+  const r = res.rows[0];
+  if (!r) return vide;
+  return {
+    verdureM: Number(r.verdure_m),
+    planEauM: Number(r.plan_eau_m),
+    coursEauM: Number(r.cours_eau_m),
+    nomVerdure: r.nom_verdure,
+    nomPlanEau: r.nom_plan_eau,
+  };
 }

@@ -83,6 +83,7 @@ interface ReponseAnalyse {
         };
         distanceAxePrincipalM: number | null;
         contexteDegagement: string;
+        contexteVueNature: string | null;
       }
     | null;
 }
@@ -394,6 +395,7 @@ function EcranResultat({
 
   const badges = [
     resultat.contexteDegagement,
+    resultat.contexteVueNature, // « vue nature » (null si non déclenchée → filtré)
     libelleAmplitude(f1.amplitude),
     libelleOrientation(f1.detail.secteurOrientation),
     // Famille 2 — masquées si photo inexploitable (composantes dépendantes de l'IA)

@@ -11,9 +11,10 @@ import { analyser, type EntreeComplete, type ResultatComplet } from "../svv/anal
 import type { EntreeFamille2 } from "../svv/scorePaysage";
 import type { EntreePaysage } from "../svv/entreePaysage";
 import { validerOrigine, type ValidationOrigine } from "./origine";
-import { obstaclesSurAxe } from "./obstacles";
+import { obstaclesSurAxe, resoudreVueNature } from "./obstacles";
 import { faisceauxAmplitude } from "./faisceaux";
 import { preparerPaysageGeometrique } from "../svv/preparateurPaysage";
+import { ANALYSIS_RANGE_M, CONE_VUE_NATURE_DEG } from "../svv/config";
 
 /**
  * EntreeFamille2 neutre représentant « aucune photo exploitable ».
@@ -112,6 +113,13 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
     altitudeFenetreM,
   });
 
+  // d-bis) Cartouche « vue nature » (DESCRIPTIVE, SCORE-ONLY) : extraction PARALLÈLE sur le cône visible
+  //        (|offset| ≤ CONE_VUE_NATURE_DEG), même borne que natureTraverseeM (min(distObst, portée)).
+  const coneFaisc = faisceaux.filter((f) => Math.abs(f.offsetDeg) <= CONE_VUE_NATURE_DEG);
+  const coneAzimuts = coneFaisc.map((f) => (((params.azimutPrincipalDeg + f.offsetDeg) % 360) + 360) % 360);
+  const coneBornes = coneFaisc.map((f) => Math.min(f.distanceObstacleM ?? ANALYSIS_RANGE_M, ANALYSIS_RANGE_M));
+  const extractionVueNature = await resoudreVueNature(validation.pointSnappeWgs84, coneAzimuts, coneBornes);
+
   // e) Paysage (pièce D) : moitié GÉOMÉTRIQUE réelle (Strate 1 + monuments candidats) via le
   // préparateur. PAS d'IA ici (photoExploitable=false, monuments laissés vides → Strate 2=0).
   // Fallback propre sur le stub si le préparateur échoue (pas de crash).
@@ -144,6 +152,7 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
     dernierEtage: params.dernierEtage,
     obstaclesAxePrincipal,
     faisceaux,
+    extractionVueNature,
     paysage,
   };
 

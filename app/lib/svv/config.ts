@@ -167,6 +167,11 @@ export const FLANC_DIV_SEVERE = 3;
 export const FLANC_DIV_MODERE = 2;
 export const FLANC_FAISCEAUX_CONSEC_MIN = 3;
 
+/* Cartouche « vue nature » (DESCRIPTIVE, SCORE-ONLY, parallèle et additive à natureTraverseeM) */
+export const CONE_VUE_NATURE_DEG = 60; // demi-angle du cône de vue nature (offsetDeg ∈ [-60, +60])
+export const SEUIL_VUE_NATURE = 0.20; // fraction min. de faisceaux du cône traversant de la nature → déclenche
+export const SEUIL_NOM_PROFONDEUR = 0.40; // ratio min. (longueur nommée / longueur dominante) pour nommer
+
 /* Famille 1 — orientation (points par secteur) */
 export const ORIENTATION_PTS = {
   N: 0,

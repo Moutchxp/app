@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { distancePercueFaisceau, noteDegagement, detecterChaineCouloir, diagnostiquerCouloir, cartoucheDegagement } from './coucheDegagement';
+import { distancePercueFaisceau, noteDegagement, detecterChaineCouloir, diagnostiquerCouloir, cartoucheDegagement, cartoucheVueNature, type ExtractionVueNature } from './coucheDegagement';
 import { PROFIL_DEGAGEMENT_DEFAUT as P } from './profilDegagement';
 import type { FaisceauResultat } from './scoreDegagement';
 
@@ -188,5 +188,42 @@ describe('cartoucheDegagement — 12 catégories (descriptif, score-only)', () =
   });
   it('12. Environnement dense — tout bouché à 20 m (centre compris)', () => {
     expect(cat(() => 20)).toBe('Environnement dense');
+  });
+});
+
+describe('cartoucheVueNature — badge nature (descriptif, score-only)', () => {
+  // 41 faisceaux du cône (offsets -60..+60 pas 3°), une fraction avec natureTraverseeM > 0 (trigger).
+  const cone = (fractionNature: number): FaisceauResultat[] => {
+    const fs: FaisceauResultat[] = [];
+    const total = 41;
+    const avecNature = Math.round(fractionNature * total);
+    let i = 0;
+    for (let off = -60; off <= 60; off += 3) {
+      fs.push(f({ offsetDeg: off, distanceObstacleM: 100, natureTraverseeM: i < avecNature ? 10 : 0 }));
+      i++;
+    }
+    return fs;
+  };
+  const ext = (o: Partial<ExtractionVueNature>): ExtractionVueNature => ({
+    verdureM: 0, planEauM: 0, coursEauM: 0, nomVerdure: null, nomPlanEau: null, ...o,
+  });
+
+  it('dominante nommée (parc) → "Vue sur [nom]"', () => {
+    expect(cartoucheVueNature(cone(1), ext({ verdureM: 100, nomVerdure: 'Parc de Bécon' }))).toBe('Vue sur Parc de Bécon');
+  });
+  it("dominante non nommée (cours d'eau long) + parc nommé ratio 0.60 → nommé gagne", () => {
+    expect(cartoucheVueNature(cone(1), ext({ coursEauM: 100, verdureM: 60, nomVerdure: 'Parc Y' }))).toBe('Vue sur Parc Y');
+  });
+  it("dominante non nommée (cours d'eau long) + parc nommé ratio 0.25 → générique dominante", () => {
+    expect(cartoucheVueNature(cone(1), ext({ coursEauM: 100, verdureM: 25, nomVerdure: 'Parc Z' }))).toBe("Vue sur cours d'eau");
+  });
+  it('ratio pile 0.40 → "Vue sur [nom]" (frontière incluse)', () => {
+    expect(cartoucheVueNature(cone(1), ext({ coursEauM: 100, verdureM: 40, nomVerdure: 'Parc W' }))).toBe('Vue sur Parc W');
+  });
+  it('sous le seuil de trigger (< 20% du cône) → null', () => {
+    expect(cartoucheVueNature(cone(0.1), ext({ verdureM: 100, nomVerdure: 'Parc' }))).toBeNull();
+  });
+  it('hors dép.92 (extraction vide, longueurs 0) → null', () => {
+    expect(cartoucheVueNature(cone(1), ext({}))).toBeNull();
   });
 });

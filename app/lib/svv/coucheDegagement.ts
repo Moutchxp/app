@@ -10,7 +10,7 @@
 import type { FaisceauResultat } from './scoreDegagement';
 import { azimutVersSecteur } from './scoreDegagement';
 import type { ProfilDegagement } from './profilDegagement';
-import { ORIENTATION_PTS } from './config';
+import { ORIENTATION_PTS, CONE_VUE_NATURE_DEG, SEUIL_VUE_NATURE, SEUIL_NOM_PROFONDEUR } from './config';
 
 const clamp = (v: number, min: number, max: number): number => Math.min(Math.max(v, min), max);
 
@@ -248,4 +248,55 @@ export function cartoucheDegagement(faisceaux: FaisceauResultat[], profil: Profi
     return 'Vue face dégagée';
   if (partTotal >= 0.4) return 'Partiellement dégagée';
   return 'Environnement dense';
+}
+
+/** Longueurs (m) de nature visible par catégorie + noms possibles (parc / plan d'eau). Extraite en base. */
+export interface ExtractionVueNature {
+  verdureM: number;
+  planEauM: number;
+  coursEauM: number;
+  nomVerdure: string | null;
+  nomPlanEau: string | null;
+}
+
+/**
+ * Cartouche « vue nature » — DESCRIPTIVE, SCORE-ONLY : parallèle à natureTraverseeM, ne l'affecte PAS.
+ * Déclenchée si ≥ SEUIL_VUE_NATURE des faisceaux du cône (|offset| ≤ CONE_VUE_NATURE_DEG) traversent de la
+ * nature (natureTraverseeM > 0). Choisit la catégorie DOMINANTE (longueur max ; ex æquo → verdure > plan_eau
+ * > cours_eau) : la nomme si elle a un nom ; sinon promeut un candidat nommé dont la longueur atteint
+ * SEUIL_NOM_PROFONDEUR × dominante ; sinon libellé générique. `null` si non déclenchée ou rien d'extrait.
+ */
+export function cartoucheVueNature(
+  faisceaux: FaisceauResultat[],
+  extraction: ExtractionVueNature,
+): string | null {
+  const cone = faisceaux.filter((f) => Math.abs(f.offsetDeg) <= CONE_VUE_NATURE_DEG);
+  const nCone = cone.length || 1;
+  const nNature = cone.filter((f) => f.natureTraverseeM != null && f.natureTraverseeM > 0).length;
+  if (nNature / nCone < SEUIL_VUE_NATURE) return null;
+
+  interface Cat {
+    longueur: number;
+    nom: string | null;
+    generique: string;
+  }
+  // Ordre fixe = priorité aux ex æquo : verdure > plan_eau > cours_eau.
+  const candidats: Cat[] = [
+    { longueur: extraction.verdureM, nom: extraction.nomVerdure, generique: 'Vue sur verdure' },
+    { longueur: extraction.planEauM, nom: extraction.nomPlanEau, generique: "Vue sur étendue d'eau" },
+    { longueur: extraction.coursEauM, nom: null, generique: "Vue sur cours d'eau" },
+  ].filter((c) => c.longueur > 0);
+  if (candidats.length === 0) return null;
+
+  const dominante = candidats.reduce((best, c) => (c.longueur > best.longueur ? c : best)); // strict > : 1er gagne
+  if (dominante.nom != null) return `Vue sur ${dominante.nom}`;
+
+  const nommables = candidats.filter((c) => c.nom != null);
+  if (nommables.length > 0) {
+    const meilleurNomme = nommables.reduce((best, c) => (c.longueur > best.longueur ? c : best));
+    if (meilleurNomme.longueur / dominante.longueur >= SEUIL_NOM_PROFONDEUR) {
+      return `Vue sur ${meilleurNomme.nom}`;
+    }
+  }
+  return dominante.generique;
 }
