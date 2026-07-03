@@ -375,3 +375,61 @@ export function cartoucheImmobilier(
   }
   return null;
 }
+
+/**
+ * Monuments historiques PAR FAISCEAU : pour chaque faisceau (61 complets), le 1er bâtiment traversé
+ * porte-t-il un MH (via cleabs → monuments_historiques) ? `touche=false` si aucun bâti ou 1er bâti non-MH.
+ * `offsetDeg` signé (az − azimutPrincipal) conservé pour filtrer le cône au moment du badge et pour un
+ * futur boost. Extraite en base (resoudreMonuments). DESCRIPTIVE, SCORE-ONLY.
+ */
+export interface ExtractionMonuments {
+  faisceaux: ReadonlyArray<{
+    touche: boolean;
+    ref: string | null;
+    nom: string | null; // tico
+    type: string | null; // deno
+    statut: 'classe' | 'inscrit' | null;
+    offsetDeg: number; // signé, dans [-180, 180]
+  }>;
+}
+
+/** Retire les diacritiques (é→e, â→a…) pour une comparaison insensible aux accents. */
+const sansAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/** Titres génériques (bare, minuscule SANS ACCENT) → repli sur le statut ; comparaison EXACTE (un nom propre a des mots en plus). */
+const NOMS_GENERIQUES_MH = new Set([
+  'immeuble', 'maison', 'hotel', 'hotel particulier', 'villa', 'pavillon', 'ferme',
+  'chateau', 'eglise', 'chapelle', 'tour',
+]);
+
+function estNomGeneriqueMH(nom: string | null): boolean {
+  if (nom == null) return true;
+  const n = sansAccents(nom.trim().toLowerCase());
+  return n === '' || NOMS_GENERIQUES_MH.has(n);
+}
+
+/**
+ * Cartouche « monument historique » — variante A (DESCRIPTIVE, SCORE-ONLY). Un badge PAR monument
+ * (dédup par ref). Ne garde que les faisceaux touchant un MH DANS le cône (±CONE_VUE_NATURE_DEG).
+ * Libellé : nom propre → « Monument historique : {nom} » ; nom générique/vide → repli statut
+ * (« classé » / « inscrit »). Ordre stable : le plus central (|offsetDeg| min) d'abord.
+ */
+export function cartoucheMonuments(extraction: ExtractionMonuments): string[] {
+  const dansCone = extraction.faisceaux.filter(
+    (f) => f.touche && f.ref != null && Math.abs(f.offsetDeg) <= CONE_VUE_NATURE_DEG,
+  );
+  // Dédup par ref : on garde l'occurrence la plus centrale (|offsetDeg| min).
+  const parRef = new Map<string, (typeof dansCone)[number]>();
+  for (const f of dansCone) {
+    const prev = parRef.get(f.ref as string);
+    if (!prev || Math.abs(f.offsetDeg) < Math.abs(prev.offsetDeg)) parRef.set(f.ref as string, f);
+  }
+  return [...parRef.values()]
+    .sort((a, b) => Math.abs(a.offsetDeg) - Math.abs(b.offsetDeg)) // plus central d'abord
+    .map((m) => {
+      if (!estNomGeneriqueMH(m.nom)) return `Monument historique : ${m.nom}`;
+      if (m.statut === 'classe') return 'Monument historique classé';
+      if (m.statut === 'inscrit') return 'Monument historique inscrit';
+      return 'Monument historique';
+    });
+}

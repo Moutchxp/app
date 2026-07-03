@@ -11,7 +11,7 @@ import { analyser, type EntreeComplete, type ResultatComplet } from "../svv/anal
 import type { EntreeFamille2 } from "../svv/scorePaysage";
 import type { EntreePaysage } from "../svv/entreePaysage";
 import { validerOrigine, type ValidationOrigine } from "./origine";
-import { obstaclesSurAxe, resoudreVueNature, resoudreEpoqueImmobilier } from "./obstacles";
+import { obstaclesSurAxe, resoudreVueNature, resoudreEpoqueImmobilier, resoudreMonuments } from "./obstacles";
 import { faisceauxAmplitude } from "./faisceaux";
 import { preparerPaysageGeometrique } from "../svv/preparateurPaysage";
 import { ANALYSIS_RANGE_M, CONE_VUE_NATURE_DEG } from "../svv/config";
@@ -125,6 +125,11 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
   //        PAS coneBornes/distanceObstacleM — cf. bug troncature). coneBornes reste pour resoudreVueNature.
   const extractionImmobilier = await resoudreEpoqueImmobilier(validation.pointSnappeWgs84, coneAzimuts);
 
+  // d-quater) Badges « monument historique » (DESCRIPTIF, SCORE-ONLY) — les 61 azimuts COMPLETS (pas le
+  //           cône) : offsetDeg signé conservé pour filtrer le cône côté badge + futur boost.
+  const azimutsComplets = faisceaux.map((f) => (((params.azimutPrincipalDeg + f.offsetDeg) % 360) + 360) % 360);
+  const extractionMonuments = await resoudreMonuments(validation.pointSnappeWgs84, azimutsComplets, params.azimutPrincipalDeg);
+
   // e) Paysage (pièce D) : moitié GÉOMÉTRIQUE réelle (Strate 1 + monuments candidats) via le
   // préparateur. PAS d'IA ici (photoExploitable=false, monuments laissés vides → Strate 2=0).
   // Fallback propre sur le stub si le préparateur échoue (pas de crash).
@@ -159,6 +164,7 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
     faisceaux,
     extractionVueNature,
     extractionImmobilier,
+    extractionMonuments,
     paysage,
   };
 

@@ -14,7 +14,7 @@
 | **Cadastre** — `parcelle` | Parcelles (`id` 14 c, `commune`, `section`, `numero`) | **En base** | Licence Ouverte Etalab | 2154 | `parcelle.id` ; géométrie | — |
 | **BDNB** — `bdnb_annee_batiment` | **Année de construction** par `cleabs` | **IMPORTÉE** (table dédiée, **191 262 lignes**, **~76 % année non-null**, jointure `cleabs` **99,65 %**, dédup **`MIN(annee)`**) | Licence Ouverte Etalab | 2154 | `cleabs` → `bdtopo_batiment.cleabs` | Millésime **2026-02.a**. **Année ≠ style ≠ beauté** ; année issue des **Fichiers Fonciers** (approximation, parfois prédite). Alimente la **Famille 2** (ancien < 1900). |
 | **Parcs & jardins publics ouverts au public** (OCS GE, ministère de la Transition écologique / IGN) | Polygones de parcs, squares, jardins (`nature`, `date_ouv`…) | **IMPORT BLOQUÉ — source 92 à trouver** | Licence Ouverte Etalab v2.0 | **2154 confirmé** (Lambert-93) | Géométrique (`ST_Force2D` puis `ST_Intersection` / `ST_Length` faisceau ↔ polygone) | **Comble le trou parcs/squares urbains** de BD TOPO végétation (Square Gilbert-Thomain près du parc Denfert, **absent** de `bdtopo_vegetation`). ⚠️ **Téléchargement OCS GE par département ne couvre PAS la petite couronne** (D091–D095 = 0 fichier ; seuls D075/D077/D078 en IdF) → **pas d'extrait 92**. Donnée 92 présente dans le WMS IGN, mais harvest sur grille fragile/non déterministe → non retenu. Schéma confirmé via proxy **D075** (même produit). Alimente la **Famille 4** (nature). |
-| **Mérimée** (monuments historiques classés/inscrits) | Monuments protégés | **À EXPLORER** (recon faisabilité **non faite**) | À vérifier | À vérifier | À vérifier | Destiné à alimenter la **Famille 3** (remarquable/classé). Faisabilité, licence et format non encore évalués. |
+| **Mérimée / POP** (immeubles protégés MH) — `monuments_historiques` | Monuments **classés / inscrits** (`ref` PAxxxx, `tico`, `deno`, `statut`, point) | **IMPORTÉE (dép. 92)** — **176 MH** (59 classés / 117 inscrits), **accroche `cleabs` 86,4 %** | Licence Ouverte Etalab | **2154** (reproj. WGS84→2154 à l'ingestion) | `cleabs` → `bdtopo_batiment.cleabs` (point→polygone : contenu, sinon KNN ≤ 15 m) | Point WGS84 (géocodage BAN approximatif) rattaché au bâti par proximité ; **24 perdus** (sans `cleabs`). Destiné à la **Famille 3** (remarquable/classé). **Dép. 92 seul — ne pas généraliser avant validation.** |
 | **OSM** | — | **Écartée** | Licence **incompatible** | — | — | Non utilisée (incompatibilité de licence avec un usage commercial propriétaire). |
 
 ## Détails par source en chantier
@@ -53,6 +53,34 @@
   (IPR)** couvrant le 92 (ex. « Espaces verts »). ⚠️ **LICENCE À VÉRIFIER avant tout import** —
   une **ODbL (share-alike)** serait **bloquante** pour un usage commercial propriétaire (contrairement
   à la Licence Ouverte Etalab de l'OCS GE).
+
+### Monuments historiques — Mérimée / POP (importé, dép. 92)
+- Table `public.monuments_historiques` : `id` (PK), `ref` (PAxxxx), `tico` (appellation courante,
+  nullable), `deno` (dénomination/type, nullable), `statut` (`'classe'` | `'inscrit'`, NOT NULL),
+  `geom` (**Point, 2154**), `cleabs` (bâtiment BD TOPO rattaché, nullable).
+- **Source** : data.culture.gouv.fr (Opendatasoft) — dataset
+  `liste-des-immeubles-proteges-au-titre-des-monuments-historiques` (« Immeubles protégés au titre
+  des Monuments Historiques », **46 714 lignes** national). Export **GeoJSON WGS84**, filtré
+  `departement_format_numerique="92"` à la source (**178 features**).
+- **Mapping RÉEL des champs** (vérifié via l'API schéma ODS, non deviné) :
+  - `ref` ← `reference` ; `tico` ← `titre_editorial_de_la_notice` ; `deno` ← `denomination_de_l_edifice`.
+  - `statut` ← **`typologie_de_la_protection`** (⚠️ **PAS** `nature_de_la_protection`, qui vaut
+    Arrêté/décret/liste = type d'acte). Valeurs : `classé MH`, `inscrit MH`, variantes
+    *partiellement*/combos. Normalisation : contient « class » → `classe` ; sinon « inscrit » →
+    `inscrit` (classé prioritaire sur inscrit).
+  - `geom` ← `coordonnees_au_format_wgs84` (geo_point_2d), reprojeté **4326→2154** par `ogr2ogr`.
+- **Filtre** : conservées seulement les lignes dont `typologie_de_la_protection` contient
+  « classé » OU « inscrit » → **176 gardées / 178** (2 exclues = typologie nulle). **59 classés,
+  117 inscrits.**
+- **Ingestion** (manuelle one-shot, comme les parcs) : `ogr2ogr -f PostgreSQL` (staging, `-s_srs
+  EPSG:4326 -t_srs EPSG:2154`) → `INSERT … SELECT` filtré/normalisé → table de staging supprimée.
+  Index : `(cleabs)` + `USING gist (geom)`.
+- **Rattachement point → bâti BD TOPO (option 1)** : (a) bâtiment **contenant** le point
+  (`ST_Intersects`) → **119** ; (b) sinon **plus proche** ≤ **15 m** (KNN `<->` sur
+  `batiment_geom_geom_idx`) → **+33**. **Total rattachés 152/176 = 86,4 %** ; **24 perdus** (point
+  hors tout bâti à 15 m — géocodage BAN approximatif). *Tolérance relevable si besoin ; non
+  généralisé hors 92 avant validation.*
+- Destiné à la **Famille 3** (badge « monument historique » descriptif / boost remarquable).
 
 ## Limite générale du moteur de verdict (décidée)
 

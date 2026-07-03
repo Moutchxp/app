@@ -17,8 +17,10 @@ import {
   cartoucheDegagement,
   cartoucheVueNature,
   cartoucheImmobilier,
+  cartoucheMonuments,
   type ExtractionVueNature,
   type ExtractionImmobilier,
+  type ExtractionMonuments,
 } from './coucheDegagement';
 import { PROFIL_DEGAGEMENT_DEFAUT } from './profilDegagement';
 
@@ -35,6 +37,8 @@ export interface EntreeComplete {
   extractionVueNature?: ExtractionVueNature;
   // Extraction « environnement immobilier » (DESCRIPTIVE, score-only) — optionnelle (absente en tests unit).
   extractionImmobilier?: ExtractionImmobilier;
+  // Extraction « monuments historiques » (DESCRIPTIVE, score-only) — optionnelle (absente en tests unit).
+  extractionMonuments?: ExtractionMonuments;
   // Paysage (Famille 2) : enums/flags déjà résolus.
   paysage: EntreePaysage;
 }
@@ -46,6 +50,7 @@ export interface ResultatComplet {
   contexteDegagement: string; // cartouche de contexte DESCRIPTIVE (SCORE-ONLY : n'entre ni dans score ni verdict)
   contexteVueNature: string | null; // cartouche « vue nature » DESCRIPTIVE (SCORE-ONLY) ; null si non déclenchée
   contexteImmobilier: string | null; // cartouche « environnement immobilier » DESCRIPTIVE (SCORE-ONLY) ; null si non déclenchée
+  monumentsHistoriques: string[]; // badges « monument historique » (variante A) DESCRIPTIFS (SCORE-ONLY) ; [] si aucun
 }
 
 /**
@@ -104,5 +109,8 @@ export function analyser(entree: EntreeComplete): ResultatComplet {
   const ei = entree.extractionImmobilier;
   const contexteImmobilier = ei ? cartoucheImmobilier(ei.nCone, ei.faisceaux) : null;
 
-  return { verdict, score, distanceAxePrincipalM, contexteDegagement, contexteVueNature, contexteImmobilier };
+  // 9) Badges « monument historique » (variante A) — DESCRIPTIFS, score-only ; [] si extraction absente ou aucun MH.
+  const monumentsHistoriques = entree.extractionMonuments ? cartoucheMonuments(entree.extractionMonuments) : [];
+
+  return { verdict, score, distanceAxePrincipalM, contexteDegagement, contexteVueNature, contexteImmobilier, monumentsHistoriques };
 }

@@ -15,7 +15,7 @@ import { query } from "./client";
 import { balayerObstacle, type CelluleCouloir } from "../svv/balayageObstacle";
 import type { PointWgs84 } from "../svv/geo";
 import type { ObstacleCandidat, SourceHauteur } from "../svv/verdict";
-import type { ExtractionVueNature, ExtractionImmobilier } from "../svv/coucheDegagement";
+import type { ExtractionVueNature, ExtractionImmobilier, ExtractionMonuments } from "../svv/coucheDegagement";
 import { ANALYSIS_RANGE_M, CORRIDOR_HALF_WIDTH_M, FLOOR_HEIGHT_OBSTACLE_M, THRESHOLD_M } from "../svv/config";
 
 /**
@@ -785,4 +785,60 @@ export async function resoudreEpoqueImmobilier(
     faisceaux[r.ord - 1] = { annee: r.annee == null ? null : Number(r.annee), touche: true };
   }
   return { nCone, faisceaux };
+}
+
+/**
+ * Cartouche « monument historique » (DESCRIPTIVE, SCORE-ONLY) — MIROIR de resoudreEpoqueImmobilier,
+ * jointure attribut remplacée par monuments_historiques (via cleabs). PAR FAISCEAU (les 61 COMPLETS,
+ * pas le cône), le 1er bâtiment traversé par le RAYON NU (200 m) porte-t-il un MH ? offsetDeg signé
+ * (az − azimutPrincipal ∈ [-180,180]) conservé pour filtrer le cône côté badge + futur boost.
+ * N'affecte NI verdict NI score. Même précaution ST_Force2D : seulement dans ST_Distance/ST_Intersection.
+ */
+export async function resoudreMonuments(
+  point: PointWgs84,
+  azimuts: number[],
+  azimutPrincipalDeg: number,
+): Promise<ExtractionMonuments> {
+  const offsetSigne = (az: number): number => {
+    let d = (az - azimutPrincipalDeg) % 360;
+    if (d > 180) d -= 360;
+    if (d < -180) d += 360;
+    return d;
+  };
+  const faisceaux: {
+    touche: boolean; ref: string | null; nom: string | null; type: string | null;
+    statut: 'classe' | 'inscrit' | null; offsetDeg: number;
+  }[] = azimuts.map((az) => ({ touche: false, ref: null, nom: null, type: null, statut: null, offsetDeg: offsetSigne(az) }));
+  if (azimuts.length === 0) return { faisceaux };
+  const res = await query<{ ord: number; ref: string | null; tico: string | null; deno: string | null; statut: 'classe' | 'inscrit' | null }>(
+    `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
+     faisc AS (SELECT az, ord FROM unnest($3::float8[]) WITH ORDINALITY AS t(az, ord)),
+     ray AS (
+       SELECT f.ord, ST_MakeLine(o.g, ST_Translate(o.g, $4*sin(radians(f.az)), $4*cos(radians(f.az)))) AS ln
+       FROM faisc f, o
+     ),
+     inter AS (   -- (faisceau, bâtiment traversé par la LIGNE) + distance d'ENTRÉE le long du rayon
+       SELECT r.ord, b.cleabs,
+              ST_Distance(ST_StartPoint(r.ln), ST_Intersection(r.ln, ST_Force2D(b.geom))) AS d_entree
+       FROM ray r
+       JOIN bdtopo_batiment b ON ST_Intersects(b.geom, r.ln)      -- b.geom NON wrappé → index GiST
+     )
+     SELECT DISTINCT ON (i.ord) i.ord::int AS ord, mh.ref, mh.tico, mh.deno, mh.statut  -- 1er bâtiment visible
+     FROM inter i
+     LEFT JOIN monuments_historiques mh ON mh.cleabs = i.cleabs
+     ORDER BY i.ord, i.d_entree ASC;`,
+    [point.lon, point.lat, azimuts, ANALYSIS_RANGE_M],
+  );
+  for (const r of res.rows) {
+    const i = r.ord - 1;
+    faisceaux[i] = {
+      touche: r.ref != null,
+      ref: r.ref,
+      nom: r.tico,
+      type: r.deno,
+      statut: r.statut,
+      offsetDeg: faisceaux[i].offsetDeg,
+    };
+  }
+  return { faisceaux };
 }
