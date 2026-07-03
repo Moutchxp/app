@@ -20,8 +20,10 @@ export interface ProfilDegagement {
   coneF3DemiAngleDeg: number;
   /** Plafond de distance perçue par faisceau (m) pour F1/F2/F4 (F3 forfaitaire peut le dépasser). */
   distanceMaxM: number;
-  /** Note max de la Couche 1 (les 20 restants = Couche 2). */
+  /** Note max de la Couche 1 (les 20 restants = Couche 2). BORNE DE CLAMP finale uniquement. */
   plafondCouche1: number;
+  /** Coefficient du dégagement PUR (ratio cumul/portée × ce facteur), hors orientation ajoutée ensuite. */
+  plafondDegagement: number;
   /** Mode de combinaison des familles déclenchées (seul "max" actif ici). */
   modeCombinaison: ModeCombinaison;
   /** Couloir — largeur : distance ⊥ à l'axe (m) sous laquelle un obstacle « longe » le regard. */
@@ -44,6 +46,7 @@ export const PROFIL_DEGAGEMENT_DEFAUT: ProfilDegagement = {
   coneF3DemiAngleDeg: 60,
   distanceMaxM: 200,
   plafondCouche1: 90,
+  plafondDegagement: 80,
   modeCombinaison: 'max',
   couloirSeuilLateralM: 3,
   couloirFenetreConditionN: 16,

@@ -180,7 +180,7 @@ export function noteDegagement(faisceaux: FaisceauResultat[], profil: ProfilDega
     if (ch.validee) malusTotal += malusCouloirM(ch.indices.length, S, profil);
   }
   const cumulNet = Math.max(0, cumulPercu - malusTotal);
-  const note = (cumulNet / faisceaux.length / profil.distanceMaxM) * profil.plafondCouche1;
+  const note = (cumulNet / faisceaux.length / profil.distanceMaxM) * profil.plafondDegagement;
   let noteAvecOrientation = note;
   if (typeof azimutDeg === "number") {
     const secteur = azimutVersSecteur(azimutDeg);          // même découpage que la boussole UI

@@ -32,18 +32,18 @@ function mockF2(scorePartiel = false): ScorePaysage {
 
 /**
  * 5 faisceaux NEUTRES produisant une note Couche 1 cible :
- * perçue = distanceObstacleM ; note = (moyenne / distanceMaxM) × plafondCouche1
- * ⇒ distanceObstacleM = note × distanceMaxM / plafondCouche1 (= note × 200/90 pour le profil défaut).
+ * perçue = distanceObstacleM ; note = (moyenne / distanceMaxM) × plafondDegagement
+ * ⇒ distanceObstacleM = note × distanceMaxM / plafondDegagement (= note × 200/80 pour le profil défaut).
  */
 function faisceauxNote(noteCible: number): FaisceauResultat[] {
-  const dist = (noteCible * P.distanceMaxM) / P.plafondCouche1;
+  const dist = (noteCible * P.distanceMaxM) / P.plafondDegagement;
   return Array.from({ length: 5 }, () => ({ offsetDeg: 0, distanceObstacleM: dist }));
 }
 
-describe('scoreTotal — total = note Couche 1 /90 (sur les faisceaux)', () => {
-  it('faisceaux dégagés → plafond 90', () => {
+describe('scoreTotal — total = note Couche 1 /80 (dégagement, sur les faisceaux)', () => {
+  it('faisceaux dégagés → plafond dégagement 80', () => {
     const fs: FaisceauResultat[] = Array.from({ length: 5 }, () => ({ offsetDeg: 0, distanceObstacleM: null }));
-    expect(scoreTotal(f1(), mockF2(), fs).total).toBe(90);
+    expect(scoreTotal(f1(), mockF2(), fs).total).toBe(80);
   });
   it('faisceaux à 0 → note 0', () => {
     const fs: FaisceauResultat[] = Array.from({ length: 5 }, () => ({ offsetDeg: 0, distanceObstacleM: 0 }));

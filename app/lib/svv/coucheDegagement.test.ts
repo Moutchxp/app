@@ -93,8 +93,8 @@ describe('noteDegagement — malus couloir (latéral, cumul proportionnel)', () 
     expect(dDroite.n).toBe(30);
     // S = 30×2 (droite) + 31×200 (gauche+axe dégagés) = 6260 ; malus LINÉAIRE = 30×0.01×S = 1878
     expect(dDroite.malusM).toBeCloseTo(30 * 0.01 * 6260, 6);
-    // note = ((S − malus)/61/200)×90 = (4382/12200)×90
-    expect(noteDegagement(fs, P)).toBeCloseTo(32.326230, 5);
+    // note = ((S − malus)/61/200)×80 = (4382/12200)×80
+    expect(noteDegagement(fs, P)).toBeCloseTo(28.734426, 5);
   });
 
   it('n°1 latéral > 3 (toléré) mais n°3..16 collent → validée, n°1 compté (n=30)', () => {
@@ -116,21 +116,21 @@ describe('noteDegagement — malus couloir (latéral, cumul proportionnel)', () 
   });
 });
 
-describe('noteDegagement — agrégation /90', () => {
+describe('noteDegagement — agrégation /80 (dégagement) + clamp /90', () => {
   it('liste vide → 0', () => {
     expect(noteDegagement([], P)).toBe(0);
   });
-  it('tous perçus 200 → note plafond 90', () => {
+  it('tous perçus 200 → note plafond dégagement 80', () => {
     const fs = Array.from({ length: 5 }, () => f({ distanceObstacleM: null })); // base 200
-    expect(noteDegagement(fs, P)).toBe(90);
+    expect(noteDegagement(fs, P)).toBe(80);
   });
   it('tous à 0 → note 0', () => {
     const fs = Array.from({ length: 5 }, () => f({ distanceObstacleM: 0 }));
     expect(noteDegagement(fs, P)).toBe(0);
   });
-  it('moyenne 100 et 200 → 150 → note (150/200)×90 = 67.5', () => {
+  it('moyenne 100 et 200 → 150 → note (150/200)×80 = 60', () => {
     const fs = [f({ distanceObstacleM: 100 }), f({ distanceObstacleM: null })]; // 100 et 200
-    expect(noteDegagement(fs, P)).toBe(67.5);
+    expect(noteDegagement(fs, P)).toBe(60);
   });
 });
 
