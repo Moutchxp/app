@@ -11,7 +11,7 @@ import { analyser, type EntreeComplete, type ResultatComplet } from "../svv/anal
 import type { EntreeFamille2 } from "../svv/scorePaysage";
 import type { EntreePaysage } from "../svv/entreePaysage";
 import { validerOrigine, type ValidationOrigine } from "./origine";
-import { obstaclesSurAxe, resoudreVueNature } from "./obstacles";
+import { obstaclesSurAxe, resoudreVueNature, resoudreEpoqueImmobilier } from "./obstacles";
 import { faisceauxAmplitude } from "./faisceaux";
 import { preparerPaysageGeometrique } from "../svv/preparateurPaysage";
 import { ANALYSIS_RANGE_M, CONE_VUE_NATURE_DEG } from "../svv/config";
@@ -120,6 +120,10 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
   const coneBornes = coneFaisc.map((f) => Math.min(f.distanceObstacleM ?? ANALYSIS_RANGE_M, ANALYSIS_RANGE_M));
   const extractionVueNature = await resoudreVueNature(validation.pointSnappeWgs84, coneAzimuts, coneBornes);
 
+  // d-ter) Cartouche « environnement immobilier » (DESCRIPTIVE, SCORE-ONLY) — MÊME cône visible (±60°,
+  //        CONE_VUE_NATURE_DEG). Extraction parallèle : bâti du cône avec année (bdnb).
+  const extractionImmobilier = await resoudreEpoqueImmobilier(validation.pointSnappeWgs84, coneAzimuts, coneBornes);
+
   // e) Paysage (pièce D) : moitié GÉOMÉTRIQUE réelle (Strate 1 + monuments candidats) via le
   // préparateur. PAS d'IA ici (photoExploitable=false, monuments laissés vides → Strate 2=0).
   // Fallback propre sur le stub si le préparateur échoue (pas de crash).
@@ -153,6 +157,7 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
     obstaclesAxePrincipal,
     faisceaux,
     extractionVueNature,
+    extractionImmobilier,
     paysage,
   };
 

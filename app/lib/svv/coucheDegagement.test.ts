@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { distancePercueFaisceau, noteDegagement, detecterChaineCouloir, diagnostiquerCouloir, cartoucheDegagement, cartoucheVueNature, type ExtractionVueNature } from './coucheDegagement';
+import { distancePercueFaisceau, noteDegagement, detecterChaineCouloir, diagnostiquerCouloir, cartoucheDegagement, cartoucheVueNature, cartoucheImmobilier, type ExtractionVueNature } from './coucheDegagement';
 import { PROFIL_DEGAGEMENT_DEFAUT as P } from './profilDegagement';
 import type { FaisceauResultat } from './scoreDegagement';
 
@@ -225,5 +225,31 @@ describe('cartoucheVueNature — badge nature (descriptif, score-only)', () => {
   });
   it('hors dép.92 (extraction vide, longueurs 0) → null', () => {
     expect(cartoucheVueNature(cone(1), ext({}))).toBeNull();
+  });
+});
+
+describe('cartoucheImmobilier — badge époque du bâti (descriptif, score-only)', () => {
+  type Bat = { cleabs: string; annee: number | null };
+  const bats = (...annees: (number | null)[]): Bat[] =>
+    annees.map((annee, i) => ({ cleabs: `b${i}`, annee }));
+  const N = 41; // cône ±60° (dénominateur trigger)
+
+  it('trigger OK + tranche "De 1850 à 1913" à 60% → "De 1850 à 1913"', () => {
+    expect(cartoucheImmobilier(N, N, bats(1900, 1880, 1910, 1975, 2005))).toBe('De 1850 à 1913');
+  });
+  it('trigger OK + non-datés à 60% → null (règle 3)', () => {
+    expect(cartoucheImmobilier(N, N, bats(null, null, null, 1975, 2005))).toBeNull();
+  });
+  it('trigger OK + aucune tranche ≥ 50% (éparpillé) → null', () => {
+    expect(cartoucheImmobilier(N, N, bats(1800, 1900, 1960, 1985, 2015))).toBeNull();
+  });
+  it('tranche pile à 50% → affichée (frontière incluse, ≥)', () => {
+    expect(cartoucheImmobilier(N, N, bats(1900, 1880, 1975, null))).toBe('De 1850 à 1913');
+  });
+  it('sous le trigger 70% → null', () => {
+    expect(cartoucheImmobilier(N, 20, bats(1900, 1900, 1900))).toBeNull(); // 20/41 ≈ 0.49 < 0.70
+  });
+  it('hors dép.92 / extraction vide → null', () => {
+    expect(cartoucheImmobilier(N, 0, [])).toBeNull();
   });
 });

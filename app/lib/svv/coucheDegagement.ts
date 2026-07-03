@@ -10,7 +10,15 @@
 import type { FaisceauResultat } from './scoreDegagement';
 import { azimutVersSecteur } from './scoreDegagement';
 import type { ProfilDegagement } from './profilDegagement';
-import { ORIENTATION_PTS, CONE_VUE_NATURE_DEG, SEUIL_VUE_NATURE, SEUIL_NOM_PROFONDEUR } from './config';
+import {
+  ORIENTATION_PTS,
+  CONE_VUE_NATURE_DEG,
+  SEUIL_VUE_NATURE,
+  SEUIL_NOM_PROFONDEUR,
+  SEUIL_TRIGGER_IMMO,
+  SEUIL_MAJORITE_IMMO,
+  TRANCHES_EPOQUES,
+} from './config';
 
 const clamp = (v: number, min: number, max: number): number => Math.min(Math.max(v, min), max);
 
@@ -299,4 +307,55 @@ export function cartoucheVueNature(
     }
   }
   return dominante.generique;
+}
+
+/** Bâti visible du cône : nb de faisceaux touchant du bâti + liste dédoublonnée par cleabs. Extraite en base. */
+export interface ExtractionImmobilier {
+  nCone: number;
+  nFaisceauxTouchantBati: number;
+  batimentsDistincts: ReadonlyArray<{ cleabs: string; annee: number | null }>;
+}
+
+const NON_DATE = 'non daté';
+
+/** Mappe une année sur le libellé de sa tranche EPOQUES (config), ou null si hors bornes (jamais en pratique). */
+function trancheDe(annee: number): string | null {
+  const t = TRANCHES_EPOQUES.find(
+    (tr) => (tr.min == null || annee >= tr.min) && (tr.max == null || annee <= tr.max),
+  );
+  return t ? t.libelle : null;
+}
+
+/**
+ * Cartouche « environnement immobilier de proximité » — DESCRIPTIVE, SCORE-ONLY.
+ * Déclenchée si ≥ SEUIL_TRIGGER_IMMO des faisceaux du cône touchent ≥ 1 bâtiment. Majorité calculée sur
+ * TOUS les bâtiments distincts (datés + non datés, non-datés au dénominateur) : si une tranche ≥
+ * SEUIL_MAJORITE_IMMO × total → son libellé (mais « non daté » majoritaire → null). Sinon → null.
+ */
+export function cartoucheImmobilier(
+  nCone: number,
+  nFaisceauxTouchantBati: number,
+  batimentsDistincts: ReadonlyArray<{ cleabs: string; annee: number | null }>,
+): string | null {
+  const denom = nCone || 1;
+  if (nFaisceauxTouchantBati / denom < SEUIL_TRIGGER_IMMO) return null;
+
+  const total = batimentsDistincts.length;
+  if (total === 0) return null;
+
+  const compte = new Map<string, number>();
+  for (const b of batimentsDistincts) {
+    const libelle = b.annee == null ? NON_DATE : trancheDe(b.annee) ?? NON_DATE;
+    compte.set(libelle, (compte.get(libelle) ?? 0) + 1);
+  }
+
+  // Tranche la plus représentée (1er inséré gagne les ex æquo).
+  let best: { libelle: string; n: number } | null = null;
+  for (const [libelle, n] of compte) {
+    if (best === null || n > best.n) best = { libelle, n };
+  }
+  if (best !== null && best.n / total >= SEUIL_MAJORITE_IMMO) {
+    return best.libelle === NON_DATE ? null : best.libelle;
+  }
+  return null;
 }

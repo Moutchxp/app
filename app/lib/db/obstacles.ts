@@ -15,7 +15,7 @@ import { query } from "./client";
 import { balayerObstacle, type CelluleCouloir } from "../svv/balayageObstacle";
 import type { PointWgs84 } from "../svv/geo";
 import type { ObstacleCandidat, SourceHauteur } from "../svv/verdict";
-import type { ExtractionVueNature } from "../svv/coucheDegagement";
+import type { ExtractionVueNature, ExtractionImmobilier } from "../svv/coucheDegagement";
 import { ANALYSIS_RANGE_M, CORRIDOR_HALF_WIDTH_M, FLOOR_HEIGHT_OBSTACLE_M, THRESHOLD_M } from "../svv/config";
 
 /**
@@ -744,5 +744,50 @@ export async function resoudreVueNature(
     coursEauM: Number(r.cours_eau_m),
     nomVerdure: r.nom_verdure,
     nomPlanEau: r.nom_plan_eau,
+  };
+}
+
+/**
+ * Cartouche « environnement immobilier de proximité » (DESCRIPTIVE, SCORE-ONLY) — extraction PARALLÈLE
+ * et ADDITIVE (n'altère NI obstaclesSurAxe NI natureTraverseeM NI le score). Même montage rayon/seg/borne
+ * visible que resoudreVueNature. Par faisceau du cône, intersecte le SEGMENT VISIBLE avec bdtopo_batiment
+ * (LEFT JOIN bdnb_annee_batiment par cleabs, déjà utilisé pour F2). Retourne le nb de faisceaux touchant du
+ * bâti + la liste DÉDOUBLONNÉE par cleabs de { cleabs, annee_construction | null }. N'affecte NI verdict NI score.
+ */
+export async function resoudreEpoqueImmobilier(
+  point: PointWgs84,
+  azimuts: number[],
+  bornesM: number[],
+): Promise<ExtractionImmobilier> {
+  const nCone = azimuts.length;
+  if (nCone === 0) return { nCone: 0, nFaisceauxTouchantBati: 0, batimentsDistincts: [] };
+  const res = await query<{ ord: number; cleabs: string; annee: number | string | null }>(
+    `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
+     faisc AS (SELECT az, borne, ord FROM unnest($3::float8[], $4::float8[]) WITH ORDINALITY AS t(az, borne, ord)),
+     seg AS (
+       SELECT f.ord,
+              ST_LineSubstring(
+                ST_MakeLine(o.g, ST_Translate(o.g, $5*sin(radians(f.az)), $5*cos(radians(f.az)))),
+                0, LEAST(f.borne, $5) / $5::float8
+              ) AS s
+       FROM faisc f, o
+     )
+     SELECT DISTINCT seg.ord::int AS ord, b.cleabs, ba.annee_construction AS annee
+     FROM seg
+     JOIN bdtopo_batiment b ON ST_Intersects(b.geom, seg.s)   -- b.geom NON wrappé → index GiST batiment_geom_geom_idx (ST_Intersects ignore Z)
+     LEFT JOIN bdnb_annee_batiment ba ON ba.cleabs = b.cleabs
+     WHERE NOT ST_IsEmpty(seg.s);`,
+    [point.lon, point.lat, azimuts, bornesM, ANALYSIS_RANGE_M],
+  );
+  const ordsTouch = new Set<number>();
+  const batimentsMap = new Map<string, number | null>();
+  for (const r of res.rows) {
+    ordsTouch.add(r.ord);
+    if (!batimentsMap.has(r.cleabs)) batimentsMap.set(r.cleabs, r.annee == null ? null : Number(r.annee));
+  }
+  return {
+    nCone,
+    nFaisceauxTouchantBati: ordsTouch.size,
+    batimentsDistincts: [...batimentsMap.entries()].map(([cleabs, annee]) => ({ cleabs, annee })),
   };
 }

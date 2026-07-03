@@ -13,7 +13,13 @@ import { scoreFamille1, type FaisceauResultat } from './scoreDegagement';
 import { scorePaysage } from './scorePaysage';
 import type { EntreePaysage } from './entreePaysage';
 import { scoreTotal, type ScoreTotal } from './scoreTotal';
-import { cartoucheDegagement, cartoucheVueNature, type ExtractionVueNature } from './coucheDegagement';
+import {
+  cartoucheDegagement,
+  cartoucheVueNature,
+  cartoucheImmobilier,
+  type ExtractionVueNature,
+  type ExtractionImmobilier,
+} from './coucheDegagement';
 import { PROFIL_DEGAGEMENT_DEFAUT } from './profilDegagement';
 
 export interface EntreeComplete {
@@ -27,6 +33,8 @@ export interface EntreeComplete {
   faisceaux: FaisceauResultat[];
   // Extraction « vue nature » (DESCRIPTIVE, score-only) — optionnelle (absente dans les tests unitaires).
   extractionVueNature?: ExtractionVueNature;
+  // Extraction « environnement immobilier » (DESCRIPTIVE, score-only) — optionnelle (absente en tests unit).
+  extractionImmobilier?: ExtractionImmobilier;
   // Paysage (Famille 2) : enums/flags déjà résolus.
   paysage: EntreePaysage;
 }
@@ -37,6 +45,7 @@ export interface ResultatComplet {
   distanceAxePrincipalM: number | null; // distance retenue pour le sous-score distance
   contexteDegagement: string; // cartouche de contexte DESCRIPTIVE (SCORE-ONLY : n'entre ni dans score ni verdict)
   contexteVueNature: string | null; // cartouche « vue nature » DESCRIPTIVE (SCORE-ONLY) ; null si non déclenchée
+  contexteImmobilier: string | null; // cartouche « environnement immobilier » DESCRIPTIVE (SCORE-ONLY) ; null si non déclenchée
 }
 
 /**
@@ -91,5 +100,11 @@ export function analyser(entree: EntreeComplete): ResultatComplet {
     ? cartoucheVueNature(entree.faisceaux, entree.extractionVueNature)
     : null;
 
-  return { verdict, score, distanceAxePrincipalM, contexteDegagement, contexteVueNature };
+  // 8) Cartouche « environnement immobilier » — DESCRIPTIVE, score-only ; null si extraction absente ou non déclenchée.
+  const ei = entree.extractionImmobilier;
+  const contexteImmobilier = ei
+    ? cartoucheImmobilier(ei.nCone, ei.nFaisceauxTouchantBati, ei.batimentsDistincts)
+    : null;
+
+  return { verdict, score, distanceAxePrincipalM, contexteDegagement, contexteVueNature, contexteImmobilier };
 }

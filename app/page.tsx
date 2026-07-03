@@ -83,6 +83,7 @@ interface ReponseAnalyse {
         distanceAxePrincipalM: number | null;
         contexteDegagement: string;
         contexteVueNature: string | null;
+        contexteImmobilier: string | null;
       }
     | null;
 }
@@ -395,6 +396,7 @@ function EcranResultat({
   const badges = [
     resultat.contexteDegagement,
     resultat.contexteVueNature, // « vue nature » (null si non déclenchée → filtré)
+    resultat.contexteImmobilier, // « environnement immobilier » (null si non déclenchée → filtré)
     libelleOrientation(f1.detail.secteurOrientation),
     // Famille 2 — masquées si photo inexploitable (composantes dépendantes de l'IA)
     f2.scorePartiel ? null : libelleCouverture(f2.strate1),

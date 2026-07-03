@@ -172,6 +172,24 @@ export const CONE_VUE_NATURE_DEG = 60; // demi-angle du cône de vue nature (off
 export const SEUIL_VUE_NATURE = 0.20; // fraction min. de faisceaux du cône traversant de la nature → déclenche
 export const SEUIL_NOM_PROFONDEUR = 0.40; // ratio min. (longueur nommée / longueur dominante) pour nommer
 
+/* Cartouche « environnement immobilier de proximité » (DESCRIPTIVE, SCORE-ONLY, additive).
+   Cône = CONE_VUE_NATURE_DEG (±60° = 41 faisceaux), réutilisé (identique). */
+export const SEUIL_TRIGGER_IMMO = 0.70; // fraction min. de faisceaux du cône touchant du bâti → déclenche
+export const SEUIL_MAJORITE_IMMO = 0.50; // part min. d'une tranche (sur TOUS les bâtiments distincts) pour l'afficher
+/** Tranches d'époque (bornes incluses ; null = ouvert) + libellé — dérivées de EPOQUES (page.tsx), côté moteur. */
+export const TRANCHES_EPOQUES: ReadonlyArray<{ min: number | null; max: number | null; libelle: string }> = [
+  { min: null, max: 1849, libelle: 'Avant 1850' },
+  { min: 1850, max: 1913, libelle: 'De 1850 à 1913' },
+  { min: 1914, max: 1947, libelle: 'De 1914 à 1947' },
+  { min: 1948, max: 1969, libelle: 'De 1948 à 1969' },
+  { min: 1970, max: 1980, libelle: 'De 1970 à 1980' },
+  { min: 1981, max: 1991, libelle: 'De 1981 à 1991' },
+  { min: 1992, max: 2000, libelle: 'De 1992 à 2000' },
+  { min: 2001, max: 2010, libelle: 'De 2001 à 2010' },
+  { min: 2011, max: 2020, libelle: 'De 2011 à 2020' },
+  { min: 2021, max: null, libelle: 'À partir de 2021' },
+];
+
 /* Famille 1 — orientation (points par secteur) */
 export const ORIENTATION_PTS = {
   N: 0,
