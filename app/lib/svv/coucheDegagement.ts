@@ -330,6 +330,19 @@ function trancheDe(annee: number): string | null {
 }
 
 /**
+ * Habillage COSMÉTIQUE du libellé du badge immobilier à partir des BORNES NUMÉRIQUES d'une tranche EPOQUES
+ * (min/max), jamais d'un parsing de la string. min & max → « Bâti majoritaire : min–max » (tiret U+2013) ;
+ * plancher (min null) → « avant max+1 » ; plafond (max null) → « après min−1 ».
+ */
+export function formaterLibelleImmobilier(tranche: { min: number | null; max: number | null }): string {
+  const { min, max } = tranche;
+  if (min != null && max != null) return `Bâti majoritaire : ${min}–${max}`;
+  if (min == null && max != null) return `Bâti majoritaire : avant ${max + 1}`;
+  if (min != null && max == null) return `Bâti majoritaire : après ${min - 1}`;
+  return 'Bâti majoritaire';
+}
+
+/**
  * Cartouche « environnement immobilier de proximité » — DESCRIPTIVE, SCORE-ONLY.
  * Comptage PAR FAISCEAU (chaque faisceau = son 1er bâtiment traversé). Déclenchée si ≥ SEUIL_TRIGGER_IMMO
  * des faisceaux du cône touchent du bâti. Majorité sur le dénominateur = faisceaux TOUCHANT DU BÂTI (pas nCone) :
@@ -356,7 +369,9 @@ export function cartoucheImmobilier(
     if (best === null || n > best.n) best = { libelle, n };
   }
   if (best !== null && best.n / nBati >= SEUIL_MAJORITE_IMMO) {
-    return best.libelle === NON_DATE ? null : best.libelle;
+    if (best.libelle === NON_DATE) return null; // « non daté » majoritaire → null (inchangé)
+    const tranche = TRANCHES_EPOQUES.find((t) => t.libelle === best.libelle);
+    return tranche ? formaterLibelleImmobilier(tranche) : null; // habillage cosmétique seul
   }
   return null;
 }

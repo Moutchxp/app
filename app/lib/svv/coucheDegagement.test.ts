@@ -236,10 +236,18 @@ describe('cartoucheImmobilier — badge époque du bâti PAR FAISCEAU (descripti
       i < touchants.length ? { annee: touchants[i], touche: true } : { annee: null, touche: false },
     );
 
-  it('trigger OK + tranche "De 1850 à 1913" à 60% des touchants → "De 1850 à 1913"', () => {
+  it('trigger OK + tranche 1850–1913 à 60% des touchants → "Bâti majoritaire : 1850–1913"', () => {
     // 33 touchants (33/41 ≥ 0.70) ; 20 en 1850-1913 (20/33 = 0.606 ≥ 0.50)
     const t = [...Array(20).fill(1900), ...Array(7).fill(1975), ...Array(6).fill(null)];
-    expect(cartoucheImmobilier(N, champ(N, t))).toBe('De 1850 à 1913');
+    expect(cartoucheImmobilier(N, champ(N, t))).toBe('Bâti majoritaire : 1850–1913');
+  });
+  it('plancher (Avant 1850) majoritaire → "Bâti majoritaire : avant 1850"', () => {
+    // 4 touchants sur 5 (0.80) ; 2 avant 1850 (1800, 1820) = 2/4 = 0.50
+    expect(cartoucheImmobilier(5, champ(5, [1800, 1820, 1975, null]))).toBe('Bâti majoritaire : avant 1850');
+  });
+  it('plafond (À partir de 2021) majoritaire → "Bâti majoritaire : après 2020"', () => {
+    // 4 touchants sur 5 (0.80) ; 2 après 2020 (2025, 2030) = 2/4 = 0.50
+    expect(cartoucheImmobilier(5, champ(5, [2025, 2030, 1975, null]))).toBe('Bâti majoritaire : après 2020');
   });
   it('trigger OK + non-datés ≥ 50% des touchants → null', () => {
     const t = [...Array(18).fill(null), ...Array(8).fill(1900), ...Array(7).fill(1975)]; // 33 touchants, non daté 18/33 = 0.545
@@ -251,7 +259,7 @@ describe('cartoucheImmobilier — badge époque du bâti PAR FAISCEAU (descripti
   });
   it('tranche pile à 50% des touchants → affichée (frontière incluse, ≥)', () => {
     // 4 touchants sur nCone=5 (4/5 = 0.80 ≥ 0.70) ; 1850-1913 = 2/4 = 0.50
-    expect(cartoucheImmobilier(5, champ(5, [1900, 1880, 1975, null]))).toBe('De 1850 à 1913');
+    expect(cartoucheImmobilier(5, champ(5, [1900, 1880, 1975, null]))).toBe('Bâti majoritaire : 1850–1913');
   });
   it('sous le trigger 70% → null', () => {
     const t = Array(20).fill(1900); // 20/41 = 0.488 < 0.70
