@@ -377,6 +377,25 @@ function EcranResultat({
   onRefaireTest: () => void;
   onObtenirCertificat: () => void;
 }) {
+  const BADGES_MAX_H_REPLIE = 64; // ~2 lignes (pill ~28px + gap 8px)
+  const [badgesDeployes, setBadgesDeployes] = useState(false);
+  const [badgesDebordent, setBadgesDebordent] = useState(false);
+  const badgesInnerRef = useRef<HTMLDivElement>(null);
+
+  // reset : replié à chaque nouvelle analyse
+  useEffect(() => { setBadgesDeployes(false); }, [resultat]);
+
+  // mesure du débordement (conteneur interne = hauteur naturelle, sans clamp)
+  useEffect(() => {
+    const inner = badgesInnerRef.current;
+    if (!inner) return;
+    const mesurer = () =>
+      setBadgesDebordent(inner.scrollHeight > BADGES_MAX_H_REPLIE + 4);
+    mesurer();
+    window.addEventListener('resize', mesurer);
+    return () => window.removeEventListener('resize', mesurer);
+  }, [resultat]);
+
   const certifie = resultat.verdict.verdict === "SANS_VIS_A_VIS";
   const score = Math.round(resultat.score.total);
   const C = 2 * Math.PI * 44; // circonférence de la jauge (rayon 44)
@@ -406,6 +425,42 @@ function EcranResultat({
 
   return (
     <div className="flex flex-1 flex-col">
+      <style>{`
+    .svv-badges-clip {
+      overflow: hidden;
+      transition: max-height 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .svv-badges-toggle {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid var(--color-svv-line);
+      background: #fff;
+      color: var(--color-svv-ink);
+      font-size: 15px;
+      line-height: 1;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+    }
+    .svv-badges-toggle--bump {
+      animation: svvBadgesBump 1.6s ease-in-out infinite;
+    }
+    @keyframes svvBadgesBump {
+      0%, 60%, 100% { transform: scale(1); }
+      30% { transform: scale(1.18); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .svv-badges-clip { transition: none; }
+      .svv-badges-toggle--bump { animation: none; }
+    }
+  `}</style>
       {/* 1. EN-TÊTE — 7A rouge / 7B sombre ; bandeau haut, icône + titre 2 lignes centrés */}
       <div
         className={
@@ -504,12 +559,32 @@ function EcranResultat({
         <div className="mt-6">
           <p className="text-sm font-bold text-svv-ink">Qualité de votre vue</p>
           {badges.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {badges.map((b) => (
-                <span key={b} className="svv-pill">
-                  {b}
-                </span>
-              ))}
+            <div className="mt-2 relative">
+              <div
+                className="svv-badges-clip"
+                style={{
+                  maxHeight: badgesDeployes
+                    ? `${badgesInnerRef.current?.scrollHeight ?? 9999}px`
+                    : `${BADGES_MAX_H_REPLIE}px`,
+                }}
+              >
+                <div ref={badgesInnerRef} className="flex flex-wrap gap-2">
+                  {badges.map((b) => (
+                    <span key={b} className="svv-pill">{b}</span>
+                  ))}
+                </div>
+              </div>
+              {badgesDebordent && (
+                <button
+                  type="button"
+                  onClick={() => setBadgesDeployes((v) => !v)}
+                  aria-expanded={badgesDeployes}
+                  aria-label={badgesDeployes ? 'Réduire les badges' : 'Voir tous les badges'}
+                  className={`svv-badges-toggle${badgesDeployes ? '' : ' svv-badges-toggle--bump'}`}
+                >
+                  {badgesDeployes ? '−' : '+'}
+                </button>
+              )}
             </div>
           )}
         </div>
