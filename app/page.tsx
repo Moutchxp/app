@@ -19,7 +19,6 @@ import examples from "libphonenumber-js/examples.mobile.json";
 import {
   libelleScore,
   libelleOrientation,
-  libelleAmplitude,
   libelleCouverture,
   libelleMonuments,
   libelleProprete,
@@ -396,7 +395,6 @@ function EcranResultat({
   const badges = [
     resultat.contexteDegagement,
     resultat.contexteVueNature, // « vue nature » (null si non déclenchée → filtré)
-    libelleAmplitude(f1.amplitude),
     libelleOrientation(f1.detail.secteurOrientation),
     // Famille 2 — masquées si photo inexploitable (composantes dépendantes de l'IA)
     f2.scorePartiel ? null : libelleCouverture(f2.strate1),
