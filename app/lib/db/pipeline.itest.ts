@@ -37,7 +37,7 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
 
     // golden = note Couche 1 /80 (distances PERÇUES boostées F2/F3/F4 sur les 61 faisceaux).
     // Couche 2 (Exception) non implémentée → non ajoutée. Verdict (ci-dessus) inchangé.
-    // F4 additif boostF4=2.0 + fallback MNS (bâti BD TOPO sans hauteur → toit LiDAR, côté SCORE seul).
+    // F4 additif boostF4=2.5 + fallback MNS (bâti BD TOPO sans hauteur → toit LiDAR, côté SCORE seul).
     // Verdict (balayage) INCHANGÉ. (Avant fallback MNS : 27.390194425537956.)
     expect(resultat!.score.total).toBeCloseTo(25.44030853862166, 3);
   });

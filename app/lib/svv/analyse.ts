@@ -22,7 +22,7 @@ import {
   type ExtractionImmobilier,
   type ExtractionMonuments,
 } from './coucheDegagement';
-import { PROFIL_DEGAGEMENT_DEFAUT } from './profilDegagement';
+import { PROFIL_DEGAGEMENT_DEFAUT, type ProfilDegagement } from './profilDegagement';
 
 export interface EntreeComplete {
   // Contexte d'observation.
@@ -71,7 +71,10 @@ function distancePremierObstacleConfirme(
   return confirme ? confirme.distanceM : null;
 }
 
-export function analyser(entree: EntreeComplete): ResultatComplet {
+export function analyser(
+  entree: EntreeComplete,
+  profil: ProfilDegagement = PROFIL_DEGAGEMENT_DEFAUT,
+): ResultatComplet {
   // 1) Verdict géométrique pur.
   const verdict = premierObstacle(entree.obstaclesAxePrincipal, entree.altitudeFenetreM);
 
@@ -94,11 +97,11 @@ export function analyser(entree: EntreeComplete): ResultatComplet {
 
   // 5) Score affiché = Résultat B / Couche 1 (note de dégagement /80) sur les 61 faisceaux.
   //    Le verdict (calculé en 1) n'entre jamais ici ; Résultat A (f1) reste le constat factuel.
-  const score = scoreTotal(f1, f2, entree.faisceaux, entree.orientationAzimutDeg);
+  const score = scoreTotal(f1, f2, entree.faisceaux, entree.orientationAzimutDeg, profil);
 
   // 6) Cartouche de contexte « dégagement » — DESCRIPTIVE, sur les 61 faisceaux (score-only) ;
   //    n'entre NI dans le score NI dans le verdict.
-  const contexteDegagement = cartoucheDegagement(entree.faisceaux, PROFIL_DEGAGEMENT_DEFAUT);
+  const contexteDegagement = cartoucheDegagement(entree.faisceaux, profil);
 
   // 7) Cartouche « vue nature » — DESCRIPTIVE, score-only ; null si extraction absente (tests) ou non déclenchée.
   const contexteVueNature = entree.extractionVueNature

@@ -8,6 +8,7 @@
 import type { PointWgs84 } from "../svv/geo";
 import { hauteurVision, type ModeOrigine } from "../svv/config";
 import { analyser, type EntreeComplete, type ResultatComplet } from "../svv/analyse";
+import { chargerProfilDegagement } from "./profilConfig";
 import type { EntreeFamille2 } from "../svv/scorePaysage";
 import type { EntreePaysage } from "../svv/entreePaysage";
 import { validerOrigine, type ValidationOrigine } from "./origine";
@@ -168,8 +169,10 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
     paysage,
   };
 
-  // g) Analyse (Bloc A).
-  const resultat = analyser(entree);
+  // g) Analyse (Bloc A). Profil de pondération lu UNE SEULE FOIS par analyse (table
+  //    config_scoring, repli sur PROFIL_DEGAGEMENT_DEFAUT) puis passé en paramètre.
+  const profil = await chargerProfilDegagement();
+  const resultat = analyser(entree, profil);
 
   return { validation, resultat };
 }

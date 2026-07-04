@@ -16,7 +16,7 @@ import {
 import type { ScoreFamille1, FaisceauResultat } from './scoreDegagement';
 import type { ScorePaysage } from './entreePaysage';
 import { noteDegagement } from './coucheDegagement';
-import { PROFIL_DEGAGEMENT_DEFAUT } from './profilDegagement';
+import { PROFIL_DEGAGEMENT_DEFAUT, type ProfilDegagement } from './profilDegagement';
 
 /** Clé de libellé ; le texte affiché est une préoccupation de la couche UI. */
 export type LibelleScore = 'EXCEPTIONNELLE' | 'EXCELLENTE' | null;
@@ -34,13 +34,14 @@ export function scoreTotal(
   famille2: ScorePaysage,
   faisceaux: FaisceauResultat[],
   azimutDeg?: number,
+  profil: ProfilDegagement = PROFIL_DEGAGEMENT_DEFAUT,
 ): ScoreTotal {
   // Résultat B / Couche 1 — note de dégagement /80 (distances PERÇUES boostées par famille).
   // Les 20 du haut de l'échelle /100 sont réservés à la Couche 2 (Exception), NON implémentée →
   // NON ajoutés (aucun scaling artificiel). `famille1` (Résultat A factuel) et `famille2` (paysage,
   // future Couche 2) restent CALCULÉS et conservés pour audit, mais N'ALIMENTENT PLUS le total.
   // Le VERDICT est calculé en amont (analyser) et n'entre jamais ici.
-  const total = noteDegagement(faisceaux, PROFIL_DEGAGEMENT_DEFAUT, azimutDeg); // déjà clampé [0, plafondCouche1]
+  const total = noteDegagement(faisceaux, profil, azimutDeg); // déjà clampé [0, plafondCouche1]
   const scorePartiel = famille2.scorePartiel;
 
   let libelle: LibelleScore = null;
