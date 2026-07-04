@@ -414,11 +414,11 @@ function EcranResultat({
     distanceTxt.length <= 6 ? "text-3xl" : distanceTxt.length <= 10 ? "text-2xl" : "text-xl";
 
   const badges = [
+    libelleOrientation(f1.detail.secteurOrientation),
     resultat.contexteDegagement,
     resultat.contexteVueNature, // « vue nature » (null si non déclenchée → filtré)
     resultat.contexteImmobilier, // « environnement immobilier » (null si non déclenchée → filtré)
     ...(resultat.monumentsHistoriques ?? []), // 0..n badges « monument historique » (variante A)
-    libelleOrientation(f1.detail.secteurOrientation),
     // Famille 2 — masquées si photo inexploitable (composantes dépendantes de l'IA)
     f2.scorePartiel ? null : libelleCouverture(f2.strate1),
     f2.scorePartiel ? null : libelleMonuments(f2.strate2),
