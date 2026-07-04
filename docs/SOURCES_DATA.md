@@ -15,6 +15,7 @@
 | **BDNB** — `bdnb_annee_batiment` | **Année de construction** par `cleabs` | **IMPORTÉE** (table dédiée, **191 262 lignes**, **~76 % année non-null**, jointure `cleabs` **99,65 %**, dédup **`MIN(annee)`**) | Licence Ouverte Etalab | 2154 | `cleabs` → `bdtopo_batiment.cleabs` | Millésime **2026-02.a**. **Année ≠ style ≠ beauté** ; année issue des **Fichiers Fonciers** (approximation, parfois prédite). Alimente la **Famille 2** (ancien < 1900). |
 | **Parcs & jardins publics ouverts au public** (OCS GE, ministère de la Transition écologique / IGN) | Polygones de parcs, squares, jardins (`nature`, `date_ouv`…) | **IMPORT BLOQUÉ — source 92 à trouver** | Licence Ouverte Etalab v2.0 | **2154 confirmé** (Lambert-93) | Géométrique (`ST_Force2D` puis `ST_Intersection` / `ST_Length` faisceau ↔ polygone) | **Comble le trou parcs/squares urbains** de BD TOPO végétation (Square Gilbert-Thomain près du parc Denfert, **absent** de `bdtopo_vegetation`). ⚠️ **Téléchargement OCS GE par département ne couvre PAS la petite couronne** (D091–D095 = 0 fichier ; seuls D075/D077/D078 en IdF) → **pas d'extrait 92**. Donnée 92 présente dans le WMS IGN, mais harvest sur grille fragile/non déterministe → non retenu. Schéma confirmé via proxy **D075** (même produit). Alimente la **Famille 4** (nature). |
 | **Mérimée / POP** (immeubles protégés MH) — `monuments_historiques` | Monuments **classés / inscrits** (`ref` PAxxxx, `tico`, `deno`, `statut`, point) | **IMPORTÉE (dép. 92)** — **176 MH** (59 classés / 117 inscrits), **accroche `cleabs` 86,4 %** | Licence Ouverte Etalab | **2154** (reproj. WGS84→2154 à l'ingestion) | `cleabs` → `bdtopo_batiment.cleabs` (point→polygone : contenu, sinon KNN ≤ 15 m) | Point WGS84 (géocodage BAN approximatif) rattaché au bâti par proximité ; **24 perdus** (sans `cleabs`). Destiné à la **Famille 3** (remarquable/classé). **Dép. 92 seul — ne pas généraliser avant validation.** |
+| **Mérimée / POP** (**Inventaire général**, `ref` IAxxxx) — `inventaire_general` | Bâti **patrimonial étudié** (`deno`, `nom`, datation, `adresse`, `cada_ref`, point optionnel) | **SPEC FIGÉE — NON importée** (recon one-shot lecture seule ; **aucune table créée**) | **Licence Ouverte / Etalab 2.0** (mention de **paternité obligatoire** ; photos & textes rédactionnels **exclus** — droit d'auteur) | **2154** (reproj. 4326→2154) | `cleabs` → `bdtopo_batiment.cleabs` (chaîne **adresse → CADA → emprise max**, KNN ≤ 15 m) | Périmètre **92 (REF IA92)**. **Descriptif uniquement — jamais le verdict ni le score.** Rattachement mesuré **248/306 = 81,0 %**. Distinct des MH (`monuments_historiques` **scellée, non modifiée**). |
 | **OSM** | — | **Écartée** | Licence **incompatible** | — | — | Non utilisée (incompatibilité de licence avec un usage commercial propriétaire). |
 
 ## Détails par source en chantier
@@ -81,6 +82,111 @@
   hors tout bâti à 15 m — géocodage BAN approximatif). *Tolérance relevable si besoin ; non
   généralisé hors 92 avant validation.*
 - Destiné à la **Famille 3** (badge « monument historique » descriptif / boost remarquable).
+
+### Bâti patrimonial — Inventaire général (Mérimée / POP) — SPEC FIGÉE (non importée)
+
+> Décisions arbitrées et **figées** en session de reconnaissance (lecture seule, aucun import).
+> Cette section **documente** la brique d'import à venir. **Aucune table n'a été créée**, aucun
+> import lancé. Périmètre **strictement descriptif** : n'alimente **jamais** le verdict binaire ni
+> le score de qualité de vue. **Distinct des monuments historiques** — la table
+> `monuments_historiques` (MH, `ref` PAxxxx) est **scellée et non modifiée**, le golden reste intact.
+
+**Source & canal.** Base **Mérimée**, **domaine Inventaire général** (`ref` commençant par `IA`). Canal
+= **export POP** (`api.pop.culture.gouv.fr` : `search/advanced` pour la requête, puis
+`notice-export/sync/public` pour l'export), format **XLSX**. ⚠️ Le portail `data.culture.gouv.fr`
+n'expose **que le sous-ensemble MH** (`PA`) — il **ne contient pas** l'Inventaire ; le fonds `IA`
+provient uniquement de POP.
+
+**Licence.** **Licence Ouverte / Etalab 2.0** — **mention de paternité obligatoire**. Les **photographies
+et textes rédactionnels** des notices sont **exclus** (droit d'auteur) : on n'ingère que les **données
+factuelles** (référence, dénomination, localisation, datation, cadastre).
+
+**Périmètre.** Courant : **dép. 92** (filtre `REF` commence par `IA92`). Replay prévu **Paris + petite
+couronne** : `IA75` / `IA92` / `IA93` / `IA94` (même pipeline, changer le préfixe).
+
+**Filtre « bâti » (DENO + DOSS).** On ne garde que le seau **BÂTI** (**306** notices sur le 92). Sont
+**exclus** :
+- **ESPACE_VERT** (parc, jardin, square, promenade, verger…) — **doublon de la famille nature**,
+  **jamais réinjecté** ici.
+- **COLLECTIF / ÉTUDE** — aires d'étude, présentations de commune/opération, `DOSS` = *dossier
+  collectif* / *présentation…*, `DENO` = *ville* / *lotissement* / *ensemble*.
+- **MONUMENT / FUNÉRAIRE** — tombeau, chapelle funéraire, monument aux morts, cimetière, croix.
+
+**Mapping des champs POP → schéma cible.**
+
+| Champ POP (code) | Colonne cible | Note |
+|---|---|---|
+| `REF` | `ref` | identifiant notice `IAxxxxxxxxx` |
+| `DENO` | `deno` | dénomination (peut être multivaluée ` ; `) |
+| `TICO` / `EDIF` | `nom` | titre courant / nom de l'édifice |
+| `WEB` (INSEE) sinon `LOCA` | `commune_insee` | INSEE si présent, sinon parsé de `LOCA` après le `(92)` |
+| `DATE` / `SCLE` | `datation` | année(s) / siècle(s) de construction |
+| `ADRS` | `adresse` | adresse d'origine (parsée pour le géocodage) |
+| `CADA` | `cada_ref` | références cadastrales (année d'édition ignorée) |
+| `POP_COORDONNEES` (LAT/LON) | `geom_point` | **point optionnel — JAMAIS source primaire** (renseigné ~5,6 %) |
+
+Reprojection des coordonnées **4326 → 2154** (Lambert-93) à l'ingestion.
+
+**Schéma cible `inventaire_general`** (relation **1 notice → N bâtis** ; une notice sur une parcelle
+multi-bâtis peut porter plusieurs `cleabs`) :
+
+| Colonne | Type | Note |
+|---|---|---|
+| `ref` | text | référence notice `IAxxxx` |
+| `cleabs` | text **nullable** | bâti BD TOPO rattaché (`NULL` = non rattaché) |
+| `statut` | text | constante `'bati_patrimonial'` |
+| `deno`, `nom`, `commune_insee`, `datation`, `adresse`, `cada_ref` | text | cf. mapping |
+| `mode_rattachement` | text | `num_exact` \| `voisin_2` \| `cada_1bati` \| `cada_max_emprise` \| `point_parcelle` |
+| `dist_m` | double | distance point→bâti retenu (m) |
+| `desamb_serree` | bool | `true` si écart emprise max/2e **< 15 %** (cas limite) |
+| `badge_actif` | bool | **DEFAULT `true`** (filtrage d'affichage, cf. plus bas) |
+| `geom_point` | `geometry(Point, 2154)` | point de géocodage (optionnel) |
+
+- **Clé primaire `(ref, cleabs)`** — supporte le multi-badge (un `ref` → plusieurs `cleabs`).
+  *(Note d'implémentation : les notices non rattachées ont `cleabs` NULL et `badge_actif=false` ; à
+  cadrer au moment de l'import — hors périmètre de cette doc.)*
+
+**Chaîne de rattachement — ordre FIGÉ.**
+1. **Adresse** — normalisation de voie (`unaccent` + `pg_trgm` : minuscule, expansion d'abréviations
+   av→avenue, bd→boulevard, st→saint…), **numéro exact** sinon **voisin ±2** sur la même voie,
+   **multi-adresses éclatées** (chaque `(n°, voie)` tenté dans l'ordre). Point BAN → **`ST_Contains`**
+   d'un bâti, sinon **KNN `<->` ≤ 15 m**. → `mode_rattachement` = `num_exact` / `voisin_2`.
+2. **CADA → parcelle → 1 bâti** — réf cadastrale → `parcelle` (`commune` INSEE + `section` + `numero`)
+   → si **exactement 1 bâti** contenu (point-sur-surface dans la parcelle). → `cada_1bati`.
+3. **CADA multi-bâtis → plus grande emprise** — badge le bâti de **`ST_Area(geom)` max** ; **égalité
+   stricte du max → tous les ex æquo** (multi-badge). Écart **max vs 2e < 15 % → `desamb_serree=true`**.
+   → `cada_max_emprise`.
+4. **Bonus point-dans-parcelle** — notice sans CADA exploitable mais avec `POP_COORDONNEES` non nul :
+   point → parcelle → même règle « 1 bâti unique ». → `point_parcelle`.
+5. **Sinon exclusion.** **JAMAIS de centroïde de voie.** **Tolérance 15 m verrouillée** (miroir du
+   rattachement MH ; non négociable sans revalidation).
+
+**Résultats mesurés (recon dép. 92, sur 306 bâti).**
+
+| Étape | + rattachés | Cumul | % |
+|---|---|---|---|
+| Adresse (`num_exact` / `voisin_2`) | 221 | 221 | **72,2 %** |
+| CADA → 1 bâti (+ bonus point) | +11 | 232 | **75,8 %** |
+| CADA multi-bâtis → emprise max | +16 | **248** | **81,0 %** |
+
+- **Résidu 58** = **3** CADA parcelle **0 bâti** + **21** CADA **sans parcelle** trouvable + **34**
+  **sans CADA** (édifices sur **place sans numéro** : églises, gares, fontaines, mairies).
+- **`desamb_serree` = 2 cas** : `IA92000144` (complexe sportif, 649 vs 645 m², écart 1 %) et
+  `IA92000247` (ermitage/couvent, 1509 vs 1341 m², écart 11 %) — « emprise max » peut se tromper de
+  corps → à passer en revue manuelle si besoin. **0 multi-badge** (aucune égalité stricte d'aire en
+  pratique).
+
+**Filtrage d'affichage — prévu mais INACTIF.** Colonne `badge_actif` (**`true` partout aujourd'hui**)
++ table `deno_affichage(deno, affichable)` **vide** → **liste blanche totale** : **toutes les
+catégories sont affichées**. Mécanisme purement **descriptif**, prêt à restreindre l'affichage
+ultérieurement sans migration.
+
+**Garde-fous (rappel).**
+- **Descriptif uniquement** — n'entre **jamais** dans le **verdict binaire** ni dans le **score de
+  qualité de vue**.
+- **Golden intact**, **MH hors périmètre** : `monuments_historiques` **non modifiée**.
+- Recon **100 % lecture seule** ; extensions `unaccent`/`pg_trgm` activées en **schéma scratch dédié
+  puis supprimé** — **base prod inchangée**.
 
 ## Limite générale du moteur de verdict (décidée)
 
