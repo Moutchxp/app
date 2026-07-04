@@ -49,3 +49,45 @@ Exemple (MH, cône, 150 m réels dont 100 m nature) :
 - Coefficients F2 (pré-1900 ×1.30) / F3 existants → éviter le double comptage
   avec les nouvelles lignes ≤1900 / 1901–1935.
 - Dépendance golden Asnières (25.44030853862166).
+
+## Cartographie du moteur existant (recon lecture seule)
+- Cœur : distancePercueFaisceau (coucheDegagement.ts:42-82) construit des candidats
+  de distance par faisceau et garde le MAX (modeCombinaison='max', coucheDegagement.ts:68-70).
+- F1 base : distance réelle plafonnée à distanceMaxM=200.
+- F2 pré-1900 : distance × (1 + boostF2), boostF2=0.3 → ×1.30, plafond 200.
+  Déclencheur : impactAncien (année < 1900 via bdnb_annee_batiment).
+- F3 remarquable : forfait selon position — forfaitConeCentral=300 (cône),
+  forfaitExtremites=200 (flancs), cône = coneF3DemiAngleDeg=60. Distance ignorée.
+  naturesRemarquables = ['Eglise','Monument','Chapelle','Château','Tour, donjon','Arc de triomphe'].
+- F4 nature : base + boostF4 × natureTraverseeM, boostF4=2.5, plafond 200.
+- Assemblage : noteDegagement (coucheDegagement.ts:181-199) somme les 61 faisceaux,
+  retire malus couloir, / (61 × distanceMaxM), × plafondDegagement=80, + orientation
+  (bande 80→90), clamp plafondCouche1=90.
+- Golden : pipeline.itest.ts, Asnières 25.44030853862166, dépend de tout ce chemin
+  (F4 nature entre dedans → toute modif de pondération le fait bouger).
+- CONFIG : tout en dur dans PROFIL_DEGAGEMENT_DEFAUT (profilDegagement.ts:41-57), objet
+  TS littéral. MAIS distancePercueFaisceau et noteDegagement reçoivent déjà le profil
+  en PARAMÈTRE → point d'injection pour une table de config runtime.
+- Note : commentaire golden dit boostF4=2.0 alors que profil réel = 2.5. À vérifier
+  à l'implémentation.
+
+## Points de vigilance
+- DOUBLE COMPTAGE F2 : les lignes barème "≤1900" et "1901-1935" recoupent le boostF2
+  existant (×1.30). Décision à acter : le barème REMPLACE le boostF2 ou coexiste.
+- AUCUNE distinction cône/flanc dans le scoring aujourd'hui (sauf forfait F3). Le barème
+  cône/flanc est une nouveauté : il faut propager offsetDeg dans le calcul par faisceau.
+
+## Plan d'implémentation (3 étapes, moteur en dernier, commits séparés)
+1. Externaliser PROFIL_DEGAGEMENT_DEFAUT en TABLE DE CONFIG, avec les valeurs
+   ACTUELLES à l'identique → comportement inchangé → golden identique (à vérifier).
+   Fondation de l'interface d'édition future. SAFE.
+2. Réécrire distancePercueFaisceau : règle de cumul (P1 capé 200 + P2 = bâti×coeff/diviseur
+   nature), distinction cône/flanc, distances max par famille, patrimoine mondial=800,
+   remplacement du max. → GOLDEN CHANGE : recalcul + vérif main + rescellage en commit séparé.
+3. Brancher les nouvelles familles (inventaire_general, monuments) sur le calcul par faisceau.
+
+## Exigence transverse
+TOUTES les variables du moteur de scoring (coefficients, distances max, bornes du
+diviseur, forfaits, seuils cône, plafonds) doivent être configurables via une INTERFACE
+FUTURE sans toucher au code → stockage en table de config lue au runtime. C'est l'objectif
+de l'étape 1 et la contrainte de conception de tout le reste.
