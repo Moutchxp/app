@@ -82,17 +82,18 @@ interface LigneFamille {
   annee: number | string | null;
   is_mh: boolean;
   is_inv: boolean;
+  is_emblematique: boolean;
 }
 
 /**
- * Enrichit `impactAnnee` / `impactMH` / `impactInventaire` de chaque faisceau à partir de son
- * `impactCleabs`, en UN seul SELECT (LECTURE SEULE). `impactEmblematique` reste false (table à venir).
- * Aucune écriture ; ne touche PAS monuments_historiques ni inventaire_general (jointures seules).
+ * Enrichit `impactAnnee` / `impactMH` / `impactInventaire` / `impactEmblematique` de chaque faisceau
+ * à partir de son `impactCleabs`, en UN seul SELECT (LECTURE SEULE). Aucune écriture ; jointures seules
+ * (monuments_historiques, inventaire_general, monument_emblematique_batiment).
  */
 async function enrichirFamilles(resultats: FaisceauResultat[]): Promise<void> {
   const cleabs = [...new Set(resultats.map((r) => r.impactCleabs).filter((c): c is string => !!c))];
   resultats.forEach((r) => {
-    r.impactEmblematique = false; // Patrimoine mondial : table absente → jamais aujourd'hui.
+    r.impactEmblematique = false; // défaut : aucun bâti heurté, ou cleabs hors familles.
   });
   if (cleabs.length === 0) return;
 
@@ -100,7 +101,10 @@ async function enrichirFamilles(resultats: FaisceauResultat[]): Promise<void> {
     `SELECT t.cleabs,
             (SELECT annee_construction FROM bdnb_annee_batiment WHERE cleabs = t.cleabs LIMIT 1) AS annee,
             EXISTS (SELECT 1 FROM monuments_historiques WHERE cleabs = t.cleabs)                 AS is_mh,
-            EXISTS (SELECT 1 FROM inventaire_general    WHERE cleabs = t.cleabs AND badge_actif)  AS is_inv
+            EXISTS (SELECT 1 FROM inventaire_general    WHERE cleabs = t.cleabs AND badge_actif)  AS is_inv,
+            EXISTS (SELECT 1 FROM monument_emblematique_batiment meb
+                    JOIN monuments_emblematiques me ON me.id = meb.monument_id
+                    WHERE meb.cleabs = t.cleabs AND me.actif = true)                             AS is_emblematique
      FROM unnest($1::text[]) AS t(cleabs)`,
     [cleabs],
   );
@@ -112,5 +116,6 @@ async function enrichirFamilles(resultats: FaisceauResultat[]): Promise<void> {
     r.impactAnnee = info.annee == null ? null : Number(info.annee);
     r.impactMH = info.is_mh;
     r.impactInventaire = info.is_inv;
+    r.impactEmblematique = info.is_emblematique;
   });
 }
