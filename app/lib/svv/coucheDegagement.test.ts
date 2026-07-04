@@ -20,13 +20,24 @@ describe('distancePercueFaisceau — F1 base', () => {
   });
 });
 
-describe('distancePercueFaisceau — F2 (avant 1900)', () => {
-  it('ancien à 100 m → 100 × 1.30 = 130', () => {
-    const r = distancePercueFaisceau(f({ distanceObstacleM: 100, impactAncien: true }), P);
-    expect(r).toBe(130);
+describe('distancePercueFaisceau — familles ANNÉE (Étape 2 ; remplace F2 boostF2)', () => {
+  it('≤1900 dans le cône → 100 × 1.5 = 150 (capé distMax 300)', () => {
+    expect(distancePercueFaisceau(f({ distanceObstacleM: 100, offsetDeg: 0, impactAnnee: 1880 }), P)).toBe(150);
   });
-  it('ancien sans distance (dégagé) → pas de F2, reste base 200', () => {
-    expect(distancePercueFaisceau(f({ distanceObstacleM: null, impactAncien: true }), P)).toBe(200);
+  it('1901–1935 dans le cône → 100 × 1.2 = 120', () => {
+    expect(distancePercueFaisceau(f({ distanceObstacleM: 100, offsetDeg: 0, impactAnnee: 1920 }), P)).toBe(120);
+  });
+  it('1901–1935 sur le flanc (offset 80) → 100 × 1.1 = 110', () => {
+    expect(distancePercueFaisceau(f({ distanceObstacleM: 100, offsetDeg: 80, impactAnnee: 1920 }), P)).toBeCloseTo(110, 10);
+  });
+  it('année > 1935 → ordinaire, pas de pondération (reste 100)', () => {
+    expect(distancePercueFaisceau(f({ distanceObstacleM: 100, offsetDeg: 0, impactAnnee: 1970 }), P)).toBe(100);
+  });
+  it('année sans distance (dégagé) → base 200 (aucune famille sans obstacle)', () => {
+    expect(distancePercueFaisceau(f({ distanceObstacleM: null, impactAnnee: 1880 }), P)).toBe(200);
+  });
+  it('impactAncien seul (sans impactAnnee) n’est plus consulté → ordinaire (100)', () => {
+    expect(distancePercueFaisceau(f({ distanceObstacleM: 100, impactAncien: true }), P)).toBe(100);
   });
 });
 
@@ -41,35 +52,41 @@ describe('distancePercueFaisceau — F4 (nature traversée)', () => {
   });
 });
 
-describe('distancePercueFaisceau — F3 (monument remarquable, forfait)', () => {
-  it('dans le cône (offset 0) → 300', () => {
-    const r = distancePercueFaisceau(f({ distanceObstacleM: 100, offsetDeg: 0, impactNature: 'Eglise' }), P);
-    expect(r).toBe(300);
+describe('distancePercueFaisceau — familles MH / Inventaire (Étape 2 ; remplace F3 forfait)', () => {
+  it('MH dans le cône → 100 × 2.0 = 200 (capé distMax 400)', () => {
+    expect(distancePercueFaisceau(f({ distanceObstacleM: 100, offsetDeg: 0, impactMH: true }), P)).toBe(200);
   });
-  it('hors cône (offset 80) → 200', () => {
-    const r = distancePercueFaisceau(f({ distanceObstacleM: 100, offsetDeg: 80, impactNature: 'Château' }), P);
-    expect(r).toBe(200);
+  it('MH sur le flanc (offset 80) → 100 × 1.5 = 150', () => {
+    expect(distancePercueFaisceau(f({ distanceObstacleM: 100, offsetDeg: 80, impactMH: true }), P)).toBe(150);
   });
-  it('nature NON remarquable (Indifférenciée) → pas de F3', () => {
-    const r = distancePercueFaisceau(f({ distanceObstacleM: 100, impactNature: 'Indifférenciée' }), P);
-    expect(r).toBe(100);
+  it('Inventaire dans le cône → 100 × 2.0 = 200', () => {
+    expect(distancePercueFaisceau(f({ distanceObstacleM: 100, offsetDeg: 0, impactInventaire: true }), P)).toBe(200);
+  });
+  it('ancien F3 (impactNature remarquable) n’est plus consulté → ordinaire (100)', () => {
+    expect(distancePercueFaisceau(f({ distanceObstacleM: 100, impactNature: 'Eglise' }), P)).toBe(100);
   });
 });
 
-describe('distancePercueFaisceau — mode max (combinaison)', () => {
-  it('ancien (F2=130) ET nature (F4 additif 100+2.5×50=225 → clampé 200) → max = 200 (F4 domine)', () => {
-    const r = distancePercueFaisceau(
-      f({ distanceObstacleM: 100, impactAncien: true, natureTraverseeM: 50 }),
-      P,
-    );
+describe('distancePercueFaisceau — priorité de famille + cumul nature (Étape 2)', () => {
+  it('priorité : MH gagne sur année (MH + 1880 → coeff MH 2.0, pas 1.5)', () => {
+    const r = distancePercueFaisceau(f({ distanceObstacleM: 100, offsetDeg: 0, impactMH: true, impactAnnee: 1880 }), P);
+    expect(r).toBe(200); // 100 × 2.0 (MH), l'année ne s'applique pas
+  });
+  it('Patrimoine mondial → faisceau fixe 800, aucun calcul', () => {
+    const r = distancePercueFaisceau(f({ distanceObstacleM: 100, offsetDeg: 0, impactEmblematique: true, impactMH: true }), P);
+    expect(r).toBe(800);
+  });
+  it('cumul nature + MH cône : P1=200, div(50)=1.5, P2=100×2/1.5 → 200 + 133.33 = 333.33 (capé 400)', () => {
+    const r = distancePercueFaisceau(f({ distanceObstacleM: 100, offsetDeg: 0, impactMH: true, natureTraverseeM: 50 }), P);
+    expect(r).toBeCloseTo(200 + (100 * 2.0) / 1.5, 10); // 333.3333…
+  });
+  it('cumul capé à distMax famille : 1901–1935 (distMax 200) reste ≤ 200', () => {
+    const r = distancePercueFaisceau(f({ distanceObstacleM: 100, offsetDeg: 0, impactAnnee: 1920, natureTraverseeM: 50 }), P);
     expect(r).toBe(200);
   });
-  it('F3 cône (300) ET F2 (130) → max = 300', () => {
-    const r = distancePercueFaisceau(
-      f({ distanceObstacleM: 100, offsetDeg: 0, impactNature: 'Monument', impactAncien: true }),
-      P,
-    );
-    expect(r).toBe(300);
+  it('bâti ordinaire + nature → calcul classique (base + F4), inchangé', () => {
+    const r = distancePercueFaisceau(f({ distanceObstacleM: 50, natureTraverseeM: 50 }), P);
+    expect(r).toBe(175); // 50 + 2.5×50
   });
 });
 

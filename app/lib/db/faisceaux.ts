@@ -15,6 +15,7 @@ import { premierObstacle } from "../svv/verdict";
 import type { FaisceauResultat } from "../svv/scoreDegagement";
 import { obstaclesSurAxe, natureTraverseeParFaisceau } from "./obstacles";
 import { ANALYSIS_RANGE_M } from "../svv/config";
+import { query } from "./client";
 
 export interface ParametresFaisceaux {
   point: PointWgs84;
@@ -68,5 +69,48 @@ export async function faisceauxAmplitude(
     r.natureTraverseeM = naturesM[i];
   });
 
+  // Étape 2 — enrichissement familial du 1er obstacle (LECTURE SEULE, un seul round-trip).
+  // Pour chaque cleabs heurté : année (bdnb), présence MH (monuments_historiques),
+  // présence Inventaire (inventaire_general, badge actif). N'altère NI distanceObstacleM NI le verdict.
+  await enrichirFamilles(resultats);
+
   return resultats;
+}
+
+interface LigneFamille {
+  cleabs: string;
+  annee: number | string | null;
+  is_mh: boolean;
+  is_inv: boolean;
+}
+
+/**
+ * Enrichit `impactAnnee` / `impactMH` / `impactInventaire` de chaque faisceau à partir de son
+ * `impactCleabs`, en UN seul SELECT (LECTURE SEULE). `impactEmblematique` reste false (table à venir).
+ * Aucune écriture ; ne touche PAS monuments_historiques ni inventaire_general (jointures seules).
+ */
+async function enrichirFamilles(resultats: FaisceauResultat[]): Promise<void> {
+  const cleabs = [...new Set(resultats.map((r) => r.impactCleabs).filter((c): c is string => !!c))];
+  resultats.forEach((r) => {
+    r.impactEmblematique = false; // Patrimoine mondial : table absente → jamais aujourd'hui.
+  });
+  if (cleabs.length === 0) return;
+
+  const res = await query<LigneFamille>(
+    `SELECT t.cleabs,
+            (SELECT annee_construction FROM bdnb_annee_batiment WHERE cleabs = t.cleabs LIMIT 1) AS annee,
+            EXISTS (SELECT 1 FROM monuments_historiques WHERE cleabs = t.cleabs)                 AS is_mh,
+            EXISTS (SELECT 1 FROM inventaire_general    WHERE cleabs = t.cleabs AND badge_actif)  AS is_inv
+     FROM unnest($1::text[]) AS t(cleabs)`,
+    [cleabs],
+  );
+  const parCleabs = new Map<string, LigneFamille>(res.rows.map((row) => [row.cleabs, row]));
+  resultats.forEach((r) => {
+    if (!r.impactCleabs) return;
+    const info = parCleabs.get(r.impactCleabs);
+    if (!info) return;
+    r.impactAnnee = info.annee == null ? null : Number(info.annee);
+    r.impactMH = info.is_mh;
+    r.impactInventaire = info.is_inv;
+  });
 }

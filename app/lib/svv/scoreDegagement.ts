@@ -66,6 +66,19 @@ export interface FaisceauResultat {
    * coucheDegagement.ts. N'affecte NI le verdict NI le Résultat A.
    */
   impactAncien?: boolean;
+  /**
+   * Étape 2 — appartenance familiale du 1er obstacle (cleabs), pour le barème de pondération.
+   * Renseignés par l'enrichissement DB (lecture seule) ; `undefined`/`false` = non concerné.
+   * N'affectent NI le verdict NI le Résultat A.
+   */
+  /** F0 — Patrimoine mondial (monuments emblématiques). Table à venir → toujours false aujourd'hui. */
+  impactEmblematique?: boolean;
+  /** Monument Historique (monuments_historiques rattaché par cleabs). */
+  impactMH?: boolean;
+  /** Bâti patrimonial Inventaire IA (inventaire_general, cleabs, badge actif). */
+  impactInventaire?: boolean;
+  /** Année de construction du 1er obstacle (bdnb_annee_batiment) ; `null`/`undefined` si inconnue. */
+  impactAnnee?: number | null;
 }
 
 export interface EntreeFamille1 {

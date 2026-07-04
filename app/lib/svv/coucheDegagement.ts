@@ -9,7 +9,7 @@
  */
 import type { FaisceauResultat } from './scoreDegagement';
 import { azimutVersSecteur } from './scoreDegagement';
-import type { ProfilDegagement } from './profilDegagement';
+import type { ProfilDegagement, FamilleCoeff } from './profilDegagement';
 import {
   ORIENTATION_PTS,
   CONE_VUE_NATURE_DEG,
@@ -30,55 +30,72 @@ const SEUIL_FACE_M = 70; // percée frontale des 5 faisceaux centraux
 const SEUIL_LATERAL_DENT_M = 6; // largeur latérale d'une « dent creuse »
 
 /**
- * Distance PERÇUE d'un faisceau (m) selon la/les famille(s) déclenchée(s) et le profil.
+ * Diviseur de la Partie 2 (cumul nature) selon la longueur de nature traversée.
+ * < seuilMinM → 1,0 (pas de division) ; sinon min(plafond, 1 + increment × floor((nature − baseM)/pasM)).
+ */
+function diviseurCumulNature(natureM: number, c: ProfilDegagement['cumulNature']): number {
+  if (natureM < c.seuilMinM) return 1.0;
+  return Math.min(c.plafond, 1.0 + c.increment * Math.floor((natureM - c.baseM) / c.pasM));
+}
+
+/**
+ * Famille pondérée PRIORITAIRE du bâti heurté (première qui matche ; jamais de cumul de familles) :
+ * MH → Inventaire → année ≤1900 → année 1901–1935. `null` = bâti ordinaire (aucune pondération).
+ * (Patrimoine mondial est traité en amont dans distancePercueFaisceau : faisceau fixe.)
+ */
+function familleCoeff(f: FaisceauResultat, profil: ProfilDegagement): FamilleCoeff | null {
+  const F = profil.famillesPonderation;
+  if (f.impactMH === true) return F.mh;
+  if (f.impactInventaire === true) return F.inventaire;
+  const annee = f.impactAnnee;
+  if (typeof annee === 'number') {
+    if (annee <= 1900) return F.ancien1900;
+    if (annee <= 1935) return F.ancien1935; // 1901–1935 (annee > 1900 déjà écarté ci-dessus)
+  }
+  return null;
+}
+
+/**
+ * Distance PERÇUE d'un faisceau (m) — barème de pondération PAR FAMILLE (Étape 2, remplace le max).
  *
- * - F1 (toujours) : base factuelle = min(distanceObstacleM ?? distanceMaxM, distanceMaxM).
- * - F2 (impactAncien && distanceObstacleM != null) : min(distance × (1 + boostF2), distanceMaxM).
- * - F3 (impactNature ∈ naturesRemarquables) : forfait coneCentral / extremites (peut dépasser distanceMaxM).
- * - F4 (natureTraverseeM > 0) : ADDITIF — min(base + boostF4 × longueur, distanceMaxM).
+ * 1. Une SEULE famille s'applique, par priorité (familleCoeff) ; jamais de cumul de familles.
+ *    - Patrimoine mondial (impactEmblematique) → faisceau FIXE (mondialFaisceauM), STOP.
+ *    - MH / Inventaire / ≤1900 / 1901–1935 → coeff cône (|offset| ≤ coneFamilleDemiAngleDeg) ou flanc.
+ *    - Bâti ordinaire (ou faisceau dégagé) → calcul CLASSIQUE : base F1 + F4 nature, capé distanceMaxM.
+ * 2. Cumul nature + bâti (famille pondérée ET natureTraverseeM > 0) :
+ *      P1 = valeur classique (base + F4 nature), capée cumulNature.capP1M.
+ *      P2 = (distanceReelle × coeff) / diviseurCumulNature(nature).
+ *      total = min(P1 + P2, distMax famille).
+ *    Sans nature devant une famille pondérée : min(distanceReelle × coeff, distMax famille).
  *
- * F1 étant toujours déclenchée, le résultat ne descend jamais sous la base factuelle.
+ * N'affecte NI le verdict NI le Résultat A. `modeCombinaison`/`boostF2`/F3-forfait ne sont plus
+ * consultés ici (l'année remplace boostF2 ; MH/Inventaire remplacent le forfait remarquable).
  */
 export function distancePercueFaisceau(f: FaisceauResultat, profil: ProfilDegagement): number {
   const { distanceMaxM } = profil;
 
-  // F1 — base factuelle (toujours déclenchée) : distance réelle bornée à la portée.
+  // F1 base + F4 nature (calcul classique, capé à la portée globale) — bâti ordinaire ET Partie 1.
   const base = Math.min(f.distanceObstacleM ?? distanceMaxM, distanceMaxM);
-  const candidates: number[] = [base];
+  const natureM = f.natureTraverseeM ?? 0;
+  const valeurClassique = natureM > 0 ? Math.min(base + profil.boostF4 * natureM, distanceMaxM) : base;
 
-  // F2 — bâti avant 1900 : nécessite une distance d'impact réelle.
-  if (f.impactAncien === true && f.distanceObstacleM != null) {
-    candidates.push(Math.min(f.distanceObstacleM * (1 + profil.boostF2), distanceMaxM));
-  }
+  // Patrimoine mondial : faisceau fixe, aucun autre calcul.
+  if (f.impactEmblematique === true) return profil.famillesPonderation.mondialFaisceauM;
 
-  // F3 — monument remarquable : forfait selon position (cône central / extrémités), distance ignorée.
-  if (f.impactNature != null && profil.naturesRemarquables.includes(f.impactNature)) {
-    candidates.push(
-      Math.abs(f.offsetDeg) <= profil.coneF3DemiAngleDeg
-        ? profil.forfaitConeCentral
-        : profil.forfaitExtremites,
-    );
-  }
+  const dist = f.distanceObstacleM;
+  const fam = familleCoeff(f, profil);
+  if (fam === null || dist === null) return valeurClassique; // ordinaire / dégagé → classique.
 
-  // F4 — nature traversée : ADDITIF sur la base factuelle (la nature S'AJOUTE à la distance réelle).
-  if (f.natureTraverseeM != null && f.natureTraverseeM > 0) {
-    candidates.push(Math.min(base + profil.boostF4 * f.natureTraverseeM, distanceMaxM));
-  }
+  const coeff = Math.abs(f.offsetDeg) <= profil.coneFamilleDemiAngleDeg ? fam.cone : fam.flanc;
 
-  switch (profil.modeCombinaison) {
-    case 'max':
-      return Math.max(...candidates);
-    case 'addition': {
-      // (NON activé) base + somme des gains de chaque famille déclenchée, borné à la portée.
-      const gains = candidates.slice(1).reduce((acc, c) => acc + Math.max(0, c - base), 0);
-      return Math.min(base + gains, distanceMaxM);
-    }
-    case 'sequentiel':
-      // (NON activé) sémantique à fixer en calibration (boosts en chaîne) ; repli sûr sur le max.
-      return Math.max(...candidates);
-    default:
-      return Math.max(...candidates);
+  if (natureM > 0) {
+    // Cumul nature + bâti.
+    const p1 = Math.min(valeurClassique, profil.cumulNature.capP1M);
+    const p2 = (dist * coeff) / diviseurCumulNature(natureM, profil.cumulNature);
+    return Math.min(p1 + p2, fam.distMaxM);
   }
+  // Famille sans nature devant : distance réelle × coeff, capée distMax famille.
+  return Math.min(dist * coeff, fam.distMaxM);
 }
 
 // ============================ Couloir (mur longeant l'axe) ============================
