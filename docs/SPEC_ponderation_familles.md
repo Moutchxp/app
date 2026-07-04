@@ -91,3 +91,21 @@ TOUTES les variables du moteur de scoring (coefficients, distances max, bornes d
 diviseur, forfaits, seuils cône, plafonds) doivent être configurables via une INTERFACE
 FUTURE sans toucher au code → stockage en table de config lue au runtime. C'est l'objectif
 de l'étape 1 et la contrainte de conception de tout le reste.
+
+## Règle de priorité de famille (UNE SEULE pondération par bâti)
+Un polygone appartient à une seule famille pour le scoring, par ordre de priorité
+décroissant. La première qui matche gagne, les autres NE s'appliquent PAS (jamais de cumul) :
+1. Patrimoine mondial (si présent → faisceau = 800, aucun autre calcul)
+2. Monument Historique (classé ou inscrit)
+3. Bâti patrimonial (Inventaire IA, inventaire_general)
+4. Année de construction (≤1900 ×1.5 / 1901–1935 ×1.2) — UNIQUEMENT si le bâti
+   n'appartient à aucune des familles 1 à 3.
+
+Conséquence : dès qu'un bâti porte un statut patrimonial (mondial / MH / Inventaire),
+les pondérations d'ANNÉE DE CONSTRUCTION ne s'appliquent pas. L'année ne joue que
+pour le bâti "ordinaire" sans statut patrimonial.
+
+Implication code : remplace l'empilement de candidats (max actuel) par une
+détermination de la famille prioritaire du bâti, puis application d'UN SEUL coeff.
+Dans la règle de cumul nature+bâti (Partie 2 = bâti × coeff / diviseur), le coeff
+utilisé est celui de la famille prioritaire — un seul, jamais deux.
