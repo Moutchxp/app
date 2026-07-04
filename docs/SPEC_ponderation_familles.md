@@ -109,3 +109,68 @@ Implication code : remplace l'empilement de candidats (max actuel) par une
 détermination de la famille prioritaire du bâti, puis application d'UN SEUL coeff.
 Dans la règle de cumul nature+bâti (Partie 2 = bâti × coeff / diviseur), le coeff
 utilisé est celui de la famille prioritaire — un seul, jamais deux.
+
+## Colonnes de config non consultées au calcul
+
+L'Étape 2 (barème par famille) a rendu inertes plusieurs colonnes de `config_scoring`
+héritées du modèle précédent (F2 boost / F3 forfait / mode de combinaison). Elles sont
+restées physiquement en table, mais ne sont plus lues nulle part dans le calcul du score.
+
+### Colonnes vestigiales (mortes, prouvé par grep)
+
+| Colonne | Clé profil | Remplacée par / raison de la mort | Grep (où elle apparaît encore) |
+|---|---|---|---|
+| `boost_f2` | `boostF2` | Barème année (option A : ≤1900 ×1.5 / 1901–1935 ×1.2) remplace le boost pré-1900 | type/défaut (`profilDegagement.ts`) + loader (`profilConfig.ts`) uniquement |
+| `forfait_cone_central` | `forfaitConeCentral` | Forfait F3 « monument remarquable » supprimé — MH/Inventaire (par `cleabs`) le remplacent | type/défaut + loader uniquement |
+| `forfait_extremites` | `forfaitExtremites` | idem — forfait F3 supprimé | type/défaut + loader uniquement |
+| `cone_f3_demi_angle_deg` | `coneF3DemiAngleDeg` | Demi-angle du cône F3 (forfait supprimé) — le cône/flanc du barème utilise `coneFamilleDemiAngleDeg` | type/défaut + loader uniquement |
+| `natures_remarquables` | `naturesRemarquables` | Liste de `bdtopo_batiment.nature` du forfait F3 (supprimé) | type/défaut + loader uniquement |
+
+Chacune n'apparaît plus que dans la déclaration du type / la valeur par défaut
+(`profilDegagement.ts`) et le mapping du loader (`profilConfig.ts`) ; **jamais lue au
+calcul** (`coucheDegagement.ts`, `faisceaux.ts`, `obstacles.ts`, `pipeline.ts`,
+`scoreTotal.ts`).
+
+**Ces 5 colonnes restent en table `config_scoring` mais n'ont AUCUN effet sur le score.
+L'interface future d'édition de config DOIT les masquer, ou les afficher grisées en
+lecture seule, pour ne jamais laisser croire qu'un opérateur peut agir sur le moteur en
+les éditant.**
+
+### ⚠️ Cas particulier — `mode_combinaison` (NON morte)
+
+`mode_combinaison` (clé profil `modeCombinaison`) a été **retirée du calcul** (le
+`switch (modeCombinaison)` de `distancePercueFaisceau` a été supprimé à l'Étape 2), mais
+elle est **toujours lue au chargement** comme garde de validation. Dans
+`profilConfig.ts:75` : une valeur hors `MODES_VALIDES` (`'max' | 'addition' | 'sequentiel'`)
+déclenche `return PROFIL_DEGAGEMENT_DEFAUT` — c'est-à-dire le **revert de TOUTE la config**
+sur le profil par défaut. Son édition n'a pas d'effet sur le calcul du score, mais une
+valeur invalide a un **effet indirect destructif** (perte de toute la configuration en base
+au profit des valeurs codées en dur).
+
+**Ne PAS traiter `mode_combinaison` comme vestigiale. L'interface future doit la contraindre
+à `MODES_VALIDES` (liste fermée / verrou), jamais en champ libre — sous peine de faire
+retomber silencieusement tout le moteur sur `PROFIL_DEGAGEMENT_DEFAUT`.**
+
+## Validation Patrimoine mondial (faisceau-preuve 800)
+
+La preuve sur données réelles est impossible : les 14 monuments emblématiques
+(`MONUMENTS_L93`) sont tous hors du département 92 (Paris intra-muros / 93 / 78), or la
+couverture LiDAR MNT/MNS de la base est limitée au 92. Aucun axe de test réel ne peut
+donc traverser un monument mondial rattaché. La validation passe par un test unitaire
+synthétique (flags posés à la main sur un `FaisceauResultat`).
+
+Deux tests persistants couvrent la priorité mondiale :
+
+- `app/lib/svv/coucheDegagement.test.ts:75` — `it('Patrimoine mondial → faisceau fixe 800,
+  aucun calcul')` : un faisceau `impactEmblematique: true` **+ `impactMH: true`** renvoie
+  **800 fixe** → le mondial court-circuite le Monument Historique, sans calcul ni cap de
+  distance de famille.
+- `app/lib/svv/coucheDegagement.test.ts:71` — `it('priorité : MH gagne sur année (MH + 1880
+  → coeff MH 2.0, pas 1.5)')` : un faisceau `impactMH: true` **+ `impactAnnee: 1880`**
+  renvoie `200` (100 × 2.0, coeff MH) → le MH gagne sur le barème année.
+
+La chaîne complète **mondial > MH > année** est donc établie par **composition** de ces deux
+tests (mondial > MH, puis MH > année). Il n'existe pas de test unique combinant les trois
+flags (`impactEmblematique` + `impactMH` + `impactAnnee`) : c'est un fait de couverture, pas
+un défaut caché. Le golden Asnières (29.107259068449615) reste inchangé, aucun monument
+mondial n'étant présent sur son axe (dép. 92).
