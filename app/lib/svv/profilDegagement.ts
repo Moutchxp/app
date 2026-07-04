@@ -4,6 +4,7 @@
  * Pilote UNIQUEMENT la note /80. N'affecte JAMAIS le verdict ni le Résultat A.
  * Module pur : aucune donnée, aucune IA. VALEURS DE DÉPART À CALIBRER (non figées).
  */
+import type { Orientation } from './config';
 
 export type ModeCombinaison = 'max' | 'addition' | 'sequentiel';
 
@@ -82,6 +83,14 @@ export interface ProfilDegagement {
   famillesPonderation: FamillesPonderation;
   /** Règle de cumul nature + bâti (Étape 2). */
   cumulNature: CumulNature;
+  /** Barème d'orientation : points (0..10) par secteur (externalisé — mapping azimut→secteur reste en code). */
+  orientationPts: Record<Orientation, number>;
+  /** Borne haute INCLUSE de la famille « ≤ 1900 » (année ≤ borneAnnee1900). */
+  borneAnnee1900: number;
+  /** Borne haute INCLUSE de la famille « 1901–1935 » (borneAnnee1900 < année ≤ borneAnnee1935). */
+  borneAnnee1935: number;
+  /** Portée d'analyse (m) — miroir runtime de ANALYSIS_RANGE_M ; garde-fou distanceMaxM ≤ analysisRangeM au chargement. */
+  analysisRangeM: number;
 }
 
 export const PROFIL_DEGAGEMENT_DEFAUT: ProfilDegagement = {
@@ -116,4 +125,8 @@ export const PROFIL_DEGAGEMENT_DEFAUT: ProfilDegagement = {
     plafond: 2.0,
     capP1M: 200,
   },
+  orientationPts: { N: 0, NE: 1, E: 5, SE: 8, S: 10, SO: 9, O: 7, NO: 3 },
+  borneAnnee1900: 1900,
+  borneAnnee1935: 1935,
+  analysisRangeM: 200,
 };

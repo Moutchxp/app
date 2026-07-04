@@ -11,7 +11,6 @@ import type { FaisceauResultat } from './scoreDegagement';
 import { azimutVersSecteur } from './scoreDegagement';
 import type { ProfilDegagement, FamilleCoeff } from './profilDegagement';
 import {
-  ORIENTATION_PTS,
   CONE_VUE_NATURE_DEG,
   SEUIL_VUE_NATURE,
   SEUIL_NOM_PROFONDEUR,
@@ -49,8 +48,8 @@ function familleCoeff(f: FaisceauResultat, profil: ProfilDegagement): FamilleCoe
   if (f.impactInventaire === true) return F.inventaire;
   const annee = f.impactAnnee;
   if (typeof annee === 'number') {
-    if (annee <= 1900) return F.ancien1900;
-    if (annee <= 1935) return F.ancien1935; // 1901–1935 (annee > 1900 déjà écarté ci-dessus)
+    if (annee <= profil.borneAnnee1900) return F.ancien1900;
+    if (annee <= profil.borneAnnee1935) return F.ancien1935; // 1901–1935 (≤ borneAnnee1900 déjà écarté)
   }
   return null;
 }
@@ -208,8 +207,8 @@ export function noteDegagement(faisceaux: FaisceauResultat[], profil: ProfilDega
   const note = (cumulNet / faisceaux.length / profil.distanceMaxM) * profil.plafondDegagement;
   let noteAvecOrientation = note;
   if (typeof azimutDeg === "number") {
-    const secteur = azimutVersSecteur(azimutDeg);          // même découpage que la boussole UI
-    const pts = ORIENTATION_PTS[secteur] ?? 0;             // barème 0-10
+    const secteur = azimutVersSecteur(azimutDeg);          // même découpage que la boussole UI (géométrie, en code)
+    const pts = profil.orientationPts[secteur] ?? 0;       // barème 0-10 (externalisé en config)
     noteAvecOrientation = note + pts;
   }
   return clamp(noteAvecOrientation, 0, profil.plafondCouche1);   // clamp [0, plafondCouche1=90]

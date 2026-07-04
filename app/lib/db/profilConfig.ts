@@ -39,6 +39,12 @@ interface LigneConfigScoring {
   cumul_increment: number;
   cumul_plafond: number;
   cumul_cap_p1_m: number;
+  // Externalisation A/B/C — orientation, bornes année, portée.
+  orientation_n: number; orientation_ne: number; orientation_e: number; orientation_se: number;
+  orientation_s: number; orientation_so: number; orientation_o: number; orientation_no: number;
+  borne_annee_1900: number;
+  borne_annee_1935: number;
+  analysis_range_m: number;
 }
 
 const MODES_VALIDES: readonly ModeCombinaison[] = ["max", "addition", "sequentiel"];
@@ -58,12 +64,18 @@ export async function chargerProfilDegagement(): Promise<ProfilDegagement> {
               cone_famille_demi_angle_deg, mondial_faisceau_m,
               mh_cone, mh_flanc, mh_distmax_m, inv_cone, inv_flanc, inv_distmax_m,
               a1900_cone, a1900_flanc, a1900_distmax_m, a1935_cone, a1935_flanc, a1935_distmax_m,
-              cumul_seuil_min_m, cumul_base_m, cumul_pas_m, cumul_increment, cumul_plafond, cumul_cap_p1_m
+              cumul_seuil_min_m, cumul_base_m, cumul_pas_m, cumul_increment, cumul_plafond, cumul_cap_p1_m,
+              orientation_n, orientation_ne, orientation_e, orientation_se,
+              orientation_s, orientation_so, orientation_o, orientation_no,
+              borne_annee_1900, borne_annee_1935, analysis_range_m
        FROM config_scoring WHERE id = 1`,
     );
     const r = res.rows[0];
     if (!r) return PROFIL_DEGAGEMENT_DEFAUT;
     if (!MODES_VALIDES.includes(r.mode_combinaison as ModeCombinaison)) return PROFIL_DEGAGEMENT_DEFAUT;
+    // Garde-fou : le cap perçu par faisceau (F1/base/P1) ne peut excéder la portée d'analyse.
+    // (N'affecte PAS les distMax famille — mh 400, etc. — qui peuvent dépasser la portée.) Repli DEFAUT, pas de clamp.
+    if (r.distance_max_m > r.analysis_range_m) return PROFIL_DEGAGEMENT_DEFAUT;
     return {
       boostF2: r.boost_f2,
       boostF4: r.boost_f4,
@@ -95,6 +107,13 @@ export async function chargerProfilDegagement(): Promise<ProfilDegagement> {
         plafond: r.cumul_plafond,
         capP1M: r.cumul_cap_p1_m,
       },
+      orientationPts: {
+        N: r.orientation_n, NE: r.orientation_ne, E: r.orientation_e, SE: r.orientation_se,
+        S: r.orientation_s, SO: r.orientation_so, O: r.orientation_o, NO: r.orientation_no,
+      },
+      borneAnnee1900: r.borne_annee_1900,
+      borneAnnee1935: r.borne_annee_1935,
+      analysisRangeM: r.analysis_range_m,
     };
   } catch {
     // Table indisponible (env sans DB, migration non jouée…) → repli sur le défaut.
