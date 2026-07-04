@@ -388,6 +388,9 @@ function EcranResultat({
   const [badgesDeployes, setBadgesDeployes] = useState(false);
   const [badgesDebordent, setBadgesDebordent] = useState(false);
   const badgesInnerRef = useRef<HTMLDivElement>(null);
+  // Reveal animé du score (cosmétique) : 0 → score final avec léger rebond (easeOutBack). Pilote
+  // le chiffre ET l'arc. N'altère JAMAIS resultat.score.total (le score calculé reste la vérité).
+  const [scoreAnime, setScoreAnime] = useState(0);
 
   // reset : replié à chaque nouvelle analyse
   useEffect(() => { setBadgesDeployes(false); }, [resultat]);
@@ -409,10 +412,36 @@ function EcranResultat({
     return () => observer.disconnect();
   }, [resultat]);
 
+  // Animation du reveal : chiffre + arc montent de 0 au score sur 2,5 s, courbe à rebond (easeOutBack).
+  // reduced-motion → valeur finale figée, sans boucle. Ne touche PAS resultat.score.total.
+  useEffect(() => {
+    const cible = resultat.score.total;
+    if (typeof window !== 'undefined'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setScoreAnime(cible);
+      return;
+    }
+    const DUREE = 2500;
+    const c1 = 1.70158, c3 = c1 + 1; // easeOutBack
+    let raf = 0;
+    let debut = 0;
+    const tick = (now: number) => {
+      if (!debut) debut = now;
+      const t = Math.min(1, (now - debut) / DUREE);
+      if (t >= 1) { setScoreAnime(cible); return; } // frame finale = valeur EXACTE
+      const e = 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
+      setScoreAnime(e * cible); // overshoot volontaire (non clampé côté chiffre)
+      raf = requestAnimationFrame(tick);
+    };
+    setScoreAnime(0);
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [resultat]);
+
   const certifie = resultat.verdict.verdict === "SANS_VIS_A_VIS";
-  const score = Math.round(resultat.score.total);
   const C = 2 * Math.PI * 44; // circonférence de la jauge (rayon 44)
-  const offset = C * (1 - Math.max(0, Math.min(100, resultat.score.total)) / 100);
+  // Arc dérivé du score ANIMÉ ; dashoffset clampé [0, C] pour ne pas déborder si overshoot > 100.
+  const offset = C * (1 - Math.max(0, Math.min(100, scoreAnime)) / 100);
   const arc = certifie ? "var(--color-svv-green)" : "var(--color-svv-red)";
   const f1 = resultat.score.famille1;
   const f2 = resultat.score.famille2;
@@ -517,8 +546,11 @@ function EcranResultat({
 
       {/* 2. JAUGE + OBSTACLE */}
       <div className="flex items-start gap-5">
-        <div className="shrink-0 text-center">
-          <div className="relative h-28 w-28">
+        {/* Largeur FIGÉE (w-[156px]) = largeur max de la légende (« Analyse de la photo en cours » = 151px,
+            re-wrap à 3 lignes dès 150px) + marge. Constante sur les 3 états etatPhoto → le bloc droite
+            ne glisse plus horizontalement au reveal. Cercle + légende restent centrés (text-center). */}
+        <div className="shrink-0 text-center w-[156px]">
+          <div className="relative h-28 w-28 mx-auto">
             <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
               <circle cx="50" cy="50" r="44" fill="none" stroke="var(--color-svv-line)" strokeWidth="9" />
               <circle
@@ -541,7 +573,7 @@ function EcranResultat({
             )}
             <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
               <div className="flex items-baseline">
-                <span className="text-3xl font-extrabold text-svv-ink">{score}</span>
+                <span className="text-3xl font-extrabold text-svv-ink tabular-nums">{Math.round(scoreAnime)}</span>
                 <span className="ml-0.5 text-[11px] font-semibold text-svv-muted">/100</span>
               </div>
             </div>
