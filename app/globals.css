@@ -84,6 +84,15 @@ body {
   animation: svvColorPulse 3s ease-in-out;
 }
 
+/* Pulse couleur DOUCE du bouton « + » des badges (qualité de vue) : le « + » (color) ET le cercle
+   (border-color + léger fond) passent de l'état neutre → rouge charte → retour, en phase. Rouge présent
+   ~40 % du cycle (plateau 30–55 %), transitions progressives (pas de flash). Se compose avec le bump
+   (svvBadgesBump) sur .svv-badges-toggle--bump. 0 %/100 % = état de repos exact du bouton (pas de saut). */
+@keyframes svvBadgesPulse {
+  0%, 100% { color: var(--color-svv-ink); border-color: var(--color-svv-line); }
+  30%, 55% { color: var(--color-svv-red); border-color: var(--color-svv-red); }
+}
+
 /* Bouton « Façade » pendant le recadrage : bump (scale 0,6 s) ET pulse couleur (3 s) en parallèle
    — une seule déclaration `animation` multiple, sinon la 2e classe écraserait la 1re. */
 .svvFacadePulse {

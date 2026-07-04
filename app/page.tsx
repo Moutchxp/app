@@ -378,7 +378,13 @@ function EcranResultat({
   onRefaireTest: () => void;
   onObtenirCertificat: () => void;
 }) {
-  const BADGES_MAX_H_REPLIE = 64; // ~2 lignes (pill ~28px + gap 8px)
+  // Repli sur 2 LIGNES ENTIÈRES de pills, sans jamais couper une pill.
+  // MESURÉ dans le navigateur (police Geist réelle) : .svv-pill = 32 px (font 12px, line-height 18px,
+  //   padding 7+7) ; gap flex (gap-2) = 8 px. 2 lignes = 2×32 + 8 = 72 px (scrollHeight relevé sur le cas
+  //   « Nord / Globalement dégagé / Vue sur Square Gilbert-Thomain » → exactement 2 lignes = 72 px).
+  //   Clamp = 72 + 2 px de marge = 74 (avant : 64 puis 68 → rognaient la 2e ligne). Détection débordement
+  //   (scrollHeight > clamp + 4 = 78) : 2 lignes (72) → false → « + » masqué ; 3e ligne (112) → true → « + ».
+  const BADGES_MAX_H_REPLIE = 74;
   const [badgesDeployes, setBadgesDeployes] = useState(false);
   const [badgesDebordent, setBadgesDebordent] = useState(false);
   const badgesInnerRef = useRef<HTMLDivElement>(null);
@@ -386,15 +392,21 @@ function EcranResultat({
   // reset : replié à chaque nouvelle analyse
   useEffect(() => { setBadgesDeployes(false); }, [resultat]);
 
-  // mesure du débordement (conteneur interne = hauteur naturelle, sans clamp)
+  // mesure du débordement (conteneur interne = hauteur naturelle, sans clamp).
+  // ResizeObserver : recalcule au moindre reflow (largeur des pills, wrap, viewport), pas seulement au resize fenêtre.
   useEffect(() => {
     const inner = badgesInnerRef.current;
     if (!inner) return;
     const mesurer = () =>
       setBadgesDebordent(inner.scrollHeight > BADGES_MAX_H_REPLIE + 4);
     mesurer();
-    window.addEventListener('resize', mesurer);
-    return () => window.removeEventListener('resize', mesurer);
+    const observer = new ResizeObserver(mesurer);
+    observer.observe(inner);
+    // recalcul une fois les polices chargées (leur largeur change le wrap des pills)
+    if (typeof document !== 'undefined' && 'fonts' in document) {
+      document.fonts.ready.then(mesurer).catch(() => {});
+    }
+    return () => observer.disconnect();
   }, [resultat]);
 
   const certifie = resultat.verdict.verdict === "SANS_VIS_A_VIS";
@@ -435,7 +447,11 @@ function EcranResultat({
     .svv-badges-toggle {
       position: absolute;
       right: 0;
-      bottom: 0;
+      /* Centré sur la DERNIÈRE ligne visible (bas), replié comme déplié — le bouton suit le bas du
+         conteneur qui grandit au dépliage. base = (pill 32 − bouton 24)/2 = 4 px ; le clamp replié (74)
+         a 2 px de mou vs le contenu (72) → +1 px de compromis → bottom: 5 px = écart ±1 px symétrique
+         (replié +1 / déplié −1, mesuré navigateur). */
+      bottom: 5px;
       width: 24px;
       height: 24px;
       display: grid;
@@ -452,11 +468,12 @@ function EcranResultat({
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
     }
     .svv-badges-toggle--bump {
-      animation: svvBadgesBump 1.6s ease-in-out infinite;
+      /* bump d'échelle (conservé, légèrement amplifié) + pulse couleur douce vers le rouge charte */
+      animation: svvBadgesBump 1.6s ease-in-out infinite, svvBadgesPulse 2.6s ease-in-out infinite;
     }
     @keyframes svvBadgesBump {
       0%, 60%, 100% { transform: scale(1); }
-      30% { transform: scale(1.18); }
+      30% { transform: scale(1.22); }
     }
     @media (prefers-reduced-motion: reduce) {
       .svv-badges-clip { transition: none; }
