@@ -11,9 +11,14 @@ nouveau Claude comprenne instantanément le projet, les rôles, l'objectif et to
 que l'utilisateur ait à réexpliquer.
 
 ## Ton unique livrable
-Un SEUL bloc de texte copiable (dans un cartouche markdown), contenant toutes les sections
-ci-dessous. Pas de préambule bavard avant, pas de commentaire après : juste « Voici ta passation : »
-puis le bloc.
+Écris la passation complète (toutes les sections ci-dessous) dans le fichier PASSATION.md à la
+racine du repo, en ÉCRASANT son contenu précédent (overwrite, jamais d'ajout à la suite). La toute
+première ligne du fichier doit être un horodatage obtenu via la commande système `date`, au format :
+« > Passation générée le JJ/MM/AAAA à HHhMM ». Le reste de la passation suit en dessous.
+Puis, dans ta réponse de chat, affiche UNIQUEMENT cette phrase et rien d'autre :
+« Passation écrite dans PASSATION.md — ouvre le fichier dans l'éditeur (double-clic dans l'explorateur),
+Cmd+A puis Cmd+C pour tout copier, puis colle-le au début de ta nouvelle conversation. »
+NE recopie JAMAIS le contenu de la passation dans ta réponse de chat.
 
 ## Avant de rédiger — collecte le contexte réel
 Inspecte la session courante pour remplir la passation avec des faits, pas des généralités :

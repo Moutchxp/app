@@ -53,3 +53,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# passation locale (générée par le skill /passation) — jamais committée
+PASSATION.md
