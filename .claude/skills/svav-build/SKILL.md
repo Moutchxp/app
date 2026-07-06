@@ -110,6 +110,14 @@ continue son avancement sans jamais s'arrêter pour solliciter Arno. Arno veut �
 possible : l'agent suit les specs et construit ; il ne demande PAS de validation en cours de route.
 Le rapport n'est destiné à être lu qu'APRÈS la livraison, à la seule discrétion d'Arno.
 
+### Comblement d'un trou de spec mineur
+Quand une question subsidiaire n'a PAS de réponse dans les specs ET qu'elle est SANS effet majeur sur le résultat final demandé, l'agent peut trancher seul plutôt que d'interrompre le run : il s'inspire des meilleures pratiques établies du domaine, applique le choix le plus raisonnable, et le TRACE en catégorie A du rapport final (question, décision prise, justification « bonne pratique », alternative écartée) pour contrôle a posteriori par Arno.
+
+Bornes de cette permission (MUST) :
+- Réservée au MINEUR. Si la question a un effet MAJEUR sur le résultat (comportement métier, verdict, score, schéma de données, sécurité), l'agent NE tranche PAS seul : il retient une hypothèse et la trace en catégorie B (doute), à valider par Arno.
+- Les specs et invariants SVAV priment TOUJOURS sur les bonnes pratiques générales du domaine. Une bonne pratique ne justifie jamais un écart à un invariant (golden, formule hauteur de vision, séparation verdict/score, pilotage sans code, etc.).
+- Ne s'applique JAMAIS aux actions destructrices ou irréversibles : la Règle dure (interdiction de suppression de données autonome) garde la priorité absolue. Une bonne pratique ne justifie jamais une suppression.
+
 Compiler docs/RAPPORT_BUILD_<chantier>.md, structuré en TROIS catégories distinctes :
 
 **A. DÉCISIONS HORS-SPECS (le plus important).** Toute décision que l'agent a prise de lui-même parce
