@@ -8,6 +8,7 @@ import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
 import type { ModeOrigine } from "./lib/svv/config";
 import { cardinal } from "./lib/cardinal";
+import { formaterDistanceVerdict, metresVerdictAffiches } from "./lib/formatDistance";
 import { SceauCertifie } from "./components/SceauCertifie";
 import type { Orientation } from "./lib/svv/config";
 import type { LibelleScore } from "./lib/svv/scoreTotal";
@@ -447,9 +448,7 @@ function EcranResultat({
   const f2 = resultat.score.famille2;
 
   const distanceM = resultat.verdict.distanceM;
-  const distanceTxt = Number.isFinite(distanceM)
-    ? `${Math.round(distanceM as number)} m`
-    : "Aucun (≥ 200 m)";
+  const distanceTxt = formaterDistanceVerdict(distanceM); // règle seuil : Math.round sauf [39;40[ → 39
   // Taille adaptée à la longueur → la distance tient toujours sur UNE ligne (affichage seul).
   const tailleDistance =
     distanceTxt.length <= 6 ? "text-3xl" : distanceTxt.length <= 10 ? "text-2xl" : "text-xl";
@@ -643,7 +642,7 @@ function EcranResultat({
         <div className="mt-6">
           <p className="text-sm font-bold text-svv-ink">Obstacle détecté :</p>
           <p className="mt-1 text-sm text-svv-gray">
-            Bâtiment à {Number.isFinite(distanceM) ? Math.round(distanceM as number) : "—"}{" "}
+            Bâtiment à {metresVerdictAffiches(distanceM) ?? "—"}{" "}
             mètres dans l&apos;axe de vision.
           </p>
         </div>
