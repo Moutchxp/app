@@ -55,7 +55,11 @@ Liste les constantes inviolables, notamment :
 - Golden Asnières = 29.107259068449615 (scellé, hand-verified, BITIDENT=true). Tout ce qui touche
   le score /100 change le golden → recalcul + validation main + rescellage en commit SÉPARÉ.
 - Verdict binaire = 100% géométrique (1er obstacle ≥40m sur l'axe), jamais couplé au score ni à la photo.
-- Hauteur de vision : (étage × 2.90m) + 1.65m. Certificat : SAVV-AAAA-NNNNNN.
+- Hauteur de vision = étage × (hauteur_sous_plafond + 0,30 dalle) + 1,65 yeux — FORMULE À PARAMÈTRE
+  VARIABLE ; sous-plafond choisi par l'internaute, défaut 2,50 m, fourchette [2,40 ; 4,50] pas 0,10.
+  « 2,80 » = coefficient du seul cas par défaut (2,50+0,30), PAS une constante (l'ancien « × 2,90 »
+  comme formule est PÉRIMÉ) ; « 2,90 » = FLOOR_HEIGHT_OBSTACLE_M, constante DISTINCTE (estimation
+  immeuble voisin), à ne pas confondre. Certificat : SAVV-AAAA-NNNNNN.
 - Tolérance 15m verrouillée. ST_Force2D jamais retiré des opérations distance/raster.
 - prefers-reduced-motion respecté pour toute animation.
 - EXIGENCE ARCHITECTURE — PILOTAGE SANS CODE : toute variable de tout moteur de calcul de score
