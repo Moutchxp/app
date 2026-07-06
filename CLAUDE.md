@@ -401,3 +401,14 @@ définitive avant de figer les couleurs dans le code.
   clairement labellisés ; ne JAMAIS mélanger un prompt et un commit dans le même bloc :
   - 🔵 **PROMPT** — prompt à coller à l'agent Claude Code (toujours préciser DANS QUEL TERMINAL).
   - 🟢 **COMMIT** — message de commit à coller dans la boîte de commit de VS Code (Source Control).
+
+---
+
+## 15. Exigences transverses d'interface
+
+### EXIGENCE TRANSVERSE — INTERFACE UTILISABLE SUR MOBILE (responsive)
+Toute interface d'administration interne (les 5 modules du PLAN_INTERFACE_INTERNE.md et tout écran futur) DOIT être conçue responsive / mobile-first : lisible et pleinement utilisable sur un écran de smartphone (iPhone, portrait), pas seulement sur grand écran.
+- Chaque module est pensé mobile dès sa conception, jamais "adapté après coup".
+- Les contenus denses (tableaux de config à nombreuses colonnes, carte de curation, tableaux analytics) doivent avoir un comportement mobile explicite : défilement maîtrisé, repli en cartes/accordéons, ou vue condensée — jamais un simple débordement horizontal illisible.
+- Cibles tactiles suffisantes, pas d'interaction dépendant du survol (hover) seul.
+- Cette exigence coexiste avec les autres exigences transverses (pilotage sans code, prefers-reduced-motion) et ne les remplace pas.
