@@ -8,6 +8,44 @@
 
 ---
 
+## 0. Invariants verrouillés (vérifiés dans le code — cf. `docs/INVARIANTS_SVAV.md`)
+
+> Garde-fous permanents, chacun prouvé `fichier:ligne` dans `docs/INVARIANTS_SVAV.md`. **Le code fait
+> foi** : en cas de divergence entre une formulation ci-dessous, la documentation et le code, se référer
+> au code cité. Ne jamais modifier ces invariants sans accord explicite du porteur.
+
+- **Golden de non-régression = `29.107259068449615`** (note Couche 1 /80), scellé
+  `app/lib/db/pipeline.itest.ts:42`, rejoue **Asnières** (lat `48.90693182287072`, lon
+  `2.269431435588249`, azimut 90, étage 2). Toute modif touchant le score change le golden → recalcul +
+  validation manuelle + **rescellage en commit SÉPARÉ**. (Asnières est un oracle *faible* pour le chemin
+  patrimoine MH/Inventaire/mondial → cas scellés dédiés si l'on y touche.)
+- **Verdict binaire 100 % géométrique** : 1er obstacle réel ≥ **40 m** → `SANS_VIS_A_VIS`, sinon
+  `VIS_A_VIS` (`THRESHOLD_M`, `app/lib/svv/config.ts:82` ; `verdict.ts:103`). Jamais couplé au score ni à
+  la photo (`scoreTotal.ts:44`). → détail §2 / §3.
+- **Hauteur de vision = FORMULE À PARAMÈTRE VARIABLE** : `hauteur_vision = etage × (hauteur_sous_plafond
+  + 0,30 dalle) + 1,65 yeux` (`config.ts:56-61`). `hauteur_sous_plafond` est **choisie par l'internaute**
+  (stepper « infos logement », `page.tsx:2765`), défaut **2,50 m**, fourchette **[2,40 ; 4,50] m** par pas
+  de 0,10 (`page.tsx:1280`). ⚠️ **`2,80` n'est PAS une constante du calcul** : c'est seulement le
+  coefficient dérivé du cas par défaut (2,50 + 0,30 = `FLOOR_HEIGHT_M`, `config.ts:42`), non consulté par
+  `hauteurVision()` dès que l'internaute choisit une autre valeur. ⚠️ **`2,90` = `FLOOR_HEIGHT_OBSTACLE_M`**
+  (constante DISTINCTE : estimation d'un immeuble VOISIN sans hauteur BD TOPO, tier 3 `obstacles.ts` —
+  `config.ts:48`), à NE PAS confondre. → détail §4.
+- **Aucun arrondi ; distances horizontales autoritatives en Lambert-93 (EPSG:2154)** (§5).
+- **`ST_Force2D` jamais retiré** des opérations distance/raster (`app/lib/db/obstacles.ts`,
+  `hauteurLidar.ts:65,97`) — la 3D fausserait distances et lecture raster.
+- **Tolérances** : rattachement patrimoine (monument → `cleabs`) = **15 m**
+  (`scripts/migration_monuments_emblematiques.sql:67`) ; point d'origine hors emprise = **0,30 m**
+  (`ORIGIN_OUTSIDE_TOLERANCE_M`, `config.ts:123`).
+- **`config_scoring`** : toutes les variables de pondération du moteur externalisées (**46 colonnes**,
+  singleton `id=1`), lues au runtime (`app/lib/db/profilConfig.ts:57`) avec **repli sûr**
+  `PROFIL_DEGAGEMENT_DEFAUT` (`profilConfig.ts:74-78`). Aucune constante de score « en dur » dispersée.
+- **Fichiers Gemini HORS staging** : `app/lib/svv/adaptateurIaPhoto.ts` et `app/api/analyse-photo/route.ts`.
+- **Fichiers sensibles (recon lecture seule avant tout write)** → liste au §14.
+- **Stack réelle** : Next.js 16.2.9, React 19.2.4, TypeScript 5, Tailwind 4 ; PostgreSQL + PostGIS en
+  **LOCAL**, driver `pg` sur `DATABASE_URL` (§1).
+
+---
+
 ## 1. Contexte du projet
 
 Application mobile qui certifie automatiquement si un logement est
@@ -18,7 +56,9 @@ Porté par l'agence immobilière **Sans Vis-à-Vis** (sansvisavis.com), spécial
 dans les biens à vue dégagée. L'objectif est de transformer un terme subjectif
 (« sans vis-à-vis ») en une **norme mesurable, certifiable et auditable**.
 
-- **Stack** : Next.js + TypeScript, Supabase, PostgreSQL/PostGIS.
+- **Stack** : Next.js 16.2.9, React 19.2.4, TypeScript 5, Tailwind CSS 4. Base **PostgreSQL + PostGIS
+  en LOCAL** (aucun service de base de données souscrit — plus de Supabase), accès via le driver **`pg`**
+  (node-postgres) sur `DATABASE_URL`.
 - **Langue de l'interface et du domaine** : français. Conserver les termes métier
   en français (faisceau, obstacle, point d'observation, etc.).
 - **Données géographiques** : MNT LiDAR HD (terrain, table `mnt_lidar_brut`) + MNS LiDAR HD
@@ -35,7 +75,7 @@ Le verdict « Sans Vis-à-Vis » est 100 % géométrique : on compare deux altit
 ABSOLUES (NGF) le long de l'axe de visée.
 
 - Œil (origine) : A_œil = altitude_terrain_origine (MNT LiDAR, au point exact) + hauteur_vision
-  (hauteur_vision = etage*2.90 + 1.65 — voir §4).
+  (hauteur_vision = etage*2.80 + 1.65 — voir §4).
 - Toit (obstacle) : A_toit = altitude du toit lue DIRECTEMENT sur le MNS LiDAR (absolue, nettoyée
   des artefacts). On ne reconstitue JAMAIS sol + hauteur côté obstacle, et on n'utilise PAS de MNT
   sous l'obstacle : le MNS donne déjà l'altitude absolue du toit.
@@ -129,26 +169,40 @@ géométrique, il ne le modifie jamais.
 On calcule la **hauteur de vision** (et non la simple hauteur de plancher) : ce
 qui compte est le point de vue réel d'un humain à la fenêtre.
 
+**La hauteur de vision est une FORMULE À PARAMÈTRE VARIABLE, pas une constante :**
+
 ```
-hauteur_etage    = hauteur_sous_plafond (défaut 2,50 m) + dalle (0,30 m)   // = 2,80 m par défaut
-hauteur_vision   = (etage * hauteur_etage) + 1.65
+hauteur_etage    = hauteur_sous_plafond + dalle (0,30 m)        // paramètre variable, pas un chiffre figé
+hauteur_vision   = (etage * hauteur_etage) + 1.65              // 1,65 = yeux (définitif)
 altitude_fenetre = altitude_terrain_origine + hauteur_vision
 ```
 
-- Hauteur sous plafond : **configurable par l'utilisateur**, défaut **2,50 m** (« standard »)
-- Dalle / plancher : **0,30 m**
-- Hauteur d'un étage complet (plancher-à-plancher) : **2,80 m** par défaut (= 2,50 + 0,30)
-- Hauteur moyenne de l'œil humain : **1,65 m**
-- Rez-de-chaussée → `(0 * 2.80) + 1.65 = 1.65 m`
-- 3e étage → `(3 * 2.80) + 1.65 = 10.05 m`
+- **Hauteur sous plafond = CHOISIE par l'internaute** (stepper de l'écran « infos logement »,
+  `app/page.tsx:2765`), **défaut 2,50 m** (« standard »), **fourchette [2,40 ; 4,50] m** par **pas de
+  0,10 m** (clamp `app/page.tsx:1280`). C'est un exemple de variable **pilotée au runtime**.
+- Dalle / plancher : **0,30 m** (`DALLE_M`, `config.ts:32`).
+- Hauteur moyenne de l'œil humain : **1,65 m** (`EYE_HEIGHT_M`, `config.ts:38` — VALEUR DÉFINITIVE).
+- ⚠️ **`2,80 m` n'est PAS une constante du calcul** : c'est uniquement le coefficient plancher-à-plancher
+  **du cas par défaut** (2,50 + 0,30 = `FLOOR_HEIGHT_M`, `config.ts:42`). `hauteurVision()` recalcule
+  `hauteur_etage` à partir de la valeur RÉELLEMENT choisie — 2,80 n'intervient plus dès que l'internaute
+  saisit une autre valeur.
+- Exemples **avec le défaut 2,50 m (→ étage = 2,80 m)** : rez-de-chaussée → `(0 × 2,80) + 1,65 = 1,65 m` ;
+  3e étage → `(3 × 2,80) + 1,65 = 10,05 m`. Avec un sous-plafond choisi à 3,00 m (→ étage 3,30 m) :
+  3e étage → `(3 × 3,30) + 1,65 = 11,55 m`.
 
-> ⚠️ **Deux hauteurs d'étage DISTINCTES — ne pas confondre :**
-> - **`FLOOR_HEIGHT_M` = 2,80 m** (= sous plafond 2,50 + dalle 0,30) → **OBSERVATEUR**
->   (calcul de l'altitude de la fenêtre du demandeur, dérivé de la hauteur sous plafond saisie).
-> - **`FLOOR_HEIGHT_OBSTACLE_M` = 2,90 m** → **ESTIMATION D'UN IMMEUBLE VOISIN** sans hauteur
->   BD TOPO (toit/hauteur absents), tier 3 de `obstacles.ts` : `sol + nombre_etages × 2,90`.
->   Conservée à 2,90 pour ne pas modifier le score d'amplitude existant ; n'affecte jamais le verdict
->   (qui passe par le LiDAR/MNS).
+**Transit de la valeur choisie jusqu'au calcul** : front `app/page.tsx` (payload `:1932` / `:1961`) →
+API `app/api/analyse/route.ts:39-47` (idem `analyse-photo`) → `app/lib/db/pipeline.ts:96`
+`hauteurVision(params.etage, params.hauteurSousPlafondM)`. Si la valeur est absente/≤ 0, `hauteurVision`
+applique le défaut 2,50 m (`config.ts:58`).
+
+> ⚠️ **Deux notions d'étage DISTINCTES — ne pas confondre :**
+> - **OBSERVATEUR** = `hauteur_sous_plafond (choisie) + 0,30` — **VARIABLE**. `FLOOR_HEIGHT_M = 2,80 m`
+>   (`config.ts:42`) n'est que sa valeur **dans le cas par défaut** (2,50 + 0,30), pas une constante du
+>   calcul de la fenêtre du demandeur.
+> - **`FLOOR_HEIGHT_OBSTACLE_M` = 2,90 m** (`config.ts:48`) → **ESTIMATION D'UN IMMEUBLE VOISIN** sans
+>   hauteur BD TOPO (toit/hauteur absents), tier 3 de `obstacles.ts` : `sol + nombre_etages × 2,90`.
+>   Constante FIXE, conservée à 2,90 pour ne pas modifier le score d'amplitude existant ; n'affecte
+>   jamais le verdict (qui passe par le LiDAR/MNS).
 
 > 🔄 **§4 RÉVISÉ — décision porteur du 28/06/2026 :** la hauteur d'étage n'est
 > PLUS fixée à 2,90 m. Elle **dérive** d'une **hauteur sous plafond configurable**
@@ -204,6 +258,11 @@ Format : `SAVV-AAAA-NNNNNN`
 - `AAAA` = année (4 chiffres)
 - `NNNNNN` = compteur séquentiel sur 6 chiffres, à partir de `000001`
 - Exemples : `SAVV-2026-000001`, `SAVV-2026-000002`
+
+> ⚠️ **Cible, NON encore implémentée dans le code** : à ce jour aucun `SAVV-` n'existe hors specs
+> (`docs/INVARIANTS_SVAV.md §4`), et il n'y a pas de génération de certificat PDF. À l'implémentation,
+> garantir l'unicité du compteur par un mécanisme atomique (compteur verrouillé dans la transaction
+> d'insertion).
 
 ---
 
@@ -300,9 +359,10 @@ final, numéro de certificat.
 
 Logo : crest « L'IMMOBILIER SANS VIS-À-VIS® ». Marque déposée (®) — toujours
 afficher le symbole. Tagline de référence : « le premier obstacle réel à + de
-40 mètres ». Décliner la charte graphique des maquettes (à fournir/centraliser
-dans un fichier de design tokens). Confirmer la palette définitive avant de figer
-les couleurs dans le code.
+40 mètres ». Décliner la charte graphique des maquettes (design tokens SVAV déjà
+présents dans `app/globals.css` : `--color-svv-red #a30402`, `-ink`, `-green`,
+classes `.svv-btn/.svv-card/.svv-pill/.svv-label`). Confirmer la palette
+définitive avant de figer les couleurs dans le code.
 
 ---
 
@@ -312,7 +372,7 @@ les couleurs dans le code.
 
 > Points désormais tranchés (déplacés hors de cette liste) :
 > - **Formule du score de qualité de vue** → voir `SPEC_score_qualite_vue.md`.
-> - **Constante de hauteur d'étage (2,90 m) + œil (1,65 m)** → §4 (valeur définitive).
+> - **Constante de hauteur d'étage (2,80 m dérivée) + œil (1,65 m)** → §4 (valeur définitive).
 > - **Stratégie de hauteur des bâtiments (MNS primaire, BD TOPO® fallback)** →
 >   voir `SPEC_module_hauteurs_v3.md`.
 
@@ -326,3 +386,18 @@ les couleurs dans le code.
 - Ne pas introduire d'arrondi (voir §5).
 - Demander confirmation avant de toucher aux règles métier des §2 à §7.
 
+### Conventions de collaboration & livrables
+
+- **Recon LECTURE SEULE avant tout write** sur un fichier sensible (moteur / config / DB) :
+  - Moteur pur : `app/lib/svv/{verdict,coucheDegagement,scoreDegagement,scoreTotal,analyse,profilDegagement,config}.ts`
+  - Accès données : `app/lib/db/{pipeline,profilConfig,faisceaux,obstacles,origine,hauteurLidar}.ts`
+  - Front sensible : `app/page.tsx`, `app/MapContent.tsx` (+ `MapSelector.tsx`, `FaisceauMap.tsx`, `origine/Carte.tsx`)
+  - Test golden : `app/lib/db/pipeline.itest.ts`
+- **Un chantier = une modif logique = un commit.** Après chaque diff : vérifier, puis committer.
+- **Tout ce qui touche `config_scoring`, le golden, le moteur de scoring ou des données nominatives**
+  → modèle le plus capable + relecture humaine ; jamais délégué à un modèle léger.
+- **2 fichiers Gemini HORS staging** : `app/lib/svv/adaptateurIaPhoto.ts` et `app/api/analyse-photo/route.ts`.
+- **Format des livrables (relais web → agent Claude Code de VS Code)** — toujours des blocs copiables
+  clairement labellisés ; ne JAMAIS mélanger un prompt et un commit dans le même bloc :
+  - 🔵 **PROMPT** — prompt à coller à l'agent Claude Code (toujours préciser DANS QUEL TERMINAL).
+  - 🟢 **COMMIT** — message de commit à coller dans la boîte de commit de VS Code (Source Control).
