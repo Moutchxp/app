@@ -56,3 +56,9 @@ next-env.d.ts
 
 # passation locale (générée par le skill /passation) — jamais committée
 PASSATION.md
+
+# bac à sable de test (ex. essais du skill /svav-build) — jamais committé
+sandbox/
+
+# fichier d'état jetable du state-manager de /svav-build
+docs/.svav-build-state.md
