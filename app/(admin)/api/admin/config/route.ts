@@ -1,6 +1,8 @@
 import 'server-only';
 import { query } from '../../../../lib/db/client';
 import { evaluerRepli } from './repli';
+import { validerPatch } from './validation';
+import { metaParColonne } from '../../../admin/(protected)/pilotage/mappingConfig';
 
 /**
  * GET /api/admin/config — LECTURE SEULE stricte (EX-1..EX-7).
@@ -43,5 +45,88 @@ export async function GET() {
   } catch {
     // EX-6 : accès base en échec → erreur maîtrisée, la page ne plante pas.
     return Response.json({ present: false, erreur: 'configuration indisponible' }, { status: 503 });
+  }
+}
+
+/**
+ * PATCH /api/admin/config — ÉCRITURE dédiée (M1, T1/T2/T6).
+ *
+ * `UPDATE config_scoring WHERE id = 1` sur les seules colonnes soumises, après
+ * validation server-side (`validerPatch` : type + plage + statut + anti-repli).
+ * Écriture ATOMIQUE en un seul `query()` (CTE data-modifying) : UPDATE + journal
+ * append-only `config_edit_log`. Les NOMS de colonnes du SET proviennent
+ * EXCLUSIVEMENT de l'allowlist `META` (`metaParColonne`), jamais des clés brutes
+ * du body. AUCUN `DELETE/DROP/ALTER/TRUNCATE`. AUCUN import `app/lib/svv`/`profilConfig`.
+ */
+export async function PATCH(request: Request) {
+  // 1. Corps JSON — parse défensif (JSON invalide → 422, rien écrit).
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ erreurs: [{ colonne: '', message: 'corps JSON invalide' }] }, { status: 422 });
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return Response.json({ erreurs: [{ colonne: '', message: 'corps JSON invalide' }] }, { status: 422 });
+  }
+  const patch = body as Record<string, unknown>;
+
+  // 2. Ligne actuelle (id=1) — nécessaire à la validation croisée + au journal (avant).
+  let ligneActuelle: Record<string, unknown> | undefined;
+  try {
+    const { rows } = await query('SELECT * FROM config_scoring WHERE id = 1');
+    ligneActuelle = rows[0];
+  } catch {
+    return Response.json({ erreurs: [{ colonne: '', message: 'configuration indisponible' }] }, { status: 503 });
+  }
+  if (!ligneActuelle) {
+    return Response.json({ erreurs: [{ colonne: '', message: 'profil absent (aucune ligne id=1)' }] }, { status: 422 });
+  }
+
+  // 3. Validation — si KO, rien n'est écrit.
+  const validation = validerPatch(patch, ligneActuelle);
+  if (!validation.ok) {
+    return Response.json({ erreurs: validation.erreurs }, { status: 422 });
+  }
+
+  // 4. Écriture atomique (UN seul query) : UPDATE + INSERT journal via CTE.
+  const params: unknown[] = [];
+  const setSql = validation.set
+    .map((item) => {
+      // Nom de colonne re-résolu depuis l'allowlist META (jamais la clé brute).
+      const colonne = metaParColonne(item.colonne)!.colonne;
+      params.push(item.valeur);
+      return `"${colonne}" = $${params.length}`;
+    })
+    .join(', ');
+  const jrnlSql = validation.set
+    .map((item) => {
+      const colonne = metaParColonne(item.colonne)!.colonne;
+      const avant = ligneActuelle![colonne];
+      params.push(colonne);
+      const pCol = params.length;
+      params.push(avant === null || avant === undefined ? null : String(avant));
+      const pAvant = params.length;
+      params.push(String(item.valeur));
+      const pApres = params.length;
+      return `($${pCol}, $${pAvant}, $${pApres})`;
+    })
+    .join(', ');
+
+  const sql = `
+    WITH upd AS (
+      UPDATE config_scoring SET ${setSql} WHERE id = 1 RETURNING *
+    ), jrnl AS (
+      INSERT INTO config_edit_log (colonne, avant, apres) VALUES ${jrnlSql}
+    )
+    SELECT * FROM upd;
+  `;
+
+  try {
+    const { rows } = await query(sql, params);
+    const ligneMAJ = rows[0];
+    return Response.json({ ok: true, valeurs: ligneMAJ, repli: evaluerRepli(ligneMAJ) });
+  } catch {
+    return Response.json({ erreurs: [{ colonne: '', message: 'écriture impossible' }] }, { status: 503 });
   }
 }
