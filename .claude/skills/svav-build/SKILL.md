@@ -105,7 +105,7 @@ Consigner le résultat de chaque vérification (PASS / FAIL + preuve).
 
 ### Phase 7 — RAPPORT FINAL (doutes + décisions hors-specs)
 
-**Règle absolue : ce rapport n'interrompt JAMAIS le run.** L'agent consigne au fil de l'eau et
+**Règle absolue : ce rapport n'interrompt JAMAIS le run.** (seule interruption sanctionnée du run : cf. Règle dure — Interdiction de suppression de données autonome, cas « suppression obligatoire »). L'agent consigne au fil de l'eau et
 continue son avancement sans jamais s'arrêter pour solliciter Arno. Arno veut être dérangé le moins
 possible : l'agent suit les specs et construit ; il ne demande PAS de validation en cours de route.
 Le rapport n'est destiné à être lu qu'APRÈS la livraison, à la seule discrétion d'Arno.
@@ -116,7 +116,7 @@ Compiler docs/RAPPORT_BUILD_<chantier>.md, structuré en TROIS catégories disti
 que les specs fournies ne la couvraient pas. Les specs sont toujours incomplètes ; l'agent DOIT combler
 les trous pour avancer, mais MUST tracer CHAQUE trou comblé. Pour chacune : ce que la spec ne disait
 pas, la décision prise, l'alternative écartée, la raison du choix, et l'impact éventuel. C'est ce qui
-permet à Arno de contrôler a posteriori les choix que l'agent a faits à sa place.
+permet à Arno de contrôler a posteriori les choix que l'agent a faits à sa place. Toute suppression de données évitée par contournement est tracée ici avec le flag `SUPPRESSION_ÉVITÉE` (nature de la donnée, raison, plan de régularisation post-livraison le cas échéant).
 
 **B. DOUTES.** Points où un subagent n'était pas certain, même après avoir tranché : ambiguïté,
 hypothèse retenue faute de mieux, zone de risque. Décision prise, options, raison, impact.
@@ -160,6 +160,19 @@ facultative et à sa seule initiative.
   golden est un événement majeur porté au rapport.
 - SHOULD préférer arrêter et rapporter plutôt que forcer une solution qui violerait une directive.
 - L'autonomie porte sur la CONSTRUCTION ; la décision finale de livraison reste à Arno.
+
+### 🔴 Règle dure — Interdiction de suppression de données autonome
+Exception dure au run non-bloquant : sur ce point, l'agent N'A PAS le droit de trancher seul.
+
+L'agent ne doit JAMAIS, de sa propre initiative, supprimer, écraser, vider ou tronquer des données en base : `DELETE`, `TRUNCATE`, `DROP TABLE`/`DROP COLUMN` porteuse de données, `UPDATE` destructif, ou tout écrasement de lignes existantes.
+
+Seule exception autorisée : un process de suppression DÉJÀ VALIDÉ EN AMONT par Arno (migration ou tâche explicitement approuvée qui prévoit cette suppression). Hors de ce cadre, toute suppression est interdite.
+
+Si franchir une étape exige une suppression hors process prévalidé, appliquer cet arbre :
+1. CONTOURNABLE ? Si l'étape de suppression n'est PAS obligatoire, OU si elle peut être régularisée APRÈS la livraison sans danger pour le développement ni la production → contourner l'étape, poursuivre le développement sans supprimer, et tracer la décision au rapport (catégorie A + flag `SUPPRESSION_ÉVITÉE`).
+2. OBLIGATOIRE ? Si la suppression est indispensable pour continuer → ARRÊTER le run et demander l'accord explicite d'Arno avant toute poursuite. Ne pas contourner, ne pas trancher, ne pas supprimer.
+
+En cas de doute sur le caractère destructif d'une opération, la traiter comme destructive.
 
 ## Fichiers de référence
 
