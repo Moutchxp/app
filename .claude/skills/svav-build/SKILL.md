@@ -40,7 +40,7 @@ traçabilité. Les subagents reçoivent leurs consignes des fichiers de referenc
 4. REVIEW      code-reviewer : revue du code produit (bugs, sécurité, style, conformité).
 5. AUDIT       test-auditor + comment-auditor : les tests prouvent-ils vraiment ? commentaires justes ?
 6. CONFORMITÉ  Exécuter la batterie de tests de conformité SVAV (voir plus bas).
-7. RAPPORT     Compiler le rapport de doute (décisions incertaines identifiées par les subagents).
+7. RAPPORT     Compiler le rapport final (décisions hors-specs + doutes + écarts) — n'interrompt jamais.
 8. RECON-VALID Recon lecture seule confrontant la livraison aux directives → verdict VALIDER/MODIFIER.
 9. LIVRAISON   Remettre à Arno : le code, le rapport de doute, le verdict de recon. Arno décide du go.
 ```
@@ -103,12 +103,30 @@ chantier touche :
 - GEMINI : adaptateurIaPhoto.ts et analyse-photo/route.ts non inclus dans la livraison sauf demande.
 Consigner le résultat de chaque vérification (PASS / FAIL + preuve).
 
-### Phase 7 — RAPPORT DE DOUTE
-Compiler docs/RAPPORT_BUILD_<chantier>.md avec, pour chaque doute identifié par un subagent au cours
-du run : la décision prise, les options envisagées, la raison du choix, l'impact potentiel sur les
-directives/invariants, et une recommandation. Le rapport se déclenche sur les doutes que les subagents
-identifient eux-mêmes. (Les violations de conformité, elles, sont attrapées en phase 6 même sans
-doute déclaré.) Si aucun doute : le noter explicitement.
+### Phase 7 — RAPPORT FINAL (doutes + décisions hors-specs)
+
+**Règle absolue : ce rapport n'interrompt JAMAIS le run.** L'agent consigne au fil de l'eau et
+continue son avancement sans jamais s'arrêter pour solliciter Arno. Arno veut être dérangé le moins
+possible : l'agent suit les specs et construit ; il ne demande PAS de validation en cours de route.
+Le rapport n'est destiné à être lu qu'APRÈS la livraison, à la seule discrétion d'Arno.
+
+Compiler docs/RAPPORT_BUILD_<chantier>.md, structuré en TROIS catégories distinctes :
+
+**A. DÉCISIONS HORS-SPECS (le plus important).** Toute décision que l'agent a prise de lui-même parce
+que les specs fournies ne la couvraient pas. Les specs sont toujours incomplètes ; l'agent DOIT combler
+les trous pour avancer, mais MUST tracer CHAQUE trou comblé. Pour chacune : ce que la spec ne disait
+pas, la décision prise, l'alternative écartée, la raison du choix, et l'impact éventuel. C'est ce qui
+permet à Arno de contrôler a posteriori les choix que l'agent a faits à sa place.
+
+**B. DOUTES.** Points où un subagent n'était pas certain, même après avoir tranché : ambiguïté,
+hypothèse retenue faute de mieux, zone de risque. Décision prise, options, raison, impact.
+
+**C. ÉCARTS DE CONFORMITÉ.** Tout résultat FAIL ou signal de la batterie de conformité (phase 6),
+notamment tout mouvement du golden — reporté ici même si aucun subagent ne l'a signalé comme doute.
+
+Si une catégorie est vide, le noter explicitement (« aucune décision hors-specs », etc.). Le rapport
+doit être complet et lisible seul : Arno doit pouvoir, à partir de lui, lancer une vérification
+approfondie des points soulevés s'il le souhaite — sans que rien de tout cela ait bloqué le run.
 
 ### Phase 8 — RECON DE VALIDATION
 Spawner une recon LECTURE SEULE qui, à partir du rapport de doute (phase 7) et des résultats de
@@ -120,9 +138,17 @@ conformité (phase 6), confronte la livraison complète aux directives et invari
   relève d'une décision métier.
 
 ### Phase 9 — LIVRAISON
-Remettre à Arno, sans committer : (a) le résumé du code produit et des fichiers touchés, (b) le
-rapport de doute (docs/RAPPORT_BUILD_<chantier>.md), (c) le résultat des tests de conformité, (d) le
-verdict de recon. Arno relit, valide, et commit lui-même (format SVAV : un chantier = un commit).
+Remettre à Arno, sans committer, après un run entièrement autonome (aucune sollicitation en cours de
+route) : (a) le résumé du code produit et des fichiers touchés, (b) le RAPPORT FINAL
+(docs/RAPPORT_BUILD_<chantier>.md) avec ses trois catégories, en mettant en avant la section
+« Décisions hors-specs » — c'est le point d'attention prioritaire pour Arno, (c) le résultat des tests
+de conformité, (d) le verdict de recon.
+
+Arno décide alors, en toute liberté et sans que rien ne l'y oblige : soit il valide et commit tel quel
+(format SVAV : un chantier = un commit) ; soit, s'il le souhaite, il lance une vérification approfondie
+des points du rapport (décisions hors-specs, doutes) avant de valider ou de demander des modifications.
+Le rapport final est l'outil qui rend cette vérification post-livraison possible — mais elle reste
+facultative et à sa seule initiative.
 
 ## Garde-fous
 
