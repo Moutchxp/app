@@ -209,9 +209,17 @@ n'est même pas stocké, et l'écran « consentement » n'est que des permission
 
 ## B. Hébergement de l'interface — décision
 
-**Décision : route protégée `/admin` DANS l'application Next actuelle**, isolée par un groupe de routes
-`app/(admin)/…` + `app/api/admin/…`, protégée par un `middleware.ts` (auth), et de préférence placée
-derrière un proxy d'identité réseau (défense en profondeur).
+**Décision : MÊME codebase (l'application Next actuelle), mais ADRESSE DÉDIÉE ET FERMÉE — l'admin n'est
+PAS exposé sur le domaine public.** L'admin est un groupe de routes `app/(admin)/…` + `app/api/admin/…`
+du même projet Next (pour réutiliser le moteur et `config_scoring` in-process), servi en **production**
+sous un **sous-domaine dédié `admin.sansvisavis.com`** — ou, plus étanche, un accès **strictement
+interne** (VPN / réseau local, non publié sur l'internet public) — **jamais** sous un chemin du domaine
+public (`sansvisavis.com/…`). Double barrière (défense en profondeur) : (1) **filtre réseau** en amont
+(Cloudflare Access / allowlist IP / VPN) qui décide qui peut seulement *atteindre* l'adresse ;
+(2) **auth applicative** (`middleware.ts` + session signée httpOnly) qui décide qui peut *entrer*.
+
+> Distinction clé : « même code » ≠ « même URL ». On garde UN seul projet Next (bénéfice technique
+> ci-dessous), mais on lui donne une **porte d'entrée séparée et verrouillée** pour l'admin.
 
 **Justification ancrée dans le code réel :**
 1. **Accès direct au moteur sans duplication.** Le moteur est un ensemble de fonctions **pures**
@@ -224,8 +232,10 @@ derrière un proxy d'identité réseau (défense en profondeur).
 3. **`config_scoring` est la source runtime in-process** (`profilConfig.ts`) : une route admin qui écrit
    `id=1` est **immédiatement effective** dans le même process. Aucun bus, aucune synchro.
 4. **Leaflet déjà présent** pour la carte M4 ; **design tokens SVAV** déjà présents pour la coquille.
-5. **Un seul utilisateur interne non-dev** : un sous-domaine ou une app séparée = surface de déploiement,
-   CI et duplication injustifiées.
+5. **Une APP séparée reste injustifiée** (un seul utilisateur interne non-dev) : dupliquer le projet =
+   surface de déploiement, CI et duplication du moteur/DB inutiles. ⚠️ Nuance : un **sous-domaine dédié**
+   n'est PAS une app séparée — il route vers le **même** déploiement Next ; c'est une frontière
+   d'**adresse/d'accès**, pas un second code à maintenir (cf. Décision ci-dessus).
 
 **Contraintes de sécurité (car auth = néant aujourd'hui, §0.3) :**
 - `middleware.ts` **matcher** sur `/admin` **et** `/api/admin/*` — refuser tout accès non authentifié
@@ -235,8 +245,10 @@ derrière un proxy d'identité réseau (défense en profondeur).
 - **Auth minimale mais réelle** : identifiant admin en variable d'env + **cookie de session signé
   httpOnly** (pas de mot de passe en dur côté client). Option recommandée en plus : **proxy d'identité**
   (Cloudflare Access / basic-auth réseau / allowlist IP) puisque l'usage est strictement interne.
-- **Ne jamais exposer `/admin` via les tunnels publics** autorisés en dev (`next.config.ts`
-  `*.trycloudflare.com`).
+- **Adresse dédiée en production** : servir l'admin sous `admin.sansvisavis.com` (ou accès interne/VPN),
+  **jamais** sous le domaine public ni via les tunnels publics de dev (`next.config.ts`
+  `*.trycloudflare.com`). En dev, `localhost` est de fait interne (personne d'autre n'y accède) — la
+  frontière d'adresse se joue surtout en production.
 - Séparer physiquement les routes **analytics pseudonymes (M2)** des routes **nominatives (M3)**.
 - ⚠️ **Correction revue adversariale (majeur) — ne pas simplement « réutiliser le Pool ».** Le `Pool`
   unique (`client.ts:8`) tourne avec **une seule identité DB** (`DATABASE_URL`), aujourd'hui en lecture.
