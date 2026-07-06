@@ -10,6 +10,48 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { analyserAdresse } from './pipeline';
 import { closePool } from './client';
+import type { ProfilDegagement } from '../svv/profilDegagement';
+
+/**
+ * Config de scoring GELÉE de référence — snapshot EXACT des valeurs qui SCELLENT le golden
+ * (identiques aujourd'hui au seed de la migration 003 et à PROFIL_DEGAGEMENT_DEFAUT).
+ *
+ * DÉCOUPLE le golden de deux sources mouvantes : (1) la ligne LIVE `config_scoring id=1`
+ * éditable par l'admin (pilotage sans code) ; (2) `PROFIL_DEGAGEMENT_DEFAUT` (profil de REPLI,
+ * susceptible d'évoluer). Constante INDÉPENDANTE : ne PAS la faire pointer vers l'un ou l'autre.
+ * Vit dans ce fichier `.itest.ts` → jamais embarquée dans le bundle de prod.
+ * Ré-synchroniser UNIQUEMENT lors d'un rescellage VOLONTAIRE du golden (commit séparé).
+ * Réf : docs/SPEC_decouplage_golden_reference.md.
+ */
+const PROFIL_GOLDEN_REF: ProfilDegagement = {
+  boostF2: 0.3,
+  boostF4: 2.5,
+  forfaitConeCentral: 300,
+  forfaitExtremites: 200,
+  coneF3DemiAngleDeg: 60,
+  distanceMaxM: 200,
+  plafondCouche1: 90,
+  plafondDegagement: 80,
+  modeCombinaison: 'max',
+  couloirSeuilLateralM: 3,
+  couloirFenetreConditionN: 16,
+  couloirToleranceBordN: 2,
+  couloirMalusPct: 0.01,
+  naturesRemarquables: ['Eglise', 'Monument', 'Chapelle', 'Château', 'Tour, donjon', 'Arc de triomphe'],
+  coneFamilleDemiAngleDeg: 60,
+  famillesPonderation: {
+    mondialFaisceauM: 800,
+    mh: { cone: 2.0, flanc: 1.5, distMaxM: 400 },
+    inventaire: { cone: 2.0, flanc: 1.5, distMaxM: 400 },
+    ancien1900: { cone: 1.5, flanc: 1.2, distMaxM: 300 },
+    ancien1935: { cone: 1.2, flanc: 1.1, distMaxM: 200 },
+  },
+  cumulNature: { seuilMinM: 30, baseM: 25, pasM: 5, increment: 0.1, plafond: 2.0, capP1M: 200 },
+  orientationPts: { N: 0, NE: 1, E: 5, SE: 8, S: 10, SO: 9, O: 7, NO: 3 },
+  borneAnnee1900: 1900,
+  borneAnnee1935: 1935,
+  analysisRangeM: 200,
+};
 
 afterAll(async () => {
   await closePool();
@@ -22,6 +64,7 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
       azimutPrincipalDeg: 90,
       etage: 2,
       dernierEtage: false,
+      profil: PROFIL_GOLDEN_REF, // golden découplé de config_scoring live (SPEC_decouplage_golden_reference)
     });
 
     // Origine validée + terrain lu sur le MNT AU POINT SNAPPÉ (≈ 41.570 ; ancien brut : 41.590).

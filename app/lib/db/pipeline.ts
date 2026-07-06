@@ -9,6 +9,7 @@ import type { PointWgs84 } from "../svv/geo";
 import { hauteurVision, type ModeOrigine } from "../svv/config";
 import { analyser, type EntreeComplete, type ResultatComplet } from "../svv/analyse";
 import { chargerProfilDegagement } from "./profilConfig";
+import type { ProfilDegagement } from "../svv/profilDegagement";
 import type { EntreeFamille2 } from "../svv/scorePaysage";
 import type { EntreePaysage } from "../svv/entreePaysage";
 import { validerOrigine, type ValidationOrigine } from "./origine";
@@ -72,6 +73,10 @@ export interface ParametresAnalyse {
   dernierEtage: boolean;
   paysage?: EntreePaysage;
   mode?: ModeOrigine; // saisie de l'origine ; défaut semi_auto (snap façade) si absent
+  /** Profil de scoring INJECTÉ (usage tests uniquement — ex. golden avec config gelée de référence).
+   *  Si absent → lecture LIVE de config_scoring via chargerProfilDegagement (comportement de prod
+   *  INCHANGÉ). La prod n'injecte JAMAIS ce champ. Cf. docs/SPEC_decouplage_golden_reference.md. */
+  profil?: ProfilDegagement;
 }
 
 export interface ResultatAnalyse {
@@ -169,9 +174,10 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
     paysage,
   };
 
-  // g) Analyse (Bloc A). Profil de pondération lu UNE SEULE FOIS par analyse (table
-  //    config_scoring, repli sur PROFIL_DEGAGEMENT_DEFAUT) puis passé en paramètre.
-  const profil = await chargerProfilDegagement();
+  // g) Analyse (Bloc A). Profil de pondération : injecté via params.profil (tests golden — config
+  //    gelée de référence), SINON lu UNE SEULE FOIS depuis config_scoring (repli sur
+  //    PROFIL_DEGAGEMENT_DEFAUT). La prod n'injecte jamais → lecture live INCHANGÉE.
+  const profil = params.profil ?? await chargerProfilDegagement();
   const resultat = analyser(entree, profil);
 
   return { validation, resultat };
