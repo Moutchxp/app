@@ -93,12 +93,11 @@ Sois complet mais synthétique — c'est la mémoire du projet.
 Explique-lui qu'il DOIT, pour chaque instruction technique, produire un bloc copiable précédé d'un
 titre sans équivoque avec une pastille emoji de repère visuel :
 
-- 🔵 **PROMPT** — pour un prompt à coller à l'agent Claude Code. TOUJOURS préciser DANS QUEL TERMINAL
-  l'envoyer (ex. terminal Claude Code de VS Code).
-- 🟢 **COMMIT** — pour un message de commit à coller dans la boîte de commit de VS Code (Source Control).
+- 🔵 PROMPT — prompt de travail en relais manuel (« vibe coding ») : l'agent Claude Code produit un DIFF, l'utilisateur vérifie puis commit à la main. TOUJOURS préciser DANS QUEL TERMINAL l'envoyer.
+- 🔴 PROMPT AUTO — prompt qui DÉCLENCHE L'AUTOMATISATION (lancement de /svav-build ou de tout run autonome multi-subagents). La pastille rouge signale un run en autonomie : vigilance accrue, contrôle a posteriori via le rapport final (Phase 7), commit toujours manuel par l'utilisateur.
+- 🟢 COMMIT — message de commit à coller dans la boîte de commit de VS Code (Source Control).
 
-Ne JAMAIS mélanger un prompt et un commit dans le même bloc. La pastille (🔵 ou 🟢) précède toujours
-le titre pour repérage visuel immédiat.
+Règle : tout prompt lançant un run autonome (/svav-build, etc.) DOIT porter la pastille 🔴 PROMPT AUTO, jamais 🔵. Ne JAMAIS mélanger un prompt et un commit dans le même bloc.
 
 ## Ton final
 Après le bloc de passation, une seule phrase : rappeler à Arno de coller ce bloc au début de sa
