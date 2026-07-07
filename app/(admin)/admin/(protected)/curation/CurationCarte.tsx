@@ -178,6 +178,25 @@ async function ecrire(
   }
 }
 
+/**
+ * Crée une entité patrimoniale manuelle (POST /entites, sous-étape 1/6) et renvoie son `id`, ou `null`
+ * en cas d'échec. Le helper `ecrire` ne remonte pas le corps de réponse → fetch direct pour lire `entite.id`.
+ */
+async function creerEntite(payload: { famille: string; nom: string; statut: string }): Promise<number | null> {
+  try {
+    const res = await fetch('/api/admin/curation/entites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || typeof data?.entite?.id !== 'number') return null;
+    return data.entite.id as number;
+  } catch {
+    return null;
+  }
+}
+
 /** Bornes 4326 de la vue courante (pour le GET emprises). */
 function bboxDe(map: L.Map): Bbox {
   const b = map.getBounds();
@@ -204,14 +223,23 @@ export default function CurationCarte() {
   const [confirmDetach, setConfirmDetach] = useState<string | null>(null);
   const [emprises, setEmprises] = useState<Emprise[]>([]);
   const [emprisesLiees, setEmprisesLiees] = useState<Emprise[]>([]);
+  const [emprisesFond, setEmprisesFond] = useState<Emprise[]>([]); // bâtiments bbox (hover + dblclick créer)
   const [enEcriture, setEnEcriture] = useState(false);
   const [flashId, setFlashId] = useState<number | null>(null);
+  // Formulaire « + Nouveau tag » (création d'entité manuelle).
+  const [creationOuverte, setCreationOuverte] = useState(false);
+  const [formFamille, setFormFamille] = useState<'mondial' | 'mh' | 'inventaire'>('mh');
+  const [formStatut, setFormStatut] = useState('');
+  const [formNom, setFormNom] = useState('');
+  const [cleabsCible, setCleabsCible] = useState<string | null>(null); // bâtiment double-cliqué à taguer
 
   // Refs Leaflet (map créée une seule fois ; couches réutilisées).
   const conteneurRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const coucheMarqueursRef = useRef<L.LayerGroup | null>(null);
   const coucheEmprisesRef = useRef<L.LayerGroup | null>(null);
+  const coucheFondRef = useRef<L.LayerGroup | null>(null); // bâtiments bbox (sous les couches bleu/vert)
+  const dernierFitRef = useRef<number | null>(null); // dernière entité sans-point ajustée (évite les re-fit)
   const ajusteRef = useRef(false); // fitBounds une seule fois (jamais après un rechargement)
   const selectionIdRef = useRef<number | null>(null); // miroir pour le handler `moveend`
   const itemActifRef = useRef<HTMLLIElement | null>(null); // item de liste sélectionné (scroll auto)
@@ -265,26 +293,52 @@ export default function CurationCarte() {
     setEmprises(liste);
   }, []);
 
+  // ── Couche de fond : bâtiments de la bbox, chargés TOUJOURS (indépendant de la sélection). ─
+  const chargerEmprisesFond = useCallback(async (): Promise<void> => {
+    const map = mapRef.current;
+    if (!map) return;
+    const liste = await fetchEmprises(bboxDe(map));
+    setEmprisesFond(liste);
+  }, []);
+
+  // ── Double-clic sur un bâtiment : ouvre « Nouveau tag » pré-armé sur ce cleabs (pas de rattachement auto). ─
+  const ouvrirCreationCiblee = useCallback((cleabs: string) => {
+    setCleabsCible(cleabs);
+    setCreationOuverte(true);
+  }, []);
+
   // ── Création de la carte (une seule fois). ───────────────────────────────────
   useEffect(() => {
     if (!conteneurRef.current || mapRef.current) return;
-    const map = L.map(conteneurRef.current, { zoomControl: true }).setView([48.856, 2.352], 12);
+    // doubleClickZoom désactivé : le double-clic ne doit pas zoomer sur la carte de curation
+    // (évite un zoom parasite ; la création passe par le bouton « + Nouveau tag »).
+    const map = L.map(conteneurRef.current, { zoomControl: true, doubleClickZoom: false }).setView(
+      [48.856, 2.352],
+      12,
+    );
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '© OpenStreetMap',
     }).addTo(map);
     mapRef.current = map;
+    // Ordre d'empilement (overlayPane) : fond EN DESSOUS, puis les emprises bleu/vert AU-DESSUS
+    // (elles interceptent le clic quand une entité est sélectionnée). Marqueurs = markerPane (au-dessus).
+    coucheFondRef.current = L.layerGroup().addTo(map);
     coucheMarqueursRef.current = L.layerGroup().addTo(map);
     coucheEmprisesRef.current = L.layerGroup().addTo(map);
 
-    // Re-charge les emprises quand la vue change et qu'une entité est sélectionnée.
+    // Re-charge les emprises quand la vue change : le fond TOUJOURS, les candidates si sélection.
     map.on('moveend', () => {
+      void chargerEmprisesFond();
       if (selectionIdRef.current !== null) void chargerEmprises();
     });
 
     const surResize = () => map.invalidateSize();
     window.addEventListener('resize', surResize);
-    setTimeout(() => map.invalidateSize(), 200);
+    setTimeout(() => {
+      map.invalidateSize();
+      void chargerEmprisesFond(); // fond initial (aucun moveend au montage)
+    }, 200);
 
     return () => {
       window.removeEventListener('resize', surResize);
@@ -292,8 +346,9 @@ export default function CurationCarte() {
       mapRef.current = null;
       coucheMarqueursRef.current = null;
       coucheEmprisesRef.current = null;
+      coucheFondRef.current = null;
     };
-  }, [chargerEmprises]);
+  }, [chargerEmprises, chargerEmprisesFond]);
 
   // ── Sélection d'une entité (centre la carte + charge ses emprises via l'effet). ─
   const selectionner = useCallback(
@@ -393,6 +448,31 @@ export default function CurationCarte() {
     [recharger, signaler],
   );
 
+  // ── Création d'entité manuelle : POST → recharge (entrée dans `entites`) → sélection. ─
+  const soumettreCreation = useCallback(async () => {
+    const nom = formNom.trim();
+    const statut = formStatut.trim();
+    // Statut requis. Nom requis par la route 1/6 (rejette le nom vide en 422) — cf. RAPPORT_BUILD B1.
+    if (statut.length === 0 || nom.length === 0) {
+      signaler('Famille, statut et nom sont requis.', 'erreur');
+      return;
+    }
+    setEnEcriture(true);
+    const id = await creerEntite({ famille: formFamille, nom, statut });
+    setEnEcriture(false);
+    if (id === null) {
+      signaler('Création impossible.', 'erreur');
+      return;
+    }
+    setCreationOuverte(false);
+    setFormNom('');
+    setFormStatut('');
+    setCleabsCible(null);
+    await recharger(); // IMPÉRATIF avant selectionner : la nouvelle entité doit entrer dans `entites`
+    selectionner(id);
+    signaler('Entité créée — cliquez les emprises bleues pour composer.', 'ok');
+  }, [formFamille, formNom, formStatut, recharger, selectionner, signaler]);
+
   // ── Entités affichables sur la carte (point non nul + famille visible). ──────
   const entitesAvecPoint = useMemo(
     () => (entites ?? []).filter((e) => e.point !== null && famillesVisibles[e.famille] !== false),
@@ -470,6 +550,43 @@ export default function CurationCarte() {
       annule = true;
     };
   }, [selectionId, entites]);
+
+  // ── Correction A : entité SANS point → ajuster la carte sur ses emprises rattachées (vert),
+  //    sinon les polygones détachables restent hors écran. Une seule fois par entité (dernierFitRef). ─
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !entiteSelectionnee) return;
+    if (entiteSelectionnee.point !== null) return; // entités AVEC point : recentrage déjà fait par selectionner
+    if (dernierFitRef.current === entiteSelectionnee.id) return; // déjà ajusté pour cette entité
+    if (emprisesLiees.length === 0) return; // rien à cadrer (ne rien forcer)
+    const gj = L.geoJSON();
+    for (const emp of emprisesLiees) if (emp.geom) gj.addData(emp.geom);
+    const bounds = gj.getBounds();
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 18 });
+      dernierFitRef.current = entiteSelectionnee.id;
+    }
+  }, [entiteSelectionnee, emprisesLiees]);
+
+  // ── Correction B : couche de fond des bâtiments (transparente au repos, contour au survol),
+  //    double-clic = ouvrir « Nouveau tag » ciblé. SOUS les couches bleu/vert (qui interceptent si sélection). ─
+  useEffect(() => {
+    const couche = coucheFondRef.current;
+    if (!couche) return;
+    couche.clearLayers();
+    for (const emp of emprisesFond) {
+      if (!emp.geom || !emp.cleabs) continue;
+      const cleabs = emp.cleabs;
+      const layer = L.geoJSON(emp.geom, {
+        interactive: true,
+        style: { stroke: false, fill: true, fillColor: '#a30402', fillOpacity: 0 },
+      });
+      layer.on('mouseover', () => layer.setStyle({ stroke: true, color: '#a30402', weight: 1, fillOpacity: 0.06 }));
+      layer.on('mouseout', () => layer.setStyle({ stroke: false, fillOpacity: 0 }));
+      layer.on('dblclick', () => ouvrirCreationCiblee(cleabs));
+      layer.addTo(couche);
+    }
+  }, [emprisesFond, ouvrirCreationCiblee]);
 
   // ── Scroll auto vers l'item sélectionné dans la liste + surbrillance brève (clic marqueur). ─
   useEffect(() => {
@@ -564,6 +681,84 @@ export default function CurationCarte() {
 
       <div className="svv-cur">
         <section className="svv-cur-panel" aria-label="Liste et filtres des entités">
+          {/* Création d'entité manuelle (tag). */}
+          <div className="svv-cur-creation">
+            {!creationOuverte ? (
+              <button
+                type="button"
+                className="svv-cur-btn svv-cur-btn--outline"
+                onClick={() => {
+                  setCleabsCible(null);
+                  setCreationOuverte(true);
+                }}
+              >
+                + Nouveau tag
+              </button>
+            ) : (
+              <form
+                className="svv-cur-form"
+                onSubmit={(ev) => {
+                  ev.preventDefault();
+                  void soumettreCreation();
+                }}
+              >
+                {cleabsCible && (
+                  <p className="svv-cur-form-cible">
+                    {'Bâtiment ciblé : '}
+                    <code>{cleabsCible}</code>
+                    {" — créez l'entité, puis cliquez l'emprise bleue pour la rattacher."}
+                  </p>
+                )}
+                <label className="svv-cur-form-champ">
+                  <span>Famille</span>
+                  <select
+                    value={formFamille}
+                    onChange={(ev) => setFormFamille(ev.target.value as 'mondial' | 'mh' | 'inventaire')}
+                  >
+                    {FAMILLES.map((f) => (
+                      <option key={f.cle} value={f.cle}>
+                        {f.libelle}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="svv-cur-form-champ">
+                  <span>Statut</span>
+                  <input
+                    type="text"
+                    value={formStatut}
+                    placeholder="ex. classé, inscrit, bâti patrimonial…"
+                    onChange={(ev) => setFormStatut(ev.target.value)}
+                  />
+                </label>
+                <label className="svv-cur-form-champ">
+                  <span>Nom (légende)</span>
+                  <input
+                    type="text"
+                    value={formNom}
+                    placeholder="ex. Hôtel de ville"
+                    onChange={(ev) => setFormNom(ev.target.value)}
+                  />
+                </label>
+                <div className="svv-cur-form-actions">
+                  <button type="submit" className="svv-cur-btn svv-cur-btn--mini" disabled={enEcriture}>
+                    Créer
+                  </button>
+                  <button
+                    type="button"
+                    className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
+                    onClick={() => {
+                      setCreationOuverte(false);
+                      setCleabsCible(null);
+                    }}
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+
           {/* Filtres par famille (EX-2). */}
           <fieldset className="svv-cur-filtres">
             <legend className="svv-cur-legende">Familles</legend>
@@ -658,7 +853,7 @@ export default function CurationCarte() {
                       <p className="svv-cur-detail-aide">
                         {e.point
                           ? 'Glissez le marqueur pour déplacer le point. Cliquez une emprise sur la carte pour rattacher (bleu) ou détacher (vert).'
-                          : 'Entité sans point : cliquez une emprise sur la carte pour la rattacher.'}
+                          : 'Entité sans point : la carte est centrée sur ses bâtiments. Cliquez une emprise VERTE pour détacher, une BLEUE pour rattacher.'}
                       </p>
 
                       <p className="svv-cur-detail-titre">Liaisons ({e.liaisons.length})</p>
@@ -756,6 +951,12 @@ const CSS = `
 .svv-cur-map-canvas{width:100%;height:100%}
 .svv-cur-panel{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:.55rem;padding-right:.15rem}
 
+.svv-cur-creation{display:flex;flex-direction:column}
+.svv-cur-form{display:flex;flex-direction:column;gap:.45rem;border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.6rem}
+.svv-cur-form-champ{display:flex;flex-direction:column;gap:.2rem;font-size:.8rem;font-weight:600;color:var(--color-svv-ink)}
+.svv-cur-form-champ select,.svv-cur-form-champ input{width:100%;box-sizing:border-box;padding:.45rem .55rem;border:1px solid var(--color-svv-line);border-radius:.5rem;background:#fff;color:var(--color-svv-ink);font-size:.9rem;font-family:inherit;font-weight:500;min-height:44px}
+.svv-cur-form-actions{display:flex;gap:.4rem}
+.svv-cur-form-cible{margin:0;font-size:.78rem;line-height:1.35;color:var(--color-svv-green-ink);background:var(--color-svv-green-soft);border-radius:.45rem;padding:.4rem .5rem}
 .svv-cur-filtres{border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.5rem .6rem;margin:0;display:flex;flex-wrap:wrap;gap:.35rem .7rem}
 .svv-cur-legende{font-size:.68rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--color-svv-muted);padding:0;margin-right:.3rem}
 .svv-cur-check{display:inline-flex;align-items:center;gap:.35rem;min-height:44px;font-size:.85rem;color:var(--color-svv-ink);font-weight:600;cursor:pointer}
