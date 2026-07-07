@@ -10,6 +10,7 @@
  */
 import { query } from "./client";
 import { PROFIL_DEGAGEMENT_DEFAUT, type ProfilDegagement, type ModeCombinaison } from "../svv/profilDegagement";
+import type { CarteAnnee } from "../svv/cartesAnnee";
 
 interface LigneConfigScoring {
   boost_f2: number;
@@ -33,8 +34,6 @@ interface LigneConfigScoring {
   mondial_faisceau_m: number;
   mh_cone: number; mh_flanc: number; mh_distmax_m: number;
   inv_cone: number; inv_flanc: number; inv_distmax_m: number;
-  a1900_cone: number; a1900_flanc: number; a1900_distmax_m: number;
-  a1935_cone: number; a1935_flanc: number; a1935_distmax_m: number;
   cumul_seuil_min_m: number;
   cumul_base_m: number;
   cumul_pas_m: number;
@@ -44,8 +43,6 @@ interface LigneConfigScoring {
   // Externalisation A/B/C — orientation, bornes année, portée.
   orientation_n: number; orientation_ne: number; orientation_e: number; orientation_se: number;
   orientation_s: number; orientation_so: number; orientation_o: number; orientation_no: number;
-  borne_annee_1900: number;
-  borne_annee_1935: number;
   analysis_range_m: number;
 }
 
@@ -65,11 +62,10 @@ export async function chargerProfilDegagement(): Promise<ProfilDegagement> {
               couloir_tolerance_bord_n, couloir_malus_pct, natures_remarquables,
               cone_famille_demi_angle_deg, mondial_faisceau_m,
               mh_cone, mh_flanc, mh_distmax_m, inv_cone, inv_flanc, inv_distmax_m,
-              a1900_cone, a1900_flanc, a1900_distmax_m, a1935_cone, a1935_flanc, a1935_distmax_m,
               cumul_seuil_min_m, cumul_base_m, cumul_pas_m, cumul_increment, cumul_plafond, cumul_cap_p1_m,
               orientation_n, orientation_ne, orientation_e, orientation_se,
               orientation_s, orientation_so, orientation_o, orientation_no,
-              borne_annee_1900, borne_annee_1935, analysis_range_m
+              analysis_range_m
        FROM config_scoring WHERE id = 1`,
     );
     const r = res.rows[0];
@@ -78,6 +74,28 @@ export async function chargerProfilDegagement(): Promise<ProfilDegagement> {
     // Garde-fou : le cap perçu par faisceau (F1/base/P1) ne peut excéder la portée d'analyse.
     // (N'affecte PAS les distMax famille — mh 400, etc. — qui peuvent dépasser la portée.) Repli DEFAUT, pas de clamp.
     if (r.distance_max_m > r.analysis_range_m) return PROFIL_DEGAGEMENT_DEFAUT;
+
+    // Cartes d'année — try/catch LOCAL, distinct du catch global : une table absente/SQL en échec
+    // retombe sur les 2 cartes seed (repli de CHAMP), sans invalider le reste du profil config_scoring.
+    // ⚠️ 0 ligne (table vide) = état VALIDE (aucune carte → aucun bonus), PAS un repli.
+    let famillesAnnee: CarteAnnee[];
+    try {
+      const cr = await query<{ borne_min: number | null; op_min: string | null; borne_max: number | null; op_max: string | null; cone: number; flanc: number; distmax_m: number }>(
+        `SELECT id, borne_min, op_min, borne_max, op_max, cone, flanc, distmax_m FROM config_famille_annee ORDER BY id`,
+      );
+      famillesAnnee = cr.rows.map((cRow) => ({
+        borneMin: cRow.borne_min,
+        opMin: (cRow.op_min === '>=' || cRow.op_min === '>') ? cRow.op_min : null,
+        borneMax: cRow.borne_max,
+        opMax: (cRow.op_max === '<=' || cRow.op_max === '<') ? cRow.op_max : null,
+        cone: cRow.cone,
+        flanc: cRow.flanc,
+        distMaxM: cRow.distmax_m,
+      }));
+    } catch {
+      famillesAnnee = PROFIL_DEGAGEMENT_DEFAUT.famillesAnnee; // erreur DB (table absente/SQL) → repli de champ
+    }
+
     return {
       boostF2: r.boost_f2,
       boostF4: r.boost_f4,
@@ -100,9 +118,8 @@ export async function chargerProfilDegagement(): Promise<ProfilDegagement> {
         mondialFaisceauM: r.mondial_faisceau_m,
         mh: { cone: r.mh_cone, flanc: r.mh_flanc, distMaxM: r.mh_distmax_m },
         inventaire: { cone: r.inv_cone, flanc: r.inv_flanc, distMaxM: r.inv_distmax_m },
-        ancien1900: { cone: r.a1900_cone, flanc: r.a1900_flanc, distMaxM: r.a1900_distmax_m },
-        ancien1935: { cone: r.a1935_cone, flanc: r.a1935_flanc, distMaxM: r.a1935_distmax_m },
       },
+      famillesAnnee,
       cumulNature: {
         seuilMinM: r.cumul_seuil_min_m,
         baseM: r.cumul_base_m,
@@ -115,8 +132,6 @@ export async function chargerProfilDegagement(): Promise<ProfilDegagement> {
         N: r.orientation_n, NE: r.orientation_ne, E: r.orientation_e, SE: r.orientation_se,
         S: r.orientation_s, SO: r.orientation_so, O: r.orientation_o, NO: r.orientation_no,
       },
-      borneAnnee1900: r.borne_annee_1900,
-      borneAnnee1935: r.borne_annee_1935,
       analysisRangeM: r.analysis_range_m,
     };
   } catch {

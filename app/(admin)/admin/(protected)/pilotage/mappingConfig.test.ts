@@ -54,8 +54,16 @@ describe('mappingConfig — métadonnées d’édition (M1)', () => {
     }
   });
 
-  it('les 5 VESTIGIALE + `id` sont `editable: false`', () => {
-    const nonEditables = ['id', 'boost_f2', 'forfait_cone_central', 'forfait_extremites', 'cone_f3_demi_angle_deg', 'natures_remarquables'];
+  it('les 13 VESTIGIALE + `id` sont `editable: false`', () => {
+    const nonEditables = [
+      'id',
+      // 5 vestigiales « Héritage » historiques
+      'boost_f2', 'forfait_cone_central', 'forfait_extremites', 'cone_f3_demi_angle_deg', 'natures_remarquables',
+      // 8 vestigiales « barème par année » neutralisées par les cartes d'année dynamiques (EX-19)
+      'a1900_cone', 'a1900_flanc', 'a1900_distmax_m',
+      'a1935_cone', 'a1935_flanc', 'a1935_distmax_m',
+      'borne_annee_1900', 'borne_annee_1935',
+    ];
     for (const nom of nonEditables) {
       const m = META.find((x) => x.colonne === nom);
       expect(m, nom).toBeDefined();
@@ -64,10 +72,32 @@ describe('mappingConfig — métadonnées d’édition (M1)', () => {
   });
 
   it('toutes les autres colonnes sont éditables', () => {
-    const nonEditables = new Set(['id', 'boost_f2', 'forfait_cone_central', 'forfait_extremites', 'cone_f3_demi_angle_deg', 'natures_remarquables']);
+    const nonEditables = new Set([
+      'id',
+      'boost_f2', 'forfait_cone_central', 'forfait_extremites', 'cone_f3_demi_angle_deg', 'natures_remarquables',
+      'a1900_cone', 'a1900_flanc', 'a1900_distmax_m',
+      'a1935_cone', 'a1935_flanc', 'a1935_distmax_m',
+      'borne_annee_1900', 'borne_annee_1935',
+    ]);
     for (const m of META) {
       if (!nonEditables.has(m.colonne)) expect(m.editable, m.colonne).toBe(true);
     }
+  });
+
+  it('les 8 colonnes « barème par année » sont VESTIGIALE (neutralisées par les cartes d’année)', () => {
+    const neutralisees = [
+      'a1900_cone', 'a1900_flanc', 'a1900_distmax_m',
+      'a1935_cone', 'a1935_flanc', 'a1935_distmax_m',
+      'borne_annee_1900', 'borne_annee_1935',
+    ];
+    for (const nom of neutralisees) {
+      const m = META.find((x) => x.colonne === nom);
+      expect(m, nom).toBeDefined();
+      expect(m!.statut, nom).toBe('VESTIGIALE');
+      expect(m!.editable, nom).toBe(false);
+    }
+    // Recap global : 13 VESTIGIALE au total.
+    expect(META.filter((m) => m.statut === 'VESTIGIALE').length).toBe(13);
   });
 
   it('pour chaque colonne bornée, min ≤ defaut ≤ max', () => {

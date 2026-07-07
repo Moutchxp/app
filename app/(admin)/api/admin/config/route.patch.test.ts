@@ -79,6 +79,15 @@ describe('PATCH /api/admin/config', () => {
     expect(ecritureEmise()).toBe(false);
   });
 
+  it('borne_annee_1900 (neutralisée VESTIGIALE) → 422 « non éditable » + aucune écriture (EX-19)', async () => {
+    branche();
+    const res = await PATCH(req({ borne_annee_1900: 1899 }));
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.erreurs.some((e: { message: string }) => e.message.includes('non éditable'))).toBe(true);
+    expect(ecritureEmise()).toBe(false);
+  });
+
   it('mode_combinaison hors liste → 422', async () => {
     branche();
     const res = await PATCH(req({ mode_combinaison: 'xyz' }));

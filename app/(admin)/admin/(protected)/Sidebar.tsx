@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
 /** Modules de l'admin (libellés + slugs, D6). */
 const MODULES = [
   { slug: '/admin/pilotage', libelle: 'Pilotage' },
+  { slug: '/admin/cartes-annee', libelle: 'Cartes d’année' },
   { slug: '/admin/statistiques', libelle: 'Statistiques' },
   { slug: '/admin/internautes', libelle: 'Internautes' },
   { slug: '/admin/curation', libelle: 'Curation' },

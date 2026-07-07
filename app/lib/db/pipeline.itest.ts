@@ -44,13 +44,13 @@ const PROFIL_GOLDEN_REF: ProfilDegagement = {
     mondialFaisceauM: 800,
     mh: { cone: 2.0, flanc: 1.5, distMaxM: 400 },
     inventaire: { cone: 2.0, flanc: 1.5, distMaxM: 400 },
-    ancien1900: { cone: 1.5, flanc: 1.2, distMaxM: 300 },
-    ancien1935: { cone: 1.2, flanc: 1.1, distMaxM: 200 },
   },
+  famillesAnnee: [
+    { borneMin: null, opMin: null, borneMax: 1900, opMax: '<=', cone: 1.5, flanc: 1.2, distMaxM: 300 },
+    { borneMin: 1900, opMin: '>', borneMax: 1935, opMax: '<=', cone: 1.2, flanc: 1.1, distMaxM: 200 },
+  ],
   cumulNature: { seuilMinM: 30, baseM: 25, pasM: 5, increment: 0.1, plafond: 2.0, capP1M: 200 },
   orientationPts: { N: 0, NE: 1, E: 5, SE: 8, S: 10, SO: 9, O: 7, NO: 3 },
-  borneAnnee1900: 1900,
-  borneAnnee1935: 1935,
   analysisRangeM: 200,
 };
 

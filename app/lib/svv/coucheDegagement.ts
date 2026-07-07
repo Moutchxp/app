@@ -12,6 +12,7 @@
 import type { FaisceauResultat } from './scoreDegagement';
 import { azimutVersSecteur } from './scoreDegagement';
 import type { ProfilDegagement, FamilleCoeff, ModeCombinaison, ModeRepli } from './profilDegagement';
+import { carteMatche } from './cartesAnnee';
 import {
   CONE_VUE_NATURE_DEG,
   SEUIL_VUE_NATURE,
@@ -41,7 +42,8 @@ function diviseurCumulNature(natureM: number, c: ProfilDegagement['cumulNature']
 
 /**
  * Famille pondérée PRIORITAIRE du bâti heurté (première qui matche ; jamais de cumul de familles) :
- * MH → Inventaire → année ≤1900 → année 1901–1935. `null` = bâti ordinaire (aucune pondération).
+ * MH → Inventaire → carte d'année (première dont l'intervalle réel contient l'année ; au plus une par
+ * non-chevauchement) → `null` = bâti ordinaire (aucune pondération). Priorité INCHANGÉE.
  * (Patrimoine mondial est traité en amont dans distancePercueFaisceau : faisceau fixe.)
  */
 function familleCoeff(f: FaisceauResultat, profil: ProfilDegagement): FamilleCoeff | null {
@@ -50,8 +52,8 @@ function familleCoeff(f: FaisceauResultat, profil: ProfilDegagement): FamilleCoe
   if (f.impactInventaire === true) return F.inventaire;
   const annee = f.impactAnnee;
   if (typeof annee === 'number') {
-    if (annee <= profil.borneAnnee1900) return F.ancien1900;
-    if (annee <= profil.borneAnnee1935) return F.ancien1935; // 1901–1935 (≤ borneAnnee1900 déjà écarté)
+    const c = profil.famillesAnnee.find((carte) => carteMatche(carte, annee));
+    if (c) return { cone: c.cone, flanc: c.flanc, distMaxM: c.distMaxM };
   }
   return null;
 }

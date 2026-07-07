@@ -5,6 +5,7 @@
  * Module pur : aucune donnée, aucune IA. VALEURS DE DÉPART À CALIBRER (non figées).
  */
 import type { Orientation } from './config';
+import type { CarteAnnee } from './cartesAnnee';
 
 export type ModeCombinaison = 'max' | 'addition' | 'sequentiel';
 
@@ -28,10 +29,6 @@ export interface FamillesPonderation {
   mh: FamilleCoeff;
   /** Bâti patrimonial Inventaire IA (inventaire_general, badge actif). */
   inventaire: FamilleCoeff;
-  /** Bâti construit ≤ 1900. */
-  ancien1900: FamilleCoeff;
-  /** Bâti construit 1901–1935. */
-  ancien1935: FamilleCoeff;
 }
 
 /** Règle de cumul nature + bâti (Étape 2) : diviseur par paliers de nature + caps. */
@@ -85,14 +82,16 @@ export interface ProfilDegagement {
   coneFamilleDemiAngleDeg: number;
   /** Barème de pondération par famille (Étape 2). */
   famillesPonderation: FamillesPonderation;
+  /**
+   * Cartes d'année de construction configurables (remplace ancien1900/ancien1935 + bornes fixes).
+   * Ordonnées ; au plus UNE matche une année donnée (non-chevauchement garanti à l'écriture via
+   * `validerCartesAnnee`). Liste vide = aucun bonus d'année (chemin classique).
+   */
+  famillesAnnee: CarteAnnee[];
   /** Règle de cumul nature + bâti (Étape 2). */
   cumulNature: CumulNature;
   /** Barème d'orientation : points (0..10) par secteur (externalisé — mapping azimut→secteur reste en code). */
   orientationPts: Record<Orientation, number>;
-  /** Borne haute INCLUSE de la famille « ≤ 1900 » (année ≤ borneAnnee1900). */
-  borneAnnee1900: number;
-  /** Borne haute INCLUSE de la famille « 1901–1935 » (borneAnnee1900 < année ≤ borneAnnee1935). */
-  borneAnnee1935: number;
   /** Portée d'analyse (m) — miroir runtime de ANALYSIS_RANGE_M ; garde-fou distanceMaxM ≤ analysisRangeM au chargement. */
   analysisRangeM: number;
 }
@@ -119,9 +118,11 @@ export const PROFIL_DEGAGEMENT_DEFAUT: ProfilDegagement = {
     mondialFaisceauM: 800,
     mh: { cone: 2.0, flanc: 1.5, distMaxM: 400 },
     inventaire: { cone: 2.0, flanc: 1.5, distMaxM: 400 },
-    ancien1900: { cone: 1.5, flanc: 1.2, distMaxM: 300 },
-    ancien1935: { cone: 1.2, flanc: 1.1, distMaxM: 200 },
   },
+  famillesAnnee: [
+    { borneMin: null, opMin: null, borneMax: 1900, opMax: '<=', cone: 1.5, flanc: 1.2, distMaxM: 300 },
+    { borneMin: 1900, opMin: '>', borneMax: 1935, opMax: '<=', cone: 1.2, flanc: 1.1, distMaxM: 200 },
+  ],
   cumulNature: {
     seuilMinM: 30,
     baseM: 25,
@@ -131,7 +132,5 @@ export const PROFIL_DEGAGEMENT_DEFAUT: ProfilDegagement = {
     capP1M: 200,
   },
   orientationPts: { N: 0, NE: 1, E: 5, SE: 8, S: 10, SO: 9, O: 7, NO: 3 },
-  borneAnnee1900: 1900,
-  borneAnnee1935: 1935,
   analysisRangeM: 200,
 };
