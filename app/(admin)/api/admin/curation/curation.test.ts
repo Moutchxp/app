@@ -8,7 +8,7 @@ vi.mock('../../../../lib/db/client', () => ({
   query: (...args: unknown[]) => queryMock(...args),
 }));
 
-import { GET as GET_ENTITES } from './entites/route';
+import { GET as GET_ENTITES, POST as POST_ENTITE } from './entites/route';
 import { PATCH as PATCH_POINT, DELETE as DELETE_POINT } from './entites/[id]/point/route';
 import { POST as POST_LIAISON, DELETE as DELETE_LIAISON, PATCH as PATCH_LIAISON } from './entites/[id]/liaisons/route';
 
@@ -70,6 +70,49 @@ describe('GET /api/admin/curation/entites', () => {
     queryMock.mockRejectedValue(new Error('db down'));
     const res = await GET_ENTITES();
     expect(res.status).toBe(503);
+  });
+});
+
+describe('POST /api/admin/curation/entites (création manuelle)', () => {
+  it('création valide → 201 + INSERT patrimoine_entite (ref MANUEL-*, meta.origine=manuel, sans liaison)', async () => {
+    queryMock.mockResolvedValue({
+      rows: [{ id: 42, famille: 'mh', ref_code: 'MANUEL-1700000000000', nom: 'Hôtel de ville', meta: { origine: 'manuel' } }],
+    });
+    const res = await POST_ENTITE(req('POST', { famille: 'mh', nom: '  Hôtel de ville  ', statut: 'inscrit' }));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.entite).toMatchObject({ id: 42, famille: 'mh', nom: 'Hôtel de ville' });
+    expect(body.entite.refCode).toMatch(/^MANUEL-\d+$/);
+    const sql = sqlsEmis().find((s) => s.includes('INSERT INTO patrimoine_entite'));
+    expect(sql).toBeDefined();
+    // INSERT paramétré, meta origine manuel, jamais geom_point, jamais de liaison.
+    expect(/INSERT INTO patrimoine_entite \(famille, ref_code, nom, statut, actif, meta\)/.test(sql!)).toBe(true);
+    expect(/\bgeom_point\b/.test(sql!)).toBe(false);
+    expect(sqlsEmis().some((s) => /patrimoine_entite_batiment/.test(s))).toBe(false);
+    // Paramètres : famille, ref MANUEL-*, nom trimé, statut, meta {origine:manuel}.
+    const params = queryMock.mock.calls.find((c) => String(c[0]).includes('INSERT INTO patrimoine_entite'))?.[1] as unknown[];
+    expect(params[0]).toBe('mh');
+    expect(String(params[1])).toMatch(/^MANUEL-\d+$/);
+    expect(params[2]).toBe('Hôtel de ville');
+    expect(JSON.parse(String(params[4]))).toEqual({ origine: 'manuel' });
+  });
+
+  it('famille hors enum → 422 + AUCUNE écriture', async () => {
+    const res = await POST_ENTITE(req('POST', { famille: 'chateau', nom: 'X' }));
+    expect(res.status).toBe(422);
+    expect(sqlsEmis().length).toBe(0);
+  });
+
+  it('nom vide (après trim) → 422 + AUCUNE écriture', async () => {
+    const res = await POST_ENTITE(req('POST', { famille: 'mh', nom: '   ' }));
+    expect(res.status).toBe(422);
+    expect(sqlsEmis().length).toBe(0);
+  });
+
+  it('violation UNIQUE (23505) → 409', async () => {
+    queryMock.mockRejectedValue(Object.assign(new Error('dup'), { code: '23505' }));
+    const res = await POST_ENTITE(req('POST', { famille: 'inventaire', nom: 'Mairie' }));
+    expect(res.status).toBe(409);
   });
 });
 

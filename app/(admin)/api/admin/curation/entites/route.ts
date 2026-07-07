@@ -1,6 +1,10 @@
 import 'server-only';
 import { query } from '../../../../../lib/db/client';
-import { versEntite, compteursParEtat, type LigneEntiteDB } from '../partage';
+import { versEntite, compteursParEtat, lireCorps, type LigneEntiteDB } from '../partage';
+
+/** Familles patrimoine autorisées (miroir du CHECK `patrimoine_entite_famille_check`). */
+const FAMILLES_PATRIMOINE = ['mondial', 'mh', 'inventaire'] as const;
+type FamillePatrimoine = (typeof FAMILLES_PATRIMOINE)[number];
 
 /**
  * GET /api/admin/curation/entites — LECTURE SEULE des entités patrimoine + leurs liaisons.
@@ -46,5 +50,65 @@ export async function GET() {
     return Response.json({ entites, compteurs });
   } catch {
     return Response.json({ erreur: 'entités indisponibles' }, { status: 503 });
+  }
+}
+
+/** Ligne créée renvoyée par l'INSERT (colonnes exposées). */
+interface EntiteCreee {
+  id: number;
+  famille: string;
+  ref_code: string;
+  nom: string | null;
+  meta: unknown;
+}
+
+/**
+ * POST /api/admin/curation/entites — CRÉE une entité patrimoniale MANUELLE (tag). Sous-étape 1/6.
+ *
+ * GOLDEN-SAFE : une entité SANS liaison n'est vue par aucun chemin de score (moteur cleabs-only) ;
+ * le boost ne se déclenchera qu'à l'ajout d'une liaison `patrimoine_entite_batiment` (sous-étape 2).
+ * Body `{ famille: 'mondial'|'mh'|'inventaire', nom (non vide), statut? }`. `ref_code` généré serveur
+ * (`MANUEL-<ts>`, jamais fourni par le client) ; `meta = {origine:'manuel'}` ; `geom_point` NULL ;
+ * `actif=true`. Requête PARAMÉTRÉE, server-only, INSERT SEUL (ne touche aucune entité/liaison existante).
+ * Journalisation différée : `curation_patrimoine_log.action` a un CHECK fermé sans valeur « création »
+ * et ce chantier interdit toute migration (cf. RAPPORT_BUILD, décision A). Erreur 23505 → 409.
+ */
+export async function POST(request: Request) {
+  const body = await lireCorps(request);
+  if (!body) {
+    return Response.json({ erreurs: [{ message: 'corps JSON invalide' }] }, { status: 422 });
+  }
+  const famille = body.famille;
+  if (typeof famille !== 'string' || !FAMILLES_PATRIMOINE.includes(famille as FamillePatrimoine)) {
+    return Response.json(
+      { erreurs: [{ message: "famille attendue : 'mondial' | 'mh' | 'inventaire'" }] },
+      { status: 422 },
+    );
+  }
+  const nom = typeof body.nom === 'string' ? body.nom.trim() : '';
+  if (nom.length === 0) {
+    return Response.json({ erreurs: [{ message: 'nom (chaîne non vide) attendu' }] }, { status: 422 });
+  }
+  const statut = typeof body.statut === 'string' && body.statut.trim().length > 0 ? body.statut.trim() : null;
+  const refCode = `MANUEL-${Date.now()}`;
+  const meta = JSON.stringify({ origine: 'manuel' });
+
+  try {
+    const { rows } = await query<EntiteCreee>(
+      `INSERT INTO patrimoine_entite (famille, ref_code, nom, statut, actif, meta)
+       VALUES ($1, $2, $3, $4, true, $5::jsonb)
+       RETURNING id, famille, ref_code, nom, meta`,
+      [famille, refCode, nom, statut, meta],
+    );
+    const e = rows[0];
+    return Response.json(
+      { ok: true, entite: { id: e.id, famille: e.famille, refCode: e.ref_code, nom: e.nom, meta: e.meta } },
+      { status: 201 },
+    );
+  } catch (err) {
+    if (err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === '23505') {
+      return Response.json({ erreurs: [{ message: 'ref_code déjà utilisé, réessayez' }] }, { status: 409 });
+    }
+    return Response.json({ erreur: 'création impossible' }, { status: 503 });
   }
 }
