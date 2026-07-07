@@ -1,0 +1,33 @@
+import 'server-only';
+import { query } from '../../../../../lib/db/client';
+import { lireBbox, versEmprise, type LigneEmpriseDB } from '../partage';
+
+/** Plafond de sécurité : nombre d'emprises renvoyées pour une bbox (aide UI, LECTURE SEULE). */
+const LIMITE_EMPRISES = 500;
+
+/**
+ * GET /api/admin/curation/emprises?minlon&minlat&maxlon&maxlat — LECTURE SEULE des emprises
+ * `bdtopo_batiment` dans une bbox (WGS84), pour permettre le clic de rattachement côté carte.
+ *
+ * `cleabs` + géométrie `ST_AsGeoJSON(ST_Transform(ST_Force2D(geom), 4326))`. Filtre spatial via
+ * l'index (`geom && enveloppe`) en 2154. `LIMIT 500`. Bbox invalide → 422. Sous garde `proxy.ts`.
+ */
+export async function GET(request: Request) {
+  const bbox = lireBbox(new URL(request.url).searchParams);
+  if (!bbox) {
+    return Response.json({ erreurs: [{ message: 'bbox invalide (minlon/minlat/maxlon/maxlat)' }] }, { status: 422 });
+  }
+
+  try {
+    const { rows } = await query<LigneEmpriseDB>(
+      `SELECT cleabs, ST_AsGeoJSON(ST_Transform(ST_Force2D(geom), 4326)) AS geom
+         FROM bdtopo_batiment
+        WHERE geom && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 2154)
+        LIMIT ${LIMITE_EMPRISES}`,
+      [bbox.minlon, bbox.minlat, bbox.maxlon, bbox.maxlat],
+    );
+    return Response.json({ emprises: rows.map(versEmprise) });
+  } catch {
+    return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });
+  }
+}
