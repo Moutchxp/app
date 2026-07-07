@@ -14,7 +14,7 @@ MIROIR) et sans jamais casser le moteur ni le golden.
 - Route lecture existante : `app/(admin)/api/admin/config/route.ts` (`GET`, `server-only`, `query()` de
   `client.ts`, `evaluerRepli`). Page : `app/(admin)/admin/(protected)/pilotage/page.tsx`.
 - Métadonnées existantes : `mappingConfig.ts` — `interface ColonneMeta { colonne, libelle, unite, famille,
-  statut, defaut }` (`:15-27`), `META` (46 entrées, `:45`), statuts `StatutColonne` (`:13`).
+  statut, defaut }` (`:15-27`), `META` (47 entrées, `:45`), statuts `StatutColonne` (`:13`).
 - **Conditions de repli à NE JAMAIS provoquer** (`profilConfig.ts`) : ligne absente (`:74`) ;
   `mode_combinaison ∉ {max, addition, sequentiel}` (`:75`, `MODES_VALIDES :50`) ; `distance_max_m >
   analysis_range_m` (`:78`) ; exception (`:120`).
@@ -174,7 +174,7 @@ pas, unité, statut, libellé, aide). Bornes = garde-fous de dev, pas des variab
 ## Découpe + conformité (vérifiable)
 | Tâche | Contenu | Critère de conformité |
 |---|---|---|
-| **T1** | Métadonnées d'édition (A1 : étendre `mappingConfig.ts`) | `ColonneMeta` porte `type/min/max/pas/editable` pour les 46 colonnes ; VESTIGIALES/id → `editable:false`. |
+| **T1** | Métadonnées d'édition (A1 : étendre `mappingConfig.ts`) | `ColonneMeta` porte `type/min/max/pas/editable` pour les 47 colonnes ; VESTIGIALES/id → `editable:false`. |
 | **T2** | Route `PATCH /api/admin/config` server-only | `curl` avec session : bonne valeur → `200` + ligne MAJ ; sans session → `401` ; **grep** : `UPDATE … id=1` seul, aucun `DELETE/DROP/ALTER/INSERT/TRUNCATE`, aucun import `app/lib/svv`/`profilConfig`. |
 | **T2b** | Validation + anti-repli | Valeur hors plage → `422` + message ; VESTIGIALE → `422` ; `mode_combinaison='xyz'` → `422` ; `distance_max_m > analysis_range_m` (résultant) → `422` ; aucune écriture dans ces cas. |
 | **T3** | UI édition | VIVE éditables ; VESTIGIALES grisées + légende ; `mode_combinaison` = select ; `analysis_range_m` note garde-fou ; erreur affichée au champ ; responsive 375 px ; aucun brouillon. |

@@ -94,8 +94,9 @@
   paramètre aux fonctions pures.
   - Preuve : `app/lib/db/profilConfig.ts:57` (`chargerProfilDegagement`), `SELECT … FROM config_scoring
     WHERE id = 1` (`:60-71`) ; appelée depuis `app/lib/db/pipeline.ts:174`.
-- **Nombre de colonnes : 46** = **45 colonnes de configuration** listées au `SELECT`
-  (`profilConfig.ts:60-71`, interface `:14-48`) + la clé **`id`** (`WHERE id = 1`).
+- **Nombre de colonnes : 47** = **46 colonnes de configuration** listées au `SELECT`
+  (`profilConfig.ts:60-71`, interface `:14-48`) + la clé **`id`** (`WHERE id = 1`). *(47ᵉ colonne :
+  `mode_combinaison_repli`, ajoutée par la migration 005 — mode de combinaison P1/P2 sous le seuil de nature.)*
 - **Repli sûr sur le défaut** `PROFIL_DEGAGEMENT_DEFAUT` si la table est absente/vide/incohérente, si
   `mode_combinaison` est hors liste, ou si `distance_max_m > analysis_range_m` — aucune exception
   propagée.

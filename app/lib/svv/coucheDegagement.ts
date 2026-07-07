@@ -4,8 +4,10 @@
  * Module Bloc A PUR : aucun accès DB, aucune IA, déterministe et testable. Consomme des
  * `FaisceauResultat` DÉJÀ enrichis (impactNature, natureTraverseeM, impactAncien) + un profil.
  *
- * NON BRANCHÉ : aucun appelant du pipeline ne l'utilise → n'affecte NI le verdict NI le
- * Résultat A. Toute la pondération est externalisée dans `profilDegagement.ts`. Aucun arrondi.
+ * BRANCHÉ : `noteDegagement` EST la note de score de Couche 1 (pipeline → analyse → scoreTotal →
+ * noteDegagement) ; `mode_combinaison`/`mode_combinaison_repli` sont consultés via `combinerP1P2`.
+ * N'affecte JAMAIS le verdict (100 % géométrique). Toute la pondération est externalisée dans
+ * `profilDegagement.ts` / `config_scoring`. Aucun arrondi.
  */
 import type { FaisceauResultat } from './scoreDegagement';
 import { azimutVersSecteur } from './scoreDegagement';

@@ -6,7 +6,7 @@
 
 ## Besoin
 Afficher, dans la page Pilotage de l'admin (`app/(admin)/admin/(protected)/pilotage/page.tsx`,
-aujourd'hui placeholder), les **46 colonnes du singleton `config_scoring` (id=1)**, **en LECTURE SEULE
+aujourd'hui placeholder), les **47 colonnes du singleton `config_scoring` (id=1)**, **en LECTURE SEULE
 stricte** : regroupées par famille, chaque variable avec un label + unité lisibles, son **nom de colonne
 technique** visible, son statut, sa valeur actuelle et son défaut. Aucune édition.
 
@@ -25,7 +25,7 @@ d'impact golden, le versioning/audit (= Étape 4). Aucun accès moteur.
 - **GOLDEN INTOUCHABLE** : aucun fichier moteur / DB-écriture / migration / golden touché ; `test:integration`
   reste vert (`29.107259068449615`).
 - **GEMINI hors staging** : `adaptateurIaPhoto.ts`, `analyse-photo/route.ts` non touchés.
-- **Responsive §15** : le tableau des 46 variables DOIT être lisible et utilisable sur iPhone portrait.
+- **Responsive §15** : le tableau des 47 variables DOIT être lisible et utilisable sur iPhone portrait.
 - **`prefers-reduced-motion`** respecté (pas d'animation superflue).
 
 ---
@@ -34,7 +34,7 @@ d'impact golden, le versioning/audit (= Étape 4). Aucun accès moteur.
 - **D1 — Route API dédiée** : `app/(admin)/api/admin/config/route.ts`, `server-only`, **`GET`** unique,
   **`SELECT` seul** sur `config_scoring WHERE id=1`. Pose la frontière réutilisable pour un futur
   M1-édition (Étape 4) — l'édition n'est PAS implémentée ici.
-- **D2 — Regroupement PAR FAMILLE** à l'affichage, reflétant les familles réelles des 46 colonnes
+- **D2 — Regroupement PAR FAMILLE** à l'affichage, reflétant les familles réelles des 47 colonnes
   (voir §Mapping proposé — à valider).
 - **D3 — Label + unité lisibles** pour chaque variable, **AVEC le nom de colonne technique conservé et
   visible à côté** (traçabilité : un label ne masque jamais la vraie variable).
@@ -57,7 +57,7 @@ d'impact golden, le versioning/audit (= Étape 4). Aucun accès moteur.
 
 ### T1 — Route API `GET /api/admin/config` (lecture seule)
 - **EX-1** [Ubiquitaire] Le système DOIT exposer une route **`GET`** à `/api/admin/config` renvoyant les
-  **46 colonnes** de `config_scoring` pour `id=1`.
+  **47 colonnes** de `config_scoring` pour `id=1`.
 - **EX-2** [Ubiquitaire] La route DOIT n'exécuter qu'un **`SELECT`** ; elle NE DOIT comporter aucun
   `INSERT`, `UPDATE`, `DELETE`, ni aucune autre méthode HTTP (`POST/PUT/PATCH/DELETE`).
 - **EX-3** [Ubiquitaire] La route DOIT porter `import 'server-only'` et NE DOIT importer aucun fichier de
@@ -74,7 +74,7 @@ d'impact golden, le versioning/audit (= Étape 4). Aucun accès moteur.
   (sans arrondi), y compris `mode_combinaison` (texte) et `natures_remarquables` (liste).
 
 ### T2 — Affichage dans la page Pilotage
-- **EX-8** [Ubiquitaire] La page Pilotage DOIT afficher les 46 variables **regroupées par famille** (D2),
+- **EX-8** [Ubiquitaire] La page Pilotage DOIT afficher les 47 variables **regroupées par famille** (D2),
   chaque famille sous un intitulé.
 - **EX-9** [Ubiquitaire] Pour chaque variable, la page DOIT afficher : **libellé lisible**, **unité**,
   **nom de colonne technique**, **statut** (VIVE / VESTIGIALE / DE GARDE / MIROIR / technique), **valeur
@@ -125,7 +125,7 @@ d'impact golden, le versioning/audit (= Étape 4). Aucun accès moteur.
 | Tâche | Contenu | Critère de conformité |
 |---|---|---|
 | **T1** | Route `GET /api/admin/config` server-only, SELECT id=1 | `curl` avec session → 200 + 46 champs ; sans session → 401 ; **grep** : aucun `INSERT/UPDATE/DELETE` dans la route, aucun import `app/lib/svv` ni métier DB ; méthode POST/PUT/PATCH/DELETE absente. |
-| **T2** | Affichage groupé + formaté | Les 46 colonnes rendues, groupées par famille ; chaque ligne = libellé + unité + **nom technique** + statut + valeur + défaut ; **aucun** `<input>/<button save>` (grep DOM) ; tokens `svv-*` présents. |
+| **T2** | Affichage groupé + formaté | Les 47 colonnes rendues, groupées par famille ; chaque ligne = libellé + unité + **nom technique** + statut + valeur + défaut ; **aucun** `<input>/<button save>` (grep DOM) ; tokens `svv-*` présents. |
 | **T3** | Responsive + reduced-motion | À 375 px : pas de scroll horizontal ; repli cartes/accordéons ; `@media (prefers-reduced-motion)` neutralise les anims. |
 | **T4** | (option) État profil | Si retenu : l'indicateur reflète les 3 conditions de repli, en lecture seule, sans import `profilConfig`. |
 | **Conformité SVAV** | Zéro régression | **Golden vert** (`test:integration`, `29.107259068449615`) ; aucun fichier moteur/DB-écriture/migration touché ; Gemini intacts ; **aucune écriture** en base (la route est `SELECT`-only). |
