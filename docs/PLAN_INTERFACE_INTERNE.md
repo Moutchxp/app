@@ -35,8 +35,8 @@ supposait.
 - Lue une seule fois par analyse dans `profilConfig.ts:57` (`SELECT … FROM config_scoring WHERE id = 1`),
   mappée en `ProfilDegagement`, avec **repli total** `PROFIL_DEGAGEMENT_DEFAUT` si la table est
   absente/vide/incohérente (`profilConfig.ts:74-78, 118-121`). Aucun writer dans le code.
-- **47 colonnes** (dont `id`). Statuts (voir Annexe 1 pour le mapping complet) :
-  **~39 VIVES**, **5 VESTIGIALES** (`boost_f2`, `forfait_cone_central`, `forfait_extremites`,
+- **39 colonnes** (dont `id`). Statuts (voir Annexe 1 pour le mapping complet) :
+  **~31 VIVES**, **5 VESTIGIALES** (`boost_f2`, `forfait_cone_central`, `forfait_extremites`,
   `cone_f3_demi_angle_deg`, `natures_remarquables`), **1 DE GARDE** (`mode_combinaison_repli`, liste fermée),
   **1 MIROIR** (`analysis_range_m`, garde-fou seulement).
 - ⚠️ **DETTE CRITIQUE** : il n'existe **aucun `CREATE TABLE config_scoring`** dans le repo. Un dossier
@@ -397,7 +397,7 @@ plage/unité · **badge de statut** (🟢 VIVE / ⚪ VESTIGIALE grisée / 🔒 D
 brouillon → panneau **Aperçu d'impact** (delta golden + panel de référence) → **Publier** (transaction
 versionnée + audit). Boutons **Reset** par variable et par groupe.
 
-Arbre (mapping complet des 47 colonnes en **Annexe 1**) :
+Arbre (mapping complet des 39 colonnes en **Annexe 1**) :
 
 ```
 Score de qualité de vue (/100)
@@ -409,9 +409,7 @@ Score de qualité de vue (/100)
     │   │   ├── Patrimoine mondial : mondial_faisceau_m🟢 (faisceau fixe)
     │   │   ├── Monument Historique : mh_cone🟢, mh_flanc🟢, mh_distmax_m🟢
     │   │   ├── Inventaire : inv_cone🟢, inv_flanc🟢, inv_distmax_m🟢
-    │   │   ├── Bâti ≤1900 : a1900_cone🟢, a1900_flanc🟢, a1900_distmax_m🟢
-    │   │   ├── Bâti 1901–1935 : a1935_cone🟢, a1935_flanc🟢, a1935_distmax_m🟢
-    │   │   └── Bornes d'appartenance année : borne_annee_1900🟢, borne_annee_1935🟢
+    │   │   └── Barème par tranche d'année : table dédiée config_famille_annee (cartes CRUD ; colonnes fixes purgées migration 008)
     │   └── Cumul nature + bâti : cumul_seuil_min_m🟢, cumul_base_m🟢, cumul_pas_m🟢,
     │                             cumul_increment🟢, cumul_plafond🟢, cumul_cap_p1_m🟢
     ├── Calcul: Malus couloir : couloir_seuil_lateral_m🟢, couloir_fenetre_condition_n🟢,
@@ -503,7 +501,7 @@ reprise < ~20 %. Fable 5 pour les gros morceaux de code (mais conception/revue r
 
 ---
 
-## Annexe 1 — Mapping complet des 47 colonnes `config_scoring`
+## Annexe 1 — Mapping complet des 39 colonnes `config_scoring`
 
 Source autoritative : `profilConfig.ts:14-48` (interface) et `:60-71` (SELECT), défauts
 `profilDegagement.ts:96-132`. Statut : 🟢 VIVE · ⚪ VESTIGIALE · 🔒 DE GARDE · ↔ MIROIR · 🔑 technique.
@@ -530,8 +528,7 @@ Source autoritative : `profilConfig.ts:14-48` (interface) et `:60-71` (SELECT), 
 | `mondial_faisceau_m` | 800 | 🟢 | Faisceau FIXE Patrimoine mondial. |
 | `mh_cone` / `mh_flanc` / `mh_distmax_m` | 2.0 / 1.5 / 400 | 🟢 | Coeffs Monument Historique + cap distance. |
 | `inv_cone` / `inv_flanc` / `inv_distmax_m` | 2.0 / 1.5 / 400 | 🟢 | Coeffs Inventaire + cap. |
-| `a1900_cone` / `a1900_flanc` / `a1900_distmax_m` | 1.5 / 1.2 / 300 | 🟢 | Coeffs bâti ≤1900 + cap. |
-| `a1935_cone` / `a1935_flanc` / `a1935_distmax_m` | 1.2 / 1.1 / 200 | 🟢 | Coeffs bâti 1901–1935 + cap. |
+| *Barème par tranche d'année* | — | ⛔ | **Purgé (migration 008)** : `a1900_*`, `a1935_*`, `borne_annee_1900/1935` supprimées — piloté par la table dédiée `config_famille_annee` (cartes d'année CRUD). |
 | `cumul_seuil_min_m` | 30 | 🟢 | Nature sous laquelle diviseur = 1,0. |
 | `cumul_base_m` | 25 | 🟢 | Base du palier `floor((nature−base)/pas)`. |
 | `cumul_pas_m` | 5 | 🟢 | Pas d'un palier de diviseur. |
@@ -539,8 +536,6 @@ Source autoritative : `profilConfig.ts:14-48` (interface) et `:60-71` (SELECT), 
 | `cumul_plafond` | 2.0 | 🟢 | Plafond du diviseur. |
 | `cumul_cap_p1_m` | 200 | 🟢 | Cap de la Partie 1 (nature classique) dans le cumul. |
 | `orientation_n…no` (×8) | 0/1/5/8/10/9/7/3 | 🟢 | Barème d'orientation (0..10) par secteur. |
-| `borne_annee_1900` | 1900 | 🟢 | Borne haute incluse famille « ≤1900 ». |
-| `borne_annee_1935` | 1935 | 🟢 | Borne haute incluse famille « 1901–1935 ». |
 | `analysis_range_m` | 200 | ↔ | Garde-fou (`distance_max_m ≤ analysis_range_m`) ; **ne re-cadre pas** la géométrie (constante de code). |
 
 ---

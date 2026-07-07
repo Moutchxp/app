@@ -36,7 +36,7 @@
 - **Tolérances** : rattachement patrimoine (monument → `cleabs`) = **15 m**
   (`scripts/migration_monuments_emblematiques.sql:67`) ; point d'origine hors emprise = **0,30 m**
   (`ORIGIN_OUTSIDE_TOLERANCE_M`, `config.ts:123`).
-- **`config_scoring`** : toutes les variables de pondération du moteur externalisées (**47 colonnes**,
+- **`config_scoring`** : toutes les variables de pondération du moteur externalisées (**39 colonnes**,
   singleton `id=1`), lues au runtime (`app/lib/db/profilConfig.ts:57`) avec **repli sûr**
   `PROFIL_DEGAGEMENT_DEFAUT` (`profilConfig.ts:74-78`). Aucune constante de score « en dur » dispersée.
 - **Fichiers Gemini HORS staging** : `app/lib/svv/adaptateurIaPhoto.ts` et `app/api/analyse-photo/route.ts`.

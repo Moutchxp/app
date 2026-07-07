@@ -7,7 +7,7 @@ import { metaParColonne } from '../../../admin/(protected)/pilotage/mappingConfi
 /**
  * GET /api/admin/config — LECTURE SEULE stricte (EX-1..EX-7).
  *
- * Expose les 47 colonnes du singleton `config_scoring` (id=1). SELECT seul :
+ * Expose les 39 colonnes du singleton `config_scoring` (id=1). SELECT seul :
  * aucune écriture, aucune autre méthode HTTP exportée. ISOLATION : n'importe que
  * le pool pg générique (`client.ts`, en lecture) et le helper local `./repli` ;
  * AUCUN import de `app/lib/svv/**` ni de logique métier DB (`profilConfig`, etc.).
@@ -25,12 +25,10 @@ export async function GET() {
               cone_famille_demi_angle_deg, mondial_faisceau_m,
               mh_cone, mh_flanc, mh_distmax_m,
               inv_cone, inv_flanc, inv_distmax_m,
-              a1900_cone, a1900_flanc, a1900_distmax_m,
-              a1935_cone, a1935_flanc, a1935_distmax_m,
               cumul_seuil_min_m, cumul_base_m, cumul_pas_m, cumul_increment, cumul_plafond, cumul_cap_p1_m,
               orientation_n, orientation_ne, orientation_e, orientation_se,
               orientation_s, orientation_so, orientation_o, orientation_no,
-              borne_annee_1900, borne_annee_1935, analysis_range_m
+              analysis_range_m
        FROM config_scoring WHERE id = 1`,
     );
 

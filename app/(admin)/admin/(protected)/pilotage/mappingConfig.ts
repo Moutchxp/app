@@ -1,5 +1,5 @@
 /**
- * Table de correspondance UI pour les 47 colonnes du singleton `config_scoring`
+ * Table de correspondance UI pour les 39 colonnes du singleton `config_scoring`
  * (Couche 1 — dégagement). Purement déclaratif : libellé lisible, unité, famille,
  * statut et valeur par défaut de chaque variable.
  *
@@ -84,17 +84,16 @@ const IB_ORIENTATION =
   'Points ajoutés selon l’orientation de la vue (secteur de boussole de l’azimut testé). Seul le secteur de la vue analysée compte ; les 7 autres sont sans effet pour un test donné. Ex. : vue plein Est → +5 pts (défaut).';
 const IB_VESTIGIALE =
   'Colonne conservée en base mais sans effet sur le score actuel : son mécanisme a été remplacé (l’année de construction et les familles MH/Inventaire ont pris le relais). Non éditable.';
-// Bornes/coeffs d'année FIXES (a1900_*/a1935_*/borne_annee_1900/1935) neutralisés : le barème par
-// année est désormais piloté par les cartes d'année dynamiques (table `config_famille_annee`, CRUD).
-const IB_ANNEE_NEUTRALISEE =
-  'Neutralisée — le barème par année est désormais piloté par les cartes d’année dynamiques (table config_famille_annee). Conservée en base, sans effet sur le score.';
+// Les 8 colonnes du barème par année (a1900_*/a1935_*/borne_annee_1900/1935) ont été SUPPRIMÉES
+// (migration 008) : le barème par année est désormais piloté par les cartes d'année dynamiques
+// (table `config_famille_annee`, CRUD).
 
 /**
- * Les 47 colonnes de `config_scoring`, ordonnées par famille.
- * Récapitulatif : 31 VIVE · 13 VESTIGIALE · 1 DE GARDE · 1 MIROIR · 1 technique = 47.
+ * Les 39 colonnes de `config_scoring`, ordonnées par famille.
+ * Récapitulatif : 31 VIVE · 5 VESTIGIALE · 1 DE GARDE · 1 MIROIR · 1 technique = 39.
  * (Les 8 colonnes du barème par année — a1900_cone/flanc/distmax, a1935_cone/flanc/distmax,
- *  borne_annee_1900 et borne_annee_1935 — sont VESTIGIALE depuis la bascule vers les cartes
- *  d'année dynamiques (`config_famille_annee`). `config_scoring` reste à 47 colonnes.)
+ *  borne_annee_1900 et borne_annee_1935 — ont été SUPPRIMÉES (migration 008) au profit des cartes
+ *  d'année dynamiques (`config_famille_annee`). `config_scoring` passe de 47 à 39 colonnes.)
  */
 export const META: readonly ColonneMeta[] = [
   // Famille 0 — Technique
@@ -113,14 +112,6 @@ export const META: readonly ColonneMeta[] = [
   { colonne: 'inv_cone', libelle: 'Inventaire — coeff cône', unite: 'coefficient (×)', famille: F_BAREME, statut: 'VIVE', defaut: 2.0, type: 'nombre', editable: true, min: 0, max: 10, pas: 0.1, infobulle: IB_INV },
   { colonne: 'inv_flanc', libelle: 'Inventaire — coeff flanc', unite: 'coefficient (×)', famille: F_BAREME, statut: 'VIVE', defaut: 1.5, type: 'nombre', editable: true, min: 0, max: 10, pas: 0.1, infobulle: IB_INV },
   { colonne: 'inv_distmax_m', libelle: 'Inventaire — cap de distance', unite: 'mètres', famille: F_BAREME, statut: 'VIVE', defaut: 400, type: 'nombre', editable: true, min: 0, max: 2000, pas: 1, infobulle: IB_INV },
-  { colonne: 'a1900_cone', libelle: 'Ex-bâti ≤ 1900 — coeff cône', unite: 'coefficient (×) — sans effet', famille: F_BAREME, statut: 'VESTIGIALE', defaut: 1.5, type: 'nombre', editable: false, min: 0, max: 10, pas: 0.1, infobulle: IB_ANNEE_NEUTRALISEE },
-  { colonne: 'a1900_flanc', libelle: 'Ex-bâti ≤ 1900 — coeff flanc', unite: 'coefficient (×) — sans effet', famille: F_BAREME, statut: 'VESTIGIALE', defaut: 1.2, type: 'nombre', editable: false, min: 0, max: 10, pas: 0.1, infobulle: IB_ANNEE_NEUTRALISEE },
-  { colonne: 'a1900_distmax_m', libelle: 'Ex-bâti ≤ 1900 — cap de distance', unite: 'mètres — sans effet', famille: F_BAREME, statut: 'VESTIGIALE', defaut: 300, type: 'nombre', editable: false, min: 0, max: 2000, pas: 1, infobulle: IB_ANNEE_NEUTRALISEE },
-  { colonne: 'a1935_cone', libelle: 'Ex-bâti 1901–1935 — coeff cône', unite: 'coefficient (×) — sans effet', famille: F_BAREME, statut: 'VESTIGIALE', defaut: 1.2, type: 'nombre', editable: false, min: 0, max: 10, pas: 0.1, infobulle: IB_ANNEE_NEUTRALISEE },
-  { colonne: 'a1935_flanc', libelle: 'Ex-bâti 1901–1935 — coeff flanc', unite: 'coefficient (×) — sans effet', famille: F_BAREME, statut: 'VESTIGIALE', defaut: 1.1, type: 'nombre', editable: false, min: 0, max: 10, pas: 0.1, infobulle: IB_ANNEE_NEUTRALISEE },
-  { colonne: 'a1935_distmax_m', libelle: 'Ex-bâti 1901–1935 — cap de distance', unite: 'mètres — sans effet', famille: F_BAREME, statut: 'VESTIGIALE', defaut: 200, type: 'nombre', editable: false, min: 0, max: 2000, pas: 1, infobulle: IB_ANNEE_NEUTRALISEE },
-  { colonne: 'borne_annee_1900', libelle: 'Ex-borne haute — famille « ≤ 1900 »', unite: 'année — sans effet', famille: F_BAREME, statut: 'VESTIGIALE', defaut: 1900, type: 'entier', editable: false, min: 1800, max: 2100, pas: 1, infobulle: IB_ANNEE_NEUTRALISEE },
-  { colonne: 'borne_annee_1935', libelle: 'Ex-borne haute — famille « 1901–1935 »', unite: 'année — sans effet', famille: F_BAREME, statut: 'VESTIGIALE', defaut: 1935, type: 'entier', editable: false, min: 1800, max: 2100, pas: 1, infobulle: IB_ANNEE_NEUTRALISEE },
 
   // Famille 3 — Cumul nature + bâti
   { colonne: 'cumul_seuil_min_m', libelle: 'Nature min. pour déclencher le diviseur', unite: 'mètres', famille: F_CUMUL, statut: 'VIVE', defaut: 30, type: 'nombre', editable: true, min: 0, max: 2000, pas: 1, infobulle: 'Longueur de nature minimale pour déclencher la pénalité de cumul (le diviseur). En dessous, aucune pénalité. ↑ = pénalité déclenchée plus rarement → note plus haute.' },

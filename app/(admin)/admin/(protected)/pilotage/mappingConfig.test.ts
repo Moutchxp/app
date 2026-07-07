@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { META, MODES_COMBINAISON, MODES_REPLI, formaterMalusPct, metaParColonne } from './mappingConfig';
 
-/** Les 47 noms de colonnes exacts de `config_scoring` (id=1), liste figée. */
+/** Les 39 noms de colonnes exacts de `config_scoring` (id=1), liste figée. */
 const COLONNES_ATTENDUES = [
   'id',
   'boost_f2', 'boost_f4', 'forfait_cone_central', 'forfait_extremites', 'cone_f3_demi_angle_deg',
@@ -11,24 +11,22 @@ const COLONNES_ATTENDUES = [
   'cone_famille_demi_angle_deg', 'mondial_faisceau_m',
   'mh_cone', 'mh_flanc', 'mh_distmax_m',
   'inv_cone', 'inv_flanc', 'inv_distmax_m',
-  'a1900_cone', 'a1900_flanc', 'a1900_distmax_m',
-  'a1935_cone', 'a1935_flanc', 'a1935_distmax_m',
   'cumul_seuil_min_m', 'cumul_base_m', 'cumul_pas_m', 'cumul_increment', 'cumul_plafond', 'cumul_cap_p1_m',
   'orientation_n', 'orientation_ne', 'orientation_e', 'orientation_se',
   'orientation_s', 'orientation_so', 'orientation_o', 'orientation_no',
-  'borne_annee_1900', 'borne_annee_1935', 'analysis_range_m',
+  'analysis_range_m',
 ] as const;
 
 describe('mappingConfig — META', () => {
-  it('contient exactement 47 entrées', () => {
-    expect(META.length).toBe(47);
+  it('contient exactement 39 entrées', () => {
+    expect(META.length).toBe(39);
   });
 
-  it('couvre les 47 colonnes exactes, sans doublon ni intrus', () => {
+  it('couvre les 39 colonnes exactes, sans doublon ni intrus', () => {
     const noms = META.map((m) => m.colonne);
     // Aucun doublon.
     expect(new Set(noms).size).toBe(noms.length);
-    // Ensemble = les 47 noms attendus (ni manquant, ni intrus).
+    // Ensemble = les 39 noms attendus (ni manquant, ni intrus).
     expect(new Set(noms)).toEqual(new Set(COLONNES_ATTENDUES));
   });
 
@@ -40,29 +38,25 @@ describe('mappingConfig — META', () => {
 });
 
 describe('mappingConfig — métadonnées d’édition (M1)', () => {
-  it('les 47 colonnes portent `type` et `editable`', () => {
+  it('les 39 colonnes portent `type` et `editable`', () => {
     for (const m of META) {
       expect(['nombre', 'entier', 'enum', 'liste']).toContain(m.type);
       expect(typeof m.editable).toBe('boolean');
     }
   });
 
-  it('les 47 colonnes portent une `infobulle` non vide', () => {
+  it('les 39 colonnes portent une `infobulle` non vide', () => {
     for (const m of META) {
       expect(typeof m.infobulle, m.colonne).toBe('string');
       expect((m.infobulle ?? '').length, m.colonne).toBeGreaterThan(0);
     }
   });
 
-  it('les 13 VESTIGIALE + `id` sont `editable: false`', () => {
+  it('les 5 VESTIGIALE + `id` sont `editable: false`', () => {
     const nonEditables = [
       'id',
       // 5 vestigiales « Héritage » historiques
       'boost_f2', 'forfait_cone_central', 'forfait_extremites', 'cone_f3_demi_angle_deg', 'natures_remarquables',
-      // 8 vestigiales « barème par année » neutralisées par les cartes d'année dynamiques (EX-19)
-      'a1900_cone', 'a1900_flanc', 'a1900_distmax_m',
-      'a1935_cone', 'a1935_flanc', 'a1935_distmax_m',
-      'borne_annee_1900', 'borne_annee_1935',
     ];
     for (const nom of nonEditables) {
       const m = META.find((x) => x.colonne === nom);
@@ -75,29 +69,24 @@ describe('mappingConfig — métadonnées d’édition (M1)', () => {
     const nonEditables = new Set([
       'id',
       'boost_f2', 'forfait_cone_central', 'forfait_extremites', 'cone_f3_demi_angle_deg', 'natures_remarquables',
-      'a1900_cone', 'a1900_flanc', 'a1900_distmax_m',
-      'a1935_cone', 'a1935_flanc', 'a1935_distmax_m',
-      'borne_annee_1900', 'borne_annee_1935',
     ]);
     for (const m of META) {
       if (!nonEditables.has(m.colonne)) expect(m.editable, m.colonne).toBe(true);
     }
   });
 
-  it('les 8 colonnes « barème par année » sont VESTIGIALE (neutralisées par les cartes d’année)', () => {
-    const neutralisees = [
-      'a1900_cone', 'a1900_flanc', 'a1900_distmax_m',
-      'a1935_cone', 'a1935_flanc', 'a1935_distmax_m',
-      'borne_annee_1900', 'borne_annee_1935',
+  it('les 5 VESTIGIALE « Héritage » sont bien VESTIGIALE et non éditables', () => {
+    const vestigiales = [
+      'boost_f2', 'forfait_cone_central', 'forfait_extremites', 'cone_f3_demi_angle_deg', 'natures_remarquables',
     ];
-    for (const nom of neutralisees) {
+    for (const nom of vestigiales) {
       const m = META.find((x) => x.colonne === nom);
       expect(m, nom).toBeDefined();
       expect(m!.statut, nom).toBe('VESTIGIALE');
       expect(m!.editable, nom).toBe(false);
     }
-    // Recap global : 13 VESTIGIALE au total.
-    expect(META.filter((m) => m.statut === 'VESTIGIALE').length).toBe(13);
+    // Recap global : 5 VESTIGIALE au total.
+    expect(META.filter((m) => m.statut === 'VESTIGIALE').length).toBe(5);
   });
 
   it('pour chaque colonne bornée, min ≤ defaut ≤ max', () => {

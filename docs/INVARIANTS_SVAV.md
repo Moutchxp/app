@@ -94,9 +94,10 @@
   paramètre aux fonctions pures.
   - Preuve : `app/lib/db/profilConfig.ts:57` (`chargerProfilDegagement`), `SELECT … FROM config_scoring
     WHERE id = 1` (`:60-71`) ; appelée depuis `app/lib/db/pipeline.ts:174`.
-- **Nombre de colonnes : 47** = **46 colonnes de configuration** listées au `SELECT`
-  (`profilConfig.ts:60-71`, interface `:14-48`) + la clé **`id`** (`WHERE id = 1`). *(47ᵉ colonne :
-  `mode_combinaison_repli`, ajoutée par la migration 005 — mode de combinaison P1/P2 sous le seuil de nature.)*
+- **Nombre de colonnes : 39** = **38 colonnes de configuration** listées au `SELECT`
+  (`profilConfig.ts:60-71`, interface `:14-48`) + la clé **`id`** (`WHERE id = 1`). *(Le barème par tranche
+  d'année — `a1900_*`/`a1935_*`/`borne_annee_1900/1935` — a été PURGÉ par la migration 008 ; il est désormais
+  piloté par la table dédiée `config_famille_annee`.)*
 - **Repli sûr sur le défaut** `PROFIL_DEGAGEMENT_DEFAUT` si la table est absente/vide/incohérente, si
   `mode_combinaison` est hors liste, ou si `distance_max_m > analysis_range_m` — aucune exception
   propagée.
