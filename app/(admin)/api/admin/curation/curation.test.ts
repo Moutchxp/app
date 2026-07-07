@@ -128,10 +128,14 @@ describe('POST /api/admin/curation/entites (création manuelle)', () => {
     expect(sqlsEmis().length).toBe(0);
   });
 
-  it('nom vide (après trim) → 422 + AUCUNE écriture', async () => {
+  it('nom vide (après trim) → 201, nom inséré NULL (B1 : nom optionnel)', async () => {
+    queryMock.mockResolvedValue({
+      rows: [{ id: 44, famille: 'mh', ref_code: 'MANUEL-1700000000001', nom: null, meta: { origine: 'manuel' } }],
+    });
     const res = await POST_ENTITE(req('POST', { famille: 'mh', nom: '   ' }));
-    expect(res.status).toBe(422);
-    expect(sqlsEmis().length).toBe(0);
+    expect(res.status).toBe(201);
+    const params = queryMock.mock.calls.find((c) => String(c[0]).includes('INSERT INTO patrimoine_entite'))?.[1] as unknown[];
+    expect(params[2]).toBeNull(); // nom → NULL
   });
 
   it('violation UNIQUE (23505) → 409', async () => {

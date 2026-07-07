@@ -542,12 +542,8 @@ export default function CurationCarte() {
 
   // ── Création d'entité manuelle : POST → recharge (entrée dans `entites`) → sélection. ─
   const soumettreCreation = useCallback(async () => {
+    // Nom OPTIONNEL (B1) : vide → NULL côté serveur, le cartouche résultat affiche un générique par famille.
     const nom = formNom.trim();
-    // Nom requis par la route 1/6 (rejette le nom vide en 422) — cf. RAPPORT_BUILD B1. Statut retiré (nullable).
-    if (nom.length === 0) {
-      signaler('Le nom est requis.', 'erreur');
-      return;
-    }
     setEnEcriture(true);
     const id = await creerEntite({ famille: formFamille, nom });
     setEnEcriture(false);
@@ -919,7 +915,7 @@ export default function CurationCarte() {
                   </select>
                 </label>
                 <label className="svv-cur-form-champ">
-                  <span>Nom (légende)</span>
+                  <span>Nom (légende, optionnel)</span>
                   <input
                     type="text"
                     value={formNom}

@@ -69,7 +69,7 @@ interface EntiteCreee {
  *
  * GOLDEN-SAFE : une entité SANS liaison n'est vue par aucun chemin de score (moteur cleabs-only) ;
  * le boost ne se déclenchera qu'à l'ajout d'une liaison `patrimoine_entite_batiment` (sous-étape 2).
- * Body `{ famille: 'mondial'|'mh'|'inventaire', nom (non vide), statut? }`. `ref_code` généré serveur
+ * Body `{ famille: 'mondial'|'mh'|'inventaire', nom? (optionnel), statut? }`. `ref_code` généré serveur
  * (`MANUEL-<ts>`, jamais fourni par le client) ; `meta = {origine:'manuel'}` ; `geom_point` NULL ;
  * `actif=true`. Requête PARAMÉTRÉE, server-only, INSERT SEUL (ne touche aucune entité/liaison existante).
  * Journalisation différée : `curation_patrimoine_log.action` a un CHECK fermé sans valeur « création »
@@ -87,10 +87,8 @@ export async function POST(request: Request) {
       { status: 422 },
     );
   }
-  const nom = typeof body.nom === 'string' ? body.nom.trim() : '';
-  if (nom.length === 0) {
-    return Response.json({ erreurs: [{ message: 'nom (chaîne non vide) attendu' }] }, { status: 422 });
-  }
+  // Nom OPTIONNEL (B1) : vide/absent → NULL. Le cartouche résultat affiche alors un générique par famille.
+  const nom = typeof body.nom === 'string' && body.nom.trim().length > 0 ? body.nom.trim() : null;
   const statut = typeof body.statut === 'string' && body.statut.trim().length > 0 ? body.statut.trim() : null;
   const refCode = `MANUEL-${Date.now()}`;
   const meta = JSON.stringify({ origine: 'manuel' });

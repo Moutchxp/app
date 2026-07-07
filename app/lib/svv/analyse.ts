@@ -17,11 +17,11 @@ import {
   cartoucheDegagement,
   cartoucheVueNature,
   cartoucheImmobilier,
-  cartoucheMonuments,
   type ExtractionVueNature,
   type ExtractionImmobilier,
   type ExtractionMonuments,
 } from './coucheDegagement';
+import { CONE_VUE_NATURE_DEG } from './config';
 import { PROFIL_DEGAGEMENT_DEFAUT, type ProfilDegagement } from './profilDegagement';
 
 export interface EntreeComplete {
@@ -71,6 +71,27 @@ function distancePremierObstacleConfirme(
   return confirme ? confirme.distanceM : null;
 }
 
+/**
+ * Libellés patrimoine (natifs + tags manuels) depuis l'extraction UNIFIÉE — DESCRIPTIF, score-only.
+ * `nom` porte déjà le libellé complet (nom saisi ou générique par famille, résolu dans `resoudreMonuments`).
+ * On garde la logique de `cartoucheMonuments` : filtre le cône (±CONE_VUE_NATURE_DEG), dédup par `ref`
+ * (occurrence la plus centrale), tri du plus central. Un badge par entité.
+ */
+function libellesPatrimoine(extraction: ExtractionMonuments): string[] {
+  const dansCone = extraction.faisceaux.filter(
+    (f) => f.touche && f.ref != null && Math.abs(f.offsetDeg) <= CONE_VUE_NATURE_DEG,
+  );
+  const parRef = new Map<string, (typeof dansCone)[number]>();
+  for (const f of dansCone) {
+    const prev = parRef.get(f.ref as string);
+    if (!prev || Math.abs(f.offsetDeg) < Math.abs(prev.offsetDeg)) parRef.set(f.ref as string, f);
+  }
+  return [...parRef.values()]
+    .sort((a, b) => Math.abs(a.offsetDeg) - Math.abs(b.offsetDeg))
+    .map((m) => (m.nom ?? '').trim())
+    .filter((s) => s.length > 0);
+}
+
 export function analyser(
   entree: EntreeComplete,
   profil: ProfilDegagement = PROFIL_DEGAGEMENT_DEFAUT,
@@ -112,8 +133,8 @@ export function analyser(
   const ei = entree.extractionImmobilier;
   const contexteImmobilier = ei ? cartoucheImmobilier(ei.nCone, ei.faisceaux) : null;
 
-  // 9) Badges « monument historique » (variante A) — DESCRIPTIFS, score-only ; [] si extraction absente ou aucun MH.
-  const monumentsHistoriques = entree.extractionMonuments ? cartoucheMonuments(entree.extractionMonuments) : [];
+  // 9) Badges « patrimoine » (natifs + tags manuels, modèle unifié) — DESCRIPTIFS, score-only ; [] si absent.
+  const monumentsHistoriques = entree.extractionMonuments ? libellesPatrimoine(entree.extractionMonuments) : [];
 
   return { verdict, score, distanceAxePrincipalM, contexteDegagement, contexteVueNature, contexteImmobilier, monumentsHistoriques };
 }

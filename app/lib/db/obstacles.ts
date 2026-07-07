@@ -788,11 +788,12 @@ export async function resoudreEpoqueImmobilier(
 }
 
 /**
- * Cartouche « monument historique » (DESCRIPTIVE, SCORE-ONLY) — MIROIR de resoudreEpoqueImmobilier,
- * jointure attribut remplacée par monuments_historiques (via cleabs). PAR FAISCEAU (les 61 COMPLETS,
- * pas le cône), le 1er bâtiment traversé par le RAYON NU (200 m) porte-t-il un MH ? offsetDeg signé
- * (az − azimutPrincipal ∈ [-180,180]) conservé pour filtrer le cône côté badge + futur boost.
- * N'affecte NI verdict NI score. Même précaution ST_Force2D : seulement dans ST_Distance/ST_Intersection.
+ * Cartouche « patrimoine » (DESCRIPTIVE, SCORE-ONLY) — natifs ET tags manuels, via le modèle UNIFIÉ
+ * (`patrimoine_entite`/`_batiment`, `NOT detache`). PAR FAISCEAU (les 61 COMPLETS, pas le cône), le 1er
+ * bâtiment traversé par le RAYON NU (200 m) porte-t-il une entité patrimoniale ? Entité PRIORITAIRE :
+ * manuel d'abord, puis mondial > mh > inventaire. `nom` = libellé (nom saisi si rempli, sinon générique
+ * par famille). offsetDeg signé conservé pour le filtrage du cône côté cartouche. N'affecte NI verdict NI
+ * score (jamais réinjecté dans `entree.faisceaux`). ST_Force2D : seulement dans ST_Distance/ST_Intersection.
  */
 export async function resoudreMonuments(
   point: PointWgs84,
@@ -810,7 +811,10 @@ export async function resoudreMonuments(
     statut: 'classe' | 'inscrit' | null; offsetDeg: number;
   }[] = azimuts.map((az) => ({ touche: false, ref: null, nom: null, type: null, statut: null, offsetDeg: offsetSigne(az) }));
   if (azimuts.length === 0) return { faisceaux };
-  const res = await query<{ ord: number; ref: string | null; tico: string | null; deno: string | null; statut: 'classe' | 'inscrit' | null }>(
+  // Modèle UNIFIÉ (patrimoine_entite/_batiment, natifs + tags manuels) au lieu du legacy monuments_historiques.
+  // Par faisceau : 1er bâtiment visible → entité PRIORITAIRE (manuel d'abord, puis mondial > mh > inventaire).
+  // `libelle` = nom saisi (pe.nom) si rempli, sinon générique par famille. DESCRIPTIF (score/verdict inchangés).
+  const res = await query<{ ord: number; ref: string | null; libelle: string | null }>(
     `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
      faisc AS (SELECT az, ord FROM unnest($3::float8[]) WITH ORDINALITY AS t(az, ord)),
      ray AS (
@@ -822,11 +826,31 @@ export async function resoudreMonuments(
               ST_Distance(ST_StartPoint(r.ln), ST_Intersection(r.ln, ST_Force2D(b.geom))) AS d_entree
        FROM ray r
        JOIN bdtopo_batiment b ON ST_Intersects(b.geom, r.ln)      -- b.geom NON wrappé → index GiST
+     ),
+     premier AS (   -- 1er bâtiment visible de chaque faisceau
+       SELECT DISTINCT ON (i.ord) i.ord::int AS ord, i.cleabs
+       FROM inter i
+       ORDER BY i.ord, i.d_entree ASC
      )
-     SELECT DISTINCT ON (i.ord) i.ord::int AS ord, mh.ref, mh.tico, mh.deno, mh.statut  -- 1er bâtiment visible
-     FROM inter i
-     LEFT JOIN monuments_historiques mh ON mh.cleabs = i.cleabs
-     ORDER BY i.ord, i.d_entree ASC;`,
+     SELECT p.ord AS ord, ent.ref_code AS ref, ent.libelle
+     FROM premier p
+     LEFT JOIN LATERAL (   -- entité patrimoniale PRIORITAIRE portant ce cleabs (non détachée)
+       SELECT pe.ref_code,
+              COALESCE(NULLIF(btrim(pe.nom), ''),
+                       CASE pe.famille
+                         WHEN 'mh'         THEN 'Vue Monument historique'
+                         WHEN 'inventaire' THEN 'Vue sur patrimoine'
+                         WHEN 'mondial'    THEN 'Vue sur monument d''exception'
+                       END) AS libelle
+       FROM patrimoine_entite_batiment peb
+       JOIN patrimoine_entite pe ON pe.id = peb.entite_id
+       WHERE peb.cleabs = p.cleabs AND NOT peb.detache
+       ORDER BY ((pe.meta->>'origine') = 'manuel') IS TRUE DESC,   -- manuel prioritaire (IS TRUE : natif→FALSE, pas NULL)
+                CASE pe.famille WHEN 'mondial' THEN 0 WHEN 'mh' THEN 1 WHEN 'inventaire' THEN 2 ELSE 3 END,
+                pe.id
+       LIMIT 1
+     ) ent ON true
+     ORDER BY p.ord;`,
     [point.lon, point.lat, azimuts, ANALYSIS_RANGE_M],
   );
   for (const r of res.rows) {
@@ -834,9 +858,9 @@ export async function resoudreMonuments(
     faisceaux[i] = {
       touche: r.ref != null,
       ref: r.ref,
-      nom: r.tico,
-      type: r.deno,
-      statut: r.statut,
+      nom: r.libelle, // libellé complet (nom saisi ou générique par famille)
+      type: null,
+      statut: null,
       offsetDeg: faisceaux[i].offsetDeg,
     };
   }
