@@ -2,6 +2,8 @@ import 'server-only';
 import { query } from '../../../../../lib/db/client';
 import {
   SELECT_CARTES,
+  MESSAGE_CHEVAUCHEMENT,
+  estViolationChevauchement,
   lireCorps,
   lireCarteDepuisBody,
   lireId,
@@ -93,7 +95,11 @@ export async function PATCH(request: Request, ctx: Ctx) {
     const { rows } = await query<LigneCarteDB>(sql, params);
     const maj = rows[0];
     return Response.json({ ok: true, carte: { id: maj.id, ...versCarte(maj) } });
-  } catch {
+  } catch (e) {
+    // Filet de dernier recours (concurrence) : contrainte EXCLUDE DB (migration 007) → 422 non-chevauchement.
+    if (estViolationChevauchement(e)) {
+      return Response.json({ erreurs: [{ message: MESSAGE_CHEVAUCHEMENT }] }, { status: 422 });
+    }
     return Response.json({ erreurs: [{ message: 'écriture impossible' }] }, { status: 503 });
   }
 }

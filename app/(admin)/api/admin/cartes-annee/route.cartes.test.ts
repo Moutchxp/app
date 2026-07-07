@@ -58,6 +58,23 @@ function journalEmis(): boolean {
   );
 }
 
+/**
+ * SELECT renvoie les cartes existantes (la validation applicative passe) ; toute ÉCRITURE rejette
+ * avec le SQLSTATE donné — simule la contrainte DB EXCLUDE (migration 007) déclenchée par une
+ * écriture CONCURRENTE (23P01 = exclusion_violation) que la validation applicative n'avait pas vue.
+ */
+function brancheErreurEcriture(code: string) {
+  queryMock.mockImplementation((text: unknown) => {
+    if (typeof text === 'string' && ecritureSql(text)) {
+      return Promise.reject(Object.assign(new Error('contrainte DB'), { code }));
+    }
+    if (typeof text === 'string' && text.includes('WHERE id = $1') && text.includes('SELECT')) {
+      return Promise.resolve({ rows: [cartesExistantes()[1]] });
+    }
+    return Promise.resolve({ rows: cartesExistantes() });
+  });
+}
+
 function reqPost(body: unknown): Request {
   return new Request('http://localhost/api/admin/cartes-annee', {
     method: 'POST',
@@ -120,6 +137,24 @@ describe('POST /api/admin/cartes-annee', () => {
     expect(ecritureEmise()).toBe(false);
   });
 
+  it('écriture concurrente rejetée par la contrainte DB (23P01) → 422 non-chevauchement', async () => {
+    brancheErreurEcriture('23P01');
+    const res = await POST(
+      reqPost({ borneMin: 2020, opMin: '>=', borneMax: null, opMax: null, cone: 1.1, flanc: 1.05, distMaxM: 150 }),
+    );
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.erreurs?.[0]?.message).toMatch(/chevauchement/i);
+  });
+
+  it('autre erreur DB (non 23P01) → 503', async () => {
+    brancheErreurEcriture('08006');
+    const res = await POST(
+      reqPost({ borneMin: 2020, opMin: '>=', borneMax: null, opMax: null, cone: 1.1, flanc: 1.05, distMaxM: 150 }),
+    );
+    expect(res.status).toBe(503);
+  });
+
   it('carte à intervalle vide (> 1935 et < 1930) → 422 + AUCUNE écriture', async () => {
     branche();
     const res = await POST(
@@ -164,6 +199,17 @@ describe('PATCH /api/admin/cartes-annee/[id]', () => {
     expect(body.carte).toMatchObject({ id: 2, cone: 1.3 });
     expect(ecritureEmise()).toBe(true);
     expect(journalEmis()).toBe(true);
+  });
+
+  it('modif concurrente rejetée par la contrainte DB (23P01) → 422 non-chevauchement', async () => {
+    brancheErreurEcriture('23P01');
+    const res = await PATCH(
+      reqPatch({ borneMin: 1900, opMin: '>', borneMax: 1935, opMax: '<=', cone: 1.2, flanc: 1.1, distMaxM: 200 }),
+      ctx('2'),
+    );
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.erreurs?.[0]?.message).toMatch(/chevauchement/i);
   });
 
   it('modif rendant la carte #2 chevauchante (≤ 1900) → 422 + AUCUNE écriture', async () => {

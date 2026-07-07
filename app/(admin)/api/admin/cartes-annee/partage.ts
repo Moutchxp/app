@@ -154,3 +154,22 @@ export function lireId(id: string): number | null {
   const n = Number(id);
   return Number.isInteger(n) && n > 0 ? n : null;
 }
+
+/**
+ * Message de rejet du non-chevauchement — cohérent avec `validerCartesAnnee` (« Chevauchement entre
+ * les cartes … »). Sert au mapping de la contrainte DB `EXCLUDE` (migration 007) sur le chemin
+ * concurrent, où les index des cartes en conflit ne sont pas connus.
+ */
+export const MESSAGE_CHEVAUCHEMENT =
+  'Chevauchement entre cartes : une année ne peut appartenir qu’à une seule carte.';
+
+/**
+ * `true` si l'erreur `pg` est une violation de contrainte d'exclusion (SQLSTATE **23P01**), posée
+ * par la migration 007 (`config_famille_annee_no_overlap`). Filet de dernier recours contre les
+ * écritures CONCURRENTES qui passeraient la validation applicative ; à mapper en **422**.
+ */
+export function estViolationChevauchement(e: unknown): boolean {
+  return (
+    typeof e === 'object' && e !== null && 'code' in e && (e as { code?: unknown }).code === '23P01'
+  );
+}
