@@ -47,6 +47,13 @@ describe('mappingConfig — métadonnées d’édition (M1)', () => {
     }
   });
 
+  it('les 46 colonnes portent une `infobulle` non vide', () => {
+    for (const m of META) {
+      expect(typeof m.infobulle, m.colonne).toBe('string');
+      expect((m.infobulle ?? '').length, m.colonne).toBeGreaterThan(0);
+    }
+  });
+
   it('les 5 VESTIGIALE + `id` sont `editable: false`', () => {
     const nonEditables = ['id', 'boost_f2', 'forfait_cone_central', 'forfait_extremites', 'cone_f3_demi_angle_deg', 'natures_remarquables'];
     for (const nom of nonEditables) {
