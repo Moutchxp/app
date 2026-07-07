@@ -8,6 +8,8 @@ import type { Orientation } from './config';
 
 export type ModeCombinaison = 'max' | 'addition' | 'sequentiel';
 
+export type ModeRepli = 'max' | 'addition';
+
 /** Coefficients d'une famille pondérée (Étape 2) : multiplicateur cône, flanc + plafond de distance. */
 export interface FamilleCoeff {
   /** Multiplicateur de la distance réelle dans le cône (|offsetDeg| ≤ coneFamilleDemiAngleDeg). */
@@ -65,8 +67,10 @@ export interface ProfilDegagement {
   plafondCouche1: number;
   /** Coefficient du dégagement PUR (ratio cumul/portée × ce facteur), hors orientation ajoutée ensuite. */
   plafondDegagement: number;
-  /** Mode de combinaison des familles déclenchées (seul "max" actif ici). */
+  /** Mode de combinaison nature (P1) + bâti (P2) QUAND `natureM ≥ cumulNature.seuilMinM` : `sequentiel` (P1 + P2÷diviseur), `addition` (P1 + P2) ou `max` (max(P1, P2)). */
   modeCombinaison: ModeCombinaison;
+  /** Mode de combinaison appliqué QUAND `natureM < cumulNature.seuilMinM` (diviseur = 1) : `addition` (P1 + P2, défaut) ou `max` (max(P1, P2)). */
+  modeCombinaisonRepli: ModeRepli;
   /** Couloir — largeur : distance ⊥ à l'axe (m) sous laquelle un obstacle « longe » le regard. */
   couloirSeuilLateralM: number;
   /** Couloir — fenêtre (nb de faisceaux depuis le bord) sur laquelle la condition d'enclenchement s'applique. */
@@ -102,7 +106,8 @@ export const PROFIL_DEGAGEMENT_DEFAUT: ProfilDegagement = {
   distanceMaxM: 200,
   plafondCouche1: 90,
   plafondDegagement: 80,
-  modeCombinaison: 'max',
+  modeCombinaison: 'sequentiel',
+  modeCombinaisonRepli: 'addition',
   couloirSeuilLateralM: 3,
   couloirFenetreConditionN: 16,
   couloirToleranceBordN: 2,

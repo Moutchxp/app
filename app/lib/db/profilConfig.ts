@@ -21,6 +21,8 @@ interface LigneConfigScoring {
   plafond_couche1: number;
   plafond_degagement: number;
   mode_combinaison: string;
+  // Colonne de repli sous-seuil (dans le SELECT ; fallback 'addition' au mapping).
+  mode_combinaison_repli?: string;
   couloir_seuil_lateral_m: number;
   couloir_fenetre_condition_n: number;
   couloir_tolerance_bord_n: number;
@@ -59,7 +61,7 @@ export async function chargerProfilDegagement(): Promise<ProfilDegagement> {
     const res = await query<LigneConfigScoring>(
       `SELECT boost_f2, boost_f4, forfait_cone_central, forfait_extremites,
               cone_f3_demi_angle_deg, distance_max_m, plafond_couche1, plafond_degagement,
-              mode_combinaison, couloir_seuil_lateral_m, couloir_fenetre_condition_n,
+              mode_combinaison, mode_combinaison_repli, couloir_seuil_lateral_m, couloir_fenetre_condition_n,
               couloir_tolerance_bord_n, couloir_malus_pct, natures_remarquables,
               cone_famille_demi_angle_deg, mondial_faisceau_m,
               mh_cone, mh_flanc, mh_distmax_m, inv_cone, inv_flanc, inv_distmax_m,
@@ -86,6 +88,8 @@ export async function chargerProfilDegagement(): Promise<ProfilDegagement> {
       plafondCouche1: r.plafond_couche1,
       plafondDegagement: r.plafond_degagement,
       modeCombinaison: r.mode_combinaison as ModeCombinaison,
+      // Repli sous-seuil : valeur hors {max, addition} (ou absente) → défaut sûr 'addition'.
+      modeCombinaisonRepli: (r.mode_combinaison_repli === 'max' || r.mode_combinaison_repli === 'addition') ? r.mode_combinaison_repli : 'addition',
       couloirSeuilLateralM: r.couloir_seuil_lateral_m,
       couloirFenetreConditionN: r.couloir_fenetre_condition_n,
       couloirToleranceBordN: r.couloir_tolerance_bord_n,

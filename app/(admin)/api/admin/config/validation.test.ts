@@ -81,10 +81,23 @@ describe('validerPatch — rejets', () => {
     if (!r.ok) expect(r.erreurs.some((e) => e.colonne === 'distance_max_m')).toBe(true);
   });
 
-  it("mode_combinaison='xyz' → erreur (hors liste fermée)", () => {
+  it("mode_combinaison='xyz' → erreur (hors liste fermée {max, addition, sequentiel})", () => {
     const r = validerPatch({ mode_combinaison: 'xyz' }, ligneActuelle());
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.erreurs[0].message).toContain('liste fermée');
+    if (!r.ok) {
+      expect(r.erreurs[0].message).toContain('liste fermée');
+      expect(r.erreurs[0].message).toContain('sequentiel');
+    }
+  });
+
+  it("mode_combinaison_repli='sequentiel' → erreur 422 (hors liste fermée {max, addition})", () => {
+    const r = validerPatch({ mode_combinaison_repli: 'sequentiel' }, ligneActuelle());
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.erreurs[0].colonne).toBe('mode_combinaison_repli');
+      expect(r.erreurs[0].message).toContain('liste fermée');
+      expect(r.erreurs[0].message).not.toContain('sequentiel');
+    }
   });
 });
 
@@ -100,6 +113,12 @@ describe('validerPatch — acceptations', () => {
   it('mode_combinaison valide → ok', () => {
     const r = validerPatch({ mode_combinaison: 'addition' }, ligneActuelle());
     expect(r.ok).toBe(true);
+  });
+
+  it("mode_combinaison_repli='addition' → ok", () => {
+    const r = validerPatch({ mode_combinaison_repli: 'addition' }, ligneActuelle());
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.set).toEqual([{ colonne: 'mode_combinaison_repli', valeur: 'addition' }]);
   });
 
   it('paire {distance_max_m, analysis_range_m} cohérente (résultant dmax ≤ portée) → ok', () => {

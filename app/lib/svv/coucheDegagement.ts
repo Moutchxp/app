@@ -9,7 +9,7 @@
  */
 import type { FaisceauResultat } from './scoreDegagement';
 import { azimutVersSecteur } from './scoreDegagement';
-import type { ProfilDegagement, FamilleCoeff } from './profilDegagement';
+import type { ProfilDegagement, FamilleCoeff, ModeCombinaison, ModeRepli } from './profilDegagement';
 import {
   CONE_VUE_NATURE_DEG,
   SEUIL_VUE_NATURE,
@@ -55,6 +55,27 @@ function familleCoeff(f: FaisceauResultat, profil: ProfilDegagement): FamilleCoe
 }
 
 /**
+ * Combine la part nature (P1) et la part bâti (P2, NON divisée) d'un faisceau pondéré.
+ * - `natureM ≥ seuilMinM` → applique `mode` : `sequentiel` (P1 + P2÷diviseur, comportement ACTUEL),
+ *   `addition` (P1 + P2, sans diviseur) ou `max` (max(P1, P2)).
+ * - `natureM < seuilMinM` → applique le mode de `repli` (diviseur = 1, non appliqué) : `addition` ou `max`.
+ * Le cap `fam.distMaxM` est appliqué EN DEHORS de cette fonction (par l'appelant).
+ */
+export function combinerP1P2(
+  p1: number, p2: number, diviseur: number, natureM: number,
+  seuilMinM: number, mode: ModeCombinaison, repli: ModeRepli,
+): number {
+  if (natureM >= seuilMinM) {
+    switch (mode) {
+      case 'sequentiel': return p1 + p2 / diviseur;   // comportement ACTUEL (bit-identique)
+      case 'addition':   return p1 + p2;
+      case 'max':        return Math.max(p1, p2);
+    }
+  }
+  return repli === 'max' ? Math.max(p1, p2) : p1 + p2; // sous le seuil : diviseur = 1
+}
+
+/**
  * Distance PERÇUE d'un faisceau (m) — barème de pondération PAR FAMILLE (Étape 2, remplace le max).
  *
  * 1. Une SEULE famille s'applique, par priorité (familleCoeff) ; jamais de cumul de familles.
@@ -63,12 +84,15 @@ function familleCoeff(f: FaisceauResultat, profil: ProfilDegagement): FamilleCoe
  *    - Bâti ordinaire (ou faisceau dégagé) → calcul CLASSIQUE : base F1 + F4 nature, capé distanceMaxM.
  * 2. Cumul nature + bâti (famille pondérée ET natureTraverseeM > 0) :
  *      P1 = valeur classique (base + F4 nature), capée cumulNature.capP1M.
- *      P2 = (distanceReelle × coeff) / diviseurCumulNature(nature).
- *      total = min(P1 + P2, distMax famille).
+ *      P2 = distanceReelle × coeff (NON divisée ; la division n'intervient qu'en mode `sequentiel`).
+ *      Combinaison via `combinerP1P2` selon `modeCombinaison`, avec gating par cumulNature.seuilMinM :
+ *        - natureM ≥ seuil → `sequentiel` (P1 + P2÷diviseur), `addition` (P1 + P2) ou `max` (max(P1, P2)) ;
+ *        - natureM < seuil → mode de `modeCombinaisonRepli` (diviseur = 1) : `addition` ou `max`.
+ *      total = min(combinerP1P2(…), distMax famille).
  *    Sans nature devant une famille pondérée : min(distanceReelle × coeff, distMax famille).
  *
- * N'affecte NI le verdict NI le Résultat A. `modeCombinaison`/`boostF2`/F3-forfait ne sont plus
- * consultés ici (l'année remplace boostF2 ; MH/Inventaire remplacent le forfait remarquable).
+ * N'affecte NI le verdict NI le Résultat A. `boostF2`/F3-forfait ne sont plus consultés ici
+ * (l'année remplace boostF2 ; MH/Inventaire remplacent le forfait remarquable).
  */
 export function distancePercueFaisceau(f: FaisceauResultat, profil: ProfilDegagement): number {
   const { distanceMaxM } = profil;
@@ -90,8 +114,12 @@ export function distancePercueFaisceau(f: FaisceauResultat, profil: ProfilDegage
   if (natureM > 0) {
     // Cumul nature + bâti.
     const p1 = Math.min(valeurClassique, profil.cumulNature.capP1M);
-    const p2 = (dist * coeff) / diviseurCumulNature(natureM, profil.cumulNature);
-    return Math.min(p1 + p2, fam.distMaxM);
+    const p2 = dist * coeff;
+    const diviseur = diviseurCumulNature(natureM, profil.cumulNature);
+    return Math.min(
+      combinerP1P2(p1, p2, diviseur, natureM, profil.cumulNature.seuilMinM, profil.modeCombinaison, profil.modeCombinaisonRepli),
+      fam.distMaxM,
+    );
   }
   // Famille sans nature devant : distance réelle × coeff, capée distMax famille.
   return Math.min(dist * coeff, fam.distMaxM);

@@ -1,5 +1,5 @@
 /**
- * Table de correspondance UI pour les 46 colonnes du singleton `config_scoring`
+ * Table de correspondance UI pour les 47 colonnes du singleton `config_scoring`
  * (Couche 1 — dégagement). Purement déclaratif : libellé lisible, unité, famille,
  * statut et valeur par défaut de chaque variable.
  *
@@ -30,6 +30,12 @@ export interface ColonneMeta {
    * `entier` (colonne integer), `enum` (liste fermée), `liste` (text[]).
    */
   type: 'nombre' | 'entier' | 'enum' | 'liste';
+  /**
+   * Liste fermée des valeurs autorisées pour un `type: 'enum'` (propre à chaque
+   * enum : modes de combinaison, modes de repli…). Sert de source unique au
+   * `<select>` (UI) et à la validation server-side.
+   */
+  optionsEnum?: readonly string[];
   /** Éditable depuis l'admin. VESTIGIALE + `id` (technique) → false. */
   editable: boolean;
   /**
@@ -62,6 +68,12 @@ const F_PORTEE = 'Portée & garde-fou';
 const F_MODE = 'Mode de combinaison';
 const F_HERITAGE = 'Héritage (variables sans effet)';
 
+/** Liste fermée des modes de combinaison acceptés (`mode_combinaison`, VIVE). */
+export const MODES_COMBINAISON: readonly string[] = ['max', 'addition', 'sequentiel'];
+
+/** Liste fermée des modes de repli sous le seuil de nature (`mode_combinaison_repli`, DE GARDE). */
+export const MODES_REPLI: readonly string[] = ['max', 'addition'];
+
 // Textes d'info-bulle partagés par des familles à texte groupé (transcrits de
 // `docs/SPEC_infobulles_variables.md` — source de vérité des textes).
 const IB_MH =
@@ -78,8 +90,8 @@ const IB_VESTIGIALE =
   'Colonne conservée en base mais sans effet sur le score actuel : son mécanisme a été remplacé (l’année de construction et les familles MH/Inventaire ont pris le relais). Non éditable.';
 
 /**
- * Les 46 colonnes de `config_scoring`, ordonnées par famille.
- * Récapitulatif : 38 VIVE · 5 VESTIGIALE · 1 DE GARDE · 1 MIROIR · 1 technique = 46.
+ * Les 47 colonnes de `config_scoring`, ordonnées par famille.
+ * Récapitulatif : 39 VIVE · 5 VESTIGIALE · 1 DE GARDE · 1 MIROIR · 1 technique = 47.
  */
 export const META: readonly ColonneMeta[] = [
   // Famille 0 — Technique
@@ -136,8 +148,9 @@ export const META: readonly ColonneMeta[] = [
   // Famille 6 — Portée & garde-fou
   { colonne: 'analysis_range_m', libelle: 'Portée d’analyse — garde-fou seul (n’agit pas sur la géométrie)', unite: 'mètres', famille: F_PORTEE, statut: 'MIROIR', defaut: 200, type: 'entier', editable: true, min: 1, max: 2000, pas: 1, aide: 'Garde-fou : n’agit pas sur la géométrie.', infobulle: 'Garde-fou de cohérence : n’entre dans AUCUN calcul de score ni dans la géométrie. Seul rôle : si le plafond de distance perçue (distance_max_m) le dépasse, toute la configuration est rejetée et le moteur repasse aux valeurs par défaut. La portée géométrique réelle est fixée dans le code.' },
 
-  // Famille 7 — Mode de combinaison (de garde)
-  { colonne: 'mode_combinaison', libelle: 'Mode de combinaison des familles', unite: 'liste fermée {max, addition, sequentiel}', famille: F_MODE, statut: 'DE GARDE', defaut: 'max', type: 'enum', editable: true, infobulle: '⚠️ Dans le moteur actuel, cette option ne change pas le score : les trois valeurs (max, addition, séquentiel) donnent exactement la même note. La combinaison d’une nature valorisante et d’un bâtiment pondéré sur un même faisceau est gérée par une règle fixe, sans consulter ce mode. Son seul effet réel : une valeur hors de la liste {max, addition, séquentiel} ferait rejeter toute la configuration (retour aux valeurs par défaut). C’est donc aujourd’hui un verrou de sécurité, pas un réglage de calcul.' },
+  // Famille 7 — Mode de combinaison
+  { colonne: 'mode_combinaison', libelle: 'Mode de combinaison — nature (P1) + bâti (P2)', unite: 'liste fermée {max, addition, sequentiel}', famille: F_MODE, statut: 'VIVE', defaut: 'max', type: 'enum', optionsEnum: MODES_COMBINAISON, editable: true, infobulle: 'Règle de combinaison, sur un faisceau qui heurte un bâtiment pondéré (patrimoine / bâti ancien) après avoir traversé de la nature, de la part « nature » (P1) et de la part « bâti » (P2 = distance × coefficient de famille). « sequentiel » : P1 + P2 ÷ diviseur (le diviseur croît par paliers de cumul — comportement historique). « addition » : P1 + P2 (sans diviseur → note plus haute). « max » : max(P1, P2) (ne garde que la plus forte des deux parts). Ce mode ne s’applique QUE si la longueur de nature traversée atteint le seuil « cumul_seuil_min_m » ; en dessous, c’est le mode de repli (mode_combinaison_repli) qui joue. Le résultat est ensuite plafonné au cap de distance de la famille. N’affecte jamais un faisceau visant un monument emblématique (patrimoine mondial), traité à part.' },
+  { colonne: 'mode_combinaison_repli', libelle: 'Mode de combinaison — repli sous le seuil de nature', unite: 'liste fermée {max, addition}', famille: F_MODE, statut: 'DE GARDE', defaut: 'addition', type: 'enum', optionsEnum: MODES_REPLI, editable: true, infobulle: 'Règle de combinaison appliquée QUAND la nature traversée reste SOUS le seuil « cumul_seuil_min_m » (le diviseur de cumul vaut alors 1). « addition » : P1 + P2 (défaut — reproduit le comportement historique sous le seuil). « max » : max(P1, P2) (ne garde que la plus forte des deux parts). Le mode « sequentiel » n’est pas proposé ici (le diviseur ne s’applique pas sous le seuil). Le résultat est ensuite plafonné au cap de distance de la famille.' },
 
   // Famille 8 — Héritage (vestigiales — sans effet)
   { colonne: 'boost_f2', libelle: 'Ex-boost bâti < 1900 (F2)', unite: 'coefficient — sans effet', famille: F_HERITAGE, statut: 'VESTIGIALE', defaut: 0.3, type: 'nombre', editable: false, infobulle: IB_VESTIGIALE },
@@ -151,9 +164,6 @@ export const META: readonly ColonneMeta[] = [
 export const FAMILLES_ORDRE: readonly string[] = [
   F_TECHNIQUE, F_DISTANCE, F_BAREME, F_CUMUL, F_COULOIR, F_NORM, F_PORTEE, F_MODE, F_HERITAGE,
 ];
-
-/** Liste fermée des modes de combinaison acceptés (variable DE GARDE). */
-export const MODES_COMBINAISON: readonly string[] = ['max', 'addition', 'sequentiel'];
 
 /**
  * Métadonnée d'une colonne par son nom technique, ou `undefined` si inconnue.

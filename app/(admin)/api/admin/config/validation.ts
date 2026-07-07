@@ -68,10 +68,13 @@ export function validerPatch(
 
     // 5. Type.
     if (meta.type === 'enum') {
-      if (typeof valeur !== 'string' || !MODES_COMBINAISON.includes(valeur)) {
+      // Liste fermée propre à CHAQUE enum (`meta.optionsEnum`) ; repli sûr sur
+      // MODES_COMBINAISON si absente. Rejet en 422 AVANT le CHECK DB (503).
+      const options = meta.optionsEnum ?? MODES_COMBINAISON;
+      if (typeof valeur !== 'string' || !options.includes(valeur)) {
         erreurs.push({
           colonne: cle,
-          message: `valeur hors liste fermée {${MODES_COMBINAISON.join(', ')}}`,
+          message: `valeur hors liste fermée {${options.join(', ')}}`,
         });
         continue;
       }

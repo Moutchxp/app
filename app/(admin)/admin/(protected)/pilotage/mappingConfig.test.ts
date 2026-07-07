@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { META, MODES_COMBINAISON, formaterMalusPct, metaParColonne } from './mappingConfig';
+import { META, MODES_COMBINAISON, MODES_REPLI, formaterMalusPct, metaParColonne } from './mappingConfig';
 
-/** Les 46 noms de colonnes exacts de `config_scoring` (id=1), liste figée. */
+/** Les 47 noms de colonnes exacts de `config_scoring` (id=1), liste figée. */
 const COLONNES_ATTENDUES = [
   'id',
   'boost_f2', 'boost_f4', 'forfait_cone_central', 'forfait_extremites', 'cone_f3_demi_angle_deg',
-  'distance_max_m', 'plafond_couche1', 'plafond_degagement', 'mode_combinaison',
+  'distance_max_m', 'plafond_couche1', 'plafond_degagement', 'mode_combinaison', 'mode_combinaison_repli',
   'couloir_seuil_lateral_m', 'couloir_fenetre_condition_n', 'couloir_tolerance_bord_n', 'couloir_malus_pct',
   'natures_remarquables',
   'cone_famille_demi_angle_deg', 'mondial_faisceau_m',
@@ -20,15 +20,15 @@ const COLONNES_ATTENDUES = [
 ] as const;
 
 describe('mappingConfig — META', () => {
-  it('contient exactement 46 entrées', () => {
-    expect(META.length).toBe(46);
+  it('contient exactement 47 entrées', () => {
+    expect(META.length).toBe(47);
   });
 
-  it('couvre les 46 colonnes exactes, sans doublon ni intrus', () => {
+  it('couvre les 47 colonnes exactes, sans doublon ni intrus', () => {
     const noms = META.map((m) => m.colonne);
     // Aucun doublon.
     expect(new Set(noms).size).toBe(noms.length);
-    // Ensemble = les 46 noms attendus (ni manquant, ni intrus).
+    // Ensemble = les 47 noms attendus (ni manquant, ni intrus).
     expect(new Set(noms)).toEqual(new Set(COLONNES_ATTENDUES));
   });
 
@@ -40,14 +40,14 @@ describe('mappingConfig — META', () => {
 });
 
 describe('mappingConfig — métadonnées d’édition (M1)', () => {
-  it('les 46 colonnes portent `type` et `editable`', () => {
+  it('les 47 colonnes portent `type` et `editable`', () => {
     for (const m of META) {
       expect(['nombre', 'entier', 'enum', 'liste']).toContain(m.type);
       expect(typeof m.editable).toBe('boolean');
     }
   });
 
-  it('les 46 colonnes portent une `infobulle` non vide', () => {
+  it('les 47 colonnes portent une `infobulle` non vide', () => {
     for (const m of META) {
       expect(typeof m.infobulle, m.colonne).toBe('string');
       expect((m.infobulle ?? '').length, m.colonne).toBeGreaterThan(0);
@@ -91,11 +91,23 @@ describe('mappingConfig — métadonnées d’édition (M1)', () => {
     }
   });
 
-  it('mode_combinaison est un enum éditable dont le défaut est un mode valide', () => {
+  it('mode_combinaison est un enum VIVE éditable (optionsEnum = MODES_COMBINAISON) dont le défaut est valide', () => {
     const m = META.find((x) => x.colonne === 'mode_combinaison')!;
     expect(m.type).toBe('enum');
     expect(m.editable).toBe(true);
+    expect(m.statut).toBe('VIVE');
+    expect(m.optionsEnum).toEqual(MODES_COMBINAISON);
     expect(MODES_COMBINAISON).toContain(m.defaut as string);
+  });
+
+  it('mode_combinaison_repli est un enum DE GARDE éditable (optionsEnum = MODES_REPLI, défaut addition)', () => {
+    const m = META.find((x) => x.colonne === 'mode_combinaison_repli')!;
+    expect(m.type).toBe('enum');
+    expect(m.editable).toBe(true);
+    expect(m.statut).toBe('DE GARDE');
+    expect(m.optionsEnum).toEqual(MODES_REPLI);
+    expect(m.defaut).toBe('addition');
+    expect(MODES_REPLI).toContain(m.defaut as string);
   });
 
   it('metaParColonne renvoie l’entrée ou undefined (allowlist)', () => {

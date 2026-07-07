@@ -537,11 +537,14 @@ function CarteVariableEditable({ meta, ctx }: { meta: ColonneMeta; ctx: CtxPilot
   );
 }
 
-/** Carte DE GARDE — `mode_combinaison` en liste fermée (EX-13). */
+/** Carte enum en liste fermée (`mode_combinaison` VIVE, `mode_combinaison_repli` DE GARDE — EX-13/EX-18/EX-19). */
 function CarteVariableSelect({ meta, ctx }: { meta: ColonneMeta; ctx: CtxPilotage }) {
   const [draft, setDraft] = useState(String(ctx.valeurs[meta.colonne] ?? ''));
   const { enCours, erreur, succes, sauver, setErreur, setSucces } = useSauvegarde(ctx.appliquer);
-  // DE GARDE → pas golden-sensible : aucun avertissement golden.
+  // Un enum VIVE (mode_combinaison) déplace le golden ; un enum DE GARDE (mode_combinaison_repli) non.
+  const golden = goldenSensible(meta);
+  // Options propres à l'enum (repli sur MODES_COMBINAISON si absentes).
+  const options = meta.optionsEnum ?? MODES_COMBINAISON;
 
   return (
     <article className="svv-pil-carte">
@@ -552,13 +555,15 @@ function CarteVariableSelect({ meta, ctx }: { meta: ColonneMeta; ctx: CtxPilotag
           <select
             className="svv-pil-select"
             value={draft}
+            onFocus={() => golden && ctx.declencherGolden()}
             onChange={(e) => {
               setDraft(e.target.value);
               setErreur(null);
               setSucces(false);
+              if (golden) ctx.declencherGolden();
             }}
           >
-            {MODES_COMBINAISON.map((m) => (
+            {options.map((m) => (
               <option key={m} value={m}>
                 {m}
               </option>

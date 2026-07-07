@@ -8,10 +8,10 @@ vi.mock('../../../../lib/db/client', () => ({
 
 import { GET } from './route';
 
-/** Les 46 colonnes attendues dans la réponse. */
+/** Les 47 colonnes attendues dans la réponse. */
 const COLONNES = [
   'id', 'boost_f2', 'boost_f4', 'forfait_cone_central', 'forfait_extremites', 'cone_f3_demi_angle_deg',
-  'distance_max_m', 'plafond_couche1', 'plafond_degagement', 'mode_combinaison',
+  'distance_max_m', 'plafond_couche1', 'plafond_degagement', 'mode_combinaison', 'mode_combinaison_repli',
   'couloir_seuil_lateral_m', 'couloir_fenetre_condition_n', 'couloir_tolerance_bord_n', 'couloir_malus_pct',
   'natures_remarquables', 'cone_famille_demi_angle_deg', 'mondial_faisceau_m',
   'mh_cone', 'mh_flanc', 'mh_distmax_m', 'inv_cone', 'inv_flanc', 'inv_distmax_m',
@@ -27,6 +27,7 @@ function ligneComplete(): Record<string, unknown> {
   const l: Record<string, unknown> = {};
   for (const c of COLONNES) l[c] = 1;
   l.mode_combinaison = 'max';
+  l.mode_combinaison_repli = 'addition';
   l.distance_max_m = 200;
   l.analysis_range_m = 200;
   l.natures_remarquables = ['Eglise'];
@@ -38,7 +39,7 @@ beforeEach(() => {
 });
 
 describe('GET /api/admin/config', () => {
-  it('renvoie present:true + les 46 colonnes + repli', async () => {
+  it('renvoie present:true + les 47 colonnes + repli', async () => {
     queryMock.mockResolvedValue({ rows: [ligneComplete()] });
     const res = await GET();
     const body = await res.json();
