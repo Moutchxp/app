@@ -87,8 +87,10 @@ interface LigneFamille {
 
 /**
  * Enrichit `impactAnnee` / `impactMH` / `impactInventaire` / `impactEmblematique` de chaque faisceau
- * à partir de son `impactCleabs`, en UN seul SELECT (LECTURE SEULE). Aucune écriture ; jointures seules
- * (monuments_historiques, inventaire_general, monument_emblematique_batiment).
+ * à partir de son `impactCleabs`, en UN seul SELECT (LECTURE SEULE). Aucune écriture ; jointures seules.
+ * Familles patrimoine lues depuis le modèle UNIFIÉ (`patrimoine_entite` + `patrimoine_entite_batiment`,
+ * migration 009) ; année depuis `bdnb_annee_batiment`. Granularité de filtre PRÉSERVÉE : MH sans filtre ;
+ * Inventaire filtre au niveau LIAISON (`peb.actif`) ; mondial filtre au niveau ENTITÉ (`pe.actif`).
  */
 async function enrichirFamilles(resultats: FaisceauResultat[]): Promise<void> {
   const cleabs = [...new Set(resultats.map((r) => r.impactCleabs).filter((c): c is string => !!c))];
@@ -100,11 +102,12 @@ async function enrichirFamilles(resultats: FaisceauResultat[]): Promise<void> {
   const res = await query<LigneFamille>(
     `SELECT t.cleabs,
             (SELECT annee_construction FROM bdnb_annee_batiment WHERE cleabs = t.cleabs LIMIT 1) AS annee,
-            EXISTS (SELECT 1 FROM monuments_historiques WHERE cleabs = t.cleabs)                 AS is_mh,
-            EXISTS (SELECT 1 FROM inventaire_general    WHERE cleabs = t.cleabs AND badge_actif)  AS is_inv,
-            EXISTS (SELECT 1 FROM monument_emblematique_batiment meb
-                    JOIN monuments_emblematiques me ON me.id = meb.monument_id
-                    WHERE meb.cleabs = t.cleabs AND me.actif = true)                             AS is_emblematique
+            EXISTS (SELECT 1 FROM patrimoine_entite_batiment peb JOIN patrimoine_entite pe ON pe.id = peb.entite_id
+                    WHERE peb.cleabs = t.cleabs AND pe.famille = 'mh')                            AS is_mh,
+            EXISTS (SELECT 1 FROM patrimoine_entite_batiment peb JOIN patrimoine_entite pe ON pe.id = peb.entite_id
+                    WHERE peb.cleabs = t.cleabs AND pe.famille = 'inventaire' AND peb.actif)       AS is_inv,
+            EXISTS (SELECT 1 FROM patrimoine_entite_batiment peb JOIN patrimoine_entite pe ON pe.id = peb.entite_id
+                    WHERE peb.cleabs = t.cleabs AND pe.famille = 'mondial' AND pe.actif = true)    AS is_emblematique
      FROM unnest($1::text[]) AS t(cleabs)`,
     [cleabs],
   );
