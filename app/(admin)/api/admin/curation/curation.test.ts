@@ -9,6 +9,7 @@ vi.mock('../../../../lib/db/client', () => ({
 }));
 
 import { GET as GET_ENTITES, POST as POST_ENTITE } from './entites/route';
+import { DELETE as DELETE_ENTITE, PATCH as PATCH_ENTITE } from './entites/[id]/route';
 import { PATCH as PATCH_POINT, DELETE as DELETE_POINT } from './entites/[id]/point/route';
 import { POST as POST_LIAISON, DELETE as DELETE_LIAISON, PATCH as PATCH_LIAISON } from './entites/[id]/liaisons/route';
 
@@ -113,6 +114,63 @@ describe('POST /api/admin/curation/entites (création manuelle)', () => {
     queryMock.mockRejectedValue(Object.assign(new Error('dup'), { code: '23505' }));
     const res = await POST_ENTITE(req('POST', { famille: 'inventaire', nom: 'Mairie' }));
     expect(res.status).toBe(409);
+  });
+});
+
+describe('DELETE /api/admin/curation/entites/[id] (suppression tag manuel)', () => {
+  it('entité manuelle → 200 + CTE supprime liaisons PUIS entité, gardé origine=manuel', async () => {
+    queryMock.mockResolvedValue({ rows: [{ id: 42 }] });
+    const res = await DELETE_ENTITE(req('DELETE'), ctx('42'));
+    expect(res.status).toBe(200);
+    const sql = sqlsEmis().find((s) => s.includes('patrimoine_entite'));
+    expect(sql).toBeDefined();
+    // Garde-fou serveur : ne cible QUE meta->>'origine'='manuel'.
+    expect(/meta->>'origine' = 'manuel'/.test(sql!)).toBe(true);
+    // Supprime les liaisons ET l'entité (CTE atomique).
+    expect(/DELETE FROM patrimoine_entite_batiment/.test(sql!)).toBe(true);
+    expect(/DELETE FROM patrimoine_entite\b/.test(sql!)).toBe(true);
+  });
+
+  it('entité inconnue OU native (0 ligne) → 404', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    const res = await DELETE_ENTITE(req('DELETE'), ctx('7'));
+    expect(res.status).toBe(404);
+  });
+
+  it('id invalide → 422 + AUCUNE écriture', async () => {
+    const res = await DELETE_ENTITE(req('DELETE'), ctx('abc'));
+    expect(res.status).toBe(422);
+    expect(sqlsEmis().length).toBe(0);
+  });
+});
+
+describe('PATCH /api/admin/curation/entites/[id] (renommer tag manuel)', () => {
+  it('nom → 200 + UPDATE gardé origine=manuel', async () => {
+    queryMock.mockResolvedValue({ rows: [{ id: 42, nom: 'Nouvelle mairie' }] });
+    const res = await PATCH_ENTITE(req('PATCH', { nom: 'Nouvelle mairie' }), ctx('42'));
+    expect(res.status).toBe(200);
+    const sql = sqlsEmis().find((s) => s.includes('UPDATE patrimoine_entite'));
+    expect(/SET nom = \$2[\s\S]*meta->>'origine' = 'manuel'/.test(sql!)).toBe(true);
+  });
+
+  it('nom vide → 200 (nom NULL autorisé)', async () => {
+    queryMock.mockResolvedValue({ rows: [{ id: 42, nom: null }] });
+    const res = await PATCH_ENTITE(req('PATCH', { nom: '   ' }), ctx('42'));
+    expect(res.status).toBe(200);
+    const params = queryMock.mock.calls.find((c) => String(c[0]).includes('UPDATE patrimoine_entite'))?.[1] as unknown[];
+    expect(params[1]).toBeNull();
+  });
+
+  it('entité native/inconnue (0 ligne) → 404', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    const res = await PATCH_ENTITE(req('PATCH', { nom: 'X' }), ctx('7'));
+    expect(res.status).toBe(404);
+  });
+
+  it('body sans nom → 422', async () => {
+    const res = await PATCH_ENTITE(req('PATCH', { autre: 1 }), ctx('42'));
+    expect(res.status).toBe(422);
+    expect(sqlsEmis().length).toBe(0);
   });
 });
 

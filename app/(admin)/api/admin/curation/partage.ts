@@ -36,6 +36,7 @@ export interface LigneEntiteDB {
   ref_code: string;
   nom: string | null;
   statut: string | null;
+  origine: string | null; // `meta->>'origine'` : 'manuel' pour un tag, null/absent pour un natif
   point_geojson: string | null;
   corrige: boolean;
   liaisons: LiaisonDB[] | null;
@@ -77,6 +78,7 @@ export function versEntite(r: LigneEntiteDB) {
     refCode: r.ref_code,
     nom: r.nom,
     statut: r.statut,
+    origine: r.origine,
     point: r.point_geojson ? (JSON.parse(r.point_geojson) as unknown) : null,
     corrige: r.corrige,
     etat: etatEntite(liaisons),

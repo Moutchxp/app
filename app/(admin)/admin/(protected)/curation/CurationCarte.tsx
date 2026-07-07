@@ -41,6 +41,7 @@ interface Entite {
   refCode: string;
   nom: string | null;
   statut: string | null;
+  origine: string | null; // 'manuel' = tag créé à la main (étoile jaune, éditable/supprimable)
   point: PointGeoJSON | null;
   corrige: boolean;
   etat: EtatEntite;
@@ -182,7 +183,7 @@ async function ecrire(
  * Crée une entité patrimoniale manuelle (POST /entites, sous-étape 1/6) et renvoie son `id`, ou `null`
  * en cas d'échec. Le helper `ecrire` ne remonte pas le corps de réponse → fetch direct pour lire `entite.id`.
  */
-async function creerEntite(payload: { famille: string; nom: string; statut: string }): Promise<number | null> {
+async function creerEntite(payload: { famille: string; nom: string }): Promise<number | null> {
   try {
     const res = await fetch('/api/admin/curation/entites', {
       method: 'POST',
@@ -229,9 +230,11 @@ export default function CurationCarte() {
   // Formulaire « + Nouveau tag » (création d'entité manuelle).
   const [creationOuverte, setCreationOuverte] = useState(false);
   const [formFamille, setFormFamille] = useState<'mondial' | 'mh' | 'inventaire'>('mh');
-  const [formStatut, setFormStatut] = useState('');
   const [formNom, setFormNom] = useState('');
   const [cleabsCible, setCleabsCible] = useState<string | null>(null); // bâtiment double-cliqué à taguer
+  // Redirection vers l'édition d'un tag manuel existant (au lieu d'un doublon) + confirmation de suppression.
+  const [editionProposee, setEditionProposee] = useState<{ id: number; nom: string | null } | null>(null);
+  const [confirmSuppression, setConfirmSuppression] = useState(false);
 
   // Refs Leaflet (map créée une seule fois ; couches réutilisées).
   const conteneurRef = useRef<HTMLDivElement | null>(null);
@@ -242,12 +245,18 @@ export default function CurationCarte() {
   const dernierFitRef = useRef<number | null>(null); // dernière entité sans-point ajustée (évite les re-fit)
   const ajusteRef = useRef(false); // fitBounds une seule fois (jamais après un rechargement)
   const selectionIdRef = useRef<number | null>(null); // miroir pour le handler `moveend`
+  const entitesRef = useRef<Entite[] | null>(null); // miroir pour `ouvrirCreationCiblee` (identité stable)
   const itemActifRef = useRef<HTMLLIElement | null>(null); // item de liste sélectionné (scroll auto)
 
   // Miroir de la sélection (lu par le handler `moveend` attaché une seule fois).
   useEffect(() => {
     selectionIdRef.current = selectionId;
   }, [selectionId]);
+
+  // Miroir de la liste des entités (lu par `ouvrirCreationCiblee` sans en refaire l'identité).
+  useEffect(() => {
+    entitesRef.current = entites;
+  }, [entites]);
 
   // ── Feedback transitoire (auto-effacé). ──────────────────────────────────────
   const signaler = useCallback((texte: string, type: 'ok' | 'erreur') => {
@@ -301,8 +310,17 @@ export default function CurationCarte() {
     setEmprisesFond(liste);
   }, []);
 
-  // ── Double-clic sur un bâtiment : ouvre « Nouveau tag » pré-armé sur ce cleabs (pas de rattachement auto). ─
+  // ── Double-clic sur un bâtiment : ouvre « Nouveau tag » ciblé, SAUF si ce cleabs appartient déjà à un
+  //    tag MANUEL (liaison active) → propose l'édition de ce tag (anti-doublon manuel ; le multi-entités
+  //    NATIF reste permis). Lit `entitesRef` (identité stable pour la couche de fond). ─
   const ouvrirCreationCiblee = useCallback((cleabs: string) => {
+    const dejaManuel = (entitesRef.current ?? []).find(
+      (e) => e.origine === 'manuel' && e.liaisons.some((l) => l.cleabs === cleabs && l.actif && !l.detache),
+    );
+    if (dejaManuel) {
+      setEditionProposee({ id: dejaManuel.id, nom: dejaManuel.nom });
+      return;
+    }
     setCleabsCible(cleabs);
     setCreationOuverte(true);
   }, []);
@@ -356,6 +374,7 @@ export default function CurationCarte() {
       setSelectionId(id);
       setFlashId(id); // cible du scroll + surbrillance brève dans la liste
       setConfirmDetach(null);
+      setConfirmSuppression(false);
       coucheEmprisesRef.current?.clearLayers(); // évite un flash des emprises de l'entité précédente
       const e = entites?.find((x) => x.id === id);
       const map = mapRef.current;
@@ -451,14 +470,13 @@ export default function CurationCarte() {
   // ── Création d'entité manuelle : POST → recharge (entrée dans `entites`) → sélection. ─
   const soumettreCreation = useCallback(async () => {
     const nom = formNom.trim();
-    const statut = formStatut.trim();
-    // Statut requis. Nom requis par la route 1/6 (rejette le nom vide en 422) — cf. RAPPORT_BUILD B1.
-    if (statut.length === 0 || nom.length === 0) {
-      signaler('Famille, statut et nom sont requis.', 'erreur');
+    // Nom requis par la route 1/6 (rejette le nom vide en 422) — cf. RAPPORT_BUILD B1. Statut retiré (nullable).
+    if (nom.length === 0) {
+      signaler('Le nom est requis.', 'erreur');
       return;
     }
     setEnEcriture(true);
-    const id = await creerEntite({ famille: formFamille, nom, statut });
+    const id = await creerEntite({ famille: formFamille, nom });
     setEnEcriture(false);
     if (id === null) {
       signaler('Création impossible.', 'erreur');
@@ -466,12 +484,44 @@ export default function CurationCarte() {
     }
     setCreationOuverte(false);
     setFormNom('');
-    setFormStatut('');
     setCleabsCible(null);
     await recharger(); // IMPÉRATIF avant selectionner : la nouvelle entité doit entrer dans `entites`
     selectionner(id);
     signaler('Entité créée — cliquez les emprises bleues pour composer.', 'ok');
-  }, [formFamille, formNom, formStatut, recharger, selectionner, signaler]);
+  }, [formFamille, formNom, recharger, selectionner, signaler]);
+
+  // ── Renommer / supprimer un tag MANUEL (routes gardées `origine='manuel'` côté serveur). ─
+  const renommerEntite = useCallback(
+    async (id: number, nom: string) => {
+      setEnEcriture(true);
+      const rep = await ecrire(`/api/admin/curation/entites/${id}`, 'PATCH', { nom });
+      setEnEcriture(false);
+      if (!rep.ok) {
+        signaler(rep.message ?? 'Renommage impossible.', 'erreur');
+        return;
+      }
+      signaler('Tag renommé.', 'ok');
+      await recharger();
+    },
+    [recharger, signaler],
+  );
+
+  const supprimerEntite = useCallback(
+    async (id: number) => {
+      setConfirmSuppression(false);
+      setEnEcriture(true);
+      const rep = await ecrire(`/api/admin/curation/entites/${id}`, 'DELETE');
+      setEnEcriture(false);
+      if (!rep.ok) {
+        signaler(rep.message ?? 'Suppression impossible.', 'erreur');
+        return;
+      }
+      signaler('Tag supprimé.', 'ok');
+      setSelectionId(null);
+      await recharger();
+    },
+    [recharger, signaler],
+  );
 
   // ── Entités affichables sur la carte (point non nul + famille visible). ──────
   const entitesAvecPoint = useMemo(
@@ -681,6 +731,33 @@ export default function CurationCarte() {
 
       <div className="svv-cur">
         <section className="svv-cur-panel" aria-label="Liste et filtres des entités">
+          {/* Redirection vers l'édition d'un tag manuel existant (anti-doublon manuel). */}
+          {editionProposee && (
+            <div className="svv-cur-form-cible" role="alert">
+              {`Ce bâtiment appartient déjà au tag manuel « ${editionProposee.nom ?? 'sans nom'} ». Le modifier ?`}
+              <div className="svv-cur-form-actions">
+                <button
+                  type="button"
+                  className="svv-cur-btn svv-cur-btn--mini"
+                  onClick={() => {
+                    const id = editionProposee.id;
+                    setEditionProposee(null);
+                    selectionner(id);
+                  }}
+                >
+                  Modifier
+                </button>
+                <button
+                  type="button"
+                  className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
+                  onClick={() => setEditionProposee(null)}
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Création d'entité manuelle (tag). */}
           <div className="svv-cur-creation">
             {!creationOuverte ? (
@@ -721,15 +798,6 @@ export default function CurationCarte() {
                       </option>
                     ))}
                   </select>
-                </label>
-                <label className="svv-cur-form-champ">
-                  <span>Statut</span>
-                  <input
-                    type="text"
-                    value={formStatut}
-                    placeholder="ex. classé, inscrit, bâti patrimonial…"
-                    onChange={(ev) => setFormStatut(ev.target.value)}
-                  />
                 </label>
                 <label className="svv-cur-form-champ">
                   <span>Nom (légende)</span>
@@ -827,7 +895,14 @@ export default function CurationCarte() {
                   >
                     <span className="svv-cur-dot" style={{ background: COULEUR_ETAT[e.etat] }} aria-hidden="true" />
                     <span className="svv-cur-item-txt">
-                      <span className="svv-cur-item-nom">{e.nom ?? e.refCode}</span>
+                      <span className="svv-cur-item-nom">
+                        {e.origine === 'manuel' && (
+                          <span className="svv-cur-star" title="Tag manuel" aria-label="Tag manuel">
+                            ★
+                          </span>
+                        )}
+                        {e.nom ?? e.refCode}
+                      </span>
                       <span className="svv-cur-item-meta">
                         <span className="svv-cur-badge">{LIBELLE_FAMILLE[e.famille] ?? e.famille}</span>
                         <code>{e.refCode}</code>
@@ -848,6 +923,61 @@ export default function CurationCarte() {
                         >
                           Annuler le déplacement
                         </button>
+                      )}
+
+                      {/* Édition d'un tag MANUEL : renommer + supprimer (routes gardées `origine='manuel'`). */}
+                      {e.origine === 'manuel' && (
+                        <div className="svv-cur-edition-manuel">
+                          <form
+                            key={e.id}
+                            className="svv-cur-renommer"
+                            onSubmit={(ev) => {
+                              ev.preventDefault();
+                              const v = new FormData(ev.currentTarget).get('nom');
+                              void renommerEntite(e.id, typeof v === 'string' ? v : '');
+                            }}
+                          >
+                            <input
+                              type="text"
+                              name="nom"
+                              defaultValue={e.nom ?? ''}
+                              placeholder="Nom du tag (légende)"
+                              aria-label="Renommer le tag"
+                            />
+                            <button type="submit" className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline" disabled={enEcriture}>
+                              Renommer
+                            </button>
+                          </form>
+                          {confirmSuppression ? (
+                            <span className="svv-cur-confirm">
+                              {`Supprimer « ${e.nom ?? 'sans nom'} » et ses ${e.liaisons.length} liaison(s) ?`}
+                              <button
+                                type="button"
+                                className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--danger"
+                                disabled={enEcriture}
+                                onClick={() => supprimerEntite(e.id)}
+                              >
+                                Supprimer
+                              </button>
+                              <button
+                                type="button"
+                                className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
+                                onClick={() => setConfirmSuppression(false)}
+                              >
+                                Annuler
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--danger"
+                              disabled={enEcriture}
+                              onClick={() => setConfirmSuppression(true)}
+                            >
+                              Supprimer ce tag
+                            </button>
+                          )}
+                        </div>
                       )}
 
                       <p className="svv-cur-detail-aide">
@@ -986,6 +1116,10 @@ const CSS = `
 .svv-cur-item-btn .svv-cur-dot{margin-top:.2rem}
 .svv-cur-item-txt{display:flex;flex-direction:column;gap:.2rem;min-width:0}
 .svv-cur-item-nom{font-weight:700;color:var(--color-svv-ink);font-size:.88rem;line-height:1.3;word-break:break-word}
+.svv-cur-star{color:#e0a400;margin-right:.25rem}
+.svv-cur-edition-manuel{display:flex;flex-direction:column;gap:.4rem;border:1px solid var(--color-svv-line);border-radius:.5rem;padding:.5rem;background:var(--color-svv-field)}
+.svv-cur-renommer{display:flex;gap:.35rem;align-items:center}
+.svv-cur-renommer input{flex:1;min-width:0;box-sizing:border-box;padding:.4rem .5rem;border:1px solid var(--color-svv-line);border-radius:.5rem;background:#fff;color:var(--color-svv-ink);font-size:.85rem;font-family:inherit;min-height:36px}
 .svv-cur-item-meta{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem}
 .svv-cur-badge{display:inline-block;font-size:.68rem;font-weight:700;border-radius:999px;padding:.1rem .45rem;background:var(--color-svv-field);color:var(--color-svv-gray);white-space:nowrap}
 .svv-cur-badge--warn{background:#fff4e0;color:#8a5a00}
