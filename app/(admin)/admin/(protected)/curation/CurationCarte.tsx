@@ -205,6 +205,7 @@ export default function CurationCarte() {
   const [emprises, setEmprises] = useState<Emprise[]>([]);
   const [emprisesLiees, setEmprisesLiees] = useState<Emprise[]>([]);
   const [enEcriture, setEnEcriture] = useState(false);
+  const [flashId, setFlashId] = useState<number | null>(null);
 
   // Refs Leaflet (map créée une seule fois ; couches réutilisées).
   const conteneurRef = useRef<HTMLDivElement | null>(null);
@@ -213,6 +214,7 @@ export default function CurationCarte() {
   const coucheEmprisesRef = useRef<L.LayerGroup | null>(null);
   const ajusteRef = useRef(false); // fitBounds une seule fois (jamais après un rechargement)
   const selectionIdRef = useRef<number | null>(null); // miroir pour le handler `moveend`
+  const itemActifRef = useRef<HTMLLIElement | null>(null); // item de liste sélectionné (scroll auto)
 
   // Miroir de la sélection (lu par le handler `moveend` attaché une seule fois).
   useEffect(() => {
@@ -297,6 +299,7 @@ export default function CurationCarte() {
   const selectionner = useCallback(
     (id: number) => {
       setSelectionId(id);
+      setFlashId(id); // cible du scroll + surbrillance brève dans la liste
       setConfirmDetach(null);
       coucheEmprisesRef.current?.clearLayers(); // évite un flash des emprises de l'entité précédente
       const e = entites?.find((x) => x.id === id);
@@ -468,6 +471,18 @@ export default function CurationCarte() {
     };
   }, [selectionId, entites]);
 
+  // ── Scroll auto vers l'item sélectionné dans la liste + surbrillance brève (clic marqueur). ─
+  useEffect(() => {
+    if (selectionId === null) return; // pas de scroll au montage
+    const node = itemActifRef.current;
+    if (!node) return; // entité filtrée hors liste (recherche/filtre) → rien à scroller
+    const reduire = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // block:'nearest' → aucun saut si l'item est déjà visible (sélection depuis la liste).
+    node.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'nearest', inline: 'nearest' });
+    const t = setTimeout(() => setFlashId(null), 1200); // retire la surbrillance (CSS gère reduce)
+    return () => clearTimeout(t);
+  }, [selectionId]);
+
   // ── (Re)dessin des emprises : rattachées en VERT UNIFORME (persistant, Correction 3) +
   //    candidates de la bbox en bleu (hors des déjà rattachées). ────────────────────
   useEffect(() => {
@@ -603,7 +618,12 @@ export default function CurationCarte() {
             {entitesFiltrees.map((e) => {
               const selectionne = e.id === selectionId;
               return (
-                <li key={e.id} className="svv-cur-item" data-selection={selectionne}>
+                <li
+                  key={e.id}
+                  ref={selectionne ? itemActifRef : undefined}
+                  className={`svv-cur-item${flashId === e.id ? ' svv-cur-item--flash' : ''}`}
+                  data-selection={selectionne}
+                >
                   <button
                     type="button"
                     className="svv-cur-item-btn"
@@ -758,6 +778,8 @@ const CSS = `
 .svv-cur-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.3rem}
 .svv-cur-item{border:1px solid var(--color-svv-line);border-radius:.55rem;background:#fff;overflow:hidden}
 .svv-cur-item[data-selection="true"]{border-color:var(--color-svv-red);box-shadow:0 0 0 1px var(--color-svv-red)}
+.svv-cur-item--flash{animation:svv-cur-flash 1.2s ease-out}
+@keyframes svv-cur-flash{from{background:var(--color-svv-green-soft)}to{background:#fff}}
 .svv-cur-item-btn{display:flex;align-items:flex-start;gap:.5rem;width:100%;text-align:left;background:none;border:0;padding:.55rem .6rem;cursor:pointer;min-height:44px}
 .svv-cur-item-btn:hover{background:var(--color-svv-field)}
 .svv-cur-item-btn .svv-cur-dot{margin-top:.2rem}
@@ -797,5 +819,6 @@ const CSS = `
 
 @media (prefers-reduced-motion:reduce){
   .svv-cur-item-btn{transition:none}
+  .svv-cur-item--flash{animation:none}
 }
 `;
