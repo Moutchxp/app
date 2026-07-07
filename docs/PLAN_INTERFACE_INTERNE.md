@@ -500,7 +500,7 @@ reprise < ~20 %. Fable 5 pour les gros morceaux de code (mais conception/revue r
 
 ---
 
-## Annexe 1 — Mapping complet des 46 colonnes `config_scoring`
+## Annexe 1 — Mapping complet des 47 colonnes `config_scoring`
 
 Source autoritative : `profilConfig.ts:14-48` (interface) et `:60-71` (SELECT), défauts
 `profilDegagement.ts:96-132`. Statut : 🟢 VIVE · ⚪ VESTIGIALE · 🔒 DE GARDE · ↔ MIROIR · 🔑 technique.
@@ -516,7 +516,8 @@ Source autoritative : `profilConfig.ts:14-48` (interface) et `:60-71` (SELECT), 
 | `distance_max_m` | 200 | 🟢 | Plafond de distance perçue F1/base/P1 (≤ `analysis_range_m`). |
 | `plafond_couche1` | 90 | 🟢 | Clamp final de la note `[0, plafond_couche1]`. |
 | `plafond_degagement` | 80 | 🟢 | Coefficient du dégagement pur (×80). |
-| `mode_combinaison` | max | 🔒 | Liste fermée `{max,addition,sequentiel}` ; invalide → repli défaut. Non consulté par le calcul actuel. |
+| `mode_combinaison` | max | 🟢 | Liste fermée `{max,addition,sequentiel}` ; invalide → repli défaut. Combine nature (P1) + bâti (P2) sur un faisceau au-dessus du seuil de nature (via `combinerP1P2`). |
+| `mode_combinaison_repli` | addition | 🔒 | Liste fermée `{max,addition}` ; invalide → repli défaut. Mode de combinaison de repli sous le seuil de nature (`cumul_seuil_min_m`). |
 | `couloir_seuil_lateral_m` | 3 | 🟢 | Distance ⊥ sous laquelle un obstacle « longe » l'axe. |
 | `couloir_fenetre_condition_n` | 16 | 🟢 | Fenêtre (nb faisceaux) d'enclenchement du couloir. |
 | `couloir_tolerance_bord_n` | 2 | 🟢 | Faisceaux de bord exemptés de la condition. |
