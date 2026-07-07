@@ -1,5 +1,9 @@
 import 'server-only';
-import { CURATION_DEPLACEMENT_RAYON_MAX_M, MESSAGE_RAYON_DEPASSE } from '../../../../lib/admin/curation';
+import {
+  CURATION_DEPLACEMENT_RAYON_MAX_M,
+  CURATION_TOLERANCE_RATTACHEMENT_M,
+  MESSAGE_RAYON_DEPASSE,
+} from '../../../../lib/admin/curation';
 
 /**
  * Helpers PARTAGÉS des routes CRUD de curation patrimoine (entités, point, liaisons, emprises).
@@ -10,7 +14,7 @@ import { CURATION_DEPLACEMENT_RAYON_MAX_M, MESSAGE_RAYON_DEPASSE } from '../../.
  * `route.ts` (écriture atomique locale via CTE). `geom_point` (original) n'est JAMAIS muté ici.
  */
 
-export { CURATION_DEPLACEMENT_RAYON_MAX_M, MESSAGE_RAYON_DEPASSE };
+export { CURATION_DEPLACEMENT_RAYON_MAX_M, CURATION_TOLERANCE_RATTACHEMENT_M, MESSAGE_RAYON_DEPASSE };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types (colonnes réelles — cf. `\d patrimoine_entite`, `\d patrimoine_entite_batiment`).

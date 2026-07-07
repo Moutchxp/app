@@ -2,6 +2,7 @@ import 'server-only';
 import { query } from '../../../../../../../lib/db/client';
 import {
   CURATION_DEPLACEMENT_RAYON_MAX_M,
+  CURATION_TOLERANCE_RATTACHEMENT_M,
   MESSAGE_RAYON_DEPASSE,
   lireCorps,
   lireId,
@@ -26,8 +27,10 @@ interface ControleDeplacement {
  * Écrit UNIQUEMENT `geom_point_corrige` (jamais `geom_point`, EX-6/EX-20). Body `{lat, lon}` finis,
  * sinon 422. Entité inconnue → 404 ; `geom_point` NULL (pas d'ancre) → 422. Distance mesurée en
  * **Lambert-93/2154** ; si `> CURATION_DEPLACEMENT_RAYON_MAX_M` → 422, RIEN écrit (EX-7). Sinon
- * écriture ATOMIQUE (CTE) : UPDATE `geom_point_corrige` + INSERT journal `action='deplacement'`.
- * `ST_Force2D` conservé. Sous garde `proxy.ts`.
+ * écriture ATOMIQUE (CTE) : UPDATE `geom_point_corrige` + INVALIDATION de la vérification des liaisons
+ * dont l'emprise est désormais à plus de `CURATION_TOLERANCE_RATTACHEMENT_M` (15 m) du nouveau point
+ * (`verifie_manuellement=false` ; `detache` et le nombre de liaisons INCHANGÉS) + INSERT journal
+ * `action='deplacement'` (traçant les `cleabs` invalidés). `ST_Force2D` conservé. Sous garde `proxy.ts`.
  */
 export async function PATCH(request: Request, ctx: Ctx) {
   const { id } = await ctx.params;
@@ -74,27 +77,47 @@ export async function PATCH(request: Request, ctx: Ctx) {
     return Response.json({ erreurs: [{ message: MESSAGE_RAYON_DEPASSE }] }, { status: 422 });
   }
 
-  // Écriture atomique : UPDATE geom_point_corrige (JAMAIS geom_point) + INSERT journal via CTE.
+  // Écriture atomique (CTE) : UPDATE geom_point_corrige (JAMAIS geom_point) + INVALIDATION des liaisons
+  // vérifiées dont l'emprise est désormais à > 15 m du nouveau point (verifie_manuellement=false ;
+  // detache et le nombre de liaisons intacts) + INSERT journal (traçant les cleabs invalidés).
   const apres = JSON.stringify({ type: 'Point', coordinates: [coords.lon, coords.lat] });
   const sql = `
-    WITH mut AS (
+    WITH cible AS (
+      SELECT ST_Force2D(ST_Transform(ST_SetSRID(ST_MakePoint($2, $3), 4326), 2154)) AS pt
+    ), mut AS (
       UPDATE patrimoine_entite
-         SET geom_point_corrige = ST_Force2D(ST_Transform(ST_SetSRID(ST_MakePoint($2, $3), 4326), 2154))
+         SET geom_point_corrige = (SELECT pt FROM cible)
        WHERE id = $1
       RETURNING id, ST_AsGeoJSON(ST_Transform(ST_Force2D(geom_point_corrige), 4326)) AS point_corrige
+    ), inval AS (
+      UPDATE patrimoine_entite_batiment peb
+         SET verifie_manuellement = false
+       WHERE peb.entite_id = $1
+         AND peb.verifie_manuellement
+         AND NOT peb.detache
+         AND EXISTS (
+           SELECT 1 FROM bdtopo_batiment b, cible
+            WHERE b.cleabs = peb.cleabs
+              AND ST_Distance(ST_Force2D(b.geom), cible.pt) > $6
+         )
+      RETURNING peb.cleabs
     ), jrnl AS (
       INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
-      VALUES ('deplacement', $1, NULL, $4::jsonb, $5::jsonb)
+      VALUES ('deplacement', $1, NULL, $4::jsonb,
+              jsonb_build_object('point', $5::jsonb,
+                                 'verifications_invalidees', COALESCE((SELECT jsonb_agg(cleabs) FROM inval), '[]'::jsonb)))
     )
-    SELECT * FROM mut;
+    SELECT (SELECT point_corrige FROM mut) AS point_corrige,
+           COALESCE((SELECT jsonb_agg(cleabs) FROM inval), '[]'::jsonb) AS invalidees;
   `;
   try {
-    const { rows } = await query<{ id: number; point_corrige: string | null }>(sql, [
+    const { rows } = await query<{ point_corrige: string | null; invalidees: string[] | null }>(sql, [
       idNum,
       coords.lon,
       coords.lat,
       ctrl.effectif_avant,
       apres,
+      CURATION_TOLERANCE_RATTACHEMENT_M,
     ]);
     const maj = rows[0];
     return Response.json({
@@ -102,6 +125,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
       id: idNum,
       corrige: true,
       point: maj?.point_corrige ? (JSON.parse(maj.point_corrige) as unknown) : null,
+      verificationsInvalidees: maj?.invalidees ?? [],
     });
   } catch {
     return Response.json({ erreurs: [{ message: 'écriture impossible' }] }, { status: 503 });

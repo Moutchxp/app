@@ -76,7 +76,7 @@ describe('GET /api/admin/curation/entites', () => {
 describe('PATCH point (déplacer)', () => {
   it('déplacement ≤ 150 m → 200 + UPDATE geom_point_corrige + journal, geom_point intact', async () => {
     queryMock.mockImplementation((text: string) => {
-      if (text.includes('ST_Distance')) {
+      if (text.includes('a_ancre')) {
         return Promise.resolve({ rows: [{ a_ancre: true, dist_m: 50, effectif_avant: '{"type":"Point","coordinates":[2,48]}' }] });
       }
       return Promise.resolve({ rows: [{ id: 5, point_corrige: '{"type":"Point","coordinates":[2.001,48.001]}' }] });
@@ -90,9 +90,33 @@ describe('PATCH point (déplacer)', () => {
     expect(muteGeomPointOriginal()).toBe(false);
   });
 
+  it('déplacement → invalide (verifie=false) les liaisons vérifiées à > 15 m de leur emprise, atomique', async () => {
+    queryMock.mockImplementation((text: string) => {
+      if (text.includes('a_ancre')) {
+        return Promise.resolve({ rows: [{ a_ancre: true, dist_m: 50, effectif_avant: null }] });
+      }
+      return Promise.resolve({
+        rows: [{ point_corrige: '{"type":"Point","coordinates":[2.001,48.001]}', invalidees: ['BATZZZ'] }],
+      });
+    });
+    const res = await PATCH_POINT(req('PATCH', { lat: 48.001, lon: 2.001 }), ctx('5'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.verificationsInvalidees).toEqual(['BATZZZ']);
+    // Même SQL atomique : UPDATE point + invalidation liaisons (verifie=false) + journal.
+    const majSql = sqlsEmis().find((s) => s.includes('geom_point_corrige ='));
+    expect(majSql).toBeDefined();
+    expect(/UPDATE patrimoine_entite_batiment[\s\S]*verifie_manuellement = false/.test(majSql!)).toBe(true);
+    expect(/bdtopo_batiment[\s\S]*ST_Distance[\s\S]*>\s*\$6/.test(majSql!)).toBe(true);
+    // N'ajoute/ne supprime AUCUNE liaison et ne touche PAS `detache`.
+    expect(/INSERT INTO patrimoine_entite_batiment|DELETE FROM patrimoine_entite_batiment/.test(majSql!)).toBe(false);
+    expect(/SET[\s\S]*detache =/.test(majSql!)).toBe(false);
+    expect(muteGeomPointOriginal()).toBe(false);
+  });
+
   it('déplacement > 150 m → 422 + AUCUNE écriture', async () => {
     queryMock.mockImplementation((text: string) => {
-      if (text.includes('ST_Distance')) {
+      if (text.includes('a_ancre')) {
         return Promise.resolve({ rows: [{ a_ancre: true, dist_m: 300, effectif_avant: null }] });
       }
       return Promise.resolve({ rows: [{ id: 5 }] });
@@ -104,7 +128,7 @@ describe('PATCH point (déplacer)', () => {
 
   it('entité sans ancre (geom_point NULL) → 422 + AUCUNE écriture', async () => {
     queryMock.mockImplementation((text: string) => {
-      if (text.includes('ST_Distance')) {
+      if (text.includes('a_ancre')) {
         return Promise.resolve({ rows: [{ a_ancre: false, dist_m: null, effectif_avant: null }] });
       }
       return Promise.resolve({ rows: [{ id: 5 }] });
@@ -213,6 +237,8 @@ describe('DELETE liaison (détacher)', () => {
     const body = await res.json();
     expect(body.tombstone).toBe(true);
     expect(sqlsEmis().some((s) => /UPDATE patrimoine_entite_batiment[\s\S]*detache = true[\s\S]*source = 'manuel'/.test(s))).toBe(true);
+    // Cohérence d'état (Correction 1) : le tombstone remet AUSSI verifie_manuellement=false.
+    expect(sqlsEmis().some((s) => /UPDATE patrimoine_entite_batiment[\s\S]*verifie_manuellement = false/.test(s))).toBe(true);
     expect(sqlsEmis().some((s) => /DELETE FROM patrimoine_entite_batiment/.test(s))).toBe(false);
     expect(journalEmis()).toBe(true);
   });

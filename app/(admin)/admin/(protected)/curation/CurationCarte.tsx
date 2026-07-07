@@ -140,6 +140,18 @@ async function fetchEmprises(bbox: Bbox): Promise<Emprise[]> {
   }
 }
 
+/** Emprises RATTACHÉES d'une entité (liaisons non détachées), hors bbox — pour le vert persistant. */
+async function fetchEmprisesEntite(id: number): Promise<Emprise[]> {
+  try {
+    const res = await fetch(`/api/admin/curation/entites/${id}/emprises`);
+    const data = await res.json();
+    if (res.ok && Array.isArray(data?.emprises)) return data.emprises as Emprise[];
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 /** Écriture normalisée (jamais de throw ; message d'erreur extrait de la réponse). */
 async function ecrire(
   url: string,
@@ -191,6 +203,7 @@ export default function CurationCarte() {
   const [message, setMessage] = useState<{ texte: string; type: 'ok' | 'erreur' } | null>(null);
   const [confirmDetach, setConfirmDetach] = useState<string | null>(null);
   const [emprises, setEmprises] = useState<Emprise[]>([]);
+  const [emprisesLiees, setEmprisesLiees] = useState<Emprise[]>([]);
   const [enEcriture, setEnEcriture] = useState(false);
 
   // Refs Leaflet (map créée une seule fois ; couches réutilisées).
@@ -424,7 +437,7 @@ export default function CurationCarte() {
     [entites, selectionId],
   );
 
-  // ── Chargement des emprises à la (dé)sélection (inline : setState dans l'effet). ─
+  // ── Emprises CANDIDATES (bbox) à la sélection / au déplacement de la vue. ────────
   useEffect(() => {
     if (selectionId === null) return;
     const map = mapRef.current;
@@ -439,7 +452,24 @@ export default function CurationCarte() {
     };
   }, [selectionId]);
 
-  // ── (Re)dessin des emprises + coloration selon les liaisons actives de l'entité. ─
+  // ── Emprises RATTACHÉES de l'entité (vert persistant, hors bbox) — refetch après écriture. ─
+  useEffect(() => {
+    let annule = false;
+    (async () => {
+      if (selectionId === null) {
+        setEmprisesLiees([]);
+        return;
+      }
+      const liste = await fetchEmprisesEntite(selectionId);
+      if (!annule) setEmprisesLiees(liste);
+    })();
+    return () => {
+      annule = true;
+    };
+  }, [selectionId, entites]);
+
+  // ── (Re)dessin des emprises : rattachées en VERT UNIFORME (persistant, Correction 3) +
+  //    candidates de la bbox en bleu (hors des déjà rattachées). ────────────────────
   useEffect(() => {
     const map = mapRef.current;
     const couche = coucheEmprisesRef.current;
@@ -447,26 +477,30 @@ export default function CurationCarte() {
     couche.clearLayers();
     if (!entiteSelectionnee) return;
 
-    const cleabsLies = new Set(
-      entiteSelectionnee.liaisons.filter((l) => l.actif && !l.detache).map((l) => l.cleabs),
-    );
-
-    for (const emp of emprises) {
+    // 1. Rattachées (vert), quel que soit vérifié/manuel/auto — reconstruites depuis les liaisons.
+    const cleabsLies = new Set<string>();
+    for (const emp of emprisesLiees) {
       if (!emp.geom || !emp.cleabs) continue;
       const cleabs = emp.cleabs;
-      const lie = cleabsLies.has(cleabs);
+      cleabsLies.add(cleabs);
       const layer = L.geoJSON(emp.geom, {
-        style: lie
-          ? { color: '#2e9e5b', weight: 2, fillColor: '#2e9e5b', fillOpacity: 0.28 }
-          : { color: '#2563eb', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.12 },
+        style: { color: '#2e9e5b', weight: 2, fillColor: '#2e9e5b', fillOpacity: 0.28 },
       });
-      layer.on('click', () => {
-        if (lie) setConfirmDetach(cleabs);
-        else void rattacher(entiteSelectionnee.id, cleabs);
-      });
+      layer.on('click', () => setConfirmDetach(cleabs));
       layer.addTo(couche);
     }
-  }, [emprises, entiteSelectionnee, rattacher]);
+
+    // 2. Candidates de la bbox (bleu) — jamais celles déjà rattachées (évite double dessin).
+    for (const emp of emprises) {
+      if (!emp.geom || !emp.cleabs || cleabsLies.has(emp.cleabs)) continue;
+      const cleabs = emp.cleabs;
+      const layer = L.geoJSON(emp.geom, {
+        style: { color: '#2563eb', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.12 },
+      });
+      layer.on('click', () => void rattacher(entiteSelectionnee.id, cleabs));
+      layer.addTo(couche);
+    }
+  }, [emprises, emprisesLiees, entiteSelectionnee, rattacher]);
 
   // ── Dérivés du panneau (filtre famille + recherche + compteurs). ─────────────
   const entitesFiltrees = useMemo(() => {
@@ -618,7 +652,7 @@ export default function CurationCarte() {
                                 <code className="svv-cur-cleabs">{l.cleabs}</code>
                                 <span className="svv-cur-tags">
                                   <span className="svv-cur-badge">{l.source}</span>
-                                  {l.verifieManuellement && (
+                                  {l.verifieManuellement && !l.detache && (
                                     <span className="svv-cur-badge svv-cur-badge--ok">vérifié</span>
                                   )}
                                   {l.detache && <span className="svv-cur-badge svv-cur-badge--warn">détaché</span>}

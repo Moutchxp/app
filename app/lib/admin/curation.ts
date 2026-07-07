@@ -18,3 +18,12 @@ export const MESSAGE_RAYON_DEPASSE = `Déplacement refusé : au-delà de ${CURAT
 
 /** Message de refus quand l'entité n'a aucun point d'ancrage (`geom_point` NULL). */
 export const MESSAGE_SANS_ANCRE = "Déplacement impossible : l'entité n'a pas de point d'ancrage.";
+
+/**
+ * Tolérance (mètres, 2154) entre le point effectif et l'emprise d'une liaison AU-DELÀ de laquelle un
+ * déplacement INVALIDE la vérification manuelle de cette liaison (décision Arno). Miroir de la tolérance
+ * de rattachement AUTO (15 m) : un petit recentrage (< 15 m du bâti) CONSERVE la vérification, seul un
+ * vrai éloignement (> 15 m) la remet à `false`. Test par distance (les points géocodés sont normalement
+ * HORS de l'emprise), PAS par containment strict qui invaliderait la quasi-totalité des liaisons.
+ */
+export const CURATION_TOLERANCE_RATTACHEMENT_M = 15;

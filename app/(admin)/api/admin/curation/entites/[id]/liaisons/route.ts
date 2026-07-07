@@ -102,7 +102,8 @@ export async function POST(request: Request, ctx: Ctx) {
  * DELETE /api/admin/curation/entites/[id]/liaisons — DÉTACHER une liaison (`cleabs` dans le body).
  *
  * Liaison inconnue → 404. `source='manuel'` → `DELETE` (EX-12). `source='auto'` → **tombstone**
- * `detache=true, source='manuel'` (jamais DELETE, EX-13), pour bloquer un ré-ajout au ré-import.
+ * `detache=true, source='manuel', verifie_manuellement=false` (jamais DELETE, EX-13), pour bloquer un
+ * ré-ajout au ré-import ET garder l'état cohérent (une liaison détachée ne peut pas rester « vérifiée »).
  * Écriture ATOMIQUE (CTE) : mutation + journal `action='detachement'`. ⚠️ Action INTERNAUTE
  * uniquement (l'agent ne l'exécute jamais réellement ; tests sur `query` mockée).
  */
@@ -155,7 +156,7 @@ export async function DELETE(request: Request, ctx: Ctx) {
       : `
         WITH mut AS (
           UPDATE patrimoine_entite_batiment
-             SET detache = true, source = 'manuel'
+             SET detache = true, source = 'manuel', verifie_manuellement = false
            WHERE entite_id = $1 AND cleabs = $2
           RETURNING entite_id, cleabs, source, actif, detache, verifie_manuellement
         ), jrnl AS (
@@ -167,7 +168,7 @@ export async function DELETE(request: Request, ctx: Ctx) {
   const params =
     avant.source === 'manuel'
       ? [idNum, cleabs, avantJson]
-      : [idNum, cleabs, avantJson, JSON.stringify({ source: 'manuel', detache: true })];
+      : [idNum, cleabs, avantJson, JSON.stringify({ source: 'manuel', detache: true, verifie_manuellement: false })];
 
   try {
     await query(sql, params);
