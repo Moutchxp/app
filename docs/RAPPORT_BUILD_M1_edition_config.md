@@ -56,11 +56,11 @@ avec **validation server-side stricte** et **garde anti-repli**. L'écriture est
 - **B2 — Journal CTE non prouvé par test d'intégration réel** : l'exécution de la CTE `jrnl` non référencée
   repose sur la sémantique PG (garantie) + un test qui vérifie que le SQL *contient* `config_edit_log` ;
   pas de test écrivant réellement (Règle dure, cf. A8). Limite acceptable, documentée.
-- **B3 — Fragilité croisée pré-existante du moteur (À SIGNALER)** : `diviseurCumulNature` peut devenir
-  **négatif** si un admin règle `cumul_seuil_min_m < cumul_base_m` avec `cumul_increment` élevé. C'est une
-  **relation croisée** que des bornes par-variable ne peuvent pas capturer (ni le repli). Ce n'est PAS une
-  régression M1 (fragilité du moteur existant), mais l'édition admin la rend atteignable. Piste future :
-  une validation croisée dédiée ou l'aperçu d'impact (Étape 3). À arbitrer par Arno.
+- **B3 (garde-fou croisé `cumul_*`) — NON RETENU.** En usage normal le diviseur de cumulation est borné
+  [1 ; `cumul_plafond`] : il ne se calcule que si nature ≥ `cumul_seuil_min_m` (30), toujours >
+  `cumul_base_m` (25), donc (nature − base) > 0. Le seul cas produisant un diviseur ≤ 0 exige une inversion
+  manuelle `cumul_base_m` > `cumul_seuil_min_m`, sans aucun sens métier, hors périmètre d'un outil
+  mono-opérateur. Aucun garde-fou ajouté.
 
 ## C. ÉCARTS DE CONFORMITÉ
 - **Aucun.** Batterie SVAV verte :
@@ -81,5 +81,5 @@ avec **validation server-side stricte** et **garde anti-repli**. L'écriture est
 
 ## Verdict de conformité : livraison prête. Édition config_scoring sûre (UPDATE id=1 borné, anti-repli,
 ## allowlist, journal atomique), golden inchangé et découplé, isolation totale. Règle dure respectée
-## (aucune écriture autonome sur la ligne live ; migration = CREATE TABLE non destructif). À l'attention
-## d'Arno : le doute B3 (relation croisée cumul_*) mérite un arbitrage pour un futur garde-fou.
+## (aucune écriture autonome sur la ligne live ; migration = CREATE TABLE non destructif). Note : le doute
+## B3 (garde-fou croisé cumul_*) est **NON RETENU** — diviseur borné [1 ; cumul_plafond] en usage normal (§B).
