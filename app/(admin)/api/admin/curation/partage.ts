@@ -27,6 +27,7 @@ export interface LiaisonDB {
   actif: boolean;
   detache: boolean;
   verifie_manuellement: boolean;
+  created: string; // timestamptz — ordre stable de rattachement (1er polygone = plus ancien)
 }
 
 /** Ligne d'entité agrégée (une entité + ses liaisons) renvoyée par le GET liste. */
@@ -88,6 +89,7 @@ export function versEntite(r: LigneEntiteDB) {
       actif: l.actif,
       detache: l.detache,
       verifieManuellement: l.verifie_manuellement,
+      created: l.created,
     })),
   };
 }

@@ -33,6 +33,7 @@ interface Liaison {
   actif: boolean;
   detache: boolean;
   verifieManuellement: boolean;
+  created: string; // ordre de rattachement (1er polygone = plus ancien)
 }
 
 interface Entite {
@@ -57,6 +58,13 @@ interface Compteurs {
 interface Emprise {
   cleabs: string | null;
   geom: GeoJSON.Geometry | null;
+}
+
+/** Tag manuel = 1 étoile persistante (centroïde 4326 de son 1er polygone). */
+interface TagManuel {
+  entiteId: number;
+  nom: string | null;
+  centre: { type: 'Point'; coordinates: [number, number] } | null;
 }
 
 interface Bbox {
@@ -95,6 +103,16 @@ const LIBELLE_FAMILLE: Record<string, string> = {
   mh: 'MH',
   inventaire: 'Inventaire',
 };
+
+/** Étoile jaune (divIcon) marquant une entité MANUELLE, posée au centre de son 1er polygone rattaché. */
+function iconeEtoile(): L.DivIcon {
+  return L.divIcon({
+    className: 'svv-cur-star-pin',
+    html: '<span style="color:#e0a400;font-size:20px;line-height:20px;text-shadow:0 1px 2px rgba(0,0,0,.55),0 0 2px #fff;cursor:pointer">★</span>',
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+  });
+}
 
 /** Marqueur coloré par état (divIcon → aucune image externe, pas de 404 d'icône Leaflet). */
 function iconePour(etat: EtatEntite, selectionne: boolean): L.DivIcon {
@@ -151,6 +169,26 @@ async function fetchEmprisesEntite(id: number): Promise<Emprise[]> {
   } catch {
     return [];
   }
+}
+
+/** Étoiles persistantes des tags manuels (centroïdes), indépendantes de la bbox. */
+async function fetchTagsManuels(): Promise<TagManuel[]> {
+  try {
+    const res = await fetch('/api/admin/curation/tags-manuels');
+    const data = await res.json();
+    if (res.ok && Array.isArray(data?.tags)) return data.tags as TagManuel[];
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/** Bornes Leaflet d'un jeu d'emprises (GeoJSON), ou `null` si vide/invalide. */
+function boundsEmprises(list: Emprise[]): L.LatLngBounds | null {
+  const gj = L.geoJSON();
+  for (const emp of list) if (emp.geom) gj.addData(emp.geom);
+  const b = gj.getBounds();
+  return b.isValid() ? b : null;
 }
 
 /** Écriture normalisée (jamais de throw ; message d'erreur extrait de la réponse). */
@@ -225,6 +263,7 @@ export default function CurationCarte() {
   const [emprises, setEmprises] = useState<Emprise[]>([]);
   const [emprisesLiees, setEmprisesLiees] = useState<Emprise[]>([]);
   const [emprisesFond, setEmprisesFond] = useState<Emprise[]>([]); // bâtiments bbox (hover + dblclick créer)
+  const [tagsManuels, setTagsManuels] = useState<TagManuel[]>([]); // étoiles persistantes (centroïdes)
   const [enEcriture, setEnEcriture] = useState(false);
   const [flashId, setFlashId] = useState<number | null>(null);
   // Formulaire « + Nouveau tag » (création d'entité manuelle).
@@ -242,9 +281,12 @@ export default function CurationCarte() {
   const coucheMarqueursRef = useRef<L.LayerGroup | null>(null);
   const coucheEmprisesRef = useRef<L.LayerGroup | null>(null);
   const coucheFondRef = useRef<L.LayerGroup | null>(null); // bâtiments bbox (sous les couches bleu/vert)
-  const dernierFitRef = useRef<number | null>(null); // dernière entité sans-point ajustée (évite les re-fit)
+  const coucheEtoilesRef = useRef<L.LayerGroup | null>(null); // étoiles + vert des entités MANUELLES (persistant, bbox)
+  const formulaireRef = useRef<HTMLDivElement | null>(null); // conteneur du formulaire « Nouveau tag » (scroll auto)
+  const fitEnAttenteRef = useRef<number | null>(null); // entité sans-point à recadrer dès l'arrivée de ses emprises
   const ajusteRef = useRef(false); // fitBounds une seule fois (jamais après un rechargement)
   const selectionIdRef = useRef<number | null>(null); // miroir pour le handler `moveend`
+  const emprisesLieesRef = useRef<Emprise[]>([]); // miroir des emprises rattachées (fit impératif au re-clic)
   const entitesRef = useRef<Entite[] | null>(null); // miroir pour `ouvrirCreationCiblee` (identité stable)
   const itemActifRef = useRef<HTMLLIElement | null>(null); // item de liste sélectionné (scroll auto)
 
@@ -256,6 +298,23 @@ export default function CurationCarte() {
   // Miroir de la liste des entités (lu par `ouvrirCreationCiblee` sans en refaire l'identité).
   useEffect(() => {
     entitesRef.current = entites;
+  }, [entites]);
+
+  // Miroir des emprises rattachées (lu par `selectionner` pour un fit impératif au re-clic).
+  useEffect(() => {
+    emprisesLieesRef.current = emprisesLiees;
+  }, [emprisesLiees]);
+
+  // Étoiles persistantes : (re)chargées à chaque changement de `entites` (création/suppression/rattachement).
+  useEffect(() => {
+    let annule = false;
+    (async () => {
+      const liste = await fetchTagsManuels();
+      if (!annule) setTagsManuels(liste);
+    })();
+    return () => {
+      annule = true;
+    };
   }, [entites]);
 
   // ── Feedback transitoire (auto-effacé). ──────────────────────────────────────
@@ -339,9 +398,11 @@ export default function CurationCarte() {
       attribution: '© OpenStreetMap',
     }).addTo(map);
     mapRef.current = map;
-    // Ordre d'empilement (overlayPane) : fond EN DESSOUS, puis les emprises bleu/vert AU-DESSUS
-    // (elles interceptent le clic quand une entité est sélectionnée). Marqueurs = markerPane (au-dessus).
+    // Ordre d'empilement (overlayPane) : fond EN DESSOUS, puis le vert PERSISTANT des tags manuels, puis les
+    // emprises bleu/vert de la sélection AU-DESSUS (elles interceptent le clic si une entité est sélectionnée).
+    // Marqueurs + étoiles = markerPane (toujours au-dessus → l'étoile capte son double-clic).
     coucheFondRef.current = L.layerGroup().addTo(map);
+    coucheEtoilesRef.current = L.layerGroup().addTo(map);
     coucheMarqueursRef.current = L.layerGroup().addTo(map);
     coucheEmprisesRef.current = L.layerGroup().addTo(map);
 
@@ -365,6 +426,7 @@ export default function CurationCarte() {
       coucheMarqueursRef.current = null;
       coucheEmprisesRef.current = null;
       coucheFondRef.current = null;
+      coucheEtoilesRef.current = null;
     };
   }, [chargerEmprises, chargerEmprisesFond]);
 
@@ -379,8 +441,19 @@ export default function CurationCarte() {
       const e = entites?.find((x) => x.id === id);
       const map = mapRef.current;
       if (e?.point && map) {
+        // Entité AVEC point : recentrage IMPÉRATIF synchrone (à chaque clic).
         const [lon, lat] = e.point.coordinates;
         map.setView([lat, lon], Math.max(map.getZoom(), 17));
+      } else if (e && e.point === null && map) {
+        // Entité SANS point : arme le fit sur ses emprises ; si déjà chargées (re-clic même fiche) → fit immédiat.
+        fitEnAttenteRef.current = id;
+        if (selectionIdRef.current === id) {
+          const b = boundsEmprises(emprisesLieesRef.current);
+          if (b) {
+            map.fitBounds(b, { padding: [40, 40], maxZoom: 18 });
+            fitEnAttenteRef.current = null;
+          }
+        }
       }
     },
     [entites],
@@ -601,20 +674,19 @@ export default function CurationCarte() {
     };
   }, [selectionId, entites]);
 
-  // ── Correction A : entité SANS point → ajuster la carte sur ses emprises rattachées (vert),
-  //    sinon les polygones détachables restent hors écran. Une seule fois par entité (dernierFitRef). ─
+  // ── Correction A : entité SANS point → ajuster la carte sur ses emprises rattachées dès qu'elles
+  //    arrivent (fit ARMÉ par `selectionner`, consommé ici). Le drapeau `fitEnAttenteRef` n'est armé qu'au
+  //    clic d'une fiche → aucun re-fit parasite pendant la composition (rattachements successifs). ─
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !entiteSelectionnee) return;
-    if (entiteSelectionnee.point !== null) return; // entités AVEC point : recentrage déjà fait par selectionner
-    if (dernierFitRef.current === entiteSelectionnee.id) return; // déjà ajusté pour cette entité
-    if (emprisesLiees.length === 0) return; // rien à cadrer (ne rien forcer)
-    const gj = L.geoJSON();
-    for (const emp of emprisesLiees) if (emp.geom) gj.addData(emp.geom);
-    const bounds = gj.getBounds();
-    if (bounds.isValid()) {
+    if (entiteSelectionnee.point !== null) return; // entités AVEC point : recentrage fait par selectionner
+    if (fitEnAttenteRef.current !== entiteSelectionnee.id) return; // aucun fit demandé pour cette entité
+    if (emprisesLiees.length === 0) return; // emprises pas encore arrivées → on attend le prochain fetch
+    const bounds = boundsEmprises(emprisesLiees);
+    if (bounds) {
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 18 });
-      dernierFitRef.current = entiteSelectionnee.id;
+      fitEnAttenteRef.current = null; // consommé
     }
   }, [entiteSelectionnee, emprisesLiees]);
 
@@ -638,6 +710,44 @@ export default function CurationCarte() {
     }
   }, [emprisesFond, ouvrirCreationCiblee]);
 
+  // ── Overlay TAGS MANUELS : ÉTOILES depuis `tagsManuels` (centroïdes, PERSISTANTES à tout zoom,
+  //    indépendantes de la bbox — corrige la disparition au dézoom) + VERT de détail depuis `emprisesFond`
+  //    (bbox) sur les polygones des tags NON sélectionnés (le sélectionné = coucheEmprisesRef, interactif).
+  //    Double-clic étoile → sélectionne la fiche (+ scroll liste), `stopPropagation` (pas de création). ─
+  useEffect(() => {
+    const couche = coucheEtoilesRef.current;
+    if (!couche) return;
+    couche.clearLayers();
+
+    // Vert de détail (bbox) — polygones des tags manuels non sélectionnés.
+    const geomParCleabs = new Map<string, GeoJSON.Geometry>();
+    for (const emp of emprisesFond) if (emp.cleabs && emp.geom) geomParCleabs.set(emp.cleabs, emp.geom);
+    for (const e of entites ?? []) {
+      if (e.origine !== 'manuel' || e.id === selectionId) continue;
+      for (const l of e.liaisons) {
+        if (!l.actif || l.detache) continue;
+        const geom = geomParCleabs.get(l.cleabs);
+        if (!geom) continue; // hors bbox
+        L.geoJSON(geom, {
+          interactive: false,
+          style: { color: '#2e9e5b', weight: 2, fillColor: '#2e9e5b', fillOpacity: 0.28 },
+        }).addTo(couche);
+      }
+    }
+
+    // Étoiles PERSISTANTES (une par tag manuel, centroïde du 1er polygone) — à tout zoom.
+    for (const t of tagsManuels) {
+      if (!t.centre) continue;
+      const [lon, lat] = t.centre.coordinates;
+      const star = L.marker([lat, lon], { icon: iconeEtoile(), interactive: true, keyboard: false });
+      star.on('dblclick', (ev) => {
+        L.DomEvent.stopPropagation(ev); // n'ouvre PAS la création ciblée du fond dessous
+        selectionner(t.entiteId);
+      });
+      star.addTo(couche);
+    }
+  }, [entites, emprisesFond, tagsManuels, selectionId, selectionner]);
+
   // ── Scroll auto vers l'item sélectionné dans la liste + surbrillance brève (clic marqueur). ─
   useEffect(() => {
     if (selectionId === null) return; // pas de scroll au montage
@@ -649,6 +759,15 @@ export default function CurationCarte() {
     const t = setTimeout(() => setFlashId(null), 1200); // retire la surbrillance (CSS gère reduce)
     return () => clearTimeout(t);
   }, [selectionId]);
+
+  // ── Scroll vers le formulaire « Nouveau tag » à son ouverture (visible même si le panneau était scrollé). ─
+  useEffect(() => {
+    if (!creationOuverte) return;
+    const node = formulaireRef.current;
+    if (!node) return;
+    const reduire = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    node.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'nearest', inline: 'nearest' });
+  }, [creationOuverte]);
 
   // ── (Re)dessin des emprises : rattachées en VERT UNIFORME (persistant, Correction 3) +
   //    candidates de la bbox en bleu (hors des déjà rattachées). ────────────────────
@@ -759,7 +878,7 @@ export default function CurationCarte() {
           )}
 
           {/* Création d'entité manuelle (tag). */}
-          <div className="svv-cur-creation">
+          <div className="svv-cur-creation" ref={formulaireRef}>
             {!creationOuverte ? (
               <button
                 type="button"
@@ -1145,6 +1264,7 @@ const CSS = `
 .svv-cur-btn--danger{background:var(--color-svv-red);border-color:var(--color-svv-red);color:#fff}
 
 .svv-cur-pin{background:transparent;border:0}
+.svv-cur-star-pin{background:transparent;border:0}
 
 @media (min-width:768px){
   .svv-cur{flex-direction:row}

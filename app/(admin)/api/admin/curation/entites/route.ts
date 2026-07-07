@@ -32,8 +32,9 @@ const SELECT_ENTITES = `
           'source', peb.source,
           'actif', peb.actif,
           'detache', peb.detache,
-          'verifie_manuellement', peb.verifie_manuellement
-        ) ORDER BY peb.cleabs
+          'verifie_manuellement', peb.verifie_manuellement,
+          'created', peb.created
+        ) ORDER BY peb.created, peb.cleabs
       ) FILTER (WHERE peb.cleabs IS NOT NULL),
       '[]'::jsonb
     ) AS liaisons

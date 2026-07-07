@@ -10,6 +10,7 @@ vi.mock('../../../../lib/db/client', () => ({
 
 import { GET as GET_ENTITES, POST as POST_ENTITE } from './entites/route';
 import { DELETE as DELETE_ENTITE, PATCH as PATCH_ENTITE } from './entites/[id]/route';
+import { GET as GET_TAGS } from './tags-manuels/route';
 import { PATCH as PATCH_POINT, DELETE as DELETE_POINT } from './entites/[id]/point/route';
 import { POST as POST_LIAISON, DELETE as DELETE_LIAISON, PATCH as PATCH_LIAISON } from './entites/[id]/liaisons/route';
 
@@ -46,6 +47,29 @@ function req(method: string, body?: unknown): Request {
 
 beforeEach(() => {
   queryMock.mockReset();
+});
+
+describe('GET /api/admin/curation/tags-manuels', () => {
+  it('mappe entite_id/nom/centre + filtre origine=manuel + 1er polygone (SQL)', async () => {
+    queryMock.mockResolvedValue({
+      rows: [{ entite_id: 993, nom: 'Hotel de ville', centre: '{"type":"Point","coordinates":[2.28,48.91]}' }],
+    });
+    const res = await GET_TAGS();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.tags[0]).toMatchObject({ entiteId: 993, nom: 'Hotel de ville' });
+    expect(body.tags[0].centre).toEqual({ type: 'Point', coordinates: [2.28, 48.91] });
+    const sql = sqlsEmis()[0];
+    expect(/meta->>'origine' = 'manuel'/.test(sql)).toBe(true);
+    expect(/ST_Centroid\(ST_Force2D/.test(sql)).toBe(true);
+    expect(/ORDER BY peb\.created/.test(sql)).toBe(true);
+  });
+
+  it('query rejette → 503', async () => {
+    queryMock.mockRejectedValue(new Error('db down'));
+    const res = await GET_TAGS();
+    expect(res.status).toBe(503);
+  });
 });
 
 describe('GET /api/admin/curation/entites', () => {
