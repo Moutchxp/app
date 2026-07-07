@@ -35,9 +35,9 @@ supposait.
 - Lue une seule fois par analyse dans `profilConfig.ts:57` (`SELECT … FROM config_scoring WHERE id = 1`),
   mappée en `ProfilDegagement`, avec **repli total** `PROFIL_DEGAGEMENT_DEFAUT` si la table est
   absente/vide/incohérente (`profilConfig.ts:74-78, 118-121`). Aucun writer dans le code.
-- **46 colonnes** (dont `id`). Statuts (voir Annexe 1 pour le mapping complet) :
-  **~38 VIVES**, **5 VESTIGIALES** (`boost_f2`, `forfait_cone_central`, `forfait_extremites`,
-  `cone_f3_demi_angle_deg`, `natures_remarquables`), **1 DE GARDE** (`mode_combinaison`, liste fermée),
+- **47 colonnes** (dont `id`). Statuts (voir Annexe 1 pour le mapping complet) :
+  **~39 VIVES**, **5 VESTIGIALES** (`boost_f2`, `forfait_cone_central`, `forfait_extremites`,
+  `cone_f3_demi_angle_deg`, `natures_remarquables`), **1 DE GARDE** (`mode_combinaison_repli`, liste fermée),
   **1 MIROIR** (`analysis_range_m`, garde-fou seulement).
 - ⚠️ **DETTE CRITIQUE** : il n'existe **aucun `CREATE TABLE config_scoring`** dans le repo. Un dossier
   `db/migrations/` versionné existe (`001_bloc_b_schema.sql`, `002_bdtopo_batiment_vue.sql`) mais seul un
@@ -125,9 +125,11 @@ géométrie est indépendante du profil (§0.1) → l'aperçu d'impact est réal
 5. **`analysis_range_m` = miroir.** L'éditer ne re-cadre PAS les faisceaux (l'extraction utilise la
    constante de code `ANALYSIS_RANGE_M`), elle ne fait que borner `distance_max_m` au chargement. →
    badge « garde-fou / portée réelle figée en code », effet partiel documenté.
-6. **`mode_combinaison` de GARDE.** Aujourd'hui **plus consultée** par le calcul (la priorité de famille a
-   remplacé le « max »), mais reste une **sentinelle** : une valeur invalide nuke le profil. → éditable
-   mais **sélecteur verrouillé à la liste fermée**, badge « contrainte ».
+6. **`mode_combinaison` VIVE + `mode_combinaison_repli` de GARDE.** `mode_combinaison` est désormais
+   **consultée** par le calcul (via `combinerP1P2` : combine nature P1 + bâti P2 au-dessus du seuil de
+   nature) ; `mode_combinaison_repli` (repli sous le seuil) reste une **sentinelle** à liste fermée : une
+   valeur invalide nuke le profil. → les deux éditables, **sélecteurs verrouillés aux listes fermées**,
+   badge « contrainte ».
 7. **Couche 2 non pilotable.** L'exigence « piloter TOUS les moteurs » n'est *aujourd'hui que
    partiellement* satisfaisable : les constantes de la Couche 2 photo (Strate 1/2, propreté, courbes
    monuments) sont **en dur dans `config.ts`**, pas dans `config_scoring`. → À l'activation de la Couche 2,
@@ -395,7 +397,7 @@ plage/unité · **badge de statut** (🟢 VIVE / ⚪ VESTIGIALE grisée / 🔒 D
 brouillon → panneau **Aperçu d'impact** (delta golden + panel de référence) → **Publier** (transaction
 versionnée + audit). Boutons **Reset** par variable et par groupe.
 
-Arbre (mapping complet des 46 colonnes en **Annexe 1**) :
+Arbre (mapping complet des 47 colonnes en **Annexe 1**) :
 
 ```
 Score de qualité de vue (/100)
@@ -419,7 +421,8 @@ Score de qualité de vue (/100)
     │   ├── Barème orientation (0..10) : orientation_n/ne/e/se/s/so/o/no🟢 (×8)
     │   └── Clamp final [0..90] : plafond_couche1🟢
     ├── Garde-fou de portée : analysis_range_m↔ (borne distance_max_m ; ne re-cadre pas la géométrie)
-    ├── Sentinelle de validation : mode_combinaison🔒 (liste fermée ; non consultée par le calcul actuel)
+    ├── Combinaison nature+bâti : mode_combinaison🟢 (liste fermée ; consultée via combinerP1P2)
+    ├── Sentinelle de repli : mode_combinaison_repli🔒 (liste fermée ; repli sous le seuil de nature)
     └── Héritage sans effet (Étape 2) : boost_f2⚪, forfait_cone_central⚪, forfait_extremites⚪,
                                         cone_f3_demi_angle_deg⚪, natures_remarquables⚪
 └── Couche 2 — Exception / photo (/20)  ← NON IMPLÉMENTÉE ; constantes en dur dans config.ts,
@@ -574,7 +577,7 @@ faire confiance à la recon), l'autre a **attaqué la conception**.
 | Claim | Verdict | Preuve |
 |---|---|---|
 | Géométrie indépendante de `config_scoring` (aperçu hors-DB légitime) | **CONFIRMÉ** | extractions `pipeline.ts:84-142` avant profil `:174-175` ; aucune extraction ne prend `Profil` |
-| `mode_combinaison` = sentinelle, non consultée par le calcul | **CONFIRMÉ** | validée `profilConfig.ts:75`, jamais lue en calcul ; morte `coucheDegagement.ts:70` |
+| `mode_combinaison` consultée par le calcul (via `combinerP1P2`) ; `mode_combinaison_repli` = sentinelle de repli | **CONFIRMÉ** | branchée `coucheDegagement.ts` (`combinerP1P2`) ; listes fermées validées `profilConfig.ts:75` + mapping repli |
 | Aucun `CREATE TABLE config_scoring` (seul un `ALTER`) | **CONFIRMÉ** | grep repo ; `migration_config_scoring_orientation_annee_portee.sql:12-26` (ALTER only) |
 | Score total = `noteDegagement` seul | **CONFIRMÉ** | `scoreTotal.ts:44` (total) vs `:57` (famille1/2 ré-émis, non sommés) |
 | `analysis_range_m` = miroir (ne re-cadre pas la géométrie) | **CONFIRMÉ** | constante `config.ts:25` utilisée partout ; colonne lue seulement `profilConfig.ts:78` |
