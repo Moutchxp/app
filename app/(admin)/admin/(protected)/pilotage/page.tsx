@@ -297,6 +297,7 @@ function PilotageCharge({ data }: { data: ReponseConfig }) {
       {FAMILLES_ORDRE.map((famille) => (
         <FamilleBloc key={famille} famille={famille} ctx={ctx} />
       ))}
+      <SectionVestigiales ctx={ctx} />
     </>
   );
 }
@@ -329,12 +330,13 @@ function BadgeRepli({ repli }: { repli?: Repli }) {
 
 /** Bloc d'une famille : ses variables (accordéon/carte). */
 function FamilleBloc({ famille, ctx }: { famille: string; ctx: CtxPilotage }) {
-  const metas = META.filter((m) => m.famille === famille);
+  // Les variables VESTIGIALES sont exclues des familles et regroupées dans la section dédiée
+  // (repliée par défaut) en bas de page — filtre sur le FLAG de statut, jamais sur des noms.
+  const metas = META.filter((m) => m.famille === famille && m.statut !== 'VESTIGIALE');
   if (metas.length === 0) return null;
 
   const orientations = metas.filter((m) => estOrientation(m.colonne));
   const autres = metas.filter((m) => !estOrientation(m.colonne));
-  const aVestigiales = metas.some((m) => m.statut === 'VESTIGIALE');
   // Position d'insertion du bloc orientation (à la place de la 1re colonne orientation).
   const premierIndexOrientation = metas.findIndex((m) => estOrientation(m.colonne));
   const orientationEnFin =
@@ -346,12 +348,6 @@ function FamilleBloc({ famille, ctx }: { famille: string; ctx: CtxPilotage }) {
         {famille} <span className="svv-pil-famille-compte">{metas.length}</span>
       </summary>
       <div className="svv-pil-cartes">
-        {aVestigiales && (
-          <p className="svv-pil-legende">
-            Ces variables sont <strong>présentes en base, sans incidence sur le score</strong> —
-            conservées pour l’historique, non modifiables.
-          </p>
-        )}
         {autres.map((m) => {
           // Insérer le bloc orientation groupé juste avant la 1re variable qui suivait les orientations.
           const indexDansMetas = metas.indexOf(m);
@@ -368,6 +364,33 @@ function FamilleBloc({ famille, ctx }: { famille: string; ctx: CtxPilotage }) {
         })}
         {/* Cas où les orientations sont en fin de famille (aucune variable après). */}
         {orientationEnFin && <BlocOrientation orientations={orientations} ctx={ctx} />}
+      </div>
+    </details>
+  );
+}
+
+/**
+ * Section dédiée regroupant TOUTES les variables vestigiales (filtre sur le flag `statut`), placée
+ * après les familles vives et REPLIÉE par défaut (`<details>` sans `open` → non visible au chargement).
+ * Les cartes elles-mêmes sont inchangées (grisées, inertes, picto « i ») — on ne fait que les déplacer.
+ */
+function SectionVestigiales({ ctx }: { ctx: CtxPilotage }) {
+  const vestigiales = META.filter((m) => m.statut === 'VESTIGIALE');
+  if (vestigiales.length === 0) return null;
+  return (
+    <details className="svv-pil-famille" style={{ marginTop: '0.9rem' }}>
+      <summary className="svv-pil-famille-titre">
+        Variables vestigiales · sans effet{' '}
+        <span className="svv-pil-famille-compte">{vestigiales.length}</span>
+      </summary>
+      <div className="svv-pil-cartes">
+        <p className="svv-pil-legende">
+          Colonnes conservées en base, remplacées par les <strong>Cartes d’année</strong>. Sans effet sur
+          le score.
+        </p>
+        {vestigiales.map((m) => (
+          <CarteVariableAuto key={m.colonne} meta={m} ctx={ctx} />
+        ))}
       </div>
     </details>
   );
