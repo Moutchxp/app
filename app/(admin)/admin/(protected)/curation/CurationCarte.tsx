@@ -1030,6 +1030,11 @@ export default function CurationCarte() {
                 <span className="svv-cur-compteur-lib">{LIBELLE_ETAT[etat]}</span>
               </span>
             ))}
+            {/* Légende du visuel cerclé (entité rouge SANS point GPS) — même puce que les lignes. */}
+            <span className="svv-cur-compteur">
+              <span className="svv-cur-dot svv-cur-dot--rouge" aria-hidden="true" />
+              <span className="svv-cur-compteur-lib">Sans point GPS</span>
+            </span>
           </div>
 
           {/* Recherche (EX-4). */}
