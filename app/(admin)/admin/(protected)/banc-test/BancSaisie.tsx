@@ -83,6 +83,32 @@ function parseCoords(raw: string): { lat: number; lon: number } | { erreur: stri
   return { lat, lon };
 }
 
+// Forme (allégée) de la réponse /api/admin/banc-comparer — on ne lit ici que le score client + méta.
+type ScoreLite = {
+  total: number;
+  libelle: "EXCEPTIONNELLE" | "EXCELLENTE" | null;
+  scorePartiel: boolean;
+  famille1?: { total?: number };
+  famille2?: { total?: number };
+};
+type RunLite = { score: ScoreLite; verdict: string };
+type ComparaisonLite = {
+  ok: boolean;
+  message?: string;
+  actif?: RunLite;
+  test?: RunLite;
+  delta?: number;
+  verdictIdentique?: boolean;
+  ecarts?: { total: number };
+};
+
+/** Texte du libellé de score (la clé enum vit côté moteur ; le texte est une préoccupation UI). */
+function libelleTexte(l: ScoreLite["libelle"]): string {
+  if (l === "EXCEPTIONNELLE") return "Vue exceptionnelle";
+  if (l === "EXCELLENTE") return "Excellente vue";
+  return "—";
+}
+
 export default function BancSaisie() {
   const [adresse, setAdresse] = useState("");
   const [point, setPoint] = useState<{ lat: number; lon: number } | null>(null);
@@ -104,6 +130,11 @@ export default function BancSaisie() {
   // Saisie directe de coordonnées GPS (alternative à l'adresse).
   const [coordsInput, setCoordsInput] = useState("");
   const [coordsErreur, setCoordsErreur] = useState<string | null>(null);
+  // Exécution ×2 (actif/test) + comparatif (Lot 5).
+  const [comparaison, setComparaison] = useState<ComparaisonLite | null>(null);
+  const [runEnCours, setRunEnCours] = useState(false);
+  const [runErreur, setRunErreur] = useState<string | null>(null);
+  const [runSnapshot, setRunSnapshot] = useState<string | null>(null); // params au moment du run (péremption CA-5.4)
 
   // Validation du point via /api/origine (validerOrigine) — débounce 300 ms, annulable. Tous les setState
   // sont différés dans le timer (jamais synchrones dans le corps de l'effet).
@@ -187,6 +218,9 @@ export default function BancSaisie() {
     [point, pointValide, azimut, etage, hauteurSousPlafondM, dernierEtage, mode],
   );
 
+  // CA-5.4 : si les paramètres changent après un run, le comparatif affiché devient périmé.
+  const perime = comparaison != null && runSnapshot !== JSON.stringify(parametres);
+
   function onSelectAdresse(s: SuggestionAdresse) {
     setAdresse(s.label);
     ignoreReverseRef.current = true; // le point va changer, mais on garde le label choisi (pas de reverse)
@@ -212,6 +246,34 @@ export default function BancSaisie() {
     }
     setCoordsErreur(null);
     setPoint({ lat: r.lat, lon: r.lon });
+  }
+
+  // Lance l'exécution ×2 (build entree ×1 + analyser actif/test, côté serveur). Aucun profilTest fourni →
+  // le serveur clone le profil actif (délta nul tant que l'éditeur — Lot 2b — n'existe pas).
+  async function lancer() {
+    if (!parametres) return;
+    setRunEnCours(true);
+    setRunErreur(null);
+    try {
+      const res = await fetch("/api/admin/banc-comparer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parametres),
+      });
+      const data: ComparaisonLite = await res.json();
+      if (!data.ok) {
+        setComparaison(null);
+        setRunErreur(data.message ?? "Exécution impossible.");
+      } else {
+        setComparaison(data);
+        setRunSnapshot(JSON.stringify(parametres));
+      }
+    } catch {
+      setComparaison(null);
+      setRunErreur("Erreur réseau lors de l’exécution.");
+    } finally {
+      setRunEnCours(false);
+    }
   }
 
   function ajusterHauteur(delta: number) {
@@ -407,8 +469,7 @@ export default function BancSaisie() {
               {JSON.stringify(parametres, null, 2)}
             </pre>
             <p style={{ margin: "10px 0 0", color: "var(--color-svv-muted)", fontSize: ".8rem" }}>
-              Paramètres prêts. L’exécution (profil actif vs profil de test) et la comparaison des scores sont
-              livrées au Lot 5.
+              Paramètres prêts pour l’exécution.
             </p>
           </>
         ) : (
@@ -417,7 +478,84 @@ export default function BancSaisie() {
           </p>
         )}
       </div>
+
+      {/* 6. Exécution ×2 (profil actif vs profil de test) + comparaison des scores (Lot 5) */}
+      <div style={{ marginTop: 16 }}>
+        <button
+          type="button"
+          onClick={lancer}
+          disabled={!parametres || runEnCours}
+          className="svv-btn svv-btn-primary"
+          style={{ opacity: !parametres || runEnCours ? 0.6 : 1 }}
+        >
+          {runEnCours ? "Exécution…" : "Lancer le test"}
+        </button>
+        {perime && (
+          <div style={{ marginTop: 8, fontSize: ".82rem", color: "var(--color-svv-ink)" }}>
+            Paramètres modifiés depuis le dernier test — relancez pour un comparatif à jour.
+          </div>
+        )}
+      </div>
+
+      {runErreur && (
+        <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 10, fontSize: ".85rem", color: "var(--color-svv-red)", border: "1px solid var(--color-svv-line)" }}>
+          {runErreur}
+        </div>
+      )}
+
+      {comparaison?.ok && comparaison.actif && comparaison.test && (
+        <div style={{ marginTop: 14, opacity: perime ? 0.5 : 1 }}>
+          {/* Deux scores CÔTE À CÔTE — neutres (aucune couleur évaluative, CA-5.5) */}
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <ScoreCarte titre="Moteur actif (tel que publié)" run={comparaison.actif} />
+            <ScoreCarte titre="Profil de test" run={comparaison.test} />
+          </div>
+
+          {/* Différence globale (signe + valeur), couleur neutre */}
+          <div style={{ marginTop: 12, fontSize: ".95rem", color: "var(--color-svv-ink)", fontWeight: 600 }}>
+            Écart (test − actif) : {(comparaison.delta ?? 0) >= 0 ? "+" : ""}
+            {(comparaison.delta ?? 0).toFixed(2)}
+          </div>
+
+          {/* Récap des écarts de variables (BE-53) — pas d'attribution par variable (BE-53a) */}
+          <div style={{ marginTop: 4, fontSize: ".85rem", color: "var(--color-svv-muted)" }}>
+            {comparaison.ecarts && comparaison.ecarts.total > 0
+              ? `${comparaison.ecarts.total} variable(s) modifiée(s) dans le profil de test.`
+              : "Profil de test identique au profil actif (aucun écart) — l’éditeur de variables arrive au Lot 2b."}
+          </div>
+
+          {/* Verdict identique (BE-56) — le verdict est 100 % géométrique, indépendant du profil */}
+          <div style={{ marginTop: 6, fontSize: ".82rem", color: comparaison.verdictIdentique ? "var(--color-svv-muted)" : "var(--color-svv-red)" }}>
+            {comparaison.verdictIdentique
+              ? `Verdict identique entre les deux runs (${comparaison.actif.verdict}) — découplage score/verdict respecté.`
+              : "⚠ Verdict divergent entre actif et test — anomalie de couplage score↔verdict."}
+          </div>
+        </div>
+      )}
     </section>
+  );
+}
+
+/** Carte d'un score client : total /100 + libellé. `famille1`/`famille2` = détail interne, NON sommés (BE-51a). */
+function ScoreCarte({ titre, run }: { titre: string; run: RunLite }) {
+  return (
+    <div
+      className="svv-card"
+      style={{ flex: "1 1 220px", minWidth: 200, padding: 14, borderRadius: 12, border: "1px solid var(--color-svv-line)" }}
+    >
+      <div className="svv-label" style={{ marginBottom: 6 }}>
+        {titre}
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+        <span style={{ fontSize: "2rem", fontWeight: 800, color: "var(--color-svv-ink)" }}>{Math.round(run.score.total)}</span>
+        <span style={{ fontSize: ".9rem", color: "var(--color-svv-muted)" }}>/100</span>
+      </div>
+      <div style={{ fontSize: ".85rem", color: "var(--color-svv-ink)" }}>{libelleTexte(run.score.libelle)}</div>
+      <div style={{ marginTop: 8, fontSize: ".72rem", color: "var(--color-svv-muted)" }}>
+        détail interne (non sommé) — F1 {run.score.famille1?.total != null ? run.score.famille1.total.toFixed(1) : "—"} /50 ·
+        F2 {run.score.famille2?.total != null ? run.score.famille2.total.toFixed(1) : "—"} /50
+      </div>
+    </div>
   );
 }
 

@@ -12,6 +12,7 @@ import { analyserAdresse } from './pipeline';
 import { closePool } from './client';
 import type { ProfilDegagement } from '../svv/profilDegagement';
 import { clonerProfil } from '../svv/profilTest';
+import { comparerProfils } from './bancEssai';
 
 /**
  * Config de scoring GELÉE de référence — snapshot EXACT des valeurs qui SCELLENT le golden
@@ -168,6 +169,47 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
       profil: clone,
     });
     expect(resultat!.score.total).toBeCloseTo(29.107259068449615, 3);
+  });
+
+  it('BE-50/50bis + CA-5.2 : comparerProfils, profil de test = clone du profil actif → deux scores identiques (= golden), delta 0', async () => {
+    const comp = await comparerProfils({
+      point: { lat: 48.90693182287072, lon: 2.269431435588249 },
+      azimutPrincipalDeg: 90,
+      etage: 2,
+      dernierEtage: false,
+      profil: PROFIL_GOLDEN_REF, // profil ACTIF = réf gelée ; test = clone (aucun profilTest fourni)
+    });
+    expect(comp.ok).toBe(true);
+    // Chemin banc (build entree ×1 + analyser ×2) → MÊME golden, bit-identique.
+    expect(comp.actif!.score.total).toBeCloseTo(29.107259068449615, 3);
+    expect(comp.test!.score.total).toBe(comp.actif!.score.total); // profil test == actif → identiques
+    expect(comp.delta).toBe(0);
+    expect(comp.verdictIdentique).toBe(true);
+    expect(comp.ecarts!.total).toBe(0);
+    // Ventilation (seam Lot 1) exposée pour les DEUX runs.
+    expect(comp.actif!.ventilation.lignes).toHaveLength(61);
+    expect(comp.test!.ventilation.lignes).toHaveLength(61);
+  });
+
+  it('CA-5.3 + BE-56 : un profil de test avec une variable VIVE modifiée change le score du TEST, pas de l’actif ; verdict identique', async () => {
+    const profilTest = clonerProfil(PROFIL_GOLDEN_REF);
+    profilTest.plafondDegagement = profilTest.plafondDegagement * 2; // VIVE : double le coefficient de dégagement
+    const comp = await comparerProfils(
+      {
+        point: { lat: 48.90693182287072, lon: 2.269431435588249 },
+        azimutPrincipalDeg: 90,
+        etage: 2,
+        dernierEtage: false,
+        profil: PROFIL_GOLDEN_REF,
+      },
+      profilTest,
+    );
+    expect(comp.ok).toBe(true);
+    expect(comp.actif!.score.total).toBeCloseTo(29.107259068449615, 3); // actif INCHANGÉ
+    expect(comp.test!.score.total).not.toBeCloseTo(29.107259068449615, 3); // test décorrélé
+    expect(comp.delta).not.toBe(0);
+    expect(comp.verdictIdentique).toBe(true); // verdict 100 % géométrique → identique quoi qu'il arrive
+    expect(comp.ecarts!.scalaires.some((e) => e.champ === 'plafondDegagement')).toBe(true);
   });
 
   it('cas NÉGATIF : point « rue » hors emprise → valide=false, resultat=null (HORS_BATIMENT)', async () => {

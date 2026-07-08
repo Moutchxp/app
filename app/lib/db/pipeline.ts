@@ -86,7 +86,19 @@ export interface ResultatAnalyse {
   resultat: ResultatComplet | null;
 }
 
-export async function analyserAdresse(params: ParametresAnalyse): Promise<ResultatAnalyse> {
+/** Résultat de la construction d'entrée (build entree ×1) : géométrie + faisceaux enrichis, ou `entree=null` si le point est invalide. */
+export interface EntreeConstruite {
+  validation: ValidationOrigine;
+  entree: EntreeComplete | null;
+}
+
+/**
+ * Construit l'entrée d'analyse (étapes a→f : DB / LiDAR / géométrie) SANS appliquer de profil. Point de
+ * découpe ADDITIF (banc M5 Lot 5) : l'entrée est ensuite rejouable via `analyser(entree, profil)` (PUR) ×N
+ * sans refaire la géométrie ni de round-trip DB. `analyserAdresse` DÉLÈGUE à cette fonction → comportement
+ * bit-identique du chemin de prod.
+ */
+export async function construireEntree(params: ParametresAnalyse): Promise<EntreeConstruite> {
   // a) Validation du point d'origine.
   const validation = await validerOrigine(params.point, params.mode ?? "semi_auto");
   if (
@@ -96,7 +108,7 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
     validation.pointSnappeWgs84 === null ||
     validation.pointSnappeL93 === null
   ) {
-    return { validation, resultat: null };
+    return { validation, entree: null };
   }
 
   // b) Altitude de la fenêtre (helper Bloc A).
@@ -176,11 +188,20 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
     paysage,
   };
 
-  // g) Analyse (Bloc A). Profil de pondération : injecté via params.profil (tests golden — config
-  //    gelée de référence), SINON lu UNE SEULE FOIS depuis config_scoring (repli sur
-  //    PROFIL_DEGAGEMENT_DEFAUT). La prod n'injecte jamais → lecture live INCHANGÉE.
+  return { validation, entree };
+}
+
+/**
+ * Analyse complète d'une adresse : construit l'entrée (a→f) PUIS applique le profil (g). Comportement
+ * INCHANGÉ — délègue à `construireEntree`. Profil injecté via `params.profil` (tests golden — config gelée de
+ * référence), SINON lu UNE SEULE FOIS depuis config_scoring (repli `PROFIL_DEGAGEMENT_DEFAUT`). La prod
+ * n'injecte JAMAIS → lecture live INCHANGÉE.
+ */
+export async function analyserAdresse(params: ParametresAnalyse): Promise<ResultatAnalyse> {
+  const { validation, entree } = await construireEntree(params);
+  if (!entree) return { validation, resultat: null };
+  // g) Analyse (Bloc A) — profil appliqué à l'étape PURE.
   const profil = params.profil ?? await chargerProfilDegagement();
   const resultat = analyser(entree, profil, params.ventilation ? { ventilation: true } : undefined);
-
   return { validation, resultat };
 }
