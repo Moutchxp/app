@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { estCarteModifiee, modeFooter } from './curationEdition';
-import { libelleAction, formaterHorodatage, horodatageTitle, nomAffiche, type LigneJournal } from './journalRendu';
+import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, nomAffiche, type LigneJournal } from './journalRendu';
 
 /** Taille de page du volet global de l'historique (HJ-44). */
 const JOURNAL_LIMIT = 50;
@@ -968,6 +968,19 @@ export default function CurationCarte() {
 
   // FC-60 : aucun scrollIntoView à l'ouverture du formulaire de création (effet `[creationOuverte]` retiré).
 
+  // ── Scroll vers le HAUT à l'OUVERTURE de la zone de composition (transition null→id). Cible `formulaireRef`
+  //    (conteneur, toujours monté) → indépendant de `flashId`/`itemActifRef` : ne ressuscite pas le scroll
+  //    descendant supprimé, ne perturbe pas le scroll de sélection normale. Keyé sur `composition` seul → PAS
+  //    de re-scroll à chaque rattachement ultérieur (OQ-d). ─
+  useEffect(() => {
+    if (composition === null) return;
+    const reduire = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const raf = requestAnimationFrame(() => {
+      formulaireRef.current?.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'start', inline: 'nearest' });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [composition]);
+
   // ── Fermeture de la zone de composition (« Terminer » / « Abandonner ») : COSMÉTIQUE, aucune écriture,
   //    aucune suppression (OQ-1). `selectionId=null` → l'entité rejoint la liste à sa place (re-render normal).
   //    Aucun scroll (flashId non touché → garde de l'effet `[flashId]`). ─
@@ -1107,7 +1120,8 @@ export default function CurationCarte() {
               // Zone de COMPOSITION (FC-20..29) : la fiche-en-création reste EN HAUT, hors liste triée.
               (() => {
                 const e = entiteSelectionnee;
-                const nb = e ? e.liaisons.filter((l) => l.actif && !l.detache).length : 0;
+                const liees = e ? e.liaisons.filter((l) => l.actif && !l.detache) : []; // ordre created ↑ → [0] = mère
+                const nb = liees.length;
                 const cercle = !!e && e.etat === 'rouge' && !e.point;
                 return (
                   <div className="svv-cur-compo" role="group" aria-label="Composition du nouveau tag">
@@ -1128,6 +1142,27 @@ export default function CurationCarte() {
                     <p className="svv-cur-compo-compteur">
                       {`${nb} polygone${nb > 1 ? 's' : ''} rattaché${nb > 1 ? 's' : ''}`}
                     </p>
+                    {nb === 0 ? (
+                      <p className="svv-cur-compo-vide">Aucun polygone rattaché — clique une emprise sur la carte.</p>
+                    ) : (
+                      <ul className="svv-cur-compo-liste">
+                        {liees.map((l, i) => (
+                          <li key={l.cleabs} className="svv-cur-compo-cleabs">
+                            <code title={l.cleabs}>{cleabsCourt(l.cleabs)}</code>
+                            {i === 0 && <span className="svv-cur-compo-mere">(initiale)</span>}
+                            <button
+                              type="button"
+                              className="svv-cur-compo-x"
+                              aria-label={`Détacher le polygone ${l.cleabs}`}
+                              disabled={enEcriture}
+                              onClick={() => e && void detacher(e.id, l.cleabs)}
+                            >
+                              ✕
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     <div className="svv-cur-form-actions">
                       <button type="button" className="svv-cur-btn svv-cur-btn--mini" onClick={fermerComposition}>
                         Terminer
@@ -1675,6 +1710,13 @@ const CSS = `
 .svv-cur-compo-nom{font-weight:800;color:var(--color-svv-ink)}
 .svv-cur-compo-invite{margin:0;font-size:.82rem;color:var(--color-svv-muted);line-height:1.4}
 .svv-cur-compo-compteur{margin:0;font-size:.78rem;font-weight:700;color:var(--color-svv-ink)}
+.svv-cur-compo-vide{margin:0;font-size:.78rem;color:var(--color-svv-muted);font-style:italic}
+.svv-cur-compo-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.25rem}
+.svv-cur-compo-cleabs{display:flex;align-items:center;gap:.4rem;padding:.2rem .1rem;border-bottom:1px solid var(--color-svv-line)}
+.svv-cur-compo-cleabs code{font-size:.75rem}
+.svv-cur-compo-mere{font-size:.7rem;font-weight:700;color:var(--color-svv-green-ink);white-space:nowrap}
+.svv-cur-compo-x{margin-left:auto;appearance:none;border:1px solid var(--color-svv-line);background:#fff;color:var(--color-svv-red-dark);font-size:.8rem;line-height:1;width:24px;height:24px;border-radius:.4rem;cursor:pointer}
+.svv-cur-compo-x:disabled{opacity:.5;cursor:default}
 .svv-cur-form-cible{margin:0;font-size:.78rem;line-height:1.35;color:var(--color-svv-green-ink);background:var(--color-svv-green-soft);border-radius:.45rem;padding:.4rem .5rem}
 .svv-cur-filtres{border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.5rem .6rem;margin:0;display:flex;flex-wrap:wrap;gap:.35rem .7rem}
 .svv-cur-legende{font-size:.68rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--color-svv-muted);padding:0;margin-right:.3rem}
