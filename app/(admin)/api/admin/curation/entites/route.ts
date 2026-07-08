@@ -25,6 +25,7 @@ const SELECT_ENTITES = `
     e.meta->>'origine' AS origine,
     ST_AsGeoJSON(ST_Transform(ST_Force2D(COALESCE(e.geom_point_corrige, e.geom_point)), 4326)) AS point_geojson,
     (e.geom_point_corrige IS NOT NULL) AS corrige,
+    EXISTS(SELECT 1 FROM curation_patrimoine_log l WHERE l.entite_id = e.id) AS a_historique,
     COALESCE(
       jsonb_agg(
         jsonb_build_object(

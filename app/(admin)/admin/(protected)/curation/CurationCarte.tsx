@@ -46,6 +46,7 @@ interface Entite {
   origine: string | null; // 'manuel' = tag créé à la main (étoile jaune, éditable/supprimable)
   point: PointGeoJSON | null;
   corrige: boolean;
+  aHistorique: boolean; // ≥1 ligne de journal (bouton « Historique » de fiche) — Lot 2 UI
   etat: EtatEntite;
   liaisons: Liaison[];
 }

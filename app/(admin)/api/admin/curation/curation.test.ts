@@ -15,6 +15,9 @@ import { GET as GET_ENTITES, POST as POST_ENTITE } from './entites/route';
 import { DELETE as DELETE_ENTITE, PATCH as PATCH_ENTITE } from './entites/[id]/route';
 import { POST as POST_ANNULER } from './entites/[id]/annuler-edition/route';
 import { GET as GET_BORNE } from './entites/[id]/borne/route';
+import { GET as GET_JOURNAL } from './journal/route';
+import { GET as GET_ENTITE_JOURNAL } from './entites/[id]/journal/route';
+import { versEntite, type LigneEntiteDB } from './partage';
 import { GET as GET_TAGS } from './tags-manuels/route';
 import { PATCH as PATCH_POINT, DELETE as DELETE_POINT } from './entites/[id]/point/route';
 import { POST as POST_LIAISON, DELETE as DELETE_LIAISON, PATCH as PATCH_LIAISON } from './entites/[id]/liaisons/route';
@@ -561,5 +564,123 @@ describe('GET /entites/[id]/borne (capture d’ouverture de carte)', () => {
     const res = await GET_BORNE(req('GET'), ctx('abc'));
     expect(res.status).toBe(422);
     expect(sqlsEmis().length).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Historique du journal (Lot 1 backend — HJ-1..24). LECTURE SEULE.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('GET /api/admin/curation/journal (historique global)', () => {
+  const reqJournal = (qs: string) => new Request(`http://localhost/api/admin/curation/journal${qs}`, { method: 'GET' });
+  const LIGNE = {
+    id: '10', ts: '2026-07-08T10:00:00Z', action: 'rattachement', entite_id: 5, cleabs: 'BATX',
+    avant: null, apres: { source: 'manuel' }, nom_affiche: 'Maison', famille_affiche: 'mh', supprimee: false, total: '3',
+  };
+
+  it('défauts (toutes/desc/50/0) + shape { lignes, total, … } + total retiré des lignes', async () => {
+    queryMock.mockResolvedValue({ rows: [LIGNE] });
+    const res = await GET_JOURNAL(reqJournal(''));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ total: 3, limit: 50, offset: 0, ordre: 'desc', famille: 'toutes' });
+    expect(body.lignes).toHaveLength(1);
+    expect(body.lignes[0]).not.toHaveProperty('total');
+    expect(body.lignes[0]).toMatchObject({ action: 'rattachement', nom_affiche: 'Maison', famille_affiche: 'mh', supprimee: false });
+    expect(queryMock.mock.calls[0][1]).toEqual(['toutes', 50, 0]);
+    const sql = sqlsEmis()[0];
+    expect(/ORDER BY l\.id DESC/.test(sql)).toBe(true);
+    expect(/LEFT JOIN LATERAL/.test(sql)).toBe(true);
+    expect(/suppression_entite_manuelle/.test(sql)).toBe(true);
+  });
+
+  it('famille/ordre/limit/offset respectés + clamp limit à 200', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    const res = await GET_JOURNAL(reqJournal('?famille=mh&ordre=asc&limit=999&offset=20'));
+    const body = await res.json();
+    expect(body).toMatchObject({ famille: 'mh', ordre: 'asc', limit: 200, offset: 20, total: 0 });
+    expect(queryMock.mock.calls[0][1]).toEqual(['mh', 200, 20]);
+    expect(/ORDER BY l\.id ASC/.test(sqlsEmis()[0])).toBe(true);
+  });
+
+  it('famille invalide → toutes ; limit aberrant → 50 ; offset négatif → 0', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await GET_JOURNAL(reqJournal('?famille=chateau&limit=-3&offset=-1'));
+    expect(queryMock.mock.calls[0][1]).toEqual(['toutes', 50, 0]);
+  });
+
+  it('entité supprimée : nom/famille résolus en SQL (COALESCE e/sup/fallback) + supprimee', async () => {
+    queryMock.mockResolvedValue({ rows: [{ ...LIGNE, nom_affiche: 'Hotel de ville', famille_affiche: 'inconnue', supprimee: true }] });
+    const body = await (await GET_JOURNAL(reqJournal(''))).json();
+    expect(body.lignes[0]).toMatchObject({ supprimee: true, famille_affiche: 'inconnue' });
+    const sql = sqlsEmis()[0];
+    expect(/COALESCE\(e\.nom, sup\.nom, 'entité supprimée #' \|\| l\.entite_id\)/.test(sql)).toBe(true);
+    expect(/COALESCE\(e\.famille, sup\.famille, 'inconnue'\)/.test(sql)).toBe(true);
+    expect(/\(e\.id IS NULL\) AS supprimee/.test(sql)).toBe(true);
+    // filtre famille : une entité 'inconnue' n'apparaît que sous 'toutes'
+    expect(/WHERE \(\$1 = 'toutes' OR COALESCE\(e\.famille, sup\.famille\) = \$1\)/.test(sql)).toBe(true);
+  });
+
+  it('LECTURE STRICTE : aucune écriture émise', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await GET_JOURNAL(reqJournal(''));
+    expect(ecritureEmise()).toBe(false);
+    expect(sqlsEmis().some((s) => /INSERT INTO|UPDATE |DELETE FROM/.test(s))).toBe(false);
+  });
+
+  it('erreur SQL → 503', async () => {
+    queryMock.mockRejectedValue(new Error('boom'));
+    expect((await GET_JOURNAL(reqJournal(''))).status).toBe(503);
+  });
+});
+
+describe('GET /api/admin/curation/entites/[id]/journal', () => {
+  it('id invalide → 422, aucune requête', async () => {
+    const res = await GET_ENTITE_JOURNAL(req('GET'), ctx('abc'));
+    expect(res.status).toBe(422);
+    expect(sqlsEmis().length).toBe(0);
+  });
+
+  it('filtré entite_id, tri id DESC, LIMIT 200, entite dérivée de la 1re ligne', async () => {
+    queryMock.mockResolvedValue({ rows: [
+      { id: '20', ts: 't2', action: 'renommage', entite_id: 5, cleabs: null, avant: { nom: null }, apres: { nom: 'X' }, nom_affiche: 'X', famille_affiche: 'mh', supprimee: false },
+      { id: '12', ts: 't1', action: 'creation_entite_manuelle', entite_id: 5, cleabs: null, avant: null, apres: { nom: 'X' }, nom_affiche: 'X', famille_affiche: 'mh', supprimee: false },
+    ] });
+    const body = await (await GET_ENTITE_JOURNAL(req('GET'), ctx('5'))).json();
+    expect(body.lignes).toHaveLength(2);
+    expect(body.entite).toEqual({ id: 5, nom_affiche: 'X', famille_affiche: 'mh', supprimee: false });
+    const sql = sqlsEmis()[0];
+    expect(/WHERE l\.entite_id = \$1/.test(sql)).toBe(true);
+    expect(/ORDER BY l\.id DESC/.test(sql)).toBe(true);
+    expect(/LIMIT 200/.test(sql)).toBe(true);
+    expect(queryMock.mock.calls[0][1]).toEqual([5]);
+  });
+
+  it('aucune ligne → entite fallback (inconnue, non supprimée)', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    const body = await (await GET_ENTITE_JOURNAL(req('GET'), ctx('7'))).json();
+    expect(body.entite).toMatchObject({ id: 7, famille_affiche: 'inconnue', supprimee: false });
+  });
+
+  it('erreur SQL → 503', async () => {
+    queryMock.mockRejectedValue(new Error('boom'));
+    expect((await GET_ENTITE_JOURNAL(req('GET'), ctx('5'))).status).toBe(503);
+  });
+});
+
+describe('a_historique (flag liste + mapping versEntite)', () => {
+  it('GET /entites : SELECT expose a_historique via EXISTS corrélé sans filtre d’action', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await GET_ENTITES();
+    expect(/EXISTS\(SELECT 1 FROM curation_patrimoine_log l WHERE l\.entite_id = e\.id\) AS a_historique/.test(sqlsEmis()[0])).toBe(true);
+  });
+
+  it('versEntite mappe a_historique → aHistorique', () => {
+    const base: LigneEntiteDB = {
+      id: 1, famille: 'mh', ref_code: 'X', nom: 'N', statut: null, origine: null,
+      point_geojson: null, corrige: false, a_historique: true, liaisons: null,
+    };
+    expect(versEntite(base).aHistorique).toBe(true);
+    expect(versEntite({ ...base, a_historique: false }).aHistorique).toBe(false);
   });
 });

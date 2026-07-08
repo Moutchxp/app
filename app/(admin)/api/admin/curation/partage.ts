@@ -40,6 +40,7 @@ export interface LigneEntiteDB {
   origine: string | null; // `meta->>'origine'` : 'manuel' pour un tag, null/absent pour un natif
   point_geojson: string | null;
   corrige: boolean;
+  a_historique: boolean; // ≥1 ligne dans curation_patrimoine_log (création comprise) — bouton « Historique »
   liaisons: LiaisonDB[] | null;
 }
 
@@ -82,6 +83,7 @@ export function versEntite(r: LigneEntiteDB) {
     origine: r.origine,
     point: r.point_geojson ? (JSON.parse(r.point_geojson) as unknown) : null,
     corrige: r.corrige,
+    aHistorique: r.a_historique,
     etat: etatEntite(liaisons),
     liaisons: liaisons.map((l) => ({
       cleabs: l.cleabs,
