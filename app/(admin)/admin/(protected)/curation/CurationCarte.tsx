@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { estCarteModifiee, modeFooter } from './curationEdition';
+import { libelleAction, formaterHorodatage, horodatageTitle, type LigneJournal } from './journalRendu';
 
 /**
  * Carte de curation patrimoine (Leaflet, LECTURE + écriture via endpoints CRUD).
@@ -296,6 +297,15 @@ export default function CurationCarte() {
   const [confirmValider, setConfirmValider] = useState(false);
   const creationBorneRef = useRef<number | null>(null); // id de l'entité tout juste créée (borne=0 à l'ouverture)
 
+  // ── Historique du journal (split empilé zone droite). `mode:'global'` câblé au Lot 3 (type prévu). ──
+  type EtatJournal = null | { mode: 'entite'; entiteId: number } | { mode: 'global' };
+  const [journal, setJournal] = useState<EtatJournal>(null);
+  const journalOuvert = journal !== null;
+  const [journalLignes, setJournalLignes] = useState<LigneJournal[]>([]);
+  const [journalEntite, setJournalEntite] = useState<{ nom_affiche: string; famille_affiche: string; supprimee: boolean } | null>(null);
+  const [journalChargement, setJournalChargement] = useState(false);
+  const [journalErreur, setJournalErreur] = useState<string | null>(null);
+
   // Refs Leaflet (map créée une seule fois ; couches réutilisées).
   const conteneurRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -469,10 +479,58 @@ export default function CurationCarte() {
     };
   }, [chargerEmprises, chargerEmprisesFond]);
 
+  // ── Split carte/journal : après ouverture/fermeture, la carte a changé de taille → invalidateSize.
+  //    APRÈS le re-render (double rAF pour laisser le layout se poser). N'apparaît QUE dans cet effet
+  //    (jamais dans l'effet d'init → pas de recréation de carte). ─
+  useEffect(() => {
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => mapRef.current?.invalidateSize());
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [journalOuvert]);
+
+  // ── Volet A : chargement de l'historique d'UNE entité (GET lecture seule). ─
+  useEffect(() => {
+    if (journal?.mode !== 'entite') return;
+    const id = journal.entiteId;
+    let annule = false;
+    void (async () => {
+      setJournalChargement(true);
+      setJournalErreur(null);
+      try {
+        const res = await fetch(`/api/admin/curation/entites/${id}/journal`, { cache: 'no-store' });
+        if (annule) return;
+        if (!res.ok) {
+          setJournalErreur('Historique indisponible.');
+          setJournalLignes([]);
+          setJournalEntite(null);
+          return;
+        }
+        const data = await res.json();
+        if (annule) return;
+        setJournalLignes(Array.isArray(data.lignes) ? (data.lignes as LigneJournal[]) : []);
+        setJournalEntite(data.entite ?? null);
+      } catch {
+        if (!annule) setJournalErreur('Historique indisponible.');
+      } finally {
+        if (!annule) setJournalChargement(false);
+      }
+    })();
+    return () => {
+      annule = true;
+    };
+  }, [journal]);
+
   // ── Sélection d'une entité (centre la carte + charge ses emprises via l'effet). ─
   const selectionner = useCallback(
     (id: number) => {
       setSelectionId(id);
+      // HJ-56 : clic sur une AUTRE fiche → referme le journal (garde le volet A ouvert si c'est la même entité).
+      setJournal((j) => (j?.mode === 'entite' && j.entiteId === id ? j : null));
       setFlashId(id); // cible du scroll + surbrillance brève dans la liste
       setConfirmDetach(null);
       setConfirmSuppression(false);
@@ -648,6 +706,7 @@ export default function CurationCarte() {
   //    aucun flyTo/fitBounds n'est déclenché (ce n'est pas un `selectionner`). L'ordre de la liste ne bouge pas.
   const refermerCarte = useCallback(() => {
     setSelectionId(null);
+    setJournal(null); // fermer la fiche ferme aussi son historique (retour carte pleine)
     coucheEmprisesRef.current?.clearLayers();
   }, []);
 
@@ -1071,6 +1130,10 @@ export default function CurationCarte() {
                   ref={selectionne ? itemActifRef : undefined}
                   className={`svv-cur-item${flashId === e.id ? ' svv-cur-item--flash' : ''}`}
                   data-selection={selectionne}
+                  onDoubleClick={() => {
+                    // HJ-55 : double-clic sur la fiche associée → referme son historique (retour carte pleine).
+                    if (journal?.mode === 'entite' && journal.entiteId === e.id) setJournal(null);
+                  }}
                 >
                   <button
                     type="button"
@@ -1279,6 +1342,17 @@ export default function CurationCarte() {
                             </button>
                           </>
                         )}
+                        {/* Volet A : bouton discret « Historique » (seulement si l'entité a ≥1 trace). */}
+                        {e.aHistorique && (
+                          <button
+                            type="button"
+                            className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline svv-cur-btn--histo"
+                            aria-pressed={journal?.mode === 'entite' && journal.entiteId === e.id}
+                            onClick={() => setJournal({ mode: 'entite', entiteId: e.id })}
+                          >
+                            Historique
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1288,8 +1362,53 @@ export default function CurationCarte() {
           </ul>
         </section>
 
-        <div className="svv-cur-map">
-          <div ref={conteneurRef} className="svv-cur-map-canvas" />
+        <div className="svv-cur-droite" data-journal={journalOuvert}>
+          <div className="svv-cur-map">
+            <div ref={conteneurRef} className="svv-cur-map-canvas" />
+          </div>
+
+          {journalOuvert && (
+            <aside className="svv-cur-journal" aria-label="Historique du journal">
+              <div className="svv-cur-journal-tete">
+                <strong className="svv-cur-journal-titre">
+                  {`Historique${journalEntite ? ` — ${journalEntite.nom_affiche}` : ''}`}
+                </strong>
+                <button
+                  type="button"
+                  className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
+                  onClick={() => setJournal(null)}
+                >
+                  Retour
+                </button>
+              </div>
+              <div className="svv-cur-journal-corps">
+                {journalChargement && <p className="svv-cur-info">Chargement…</p>}
+                {journalErreur && <p className="svv-cur-info svv-cur-journal-erreur">{journalErreur}</p>}
+                {!journalChargement && !journalErreur && journalLignes.length === 0 && (
+                  <p className="svv-cur-info">Aucune trace.</p>
+                )}
+                {!journalChargement && !journalErreur && journalLignes.length > 0 && (
+                  <ul className="svv-cur-journal-liste">
+                    {journalLignes.map((l) => (
+                      <li key={l.id} className="svv-cur-journal-ligne">
+                        <span className="svv-cur-journal-lib" title={l.cleabs ?? undefined}>
+                          {libelleAction(l)}
+                        </span>
+                        <span className="svv-cur-journal-meta">
+                          <span className={`svv-cur-badge svv-cur-badge--fam-${l.famille_affiche}`}>
+                            {LIBELLE_FAMILLE[l.famille_affiche] ?? l.famille_affiche}
+                          </span>
+                          <time className="svv-cur-journal-ts" dateTime={horodatageTitle(l.ts)} title={horodatageTitle(l.ts)}>
+                            {formaterHorodatage(l.ts)}
+                          </time>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </aside>
+          )}
         </div>
       </div>
     </div>
@@ -1308,8 +1427,26 @@ const CSS = `
 .svv-cur-toast--erreur{background:#fdecec;color:var(--color-svv-red-dark);border:1px solid #f3c9c9}
 
 .svv-cur{display:flex;flex-direction:column;gap:.6rem;height:calc(100dvh - 210px);min-height:520px}
-.svv-cur-map{order:-1;flex:0 0 46vh;min-height:260px;border:1px solid var(--color-svv-line);border-radius:.7rem;overflow:hidden;background:var(--color-svv-field)}
+/* Zone droite = carte + journal empilés (colonne). Reprend le rôle flex de l'ex-.svv-cur-map. */
+.svv-cur-droite{order:-1;flex:0 0 46vh;min-height:260px;display:flex;flex-direction:column;gap:.4rem;overflow:hidden}
+.svv-cur-map{flex:1 1 auto;min-height:0;border:1px solid var(--color-svv-line);border-radius:.7rem;overflow:hidden;background:var(--color-svv-field)}
 .svv-cur-map-canvas{width:100%;height:100%}
+/* Journal empilé sous la carte (volet A / B). */
+.svv-cur-journal{flex:0 0 45%;min-height:0;display:flex;flex-direction:column;border:1px solid var(--color-svv-line);border-radius:.7rem;overflow:hidden;background:#fff;transition:opacity .15s ease}
+.svv-cur-journal-tete{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.4rem .55rem;border-bottom:1px solid var(--color-svv-line);background:var(--color-svv-field)}
+.svv-cur-journal-titre{font-size:.85rem;font-weight:800;color:var(--color-svv-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.svv-cur-journal-corps{flex:1 1 auto;min-height:0;overflow:auto;padding:.35rem .55rem}
+.svv-cur-journal-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.svv-cur-journal-ligne{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.2rem .5rem;padding:.35rem .1rem;border-bottom:1px solid var(--color-svv-line)}
+.svv-cur-journal-lib{font-size:.82rem;color:var(--color-svv-ink)}
+.svv-cur-journal-meta{display:inline-flex;align-items:center;gap:.4rem;flex:0 0 auto}
+.svv-cur-journal-ts{font-size:.72rem;color:var(--color-svv-muted);white-space:nowrap}
+.svv-cur-journal-erreur{color:var(--color-svv-red-dark)}
+.svv-cur-badge--fam-mh{background:#eef1ff;color:#3949ab}
+.svv-cur-badge--fam-inventaire{background:#e8f5ec;color:#2e7d32}
+.svv-cur-badge--fam-mondial{background:#fff6df;color:#8a6d00}
+.svv-cur-badge--fam-inconnue{background:var(--color-svv-field);color:var(--color-svv-gray)}
+.svv-cur-btn--histo{margin-left:auto}
 .svv-cur-panel{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:.55rem;padding-right:.15rem}
 
 .svv-cur-creation{display:flex;flex-direction:column}
@@ -1382,12 +1519,22 @@ const CSS = `
 
 @media (min-width:768px){
   .svv-cur{flex-direction:row}
-  .svv-cur-map{order:0;flex:1 1 auto;height:100%}
+  .svv-cur-droite{order:0;flex:1 1 auto;min-height:0;height:100%}
   .svv-cur-panel{flex:0 0 350px;height:100%}
+  /* Split desktop : carte 55 % (hauteur non nulle) / journal 45 %. */
+  .svv-cur-droite[data-journal="true"] .svv-cur-map{flex:0 0 55%}
+  .svv-cur-droite[data-journal="true"] .svv-cur-journal{flex:0 0 45%}
+}
+
+/* Mobile : journal plein, carte masquée (un split 45 % donnerait une carte ~25vh illisible — décision figée). */
+@media (max-width:767px){
+  .svv-cur-droite[data-journal="true"] .svv-cur-map{display:none}
+  .svv-cur-droite[data-journal="true"] .svv-cur-journal{flex:1 1 auto}
 }
 
 @media (prefers-reduced-motion:reduce){
   .svv-cur-item-btn{transition:none}
   .svv-cur-item--flash{animation:none}
+  .svv-cur-journal{transition:none}
 }
 `;
