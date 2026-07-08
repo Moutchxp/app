@@ -11,6 +11,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { analyserAdresse } from './pipeline';
 import { closePool } from './client';
 import type { ProfilDegagement } from '../svv/profilDegagement';
+import { clonerProfil } from '../svv/profilTest';
 
 /**
  * Config de scoring GELÉE de référence — snapshot EXACT des valeurs qui SCELLENT le golden
@@ -120,6 +121,52 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     });
     expect(resultat).not.toBeNull();
     expect(resultat!.ventilation).toBeUndefined();
+    expect(resultat!.score.total).toBeCloseTo(29.107259068449615, 3);
+  });
+
+  it('BE-20 : profil de test = CLONE du profil actif → MÊME score (décorrélation neutre) + actif non muté', async () => {
+    const clone = clonerProfil(PROFIL_GOLDEN_REF);
+    const { resultat } = await analyserAdresse({
+      point: { lat: 48.90693182287072, lon: 2.269431435588249 },
+      azimutPrincipalDeg: 90,
+      etage: 2,
+      dernierEtage: false,
+      profil: clone,
+    });
+    expect(resultat).not.toBeNull();
+    expect(resultat!.score.total).toBeCloseTo(29.107259068449615, 3);
+    // Immutabilité : muter le clone APRÈS coup ne touche jamais le profil de référence.
+    clone.boostF4 = 999;
+    clone.famillesAnnee[0].cone = 42;
+    expect(PROFIL_GOLDEN_REF.boostF4).toBe(2.5);
+    expect(PROFIL_GOLDEN_REF.famillesAnnee[0].cone).toBe(1.5);
+  });
+
+  it('BE-20 : muter une variable VIVE du profil de test change le score, SANS toucher le profil actif', async () => {
+    const clone = clonerProfil(PROFIL_GOLDEN_REF);
+    clone.plafondDegagement = clone.plafondDegagement * 2; // VIVE : double le coefficient de dégagement
+    const params = {
+      point: { lat: 48.90693182287072, lon: 2.269431435588249 },
+      azimutPrincipalDeg: 90,
+      etage: 2,
+      dernierEtage: false,
+    } as const;
+    const rTest = (await analyserAdresse({ ...params, profil: clone })).resultat;
+    const rActif = (await analyserAdresse({ ...params, profil: PROFIL_GOLDEN_REF })).resultat;
+    expect(rActif!.score.total).toBeCloseTo(29.107259068449615, 3); // actif inchangé
+    expect(rTest!.score.total).not.toBeCloseTo(29.107259068449615, 3); // test décorrélé
+  });
+
+  it('CA-2.6 : muter une variable VESTIGIALE (boostF2) du profil de test ne change PAS le score', async () => {
+    const clone = clonerProfil(PROFIL_GOLDEN_REF);
+    clone.boostF2 = 5; // VESTIGIALE : non consultée par le moteur → sans effet
+    const { resultat } = await analyserAdresse({
+      point: { lat: 48.90693182287072, lon: 2.269431435588249 },
+      azimutPrincipalDeg: 90,
+      etage: 2,
+      dernierEtage: false,
+      profil: clone,
+    });
     expect(resultat!.score.total).toBeCloseTo(29.107259068449615, 3);
   });
 
