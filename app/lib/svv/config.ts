@@ -34,6 +34,12 @@ export const DALLE_M = 0.30;
 /** Hauteur sous plafond par défaut (« standard »), en mètres. */
 export const HAUTEUR_SOUS_PLAFOND_DEFAUT_M = 2.50;
 
+/** Bornes et pas du stepper « hauteur sous plafond » (m) — CLAUDE.md §4 : [2,40 ; 4,50] par pas de 0,10.
+ *  Centralisés ici (pilotage sans code) ; à réutiliser partout (parcours public + banc d'essai). */
+export const HAUTEUR_SOUS_PLAFOND_MIN_M = 2.40;
+export const HAUTEUR_SOUS_PLAFOND_MAX_M = 4.50;
+export const HAUTEUR_SOUS_PLAFOND_PAS_M = 0.10;
+
 /** Hauteur moyenne de l'œil humain à la fenêtre, en mètres. VALEUR DÉFINITIVE. */
 export const EYE_HEIGHT_M = 1.65;
 

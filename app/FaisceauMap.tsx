@@ -75,9 +75,12 @@ interface FaisceauMapProps {
   azimutDeg: number | null;       // azimut COURANT (ajusté) — pilote l'affichage
   azimutInitial?: number | null;  // centre du clamp (azimut capté) ; null → rotation désactivée
   onAzimutChange?: (azimutPropose: number) => void; // le clamp final se fait côté parent
+  /** Demi-amplitude (deg) de rotation autorisée autour de `azimutInitial`. Défaut = MARGE_ROT_DEG (±30°,
+   *  parcours public, INCHANGÉ). Le banc d'essai passe 180 → 360° libre. */
+  margeRotDeg?: number;
 }
 
-export default function FaisceauMap({ lat, lon, azimutDeg, azimutInitial = null, onAzimutChange }: FaisceauMapProps) {
+export default function FaisceauMap({ lat, lon, azimutDeg, azimutInitial = null, onAzimutChange, margeRotDeg = MARGE_ROT_DEG }: FaisceauMapProps) {
   const divRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const tileLayerRef = useRef<any>(null);
@@ -280,8 +283,8 @@ export default function FaisceauMap({ lat, lon, azimutDeg, azimutInitial = null,
         const azInit = azimutInitialRef.current;
         if (azInit === null) return; // rotation désactivée (orientation indisponible)
         const propose = azStart + dx * SENS_ROT_DEG_PAR_PX;
-        const lo = azInit - MARGE_ROT_DEG;
-        const hi = azInit + MARGE_ROT_DEG;
+        const lo = azInit - margeRotDeg;
+        const hi = azInit + margeRotDeg;
         const clamped = Math.max(lo, Math.min(hi, propose));
         setEnButee(propose < lo - 0.001 || propose > hi + 0.001);
         setAzDisp(clamped);               // affichage local immédiat (le faisceau reste vertical)
@@ -315,7 +318,7 @@ export default function FaisceauMap({ lat, lon, azimutDeg, azimutInitial = null,
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onUp);
     };
-  }, [lat, lon]);
+  }, [lat, lon, margeRotDeg]);
 
   const rot = -(azDisp ?? 0); // rotation heading-up
 
