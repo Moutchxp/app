@@ -4,7 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { estCarteModifiee, modeFooter } from './curationEdition';
-import { libelleAction, formaterHorodatage, horodatageTitle, type LigneJournal } from './journalRendu';
+import { libelleAction, formaterHorodatage, horodatageTitle, nomAffiche, type LigneJournal } from './journalRendu';
+
+/** Taille de page du volet global de l'historique (HJ-44). */
+const JOURNAL_LIMIT = 50;
 
 /**
  * Carte de curation patrimoine (Leaflet, LECTURE + écriture via endpoints CRUD).
@@ -305,6 +308,11 @@ export default function CurationCarte() {
   const [journalEntite, setJournalEntite] = useState<{ nom_affiche: string; famille_affiche: string; supprimee: boolean } | null>(null);
   const [journalChargement, setJournalChargement] = useState(false);
   const [journalErreur, setJournalErreur] = useState<string | null>(null);
+  // Contrôles du volet GLOBAL (HJ-42..44).
+  const [journalFamille, setJournalFamille] = useState<'toutes' | 'inventaire' | 'mh' | 'mondial'>('toutes');
+  const [journalOrdre, setJournalOrdre] = useState<'desc' | 'asc'>('desc');
+  const [journalOffset, setJournalOffset] = useState(0);
+  const [journalTotal, setJournalTotal] = useState(0);
 
   // Refs Leaflet (map créée une seule fois ; couches réutilisées).
   const conteneurRef = useRef<HTMLDivElement | null>(null);
@@ -524,6 +532,62 @@ export default function CurationCarte() {
       annule = true;
     };
   }, [journal]);
+
+  // ── Volet B : chargement de l'historique GLOBAL (paginé/filtré/trié, lecture seule). Refetch sur
+  //    changement de famille/ordre/offset (les handlers remettent offset à 0 sauf la pagination). ─
+  useEffect(() => {
+    if (journal?.mode !== 'global') return;
+    let annule = false;
+    void (async () => {
+      setJournalChargement(true);
+      setJournalErreur(null);
+      try {
+        const qs = new URLSearchParams({
+          famille: journalFamille,
+          ordre: journalOrdre,
+          limit: String(JOURNAL_LIMIT),
+          offset: String(journalOffset),
+        });
+        const res = await fetch(`/api/admin/curation/journal?${qs.toString()}`, { cache: 'no-store' });
+        if (annule) return;
+        if (!res.ok) {
+          setJournalErreur('Historique indisponible.');
+          setJournalLignes([]);
+          setJournalTotal(0);
+          return;
+        }
+        const data = await res.json();
+        if (annule) return;
+        setJournalLignes(Array.isArray(data.lignes) ? (data.lignes as LigneJournal[]) : []);
+        setJournalTotal(Number(data.total) || 0);
+      } catch {
+        if (!annule) setJournalErreur('Historique indisponible.');
+      } finally {
+        if (!annule) setJournalChargement(false);
+      }
+    })();
+    return () => {
+      annule = true;
+    };
+  }, [journal, journalFamille, journalOrdre, journalOffset]);
+
+  // ── Recentrage ISOLÉ sur une entité (clic d'une ligne du journal global, OQ-2) : NE PAS ouvrir la fiche
+  //    ni fermer le journal. Point → setView ; sinon best-effort fitBounds sur ses emprises ; sinon no-op. ─
+  const recentrerSurEntite = useCallback(
+    async (entiteId: number) => {
+      const map = mapRef.current;
+      if (!map) return;
+      const e = entitesRef.current?.find((x) => x.id === entiteId);
+      if (e?.point) {
+        const [lon, lat] = e.point.coordinates;
+        map.setView([lat, lon], Math.max(map.getZoom(), 17));
+        return;
+      }
+      const b = boundsEmprises(await fetchEmprisesEntite(entiteId));
+      if (b) map.fitBounds(b, { padding: [40, 40], maxZoom: 18 });
+    },
+    [],
+  );
 
   // ── Sélection d'une entité (centre la carte + charge ses emprises via l'effet). ─
   const selectionner = useCallback(
@@ -955,7 +1019,22 @@ export default function CurationCarte() {
       <style>{CSS}</style>
 
       <header className="svv-cur-head">
-        <h1 className="svv-cur-title">Curation patrimoine</h1>
+        <div className="svv-cur-head-ligne">
+          <h1 className="svv-cur-title">Curation patrimoine</h1>
+          <button
+            type="button"
+            className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
+            aria-pressed={journal?.mode === 'global'}
+            onClick={() => {
+              setJournalFamille('toutes');
+              setJournalOrdre('desc');
+              setJournalOffset(0);
+              setJournal({ mode: 'global' });
+            }}
+          >
+            Historique
+          </button>
+        </div>
         <p className="svv-cur-sub">
           Corriger les rattachements des 3 familles (MH / Inventaire / Mondial) : déplacer un point
           (réversible, borné), rattacher / détacher / composer des emprises <code>bdtopo_batiment</code>.
@@ -1367,46 +1446,110 @@ export default function CurationCarte() {
             <div ref={conteneurRef} className="svv-cur-map-canvas" />
           </div>
 
-          {journalOuvert && (
+          {journal && (
             <aside className="svv-cur-journal" aria-label="Historique du journal">
               <div className="svv-cur-journal-tete">
                 <strong className="svv-cur-journal-titre">
-                  {`Historique${journalEntite ? ` — ${journalEntite.nom_affiche}` : ''}`}
+                  {journal.mode === 'global'
+                    ? 'Historique — journal de curation'
+                    : `Historique${journalEntite ? ` — ${journalEntite.nom_affiche}` : ''}`}
                 </strong>
-                <button
-                  type="button"
-                  className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
-                  onClick={() => setJournal(null)}
-                >
+                <button type="button" className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline" onClick={() => setJournal(null)}>
                   Retour
                 </button>
               </div>
+
+              {journal.mode === 'global' && (
+                <div className="svv-cur-journal-controles">
+                  <div className="svv-cur-journal-filtres" role="group" aria-label="Filtrer par famille">
+                    {(['toutes', 'inventaire', 'mh', 'mondial'] as const).map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        className={`svv-cur-btn svv-cur-btn--mini${journalFamille === f ? '' : ' svv-cur-btn--outline'}`}
+                        aria-pressed={journalFamille === f}
+                        onClick={() => {
+                          setJournalFamille(f);
+                          setJournalOffset(0);
+                        }}
+                      >
+                        {f === 'toutes' ? 'Toutes' : (LIBELLE_FAMILLE[f] ?? f)}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
+                    onClick={() => {
+                      setJournalOrdre((o) => (o === 'desc' ? 'asc' : 'desc'));
+                      setJournalOffset(0);
+                    }}
+                  >
+                    {journalOrdre === 'desc' ? 'Récent → ancien' : 'Ancien → récent'}
+                  </button>
+                </div>
+              )}
+
               <div className="svv-cur-journal-corps">
                 {journalChargement && <p className="svv-cur-info">Chargement…</p>}
                 {journalErreur && <p className="svv-cur-info svv-cur-journal-erreur">{journalErreur}</p>}
                 {!journalChargement && !journalErreur && journalLignes.length === 0 && (
-                  <p className="svv-cur-info">Aucune trace.</p>
+                  <p className="svv-cur-info">{journal.mode === 'global' ? 'Aucune entrée.' : 'Aucune trace.'}</p>
                 )}
                 {!journalChargement && !journalErreur && journalLignes.length > 0 && (
                   <ul className="svv-cur-journal-liste">
-                    {journalLignes.map((l) => (
-                      <li key={l.id} className="svv-cur-journal-ligne">
-                        <span className="svv-cur-journal-lib" title={l.cleabs ?? undefined}>
-                          {libelleAction(l)}
-                        </span>
-                        <span className="svv-cur-journal-meta">
-                          <span className={`svv-cur-badge svv-cur-badge--fam-${l.famille_affiche}`}>
-                            {LIBELLE_FAMILLE[l.famille_affiche] ?? l.famille_affiche}
+                    {journalLignes.map((l) => {
+                      const cliquable = journal.mode === 'global' && !l.supprimee;
+                      return (
+                        <li
+                          key={l.id}
+                          className={`svv-cur-journal-ligne${cliquable ? ' svv-cur-journal-ligne--clic' : ''}`}
+                          {...(cliquable
+                            ? { role: 'button' as const, tabIndex: 0, onClick: () => void recentrerSurEntite(l.entite_id) }
+                            : {})}
+                        >
+                          <span className="svv-cur-journal-lib" title={l.cleabs ?? undefined}>
+                            {journal.mode === 'global' && <span className="svv-cur-journal-nom">{nomAffiche(l)}</span>}
+                            {libelleAction(l)}
                           </span>
-                          <time className="svv-cur-journal-ts" dateTime={horodatageTitle(l.ts)} title={horodatageTitle(l.ts)}>
-                            {formaterHorodatage(l.ts)}
-                          </time>
-                        </span>
-                      </li>
-                    ))}
+                          <span className="svv-cur-journal-meta">
+                            <span className={`svv-cur-badge svv-cur-badge--fam-${l.famille_affiche}`}>
+                              {LIBELLE_FAMILLE[l.famille_affiche] ?? l.famille_affiche}
+                            </span>
+                            <time className="svv-cur-journal-ts" dateTime={horodatageTitle(l.ts)} title={horodatageTitle(l.ts)}>
+                              {formaterHorodatage(l.ts)}
+                            </time>
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>
+
+              {journal.mode === 'global' && !journalChargement && !journalErreur && journalTotal > 0 && (
+                <div className="svv-cur-journal-pagination">
+                  <button
+                    type="button"
+                    className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
+                    disabled={journalOffset === 0}
+                    onClick={() => setJournalOffset((o) => Math.max(0, o - JOURNAL_LIMIT))}
+                  >
+                    Précédent
+                  </button>
+                  <span className="svv-cur-journal-pos">
+                    {`${journalOffset + 1}–${Math.min(journalOffset + journalLignes.length, journalTotal)} sur ${journalTotal}`}
+                  </span>
+                  <button
+                    type="button"
+                    className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
+                    disabled={journalOffset + JOURNAL_LIMIT >= journalTotal}
+                    onClick={() => setJournalOffset((o) => o + JOURNAL_LIMIT)}
+                  >
+                    Suivant
+                  </button>
+                </div>
+              )}
             </aside>
           )}
         </div>
@@ -1442,6 +1585,14 @@ const CSS = `
 .svv-cur-journal-meta{display:inline-flex;align-items:center;gap:.4rem;flex:0 0 auto}
 .svv-cur-journal-ts{font-size:.72rem;color:var(--color-svv-muted);white-space:nowrap}
 .svv-cur-journal-erreur{color:var(--color-svv-red-dark)}
+.svv-cur-head-ligne{display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap}
+.svv-cur-journal-controles{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.35rem;padding:.35rem .55rem;border-bottom:1px solid var(--color-svv-line)}
+.svv-cur-journal-filtres{display:inline-flex;flex-wrap:wrap;gap:.25rem}
+.svv-cur-journal-nom{font-weight:700;color:var(--color-svv-ink);margin-right:.3rem}
+.svv-cur-journal-ligne--clic{cursor:pointer}
+.svv-cur-journal-ligne--clic:hover{background:var(--color-svv-field)}
+.svv-cur-journal-pagination{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.4rem .55rem;border-top:1px solid var(--color-svv-line);background:var(--color-svv-field)}
+.svv-cur-journal-pos{font-size:.75rem;color:var(--color-svv-muted);white-space:nowrap}
 .svv-cur-badge--fam-mh{background:#eef1ff;color:#3949ab}
 .svv-cur-badge--fam-inventaire{background:#e8f5ec;color:#2e7d32}
 .svv-cur-badge--fam-mondial{background:#fff6df;color:#8a6d00}

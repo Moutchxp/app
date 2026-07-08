@@ -90,3 +90,13 @@ export function horodatageTitle(ts: string): string {
   const d = new Date(ts);
   return Number.isNaN(d.getTime()) ? ts : d.toISOString();
 }
+
+/**
+ * Nom d'entité pour le volet GLOBAL (chaque ligne concerne une entité différente). Une entité supprimée
+ * est suffixée « (supprimée) » — sauf le fallback route « entité supprimée #id » (déjà explicite, pas de
+ * suffixe redondant).
+ */
+export function nomAffiche(x: { nom_affiche: string; supprimee: boolean }): string {
+  if (!x.supprimee) return x.nom_affiche;
+  return x.nom_affiche.startsWith('entité supprimée') ? x.nom_affiche : `${x.nom_affiche} (supprimée)`;
+}

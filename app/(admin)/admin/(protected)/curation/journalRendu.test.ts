@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, type LigneJournal } from './journalRendu';
+import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, nomAffiche, type LigneJournal } from './journalRendu';
 
 function ligne(partial: Partial<LigneJournal>): LigneJournal {
   return {
@@ -67,5 +67,17 @@ describe('formaterHorodatage / horodatageTitle', () => {
   it('ts invalide → renvoyé tel quel (pas de crash)', () => {
     expect(formaterHorodatage('pas-une-date')).toBe('pas-une-date');
     expect(horodatageTitle('pas-une-date')).toBe('pas-une-date');
+  });
+});
+
+describe('nomAffiche (volet global)', () => {
+  it('entité existante → nom brut', () => {
+    expect(nomAffiche({ nom_affiche: 'Maison', supprimee: false })).toBe('Maison');
+  });
+  it('entité supprimée avec nom résolu → suffixe « (supprimée) »', () => {
+    expect(nomAffiche({ nom_affiche: 'Hotel de ville', supprimee: true })).toBe('Hotel de ville (supprimée)');
+  });
+  it('fallback « entité supprimée #id » → pas de suffixe redondant', () => {
+    expect(nomAffiche({ nom_affiche: 'entité supprimée #42', supprimee: true })).toBe('entité supprimée #42');
   });
 });
