@@ -693,6 +693,7 @@ export default function CurationCarte() {
         keyboard: false,
       });
       marqueur.on('click', () => selectionner(e.id));
+      marqueur.on('dblclick', () => selectionner(e.id)); // parité étoile : double-clic point → ouvre la fiche
       if (selectionne) {
         marqueur.on('dragend', () => {
           const p = marqueur.getLatLng();
@@ -826,8 +827,8 @@ export default function CurationCarte() {
     const node = itemActifRef.current;
     if (!node) return; // entité filtrée hors liste (recherche/filtre) → rien à scroller
     const reduire = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    // block:'nearest' → aucun saut si l'item est déjà visible (sélection depuis la liste).
-    node.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'nearest', inline: 'nearest' });
+    // block:'center' → scroll d'ouverture franc, la fiche sélectionnée est centrée dans la colonne.
+    node.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'center', inline: 'nearest' });
     const t = setTimeout(() => setFlashId(null), 1200); // retire la surbrillance (CSS gère reduce)
     return () => clearTimeout(t);
   }, [selectionId]);
@@ -838,7 +839,7 @@ export default function CurationCarte() {
     const node = formulaireRef.current;
     if (!node) return;
     const reduire = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    node.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'nearest', inline: 'nearest' });
+    node.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'center', inline: 'nearest' });
   }, [creationOuverte]);
 
   // ── (Re)dessin des emprises : rattachées en VERT UNIFORME (persistant, Correction 3) +
