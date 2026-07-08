@@ -86,6 +86,43 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     expect(resultat!.score.total).toBeCloseTo(29.107259068449615, 3);
   });
 
+  it('BE-19 : le seam verbeux (opt-in) ne bouge PAS le golden — ventilation.note.total = score.total, 61 lignes', async () => {
+    const { resultat } = await analyserAdresse({
+      point: { lat: 48.90693182287072, lon: 2.269431435588249 },
+      azimutPrincipalDeg: 90,
+      etage: 2,
+      dernierEtage: false,
+      profil: PROFIL_GOLDEN_REF,
+      ventilation: true, // OPT-IN : joint la ventilation par faisceau
+    });
+    expect(resultat).not.toBeNull();
+    // Golden INCHANGÉ malgré l'opt-in (le seam est additif, dérivé du même calcul).
+    expect(resultat!.score.total).toBeCloseTo(29.107259068449615, 3);
+    // Ventilation présente, 61 faisceaux.
+    expect(resultat!.ventilation).toBeDefined();
+    expect(resultat!.ventilation!.lignes).toHaveLength(61);
+    // Reconstruction BIT-IDENTIQUE : l'agrégat du seam est la SEULE source de la note (délégation).
+    expect(resultat!.ventilation!.note.total).toBe(resultat!.score.total);
+    // Chaque ligne porte la valeur brute (nullable) + perçue + la borne du profil.
+    for (const l of resultat!.ventilation!.lignes) {
+      expect(typeof l.distancePercueM).toBe('number');
+      expect(typeof l.seuilBorneM).toBe('number');
+    }
+  });
+
+  it('BE-19bis : sans opt-in, resultat.ventilation est absent (chemin de prod inchangé)', async () => {
+    const { resultat } = await analyserAdresse({
+      point: { lat: 48.90693182287072, lon: 2.269431435588249 },
+      azimutPrincipalDeg: 90,
+      etage: 2,
+      dernierEtage: false,
+      profil: PROFIL_GOLDEN_REF,
+    });
+    expect(resultat).not.toBeNull();
+    expect(resultat!.ventilation).toBeUndefined();
+    expect(resultat!.score.total).toBeCloseTo(29.107259068449615, 3);
+  });
+
   it('cas NÉGATIF : point « rue » hors emprise → valide=false, resultat=null (HORS_BATIMENT)', async () => {
     const { validation, resultat } = await analyserAdresse({
       point: { lat: 48.907093686290544, lon: 2.2694291636998782 },

@@ -17,9 +17,11 @@ import {
   cartoucheDegagement,
   cartoucheVueNature,
   cartoucheImmobilier,
+  ventilerAnalyse,
   type ExtractionVueNature,
   type ExtractionImmobilier,
   type ExtractionMonuments,
+  type VentilationAnalyse,
 } from './coucheDegagement';
 import { CONE_VUE_NATURE_DEG } from './config';
 import { PROFIL_DEGAGEMENT_DEFAUT, type ProfilDegagement } from './profilDegagement';
@@ -51,6 +53,12 @@ export interface ResultatComplet {
   contexteVueNature: string | null; // cartouche « vue nature » DESCRIPTIVE (SCORE-ONLY) ; null si non déclenchée
   contexteImmobilier: string | null; // cartouche « environnement immobilier » DESCRIPTIVE (SCORE-ONLY) ; null si non déclenchée
   monumentsHistoriques: string[]; // badges « monument historique » (variante A) DESCRIPTIFS (SCORE-ONLY) ; [] si aucun
+  ventilation?: VentilationAnalyse; // SEAM VERBEUX (banc M5) — présent UNIQUEMENT si demandé (opt-in) ; SCORE-ONLY
+}
+
+/** Options d'analyse (opt-in). `ventilation` : joindre la ventilation par faisceau (banc M5) ; absent en prod. */
+export interface OptionsAnalyse {
+  ventilation?: boolean;
 }
 
 /**
@@ -95,6 +103,7 @@ function libellesPatrimoine(extraction: ExtractionMonuments): string[] {
 export function analyser(
   entree: EntreeComplete,
   profil: ProfilDegagement = PROFIL_DEGAGEMENT_DEFAUT,
+  options?: OptionsAnalyse,
 ): ResultatComplet {
   // 1) Verdict géométrique pur.
   const verdict = premierObstacle(entree.obstaclesAxePrincipal, entree.altitudeFenetreM);
@@ -136,5 +145,13 @@ export function analyser(
   // 9) Badges « patrimoine » (natifs + tags manuels, modèle unifié) — DESCRIPTIFS, score-only ; [] si absent.
   const monumentsHistoriques = entree.extractionMonuments ? libellesPatrimoine(entree.extractionMonuments) : [];
 
-  return { verdict, score, distanceAxePrincipalM, contexteDegagement, contexteVueNature, contexteImmobilier, monumentsHistoriques };
+  // 10) SEAM VERBEUX (banc M5) — OPT-IN uniquement : ventilation par faisceau, dérivée du MÊME calcul (aucun
+  //     round-trip DB). Absent par défaut → chemin de prod strictement inchangé (valeur + perf).
+  const resultat: ResultatComplet = {
+    verdict, score, distanceAxePrincipalM, contexteDegagement, contexteVueNature, contexteImmobilier, monumentsHistoriques,
+  };
+  if (options?.ventilation) {
+    resultat.ventilation = ventilerAnalyse(entree.faisceaux, profil, entree.orientationAzimutDeg);
+  }
+  return resultat;
 }

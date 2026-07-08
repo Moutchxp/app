@@ -221,29 +221,193 @@ export function diagnostiquerCouloir(faisceaux: FaisceauResultat[], profil: Prof
   });
 }
 
+// ============================ SEAM VERBEUX (ventilation par faisceau) ============================
+// LECTURE SEULE, ADDITIF, opt-in (banc d'essai M5). Source UNIQUE de vérité : `distancePercueFaisceau`
+// (valeur par faisceau) et `ventilerNote` (agrégat) — `noteDegagement` DÉLÈGUE à `ventilerNote`. Les
+// champs DESCRIPTIFS ci-dessous ne feed NI le score NI le verdict ; ils exposent la ventilation du calcul
+// déjà effectué (aucun round-trip DB, aucun réordonnancement). N'altère pas le chemin de prod non demandé.
+
+/** Famille pondérée RÉELLEMENT appliquée à un faisceau (miroir de la priorité de `familleCoeff` + mondial). */
+export type FamilleFaisceau = 'mh' | 'inventaire' | 'mondial' | 'annee' | null;
+
+/** Ventilation d'UN faisceau : valeur brute/perçue + contributions réellement appliquées (descriptif). */
+export interface VentilationFaisceau {
+  offsetDeg: number;
+  /** Distance géométrique du 1er obstacle (m) ; `null` = faisceau dégagé. Indépendante du profil. */
+  distanceBruteM: number | null;
+  /** Distance perçue pondérée (m) = `distancePercueFaisceau(f, profil)` (source unique, bit-identique). */
+  distancePercueM: number;
+  /** Borne du PROFIL qui plafonne ce faisceau (base `distanceMaxM` / famille `distMaxM` / mondial), dérivée du profil. */
+  seuilBorneM: number;
+  /** Famille pondérée appliquée (ou `null` = bâti ordinaire / faisceau dégagé). */
+  famille: FamilleFaisceau;
+  /** Coefficient cône/flanc appliqué (`null` si ordinaire ou mondial fixe). */
+  coeffApplique: number | null;
+  /** Boost F4 nature appliqué (m) = `boostF4 × natureTraverseeM` (0 si pas de nature). */
+  boostF4AppliqueM: number;
+  /** Longueur de nature traversée (m). */
+  natureTraverseeM: number;
+  /** Diviseur de cumul nature (`null` si pas de cumul nature+bâti sur ce faisceau). */
+  diviseurCumulNature: number | null;
+  /** Mode de combinaison P1/P2 effectivement retenu (`null` si pas de cumul). */
+  modeCombinaison: ModeCombinaison | ModeRepli | null;
+  /** Le cap `famille.distMaxM` a-t-il mordu (min(…, distMaxM) actif) ? */
+  capFamilleApplique: boolean;
+}
+
+/** Ventilation d'un côté du couloir (indices des faisceaux de la chaîne + malus en m). */
+export interface VentilationCouloir {
+  cote: CoteCouloir;
+  validee: boolean;
+  n: number;
+  indices: number[];
+  malusM: number;
+}
+
+/** Ventilation de l'AGRÉGAT (note) : intermédiaires exposés, `total` = la note officielle (source unique). */
+export interface VentilationNote {
+  total: number;
+  cumulPercuM: number;
+  cumulBrutM: number;
+  malusCouloir: VentilationCouloir[]; // [droite, gauche]
+  malusTotalM: number;
+  cumulNetM: number;
+  /** Note AVANT orientation = `(cumulNet / nb / distanceMaxM) × plafondDegagement` (valeur exacte). */
+  noteAvantOrientation: number;
+  /** Facteur de normalisation indicatif `(1 / nb / distanceMaxM) × plafondDegagement` (affichage). */
+  facteurNormalisation: number;
+  orientation: { secteur: string | null; points: number };
+  clamp: { min: number; max: number; applique: boolean };
+}
+
+/** Ventilation complète d'une analyse : 61 lignes + agrégat. */
+export interface VentilationAnalyse {
+  lignes: VentilationFaisceau[];
+  note: VentilationNote;
+}
+
 /**
- * Note de dégagement /plafondCouche1 : cumul des distances perçues, minoré du malus couloir
- * (chaînes validées droite/gauche cumulables, proportionnel au cumul brut S), normalisé par la
- * portée × le nombre de faisceaux. Puis orientation (ORIENTATION_PTS), puis clamp [0, plafondCouche1].
+ * Ventilation DESCRIPTIVE d'un faisceau. `distancePercueM` DÉLÈGUE à `distancePercueFaisceau` (source unique,
+ * bit-identique) ; les contributions sont re-dérivées à l'identique du barème (elles ne feed pas le score).
  */
-export function noteDegagement(faisceaux: FaisceauResultat[], profil: ProfilDegagement, azimutDeg?: number): number {
-  if (faisceaux.length === 0) return 0;
+export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement): VentilationFaisceau {
+  const distancePercueM = distancePercueFaisceau(f, profil); // ← SOURCE UNIQUE de la valeur
+  const natureM = f.natureTraverseeM ?? 0;
+  const boostF4AppliqueM = natureM > 0 ? profil.boostF4 * natureM : 0;
+
+  let famille: FamilleFaisceau = null;
+  let coeffApplique: number | null = null;
+  let diviseur: number | null = null;
+  let modeEff: ModeCombinaison | ModeRepli | null = null;
+  let capFamilleApplique = false;
+  let seuilBorneM = profil.distanceMaxM;
+
+  if (f.impactEmblematique === true) {
+    famille = 'mondial';
+    seuilBorneM = profil.famillesPonderation.mondialFaisceauM;
+  } else {
+    const fam = familleCoeff(f, profil);
+    const dist = f.distanceObstacleM;
+    if (fam !== null && dist !== null) {
+      famille = f.impactMH === true ? 'mh' : f.impactInventaire === true ? 'inventaire' : 'annee';
+      coeffApplique = Math.abs(f.offsetDeg) <= profil.coneFamilleDemiAngleDeg ? fam.cone : fam.flanc;
+      seuilBorneM = fam.distMaxM;
+      const base = Math.min(dist, profil.distanceMaxM);
+      const valeurClassique = natureM > 0 ? Math.min(base + profil.boostF4 * natureM, profil.distanceMaxM) : base;
+      if (natureM > 0) {
+        const p1 = Math.min(valeurClassique, profil.cumulNature.capP1M);
+        const p2 = dist * coeffApplique;
+        diviseur = diviseurCumulNature(natureM, profil.cumulNature);
+        modeEff = natureM >= profil.cumulNature.seuilMinM ? profil.modeCombinaison : profil.modeCombinaisonRepli;
+        const combine = combinerP1P2(
+          p1, p2, diviseur, natureM, profil.cumulNature.seuilMinM, profil.modeCombinaison, profil.modeCombinaisonRepli,
+        );
+        capFamilleApplique = fam.distMaxM < combine;
+      } else {
+        capFamilleApplique = fam.distMaxM < dist * coeffApplique;
+      }
+    }
+  }
+
+  return {
+    offsetDeg: f.offsetDeg,
+    distanceBruteM: f.distanceObstacleM,
+    distancePercueM,
+    seuilBorneM,
+    famille,
+    coeffApplique,
+    boostF4AppliqueM,
+    natureTraverseeM: natureM,
+    diviseurCumulNature: diviseur,
+    modeCombinaison: modeEff,
+    capFamilleApplique,
+  };
+}
+
+/**
+ * Agrégat de la note — SOURCE UNIQUE de la formule (`noteDegagement` délègue à `.total`). Reproduit à
+ * l'identique le calcul historique : cumul perçu − malus couloir, normalisé, + orientation, clampé. Expose
+ * les intermédiaires. `total` est BIT-IDENTIQUE à l'ancienne `noteDegagement`.
+ */
+export function ventilerNote(faisceaux: FaisceauResultat[], profil: ProfilDegagement, azimutDeg?: number): VentilationNote {
+  const clampMin = 0;
+  const clampMax = profil.plafondCouche1;
+  if (faisceaux.length === 0) {
+    return {
+      total: 0, cumulPercuM: 0, cumulBrutM: 0, malusCouloir: [], malusTotalM: 0, cumulNetM: 0,
+      noteAvantOrientation: 0, facteurNormalisation: 0, orientation: { secteur: null, points: 0 },
+      clamp: { min: clampMin, max: clampMax, applique: false },
+    };
+  }
   const cumulPercu = faisceaux.reduce((acc, f) => acc + distancePercueFaisceau(f, profil), 0);
   const S = cumulBrut(faisceaux, profil);
   let malusTotal = 0;
+  const malusCouloir: VentilationCouloir[] = [];
   for (const cote of ['droite', 'gauche'] as const) {
     const ch = detecterChaineCouloir(faisceaux, profil, cote);
-    if (ch.validee) malusTotal += malusCouloirM(ch.indices.length, S, profil);
+    const malusM = ch.validee ? malusCouloirM(ch.indices.length, S, profil) : 0;
+    if (ch.validee) malusTotal += malusM; // ORDRE IDENTIQUE à l'historique : droite puis gauche
+    malusCouloir.push({ cote, validee: ch.validee, n: ch.indices.length, indices: ch.indices, malusM });
   }
   const cumulNet = Math.max(0, cumulPercu - malusTotal);
   const note = (cumulNet / faisceaux.length / profil.distanceMaxM) * profil.plafondDegagement;
   let noteAvecOrientation = note;
-  if (typeof azimutDeg === "number") {
-    const secteur = azimutVersSecteur(azimutDeg);          // même découpage que la boussole UI (géométrie, en code)
-    const pts = profil.orientationPts[secteur] ?? 0;       // barème 0-10 (externalisé en config)
+  let secteur: ReturnType<typeof azimutVersSecteur> | null = null;
+  let pts = 0;
+  if (typeof azimutDeg === 'number') {
+    secteur = azimutVersSecteur(azimutDeg);          // même découpage que la boussole UI (géométrie, en code)
+    pts = profil.orientationPts[secteur] ?? 0;       // barème 0-10 (externalisé en config)
     noteAvecOrientation = note + pts;
   }
-  return clamp(noteAvecOrientation, 0, profil.plafondCouche1);   // clamp [0, plafondCouche1=90]
+  const total = clamp(noteAvecOrientation, clampMin, clampMax);
+  return {
+    total,
+    cumulPercuM: cumulPercu,
+    cumulBrutM: S,
+    malusCouloir,
+    malusTotalM: malusTotal,
+    cumulNetM: cumulNet,
+    noteAvantOrientation: note,
+    facteurNormalisation: (1 / faisceaux.length / profil.distanceMaxM) * profil.plafondDegagement,
+    orientation: { secteur, points: pts },
+    clamp: { min: clampMin, max: clampMax, applique: total !== noteAvecOrientation },
+  };
+}
+
+/** Ventilation complète (61 lignes + agrégat) — assemblage opt-in pour le banc. */
+export function ventilerAnalyse(faisceaux: FaisceauResultat[], profil: ProfilDegagement, azimutDeg?: number): VentilationAnalyse {
+  return {
+    lignes: faisceaux.map((f) => ventilerFaisceau(f, profil)),
+    note: ventilerNote(faisceaux, profil, azimutDeg),
+  };
+}
+
+/**
+ * Note de dégagement /plafondCouche1 : cumul des distances perçues, minoré du malus couloir, normalisé,
+ * + orientation, clampé. DÉLÈGUE à `ventilerNote` (source unique de l'agrégat) → `.total` bit-identique.
+ */
+export function noteDegagement(faisceaux: FaisceauResultat[], profil: ProfilDegagement, azimutDeg?: number): number {
+  return ventilerNote(faisceaux, profil, azimutDeg).total;
 }
 
 /**

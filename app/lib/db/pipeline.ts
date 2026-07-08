@@ -77,6 +77,8 @@ export interface ParametresAnalyse {
    *  Si absent → lecture LIVE de config_scoring via chargerProfilDegagement (comportement de prod
    *  INCHANGÉ). La prod n'injecte JAMAIS ce champ. Cf. docs/SPEC_decouplage_golden_reference.md. */
   profil?: ProfilDegagement;
+  /** Banc d'essai M5 (opt-in) : joindre la ventilation par faisceau à `resultat.ventilation`. Absent en prod. */
+  ventilation?: boolean;
 }
 
 export interface ResultatAnalyse {
@@ -178,7 +180,7 @@ export async function analyserAdresse(params: ParametresAnalyse): Promise<Result
   //    gelée de référence), SINON lu UNE SEULE FOIS depuis config_scoring (repli sur
   //    PROFIL_DEGAGEMENT_DEFAUT). La prod n'injecte jamais → lecture live INCHANGÉE.
   const profil = params.profil ?? await chargerProfilDegagement();
-  const resultat = analyser(entree, profil);
+  const resultat = analyser(entree, profil, params.ventilation ? { ventilation: true } : undefined);
 
   return { validation, resultat };
 }
