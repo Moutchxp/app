@@ -438,6 +438,11 @@ export default function CurationCarte() {
       setEditionProposee({ id: dejaManuel.id, nom: dejaManuel.nom });
       return;
     }
+    // Régression : le rendu de la carte de création est gardé derrière `composition === null`. On ferme
+    // toute composition/sélection en cours pour qu'un double-clic démarre TOUJOURS une création fraîche
+    // (sinon la zone de composition ou les emprises bleues candidates masqueraient/intercepteraient le formulaire).
+    setComposition(null);
+    setSelectionId(null);
     setCleabsCible(cleabs);
     setCreationOuverte(true);
   }, []);
@@ -968,18 +973,19 @@ export default function CurationCarte() {
 
   // FC-60 : aucun scrollIntoView à l'ouverture du formulaire de création (effet `[creationOuverte]` retiré).
 
-  // ── Scroll vers le HAUT à l'OUVERTURE de la zone de composition (transition null→id). Cible `formulaireRef`
-  //    (conteneur, toujours monté) → indépendant de `flashId`/`itemActifRef` : ne ressuscite pas le scroll
-  //    descendant supprimé, ne perturbe pas le scroll de sélection normale. Keyé sur `composition` seul → PAS
-  //    de re-scroll à chaque rattachement ultérieur (OQ-d). ─
+  // ── Scroll vers le HAUT dès que la ZONE HAUTE s'ouvre (formulaire de création OU zone de composition — tous
+  //    deux enveloppés par `formulaireRef`). Keyé sur `zoneHauteOuverte` (creationOuverte || composition!==null),
+  //    qui reste `true` pendant la transition formulaire→composition → PAS de double scroll ; PAS de re-scroll aux
+  //    rattachements (liaisons/compteur hors deps). Cible `formulaireRef` (HAUT) → jamais `itemActifRef`/`flashId`. ─
+  const zoneHauteOuverte = creationOuverte || composition !== null;
   useEffect(() => {
-    if (composition === null) return;
+    if (!zoneHauteOuverte) return;
     const reduire = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const raf = requestAnimationFrame(() => {
       formulaireRef.current?.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'start', inline: 'nearest' });
     });
     return () => cancelAnimationFrame(raf);
-  }, [composition]);
+  }, [zoneHauteOuverte]);
 
   // ── Fermeture de la zone de composition (« Terminer » / « Abandonner ») : COSMÉTIQUE, aucune écriture,
   //    aucune suppression (OQ-1). `selectionId=null` → l'entité rejoint la liste à sa place (re-render normal).
