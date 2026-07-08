@@ -289,6 +289,7 @@ export default function CurationCarte() {
   const [formFamille, setFormFamille] = useState<'mondial' | 'mh' | 'inventaire'>('mh');
   const [formNom, setFormNom] = useState('');
   const [cleabsCible, setCleabsCible] = useState<string | null>(null); // bâtiment double-cliqué à taguer
+  const [composition, setComposition] = useState<number | null>(null); // entité juste créée, en cours de composition (zone haute)
   // Redirection vers l'édition d'un tag manuel existant (au lieu d'un doublon) + confirmation de suppression.
   const [editionProposee, setEditionProposee] = useState<{ id: number; nom: string | null } | null>(null);
   const [confirmSuppression, setConfirmSuppression] = useState(false);
@@ -593,6 +594,8 @@ export default function CurationCarte() {
   const selectionner = useCallback(
     (id: number) => {
       setSelectionId(id);
+      // OQ-6 : clic sur une AUTRE fiche pendant une composition → fermeture implicite (comme « Terminer »).
+      setComposition((c) => (c === id ? c : null));
       // HJ-56 : clic sur une AUTRE fiche → referme le journal (garde le volet A ouvert si c'est la même entité).
       setJournal((j) => (j?.mode === 'entite' && j.entiteId === id ? j : null));
       setFlashId(id); // cible du scroll + surbrillance brève dans la liste
@@ -716,21 +719,40 @@ export default function CurationCarte() {
   const soumettreCreation = useCallback(async () => {
     // Nom OPTIONNEL (B1) : vide → NULL côté serveur, le cartouche résultat affiche un générique par famille.
     const nom = formNom.trim();
+    const cible = cleabsCible; // capturé AVANT reset : polygone du double-clic à AUTO-rattacher
     setEnEcriture(true);
     const id = await creerEntite({ famille: formFamille, nom });
-    setEnEcriture(false);
     if (id === null) {
+      setEnEcriture(false);
       signaler('Création impossible.', 'erreur');
       return;
     }
+    // Auto-rattachement du polygone double-cliqué (route /liaisons EXISTANTE, source manuel) — 2 appels distincts.
+    // Échec du rattachement : l'entité (déjà créée) PERSISTE, l'opérateur clique l'emprise manuellement (cohérent Abandonner).
+    let rattacheOk = false;
+    if (cible !== null) {
+      const rep = await ecrire(`/api/admin/curation/entites/${id}/liaisons`, 'POST', { cleabs: cible });
+      rattacheOk = rep.ok;
+    }
+    setEnEcriture(false);
     setCreationOuverte(false);
     setFormNom('');
     setCleabsCible(null);
-    await recharger(); // IMPÉRATIF avant selectionner : la nouvelle entité doit entrer dans `entites`
-    creationBorneRef.current = id; // l'effet d'ouverture posera borne=0 + creeeEnSession (footer Valider/Annuler)
-    selectionner(id);
-    signaler('Entité créée — cliquez les emprises bleues pour composer.', 'ok');
-  }, [formFamille, formNom, recharger, selectionner, signaler]);
+    await recharger(); // entités à jour → puce/compteur/emprisesLiees (vert) + étoile (effet [entites] → tags-manuels)
+    // Chantier précédent : SÉLECTION SANS scroll — `selectionId` posé DIRECTEMENT (pas via `selectionner`, donc pas de
+    // `flashId` → aucun scroll ni surbrillance). La fiche s'affiche dans la ZONE DE COMPOSITION en haut.
+    setJournal(null);
+    setConfirmDetach(null);
+    setSelectionId(id);
+    setComposition(id);
+    if (cible !== null && !rattacheOk) {
+      signaler('Tag créé, mais le rattachement du polygone a échoué — clique l’emprise bleue pour le rattacher.', 'erreur');
+    } else if (cible !== null) {
+      signaler('Tag créé et rattaché au polygone.', 'ok');
+    } else {
+      signaler('Tag créé — sélectionne un ou plusieurs polygones, puis clique « Terminer ».', 'ok');
+    }
+  }, [formFamille, formNom, cleabsCible, recharger, signaler]);
 
   // ── Renommer / supprimer un tag MANUEL (routes gardées `origine='manuel'` côté serveur). ─
   const renommerEntite = useCallback(
@@ -944,14 +966,16 @@ export default function CurationCarte() {
     return () => clearTimeout(t);
   }, [flashId]);
 
-  // ── Scroll vers le formulaire « Nouveau tag » à son ouverture (visible même si le panneau était scrollé). ─
-  useEffect(() => {
-    if (!creationOuverte) return;
-    const node = formulaireRef.current;
-    if (!node) return;
-    const reduire = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    node.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'center', inline: 'nearest' });
-  }, [creationOuverte]);
+  // FC-60 : aucun scrollIntoView à l'ouverture du formulaire de création (effet `[creationOuverte]` retiré).
+
+  // ── Fermeture de la zone de composition (« Terminer » / « Abandonner ») : COSMÉTIQUE, aucune écriture,
+  //    aucune suppression (OQ-1). `selectionId=null` → l'entité rejoint la liste à sa place (re-render normal).
+  //    Aucun scroll (flashId non touché → garde de l'effet `[flashId]`). ─
+  const fermerComposition = useCallback(() => {
+    setComposition(null);
+    setSelectionId(null);
+    coucheEmprisesRef.current?.clearLayers();
+  }, []);
 
   // ── (Re)dessin des emprises : rattachées en VERT UNIFORME (persistant, Correction 3) +
   //    candidates de la bbox en bleu (hors des déjà rattachées). ────────────────────
@@ -991,12 +1015,13 @@ export default function CurationCarte() {
   const entitesFiltrees = useMemo(() => {
     const q = recherche.trim().toLowerCase();
     return (entites ?? [])
+      .filter((e) => e.id !== composition) // FC-20/FC-74 : l'entité en composition est dans la zone haute, hors liste
       .filter((e) => famillesVisibles[e.famille] !== false)
       .filter((e) => {
         if (!q) return true;
         return (e.nom ?? '').toLowerCase().includes(q) || e.refCode.toLowerCase().includes(q);
       });
-  }, [entites, famillesVisibles, recherche]);
+  }, [entites, famillesVisibles, recherche, composition]);
 
   const compteurs: Compteurs = useMemo(() => {
     const base = (entites ?? []).filter((e) => famillesVisibles[e.famille] !== false);
@@ -1078,7 +1103,47 @@ export default function CurationCarte() {
 
           {/* Création d'entité manuelle (tag). */}
           <div className="svv-cur-creation" ref={formulaireRef}>
-            {!creationOuverte ? (
+            {composition !== null ? (
+              // Zone de COMPOSITION (FC-20..29) : la fiche-en-création reste EN HAUT, hors liste triée.
+              (() => {
+                const e = entiteSelectionnee;
+                const nb = e ? e.liaisons.filter((l) => l.actif && !l.detache).length : 0;
+                const cercle = !!e && e.etat === 'rouge' && !e.point;
+                return (
+                  <div className="svv-cur-compo" role="group" aria-label="Composition du nouveau tag">
+                    <div className="svv-cur-compo-tete">
+                      <span
+                        className={`svv-cur-dot${cercle ? ' svv-cur-dot--rouge' : ''}`}
+                        style={cercle || !e ? undefined : { background: COULEUR_ETAT[e.etat] }}
+                        aria-hidden="true"
+                      />
+                      <span className="svv-cur-compo-nom">{e?.nom ?? '(sans nom)'}</span>
+                      {e && <span className="svv-cur-badge">{LIBELLE_FAMILLE[e.famille] ?? e.famille}</span>}
+                    </div>
+                    <p className="svv-cur-compo-invite">
+                      {nb >= 1
+                        ? 'Tag créé et rattaché. Sélectionne d’autres polygones sur la carte si besoin, puis clique « Terminer » — ou « Terminer » directement si c’est suffisant.'
+                        : 'Sélectionne un ou plusieurs polygones sur la carte, puis clique « Terminer ».'}
+                    </p>
+                    <p className="svv-cur-compo-compteur">
+                      {`${nb} polygone${nb > 1 ? 's' : ''} rattaché${nb > 1 ? 's' : ''}`}
+                    </p>
+                    <div className="svv-cur-form-actions">
+                      <button type="button" className="svv-cur-btn svv-cur-btn--mini" onClick={fermerComposition}>
+                        Terminer
+                      </button>
+                      <button
+                        type="button"
+                        className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
+                        onClick={fermerComposition}
+                      >
+                        Abandonner
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()
+            ) : !creationOuverte ? (
               <button
                 type="button"
                 className="svv-cur-btn svv-cur-btn--outline"
@@ -1605,6 +1670,11 @@ const CSS = `
 .svv-cur-form-champ{display:flex;flex-direction:column;gap:.2rem;font-size:.8rem;font-weight:600;color:var(--color-svv-ink)}
 .svv-cur-form-champ select,.svv-cur-form-champ input{width:100%;box-sizing:border-box;padding:.45rem .55rem;border:1px solid var(--color-svv-line);border-radius:.5rem;background:#fff;color:var(--color-svv-ink);font-size:.9rem;font-family:inherit;font-weight:500;min-height:44px}
 .svv-cur-form-actions{display:flex;gap:.4rem}
+.svv-cur-compo{display:flex;flex-direction:column;gap:.4rem;border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.6rem;background:var(--color-svv-field)}
+.svv-cur-compo-tete{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+.svv-cur-compo-nom{font-weight:800;color:var(--color-svv-ink)}
+.svv-cur-compo-invite{margin:0;font-size:.82rem;color:var(--color-svv-muted);line-height:1.4}
+.svv-cur-compo-compteur{margin:0;font-size:.78rem;font-weight:700;color:var(--color-svv-ink)}
 .svv-cur-form-cible{margin:0;font-size:.78rem;line-height:1.35;color:var(--color-svv-green-ink);background:var(--color-svv-green-soft);border-radius:.45rem;padding:.4rem .5rem}
 .svv-cur-filtres{border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.5rem .6rem;margin:0;display:flex;flex-wrap:wrap;gap:.35rem .7rem}
 .svv-cur-legende{font-size:.68rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--color-svv-muted);padding:0;margin-right:.3rem}
