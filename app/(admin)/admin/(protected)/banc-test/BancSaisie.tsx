@@ -24,6 +24,9 @@ import {
   HAUTEUR_SOUS_PLAFOND_PAS_M,
   type ModeOrigine,
 } from "../../../../lib/svv/config";
+import type { ProfilDegagement } from "../../../../lib/svv/profilDegagement";
+import { clonerProfil, validerCartesAnnee } from "../../../../lib/svv/profilTest";
+import EditeurProfilTest from "./EditeurProfilTest";
 
 // FaisceauMap = Leaflet impératif (ssr:false, comme dans le parcours public).
 const FaisceauMap = dynamic(() => import("../../../../FaisceauMap"), { ssr: false });
@@ -134,7 +137,30 @@ export default function BancSaisie() {
   const [comparaison, setComparaison] = useState<ComparaisonLite | null>(null);
   const [runEnCours, setRunEnCours] = useState(false);
   const [runErreur, setRunErreur] = useState<string | null>(null);
-  const [runSnapshot, setRunSnapshot] = useState<string | null>(null); // params au moment du run (péremption CA-5.4)
+  const [runSnapshot, setRunSnapshot] = useState<string | null>(null); // params + profil au moment du run (péremption CA-5.4)
+  // Profil ACTIF (chargé une fois) + PROFIL DE TEST éditable (clone en mémoire, Lot 2b).
+  const [profilActif, setProfilActif] = useState<ProfilDegagement | null>(null);
+  const [profilTest, setProfilTest] = useState<ProfilDegagement | null>(null);
+
+  // Charge le profil actif au montage → clone éditable. Aucune écriture ; setState en contexte async (jamais synchrone).
+  useEffect(() => {
+    let annule = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/banc-profil-actif");
+        const data: { profil?: ProfilDegagement } = await res.json();
+        if (!annule && data.profil) {
+          setProfilActif(data.profil);
+          setProfilTest(clonerProfil(data.profil));
+        }
+      } catch {
+        /* profil indisponible : l'éditeur affiche « chargement » ; le run clonera l'actif côté serveur */
+      }
+    })();
+    return () => {
+      annule = true;
+    };
+  }, []);
 
   // Validation du point via /api/origine (validerOrigine) — débounce 300 ms, annulable. Tous les setState
   // sont différés dans le timer (jamais synchrones dans le corps de l'effet).
@@ -218,8 +244,11 @@ export default function BancSaisie() {
     [point, pointValide, azimut, etage, hauteurSousPlafondM, dernierEtage, mode],
   );
 
-  // CA-5.4 : si les paramètres changent après un run, le comparatif affiché devient périmé.
-  const perime = comparaison != null && runSnapshot !== JSON.stringify(parametres);
+  // CA-5.4 : si les paramètres OU le profil de test changent après un run, le comparatif devient périmé.
+  const empreinteRun = JSON.stringify({ p: parametres, t: profilTest });
+  const perime = comparaison != null && runSnapshot !== empreinteRun;
+  // BE-24 : refuser l'exécution si les cartes d'année du profil de test se chevauchent (validation Lot 2).
+  const cartesTestValides = profilTest ? validerCartesAnnee(profilTest.famillesAnnee).ok : true;
 
   function onSelectAdresse(s: SuggestionAdresse) {
     setAdresse(s.label);
@@ -258,7 +287,7 @@ export default function BancSaisie() {
       const res = await fetch("/api/admin/banc-comparer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parametres),
+        body: JSON.stringify({ ...parametres, profilTest: profilTest ?? undefined }),
       });
       const data: ComparaisonLite = await res.json();
       if (!data.ok) {
@@ -266,7 +295,7 @@ export default function BancSaisie() {
         setRunErreur(data.message ?? "Exécution impossible.");
       } else {
         setComparaison(data);
-        setRunSnapshot(JSON.stringify(parametres));
+        setRunSnapshot(JSON.stringify({ p: parametres, t: profilTest }));
       }
     } catch {
       setComparaison(null);
@@ -479,17 +508,41 @@ export default function BancSaisie() {
         )}
       </div>
 
+      {/* 5-bis. Éditeur du profil de test (Lot 2b) — édite un clone en mémoire, jamais config_scoring */}
+      <div
+        className="svv-card"
+        style={{ marginTop: 16, padding: 14, borderRadius: 12, border: "1px solid var(--color-svv-line)" }}
+      >
+        <div className="svv-label" style={{ marginBottom: 4 }}>
+          Profil de test
+        </div>
+        <p style={{ margin: "0 0 12px", fontSize: ".8rem", color: "var(--color-svv-muted)" }}>
+          Édite un clone du profil actif EN MÉMOIRE. Le profil actif et la configuration en base restent intacts.
+        </p>
+        <EditeurProfilTest
+          profilActif={profilActif}
+          profilTest={profilTest}
+          onChange={setProfilTest}
+          onReset={() => profilActif && setProfilTest(clonerProfil(profilActif))}
+        />
+      </div>
+
       {/* 6. Exécution ×2 (profil actif vs profil de test) + comparaison des scores (Lot 5) */}
       <div style={{ marginTop: 16 }}>
         <button
           type="button"
           onClick={lancer}
-          disabled={!parametres || runEnCours}
+          disabled={!parametres || runEnCours || !cartesTestValides}
           className="svv-btn svv-btn-primary"
-          style={{ opacity: !parametres || runEnCours ? 0.6 : 1 }}
+          style={{ opacity: !parametres || runEnCours || !cartesTestValides ? 0.6 : 1 }}
         >
           {runEnCours ? "Exécution…" : "Lancer le test"}
         </button>
+        {!cartesTestValides && (
+          <div style={{ marginTop: 8, fontSize: ".82rem", color: "var(--color-svv-red)" }}>
+            Cartes d’année du profil de test invalides (chevauchement) — corrigez-les avant d’exécuter.
+          </div>
+        )}
         {perime && (
           <div style={{ marginTop: 8, fontSize: ".82rem", color: "var(--color-svv-ink)" }}>
             Paramètres modifiés depuis le dernier test — relancez pour un comparatif à jour.
