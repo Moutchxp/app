@@ -821,9 +821,12 @@ export default function CurationCarte() {
     }
   }, [entites, emprisesFond, tagsManuels, selectionId, selectionner]);
 
-  // ── Scroll auto vers l'item sélectionné dans la liste + surbrillance brève (clic marqueur). ─
+  // ── Scroll auto vers l'item sélectionné dans la liste + surbrillance brève (clic marqueur / étoile). ─
+  //    Keyé sur `flashId` (posé par `selectionner` à CHAQUE sélection, même re-sélection d'une fiche déjà
+  //    ouverte → l'étoile scrolle comme le point). `flashId` n'est jamais touché par le repli (refermerCarte/
+  //    supprimerEntite) → le repli reste SANS scroll ; le reset à null ci-dessous est neutralisé par la garde.
   useEffect(() => {
-    if (selectionId === null) return; // pas de scroll au montage
+    if (flashId === null) return; // pas de scroll au montage ni au repli
     const node = itemActifRef.current;
     if (!node) return; // entité filtrée hors liste (recherche/filtre) → rien à scroller
     const reduire = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -831,7 +834,7 @@ export default function CurationCarte() {
     node.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'center', inline: 'nearest' });
     const t = setTimeout(() => setFlashId(null), 1200); // retire la surbrillance (CSS gère reduce)
     return () => clearTimeout(t);
-  }, [selectionId]);
+  }, [flashId]);
 
   // ── Scroll vers le formulaire « Nouveau tag » à son ouverture (visible même si le panneau était scrollé). ─
   useEffect(() => {
