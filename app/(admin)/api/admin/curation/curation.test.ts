@@ -120,6 +120,10 @@ describe('POST /api/admin/curation/entites (création manuelle)', () => {
     expect(String(params[1])).toMatch(/^MANUEL-\d+$/);
     expect(params[2]).toBe('Hôtel de ville');
     expect(JSON.parse(String(params[4]))).toEqual({ origine: 'manuel' });
+    // Journalisé dans la MÊME requête (CTE) : action creation_entite_manuelle, apres = famille/nom/ref_code.
+    expect(journalEmis()).toBe(true);
+    expect(/curation_patrimoine_log[\s\S]*'creation_entite_manuelle'/.test(sql!)).toBe(true);
+    expect(/jsonb_build_object\('famille', mut.famille, 'nom', mut.nom, 'ref_code', mut.ref_code\)/.test(sql!)).toBe(true);
   });
 
   it('famille hors enum → 422 + AUCUNE écriture', async () => {
@@ -157,6 +161,11 @@ describe('DELETE /api/admin/curation/entites/[id] (suppression tag manuel)', () 
     // Supprime les liaisons ET l'entité (CTE atomique).
     expect(/DELETE FROM patrimoine_entite_batiment/.test(sql!)).toBe(true);
     expect(/DELETE FROM patrimoine_entite\b/.test(sql!)).toBe(true);
+    // Journalisé (CTE) : action suppression_entite_manuelle + snapshot AVANT (famille/nom/ref_code/liaisons).
+    expect(journalEmis()).toBe(true);
+    expect(/curation_patrimoine_log[\s\S]*'suppression_entite_manuelle'/.test(sql!)).toBe(true);
+    expect(/snap AS \(/.test(sql!)).toBe(true);
+    expect(/'liaisons', snap\.liaisons/.test(sql!)).toBe(true);
   });
 
   it('entité inconnue OU native (0 ligne) → 404', async () => {
@@ -179,6 +188,10 @@ describe('PATCH /api/admin/curation/entites/[id] (renommer tag manuel)', () => {
     expect(res.status).toBe(200);
     const sql = sqlsEmis().find((s) => s.includes('UPDATE patrimoine_entite'));
     expect(/SET nom = \$2[\s\S]*meta->>'origine' = 'manuel'/.test(sql!)).toBe(true);
+    // Journalisé (CTE) : action renommage, avant={nom:ancien} / apres={nom:nouveau}.
+    expect(journalEmis()).toBe(true);
+    expect(/curation_patrimoine_log[\s\S]*'renommage'/.test(sql!)).toBe(true);
+    expect(/jsonb_build_object\('nom', snap.ancien\), jsonb_build_object\('nom', mut.nom\)/.test(sql!)).toBe(true);
   });
 
   it('nom vide → 200 (nom NULL autorisé)', async () => {

@@ -18,8 +18,8 @@ type Ctx = { params: Promise<{ id: string }> };
  * FK `patrimoine_entite_batiment.entite_id` SANS `ON DELETE CASCADE` → suppression des liaisons PUIS de
  * l'entité, dans UNE requête atomique (CTE). Refuse (404) si l'entité n'existe pas OU n'est pas manuelle.
  * Server-only, paramétré. ⚠️ Action INTERNAUTE (l'agent ne l'exécute jamais réellement ; tests mockés).
- * Journalisation différée : `curation_patrimoine_log.action` a un CHECK fermé sans valeur « suppression »
- * et ce chantier interdit toute migration (cf. RAPPORT_BUILD, décision A).
+ * Journalisé (CTE atomique) : `curation_patrimoine_log` action `'suppression_entite_manuelle'`, `avant` =
+ * snapshot (famille/nom/ref_code + cleabs liés) capturé avant les DELETE. Requiert le CHECK élargi (migration 011).
  */
 export async function DELETE(_request: Request, ctx: Ctx) {
   const { id } = await ctx.params;
@@ -32,10 +32,21 @@ export async function DELETE(_request: Request, ctx: Ctx) {
     const { rows } = await query<{ id: number }>(
       `WITH cible AS (
          SELECT id FROM patrimoine_entite WHERE id = $1 AND meta->>'origine' = 'manuel'
+       ), snap AS (   -- état AVANT suppression (snapshot du statement : lu avant les DELETE)
+         SELECT pe.id, pe.famille, pe.nom, pe.ref_code,
+                COALESCE((SELECT jsonb_agg(peb.cleabs ORDER BY peb.cleabs)
+                            FROM patrimoine_entite_batiment peb WHERE peb.entite_id = pe.id), '[]'::jsonb) AS liaisons
+         FROM patrimoine_entite pe WHERE pe.id IN (SELECT id FROM cible)
        ), del_liaisons AS (
          DELETE FROM patrimoine_entite_batiment WHERE entite_id IN (SELECT id FROM cible)
        ), del_entite AS (
          DELETE FROM patrimoine_entite WHERE id IN (SELECT id FROM cible) RETURNING id
+       ), jrnl AS (
+         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
+         SELECT 'suppression_entite_manuelle', snap.id, NULL,
+                jsonb_build_object('famille', snap.famille, 'nom', snap.nom, 'ref_code', snap.ref_code, 'liaisons', snap.liaisons),
+                NULL
+         FROM snap
        )
        SELECT id FROM del_entite`,
       [idNum],
@@ -53,7 +64,8 @@ export async function DELETE(_request: Request, ctx: Ctx) {
 /**
  * PATCH /api/admin/curation/entites/[id] — RENOMME une entité MANUELLE. Body `{ nom: string }` (peut être
  * vide → `nom=NULL`, tag sans légende). Refuse (404) si l'entité n'existe pas OU n'est pas manuelle.
- * Server-only, paramétré. Journalisation différée (même raison que DELETE).
+ * Server-only, paramétré. Journalisé (CTE atomique) : action `'renommage'`, `avant={nom:ancien}` /
+ * `apres={nom:nouveau}` (ancien nom capturé avant l'UPDATE). Requiert le CHECK élargi (migration 011).
  */
 export async function PATCH(request: Request, ctx: Ctx) {
   const { id } = await ctx.params;
@@ -70,9 +82,19 @@ export async function PATCH(request: Request, ctx: Ctx) {
 
   try {
     const { rows } = await query<{ id: number; nom: string | null }>(
-      `UPDATE patrimoine_entite SET nom = $2
-       WHERE id = $1 AND meta->>'origine' = 'manuel'
-       RETURNING id, nom`,
+      `WITH snap AS (   -- ancien nom (snapshot AVANT l'UPDATE)
+         SELECT nom AS ancien FROM patrimoine_entite WHERE id = $1 AND meta->>'origine' = 'manuel'
+       ), mut AS (
+         UPDATE patrimoine_entite SET nom = $2
+         WHERE id = $1 AND meta->>'origine' = 'manuel'
+         RETURNING id, nom
+       ), jrnl AS (
+         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
+         SELECT 'renommage', mut.id, NULL,
+                jsonb_build_object('nom', snap.ancien), jsonb_build_object('nom', mut.nom)
+         FROM mut, snap
+       )
+       SELECT id, nom FROM mut`,
       [idNum, nom],
     );
     if (rows.length === 0) {

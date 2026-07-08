@@ -72,8 +72,8 @@ interface EntiteCreee {
  * Body `{ famille: 'mondial'|'mh'|'inventaire', nom? (optionnel), statut? }`. `ref_code` généré serveur
  * (`MANUEL-<ts>`, jamais fourni par le client) ; `meta = {origine:'manuel'}` ; `geom_point` NULL ;
  * `actif=true`. Requête PARAMÉTRÉE, server-only, INSERT SEUL (ne touche aucune entité/liaison existante).
- * Journalisation différée : `curation_patrimoine_log.action` a un CHECK fermé sans valeur « création »
- * et ce chantier interdit toute migration (cf. RAPPORT_BUILD, décision A). Erreur 23505 → 409.
+ * Journalisé (CTE atomique) : `curation_patrimoine_log` action `'creation_entite_manuelle'`
+ * (`apres` = famille/nom/ref_code ; requiert le CHECK élargi de la migration 011). Erreur 23505 → 409.
  */
 export async function POST(request: Request) {
   const body = await lireCorps(request);
@@ -95,9 +95,17 @@ export async function POST(request: Request) {
 
   try {
     const { rows } = await query<EntiteCreee>(
-      `INSERT INTO patrimoine_entite (famille, ref_code, nom, statut, actif, meta)
-       VALUES ($1, $2, $3, $4, true, $5::jsonb)
-       RETURNING id, famille, ref_code, nom, meta`,
+      `WITH mut AS (
+         INSERT INTO patrimoine_entite (famille, ref_code, nom, statut, actif, meta)
+         VALUES ($1, $2, $3, $4, true, $5::jsonb)
+         RETURNING id, famille, ref_code, nom, meta
+       ), jrnl AS (
+         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
+         SELECT 'creation_entite_manuelle', mut.id, NULL, NULL,
+                jsonb_build_object('famille', mut.famille, 'nom', mut.nom, 'ref_code', mut.ref_code)
+         FROM mut
+       )
+       SELECT id, famille, ref_code, nom, meta FROM mut`,
       [famille, refCode, nom, statut, meta],
     );
     const e = rows[0];
