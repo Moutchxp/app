@@ -9,6 +9,7 @@ type MapSelectorProps = {
   longitude: number;
   onPositionChange: (position: { latitude: number; longitude: number }) => void;
   onUserMove?: () => void;
+  onMove?: (position: { latitude: number; longitude: number }) => void; // centre temps réel — forwardé à MapContent
   pointSnappe?: { lat: number; lon: number } | null; // point recalé (V2) — forwardé tel quel à MapContent
   mode: ModeOrigine; // mode de saisie de l'origine (semi_auto | manuel)
   onModeChange: (m: ModeOrigine) => void;

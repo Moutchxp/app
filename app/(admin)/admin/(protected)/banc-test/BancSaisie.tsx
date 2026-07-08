@@ -50,6 +50,39 @@ export interface ParametresSaisie {
 const norm360 = (deg: number): number => ((deg % 360) + 360) % 360;
 const arrondi1 = (v: number): number => Math.round(v * 10) / 10; // pas de 0,10 (affichage stepper, pas un calcul de score)
 
+/**
+ * Parse une saisie « lat, lon » WGS84 en décimal. Le POINT décimal est EXIGÉ : une virgule décimale (piège FR,
+ * ex. « 48,9044 ») rend le séparateur ambigu → on REJETTE proprement avec un message clair plutôt que deviner.
+ * Séparateur accepté : virgule (« 48.9044, 2.2701 ») ou espace (« 48.9044 2.2701 »). Bornes de plausibilité =
+ * France métropolitaine (attrape aussi une inversion lat/lon). `validerOrigine` reste la garde réelle en aval.
+ */
+function parseCoords(raw: string): { lat: number; lon: number } | { erreur: string } {
+  const s = raw.trim();
+  if (!s) return { erreur: "Saisissez des coordonnées (ex. 48.9044, 2.2701)." };
+  const parts = s.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+  let latStr: string;
+  let lonStr: string;
+  if (parts.length === 2) {
+    [latStr, lonStr] = parts;
+  } else if (parts.length === 1) {
+    const sp = parts[0].split(/\s+/);
+    if (sp.length !== 2) return { erreur: "Format attendu : lat, lon (ex. 48.9044, 2.2701)." };
+    [latStr, lonStr] = sp;
+  } else {
+    return { erreur: "Format ambigu : utilisez le POINT décimal, ex. 48.9044, 2.2701." };
+  }
+  const numRe = /^-?\d+(\.\d+)?$/;
+  if (!numRe.test(latStr) || !numRe.test(lonStr)) {
+    return { erreur: "Coordonnées invalides : point décimal attendu, ex. 48.9044, 2.2701." };
+  }
+  const lat = parseFloat(latStr);
+  const lon = parseFloat(lonStr);
+  if (lat < 41 || lat > 52 || lon < -6 || lon > 10) {
+    return { erreur: "Hors zone : latitude ~[41 ; 52], longitude ~[-6 ; 10] (France métropolitaine)." };
+  }
+  return { lat, lon };
+}
+
 export default function BancSaisie() {
   const [adresse, setAdresse] = useState("");
   const [point, setPoint] = useState<{ lat: number; lon: number } | null>(null);
@@ -64,6 +97,13 @@ export default function BancSaisie() {
   const [snappe, setSnappe] = useState<{ lat: number; lon: number } | null>(null);
   // Saute UN reverse-geocode juste après une sélection d'adresse (ne pas écraser le label choisi).
   const ignoreReverseRef = useRef(false);
+  // Coordonnées du centre EN TEMPS RÉEL (event `move`) — affichage seul, throttlé à une frame.
+  const [coordsLive, setCoordsLive] = useState<{ lat: number; lon: number } | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const dernierCentreRef = useRef<{ lat: number; lon: number } | null>(null);
+  // Saisie directe de coordonnées GPS (alternative à l'adresse).
+  const [coordsInput, setCoordsInput] = useState("");
+  const [coordsErreur, setCoordsErreur] = useState<string | null>(null);
 
   // Validation du point via /api/origine (validerOrigine) — débounce 300 ms, annulable. Tous les setState
   // sont différés dans le timer (jamais synchrones dans le corps de l'effet).
@@ -129,7 +169,13 @@ export default function BancSaisie() {
     };
   }, [point]);
 
+  // Annule un rAF de coords en attente au démontage.
+  useEffect(() => () => {
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+  }, []);
+
   const centre = point ?? CENTRE_DEFAUT;
+  const coordsAffichees = coordsLive ?? point; // temps réel si dispo, sinon dernier point posé
   const pointValide = validation?.statut === "VALIDE";
   const hv = hauteurVision(etage, hauteurSousPlafondM);
 
@@ -145,6 +191,27 @@ export default function BancSaisie() {
     setAdresse(s.label);
     ignoreReverseRef.current = true; // le point va changer, mais on garde le label choisi (pas de reverse)
     setPoint({ lat: s.lat, lon: s.lon });
+  }
+
+  // Centre en TEMPS RÉEL (event `move`) → throttlé à une frame pour ne pas re-rendre à 60 fps. Affichage seul.
+  function handleMapMove(pos: { latitude: number; longitude: number }) {
+    dernierCentreRef.current = { lat: pos.latitude, lon: pos.longitude };
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      if (dernierCentreRef.current) setCoordsLive(dernierCentreRef.current);
+    });
+  }
+
+  // Saisie GPS directe → MÊME chemin qu'une adresse : setPoint déclenche validation + snap via l'effet [point,mode].
+  function placerCoords() {
+    const r = parseCoords(coordsInput);
+    if ("erreur" in r) {
+      setCoordsErreur(r.erreur);
+      return;
+    }
+    setCoordsErreur(null);
+    setPoint({ lat: r.lat, lon: r.lon });
   }
 
   function ajusterHauteur(delta: number) {
@@ -165,6 +232,32 @@ export default function BancSaisie() {
         Adresse
       </label>
       <AdresseAutocomplete value={adresse} onChange={setAdresse} onSelect={onSelectAdresse} placeholder="Rechercher une adresse…" />
+
+      {/* Alternative : coordonnées GPS directes — MÊME chemin de validation/snap que l'adresse */}
+      <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
+        <input
+          value={coordsInput}
+          onChange={(e) => setCoordsInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              placerCoords();
+            }
+          }}
+          placeholder="ou coordonnées GPS : 48.9044, 2.2701"
+          className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
+          style={{ flex: 1 }}
+        />
+        <button
+          type="button"
+          onClick={placerCoords}
+          className="svv-pill"
+          style={{ padding: "8px 14px", whiteSpace: "nowrap", borderColor: "var(--color-svv-line)", color: "var(--color-svv-ink)" }}
+        >
+          Placer
+        </button>
+      </div>
+      {coordsErreur && <div style={{ marginTop: 6, fontSize: ".82rem", color: "var(--color-svv-red)" }}>{coordsErreur}</div>}
 
       {/* 2. Point d’origine sur carte (BE-31/32/33) */}
       <div style={{ margin: "10px 0 6px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
@@ -196,6 +289,7 @@ export default function BancSaisie() {
           mode={mode}
           onModeChange={setMode}
           onPositionChange={(p) => setPoint({ lat: p.latitude, lon: p.longitude })}
+          onMove={handleMapMove}
           pointSnappe={mode === "manuel" ? null : snappe}
         />
       </div>
@@ -215,6 +309,13 @@ export default function BancSaisie() {
           }}
         >
           {validating ? "Validation du point…" : validation?.message ?? "Placez le point à l’intérieur de votre logement."}
+        </div>
+      )}
+
+      {/* Coordonnées WGS84 du point courant, EN TEMPS RÉEL au déplacement (affichage de state, aucun réseau) */}
+      {coordsAffichees && (
+        <div style={{ marginTop: 6, fontSize: ".8rem", color: "var(--color-svv-muted)", fontFamily: "ui-monospace, monospace" }}>
+          Point (WGS84) : {coordsAffichees.lat.toFixed(6)}, {coordsAffichees.lon.toFixed(6)}
         </div>
       )}
 

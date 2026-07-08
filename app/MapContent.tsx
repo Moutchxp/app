@@ -20,6 +20,7 @@ type MapContentProps = {
     longitude: number;
   }) => void;
   onUserMove?: () => void;
+  onMove?: (position: { latitude: number; longitude: number }) => void; // centre en TEMPS RÉEL (event Leaflet `move`) — affichage seul
   pointSnappe?: { lat: number; lon: number } | null; // point recalé sur la bordure (V2) ; null = pas de fantôme
   mode: ModeOrigine; // mode de saisie de l'origine (semi_auto | manuel)
   onModeChange: (m: ModeOrigine) => void;
@@ -30,6 +31,7 @@ export default function MapContent({
   longitude,
   onPositionChange,
   onUserMove,
+  onMove,
   pointSnappe,
   mode,
   onModeChange,
@@ -40,6 +42,11 @@ export default function MapContent({
   const onPositionChangeRef = useRef(onPositionChange);
   useEffect(() => {
     onPositionChangeRef.current = onPositionChange;
+  });
+  // Idem pour onMove (temps réel) : handler branché une seule fois, ref toujours à jour.
+  const onMoveRef = useRef(onMove);
+  useEffect(() => {
+    onMoveRef.current = onMove;
   });
 
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -110,11 +117,19 @@ export default function MapContent({
     };
     leafletMap.current.on("dragstart", handleUserMove);
 
+    // Centre en TEMPS RÉEL (pan/flyTo) → affichage des coordonnées, sans débounce. Purement lecture.
+    const handleMove = () => {
+      const c = leafletMap.current?.getCenter();
+      if (c) onMoveRef.current?.({ latitude: c.lat, longitude: c.lng });
+    };
+    leafletMap.current.on("move", handleMove);
+
     return () => {
       if (moveTimer.current) {
         clearTimeout(moveTimer.current);
       }
       leafletMap.current?.off("dragstart", handleUserMove);
+      leafletMap.current?.off("move", handleMove);
 
       leafletMap.current?.remove();
       leafletMap.current = null;
