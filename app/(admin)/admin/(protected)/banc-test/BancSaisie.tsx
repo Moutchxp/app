@@ -13,7 +13,7 @@
  * (validerOrigine — bâtiment couvert LiDAR, PAS de bypass). Aucune écriture DB.
  */
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AdresseAutocomplete, type SuggestionAdresse } from "../../../../components/AdresseAutocomplete";
 import MapSelector from "../../../../MapSelector";
 import {
@@ -60,6 +60,10 @@ export default function BancSaisie() {
   const [mode, setMode] = useState<ModeOrigine>("semi_auto");
   const [validation, setValidation] = useState<ValidationPoint | null>(null);
   const [validating, setValidating] = useState(false);
+  // Point recalé sur la façade (semi_auto) renvoyé par validerOrigine → pilote le flyTo de MapContent.
+  const [snappe, setSnappe] = useState<{ lat: number; lon: number } | null>(null);
+  // Saute UN reverse-geocode juste après une sélection d'adresse (ne pas écraser le label choisi).
+  const ignoreReverseRef = useRef(false);
 
   // Validation du point via /api/origine (validerOrigine) — débounce 300 ms, annulable. Tous les setState
   // sont différés dans le timer (jamais synchrones dans le corps de l'effet).
@@ -68,6 +72,7 @@ export default function BancSaisie() {
     const t = setTimeout(async () => {
       if (!point) {
         setValidation(null);
+        setSnappe(null);
         return;
       }
       setValidating(true);
@@ -77,10 +82,17 @@ export default function BancSaisie() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ lat: point.lat, lon: point.lon, mode }),
         });
-        const data: { statut?: StatutOrigine; message?: string } = await res.json();
-        if (!annule && data.statut) setValidation({ statut: data.statut, message: data.message ?? "" });
+        const data: { statut?: StatutOrigine; message?: string; pointSnappeWgs84?: { lat: number; lon: number } | null } =
+          await res.json();
+        if (!annule && data.statut) {
+          setValidation({ statut: data.statut, message: data.message ?? "" });
+          setSnappe(data.pointSnappeWgs84 ?? null); // façade recalée (null si non valide) — piloté par la prop selon le mode
+        }
       } catch {
-        if (!annule) setValidation({ statut: "SANS_BATIMENT", message: "Erreur lors de la validation du point." });
+        if (!annule) {
+          setValidation({ statut: "SANS_BATIMENT", message: "Erreur lors de la validation du point." });
+          setSnappe(null);
+        }
       } finally {
         if (!annule) setValidating(false);
       }
@@ -90,6 +102,32 @@ export default function BancSaisie() {
       clearTimeout(t);
     };
   }, [point, mode]);
+
+  // L'ADRESSE suit le POINT : reverse-geocode BAN (débounce, annulable) à chaque déplacement. Le point reste
+  // AUTORITAIRE — le reverse ne déplace jamais le point, ne re-snappe pas, ne relance pas la validation ; seul
+  // le LABEL suit. Un reverse est sauté juste après une sélection d'adresse (ne pas écraser le label choisi).
+  useEffect(() => {
+    if (!point) return;
+    if (ignoreReverseRef.current) {
+      ignoreReverseRef.current = false;
+      return;
+    }
+    let annule = false;
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`https://api-adresse.data.gouv.fr/reverse/?lat=${point.lat}&lon=${point.lon}`);
+        const data: { features?: { properties?: { label?: string } }[] } = await res.json();
+        const label = data.features?.[0]?.properties?.label;
+        if (!annule && label) setAdresse(label); // échec/réseau vide → champ laissé inchangé
+      } catch {
+        /* réseau indisponible : on laisse le champ tel quel, aucune exception propagée */
+      }
+    }, 350);
+    return () => {
+      annule = true;
+      clearTimeout(t);
+    };
+  }, [point]);
 
   const centre = point ?? CENTRE_DEFAUT;
   const pointValide = validation?.statut === "VALIDE";
@@ -105,6 +143,7 @@ export default function BancSaisie() {
 
   function onSelectAdresse(s: SuggestionAdresse) {
     setAdresse(s.label);
+    ignoreReverseRef.current = true; // le point va changer, mais on garde le label choisi (pas de reverse)
     setPoint({ lat: s.lat, lon: s.lon });
   }
 
@@ -157,6 +196,7 @@ export default function BancSaisie() {
           mode={mode}
           onModeChange={setMode}
           onPositionChange={(p) => setPoint({ lat: p.latitude, lon: p.longitude })}
+          pointSnappe={mode === "manuel" ? null : snappe}
         />
       </div>
 
