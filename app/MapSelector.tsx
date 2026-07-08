@@ -15,10 +15,10 @@ type MapSelectorProps = {
   onModeChange: (m: ModeOrigine) => void;
 };
 
-let MapContent: any = () => null;
-if (typeof window !== "undefined") {
-  MapContent = require("./MapContent").default;
-}
+// Chargé CÔTÉ CLIENT UNIQUEMENT (Leaflet accède à `window`). `ssr: false` → rendu identique (rien) au SSR ET
+// au 1er rendu client, puis montage après hydratation → AUCUN mismatch d'hydratation. Remplace l'ancien
+// `require` sous `typeof window` (qui rendait `null` au serveur mais le composant au client → hydration failed).
+const MapContent = dynamic(() => import("./MapContent"), { ssr: false });
 
 export default function MapSelector(props: MapSelectorProps) {
   return <MapContent {...props} />;

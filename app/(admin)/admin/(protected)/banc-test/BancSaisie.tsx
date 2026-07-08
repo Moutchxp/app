@@ -27,6 +27,7 @@ import {
 import type { ProfilDegagement } from "../../../../lib/svv/profilDegagement";
 import { clonerProfil, validerCartesAnnee } from "../../../../lib/svv/profilTest";
 import EditeurProfilTest from "./EditeurProfilTest";
+import EventailFaisceaux, { type LigneVentil } from "./EventailFaisceaux";
 
 // FaisceauMap = Leaflet impératif (ssr:false, comme dans le parcours public).
 const FaisceauMap = dynamic(() => import("../../../../FaisceauMap"), { ssr: false });
@@ -94,7 +95,7 @@ type ScoreLite = {
   famille1?: { total?: number };
   famille2?: { total?: number };
 };
-type RunLite = { score: ScoreLite; verdict: string };
+type RunLite = { score: ScoreLite; verdict: string; ventilation?: { lignes: LigneVentil[] } };
 type ComparaisonLite = {
   ok: boolean;
   message?: string;
@@ -583,6 +584,22 @@ export default function BancSaisie() {
               ? `Verdict identique entre les deux runs (${comparaison.actif.verdict}) — découplage score/verdict respecté.`
               : "⚠ Verdict divergent entre actif et test — anomalie de couplage score↔verdict."}
           </div>
+
+          {/* Graphique en éventail des 61 faisceaux (Lot 6) — 3 séries actif/test/brut, arcs dérivés du profil actif */}
+          {profilActif && comparaison.actif.ventilation && comparaison.test.ventilation && (
+            <div style={{ marginTop: 16 }}>
+              <div className="svv-label" style={{ marginBottom: 6 }}>Éventail des 61 faisceaux</div>
+              <EventailFaisceaux
+                actif={comparaison.actif.ventilation.lignes}
+                test={comparaison.test.ventilation.lignes}
+                bornes={{
+                  base: profilActif.distanceMaxM,
+                  famille: Math.max(profilActif.famillesPonderation.mh.distMaxM, profilActif.famillesPonderation.inventaire.distMaxM),
+                  mondial: profilActif.famillesPonderation.mondialFaisceauM,
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
     </section>
