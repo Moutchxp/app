@@ -784,29 +784,13 @@ export default function CurationCarte() {
   }, [emprisesFond, ouvrirCreationCiblee]);
 
   // ── Overlay TAGS MANUELS : ÉTOILES depuis `tagsManuels` (centroïdes, PERSISTANTES à tout zoom,
-  //    indépendantes de la bbox — corrige la disparition au dézoom) + VERT de détail depuis `emprisesFond`
-  //    (bbox) sur les polygones des tags NON sélectionnés (le sélectionné = coucheEmprisesRef, interactif).
+  //    indépendantes de la bbox — corrige la disparition au dézoom). Le vert des liaisons n'est plus
+  //    tracé ici : seul le vert INTERACTIF de la carte OUVERTE (coucheEmprisesRef) subsiste.
   //    Double-clic étoile → sélectionne la fiche (+ scroll liste), `stopPropagation` (pas de création). ─
   useEffect(() => {
     const couche = coucheEtoilesRef.current;
     if (!couche) return;
     couche.clearLayers();
-
-    // Vert de détail (bbox) — polygones des tags manuels non sélectionnés.
-    const geomParCleabs = new Map<string, GeoJSON.Geometry>();
-    for (const emp of emprisesFond) if (emp.cleabs && emp.geom) geomParCleabs.set(emp.cleabs, emp.geom);
-    for (const e of entites ?? []) {
-      if (e.origine !== 'manuel' || e.id === selectionId) continue;
-      for (const l of e.liaisons) {
-        if (!l.actif || l.detache) continue;
-        const geom = geomParCleabs.get(l.cleabs);
-        if (!geom) continue; // hors bbox
-        L.geoJSON(geom, {
-          interactive: false,
-          style: { color: '#2e9e5b', weight: 2, fillColor: '#2e9e5b', fillOpacity: 0.28 },
-        }).addTo(couche);
-      }
-    }
 
     // Étoiles PERSISTANTES (une par tag manuel, centroïde du 1er polygone) — à tout zoom.
     for (const t of tagsManuels) {
@@ -819,7 +803,7 @@ export default function CurationCarte() {
       });
       star.addTo(couche);
     }
-  }, [entites, emprisesFond, tagsManuels, selectionId, selectionner]);
+  }, [tagsManuels, selectionner]);
 
   // ── Scroll auto vers l'item sélectionné dans la liste + surbrillance brève (clic marqueur / étoile). ─
   //    Keyé sur `flashId` (posé par `selectionner` à CHAQUE sélection, même re-sélection d'une fiche déjà
@@ -1088,7 +1072,11 @@ export default function CurationCarte() {
                     aria-expanded={selectionne}
                     onClick={() => selectionner(e.id)}
                   >
-                    <span className="svv-cur-dot" style={{ background: COULEUR_ETAT[e.etat] }} aria-hidden="true" />
+                    <span
+                      className={`svv-cur-dot${e.etat === 'rouge' && !e.point ? ' svv-cur-dot--rouge' : ''}`}
+                      style={e.etat === 'rouge' && !e.point ? undefined : { background: COULEUR_ETAT[e.etat] }}
+                      aria-hidden="true"
+                    />
                     <span className="svv-cur-item-txt">
                       <span className="svv-cur-item-nom">
                         {e.origine === 'manuel' && (
@@ -1334,6 +1322,7 @@ const CSS = `
 .svv-cur-compteur strong{color:var(--color-svv-ink)}
 .svv-cur-compteur-lib{color:var(--color-svv-muted)}
 .svv-cur-dot{display:inline-block;width:11px;height:11px;border-radius:999px;flex:0 0 auto;border:1px solid rgba(0,0,0,.15)}
+.svv-cur-dot--rouge{background:#fff;border:3px solid #a30402;box-sizing:border-box;width:13px;height:13px}
 
 .svv-cur-recherche input{width:100%;box-sizing:border-box;padding:.5rem .6rem;border:1px solid var(--color-svv-line);border-radius:.5rem;background:#fff;color:var(--color-svv-ink);font-size:.95rem;font-family:inherit;min-height:44px}
 .svv-cur-recherche input:focus{outline:2px solid var(--color-svv-red);outline-offset:0}
