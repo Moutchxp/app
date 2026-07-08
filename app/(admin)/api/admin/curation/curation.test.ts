@@ -6,10 +6,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const queryMock = vi.fn();
 vi.mock('../../../../lib/db/client', () => ({
   query: (...args: unknown[]) => queryMock(...args),
+  // `withTransaction` : exécute `fn` avec une fonction de requête qui route vers `queryMock`
+  // (mêmes appels observables ; l'atomicité BEGIN/COMMIT est une propriété runtime non testée ici).
+  withTransaction: (fn: (q: (...a: unknown[]) => unknown) => unknown) => fn((...a: unknown[]) => queryMock(...a)),
 }));
 
 import { GET as GET_ENTITES, POST as POST_ENTITE } from './entites/route';
 import { DELETE as DELETE_ENTITE, PATCH as PATCH_ENTITE } from './entites/[id]/route';
+import { POST as POST_ANNULER } from './entites/[id]/annuler-edition/route';
 import { GET as GET_TAGS } from './tags-manuels/route';
 import { PATCH as PATCH_POINT, DELETE as DELETE_POINT } from './entites/[id]/point/route';
 import { POST as POST_LIAISON, DELETE as DELETE_LIAISON, PATCH as PATCH_LIAISON } from './entites/[id]/liaisons/route';
@@ -444,6 +448,94 @@ describe('corps JSON invalide', () => {
   it('aucune requête émise ne mute geom_point (original) sur tout le parcours', async () => {
     // Récapitulatif transverse : après le POST invalide ci-dessus, aucune écriture, a fortiori
     // aucune mutation de `geom_point`. (Le mock a été réinitialisé par beforeEach.)
+    expect(muteGeomPointOriginal()).toBe(false);
+  });
+});
+
+describe('POST /entites/[id]/annuler-edition (rollback édition)', () => {
+  // Mocke le SELECT des lignes de journal (ORDER BY id DESC) ; inverses/journal → {rows:[]}.
+  function mockJournal(lignes: unknown[]) {
+    queryMock.mockImplementation((text: string) => {
+      if (text.includes('FROM curation_patrimoine_log') && text.includes('ORDER BY id DESC')) {
+        return Promise.resolve({ rows: lignes });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+  }
+  const LIAISON_AVANT = { source: 'auto', actif: true, detache: false, verifie_manuellement: false };
+
+  it('borne invalide (non entière) → 422', async () => {
+    const res = await POST_ANNULER(req('POST', { borne: 'x' }), ctx('5'));
+    expect(res.status).toBe(422);
+    expect(sqlsEmis().length).toBe(0);
+  });
+
+  it('aucune mutation depuis la borne → no-op, aucune ligne annulation_edition', async () => {
+    mockJournal([]);
+    const res = await POST_ANNULER(req('POST', { borne: 100 }), ctx('5'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, nbLignes: 0 });
+    expect(sqlsEmis().some((s) => s.includes("'annulation_edition'"))).toBe(false);
+  });
+
+  it('renommage → UPDATE nom = avant + 1 seule ligne annulation_edition', async () => {
+    mockJournal([{ id: 12, action: 'renommage', cleabs: null, avant: { nom: 'Ancien' }, apres: { nom: 'Nouveau' } }]);
+    const res = await POST_ANNULER(req('POST', { borne: 5 }), ctx('5'));
+    expect(await res.json()).toMatchObject({ nbLignes: 1, jusquA: 12 });
+    expect(sqlsEmis().some((s) => /UPDATE patrimoine_entite SET nom = \$2 WHERE id = \$1/.test(s))).toBe(true);
+    expect(sqlsEmis().filter((s) => s.includes("'annulation_edition'")).length).toBe(1);
+  });
+
+  it('rattachement (avant null) → DELETE la liaison créée', async () => {
+    mockJournal([{ id: 20, action: 'rattachement', cleabs: 'BATX', avant: null, apres: { source: 'manuel' } }]);
+    await POST_ANNULER(req('POST', { borne: 5 }), ctx('5'));
+    expect(sqlsEmis().some((s) => /DELETE FROM patrimoine_entite_batiment WHERE entite_id = \$1 AND cleabs = \$2/.test(s))).toBe(true);
+  });
+
+  it('détachement → INSERT … ON CONFLICT DO UPDATE (restaure la liaison, manuel ou auto)', async () => {
+    mockJournal([{ id: 20, action: 'detachement', cleabs: 'BATX', avant: { ...LIAISON_AVANT }, apres: null }]);
+    await POST_ANNULER(req('POST', { borne: 5 }), ctx('5'));
+    expect(sqlsEmis().some((s) => /INSERT INTO patrimoine_entite_batiment[\s\S]*ON CONFLICT \(entite_id, cleabs\)[\s\S]*DO UPDATE/.test(s))).toBe(true);
+  });
+
+  it('vérification → UPDATE verifie_manuellement = avant', async () => {
+    mockJournal([{ id: 20, action: 'verification', cleabs: 'BATX', avant: { ...LIAISON_AVANT }, apres: { verifie_manuellement: true } }]);
+    await POST_ANNULER(req('POST', { borne: 5 }), ctx('5'));
+    expect(sqlsEmis().some((s) => /UPDATE patrimoine_entite_batiment SET verifie_manuellement = \$3/.test(s))).toBe(true);
+  });
+
+  it('déplacement → UPDATE geom_point_corrige (CASE/ST_DWithin) ; ne mute JAMAIS geom_point original', async () => {
+    mockJournal([{ id: 20, action: 'deplacement', cleabs: null, avant: { type: 'Point', coordinates: [2, 48] }, apres: {} }]);
+    await POST_ANNULER(req('POST', { borne: 5 }), ctx('5'));
+    const sql = sqlsEmis().find((s) => s.includes('geom_point_corrige'));
+    expect(sql).toBeDefined();
+    expect(/ST_DWithin/.test(sql!)).toBe(true);
+    expect(muteGeomPointOriginal()).toBe(false);
+  });
+
+  it('création → DELETE liaisons + DELETE entité', async () => {
+    mockJournal([{ id: 20, action: 'creation_entite_manuelle', cleabs: null, avant: null, apres: { famille: 'mh' } }]);
+    await POST_ANNULER(req('POST', { borne: 5 }), ctx('7'));
+    expect(sqlsEmis().some((s) => /DELETE FROM patrimoine_entite_batiment WHERE entite_id = \$1/.test(s))).toBe(true);
+    expect(sqlsEmis().some((s) => /DELETE FROM patrimoine_entite WHERE id = \$1/.test(s))).toBe(true);
+  });
+
+  it('suppression seule → IGNORÉE (hors périmètre), no-op, pas de journal', async () => {
+    mockJournal([{ id: 20, action: 'suppression_entite_manuelle', cleabs: null, avant: { famille: 'mh' }, apres: null }]);
+    const res = await POST_ANNULER(req('POST', { borne: 5 }), ctx('5'));
+    expect((await res.json()).nbLignes).toBe(0);
+    expect(sqlsEmis().some((s) => s.includes("'annulation_edition'"))).toBe(false);
+  });
+
+  it('séquence MIXTE (déplacer > renommer > rattacher) → 3 inverses DESC + 1 journal', async () => {
+    mockJournal([
+      { id: 30, action: 'deplacement', cleabs: null, avant: { type: 'Point', coordinates: [2, 48] }, apres: {} },
+      { id: 25, action: 'renommage', cleabs: null, avant: { nom: 'Ancien' }, apres: { nom: 'X' } },
+      { id: 22, action: 'rattachement', cleabs: 'BATX', avant: null, apres: {} },
+    ]);
+    const res = await POST_ANNULER(req('POST', { borne: 5 }), ctx('5'));
+    expect(await res.json()).toMatchObject({ nbLignes: 3, jusquA: 30 });
+    expect(sqlsEmis().filter((s) => s.includes("'annulation_edition'")).length).toBe(1);
     expect(muteGeomPointOriginal()).toBe(false);
   });
 });
