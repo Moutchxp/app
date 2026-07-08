@@ -14,6 +14,7 @@ vi.mock('../../../../lib/db/client', () => ({
 import { GET as GET_ENTITES, POST as POST_ENTITE } from './entites/route';
 import { DELETE as DELETE_ENTITE, PATCH as PATCH_ENTITE } from './entites/[id]/route';
 import { POST as POST_ANNULER } from './entites/[id]/annuler-edition/route';
+import { GET as GET_BORNE } from './entites/[id]/borne/route';
 import { GET as GET_TAGS } from './tags-manuels/route';
 import { PATCH as PATCH_POINT, DELETE as DELETE_POINT } from './entites/[id]/point/route';
 import { POST as POST_LIAISON, DELETE as DELETE_LIAISON, PATCH as PATCH_LIAISON } from './entites/[id]/liaisons/route';
@@ -537,5 +538,28 @@ describe('POST /entites/[id]/annuler-edition (rollback édition)', () => {
     expect(await res.json()).toMatchObject({ nbLignes: 3, jusquA: 30 });
     expect(sqlsEmis().filter((s) => s.includes("'annulation_edition'")).length).toBe(1);
     expect(muteGeomPointOriginal()).toBe(false);
+  });
+});
+
+describe('GET /entites/[id]/borne (capture d’ouverture de carte)', () => {
+  it('renvoie le max(id) du journal de l’entité (nombre)', async () => {
+    queryMock.mockResolvedValue({ rows: [{ borne: '42' }] }); // MAX(id) bigint → string côté pg
+    const res = await GET_BORNE(req('GET'), ctx('5'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ borne: 42 });
+    const sql = sqlsEmis().find((s) => s.includes('curation_patrimoine_log'));
+    expect(/COALESCE\(MAX\(id\), 0\)[\s\S]*WHERE entite_id = \$1/.test(sql!)).toBe(true);
+  });
+
+  it('aucune ligne → borne 0', async () => {
+    queryMock.mockResolvedValue({ rows: [{ borne: '0' }] });
+    const res = await GET_BORNE(req('GET'), ctx('9'));
+    expect(await res.json()).toEqual({ borne: 0 });
+  });
+
+  it('id invalide → 422', async () => {
+    const res = await GET_BORNE(req('GET'), ctx('abc'));
+    expect(res.status).toBe(422);
+    expect(sqlsEmis().length).toBe(0);
   });
 });

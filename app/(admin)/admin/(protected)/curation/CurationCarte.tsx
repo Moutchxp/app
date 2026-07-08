@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { estCarteModifiee, modeFooter } from './curationEdition';
 
 /**
  * Carte de curation patrimoine (Leaflet, LECTURE + écriture via endpoints CRUD).
@@ -183,6 +184,18 @@ async function fetchTagsManuels(): Promise<TagManuel[]> {
   }
 }
 
+/** `max(id)` du journal pour une entité (borne d'ouverture ; 0 si aucune ligne ou erreur). */
+async function fetchBorne(id: number): Promise<number> {
+  try {
+    const res = await fetch(`/api/admin/curation/entites/${id}/borne`, { cache: 'no-store' });
+    const data = await res.json();
+    if (res.ok && typeof data?.borne === 'number') return data.borne;
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
 /** Bornes Leaflet d'un jeu d'emprises (GeoJSON), ou `null` si vide/invalide. */
 function boundsEmprises(list: Emprise[]): L.LatLngBounds | null {
   const gj = L.geoJSON();
@@ -275,6 +288,13 @@ export default function CurationCarte() {
   const [editionProposee, setEditionProposee] = useState<{ id: number; nom: string | null } | null>(null);
   const [confirmSuppression, setConfirmSuppression] = useState(false);
 
+  // ── Édition de carte (footer Sortir / Valider-Annuler) — capture de borne + drapeau « modifiée ». ──
+  const [borneOuverture, setBorneOuverture] = useState<number | null>(null); // max(id) journal à l'ouverture
+  const [carteModifiee, setCarteModifiee] = useState(false); // ≥1 mutation depuis l'ouverture
+  const [creeeEnSession, setCreeeEnSession] = useState(false); // entité créée pendant la session
+  const [confirmValider, setConfirmValider] = useState(false);
+  const creationBorneRef = useRef<number | null>(null); // id de l'entité tout juste créée (borne=0 à l'ouverture)
+
   // Refs Leaflet (map créée une seule fois ; couches réutilisées).
   const conteneurRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -293,6 +313,24 @@ export default function CurationCarte() {
   // Miroir de la sélection (lu par le handler `moveend` attaché une seule fois).
   useEffect(() => {
     selectionIdRef.current = selectionId;
+  }, [selectionId]);
+
+  // ── À l'ouverture d'une carte : capture borneOuverture (max id journal). Les drapeaux d'édition sont
+  //    reset dans `selectionner` (handler) ; ici, uniquement le fetch async (évite le set-state synchrone
+  //    en effet). Entité fraîchement créée → borne 0 posée par `selectionner`, pas de fetch (ref → skip).
+  useEffect(() => {
+    if (selectionId === null || creationBorneRef.current === selectionId) {
+      creationBorneRef.current = null;
+      return;
+    }
+    let annule = false;
+    void (async () => {
+      const b = await fetchBorne(selectionId);
+      if (!annule) setBorneOuverture(b);
+    })();
+    return () => {
+      annule = true;
+    };
   }, [selectionId]);
 
   // Miroir de la liste des entités (lu par `ouvrirCreationCiblee` sans en refaire l'identité).
@@ -437,6 +475,12 @@ export default function CurationCarte() {
       setFlashId(id); // cible du scroll + surbrillance brève dans la liste
       setConfirmDetach(null);
       setConfirmSuppression(false);
+      // Reset des drapeaux d'édition (footer) au changement de carte. Création → borne 0 + modifiée.
+      setConfirmValider(false);
+      setCarteModifiee(false);
+      const creee = creationBorneRef.current === id;
+      setCreeeEnSession(creee);
+      if (creee) setBorneOuverture(0);
       coucheEmprisesRef.current?.clearLayers(); // évite un flash des emprises de l'entité précédente
       const e = entites?.find((x) => x.id === id);
       const map = mapRef.current;
@@ -471,6 +515,7 @@ export default function CurationCarte() {
         return;
       }
       signaler('Point déplacé.', 'ok');
+      setCarteModifiee(true);
       await recharger();
     },
     [recharger, signaler],
@@ -486,6 +531,7 @@ export default function CurationCarte() {
         return;
       }
       signaler('Déplacement annulé.', 'ok');
+      setCarteModifiee(true);
       await recharger();
     },
     [recharger, signaler],
@@ -501,6 +547,7 @@ export default function CurationCarte() {
         return;
       }
       signaler('Emprise rattachée.', 'ok');
+      setCarteModifiee(true);
       await recharger();
     },
     [recharger, signaler],
@@ -517,6 +564,7 @@ export default function CurationCarte() {
         return;
       }
       signaler('Liaison détachée.', 'ok');
+      setCarteModifiee(true);
       await recharger();
     },
     [recharger, signaler],
@@ -535,6 +583,7 @@ export default function CurationCarte() {
         return;
       }
       signaler('Liaison marquée vérifiée.', 'ok');
+      setCarteModifiee(true);
       await recharger();
     },
     [recharger, signaler],
@@ -555,6 +604,7 @@ export default function CurationCarte() {
     setFormNom('');
     setCleabsCible(null);
     await recharger(); // IMPÉRATIF avant selectionner : la nouvelle entité doit entrer dans `entites`
+    creationBorneRef.current = id; // l'effet d'ouverture posera borne=0 + creeeEnSession (footer Valider/Annuler)
     selectionner(id);
     signaler('Entité créée — cliquez les emprises bleues pour composer.', 'ok');
   }, [formFamille, formNom, recharger, selectionner, signaler]);
@@ -570,6 +620,7 @@ export default function CurationCarte() {
         return;
       }
       signaler('Tag renommé.', 'ok');
+      setCarteModifiee(true);
       await recharger();
     },
     [recharger, signaler],
@@ -590,6 +641,31 @@ export default function CurationCarte() {
       await recharger();
     },
     [recharger, signaler],
+  );
+
+  // ── Repli de la carte SANS scroll : `selectionId=null` ; l'effet de scroll ignore null (aucun saut),
+  //    aucun flyTo/fitBounds n'est déclenché (ce n'est pas un `selectionner`). L'ordre de la liste ne bouge pas.
+  const refermerCarte = useCallback(() => {
+    setSelectionId(null);
+    coucheEmprisesRef.current?.clearLayers();
+  }, []);
+
+  // ── « Annuler » (direct, sans confirmation) : rollback serveur vers la borne d'ouverture, puis repli. ──
+  const annulerEdition = useCallback(
+    async (id: number) => {
+      if (borneOuverture === null) return; // borne pas encore chargée : on ne tente rien
+      setEnEcriture(true);
+      const rep = await ecrire(`/api/admin/curation/entites/${id}/annuler-edition`, 'POST', { borne: borneOuverture });
+      setEnEcriture(false);
+      if (!rep.ok) {
+        signaler(rep.message ?? 'Annulation impossible.', 'erreur'); // échec : la carte RESTE ouverte
+        return;
+      }
+      signaler('Modifications annulées.', 'ok');
+      await recharger();
+      refermerCarte();
+    },
+    [borneOuverture, recharger, signaler, refermerCarte],
   );
 
   // ── Entités affichables sur la carte (point non nul + famille visible). ──────
@@ -1164,6 +1240,48 @@ export default function CurationCarte() {
                           );
                         })}
                       </ul>
+
+                      {/* Pied de carte : Sortir (rien changé) ou Valider/Annuler (modifiée). Repli SANS scroll. */}
+                      <div className="svv-cur-footer">
+                        {modeFooter(estCarteModifiee(creeeEnSession, carteModifiee)) === 'sortir' ? (
+                          <button type="button" className="svv-cur-btn svv-cur-btn--outline" onClick={refermerCarte}>
+                            Sortir
+                          </button>
+                        ) : confirmValider ? (
+                          <span className="svv-cur-confirm">
+                            Enregistrer les modifications&nbsp;?
+                            <button type="button" className="svv-cur-btn svv-cur-btn--mini" onClick={refermerCarte}>
+                              Oui, enregistrer
+                            </button>
+                            <button
+                              type="button"
+                              className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
+                              onClick={() => setConfirmValider(false)}
+                            >
+                              Retour
+                            </button>
+                          </span>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className="svv-cur-btn"
+                              disabled={enEcriture}
+                              onClick={() => setConfirmValider(true)}
+                            >
+                              Valider
+                            </button>
+                            <button
+                              type="button"
+                              className="svv-cur-btn svv-cur-btn--danger"
+                              disabled={enEcriture}
+                              onClick={() => annulerEdition(e.id)}
+                            >
+                              Annuler
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   )}
                 </li>
@@ -1243,6 +1361,7 @@ const CSS = `
 
 .svv-cur-detail{border-top:1px solid var(--color-svv-line);padding:.55rem .6rem;display:flex;flex-direction:column;gap:.5rem;background:var(--color-svv-field)}
 .svv-cur-detail-aide{margin:0;font-size:.78rem;color:var(--color-svv-muted);line-height:1.4}
+.svv-cur-footer{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;border-top:1px solid var(--color-svv-line);padding-top:.5rem;margin-top:.1rem}
 .svv-cur-detail-titre{margin:0;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;color:var(--color-svv-muted)}
 .svv-cur-liaisons{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.35rem}
 .svv-cur-liaison{border:1px solid var(--color-svv-line);border-radius:.5rem;background:#fff;padding:.4rem .5rem;display:flex;flex-direction:column;gap:.35rem}
