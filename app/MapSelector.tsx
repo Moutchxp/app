@@ -13,6 +13,7 @@ type MapSelectorProps = {
   pointSnappe?: { lat: number; lon: number } | null; // point recalé (V2) — forwardé tel quel à MapContent
   mode: ModeOrigine; // mode de saisie de l'origine (semi_auto | manuel)
   onModeChange: (m: ModeOrigine) => void;
+  zoomAncreCentre?: boolean; // banc : zoom ancré centre (point immobile) — forwardé à MapContent ; défaut = public inchangé
 };
 
 // Chargé CÔTÉ CLIENT UNIQUEMENT (Leaflet accède à `window`). `ssr: false` → rendu identique (rien) au SSR ET

@@ -39,6 +39,10 @@ type StatutOrigine = "VALIDE" | "HORS_BATIMENT" | "SANS_BATIMENT";
 interface ValidationPoint {
   statut: StatutOrigine;
   message: string;
+  /** MIROIR de la garde de `construireEntree` (serveur) : VALIDE + altitude MNT + bâtiment + snap disponibles.
+   *  Source UNIQUE de la validité analysable (bandeau ET garde « Lancer »). Un point VALIDE mais hors couverture
+   *  LiDAR (altitude terrain indisponible) est `analysable:false` → le serveur le refuserait (INDÉTERMINÉ). */
+  analysable: boolean;
 }
 
 /** Paramètres d'entrée assemblés (forme de `ParametresAnalyse`, hors `profil`/`paysage`/`ventilation`). */
@@ -180,15 +184,28 @@ export default function BancSaisie() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ lat: point.lat, lon: point.lon, mode }),
         });
-        const data: { statut?: StatutOrigine; message?: string; pointSnappeWgs84?: { lat: number; lon: number } | null } =
-          await res.json();
+        const data: {
+          statut?: StatutOrigine;
+          message?: string;
+          pointSnappeWgs84?: { lat: number; lon: number } | null;
+          pointSnappeL93?: unknown;
+          batimentOrigine?: unknown;
+          altitudeTerrainOrigineM?: number | null;
+        } = await res.json();
         if (!annule && data.statut) {
-          setValidation({ statut: data.statut, message: data.message ?? "" });
+          // Miroir EXACT de la garde de construireEntree : VALIDE + altitude MNT + bâtiment + snap non nuls.
+          const analysable =
+            data.statut === "VALIDE" &&
+            data.altitudeTerrainOrigineM != null &&
+            data.batimentOrigine != null &&
+            data.pointSnappeWgs84 != null &&
+            data.pointSnappeL93 != null;
+          setValidation({ statut: data.statut, message: data.message ?? "", analysable });
           setSnappe(data.pointSnappeWgs84 ?? null); // façade recalée (null si non valide) — piloté par la prop selon le mode
         }
       } catch {
         if (!annule) {
-          setValidation({ statut: "SANS_BATIMENT", message: "Erreur lors de la validation du point." });
+          setValidation({ statut: "SANS_BATIMENT", message: "Erreur lors de la validation du point.", analysable: false });
           setSnappe(null);
         }
       } finally {
@@ -234,15 +251,16 @@ export default function BancSaisie() {
 
   const centre = point ?? CENTRE_DEFAUT;
   const coordsAffichees = coordsLive ?? point; // temps réel si dispo, sinon dernier point posé
-  const pointValide = validation?.statut === "VALIDE";
+  // SOURCE UNIQUE de validité : le bandeau ET la garde « Lancer » lisent `pointAnalysable` (miroir serveur).
+  const pointAnalysable = validation?.analysable === true;
   const hv = hauteurVision(etage, hauteurSousPlafondM);
 
   const parametres: ParametresSaisie | null = useMemo(
     () =>
-      point && pointValide
+      point && pointAnalysable
         ? { point, azimutPrincipalDeg: azimut, etage, hauteurSousPlafondM, dernierEtage, mode }
         : null,
-    [point, pointValide, azimut, etage, hauteurSousPlafondM, dernierEtage, mode],
+    [point, pointAnalysable, azimut, etage, hauteurSousPlafondM, dernierEtage, mode],
   );
 
   // CA-5.4 : si les paramètres OU le profil de test changent après un run, le comparatif devient périmé.
@@ -351,8 +369,60 @@ export default function BancSaisie() {
       </div>
       {coordsErreur && <div style={{ marginTop: 6, fontSize: ".82rem", color: "var(--color-svv-red)" }}>{coordsErreur}</div>}
 
-      {/* 2. Point d’origine sur carte (BE-31/32/33) */}
-      <div style={{ margin: "10px 0 6px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      {/* 3. Étage + Hauteur sous plafond — sur une seule ligne (BE-35/36) */}
+      <div style={{ marginTop: 18, display: "flex", gap: 20, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 200px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "8px 12px" }}>
+          <span className="svv-label">Étage</span>
+          <Stepper
+            value={String(etage)}
+            onMinus={() => setEtage((e) => Math.max(0, e - 1))}
+            onPlus={() => setEtage((e) => e + 1)}
+            minusDisabled={etage <= 0}
+          />
+        </div>
+        <div style={{ flex: "1 1 240px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "8px 12px" }}>
+          <span className="svv-label">Hauteur sous plafond</span>
+          <Stepper
+            value={`${hauteurSousPlafondM.toFixed(2).replace(".", ",")} m`}
+            onMinus={() => ajusterHauteur(-HAUTEUR_SOUS_PLAFOND_PAS_M)}
+            onPlus={() => ajusterHauteur(HAUTEUR_SOUS_PLAFOND_PAS_M)}
+            minusDisabled={hauteurSousPlafondM <= HAUTEUR_SOUS_PLAFOND_MIN_M}
+            plusDisabled={hauteurSousPlafondM >= HAUTEUR_SOUS_PLAFOND_MAX_M}
+          />
+        </div>
+      </div>
+
+      {/* 4. Dernier étage + Hauteur de vision calculée — sur une seule ligne */}
+      <div style={{ marginTop: 14, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={dernierEtage} onChange={(e) => setDernierEtage(e.target.checked)} />
+          <span style={{ color: "var(--color-svv-ink)", fontSize: ".9rem" }}>Dernier étage</span>
+        </label>
+        <div style={{ color: "var(--color-svv-muted)", fontSize: ".82rem" }} title={`étage ${etage} × (${hauteurSousPlafondM.toFixed(2).replace(".", ",")} + 0,30) + 1,65`}>
+          Hauteur de vision calculée : <strong style={{ color: "var(--color-svv-ink)" }}>{hv} m</strong>
+        </div>
+      </div>
+
+      {/* 5. Paramètres du test — REPLIABLE (replié par défaut ; <details>/<summary> accessible, clavier OK) */}
+      <details className="svv-card" style={{ marginTop: 18, borderRadius: 12, border: "1px solid var(--color-svv-line)" }}>
+        <summary style={{ cursor: "pointer", padding: 14, color: "var(--color-svv-ink)", fontSize: ".82rem", fontWeight: 700 }}>
+          Paramètres du test {parametres ? "— prêts" : "— incomplets"}
+        </summary>
+        <div style={{ padding: "0 14px 14px" }}>
+          {parametres ? (
+            <pre style={{ margin: 0, fontSize: ".78rem", color: "var(--color-svv-ink)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              {JSON.stringify(parametres, null, 2)}
+            </pre>
+          ) : (
+            <p style={{ margin: 0, color: "var(--color-svv-muted)", fontSize: ".85rem" }}>
+              {point ? "Point non valide — corrigez le placement pour préparer le test." : "Renseignez un point d’observation valide."}
+            </p>
+          )}
+        </div>
+      </details>
+
+      {/* 6. Cartes — point d’observation (+ mode) puis azimut. Zoom ancré CENTRE (point immobile au pincement/molette). */}
+      <div style={{ margin: "18px 0 6px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <span className="svv-label">Point d’observation</span>
         <div style={{ display: "flex", gap: 6 }}>
           {(["semi_auto", "manuel"] as const).map((m) => (
@@ -383,6 +453,7 @@ export default function BancSaisie() {
           onPositionChange={(p) => setPoint({ lat: p.latitude, lon: p.longitude })}
           onMove={handleMapMove}
           pointSnappe={mode === "manuel" ? null : snappe}
+          zoomAncreCentre
         />
       </div>
 
@@ -395,12 +466,18 @@ export default function BancSaisie() {
             padding: "8px 12px",
             borderRadius: 10,
             fontSize: ".85rem",
-            background: validating ? "var(--color-svv-field)" : pointValide ? "rgba(21,128,61,.10)" : "rgba(163,4,2,.08)",
-            color: validating ? "var(--color-svv-muted)" : pointValide ? "var(--color-svv-green)" : "var(--color-svv-red)",
-            border: `1px solid ${pointValide ? "var(--color-svv-green)" : "var(--color-svv-line)"}`,
+            background: validating ? "var(--color-svv-field)" : pointAnalysable ? "rgba(21,128,61,.10)" : "rgba(163,4,2,.08)",
+            color: validating ? "var(--color-svv-muted)" : pointAnalysable ? "var(--color-svv-green)" : "var(--color-svv-red)",
+            border: `1px solid ${pointAnalysable ? "var(--color-svv-green)" : "var(--color-svv-line)"}`,
           }}
         >
-          {validating ? "Validation du point…" : validation?.message ?? "Placez le point à l’intérieur de votre logement."}
+          {validating
+            ? "Validation du point…"
+            : pointAnalysable
+              ? validation?.message ?? "Point valide."
+              : validation?.statut === "VALIDE"
+                ? "Point dans un bâtiment mais hors couverture LiDAR (altitude terrain indisponible) — analyse impossible ici."
+                : validation?.message ?? "Placez le point à l’intérieur de votre logement."}
         </div>
       )}
 
@@ -411,7 +488,7 @@ export default function BancSaisie() {
         </div>
       )}
 
-      {/* 3. Azimut principal — 360° LIBRE (BE-34) */}
+      {/* Azimut principal — 360° LIBRE (BE-34) */}
       <div style={{ margin: "18px 0 6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span className="svv-label">Azimut principal</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -443,71 +520,6 @@ export default function BancSaisie() {
           Choisissez d’abord un point pour orienter le faisceau.
         </p>
       )}
-
-      {/* 4. Infos logement — étage + hauteur sous plafond + dernier étage (BE-35/36) */}
-      <div style={{ margin: "18px 0 0", display: "grid", gap: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span className="svv-label">Étage</span>
-          <Stepper
-            value={String(etage)}
-            onMinus={() => setEtage((e) => Math.max(0, e - 1))}
-            onPlus={() => setEtage((e) => e + 1)}
-            minusDisabled={etage <= 0}
-          />
-        </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span className="svv-label">Hauteur sous plafond</span>
-          <Stepper
-            value={`${hauteurSousPlafondM.toFixed(2).replace(".", ",")} m`}
-            onMinus={() => ajusterHauteur(-HAUTEUR_SOUS_PLAFOND_PAS_M)}
-            onPlus={() => ajusterHauteur(HAUTEUR_SOUS_PLAFOND_PAS_M)}
-            minusDisabled={hauteurSousPlafondM <= HAUTEUR_SOUS_PLAFOND_MIN_M}
-            plusDisabled={hauteurSousPlafondM >= HAUTEUR_SOUS_PLAFOND_MAX_M}
-          />
-        </div>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-          <input type="checkbox" checked={dernierEtage} onChange={(e) => setDernierEtage(e.target.checked)} />
-          <span style={{ color: "var(--color-svv-ink)", fontSize: ".9rem" }}>Dernier étage</span>
-        </label>
-      </div>
-
-      {/* Hauteur de vision dérivée (formule config.ts, aucun arrondi) */}
-      <div style={{ marginTop: 12, color: "var(--color-svv-muted)", fontSize: ".82rem" }}>
-        Hauteur de vision calculée : <strong style={{ color: "var(--color-svv-ink)" }}>{hv} m</strong>{" "}
-        (étage {etage} × ({hauteurSousPlafondM.toFixed(2).replace(".", ",")} + 0,30) + 1,65)
-      </div>
-
-      {/* 5. Paramètres assemblés — prêts pour le Lot 5 (exécution) */}
-      <div
-        className="svv-card"
-        style={{ marginTop: 18, padding: 14, borderRadius: 12, border: "1px solid var(--color-svv-line)" }}
-      >
-        <div className="svv-label" style={{ marginBottom: 8 }}>
-          Paramètres du test
-        </div>
-        {parametres ? (
-          <>
-            <pre
-              style={{
-                margin: 0,
-                fontSize: ".78rem",
-                color: "var(--color-svv-ink)",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-              }}
-            >
-              {JSON.stringify(parametres, null, 2)}
-            </pre>
-            <p style={{ margin: "10px 0 0", color: "var(--color-svv-muted)", fontSize: ".8rem" }}>
-              Paramètres prêts pour l’exécution.
-            </p>
-          </>
-        ) : (
-          <p style={{ margin: 0, color: "var(--color-svv-muted)", fontSize: ".85rem" }}>
-            {point ? "Point non valide — corrigez le placement pour préparer le test." : "Renseignez un point d’observation valide."}
-          </p>
-        )}
-      </div>
 
       {/* 5-bis. Éditeur du profil de test (Lot 2b) — édite un clone en mémoire, jamais config_scoring */}
       <div

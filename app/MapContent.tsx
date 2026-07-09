@@ -24,6 +24,7 @@ type MapContentProps = {
   pointSnappe?: { lat: number; lon: number } | null; // point recalé sur la bordure (V2) ; null = pas de fantôme
   mode: ModeOrigine; // mode de saisie de l'origine (semi_auto | manuel)
   onModeChange: (m: ModeOrigine) => void;
+  zoomAncreCentre?: boolean; // ancre pincement/molette/double-clic sur le CENTRE (point immobile au zoom) ; défaut = comportement Leaflet (pointeur)
 };
 
 export default function MapContent({
@@ -35,6 +36,7 @@ export default function MapContent({
   pointSnappe,
   mode,
   onModeChange,
+  zoomAncreCentre,
 }: MapContentProps) {
   // Toujours pointer sur la DERNIÈRE prop onPositionChange : le handler moveend est branché une
   // seule fois (effet deps []) ; sans cette ref il appellerait le onPositionChange du MONTAGE,
@@ -75,10 +77,17 @@ export default function MapContent({
   useEffect(() => {
     if (!mapRef.current || leafletMap.current) return;
 
+    // Zoom ancré CENTRE (banc) : pincement/molette/double-clic zooment sur le centre → le point (= centre)
+    // reste immobile, comme les boutons +/−. Absent (parcours public) → options NON passées = défaut Leaflet
+    // inchangé (ancrage sur le pointeur). `'center'` est la valeur Leaflet 1.9 pour ces trois options.
+    const zoomOpts = zoomAncreCentre
+      ? { touchZoom: "center" as const, scrollWheelZoom: "center" as const, doubleClickZoom: "center" as const }
+      : {};
     leafletMap.current = L.map(mapRef.current, {
       center: [latitude, longitude],
       zoom: 19,
       zoomControl: true,
+      ...zoomOpts,
     });
 
     leafletMap.current.on("moveend", () => {

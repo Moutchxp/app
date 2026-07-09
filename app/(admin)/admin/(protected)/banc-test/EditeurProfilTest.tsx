@@ -90,7 +90,7 @@ export default function EditeurProfilTest({
         const colonnes = META.filter((m) => m.famille === famille && m.colonne !== "id" && pontParColonne(m.colonne));
         if (colonnes.length === 0) return null;
         return (
-          <fieldset key={famille} style={{ border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "10px 12px", margin: "0 0 10px" }}>
+          <fieldset key={famille} style={{ border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "10px 12px", margin: "0 0 10px", background: "var(--color-svv-field)" }}>
             <legend style={{ fontSize: ".8rem", fontWeight: 700, color: "var(--color-svv-ink)", padding: "0 6px" }}>{famille}</legend>
             <div style={{ display: "grid", gap: 8 }}>
               {colonnes.map((meta) => (
@@ -108,7 +108,7 @@ export default function EditeurProfilTest({
       })}
 
       {/* Cartes d'année (famillesAnnee) — CRUD + validation anti-chevauchement */}
-      <fieldset style={{ border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "10px 12px", margin: "0 0 10px" }}>
+      <fieldset style={{ border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "10px 12px", margin: "0 0 10px", background: "var(--color-svv-field)" }}>
         <legend style={{ fontSize: ".8rem", fontWeight: 700, color: "var(--color-svv-ink)", padding: "0 6px" }}>
           Cartes d’année de construction
         </legend>
