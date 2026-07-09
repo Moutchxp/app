@@ -127,6 +127,23 @@ function seauStatut(e: Entite): StatutPoint {
   return 'manuel'; // vert
 }
 
+/**
+ * 2 origines (3e axe de filtre), ORTHOGONALES à la famille : « Manuel » = tag créé à la main
+ * (`meta->>'origine'='manuel'`, exposé par la route en `e.origine`) ; « Automatique » = tout le reste
+ * (origine absente ou ≠ 'manuel'). Dérivé de `e.origine` — aucun recalcul, aucun SQL.
+ */
+type Origine = 'auto' | 'manuel';
+
+const ORIGINES: { cle: Origine; libelle: string }[] = [
+  { cle: 'auto', libelle: 'Automatique' },
+  { cle: 'manuel', libelle: 'Manuel' },
+];
+
+/** Origine d'une entité (exclusive). `manuel` ssi `e.origine === 'manuel'`, sinon `auto`. */
+function origineDe(e: Entite): Origine {
+  return e.origine === 'manuel' ? 'manuel' : 'auto';
+}
+
 const LIBELLE_FAMILLE: Record<string, string> = {
   mondial: 'Mondial',
   mh: 'MH',
@@ -303,6 +320,11 @@ export default function CurationCarte() {
     auto: true,
     manuel: true,
     sans_point: true,
+  });
+  // Filtre TERTIAIRE (origine : automatique / manuel), cumulatif, tout coché par défaut (même patron).
+  const [originesVisibles, setOriginesVisibles] = useState<Record<Origine, boolean>>({
+    auto: true,
+    manuel: true,
   });
   const [recherche, setRecherche] = useState('');
   const [selectionId, setSelectionId] = useState<number | null>(null);
@@ -853,9 +875,13 @@ export default function CurationCarte() {
   const entitesAvecPoint = useMemo(
     () =>
       (entites ?? []).filter(
-        (e) => e.point !== null && famillesVisibles[e.famille] !== false && statutsVisibles[seauStatut(e)] !== false,
+        (e) =>
+          e.point !== null &&
+          famillesVisibles[e.famille] !== false &&
+          statutsVisibles[seauStatut(e)] !== false &&
+          originesVisibles[origineDe(e)] !== false,
       ),
-    [entites, famillesVisibles, statutsVisibles],
+    [entites, famillesVisibles, statutsVisibles, originesVisibles],
   );
 
   // ── (Re)dessin des marqueurs quand entités / filtres / sélection changent. ────
@@ -1070,11 +1096,12 @@ export default function CurationCarte() {
       .filter((e) => e.id !== composition) // FC-20/FC-74 : l'entité en composition est dans la zone haute, hors liste
       .filter((e) => famillesVisibles[e.famille] !== false) // filtre PRIORITAIRE : famille
       .filter((e) => statutsVisibles[seauStatut(e)] !== false) // filtre SECONDAIRE cumulatif : statut de point GPS
+      .filter((e) => originesVisibles[origineDe(e)] !== false) // filtre TERTIAIRE cumulatif : origine
       .filter((e) => {
         if (!q) return true;
         return (e.nom ?? '').toLowerCase().includes(q) || e.refCode.toLowerCase().includes(q);
       });
-  }, [entites, famillesVisibles, statutsVisibles, recherche, composition]);
+  }, [entites, famillesVisibles, statutsVisibles, originesVisibles, recherche, composition]);
 
   const compteurs: Compteurs = useMemo(() => {
     const base = (entites ?? []).filter((e) => famillesVisibles[e.famille] !== false);
@@ -1317,6 +1344,22 @@ export default function CurationCarte() {
                   onChange={(ev) => setStatutsVisibles((v) => ({ ...v, [s.cle]: ev.target.checked }))}
                 />
                 <span>{s.libelle}</span>
+              </label>
+            ))}
+          </fieldset>
+
+          {/* Filtre TERTIAIRE : origine (multi-sélection, cumulatif avec familles + statut). Orthogonal à la
+              famille ; agit sur la carte et la liste uniquement (l'historique garde son propre filtre famille). */}
+          <fieldset className="svv-cur-filtres">
+            <legend className="svv-cur-legende">Origine</legend>
+            {ORIGINES.map((o) => (
+              <label key={o.cle} className="svv-cur-check">
+                <input
+                  type="checkbox"
+                  checked={originesVisibles[o.cle] !== false}
+                  onChange={(ev) => setOriginesVisibles((v) => ({ ...v, [o.cle]: ev.target.checked }))}
+                />
+                <span>{o.libelle}</span>
               </label>
             ))}
           </fieldset>
