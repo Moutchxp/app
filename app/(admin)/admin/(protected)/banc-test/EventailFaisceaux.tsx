@@ -370,45 +370,142 @@ function statutPonderation(l: LigneVentil): { texte: string; bg: string; fg: str
 // additions/soustractions/multiplications d'AFFICHAGE entre champs du seam composent les chaînes lisibles.
 // Aucun libellé ne laisse fuiter un nom de champ/table/colonne (dictionnaire ci-dessous).
 
-/** Une étape du récit de calcul (valeur cumulée + opération d'affichage composée des valeurs réelles). */
+/** Un opérande légendé (valeur formatée + libellé humain), pour la légende déployée d'un cartouche. */
+export interface OperandeLegende {
+  valeur: string; // déjà formaté (mètres, coefficient…)
+  libelle: string; // libellé humain du dictionnaire (aucun nom technique)
+  /** Sous-calcul (UNE profondeur) qui produit `valeur`, ex. « 2.5 × 61.769 » — composé de valeurs déjà exposées. */
+  sousCalcul?: string;
+  /** Légendes des opérandes du sous-calcul (ATOMIQUES : mesures/paramètres, jamais re-décomposés). */
+  sousOperandes?: OperandeLegende[];
+}
+
+/** Une étape du récit de calcul : valeur à l'étape + expression composée des valeurs réelles + opérandes légendés. */
 export interface EtapeCalcul {
   libelle: string;
-  operation: string | null; // ex. « × 1.2 », « + 12.4 m », « ÷ 1.700 » — COMPOSÉ des valeurs réelles, jamais figé
   valeur: number; // résultat à cette étape (m)
   unite: "m" | null;
   misEnEvidence?: boolean; // étape « valeur avant plafond »
   note?: string;
+  /** Calcul en clair, COMPOSÉ des valeurs réelles (jamais figé) ; `null` si l'étape est un simple relevé.
+   *  Rendu clampé à 2 lignes au repli, complet au déploiement. */
+  expression: string | null;
+  /** Légende de chaque nombre utilisé (déployée par le bouton « i »). */
+  operandes: OperandeLegende[];
 }
 
 /** Dictionnaire des libellés humains (aucun nom technique à l'écran). Règle projet « légende sinon famille ». */
+// Libellés FIGÉS (indépendants de la famille). Les libellés dépendant de la famille (multiplicateur, score
+// patrimoine/bâti) sont produits par `libelleMultiplicateur` / `libelleScorePatrimoine`, pas par ce dictionnaire.
 const LIBELLES_ETAPE = {
   distanceReelle: "Distance réelle au 1er obstacle",
   distanceRetenue: "Distance retenue (plafonnée à la portée d’analyse)",
   bonusVegetation: "Bonus végétation traversée",
-  lectureDegagement: "Lecture dégagement (distance + végétation)",
-  plafondLectureDegagement: "Plafond de la lecture dégagement",
-  multiplicateurCone: "Multiplicateur patrimoine (monument dans l’axe)",
-  multiplicateurFlanc: "Multiplicateur patrimoine (monument sur le côté)",
-  lecturePatrimoine: "Lecture patrimoine",
+  coeffBonusVegetation: "coefficient de bonus par mètre de végétation",
+  longueurVegetation: "Longueur de végétation traversée",
+  scoreDegagement: "Score dégagement (distance + végétation)",
+  scoreDegagementAvantPlafond: "Score dégagement avant plafond",
+  plafondScoreDegagement: "Plafond du score dégagement",
   attenuation: "Atténuation du patrimoine par la végétation",
   combinaisonSequentiel: "Combinaison : dégagement + patrimoine atténué",
   combinaisonAddition: "Combinaison : dégagement + patrimoine",
-  combinaisonMax: "Combinaison : on garde la meilleure des deux lectures",
+  combinaisonMax: "Combinaison : on garde le meilleur des deux scores",
   valeurAvantPlafond: "Valeur avant plafond",
   plafondApplique: "Plafond appliqué",
-  distancePercue: "Distance perçue finale",
+  distancePercue: "Distance pondérée finale",
   valeurFixeMondial: "Valeur fixe patrimoine mondial",
   effetCouloir: "Effet couloir (ajustement global de la note, hors de ce faisceau)",
   notePlafondAtteint: "Plafond atteint — valeur ramenée à la limite",
 } as const;
 
-/** Montant en mètres pour les opérations d'affichage (1 décimale). AFFICHAGE seul (ne touche aucune valeur). */
+/** Montant en mètres pour les valeurs « en-tête » et le récapitulatif (1 décimale). AFFICHAGE seul. */
 const fmtMontant = (v: number): string => v.toFixed(1);
+
+/** Nombre fidèle jusqu'à 3 décimales (zéros superflus retirés, min 1 décimale), pour les expressions détaillées.
+ *  AFFICHAGE seul : n'arrondit ni ne recalcule aucune valeur transmise. */
+function fmtNb(v: number): string {
+  const r = parseFloat(v.toFixed(3));
+  return Number.isInteger(r) ? r.toFixed(1) : String(r);
+}
+
+/** Opérande légendé en mètres. */
+const opM = (v: number, libelle: string): OperandeLegende => ({ valeur: `${fmtNb(v)} m`, libelle });
+/** Opérande légendé sans unité (coefficient / diviseur). */
+const opX = (v: number, libelle: string): OperandeLegende => ({ valeur: fmtNb(v), libelle });
 
 /** Contexte de famille en clair pour la note d'une étape patrimoine (« légende sinon famille »). */
 function contexteFamille(l: LigneVentil): string | undefined {
   if (l.famille === "annee") return l.carteAnnee ? `Époque de construction : ${formaterBornesCarte(l.carteAnnee)}` : undefined;
   return l.familleLibelle ?? undefined; // « Monument Historique » / « Inventaire »
+}
+
+/** Un « bien historique » = MH / Inventaire / Patrimoine mondial. Une CARTE D'ANNÉE n'en est PAS un
+ *  (bâti daté par son époque de construction) → jamais les mots « monument » ni « historique » pour elle. */
+function estHistorique(l: LigneVentil): boolean {
+  return l.famille === "mh" || l.famille === "inventaire" || l.famille === "mondial";
+}
+
+/** Libellé du multiplicateur cône/flanc, SELON LA FAMILLE effective (`l.famille`). Jamais « monument ». */
+function libelleMultiplicateur(l: LigneVentil, enCone: boolean): string {
+  const nature = estHistorique(l) ? "patrimoine historique" : "époque de construction";
+  const position = enCone ? "bâtiment dans l’axe" : "bâtiment sur le côté";
+  return `Multiplicateur ${nature} (${position})`;
+}
+
+/** Libellé du score patrimoine (P2), SELON LA FAMILLE : « patrimoine historique » vs « bâti » (carte d'année). */
+function libelleScorePatrimoine(l: LigneVentil): string {
+  return estHistorique(l) ? "Score patrimoine historique" : "Score bâti";
+}
+
+/** Opérande « bonus végétation » DÉCOMPOSÉ (une profondeur) : boostF4AppliqueM = boostF4 × natureTraverseeM.
+ *  Les deux facteurs (paramètre profil + mesure) sont ATOMIQUES → pas de nouvelle décomposition. */
+function opBonus(l: LigneVentil, profil: ProfilDegagement): OperandeLegende {
+  return {
+    valeur: `${fmtNb(l.boostF4AppliqueM)} m`,
+    libelle: LIBELLES_ETAPE.bonusVegetation,
+    sousCalcul: `${fmtNb(profil.boostF4)} × ${fmtNb(l.natureTraverseeM)}`,
+    sousOperandes: [opX(profil.boostF4, LIBELLES_ETAPE.coeffBonusVegetation), opM(l.natureTraverseeM, LIBELLES_ETAPE.longueurVegetation)],
+  };
+}
+
+/** Opérande « score dégagement avant plafond » DÉCOMPOSÉ : p1AvantCapM = baseM + boostF4AppliqueM (opérandes atomiques). */
+function opP1AvantCap(l: LigneVentil): OperandeLegende {
+  return {
+    valeur: `${fmtNb(l.p1AvantCapM as number)} m`,
+    libelle: LIBELLES_ETAPE.scoreDegagementAvantPlafond,
+    sousCalcul: `${fmtNb(l.baseM)} + ${fmtNb(l.boostF4AppliqueM)}`,
+    sousOperandes: [opM(l.baseM, LIBELLES_ETAPE.distanceReelle), opM(l.boostF4AppliqueM, LIBELLES_ETAPE.bonusVegetation)],
+  };
+}
+
+/** Opérande « score patrimoine/bâti » (P2) DÉCOMPOSÉ : p2M = distanceBruteM × coeffApplique (opérandes atomiques). */
+function opP2(l: LigneVentil, enCone: boolean): OperandeLegende {
+  const decomposable = l.distanceBruteM !== null && l.coeffApplique !== null;
+  return {
+    valeur: `${fmtNb(l.p2M as number)} m`,
+    libelle: libelleScorePatrimoine(l),
+    sousCalcul: decomposable ? `${fmtNb(l.distanceBruteM as number)} × ${fmtCoeff(l.coeffApplique)}` : undefined,
+    sousOperandes: decomposable ? [opM(l.distanceBruteM as number, LIBELLES_ETAPE.distanceReelle), opX(l.coeffApplique as number, libelleMultiplicateur(l, enCone))] : undefined,
+  };
+}
+
+/** Opérande « valeur avant plafond » DÉCOMPOSÉ selon le cas : combinaison (cumul), produit (patrimoine seul),
+ *  somme (ordinaire + nature). Opérandes du sous-calcul ATOMIQUES (une profondeur). Sinon atomique. */
+function opValeurAvantCap(l: LigneVentil, enCone: boolean): OperandeLegende {
+  const o: OperandeLegende = { valeur: `${fmtNb(l.valeurAvantCapM)} m`, libelle: LIBELLES_ETAPE.valeurAvantPlafond };
+  if (l.p1M !== null && l.p2M !== null) {
+    const p2Divise = l.diviseurCumulNature !== null && l.modeCombinaison === "sequentiel";
+    const termeP2 = p2Divise ? `(${fmtNb(l.p2M)} ÷ ${fmtNb(l.diviseurCumulNature as number)})` : `${fmtNb(l.p2M)}`;
+    o.sousCalcul = `${fmtNb(l.p1M)} + ${termeP2}`;
+    o.sousOperandes = [opM(l.p1M, LIBELLES_ETAPE.scoreDegagement), opM(l.p2M, libelleScorePatrimoine(l)), ...(p2Divise ? [opX(l.diviseurCumulNature as number, LIBELLES_ETAPE.attenuation)] : [])];
+  } else if (l.famille !== null && l.distanceBruteM !== null && l.coeffApplique !== null) {
+    o.sousCalcul = `${fmtNb(l.distanceBruteM)} × ${fmtCoeff(l.coeffApplique)}`;
+    o.sousOperandes = [opM(l.distanceBruteM, LIBELLES_ETAPE.distanceReelle), opX(l.coeffApplique, libelleMultiplicateur(l, enCone))];
+  } else if (l.famille === null && l.natureTraverseeM > 0) {
+    o.sousCalcul = `${fmtNb(l.baseM)} + ${fmtNb(l.boostF4AppliqueM)}`;
+    o.sousOperandes = [opM(l.baseM, LIBELLES_ETAPE.distanceRetenue), opM(l.boostF4AppliqueM, LIBELLES_ETAPE.bonusVegetation)];
+  }
+  return o;
 }
 
 /**
@@ -425,7 +522,7 @@ export function construireEtapesCalcul(l: LigneVentil, profil: ProfilDegagement)
 
   // Patrimoine mondial : faisceau fixe, aucune décomposition.
   if (l.famille === "mondial") {
-    etapes.push({ libelle: LIBELLES_ETAPE.valeurFixeMondial, operation: null, valeur: l.valeurAvantCapM, unite: "m", misEnEvidence: true });
+    etapes.push({ libelle: LIBELLES_ETAPE.valeurFixeMondial, valeur: l.valeurAvantCapM, unite: "m", misEnEvidence: true, expression: null, operandes: [opM(l.valeurAvantCapM, LIBELLES_ETAPE.valeurFixeMondial)] });
     return etapes;
   }
 
@@ -435,45 +532,60 @@ export function construireEtapesCalcul(l: LigneVentil, profil: ProfilDegagement)
 
   if (!pondere) {
     // Ordinaire / dégagé : distance retenue (+ éventuel bonus végétation), avant le plafond de portée.
-    // base = valeurAvantCapM − boostF4AppliqueM (exact par construction du seam) : soustraction d'AFFICHAGE.
-    const baseM = l.valeurAvantCapM - l.boostF4AppliqueM;
+    // `baseM` vient du seam (Lot 4) = min(distanceObstacle ?? portée, portée). Aucun recalcul.
     if (l.distanceBruteM !== null) {
-      etapes.push({ libelle: LIBELLES_ETAPE.distanceReelle, operation: null, valeur: l.distanceBruteM, unite: "m" });
+      etapes.push({ libelle: LIBELLES_ETAPE.distanceReelle, valeur: l.distanceBruteM, unite: "m", expression: null, operandes: [opM(l.distanceBruteM, LIBELLES_ETAPE.distanceReelle)] });
     } else {
-      etapes.push({ libelle: LIBELLES_ETAPE.distanceRetenue, operation: null, valeur: baseM, unite: "m" });
+      etapes.push({ libelle: LIBELLES_ETAPE.distanceRetenue, valeur: l.baseM, unite: "m", expression: null, operandes: [opM(l.baseM, LIBELLES_ETAPE.distanceRetenue)] });
     }
     if (aNature) {
-      etapes.push({ libelle: LIBELLES_ETAPE.bonusVegetation, operation: `+ ${fmtMontant(l.boostF4AppliqueM)} m`, valeur: l.valeurAvantCapM, unite: "m" });
+      etapes.push({
+        libelle: LIBELLES_ETAPE.bonusVegetation,
+        valeur: l.valeurAvantCapM,
+        unite: "m",
+        expression: `${fmtNb(l.baseM)} + ${fmtNb(l.boostF4AppliqueM)} = ${fmtNb(l.valeurAvantCapM)}`,
+        operandes: [opM(l.baseM, LIBELLES_ETAPE.distanceRetenue), opBonus(l, profil)],
+      });
     }
   } else if (!aNature) {
     // Patrimoine seul : distance réelle × coeff (cône ou flanc), avant le cap famille.
     if (l.distanceBruteM !== null) {
-      etapes.push({ libelle: LIBELLES_ETAPE.distanceReelle, operation: null, valeur: l.distanceBruteM, unite: "m" });
+      etapes.push({ libelle: LIBELLES_ETAPE.distanceReelle, valeur: l.distanceBruteM, unite: "m", expression: null, operandes: [opM(l.distanceBruteM, LIBELLES_ETAPE.distanceReelle)] });
     }
+    const operandes: OperandeLegende[] = [];
+    if (l.distanceBruteM !== null) operandes.push(opM(l.distanceBruteM, LIBELLES_ETAPE.distanceReelle));
+    if (l.coeffApplique !== null) operandes.push(opX(l.coeffApplique, libelleMultiplicateur(l, enCone)));
     etapes.push({
-      libelle: enCone ? LIBELLES_ETAPE.multiplicateurCone : LIBELLES_ETAPE.multiplicateurFlanc,
-      operation: l.coeffApplique !== null ? `× ${fmtCoeff(l.coeffApplique)}` : null,
+      libelle: libelleMultiplicateur(l, enCone),
       valeur: l.valeurAvantCapM,
       unite: "m",
+      expression: l.distanceBruteM !== null && l.coeffApplique !== null ? `${fmtNb(l.distanceBruteM)} × ${fmtCoeff(l.coeffApplique)} = ${fmtNb(l.valeurAvantCapM)}` : null,
+      operandes,
       note: contexteFamille(l),
     });
   } else {
     // Cumul : deux lectures autonomes (P1 dégagement, P2 patrimoine) puis combinaison selon le mode EFFECTIF.
     if (l.p1M !== null) {
-      etapes.push({
-        libelle: LIBELLES_ETAPE.lectureDegagement,
-        operation: null,
-        valeur: l.p1M,
-        unite: "m",
-        note: `${LIBELLES_ETAPE.plafondLectureDegagement} : ${fmtMontant(profil.cumulNature.capP1M)} m`,
-      });
+      // Détail P1 (Lot 4) : distance retenue + bonus végétation = valeur avant cap ; puis, si le cap capP1M mord,
+      // plafonnement. `capee` détecté par p1M ≠ p1AvantCapM (seam), aucun min() réimplémenté.
+      const capee = l.p1AvantCapM !== null && l.p1M !== l.p1AvantCapM;
+      const compo = l.p1AvantCapM !== null ? `${fmtNb(l.baseM)} + ${fmtNb(l.boostF4AppliqueM)} = ${fmtNb(l.p1AvantCapM)}` : `${fmtNb(l.p1M)}`;
+      const expr = capee ? `${compo} → plafonné à ${fmtNb(profil.cumulNature.capP1M)}` : compo;
+      const operandes: OperandeLegende[] = [opM(l.baseM, LIBELLES_ETAPE.distanceReelle), opBonus(l, profil)];
+      if (l.p1AvantCapM !== null) operandes.push(opP1AvantCap(l));
+      if (capee) operandes.push(opM(profil.cumulNature.capP1M, LIBELLES_ETAPE.plafondScoreDegagement));
+      etapes.push({ libelle: LIBELLES_ETAPE.scoreDegagement, valeur: l.p1M, unite: "m", expression: expr, operandes });
     }
     if (l.p2M !== null) {
+      const operandes: OperandeLegende[] = [];
+      if (l.distanceBruteM !== null) operandes.push(opM(l.distanceBruteM, LIBELLES_ETAPE.distanceReelle));
+      if (l.coeffApplique !== null) operandes.push(opX(l.coeffApplique, libelleMultiplicateur(l, enCone)));
       etapes.push({
-        libelle: LIBELLES_ETAPE.lecturePatrimoine,
-        operation: l.coeffApplique !== null ? `× ${fmtCoeff(l.coeffApplique)}` : null,
+        libelle: libelleScorePatrimoine(l),
         valeur: l.p2M,
         unite: "m",
+        expression: l.distanceBruteM !== null && l.coeffApplique !== null ? `${fmtNb(l.distanceBruteM)} × ${fmtCoeff(l.coeffApplique)} = ${fmtNb(l.p2M)}` : null,
+        operandes,
         note: contexteFamille(l),
       });
     }
@@ -482,19 +594,16 @@ export function construireEtapesCalcul(l: LigneVentil, profil: ProfilDegagement)
       l.modeCombinaison === "sequentiel" ? LIBELLES_ETAPE.combinaisonSequentiel
       : l.modeCombinaison === "max" ? LIBELLES_ETAPE.combinaisonMax
       : LIBELLES_ETAPE.combinaisonAddition;
-    const opCombi =
-      l.modeCombinaison === "sequentiel" && l.p1M !== null && l.p2M !== null && l.diviseurCumulNature !== null
-        ? `${fmtMontant(l.p1M)} + ${fmtMontant(l.p2M)} ÷ ${l.diviseurCumulNature.toFixed(3)}`
-        : (l.modeCombinaison === "addition" || l.modeCombinaison === null) && l.p1M !== null && l.p2M !== null
-          ? `${fmtMontant(l.p1M)} + ${fmtMontant(l.p2M)}`
-          : null;
-    etapes.push({
-      libelle: libCombi,
-      operation: opCombi,
-      valeur: l.valeurAvantCapM,
-      unite: "m",
-      note: l.modeCombinaison === "sequentiel" && l.diviseurCumulNature !== null ? `${LIBELLES_ETAPE.attenuation} : ÷ ${l.diviseurCumulNature.toFixed(3)}` : undefined,
-    });
+    // Terme patrimoine PARENTHÉSÉ dès qu'il est divisé (règle générale « divisé ⟹ parenthèses », pas par mode).
+    const p2Divise = l.diviseurCumulNature !== null && l.modeCombinaison === "sequentiel";
+    const termeP2 = l.p2M !== null ? (p2Divise ? `(${fmtNb(l.p2M)} ÷ ${fmtNb(l.diviseurCumulNature as number)})` : `${fmtNb(l.p2M)}`) : null;
+    const exprCombi =
+      l.modeCombinaison !== "max" && l.p1M !== null && termeP2 !== null ? `${fmtNb(l.p1M)} + ${termeP2} = ${fmtNb(l.valeurAvantCapM)}` : null;
+    const operandesCombi: OperandeLegende[] = [];
+    if (l.p1M !== null) operandesCombi.push(opM(l.p1M, LIBELLES_ETAPE.scoreDegagement));
+    if (l.p2M !== null) operandesCombi.push(opP2(l, enCone));
+    if (p2Divise) operandesCombi.push(opX(l.diviseurCumulNature as number, LIBELLES_ETAPE.attenuation));
+    etapes.push({ libelle: libCombi, valeur: l.valeurAvantCapM, unite: "m", expression: exprCombi, operandes: operandesCombi });
   }
 
   // Étape « valeur avant plafond » en évidence : la dernière étape dont la valeur == valeurAvantCapM.
@@ -504,7 +613,14 @@ export function construireEtapesCalcul(l: LigneVentil, profil: ProfilDegagement)
 
   // Étape finale « plafond appliqué » quand le cap famille mord OU que la valeur avant plafond dépasse la borne.
   if (l.capFamilleApplique || l.valeurAvantCapM > l.seuilBorneM) {
-    etapes.push({ libelle: LIBELLES_ETAPE.plafondApplique, operation: `↓ ${fmtMontant(l.seuilBorneM)} m`, valeur: l.distancePercueM, unite: "m", note: LIBELLES_ETAPE.notePlafondAtteint });
+    etapes.push({
+      libelle: LIBELLES_ETAPE.plafondApplique,
+      valeur: l.distancePercueM,
+      unite: "m",
+      expression: `${fmtNb(l.valeurAvantCapM)} → plafonné à ${fmtNb(l.seuilBorneM)} = ${fmtNb(l.distancePercueM)}`,
+      operandes: [opValeurAvantCap(l, enCone), opM(l.seuilBorneM, LIBELLES_ETAPE.plafondApplique)],
+      note: LIBELLES_ETAPE.notePlafondAtteint,
+    });
   }
 
   return etapes;
@@ -635,32 +751,81 @@ function DetailFaisceau({ a, t, index, profilActif, profilTest, onFermer }: { a:
   );
 }
 
-/** Une colonne de la modale (Actif ou Test) : récit d'étapes + récapitulatif. `diff` = indices soulignés. */
-function ColonneCalcul({ titre, couleur, l, etapes, diff }: { titre: string; couleur: string; l: LigneVentil; etapes: EtapeCalcul[]; diff: Set<number> }) {
+/** Une colonne de la modale (Actif ou Test) : récit d'étapes dépliables + récapitulatif. `diff` = indices soulignés.
+ *  Chaque cartouche : calcul en clair (clampé à 2 lignes), bouton « i » → déploie l'expression complète + les
+ *  légendes de chaque nombre. État de déploiement LOCAL par cartouche, indépendant entre colonnes. */
+function ColonneCalcul({ titre, couleur, l, etapes, diff, prefixId }: { titre: string; couleur: string; l: LigneVentil; etapes: EtapeCalcul[]; diff: Set<number>; prefixId: string }) {
+  const [deployes, setDeployes] = useState<Record<number, boolean>>({});
+  const basculer = (i: number) => setDeployes((d) => ({ ...d, [i]: !d[i] }));
   return (
     <div style={{ flex: "1 1 260px", minWidth: 0 }}>
       <div style={{ fontWeight: 800, fontSize: ".82rem", color: couleur, marginBottom: 8 }}>{titre}</div>
       <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-        {etapes.map((e, i) => (
-          <li
-            key={i}
-            style={{
-              padding: "6px 8px",
-              borderRadius: 8,
-              background: e.misEnEvidence ? "color-mix(in srgb, var(--color-svv-green-soft) 70%, white)" : "var(--color-svv-field)",
-              border: e.misEnEvidence ? "1px solid var(--color-svv-green-ink)" : "1px solid transparent",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-              <span style={{ fontSize: ".78rem", color: "var(--color-svv-ink)", textDecoration: diff.has(i) ? "underline dotted" : "none" }}>{e.libelle}</span>
-              <span style={{ fontSize: ".8rem", fontWeight: 700, color: couleur, whiteSpace: "nowrap" }}>
-                {fmtMontant(e.valeur)}{e.unite ? " m" : ""}
-              </span>
-            </div>
-            {e.operation && <div style={{ fontSize: ".72rem", color: "var(--color-svv-muted)", fontFamily: "ui-monospace, monospace" }}>{e.operation}</div>}
-            {e.note && <div style={{ fontSize: ".72rem", color: "var(--color-svv-muted)" }}>{e.note}</div>}
-          </li>
-        ))}
+        {etapes.map((e, i) => {
+          const deploye = !!deployes[i];
+          const detailId = `${prefixId}-etape-${i}`;
+          return (
+            <li
+              key={i}
+              style={{
+                padding: "6px 8px",
+                borderRadius: 8,
+                background: e.misEnEvidence ? "color-mix(in srgb, var(--color-svv-green-soft) 70%, white)" : "var(--color-svv-field)",
+                border: e.misEnEvidence ? "1px solid var(--color-svv-green-ink)" : "1px solid transparent",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                <span style={{ fontSize: ".78rem", color: "var(--color-svv-ink)", textDecoration: diff.has(i) ? "underline dotted" : "none" }}>{e.libelle}</span>
+                <span style={{ fontSize: ".8rem", fontWeight: 700, color: couleur, whiteSpace: "nowrap" }}>
+                  {fmtMontant(e.valeur)}{e.unite ? " m" : ""}
+                </span>
+              </div>
+              {/* Calcul en clair : clampé à 2 lignes au repli, complet au déploiement. */}
+              {e.expression && (
+                <div className={deploye ? undefined : "svv-expr-clamp"} style={{ fontSize: ".72rem", color: "var(--color-svv-muted)", fontFamily: "ui-monospace, monospace", marginTop: 2 }}>
+                  {e.expression}
+                </div>
+              )}
+              {e.note && <div style={{ fontSize: ".72rem", color: "var(--color-svv-muted)", marginTop: 2 }}>{e.note}</div>}
+              {e.operandes.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  <button
+                    type="button"
+                    className="svv-info-btn-sm"
+                    aria-expanded={deploye}
+                    aria-controls={detailId}
+                    aria-label={`Détail des valeurs : ${e.libelle}`}
+                    title={`Détail des valeurs : ${e.libelle}`}
+                    onClick={() => basculer(i)}
+                  >
+                    i
+                  </button>
+                </div>
+              )}
+              {deploye && e.operandes.length > 0 && (
+                <div id={detailId} style={{ marginTop: 6, paddingTop: 6, borderTop: "1px dashed var(--color-svv-line)", display: "flex", flexDirection: "column", gap: 2 }}>
+                  {e.operandes.map((o, k) => (
+                    <div key={k} style={{ fontSize: ".72rem", color: "var(--color-svv-muted)" }}>
+                      <div>
+                        <strong style={{ color: "var(--color-svv-ink)", fontFamily: "ui-monospace, monospace" }}>{o.valeur}</strong> — {o.libelle}
+                        {o.sousCalcul ? <span style={{ fontFamily: "ui-monospace, monospace" }}> ({o.sousCalcul})</span> : null}
+                      </div>
+                      {o.sousOperandes && o.sousOperandes.length > 0 && (
+                        <div style={{ marginLeft: 14, marginTop: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+                          {o.sousOperandes.map((so, j) => (
+                            <div key={j}>
+                              <strong style={{ color: "var(--color-svv-ink)", fontFamily: "ui-monospace, monospace" }}>{so.valeur}</strong> — {so.libelle}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ol>
       {/* Récapitulatif : valeur avant plafond → plafond appliqué → distance perçue finale. */}
       <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px dashed var(--color-svv-line)", fontSize: ".74rem", color: "var(--color-svv-muted)", display: "flex", flexDirection: "column", gap: 2 }}>
@@ -726,7 +891,7 @@ function ModaleCalcul({ a, t, index, profilActif, profilTest, onFermer }: { a: L
       onClick={onFermer} // clic hors modale (sur l'overlay) ferme
       style={{ position: "fixed", inset: 0, zIndex: 3000, background: "rgba(22,32,44,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
     >
-      <style>{`@keyframes svvModaleIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion: reduce){.svv-modale-calcul{animation:none!important}}`}</style>
+      <style>{`@keyframes svvModaleIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}.svv-expr-clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.svv-info-btn-sm{position:relative;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:9999px;border:1.5px solid var(--color-svv-ink);background:#fff;color:var(--color-svv-ink);font-family:Georgia,'Times New Roman',serif;font-style:italic;font-weight:700;font-size:10px;line-height:1;cursor:pointer;transition:background-color .12s ease,color .12s ease}.svv-info-btn-sm::before{content:"";position:absolute;inset:-5px;border-radius:9999px}.svv-info-btn-sm:hover{background:var(--color-svv-ink);color:#fff}.svv-info-btn-sm:focus-visible{background:var(--color-svv-ink);color:#fff;outline:2px solid var(--color-svv-red);outline-offset:2px}@media (prefers-reduced-motion: reduce){.svv-modale-calcul{animation:none!important}.svv-info-btn-sm{transition:none}}`}</style>
       <div
         ref={dialogRef}
         role="dialog"
@@ -757,12 +922,12 @@ function ModaleCalcul({ a, t, index, profilActif, profilTest, onFermer }: { a: L
         </div>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-          <ColonneCalcul titre="Moteur actif" couleur="var(--color-svv-green-ink)" l={a} etapes={etapesA} diff={diffA} />
-          <ColonneCalcul titre="Profil de test" couleur="var(--color-svv-red)" l={t} etapes={etapesT} diff={diffT} />
+          <ColonneCalcul titre="Moteur actif" couleur="var(--color-svv-green-ink)" l={a} etapes={etapesA} diff={diffA} prefixId={`actif-${index}`} />
+          <ColonneCalcul titre="Profil de test" couleur="var(--color-svv-red)" l={t} etapes={etapesT} diff={diffT} prefixId={`test-${index}`} />
         </div>
 
         <p style={{ margin: "14px 0 0", fontSize: ".74rem", color: "var(--color-svv-muted)", lineHeight: 1.5 }}>
-          La « valeur avant plafond » est indicative : elle n’entre pas dans le score. Seule la distance perçue finale, une fois le plafond appliqué, est prise en compte.
+          La « valeur avant plafond » est indicative : elle n’entre pas dans le score. Seule la distance pondérée finale, une fois le plafond appliqué, est prise en compte.
         </p>
       </div>
     </div>
