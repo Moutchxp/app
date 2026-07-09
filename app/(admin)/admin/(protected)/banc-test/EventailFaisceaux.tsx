@@ -40,6 +40,10 @@ export interface LigneVentil {
   carteAnnee: CarteAnneeLite | null; // bornes + coeffs + cap de la carte appliquée (si famille === 'annee')
   familleLibelle: string | null; // « Monument Historique » / « Inventaire » / « Patrimoine mondial » (mh/inventaire/mondial)
   dansChaineCouloir: boolean; // faisceau ∈ chaîne couloir validée (malus AGRÉGÉ, pas par faisceau)
+  // Lot 1 (valeur avant plafond, descriptif) :
+  valeurAvantCapM: number; // valeur pondérée avant le dernier plafond ; distancePercueM === min(valeurAvantCapM, seuilBorneM)
+  p1M: number | null; // Partie 1 (nature classique après cap capP1M) du cumul nature+bâti ; null si pas de cumul
+  p2M: number | null; // Partie 2 (lecture patrimoine = distance × coeff) du cumul nature+bâti ; null si pas de cumul
 }
 
 export interface BornesArcs {
