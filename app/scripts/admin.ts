@@ -12,6 +12,7 @@
  */
 import readline from 'node:readline';
 import { creerCompte, reinitialiserMotDePasse, secours, listerComptes, ErreurCompte } from '../lib/admin/comptes';
+import { estEmailValide } from '../lib/admin/email';
 import { closePool } from '../lib/db/client';
 import type { RoleAdmin } from '../lib/admin/session';
 
@@ -60,6 +61,18 @@ function exigerIdentifiant(): string {
   return id.trim();
 }
 
+/**
+ * Comme `exigerIdentifiant`, mais impose le format ADRESSE E-MAIL (creer/secours). Le refus est levé AVANT
+ * toute saisie de mot de passe : inutile d'infliger la double frappe masquée pour rejeter ensuite.
+ */
+function exigerIdentifiantEmail(): string {
+  const id = exigerIdentifiant();
+  if (!estEmailValide(id)) {
+    throw new ErreurCompte(`« ${id} » n'est pas une adresse e-mail valide (ex. prenom@exemple.fr).`);
+  }
+  return id;
+}
+
 function exigerRole(): RoleAdmin {
   const r = arg('role');
   if (r !== 'administrateur' && r !== 'collaborateur') {
@@ -76,7 +89,7 @@ async function main(): Promise<void> {
 
   switch (sous) {
     case 'creer': {
-      const identifiant = exigerIdentifiant();
+      const identifiant = exigerIdentifiantEmail();
       const role = exigerRole();
       await gardeProduction();
       const mdp = await saisirMotDePasse();
@@ -93,7 +106,7 @@ async function main(): Promise<void> {
       break;
     }
     case 'secours': {
-      const identifiant = exigerIdentifiant();
+      const identifiant = exigerIdentifiantEmail();
       await gardeProduction();
       const mdp = await saisirMotDePasse();
       const c = await secours(identifiant, mdp);

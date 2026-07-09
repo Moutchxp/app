@@ -97,4 +97,22 @@ describe('POST /api/admin/session', () => {
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ erreur: 'Identifiants invalides' });
   });
+
+  it('(f) identifiant MAL FORMÉ (pas une adresse e-mail) → 401 générique identique, jamais un motif e-mail', async () => {
+    trouverCompte.mockResolvedValue(null); // aucun compte ne peut matcher (CHECK e-mail en base)
+    verifier.mockResolvedValue(false);
+    const res = await POST(requete({ identifiant: 'pas-un-email', password: 'x' }));
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ erreur: 'Identifiants invalides' });
+    expect(verifier).toHaveBeenCalledTimes(1); // leurre exécuté → même timing, aucun court-circuit révélateur
+  });
+
+  it('(d) connexion insensible à la casse : identifiant en MAJUSCULES accepté, délégué à trouverCompte', async () => {
+    trouverCompte.mockResolvedValue(compte({ identifiant: 'a.jorel@sansvisavis.com' }));
+    verifier.mockResolvedValue(true);
+    const res = await POST(requete({ identifiant: 'A.Jorel@SansVisAVis.COM', password: 'bon' }));
+    expect(res.status).toBe(200);
+    // La casse est résolue par trouverCompte (SQL lower()=lower()) : la route transmet la saisie telle quelle.
+    expect(trouverCompte).toHaveBeenCalledWith('A.Jorel@SansVisAVis.COM');
+  });
 });

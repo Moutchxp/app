@@ -52,16 +52,18 @@ export default function AdminLoginPage() {
 
         <form onSubmit={onSubmit}>
           <label htmlFor="admin-identifiant" className="svv-label" style={{ display: 'block', marginBottom: 6 }}>
-            Identifiant
+            Adresse e-mail
           </label>
           <input
             id="admin-identifiant"
             name="identifiant"
-            type="text"
+            type="email"
+            inputMode="email"
             autoComplete="username"
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
+            placeholder="prenom@exemple.fr"
             value={identifiant}
             onChange={(e) => setIdentifiant(e.target.value)}
             style={{
@@ -73,9 +75,13 @@ export default function AdminLoginPage() {
               background: '#fff',
               border: '1px solid var(--color-svv-line)',
               borderRadius: '.75rem',
-              marginBottom: 12,
+              marginBottom: 4,
             }}
           />
+          {/* Aide discrète : champ FACULTATIF, vide = voie de secours. À retirer au lot de bascule (M3-5). */}
+          <p style={{ fontSize: '.72rem', color: 'var(--color-svv-muted)', margin: '0 0 12px' }}>
+            Laisser vide pour l’accès de secours.
+          </p>
 
           <label htmlFor="admin-password" className="svv-label" style={{ display: 'block', marginBottom: 6 }}>
             Mot de passe

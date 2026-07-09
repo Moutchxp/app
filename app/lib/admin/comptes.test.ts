@@ -10,7 +10,7 @@ vi.mock('./motDePasse', () => ({
   hacher: (clair: string) => Promise.resolve(`HASH:${clair}`),
 }));
 
-import { creerCompte, reinitialiserMotDePasse, secours, ErreurCompte } from './comptes';
+import { creerCompte, reinitialiserMotDePasse, secours, trouverCompte, ErreurCompte } from './comptes';
 
 /** Ligne compte minimale renvoyée par trouverCompte. */
 function ligne(over: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
@@ -39,6 +39,16 @@ function sqlsEmis(): string[] {
 
 beforeEach(() => {
   queryMock.mockReset();
+});
+
+describe('trouverCompte (recherche insensible à la casse)', () => {
+  it('compare lower(identifiant) = lower($1) — l’index lower() de 014 sert la casse (critère d)', async () => {
+    queryMock.mockResolvedValue({ rows: [ligne()] });
+    await trouverCompte('A.Jorel@SansVisAVis.COM');
+    const sql = String(queryMock.mock.calls[0][0]);
+    expect(sql).toContain('lower(identifiant) = lower($1)');
+    expect((queryMock.mock.calls[0][1] as unknown[])[0]).toBe('A.Jorel@SansVisAVis.COM'); // saisie transmise telle quelle
+  });
 });
 
 describe('creerCompte', () => {
