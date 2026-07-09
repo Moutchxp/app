@@ -35,6 +35,41 @@ function refusRevoque(): Response {
   return Response.json({ erreur: 'ACCES_REVOQUE' }, { status: 403 });
 }
 
+/** Réponse 403 « interdit » (tuile Administratif réservée au rôle administrateur). Générique, sans cause. */
+function refusInterdit(): Response {
+  return Response.json({ erreur: 'INTERDIT' }, { status: 403 });
+}
+
+/** Résultat de `exigerAdministrateur` : soit un refus à retourner tel quel, soit l'`auteurId` (sub) autorisé. */
+export type GardeAdmin = { refus: Response } | { auteurId: number | null };
+
+/**
+ * DEUXIÈME BARRIÈRE de la tuile « Administratif » (M3-4 Lot C). `proxy.ts` garde déjà `/admin/comptes` par le
+ * rôle du JWS, mais ce jeton vit ≤ 8 h : un rôle rétrogradé EN BASE après l'émission y resterait `administrateur`.
+ * Ce garde RELIT donc `role` + `actif` en base à chaque handler d'administration des comptes. Indispensable :
+ * sans lui, un compte fraîchement rétrogradé garderait le pouvoir d'administrer les comptes pendant 8 h.
+ *
+ * RÈGLE D'OR : `sub === null` (voie de secours / jeton legacy) → administrateur, autorisé SANS requête,
+ * `auteurId = null` (auteur inconnu au journal). Sinon : `SELECT role, actif WHERE id=sub` ; refus (403 INTERDIT)
+ * si compte absent, désactivé, ou rôle ≠ administrateur. Une seule requête, lecture seule.
+ */
+export async function exigerAdministrateur(request: Request): Promise<GardeAdmin> {
+  const jeton = lireCookie(request, NOM_COOKIE);
+  const payload = jeton ? await verifierJeton(jeton) : null;
+  if (!payload) return { refus: refusInterdit() };
+
+  const session = sessionDepuisPayload(payload);
+  if (session.sub === null) return { auteurId: null }; // voie de secours = administrateur (auteur inconnu)
+
+  const { rows } = await query<{ actif: boolean; role: string }>(
+    `SELECT actif, role FROM admin_utilisateur WHERE id = $1`,
+    [session.sub],
+  );
+  const compte = rows[0];
+  if (!compte || !compte.actif || compte.role !== 'administrateur') return { refus: refusInterdit() };
+  return { auteurId: session.sub };
+}
+
 /**
  * Révocation IMMÉDIATE sur une route d'ÉCRITURE (M3-0). `proxy.ts` autorise d'après le JWS, figé jusqu'à
  * 8 h ; ce garde relit l'état RÉEL du compte en base à chaque écriture, pour que la désactivation d'un

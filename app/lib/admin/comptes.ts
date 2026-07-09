@@ -2,7 +2,7 @@
 // `app/scripts/admin.ts` (Node/tsx) et les tests → PAS de `import 'server-only'` (il lèverait sous tsx). Toute
 // écriture est journalisée dans `admin_utilisateur_log` (append-only). Aucun DELETE/DROP/TRUNCATE ni UPDATE de masse :
 // chaque mutation cible UNE ligne par identifiant/id exact.
-import { query } from '../db/client';
+import { query, withTransaction } from '../db/client';
 import { hacher } from './motDePasse';
 // Import TYPE-ONLY de session.ts : évite d'en charger le runtime (`import 'server-only'`) sous le script tsx.
 import type { Perms, RoleAdmin } from './session';
@@ -122,6 +122,130 @@ export async function creerCompte(
   return rows[0];
 }
 
+/** Paramètres de création d'un compte depuis la tuile Administratif (M3-4 Lot C). */
+export interface ParamsCreationAdmin {
+  identifiant: string;
+  prenom: string;
+  nom: string;
+  role: RoleAdmin;
+  /** Permissions soumises — IGNORÉES si `role === 'administrateur'` (toutes forcées true). */
+  perms: Perms;
+  /** Mot de passe TEMPORAIRE en clair : haché ici, jamais stocké ni journalisé en clair. */
+  motDePasseClair: string;
+  /** `sub` du créateur pour le journal ; `null` pour la voie de secours (auteur inconnu). */
+  auteurId: number | null;
+}
+
+/**
+ * Crée un compte depuis la tuile Administratif : `doit_changer_mot_de_passe = true` (première connexion forcée,
+ * Lot B), permissions explicites (toutes true pour un administrateur, les 6 soumises pour un collaborateur),
+ * journal `creation` avec `auteur_id`. Refuse (ErreurCompte) prénom/nom vides ou identifiant déjà pris.
+ */
+export async function creerCompteAdministration(p: ParamsCreationAdmin): Promise<ResultatCompte> {
+  if (p.prenom.trim().length === 0 || p.nom.trim().length === 0) {
+    throw new ErreurCompte('Prénom et nom sont obligatoires (non vides).');
+  }
+  if (await trouverCompte(p.identifiant)) {
+    throw new ErreurCompte(`Un compte « ${p.identifiant} » existe déjà (comparaison insensible à la casse).`);
+  }
+  const admin = p.role === 'administrateur';
+  const h = await hacher(p.motDePasseClair);
+  const { rows } = await query<ResultatCompte>(
+    `WITH nouv AS (
+       INSERT INTO admin_utilisateur (identifiant, prenom, nom, mot_de_passe, role, actif, doit_changer_mot_de_passe,
+         perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test)
+       VALUES ($1, $2, $3, $4, $5, true, true, $6, $7, $8, $9, $10, $11)
+       RETURNING id, identifiant, role, actif
+     ), jrnl AS (
+       INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
+       SELECT 'creation', nouv.id, $12, NULL, jsonb_build_object('identifiant', nouv.identifiant, 'role', nouv.role)
+       FROM nouv
+     )
+     SELECT id, identifiant, role, actif FROM nouv`,
+    [
+      p.identifiant, p.prenom, p.nom, h, p.role,
+      admin || p.perms.pilotage, admin || p.perms.cartes_annee, admin || p.perms.statistiques,
+      admin || p.perms.internautes, admin || p.perms.curation, admin || p.perms.banc_test,
+      p.auteurId,
+    ],
+  );
+  return rows[0];
+}
+
+/**
+ * Régénère un mot de passe TEMPORAIRE pour un compte existant : pose le nouveau HASH, REMET
+ * `doit_changer_mot_de_passe = true` (le titulaire devra le changer), journal `reinitialisation_mot_de_passe`
+ * avec `auteur_id`. Le clair n'est jamais vu ici. ErreurCompte si le compte n'existe pas.
+ */
+export async function regenererMotDePasseTemporaire(id: number, motDePasseClair: string, auteurId: number | null): Promise<ResultatCompte> {
+  const h = await hacher(motDePasseClair);
+  const { rows } = await query<ResultatCompte>(
+    `WITH maj AS (
+       UPDATE admin_utilisateur SET mot_de_passe = $2, doit_changer_mot_de_passe = true WHERE id = $1
+       RETURNING id, identifiant, role, actif
+     ), jrnl AS (
+       INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
+       SELECT 'reinitialisation_mot_de_passe', maj.id, $3, NULL, NULL FROM maj
+     )
+     SELECT id, identifiant, role, actif FROM maj`,
+    [id, h, auteurId],
+  );
+  if (rows.length === 0) throw new ErreurCompte(`Aucun compte (id=${id}).`);
+  return rows[0];
+}
+
+/** Réactive un compte (actif false→true). Idempotent : renvoie false si déjà actif (aucune ligne modifiée). */
+export async function reactiverCompte(id: number, auteurId: number | null): Promise<boolean> {
+  const { rows } = await query<{ id: number }>(
+    `WITH maj AS (
+       UPDATE admin_utilisateur SET actif = true WHERE id = $1 AND actif = false
+       RETURNING id
+     ), jrnl AS (
+       INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
+       SELECT 'reactivation', maj.id, $2, jsonb_build_object('actif', false), jsonb_build_object('actif', true) FROM maj
+     )
+     SELECT id FROM maj`,
+    [id, auteurId],
+  );
+  return rows.length > 0;
+}
+
+/** Clé de section critique « (dés)activation d'un compte administrateur » pour `pg_advisory_xact_lock`. */
+const VERROU_DESACTIVATION_ADMIN = 71642342;
+
+/**
+ * Désactive un compte (actif true→false) avec la règle « DERNIER ADMINISTRATEUR ACTIF non désactivable ».
+ *
+ * ⚠️ Un simple `UPDATE ... WHERE (SELECT count(*) …) <= 1` NE SUFFIT PAS : sous READ COMMITTED, deux
+ * désactivations concurrentes de DEUX administrateurs DISTINCTS lisent chacune un instantané où l'autre est
+ * encore actif (count=2) → toutes deux passent → 0 admin (write-skew). On SÉRIALISE donc les désactivations par
+ * un `pg_advisory_xact_lock` (verrou transactionnel sur une clé constante) : la 2ᵉ attend la 1ʳᵉ, recompte
+ * (count=1) et est bloquée. Le comptage reste dans le WHERE de l'UPDATE conditionnel (défense en profondeur).
+ *
+ * Renvoie false si aucune ligne modifiée : compte absent, déjà inactif, ou dernier administrateur actif (bloqué).
+ * Le handler distingue ces cas sur le chemin d'échec (SELECT léger, hors écriture).
+ */
+export async function desactiverCompte(id: number, auteurId: number | null): Promise<boolean> {
+  return withTransaction(async (q) => {
+    await q('SELECT pg_advisory_xact_lock($1)', [VERROU_DESACTIVATION_ADMIN]);
+    const { rows } = await q<{ id: number }>(
+      `WITH maj AS (
+         UPDATE admin_utilisateur SET actif = false
+          WHERE id = $1 AND actif = true
+            AND NOT (role = 'administrateur'
+                     AND (SELECT count(*) FROM admin_utilisateur WHERE actif AND role = 'administrateur') <= 1)
+         RETURNING id
+       ), jrnl AS (
+         INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
+         SELECT 'desactivation', maj.id, $2, jsonb_build_object('actif', true), jsonb_build_object('actif', false) FROM maj
+       )
+       SELECT id FROM maj`,
+      [id, auteurId],
+    );
+    return rows.length > 0;
+  });
+}
+
 /** Réinitialise le mot de passe d'un compte existant. Journalise 'reinitialisation_mot_de_passe'. */
 export async function reinitialiserMotDePasse(identifiant: string, motDePasseClair: string): Promise<ResultatCompte> {
   const h = await hacher(motDePasseClair);
@@ -201,8 +325,9 @@ export async function secours(identifiant: string, motDePasseClair: string): Pro
   return rows[0];
 }
 
-/** Liste des comptes pour l'affichage CLI (jamais le hash). */
+/** Liste des comptes pour l'affichage (CLI + tuile Administratif). JAMAIS le hash. `id` = clé pour les actions. */
 export interface CompteListe {
+  id: number;
   identifiant: string;
   prenom: string;
   nom: string;
@@ -215,6 +340,7 @@ export interface CompteListe {
 export async function listerComptes(): Promise<CompteListe[]> {
   const { rows } = await query<CompteDB>(`${SELECT_COMPTE} ORDER BY lower(identifiant)`);
   return rows.map((c) => ({
+    id: c.id,
     identifiant: c.identifiant,
     prenom: c.prenom,
     nom: c.nom,

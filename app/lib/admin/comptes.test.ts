@@ -4,13 +4,27 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const queryMock = vi.fn();
 vi.mock('../db/client', () => ({
   query: (...args: unknown[]) => queryMock(...args),
+  // withTransaction : exécute `fn` avec une fonction de requête routée vers queryMock (mêmes appels observables).
+  withTransaction: (fn: (q: (...a: unknown[]) => unknown) => unknown) => fn((...a: unknown[]) => queryMock(...a)),
 }));
 // Mock du hachage : déterministe et instantané (pas d'argon2 réel dans ces tests unitaires).
 vi.mock('./motDePasse', () => ({
   hacher: (clair: string) => Promise.resolve(`HASH:${clair}`),
 }));
 
-import { creerCompte, reinitialiserMotDePasse, secours, trouverCompte, ErreurCompte } from './comptes';
+import {
+  creerCompte,
+  reinitialiserMotDePasse,
+  secours,
+  trouverCompte,
+  creerCompteAdministration,
+  regenererMotDePasseTemporaire,
+  reactiverCompte,
+  desactiverCompte,
+  ErreurCompte,
+} from './comptes';
+
+const PERMS_VIDE = { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false };
 
 /** Ligne compte minimale renvoyée par trouverCompte. */
 function ligne(over: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
@@ -157,5 +171,105 @@ describe('secours (réactivation seule — M3-4)', () => {
     await secours('arno@x.fr', 'mdp');
     const tout = sqlsEmis().join(' ').toUpperCase();
     expect(tout).not.toMatch(/\bDELETE\b|\bDROP\b|\bTRUNCATE\b/);
+  });
+});
+
+describe('creerCompteAdministration (tuile — M3-4 Lot C)', () => {
+  it('collaborateur : doit_changer_mot_de_passe=true, perms soumises, hash (jamais le clair), auteur_id journalisé', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [] }) // trouverCompte → absent
+      .mockResolvedValueOnce({ rows: [{ id: 7, identifiant: 'lea@x.fr', role: 'collaborateur', actif: true }] });
+    await creerCompteAdministration({
+      identifiant: 'lea@x.fr', prenom: 'Léa', nom: 'M', role: 'collaborateur',
+      perms: { ...PERMS_VIDE, curation: true }, motDePasseClair: 'TEMP-secret', auteurId: 3,
+    });
+    const [sql, params] = queryMock.mock.calls[1];
+    expect(String(sql)).toContain('doit_changer_mot_de_passe');
+    expect(String(sql)).toContain("VALUES ($1, $2, $3, $4, $5, true, true"); // actif=true, doit_changer=true
+    expect(params).toContain('HASH:TEMP-secret');
+    expect(params).not.toContain('TEMP-secret');
+    expect(params).toContain(true); // perm curation soumise
+    expect(params[params.length - 1]).toBe(3); // auteur_id = créateur
+  });
+
+  it('administrateur : toutes les perms forcées true (cases ignorées)', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 8, identifiant: 'chef@x.fr', role: 'administrateur', actif: true }] });
+    await creerCompteAdministration({
+      identifiant: 'chef@x.fr', prenom: 'C', nom: 'H', role: 'administrateur',
+      perms: PERMS_VIDE, motDePasseClair: 'x', auteurId: 3, // perms toutes false en entrée
+    });
+    const params = queryMock.mock.calls[1][1] as unknown[];
+    // params[5..10] = les 6 perm_* → toutes true pour un administrateur
+    expect(params.slice(5, 11)).toEqual([true, true, true, true, true, true]);
+  });
+
+  it('voie de secours (auteurId=null) → journal auteur_id NULL', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 9, identifiant: 'x@x.fr', role: 'collaborateur', actif: true }] });
+    await creerCompteAdministration({ identifiant: 'x@x.fr', prenom: 'X', nom: 'Y', role: 'collaborateur', perms: PERMS_VIDE, motDePasseClair: 'x', auteurId: null });
+    const params = queryMock.mock.calls[1][1] as unknown[];
+    expect(params[params.length - 1]).toBeNull();
+  });
+
+  it('identifiant déjà pris → ErreurCompte, aucun INSERT', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [ligne()] });
+    await expect(creerCompteAdministration({ identifiant: 'arno@x.fr', prenom: 'A', nom: 'B', role: 'collaborateur', perms: PERMS_VIDE, motDePasseClair: 'x', auteurId: 1 }))
+      .rejects.toBeInstanceOf(ErreurCompte);
+    expect(sqlsEmis().some((s) => s.includes('INSERT INTO admin_utilisateur'))).toBe(false);
+  });
+});
+
+describe('regenererMotDePasseTemporaire (Lot C)', () => {
+  it('repose doit_changer=true, journalise, hash passé', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 5, identifiant: 'lea@x.fr', role: 'collaborateur', actif: true }] });
+    await regenererMotDePasseTemporaire(5, 'NOUV-temp', 3);
+    const [sql, params] = queryMock.mock.calls[0];
+    expect(String(sql)).toContain('doit_changer_mot_de_passe = true');
+    expect(String(sql)).toContain('reinitialisation_mot_de_passe');
+    expect(params).toEqual([5, 'HASH:NOUV-temp', 3]);
+  });
+  it('compte inconnu (0 ligne) → ErreurCompte', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] });
+    await expect(regenererMotDePasseTemporaire(999, 'x', 1)).rejects.toBeInstanceOf(ErreurCompte);
+  });
+});
+
+describe('desactiverCompte — dernier administrateur actif (sérialisé anti write-skew, Lot C)', () => {
+  it('prend un verrou consultatif PUIS applique l’UPDATE conditionnel de comptage', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{}] }) // SELECT pg_advisory_xact_lock
+      .mockResolvedValueOnce({ rows: [{ id: 2 }] }); // UPDATE conditionnel
+    const ok = await desactiverCompte(2, 3);
+    expect(ok).toBe(true);
+    // 1ʳᵉ requête = verrou de sérialisation (empêche le write-skew de deux désactivations concurrentes).
+    expect(String(queryMock.mock.calls[0][0])).toContain('pg_advisory_xact_lock');
+    const sql = String(queryMock.mock.calls[1][0]);
+    expect(sql).toContain('UPDATE admin_utilisateur SET actif = false');
+    expect(sql).toContain("NOT (role = 'administrateur'");
+    expect(sql).toContain("(SELECT count(*) FROM admin_utilisateur WHERE actif AND role = 'administrateur') <= 1");
+    expect(sql).toContain('desactivation');
+    // Le comptage vit dans le WHERE (aucun « compter puis écrire » séparé).
+  });
+  it('0 ligne modifiée (bloqué/absent/déjà inactif) → false', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{}] }) // verrou
+      .mockResolvedValueOnce({ rows: [] }); // UPDATE ne modifie rien
+    expect(await desactiverCompte(1, 3)).toBe(false);
+  });
+});
+
+describe('reactiverCompte (Lot C)', () => {
+  it('réactive (false→true) et journalise ; idempotent (déjà actif → false)', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 4 }] });
+    expect(await reactiverCompte(4, 3)).toBe(true);
+    const sql = String(queryMock.mock.calls[0][0]);
+    expect(sql).toContain('SET actif = true');
+    expect(sql).toContain('reactivation');
+    queryMock.mockReset();
+    queryMock.mockResolvedValueOnce({ rows: [] }); // déjà actif → aucune ligne
+    expect(await reactiverCompte(4, 3)).toBe(false);
   });
 });

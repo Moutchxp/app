@@ -129,3 +129,42 @@ describe('proxy — enforcement première connexion (M3-4 Lot B)', () => {
     expect(res.status).not.toBe(302);
   });
 });
+
+describe('proxy — tuile Administratif, rôle EN DUR (M3-4 Lot C)', () => {
+  it('collaborateur sur /admin/comptes (page) → redirigé vers /admin', async () => {
+    const res = await proxy(await requete('/admin/comptes', collab(permsToutes()))); // même toutes perms : rôle décide
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toMatch(/\/admin$/);
+  });
+
+  it('collaborateur sur /api/admin/comptes (API) → 403', async () => {
+    const res = await proxy(await requete('/api/admin/comptes', collab(permsToutes())));
+    expect(res.status).toBe(403);
+  });
+
+  it('collaborateur sur une sous-route /api/admin/comptes/5/actif → 403', async () => {
+    const res = await proxy(await requete('/api/admin/comptes/5/actif', collab(permsToutes())));
+    expect(res.status).toBe(403);
+  });
+
+  it('administrateur → /admin/comptes et /api/admin/comptes laissés passer', async () => {
+    for (const p of ['/admin/comptes', '/api/admin/comptes']) {
+      const res = await proxy(await requete(p, admin()));
+      expect(res.status).not.toBe(307);
+      expect(res.status).not.toBe(403);
+    }
+  });
+
+  it('VOIE DE SECOURS (sub=null, administrateur) → tuile Administratif accessible', async () => {
+    const res = await proxy(await requete('/api/admin/comptes', secours()));
+    expect(res.status).not.toBe(403);
+    expect(res.status).not.toBe(307);
+  });
+
+  it('NON-COLLISION : /admin/compte/mot-de-passe (singulier) N’EST PAS capté par la garde /comptes', async () => {
+    // Un collaborateur atteint sa route self-service singulière, jamais bloqué par la garde du pluriel /comptes.
+    const res = await proxy(await requete('/api/admin/compte/mot-de-passe', collab()));
+    expect(res.status).not.toBe(403);
+    expect(res.status).not.toBe(307);
+  });
+});

@@ -50,6 +50,20 @@ function permissionRequise(pathname: string): Module | null {
  */
 const CHEMINS_CHANGEMENT_MDP = new Set(['/admin/compte/mot-de-passe', '/api/admin/compte/mot-de-passe']);
 
+/**
+ * Tuile « Administratif » (M3-4 Lot C) — namespace PLURIEL `/comptes`, réservé au RÔLE administrateur EN DUR
+ * (pas une permission de module, pas de perm_administratif : la surface qui distribue les droits n'est pas
+ * elle-même distribuable). Match par FRONTIÈRE DE SEGMENT → disjoint du self-service SINGULIER `/compte/…` :
+ * `/admin/compte/mot-de-passe` ne matche PAS `/admin/comptes` (14ᵉ caractère `e/` vs `es`). PREMIÈRE des deux
+ * barrières (l'autre : revérification du rôle EN BASE dans chaque handler, cf. garde.ts `exigerAdministrateur`).
+ */
+function estAdministratif(pathname: string): boolean {
+  for (const p of ['/admin/comptes', '/api/admin/comptes']) {
+    if (pathname === p || pathname.startsWith(`${p}/`)) return true;
+  }
+  return false;
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -86,6 +100,16 @@ export async function proxy(request: NextRequest) {
       return NextResponse.json({ erreur: 'CHANGEMENT_REQUIS' }, { status: 403 });
     }
     return NextResponse.redirect(new URL('/admin/compte/mot-de-passe', request.url), 302);
+  }
+
+  // ═══ TUILE ADMINISTRATIF (M3-4 Lot C) — RÔLE administrateur EN DUR ═══
+  // En amont de la table chemin→permission (donc immunisé contre son fail-open). Voie de secours (sub=null) :
+  // `session.role === 'administrateur'` → autorisée. Collaborateur → 403 (API) / redirection accueil (page).
+  if (estAdministratif(pathname) && session.role !== 'administrateur') {
+    if (estApi) {
+      return new NextResponse(null, { status: 403 });
+    }
+    return NextResponse.redirect(new URL('/admin', request.url));
   }
 
   const requise = permissionRequise(pathname);

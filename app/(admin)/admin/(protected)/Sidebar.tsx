@@ -3,20 +3,15 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { liensVisibles } from './menuAdmin';
+import type { Perms, RoleAdmin } from '../../../lib/admin/session';
 
-/** Modules de l'admin (libellés + slugs, D6). */
-const MODULES = [
-  { slug: '/admin/pilotage', libelle: 'Pilotage' },
-  { slug: '/admin/cartes-annee', libelle: 'Cartes d’année' },
-  { slug: '/admin/statistiques', libelle: 'Statistiques' },
-  { slug: '/admin/internautes', libelle: 'Internautes' },
-  { slug: '/admin/curation', libelle: 'Curation' },
-  { slug: '/admin/banc-test', libelle: 'Banc de test' },
-] as const;
-
-export function Sidebar() {
+export function Sidebar({ role, perms }: { role: RoleAdmin; perms: Perms }) {
   const pathname = usePathname();
   const [ouvert, setOuvert] = useState(false);
+  // Filtrage RÔLE D'ABORD (cf. menuAdmin) : administrateur → tout + « Administratif » ; collaborateur → ses perms.
+  // CONFORT uniquement ; proxy.ts reste la seule autorité.
+  const MODULES = liensVisibles(role, perms);
 
   async function deconnexion() {
     try {
