@@ -76,3 +76,35 @@ describe('Aucune couleur bleue dans la page (charte : pas de bleu)', () => {
     expect(src).toContain('outline:2px solid var(--color-svv-red)');
   });
 });
+
+describe('Libellé de la règle administrateur (M3-4 Lot F1)', () => {
+  const src = readFileSync('app/(admin)/admin/(protected)/comptes/page.tsx', 'utf8');
+  it('le texte exact figure, dans la colonne d’identité (classe cpt-regle), pas dans la rangée de boutons', () => {
+    expect(src).toContain('Un administrateur ne peut pas être désactivé depuis l’interface.');
+    expect(src).toContain('cpt-regle');
+  });
+  it('variante « réactivé » pour un administrateur désactivé (section désactivés)', () => {
+    expect(src).toContain('Un administrateur ne peut pas être réactivé depuis l’interface.');
+  });
+  it('le vocabulaire « CLI » a disparu de l’UI, y compris du toast d’erreur (jargon incompréhensible)', () => {
+    expect(src).not.toMatch(/\bCLI\b/);
+  });
+  it('l’ancienne mention « CLI uniquement » a disparu de l’UI (le code d’erreur serveur reste, lui, inchangé)', () => {
+    expect(src).not.toContain('CLI uniquement');
+    expect(src).not.toContain('cpt-cli');
+  });
+});
+
+describe('Migration 017 — action changement_identite (M3-4 Lot F1, NON appliquée par ce run)', () => {
+  const sql = readFileSync('db/migrations/017_action_changement_identite.sql', 'utf8');
+  it('étend le CHECK avec changement_identite SANS retirer les 7 actions existantes', () => {
+    for (const a of ['creation', 'desactivation', 'reactivation', 'changement_role', 'changement_permissions', 'reinitialisation_mot_de_passe', 'changement_mot_de_passe', 'changement_identite']) {
+      expect(sql).toContain(`'${a}'`);
+    }
+  });
+  it('rejouable : DROP CONSTRAINT IF EXISTS puis ADD, en transaction explicite', () => {
+    expect(sql).toContain('DROP CONSTRAINT IF EXISTS admin_utilisateur_log_action_check');
+    expect(sql).toContain('ADD CONSTRAINT admin_utilisateur_log_action_check');
+    expect(sql).toMatch(/BEGIN;[\s\S]*COMMIT;/);
+  });
+});

@@ -248,7 +248,7 @@ export default function ComptesPage() {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       const erreurs: Record<string, string> = {
-        ADMIN_CLI_UNIQUEMENT: 'Le cycle de vie d’un administrateur (activer/désactiver) passe par la CLI.',
+        ADMIN_CLI_UNIQUEMENT: 'Un administrateur ne peut pas être activé ou désactivé depuis l’interface.',
         DERNIER_ADMINISTRATEUR: 'Impossible de désactiver le dernier administrateur actif.',
       };
       setErreur(erreurs[body?.erreur as string] ?? 'Action impossible.');
@@ -279,13 +279,22 @@ export default function ComptesPage() {
           <div className="cpt-nom">{c.prenom} {c.nom}</div>
           <div className="cpt-id">{c.identifiant}</div>
           <div className="cpt-meta">{c.role} · dernière connexion : {formaterDate(c.derniere_connexion_a)}</div>
+          {/* Règle admin (F1) : sous la ligne de rôle, dans la colonne d'identité — jamais dans la rangée de
+              boutons (ceux-ci s'alignent ainsi d'une carte à l'autre). Ton sobre. Le refus est aussi serveur. */}
+          {!collaborateur && (
+            <div className="cpt-regle">
+              {desactive
+                ? 'Un administrateur ne peut pas être réactivé depuis l’interface.'
+                : 'Un administrateur ne peut pas être désactivé depuis l’interface.'}
+            </div>
+          )}
         </div>
         <div className="cpt-actions">
           <button type="button" className="cpt-btn cpt-btn--secondary" aria-expanded={false} aria-controls={`detail-${c.id}`} onClick={(e) => ouvrir(c, e.currentTarget)}>Détails</button>
           {!desactive && <button type="button" className="cpt-btn cpt-btn--secondary" onClick={() => regenerer(c)}>Régénérer le mot de passe</button>}
-          {collaborateur
-            ? <button type="button" className="cpt-btn cpt-btn--secondary" onClick={() => definirActif(c, desactive)}>{desactive ? 'Réactiver' : 'Désactiver'}</button>
-            : <span className="cpt-cli">{desactive ? 'Réactivation' : 'Désactivation'} : CLI uniquement</span>}
+          {collaborateur && (
+            <button type="button" className="cpt-btn cpt-btn--secondary" onClick={() => definirActif(c, desactive)}>{desactive ? 'Réactiver' : 'Désactiver'}</button>
+          )}
         </div>
       </div>
     );
@@ -353,7 +362,7 @@ const CSS = `
 .cpt-meta{font-size:.8rem;color:var(--color-svv-muted)}
 .cpt-tete{font-weight:700;color:var(--color-svv-ink)}
 .cpt-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.cpt-cli{font-size:.75rem;color:var(--color-svv-muted);font-style:italic}
+.cpt-regle{font-size:.72rem;color:var(--color-svv-muted);margin-top:4px}
 .cpt-detail{outline:none}
 .cpt-note{font-size:.8rem;color:var(--color-svv-muted);margin:4px 0 0}
 .cpt-perms-titre{font-size:.8rem;color:var(--color-svv-muted)}
