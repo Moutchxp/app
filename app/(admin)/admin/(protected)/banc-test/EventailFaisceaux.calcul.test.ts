@@ -60,6 +60,19 @@ function textesAffiches(etapes: EtapeCalcul[]): string[] {
 const cumul = (famille: LigneVentil["famille"], extra: Partial<LigneVentil> = {}): LigneVentil =>
   ligne({ famille, natureTraverseeM: 40, baseM: 80, boostF4AppliqueM: 100, p1AvantCapM: 180, p1M: 180, p2M: 120, coeffApplique: 1.5, diviseurCumulNature: 1.5, modeCombinaison: "sequentiel", distanceBruteM: 80, valeurAvantCapM: 260, seuilBorneM: 400, distancePercueM: 260, ...extra });
 
+/** Vérifie qu'une expression composée « a + b = c », « a × b = c » ou « a + (b ÷ d) = c » est arithmétiquement
+ *  VRAIE (à la précision d'affichage). Les relevés simples (null / un seul nombre) sont ignorés. */
+function verifieExpr(expr: string | null) {
+  const nb = (s: string) => Number(s);
+  if (!expr) return;
+  let m = expr.match(/^([\d.]+) \+ \(([\d.]+) ÷ ([\d.]+)\) = ([\d.]+)$/);
+  if (m) return expect(nb(m[1]) + nb(m[2]) / nb(m[3])).toBeCloseTo(nb(m[4]), 2);
+  m = expr.match(/^([\d.]+) \+ ([\d.]+) = ([\d.]+)$/);
+  if (m) return expect(nb(m[1]) + nb(m[2])).toBeCloseTo(nb(m[3]), 2);
+  m = expr.match(/^([\d.]+) × ([\d.]+) = ([\d.]+)$/);
+  if (m) return expect(nb(m[1]) * nb(m[2])).toBeCloseTo(nb(m[3]), 2);
+}
+
 describe("construireEtapesCalcul — récit d'étapes (pur, sans recalcul de barème)", () => {
   it("PURETÉ : deux appels sur les mêmes entrées → sorties identiques", () => {
     const l = ligne({ famille: "mh", distanceBruteM: 300, coeffApplique: 2, valeurAvantCapM: 600, seuilBorneM: 400, distancePercueM: 400, capFamilleApplique: true, familleLibelle: "Monument Historique" });
@@ -118,17 +131,19 @@ describe("construireEtapesCalcul — récit d'étapes (pur, sans recalcul de bar
     expect(combi!.expression).toBeNull();
   });
 
-  it("demande 2 — « Lecture dégagement » détaille base + bonus = avant-cap → plafonné à capP1M", () => {
+  it("demande 2 — « Score dégagement » : VRAIE somme en expression, plafond séparé en « Valeur retenue »", () => {
     const e = construireEtapesCalcul(
       ligne({ famille: "mh", natureTraverseeM: 40, baseM: 88.274, boostF4AppliqueM: 154.423, p1AvantCapM: 242.697, p1M: 200, p2M: 105.9, coeffApplique: 1.2, diviseurCumulNature: 1.7, modeCombinaison: "sequentiel", distanceBruteM: 88.274, valeurAvantCapM: 262.3, seuilBorneM: 400, distancePercueM: 262.3, familleLibelle: "Monument Historique" }),
-      P, // P.cumulNature.capP1M = 200 → le cap mord (242.697 > 200)
+      P, // P.cumulNature.capP1M = 200 → le cap capP1M mord (p1M 200 ≠ p1AvantCapM 242.697)
     );
-    const lecture = e.find((x) => x.libelle.includes("Score dégagement"))!;
-    expect(lecture.expression).toContain("88.274 + 154.423 = 242.697");
-    expect(lecture.expression).toContain("plafonné à 200");
-    // Légende de chaque nombre, dont la valeur intermédiaire « avant plafond ».
-    expect(lecture.operandes.some((o) => o.libelle.includes("avant plafond"))).toBe(true);
-    expect(lecture.operandes.every((o) => o.libelle.length > 0)).toBe(true);
+    const sd = e.find((x) => x.libelle.includes("Score dégagement"))!;
+    // L'expression montre le VRAI résultat de l'addition (242.697), plus jamais la valeur post-plafond (200).
+    expect(sd.expression).toBe("88.274 + 154.423 = 242.697");
+    // Le plafond est décrit à part, avec le seuil réel (capP1M = 200 du profil).
+    expect(sd.valeurRetenue).toContain("seuil max 200");
+    // La légende « avant plafond » porte la VRAIE somme (242.697), pas la valeur retenue.
+    const avant = sd.operandes.find((o) => o.libelle.includes("avant plafond"))!;
+    expect(avant.valeur).toBe("242.697 m");
   });
 
   it("demande 2 — « Lecture patrimoine » détaille distance × coeff = résultat", () => {
@@ -186,6 +201,39 @@ describe("construireEtapesCalcul — récit d'étapes (pur, sans recalcul de bar
       const tous = textesAffiches(construireEtapesCalcul(l, P)).join(" | ");
       expect(tous).not.toMatch(/lecture/i);
     }
+  });
+
+  it("BUG-(a) ARITHMÉTIQUE — aucune égalité « a op b = c » fausse (les 4 cas, à la précision d'affichage)", () => {
+    const cas: LigneVentil[] = [
+      // Cumul reproduisant le bug d'origine : somme brute 244.846 > portée → retenu 200, mais l'égalité reste vraie.
+      ligne({ famille: "mh", natureTraverseeM: 40, baseM: 90.07, boostF4AppliqueM: 154.776, p1AvantCapM: 200, p1M: 200, p2M: 120, coeffApplique: 1.5, diviseurCumulNature: 1.5, modeCombinaison: "sequentiel", distanceBruteM: 80, valeurAvantCapM: 280, seuilBorneM: 400, distancePercueM: 280, familleLibelle: "Monument Historique" }),
+      ligne({ famille: "mh", distanceBruteM: 100, coeffApplique: 2, valeurAvantCapM: 200, seuilBorneM: 400, distancePercueM: 200, familleLibelle: "Monument Historique" }), // patrimoine seul
+      ligne({ natureTraverseeM: 40, baseM: 90, boostF4AppliqueM: 154, valeurAvantCapM: 244, distanceBruteM: 90, seuilBorneM: 200, distancePercueM: 200 }), // ordinaire + nature (écrêté au plafond)
+    ];
+    for (const l of cas) for (const e of construireEtapesCalcul(l, P)) verifieExpr(e.expression);
+  });
+
+  it("BUG-(b) p1M ≠ p1AvantCapM → « Valeur retenue » produite, citant capP1M (pas la portée)", () => {
+    const Pcap = { ...P, cumulNature: { ...P.cumulNature, capP1M: 150 }, distanceMaxM: 300 };
+    const e = construireEtapesCalcul(ligne({ famille: "mh", natureTraverseeM: 40, baseM: 100, boostF4AppliqueM: 150, p1AvantCapM: 250, p1M: 150, p2M: 120, coeffApplique: 1.5, diviseurCumulNature: 1.5, modeCombinaison: "sequentiel", distanceBruteM: 80, valeurAvantCapM: 230, seuilBorneM: 400, distancePercueM: 230, familleLibelle: "Monument Historique" }), Pcap);
+    const sd = e.find((x) => x.libelle.includes("Score dégagement"))!;
+    expect(sd.valeurRetenue).toBeDefined();
+    expect(sd.valeurRetenue).toContain("seuil max 150"); // capP1M du profil
+    expect(sd.valeurRetenue).not.toContain("300"); // pas la portée (qui n'a pas mordu)
+  });
+
+  it("BUG-(c) aucun plafond ne mord → aucune « Valeur retenue », aucun cartouche « Plafond appliqué »", () => {
+    const e = construireEtapesCalcul(ligne({ famille: "mh", natureTraverseeM: 40, baseM: 50, boostF4AppliqueM: 60, p1AvantCapM: 110, p1M: 110, p2M: 30, coeffApplique: 1.5, diviseurCumulNature: 1.5, modeCombinaison: "sequentiel", distanceBruteM: 20, valeurAvantCapM: 130, seuilBorneM: 400, distancePercueM: 130, familleLibelle: "Monument Historique" }), P);
+    const sd = e.find((x) => x.libelle.includes("Score dégagement"))!;
+    expect(sd.valeurRetenue).toBeUndefined();
+    expect(e.some((x) => x.libelle === "Plafond appliqué")).toBe(false);
+  });
+
+  it("BUG-(d) le seuil cité varie avec le profil (capP1M 150 vs 175, aucune valeur figée)", () => {
+    const fix = ligne({ famille: "mh", natureTraverseeM: 40, baseM: 100, boostF4AppliqueM: 150, p1AvantCapM: 250, p1M: 150, p2M: 120, coeffApplique: 1.5, diviseurCumulNature: 1.5, modeCombinaison: "sequentiel", distanceBruteM: 80, valeurAvantCapM: 230, seuilBorneM: 400, distancePercueM: 230, familleLibelle: "Monument Historique" });
+    const retenue = (capP1M: number) => construireEtapesCalcul(fix, { ...P, cumulNature: { ...P.cumulNature, capP1M }, distanceMaxM: 300 }).find((x) => x.libelle.includes("Score dégagement"))!.valeurRetenue;
+    expect(retenue(150)).toContain("seuil max 150");
+    expect(retenue(175)).toContain("seuil max 175");
   });
 
   it("(d) DÉCOMPOSITION — le bonus végétation expose son sous-calcul (boostF4 × longueur) + sous-opérandes", () => {

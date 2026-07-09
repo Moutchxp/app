@@ -388,8 +388,11 @@ export interface EtapeCalcul {
   misEnEvidence?: boolean; // étape « valeur avant plafond »
   note?: string;
   /** Calcul en clair, COMPOSÉ des valeurs réelles (jamais figé) ; `null` si l'étape est un simple relevé.
-   *  Rendu clampé à 2 lignes au repli, complet au déploiement. */
+   *  Rendu clampé à 2 lignes au repli, complet au déploiement. Montre TOUJOURS le vrai résultat de l'opération. */
   expression: string | null;
+  /** Ligne « Valeur retenue : X m (seuil max Y m) » quand un plafond a mordu (Y = le seuil réel qui a mordu,
+   *  lu dans le profil/seam) ; absente sinon. Séparée de `expression` pour ne jamais fausser l'égalité affichée. */
+  valeurRetenue?: string;
   /** Légende de chaque nombre utilisé (déployée par le bouton « i »). */
   operandes: OperandeLegende[];
 }
@@ -411,6 +414,7 @@ const LIBELLES_ETAPE = {
   combinaisonAddition: "Combinaison : dégagement + patrimoine",
   combinaisonMax: "Combinaison : on garde le meilleur des deux scores",
   valeurAvantPlafond: "Valeur avant plafond",
+  valeurRetenue: "Valeur retenue",
   plafondApplique: "Plafond appliqué",
   distancePercue: "Distance pondérée finale",
   valeurFixeMondial: "Valeur fixe patrimoine mondial",
@@ -468,14 +472,14 @@ function opBonus(l: LigneVentil, profil: ProfilDegagement): OperandeLegende {
   };
 }
 
-/** Opérande « score dégagement avant plafond » DÉCOMPOSÉ : p1AvantCapM = baseM + boostF4AppliqueM (opérandes atomiques). */
-function opP1AvantCap(l: LigneVentil): OperandeLegende {
-  return {
-    valeur: `${fmtNb(l.p1AvantCapM as number)} m`,
-    libelle: LIBELLES_ETAPE.scoreDegagementAvantPlafond,
-    sousCalcul: `${fmtNb(l.baseM)} + ${fmtNb(l.boostF4AppliqueM)}`,
-    sousOperandes: [opM(l.baseM, LIBELLES_ETAPE.distanceReelle), opM(l.boostF4AppliqueM, LIBELLES_ETAPE.bonusVegetation)],
-  };
+/** Ligne « Valeur retenue : X m (seuil max Y m) » — Y = le plafond qui a EFFECTIVEMENT mordu (profil/seam, jamais figé). */
+function ligneRetenue(apresM: number, seuilM: number): string {
+  return `${LIBELLES_ETAPE.valeurRetenue} : ${fmtNb(apresM)} m (seuil max ${fmtNb(seuilM)} m)`;
+}
+
+/** Opérande légendé « valeur retenue » : valeur APRÈS plafond + le seuil réel qui l'a produite. */
+function opRetenue(apresM: number, seuilM: number): OperandeLegende {
+  return { valeur: `${fmtNb(apresM)} m`, libelle: `${LIBELLES_ETAPE.valeurRetenue} (seuil max ${fmtNb(seuilM)} m)` };
 }
 
 /** Opérande « score patrimoine/bâti » (P2) DÉCOMPOSÉ : p2M = distanceBruteM × coeffApplique (opérandes atomiques). */
@@ -566,15 +570,40 @@ export function construireEtapesCalcul(l: LigneVentil, profil: ProfilDegagement)
   } else {
     // Cumul : deux lectures autonomes (P1 dégagement, P2 patrimoine) puis combinaison selon le mode EFFECTIF.
     if (l.p1M !== null) {
-      // Détail P1 (Lot 4) : distance retenue + bonus végétation = valeur avant cap ; puis, si le cap capP1M mord,
-      // plafonnement. `capee` détecté par p1M ≠ p1AvantCapM (seam), aucun min() réimplémenté.
-      const capee = l.p1AvantCapM !== null && l.p1M !== l.p1AvantCapM;
-      const compo = l.p1AvantCapM !== null ? `${fmtNb(l.baseM)} + ${fmtNb(l.boostF4AppliqueM)} = ${fmtNb(l.p1AvantCapM)}` : `${fmtNb(l.p1M)}`;
-      const expr = capee ? `${compo} → plafonné à ${fmtNb(profil.cumulNature.capP1M)}` : compo;
-      const operandes: OperandeLegende[] = [opM(l.baseM, LIBELLES_ETAPE.distanceReelle), opBonus(l, profil)];
-      if (l.p1AvantCapM !== null) operandes.push(opP1AvantCap(l));
-      if (capee) operandes.push(opM(profil.cumulNature.capP1M, LIBELLES_ETAPE.plafondScoreDegagement));
-      etapes.push({ libelle: LIBELLES_ETAPE.scoreDegagement, valeur: l.p1M, unite: "m", expression: expr, operandes });
+      // Détail P1 : SOMME BRUTE affichée telle quelle (baseM + boostF4AppliqueM, addition d'affichage) — JAMAIS
+      // remplacée par une valeur post-plafond, sinon l'égalité serait fausse. Deux plafonds possibles, chacun
+      // DÉTECTÉ par comparaison de valeurs du seam (aucun min réimplémenté) : portée `distanceMaxM` (a mordu si la
+      // somme brute ≠ p1AvantCapM, valeur classique déjà capée portée) ; `capP1M` (a mordu si p1AvantCapM ≠ p1M).
+      const sommeBrute = l.baseM + l.boostF4AppliqueM;
+      const porteeAMordu = l.p1AvantCapM !== null && sommeBrute !== l.p1AvantCapM;
+      const capP1AMordu = l.p1AvantCapM !== null && l.p1M !== l.p1AvantCapM;
+      const operandes: OperandeLegende[] = [
+        opM(l.baseM, LIBELLES_ETAPE.distanceReelle),
+        opBonus(l, profil),
+        {
+          valeur: `${fmtNb(sommeBrute)} m`,
+          libelle: LIBELLES_ETAPE.scoreDegagementAvantPlafond,
+          sousCalcul: `${fmtNb(l.baseM)} + ${fmtNb(l.boostF4AppliqueM)}`,
+          sousOperandes: [opM(l.baseM, LIBELLES_ETAPE.distanceReelle), opM(l.boostF4AppliqueM, LIBELLES_ETAPE.bonusVegetation)],
+        },
+      ];
+      let valeurRetenue: string | undefined;
+      if (porteeAMordu) {
+        valeurRetenue = ligneRetenue(l.p1AvantCapM as number, profil.distanceMaxM);
+        operandes.push(opRetenue(l.p1AvantCapM as number, profil.distanceMaxM));
+      }
+      if (capP1AMordu) {
+        valeurRetenue = ligneRetenue(l.p1M, profil.cumulNature.capP1M);
+        operandes.push(opRetenue(l.p1M, profil.cumulNature.capP1M));
+      }
+      etapes.push({
+        libelle: LIBELLES_ETAPE.scoreDegagement,
+        valeur: l.p1M,
+        unite: "m",
+        expression: `${fmtNb(l.baseM)} + ${fmtNb(l.boostF4AppliqueM)} = ${fmtNb(sommeBrute)}`,
+        valeurRetenue,
+        operandes,
+      });
     }
     if (l.p2M !== null) {
       const operandes: OperandeLegende[] = [];
@@ -617,8 +646,9 @@ export function construireEtapesCalcul(l: LigneVentil, profil: ProfilDegagement)
       libelle: LIBELLES_ETAPE.plafondApplique,
       valeur: l.distancePercueM,
       unite: "m",
-      expression: `${fmtNb(l.valeurAvantCapM)} → plafonné à ${fmtNb(l.seuilBorneM)} = ${fmtNb(l.distancePercueM)}`,
-      operandes: [opValeurAvantCap(l, enCone), opM(l.seuilBorneM, LIBELLES_ETAPE.plafondApplique)],
+      expression: null,
+      valeurRetenue: ligneRetenue(l.distancePercueM, l.seuilBorneM),
+      operandes: [opValeurAvantCap(l, enCone), opRetenue(l.distancePercueM, l.seuilBorneM)],
       note: LIBELLES_ETAPE.notePlafondAtteint,
     });
   }
@@ -780,11 +810,15 @@ function ColonneCalcul({ titre, couleur, l, etapes, diff, prefixId }: { titre: s
                   {fmtMontant(e.valeur)}{e.unite ? " m" : ""}
                 </span>
               </div>
-              {/* Calcul en clair : clampé à 2 lignes au repli, complet au déploiement. */}
+              {/* Calcul en clair : clampé à 2 lignes au repli, complet au déploiement. Montre le VRAI résultat. */}
               {e.expression && (
                 <div className={deploye ? undefined : "svv-expr-clamp"} style={{ fontSize: ".72rem", color: "var(--color-svv-muted)", fontFamily: "ui-monospace, monospace", marginTop: 2 }}>
                   {e.expression}
                 </div>
+              )}
+              {/* Ligne « Valeur retenue : X m (seuil max Y m) » — uniquement quand un plafond a effectivement mordu. */}
+              {e.valeurRetenue && (
+                <div style={{ fontSize: ".72rem", color: "var(--color-svv-ink)", fontWeight: 600, marginTop: 2 }}>{e.valeurRetenue}</div>
               )}
               {e.note && <div style={{ fontSize: ".72rem", color: "var(--color-svv-muted)", marginTop: 2 }}>{e.note}</div>}
               {e.operandes.length > 0 && (
