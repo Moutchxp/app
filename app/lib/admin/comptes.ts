@@ -194,11 +194,16 @@ export async function regenererMotDePasseTemporaire(id: number, motDePasseClair:
   return rows[0];
 }
 
-/** Réactive un compte (actif false→true). Idempotent : renvoie false si déjà actif (aucune ligne modifiée). */
+/**
+ * Réactive un compte (actif false→true). Idempotent : renvoie false si aucune ligne modifiée (déjà actif,
+ * absent, ou administrateur — cf. ci-dessous). Le cycle de vie d'un compte ADMINISTRATEUR (activer/désactiver)
+ * passe UNIQUEMENT par la CLI (accès serveur), donc l'UI ne réactive QUE des collaborateurs : `role <> 'administrateur'`
+ * (M3-4 Lot D, R-D) — symétrique de la désactivation, un administrateur désactivé via la CLI se réactive via la CLI.
+ */
 export async function reactiverCompte(id: number, auteurId: number | null): Promise<boolean> {
   const { rows } = await query<{ id: number }>(
     `WITH maj AS (
-       UPDATE admin_utilisateur SET actif = true WHERE id = $1 AND actif = false
+       UPDATE admin_utilisateur SET actif = true WHERE id = $1 AND actif = false AND role <> 'administrateur'
        RETURNING id
      ), jrnl AS (
        INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
@@ -232,6 +237,10 @@ export async function desactiverCompte(id: number, auteurId: number | null): Pro
       `WITH maj AS (
          UPDATE admin_utilisateur SET actif = false
           WHERE id = $1 AND actif = true
+            -- R-D/R-E (Lot D) : l'UI ne désactive JAMAIS un administrateur (ni un autre, ni soi-même) — CLI uniquement.
+            AND role <> 'administrateur'
+            -- Garde « dernier administrateur actif » (Lot C) conservée en DÉFENSE EN PROFONDEUR (redondante depuis
+            -- R-D : un admin n'est jamais désactivable ici, donc le count ne peut plus tomber à 0 par l'UI).
             AND NOT (role = 'administrateur'
                      AND (SELECT count(*) FROM admin_utilisateur WHERE actif AND role = 'administrateur') <= 1)
          RETURNING id
@@ -244,6 +253,57 @@ export async function desactiverCompte(id: number, auteurId: number | null): Pro
     );
     return rows.length > 0;
   });
+}
+
+/**
+ * Modifie les 6 permissions d'un COLLABORATEUR (M3-4 Lot D). Écriture ATOMIQUE conditionnelle : le `WHERE role =
+ * 'collaborateur'` garantit qu'on ne touche jamais un administrateur (ses permissions sont implicites/toutes true)
+ * — même face à une promotion concurrente entre la lecture et l'écriture. Journalise `changement_permissions`
+ * (autorisé par 016) avec l'`apres` = les nouvelles permissions. Renvoie false si aucune ligne (absent ou admin).
+ */
+export async function modifierPermissions(id: number, perms: Perms, auteurId: number | null): Promise<boolean> {
+  const { rows } = await query<{ id: number }>(
+    `WITH maj AS (
+       UPDATE admin_utilisateur
+          SET perm_pilotage = $2, perm_cartes_annee = $3, perm_statistiques = $4,
+              perm_internautes = $5, perm_curation = $6, perm_banc_test = $7
+        WHERE id = $1 AND role = 'collaborateur'
+        RETURNING id
+     ), jrnl AS (
+       INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
+       SELECT 'changement_permissions', maj.id, $8, NULL, $9::jsonb FROM maj
+     )
+     SELECT id FROM maj`,
+    [id, perms.pilotage, perms.cartes_annee, perms.statistiques, perms.internautes, perms.curation, perms.banc_test,
+     auteurId, JSON.stringify(perms)],
+  );
+  return rows.length > 0;
+}
+
+/**
+ * Promeut un COLLABORATEUR en administrateur (M3-4 Lot D, R-B) et force ses 6 permissions à true (cohérence Lot C :
+ * le rôle administrateur implique toutes les permissions). Écriture ATOMIQUE conditionnelle `WHERE role =
+ * 'collaborateur'` : idempotente (no-op si déjà administrateur) et — surtout — il n'existe AUCUNE fonction qui
+ * écrive `role = 'collaborateur'` sur un compte existant → la RÉTROGRADATION est structurellement impossible (R-C).
+ * Journalise `changement_role` (autorisé par 016). Renvoie false si aucune ligne (absent ou déjà administrateur).
+ */
+export async function promouvoirAdministrateur(id: number, auteurId: number | null): Promise<boolean> {
+  const { rows } = await query<{ id: number }>(
+    `WITH maj AS (
+       UPDATE admin_utilisateur
+          SET role = 'administrateur', perm_pilotage = true, perm_cartes_annee = true, perm_statistiques = true,
+              perm_internautes = true, perm_curation = true, perm_banc_test = true
+        WHERE id = $1 AND role = 'collaborateur'
+        RETURNING id
+     ), jrnl AS (
+       INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
+       SELECT 'changement_role', maj.id, $2,
+              jsonb_build_object('role', 'collaborateur'), jsonb_build_object('role', 'administrateur') FROM maj
+     )
+     SELECT id FROM maj`,
+    [id, auteurId],
+  );
+  return rows.length > 0;
 }
 
 /** Réinitialise le mot de passe d'un compte existant. Journalise 'reinitialisation_mot_de_passe'. */

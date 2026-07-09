@@ -30,4 +30,11 @@ describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
     expect(slugs).toHaveLength(6);
     expect(slugs).not.toContain('/admin/comptes');
   });
+
+  it('chaque lien porte libellé + description (contrat unique menu latéral ET grille du dashboard)', () => {
+    for (const l of liensVisibles('administrateur', permsToutes())) {
+      expect(l.libelle.length).toBeGreaterThan(0);
+      expect(l.desc.length).toBeGreaterThan(0);
+    }
+  });
 });

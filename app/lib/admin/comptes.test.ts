@@ -21,6 +21,8 @@ import {
   regenererMotDePasseTemporaire,
   reactiverCompte,
   desactiverCompte,
+  modifierPermissions,
+  promouvoirAdministrateur,
   ErreurCompte,
 } from './comptes';
 
@@ -248,10 +250,9 @@ describe('desactiverCompte — dernier administrateur actif (sérialisé anti wr
     expect(String(queryMock.mock.calls[0][0])).toContain('pg_advisory_xact_lock');
     const sql = String(queryMock.mock.calls[1][0]);
     expect(sql).toContain('UPDATE admin_utilisateur SET actif = false');
-    expect(sql).toContain("NOT (role = 'administrateur'");
-    expect(sql).toContain("(SELECT count(*) FROM admin_utilisateur WHERE actif AND role = 'administrateur') <= 1");
+    expect(sql).toContain("role <> 'administrateur'"); // R-D : jamais un administrateur via l'UI
+    expect(sql).toContain("NOT (role = 'administrateur'"); // filet dernier-admin (défense en profondeur)
     expect(sql).toContain('desactivation');
-    // Le comptage vit dans le WHERE (aucun « compter puis écrire » séparé).
   });
   it('0 ligne modifiée (bloqué/absent/déjà inactif) → false', async () => {
     queryMock
@@ -267,9 +268,45 @@ describe('reactiverCompte (Lot C)', () => {
     expect(await reactiverCompte(4, 3)).toBe(true);
     const sql = String(queryMock.mock.calls[0][0]);
     expect(sql).toContain('SET actif = true');
+    expect(sql).toContain("role <> 'administrateur'"); // R-D : l'UI ne réactive qu'un collaborateur
     expect(sql).toContain('reactivation');
     queryMock.mockReset();
     queryMock.mockResolvedValueOnce({ rows: [] }); // déjà actif → aucune ligne
     expect(await reactiverCompte(4, 3)).toBe(false);
+  });
+});
+
+describe('modifierPermissions — collaborateur seulement (Lot D)', () => {
+  it('UPDATE conditionnel WHERE role=collaborateur + journal changement_permissions', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 5 }] });
+    const ok = await modifierPermissions(5, { ...PERMS_VIDE, curation: true }, 3);
+    expect(ok).toBe(true);
+    const [sql, params] = queryMock.mock.calls[0];
+    expect(String(sql)).toContain("WHERE id = $1 AND role = 'collaborateur'"); // jamais un administrateur
+    expect(String(sql)).toContain('changement_permissions');
+    expect(params).toContain(3); // auteur_id
+    expect(params).toContain(true); // perm curation soumise
+  });
+  it('0 ligne (absent ou administrateur → perms implicites) → false', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] });
+    expect(await modifierPermissions(9, PERMS_VIDE, 3)).toBe(false);
+  });
+});
+
+describe('promouvoirAdministrateur — collaborateur → administrateur (Lot D)', () => {
+  it('force role=administrateur + les 6 perms true, WHERE role=collaborateur, journal changement_role', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 6 }] });
+    const ok = await promouvoirAdministrateur(6, 3);
+    expect(ok).toBe(true);
+    const sql = String(queryMock.mock.calls[0][0]);
+    expect(sql).toContain("SET role = 'administrateur'");
+    expect(sql).toContain('perm_pilotage = true');
+    expect(sql).toContain('perm_banc_test = true');
+    expect(sql).toContain("WHERE id = $1 AND role = 'collaborateur'"); // idempotent + jamais de rétrogradation
+    expect(sql).toContain('changement_role');
+  });
+  it('0 ligne (absent ou déjà administrateur) → false — aucune rétrogradation possible', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] });
+    expect(await promouvoirAdministrateur(1, 3)).toBe(false);
   });
 });

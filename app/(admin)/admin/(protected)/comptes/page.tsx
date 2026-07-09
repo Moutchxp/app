@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Perms, RoleAdmin } from '../../../../lib/admin/session';
 
 interface CompteVue {
@@ -13,6 +13,9 @@ interface CompteVue {
   perms: Perms;
   derniere_connexion_a: string | null;
 }
+interface DetailCompte extends CompteVue {
+  doit_changer_mot_de_passe: boolean;
+}
 
 const MODULES: ReadonlyArray<{ cle: keyof Perms; libelle: string }> = [
   { cle: 'pilotage', libelle: 'Pilotage' },
@@ -22,38 +25,167 @@ const MODULES: ReadonlyArray<{ cle: keyof Perms; libelle: string }> = [
   { cle: 'curation', libelle: 'Curation' },
   { cle: 'banc_test', libelle: 'Banc de test' },
 ];
-
 const PERMS_VIDE = (): Perms => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false });
+
+/**
+ * Date lisible en français, HEURE LOCALE (Intl, locale fr-FR ; aucune dépendance). « jamais » si absente.
+ * PUR et déterministe → pas de mismatch d'hydratation (la page ne rend les dates qu'en client, après fetch).
+ */
+export function formaterDate(iso: string | null): string {
+  if (!iso) return 'jamais';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'jamais';
+  const jour = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
+  const heure = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' }).format(d);
+  return `${jour}, ${heure}`;
+}
+
+/**
+ * Pastille de permission (chip) — contrôle de FORMULAIRE tactile. État coché/décoché perceptible SANS la seule
+ * couleur : un indicateur ✓ / □ (forme). Annoncé aux lecteurs d'écran via `aria-pressed`. Désactivée + forcée
+ * pour un administrateur (perms implicites).
+ */
+export function Chip({ libelle, coche, disabled, onToggle }: { libelle: string; coche: boolean; disabled?: boolean; onToggle?: () => void }) {
+  return (
+    <button type="button" className="cpt-chip" aria-pressed={coche} disabled={disabled} onClick={onToggle}>
+      <span className="cpt-chip__ind" aria-hidden="true">{coche ? '✓' : ''}</span>
+      {libelle}
+    </button>
+  );
+}
+
+/**
+ * Contenu du DÉTAIL d'un compte (présentation PURE, sans fetch). L'identité (prénom/nom/identifiant) n'y figure
+ * QU'UNE fois — quand le détail est ouvert, la carte n'affiche que ce contenu, jamais le résumé en plus.
+ */
+export function DetailContenu({
+  compte, perms, collaborateur, msg, enCours, onToggle, onEnregistrer, onPromouvoir, onFermer,
+}: {
+  compte: DetailCompte;
+  perms: Perms;
+  collaborateur: boolean;
+  msg: string | null;
+  enCours: boolean;
+  onToggle: (cle: keyof Perms) => void;
+  onEnregistrer: () => void;
+  onPromouvoir: () => void;
+  onFermer: () => void;
+}) {
+  return (
+    <>
+      <div className="cpt-tete" id={`cpt-tete-${compte.id}`}>{compte.prenom} {compte.nom} — {compte.identifiant}</div>
+      <div className="cpt-meta">
+        Rôle : {compte.role} · {compte.actif ? 'actif' : 'inactif'} · dernière connexion : {formaterDate(compte.derniere_connexion_a)}
+        {compte.doit_changer_mot_de_passe && ' · doit changer son mot de passe'}
+      </div>
+
+      <div className="cpt-perms-titre" id={`perms-${compte.id}`}>
+        Permissions {!collaborateur && '(administrateur : toutes, non modifiables)'}
+      </div>
+      <div className="cpt-perms" role="group" aria-labelledby={`perms-${compte.id}`}>
+        {MODULES.map((m) => (
+          <Chip key={m.cle} libelle={m.libelle} coche={collaborateur ? perms[m.cle] : true} disabled={!collaborateur} onToggle={() => onToggle(m.cle)} />
+        ))}
+      </div>
+
+      {collaborateur ? (
+        <div className="cpt-actions">
+          <button type="button" className="cpt-btn cpt-btn--primary" disabled={enCours} onClick={onEnregistrer}>Enregistrer les permissions</button>
+          <button type="button" className="cpt-btn cpt-btn--secondary" disabled={enCours} onClick={onPromouvoir}>Promouvoir administrateur</button>
+        </div>
+      ) : (
+        <p className="cpt-note">Un administrateur a toutes les permissions et ne peut être ni rétrogradé ni désactivé depuis l’interface (accès serveur requis).</p>
+      )}
+
+      <p className="cpt-note">
+        Un changement de permission prend effet <strong>immédiatement</strong> sur les écritures ; l’accès aux pages
+        et le menu se mettent à jour à la prochaine connexion de l’intéressé (au plus 8 h).
+      </p>
+      {msg && <p className="cpt-note" role="status">{msg}</p>}
+
+      <button type="button" className="cpt-btn cpt-btn--neutral" onClick={onFermer}>Fermer</button>
+    </>
+  );
+}
+
+/** Détail d'un compte : charge l'état RÉEL en base, puis rend `DetailContenu`. Prend le focus au dépli (a11y). */
+function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => void; onRafraichir: () => void }) {
+  const [d, setD] = useState<DetailCompte | null>(null);
+  const [perms, setPerms] = useState<Perms>(PERMS_VIDE());
+  const [msg, setMsg] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { ref.current?.focus(); }, []); // dépli → focus au détail (focus, pas d'animation)
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      const res = await fetch(`/api/admin/comptes/${id}`);
+      if (annule) return;
+      if (!res.ok) { setMsg('Détail indisponible.'); return; }
+      const body = await res.json();
+      if (!annule) { setD(body.compte); setPerms(body.compte.perms); }
+    })();
+    return () => { annule = true; };
+  }, [id]);
+
+  async function recharger() {
+    const res = await fetch(`/api/admin/comptes/${id}`);
+    if (!res.ok) { setMsg('Détail indisponible.'); return; }
+    const body = await res.json();
+    setD(body.compte); setPerms(body.compte.perms);
+  }
+  async function enregistrer() {
+    setEnCours(true); setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/comptes/${id}/permissions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ perms }) });
+      if (res.ok) { setMsg('Permissions enregistrées.'); await recharger(); onRafraichir(); } else setMsg('Enregistrement refusé.');
+    } finally { setEnCours(false); }
+  }
+  async function promouvoir() {
+    if (!window.confirm('Promouvoir ce compte en administrateur ? Un administrateur a toutes les permissions et ne peut plus être rétrogradé.')) return;
+    setEnCours(true); setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/comptes/${id}/role`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'administrateur' }) });
+      if (res.ok) { setMsg('Compte promu administrateur.'); await recharger(); onRafraichir(); } else setMsg('Promotion refusée.');
+    } finally { setEnCours(false); }
+  }
+
+  return (
+    <div ref={ref} tabIndex={-1} className="cpt-detail" id={`detail-${id}`} role="region" aria-labelledby={`cpt-tete-${id}`}>
+      {d
+        ? <DetailContenu compte={d} perms={perms} collaborateur={d.role === 'collaborateur'} msg={msg} enCours={enCours}
+            onToggle={(cle) => setPerms((p) => ({ ...p, [cle]: !p[cle] }))} onEnregistrer={enregistrer} onPromouvoir={promouvoir} onFermer={onFermer} />
+        : (msg ?? 'Chargement…')}
+    </div>
+  );
+}
 
 /** Modale bloquante du mot de passe temporaire : une seule fois, copie, case « transmis » avant fermeture. */
 function ModaleTemporaire({ identifiant, motDePasse, onFermer }: { identifiant: string; motDePasse: string; onFermer: () => void }) {
   const [transmis, setTransmis] = useState(false);
   const [copie, setCopie] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { ref.current?.focus(); }, []); // focus initial dans la modale bloquante (a11y)
   return (
-    <div role="alertdialog" aria-modal="true" className="svv-cpt-overlay">
-      <div className="svv-cpt-modale">
-        <h2 className="svv-cpt-titre">Mot de passe temporaire</h2>
-        <p className="svv-cpt-sous">
+    <div role="alertdialog" aria-modal="true" aria-labelledby="cpt-modale-titre" className="cpt-overlay">
+      <div ref={ref} tabIndex={-1} className="cpt-modale" style={{ outline: 'none' }}>
+        <h2 className="cpt-titre" id="cpt-modale-titre">Mot de passe temporaire</h2>
+        <p className="cpt-sous">
           Pour <strong>{identifiant}</strong>. Il ne sera <strong>plus jamais affiché</strong> : transmettez-le
           maintenant. Perdu ? Régénérez-en un depuis la liste.
         </p>
-        <div className="svv-cpt-mdp">
+        <div className="cpt-mdp">
           <code>{motDePasse}</code>
-          <button
-            type="button"
-            className="svv-btn"
-            onClick={() => { navigator.clipboard?.writeText(motDePasse); setCopie(true); }}
-          >
+          <button type="button" className="cpt-btn cpt-btn--secondary" onClick={() => { navigator.clipboard?.writeText(motDePasse); setCopie(true); }}>
             {copie ? 'Copié' : 'Copier'}
           </button>
         </div>
-        <label className="svv-cpt-case">
+        <label className="cpt-case">
           <input type="checkbox" checked={transmis} onChange={(e) => setTransmis(e.target.checked)} />
           J’ai transmis ce mot de passe
         </label>
-        <button type="button" className="svv-btn svv-btn-primary" disabled={!transmis} onClick={onFermer} style={{ minHeight: 44, width: '100%' }}>
-          Fermer
-        </button>
+        <button type="button" className="cpt-btn cpt-btn--primary" disabled={!transmis} onClick={onFermer} style={{ width: '100%' }}>Fermer</button>
       </div>
     </div>
   );
@@ -64,6 +196,9 @@ export default function ComptesPage() {
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
   const [temp, setTemp] = useState<{ identifiant: string; motDePasse: string } | null>(null);
+  const [ouvertId, setOuvertId] = useState<number | null>(null);
+  const [desactivesOuverts, setDesactivesOuverts] = useState(false);
+  const detailsBtnRef = useRef<HTMLButtonElement | null>(null);
 
   // Formulaire de création
   const [prenom, setPrenom] = useState('');
@@ -74,22 +209,14 @@ export default function ComptesPage() {
   const [enCours, setEnCours] = useState(false);
   const admin = role === 'administrateur';
 
-  // Recharge la liste (utilisée par les gestionnaires d'événements — setState hors effet, donc autorisé).
   async function recharger() {
     try {
       const res = await fetch('/api/admin/comptes');
       if (!res.ok) throw new Error();
       const body = await res.json();
-      setComptes(body.comptes ?? []);
-      setErreur(null);
-    } catch {
-      setErreur('Liste indisponible.');
-    } finally {
-      setChargement(false);
-    }
+      setComptes(body.comptes ?? []); setErreur(null);
+    } catch { setErreur('Liste indisponible.'); } finally { setChargement(false); }
   }
-
-  // Chargement initial : IIFE asynchrone ; tout setState survient APRÈS un `await` (jamais synchrone dans l'effet).
   useEffect(() => {
     let annule = false;
     void (async () => {
@@ -98,131 +225,112 @@ export default function ComptesPage() {
         if (!res.ok) throw new Error();
         const body = await res.json();
         if (!annule) { setComptes(body.comptes ?? []); setErreur(null); }
-      } catch {
-        if (!annule) setErreur('Liste indisponible.');
-      } finally {
-        if (!annule) setChargement(false);
-      }
+      } catch { if (!annule) setErreur('Liste indisponible.'); } finally { if (!annule) setChargement(false); }
     })();
     return () => { annule = true; };
   }, []);
 
   async function creer(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setEnCours(true);
-    setErreur(null);
+    e.preventDefault(); setEnCours(true); setErreur(null);
     try {
-      const res = await fetch('/api/admin/comptes', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prenom, nom, identifiant, role, perms }),
-      });
+      const res = await fetch('/api/admin/comptes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom, identifiant, role, perms }) });
       const body = await res.json().catch(() => ({}));
       if (res.status === 201) {
         setTemp({ identifiant, motDePasse: body.motDePasseTemporaire });
         setPrenom(''); setNom(''); setIdentifiant(''); setRole('collaborateur'); setPerms(PERMS_VIDE());
         await recharger();
-      } else {
-        setErreur(typeof body?.erreur === 'string' ? body.erreur : 'Création impossible.');
-      }
-    } catch {
-      setErreur('Création impossible.');
-    } finally {
-      setEnCours(false);
-    }
+      } else setErreur(typeof body?.erreur === 'string' ? body.erreur : 'Création impossible.');
+    } catch { setErreur('Création impossible.'); } finally { setEnCours(false); }
   }
 
-  async function basculerActif(c: CompteVue) {
-    const res = await fetch(`/api/admin/comptes/${c.id}/actif`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ actif: !c.actif }),
-    });
+  async function definirActif(c: CompteVue, actif: boolean) {
+    const res = await fetch(`/api/admin/comptes/${c.id}/actif`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actif }) });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      setErreur(body?.erreur === 'DERNIER_ADMINISTRATEUR'
-        ? 'Impossible de désactiver le dernier administrateur actif.'
-        : 'Action impossible.');
+      const erreurs: Record<string, string> = {
+        ADMIN_CLI_UNIQUEMENT: 'Le cycle de vie d’un administrateur (activer/désactiver) passe par la CLI.',
+        DERNIER_ADMINISTRATEUR: 'Impossible de désactiver le dernier administrateur actif.',
+      };
+      setErreur(erreurs[body?.erreur as string] ?? 'Action impossible.');
       return;
     }
     await recharger();
   }
-
   async function regenerer(c: CompteVue) {
     const res = await fetch(`/api/admin/comptes/${c.id}/mot-de-passe-temporaire`, { method: 'POST' });
     const body = await res.json().catch(() => ({}));
-    if (res.ok) {
-      setTemp({ identifiant: c.identifiant, motDePasse: body.motDePasseTemporaire });
-      await recharger();
-    } else {
-      setErreur('Régénération impossible.');
+    if (res.ok) { setTemp({ identifiant: c.identifiant, motDePasse: body.motDePasseTemporaire }); await recharger(); } else setErreur('Régénération impossible.');
+  }
+
+  function ouvrir(c: CompteVue, btn: HTMLButtonElement) { detailsBtnRef.current = btn; setOuvertId(c.id); }
+  function fermer() { const btn = detailsBtnRef.current; setOuvertId(null); requestAnimationFrame(() => btn?.focus()); }
+
+  const actifs = comptes.filter((c) => c.actif);
+  const desactives = comptes.filter((c) => !c.actif);
+
+  function carte(c: CompteVue, desactive: boolean) {
+    if (ouvertId === c.id) {
+      return <div key={c.id} className="cpt-carte"><Detail id={c.id} onFermer={fermer} onRafraichir={recharger} /></div>;
     }
+    const collaborateur = c.role === 'collaborateur';
+    return (
+      <div key={c.id} className="cpt-carte">
+        <div className="cpt-resume">
+          <div className="cpt-nom">{c.prenom} {c.nom}</div>
+          <div className="cpt-id">{c.identifiant}</div>
+          <div className="cpt-meta">{c.role} · dernière connexion : {formaterDate(c.derniere_connexion_a)}</div>
+        </div>
+        <div className="cpt-actions">
+          <button type="button" className="cpt-btn cpt-btn--secondary" aria-expanded={false} aria-controls={`detail-${c.id}`} onClick={(e) => ouvrir(c, e.currentTarget)}>Détails</button>
+          {!desactive && <button type="button" className="cpt-btn cpt-btn--secondary" onClick={() => regenerer(c)}>Régénérer le mot de passe</button>}
+          {collaborateur
+            ? <button type="button" className="cpt-btn cpt-btn--secondary" onClick={() => definirActif(c, desactive)}>{desactive ? 'Réactiver' : 'Désactiver'}</button>
+            : <span className="cpt-cli">{desactive ? 'Réactivation' : 'Désactivation'} : CLI uniquement</span>}
+        </div>
+      </div>
+    );
   }
 
   return (
     <div>
       <style>{CSS}</style>
-      <h1 className="svv-cpt-h1">Administratif — comptes</h1>
+      <h1 className="cpt-h1">Administratif — comptes</h1>
 
       <section className="svv-card" style={{ marginBottom: 20 }}>
-        <h2 className="svv-cpt-h2">Créer un compte</h2>
-        <form onSubmit={creer} className="svv-cpt-form">
-          <input className="svv-cpt-champ" placeholder="Prénom" value={prenom} onChange={(e) => setPrenom(e.target.value)} required />
-          <input className="svv-cpt-champ" placeholder="Nom" value={nom} onChange={(e) => setNom(e.target.value)} required />
-          <input className="svv-cpt-champ" type="email" inputMode="email" autoCapitalize="none" placeholder="adresse e-mail" value={identifiant} onChange={(e) => setIdentifiant(e.target.value)} required />
-          <select className="svv-cpt-champ" value={role} onChange={(e) => setRole(e.target.value as RoleAdmin)}>
+        <h2 className="cpt-h2">Créer un compte</h2>
+        <form onSubmit={creer} className="cpt-form">
+          <input className="cpt-champ" placeholder="Prénom" value={prenom} onChange={(e) => setPrenom(e.target.value)} required />
+          <input className="cpt-champ" placeholder="Nom" value={nom} onChange={(e) => setNom(e.target.value)} required />
+          <input className="cpt-champ" type="email" inputMode="email" autoCapitalize="none" placeholder="adresse e-mail" value={identifiant} onChange={(e) => setIdentifiant(e.target.value)} required />
+          <select className="cpt-champ" value={role} onChange={(e) => setRole(e.target.value as RoleAdmin)}>
             <option value="collaborateur">Collaborateur</option>
             <option value="administrateur">Administrateur</option>
           </select>
-          <fieldset className="svv-cpt-perms">
-            <legend>Permissions {admin && '(administrateur : toutes, non modifiables)'}</legend>
+          <div className="cpt-perms-titre" id="perms-creation">Permissions {admin && '(administrateur : toutes, non modifiables)'}</div>
+          <div className="cpt-perms" role="group" aria-labelledby="perms-creation">
             {MODULES.map((m) => (
-              <label key={m.cle} className="svv-cpt-perm">
-                <input
-                  type="checkbox"
-                  checked={admin || perms[m.cle]}
-                  disabled={admin}
-                  onChange={(e) => setPerms((p) => ({ ...p, [m.cle]: e.target.checked }))}
-                />
-                {m.libelle}
-              </label>
+              <Chip key={m.cle} libelle={m.libelle} coche={admin || perms[m.cle]} disabled={admin} onToggle={() => setPerms((p) => ({ ...p, [m.cle]: !p[m.cle] }))} />
             ))}
-          </fieldset>
-          <button type="submit" className="svv-btn svv-btn-primary" disabled={enCours} style={{ minHeight: 44 }}>
-            {enCours ? 'Création…' : 'Créer le compte'}
-          </button>
+          </div>
+          <button type="submit" className="cpt-btn cpt-btn--primary" disabled={enCours}>{enCours ? 'Création…' : 'Créer le compte'}</button>
         </form>
       </section>
 
-      {erreur && <p role="alert" className="svv-cpt-err">{erreur}</p>}
+      {erreur && <p role="alert" className="cpt-err">{erreur}</p>}
 
-      <section className="svv-card">
-        <h2 className="svv-cpt-h2">Comptes</h2>
-        {chargement ? (
-          <p>Chargement…</p>
-        ) : (
-          <div className="svv-cpt-liste">
-            {comptes.map((c) => (
-              <div key={c.identifiant} className="svv-cpt-ligne">
-                <div className="svv-cpt-info">
-                  <div className="svv-cpt-nom">{c.prenom} {c.nom}</div>
-                  <div className="svv-cpt-id">{c.identifiant}</div>
-                  <div className="svv-cpt-meta">
-                    {c.role} · {c.actif ? 'actif' : 'inactif'} · dernière connexion : {c.derniere_connexion_a ?? 'jamais'}
-                  </div>
-                </div>
-                <div className="svv-cpt-actions">
-                  <button type="button" className="svv-btn" onClick={() => basculerActif(c)}>
-                    {c.actif ? 'Désactiver' : 'Activer'}
-                  </button>
-                  <button type="button" className="svv-btn" onClick={() => regenerer(c)}>
-                    Régénérer le mot de passe
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      <section className="svv-card" style={{ marginBottom: 20 }}>
+        <h2 className="cpt-h2">Comptes actifs ({actifs.length})</h2>
+        {chargement ? <p>Chargement…</p> : <div className="cpt-liste">{actifs.map((c) => carte(c, false))}</div>}
+      </section>
+
+      <section className="svv-card cpt-desactives">
+        <button type="button" className="cpt-repli cpt-btn--focus" aria-expanded={desactivesOuverts} onClick={() => setDesactivesOuverts((v) => !v)}>
+          <span className="cpt-h2" style={{ margin: 0 }}>Comptes désactivés ({desactives.length})</span>
+          <span aria-hidden="true">{desactivesOuverts ? '▾' : '▸'}</span>
+        </button>
+        {desactivesOuverts && (desactives.length === 0
+          ? <p className="cpt-note">Aucun compte désactivé.</p>
+          : <div className="cpt-liste">{desactives.map((c) => carte(c, true))}</div>)}
       </section>
 
       {temp && <ModaleTemporaire identifiant={temp.identifiant} motDePasse={temp.motDePasse} onFermer={() => setTemp(null)} />}
@@ -231,30 +339,56 @@ export default function ComptesPage() {
 }
 
 const CSS = `
-.svv-cpt-h1{font-size:1.2rem;font-weight:800;color:var(--color-svv-ink);margin:0 0 16px}
-.svv-cpt-h2{font-size:1rem;font-weight:700;color:var(--color-svv-ink);margin:0 0 12px}
-.svv-cpt-form{display:flex;flex-direction:column;gap:10px}
-.svv-cpt-champ{min-height:44px;padding:.6rem;font-size:1rem;border:1px solid var(--color-svv-line);border-radius:.6rem;background:#fff;color:var(--color-svv-ink)}
-.svv-cpt-perms{border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.6rem;display:flex;flex-wrap:wrap;gap:.5rem 1rem}
-.svv-cpt-perms legend{font-size:.8rem;color:var(--color-svv-muted);padding:0 .3rem}
-.svv-cpt-perm{display:inline-flex;align-items:center;gap:.4rem;min-height:32px;font-size:.9rem}
-.svv-cpt-err{color:var(--color-svv-red);font-size:.9rem;margin:0 0 12px}
-.svv-cpt-liste{display:flex;flex-direction:column;gap:8px}
-.svv-cpt-ligne{display:flex;flex-direction:column;gap:8px;border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.75rem}
-.svv-cpt-nom{font-weight:700;color:var(--color-svv-ink)}
-.svv-cpt-id{font-size:.85rem;color:var(--color-svv-gray)}
-.svv-cpt-meta{font-size:.78rem;color:var(--color-svv-muted);margin-top:2px}
-.svv-cpt-actions{display:flex;flex-wrap:wrap;gap:8px}
-.svv-cpt-actions .svv-btn{min-height:40px}
-.svv-cpt-overlay{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:1.5rem;background:rgba(20,20,20,.55)}
-.svv-cpt-modale{width:100%;max-width:420px;background:#fff;border:1px solid var(--color-svv-line);border-radius:.9rem;padding:1.25rem}
-.svv-cpt-titre{margin:0 0 6px;font-size:1.05rem;font-weight:800;color:var(--color-svv-ink)}
-.svv-cpt-sous{margin:0 0 12px;font-size:.85rem;color:var(--color-svv-muted)}
-.svv-cpt-mdp{display:flex;align-items:center;gap:8px;margin-bottom:12px}
-.svv-cpt-mdp code{flex:1;font-size:1rem;padding:.6rem;background:var(--color-svv-field);border-radius:.5rem;word-break:break-all}
-.svv-cpt-case{display:flex;align-items:center;gap:.5rem;min-height:40px;font-size:.9rem;margin-bottom:12px}
+.cpt-h1{font-size:1.2rem;font-weight:800;color:var(--color-svv-ink);margin:0 0 16px}
+.cpt-h2{font-size:1rem;font-weight:700;color:var(--color-svv-ink);margin:0 0 12px}
+.cpt-form{display:flex;flex-direction:column;gap:10px}
+.cpt-champ{min-height:44px;padding:.6rem;font-size:1rem;border:1px solid var(--color-svv-line);border-radius:.6rem;background:#fff;color:var(--color-svv-ink)}
+.cpt-champ:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
+.cpt-err{color:var(--color-svv-red);font-size:.9rem;margin:0 0 12px}
+.cpt-liste{display:flex;flex-direction:column;gap:10px}
+/* Trame de fond : gris très clair UNIFORME sur tout le cartouche + bordure fine. Aucun filet interne. */
+.cpt-carte{background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:.7rem;padding:.9rem;display:flex;flex-direction:column;gap:10px}
+.cpt-nom{font-weight:700;color:var(--color-svv-ink)}
+.cpt-id{font-size:.85rem;color:var(--color-svv-gray)}
+.cpt-meta{font-size:.8rem;color:var(--color-svv-muted)}
+.cpt-tete{font-weight:700;color:var(--color-svv-ink)}
+.cpt-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.cpt-cli{font-size:.75rem;color:var(--color-svv-muted);font-style:italic}
+.cpt-detail{outline:none}
+.cpt-note{font-size:.8rem;color:var(--color-svv-muted);margin:4px 0 0}
+.cpt-perms-titre{font-size:.8rem;color:var(--color-svv-muted)}
+.cpt-perms{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:2px 0}
+/* Boutons — hiérarchie stricte, palette du site (aucun bleu), focus rouge visible, cibles >= 44px. */
+.cpt-btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;min-height:44px;padding:.6rem 1rem;font-weight:700;font-size:.95rem;line-height:1.1;border-radius:.7rem;border:1.5px solid transparent;background:#fff;color:var(--color-svv-ink);cursor:pointer;transition:background-color .15s ease,border-color .15s ease}
+.cpt-btn--primary{background:var(--color-svv-red);color:#fff;border-color:var(--color-svv-red)}
+.cpt-btn--primary:hover{background:var(--color-svv-red-dark);border-color:var(--color-svv-red-dark)}
+.cpt-btn--secondary{background:#fff;color:var(--color-svv-red);border-color:var(--color-svv-red)}
+.cpt-btn--secondary:hover{background:#fbeceb}
+.cpt-btn--neutral{background:#fff;color:var(--color-svv-gray);border-color:var(--color-svv-line)}
+.cpt-btn--neutral:hover{border-color:var(--color-svv-muted)}
+.cpt-btn:disabled{opacity:.55;cursor:not-allowed}
+.cpt-btn:focus-visible,.cpt-btn--focus:focus-visible,.cpt-chip:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* Pastilles de permission (chips) — état par forme (indicateur ✓/□) + fond, pas la seule couleur. */
+.cpt-chip{display:flex;align-items:center;gap:.5rem;min-height:44px;padding:.5rem .75rem;border-radius:.7rem;border:1.5px solid var(--color-svv-line);background:#fff;color:var(--color-svv-ink);font-size:.9rem;font-weight:600;cursor:pointer;text-align:left;width:100%}
+.cpt-chip[aria-pressed="true"]{background:var(--color-svv-green-soft);border-color:var(--color-svv-green-ink);color:var(--color-svv-green-ink)}
+.cpt-chip:disabled{cursor:not-allowed;opacity:.85}
+.cpt-chip__ind{width:20px;height:20px;flex-shrink:0;border:1.5px solid currentColor;border-radius:.35rem;display:inline-flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:800}
+.cpt-desactives{border-style:dashed}
+.cpt-repli{width:100%;display:flex;align-items:center;justify-content:space-between;min-height:44px;background:none;border:0;cursor:pointer;padding:0;color:var(--color-svv-ink)}
+.cpt-overlay{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:1.5rem;background:rgba(20,20,20,.55)}
+.cpt-modale{width:100%;max-width:420px;background:#fff;border:1px solid var(--color-svv-line);border-radius:.9rem;padding:1.25rem}
+.cpt-titre{margin:0 0 6px;font-size:1.05rem;font-weight:800;color:var(--color-svv-ink)}
+.cpt-sous{margin:0 0 12px;font-size:.85rem;color:var(--color-svv-muted)}
+.cpt-mdp{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.cpt-mdp code{flex:1;font-size:1rem;padding:.6rem;background:var(--color-svv-field);border-radius:.5rem;word-break:break-all;color:var(--color-svv-ink)}
+.cpt-case{display:flex;align-items:center;gap:.5rem;min-height:44px;font-size:.9rem;margin-bottom:12px}
+/* Case à cocher : coche + focus à la palette du site (jamais le bleu natif du navigateur). */
+.cpt-case input{accent-color:var(--color-svv-red)}
+.cpt-case input:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 @media (min-width:768px){
-  .svv-cpt-ligne{flex-direction:row;align-items:center;justify-content:space-between}
-  .svv-cpt-actions{flex-shrink:0}
+  .cpt-carte{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between}
+  .cpt-carte .cpt-detail{flex-basis:100%}
+  .cpt-resume{flex:1;min-width:0}
 }
+@media (prefers-reduced-motion: reduce){ .cpt-btn{transition:none} }
 `;

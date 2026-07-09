@@ -37,10 +37,15 @@ export async function POST(request: Request, ctx: Ctx) {
 
   if (modifie) return Response.json({ ok: true });
 
-  // Aucune ligne modifiée : distinguer 404 / idempotent / dernier administrateur (SELECT léger, hors écriture).
+  // Aucune ligne modifiée : diagnostiquer (SELECT léger, hors écriture, aucune course sur le write).
   const compte = await trouverCompteParId(idNum);
   if (!compte) return Response.json({ erreur: 'Compte introuvable.' }, { status: 404 });
   if (compte.actif === actif) return Response.json({ ok: true }); // déjà dans l'état voulu (idempotent)
-  // Reste le seul cas : désactivation bloquée car dernier administrateur actif.
+  // R-D (Lot D) : le cycle de vie (activer/désactiver) d'un ADMINISTRATEUR passe UNIQUEMENT par la CLI (accès
+  // serveur) — jamais par l'UI, ni pour un autre admin ni pour soi-même. Message explicite (pas un 409 trompeur).
+  if (compte.role === 'administrateur') {
+    return Response.json({ erreur: 'ADMIN_CLI_UNIQUEMENT' }, { status: 403 });
+  }
+  // Filet « dernier administrateur actif » (Lot C) — redondant depuis R-D, conservé en défense en profondeur.
   return Response.json({ erreur: 'DERNIER_ADMINISTRATEUR' }, { status: 409 });
 }
