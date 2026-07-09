@@ -16,10 +16,13 @@ import { creerCompte, reinitialiserMotDePasse, secours, trouverCompte, ErreurCom
 function ligne(over: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
     id: 42,
-    identifiant: 'arno',
+    identifiant: 'arno@x.fr',
+    prenom: 'Arnaud',
+    nom: 'Jorel',
     mot_de_passe: 'HASH:ancien',
     role: 'collaborateur',
     actif: false,
+    doit_changer_mot_de_passe: false,
     perm_pilotage: false,
     perm_cartes_annee: false,
     perm_statistiques: false,
@@ -49,27 +52,45 @@ describe('trouverCompte (recherche insensible à la casse)', () => {
     expect(sql).toContain('lower(identifiant) = lower($1)');
     expect((queryMock.mock.calls[0][1] as unknown[])[0]).toBe('A.Jorel@SansVisAVis.COM'); // saisie transmise telle quelle
   });
+
+  it('le SELECT remonte les 3 nouvelles colonnes (prenom, nom, doit_changer_mot_de_passe) — M3-4', async () => {
+    queryMock.mockResolvedValue({ rows: [ligne()] });
+    await trouverCompte('arno@x.fr');
+    const sql = String(queryMock.mock.calls[0][0]);
+    expect(sql).toContain('prenom');
+    expect(sql).toContain(', nom,'); // token délimité : 'prenom' contient déjà 'nom', un toContain('nom') serait tautologique
+    expect(sql).toContain('doit_changer_mot_de_passe');
+  });
 });
 
 describe('creerCompte', () => {
+  it('refuse prénom/nom vides (ou blancs seuls) AVANT tout INSERT — backstop du CHECK de 016', async () => {
+    await expect(creerCompte('a@x.fr', 'administrateur', 'x', '   ', 'Jorel')).rejects.toBeInstanceOf(ErreurCompte);
+    await expect(creerCompte('a@x.fr', 'administrateur', 'x', 'Arnaud', '')).rejects.toBeInstanceOf(ErreurCompte);
+    expect(queryMock).not.toHaveBeenCalled(); // ni trouverCompte, ni INSERT
+  });
+
   it('refuse un identifiant déjà pris (insensible à la casse) et n’INSÈRE rien', async () => {
     queryMock.mockResolvedValueOnce({ rows: [ligne()] }); // trouverCompte → existe
-    await expect(creerCompte('ARNO', 'administrateur', 'x')).rejects.toBeInstanceOf(ErreurCompte);
+    await expect(creerCompte('ARNO@X.FR', 'administrateur', 'x', 'Arnaud', 'Jorel')).rejects.toBeInstanceOf(ErreurCompte);
     expect(sqlsEmis().some((s) => s.includes('INSERT INTO admin_utilisateur'))).toBe(false);
   });
 
-  it('crée quand absent : INSERT compte + journal, hash passé (jamais le clair)', async () => {
+  it('crée quand absent : INSERT compte (avec prenom/nom) + journal, hash passé (jamais le clair)', async () => {
     queryMock
       .mockResolvedValueOnce({ rows: [] }) // trouverCompte → absent
-      .mockResolvedValueOnce({ rows: [{ id: 1, identifiant: 'arno', role: 'administrateur', actif: true }] });
-    const c = await creerCompte('arno', 'administrateur', 'secret');
-    expect(c).toMatchObject({ identifiant: 'arno', role: 'administrateur', actif: true });
+      .mockResolvedValueOnce({ rows: [{ id: 1, identifiant: 'arno@x.fr', role: 'administrateur', actif: true }] });
+    const c = await creerCompte('arno@x.fr', 'administrateur', 'secret', 'Arnaud', 'Jorel');
+    expect(c).toMatchObject({ identifiant: 'arno@x.fr', role: 'administrateur', actif: true });
     const insert = queryMock.mock.calls[1];
     expect(String(insert[0])).toContain('INSERT INTO admin_utilisateur');
+    expect(String(insert[0])).toContain('prenom, nom');
     expect(String(insert[0])).toContain('admin_utilisateur_log');
     const params = insert[1] as unknown[];
     expect(params).toContain('HASH:secret'); // le hash, pas 'secret'
     expect(params).not.toContain('secret');
+    expect(params).toContain('Arnaud');
+    expect(params).toContain('Jorel');
   });
 });
 
@@ -90,44 +111,50 @@ describe('reinitialiserMotDePasse', () => {
   });
 });
 
-describe('secours (idempotent)', () => {
-  it('compte absent → création en administrateur actif', async () => {
-    queryMock
-      .mockResolvedValueOnce({ rows: [] }) // trouverCompte → absent
-      .mockResolvedValueOnce({ rows: [{ id: 9, identifiant: 'arno', role: 'administrateur', actif: true }] });
-    const r = await secours('arno', 'mdp');
-    expect(r.action).toBe('creation');
-    expect(r).toMatchObject({ role: 'administrateur', actif: true });
+describe('secours (réactivation seule — M3-4)', () => {
+  it('identifiant INCONNU → ErreurCompte, AUCUN INSERT, aucune création', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] }); // trouverCompte → absent
+    await expect(secours('inconnu@x.fr', 'mdp')).rejects.toBeInstanceOf(ErreurCompte);
+    // Un seul appel (le SELECT de trouverCompte) ; jamais d'INSERT.
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    expect(sqlsEmis().some((s) => s.includes('INSERT INTO admin_utilisateur'))).toBe(false);
   });
 
-  it('compte existant (désactivé) → réactivation en administrateur, toutes perms', async () => {
+  it('compte existant (désactivé) → réactivation en administrateur, toutes perms, prenom/nom INTOUCHÉS', async () => {
     queryMock
       .mockResolvedValueOnce({ rows: [ligne({ actif: false, role: 'collaborateur' })] }) // trouverCompte
-      .mockResolvedValueOnce({ rows: [{ id: 42, identifiant: 'arno', role: 'administrateur', actif: true }] });
-    const r = await secours('arno', 'mdp');
-    expect(r.action).toBe('reactivation');
+      .mockResolvedValueOnce({ rows: [{ id: 42, identifiant: 'arno@x.fr', role: 'administrateur', actif: true }] });
+    const r = await secours('arno@x.fr', 'mdp');
+    expect(r).toMatchObject({ role: 'administrateur', actif: true });
     const sql = String(queryMock.mock.calls[1][0]);
     expect(sql).toContain('actif = true');
     expect(sql).toContain("role = 'administrateur'");
     expect(sql).toContain('perm_curation = true');
+    expect(sql).not.toContain('prenom'); // ne touche jamais l'identité
+    expect(sql).not.toContain('nom =');
   });
 
-  it('DEUX exécutions successives → même état final (administrateur actif) — idempotence (f)', async () => {
+  it('DEUX exécutions successives sur un compte existant → même état final (idempotence)', async () => {
     for (let i = 0; i < 2; i++) {
       queryMock.mockReset();
       queryMock
         .mockResolvedValueOnce({ rows: [ligne({ actif: true, role: 'administrateur' })] })
-        .mockResolvedValueOnce({ rows: [{ id: 42, identifiant: 'arno', role: 'administrateur', actif: true }] });
-      const r = await secours('arno', 'mdp');
-      expect(r).toMatchObject({ action: 'reactivation', role: 'administrateur', actif: true });
+        .mockResolvedValueOnce({ rows: [{ id: 42, identifiant: 'arno@x.fr', role: 'administrateur', actif: true }] });
+      const r = await secours('arno@x.fr', 'mdp');
+      expect(r).toMatchObject({ role: 'administrateur', actif: true });
+      // Idempotence PROUVÉE : le SET est ABSOLU (ne lit aucune valeur préexistante) → rejouer converge.
+      const sql = String(queryMock.mock.calls[1][0]);
+      expect(sql).toContain('actif = true');
+      expect(sql).toContain("role = 'administrateur'");
+      expect(sql).toContain('perm_banc_test = true');
     }
   });
 
   it('n’émet AUCUN DELETE/DROP/TRUNCATE', async () => {
     queryMock
       .mockResolvedValueOnce({ rows: [ligne()] })
-      .mockResolvedValueOnce({ rows: [{ id: 42, identifiant: 'arno', role: 'administrateur', actif: true }] });
-    await secours('arno', 'mdp');
+      .mockResolvedValueOnce({ rows: [{ id: 42, identifiant: 'arno@x.fr', role: 'administrateur', actif: true }] });
+    await secours('arno@x.fr', 'mdp');
     const tout = sqlsEmis().join(' ').toUpperCase();
     expect(tout).not.toMatch(/\bDELETE\b|\bDROP\b|\bTRUNCATE\b/);
   });

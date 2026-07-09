@@ -1,9 +1,14 @@
 /**
- * Script d'administration des comptes (M3 Lot 2). Exécuté par `tsx` depuis VS Code via les entrées npm :
- *   npm run admin:creer   -- --identifiant arno --role administrateur
- *   npm run admin:reset    -- --identifiant arno
- *   npm run admin:secours  -- --identifiant arno        (corde de rappel, idempotent)
+ * Script d'administration des comptes (M3). Exécuté par `tsx` depuis VS Code via les entrées npm :
+ *   npm run admin:creer   -- --identifiant a.jorel@sansvisavis.com --role administrateur --prenom Arnaud --nom Jorel
+ *   npm run admin:reset    -- --identifiant a.jorel@sansvisavis.com
+ *   npm run admin:secours  -- --identifiant a.jorel@sansvisavis.com   (RÉACTIVATION SEULE d'un compte existant)
  *   npm run admin:lister
+ *
+ * `admin:creer` exige --prenom et --nom (non vides) ; les comptes créés par la CLI ont
+ * `doit_changer_mot_de_passe = false` (Arno choisit lui-même le mot de passe — seule la future UICréation, Lot C,
+ * posera true). `admin:secours` NE CRÉE PLUS de compte : un identifiant inconnu est refusé (la vraie corde de
+ * rappel est la voie de secours NAVIGATEUR, mot de passe partagé, indépendante de la base).
  *
  * Le mot de passe est TOUJOURS saisi en clavier MASQUÉ (jamais en argument de ligne de commande — il resterait
  * dans l'historique shell) et n'est jamais affiché ni loggé. DATABASE_URL est lu depuis .env (via client.ts).
@@ -73,6 +78,14 @@ function exigerIdentifiantEmail(): string {
   return id;
 }
 
+/** Valeur texte OBLIGATOIRE d'un flag `--nom` (ex. --prenom, --nom), non vide après trim. Vérifié AVANT la
+ *  saisie du mot de passe : on ne fait pas taper (deux fois) un mot de passe pour rejeter ensuite. */
+function exigerTexte(nom: string): string {
+  const v = arg(nom);
+  if (!v || v.trim().length === 0) throw new ErreurCompte(`--${nom} <valeur> requis (non vide).`);
+  return v.trim();
+}
+
 function exigerRole(): RoleAdmin {
   const r = arg('role');
   if (r !== 'administrateur' && r !== 'collaborateur') {
@@ -91,9 +104,11 @@ async function main(): Promise<void> {
     case 'creer': {
       const identifiant = exigerIdentifiantEmail();
       const role = exigerRole();
+      const prenom = exigerTexte('prenom'); // validés AVANT la saisie du mot de passe
+      const nom = exigerTexte('nom');
       await gardeProduction();
       const mdp = await saisirMotDePasse();
-      const c = await creerCompte(identifiant, role, mdp);
+      const c = await creerCompte(identifiant, role, mdp, prenom, nom);
       console.log(`✓ Compte créé : ${c.identifiant} (${c.role}, ${c.actif ? 'actif' : 'inactif'}).`);
       break;
     }
@@ -106,11 +121,12 @@ async function main(): Promise<void> {
       break;
     }
     case 'secours': {
+      // RÉACTIVATION SEULE : un identifiant inconnu est refusé par `secours` (ErreurCompte) — aucune création.
       const identifiant = exigerIdentifiantEmail();
       await gardeProduction();
       const mdp = await saisirMotDePasse();
       const c = await secours(identifiant, mdp);
-      console.log(`✓ Secours (${c.action}) : ${c.identifiant} → administrateur actif, toutes permissions.`);
+      console.log(`✓ Secours : ${c.identifiant} → administrateur actif, toutes permissions, mot de passe réinitialisé.`);
       break;
     }
     case 'lister': {
@@ -122,7 +138,8 @@ async function main(): Promise<void> {
       for (const c of comptes) {
         const perms = Object.entries(c.perms).filter(([, v]) => v).map(([k]) => k).join(', ') || '—';
         const cx = c.derniere_connexion_a ?? 'jamais';
-        console.log(`- ${c.identifiant.padEnd(20)} ${c.role.padEnd(15)} ${c.actif ? 'actif  ' : 'inactif'}  perms: ${perms}  dernière connexion: ${cx}`);
+        const identite = `${c.prenom} ${c.nom}`;
+        console.log(`- ${c.identifiant.padEnd(28)} ${identite.padEnd(24)} ${c.role.padEnd(15)} ${c.actif ? 'actif  ' : 'inactif'}  perms: ${perms}  dernière connexion: ${cx}`);
       }
       break;
     }

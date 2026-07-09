@@ -11,6 +11,8 @@ import type { Perms, RoleAdmin } from './session';
 export interface CompteDB {
   id: number;
   identifiant: string;
+  prenom: string;
+  nom: string;
   mot_de_passe: string;
   role: RoleAdmin;
   actif: boolean;
@@ -20,6 +22,9 @@ export interface CompteDB {
   perm_internautes: boolean;
   perm_curation: boolean;
   perm_banc_test: boolean;
+  // Drapeau de première connexion (M3-4). Lu ici pour être DISPONIBLE ; il n'entre PAS encore dans le JWS
+  // (ce sera le Lot B — enforcement). Les comptes CLI le portent false ; la future UI (Lot C) le posera true.
+  doit_changer_mot_de_passe: boolean;
   derniere_connexion_a: string | null;
   cree_a: string;
 }
@@ -51,9 +56,9 @@ export function permsDuCompte(c: CompteDB): Perms {
   };
 }
 
-const SELECT_COMPTE = `SELECT id, identifiant, mot_de_passe, role, actif,
+const SELECT_COMPTE = `SELECT id, identifiant, prenom, nom, mot_de_passe, role, actif,
     perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test,
-    derniere_connexion_a, cree_a
+    doit_changer_mot_de_passe, derniere_connexion_a, cree_a
   FROM admin_utilisateur`;
 
 /** Trouve un compte par identifiant, INSENSIBLE à la casse. `null` si absent. */
@@ -73,8 +78,22 @@ function permsInitiales(role: RoleAdmin): boolean[] {
   return [t, t, t, t, t, t]; // pilotage, cartes_annee, statistiques, internautes, curation, banc_test
 }
 
-/** Crée un compte. Refuse (ErreurCompte) si l'identifiant existe déjà (insensible à la casse). Journalise 'creation'. */
-export async function creerCompte(identifiant: string, role: RoleAdmin, motDePasseClair: string): Promise<ResultatCompte> {
+/**
+ * Crée un compte. Refuse (ErreurCompte) si l'identifiant existe déjà (insensible à la casse) ou si prenom/nom
+ * sont vides après trim (backstop applicatif du CHECK non-vide de 016). Journalise 'creation'.
+ * `doit_changer_mot_de_passe` n'est pas fourni → prend false par défaut (016) : les comptes créés par la CLI ont
+ * un mot de passe CHOISI par un humain, ils ne sont pas forcés de le changer (la future UI, Lot C, posera true).
+ */
+export async function creerCompte(
+  identifiant: string,
+  role: RoleAdmin,
+  motDePasseClair: string,
+  prenom: string,
+  nom: string,
+): Promise<ResultatCompte> {
+  if (prenom.trim().length === 0 || nom.trim().length === 0) {
+    throw new ErreurCompte('Prénom et nom sont obligatoires (non vides).');
+  }
   if (await trouverCompte(identifiant)) {
     throw new ErreurCompte(`Un compte « ${identifiant} » existe déjà (comparaison insensible à la casse).`);
   }
@@ -82,9 +101,9 @@ export async function creerCompte(identifiant: string, role: RoleAdmin, motDePas
   const [pp, pc, ps, pi, pcu, pb] = permsInitiales(role);
   const { rows } = await query<ResultatCompte>(
     `WITH nouv AS (
-       INSERT INTO admin_utilisateur (identifiant, mot_de_passe, role, actif,
+       INSERT INTO admin_utilisateur (identifiant, prenom, nom, mot_de_passe, role, actif,
          perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test)
-       VALUES ($1, $2, $3, true, $4, $5, $6, $7, $8, $9)
+       VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10, $11)
        RETURNING id, identifiant, role, actif
      ), jrnl AS (
        INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
@@ -92,7 +111,7 @@ export async function creerCompte(identifiant: string, role: RoleAdmin, motDePas
        FROM nouv
      )
      SELECT id, identifiant, role, actif FROM nouv`,
-    [identifiant, h, role, pp, pc, ps, pi, pcu, pb],
+    [identifiant, prenom, nom, h, role, pp, pc, ps, pi, pcu, pb],
   );
   return rows[0];
 }
@@ -116,54 +135,49 @@ export async function reinitialiserMotDePasse(identifiant: string, motDePasseCla
 }
 
 /**
- * VOIE DE SECOURS / corde de rappel. IDEMPOTENT : crée le compte en 'administrateur' actif s'il n'existe pas ;
- * sinon le réactive (actif=true), le repasse en 'administrateur' avec toutes les permissions, et réinitialise
- * son mot de passe. Outrepasse volontairement la règle « dernier admin » (il sert à réparer un verrouillage).
+ * VOIE DE SECOURS / corde de rappel — RÉACTIVATION SEULE (M3-4 Lot A).
+ * Un compte EXISTANT (identifiant trouvé, insensible à la casse) est réactivé : `actif=true`, repassé en
+ * 'administrateur' avec toutes les permissions, et son mot de passe est réinitialisé. Ne touche JAMAIS
+ * `prenom`/`nom`. Outrepasse volontairement la règle « dernier admin » (il sert à réparer un verrouillage).
+ * IDEMPOTENT : rejouer `secours` sur le même compte le laisse dans le même état (administrateur actif).
+ *
+ * ⚠️ Il NE CRÉE PLUS de compte. Un identifiant INCONNU lève `ErreurCompte` — aucune création possible sans
+ * identité (prenom/nom sont NOT NULL depuis 016 ; une valeur sentinelle serait un NULL déguisé). Pour créer,
+ * utiliser `admin:creer`. La vraie corde de rappel d'Arno reste la VOIE DE SECOURS NAVIGATEUR (identifiant
+ * vide + mot de passe partagé, sub=null, password.ts), qui ne dépend d'aucune ligne en base.
  */
-export async function secours(identifiant: string, motDePasseClair: string): Promise<ResultatCompte & { action: 'creation' | 'reactivation' }> {
+export async function secours(identifiant: string, motDePasseClair: string): Promise<ResultatCompte> {
   const existant = await trouverCompte(identifiant);
-  const h = await hacher(motDePasseClair);
-  if (existant) {
-    const { rows } = await query<ResultatCompte>(
-      `WITH maj AS (
-         UPDATE admin_utilisateur
-            SET actif = true, role = 'administrateur', mot_de_passe = $2,
-                perm_pilotage = true, perm_cartes_annee = true, perm_statistiques = true,
-                perm_internautes = true, perm_curation = true, perm_banc_test = true
-          WHERE id = $1
-          RETURNING id, identifiant, role, actif
-       ), jrnl AS (
-         INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
-         SELECT 'reactivation', maj.id, NULL,
-                jsonb_build_object('actif', $3::boolean, 'role', $4::text),
-                jsonb_build_object('actif', maj.actif, 'role', maj.role)
-         FROM maj
-       )
-       SELECT id, identifiant, role, actif FROM maj`,
-      [existant.id, h, existant.actif, existant.role],
-    );
-    return { ...rows[0], action: 'reactivation' };
+  if (!existant) {
+    throw new ErreurCompte('Aucun compte avec cet identifiant. Utilisez npm run admin:creer.');
   }
+  const h = await hacher(motDePasseClair);
   const { rows } = await query<ResultatCompte>(
-    `WITH nouv AS (
-       INSERT INTO admin_utilisateur (identifiant, mot_de_passe, role, actif,
-         perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test)
-       VALUES ($1, $2, 'administrateur', true, true, true, true, true, true, true)
-       RETURNING id, identifiant, role, actif
+    `WITH maj AS (
+       UPDATE admin_utilisateur
+          SET actif = true, role = 'administrateur', mot_de_passe = $2,
+              perm_pilotage = true, perm_cartes_annee = true, perm_statistiques = true,
+              perm_internautes = true, perm_curation = true, perm_banc_test = true
+        WHERE id = $1
+        RETURNING id, identifiant, role, actif
      ), jrnl AS (
        INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
-       SELECT 'creation', nouv.id, NULL, NULL, jsonb_build_object('identifiant', nouv.identifiant, 'role', nouv.role)
-       FROM nouv
+       SELECT 'reactivation', maj.id, NULL,
+              jsonb_build_object('actif', $3::boolean, 'role', $4::text),
+              jsonb_build_object('actif', maj.actif, 'role', maj.role)
+       FROM maj
      )
-     SELECT id, identifiant, role, actif FROM nouv`,
-    [identifiant, h],
+     SELECT id, identifiant, role, actif FROM maj`,
+    [existant.id, h, existant.actif, existant.role],
   );
-  return { ...rows[0], action: 'creation' };
+  return rows[0];
 }
 
 /** Liste des comptes pour l'affichage CLI (jamais le hash). */
 export interface CompteListe {
   identifiant: string;
+  prenom: string;
+  nom: string;
   role: RoleAdmin;
   actif: boolean;
   perms: Perms;
@@ -174,6 +188,8 @@ export async function listerComptes(): Promise<CompteListe[]> {
   const { rows } = await query<CompteDB>(`${SELECT_COMPTE} ORDER BY lower(identifiant)`);
   return rows.map((c) => ({
     identifiant: c.identifiant,
+    prenom: c.prenom,
+    nom: c.nom,
     role: c.role,
     actif: c.actif,
     perms: permsDuCompte(c),
