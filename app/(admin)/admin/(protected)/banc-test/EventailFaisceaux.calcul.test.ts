@@ -30,7 +30,9 @@ function ligne(o: Partial<LigneVentil>): LigneVentil {
     familleLibelle: null,
     dansChaineCouloir: false,
     valeurAvantCapM: 30,
+    baseM: 30,
     p1M: null,
+    p1AvantCapM: null,
     p2M: null,
     ...o,
   };

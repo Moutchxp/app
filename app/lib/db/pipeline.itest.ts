@@ -152,6 +152,12 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
         expect(typeof l.p1M).toBe('number');
         expect(typeof l.p2M).toBe('number');
       }
+      // Lot 4 — baseM (distance retenue) ≤ portée ; p1AvantCapM null SSI p1M null ; et p1M == min(avant-cap, capP1M).
+      expect(l.baseM).toBeLessThanOrEqual(PROFIL_GOLDEN_REF.distanceMaxM);
+      expect(l.p1AvantCapM === null).toBe(l.p1M === null);
+      if (l.p1AvantCapM !== null) {
+        expect(l.p1M).toBe(Math.min(l.p1AvantCapM, PROFIL_GOLDEN_REF.cumulNature.capP1M));
+      }
       // Carte d'année présente SSI la famille appliquée est 'annee'.
       if (l.famille === 'annee') expect(l.carteAnnee).not.toBeNull();
       else expect(l.carteAnnee).toBeNull();

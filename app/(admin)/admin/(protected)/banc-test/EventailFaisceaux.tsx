@@ -45,6 +45,9 @@ export interface LigneVentil {
   valeurAvantCapM: number; // valeur pondérée avant le dernier plafond ; distancePercueM === min(valeurAvantCapM, seuilBorneM)
   p1M: number | null; // Partie 1 (nature classique après cap capP1M) du cumul nature+bâti ; null si pas de cumul
   p2M: number | null; // Partie 2 (lecture patrimoine = distance × coeff) du cumul nature+bâti ; null si pas de cumul
+  // Lot 4 (détail interne de la lecture dégagement, descriptif) :
+  baseM: number; // distance retenue = min(distanceObstacle ?? portée, portée)
+  p1AvantCapM: number | null; // lecture dégagement avant son plafond capP1M ; null ssi p1M === null
 }
 
 export interface BornesArcs {

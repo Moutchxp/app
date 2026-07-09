@@ -269,9 +269,15 @@ export interface VentilationFaisceau {
    *  `distancePercueM === min(valeurAvantCapM, seuilBorneM)`. Capturée sur place (jamais recalculée) ;
    *  pour le patrimoine mondial fixe = `distancePercueM` (aucun plafond ne mord). */
   valeurAvantCapM: number;
+  /** Distance retenue = `min(distanceObstacle ?? distanceMaxM, distanceMaxM)` (distance brute capée à la portée).
+   *  Toujours présente (tous cas). Capturée telle quelle, non recalculée. */
+  baseM: number;
   /** Partie 1 (valeur nature classique après son propre cap `cumulNature.capP1M`) du cumul nature+bâti ;
    *  `null` si pas de cumul (faisceau sans nature, ordinaire, dégagé ou mondial). Capturée, non recalculée. */
   p1M: number | null;
+  /** Lecture dégagement AVANT son propre plafond `cumulNature.capP1M` (= `valeurClassique`, valeur passée au
+   *  `min(…, capP1M)` qui produit `p1M`) ; `null` ssi `p1M === null`. Invariant : `p1M === min(p1AvantCapM, capP1M)`. */
+  p1AvantCapM: number | null;
   /** Partie 2 (lecture patrimoine = distance réelle × coeff cône/flanc) du cumul nature+bâti ;
    *  `null` si pas de cumul. Capturée, non recalculée. */
   p2M: number | null;
@@ -338,6 +344,7 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
   const baseOrdinaireM = Math.min(f.distanceObstacleM ?? profil.distanceMaxM, profil.distanceMaxM);
   let valeurAvantCapM = baseOrdinaireM + boostF4AppliqueM;
   let p1M: number | null = null;
+  let p1AvantCapM: number | null = null;
   let p2M: number | null = null;
 
   if (f.impactEmblematique === true) {
@@ -365,6 +372,7 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
         capFamilleApplique = fam.distMaxM < combine;
         valeurAvantCapM = combine; // CAPTURE (pas de recalcul) : combinaison P1/P2 avant le cap famille
         p1M = p1;
+        p1AvantCapM = valeurClassique; // CAPTURE : lecture dégagement AVANT son cap capP1M (déjà calculée l. valeurClassique)
         p2M = p2;
       } else {
         const lecturePatrimoineM = dist * coeffApplique;
@@ -393,7 +401,9 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
     familleLibelle,
     dansChaineCouloir: false, // renseigné par ventilerAnalyse (contexte agrégé)
     valeurAvantCapM,
+    baseM: baseOrdinaireM, // = `base` de distancePercueFaisceau (min(dist ?? portée, portée)), déjà calculé en tête
     p1M,
+    p1AvantCapM,
     p2M,
   };
 }
