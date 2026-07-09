@@ -1,6 +1,7 @@
 import 'server-only';
 import { query } from '../../../../../lib/db/client';
 import { lireSessionCuration } from '../../../../../lib/admin/sessionServeur';
+import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { versEntite, compteursParEtat, lireCorps, type LigneEntiteDB } from '../partage';
 
 /** Familles patrimoine autorisées (miroir du CHECK `patrimoine_entite_famille_check`). */
@@ -78,6 +79,10 @@ interface EntiteCreee {
  * (`apres` = famille/nom/ref_code ; requiert le CHECK élargi de la migration 011). Erreur 23505 → 409.
  */
 export async function POST(request: Request) {
+  // Révocation immédiate (M3-0) : compte désactivé / permission retirée → 403 avant toute écriture.
+  const refus = await exigerCompteActif(request, 'curation');
+  if (refus) return refus;
+
   const body = await lireCorps(request);
   if (!body) {
     return Response.json({ erreurs: [{ message: 'corps JSON invalide' }] }, { status: 422 });

@@ -1,5 +1,6 @@
 import 'server-only';
 import { query } from '../../../../../lib/db/client';
+import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import {
   SELECT_CARTES,
   MESSAGE_CHEVAUCHEMENT,
@@ -27,6 +28,10 @@ type Ctx = { params: Promise<{ id: string }> };
  * Carte inconnue → 404. AUCUN import moteur/loader.
  */
 export async function PATCH(request: Request, ctx: Ctx) {
+  // Révocation immédiate (M3-0) : compte désactivé / permission retirée → 403 avant toute écriture.
+  const refus = await exigerCompteActif(request, 'cartes_annee');
+  if (refus) return refus;
+
   const { id } = await ctx.params;
   const idNum = lireId(id);
   if (idNum === null) {
@@ -112,6 +117,10 @@ export async function PATCH(request: Request, ctx: Ctx) {
  * inconnue → 404. ⚠️ Règle dure : l'agent ne déclenche JAMAIS ce DELETE lui-même (tests mockés).
  */
 export async function DELETE(request: Request, ctx: Ctx) {
+  // Révocation immédiate (M3-0) : compte désactivé / permission retirée → 403 avant toute écriture.
+  const refus = await exigerCompteActif(request, 'cartes_annee');
+  if (refus) return refus;
+
   const { id } = await ctx.params;
   const idNum = lireId(id);
   if (idNum === null) {

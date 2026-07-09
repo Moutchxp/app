@@ -1,6 +1,7 @@
 import 'server-only';
 import { query } from '../../../../../../../lib/db/client';
 import { lireSessionCuration } from '../../../../../../../lib/admin/sessionServeur';
+import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { lireCorps, lireId, lireCleabs } from '../../../partage';
 
 /**
@@ -24,6 +25,10 @@ interface LiaisonAvant {
  * EX-14). Entité inconnue → 404. Écriture ATOMIQUE (CTE) : upsert + journal `action='rattachement'`.
  */
 export async function POST(request: Request, ctx: Ctx) {
+  // Révocation immédiate (M3-0) : compte désactivé / permission retirée → 403 avant toute écriture.
+  const refus = await exigerCompteActif(request, 'curation');
+  if (refus) return refus;
+
   const { id } = await ctx.params;
   const idNum = lireId(id);
   if (idNum === null) {
@@ -112,6 +117,10 @@ export async function POST(request: Request, ctx: Ctx) {
  * uniquement (l'agent ne l'exécute jamais réellement ; tests sur `query` mockée).
  */
 export async function DELETE(request: Request, ctx: Ctx) {
+  // Révocation immédiate (M3-0) : compte désactivé / permission retirée → 403 avant toute écriture.
+  const refus = await exigerCompteActif(request, 'curation');
+  if (refus) return refus;
+
   const { id } = await ctx.params;
   const idNum = lireId(id);
   if (idNum === null) {
@@ -190,6 +199,10 @@ export async function DELETE(request: Request, ctx: Ctx) {
  * Liaison inconnue → 404. Écriture ATOMIQUE (CTE) : UPDATE + journal `action='verification'`.
  */
 export async function PATCH(request: Request, ctx: Ctx) {
+  // Révocation immédiate (M3-0) : compte désactivé / permission retirée → 403 avant toute écriture.
+  const refus = await exigerCompteActif(request, 'curation');
+  if (refus) return refus;
+
   const { id } = await ctx.params;
   const idNum = lireId(id);
   if (idNum === null) {

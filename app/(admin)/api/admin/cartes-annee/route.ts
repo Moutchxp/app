@@ -1,5 +1,6 @@
 import 'server-only';
 import { query } from '../../../../lib/db/client';
+import { exigerCompteActif } from '../../../../lib/admin/garde';
 import {
   SELECT_CARTES,
   MESSAGE_CHEVAUCHEMENT,
@@ -38,6 +39,10 @@ export async function GET() {
  * supprime jamais). AUCUN import moteur/loader.
  */
 export async function POST(request: Request) {
+  // Révocation immédiate (M3-0) : compte désactivé / permission retirée → 403 avant toute écriture.
+  const refus = await exigerCompteActif(request, 'cartes_annee');
+  if (refus) return refus;
+
   const body = await lireCorps(request);
   if (!body) {
     return Response.json({ erreurs: [{ message: 'corps JSON invalide' }] }, { status: 422 });

@@ -10,6 +10,9 @@ vi.mock('../../../../lib/db/client', () => ({
   // (mêmes appels observables ; l'atomicité BEGIN/COMMIT est une propriété runtime non testée ici).
   withTransaction: (fn: (q: (...a: unknown[]) => unknown) => unknown) => fn((...a: unknown[]) => queryMock(...a)),
 }));
+// Garde de révocation (M3-0) neutralisé : ce fichier teste la LOGIQUE MÉTIER de la curation ; la révocation
+// a ses propres tests (garde.test.ts + route.revocation.test.ts). No-op → autorise, aucune requête parasite.
+vi.mock('../../../../lib/admin/garde', () => ({ exigerCompteActif: () => Promise.resolve(null) }));
 
 import { GET as GET_ENTITES, POST as POST_ENTITE } from './entites/route';
 import { DELETE as DELETE_ENTITE, PATCH as PATCH_ENTITE } from './entites/[id]/route';

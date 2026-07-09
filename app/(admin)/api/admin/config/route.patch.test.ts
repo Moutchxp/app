@@ -5,6 +5,9 @@ const queryMock = vi.fn();
 vi.mock('../../../../lib/db/client', () => ({
   query: (...args: unknown[]) => queryMock(...args),
 }));
+// Garde de révocation (M3-0) neutralisé ici : ce fichier teste la LOGIQUE MÉTIER de config ; la révocation
+// a ses propres tests (garde.test.ts). No-op → autorise, aucune requête base parasite.
+vi.mock('../../../../lib/admin/garde', () => ({ exigerCompteActif: () => Promise.resolve(null) }));
 
 import { PATCH } from './route';
 

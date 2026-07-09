@@ -1,6 +1,7 @@
 import 'server-only';
 import { withTransaction, type RequeteTx } from '../../../../../../../lib/db/client';
 import { lireSessionCuration } from '../../../../../../../lib/admin/sessionServeur';
+import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { lireCorps, lireId } from '../../../partage';
 
 /**
@@ -39,6 +40,10 @@ interface LiaisonAvant {
  * (seul `geom_point_corrige` l'est) ; `ST_Force2D` conservé. Server-only, paramétré, sous garde `proxy.ts`.
  */
 export async function POST(request: Request, ctx: Ctx) {
+  // Révocation immédiate (M3-0) : compte désactivé / permission retirée → 403 avant toute écriture.
+  const refus = await exigerCompteActif(request, 'curation');
+  if (refus) return refus;
+
   const { id } = await ctx.params;
   const idNum = lireId(id);
   if (idNum === null) {

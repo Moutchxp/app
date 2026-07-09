@@ -1,6 +1,7 @@
 import 'server-only';
 import { query } from '../../../../../../lib/db/client';
 import { lireSessionCuration } from '../../../../../../lib/admin/sessionServeur';
+import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { lireCorps, lireId } from '../../partage';
 
 /**
@@ -23,6 +24,10 @@ type Ctx = { params: Promise<{ id: string }> };
  * snapshot (famille/nom/ref_code + cleabs liés) capturé avant les DELETE. Requiert le CHECK élargi (migration 011).
  */
 export async function DELETE(request: Request, ctx: Ctx) {
+  // Révocation immédiate (M3-0) : compte désactivé / permission retirée → 403 avant toute écriture.
+  const refus = await exigerCompteActif(request, 'curation');
+  if (refus) return refus;
+
   const { id } = await ctx.params;
   const idNum = lireId(id);
   if (idNum === null) {
@@ -70,6 +75,10 @@ export async function DELETE(request: Request, ctx: Ctx) {
  * `apres={nom:nouveau}` (ancien nom capturé avant l'UPDATE). Requiert le CHECK élargi (migration 011).
  */
 export async function PATCH(request: Request, ctx: Ctx) {
+  // Révocation immédiate (M3-0) : compte désactivé / permission retirée → 403 avant toute écriture.
+  const refus = await exigerCompteActif(request, 'curation');
+  if (refus) return refus;
+
   const { id } = await ctx.params;
   const idNum = lireId(id);
   if (idNum === null) {

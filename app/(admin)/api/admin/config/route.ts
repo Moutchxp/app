@@ -1,5 +1,6 @@
 import 'server-only';
 import { query } from '../../../../lib/db/client';
+import { exigerCompteActif } from '../../../../lib/admin/garde';
 import { evaluerRepli } from './repli';
 import { validerPatch } from './validation';
 import { metaParColonne } from '../../../admin/(protected)/pilotage/mappingConfig';
@@ -57,6 +58,10 @@ export async function GET() {
  * du body. AUCUN `DELETE/DROP/ALTER/TRUNCATE`. AUCUN import `app/lib/svv`/`profilConfig`.
  */
 export async function PATCH(request: Request) {
+  // Révocation immédiate (M3-0) : compte désactivé / permission retirée → 403 avant toute écriture.
+  const refus = await exigerCompteActif(request, 'pilotage');
+  if (refus) return refus;
+
   // 1. Corps JSON — parse défensif (JSON invalide → 422, rien écrit).
   let body: unknown;
   try {

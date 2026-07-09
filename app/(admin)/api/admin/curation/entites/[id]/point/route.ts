@@ -1,6 +1,7 @@
 import 'server-only';
 import { query } from '../../../../../../../lib/db/client';
 import { lireSessionCuration } from '../../../../../../../lib/admin/sessionServeur';
+import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import {
   CURATION_DEPLACEMENT_RAYON_MAX_M,
   CURATION_TOLERANCE_RATTACHEMENT_M,
@@ -34,6 +35,10 @@ interface ControleDeplacement {
  * `action='deplacement'` (traçant les `cleabs` invalidés). `ST_Force2D` conservé. Sous garde `proxy.ts`.
  */
 export async function PATCH(request: Request, ctx: Ctx) {
+  // Révocation immédiate (M3-0) : compte désactivé / permission retirée → 403 avant toute écriture.
+  const refus = await exigerCompteActif(request, 'curation');
+  if (refus) return refus;
+
   const { id } = await ctx.params;
   const idNum = lireId(id);
   if (idNum === null) {
@@ -144,6 +149,10 @@ export async function PATCH(request: Request, ctx: Ctx) {
  * 404. Écriture ATOMIQUE (CTE) : UPDATE + INSERT journal `action='annulation_deplacement'`.
  */
 export async function DELETE(request: Request, ctx: Ctx) {
+  // Révocation immédiate (M3-0) : compte désactivé / permission retirée → 403 avant toute écriture.
+  const refus = await exigerCompteActif(request, 'curation');
+  if (refus) return refus;
+
   const { id } = await ctx.params;
   const idNum = lireId(id);
   if (idNum === null) {

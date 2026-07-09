@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { NOM_COOKIE, verifierJeton } from '../../../lib/admin/session';
 import { Sidebar } from './Sidebar';
+import { RevocationWatcher } from './RevocationWatcher';
 
 /**
  * Coquille de l'admin (T1). Défense en profondeur : même si le proxy garde déjà
@@ -16,6 +17,7 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
 
   return (
     <div className="svv-adm-shell">
+      <RevocationWatcher />
       <Sidebar />
       <div className="svv-adm-content">
         {/* Bandeau d'état — neutre à l'Étape 1 (EX-4). */}
