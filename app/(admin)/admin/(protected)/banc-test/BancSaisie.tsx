@@ -13,7 +13,7 @@
  * (validerOrigine — bâtiment couvert LiDAR, PAS de bypass). Aucune écriture DB.
  */
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AdresseAutocomplete, type SuggestionAdresse } from "../../../../components/AdresseAutocomplete";
 import MapSelector from "../../../../MapSelector";
 import {
@@ -23,9 +23,11 @@ import {
   HAUTEUR_SOUS_PLAFOND_MAX_M,
   HAUTEUR_SOUS_PLAFOND_PAS_M,
   type ModeOrigine,
+  type Orientation,
 } from "../../../../lib/svv/config";
 import type { ProfilDegagement } from "../../../../lib/svv/profilDegagement";
 import { clonerProfil, validerCartesAnnee } from "../../../../lib/svv/profilTest";
+import { assemblerBadges } from "../../../../lib/libelles";
 import EditeurProfilTest from "./EditeurProfilTest";
 import EventailFaisceaux, { type LigneVentil } from "./EventailFaisceaux";
 
@@ -91,15 +93,24 @@ function parseCoords(raw: string): { lat: number; lon: number } | { erreur: stri
   return { lat, lon };
 }
 
-// Forme (allégée) de la réponse /api/admin/banc-comparer — on ne lit ici que le score client + méta.
+// Forme (allégée) de la réponse /api/admin/banc-comparer — score client + méta + cartouches de qualité de vue.
 type ScoreLite = {
   total: number;
   libelle: "EXCEPTIONNELLE" | "EXCELLENTE" | null;
   scorePartiel: boolean;
-  famille1?: { total?: number };
-  famille2?: { total?: number };
+  famille1: { total?: number; detail: { secteurOrientation: Orientation } };
+  famille2: { total?: number; strate1: number; strate2: number; malusProprete: number; scorePartiel: boolean };
 };
-type RunLite = { score: ScoreLite; verdict: string; ventilation?: { lignes: LigneVentil[] } };
+type RunLite = {
+  score: ScoreLite;
+  verdict: string;
+  ventilation?: { lignes: LigneVentil[] };
+  // Cartouches de qualité de vue (forward pur de ResultatComplet) — consommées par assemblerBadges.
+  contexteDegagement: string;
+  contexteVueNature: string | null;
+  contexteImmobilier: string | null;
+  monumentsHistoriques: string[];
+};
 type ComparaisonLite = {
   ok: boolean;
   message?: string;
@@ -143,6 +154,8 @@ export default function BancSaisie() {
   const [runEnCours, setRunEnCours] = useState(false);
   const [runErreur, setRunErreur] = useState<string | null>(null);
   const [runSnapshot, setRunSnapshot] = useState<string | null>(null); // params + profil au moment du run (péremption CA-5.4)
+  const [runParams, setRunParams] = useState<ParametresSaisie | null>(null); // paramètres de l'analyse LANCÉE (carte analysée)
+  const [mapAnalyseeOuverte, setMapAnalyseeOuverte] = useState(false); // <details> de la carte analysée (repliée par défaut)
   // Profil ACTIF (chargé une fois) + PROFIL DE TEST éditable (clone en mémoire, Lot 2b).
   const [profilActif, setProfilActif] = useState<ProfilDegagement | null>(null);
   const [profilTest, setProfilTest] = useState<ProfilDegagement | null>(null);
@@ -315,6 +328,8 @@ export default function BancSaisie() {
       } else {
         setComparaison(data);
         setRunSnapshot(JSON.stringify({ p: parametres, t: profilTest }));
+        setRunParams(parametres); // fige les paramètres de l'analyse lancée pour la carte analysée
+
       }
     } catch {
       setComparaison(null);
@@ -399,7 +414,7 @@ export default function BancSaisie() {
           <span style={{ color: "var(--color-svv-ink)", fontSize: ".9rem" }}>Dernier étage</span>
         </label>
         <div style={{ color: "var(--color-svv-muted)", fontSize: ".82rem" }} title={`étage ${etage} × (${hauteurSousPlafondM.toFixed(2).replace(".", ",")} + 0,30) + 1,65`}>
-          Hauteur de vision calculée : <strong style={{ color: "var(--color-svv-ink)" }}>{hv} m</strong>
+          Hauteur de vision calculée : <strong style={{ color: "var(--color-svv-ink)" }}>{hv.toFixed(2)} m</strong>
         </div>
       </div>
 
@@ -597,6 +612,33 @@ export default function BancSaisie() {
               : "⚠ Verdict divergent entre actif et test — anomalie de couplage score↔verdict."}
           </div>
 
+          {/* Cartouches de qualité de vue — côte à côte, différences matérialisées (ajouté/retiré) */}
+          <CartouchesComparees actif={comparaison.actif} test={comparaison.test} />
+
+          {/* Vue de la map analysée — repliable, réutilise FaisceauMap en LECTURE SEULE (margeRotDeg=0) sur les
+              paramètres du run. FaisceauMap monté SEULEMENT à l'ouverture → init correcte (pas de tuiles grises). */}
+          {runParams && (
+            <details onToggle={(e) => setMapAnalyseeOuverte(e.currentTarget.open)} style={{ marginTop: 16 }}>
+              <summary style={{ cursor: "pointer", padding: 12, fontSize: ".82rem", fontWeight: 700, color: "var(--color-svv-ink)", border: "1px solid var(--color-svv-line)", borderRadius: 12 }}>
+                Vue de la map analysée
+              </summary>
+              {/* WRAPPER IDENTIQUE à la carte d'orientation (même border/overflow/largeur) → cartes superposables.
+                  FaisceauMap monté SEULEMENT à l'ouverture (visible) → init Leaflet correcte, pas de tuiles grises. */}
+              {mapAnalyseeOuverte && (
+                <div style={{ marginTop: 8, borderRadius: 12, overflow: "hidden", border: "1px solid var(--color-svv-line)" }}>
+                  <FaisceauMap
+                    lat={runParams.point.lat}
+                    lon={runParams.point.lon}
+                    azimutDeg={runParams.azimutPrincipalDeg}
+                    azimutInitial={runParams.azimutPrincipalDeg}
+                    margeRotDeg={0}
+                    inviteRotation={false}
+                  />
+                </div>
+              )}
+            </details>
+          )}
+
           {/* Graphique en éventail des 61 faisceaux (Lot 6) — 3 séries actif/test/brut, arcs dérivés du profil actif */}
           {profilActif && comparaison.actif.ventilation && comparaison.test.ventilation && (
             <div style={{ marginTop: 16 }}>
@@ -609,6 +651,8 @@ export default function BancSaisie() {
                   famille: Math.max(profilActif.famillesPonderation.mh.distMaxM, profilActif.famillesPonderation.inventaire.distMaxM),
                   mondial: profilActif.famillesPonderation.mondialFaisceauM,
                 }}
+                coneDemiAngleDeg={(profilTest ?? profilActif).coneFamilleDemiAngleDeg}
+                borneScoreM={(profilTest ?? profilActif).distanceMaxM}
               />
             </div>
           )}
@@ -634,8 +678,57 @@ function ScoreCarte({ titre, run }: { titre: string; run: RunLite }) {
       </div>
       <div style={{ fontSize: ".85rem", color: "var(--color-svv-ink)" }}>{libelleTexte(run.score.libelle)}</div>
       <div style={{ marginTop: 8, fontSize: ".72rem", color: "var(--color-svv-muted)" }}>
-        détail interne (non sommé) — F1 {run.score.famille1?.total != null ? run.score.famille1.total.toFixed(1) : "—"} /50 ·
-        F2 {run.score.famille2?.total != null ? run.score.famille2.total.toFixed(1) : "—"} /50
+        détail interne (non sommé) — F1 {run.score.famille1.total != null ? run.score.famille1.total.toFixed(1) : "—"} /50 ·
+        F2 {run.score.famille2.total != null ? run.score.famille2.total.toFixed(1) : "—"} /50
+      </div>
+    </div>
+  );
+}
+
+// Base = même vert que les cartouches publiques (classe `svv-pill` : green-soft / green-ink). Les différences
+// sont marquées par la BORDURE : vert = ajouté (côté test), rouge + barré = retiré (côté actif).
+const CHIP_ETAT: Record<"commun" | "retire" | "ajoute", CSSProperties> = {
+  commun: { border: "1px solid transparent" },
+  retire: { border: "1px solid var(--color-svv-red)", textDecoration: "line-through" },
+  ajoute: { border: "1px solid var(--color-svv-green)" },
+};
+
+/**
+ * Cartouches de qualité de vue côte à côte (actif | test), via `assemblerBadges` (helper partagé). Différences
+ * matérialisées : présent d'un seul côté → « retiré » (actif) / « ajouté » (test). Identiques → mention explicite.
+ */
+function CartouchesComparees({ actif, test }: { actif: RunLite; test: RunLite }) {
+  const bActif = assemblerBadges(actif);
+  const bTest = assemblerBadges(test);
+  const setA = new Set(bActif);
+  const setT = new Set(bTest);
+  const identiques = bActif.length === bTest.length && bActif.every((x) => setT.has(x));
+  const chip = (texte: string, etat: "commun" | "retire" | "ajoute") => (
+    <span className="svv-pill" style={CHIP_ETAT[etat]}>{texte}</span>
+  );
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div className="svv-label" style={{ marginBottom: 6 }}>Cartouches de qualité de vue</div>
+      {identiques ? (
+        <p style={{ margin: "0 0 8px", fontSize: ".82rem", color: "var(--color-svv-muted)" }}>Cartouches identiques entre les deux runs.</p>
+      ) : (
+        <p style={{ margin: "0 0 8px", fontSize: ".76rem", color: "var(--color-svv-muted)" }}>
+          {chip("ajouté", "ajoute")} côté test · {chip("retiré", "retire")} côté actif
+        </p>
+      )}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 240px" }}>
+          <div className="svv-label" style={{ fontSize: ".72rem", marginBottom: 4 }}>Moteur actif</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {bActif.map((b, i) => <span key={i}>{chip(b, setT.has(b) ? "commun" : "retire")}</span>)}
+          </div>
+        </div>
+        <div style={{ flex: "1 1 240px" }}>
+          <div className="svv-label" style={{ fontSize: ".72rem", marginBottom: 4 }}>Profil de test</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {bTest.map((b, i) => <span key={i}>{chip(b, setA.has(b) ? "commun" : "ajoute")}</span>)}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -78,9 +78,12 @@ interface FaisceauMapProps {
   /** Demi-amplitude (deg) de rotation autorisée autour de `azimutInitial`. Défaut = MARGE_ROT_DEG (±30°,
    *  parcours public, INCHANGÉ). Le banc d'essai passe 180 → 360° libre. */
   margeRotDeg?: number;
+  /** Affiche l'indice éphémère « on peut pivoter » (faisceau fantôme oscillant). Défaut = true (parcours public,
+   *  INCHANGÉ). Le banc passe false pour la carte analysée en LECTURE SEULE (l'invite y serait trompeuse). */
+  inviteRotation?: boolean;
 }
 
-export default function FaisceauMap({ lat, lon, azimutDeg, azimutInitial = null, onAzimutChange, margeRotDeg = MARGE_ROT_DEG }: FaisceauMapProps) {
+export default function FaisceauMap({ lat, lon, azimutDeg, azimutInitial = null, onAzimutChange, margeRotDeg = MARGE_ROT_DEG, inviteRotation = true }: FaisceauMapProps) {
   const divRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const tileLayerRef = useRef<any>(null);
@@ -339,8 +342,9 @@ export default function FaisceauMap({ lat, lon, azimutDeg, azimutInitial = null,
         <div ref={divRef} className="h-full w-full" />
       </div>
 
-      {/* Indice éphémère : faisceau FANTÔME qui oscille (au-dessus de la carte, sous les contrôles). */}
-      {azDisp !== null && indiceRotationVisible && (
+      {/* Indice éphémère : faisceau FANTÔME qui oscille (au-dessus de la carte, sous les contrôles).
+          `inviteRotation` (défaut true = public inchangé) permet au banc de le supprimer sur la carte analysée. */}
+      {azDisp !== null && indiceRotationVisible && inviteRotation && (
         <>
           <style>{HINT_KEYFRAMES}</style>
           <div
