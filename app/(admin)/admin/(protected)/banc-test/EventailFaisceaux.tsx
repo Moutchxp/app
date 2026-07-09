@@ -596,18 +596,24 @@ function DetailFaisceau({ a, t, index, profilActif, profilTest, onFermer }: { a:
                   <td style={{ padding: "3px 8px", color: "var(--color-svv-ink)" }}>
                     {ligne.libelle}
                     {ligne.depliable && (
-                      <button
-                        ref={boutonRef}
-                        type="button"
-                        onClick={() => setModaleOuverte(true)}
-                        aria-haspopup="dialog"
-                        aria-expanded={modaleOuverte}
-                        aria-label="Afficher le détail du calcul de la distance pondérée"
-                        className="svv-pill"
-                        style={{ marginLeft: 6, padding: "0 7px", lineHeight: 1.5, borderColor: "var(--color-svv-line)", background: "white", color: "var(--color-svv-ink)", cursor: "pointer" }}
-                      >
-                        ▾
-                      </button>
+                      <>
+                        {/* Bouton d'information « i » : cercle bordé bien visible ; hover/focus = plein encre inversé ;
+                            anneau de focus clavier ; zone de clic ≥ 24 px (pseudo transparent) ; transition coupée si
+                            prefers-reduced-motion. <style> scopé (pattern déjà utilisé par la modale et l'éventail). */}
+                        <style>{`.svv-info-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;width:19px;height:19px;margin-left:6px;vertical-align:middle;border-radius:9999px;border:1.5px solid var(--color-svv-ink);background:#fff;color:var(--color-svv-ink);font-family:Georgia,'Times New Roman',serif;font-style:italic;font-weight:700;font-size:12px;line-height:1;cursor:pointer;transition:background-color .12s ease,color .12s ease}.svv-info-btn::before{content:"";position:absolute;inset:-4px;border-radius:9999px}.svv-info-btn:hover{background:var(--color-svv-ink);color:#fff}.svv-info-btn:focus-visible{background:var(--color-svv-ink);color:#fff;outline:2px solid var(--color-svv-red);outline-offset:2px}@media (prefers-reduced-motion: reduce){.svv-info-btn{transition:none}}`}</style>
+                        <button
+                          ref={boutonRef}
+                          type="button"
+                          onClick={() => setModaleOuverte(true)}
+                          aria-haspopup="dialog"
+                          aria-expanded={modaleOuverte}
+                          aria-label="Voir le détail du calcul de la distance pondérée"
+                          title="Voir le détail du calcul de la distance pondérée"
+                          className="svv-info-btn"
+                        >
+                          i
+                        </button>
+                      </>
                     )}
                   </td>
                   <td style={{ padding: "3px 8px", textAlign: "right", color: "var(--color-svv-gray)" }}>{ligne.brut}</td>
