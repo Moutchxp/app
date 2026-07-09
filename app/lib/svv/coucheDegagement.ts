@@ -12,7 +12,7 @@
 import type { FaisceauResultat } from './scoreDegagement';
 import { azimutVersSecteur } from './scoreDegagement';
 import type { ProfilDegagement, FamilleCoeff, ModeCombinaison, ModeRepli } from './profilDegagement';
-import { carteMatche } from './cartesAnnee';
+import { carteMatche, type CarteAnnee } from './cartesAnnee';
 import {
   CONE_VUE_NATURE_DEG,
   SEUIL_VUE_NATURE,
@@ -46,14 +46,16 @@ function diviseurCumulNature(natureM: number, c: ProfilDegagement['cumulNature']
  * non-chevauchement) → `null` = bâti ordinaire (aucune pondération). Priorité INCHANGÉE.
  * (Patrimoine mondial est traité en amont dans distancePercueFaisceau : faisceau fixe.)
  */
-function familleCoeff(f: FaisceauResultat, profil: ProfilDegagement): FamilleCoeff | null {
+function familleCoeff(f: FaisceauResultat, profil: ProfilDegagement): (FamilleCoeff & { carte?: CarteAnnee }) | null {
   const F = profil.famillesPonderation;
   if (f.impactMH === true) return F.mh;
   if (f.impactInventaire === true) return F.inventaire;
   const annee = f.impactAnnee;
   if (typeof annee === 'number') {
     const c = profil.famillesAnnee.find((carte) => carteMatche(carte, annee));
-    if (c) return { cone: c.cone, flanc: c.flanc, distMaxM: c.distMaxM };
+    // Retour ADDITIF : les coeffs (cone/flanc/distMaxM) consommés par le score sont INCHANGÉS ; `carte`
+    // expose la carte matchée AU PASSAGE (une seule sélection, ici) pour la ventilation descriptive.
+    if (c) return { cone: c.cone, flanc: c.flanc, distMaxM: c.distMaxM, carte: c };
   }
   return null;
 }
@@ -253,6 +255,15 @@ export interface VentilationFaisceau {
   modeCombinaison: ModeCombinaison | ModeRepli | null;
   /** Le cap `famille.distMaxM` a-t-il mordu (min(…, distMaxM) actif) ? */
   capFamilleApplique: boolean;
+  /** Carte d'année RÉELLEMENT appliquée (bornes + coeffs + cap), capturée au passage dans `familleCoeff` ;
+   *  `null` sauf si `famille === 'annee'`. */
+  carteAnnee: CarteAnnee | null;
+  /** Libellé de la famille patrimoniale appliquée (mh/inventaire/mondial). Règle domaine « légende SINON
+   *  famille » : la légende de l'entité étant indisponible côté moteur, on expose la FAMILLE. `null` sinon. */
+  familleLibelle: string | null;
+  /** Ce faisceau appartient-il à une chaîne couloir VALIDÉE ? Booléen DÉRIVÉ des indices agrégés
+   *  (`VentilationNote.malusCouloir`), renseigné par `ventilerAnalyse`. Le malus couloir reste AGRÉGÉ. */
+  dansChaineCouloir: boolean;
 }
 
 /** Ventilation d'un côté du couloir (indices des faisceaux de la chaîne + malus en m). */
@@ -286,9 +297,17 @@ export interface VentilationAnalyse {
   note: VentilationNote;
 }
 
+/** Règle domaine « légende SINON famille » : la légende d'entité étant indisponible côté moteur, on expose la FAMILLE. */
+const LIBELLE_FAMILLE_PATRIMOINE: Record<'mh' | 'inventaire' | 'mondial', string> = {
+  mh: 'Monument Historique',
+  inventaire: 'Inventaire',
+  mondial: 'Patrimoine mondial',
+};
+
 /**
  * Ventilation DESCRIPTIVE d'un faisceau. `distancePercueM` DÉLÈGUE à `distancePercueFaisceau` (source unique,
  * bit-identique) ; les contributions sont re-dérivées à l'identique du barème (elles ne feed pas le score).
+ * `dansChaineCouloir` est laissé à `false` ici (contexte AGRÉGÉ inconnu du faisceau seul) → renseigné par `ventilerAnalyse`.
  */
 export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement): VentilationFaisceau {
   const distancePercueM = distancePercueFaisceau(f, profil); // ← SOURCE UNIQUE de la valeur
@@ -301,6 +320,7 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
   let modeEff: ModeCombinaison | ModeRepli | null = null;
   let capFamilleApplique = false;
   let seuilBorneM = profil.distanceMaxM;
+  let carteAnnee: CarteAnnee | null = null;
 
   if (f.impactEmblematique === true) {
     famille = 'mondial';
@@ -312,6 +332,7 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
       famille = f.impactMH === true ? 'mh' : f.impactInventaire === true ? 'inventaire' : 'annee';
       coeffApplique = Math.abs(f.offsetDeg) <= profil.coneFamilleDemiAngleDeg ? fam.cone : fam.flanc;
       seuilBorneM = fam.distMaxM;
+      carteAnnee = fam.carte ?? null; // carte matchée (année) capturée AU PASSAGE ; undefined (mh/inv) → null
       const base = Math.min(dist, profil.distanceMaxM);
       const valeurClassique = natureM > 0 ? Math.min(base + profil.boostF4 * natureM, profil.distanceMaxM) : base;
       if (natureM > 0) {
@@ -329,6 +350,9 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
     }
   }
 
+  const familleLibelle =
+    famille === 'mh' || famille === 'inventaire' || famille === 'mondial' ? LIBELLE_FAMILLE_PATRIMOINE[famille] : null;
+
   return {
     offsetDeg: f.offsetDeg,
     distanceBruteM: f.distanceObstacleM,
@@ -341,6 +365,9 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
     diviseurCumulNature: diviseur,
     modeCombinaison: modeEff,
     capFamilleApplique,
+    carteAnnee,
+    familleLibelle,
+    dansChaineCouloir: false, // renseigné par ventilerAnalyse (contexte agrégé)
   };
 }
 
@@ -396,10 +423,15 @@ export function ventilerNote(faisceaux: FaisceauResultat[], profil: ProfilDegage
 
 /** Ventilation complète (61 lignes + agrégat) — assemblage opt-in pour le banc. */
 export function ventilerAnalyse(faisceaux: FaisceauResultat[], profil: ProfilDegagement, azimutDeg?: number): VentilationAnalyse {
-  return {
-    lignes: faisceaux.map((f) => ventilerFaisceau(f, profil)),
-    note: ventilerNote(faisceaux, profil, azimutDeg),
-  };
+  const note = ventilerNote(faisceaux, profil, azimutDeg);
+  // Appartenance couloir PAR FAISCEAU : dérivée des indices des chaînes VALIDÉES déjà exposées au niveau
+  // agrégé (aucun recalcul, aucune détection refaite). Le malus reste AGRÉGÉ dans `note.malusCouloir`.
+  const indicesCouloir = new Set<number>();
+  for (const chaine of note.malusCouloir) {
+    if (chaine.validee) for (const i of chaine.indices) indicesCouloir.add(i);
+  }
+  const lignes = faisceaux.map((f, i) => ({ ...ventilerFaisceau(f, profil), dansChaineCouloir: indicesCouloir.has(i) }));
+  return { lignes, note };
 }
 
 /**

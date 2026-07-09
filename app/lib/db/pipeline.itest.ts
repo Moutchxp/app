@@ -125,6 +125,42 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     expect(resultat!.score.total).toBeCloseTo(29.107259068449615, 3);
   });
 
+  it('seam ENRICHI : Asnières inchangé (note.total === score.total) + champs descriptifs cohérents', async () => {
+    const { resultat } = await analyserAdresse({
+      point: { lat: 48.90693182287072, lon: 2.269431435588249 },
+      azimutPrincipalDeg: 90,
+      etage: 2,
+      dernierEtage: false,
+      profil: PROFIL_GOLDEN_REF,
+      ventilation: true,
+    });
+    expect(resultat).not.toBeNull();
+    // Golden inchangé + reconstruction STRICTE non altérée par l'enrichissement descriptif.
+    expect(resultat!.score.total).toBeCloseTo(29.107259068449615, 3);
+    expect(resultat!.ventilation!.note.total).toBe(resultat!.score.total);
+    // Champs descriptifs présents et cohérents avec la famille appliquée (après précédence).
+    for (const l of resultat!.ventilation!.lignes) {
+      expect(typeof l.dansChaineCouloir).toBe('boolean');
+      // Carte d'année présente SSI la famille appliquée est 'annee'.
+      if (l.famille === 'annee') expect(l.carteAnnee).not.toBeNull();
+      else expect(l.carteAnnee).toBeNull();
+      // Libellé de famille présent SSI famille patrimoniale (mh/inventaire/mondial), « famille » sinon null.
+      if (l.famille === 'mh' || l.famille === 'inventaire' || l.famille === 'mondial') {
+        expect(typeof l.familleLibelle).toBe('string');
+      } else {
+        expect(l.familleLibelle).toBeNull();
+      }
+    }
+    // Cohérence couloir : tout faisceau marqué dansChaineCouloir appartient à une chaîne validée agrégée.
+    const indices = new Set<number>();
+    for (const c of resultat!.ventilation!.note.malusCouloir) {
+      if (c.validee) for (const i of c.indices) indices.add(i);
+    }
+    resultat!.ventilation!.lignes.forEach((l, i) => {
+      expect(l.dansChaineCouloir).toBe(indices.has(i));
+    });
+  });
+
   it('BE-20 : profil de test = CLONE du profil actif → MÊME score (décorrélation neutre) + actif non muté', async () => {
     const clone = clonerProfil(PROFIL_GOLDEN_REF);
     const { resultat } = await analyserAdresse({
