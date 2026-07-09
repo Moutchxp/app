@@ -653,6 +653,8 @@ export default function BancSaisie() {
                 }}
                 coneDemiAngleDeg={(profilTest ?? profilActif).coneFamilleDemiAngleDeg}
                 borneScoreM={(profilTest ?? profilActif).distanceMaxM}
+                profilActif={profilActif}
+                profilTest={profilTest ?? profilActif}
               />
             </div>
           )}

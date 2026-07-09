@@ -10,7 +10,8 @@
  *    `mondialFaisceauM`) — jamais de littéraux. Échelle radiale par PALIERS (r200 < r400 < r800, CA-6.6).
  * Repos = tracés seuls ; survol/sélection = valeurs + détail (BE-65a/66). Respecte prefers-reduced-motion.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ProfilDegagement } from "../../../../lib/svv/profilDegagement";
 
 /** Carte d'année appliquée (miroir de CarteAnnee du seam, Chantier A) — pour rendre les bornes lisibles. */
 export interface CarteAnneeLite {
@@ -100,6 +101,8 @@ export default function EventailFaisceaux({
   bornes,
   coneDemiAngleDeg,
   borneScoreM,
+  profilActif,
+  profilTest,
 }: {
   actif: LigneVentil[];
   test: LigneVentil[];
@@ -110,6 +113,10 @@ export default function EventailFaisceaux({
   /** Borne du profil (`distanceMaxM`) pour la moyenne « Brut au sens du score » — LUE DU PROFIL DE TEST (adaptatif) ;
    *  repli `bornes.base`. Jamais un 200 en dur. */
   borneScoreM?: number;
+  /** Profils actif et de test (déjà chargés en mémoire) — pour la modale « détail du calcul » de chaque colonne.
+   *  Le profil de test = `profilTest ?? profilActif` côté appelant (le run de test l'utilise). */
+  profilActif: ProfilDegagement;
+  profilTest: ProfilDegagement;
 }) {
   const [visibles, setVisibles] = useState<Record<SerieId, boolean>>({ brut: false, actif: true, test: true });
   const [selection, setSelection] = useState<number | null>(null);
@@ -310,7 +317,7 @@ export default function EventailFaisceaux({
 
       {/* Détail par faisceau (BE-66/66a) : actif vs test, écarts surlignés ; brut en repère neutre */}
       {selection != null && actif[selection] && test[selection] && (
-        <DetailFaisceau a={actif[selection]} t={test[selection]} index={selection} onFermer={() => setSelection(null)} />
+        <DetailFaisceau a={actif[selection]} t={test[selection]} index={selection} profilActif={profilActif} profilTest={profilTest} onFermer={() => setSelection(null)} />
       )}
     </div>
   );
@@ -354,16 +361,162 @@ function statutPonderation(l: LigneVentil): { texte: string; bg: string; fg: str
   return { texte: "neutre (aucune pondération)", bg: "var(--color-svv-field)", fg: "var(--color-svv-muted)" };
 }
 
+// ============================ Modale « détail du calcul de la distance pondérée » ============================
+// Générateur PUR d'un récit d'étapes, en langage humain, à partir des valeurs DÉJÀ produites par le moteur
+// (seam). Ne réimplémente NI le capping, NI le diviseur, NI la combinaison P1/P2 : il ASSEMBLE. Seules des
+// additions/soustractions/multiplications d'AFFICHAGE entre champs du seam composent les chaînes lisibles.
+// Aucun libellé ne laisse fuiter un nom de champ/table/colonne (dictionnaire ci-dessous).
+
+/** Une étape du récit de calcul (valeur cumulée + opération d'affichage composée des valeurs réelles). */
+export interface EtapeCalcul {
+  libelle: string;
+  operation: string | null; // ex. « × 1.2 », « + 12.4 m », « ÷ 1.700 » — COMPOSÉ des valeurs réelles, jamais figé
+  valeur: number; // résultat à cette étape (m)
+  unite: "m" | null;
+  misEnEvidence?: boolean; // étape « valeur avant plafond »
+  note?: string;
+}
+
+/** Dictionnaire des libellés humains (aucun nom technique à l'écran). Règle projet « légende sinon famille ». */
+const LIBELLES_ETAPE = {
+  distanceReelle: "Distance réelle au 1er obstacle",
+  distanceRetenue: "Distance retenue (plafonnée à la portée d’analyse)",
+  bonusVegetation: "Bonus végétation traversée",
+  lectureDegagement: "Lecture dégagement (distance + végétation)",
+  plafondLectureDegagement: "Plafond de la lecture dégagement",
+  multiplicateurCone: "Multiplicateur patrimoine (monument dans l’axe)",
+  multiplicateurFlanc: "Multiplicateur patrimoine (monument sur le côté)",
+  lecturePatrimoine: "Lecture patrimoine",
+  attenuation: "Atténuation du patrimoine par la végétation",
+  combinaisonSequentiel: "Combinaison : dégagement + patrimoine atténué",
+  combinaisonAddition: "Combinaison : dégagement + patrimoine",
+  combinaisonMax: "Combinaison : on garde la meilleure des deux lectures",
+  valeurAvantPlafond: "Valeur avant plafond",
+  plafondApplique: "Plafond appliqué",
+  distancePercue: "Distance perçue finale",
+  valeurFixeMondial: "Valeur fixe patrimoine mondial",
+  effetCouloir: "Effet couloir (ajustement global de la note, hors de ce faisceau)",
+  notePlafondAtteint: "Plafond atteint — valeur ramenée à la limite",
+} as const;
+
+/** Montant en mètres pour les opérations d'affichage (1 décimale). AFFICHAGE seul (ne touche aucune valeur). */
+const fmtMontant = (v: number): string => v.toFixed(1);
+
+/** Contexte de famille en clair pour la note d'une étape patrimoine (« légende sinon famille »). */
+function contexteFamille(l: LigneVentil): string | undefined {
+  if (l.famille === "annee") return l.carteAnnee ? `Époque de construction : ${formaterBornesCarte(l.carteAnnee)}` : undefined;
+  return l.familleLibelle ?? undefined; // « Monument Historique » / « Inventaire »
+}
+
+/**
+ * Assemble le récit d'étapes du calcul de la distance perçue d'UN faisceau, dérivé du CAS RÉEL (lu dans `l`) :
+ *  - `famille === 'mondial'`                       → valeur fixe ;
+ *  - `famille === null`                            → ordinaire / dégagé (distance ± bonus végétation) ;
+ *  - `famille ≠ null` & `natureTraverseeM === 0`   → patrimoine seul (distance × coeff) ;
+ *  - `famille ≠ null` & `natureTraverseeM > 0`     → cumul (deux lectures + combinaison selon le mode EFFECTIF).
+ * Tous les nombres proviennent de `l` ou de `profil`. Aucune constante de barème. Un champ `null` → étape omise.
+ * PURE : aucune I/O, aucun effet, ne recalcule jamais le barème.
+ */
+export function construireEtapesCalcul(l: LigneVentil, profil: ProfilDegagement): EtapeCalcul[] {
+  const etapes: EtapeCalcul[] = [];
+
+  // Patrimoine mondial : faisceau fixe, aucune décomposition.
+  if (l.famille === "mondial") {
+    etapes.push({ libelle: LIBELLES_ETAPE.valeurFixeMondial, operation: null, valeur: l.valeurAvantCapM, unite: "m", misEnEvidence: true });
+    return etapes;
+  }
+
+  const enCone = Math.abs(l.offsetDeg) <= profil.coneFamilleDemiAngleDeg;
+  const pondere = l.famille !== null; // 'mh' | 'inventaire' | 'annee'
+  const aNature = l.natureTraverseeM > 0;
+
+  if (!pondere) {
+    // Ordinaire / dégagé : distance retenue (+ éventuel bonus végétation), avant le plafond de portée.
+    // base = valeurAvantCapM − boostF4AppliqueM (exact par construction du seam) : soustraction d'AFFICHAGE.
+    const baseM = l.valeurAvantCapM - l.boostF4AppliqueM;
+    if (l.distanceBruteM !== null) {
+      etapes.push({ libelle: LIBELLES_ETAPE.distanceReelle, operation: null, valeur: l.distanceBruteM, unite: "m" });
+    } else {
+      etapes.push({ libelle: LIBELLES_ETAPE.distanceRetenue, operation: null, valeur: baseM, unite: "m" });
+    }
+    if (aNature) {
+      etapes.push({ libelle: LIBELLES_ETAPE.bonusVegetation, operation: `+ ${fmtMontant(l.boostF4AppliqueM)} m`, valeur: l.valeurAvantCapM, unite: "m" });
+    }
+  } else if (!aNature) {
+    // Patrimoine seul : distance réelle × coeff (cône ou flanc), avant le cap famille.
+    if (l.distanceBruteM !== null) {
+      etapes.push({ libelle: LIBELLES_ETAPE.distanceReelle, operation: null, valeur: l.distanceBruteM, unite: "m" });
+    }
+    etapes.push({
+      libelle: enCone ? LIBELLES_ETAPE.multiplicateurCone : LIBELLES_ETAPE.multiplicateurFlanc,
+      operation: l.coeffApplique !== null ? `× ${fmtCoeff(l.coeffApplique)}` : null,
+      valeur: l.valeurAvantCapM,
+      unite: "m",
+      note: contexteFamille(l),
+    });
+  } else {
+    // Cumul : deux lectures autonomes (P1 dégagement, P2 patrimoine) puis combinaison selon le mode EFFECTIF.
+    if (l.p1M !== null) {
+      etapes.push({
+        libelle: LIBELLES_ETAPE.lectureDegagement,
+        operation: null,
+        valeur: l.p1M,
+        unite: "m",
+        note: `${LIBELLES_ETAPE.plafondLectureDegagement} : ${fmtMontant(profil.cumulNature.capP1M)} m`,
+      });
+    }
+    if (l.p2M !== null) {
+      etapes.push({
+        libelle: LIBELLES_ETAPE.lecturePatrimoine,
+        operation: l.coeffApplique !== null ? `× ${fmtCoeff(l.coeffApplique)}` : null,
+        valeur: l.p2M,
+        unite: "m",
+        note: contexteFamille(l),
+      });
+    }
+    // Libellé de combinaison choisi d'après le mode RÉELLEMENT retenu (jamais présumé).
+    const libCombi =
+      l.modeCombinaison === "sequentiel" ? LIBELLES_ETAPE.combinaisonSequentiel
+      : l.modeCombinaison === "max" ? LIBELLES_ETAPE.combinaisonMax
+      : LIBELLES_ETAPE.combinaisonAddition;
+    const opCombi =
+      l.modeCombinaison === "sequentiel" && l.p1M !== null && l.p2M !== null && l.diviseurCumulNature !== null
+        ? `${fmtMontant(l.p1M)} + ${fmtMontant(l.p2M)} ÷ ${l.diviseurCumulNature.toFixed(3)}`
+        : (l.modeCombinaison === "addition" || l.modeCombinaison === null) && l.p1M !== null && l.p2M !== null
+          ? `${fmtMontant(l.p1M)} + ${fmtMontant(l.p2M)}`
+          : null;
+    etapes.push({
+      libelle: libCombi,
+      operation: opCombi,
+      valeur: l.valeurAvantCapM,
+      unite: "m",
+      note: l.modeCombinaison === "sequentiel" && l.diviseurCumulNature !== null ? `${LIBELLES_ETAPE.attenuation} : ÷ ${l.diviseurCumulNature.toFixed(3)}` : undefined,
+    });
+  }
+
+  // Étape « valeur avant plafond » en évidence : la dernière étape dont la valeur == valeurAvantCapM.
+  for (let i = etapes.length - 1; i >= 0; i--) {
+    if (etapes[i].valeur === l.valeurAvantCapM) { etapes[i].misEnEvidence = true; break; }
+  }
+
+  // Étape finale « plafond appliqué » quand le cap famille mord OU que la valeur avant plafond dépasse la borne.
+  if (l.capFamilleApplique || l.valeurAvantCapM > l.seuilBorneM) {
+    etapes.push({ libelle: LIBELLES_ETAPE.plafondApplique, operation: `↓ ${fmtMontant(l.seuilBorneM)} m`, valeur: l.distancePercueM, unite: "m", note: LIBELLES_ETAPE.notePlafondAtteint });
+  }
+
+  return etapes;
+}
+
 type LigneDetail =
   | { type: "section"; titre: string }
-  | { type: "valeur"; libelle: string; brut: string; actif: string; test: string };
+  | { type: "valeur"; libelle: string; brut: string; actif: string; test: string; depliable?: boolean };
 
 /** Construit les lignes du tableau (Brut | Actif | Test) pour un faisceau, structurées par section. */
 function construireLignes(a: LigneVentil, t: LigneVentil): LigneDetail[] {
   const r: LigneDetail[] = [
     { type: "section", titre: "Distances" },
     { type: "valeur", libelle: "Distance brute (m)", brut: fmt(a.distanceBruteM), actif: fmt(a.distanceBruteM), test: fmt(t.distanceBruteM) },
-    { type: "valeur", libelle: "Distance pondérée (m)", brut: "—", actif: fmt(a.distancePercueM), test: fmt(t.distancePercueM) },
+    { type: "valeur", libelle: "Distance pondérée (m)", brut: "—", actif: fmt(a.distancePercueM), test: fmt(t.distancePercueM), depliable: true },
     { type: "valeur", libelle: "Borne du profil (m)", brut: "—", actif: fmt(a.seuilBorneM), test: fmt(t.seuilBorneM) },
     { type: "section", titre: "Famille appliquée (après précédence)" },
     { type: "valeur", libelle: "Famille", brut: "—", actif: familleTexte(a), test: familleTexte(t) },
@@ -399,9 +552,12 @@ const signeOffset = (deg: number): string => `${deg > 0 ? "+" : ""}${deg}°`;
  * Détail seam d'un faisceau : bandeau de statut (pondération, sur le profil de TEST) + tableau 3 colonnes
  * Brut | Actif | Test, structuré par sections. Lignes surlignées si Actif ≠ Test (BE-66a). Rendu pur.
  */
-function DetailFaisceau({ a, t, index, onFermer }: { a: LigneVentil; t: LigneVentil; index: number; onFermer: () => void }) {
+function DetailFaisceau({ a, t, index, profilActif, profilTest, onFermer }: { a: LigneVentil; t: LigneVentil; index: number; profilActif: ProfilDegagement; profilTest: ProfilDegagement; onFermer: () => void }) {
   const statut = statutPonderation(t); // sur le run affiché (profil de test)
   const lignes = construireLignes(a, t);
+  const [modaleOuverte, setModaleOuverte] = useState(false);
+  const boutonRef = useRef<HTMLButtonElement | null>(null);
+  const fermerModale = () => { setModaleOuverte(false); boutonRef.current?.focus(); }; // rend le focus au picto
   return (
     <div style={{ marginTop: 12, border: "1px solid var(--color-svv-line)", borderRadius: 10, overflow: "hidden" }}>
       {/* Bandeau de statut — trame entière dans la couleur du statut de pondération */}
@@ -437,7 +593,23 @@ function DetailFaisceau({ a, t, index, onFermer }: { a: LigneVentil; t: LigneVen
               const differe = ligne.actif !== ligne.test; // brut-only → actif==test=="—" → jamais surligné
               return (
                 <tr key={i} style={{ background: differe ? ROUGE_DOUX : "transparent" }}>
-                  <td style={{ padding: "3px 8px", color: "var(--color-svv-ink)" }}>{ligne.libelle}</td>
+                  <td style={{ padding: "3px 8px", color: "var(--color-svv-ink)" }}>
+                    {ligne.libelle}
+                    {ligne.depliable && (
+                      <button
+                        ref={boutonRef}
+                        type="button"
+                        onClick={() => setModaleOuverte(true)}
+                        aria-haspopup="dialog"
+                        aria-expanded={modaleOuverte}
+                        aria-label="Afficher le détail du calcul de la distance pondérée"
+                        className="svv-pill"
+                        style={{ marginLeft: 6, padding: "0 7px", lineHeight: 1.5, borderColor: "var(--color-svv-line)", background: "white", color: "var(--color-svv-ink)", cursor: "pointer" }}
+                      >
+                        ▾
+                      </button>
+                    )}
+                  </td>
                   <td style={{ padding: "3px 8px", textAlign: "right", color: "var(--color-svv-gray)" }}>{ligne.brut}</td>
                   <td style={{ padding: "3px 8px", textAlign: "right", color: "var(--color-svv-ink)" }}>{ligne.actif}</td>
                   <td style={{ padding: "3px 8px", textAlign: "right", color: differe ? "var(--color-svv-red)" : "var(--color-svv-ink)" }}>{ligne.test}</td>
@@ -446,6 +618,143 @@ function DetailFaisceau({ a, t, index, onFermer }: { a: LigneVentil; t: LigneVen
             })}
           </tbody>
         </table>
+      </div>
+      {modaleOuverte && (
+        <ModaleCalcul a={a} t={t} index={index} profilActif={profilActif} profilTest={profilTest} onFermer={fermerModale} />
+      )}
+    </div>
+  );
+}
+
+/** Une colonne de la modale (Actif ou Test) : récit d'étapes + récapitulatif. `diff` = indices soulignés. */
+function ColonneCalcul({ titre, couleur, l, etapes, diff }: { titre: string; couleur: string; l: LigneVentil; etapes: EtapeCalcul[]; diff: Set<number> }) {
+  return (
+    <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+      <div style={{ fontWeight: 800, fontSize: ".82rem", color: couleur, marginBottom: 8 }}>{titre}</div>
+      <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+        {etapes.map((e, i) => (
+          <li
+            key={i}
+            style={{
+              padding: "6px 8px",
+              borderRadius: 8,
+              background: e.misEnEvidence ? "color-mix(in srgb, var(--color-svv-green-soft) 70%, white)" : "var(--color-svv-field)",
+              border: e.misEnEvidence ? "1px solid var(--color-svv-green-ink)" : "1px solid transparent",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontSize: ".78rem", color: "var(--color-svv-ink)", textDecoration: diff.has(i) ? "underline dotted" : "none" }}>{e.libelle}</span>
+              <span style={{ fontSize: ".8rem", fontWeight: 700, color: couleur, whiteSpace: "nowrap" }}>
+                {fmtMontant(e.valeur)}{e.unite ? " m" : ""}
+              </span>
+            </div>
+            {e.operation && <div style={{ fontSize: ".72rem", color: "var(--color-svv-muted)", fontFamily: "ui-monospace, monospace" }}>{e.operation}</div>}
+            {e.note && <div style={{ fontSize: ".72rem", color: "var(--color-svv-muted)" }}>{e.note}</div>}
+          </li>
+        ))}
+      </ol>
+      {/* Récapitulatif : valeur avant plafond → plafond appliqué → distance perçue finale. */}
+      <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px dashed var(--color-svv-line)", fontSize: ".74rem", color: "var(--color-svv-muted)", display: "flex", flexDirection: "column", gap: 2 }}>
+        <span>{LIBELLES_ETAPE.valeurAvantPlafond} : <strong style={{ color: "var(--color-svv-ink)" }}>{fmtMontant(l.valeurAvantCapM)} m</strong></span>
+        <span>{LIBELLES_ETAPE.plafondApplique} : <strong style={{ color: "var(--color-svv-ink)" }}>{fmtMontant(l.seuilBorneM)} m</strong></span>
+        <span>{LIBELLES_ETAPE.distancePercue} : <strong style={{ color: couleur }}>{fmtMontant(l.distancePercueM)} m</strong></span>
+        {l.dansChaineCouloir && <span style={{ marginTop: 2 }}>{LIBELLES_ETAPE.effetCouloir}</span>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Modale « détail du calcul de la distance pondérée » — PUREMENT INFORMATIVE (lecture seule, aucun effet sur le
+ * score, les faisceaux ou la base). Deux colonnes AUTONOMES (Actif vert / Test rouge), chacune issue de
+ * `construireEtapesCalcul` avec SON profil. Accessible : role dialog, aria-modal, Échap, clic dehors, focus piégé,
+ * focus rendu au picto par l'appelant. Respecte prefers-reduced-motion. Mobile : colonnes empilées < 640 px.
+ */
+function ModaleCalcul({ a, t, index, profilActif, profilTest, onFermer }: { a: LigneVentil; t: LigneVentil; index: number; profilActif: ProfilDegagement; profilTest: ProfilDegagement; onFermer: () => void }) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const etapesA = construireEtapesCalcul(a, profilActif);
+  const etapesT = construireEtapesCalcul(t, profilTest);
+
+  // Indices dont la valeur diffère entre Actif et Test (soulignés discrètement ; comparaison par position, les
+  // deux chaînes restant AUTONOMES — une étape sans contrepartie compte comme différente).
+  const diffA = new Set<number>();
+  const diffT = new Set<number>();
+  const maxLen = Math.max(etapesA.length, etapesT.length);
+  for (let i = 0; i < maxLen; i++) {
+    const ea = etapesA[i];
+    const et = etapesT[i];
+    if (!ea || !et || ea.valeur !== et.valeur) {
+      if (ea) diffA.add(i);
+      if (et) diffT.add(i);
+    }
+  }
+
+  // Échap ferme ; focus initial dans la modale ; focus PIÉGÉ (Tab cycle dans le dialog).
+  useEffect(() => {
+    const dlg = dialogRef.current;
+    if (!dlg) return;
+    const focusables = () =>
+      Array.from(dlg.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter((el) => !el.hasAttribute("disabled"));
+    (focusables()[0] ?? dlg).focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onFermer(); return; }
+      if (e.key === "Tab") {
+        const f = focusables();
+        if (f.length === 0) { e.preventDefault(); return; }
+        const premier = f[0];
+        const dernier = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === premier) { e.preventDefault(); dernier.focus(); }
+        else if (!e.shiftKey && document.activeElement === dernier) { e.preventDefault(); premier.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onFermer]);
+
+  const titreId = `modale-calcul-titre-${index}`;
+  return (
+    <div
+      onClick={onFermer} // clic hors modale (sur l'overlay) ferme
+      style={{ position: "fixed", inset: 0, zIndex: 3000, background: "rgba(22,32,44,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+    >
+      <style>{`@keyframes svvModaleIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion: reduce){.svv-modale-calcul{animation:none!important}}`}</style>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titreId}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()} // clic DANS la modale ne ferme pas
+        className="svv-modale-calcul"
+        style={{
+          background: "white",
+          borderRadius: 14,
+          border: "1px solid var(--color-svv-line)",
+          boxShadow: "0 12px 40px rgba(22,32,44,.25)",
+          width: "min(680px, 100%)",
+          maxHeight: "85vh",
+          overflowY: "auto",
+          padding: 16,
+          animation: "svvModaleIn .16s ease-out",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <h2 id={titreId} style={{ margin: 0, fontSize: ".92rem", fontWeight: 800, color: "var(--color-svv-ink)" }}>
+            Détail du calcul — Faisceau {index + 1} · {signeOffset(a.offsetDeg)}
+          </h2>
+          <button type="button" onClick={onFermer} aria-label="Fermer" className="svv-pill" style={{ padding: "2px 12px", background: "white", borderColor: "var(--color-svv-line)", color: "var(--color-svv-ink)", cursor: "pointer" }}>
+            Fermer
+          </button>
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+          <ColonneCalcul titre="Moteur actif" couleur="var(--color-svv-green-ink)" l={a} etapes={etapesA} diff={diffA} />
+          <ColonneCalcul titre="Profil de test" couleur="var(--color-svv-red)" l={t} etapes={etapesT} diff={diffT} />
+        </div>
+
+        <p style={{ margin: "14px 0 0", fontSize: ".74rem", color: "var(--color-svv-muted)", lineHeight: 1.5 }}>
+          La « valeur avant plafond » est indicative : elle n’entre pas dans le score. Seule la distance perçue finale, une fois le plafond appliqué, est prise en compte.
+        </p>
       </div>
     </div>
   );
