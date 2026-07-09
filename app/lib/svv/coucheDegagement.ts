@@ -264,6 +264,17 @@ export interface VentilationFaisceau {
   /** Ce faisceau appartient-il à une chaîne couloir VALIDÉE ? Booléen DÉRIVÉ des indices agrégés
    *  (`VentilationNote.malusCouloir`), renseigné par `ventilerAnalyse`. Le malus couloir reste AGRÉGÉ. */
   dansChaineCouloir: boolean;
+  /** Valeur pondérée AVANT le dernier plafond appliqué (cap famille `distMaxM`, ou plafond de portée
+   *  `distanceMaxM` pour un faisceau ordinaire/dégagé). DESCRIPTIF : invariant
+   *  `distancePercueM === min(valeurAvantCapM, seuilBorneM)`. Capturée sur place (jamais recalculée) ;
+   *  pour le patrimoine mondial fixe = `distancePercueM` (aucun plafond ne mord). */
+  valeurAvantCapM: number;
+  /** Partie 1 (valeur nature classique après son propre cap `cumulNature.capP1M`) du cumul nature+bâti ;
+   *  `null` si pas de cumul (faisceau sans nature, ordinaire, dégagé ou mondial). Capturée, non recalculée. */
+  p1M: number | null;
+  /** Partie 2 (lecture patrimoine = distance réelle × coeff cône/flanc) du cumul nature+bâti ;
+   *  `null` si pas de cumul. Capturée, non recalculée. */
+  p2M: number | null;
 }
 
 /** Ventilation d'un côté du couloir (indices des faisceaux de la chaîne + malus en m). */
@@ -321,10 +332,18 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
   let capFamilleApplique = false;
   let seuilBorneM = profil.distanceMaxM;
   let carteAnnee: CarteAnnee | null = null;
+  // Valeur AVANT le dernier plafond (DESCRIPTIF). Défaut = cas ordinaire/dégagé (fam === null) : base capée
+  // portée + boost F4, c.-à-d. la valeur avant le plafond de portée `distanceMaxM`. Surchargée dans les
+  // branches mondial / famille ci-dessous (capture des valeurs déjà calculées, aucun recalcul du barème).
+  const baseOrdinaireM = Math.min(f.distanceObstacleM ?? profil.distanceMaxM, profil.distanceMaxM);
+  let valeurAvantCapM = baseOrdinaireM + boostF4AppliqueM;
+  let p1M: number | null = null;
+  let p2M: number | null = null;
 
   if (f.impactEmblematique === true) {
     famille = 'mondial';
     seuilBorneM = profil.famillesPonderation.mondialFaisceauM;
+    valeurAvantCapM = distancePercueM; // patrimoine mondial : valeur fixe, aucun plafond ne mord
   } else {
     const fam = familleCoeff(f, profil);
     const dist = f.distanceObstacleM;
@@ -344,8 +363,13 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
           p1, p2, diviseur, natureM, profil.cumulNature.seuilMinM, profil.modeCombinaison, profil.modeCombinaisonRepli,
         );
         capFamilleApplique = fam.distMaxM < combine;
+        valeurAvantCapM = combine; // CAPTURE (pas de recalcul) : combinaison P1/P2 avant le cap famille
+        p1M = p1;
+        p2M = p2;
       } else {
-        capFamilleApplique = fam.distMaxM < dist * coeffApplique;
+        const lecturePatrimoineM = dist * coeffApplique;
+        capFamilleApplique = fam.distMaxM < lecturePatrimoineM;
+        valeurAvantCapM = lecturePatrimoineM; // CAPTURE : famille sans nature, avant le cap famille
       }
     }
   }
@@ -368,6 +392,9 @@ export function ventilerFaisceau(f: FaisceauResultat, profil: ProfilDegagement):
     carteAnnee,
     familleLibelle,
     dansChaineCouloir: false, // renseigné par ventilerAnalyse (contexte agrégé)
+    valeurAvantCapM,
+    p1M,
+    p2M,
   };
 }
 

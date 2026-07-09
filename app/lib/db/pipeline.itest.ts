@@ -141,6 +141,17 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     // Champs descriptifs présents et cohérents avec la famille appliquée (après précédence).
     for (const l of resultat!.ventilation!.lignes) {
       expect(typeof l.dansChaineCouloir).toBe('boolean');
+      // Lot 1 — valeur AVANT plafond : le plafond ne peut qu'ABAISSER (perçue ≤ avant-cap), et l'invariant
+      // exact `perçue = min(avantCap, borne)` (égalité stricte quand aucun plafond ne mord).
+      expect(l.valeurAvantCapM).toBeGreaterThanOrEqual(l.distancePercueM);
+      expect(l.distancePercueM).toBe(Math.min(l.valeurAvantCapM, l.seuilBorneM));
+      // p1M/p2M : présents (nombres) SSI cumul nature+bâti (famille pondérée ET nature) ; null (les deux) sinon.
+      if (l.p1M === null) {
+        expect(l.p2M).toBeNull();
+      } else {
+        expect(typeof l.p1M).toBe('number');
+        expect(typeof l.p2M).toBe('number');
+      }
       // Carte d'année présente SSI la famille appliquée est 'annee'.
       if (l.famille === 'annee') expect(l.carteAnnee).not.toBeNull();
       else expect(l.carteAnnee).toBeNull();
