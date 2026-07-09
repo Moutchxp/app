@@ -112,3 +112,40 @@ export function libelleProprete(malusProprete: number): string {
   if (malusProprete <= 3) return "Quelques nuisances";
   return "Environnement dégradé";
 }
+
+/**
+ * Forme MINIMALE nécessaire pour assembler les cartouches de qualité de vue (structurellement satisfaite par
+ * `ResultatComplet` ET par la réponse du banc). Évite tout couplage à `analyse.ts`.
+ */
+export interface EntreeBadges {
+  contexteDegagement: string;
+  contexteVueNature: string | null;
+  contexteImmobilier: string | null;
+  monumentsHistoriques: string[];
+  score: {
+    famille1: { detail: { secteurOrientation: Orientation } };
+    famille2: { strate1: number; strate2: number; malusProprete: number; scorePartiel: boolean };
+  };
+}
+
+/**
+ * Cartouches de qualité de vue (les badges verts affichés à l'internaute) — logique EXTRAITE de `page.tsx`,
+ * REPRISE VERBATIM : orientation + contexte dégagement/vue-nature/immobilier + monuments + (Famille 2 masquée si
+ * `scorePartiel`). La règle « légende sinon famille » est appliquée EN AMONT (resoudreMonuments) ; `nom` est déjà
+ * résolu. PRÉSENTATION pure, aucune incidence score/verdict.
+ */
+export function assemblerBadges(r: EntreeBadges): string[] {
+  const f1 = r.score.famille1;
+  const f2 = r.score.famille2;
+  return [
+    libelleOrientation(f1.detail.secteurOrientation),
+    r.contexteDegagement,
+    r.contexteVueNature, // « vue nature » (null si non déclenchée → filtré)
+    r.contexteImmobilier, // « environnement immobilier » (null si non déclenchée → filtré)
+    ...(r.monumentsHistoriques ?? []), // 0..n badges « monument historique »
+    // Famille 2 — masquées si photo inexploitable (composantes dépendantes de l'IA)
+    f2.scorePartiel ? null : libelleCouverture(f2.strate1),
+    f2.scorePartiel ? null : libelleMonuments(f2.strate2),
+    f2.scorePartiel ? null : libelleProprete(f2.malusProprete),
+  ].filter((b): b is string => b != null);
+}

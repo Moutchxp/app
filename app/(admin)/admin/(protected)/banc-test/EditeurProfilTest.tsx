@@ -185,6 +185,7 @@ function ChampScalaire({
           value={String(valeur)}
           onChange={(e) => onEdit(e.target.value)}
           className="rounded-lg border border-svv-line bg-white px-2 py-1 text-sm text-svv-ink focus:border-svv-red focus:outline-none"
+          style={modifie ? { borderColor: "var(--color-svv-red)", boxShadow: "0 0 0 1px var(--color-svv-red)" } : undefined}
         >
           {(meta.optionsEnum ?? []).map((o) => (
             <option key={o} value={o}>{o}</option>
@@ -199,7 +200,7 @@ function ChampScalaire({
           step={meta.pas ?? "any"}
           onChange={(e) => onEdit(e.target.value)}
           className="rounded-lg border border-svv-line bg-white px-2 py-1 text-sm text-svv-ink focus:border-svv-red focus:outline-none"
-          style={{ width: 110 }}
+          style={{ width: 110, ...(modifie ? { borderColor: "var(--color-svv-red)", boxShadow: "0 0 0 1px var(--color-svv-red)" } : {}) }}
         />
       )}
     </div>

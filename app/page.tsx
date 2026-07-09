@@ -19,10 +19,7 @@ import { getExampleNumber, isValidPhoneNumber } from "libphonenumber-js/max";
 import examples from "libphonenumber-js/examples.mobile.json";
 import {
   libelleScore,
-  libelleOrientation,
-  libelleCouverture,
-  libelleMonuments,
-  libelleProprete,
+  assemblerBadges,
 } from "./lib/libelles";
 
 type Etape = "accueil" | "etapes" | "consentement" | "photo" | "localisation" | "orientation" | "infos" | "resultat" | "certificat";
@@ -444,26 +441,13 @@ function EcranResultat({
   // Arc dérivé du score ANIMÉ ; dashoffset clampé [0, C] pour ne pas déborder si overshoot > 100.
   const offset = C * (1 - Math.max(0, Math.min(100, scoreAnime)) / 100);
   const arc = certifie ? "var(--color-svv-green)" : "var(--color-svv-red)";
-  const f1 = resultat.score.famille1;
-  const f2 = resultat.score.famille2;
-
   const distanceM = resultat.verdict.distanceM;
   const distanceTxt = formaterDistanceVerdict(distanceM); // règle seuil : Math.round sauf [39;40[ → 39
   // Taille adaptée à la longueur → la distance tient toujours sur UNE ligne (affichage seul).
   const tailleDistance =
     distanceTxt.length <= 6 ? "text-3xl" : distanceTxt.length <= 10 ? "text-2xl" : "text-xl";
 
-  const badges = [
-    libelleOrientation(f1.detail.secteurOrientation),
-    resultat.contexteDegagement,
-    resultat.contexteVueNature, // « vue nature » (null si non déclenchée → filtré)
-    resultat.contexteImmobilier, // « environnement immobilier » (null si non déclenchée → filtré)
-    ...(resultat.monumentsHistoriques ?? []), // 0..n badges « monument historique » (variante A)
-    // Famille 2 — masquées si photo inexploitable (composantes dépendantes de l'IA)
-    f2.scorePartiel ? null : libelleCouverture(f2.strate1),
-    f2.scorePartiel ? null : libelleMonuments(f2.strate2),
-    f2.scorePartiel ? null : libelleProprete(f2.malusProprete),
-  ].filter((b): b is string => b != null);
+  const badges = assemblerBadges(resultat); // logique extraite (rendu identique) → lib/libelles.ts
 
   return (
     <div className="flex flex-1 flex-col">

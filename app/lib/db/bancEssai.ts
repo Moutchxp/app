@@ -20,6 +20,11 @@ export interface RunBanc {
   score: ScoreTotal; // total, libelle, scorePartiel, famille1/famille2 (détail interne — non sommés, BE-51a)
   ventilation: VentilationAnalyse; // seam Lot 1 (61 lignes + agrégat)
   verdict: string; // verdict géométrique (100 % découplé du score) — sert à l'assertion BE-56
+  // Cartouches de qualité de vue — FORWARD PUR de ResultatComplet (déjà calculées par analyser(), aucun recalcul/DB).
+  contexteDegagement: string;
+  contexteVueNature: string | null;
+  contexteImmobilier: string | null;
+  monumentsHistoriques: string[];
 }
 
 /** Comparaison actif vs test. `ok=false` si le point est invalide (BE-55 : pas de comparatif partiel). */
@@ -67,8 +72,16 @@ export async function comparerProfils(
   return {
     ok: true,
     statut: "OK",
-    actif: { score: rActif.score, ventilation: rActif.ventilation, verdict: rActif.verdict.verdict },
-    test: { score: rTest.score, ventilation: rTest.ventilation, verdict: rTest.verdict.verdict },
+    actif: {
+      score: rActif.score, ventilation: rActif.ventilation, verdict: rActif.verdict.verdict,
+      contexteDegagement: rActif.contexteDegagement, contexteVueNature: rActif.contexteVueNature,
+      contexteImmobilier: rActif.contexteImmobilier, monumentsHistoriques: rActif.monumentsHistoriques,
+    },
+    test: {
+      score: rTest.score, ventilation: rTest.ventilation, verdict: rTest.verdict.verdict,
+      contexteDegagement: rTest.contexteDegagement, contexteVueNature: rTest.contexteVueNature,
+      contexteImmobilier: rTest.contexteImmobilier, monumentsHistoriques: rTest.monumentsHistoriques,
+    },
     delta: rTest.score.total - rActif.score.total,
     verdictIdentique: rActif.verdict.verdict === rTest.verdict.verdict,
     ecarts: diffProfils(profilActif, profilT),
