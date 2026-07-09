@@ -1,5 +1,6 @@
 import 'server-only';
 import { query } from '../../../../../../lib/db/client';
+import { lireSessionCuration } from '../../../../../../lib/admin/sessionServeur';
 import { lireCorps, lireId } from '../../partage';
 
 /**
@@ -21,13 +22,14 @@ type Ctx = { params: Promise<{ id: string }> };
  * Journalisé (CTE atomique) : `curation_patrimoine_log` action `'suppression_entite_manuelle'`, `avant` =
  * snapshot (famille/nom/ref_code + cleabs liés) capturé avant les DELETE. Requiert le CHECK élargi (migration 011).
  */
-export async function DELETE(_request: Request, ctx: Ctx) {
+export async function DELETE(request: Request, ctx: Ctx) {
   const { id } = await ctx.params;
   const idNum = lireId(id);
   if (idNum === null) {
     return Response.json({ erreurs: [{ message: 'identifiant d’entité invalide' }] }, { status: 422 });
   }
 
+  const session = await lireSessionCuration(request); // traçabilité additive ; null si session illisible
   try {
     const { rows } = await query<{ id: number }>(
       `WITH cible AS (
@@ -42,14 +44,14 @@ export async function DELETE(_request: Request, ctx: Ctx) {
        ), del_entite AS (
          DELETE FROM patrimoine_entite WHERE id IN (SELECT id FROM cible) RETURNING id
        ), jrnl AS (
-         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
+         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
          SELECT 'suppression_entite_manuelle', snap.id, NULL,
                 jsonb_build_object('famille', snap.famille, 'nom', snap.nom, 'ref_code', snap.ref_code, 'liaisons', snap.liaisons),
-                NULL
+                NULL, $2, $3::timestamptz
          FROM snap
        )
        SELECT id FROM del_entite`,
-      [idNum],
+      [idNum, session.jti, session.iat],
     );
     if (rows.length === 0) {
       // Entité inconnue OU native (non manuelle) → refus, aucune suppression.
@@ -79,6 +81,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
   }
   const nomTrim = body.nom.trim();
   const nom = nomTrim.length > 0 ? nomTrim : null;
+  const session = await lireSessionCuration(request); // traçabilité additive ; null si session illisible
 
   try {
     const { rows } = await query<{ id: number; nom: string | null }>(
@@ -89,13 +92,13 @@ export async function PATCH(request: Request, ctx: Ctx) {
          WHERE id = $1 AND meta->>'origine' = 'manuel'
          RETURNING id, nom
        ), jrnl AS (
-         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
+         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
          SELECT 'renommage', mut.id, NULL,
-                jsonb_build_object('nom', snap.ancien), jsonb_build_object('nom', mut.nom)
+                jsonb_build_object('nom', snap.ancien), jsonb_build_object('nom', mut.nom), $3, $4::timestamptz
          FROM mut, snap
        )
        SELECT id, nom FROM mut`,
-      [idNum, nom],
+      [idNum, nom, session.jti, session.iat],
     );
     if (rows.length === 0) {
       return Response.json({ erreurs: [{ message: 'entité manuelle introuvable' }] }, { status: 404 });

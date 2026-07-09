@@ -4,7 +4,8 @@ import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, nomAff
 function ligne(partial: Partial<LigneJournal>): LigneJournal {
   return {
     id: '1', ts: '2026-07-08T11:24:00Z', action: 'deplacement', entite_id: 5, cleabs: null,
-    avant: null, apres: null, nom_affiche: 'X', famille_affiche: 'mh', supprimee: false, ...partial,
+    avant: null, apres: null, nom_affiche: 'X', famille_affiche: 'mh', supprimee: false,
+    session_jti: null, session_ouverte_a: null, ...partial,
   };
 }
 

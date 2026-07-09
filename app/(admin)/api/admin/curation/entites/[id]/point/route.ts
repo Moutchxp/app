@@ -1,5 +1,6 @@
 import 'server-only';
 import { query } from '../../../../../../../lib/db/client';
+import { lireSessionCuration } from '../../../../../../../lib/admin/sessionServeur';
 import {
   CURATION_DEPLACEMENT_RAYON_MAX_M,
   CURATION_TOLERANCE_RATTACHEMENT_M,
@@ -102,14 +103,16 @@ export async function PATCH(request: Request, ctx: Ctx) {
          )
       RETURNING peb.cleabs
     ), jrnl AS (
-      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
+      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
       VALUES ('deplacement', $1, NULL, $4::jsonb,
               jsonb_build_object('point', $5::jsonb,
-                                 'verifications_invalidees', COALESCE((SELECT jsonb_agg(cleabs) FROM inval), '[]'::jsonb)))
+                                 'verifications_invalidees', COALESCE((SELECT jsonb_agg(cleabs) FROM inval), '[]'::jsonb)),
+              $7, $8::timestamptz)
     )
     SELECT (SELECT point_corrige FROM mut) AS point_corrige,
            COALESCE((SELECT jsonb_agg(cleabs) FROM inval), '[]'::jsonb) AS invalidees;
   `;
+  const session = await lireSessionCuration(request); // traçabilité additive ; null si session illisible
   try {
     const { rows } = await query<{ point_corrige: string | null; invalidees: string[] | null }>(sql, [
       idNum,
@@ -118,6 +121,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
       ctrl.effectif_avant,
       apres,
       CURATION_TOLERANCE_RATTACHEMENT_M,
+      session.jti,
+      session.iat,
     ]);
     const maj = rows[0];
     return Response.json({
@@ -138,7 +143,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
  * Remet `geom_point_corrige = NULL` (EX-8). `geom_point` (original) reste intact. Entité inconnue →
  * 404. Écriture ATOMIQUE (CTE) : UPDATE + INSERT journal `action='annulation_deplacement'`.
  */
-export async function DELETE(_request: Request, ctx: Ctx) {
+export async function DELETE(request: Request, ctx: Ctx) {
   const { id } = await ctx.params;
   const idNum = lireId(id);
   if (idNum === null) {
@@ -172,13 +177,14 @@ export async function DELETE(_request: Request, ctx: Ctx) {
        WHERE id = $1
       RETURNING id
     ), jrnl AS (
-      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
-      VALUES ('annulation_deplacement', $1, NULL, $2::jsonb, NULL)
+      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
+      VALUES ('annulation_deplacement', $1, NULL, $2::jsonb, NULL, $3, $4::timestamptz)
     )
     SELECT * FROM mut;
   `;
+  const session = await lireSessionCuration(request); // traçabilité additive ; null si session illisible
   try {
-    await query(sql, [idNum, avant ?? null]);
+    await query(sql, [idNum, avant ?? null, session.jti, session.iat]);
     return Response.json({ ok: true, id: idNum, corrige: false });
   } catch {
     return Response.json({ erreurs: [{ message: 'écriture impossible' }] }, { status: 503 });

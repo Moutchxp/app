@@ -1,5 +1,6 @@
 import 'server-only';
 import { query } from '../../../../../lib/db/client';
+import { lireSessionCuration } from '../../../../../lib/admin/sessionServeur';
 import { versEntite, compteursParEtat, lireCorps, type LigneEntiteDB } from '../partage';
 
 /** Familles patrimoine autorisées (miroir du CHECK `patrimoine_entite_famille_check`). */
@@ -93,6 +94,7 @@ export async function POST(request: Request) {
   const statut = typeof body.statut === 'string' && body.statut.trim().length > 0 ? body.statut.trim() : null;
   const refCode = `MANUEL-${Date.now()}`;
   const meta = JSON.stringify({ origine: 'manuel' });
+  const session = await lireSessionCuration(request); // traçabilité additive (jti/iat) ; null si session illisible
 
   try {
     const { rows } = await query<EntiteCreee>(
@@ -101,13 +103,13 @@ export async function POST(request: Request) {
          VALUES ($1, $2, $3, $4, true, $5::jsonb)
          RETURNING id, famille, ref_code, nom, meta
        ), jrnl AS (
-         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
+         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
          SELECT 'creation_entite_manuelle', mut.id, NULL, NULL,
-                jsonb_build_object('famille', mut.famille, 'nom', mut.nom, 'ref_code', mut.ref_code)
+                jsonb_build_object('famille', mut.famille, 'nom', mut.nom, 'ref_code', mut.ref_code), $6, $7::timestamptz
          FROM mut
        )
        SELECT id, famille, ref_code, nom, meta FROM mut`,
-      [famille, refCode, nom, statut, meta],
+      [famille, refCode, nom, statut, meta, session.jti, session.iat],
     );
     const e = rows[0];
     return Response.json(

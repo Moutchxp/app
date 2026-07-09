@@ -34,10 +34,13 @@ function cleSignature(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-/** Signe un jeton de session admin (JWS `jose`, HS256, exp 8 h). */
+/** Signe un jeton de session admin (JWS `jose`, HS256, exp 8 h). `jti` = identifiant OPAQUE de la SESSION
+ *  (UUID), posé à la connexion — utilisé pour tracer la session (jamais une personne) dans le journal de
+ *  curation. ADDITIF : `verifierJeton` ne le vérifie pas → les jetons antérieurs (sans jti) restent valides. */
 export async function signerJeton(): Promise<string> {
   return new SignJWT({ role: 'admin' })
     .setProtectedHeader({ alg: 'HS256' })
+    .setJti(crypto.randomUUID())
     .setIssuedAt()
     .setExpirationTime('8h')
     .sign(cleSignature());

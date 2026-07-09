@@ -1,5 +1,6 @@
 import 'server-only';
 import { withTransaction, type RequeteTx } from '../../../../../../../lib/db/client';
+import { lireSessionCuration } from '../../../../../../../lib/admin/sessionServeur';
 import { lireCorps, lireId } from '../../../partage';
 
 /**
@@ -49,6 +50,7 @@ export async function POST(request: Request, ctx: Ctx) {
     return Response.json({ erreurs: [{ message: 'borne (entier) attendue' }] }, { status: 422 });
   }
 
+  const session = await lireSessionCuration(request); // traçabilité additive (lue hors transaction) ; null si illisible
   try {
     const resultat = await withTransaction(async (q: RequeteTx) => {
       // 1. Mutations de l'entité depuis l'ouverture, en ordre inverse chronologique.
@@ -159,9 +161,9 @@ export async function POST(request: Request, ctx: Ctx) {
       // 2. Ligne d'audit UNIQUE — seulement si au moins un inverse a été appliqué.
       if (nb > 0) {
         await q(
-          `INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
-           VALUES ('annulation_edition', $1, NULL, NULL, $2::jsonb)`,
-          [idNum, JSON.stringify({ borne, jusqu_a: jusquA, nb_lignes: nb })],
+          `INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
+           VALUES ('annulation_edition', $1, NULL, NULL, $2::jsonb, $3, $4::timestamptz)`,
+          [idNum, JSON.stringify({ borne, jusqu_a: jusquA, nb_lignes: nb }), session.jti, session.iat],
         );
       }
       return { nbLignes: nb, jusquA };

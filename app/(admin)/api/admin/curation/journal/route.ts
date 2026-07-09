@@ -16,6 +16,8 @@ interface LigneJournalDB {
   nom_affiche: string;
   famille_affiche: string;
   supprimee: boolean;
+  session_jti: string | null; // UUID de session ; NULL = entrée antérieure au traçage
+  session_ouverte_a: string | null; // iat du jeton (timestamptz → string pg) ; NULL = idem
   total?: string;
 }
 
@@ -48,6 +50,7 @@ export async function GET(request: Request) {
   try {
     const { rows } = await query<LigneJournalDB>(
       `SELECT l.id, l.ts, l.action, l.entite_id, l.cleabs, l.avant, l.apres,
+              l.session_jti, l.session_ouverte_a,
               COALESCE(e.nom, sup.nom, 'entité supprimée #' || l.entite_id) AS nom_affiche,
               COALESCE(e.famille, sup.famille, 'inconnue') AS famille_affiche,
               (e.id IS NULL) AS supprimee,
@@ -79,6 +82,8 @@ export async function GET(request: Request) {
       nom_affiche: r.nom_affiche,
       famille_affiche: r.famille_affiche,
       supprimee: r.supprimee,
+      session_jti: r.session_jti ?? null,
+      session_ouverte_a: r.session_ouverte_a ?? null,
     }));
     return Response.json({ lignes, total, limit, offset, ordre, famille });
   } catch {

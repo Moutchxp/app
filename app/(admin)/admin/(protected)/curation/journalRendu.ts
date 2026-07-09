@@ -15,6 +15,8 @@ export interface LigneJournal {
   nom_affiche: string;
   famille_affiche: string;
   supprimee: boolean;
+  session_jti: string | null; // UUID de session (jamais affiché brut) ; NULL = entrée antérieure au traçage
+  session_ouverte_a: string | null; // iat du jeton → base du libellé humain de session ; NULL = idem
 }
 
 /** Lit un champ (string/number) d'un jsonb inconnu ; `null` si absent/null. */
@@ -89,6 +91,18 @@ export function formaterHorodatage(ts: string): string {
 export function horodatageTitle(ts: string): string {
   const d = new Date(ts);
   return Number.isNaN(d.getTime()) ? ts : d.toISOString();
+}
+
+/**
+ * Libellé HUMAIN de la session d'une ligne (jamais l'UUID brut). Session connue (via `session_ouverte_a`) →
+ * « session du {horodatage} » ; NULL/illisible → « session inconnue ». `connue` pilote le style discret (gris).
+ * Deux lignes d'une MÊME session partagent le même `session_ouverte_a` → même libellé (visuellement rattachables).
+ */
+export function libelleSession(l: { session_ouverte_a: string | null }): { texte: string; connue: boolean } {
+  if (!l.session_ouverte_a) return { texte: 'session inconnue', connue: false };
+  const d = new Date(l.session_ouverte_a);
+  if (Number.isNaN(d.getTime())) return { texte: 'session inconnue', connue: false };
+  return { texte: `session du ${formaterHorodatage(l.session_ouverte_a)}`, connue: true };
 }
 
 /**

@@ -1,5 +1,6 @@
 import 'server-only';
 import { query } from '../../../../../../../lib/db/client';
+import { lireSessionCuration } from '../../../../../../../lib/admin/sessionServeur';
 import { lireCorps, lireId, lireCleabs } from '../../../partage';
 
 /**
@@ -69,17 +70,20 @@ export async function POST(request: Request, ctx: Ctx) {
       DO UPDATE SET source = 'manuel', detache = false, actif = true
       RETURNING entite_id, cleabs, source, actif, detache, verifie_manuellement
     ), jrnl AS (
-      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
-      VALUES ('rattachement', $1, $2, $3::jsonb, $4::jsonb)
+      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
+      VALUES ('rattachement', $1, $2, $3::jsonb, $4::jsonb, $5, $6::timestamptz)
     )
     SELECT * FROM mut;
   `;
+  const session = await lireSessionCuration(request); // traçabilité additive ; null si session illisible
   try {
     const { rows } = await query<LiaisonAvant & { entite_id: number; cleabs: string }>(sql, [
       idNum,
       cleabs,
       avant === null ? null : JSON.stringify(avant),
       apres,
+      session.jti,
+      session.iat,
     ]);
     const l = rows[0];
     return Response.json({
@@ -148,8 +152,8 @@ export async function DELETE(request: Request, ctx: Ctx) {
           DELETE FROM patrimoine_entite_batiment WHERE entite_id = $1 AND cleabs = $2
           RETURNING entite_id, cleabs
         ), jrnl AS (
-          INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
-          VALUES ('detachement', $1, $2, $3::jsonb, NULL)
+          INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
+          VALUES ('detachement', $1, $2, $3::jsonb, NULL, $4, $5::timestamptz)
         )
         SELECT * FROM mut;
       `
@@ -160,15 +164,16 @@ export async function DELETE(request: Request, ctx: Ctx) {
            WHERE entite_id = $1 AND cleabs = $2
           RETURNING entite_id, cleabs, source, actif, detache, verifie_manuellement
         ), jrnl AS (
-          INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
-          VALUES ('detachement', $1, $2, $3::jsonb, $4::jsonb)
+          INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
+          VALUES ('detachement', $1, $2, $3::jsonb, $4::jsonb, $5, $6::timestamptz)
         )
         SELECT * FROM mut;
       `;
+  const session = await lireSessionCuration(request); // traçabilité additive ; null si session illisible
   const params =
     avant.source === 'manuel'
-      ? [idNum, cleabs, avantJson]
-      : [idNum, cleabs, avantJson, JSON.stringify({ source: 'manuel', detache: true, verifie_manuellement: false })];
+      ? [idNum, cleabs, avantJson, session.jti, session.iat]
+      : [idNum, cleabs, avantJson, JSON.stringify({ source: 'manuel', detache: true, verifie_manuellement: false }), session.jti, session.iat];
 
   try {
     await query(sql, params);
@@ -227,17 +232,20 @@ export async function PATCH(request: Request, ctx: Ctx) {
        WHERE entite_id = $1 AND cleabs = $2
       RETURNING entite_id, cleabs, source, actif, detache, verifie_manuellement
     ), jrnl AS (
-      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres)
-      VALUES ('verification', $1, $2, $3::jsonb, $4::jsonb)
+      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
+      VALUES ('verification', $1, $2, $3::jsonb, $4::jsonb, $5, $6::timestamptz)
     )
     SELECT * FROM mut;
   `;
+  const session = await lireSessionCuration(request); // traçabilité additive ; null si session illisible
   try {
     const { rows } = await query<LiaisonAvant & { entite_id: number; cleabs: string }>(sql, [
       idNum,
       cleabs,
       JSON.stringify(avant),
       apres,
+      session.jti,
+      session.iat,
     ]);
     const l = rows[0];
     return Response.json({

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { estCarteModifiee, modeFooter } from './curationEdition';
-import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, nomAffiche, type LigneJournal } from './journalRendu';
+import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, libelleSession, nomAffiche, type LigneJournal } from './journalRendu';
 
 /** Taille de page du volet global de l'historique (HJ-44). */
 const JOURNAL_LIMIT = 50;
@@ -1704,6 +1704,7 @@ export default function CurationCarte() {
                   <ul className="svv-cur-journal-liste">
                     {journalLignes.map((l) => {
                       const cliquable = journal.mode === 'global' && !l.supprimee;
+                      const sess = libelleSession(l); // libellé humain de session (jamais l'UUID brut)
                       return (
                         <li
                           key={l.id}
@@ -1723,6 +1724,10 @@ export default function CurationCarte() {
                             <time className="svv-cur-journal-ts" dateTime={horodatageTitle(l.ts)} title={horodatageTitle(l.ts)}>
                               {formaterHorodatage(l.ts)}
                             </time>
+                          </span>
+                          {/* Session (rattachable : même libellé = même session). Gris discret si inconnue. */}
+                          <span className={`svv-cur-journal-session${sess.connue ? '' : ' svv-cur-journal-session--inconnue'}`}>
+                            {sess.texte}
                           </span>
                         </li>
                       );
@@ -1789,6 +1794,8 @@ const CSS = `
 .svv-cur-journal-lib{font-size:.82rem;color:var(--color-svv-ink)}
 .svv-cur-journal-meta{display:inline-flex;align-items:center;gap:.4rem;flex:0 0 auto}
 .svv-cur-journal-ts{font-size:.72rem;color:var(--color-svv-muted);white-space:nowrap}
+.svv-cur-journal-session{flex:0 0 100%;font-size:.68rem;color:var(--color-svv-muted)}
+.svv-cur-journal-session--inconnue{font-style:italic;opacity:.7}
 .svv-cur-journal-erreur{color:var(--color-svv-red-dark)}
 .svv-cur-head-ligne{display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap}
 .svv-cur-journal-controles{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.35rem;padding:.35rem .55rem;border-bottom:1px solid var(--color-svv-line)}

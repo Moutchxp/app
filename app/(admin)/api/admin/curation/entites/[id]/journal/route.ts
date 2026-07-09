@@ -17,6 +17,8 @@ interface LigneJournalDB {
   nom_affiche: string;
   famille_affiche: string;
   supprimee: boolean;
+  session_jti: string | null; // UUID de session ; NULL = entrée antérieure au traçage
+  session_ouverte_a: string | null; // iat du jeton (timestamptz → string pg) ; NULL = idem
 }
 
 /**
@@ -36,6 +38,7 @@ export async function GET(_request: Request, ctx: Ctx) {
   try {
     const { rows } = await query<LigneJournalDB>(
       `SELECT l.id, l.ts, l.action, l.entite_id, l.cleabs, l.avant, l.apres,
+              l.session_jti, l.session_ouverte_a,
               COALESCE(e.nom, sup.nom, 'entité supprimée #' || l.entite_id) AS nom_affiche,
               COALESCE(e.famille, sup.famille, 'inconnue') AS famille_affiche,
               (e.id IS NULL) AS supprimee
