@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { comparerProfils } from "../../../../lib/db/bancEssai";
+import { aLaPermission } from "../../../../lib/admin/garde";
 import type { ProfilDegagement } from "../../../../lib/svv/profilDegagement";
 
 /**
  * Banc M5 · Lot 5 — exécution ×2 (actif/test) + comparaison. LECTURE SEULE (comparerProfils ne fait que des
- * SELECT + calcul pur). Gardé par proxy.ts (matcher /api/admin/:path*). `profilTest` optionnel (Lot 2b) :
- * absent → clone du profil actif (délta nul).
+ * SELECT + calcul pur). Gardé par proxy.ts (matcher /api/admin/:path*) ET, en defense in depth, par la
+ * permission `banc_test` ici même (M3 Lot 2e). `profilTest` optionnel (Lot 2b) : absent → clone du profil actif.
  */
 export async function POST(req: Request) {
+  if (!(await aLaPermission("banc_test"))) return new NextResponse(null, { status: 403 });
   let body: {
     point?: { lat?: unknown; lon?: unknown };
     azimutPrincipalDeg?: unknown;

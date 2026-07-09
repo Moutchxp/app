@@ -19,9 +19,14 @@
     "lidar:axe": "tsx app/scripts/lidar-axe-check.ts",
     "profil:check": "tsx app/scripts/profil-check.ts",
     "contact:pente": "tsx app/scripts/contact-pente-check.ts",
-    "origine:api": "tsx app/scripts/origine-api-check.ts"
+    "origine:api": "tsx app/scripts/origine-api-check.ts",
+    "admin:creer": "tsx app/scripts/admin.ts creer",
+    "admin:reset": "tsx app/scripts/admin.ts reset",
+    "admin:secours": "tsx app/scripts/admin.ts secours",
+    "admin:lister": "tsx app/scripts/admin.ts lister"
   },
   "dependencies": {
+    "argon2": "^0.44.0",
     "exifr": "^7.1.3",
     "jose": "^6.2.3",
     "leaflet": "^1.9.4",

@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from 'react';
 
 export default function AdminLoginPage() {
+  const [identifiant, setIdentifiant] = useState('');
   const [password, setPassword] = useState('');
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
@@ -15,7 +16,8 @@ export default function AdminLoginPage() {
       const res = await fetch('/api/admin/session', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ password }),
+        // Identifiant vide = voie de secours (ancien mot de passe partagé) tant que M3-5 n'a pas basculé.
+        body: JSON.stringify({ identifiant, password }),
       });
       if (res.ok) {
         window.location.assign('/admin');
@@ -49,6 +51,32 @@ export default function AdminLoginPage() {
         </p>
 
         <form onSubmit={onSubmit}>
+          <label htmlFor="admin-identifiant" className="svv-label" style={{ display: 'block', marginBottom: 6 }}>
+            Identifiant
+          </label>
+          <input
+            id="admin-identifiant"
+            name="identifiant"
+            type="text"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            value={identifiant}
+            onChange={(e) => setIdentifiant(e.target.value)}
+            style={{
+              width: '100%',
+              minHeight: 44,
+              padding: '.75rem',
+              fontSize: '1rem',
+              color: 'var(--color-svv-ink)',
+              background: '#fff',
+              border: '1px solid var(--color-svv-line)',
+              borderRadius: '.75rem',
+              marginBottom: 12,
+            }}
+          />
+
           <label htmlFor="admin-password" className="svv-label" style={{ display: 'block', marginBottom: 6 }}>
             Mot de passe
           </label>
