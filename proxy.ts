@@ -42,6 +42,14 @@ function permissionRequise(pathname: string): Module | null {
   return null;
 }
 
+/**
+ * Chemins ATTEIGNABLES tant que `doitChanger` est vrai (M3-4 Lot B) : la page ET la route de changement de mot de
+ * passe self-service. NAMESPACE SINGULIER `/compte/` — disjoint du futur `/comptes` (pluriel, Lot C) : match EXACT,
+ * aucun `startsWith`, donc aucune collision de préfixe. La déconnexion (`/api/admin/session`) est déjà en whitelist
+ * publique plus haut (elle n'atteint jamais ce bloc). Les assets du rendu (`/_next/...`) ne sont pas dans le matcher.
+ */
+const CHEMINS_CHANGEMENT_MDP = new Set(['/admin/compte/mot-de-passe', '/api/admin/compte/mot-de-passe']);
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -67,6 +75,19 @@ export async function proxy(request: NextRequest) {
 
   // Session EFFECTIVE (tolérante : ancien jeton sans perms → administrateur complet, voie de secours idem).
   const session = sessionDepuisPayload(payload);
+
+  // ═══ ENFORCEMENT PREMIÈRE CONNEXION (M3-4 Lot B) ═══
+  // TANT QUE doitChanger : tout l'admin est bloqué SAUF la page/route de changement (whitelist EXACTE ci-dessus ;
+  // la déconnexion est déjà passée en whitelist publique). Placé EN AMONT de la table chemin→permission → NE DÉPEND
+  // PAS de son fail-open (un chemin non listé serait autorisé par `permissionRequise`, mais il est ici d'abord
+  // intercepté par le drapeau). sub=null (voie de secours) a `doitChanger=false` forcé (session.ts) → jamais concerné.
+  if (session.doitChanger && !CHEMINS_CHANGEMENT_MDP.has(pathname)) {
+    if (estApi) {
+      return NextResponse.json({ erreur: 'CHANGEMENT_REQUIS' }, { status: 403 });
+    }
+    return NextResponse.redirect(new URL('/admin/compte/mot-de-passe', request.url), 302);
+  }
+
   const requise = permissionRequise(pathname);
 
   // Administrateur → toutes permissions. Collaborateur → doit porter la permission du chemin.

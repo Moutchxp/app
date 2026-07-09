@@ -20,7 +20,7 @@ beforeEach(() => {
 
 /** Session administrateur nommée de référence. */
 function sessionAdmin(): SessionAdmin {
-  return { sub: 7, identifiant: 'arno', role: 'administrateur', perms: permsToutes() };
+  return { sub: 7, identifiant: 'arno', role: 'administrateur', perms: permsToutes(), doitChanger: false };
 }
 
 describe('session admin — roundtrip', () => {
@@ -35,7 +35,7 @@ describe('session admin — roundtrip', () => {
   });
 
   it('VOIE DE SECOURS : sub=null → aucune claim standard `sub` posée', async () => {
-    const jeton = await signerJeton({ sub: null, identifiant: null, role: 'administrateur', perms: permsToutes() });
+    const jeton = await signerJeton({ sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger: false });
     const payload = await verifierJeton(jeton);
     expect(payload).not.toBeNull();
     expect(payload?.sub).toBeUndefined();
@@ -72,7 +72,7 @@ describe('session admin — sessionDepuisPayload (tolérance)', () => {
 
   it('collaborateur → permissions EXPLICITES du jeton (les autres restent false)', async () => {
     const perms = { ...permsAucune(), curation: true, banc_test: true };
-    const jeton = await signerJeton({ sub: 3, identifiant: 'lea', role: 'collaborateur', perms });
+    const jeton = await signerJeton({ sub: 3, identifiant: 'lea', role: 'collaborateur', perms, doitChanger: false });
     const session = sessionDepuisPayload((await verifierJeton(jeton))!);
     expect(session.role).toBe('collaborateur');
     expect(session.perms.curation).toBe(true);
@@ -85,9 +85,33 @@ describe('session admin — sessionDepuisPayload (tolérance)', () => {
 
   it('administrateur → toutes perms true même si le jeton portait des perms partielles', async () => {
     // Sécurité : un administrateur ne peut être bridé par des colonnes perms_* — elles sont implicites.
-    const jeton = await signerJeton({ sub: 1, identifiant: 'chef', role: 'administrateur', perms: permsAucune() });
+    const jeton = await signerJeton({ sub: 1, identifiant: 'chef', role: 'administrateur', perms: permsAucune(), doitChanger: false });
     const session = sessionDepuisPayload((await verifierJeton(jeton))!);
     expect(session.perms).toEqual(permsToutes());
+  });
+});
+
+describe('session admin — doitChanger (M3-4 Lot B)', () => {
+  it('compte nommé doitChanger=true → présent et true dans la session', async () => {
+    const jeton = await signerJeton({ sub: 5, identifiant: 'lea', role: 'collaborateur', perms: permsAucune(), doitChanger: true });
+    const session = sessionDepuisPayload((await verifierJeton(jeton))!);
+    expect(session.doitChanger).toBe(true);
+  });
+
+  it('VOIE DE SECOURS (sub=null) : doitChanger FORCÉ à false même si on tente de le passer à true', async () => {
+    const jeton = await signerJeton({ sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger: true });
+    const payload = await verifierJeton(jeton);
+    expect(payload?.doitChanger).toBe(false); // forcé dès la signature
+    expect(sessionDepuisPayload(payload!).doitChanger).toBe(false);
+  });
+
+  it('jeton LEGACY sans doitChanger → false (tolérant : session ouverte non cassée)', async () => {
+    const legacy = await new SignJWT({ sub: '9', role: 'administrateur' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('8h')
+      .sign(new TextEncoder().encode(SECRET));
+    expect(sessionDepuisPayload((await verifierJeton(legacy))!).doitChanger).toBe(false);
   });
 });
 

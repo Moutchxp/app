@@ -13,6 +13,9 @@ export interface SessionAdmin {
   identifiant: string | null;
   role: RoleAdmin;
   perms: Perms;
+  // Drapeau de première connexion (M3-4 Lot B). true ⇒ l'utilisateur DOIT changer son mot de passe avant tout accès
+  // (redirection appliquée dans proxy.ts). VOIE DE SECOURS (sub=null) ⇒ TOUJOURS false (jamais piégée, règle d'or).
+  doitChanger: boolean;
 }
 
 /** Toutes permissions à true (administrateur, ou voie de secours). */
@@ -64,7 +67,9 @@ function cleSignature(): Uint8Array {
  * `sub === null` = VOIE DE SECOURS (mot de passe partagé) ; on ne pose alors pas la claim standard `sub`.
  */
 export async function signerJeton(session: SessionAdmin): Promise<string> {
-  const jwt = new SignJWT({ identifiant: session.identifiant, role: session.role, perms: session.perms })
+  // RÈGLE D'OR : sub=null (voie de secours) ⇒ doitChanger FORCÉ à false, jamais lu depuis l'appelant → jamais piégé.
+  const doitChanger = session.sub === null ? false : session.doitChanger;
+  const jwt = new SignJWT({ identifiant: session.identifiant, role: session.role, perms: session.perms, doitChanger })
     .setProtectedHeader({ alg: 'HS256' })
     .setJti(crypto.randomUUID())
     .setIssuedAt()
@@ -107,5 +112,10 @@ export function sessionDepuisPayload(payload: JWTPayload): SessionAdmin {
   const subNum = typeof payload.sub === 'string' && payload.sub !== '' ? Number(payload.sub) : null;
   const sub = subNum !== null && Number.isFinite(subNum) ? subNum : null;
   const identifiant = typeof payload.identifiant === 'string' ? payload.identifiant : null;
-  return { sub, identifiant, role, perms };
+  // doitChanger : voie de secours (sub=null) → false FORCÉ ; jeton LEGACY sans le champ → false (tolérant, fail-open
+  // ASSUMÉ sur ce seul champ : un jeton antérieur appartient à un compte déjà établi qui n'a pas à être piégé).
+  // Sinon la valeur signée. Conséquence acceptée (Q1=MVP) : remettre doit_changer=true en base n'affecte pas une
+  // session déjà ouverte (le drapeau vit dans le JWS pour ≤ 8 h) ; l'enforcement s'applique dès la prochaine connexion.
+  const doitChanger = sub === null ? false : payload.doitChanger === true;
+  return { sub, identifiant, role, perms, doitChanger };
 }

@@ -25,9 +25,9 @@ async function requete(session: SessionAdmin): Promise<Request> {
   });
 }
 
-const secours = (): SessionAdmin => ({ sub: null, identifiant: null, role: 'administrateur', perms: permsToutes() });
-const admin = (): SessionAdmin => ({ sub: 1, identifiant: 'a.jorel@sansvisavis.com', role: 'administrateur', perms: permsToutes() });
-const collab = (): SessionAdmin => ({ sub: 3, identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsAucune(), curation: true } });
+const secours = (): SessionAdmin => ({ sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger: false });
+const admin = (): SessionAdmin => ({ sub: 1, identifiant: 'a.jorel@sansvisavis.com', role: 'administrateur', perms: permsToutes(), doitChanger: false });
+const collab = (): SessionAdmin => ({ sub: 3, identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsAucune(), curation: true }, doitChanger: false });
 
 async function corps(res: Response) {
   return res.json();

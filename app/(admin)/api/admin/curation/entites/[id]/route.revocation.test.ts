@@ -30,7 +30,7 @@ describe('DELETE /api/admin/curation/entites/[id] — révocation avant destruct
     // Seule réponse mockée : le SELECT du garde. Toute écriture (DELETE) rappellerait query → non mocké.
     queryMock.mockResolvedValueOnce({ rows: [{ actif: true, role: 'collaborateur', perm: false }] });
 
-    const collab: SessionAdmin = { sub: 3, identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsAucune(), curation: true } };
+    const collab: SessionAdmin = { sub: 3, identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsAucune(), curation: true }, doitChanger: false };
     const res = await DELETE(await requeteDelete(collab), ctx);
 
     expect(res.status).toBe(403);
@@ -42,7 +42,7 @@ describe('DELETE /api/admin/curation/entites/[id] — révocation avant destruct
 
   it('compte désactivé → 403 et aucune suppression', async () => {
     queryMock.mockResolvedValueOnce({ rows: [{ actif: false, role: 'administrateur', perm: true }] });
-    const admin: SessionAdmin = { sub: 1, identifiant: 'a.jorel@sansvisavis.com', role: 'administrateur', perms: permsToutes() };
+    const admin: SessionAdmin = { sub: 1, identifiant: 'a.jorel@sansvisavis.com', role: 'administrateur', perms: permsToutes(), doitChanger: false };
     const res = await DELETE(await requeteDelete(admin), ctx);
     expect(res.status).toBe(403);
     expect(queryMock).toHaveBeenCalledTimes(1);

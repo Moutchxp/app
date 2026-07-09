@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     // ═══ VOIE DE SECOURS — à retirer au lot M3-5 après bascule ═══
     // Mot de passe partagé (app/lib/admin/password.ts) → accès administrateur complet, compte anonyme (sub=null).
     if (!motDePasseValide(password)) return echec();
-    session = { sub: null, identifiant: null, role: 'administrateur', perms: permsToutes() };
+    session = { sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger: false };
     // ═══ FIN VOIE DE SECOURS ═══
   } else {
     // Voie NOMMÉE : compte de admin_utilisateur. Verify TOUJOURS exécuté (hash réel si trouvé, leurre sinon) →
@@ -49,7 +49,13 @@ export async function POST(request: Request) {
     const motOk = await verifier(password, hash);
     if (!compte || !compte.actif || !motOk) return echec();
     await marquerConnexion(compte.id);
-    session = { sub: compte.id, identifiant: compte.identifiant, role: compte.role, perms: permsDuCompte(compte) };
+    session = {
+      sub: compte.id,
+      identifiant: compte.identifiant,
+      role: compte.role,
+      perms: permsDuCompte(compte),
+      doitChanger: compte.doit_changer_mot_de_passe, // M3-4 Lot B : le drapeau entre dans le JWS
+    };
   }
 
   const jeton = await signerJeton(session);

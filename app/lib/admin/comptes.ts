@@ -67,6 +67,12 @@ export async function trouverCompte(identifiant: string): Promise<CompteDB | nul
   return rows[0] ?? null;
 }
 
+/** Trouve un compte par id (clé immuable du JWS `sub`). `null` si absent (compte supprimé). */
+export async function trouverCompteParId(id: number): Promise<CompteDB | null> {
+  const { rows } = await query<CompteDB>(`${SELECT_COMPTE} WHERE id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
 /** Met à jour `derniere_connexion_a = now()` pour un compte (mono-ligne, sur succès de connexion). */
 export async function marquerConnexion(id: number): Promise<void> {
   await query(`UPDATE admin_utilisateur SET derniere_connexion_a = now() WHERE id = $1`, [id]);
@@ -131,6 +137,28 @@ export async function reinitialiserMotDePasse(identifiant: string, motDePasseCla
     [identifiant, h],
   );
   if (rows.length === 0) throw new ErreurCompte(`Aucun compte « ${identifiant} ».`);
+  return rows[0];
+}
+
+/**
+ * Changement de mot de passe SELF-SERVICE (M3-4 Lot B). Pose le nouveau HASH, ABAISSE `doit_changer_mot_de_passe`
+ * à false, et journalise `changement_mot_de_passe` avec `auteur_id = id` (l'utilisateur agit sur SON compte).
+ * Le clair n'apparaît jamais ici (seul le hash est reçu/écrit). Mono-ligne (WHERE id=$1) ; ErreurCompte si 0 ligne.
+ */
+export async function changerMotDePasseSelf(id: number, nouveauHash: string): Promise<ResultatCompte> {
+  const { rows } = await query<ResultatCompte>(
+    `WITH maj AS (
+       UPDATE admin_utilisateur SET mot_de_passe = $2, doit_changer_mot_de_passe = false
+        WHERE id = $1
+        RETURNING id, identifiant, role, actif
+     ), jrnl AS (
+       INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
+       SELECT 'changement_mot_de_passe', maj.id, maj.id, NULL, NULL FROM maj
+     )
+     SELECT id, identifiant, role, actif FROM maj`,
+    [id, nouveauHash],
+  );
+  if (rows.length === 0) throw new ErreurCompte(`Aucun compte (id=${id}).`);
   return rows[0];
 }
 
