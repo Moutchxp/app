@@ -104,6 +104,29 @@ const LIBELLE_ETAT: Record<EtatEntite, string> = {
   vert: 'Manuel / vérifié',
 };
 
+/**
+ * 4 seaux de statut de point GPS pour le filtre secondaire (multi-sélection). MUTUELLEMENT EXCLUSIFS : chaque
+ * entité tombe dans EXACTEMENT un seau. « Sans point GPS » PRIME sur « À placer » (dans l'état rouge, un point
+ * absent → `sans_point`, sinon `a_placer`). Dérivé de `etat` (etatEntite : liaisons actif && !detache) + de la
+ * nullité du point effectif (COALESCE(geom_point_corrige, geom_point)) — AUCUN recalcul de la règle, aucun SQL.
+ * Cohérent avec le visuel « cerclé » (dot--rouge = rouge sans point) déjà utilisé dans la liste.
+ */
+type StatutPoint = 'a_placer' | 'auto' | 'manuel' | 'sans_point';
+
+const STATUTS_POINT: { cle: StatutPoint; libelle: string }[] = [
+  { cle: 'a_placer', libelle: 'À placer' },
+  { cle: 'auto', libelle: 'Auto non vérifié' },
+  { cle: 'manuel', libelle: 'Manuel / vérifié' },
+  { cle: 'sans_point', libelle: 'Sans point GPS' },
+];
+
+/** Seau de statut d'une entité (exclusif). Réutilise `e.etat` et la nullité de `e.point` ; ne recalcule rien. */
+function seauStatut(e: Entite): StatutPoint {
+  if (e.etat === 'rouge') return e.point === null ? 'sans_point' : 'a_placer';
+  if (e.etat === 'orange') return 'auto';
+  return 'manuel'; // vert
+}
+
 const LIBELLE_FAMILLE: Record<string, string> = {
   mondial: 'Mondial',
   mh: 'MH',
@@ -273,6 +296,13 @@ export default function CurationCarte() {
     mondial: true,
     mh: true,
     inventaire: true,
+  });
+  // Filtre SECONDAIRE (statut de point GPS), cumulatif avec les familles, tout coché par défaut (même patron).
+  const [statutsVisibles, setStatutsVisibles] = useState<Record<StatutPoint, boolean>>({
+    a_placer: true,
+    auto: true,
+    manuel: true,
+    sans_point: true,
   });
   const [recherche, setRecherche] = useState('');
   const [selectionId, setSelectionId] = useState<number | null>(null);
@@ -819,10 +849,13 @@ export default function CurationCarte() {
     [borneOuverture, recharger, signaler, refermerCarte],
   );
 
-  // ── Entités affichables sur la carte (point non nul + famille visible). ──────
+  // ── Entités affichables sur la carte (point non nul + famille visible + statut visible). ──────
   const entitesAvecPoint = useMemo(
-    () => (entites ?? []).filter((e) => e.point !== null && famillesVisibles[e.famille] !== false),
-    [entites, famillesVisibles],
+    () =>
+      (entites ?? []).filter(
+        (e) => e.point !== null && famillesVisibles[e.famille] !== false && statutsVisibles[seauStatut(e)] !== false,
+      ),
+    [entites, famillesVisibles, statutsVisibles],
   );
 
   // ── (Re)dessin des marqueurs quand entités / filtres / sélection changent. ────
@@ -1035,12 +1068,13 @@ export default function CurationCarte() {
     const q = recherche.trim().toLowerCase();
     return (entites ?? [])
       .filter((e) => e.id !== composition) // FC-20/FC-74 : l'entité en composition est dans la zone haute, hors liste
-      .filter((e) => famillesVisibles[e.famille] !== false)
+      .filter((e) => famillesVisibles[e.famille] !== false) // filtre PRIORITAIRE : famille
+      .filter((e) => statutsVisibles[seauStatut(e)] !== false) // filtre SECONDAIRE cumulatif : statut de point GPS
       .filter((e) => {
         if (!q) return true;
         return (e.nom ?? '').toLowerCase().includes(q) || e.refCode.toLowerCase().includes(q);
       });
-  }, [entites, famillesVisibles, recherche, composition]);
+  }, [entites, famillesVisibles, statutsVisibles, recherche, composition]);
 
   const compteurs: Compteurs = useMemo(() => {
     const base = (entites ?? []).filter((e) => famillesVisibles[e.famille] !== false);
@@ -1068,8 +1102,13 @@ export default function CurationCarte() {
           <button
             type="button"
             className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
-            aria-pressed={journal?.mode === 'global'}
+            aria-expanded={journal?.mode === 'global'}
+            aria-controls="svv-cur-journal"
             onClick={() => {
+              if (journal?.mode === 'global') {
+                setJournal(null); // BASCULE : reclic sur « Historique » (volet global déjà ouvert) → ferme
+                return;
+              }
               setJournalFamille('toutes');
               setJournalOrdre('desc');
               setJournalOffset(0);
@@ -1262,6 +1301,22 @@ export default function CurationCarte() {
                   onChange={(ev) => setFamillesVisibles((v) => ({ ...v, [f.cle]: ev.target.checked }))}
                 />
                 <span>{f.libelle}</span>
+              </label>
+            ))}
+          </fieldset>
+
+          {/* Filtre SECONDAIRE : statut du point GPS (multi-sélection, cumulatif avec les familles). Agit sur la
+              carte et la liste uniquement (l'historique garde son propre filtre famille). */}
+          <fieldset className="svv-cur-filtres">
+            <legend className="svv-cur-legende">Statut du point</legend>
+            {STATUTS_POINT.map((s) => (
+              <label key={s.cle} className="svv-cur-check">
+                <input
+                  type="checkbox"
+                  checked={statutsVisibles[s.cle] !== false}
+                  onChange={(ev) => setStatutsVisibles((v) => ({ ...v, [s.cle]: ev.target.checked }))}
+                />
+                <span>{s.libelle}</span>
               </label>
             ))}
           </fieldset>
@@ -1553,7 +1608,7 @@ export default function CurationCarte() {
           </div>
 
           {journal && (
-            <aside className="svv-cur-journal" aria-label="Historique du journal">
+            <aside id="svv-cur-journal" className="svv-cur-journal" aria-label="Historique du journal">
               <div className="svv-cur-journal-tete">
                 <strong className="svv-cur-journal-titre">
                   {journal.mode === 'global'
@@ -1682,6 +1737,7 @@ const CSS = `
 .svv-cur-map-canvas{width:100%;height:100%}
 /* Journal empilé sous la carte (volet A / B). */
 .svv-cur-journal{flex:0 0 45%;min-height:0;display:flex;flex-direction:column;border:1px solid var(--color-svv-line);border-radius:.7rem;overflow:hidden;background:#fff;transition:opacity .15s ease}
+@media (prefers-reduced-motion: reduce){.svv-cur-journal{transition:none}}
 .svv-cur-journal-tete{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.4rem .55rem;border-bottom:1px solid var(--color-svv-line);background:var(--color-svv-field)}
 .svv-cur-journal-titre{font-size:.85rem;font-weight:800;color:var(--color-svv-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .svv-cur-journal-corps{flex:1 1 auto;min-height:0;overflow:auto;padding:.35rem .55rem}
