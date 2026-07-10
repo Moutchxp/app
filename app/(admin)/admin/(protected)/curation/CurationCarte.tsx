@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { estCarteModifiee, modeFooter } from './curationEdition';
+import { contenuBulleAnnee, doitCreerAuDoubleClic } from './bulleAnnee';
 import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, libelleSession, nomAffiche, type LigneJournal } from './journalRendu';
 
 /** Taille de page du volet global de l'historique (HJ-44). */
@@ -64,6 +65,9 @@ interface Compteurs {
 interface Emprise {
   cleabs: string | null;
   geom: GeoJSON.Geometry | null;
+  // Année de construction (bdnb_annee_batiment) — aide UI (bulle), `null` si non renseignée. Jamais
+  // consommée par un calcul de score/verdict (la carte n'en fait AUCUN, cf. en-tête du composant).
+  annee?: number | null;
 }
 
 /** Tag manuel = 1 étoile persistante (centroïde 4326 de son 1er polygone). */
@@ -333,6 +337,9 @@ export default function CurationCarte() {
   const [emprises, setEmprises] = useState<Emprise[]>([]);
   const [emprisesLiees, setEmprisesLiees] = useState<Emprise[]>([]);
   const [emprisesFond, setEmprisesFond] = useState<Emprise[]>([]); // bâtiments bbox (hover + dblclick créer)
+  // Mode « Années de construction » : bulle d'info au survol (desktop) / tap (mobile) sur un bâtiment de
+  // fond. INACTIF par défaut ; actif → SUSPEND la création par double-clic (cf. doitCreerAuDoubleClic).
+  const [modeBulle, setModeBulle] = useState(false);
   const [tagsManuels, setTagsManuels] = useState<TagManuel[]>([]); // étoiles persistantes (centroïdes)
   const [enEcriture, setEnEcriture] = useState(false);
   const [flashId, setFlashId] = useState<number | null>(null);
@@ -513,9 +520,16 @@ export default function CurationCarte() {
       attribution: '© OpenStreetMap',
     }).addTo(map);
     mapRef.current = map;
-    // Ordre d'empilement (overlayPane) : fond EN DESSOUS, puis le vert PERSISTANT des tags manuels, puis les
-    // emprises bleu/vert de la sélection AU-DESSUS (elles interceptent le clic si une entité est sélectionnée).
-    // Marqueurs + étoiles = markerPane (toujours au-dessus → l'étoile capte son double-clic).
+    // Ordre d'empilement : le FOND vit dans un pane DÉDIÉ sous l'overlayPane (zIndex 350 < 400) → il reste
+    // TOUJOURS sous les emprises bleu/vert de la sélection (overlayPane), quel que soit l'ordre de
+    // reconstruction des couches (le simple ordre d'ajout des layerGroup ne le garantirait PAS : les paths
+    // GeoJSON partagent un même SVG et s'empilent par ordre d'insertion DOM — un rebuild du fond après une
+    // bascule du mode bulle le ferait remonter au-dessus des candidates et VOLERAIT le clic de rattachement).
+    // Le pane garantit la priorité du rattachement/détachement en toute circonstance. Marqueurs + étoiles =
+    // markerPane (toujours au-dessus → l'étoile capte son double-clic).
+    map.createPane('svv-cur-fond');
+    const paneFond = map.getPane('svv-cur-fond');
+    if (paneFond) paneFond.style.zIndex = '350';
     coucheFondRef.current = L.layerGroup().addTo(map);
     coucheEtoilesRef.current = L.layerGroup().addTo(map);
     coucheMarqueursRef.current = L.layerGroup().addTo(map);
@@ -975,6 +989,10 @@ export default function CurationCarte() {
 
   // ── Correction B : couche de fond des bâtiments (transparente au repos, contour au survol),
   //    double-clic = ouvrir « Nouveau tag » ciblé. SOUS les couches bleu/vert (qui interceptent si sélection). ─
+  //    Mode bulle ACTIF : bulle « année » au survol (desktop) ET au clic/tap (mobile, via bindPopup) — la
+  //    VALEUR n'est donc jamais hover-only. Le double-clic de création est SUSPENDU (doitCreerAuDoubleClic).
+  //    Le rattachement (couche bleue au-dessus) garde sa priorité : sur une entité sélectionnée, le clic
+  //    atteint la couche bleue avant le fond → aucune bulle sur les candidates (curation prioritaire). ─
   useEffect(() => {
     const couche = coucheFondRef.current;
     if (!couche) return;
@@ -984,14 +1002,35 @@ export default function CurationCarte() {
       const cleabs = emp.cleabs;
       const layer = L.geoJSON(emp.geom, {
         interactive: true,
+        pane: 'svv-cur-fond', // pane bas dédié → toujours SOUS les emprises bleu/vert (priorité rattachement)
         style: { stroke: false, fill: true, fillColor: '#a30402', fillOpacity: 0 },
       });
       layer.on('mouseover', () => layer.setStyle({ stroke: true, color: '#a30402', weight: 1, fillOpacity: 0.06 }));
       layer.on('mouseout', () => layer.setStyle({ stroke: false, fillOpacity: 0 }));
-      layer.on('dblclick', () => ouvrirCreationCiblee(cleabs));
+      // Création par double-clic : gardée par la règle pure (suspendue quand le mode bulle est actif).
+      layer.on('dblclick', () => {
+        if (doitCreerAuDoubleClic(modeBulle)) ouvrirCreationCiblee(cleabs);
+      });
+      if (modeBulle) {
+        // bindPopup ouvre la bulle au CLIC/TAP (mobile). `closeButton:false` + `autoPan:false` = bulle
+        // sobre qui ne déplace pas la carte ; se ferme au clic ailleurs (closeOnClick par défaut).
+        layer.bindPopup(contenuBulleAnnee(emp.annee), {
+          className: 'svv-cur-bulle-popup',
+          closeButton: false,
+          autoPan: false,
+        });
+        layer.on('mouseover', () => layer.openPopup()); // desktop : survol → bulle
+        layer.on('mouseout', () => layer.closePopup()); // se ferme au mouseout
+      }
       layer.addTo(couche);
     }
-  }, [emprisesFond, ouvrirCreationCiblee]);
+  }, [emprisesFond, ouvrirCreationCiblee, modeBulle]);
+
+  // ── Mode bulle désactivé : referme toute bulle encore ouverte (le rebuild ci-dessus retire déjà les
+  //    popups liés, ce close est un filet de sécurité au basculement). ─
+  useEffect(() => {
+    if (!modeBulle) mapRef.current?.closePopup();
+  }, [modeBulle]);
 
   // ── Overlay TAGS MANUELS : ÉTOILES depuis `tagsManuels` (centroïdes, PERSISTANTES à tout zoom,
   //    indépendantes de la bbox — corrige la disparition au dézoom). Le vert des liaisons n'est plus
@@ -1363,6 +1402,26 @@ export default function CurationCarte() {
               </label>
             ))}
           </fieldset>
+
+          {/* Affichage : bulle « année de construction » sur les bâtiments de fond (aide, LECTURE SEULE).
+              Bascule (aria-pressed) ; état perceptible SANS couleur : forme ●/○ + libellé Activé/Masqué. */}
+          <div className="svv-cur-bulle-ctrl">
+            <button
+              type="button"
+              className={`svv-cur-btn svv-cur-bulle-toggle${modeBulle ? '' : ' svv-cur-btn--outline'}`}
+              aria-pressed={modeBulle}
+              aria-describedby="svv-cur-bulle-aide"
+              onClick={() => setModeBulle((v) => !v)}
+            >
+              <span className="svv-cur-bulle-etat" aria-hidden="true">{modeBulle ? '●' : '○'}</span>
+              <span className="svv-cur-bulle-lib">Années de construction</span>
+              <span className="svv-cur-bulle-mot">{modeBulle ? 'Activé' : 'Masqué'}</span>
+            </button>
+            <p id="svv-cur-bulle-aide" className="svv-cur-bulle-aide-txt">
+              Survolez (ou touchez) un bâtiment pour voir son année. Source : Base de Données Nationale
+              des Bâtiments (BDNB) — couverture partielle, souvent absente dans Paris.
+            </p>
+          </div>
 
           {/* Compteurs par état (EX-4). */}
           <div className="svv-cur-compteurs" aria-label="Compteurs par état">
@@ -1834,6 +1893,23 @@ const CSS = `
 .svv-cur-legende{font-size:.68rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--color-svv-muted);padding:0;margin-right:.3rem}
 .svv-cur-check{display:inline-flex;align-items:center;gap:.35rem;min-height:44px;font-size:.85rem;color:var(--color-svv-ink);font-weight:600;cursor:pointer}
 .svv-cur-check input{width:18px;height:18px;accent-color:var(--color-svv-red)}
+
+/* Bascule « Années de construction » : rouge plein = activé (primaire), gris contour = masqué (neutre) ;
+   AUCUN bleu. État aussi porté par la forme ●/○ et le mot Activé/Masqué (perceptible sans couleur). */
+.svv-cur-bulle-ctrl{display:flex;flex-direction:column;gap:.3rem}
+/* Sélecteur à 2 classes (.svv-cur-btn.svv-cur-bulle-toggle) : bat .svv-cur-btn (min-height:36px, déclaré
+   plus bas) pour garantir la cible tactile ≥ 44px. */
+.svv-cur-btn.svv-cur-bulle-toggle{display:flex;align-items:center;gap:.4rem;width:100%;justify-content:flex-start;min-height:44px}
+.svv-cur-bulle-etat{font-size:.7rem;line-height:1;flex:0 0 auto}
+.svv-cur-bulle-lib{flex:1 1 auto;text-align:left}
+.svv-cur-bulle-mot{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;flex:0 0 auto;opacity:.9}
+.svv-cur-bulle-toggle:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.svv-cur-bulle-aide-txt{margin:0;font-size:.72rem;line-height:1.35;color:var(--color-svv-muted)}
+/* Bulle Leaflet (popup) : sobre, sans fade sous prefers-reduced-motion. Sélecteur à 3 classes
+   (.leaflet-fade-anim .svv-cur-bulle-popup.leaflet-popup) → bat le défaut Leaflet indépendamment de
+   l'ordre d'import des feuilles de style. */
+.svv-cur-bulle{font-size:.82rem;font-weight:600;color:var(--color-svv-ink)}
+@media (prefers-reduced-motion:reduce){.leaflet-fade-anim .svv-cur-bulle-popup.leaflet-popup{transition:none}}
 
 .svv-cur-compteurs{display:flex;flex-wrap:wrap;gap:.4rem}
 .svv-cur-compteur{display:inline-flex;align-items:center;gap:.3rem;background:var(--color-svv-field);border-radius:999px;padding:.25rem .55rem;font-size:.8rem;color:var(--color-svv-gray)}

@@ -51,6 +51,12 @@ export type EtatEntite = 'rouge' | 'orange' | 'vert';
 export interface LigneEmpriseDB {
   cleabs: string | null;
   geom: string | null;
+  /**
+   * Année de construction (`bdnb_annee_batiment.annee_construction`, LEFT JOIN par `cleabs`, 1:0/1) —
+   * `null` si non renseignée OU non sélectionnée par la requête (route « emprises rattachées » : absente).
+   * LECTURE SEULE, aide UI (bulle d'information) ; n'entre dans AUCUN calcul de score ni de verdict.
+   */
+  annee?: number | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -155,7 +161,12 @@ export function lireBbox(
   return { minlon, minlat, maxlon, maxlat };
 }
 
-/** Emprise base → objet de réponse (`cleabs` + géométrie GeoJSON parsée). */
+/** Emprise base → objet de réponse (`cleabs` + géométrie GeoJSON parsée + année si sélectionnée). */
 export function versEmprise(r: LigneEmpriseDB) {
-  return { cleabs: r.cleabs, geom: r.geom ? (JSON.parse(r.geom) as unknown) : null };
+  return {
+    cleabs: r.cleabs,
+    geom: r.geom ? (JSON.parse(r.geom) as unknown) : null,
+    // `?? null` : les routes qui ne sélectionnent PAS l'année (emprises rattachées) renvoient `undefined` → `null`.
+    annee: r.annee ?? null,
+  };
 }

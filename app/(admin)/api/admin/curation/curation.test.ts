@@ -20,8 +20,9 @@ import { POST as POST_ANNULER } from './entites/[id]/annuler-edition/route';
 import { GET as GET_BORNE } from './entites/[id]/borne/route';
 import { GET as GET_JOURNAL } from './journal/route';
 import { GET as GET_ENTITE_JOURNAL } from './entites/[id]/journal/route';
-import { versEntite, type LigneEntiteDB } from './partage';
+import { versEntite, versEmprise, type LigneEntiteDB, type LigneEmpriseDB } from './partage';
 import { GET as GET_TAGS } from './tags-manuels/route';
+import { GET as GET_EMPRISES } from './emprises/route';
 import { PATCH as PATCH_POINT, DELETE as DELETE_POINT } from './entites/[id]/point/route';
 import { POST as POST_LIAISON, DELETE as DELETE_LIAISON, PATCH as PATCH_LIAISON } from './entites/[id]/liaisons/route';
 
@@ -80,6 +81,70 @@ describe('GET /api/admin/curation/tags-manuels', () => {
     queryMock.mockRejectedValue(new Error('db down'));
     const res = await GET_TAGS();
     expect(res.status).toBe(503);
+  });
+});
+
+describe('GET /api/admin/curation/emprises (bbox + année de construction)', () => {
+  const reqEmprises = (qs: string) =>
+    new Request(`http://localhost/api/admin/curation/emprises${qs}`, { method: 'GET' });
+  const BBOX = '?minlon=2.26&minlat=48.90&maxlon=2.29&maxlat=48.92';
+
+  it('SELECT en LEFT JOIN bdnb_annee_batiment + annee_construction AS annee (aucune requête N+1)', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await GET_EMPRISES(reqEmprises(BBOX));
+    // UNE seule requête SQL (la donnée voyage avec le GeoJSON, jamais une requête par polygone).
+    expect(sqlsEmis().length).toBe(1);
+    const sql = sqlsEmis()[0];
+    // LEFT JOIN (n'exclut aucun bâtiment sans année) + colonne année, patron `obstacles.ts`.
+    expect(/LEFT JOIN bdnb_annee_batiment ba ON ba\.cleabs = b\.cleabs/.test(sql)).toBe(true);
+    expect(/ba\.annee_construction AS annee/.test(sql)).toBe(true);
+    // JAMAIS un INNER JOIN (exclurait les bâtiments sans année).
+    expect(/INNER JOIN bdnb_annee_batiment/.test(sql)).toBe(false);
+    // ST_Force2D conservé (invariant), lecture seule (aucune écriture).
+    expect(/ST_Force2D/.test(sql)).toBe(true);
+    expect(ecritureEmise()).toBe(false);
+  });
+
+  it('renvoie annee (number) quand renseignée, et null quand absente — sans exclure la ligne', async () => {
+    queryMock.mockResolvedValue({
+      rows: [
+        { cleabs: 'BAT_AVEC', geom: '{"type":"Point","coordinates":[2.27,48.91]}', annee: 1954 },
+        { cleabs: 'BAT_SANS', geom: '{"type":"Point","coordinates":[2.28,48.91]}', annee: null },
+      ],
+    });
+    const res = await GET_EMPRISES(reqEmprises(BBOX));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // Les DEUX bâtiments sont présents (le sans-année n'est jamais filtré).
+    expect(body.emprises).toHaveLength(2);
+    expect(body.emprises[0]).toMatchObject({ cleabs: 'BAT_AVEC', annee: 1954 });
+    expect(body.emprises[1]).toMatchObject({ cleabs: 'BAT_SANS', annee: null });
+  });
+
+  it('bbox invalide → 422 + AUCUNE requête', async () => {
+    const res = await GET_EMPRISES(reqEmprises('?minlon=nope'));
+    expect(res.status).toBe(422);
+    expect(sqlsEmis().length).toBe(0);
+  });
+
+  it('query rejette → 503', async () => {
+    queryMock.mockRejectedValue(new Error('db down'));
+    expect((await GET_EMPRISES(reqEmprises(BBOX))).status).toBe(503);
+  });
+});
+
+describe('versEmprise (mapping année)', () => {
+  it('mappe annee renseignée', () => {
+    const r: LigneEmpriseDB = { cleabs: 'C1', geom: null, annee: 1900 };
+    expect(versEmprise(r).annee).toBe(1900);
+  });
+  it('annee absente du SELECT (undefined) → null (route emprises rattachées)', () => {
+    const r: LigneEmpriseDB = { cleabs: 'C1', geom: null };
+    expect(versEmprise(r).annee).toBeNull();
+  });
+  it('annee explicitement null → null', () => {
+    const r: LigneEmpriseDB = { cleabs: 'C1', geom: null, annee: null };
+    expect(versEmprise(r).annee).toBeNull();
   });
 });
 
