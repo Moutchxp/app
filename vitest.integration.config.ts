@@ -10,6 +10,11 @@ export default defineConfig({
     // L'analyse complète (61 faisceaux + LiDAR du couloir principal) lit beaucoup
     // de raster ; ~5-6 s par test. Au-delà du défaut vitest (5 s).
     testTimeout: 60000,
+    // Les itests frappent TOUS la MÊME base PostgreSQL de dev. En parallèle, plusieurs fichiers se
+    // disputent le pool `db/client` partagé et peuvent interférer (contention, fixtures concurrentes) →
+    // flakiness. On exécute donc les FICHIERS d'intégration SÉQUENTIELLEMENT (le golden domine de toute
+    // façon le temps mural ; coût négligeable) pour une base isolée par fichier et des résultats stables.
+    fileParallelism: false,
   },
   resolve: {
     alias: {

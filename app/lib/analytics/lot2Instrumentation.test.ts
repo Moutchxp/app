@@ -37,8 +37,8 @@ describe('GARDE — un import ROUTE → writer est AUTORISÉ (la garde ne vise q
   }, 120000);
 });
 
-describe('SEUIL k — posé en config (020), branché NULLE PART dans le lot 2', () => {
-  it('aucun fichier de code du dépôt (hors tests) ne lit le seuil k-anonymat', () => {
+describe('SEUIL k — lu UNIQUEMENT par la couche de lecture (lot 4), jamais par l’instrumentation/le moteur', () => {
+  it('le seuil k-anonymat n’apparaît QUE sous app/lib/analytics/lecture/ (application à la restitution)', () => {
     // Marqueur reconstruit → ce fichier de test ne s'auto-matche pas.
     const marqueur = ['k', 'anonymat'].join('_');
     const trouves: string[] = [];
@@ -56,9 +56,12 @@ describe('SEUIL k — posé en config (020), branché NULLE PART dans le lot 2',
         }
       }
     }
-    walk(RACINE); // repo ENTIER (hors node_modules/tests) : un futur lecteur de k sous db/, scripts/… serait aussi capté
-    // Le seuil ne vit QUE dans db/migrations/020 + le rapport — jamais dans le chemin d'écriture.
-    expect(trouves).toEqual([]);
+    walk(RACINE); // repo ENTIER (hors node_modules/tests)
+    // Depuis le LOT 4, le seuil k est APPLIQUÉ à la restitution → il vit dans la couche de LECTURE. Il ne
+    // doit apparaître NULLE PART ailleurs (ni instrumentation lot 2, ni moteur, ni writer). On vérifie donc
+    // que tout fichier le lisant est bien sous `app/lib/analytics/lecture/` (et jamais dans le chemin d'écriture).
+    const horsLecture = trouves.filter((f) => !f.replace(/\\/g, '/').includes('lib/analytics/lecture/'));
+    expect(horsLecture, `k-anonymat lu hors de la couche de lecture : ${horsLecture.join(', ')}`).toEqual([]);
   });
 });
 
