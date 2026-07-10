@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
-export type SuggestionAdresse = { label: string; lat: number; lon: number };
+// `citycode` = code INSEE de la commune (fourni par la BAN) — capté pour l'analytique M2 (grain commune,
+// jamais la position exacte). Optionnel : une suggestion sans citycode reste valide.
+export type SuggestionAdresse = { label: string; lat: number; lon: number; citycode?: string };
 
 // Champ d'adresse avec autocomplétion BAN (api-adresse.data.gouv.fr), AUTONOME et sans aucune
 // logique carte. Le débounce (300 ms), l'appel réseau et la liste de suggestions sont internes.
@@ -20,22 +22,21 @@ export function AdresseAutocomplete({ value, onChange, onSelect, placeholder }: 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function fetchSuggestions(q: string) {
-    type BanFeature = { properties?: { label?: string }; geometry?: { coordinates?: number[] } };
+    type BanFeature = { properties?: { label?: string; citycode?: string }; geometry?: { coordinates?: number[] } };
     try {
       const res = await fetch(
         `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=5&autocomplete=1`,
       );
       const data: { features?: BanFeature[] } = await res.json();
-      const items = (data.features ?? [])
-        .map((f) => ({
-          label: f.properties?.label ?? "",
-          lon: f.geometry?.coordinates?.[0],
-          lat: f.geometry?.coordinates?.[1],
-        }))
-        .filter(
-          (s): s is SuggestionAdresse =>
-            s.label !== "" && typeof s.lat === "number" && typeof s.lon === "number",
-        );
+      const items: SuggestionAdresse[] = [];
+      for (const f of data.features ?? []) {
+        const label = f.properties?.label ?? "";
+        const lon = f.geometry?.coordinates?.[0];
+        const lat = f.geometry?.coordinates?.[1];
+        if (label !== "" && typeof lat === "number" && typeof lon === "number") {
+          items.push({ label, lat, lon, citycode: f.properties?.citycode });
+        }
+      }
       setSuggestions(items);
     } catch {
       setSuggestions([]);

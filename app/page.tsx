@@ -21,8 +21,24 @@ import {
   libelleScore,
   assemblerBadges,
 } from "./lib/libelles";
+// M2 (LOT 2) — émission analytique CLIENT best-effort (fire-and-forget, jamais bloquant). Aucun import
+// serveur : `mesureClient` ne fait que POSTer au beacon /api/mesure.
+import { mesure } from "./lib/analytics/mesureClient";
 
 type Etape = "accueil" | "etapes" | "consentement" | "photo" | "localisation" | "orientation" | "infos" | "resultat" | "certificat";
+
+// Mappe l'écran UI → étape du tunnel de l'analytique (enum 018 : intro/localisation/photo/axe/
+// infos_logement/analyse/resultat). Les écrans hors funnel (accueil, consentement, certificat) ne sont
+// pas mappés → aucun `etape_atteinte` émis pour eux. ⚠️ Dans l'UI actuelle, l'écran « photo » précède
+// « localisation » (cf. ordre réel des setEtape) — le rang de progression suit cet ordre côté serveur.
+const ECRAN_VERS_ETAPE: Partial<Record<Etape, string>> = {
+  etapes: "intro",
+  photo: "photo",
+  localisation: "localisation",
+  orientation: "axe",
+  infos: "infos_logement",
+  resultat: "resultat",
+};
 
 // Forme (partielle) de la réponse succès de /api/analyse (cf. app/api/analyse/route.ts).
 interface ReponseAnalyse {
@@ -675,7 +691,7 @@ function EcranResultat({
               <SceauCertifie className="h-7 w-auto shrink-0 text-white" />
               Obtenir mon certificat
             </button>
-            <button type="button" onClick={todoEcranAVenir} className="svv-btn svv-btn-outline mt-3">
+            <button type="button" onClick={() => { mesure("clic_estimation"); todoEcranAVenir(); }} className="svv-btn svv-btn-outline mt-3">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 3v18h18" />
                 <rect x="7" y="11" width="3" height="7" />
@@ -693,7 +709,7 @@ function EcranResultat({
               </svg>
               Refaire le test
             </button>
-            <button type="button" onClick={todoEcranAVenir} className="svv-btn svv-btn-outline mt-3">
+            <button type="button" onClick={() => { mesure("clic_estimation"); todoEcranAVenir(); }} className="svv-btn svv-btn-outline mt-3">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 11l9-7 9 7" />
                 <path d="M5 10v10h14V10" />
@@ -1150,6 +1166,19 @@ export default function Home() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [etape]);
+  // M2 (LOT 2) — commune INSEE captée à la sélection d'adresse (BAN citycode) ; jamais la position exacte.
+  const [communeInsee, setCommuneInsee] = useState<string | null>(null);
+  const sessionDebutee = useRef(false);
+  // Émission analytique best-effort : `session_debut` UNE fois (arrivée), `etape_atteinte` à chaque
+  // entrée d'un écran de funnel. Fire-and-forget — n'affecte jamais le rendu ni le parcours.
+  useEffect(() => {
+    if (!sessionDebutee.current) {
+      sessionDebutee.current = true;
+      mesure("session_debut", { provenance: true });
+    }
+    const et = ECRAN_VERS_ETAPE[etape];
+    if (et) mesure("etape_atteinte", { etape: et });
+  }, [etape]);
   const [address, setAddress] = useState("");
   const [addressInfo, setAddressInfo] = useState(""); // message d'info SOUS le champ, jamais dans sa valeur
   const [positionGPSObtenue, setPositionGPSObtenue] = useState(false); // AFFICHAGE seul : libellé adresse
@@ -1169,6 +1198,21 @@ export default function Home() {
   // en_cours = analyse photo lancée ; complet = score enrichi reçu ; indisponible = pas de photo / échec / timeout
   // Étape animée de la checklist « Analyse en cours » (présentation seule, pas le pipeline).
   const [analyseEtape, setAnalyseEtape] = useState(0);
+  // M2 (LOT 2) — abandon AVEC cause : émet `point_origine_refuse` quand la validation se fige sur un statut
+  // NON valide APRÈS déplacement du point, dédupliqué par statut (pas de sur-comptage sur chaque moveend).
+  // hors_emprise = point hors/sans bâtiment. (non_deplace / hors_lidar : couverture partielle, cf. rapport.)
+  const dernierRefus = useRef<string | null>(null);
+  useEffect(() => {
+    const statut = origine.resultat?.statut;
+    if (!pointDeplace || !statut || statut === "VALIDE") {
+      dernierRefus.current = null;
+      return;
+    }
+    if ((statut === "HORS_BATIMENT" || statut === "SANS_BATIMENT") && dernierRefus.current !== statut) {
+      dernierRefus.current = statut;
+      mesure("point_origine_refuse", { raison: "hors_emprise" });
+    }
+  }, [origine.resultat?.statut, pointDeplace]);
 
   // Minuteur d'animation (présentation seule) : coche une à une les 5 PREMIÈRES étapes.
   // Délai par étape DOUBLÉ (~1400 ms) — les étapes intermédiaires défilent plus lentement.
@@ -1360,9 +1404,13 @@ export default function Home() {
   // Sélection d'une suggestion d'adresse (BAN) : effets de bord CARTE (Home uniquement) — recentrage
   // + anti-reverse. La saisie/débounce/fetch/liste sont dans <AdresseAutocomplete> ; ce handler n'y est
   // appelé que via la prop onSelect.
-  function onSelectAdresse(s: { label: string; lat: number; lon: number }) {
+  function onSelectAdresse(s: { label: string; lat: number; lon: number; citycode?: string }) {
     setAddress(s.label);
     setAddressInfo(""); // efface "Position introuvable…"
+    // M2 (LOT 2) — commune INSEE (BAN) mémorisée pour `point_origine_place` ; JAMAIS la position exacte.
+    // `adresse_saisie` émis best-effort (aucune propriété : jamais l'adresse elle-même).
+    setCommuneInsee(typeof s.citycode === "string" ? s.citycode : null);
+    mesure("adresse_saisie");
     // Anti-écrasement : saute le reverse-geocode du moveend déclenché par le recentrage.
     ignoreNextReverseRef.current = true;
     // Filet : désarme le flag si aucun moveend ne survient (adresse ~ au centre actuel).
@@ -1843,8 +1891,9 @@ export default function Home() {
         // 1. On fige la photo immédiatement
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
         setPhoto(canvas.toDataURL("image/jpeg"));
-        setCapturedOrientation(angles.heading); 
-        
+        setCapturedOrientation(angles.heading);
+        mesure("photo_prise"); // M2 (LOT 2) — jamais la photo ni le GPS, juste le fait qu'une photo est prise
+
         // 2. On éteint proprement le flux caméra
         stopCamera();
 
@@ -1900,6 +1949,10 @@ export default function Home() {
 
     // Tout est bon : bascule sur l'écran résultat en mode chargement.
     setAnalyseErreur(null);
+    // M2 (LOT 2) — lancement du calcul + montée de la session à l'étape « analyse ». Le verdict lui-même
+    // (événement `resultat`) est émis CÔTÉ SERVEUR par /api/analyse (post-réponse), jamais ici.
+    mesure("analyse_lancee");
+    mesure("etape_atteinte", { etape: "analyse" });
     setAnalyse(null);
     setEtatPhoto("en_cours"); // repart propre : analyse photo lancée dès la phase 1
     setAnalyseEnCours(true);
@@ -2563,6 +2616,9 @@ export default function Home() {
       type="button"
       onClick={() => {
         origine.confirmer(position.latitude, position.longitude);
+        // M2 (LOT 2) — point validé (le bouton n'est actif QUE si statut VALIDE). Commune = citycode BAN
+        // capté à la saisie d'adresse, JAMAIS la position exacte.
+        mesure("point_origine_place", communeInsee ? { commune: communeInsee } : {});
         setEtape("orientation");
       }}
       disabled={!pointDeplace || origine.resultat?.statut !== "VALIDE" || !!origine.valide}
@@ -3029,7 +3085,7 @@ export default function Home() {
         lon={origine.valide?.lon ?? position.longitude}
         azimutDeg={azimutAjuste}
         etatPhoto={etatPhoto}
-        onObtenirCertificat={() => setEtape("certificat")}
+        onObtenirCertificat={() => { mesure("clic_certificat"); setEtape("certificat"); }}
         onRecommencer={() => setEtape("accueil")}
         onRefaireTest={() => {
           reinitialiserCapteurs();             // repart d'un état niveau propre (évite le déclencheur grisé)
