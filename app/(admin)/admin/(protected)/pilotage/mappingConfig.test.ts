@@ -69,10 +69,21 @@ describe('mappingConfig — métadonnées d’édition (M1)', () => {
     const nonEditables = new Set([
       'id',
       'boost_f2', 'forfait_cone_central', 'forfait_extremites', 'cone_f3_demi_angle_deg', 'natures_remarquables',
+      'analysis_range_m', // MIROIR verrouillé (garde-fou intangible) — non éditable, mais PAS vestigiale
     ]);
     for (const m of META) {
       if (!nonEditables.has(m.colonne)) expect(m.editable, m.colonne).toBe(true);
     }
+  });
+
+  it('analysis_range_m est VERROUILLÉE : editable=false ET statut reste MIROIR (jamais VESTIGIALE)', () => {
+    const m = META.find((x) => x.colonne === 'analysis_range_m');
+    expect(m).toBeDefined();
+    // Les DEUX doivent tenir : un futur refactor ne doit ni la rendre éditable, ni la basculer en VESTIGIALE.
+    expect(m!.editable).toBe(false);
+    expect(m!.statut).toBe('MIROIR');
+    // Elle n'est PAS vestigiale → ne tombera pas dans la section repliée (le front filtre sur ce flag).
+    expect(m!.statut).not.toBe('VESTIGIALE');
   });
 
   it('les 5 VESTIGIALE « Héritage » sont bien VESTIGIALE et non éditables', () => {

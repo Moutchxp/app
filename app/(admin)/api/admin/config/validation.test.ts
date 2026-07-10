@@ -56,10 +56,20 @@ describe('validerPatch — rejets', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('float sur `analysis_range_m` (entier) → erreur', () => {
-    const r = validerPatch({ analysis_range_m: 200.5 }, ligneActuelle());
+  it('float sur une colonne entière ÉDITABLE (couloir_fenetre_condition_n) → erreur « entière »', () => {
+    const r = validerPatch({ couloir_fenetre_condition_n: 16.5 }, ligneActuelle());
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.erreurs[0].message).toContain('entière');
+  });
+
+  it('analysis_range_m (MIROIR verrouillé) → erreur « non éditable » (rejet AVANT le contrôle de type)', () => {
+    // Même une valeur parfaitement valide (200, entier, dans la plage) est refusée : la colonne est verrouillée.
+    const r = validerPatch({ analysis_range_m: 200 }, ligneActuelle());
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.erreurs[0].colonne).toBe('analysis_range_m');
+      expect(r.erreurs[0].message).toContain('non éditable');
+    }
   });
 
   it('valeur hors plage → erreur', () => {
@@ -121,9 +131,17 @@ describe('validerPatch — acceptations', () => {
     if (r.ok) expect(r.set).toEqual([{ colonne: 'mode_combinaison_repli', valeur: 'addition' }]);
   });
 
-  it('paire {distance_max_m, analysis_range_m} cohérente (résultant dmax ≤ portée) → ok', () => {
-    const r = validerPatch({ distance_max_m: 300, analysis_range_m: 300 }, ligneActuelle());
+  it('distance_max_m seul (≤ portée en base) → ok + set = [distance_max_m] uniquement', () => {
+    // La paire est dissoute : distance_max_m s'écrit seul, borné par la portée EN BASE (200), inchangée.
+    const r = validerPatch({ distance_max_m: 180 }, ligneActuelle());
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.set.map((s) => s.colonne).sort()).toEqual(['analysis_range_m', 'distance_max_m']);
+    if (r.ok) expect(r.set).toEqual([{ colonne: 'distance_max_m', valeur: 180 }]);
+  });
+
+  it('groupe {distance_max_m, analysis_range_m} → REFUSÉ (analysis_range_m verrouillé, aucune écriture)', () => {
+    // Tenter de desserrer le garde-fou en co-soumettant les deux est bloqué net.
+    const r = validerPatch({ distance_max_m: 300, analysis_range_m: 300 }, ligneActuelle());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.erreurs.some((e) => e.colonne === 'analysis_range_m' && e.message.includes('non éditable'))).toBe(true);
   });
 });

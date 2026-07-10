@@ -41,21 +41,17 @@ type Etat =
   | { statut: 'ok'; data: ReponseConfig };
 
 /**
- * Contexte partagé descendu aux cartes d'édition. `paire` porte l'état COMMUN de
- * la paire liée `distance_max_m ↔ analysis_range_m` (enregistrées ensemble, EX-23).
+ * Contexte partagé descendu aux cartes d'édition.
+ *
+ * Note (verrou analysis_range_m) : `analysis_range_m` est désormais en LECTURE SEULE (garde-fou
+ * intangible). L'ex-paire liée `distance_max_m ↔ analysis_range_m` (EX-23) est donc dissoute :
+ * `distance_max_m` s'édite seul (carte éditable standard), le garde-fou `distance_max_m ≤ 200` restant
+ * appliqué côté serveur contre la valeur en base (validation.ts / profilConfig.ts, inchangés).
  */
 interface CtxPilotage {
   valeurs: Record<string, unknown>;
   appliquer: (r: { valeurs: Record<string, unknown>; repli?: Repli }) => void;
   declencherGolden: () => void;
-  paire: {
-    draft: Record<'distance_max_m' | 'analysis_range_m', string>;
-    setDraft: (d: Record<'distance_max_m' | 'analysis_range_m', string>) => void;
-    erreurs: ErreurChamp[];
-    enCours: boolean;
-    succes: boolean;
-    enregistrer: () => void;
-  };
 }
 
 /** Formate une valeur brute pour l'affichage (sans arrondi — EX-7/EX-20). */
@@ -221,65 +217,22 @@ export default function PilotagePage() {
   );
 }
 
-/** Vue chargée : détient les valeurs vivantes, le badge repli et l'état de la paire liée. */
+/** Vue chargée : détient les valeurs vivantes et le badge repli. */
 function PilotageCharge({ data }: { data: ReponseConfig }) {
   const valeursInitiales = data.valeurs ?? {};
   const [valeurs, setValeurs] = useState<Record<string, unknown>>(valeursInitiales);
   const [repli, setRepli] = useState<Repli | undefined>(data.repli);
   const [avertGolden, setAvertGolden] = useState(false);
 
-  // Paire liée distance_max_m ↔ analysis_range_m (EX-23) : draft partagé.
-  const [paireDraft, setPaireDraft] = useState({
-    distance_max_m: toInput(valeursInitiales.distance_max_m),
-    analysis_range_m: toInput(valeursInitiales.analysis_range_m),
-  });
-  const [paireErreurs, setPaireErreurs] = useState<ErreurChamp[]>([]);
-  const [paireEnCours, setPaireEnCours] = useState(false);
-  const [paireSucces, setPaireSucces] = useState(false);
-
   function appliquer(r: { valeurs: Record<string, unknown>; repli?: Repli }) {
     setValeurs(r.valeurs);
     setRepli(r.repli);
-  }
-
-  // EX-23 : un SEUL PATCH portant les DEUX valeurs courantes (jamais un état mi-chemin).
-  async function enregistrerPaire() {
-    // Un champ vidé enverrait Number('') = 0 → bloquer l'envoi groupé.
-    if (paireDraft.distance_max_m.trim() === '' || paireDraft.analysis_range_m.trim() === '') {
-      return;
-    }
-    setPaireEnCours(true);
-    setPaireErreurs([]);
-    setPaireSucces(false);
-    const rep = await patchConfig({
-      distance_max_m: Number(paireDraft.distance_max_m),
-      analysis_range_m: Number(paireDraft.analysis_range_m),
-    });
-    setPaireEnCours(false);
-    if (rep.ok) {
-      appliquer(rep);
-      setPaireDraft({
-        distance_max_m: toInput(rep.valeurs.distance_max_m),
-        analysis_range_m: toInput(rep.valeurs.analysis_range_m),
-      });
-      setPaireSucces(true);
-    } else {
-      setPaireErreurs(rep.erreurs);
-    }
   }
 
   const ctx: CtxPilotage = {
     valeurs,
     appliquer,
     declencherGolden: () => setAvertGolden(true),
-    paire: {
-      draft: paireDraft,
-      setDraft: setPaireDraft,
-      erreurs: paireErreurs,
-      enCours: paireEnCours,
-      succes: paireSucces,
-      enregistrer: enregistrerPaire,
-    },
   };
 
   return (
@@ -398,9 +351,8 @@ function SectionVestigiales({ ctx }: { ctx: CtxPilotage }) {
 
 /** Aiguille chaque variable vers la carte adaptée à son statut/type. */
 function CarteVariableAuto({ meta, ctx }: { meta: ColonneMeta; ctx: CtxPilotage }) {
-  if (meta.colonne === 'distance_max_m' || meta.colonne === 'analysis_range_m') {
-    return <CartePaireChamp meta={meta} ctx={ctx} />;
-  }
+  // `analysis_range_m` (MIROIR, non éditable) → carte lecture seule ; `distance_max_m` (VIVE) → carte
+  // éditable standard, envoyée seule (le garde-fou distance_max_m ≤ 200 reste posé serveur, contre la base).
   if (!meta.editable) return <CarteVariableLecture meta={meta} valeurs={ctx.valeurs} />;
   if (meta.type === 'enum') return <CarteVariableSelect meta={meta} ctx={ctx} />;
   return <CarteVariableEditable meta={meta} ctx={ctx} />;
@@ -616,81 +568,7 @@ function CarteVariableSelect({ meta, ctx }: { meta: ColonneMeta; ctx: CtxPilotag
   );
 }
 
-/**
- * Carte de la paire liée `distance_max_m` (VIVE) / `analysis_range_m` (MIROIR).
- * Draft partagé via `ctx.paire` ; enregistrer envoie TOUJOURS les deux (EX-23).
- */
-function CartePaireChamp({ meta, ctx }: { meta: ColonneMeta; ctx: CtxPilotage }) {
-  const p = ctx.paire;
-  const champ = meta.colonne as 'distance_max_m' | 'analysis_range_m';
-  // Un des deux champs vidé → envoi groupé bloqué (jamais Number('') = 0).
-  const paireVide =
-    p.draft.distance_max_m.trim() === '' || p.draft.analysis_range_m.trim() === '';
-  const autre =
-    champ === 'distance_max_m'
-      ? 'la portée d’analyse (analysis_range_m)'
-      : 'le plafond de distance perçue (distance_max_m)';
-
-  // Messages : ceux du champ, les globaux, et la validation croisée (mentionne les 2 colonnes).
-  const messages = p.erreurs.filter(
-    (e) =>
-      e.colonne === champ ||
-      e.colonne === '' ||
-      (e.message.includes('distance_max_m') && e.message.includes('analysis_range_m')),
-  );
-
-  return (
-    <article className="svv-pil-carte" data-paire="true">
-      <EnteteCarte meta={meta} />
-      <div className="svv-pil-carte-corps">
-        <label className="svv-pil-edit">
-          <span className="svv-pil-champ-label">Valeur actuelle</span>
-          <input
-            type="number"
-            className="svv-pil-input"
-            value={p.draft[champ]}
-            min={meta.min}
-            max={meta.max}
-            step={stepPour(meta)}
-            onFocus={() => ctx.declencherGolden()}
-            onChange={(e) => {
-              p.setDraft({ ...p.draft, [champ]: e.target.value });
-              ctx.declencherGolden();
-            }}
-          />
-        </label>
-        <InfosDefautUnite meta={meta} />
-      </div>
-      {champ === 'analysis_range_m' && meta.aide && <p className="svv-pil-note">{meta.aide}</p>}
-      <p className="svv-pil-note">
-        Enregistrée <strong>en groupe</strong> avec {autre} — les deux valeurs sont envoyées ensemble.
-      </p>
-      <div className="svv-pil-actions">
-        <button
-          type="button"
-          className="svv-pil-btn"
-          disabled={p.enCours || paireVide}
-          onClick={p.enregistrer}
-        >
-          {p.enCours ? '…' : 'Enregistrer les deux'}
-        </button>
-        {p.succes && <span className="svv-pil-succes">Enregistré</span>}
-      </div>
-      {paireVide && (
-        <p className="svv-pil-erreur" role="alert">
-          Les deux valeurs sont requises.
-        </p>
-      )}
-      {messages.map((e, i) => (
-        <p className="svv-pil-erreur" role="alert" key={`${e.colonne}-${i}`}>
-          {e.message}
-        </p>
-      ))}
-    </article>
-  );
-}
-
-/** Carte NON éditable (VESTIGIALE + `id` technique) — grisée (EX-12). */
+/** Carte NON éditable (VESTIGIALE + `id` technique + `analysis_range_m` MIROIR verrouillé) — lecture seule (EX-12). */
 function CarteVariableLecture({
   meta,
   valeurs,
@@ -826,7 +704,6 @@ const CSS = `
 .svv-pil-legende{grid-column:1/-1;margin:0 0 .3rem;font-size:.8rem;color:var(--color-svv-muted);line-height:1.4}
 .svv-pil-carte{border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.6rem .7rem;background:#fff;min-width:0}
 .svv-pil-carte[data-vestigiale="true"],.svv-pil-carte[data-lecture="true"]{opacity:.6;background:var(--color-svv-field)}
-.svv-pil-carte[data-paire="true"]{border-color:#2c4d84;border-left:3px solid #2c4d84}
 .svv-pil-carte--orientation{grid-column:1/-1;opacity:1;background:#fff}
 .svv-pil-carte-tete{display:flex;gap:.4rem;align-items:flex-start;justify-content:space-between}
 .svv-pil-tete-gauche{display:flex;align-items:flex-start;gap:.15rem;min-width:0}

@@ -96,28 +96,36 @@ describe('PATCH /api/admin/config', () => {
     expect(ecritureEmise()).toBe(false);
   });
 
-  it('paire {distance_max_m, analysis_range_m} groupée valide → 200 + 2 colonnes dans le SET', async () => {
-    branche({ distance_max_m: 300, analysis_range_m: 300 });
-    const res = await PATCH(req({ distance_max_m: 300, analysis_range_m: 300 }));
+  it('analysis_range_m (MIROIR verrouillé) forgé → 422 + AUCUNE écriture (base inchangée)', async () => {
+    branche();
+    // PATCH forgé côté serveur (le champ est grisé côté front, mais on court-circuite l'UI).
+    const res = await PATCH(req({ analysis_range_m: 300 }));
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.ok).toBeUndefined();
+    expect(body.erreurs.some((e: { colonne: string; message: string }) =>
+      e.colonne === 'analysis_range_m' && e.message.includes('non éditable'))).toBe(true);
+    // LE point du lot : aucun UPDATE émis → la valeur en base n'est jamais touchée.
+    expect(ecritureEmise()).toBe(false);
+  });
+
+  it('co-soumission {distance_max_m, analysis_range_m} → 422 (le verrou bloque tout le groupe), aucune écriture', async () => {
+    branche();
+    const res = await PATCH(req({ distance_max_m: 180, analysis_range_m: 300 }));
+    expect(res.status).toBe(422);
+    expect(ecritureEmise()).toBe(false);
+  });
+
+  it('distance_max_m seul (≤ portée en base) → 200 + SET ne contient QUE distance_max_m', async () => {
+    branche({ distance_max_m: 180 });
+    const res = await PATCH(req({ distance_max_m: 180 }));
     expect(res.status).toBe(200);
     const ecriture = queryMock.mock.calls.find(
       (c) => typeof c[0] === 'string' && (c[0] as string).includes('UPDATE config_scoring'),
     )!;
     const sql = ecriture[0] as string;
     expect(sql).toContain('"distance_max_m"');
-    expect(sql).toContain('"analysis_range_m"');
-  });
-
-  it('paire groupée menant à dmax > portée → 422 + aucune écriture', async () => {
-    branche();
-    // Les deux champs présents, mais la ligne résultante viole distance_max_m ≤ analysis_range_m.
-    const res = await PATCH(req({ distance_max_m: 300, analysis_range_m: 200 }));
-    expect(res.status).toBe(422);
-    const body = await res.json();
-    expect(body.ok).toBeUndefined();
-    expect(Array.isArray(body.erreurs)).toBe(true);
-    // Anti-repli : AUCUN UPDATE émis (seul le SELECT de lecture a pu partir).
-    expect(ecritureEmise()).toBe(false);
+    expect(sql).not.toContain('"analysis_range_m"');
   });
 
   it('clé de body hors allowlist (injection) → 422 « colonne inconnue » + aucune écriture', async () => {
