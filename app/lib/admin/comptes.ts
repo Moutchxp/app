@@ -306,6 +306,31 @@ export async function promouvoirAdministrateur(id: number, auteurId: number | nu
   return rows.length > 0;
 }
 
+/**
+ * Modifie l'IDENTITÉ (prénom, nom) d'un compte — n'importe lequel, y compris un administrateur (M3-4 Lot F2, F-2).
+ * ⚠️ NE TOUCHE JAMAIS `identifiant` (adresse e-mail, IMMUABLE — F-1) : l'UPDATE ne SET que `prenom` et `nom`.
+ * Refuse prénom/nom vides après trim (backstop du CHECK non-vide de 016). Écriture ATOMIQUE (CTE) + journal
+ * `changement_identite` (autorisé par 017). Renvoie false si aucune ligne (compte absent). L'`avant` journalisé
+ * n'est pas relu (cohérent avec les autres mutations) ; `apres` porte la nouvelle identité.
+ */
+export async function modifierIdentite(id: number, prenom: string, nom: string, auteurId: number | null): Promise<boolean> {
+  if (prenom.trim().length === 0 || nom.trim().length === 0) {
+    throw new ErreurCompte('Prénom et nom sont obligatoires (non vides).');
+  }
+  const { rows } = await query<{ id: number }>(
+    `WITH maj AS (
+       UPDATE admin_utilisateur SET prenom = $2, nom = $3 WHERE id = $1
+       RETURNING id
+     ), jrnl AS (
+       INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
+       SELECT 'changement_identite', maj.id, $4, NULL, jsonb_build_object('prenom', $2::text, 'nom', $3::text) FROM maj
+     )
+     SELECT id FROM maj`,
+    [id, prenom, nom, auteurId],
+  );
+  return rows.length > 0;
+}
+
 /** Réinitialise le mot de passe d'un compte existant. Journalise 'reinitialisation_mot_de_passe'. */
 export async function reinitialiserMotDePasse(identifiant: string, motDePasseClair: string): Promise<ResultatCompte> {
   const h = await hacher(motDePasseClair);

@@ -23,6 +23,7 @@ import {
   desactiverCompte,
   modifierPermissions,
   promouvoirAdministrateur,
+  modifierIdentite,
   ErreurCompte,
 } from './comptes';
 
@@ -308,5 +309,38 @@ describe('promouvoirAdministrateur — collaborateur → administrateur (Lot D)'
   it('0 ligne (absent ou déjà administrateur) → false — aucune rétrogradation possible', async () => {
     queryMock.mockResolvedValueOnce({ rows: [] });
     expect(await promouvoirAdministrateur(1, 3)).toBe(false);
+  });
+});
+
+describe('modifierIdentite — prénom/nom, identifiant IMMUABLE (Lot F2, F-1/F-2)', () => {
+  it('SET prenom+nom UNIQUEMENT (jamais identifiant), n’importe quel compte (pas de filtre de rôle), journal changement_identite', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 6 }] });
+    const ok = await modifierIdentite(6, 'Anne', 'Roy', 3);
+    expect(ok).toBe(true);
+    const sql = String(queryMock.mock.calls[0][0]);
+    expect(sql).toMatch(/UPDATE\s+admin_utilisateur\s+SET\s+prenom\s*=\s*\$2,\s*nom\s*=\s*\$3/i);
+    expect(sql).not.toMatch(/identifiant/i);           // IMMUABLE : l’UPDATE n’effleure jamais l’identifiant
+    expect(sql).not.toMatch(/\brole\b\s*=/i);           // ni le rôle
+    expect(sql).toContain("WHERE id = $1");             // aucun filtre de rôle → applicable à un administrateur (F-2)
+    expect(sql).not.toContain("role = 'collaborateur'");
+    expect(sql).toContain("'changement_identite'");    // action autorisée par 017
+    expect(queryMock.mock.calls[0][1]).toEqual([6, 'Anne', 'Roy', 3]); // id, prenom, nom, auteur_id
+  });
+
+  it('auteur_id NULL propagé (voie de secours)', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 6 }] });
+    await modifierIdentite(6, 'X', 'Y', null);
+    expect((queryMock.mock.calls[0][1] as unknown[])[3]).toBeNull();
+  });
+
+  it('0 ligne (compte absent) → false', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] });
+    expect(await modifierIdentite(999, 'X', 'Y', 3)).toBe(false);
+  });
+
+  it('prénom ou nom vide/blancs → ErreurCompte AVANT toute requête', async () => {
+    await expect(modifierIdentite(6, '   ', 'Roy', 3)).rejects.toBeInstanceOf(ErreurCompte);
+    await expect(modifierIdentite(6, 'Anne', '', 3)).rejects.toBeInstanceOf(ErreurCompte);
+    expect(queryMock).not.toHaveBeenCalled(); // backstop client : aucune écriture tentée
   });
 });

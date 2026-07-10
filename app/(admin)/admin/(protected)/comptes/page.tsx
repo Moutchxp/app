@@ -59,24 +59,61 @@ export function Chip({ libelle, coche, disabled, onToggle }: { libelle: string; 
  * QU'UNE fois — quand le détail est ouvert, la carte n'affiche que ce contenu, jamais le résumé en plus.
  */
 export function DetailContenu({
-  compte, perms, collaborateur, msg, enCours, onToggle, onEnregistrer, onPromouvoir, onFermer,
+  compte, perms, collaborateur, msg, enCours, idPrenom, idNom, onIdPrenom, onIdNom, onEnregistrerIdentite,
+  onToggle, onEnregistrer, onPromouvoir, onFermer,
 }: {
   compte: DetailCompte;
   perms: Perms;
   collaborateur: boolean;
   msg: string | null;
   enCours: boolean;
+  idPrenom: string;
+  idNom: string;
+  onIdPrenom: (v: string) => void;
+  onIdNom: (v: string) => void;
+  onEnregistrerIdentite: () => void;
   onToggle: (cle: keyof Perms) => void;
   onEnregistrer: () => void;
   onPromouvoir: () => void;
   onFermer: () => void;
 }) {
+  // Refus AVANT tout appel serveur (le serveur revalide de toute façon) : prénom ET nom non vides après trim.
+  const identiteInvalide = idPrenom.trim().length === 0 || idNom.trim().length === 0;
   return (
     <>
-      <div className="cpt-tete" id={`cpt-tete-${compte.id}`}>{compte.prenom} {compte.nom} — {compte.identifiant}</div>
+      <div className="cpt-tete" id={`cpt-tete-${compte.id}`}>{compte.prenom} {compte.nom}</div>
       <div className="cpt-meta">
         Rôle : {compte.role} · {compte.actif ? 'actif' : 'inactif'} · dernière connexion : {formaterDate(compte.derniere_connexion_a)}
         {compte.doit_changer_mot_de_passe && ' · doit changer son mot de passe'}
+      </div>
+
+      {/* Identité : prénom + nom éditables (tout compte, y compris un administrateur — F-2). L'identifiant (e-mail)
+          est affiché en TEXTE lecture seule, jamais dans un champ désactivé trompeur : il est IMMUABLE (F-1). */}
+      <div className="cpt-identite" role="group" aria-labelledby={`ident-${compte.id}`}>
+        <div className="cpt-perms-titre" id={`ident-${compte.id}`}>Identité</div>
+        <label className="cpt-libc">
+          <span className="cpt-libc-t">Prénom</span>
+          <input className="cpt-champ" value={idPrenom} autoCapitalize="words" disabled={enCours}
+            onChange={(e) => onIdPrenom(e.target.value)} aria-invalid={idPrenom.trim().length === 0} />
+        </label>
+        <label className="cpt-libc">
+          <span className="cpt-libc-t">Nom</span>
+          <input className="cpt-champ" value={idNom} autoCapitalize="words" disabled={enCours}
+            onChange={(e) => onIdNom(e.target.value)} aria-invalid={idNom.trim().length === 0} />
+        </label>
+        <div className="cpt-libc">
+          <span className="cpt-libc-t">Identifiant (e-mail)</span>
+          <span className="cpt-idval">{compte.identifiant}</span>
+          <span className="cpt-note">
+            Non modifiable : c’est la clé de connexion. Pour changer d’adresse, désactivez ce compte et recréez-en un.
+          </span>
+        </div>
+        <div className="cpt-actions">
+          <button type="button" className="cpt-btn cpt-btn--primary" disabled={enCours || identiteInvalide} onClick={onEnregistrerIdentite}>
+            Enregistrer l’identité
+          </button>
+          {identiteInvalide && <span className="cpt-err" role="status">Prénom et nom sont obligatoires.</span>}
+        </div>
       </div>
 
       <div className="cpt-perms-titre" id={`perms-${compte.id}`}>
@@ -112,6 +149,8 @@ export function DetailContenu({
 function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => void; onRafraichir: () => void }) {
   const [d, setD] = useState<DetailCompte | null>(null);
   const [perms, setPerms] = useState<Perms>(PERMS_VIDE());
+  const [idPrenom, setIdPrenom] = useState('');
+  const [idNom, setIdNom] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -124,7 +163,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
       if (annule) return;
       if (!res.ok) { setMsg('Détail indisponible.'); return; }
       const body = await res.json();
-      if (!annule) { setD(body.compte); setPerms(body.compte.perms); }
+      if (!annule) { setD(body.compte); setPerms(body.compte.perms); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom); }
     })();
     return () => { annule = true; };
   }, [id]);
@@ -133,7 +172,17 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
     const res = await fetch(`/api/admin/comptes/${id}`);
     if (!res.ok) { setMsg('Détail indisponible.'); return; }
     const body = await res.json();
-    setD(body.compte); setPerms(body.compte.perms);
+    setD(body.compte); setPerms(body.compte.perms); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom);
+  }
+  async function enregistrerIdentite() {
+    const prenom = idPrenom.trim(); const nom = idNom.trim();
+    if (prenom.length === 0 || nom.length === 0) { setMsg('Prénom et nom sont obligatoires.'); return; }
+    setEnCours(true); setMsg(null);
+    try {
+      // Allowlist stricte côté serveur : le corps ne porte QUE prenom + nom. L'identifiant n'est jamais transmis.
+      const res = await fetch(`/api/admin/comptes/${id}/identite`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom }) });
+      if (res.ok) { setMsg('Identité enregistrée.'); await recharger(); onRafraichir(); } else setMsg('Enregistrement de l’identité refusé.');
+    } finally { setEnCours(false); }
   }
   async function enregistrer() {
     setEnCours(true); setMsg(null);
@@ -155,6 +204,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
     <div ref={ref} tabIndex={-1} className="cpt-detail" id={`detail-${id}`} role="region" aria-labelledby={`cpt-tete-${id}`}>
       {d
         ? <DetailContenu compte={d} perms={perms} collaborateur={d.role === 'collaborateur'} msg={msg} enCours={enCours}
+            idPrenom={idPrenom} idNom={idNom} onIdPrenom={setIdPrenom} onIdNom={setIdNom} onEnregistrerIdentite={enregistrerIdentite}
             onToggle={(cle) => setPerms((p) => ({ ...p, [cle]: !p[cle] }))} onEnregistrer={enregistrer} onPromouvoir={promouvoir} onFermer={onFermer} />
         : (msg ?? 'Chargement…')}
     </div>
@@ -363,6 +413,11 @@ const CSS = `
 .cpt-tete{font-weight:700;color:var(--color-svv-ink)}
 .cpt-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .cpt-regle{font-size:.72rem;color:var(--color-svv-muted);margin-top:4px}
+/* Bloc identité (édition prénom/nom + identifiant en texte lecture seule). */
+.cpt-identite{display:flex;flex-direction:column;gap:8px}
+.cpt-libc{display:flex;flex-direction:column;gap:4px}
+.cpt-libc-t{font-size:.8rem;color:var(--color-svv-muted)}
+.cpt-idval{font-size:.95rem;font-weight:600;color:var(--color-svv-ink);word-break:break-all}
 .cpt-detail{outline:none}
 .cpt-note{font-size:.8rem;color:var(--color-svv-muted);margin:4px 0 0}
 .cpt-perms-titre{font-size:.8rem;color:var(--color-svv-muted)}

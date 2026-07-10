@@ -43,11 +43,12 @@ const compteCollab = {
   derniere_connexion_a: '2026-07-09T22:31:35.591Z', doit_changer_mot_de_passe: false,
 };
 const noop = () => {};
+const idProps = { idPrenom: 'Léa', idNom: 'M', onIdPrenom: noop, onIdNom: noop, onEnregistrerIdentite: noop };
 
 describe('DetailContenu — identité affichée UNE seule fois, date formatée', () => {
   it('l’identifiant n’apparaît qu’une fois dans le rendu du détail', () => {
     const html = renderToStaticMarkup(createElement(DetailContenu, {
-      compte: compteCollab, perms: compteCollab.perms, collaborateur: true, msg: null, enCours: false,
+      compte: compteCollab, perms: compteCollab.perms, collaborateur: true, msg: null, enCours: false, ...idProps,
       onToggle: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
     }));
     expect((html.match(/lea@unique\.test/g) ?? []).length).toBe(1);
@@ -58,10 +59,54 @@ describe('DetailContenu — identité affichée UNE seule fois, date formatée',
   it('cas administrateur → 6 pastilles forcées cochées et désactivées', () => {
     const html = renderToStaticMarkup(createElement(DetailContenu, {
       compte: { ...compteCollab, role: 'administrateur' as const }, perms: compteCollab.perms, collaborateur: false,
-      msg: null, enCours: false, onToggle: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
+      msg: null, enCours: false, ...idProps, onToggle: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
     }));
     expect((html.match(/aria-pressed="true"/g) ?? []).length).toBe(6);
     expect((html.match(/disabled/g) ?? []).length).toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe('DetailContenu — édition d’identité (M3-4 Lot F2, F-1/F-2)', () => {
+  it('expose deux champs prénom/nom éditables et un bouton « Enregistrer l’identité »', () => {
+    const html = renderToStaticMarkup(createElement(DetailContenu, {
+      compte: compteCollab, perms: compteCollab.perms, collaborateur: true, msg: null, enCours: false, ...idProps,
+      onToggle: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
+    }));
+    expect(html).toContain('value="Léa"');
+    expect(html).toContain('value="M"');
+    expect(html).toContain('Enregistrer l’identité');
+  });
+
+  it('l’identifiant s’affiche en TEXTE (jamais dans un input value), avec la mention d’immuabilité', () => {
+    const html = renderToStaticMarkup(createElement(DetailContenu, {
+      compte: compteCollab, perms: compteCollab.perms, collaborateur: true, msg: null, enCours: false, ...idProps,
+      onToggle: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
+    }));
+    expect(html).toContain('<span class="cpt-idval">lea@unique.test</span>'); // texte, pas un champ
+    expect(html).not.toContain('value="lea@unique.test"'); // jamais un input désactivé trompeur
+    expect(html).toContain('Non modifiable'); // mention sobre que l’identifiant n’est pas modifiable
+  });
+
+  it('l’édition d’identité est offerte AUSSI sur un administrateur (F-2)', () => {
+    const html = renderToStaticMarkup(createElement(DetailContenu, {
+      compte: { ...compteCollab, role: 'administrateur' as const }, perms: compteCollab.perms, collaborateur: false,
+      msg: null, enCours: false, ...idProps, onToggle: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
+    }));
+    expect(html).toContain('Enregistrer l’identité');
+    expect(html).toContain('value="Léa"');
+  });
+
+  it('refus CLIENT : prénom vide (ou blancs seuls) → bouton « Enregistrer l’identité » désactivé', () => {
+    const html = renderToStaticMarkup(createElement(DetailContenu, {
+      compte: compteCollab, perms: compteCollab.perms, collaborateur: true, msg: null, enCours: false,
+      idPrenom: '   ', idNom: 'M', onIdPrenom: noop, onIdNom: noop, onEnregistrerIdentite: noop,
+      onToggle: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
+    }));
+    // le bouton d’identité porte disabled ; la validation tombe avant tout appel serveur
+    expect(html).toMatch(/Enregistrer l’identité/);
+    expect(html).toContain('Prénom et nom sont obligatoires.');
+    const boutonIdentite = html.slice(0, html.indexOf('Enregistrer l’identité'));
+    expect(boutonIdentite.lastIndexOf('disabled')).toBeGreaterThan(boutonIdentite.lastIndexOf('<button'));
   });
 });
 
