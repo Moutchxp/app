@@ -23,7 +23,8 @@
     "admin:creer": "tsx app/scripts/admin.ts creer",
     "admin:reset": "tsx app/scripts/admin.ts reset",
     "admin:secours": "tsx app/scripts/admin.ts secours",
-    "admin:lister": "tsx app/scripts/admin.ts lister"
+    "admin:lister": "tsx app/scripts/admin.ts lister",
+    "analytics:maintenance": "tsx app/scripts/analytics-maintenance.ts"
   },
   "dependencies": {
     "argon2": "^0.44.0",
