@@ -89,7 +89,7 @@ describe('GET /api/admin/curation/emprises (bbox + année de construction)', () 
     new Request(`http://localhost/api/admin/curation/emprises${qs}`, { method: 'GET' });
   const BBOX = '?minlon=2.26&minlat=48.90&maxlon=2.29&maxlat=48.92';
 
-  it('SELECT en LEFT JOIN bdnb_annee_batiment + annee_construction AS annee (aucune requête N+1)', async () => {
+  it('SELECT : annee (LEFT JOIN) + etages (colonne, AUCUN join nouveau), une seule requête, aucun N+1', async () => {
     queryMock.mockResolvedValue({ rows: [] });
     await GET_EMPRISES(reqEmprises(BBOX));
     // UNE seule requête SQL (la donnée voyage avec le GeoJSON, jamais une requête par polygone).
@@ -98,6 +98,9 @@ describe('GET /api/admin/curation/emprises (bbox + année de construction)', () 
     // LEFT JOIN (n'exclut aucun bâtiment sans année) + colonne année, patron `obstacles.ts`.
     expect(/LEFT JOIN bdnb_annee_batiment ba ON ba\.cleabs = b\.cleabs/.test(sql)).toBe(true);
     expect(/ba\.annee_construction AS annee/.test(sql)).toBe(true);
+    // Étages : colonne de bdtopo_batiment lue avec geom → AUCUN LEFT JOIN nouveau (un SEUL dans la requête).
+    expect(/b\.nombre_d_etages AS etages/.test(sql)).toBe(true);
+    expect((sql.match(/LEFT JOIN/g) ?? []).length).toBe(1);
     // JAMAIS un INNER JOIN (exclurait les bâtiments sans année).
     expect(/INNER JOIN bdnb_annee_batiment/.test(sql)).toBe(false);
     // ST_Force2D conservé (invariant), lecture seule (aucune écriture).
@@ -121,6 +124,23 @@ describe('GET /api/admin/curation/emprises (bbox + année de construction)', () 
     expect(body.emprises[1]).toMatchObject({ cleabs: 'BAT_SANS', annee: null });
   });
 
+  it('renvoie etages, y compris 0 (vraie valeur, jamais exclue ni transformée en null)', async () => {
+    queryMock.mockResolvedValue({
+      rows: [
+        { cleabs: 'BAT_5', geom: '{"type":"Point","coordinates":[2.27,48.91]}', annee: 1954, etages: 5 },
+        { cleabs: 'BAT_0', geom: '{"type":"Point","coordinates":[2.28,48.91]}', annee: null, etages: 0 },
+        { cleabs: 'BAT_NULL', geom: '{"type":"Point","coordinates":[2.29,48.91]}', annee: null, etages: null },
+      ],
+    });
+    const res = await GET_EMPRISES(reqEmprises(BBOX));
+    const body = await res.json();
+    expect(body.emprises).toHaveLength(3);
+    expect(body.emprises[0]).toMatchObject({ cleabs: 'BAT_5', etages: 5 });
+    // ⚠️ Le 0 SURVIT au transport JSON (pas avalé en null), même quand l'année manque.
+    expect(body.emprises[1].etages).toBe(0);
+    expect(body.emprises[2].etages).toBeNull();
+  });
+
   it('bbox invalide → 422 + AUCUNE requête', async () => {
     const res = await GET_EMPRISES(reqEmprises('?minlon=nope'));
     expect(res.status).toBe(422);
@@ -133,18 +153,25 @@ describe('GET /api/admin/curation/emprises (bbox + année de construction)', () 
   });
 });
 
-describe('versEmprise (mapping année)', () => {
-  it('mappe annee renseignée', () => {
-    const r: LigneEmpriseDB = { cleabs: 'C1', geom: null, annee: 1900 };
+describe('versEmprise (mapping année + étages)', () => {
+  it('mappe annee et etages renseignés', () => {
+    const r: LigneEmpriseDB = { cleabs: 'C1', geom: null, annee: 1900, etages: 3 };
     expect(versEmprise(r).annee).toBe(1900);
+    expect(versEmprise(r).etages).toBe(3);
   });
-  it('annee absente du SELECT (undefined) → null (route emprises rattachées)', () => {
+  it('colonnes absentes du SELECT (undefined) → null (route emprises rattachées)', () => {
     const r: LigneEmpriseDB = { cleabs: 'C1', geom: null };
     expect(versEmprise(r).annee).toBeNull();
+    expect(versEmprise(r).etages).toBeNull();
   });
-  it('annee explicitement null → null', () => {
-    const r: LigneEmpriseDB = { cleabs: 'C1', geom: null, annee: null };
+  it('null explicite → null', () => {
+    const r: LigneEmpriseDB = { cleabs: 'C1', geom: null, annee: null, etages: null };
     expect(versEmprise(r).annee).toBeNull();
+    expect(versEmprise(r).etages).toBeNull();
+  });
+  it('⚠️ etages = 0 → 0 (le `?? null` ne touche PAS le 0)', () => {
+    const r: LigneEmpriseDB = { cleabs: 'C1', geom: null, etages: 0 };
+    expect(versEmprise(r).etages).toBe(0);
   });
 });
 

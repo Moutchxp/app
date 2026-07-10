@@ -57,6 +57,13 @@ export interface LigneEmpriseDB {
    * LECTURE SEULE, aide UI (bulle d'information) ; n'entre dans AUCUN calcul de score ni de verdict.
    */
   annee?: number | null;
+  /**
+   * Nombre d'étages (`bdtopo_batiment.nombre_d_etages`, colonne de la MÊME table que `geom` — aucun
+   * join) — `null` si non renseigné OU non sélectionné par la requête. ⚠️ `0` est une VRAIE valeur
+   * (distincte de `null`), jamais réinterprétée. LECTURE SEULE, aide UI ; l'affichage n'entre dans
+   * AUCUN calcul (le moteur lit cette colonne ailleurs, pour le score — pas via cette route).
+   */
+  etages?: number | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -166,7 +173,9 @@ export function versEmprise(r: LigneEmpriseDB) {
   return {
     cleabs: r.cleabs,
     geom: r.geom ? (JSON.parse(r.geom) as unknown) : null,
-    // `?? null` : les routes qui ne sélectionnent PAS l'année (emprises rattachées) renvoient `undefined` → `null`.
+    // `?? null` : les routes qui ne sélectionnent PAS ces colonnes (emprises rattachées) renvoient
+    // `undefined` → `null`. ⚠️ `?? null` ne touche PAS un `0` (seulement null/undefined) → le 0 étage survit.
     annee: r.annee ?? null,
+    etages: r.etages ?? null,
   };
 }

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { estCarteModifiee, modeFooter } from './curationEdition';
-import { contenuBulleAnnee, doitCreerAuDoubleClic } from './bulleAnnee';
+import { contenuBulleBatiment, doitCreerAuDoubleClic } from './bulleBatiment';
 import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, libelleSession, nomAffiche, type LigneJournal } from './journalRendu';
 
 /** Taille de page du volet global de l'historique (HJ-44). */
@@ -68,6 +68,9 @@ interface Emprise {
   // Année de construction (bdnb_annee_batiment) — aide UI (bulle), `null` si non renseignée. Jamais
   // consommée par un calcul de score/verdict (la carte n'en fait AUCUN, cf. en-tête du composant).
   annee?: number | null;
+  // Nombre d'étages (bdtopo_batiment.nombre_d_etages) — aide UI (bulle). `null` si non renseigné ;
+  // `0` = vraie valeur (« 0 étage »), jamais réinterprétée. La carte ne fait aucun calcul avec.
+  etages?: number | null;
 }
 
 /** Tag manuel = 1 étoile persistante (centroïde 4326 de son 1er polygone). */
@@ -337,8 +340,8 @@ export default function CurationCarte() {
   const [emprises, setEmprises] = useState<Emprise[]>([]);
   const [emprisesLiees, setEmprisesLiees] = useState<Emprise[]>([]);
   const [emprisesFond, setEmprisesFond] = useState<Emprise[]>([]); // bâtiments bbox (hover + dblclick créer)
-  // Mode « Années de construction » : bulle d'info au survol (desktop) / tap (mobile) sur un bâtiment de
-  // fond. INACTIF par défaut ; actif → SUSPEND la création par double-clic (cf. doitCreerAuDoubleClic).
+  // Mode « Infos bâtiment » : bulle d'info (année + étages) au survol (desktop) / tap (mobile) sur un
+  // bâtiment de fond. INACTIF par défaut ; actif → SUSPEND la création par double-clic (cf. doitCreerAuDoubleClic).
   const [modeBulle, setModeBulle] = useState(false);
   const [tagsManuels, setTagsManuels] = useState<TagManuel[]>([]); // étoiles persistantes (centroïdes)
   const [enEcriture, setEnEcriture] = useState(false);
@@ -1014,7 +1017,7 @@ export default function CurationCarte() {
       if (modeBulle) {
         // bindPopup ouvre la bulle au CLIC/TAP (mobile). `closeButton:false` + `autoPan:false` = bulle
         // sobre qui ne déplace pas la carte ; se ferme au clic ailleurs (closeOnClick par défaut).
-        layer.bindPopup(contenuBulleAnnee(emp.annee), {
+        layer.bindPopup(contenuBulleBatiment(emp.annee, emp.etages), {
           className: 'svv-cur-bulle-popup',
           closeButton: false,
           autoPan: false,
@@ -1403,8 +1406,8 @@ export default function CurationCarte() {
             ))}
           </fieldset>
 
-          {/* Affichage : bulle « année de construction » sur les bâtiments de fond (aide, LECTURE SEULE).
-              Bascule (aria-pressed) ; état perceptible SANS couleur : forme ●/○ + libellé Activé/Masqué. */}
+          {/* Affichage : bulle « infos bâtiment » (année + étages) sur les bâtiments de fond (aide,
+              LECTURE SEULE). Bascule (aria-pressed) ; état perceptible SANS couleur : ●/○ + Activé/Masqué. */}
           <div className="svv-cur-bulle-ctrl">
             <button
               type="button"
@@ -1414,12 +1417,14 @@ export default function CurationCarte() {
               onClick={() => setModeBulle((v) => !v)}
             >
               <span className="svv-cur-bulle-etat" aria-hidden="true">{modeBulle ? '●' : '○'}</span>
-              <span className="svv-cur-bulle-lib">Années de construction</span>
+              <span className="svv-cur-bulle-lib">Infos bâtiment</span>
               <span className="svv-cur-bulle-mot">{modeBulle ? 'Activé' : 'Masqué'}</span>
             </button>
             <p id="svv-cur-bulle-aide" className="svv-cur-bulle-aide-txt">
-              Survolez (ou touchez) un bâtiment pour voir son année. Source : Base de Données Nationale
-              des Bâtiments (BDNB) — couverture partielle, souvent absente dans Paris.
+              Survolez (ou touchez) un bâtiment pour voir son année de construction et son nombre
+              d’étages. Source : données publiques IGN / BDNB — couverture partielle (l’année manque
+              souvent dans Paris, les étages y sont mieux couverts). Le nombre d’étages sert aussi, en
+              secours, à estimer la hauteur des bâtiments voisins pour le score — jamais pour le verdict.
             </p>
           </div>
 
@@ -1894,7 +1899,7 @@ const CSS = `
 .svv-cur-check{display:inline-flex;align-items:center;gap:.35rem;min-height:44px;font-size:.85rem;color:var(--color-svv-ink);font-weight:600;cursor:pointer}
 .svv-cur-check input{width:18px;height:18px;accent-color:var(--color-svv-red)}
 
-/* Bascule « Années de construction » : rouge plein = activé (primaire), gris contour = masqué (neutre) ;
+/* Bascule « Infos bâtiment » : rouge plein = activé (primaire), gris contour = masqué (neutre) ;
    AUCUN bleu. État aussi porté par la forme ●/○ et le mot Activé/Masqué (perceptible sans couleur). */
 .svv-cur-bulle-ctrl{display:flex;flex-direction:column;gap:.3rem}
 /* Sélecteur à 2 classes (.svv-cur-btn.svv-cur-bulle-toggle) : bat .svv-cur-btn (min-height:36px, déclaré
@@ -1909,6 +1914,8 @@ const CSS = `
    (.leaflet-fade-anim .svv-cur-bulle-popup.leaflet-popup) → bat le défaut Leaflet indépendamment de
    l'ordre d'import des feuilles de style. */
 .svv-cur-bulle{font-size:.82rem;font-weight:600;color:var(--color-svv-ink)}
+.svv-cur-bulle-l{display:block}
+.svv-cur-bulle-l+.svv-cur-bulle-l{margin-top:.1rem;font-weight:500;color:var(--color-svv-muted)}
 @media (prefers-reduced-motion:reduce){.leaflet-fade-anim .svv-cur-bulle-popup.leaflet-popup{transition:none}}
 
 .svv-cur-compteurs{display:flex;flex-wrap:wrap;gap:.4rem}
