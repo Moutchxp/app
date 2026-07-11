@@ -23,6 +23,7 @@
     "admin:creer": "tsx app/scripts/admin.ts creer",
     "admin:reset": "tsx app/scripts/admin.ts reset",
     "admin:secours": "tsx app/scripts/admin.ts secours",
+    "admin:secours-hash": "tsx app/scripts/admin.ts secours-hash",
     "admin:lister": "tsx app/scripts/admin.ts lister",
     "analytics:maintenance": "tsx app/scripts/analytics-maintenance.ts"
   },

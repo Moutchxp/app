@@ -12,9 +12,10 @@ import { queryAnalytics } from '../analytics/pool';
  *    l'identifiant d'un compte NOMMÉ peut, par des échecs soutenus, maintenir CE compte en 429 tant que dure
  *    l'attaque (constat revue F1). Ce n'est pas un lockout permanent, et il existe TOUJOURS une voie non
  *    throttlée : la VOIE DE SECOURS (identifiant vide) est exemptée du throttle au niveau de la route, et la
- *    CLI `admin:secours` contourne la route. Sur la voie NOMMÉE, argon2 (m=64 Mo, t=3, via `verifier`) reste le
- *    frein PRIMAIRE du débit de devinettes ; la voie de secours, elle, repose sur la comparaison SHA-256 à temps
- *    constant d'un secret partagé à haute entropie (`motDePasseValide`) — non throttlée par conception (recouvrement).
+ *    CLI `admin:secours` contourne la route. argon2 (m=64 Mo, t=3, via `verifier`) est le frein PRIMAIRE du débit
+ *    de devinettes SUR LES DEUX VOIES : la voie NOMMÉE (hash du compte) ET la voie de SECOURS (hash lent
+ *    `ADMIN_PASSWORD_ARGON2_B64`, décodé de base64 ; durcissement post-Lot-7) — cette dernière non throttlée par
+ *    conception (recouvrement).
  *  - ANTI-ÉNUMÉRATION : keyé sur la CHAÎNE identifiant (normalisée en minuscules), compte existant OU NON.
  *    La réponse ne révèle jamais l'existence d'un compte ni ne distingue « mauvais mot de passe » de
  *    « compte inexistant ».

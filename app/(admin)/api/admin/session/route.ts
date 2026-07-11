@@ -1,6 +1,5 @@
 import 'server-only';
 import { cookies } from 'next/headers';
-import { motDePasseValide } from '../../../../lib/admin/password';
 import { verifier } from '../../../../lib/admin/motDePasse';
 import { trouverCompte, marquerConnexion, permsDuCompte } from '../../../../lib/admin/comptes';
 import { NOM_COOKIE, optionsCookie, signerJeton, permsToutes, type SessionAdmin } from '../../../../lib/admin/session';
@@ -23,6 +22,36 @@ function reponseThrottlee(retryAfter: number): Response {
     { erreur: 'Trop de tentatives. Réessayez plus tard.' },
     { status: 429, headers: { 'Retry-After': String(Math.max(1, retryAfter)) } },
   );
+}
+
+/**
+ * Hash argon2 du secret break-glass, DÉCODÉ depuis `ADMIN_PASSWORD_ARGON2_B64` (base64 → hash argon2id).
+ *
+ * ⚠️ POURQUOI EN BASE64 : le loader `.env` de Next (`@next/env`) applique une EXPANSION de variables dotenv qui
+ * remplace toute séquence `$mot` par la valeur d'une variable d'env (vide si inconnue). Un hash argon2 brut
+ * (`$argon2id$v=19$m=…$sel$hash`) y perd donc tous ses segments `$…` → mutilé au runtime → `verifier` échoue (bug
+ * du 401). Le BASE64 (alphabet `A-Za-z0-9+/=`) ne contient AUCUN `$` → rien à expanser → la valeur arrive intacte.
+ *
+ * ⚠️ POURQUOI `HASH_LEURRE` (et non `''`) EN REPLI : quand la var est absente/vide/se décode en chaîne vide, on
+ * renvoie le LEURRE — pas `''`. Motif TEMPS CONSTANT (anti-énumération) : `verifier(password, '')` est rejeté
+ * INSTANTANÉMENT par argon2 (hash malformé, aucun calcul), alors qu'un secret erroné contre un vrai hash déclenche
+ * un argon2 complet (~ms). Cet écart de timing (~1700×) trahirait, par la seule mesure du temps de réponse, si le
+ * break-glass est ARMÉ — or cette voie est délibérément NON throttlée. Le leurre force un argon2 complet dans TOUS
+ * les cas → « non armé » indiscernable de « mauvais secret ». Symétrique de la voie NOMMÉE (`… ?? HASH_LEURRE`).
+ *
+ * FAIL-CLOSED : le leurre a une préimage inconnue → il ne matche JAMAIS le mot de passe saisi → echec() STANDARD.
+ * TOLÉRANT : ne throw JAMAIS (ni `process.env`, ni `Buffer.from`/`toString`, + try/catch de garde). Une valeur
+ * base64 NON vide mais corrompue est passée telle quelle à `verifier` (qui la rejette) — cas de configuration
+ * transitoire, sans révélation du secret.
+ */
+function hashBreakGlass(): string {
+  const b64 = process.env.ADMIN_PASSWORD_ARGON2_B64;
+  if (!b64) return HASH_LEURRE;
+  try {
+    return Buffer.from(b64, 'base64').toString('utf8') || HASH_LEURRE;
+  } catch {
+    return HASH_LEURRE;
+  }
 }
 
 /**
@@ -50,11 +79,11 @@ export async function POST(request: Request) {
 
   // ANTI-FORCE-BRUTE (Lot 7) : throttle progressif AVANT toute vérification (n'appelle PAS password.ts si bloqué).
   // Best-effort → si l'état de détection est indisponible, `bloque:false` (fail-safe : jamais de blocage légitime).
-  // ⚠️ BREAK-GLASS (constat revue F1) : la VOIE DE SECOURS (identifiant vide) n'est JAMAIS throttlée — c'est la
-  // corde de rappel d'Arno ; un attaquant ne doit pas pouvoir la bloquer en la floodant. Elle reste protégée par
-  // `motDePasseValide` (comparaison SHA-256 À TEMPS CONSTANT du secret partagé `ADMIN_PASSWORD`) — INCHANGÉ vs la
-  // baseline pré-Lot-7 ; ce secret doit rester À HAUTE ENTROPIE (SHA-256 est rapide, pas un KDF lent). La CLI
-  // `admin:secours` contourne aussi la route. Le throttle ne s'applique donc qu'aux comptes NOMMÉS → il existe
+  // ⚠️ BREAK-GLASS (revue Lot 7 F1) : la VOIE DE SECOURS (identifiant vide) n'est JAMAIS throttlée — c'est la
+  // corde de rappel d'Arno ; un attaquant ne doit pas pouvoir la bloquer en la floodant. Elle est protégée par un
+  // hash argon2id LENT (`verifier` contre `ADMIN_PASSWORD_ARGON2_B64`, décodé de base64) qui freine le brute-force
+  // MÊME sans throttle. La
+  // CLI `admin:secours` contourne aussi la route. Le throttle ne s'applique donc qu'aux comptes NOMMÉS → il existe
   // TOUJOURS une voie de connexion non throttlée (pas de DoS-lockout système).
   const throttle = cleThrottle === '' ? { bloque: false, retryAfter: 0 } : await verifierThrottle(cleThrottle);
   if (throttle.bloque) return reponseThrottlee(throttle.retryAfter);
@@ -62,10 +91,17 @@ export async function POST(request: Request) {
   let session: SessionAdmin;
 
   if (identifiant === '') {
-    // ═══ VOIE DE SECOURS — à retirer au lot M3-5 après bascule ═══
-    // Mot de passe partagé (app/lib/admin/password.ts) → accès administrateur complet, compte anonyme (sub=null).
-    if (!motDePasseValide(password)) {
-      await noterEchec(cleThrottle); // enregistre l'échec (throttle) + audit agrégé
+    // ═══ VOIE DE SECOURS (break-glass) — à retirer au lot M3-5 après bascule ═══
+    // Secret partagé vérifié en argon2id (hash LENT) via `verifier`, contre le hash décodé de `ADMIN_PASSWORD_ARGON2_B64`
+    // (base64 — immunisé contre l'expansion `@next/env` qui mutilait l'ancien hash brut ; cf. `hashBreakGlass`).
+    // BASCULE NETTE : plus AUCUNE comparaison SHA-256 rapide (`password.ts`/`ADMIN_PASSWORD` deviennent ORPHELINS).
+    // FAIL-CLOSED + TEMPS CONSTANT : var absente/vide → `hashBreakGlass()` renvoie le LEURRE (pas `''`) → `verifier`
+    // exécute un argon2 complet puis renvoie false → echec() STANDARD, sans révéler par le TIMING que la variable
+    // manque (anti-énumération, cf. `hashBreakGlass`). Le secret n'est ni stocké ni haché ici : seul son hash argon2
+    // encodé base64 (généré hors ligne via `admin:secours-hash`) est en env.
+    // → accès administrateur complet, compte anonyme (sub=null).
+    if (!(await verifier(password, hashBreakGlass()))) {
+      await noterEchec(cleThrottle); // audit agrégé de l'échec (la voie secours reste NON throttle-checkée — Lot 7 F1)
       return echec();
     }
     session = { sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger: false };

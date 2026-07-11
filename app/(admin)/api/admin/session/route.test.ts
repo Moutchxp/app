@@ -4,11 +4,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const cookieStore = { set: vi.fn(), delete: vi.fn() };
 vi.mock('next/headers', () => ({ cookies: () => Promise.resolve(cookieStore) }));
 
-// Voie de secours (mot de passe partagé) — mockée pour piloter le verdict sans dépendre de ADMIN_PASSWORD.
-const motDePasseValide = vi.fn();
-vi.mock('../../../../lib/admin/password', () => ({ motDePasseValide: (...a: unknown[]) => motDePasseValide(...a) }));
-
-// Vérification argon2 — mockée (pas de hachage réel dans ce test de route).
+// Vérification argon2 (`verifier`) — mockée : pilote À LA FOIS la voie NOMMÉE et la voie de SECOURS (qui compare
+// désormais le secret partagé au hash décodé de `ADMIN_PASSWORD_ARGON2_B64`, plus AUCUNE comparaison SHA-256). Pas
+// de hachage réel ici. (`password.ts` n'est plus importé par la route → aucun mock à poser dessus.)
 const verifier = vi.fn();
 vi.mock('../../../../lib/admin/motDePasse', () => ({ verifier: (...a: unknown[]) => verifier(...a) }));
 
@@ -48,8 +46,10 @@ function compte(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   process.env.ADMIN_SESSION_SECRET = 'secret-de-test-suffisamment-long-pour-hs256-0123456789';
+  delete process.env.ADMIN_PASSWORD_ARGON2; // ancienne var (non-b64) obsolète — la route ne la lit plus
+  // Hash break-glass présent par défaut, ENCODÉ base64 (comme en .env) ; la route le DÉCODE → 'HASH_SECOURS_TEST'.
+  process.env.ADMIN_PASSWORD_ARGON2_B64 = Buffer.from('HASH_SECOURS_TEST', 'utf8').toString('base64');
   cookieStore.set.mockReset();
-  motDePasseValide.mockReset();
   verifier.mockReset();
   trouverCompte.mockReset();
   marquerConnexion.mockReset();
@@ -80,11 +80,13 @@ describe('POST /api/admin/session', () => {
     expect(cookieStore.set).not.toHaveBeenCalled();
   });
 
-  it('(c) voie de secours (identifiant vide + ancien mot de passe partagé) réussit → 200', async () => {
-    motDePasseValide.mockReturnValue(true);
+  it('(c) voie de secours (identifiant vide + secret partagé argon2) réussit → 200', async () => {
+    verifier.mockResolvedValue(true); // le secret matche le hash décodé de ADMIN_PASSWORD_ARGON2_B64
     const res = await POST(requete({ identifiant: '', password: 'partage' }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
+    // Le B64 en env est DÉCODÉ par hashBreakGlass() → 'HASH_SECOURS_TEST' : prouve le round-trip base64 (plus de SHA-256).
+    expect(verifier).toHaveBeenCalledWith('partage', 'HASH_SECOURS_TEST');
     expect(trouverCompte).not.toHaveBeenCalled(); // voie de secours : aucun accès DB compte
     expect(cookieStore.set).toHaveBeenCalledTimes(1);
   });
@@ -106,11 +108,39 @@ describe('POST /api/admin/session', () => {
     expect(verifier).toHaveBeenCalledTimes(1); // leurre : pas de court-circuit qui révélerait l'absence
   });
 
-  it('voie de secours avec mauvais mot de passe partagé → 401 identique', async () => {
-    motDePasseValide.mockReturnValue(false);
+  it('voie de secours avec mauvais secret → 401 identique', async () => {
+    verifier.mockResolvedValue(false);
     const res = await POST(requete({ identifiant: '', password: 'faux' }));
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ erreur: 'Identifiants invalides' });
+  });
+
+  it('FAIL-CLOSED + TEMPS CONSTANT : ADMIN_PASSWORD_ARGON2_B64 absent → verifier(password, LEURRE) → 401 (aucun throw)', async () => {
+    delete process.env.ADMIN_PASSWORD_ARGON2_B64;
+    verifier.mockResolvedValue(false); // le leurre ne matche jamais le mot de passe → false
+    const res = await POST(requete({ identifiant: '', password: 'partage' }));
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ erreur: 'Identifiants invalides' }); // MÊME message : ne révèle pas la var manquante
+    // hashBreakGlass() renvoie HASH_LEURRE (un argon2id), PAS '' : `verifier` exécute un argon2 COMPLET (temps
+    // constant) → « break-glass non armé » indiscernable de « mauvais secret » par le timing (anti-énumération).
+    expect(verifier).toHaveBeenCalledWith('partage', expect.stringMatching(/^\$argon2id\$/));
+  });
+
+  it('FAIL-CLOSED + TEMPS CONSTANT : _B64 se décodant en chaîne VIDE → repli LEURRE (pas de chemin rapide) → 401', async () => {
+    process.env.ADMIN_PASSWORD_ARGON2_B64 = '   '; // que des caractères hors-alphabet base64 → décodage '' → leurre
+    verifier.mockResolvedValue(false);
+    const res = await POST(requete({ identifiant: '', password: 'partage' }));
+    expect(res.status).toBe(401);
+    expect(verifier).toHaveBeenCalledWith('partage', expect.stringMatching(/^\$argon2id\$/)); // leurre, temps constant
+  });
+
+  it('FAIL-CLOSED : _B64 NON vide mais corrompu → valeur décodée passée telle quelle → 401 propre (aucun throw)', async () => {
+    process.env.ADMIN_PASSWORD_ARGON2_B64 = '@@@ pas du base64 valide @@@'; // décode en octets NON vides → passés à verifier
+    verifier.mockResolvedValue(false); // argon2 rejette la valeur décodée (qui n'est pas un hash valide)
+    const res = await POST(requete({ identifiant: '', password: 'partage' }));
+    expect(res.status).toBe(401); // pas de 500 : le décodage ne crashe jamais la route
+    expect(await res.json()).toEqual({ erreur: 'Identifiants invalides' });
+    expect(verifier).toHaveBeenCalledTimes(1); // verifier appelé une fois (valeur décodée), pas court-circuité
   });
 
   it('(f) identifiant MAL FORMÉ (pas une adresse e-mail) → 401 générique identique, jamais un motif e-mail', async () => {
@@ -138,7 +168,7 @@ describe('POST /api/admin/session — anti-force-brute (Lot 7)', () => {
     const res = await POST(requete({ identifiant: 'arno@x.com', password: 'peu importe' }));
     expect(res.status).toBe(429);
     expect(res.headers.get('Retry-After')).toBe('42');
-    expect(verifier).not.toHaveBeenCalled(); // pas d'appel à motDePasse.verifier quand throttlé
+    expect(verifier).not.toHaveBeenCalled(); // pas d'appel à `verifier` (argon2) quand throttlé
     expect(trouverCompte).not.toHaveBeenCalled(); // anti-énumération : throttle AVANT toute résolution de compte
     expect(cookieStore.set).not.toHaveBeenCalled();
   });
@@ -159,7 +189,7 @@ describe('POST /api/admin/session — anti-force-brute (Lot 7)', () => {
   });
 
   it('échec voie de secours → noterEchec(\'\') (chaîne vide = secours), jamais noterSucces', async () => {
-    motDePasseValide.mockReturnValue(false);
+    verifier.mockResolvedValue(false);
     await POST(requete({ identifiant: '', password: 'faux' }));
     expect(noterEchec).toHaveBeenCalledWith('');
     expect(noterSucces).not.toHaveBeenCalled();
@@ -175,7 +205,7 @@ describe('POST /api/admin/session — anti-force-brute (Lot 7)', () => {
 
   it('BREAK-GLASS (F1) : la voie de secours (identifiant vide) n’est JAMAIS throttlée', async () => {
     verifierThrottle.mockResolvedValue({ bloque: true, retryAfter: 999 }); // même si le throttle voudrait bloquer…
-    motDePasseValide.mockReturnValue(true);
+    verifier.mockResolvedValue(true);
     const res = await POST(requete({ identifiant: '', password: 'partage' }));
     expect(res.status).toBe(200); // …le secours passe : corde de rappel toujours disponible
     expect(verifierThrottle).not.toHaveBeenCalled(); // '' n’est jamais soumis au throttle (pas de DoS-lockout système)
