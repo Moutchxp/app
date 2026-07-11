@@ -14,9 +14,11 @@ export const config = {
 };
 
 /**
- * Table de correspondance PRÉFIXE de chemin → permission requise (Module). Le premier préfixe qui
- * correspond décide. Un chemin non listé (ex. /admin landing, /api/admin/ping) n'exige aucune permission
- * particulière : la simple authentification suffit. Les administrateurs ont toutes les permissions.
+ * Table de correspondance PRÉFIXE de chemin → permission requise (Module). Le premier préfixe qui correspond
+ * décide. ⚠️ DÉFAUT FAIL-CLOSED (durcissement) : un chemin sous le matcher qui n'est NI ici, NI dans la whitelist
+ * publique, NI réservé au rôle administrateur (`estAdministratif`/`estAudit`), NI dans `CHEMINS_AUTHENTIFIE_SEUL`,
+ * est REFUSÉ par défaut (cf. fin de `proxy()`). Toute NOUVELLE route de module DOIT donc être déclarée ici, sinon
+ * elle sera bloquée. Les administrateurs ont toutes les permissions (`permsToutes`) → ils passent partout.
  */
 const PERMISSIONS: ReadonlyArray<readonly [string, Module]> = [
   // Pages de modules
@@ -26,9 +28,11 @@ const PERMISSIONS: ReadonlyArray<readonly [string, Module]> = [
   ['/admin/internautes', 'internautes'],
   ['/admin/curation', 'curation'],
   ['/admin/banc-test', 'banc_test'],
-  // Routes d'API correspondantes (defense in depth : vérifiées au proxy ET, à terme, dans chaque route)
+  // Routes d'API correspondantes (defense in depth : vérifiées au proxy ET dans chaque handler via garde.ts).
   ['/api/admin/config', 'pilotage'],
   ['/api/admin/cartes-annee', 'cartes_annee'],
+  ['/api/admin/statistiques', 'statistiques'],
+  ['/api/admin/geo/communes', 'statistiques'], // sert la carte du module Statistiques
   ['/api/admin/curation', 'curation'],
   ['/api/admin/banc-comparer', 'banc_test'],
   ['/api/admin/banc-profil-actif', 'banc_test'],
@@ -64,6 +68,36 @@ function estAdministratif(pathname: string): boolean {
   return false;
 }
 
+/**
+ * Surface AUDIT (journal de sécurité : `/admin/audit` + `/api/admin/audit`) — réservée au RÔLE administrateur EN
+ * DUR, comme la tuile « Administratif » (pas une permission de module : le journal de sécurité n'est pas un droit
+ * distribuable). La route API se re-garde en aval via `exigerAdministrateur` (garde.ts) → double barrière. Match
+ * par frontière de segment (aucune collision de préfixe). Séparé d'`estAdministratif` pour ne pas brouiller le
+ * sens de cette dernière (toujours = tuile /comptes uniquement, référencée telle quelle par les handlers comptes).
+ */
+function estAudit(pathname: string): boolean {
+  for (const p of ['/admin/audit', '/api/admin/audit']) {
+    if (pathname === p || pathname.startsWith(`${p}/`)) return true;
+  }
+  return false;
+}
+
+/**
+ * Chemins AUTHENTIFIÉ-SEUL : accessibles à TOUT compte connecté (collaborateur inclus) SANS permission de module,
+ * mais refusés si non authentifié (l'auth est déjà exigée plus haut). Ils n'entrent pas dans la table
+ * chemin→permission ; sous le défaut FAIL-CLOSED, ils DOIVENT être autorisés EXPLICITEMENT ici :
+ *  - `/admin` : accueil / grille des tuiles (c'est aussi la cible des redirections de refus → pas de boucle) ;
+ *  - `/api/admin/ping` : sonde d'authentification (defense in depth, EX-13/EX-15), aucune donnée sensible ;
+ *  - `/admin/compte/mot-de-passe` + `/api/admin/compte/mot-de-passe` : self-service mot de passe (aucune perm de
+ *    module ; la route se re-garde en aval). Match EXACT (Set) : aucun sous-chemin implicitement ouvert.
+ */
+const CHEMINS_AUTHENTIFIE_SEUL: ReadonlySet<string> = new Set([
+  '/admin',
+  '/api/admin/ping',
+  '/admin/compte/mot-de-passe',
+  '/api/admin/compte/mot-de-passe',
+]);
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -92,9 +126,10 @@ export async function proxy(request: NextRequest) {
 
   // ═══ ENFORCEMENT PREMIÈRE CONNEXION (M3-4 Lot B) ═══
   // TANT QUE doitChanger : tout l'admin est bloqué SAUF la page/route de changement (whitelist EXACTE ci-dessus ;
-  // la déconnexion est déjà passée en whitelist publique). Placé EN AMONT de la table chemin→permission → NE DÉPEND
-  // PAS de son fail-open (un chemin non listé serait autorisé par `permissionRequise`, mais il est ici d'abord
-  // intercepté par le drapeau). sub=null (voie de secours) a `doitChanger=false` forcé (session.ts) → jamais concerné.
+  // la déconnexion est déjà passée en whitelist publique). Placé EN AMONT de la table chemin→permission ET du défaut
+  // fail-closed → l'enforcement ne dépend d'AUCUN des deux : même un chemin par ailleurs autorisé (déclaré,
+  // authentifié-seul ou rôle admin) est d'abord intercepté ici par le drapeau. sub=null (voie de secours) a
+  // `doitChanger=false` forcé (session.ts) → jamais concerné.
   if (session.doitChanger && !CHEMINS_CHANGEMENT_MDP.has(pathname)) {
     if (estApi) {
       return NextResponse.json({ erreur: 'CHANGEMENT_REQUIS' }, { status: 403 });
@@ -102,10 +137,11 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/admin/compte/mot-de-passe', request.url), 302);
   }
 
-  // ═══ TUILE ADMINISTRATIF (M3-4 Lot C) — RÔLE administrateur EN DUR ═══
-  // En amont de la table chemin→permission (donc immunisé contre son fail-open). Voie de secours (sub=null) :
+  // ═══ SURFACES RÉSERVÉES AU RÔLE administrateur EN DUR ═══
+  // Tuile « Administratif » (/comptes, M3-4 Lot C) ET audit (/audit, journal de sécurité) : réservées au RÔLE,
+  // pas à une permission de module. En amont de la table chemin→permission. Voie de secours (sub=null) :
   // `session.role === 'administrateur'` → autorisée. Collaborateur → 403 (API) / redirection accueil (page).
-  if (estAdministratif(pathname) && session.role !== 'administrateur') {
+  if ((estAdministratif(pathname) || estAudit(pathname)) && session.role !== 'administrateur') {
     if (estApi) {
       return new NextResponse(null, { status: 403 });
     }
@@ -114,14 +150,29 @@ export async function proxy(request: NextRequest) {
 
   const requise = permissionRequise(pathname);
 
-  // Administrateur → toutes permissions. Collaborateur → doit porter la permission du chemin.
-  if (requise !== null && !session.perms[requise]) {
-    if (estApi) {
-      return new NextResponse(null, { status: 403 });
+  // Route de module DÉCLARÉE : la permission est exigée. Administrateur → `permsToutes` → passe. Collaborateur
+  // sans la permission → 403 (API) / redirection accueil (page, l'utilisateur EST authentifié — pas le login).
+  if (requise !== null) {
+    if (!session.perms[requise]) {
+      if (estApi) {
+        return new NextResponse(null, { status: 403 });
+      }
+      return NextResponse.redirect(new URL('/admin', request.url));
     }
-    // Page interdite → renvoi vers l'accueil admin (pas la page de login : l'utilisateur EST authentifié).
-    return NextResponse.redirect(new URL('/admin', request.url));
+    return NextResponse.next();
   }
 
-  return NextResponse.next();
+  // ═══ DÉFAUT FAIL-CLOSED (durcissement — remplace l'ancien fail-open `return null`) ═══
+  // Chemin sous le matcher mais NON déclaré dans PERMISSIONS. Autorisé UNIQUEMENT si :
+  //  - rôle administrateur (accès total, inchangé — inclut la voie de secours sub=null) ; OU
+  //  - chemin explicitement AUTHENTIFIÉ-SEUL (accueil, sonde, self-service mot de passe).
+  // Tout le reste (route/page inconnue — typiquement un futur endpoint ajouté SANS déclaration) → REFUSÉ. Ferme
+  // le foot-gun : une route non listée n'est plus accessible à un collaborateur du seul fait qu'il est authentifié.
+  // Les gardes internes (garde.ts) restent en place en aval : défense en profondeur, deux barrières indépendantes.
+  if (session.role === 'administrateur') return NextResponse.next();
+  if (CHEMINS_AUTHENTIFIE_SEUL.has(pathname)) return NextResponse.next();
+  if (estApi) {
+    return new NextResponse(null, { status: 403 });
+  }
+  return NextResponse.redirect(new URL('/admin', request.url));
 }

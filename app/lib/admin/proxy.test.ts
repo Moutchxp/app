@@ -49,13 +49,15 @@ describe('proxy — garde de permissions (e)', () => {
     }
   });
 
-  it('page sans permission requise (/admin accueil) → laissée passer pour un collaborateur', async () => {
+  it('/admin (accueil) : collaborateur laissé passer via l’allow-list AUTHENTIFIÉ-SEUL (ex-fail-open)', async () => {
+    // Durcissement : avant, ce chemin passait par le fail-open (chemin non listé → autorisé). Désormais il est
+    // autorisé EXPLICITEMENT (CHEMINS_AUTHENTIFIE_SEUL) ; un chemin non listé, lui, serait refusé (cf. bloc dédié).
     const res = await proxy(await requete('/admin', collab()));
     expect(res.status).not.toBe(307);
     expect(res.status).not.toBe(403);
   });
 
-  it('/api/admin/ping (aucune permission requise) → laissé passer', async () => {
+  it('/api/admin/ping : collaborateur laissé passer via l’allow-list AUTHENTIFIÉ-SEUL (ex-fail-open)', async () => {
     const res = await proxy(await requete('/api/admin/ping', collab()));
     expect(res.status).not.toBe(403);
   });
@@ -166,5 +168,106 @@ describe('proxy — tuile Administratif, rôle EN DUR (M3-4 Lot C)', () => {
     const res = await proxy(await requete('/api/admin/compte/mot-de-passe', collab()));
     expect(res.status).not.toBe(403);
     expect(res.status).not.toBe(307);
+  });
+});
+
+describe('proxy — défaut FAIL-CLOSED (durcissement : chemin non déclaré → refusé)', () => {
+  it('route API INCONNUE (non déclarée) + collaborateur (même toutes perms) → 403 (foot-gun fermé)', async () => {
+    // Cœur du durcissement : une route jamais déclarée dans PERMISSIONS n'est plus accessible à un collaborateur
+    // du seul fait d'être authentifié. Avant (fail-open) : elle passait.
+    const res = await proxy(await requete('/api/admin/route-fantome-non-declaree', collab(permsToutes())));
+    expect(res.status).toBe(403);
+  });
+
+  it('page INCONNUE (non déclarée) + collaborateur → redirection /admin', async () => {
+    const res = await proxy(await requete('/admin/page-fantome-non-declaree', collab(permsToutes())));
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toMatch(/\/admin$/);
+  });
+
+  it('route/page inconnue + ADMINISTRATEUR → laissé passer (accès total inchangé)', async () => {
+    for (const p of ['/api/admin/route-fantome', '/admin/page-fantome']) {
+      const res = await proxy(await requete(p, admin()));
+      expect(res.status).not.toBe(403);
+      expect(res.status).not.toBe(307);
+    }
+  });
+
+  it('VOIE DE SECOURS (sub=null, administrateur) sur route inconnue → laissé passer', async () => {
+    const res = await proxy(await requete('/api/admin/route-fantome', secours()));
+    expect(res.status).not.toBe(403);
+    expect(res.status).not.toBe(307);
+  });
+
+  it('route inconnue + NON authentifié → 401 (l’auth prime sur le défaut fail-closed)', async () => {
+    const res = await proxy(await requete('/api/admin/route-fantome', null));
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('proxy — routes de module nouvellement déclarées (statistiques, geo, audit)', () => {
+  const avecStats = () => collab({ ...permsAucune(), statistiques: true });
+
+  it('/api/admin/statistiques : collaborateur SANS perm_statistiques → 403', async () => {
+    const res = await proxy(await requete('/api/admin/statistiques', collab()));
+    expect(res.status).toBe(403);
+  });
+
+  it('/api/admin/statistiques : collaborateur AVEC perm_statistiques → passe', async () => {
+    const res = await proxy(await requete('/api/admin/statistiques', avecStats()));
+    expect(res.status).not.toBe(403);
+    expect(res.status).not.toBe(307);
+  });
+
+  it('/api/admin/geo/communes : collaborateur SANS perm_statistiques → 403', async () => {
+    const res = await proxy(await requete('/api/admin/geo/communes', collab()));
+    expect(res.status).toBe(403);
+  });
+
+  it('/api/admin/geo/communes : collaborateur AVEC perm_statistiques → passe', async () => {
+    const res = await proxy(await requete('/api/admin/geo/communes', avecStats()));
+    expect(res.status).not.toBe(403);
+  });
+
+  it('/admin/audit (page) : collaborateur même toutes perms → redirection /admin (RÔLE admin requis)', async () => {
+    const res = await proxy(await requete('/admin/audit', collab(permsToutes())));
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toMatch(/\/admin$/);
+  });
+
+  it('/api/admin/audit (API) : collaborateur même toutes perms → 403 (RÔLE admin requis)', async () => {
+    const res = await proxy(await requete('/api/admin/audit', collab(permsToutes())));
+    expect(res.status).toBe(403);
+  });
+
+  it('/api/admin/audit + administrateur → passe (double barrière : proxy rôle + exigerAdministrateur en aval)', async () => {
+    const res = await proxy(await requete('/api/admin/audit', admin()));
+    expect(res.status).not.toBe(403);
+    expect(res.status).not.toBe(307);
+  });
+});
+
+describe('proxy — allow-list AUTHENTIFIÉ-SEUL (sans permission de module)', () => {
+  it.each([
+    '/admin',
+    '/api/admin/ping',
+    '/admin/compte/mot-de-passe',
+    '/api/admin/compte/mot-de-passe',
+  ])('%s : collaborateur sans aucune permission → laissé passer', async (p) => {
+    const res = await proxy(await requete(p, collab()));
+    expect(res.status).not.toBe(403);
+    expect(res.status).not.toBe(307);
+    expect(res.status).not.toBe(302);
+  });
+
+  it('/admin : NON authentifié → redirection login (l’allow-list n’ouvre PAS aux anonymes)', async () => {
+    const res = await proxy(await requete('/admin', null));
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toMatch(/\/admin\/login$/);
+  });
+
+  it('/api/admin/ping : NON authentifié → 401', async () => {
+    const res = await proxy(await requete('/api/admin/ping', null));
+    expect(res.status).toBe(401);
   });
 });
