@@ -3,7 +3,8 @@ import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { query, withTransaction, closePool } from '../../db/client';
 import { lireGrandLivre } from './requete';
 import { lireSeuilK } from './kAnonymat';
-import { traficParTranche, repartitionCommune, repartitionVerdicts, statistiques } from './metriques';
+import { traficParTranche, repartitionCommune, repartitionVerdicts, statistiques, serieParTranche, verdictsCommune } from './metriques';
+import { refCommunes } from './geo';
 
 /**
  * M2 — LOT 4. Tests d'INTÉGRATION (vraie base ; 018+020 appliquées). Prouvent sur données RÉELLES : le
@@ -118,5 +119,87 @@ describe('statistiques (orchestrateur) — payload complet, k réel', () => {
     expect(s.k).toBe(11);
     expect(s.communes.visibles.map((c) => c.commune_insee)).toEqual(['95011']);
     expect(s.verdicts.sans_vis_a_vis).toBe(12);
+    expect(Array.isArray(s.serie)).toBe(true); // Lot 6 : série toujours présente
+    expect(s.filtreCommune).toBeNull(); // Lot 6 : sans commune → pas de scope
+  });
+});
+
+// ── Lot 6 : SQL RÉEL (les tests mockés ne prouvent pas la validité SQL — leçon du Lot 3) ───────────────
+describe('série temporelle (Lot 6) — SQL réel, fusion des 3 sources par bucket', () => {
+  it('visites + analyses + résultats/verdicts agrégés par jour', async () => {
+    await poser({ jour_paris: '2021-07-05', nom: 'session_fin', etape: 'resultat', source: 'test', n: 5 });
+    await poser({ jour_paris: '2021-07-05', nom: 'analyse_lancee', n: 3 });
+    await poser({ jour_paris: '2021-07-05', nom: 'resultat', verdict: 'SANS_VIS_A_VIS', commune_insee: '95011', n: 4 });
+    await poser({ jour_paris: '2021-07-06', nom: 'session_fin', etape: 'photo', source: 'test', n: 2 });
+    const r = await serieParTranche({ debut: '2021-07-01', fin: '2021-07-31', grain: 'jour' });
+    expect(r.find((x) => x.bucket === '2021-07-05')).toEqual({
+      bucket: '2021-07-05',
+      visites: 5,
+      analysesLancees: 3,
+      resultats: 4,
+      sans: 4,
+      vis: 0,
+      ind: 0,
+    });
+    expect(r.find((x) => x.bucket === '2021-07-06')?.visites).toBe(2);
+  });
+});
+
+describe('verdicts par commune (Lot 6) — SQL réel, k RE-APPLIQUÉ, scope étanche', () => {
+  it('scope à la commune (les autres communes n’entrent pas) + verdict rare masqué', async () => {
+    await poser({ jour_paris: '2021-07-05', nom: 'resultat', verdict: 'SANS_VIS_A_VIS', commune_insee: '95011', n: 20 });
+    await poser({ jour_paris: '2021-07-05', nom: 'resultat', verdict: 'VIS_A_VIS', commune_insee: '95011', n: 15 });
+    await poser({ jour_paris: '2021-07-05', nom: 'resultat', verdict: 'INDETERMINE', commune_insee: '95011', n: 3 });
+    await poser({ jour_paris: '2021-07-05', nom: 'resultat', verdict: 'SANS_VIS_A_VIS', commune_insee: '95001', n: 50 }); // AUTRE commune
+    const r = await verdictsCommune({ debut: '2021-07-01', fin: '2021-07-31', grain: 'jour' }, '95011', 11);
+    expect(r.visibles.map((c) => c.verdict)).toEqual(['SANS_VIS_A_VIS']); // 95001 (50) exclu du scope
+    expect(r.masque).toEqual({ nbCellules: 2, total: 18 }); // {15,3} agrégés — jamais l'IND=3 isolé
+  });
+});
+
+describe('référentiel cartographique (Lot 6) — pure géo, dérivé de adresse_ban', () => {
+  it('renvoie tout le périmètre (≈137 communes), chacune avec nom + centroïde IdF, aucun compteur', async () => {
+    const ref = await refCommunes();
+    expect(Object.keys(ref).length).toBeGreaterThanOrEqual(130);
+    const asn = ref['92004'];
+    expect(asn?.nom).toMatch(/Asni/); // Asnières-sur-Seine
+    expect(asn?.centroid[0]).toBeGreaterThan(2); // lon Île-de-France
+    expect(asn?.centroid[0]).toBeLessThan(3);
+    expect(asn?.centroid[1]).toBeGreaterThan(48); // lat Île-de-France
+    expect(asn?.centroid[1]).toBeLessThan(49.5);
+    // Pure géo : la valeur ne porte QUE nom + centroïde (aucune clé de trafic/compteur).
+    expect(Object.keys(asn).sort()).toEqual(['centroid', 'nom']);
+  });
+});
+
+describe('statistiques scopé commune (Lot 6) — GARDE k-anonymat SERVEUR (constat revue R1)', () => {
+  it('commune k-VISIBLE → filtreCommune renseigné (verdicts ≥ k restitués)', async () => {
+    await poser({ jour_paris: '2021-07-05', nom: 'resultat', verdict: 'SANS_VIS_A_VIS', commune_insee: '95011', n: 20 });
+    await poser({ jour_paris: '2021-07-05', nom: 'resultat', verdict: 'VIS_A_VIS', commune_insee: '95011', n: 15 });
+    const s = await statistiques({ debut: '2021-07-01', fin: '2021-07-31', grain: 'jour' }, '95011');
+    expect(s.communes.visibles.map((c) => c.commune_insee)).toContain('95011');
+    expect(s.filtreCommune?.commune).toBe('95011');
+    expect(s.filtreCommune?.verdicts.visibles.map((c) => c.verdict).sort()).toEqual(['SANS_VIS_A_VIS', 'VIS_A_VIS']);
+  });
+
+  it('commune SOUS k (total < k) → filtreCommune null (pas de restitution, pas d’oracle)', async () => {
+    await poser({ jour_paris: '2021-07-05', nom: 'resultat', verdict: 'SANS_VIS_A_VIS', commune_insee: '95001', n: 5 });
+    const s = await statistiques({ debut: '2021-07-01', fin: '2021-07-31', grain: 'jour' }, '95001');
+    expect(s.communes.visibles.map((c) => c.commune_insee)).not.toContain('95001'); // masquée au niveau communes
+    expect(s.filtreCommune).toBeNull(); // le scope REFUSE une commune non k-visible
+  });
+
+  it('commune à 0 activité → filtreCommune null (indistinguable de « pas de filtre » → oracle fermé)', async () => {
+    const s = await statistiques({ debut: '2021-07-01', fin: '2021-07-31', grain: 'jour' }, '95003');
+    expect(s.filtreCommune).toBeNull();
+  });
+
+  it('commune ≥ k mais TIRÉE par suppression secondaire → filtreCommune null (anti-recouvrement du total)', async () => {
+    // 95011 (12, ≥ k) est tirée dans l'agrégat masqué de M-7 pour sécuriser la voisine 95001 (3, < k).
+    await poser({ jour_paris: '2021-07-05', nom: 'resultat', verdict: 'SANS_VIS_A_VIS', commune_insee: '95011', n: 12 });
+    await poser({ jour_paris: '2021-07-05', nom: 'resultat', verdict: 'VIS_A_VIS', commune_insee: '95001', n: 3 });
+    const s = await statistiques({ debut: '2021-07-01', fin: '2021-07-31', grain: 'jour' }, '95011');
+    expect(s.communes.visibles.map((c) => c.commune_insee)).not.toContain('95011'); // tirée hors des visibles
+    expect(s.filtreCommune).toBeNull(); // sans la garde, ?commune=95011 recouvrirait 12 → 15−12=3 (voisine dé-anonymisée)
   });
 });

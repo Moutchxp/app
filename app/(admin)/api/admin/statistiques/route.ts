@@ -11,6 +11,10 @@ import { statistiques } from '../../../../lib/analytics/lecture/metriques';
  * JAMAIS les sessions brutes (`analytics_session`). k-anonymat appliqué à la restitution (communes /
  * provenance < k masquées + suppression secondaire), seuil lu au runtime depuis la config (020).
  *
+ * LOT 6 — paramètre optionnel `commune` (code INSEE, filtre carte). Présent → la lecture ajoute
+ * `filtreCommune` (verdicts de cette commune, RE-passés en k côté serveur) ; les métriques de session
+ * (trafic/entonnoir/provenance) restent globales (non ventilables par commune, anti-fingerprint).
+ *
  * PERMISSION : `perm_statistiques`, vérifiée CÔTÉ SERVEUR par `exigerCompteActif` (relit actif + perm en
  * base → révocation IMMÉDIATE, indépendante du proxy et de l'UI). Seul GET est exporté (aucune méthode
  * mutante). Runtime Node.
@@ -33,7 +37,14 @@ export async function GET(request: Request): Promise<Response> {
     );
     if (!v.ok) return Response.json({ erreur: v.erreur }, { status: 400 });
 
-    return Response.json(await statistiques(v.fenetre));
+    // Filtre carte optionnel : code INSEE 5 car (2 chiffres dept ou 2A/2B Corse + 3). Présent mais malformé
+    // → 400 (on ne devine pas) ; absent → null (vue globale). Validé ici AVANT d'atteindre le SQL (param lié).
+    const communeRaw = url.searchParams.get('commune');
+    if (communeRaw !== null && !/^(2[AB]|[0-9]{2})[0-9]{3}$/.test(communeRaw)) {
+      return Response.json({ erreur: 'commune invalide' }, { status: 400 });
+    }
+
+    return Response.json(await statistiques(v.fenetre, communeRaw));
   } catch {
     // Accès base en échec (permission ou lecture) → erreur maîtrisée, jamais de fuite de détail.
     return Response.json({ erreur: 'statistiques indisponibles' }, { status: 503 });

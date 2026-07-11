@@ -1,16 +1,28 @@
 'use client';
 
-import { type CSSProperties, type ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
+import dynamic from 'next/dynamic';
 import {
   libelleMasque,
   partsVerdicts,
   entonnoirCumule,
   formatNombre,
+  maxSerie,
+  coordsSerie,
+  joindreGeo,
+  LIBELLE_VERDICT,
+  type CleSerie,
   type Fenetre,
   type Grain,
   type Statistiques,
   type VentilationSure,
+  type FiltreCommune,
+  type RefCommunes,
 } from './affichage';
+
+// Carte chargée CÔTÉ CLIENT seulement (Leaflet accède à `window`). `ssr: false` → rien au SSR/1er rendu →
+// aucun mismatch d'hydratation (même motif que app/MapSelector.tsx). Le chunk Leaflet ne charge qu'ici.
+const CarteCommunes = dynamic(() => import('./CarteCommunes'), { ssr: false });
 
 /**
  * M2 — LOT 5. Composants de PRÉSENTATION du tableau de bord (séparés de la page-coquille pour être
@@ -27,7 +39,19 @@ export const CSS_ECRAN = `
 @media (prefers-reduced-motion: reduce){ .svv-stats *{transition:none!important;animation:none!important} }
 `;
 
-export function Carte({ titre, aide, badge, children }: { titre: string; aide?: string; badge?: ReactNode; children: ReactNode }) {
+export function Carte({
+  titre,
+  aide,
+  badge,
+  voile,
+  children,
+}: {
+  titre: string;
+  aide?: string;
+  badge?: ReactNode;
+  voile?: string; // Lot 6 : si présent, la tuile est « grisée » (non ventilable sous le filtre commune) + note
+  children: ReactNode;
+}) {
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
@@ -35,7 +59,22 @@ export function Carte({ titre, aide, badge, children }: { titre: string; aide?: 
         {badge}
       </div>
       {aide && <p style={{ margin: 0, fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>{aide}</p>}
-      {children}
+      {voile ? (
+        <>
+          <p
+            role="note"
+            style={{ margin: 0, fontSize: '.72rem', color: 'var(--color-svv-muted)', fontStyle: 'italic', background: 'var(--color-svv-field)', borderRadius: 8, padding: '6px 8px' }}
+          >
+            {voile}
+          </p>
+          {/* Contenu GLOBAL, atténué : ces chiffres NE sont PAS filtrés par commune (la note l'explicite). */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, opacity: 0.4, pointerEvents: 'none' }} aria-hidden>
+            {children}
+          </div>
+        </>
+      ) : (
+        children
+      )}
     </div>
   );
 }
@@ -89,11 +128,11 @@ const COUL_VERDICT: Record<string, string> = {
   INDETERMINE: 'var(--color-svv-muted)',
 };
 
-export function TuileTrafic({ data }: { data: Statistiques }) {
+export function TuileTrafic({ data, voile }: { data: Statistiques; voile?: string }) {
   const max = Math.max(1, ...data.trafic.map((p) => p.visites));
   const total = data.trafic.reduce((a, p) => a + p.visites, 0);
   return (
-    <Carte titre="Visites" aide="Sessions comptées (jamais des « visiteurs uniques »)." badge={<BadgeCompaction />}>
+    <Carte titre="Visites" aide="Sessions comptées (jamais des « visiteurs uniques »)." badge={<BadgeCompaction />} voile={voile}>
       <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>
         Total période : <strong style={{ color: 'var(--color-svv-ink)' }}>{formatNombre(total)}</strong>
       </div>
@@ -108,9 +147,9 @@ export function TuileTrafic({ data }: { data: Statistiques }) {
   );
 }
 
-export function TuileAnalyses({ data }: { data: Statistiques }) {
+export function TuileAnalyses({ data, voile }: { data: Statistiques; voile?: string }) {
   return (
-    <Carte titre="Analyses" aide="Lancements et résultats produits (re-runs inclus).">
+    <Carte titre="Analyses" aide="Lancements et résultats produits (re-runs inclus)." voile={voile}>
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         <Kpi valeur={data.analyses.lancees} libelle="analyses lancées" />
         <Kpi valeur={data.analyses.resultats} libelle="résultats produits" />
@@ -119,11 +158,25 @@ export function TuileAnalyses({ data }: { data: Statistiques }) {
   );
 }
 
-export function TuileVerdicts({ data }: { data: Statistiques }) {
+export function TuileVerdicts({
+  data,
+  filtre,
+  nomCommune,
+  resultatsCommune,
+  voile,
+}: {
+  data: Statistiques;
+  filtre?: FiltreCommune | null; //   Lot 6 : présent → verdicts SCOPÉS à la commune (k re-passé serveur)
+  nomCommune?: string;
+  resultatsCommune?: number; //       total résultats de la commune (= son n dans communes.visibles, ≥ k, sûr)
+  voile?: string; //                  filtre actif mais scope indisponible → note « chiffres globaux » (jamais muet)
+}) {
+  // Filtre carte actif → verdicts scopés à la commune (k-ventilé), JAMAIS les verdicts globaux recolorés.
+  if (filtre) return <VerdictsCommune filtre={filtre} nom={nomCommune ?? filtre.commune} resultats={resultatsCommune} />;
   const { parts, echantillonFaible } = partsVerdicts(data.verdicts);
   const total = data.verdicts.total;
   return (
-    <Carte titre="Verdicts" aide="Sur les analyses réalisées (échantillon auto-sélectionné : ne reflète pas le marché).">
+    <Carte titre="Verdicts" aide="Sur les analyses réalisées (échantillon auto-sélectionné : ne reflète pas le marché)." voile={voile}>
       {total === 0 ? (
         <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucun résultat sur la période.</span>
       ) : (
@@ -159,12 +212,159 @@ export function TuileVerdicts({ data }: { data: Statistiques }) {
   );
 }
 
-export function TuileEntonnoir({ data }: { data: Statistiques }) {
+/** Verdicts d'UNE commune (filtre carte) : k-ventilé côté serveur → affiché tel quel, JAMAIS reconstitué. */
+function VerdictsCommune({ filtre, nom, resultats }: { filtre: FiltreCommune; nom: string; resultats?: number }) {
+  const v = filtre.verdicts;
+  return (
+    <Carte titre="Verdicts — commune" aide="Répartition scopée à la commune sélectionnée (re-passée en k côté serveur).">
+      <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>
+        {nom}
+        {resultats != null ? (
+          <>
+            {' · '}
+            <strong style={{ color: 'var(--color-svv-ink)' }}>{formatNombre(resultats)}</strong> résultats
+          </>
+        ) : null}
+      </div>
+      {v.insuffisant ? (
+        <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>
+          Détail par verdict : données insuffisantes pour l’anonymat sur cette commune.
+        </span>
+      ) : v.visibles.length === 0 && !v.masque ? (
+        <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucun résultat pour cette commune.</span>
+      ) : (
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {v.visibles.map((c) => (
+              <div key={c.verdict} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.82rem' }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: COUL_VERDICT[c.verdict], flexShrink: 0 }} aria-hidden />
+                <span style={{ color: 'var(--color-svv-ink)', flex: 1 }}>{LIBELLE_VERDICT[c.verdict] ?? c.verdict}</span>
+                <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)', fontVariantNumeric: 'tabular-nums' }}>{formatNombre(c.n)}</span>
+              </div>
+            ))}
+          </div>
+          <NoteMasque v={v} />
+        </>
+      )}
+    </Carte>
+  );
+}
+
+// ── Lot 6 : série temporelle filtrable (SVG maison, 0 dépendance) ─────────────────────────────────────
+const GROUPES_SERIE: { id: string; libelle: string; cles: { cle: CleSerie; couleur: string }[] }[] = [
+  { id: 'visites', libelle: 'Visites', cles: [{ cle: 'visites', couleur: 'var(--color-svv-ink)' }] },
+  { id: 'analyses', libelle: 'Analyses', cles: [{ cle: 'analysesLancees', couleur: 'var(--color-svv-muted)' }] },
+  {
+    id: 'verdicts',
+    libelle: 'Verdicts',
+    cles: [
+      { cle: 'sans', couleur: 'var(--color-svv-green)' },
+      { cle: 'vis', couleur: 'var(--color-svv-red)' },
+      { cle: 'ind', couleur: 'var(--color-svv-muted)' },
+    ],
+  },
+];
+const SVG_W = 320;
+const SVG_H = 120;
+const SVG_PAD = 6;
+
+/** Courbes { visites, analyses, verdicts(3) } dans le temps. GLOBALE (jamais scindée par commune). Chips de
+ *  bascule (rouge contour = active). Aucune dépendance : polylignes SVG dérivées de `coordsSerie` (pur, testé). */
+export function SerieTemporelle({ serie }: { serie: Statistiques['serie'] }) {
+  const [actifs, setActifs] = useState<Set<string>>(() => new Set(['visites', 'analyses']));
+  const basculer = (id: string) =>
+    setActifs((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const groupesActifs = GROUPES_SERIE.filter((g) => actifs.has(g.id));
+  const clesActives: CleSerie[] = groupesActifs.flatMap((g) => g.cles.map((c) => c.cle));
+  const iw = SVG_W - SVG_PAD * 2;
+  const ih = SVG_H - SVG_PAD * 2;
+  const max = maxSerie(serie, clesActives.length ? clesActives : ['visites']);
+  return (
+    <Carte
+      titre="Activité dans le temps"
+      aide="Série GLOBALE (jamais scindée par commune). Visites : après compaction (cron)."
+      badge={<BadgeCompaction />}
+    >
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} role="group" aria-label="Courbes affichées">
+        {GROUPES_SERIE.map((g) => {
+          const on = actifs.has(g.id);
+          return (
+            <button
+              key={g.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => basculer(g.id)}
+              style={{
+                minHeight: 44,
+                padding: '0 12px',
+                borderRadius: 999,
+                cursor: 'pointer',
+                fontSize: '.76rem',
+                fontWeight: 700,
+                border: `1px solid ${on ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
+                background: '#fff',
+                color: on ? 'var(--color-svv-red)' : 'var(--color-svv-muted)',
+              }}
+            >
+              {g.libelle}
+            </button>
+          );
+        })}
+      </div>
+      {serie.length === 0 ? (
+        <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune activité compactée sur la période.</span>
+      ) : (
+        <>
+          <svg
+            viewBox={`0 0 ${SVG_W} ${SVG_H}`}
+            width="100%"
+            role="img"
+            aria-label={`Série temporelle : ${groupesActifs.map((g) => g.libelle).join(', ') || 'aucune courbe'}`}
+            style={{ display: 'block', background: 'var(--color-svv-field)', borderRadius: 8, height: 'auto' }}
+          >
+            {groupesActifs
+              .flatMap((g) => g.cles)
+              .map(({ cle, couleur }) => {
+                const pts = coordsSerie(serie, cle, max, iw, ih);
+                if (pts.length === 0) return null;
+                const poly = pts.map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+                return (
+                  <g key={cle} transform={`translate(${SVG_PAD},${SVG_PAD})`}>
+                    <polyline points={poly} fill="none" stroke={couleur} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+                    {pts.map((c, i) => (
+                      <circle key={i} cx={c.x} cy={c.y} r={1.8} fill={couleur} />
+                    ))}
+                  </g>
+                );
+              })}
+          </svg>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.68rem', color: 'var(--color-svv-muted)' }}>
+            <span>{serie[0].bucket}</span>
+            <span>max {formatNombre(max)}</span>
+            <span>{serie[serie.length - 1].bucket}</span>
+          </div>
+          {/* Honnêteté (constat R4) : échelle Y COMMUNE → une petite courbe (verdicts) mêlée à une grande
+              (visites) s'aplatit. On le dit, et on invite à isoler une courbe pour la lire. */}
+          <p style={{ margin: 0, fontSize: '.68rem', color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>
+            Échelle Y commune à toutes les courbes — masque une courbe volumineuse pour agrandir les faibles volumes.
+          </p>
+        </>
+      )}
+    </Carte>
+  );
+}
+
+export function TuileEntonnoir({ data, voile }: { data: Statistiques; voile?: string }) {
   const funnel = entonnoirCumule(data.entonnoir);
   const max = Math.max(1, ...funnel.map((p) => p.atteinte_min));
   const total = funnel.length ? funnel[0].atteinte_min : 0;
   return (
-    <Carte titre="Entonnoir" aide="Visites ayant atteint AU MOINS chaque étape (étape la plus loin atteinte)." badge={<BadgeCompaction />}>
+    <Carte titre="Entonnoir" aide="Visites ayant atteint AU MOINS chaque étape (étape la plus loin atteinte)." badge={<BadgeCompaction />} voile={voile}>
       {total === 0 ? (
         <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune session compactée sur la période.</span>
       ) : (
@@ -178,21 +378,76 @@ export function TuileEntonnoir({ data }: { data: Statistiques }) {
   );
 }
 
-export function TuileCommunes({ data }: { data: Statistiques }) {
+export function TuileCommunes({
+  data,
+  refGeo,
+  selection,
+  onSelect,
+  reducedMotion,
+}: {
+  data: Statistiques;
+  refGeo: RefCommunes | null; //                       référentiel cartographique (endpoint géo) — null si non chargé
+  selection: string | null;
+  onSelect: (insee: string | null) => void; //         null = « toutes communes »
+  reducedMotion: boolean;
+}) {
   const c = data.communes;
-  const max = Math.max(1, ...c.visibles.map((x) => x.n));
+  const tri = [...c.visibles].sort((a, b) => b.n - a.n);
+  const max = Math.max(1, ...tri.map((x) => x.n));
+  const geo = refGeo ? joindreGeo(tri, refGeo) : []; // ne trace QUE les visibles (k-safe) ayant un centroïde connu
+  const nomDe = (insee: string) => refGeo?.[insee]?.nom ?? `Commune ${insee}`;
   return (
-    <Carte titre="Communes" aide={`Où des analyses ont été lancées (grain commune, anonymisé k=${data.k}). Jamais d’adresse ni de point.`}>
+    <Carte titre="Communes" aide={`Où des analyses ont abouti (résultats produits, grain commune, anonymisé k=${data.k}). Jamais d’adresse ni de point.`}>
       {c.insuffisant ? (
         <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>Données insuffisantes pour l’anonymat sur cette période.</span>
       ) : c.visibles.length === 0 && !c.masque ? (
         <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune commune sur la période.</span>
       ) : (
         <>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 260, overflowY: 'auto' }}>
-            {[...c.visibles].sort((a, b) => b.n - a.n).map((x) => (
-              <Barre key={x.commune_insee} label={`Commune ${x.commune_insee}`} valeur={x.n} max={max} />
-            ))}
+          {selection && (
+            <button type="button" onClick={() => onSelect(null)} style={stylePuce(false)}>
+              ← Toutes communes
+            </button>
+          )}
+          {geo.length > 0 && (
+            <>
+              <CarteCommunes communes={geo} selection={selection} onSelect={(insee) => onSelect(insee)} reducedMotion={reducedMotion} />
+              {/* Légende d'échelle (constat R4) : le rayon est un REPÈRE relatif (racine bornée), pas une mesure. */}
+              <p style={{ margin: 0, fontSize: '.68rem', color: 'var(--color-svv-muted)' }}>
+                Taille des bulles ∝ nombre de résultats (repère relatif ; comptes exacts dans la liste).
+              </p>
+            </>
+          )}
+          {refGeo && geo.length < tri.length && (
+            // Réconciliation carte/liste (constat R4) : une commune visible sans centroïde connu reste listée.
+            <p style={{ margin: 0, fontSize: '.68rem', color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>
+              {tri.length - geo.length} commune(s) sans localisation connue — dans la liste, absente(s) de la carte.
+            </p>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
+            {tri.map((x) => {
+              const actif = x.commune_insee === selection;
+              return (
+                <button
+                  key={x.commune_insee}
+                  type="button"
+                  aria-pressed={actif}
+                  onClick={() => onSelect(actif ? null : x.commune_insee)}
+                  style={{
+                    textAlign: 'left',
+                    width: '100%',
+                    minHeight: 44,
+                    cursor: 'pointer',
+                    border: `1px solid ${actif ? 'var(--color-svv-red)' : 'transparent'}`,
+                    borderRadius: 8,
+                    background: actif ? 'var(--color-svv-field)' : 'transparent',
+                    padding: '4px 8px',
+                  }}
+                >
+                  <Barre label={nomDe(x.commune_insee)} valeur={x.n} max={max} couleur={actif ? 'var(--color-svv-red)' : undefined} />
+                </button>
+              );
+            })}
           </div>
           <NoteMasque v={c} />
         </>
@@ -217,10 +472,10 @@ function ListeProvenance<T extends { n: number }>({ v, cle }: { v: VentilationSu
   );
 }
 
-export function TuileProvenance({ data }: { data: Statistiques }) {
+export function TuileProvenance({ data, voile }: { data: Statistiques; voile?: string }) {
   const p = data.provenance;
   return (
-    <Carte titre="Provenance" aide="Origine des visites (host référent absent/masqué = « Direct / inconnu »)." badge={<BadgeCompaction />}>
+    <Carte titre="Provenance" aide="Origine des visites (host référent absent/masqué = « Direct / inconnu »)." badge={<BadgeCompaction />} voile={voile}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
           <div className="svv-label" style={{ marginBottom: 4 }}>Source / medium</div>

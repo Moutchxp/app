@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import StatistiquesPage from './page';
-import { TuileCommunes, TuileVerdicts, TuileTrafic, TuileProvenance, Message } from './tuiles';
-import type { Statistiques } from './affichage';
+import { TuileCommunes, TuileVerdicts, TuileTrafic, TuileProvenance, Message, SerieTemporelle } from './tuiles';
+import type { Statistiques, FiltreCommune } from './affichage';
 
 /**
  * M2 — LOT 5. Tests de RENDU via react-dom/server → HTML statique (sans jsdom : l'environnement node n'a
@@ -19,6 +19,8 @@ const base: Statistiques = {
   entonnoir: [],
   communes: { visibles: [], masque: null },
   provenance: { par_source_medium: { visibles: [], masque: null }, par_referer: { visibles: [], masque: null } },
+  serie: [],
+  filtreCommune: null,
 };
 const rendus: string[] = [];
 function html(node: ReactNode): string {
@@ -30,12 +32,28 @@ const avec = (patch: Partial<Statistiques>) => ({ ...base, ...patch });
 
 describe('masquage k — affiché tel quel, jamais reconstitué', () => {
   it('communes insuffisant → « Données insuffisantes », AUCUNE commune listée', () => {
-    const h = html(createElement(TuileCommunes, { data: avec({ communes: { visibles: [], masque: null, insuffisant: true } }) }));
+    const h = html(
+      createElement(TuileCommunes, {
+        data: avec({ communes: { visibles: [], masque: null, insuffisant: true } }),
+        refGeo: null,
+        selection: null,
+        onSelect: () => {},
+        reducedMotion: false,
+      }),
+    );
     expect(h).toMatch(/Données insuffisantes/);
     expect(h).not.toMatch(/Commune \d/);
   });
   it('communes visibles + masque → agrégat FOURNI (2 zones, total 13), jamais une commune masquée isolée', () => {
-    const h = html(createElement(TuileCommunes, { data: avec({ communes: { visibles: [{ commune_insee: '92004', n: 50 }], masque: { nbCellules: 2, total: 13 } } }) }));
+    const h = html(
+      createElement(TuileCommunes, {
+        data: avec({ communes: { visibles: [{ commune_insee: '92004', n: 50 }], masque: { nbCellules: 2, total: 13 } } }),
+        refGeo: null, // sans référentiel → pas de carte Leaflet (node), liste seule : le label retombe sur « Commune 92004 »
+        selection: null,
+        onSelect: () => {},
+        reducedMotion: false,
+      }),
+    );
     expect(h).toMatch(/92004/);
     expect(h).toMatch(/2 zones masquées \(total 13\)/);
   });
@@ -76,6 +94,72 @@ describe('page — rendu initial (chargement) + rappel cron + sélecteur', () =>
     expect(h).toMatch(/maintenance/);
     expect(h).toMatch(/7 jours/);
     expect(h).toMatch(/Par jour/);
+  });
+});
+
+describe('Lot 6 — série temporelle (SVG maison, 0 dépendance)', () => {
+  const serie = [
+    { bucket: '2026-01-01', visites: 4, analysesLancees: 2, resultats: 1, sans: 1, vis: 0, ind: 0 },
+    { bucket: '2026-01-02', visites: 8, analysesLancees: 3, resultats: 2, sans: 1, vis: 1, ind: 0 },
+  ];
+  it('titre, chips de bascule et courbe SVG réellement produits', () => {
+    const h = html(createElement(SerieTemporelle, { serie }));
+    expect(h).toMatch(/Activité dans le temps/);
+    expect(h).toMatch(/<svg/);
+    expect(h).toMatch(/<polyline/); // courbe maison, aucune lib de charts
+    expect(h).toMatch(/Visites/);
+  });
+  it('série vide → message clair, jamais d’erreur', () => {
+    expect(html(createElement(SerieTemporelle, { serie: [] }))).toMatch(/Aucune activité compactée/);
+  });
+});
+
+describe('Lot 6 — verdicts scopés commune (k-safe, jamais reconstitués)', () => {
+  it('insuffisant → « données insuffisantes », aucun détail de verdict, total commune (≥k) montrable', () => {
+    const filtre: FiltreCommune = { commune: '92004', verdicts: { visibles: [], masque: null, insuffisant: true } };
+    const h = html(createElement(TuileVerdicts, { data: base, filtre, nomCommune: 'Asnières-sur-Seine', resultatsCommune: 14 }));
+    expect(h).toMatch(/Asnières-sur-Seine/);
+    expect(h).toMatch(/insuffisantes/i);
+  });
+  it('cellules visibles affichées telles quelles (comptes bruts k-safe), jamais un %', () => {
+    const filtre: FiltreCommune = {
+      commune: '92004',
+      verdicts: { visibles: [{ verdict: 'SANS_VIS_A_VIS', n: 20 }, { verdict: 'VIS_A_VIS', n: 15 }], masque: null },
+    };
+    const h = html(createElement(TuileVerdicts, { data: base, filtre, nomCommune: 'Asnières', resultatsCommune: 35 }));
+    expect(h).toMatch(/Sans vis-à-vis/);
+    expect(h).toMatch(/20/);
+    expect(h).not.toMatch(/%/); // scope k-safe = comptes bruts, jamais un pourcentage recalculé
+  });
+});
+
+describe('Lot 6 — XOR : filtre commune actif grise les métriques non ventilables (jamais filtrées en silence)', () => {
+  it('Provenance grisée porte la note « non filtrable par commune (anti-fingerprint) »', () => {
+    const h = html(
+      createElement(TuileProvenance, {
+        data: base,
+        voile: 'Provenance : non filtrable par commune (anti-fingerprint). Chiffres globaux.',
+      }),
+    );
+    expect(h).toMatch(/non filtrable par commune/);
+    expect(h).toMatch(/anti-fingerprint/);
+  });
+});
+
+describe('Lot 6 — carte client-only (dynamic ssr:false), jamais montée au SSR', () => {
+  it('TuileCommunes + référentiel → nom résolu, liste rendue, AUCUN leaflet-container dans le HTML SSR', () => {
+    const ref = { '92004': { nom: 'Asnières-sur-Seine', centroid: [2.28, 48.91] as [number, number] } };
+    const h = html(
+      createElement(TuileCommunes, {
+        data: avec({ communes: { visibles: [{ commune_insee: '92004', n: 40 }], masque: null } }),
+        refGeo: ref,
+        selection: null,
+        onSelect: () => {},
+        reducedMotion: false,
+      }),
+    );
+    expect(h).toMatch(/Asnières-sur-Seine/); // nom résolu depuis le référentiel géo (pas « Commune 92004 »)
+    expect(h).not.toMatch(/leaflet-container/); // Leaflet non évalué au SSR (dynamic ssr:false) → aucun crash window
   });
 });
 

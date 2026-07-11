@@ -25,12 +25,18 @@ describe('accès — le dashboard consomme l’API, jamais la base ni la couche 
     }
   });
 
-  it('le seul point d’accès données est fetch(/api/admin/statistiques) — pas d’autre appel réseau', () => {
+  it('les seuls accès données sont l’API admin (fetch construireUrl + URL_GEO) — jamais la base', () => {
     const page = lire('page.tsx');
-    expect(page).toMatch(/fetch\(construireUrl\(/); // consomme l'API du Lot 4
-    // Aucun accès à une table analytics directement (le client ne connaît pas la base).
-    for (const table of ['analytics_compteur_jour', 'analytics_session', 'analytics_config']) {
-      expect(codeSeul(page).includes(table), `page.tsx ne doit pas nommer ${table}`).toBe(false);
+    expect(page).toMatch(/fetch\(construireUrl\(/); // API statistiques (Lot 4/6)
+    expect(page).toMatch(/fetch\(URL_GEO\)/); //       API référentiel cartographique (Lot 6)
+    // URL_GEO pointe une ROUTE API (pas une table) : le référentiel géo passe aussi par le serveur.
+    expect(lire('affichage.ts')).toMatch(/URL_GEO\s*=\s*'\/api\/admin\/geo\/communes'/);
+    // Aucun fichier client ne nomme une table (analytics NI la source géo `adresse_ban`) : il ne connaît pas la base.
+    for (const f of sources()) {
+      const code = codeSeul(lire(f));
+      for (const table of ['analytics_compteur_jour', 'analytics_session', 'analytics_config', 'adresse_ban']) {
+        expect(code.includes(table), `${f} ne doit pas nommer ${table}`).toBe(false);
+      }
     }
   });
 
@@ -53,6 +59,8 @@ describe('métriques refusées — jamais affichées', () => {
       entonnoir: [],
       communes: { visibles: [], masque: null },
       provenance: { par_source_medium: { visibles: [], masque: null }, par_referer: { visibles: [], masque: null } },
+      serie: [],
+      filtreCommune: null,
     };
     const cles = Object.keys(echantillon).join(' ').toLowerCase();
     for (const mot of ['unique', 'recurrent', 'moyenne', 'duree', 'sortie', 'exit', 'visiteur']) {
@@ -81,6 +89,20 @@ describe('aucun bleu — couleur ni anneau de focus', () => {
       expect(/blue|bleu/i.test(code), `${f} : aucune mention de bleu`).toBe(false);
       // Pas d'anneau Tailwind par défaut (bleu) : ring-*, focus:ring, outline-blue…
       expect(/\bring-|focus:ring|outline-blue/.test(code), `${f} : pas d’anneau Tailwind (bleu par défaut)`).toBe(false);
+    }
+  });
+  it('aucune couleur hex BLEUTÉE (garde robuste au-delà des mots « blue/bleu »)', () => {
+    // Un hex #rrggbb est « bleuté » si le canal bleu domine nettement rouge ET vert (ex. #3b82f6 bleu Tailwind).
+    const bleute = (r: number, g: number, b: number) => b > r + 20 && b > g + 20;
+    for (const f of sources()) {
+      const code = codeSeul(lire(f));
+      for (const m of code.matchAll(/#([0-9a-fA-F]{6})\b/g)) {
+        const h = m[1];
+        const r = parseInt(h.slice(0, 2), 16);
+        const g = parseInt(h.slice(2, 4), 16);
+        const b = parseInt(h.slice(4, 6), 16);
+        expect(bleute(r, g, b), `${f} : hex ${m[0]} bleuté`).toBe(false);
+      }
     }
   });
   it('le focus est explicitement rouge dans la feuille de style de l’écran', () => {

@@ -9,6 +9,8 @@ import {
   entonnoir,
   repartitionCommune,
   provenance,
+  serieParTranche,
+  verdictsCommune,
 } from './metriques';
 import { lireGrandLivre } from './requete';
 
@@ -88,6 +90,54 @@ describe('M-7 communes — k-anonymisée', () => {
     expect(r.visibles.map((c) => c.commune_insee)).toEqual(['92004']); // seule ≥ 11
     expect(r.masque?.nbCellules).toBe(2); // 75056 (8) + 93001 (3) masquées
     expect(sqlDe()).toMatch(/commune_insee IS NOT NULL/);
+  });
+});
+
+describe('M-8 série temporelle (Lot 6) — GLOBALE par bucket, SANS k, jamais de commune', () => {
+  it('fusionne visites (session_fin) + analyses (analyse_lancee) + résultats/verdicts par bucket', async () => {
+    q.mockResolvedValueOnce([{ bucket: '2026-01-01', n: '5' }, { bucket: '2026-01-02', n: '9' }]); // session_fin
+    q.mockResolvedValueOnce([{ bucket: '2026-01-01', n: '3' }]); //                                    analyse_lancee
+    q.mockResolvedValueOnce([
+      { bucket: '2026-01-01', verdict: 'SANS_VIS_A_VIS', n: '2' },
+      { bucket: '2026-01-01', verdict: 'VIS_A_VIS', n: '1' },
+      { bucket: '2026-01-02', verdict: 'SANS_VIS_A_VIS', n: '4' },
+    ]); // resultat × verdict
+    const r = await serieParTranche(F);
+    expect(r).toEqual([
+      { bucket: '2026-01-01', visites: 5, analysesLancees: 3, resultats: 3, sans: 2, vis: 1, ind: 0 },
+      { bucket: '2026-01-02', visites: 9, analysesLancees: 0, resultats: 4, sans: 4, vis: 0, ind: 0 },
+    ]);
+    for (const c of q.mock.calls) expect(c[0]).not.toMatch(/commune_insee/); // série GLOBALE : aucune dimension commune
+  });
+  it('ordre DÉTERMINISTE : un bucket introduit tardivement par `resultat` est retrié en tête', async () => {
+    q.mockResolvedValueOnce([{ bucket: '2026-01-10', n: '5' }]); // session_fin (bucket tardif inséré en 1er)
+    q.mockResolvedValueOnce([]); //                                 analyse_lancee
+    q.mockResolvedValueOnce([{ bucket: '2026-01-02', verdict: 'SANS_VIS_A_VIS', n: '1' }]); // resultat : bucket ANTÉRIEUR
+    const r = await serieParTranche(F);
+    expect(r.map((p) => p.bucket)).toEqual(['2026-01-02', '2026-01-10']); // trié, jamais l'ordre d'insertion Map
+  });
+});
+
+describe('M-7bis verdicts d’une commune (Lot 6) — k RE-APPLIQUÉ, jamais reconstruit', () => {
+  it('scope par commune_insee (param LIÉ $3) ; verdict rare masqué + suppression secondaire', async () => {
+    q.mockResolvedValueOnce([
+      { verdict: 'SANS_VIS_A_VIS', n: '20' },
+      { verdict: 'VIS_A_VIS', n: '15' },
+      { verdict: 'INDETERMINE', n: '3' }, // < k → masqué ; secondaire tire la plus petite visible (15)
+    ]);
+    const r = await verdictsCommune(F, '92004', 11);
+    expect(r.visibles.map((c) => c.verdict)).toEqual(['SANS_VIS_A_VIS']); // seule ≥ k après suppression secondaire
+    expect(r.masque).toEqual({ nbCellules: 2, total: 18 }); // {15,3} agrégés (≥2 cellules, ≥ k)
+    expect(q.mock.calls[0][0]).toMatch(/nom = 'resultat'/);
+    expect(q.mock.calls[0][0]).toMatch(/commune_insee = \$3/);
+    expect(q.mock.calls[0][1]).toEqual(['2026-01-01', '2026-01-31', '92004']); // $1,$2 fenêtre + $3 commune
+  });
+
+  it('résidu non sécurisable → `insuffisant` (RIEN restitué : jamais une valeur unique)', async () => {
+    q.mockResolvedValueOnce([{ verdict: 'INDETERMINE', n: '4' }]); // 1 cellule < k, rien à agréger → tout supprimé
+    const r = await verdictsCommune(F, '92004', 11);
+    expect(r.insuffisant).toBe(true);
+    expect(r.visibles).toEqual([]);
   });
 });
 

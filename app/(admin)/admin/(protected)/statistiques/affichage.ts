@@ -59,6 +59,31 @@ export interface Provenance {
   par_source_medium: VentilationSure<CelluleSource>;
   par_referer: VentilationSure<CelluleReferer>;
 }
+// ── Lot 6 : série temporelle, verdicts scopés commune, référentiel cartographique (miroir de l'API) ────
+export interface SeriePoint {
+  bucket: string;
+  visites: number;
+  analysesLancees: number;
+  resultats: number;
+  sans: number;
+  vis: number;
+  ind: number;
+}
+export interface CelluleVerdict {
+  verdict: 'SANS_VIS_A_VIS' | 'VIS_A_VIS' | 'INDETERMINE';
+  n: number;
+}
+export interface FiltreCommune {
+  commune: string;
+  verdicts: VentilationSure<CelluleVerdict>;
+}
+/** Référentiel cartographique (endpoint géo, hors k) : code INSEE → nom + centroïde [lon, lat] WGS84. */
+export interface CentroideCommune {
+  nom: string;
+  centroid: [number, number];
+}
+export type RefCommunes = Record<string, CentroideCommune>;
+
 export interface Statistiques {
   fenetre: Fenetre;
   k: number;
@@ -68,6 +93,8 @@ export interface Statistiques {
   entonnoir: PointEntonnoir[];
   communes: VentilationSure<CelluleCommune>;
   provenance: Provenance;
+  serie: SeriePoint[];
+  filtreCommune: FiltreCommune | null;
 }
 
 // ── Fenêtre temporelle ────────────────────────────────────────────────────────────────────────────────
@@ -103,11 +130,15 @@ export function preset(nom: NomPreset, grain: Grain, maintenant: Date = new Date
   return { debut: decalerJours(fin, -(jours - 1)), fin, grain };
 }
 
-/** URL de l'API de LECTURE (Lot 4). Le client NE FAIT QUE consommer cette API — jamais la base. */
-export function construireUrl(f: Fenetre): string {
+/** URL de l'API de LECTURE (Lot 4/6). Le client NE FAIT QUE consommer cette API — jamais la base. `commune`
+ *  (Lot 6, filtre carte) → la lecture ajoute les verdicts scopés k-safe ; absent → vue globale. */
+export function construireUrl(f: Fenetre, commune?: string | null): string {
   const p = new URLSearchParams({ debut: f.debut, fin: f.fin, grain: f.grain });
+  if (commune) p.set('commune', commune);
   return `/api/admin/statistiques?${p.toString()}`;
 }
+/** Endpoint du référentiel cartographique (Lot 6) : pure géo (centroïdes), hors k, jamais la base côté client. */
+export const URL_GEO = '/api/admin/geo/communes';
 
 // ── Formatage & masquage (jamais de reconstitution) ──────────────────────────────────────────────────
 export const MASQUE = '—';
@@ -196,6 +227,65 @@ export function entonnoirCumule(points: PointEntonnoir[]): PointFunnel[] {
       atteinte_max: points[i].atteinte_max,
       atteinte_min: cumul,
     });
+  }
+  return out;
+}
+
+// ── Lot 6 : helpers PURS de la série (SVG maison) et de la carte (bulles) ─────────────────────────────
+export const LIBELLE_VERDICT: Record<string, string> = {
+  SANS_VIS_A_VIS: 'Sans vis-à-vis',
+  VIS_A_VIS: 'Vis-à-vis',
+  INDETERMINE: 'Indéterminé',
+};
+export type CleSerie = 'visites' | 'analysesLancees' | 'resultats' | 'sans' | 'vis' | 'ind';
+/** Max d'un ensemble de métriques sur la série (échelle Y commune aux courbes affichées). ≥ 1 (anti division par 0). */
+export function maxSerie(serie: SeriePoint[], cles: CleSerie[]): number {
+  let m = 0;
+  for (const p of serie) for (const c of cles) if (p[c] > m) m = p[c];
+  return Math.max(1, m);
+}
+/** Coordonnées d'affichage (x,y) d'une métrique dans un repère [0..largeur]×[0..hauteur] (y inversé, origine
+ *  en haut à gauche comme en SVG). Série vide → tableau vide. Pur MISE EN PAGE : les valeurs sources ne sont
+ *  jamais altérées (aucun arrondi métier — c'est de la géométrie d'écran). */
+export function coordsSerie(serie: SeriePoint[], cle: CleSerie, max: number, largeur: number, hauteur: number): { x: number; y: number }[] {
+  const n = serie.length;
+  if (n === 0 || max <= 0) return [];
+  return serie.map((p, i) => ({
+    x: n > 1 ? (i * largeur) / (n - 1) : largeur / 2,
+    y: hauteur - (p[cle] / max) * hauteur,
+  }));
+}
+/** Points 'x,y …' d'une polyligne SVG (dérivés de `coordsSerie`). Série vide → chaîne vide (rien tracé). */
+export function polySerie(serie: SeriePoint[], cle: CleSerie, max: number, largeur: number, hauteur: number): string {
+  return coordsSerie(serie, cle, max, largeur, hauteur)
+    .map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`)
+    .join(' ');
+}
+/** Rayon d'une bulle de carte : échelle RACINE bornée [min, plafond]. L'aire croît avec n mais reste
+ *  APPROXIMATIVE (le plancher `min` de lisibilité casse la stricte proportionnalité aire ∝ n) → repère
+ *  visuel RELATIF, jamais une mesure ; les comptes exacts vivent dans la liste et les popups. */
+export function bulleRayon(n: number, max: number, min = 6, plafond = 26): number {
+  if (n <= 0 || max <= 0) return min;
+  return min + (plafond - min) * Math.sqrt(n / max);
+}
+export interface CommuneGeo {
+  commune_insee: string;
+  n: number;
+  nom: string;
+  lat: number;
+  lon: number;
+}
+/**
+ * Joint les communes VISIBLES (k-safe, fournies par l'API) au référentiel cartographique (centroïdes). Une
+ * commune sans centroïde connu est IGNORÉE (jamais tracée « au hasard »). Ne voit JAMAIS les masquées (absentes
+ * de `visibles`) → la carte ne peut pas devenir un canal de ré-identification.
+ */
+export function joindreGeo(visibles: CelluleCommune[], ref: RefCommunes): CommuneGeo[] {
+  const out: CommuneGeo[] = [];
+  for (const c of visibles) {
+    const g = ref[c.commune_insee];
+    if (!g) continue;
+    out.push({ commune_insee: c.commune_insee, n: c.n, nom: g.nom, lon: g.centroid[0], lat: g.centroid[1] });
   }
   return out;
 }

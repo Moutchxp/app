@@ -22,12 +22,31 @@ describe('GET /api/admin/statistiques — permission serveur', () => {
     expect(stats).not.toHaveBeenCalled(); // aucune lecture si non autorisé
   });
 
-  it('avec perm (null) + fenêtre valide → 200 et statistiques appelées', async () => {
+  it('avec perm (null) + fenêtre valide → 200 et statistiques appelées (sans commune → 2e arg null)', async () => {
     garde.mockResolvedValueOnce(null);
     stats.mockResolvedValueOnce({ ok: true, fenetre: { debut: '2026-01-01', fin: '2026-01-31', grain: 'jour' }, k: 11 });
     const res = await route.GET(req(OK));
     expect(res.status).toBe(200);
-    expect(stats).toHaveBeenCalledWith({ debut: '2026-01-01', fin: '2026-01-31', grain: 'jour' });
+    expect(stats).toHaveBeenCalledWith({ debut: '2026-01-01', fin: '2026-01-31', grain: 'jour' }, null);
+  });
+});
+
+describe('GET — filtre commune (Lot 6)', () => {
+  it('commune INSEE valide → transmise à la lecture (scope k-safe côté serveur)', async () => {
+    garde.mockResolvedValueOnce(null);
+    stats.mockResolvedValueOnce({ ok: true });
+    const res = await route.GET(req(`${OK}&commune=92004`));
+    expect(res.status).toBe(200);
+    expect(stats).toHaveBeenCalledWith({ debut: '2026-01-01', fin: '2026-01-31', grain: 'jour' }, '92004');
+  });
+
+  it('commune malformée → 400, sans lecture (jamais devinée ni injectée)', async () => {
+    garde.mockResolvedValue(null);
+    for (const bad of ['abc', '9200', '9200456', '92004; DROP', '']) {
+      const res = await route.GET(req(`${OK}&commune=${encodeURIComponent(bad)}`));
+      expect(res.status).toBe(400);
+    }
+    expect(stats).not.toHaveBeenCalled();
   });
 });
 

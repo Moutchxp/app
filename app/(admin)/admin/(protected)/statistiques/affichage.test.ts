@@ -10,7 +10,14 @@ import {
   entonnoirCumule,
   estVide,
   formatNombre,
+  maxSerie,
+  coordsSerie,
+  polySerie,
+  bulleRayon,
+  joindreGeo,
   PLANCHER_N,
+  type SeriePoint,
+  type RefCommunes,
   type Statistiques,
   type VentilationSure,
 } from './affichage';
@@ -112,6 +119,8 @@ describe('estVide — période sans données exploitable', () => {
     entonnoir: [],
     communes: { visibles: [], masque: null },
     provenance: { par_source_medium: { visibles: [], masque: null }, par_referer: { visibles: [], masque: null } },
+    serie: [],
+    filtreCommune: null,
   };
   it('tout à zéro → vide', () => {
     expect(estVide(base)).toBe(true);
@@ -127,5 +136,47 @@ describe('estVide — période sans données exploitable', () => {
 describe('formatNombre — FR', () => {
   it('sépare les milliers', () => {
     expect(formatNombre(12345).replace(/\s/g, ' ')).toMatch(/12.345/);
+  });
+});
+
+describe('Lot 6 — série temporelle (helpers PURS, testables sans rendu)', () => {
+  const serie: SeriePoint[] = [
+    { bucket: '2026-01-01', visites: 4, analysesLancees: 2, resultats: 1, sans: 1, vis: 0, ind: 0 },
+    { bucket: '2026-01-02', visites: 8, analysesLancees: 3, resultats: 2, sans: 1, vis: 1, ind: 0 },
+  ];
+  it('maxSerie = max des métriques demandées, plancher 1 (anti division par 0)', () => {
+    expect(maxSerie(serie, ['visites'])).toBe(8);
+    expect(maxSerie(serie, ['sans', 'vis', 'ind'])).toBe(1);
+    expect(maxSerie([], ['visites'])).toBe(1);
+  });
+  it('coordsSerie : x réparti, y INVERSÉ et borné au cadre ; série vide → []', () => {
+    const c = coordsSerie(serie, 'visites', 8, 100, 50);
+    expect(c[0]).toEqual({ x: 0, y: 25 }); // visites 4/8 → mi-hauteur (y inversé)
+    expect(c[1]).toEqual({ x: 100, y: 0 }); // visites 8/8 = max → haut du cadre
+    expect(coordsSerie([], 'visites', 8, 100, 50)).toEqual([]);
+  });
+  it('coordsSerie à 1 SEUL point → centré horizontalement (x = largeur/2), pas collé au bord', () => {
+    const un: SeriePoint[] = [{ bucket: '2026-01-01', visites: 3, analysesLancees: 0, resultats: 0, sans: 0, vis: 0, ind: 0 }];
+    expect(coordsSerie(un, 'visites', 3, 100, 50)).toEqual([{ x: 50, y: 0 }]); // 1 point → milieu ; 3/3 = max → haut
+  });
+  it('polySerie dérive la même géométrie sous forme de chaîne "x,y …"', () => {
+    expect(polySerie(serie, 'visites', 8, 100, 50)).toBe('0.0,25.0 100.0,0.0');
+  });
+  it('construireUrl encode `commune` si fournie, l’omet sinon (le client ne fait que consommer l’API)', () => {
+    expect(construireUrl({ debut: '2026-01-01', fin: '2026-01-31', grain: 'jour' })).not.toMatch(/commune/);
+    expect(construireUrl({ debut: '2026-01-01', fin: '2026-01-31', grain: 'jour' }, '92004')).toMatch(/[?&]commune=92004/);
+  });
+});
+
+describe('Lot 6 — carte communale (helpers PURS)', () => {
+  it('bulleRayon : échelle RACINE (aire ∝ n) bornée [min, plafond]', () => {
+    expect(bulleRayon(0, 10)).toBe(6); // n=0 → rayon minimal
+    expect(bulleRayon(10, 10)).toBe(26); // n=max → plafond
+    expect(bulleRayon(2.5, 10)).toBeCloseTo(16, 5); // √(0.25)=0.5 → 6 + 20·0.5
+  });
+  it('joindreGeo ne trace QUE les communes VISIBLES ayant un centroïde connu (jamais « au hasard »)', () => {
+    const ref: RefCommunes = { '92004': { nom: 'Asnières-sur-Seine', centroid: [2.28, 48.91] } };
+    const out = joindreGeo([{ commune_insee: '92004', n: 5 }, { commune_insee: '99999', n: 3 }], ref);
+    expect(out).toEqual([{ commune_insee: '92004', n: 5, nom: 'Asnières-sur-Seine', lon: 2.28, lat: 48.91 }]);
   });
 });
