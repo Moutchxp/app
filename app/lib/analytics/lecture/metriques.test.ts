@@ -61,10 +61,36 @@ describe('M-5 verdicts — 3 buckets sur resultat', () => {
   });
 });
 
-describe('M-4 analyses — lancées / résultats', () => {
-  it('sépare analyse_lancee et resultat', async () => {
+describe('M-4 analyses — lancées / résultats + conversions (Chantier A)', () => {
+  it('sépare analyse_lancee et resultat ; conversions à 0 si absentes', async () => {
     q.mockResolvedValueOnce([{ nom: 'analyse_lancee', n: '10' }, { nom: 'resultat', n: '8' }]);
-    expect(await comptesAnalyses(F)).toEqual({ lancees: 10, resultats: 8 });
+    expect(await comptesAnalyses(F)).toEqual({
+      lancees: 10, resultats: 8, certificats: 0, plusvalue: 0, estimationImmo: 0, totalEstimations: 0,
+    });
+  });
+  it('fenêtre VIDE (aucun événement) → les 6 champs PRÉSENTS à 0, jamais undefined (contrat serveur anti-crash KPI)', async () => {
+    q.mockResolvedValueOnce([]); // aucune ligne dans la fenêtre
+    expect(await comptesAnalyses(F)).toEqual({
+      lancees: 0, resultats: 0, certificats: 0, plusvalue: 0, estimationImmo: 0, totalEstimations: 0,
+    });
+  });
+  it('total_estimations = plusvalue + estimation_immo ; certificat isolé ; UNE requête, AUCUN k', async () => {
+    q.mockResolvedValueOnce([
+      { nom: 'resultat', n: '8' },
+      { nom: 'clic_certificat', n: '5' },
+      { nom: 'clic_plusvalue', n: '3' },
+      { nom: 'clic_estimation', n: '4' },
+    ]);
+    const r = await comptesAnalyses(F);
+    expect(r.certificats).toBe(5);
+    expect(r.plusvalue).toBe(3);
+    expect(r.estimationImmo).toBe(4);
+    expect(r.totalEstimations).toBe(7); // 3 + 4, sommé à la lecture (jamais 3 additionnés à tort)
+    const sql = sqlDe();
+    expect(sql).toMatch(/clic_certificat/);
+    expect(sql).toMatch(/clic_plusvalue/);
+    expect(sql).toMatch(/clic_estimation/);
+    expect(q.mock.calls.length).toBe(1); // un seul SELECT groupé (pas de ventilation par nom)
   });
 });
 
@@ -104,10 +130,29 @@ describe('M-8 série temporelle (Lot 6) — GLOBALE par bucket, SANS k, jamais d
     ]); // resultat × verdict
     const r = await serieParTranche(F);
     expect(r).toEqual([
-      { bucket: '2026-01-01', visites: 5, analysesLancees: 3, resultats: 3, sans: 2, vis: 1, ind: 0 },
-      { bucket: '2026-01-02', visites: 9, analysesLancees: 0, resultats: 4, sans: 4, vis: 0, ind: 0 },
+      { bucket: '2026-01-01', visites: 5, analysesLancees: 3, resultats: 3, sans: 2, vis: 1, ind: 0, certificats: 0, plusvalue: 0, estimationImmo: 0, totalEstimations: 0 },
+      { bucket: '2026-01-02', visites: 9, analysesLancees: 0, resultats: 4, sans: 4, vis: 0, ind: 0, certificats: 0, plusvalue: 0, estimationImmo: 0, totalEstimations: 0 },
     ]);
     for (const c of q.mock.calls) expect(c[0]).not.toMatch(/commune_insee/); // série GLOBALE : aucune dimension commune
+  });
+
+  it('conversions (Chantier A) : certificat/plusvalue/estimation par bucket + total = plusvalue+estimation, SANS k', async () => {
+    q.mockResolvedValueOnce([]); //                                              1. session_fin
+    q.mockResolvedValueOnce([]); //                                              2. analyse_lancee
+    q.mockResolvedValueOnce([]); //                                              3. resultat × verdict
+    q.mockResolvedValueOnce([{ bucket: '2026-01-01', n: '5' }]); //              4. clic_certificat
+    q.mockResolvedValueOnce([{ bucket: '2026-01-01', n: '3' }]); //              5. clic_plusvalue
+    q.mockResolvedValueOnce([{ bucket: '2026-01-01', n: '4' }, { bucket: '2026-01-02', n: '2' }]); // 6. clic_estimation
+    const r = await serieParTranche(F);
+    const j1 = r.find((p) => p.bucket === '2026-01-01')!;
+    const j2 = r.find((p) => p.bucket === '2026-01-02')!;
+    expect([j1.certificats, j1.plusvalue, j1.estimationImmo, j1.totalEstimations]).toEqual([5, 3, 4, 7]); // 3+4
+    expect([j2.certificats, j2.plusvalue, j2.estimationImmo, j2.totalEstimations]).toEqual([0, 0, 2, 2]); // 0+2
+    // ordre des lireGrandLivre : les 3 conversions viennent APRÈS resultat (calls 4-6) et sont GLOBALES (sans commune).
+    for (const c of q.mock.calls) expect(c[0]).not.toMatch(/commune_insee/);
+    expect(q.mock.calls[3][0]).toMatch(/nom = 'clic_certificat'/);
+    expect(q.mock.calls[4][0]).toMatch(/nom = 'clic_plusvalue'/);
+    expect(q.mock.calls[5][0]).toMatch(/nom = 'clic_estimation'/);
   });
   it('ordre DÉTERMINISTE : un bucket introduit tardivement par `resultat` est retrié en tête', async () => {
     q.mockResolvedValueOnce([{ bucket: '2026-01-10', n: '5' }]); // session_fin (bucket tardif inséré en 1er)

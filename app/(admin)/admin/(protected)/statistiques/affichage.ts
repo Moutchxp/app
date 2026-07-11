@@ -28,6 +28,10 @@ export interface RepartitionVerdicts {
 export interface ComptesAnalyses {
   lancees: number;
   resultats: number;
+  certificats: number; //      clic_certificat
+  plusvalue: number; //        clic_plusvalue
+  estimationImmo: number; //   clic_estimation
+  totalEstimations: number; // plusvalue + estimationImmo (sommé côté serveur)
 }
 export interface PointEntonnoir {
   etape: string;
@@ -68,6 +72,10 @@ export interface SeriePoint {
   sans: number;
   vis: number;
   ind: number;
+  certificats: number; //      clic_certificat
+  plusvalue: number; //        clic_plusvalue
+  estimationImmo: number; //   clic_estimation
+  totalEstimations: number; // plusvalue + estimationImmo
 }
 export interface CelluleVerdict {
   verdict: 'SANS_VIS_A_VIS' | 'VIS_A_VIS' | 'INDETERMINE';
@@ -146,8 +154,14 @@ export const MASQUE = '—';
  *  d'AFFICHAGE (honnêteté), distinct du seuil d'anonymat k qui est appliqué et fourni par l'API (Lot 4). */
 export const PLANCHER_N = 30;
 
-export function formatNombre(n: number): string {
-  return n.toLocaleString('fr-FR');
+/**
+ * Formate un entier en français. DÉFENSIF : une valeur absente/non finie (`undefined`/`null`/`NaN`) → `0`, jamais
+ * une exception. Le contrat serveur garantit déjà « 0 si aucun événement » (`comptesAnalyses`), mais l'UI ne fait
+ * pas confiance aveugle à la forme reçue : un skew de version (bundle client plus récent que la réponse en state,
+ * réponse en cache d'AVANT l'ajout d'un compteur) ne DOIT jamais crasher toute la page via `undefined.toLocaleString()`.
+ */
+export function formatNombre(n: number | null | undefined): string {
+  return (typeof n === 'number' && Number.isFinite(n) ? n : 0).toLocaleString('fr-FR');
 }
 
 /**
@@ -237,7 +251,27 @@ export const LIBELLE_VERDICT: Record<string, string> = {
   VIS_A_VIS: 'Vis-à-vis',
   INDETERMINE: 'Indéterminé',
 };
-export type CleSerie = 'visites' | 'analysesLancees' | 'resultats' | 'sans' | 'vis' | 'ind';
+export type CleSerie =
+  | 'visites'
+  | 'analysesLancees'
+  | 'resultats'
+  | 'sans'
+  | 'vis'
+  | 'ind'
+  | 'certificats'
+  | 'plusvalue'
+  | 'estimationImmo'
+  | 'totalEstimations';
+
+/**
+ * Ratio d'AFFICHAGE `num/denom` en pourcentage (1 décimale). GARDE division par zéro : dénominateur ≤ 0 (ou
+ * non fini) → `null` (l'appelant affiche « — »), JAMAIS NaN/Infinity. Pur calcul d'affichage sur des compteurs
+ * déjà fournis par l'API — aucune reconstitution, aucun accès base.
+ */
+export function ratioPct(num: number, denom: number): number | null {
+  if (!(denom > 0) || !Number.isFinite(num)) return null;
+  return Math.round((num / denom) * 1000) / 10;
+}
 /** Max d'un ensemble de métriques sur la série (échelle Y commune aux courbes affichées). ≥ 1 (anti division par 0). */
 export function maxSerie(serie: SeriePoint[], cles: CleSerie[]): number {
   let m = 0;

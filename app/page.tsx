@@ -691,7 +691,7 @@ function EcranResultat({
               <SceauCertifie className="h-7 w-auto shrink-0 text-white" />
               Obtenir mon certificat
             </button>
-            <button type="button" onClick={() => { mesure("clic_estimation"); todoEcranAVenir(); }} className="svv-btn svv-btn-outline mt-3">
+            <button type="button" onClick={() => { mesure("clic_plusvalue"); todoEcranAVenir(); }} className="svv-btn svv-btn-outline mt-3">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 3v18h18" />
                 <rect x="7" y="11" width="3" height="7" />

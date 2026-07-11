@@ -72,21 +72,37 @@ export async function repartitionVerdicts(fenetre: Fenetre): Promise<Repartition
   return { sans_vis_a_vis: sans, vis_a_vis: vis, indetermine: ind, total: sans + vis + ind };
 }
 
-// ── M-4 : analyses lancées / résultats produits ───────────────────────────────────────────────────────
+// ── M-4 : analyses lancées / résultats produits + conversions (Chantier A) ────────────────────────────
 export interface ComptesAnalyses {
-  lancees: number; // événements `analyse_lancee` (re-runs inclus — note fiche M-4)
-  resultats: number; // événements `resultat` produits
+  lancees: number; //          événements `analyse_lancee` (re-runs inclus — note fiche M-4)
+  resultats: number; //        événements `resultat` produits
+  certificats: number; //      `clic_certificat` — clics « Obtenir mon certificat »
+  plusvalue: number; //        `clic_plusvalue` — clics « Calculer la plus-value de ma vue » (résultat certifié)
+  estimationImmo: number; //   `clic_estimation` — clics « Estimation immobilière » (résultat vis-à-vis)
+  totalEstimations: number; // = plusvalue + estimationImmo (SOMMÉ à la lecture ; les 2 CTA d'estimation)
 }
+/** Compte GLOBAL des analyses et conversions de la fenêtre. Tous ces événements sont des lignes NEUTRES
+ *  (ni commune, ni verdict, ni acquisition) → comptes temporels globaux, AUCUN k-anonymat (comme trafic). */
 export async function comptesAnalyses(fenetre: Fenetre): Promise<ComptesAnalyses> {
   const { clause, params } = filtreFenetre(fenetre);
   const rows = await lireGrandLivre<{ nom: string; n: string }>(
     `SELECT nom, SUM(n)::bigint AS n FROM analytics_compteur_jour
-      WHERE nom IN ('analyse_lancee', 'resultat') AND ${clause} GROUP BY nom`,
+      WHERE nom IN ('analyse_lancee', 'resultat', 'clic_certificat', 'clic_plusvalue', 'clic_estimation')
+        AND ${clause} GROUP BY nom`,
     params,
   );
   const parNom: Record<string, number> = {};
   for (const r of rows) parNom[r.nom] = nombre(r.n);
-  return { lancees: parNom['analyse_lancee'] ?? 0, resultats: parNom['resultat'] ?? 0 };
+  const plusvalue = parNom['clic_plusvalue'] ?? 0;
+  const estimationImmo = parNom['clic_estimation'] ?? 0;
+  return {
+    lancees: parNom['analyse_lancee'] ?? 0,
+    resultats: parNom['resultat'] ?? 0,
+    certificats: parNom['clic_certificat'] ?? 0,
+    plusvalue,
+    estimationImmo,
+    totalEstimations: plusvalue + estimationImmo,
+  };
 }
 
 // ── M-6 (remplacement) : étape la plus loin atteinte / entonnoir ──────────────────────────────────────
@@ -137,6 +153,10 @@ export interface SeriePoint {
   sans: number; //            resultat verdict SANS_VIS_A_VIS
   vis: number; //             resultat verdict VIS_A_VIS
   ind: number; //             resultat verdict INDETERMINE
+  certificats: number; //     clic_certificat (temps réel)
+  plusvalue: number; //       clic_plusvalue (temps réel)
+  estimationImmo: number; //  clic_estimation (temps réel)
+  totalEstimations: number; //= plusvalue + estimationImmo (dérivé au read, par bucket)
 }
 /**
  * Série temporelle GLOBALE (jamais scindée par commune — décision Lot 6 §A) : par bucket de la fenêtre, les
@@ -165,11 +185,28 @@ export async function serieParTranche(fenetre: Fenetre): Promise<SeriePoint[]> {
       WHERE nom = 'resultat' AND verdict IS NOT NULL AND ${clause} GROUP BY bucket, verdict`,
     params,
   );
+  // Conversions (Chantier A) — événements NEUTRES, comptés par bucket comme session_fin/analyse_lancee (sans k).
+  // Appelés APRÈS `res` : l'ordre des lireGrandLivre est session_fin, analyse_lancee, resultat, PUIS ces 3.
+  const cert = await lireGrandLivre<{ bucket: string; n: string }>(
+    `SELECT ${b} AS bucket, SUM(n)::bigint AS n FROM analytics_compteur_jour
+      WHERE nom = 'clic_certificat' AND ${clause} GROUP BY bucket`,
+    params,
+  );
+  const plv = await lireGrandLivre<{ bucket: string; n: string }>(
+    `SELECT ${b} AS bucket, SUM(n)::bigint AS n FROM analytics_compteur_jour
+      WHERE nom = 'clic_plusvalue' AND ${clause} GROUP BY bucket`,
+    params,
+  );
+  const est = await lireGrandLivre<{ bucket: string; n: string }>(
+    `SELECT ${b} AS bucket, SUM(n)::bigint AS n FROM analytics_compteur_jour
+      WHERE nom = 'clic_estimation' AND ${clause} GROUP BY bucket`,
+    params,
+  );
   const parBucket = new Map<string, SeriePoint>();
   const obtenir = (bucket: string): SeriePoint => {
     let p = parBucket.get(bucket);
     if (!p) {
-      p = { bucket, visites: 0, analysesLancees: 0, resultats: 0, sans: 0, vis: 0, ind: 0 };
+      p = { bucket, visites: 0, analysesLancees: 0, resultats: 0, sans: 0, vis: 0, ind: 0, certificats: 0, plusvalue: 0, estimationImmo: 0, totalEstimations: 0 };
       parBucket.set(bucket, p);
     }
     return p;
@@ -184,6 +221,10 @@ export async function serieParTranche(fenetre: Fenetre): Promise<SeriePoint[]> {
     else if (r.verdict === 'VIS_A_VIS') p.vis += n;
     else if (r.verdict === 'INDETERMINE') p.ind += n;
   }
+  for (const r of cert) obtenir(r.bucket).certificats = nombre(r.n);
+  for (const r of plv) obtenir(r.bucket).plusvalue = nombre(r.n);
+  for (const r of est) obtenir(r.bucket).estimationImmo = nombre(r.n);
+  for (const p of parBucket.values()) p.totalEstimations = p.plusvalue + p.estimationImmo; // total = les 2 CTA d'estimation
   return [...parBucket.values()].sort((a, b2) => a.bucket.localeCompare(b2.bucket));
 }
 

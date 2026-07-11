@@ -10,6 +10,7 @@ import {
   maxSerie,
   coordsSerie,
   joindreGeo,
+  ratioPct,
   LIBELLE_VERDICT,
   type CleSerie,
   type Fenetre,
@@ -102,7 +103,9 @@ export function Barre({ label, valeur, max, couleur }: { label: string; valeur: 
   );
 }
 
-function Kpi({ valeur, libelle }: { valeur: number; libelle: string }) {
+function Kpi({ valeur, libelle }: { valeur: number | null | undefined; libelle: string }) {
+  // `valeur` peut arriver `undefined` sur un `data.analyses` d'une réponse périmée (skew de version) : `formatNombre`
+  // retombe sur 0 — un KPI manquant affiche « 0 », il ne fait JAMAIS planter la page (pas d'error boundary ici).
   return (
     <div style={{ flex: '1 1 120px', minWidth: 0 }}>
       <div style={{ fontSize: '1.7rem', fontWeight: 800, color: 'var(--color-svv-ink)', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{formatNombre(valeur)}</div>
@@ -147,13 +150,39 @@ export function TuileTrafic({ data, voile }: { data: Statistiques; voile?: strin
   );
 }
 
+/** Ratio en % ou « — » (division par zéro / dénominateur nul → jamais NaN). `ratioPct` garantit le null. */
+function libelleRatio(num: number, denom: number): string {
+  const r = ratioPct(num, denom);
+  return r === null ? '—' : `${formatNombre(r)} %`;
+}
+
 export function TuileAnalyses({ data, voile }: { data: Statistiques; voile?: string }) {
+  const a = data.analyses;
+  // Dénominateur des ratios = VISITES de la période (session_fin, post-compaction). Global, jamais par commune.
+  const totalVisites = data.trafic.reduce((s, p) => s + p.visites, 0);
   return (
-    <Carte titre="Analyses" aide="Lancements et résultats produits (re-runs inclus)." voile={voile}>
+    <Carte titre="Analyses" aide="Lancements, résultats et conversions (re-runs inclus). Chiffres GLOBAUX." voile={voile}>
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-        <Kpi valeur={data.analyses.lancees} libelle="analyses lancées" />
-        <Kpi valeur={data.analyses.resultats} libelle="résultats produits" />
+        <Kpi valeur={a.lancees} libelle="analyses lancées" />
+        <Kpi valeur={a.resultats} libelle="résultats produits" />
+        <Kpi valeur={a.certificats} libelle="certificats demandés" />
+        <Kpi valeur={a.totalEstimations} libelle="estimations (total)" />
+        <Kpi valeur={a.plusvalue} libelle="dont plus-value" />
+        <Kpi valeur={a.estimationImmo} libelle="dont estimation immo" />
       </div>
+      {/* RATIOS globaux (division d'affichage, garde ÷0 → « — »). Rapportés aux visites → n'ont de sens
+          qu'après compaction (cron) : « — » tant qu'aucune visite n'est comptée sur la période. */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: '.82rem' }}>
+        <span style={{ color: 'var(--color-svv-muted)' }}>
+          Estimations / visites : <strong style={{ color: 'var(--color-svv-ink)', fontVariantNumeric: 'tabular-nums' }}>{libelleRatio(a.totalEstimations, totalVisites)}</strong>
+        </span>
+        <span style={{ color: 'var(--color-svv-muted)' }}>
+          Certificats / visites : <strong style={{ color: 'var(--color-svv-ink)', fontVariantNumeric: 'tabular-nums' }}>{libelleRatio(a.certificats, totalVisites)}</strong>
+        </span>
+      </div>
+      <p style={{ margin: 0, fontSize: '.68rem', color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>
+        Ratios rapportés aux visites (après compaction, cron) : « — » tant qu’aucune visite n’est comptée.
+      </p>
     </Carte>
   );
 }
@@ -263,6 +292,12 @@ const GROUPES_SERIE: { id: string; libelle: string; cles: { cle: CleSerie; coule
       { cle: 'ind', couleur: 'var(--color-svv-muted)' },
     ],
   },
+  // Conversions (Chantier A) — chips INDÉPENDANTES : chacune UNE courbe. « Total estimations » est déjà la
+  // somme (plusvalue + estimation immo) calculée à la lecture → jamais une addition à l'écran (pas de triple compte).
+  { id: 'certificat', libelle: 'Certificat', cles: [{ cle: 'certificats', couleur: 'var(--color-svv-ink)' }] },
+  { id: 'plusvalue', libelle: 'Plus-value', cles: [{ cle: 'plusvalue', couleur: 'var(--color-svv-red)' }] },
+  { id: 'estimation_immo', libelle: 'Estimation immo', cles: [{ cle: 'estimationImmo', couleur: 'var(--color-svv-muted)' }] },
+  { id: 'total_estimations', libelle: 'Total estimations', cles: [{ cle: 'totalEstimations', couleur: 'var(--color-svv-green)' }] },
 ];
 const SVG_W = 320;
 const SVG_H = 120;

@@ -128,4 +128,22 @@ describe('/api/mesure — beacon : répond 204, écrit best-effort après répon
     expect(incr).toHaveBeenCalledWith({ nom: 'etape_atteinte', etape: 'photo' }); // le compteur ne dépend pas du sid
     expect(sess).not.toHaveBeenCalled(); // pas de session sans sid valide
   });
+
+  it('conversions (Chantier A) : clic_plusvalue ACCEPTÉ + certificat/estimation → lignes NEUTRES (aucune dimension)', async () => {
+    for (const nom of ['clic_certificat', 'clic_plusvalue', 'clic_estimation']) {
+      // dims parasites (commune/verdict) volontairement envoyées : elles NE doivent PAS entrer dans ces compteurs.
+      const res = await POST(beacon({ nom, sid: V4, commune: '92004', verdict: 'SANS_VIS_A_VIS' }));
+      expect(res.status).toBe(204);
+    }
+    await attendre();
+    // clic_plusvalue est bien dans NOMS_CLIENT (sinon rejet 204 sans écriture) et écrit comme {nom} seul.
+    expect(incr).toHaveBeenCalledWith({ nom: 'clic_certificat' });
+    expect(incr).toHaveBeenCalledWith({ nom: 'clic_plusvalue' });
+    expect(incr).toHaveBeenCalledWith({ nom: 'clic_estimation' });
+    // Ligne NEUTRE : ni commune, ni verdict ne se glissent dans ces compteurs (hors k-anonymat).
+    for (const call of incr.mock.calls) {
+      const ev = call[0] as { nom: string };
+      if (ev.nom.startsWith('clic_')) expect(ev).toEqual({ nom: ev.nom });
+    }
+  });
 });

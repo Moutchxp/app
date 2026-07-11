@@ -34,6 +34,7 @@ const NOMS_CLIENT = new Set([
   'analyse_lancee',
   'clic_certificat',
   'clic_estimation',
+  'clic_plusvalue', // CTA « Calculer la plus-value » isolé de « Estimation immobilière » (Chantier A)
 ]);
 
 const RAISONS = new Set(['hors_emprise', 'non_deplace', 'hors_lidar']);
@@ -116,12 +117,14 @@ export async function POST(req: Request): Promise<Response> {
           case 'point_origine_refuse':
             await incrementerCompteur({ nom, raison });
             break;
-          // Événements de complétion / conversion sans dimension.
+          // Événements de complétion / conversion sans dimension (lignes NEUTRES : ni géo, ni verdict, ni
+          // acquisition → compteurs temporels globaux, hors k-anonymat).
           case 'adresse_saisie':
           case 'photo_prise':
           case 'analyse_lancee':
           case 'clic_certificat':
           case 'clic_estimation':
+          case 'clic_plusvalue':
             await incrementerCompteur({ nom });
             break;
         }

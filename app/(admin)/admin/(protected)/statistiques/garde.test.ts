@@ -55,7 +55,7 @@ describe('métriques refusées — jamais affichées', () => {
       k: 11,
       trafic: [],
       verdicts: { sans_vis_a_vis: 0, vis_a_vis: 0, indetermine: 0, total: 0 },
-      analyses: { lancees: 0, resultats: 0 },
+      analyses: { lancees: 0, resultats: 0, certificats: 0, plusvalue: 0, estimationImmo: 0, totalEstimations: 0 },
       entonnoir: [],
       communes: { visibles: [], masque: null },
       provenance: { par_source_medium: { visibles: [], masque: null }, par_referer: { visibles: [], masque: null } },

@@ -125,11 +125,17 @@ describe('statistiques (orchestrateur) — payload complet, k réel', () => {
 });
 
 // ── Lot 6 : SQL RÉEL (les tests mockés ne prouvent pas la validité SQL — leçon du Lot 3) ───────────────
-describe('série temporelle (Lot 6) — SQL réel, fusion des 3 sources par bucket', () => {
-  it('visites + analyses + résultats/verdicts agrégés par jour', async () => {
+describe('série temporelle (Lot 6) — SQL réel, fusion des sources par bucket', () => {
+  it('visites + analyses + résultats/verdicts + conversions (Chantier A) agrégés par jour', async () => {
     await poser({ jour_paris: '2021-07-05', nom: 'session_fin', etape: 'resultat', source: 'test', n: 5 });
     await poser({ jour_paris: '2021-07-05', nom: 'analyse_lancee', n: 3 });
     await poser({ jour_paris: '2021-07-05', nom: 'resultat', verdict: 'SANS_VIS_A_VIS', commune_insee: '95011', n: 4 });
+    // Conversions (Chantier A) — lignes NEUTRES. `clic_certificat`/`clic_estimation` sont au catalogue depuis 018
+    // (seed sûr). `clic_plusvalue` N'EST PAS semé : sa ligne catalogue vient de la migration 022 (appliquée
+    // MANUELLEMENT par Arno, pas garantie sur cette base 018+020) → un INSERT violerait la FK. Sa lecture
+    // (`WHERE nom='clic_plusvalue'`) est structurellement identique aux autres et couverte par le test mocké.
+    await poser({ jour_paris: '2021-07-05', nom: 'clic_certificat', n: 6 });
+    await poser({ jour_paris: '2021-07-05', nom: 'clic_estimation', n: 3 });
     await poser({ jour_paris: '2021-07-06', nom: 'session_fin', etape: 'photo', source: 'test', n: 2 });
     const r = await serieParTranche({ debut: '2021-07-01', fin: '2021-07-31', grain: 'jour' });
     expect(r.find((x) => x.bucket === '2021-07-05')).toEqual({
@@ -140,6 +146,10 @@ describe('série temporelle (Lot 6) — SQL réel, fusion des 3 sources par buck
       sans: 4,
       vis: 0,
       ind: 0,
+      certificats: 6, //         clic_certificat (SQL réel)
+      plusvalue: 0, //           non semé (022 non garantie sur cette base) → 0
+      estimationImmo: 3, //      clic_estimation (SQL réel)
+      totalEstimations: 3, //    0 + 3, sommé à la lecture
     });
     expect(r.find((x) => x.bucket === '2021-07-06')?.visites).toBe(2);
   });

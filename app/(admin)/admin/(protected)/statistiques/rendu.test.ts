@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import StatistiquesPage from './page';
-import { TuileCommunes, TuileVerdicts, TuileTrafic, TuileProvenance, Message, SerieTemporelle } from './tuiles';
+import { TuileCommunes, TuileVerdicts, TuileTrafic, TuileProvenance, TuileAnalyses, Message, SerieTemporelle } from './tuiles';
 import type { Statistiques, FiltreCommune } from './affichage';
 
 /**
@@ -15,7 +15,7 @@ const base: Statistiques = {
   k: 11,
   trafic: [],
   verdicts: { sans_vis_a_vis: 0, vis_a_vis: 0, indetermine: 0, total: 0 },
-  analyses: { lancees: 0, resultats: 0 },
+  analyses: { lancees: 0, resultats: 0, certificats: 0, plusvalue: 0, estimationImmo: 0, totalEstimations: 0 },
   entonnoir: [],
   communes: { visibles: [], masque: null },
   provenance: { par_source_medium: { visibles: [], masque: null }, par_referer: { visibles: [], masque: null } },
@@ -99,8 +99,8 @@ describe('page — rendu initial (chargement) + rappel cron + sélecteur', () =>
 
 describe('Lot 6 — série temporelle (SVG maison, 0 dépendance)', () => {
   const serie = [
-    { bucket: '2026-01-01', visites: 4, analysesLancees: 2, resultats: 1, sans: 1, vis: 0, ind: 0 },
-    { bucket: '2026-01-02', visites: 8, analysesLancees: 3, resultats: 2, sans: 1, vis: 1, ind: 0 },
+    { bucket: '2026-01-01', visites: 4, analysesLancees: 2, resultats: 1, sans: 1, vis: 0, ind: 0, certificats: 1, plusvalue: 1, estimationImmo: 0, totalEstimations: 1 },
+    { bucket: '2026-01-02', visites: 8, analysesLancees: 3, resultats: 2, sans: 1, vis: 1, ind: 0, certificats: 0, plusvalue: 1, estimationImmo: 1, totalEstimations: 2 },
   ];
   it('titre, chips de bascule et courbe SVG réellement produits', () => {
     const h = html(createElement(SerieTemporelle, { serie }));
@@ -160,6 +160,22 @@ describe('Lot 6 — carte client-only (dynamic ssr:false), jamais montée au SSR
     );
     expect(h).toMatch(/Asnières-sur-Seine/); // nom résolu depuis le référentiel géo (pas « Commune 92004 »)
     expect(h).not.toMatch(/leaflet-container/); // Leaflet non évalué au SSR (dynamic ssr:false) → aucun crash window
+  });
+});
+
+describe('Chantier A — TuileAnalyses : KPI conversions robustes (jamais de crash de page)', () => {
+  it('fenêtre sans certificat/plus-value/estimation → KPI rendus à 0, aucune exception', () => {
+    const h = html(createElement(TuileAnalyses, { data: base })); // analyses tout à 0, trafic vide
+    expect(h).toMatch(/certificats demandés/);
+    expect(h).toMatch(/estimations \(total\)/);
+    expect(h).toMatch(/—/); // ratios « — » (0 visite → division par zéro gardée), jamais NaN/Infinity
+  });
+  it('RÉGRESSION skew : un data.analyses PÉRIMÉ (sans les champs Chantier A) NE crashe PAS', () => {
+    // Repro exacte du bug : réponse d'AVANT le Chantier A gardée en state (bundle client plus récent) → analyses
+    // n'a que lancees/resultats, les 4 nouveaux compteurs sont undefined. AVANT le fix, formatNombre(undefined)
+    // levait « Cannot read properties of undefined (reading 'toLocaleString') » et plantait toute la page.
+    const skew = { ...base, analyses: { lancees: 2, resultats: 1 } as unknown as Statistiques['analyses'] };
+    expect(() => html(createElement(TuileAnalyses, { data: skew }))).not.toThrow();
   });
 });
 

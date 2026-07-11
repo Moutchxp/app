@@ -15,6 +15,7 @@ import {
   polySerie,
   bulleRayon,
   joindreGeo,
+  ratioPct,
   PLANCHER_N,
   type SeriePoint,
   type RefCommunes,
@@ -115,7 +116,7 @@ describe('estVide — période sans données exploitable', () => {
     k: 11,
     trafic: [],
     verdicts: { sans_vis_a_vis: 0, vis_a_vis: 0, indetermine: 0, total: 0 },
-    analyses: { lancees: 0, resultats: 0 },
+    analyses: { lancees: 0, resultats: 0, certificats: 0, plusvalue: 0, estimationImmo: 0, totalEstimations: 0 },
     entonnoir: [],
     communes: { visibles: [], masque: null },
     provenance: { par_source_medium: { visibles: [], masque: null }, par_referer: { visibles: [], masque: null } },
@@ -126,7 +127,7 @@ describe('estVide — période sans données exploitable', () => {
     expect(estVide(base)).toBe(true);
   });
   it('des analyses → non vide', () => {
-    expect(estVide({ ...base, analyses: { lancees: 3, resultats: 2 } })).toBe(false);
+    expect(estVide({ ...base, analyses: { lancees: 3, resultats: 2, certificats: 0, plusvalue: 0, estimationImmo: 0, totalEstimations: 0 } })).toBe(false);
   });
   it('un masquage (insuffisant) → NON vide (il y a des données, juste masquées)', () => {
     expect(estVide({ ...base, communes: { visibles: [], masque: null, insuffisant: true } })).toBe(false);
@@ -137,12 +138,40 @@ describe('formatNombre — FR', () => {
   it('sépare les milliers', () => {
     expect(formatNombre(12345).replace(/\s/g, ' ')).toMatch(/12.345/);
   });
+  it('valeur absente/non finie (skew de version) → « 0 », JAMAIS d’exception', () => {
+    // Reproduit le crash : un `data.analyses` périmé (sans les compteurs Chantier A) passe `undefined` à un KPI.
+    expect(() => formatNombre(undefined as unknown as number)).not.toThrow();
+    expect(formatNombre(undefined as unknown as number)).toBe('0');
+    expect(formatNombre(null as unknown as number)).toBe('0');
+    expect(formatNombre(Number.NaN)).toBe('0');
+    expect(formatNombre(0)).toBe('0'); // un vrai 0 reste 0
+  });
+});
+
+describe('ratioPct — ratio d’affichage % avec garde division par zéro (Chantier A)', () => {
+  it('calcule un % à 1 décimale', () => {
+    expect(ratioPct(3, 12)).toBe(25); //     3/12 = 25.0 %
+    expect(ratioPct(1, 3)).toBe(33.3); //    arrondi 1 décimale
+    expect(ratioPct(7, 200)).toBe(3.5); //   estimations/visites typique
+  });
+  it('dénominateur 0 ou négatif → null (jamais NaN/Infinity ; l’appelant affiche « — »)', () => {
+    expect(ratioPct(5, 0)).toBeNull(); //    des estimations, aucune visite compactée
+    expect(ratioPct(0, 0)).toBeNull();
+    expect(ratioPct(3, -1)).toBeNull();
+  });
+  it('numérateur non fini → null (robustesse)', () => {
+    expect(ratioPct(Number.NaN, 10)).toBeNull();
+    expect(ratioPct(Number.POSITIVE_INFINITY, 10)).toBeNull();
+  });
+  it('numérateur 0 avec dénominateur positif → 0 %, pas null', () => {
+    expect(ratioPct(0, 42)).toBe(0);
+  });
 });
 
 describe('Lot 6 — série temporelle (helpers PURS, testables sans rendu)', () => {
   const serie: SeriePoint[] = [
-    { bucket: '2026-01-01', visites: 4, analysesLancees: 2, resultats: 1, sans: 1, vis: 0, ind: 0 },
-    { bucket: '2026-01-02', visites: 8, analysesLancees: 3, resultats: 2, sans: 1, vis: 1, ind: 0 },
+    { bucket: '2026-01-01', visites: 4, analysesLancees: 2, resultats: 1, sans: 1, vis: 0, ind: 0, certificats: 0, plusvalue: 0, estimationImmo: 0, totalEstimations: 0 },
+    { bucket: '2026-01-02', visites: 8, analysesLancees: 3, resultats: 2, sans: 1, vis: 1, ind: 0, certificats: 0, plusvalue: 0, estimationImmo: 0, totalEstimations: 0 },
   ];
   it('maxSerie = max des métriques demandées, plancher 1 (anti division par 0)', () => {
     expect(maxSerie(serie, ['visites'])).toBe(8);
@@ -156,7 +185,7 @@ describe('Lot 6 — série temporelle (helpers PURS, testables sans rendu)', () 
     expect(coordsSerie([], 'visites', 8, 100, 50)).toEqual([]);
   });
   it('coordsSerie à 1 SEUL point → centré horizontalement (x = largeur/2), pas collé au bord', () => {
-    const un: SeriePoint[] = [{ bucket: '2026-01-01', visites: 3, analysesLancees: 0, resultats: 0, sans: 0, vis: 0, ind: 0 }];
+    const un: SeriePoint[] = [{ bucket: '2026-01-01', visites: 3, analysesLancees: 0, resultats: 0, sans: 0, vis: 0, ind: 0, certificats: 0, plusvalue: 0, estimationImmo: 0, totalEstimations: 0 }];
     expect(coordsSerie(un, 'visites', 3, 100, 50)).toEqual([{ x: 50, y: 0 }]); // 1 point → milieu ; 3/3 = max → haut
   });
   it('polySerie dérive la même géométrie sous forme de chaîne "x,y …"', () => {
