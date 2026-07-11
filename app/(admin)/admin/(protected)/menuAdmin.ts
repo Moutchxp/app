@@ -20,6 +20,10 @@ const MODULES: ReadonlyArray<LienMenu & { perm: keyof Perms }> = [
 /** Tuile « Administratif » — réservée au rôle administrateur (pas une permission de module). */
 const ADMINISTRATIF: LienMenu = { slug: '/admin/comptes', libelle: 'Administratif', desc: 'Gestion des comptes admin.' };
 
+/** Tuile « Audit » (M2 Lot 7) — réservée au rôle administrateur, comme « Administratif » (fonction de sécurité,
+ *  pas une permission déléguable). Vue AGRÉGÉE : connexions et détection de force brute, sans identité ni IP. */
+const AUDIT: LienMenu = { slug: '/admin/audit', libelle: 'Audit', desc: 'Sécurité : connexions et force brute (agrégé).' };
+
 /**
  * Liens visibles (M3-4 Lot C/D) — SOURCE UNIQUE du menu latéral (`Sidebar`) ET de la grille du tableau de bord.
  * **RÔLE D'ABORD** : un administrateur voit TOUS les modules (jamais un lien masqué par erreur, même si des
@@ -32,6 +36,6 @@ const ADMINISTRATIF: LienMenu = { slug: '/admin/comptes', libelle: 'Administrati
 export function liensVisibles(role: RoleAdmin, perms: Perms): LienMenu[] {
   const admin = role === 'administrateur';
   const liens: LienMenu[] = MODULES.filter((m) => admin || perms[m.perm]).map(({ slug, libelle, desc }) => ({ slug, libelle, desc }));
-  if (admin) liens.push(ADMINISTRATIF);
+  if (admin) liens.push(ADMINISTRATIF, AUDIT);
   return liens;
 }

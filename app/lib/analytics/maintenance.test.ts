@@ -5,6 +5,7 @@ import {
   compacter,
   gererPartitions,
   purgerCompteur,
+  purgerLoginEchec,
   executerMaintenance,
   lireEntier,
   jourParis,
@@ -239,5 +240,34 @@ describe('executerMaintenance — verrou consultatif', () => {
     expect(res.erreurs.some((e) => e.startsWith('compaction:'))).toBe(true);
     expect(fc.query.mock.calls.some((c) => /pg_advisory_unlock/i.test(c[0] as string))).toBe(true);
     expect(fc.release).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('purgerLoginEchec (Lot 7) — purge de l’état de throttle, tolérante à l’absence de table', () => {
+  it('purge par lots jusqu’à épuisement (retourne le total supprimé)', async () => {
+    let appels = 0;
+    const q = vi.fn(async () => {
+      appels += 1;
+      return { rows: [], rowCount: appels < 3 ? 5 : 0 }; // 5 + 5 puis 0
+    }) as unknown as Requete;
+    expect(await purgerLoginEchec(q, 1, 5)).toBe(10);
+  });
+
+  it('table ABSENTE (42P01, migration 021 non appliquée) → no-op propre (0), jamais de throw', async () => {
+    const q = vi.fn(async () => {
+      const e = new Error('relation "login_echec" does not exist') as Error & { code: string };
+      e.code = '42P01';
+      throw e;
+    }) as unknown as Requete;
+    expect(await purgerLoginEchec(q, 1, 5)).toBe(0);
+  });
+
+  it('toute AUTRE erreur (droits, etc.) est PROPAGÉE, jamais avalée', async () => {
+    const q = vi.fn(async () => {
+      const e = new Error('permission denied') as Error & { code: string };
+      e.code = '42501';
+      throw e;
+    }) as unknown as Requete;
+    await expect(purgerLoginEchec(q, 1, 5)).rejects.toThrow('permission denied');
   });
 });

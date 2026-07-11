@@ -10,14 +10,16 @@ describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
     expect(slugs).toContain('/admin/curation');
     expect(slugs).toContain('/admin/banc-test');
     expect(slugs).toContain('/admin/comptes'); // tuile Administratif
-    expect(liens).toHaveLength(7); // 6 modules + Administratif
+    expect(slugs).toContain('/admin/audit'); // tuile Audit (Lot 7), administrateur uniquement
+    expect(liens).toHaveLength(8); // 6 modules + Administratif + Audit
   });
 
-  it('collaborateur → uniquement ses permissions, JAMAIS « Administratif »', () => {
+  it('collaborateur → uniquement ses permissions, JAMAIS « Administratif » ni « Audit »', () => {
     const liens = liensVisibles('collaborateur', { ...permsAucune(), curation: true, banc_test: true });
     const slugs = liens.map((l) => l.slug);
     expect(slugs).toEqual(['/admin/curation', '/admin/banc-test']);
     expect(slugs).not.toContain('/admin/comptes');
+    expect(slugs).not.toContain('/admin/audit'); // Audit = rôle administrateur, jamais une permission
   });
 
   it('collaborateur sans aucune permission → menu vide (mais jamais Administratif)', () => {
@@ -29,6 +31,7 @@ describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
     const slugs = liensVisibles('collaborateur', permsToutes()).map((l) => l.slug);
     expect(slugs).toHaveLength(6);
     expect(slugs).not.toContain('/admin/comptes');
+    expect(slugs).not.toContain('/admin/audit');
   });
 
   it('chaque lien porte libellé + description (contrat unique menu latéral ET grille du dashboard)', () => {

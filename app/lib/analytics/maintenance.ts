@@ -49,6 +49,7 @@ const DEFAUTS = {
   session_ephemere_jours: 2,
   compteur_public_jours: 400,
   compteur_interne_jours: 400,
+  login_echec_jours: 1, // Lot 7 : TTL de l'état de throttle `login_echec` (court, au-delà de la fenêtre W = inutile)
 } as const;
 
 /**
@@ -81,6 +82,7 @@ export interface ResultatMaintenance {
   partitionsEnConflit: string[]; // création impossible (rows en _default) → à traiter manuellement
   compteursPublicsPurges: number;
   compteursInternesPurges: number;
+  loginEchecsPurges: number; // Lot 7 : lignes d'état de throttle purgées
   erreurs: string[];
 }
 
@@ -288,6 +290,32 @@ export async function purgerCompteur(
   return total;
 }
 
+/**
+ * Lot 7 : purge l'ÉTAT de throttle `login_echec` au-delà de la rétention (par âge `ts`, en lots bornés).
+ * TOLÉRANT à l'absence de table (42P01) : si la migration 021 n'est pas encore appliquée, no-op propre
+ * (0, sans erreur) — la maintenance ne casse pas et ne pollue pas ses `erreurs`. Renvoie le total supprimé.
+ */
+export async function purgerLoginEchec(q: Requete, retentionJours: number, tailleLot: number): Promise<number> {
+  let total = 0;
+  for (let i = 0; i < 1_000_000; i++) {
+    let r: { rowCount: number | null };
+    try {
+      r = await q(
+        `DELETE FROM login_echec
+          WHERE ctid IN (SELECT ctid FROM login_echec WHERE ts < now() - ($1 || ' day')::interval LIMIT $2)`,
+        [retentionJours, tailleLot],
+      );
+    } catch (e) {
+      if ((e as { code?: string })?.code === '42P01') return total; // table absente (021 non appliquée) → no-op propre
+      throw e;
+    }
+    const n = r.rowCount ?? 0;
+    total += n;
+    if (n === 0) break;
+  }
+  return total;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Orchestrateur : verrou consultatif + les trois mécanismes, dans l'ordre.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -307,6 +335,7 @@ export async function executerMaintenance(): Promise<ResultatMaintenance> {
     partitionsEnConflit: [],
     compteursPublicsPurges: 0,
     compteursInternesPurges: 0,
+    loginEchecsPurges: 0,
     erreurs: [],
   };
 
@@ -330,6 +359,7 @@ export async function executerMaintenance(): Promise<ResultatMaintenance> {
       let sessJours: number = DEFAUTS.session_ephemere_jours;
       let pubJours: number = DEFAUTS.compteur_public_jours;
       let intJours: number = DEFAUTS.compteur_interne_jours;
+      let loginJours: number = DEFAUTS.login_echec_jours;
       try {
         tailleLot = await lireEntier(q, 'analytics_maintenance_config', 'valeur', 'compaction_taille_lot', DEFAUTS.compaction_taille_lot);
         moisAvance = await lireEntier(q, 'analytics_maintenance_config', 'valeur', 'partitions_mois_avance', DEFAUTS.partitions_mois_avance);
@@ -337,6 +367,7 @@ export async function executerMaintenance(): Promise<ResultatMaintenance> {
         sessJours = await lireEntier(q, 'analytics_retention', 'jours', 'session_ephemere_jours', DEFAUTS.session_ephemere_jours);
         pubJours = await lireEntier(q, 'analytics_retention', 'jours', 'compteur_public_jours', DEFAUTS.compteur_public_jours);
         intJours = await lireEntier(q, 'analytics_retention', 'jours', 'compteur_interne_jours', DEFAUTS.compteur_interne_jours);
+        loginJours = await lireEntier(q, 'analytics_retention', 'jours', 'login_echec_jours', DEFAUTS.login_echec_jours);
       } catch (e) {
         res.erreurs.push(`config: ${String(e)} (repli sur tous les défauts)`);
       }
@@ -366,6 +397,12 @@ export async function executerMaintenance(): Promise<ResultatMaintenance> {
         res.compteursInternesPurges = await purgerCompteur(q, 'analytics_admin_jour', jour, intJours, purgeLot);
       } catch (e) {
         res.erreurs.push(`purge_interne: ${String(e)}`);
+      }
+      // 4. PURGE de l'état de throttle (Lot 7) — tolérante à l'absence de table (021 non appliquée → no-op).
+      try {
+        res.loginEchecsPurges = await purgerLoginEchec(q, loginJours, purgeLot);
+      } catch (e) {
+        res.erreurs.push(`purge_login_echec: ${String(e)}`);
       }
     } finally {
       await client.query('SELECT pg_advisory_unlock($1)', [VERROU_MAINTENANCE]);

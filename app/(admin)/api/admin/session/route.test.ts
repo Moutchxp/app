@@ -21,6 +21,17 @@ vi.mock('../../../../lib/admin/comptes', () => ({
   permsDuCompte: () => ({ pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true }),
 }));
 
+// Anti-force-brute (Lot 7) — mocké : isole la route du pool analytique (pool.ts throw sans DATABASE_URL) et
+// permet de piloter le throttle. verifierThrottle laisse passer par défaut (voir beforeEach).
+const verifierThrottle = vi.fn();
+const noterEchec = vi.fn();
+const noterSucces = vi.fn();
+vi.mock('../../../../lib/auth/antiBruteforce', () => ({
+  verifierThrottle: (...a: unknown[]) => verifierThrottle(...a),
+  noterEchec: (...a: unknown[]) => noterEchec(...a),
+  noterSucces: (...a: unknown[]) => noterSucces(...a),
+}));
+
 import { POST } from './route';
 
 function requete(body: unknown): Request {
@@ -42,6 +53,10 @@ beforeEach(() => {
   verifier.mockReset();
   trouverCompte.mockReset();
   marquerConnexion.mockReset();
+  verifierThrottle.mockReset();
+  noterEchec.mockReset();
+  noterSucces.mockReset();
+  verifierThrottle.mockResolvedValue({ bloque: false, retryAfter: 0 }); // throttle laisse passer par défaut
 });
 
 describe('POST /api/admin/session', () => {
@@ -114,5 +129,55 @@ describe('POST /api/admin/session', () => {
     expect(res.status).toBe(200);
     // La casse est résolue par trouverCompte (SQL lower()=lower()) : la route transmet la saisie telle quelle.
     expect(trouverCompte).toHaveBeenCalledWith('A.Jorel@SansVisAVis.COM');
+  });
+});
+
+describe('POST /api/admin/session — anti-force-brute (Lot 7)', () => {
+  it('throttlé → 429 + Retry-After ; AUCUNE vérification de mot de passe (password.ts non appelé)', async () => {
+    verifierThrottle.mockResolvedValue({ bloque: true, retryAfter: 42 });
+    const res = await POST(requete({ identifiant: 'arno@x.com', password: 'peu importe' }));
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('42');
+    expect(verifier).not.toHaveBeenCalled(); // pas d'appel à motDePasse.verifier quand throttlé
+    expect(trouverCompte).not.toHaveBeenCalled(); // anti-énumération : throttle AVANT toute résolution de compte
+    expect(cookieStore.set).not.toHaveBeenCalled();
+  });
+
+  it('anti-énumération : throttle keyé sur la CHAÎNE, appliqué même pour un compte inexistant (429 sans DB)', async () => {
+    verifierThrottle.mockResolvedValue({ bloque: true, retryAfter: 5 });
+    const res = await POST(requete({ identifiant: 'fantome@x.com', password: 'x' }));
+    expect(res.status).toBe(429);
+    expect(trouverCompte).not.toHaveBeenCalled(); // aucune fuite d'existence
+  });
+
+  it('échec → noterEchec(identifiant NORMALISÉ minuscules), jamais noterSucces', async () => {
+    trouverCompte.mockResolvedValue(compte());
+    verifier.mockResolvedValue(false);
+    await POST(requete({ identifiant: 'Arno@X.com', password: 'faux' }));
+    expect(noterEchec).toHaveBeenCalledWith('arno@x.com'); // clé throttle normalisée (anti-bypass par casse)
+    expect(noterSucces).not.toHaveBeenCalled();
+  });
+
+  it('échec voie de secours → noterEchec(\'\') (chaîne vide = secours), jamais noterSucces', async () => {
+    motDePasseValide.mockReturnValue(false);
+    await POST(requete({ identifiant: '', password: 'faux' }));
+    expect(noterEchec).toHaveBeenCalledWith('');
+    expect(noterSucces).not.toHaveBeenCalled();
+  });
+
+  it('succès → noterSucces (reset du throttle de cet identifiant), jamais noterEchec', async () => {
+    trouverCompte.mockResolvedValue(compte());
+    verifier.mockResolvedValue(true);
+    await POST(requete({ identifiant: 'arno@x.com', password: 'bon' }));
+    expect(noterSucces).toHaveBeenCalledWith('arno@x.com');
+    expect(noterEchec).not.toHaveBeenCalled();
+  });
+
+  it('BREAK-GLASS (F1) : la voie de secours (identifiant vide) n’est JAMAIS throttlée', async () => {
+    verifierThrottle.mockResolvedValue({ bloque: true, retryAfter: 999 }); // même si le throttle voudrait bloquer…
+    motDePasseValide.mockReturnValue(true);
+    const res = await POST(requete({ identifiant: '', password: 'partage' }));
+    expect(res.status).toBe(200); // …le secours passe : corde de rappel toujours disponible
+    expect(verifierThrottle).not.toHaveBeenCalled(); // '' n’est jamais soumis au throttle (pas de DoS-lockout système)
   });
 });
