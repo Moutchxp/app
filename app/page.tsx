@@ -12,6 +12,7 @@ import { formaterDistanceVerdict, metresVerdictAffiches } from "./lib/formatDist
 import { SceauCertifie } from "./components/SceauCertifie";
 import type { Orientation } from "./lib/svv/config";
 import type { LibelleScore } from "./lib/svv/scoreTotal";
+import { finalitesActivesTunnel, FINALITE_SERVICE, type CleFinalite } from "./lib/internaute/textesConsentement";
 import { PhoneInput } from "react-international-phone";
 import "react-international-phone/style.css";
 import { getActiveFormattingMask } from "react-international-phone";
@@ -734,7 +735,7 @@ const EPOQUES = [
   "De 2001 à 2010", "De 2011 à 2020", "À partir de 2021",
 ] as const;
 
-function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousPlafond, etageInitial, dernierEtage }: {
+function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousPlafond, etageInitial, dernierEtage, verdict, score, communeInsee }: {
   onRetour: () => void;
   adresseBien: string;
   lat: number;
@@ -743,6 +744,10 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
   hauteurSousPlafond: number;
   etageInitial: number;
   dernierEtage: boolean;
+  // Données moteur capturées en fin de tunnel (LECTURE SEULE — le moteur n'est jamais rappelé ni modifié).
+  verdict: string | null;
+  score: number | null;
+  communeInsee: string | null;
 }) {
   const [adresseChoisie, setAdresseChoisie] = useState(adresseBien); // libellé affiché, init = adresse auto
   const [adressesAlt, setAdressesAlt] = useState<{ cle: string; libelle: string; distanceM: number; memeParcelle: boolean }[]>([]);
@@ -765,6 +770,14 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
   const [balcon, setBalcon] = useState<null | boolean>(null);
   const [jardin, setJardin] = useState<null | boolean>(null);
   const [soumis, setSoumis] = useState(false);
+  // Consentement (LOT 2) — GRANULAIRE par finalité, AUCUNE case pré-cochée (consentement = acte positif).
+  const [consentements, setConsentements] = useState<Record<CleFinalite, boolean>>({
+    recontact_interne: false,
+    email_marketing: false,
+    retargeting_tiers: false,
+  });
+  const [envoi, setEnvoi] = useState(false);
+  const [erreurEnvoi, setErreurEnvoi] = useState<string | null>(null);
 
   const emailValide = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const estValide =
@@ -781,6 +794,56 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
     jardin !== null &&
     bienEstResidence !== null &&
     (bienEstResidence === true || residenceAdresse.trim() !== "");
+
+  // Soumission (LOT 2). NON-COUPLAGE : le certificat s'obtient SANS consentement. Sans F1 (recontact), AUCUNE
+  // donnée nominative n'est envoyée (minimisation) → on affiche juste la confirmation. Avec F1, on POSTe le profil
+  // à /api/internaute. L'ingestion NE BLOQUE JAMAIS le flux : la confirmation s'affiche quoi qu'il arrive.
+  const soumettre = async () => {
+    if (!consentements[FINALITE_SERVICE]) {
+      setSoumis(true);
+      return;
+    }
+    const consentementsAcceptes = finalitesActivesTunnel()
+      .filter((t) => consentements[t.finalite])
+      .map((t) => ({ finalite: t.finalite, version: t.version }));
+    const corps = {
+      identite: { prenom: prenom.trim(), nom: nom.trim(), email: email.trim(), telephone: telephone || null },
+      consentements: consentementsAcceptes,
+      projet: {
+        versionTunnel: 1,
+        payload: {
+          typeBien, surface, nbPieces, epoque, terrasse, balcon, jardin,
+          adresseResidence: bienEstResidence === false ? residenceAdresse.trim() : null,
+        },
+        verdict,
+        score,
+        etage: etageInitial,
+        dernierEtage,
+        residencePrincipale: bienEstResidence,
+        communeInsee,
+        lat,
+        lon,
+        adresseSaisie: adresseBien,
+        adresseNormalisee: adresseChoisie,
+      },
+    };
+    setEnvoi(true);
+    setErreurEnvoi(null);
+    try {
+      const res = await fetch("/api/internaute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corps),
+      });
+      if (!res.ok) setErreurEnvoi("Vos coordonnées n'ont pas pu être enregistrées. Le certificat reste disponible.");
+    } catch {
+      setErreurEnvoi("Vos coordonnées n'ont pas pu être enregistrées. Le certificat reste disponible.");
+    } finally {
+      setEnvoi(false);
+      setSoumis(true); // non bloquant : confirmation affichée dans tous les cas
+    }
+  };
+
   // Adresse auto = la PLUS PROCHE renvoyée par l'API (déjà triée par distance), pas adresseBien
   // (format amont différent : code postal, séparateurs…). Dédup par cle (identifiant BAN unique).
   const adresseAuto = adressesAlt[0]?.libelle ?? adresseBien;
@@ -859,6 +922,9 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
         <div className="rounded-xl bg-svv-field p-4 text-base font-semibold text-svv-ink">
           ✓ Vos informations ont bien été enregistrées.
         </div>
+        {erreurEnvoi && (
+          <p className="mt-3 rounded-xl bg-svv-field p-4 text-sm font-semibold text-svv-red">{erreurEnvoi}</p>
+        )}
         <p className="mt-3 text-sm text-svv-muted">
           La génération de votre certificat Sans Vis-à-Vis® et son envoi par email arriveront à l'étape suivante.
         </p>
@@ -1096,14 +1162,36 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
       )}
       </div>
 
+      {/* CONSENTEMENT (LOT 2) — granulaire, aucune case pré-cochée. Charte : rouge/gris, cibles ≥44px, focus rouge. */}
+      <div className="mt-6 rounded-2xl bg-svv-field p-5">
+        <h2 className="mb-1 text-lg font-bold text-svv-ink">Vos préférences de contact</h2>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-svv-red">Texte provisoire — validation juriste requise</p>
+        <div className="flex flex-col gap-3">
+          {finalitesActivesTunnel().map((t) => (
+            <label key={t.finalite} className="flex min-h-11 cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={consentements[t.finalite]}
+                onChange={(e) => setConsentements((c) => ({ ...c, [t.finalite]: e.target.checked }))}
+                className="mt-1 h-5 w-5 shrink-0 accent-svv-red focus:outline-none focus-visible:ring-2 focus-visible:ring-svv-red"
+              />
+              <span className="text-sm text-svv-ink">{t.libelleCase}</span>
+            </label>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-svv-muted">
+          Le certificat vous est délivré même sans cocher ces cases. Vous pouvez retirer votre consentement à tout moment.
+        </p>
+      </div>
+
       {/* ACTIONS */}
       <button
         type="button"
-        disabled={!estValide}
-        onClick={() => setSoumis(true)}
-        className={`svv-btn svv-btn-primary mt-6 ${!estValide ? "opacity-50" : ""}`}
+        disabled={!estValide || envoi}
+        onClick={soumettre}
+        className={`svv-btn svv-btn-primary mt-6 ${!estValide || envoi ? "opacity-50" : ""}`}
       >
-        Valider
+        {envoi ? "Enregistrement…" : "Valider"}
       </button>
       <button type="button" onClick={onRetour} className="svv-btn svv-btn-outline mt-3">Retour</button>
 
@@ -3111,6 +3199,9 @@ export default function Home() {
     hauteurSousPlafond={hauteurSousPlafondM}
     etageInitial={Number(etage) || 0}
     dernierEtage={dernierEtage ?? false}
+    verdict={analyse?.resultat?.verdict.verdict ?? null}
+    score={analyse?.resultat?.score.total ?? null}
+    communeInsee={communeInsee}
   />
 )}
         </section>
