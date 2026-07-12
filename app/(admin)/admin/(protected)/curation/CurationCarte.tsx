@@ -368,6 +368,10 @@ export default function CurationCarte() {
   const [flashId, setFlashId] = useState<number | null>(null);
   // Formulaire « + Nouveau tag » (création d'entité manuelle).
   const [creationOuverte, setCreationOuverte] = useState(false);
+  // Panneau « Filtres » repliable (regroupe Familles/Statut/Origine). REPLI PUREMENT VISUEL : les états de filtres
+  // (famillesVisibles, statutsVisibles, originesVisibles, manuelVisible) vivent au-dessus et pilotent la carte même
+  // panneau fermé — replier ne démonte que l'UI des cases, jamais les valeurs. Fermé par défaut.
+  const [filtresOuverts, setFiltresOuverts] = useState(false);
   const [formFamille, setFormFamille] = useState<'mondial' | 'mh' | 'inventaire'>('mh');
   const [formNom, setFormNom] = useState('');
   const [cleabsCible, setCleabsCible] = useState<string | null>(null); // bâtiment double-cliqué à taguer
@@ -1096,19 +1100,18 @@ export default function CurationCarte() {
 
   // FC-60 : aucun scrollIntoView à l'ouverture du formulaire de création (effet `[creationOuverte]` retiré).
 
-  // ── Scroll vers le HAUT dès que la ZONE HAUTE s'ouvre (formulaire de création OU zone de composition — tous
-  //    deux enveloppés par `formulaireRef`). Keyé sur `zoneHauteOuverte` (creationOuverte || composition!==null),
-  //    qui reste `true` pendant la transition formulaire→composition → PAS de double scroll ; PAS de re-scroll aux
-  //    rattachements (liaisons/compteur hors deps). Cible `formulaireRef` (HAUT) → jamais `itemActifRef`/`flashId`. ─
-  const zoneHauteOuverte = creationOuverte || composition !== null;
+  // ── Scroll vers la zone de COMPOSITION UNIQUEMENT (fiche créée depuis la CARTE : l'attention est sur la carte →
+  //    on amène la zone dans le panneau latéral). Le FORMULAIRE de création ouvert via le bouton « + Nouveau tag »
+  //    NE scrolle PAS : il s'ouvre EN PLACE comme les panneaux Filtres / Infos bâtiment (accordéon), sinon « scroll
+  //    bizarre » à l'ouverture. Keyé sur `composition` seul (jamais `creationOuverte`). Cible `formulaireRef` (HAUT).
   useEffect(() => {
-    if (!zoneHauteOuverte) return;
+    if (composition === null) return;
     const reduire = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const raf = requestAnimationFrame(() => {
       formulaireRef.current?.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'start', inline: 'nearest' });
     });
     return () => cancelAnimationFrame(raf);
-  }, [zoneHauteOuverte]);
+  }, [composition]);
 
   // ── Fermeture de la zone de composition (« Terminer » / « Abandonner ») : COSMÉTIQUE, aucune écriture,
   //    aucune suppression (OQ-1). `selectionId=null` → l'entité rejoint la liste à sa place (re-render normal).
@@ -1251,223 +1254,247 @@ export default function CurationCarte() {
             </div>
           )}
 
-          {/* Création d'entité manuelle (tag). */}
-          <div className="svv-cur-creation" ref={formulaireRef}>
-            {composition !== null ? (
-              // Zone de COMPOSITION (FC-20..29) : la fiche-en-création reste EN HAUT, hors liste triée.
-              (() => {
-                const e = entiteSelectionnee;
-                const liees = e ? e.liaisons.filter((l) => l.actif && !l.detache) : []; // ordre created ↑ → [0] = mère
-                const nb = liees.length;
-                const cercle = !!e && e.etat === 'rouge' && !e.point;
-                return (
-                  <div className="svv-cur-compo" role="group" aria-label="Composition du nouveau tag">
-                    <div className="svv-cur-compo-tete">
-                      <span
-                        className={`svv-cur-dot${cercle ? ' svv-cur-dot--rouge' : ''}`}
-                        style={cercle || !e ? undefined : { background: COULEUR_ETAT[e.etat] }}
-                        aria-hidden="true"
-                      />
-                      <span className="svv-cur-compo-nom">{e?.nom ?? '(sans nom)'}</span>
-                      {e && <span className="svv-cur-badge">{LIBELLE_FAMILLE[e.famille] ?? e.famille}</span>}
-                    </div>
-                    <p className="svv-cur-compo-invite">
-                      {nb >= 1
-                        ? 'Tag créé et rattaché. Sélectionne d’autres polygones sur la carte si besoin, puis clique « Terminer » — ou « Terminer » directement si c’est suffisant.'
-                        : 'Sélectionne un ou plusieurs polygones sur la carte, puis clique « Terminer ».'}
-                    </p>
-                    <p className="svv-cur-compo-compteur">
-                      {`${nb} polygone${nb > 1 ? 's' : ''} rattaché${nb > 1 ? 's' : ''}`}
-                    </p>
-                    {nb === 0 ? (
-                      <p className="svv-cur-compo-vide">Aucun polygone rattaché — clique une emprise sur la carte.</p>
-                    ) : (
-                      <ul className="svv-cur-compo-liste">
-                        {liees.map((l, i) => (
-                          <li key={l.cleabs} className="svv-cur-compo-cleabs">
-                            <code title={l.cleabs}>{cleabsCourt(l.cleabs)}</code>
-                            {i === 0 && <span className="svv-cur-compo-mere">(initiale)</span>}
-                            <button
-                              type="button"
-                              className="svv-cur-compo-x"
-                              aria-label={`Détacher le polygone ${l.cleabs}`}
-                              disabled={enEcriture}
-                              onClick={() => e && void detacher(e.id, l.cleabs)}
-                            >
-                              ✕
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <div className="svv-cur-form-actions">
-                      <button type="button" className="svv-cur-btn svv-cur-btn--mini" onClick={fermerComposition}>
-                        Terminer
-                      </button>
-                      <button
-                        type="button"
-                        className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
-                        onClick={fermerComposition}
-                      >
-                        Abandonner
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()
-            ) : !creationOuverte ? (
-              <button
-                type="button"
-                className="svv-cur-btn svv-cur-btn--outline"
-                onClick={() => {
-                  setCleabsCible(null);
-                  setCreationOuverte(true);
-                }}
-              >
-                + Nouveau tag
-              </button>
-            ) : (
-              <form
-                className="svv-cur-form"
-                onSubmit={(ev) => {
-                  ev.preventDefault();
-                  void soumettreCreation();
-                }}
-              >
-                {cleabsCible && (
-                  <p className="svv-cur-form-cible">
-                    {'Bâtiment ciblé : '}
-                    <code>{cleabsCible}</code>
-                    {" — créez l'entité, puis cliquez l'emprise bleue pour la rattacher."}
-                  </p>
-                )}
-                <label className="svv-cur-form-champ">
-                  <span>Famille</span>
-                  <select
-                    value={formFamille}
-                    onChange={(ev) => setFormFamille(ev.target.value as 'mondial' | 'mh' | 'inventaire')}
-                  >
-                    {FAMILLES.map((f) => (
-                      <option key={f.cle} value={f.cle}>
-                        {f.libelle}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="svv-cur-form-champ">
-                  <span>Nom (légende, optionnel)</span>
-                  <input
-                    type="text"
-                    value={formNom}
-                    placeholder="ex. Hôtel de ville"
-                    onChange={(ev) => setFormNom(ev.target.value)}
-                  />
-                </label>
-                <div className="svv-cur-form-actions">
-                  <button type="submit" className="svv-cur-btn svv-cur-btn--mini" disabled={enEcriture}>
-                    Créer
-                  </button>
-                  <button
-                    type="button"
-                    className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
-                    onClick={() => {
-                      setCreationOuverte(false);
-                      setCleabsCible(null);
-                    }}
-                  >
-                    Annuler
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
+          {/* 3 actions EMPILÉES pleine largeur, en ACCORDÉON : chaque bouton déploie SON panneau JUSTE dessous
+              (toggles INDÉPENDANTS, 1 clic). Ordre haut→bas : Filtres, Infos bâtiment, Nouveau tag. Le repli est
+              PUREMENT VISUEL — les valeurs de filtres restent actives et pilotent la carte même panneau fermé
+              (démonter les cases ne touche pas les états portés par le parent). « Filtres » replié par défaut. */}
+          <div className="svv-cur-accordeon" role="group" aria-label="Actions de curation">
 
-          {/* Filtres par famille (EX-2). */}
-          <fieldset className="svv-cur-filtres">
-            <legend className="svv-cur-legende">Familles</legend>
-            {FAMILLES.map((f) => (
-              <label key={f.cle} className="svv-cur-check">
-                <input
-                  type="checkbox"
-                  checked={famillesVisibles[f.cle] !== false}
-                  onChange={(ev) => setFamillesVisibles((v) => ({ ...v, [f.cle]: ev.target.checked }))}
-                />
-                <span>{f.libelle}</span>
-              </label>
-            ))}
-            {/* 4e item : tags créés à la main (origine='manuel'). Axe orthogonal aux 3 familles ; pilote la
-                couche étoiles (carte) + la liste. Étoile jaune = même repère visuel que les tags dans la liste. */}
-            <label className="svv-cur-check">
-              <input type="checkbox" checked={manuelVisible} onChange={(ev) => setManuelVisible(ev.target.checked)} />
-              <span>
-                <span className="svv-cur-star" aria-hidden>
-                  ★
-                </span>
-                Manuel
-              </span>
-            </label>
-          </fieldset>
-
-          {/* Filtre SECONDAIRE : statut du point GPS (multi-sélection, cumulatif avec les familles). Agit sur la
-              carte et la liste uniquement (l'historique garde son propre filtre famille). */}
-          <fieldset className="svv-cur-filtres">
-            <legend className="svv-cur-legende">Statut du point</legend>
-            {STATUTS_POINT.map((s) => (
-              <label key={s.cle} className="svv-cur-check">
-                <input
-                  type="checkbox"
-                  checked={statutsVisibles[s.cle] !== false}
-                  onChange={(ev) => setStatutsVisibles((v) => ({ ...v, [s.cle]: ev.target.checked }))}
-                />
-                <span>{s.libelle}</span>
-              </label>
-            ))}
-          </fieldset>
-
-          {/* Filtre TERTIAIRE : origine (multi-sélection, cumulatif avec familles + statut). Orthogonal à la
-              famille ; agit sur la carte et la liste uniquement (l'historique garde son propre filtre famille).
-              « Manuel » partage l'état `manuelVisible` avec la case du bloc Familles (source unique → synchro
-              automatique dans les 2 sens) ; « Automatique » reste sur `originesVisibles.auto`. */}
-          <fieldset className="svv-cur-filtres">
-            <legend className="svv-cur-legende">Origine</legend>
-            {ORIGINES.map((o) => {
-              const estManuel = o.cle === 'manuel'; // miroir de la case Familles « Manuel » (même état)
-              return (
-                <label key={o.cle} className="svv-cur-check">
-                  <input
-                    type="checkbox"
-                    checked={estManuel ? manuelVisible : originesVisibles[o.cle] !== false}
-                    onChange={(ev) => {
-                      if (estManuel) setManuelVisible(ev.target.checked);
-                      else setOriginesVisibles((v) => ({ ...v, [o.cle]: ev.target.checked }));
-                    }}
-                  />
-                  <span>{o.libelle}</span>
-                </label>
-              );
-            })}
-          </fieldset>
-
-          {/* Affichage : bulle « infos bâtiment » (année + étages) sur les bâtiments de fond (aide,
-              LECTURE SEULE). Bascule (aria-pressed) ; état perceptible SANS couleur : ●/○ + Activé/Masqué. */}
-          <div className="svv-cur-bulle-ctrl">
+            {/* ── 1) FILTRES ── */}
             <button
               type="button"
-              className={`svv-cur-btn svv-cur-bulle-toggle${modeBulle ? '' : ' svv-cur-btn--outline'}`}
+              className={`svv-cur-action${filtresOuverts ? ' svv-cur-action--on' : ''}`}
+              aria-pressed={filtresOuverts}
+              aria-expanded={filtresOuverts}
+              aria-controls="svv-cur-panneau-filtres"
+              onClick={() => setFiltresOuverts((v) => !v)}
+            >
+              Filtres
+            </button>
+            {filtresOuverts && (
+              <div id="svv-cur-panneau-filtres" className="svv-cur-panneau-filtres">
+                {/* Chaque sous-bloc porte SA PROPRE trame grise (.svv-cur-filtres) ; le gap du conteneur les détache. */}
+                {/* Filtres par famille (EX-2). */}
+                <fieldset className="svv-cur-filtres">
+                  <legend className="svv-cur-legende">Familles</legend>
+                  {FAMILLES.map((f) => (
+                    <label key={f.cle} className="svv-cur-check">
+                      <input
+                        type="checkbox"
+                        checked={famillesVisibles[f.cle] !== false}
+                        onChange={(ev) => setFamillesVisibles((v) => ({ ...v, [f.cle]: ev.target.checked }))}
+                      />
+                      <span>{f.libelle}</span>
+                    </label>
+                  ))}
+                  {/* 4e item : tags créés à la main (origine='manuel'). Axe orthogonal aux 3 familles ; pilote la
+                      couche étoiles (carte) + la liste. Étoile jaune = même repère visuel que les tags dans la liste. */}
+                  <label className="svv-cur-check">
+                    <input type="checkbox" checked={manuelVisible} onChange={(ev) => setManuelVisible(ev.target.checked)} />
+                    <span>
+                      <span className="svv-cur-star" aria-hidden>
+                        ★
+                      </span>
+                      Manuel
+                    </span>
+                  </label>
+                </fieldset>
+
+                {/* Filtre SECONDAIRE : statut du point GPS (multi-sélection, cumulatif avec les familles). Agit sur la
+                    carte et la liste uniquement (l'historique garde son propre filtre famille). */}
+                <fieldset className="svv-cur-filtres">
+                  <legend className="svv-cur-legende">Statut du point</legend>
+                  {STATUTS_POINT.map((s) => (
+                    <label key={s.cle} className="svv-cur-check">
+                      <input
+                        type="checkbox"
+                        checked={statutsVisibles[s.cle] !== false}
+                        onChange={(ev) => setStatutsVisibles((v) => ({ ...v, [s.cle]: ev.target.checked }))}
+                      />
+                      <span>{s.libelle}</span>
+                    </label>
+                  ))}
+                </fieldset>
+
+                {/* Filtre TERTIAIRE : origine (multi-sélection, cumulatif avec familles + statut). Orthogonal à la
+                    famille ; agit sur la carte et la liste uniquement (l'historique garde son propre filtre famille).
+                    « Manuel » partage l'état `manuelVisible` avec la case du bloc Familles (source unique → synchro
+                    automatique dans les 2 sens) ; « Automatique » reste sur `originesVisibles.auto`. */}
+                <fieldset className="svv-cur-filtres">
+                  <legend className="svv-cur-legende">Origine</legend>
+                  {ORIGINES.map((o) => {
+                    const estManuel = o.cle === 'manuel'; // miroir de la case Familles « Manuel » (même état)
+                    return (
+                      <label key={o.cle} className="svv-cur-check">
+                        <input
+                          type="checkbox"
+                          checked={estManuel ? manuelVisible : originesVisibles[o.cle] !== false}
+                          onChange={(ev) => {
+                            if (estManuel) setManuelVisible(ev.target.checked);
+                            else setOriginesVisibles((v) => ({ ...v, [o.cle]: ev.target.checked }));
+                          }}
+                        />
+                        <span>{o.libelle}</span>
+                      </label>
+                    );
+                  })}
+                </fieldset>
+              </div>
+            )}
+
+            {/* ── 2) INFOS BÂTIMENT ── (le mode `modeBulle` pilote la bulle sur la carte — comportement inchangé) */}
+            <button
+              type="button"
+              className={`svv-cur-action${modeBulle ? ' svv-cur-action--on' : ''}`}
               aria-pressed={modeBulle}
-              aria-describedby="svv-cur-bulle-aide"
+              aria-expanded={modeBulle}
               onClick={() => setModeBulle((v) => !v)}
             >
-              <span className="svv-cur-bulle-etat" aria-hidden="true">{modeBulle ? '●' : '○'}</span>
-              <span className="svv-cur-bulle-lib">Infos bâtiment</span>
-              <span className="svv-cur-bulle-mot">{modeBulle ? 'Activé' : 'Masqué'}</span>
+              Infos bâtiment
             </button>
-            <p id="svv-cur-bulle-aide" className="svv-cur-bulle-aide-txt">
-              Survolez (ou touchez) un bâtiment pour voir son année de construction et son nombre
-              d’étages. Source : données publiques IGN / BDNB — couverture partielle (l’année manque
-              souvent dans Paris, les étages y sont mieux couverts). Le nombre d’étages sert aussi, en
-              secours, à estimer la hauteur des bâtiments voisins pour le score — jamais pour le verdict.
-            </p>
+            {modeBulle && (
+              <div className="svv-cur-panneau">
+                <p id="svv-cur-bulle-aide" className="svv-cur-bulle-aide-txt">
+                  Survolez (ou touchez) un bâtiment pour voir son année de construction et son nombre
+                  d’étages. Source : données publiques IGN / BDNB — couverture partielle (l’année manque
+                  souvent dans Paris, les étages y sont mieux couverts). Le nombre d’étages sert aussi, en
+                  secours, à estimer la hauteur des bâtiments voisins pour le score — jamais pour le verdict.
+                </p>
+              </div>
+            )}
+
+            {/* ── 3) NOUVEAU TAG ── (bouton d'ouverture ; le panneau ci-dessous montre composition auto OU formulaire) */}
+            <button
+              type="button"
+              className={`svv-cur-action${creationOuverte ? ' svv-cur-action--on' : ''}`}
+              aria-pressed={creationOuverte}
+              aria-expanded={creationOuverte}
+              disabled={composition !== null}
+              onClick={() => {
+                setCleabsCible(null);
+                setCreationOuverte((v) => !v);
+              }}
+            >
+              + Nouveau tag
+            </button>
+            <div className="svv-cur-creation" ref={formulaireRef}>
+              {composition !== null ? (
+                // Zone de COMPOSITION (FC-20..29) : la fiche-en-création reste EN HAUT, hors liste triée.
+                (() => {
+                  const e = entiteSelectionnee;
+                  const liees = e ? e.liaisons.filter((l) => l.actif && !l.detache) : []; // ordre created ↑ → [0] = mère
+                  const nb = liees.length;
+                  const cercle = !!e && e.etat === 'rouge' && !e.point;
+                  return (
+                    <div className="svv-cur-compo" role="group" aria-label="Composition du nouveau tag">
+                      <div className="svv-cur-compo-tete">
+                        <span
+                          className={`svv-cur-dot${cercle ? ' svv-cur-dot--rouge' : ''}`}
+                          style={cercle || !e ? undefined : { background: COULEUR_ETAT[e.etat] }}
+                          aria-hidden="true"
+                        />
+                        <span className="svv-cur-compo-nom">{e?.nom ?? '(sans nom)'}</span>
+                        {e && <span className="svv-cur-badge">{LIBELLE_FAMILLE[e.famille] ?? e.famille}</span>}
+                      </div>
+                      <p className="svv-cur-compo-invite">
+                        {nb >= 1
+                          ? 'Tag créé et rattaché. Sélectionne d’autres polygones sur la carte si besoin, puis clique « Terminer » — ou « Terminer » directement si c’est suffisant.'
+                          : 'Sélectionne un ou plusieurs polygones sur la carte, puis clique « Terminer ».'}
+                      </p>
+                      <p className="svv-cur-compo-compteur">
+                        {`${nb} polygone${nb > 1 ? 's' : ''} rattaché${nb > 1 ? 's' : ''}`}
+                      </p>
+                      {nb === 0 ? (
+                        <p className="svv-cur-compo-vide">Aucun polygone rattaché — clique une emprise sur la carte.</p>
+                      ) : (
+                        <ul className="svv-cur-compo-liste">
+                          {liees.map((l, i) => (
+                            <li key={l.cleabs} className="svv-cur-compo-cleabs">
+                              <code title={l.cleabs}>{cleabsCourt(l.cleabs)}</code>
+                              {i === 0 && <span className="svv-cur-compo-mere">(initiale)</span>}
+                              <button
+                                type="button"
+                                className="svv-cur-compo-x"
+                                aria-label={`Détacher le polygone ${l.cleabs}`}
+                                disabled={enEcriture}
+                                onClick={() => e && void detacher(e.id, l.cleabs)}
+                              >
+                                ✕
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="svv-cur-form-actions">
+                        <button type="button" className="svv-cur-btn svv-cur-btn--mini" onClick={fermerComposition}>
+                          Terminer
+                        </button>
+                        <button
+                          type="button"
+                          className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
+                          onClick={fermerComposition}
+                        >
+                          Abandonner
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : creationOuverte ? (
+                <form
+                  className="svv-cur-form"
+                  onSubmit={(ev) => {
+                    ev.preventDefault();
+                    void soumettreCreation();
+                  }}
+                >
+                  {cleabsCible && (
+                    <p className="svv-cur-form-cible">
+                      {'Bâtiment ciblé : '}
+                      <code>{cleabsCible}</code>
+                      {" — créez l'entité, puis cliquez l'emprise bleue pour la rattacher."}
+                    </p>
+                  )}
+                  <label className="svv-cur-form-champ">
+                    <span>Famille</span>
+                    <select
+                      value={formFamille}
+                      onChange={(ev) => setFormFamille(ev.target.value as 'mondial' | 'mh' | 'inventaire')}
+                    >
+                      {FAMILLES.map((f) => (
+                        <option key={f.cle} value={f.cle}>
+                          {f.libelle}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="svv-cur-form-champ">
+                    <span>Nom (légende, optionnel)</span>
+                    <input
+                      type="text"
+                      value={formNom}
+                      placeholder="ex. Hôtel de ville"
+                      onChange={(ev) => setFormNom(ev.target.value)}
+                    />
+                  </label>
+                  <div className="svv-cur-form-actions">
+                    <button type="submit" className="svv-cur-btn svv-cur-btn--mini" disabled={enEcriture}>
+                      Créer
+                    </button>
+                    <button
+                      type="button"
+                      className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
+                      onClick={() => {
+                        setCreationOuverte(false);
+                        setCleabsCible(null);
+                      }}
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </form>
+              ) : null}
+            </div>
           </div>
 
           {/* Compteurs par état (EX-4). */}
@@ -1955,7 +1982,20 @@ const CSS = `
 .svv-cur-panel{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:.55rem;padding-right:.15rem}
 
 .svv-cur-creation{display:flex;flex-direction:column}
-.svv-cur-form{display:flex;flex-direction:column;gap:.45rem;border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.6rem}
+/* Accordéon des 3 actions (Filtres / Infos bâtiment / Nouveau tag), EMPILÉES pleine largeur ; chaque panneau se
+   déplie JUSTE sous son bouton. Boutons en TRAME GRISE ; état actif = contour rouge (aucun bleu ; l'état est aussi
+   porté par aria-pressed et, pour Infos, la forme ●/○ + mot). Cible tactile ≥44px. */
+.svv-cur-accordeon{display:flex;flex-direction:column;gap:.4rem}
+.svv-cur-action{appearance:none;display:flex;width:100%;align-items:center;justify-content:center;gap:.4rem;min-height:44px;padding:.4rem .7rem;border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-field);color:var(--color-svv-ink);font-weight:700;font-size:.82rem;line-height:1.2;cursor:pointer;text-align:center}
+.svv-cur-action--on{border-color:var(--color-svv-red);color:var(--color-svv-red)}
+.svv-cur-action:disabled{opacity:.5;cursor:default}
+.svv-cur-action:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* Panneau « Infos bâtiment » déplié : TRAME GRISE, cohérente avec les autres pages admin. */
+.svv-cur-panneau{display:flex;flex-direction:column;gap:.4rem;border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.5rem .6rem;background:var(--color-svv-field)}
+/* Panneau FILTRES déplié : AUCUNE trame commune — juste un gap. Chacun des 3 sous-blocs (.svv-cur-filtres) a SA
+   PROPRE trame grise (3 cartouches distincts détachés par le gap). */
+.svv-cur-panneau-filtres{display:flex;flex-direction:column;gap:.4rem}
+.svv-cur-form{display:flex;flex-direction:column;gap:.45rem;border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.6rem;background:var(--color-svv-field)}
 .svv-cur-form-champ{display:flex;flex-direction:column;gap:.2rem;font-size:.8rem;font-weight:600;color:var(--color-svv-ink)}
 .svv-cur-form-champ select,.svv-cur-form-champ input{width:100%;box-sizing:border-box;padding:.45rem .55rem;border:1px solid var(--color-svv-line);border-radius:.5rem;background:#fff;color:var(--color-svv-ink);font-size:.9rem;font-family:inherit;font-weight:500;min-height:44px}
 .svv-cur-form-actions{display:flex;gap:.4rem}
@@ -1972,21 +2012,14 @@ const CSS = `
 .svv-cur-compo-x{margin-left:auto;appearance:none;border:1px solid var(--color-svv-line);background:#fff;color:var(--color-svv-red-dark);font-size:.8rem;line-height:1;width:24px;height:24px;border-radius:.4rem;cursor:pointer}
 .svv-cur-compo-x:disabled{opacity:.5;cursor:default}
 .svv-cur-form-cible{margin:0;font-size:.78rem;line-height:1.35;color:var(--color-svv-green-ink);background:var(--color-svv-green-soft);border-radius:.45rem;padding:.4rem .5rem}
-.svv-cur-filtres{border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.5rem .6rem;margin:0;display:flex;flex-wrap:wrap;gap:.35rem .7rem}
+.svv-cur-filtres{border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.5rem .6rem;margin:0;display:flex;flex-wrap:wrap;gap:.35rem .7rem;background:var(--color-svv-field)}
 .svv-cur-legende{font-size:.68rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--color-svv-muted);padding:0;margin-right:.3rem}
 .svv-cur-check{display:inline-flex;align-items:center;gap:.35rem;min-height:44px;font-size:.85rem;color:var(--color-svv-ink);font-weight:600;cursor:pointer}
 .svv-cur-check input{width:18px;height:18px;accent-color:var(--color-svv-red)}
 
-/* Bascule « Infos bâtiment » : rouge plein = activé (primaire), gris contour = masqué (neutre) ;
-   AUCUN bleu. État aussi porté par la forme ●/○ et le mot Activé/Masqué (perceptible sans couleur). */
-.svv-cur-bulle-ctrl{display:flex;flex-direction:column;gap:.3rem}
-/* Sélecteur à 2 classes (.svv-cur-btn.svv-cur-bulle-toggle) : bat .svv-cur-btn (min-height:36px, déclaré
-   plus bas) pour garantir la cible tactile ≥ 44px. */
-.svv-cur-btn.svv-cur-bulle-toggle{display:flex;align-items:center;gap:.4rem;width:100%;justify-content:flex-start;min-height:44px}
-.svv-cur-bulle-etat{font-size:.7rem;line-height:1;flex:0 0 auto}
-.svv-cur-bulle-lib{flex:1 1 auto;text-align:left}
-.svv-cur-bulle-mot{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;flex:0 0 auto;opacity:.9}
-.svv-cur-bulle-toggle:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* « Infos bâtiment » est désormais un bouton d'accordéon standard (.svv-cur-action) ; son aide s'affiche dans un
+   panneau .svv-cur-panneau. L'état (activé/masqué) est porté par aria-pressed + le contour rouge + l'apparition du
+   panneau — comme Filtres / Nouveau tag. */
 .svv-cur-bulle-aide-txt{margin:0;font-size:.72rem;line-height:1.35;color:var(--color-svv-muted)}
 /* Bulle Leaflet (popup) : sobre, sans fade sous prefers-reduced-motion. Sélecteur à 3 classes
    (.leaflet-fade-anim .svv-cur-bulle-popup.leaflet-popup) → bat le défaut Leaflet indépendamment de
