@@ -96,6 +96,21 @@ function libelleFourchette(c: CarteAnnee): string {
   return 'toutes années';
 }
 
+/**
+ * Comparateur d'AFFICHAGE UNIQUEMENT — du plus ancien (haut) au plus récent (bas). Clé = intervalle réel entier
+ * `intervalleReelCarte` (MÊME source que le libellé) : borne basse effective ascendante, puis borne haute en
+ * départage. Une borne ouverte donne ±Infinity → une carte « ≤ 1914 » (borne basse absente = −∞) passe AVANT
+ * « 1915–1939 » ; une carte « ≥ 2000 » (borne haute absente = +∞) finit en bas. Les gardes `!==` évitent tout
+ * `−∞ − (−∞) = NaN`. Tri LOCAL au rendu : n'altère NI l'ordre en base, NI les données envoyées au moteur.
+ */
+function parAncienneteAffichage(a: CarteAvecId, b: CarteAvecId): number {
+  const [loA, hiA] = intervalleReelCarte(a);
+  const [loB, hiB] = intervalleReelCarte(b);
+  if (loA !== loB) return loA - loB;
+  if (hiA !== hiB) return hiA - hiB;
+  return 0;
+}
+
 /** GET normalisé : ne jette jamais. */
 async function chargerCartes(): Promise<{ ok: true; cartes: CarteAvecId[] } | { ok: false }> {
   try {
@@ -164,7 +179,7 @@ export default function CartesAnneePage() {
       <style>{CSS}</style>
       <style>{INFOBULLE_CSS}</style>
 
-      <EnTetePage titre="Cartes d’année" intro="Barème appliqué selon l’année de construction du bâtiment. Chaque tranche d’années définit son influence sur le score de dégagement.">
+      <EnTetePage titre="Années de construction" intro="Barème appliqué selon l’année de construction du bâtiment. Chaque tranche d’années définit son influence sur le score de dégagement.">
         <div className="svv-page-note" role="note">
           <strong>Attention.</strong> Ces barèmes influencent directement le <strong>score de dégagement</strong>.
           Toute modification s’applique aux prochaines analyses — vérifie tes valeurs avant d’enregistrer.
@@ -190,7 +205,9 @@ export default function CartesAnneePage() {
           )}
 
           <div className="svv-ca-liste">
-            {cartes.map((c) => (
+            {/* Tri d'AFFICHAGE seulement (copie via spread) : du plus ancien au plus récent. L'état `cartes`, l'ordre
+                en base et les payloads envoyés au moteur restent INCHANGÉS. */}
+            {[...cartes].sort(parAncienneteAffichage).map((c) => (
               <CarteEditable key={c.id} carte={c} onChange={recharger} />
             ))}
           </div>
@@ -476,7 +493,7 @@ const CSS = `
 .svv-ca-message--alerte{color:var(--color-svv-red);font-weight:600}
 
 .svv-ca-liste{display:flex;flex-direction:column;gap:.7rem;margin:.5rem 0 1rem}
-.svv-ca-carte{border:1px solid var(--color-svv-line);border-radius:.7rem;padding:.75rem .85rem;background:#fff}
+.svv-ca-carte{border:1px solid var(--color-svv-line);border-radius:.7rem;padding:.75rem .85rem;background:var(--color-svv-field)}
 .svv-ca-carte--ajout{border-style:dashed;background:var(--color-svv-field)}
 .svv-ca-carte-tete{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.6rem}
 .svv-ca-fourchette{font-weight:800;font-size:1rem;color:var(--color-svv-ink)}

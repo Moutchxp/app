@@ -5,6 +5,7 @@ import { EnTetePage } from '../_composants/EnTetePage';
 import {
   META,
   FAMILLES_ORDRE,
+  F_TECHNIQUE,
   MODES_COMBINAISON,
   estOrientation,
   formaterMalusPct,
@@ -184,7 +185,7 @@ export default function PilotagePage() {
     <section className="svv-pil">
       <style>{CSS}</style>
 
-      <EnTetePage titre="Pilotage" intro="Réglages du calcul de la qualité de vue. Les valeurs modifiées ici sont appliquées immédiatement aux nouvelles analyses.">
+      <EnTetePage titre="Pilotage Moteur" intro="Réglages du calcul de la qualité de vue. Les valeurs modifiées ici sont appliquées immédiatement aux nouvelles analyses.">
         <p className="svv-pil-banniere" role="note">
           Seuls les réglages du <strong>dégagement</strong> sont modifiables ici. La partie{' '}
           <strong>photo / paysage</strong> n’est pas réglable depuis cette page.
@@ -239,10 +240,13 @@ function PilotageCharge({ data }: { data: ReponseConfig }) {
         </div>
       )}
       <BadgeRepli repli={repli} />
-      {FAMILLES_ORDRE.map((famille) => (
+      {/* Familles VIVES d'abord (dépliées). « Technique » est écartée ici et rendue TOUT EN BAS, repliée (affichage). */}
+      {FAMILLES_ORDRE.filter((famille) => famille !== F_TECHNIQUE).map((famille) => (
         <FamilleBloc key={famille} famille={famille} ctx={ctx} />
       ))}
       <SectionVestigiales ctx={ctx} />
+      {/* Bloc « Technique » relégué en bas et REPLIÉ par défaut (accordéon non déployé) — présentation seule. */}
+      <FamilleBloc famille={F_TECHNIQUE} ctx={ctx} ouvertParDefaut={false} />
     </>
   );
 }
@@ -273,8 +277,9 @@ function BadgeRepli({ repli }: { repli?: Repli }) {
   );
 }
 
-/** Bloc d'une famille : ses variables (accordéon/carte). */
-function FamilleBloc({ famille, ctx }: { famille: string; ctx: CtxPilotage }) {
+/** Bloc d'une famille : ses variables (accordéon/carte). `ouvertParDefaut` pilote l'état initial de l'accordéon
+ *  (déplié pour les familles vives ; replié pour « Technique » reléguée en bas). Affichage seul. */
+function FamilleBloc({ famille, ctx, ouvertParDefaut = true }: { famille: string; ctx: CtxPilotage; ouvertParDefaut?: boolean }) {
   // Les variables VESTIGIALES sont exclues des familles et regroupées dans la section dédiée
   // (repliée par défaut) en bas de page — filtre sur le FLAG de statut, jamais sur des noms.
   const metas = META.filter((m) => m.famille === famille && m.statut !== 'VESTIGIALE');
@@ -288,7 +293,7 @@ function FamilleBloc({ famille, ctx }: { famille: string; ctx: CtxPilotage }) {
     orientations.length > 0 && premierIndexOrientation + orientations.length >= metas.length;
 
   return (
-    <details className="svv-pil-famille" open>
+    <details className="svv-pil-famille" open={ouvertParDefaut}>
       <summary className="svv-pil-famille-titre">
         {famille} <span className="svv-pil-famille-compte">{metas.length}</span>
       </summary>
@@ -679,12 +684,12 @@ const CSS = `
 .svv-pil-repli-pastille{flex:0 0 auto;width:10px;height:10px;border-radius:999px;margin-top:.3rem;background:currentColor}
 .svv-pil-repli-raisons{margin:.35rem 0 0;padding-left:1.1rem}
 
-.svv-pil-famille{border:1px solid var(--color-svv-line);border-radius:.75rem;margin-bottom:.65rem;background:#fff;overflow:hidden}
+.svv-pil-famille{border:1px solid var(--color-svv-line);border-radius:.75rem;margin-bottom:.65rem;background:var(--color-svv-field);overflow:hidden}
 .svv-pil-famille-titre{cursor:pointer;list-style:none;padding:.7rem .9rem;font-weight:700;color:var(--color-svv-ink);font-size:.95rem;display:flex;align-items:center;gap:.5rem}
 .svv-pil-famille-titre::-webkit-details-marker{display:none}
 .svv-pil-famille-titre::before{content:"▸";color:var(--color-svv-muted);transition:transform .15s ease}
 .svv-pil-famille[open] .svv-pil-famille-titre::before{transform:rotate(90deg)}
-.svv-pil-famille-compte{margin-left:auto;font-weight:600;font-size:.78rem;color:var(--color-svv-muted);background:var(--color-svv-field);border-radius:999px;padding:.1rem .5rem}
+.svv-pil-famille-compte{margin-left:auto;font-weight:600;font-size:.78rem;color:var(--color-svv-muted);background:#fff;border:1px solid var(--color-svv-line);border-radius:999px;padding:.1rem .5rem}
 
 .svv-pil-cartes{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.6rem;padding:.7rem .9rem .9rem}
 .svv-pil-legende{grid-column:1/-1;margin:0 0 .3rem;font-size:.8rem;color:var(--color-svv-muted);line-height:1.4}

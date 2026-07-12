@@ -9,8 +9,8 @@ export interface LienMenu {
 
 /** Modules de l'admin (slug, libellé, description, permission requise). Source UNIQUE du menu ET de la grille. */
 const MODULES: ReadonlyArray<LienMenu & { perm: keyof Perms }> = [
-  { slug: '/admin/pilotage', libelle: 'Pilotage', desc: 'Supervision et pilotage du système.', perm: 'pilotage' },
-  { slug: '/admin/cartes-annee', libelle: 'Cartes d’année', desc: 'Barème par année de construction.', perm: 'cartes_annee' },
+  { slug: '/admin/pilotage', libelle: 'Pilotage Moteur', desc: 'Supervision et pilotage du système.', perm: 'pilotage' },
+  { slug: '/admin/cartes-annee', libelle: 'Années de construction', desc: 'Barème par année de construction.', perm: 'cartes_annee' },
   { slug: '/admin/statistiques', libelle: 'Statistiques', desc: 'Indicateurs et suivi d’activité.', perm: 'statistiques' },
   { slug: '/admin/internautes', libelle: 'Internautes', desc: 'Gestion des internautes.', perm: 'internautes' },
   { slug: '/admin/curation', libelle: 'Curation', desc: 'Modération et curation des contenus.', perm: 'curation' },

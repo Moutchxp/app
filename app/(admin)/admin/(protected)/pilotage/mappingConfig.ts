@@ -58,7 +58,7 @@ export interface ColonneMeta {
 }
 
 // Familles (ordre d'affichage).
-const F_TECHNIQUE = 'Technique';
+export const F_TECHNIQUE = 'Technique';
 const F_DISTANCE = 'Distance perçue : base & nature';
 const F_BAREME = 'Barème par famille de bâtiment';
 const F_CUMUL = 'Cumul nature + bâti';

@@ -42,6 +42,10 @@ export const CSS_ECRAN = `
 .svv-stats :is(button,input,select){min-height:44px}
 .svv-stats .svv-label{color:var(--color-svv-muted)}
 .svv-stats input[type=date]{accent-color:var(--color-svv-red)}
+/* Trame grise sur le CONTENEUR de chaque bloc (cohérence admin : Pilotage, Années de construction).
+   Scopé à .svv-stats → n'affecte pas .svv-card ailleurs. Les surfaces internes (graphe, carte, pistes)
+   gardent un fond blanc pour ressortir sur le gris. */
+.svv-stats .svv-card{background:var(--color-svv-field)}
 @media (prefers-reduced-motion: reduce){ .svv-stats *{transition:none!important;animation:none!important} }
 `;
 
@@ -69,7 +73,7 @@ export function Carte({
         <>
           <p
             role="note"
-            style={{ margin: 0, fontSize: '.72rem', color: 'var(--color-svv-muted)', fontStyle: 'italic', background: 'var(--color-svv-field)', borderRadius: 8, padding: '6px 8px' }}
+            style={{ margin: 0, fontSize: '.72rem', color: 'var(--color-svv-muted)', fontStyle: 'italic', background: '#fff', border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: '6px 8px' }}
           >
             {voile}
           </p>
@@ -101,7 +105,7 @@ export function Barre({ label, valeur, max, couleur }: { label: string; valeur: 
     <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '2px 8px', alignItems: 'center' }}>
       <span style={{ fontSize: '.8rem', color: 'var(--color-svv-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
       <span style={{ fontSize: '.8rem', fontWeight: 700, color: 'var(--color-svv-ink)', fontVariantNumeric: 'tabular-nums' }}>{formatNombre(valeur)}</span>
-      <div style={{ gridColumn: '1 / -1', height: 8, background: 'var(--color-svv-field)', borderRadius: 999, overflow: 'hidden' }}>
+      <div style={{ gridColumn: '1 / -1', height: 8, background: '#fff', border: '1px solid var(--color-svv-line)', borderRadius: 999, overflow: 'hidden' }}>
         <div style={{ width: `${valeur > 0 ? pct : 0}%`, height: '100%', background: couleur ?? 'var(--color-svv-ink)', borderRadius: 999, transition: 'width .2s ease' }} />
       </div>
     </div>
@@ -218,7 +222,7 @@ export function TuileVerdicts({
           {/* Barre proportionnelle SEULEMENT hors échantillon faible : sous N<30, une barre « deux tiers
               verts » se lirait comme un % (interdit SPEC §4) → on ne montre que les comptes bruts. */}
           {!echantillonFaible && (
-            <div style={{ display: 'flex', height: 12, borderRadius: 999, overflow: 'hidden', background: 'var(--color-svv-field)' }} role="img" aria-label={`Répartition des ${total} verdicts`}>
+            <div style={{ display: 'flex', height: 12, borderRadius: 999, overflow: 'hidden', background: '#fff', border: '1px solid var(--color-svv-line)' }} role="img" aria-label={`Répartition des ${total} verdicts`}>
               {parts.map((p) => (
                 <div key={p.cle} style={{ width: `${total > 0 ? (p.n / total) * 100 : 0}%`, background: COUL_VERDICT[p.cle] }} title={`${p.libelle} : ${p.n}`} />
               ))}
@@ -365,7 +369,7 @@ export function SerieTemporelle({ serie }: { serie: Statistiques['serie'] }) {
             width="100%"
             role="img"
             aria-label={`Série temporelle : ${groupesActifs.map((g) => g.libelle).join(', ') || 'aucune courbe'}`}
-            style={{ display: 'block', background: 'var(--color-svv-field)', borderRadius: 8, height: 'auto' }}
+            style={{ display: 'block', background: '#fff', borderRadius: 8, height: 'auto' }}
           >
             {groupesActifs
               .flatMap((g) => g.cles)
