@@ -316,37 +316,87 @@ export function InternautesVue() {
       {(detailChargement || detail) && (
         <div className="svv-card" style={{ border: '1px solid var(--color-svv-red)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <strong style={{ color: 'var(--color-svv-ink)' }}>Dossier de la personne</strong>
             <button type="button" style={{ ...btnOutline, marginLeft: 'auto' }} onClick={() => setDetail(null)}>Fermer</button>
           </div>
           {detailChargement && <div style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
           {detail && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: '.85rem' }}>
+              {/* En-tête : Prénom Nom EN GROS, coordonnées, date + heure de création (Europe/Paris). Plus d'intitulés. */}
               <div>
-                <div style={{ fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' }}>Identité</div>
-                <div style={{ color: 'var(--color-svv-ink)' }}>
-                  {String(detail.internaute.prenom ?? '')} {String(detail.internaute.nom ?? '')} · {String(detail.internaute.email ?? '—')}
-                  {detail.internaute.telephone ? ` · ${String(detail.internaute.telephone)}` : ''}
+                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--color-svv-ink)', lineHeight: 1.15 }}>
+                  {[String(detail.internaute.prenom ?? ''), String(detail.internaute.nom ?? '')].filter((s) => s.trim()).join(' ') || (detail.internaute.efface_a ? '(identité effacée)' : '—')}
                 </div>
+                <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>
+                  {String(detail.internaute.email ?? '—')}{detail.internaute.telephone ? ` · ${String(detail.internaute.telephone)}` : ''}
+                </div>
+                <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Créé le {dateHeureFr(detail.internaute.cree_a)}</div>
               </div>
+
+              {/* Consentements RGPD (3 finalités) — état + date. Conservés. */}
               <div>
                 <div style={{ fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' }}>Consentements</div>
                 {detail.consentements.map((c) => (
                   <div key={c.finalite} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <span style={{ color: 'var(--color-svv-ink)' }}>{c.libelle}</span>
                     <span style={{ color: c.actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)', fontWeight: 700 }}>
-                      {c.actif ? 'Actif' : c.etat ? c.etat : 'Aucun'}{c.depuis ? ` · ${new Date(c.depuis).toLocaleDateString('fr-FR')}` : ''}
+                      {c.actif ? 'Actif' : c.etat ? c.etat : 'Aucun'}{c.depuis ? ` · ${dateFr(c.depuis)}` : ''}
                     </span>
                   </div>
                 ))}
               </div>
+
+              {/* Analyse(s) COMPLÈTE(S) : tous les champs SAISIS (payload aplati, label FR) + TOUT le résultat de scoring. Rien masqué. */}
               <div>
-                <div style={{ fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' }}>Analyses ({detail.projets.length})</div>
-                {detail.projets.map((p, i) => (
-                  <div key={i} style={{ color: 'var(--color-svv-ink)' }}>
-                    {String(p.commune_insee ?? '—')} · {String(p.verdict ?? '—')} · score {p.score != null ? String(p.score) : '—'} · étage {String(p.etage ?? '—')}
-                  </div>
-                ))}
+                <div style={{ fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' }}>Analyse{detail.projets.length > 1 ? 's' : ''} ({detail.projets.length})</div>
+                {detail.projets.map((p, i) => {
+                  const payload = (p.payload && typeof p.payload === 'object' ? p.payload : {}) as Record<string, unknown>;
+                  const rpOui = p.residence_principale === true;
+                  const adresseRp = payload.adresseResidence;
+                  const norm = p.adresse_normalisee == null ? '' : String(p.adresse_normalisee);
+                  const saisie = p.adresse_saisie == null ? '' : String(p.adresse_saisie);
+                  const saisieDifferente = saisie.trim() !== '' && saisie !== norm;
+                  // Clés payload déjà rendues explicitement dans « Le bien » ; le reste passe en catch-all → rien masqué.
+                  const CLES_BIEN = new Set(['typeBien', 'surface', 'nbPieces', 'epoque', 'balcon', 'terrasse', 'jardin', 'adresseResidence']);
+                  const autres = Object.entries(payload).filter(([k]) => !CLES_BIEN.has(k));
+                  const groupe: CSSProperties = { fontWeight: 800, color: 'var(--color-svv-ink)', fontSize: '.78rem', marginTop: 8 };
+                  return (
+                    <div key={i} style={{ border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: 8, marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>Analyse du {dateHeureFr(p.cree_a)} (tunnel v{String(p.version_tunnel ?? '—')})</div>
+
+                      {/* GROUPE 1 — LE BIEN */}
+                      <div style={groupe}>Le bien</div>
+                      <Champ label="Adresse du bien" valeur={norm || '—'} />
+                      {saisieDifferente && <Champ label="Adresse saisie" valeur={saisie} />}
+                      <Champ label="Type de bien" valeur={payload.typeBien} />
+                      <Champ label="Surface (m²)" valeur={payload.surface} />
+                      <Champ label="Nombre de pièces" valeur={payload.nbPieces} />
+                      <Champ label="Étage" valeur={p.etage} />
+                      <Champ label="Dernier étage" valeur={p.dernier_etage} />
+                      <Champ label="Époque de construction" valeur={payload.epoque} />
+                      <Champ label="Balcon" valeur={payload.balcon} />
+                      <Champ label="Terrasse" valeur={payload.terrasse} />
+                      <Champ label="Jardin" valeur={payload.jardin} />
+                      <Champ label="Résidence principale" valeur={p.residence_principale} />
+                      {rpOui ? (
+                        <Champ label="Adresse de résidence" valeur="Le bien analysé est la résidence principale" />
+                      ) : adresseRp != null && String(adresseRp).trim() !== '' ? (
+                        <Champ label="Adresse de résidence principale" valeur={adresseRp} />
+                      ) : null}
+                      {autres.map(([k, v]) => (
+                        <Champ key={k} label={labelPayload(k)} valeur={v} />
+                      ))}
+
+                      {/* GROUPE 2 — VERDICT & SCORE (résultat + déterminants géométriques présents). */}
+                      <div style={groupe}>Verdict et score</div>
+                      <Champ label="Verdict" valeur={verdictFr(p.verdict)} />
+                      <Champ label="Score /100" valeur={p.score == null ? null : Number(p.score).toFixed(2)} />
+                      <Champ label="Point d’origine — latitude" valeur={p.lat} />
+                      <Champ label="Point d’origine — longitude" valeur={p.lon} />
+                      <Champ label="Commune (INSEE)" valeur={p.commune_insee} />
+                      {/* Azimut de l'axe de visée & hauteur du champ de vision : ABSENTS de l'ingestion → non affichés (cf. rapport, manque d'ingestion). */}
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Actions cycle de vie (LOT 4) — admin-only. Effacement = règle ASYMÉTRIQUE (A+C purgés, preuve B conservée). */}
@@ -410,6 +460,32 @@ type LigneRecent = {
 };
 
 const dateFr = (v: unknown) => (v ? new Date(String(v)).toLocaleDateString('fr-FR') : '—');
+
+/** Date + heure en fuseau Europe/Paris, format « JJ/MM/AAAA à HHhMM ». */
+const dateHeureFr = (v: unknown) => {
+  if (!v) return '—';
+  const d = new Date(String(v));
+  const jour = d.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
+  const heure = d.toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
+  return `${jour} à ${heure.replace(':', 'h')}`;
+};
+
+/** Libellés FR des clés du payload de projet (tunnel). Une clé inconnue est affichée telle quelle → rien n'est masqué. */
+const LABEL_PAYLOAD: Record<string, string> = {
+  typeBien: 'Type de bien',
+  surface: 'Surface (m²)',
+  nbPieces: 'Nombre de pièces',
+  epoque: 'Époque de construction',
+  balcon: 'Balcon',
+  terrasse: 'Terrasse',
+  jardin: 'Jardin',
+  adresseResidence: 'Adresse de résidence principale',
+};
+const labelPayload = (k: string) => LABEL_PAYLOAD[k] ?? k;
+
+/** Verdict lisible (affichage). */
+const verdictFr = (v: unknown) =>
+  v === 'SANS_VIS_A_VIS' ? 'Sans vis-à-vis' : v === 'VIS_A_VIS' ? 'Vis-à-vis' : v === 'INDETERMINE' ? 'Indéterminé' : '—';
 
 /** Ligne label/valeur générique (lecture seule). */
 function Champ({ label, valeur }: { label: string; valeur: unknown }) {
@@ -476,7 +552,7 @@ function DetailComplet({ detail }: { detail: Detail }) {
 
 /** Panneau de contrôle technique (consultation SEULE) : 10 derniers internautes, 2 modes, accordéon de détail complet. */
 function PanneauVerification() {
-  const [mode, setMode] = useState<'f1' | 'tous'>('f1');
+  const [mode, setMode] = useState<'f1' | 'tous'>('tous'); // Correction 2 : « Toute la base » par défaut (outil de contrôle)
   const [liste, setListe] = useState<LigneRecent[] | 'chargement' | 'erreur'>('chargement');
   const [codeErr, setCodeErr] = useState(0);
   const [ouvert, setOuvert] = useState<string | null>(null);

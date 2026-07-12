@@ -35,6 +35,17 @@ function clauseWhere(clauses: string[]): string {
   return clauses.length ? ` AND ${clauses.join(' AND ')}` : '';
 }
 
+/**
+ * FRONTIÈRE DE DONNÉES : le driver `pg` renvoie les colonnes `numeric` (ici `internaute_projet.score`) SOUS FORME
+ * DE CHAÎNE. On coerce `score` en `number` ICI, une seule fois, pour que le runtime honore le type `LigneProfil`
+ * (le JSX peut alors faire confiance au type — `l.score.toFixed()` etc. sans planter). `lat`/`lon` ne sont PAS
+ * concernés (colonnes `double precision` → déjà des nombres). Coercition d'affichage : n'altère aucun calcul de
+ * score autoritatif (le moteur reste la seule source du score ; ici on relit une copie déjà persistée).
+ */
+function coercerLigne(r: LigneProfil): LigneProfil {
+  return { ...r, score: r.score == null ? null : Number(r.score) };
+}
+
 /** Page de profils F1-consentants correspondant aux filtres + total. Lecture seule. */
 export async function lireProfilsFiltres(
   filtres: FiltresExtraction,
@@ -56,7 +67,7 @@ export async function lireProfilsFiltres(
      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, taille, offset],
   );
-  return { total: Number(total.rows[0]?.n ?? 0), lignes: lignes.rows };
+  return { total: Number(total.rows[0]?.n ?? 0), lignes: lignes.rows.map(coercerLigne) };
 }
 
 /** Toutes les lignes filtrées (sans pagination) pour l'export CSV — MÊME invariant F1. */
@@ -70,7 +81,7 @@ export async function lireProfilsExport(filtres: FiltresExtraction): Promise<Lig
      ORDER BY i.cree_a DESC`,
     params,
   );
-  return r.rows;
+  return r.rows.map(coercerLigne);
 }
 
 export { versCsv };

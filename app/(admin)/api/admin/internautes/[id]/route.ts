@@ -29,7 +29,15 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
     const profil = await lireProfilComplet(id);
     if (!profil) return Response.json({ erreur: 'introuvable' }, { status: 404 });
 
-    await journaliserExtraction(garde.auteurId, 'acces_profil', { cibleInternauteId: id });
+    // Journal d'accès BEST-EFFORT : une consultation LÉGITIME (droit d'accès, admin authentifié) ne doit pas être
+    // BLOQUÉE par une indisponibilité du journal d'audit (ex. table `internaute_extraction_log` pas encore migrée).
+    // On journalise si possible, on avertit côté serveur sinon — jamais de 503 pour ça. (L'export reste, lui,
+    // accountability-first : pas d'extraction sans trace.)
+    try {
+      await journaliserExtraction(garde.auteurId, 'acces_profil', { cibleInternauteId: id });
+    } catch (e) {
+      console.error('[internaute] journal acces_profil indisponible — consultation servie quand même', e);
+    }
     return Response.json(profil);
   } catch {
     return Response.json({ erreur: 'profil indisponible' }, { status: 503 });
