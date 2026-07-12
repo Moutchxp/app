@@ -79,7 +79,7 @@ export function InternautesVue() {
   const [filtres, setFiltres] = useState<Filtres>(FILTRES_VIDES);
   const [applique, setApplique] = useState<Filtres>(FILTRES_VIDES); // filtres réellement soumis
   const [page, setPage] = useState(1);
-  const [etat, setEtat] = useState<{ statut: 'chargement' } | { statut: 'erreur' } | { statut: 'ok'; total: number; lignes: Ligne[] }>({ statut: 'chargement' });
+  const [etat, setEtat] = useState<{ statut: 'chargement' } | { statut: 'erreur'; code: number } | { statut: 'ok'; total: number; lignes: Ligne[] }>({ statut: 'chargement' });
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailChargement, setDetailChargement] = useState(false);
   // Actions cycle de vie (LOT 4) sur le dossier ouvert : rectification (édition A) et effacement (droit RGPD).
@@ -104,14 +104,14 @@ export function InternautesVue() {
         const res = await fetch(`/api/admin/internautes?${p.toString()}`);
         if (annule) return;
         if (!res.ok) {
-          setEtat({ statut: 'erreur' });
+          setEtat({ statut: 'erreur', code: res.status });
           return;
         }
         const data = await res.json();
         if (annule) return;
         setEtat({ statut: 'ok', total: Number(data.total) || 0, lignes: Array.isArray(data.lignes) ? data.lignes : [] });
       } catch {
-        if (!annule) setEtat({ statut: 'erreur' });
+        if (!annule) setEtat({ statut: 'erreur', code: 0 });
       }
     })();
     return () => {
@@ -208,7 +208,7 @@ export function InternautesVue() {
       <style>{CSS}</style>
 
       {/* FILTRES */}
-      <div className="svv-card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 150px), 1fr))', gap: 10 }}>
+      <div className="svv-card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 150px), 1fr))', gap: 10, background: 'var(--color-svv-field)' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Commune (INSEE)
           <input style={champ} value={filtres.commune} onChange={(e) => setFiltres({ ...filtres, commune: e.target.value })} placeholder="ex. 92004" inputMode="numeric" />
@@ -260,12 +260,22 @@ export function InternautesVue() {
           <a style={{ ...btnOutline, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }} href={`/api/admin/internautes/export?${versParams(applique).toString()}`}>
             Exporter (CSV)
           </a>
+          {/* Correction 2 : export SANS filtre (filtres VIDES) → tous les consentants F1 via le MÊME invariant + journal. */}
+          <a style={{ ...btnRouge, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }} href={`/api/admin/internautes/export?${versParams(FILTRES_VIDES).toString()}`} title="Exporter tous les consentants F1, sans appliquer les filtres">
+            Exporter toute la base
+          </a>
         </div>
       </div>
 
       {/* RÉSULTATS */}
       {etat.statut === 'chargement' && <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-muted)' }}>Chargement…</div>}
-      {etat.statut === 'erreur' && <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-red)' }}>Liste indisponible (réservée au rôle administrateur).</div>}
+      {etat.statut === 'erreur' && (
+        <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-red)' }}>
+          {etat.code === 403
+            ? 'Accès refusé (réservé au rôle administrateur).'
+            : 'Service indisponible. La base internaute n’est peut-être pas encore initialisée — appliquez les migrations 023 à 025.'}
+        </div>
+      )}
       {etat.statut === 'ok' && (
         <>
           <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)' }}>
@@ -382,6 +392,197 @@ export function InternautesVue() {
           )}
         </div>
       )}
+
+      {/* ═══ PANNEAU DE VÉRIFICATION (contrôle technique, consultation SEULE) — SOUS le moteur d'extraction commercial. ═══ */}
+      <PanneauVerification />
+    </div>
+  );
+}
+
+type LigneRecent = {
+  id: string;
+  prenom: string | null;
+  nom: string | null;
+  email: string | null;
+  cree_a: string;
+  efface_a: string | null;
+  f1_actif: boolean;
+};
+
+const dateFr = (v: unknown) => (v ? new Date(String(v)).toLocaleDateString('fr-FR') : '—');
+
+/** Ligne label/valeur générique (lecture seule). */
+function Champ({ label, valeur }: { label: string; valeur: unknown }) {
+  const txt =
+    valeur === null || valeur === undefined || valeur === ''
+      ? '—'
+      : typeof valeur === 'boolean'
+        ? valeur ? 'Oui' : 'Non'
+        : String(valeur);
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+      <span style={{ color: 'var(--color-svv-muted)' }}>{label}</span>
+      <span style={{ color: 'var(--color-svv-ink)', textAlign: 'right', wordBreak: 'break-word' }}>{txt}</span>
+    </div>
+  );
+}
+
+/** Détail COMPLET en lecture seule : identité + champs SAISIS (payload) + résultat de SCORING + consentements. */
+function DetailComplet({ detail }: { detail: Detail }) {
+  const i = detail.internaute;
+  const titre: CSSProperties = { fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.72rem', textTransform: 'uppercase', marginTop: 6 };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '.82rem' }}>
+      <div style={titre}>Identité (saisie)</div>
+      <Champ label="Prénom" valeur={i.prenom} />
+      <Champ label="Nom" valeur={i.nom} />
+      <Champ label="Email" valeur={i.email} />
+      <Champ label="Téléphone" valeur={i.telephone} />
+      <Champ label="Source de collecte" valeur={i.source_collecte} />
+      <Champ label="Créé le" valeur={dateFr(i.cree_a)} />
+      {i.efface_a ? <Champ label="Effacé le" valeur={dateFr(i.efface_a)} /> : null}
+
+      <div style={titre}>Consentements</div>
+      {detail.consentements.map((c) => (
+        <Champ key={c.finalite} label={c.libelle} valeur={`${c.actif ? 'Actif' : c.etat ?? 'Aucun'}${c.depuis ? ` · ${dateFr(c.depuis)}` : ''}`} />
+      ))}
+
+      <div style={titre}>Analyses ({detail.projets.length})</div>
+      {detail.projets.map((p, idx) => {
+        const payload = (p.payload && typeof p.payload === 'object' ? p.payload : {}) as Record<string, unknown>;
+        return (
+          <div key={idx} style={{ border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ color: 'var(--color-svv-muted)', fontSize: '.72rem' }}>Saisi au tunnel (v{String(p.version_tunnel ?? '—')}) · {dateFr(p.cree_a)}</div>
+            {Object.entries(payload).map(([k, v]) => (
+              <Champ key={k} label={k} valeur={v} />
+            ))}
+            <div style={{ color: 'var(--color-svv-muted)', fontSize: '.72rem', marginTop: 4 }}>Résultat (scoring)</div>
+            <Champ label="Verdict" valeur={p.verdict} />
+            <Champ label="Score" valeur={p.score} />
+            <Champ label="Étage" valeur={p.etage} />
+            <Champ label="Dernier étage" valeur={p.dernier_etage} />
+            <Champ label="Résidence principale" valeur={p.residence_principale} />
+            <Champ label="Commune (INSEE)" valeur={p.commune_insee} />
+            <Champ label="Latitude" valeur={p.lat} />
+            <Champ label="Longitude" valeur={p.lon} />
+            <Champ label="Adresse saisie" valeur={p.adresse_saisie} />
+            <Champ label="Adresse normalisée" valeur={p.adresse_normalisee} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Panneau de contrôle technique (consultation SEULE) : 10 derniers internautes, 2 modes, accordéon de détail complet. */
+function PanneauVerification() {
+  const [mode, setMode] = useState<'f1' | 'tous'>('f1');
+  const [liste, setListe] = useState<LigneRecent[] | 'chargement' | 'erreur'>('chargement');
+  const [codeErr, setCodeErr] = useState(0);
+  const [ouvert, setOuvert] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [detailChargement, setDetailChargement] = useState(false);
+
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      setListe('chargement');
+      setOuvert(null);
+      try {
+        const res = await fetch(`/api/admin/internautes/recents?mode=${mode}`);
+        if (annule) return;
+        if (!res.ok) {
+          setCodeErr(res.status);
+          setListe('erreur');
+          return;
+        }
+        const data = await res.json();
+        if (annule) return;
+        setListe(Array.isArray(data.lignes) ? data.lignes : []);
+      } catch {
+        if (!annule) {
+          setCodeErr(0);
+          setListe('erreur');
+        }
+      }
+    })();
+    return () => {
+      annule = true;
+    };
+  }, [mode]);
+
+  const basculer = async (id: string) => {
+    if (ouvert === id) {
+      setOuvert(null);
+      return;
+    }
+    setOuvert(id);
+    setDetail(null);
+    setDetailChargement(true);
+    try {
+      const res = await fetch(`/api/admin/internautes/${id}`); // route LOT 3 : journalise déjà `acces_profil`
+      if (res.ok) setDetail(await res.json());
+    } finally {
+      setDetailChargement(false);
+    }
+  };
+
+  // « Toute la base » = bouton cerclé de ROUGE (contour secondaire) tant qu'inactif ; plein rouge quand actif.
+  const styleTous: CSSProperties = mode === 'tous' ? btnRouge : { ...btnOutline, color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' };
+
+  return (
+    <div className="svv-card" style={{ marginTop: 18, borderTop: '3px solid var(--color-svv-red)', background: 'var(--color-svv-field)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div>
+        <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: 'var(--color-svv-ink)' }}>Vérification — derniers internautes</h2>
+        <p style={{ margin: '2px 0 0', fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>
+          Contrôle technique (consultation seule) : vérifier que l’ingestion du tunnel fonctionne. Aucun export ni recontact ici.
+        </p>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button type="button" style={mode === 'f1' ? btnRouge : btnOutline} aria-pressed={mode === 'f1'} onClick={() => setMode('f1')}>Consentants F1</button>
+        <button type="button" style={styleTous} aria-pressed={mode === 'tous'} onClick={() => setMode('tous')}>Toute la base</button>
+      </div>
+
+      {liste === 'chargement' && <div style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
+      {liste === 'erreur' && (
+        <div style={{ color: 'var(--color-svv-red)' }}>
+          {codeErr === 403
+            ? 'Accès refusé (réservé au rôle administrateur).'
+            : 'Service indisponible. La base internaute n’est peut-être pas encore initialisée — appliquez les migrations 023 à 025.'}
+        </div>
+      )}
+      {Array.isArray(liste) &&
+        (liste.length === 0 ? (
+          <div style={{ color: 'var(--color-svv-muted)' }}>Aucun internaute pour ce mode.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {liste.map((r) => (
+              <div key={r.id} style={{ border: '1px solid var(--color-svv-line)', borderRadius: 10, overflow: 'hidden' }}>
+                <button
+                  type="button"
+                  aria-expanded={ouvert === r.id}
+                  onClick={() => basculer(r.id)}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: 'none', border: 0, padding: '10px 12px', cursor: 'pointer', textAlign: 'left' }}
+                >
+                  <span style={{ fontWeight: 800, color: 'var(--color-svv-ink)', flex: '1 1 160px', minWidth: 0 }}>
+                    {[r.prenom, r.nom].filter(Boolean).join(' ') || (r.efface_a ? '(identité effacée)' : '—')}
+                  </span>
+                  <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>{r.email ?? '—'}</span>
+                  <span style={{ fontSize: '.78rem', color: 'var(--color-svv-muted)' }}>{dateFr(r.cree_a)}</span>
+                  <span style={{ fontSize: '.72rem', fontWeight: 700, color: r.f1_actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)' }}>{r.f1_actif ? 'F1 ✓' : 'F1 ✗'}</span>
+                  {r.efface_a ? <span style={{ fontSize: '.72rem', fontWeight: 700, color: 'var(--color-svv-red)' }}>effacé</span> : null}
+                  <span aria-hidden style={{ color: 'var(--color-svv-muted)' }}>{ouvert === r.id ? '▲' : '▼'}</span>
+                </button>
+                {ouvert === r.id && (
+                  <div style={{ borderTop: '1px solid var(--color-svv-line)', padding: 12, background: 'var(--color-svv-field)' }}>
+                    {detailChargement && <div style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
+                    {detail && <DetailComplet detail={detail} />}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
     </div>
   );
 }

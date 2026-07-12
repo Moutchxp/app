@@ -90,7 +90,7 @@ export async function lireProfilComplet(id: string): Promise<{
 
   const projets = await query(
     `SELECT id, version_tunnel, payload, verdict, score, etage, dernier_etage, residence_principale,
-            commune_insee, adresse_saisie, adresse_normalisee, cree_a
+            commune_insee, lat, lon, adresse_saisie, adresse_normalisee, cree_a
      FROM internaute_projet WHERE internaute_id = $1 ORDER BY cree_a DESC`,
     [id],
   );
