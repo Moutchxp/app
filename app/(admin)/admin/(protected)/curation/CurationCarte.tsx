@@ -322,6 +322,10 @@ export default function CurationCarte() {
     mh: true,
     inventaire: true,
   });
+  // Filtre « Manuel » = 4e item du bloc Familles : visibilité des tags créés à la main (origine='manuel'),
+  // axe ORTHOGONAL à la famille mondial/mh/inventaire (un tag manuel garde sa famille, mais suit CETTE case,
+  // pas celle de sa famille). Gouverne SIMULTANÉMENT la carte (couche étoiles) et la liste de gauche.
+  const [manuelVisible, setManuelVisible] = useState(true);
   // Filtre SECONDAIRE (statut de point GPS), cumulatif avec les familles, tout coché par défaut (même patron).
   const [statutsVisibles, setStatutsVisibles] = useState<Record<StatutPoint, boolean>>({
     a_placer: true,
@@ -895,11 +899,12 @@ export default function CurationCarte() {
       (entites ?? []).filter(
         (e) =>
           e.point !== null &&
-          famillesVisibles[e.famille] !== false &&
+          // Axe famille : un tag manuel suit la case « Manuel » ; une entité auto suit sa famille.
+          (origineDe(e) === 'manuel' ? manuelVisible : famillesVisibles[e.famille] !== false) &&
           statutsVisibles[seauStatut(e)] !== false &&
           originesVisibles[origineDe(e)] !== false,
       ),
-    [entites, famillesVisibles, statutsVisibles, originesVisibles],
+    [entites, famillesVisibles, manuelVisible, statutsVisibles, originesVisibles],
   );
 
   // ── (Re)dessin des marqueurs quand entités / filtres / sélection changent. ────
@@ -1044,6 +1049,7 @@ export default function CurationCarte() {
     const couche = coucheEtoilesRef.current;
     if (!couche) return;
     couche.clearLayers();
+    if (!manuelVisible) return; // case « Manuel » (bloc Familles) décochée → aucune étoile manuelle sur la carte
 
     // Étoiles PERSISTANTES (une par tag manuel, centroïde du 1er polygone) — à tout zoom.
     for (const t of tagsManuels) {
@@ -1056,7 +1062,7 @@ export default function CurationCarte() {
       });
       star.addTo(couche);
     }
-  }, [tagsManuels, selectionner]);
+  }, [tagsManuels, selectionner, manuelVisible]);
 
   // ── Scroll auto vers l'item sélectionné dans la liste + surbrillance brève (clic marqueur / étoile). ─
   //    Keyé sur `flashId` (posé par `selectionner` à CHAQUE sélection, même re-sélection d'une fiche déjà
@@ -1137,23 +1143,27 @@ export default function CurationCarte() {
     const q = recherche.trim().toLowerCase();
     return (entites ?? [])
       .filter((e) => e.id !== composition) // FC-20/FC-74 : l'entité en composition est dans la zone haute, hors liste
-      .filter((e) => famillesVisibles[e.famille] !== false) // filtre PRIORITAIRE : famille
+      // filtre PRIORITAIRE : famille — un tag manuel suit la case « Manuel » (pas sa famille), les autres leur famille.
+      .filter((e) => (origineDe(e) === 'manuel' ? manuelVisible : famillesVisibles[e.famille] !== false))
       .filter((e) => statutsVisibles[seauStatut(e)] !== false) // filtre SECONDAIRE cumulatif : statut de point GPS
       .filter((e) => originesVisibles[origineDe(e)] !== false) // filtre TERTIAIRE cumulatif : origine
       .filter((e) => {
         if (!q) return true;
         return (e.nom ?? '').toLowerCase().includes(q) || e.refCode.toLowerCase().includes(q);
       });
-  }, [entites, famillesVisibles, statutsVisibles, originesVisibles, recherche, composition]);
+  }, [entites, famillesVisibles, manuelVisible, statutsVisibles, originesVisibles, recherche, composition]);
 
   const compteurs: Compteurs = useMemo(() => {
-    const base = (entites ?? []).filter((e) => famillesVisibles[e.famille] !== false);
+    // Cohérent avec la liste : un tag manuel compte selon la case « Manuel », une entité auto selon sa famille.
+    const base = (entites ?? []).filter((e) =>
+      origineDe(e) === 'manuel' ? manuelVisible : famillesVisibles[e.famille] !== false,
+    );
     return {
       rouge: base.filter((e) => e.etat === 'rouge').length,
       orange: base.filter((e) => e.etat === 'orange').length,
       vert: base.filter((e) => e.etat === 'vert').length,
     };
-  }, [entites, famillesVisibles]);
+  }, [entites, famillesVisibles, manuelVisible]);
 
   const sansPoint = useMemo(
     () => entitesFiltrees.filter((e) => e.point === null).length,
@@ -1173,11 +1183,11 @@ export default function CurationCarte() {
           <button
             type="button"
             className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
-            aria-expanded={journal?.mode === 'global'}
+            aria-expanded={journalOuvert}
             aria-controls="svv-cur-journal"
             onClick={() => {
-              if (journal?.mode === 'global') {
-                setJournal(null); // BASCULE : reclic sur « Historique » (volet global déjà ouvert) → ferme
+              if (journalOuvert) {
+                setJournal(null); // BASCULE FRANCHE : tout journal ouvert (global OU entité) → ferme en 1 clic
                 return;
               }
               setJournalFamille('toutes');
@@ -1370,6 +1380,17 @@ export default function CurationCarte() {
                 <span>{f.libelle}</span>
               </label>
             ))}
+            {/* 4e item : tags créés à la main (origine='manuel'). Axe orthogonal aux 3 familles ; pilote la
+                couche étoiles (carte) + la liste. Étoile jaune = même repère visuel que les tags dans la liste. */}
+            <label className="svv-cur-check">
+              <input type="checkbox" checked={manuelVisible} onChange={(ev) => setManuelVisible(ev.target.checked)} />
+              <span>
+                <span className="svv-cur-star" aria-hidden>
+                  ★
+                </span>
+                Manuel
+              </span>
+            </label>
           </fieldset>
 
           {/* Filtre SECONDAIRE : statut du point GPS (multi-sélection, cumulatif avec les familles). Agit sur la
@@ -1389,19 +1410,27 @@ export default function CurationCarte() {
           </fieldset>
 
           {/* Filtre TERTIAIRE : origine (multi-sélection, cumulatif avec familles + statut). Orthogonal à la
-              famille ; agit sur la carte et la liste uniquement (l'historique garde son propre filtre famille). */}
+              famille ; agit sur la carte et la liste uniquement (l'historique garde son propre filtre famille).
+              « Manuel » partage l'état `manuelVisible` avec la case du bloc Familles (source unique → synchro
+              automatique dans les 2 sens) ; « Automatique » reste sur `originesVisibles.auto`. */}
           <fieldset className="svv-cur-filtres">
             <legend className="svv-cur-legende">Origine</legend>
-            {ORIGINES.map((o) => (
-              <label key={o.cle} className="svv-cur-check">
-                <input
-                  type="checkbox"
-                  checked={originesVisibles[o.cle] !== false}
-                  onChange={(ev) => setOriginesVisibles((v) => ({ ...v, [o.cle]: ev.target.checked }))}
-                />
-                <span>{o.libelle}</span>
-              </label>
-            ))}
+            {ORIGINES.map((o) => {
+              const estManuel = o.cle === 'manuel'; // miroir de la case Familles « Manuel » (même état)
+              return (
+                <label key={o.cle} className="svv-cur-check">
+                  <input
+                    type="checkbox"
+                    checked={estManuel ? manuelVisible : originesVisibles[o.cle] !== false}
+                    onChange={(ev) => {
+                      if (estManuel) setManuelVisible(ev.target.checked);
+                      else setOriginesVisibles((v) => ({ ...v, [o.cle]: ev.target.checked }));
+                    }}
+                  />
+                  <span>{o.libelle}</span>
+                </label>
+              );
+            })}
           </fieldset>
 
           {/* Affichage : bulle « infos bâtiment » (année + étages) sur les bâtiments de fond (aide,
@@ -1693,7 +1722,12 @@ export default function CurationCarte() {
                             type="button"
                             className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline svv-cur-btn--histo"
                             aria-pressed={journal?.mode === 'entite' && journal.entiteId === e.id}
-                            onClick={() => setJournal({ mode: 'entite', entiteId: e.id })}
+                            onClick={() =>
+                              // Toggle franc : reclic sur l'entité déjà ouverte → ferme ; sinon ouvre/bascule vers elle.
+                              setJournal((j) =>
+                                j?.mode === 'entite' && j.entiteId === e.id ? null : { mode: 'entite', entiteId: e.id },
+                              )
+                            }
                           >
                             Historique
                           </button>
