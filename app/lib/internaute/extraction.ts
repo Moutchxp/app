@@ -25,6 +25,11 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}/; // yyyy-mm-dd (préfixe accepté : date o
 function estNombre(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
+/** Date ISO RÉELLE (format yyyy-mm-dd… ET calendrier valide) : une date forgée (`2026-13-45`) est ignorée, pas
+ *  liée en paramètre (évite un 503 au cast Postgres). */
+function dateValide(v: unknown): v is string {
+  return typeof v === 'string' && ISO_DATE.test(v) && !Number.isNaN(Date.parse(v));
+}
 
 /**
  * Construit les clauses SQL paramétrées à partir des filtres. Renvoie `{ clauses, params }` ; les placeholders
@@ -47,8 +52,8 @@ export function construireFiltres(f: FiltresExtraction): { clauses: string[]; pa
   if (typeof f.dernierEtage === 'boolean') clauses.push(`p.dernier_etage = ${lier(f.dernierEtage)}`);
   if (typeof f.residencePrincipale === 'boolean') clauses.push(`p.residence_principale = ${lier(f.residencePrincipale)}`);
   if (typeof f.verdict === 'string' && VERDICTS.has(f.verdict)) clauses.push(`p.verdict = ${lier(f.verdict)}`);
-  if (typeof f.creeApres === 'string' && ISO_DATE.test(f.creeApres)) clauses.push(`i.cree_a >= ${lier(f.creeApres)}`);
-  if (typeof f.creeAvant === 'string' && ISO_DATE.test(f.creeAvant)) clauses.push(`i.cree_a <= ${lier(f.creeAvant)}`);
+  if (dateValide(f.creeApres)) clauses.push(`i.cree_a >= ${lier(f.creeApres)}`);
+  if (dateValide(f.creeAvant)) clauses.push(`i.cree_a <= ${lier(f.creeAvant)}`);
 
   return { clauses, params };
 }

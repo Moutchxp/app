@@ -41,6 +41,7 @@ describe('construireFiltres — clauses paramétrées, extensibles, anti-injecti
     const r = construireFiltres({ creeApres: '2026-07-01', creeAvant: '2026-07-31' });
     expect(r.clauses).toEqual(['i.cree_a >= $1', 'i.cree_a <= $2']);
     expect(construireFiltres({ creeApres: 'hier' }).clauses).toEqual([]);
+    expect(construireFiltres({ creeApres: '2026-13-45' }).clauses).toEqual([]); // format ISO mais date impossible → ignorée
   });
 
   it('combinaison → placeholders continus dans l’ordre d’ajout', () => {

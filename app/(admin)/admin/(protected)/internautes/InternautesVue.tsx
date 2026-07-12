@@ -10,7 +10,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 
 const CSS = `
 .svv-int :is(button,input,select,a):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.svv-int :is(button,input,select){min-height:44px}
+.svv-int :is(button,input,select,a){min-height:44px}
 @media (prefers-reduced-motion: reduce){ .svv-int *{transition:none!important;animation:none!important} }
 `;
 
