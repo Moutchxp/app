@@ -46,8 +46,13 @@ async function assurerTexteConsentement(q: RequeteTx, finalite: CleFinalite, ver
 /**
  * Get-or-create de l'internaute par email (unicité applicative `lower(email)` du LOT 1). NON destructif : si
  * l'email existe déjà, on RÉUTILISE la ligne existante sans écraser prénom/nom/téléphone.
+ *
+ * `cree` distingue une VRAIE insertion (nouveau dossier) d'une réutilisation (email déjà en base). C'est le pivot
+ * de la FERMETURE COLLISION EMAIL : seul un dossier réellement créé dans CETTE requête donnera droit à un
+ * jeton-capacité de rectification publique — sinon un tiers connaissant un email en base pourrait modifier les
+ * coordonnées du dossier d'autrui.
  */
-async function getOrCreateInternaute(q: RequeteTx, identite: CorpsIngestion['identite']): Promise<string> {
+async function getOrCreateInternaute(q: RequeteTx, identite: CorpsIngestion['identite']): Promise<{ id: string; cree: boolean }> {
   const insere = await q<{ id: string }>(
     `INSERT INTO internaute (prenom, nom, email, telephone, source_collecte)
      VALUES ($1, $2, $3, $4, 'tunnel')
@@ -55,9 +60,9 @@ async function getOrCreateInternaute(q: RequeteTx, identite: CorpsIngestion['ide
      RETURNING id`,
     [identite.prenom, identite.nom, identite.email, identite.telephone],
   );
-  if (insere.rows.length > 0) return insere.rows[0].id;
+  if (insere.rows.length > 0) return { id: insere.rows[0].id, cree: true };
   const existant = await q<{ id: string }>(`SELECT id FROM internaute WHERE lower(email) = lower($1)`, [identite.email]);
-  return existant.rows[0].id;
+  return { id: existant.rows[0].id, cree: false };
 }
 
 async function insererConsentement(q: RequeteTx, internauteId: string, finalite: CleFinalite, texteId: number): Promise<void> {
@@ -102,15 +107,15 @@ async function insererProjet(q: RequeteTx, internauteId: string, projet: CorpsIn
  * Ingestion complète d'un profil, EN UNE TRANSACTION. Refuse si F1 (service) n'est pas consentie
  * (`ErreurConsentementServiceManquant`). Renvoie les identifiants créés/réutilisés.
  */
-export async function ingererProfil(corps: CorpsIngestion): Promise<{ internauteId: string; projetId: number }> {
+export async function ingererProfil(corps: CorpsIngestion): Promise<{ internauteId: string; projetId: number; creeInternaute: boolean }> {
   if (!consentementServicePresent(corps.consentements)) throw new ErreurConsentementServiceManquant();
   return withTransaction(async (q) => {
-    const internauteId = await getOrCreateInternaute(q, corps.identite);
+    const { id: internauteId, cree: creeInternaute } = await getOrCreateInternaute(q, corps.identite);
     for (const c of corps.consentements) {
       const texteId = await assurerTexteConsentement(q, c.finalite, c.version);
       await insererConsentement(q, internauteId, c.finalite, texteId);
     }
     const projetId = await insererProjet(q, internauteId, corps.projet);
-    return { internauteId, projetId };
+    return { internauteId, projetId, creeInternaute };
   });
 }

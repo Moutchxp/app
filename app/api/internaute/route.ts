@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { validerCorpsIngestion, consentementServicePresent } from '../../lib/internaute/ingestion';
 import { ingererProfil, ErreurConsentementServiceManquant } from '../../lib/internaute/socle';
+import { signerJetonRectification } from '../../lib/internaute/jetonRectification';
 
 // Runtime Node explicite (comme /api/analyse) : le driver `pg` (socle.ts) exige Node, jamais l'edge runtime.
 export const runtime = 'nodejs';
@@ -36,8 +37,21 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const { internauteId } = await ingererProfil(validation.corps);
-    return NextResponse.json({ ok: true, cree: true, internauteId });
+    const { internauteId, creeInternaute } = await ingererProfil(validation.corps);
+    // Jeton-capacité de rectification publique : frappé UNIQUEMENT si un NOUVEAU dossier a été inséré dans cette
+    // requête (creeInternaute). Email pré-existant (get-or-create réutilise) → PAS de jeton → l'internaute ne peut
+    // corriger QUE le dossier qu'il vient de créer, jamais celui d'un tiers (fermeture collision email / IDOR).
+    let jetonRectification: string | null = null;
+    if (creeInternaute) {
+      try {
+        jetonRectification = await signerJetonRectification(internauteId);
+      } catch (e) {
+        // Secret manquant / signature impossible : on NE bloque pas l'ingestion (déjà persistée) ; la correction
+        // publique sera simplement indisponible (écran en lecture seule). Le certificat reste dû.
+        console.error('[internaute] jeton de rectification indisponible', e);
+      }
+    }
+    return NextResponse.json({ ok: true, cree: true, internauteId, jetonRectification });
   } catch (e) {
     if (e instanceof ErreurConsentementServiceManquant) {
       return NextResponse.json({ ok: false, cree: false, erreur: e.message }, { status: 422 });

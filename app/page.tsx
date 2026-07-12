@@ -780,6 +780,16 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
   const [envoi, setEnvoi] = useState(false);
   const [erreurEnvoi, setErreurEnvoi] = useState<string | null>(null);
   const [tentative, setTentative] = useState(false); // Option C : une tentative de validation a-t-elle eu lieu ?
+  // Écran de confirmation = étape de vérification d'identité (rectification publique par jeton-capacité).
+  // jetonRectif : présent SEULEMENT si un nouveau dossier a été créé (email neuf) → coordonnées modifiables ; null
+  // (email pré-existant, ou pas de F1, ou échec) → lecture seule. emailInitial/telInitial : valeurs au moment du POST,
+  // pour ne PATCHer que si l'internaute a réellement corrigé quelque chose.
+  const [jetonRectif, setJetonRectif] = useState<string | null>(null);
+  const [emailInitial, setEmailInitial] = useState("");
+  const [telInitial, setTelInitial] = useState("");
+  const [confirme, setConfirme] = useState(false); // clic « Recevoir mon certificat » abouti (état de succès honnête)
+  const [envoiRectif, setEnvoiRectif] = useState(false);
+  const [erreurRectif, setErreurRectif] = useState<string | null>(null);
 
   const emailValide = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   // Champs REQUIS manquants/invalides — MÊME règle que l'ancien `estValide` (aucun champ requis ajouté ni retiré),
@@ -842,18 +852,82 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
     };
     setEnvoi(true);
     setErreurEnvoi(null);
+    // Valeurs de référence pour détecter une correction ultérieure sur l'écran de vérification.
+    setEmailInitial(email.trim());
+    setTelInitial(telephone || "");
     try {
       const res = await fetch("/api/internaute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(corps),
       });
-      if (!res.ok) setErreurEnvoi("Vos coordonnées n'ont pas pu être enregistrées. Le certificat reste disponible.");
+      if (res.ok) {
+        // Jeton-capacité de rectification : présent seulement si un NOUVEAU dossier a été créé (email neuf).
+        const data = await res.json().catch(() => null);
+        setJetonRectif(typeof data?.jetonRectification === "string" ? data.jetonRectification : null);
+      } else {
+        setErreurEnvoi("Vos coordonnées n'ont pas pu être enregistrées. Le certificat reste disponible.");
+      }
     } catch {
       setErreurEnvoi("Vos coordonnées n'ont pas pu être enregistrées. Le certificat reste disponible.");
     } finally {
       setEnvoi(false);
       setSoumis(true); // non bloquant : confirmation affichée dans tous les cas
+    }
+  };
+
+  // Rectification publique des coordonnées depuis l'écran de vérification. N'écrit QUE si l'internaute a corrigé
+  // email/téléphone ET qu'un jeton a été délivré ; sinon confirme sans écriture. AUCUN envoi email (LOT 6 absent).
+  const recevoirCertificat = async () => {
+    setErreurRectif(null);
+    const emailModifie = email.trim() !== emailInitial;
+    const telModifie = (telephone || "") !== telInitial;
+    if (jetonRectif && (emailModifie || telModifie)) {
+      const patch: { jeton: string; email?: string; telephone?: string | null } = { jeton: jetonRectif };
+      if (emailModifie) patch.email = email.trim();
+      if (telModifie) patch.telephone = telephone.trim() === "" ? null : telephone.trim();
+      setEnvoiRectif(true);
+      try {
+        const res = await fetch("/api/internaute/rectification", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          setErreurRectif(
+            res.status === 409
+              ? "Cet email est déjà utilisé. Vérifiez votre adresse."
+              : data?.erreurs?.[0] ?? "La correction n'a pas pu être enregistrée. Réessayez.",
+          );
+          setEnvoiRectif(false);
+          return;
+        }
+        // Correction acceptée → ces valeurs deviennent la nouvelle référence.
+        setEmailInitial(email.trim());
+        setTelInitial(telephone || "");
+      } catch {
+        setErreurRectif("La correction n'a pas pu être enregistrée. Réessayez.");
+        setEnvoiRectif(false);
+        return;
+      }
+      setEnvoiRectif(false);
+    }
+    setConfirme(true);
+  };
+
+  // Handler téléphone PARTAGÉ (formulaire + écran de vérification) : normalise en E.164. Extrait pour être réutilisé
+  // par les deux PhoneInput sans dupliquer la logique.
+  const onPhoneChange = (phone: string, meta?: { country?: { dialCode?: string | number; iso2?: string } }) => {
+    const c: any = meta?.country;
+    const dial = c?.dialCode ? String(c.dialCode).replace(/\D/g, "") : "";
+    const digits = (phone || "").replace(/\D/g, "");
+    const national = dial && digits.startsWith(dial) ? digits.slice(dial.length) : digits;
+    const e164 = dial ? "+" + dial + national : (phone || "");
+    setTelephone(e164);
+    if (c?.iso2) {
+      const ph = placeholderPourPays(c.iso2, c);
+      if (ph) setPlaceholderTel(ph);
     }
   };
 
@@ -940,26 +1014,102 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
     return () => { clearTimeout(timer); ctrl.abort(); };
   }, [lat, lon]);
 
-  // Écran de confirmation (placeholder étape 1 — pas encore de PDF ni email)
-  if (soumis) {
+  // Écran de SUCCÈS honnête (après clic « Recevoir mon certificat »). Aucun envoi réel (LOT 6 non construit) :
+  // wording strictement « sera préparé et envoyé », jamais « a été envoyé ».
+  if (confirme) {
     return (
       <div className="pb-10">
         <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
           <div className="flex items-center gap-3">
             <SceauCertifie className="h-9 w-auto shrink-0 text-white" />
-            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Demande enregistrée</h1>
+            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Demande confirmée</h1>
           </div>
         </div>
-        <div className="rounded-xl bg-svv-field p-4 text-base font-semibold text-svv-ink">
-          ✓ Vos informations ont bien été enregistrées.
+        <p className="text-xl font-extrabold leading-snug text-svv-ink">Merci, votre demande est enregistrée.</p>
+        <p className="mt-2 text-base text-svv-ink">
+          Votre certificat sera préparé et envoyé à cette adresse :
+        </p>
+        <p className="mt-1 text-base font-bold text-svv-red break-words">{email.trim() || "—"}</p>
+        <button type="button" onClick={onRetour} className="svv-btn svv-btn-outline mt-8">Retour à l'accueil</button>
+      </div>
+    );
+  }
+
+  // Écran de VÉRIFICATION D'IDENTITÉ : la demande est enregistrée ; dernière chance de corriger email/téléphone
+  // avant préparation du certificat. Champs modifiables SI un jeton a été délivré (dossier fraîchement créé), sinon
+  // en lecture seule (email pré-existant → la correction passe par le canal interne).
+  if (soumis) {
+    const modifiable = jetonRectif !== null;
+    return (
+      <div className="pb-10">
+        <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
+          <div className="flex items-center gap-3">
+            <SceauCertifie className="h-9 w-auto shrink-0 text-white" />
+            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Votre demande est enregistrée</h1>
+          </div>
         </div>
+
+        <p className="text-xl font-extrabold leading-snug text-svv-ink">
+          C'est noté — votre certificat sera préparé et envoyé à cette adresse.
+        </p>
+        <p className="mt-3 rounded-xl bg-svv-field p-4 text-sm text-svv-ink">
+          Sans coordonnées exactes, votre certificat ne pourra pas vous parvenir.
+          {modifiable ? " Vérifiez et corrigez si besoin votre email et votre téléphone ci-dessous." : " Vérifiez vos coordonnées ci-dessous."}
+        </p>
         {erreurEnvoi && (
           <p className="mt-3 rounded-xl bg-svv-field p-4 text-sm font-semibold text-svv-red">{erreurEnvoi}</p>
         )}
-        <p className="mt-3 text-sm text-svv-muted">
-          La génération de votre certificat Sans Vis-à-Vis® et son envoi par email arriveront à l'étape suivante.
-        </p>
-        <button type="button" onClick={onRetour} className="svv-btn svv-btn-outline mt-6">Retour</button>
+
+        {/* EMAIL */}
+        <label className="mb-1 mt-4 block text-sm font-semibold text-svv-ink">Email</label>
+        {modifiable ? (
+          <>
+            <input
+              type="email"
+              inputMode="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={`w-full rounded-xl ${email.trim() !== "" && !emailValide ? "border-2 border-svv-red" : "border border-svv-line"} bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none`}
+              placeholder="vous@exemple.fr"
+            />
+            {email.trim() !== "" && !emailValide && (
+              <p className="mt-1 text-sm text-svv-red">Format d'email invalide.</p>
+            )}
+          </>
+        ) : (
+          <div className="w-full rounded-xl border border-svv-line bg-svv-field p-3 text-base text-svv-ink break-words">{email.trim() || "—"}</div>
+        )}
+
+        {/* TÉLÉPHONE */}
+        <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone</label>
+        {modifiable ? (
+          <PhoneInput
+            defaultCountry="fr"
+            disableDialCodeAndPrefix
+            showDisabledDialCodeAndPrefix
+            preferredCountries={["fr", "be", "ch", "lu", "mc"]}
+            placeholder={placeholderTel}
+            value={telephone}
+            onChange={onPhoneChange}
+            className={telephoneValide ? "w-full tel-valide" : "w-full"}
+            inputProps={{ name: "telephone-confirm" }}
+          />
+        ) : (
+          <div className="w-full rounded-xl border border-svv-line bg-svv-field p-3 text-base text-svv-ink break-words">{telephone || "—"}</div>
+        )}
+
+        {erreurRectif && (
+          <p className="mt-3 rounded-xl bg-svv-field p-4 text-sm font-semibold text-svv-red">{erreurRectif}</p>
+        )}
+
+        <button
+          type="button"
+          onClick={() => void recevoirCertificat()}
+          disabled={envoiRectif || (modifiable && email.trim() !== "" && !emailValide)}
+          className={`svv-btn svv-btn-primary mt-6 ${envoiRectif ? "opacity-50" : ""}`}
+        >
+          {envoiRectif ? "Enregistrement…" : "Recevoir mon certificat"}
+        </button>
       </div>
     );
   }
@@ -1162,24 +1312,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
         showDisabledDialCodeAndPrefix
         preferredCountries={["fr", "be", "ch", "lu", "mc"]}
         placeholder={placeholderTel}
-        onChange={(phone, meta) => {
-          const c: any = meta?.country;
-          const dial = c?.dialCode ? String(c.dialCode).replace(/\D/g, "") : "";
-          // chiffres saisis, tous non-numériques retirés
-          let digits = (phone || "").replace(/\D/g, "");
-          // si les chiffres commencent déjà par l'indicatif, on ne le remet pas
-          let national = digits;
-          if (dial && digits.startsWith(dial)) {
-            national = digits.slice(dial.length);
-          }
-          // E.164 = "+" + indicatif + national (toujours préfixé)
-          const e164 = dial ? "+" + dial + national : (phone || "");
-          setTelephone(e164);
-          if (c?.iso2) {
-            const ph = placeholderPourPays(c.iso2, c);
-            if (ph) setPlaceholderTel(ph);
-          }
-        }}
+        onChange={onPhoneChange}
         className={telephoneValide ? "w-full tel-valide" : "w-full"}
         inputProps={{ name: "telephone" }}
       />
