@@ -155,6 +155,15 @@ export function InternautesVue() {
     }
   };
 
+  // Ferme le dossier ouvert (toggle « Voir » / bouton « Fermer ») et remet à zéro les sous-états d'action.
+  const fermerDetail = () => {
+    setDetailId(null);
+    setDetail(null);
+    setEdition(false);
+    setConfirmEffacement(false);
+    setActionErreur(null);
+  };
+
   const soumettreRectification = async () => {
     if (!detailId) return;
     setActionEnCours(true);
@@ -202,6 +211,143 @@ export function InternautesVue() {
 
   const total = etat.statut === 'ok' ? etat.total : 0;
   const nbPages = Math.max(1, Math.ceil(total / TAILLE));
+
+  // Dossier détail — rendu INLINE sous la ligne ouverte (une seule ouverte à la fois, `detailId`). Défini ici pour
+  // rester lisible ; le .map insère `{detailId === l.id && detailPanel}` juste après la ligne concernée.
+  const detailPanel = (detailChargement || detail) ? (
+    <div className="svv-card" style={{ border: '1px solid var(--color-svv-red)', marginTop: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <button type="button" style={{ ...btnOutline, marginLeft: 'auto' }} onClick={fermerDetail}>Fermer</button>
+      </div>
+      {detailChargement && <div style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
+      {detail && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: '.85rem' }}>
+          {/* En-tête : Prénom Nom EN GROS, coordonnées, date + heure de création (Europe/Paris). Plus d'intitulés. */}
+          <div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--color-svv-ink)', lineHeight: 1.15 }}>
+              {[String(detail.internaute.prenom ?? ''), String(detail.internaute.nom ?? '')].filter((s) => s.trim()).join(' ') || (detail.internaute.efface_a ? '(identité effacée)' : '—')}
+            </div>
+            <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>
+              {String(detail.internaute.email ?? '—')}{detail.internaute.telephone ? ` · ${String(detail.internaute.telephone)}` : ''}
+            </div>
+            <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Créé le {dateHeureFr(detail.internaute.cree_a)}</div>
+          </div>
+
+          {/* Consentements RGPD (3 finalités) — état + date. Conservés. */}
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' }}>Consentements</div>
+            {detail.consentements.map((c) => (
+              <div key={c.finalite} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ color: 'var(--color-svv-ink)' }}>{c.libelle}</span>
+                <span style={{ color: c.actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)', fontWeight: 700 }}>
+                  {c.actif ? 'Actif' : c.etat ? c.etat : 'Aucun'}{c.depuis ? ` · ${dateFr(c.depuis)}` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Analyse(s) COMPLÈTE(S) : tous les champs SAISIS (payload aplati, label FR) + TOUT le résultat de scoring. Rien masqué. */}
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' }}>Analyse{detail.projets.length > 1 ? 's' : ''} ({detail.projets.length})</div>
+            {detail.projets.map((p, i) => {
+              const payload = (p.payload && typeof p.payload === 'object' ? p.payload : {}) as Record<string, unknown>;
+              const rpOui = p.residence_principale === true;
+              const adresseRp = payload.adresseResidence;
+              const norm = p.adresse_normalisee == null ? '' : String(p.adresse_normalisee);
+              const saisie = p.adresse_saisie == null ? '' : String(p.adresse_saisie);
+              const saisieDifferente = saisie.trim() !== '' && saisie !== norm;
+              // Clés payload déjà rendues explicitement dans « Le bien » ; le reste passe en catch-all → rien masqué.
+              const CLES_BIEN = new Set(['typeBien', 'surface', 'nbPieces', 'epoque', 'balcon', 'terrasse', 'jardin', 'adresseResidence']);
+              const autres = Object.entries(payload).filter(([k]) => !CLES_BIEN.has(k));
+              const groupe: CSSProperties = { fontWeight: 800, color: 'var(--color-svv-ink)', fontSize: '.78rem', marginTop: 8 };
+              return (
+                <div key={i} style={{ border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: 8, marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>Analyse du {dateHeureFr(p.cree_a)} (tunnel v{String(p.version_tunnel ?? '—')})</div>
+
+                  {/* GROUPE 1 — LE BIEN */}
+                  <div style={groupe}>Le bien</div>
+                  <Champ label="Adresse du bien" valeur={norm || '—'} />
+                  {saisieDifferente && <Champ label="Adresse saisie" valeur={saisie} />}
+                  <Champ label="Type de bien" valeur={payload.typeBien} />
+                  <Champ label="Surface (m²)" valeur={payload.surface} />
+                  <Champ label="Nombre de pièces" valeur={payload.nbPieces} />
+                  <Champ label="Étage" valeur={p.etage} />
+                  <Champ label="Dernier étage" valeur={p.dernier_etage} />
+                  <Champ label="Époque de construction" valeur={payload.epoque} />
+                  <Champ label="Balcon" valeur={payload.balcon} />
+                  <Champ label="Terrasse" valeur={payload.terrasse} />
+                  <Champ label="Jardin" valeur={payload.jardin} />
+                  <Champ label="Résidence principale" valeur={p.residence_principale} />
+                  {rpOui ? (
+                    <Champ label="Adresse de résidence" valeur="Le bien analysé est la résidence principale" />
+                  ) : adresseRp != null && String(adresseRp).trim() !== '' ? (
+                    <Champ label="Adresse de résidence principale" valeur={adresseRp} />
+                  ) : null}
+                  {autres.map(([k, v]) => (
+                    <Champ key={k} label={labelPayload(k)} valeur={v} />
+                  ))}
+
+                  {/* GROUPE 2 — VERDICT & SCORE (résultat + déterminants géométriques présents). */}
+                  <div style={groupe}>Verdict et score</div>
+                  <Champ label="Verdict" valeur={verdictFr(p.verdict)} />
+                  <Champ label="Score /100" valeur={p.score == null ? null : Number(p.score).toFixed(2)} />
+                  <Champ label="Point d’origine — latitude" valeur={p.lat} />
+                  <Champ label="Point d’origine — longitude" valeur={p.lon} />
+                  <Champ label="Commune (INSEE)" valeur={p.commune_insee} />
+                  {/* Grandeurs de visée (migration 026). Dossiers ANCIENS = colonnes NULL → Champ affiche « — » (pas de crash).
+                      numeric pg = chaîne → Number() ; AFFICHAGE à 2 décimales (toFixed) — valeur STOCKÉE brute inchangée,
+                      aucun recalcul. Lat/lon gardent leur précision complète (jamais arrondis). */}
+                  <Champ label="Azimut de l’axe" valeur={p.azimut_deg == null ? null : `${Number(p.azimut_deg).toFixed(2)}°`} />
+                  <Champ label="Hauteur sous plafond" valeur={p.hauteur_sous_plafond_m == null ? null : `${Number(p.hauteur_sous_plafond_m).toFixed(2)} m`} />
+                  <Champ label="Hauteur de vision" valeur={p.hauteur_vision_m == null ? null : `${Number(p.hauteur_vision_m).toFixed(2)} m`} />
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Actions cycle de vie (LOT 4) — admin-only. Effacement = règle ASYMÉTRIQUE (A+C purgés, preuve B conservée). */}
+          {detail.internaute.efface_a ? (
+            <div style={{ color: 'var(--color-svv-muted)', borderTop: '1px solid var(--color-svv-line)', paddingTop: 8 }}>
+              Profil effacé le {new Date(String(detail.internaute.efface_a)).toLocaleDateString('fr-FR')} — identité anonymisée, analyses supprimées ; la preuve de consentement est conservée.
+            </div>
+          ) : (
+            <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {!edition && !confirmEffacement && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button type="button" style={btnOutline} onClick={() => { setEdition(true); setActionErreur(null); }}>Rectifier</button>
+                  <button type="button" style={{ ...btnOutline, color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }} onClick={() => { setConfirmEffacement(true); setActionErreur(null); }}>
+                    Effacer (droit à l’effacement)
+                  </button>
+                </div>
+              )}
+              {edition && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <input style={champ} value={formEdit.prenom} onChange={(e) => setFormEdit({ ...formEdit, prenom: e.target.value })} placeholder="Prénom" />
+                  <input style={champ} value={formEdit.nom} onChange={(e) => setFormEdit({ ...formEdit, nom: e.target.value })} placeholder="Nom" />
+                  <input style={champ} value={formEdit.email} onChange={(e) => setFormEdit({ ...formEdit, email: e.target.value })} placeholder="Email" inputMode="email" />
+                  <input style={champ} value={formEdit.telephone} onChange={(e) => setFormEdit({ ...formEdit, telephone: e.target.value })} placeholder="Téléphone (optionnel)" />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button type="button" style={btnRouge} disabled={actionEnCours} onClick={soumettreRectification}>Enregistrer</button>
+                    <button type="button" style={btnOutline} disabled={actionEnCours} onClick={() => setEdition(false)}>Annuler</button>
+                  </div>
+                </div>
+              )}
+              {confirmEffacement && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ color: 'var(--color-svv-ink)' }}>Anonymiser l’identité et supprimer les analyses ? La preuve de consentement est conservée. Action irréversible.</span>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button type="button" style={btnRouge} disabled={actionEnCours} onClick={soumettreEffacement}>Confirmer l’effacement</button>
+                    <button type="button" style={btnOutline} disabled={actionEnCours} onClick={() => setConfirmEffacement(false)}>Annuler</button>
+                  </div>
+                </div>
+              )}
+              {actionErreur && <span style={{ color: 'var(--color-svv-red)', fontSize: '.8rem' }}>{actionErreur}</span>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  ) : null;
 
   return (
     <div className="svv-int" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -285,20 +431,27 @@ export function InternautesVue() {
             <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-muted)' }}>Aucun profil pour ces critères.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {etat.lignes.map((l) => (
-                <div key={l.id} className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                  <div style={{ minWidth: 0, flex: '1 1 200px' }}>
-                    <div style={{ fontWeight: 800, color: 'var(--color-svv-ink)' }}>{[l.prenom, l.nom].filter(Boolean).join(' ') || '—'}</div>
-                    <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>{l.email ?? '—'}{l.telephone ? ` · ${l.telephone}` : ''}</div>
+              {etat.lignes.map((l) => {
+                const ouvert = detailId === l.id;
+                return (
+                  <div key={l.id}>
+                    <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                      <div style={{ minWidth: 0, flex: '1 1 200px' }}>
+                        <div style={{ fontWeight: 800, color: 'var(--color-svv-ink)' }}>{[l.prenom, l.nom].filter(Boolean).join(' ') || '—'}</div>
+                        <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>{l.email ?? '—'}{l.telephone ? ` · ${l.telephone}` : ''}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: '.78rem', color: 'var(--color-svv-ink)' }}>
+                        <span>{l.commune_insee ?? '—'}</span>
+                        <span>{l.verdict === 'SANS_VIS_A_VIS' ? 'Sans V-à-V' : l.verdict === 'VIS_A_VIS' ? 'Vis-à-vis' : l.verdict === 'INDETERMINE' ? 'Indéterminé' : '—'}</span>
+                        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{l.score != null ? l.score.toFixed(1) : '—'}</span>
+                      </div>
+                      {/* Toggle 1 clic : ouvre la ligne fermée, ferme la ligne déjà ouverte. Ouvrir une AUTRE ligne remplace (une seule à la fois). */}
+                      <button type="button" style={ouvert ? btnRouge : btnOutline} aria-expanded={ouvert} onClick={() => (ouvert ? fermerDetail() : ouvrirDetail(l.id))}>{ouvert ? 'Fermer' : 'Voir'}</button>
+                    </div>
+                    {ouvert && detailPanel}
                   </div>
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: '.78rem', color: 'var(--color-svv-ink)' }}>
-                    <span>{l.commune_insee ?? '—'}</span>
-                    <span>{l.verdict === 'SANS_VIS_A_VIS' ? 'Sans V-à-V' : l.verdict === 'VIS_A_VIS' ? 'Vis-à-vis' : l.verdict === 'INDETERMINE' ? 'Indéterminé' : '—'}</span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{l.score != null ? l.score.toFixed(1) : '—'}</span>
-                  </div>
-                  <button type="button" style={btnOutline} onClick={() => ouvrirDetail(l.id)}>Voir</button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {/* Pagination */}
@@ -312,140 +465,7 @@ export function InternautesVue() {
         </>
       )}
 
-      {/* DÉTAIL (droit d'accès) */}
-      {(detailChargement || detail) && (
-        <div className="svv-card" style={{ border: '1px solid var(--color-svv-red)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <button type="button" style={{ ...btnOutline, marginLeft: 'auto' }} onClick={() => setDetail(null)}>Fermer</button>
-          </div>
-          {detailChargement && <div style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
-          {detail && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: '.85rem' }}>
-              {/* En-tête : Prénom Nom EN GROS, coordonnées, date + heure de création (Europe/Paris). Plus d'intitulés. */}
-              <div>
-                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--color-svv-ink)', lineHeight: 1.15 }}>
-                  {[String(detail.internaute.prenom ?? ''), String(detail.internaute.nom ?? '')].filter((s) => s.trim()).join(' ') || (detail.internaute.efface_a ? '(identité effacée)' : '—')}
-                </div>
-                <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>
-                  {String(detail.internaute.email ?? '—')}{detail.internaute.telephone ? ` · ${String(detail.internaute.telephone)}` : ''}
-                </div>
-                <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Créé le {dateHeureFr(detail.internaute.cree_a)}</div>
-              </div>
-
-              {/* Consentements RGPD (3 finalités) — état + date. Conservés. */}
-              <div>
-                <div style={{ fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' }}>Consentements</div>
-                {detail.consentements.map((c) => (
-                  <div key={c.finalite} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                    <span style={{ color: 'var(--color-svv-ink)' }}>{c.libelle}</span>
-                    <span style={{ color: c.actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)', fontWeight: 700 }}>
-                      {c.actif ? 'Actif' : c.etat ? c.etat : 'Aucun'}{c.depuis ? ` · ${dateFr(c.depuis)}` : ''}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Analyse(s) COMPLÈTE(S) : tous les champs SAISIS (payload aplati, label FR) + TOUT le résultat de scoring. Rien masqué. */}
-              <div>
-                <div style={{ fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' }}>Analyse{detail.projets.length > 1 ? 's' : ''} ({detail.projets.length})</div>
-                {detail.projets.map((p, i) => {
-                  const payload = (p.payload && typeof p.payload === 'object' ? p.payload : {}) as Record<string, unknown>;
-                  const rpOui = p.residence_principale === true;
-                  const adresseRp = payload.adresseResidence;
-                  const norm = p.adresse_normalisee == null ? '' : String(p.adresse_normalisee);
-                  const saisie = p.adresse_saisie == null ? '' : String(p.adresse_saisie);
-                  const saisieDifferente = saisie.trim() !== '' && saisie !== norm;
-                  // Clés payload déjà rendues explicitement dans « Le bien » ; le reste passe en catch-all → rien masqué.
-                  const CLES_BIEN = new Set(['typeBien', 'surface', 'nbPieces', 'epoque', 'balcon', 'terrasse', 'jardin', 'adresseResidence']);
-                  const autres = Object.entries(payload).filter(([k]) => !CLES_BIEN.has(k));
-                  const groupe: CSSProperties = { fontWeight: 800, color: 'var(--color-svv-ink)', fontSize: '.78rem', marginTop: 8 };
-                  return (
-                    <div key={i} style={{ border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: 8, marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <div style={{ fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>Analyse du {dateHeureFr(p.cree_a)} (tunnel v{String(p.version_tunnel ?? '—')})</div>
-
-                      {/* GROUPE 1 — LE BIEN */}
-                      <div style={groupe}>Le bien</div>
-                      <Champ label="Adresse du bien" valeur={norm || '—'} />
-                      {saisieDifferente && <Champ label="Adresse saisie" valeur={saisie} />}
-                      <Champ label="Type de bien" valeur={payload.typeBien} />
-                      <Champ label="Surface (m²)" valeur={payload.surface} />
-                      <Champ label="Nombre de pièces" valeur={payload.nbPieces} />
-                      <Champ label="Étage" valeur={p.etage} />
-                      <Champ label="Dernier étage" valeur={p.dernier_etage} />
-                      <Champ label="Époque de construction" valeur={payload.epoque} />
-                      <Champ label="Balcon" valeur={payload.balcon} />
-                      <Champ label="Terrasse" valeur={payload.terrasse} />
-                      <Champ label="Jardin" valeur={payload.jardin} />
-                      <Champ label="Résidence principale" valeur={p.residence_principale} />
-                      {rpOui ? (
-                        <Champ label="Adresse de résidence" valeur="Le bien analysé est la résidence principale" />
-                      ) : adresseRp != null && String(adresseRp).trim() !== '' ? (
-                        <Champ label="Adresse de résidence principale" valeur={adresseRp} />
-                      ) : null}
-                      {autres.map(([k, v]) => (
-                        <Champ key={k} label={labelPayload(k)} valeur={v} />
-                      ))}
-
-                      {/* GROUPE 2 — VERDICT & SCORE (résultat + déterminants géométriques présents). */}
-                      <div style={groupe}>Verdict et score</div>
-                      <Champ label="Verdict" valeur={verdictFr(p.verdict)} />
-                      <Champ label="Score /100" valeur={p.score == null ? null : Number(p.score).toFixed(2)} />
-                      <Champ label="Point d’origine — latitude" valeur={p.lat} />
-                      <Champ label="Point d’origine — longitude" valeur={p.lon} />
-                      <Champ label="Commune (INSEE)" valeur={p.commune_insee} />
-                      {/* Grandeurs de visée (migration 026). Dossiers ANCIENS = colonnes NULL → Champ affiche « — » (pas de crash).
-                          numeric pg = chaîne → Number() ; valeurs brutes, unité ajoutée à l'affichage seulement. */}
-                      <Champ label="Azimut de l’axe" valeur={p.azimut_deg == null ? null : `${Number(p.azimut_deg)}°`} />
-                      <Champ label="Hauteur sous plafond" valeur={p.hauteur_sous_plafond_m == null ? null : `${Number(p.hauteur_sous_plafond_m)} m`} />
-                      <Champ label="Hauteur de vision" valeur={p.hauteur_vision_m == null ? null : `${Number(p.hauteur_vision_m)} m`} />
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Actions cycle de vie (LOT 4) — admin-only. Effacement = règle ASYMÉTRIQUE (A+C purgés, preuve B conservée). */}
-              {detail.internaute.efface_a ? (
-                <div style={{ color: 'var(--color-svv-muted)', borderTop: '1px solid var(--color-svv-line)', paddingTop: 8 }}>
-                  Profil effacé le {new Date(String(detail.internaute.efface_a)).toLocaleDateString('fr-FR')} — identité anonymisée, analyses supprimées ; la preuve de consentement est conservée.
-                </div>
-              ) : (
-                <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {!edition && !confirmEffacement && (
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <button type="button" style={btnOutline} onClick={() => { setEdition(true); setActionErreur(null); }}>Rectifier</button>
-                      <button type="button" style={{ ...btnOutline, color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }} onClick={() => { setConfirmEffacement(true); setActionErreur(null); }}>
-                        Effacer (droit à l’effacement)
-                      </button>
-                    </div>
-                  )}
-                  {edition && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <input style={champ} value={formEdit.prenom} onChange={(e) => setFormEdit({ ...formEdit, prenom: e.target.value })} placeholder="Prénom" />
-                      <input style={champ} value={formEdit.nom} onChange={(e) => setFormEdit({ ...formEdit, nom: e.target.value })} placeholder="Nom" />
-                      <input style={champ} value={formEdit.email} onChange={(e) => setFormEdit({ ...formEdit, email: e.target.value })} placeholder="Email" inputMode="email" />
-                      <input style={champ} value={formEdit.telephone} onChange={(e) => setFormEdit({ ...formEdit, telephone: e.target.value })} placeholder="Téléphone (optionnel)" />
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button type="button" style={btnRouge} disabled={actionEnCours} onClick={soumettreRectification}>Enregistrer</button>
-                        <button type="button" style={btnOutline} disabled={actionEnCours} onClick={() => setEdition(false)}>Annuler</button>
-                      </div>
-                    </div>
-                  )}
-                  {confirmEffacement && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <span style={{ color: 'var(--color-svv-ink)' }}>Anonymiser l’identité et supprimer les analyses ? La preuve de consentement est conservée. Action irréversible.</span>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button type="button" style={btnRouge} disabled={actionEnCours} onClick={soumettreEffacement}>Confirmer l’effacement</button>
-                        <button type="button" style={btnOutline} disabled={actionEnCours} onClick={() => setConfirmEffacement(false)}>Annuler</button>
-                      </div>
-                    </div>
-                  )}
-                  {actionErreur && <span style={{ color: 'var(--color-svv-red)', fontSize: '.8rem' }}>{actionErreur}</span>}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Détail rendu inline sous la ligne ouverte (voir detailPanel + le .map ci-dessus). */}
 
       {/* ═══ PANNEAU DE VÉRIFICATION (contrôle technique, consultation SEULE) — SOUS le moteur d'extraction commercial. ═══ */}
       <PanneauVerification />
