@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { EnTetePage } from '../_composants/EnTetePage';
 import {
   META,
   FAMILLES_ORDRE,
@@ -183,18 +184,12 @@ export default function PilotagePage() {
     <section className="svv-pil">
       <style>{CSS}</style>
 
-      <header className="svv-pil-head">
-        <h1 className="svv-pil-title">Pilotage</h1>
-        <p className="svv-pil-sub">
-          Réglages du calcul de la qualité de vue. Les valeurs modifiées ici sont
-          <strong> appliquées immédiatement</strong> aux nouvelles analyses.
+      <EnTetePage titre="Pilotage" intro="Réglages du calcul de la qualité de vue. Les valeurs modifiées ici sont appliquées immédiatement aux nouvelles analyses.">
+        <p className="svv-pil-banniere" role="note">
+          Seuls les réglages du <strong>dégagement</strong> sont modifiables ici. La partie{' '}
+          <strong>photo / paysage</strong> n’est pas réglable depuis cette page.
         </p>
-      </header>
-
-      <p className="svv-pil-banniere" role="note">
-        Seuls les réglages du <strong>dégagement</strong> sont modifiables ici. La partie{' '}
-        <strong>photo / paysage</strong> n’est pas réglable depuis cette page.
-      </p>
+      </EnTetePage>
 
       {etat.statut === 'chargement' && (
         <p className="svv-pil-message" aria-live="polite">Chargement de la configuration…</p>
@@ -238,12 +233,9 @@ function PilotageCharge({ data }: { data: ReponseConfig }) {
   return (
     <>
       {avertGolden && (
-        <div className="svv-pil-golden" role="status" aria-live="polite">
-          <span className="svv-pil-golden-pastille" aria-hidden="true" />
-          <div>
-            <strong>Attention.</strong> Cette valeur influence directement le score. La modification
-            s’applique aux prochaines analyses — vérifie avant d’enregistrer.
-          </div>
+        <div className="svv-page-note" role="status" aria-live="polite">
+          <strong>Attention.</strong> Cette valeur influence directement le score. La modification
+          s’applique aux prochaines analyses — vérifie avant d’enregistrer.
         </div>
       )}
       <BadgeRepli repli={repli} />
@@ -674,18 +666,12 @@ function CelluleOrientation({ meta, ctx }: { meta: ColonneMeta; ctx: CtxPilotage
 
 const CSS = `
 .svv-pil{max-width:960px}
-.svv-pil-head{margin-bottom:.75rem}
-.svv-pil-title{font-size:1.35rem;font-weight:800;color:var(--color-svv-ink);margin:0 0 4px}
-.svv-pil-sub{color:var(--color-svv-muted);font-size:.9rem;margin:0}
 .svv-pil code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;background:var(--color-svv-field);padding:.05rem .3rem;border-radius:.3rem;color:var(--color-svv-ink)}
 
 .svv-pil-banniere{margin:.75rem 0;padding:.6rem .75rem;border:1px solid var(--color-svv-line);border-left:3px solid var(--color-svv-red);border-radius:.6rem;background:var(--color-svv-field);color:var(--color-svv-gray);font-size:.85rem;line-height:1.4}
 
 .svv-pil-message{padding:1rem;color:var(--color-svv-muted);font-size:.95rem}
 .svv-pil-message--alerte{color:var(--color-svv-red);font-weight:600}
-
-.svv-pil-golden{display:flex;gap:.55rem;align-items:flex-start;padding:.7rem .85rem;border-radius:.7rem;margin:.75rem 0;font-size:.85rem;line-height:1.45;background:#fff4e0;color:#8a5a00;border:1px solid #f0d9a8}
-.svv-pil-golden-pastille{flex:0 0 auto;width:10px;height:10px;border-radius:999px;margin-top:.3rem;background:currentColor}
 
 .svv-pil-repli{display:flex;gap:.55rem;align-items:flex-start;padding:.7rem .85rem;border-radius:.7rem;margin:.75rem 0;font-size:.88rem;line-height:1.45}
 .svv-pil-repli--actif{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}

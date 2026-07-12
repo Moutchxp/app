@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { intervalleReelCarte, type CarteAnnee } from '../../../../lib/svv/cartesAnnee';
 import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
+import { EnTetePage } from '../_composants/EnTetePage';
 
 /** Aide « i » — texte IDENTIQUE pour toutes les cartes d'année (cohérence avec Pilotage). */
 const TEXTE_CARTE_ANNEE =
@@ -163,21 +164,12 @@ export default function CartesAnneePage() {
       <style>{CSS}</style>
       <style>{INFOBULLE_CSS}</style>
 
-      <header className="svv-ca-head">
-        <h1 className="svv-ca-title">Cartes d’année</h1>
-        <p className="svv-ca-sub">
-          Barème appliqué selon l’<strong>année de construction</strong> du bâtiment. Chaque tranche
-          d’années définit son influence sur le score de dégagement.
-        </p>
-      </header>
-
-      <div className="svv-ca-golden" role="note">
-        <span className="svv-ca-golden-pastille" aria-hidden="true" />
-        <div>
+      <EnTetePage titre="Cartes d’année" intro="Barème appliqué selon l’année de construction du bâtiment. Chaque tranche d’années définit son influence sur le score de dégagement.">
+        <div className="svv-page-note" role="note">
           <strong>Attention.</strong> Ces barèmes influencent directement le <strong>score de dégagement</strong>.
           Toute modification s’applique aux prochaines analyses — vérifie tes valeurs avant d’enregistrer.
         </div>
-      </div>
+      </EnTetePage>
 
       {etat === 'chargement' && (
         <p className="svv-ca-message" aria-live="polite">Chargement des cartes…</p>
@@ -478,13 +470,7 @@ function ChampsCarte({
 
 const CSS = `
 .svv-ca{max-width:820px}
-.svv-ca-head{margin-bottom:.5rem}
-.svv-ca-title{font-size:1.35rem;font-weight:800;color:var(--color-svv-ink);margin:0 0 4px}
-.svv-ca-sub{color:var(--color-svv-muted);font-size:.9rem;margin:0;line-height:1.45}
 .svv-ca code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;background:var(--color-svv-field);padding:.05rem .3rem;border-radius:.3rem;color:var(--color-svv-ink)}
-
-.svv-ca-golden{display:flex;gap:.55rem;align-items:flex-start;padding:.7rem .85rem;border-radius:.7rem;margin:.75rem 0;font-size:.85rem;line-height:1.45;background:#fff4e0;color:#8a5a00;border:1px solid #f0d9a8}
-.svv-ca-golden-pastille{flex:0 0 auto;width:10px;height:10px;border-radius:999px;margin-top:.3rem;background:currentColor}
 
 .svv-ca-message{padding:.75rem 0;color:var(--color-svv-muted);font-size:.9rem;line-height:1.45}
 .svv-ca-message--alerte{color:var(--color-svv-red);font-weight:600}

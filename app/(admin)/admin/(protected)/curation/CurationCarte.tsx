@@ -5,6 +5,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { estCarteModifiee, modeFooter } from './curationEdition';
 import { contenuBulleBatiment, doitCreerAuDoubleClic } from './bulleBatiment';
+import { EnTetePage } from '../_composants/EnTetePage';
 import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, libelleSession, nomAffiche, type LigneJournal } from './journalRendu';
 
 /** Taille de page du volet global de l'historique (HJ-44). */
@@ -1165,9 +1166,10 @@ export default function CurationCarte() {
     <div className="svv-cur-wrap">
       <style>{CSS}</style>
 
-      <header className="svv-cur-head">
-        <div className="svv-cur-head-ligne">
-          <h1 className="svv-cur-title">Curation patrimoine</h1>
+      <EnTetePage
+        titre="Curation patrimoine"
+        intro="Corriger les rattachements des 3 familles (MH / Inventaire / Mondial) : déplacer un point (réversible, borné), rattacher / détacher / composer des emprises de bâtiments."
+        actions={
           <button
             type="button"
             className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline"
@@ -1186,12 +1188,8 @@ export default function CurationCarte() {
           >
             Historique
           </button>
-        </div>
-        <p className="svv-cur-sub">
-          Corriger les rattachements des 3 familles (MH / Inventaire / Mondial) : déplacer un point
-          (réversible, borné), rattacher / détacher / composer des emprises de bâtiments.
-        </p>
-      </header>
+        }
+      />
 
       {message && (
         <div className={`svv-cur-toast svv-cur-toast--${message.type}`} role="status" aria-live="polite">
@@ -1833,9 +1831,6 @@ export default function CurationCarte() {
 
 const CSS = `
 .svv-cur-wrap{display:flex;flex-direction:column;gap:.6rem;max-width:1100px}
-.svv-cur-head{margin-bottom:.1rem}
-.svv-cur-title{font-size:1.35rem;font-weight:800;color:var(--color-svv-ink);margin:0 0 4px}
-.svv-cur-sub{color:var(--color-svv-muted);font-size:.88rem;line-height:1.45;margin:0}
 .svv-cur-wrap code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.82em;background:var(--color-svv-field);padding:.05rem .3rem;border-radius:.3rem;color:var(--color-svv-ink);word-break:break-all}
 
 .svv-cur-toast{padding:.55rem .75rem;border-radius:.55rem;font-size:.85rem;font-weight:600}
@@ -1861,7 +1856,6 @@ const CSS = `
 .svv-cur-journal-session{flex:0 0 100%;font-size:.68rem;color:var(--color-svv-muted)}
 .svv-cur-journal-session--inconnue{font-style:italic;opacity:.7}
 .svv-cur-journal-erreur{color:var(--color-svv-red-dark)}
-.svv-cur-head-ligne{display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap}
 .svv-cur-journal-controles{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.35rem;padding:.35rem .55rem;border-bottom:1px solid var(--color-svv-line)}
 .svv-cur-journal-filtres{display:inline-flex;flex-wrap:wrap;gap:.25rem}
 .svv-cur-journal-nom{font-weight:700;color:var(--color-svv-ink);margin-right:.3rem}
