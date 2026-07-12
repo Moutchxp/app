@@ -778,22 +778,29 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
   });
   const [envoi, setEnvoi] = useState(false);
   const [erreurEnvoi, setErreurEnvoi] = useState<string | null>(null);
+  const [tentative, setTentative] = useState(false); // Option C : une tentative de validation a-t-elle eu lieu ?
 
   const emailValide = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const estValide =
-    prenom.trim() !== "" &&
-    nom.trim() !== "" &&
-    emailValide &&
-    (telephone ? isValidPhoneNumber(telephone) : false) &&
-    typeBien !== "" &&
-    surface.trim() !== "" &&
-    nbPieces > 0 &&
-    epoque !== "" &&
-    terrasse !== null &&
-    balcon !== null &&
-    jardin !== null &&
-    bienEstResidence !== null &&
-    (bienEstResidence === true || residenceAdresse.trim() !== "");
+  // Champs REQUIS manquants/invalides — MÊME règle que l'ancien `estValide` (aucun champ requis ajouté ni retiré),
+  // décomposée par champ pour le marquage (Option C). L'adresse de résidence n'est requise QUE si « Non ».
+  // Le consentement F1 n'y figure PAS : le certificat s'obtient sans cocher (non-couplage, cf. soumettre).
+  const champsManquants: { cle: string; label: string; msg: string }[] = [
+    prenom.trim() === "" && { cle: "prenom", label: "Prénom", msg: "Ce champ est requis." },
+    nom.trim() === "" && { cle: "nom", label: "Nom", msg: "Ce champ est requis." },
+    !emailValide && { cle: "email", label: "Email", msg: email.trim() === "" ? "Ce champ est requis." : "Format d'email invalide." },
+    !telephoneValide && { cle: "telephone", label: "Téléphone", msg: telephone.trim() === "" ? "Ce champ est requis." : "Numéro de téléphone invalide." },
+    typeBien === "" && { cle: "typeBien", label: "Type de bien", msg: "Sélectionnez un type de bien." },
+    surface.trim() === "" && { cle: "surface", label: "Surface", msg: "Ce champ est requis." },
+    nbPieces <= 0 && { cle: "nbPieces", label: "Nombre de pièces", msg: "Indiquez le nombre de pièces." },
+    epoque === "" && { cle: "epoque", label: "Époque de construction", msg: "Sélectionnez une époque." },
+    balcon === null && { cle: "balcon", label: "Balcon", msg: "Répondez oui ou non." },
+    terrasse === null && { cle: "terrasse", label: "Terrasse", msg: "Répondez oui ou non." },
+    jardin === null && { cle: "jardin", label: "Jardin", msg: "Répondez oui ou non." },
+    bienEstResidence === null && { cle: "residence", label: "Résidence principale", msg: "Répondez oui ou non." },
+    bienEstResidence === false && residenceAdresse.trim() === "" && { cle: "residenceAdresse", label: "Adresse de résidence principale", msg: "Ce champ est requis." },
+  ].filter(Boolean) as { cle: string; label: string; msg: string }[];
+  const enErreur = (cle: string) => tentative && champsManquants.some((m) => m.cle === cle);
+  const msgErreur = (cle: string) => champsManquants.find((m) => m.cle === cle)?.msg ?? "";
 
   // Soumission (LOT 2). NON-COUPLAGE : le certificat s'obtient SANS consentement. Sans F1 (recontact), AUCUNE
   // donnée nominative n'est envoyée (minimisation) → on affiche juste la confirmation. Avec F1, on POSTe le profil
@@ -842,6 +849,24 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
       setEnvoi(false);
       setSoumis(true); // non bloquant : confirmation affichée dans tous les cas
     }
+  };
+
+  // Option C : le bouton Valider est TOUJOURS cliquable. Au clic, si des champs requis manquent → on MARQUE (focus +
+  // scroll sur le 1er fautif) sans soumettre ; sinon → soumission INCHANGÉE. Règle « requis » = `champsManquants`.
+  const onValider = () => {
+    setTentative(true);
+    if (champsManquants.length > 0) {
+      const el = typeof document !== "undefined" ? document.getElementById(`champ-${champsManquants[0].cle}`) : null;
+      if (el) {
+        const reduce = typeof window !== "undefined" && window.matchMedia
+          ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          : false;
+        el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
+        (el as HTMLElement).focus?.();
+      }
+      return;
+    }
+    void soumettre();
   };
 
   // Adresse auto = la PLUS PROCHE renvoyée par l'API (déjà triée par distance), pas adresseBien
@@ -1020,27 +1045,31 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
       )}
 
       <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Type de bien <span className="text-svv-red">*</span></label>
-      <div className="grid grid-cols-2 gap-2">
+      <div id="champ-typeBien" className={`grid grid-cols-2 gap-2 ${enErreur("typeBien") ? "rounded-xl p-1 ring-2 ring-svv-red" : ""}`}>
         {TYPES_BIEN.map((t) => (
           <button key={t} type="button" onClick={() => setTypeBien(t)} className={classeChoix(typeBien === t)}>{t}</button>
         ))}
       </div>
+      {enErreur("typeBien") && <p className="mt-1 text-sm text-svv-red">{msgErreur("typeBien")}</p>}
 
       <label className="mb-1 mt-4 block text-sm font-semibold text-svv-ink">Surface (m²) <span className="text-svv-red">*</span></label>
       <input
+        id="champ-surface"
         inputMode="decimal"
         value={surface}
         onChange={(e) => setSurface(e.target.value)}
-        className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
+        className={`w-full rounded-xl ${enErreur("surface") ? "border-2 border-svv-red" : "border border-svv-line"} bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none`}
         placeholder="Ex. 65"
       />
+      {enErreur("surface") && <p className="mt-1 text-sm text-svv-red">{msgErreur("surface")}</p>}
 
       <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Nombre de pièces <span className="text-svv-red">*</span></label>
-      <div className="flex items-center gap-3">
+      <div id="champ-nbPieces" className={`flex w-fit items-center gap-3 ${enErreur("nbPieces") ? "rounded-xl p-1 ring-2 ring-svv-red" : ""}`}>
         <button type="button" onClick={() => setNbPieces((n) => Math.max(0, n - 1))} className={classeStepper}>−</button>
         <span className="w-10 text-center text-xl font-bold text-svv-ink">{nbPieces}</span>
         <button type="button" onClick={() => setNbPieces((n) => n + 1)} className={classeStepper}>+</button>
       </div>
+      {enErreur("nbPieces") && <p className="mt-1 text-sm text-svv-red">{msgErreur("nbPieces")}</p>}
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div>
@@ -1059,26 +1088,30 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
       <p className="mt-1 text-xs text-svv-muted">Valeurs définies lors du calcul du certificat.</p>
 
       <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Époque de construction <span className="text-svv-red">*</span></label>
-      <button type="button" onClick={() => setEpoqueModalOuvert(true)} className="flex w-full items-center justify-between rounded-xl border border-svv-line bg-white p-3 text-base focus:border-svv-red focus:outline-none">
+      <button id="champ-epoque" type="button" onClick={() => setEpoqueModalOuvert(true)} className={`flex w-full items-center justify-between rounded-xl ${enErreur("epoque") ? "border-2 border-svv-red" : "border border-svv-line"} bg-white p-3 text-base focus:border-svv-red focus:outline-none`}>
         <span className={epoque ? "text-svv-ink" : "text-svv-muted"}>{epoque || "Sélectionner"}</span>
         <span className="text-svv-muted">▾</span>
       </button>
+      {enErreur("epoque") && <p className="mt-1 text-sm text-svv-red">{msgErreur("epoque")}</p>}
 
       <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Balcon <span className="text-svv-red">*</span></label>
-      <div className="grid grid-cols-2 gap-2">
+      <div id="champ-balcon" className={`grid grid-cols-2 gap-2 ${enErreur("balcon") ? "rounded-xl p-1 ring-2 ring-svv-red" : ""}`}>
         <button type="button" onClick={() => setBalcon(true)} className={classeChoix(balcon === true)}>Oui</button>
         <button type="button" onClick={() => setBalcon(false)} className={classeChoix(balcon === false)}>Non</button>
       </div>
+      {enErreur("balcon") && <p className="mt-1 text-sm text-svv-red">{msgErreur("balcon")}</p>}
       <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Terrasse <span className="text-svv-red">*</span></label>
-      <div className="grid grid-cols-2 gap-2">
+      <div id="champ-terrasse" className={`grid grid-cols-2 gap-2 ${enErreur("terrasse") ? "rounded-xl p-1 ring-2 ring-svv-red" : ""}`}>
         <button type="button" onClick={() => setTerrasse(true)} className={classeChoix(terrasse === true)}>Oui</button>
         <button type="button" onClick={() => setTerrasse(false)} className={classeChoix(terrasse === false)}>Non</button>
       </div>
+      {enErreur("terrasse") && <p className="mt-1 text-sm text-svv-red">{msgErreur("terrasse")}</p>}
       <label className="mb-2 mt-4 block text-sm font-semibold text-svv-ink">Jardin <span className="text-svv-red">*</span></label>
-      <div className="grid grid-cols-2 gap-2">
+      <div id="champ-jardin" className={`grid grid-cols-2 gap-2 ${enErreur("jardin") ? "rounded-xl p-1 ring-2 ring-svv-red" : ""}`}>
         <button type="button" onClick={() => setJardin(true)} className={classeChoix(jardin === true)}>Oui</button>
         <button type="button" onClick={() => setJardin(false)} className={classeChoix(jardin === false)}>Non</button>
       </div>
+      {enErreur("jardin") && <p className="mt-1 text-sm text-svv-red">{msgErreur("jardin")}</p>}
       </div>
 
       {/* IDENTITÉ */}
@@ -1088,28 +1121,35 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="mb-1 block text-sm font-semibold text-svv-ink">Prénom <span className="text-svv-red">*</span></label>
-          <input value={prenom} onChange={(e) => setPrenom(e.target.value)} className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none" placeholder="Prénom" />
+          <input id="champ-prenom" value={prenom} onChange={(e) => setPrenom(e.target.value)} className={`w-full rounded-xl ${enErreur("prenom") ? "border-2 border-svv-red" : "border border-svv-line"} bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none`} placeholder="Prénom" />
+          {enErreur("prenom") && <p className="mt-1 text-sm text-svv-red">{msgErreur("prenom")}</p>}
         </div>
         <div>
           <label className="mb-1 block text-sm font-semibold text-svv-ink">Nom <span className="text-svv-red">*</span></label>
-          <input value={nom} onChange={(e) => setNom(e.target.value)} className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none" placeholder="Nom" />
+          <input id="champ-nom" value={nom} onChange={(e) => setNom(e.target.value)} className={`w-full rounded-xl ${enErreur("nom") ? "border-2 border-svv-red" : "border border-svv-line"} bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none`} placeholder="Nom" />
+          {enErreur("nom") && <p className="mt-1 text-sm text-svv-red">{msgErreur("nom")}</p>}
         </div>
       </div>
 
       <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Email <span className="text-svv-red">*</span></label>
       <input
+        id="champ-email"
         type="email"
         inputMode="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
-        className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
+        className={`w-full rounded-xl ${enErreur("email") ? "border-2 border-svv-red" : "border border-svv-line"} bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none`}
         placeholder="vous@exemple.fr"
       />
       {email.trim() !== "" && !emailValide && (
         <p className="mt-1 text-sm text-svv-red">Format d'email invalide.</p>
       )}
+      {enErreur("email") && email.trim() === "" && (
+        <p className="mt-1 text-sm text-svv-red">{msgErreur("email")}</p>
+      )}
 
       <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone <span className="text-svv-red">*</span></label>
+      <div id="champ-telephone" className={enErreur("telephone") ? "rounded-xl ring-2 ring-svv-red" : undefined}>
       <PhoneInput
         defaultCountry="fr"
         disableDialCodeAndPrefix
@@ -1137,12 +1177,15 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
         className={telephoneValide ? "w-full tel-valide" : "w-full"}
         inputProps={{ name: "telephone" }}
       />
+      </div>
+      {enErreur("telephone") && <p className="mt-1 text-sm text-svv-red">{msgErreur("telephone")}</p>}
 
       <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Le bien analysé est-il votre résidence principale ? <span className="text-svv-red">*</span></label>
-      <div className="grid grid-cols-2 gap-2">
+      <div id="champ-residence" className={`grid grid-cols-2 gap-2 ${enErreur("residence") ? "rounded-xl p-1 ring-2 ring-svv-red" : ""}`}>
         <button type="button" onClick={() => setBienEstResidence(true)} className={classeChoix(bienEstResidence === true)}>Oui</button>
         <button type="button" onClick={() => setBienEstResidence(false)} className={classeChoix(bienEstResidence === false)}>Non</button>
       </div>
+      {enErreur("residence") && <p className="mt-1 text-sm text-svv-red">{msgErreur("residence")}</p>}
       {bienEstResidence === true && (
         <input
           value={adresseChoisie}
@@ -1152,12 +1195,15 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
       )}
       {bienEstResidence === false && (
         <div className="mt-2">
-          <AdresseAutocomplete
-            value={residenceAdresse}
-            onChange={setResidenceAdresse}
-            onSelect={(s) => setResidenceAdresse(s.label)}
-            placeholder="Saisissez votre adresse de résidence principale"
-          />
+          <div id="champ-residenceAdresse" className={enErreur("residenceAdresse") ? "rounded-xl ring-2 ring-svv-red" : undefined}>
+            <AdresseAutocomplete
+              value={residenceAdresse}
+              onChange={setResidenceAdresse}
+              onSelect={(s) => setResidenceAdresse(s.label)}
+              placeholder="Saisissez votre adresse de résidence principale"
+            />
+          </div>
+          {enErreur("residenceAdresse") && <p className="mt-1 text-sm text-svv-red">{msgErreur("residenceAdresse")}</p>}
         </div>
       )}
       </div>
@@ -1184,12 +1230,17 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
         </p>
       </div>
 
-      {/* ACTIONS */}
+      {/* ACTIONS — bouton TOUJOURS cliquable (Option C). Récap des champs requis manquants après une tentative. */}
+      {tentative && champsManquants.length > 0 && (
+        <p role="alert" className="mt-6 rounded-xl border-2 border-svv-red bg-white p-3 text-sm text-svv-red">
+          Complétez les champs requis : {champsManquants.map((m) => m.label).join(", ")}.
+        </p>
+      )}
       <button
         type="button"
-        disabled={!estValide || envoi}
-        onClick={soumettre}
-        className={`svv-btn svv-btn-primary mt-6 ${!estValide || envoi ? "opacity-50" : ""}`}
+        disabled={envoi}
+        onClick={onValider}
+        className={`svv-btn svv-btn-primary mt-4 ${envoi ? "opacity-50" : ""}`}
       >
         {envoi ? "Enregistrement…" : "Valider"}
       </button>
