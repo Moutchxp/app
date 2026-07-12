@@ -393,7 +393,11 @@ export function InternautesVue() {
                       <Champ label="Point d’origine — latitude" valeur={p.lat} />
                       <Champ label="Point d’origine — longitude" valeur={p.lon} />
                       <Champ label="Commune (INSEE)" valeur={p.commune_insee} />
-                      {/* Azimut de l'axe de visée & hauteur du champ de vision : ABSENTS de l'ingestion → non affichés (cf. rapport, manque d'ingestion). */}
+                      {/* Grandeurs de visée (migration 026). Dossiers ANCIENS = colonnes NULL → Champ affiche « — » (pas de crash).
+                          numeric pg = chaîne → Number() ; valeurs brutes, unité ajoutée à l'affichage seulement. */}
+                      <Champ label="Azimut de l’axe" valeur={p.azimut_deg == null ? null : `${Number(p.azimut_deg)}°`} />
+                      <Champ label="Hauteur sous plafond" valeur={p.hauteur_sous_plafond_m == null ? null : `${Number(p.hauteur_sous_plafond_m)} m`} />
+                      <Champ label="Hauteur de vision" valeur={p.hauteur_vision_m == null ? null : `${Number(p.hauteur_vision_m)} m`} />
                     </div>
                   );
                 })}

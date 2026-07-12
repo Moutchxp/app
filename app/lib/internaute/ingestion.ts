@@ -1,11 +1,13 @@
 /**
  * Module INTERNAUTE — LOT 2 (ingestion) : validation PURE du corps reçu + porte de consentement.
  *
- * Pur, sans accès base, AUCUN import `app/lib/analytics/*` ni moteur → cloisonnement M2 trivial. La partie base
- * (transaction A+B+C) est dans `socle.ts` (serveur only). Ici : uniquement la validation d'entrée et les gardes,
- * testables sans base.
+ * Pur, sans accès base, AUCUN import `app/lib/analytics/*` → cloisonnement M2 trivial. Seule dépendance moteur :
+ * la fonction PURE `hauteurVision` (config.ts), importée en LECTURE SEULE pour le garde-fou preuve de la hauteur de
+ * vision (aucun calcul de score/verdict, aucun accès base, config.ts jamais modifié). La partie base (transaction
+ * A+B+C) est dans `socle.ts` (serveur only). Ici : uniquement la validation d'entrée et les gardes, testables sans base.
  */
 import { FINALITE_SERVICE, texteExiste, type CleFinalite } from './textesConsentement';
+import { hauteurVision } from '../svv/config';
 
 /** Un choix de consentement ACCEPTÉ (le front n'envoie que les cases cochées). */
 export interface ChoixConsentement {
@@ -27,6 +29,10 @@ export interface ProjetIngestion {
   lon: number | null;
   adresseSaisie: string | null;
   adresseNormalisee: string | null;
+  // Grandeurs de visée (migration 026) — colonnes stables nullable, snapshot preuve, aucun arrondi.
+  azimutDeg: number | null;
+  hauteurSousPlafondM: number | null;
+  hauteurVisionM: number | null;
 }
 
 export interface CorpsIngestion {
@@ -36,6 +42,28 @@ export interface CorpsIngestion {
 }
 
 const VERDICTS = new Set(['SANS_VIS_A_VIS', 'VIS_A_VIS', 'INDETERMINE']);
+
+/** Tolérance de revérification de la hauteur de vision (flottant), en mètres. */
+const EPS_HAUTEUR_VISION_M = 1e-6;
+
+/**
+ * GARDE-FOU PREUVE — la hauteur de vision est une DÉRIVÉE déterministe de (etage, sous_plafond) via la formule
+ * moteur `hauteurVision` (config.ts, LECTURE SEULE). Comme le dossier peut servir de preuve en litige, la FORMULE
+ * fait foi : si les deux intrants sont présents, on recalcule et on SUBSTITUE la valeur recalculée à la valeur
+ * reçue du front (défense contre un front altéré / une divergence de version de tunnel). Un écart > epsilon est
+ * journalisé côté serveur (avertissement, non bloquant). Si un intrant manque, on conserve le snapshot reçu tel
+ * quel (rien à revérifier). Aucun arrondi.
+ */
+function hauteurVisionFiable(recue: number | null, etage: number | null, sousPlafond: number | null): number | null {
+  if (etage === null || sousPlafond === null) return recue;
+  const recalc = hauteurVision(etage, sousPlafond);
+  if (recue !== null && Math.abs(recue - recalc) > EPS_HAUTEUR_VISION_M) {
+    console.warn(
+      `[internaute] hauteur_vision reçue ${recue} ≠ recalcul ${recalc} (etage=${etage}, sousPlafond=${sousPlafond}) → valeur recalculée retenue (source = formule)`,
+    );
+  }
+  return recalc;
+}
 
 function estObjet(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -128,6 +156,9 @@ export function validerCorpsIngestion(
     if (!communeOuNull(projetBrut.communeInsee ?? null)) erreurs.push('communeInsee invalide');
     if (!nombreOuNull(projetBrut.lat ?? null)) erreurs.push('lat invalide');
     if (!nombreOuNull(projetBrut.lon ?? null)) erreurs.push('lon invalide');
+    if (!nombreOuNull(projetBrut.azimutDeg ?? null)) erreurs.push('azimutDeg invalide');
+    if (!nombreOuNull(projetBrut.hauteurSousPlafondM ?? null)) erreurs.push('hauteurSousPlafondM invalide');
+    if (!nombreOuNull(projetBrut.hauteurVisionM ?? null)) erreurs.push('hauteurVisionM invalide');
     if (erreurs.length === 0) {
       projet = {
         versionTunnel: projetBrut.versionTunnel as number,
@@ -142,6 +173,14 @@ export function validerCorpsIngestion(
         lon: (projetBrut.lon as number | undefined) ?? null,
         adresseSaisie: chaineOuNull(projetBrut.adresseSaisie ?? null) ? ((projetBrut.adresseSaisie as string) ?? null) : null,
         adresseNormalisee: chaineOuNull(projetBrut.adresseNormalisee ?? null) ? ((projetBrut.adresseNormalisee as string) ?? null) : null,
+        azimutDeg: (projetBrut.azimutDeg as number | undefined) ?? null,
+        hauteurSousPlafondM: (projetBrut.hauteurSousPlafondM as number | undefined) ?? null,
+        // Snapshot revérifié : la formule fait foi si etage + sous_plafond sont présents (garde-fou preuve).
+        hauteurVisionM: hauteurVisionFiable(
+          (projetBrut.hauteurVisionM as number | undefined) ?? null,
+          (projetBrut.etage as number | undefined) ?? null,
+          (projetBrut.hauteurSousPlafondM as number | undefined) ?? null,
+        ),
       };
     }
   }

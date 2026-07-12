@@ -7,6 +7,7 @@ import { AdresseAutocomplete } from "./components/AdresseAutocomplete";
 import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
 import type { ModeOrigine } from "./lib/svv/config";
+import { hauteurVision } from "./lib/svv/config";
 import { cardinal } from "./lib/cardinal";
 import { formaterDistanceVerdict, metresVerdictAffiches } from "./lib/formatDistance";
 import { SceauCertifie } from "./components/SceauCertifie";
@@ -832,6 +833,11 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
         lon,
         adresseSaisie: adresseBien,
         adresseNormalisee: adresseChoisie,
+        // Grandeurs de visée (LOT 2 — persistance preuve). Valeurs BRUTES, aucun arrondi. azimut = entrée validée
+        // (peut être null si non capté) ; hauteur de vision = snapshot dérivé de la formule moteur (revérifié serveur).
+        azimutDeg: azimut,
+        hauteurSousPlafondM: hauteurSousPlafond,
+        hauteurVisionM: hauteurVision(etageInitial, hauteurSousPlafond),
       },
     };
     setEnvoi(true);

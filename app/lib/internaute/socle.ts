@@ -72,8 +72,9 @@ async function insererProjet(q: RequeteTx, internauteId: string, projet: CorpsIn
   const r = await q<{ id: number }>(
     `INSERT INTO internaute_projet
        (internaute_id, version_tunnel, payload, verdict, score, etage, dernier_etage,
-        residence_principale, commune_insee, lat, lon, adresse_saisie, adresse_normalisee)
-     VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        residence_principale, commune_insee, lat, lon, adresse_saisie, adresse_normalisee,
+        azimut_deg, hauteur_sous_plafond_m, hauteur_vision_m)
+     VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
      RETURNING id`,
     [
       internauteId,
@@ -89,6 +90,9 @@ async function insererProjet(q: RequeteTx, internauteId: string, projet: CorpsIn
       projet.lon,
       projet.adresseSaisie,
       projet.adresseNormalisee,
+      projet.azimutDeg,
+      projet.hauteurSousPlafondM,
+      projet.hauteurVisionM,
     ],
   );
   return r.rows[0].id;
