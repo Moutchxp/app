@@ -202,7 +202,7 @@ export default function AuditPage() {
       {etat.statut === 'chargement' && <Message titre="Chargement…" texte="Lecture de l’audit de la période." />}
       {etat.statut === 'erreur' && <Message titre="Audit indisponible" texte="Impossible de charger l’audit (réservé au rôle administrateur)." />}
       {etat.statut === 'vide' && (
-        <Message titre="Aucune connexion sur cette période" texte="Normal en l’absence d’activité admin — ou si le cron n’a pas encore agrégé les compteurs." />
+        <Message titre="Aucune connexion sur cette période" texte="Normal en l’absence d’activité admin — ou si le traitement de maintenance quotidien n’a pas encore consolidé les compteurs." />
       )}
       {etat.statut === 'ok' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 12 }}>

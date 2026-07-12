@@ -88,8 +88,8 @@ export function Carte({
 /** Badge « source session_fin » : rappelle que la métrique n'apparaît qu'après compaction (cron). */
 export function BadgeCompaction() {
   return (
-    <span className="svv-label" title="Ces chiffres n’apparaissent qu’après le job de maintenance (cron).">
-      après compaction
+    <span className="svv-label" title="Ces chiffres n’apparaissent qu’après le traitement de maintenance quotidien.">
+      après consolidation
     </span>
   );
 }
@@ -146,7 +146,7 @@ export function TuileTrafic({ data, voile }: { data: Statistiques; voile?: strin
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto' }}>
         {data.trafic.length === 0 ? (
-          <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune visite compactée sur la période.</span>
+          <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune visite consolidée sur la période.</span>
         ) : (
           data.trafic.map((p) => <Barre key={p.bucket} label={p.bucket} valeur={p.visites} max={max} />)
         )}
@@ -186,7 +186,7 @@ export function TuileAnalyses({ data, voile }: { data: Statistiques; voile?: str
         </span>
       </div>
       <p style={{ margin: 0, fontSize: '.68rem', color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>
-        Ratios rapportés aux visites (après compaction, cron) : « — » tant qu’aucune visite n’est comptée.
+        Ratios rapportés aux visites (après le traitement de maintenance quotidien) : « — » tant qu’aucune visite n’est comptée.
       </p>
     </Carte>
   );
@@ -327,7 +327,7 @@ export function SerieTemporelle({ serie }: { serie: Statistiques['serie'] }) {
   return (
     <Carte
       titre="Activité dans le temps"
-      aide="Série GLOBALE (jamais scindée par commune). Visites : après compaction (cron)."
+      aide="Série GLOBALE (jamais scindée par commune). Visites : après le traitement de maintenance quotidien."
       badge={<BadgeCompaction />}
     >
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} role="group" aria-label="Courbes affichées">
@@ -357,7 +357,7 @@ export function SerieTemporelle({ serie }: { serie: Statistiques['serie'] }) {
         })}
       </div>
       {serie.length === 0 ? (
-        <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune activité compactée sur la période.</span>
+        <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune activité consolidée sur la période.</span>
       ) : (
         <>
           <svg
@@ -406,7 +406,7 @@ export function TuileEntonnoir({ data, voile }: { data: Statistiques; voile?: st
   return (
     <Carte titre="Entonnoir" aide="Visites ayant atteint AU MOINS chaque étape (étape la plus loin atteinte)." badge={<BadgeCompaction />} voile={voile}>
       {total === 0 ? (
-        <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune session compactée sur la période.</span>
+        <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune session consolidée sur la période.</span>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {funnel.map((p) => (

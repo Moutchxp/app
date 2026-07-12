@@ -186,14 +186,14 @@ export default function PilotagePage() {
       <header className="svv-pil-head">
         <h1 className="svv-pil-title">Pilotage</h1>
         <p className="svv-pil-sub">
-          Configuration du moteur de score en vigueur (<code>config_scoring</code>, singleton id=1) —
-          <strong> édition directe</strong>.
+          Réglages du calcul de la qualité de vue. Les valeurs modifiées ici sont
+          <strong> appliquées immédiatement</strong> aux nouvelles analyses.
         </p>
       </header>
 
       <p className="svv-pil-banniere" role="note">
-        <code>config_scoring</code> = <strong>Couche 1 (dégagement)</strong> seule. La{' '}
-        <strong>Couche 2 (photo/paysage)</strong> est en dur dans <code>config.ts</code>, non pilotable ici.
+        Seuls les réglages du <strong>dégagement</strong> sont modifiables ici. La partie{' '}
+        <strong>photo / paysage</strong> n’est pas réglable depuis cette page.
       </p>
 
       {etat.statut === 'chargement' && (
@@ -241,8 +241,8 @@ function PilotageCharge({ data }: { data: ReponseConfig }) {
         <div className="svv-pil-golden" role="status" aria-live="polite">
           <span className="svv-pil-golden-pastille" aria-hidden="true" />
           <div>
-            <strong>Attention golden.</strong> Cette valeur déplacera le golden → recalcul + rescellage
-            requis (protocole 2 commits).
+            <strong>Attention.</strong> Cette valeur influence directement le score. La modification
+            s’applique aux prochaines analyses — vérifie avant d’enregistrer.
           </div>
         </div>
       )}
@@ -338,7 +338,7 @@ function SectionVestigiales({ ctx }: { ctx: CtxPilotage }) {
       </summary>
       <div className="svv-pil-cartes">
         <p className="svv-pil-legende">
-          Colonnes conservées en base, remplacées par les <strong>Cartes d’année</strong>. Sans effet sur
+          Réglages désormais remplacés par les <strong>Cartes d’année</strong>. Sans effet sur
           le score.
         </p>
         {vestigiales.map((m) => (

@@ -114,7 +114,7 @@ describe('Lot 6 — série temporelle (SVG maison, 0 dépendance)', () => {
     expect(h).toMatch(/Visites/);
   });
   it('série vide → message clair, jamais d’erreur', () => {
-    expect(html(createElement(SerieTemporelle, { serie: [] }))).toMatch(/Aucune activité compactée/);
+    expect(html(createElement(SerieTemporelle, { serie: [] }))).toMatch(/Aucune activité consolidée/);
   });
 });
 

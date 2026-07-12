@@ -349,7 +349,7 @@ export default function BancSaisie() {
         Banc d’essai — saisie
       </h1>
       <p style={{ color: "var(--color-svv-muted)", fontSize: ".9rem", margin: "0 0 18px" }}>
-        Paramètres d’entrée d’une analyse de test. L’exécution et la comparaison des scores arrivent au Lot 5.
+        Paramètres d’entrée d’une analyse de test.
       </p>
 
       {/* 1. Adresse (BE-30) */}
@@ -602,7 +602,7 @@ export default function BancSaisie() {
           <div style={{ marginTop: 4, fontSize: ".85rem", color: "var(--color-svv-muted)" }}>
             {comparaison.ecarts && comparaison.ecarts.total > 0
               ? `${comparaison.ecarts.total} variable(s) modifiée(s) dans le profil de test.`
-              : "Profil de test identique au profil actif (aucun écart) — l’éditeur de variables arrive au Lot 2b."}
+              : "Profil de test identique au profil actif (aucun écart)."}
           </div>
 
           {/* Verdict identique (BE-56) — le verdict est 100 % géométrique, indépendant du profil */}

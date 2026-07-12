@@ -397,5 +397,5 @@ export function estVide(s: Statistiques): boolean {
 
 /** Rappel d'exploitation : les métriques session_fin n'apparaissent qu'après passage du cron de maintenance. */
 export const RAPPEL_CRON =
-  'Les visites, l’entonnoir et la provenance n’apparaissent qu’après le job de maintenance (cron, lot 3) : ' +
-  'sans cron branché, ces métriques restent vides même en cas de trafic, et les jours récents sous-comptent.';
+  'Les visites, l’entonnoir et la provenance n’apparaissent qu’après le traitement de maintenance quotidien : ' +
+  'tant qu’il n’a pas tourné, ces indicateurs restent vides même en cas de trafic, et les jours récents sont sous-estimés.';

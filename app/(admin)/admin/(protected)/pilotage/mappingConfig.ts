@@ -97,7 +97,7 @@ const IB_VESTIGIALE =
  */
 export const META: readonly ColonneMeta[] = [
   // Famille 0 — Technique
-  { colonne: 'id', libelle: 'Identifiant du profil (singleton)', unite: '— (=1)', famille: F_TECHNIQUE, statut: 'technique', defaut: 1, type: 'entier', editable: false, infobulle: 'Identifiant technique du profil (toujours 1). Non éditable, sans effet sur le score.' },
+  { colonne: 'id', libelle: 'Identifiant du profil', unite: '— (=1)', famille: F_TECHNIQUE, statut: 'technique', defaut: 1, type: 'entier', editable: false, infobulle: 'Identifiant technique du profil (toujours 1). Non éditable, sans effet sur le score.' },
 
   // Famille 1 — Distance perçue : base & nature
   { colonne: 'boost_f4', libelle: 'Boost « nature traversée » (F4)', unite: 'coefficient (m perçus / m de nature)', famille: F_DISTANCE, statut: 'VIVE', defaut: 2.5, type: 'nombre', editable: true, min: 0, max: 10, pas: 0.1, infobulle: 'Convertit les mètres de nature traversée (eau, végétation) d’un faisceau en mètres de vue perçus ajoutés : chaque mètre de nature compte pour boost_f4 mètres, dans la limite du plafond par faisceau. ↑ = les vues sur de la nature pèsent plus. N’agit que si le faisceau traverse de la nature. Ex. : obstacle à 50 m + 20 m de nature, boost 2,5 → 100 m perçus.' },

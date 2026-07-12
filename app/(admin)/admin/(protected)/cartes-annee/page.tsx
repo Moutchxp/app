@@ -166,17 +166,16 @@ export default function CartesAnneePage() {
       <header className="svv-ca-head">
         <h1 className="svv-ca-title">Cartes d’année</h1>
         <p className="svv-ca-sub">
-          Barème patrimonial <strong>par année de construction</strong> — fourchettes configurables
-          (table <code>config_famille_annee</code>). Remplace les tranches fixes « ≤ 1900 » / « 1901–1935 ».
+          Barème appliqué selon l’<strong>année de construction</strong> du bâtiment. Chaque tranche
+          d’années définit son influence sur le score de dégagement.
         </p>
       </header>
 
       <div className="svv-ca-golden" role="note">
         <span className="svv-ca-golden-pastille" aria-hidden="true" />
         <div>
-          <strong>Attention golden.</strong> Ces cartes agissent sur le <strong>score de dégagement</strong>{' '}
-          (note /80). Toute création, modification ou suppression peut déplacer le golden → recalcul +
-          rescellage requis (protocole 2 commits).
+          <strong>Attention.</strong> Ces barèmes influencent directement le <strong>score de dégagement</strong>.
+          Toute modification s’applique aux prochaines analyses — vérifie tes valeurs avant d’enregistrer.
         </div>
       </div>
 

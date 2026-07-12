@@ -1189,7 +1189,7 @@ export default function CurationCarte() {
         </div>
         <p className="svv-cur-sub">
           Corriger les rattachements des 3 familles (MH / Inventaire / Mondial) : déplacer un point
-          (réversible, borné), rattacher / détacher / composer des emprises <code>bdtopo_batiment</code>.
+          (réversible, borné), rattacher / détacher / composer des emprises de bâtiments.
         </p>
       </header>
 

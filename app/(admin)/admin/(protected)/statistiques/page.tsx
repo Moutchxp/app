@@ -143,7 +143,7 @@ export default function StatistiquesPage() {
       {etat.statut === 'vide' && (
         <Message
           titre="Aucune donnée sur cette période"
-          texte="Normal en l’absence de trafic — ou si le job de maintenance (cron) n’a pas encore compacté les sessions."
+          texte="Normal en l’absence de trafic — ou si le traitement de maintenance quotidien n’a pas encore consolidé les données."
         />
       )}
       {etat.statut === 'ok' &&
