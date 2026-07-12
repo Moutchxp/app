@@ -37,6 +37,13 @@
   .svv-card{background:#fff;border:1px solid var(--color-svv-line);border-radius:14px;padding:14px 16px}
   .svv-pill{display:inline-block;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:700;font-size:12px;border-radius:999px;padding:7px 12px}
   .svv-label{font-size:11px;font-weight:700;letter-spacing:.02em;color:#8a929e}
+  /* En-tête standard des pages admin (socle unifié — voir composant EnTetePage). */
+  .svv-page-head{margin:0 0 1rem}
+  .svv-page-head-ligne{display:flex;align-items:center;justify-content:space-between;gap:.75rem}
+  .svv-page-title{font-size:1.35rem;font-weight:800;color:var(--color-svv-ink);margin:0 0 4px}
+  .svv-page-sub{font-size:.9rem;color:var(--color-svv-muted);margin:0;line-height:1.45}
+  .svv-page-actions{flex-shrink:0}
+  .svv-page-note{background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);color:var(--color-svv-ink);padding:.6rem .8rem;border-radius:4px;margin-top:.75rem;font-size:.9rem}
 }
 
 body {
