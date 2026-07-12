@@ -257,6 +257,21 @@ function boundsEmprises(list: Emprise[]): L.LatLngBounds | null {
   return b.isValid() ? b : null;
 }
 
+/**
+ * Position { lat, lon } d'une entité pour Street View : son point propre (geom_point), sinon le
+ * centroïde des emprises rattachées de la fiche ouverte. `null` si aucune position dérivable
+ * (ni point, ni bâtiment rattaché) → le bouton Street View est désactivé.
+ * NB : `e.point.coordinates` est en ordre GeoJSON [lon, lat] ; `L.LatLng` expose { lat, lng }.
+ */
+function positionStreetView(e: Entite, emprisesLiees: Emprise[]): { lat: number; lon: number } | null {
+  if (e.point) {
+    const [lon, lat] = e.point.coordinates;
+    return { lat, lon };
+  }
+  const centre = boundsEmprises(emprisesLiees)?.getCenter();
+  return centre ? { lat: centre.lat, lon: centre.lng } : null;
+}
+
 /** Écriture normalisée (jamais de throw ; message d'erreur extrait de la réponse). */
 async function ecrire(
   url: string,
@@ -1716,6 +1731,38 @@ export default function CurationCarte() {
                             </button>
                           </>
                         )}
+                        {/* Street View : nouvel onglet (aucune API/clé Google). Position = point propre, sinon
+                            centroïde des emprises rattachées ; désactivé si aucune position dérivable. Indépendant
+                            du journal/historique. */}
+                        {(() => {
+                          const pos = positionStreetView(e, emprisesLiees);
+                          return (
+                            <button
+                              type="button"
+                              className="svv-cur-btn svv-cur-btn--mini svv-cur-btn--outline svv-cur-btn--pousse"
+                              disabled={!pos}
+                              title={
+                                pos
+                                  ? 'Ouvrir Street View dans un nouvel onglet'
+                                  : 'Position inconnue — placez le point ou rattachez un bâtiment'
+                              }
+                              onClick={() => {
+                                if (!pos) return;
+                                // Recentrer la carte sur EXACTEMENT le point ouvert dans Street View (même { lat, lon }).
+                                // Zoom aligné sur la branche « point » de recentrerSurEntite (Math.max(zoom, 17)).
+                                const map = mapRef.current;
+                                if (map) map.setView([pos.lat, pos.lon], Math.max(map.getZoom(), 17));
+                                window.open(
+                                  `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${pos.lat},${pos.lon}`,
+                                  '_blank',
+                                  'noopener,noreferrer',
+                                );
+                              }}
+                            >
+                              Street View
+                            </button>
+                          );
+                        })()}
                         {/* Volet A : bouton discret « Historique » (seulement si l'entité a ≥1 trace). */}
                         {e.aHistorique && (
                           <button
@@ -1902,6 +1949,9 @@ const CSS = `
 .svv-cur-badge--fam-mondial{background:#fff6df;color:#8a6d00}
 .svv-cur-badge--fam-inconnue{background:var(--color-svv-field);color:var(--color-svv-gray)}
 .svv-cur-btn--histo{margin-left:auto}
+/* Street View : 2e marge auto → l'espace libre se partage à parts égales avant Street View et avant
+   Historique, ce qui centre Street View entre « Sortir » (gauche) et « Historique » (droite). */
+.svv-cur-btn--pousse{margin-left:auto}
 .svv-cur-panel{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:.55rem;padding-right:.15rem}
 
 .svv-cur-creation{display:flex;flex-direction:column}
