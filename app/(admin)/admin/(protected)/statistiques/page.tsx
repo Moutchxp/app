@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { EnTetePage } from '../_composants/EnTetePage';
 import {
   construireUrl,
   fenetreDefaut,
@@ -131,10 +132,7 @@ export default function StatistiquesPage() {
   return (
     <section className="svv-stats" style={{ maxWidth: 960, display: 'flex', flexDirection: 'column', gap: 14 }}>
       <style>{CSS_ECRAN}</style>
-      <header>
-        <h1 style={{ margin: '0 0 4px', fontSize: '1.35rem', fontWeight: 800, color: 'var(--color-svv-ink)' }}>Statistiques</h1>
-        <p style={{ margin: 0, fontSize: '.78rem', color: 'var(--color-svv-muted)' }}>{RAPPEL_CRON}</p>
-      </header>
+      <EnTetePage titre="Statistiques" intro={RAPPEL_CRON} />
 
       <SelecteurFenetre fenetre={fenetre} onChange={setFenetre} presetFn={preset} />
 

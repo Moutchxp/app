@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { EnTetePage } from '../_composants/EnTetePage';
 import type { Perms, RoleAdmin } from '../../../../lib/admin/session';
 
 interface CompteVue {
@@ -353,7 +354,7 @@ export default function ComptesPage() {
   return (
     <div>
       <style>{CSS}</style>
-      <h1 className="cpt-h1">Administratif — comptes</h1>
+      <EnTetePage titre="Administratif — comptes" intro="Gestion des comptes administrateurs, de leurs rôles et de leurs permissions." />
 
       <section className="svv-card" style={{ marginBottom: 20 }}>
         <h2 className="cpt-h2">Créer un compte</h2>
@@ -398,7 +399,6 @@ export default function ComptesPage() {
 }
 
 const CSS = `
-.cpt-h1{font-size:1.2rem;font-weight:800;color:var(--color-svv-ink);margin:0 0 16px}
 .cpt-h2{font-size:1rem;font-weight:700;color:var(--color-svv-ink);margin:0 0 12px}
 .cpt-form{display:flex;flex-direction:column;gap:10px}
 .cpt-champ{min-height:44px;padding:.6rem;font-size:1rem;border:1px solid var(--color-svv-line);border-radius:.6rem;background:#fff;color:var(--color-svv-ink)}

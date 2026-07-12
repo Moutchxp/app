@@ -28,6 +28,7 @@ import {
 import type { ProfilDegagement } from "../../../../lib/svv/profilDegagement";
 import { clonerProfil, validerCartesAnnee } from "../../../../lib/svv/profilTest";
 import { assemblerBadges } from "../../../../lib/libelles";
+import { EnTetePage } from "../_composants/EnTetePage";
 import EditeurProfilTest from "./EditeurProfilTest";
 import EventailFaisceaux, { type LigneVentil } from "./EventailFaisceaux";
 
@@ -345,12 +346,7 @@ export default function BancSaisie() {
 
   return (
     <section style={{ maxWidth: 720 }}>
-      <h1 style={{ fontSize: "1.35rem", fontWeight: 800, color: "var(--color-svv-ink)", margin: "0 0 4px" }}>
-        Banc d’essai — saisie
-      </h1>
-      <p style={{ color: "var(--color-svv-muted)", fontSize: ".9rem", margin: "0 0 18px" }}>
-        Paramètres d’entrée d’une analyse de test.
-      </p>
+      <EnTetePage titre="Banc d’essai — saisie" intro="Paramètres d’entrée d’une analyse de test." />
 
       {/* 1. Adresse (BE-30) */}
       <label className="svv-label" style={{ display: "block", marginBottom: 6 }}>

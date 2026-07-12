@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { NOM_COOKIE, verifierJeton, sessionDepuisPayload } from '../../../lib/admin/session';
 import { liensVisibles } from './menuAdmin';
+import { EnTetePage } from './_composants/EnTetePage';
 
 /**
  * Tableau de bord admin. La GRILLE de tuiles dérive de `liensVisibles` — la MÊME source que le menu latéral
@@ -17,12 +18,7 @@ export default async function AdminAccueilPage() {
 
   return (
     <section style={{ maxWidth: 720 }}>
-      <h1 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--color-svv-ink)', margin: '0 0 4px' }}>
-        Tableau de bord
-      </h1>
-      <p style={{ color: 'var(--color-svv-muted)', fontSize: '.9rem', margin: '0 0 16px' }}>
-        Interface d’administration interne — Sans Vis-à-Vis®.
-      </p>
+      <EnTetePage titre="Tableau de bord" intro="Interface d’administration interne — Sans Vis-à-Vis®." />
 
       <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
         {tuiles.map((t) => (

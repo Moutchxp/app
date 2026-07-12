@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
+import { EnTetePage } from '../_composants/EnTetePage';
 import {
   construireUrl,
   fenetreDefaut,
@@ -183,10 +184,7 @@ export default function AuditPage() {
   return (
     <section className="svv-audit" style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 14 }}>
       <style>{CSS_AUDIT}</style>
-      <header>
-        <h1 style={{ margin: '0 0 4px', fontSize: '1.35rem', fontWeight: 800, color: 'var(--color-svv-ink)' }}>Audit de sécurité</h1>
-        <p style={{ margin: 0, fontSize: '.78rem', color: 'var(--color-svv-muted)' }}>{RAPPEL_AUDIT}</p>
-      </header>
+      <EnTetePage titre="Audit de sécurité" intro={RAPPEL_AUDIT} />
 
       <div className="svv-card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} role="group" aria-label="Période">
         <button type="button" style={puce(false)} onClick={() => setFenetre(preset(7, fenetre.grain))}>7 jours</button>
