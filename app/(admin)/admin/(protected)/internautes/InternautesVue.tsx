@@ -82,6 +82,13 @@ export function InternautesVue() {
   const [etat, setEtat] = useState<{ statut: 'chargement' } | { statut: 'erreur' } | { statut: 'ok'; total: number; lignes: Ligne[] }>({ statut: 'chargement' });
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailChargement, setDetailChargement] = useState(false);
+  // Actions cycle de vie (LOT 4) sur le dossier ouvert : rectification (édition A) et effacement (droit RGPD).
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [edition, setEdition] = useState(false);
+  const [formEdit, setFormEdit] = useState({ prenom: '', nom: '', email: '', telephone: '' });
+  const [confirmEffacement, setConfirmEffacement] = useState(false);
+  const [actionEnCours, setActionEnCours] = useState(false);
+  const [actionErreur, setActionErreur] = useState<string | null>(null);
 
   // Fetch sur (filtres appliqués, page). Patron admin (cf. audit/page.tsx) : setState DANS l'IIFE async (jamais
   // synchrone dans le corps de l'effet) + garde `annule` anti-course. La liste est réservée administrateur côté
@@ -122,14 +129,74 @@ export function InternautesVue() {
     setApplique(FILTRES_VIDES);
   };
 
+  const rechargerListe = () => setApplique((a) => ({ ...a })); // nouvelle référence → relance l'effet de fetch
+
   const ouvrirDetail = async (id: string) => {
+    setDetailId(id);
+    setEdition(false);
+    setConfirmEffacement(false);
+    setActionErreur(null);
     setDetailChargement(true);
     setDetail(null);
     try {
       const res = await fetch(`/api/admin/internautes/${id}`);
-      if (res.ok) setDetail(await res.json());
+      if (res.ok) {
+        const d: Detail = await res.json();
+        setDetail(d);
+        setFormEdit({
+          prenom: String(d.internaute.prenom ?? ''),
+          nom: String(d.internaute.nom ?? ''),
+          email: String(d.internaute.email ?? ''),
+          telephone: String(d.internaute.telephone ?? ''),
+        });
+      }
     } finally {
       setDetailChargement(false);
+    }
+  };
+
+  const soumettreRectification = async () => {
+    if (!detailId) return;
+    setActionEnCours(true);
+    setActionErreur(null);
+    try {
+      const res = await fetch(`/api/admin/internautes/${detailId}/rectification`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prenom: formEdit.prenom.trim(),
+          nom: formEdit.nom.trim(),
+          email: formEdit.email.trim(),
+          telephone: formEdit.telephone.trim() || null,
+        }),
+      });
+      if (!res.ok) {
+        setActionErreur(res.status === 409 ? 'Email déjà utilisé par un autre internaute.' : 'Rectification impossible.');
+        return;
+      }
+      setEdition(false);
+      rechargerListe();
+      await ouvrirDetail(detailId);
+    } finally {
+      setActionEnCours(false);
+    }
+  };
+
+  const soumettreEffacement = async () => {
+    if (!detailId) return;
+    setActionEnCours(true);
+    setActionErreur(null);
+    try {
+      const res = await fetch(`/api/admin/internautes/${detailId}/effacement`, { method: 'POST' });
+      if (!res.ok) {
+        setActionErreur('Effacement impossible.');
+        return;
+      }
+      setDetail(null);
+      setConfirmEffacement(false);
+      rechargerListe();
+    } finally {
+      setActionEnCours(false);
     }
   };
 
@@ -271,6 +338,46 @@ export function InternautesVue() {
                   </div>
                 ))}
               </div>
+
+              {/* Actions cycle de vie (LOT 4) — admin-only. Effacement = règle ASYMÉTRIQUE (A+C purgés, preuve B conservée). */}
+              {detail.internaute.efface_a ? (
+                <div style={{ color: 'var(--color-svv-muted)', borderTop: '1px solid var(--color-svv-line)', paddingTop: 8 }}>
+                  Profil effacé le {new Date(String(detail.internaute.efface_a)).toLocaleDateString('fr-FR')} — identité anonymisée, analyses supprimées ; la preuve de consentement est conservée.
+                </div>
+              ) : (
+                <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {!edition && !confirmEffacement && (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button type="button" style={btnOutline} onClick={() => { setEdition(true); setActionErreur(null); }}>Rectifier</button>
+                      <button type="button" style={{ ...btnOutline, color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }} onClick={() => { setConfirmEffacement(true); setActionErreur(null); }}>
+                        Effacer (droit à l’effacement)
+                      </button>
+                    </div>
+                  )}
+                  {edition && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <input style={champ} value={formEdit.prenom} onChange={(e) => setFormEdit({ ...formEdit, prenom: e.target.value })} placeholder="Prénom" />
+                      <input style={champ} value={formEdit.nom} onChange={(e) => setFormEdit({ ...formEdit, nom: e.target.value })} placeholder="Nom" />
+                      <input style={champ} value={formEdit.email} onChange={(e) => setFormEdit({ ...formEdit, email: e.target.value })} placeholder="Email" inputMode="email" />
+                      <input style={champ} value={formEdit.telephone} onChange={(e) => setFormEdit({ ...formEdit, telephone: e.target.value })} placeholder="Téléphone (optionnel)" />
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button type="button" style={btnRouge} disabled={actionEnCours} onClick={soumettreRectification}>Enregistrer</button>
+                        <button type="button" style={btnOutline} disabled={actionEnCours} onClick={() => setEdition(false)}>Annuler</button>
+                      </div>
+                    </div>
+                  )}
+                  {confirmEffacement && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <span style={{ color: 'var(--color-svv-ink)' }}>Anonymiser l’identité et supprimer les analyses ? La preuve de consentement est conservée. Action irréversible.</span>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button type="button" style={btnRouge} disabled={actionEnCours} onClick={soumettreEffacement}>Confirmer l’effacement</button>
+                        <button type="button" style={btnOutline} disabled={actionEnCours} onClick={() => setConfirmEffacement(false)}>Annuler</button>
+                      </div>
+                    </div>
+                  )}
+                  {actionErreur && <span style={{ color: 'var(--color-svv-red)', fontSize: '.8rem' }}>{actionErreur}</span>}
+                </div>
+              )}
             </div>
           )}
         </div>

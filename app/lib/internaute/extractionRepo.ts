@@ -28,6 +28,7 @@ const FROM_INVARIANT = `
     FROM internaute_projet pr WHERE pr.internaute_id = i.id ORDER BY pr.cree_a DESC LIMIT 1
   ) p ON true
   WHERE i.opposition_recontact = false
+    AND i.efface_a IS NULL            -- LOT 4 : un profil effacé (PII anonymisées) ne réapparaît JAMAIS en extraction
 `;
 
 function clauseWhere(clauses: string[]): string {
@@ -81,7 +82,7 @@ export async function lireProfilComplet(id: string): Promise<{
   consentements: Record<string, unknown>[];
 } | null> {
   const pers = await query(
-    `SELECT id, prenom, nom, email, telephone, source_collecte, opposition_recontact, cree_a, maj_a
+    `SELECT id, prenom, nom, email, telephone, source_collecte, opposition_recontact, cree_a, maj_a, efface_a
      FROM internaute WHERE id = $1`,
     [id],
   );
