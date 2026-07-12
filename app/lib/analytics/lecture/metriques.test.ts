@@ -11,6 +11,7 @@ import {
   provenance,
   serieParTranche,
   verdictsCommune,
+  dominantKSafe,
 } from './metriques';
 import { lireGrandLivre } from './requete';
 
@@ -183,6 +184,38 @@ describe('M-7bis verdicts d’une commune (Lot 6) — k RE-APPLIQUÉ, jamais rec
     const r = await verdictsCommune(F, '92004', 11);
     expect(r.insuffisant).toBe(true);
     expect(r.visibles).toEqual([]);
+  });
+
+});
+
+describe('Chantier B — dominantKSafe : verdict dominant SEULEMENT si k-safe', () => {
+  it('deux verdicts ≥ k → dominant = argmax (cellules déjà k-approuvées)', () => {
+    expect(dominantKSafe([{ verdict: 'SANS_VIS_A_VIS', n: 12 }, { verdict: 'VIS_A_VIS', n: 11 }], 11)).toBe('SANS_VIS_A_VIS');
+    expect(dominantKSafe([{ verdict: 'SANS_VIS_A_VIS', n: 11 }, { verdict: 'VIS_A_VIS', n: 20 }], 11)).toBe('VIS_A_VIS');
+  });
+  it('un verdict < k → suppression secondaire vide les visibles → null (bulle NEUTRE, aucun oracle « qui domine »)', () => {
+    expect(dominantKSafe([{ verdict: 'SANS_VIS_A_VIS', n: 20 }, { verdict: 'VIS_A_VIS', n: 3 }], 11)).toBeNull();
+  });
+  it('une seule cellule < k → null', () => {
+    expect(dominantKSafe([{ verdict: 'INDETERMINE', n: 4 }], 11)).toBeNull();
+  });
+  it('trois verdicts tous ≥ k → dominant = le plus grand', () => {
+    expect(dominantKSafe([{ verdict: 'SANS_VIS_A_VIS', n: 12 }, { verdict: 'VIS_A_VIS', n: 30 }, { verdict: 'INDETERMINE', n: 11 }], 11)).toBe('VIS_A_VIS');
+  });
+  it('aucune cellule → null', () => {
+    expect(dominantKSafe([], 11)).toBeNull();
+  });
+});
+
+describe('Chantier B — repartitionCommune : NON filtrée côté serveur (post-revue adverse), k-safe', () => {
+  it('renvoie les communes k-safe sans clause de filtre géo (anti-différenciation inter-vues)', async () => {
+    // 2 communes < k (8 et 3) forment un masque sûr (≥2 cellules, somme 11 ≥ k) → 92004 reste visible.
+    q.mockResolvedValueOnce([{ commune_insee: '92004', n: '50' }, { commune_insee: '75056', n: '8' }, { commune_insee: '93001', n: '3' }]);
+    const r = await repartitionCommune(F, 11);
+    expect(r.visibles.map((c) => c.commune_insee)).toEqual(['92004']); // 75056(8)+93001(3) masquées
+    const sql = sqlDe();
+    expect(sql).toMatch(/nom = 'resultat'/);
+    expect(sql).not.toMatch(/verdict = |score_tranche|left\(commune_insee/); // AUCUN filtre serveur (par conception)
   });
 });
 

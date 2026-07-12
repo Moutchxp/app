@@ -1,44 +1,44 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
+import type { Map as LeafletMap } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { bulleRayon, formatNombre, type CommuneGeo } from './affichage';
+import { bulleRayon, formatNombre, couleurDominant, LIBELLE_VERDICT, type CommuneGeo } from './affichage';
 
 /**
- * M2 — LOT 6. Carte communale (chargée en `dynamic(ssr:false)` : Leaflet accède à `window`). Bulles
- * proportionnelles (rayon ∝ √n) sur les seules communes VISIBLES (k-safe) — jointes au référentiel
- * cartographique (centroïdes, Phase 1). Une commune masquée n'a PAS de localisation → jamais tracée : la carte
- * ne peut pas devenir un canal de ré-identification (le masquage reste une note textuelle, hors carte).
+ * M2 — LOT 6 + Chantier B. Carte communale (chargée en `dynamic(ssr:false)` : Leaflet accède à `window`). Bulles
+ * proportionnelles (rayon ∝ √n) sur les seules communes VISIBLES (k-safe) — jointes au référentiel cartographique
+ * (centroïdes). Une commune masquée n'a PAS de localisation → jamais tracée : la carte ne peut pas devenir un canal
+ * de ré-identification (le masquage reste une note textuelle, hors carte).
  *
- * AUCUN BLEU sur nos éléments : bulles ROUGES (token `--color-svv-red` lu au runtime). Fond OSM = tuiles
- * métier (non concernées). Popups au TAP (CircleMarker ouvre au clic → tactile, jamais au survol seul).
- * `zoomAnimation` coupé si `prefers-reduced-motion`.
+ * COULEUR (Chantier B) : chaque bulle est teintée par le VERDICT DOMINANT de la commune, MAIS SEULEMENT quand ce
+ * dominant est k-safe (calculé côté serveur). Une commune dont le split verdict est indéterminable sous k arrive avec
+ * `dominant: null` → bulle GRIS CLAIR NEUTRE (taille seule) : aucune couleur ne trahit « quel verdict domine à faible
+ * volume ». Le client ne recalcule RIEN — il applique la couleur d'un dominant déjà anonymisé.
+ *
+ * NAVIGATION (Chantier B) : s'ouvre CENTRÉE sur l'Île-de-France (où sont les données) mais reste LIBREMENT navigable —
+ * molette/pinch (`scrollWheelZoom`) et drag actifs, `minZoom` permettant de voir la France entière, AUCUN `maxBounds`
+ * restrictif. Dézoomer montre une carte vide ailleurs (aucune donnée hors IdF) : c'est ATTENDU. Un bouton « Recentrer »
+ * ramène au cadrage initial. AUCUN BLEU sur nos éléments. Popups au TAP. `zoomAnimation` coupé si `prefers-reduced-motion`.
  */
 
-const CENTRE_IDF: [number, number] = [48.86, 2.35];
+const CENTRE_IDF: [number, number] = [48.85, 2.35]; // Paris ~ centre de la petite couronne
+const ZOOM_IDF = 11; //                               cadre 75 + 92 + 93 + 94
+const ZOOM_MIN = 5; //                                France entière visible
+const ZOOM_MAX = 18; //                               niveau rue
 
-/** Lit le rouge SVAV depuis les design tokens (le SVG Leaflet vit dans un pane où les var() ne cascadent pas toujours). */
-function lireRouge(): string {
-  if (typeof window === 'undefined') return '#a30402';
-  const v = getComputedStyle(document.documentElement).getPropertyValue('--color-svv-red').trim();
-  return v || '#a30402';
-}
-
-/** Cadre la carte sur les communes tracées + corrige la taille (conteneur à 0 au montage : iOS Safari, onglet caché). */
-function Cadreur({ points }: { points: CommuneGeo[] }) {
+/** Capte l'instance Leaflet (pour le bouton « Recentrer ») + corrige la taille (conteneur à 0 au montage : iOS Safari,
+ *  onglet caché). Ne cadre PAS sur les points : le cadrage initial IdF est STABLE (center/zoom fixes), indépendant du
+ *  volume de données (Chantier B — ouverture IdF, pas un fit-to-data qui zoomerait à fond sur une commune isolée). */
+function Controleur({ mapRef }: { mapRef: MutableRefObject<LeafletMap | null> }) {
   const map = useMap();
   useEffect(() => {
+    mapRef.current = map;
     map.invalidateSize();
-    if (points.length > 0) {
-      map.fitBounds(
-        points.map((p) => [p.lat, p.lon] as [number, number]),
-        { padding: [24, 24], maxZoom: 13 },
-      );
-    }
     const t = setTimeout(() => map.invalidateSize(), 250);
     return () => clearTimeout(t);
-  }, [map, points]);
+  }, [map, mapRef]);
   return null;
 }
 
@@ -50,38 +50,67 @@ export interface CarteCommunesProps {
 }
 
 export default function CarteCommunes({ communes, selection, onSelect, reducedMotion }: CarteCommunesProps) {
-  const rouge = useMemo(() => lireRouge(), []);
+  const mapRef = useRef<LeafletMap | null>(null);
   const max = useMemo(() => communes.reduce((m, c) => Math.max(m, c.n), 1), [communes]);
   return (
-    <MapContainer
-      center={CENTRE_IDF}
-      zoom={10}
-      style={{ height: 320, width: '100%', borderRadius: 10 }}
-      zoomAnimation={!reducedMotion}
-      markerZoomAnimation={!reducedMotion}
-      scrollWheelZoom={false}
-      aria-label="Carte des communes où des analyses ont abouti (résultats produits)"
-    >
-      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
-      {communes.map((c) => {
-        const actif = c.commune_insee === selection;
-        return (
-          <CircleMarker
-            key={c.commune_insee}
-            center={[c.lat, c.lon]}
-            radius={bulleRayon(c.n, max)}
-            pathOptions={{ color: rouge, weight: actif ? 3 : 1, fillColor: rouge, fillOpacity: actif ? 0.55 : 0.28 }}
-            eventHandlers={{ click: () => onSelect(c.commune_insee) }}
-          >
-            <Popup>
-              <strong>{c.nom}</strong>
-              <br />
-              {formatNombre(c.n)} analyse{c.n > 1 ? 's' : ''} (résultats)
-            </Popup>
-          </CircleMarker>
-        );
-      })}
-      <Cadreur points={communes} />
-    </MapContainer>
+    <div style={{ position: 'relative' }}>
+      <MapContainer
+        center={CENTRE_IDF}
+        zoom={ZOOM_IDF}
+        minZoom={ZOOM_MIN}
+        maxZoom={ZOOM_MAX}
+        style={{ height: 340, width: '100%', borderRadius: 10 }}
+        zoomAnimation={!reducedMotion}
+        markerZoomAnimation={!reducedMotion}
+        scrollWheelZoom
+        aria-label="Carte des communes où des analyses ont abouti — bulles colorées par verdict dominant (anonymisé k)"
+      >
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
+        {communes.map((c) => {
+          const actif = c.commune_insee === selection;
+          const couleur = couleurDominant(c.dominant); // dominant déjà k-safe ; null → gris clair neutre
+          return (
+            <CircleMarker
+              key={c.commune_insee}
+              center={[c.lat, c.lon]}
+              radius={bulleRayon(c.n, max)}
+              pathOptions={{ color: couleur, weight: actif ? 3 : 1, fillColor: couleur, fillOpacity: actif ? 0.6 : 0.35 }}
+              eventHandlers={{ click: () => onSelect(c.commune_insee) }}
+            >
+              <Popup>
+                <strong>{c.nom}</strong>
+                <br />
+                {formatNombre(c.n)} analyse{c.n > 1 ? 's' : ''} (résultats)
+                <br />
+                {c.dominant ? `Verdict dominant : ${LIBELLE_VERDICT[c.dominant]}` : 'Verdict dominant : anonymisé (k)'}
+              </Popup>
+            </CircleMarker>
+          );
+        })}
+        <Controleur mapRef={mapRef} />
+      </MapContainer>
+      <button
+        type="button"
+        onClick={() => mapRef.current?.setView(CENTRE_IDF, ZOOM_IDF)}
+        aria-label="Recentrer la carte sur l’Île-de-France"
+        style={{
+          position: 'absolute',
+          top: 10,
+          right: 10,
+          zIndex: 1000,
+          minHeight: 44,
+          padding: '0 12px',
+          borderRadius: 10,
+          border: '1px solid var(--color-svv-red)',
+          background: '#fff',
+          color: 'var(--color-svv-red)',
+          fontWeight: 700,
+          fontSize: '.76rem',
+          cursor: 'pointer',
+        }}
+      >
+        Recentrer Île-de-France
+      </button>
+    </div>
   );
 }

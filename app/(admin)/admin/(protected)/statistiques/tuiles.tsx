@@ -10,8 +10,11 @@ import {
   maxSerie,
   coordsSerie,
   joindreGeo,
+  filtrerCommunesClient,
   ratioPct,
+  couleurDominant,
   LIBELLE_VERDICT,
+  DEPARTEMENTS_IDF,
   type CleSerie,
   type Fenetre,
   type Grain,
@@ -19,6 +22,8 @@ import {
   type VentilationSure,
   type FiltreCommune,
   type RefCommunes,
+  type FiltresGeo,
+  type VerdictType,
 } from './affichage';
 
 // Carte chargée CÔTÉ CLIENT seulement (Leaflet accède à `window`). `ssr: false` → rien au SSR/1er rendu →
@@ -413,43 +418,110 @@ export function TuileEntonnoir({ data, voile }: { data: Statistiques; voile?: st
   );
 }
 
+/** Chip de filtre (rouge plein quand actif, contour neutre sinon). Réutilise `stylePuce`. ≥44px, aucun bleu. */
+function ChipFiltre({ actif, onClick, children }: { actif: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" aria-pressed={actif} onClick={onClick} style={stylePuce(actif)}>
+      {children}
+    </button>
+  );
+}
+
+const styleSelect: CSSProperties = { minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-line)', background: '#fff', color: 'var(--color-svv-ink)', fontSize: '.82rem' };
+
+/** Légende des couleurs de bulle = verdict dominant k-safe (ou neutre). AUCUN bleu (tokens svv + gris clair neutre). */
+function LegendeVerdict() {
+  const items = [
+    { c: couleurDominant('SANS_VIS_A_VIS'), l: 'Sans vis-à-vis domine' },
+    { c: couleurDominant('VIS_A_VIS'), l: 'Vis-à-vis domine' },
+    { c: couleurDominant('INDETERMINE'), l: 'Indéterminé domine' },
+    { c: couleurDominant(null), l: 'Anonymisé (k)' },
+  ];
+  return (
+    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: '.68rem', color: 'var(--color-svv-muted)' }} aria-label="Légende des couleurs de bulle">
+      {items.map((it) => (
+        <span key={it.l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 999, background: it.c, flexShrink: 0, border: '1px solid var(--color-svv-line)' }} aria-hidden />
+          {it.l}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function TuileCommunes({
   data,
   refGeo,
   selection,
   onSelect,
   reducedMotion,
+  filtres,
+  onFiltres,
 }: {
   data: Statistiques;
   refGeo: RefCommunes | null; //                       référentiel cartographique (endpoint géo) — null si non chargé
   selection: string | null;
   onSelect: (insee: string | null) => void; //         null = « toutes communes »
   reducedMotion: boolean;
+  filtres: FiltresGeo; //                               Chantier B : filtre d'AFFICHAGE (verdict-dominant / dept), CLIENT
+  onFiltres: (f: FiltresGeo) => void; //                changement → filtrage CLIENT du payload k-safe (AUCUN refetch)
 }) {
   const c = data.communes;
-  const tri = [...c.visibles].sort((a, b) => b.n - a.n);
+  // Filtrage CLIENT (post-revue adverse) sur les communes DÉJÀ k-safe : verdict par DOMINANT (déjà anonymisé),
+  // département par préfixe INSEE. Ne requête rien, ne révèle rien de plus que le payload → aucune différenciation.
+  const visiblesFiltrees = filtrerCommunesClient(c.visibles, filtres);
+  const tri = [...visiblesFiltrees].sort((a, b) => b.n - a.n);
   const max = Math.max(1, ...tri.map((x) => x.n));
   const geo = refGeo ? joindreGeo(tri, refGeo) : []; // ne trace QUE les visibles (k-safe) ayant un centroïde connu
   const nomDe = (insee: string) => refGeo?.[insee]?.nom ?? `Commune ${insee}`;
+  const filtreActif = !!(filtres.verdict || filtres.departement);
+  const set = (patch: Partial<FiltresGeo>) => onFiltres({ ...filtres, ...patch });
   return (
     <Carte titre="Communes" aide={`Où des analyses ont abouti (résultats produits, grain commune, anonymisé k=${data.k}). Jamais d’adresse ni de point.`}>
+      {/* Barre de filtres d'AFFICHAGE (Chantier B, post-revue) : appliqués CÔTÉ CLIENT au payload k-safe, aucun refetch. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div role="group" aria-label="Filtre par verdict dominant" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span className="svv-label" style={{ fontSize: '.72rem' }}>Verdict dominant</span>
+          <ChipFiltre actif={!filtres.verdict} onClick={() => set({ verdict: null })}>Tous</ChipFiltre>
+          <ChipFiltre actif={filtres.verdict === 'SANS_VIS_A_VIS'} onClick={() => set({ verdict: 'SANS_VIS_A_VIS' as VerdictType })}>Sans vis-à-vis</ChipFiltre>
+          <ChipFiltre actif={filtres.verdict === 'VIS_A_VIS'} onClick={() => set({ verdict: 'VIS_A_VIS' as VerdictType })}>Vis-à-vis</ChipFiltre>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>
+            Département
+            <select value={filtres.departement ?? ''} onChange={(e) => set({ departement: e.target.value || null })} style={styleSelect}>
+              <option value="">Tous</option>
+              {DEPARTEMENTS_IDF.map((d) => <option key={d.code} value={d.code}>{d.nom}</option>)}
+            </select>
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>
+            Commune
+            <select value={selection ?? ''} onChange={(e) => onSelect(e.target.value || null)} style={styleSelect}>
+              <option value="">Toutes</option>
+              {tri.map((x) => <option key={x.commune_insee} value={x.commune_insee}>{nomDe(x.commune_insee)}</option>)}
+            </select>
+          </label>
+        </div>
+      </div>
+
       {c.insuffisant ? (
-        <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>Données insuffisantes pour l’anonymat sur cette période.</span>
+        <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>
+          Données insuffisantes pour l’anonymat sur cette période.
+        </span>
       ) : c.visibles.length === 0 && !c.masque ? (
         <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune commune sur la période.</span>
+      ) : tri.length === 0 ? (
+        <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune commune ne correspond au filtre d’affichage (verdict dominant / département).</span>
       ) : (
         <>
-          {selection && (
-            <button type="button" onClick={() => onSelect(null)} style={stylePuce(false)}>
-              ← Toutes communes
-            </button>
-          )}
           {geo.length > 0 && (
             <>
               <CarteCommunes communes={geo} selection={selection} onSelect={(insee) => onSelect(insee)} reducedMotion={reducedMotion} />
+              <LegendeVerdict />
               {/* Légende d'échelle (constat R4) : le rayon est un REPÈRE relatif (racine bornée), pas une mesure. */}
               <p style={{ margin: 0, fontSize: '.68rem', color: 'var(--color-svv-muted)' }}>
-                Taille des bulles ∝ nombre de résultats (repère relatif ; comptes exacts dans la liste).
+                Taille des bulles ∝ nombre de résultats (repère relatif ; comptes exacts dans la liste). Dézoomer montre
+                une carte vide hors Île-de-France — normal, aucune donnée ailleurs.
               </p>
             </>
           )}
@@ -479,12 +551,17 @@ export function TuileCommunes({
                     padding: '4px 8px',
                   }}
                 >
-                  <Barre label={nomDe(x.commune_insee)} valeur={x.n} max={max} couleur={actif ? 'var(--color-svv-red)' : undefined} />
+                  <Barre label={nomDe(x.commune_insee)} valeur={x.n} max={max} couleur={actif ? 'var(--color-svv-red)' : couleurDominant(x.dominant)} />
                 </button>
               );
             })}
           </div>
-          <NoteMasque v={c} />
+          {/* Note de masquage (Chantier B) : COMPTE sans identité ni localisation, rouge contour, adaptée au filtre. */}
+          {c.masque && (
+            <p role="note" style={{ margin: '2px 0 0', fontSize: '.72rem', color: 'var(--color-svv-red)', fontStyle: 'italic', border: '1px solid var(--color-svv-red)', borderRadius: 8, padding: '4px 8px' }}>
+              {c.masque.nbCellules} commune(s) masquée(s) sur la période — données insuffisantes pour l’anonymat (jamais nommées ni localisées).
+            </p>
+          )}
         </>
       )}
     </Carte>

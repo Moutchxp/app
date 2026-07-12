@@ -126,13 +126,26 @@ export async function entonnoir(fenetre: Fenetre): Promise<PointEntonnoir[]> {
   return ORDRE_ETAPES.map((e) => ({ etape: e, atteinte_max: parEtape[e] ?? 0 }));
 }
 
-// ── M-7 : répartition géographique au grain COMMUNE (k-supprimée) ─────────────────────────────────────
+// ── M-7 : répartition géographique au grain COMMUNE (k-supprimée) + verdict dominant (Chantier B) ──────
+export type VerdictType = 'SANS_VIS_A_VIS' | 'VIS_A_VIS' | 'INDETERMINE';
+export type DominantVerdict = VerdictType; //          couleur de bulle ; `null` = indéterminable sous k
+
 export interface CelluleCommune {
   commune_insee: string;
   n: number;
+  dominant?: DominantVerdict | null; //                Chantier B : verdict dominant k-safe (couleur) ; null = indéterminable
 }
-/** Densité d'analyses par commune (M-7), depuis les `resultat`. k-ANONYMISÉE : communes < k masquées +
- *  suppression secondaire (anti-soustraction). N'expose jamais le grand total incluant les masquées. */
+
+/**
+ * Densité d'analyses par commune (M-7), depuis les `resultat`. k-ANONYMISÉE : communes < k masquées + suppression
+ * secondaire (anti-soustraction). N'expose jamais le grand total incluant les masquées.
+ *
+ * ⚠️ NON FILTRÉE CÔTÉ SERVEUR (Chantier B, révision post-revue adverse) : une version filtrée par verdict/score aurait
+ * exposé, PAR COMMUNE, des comptes REDÉFINIS par chaque filtre → différenciation inter-vues (`Tous − verdict` isole
+ * une cellule < k). Le serveur ne publie donc qu'UNE vue par période (non filtrée, k-safe). Tout filtrage de la carte
+ * est CLIENT-only, appliqué à ce seul payload k-safe (verdict via le `dominant` déjà anonymisé, département par
+ * préfixe) → aucune nouvelle vue serveur, aucune différenciation possible. Cf. rapport, écart C.
+ */
 export async function repartitionCommune(fenetre: Fenetre, k: number): Promise<VentilationSure<CelluleCommune>> {
   const { clause, params } = filtreFenetre(fenetre);
   const rows = await lireGrandLivre<{ commune_insee: string; n: string }>(
@@ -259,6 +272,53 @@ export async function verdictsCommune(fenetre: Fenetre, commune: string, k: numb
   return ventilerSous_k(cells, k);
 }
 
+/**
+ * Verdict DOMINANT k-safe d'une commune, à partir de ses cellules verdict. `ventilerSous_k` d'abord (suppression
+ * primaire + secondaire, MÊME politique 0.3), puis argmax des cellules VISIBLES. `null` si le split est `insuffisant`
+ * ou sans cellule visible → la commune ne sera PAS colorée (bulle neutre) : aucune couleur ne révèle un verdict que
+ * `ventilerSous_k` n'aurait pas déjà déclaré restituable. PUR & déterministe (testé unitairement).
+ */
+export function dominantKSafe(cells: CelluleVerdict[], k: number): DominantVerdict | null {
+  const v = ventilerSous_k(cells, k);
+  if (v.insuffisant || v.visibles.length === 0) return null;
+  return v.visibles.reduce((a, b) => (b.n > a.n ? b : a)).verdict;
+}
+
+/**
+ * M-7ter (Chantier B) — verdict DOMINANT par commune, pour COLORER la carte, SEULEMENT quand il est k-safe.
+ *
+ * UNE seule requête `GROUP BY commune, verdict` (fenêtre seule, NON filtrée : invariant aux filtres d'affichage
+ * client → pas de différenciation), puis `ventilerSous_k` PAR commune : le dominant = l'argmax des cellules VISIBLES
+ * (donc déjà k-approuvées par la même politique 0.3). Si le split de la commune est `insuffisant` (résidu non
+ * sécurisable) ou sans cellule visible → `null` (bulle NEUTRE) : on ne colore JAMAIS une commune dont on ne pourrait
+ * pas révéler le verdict sans oracle « quel verdict domine à faible volume ».
+ *
+ * ⚠️ ÉTANCHÉITÉ : le dominant n'est calculé QUE pour les communes k-visibles passées en `autorisees` (issues de
+ * `repartitionCommune.visibles`). Une commune masquée n'a jamais de couleur — ni même d'entrée. Aucune couleur ne
+ * révèle une cellule que `ventilerSous_k` n'aurait pas déjà déclarée restituable.
+ */
+async function communesDominant(fenetre: Fenetre, k: number, autorisees: string[]): Promise<Map<string, DominantVerdict | null>> {
+  const out = new Map<string, DominantVerdict | null>();
+  if (autorisees.length === 0) return out;
+  const permis = new Set(autorisees);
+  const { clause, params } = filtreFenetre(fenetre);
+  const rows = await lireGrandLivre<{ commune_insee: string; verdict: string | null; n: string }>(
+    `SELECT commune_insee, verdict, SUM(n)::bigint AS n FROM analytics_compteur_jour
+      WHERE nom = 'resultat' AND commune_insee IS NOT NULL AND verdict IS NOT NULL AND ${clause}
+      GROUP BY commune_insee, verdict`,
+    params,
+  );
+  const parCommune = new Map<string, CelluleVerdict[]>();
+  for (const r of rows) {
+    if (!r.verdict || !permis.has(r.commune_insee)) continue; // JAMAIS de dominant hors des k-visibles autorisées
+    const arr = parCommune.get(r.commune_insee) ?? [];
+    arr.push({ verdict: r.verdict as CelluleVerdict['verdict'], n: nombre(r.n) });
+    parCommune.set(r.commune_insee, arr);
+  }
+  for (const insee of autorisees) out.set(insee, dominantKSafe(parCommune.get(insee) ?? [], k)); // null si non restituable
+  return out;
+}
+
 // ── M-1 : provenance (buckets référent / UTM, déjà anonymisés au Lot 2) ───────────────────────────────
 export interface CelluleSource {
   source: string | null;
@@ -324,11 +384,18 @@ export interface Statistiques {
 export async function statistiques(fenetre: Fenetre, commune?: string | null): Promise<Statistiques> {
   const k = await lireSeuilK();
   const trafic = await traficParTranche(fenetre);
-  const verdicts = await repartitionVerdicts(fenetre);
-  const analyses = await comptesAnalyses(fenetre);
+  const verdicts = await repartitionVerdicts(fenetre); //  GLOBAL, NON filtré (vue d'ensemble des verdicts)
+  const analyses = await comptesAnalyses(fenetre); //      GLOBAL
   const ent = await entonnoir(fenetre);
-  const communes = await repartitionCommune(fenetre, k);
-  const prov = await provenance(fenetre, k);
+  // Carte : UNE vue k-safe par période (Chantier B, post-revue) + verdict dominant k-safe par commune (couleur).
+  // Le filtrage verdict/département est CLIENT-only sur ce payload → aucune vue serveur supplémentaire (anti-différenciation).
+  const communesBrutes = await repartitionCommune(fenetre, k);
+  const dominants = await communesDominant(fenetre, k, communesBrutes.visibles.map((c) => c.commune_insee));
+  const communes: VentilationSure<CelluleCommune> = {
+    ...communesBrutes,
+    visibles: communesBrutes.visibles.map((c) => ({ ...c, dominant: dominants.get(c.commune_insee) ?? null })),
+  };
+  const prov = await provenance(fenetre, k); //            GLOBAL (acquisition, XOR : jamais filtré par la géo)
   const serie = await serieParTranche(fenetre);
   // ⚠️ GARDE k-ANONYMAT — LE SERVEUR EST LA FRONTIÈRE DE CONFIANCE (constat revue R1). On ne scope les
   // verdicts QUE si la commune est k-VISIBLE dans CETTE fenêtre (présente dans `communes.visibles`). Une

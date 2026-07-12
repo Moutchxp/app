@@ -39,12 +39,14 @@ describe('masquage k — affiché tel quel, jamais reconstitué', () => {
         selection: null,
         onSelect: () => {},
         reducedMotion: false,
+        filtres: {},
+        onFiltres: () => {},
       }),
     );
     expect(h).toMatch(/Données insuffisantes/);
     expect(h).not.toMatch(/Commune \d/);
   });
-  it('communes visibles + masque → agrégat FOURNI (2 zones, total 13), jamais une commune masquée isolée', () => {
+  it('communes visibles + masque → COMPTE de communes masquées, jamais une commune isolée ni localisée', () => {
     const h = html(
       createElement(TuileCommunes, {
         data: avec({ communes: { visibles: [{ commune_insee: '92004', n: 50 }], masque: { nbCellules: 2, total: 13 } } }),
@@ -52,10 +54,12 @@ describe('masquage k — affiché tel quel, jamais reconstitué', () => {
         selection: null,
         onSelect: () => {},
         reducedMotion: false,
+        filtres: {},
+        onFiltres: () => {},
       }),
     );
     expect(h).toMatch(/92004/);
-    expect(h).toMatch(/2 zones masquées \(total 13\)/);
+    expect(h).toMatch(/2 commune\(s\) masquée\(s\)/); // Chantier B : COMPTE seul (jamais nommées ni localisées)
   });
 });
 
@@ -156,6 +160,8 @@ describe('Lot 6 — carte client-only (dynamic ssr:false), jamais montée au SSR
         selection: null,
         onSelect: () => {},
         reducedMotion: false,
+        filtres: {},
+        onFiltres: () => {},
       }),
     );
     expect(h).toMatch(/Asnières-sur-Seine/); // nom résolu depuis le référentiel géo (pas « Commune 92004 »)
@@ -176,6 +182,42 @@ describe('Chantier A — TuileAnalyses : KPI conversions robustes (jamais de cra
     // levait « Cannot read properties of undefined (reading 'toLocaleString') » et plantait toute la page.
     const skew = { ...base, analyses: { lancees: 2, resultats: 1 } as unknown as Statistiques['analyses'] };
     expect(() => html(createElement(TuileAnalyses, { data: skew }))).not.toThrow();
+  });
+});
+
+describe('Chantier B — TuileCommunes : barre de filtres (client) + légende + note masquage (SSR)', () => {
+  const ref = { '92004': { nom: 'Asnières-sur-Seine', centroid: [2.28, 48.91] as [number, number] } };
+  it('rend chips « Verdict dominant » + sélecteurs Département/Commune + légende des couleurs (pas de filtre score)', () => {
+    const h = html(
+      createElement(TuileCommunes, {
+        data: avec({ communes: { visibles: [{ commune_insee: '92004', n: 40, dominant: 'SANS_VIS_A_VIS' }], masque: null } }),
+        refGeo: ref,
+        selection: null,
+        onSelect: () => {},
+        reducedMotion: false,
+        filtres: {},
+        onFiltres: () => {},
+      }),
+    );
+    expect(h).toMatch(/Verdict dominant/);
+    expect(h).toMatch(/Sans vis-à-vis/);
+    expect(h).toMatch(/Département/);
+    expect(h).toMatch(/domine/); //   légende des couleurs de bulle (verdict dominant)
+    expect(h).not.toMatch(/Score/); // le filtre score a été RETIRÉ (anti-différenciation)
+  });
+  it('masque serveur présent → note ROUGE « N communes masquées sur la période », compte SANS identité ni localisation', () => {
+    const h = html(
+      createElement(TuileCommunes, {
+        data: avec({ communes: { visibles: [{ commune_insee: '92004', n: 40, dominant: 'SANS_VIS_A_VIS' }], masque: { nbCellules: 3, total: 20 } } }),
+        refGeo: ref,
+        selection: null,
+        onSelect: () => {},
+        reducedMotion: false,
+        filtres: {},
+        onFiltres: () => {},
+      }),
+    );
+    expect(h).toMatch(/3 commune\(s\) masquée\(s\) sur la période/); // COMPTE seul, période (masquage serveur, pas le filtre client)
   });
 });
 

@@ -15,7 +15,9 @@ import {
   polySerie,
   bulleRayon,
   joindreGeo,
+  filtrerCommunesClient,
   ratioPct,
+  couleurDominant,
   PLANCHER_N,
   type SeriePoint,
   type RefCommunes,
@@ -168,6 +170,55 @@ describe('ratioPct — ratio d’affichage % avec garde division par zéro (Chan
   });
 });
 
+describe('Chantier B — filtrerCommunesClient : filtre d’AFFICHAGE sur données déjà k-safe (aucun serveur)', () => {
+  const cells = [
+    { commune_insee: '92004', n: 40, dominant: 'SANS_VIS_A_VIS' as const },
+    { commune_insee: '93001', n: 30, dominant: 'VIS_A_VIS' as const },
+    { commune_insee: '75056', n: 20, dominant: null },
+  ];
+  it('sans filtre → tout passe (identique)', () => {
+    expect(filtrerCommunesClient(cells, {}).map((c) => c.commune_insee)).toEqual(['92004', '93001', '75056']);
+  });
+  it('verdict → garde les communes dont le DOMINANT matche (jamais les neutres)', () => {
+    expect(filtrerCommunesClient(cells, { verdict: 'SANS_VIS_A_VIS' }).map((c) => c.commune_insee)).toEqual(['92004']);
+    expect(filtrerCommunesClient(cells, { verdict: 'VIS_A_VIS' }).map((c) => c.commune_insee)).toEqual(['93001']);
+  });
+  it('departement → préfixe INSEE (communes ENTIÈRES)', () => {
+    expect(filtrerCommunesClient(cells, { departement: '9' }).map((c) => c.commune_insee)).toEqual(['92004', '93001']);
+    expect(filtrerCommunesClient(cells, { departement: '75' }).map((c) => c.commune_insee)).toEqual(['75056']);
+  });
+  it('verdict + departement combinés', () => {
+    expect(filtrerCommunesClient(cells, { verdict: 'VIS_A_VIS', departement: '93' }).map((c) => c.commune_insee)).toEqual(['93001']);
+  });
+});
+
+describe('Chantier B — couleurDominant : k-safe → couleur, sinon NEUTRE, AUCUN bleu', () => {
+  it('mappe chaque verdict + null/undefined → gris clair neutre', () => {
+    expect(couleurDominant('SANS_VIS_A_VIS')).toBe('var(--color-svv-red)');
+    expect(couleurDominant('VIS_A_VIS')).toBe('var(--color-svv-ink)');
+    expect(couleurDominant('INDETERMINE')).toBe('var(--color-svv-muted)');
+    expect(couleurDominant(null)).toBe('#c9c9c9'); //      indéterminable sous k → neutre
+    expect(couleurDominant(undefined)).toBe('#c9c9c9');
+  });
+  it('aucune couleur n’est bleue', () => {
+    for (const d of ['SANS_VIS_A_VIS', 'VIS_A_VIS', 'INDETERMINE', null] as const) {
+      expect(/blue|bleu|#0{0,4}f{1,4}\b|#0000ff/i.test(couleurDominant(d))).toBe(false);
+    }
+  });
+});
+
+describe('Chantier B — joindreGeo transporte le dominant (jamais recalculé côté client)', () => {
+  const ref = { '92004': { nom: 'Asnières', centroid: [2.28, 48.91] as [number, number] } };
+  it('reprend le dominant fourni par le serveur', () => {
+    const g = joindreGeo([{ commune_insee: '92004', n: 12, dominant: 'SANS_VIS_A_VIS' }], ref);
+    expect(g[0].dominant).toBe('SANS_VIS_A_VIS');
+  });
+  it('dominant absent → null (bulle neutre)', () => {
+    const g = joindreGeo([{ commune_insee: '92004', n: 12 }], ref);
+    expect(g[0].dominant).toBeNull();
+  });
+});
+
 describe('Lot 6 — série temporelle (helpers PURS, testables sans rendu)', () => {
   const serie: SeriePoint[] = [
     { bucket: '2026-01-01', visites: 4, analysesLancees: 2, resultats: 1, sans: 1, vis: 0, ind: 0, certificats: 0, plusvalue: 0, estimationImmo: 0, totalEstimations: 0 },
@@ -206,6 +257,6 @@ describe('Lot 6 — carte communale (helpers PURS)', () => {
   it('joindreGeo ne trace QUE les communes VISIBLES ayant un centroïde connu (jamais « au hasard »)', () => {
     const ref: RefCommunes = { '92004': { nom: 'Asnières-sur-Seine', centroid: [2.28, 48.91] } };
     const out = joindreGeo([{ commune_insee: '92004', n: 5 }, { commune_insee: '99999', n: 3 }], ref);
-    expect(out).toEqual([{ commune_insee: '92004', n: 5, nom: 'Asnières-sur-Seine', lon: 2.28, lat: 48.91 }]);
+    expect(out).toEqual([{ commune_insee: '92004', n: 5, nom: 'Asnières-sur-Seine', lon: 2.28, lat: 48.91, dominant: null }]);
   });
 });

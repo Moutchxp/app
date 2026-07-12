@@ -46,9 +46,36 @@ export interface VentilationSure<T> {
   masque: GroupeMasque | null;
   insuffisant?: boolean;
 }
+// ── Chantier B : verdict dominant (miroir serveur) + filtres d'AFFICHAGE client ───────────────────────
+export type VerdictType = 'SANS_VIS_A_VIS' | 'VIS_A_VIS' | 'INDETERMINE';
+export type DominantVerdict = VerdictType;
+/**
+ * Filtres d'AFFICHAGE de la carte (Chantier B, révision post-revue adverse). Appliqués CÔTÉ CLIENT sur le SEUL
+ * payload k-safe (JAMAIS un paramètre serveur → aucune nouvelle vue → aucune différenciation inter-vues qui
+ * isolerait une cellule < k). `verdict` filtre par verdict DOMINANT (déjà anonymisé côté serveur) ; `departement`
+ * par préfixe INSEE. Le filtre SCORE a été RETIRÉ : il aurait exigé des comptes par commune×tranche, vecteur de
+ * différenciation. Cf. rapport, écart C.
+ */
+export interface FiltresGeo {
+  verdict?: VerdictType | null;
+  departement?: string | null;
+}
 export interface CelluleCommune {
   commune_insee: string;
   n: number;
+  dominant?: DominantVerdict | null; // Chantier B : verdict dominant k-safe (couleur bulle) ; null = neutre (sous k)
+}
+/**
+ * Filtre d'AFFICHAGE des communes déjà k-safe (renvoyées par l'API). PUR, client : ne requête rien, ne recalcule
+ * aucune ventilation, ne révèle rien de plus que le payload déjà publié → INOFFENSIF pour le k. `verdict` garde les
+ * communes dont le DOMINANT (déjà k-safe) matche ; `departement` celles dont le code INSEE commence par le dept.
+ */
+export function filtrerCommunesClient(visibles: CelluleCommune[], filtres: FiltresGeo): CelluleCommune[] {
+  return visibles.filter(
+    (c) =>
+      (!filtres.verdict || c.dominant === filtres.verdict) &&
+      (!filtres.departement || c.commune_insee.startsWith(filtres.departement)),
+  );
 }
 export interface CelluleSource {
   source: string | null;
@@ -144,6 +171,35 @@ export function construireUrl(f: Fenetre, commune?: string | null): string {
   const p = new URLSearchParams({ debut: f.debut, fin: f.fin, grain: f.grain });
   if (commune) p.set('commune', commune);
   return `/api/admin/statistiques?${p.toString()}`;
+}
+
+/** Départements du périmètre RÉEL des données (Paris + petite/moyenne couronne). Sélecteur de filtre d'affichage. */
+export const DEPARTEMENTS_IDF: ReadonlyArray<{ code: string; nom: string }> = [
+  { code: '75', nom: 'Paris (75)' },
+  { code: '92', nom: 'Hauts-de-Seine (92)' },
+  { code: '93', nom: 'Seine-Saint-Denis (93)' },
+  { code: '94', nom: 'Val-de-Marne (94)' },
+  { code: '77', nom: 'Seine-et-Marne (77)' },
+  { code: '78', nom: 'Yvelines (78)' },
+  { code: '91', nom: 'Essonne (91)' },
+  { code: '95', nom: 'Val-d’Oise (95)' },
+];
+/**
+ * Couleur d'une bulle selon le verdict DOMINANT (déjà k-safe côté serveur). `null`/absent → gris clair NEUTRE :
+ * une commune dont le dominant est indéterminable sous k n'est JAMAIS colorée (sinon oracle « quel verdict domine
+ * à faible volume »). AUCUN bleu. Le client ne calcule rien : il applique la couleur d'un dominant fourni.
+ */
+export function couleurDominant(d: DominantVerdict | null | undefined): string {
+  switch (d) {
+    case 'SANS_VIS_A_VIS':
+      return 'var(--color-svv-red)'; //   rouge : Sans vis-à-vis domine
+    case 'VIS_A_VIS':
+      return 'var(--color-svv-ink)'; //   gris foncé : Vis-à-vis domine
+    case 'INDETERMINE':
+      return 'var(--color-svv-muted)'; // gris moyen : Indéterminé domine
+    default:
+      return '#c9c9c9'; //                gris clair NEUTRE : dominant indéterminable sous k
+  }
 }
 /** Endpoint du référentiel cartographique (Lot 6) : pure géo (centroïdes), hors k, jamais la base côté client. */
 export const URL_GEO = '/api/admin/geo/communes';
@@ -308,18 +364,20 @@ export interface CommuneGeo {
   nom: string;
   lat: number;
   lon: number;
+  dominant?: DominantVerdict | null; // Chantier B : verdict dominant k-safe (couleur), repris de la cellule serveur
 }
 /**
  * Joint les communes VISIBLES (k-safe, fournies par l'API) au référentiel cartographique (centroïdes). Une
  * commune sans centroïde connu est IGNORÉE (jamais tracée « au hasard »). Ne voit JAMAIS les masquées (absentes
- * de `visibles`) → la carte ne peut pas devenir un canal de ré-identification.
+ * de `visibles`) → la carte ne peut pas devenir un canal de ré-identification. Le `dominant` (déjà k-safe côté
+ * serveur) est transporté tel quel pour la couleur — le client ne le recalcule jamais.
  */
 export function joindreGeo(visibles: CelluleCommune[], ref: RefCommunes): CommuneGeo[] {
   const out: CommuneGeo[] = [];
   for (const c of visibles) {
     const g = ref[c.commune_insee];
     if (!g) continue;
-    out.push({ commune_insee: c.commune_insee, n: c.n, nom: g.nom, lon: g.centroid[0], lat: g.centroid[1] });
+    out.push({ commune_insee: c.commune_insee, n: c.n, nom: g.nom, lon: g.centroid[0], lat: g.centroid[1], dominant: c.dominant ?? null });
   }
   return out;
 }

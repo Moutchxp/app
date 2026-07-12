@@ -50,6 +50,18 @@ describe('GET — filtre commune (Lot 6)', () => {
   });
 });
 
+describe('GET — filtrage carte CLIENT-only (Chantier B, post-revue adverse)', () => {
+  it('les params de filtre géo (verdict/score/departement) sont IGNORÉS côté serveur → 200, jamais transmis à la lecture', async () => {
+    // Le filtrage carte est client (anti-différenciation) : le serveur ne connaît que fenêtre + commune. Des query
+    // params de filtre superflus sont ignorés (pas d'erreur, pas de vue serveur filtrée).
+    garde.mockResolvedValueOnce(null);
+    stats.mockResolvedValueOnce({ ok: true });
+    const res = await route.GET(req(`${OK}&verdict=SANS_VIS_A_VIS&score=eleve&departement=92`));
+    expect(res.status).toBe(200);
+    expect(stats).toHaveBeenCalledWith({ debut: '2026-01-01', fin: '2026-01-31', grain: 'jour' }, null); // AUCUN 3e arg de filtre
+  });
+});
+
 describe('GET — validation de la fenêtre', () => {
   it('fenêtre invalide → 400, sans lecture', async () => {
     garde.mockResolvedValue(null);

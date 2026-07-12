@@ -44,6 +44,9 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ erreur: 'commune invalide' }, { status: 400 });
     }
 
+    // Chantier B (post-revue adverse) : le filtrage verdict/département de la carte est CLIENT-only (sur l'unique
+    // payload k-safe) → aucun paramètre de filtre géo côté serveur (un filtre serveur ouvrirait une différenciation
+    // inter-vues révélant une cellule < k). Seuls fenêtre + commune (drill-down k-gardé) pilotent la lecture.
     return Response.json(await statistiques(v.fenetre, communeRaw));
   } catch {
     // Accès base en échec (permission ou lecture) → erreur maîtrisée, jamais de fuite de détail.

@@ -12,6 +12,7 @@ import {
   type Statistiques,
   type FiltreCommune,
   type RefCommunes,
+  type FiltresGeo,
 } from './affichage';
 import {
   CSS_ECRAN,
@@ -45,6 +46,7 @@ export default function StatistiquesPage() {
   const [fenetre, setFenetre] = useState<Fenetre>(() => fenetreDefaut());
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
   const [communeSel, setCommuneSel] = useState<string | null>(null);
+  const [filtres, setFiltres] = useState<FiltresGeo>({}); //  Chantier B : filtre d'AFFICHAGE carte (verdict-dominant / dept), CLIENT-only
   const [filtreScope, setFiltreScope] = useState<FiltreCommune | null>(null);
   const [refGeo, setRefGeo] = useState<RefCommunes | null>(null);
   const [reduitMouvement, setReduitMouvement] = useState<boolean>(
@@ -85,7 +87,7 @@ export default function StatistiquesPage() {
       setCommuneSel(null);
       setFiltreScope(null);
       try {
-        const res = await fetch(construireUrl(fenetre));
+        const res = await fetch(construireUrl(fenetre)); // UNE vue k-safe par période ; le filtrage carte est CLIENT
         if (annule) return;
         if (!res.ok) {
           setEtat({ statut: 'erreur' });
@@ -168,7 +170,7 @@ export default function StatistiquesPage() {
               <TuileVerdicts data={data} filtre={filtre} nomCommune={nomSel} resultatsCommune={selInfo?.n} voile={voileVerdicts} />
               <TuileEntonnoir data={data} voile={voileSession} />
               <div style={{ gridColumn: '1 / -1' }}>
-                <TuileCommunes data={data} refGeo={refGeo} selection={communeSel} onSelect={setCommuneSel} reducedMotion={reduitMouvement} />
+                <TuileCommunes data={data} refGeo={refGeo} selection={communeSel} onSelect={setCommuneSel} reducedMotion={reduitMouvement} filtres={filtres} onFiltres={setFiltres} />
               </div>
               <TuileProvenance data={data} voile={voileProvenance} />
             </div>
