@@ -26,6 +26,12 @@
   au §6.
 - **Séquencement prudent (§8)** : socle de conformité (consentements + effacement + opposition) AVANT toute
   exploitation ; retargeting en dernier.
+- **⚠️ Deux mises à jour majeures (Sections A & B).** (A) La **loi du 30 juin 2025** (entrée en vigueur **11 août
+  2026**) rend le **recontact téléphonique conditionné à un OPT-IN préalable PROUVÉ** — Bloctel disparaît, on passe de
+  l'opt-out à l'opt-in : la case « recontact téléphonique » n'est plus un confort mais une **CONDITION LÉGALE
+  d'appel**, avec **charge de la preuve** sur Sans Vis-à-Vis. (B) Le certificat peut servir à **justifier/contester un
+  complément de loyer** (encadrement des loyers) → valeur juridique = **responsabilité accrue** : le certificat
+  énonce un **fait géométrique**, JAMAIS une conclusion juridique.
 
 ---
 
@@ -195,7 +201,10 @@ précise, à une date précise, sur la base d'un texte précis.
   ligne laissant l'image sur S3 = non conforme). *(Rappel garde-fou build : cf. Règle dure « interdiction de
   suppression autonome » — toute purge est un process explicitement validé, jamais improvisé par un agent.)*
 - **Opposition (« ne pas recontacter »)** : flag `opposition_recontact` / statut `oppose` qui **bloque la force
-  commerciale**. Pour le **téléphone**, rappeler l'obligation **Bloctel** (opposition au démarchage téléphonique).
+  commerciale**. Pour le **téléphone** : **Bloctel** s'applique **jusqu'au 11/08/2026**, puis le régime bascule en
+  **OPT-IN** (loi du 30 juin 2025, cf. **Section A**). ⚠️ Dès lors, le droit d'opposition **ne suffit plus** : appeler
+  exige un **consentement préalable prouvé**. Le module doit donc gérer **le consentement téléphonique ET
+  l'opposition**, pas seulement l'opposition.
 - **Accès / rectification** : consultation et correction des données d'une personne.
 - **Portabilité** : **export d'UNE personne** (ses données dans un format réutilisable).
 
@@ -220,6 +229,76 @@ en relation commerciale → durée liée à la relation ; base légale service (
 Ne collecter que le nécessaire **par finalité**. Le téléphone n'est utile qu'au recontact (finalité 1) → ne pas
 l'exiger pour un internaute qui ne veut que son certificat par email (à confirmer §7). Ne pas stocker la photo si
 elle n'est pas nécessaire au certificat émis.
+
+---
+
+## A — [MISE À JOUR] Loi démarchage téléphonique du 30 juin 2025 — IMPACT CRITIQUE
+
+> Rappel : synthèse de contexte légal, **pas un avis juridique** (validation DPO requise, §7). Références citées à
+> vérifier par un juriste.
+
+- **Texte** : **loi n° 2025-594 du 30 juin 2025, art. 13**, modifiant l'**art. L223-1 du Code de la consommation**.
+  **Entrée en vigueur : 11 août 2026** (imminente à l'échelle d'un projet).
+- **Renversement de logique : de l'OPT-OUT (Bloctel) à l'OPT-IN.** **Bloctel disparaît le 11 août 2026.** On ne peut
+  plus appeler « tant que la personne ne s'est pas opposée » ; il faut son **consentement préalable**.
+- **Interdiction de démarcher par téléphone** un consommateur **qui n'a pas exprimé préalablement son consentement**.
+  Ce consentement doit être **libre, spécifique, éclairé, univoque, révocable** — un **acte positif clair** (case à
+  cocher **non pré-cochée**). ⚠️ **L'acceptation des CGU ne suffit PAS.**
+- **⚠️ CHARGE DE LA PREUVE SUR LE PROFESSIONNEL** : Sans Vis-à-Vis devra **prouver comment, quand et dans quelles
+  conditions** le consentement téléphonique a été recueilli. → **Impact modèle de données (§2)** : la table
+  `consentement` DOIT stocker, pour la finalité téléphone, l'**horodatage**, la **version des mentions** affichées,
+  et le **canal**/source de recueil. Sans cette preuve, l'appel est en infraction.
+- **Exception « contrat en cours »** : un appel **sans** consentement est autorisé s'il intervient **dans le cadre de
+  l'exécution d'un contrat en cours ET a un rapport avec l'objet de ce contrat**. Un appel sur des offres **sans lien**
+  avec le contrat exige le consentement. → **Frontière fine à faire trancher par le juriste (§7)** : « appel pour
+  finaliser/préciser le service certificat demandé » (exception possiblement mobilisable) **vs** « prospection
+  commerciale large » (consentement requis).
+- **Obligation d'information dès la collecte du numéro** : informer que toute **sollicitation téléphonique
+  commerciale suppose le consentement préalable** (mention à ajouter au formulaire, cf. §3.4).
+- **Sanctions** : jusqu'à **375 000 €** (personne morale, **doublé en récidive**) ; **nullité des contrats** conclus
+  via un démarchage non consenti ; volet **pénal jusqu'à 500 000 € / 5 ans** en cas de manœuvres agressives.
+- **Double opt-in en BtoC** : la prospection **téléphonique** exige un opt-in **au titre de la loi 2025-594 ET du
+  RGPD**. La prospection **email/SMS** est, elle, **déjà** en opt-in (RGPD / ePrivacy).
+- **IMPACT ARCHITECTURE** :
+  - La case « **un spécialiste peut me recontacter par téléphone pour discuter de mon projet** » n'est plus une
+    option de confort mais la **condition légale d'appel** (sauf exception « contrat en cours » à confirmer).
+  - **Preuve de consentement téléphonique stockée = OBLIGATOIRE** (table `consentement`, §2 : horodatage + version +
+    canal).
+  - **Construire directement en régime OPT-IN.** L'application est **vierge** (aucune base existante à migrer, §1) —
+    autant la concevoir conforme d'emblée. Concrètement : le **consentement téléphonique + sa preuve** font partie du
+    **LOT 1** (socle de conformité, §8), pas d'un lot ultérieur.
+
+---
+
+## B — [MISE À JOUR] Valeur juridique du certificat : encadrement des loyers / complément de loyer
+
+> Contexte produit **et** juridique — **pas un avis juridique**. Points de droit à confirmer par un juriste (§7).
+
+- **Contexte** : **encadrement des loyers** à **Paris + 69 villes** en zone tendue (dispositif **expérimental
+  jusqu'au 23 nov. 2026**, **reconduction probable mais non encore actée — à surveiller**). Le loyer de référence
+  majoré est un **plafond**, sauf **COMPLÉMENT DE LOYER** justifié par une caractéristique exceptionnelle du bien.
+- **La VUE DÉGAGÉE / REMARQUABLE est un critère RECONNU** pour justifier un complément (vue panoramique, sur monument,
+  sur la Seine…). Confirmé par la **Cour de cassation** (vue sur monument historique à proximité + étage élevé =
+  complément **légalement justifiable**). → Le certificat Sans Vis-à-Vis a une **valeur d'usage juridique réelle**.
+- **MAIS critère STRICT et souvent CONTESTÉ** : la vue doit être **véritablement exceptionnelle/distinctive** par
+  rapport aux biens **comparables du secteur** (« beaucoup de logements ont une vue » est un argument opposé par des
+  locataires). **Conditions cumulatives** (caractéristique non déjà intégrée au loyer de référence + loyer de base au
+  plafond majoré). Complément souvent **plafonné (~20 % du loyer de référence)**. **Contestable** par le locataire
+  (3 mois → Commission de conciliation → tribunal).
+- **POSITIONNEMENT PRODUIT — double marché** : côté **propriétaire** (justifier objectivement un complément au titre
+  de la vue) **et** côté **locataire** (vérifier / contester un complément). Le **verdict 100 % géométrique/LiDAR
+  objectif** (cf. invariants moteur) sert la **neutralité** et la **crédibilité** vis-à-vis des deux marchés et du
+  juge.
+- **⚠️ RESPONSABILITÉ ACCRUE** : un certificat produit dans un **contentieux locatif** engage la responsabilité de
+  Sans Vis-à-Vis. Le certificat doit énoncer un **FAIT GÉOMÉTRIQUE** (« premier obstacle réel à ≥ 40 m », « dégagement
+  sur tel axe/amplitude »), **JAMAIS une conclusion juridique** (« ce bien mérite un complément de loyer » relève du
+  **juge**, pas de Sans Vis-à-Vis). → Prévoir des **mentions/limites de portée** claires sur le certificat + une
+  **question d'assurance responsabilité civile professionnelle** (§7).
+- **LIEN AVEC LA SECTION A (téléphone/identité)** : la valeur d'usage **juridique** du certificat (document
+  potentiellement **opposable** en contentieux) **renforce la légitimité d'une vérification d'identité** du
+  bénéficiaire (téléphone / **OTP SMS**), au titre du **sérieux** d'un document opposable. À **articuler avec la
+  minimisation** (§3.8) et à faire trancher (§7) : la vérification d'identité justifie-t-elle d'exiger le téléphone,
+  et par quel moyen (OTP) ?
 
 ---
 
@@ -263,6 +342,26 @@ consentie** (voir 4.2). Autres au choix (score, dernier étage, etc.).
   - **Le « compte » / le suivi comme prétexte de recontact légitime** : un espace de suivi (statut de la demande)
     donne une raison de service au recontact.
   - ⚠️ Ces habillages **ne dispensent PAS** du consentement spécifique pour la finalité 3 (transfert tiers).
+
+### 5.1 [MISE À JOUR] Benchmark Maline — la conformité comme argument commercial
+
+- **Qui** : Maline (Lyon, fondé 2018-2019 par un ex-directeur digital d'ORPI) = **générateur de leads vendeurs
+  prédictif** (Big Data + « moments de vie »), **revendu aux agences** par abonnement (**59 € à 300 €+/mois**),
+  **territoire exclusif**. Modèle **PUSH** (inférer qui va vendre) — à l'inverse du modèle **PULL** de Sans
+  Vis-à-Vis / MeilleursAgents (un service qui **attire** l'internaute).
+- **Leçon centrale** : leur **argument commercial N°1 est la CONFORMITÉ** (« alternative **légale** à la pige, respect
+  RGPD + loi démarchage »). → **Dans ce secteur, la conformité est un ACTIF commercial, pas un frein.** Cela conforte
+  la stratégie « conformité d'abord » (§8) : elle est aussi un argument de vente.
+- **Transposable à Sans Vis-à-Vis** :
+  - **Lead scoring** : Sans Vis-à-Vis dispose de **critères en or** pour qualifier les contacts « chauds » — **verdict**,
+    **score de vue**, **géolocalisation**, **étage**. Un contact « Sans vis-à-vis, score élevé, étage élevé » est un
+    prospect qualifié. (⚠️ le scoring reste **interne** et **cloisonné de M2** anonyme, §6.)
+  - **Rapidité de contact** : contacter dans les **~5 min** multiplierait la conversion par **~9** → intérêt d'une
+    **alerte force commerciale en temps réel** (finalité 1) — sous réserve du **consentement téléphonique** (Section A).
+  - **Valeur d'un lead vendeur chaud** : CPL indicatif **~20-40 €** → repère pour **estimer la valeur future** de la
+    base nominative consentie (aide à prioriser le build).
+- **Nuance** : Maline **revend à des agences tierces** ; Sans Vis-à-Vis exploite **en interne** (finalités 1 & 2) →
+  plus simple. Seul le **retargeting (finalité 3)** fait sortir des données vers des tiers (Meta/Google).
 
 ---
 
@@ -308,7 +407,28 @@ consentie** (voir 4.2). Autres au choix (score, dernier étage, etc.).
    quel périmètre couvre le bandeau, quel périmètre couvre le formulaire.
 9. **Preuve de consentement** : peut-on/doit-on horodater sans stocker d'IP (minimisation) ? Quelle granularité de
    preuve est exigée ?
-10. **Opposition & Bloctel** : modalités exactes pour le démarchage téléphonique.
+10. **Opposition & Bloctel** : modalités exactes pour le démarchage téléphonique **jusqu'au 11/08/2026**, puis
+    articulation avec le nouveau régime opt-in.
+
+**Ajouts liés aux mises à jour (Sections A & B) :**
+
+11. **Frontière « contrat en cours » vs prospection (loi 2025-594)** : jusqu'où un appel « pour finaliser/préciser le
+    service certificat demandé » relève-t-il de l'**exception contrat en cours** (sans consentement), à partir de quand
+    devient-il de la **prospection** exigeant le consentement ? (Détermine si un opt-in téléphone est requis pour le
+    recontact « projet ».)
+12. **Téléphone & vérification d'identité d'un certificat à valeur juridique** : peut-on **exiger le téléphone** au
+    titre de la **vérification d'identité** d'un document opposable (encadrement des loyers), **au regard de la
+    minimisation** ? Une **vérification SMS / OTP** est-elle proportionnée et admissible ?
+13. **Responsabilité d'un certificat produit en contentieux locatif** : **mentions** et **limites de portée**
+    obligatoires sur le certificat (fait géométrique, pas conclusion juridique) ; nécessité d'une **assurance RC
+    professionnelle** ?
+14. **Formulation exacte des cases opt-in** (téléphone / email / retargeting) conforme **à la fois** à la loi 2025-594
+    et au RGPD (une case par finalité, non pré-cochée, non couplée).
+15. **Preuve de consentement à stocker** : **format**, **granularité** et **durée** de conservation de la preuve
+    (notamment téléphonique — charge de la preuve, Section A) ; peut-on/doit-on horodater sans stocker d'IP ?
+16. **Incertitude sur la reconduction de l'encadrement des loyers (échéance nov. 2026)** : impact sur la
+    **communication commerciale** « justifier un complément de loyer » (que dire/ne pas dire tant que la reconduction
+    n'est pas actée ?).
 
 ---
 
@@ -321,8 +441,9 @@ consentie** (voir 4.2). Autres au choix (score, dernier étage, etc.).
   AIPD. **Bloquant** : rien ne se construit avant.
 - **LOT 1 — Socle nominatif + consentements + effacement/opposition (CONFORMITÉ D'ABORD).**
   - Tables `internaute` / `analyse` / `photo` (URL) / `consentement` / `statut_commercial`.
-  - Système de **consentements en couches** (3 cases, non pré-cochées, non couplées) + **preuve** (horodatage,
-    versioning).
+  - Système de **consentements en couches** (une case par finalité, non pré-cochées, non couplées) + **preuve**
+    (horodatage, version des mentions, **canal**). ⚠️ **Inclut dès le LOT 1 l'opt-in TÉLÉPHONE + sa preuve**
+    (loi 2025-594, Section A) : la charge de la preuve étant sur Sans Vis-à-Vis, ce n'est pas reportable à plus tard.
   - **Droit d'effacement complet** (cascade + purge S3) + **opposition** (flag bloquant) + accès/rectification +
     **export d'une personne** (portabilité).
   - Permission admin dédiée + journalisation des accès.
@@ -336,7 +457,10 @@ consentie** (voir 4.2). Autres au choix (score, dernier étage, etc.).
   spécifique de la finalité 3.
 
 **Rappel transverse** : à chaque lot, **cloisonnement M2 préservé** (§6), **effacement testé de bout en bout**
-(y compris S3), **golden/M2 hors de portée** (le nominatif ne touche ni le moteur ni les analytics anonymes).
+(y compris S3), **golden/M2 hors de portée** (le nominatif ne touche ni le moteur ni les analytics anonymes). **Le
+jour où le certificat (`SAVV-…`, actuellement non implémenté) sera construit**, il devra porter les **mentions/limites
+de portée** (fait géométrique, jamais conclusion juridique — Section B) et la question **assurance RC pro** aura été
+tranchée (§7-13).
 
 ---
 
