@@ -2248,24 +2248,51 @@ export default function Home() {
       window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
     }, 100);
 
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60000); // timeout 60 s (marge large : analyse PostGIS/LiDAR lourde)
     try {
       const r = await fetch("/api/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lat, lon, azimut, etage: etageNum, hauteurSousPlafondM, dernierEtage, mode }),
+        signal: ctrl.signal,
       });
-      const data = await r.json();
-      if (!r.ok || data.ok === false) {
-        setAnalyseErreur(data?.erreur ?? "Erreur lors de l'analyse.");
+      // On vérifie le statut AVANT de lire le corps (une réponse d'erreur peut ne pas être du JSON).
+      if (!r.ok) {
+        if ([429, 502, 503, 504, 524, 530].includes(r.status)) {
+          // Saturation / indisponibilité transitoire du service → « service lent ».
+          setAnalyseErreur("Le service d'analyse met trop de temps à répondre, il est peut-être très sollicité en ce moment. Merci de patienter quelques secondes, puis de relancer l'analyse.");
+        } else {
+          // Autre statut : tenter de lire un JSON d'erreur { erreur } de façon SÛRE (réponse peut être non-JSON).
+          let erreurServeur: string | null = null;
+          try {
+            const data = await r.json();
+            erreurServeur = typeof data?.erreur === "string" ? data.erreur : null;
+          } catch {
+            /* réponse non lisible → message générique ci-dessous */
+          }
+          setAnalyseErreur(erreurServeur ?? "Une erreur est survenue pendant l'analyse. Réessayez dans un instant.");
+        }
       } else {
-        setAnalyse(data as ReponseAnalyse);
-        // Phase 2 (asynchrone, NON bloquante) : l'écran résultat s'affiche tout de suite avec le
-        // score géométrique ; l'analyse photo enrichira le score plus tard si disponible.
-        void lancerAnalysePhoto(lat, lon, azimut, photo);
+        const data = await r.json();
+        if (data.ok === false) {
+          setAnalyseErreur(data?.erreur ?? "Une erreur est survenue pendant l'analyse. Réessayez dans un instant.");
+        } else {
+          setAnalyse(data as ReponseAnalyse);
+          // Phase 2 (asynchrone, NON bloquante) : l'écran résultat s'affiche tout de suite avec le
+          // score géométrique ; l'analyse photo enrichira le score plus tard si disponible.
+          void lancerAnalysePhoto(lat, lon, azimut, photo);
+        }
       }
-    } catch {
-      setAnalyseErreur("Connexion impossible au service d'analyse.");
+    } catch (e) {
+      console.error("[front] analyse catch:", (e as Error)?.name, (e as Error)?.message);
+      if ((e as Error)?.name === "AbortError") {
+        setAnalyseErreur("Le service d'analyse met trop de temps à répondre, il est peut-être très sollicité en ce moment. Merci de patienter quelques secondes, puis de relancer l'analyse.");
+      } else {
+        setAnalyseErreur("Impossible de joindre le service d'analyse pour le moment. Vérifiez votre connexion, puis réessayez.");
+      }
     } finally {
+      clearTimeout(timer);
       setAnalyseEnCours(false);
     }
   }
