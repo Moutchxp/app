@@ -2205,6 +2205,9 @@ export default function Home() {
   }
 
   async function handleAnalyse() {
+    // Anti double-analyse : ignore tout appel si une analyse est déjà en cours (fenêtre de double-clic ultra-rapide
+    // sur « Lancer l'analyse » / « Réessayer » avant la bascule d'écran). `analyseEnCours` retombe à false dans le finally.
+    if (analyseEnCours) return;
     // Garde-fous AVANT tout appel réseau (restent sur l'écran "infos" si KO).
     if (!origine.valide) {
       setAnalyseErreur(
