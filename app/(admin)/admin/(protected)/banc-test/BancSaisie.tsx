@@ -348,6 +348,9 @@ export default function BancSaisie() {
     <section style={{ maxWidth: 720 }}>
       <EnTetePage titre="Banc d’essai — saisie" intro="Paramètres d’entrée d’une analyse de test." />
 
+      {/* BLOC DE SAISIE encapsulé — TRAME GRISE (cohérence admin : Pilotage / Cartes d'année / Statistiques / Curation).
+          Le gris s'applique au CONTENEUR ; les champs internes gardent un fond clair/blanc pour ressortir. Affichage seul. */}
+      <div className="svv-card" style={{ background: "var(--color-svv-field)", padding: 14, borderRadius: 12, marginTop: 12 }}>
       {/* 1. Adresse (BE-30) */}
       <label className="svv-label" style={{ display: "block", marginBottom: 6 }}>
         Adresse
@@ -382,7 +385,7 @@ export default function BancSaisie() {
 
       {/* 3. Étage + Hauteur sous plafond — sur une seule ligne (BE-35/36) */}
       <div style={{ marginTop: 18, display: "flex", gap: 20, flexWrap: "wrap" }}>
-        <div style={{ flex: "1 1 200px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "8px 12px" }}>
+        <div style={{ flex: "1 1 200px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "8px 12px", background: "#fff" }}>
           <span className="svv-label">Étage</span>
           <Stepper
             value={String(etage)}
@@ -391,7 +394,7 @@ export default function BancSaisie() {
             minusDisabled={etage <= 0}
           />
         </div>
-        <div style={{ flex: "1 1 240px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "8px 12px" }}>
+        <div style={{ flex: "1 1 240px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "8px 12px", background: "#fff" }}>
           <span className="svv-label">Hauteur sous plafond</span>
           <Stepper
             value={`${hauteurSousPlafondM.toFixed(2).replace(".", ",")} m`}
@@ -431,6 +434,7 @@ export default function BancSaisie() {
           )}
         </div>
       </details>
+      </div>
 
       {/* 6. Cartes — point d’observation (+ mode) puis azimut. Zoom ancré CENTRE (point immobile au pincement/molette). */}
       <div style={{ margin: "18px 0 6px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
