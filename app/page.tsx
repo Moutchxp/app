@@ -736,8 +736,9 @@ const EPOQUES = [
   "De 2001 à 2010", "De 2011 à 2020", "À partir de 2021",
 ] as const;
 
-function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousPlafond, etageInitial, dernierEtage, verdict, score, communeInsee }: {
+function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, hauteurSousPlafond, etageInitial, dernierEtage, verdict, score, communeInsee }: {
   onRetour: () => void;
+  onAccueil: () => void; // retour à la RACINE du tunnel (écran final « Demande validée »)
   adresseBien: string;
   lat: number;
   lon: number;
@@ -1022,15 +1023,23 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
         <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
           <div className="flex items-center gap-3">
             <SceauCertifie className="h-9 w-auto shrink-0 text-white" />
-            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Demande confirmée</h1>
+            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Demande validée — Votre certificat est envoyé</h1>
           </div>
         </div>
-        <p className="text-xl font-extrabold leading-snug text-svv-ink">Merci, votre demande est enregistrée.</p>
-        <p className="mt-2 text-base text-svv-ink">
-          Votre certificat sera préparé et envoyé à cette adresse :
-        </p>
-        <p className="mt-1 text-base font-bold text-svv-red break-words">{email.trim() || "—"}</p>
-        <button type="button" onClick={onRetour} className="svv-btn svv-btn-outline mt-8">Retour à l'accueil</button>
+        <p className="mt-2 text-base text-svv-ink">Le document vous a été envoyé à l&apos;adresse suivante :</p>
+        {/* Email de l'internaute — accent rouge (charte, aucun bleu) + centré horizontalement. */}
+        <p className="mt-1 text-base font-bold text-svv-red break-words text-center">{email.trim() || "—"}</p>
+
+        {/* 3 suites. Ordre imposé : Plus-value (PRINCIPAL rouge), Qui sommes-nous, Retour accueil. Destinations
+            PRÉSERVÉES : plus-value = mesure + écran à venir ; « Qui sommes-nous » = placeholder (aucune route) ;
+            accueil = racine du tunnel (onAccueil). */}
+        <div className="mt-8 flex flex-col gap-3">
+          <button type="button" onClick={() => { mesure("clic_plusvalue"); todoEcranAVenir(); }} className="svv-btn svv-btn-primary">
+            Calculer la plus-value de ma vue
+          </button>
+          <button type="button" onClick={todoEcranAVenir} className="svv-btn svv-btn-outline">Qui sommes-nous</button>
+          <button type="button" onClick={onAccueil} className="svv-btn svv-btn-outline">Retour à l&apos;accueil</button>
+        </div>
       </div>
     );
   }
@@ -1050,7 +1059,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
         </div>
 
         <p className="text-xl font-extrabold leading-snug text-svv-ink">
-          C'est noté — votre certificat sera préparé et envoyé à cette adresse.
+          Votre certificat est prêt à être envoyé à cette adresse
         </p>
         <p className="mt-3 rounded-xl bg-svv-field p-4 text-sm text-svv-ink">
           Sans coordonnées exactes, votre certificat ne pourra pas vous parvenir.
@@ -1081,7 +1090,7 @@ function EcranCertificat({ onRetour, adresseBien, lat, lon, azimut, hauteurSousP
         )}
 
         {/* TÉLÉPHONE */}
-        <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone</label>
+        <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone <span className="font-normal text-svv-muted">(un code va vous être envoyé)</span></label>
         {modifiable ? (
           <PhoneInput
             defaultCountry="fr"
@@ -3382,6 +3391,7 @@ export default function Home() {
 {etape === "certificat" && (
   <EcranCertificat
     onRetour={() => setEtape("resultat")}
+    onAccueil={() => setEtape("accueil")}
     adresseBien={address}
     lat={origine.valide?.lat ?? position.latitude}
     lon={origine.valide?.lon ?? position.longitude}
