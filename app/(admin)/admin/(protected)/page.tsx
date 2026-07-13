@@ -22,7 +22,9 @@ export default async function AdminAccueilPage() {
 
       <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
         {tuiles.map((t) => (
-          <Link key={t.slug} href={t.slug} className="svv-card" style={{ textDecoration: 'none', display: 'block' }}>
+          // Trame grise (cohérence admin) sur l'UNIQUE composant de tuile du .map → toute tuile FUTURE
+          // (ajoutée via menuAdmin/liensVisibles) l'hérite automatiquement. Titre/description restent lisibles.
+          <Link key={t.slug} href={t.slug} className="svv-card" style={{ textDecoration: 'none', display: 'block', background: 'var(--color-svv-field)' }}>
             <span style={{ display: 'block', fontWeight: 700, color: 'var(--color-svv-ink)', marginBottom: 4 }}>
               {t.libelle}
             </span>
