@@ -57,6 +57,7 @@ export async function POST(req: Request) {
       mode,
     });
   } catch (e) {
+    console.error("[/api/analyse] échec pipeline:", e);
     return NextResponse.json(
       { ok: false, erreur: e instanceof Error ? e.message : String(e) },
       { status: 500 },
