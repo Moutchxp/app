@@ -49,6 +49,26 @@ describe('construireFiltres — clauses paramétrées, extensibles, anti-injecti
     expect(r.clauses).toEqual(['p.commune_insee = $1', 'p.score >= $2', 'p.dernier_etage = $3']);
     expect(r.params).toEqual(['75056', 50, true]);
   });
+
+  it('consentement F2/F3 = AND EXISTS RESTRICTIF (jamais un OR, jamais un ajout de non-F1)', () => {
+    // F2 coché → une clause EXISTS supplémentaire (finalité email_marketing ACTIVE pour cette personne), sans paramètre.
+    const f2 = construireFiltres({ aF2: true });
+    expect(f2.clauses).toHaveLength(1);
+    expect(f2.clauses[0]).toContain('EXISTS');
+    expect(f2.clauses[0]).toContain("finalite = 'email_marketing'");
+    expect(f2.clauses[0]).toContain('actif = true');
+    expect(f2.params).toEqual([]); // finalité = littéral constant, jamais un paramètre lié (anti-injection)
+    // F3 → finalité retargeting_tiers.
+    expect(construireFiltres({ aF3: true }).clauses[0]).toContain("finalite = 'retargeting_tiers'");
+    // GARDE-FOU sémantique : les clauses sont jointes par AND dans extractionRepo (RÉDUISENT) — aucune n'introduit
+    // « OR » qui élargirait hors F1.
+    expect(f2.clauses[0]).not.toContain('OR');
+    // F2 + F3 cochés → DEUX clauses AND cumulatives (F1 ∧ F2 ∧ F3).
+    expect(construireFiltres({ aF2: true, aF3: true }).clauses).toHaveLength(2);
+    // Non coché (false / null / absent) → AUCUNE clause (n'élargit ni ne restreint).
+    expect(construireFiltres({ aF2: false, aF3: null }).clauses).toEqual([]);
+    expect(construireFiltres({}).clauses).toEqual([]);
+  });
 });
 
 describe('lireFiltres — parsing des query params', () => {
@@ -61,6 +81,15 @@ describe('lireFiltres — parsing des query params', () => {
     expect(f.dernierEtage).toBe(true);
     expect(f.residencePrincipale).toBe(false);
     expect(f.verdict).toBe('VIS_A_VIS');
+  });
+
+  it('f2/f3 : « true » → restriction demandée ; absent → null (aucune restriction)', () => {
+    const f = lireFiltres(new URLSearchParams('f2=true&f3=true'));
+    expect(f.aF2).toBe(true);
+    expect(f.aF3).toBe(true);
+    const vide = lireFiltres(new URLSearchParams(''));
+    expect(vide.aF2).toBeNull();
+    expect(vide.aF3).toBeNull();
   });
 });
 

@@ -84,6 +84,20 @@ export async function lireProfilsExport(filtres: FiltresExtraction): Promise<Lig
   return r.rows.map(coercerLigne);
 }
 
+/**
+ * Bornes de dates de création de la base, pour le bouton « depuis toujours » : MIN/MAX `cree_a` sur `internaute`
+ * NON effacés (`efface_a IS NULL`, cohérent avec l'extraction). Étendue TEMPORELLE de la base, indépendante des
+ * filtres — sert seulement à pré-remplir les champs de dates côté UI. `to_char` → 'YYYY-MM-DD' directement
+ * consommable par un `<input type="date">`. Base vide → `{ null, null }`. Lecture seule.
+ */
+export async function lireBornesDates(): Promise<{ min: string | null; max: string | null }> {
+  const r = await query<{ min: string | null; max: string | null }>(
+    `SELECT to_char(min(cree_a), 'YYYY-MM-DD') AS min, to_char(max(cree_a), 'YYYY-MM-DD') AS max
+     FROM internaute WHERE efface_a IS NULL`,
+  );
+  return { min: r.rows[0]?.min ?? null, max: r.rows[0]?.max ?? null };
+}
+
 export { versCsv };
 
 /** Dossier complet d'UNE personne (droit d'accès). Renvoie null si l'id n'existe pas. */

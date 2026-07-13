@@ -11,6 +11,13 @@ import { useEffect, useState, type CSSProperties } from 'react';
 const CSS = `
 .svv-int :is(button,input,select,a):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .svv-int :is(button,input,select,a){min-height:44px}
+/* Grille COMMUNE aux 2 rangées de filtres : mêmes colonnes → largeurs identiques + alignement vertical strict
+   (Résidence sous Commune, Créé après sous Score min, …). Responsive : le nombre de colonnes se réduit par paliers,
+   les 2 rangées se réagencent ENSEMBLE (jamais de largeurs ad hoc). Mise en page seule. */
+.svv-int-filtres{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media (max-width:1000px){ .svv-int-filtres{grid-template-columns:repeat(3,minmax(0,1fr))} }
+@media (max-width:640px){ .svv-int-filtres{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width:420px){ .svv-int-filtres{grid-template-columns:1fr} }
 @media (prefers-reduced-motion: reduce){ .svv-int *{transition:none!important;animation:none!important} }
 `;
 
@@ -56,9 +63,12 @@ type Filtres = {
   verdict: string;
   creeApres: string;
   creeAvant: string;
+  // Restriction PARMI les F1 (jamais un ajout) : exiger AUSSI le consentement F2 (email) / F3 (retargeting tiers).
+  aF2: boolean;
+  aF3: boolean;
 };
 
-const FILTRES_VIDES: Filtres = { commune: '', scoreMin: '', scoreMax: '', dernierEtage: '', residencePrincipale: '', verdict: '', creeApres: '', creeAvant: '' };
+const FILTRES_VIDES: Filtres = { commune: '', scoreMin: '', scoreMax: '', dernierEtage: '', residencePrincipale: '', verdict: '', creeApres: '', creeAvant: '', aF2: false, aF3: false };
 
 function versParams(f: Filtres): URLSearchParams {
   const p = new URLSearchParams();
@@ -70,6 +80,8 @@ function versParams(f: Filtres): URLSearchParams {
   if (f.verdict) p.set('verdict', f.verdict);
   if (f.creeApres) p.set('creeApres', f.creeApres);
   if (f.creeAvant) p.set('creeAvant', f.creeAvant);
+  if (f.aF2) p.set('f2', 'true'); // restreint aux F1 ayant AUSSI F2 (AND côté serveur ; jamais un OR)
+  if (f.aF3) p.set('f3', 'true'); // restreint aux F1 ayant AUSSI F3
   return p;
 }
 
@@ -89,6 +101,8 @@ export function InternautesVue() {
   const [confirmEffacement, setConfirmEffacement] = useState(false);
   const [actionEnCours, setActionEnCours] = useState(false);
   const [actionErreur, setActionErreur] = useState<string | null>(null);
+  // Bornes de dates de la base (MIN/MAX cree_a, efface_a IS NULL — fournies par la route liste) pour « depuis toujours ».
+  const [bornes, setBornes] = useState<{ min: string | null; max: string | null }>({ min: null, max: null });
 
   // Fetch sur (filtres appliqués, page). Patron admin (cf. audit/page.tsx) : setState DANS l'IIFE async (jamais
   // synchrone dans le corps de l'effet) + garde `annule` anti-course. La liste est réservée administrateur côté
@@ -109,6 +123,7 @@ export function InternautesVue() {
         }
         const data = await res.json();
         if (annule) return;
+        if (data.bornes && typeof data.bornes === 'object') setBornes({ min: data.bornes.min ?? null, max: data.bornes.max ?? null });
         setEtat({ statut: 'ok', total: Number(data.total) || 0, lignes: Array.isArray(data.lignes) ? data.lignes : [] });
       } catch {
         if (!annule) setEtat({ statut: 'erreur', code: 0 });
@@ -353,8 +368,9 @@ export function InternautesVue() {
     <div className="svv-int" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <style>{CSS}</style>
 
-      {/* FILTRES */}
-      <div className="svv-card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 150px), 1fr))', gap: 10, background: 'var(--color-svv-field)' }}>
+      {/* FILTRES — grille COMMUNE (colonnes via .svv-int-filtres) : les 2 rangées partagent les mêmes colonnes,
+          alignées verticalement, bas des contrôles alignés (align-items:end). */}
+      <div className="svv-card svv-int-filtres" style={{ display: 'grid', gap: 10, alignItems: 'start', background: 'var(--color-svv-field)' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Commune (INSEE)
           <input style={champ} value={filtres.commune} onChange={(e) => setFiltres({ ...filtres, commune: e.target.value })} placeholder="ex. 92004" inputMode="numeric" />
@@ -384,6 +400,10 @@ export function InternautesVue() {
             <option value="false">Non</option>
           </select>
         </label>
+        {/* MISE EN PAGE (logique inchangée) : 2e rangée = cellules DIRECTES de la grille commune → mêmes colonnes,
+            alignées verticalement (Résidence sous Commune, Créé après sous Score min, …). `align-items:start` du
+            conteneur colle la rangée JUSTE sous la 1re (pas de blanc) ; Consentement F2/F3 = dernière colonne
+            (au-dessus d'« Exporter toute la base »). */}
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Résidence principale
           <select style={champ} value={filtres.residencePrincipale} onChange={(e) => setFiltres({ ...filtres, residencePrincipale: e.target.value as Filtres['residencePrincipale'] })}>
@@ -400,6 +420,32 @@ export function InternautesVue() {
           Créé avant
           <input type="date" style={champ} value={filtres.creeAvant} onChange={(e) => setFiltres({ ...filtres, creeAvant: e.target.value })} />
         </label>
+        {/* « Depuis toujours » : remplit les 2 dates avec les bornes RÉELLES de la base (MIN/MAX cree_a, efface_a IS NULL).
+            Spacer (hauteur d'un libellé) → le bouton s'aligne sur le bas des inputs date malgré l'absence de libellé. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span aria-hidden style={{ fontSize: '.75rem', fontWeight: 700, userSelect: 'none' }}>&nbsp;</span>
+          <button
+            type="button"
+            style={{ ...btnOutline, minHeight: 44 }}
+            disabled={!bornes.min || !bornes.max}
+            title={bornes.min && bornes.max ? `Du ${bornes.min} au ${bornes.max}` : 'Base vide'}
+            onClick={() => setFiltres({ ...filtres, creeApres: bornes.min ?? '', creeAvant: bornes.max ?? '' })}
+          >
+            Depuis toujours
+          </button>
+        </div>
+        <fieldset style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)', border: 0, padding: 0, margin: 0 }}>
+          <legend style={{ padding: 0 }}>Consentement (parmi les F1)</legend>
+          {/* Ces cases RESTREIGNENT l'ensemble F1 (AND côté serveur) : F1 reste toujours requis, jamais un non-F1. */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 44, fontWeight: 600, color: 'var(--color-svv-ink)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={filtres.aF2} onChange={(e) => setFiltres({ ...filtres, aF2: e.target.checked })} style={{ width: 18, height: 18, accentColor: 'var(--color-svv-red)' }} />
+            a aussi F2 (email)
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 44, fontWeight: 600, color: 'var(--color-svv-ink)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={filtres.aF3} onChange={(e) => setFiltres({ ...filtres, aF3: e.target.checked })} style={{ width: 18, height: 18, accentColor: 'var(--color-svv-red)' }} />
+            a aussi F3 (retargeting)
+          </label>
+        </fieldset>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', gridColumn: '1 / -1', flexWrap: 'wrap' }}>
           <button type="button" style={btnRouge} onClick={filtrer}>Filtrer</button>
           <button type="button" style={btnOutline} onClick={reinitialiser}>Réinitialiser</button>

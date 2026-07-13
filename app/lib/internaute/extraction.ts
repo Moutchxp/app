@@ -16,6 +16,9 @@ export interface FiltresExtraction {
   verdict?: string | null;
   creeApres?: string | null; // ISO (date de création du PROFIL)
   creeAvant?: string | null;
+  // Restriction de consentement PARMI les F1 (jamais un élargissement) : true → exiger AUSSI F2 (email) / F3 (tiers).
+  aF2?: boolean | null;
+  aF3?: boolean | null;
 }
 
 const INSEE = /^(2[AB]|[0-9]{2})[0-9]{3}$/;
@@ -54,6 +57,11 @@ export function construireFiltres(f: FiltresExtraction): { clauses: string[]; pa
   if (typeof f.verdict === 'string' && VERDICTS.has(f.verdict)) clauses.push(`p.verdict = ${lier(f.verdict)}`);
   if (dateValide(f.creeApres)) clauses.push(`i.cree_a >= ${lier(f.creeApres)}`);
   if (dateValide(f.creeAvant)) clauses.push(`i.cree_a <= ${lier(f.creeAvant)}`);
+  // Restriction de consentement PARMI les F1 : AND EXISTS (finalité F2/F3 active pour CETTE personne). C'est un
+  // FILTRE qui RÉDUIT l'ensemble déjà borné à F1 par `FROM_INVARIANT` — JAMAIS un OR, jamais un ajout de non-F1.
+  // La finalité est un LITTÉRAL constant piloté par un booléen (aucune entrée texte utilisateur → aucune injection).
+  if (f.aF2 === true) clauses.push(`EXISTS (SELECT 1 FROM internaute_consentement_actif ca_f2 WHERE ca_f2.internaute_id = i.id AND ca_f2.finalite = 'email_marketing' AND ca_f2.actif = true)`);
+  if (f.aF3 === true) clauses.push(`EXISTS (SELECT 1 FROM internaute_consentement_actif ca_f3 WHERE ca_f3.internaute_id = i.id AND ca_f3.finalite = 'retargeting_tiers' AND ca_f3.actif = true)`);
 
   return { clauses, params };
 }
@@ -84,6 +92,8 @@ export function lireFiltres(params: URLSearchParams): FiltresExtraction {
     verdict: str('verdict'),
     creeApres: str('creeApres'),
     creeAvant: str('creeAvant'),
+    aF2: bool('f2'),
+    aF3: bool('f3'),
   };
 }
 

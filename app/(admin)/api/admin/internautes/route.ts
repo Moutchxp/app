@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../lib/admin/garde';
 import { lireFiltres } from '../../../../lib/internaute/extraction';
-import { lireProfilsFiltres } from '../../../../lib/internaute/extractionRepo';
+import { lireProfilsFiltres, lireBornesDates } from '../../../../lib/internaute/extractionRepo';
 
 /**
  * GET /api/admin/internautes — LISTE FILTRÉE paginée des profils recontactables (module Internaute, LOT 3).
@@ -27,7 +27,8 @@ export async function GET(request: Request): Promise<Response> {
     const taille = Math.min(100, Math.max(1, Number(url.searchParams.get('taille')) || 25));
 
     const { total, lignes } = await lireProfilsFiltres(filtres, page, taille);
-    return Response.json({ total, page, taille, lignes });
+    const bornes = await lireBornesDates(); // étendue temporelle de la base (bouton « depuis toujours »)
+    return Response.json({ total, page, taille, lignes, bornes });
   } catch {
     return Response.json({ erreur: 'internautes indisponible' }, { status: 503 });
   }
