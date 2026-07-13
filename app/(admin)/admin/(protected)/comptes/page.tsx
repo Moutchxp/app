@@ -356,7 +356,9 @@ export default function ComptesPage() {
       <style>{CSS}</style>
       <EnTetePage titre="Administratif — comptes" intro="Gestion des comptes administrateurs, de leurs rôles et de leurs permissions." />
 
-      <section className="svv-card" style={{ marginBottom: 20 }}>
+      {/* Bloc « Créer un compte » encapsulé en TRAME GRISE (cohérence admin) ; champs/cases/bouton restent en fond clair.
+          Affichage seul — aucune logique compte/rôle/permission modifiée. */}
+      <section className="svv-card" style={{ marginBottom: 20, background: 'var(--color-svv-field)' }}>
         <h2 className="cpt-h2">Créer un compte</h2>
         <form onSubmit={creer} className="cpt-form">
           <input className="cpt-champ" placeholder="Prénom" value={prenom} onChange={(e) => setPrenom(e.target.value)} required />
