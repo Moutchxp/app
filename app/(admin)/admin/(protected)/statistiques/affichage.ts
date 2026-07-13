@@ -351,6 +351,26 @@ export function polySerie(serie: SeriePoint[], cle: CleSerie, max: number, large
     .map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`)
     .join(' ');
 }
+/**
+ * Paliers « ronds » d'un axe Y allant de 0 à un plafond ≥ `max`, pour un graphe lisible : les libellés
+ * chiffrés se calent dessus, et le tracé s'échelonne sur le DERNIER palier (le plafond), pas sur `max` brut.
+ * Le pas est arrondi au cran 1 / 2 / 5 × 10ⁿ au-dessus de `max / cibleIntervalles`, avec un PLANCHER de 1 :
+ * ces séries comptent des ÉVÉNEMENTS ENTIERS → jamais de graduation fractionnaire. Retourne `[0, pas, 2·pas,
+ * …, plafond]`, `plafond` = plus petit multiple du pas ≥ `max`. Défensif : `max` non fini ou ≤ 0 → traité
+ * comme 1 (jamais d'axe vide). Pur (aucun état, aucune donnée base) → testable sans rendu. AUCUNE dimension
+ * ajoutée : ne lit que le `max` déjà dérivé de la série GLOBALE (agrégée par bucket temporel). */
+export function paliersAxeY(max: number, cibleIntervalles = 5): number[] {
+  const m = Number.isFinite(max) && max > 0 ? max : 1;
+  const brut = m / cibleIntervalles;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(brut)));
+  const norm = brut / magnitude;
+  const nice = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+  const pas = Math.max(1, nice * magnitude); // plancher 1 : comptes entiers, pas de graduation décimale
+  const plafond = Math.ceil(m / pas) * pas;
+  const out: number[] = [];
+  for (let v = 0; v <= plafond; v += pas) out.push(v);
+  return out;
+}
 /** Rayon d'une bulle de carte : échelle RACINE bornée [min, plafond]. L'aire croît avec n mais reste
  *  APPROXIMATIVE (le plancher `min` de lisibilité casse la stricte proportionnalité aire ∝ n) → repère
  *  visuel RELATIF, jamais une mesure ; les comptes exacts vivent dans la liste et les popups. */

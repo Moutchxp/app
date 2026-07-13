@@ -9,6 +9,7 @@ import {
   formatNombre,
   maxSerie,
   coordsSerie,
+  paliersAxeY,
   joindreGeo,
   filtrerCommunesClient,
   ratioPct,
@@ -311,6 +312,25 @@ const GROUPES_SERIE: { id: string; libelle: string; cles: { cle: CleSerie; coule
 const SVG_W = 320;
 const SVG_H = 120;
 const SVG_PAD = 6;
+const AXE_W = 34; // gouttière gauche réservée aux libellés chiffrés de l'axe Y (jamais de chevauchement du tracé)
+
+/**
+ * Phrase d'infobulle par métrique tracée (grand public, vouvoiement). `n` = valeur EXACTE du point (déjà
+ * agrégée GLOBALEMENT par bucket temporel côté serveur — aucune dimension commune/verdict ajoutée ici, donc
+ * aucun enjeu k-anonymat). Chaque clé de courbe pointe vers la phrase de son GROUPE (les 3 courbes de verdicts
+ * partagent la même). `resultats` n'est jamais tracé (aucun groupe ne l'utilise) : fallback neutre pour le type. */
+const PHRASE_SERIE: Record<CleSerie, (n: string) => string> = {
+  visites: (n) => `${n} visites — personnes ayant ouvert l'app ce jour-là`,
+  analysesLancees: (n) => `${n} analyses — analyses de vue lancées ce jour-là`,
+  sans: (n) => `${n} verdicts — résultats certifié / non certifié rendus`,
+  vis: (n) => `${n} verdicts — résultats certifié / non certifié rendus`,
+  ind: (n) => `${n} verdicts — résultats certifié / non certifié rendus`,
+  certificats: (n) => `${n} clics certificat — internautes ayant demandé leur certificat`,
+  plusvalue: (n) => `${n} clics plus-value — internautes ayant cliqué calculer la plus-value`,
+  estimationImmo: (n) => `${n} estimation immo — clics sur l'estimation immobilière`,
+  totalEstimations: (n) => `${n} estimations au total — plus-value + estimation immo cumulées`,
+  resultats: (n) => `${n} résultats`,
+};
 
 /** Courbes { visites, analyses, verdicts(3) } dans le temps. GLOBALE (jamais scindée par commune). Chips de
  *  bascule (rouge contour = active). Aucune dépendance : polylignes SVG dérivées de `coordsSerie` (pur, testé). */
@@ -325,9 +345,13 @@ export function SerieTemporelle({ serie }: { serie: Statistiques['serie'] }) {
     });
   const groupesActifs = GROUPES_SERIE.filter((g) => actifs.has(g.id));
   const clesActives: CleSerie[] = groupesActifs.flatMap((g) => g.cles.map((c) => c.cle));
-  const iw = SVG_W - SVG_PAD * 2;
+  // Point mis en avant par l'infobulle : { courbe, index } — une SEULE à la fois (survol desktop / tap mobile).
+  const [actif, setActif] = useState<{ cle: CleSerie; i: number } | null>(null);
+  const iw = SVG_W - AXE_W - SVG_PAD; // largeur du tracé (gouttière d'axe Y réservée à gauche)
   const ih = SVG_H - SVG_PAD * 2;
   const max = maxSerie(serie, clesActives.length ? clesActives : ['visites']);
+  const paliers = paliersAxeY(max); //         graduations « rondes » 0 → plafond ≥ max (recalculées à chaque bascule)
+  const haut = paliers[paliers.length - 1]; //  le tracé s'échelonne sur le plafond de l'axe (aligné aux libellés)
   return (
     <Carte
       titre="Activité dans le temps"
@@ -364,32 +388,111 @@ export function SerieTemporelle({ serie }: { serie: Statistiques['serie'] }) {
         <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune activité consolidée sur la période.</span>
       ) : (
         <>
-          <svg
-            viewBox={`0 0 ${SVG_W} ${SVG_H}`}
-            width="100%"
-            role="img"
-            aria-label={`Série temporelle : ${groupesActifs.map((g) => g.libelle).join(', ') || 'aucune courbe'}`}
-            style={{ display: 'block', background: '#fff', borderRadius: 8, height: 'auto' }}
-          >
-            {groupesActifs
-              .flatMap((g) => g.cles)
-              .map(({ cle, couleur }) => {
-                const pts = coordsSerie(serie, cle, max, iw, ih);
-                if (pts.length === 0) return null;
-                const poly = pts.map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+          {/* position: relative → l'infobulle HTML se positionne en % (indépendant de la largeur RENDUE du SVG). */}
+          <div style={{ position: 'relative' }}>
+            <svg
+              viewBox={`0 0 ${SVG_W} ${SVG_H}`}
+              width="100%"
+              role="img"
+              aria-label={`Série temporelle : ${groupesActifs.map((g) => g.libelle).join(', ') || 'aucune courbe'}`}
+              style={{ display: 'block', background: '#fff', borderRadius: 8, height: 'auto' }}
+            >
+              {/* Fond cliquable : un tap « ailleurs » (hors point) ferme l'infobulle sur mobile. */}
+              <rect x={0} y={0} width={SVG_W} height={SVG_H} fill="#fff" onClick={() => setActif(null)} />
+              {/* Axe Y : graduations chiffrées « rondes » + lignes de repère. Recalculées avec les courbes actives. */}
+              <g transform={`translate(${AXE_W},${SVG_PAD})`}>
+                {paliers.map((v) => {
+                  const y = ih - (v / haut) * ih;
+                  return (
+                    <g key={v}>
+                      <line x1={0} y1={y} x2={iw} y2={y} stroke="var(--color-svv-line)" strokeWidth={v === 0 ? 1 : 0.5} />
+                      <text x={-6} y={y} textAnchor="end" dominantBaseline="middle" fontSize={7} fill="var(--color-svv-muted)">
+                        {formatNombre(v)}
+                      </text>
+                    </g>
+                  );
+                })}
+                <line x1={0} y1={0} x2={0} y2={ih} stroke="var(--color-svv-line)" strokeWidth={1} />
+                {groupesActifs
+                  .flatMap((g) => g.cles)
+                  .map(({ cle, couleur }) => {
+                    const pts = coordsSerie(serie, cle, haut, iw, ih);
+                    if (pts.length === 0) return null;
+                    const poly = pts.map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+                    return (
+                      <g key={cle}>
+                        <polyline points={poly} fill="none" stroke={couleur} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+                        {pts.map((c, i) => {
+                          const vise = actif?.cle === cle && actif.i === i;
+                          return (
+                            <g key={i}>
+                              <circle cx={c.x} cy={c.y} r={vise ? 3 : 1.8} fill={couleur} />
+                              {/* Cible tactile DÉDIÉE ≥ 44px (r≈11 unités viewBox) — cercle invisible par-dessus le
+                                  point : survol (desktop) ET tap (mobile) ouvrent/ferment l'infobulle du point. */}
+                              <circle
+                                cx={c.x}
+                                cy={c.y}
+                                r={11}
+                                fill="transparent"
+                                style={{ cursor: 'pointer' }}
+                                onMouseEnter={() => setActif({ cle, i })}
+                                onMouseLeave={() => setActif((a) => (a && a.cle === cle && a.i === i ? null : a))}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActif((a) => (a && a.cle === cle && a.i === i ? null : { cle, i }));
+                                }}
+                              />
+                            </g>
+                          );
+                        })}
+                      </g>
+                    );
+                  })}
+              </g>
+            </svg>
+            {actif &&
+              (() => {
+                const c = coordsSerie(serie, actif.cle, haut, iw, ih)[actif.i];
+                if (!c) return null;
+                const leftPct = ((AXE_W + c.x) / SVG_W) * 100;
+                const topPct = ((SVG_PAD + c.y) / SVG_H) * 100;
+                const ancreDroite = leftPct > 60; // près du bord droit → l'infobulle s'ancre à droite (pas de coupe)
+                const ancreBas = topPct < 45; //     haut du graphe (pic) → elle passe SOUS le point (pas de coupe)
+                const n = formatNombre(serie[actif.i][actif.cle]);
+                const dateBucket = new Intl.DateTimeFormat('fr-FR', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                  timeZone: 'Europe/Paris',
+                }).format(new Date(`${serie[actif.i].bucket}T12:00:00Z`));
                 return (
-                  <g key={cle} transform={`translate(${SVG_PAD},${SVG_PAD})`}>
-                    <polyline points={poly} fill="none" stroke={couleur} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-                    {pts.map((c, i) => (
-                      <circle key={i} cx={c.x} cy={c.y} r={1.8} fill={couleur} />
-                    ))}
-                  </g>
+                  <div
+                    role="status"
+                    style={{
+                      position: 'absolute',
+                      left: `${leftPct}%`,
+                      top: `${topPct}%`,
+                      transform: `translate(${ancreDroite ? '-100%' : '0'}, ${ancreBas ? '10px' : 'calc(-100% - 10px)'})`,
+                      maxWidth: 200,
+                      background: 'var(--color-svv-ink)',
+                      color: '#fff',
+                      borderRadius: 8,
+                      padding: '6px 8px',
+                      fontSize: '.68rem',
+                      lineHeight: 1.35,
+                      pointerEvents: 'none',
+                      zIndex: 2,
+                      boxShadow: '0 2px 8px rgba(0,0,0,.18)',
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, marginBottom: 2 }}>{dateBucket}</div>
+                    <div>{PHRASE_SERIE[actif.cle](n)}</div>
+                  </div>
                 );
-              })}
-          </svg>
+              })()}
+          </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.68rem', color: 'var(--color-svv-muted)' }}>
             <span>{serie[0].bucket}</span>
-            <span>échelle Y max : {formatNombre(max)}</span>
             <span>{serie[serie.length - 1].bucket}</span>
           </div>
           {/* Honnêteté (constat R4) : échelle Y COMMUNE → une petite courbe (verdicts) mêlée à une grande

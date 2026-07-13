@@ -13,6 +13,7 @@ import {
   maxSerie,
   coordsSerie,
   polySerie,
+  paliersAxeY,
   bulleRayon,
   joindreGeo,
   filtrerCommunesClient,
@@ -241,6 +242,14 @@ describe('Lot 6 — série temporelle (helpers PURS, testables sans rendu)', () 
   });
   it('polySerie dérive la même géométrie sous forme de chaîne "x,y …"', () => {
     expect(polySerie(serie, 'visites', 8, 100, 50)).toBe('0.0,25.0 100.0,0.0');
+  });
+  it('paliersAxeY — paliers ronds 1/2/5×10ⁿ, plancher 1 (comptes entiers), plafond ≥ max', () => {
+    expect(paliersAxeY(8)).toEqual([0, 2, 4, 6, 8]); //     pas 2 → 5 graduations
+    expect(paliersAxeY(1)).toEqual([0, 1]); //              plancher 1 : jamais de graduation décimale
+    expect(paliersAxeY(3)).toEqual([0, 1, 2, 3]); //        petit max → pas 1
+    expect(paliersAxeY(12)).toEqual([0, 5, 10, 15]); //     pas 5, plafond 15 ≥ 12
+    expect(paliersAxeY(100)).toEqual([0, 20, 40, 60, 80, 100]); // pas 20
+    expect(paliersAxeY(0)).toEqual([0, 1]); //              garde : max ≤ 0 → traité comme 1
   });
   it('construireUrl encode `commune` si fournie, l’omet sinon (le client ne fait que consommer l’API)', () => {
     expect(construireUrl({ debut: '2026-01-01', fin: '2026-01-31', grain: 'jour' })).not.toMatch(/commune/);
