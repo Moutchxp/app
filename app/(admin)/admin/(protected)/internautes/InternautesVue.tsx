@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 
 /**
  * Vue interactive du module « Internautes » (LOT 3). Client PUR : ne touche jamais la base ; consomme
@@ -54,8 +54,11 @@ const champ: CSSProperties = {
 const btnRouge: CSSProperties = { padding: '0 14px', borderRadius: 10, border: 0, background: 'var(--color-svv-red)', color: '#fff', fontWeight: 700, fontSize: '.85rem', cursor: 'pointer' };
 const btnOutline: CSSProperties = { padding: '0 14px', borderRadius: 10, border: '1px solid var(--color-svv-line)', background: '#fff', color: 'var(--color-svv-ink)', fontWeight: 700, fontSize: '.85rem', cursor: 'pointer' };
 
+/** Référence géo d'une commune présente en base F1 (endpoint /communes, DYNAMIQUE). */
+type CommuneRef = { insee: string; nom: string; dept: string; deptNom: string };
+
 type Filtres = {
-  commune: string;
+  communes: string[]; // ensemble d'INSEE sélectionnés (filtre géo AND `IN` ; vide = toutes)
   scoreMin: string;
   scoreMax: string;
   dernierEtage: '' | 'true' | 'false';
@@ -68,11 +71,11 @@ type Filtres = {
   aF3: boolean;
 };
 
-const FILTRES_VIDES: Filtres = { commune: '', scoreMin: '', scoreMax: '', dernierEtage: '', residencePrincipale: '', verdict: '', creeApres: '', creeAvant: '', aF2: false, aF3: false };
+const FILTRES_VIDES: Filtres = { communes: [], scoreMin: '', scoreMax: '', dernierEtage: '', residencePrincipale: '', verdict: '', creeApres: '', creeAvant: '', aF2: false, aF3: false };
 
 function versParams(f: Filtres): URLSearchParams {
   const p = new URLSearchParams();
-  if (f.commune.trim()) p.set('commune', f.commune.trim());
+  if (f.communes.length) p.set('communes', f.communes.join(',')); // liste EXPLICITE d'INSEE (AND `IN`, jamais un préfixe)
   if (f.scoreMin.trim()) p.set('scoreMin', f.scoreMin.trim());
   if (f.scoreMax.trim()) p.set('scoreMax', f.scoreMax.trim());
   if (f.dernierEtage) p.set('dernierEtage', f.dernierEtage);
@@ -86,6 +89,185 @@ function versParams(f: Filtres): URLSearchParams {
 }
 
 const TAILLE = 25;
+
+/** Résumé lisible de la sélection géo pour le déclencheur (ex. « Hauts-de-Seine (toutes) » ou « 2 départements · 5 communes »). */
+function resumeGeo(selection: string[], ref: CommuneRef[]): string {
+  if (selection.length === 0) return 'Toutes les communes';
+  const set = new Set(selection);
+  const parDept = new Map<string, { nom: string; total: number; sel: number }>();
+  for (const c of ref) {
+    const e = parDept.get(c.dept) ?? { nom: c.deptNom, total: 0, sel: 0 };
+    e.total += 1;
+    if (set.has(c.insee)) e.sel += 1;
+    parDept.set(c.dept, e);
+  }
+  const touches = [...parDept.values()].filter((d) => d.sel > 0);
+  if (touches.length === 1) {
+    const d = touches[0];
+    return d.sel === d.total ? `${d.nom} (toutes)` : `${d.nom} · ${d.sel} commune${d.sel > 1 ? 's' : ''}`;
+  }
+  if (touches.length === 0) return `${selection.length} commune${selection.length > 1 ? 's' : ''}`;
+  return `${touches.length} départements · ${selection.length} communes`;
+}
+
+const normGeo = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/**
+ * Sélecteur géographique département→commune (OVERLAY, PRÉSENTATION). `communes` = référentiel DYNAMIQUE fetché à
+ * chaud (aucune liste en dur). Ne fait AUCUNE requête ; applique une sélection CLIENT via `onValider` (le filtre géo
+ * F1-only est appliqué côté serveur, `construireFiltres`). Overlay `position:absolute` → aucun reflow des champs dessous.
+ * 2 étages : départements présents → communes des dpts choisis. Défaut (aucune commune cochée) = toutes les communes
+ * des dpts sélectionnés (liste EXPLICITE). Fermeture clic-extérieur/Échap ; Valider applique + referme.
+ */
+function SelecteurGeo({ communes, selection, onValider }: {
+  communes: CommuneRef[];
+  selection: string[];
+  onValider: (communes: string[]) => void;
+}) {
+  const [ouvert, setOuvert] = useState(false);
+  const [etage, setEtage] = useState<1 | 2>(1);
+  const [deptSel, setDeptSel] = useState<string[]>([]);
+  const [commSel, setCommSel] = useState<string[]>([]);
+  const [rDept, setRDept] = useState('');
+  const [rComm, setRComm] = useState('');
+  const boite = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!ouvert) return;
+    const onDown = (e: MouseEvent) => { if (boite.current && !boite.current.contains(e.target as Node)) setOuvert(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOuvert(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [ouvert]);
+
+  // Départements distincts, DÉRIVÉS du référentiel dynamique (jamais codés en dur).
+  const depts = Array.from(new Map(communes.map((c) => [c.dept, c.deptNom])).entries())
+    .map(([dept, deptNom]) => ({ dept, deptNom }))
+    .sort((a, b) => normGeo(a.deptNom).localeCompare(normGeo(b.deptNom))); // tri par LIBELLÉ (insensible casse/accents)
+
+  const ouvrir = () => {
+    const set = new Set(selection);
+    setDeptSel(Array.from(new Set(communes.filter((c) => set.has(c.insee)).map((c) => c.dept))));
+    setCommSel([...selection]);
+    setEtage(1);
+    setRDept('');
+    setRComm('');
+    setOuvert(true);
+  };
+  const bascule = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+
+  const deptsAffiches = rDept.trim() === '' ? depts : depts.filter((d) => normGeo(d.deptNom).includes(normGeo(rDept)) || d.dept.includes(rDept.trim()));
+  // Tri par NOM de commune (insensible casse/accents ; `nom` retombe déjà sur l'INSEE côté serveur). AFFICHAGE seul :
+  // ne change pas l'ENSEMBLE retenu par défaut (« toutes les communes des dpts »), seulement l'ordre.
+  const commDesDepts = communes.filter((c) => deptSel.includes(c.dept)).sort((a, b) => normGeo(a.nom).localeCompare(normGeo(b.nom)));
+  const commAffichees = rComm.trim() === '' ? commDesDepts : commDesDepts.filter((c) => normGeo(c.nom).includes(normGeo(rComm)) || c.insee.includes(rComm.trim()));
+
+  const valider = () => {
+    const inseeDesDepts = commDesDepts.map((c) => c.insee);
+    const setDepts = new Set(inseeDesDepts);
+    const choisies = commSel.filter((i) => setDepts.has(i)); // restreint aux dpts encore sélectionnés
+    // Défaut : aucune commune cochée → TOUTES les communes des dpts sélectionnés (liste EXPLICITE). Aucun dpt → aucun filtre.
+    const final = deptSel.length === 0 ? [] : choisies.length > 0 ? choisies : inseeDesDepts;
+    onValider(final);
+    setOuvert(false);
+  };
+
+  const styleCase = (actif: boolean): CSSProperties => ({
+    width: '100%', minHeight: 44, display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left',
+    padding: '4px 8px', borderRadius: 8, cursor: 'pointer', fontSize: '.85rem', color: 'var(--color-svv-ink)',
+    border: `1px solid ${actif ? 'var(--color-svv-red)' : 'transparent'}`, background: actif ? 'var(--color-svv-field)' : 'transparent',
+  });
+  const coche = (actif: boolean) => (
+    <span aria-hidden style={{ flex: '0 0 auto', width: 16, height: 16, borderRadius: 4, border: `1px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`, background: actif ? 'var(--color-svv-red)' : '#fff', color: '#fff', fontSize: 12, lineHeight: '14px', textAlign: 'center' }}>{actif ? '✓' : ''}</span>
+  );
+
+  return (
+    <div ref={boite} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => (ouvert ? setOuvert(false) : ouvrir())}
+        aria-haspopup="dialog"
+        aria-expanded={ouvert}
+        style={{ ...champ, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, cursor: 'pointer', fontWeight: 600 }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{resumeGeo(selection, communes)}</span>
+        <span aria-hidden style={{ color: 'var(--color-svv-muted)' }}>{ouvert ? '▲' : '▼'}</span>
+      </button>
+
+      {ouvert && (
+        <div
+          role="dialog"
+          aria-label="Sélection de la zone géographique"
+          style={{
+            position: 'absolute', zIndex: 40, top: 'calc(100% + 4px)', left: 0, minWidth: 260, width: 'max-content', maxWidth: 'min(360px, 90vw)',
+            background: '#fff', border: '1px solid var(--color-svv-line)', borderRadius: 10, boxShadow: '0 6px 20px rgba(0,0,0,.18)',
+            display: 'flex', flexDirection: 'column', overflow: 'hidden', // la hauteur est gouvernée par la liste (≈5 lignes) + les sections fixes
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, borderBottom: '1px solid var(--color-svv-line)', fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
+            <span style={{ color: etage === 1 ? 'var(--color-svv-red)' : 'var(--color-svv-muted)' }}>1. Départements</span>
+            <span aria-hidden>›</span>
+            <span style={{ color: etage === 2 ? 'var(--color-svv-red)' : 'var(--color-svv-muted)' }}>2. Communes</span>
+          </div>
+
+          {etage === 1 ? (
+            <>
+              <div style={{ padding: 8, borderBottom: '1px solid var(--color-svv-line)' }}>
+                <input type="search" value={rDept} onChange={(e) => setRDept(e.target.value)} placeholder="Rechercher un département…" aria-label="Rechercher un département" style={{ ...champ, width: '100%' }} />
+              </div>
+              <div role="listbox" aria-multiselectable="true" aria-label="Départements présents" style={{ maxHeight: 228, overflowY: 'auto', padding: 4 }}>
+                {depts.length === 0 ? (
+                  <span style={{ display: 'block', padding: '8px 6px', fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucun département en base.</span>
+                ) : deptsAffiches.length === 0 ? (
+                  <span style={{ display: 'block', padding: '8px 6px', fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucun département ne correspond.</span>
+                ) : (
+                  deptsAffiches.map((d) => {
+                    const actif = deptSel.includes(d.dept);
+                    return (
+                      <button key={d.dept} type="button" role="option" aria-selected={actif} onClick={() => setDeptSel((s) => bascule(s, d.dept))} style={styleCase(actif)}>
+                        {coche(actif)}<span>{d.deptNom} <span style={{ color: 'var(--color-svv-muted)' }}>({d.dept})</span></span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', padding: 8, borderTop: '1px solid var(--color-svv-line)' }}>
+                <button type="button" onClick={() => setDeptSel([])} disabled={deptSel.length === 0} style={{ ...btnOutline, minHeight: 44, opacity: deptSel.length === 0 ? 0.5 : 1 }}>Aucun</button>
+                <button type="button" onClick={() => setEtage(2)} disabled={deptSel.length === 0} style={{ ...btnRouge, minHeight: 44, opacity: deptSel.length === 0 ? 0.5 : 1 }}>Suivant : communes</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ padding: 8, borderBottom: '1px solid var(--color-svv-line)' }}>
+                <input type="search" value={rComm} onChange={(e) => setRComm(e.target.value)} placeholder="Rechercher une commune…" aria-label="Rechercher une commune" style={{ ...champ, width: '100%' }} />
+              </div>
+              <p style={{ margin: 0, padding: '4px 10px', fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>Aucune cochée → toutes les communes des départements choisis.</p>
+              <div role="listbox" aria-multiselectable="true" aria-label="Communes des départements sélectionnés" style={{ maxHeight: 228, overflowY: 'auto', padding: 4 }}>
+                {commAffichees.length === 0 ? (
+                  <span style={{ display: 'block', padding: '8px 6px', fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune commune ne correspond.</span>
+                ) : (
+                  commAffichees.map((c) => {
+                    const actif = commSel.includes(c.insee);
+                    return (
+                      <button key={c.insee} type="button" role="option" aria-selected={actif} onClick={() => setCommSel((s) => bascule(s, c.insee))} style={styleCase(actif)}>
+                        {coche(actif)}<span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nom} <span style={{ color: 'var(--color-svv-muted)' }}>({c.insee})</span></span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', padding: 8, borderTop: '1px solid var(--color-svv-line)' }}>
+                <button type="button" onClick={() => setEtage(1)} style={{ ...btnOutline, minHeight: 44 }}>Retour</button>
+                <button type="button" onClick={valider} style={{ ...btnRouge, minHeight: 44 }}>Valider</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function InternautesVue() {
   const [filtres, setFiltres] = useState<Filtres>(FILTRES_VIDES);
@@ -103,6 +285,24 @@ export function InternautesVue() {
   const [actionErreur, setActionErreur] = useState<string | null>(null);
   // Bornes de dates de la base (MIN/MAX cree_a, efface_a IS NULL — fournies par la route liste) pour « depuis toujours ».
   const [bornes, setBornes] = useState<{ min: string | null; max: string | null }>({ min: null, max: null });
+  // Référence géo DYNAMIQUE (communes présentes chez les consentants F1) pour le sélecteur département→commune.
+  // Fetchée UNE fois au montage depuis l'endpoint dédié (admin-only). Vide si aucune commune en base.
+  const [communesRef, setCommunesRef] = useState<CommuneRef[]>([]);
+
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/internautes/communes');
+        if (annule || !res.ok) return;
+        const data = await res.json();
+        if (!annule && Array.isArray(data.communes)) setCommunesRef(data.communes as CommuneRef[]);
+      } catch {
+        /* best-effort : sans référentiel, le sélecteur géo affiche « aucun département » */
+      }
+    })();
+    return () => { annule = true; };
+  }, []);
 
   // Fetch sur (filtres appliqués, page). Patron admin (cf. audit/page.tsx) : setState DANS l'IIFE async (jamais
   // synchrone dans le corps de l'effet) + garde `annule` anti-course. La liste est réservée administrateur côté
@@ -372,8 +572,9 @@ export function InternautesVue() {
           alignées verticalement, bas des contrôles alignés (align-items:end). */}
       <div className="svv-card svv-int-filtres" style={{ display: 'grid', gap: 10, alignItems: 'start', background: 'var(--color-svv-field)' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
-          Commune (INSEE)
-          <input style={champ} value={filtres.commune} onChange={(e) => setFiltres({ ...filtres, commune: e.target.value })} placeholder="ex. 92004" inputMode="numeric" />
+          Zone géographique
+          {/* Sélecteur département→commune en OVERLAY (position:absolute) → aucun reflow des champs dessous. */}
+          <SelecteurGeo communes={communesRef} selection={filtres.communes} onValider={(communes) => setFiltres((f) => ({ ...f, communes }))} />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Score min

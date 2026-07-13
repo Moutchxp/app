@@ -21,7 +21,7 @@ export default async function InternautesPage() {
   return (
     <section style={{ maxWidth: 960 }}>
       <EnTetePage
-        titre="Internautes"
+        titre="Internautes (Base de données)"
         intro="Base des internautes ayant consenti au recontact. Recherche, consultation et extraction pour la relation commerciale interne — réservé aux administrateurs."
       >
         <p className="svv-page-sub">

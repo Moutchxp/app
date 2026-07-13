@@ -8,7 +8,7 @@
 
 /** Critères d'extraction. Tous optionnels ; extensible (ajouter un champ + une entrée dans `construireFiltres`). */
 export interface FiltresExtraction {
-  communeInsee?: string | null;
+  communesInsee?: string[] | null; // ensemble de communes (INSEE) — filtre géo AND `IN (...)` sur le set F1
   scoreMin?: number | null;
   scoreMax?: number | null;
   dernierEtage?: boolean | null;
@@ -49,7 +49,13 @@ export function construireFiltres(f: FiltresExtraction): { clauses: string[]; pa
     return `$${params.length}`;
   };
 
-  if (typeof f.communeInsee === 'string' && INSEE.test(f.communeInsee)) clauses.push(`p.commune_insee = ${lier(f.communeInsee)}`);
+  // Filtre géographique : ensemble de communes (INSEE) → `p.commune_insee IN (...)`, AND sur le set F1 (RESTREINT,
+  // jamais un non-F1). Chaque code est VALIDÉ (regex INSEE) et LIÉ en paramètre (anti-injection) ; les codes
+  // invalides sont écartés. Ensemble vide/inexistant → aucune clause (pas de filtre géo).
+  if (Array.isArray(f.communesInsee)) {
+    const valides = f.communesInsee.filter((c): c is string => typeof c === 'string' && INSEE.test(c));
+    if (valides.length > 0) clauses.push(`p.commune_insee IN (${valides.map((c) => lier(c)).join(', ')})`);
+  }
   if (estNombre(f.scoreMin)) clauses.push(`p.score >= ${lier(f.scoreMin)}`);
   if (estNombre(f.scoreMax)) clauses.push(`p.score <= ${lier(f.scoreMax)}`);
   if (typeof f.dernierEtage === 'boolean') clauses.push(`p.dernier_etage = ${lier(f.dernierEtage)}`);
@@ -83,8 +89,11 @@ export function lireFiltres(params: URLSearchParams): FiltresExtraction {
     const v = params.get(k);
     return v && v.trim() !== '' ? v.trim() : null;
   };
+  const communes = params.get('communes');
   return {
-    communeInsee: str('commune'),
+    // `communes` = liste d'INSEE séparés par des virgules (remplace le paramètre `commune` unique). Validation dans
+    // `construireFiltres` (seuls les codes INSEE valides deviennent des paramètres liés).
+    communesInsee: communes && communes.trim() !== '' ? communes.split(',').map((c) => c.trim()).filter(Boolean) : null,
     scoreMin: num('scoreMin'),
     scoreMax: num('scoreMax'),
     dernierEtage: bool('dernierEtage'),

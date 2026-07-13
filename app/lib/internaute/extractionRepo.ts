@@ -98,6 +98,34 @@ export async function lireBornesDates(): Promise<{ min: string | null; max: stri
   return { min: r.rows[0]?.min ?? null, max: r.rows[0]?.max ?? null };
 }
 
+/** Libellés des départements IDF (référence STATIQUE, pas une liste d'existence : la liste RÉELLE est requêtée à
+ *  chaud). Un département hors carte → son code est affiché tel quel (`deptNom = dept`). */
+const DEPT_NOM: Record<string, string> = {
+  '75': 'Paris', '77': 'Seine-et-Marne', '78': 'Yvelines', '91': 'Essonne',
+  '92': 'Hauts-de-Seine', '93': 'Seine-Saint-Denis', '94': 'Val-de-Marne', '95': "Val-d'Oise",
+};
+
+/**
+ * Communes RÉELLEMENT présentes chez les consentants F1 (extraction commerciale nominative — PAS de k-anonymat ici).
+ * DYNAMIQUE : `SELECT DISTINCT p.commune_insee` sur le set F1 (`FROM_INVARIANT`), joint à `adresse_ban` (référentiel
+ * géo public BAN/IGN) pour le NOM — lu DIRECTEMENT via `db/client`, JAMAIS via `app/lib/analytics/*` (cloisonnement M2).
+ * Aucune liste en dur : un nouveau département/commune entrant en base apparaît automatiquement. Nom absent → INSEE.
+ * Département = 2 premiers caractères (IDF) ; libellé via `DEPT_NOM`, sinon le code. Lecture seule.
+ */
+export async function lireCommunesPresentes(): Promise<{ insee: string; nom: string; dept: string; deptNom: string }[]> {
+  const r = await query<{ insee: string; nom: string | null }>(
+    `SELECT c.insee AS insee, MAX(a.nom_commune) AS nom
+       FROM (SELECT DISTINCT p.commune_insee AS insee ${FROM_INVARIANT} AND p.commune_insee IS NOT NULL) c
+       LEFT JOIN adresse_ban a ON a.insee_commune = c.insee
+      GROUP BY c.insee
+      ORDER BY 1`,
+  );
+  return r.rows.map((row) => {
+    const dept = row.insee.slice(0, 2);
+    return { insee: row.insee, nom: row.nom ?? row.insee, dept, deptNom: DEPT_NOM[dept] ?? dept };
+  });
+}
+
 export { versCsv };
 
 /** Dossier complet d'UNE personne (droit d'accès). Renvoie null si l'id n'existe pas. */

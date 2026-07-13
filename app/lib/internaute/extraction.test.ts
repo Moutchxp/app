@@ -14,16 +14,18 @@ describe('construireFiltres — clauses paramétrées, extensibles, anti-injecti
     expect(r.params).toEqual([10, 80]);
   });
 
-  it('commune INSEE valide → clause paramétrée', () => {
-    const r = construireFiltres({ communeInsee: '92004' });
-    expect(r.clauses).toEqual(['p.commune_insee = $1']);
-    expect(r.params).toEqual(['92004']);
+  it('communes INSEE valides → clause IN paramétrée (AND sur le set F1)', () => {
+    const r = construireFiltres({ communesInsee: ['92004', '75056'] });
+    expect(r.clauses).toEqual(['p.commune_insee IN ($1, $2)']);
+    expect(r.params).toEqual(['92004', '75056']);
   });
 
-  it('commune malformée (tentative d’injection) → IGNORÉE (jamais interpolée)', () => {
-    const r = construireFiltres({ communeInsee: "1; DROP TABLE internaute" });
-    expect(r.clauses).toEqual([]);
-    expect(r.params).toEqual([]);
+  it('communes : codes malformés (injection) écartés ; ensemble vide → aucune clause', () => {
+    const r = construireFiltres({ communesInsee: ['92004', '1; DROP TABLE internaute', 'abc'] });
+    expect(r.clauses).toEqual(['p.commune_insee IN ($1)']); // seul le code valide est lié
+    expect(r.params).toEqual(['92004']);
+    expect(construireFiltres({ communesInsee: [] }).clauses).toEqual([]);
+    expect(construireFiltres({ communesInsee: ['xx', 'yy'] }).clauses).toEqual([]); // que des invalides → rien
   });
 
   it('verdict hors énumération → ignoré ; verdict valide → clause', () => {
@@ -45,8 +47,8 @@ describe('construireFiltres — clauses paramétrées, extensibles, anti-injecti
   });
 
   it('combinaison → placeholders continus dans l’ordre d’ajout', () => {
-    const r = construireFiltres({ communeInsee: '75056', scoreMin: 50, dernierEtage: true });
-    expect(r.clauses).toEqual(['p.commune_insee = $1', 'p.score >= $2', 'p.dernier_etage = $3']);
+    const r = construireFiltres({ communesInsee: ['75056'], scoreMin: 50, dernierEtage: true });
+    expect(r.clauses).toEqual(['p.commune_insee IN ($1)', 'p.score >= $2', 'p.dernier_etage = $3']);
     expect(r.params).toEqual(['75056', 50, true]);
   });
 
@@ -73,9 +75,9 @@ describe('construireFiltres — clauses paramétrées, extensibles, anti-injecti
 
 describe('lireFiltres — parsing des query params', () => {
   it('parse nombres, booléens, chaînes ; ignore vide', () => {
-    const p = new URLSearchParams('commune=92004&scoreMin=10&dernierEtage=true&residencePrincipale=false&verdict=VIS_A_VIS&scoreMax=');
+    const p = new URLSearchParams('communes=92004,92012&scoreMin=10&dernierEtage=true&residencePrincipale=false&verdict=VIS_A_VIS&scoreMax=');
     const f = lireFiltres(p);
-    expect(f.communeInsee).toBe('92004');
+    expect(f.communesInsee).toEqual(['92004', '92012']);
     expect(f.scoreMin).toBe(10);
     expect(f.scoreMax).toBeNull();
     expect(f.dernierEtage).toBe(true);
