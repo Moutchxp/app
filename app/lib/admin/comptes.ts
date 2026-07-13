@@ -420,6 +420,7 @@ export interface CompteListe {
   actif: boolean;
   perms: Perms;
   derniere_connexion_a: string | null;
+  cree_a: string | null; // date de création du compte (déjà en base ; NULL toléré pour un compte pré-`cree_a`)
 }
 
 export async function listerComptes(): Promise<CompteListe[]> {
@@ -433,5 +434,6 @@ export async function listerComptes(): Promise<CompteListe[]> {
     actif: c.actif,
     perms: permsDuCompte(c),
     derniere_connexion_a: c.derniere_connexion_a,
+    cree_a: c.cree_a ?? null,
   }));
 }

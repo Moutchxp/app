@@ -13,6 +13,7 @@ interface CompteVue {
   actif: boolean;
   perms: Perms;
   derniere_connexion_a: string | null;
+  cree_a: string | null; // date de création (fournie par l'API ; NULL toléré)
 }
 interface DetailCompte extends CompteVue {
   doit_changer_mot_de_passe: boolean;
@@ -40,6 +41,9 @@ export function formaterDate(iso: string | null): string {
   const heure = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' }).format(d);
   return `${jour}, ${heure}`;
 }
+
+/** Normalisation de tri (insensible casse/accents, NFD) pour l'ordre alphabétique des noms. */
+const normNom = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 /**
  * Pastille de permission (chip) — contrôle de FORMULAIRE tactile. État coché/décoché perceptible SANS la seule
@@ -84,7 +88,7 @@ export function DetailContenu({
     <>
       <div className="cpt-tete" id={`cpt-tete-${compte.id}`}>{compte.prenom} {compte.nom}</div>
       <div className="cpt-meta">
-        Rôle : {compte.role} · {compte.actif ? 'actif' : 'inactif'} · dernière connexion : {formaterDate(compte.derniere_connexion_a)}
+        Rôle : {compte.role} · {compte.actif ? 'actif' : 'inactif'} · créé le : {compte.cree_a ? formaterDate(compte.cree_a) : '—'} · dernière connexion : {formaterDate(compte.derniere_connexion_a)}
         {compte.doit_changer_mot_de_passe && ' · doit changer son mot de passe'}
       </div>
 
@@ -316,8 +320,15 @@ export default function ComptesPage() {
   function ouvrir(c: CompteVue, btn: HTMLButtonElement) { detailsBtnRef.current = btn; setOuvertId(c.id); }
   function fermer() { const btn = detailsBtnRef.current; setOuvertId(null); requestAnimationFrame(() => btn?.focus()); }
 
-  const actifs = comptes.filter((c) => c.actif);
-  const desactives = comptes.filter((c) => !c.actif);
+  // Tri d'AFFICHAGE (copie, base non réordonnée) : administrateurs d'abord, puis collaborateurs ; chaque groupe par
+  // NOM DE FAMILLE (insensible casse/accents, NFD). Appliqué aux actifs ET aux désactivés pour cohérence.
+  const trierComptes = (arr: CompteVue[]) =>
+    [...arr].sort((a, b) =>
+      (a.role === 'administrateur' ? 0 : 1) - (b.role === 'administrateur' ? 0 : 1) ||
+      normNom(a.nom).localeCompare(normNom(b.nom)),
+    );
+  const actifs = trierComptes(comptes.filter((c) => c.actif));
+  const desactives = trierComptes(comptes.filter((c) => !c.actif));
 
   function carte(c: CompteVue, desactive: boolean) {
     if (ouvertId === c.id) {
@@ -329,7 +340,7 @@ export default function ComptesPage() {
         <div className="cpt-resume">
           <div className="cpt-nom">{c.prenom} {c.nom}</div>
           <div className="cpt-id">{c.identifiant}</div>
-          <div className="cpt-meta">{c.role} · dernière connexion : {formaterDate(c.derniere_connexion_a)}</div>
+          <div className="cpt-meta">{c.role} · créé le : {c.cree_a ? formaterDate(c.cree_a) : '—'} · dernière connexion : {formaterDate(c.derniere_connexion_a)}</div>
           {/* Règle admin (F1) : sous la ligne de rôle, dans la colonne d'identité — jamais dans la rangée de
               boutons (ceux-ci s'alignent ainsi d'une carte à l'autre). Ton sobre. Le refus est aussi serveur. */}
           {!collaborateur && (
@@ -351,10 +362,26 @@ export default function ComptesPage() {
     );
   }
 
+  // Rendu d'une liste DÉJÀ triée (admins d'abord, puis collaborateurs) avec 2 sous-titres intermédiaires. Le split
+  // par rôle préserve l'ordre par nom de chaque groupe ; un sous-titre n'apparaît que si son groupe est NON vide.
+  // AFFICHAGE seul : n'altère ni le tri ni les données.
+  function rendreGroupes(liste: CompteVue[], desactive: boolean) {
+    const admins = liste.filter((c) => c.role === 'administrateur');
+    const collabs = liste.filter((c) => c.role === 'collaborateur');
+    return (
+      <div className="cpt-liste">
+        {admins.length > 0 && <div className="cpt-groupe">Administrateurs</div>}
+        {admins.map((c) => carte(c, desactive))}
+        {collabs.length > 0 && <div className="cpt-groupe">Collaborateurs</div>}
+        {collabs.map((c) => carte(c, desactive))}
+      </div>
+    );
+  }
+
   return (
     <div>
       <style>{CSS}</style>
-      <EnTetePage titre="Administratif — comptes" intro="Gestion des comptes administrateurs, de leurs rôles et de leurs permissions." />
+      <EnTetePage titre="Administratif — comptes" intro="Gestion des comptes, de leurs rôles et de leurs permissions." />
 
       {/* Bloc « Créer un compte » encapsulé en TRAME GRISE (cohérence admin) ; champs/cases/bouton restent en fond clair.
           Affichage seul — aucune logique compte/rôle/permission modifiée. */}
@@ -382,7 +409,7 @@ export default function ComptesPage() {
 
       <section className="svv-card" style={{ marginBottom: 20 }}>
         <h2 className="cpt-h2">Comptes actifs ({actifs.length})</h2>
-        {chargement ? <p>Chargement…</p> : <div className="cpt-liste">{actifs.map((c) => carte(c, false))}</div>}
+        {chargement ? <p>Chargement…</p> : rendreGroupes(actifs, false)}
       </section>
 
       <section className="svv-card cpt-desactives">
@@ -392,7 +419,7 @@ export default function ComptesPage() {
         </button>
         {desactivesOuverts && (desactives.length === 0
           ? <p className="cpt-note">Aucun compte désactivé.</p>
-          : <div className="cpt-liste">{desactives.map((c) => carte(c, true))}</div>)}
+          : rendreGroupes(desactives, true))}
       </section>
 
       {temp && <ModaleTemporaire identifiant={temp.identifiant} motDePasse={temp.motDePasse} onFermer={() => setTemp(null)} />}
@@ -407,6 +434,8 @@ const CSS = `
 .cpt-champ:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
 .cpt-err{color:var(--color-svv-red);font-size:.9rem;margin:0 0 12px}
 .cpt-liste{display:flex;flex-direction:column;gap:10px}
+/* Sous-titre de groupe (Administrateurs / Collaborateurs) — intertitre discret, palette du site (aucun bleu). */
+.cpt-groupe{font-size:.72rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--color-svv-muted);margin:6px 0 -2px}
 /* Trame de fond : gris très clair UNIFORME sur tout le cartouche + bordure fine. Aucun filet interne. */
 .cpt-carte{background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:.7rem;padding:.9rem;display:flex;flex-direction:column;gap:10px}
 .cpt-nom{font-weight:700;color:var(--color-svv-ink)}

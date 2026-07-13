@@ -40,7 +40,7 @@ describe('Chip — pastille accessible (ARIA, état par forme)', () => {
 const compteCollab = {
   id: 5, identifiant: 'lea@unique.test', prenom: 'Léa', nom: 'M', role: 'collaborateur' as const, actif: true,
   perms: { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: true, banc_test: false },
-  derniere_connexion_a: '2026-07-09T22:31:35.591Z', doit_changer_mot_de_passe: false,
+  derniere_connexion_a: '2026-07-09T22:31:35.591Z', cree_a: '2026-06-01T09:00:00.000Z', doit_changer_mot_de_passe: false,
 };
 const noop = () => {};
 const idProps = { idPrenom: 'Léa', idNom: 'M', onIdPrenom: noop, onIdNom: noop, onEnregistrerIdentite: noop };
