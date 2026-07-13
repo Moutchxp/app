@@ -46,7 +46,8 @@ type Etat =
 export default function StatistiquesPage() {
   const [fenetre, setFenetre] = useState<Fenetre>(() => fenetreDefaut());
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
-  const [communeSel, setCommuneSel] = useState<string | null>(null);
+  // Multi-sélection de communes : Set CLIENT (array) de communes ∈ c.visibles (toutes ≥ k). Vide = aucune sélection.
+  const [communesSel, setCommunesSel] = useState<string[]>([]);
   const [filtres, setFiltres] = useState<FiltresGeo>({}); //  Chantier B : filtre d'AFFICHAGE carte (verdict-dominant / dept), CLIENT-only
   const [filtreScope, setFiltreScope] = useState<FiltreCommune | null>(null);
   const [refGeo, setRefGeo] = useState<RefCommunes | null>(null);
@@ -85,7 +86,7 @@ export default function StatistiquesPage() {
     let annule = false;
     void (async () => {
       setEtat({ statut: 'chargement' });
-      setCommuneSel(null);
+      setCommunesSel([]);
       setFiltreScope(null);
       try {
         const res = await fetch(construireUrl(fenetre)); // UNE vue k-safe par période ; le filtrage carte est CLIENT
@@ -106,15 +107,18 @@ export default function StatistiquesPage() {
     };
   }, [fenetre]);
 
-  // Filtre carte : verdicts SCOPÉS à la commune (fetch SÉPARÉ → n'efface pas le tableau de bord global).
-  // Pas de désélection à effacer ici : `filtreScope` obsolète est neutralisé à l'affichage par le garde
-  // `filtreScope.commune === communeSel` (et remis à null au changement de fenêtre) → aucun setState synchrone.
+  // Drill-down verdicts SCOPÉ : SEULEMENT quand EXACTEMENT UNE commune est sélectionnée (déjà k-safe, re-passée en k
+  // côté serveur). Dès que 0 ou ≥2 communes sont sélectionnées → AUCUN fetch scopé, JAMAIS d'ensemble envoyé au serveur
+  // (pas de requête d'union → pas de re-passage k sur une union → pas de canal de soustraction). Le serveur reste
+  // « un seul INSEE » (route.ts inchangé). `filtreScope` obsolète est neutralisé à l'affichage par le garde
+  // `filtreScope.commune === communeSeule`.
+  const communeSeule = communesSel.length === 1 ? communesSel[0] : null;
   useEffect(() => {
-    if (!communeSel) return;
+    if (!communeSeule) return;
     let annule = false;
     void (async () => {
       try {
-        const res = await fetch(construireUrl(fenetre, communeSel));
+        const res = await fetch(construireUrl(fenetre, communeSeule));
         if (annule || !res.ok) return;
         const data = (await res.json()) as Statistiques;
         if (!annule) setFiltreScope(data.filtreCommune);
@@ -125,9 +129,11 @@ export default function StatistiquesPage() {
     return () => {
       annule = true;
     };
-  }, [communeSel, fenetre]);
+  }, [communeSeule, fenetre]);
 
-  const filtreActif = communeSel !== null;
+  const filtreActif = communesSel.length > 0;
+  const toggleCommune = (insee: string) =>
+    setCommunesSel((prev) => (prev.includes(insee) ? prev.filter((c) => c !== insee) : [...prev, insee]));
 
   return (
     <section className="svv-stats" style={{ maxWidth: 960, display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -147,17 +153,24 @@ export default function StatistiquesPage() {
       {etat.statut === 'ok' &&
         (() => {
           const data = etat.data;
-          const selInfo = communeSel ? data.communes.visibles.find((x) => x.commune_insee === communeSel) : undefined;
-          const nomSel = communeSel ? refGeo?.[communeSel]?.nom ?? communeSel : undefined;
-          const filtre = filtreScope && filtreScope.commune === communeSel ? filtreScope : null;
+          // Le drill-down verdicts n'existe QUE pour une seule commune (communeSeule). Sinon (0 ou ≥2) → global.
+          const selInfo = communeSeule ? data.communes.visibles.find((x) => x.commune_insee === communeSeule) : undefined;
+          const nomSel = communeSeule ? refGeo?.[communeSeule]?.nom ?? communeSeule : undefined;
+          const filtre = filtreScope && filtreScope.commune === communeSeule ? filtreScope : null;
           const voileSession = filtreActif
             ? 'Métrique de session, sans dimension commune (anti-fingerprint : la géo ne croise jamais l’acquisition). Chiffres globaux.'
             : undefined;
           const voileAnalyses = filtreActif ? 'Analyses lancées : métrique globale, non ventilable par commune. Chiffres globaux.' : undefined;
           const voileProvenance = filtreActif ? 'Provenance : non filtrable par commune (anti-fingerprint). Chiffres globaux.' : undefined;
-          // Filtre posé mais verdicts scopés pas encore revenus (ou en échec) → on NE présente PAS le global
-          // comme s'il était scopé : note explicite « chiffres globaux » (constat R4), jamais muet.
-          const voileVerdicts = filtreActif && !filtre ? `Verdicts de ${nomSel ?? 'la commune'} en cours — chiffres globaux affichés.` : undefined;
+          // Verdicts : ventilés seulement pour une seule commune. ≥2 communes → non ventilé par commune (jamais
+          // d'union → pas de soustraction) ; 1 commune mais scope pas encore revenu → « chiffres globaux » explicite.
+          const voileVerdicts = !filtreActif
+            ? undefined
+            : communesSel.length >= 2
+              ? `${communesSel.length} communes sélectionnées — verdicts non ventilés par commune (chiffres globaux).`
+              : !filtre
+                ? `Verdicts de ${nomSel ?? 'la commune'} en cours — chiffres globaux affichés.`
+                : undefined;
           return (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: 12 }}>
               <div style={{ gridColumn: '1 / -1' }}>
@@ -168,7 +181,7 @@ export default function StatistiquesPage() {
               <TuileVerdicts data={data} filtre={filtre} nomCommune={nomSel} resultatsCommune={selInfo?.n} voile={voileVerdicts} />
               <TuileEntonnoir data={data} voile={voileSession} />
               <div style={{ gridColumn: '1 / -1' }}>
-                <TuileCommunes data={data} refGeo={refGeo} selection={communeSel} onSelect={setCommuneSel} reducedMotion={reduitMouvement} filtres={filtres} onFiltres={setFiltres} />
+                <TuileCommunes data={data} refGeo={refGeo} selection={communesSel} onToggle={toggleCommune} onClear={() => setCommunesSel([])} reducedMotion={reduitMouvement} filtres={filtres} onFiltres={setFiltres} />
               </div>
               <TuileProvenance data={data} voile={voileProvenance} />
             </div>

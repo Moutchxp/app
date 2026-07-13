@@ -389,7 +389,7 @@ export function SerieTemporelle({ serie }: { serie: Statistiques['serie'] }) {
           </svg>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.68rem', color: 'var(--color-svv-muted)' }}>
             <span>{serie[0].bucket}</span>
-            <span>max {formatNombre(max)}</span>
+            <span>échelle Y max : {formatNombre(max)}</span>
             <span>{serie[serie.length - 1].bucket}</span>
           </div>
           {/* Honnêteté (constat R4) : échelle Y COMMUNE → une petite courbe (verdicts) mêlée à une grande
@@ -457,22 +457,25 @@ export function TuileCommunes({
   data,
   refGeo,
   selection,
-  onSelect,
+  onToggle,
+  onClear,
   reducedMotion,
   filtres,
   onFiltres,
 }: {
   data: Statistiques;
   refGeo: RefCommunes | null; //                       référentiel cartographique (endpoint géo) — null si non chargé
-  selection: string | null;
-  onSelect: (insee: string | null) => void; //         null = « toutes communes »
+  selection: string[]; //                               multi-sélection CLIENT (Set de communes ∈ c.visibles, déjà k-safe)
+  onToggle: (insee: string) => void; //                bascule une commune dans/hors la sélection (aucune requête serveur)
+  onClear: () => void; //                               vide la sélection
   reducedMotion: boolean;
   filtres: FiltresGeo; //                               Chantier B : filtre d'AFFICHAGE (verdict-dominant / dept), CLIENT
   onFiltres: (f: FiltresGeo) => void; //                changement → filtrage CLIENT du payload k-safe (AUCUN refetch)
 }) {
   const c = data.communes;
   // Filtrage CLIENT (post-revue adverse) sur les communes DÉJÀ k-safe : verdict par DOMINANT (déjà anonymisé),
-  // département par préfixe INSEE. Ne requête rien, ne révèle rien de plus que le payload → aucune différenciation.
+  // département par préfixe INSEE (générique, aucun département en dur). Ne requête rien, ne révèle rien de plus que
+  // le payload → aucune différenciation inter-vues.
   const visiblesFiltrees = filtrerCommunesClient(c.visibles, filtres);
   const tri = [...visiblesFiltrees].sort((a, b) => b.n - a.n);
   const max = Math.max(1, ...tri.map((x) => x.n));
@@ -480,6 +483,12 @@ export function TuileCommunes({
   const nomDe = (insee: string) => refGeo?.[insee]?.nom ?? `Commune ${insee}`;
   const filtreActif = !!(filtres.verdict || filtres.departement);
   const set = (patch: Partial<FiltresGeo>) => onFiltres({ ...filtres, ...patch });
+  // Recherche texte : PUR filtre d'AFFICHAGE de la liste (client), insensible casse/accents. N'interroge pas le
+  // serveur et ne change pas l'éligibilité (la liste reste ⊂ c.visibles ≥ k) → jamais de commune sous le seuil.
+  const [recherche, setRecherche] = useState('');
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const q = norm(recherche.trim());
+  const triAffiche = q === '' ? tri : tri.filter((x) => norm(nomDe(x.commune_insee)).includes(q));
   return (
     <Carte titre="Communes" aide={`Où des analyses ont abouti (résultats produits, grain commune, anonymisé k=${data.k}). Jamais d’adresse ni de point.`}>
       {/* Barre de filtres d'AFFICHAGE (Chantier B, post-revue) : appliqués CÔTÉ CLIENT au payload k-safe, aucun refetch. */}
@@ -499,11 +508,15 @@ export function TuileCommunes({
             </select>
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>
-            Commune
-            <select value={selection ?? ''} onChange={(e) => onSelect(e.target.value || null)} style={styleSelect}>
-              <option value="">Toutes</option>
-              {tri.map((x) => <option key={x.commune_insee} value={x.commune_insee}>{nomDe(x.commune_insee)}</option>)}
-            </select>
+            Rechercher une commune
+            <input
+              type="search"
+              value={recherche}
+              onChange={(e) => setRecherche(e.target.value)}
+              placeholder="Nom de commune…"
+              aria-label="Rechercher une commune dans la liste"
+              style={styleSelect}
+            />
           </label>
         </div>
       </div>
@@ -520,7 +533,7 @@ export function TuileCommunes({
         <>
           {geo.length > 0 && (
             <>
-              <CarteCommunes communes={geo} selection={selection} onSelect={(insee) => onSelect(insee)} reducedMotion={reducedMotion} />
+              <CarteCommunes communes={geo} selection={selection} onSelect={onToggle} reducedMotion={reducedMotion} />
               <LegendeVerdict />
               {/* Légende d'échelle (constat R4) : le rayon est un REPÈRE relatif (racine bornée), pas une mesure. */}
               <p style={{ margin: 0, fontSize: '.68rem', color: 'var(--color-svv-muted)' }}>
@@ -535,15 +548,27 @@ export function TuileCommunes({
               {tri.length - geo.length} commune(s) sans localisation connue — dans la liste, absente(s) de la carte.
             </p>
           )}
+          {/* Résumé de sélection (multi) : compte + désélection globale. La sélection est un Set CLIENT de communes
+              déjà k-safe (aucune requête d'union serveur). */}
+          {selection.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>
+              <span>{selection.length} commune{selection.length > 1 ? 's' : ''} sélectionnée{selection.length > 1 ? 's' : ''}</span>
+              <button type="button" onClick={onClear} style={{ minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-red)', background: '#fff', color: 'var(--color-svv-red)', fontSize: '.72rem', fontWeight: 700, cursor: 'pointer' }}>
+                Tout désélectionner
+              </button>
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
-            {tri.map((x) => {
-              const actif = x.commune_insee === selection;
+            {triAffiche.length === 0 ? (
+              <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune commune ne correspond à la recherche.</span>
+            ) : triAffiche.map((x) => {
+              const actif = selection.includes(x.commune_insee);
               return (
                 <button
                   key={x.commune_insee}
                   type="button"
                   aria-pressed={actif}
-                  onClick={() => onSelect(actif ? null : x.commune_insee)}
+                  onClick={() => onToggle(x.commune_insee)}
                   style={{
                     textAlign: 'left',
                     width: '100%',

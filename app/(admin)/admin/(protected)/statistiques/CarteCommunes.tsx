@@ -44,8 +44,8 @@ function Controleur({ mapRef }: { mapRef: MutableRefObject<LeafletMap | null> })
 
 export interface CarteCommunesProps {
   communes: CommuneGeo[];
-  selection: string | null;
-  onSelect: (insee: string) => void;
+  selection: string[]; //     multi-sélection : communes surlignées (Set côté client, toutes déjà k-safe)
+  onSelect: (insee: string) => void; // clic sur une bulle = bascule la commune dans/hors la sélection
   reducedMotion: boolean;
 }
 
@@ -67,7 +67,7 @@ export default function CarteCommunes({ communes, selection, onSelect, reducedMo
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
         {communes.map((c) => {
-          const actif = c.commune_insee === selection;
+          const actif = selection.includes(c.commune_insee);
           const couleur = couleurDominant(c.dominant); // dominant déjà k-safe ; null → gris clair neutre
           return (
             <CircleMarker
