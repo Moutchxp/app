@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import {
   libelleMasque,
@@ -433,6 +433,146 @@ function ChipFiltre({ actif, onClick, children }: { actif: boolean; onClick: () 
 
 const styleSelect: CSSProperties = { minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-line)', background: '#fff', color: 'var(--color-svv-ink)', fontSize: '.82rem' };
 
+/**
+ * MENU DÉROULANT MULTI-SÉLECTION de communes (PRÉSENTATION SEULE).
+ *
+ * `communes` = liste DÉJÀ k-safe (⊂ c.visibles ≥ k, filtrée par le département courant) → une commune < k n'apparaît
+ * JAMAIS, même via la recherche interne. La sélection est un Set CLIENT : `onToggle`/`onClear` restent locaux, AUCUN
+ * fetch ici (la sécurité — client-only, drill-down 1 commune, route un-seul-INSEE — vit dans page.tsx, inchangée).
+ * Le menu RESTE OUVERT pendant la sélection (les clics d'option ne ferment pas) ; fermeture au clic extérieur, à
+ * Échap, ou via le bouton « Fermer ». Recherche interne = filtre d'AFFICHAGE pur (NFD, insensible casse/accents).
+ */
+function MenuCommunes({
+  communes,
+  selection,
+  onToggle,
+  onClear,
+  nomDe,
+}: {
+  communes: ReadonlyArray<{ commune_insee: string }>;
+  selection: string[];
+  onToggle: (insee: string) => void;
+  onClear: () => void;
+  nomDe: (insee: string) => string;
+}) {
+  const [ouvert, setOuvert] = useState(false);
+  const [recherche, setRecherche] = useState('');
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  // Fermeture au clic extérieur + Échap, SEULEMENT quand le menu est ouvert (aucun listener sinon).
+  useEffect(() => {
+    if (!ouvert) return;
+    const onDocDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOuvert(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOuvert(false);
+    };
+    document.addEventListener('mousedown', onDocDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [ouvert]);
+
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const q = norm(recherche.trim());
+  const affichees = q === '' ? communes : communes.filter((x) => norm(nomDe(x.commune_insee)).includes(q));
+
+  const resume =
+    selection.length === 0
+      ? 'Toutes les communes'
+      : selection.length === 1
+        ? nomDe(selection[0])
+        : `${selection.length} communes sélectionnées`;
+
+  return (
+    <div ref={ref} style={{ position: 'relative', minWidth: 200 }}>
+      <button
+        type="button"
+        onClick={() => setOuvert((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={ouvert}
+        style={{ ...styleSelect, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, cursor: 'pointer', fontWeight: 600 }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{resume}</span>
+        <span aria-hidden style={{ color: 'var(--color-svv-muted)' }}>{ouvert ? '▲' : '▼'}</span>
+      </button>
+
+      {ouvert && (
+        <div
+          style={{
+            position: 'absolute', zIndex: 30, top: 'calc(100% + 4px)', left: 0, right: 0, minWidth: 220,
+            background: '#fff', border: '1px solid var(--color-svv-line)', borderRadius: 10,
+            boxShadow: '0 6px 20px rgba(0,0,0,.18)', display: 'flex', flexDirection: 'column', maxHeight: 320, overflow: 'hidden',
+          }}
+        >
+          {/* 1re ligne : recherche interne (filtre d'affichage pur, jamais le serveur). */}
+          <div style={{ padding: 8, borderBottom: '1px solid var(--color-svv-line)' }}>
+            <input
+              type="search"
+              autoFocus
+              value={recherche}
+              onChange={(e) => setRecherche(e.target.value)}
+              placeholder="Rechercher une commune…"
+              aria-label="Rechercher une commune"
+              style={{ ...styleSelect, width: '100%' }}
+            />
+          </div>
+          <div role="listbox" aria-multiselectable="true" aria-label="Communes (≥ seuil d’anonymat)" style={{ overflowY: 'auto', padding: 4 }}>
+            {affichees.length === 0 ? (
+              <span style={{ display: 'block', padding: '8px 6px', fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>
+                {communes.length === 0 ? 'Aucune commune au-dessus du seuil d’anonymat.' : 'Aucune commune ne correspond à la recherche.'}
+              </span>
+            ) : (
+              affichees.map((x) => {
+                const actif = selection.includes(x.commune_insee);
+                return (
+                  <button
+                    key={x.commune_insee}
+                    type="button"
+                    role="option"
+                    aria-selected={actif}
+                    onClick={() => onToggle(x.commune_insee)} // NE ferme PAS le menu → multi-sélection continue
+                    style={{
+                      width: '100%', minHeight: 44, display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left',
+                      padding: '4px 8px', borderRadius: 8, cursor: 'pointer', fontSize: '.85rem',
+                      border: `1px solid ${actif ? 'var(--color-svv-red)' : 'transparent'}`,
+                      background: actif ? 'var(--color-svv-field)' : 'transparent',
+                      color: 'var(--color-svv-ink)',
+                    }}
+                  >
+                    <span aria-hidden style={{ flex: '0 0 auto', width: 16, height: 16, borderRadius: 4, border: `1px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`, background: actif ? 'var(--color-svv-red)' : '#fff', color: '#fff', fontSize: 12, lineHeight: '14px', textAlign: 'center' }}>{actif ? '✓' : ''}</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nomDe(x.commune_insee)}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', padding: 8, borderTop: '1px solid var(--color-svv-line)' }}>
+            <button
+              type="button"
+              onClick={onClear}
+              disabled={selection.length === 0}
+              style={{ minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-red)', background: '#fff', color: 'var(--color-svv-red)', fontSize: '.72rem', fontWeight: 700, cursor: selection.length === 0 ? 'default' : 'pointer', opacity: selection.length === 0 ? 0.5 : 1 }}
+            >
+              Tout désélectionner
+            </button>
+            <button
+              type="button"
+              onClick={() => setOuvert(false)}
+              style={{ minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-line)', background: '#fff', color: 'var(--color-svv-ink)', fontSize: '.72rem', fontWeight: 700, cursor: 'pointer' }}
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Légende des couleurs de bulle = verdict dominant k-safe (ou neutre). AUCUN bleu (tokens svv + gris clair neutre). */
 function LegendeVerdict() {
   const items = [
@@ -483,12 +623,6 @@ export function TuileCommunes({
   const nomDe = (insee: string) => refGeo?.[insee]?.nom ?? `Commune ${insee}`;
   const filtreActif = !!(filtres.verdict || filtres.departement);
   const set = (patch: Partial<FiltresGeo>) => onFiltres({ ...filtres, ...patch });
-  // Recherche texte : PUR filtre d'AFFICHAGE de la liste (client), insensible casse/accents. N'interroge pas le
-  // serveur et ne change pas l'éligibilité (la liste reste ⊂ c.visibles ≥ k) → jamais de commune sous le seuil.
-  const [recherche, setRecherche] = useState('');
-  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  const q = norm(recherche.trim());
-  const triAffiche = q === '' ? tri : tri.filter((x) => norm(nomDe(x.commune_insee)).includes(q));
   return (
     <Carte titre="Communes" aide={`Où des analyses ont abouti (résultats produits, grain commune, anonymisé k=${data.k}). Jamais d’adresse ni de point.`}>
       {/* Barre de filtres d'AFFICHAGE (Chantier B, post-revue) : appliqués CÔTÉ CLIENT au payload k-safe, aucun refetch. */}
@@ -508,15 +642,9 @@ export function TuileCommunes({
             </select>
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>
-            Rechercher une commune
-            <input
-              type="search"
-              value={recherche}
-              onChange={(e) => setRecherche(e.target.value)}
-              placeholder="Nom de commune…"
-              aria-label="Rechercher une commune dans la liste"
-              style={styleSelect}
-            />
+            Communes
+            {/* Menu déroulant multi-sélection : liste = tri (= c.visibles ≥ k, filtré par le département courant). */}
+            <MenuCommunes communes={tri} selection={selection} onToggle={onToggle} onClear={onClear} nomDe={nomDe} />
           </label>
         </div>
       </div>
@@ -548,20 +676,10 @@ export function TuileCommunes({
               {tri.length - geo.length} commune(s) sans localisation connue — dans la liste, absente(s) de la carte.
             </p>
           )}
-          {/* Résumé de sélection (multi) : compte + désélection globale. La sélection est un Set CLIENT de communes
-              déjà k-safe (aucune requête d'union serveur). */}
-          {selection.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>
-              <span>{selection.length} commune{selection.length > 1 ? 's' : ''} sélectionnée{selection.length > 1 ? 's' : ''}</span>
-              <button type="button" onClick={onClear} style={{ minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-red)', background: '#fff', color: 'var(--color-svv-red)', fontSize: '.72rem', fontWeight: 700, cursor: 'pointer' }}>
-                Tout désélectionner
-              </button>
-            </div>
-          )}
+          {/* Liste-viz : chaque commune k-safe du département (compte + verdict dominant), cliquable = bascule la
+              sélection (le résumé/désélection et la recherche vivent dans le menu déroulant ci-dessus). */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
-            {triAffiche.length === 0 ? (
-              <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune commune ne correspond à la recherche.</span>
-            ) : triAffiche.map((x) => {
+            {tri.map((x) => {
               const actif = selection.includes(x.commune_insee);
               return (
                 <button
