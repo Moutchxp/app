@@ -32,6 +32,7 @@ import { assemblerBadges } from "../../../../lib/libelles";
 import { EnTetePage } from "../_composants/EnTetePage";
 import EditeurProfilTest from "./EditeurProfilTest";
 import EventailFaisceaux, { type LigneVentil } from "./EventailFaisceaux";
+import { urlStreetView } from "./streetView";
 
 // FaisceauMap = Leaflet impératif (ssr:false, comme dans le parcours public).
 const FaisceauMap = dynamic(() => import("../../../../FaisceauMap"), { ssr: false });
@@ -157,6 +158,9 @@ export default function BancSaisie() {
   const [runErreur, setRunErreur] = useState<string | null>(null);
   const [runSnapshot, setRunSnapshot] = useState<string | null>(null); // params + profil au moment du run (péremption CA-5.4)
   const [runParams, setRunParams] = useState<ParametresSaisie | null>(null); // paramètres de l'analyse LANCÉE (carte analysée)
+  // Point OFFICIEL (snappé façade) de l'analyse lancée, FIGÉ au run = `snappe` du moment (= `validation.pointSnappeWgs84`,
+  // le point RÉELLEMENT analysé, PAS le point brut pré-snap `runParams.point`). Alimente le bouton Street View.
+  const [runSnappe, setRunSnappe] = useState<{ lat: number; lon: number } | null>(null);
   const [mapAnalyseeOuverte, setMapAnalyseeOuverte] = useState(false); // <details> de la carte analysée (repliée par défaut)
   // Profil ACTIF (chargé une fois) + PROFIL DE TEST éditable (clone en mémoire, Lot 2b).
   const [profilActif, setProfilActif] = useState<ProfilDegagement | null>(null);
@@ -351,15 +355,19 @@ export default function BancSaisie() {
       const data: ComparaisonLite = await res.json();
       if (!data.ok) {
         setComparaison(null);
+        setRunParams(null); // run échoué → carte analysée ET bouton Street View invalidés ENSEMBLE (pas d'état d'un run précédent)
+        setRunSnappe(null);
         setRunErreur(data.message ?? "Exécution impossible.");
       } else {
         setComparaison(data);
         setRunSnapshot(JSON.stringify({ p: parametres, t: profilTest }));
         setRunParams(parametres); // fige les paramètres de l'analyse lancée pour la carte analysée
-
+        setRunSnappe(snappe); // fige le point SNAPPÉ analysé (cohérent avec le run) pour Street View
       }
     } catch {
       setComparaison(null);
+      setRunParams(null); // idem : erreur réseau → on n'expose ni carte analysée ni Street View d'un run antérieur
+      setRunSnappe(null);
       setRunErreur("Erreur réseau lors de l’exécution.");
     } finally {
       setRunEnCours(false);
@@ -686,6 +694,26 @@ export default function BancSaisie() {
           )}
         </div>
       )}
+
+      {/* Street View au point OFFICIEL (snappé façade) de l'analyse rejouée, orienté selon l'azimut — TOUT EN BAS, après
+          les deux graphiques. Pleine largeur (`.svv-btn` = width:100% → épouse la largeur de la section, comme les cartes).
+          Le point envoyé est `runSnappe` (FIGÉ au run = point RÉELLEMENT analysé, `validation.pointSnappeWgs84`), JAMAIS le
+          point brut pré-snap `runParams.point`. `window.open` nouvel onglet + geste utilisateur → pas de blocage popup.
+          Désactivé tant qu'aucune analyse n'a produit de point snappé (jamais d'URL incomplète). RGPD : l'URL porte lat/lon
+          (inévitable côté Google) mais AUCUNE donnée nominative — profil de TEST, pas la fiche. */}
+      <button
+        type="button"
+        disabled={!runSnappe || !runParams}
+        onClick={() => {
+          if (!runSnappe || !runParams) return; // garde défensive (le bouton est déjà `disabled`)
+          window.open(urlStreetView(runSnappe, runParams.azimutPrincipalDeg), "_blank", "noopener");
+        }}
+        className="svv-btn svv-btn-outline"
+        style={{ marginTop: 16, opacity: !runSnappe || !runParams ? 0.6 : 1, cursor: !runSnappe || !runParams ? "default" : "pointer" }}
+        title={!runSnappe ? "Lancez d’abord une analyse (point snappé indisponible)" : "Ouvrir Google Street View au point analysé, orienté selon l’azimut"}
+      >
+        Street View
+      </button>
     </section>
   );
 }
