@@ -22,16 +22,8 @@ export default async function InternautesPage() {
     <section style={{ maxWidth: 960 }}>
       <EnTetePage
         titre="Internautes (Base de données)"
-        intro="Base des internautes ayant consenti au recontact. Recherche, consultation et extraction pour la relation commerciale interne — réservé aux administrateurs."
-      >
-        <p className="svv-page-sub">
-          <strong>F1 — Recontact commercial interne</strong> : consentement <strong>requis</strong> pour figurer dans cette
-          base et être exporté ou recontacté ; sans F1, une personne n’apparaît jamais ici.{' '}
-          <strong>F2</strong> : communications par email. <strong>F3</strong> : ciblage publicitaire tiers (retargeting).
-          Les filtres F2 et F3 s’appliquent <strong>uniquement parmi les consentants F1</strong> : ils restreignent la
-          sélection, ne l’élargissent jamais.
-        </p>
-      </EnTetePage>
+        intro="Base des internautes ayant consenti au recontact téléphonique dans le formulaire. Recherche, consultation et extraction pour la relation commerciale interne — réservé aux administrateurs."
+      />
       {estAdmin ? (
         <InternautesVue />
       ) : (

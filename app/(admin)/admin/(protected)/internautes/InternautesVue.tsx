@@ -288,6 +288,8 @@ export function InternautesVue() {
   // Référence géo DYNAMIQUE (communes présentes chez les consentants F1) pour le sélecteur département→commune.
   // Fetchée UNE fois au montage depuis l'endpoint dédié (admin-only). Vide si aucune commune en base.
   const [communesRef, setCommunesRef] = useState<CommuneRef[]>([]);
+  // Popover d'aide « i » (légende F1/F2/F3) : une seule ouverture à la fois, fermée au clic ailleurs / re-clic.
+  const [infoOuvert, setInfoOuvert] = useState(false);
 
   useEffect(() => {
     let annule = false;
@@ -650,7 +652,69 @@ export function InternautesVue() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', gridColumn: '1 / -1', flexWrap: 'wrap' }}>
           <button type="button" style={btnRouge} onClick={filtrer}>Filtrer</button>
           <button type="button" style={btnOutline} onClick={reinitialiser}>Réinitialiser</button>
-          <a style={{ ...btnOutline, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }} href={`/api/admin/internautes/export?${versParams(applique).toString()}`}>
+          {/* Bouton info « i » : légende F1/F2/F3 en popover. `marginLeft:auto` déplacé ici (retiré d'« Exporter (CSV) »)
+              → le « i » est poussé à droite, JUSTE à gauche du bouton d'export. Popover : ouverture unique, ferme au
+              clic ailleurs (voile plein écran) ou au re-clic. Cible ≥ 44px + focus rouge via `.svv-int` (feuille CSS). */}
+          <div style={{ position: 'relative', marginLeft: 'auto', display: 'inline-flex' }}>
+            <button
+              type="button"
+              aria-label="Aide : signification de F1, F2 et F3"
+              aria-expanded={infoOuvert}
+              onClick={() => setInfoOuvert((o) => !o)}
+              style={{
+                minWidth: 44,
+                width: 44,
+                height: 44,
+                borderRadius: 999,
+                border: `1px solid ${infoOuvert ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
+                background: '#fff',
+                color: infoOuvert ? 'var(--color-svv-red)' : 'var(--color-svv-ink)',
+                fontWeight: 800,
+                fontStyle: 'italic',
+                fontSize: '1rem',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              i
+            </button>
+            {infoOuvert && (
+              <>
+                {/* Voile plein écran transparent SOUS le popover : un clic « ailleurs » ferme (mobile + desktop). */}
+                <div aria-hidden onClick={() => setInfoOuvert(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+                <div
+                  role="dialog"
+                  aria-label="Légende F1 / F2 / F3"
+                  style={{
+                    position: 'absolute',
+                    bottom: 'calc(100% + 8px)', // s'ouvre AU-DESSUS du « i » (pas de coupe vers le bas du panneau)
+                    right: 0, //                   ancré à droite → s'étend vers la GAUCHE, jamais hors du bord droit
+                    zIndex: 41,
+                    width: 'max-content',
+                    maxWidth: 'min(320px, calc(100vw - 32px))',
+                    background: 'var(--color-svv-field)',
+                    color: 'var(--color-svv-ink)',
+                    border: '1px solid var(--color-svv-line)',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                    fontSize: '.78rem',
+                    lineHeight: 1.4,
+                    fontWeight: 500,
+                    boxShadow: '0 4px 14px rgba(0,0,0,.14)',
+                  }}
+                >
+                  <strong>F1 — Recontact commercial interne (appel téléphonique)</strong> : consentement <strong>requis</strong> pour
+                  figurer dans cette base et être exporté ou recontacté ; sans F1, une personne n’apparaît jamais ici.{' '}
+                  <strong>F2</strong> : communications par email. <strong>F3</strong> : ciblage publicitaire tiers (retargeting).
+                  Les filtres F2 et F3 s’appliquent <strong>uniquement parmi les consentants F1</strong> : ils restreignent la
+                  sélection, ne l’élargissent jamais.
+                </div>
+              </>
+            )}
+          </div>
+          <a style={{ ...btnOutline, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }} href={`/api/admin/internautes/export?${versParams(applique).toString()}`}>
             Exporter (CSV)
           </a>
           {/* Correction 2 : export SANS filtre (filtres VIDES) → tous les consentants F1 via le MÊME invariant + journal. */}
