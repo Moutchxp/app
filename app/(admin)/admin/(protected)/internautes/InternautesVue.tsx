@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import { libelleFinaliteAffichage } from '../../../../lib/internaute/libelleFinalite';
 import { STATUTS_EXPORT, FINALITE_F1 } from '../../../../lib/internaute/extraction';
+import { projetVersSaisieBanc, ecrireHandoffBanc } from '../../../../lib/internaute/pontProjetBanc';
 import type { CleFinalite } from '../../../../lib/internaute/textesConsentement';
 
 /**
@@ -501,6 +503,7 @@ export function InternautesVue() {
       {detail && (
         <FicheDetail
           detail={detail}
+          actionsProjet={(p) => <BoutonTestProjet projet={p} />}
           actions={
             // Actions cycle de vie (LOT 4) — bloc HAUT uniquement (le bloc Vérification OMET cette prop → lecture seule).
             // Un profil déjà effacé n'a plus d'actions (la note d'effacement est portée par FicheDetail).
@@ -904,14 +907,43 @@ function Champ({ label, valeur }: { label: string; valeur: unknown }) {
 }
 
 /**
+ * Bouton « Tester dans le banc » (LOT B) rendu PAR ANALYSE. Transporte les grandeurs géométriques de CE projet
+ * vers le Banc de test M5 SANS ressaisie et SANS jamais mettre la position dans l'URL : dépôt en sessionStorage
+ * (clé dédiée) puis navigation. Désactivé proprement si l'analyse n'est pas rejouable (axe non capturé, dossier
+ * pré-026) → `projetVersSaisieBanc` renvoie null, aucun appel banc, aucun 400.
+ */
+function BoutonTestProjet({ projet }: { projet: Record<string, unknown> }) {
+  const router = useRouter();
+  const saisie = projetVersSaisieBanc(projet);
+  const rejouable = saisie !== null;
+  return (
+    <button
+      type="button"
+      disabled={!rejouable}
+      aria-disabled={!rejouable}
+      title={rejouable ? 'Rejouer cette analyse dans le banc de test' : 'Analyse antérieure à la capture de l’axe (azimut non enregistré) — non rejouable'}
+      onClick={() => {
+        if (!saisie) return; // garde défensive (le bouton est déjà `disabled` dans ce cas)
+        ecrireHandoffBanc(saisie); // transport hors URL : aucune position en historique/logs
+        router.push('/admin/banc-test');
+      }}
+      style={{ ...btnOutline, minHeight: 44, opacity: rejouable ? 1 : 0.5, cursor: rejouable ? 'pointer' : 'default' }}
+    >
+      Tester dans le banc
+    </button>
+  );
+}
+
+/**
  * Fiche détail PARTAGÉE (UNIQUE) — utilisée aux DEUX endroits : bloc « moteur de recherche » et bloc « Vérification ».
  * Forme RICHE : en-tête « prénom (normal) NOM (gras) » + téléphone et email sur DEUX lignes ; analyses GROUPÉES
  * (Le bien / Verdict et score) avec labels FR et valeurs formatées. Union du contenu des 2 anciennes fiches :
  * « Source de collecte » (venait de la vérification) ET azimut/hauteurs (venaient du bloc haut) partout.
- * LECTURE SEULE par défaut : les actions (Rectifier/Effacer) ne s'affichent QUE si la prop `actions` est fournie
- * (bloc haut). Le bloc Vérification l'OMET → aucune action ne peut y fuiter (invariant RGPD du panneau de contrôle).
+ * LECTURE SEULE par défaut : les actions de cycle de vie (Rectifier/Effacer) ne s'affichent QUE si la prop `actions`
+ * est fournie (bloc haut). Le bloc Vérification l'OMET → aucune action destructive ne peut y fuiter (invariant RGPD).
+ * `actionsProjet` (bouton « Test » par analyse, LOT B) est DISTINCTE : fournie aux DEUX endroits, jamais `actions`.
  */
-function FicheDetail({ detail, actions }: { detail: Detail; actions?: ReactNode }) {
+function FicheDetail({ detail, actions, actionsProjet }: { detail: Detail; actions?: ReactNode; actionsProjet?: (projet: Record<string, unknown>) => ReactNode }) {
   const i = detail.internaute;
   const prenom = i.prenom ? String(i.prenom) : '';
   const nom = i.nom ? String(i.nom) : '';
@@ -1007,6 +1039,11 @@ function FicheDetail({ detail, actions }: { detail: Detail; actions?: ReactNode 
               <Champ label="Azimut de l’axe" valeur={p.azimut_deg == null ? null : `${Number(p.azimut_deg).toFixed(2)}°`} />
               <Champ label="Hauteur sous plafond" valeur={p.hauteur_sous_plafond_m == null ? null : `${Number(p.hauteur_sous_plafond_m).toFixed(2)} m`} />
               <Champ label="Hauteur de vision" valeur={p.hauteur_vision_m == null ? null : `${Number(p.hauteur_vision_m).toFixed(2)} m`} />
+
+              {/* Action PAR ANALYSE (LOT B) — ex. « Tester dans le banc ». Rendue SEULEMENT si `actionsProjet` est fournie ;
+                  fournie aux DEUX endroits (commercial ET Vérification) mais JAMAIS `actions` (Rectifier/Effacer) côté
+                  Vérification. Chaque bouton porte les grandeurs de SON analyse (`p`), pas celles d'une autre. */}
+              {actionsProjet ? <div style={{ marginTop: 4 }}>{actionsProjet(p)}</div> : null}
             </div>
           );
         })}
@@ -1127,7 +1164,9 @@ function PanneauVerification() {
                 {ouvert === r.id && (
                   <div style={{ borderTop: '1px solid var(--color-svv-line)', padding: 12, background: 'var(--color-svv-field)' }}>
                     {detailChargement && <div style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
-                    {detail && <FicheDetail detail={detail} />}
+                    {/* Vérification = LECTURE SEULE : on fournit `actionsProjet` (bouton Test) mais JAMAIS `actions`
+                        (Rectifier/Effacer) → aucune action destructive ne fuite dans le panneau de contrôle. */}
+                    {detail && <FicheDetail detail={detail} actionsProjet={(p) => <BoutonTestProjet projet={p} />} />}
                   </div>
                 )}
               </div>

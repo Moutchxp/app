@@ -27,6 +27,7 @@ import {
 } from "../../../../lib/svv/config";
 import type { ProfilDegagement } from "../../../../lib/svv/profilDegagement";
 import { clonerProfil, validerCartesAnnee } from "../../../../lib/svv/profilTest";
+import { lireHandoffBanc, viderHandoffBanc } from "../../../../lib/internaute/pontProjetBanc";
 import { assemblerBadges } from "../../../../lib/libelles";
 import { EnTetePage } from "../_composants/EnTetePage";
 import EditeurProfilTest from "./EditeurProfilTest";
@@ -160,6 +161,29 @@ export default function BancSaisie() {
   // Profil ACTIF (chargé une fois) + PROFIL DE TEST éditable (clone en mémoire, Lot 2b).
   const [profilActif, setProfilActif] = useState<ProfilDegagement | null>(null);
   const [profilTest, setProfilTest] = useState<ProfilDegagement | null>(null);
+
+  // HANDOFF « fiche internaute → banc » (LOT B) : si une analyse a été déposée en sessionStorage (bouton « Tester
+  // dans le banc »), PRÉ-REMPLIR la saisie UNE fois puis VIDER la clé. Lecture au MONTAGE (post-hydratation) → aucun
+  // accès sessionStorage au SSR, pas de mismatch d'hydratation. Navigation directe / refresh sans clé → banc vierge.
+  // Les setState sont DIFFÉRÉS (setTimeout 0, convention du fichier : jamais de setState synchrone dans le corps de
+  // l'effet). Le vidage de la clé se fait DANS le callback différé (après application) : ainsi une passe annulée par
+  // le cleanup (StrictMode double-invoque les effets) laisse la clé INTACTE pour la re-passe → pré-remplissage fiable.
+  // `setPoint` enclenche la chaîne EXISTANTE (validation /api/origine → snap façade → point analysable → « Lancer »
+  // actif). Aucun lancement auto : l'opérateur déclenche « Lancer le test » quand la validation du point a abouti.
+  useEffect(() => {
+    const initial = lireHandoffBanc();
+    if (!initial) return;
+    const t = setTimeout(() => {
+      setMode(initial.mode);
+      setPoint(initial.point);
+      setAzimut(initial.azimutPrincipalDeg);
+      setEtage(initial.etage);
+      setHauteurSousPlafondM(initial.hauteurSousPlafondM);
+      setDernierEtage(initial.dernierEtage);
+      viderHandoffBanc(); // consommé une seule fois, APRÈS application
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
 
   // Charge le profil actif au montage → clone éditable. Aucune écriture ; setState en contexte async (jamais synchrone).
   useEffect(() => {
