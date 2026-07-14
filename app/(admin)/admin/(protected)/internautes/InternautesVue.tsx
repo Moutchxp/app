@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { libelleFinaliteAffichage } from '../../../../lib/internaute/libelleFinalite';
 
 /**
  * Vue interactive du module « Internautes » (LOT 3). Client PUR : ne touche jamais la base ; consomme
@@ -455,7 +456,7 @@ export function InternautesVue() {
             <div style={{ fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' }}>Consentements</div>
             {detail.consentements.map((c) => (
               <div key={c.finalite} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ color: 'var(--color-svv-ink)' }}>{c.libelle}</span>
+                <span style={{ color: 'var(--color-svv-ink)' }}>{libelleFinaliteAffichage(c.finalite, c.libelle)}</span>
                 <span style={{ color: c.actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)', fontWeight: 700 }}>
                   {c.actif ? 'Actif' : c.etat ? c.etat : 'Aucun'}{c.depuis ? ` · ${dateFr(c.depuis)}` : ''}
                 </span>
@@ -855,7 +856,7 @@ function DetailComplet({ detail }: { detail: Detail }) {
 
       <div style={titre}>Consentements</div>
       {detail.consentements.map((c) => (
-        <Champ key={c.finalite} label={c.libelle} valeur={`${c.actif ? 'Actif' : c.etat ?? 'Aucun'}${c.depuis ? ` · ${dateFr(c.depuis)}` : ''}`} />
+        <Champ key={c.finalite} label={libelleFinaliteAffichage(c.finalite, c.libelle)} valeur={`${c.actif ? 'Actif' : c.etat ?? 'Aucun'}${c.depuis ? ` · ${dateFr(c.depuis)}` : ''}`} />
       ))}
 
       <div style={titre}>Analyses ({detail.projets.length})</div>
