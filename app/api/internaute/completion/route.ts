@@ -46,19 +46,30 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ ok: false, erreur: 'jeton de complétion invalide ou expiré' }, { status: 401 });
   }
 
+  // `projetId` (facultatif) = l'analyse de l'Écran A à marquer « certificat envoyé ». Accepté en number OU chaîne
+  // numérique (bigserial). L'IDOR est fermé DANS `completerParcours` (marque uniquement un projet de CET internaute).
+  const projetIdRaw = (body as { projetId?: unknown }).projetId;
+  const projetId =
+    typeof projetIdRaw === 'number' && Number.isInteger(projetIdRaw)
+      ? projetIdRaw
+      : typeof projetIdRaw === 'string' && /^\d+$/.test(projetIdRaw)
+        ? Number(projetIdRaw)
+        : null;
+
   try {
     if (internauteId) {
       // CAS 1 — profil existant (créé à l'Écran A) : compléter (coords de B font foi + parcours + réconciliation F2).
       const coords = { email: corps.identite.email, telephone: corps.identite.telephone };
-      const { complete } = await completerParcours(internauteId, coords, corps.consentements, SCOPE_ECRAN_B, null);
+      const { complete } = await completerParcours(internauteId, coords, corps.consentements, SCOPE_ECRAN_B, projetId, null);
       if (!complete) return NextResponse.json({ ok: false, cree: false, erreur: 'dossier introuvable ou effacé' }, { status: 404 });
       return NextResponse.json({ ok: true, cree: false, complete: true });
     }
     // CAS 2 — aucun profil créé en A : si au moins un consentement est coché en B, CRÉER (statut 'complet').
     if (auMoinsUnConsentement(corps.consentements)) {
-      // Email neuf → profil CRÉÉ 'complet' (coords de B font foi). Email DÉJÀ existant → réutilisé SANS preuve de propriété
-      // (pas de jeton) : on N'ÉCRASE PAS ses coordonnées/statut (IDOR-safe) → réponse HONNÊTE `cree:false, complete:false`.
-      const { creeInternaute } = await ingererProfil(corps, 'complet');
+      // Email neuf → profil CRÉÉ 'complet' + projet né avec `certificat_envoye=true` (l'Écran B a été validé). Email DÉJÀ
+      // existant → réutilisé SANS preuve de propriété (pas de jeton) : on N'ÉCRASE PAS ses coordonnées/statut (IDOR-safe)
+      // → réponse HONNÊTE `cree:false, complete:false`. Le projet appendé reste marqué (création directe = certificat validé).
+      const { creeInternaute } = await ingererProfil(corps, 'complet', true);
       return NextResponse.json({ ok: true, cree: creeInternaute, complete: creeInternaute });
     }
     // CAS 3 — aucun consentement : non-couplage. Certificat délivré, aucun profil.

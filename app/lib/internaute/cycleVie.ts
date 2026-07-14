@@ -142,6 +142,7 @@ export async function completerParcours(
   coords: ChampsRectification,
   souhaites: SouhaitConsentement[],
   scope: readonly CleFinalite[],
+  projetId: number | null,
   auteurId: number | null,
 ): Promise<{ complete: boolean }> {
   const sets: string[] = ["parcours = 'complet'", 'maj_a = now()'];
@@ -176,6 +177,15 @@ export async function completerParcours(
           const texteId = await assurerTexteConsentement(q, finalite, texteCourant(finalite)?.version ?? 1);
           await insererConsentement(q, id, finalite, texteId, 'retire'); // retrait (décoché en B)
         }
+      }
+      // STATUT CERTIFICAT PAR ANALYSE (migration 029) : marque l'analyse VALIDÉE à l'Écran B. GARDE IDOR STRICTE :
+      // `WHERE id = projetId AND internaute_id = id` (id = UUID du jeton) → un internaute ne peut marquer QUE SES projets ;
+      // un projetId d'un tiers ne matche rien (0 ligne, silencieux). NULL → rien à marquer.
+      if (projetId != null) {
+        await q(
+          `UPDATE internaute_projet SET certificat_envoye = true WHERE id = $1 AND internaute_id = $2`,
+          [projetId, id],
+        );
       }
       await journaliserCycleVie(q, auteurId, 'rectification', id, { champs: Object.keys(coords), parcours: 'complet' });
       return { complete: true };

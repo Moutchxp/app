@@ -37,7 +37,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const { internauteId, creeInternaute } = await ingererProfil(validation.corps);
+    const { internauteId, projetId, creeInternaute } = await ingererProfil(validation.corps);
     // Jeton-capacité de rectification publique : frappé UNIQUEMENT si un NOUVEAU dossier a été inséré dans cette
     // requête (creeInternaute). Email pré-existant (get-or-create réutilise) → PAS de jeton → l'internaute ne peut
     // corriger QUE le dossier qu'il vient de créer, jamais celui d'un tiers (fermeture collision email / IDOR).
@@ -51,7 +51,9 @@ export async function POST(request: Request): Promise<Response> {
         console.error('[internaute] jeton de rectification indisponible', e);
       }
     }
-    return NextResponse.json({ ok: true, cree: true, internauteId, jetonRectification });
+    // `projetId` = id du projet créé à l'Écran A, exposé pour que la complétion de l'Écran B marque CETTE analyse
+    // (`certificat_envoye`). Jamais dans l'URL ; l'IDOR est fermé côté complétion (WHERE id ET internaute_id du jeton).
+    return NextResponse.json({ ok: true, cree: true, internauteId, projetId, jetonRectification });
   } catch (e) {
     if (e instanceof ErreurAucunConsentement) {
       return NextResponse.json({ ok: false, cree: false, erreur: e.message }, { status: 422 });

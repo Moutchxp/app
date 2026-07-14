@@ -789,6 +789,9 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // Un POST a-t-il eu lieu à l'Écran A (au moins un consentement coché) ? Distingue, à l'Écran B, le cas « profil créé
   // en A » (jeton présent OU email déjà existant sans jeton) du cas « rien créé en A » (→ création possible en B).
   const [posteEnA, setPosteEnA] = useState(false);
+  // id du projet créé à l'Écran A (renvoyé par /api/internaute), porté jusqu'à la complétion pour marquer CETTE analyse
+  // « certificat envoyé ». État applicatif, JAMAIS dans l'URL. Null si aucun POST en A (CAS 2 : le serveur marque le projet créé en B).
+  const [projetIdA, setProjetIdA] = useState<number | null>(null);
   const [confirme, setConfirme] = useState(false); // clic « Recevoir mon certificat » abouti (état de succès honnête)
   const [envoiRectif, setEnvoiRectif] = useState(false);
 
@@ -871,6 +874,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
         // Jeton-capacité de rectification : présent seulement si un NOUVEAU dossier a été créé (email neuf).
         const data = await res.json().catch(() => null);
         setJetonRectif(typeof data?.jetonRectification === "string" ? data.jetonRectification : null);
+        setProjetIdA(typeof data?.projetId === "number" ? data.projetId : null); // projet de A → marqué à la validation B
       } else {
         setErreurEnvoi("Vos coordonnées n'ont pas pu être enregistrées. Le certificat reste disponible.");
       }
@@ -893,7 +897,9 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     const doitAppeler = jetonRectif !== null || !posteEnA;
     if (doitAppeler) {
       const corps = construireCorps();
-      const body = jetonRectif !== null ? { jeton: jetonRectif, ...corps } : corps;
+      // CAS 1 (jeton) : on joint le projetId de l'Écran A → la complétion marque CETTE analyse « certificat envoyé ».
+      // CAS 2 (pas de jeton) : le serveur crée le projet en B et le marque directement (pas de projetId à transmettre).
+      const body = jetonRectif !== null ? { jeton: jetonRectif, projetId: projetIdA, ...corps } : corps;
       setEnvoiRectif(true);
       // NON-COUPLAGE (comme l'Écran A) : le certificat est délivré QUOI QU'IL ARRIVE. Un échec d'enregistrement des
       // coordonnées/consentements (jeton expiré, 503, réseau) NE BLOQUE PAS le certificat (best-effort, non bloquant).

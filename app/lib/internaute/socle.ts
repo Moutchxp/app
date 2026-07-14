@@ -91,13 +91,20 @@ export async function insererConsentement(
   );
 }
 
-async function insererProjet(q: RequeteTx, internauteId: string, projet: CorpsIngestion['projet']): Promise<number> {
-  const r = await q<{ id: number }>(
+async function insererProjet(
+  q: RequeteTx,
+  internauteId: string,
+  projet: CorpsIngestion['projet'],
+  certificatEnvoye: boolean,
+): Promise<number> {
+  // `certificat_envoye` (migration 029) posé à la CRÉATION : false à l'Écran A (Écran B pas encore validé), true lors
+  // d'une création DIRECTE à l'Écran B (upsert CAS 2 — l'internaute a validé « Recevoir mon certificat »).
+  const r = await q<{ id: string }>(
     `INSERT INTO internaute_projet
        (internaute_id, version_tunnel, payload, verdict, score, etage, dernier_etage,
         residence_principale, commune_insee, lat, lon, adresse_saisie, adresse_normalisee,
-        azimut_deg, hauteur_sous_plafond_m, hauteur_vision_m)
-     VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        azimut_deg, hauteur_sous_plafond_m, hauteur_vision_m, certificat_envoye)
+     VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
      RETURNING id`,
     [
       internauteId,
@@ -116,19 +123,22 @@ async function insererProjet(q: RequeteTx, internauteId: string, projet: CorpsIn
       projet.azimutDeg,
       projet.hauteurSousPlafondM,
       projet.hauteurVisionM,
+      certificatEnvoye,
     ],
   );
-  return r.rows[0].id;
+  return Number(r.rows[0].id); // bigserial → chaîne (driver pg) → number (id de projet bien < 2^53)
 }
 
 /**
  * Ingestion complète d'un profil, EN UNE TRANSACTION. Refuse si AUCUN consentement n'est donné
  * (`ErreurAucunConsentement`). `parcours` = statut de complétude posé à la CRÉATION : 'incomplet' à l'Écran A (défaut),
- * 'complet' lors d'une création directe à l'Écran B (coordonnées confirmées). Renvoie les identifiants créés/réutilisés.
+ * 'complet' lors d'une création directe à l'Écran B (coordonnées confirmées). `certificatEnvoye` = statut certificat du
+ * projet créé (false à l'Écran A ; true lors d'une création directe à l'Écran B). Renvoie les identifiants créés/réutilisés.
  */
 export async function ingererProfil(
   corps: CorpsIngestion,
   parcours: Parcours = 'incomplet',
+  certificatEnvoye = false,
 ): Promise<{ internauteId: string; projetId: number; creeInternaute: boolean }> {
   if (!auMoinsUnConsentement(corps.consentements)) throw new ErreurAucunConsentement();
   return withTransaction(async (q) => {
@@ -137,7 +147,10 @@ export async function ingererProfil(
       const texteId = await assurerTexteConsentement(q, c.finalite, c.version);
       await insererConsentement(q, internauteId, c.finalite, texteId);
     }
-    const projetId = await insererProjet(q, internauteId, corps.projet);
+    // `certificat_envoye` marqué UNIQUEMENT si le profil est GENUINEMENT créé dans CETTE requête (`creeInternaute`). Un
+    // email DÉJÀ existant (réutilisé, SANS preuve de propriété) → projet appendé NON marqué : un tiers non authentifié ne
+    // peut PAS faire apparaître une ligne « (Certificat envoyé) » sur la fiche d'autrui (défense en profondeur, IDOR).
+    const projetId = await insererProjet(q, internauteId, corps.projet, certificatEnvoye && creeInternaute);
     return { internauteId, projetId, creeInternaute };
   });
 }

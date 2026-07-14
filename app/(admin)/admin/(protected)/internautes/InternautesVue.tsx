@@ -1156,6 +1156,12 @@ function FicheDetail({ detail, actions, actionsProjet }: { detail: Detail; actio
                   </span>
                   <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
                   <span style={{ color: 'var(--color-svv-muted)', fontSize: '.78rem' }}>{dateHeureFr(p.cree_a)}</span>
+                  <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
+                  {/* Statut CERTIFICAT PAR ANALYSE (migration 029) — vert si l'Écran B a été validé POUR CETTE analyse,
+                      rouge sinon. Distinct du vert/rouge des COORDONNÉES (celui-là par personne, en-tête de fiche). */}
+                  <span style={{ fontSize: '.78rem', fontWeight: 700, color: p.certificat_envoye === true ? 'var(--color-svv-green)' : 'var(--color-svv-red)' }}>
+                    {p.certificat_envoye === true ? '(Certificat envoyé)' : '(Certificat non envoyé)'}
+                  </span>
                   {/* Actions À DROITE (marginLeft:auto) : « Voir » (déplie CETTE analyse) À GAUCHE de « Tester ». Le bouton
                       Test (`actionsProjet`) rejoue CETTE analyse (`p`) et n'est fourni QUE si `actionsProjet` est passée
                       (les 2 fiches la fournissent, jamais `actions` côté Vérification). « Voir » est toujours présent. */}
