@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { libelleFinaliteAffichage } from '../../../../lib/internaute/libelleFinalite';
 import { STATUTS_EXPORT, FINALITE_F1 } from '../../../../lib/internaute/extraction';
 import type { CleFinalite } from '../../../../lib/internaute/textesConsentement';
@@ -470,130 +470,47 @@ export function InternautesVue() {
       </div>
       {detailChargement && <div style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
       {detail && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: '.85rem' }}>
-          {/* En-tête : Prénom Nom EN GROS, coordonnées, date + heure de création (Europe/Paris). Plus d'intitulés. */}
-          <div>
-            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--color-svv-ink)', lineHeight: 1.15 }}>
-              {[String(detail.internaute.prenom ?? ''), String(detail.internaute.nom ?? '')].filter((s) => s.trim()).join(' ') || (detail.internaute.efface_a ? '(identité effacée)' : '—')}
-            </div>
-            <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>
-              {String(detail.internaute.email ?? '—')}{detail.internaute.telephone ? ` · ${String(detail.internaute.telephone)}` : ''}
-            </div>
-            <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Créé le {dateHeureFr(detail.internaute.cree_a)}</div>
-          </div>
-
-          {/* Consentements RGPD (3 finalités) — état + date. Conservés. */}
-          <div>
-            <div style={{ fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' }}>Consentements</div>
-            {detail.consentements.map((c) => (
-              <div key={c.finalite} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ color: 'var(--color-svv-ink)' }}>{libelleFinaliteAffichage(c.finalite, c.libelle)}</span>
-                <span style={{ color: c.actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)', fontWeight: 700 }}>
-                  {c.actif ? 'Actif' : c.etat ? c.etat : 'Aucun'}{c.depuis ? ` · ${dateFr(c.depuis)}` : ''}
-                </span>
+        <FicheDetail
+          detail={detail}
+          actions={
+            // Actions cycle de vie (LOT 4) — bloc HAUT uniquement (le bloc Vérification OMET cette prop → lecture seule).
+            // Un profil déjà effacé n'a plus d'actions (la note d'effacement est portée par FicheDetail).
+            detail.internaute.efface_a ? undefined : (
+              <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {!edition && !confirmEffacement && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button type="button" style={btnOutline} onClick={() => { setEdition(true); setActionErreur(null); }}>Rectifier</button>
+                    <button type="button" style={{ ...btnOutline, color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }} onClick={() => { setConfirmEffacement(true); setActionErreur(null); }}>
+                      Effacer (droit à l’effacement)
+                    </button>
+                  </div>
+                )}
+                {edition && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <input style={champ} value={formEdit.prenom} onChange={(e) => setFormEdit({ ...formEdit, prenom: e.target.value })} placeholder="Prénom" />
+                    <input style={champ} value={formEdit.nom} onChange={(e) => setFormEdit({ ...formEdit, nom: e.target.value })} placeholder="Nom" />
+                    <input style={champ} value={formEdit.email} onChange={(e) => setFormEdit({ ...formEdit, email: e.target.value })} placeholder="Email" inputMode="email" />
+                    <input style={champ} value={formEdit.telephone} onChange={(e) => setFormEdit({ ...formEdit, telephone: e.target.value })} placeholder="Téléphone (optionnel)" />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button type="button" style={btnRouge} disabled={actionEnCours} onClick={soumettreRectification}>Enregistrer</button>
+                      <button type="button" style={btnOutline} disabled={actionEnCours} onClick={() => setEdition(false)}>Annuler</button>
+                    </div>
+                  </div>
+                )}
+                {confirmEffacement && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <span style={{ color: 'var(--color-svv-ink)' }}>Anonymiser l’identité et supprimer les analyses ? La preuve de consentement est conservée. Action irréversible.</span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button type="button" style={btnRouge} disabled={actionEnCours} onClick={soumettreEffacement}>Confirmer l’effacement</button>
+                      <button type="button" style={btnOutline} disabled={actionEnCours} onClick={() => setConfirmEffacement(false)}>Annuler</button>
+                    </div>
+                  </div>
+                )}
+                {actionErreur && <span style={{ color: 'var(--color-svv-red)', fontSize: '.8rem' }}>{actionErreur}</span>}
               </div>
-            ))}
-          </div>
-
-          {/* Analyse(s) COMPLÈTE(S) : tous les champs SAISIS (payload aplati, label FR) + TOUT le résultat de scoring. Rien masqué. */}
-          <div>
-            <div style={{ fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' }}>Analyse{detail.projets.length > 1 ? 's' : ''} ({detail.projets.length})</div>
-            {detail.projets.map((p, i) => {
-              const payload = (p.payload && typeof p.payload === 'object' ? p.payload : {}) as Record<string, unknown>;
-              const rpOui = p.residence_principale === true;
-              const adresseRp = payload.adresseResidence;
-              const norm = p.adresse_normalisee == null ? '' : String(p.adresse_normalisee);
-              const saisie = p.adresse_saisie == null ? '' : String(p.adresse_saisie);
-              const saisieDifferente = saisie.trim() !== '' && saisie !== norm;
-              // Clés payload déjà rendues explicitement dans « Le bien » ; le reste passe en catch-all → rien masqué.
-              const CLES_BIEN = new Set(['typeBien', 'surface', 'nbPieces', 'epoque', 'balcon', 'terrasse', 'jardin', 'adresseResidence']);
-              const autres = Object.entries(payload).filter(([k]) => !CLES_BIEN.has(k));
-              const groupe: CSSProperties = { fontWeight: 800, color: 'var(--color-svv-ink)', fontSize: '.78rem', marginTop: 8 };
-              return (
-                <div key={i} style={{ border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: 8, marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>Analyse du {dateHeureFr(p.cree_a)} (tunnel v{String(p.version_tunnel ?? '—')})</div>
-
-                  {/* GROUPE 1 — LE BIEN */}
-                  <div style={groupe}>Le bien</div>
-                  <Champ label="Adresse du bien" valeur={norm || '—'} />
-                  {saisieDifferente && <Champ label="Adresse saisie" valeur={saisie} />}
-                  <Champ label="Type de bien" valeur={payload.typeBien} />
-                  <Champ label="Surface (m²)" valeur={payload.surface} />
-                  <Champ label="Nombre de pièces" valeur={payload.nbPieces} />
-                  <Champ label="Étage" valeur={p.etage} />
-                  <Champ label="Dernier étage" valeur={p.dernier_etage} />
-                  <Champ label="Époque de construction" valeur={payload.epoque} />
-                  <Champ label="Balcon" valeur={payload.balcon} />
-                  <Champ label="Terrasse" valeur={payload.terrasse} />
-                  <Champ label="Jardin" valeur={payload.jardin} />
-                  <Champ label="Résidence principale" valeur={p.residence_principale} />
-                  {rpOui ? (
-                    <Champ label="Adresse de résidence" valeur="Le bien analysé est la résidence principale" />
-                  ) : adresseRp != null && String(adresseRp).trim() !== '' ? (
-                    <Champ label="Adresse de résidence principale" valeur={adresseRp} />
-                  ) : null}
-                  {autres.map(([k, v]) => (
-                    <Champ key={k} label={labelPayload(k)} valeur={v} />
-                  ))}
-
-                  {/* GROUPE 2 — VERDICT & SCORE (résultat + déterminants géométriques présents). */}
-                  <div style={groupe}>Verdict et score</div>
-                  <Champ label="Verdict" valeur={verdictFr(p.verdict)} />
-                  <Champ label="Score /100" valeur={p.score == null ? null : Number(p.score).toFixed(2)} />
-                  <Champ label="Point d’origine — latitude" valeur={p.lat} />
-                  <Champ label="Point d’origine — longitude" valeur={p.lon} />
-                  <Champ label="Commune (INSEE)" valeur={p.commune_insee} />
-                  {/* Grandeurs de visée (migration 026). Dossiers ANCIENS = colonnes NULL → Champ affiche « — » (pas de crash).
-                      numeric pg = chaîne → Number() ; AFFICHAGE à 2 décimales (toFixed) — valeur STOCKÉE brute inchangée,
-                      aucun recalcul. Lat/lon gardent leur précision complète (jamais arrondis). */}
-                  <Champ label="Azimut de l’axe" valeur={p.azimut_deg == null ? null : `${Number(p.azimut_deg).toFixed(2)}°`} />
-                  <Champ label="Hauteur sous plafond" valeur={p.hauteur_sous_plafond_m == null ? null : `${Number(p.hauteur_sous_plafond_m).toFixed(2)} m`} />
-                  <Champ label="Hauteur de vision" valeur={p.hauteur_vision_m == null ? null : `${Number(p.hauteur_vision_m).toFixed(2)} m`} />
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Actions cycle de vie (LOT 4) — admin-only. Effacement = règle ASYMÉTRIQUE (A+C purgés, preuve B conservée). */}
-          {detail.internaute.efface_a ? (
-            <div style={{ color: 'var(--color-svv-muted)', borderTop: '1px solid var(--color-svv-line)', paddingTop: 8 }}>
-              Profil effacé le {new Date(String(detail.internaute.efface_a)).toLocaleDateString('fr-FR')} — identité anonymisée, analyses supprimées ; la preuve de consentement est conservée.
-            </div>
-          ) : (
-            <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {!edition && !confirmEffacement && (
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button type="button" style={btnOutline} onClick={() => { setEdition(true); setActionErreur(null); }}>Rectifier</button>
-                  <button type="button" style={{ ...btnOutline, color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }} onClick={() => { setConfirmEffacement(true); setActionErreur(null); }}>
-                    Effacer (droit à l’effacement)
-                  </button>
-                </div>
-              )}
-              {edition && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <input style={champ} value={formEdit.prenom} onChange={(e) => setFormEdit({ ...formEdit, prenom: e.target.value })} placeholder="Prénom" />
-                  <input style={champ} value={formEdit.nom} onChange={(e) => setFormEdit({ ...formEdit, nom: e.target.value })} placeholder="Nom" />
-                  <input style={champ} value={formEdit.email} onChange={(e) => setFormEdit({ ...formEdit, email: e.target.value })} placeholder="Email" inputMode="email" />
-                  <input style={champ} value={formEdit.telephone} onChange={(e) => setFormEdit({ ...formEdit, telephone: e.target.value })} placeholder="Téléphone (optionnel)" />
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button type="button" style={btnRouge} disabled={actionEnCours} onClick={soumettreRectification}>Enregistrer</button>
-                    <button type="button" style={btnOutline} disabled={actionEnCours} onClick={() => setEdition(false)}>Annuler</button>
-                  </div>
-                </div>
-              )}
-              {confirmEffacement && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <span style={{ color: 'var(--color-svv-ink)' }}>Anonymiser l’identité et supprimer les analyses ? La preuve de consentement est conservée. Action irréversible.</span>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button type="button" style={btnRouge} disabled={actionEnCours} onClick={soumettreEffacement}>Confirmer l’effacement</button>
-                    <button type="button" style={btnOutline} disabled={actionEnCours} onClick={() => setConfirmEffacement(false)}>Annuler</button>
-                  </div>
-                </div>
-              )}
-              {actionErreur && <span style={{ color: 'var(--color-svv-red)', fontSize: '.8rem' }}>{actionErreur}</span>}
-            </div>
-          )}
-        </div>
+            )
+          }
+        />
       )}
     </div>
   ) : null;
@@ -915,49 +832,124 @@ function Champ({ label, valeur }: { label: string; valeur: unknown }) {
   );
 }
 
-/** Détail COMPLET en lecture seule : identité + champs SAISIS (payload) + résultat de SCORING + consentements. */
-function DetailComplet({ detail }: { detail: Detail }) {
+/**
+ * Fiche détail PARTAGÉE (UNIQUE) — utilisée aux DEUX endroits : bloc « moteur de recherche » et bloc « Vérification ».
+ * Forme RICHE : en-tête « prénom (normal) NOM (gras) » + téléphone et email sur DEUX lignes ; analyses GROUPÉES
+ * (Le bien / Verdict et score) avec labels FR et valeurs formatées. Union du contenu des 2 anciennes fiches :
+ * « Source de collecte » (venait de la vérification) ET azimut/hauteurs (venaient du bloc haut) partout.
+ * LECTURE SEULE par défaut : les actions (Rectifier/Effacer) ne s'affichent QUE si la prop `actions` est fournie
+ * (bloc haut). Le bloc Vérification l'OMET → aucune action ne peut y fuiter (invariant RGPD du panneau de contrôle).
+ */
+function FicheDetail({ detail, actions }: { detail: Detail; actions?: ReactNode }) {
   const i = detail.internaute;
-  const titre: CSSProperties = { fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.72rem', textTransform: 'uppercase', marginTop: 6 };
+  const prenom = i.prenom ? String(i.prenom) : '';
+  const nom = i.nom ? String(i.nom) : '';
+  const aIdentite = prenom.trim() !== '' || nom.trim() !== '';
+  const sousTitre: CSSProperties = { fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' };
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '.82rem' }}>
-      <div style={titre}>Identité (saisie)</div>
-      <Champ label="Prénom" valeur={i.prenom} />
-      <Champ label="Nom" valeur={i.nom} />
-      <Champ label="Email" valeur={i.email} />
-      <Champ label="Téléphone" valeur={i.telephone} />
-      <Champ label="Source de collecte" valeur={i.source_collecte} />
-      <Champ label="Créé le" valeur={dateFr(i.cree_a)} />
-      {i.efface_a ? <Champ label="Effacé le" valeur={dateFr(i.efface_a)} /> : null}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: '.85rem' }}>
+      {/* EN-TÊTE : prénom en NORMAL + NOM en GRAS (même ligne) ; téléphone puis email sur DEUX lignes séparées ;
+          méta création + source de collecte. Plus d'intitulés « Prénom/Nom/Email/Téléphone » (portés par l'en-tête). */}
+      <div>
+        <div style={{ fontSize: '1.25rem', color: 'var(--color-svv-ink)', lineHeight: 1.15 }}>
+          {aIdentite ? (
+            <>
+              {prenom && <span style={{ fontWeight: 400 }}>{prenom}</span>}
+              {prenom && nom ? ' ' : ''}
+              {nom && <span style={{ fontWeight: 800 }}>{nom}</span>}
+            </>
+          ) : (
+            i.efface_a ? '(identité effacée)' : '—'
+          )}
+        </div>
+        <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>{i.telephone ? String(i.telephone) : '—'}</div>
+        <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>{i.email ? String(i.email) : '—'}</div>
+        <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>
+          Créé le {dateHeureFr(i.cree_a)}{i.source_collecte ? ` · Source : ${String(i.source_collecte)}` : ''}
+        </div>
+      </div>
 
-      <div style={titre}>Consentements</div>
-      {detail.consentements.map((c) => (
-        <Champ key={c.finalite} label={libelleFinaliteAffichage(c.finalite, c.libelle)} valeur={`${c.actif ? 'Actif' : c.etat ?? 'Aucun'}${c.depuis ? ` · ${dateFr(c.depuis)}` : ''}`} />
-      ))}
-
-      <div style={titre}>Analyses ({detail.projets.length})</div>
-      {detail.projets.map((p, idx) => {
-        const payload = (p.payload && typeof p.payload === 'object' ? p.payload : {}) as Record<string, unknown>;
-        return (
-          <div key={idx} style={{ border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ color: 'var(--color-svv-muted)', fontSize: '.72rem' }}>Saisi au tunnel (v{String(p.version_tunnel ?? '—')}) · {dateFr(p.cree_a)}</div>
-            {Object.entries(payload).map(([k, v]) => (
-              <Champ key={k} label={k} valeur={v} />
-            ))}
-            <div style={{ color: 'var(--color-svv-muted)', fontSize: '.72rem', marginTop: 4 }}>Résultat (scoring)</div>
-            <Champ label="Verdict" valeur={p.verdict} />
-            <Champ label="Score" valeur={p.score} />
-            <Champ label="Étage" valeur={p.etage} />
-            <Champ label="Dernier étage" valeur={p.dernier_etage} />
-            <Champ label="Résidence principale" valeur={p.residence_principale} />
-            <Champ label="Commune (INSEE)" valeur={p.commune_insee} />
-            <Champ label="Latitude" valeur={p.lat} />
-            <Champ label="Longitude" valeur={p.lon} />
-            <Champ label="Adresse saisie" valeur={p.adresse_saisie} />
-            <Champ label="Adresse normalisée" valeur={p.adresse_normalisee} />
+      {/* Consentements RGPD (3 finalités) — état coloré + date. */}
+      <div>
+        <div style={sousTitre}>Consentements</div>
+        {detail.consentements.map((c) => (
+          <div key={c.finalite} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <span style={{ color: 'var(--color-svv-ink)' }}>{libelleFinaliteAffichage(c.finalite, c.libelle)}</span>
+            <span style={{ color: c.actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)', fontWeight: 700 }}>
+              {c.actif ? 'Actif' : c.etat ? c.etat : 'Aucun'}{c.depuis ? ` · ${dateFr(c.depuis)}` : ''}
+            </span>
           </div>
-        );
-      })}
+        ))}
+      </div>
+
+      {/* Analyse(s) COMPLÈTE(S) : tous les champs SAISIS (payload aplati, label FR) + TOUT le résultat de scoring. Rien masqué. */}
+      <div>
+        <div style={sousTitre}>Analyse{detail.projets.length > 1 ? 's' : ''} ({detail.projets.length})</div>
+        {detail.projets.map((p, idx) => {
+          const payload = (p.payload && typeof p.payload === 'object' ? p.payload : {}) as Record<string, unknown>;
+          const rpOui = p.residence_principale === true;
+          const adresseRp = payload.adresseResidence;
+          const norm = p.adresse_normalisee == null ? '' : String(p.adresse_normalisee);
+          const saisie = p.adresse_saisie == null ? '' : String(p.adresse_saisie);
+          const saisieDifferente = saisie.trim() !== '' && saisie !== norm;
+          // Clés payload déjà rendues explicitement dans « Le bien » ; le reste passe en catch-all → rien masqué.
+          const CLES_BIEN = new Set(['typeBien', 'surface', 'nbPieces', 'epoque', 'balcon', 'terrasse', 'jardin', 'adresseResidence']);
+          const autres = Object.entries(payload).filter(([k]) => !CLES_BIEN.has(k));
+          const groupe: CSSProperties = { fontWeight: 800, color: 'var(--color-svv-ink)', fontSize: '.78rem', marginTop: 8 };
+          return (
+            <div key={idx} style={{ border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: 8, marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>Analyse du {dateHeureFr(p.cree_a)} (tunnel v{String(p.version_tunnel ?? '—')})</div>
+
+              {/* GROUPE 1 — LE BIEN */}
+              <div style={groupe}>Le bien</div>
+              <Champ label="Adresse du bien" valeur={norm || '—'} />
+              {saisieDifferente && <Champ label="Adresse saisie" valeur={saisie} />}
+              <Champ label="Type de bien" valeur={payload.typeBien} />
+              <Champ label="Surface (m²)" valeur={payload.surface} />
+              <Champ label="Nombre de pièces" valeur={payload.nbPieces} />
+              <Champ label="Étage" valeur={p.etage} />
+              <Champ label="Dernier étage" valeur={p.dernier_etage} />
+              <Champ label="Époque de construction" valeur={payload.epoque} />
+              <Champ label="Balcon" valeur={payload.balcon} />
+              <Champ label="Terrasse" valeur={payload.terrasse} />
+              <Champ label="Jardin" valeur={payload.jardin} />
+              <Champ label="Résidence principale" valeur={p.residence_principale} />
+              {rpOui ? (
+                <Champ label="Adresse de résidence" valeur="Le bien analysé est la résidence principale" />
+              ) : adresseRp != null && String(adresseRp).trim() !== '' ? (
+                <Champ label="Adresse de résidence principale" valeur={adresseRp} />
+              ) : null}
+              {autres.map(([k, v]) => (
+                <Champ key={k} label={labelPayload(k)} valeur={v} />
+              ))}
+
+              {/* GROUPE 2 — VERDICT & SCORE (résultat + déterminants géométriques présents). */}
+              <div style={groupe}>Verdict et score</div>
+              <Champ label="Verdict" valeur={verdictFr(p.verdict)} />
+              <Champ label="Score /100" valeur={p.score == null ? null : Number(p.score).toFixed(2)} />
+              <Champ label="Point d’origine — latitude" valeur={p.lat} />
+              <Champ label="Point d’origine — longitude" valeur={p.lon} />
+              <Champ label="Commune (INSEE)" valeur={p.commune_insee} />
+              {/* Grandeurs de visée (migration 026). Dossiers ANCIENS = colonnes NULL → Champ affiche « — » (pas de crash).
+                  numeric pg = chaîne → Number() ; AFFICHAGE à 2 décimales (toFixed) — valeur STOCKÉE brute inchangée,
+                  aucun recalcul. Lat/lon gardent leur précision complète (jamais arrondis). */}
+              <Champ label="Azimut de l’axe" valeur={p.azimut_deg == null ? null : `${Number(p.azimut_deg).toFixed(2)}°`} />
+              <Champ label="Hauteur sous plafond" valeur={p.hauteur_sous_plafond_m == null ? null : `${Number(p.hauteur_sous_plafond_m).toFixed(2)} m`} />
+              <Champ label="Hauteur de vision" valeur={p.hauteur_vision_m == null ? null : `${Number(p.hauteur_vision_m).toFixed(2)} m`} />
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Profil effacé : note INFORMATIVE (pas une action) — affichée aux deux endroits. */}
+      {i.efface_a ? (
+        <div style={{ color: 'var(--color-svv-muted)', borderTop: '1px solid var(--color-svv-line)', paddingTop: 8 }}>
+          Profil effacé le {new Date(String(i.efface_a)).toLocaleDateString('fr-FR')} — identité anonymisée, analyses supprimées ; la preuve de consentement est conservée.
+        </div>
+      ) : null}
+
+      {/* Actions cycle de vie — UNIQUEMENT si `actions` fournie (bloc haut). Omise → lecture seule (Vérification). */}
+      {actions}
     </div>
   );
 }
@@ -1021,7 +1013,7 @@ function PanneauVerification() {
   return (
     <div className="svv-card" style={{ marginTop: 18, borderTop: '3px solid var(--color-svv-red)', background: 'var(--color-svv-field)', display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div>
-        <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: 'var(--color-svv-ink)' }}>Vérification — derniers internautes</h2>
+        <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: 'var(--color-svv-ink)' }}>Vérification — 10 derniers internautes en base</h2>
         <p style={{ margin: '2px 0 0', fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>
           Contrôle technique (consultation seule) : vérifier que l’ingestion du tunnel fonctionne. Aucun export ni recontact ici.
         </p>
@@ -1064,7 +1056,7 @@ function PanneauVerification() {
                 {ouvert === r.id && (
                   <div style={{ borderTop: '1px solid var(--color-svv-line)', padding: 12, background: 'var(--color-svv-field)' }}>
                     {detailChargement && <div style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
-                    {detail && <DetailComplet detail={detail} />}
+                    {detail && <FicheDetail detail={detail} />}
                   </div>
                 )}
               </div>
