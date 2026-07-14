@@ -7,6 +7,7 @@
  * de clauses WHERE paramétrées (extensible) et le sérialiseur CSV.
  */
 import type { CleFinalite } from './textesConsentement';
+import { FINALITES_SEED } from './consentement';
 
 /**
  * Finalité-axe par DÉFAUT de l'extraction commerciale interne : F1 (recontact interne), historiquement la SEULE.
@@ -15,14 +16,33 @@ import type { CleFinalite } from './textesConsentement';
 export const AXE_DEFAUT: CleFinalite = 'recontact_interne';
 
 /**
+ * Axes d'extraction sélectionnables par l'admin (LOT 2) = les finalités connues (clés dérivées de `FINALITES_SEED`,
+ * jamais re-hardcodées). Chaque axe BORNE la population exportée à ses consentants actifs (INNER JOIN dans
+ * `clauseFromInvariant`) → étanchéité stricte, jamais un OR entre finalités. `code`/`libelle` = affichage admin.
+ */
+export const AXES_EXPORT: ReadonlyArray<{ axe: CleFinalite; code: string; libelle: string }> = [
+  { axe: FINALITES_SEED.recontactInterne, code: 'F1', libelle: 'Recontact (F1)' },
+  { axe: FINALITES_SEED.emailMarketing, code: 'F2', libelle: 'Email (F2)' },
+  { axe: FINALITES_SEED.retargetingTiers, code: 'F3', libelle: 'Retargeting (F3)' },
+];
+
+/** Ensemble des clés d'axe VALIDES — garde de `lireAxe` (tout axe hors de cet ensemble retombe sur le défaut F1). */
+const AXES_VALIDES: ReadonlySet<string> = new Set(AXES_EXPORT.map((a) => a.axe));
+
+/**
  * Fragment FROM/JOIN portant l'INVARIANT DE CONSENTEMENT, PARAMÉTRÉ par la finalité-`axe` (défaut `AXE_DEFAUT` = F1).
  * PUR : ne fait que CONSTRUIRE la chaîne SQL — l'exécution reste dans `extractionRepo.ts`. Le dernier projet de chaque
  * personne est joint par LATERAL. AUCUN paramètre lié ici : la finalité est un LITTÉRAL de type fermé `CleFinalite`
  * (jamais une entrée utilisateur) → les filtres de `construireFiltres` commencent toujours à `$1`.
  *
- * ISO-COMPORTEMENT : avec l'axe par défaut, le fragment est équivalent à l'ancienne constante `FROM_INVARIANT` (seule
- * la finalité varie si un autre axe est passé). L'opt-out `opposition_recontact` (F1-spécifique) et le filtre
- * `efface_a IS NULL` sont CONSERVÉS tels quels dans ce lot (généralisation éventuelle → lots ultérieurs).
+ * ÉTANCHÉITÉ (LOT 2) : le JOIN est un INNER JOIN sur `ca.finalite = '${axe}' AND ca.actif = true` → SEULS les
+ * consentants ACTIFS de l'axe survivent. Une personne sans consentement actif à cet axe (p. ex. un F1-only face à un
+ * axe F2) est écartée par la jointure. Aucune disjonction (OR) n'est jamais produite : la population est bornée par
+ * l'axe, et les filtres additionnels de `construireFiltres` sont TOUS ajoutés en AND. Défaut F1 → ISO avec le LOT 1.
+ *
+ * L'opt-out `opposition_recontact` est PROPRE à F1 (recontact) : appliqué UNIQUEMENT sur l'axe F1 ; les axes F2/F3
+ * n'ont pas d'opt-out dédié à ce stade → on ne les filtre pas dessus (sinon on écarterait à tort un consentant
+ * email/retargeting ayant refusé le recontact). `efface_a IS NULL` reste commun à TOUS les axes.
  *
  * Défense en profondeur : `axe` étant INTERPOLÉ (jamais lié), on VALIDE qu'il n'est qu'un identifiant `[a-z0-9_]+`
  * (toutes les clés de finalité le sont) → toute injection SQL est structurellement impossible même si un appelant
@@ -30,6 +50,8 @@ export const AXE_DEFAUT: CleFinalite = 'recontact_interne';
  */
 export function clauseFromInvariant(axe: CleFinalite = AXE_DEFAUT): string {
   if (!/^[a-z0-9_]+$/.test(axe)) throw new Error(`finalité-axe invalide (attendu [a-z0-9_]+) : ${axe}`);
+  // opposition_recontact = opt-out F1-spécifique → présent SEULEMENT sur l'axe F1 (défaut). F2/F3 : aucun opt-out dédié.
+  const opposition = axe === AXE_DEFAUT ? 'i.opposition_recontact = false\n    AND ' : '';
   return `
   FROM internaute i
   JOIN internaute_consentement_actif ca
@@ -38,8 +60,7 @@ export function clauseFromInvariant(axe: CleFinalite = AXE_DEFAUT): string {
     SELECT verdict, score, dernier_etage, residence_principale, commune_insee
     FROM internaute_projet pr WHERE pr.internaute_id = i.id ORDER BY pr.cree_a DESC LIMIT 1
   ) p ON true
-  WHERE i.opposition_recontact = false
-    AND i.efface_a IS NULL            -- LOT 4 : un profil effacé (PII anonymisées) ne réapparaît JAMAIS en extraction
+  WHERE ${opposition}i.efface_a IS NULL            -- LOT 4 : un profil effacé (PII anonymisées) ne réapparaît JAMAIS en extraction
 `;
 }
 
@@ -143,7 +164,18 @@ export function lireFiltres(params: URLSearchParams): FiltresExtraction {
   };
 }
 
-/** Une ligne de résultat exploitable (identité + dernier projet + date de consentement F1). */
+/**
+ * Axe d'extraction demandé (query param `axe`), VALIDÉ contre les finalités connues (`AXES_VALIDES`). Absent, vide
+ * ou inconnu → défaut `AXE_DEFAUT` (F1) — jamais un axe arbitraire (défense en profondeur, complète la garde
+ * `[a-z0-9_]+` de `clauseFromInvariant`). Le param `axe` détermine SEUL la population bornée ; il n'entre pas dans
+ * les clauses WHERE de `construireFiltres`.
+ */
+export function lireAxe(params: URLSearchParams): CleFinalite {
+  const v = params.get('axe');
+  return v !== null && AXES_VALIDES.has(v) ? (v as CleFinalite) : AXE_DEFAUT;
+}
+
+/** Une ligne de résultat exploitable (identité + dernier projet + date de consentement de l'axe). */
 export interface LigneProfil {
   id: string;
   prenom: string | null;

@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { libelleFinaliteAffichage } from '../../../../lib/internaute/libelleFinalite';
+import { AXES_EXPORT, AXE_DEFAUT } from '../../../../lib/internaute/extraction';
+import type { CleFinalite } from '../../../../lib/internaute/textesConsentement';
 
 /**
  * Vue interactive du module « Internautes » (LOT 3). Client PUR : ne touche jamais la base ; consomme
- * `/api/admin/internautes*` (réservé administrateur, invariant consentement F1 actif appliqué CÔTÉ SERVEUR — cette
+ * `/api/admin/internautes*` (réservé administrateur, invariant consentement de l'axe actif appliqué CÔTÉ SERVEUR — cette
  * vue ne fait que refléter). Charte : rouge/gris, AUCUN bleu, cibles ≥44px, focus rouge, prefers-reduced-motion.
  */
 
@@ -273,6 +275,10 @@ function SelecteurGeo({ communes, selection, onValider }: {
 export function InternautesVue() {
   const [filtres, setFiltres] = useState<Filtres>(FILTRES_VIDES);
   const [applique, setApplique] = useState<Filtres>(FILTRES_VIDES); // filtres réellement soumis
+  // Axe d'export (LOT 2) = finalité qui BORNE la population extraite (F1/F2/F3), défaut F1. C'est un sélecteur de
+  // POPULATION (pas un filtre WHERE) → appliqué immédiatement (re-fetch). Le serveur (clauseFromInvariant) garantit
+  // l'étanchéité : un export d'un axe ne contient QUE ses consentants actifs, jamais un OR.
+  const [axe, setAxe] = useState<CleFinalite>(AXE_DEFAUT);
   const [page, setPage] = useState(1);
   const [etat, setEtat] = useState<{ statut: 'chargement' } | { statut: 'erreur'; code: number } | { statut: 'ok'; total: number; lignes: Ligne[] }>({ statut: 'chargement' });
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -318,6 +324,7 @@ export function InternautesVue() {
         const p = versParams(applique);
         p.set('page', String(page));
         p.set('taille', String(TAILLE));
+        p.set('axe', axe); // borne la population à l'axe courant (défaut F1) ; étanchéité garantie côté serveur
         const res = await fetch(`/api/admin/internautes?${p.toString()}`);
         if (annule) return;
         if (!res.ok) {
@@ -335,7 +342,7 @@ export function InternautesVue() {
     return () => {
       annule = true;
     };
-  }, [applique, page]);
+  }, [applique, page, axe]);
 
   const filtrer = () => {
     setPage(1);
@@ -346,6 +353,26 @@ export function InternautesVue() {
     setPage(1);
     setApplique(FILTRES_VIDES);
   };
+  // Change l'axe (population). Retire le restricteur devenu REDONDANT (même finalité que le nouvel axe) → aucun
+  // filtre « aussi F2/F3 » ne joue en sourdine sous un axe qui le couvre déjà. Appliqué tout de suite (filtres + soumis).
+  const changerAxe = (a: CleFinalite) => {
+    setAxe(a);
+    setPage(1);
+    const nettoyer = (f: Filtres): Filtres => ({
+      ...f,
+      aF2: a === 'email_marketing' ? false : f.aF2,
+      aF3: a === 'retargeting_tiers' ? false : f.aF3,
+    });
+    setFiltres(nettoyer);
+    setApplique(nettoyer);
+  };
+  // URL d'export CSV de l'AXE courant (le param `axe` accompagne les filtres ; validé côté serveur par `lireAxe`).
+  const hrefExport = (f: Filtres) => {
+    const p = versParams(f);
+    p.set('axe', axe);
+    return `/api/admin/internautes/export?${p.toString()}`;
+  };
+  const axeCourant = AXES_EXPORT.find((a) => a.axe === axe) ?? AXES_EXPORT[0];
 
   const rechargerListe = () => setApplique((a) => ({ ...a })); // nouvelle référence → relance l'effet de fetch
 
@@ -571,6 +598,41 @@ export function InternautesVue() {
     <div className="svv-int" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <style>{CSS}</style>
 
+      {/* SÉLECTEUR D'AXE (LOT 2) : la finalité qui BORNE la population extraite (F1/F2/F3). Chaque axe = export
+          ÉTANCHE de ses seuls consentants actifs. Charte : rouge plein = actif, gris contour = inactif ; ≥44px. */}
+      <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--color-svv-field)' }}>
+        <span style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>Axe d’extraction (le consentement qui borne la base)</span>
+        <div role="group" aria-label="Axe d’extraction" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {AXES_EXPORT.map((a) => {
+            const actif = a.axe === axe;
+            return (
+              <button
+                key={a.axe}
+                type="button"
+                aria-pressed={actif}
+                onClick={() => changerAxe(a.axe)}
+                style={{
+                  minHeight: 44,
+                  padding: '0 14px',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  fontSize: '.85rem',
+                  border: `1px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
+                  background: actif ? 'var(--color-svv-red)' : '#fff',
+                  color: actif ? '#fff' : 'var(--color-svv-ink)',
+                }}
+              >
+                {a.libelle}
+              </button>
+            );
+          })}
+        </div>
+        <span style={{ fontSize: '.7rem', color: 'var(--color-svv-muted)' }}>
+          L’export ne contient QUE les consentants actifs de l’axe choisi ; les cases « aussi… » restreignent DANS cet axe (jamais un élargissement).
+        </span>
+      </div>
+
       {/* FILTRES — grille COMMUNE (colonnes via .svv-int-filtres) : les 2 rangées partagent les mêmes colonnes,
           alignées verticalement, bas des contrôles alignés (align-items:end). */}
       <div className="svv-card svv-int-filtres" style={{ display: 'grid', gap: 10, alignItems: 'start', background: 'var(--color-svv-field)' }}>
@@ -639,16 +701,21 @@ export function InternautesVue() {
           </button>
         </div>
         <fieldset style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)', border: 0, padding: 0, margin: 0 }}>
-          <legend style={{ padding: 0 }}>Consentement (parmi les F1)</legend>
-          {/* Ces cases RESTREIGNENT l'ensemble F1 (AND côté serveur) : F1 reste toujours requis, jamais un non-F1. */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 44, fontWeight: 600, color: 'var(--color-svv-ink)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={filtres.aF2} onChange={(e) => setFiltres({ ...filtres, aF2: e.target.checked })} style={{ width: 18, height: 18, accentColor: 'var(--color-svv-red)' }} />
-            a aussi F2 (email)
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 44, fontWeight: 600, color: 'var(--color-svv-ink)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={filtres.aF3} onChange={(e) => setFiltres({ ...filtres, aF3: e.target.checked })} style={{ width: 18, height: 18, accentColor: 'var(--color-svv-red)' }} />
-            a aussi F3 (retargeting)
-          </label>
+          <legend style={{ padding: 0 }}>Consentement additionnel (dans l’axe)</legend>
+          {/* Ces cases RESTREIGNENT la population de l'AXE courant (AND côté serveur) : jamais un OR, jamais un
+              élargissement. La case dont la finalité EST l'axe courant est masquée (redondante avec le JOIN d'axe). */}
+          {axe !== 'email_marketing' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 44, fontWeight: 600, color: 'var(--color-svv-ink)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={filtres.aF2} onChange={(e) => setFiltres({ ...filtres, aF2: e.target.checked })} style={{ width: 18, height: 18, accentColor: 'var(--color-svv-red)' }} />
+              a aussi F2 (email)
+            </label>
+          )}
+          {axe !== 'retargeting_tiers' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 44, fontWeight: 600, color: 'var(--color-svv-ink)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={filtres.aF3} onChange={(e) => setFiltres({ ...filtres, aF3: e.target.checked })} style={{ width: 18, height: 18, accentColor: 'var(--color-svv-red)' }} />
+              a aussi F3 (retargeting)
+            </label>
+          )}
         </fieldset>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', gridColumn: '1 / -1', flexWrap: 'wrap' }}>
           <button type="button" style={btnRouge} onClick={filtrer}>Filtrer</button>
@@ -706,20 +773,20 @@ export function InternautesVue() {
                     boxShadow: '0 4px 14px rgba(0,0,0,.14)',
                   }}
                 >
-                  <strong>F1 — Recontact commercial interne (appel téléphonique)</strong> : consentement <strong>requis</strong> pour
-                  figurer dans cette base et être exporté ou recontacté ; sans F1, une personne n’apparaît jamais ici.{' '}
-                  <strong>F2</strong> : communications par email. <strong>F3</strong> : ciblage publicitaire tiers (retargeting).
-                  Les filtres F2 et F3 s’appliquent <strong>uniquement parmi les consentants F1</strong> : ils restreignent la
-                  sélection, ne l’élargissent jamais.
+                  L’<strong>axe d’extraction</strong> choisit le consentement qui BORNE la base : <strong>F1</strong> recontact
+                  commercial interne (appel téléphonique), <strong>F2</strong> communications par email, <strong>F3</strong> ciblage
+                  publicitaire tiers (retargeting).{' '}
+                  Un export ne contient QUE les consentants <strong>actifs de l’axe choisi</strong> — jamais un profil d’un autre axe.
+                  Les cases « aussi… » <strong>restreignent dans l’axe</strong> (ET) : elles réduisent la sélection, ne l’élargissent jamais.
                 </div>
               </>
             )}
           </div>
-          <a style={{ ...btnOutline, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }} href={`/api/admin/internautes/export?${versParams(applique).toString()}`}>
+          <a style={{ ...btnOutline, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }} href={hrefExport(applique)}>
             Exporter (CSV)
           </a>
-          {/* Correction 2 : export SANS filtre (filtres VIDES) → tous les consentants F1 via le MÊME invariant + journal. */}
-          <a style={{ ...btnRouge, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }} href={`/api/admin/internautes/export?${versParams(FILTRES_VIDES).toString()}`} title="Exporter tous les consentants F1, sans appliquer les filtres">
+          {/* Export SANS filtre (filtres VIDES) → tous les consentants actifs de l'AXE courant, via le MÊME invariant + journal. */}
+          <a style={{ ...btnRouge, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }} href={hrefExport(FILTRES_VIDES)} title={`Exporter tous les consentants ${axeCourant.code} actifs, sans appliquer les filtres`}>
             Exporter toute la base
           </a>
         </div>
@@ -737,7 +804,7 @@ export function InternautesVue() {
       {etat.statut === 'ok' && (
         <>
           <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)' }}>
-            {total} profil{total > 1 ? 's' : ''} recontactable{total > 1 ? 's' : ''} (consentement F1 actif).
+            {total} profil{total > 1 ? 's' : ''} avec consentement {axeCourant.code} actif ({axeCourant.libelle}).
           </div>
           {etat.lignes.length === 0 ? (
             <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-muted)' }}>Aucun profil pour ces critères.</div>

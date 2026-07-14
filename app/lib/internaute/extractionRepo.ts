@@ -155,8 +155,15 @@ export async function lireProfilComplet(id: string): Promise<{
 export async function journaliserExtraction(
   auteurId: number | null,
   action: 'export_csv' | 'acces_profil',
-  details: { filtres?: FiltresExtraction; nbLignes?: number; cibleInternauteId?: string },
+  details: { filtres?: FiltresExtraction; nbLignes?: number; cibleInternauteId?: string; axe?: string },
 ): Promise<void> {
+  // L'AXE d'export (LOT 2 — quelle population de consentants) est tracé DANS le blob jsonb `filtres` (aucune colonne
+  // dédiée → aucune migration) : l'audit distingue ainsi un export F1 d'un export F2/F3. `filtres`/`axe` absents → NULL
+  // (comportement inchangé pour `acces_profil`, qui n'en passe aucun).
+  const blob =
+    details.filtres || details.axe
+      ? JSON.stringify({ ...(details.filtres ?? {}), ...(details.axe ? { axe: details.axe } : {}) })
+      : null;
   await query(
     `INSERT INTO internaute_extraction_log (utilisateur_id, action, cible_internaute_id, filtres, nb_lignes)
      VALUES ($1, $2, $3, $4::jsonb, $5)`,
@@ -164,7 +171,7 @@ export async function journaliserExtraction(
       auteurId,
       action,
       details.cibleInternauteId ?? null,
-      details.filtres ? JSON.stringify(details.filtres) : null,
+      blob,
       details.nbLignes ?? null,
     ],
   );

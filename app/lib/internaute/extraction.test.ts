@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { construireFiltres, clauseFromInvariant, AXE_DEFAUT, lireFiltres, versCsv, type LigneProfil } from './extraction';
+import { construireFiltres, clauseFromInvariant, AXE_DEFAUT, AXES_EXPORT, lireAxe, lireFiltres, versCsv, type LigneProfil } from './extraction';
 import type { CleFinalite } from './textesConsentement';
 
 describe('construireFiltres — clauses paramétrées, extensibles, anti-injection', () => {
@@ -91,19 +91,77 @@ describe('clauseFromInvariant — FROM/JOIN paramétré par axe (LOT 1 : refacto
     expect(f1).not.toContain('$1'); //                         AUCUN paramètre lié dans le FROM → les filtres commencent à $1
   });
 
-  it('axe F2 : SEULE la finalité change — preuve d’ISO (le reste du fragment est identique à F1)', () => {
-    const f1 = clauseFromInvariant('recontact_interne');
+  it('axe F2 (LOT 2) : finalité substituée ET opposition_recontact (opt-out F1) RETIRÉE ; garde-fous communs conservés', () => {
     const f2 = clauseFromInvariant('email_marketing');
     expect(f2).toContain("ca.finalite = 'email_marketing'");
     expect(f2).not.toContain("ca.finalite = 'recontact_interne'");
-    // F2 = F1 où l’on n’a substitué QUE le littéral de finalité (aucune autre différence).
-    expect(f2).toBe(f1.replace("ca.finalite = 'recontact_interne'", "ca.finalite = 'email_marketing'"));
-    // F3 : même mécanique paramétrée.
+    expect(f2).not.toContain('opposition_recontact'); // opt-out F1 → jamais sur un axe non-F1
+    expect(f2).toContain('i.efface_a IS NULL'); //        commun à TOUS les axes
+    expect(f2).toContain('ca.actif = true');
+    expect(f2).toContain('ORDER BY pr.cree_a DESC LIMIT 1');
     expect(clauseFromInvariant('retargeting_tiers')).toContain("ca.finalite = 'retargeting_tiers'");
   });
 
   it('anti-injection : un axe non-identifiant est REFUSÉ (défense en profondeur — jamais atteint via le typage)', () => {
     expect(() => clauseFromInvariant("recontact_interne'; DROP TABLE internaute --" as CleFinalite)).toThrow();
+  });
+});
+
+describe('ÉTANCHÉITÉ PAR AXE (LOT 2) — un export d’un axe ne contient QUE ses consentants actifs (jamais un OR / F1-only)', () => {
+  const AXES: [CleFinalite, string][] = [
+    ['recontact_interne', "ca.finalite = 'recontact_interne'"],
+    ['email_marketing', "ca.finalite = 'email_marketing'"],
+    ['retargeting_tiers', "ca.finalite = 'retargeting_tiers'"],
+  ];
+  for (const [axe, litt] of AXES) {
+    it(`axe ${axe} : INNER JOIN (AND) sur sa finalité active → borne dure la population, aucun OR`, () => {
+      const from = clauseFromInvariant(axe);
+      // INNER JOIN (jamais LEFT) sur la finalité de l'axe → seuls ses consentants ACTIFS survivent (un profil d'un
+      // autre axe, p. ex. un F1-only face à un axe F2, est écarté par la jointure).
+      expect(from).toContain('JOIN internaute_consentement_actif ca');
+      expect(from).not.toContain('LEFT JOIN internaute_consentement_actif ca');
+      expect(from).toContain(`${litt} AND ca.actif = true`);
+      expect(from).not.toMatch(/\bOR\b/); // aucune disjonction (« ORDER BY » n'est pas un OR)
+    });
+  }
+
+  it('assemblage réel (axe F2 + restricteur F3) : AND cumulatifs, aucun OR, AUCUN F1 imposé', () => {
+    const from = clauseFromInvariant('email_marketing');
+    const { clauses } = construireFiltres({ aF3: true });
+    const where = clauses.length ? ` AND ${clauses.join(' AND ')}` : '';
+    const requete = `SELECT i.id ${from}${where} ORDER BY i.cree_a DESC`;
+    expect(requete).toContain("ca.finalite = 'email_marketing'"); //   population bornée à F2 (INNER JOIN)
+    expect(requete).toContain("ca_f3.finalite = 'retargeting_tiers'"); // restricteur ADDITIONNEL F3 (AND EXISTS)
+    expect(requete).toContain('ca_f3.actif = true');
+    expect(requete).not.toContain("'recontact_interne'"); //           aucun F1 imposé sur un export F2
+    expect(requete).not.toContain('opposition_recontact'); //          opt-out F1 absent d'un axe F2
+    expect(requete).not.toMatch(/\bOR\b/);
+  });
+
+  it('opposition_recontact (opt-out F1) : appliqué UNIQUEMENT sur l’axe F1', () => {
+    expect(clauseFromInvariant('recontact_interne')).toContain('i.opposition_recontact = false');
+    expect(clauseFromInvariant('email_marketing')).not.toContain('opposition_recontact');
+    expect(clauseFromInvariant('retargeting_tiers')).not.toContain('opposition_recontact');
+  });
+});
+
+describe('lireAxe — validation de l’axe (défaut F1, jamais un axe arbitraire)', () => {
+  it('axe connu → renvoyé ; absent / vide / inconnu / forgé → défaut F1', () => {
+    expect(lireAxe(new URLSearchParams('axe=email_marketing'))).toBe('email_marketing');
+    expect(lireAxe(new URLSearchParams('axe=retargeting_tiers'))).toBe('retargeting_tiers');
+    expect(lireAxe(new URLSearchParams('axe=recontact_interne'))).toBe('recontact_interne');
+    expect(lireAxe(new URLSearchParams(''))).toBe(AXE_DEFAUT); //                      absent → F1
+    expect(lireAxe(new URLSearchParams('axe='))).toBe(AXE_DEFAUT); //                  vide → F1
+    expect(lireAxe(new URLSearchParams("axe=hack'; DROP TABLE internaute"))).toBe(AXE_DEFAUT); // forgé → F1
+    expect(lireAxe(new URLSearchParams('axe=email_marketing_x'))).toBe(AXE_DEFAUT); // proche mais inconnu → F1
+  });
+});
+
+describe('AXES_EXPORT — les 3 finalités connues (clés issues de FINALITES_SEED)', () => {
+  it('3 axes F1/F2/F3, défaut (F1) en tête', () => {
+    expect(AXES_EXPORT.map((a) => a.axe)).toEqual(['recontact_interne', 'email_marketing', 'retargeting_tiers']);
+    expect(AXES_EXPORT.map((a) => a.code)).toEqual(['F1', 'F2', 'F3']);
+    expect(AXES_EXPORT[0].axe).toBe(AXE_DEFAUT);
   });
 });
 
