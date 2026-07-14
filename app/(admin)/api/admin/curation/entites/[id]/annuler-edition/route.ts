@@ -166,9 +166,9 @@ export async function POST(request: Request, ctx: Ctx) {
       // 2. Ligne d'audit UNIQUE — seulement si au moins un inverse a été appliqué.
       if (nb > 0) {
         await q(
-          `INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
-           VALUES ('annulation_edition', $1, NULL, NULL, $2::jsonb, $3, $4::timestamptz)`,
-          [idNum, JSON.stringify({ borne, jusqu_a: jusquA, nb_lignes: nb }), session.jti, session.iat],
+          `INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a, utilisateur_id)
+           VALUES ('annulation_edition', $1, NULL, NULL, $2::jsonb, $3, $4::timestamptz, $5)`,
+          [idNum, JSON.stringify({ borne, jusqu_a: jusquA, nb_lignes: nb }), session.jti, session.iat, session.sub],
         );
       }
       return { nbLignes: nb, jusquA };

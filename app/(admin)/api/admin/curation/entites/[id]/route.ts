@@ -49,14 +49,14 @@ export async function DELETE(request: Request, ctx: Ctx) {
        ), del_entite AS (
          DELETE FROM patrimoine_entite WHERE id IN (SELECT id FROM cible) RETURNING id
        ), jrnl AS (
-         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
+         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a, utilisateur_id)
          SELECT 'suppression_entite_manuelle', snap.id, NULL,
                 jsonb_build_object('famille', snap.famille, 'nom', snap.nom, 'ref_code', snap.ref_code, 'liaisons', snap.liaisons),
-                NULL, $2, $3::timestamptz
+                NULL, $2, $3::timestamptz, $4
          FROM snap
        )
        SELECT id FROM del_entite`,
-      [idNum, session.jti, session.iat],
+      [idNum, session.jti, session.iat, session.sub],
     );
     if (rows.length === 0) {
       // Entité inconnue OU native (non manuelle) → refus, aucune suppression.
@@ -101,13 +101,13 @@ export async function PATCH(request: Request, ctx: Ctx) {
          WHERE id = $1 AND meta->>'origine' = 'manuel'
          RETURNING id, nom
        ), jrnl AS (
-         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
+         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a, utilisateur_id)
          SELECT 'renommage', mut.id, NULL,
-                jsonb_build_object('nom', snap.ancien), jsonb_build_object('nom', mut.nom), $3, $4::timestamptz
+                jsonb_build_object('nom', snap.ancien), jsonb_build_object('nom', mut.nom), $3, $4::timestamptz, $5
          FROM mut, snap
        )
        SELECT id, nom FROM mut`,
-      [idNum, nom, session.jti, session.iat],
+      [idNum, nom, session.jti, session.iat, session.sub],
     );
     if (rows.length === 0) {
       return Response.json({ erreurs: [{ message: 'entité manuelle introuvable' }] }, { status: 404 });

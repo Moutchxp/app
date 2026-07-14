@@ -108,13 +108,13 @@ export async function POST(request: Request) {
          VALUES ($1, $2, $3, $4, true, $5::jsonb)
          RETURNING id, famille, ref_code, nom, meta
        ), jrnl AS (
-         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
+         INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a, utilisateur_id)
          SELECT 'creation_entite_manuelle', mut.id, NULL, NULL,
-                jsonb_build_object('famille', mut.famille, 'nom', mut.nom, 'ref_code', mut.ref_code), $6, $7::timestamptz
+                jsonb_build_object('famille', mut.famille, 'nom', mut.nom, 'ref_code', mut.ref_code), $6, $7::timestamptz, $8
          FROM mut
        )
        SELECT id, famille, ref_code, nom, meta FROM mut`,
-      [famille, refCode, nom, statut, meta, session.jti, session.iat],
+      [famille, refCode, nom, statut, meta, session.jti, session.iat, session.sub],
     );
     const e = rows[0];
     return Response.json(

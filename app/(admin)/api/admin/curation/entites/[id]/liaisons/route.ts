@@ -75,8 +75,8 @@ export async function POST(request: Request, ctx: Ctx) {
       DO UPDATE SET source = 'manuel', detache = false, actif = true
       RETURNING entite_id, cleabs, source, actif, detache, verifie_manuellement
     ), jrnl AS (
-      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
-      VALUES ('rattachement', $1, $2, $3::jsonb, $4::jsonb, $5, $6::timestamptz)
+      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a, utilisateur_id)
+      VALUES ('rattachement', $1, $2, $3::jsonb, $4::jsonb, $5, $6::timestamptz, $7)
     )
     SELECT * FROM mut;
   `;
@@ -89,6 +89,7 @@ export async function POST(request: Request, ctx: Ctx) {
       apres,
       session.jti,
       session.iat,
+      session.sub,
     ]);
     const l = rows[0];
     return Response.json({
@@ -161,8 +162,8 @@ export async function DELETE(request: Request, ctx: Ctx) {
           DELETE FROM patrimoine_entite_batiment WHERE entite_id = $1 AND cleabs = $2
           RETURNING entite_id, cleabs
         ), jrnl AS (
-          INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
-          VALUES ('detachement', $1, $2, $3::jsonb, NULL, $4, $5::timestamptz)
+          INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a, utilisateur_id)
+          VALUES ('detachement', $1, $2, $3::jsonb, NULL, $4, $5::timestamptz, $6)
         )
         SELECT * FROM mut;
       `
@@ -173,16 +174,16 @@ export async function DELETE(request: Request, ctx: Ctx) {
            WHERE entite_id = $1 AND cleabs = $2
           RETURNING entite_id, cleabs, source, actif, detache, verifie_manuellement
         ), jrnl AS (
-          INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
-          VALUES ('detachement', $1, $2, $3::jsonb, $4::jsonb, $5, $6::timestamptz)
+          INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a, utilisateur_id)
+          VALUES ('detachement', $1, $2, $3::jsonb, $4::jsonb, $5, $6::timestamptz, $7)
         )
         SELECT * FROM mut;
       `;
   const session = await lireSessionCuration(request); // traçabilité additive ; null si session illisible
   const params =
     avant.source === 'manuel'
-      ? [idNum, cleabs, avantJson, session.jti, session.iat]
-      : [idNum, cleabs, avantJson, JSON.stringify({ source: 'manuel', detache: true, verifie_manuellement: false }), session.jti, session.iat];
+      ? [idNum, cleabs, avantJson, session.jti, session.iat, session.sub]
+      : [idNum, cleabs, avantJson, JSON.stringify({ source: 'manuel', detache: true, verifie_manuellement: false }), session.jti, session.iat, session.sub];
 
   try {
     await query(sql, params);
@@ -245,8 +246,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
        WHERE entite_id = $1 AND cleabs = $2
       RETURNING entite_id, cleabs, source, actif, detache, verifie_manuellement
     ), jrnl AS (
-      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
-      VALUES ('verification', $1, $2, $3::jsonb, $4::jsonb, $5, $6::timestamptz)
+      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a, utilisateur_id)
+      VALUES ('verification', $1, $2, $3::jsonb, $4::jsonb, $5, $6::timestamptz, $7)
     )
     SELECT * FROM mut;
   `;
@@ -259,6 +260,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
       apres,
       session.jti,
       session.iat,
+      session.sub,
     ]);
     const l = rows[0];
     return Response.json({

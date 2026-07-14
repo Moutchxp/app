@@ -108,11 +108,11 @@ export async function PATCH(request: Request, ctx: Ctx) {
          )
       RETURNING peb.cleabs
     ), jrnl AS (
-      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
+      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a, utilisateur_id)
       VALUES ('deplacement', $1, NULL, $4::jsonb,
               jsonb_build_object('point', $5::jsonb,
                                  'verifications_invalidees', COALESCE((SELECT jsonb_agg(cleabs) FROM inval), '[]'::jsonb)),
-              $7, $8::timestamptz)
+              $7, $8::timestamptz, $9)
     )
     SELECT (SELECT point_corrige FROM mut) AS point_corrige,
            COALESCE((SELECT jsonb_agg(cleabs) FROM inval), '[]'::jsonb) AS invalidees;
@@ -128,6 +128,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
       CURATION_TOLERANCE_RATTACHEMENT_M,
       session.jti,
       session.iat,
+      session.sub,
     ]);
     const maj = rows[0];
     return Response.json({
@@ -186,14 +187,14 @@ export async function DELETE(request: Request, ctx: Ctx) {
        WHERE id = $1
       RETURNING id
     ), jrnl AS (
-      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a)
-      VALUES ('annulation_deplacement', $1, NULL, $2::jsonb, NULL, $3, $4::timestamptz)
+      INSERT INTO curation_patrimoine_log (action, entite_id, cleabs, avant, apres, session_jti, session_ouverte_a, utilisateur_id)
+      VALUES ('annulation_deplacement', $1, NULL, $2::jsonb, NULL, $3, $4::timestamptz, $5)
     )
     SELECT * FROM mut;
   `;
   const session = await lireSessionCuration(request); // traçabilité additive ; null si session illisible
   try {
-    await query(sql, [idNum, avant ?? null, session.jti, session.iat]);
+    await query(sql, [idNum, avant ?? null, session.jti, session.iat, session.sub]);
     return Response.json({ ok: true, id: idNum, corrige: false });
   } catch {
     return Response.json({ erreurs: [{ message: 'écriture impossible' }] }, { status: 503 });
