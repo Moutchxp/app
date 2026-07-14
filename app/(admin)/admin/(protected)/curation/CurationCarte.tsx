@@ -396,7 +396,8 @@ export default function CurationCarte() {
   const [journalChargement, setJournalChargement] = useState(false);
   const [journalErreur, setJournalErreur] = useState<string | null>(null);
   // Contrôles du volet GLOBAL (HJ-42..44).
-  const [journalFamille, setJournalFamille] = useState<'toutes' | 'inventaire' | 'mh' | 'mondial'>('toutes');
+  // 'manuel' = axe de PROVENANCE (orthogonal à la famille), pas une famille patrimoniale (cf. journal/route.ts).
+  const [journalFamille, setJournalFamille] = useState<'toutes' | 'manuel' | 'inventaire' | 'mh' | 'mondial'>('toutes');
   const [journalOrdre, setJournalOrdre] = useState<'desc' | 'asc'>('desc');
   const [journalOffset, setJournalOffset] = useState(0);
   const [journalTotal, setJournalTotal] = useState(0);
@@ -1835,8 +1836,8 @@ export default function CurationCarte() {
 
               {journal.mode === 'global' && (
                 <div className="svv-cur-journal-controles">
-                  <div className="svv-cur-journal-filtres" role="group" aria-label="Filtrer par famille">
-                    {(['toutes', 'inventaire', 'mh', 'mondial'] as const).map((f) => (
+                  <div className="svv-cur-journal-filtres" role="group" aria-label="Filtrer par famille ou provenance">
+                    {(['toutes', 'manuel', 'inventaire', 'mh', 'mondial'] as const).map((f) => (
                       <button
                         key={f}
                         type="button"
@@ -1847,7 +1848,7 @@ export default function CurationCarte() {
                           setJournalOffset(0);
                         }}
                       >
-                        {f === 'toutes' ? 'Toutes' : (LIBELLE_FAMILLE[f] ?? f)}
+                        {f === 'toutes' ? 'Toutes' : f === 'manuel' ? 'Manuel' : (LIBELLE_FAMILLE[f] ?? f)}
                       </button>
                     ))}
                   </div>

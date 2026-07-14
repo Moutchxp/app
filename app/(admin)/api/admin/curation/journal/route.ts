@@ -22,11 +22,15 @@ interface LigneJournalDB {
 }
 
 const FAMILLES = ['inventaire', 'mh', 'mondial'] as const;
+// Valeurs de filtre acceptées par la route : les 3 familles patrimoniales + la provenance 'manuel'.
+// « manuel » est un axe ORTHOGONAL à la famille (cf. `meta->>'origine'`), PAS une valeur de
+// `patrimoine_entite.famille` → on ne pollue pas FAMILLES avec, on l'ajoute à la whitelist de validation.
+const FILTRES = [...FAMILLES, 'manuel'] as const;
 
 /**
  * GET /api/admin/curation/journal — LECTURE SEULE de l'historique GLOBAL (toutes entités). HJ-3..HJ-18.
  *
- * Query : `famille` (inventaire|mh|mondial|toutes, défaut toutes), `ordre` (desc|asc, défaut desc),
+ * Query : `famille` (inventaire|mh|mondial|manuel|toutes, défaut toutes), `ordre` (desc|asc, défaut desc),
  * `limit` (défaut 50, clamp [1;200]), `offset` (défaut 0, ≥0). Jointure `patrimoine_entite` (nom/famille
  * si l'entité existe) + LATERAL sur la ligne `suppression_entite_manuelle` (fallback nom/famille d'une
  * entité SUPPRIMÉE — le journal survit, pas de FK). Une entité « inconnue » n'apparaît que sous « toutes »
@@ -37,7 +41,7 @@ export async function GET(request: Request) {
   const sp = new URL(request.url).searchParams;
 
   const familleParam = sp.get('famille');
-  const famille = (FAMILLES as readonly string[]).includes(familleParam ?? '') ? familleParam! : 'toutes';
+  const famille = (FILTRES as readonly string[]).includes(familleParam ?? '') ? familleParam! : 'toutes';
 
   const direction = sp.get('ordre') === 'asc' ? 'ASC' : 'DESC'; // whitelist → interpolation sûre
   const ordre = direction === 'ASC' ? 'asc' : 'desc';
@@ -57,13 +61,20 @@ export async function GET(request: Request) {
               count(*) OVER() AS total
          FROM curation_patrimoine_log l
          LEFT JOIN patrimoine_entite e ON e.id = l.entite_id
-         LEFT JOIN LATERAL (   -- entité supprimée : nom/famille récupérés dans sa ligne de suppression
-           SELECT s.avant->>'nom' AS nom, s.avant->>'famille' AS famille
+         LEFT JOIN LATERAL (   -- entité supprimée : id/nom/famille récupérés dans sa ligne de suppression
+           SELECT s.id AS id, s.avant->>'nom' AS nom, s.avant->>'famille' AS famille
              FROM curation_patrimoine_log s
             WHERE s.entite_id = l.entite_id AND s.action = 'suppression_entite_manuelle'
             ORDER BY s.id DESC LIMIT 1
          ) sup ON e.id IS NULL
-        WHERE ($1 = 'toutes' OR COALESCE(e.famille, sup.famille) = $1)
+        -- Branche « manuel » = PROVENANCE (axe orthogonal à la famille), pas une comparaison sur $1=famille :
+        -- origine manuelle explicite (e.meta->>'origine'='manuel') OU entité supprimée (sup.id IS NOT NULL).
+        -- sup.id IS NOT NULL ⇒ entrée manuelle : SEULES les entités d'origine manuelle peuvent être
+        -- supprimées (garde entites/[id]/route.ts:41). Si cette garde s'élargit un jour, cette branche
+        -- deviendrait fausse (des entités non-manuelles supprimées remonteraient sous « Manuel »).
+        WHERE ($1 = 'toutes'
+               OR ($1 = 'manuel' AND (e.meta->>'origine' = 'manuel' OR sup.id IS NOT NULL))
+               OR ($1 <> 'manuel' AND COALESCE(e.famille, sup.famille) = $1))
         ORDER BY l.id ${direction}
         LIMIT $2 OFFSET $3`,
       [famille, limit, offset],
