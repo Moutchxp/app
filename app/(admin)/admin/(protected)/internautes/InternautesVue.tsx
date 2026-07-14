@@ -303,6 +303,11 @@ export function InternautesVue() {
   const [communesRef, setCommunesRef] = useState<CommuneRef[]>([]);
   // Popover d'aide « i » (légende F1/F2/F3) : une seule ouverture à la fois, fermée au clic ailleurs / re-clic.
   const [infoOuvert, setInfoOuvert] = useState(false);
+  // COMPTEUR LIVE : MÊMES critères que l'export CSV — SOURCE `statuts` + filtres secondaires, `q` ignoré. Suit `filtres`
+  // ÉDITÉS (prévisualisation) → il COÏNCIDE avec « Exporter (CSV) » (qui lit `applique`) UNE FOIS « Filtrer » cliqué, pas
+  // avant. `null` = indisponible (erreur réseau). Débouncé ; court-circuit à 0 si statuts vides (aucun appel serveur).
+  const [compte, setCompte] = useState<number | null>(null);
+  const [compteChargement, setCompteChargement] = useState(false);
 
   useEffect(() => {
     let annule = false;
@@ -363,6 +368,36 @@ export function InternautesVue() {
       annule = true;
     };
   }, [applique, page, statutsMiroir, qDebounced]);
+
+  // COMPTEUR LIVE : recompte à chaque changement de statuts SOURCE ou de filtres secondaires (live), débounce 300 ms.
+  // OPTION 1 (Arno) : mêmes critères que l'export CSV — statuts SOURCE + `filtres` secondaires, `q` NON transmis (ignoré).
+  // NB : le compteur suit `filtres` (live) et non `applique` → il ne coïncide avec « Exporter (CSV) » qu'après « Filtrer ».
+  // FAIL-CLOSED : statuts vide → 0 SANS appel serveur (écho du court-circuit repo). TOUS les setState sont DIFFÉRÉS dans
+  // le timer (jamais synchrones dans le corps de l'effet) ; garde `annule` anti-course. `versParams` n'ajoute jamais `q`.
+  useEffect(() => {
+    let annule = false;
+    const t = setTimeout(async () => {
+      if (statuts.size === 0) {
+        if (!annule) { setCompte(0); setCompteChargement(false); }
+        return;
+      }
+      if (!annule) setCompteChargement(true);
+      try {
+        const p = versParams(filtres);
+        p.set('statuts', [...statuts].join(',')); // source ; le serveur re-normalise (ordre indifférent)
+        const res = await fetch(`/api/admin/internautes/compte?${p.toString()}`);
+        if (annule) return;
+        if (!res.ok) { setCompte(null); return; }
+        const data = await res.json();
+        if (!annule) setCompte(Number(data.total) || 0);
+      } catch {
+        if (!annule) setCompte(null);
+      } finally {
+        if (!annule) setCompteChargement(false);
+      }
+    }, 300);
+    return () => { annule = true; clearTimeout(t); };
+  }, [filtres, statuts]);
 
   const filtrer = () => {
     setPage(1);
@@ -506,6 +541,7 @@ export function InternautesVue() {
       {detailChargement && <div style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
       {detail && (
         <FicheDetail
+          key={detailId ?? undefined} /* remonte à zéro les dépliages « Voir » (Set local) au changement d'internaute */
           detail={detail}
           actionsProjet={(p) => <BoutonTestProjet projet={p} />}
           actions={
@@ -727,12 +763,29 @@ export function InternautesVue() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', gridColumn: '1 / -1', flexWrap: 'wrap' }}>
           <button type="button" style={btnRouge} onClick={filtrer}>Filtrer</button>
           <button type="button" style={btnOutline} onClick={reinitialiser}>Réinitialiser</button>
+          {/* COMPTEUR LIVE (== export CSV) CENTRÉ : `margin:'0 auto'` absorbe l'espace libre des DEUX côtés → centré entre
+              « Réinitialiser » (gauche) et les exports (droite). aria-live pour annoncer la mise à jour. Statuts vide →
+              0 (fail-closed) ; sinon « Comptage… » pendant le fetch, puis le nombre (ou « — » si réseau indisponible). */}
+          <div
+            aria-live="polite"
+            style={{ margin: '0 auto', display: 'inline-flex', alignItems: 'center', fontSize: '.85rem', fontWeight: 700, color: 'var(--color-svv-ink)' }}
+          >
+            {aucunStatut ? (
+              <span style={{ color: 'var(--color-svv-muted)' }}>0 internaute extractible</span>
+            ) : compteChargement ? (
+              <span style={{ color: 'var(--color-svv-muted)' }}>Comptage…</span>
+            ) : compte == null ? (
+              <span style={{ color: 'var(--color-svv-muted)' }}>—</span>
+            ) : (
+              <span>{compte} internaute{compte > 1 ? 's' : ''} extractible{compte > 1 ? 's' : ''}</span>
+            )}
+          </div>
           {/* Exports DÉSACTIVÉS si aucun statut coché (garde CONFORT ; le serveur reste fail-closed via `lireStatuts`).
               « Exporter (CSV) » = statuts cochés + filtres appliqués ; « Exporter toute la base » = statuts SEULS (filtres
-              vides) — mais TOUJOURS borné par les statuts. `marginLeft:auto` pousse les exports à droite (le « i » a migré
-              dans le bloc de sélection des statuts). Un `<a>` sans href n'est ni cliquable ni focusable → désactivation sûre. */}
+              vides) — mais TOUJOURS borné par les statuts. Le centrage du compteur (margin:auto) pousse déjà les exports
+              à droite. Un `<a>` sans href n'est ni cliquable ni focusable → désactivation sûre. */}
           <a
-            style={{ ...btnOutline, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', textDecoration: 'none', ...(aucunStatut ? { opacity: 0.5, pointerEvents: 'none' } : {}) }}
+            style={{ ...btnOutline, display: 'inline-flex', alignItems: 'center', textDecoration: 'none', ...(aucunStatut ? { opacity: 0.5, pointerEvents: 'none' } : {}) }}
             aria-disabled={aucunStatut}
             href={aucunStatut ? undefined : hrefExport(applique)}
           >
@@ -881,6 +934,95 @@ const dateHeureFr = (v: unknown) => {
 const verdictFr = (v: unknown) =>
   v === 'SANS_VIS_A_VIS' ? 'Sans vis-à-vis' : v === 'VIS_A_VIS' ? 'Vis-à-vis' : v === 'INDETERMINE' ? 'Indéterminé' : '—';
 
+/** Libellés FR des clés du payload de projet (tunnel). Une clé inconnue est affichée telle quelle → rien n'est masqué. */
+const LABEL_PAYLOAD: Record<string, string> = {
+  typeBien: 'Type de bien',
+  surface: 'Surface (m²)',
+  nbPieces: 'Nombre de pièces',
+  epoque: 'Époque de construction',
+  balcon: 'Balcon',
+  terrasse: 'Terrasse',
+  jardin: 'Jardin',
+  adresseResidence: 'Adresse de résidence principale',
+};
+const labelPayload = (k: string) => LABEL_PAYLOAD[k] ?? k;
+
+/** Ligne label/valeur générique (lecture seule). Booléen → Oui/Non ; vide/nul → « — ». */
+function Champ({ label, valeur }: { label: string; valeur: unknown }) {
+  const txt =
+    valeur === null || valeur === undefined || valeur === ''
+      ? '—'
+      : typeof valeur === 'boolean'
+        ? valeur ? 'Oui' : 'Non'
+        : String(valeur);
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+      <span style={{ color: 'var(--color-svv-muted)' }}>{label}</span>
+      <span style={{ color: 'var(--color-svv-ink)', textAlign: 'right', wordBreak: 'break-word' }}>{txt}</span>
+    </div>
+  );
+}
+
+/**
+ * Dépliage « Voir » d'une analyse : réaffiche l'INTÉGRALITÉ des données de `p` (bien + grandeurs de visée + résultat),
+ * reconstituées depuis l'objet déjà chargé (AUCUNE requête). Rendu identique à l'ancien affichage (avant lignes
+ * compactes du LOT B3) : groupes « Le bien » et « Verdict et score », labels FR, valeurs formatées, rien masqué.
+ * Numeric pg (`score`/`azimut`/hauteurs) = chaîne → `Number()` à l'AFFICHAGE (valeur stockée brute inchangée) ;
+ * lat/lon en précision complète (jamais arrondis). Fond distinct (`svv-field`) pour lire le panneau comme « déplié ».
+ */
+function DetailAnalyse({ p }: { p: Record<string, unknown> }) {
+  const payload = (p.payload && typeof p.payload === 'object' ? p.payload : {}) as Record<string, unknown>;
+  const rpOui = p.residence_principale === true;
+  const adresseRp = payload.adresseResidence;
+  const norm = p.adresse_normalisee == null ? '' : String(p.adresse_normalisee);
+  const saisie = p.adresse_saisie == null ? '' : String(p.adresse_saisie);
+  const saisieDifferente = saisie.trim() !== '' && saisie !== norm;
+  const CLES_BIEN = new Set(['typeBien', 'surface', 'nbPieces', 'epoque', 'balcon', 'terrasse', 'jardin', 'adresseResidence']);
+  const autres = Object.entries(payload).filter(([k]) => !CLES_BIEN.has(k));
+  const groupe: CSSProperties = { fontWeight: 800, color: 'var(--color-svv-ink)', fontSize: '.78rem', marginTop: 8 };
+  return (
+    <div style={{ border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.85rem', background: 'var(--color-svv-field)' }}>
+      <div style={{ fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>Analyse du {dateHeureFr(p.cree_a)} (tunnel v{String(p.version_tunnel ?? '—')})</div>
+
+      {/* GROUPE 1 — LE BIEN */}
+      <div style={groupe}>Le bien</div>
+      <Champ label="Adresse du bien" valeur={norm || '—'} />
+      {saisieDifferente && <Champ label="Adresse saisie" valeur={saisie} />}
+      <Champ label="Type de bien" valeur={payload.typeBien} />
+      <Champ label="Surface (m²)" valeur={payload.surface} />
+      <Champ label="Nombre de pièces" valeur={payload.nbPieces} />
+      <Champ label="Étage" valeur={p.etage} />
+      <Champ label="Dernier étage" valeur={p.dernier_etage} />
+      <Champ label="Époque de construction" valeur={payload.epoque} />
+      <Champ label="Balcon" valeur={payload.balcon} />
+      <Champ label="Terrasse" valeur={payload.terrasse} />
+      <Champ label="Jardin" valeur={payload.jardin} />
+      <Champ label="Résidence principale" valeur={p.residence_principale} />
+      {rpOui ? (
+        <Champ label="Adresse de résidence" valeur="Le bien analysé est la résidence principale" />
+      ) : adresseRp != null && String(adresseRp).trim() !== '' ? (
+        <Champ label="Adresse de résidence principale" valeur={adresseRp} />
+      ) : null}
+      {autres.map(([k, v]) => (
+        <Champ key={k} label={labelPayload(k)} valeur={v} />
+      ))}
+
+      {/* GROUPE 2 — VERDICT & SCORE (résultat + déterminants géométriques présents). */}
+      <div style={groupe}>Verdict et score</div>
+      <Champ label="Verdict" valeur={verdictFr(p.verdict)} />
+      <Champ label="Score /100" valeur={p.score == null ? null : Number(p.score).toFixed(2)} />
+      <Champ label="Point d’origine — latitude" valeur={p.lat} />
+      <Champ label="Point d’origine — longitude" valeur={p.lon} />
+      <Champ label="Commune (INSEE)" valeur={p.commune_insee} />
+      {/* Grandeurs de visée (migration 026). Dossiers ANCIENS = colonnes NULL → « — ». numeric pg → Number() à l'affichage
+          (valeur stockée brute inchangée) ; lat/lon en précision complète (jamais arrondis). */}
+      <Champ label="Azimut de l’axe" valeur={p.azimut_deg == null ? null : `${Number(p.azimut_deg).toFixed(2)}°`} />
+      <Champ label="Hauteur sous plafond" valeur={p.hauteur_sous_plafond_m == null ? null : `${Number(p.hauteur_sous_plafond_m).toFixed(2)} m`} />
+      <Champ label="Hauteur de vision" valeur={p.hauteur_vision_m == null ? null : `${Number(p.hauteur_vision_m).toFixed(2)} m`} />
+    </div>
+  );
+}
+
 /**
  * Bouton « Tester dans le banc » (LOT B) rendu PAR ANALYSE. Transporte les grandeurs géométriques de CE projet
  * vers le Banc de test M5 SANS ressaisie et SANS jamais mettre la position dans l'URL : dépôt en sessionStorage
@@ -918,6 +1060,16 @@ function BoutonTestProjet({ projet }: { projet: Record<string, unknown> }) {
  * `actionsProjet` (bouton « Test » par analyse, LOT B) est DISTINCTE : fournie aux DEUX endroits, jamais `actions`.
  */
 function FicheDetail({ detail, actions, actionsProjet }: { detail: Detail; actions?: ReactNode; actionsProjet?: (projet: Record<string, unknown>) => ReactNode }) {
+  // Dépliages « Voir » MULTIPLES (plusieurs analyses ouvertes simultanément) — clé = id d'analyse (repli sur l'index).
+  // État LOCAL à la fiche : remonté à zéro quand FicheDetail remonte (changement d'internaute) → pas de fuite entre profils.
+  const [analysesOuvertes, setAnalysesOuvertes] = useState<Set<string>>(() => new Set());
+  const basculerAnalyse = (cle: string) =>
+    setAnalysesOuvertes((prev) => {
+      const next = new Set(prev);
+      if (next.has(cle)) next.delete(cle);
+      else next.add(cle);
+      return next;
+    });
   const i = detail.internaute;
   const prenom = i.prenom ? String(i.prenom) : '';
   const nom = i.nom ? String(i.nom) : '';
@@ -985,18 +1137,36 @@ function FicheDetail({ detail, actions, actionsProjet }: { detail: Detail; actio
             // Libellé produit DÉRIVÉ du /100 : seuils CANONIQUES (config.SCORE_LABEL_*) + mapper partagé (libelleScore) —
             // jamais re-codés ici (cohérence stricte avec l'enum du moteur). < 60 → pas de libellé, note nue.
             const lib = note == null ? null : libelleScore(note >= SCORE_LABEL_EXCEPTIONNELLE_MIN ? 'EXCEPTIONNELLE' : note >= SCORE_LABEL_EXCELLENTE_MIN ? 'EXCELLENTE' : null);
+            const cle = String(p.id ?? idx); // id d'analyse (stable) ; repli sur l'index
+            const ouvert = analysesOuvertes.has(cle);
             return (
-              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: '6px 10px' }}>
-                <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)', fontSize: '.85rem' }}>{verdictFr(p.verdict)}</span>
-                <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
-                <span style={{ color: 'var(--color-svv-ink)', fontSize: '.85rem', fontVariantNumeric: 'tabular-nums' }}>
-                  {note == null ? '—' : `${Math.round(note)}/100`}{lib ? ` · ${lib}` : ''}
-                </span>
-                <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
-                <span style={{ color: 'var(--color-svv-muted)', fontSize: '.78rem' }}>{dateHeureFr(p.cree_a)}</span>
-                {/* Bouton Test À DROITE (marginLeft:auto). Rendu SEULEMENT si `actionsProjet` fournie (les 2 fiches la
-                    fournissent, jamais `actions` côté Vérification). Rejoue CETTE analyse (`p`), jamais « la dernière ». */}
-                {actionsProjet ? <div style={{ marginLeft: 'auto' }}>{actionsProjet(p)}</div> : null}
+              // Analyse = ligne compacte + (si dépliée) son détail JUSTE SOUS, DANS le conteneur scrollable → le plafond
+              // 5 lignes ne change pas, le scroll absorbe. Plusieurs analyses peuvent être dépliées simultanément.
+              <div key={cle} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: '6px 10px' }}>
+                  <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)', fontSize: '.85rem' }}>{verdictFr(p.verdict)}</span>
+                  <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
+                  <span style={{ color: 'var(--color-svv-ink)', fontSize: '.85rem', fontVariantNumeric: 'tabular-nums' }}>
+                    {note == null ? '—' : `${Math.round(note)}/100`}{lib ? ` · ${lib}` : ''}
+                  </span>
+                  <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
+                  <span style={{ color: 'var(--color-svv-muted)', fontSize: '.78rem' }}>{dateHeureFr(p.cree_a)}</span>
+                  {/* Actions À DROITE (marginLeft:auto) : « Voir » (déplie CETTE analyse) À GAUCHE de « Tester ». Le bouton
+                      Test (`actionsProjet`) rejoue CETTE analyse (`p`) et n'est fourni QUE si `actionsProjet` est passée
+                      (les 2 fiches la fournissent, jamais `actions` côté Vérification). « Voir » est toujours présent. */}
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => basculerAnalyse(cle)}
+                      aria-expanded={ouvert}
+                      style={{ ...btnOutline, minHeight: 44 }}
+                    >
+                      {ouvert ? 'Masquer' : 'Voir'}
+                    </button>
+                    {actionsProjet ? actionsProjet(p) : null}
+                  </div>
+                </div>
+                {ouvert ? <DetailAnalyse p={p} /> : null}
               </div>
             );
           })}
@@ -1120,7 +1290,7 @@ function PanneauVerification() {
                     {detailChargement && <div style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
                     {/* Vérification = LECTURE SEULE : on fournit `actionsProjet` (bouton Test) mais JAMAIS `actions`
                         (Rectifier/Effacer) → aucune action destructive ne fuite dans le panneau de contrôle. */}
-                    {detail && <FicheDetail detail={detail} actionsProjet={(p) => <BoutonTestProjet projet={p} />} />}
+                    {detail && <FicheDetail key={ouvert ?? undefined} detail={detail} actionsProjet={(p) => <BoutonTestProjet projet={p} />} />}
                   </div>
                 )}
               </div>

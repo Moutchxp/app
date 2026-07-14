@@ -80,6 +80,23 @@ export async function lireProfilsExport(filtres: FiltresExtraction, statuts: rea
 }
 
 /**
+ * COMPTE des profils de l'INTERSECTION des statuts ∩ filtres — pour le compteur LIVE « == ce que l'export sortira ».
+ * Réutilise EXACTEMENT les MÊMES builders que la liste/l'export (`clauseStatuts` + `construireFiltres`) → le nombre
+ * renvoyé est identique à ce que `lireProfilsExport(filtres, statuts)` produirait (mêmes FROM/WHERE, mêmes params).
+ * GARDE FAIL-CLOSED (même patron que les 3 lectures) : `statuts` vide (après normalisation) → `0` SANS requête ;
+ * défense en profondeur = le `WHERE false` de `clauseStatuts([])`. JAMAIS de `FROM internaute` brut. Lecture seule.
+ */
+export async function compterProfils(filtres: FiltresExtraction, statuts: readonly CleFinalite[]): Promise<number> {
+  if (normaliserStatuts(statuts).length === 0) return 0; // fail-closed : aucune requête sans contrainte de finalité
+  const { clauses, params } = construireFiltres(filtres);
+  const r = await query<{ n: string }>(
+    `SELECT count(*)::text AS n ${clauseStatuts(statuts)}${clauseWhere(clauses)}`,
+    params,
+  );
+  return Number(r.rows[0]?.n ?? 0);
+}
+
+/**
  * Bornes de dates de création de la base, pour le bouton « depuis toujours » : MIN/MAX `cree_a` sur `internaute`
  * NON effacés (`efface_a IS NULL`, cohérent avec l'extraction). Étendue TEMPORELLE de la base, indépendante des
  * filtres — sert seulement à pré-remplir les champs de dates côté UI. `to_char` → 'YYYY-MM-DD' directement
