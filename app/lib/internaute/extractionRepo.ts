@@ -149,7 +149,7 @@ export async function lireProfilComplet(id: string): Promise<{
   consentements: Record<string, unknown>[];
 } | null> {
   const pers = await query(
-    `SELECT id, prenom, nom, email, telephone, source_collecte, opposition_recontact, cree_a, maj_a, efface_a
+    `SELECT id, prenom, nom, email, telephone, source_collecte, opposition_recontact, parcours, cree_a, maj_a, efface_a
      FROM internaute WHERE id = $1`,
     [id],
   );

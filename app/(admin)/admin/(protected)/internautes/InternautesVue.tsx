@@ -1074,6 +1074,9 @@ function FicheDetail({ detail, actions, actionsProjet }: { detail: Detail; actio
   const prenom = i.prenom ? String(i.prenom) : '';
   const nom = i.nom ? String(i.nom) : '';
   const aIdentite = prenom.trim() !== '' || nom.trim() !== '';
+  // Code couleur des coordonnées (migration 028) : complet = confirmé à l'Écran B (fiable) ; incomplet = Écran A seul.
+  const parcoursComplet = i.parcours === 'complet';
+  const couleurCoord = parcoursComplet ? 'var(--color-svv-green)' : 'var(--color-svv-red)';
   const sousTitre: CSSProperties = { fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: '.85rem' }}>
@@ -1094,14 +1097,16 @@ function FicheDetail({ detail, actions, actionsProjet }: { detail: Detail; actio
         {/* Respiration : une ligne vide entre le nom/prénom et les contacts. */}
         <div aria-hidden style={{ height: 10 }} />
         {/* Contacts : label lisible + valeur. Téléphone REFORMATÉ national pour l'affichage (donnée stockée = E.164,
-            inchangée). Police > .85rem d'origine pour la lisibilité, mais STRICTEMENT < 1.25rem du nom. */}
-        <div style={{ fontSize: '.95rem', color: 'var(--color-svv-ink)', wordBreak: 'break-word' }}>
+            inchangée). Police > .85rem d'origine pour la lisibilité, mais STRICTEMENT < 1.25rem du nom.
+            CODE COULEUR PARCOURS (admin seulement) : VERT si `parcours='complet'` (validé à l'Écran B → coordonnées
+            confirmées, fiables), ROUGE si 'incomplet' (Écran A seul → jamais confirmées, potentiellement fausses). */}
+        <div style={{ fontSize: '.95rem', wordBreak: 'break-word' }} title={parcoursComplet ? 'Coordonnées confirmées à l’écran B (parcours complet)' : 'Coordonnées non confirmées — écran A seul (parcours incomplet)'}>
           <span style={{ fontWeight: 600, color: 'var(--color-svv-muted)' }}>Téléphone : </span>
-          {i.telephone ? formaterTelephone(String(i.telephone)) : '—'}
+          <span style={{ color: couleurCoord, fontWeight: 700 }}>{i.telephone ? formaterTelephone(String(i.telephone)) : '—'}</span>
         </div>
-        <div style={{ fontSize: '.95rem', color: 'var(--color-svv-ink)', wordBreak: 'break-word' }}>
+        <div style={{ fontSize: '.95rem', wordBreak: 'break-word' }} title={parcoursComplet ? 'Coordonnées confirmées à l’écran B (parcours complet)' : 'Coordonnées non confirmées — écran A seul (parcours incomplet)'}>
           <span style={{ fontWeight: 600, color: 'var(--color-svv-muted)' }}>Email : </span>
-          {i.email ? String(i.email) : '—'}
+          <span style={{ color: couleurCoord, fontWeight: 700 }}>{i.email ? String(i.email) : '—'}</span>
         </div>
         <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', marginTop: 6 }}>
           Créé le {dateHeureFr(i.cree_a)}{i.source_collecte ? ` · Source : ${String(i.source_collecte)}` : ''}

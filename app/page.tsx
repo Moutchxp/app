@@ -786,11 +786,11 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // (email pré-existant, ou pas de F1, ou échec) → lecture seule. emailInitial/telInitial : valeurs au moment du POST,
   // pour ne PATCHer que si l'internaute a réellement corrigé quelque chose.
   const [jetonRectif, setJetonRectif] = useState<string | null>(null);
-  const [emailInitial, setEmailInitial] = useState("");
-  const [telInitial, setTelInitial] = useState("");
+  // Un POST a-t-il eu lieu à l'Écran A (au moins un consentement coché) ? Distingue, à l'Écran B, le cas « profil créé
+  // en A » (jeton présent OU email déjà existant sans jeton) du cas « rien créé en A » (→ création possible en B).
+  const [posteEnA, setPosteEnA] = useState(false);
   const [confirme, setConfirme] = useState(false); // clic « Recevoir mon certificat » abouti (état de succès honnête)
   const [envoiRectif, setEnvoiRectif] = useState(false);
-  const [erreurRectif, setErreurRectif] = useState<string | null>(null);
 
   const emailValide = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   // Champs REQUIS manquants/invalides — MÊME règle que l'ancien `estValide` (aucun champ requis ajouté ni retiré),
@@ -814,9 +814,41 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   const enErreur = (cle: string) => tentative && champsManquants.some((m) => m.cle === cle);
   const msgErreur = (cle: string) => champsManquants.find((m) => m.cle === cle)?.msg ?? "";
 
-  // Soumission (LOT 2). NON-COUPLAGE : le certificat s'obtient SANS consentement. Sans AUCUN consentement, AUCUNE
+  // Corps d'ingestion/complétion (identité + consentements COCHÉS + projet), construit depuis l'état COURANT. Réutilisé
+  // par la soumission de l'Écran A ET la complétion de l'Écran B (où email/tél/F2 ont pu changer → les valeurs de B font
+  // foi). `azimut` = entrée validée (peut être null) ; hauteur de vision = snapshot dérivé de la formule moteur (revérifié
+  // serveur). Valeurs BRUTES, aucun arrondi.
+  const construireCorps = () => ({
+    identite: { prenom: prenom.trim(), nom: nom.trim(), email: email.trim(), telephone: telephone || null },
+    consentements: finalitesActivesTunnel()
+      .filter((t) => consentements[t.finalite])
+      .map((t) => ({ finalite: t.finalite, version: t.version })),
+    projet: {
+      versionTunnel: 1,
+      payload: {
+        typeBien, surface, nbPieces, epoque, terrasse, balcon, jardin,
+        adresseResidence: bienEstResidence === false ? residenceAdresse.trim() : null,
+      },
+      verdict,
+      score,
+      etage: etageInitial,
+      dernierEtage,
+      residencePrincipale: bienEstResidence,
+      communeInsee,
+      lat,
+      lon,
+      adresseSaisie: adresseBien,
+      adresseNormalisee: adresseChoisie,
+      azimutDeg: azimut,
+      hauteurSousPlafondM: hauteurSousPlafond,
+      hauteurVisionM: hauteurVision(etageInitial, hauteurSousPlafond),
+    },
+  });
+
+  // Soumission Écran A (LOT 2). NON-COUPLAGE : le certificat s'obtient SANS consentement. Sans AUCUN consentement, AUCUNE
   // donnée nominative n'est envoyée (minimisation) → on affiche juste la confirmation. Avec AU MOINS UN consentement,
-  // on POSTe le profil à /api/internaute. L'ingestion NE BLOQUE JAMAIS le flux : la confirmation s'affiche quoi qu'il arrive.
+  // on POSTe le profil à /api/internaute (statut 'incomplet' — les coordonnées seront confirmées à l'Écran B). L'ingestion
+  // NE BLOQUE JAMAIS le flux : la confirmation s'affiche quoi qu'il arrive.
   const soumettre = async () => {
     // PORTE DE CRÉATION élargie (miroir front de `auMoinsUnConsentement`) : au moins UNE case active cochée. Sinon
     // → certificat délivré, AUCUN profil créé (minimisation). Seules les finalités ACTIVES au tunnel sont cochables.
@@ -825,40 +857,10 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       setSoumis(true);
       return;
     }
-    const consentementsAcceptes = finalitesActivesTunnel()
-      .filter((t) => consentements[t.finalite])
-      .map((t) => ({ finalite: t.finalite, version: t.version }));
-    const corps = {
-      identite: { prenom: prenom.trim(), nom: nom.trim(), email: email.trim(), telephone: telephone || null },
-      consentements: consentementsAcceptes,
-      projet: {
-        versionTunnel: 1,
-        payload: {
-          typeBien, surface, nbPieces, epoque, terrasse, balcon, jardin,
-          adresseResidence: bienEstResidence === false ? residenceAdresse.trim() : null,
-        },
-        verdict,
-        score,
-        etage: etageInitial,
-        dernierEtage,
-        residencePrincipale: bienEstResidence,
-        communeInsee,
-        lat,
-        lon,
-        adresseSaisie: adresseBien,
-        adresseNormalisee: adresseChoisie,
-        // Grandeurs de visée (LOT 2 — persistance preuve). Valeurs BRUTES, aucun arrondi. azimut = entrée validée
-        // (peut être null si non capté) ; hauteur de vision = snapshot dérivé de la formule moteur (revérifié serveur).
-        azimutDeg: azimut,
-        hauteurSousPlafondM: hauteurSousPlafond,
-        hauteurVisionM: hauteurVision(etageInitial, hauteurSousPlafond),
-      },
-    };
+    const corps = construireCorps();
+    setPosteEnA(true); // un POST a lieu à l'Écran A → profil créé (statut 'incomplet') si l'email est neuf
     setEnvoi(true);
     setErreurEnvoi(null);
-    // Valeurs de référence pour détecter une correction ultérieure sur l'écran de vérification.
-    setEmailInitial(email.trim());
-    setTelInitial(telephone || "");
     try {
       const res = await fetch("/api/internaute", {
         method: "POST",
@@ -880,44 +882,34 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     }
   };
 
-  // Rectification publique des coordonnées depuis l'écran de vérification. N'écrit QUE si l'internaute a corrigé
-  // email/téléphone ET qu'un jeton a été délivré ; sinon confirme sans écriture. AUCUN envoi email (LOT 6 absent).
+  // Validation Écran B : COMPLÉTION du parcours (statut 'complet' + coordonnées de B qui FONT FOI + F2). UPSERT côté
+  // serveur (/api/internaute/completion) :
+  //  - jeton présent (profil créé en A) → COMPLÈTE (MAJ coords + parcours + réconciliation F2 append-only) ;
+  //  - rien posté en A (pas de profil) → CRÉE si au moins un consentement coché en B (trou RGPD F2-seul FERMÉ) ;
+  //  - posté en A mais SANS jeton (email déjà existant, réutilisé) → pas de capacité de complétion : certificat seul
+  //    (on n'appelle PAS le serveur → aucune création en double du projet). Documenté.
+  // NON-COUPLAGE : le certificat est délivré ; cocher F2 n'est pas requis. AUCUN envoi email (LOT 6 absent).
   const recevoirCertificat = async () => {
-    setErreurRectif(null);
-    const emailModifie = email.trim() !== emailInitial;
-    const telModifie = (telephone || "") !== telInitial;
-    if (jetonRectif && (emailModifie || telModifie)) {
-      const patch: { jeton: string; email?: string; telephone?: string | null } = { jeton: jetonRectif };
-      if (emailModifie) patch.email = email.trim();
-      if (telModifie) patch.telephone = telephone.trim() === "" ? null : telephone.trim();
+    const doitAppeler = jetonRectif !== null || !posteEnA;
+    if (doitAppeler) {
+      const corps = construireCorps();
+      const body = jetonRectif !== null ? { jeton: jetonRectif, ...corps } : corps;
       setEnvoiRectif(true);
+      // NON-COUPLAGE (comme l'Écran A) : le certificat est délivré QUOI QU'IL ARRIVE. Un échec d'enregistrement des
+      // coordonnées/consentements (jeton expiré, 503, réseau) NE BLOQUE PAS le certificat (best-effort, non bloquant).
       try {
-        const res = await fetch("/api/internaute/rectification", {
-          method: "PATCH",
+        await fetch("/api/internaute/completion", {
+          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
+          body: JSON.stringify(body),
         });
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          setErreurRectif(
-            res.status === 409
-              ? "Cet email est déjà utilisé. Vérifiez votre adresse."
-              : data?.erreurs?.[0] ?? "La correction n'a pas pu être enregistrée. Réessayez.",
-          );
-          setEnvoiRectif(false);
-          return;
-        }
-        // Correction acceptée → ces valeurs deviennent la nouvelle référence.
-        setEmailInitial(email.trim());
-        setTelInitial(telephone || "");
       } catch {
-        setErreurRectif("La correction n'a pas pu être enregistrée. Réessayez.");
+        /* réseau indisponible : non bloquant ; le certificat reste dû */
+      } finally {
         setEnvoiRectif(false);
-        return;
       }
-      setEnvoiRectif(false);
     }
-    setConfirme(true);
+    setConfirme(true); // certificat délivré quoi qu'il arrive
   };
 
   // Handler téléphone PARTAGÉ (formulaire + écran de vérification) : normalise en E.164. Extrait pour être réutilisé
@@ -1110,9 +1102,27 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
           <div className="w-full rounded-xl border border-svv-line bg-svv-field p-3 text-base text-svv-ink break-words">{telephone || "—"}</div>
         )}
 
-        {erreurRectif && (
-          <p className="mt-3 rounded-xl bg-svv-field p-4 text-sm font-semibold text-svv-red">{erreurRectif}</p>
-        )}
+        {/* CONSENTEMENT F2 (Écran B) — « Votre accord pour l'envoi de mails », ENTRE le téléphone et le bouton. Case
+            DÉCOCHÉE par défaut, RE-MONTRE l'état déjà choisi à l'Écran A (état PARTAGÉ ; l'internaute garde la maîtrise,
+            peut décocher). Titre + libellé + mention issus du CATALOGUE VERSIONNÉ, jamais en dur. Non-couplage : cocher
+            F2 n'est PAS requis pour le certificat (règle scellée « au moins un consentement » gérée à la validation). */}
+        {finalitesActivesTunnel()
+          .filter((t) => t.finalite === "email_marketing")
+          .map((t) => (
+            <div key={t.finalite} className="mt-6 rounded-2xl bg-svv-field p-5">
+              {t.titre && <h2 className="mb-3 text-lg font-bold text-svv-ink">{t.titre}</h2>}
+              <label className="flex min-h-11 cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={consentements[t.finalite]}
+                  onChange={(e) => setConsentements((c) => ({ ...c, [t.finalite]: e.target.checked }))}
+                  className="mt-1 h-5 w-5 shrink-0 accent-svv-red focus:outline-none focus-visible:ring-2 focus-visible:ring-svv-red"
+                />
+                <span className="text-sm text-svv-ink">{t.libelleCase}</span>
+              </label>
+              <p className="mt-3 rounded-xl border border-svv-line bg-white p-3 text-sm text-svv-ink">{t.contenu}</p>
+            </div>
+          ))}
 
         <button
           type="button"

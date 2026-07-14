@@ -13,6 +13,8 @@ import 'server-only';
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import type { ChampsRectification } from './rectification';
+import { assurerTexteConsentement, insererConsentement } from './socle';
+import { texteCourant, type CleFinalite } from './textesConsentement';
 
 /** Levée si la rectification d'email heurte l'unicité applicative (`lower(email)`). */
 export class ErreurEmailDuplique extends Error {
@@ -110,6 +112,73 @@ export async function rectifierInternaute(
       // Journal SANS PII : on trace QUELS champs ont changé, jamais leurs valeurs.
       await journaliserCycleVie(q, auteurId, 'rectification', id, { champs: Object.keys(champs) });
       return { rectifie: true };
+    });
+  } catch (e) {
+    if (estCode(e, '23505')) throw new ErreurEmailDuplique();
+    throw e;
+  }
+}
+
+/** Consentement souhaité à l'Écran B (case cochée), par finalité + version du texte affiché (catalogue). */
+export interface SouhaitConsentement {
+  finalite: CleFinalite;
+  version: number;
+}
+
+/**
+ * COMPLÉTION DU PARCOURS (Écran B) sur un profil EXISTANT (créé à l'Écran A). UNE transaction :
+ *  1. UPDATE identité (email/tél — les coordonnées de B FONT FOI) + `parcours='complet'` + `maj_a`, profil non
+ *     effacé (`efface_a IS NULL`) — whitelist STRICTE `COLONNES_RECTIFIABLES` pour les coordonnées ;
+ *  2. RÉCONCILIATION des consentements du `scope` (finalités PRÉSENTÉES à l'Écran B, aujourd'hui F2 seulement), APPEND-ONLY :
+ *     coché & inactif → nouvelle ligne 'accorde' ; décoché & actif → nouvelle ligne 'retire' (l'internaute peut décocher
+ *     F2 en B) ; inchangé → RIEN. JAMAIS d'UPDATE d'une preuve. Les finalités HORS `scope` (ex. F1, décidé à l'Écran A)
+ *     ne sont JAMAIS touchées ici → aucun retrait accidentel si un futur client omettait F1 du corps ;
+ *  3. journal 'rectification' (champs changés + `parcours`), SANS valeurs.
+ * Le consentement reste rattaché à l'UUID STABLE : changer la coordonnée n'altère aucune preuve. `{ complete:false }`
+ * si l'id n'existe pas / est effacé. Lève `ErreurEmailDuplique` sur collision d'email (unicité applicative).
+ */
+export async function completerParcours(
+  id: string,
+  coords: ChampsRectification,
+  souhaites: SouhaitConsentement[],
+  scope: readonly CleFinalite[],
+  auteurId: number | null,
+): Promise<{ complete: boolean }> {
+  const sets: string[] = ["parcours = 'complet'", 'maj_a = now()'];
+  const params: unknown[] = [id];
+  for (const [cle, valeur] of Object.entries(coords)) {
+    const colonne = COLONNES_RECTIFIABLES[cle as keyof ChampsRectification];
+    if (!colonne) continue; // whitelist stricte : jamais de nom de colonne dérivé de l'entrée
+    params.push(valeur);
+    sets.push(`${colonne} = $${params.length}`);
+  }
+  try {
+    return await withTransaction(async (q) => {
+      const r = await q<{ id: string }>(
+        `UPDATE internaute SET ${sets.join(', ')} WHERE id = $1 AND efface_a IS NULL RETURNING id`,
+        params,
+      );
+      if (r.rows.length === 0) return { complete: false }; // introuvable ou déjà effacé
+      // RÉCONCILIATION append-only, LIMITÉE au `scope` (finalités de l'Écran B) — jamais d'UPDATE de preuve, jamais F1.
+      const actifs = await q<{ finalite: string; actif: boolean }>(
+        `SELECT finalite, actif FROM internaute_consentement_actif WHERE internaute_id = $1`,
+        [id],
+      );
+      const estActif = new Map(actifs.rows.map((row) => [row.finalite, row.actif === true]));
+      const souhaite = new Map(souhaites.map((s) => [s.finalite, s.version]));
+      for (const finalite of scope) {
+        const veut = souhaite.has(finalite);
+        const actif = estActif.get(finalite) === true;
+        if (veut && !actif) {
+          const texteId = await assurerTexteConsentement(q, finalite, souhaite.get(finalite) ?? texteCourant(finalite)?.version ?? 1);
+          await insererConsentement(q, id, finalite, texteId, 'accorde'); // nouvelle décision
+        } else if (!veut && actif) {
+          const texteId = await assurerTexteConsentement(q, finalite, texteCourant(finalite)?.version ?? 1);
+          await insererConsentement(q, id, finalite, texteId, 'retire'); // retrait (décoché en B)
+        }
+      }
+      await journaliserCycleVie(q, auteurId, 'rectification', id, { champs: Object.keys(coords), parcours: 'complet' });
+      return { complete: true };
     });
   } catch (e) {
     if (estCode(e, '23505')) throw new ErreurEmailDuplique();
