@@ -17,6 +17,35 @@ export interface LigneJournal {
   supprimee: boolean;
   session_jti: string | null; // UUID de session (jamais affiché brut) ; NULL = entrée antérieure au traçage
   session_ouverte_a: string | null; // iat du jeton → base du libellé humain de session ; NULL = idem
+  auteur_prenom: string | null; // prénom du compte auteur (jointure route globale) ; NULL = auteur inconnu
+  auteur_nom: string | null; // nom du compte auteur ; NULL = idem
+  auteur_role: string | null; // rôle ACTUEL du compte auteur ; NULL = idem
+}
+
+/**
+ * Libellés des rôles connus. ÉVOLUTIVITÉ : tout rôle absent de cette table (nouveau rôle ajouté en base
+ * demain) retombe sur un repli générique CAPITALISÉ (`libelleRole`) — jamais de vide, jamais de plantage,
+ * aucune modification de code nécessaire pour l'afficher correctement.
+ */
+const LIBELLE_ROLE: Record<string, string> = {
+  administrateur: 'Administrateur',
+  collaborateur: 'Collaborateur',
+};
+
+/** Libellé d'un rôle : table pour les rôles connus, sinon repli générique = valeur brute capitalisée. */
+function libelleRole(role: string): string {
+  return LIBELLE_ROLE[role] ?? role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+/**
+ * Libellé de l'AUTEUR d'une entrée : « {Rôle} · {Prénom Nom} ». `utilisateur_id` NULL (auteur non joint :
+ * voie de secours / lignes antérieures aux comptes) → « — » : auteur LÉGITIMEMENT inconnu, JAMAIS deviné,
+ * jamais « Administrateur » par défaut. Nom complet = prénom + nom (les deux non-vides garantis en base).
+ */
+export function libelleAuteur(l: { auteur_prenom: string | null; auteur_nom: string | null; auteur_role: string | null }): string {
+  if (!l.auteur_prenom && !l.auteur_nom) return '—';
+  const nom = [l.auteur_prenom, l.auteur_nom].filter(Boolean).join(' ');
+  return l.auteur_role ? `${libelleRole(l.auteur_role)} · ${nom}` : nom;
 }
 
 /** Lit un champ (string/number) d'un jsonb inconnu ; `null` si absent/null. */

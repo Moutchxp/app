@@ -18,6 +18,9 @@ interface LigneJournalDB {
   supprimee: boolean;
   session_jti: string | null; // UUID de session ; NULL = entrée antérieure au traçage
   session_ouverte_a: string | null; // iat du jeton (timestamptz → string pg) ; NULL = idem
+  auteur_prenom: string | null; // prénom du compte auteur (jointure) ; NULL = utilisateur_id NULL (auteur inconnu)
+  auteur_nom: string | null; // nom du compte auteur (jointure) ; NULL = idem
+  auteur_role: string | null; // rôle ACTUEL du compte auteur (jointure) ; NULL = idem
   total?: string;
 }
 
@@ -58,6 +61,7 @@ export async function GET(request: Request) {
               COALESCE(e.nom, sup.nom, 'entité supprimée #' || l.entite_id) AS nom_affiche,
               COALESCE(e.famille, sup.famille, 'inconnue') AS famille_affiche,
               (e.id IS NULL) AS supprimee,
+              u.prenom AS auteur_prenom, u.nom AS auteur_nom, u.role AS auteur_role,
               count(*) OVER() AS total
          FROM curation_patrimoine_log l
          LEFT JOIN patrimoine_entite e ON e.id = l.entite_id
@@ -67,6 +71,12 @@ export async function GET(request: Request) {
             WHERE s.entite_id = l.entite_id AND s.action = 'suppression_entite_manuelle'
             ORDER BY s.id DESC LIMIT 1
          ) sup ON e.id IS NULL
+         -- Auteur : prénom/nom/role viennent d'une JOINTURE sur le compte ACTUEL (l.utilisateur_id), PAS d'un
+         -- snapshot au moment de l'action → un compte promu verra ses actions passées ré-étiquetées avec son
+         -- nouveau rôle. Fidélité d'audit stricte = figer le rôle à l'écriture (non retenu à ce stade).
+         -- LEFT JOIN (jamais INNER) : utilisateur_id NULL (voie de secours / lignes antérieures) reste affiché,
+         -- et la jointure sur la PK id ramène au plus 1 ligne → WHERE, count(*) OVER() et pagination inchangés.
+         LEFT JOIN admin_utilisateur u ON u.id = l.utilisateur_id
         -- Branche « manuel » = PROVENANCE (axe orthogonal à la famille), pas une comparaison sur $1=famille :
         -- origine manuelle explicite (e.meta->>'origine'='manuel') OU entité supprimée (sup.id IS NOT NULL).
         -- sup.id IS NOT NULL ⇒ entrée manuelle : SEULES les entités d'origine manuelle peuvent être
@@ -95,6 +105,9 @@ export async function GET(request: Request) {
       supprimee: r.supprimee,
       session_jti: r.session_jti ?? null,
       session_ouverte_a: r.session_ouverte_a ?? null,
+      auteur_prenom: r.auteur_prenom ?? null,
+      auteur_nom: r.auteur_nom ?? null,
+      auteur_role: r.auteur_role ?? null,
     }));
     return Response.json({ lignes, total, limit, offset, ordre, famille });
   } catch {

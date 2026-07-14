@@ -6,7 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import { estCarteModifiee, modeFooter } from './curationEdition';
 import { contenuBulleBatiment, doitCreerAuDoubleClic } from './bulleBatiment';
 import { EnTetePage } from '../_composants/EnTetePage';
-import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, libelleSession, nomAffiche, type LigneJournal } from './journalRendu';
+import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, libelleSession, libelleAuteur, nomAffiche, type LigneJournal } from './journalRendu';
 
 /** Taille de page du volet global de l'historique (HJ-44). */
 const JOURNAL_LIMIT = 50;
@@ -1896,9 +1896,11 @@ export default function CurationCarte() {
                               {formaterHorodatage(l.ts)}
                             </time>
                           </span>
-                          {/* Session (rattachable : même libellé = même session). Gris discret si inconnue. */}
+                          {/* Ligne 2 : en mode global, « {Rôle} · {Prénom Nom} · {session du …} » (auteur en tête —
+                              « — » si utilisateur_id NULL) ; en mode entité, session seule (patron existant : l'auteur,
+                              comme le nom d'entité, n'est enrichi qu'au volet global). Style muté commun, wrap propre. */}
                           <span className={`svv-cur-journal-session${sess.connue ? '' : ' svv-cur-journal-session--inconnue'}`}>
-                            {sess.texte}
+                            {journal.mode === 'global' ? `${libelleAuteur(l)} · ${sess.texte}` : sess.texte}
                           </span>
                         </li>
                       );

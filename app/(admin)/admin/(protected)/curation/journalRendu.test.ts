@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, nomAffiche, type LigneJournal } from './journalRendu';
+import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, libelleAuteur, nomAffiche, type LigneJournal } from './journalRendu';
 
 function ligne(partial: Partial<LigneJournal>): LigneJournal {
   return {
     id: '1', ts: '2026-07-08T11:24:00Z', action: 'deplacement', entite_id: 5, cleabs: null,
     avant: null, apres: null, nom_affiche: 'X', famille_affiche: 'mh', supprimee: false,
-    session_jti: null, session_ouverte_a: null, ...partial,
+    session_jti: null, session_ouverte_a: null, auteur_prenom: null, auteur_nom: null, auteur_role: null, ...partial,
   };
 }
 
@@ -80,5 +80,23 @@ describe('nomAffiche (volet global)', () => {
   });
   it('fallback « entité supprimée #id » → pas de suffixe redondant', () => {
     expect(nomAffiche({ nom_affiche: 'entité supprimée #42', supprimee: true })).toBe('entité supprimée #42');
+  });
+});
+
+describe('libelleAuteur (volet global) — rôle + nom complet, repli générique, auteur inconnu', () => {
+  it('rôle connu administrateur → « Administrateur · Prénom Nom »', () => {
+    expect(libelleAuteur({ auteur_prenom: 'Arnaud', auteur_nom: 'Jorel', auteur_role: 'administrateur' })).toBe('Administrateur · Arnaud Jorel');
+  });
+  it('rôle connu collaborateur → « Collaborateur · Prénom Nom »', () => {
+    expect(libelleAuteur({ auteur_prenom: 'Léa', auteur_nom: 'Martin', auteur_role: 'collaborateur' })).toBe('Collaborateur · Léa Martin');
+  });
+  it('ÉVOLUTIVITÉ : rôle inconnu « auditeur » → repli générique capitalisé, jamais vide ni plantage', () => {
+    expect(libelleAuteur({ auteur_prenom: 'Sam', auteur_nom: 'Roy', auteur_role: 'auditeur' })).toBe('Auditeur · Sam Roy');
+  });
+  it('utilisateur_id NULL (auteur non joint) → « — », jamais deviné ni « Administrateur » par défaut', () => {
+    expect(libelleAuteur({ auteur_prenom: null, auteur_nom: null, auteur_role: null })).toBe('—');
+  });
+  it('auteur présent mais rôle absent → nom seul, pas de séparateur orphelin', () => {
+    expect(libelleAuteur({ auteur_prenom: 'Sam', auteur_nom: 'Roy', auteur_role: null })).toBe('Sam Roy');
   });
 });
