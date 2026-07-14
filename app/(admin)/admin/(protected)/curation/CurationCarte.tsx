@@ -1114,9 +1114,10 @@ export default function CurationCarte() {
     if (flashId === null) return; // pas de scroll au montage ni au repli
     const node = itemActifRef.current;
     if (!node) return; // entité filtrée hors liste (recherche/filtre) → rien à scroller
-    const reduire = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    // block:'center' → scroll d'ouverture franc, la fiche sélectionnée est centrée dans la colonne.
-    node.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'center', inline: 'nearest' });
+    // TRANSPORT INSTANTANÉ (`behavior:'auto'`) : on arrive d'un coup sur la fiche, sans défilement animé (donc
+    // prefers-reduced-motion sans objet). La surbrillance brève (svv-cur-item--flash) prend le relais du mouvement
+    // pour dire « c'est celle-ci ». block:'center' → la fiche sélectionnée est centrée dans la colonne.
+    node.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
     const t = setTimeout(() => setFlashId(null), 1200); // retire la surbrillance (CSS gère reduce)
     return () => clearTimeout(t);
   }, [flashId]);
