@@ -6,18 +6,19 @@ import 'server-only';
  * ni moteur → cloisonnement M2 respecté. Lecture SEULE des colonnes déjà persistées (LOT 2) — le moteur n'est
  * jamais rappelé (golden intact). La seule écriture est le JOURNAL d'accountability (`internaute_extraction_log`).
  *
- * ⚠️ INVARIANT STRUCTUREL (raison d'être de la vue du LOT 1) : toute lecture exploitable JOINT
- * `internaute_consentement_actif` sur (la finalité-axe, défaut F1 recontact_interne, actif=true) ET exclut les
- * opposés (`opposition_recontact=false`). Un profil sans consentement à l'axe actif N'APPARAÎT JAMAIS. Cet invariant
- * est construit par `clauseFromInvariant` (extraction.ts, pur, paramétré par axe — défaut F1 → ISO-comportement),
- * partagé par le comptage, la liste et l'export.
+ * ⚠️ INVARIANT STRUCTUREL (raison d'être de la vue du LOT 1) : toute lecture exploitable contraint sur
+ * `internaute_consentement_actif` par l'INTERSECTION des statuts cochés (un `EXISTS(finalité active)` par statut, en
+ * AND ; `opposition_recontact=false` ssi F1 ∈ statuts). Un profil sans TOUS les statuts cochés actifs N'APPARAÎT
+ * JAMAIS ; une sélection VIDE ne renvoie RIEN (fail-closed). Cet invariant est construit par `clauseStatuts`
+ * (extraction.ts, pur & testable), partagé par le comptage, la liste et l'export.
  */
 import { query } from '../db/client';
-import { construireFiltres, clauseFromInvariant, AXE_DEFAUT, versCsv, type FiltresExtraction, type LigneProfil } from './extraction';
+import { construireFiltres, clauseStatuts, exprConsentiLe, normaliserStatuts, FINALITE_F1, versCsv, type FiltresExtraction, type LigneProfil } from './extraction';
 import type { CleFinalite } from './textesConsentement';
 
-// L'invariant de consentement (FROM/JOIN paramétré par finalité-axe) est construit par `clauseFromInvariant`
-// (extraction.ts, pur & testable) ; ici on ne fait que l'EXÉCUTER. Défaut = `AXE_DEFAUT` (F1) → ISO-comportement.
+// L'invariant de consentement (FROM/WHERE, INTERSECTION de statuts) est construit par `clauseStatuts` (extraction.ts,
+// pur & testable) ; ici on ne fait que l'EXÉCUTER. GARDE FAIL-CLOSED : une sélection de statuts VIDE renvoie un
+// résultat vide SANS émettre de requête (jamais toute la base). `consenti_le` = `exprConsentiLe(statuts)`.
 
 function clauseWhere(clauses: string[]): string {
   return clauses.length ? ` AND ${clauses.join(' AND ')}` : '';
@@ -34,16 +35,19 @@ function coercerLigne(r: LigneProfil): LigneProfil {
   return { ...r, score: r.score == null ? null : Number(r.score) };
 }
 
-/** Page de profils F1-consentants correspondant aux filtres + total. Lecture seule. */
+/** Page de profils = INTERSECTION des statuts cochés (tous actifs) ∩ filtres, + total. Lecture seule.
+ *  GARDE FAIL-CLOSED : `statuts` vide (après normalisation) → `{ total: 0, lignes: [] }` SANS requête (jamais toute la base). */
 export async function lireProfilsFiltres(
   filtres: FiltresExtraction,
   page: number,
   taille: number,
-  axe: CleFinalite = AXE_DEFAUT,
+  statuts: readonly CleFinalite[],
 ): Promise<{ total: number; lignes: LigneProfil[] }> {
+  if (normaliserStatuts(statuts).length === 0) return { total: 0, lignes: [] };
   const { clauses, params } = construireFiltres(filtres);
   const where = clauseWhere(clauses);
-  const from = clauseFromInvariant(axe);
+  const from = clauseStatuts(statuts);
+  const consenti = exprConsentiLe(statuts);
 
   const total = await query<{ n: string }>(`SELECT count(*)::text AS n ${from}${where}`, params);
 
@@ -51,7 +55,7 @@ export async function lireProfilsFiltres(
   const lignes = await query<LigneProfil>(
     `SELECT i.id, i.prenom, i.nom, i.email, i.telephone, i.cree_a,
             p.verdict, p.score, p.commune_insee, p.dernier_etage, p.residence_principale,
-            ca.horodatage AS consenti_le
+            ${consenti} AS consenti_le
      ${from}${where}
      ORDER BY i.cree_a DESC
      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -60,14 +64,15 @@ export async function lireProfilsFiltres(
   return { total: Number(total.rows[0]?.n ?? 0), lignes: lignes.rows.map(coercerLigne) };
 }
 
-/** Toutes les lignes filtrées (sans pagination) pour l'export CSV — MÊME invariant F1. */
-export async function lireProfilsExport(filtres: FiltresExtraction, axe: CleFinalite = AXE_DEFAUT): Promise<LigneProfil[]> {
+/** Toutes les lignes de l'INTERSECTION des statuts ∩ filtres (sans pagination), pour l'export CSV. Fail-closed si vide. */
+export async function lireProfilsExport(filtres: FiltresExtraction, statuts: readonly CleFinalite[]): Promise<LigneProfil[]> {
+  if (normaliserStatuts(statuts).length === 0) return [];
   const { clauses, params } = construireFiltres(filtres);
   const r = await query<LigneProfil>(
     `SELECT i.id, i.prenom, i.nom, i.email, i.telephone, i.cree_a,
             p.verdict, p.score, p.commune_insee, p.dernier_etage, p.residence_principale,
-            ca.horodatage AS consenti_le
-     ${clauseFromInvariant(axe)}${clauseWhere(clauses)}
+            ${exprConsentiLe(statuts)} AS consenti_le
+     ${clauseStatuts(statuts)}${clauseWhere(clauses)}
      ORDER BY i.cree_a DESC`,
     params,
   );
@@ -96,16 +101,18 @@ const DEPT_NOM: Record<string, string> = {
 };
 
 /**
- * Communes RÉELLEMENT présentes chez les consentants F1 (extraction commerciale nominative — PAS de k-anonymat ici).
- * DYNAMIQUE : `SELECT DISTINCT p.commune_insee` sur le set de l'axe (`clauseFromInvariant`, défaut F1), joint à `adresse_ban` (référentiel
- * géo public BAN/IGN) pour le NOM — lu DIRECTEMENT via `db/client`, JAMAIS via `app/lib/analytics/*` (cloisonnement M2).
- * Aucune liste en dur : un nouveau département/commune entrant en base apparaît automatiquement. Nom absent → INSEE.
- * Département = 2 premiers caractères (IDF) ; libellé via `DEPT_NOM`, sinon le code. Lecture seule.
+ * Communes RÉELLEMENT présentes chez les consentants de l'ENSEMBLE de statuts (extraction commerciale nominative —
+ * PAS de k-anonymat ici). DYNAMIQUE : `SELECT DISTINCT p.commune_insee` sur l'intersection (`clauseStatuts`), joint à
+ * `adresse_ban` (référentiel géo public BAN/IGN) pour le NOM — lu DIRECTEMENT via `db/client`, JAMAIS via
+ * `app/lib/analytics/*` (cloisonnement M2). Défaut `[FINALITE_F1]` (le picker géo interroge F1, comportement
+ * historique ; le câbler sur les statuts cochés est un affinage ultérieur). `statuts` vide → `WHERE false` → aucune
+ * commune. Aucune liste en dur ; nom absent → INSEE. Département = 2 premiers car. (IDF) ; libellé via `DEPT_NOM`.
  */
-export async function lireCommunesPresentes(axe: CleFinalite = AXE_DEFAUT): Promise<{ insee: string; nom: string; dept: string; deptNom: string }[]> {
+export async function lireCommunesPresentes(statuts: readonly CleFinalite[] = [FINALITE_F1]): Promise<{ insee: string; nom: string; dept: string; deptNom: string }[]> {
+  if (normaliserStatuts(statuts).length === 0) return []; // fail-closed explicite (cohérent avec les 3 lectures), doublé du `WHERE false`
   const r = await query<{ insee: string; nom: string | null }>(
     `SELECT c.insee AS insee, MAX(a.nom_commune) AS nom
-       FROM (SELECT DISTINCT p.commune_insee AS insee ${clauseFromInvariant(axe)} AND p.commune_insee IS NOT NULL) c
+       FROM (SELECT DISTINCT p.commune_insee AS insee ${clauseStatuts(statuts)} AND p.commune_insee IS NOT NULL) c
        LEFT JOIN adresse_ban a ON a.insee_commune = c.insee
       GROUP BY c.insee
       ORDER BY 1`,
@@ -155,14 +162,14 @@ export async function lireProfilComplet(id: string): Promise<{
 export async function journaliserExtraction(
   auteurId: number | null,
   action: 'export_csv' | 'acces_profil',
-  details: { filtres?: FiltresExtraction; nbLignes?: number; cibleInternauteId?: string; axe?: string },
+  details: { filtres?: FiltresExtraction; nbLignes?: number; cibleInternauteId?: string; statuts?: string },
 ): Promise<void> {
-  // L'AXE d'export (LOT 2 — quelle population de consentants) est tracé DANS le blob jsonb `filtres` (aucune colonne
-  // dédiée → aucune migration) : l'audit distingue ainsi un export F1 d'un export F2/F3. `filtres`/`axe` absents → NULL
-  // (comportement inchangé pour `acces_profil`, qui n'en passe aucun).
+  // Les STATUTS d'export (quelle intersection de consentements) sont tracés DANS le blob jsonb `filtres` (aucune
+  // colonne dédiée → aucune migration) : l'audit distingue ainsi un export {F1} d'un export {F1,F2}. `filtres`/`statuts`
+  // absents → NULL (comportement inchangé pour `acces_profil`, qui n'en passe aucun).
   const blob =
-    details.filtres || details.axe
-      ? JSON.stringify({ ...(details.filtres ?? {}), ...(details.axe ? { axe: details.axe } : {}) })
+    details.filtres || details.statuts
+      ? JSON.stringify({ ...(details.filtres ?? {}), ...(details.statuts ? { statuts: details.statuts } : {}) })
       : null;
   await query(
     `INSERT INTO internaute_extraction_log (utilisateur_id, action, cible_internaute_id, filtres, nb_lignes)

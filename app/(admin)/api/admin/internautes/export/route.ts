@@ -1,16 +1,16 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { lireFiltres, lireAxe } from '../../../../../lib/internaute/extraction';
+import { lireFiltres, lireStatuts } from '../../../../../lib/internaute/extraction';
 import { lireProfilsExport, versCsv, journaliserExtraction } from '../../../../../lib/internaute/extractionRepo';
 
 /**
  * GET /api/admin/internautes/export — EXPORT CSV du résultat filtré (usage INTERNE SVAV, module Internaute LOT 3).
  *
  * PERMISSION : réservé au RÔLE ADMINISTRATEUR (`exigerAdministrateur` + défaut fail-closed du proxy).
- * INVARIANT : même JOIN d'AXE que la liste (`lireProfilsExport(filtres, axe)`, défaut F1) → n'exporte QUE les
- * consentants ACTIFS de l'axe, jamais un OR entre finalités. MINIMISATION : colonnes strictement utiles au recontact
- * (`COLONNES_EXPORT`). ACCOUNTABILITY : chaque export est journalisé (`internaute_extraction_log`, action 'export_csv'
- * + filtres + AXE + volume). Aucun pont M2. Runtime Node.
+ * INVARIANT : même contrainte que la liste (`lireProfilsExport(filtres, statuts)`) → n'exporte QUE l'INTERSECTION des
+ * statuts cochés (chacun un `EXISTS` en AND, jamais un OR) ; sélection VIDE → export vide (fail-closed, jamais toute
+ * la base). MINIMISATION : colonnes strictement utiles (`COLONNES_EXPORT`). ACCOUNTABILITY : chaque export est
+ * journalisé (`internaute_extraction_log`, action 'export_csv' + filtres + STATUTS + volume). Aucun pont M2. Runtime Node.
  */
 export const runtime = 'nodejs';
 
@@ -21,9 +21,9 @@ export async function GET(request: Request): Promise<Response> {
 
     const params = new URL(request.url).searchParams;
     const filtres = lireFiltres(params);
-    const axe = lireAxe(params); // population bornée à cet axe (défaut F1) ; validé, jamais arbitraire
-    const lignes = await lireProfilsExport(filtres, axe);
-    await journaliserExtraction(garde.auteurId, 'export_csv', { filtres, nbLignes: lignes.length, axe });
+    const statuts = lireStatuts(params); // intersection des statuts cochés ; vide → export vide (fail-closed)
+    const lignes = await lireProfilsExport(filtres, statuts);
+    await journaliserExtraction(garde.auteurId, 'export_csv', { filtres, nbLignes: lignes.length, statuts: statuts.join(',') });
 
     return new Response(versCsv(lignes), {
       status: 200,

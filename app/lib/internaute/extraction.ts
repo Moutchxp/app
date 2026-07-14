@@ -3,65 +3,97 @@
  *
  * Pur, sans accès base, AUCUN import `app/lib/analytics/*` ni moteur → cloisonnement M2 trivial. L'EXÉCUTION SQL
  * (le `query`) reste dans `extractionRepo.ts` (serveur only). Ici, uniquement de la CONSTRUCTION de chaînes SQL,
- * testable sans base : le fragment FROM/JOIN de l'invariant de consentement (paramétré par finalité-axe), le builder
- * de clauses WHERE paramétrées (extensible) et le sérialiseur CSV.
+ * testable sans base : le fragment FROM/WHERE de l'invariant de consentement (INTERSECTION d'un ENSEMBLE de statuts),
+ * l'expression `consenti_le`, le builder de clauses WHERE paramétrées (extensible) et le sérialiseur CSV.
  */
 import type { CleFinalite } from './textesConsentement';
 import { FINALITES_SEED } from './consentement';
 
-/**
- * Finalité-axe par DÉFAUT de l'extraction commerciale interne : F1 (recontact interne), historiquement la SEULE.
- * Source unique — le refactor « paramétrable par axe » (LOT 1) conserve ce défaut → ISO-COMPORTEMENT total.
- */
-export const AXE_DEFAUT: CleFinalite = 'recontact_interne';
+/** F1 (recontact interne) : le SEUL statut portant un opt-out dédié (`opposition_recontact`) + défaut du picker géo. */
+export const FINALITE_F1: CleFinalite = FINALITES_SEED.recontactInterne;
 
 /**
- * Axes d'extraction sélectionnables par l'admin (LOT 2) = les finalités connues (clés dérivées de `FINALITES_SEED`,
- * jamais re-hardcodées). Chaque axe BORNE la population exportée à ses consentants actifs (INNER JOIN dans
- * `clauseFromInvariant`) → étanchéité stricte, jamais un OR entre finalités. `code`/`libelle` = affichage admin.
+ * Statuts de consentement SÉLECTIONNABLES (multi-sélection en ET). Clés dérivées de `FINALITES_SEED` (jamais
+ * re-hardcodées). L'admin en coche un ENSEMBLE ; l'extraction renvoie l'INTERSECTION (tous les cochés actifs).
+ * `code`/`libelle` = affichage admin.
  */
-export const AXES_EXPORT: ReadonlyArray<{ axe: CleFinalite; code: string; libelle: string }> = [
-  { axe: FINALITES_SEED.recontactInterne, code: 'F1', libelle: 'Recontact (F1)' },
-  { axe: FINALITES_SEED.emailMarketing, code: 'F2', libelle: 'Email (F2)' },
-  { axe: FINALITES_SEED.retargetingTiers, code: 'F3', libelle: 'Retargeting (F3)' },
+export const STATUTS_EXPORT: ReadonlyArray<{ statut: CleFinalite; code: string; libelle: string }> = [
+  { statut: FINALITES_SEED.recontactInterne, code: 'F1', libelle: 'Recontact (F1)' },
+  { statut: FINALITES_SEED.emailMarketing, code: 'F2', libelle: 'Email (F2)' },
+  { statut: FINALITES_SEED.retargetingTiers, code: 'F3', libelle: 'Retargeting (F3)' },
 ];
 
-/** Ensemble des clés d'axe VALIDES — garde de `lireAxe` (tout axe hors de cet ensemble retombe sur le défaut F1). */
-const AXES_VALIDES: ReadonlySet<string> = new Set(AXES_EXPORT.map((a) => a.axe));
+/** Ordre canonique des statuts → génération SQL DÉTERMINISTE, indépendante de l'ordre d'arrivée des query params.
+ *  Sert aussi de LISTE BLANCHE : `normaliserStatuts` n'y garde que les clés connues (tout jeton forgé est écarté). */
+const ORDRE_STATUTS: readonly CleFinalite[] = STATUTS_EXPORT.map((s) => s.statut);
 
 /**
- * Fragment FROM/JOIN portant l'INVARIANT DE CONSENTEMENT, PARAMÉTRÉ par la finalité-`axe` (défaut `AXE_DEFAUT` = F1).
- * PUR : ne fait que CONSTRUIRE la chaîne SQL — l'exécution reste dans `extractionRepo.ts`. Le dernier projet de chaque
- * personne est joint par LATERAL. AUCUN paramètre lié ici : la finalité est un LITTÉRAL de type fermé `CleFinalite`
- * (jamais une entrée utilisateur) → les filtres de `construireFiltres` commencent toujours à `$1`.
- *
- * ÉTANCHÉITÉ (LOT 2) : le JOIN est un INNER JOIN sur `ca.finalite = '${axe}' AND ca.actif = true` → SEULS les
- * consentants ACTIFS de l'axe survivent. Une personne sans consentement actif à cet axe (p. ex. un F1-only face à un
- * axe F2) est écartée par la jointure. Aucune disjonction (OR) n'est jamais produite : la population est bornée par
- * l'axe, et les filtres additionnels de `construireFiltres` sont TOUS ajoutés en AND. Défaut F1 → ISO avec le LOT 1.
- *
- * L'opt-out `opposition_recontact` est PROPRE à F1 (recontact) : appliqué UNIQUEMENT sur l'axe F1 ; les axes F2/F3
- * n'ont pas d'opt-out dédié à ce stade → on ne les filtre pas dessus (sinon on écarterait à tort un consentant
- * email/retargeting ayant refusé le recontact). `efface_a IS NULL` reste commun à TOUS les axes.
- *
- * Défense en profondeur : `axe` étant INTERPOLÉ (jamais lié), on VALIDE qu'il n'est qu'un identifiant `[a-z0-9_]+`
- * (toutes les clés de finalité le sont) → toute injection SQL est structurellement impossible même si un appelant
- * futur contournait le typage.
+ * Normalise un ensemble de statuts reçus : ne conserve QUE les clés connues, dans l'ORDRE CANONIQUE, SANS doublon.
+ * (Un jeton inconnu/forgé est simplement écarté.) Pur — socle de toute la mécanique multi-statuts.
  */
-export function clauseFromInvariant(axe: CleFinalite = AXE_DEFAUT): string {
-  if (!/^[a-z0-9_]+$/.test(axe)) throw new Error(`finalité-axe invalide (attendu [a-z0-9_]+) : ${axe}`);
-  // opposition_recontact = opt-out F1-spécifique → présent SEULEMENT sur l'axe F1 (défaut). F2/F3 : aucun opt-out dédié.
-  const opposition = axe === AXE_DEFAUT ? 'i.opposition_recontact = false\n    AND ' : '';
-  return `
+export function normaliserStatuts(bruts: readonly string[]): CleFinalite[] {
+  return ORDRE_STATUTS.filter((s) => bruts.includes(s));
+}
+
+/** Défense en profondeur : une finalité INTERPOLÉE dans du SQL DOIT être un simple identifiant `[a-z0-9_]+`. */
+function assertFinalite(f: string): void {
+  if (!/^[a-z0-9_]+$/.test(f)) throw new Error(`finalité invalide (attendu [a-z0-9_]+) : ${f}`);
+}
+
+/** FROM commun (internaute + dernier projet par LATERAL) — la contrainte de consentement est ajoutée en WHERE. */
+const FROM_BASE = `
   FROM internaute i
-  JOIN internaute_consentement_actif ca
-    ON ca.internaute_id = i.id AND ca.finalite = '${axe}' AND ca.actif = true
   LEFT JOIN LATERAL (
     SELECT verdict, score, dernier_etage, residence_principale, commune_insee
     FROM internaute_projet pr WHERE pr.internaute_id = i.id ORDER BY pr.cree_a DESC LIMIT 1
   ) p ON true
-  WHERE ${opposition}i.efface_a IS NULL            -- LOT 4 : un profil effacé (PII anonymisées) ne réapparaît JAMAIS en extraction
 `;
+
+/**
+ * Fragment FROM/WHERE de l'INVARIANT DE CONSENTEMENT pour un ENSEMBLE de statuts (INTERSECTION = AND). PUR : ne fait
+ * que CONSTRUIRE la chaîne SQL — l'exécution reste dans `extractionRepo.ts`. AUCUN paramètre lié ici : les finalités
+ * sont des LITTÉRAUX de type fermé → les filtres de `construireFiltres` commencent toujours à `$1`.
+ *
+ * - Ensemble NON VIDE → un `EXISTS(finalité active)` PAR statut, TOUS joints en AND → un profil ne remonte que s'il
+ *   possède un consentement ACTIF pour CHAQUE statut coché. ZÉRO OR (intersection stricte) : un F2-only n'apparaît
+ *   jamais dans `{F1}`, ni l'inverse. `opposition_recontact = false` ajouté SSI F1 ∈ statuts (opt-out propre à F1) ;
+ *   `efface_a IS NULL` commun (un profil effacé ne réapparaît jamais).
+ * - Ensemble VIDE → `WHERE false` : GARDE FAIL-CLOSED (RGPD). On n'émet JAMAIS une requête sans contrainte de
+ *   finalité — sinon toute la base nominative fuirait. (En pratique le repo court-circuite AVANT d'appeler ceci ;
+ *   ce `WHERE false` est la défense en profondeur si un appelant construisait la requête directement.)
+ *
+ * Défense en profondeur : chaque finalité est re-validée `[a-z0-9_]+` (`assertFinalite`) avant interpolation → toute
+ * injection SQL est structurellement impossible même si un appelant contournait le typage/`normaliserStatuts`.
+ */
+export function clauseStatuts(statutsBruts: readonly CleFinalite[]): string {
+  const statuts = normaliserStatuts(statutsBruts);
+  if (statuts.length === 0) return `${FROM_BASE}  WHERE false\n`; // fail-closed : sélection vide → matche RIEN
+  const opposition = statuts.includes(FINALITE_F1) ? 'i.opposition_recontact = false\n    AND ' : '';
+  const exists = statuts
+    .map((s) => {
+      assertFinalite(s);
+      const a = `ca_${s}`;
+      return `EXISTS (SELECT 1 FROM internaute_consentement_actif ${a} WHERE ${a}.internaute_id = i.id AND ${a}.finalite = '${s}' AND ${a}.actif = true)`;
+    })
+    .join('\n    AND ');
+  return `${FROM_BASE}  WHERE ${opposition}i.efface_a IS NULL
+    AND ${exists}
+`;
+}
+
+/**
+ * Expression SQL (sous-requête corrélée) de la date de consentement de RÉFÉRENCE (`consenti_le`) affichée/exportée.
+ * Décision d'AFFICHAGE (jamais d'étanchéité) : si F1 ∈ statuts → horodatage du consentement F1 ; sinon → le PLUS
+ * RÉCENT des horodatages des statuts cochés. Unifié en `max(horodatage)` sur les finalités de référence (pour `{F1}`
+ * c'est l'unique ligne F1). Ensemble vide → `NULL` (cohérent avec le fail-closed). Finalités validées avant interpolation.
+ */
+export function exprConsentiLe(statutsBruts: readonly CleFinalite[]): string {
+  const statuts = normaliserStatuts(statutsBruts);
+  if (statuts.length === 0) return 'NULL::timestamptz';
+  const ref = statuts.includes(FINALITE_F1) ? [FINALITE_F1] : statuts;
+  ref.forEach(assertFinalite);
+  const liste = ref.map((s) => `'${s}'`).join(', ');
+  return `(SELECT max(cax.horodatage) FROM internaute_consentement_actif cax WHERE cax.internaute_id = i.id AND cax.actif = true AND cax.finalite IN (${liste}))`;
 }
 
 /** Critères d'extraction. Tous optionnels ; extensible (ajouter un champ + une entrée dans `construireFiltres`). */
@@ -74,9 +106,8 @@ export interface FiltresExtraction {
   verdict?: string | null;
   creeApres?: string | null; // ISO (date de création du PROFIL)
   creeAvant?: string | null;
-  // Restriction de consentement PARMI les F1 (jamais un élargissement) : true → exiger AUSSI F2 (email) / F3 (tiers).
-  aF2?: boolean | null;
-  aF3?: boolean | null;
+  // NB : la sélection des STATUTS de consentement (F1/F2/F3, intersection) n'est PAS un filtre WHERE ici — elle est
+  // portée séparément par `clauseStatuts(statuts)` (FROM/WHERE), en amont de ces clauses. Voir `lireStatuts`.
 }
 
 const INSEE = /^(2[AB]|[0-9]{2})[0-9]{3}$/;
@@ -121,11 +152,8 @@ export function construireFiltres(f: FiltresExtraction): { clauses: string[]; pa
   if (typeof f.verdict === 'string' && VERDICTS.has(f.verdict)) clauses.push(`p.verdict = ${lier(f.verdict)}`);
   if (dateValide(f.creeApres)) clauses.push(`i.cree_a >= ${lier(f.creeApres)}`);
   if (dateValide(f.creeAvant)) clauses.push(`i.cree_a <= ${lier(f.creeAvant)}`);
-  // Restriction de consentement PARMI les F1 : AND EXISTS (finalité F2/F3 active pour CETTE personne). C'est un
-  // FILTRE qui RÉDUIT l'ensemble déjà borné à l'axe (défaut F1) par `clauseFromInvariant` — JAMAIS un OR, jamais un ajout hors-axe.
-  // La finalité est un LITTÉRAL constant piloté par un booléen (aucune entrée texte utilisateur → aucune injection).
-  if (f.aF2 === true) clauses.push(`EXISTS (SELECT 1 FROM internaute_consentement_actif ca_f2 WHERE ca_f2.internaute_id = i.id AND ca_f2.finalite = 'email_marketing' AND ca_f2.actif = true)`);
-  if (f.aF3 === true) clauses.push(`EXISTS (SELECT 1 FROM internaute_consentement_actif ca_f3 WHERE ca_f3.internaute_id = i.id AND ca_f3.finalite = 'retargeting_tiers' AND ca_f3.actif = true)`);
+  // Les statuts de consentement (F1/F2/F3, intersection) ne sont PLUS des restricteurs `aF2/aF3` ici : ils sont
+  // portés par `clauseStatuts` (FROM/WHERE, EXISTS en AND). `construireFiltres` = SEULEMENT les filtres secondaires.
 
   return { clauses, params };
 }
@@ -159,23 +187,23 @@ export function lireFiltres(params: URLSearchParams): FiltresExtraction {
     verdict: str('verdict'),
     creeApres: str('creeApres'),
     creeAvant: str('creeAvant'),
-    aF2: bool('f2'),
-    aF3: bool('f3'),
   };
 }
 
 /**
- * Axe d'extraction demandé (query param `axe`), VALIDÉ contre les finalités connues (`AXES_VALIDES`). Absent, vide
- * ou inconnu → défaut `AXE_DEFAUT` (F1) — jamais un axe arbitraire (défense en profondeur, complète la garde
- * `[a-z0-9_]+` de `clauseFromInvariant`). Le param `axe` détermine SEUL la population bornée ; il n'entre pas dans
- * les clauses WHERE de `construireFiltres`.
+ * Statuts de consentement cochés (query param `statuts`, clés séparées par des virgules, p. ex.
+ * `statuts=recontact_interne,email_marketing`), VALIDÉS & NORMALISÉS par `normaliserStatuts` (liste blanche = les
+ * clés connues, ordre canonique, sans doublon). L'ensemble PEUT être VIDE (absent, vide, ou uniquement des jetons
+ * inconnus) → le serveur bloque en aval (fail-closed dans le repo / `clauseStatuts`). Aucun repli « défaut F1 » : une
+ * sélection vide n'exporte JAMAIS toute la base. Ces statuts déterminent la population (intersection) ; ils n'entrent
+ * pas dans `construireFiltres`.
  */
-export function lireAxe(params: URLSearchParams): CleFinalite {
-  const v = params.get('axe');
-  return v !== null && AXES_VALIDES.has(v) ? (v as CleFinalite) : AXE_DEFAUT;
+export function lireStatuts(params: URLSearchParams): CleFinalite[] {
+  const brut = params.get('statuts');
+  return brut ? normaliserStatuts(brut.split(',').map((s) => s.trim())) : [];
 }
 
-/** Une ligne de résultat exploitable (identité + dernier projet + date de consentement de l'axe). */
+/** Une ligne de résultat exploitable (identité + dernier projet + date de consentement de référence des statuts). */
 export interface LigneProfil {
   id: string;
   prenom: string | null;

@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { libelleFinaliteAffichage } from '../../../../lib/internaute/libelleFinalite';
-import { AXES_EXPORT, AXE_DEFAUT } from '../../../../lib/internaute/extraction';
+import { STATUTS_EXPORT, FINALITE_F1 } from '../../../../lib/internaute/extraction';
 import type { CleFinalite } from '../../../../lib/internaute/textesConsentement';
 
 /**
  * Vue interactive du module « Internautes » (LOT 3). Client PUR : ne touche jamais la base ; consomme
- * `/api/admin/internautes*` (réservé administrateur, invariant consentement de l'axe actif appliqué CÔTÉ SERVEUR — cette
+ * `/api/admin/internautes*` (réservé administrateur, invariant d'intersection des statuts appliqué CÔTÉ SERVEUR — cette
  * vue ne fait que refléter). Charte : rouge/gris, AUCUN bleu, cibles ≥44px, focus rouge, prefers-reduced-motion.
  */
 
@@ -69,12 +69,10 @@ type Filtres = {
   verdict: string;
   creeApres: string;
   creeAvant: string;
-  // Restriction PARMI les F1 (jamais un ajout) : exiger AUSSI le consentement F2 (email) / F3 (retargeting tiers).
-  aF2: boolean;
-  aF3: boolean;
+  // NB : les STATUTS de consentement (F1/F2/F3, intersection) sont un ÉTAT SÉPARÉ (`statuts`), pas un filtre `Filtres`.
 };
 
-const FILTRES_VIDES: Filtres = { communes: [], scoreMin: '', scoreMax: '', dernierEtage: '', residencePrincipale: '', verdict: '', creeApres: '', creeAvant: '', aF2: false, aF3: false };
+const FILTRES_VIDES: Filtres = { communes: [], scoreMin: '', scoreMax: '', dernierEtage: '', residencePrincipale: '', verdict: '', creeApres: '', creeAvant: '' };
 
 function versParams(f: Filtres): URLSearchParams {
   const p = new URLSearchParams();
@@ -86,8 +84,6 @@ function versParams(f: Filtres): URLSearchParams {
   if (f.verdict) p.set('verdict', f.verdict);
   if (f.creeApres) p.set('creeApres', f.creeApres);
   if (f.creeAvant) p.set('creeAvant', f.creeAvant);
-  if (f.aF2) p.set('f2', 'true'); // restreint aux F1 ayant AUSSI F2 (AND côté serveur ; jamais un OR)
-  if (f.aF3) p.set('f3', 'true'); // restreint aux F1 ayant AUSSI F3
   return p;
 }
 
@@ -275,12 +271,12 @@ function SelecteurGeo({ communes, selection, onValider }: {
 export function InternautesVue() {
   const [filtres, setFiltres] = useState<Filtres>(FILTRES_VIDES);
   const [applique, setApplique] = useState<Filtres>(FILTRES_VIDES); // filtres réellement soumis
-  // Axe d'export (LOT 2) = finalité qui BORNE la population extraite (F1/F2/F3), défaut F1. C'est un sélecteur de
-  // POPULATION (pas un filtre WHERE) → appliqué immédiatement (re-fetch). Le serveur (clauseFromInvariant) garantit
-  // l'étanchéité : un export d'un axe ne contient QUE ses consentants actifs, jamais un OR.
-  const [axe, setAxe] = useState<CleFinalite>(AXE_DEFAUT);
+  // STATUTS de consentement cochés (multi-sélection ET). L'extraction renvoie l'INTERSECTION (tous cochés actifs).
+  // Défaut = {F1} (vue « recontactables » au chargement). Appliqué immédiatement (re-fetch). Le serveur (`clauseStatuts`)
+  // garantit l'étanchéité (EXISTS en AND, zéro OR) ET le fail-closed (sélection vide → 0 résultat, jamais toute la base).
+  const [statuts, setStatuts] = useState<Set<CleFinalite>>(() => new Set([FINALITE_F1]));
   const [page, setPage] = useState(1);
-  const [etat, setEtat] = useState<{ statut: 'chargement' } | { statut: 'erreur'; code: number } | { statut: 'ok'; total: number; lignes: Ligne[] }>({ statut: 'chargement' });
+  const [etat, setEtat] = useState<{ statut: 'chargement' } | { statut: 'aucun_statut' } | { statut: 'erreur'; code: number } | { statut: 'ok'; total: number; lignes: Ligne[] }>({ statut: 'chargement' });
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailChargement, setDetailChargement] = useState(false);
   // Actions cycle de vie (LOT 4) sur le dossier ouvert : rectification (édition A) et effacement (droit RGPD).
@@ -319,12 +315,18 @@ export function InternautesVue() {
   useEffect(() => {
     let annule = false;
     void (async () => {
+      // GARDE-FOU CONFORT (le serveur reste l'autorité) : aucun statut coché → on n'appelle PAS l'API (pas de requête
+      // sans contrainte de finalité) et on affiche un message. Le serveur bloque aussi (fail-closed) si l'URL est forgée.
+      if (statuts.size === 0) {
+        if (!annule) setEtat({ statut: 'aucun_statut' });
+        return;
+      }
       setEtat({ statut: 'chargement' });
       try {
         const p = versParams(applique);
         p.set('page', String(page));
         p.set('taille', String(TAILLE));
-        p.set('axe', axe); // borne la population à l'axe courant (défaut F1) ; étanchéité garantie côté serveur
+        p.set('statuts', [...statuts].join(',')); // intersection des statuts cochés ; étanchéité garantie côté serveur
         const res = await fetch(`/api/admin/internautes?${p.toString()}`);
         if (annule) return;
         if (!res.ok) {
@@ -342,7 +344,7 @@ export function InternautesVue() {
     return () => {
       annule = true;
     };
-  }, [applique, page, axe]);
+  }, [applique, page, statuts]);
 
   const filtrer = () => {
     setPage(1);
@@ -353,26 +355,28 @@ export function InternautesVue() {
     setPage(1);
     setApplique(FILTRES_VIDES);
   };
-  // Change l'axe (population). Retire le restricteur devenu REDONDANT (même finalité que le nouvel axe) → aucun
-  // filtre « aussi F2/F3 » ne joue en sourdine sous un axe qui le couvre déjà. Appliqué tout de suite (filtres + soumis).
-  const changerAxe = (a: CleFinalite) => {
-    setAxe(a);
-    setPage(1);
-    const nettoyer = (f: Filtres): Filtres => ({
-      ...f,
-      aF2: a === 'email_marketing' ? false : f.aF2,
-      aF3: a === 'retargeting_tiers' ? false : f.aF3,
+  // Coche/décoche un statut (appartenance à l'ensemble). Appliqué immédiatement (l'effet re-fetch sur `statuts`).
+  const toggleStatut = (s: CleFinalite) => {
+    setStatuts((prev) => {
+      const next = new Set(prev);
+      if (next.has(s)) next.delete(s);
+      else next.add(s);
+      return next;
     });
-    setFiltres(nettoyer);
-    setApplique(nettoyer);
+    setPage(1);
   };
-  // URL d'export CSV de l'AXE courant (le param `axe` accompagne les filtres ; validé côté serveur par `lireAxe`).
+  const aucunStatut = statuts.size === 0;
+  // Statuts cochés, dans l'ordre canonique de STATUTS_EXPORT (indépendant de l'ordre de clic). Sert au param `statuts`
+  // (le serveur re-normalise de toute façon) et au libellé du compteur.
+  const statutsCoches = STATUTS_EXPORT.filter((s) => statuts.has(s.statut));
+  const codesCoches = statutsCoches.map((s) => s.code).join(' ∩ ');
+  // URL d'export CSV : les statuts cochés accompagnent les filtres (`f` = filtres appliqués OU FILTRES_VIDES pour « toute
+  // la base »). Toujours borné par les statuts ; validé/normalisé côté serveur par `lireStatuts`.
   const hrefExport = (f: Filtres) => {
     const p = versParams(f);
-    p.set('axe', axe);
+    p.set('statuts', statutsCoches.map((s) => s.statut).join(','));
     return `/api/admin/internautes/export?${p.toString()}`;
   };
-  const axeCourant = AXES_EXPORT.find((a) => a.axe === axe) ?? AXES_EXPORT[0];
 
   const rechargerListe = () => setApplique((a) => ({ ...a })); // nouvelle référence → relance l'effet de fetch
 
@@ -598,39 +602,106 @@ export function InternautesVue() {
     <div className="svv-int" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <style>{CSS}</style>
 
-      {/* SÉLECTEUR D'AXE (LOT 2) : la finalité qui BORNE la population extraite (F1/F2/F3). Chaque axe = export
-          ÉTANCHE de ses seuls consentants actifs. Charte : rouge plein = actif, gris contour = inactif ; ≥44px. */}
+      {/* SÉLECTION DES STATUTS (multi-sélection en ET) : l'admin coche F1/F2/F3 ; l'extraction renvoie l'INTERSECTION
+          (tous les cochés actifs). Charte : rouge plein = coché, gris contour = décoché ; ≥44px ; focus rouge (.svv-int). */}
       <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--color-svv-field)' }}>
-        <span style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>Axe d’extraction (le consentement qui borne la base)</span>
-        <div role="group" aria-label="Axe d’extraction" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {AXES_EXPORT.map((a) => {
-            const actif = a.axe === axe;
-            return (
-              <button
-                key={a.axe}
-                type="button"
-                aria-pressed={actif}
-                onClick={() => changerAxe(a.axe)}
-                style={{
-                  minHeight: 44,
-                  padding: '0 14px',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                  fontSize: '.85rem',
-                  border: `1px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
-                  background: actif ? 'var(--color-svv-red)' : '#fff',
-                  color: actif ? '#fff' : 'var(--color-svv-ink)',
-                }}
-              >
-                {a.libelle}
-              </button>
-            );
-          })}
+        <span style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>Statuts de consentement (intersection — tous les cochés)</span>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div role="group" aria-label="Statuts de consentement" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {STATUTS_EXPORT.map((s) => {
+              const coche = statuts.has(s.statut);
+              return (
+                <button
+                  key={s.statut}
+                  type="button"
+                  aria-pressed={coche}
+                  onClick={() => toggleStatut(s.statut)}
+                  style={{
+                    minHeight: 44,
+                    padding: '0 14px',
+                    borderRadius: 10,
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    fontSize: '.85rem',
+                    border: `1px solid ${coche ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
+                    background: coche ? 'var(--color-svv-red)' : '#fff',
+                    color: coche ? '#fff' : 'var(--color-svv-ink)',
+                  }}
+                >
+                  {s.libelle}
+                </button>
+              );
+            })}
+          </div>
+          {/* Picto info « i » DÉPLACÉ ici, à DROITE du toggle F3. Popover = légende multi-statuts. Ferme au clic ailleurs / re-clic. */}
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <button
+              type="button"
+              aria-label="Aide : signification de F1, F2 et F3"
+              aria-expanded={infoOuvert}
+              onClick={() => setInfoOuvert((o) => !o)}
+              style={{
+                minWidth: 44,
+                width: 44,
+                height: 44,
+                borderRadius: 999,
+                border: `1px solid ${infoOuvert ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
+                background: '#fff',
+                color: infoOuvert ? 'var(--color-svv-red)' : 'var(--color-svv-ink)',
+                fontWeight: 800,
+                fontStyle: 'italic',
+                fontSize: '1rem',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              i
+            </button>
+            {infoOuvert && (
+              <>
+                {/* Voile plein écran transparent SOUS le popover : un clic « ailleurs » ferme (mobile + desktop). */}
+                <div aria-hidden onClick={() => setInfoOuvert(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+                <div
+                  role="dialog"
+                  aria-label="Légende F1 / F2 / F3"
+                  style={{
+                    position: 'absolute',
+                    bottom: 'calc(100% + 8px)', // s'ouvre AU-DESSUS du « i » (pas de coupe vers le bas)
+                    right: 0, //                   ancré à droite → s'étend vers la GAUCHE, jamais hors du bord droit
+                    zIndex: 41,
+                    width: 'max-content',
+                    maxWidth: 'min(320px, calc(100vw - 32px))',
+                    background: 'var(--color-svv-field)',
+                    color: 'var(--color-svv-ink)',
+                    border: '1px solid var(--color-svv-line)',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                    fontSize: '.78rem',
+                    lineHeight: 1.4,
+                    fontWeight: 500,
+                    boxShadow: '0 4px 14px rgba(0,0,0,.14)',
+                  }}
+                >
+                  <strong>F1</strong> recontact commercial interne (appel téléphonique), <strong>F2</strong> communications
+                  par email, <strong>F3</strong> ciblage publicitaire tiers (retargeting).{' '}
+                  Cochez un ou plusieurs statuts : l’extraction renvoie l’<strong>intersection</strong> (les internautes
+                  ayant <strong>TOUS</strong> les statuts cochés actifs) — jamais un OR. Aucun statut coché → export bloqué.
+                </div>
+              </>
+            )}
+          </div>
         </div>
-        <span style={{ fontSize: '.7rem', color: 'var(--color-svv-muted)' }}>
-          L’export ne contient QUE les consentants actifs de l’axe choisi ; les cases « aussi… » restreignent DANS cet axe (jamais un élargissement).
-        </span>
+        {aucunStatut ? (
+          <span role="alert" style={{ fontSize: '.72rem', fontWeight: 700, color: 'var(--color-svv-red)' }}>
+            Cochez au moins un statut pour lister ou exporter.
+          </span>
+        ) : (
+          <span style={{ fontSize: '.7rem', color: 'var(--color-svv-muted)' }}>
+            L’extraction renvoie les internautes ayant TOUS les statuts cochés actifs (intersection ET).
+          </span>
+        )}
       </div>
 
       {/* FILTRES — grille COMMUNE (colonnes via .svv-int-filtres) : les 2 rangées partagent les mêmes colonnes,
@@ -700,99 +771,37 @@ export function InternautesVue() {
             Depuis toujours
           </button>
         </div>
-        <fieldset style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)', border: 0, padding: 0, margin: 0 }}>
-          <legend style={{ padding: 0 }}>Consentement additionnel (dans l’axe)</legend>
-          {/* Ces cases RESTREIGNENT la population de l'AXE courant (AND côté serveur) : jamais un OR, jamais un
-              élargissement. La case dont la finalité EST l'axe courant est masquée (redondante avec le JOIN d'axe). */}
-          {axe !== 'email_marketing' && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 44, fontWeight: 600, color: 'var(--color-svv-ink)', cursor: 'pointer' }}>
-              <input type="checkbox" checked={filtres.aF2} onChange={(e) => setFiltres({ ...filtres, aF2: e.target.checked })} style={{ width: 18, height: 18, accentColor: 'var(--color-svv-red)' }} />
-              a aussi F2 (email)
-            </label>
-          )}
-          {axe !== 'retargeting_tiers' && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 44, fontWeight: 600, color: 'var(--color-svv-ink)', cursor: 'pointer' }}>
-              <input type="checkbox" checked={filtres.aF3} onChange={(e) => setFiltres({ ...filtres, aF3: e.target.checked })} style={{ width: 18, height: 18, accentColor: 'var(--color-svv-red)' }} />
-              a aussi F3 (retargeting)
-            </label>
-          )}
-        </fieldset>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', gridColumn: '1 / -1', flexWrap: 'wrap' }}>
           <button type="button" style={btnRouge} onClick={filtrer}>Filtrer</button>
           <button type="button" style={btnOutline} onClick={reinitialiser}>Réinitialiser</button>
-          {/* Bouton info « i » : légende F1/F2/F3 en popover. `marginLeft:auto` déplacé ici (retiré d'« Exporter (CSV) »)
-              → le « i » est poussé à droite, JUSTE à gauche du bouton d'export. Popover : ouverture unique, ferme au
-              clic ailleurs (voile plein écran) ou au re-clic. Cible ≥ 44px + focus rouge via `.svv-int` (feuille CSS). */}
-          <div style={{ position: 'relative', marginLeft: 'auto', display: 'inline-flex' }}>
-            <button
-              type="button"
-              aria-label="Aide : signification de F1, F2 et F3"
-              aria-expanded={infoOuvert}
-              onClick={() => setInfoOuvert((o) => !o)}
-              style={{
-                minWidth: 44,
-                width: 44,
-                height: 44,
-                borderRadius: 999,
-                border: `1px solid ${infoOuvert ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
-                background: '#fff',
-                color: infoOuvert ? 'var(--color-svv-red)' : 'var(--color-svv-ink)',
-                fontWeight: 800,
-                fontStyle: 'italic',
-                fontSize: '1rem',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              i
-            </button>
-            {infoOuvert && (
-              <>
-                {/* Voile plein écran transparent SOUS le popover : un clic « ailleurs » ferme (mobile + desktop). */}
-                <div aria-hidden onClick={() => setInfoOuvert(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-                <div
-                  role="dialog"
-                  aria-label="Légende F1 / F2 / F3"
-                  style={{
-                    position: 'absolute',
-                    bottom: 'calc(100% + 8px)', // s'ouvre AU-DESSUS du « i » (pas de coupe vers le bas du panneau)
-                    right: 0, //                   ancré à droite → s'étend vers la GAUCHE, jamais hors du bord droit
-                    zIndex: 41,
-                    width: 'max-content',
-                    maxWidth: 'min(320px, calc(100vw - 32px))',
-                    background: 'var(--color-svv-field)',
-                    color: 'var(--color-svv-ink)',
-                    border: '1px solid var(--color-svv-line)',
-                    borderRadius: 10,
-                    padding: '10px 12px',
-                    fontSize: '.78rem',
-                    lineHeight: 1.4,
-                    fontWeight: 500,
-                    boxShadow: '0 4px 14px rgba(0,0,0,.14)',
-                  }}
-                >
-                  L’<strong>axe d’extraction</strong> choisit le consentement qui BORNE la base : <strong>F1</strong> recontact
-                  commercial interne (appel téléphonique), <strong>F2</strong> communications par email, <strong>F3</strong> ciblage
-                  publicitaire tiers (retargeting).{' '}
-                  Un export ne contient QUE les consentants <strong>actifs de l’axe choisi</strong> — jamais un profil d’un autre axe.
-                  Les cases « aussi… » <strong>restreignent dans l’axe</strong> (ET) : elles réduisent la sélection, ne l’élargissent jamais.
-                </div>
-              </>
-            )}
-          </div>
-          <a style={{ ...btnOutline, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }} href={hrefExport(applique)}>
+          {/* Exports DÉSACTIVÉS si aucun statut coché (garde CONFORT ; le serveur reste fail-closed via `lireStatuts`).
+              « Exporter (CSV) » = statuts cochés + filtres appliqués ; « Exporter toute la base » = statuts SEULS (filtres
+              vides) — mais TOUJOURS borné par les statuts. `marginLeft:auto` pousse les exports à droite (le « i » a migré
+              dans le bloc de sélection des statuts). Un `<a>` sans href n'est ni cliquable ni focusable → désactivation sûre. */}
+          <a
+            style={{ ...btnOutline, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', textDecoration: 'none', ...(aucunStatut ? { opacity: 0.5, pointerEvents: 'none' } : {}) }}
+            aria-disabled={aucunStatut}
+            href={aucunStatut ? undefined : hrefExport(applique)}
+          >
             Exporter (CSV)
           </a>
-          {/* Export SANS filtre (filtres VIDES) → tous les consentants actifs de l'AXE courant, via le MÊME invariant + journal. */}
-          <a style={{ ...btnRouge, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }} href={hrefExport(FILTRES_VIDES)} title={`Exporter tous les consentants ${axeCourant.code} actifs, sans appliquer les filtres`}>
+          <a
+            style={{ ...btnRouge, display: 'inline-flex', alignItems: 'center', textDecoration: 'none', ...(aucunStatut ? { opacity: 0.5, pointerEvents: 'none' } : {}) }}
+            aria-disabled={aucunStatut}
+            href={aucunStatut ? undefined : hrefExport(FILTRES_VIDES)}
+            title={aucunStatut ? 'Cochez au moins un statut' : `Exporter tous les consentants ${codesCoches} actifs, sans appliquer les filtres`}
+          >
             Exporter toute la base
           </a>
         </div>
       </div>
 
       {/* RÉSULTATS */}
+      {etat.statut === 'aucun_statut' && (
+        <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-muted)' }}>
+          Cochez au moins un statut de consentement (F1, F2 ou F3) pour lister ou exporter des profils.
+        </div>
+      )}
       {etat.statut === 'chargement' && <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-muted)' }}>Chargement…</div>}
       {etat.statut === 'erreur' && (
         <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-red)' }}>
@@ -804,7 +813,7 @@ export function InternautesVue() {
       {etat.statut === 'ok' && (
         <>
           <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)' }}>
-            {total} profil{total > 1 ? 's' : ''} avec consentement {axeCourant.code} actif ({axeCourant.libelle}).
+            {total} profil{total > 1 ? 's' : ''} — intersection des statuts {codesCoches} (tous actifs).
           </div>
           {etat.lignes.length === 0 ? (
             <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-muted)' }}>Aucun profil pour ces critères.</div>
