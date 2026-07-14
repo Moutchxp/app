@@ -410,6 +410,7 @@ export default function CurationCarte() {
   const coucheFondRef = useRef<L.LayerGroup | null>(null); // bâtiments bbox (sous les couches bleu/vert)
   const coucheEtoilesRef = useRef<L.LayerGroup | null>(null); // étoiles + vert des entités MANUELLES (persistant, bbox)
   const formulaireRef = useRef<HTMLDivElement | null>(null); // conteneur du formulaire « Nouveau tag » (scroll auto)
+  const alerteRef = useRef<HTMLDivElement | null>(null); // alerte anti-doublon (editionProposee) — cible de scroll (au-dessus du formulaire)
   const fitEnAttenteRef = useRef<number | null>(null); // entité sans-point à recadrer dès l'arrivée de ses emprises
   const ajusteRef = useRef(false); // fitBounds une seule fois (jamais après un rechargement)
   const selectionIdRef = useRef<number | null>(null); // miroir pour le handler `moveend`
@@ -1113,18 +1114,27 @@ export default function CurationCarte() {
 
   // FC-60 : aucun scrollIntoView à l'ouverture du formulaire de création (effet `[creationOuverte]` retiré).
 
-  // ── Scroll vers la zone de COMPOSITION UNIQUEMENT (fiche créée depuis la CARTE : l'attention est sur la carte →
-  //    on amène la zone dans le panneau latéral). Le FORMULAIRE de création ouvert via le bouton « + Nouveau tag »
-  //    NE scrolle PAS : il s'ouvre EN PLACE comme les panneaux Filtres / Infos bâtiment (accordéon), sinon « scroll
-  //    bizarre » à l'ouverture. Keyé sur `composition` seul (jamais `creationOuverte`). Cible `formulaireRef` (HAUT).
+  // ── Scroll vers le PANNEAU quand une action de la CARTE ouvre un module de création (attention sur la carte →
+  //    on amène l'utilisateur au module dans la colonne). UN SEUL mécanisme (même motif reduced-motion + rAF),
+  //    trois déclencheurs venant tous d'un geste carte :
+  //      • `composition` posé (fiche créée depuis la carte)      → cible `formulaireRef`
+  //      • `cleabsCible` posé = double-clic création ciblée       → cible `formulaireRef` (le FORMULAIRE s'y ouvre)
+  //      • `editionProposee` posé = double-clic sur un déjà-tagué  → cible `alerteRef` (l'alerte est AU-DESSUS du form)
+  //    Le bouton « + Nouveau tag » ouvre le formulaire EN PLACE (accordéon, `cleabsCible === null`) → NON scrollé
+  //    (FC-60). `revenirAuRepos` remet ces 3 clés à null → aucun scroll au repli (repli SANS saut préservé).
   useEffect(() => {
-    if (composition === null) return;
+    const cible = editionProposee
+      ? alerteRef.current
+      : composition !== null || cleabsCible !== null
+        ? formulaireRef.current
+        : null;
+    if (!cible) return;
     const reduire = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const raf = requestAnimationFrame(() => {
-      formulaireRef.current?.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'start', inline: 'nearest' });
+      cible.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'start', inline: 'nearest' });
     });
     return () => cancelAnimationFrame(raf);
-  }, [composition]);
+  }, [composition, cleabsCible, editionProposee]);
 
   // ── Fermeture de la zone de composition (« Terminer » / « Abandonner ») : COSMÉTIQUE, aucune écriture,
   //    aucune suppression (OQ-1). MÊME retour au repos que « Sortir » (`revenirAuRepos`) → une seule définition
@@ -1239,7 +1249,7 @@ export default function CurationCarte() {
         <section className="svv-cur-panel" aria-label="Liste et filtres des entités">
           {/* Redirection vers l'édition d'un tag manuel existant (anti-doublon manuel). */}
           {editionProposee && (
-            <div className="svv-cur-form-cible" role="alert">
+            <div className="svv-cur-form-cible" role="alert" ref={alerteRef}>
               {`Ce bâtiment appartient déjà au tag manuel « ${editionProposee.nom ?? 'sans nom'} ». Le modifier ?`}
               <div className="svv-cur-form-actions">
                 <button
