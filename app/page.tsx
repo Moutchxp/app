@@ -1376,12 +1376,14 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       </div>
 
       {/* CONSENTEMENT (LOT 2) — granulaire, aucune case pré-cochée, TEXTES ISSUS DU CATALOGUE VERSIONNÉ (jamais en dur).
-          Rendu GÉNÉRIQUE : une entrée par finalité active ; une finalité qui porte un `titre` (ex. F2) affiche son titre
-          + une mention (son `contenu`, encadré) ; sinon (ex. F1) la case est rendue seule. Charte : rouge/gris, ≥44px. */}
+          ÉCRAN A : SEULE F1 (recontact) est affichée ici — F2 (email) est posée à l'Écran B (« Votre accord pour l'envoi
+          de mails »), on ne redemande pas la même chose deux fois. Le filtre n'affecte que L'AFFICHAGE : l'état/la garde
+          et la soumission lisent `consentements` (F2 non affichée ici = jamais cochée en A = non envoyée). Rendu GÉNÉRIQUE :
+          une finalité qui porte un `titre` affiche son titre + mention ; sinon (F1) la case seule. Charte : rouge/gris, ≥44px. */}
       <div className="mt-6 rounded-2xl bg-svv-field p-5">
-        <h2 className="mb-3 text-lg font-bold text-svv-ink">Vos préférences de contact</h2>
+        <h2 className="mb-3 text-lg font-bold text-svv-ink">Un service sur mesure</h2>
         <div className="flex flex-col gap-4">
-          {finalitesActivesTunnel().map((t) => (
+          {finalitesActivesTunnel().filter((t) => t.finalite !== "email_marketing").map((t) => (
             <div key={t.finalite} className="flex flex-col gap-2">
               {t.titre && <h3 className="text-sm font-bold text-svv-ink">{t.titre}</h3>}
               <label className="flex min-h-11 cursor-pointer items-start gap-3">
