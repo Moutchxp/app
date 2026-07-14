@@ -887,13 +887,25 @@ export default function CurationCarte() {
     [recharger, signaler],
   );
 
+  // ── RETOUR AU REPOS UNIQUE : une SEULE définition de l'état « au repos », partagée par « Sortir »
+  //    (refermerCarte) ET « Terminer »/« Abandonner » (fermerComposition). Toute sortie DOIT éteindre le mode
+  //    création : laisser `composition` (ou `creationOuverte`/`cleabsCible`/`editionProposee`) actif gelait le
+  //    panneau et désactivait « + Nouveau tag » (:1373) — c'est le bug de recon #3 (deux sorties divergentes).
+  const revenirAuRepos = useCallback(() => {
+    setSelectionId(null);
+    setComposition(null);
+    setCreationOuverte(false);
+    setCleabsCible(null);
+    setEditionProposee(null);
+    coucheEmprisesRef.current?.clearLayers();
+  }, []);
+
   // ── Repli de la carte SANS scroll : `selectionId=null` ; l'effet de scroll ignore null (aucun saut),
   //    aucun flyTo/fitBounds n'est déclenché (ce n'est pas un `selectionner`). L'ordre de la liste ne bouge pas.
   const refermerCarte = useCallback(() => {
-    setSelectionId(null);
+    revenirAuRepos();
     setJournal(null); // fermer la fiche ferme aussi son historique (retour carte pleine)
-    coucheEmprisesRef.current?.clearLayers();
-  }, []);
+  }, [revenirAuRepos]);
 
   // ── « Annuler » (direct, sans confirmation) : rollback serveur vers la borne d'ouverture, puis repli. ──
   const annulerEdition = useCallback(
@@ -1115,13 +1127,10 @@ export default function CurationCarte() {
   }, [composition]);
 
   // ── Fermeture de la zone de composition (« Terminer » / « Abandonner ») : COSMÉTIQUE, aucune écriture,
-  //    aucune suppression (OQ-1). `selectionId=null` → l'entité rejoint la liste à sa place (re-render normal).
-  //    Aucun scroll (flashId non touché → garde de l'effet `[flashId]`). ─
-  const fermerComposition = useCallback(() => {
-    setComposition(null);
-    setSelectionId(null);
-    coucheEmprisesRef.current?.clearLayers();
-  }, []);
+  //    aucune suppression (OQ-1). MÊME retour au repos que « Sortir » (`revenirAuRepos`) → une seule définition
+  //    du repos. `selectionId=null` → l'entité rejoint la liste à sa place. Aucun scroll (flashId non touché →
+  //    garde de l'effet `[flashId]`). Ne ferme PAS le journal (inchangé : seul « Sortir » le fait). ─
+  const fermerComposition = revenirAuRepos;
 
   // ── (Re)dessin des emprises : rattachées en VERT UNIFORME (persistant, Correction 3) +
   //    candidates de la bbox en bleu (hors des déjà rattachées). ────────────────────
