@@ -12,13 +12,13 @@
  */
 import { withTransaction, type RequeteTx } from '../db/client';
 import { TEXTES_CONSENTEMENT, type CleFinalite } from './textesConsentement';
-import { consentementServicePresent, type CorpsIngestion } from './ingestion';
+import { auMoinsUnConsentement, type CorpsIngestion } from './ingestion';
 
-/** Levée si la finalité service (F1) n'est pas consentie → aucun profil créé (invariant structurel). */
-export class ErreurConsentementServiceManquant extends Error {
+/** Levée si AUCUN consentement (parmi les 3) n'est donné → aucun profil créé (porte de création, invariant structurel). */
+export class ErreurAucunConsentement extends Error {
   constructor() {
-    super('consentement service (F1) requis pour créer un profil');
-    this.name = 'ErreurConsentementServiceManquant';
+    super('au moins un consentement requis pour créer un profil');
+    this.name = 'ErreurAucunConsentement';
   }
 }
 
@@ -104,11 +104,11 @@ async function insererProjet(q: RequeteTx, internauteId: string, projet: CorpsIn
 }
 
 /**
- * Ingestion complète d'un profil, EN UNE TRANSACTION. Refuse si F1 (service) n'est pas consentie
- * (`ErreurConsentementServiceManquant`). Renvoie les identifiants créés/réutilisés.
+ * Ingestion complète d'un profil, EN UNE TRANSACTION. Refuse si AUCUN consentement n'est donné
+ * (`ErreurAucunConsentement`). Renvoie les identifiants créés/réutilisés.
  */
 export async function ingererProfil(corps: CorpsIngestion): Promise<{ internauteId: string; projetId: number; creeInternaute: boolean }> {
-  if (!consentementServicePresent(corps.consentements)) throw new ErreurConsentementServiceManquant();
+  if (!auMoinsUnConsentement(corps.consentements)) throw new ErreurAucunConsentement();
   return withTransaction(async (q) => {
     const { id: internauteId, cree: creeInternaute } = await getOrCreateInternaute(q, corps.identite);
     for (const c of corps.consentements) {

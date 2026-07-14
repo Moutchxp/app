@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { validerCorpsIngestion, consentementServicePresent } from '../../lib/internaute/ingestion';
-import { ingererProfil, ErreurConsentementServiceManquant } from '../../lib/internaute/socle';
+import { validerCorpsIngestion, auMoinsUnConsentement } from '../../lib/internaute/ingestion';
+import { ingererProfil, ErreurAucunConsentement } from '../../lib/internaute/socle';
 import { signerJetonRectification } from '../../lib/internaute/jetonRectification';
 
 // Runtime Node explicite (comme /api/analyse) : le driver `pg` (socle.ts) exige Node, jamais l'edge runtime.
@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
  *
  * Reçoit identité + consentements acceptés + projet (données moteur capturées en LECTURE SEULE). Persiste en UNE
  * transaction (A identité → B preuves de consentement append-only → C projet). INVARIANT : rien n'est persisté sans
- * le consentement F1 (recontact interne) — porte structurelle. AUCUNE donnée nominative n'est émise vers M2 ; le
+ * AU MOINS UN consentement (parmi F1/F2/F3) — porte structurelle. AUCUNE donnée nominative n'est émise vers M2 ; le
  * moteur n'est ni rappelé ni modifié (golden intact). En cas d'échec, ROLLBACK complet ; la réponse permet au front
  * de rester NON bloquant (le certificat/le flux produit reste affiché).
  */
@@ -28,10 +28,10 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ ok: false, erreurs: validation.erreurs }, { status: 422 });
   }
 
-  // Défense en profondeur : le front ne poste que si F1 est cochée, mais la route l'exige aussi.
-  if (!consentementServicePresent(validation.corps.consentements)) {
+  // Défense en profondeur : le front ne poste que si au moins un consentement est coché, mais la route l'exige aussi.
+  if (!auMoinsUnConsentement(validation.corps.consentements)) {
     return NextResponse.json(
-      { ok: false, cree: false, erreur: 'consentement F1 (recontact) requis pour créer un profil' },
+      { ok: false, cree: false, erreur: 'au moins un consentement requis pour créer un profil' },
       { status: 422 },
     );
   }
@@ -53,7 +53,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     return NextResponse.json({ ok: true, cree: true, internauteId, jetonRectification });
   } catch (e) {
-    if (e instanceof ErreurConsentementServiceManquant) {
+    if (e instanceof ErreurAucunConsentement) {
       return NextResponse.json({ ok: false, cree: false, erreur: e.message }, { status: 422 });
     }
     console.error('[internaute] ingestion échouée', e);

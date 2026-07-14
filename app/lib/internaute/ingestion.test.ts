@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validerCorpsIngestion, consentementServicePresent } from './ingestion';
+import { validerCorpsIngestion, consentementServicePresent, auMoinsUnConsentement } from './ingestion';
 import { finalitesActivesTunnel, texteExiste, FINALITE_SERVICE } from './textesConsentement';
 
 function corpsValide(overrides: Record<string, unknown> = {}) {
@@ -106,15 +106,35 @@ describe('validerCorpsIngestion — rejets', () => {
   });
 });
 
-describe('consentementServicePresent — porte F1', () => {
-  it('F1 présent → true', () => {
+describe('consentementServicePresent — recontactabilité F1 (PAS la porte de création)', () => {
+  it('F1 présent → true (recontactable par téléphone)', () => {
     expect(consentementServicePresent([{ finalite: 'recontact_interne', version: 1 }])).toBe(true);
   });
-  it('seulement F2 → false (pas de profil recontactable sans F1)', () => {
+  it('seulement F2 → false (pas recontactable par téléphone, même si un profil PEUT être créé)', () => {
     expect(consentementServicePresent([{ finalite: 'email_marketing', version: 1 }])).toBe(false);
   });
   it('liste vide → false', () => {
     expect(consentementServicePresent([])).toBe(false);
+  });
+});
+
+describe('auMoinsUnConsentement — PORTE DE CRÉATION élargie (au moins un des 3)', () => {
+  it('F1 seul → true (profil créé, non-régression)', () => {
+    expect(auMoinsUnConsentement([{ finalite: 'recontact_interne', version: 1 }])).toBe(true);
+  });
+  it('F2 SEUL → true : profil créé + consentement F2 persistable (le trou RGPD est fermé)', () => {
+    expect(auMoinsUnConsentement([{ finalite: 'email_marketing', version: 1 }])).toBe(true);
+  });
+  it('F1 + F2 → true', () => {
+    expect(
+      auMoinsUnConsentement([
+        { finalite: 'recontact_interne', version: 1 },
+        { finalite: 'email_marketing', version: 1 },
+      ]),
+    ).toBe(true);
+  });
+  it('AUCUN consentement → false (certificat délivré ailleurs, mais AUCUN profil créé — non-couplage)', () => {
+    expect(auMoinsUnConsentement([])).toBe(false);
   });
 });
 
@@ -125,8 +145,23 @@ describe('catalogue de textes de consentement', () => {
   it('une version inconnue n’existe pas', () => {
     expect(texteExiste(FINALITE_SERVICE, 999)).toBe(false);
   });
-  it('seule F1 est affichée dans le tunnel au lancement', () => {
+  it('F2 (email marketing) v1 existe', () => {
+    expect(texteExiste('email_marketing', 1)).toBe(true);
+  });
+  it('F1 et F2 sont affichées dans le tunnel ; F3 reste masquée', () => {
     const actives = finalitesActivesTunnel();
-    expect(actives.map((t) => t.finalite)).toEqual([FINALITE_SERVICE]);
+    expect(actives.map((t) => t.finalite)).toEqual(['recontact_interne', 'email_marketing']);
+  });
+  it('F2 porte un titre de section (mise en page dédiée) et son libellé vient du catalogue', () => {
+    const f2 = finalitesActivesTunnel().find((t) => t.finalite === 'email_marketing');
+    expect(f2?.titre).toBe('Votre accord pour l’envoi de mails');
+    expect(f2?.libelleCase).toContain('sansvisavis.com');
+  });
+  it('aucun texte du catalogue ne mentionne « juriste » ni « provisoire » (textes définitifs)', () => {
+    const tous = finalitesActivesTunnel();
+    for (const t of tous) {
+      expect(`${t.libelleCase} ${t.contenu} ${t.titre ?? ''}`.toLowerCase()).not.toContain('juriste');
+      expect(`${t.libelleCase} ${t.contenu} ${t.titre ?? ''}`.toLowerCase()).not.toContain('provisoire');
+    }
   });
 });

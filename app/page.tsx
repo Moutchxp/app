@@ -13,7 +13,7 @@ import { formaterDistanceVerdict, metresVerdictAffiches } from "./lib/formatDist
 import { SceauCertifie } from "./components/SceauCertifie";
 import type { Orientation } from "./lib/svv/config";
 import type { LibelleScore } from "./lib/svv/scoreTotal";
-import { finalitesActivesTunnel, FINALITE_SERVICE, type CleFinalite } from "./lib/internaute/textesConsentement";
+import { finalitesActivesTunnel, type CleFinalite } from "./lib/internaute/textesConsentement";
 import { PhoneInput } from "react-international-phone";
 import "react-international-phone/style.css";
 import { getActiveFormattingMask } from "react-international-phone";
@@ -795,7 +795,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   const emailValide = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   // Champs REQUIS manquants/invalides — MÊME règle que l'ancien `estValide` (aucun champ requis ajouté ni retiré),
   // décomposée par champ pour le marquage (Option C). L'adresse de résidence n'est requise QUE si « Non ».
-  // Le consentement F1 n'y figure PAS : le certificat s'obtient sans cocher (non-couplage, cf. soumettre).
+  // Le consentement n'y figure PAS : le certificat s'obtient sans cocher aucune case (non-couplage, cf. soumettre).
   const champsManquants: { cle: string; label: string; msg: string }[] = [
     prenom.trim() === "" && { cle: "prenom", label: "Prénom", msg: "Ce champ est requis." },
     nom.trim() === "" && { cle: "nom", label: "Nom", msg: "Ce champ est requis." },
@@ -814,11 +814,14 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   const enErreur = (cle: string) => tentative && champsManquants.some((m) => m.cle === cle);
   const msgErreur = (cle: string) => champsManquants.find((m) => m.cle === cle)?.msg ?? "";
 
-  // Soumission (LOT 2). NON-COUPLAGE : le certificat s'obtient SANS consentement. Sans F1 (recontact), AUCUNE
-  // donnée nominative n'est envoyée (minimisation) → on affiche juste la confirmation. Avec F1, on POSTe le profil
-  // à /api/internaute. L'ingestion NE BLOQUE JAMAIS le flux : la confirmation s'affiche quoi qu'il arrive.
+  // Soumission (LOT 2). NON-COUPLAGE : le certificat s'obtient SANS consentement. Sans AUCUN consentement, AUCUNE
+  // donnée nominative n'est envoyée (minimisation) → on affiche juste la confirmation. Avec AU MOINS UN consentement,
+  // on POSTe le profil à /api/internaute. L'ingestion NE BLOQUE JAMAIS le flux : la confirmation s'affiche quoi qu'il arrive.
   const soumettre = async () => {
-    if (!consentements[FINALITE_SERVICE]) {
+    // PORTE DE CRÉATION élargie (miroir front de `auMoinsUnConsentement`) : au moins UNE case active cochée. Sinon
+    // → certificat délivré, AUCUN profil créé (minimisation). Seules les finalités ACTIVES au tunnel sont cochables.
+    const auMoinsUnConsenti = finalitesActivesTunnel().some((t) => consentements[t.finalite]);
+    if (!auMoinsUnConsenti) {
       setSoumis(true);
       return;
     }
@@ -1356,21 +1359,28 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       )}
       </div>
 
-      {/* CONSENTEMENT (LOT 2) — granulaire, aucune case pré-cochée. Charte : rouge/gris, cibles ≥44px, focus rouge. */}
+      {/* CONSENTEMENT (LOT 2) — granulaire, aucune case pré-cochée, TEXTES ISSUS DU CATALOGUE VERSIONNÉ (jamais en dur).
+          Rendu GÉNÉRIQUE : une entrée par finalité active ; une finalité qui porte un `titre` (ex. F2) affiche son titre
+          + une mention (son `contenu`, encadré) ; sinon (ex. F1) la case est rendue seule. Charte : rouge/gris, ≥44px. */}
       <div className="mt-6 rounded-2xl bg-svv-field p-5">
-        <h2 className="mb-1 text-lg font-bold text-svv-ink">Vos préférences de contact</h2>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-svv-red">Texte provisoire — validation juriste requise</p>
-        <div className="flex flex-col gap-3">
+        <h2 className="mb-3 text-lg font-bold text-svv-ink">Vos préférences de contact</h2>
+        <div className="flex flex-col gap-4">
           {finalitesActivesTunnel().map((t) => (
-            <label key={t.finalite} className="flex min-h-11 cursor-pointer items-start gap-3">
-              <input
-                type="checkbox"
-                checked={consentements[t.finalite]}
-                onChange={(e) => setConsentements((c) => ({ ...c, [t.finalite]: e.target.checked }))}
-                className="mt-1 h-5 w-5 shrink-0 accent-svv-red focus:outline-none focus-visible:ring-2 focus-visible:ring-svv-red"
-              />
-              <span className="text-sm text-svv-ink">{t.libelleCase}</span>
-            </label>
+            <div key={t.finalite} className="flex flex-col gap-2">
+              {t.titre && <h3 className="text-sm font-bold text-svv-ink">{t.titre}</h3>}
+              <label className="flex min-h-11 cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={consentements[t.finalite]}
+                  onChange={(e) => setConsentements((c) => ({ ...c, [t.finalite]: e.target.checked }))}
+                  className="mt-1 h-5 w-5 shrink-0 accent-svv-red focus:outline-none focus-visible:ring-2 focus-visible:ring-svv-red"
+                />
+                <span className="text-sm text-svv-ink">{t.libelleCase}</span>
+              </label>
+              {t.titre && (
+                <p className="rounded-xl border border-svv-line bg-white p-3 text-sm text-svv-ink">{t.contenu}</p>
+              )}
+            </div>
           ))}
         </div>
         <p className="mt-3 text-xs text-svv-muted">
