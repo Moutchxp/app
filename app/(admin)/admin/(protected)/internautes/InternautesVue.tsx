@@ -275,6 +275,12 @@ export function InternautesVue() {
   // Défaut = {F1} (vue « recontactables » au chargement). Appliqué immédiatement (re-fetch). Le serveur (`clauseStatuts`)
   // garantit l'étanchéité (EXISTS en AND, zéro OR) ET le fail-closed (sélection vide → 0 résultat, jamais toute la base).
   const [statuts, setStatuts] = useState<Set<CleFinalite>>(() => new Set([FINALITE_F1]));
+  // MOTEUR DE RECHERCHE (LOT A-2). `statutsMiroir` = REFLET éditable de `statuts` (source de vérité), piloté À SENS
+  // UNIQUE : la source ré-initialise le miroir (cf. toggleStatut), le miroir n'a AUCUNE remontée. La LISTE (vers le
+  // bas) est pilotée par le miroir + `q` ; l'EXPORT (haut) reste piloté par la source `statuts`.
+  const [statutsMiroir, setStatutsMiroir] = useState<Set<CleFinalite>>(() => new Set([FINALITE_F1]));
+  const [q, setQ] = useState(''); //          saisie recherche nom/prénom (immédiate, liée à l'input)
+  const [qDebounced, setQDebounced] = useState(''); // valeur débouncée (250 ms) réellement envoyée au serveur
   const [page, setPage] = useState(1);
   const [etat, setEtat] = useState<{ statut: 'chargement' } | { statut: 'aucun_statut' } | { statut: 'erreur'; code: number } | { statut: 'ok'; total: number; lignes: Ligne[] }>({ statut: 'chargement' });
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -309,15 +315,21 @@ export function InternautesVue() {
     return () => { annule = true; };
   }, []);
 
-  // Fetch sur (filtres appliqués, page). Patron admin (cf. audit/page.tsx) : setState DANS l'IIFE async (jamais
-  // synchrone dans le corps de l'effet) + garde `annule` anti-course. La liste est réservée administrateur côté
-  // serveur ; un non-admin reçoit 403 → état « erreur » (message « réservé »).
+  // DEBOUNCE 250 ms de la recherche `q` → `qDebounced` (valeur réellement envoyée). Reset page à 1 quand la recherche
+  // effective change. `setState` dans le callback `setTimeout` (asynchrone) → pas de cascade synchrone d'effet.
+  useEffect(() => {
+    const t = setTimeout(() => { setQDebounced(q); setPage(1); }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  // Fetch sur (filtres appliqués, page, STATUTS MIROIR, recherche débouncée). Patron admin : setState DANS l'IIFE async
+  // + garde `annule` anti-course. Liste réservée administrateur côté serveur ; non-admin → 403 → état « erreur ».
   useEffect(() => {
     let annule = false;
     void (async () => {
-      // GARDE-FOU CONFORT (le serveur reste l'autorité) : aucun statut coché → on n'appelle PAS l'API (pas de requête
-      // sans contrainte de finalité) et on affiche un message. Le serveur bloque aussi (fail-closed) si l'URL est forgée.
-      if (statuts.size === 0) {
+      // GARDE-FOU CONFORT (le serveur reste l'autorité) : aucun statut MIROIR coché → on n'appelle PAS l'API (pas de
+      // requête sans contrainte de finalité) et on affiche un message. Le serveur bloque aussi (fail-closed) si forgé.
+      if (statutsMiroir.size === 0) {
         if (!annule) setEtat({ statut: 'aucun_statut' });
         return;
       }
@@ -326,7 +338,9 @@ export function InternautesVue() {
         const p = versParams(applique);
         p.set('page', String(page));
         p.set('taille', String(TAILLE));
-        p.set('statuts', [...statuts].join(',')); // intersection des statuts cochés ; étanchéité garantie côté serveur
+        p.set('statuts', [...statutsMiroir].join(',')); // intersection des statuts (miroir) ; étanchéité côté serveur
+        const recherche = qDebounced.trim();
+        if (recherche.length >= 2) p.set('q', recherche); // recherche serveur SEULEMENT à partir de 2 caractères
         const res = await fetch(`/api/admin/internautes?${p.toString()}`);
         if (annule) return;
         if (!res.ok) {
@@ -344,7 +358,7 @@ export function InternautesVue() {
     return () => {
       annule = true;
     };
-  }, [applique, page, statuts]);
+  }, [applique, page, statutsMiroir, qDebounced]);
 
   const filtrer = () => {
     setPage(1);
@@ -355,9 +369,22 @@ export function InternautesVue() {
     setPage(1);
     setApplique(FILTRES_VIDES);
   };
-  // Coche/décoche un statut (appartenance à l'ensemble). Appliqué immédiatement (l'effet re-fetch sur `statuts`).
+  // Coche/décoche un statut du bloc SOURCE. SENS UNIQUE (source → miroir) : toute action sur la source RÉINITIALISE
+  // le miroir SUR la nouvelle source ET vide la recherche → l'affichage revient « piloté par le haut ». On calcule
+  // `next` UNE fois et on l'applique à la source ET au miroir (garantie qu'ils sont synchronisés après le toggle).
   const toggleStatut = (s: CleFinalite) => {
-    setStatuts((prev) => {
+    const next = new Set(statuts);
+    if (next.has(s)) next.delete(s);
+    else next.add(s);
+    setStatuts(next);
+    setStatutsMiroir(new Set(next)); // re-sync du miroir sur la source
+    setQ('');
+    setQDebounced('');
+    setPage(1);
+  };
+  // Coche/décoche un statut MIROIR (pilote la LISTE, vers le bas SEULEMENT — AUCUNE remontée vers `statuts`).
+  const toggleMiroir = (s: CleFinalite) => {
+    setStatutsMiroir((prev) => {
       const next = new Set(prev);
       if (next.has(s)) next.delete(s);
       else next.add(s);
@@ -365,11 +392,12 @@ export function InternautesVue() {
     });
     setPage(1);
   };
-  const aucunStatut = statuts.size === 0;
-  // Statuts cochés, dans l'ordre canonique de STATUTS_EXPORT (indépendant de l'ordre de clic). Sert au param `statuts`
-  // (le serveur re-normalise de toute façon) et au libellé du compteur.
+  const aucunStatut = statuts.size === 0; // garde des boutons d'EXPORT (bloc source ; la LISTE, elle, teste `statutsMiroir`)
+  // Statuts cochés SOURCE (ordre canonique) : param `statuts` de l'export + libellé. Le serveur re-normalise.
   const statutsCoches = STATUTS_EXPORT.filter((s) => statuts.has(s.statut));
   const codesCoches = statutsCoches.map((s) => s.code).join(' ∩ ');
+  // Statuts MIROIR cochés (ordre canonique) : libellé du compteur de la liste (reflète la sélection réellement listée).
+  const codesMiroir = STATUTS_EXPORT.filter((s) => statutsMiroir.has(s.statut)).map((s) => s.code).join(' ∩ ');
   // URL d'export CSV : les statuts cochés accompagnent les filtres (`f` = filtres appliqués OU FILTRES_VIDES pour « toute
   // la base »). Toujours borné par les statuts ; validé/normalisé côté serveur par `lireStatuts`.
   const hrefExport = (f: Filtres) => {
@@ -451,6 +479,7 @@ export function InternautesVue() {
         return;
       }
       setDetail(null);
+      setDetailId(null); // referme COMPLÈTEMENT le dossier effacé (cohérent avec `fermerDetail`) → le cap de scroll (LOT A-2) se rétablit
       setConfirmEffacement(false);
       rechargerListe();
     } finally {
@@ -713,6 +742,46 @@ export function InternautesVue() {
         </div>
       </div>
 
+      {/* MOTEUR DE RECHERCHE (LOT A-2) — boutons F MIROIR (reflet À SENS UNIQUE de la sélection source ; CLIQUABLES,
+          pilotent la LISTE ci-dessous ; aucune remontée vers la source) + champ recherche nom/prénom (serveur,
+          debounce 250 ms, ≥2 car, insensible aux accents). Charte : liseré ROUGE = actif / GRIS = inactif, fond blanc. */}
+      <div style={{ border: '1px solid var(--color-svv-line)', borderRadius: 12, padding: 12, background: '#fff', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div role="group" aria-label="Statuts filtrant la liste (miroir)" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {STATUTS_EXPORT.map((s) => {
+            const actif = statutsMiroir.has(s.statut);
+            return (
+              <button
+                key={s.statut}
+                type="button"
+                aria-pressed={actif}
+                onClick={() => toggleMiroir(s.statut)}
+                style={{
+                  minHeight: 44,
+                  padding: '0 14px',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  fontSize: '.85rem',
+                  border: `2px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`, // liseré rouge (actif) / gris (inactif)
+                  background: '#fff', //                                                             fond blanc, aucune trame
+                  color: actif ? 'var(--color-svv-red)' : 'var(--color-svv-ink)',
+                }}
+              >
+                {s.libelle}
+              </button>
+            );
+          })}
+        </div>
+        <input
+          type="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Rechercher par nom ou prénom"
+          aria-label="Rechercher par nom ou prénom"
+          style={{ ...champ, minHeight: 44 }}
+        />
+      </div>
+
       {/* RÉSULTATS */}
       {etat.statut === 'aucun_statut' && (
         <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-muted)' }}>
@@ -730,12 +799,14 @@ export function InternautesVue() {
       {etat.statut === 'ok' && (
         <>
           <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)' }}>
-            {total} profil{total > 1 ? 's' : ''} — intersection des statuts {codesCoches} (tous actifs).
+            {total} profil{total > 1 ? 's' : ''} — statuts {codesMiroir}{qDebounced.trim().length >= 2 ? ` · recherche « ${qDebounced.trim()} »` : ''}.
           </div>
           {etat.lignes.length === 0 ? (
             <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-muted)' }}>Aucun profil pour ces critères.</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            // SCROLL (LOT A-2) : la liste plafonne à ~6 lignes visibles + scroll interne (le bloc ne grandit pas).
+            // Cap levé quand un dossier est ouvert (`detailId`) pour ne pas comprimer la fiche détail dans le scroll.
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, ...(detailId ? {} : { maxHeight: 460, overflowY: 'auto' }) }}>
               {etat.lignes.map((l) => {
                 const ouvert = detailId === l.id;
                 return (

@@ -35,4 +35,12 @@ describe('extractionRepo — GARDE FAIL-CLOSED : statuts VIDE → résultat vide
     expect(r).toEqual([]);
     expect(query).not.toHaveBeenCalled();
   });
+
+  it('FAIL-CLOSED tient AVEC une recherche `q` : statuts vide + q présent → vide, AUCUNE requête (la recherche ne contourne pas le garde)', async () => {
+    const rF = await lireProfilsFiltres({ q: 'thevenin' }, 1, 25, []);
+    expect(rF).toEqual({ total: 0, lignes: [] });
+    const rE = await lireProfilsExport({ q: 'thevenin' }, []);
+    expect(rE).toEqual([]);
+    expect(query).not.toHaveBeenCalled(); // le court-circuit statuts vide précède TOUT (y compris le filtre q)
+  });
 });

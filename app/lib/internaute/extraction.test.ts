@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { construireFiltres, clauseStatuts, exprConsentiLe, normaliserStatuts, lireStatuts, STATUTS_EXPORT, FINALITE_F1, lireFiltres, versCsv, type LigneProfil } from './extraction';
+import { construireFiltres, clauseStatuts, exprConsentiLe, normaliserStatuts, lireStatuts, ordreListe, STATUTS_EXPORT, FINALITE_F1, lireFiltres, versCsv, type LigneProfil } from './extraction';
 
 describe('construireFiltres — clauses paramétrées, extensibles, anti-injection', () => {
   it('aucun filtre → aucune clause, aucun paramètre', () => {
@@ -54,6 +54,64 @@ describe('construireFiltres — clauses paramétrées, extensibles, anti-injecti
 
   it('AUCUNE clause de consentement ici : les statuts F1/F2/F3 sont portés par `clauseStatuts`, jamais par construireFiltres', () => {
     expect(construireFiltres({}).clauses).toEqual([]); // filtres secondaires SEULEMENT ; le consentement ne fuit pas ici
+  });
+});
+
+describe('recherche texte `q` (LOT A-2) — tokenisée, insensible aux accents, LIÉE (anti-injection), OR CONFINÉ au nom', () => {
+  it('un mot → clause (unaccent prénom ILIKE $ OR unaccent nom ILIKE $), même paramètre lié `%mot%`', () => {
+    const r = construireFiltres({ q: 'thevenin' });
+    expect(r.clauses).toEqual(['(unaccent(i.prenom) ILIKE unaccent($1) OR unaccent(i.nom) ILIKE unaccent($1))']);
+    expect(r.params).toEqual(['%thevenin%']); // wildcards ajoutés côté JS ; la valeur est LIÉE, jamais interpolée
+  });
+
+  it('ORDRE LIBRE : « thevenin pierre » = « pierre thevenin » (chaque mot = 1 clause, toutes ANDées)', () => {
+    const a = construireFiltres({ q: 'thevenin pierre' });
+    const b = construireFiltres({ q: 'pierre  thevenin' }); // espaces multiples tolérés
+    expect(a.clauses).toHaveLength(2);
+    expect(a.params).toEqual(['%thevenin%', '%pierre%']);
+    expect(b.params).toEqual(['%pierre%', '%thevenin%']);
+    // Mêmes prédicats (à l'ordre près) → même population (jointure AND côté repo, commutative).
+    expect(new Set(a.params)).toEqual(new Set(b.params));
+  });
+
+  it('OR CONFINÉ au filtre nom/prénom, JAMAIS entre statuts (les EXISTS de statuts restent en AND)', () => {
+    const from = clauseStatuts(['recontact_interne', 'email_marketing']); // 2 EXISTS
+    const { clauses } = construireFiltres({ q: 'thevenin pierre' });
+    const requete = `SELECT i.id ${from} WHERE true AND ${clauses.join(' AND ')}`;
+    expect(from).not.toMatch(/\bOR\b/); //           les 2 statuts ne sont JAMAIS joints par OR
+    expect(from).toContain('AND EXISTS'); //         2e statut précédé de AND
+    clauses.forEach((c) => {
+      expect(c.startsWith('(') && c.endsWith(')')).toBe(true); // chaque OR est entre parenthèses (confiné)
+      expect((c.match(/ OR /g) ?? [])).toHaveLength(1); //        exactement 1 OR (prénom OU nom) par mot
+    });
+    // Total des OR de la requête = nombre de mots (2) → aucun OR ailleurs (ni entre EXISTS).
+    expect((requete.match(/ OR /g) ?? [])).toHaveLength(2);
+  });
+
+  it('métacaractères LIKE (%, _, \\) ÉCHAPPÉS → littéraux (pas de joker involontaire)', () => {
+    expect(construireFiltres({ q: '50%' }).params).toEqual(['%50\\%%']);
+    expect(construireFiltres({ q: 'a_b' }).params).toEqual(['%a\\_b%']);
+    expect(construireFiltres({ q: 'x\\y' }).params).toEqual(['%x\\\\y%']);
+  });
+
+  it('injection SQL impossible : `q` est LIÉE ($n) — AUCUN caractère utilisateur dans le SQL, charge dans les paramètres', () => {
+    const { clauses, params } = construireFiltres({ q: "x'; DROP TABLE internaute --" });
+    const sql = clauses.join(' ');
+    expect(sql).not.toContain('DROP'); //   la charge n'est PAS dans le texte SQL
+    expect(sql).not.toContain("'"); //      AUCUNE apostrophe littérale dans le SQL (tout passe par $n)
+    expect(sql).toContain('$1'); //         les valeurs sont LIÉES en paramètres
+    expect(params.join('|')).toContain('DROP'); // la charge (tokenisée) vit dans les PARAMÈTRES, inerte
+  });
+
+  it('q vide / uniquement des espaces → AUCUNE clause', () => {
+    expect(construireFiltres({ q: '' }).clauses).toEqual([]);
+    expect(construireFiltres({ q: '   ' }).clauses).toEqual([]);
+  });
+
+  it('ordreListe : q actif → ALPHABÉTIQUE stable (nom, prénom, i.id) ; sinon → récent d’abord', () => {
+    expect(ordreListe({ q: 'thevenin' })).toBe('ORDER BY i.nom NULLS LAST, i.prenom NULLS LAST, i.id');
+    expect(ordreListe({ q: '   ' })).toBe('ORDER BY i.cree_a DESC'); // q blanc → pas une recherche
+    expect(ordreListe({})).toBe('ORDER BY i.cree_a DESC');
   });
 });
 

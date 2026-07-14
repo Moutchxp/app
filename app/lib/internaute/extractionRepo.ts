@@ -13,7 +13,7 @@ import 'server-only';
  * (extraction.ts, pur & testable), partagé par le comptage, la liste et l'export.
  */
 import { query } from '../db/client';
-import { construireFiltres, clauseStatuts, exprConsentiLe, normaliserStatuts, FINALITE_F1, versCsv, type FiltresExtraction, type LigneProfil } from './extraction';
+import { construireFiltres, clauseStatuts, exprConsentiLe, normaliserStatuts, ordreListe, FINALITE_F1, versCsv, type FiltresExtraction, type LigneProfil } from './extraction';
 import type { CleFinalite } from './textesConsentement';
 
 // L'invariant de consentement (FROM/WHERE, INTERSECTION de statuts) est construit par `clauseStatuts` (extraction.ts,
@@ -57,7 +57,7 @@ export async function lireProfilsFiltres(
             p.verdict, p.score, p.commune_insee, p.dernier_etage, p.residence_principale,
             ${consenti} AS consenti_le
      ${from}${where}
-     ORDER BY i.cree_a DESC
+     ${ordreListe(filtres)}
      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, taille, offset],
   );
@@ -73,7 +73,7 @@ export async function lireProfilsExport(filtres: FiltresExtraction, statuts: rea
             p.verdict, p.score, p.commune_insee, p.dernier_etage, p.residence_principale,
             ${exprConsentiLe(statuts)} AS consenti_le
      ${clauseStatuts(statuts)}${clauseWhere(clauses)}
-     ORDER BY i.cree_a DESC`,
+     ${ordreListe(filtres)}`,
     params,
   );
   return r.rows.map(coercerLigne);

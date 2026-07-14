@@ -106,6 +106,7 @@ export interface FiltresExtraction {
   verdict?: string | null;
   creeApres?: string | null; // ISO (date de création du PROFIL)
   creeAvant?: string | null;
+  q?: string | null; // recherche texte nom/prénom (tokenisée, insensible aux accents) — LOT A-2
   // NB : la sélection des STATUTS de consentement (F1/F2/F3, intersection) n'est PAS un filtre WHERE ici — elle est
   // portée séparément par `clauseStatuts(statuts)` (FROM/WHERE), en amont de ces clauses. Voir `lireStatuts`.
 }
@@ -152,10 +153,32 @@ export function construireFiltres(f: FiltresExtraction): { clauses: string[]; pa
   if (typeof f.verdict === 'string' && VERDICTS.has(f.verdict)) clauses.push(`p.verdict = ${lier(f.verdict)}`);
   if (dateValide(f.creeApres)) clauses.push(`i.cree_a >= ${lier(f.creeApres)}`);
   if (dateValide(f.creeAvant)) clauses.push(`i.cree_a <= ${lier(f.creeAvant)}`);
-  // Les statuts de consentement (F1/F2/F3, intersection) ne sont PLUS des restricteurs `aF2/aF3` ici : ils sont
-  // portés par `clauseStatuts` (FROM/WHERE, EXISTS en AND). `construireFiltres` = SEULEMENT les filtres secondaires.
+  // RECHERCHE TEXTE (LOT A-2) — nom/prénom, INSENSIBLE aux accents (`unaccent`, migration 027) et à la casse (ILIKE).
+  // ORDRE LIBRE : `q` est tokenisé ; CHAQUE mot doit matcher (prénom OU nom) → une clause par mot, toutes ANDées
+  // (« thevenin pierre » = « pierre thevenin »). Le `OR` est INTERNE au filtre nom (JAMAIS un OR entre statuts, qui
+  // restent des EXISTS en AND dans `clauseStatuts`). Chaque mot est LIÉ en paramètre (`%mot%` ; wildcards ajoutés côté
+  // JS, JAMAIS interpolés → aucune injection SQL) ; les métacaractères LIKE du mot (`%`, `_`, `\`) sont ÉCHAPPÉS pour
+  // rester littéraux (pas de « joker » involontaire). `unaccent()` des DEUX côtés → comparaison sans accents.
+  if (typeof f.q === 'string') {
+    const echapperLike = (mot: string) => mot.replace(/[\\%_]/g, '\\$&');
+    for (const mot of f.q.trim().split(/\s+/).filter(Boolean)) {
+      const k = lier(`%${echapperLike(mot)}%`);
+      clauses.push(`(unaccent(i.prenom) ILIKE unaccent(${k}) OR unaccent(i.nom) ILIKE unaccent(${k}))`);
+    }
+  }
 
   return { clauses, params };
+}
+
+/**
+ * Tri de la liste (LOT A-2) — chaîne SQL CONSTANTE (aucune donnée utilisateur interpolée) :
+ *  - recherche `q` active → ALPHABÉTIQUE `nom, prénom`, avec départage STABLE `i.id` (nom/prénom NULLABLE & non
+ *    uniques → sans tiebreaker, des lignes migreraient entre pages) ;
+ *  - sinon → tri historique « récent d'abord » (`i.cree_a DESC`), INCHANGÉ.
+ */
+export function ordreListe(f: FiltresExtraction): string {
+  const recherche = typeof f.q === 'string' && f.q.trim() !== '';
+  return recherche ? 'ORDER BY i.nom NULLS LAST, i.prenom NULLS LAST, i.id' : 'ORDER BY i.cree_a DESC';
 }
 
 /** Parse les filtres depuis les query params d'une route. Absent/vide → non filtré ; la VALIDATION (typage, format)
@@ -187,6 +210,7 @@ export function lireFiltres(params: URLSearchParams): FiltresExtraction {
     verdict: str('verdict'),
     creeApres: str('creeApres'),
     creeAvant: str('creeAvant'),
+    q: str('q'), // recherche texte nom/prénom (LOT A-2) ; tokenisée & validée dans construireFiltres
   };
 }
 
