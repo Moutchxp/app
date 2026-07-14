@@ -162,12 +162,14 @@ export default function BancSaisie() {
   const [profilActif, setProfilActif] = useState<ProfilDegagement | null>(null);
   const [profilTest, setProfilTest] = useState<ProfilDegagement | null>(null);
 
-  // HANDOFF « fiche internaute → banc » (LOT B) : si une analyse a été déposée en sessionStorage (bouton « Tester
-  // dans le banc »), PRÉ-REMPLIR la saisie UNE fois puis VIDER la clé. Lecture au MONTAGE (post-hydratation) → aucun
-  // accès sessionStorage au SSR, pas de mismatch d'hydratation. Navigation directe / refresh sans clé → banc vierge.
-  // Les setState sont DIFFÉRÉS (setTimeout 0, convention du fichier : jamais de setState synchrone dans le corps de
-  // l'effet). Le vidage de la clé se fait DANS le callback différé (après application) : ainsi une passe annulée par
-  // le cleanup (StrictMode double-invoque les effets) laisse la clé INTACTE pour la re-passe → pré-remplissage fiable.
+  // HANDOFF « fiche internaute → banc » (LOT B) : le bouton « Test » d'une fiche ouvre CE banc dans un NOUVEL onglet
+  // et dépose l'analyse en localStorage (clé jetable ; localStorage car un nouvel onglet ne partage pas le
+  // sessionStorage de l'onglet parent). On PRÉ-REMPLIT la saisie UNE fois puis on VIDE la clé. Lecture au MONTAGE
+  // (post-hydratation) → aucun accès localStorage au SSR, pas de mismatch d'hydratation. Onglet ouvert directement /
+  // refresh sans clé → banc vierge. Les setState sont DIFFÉRÉS (setTimeout 0, convention du fichier : jamais de
+  // setState synchrone dans le corps de l'effet). Le vidage de la clé se fait DANS le callback différé (après
+  // application) : ainsi une passe annulée par le cleanup (StrictMode double-invoque les effets) laisse la clé INTACTE
+  // pour la re-passe → pré-remplissage fiable ; en prod (mono-invocation) la purge est immédiate.
   // `setPoint` enclenche la chaîne EXISTANTE (validation /api/origine → snap façade → point analysable → « Lancer »
   // actif). Aucun lancement auto : l'opérateur déclenche « Lancer le test » quand la validation du point a abouti.
   useEffect(() => {

@@ -8,7 +8,11 @@
  * dans CE fichier, sans retoucher la chaîne UI ni la route.
  *
  * MODULE PUR & CLIENT-SAFE : aucune dépendance serveur, aucun accès BDD, aucun IA. Les fonctions de
- * transport (sessionStorage) sont des enveloppes gardées `typeof window` autour du mapping pur.
+ * transport (localStorage, clé JETABLE) sont des enveloppes gardées `typeof window` autour du mapping pur.
+ * localStorage (et NON sessionStorage) est OBLIGATOIRE : le bouton « Test » ouvre le banc dans un NOUVEL
+ * onglet (`window.open`), or sessionStorage est cloisonné par onglet (l'onglet ouvert ne le verrait pas) ;
+ * localStorage est partagé même-origine entre onglets. La clé est PURGÉE dès sa lecture côté banc (jetable) ;
+ * une clé résiduelle (onglet jamais monté) est de toute façon écrasée au prochain clic. Jamais d'URL/historique.
  *
  * INVARIANTS respectés :
  *  • Le point stocké (`lat`/`lon`) est BRUT (pré-snap). La prod snappe la façade en `semi_auto` ; c'est donc
@@ -24,7 +28,7 @@
  */
 import { HAUTEUR_SOUS_PLAFOND_DEFAUT_M, type ModeOrigine } from "../svv/config";
 
-/** Clé de handoff en sessionStorage (versionnée : un changement de forme incrémente le suffixe). */
+/** Clé de handoff JETABLE en localStorage (versionnée : un changement de forme incrémente le suffixe). */
 export const CLE_HANDOFF_BANC = "svv.banc.rejeu.v1";
 
 /**
@@ -74,7 +78,7 @@ export function projetVersSaisieBanc(projet: Record<string, unknown>): SaisieBan
   };
 }
 
-/** Parse défensif d'un handoff sérialisé (sessionStorage) → `SaisieBanc` valide, sinon `null`. */
+/** Parse défensif d'un handoff sérialisé (localStorage) → `SaisieBanc` valide, sinon `null`. */
 export function parseHandoff(raw: string | null): SaisieBanc | null {
   if (!raw) return null;
   let o: unknown;
@@ -103,31 +107,32 @@ export function parseHandoff(raw: string | null): SaisieBanc | null {
   };
 }
 
-/** Dépose les intrants de rejeu en sessionStorage (transport hors URL : aucune position en historique/logs). */
+/** Dépose les intrants de rejeu en localStorage, clé jetable (transport hors URL : aucune position en historique/logs).
+ *  localStorage (pas sessionStorage) car le banc s'ouvre dans un NOUVEL onglet qui ne partage pas le sessionStorage. */
 export function ecrireHandoffBanc(saisie: SaisieBanc): void {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(CLE_HANDOFF_BANC, JSON.stringify(saisie));
+    window.localStorage.setItem(CLE_HANDOFF_BANC, JSON.stringify(saisie));
   } catch {
     /* quota / navigation privée : le banc s'ouvrira vierge, aucun crash */
   }
 }
 
-/** Lit (sans consommer) le handoff éventuel. `null` si absent/illisible. */
+/** Lit (sans consommer) le handoff éventuel. `null` si absent/illisible. La purge est faite par l'appelant (jetable). */
 export function lireHandoffBanc(): SaisieBanc | null {
   if (typeof window === "undefined") return null;
   try {
-    return parseHandoff(window.sessionStorage.getItem(CLE_HANDOFF_BANC));
+    return parseHandoff(window.localStorage.getItem(CLE_HANDOFF_BANC));
   } catch {
     return null;
   }
 }
 
-/** Vide la clé de handoff (à appeler une fois consommée : refresh/navigation directe → banc vierge). */
+/** Vide la clé de handoff jetable (à appeler dès consommation côté banc : refresh/navigation directe → banc vierge). */
 export function viderHandoffBanc(): void {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.removeItem(CLE_HANDOFF_BANC);
+    window.localStorage.removeItem(CLE_HANDOFF_BANC);
   } catch {
     /* no-op */
   }

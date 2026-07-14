@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
 import { libelleFinaliteAffichage } from '../../../../lib/internaute/libelleFinalite';
 import { STATUTS_EXPORT, FINALITE_F1 } from '../../../../lib/internaute/extraction';
 import { projetVersSaisieBanc, ecrireHandoffBanc } from '../../../../lib/internaute/pontProjetBanc';
+import { formaterTelephone } from '../../../../lib/internaute/formatTelephone';
+import { libelleScore } from '../../../../lib/libelles';
+import { SCORE_LABEL_EXCEPTIONNELLE_MIN, SCORE_LABEL_EXCELLENTE_MIN } from '../../../../lib/svv/config';
 import type { CleFinalite } from '../../../../lib/internaute/textesConsentement';
 
 /**
@@ -494,9 +496,11 @@ export function InternautesVue() {
 
   // Dossier détail — rendu INLINE sous la ligne ouverte (une seule ouverte à la fois, `detailId`). Défini ici pour
   // rester lisible ; le .map insère `{detailId === l.id && detailPanel}` juste après la ligne concernée.
+  // paddingTop resserré (14→8) + marge basse de la rangée « Fermer » réduite (8→2) : moins de vide au-dessus du nom,
+  // sans retirer le bouton Fermer (cible tactile 44px conservée). Harmonise avec le panneau Vérification (padding 12).
   const detailPanel = (detailChargement || detail) ? (
-    <div className="svv-card" style={{ border: '1px solid var(--color-svv-red)', marginTop: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+    <div className="svv-card" style={{ border: '1px solid var(--color-svv-red)', marginTop: 8, paddingTop: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
         <button type="button" style={{ ...btnOutline, marginLeft: 'auto' }} onClick={fermerDetail}>Fermer</button>
       </div>
       {detailChargement && <div style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
@@ -873,38 +877,9 @@ const dateHeureFr = (v: unknown) => {
   return `${jour} à ${heure.replace(':', 'h')}`;
 };
 
-/** Libellés FR des clés du payload de projet (tunnel). Une clé inconnue est affichée telle quelle → rien n'est masqué. */
-const LABEL_PAYLOAD: Record<string, string> = {
-  typeBien: 'Type de bien',
-  surface: 'Surface (m²)',
-  nbPieces: 'Nombre de pièces',
-  epoque: 'Époque de construction',
-  balcon: 'Balcon',
-  terrasse: 'Terrasse',
-  jardin: 'Jardin',
-  adresseResidence: 'Adresse de résidence principale',
-};
-const labelPayload = (k: string) => LABEL_PAYLOAD[k] ?? k;
-
 /** Verdict lisible (affichage). */
 const verdictFr = (v: unknown) =>
   v === 'SANS_VIS_A_VIS' ? 'Sans vis-à-vis' : v === 'VIS_A_VIS' ? 'Vis-à-vis' : v === 'INDETERMINE' ? 'Indéterminé' : '—';
-
-/** Ligne label/valeur générique (lecture seule). */
-function Champ({ label, valeur }: { label: string; valeur: unknown }) {
-  const txt =
-    valeur === null || valeur === undefined || valeur === ''
-      ? '—'
-      : typeof valeur === 'boolean'
-        ? valeur ? 'Oui' : 'Non'
-        : String(valeur);
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-      <span style={{ color: 'var(--color-svv-muted)' }}>{label}</span>
-      <span style={{ color: 'var(--color-svv-ink)', textAlign: 'right', wordBreak: 'break-word' }}>{txt}</span>
-    </div>
-  );
-}
 
 /**
  * Bouton « Tester dans le banc » (LOT B) rendu PAR ANALYSE. Transporte les grandeurs géométriques de CE projet
@@ -913,7 +888,6 @@ function Champ({ label, valeur }: { label: string; valeur: unknown }) {
  * pré-026) → `projetVersSaisieBanc` renvoie null, aucun appel banc, aucun 400.
  */
 function BoutonTestProjet({ projet }: { projet: Record<string, unknown> }) {
-  const router = useRouter();
   const saisie = projetVersSaisieBanc(projet);
   const rejouable = saisie !== null;
   return (
@@ -921,15 +895,15 @@ function BoutonTestProjet({ projet }: { projet: Record<string, unknown> }) {
       type="button"
       disabled={!rejouable}
       aria-disabled={!rejouable}
-      title={rejouable ? 'Rejouer cette analyse dans le banc de test' : 'Analyse antérieure à la capture de l’axe (azimut non enregistré) — non rejouable'}
+      title={rejouable ? 'Rejouer cette analyse dans le banc de test (nouvel onglet)' : 'Analyse antérieure à la capture de l’axe (azimut non enregistré) — non rejouable'}
       onClick={() => {
         if (!saisie) return; // garde défensive (le bouton est déjà `disabled` dans ce cas)
-        ecrireHandoffBanc(saisie); // transport hors URL : aucune position en historique/logs
-        router.push('/admin/banc-test');
+        ecrireHandoffBanc(saisie); // transport hors URL (localStorage jetable) : aucune position en historique/logs
+        window.open('/admin/banc-test', '_blank', 'noopener'); // NOUVEL onglet ; geste utilisateur → pas de blocage popup
       }}
       style={{ ...btnOutline, minHeight: 44, opacity: rejouable ? 1 : 0.5, cursor: rejouable ? 'pointer' : 'default' }}
     >
-      Tester dans le banc
+      Tester
     </button>
   );
 }
@@ -965,9 +939,19 @@ function FicheDetail({ detail, actions, actionsProjet }: { detail: Detail; actio
             i.efface_a ? '(identité effacée)' : '—'
           )}
         </div>
-        <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>{i.telephone ? String(i.telephone) : '—'}</div>
-        <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>{i.email ? String(i.email) : '—'}</div>
-        <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>
+        {/* Respiration : une ligne vide entre le nom/prénom et les contacts. */}
+        <div aria-hidden style={{ height: 10 }} />
+        {/* Contacts : label lisible + valeur. Téléphone REFORMATÉ national pour l'affichage (donnée stockée = E.164,
+            inchangée). Police > .85rem d'origine pour la lisibilité, mais STRICTEMENT < 1.25rem du nom. */}
+        <div style={{ fontSize: '.95rem', color: 'var(--color-svv-ink)', wordBreak: 'break-word' }}>
+          <span style={{ fontWeight: 600, color: 'var(--color-svv-muted)' }}>Téléphone : </span>
+          {i.telephone ? formaterTelephone(String(i.telephone)) : '—'}
+        </div>
+        <div style={{ fontSize: '.95rem', color: 'var(--color-svv-ink)', wordBreak: 'break-word' }}>
+          <span style={{ fontWeight: 600, color: 'var(--color-svv-muted)' }}>Email : </span>
+          {i.email ? String(i.email) : '—'}
+        </div>
+        <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', marginTop: 6 }}>
           Créé le {dateHeureFr(i.cree_a)}{i.source_collecte ? ` · Source : ${String(i.source_collecte)}` : ''}
         </div>
       </div>
@@ -985,68 +969,38 @@ function FicheDetail({ detail, actions, actionsProjet }: { detail: Detail; actio
         ))}
       </div>
 
-      {/* Analyse(s) COMPLÈTE(S) : tous les champs SAISIS (payload aplati, label FR) + TOUT le résultat de scoring. Rien masqué. */}
+      {/* Analyses — UNE LIGNE COMPACTE par analyse : verdict · note /100 (+ libellé produit) · date à heure · [Test à droite].
+          Déjà triées récent→ancien PAR LA REQUÊTE (`ORDER BY cree_a DESC`, extractionRepo) → AUCUN re-tri front. Le détail
+          verbeux (bien, adresse, grandeurs de visée) est masqué de l'AFFICHAGE ; les grandeurs restent dans `p` et
+          alimentent le bouton Test (elles ne disparaissent pas des données). */}
       <div>
         <div style={sousTitre}>Analyse{detail.projets.length > 1 ? 's' : ''} ({detail.projets.length})</div>
-        {detail.projets.map((p, idx) => {
-          const payload = (p.payload && typeof p.payload === 'object' ? p.payload : {}) as Record<string, unknown>;
-          const rpOui = p.residence_principale === true;
-          const adresseRp = payload.adresseResidence;
-          const norm = p.adresse_normalisee == null ? '' : String(p.adresse_normalisee);
-          const saisie = p.adresse_saisie == null ? '' : String(p.adresse_saisie);
-          const saisieDifferente = saisie.trim() !== '' && saisie !== norm;
-          // Clés payload déjà rendues explicitement dans « Le bien » ; le reste passe en catch-all → rien masqué.
-          const CLES_BIEN = new Set(['typeBien', 'surface', 'nbPieces', 'epoque', 'balcon', 'terrasse', 'jardin', 'adresseResidence']);
-          const autres = Object.entries(payload).filter(([k]) => !CLES_BIEN.has(k));
-          const groupe: CSSProperties = { fontWeight: 800, color: 'var(--color-svv-ink)', fontSize: '.78rem', marginTop: 8 };
-          return (
-            <div key={idx} style={{ border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: 8, marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ fontSize: '.72rem', color: 'var(--color-svv-muted)' }}>Analyse du {dateHeureFr(p.cree_a)} (tunnel v{String(p.version_tunnel ?? '—')})</div>
-
-              {/* GROUPE 1 — LE BIEN */}
-              <div style={groupe}>Le bien</div>
-              <Champ label="Adresse du bien" valeur={norm || '—'} />
-              {saisieDifferente && <Champ label="Adresse saisie" valeur={saisie} />}
-              <Champ label="Type de bien" valeur={payload.typeBien} />
-              <Champ label="Surface (m²)" valeur={payload.surface} />
-              <Champ label="Nombre de pièces" valeur={payload.nbPieces} />
-              <Champ label="Étage" valeur={p.etage} />
-              <Champ label="Dernier étage" valeur={p.dernier_etage} />
-              <Champ label="Époque de construction" valeur={payload.epoque} />
-              <Champ label="Balcon" valeur={payload.balcon} />
-              <Champ label="Terrasse" valeur={payload.terrasse} />
-              <Champ label="Jardin" valeur={payload.jardin} />
-              <Champ label="Résidence principale" valeur={p.residence_principale} />
-              {rpOui ? (
-                <Champ label="Adresse de résidence" valeur="Le bien analysé est la résidence principale" />
-              ) : adresseRp != null && String(adresseRp).trim() !== '' ? (
-                <Champ label="Adresse de résidence principale" valeur={adresseRp} />
-              ) : null}
-              {autres.map(([k, v]) => (
-                <Champ key={k} label={labelPayload(k)} valeur={v} />
-              ))}
-
-              {/* GROUPE 2 — VERDICT & SCORE (résultat + déterminants géométriques présents). */}
-              <div style={groupe}>Verdict et score</div>
-              <Champ label="Verdict" valeur={verdictFr(p.verdict)} />
-              <Champ label="Score /100" valeur={p.score == null ? null : Number(p.score).toFixed(2)} />
-              <Champ label="Point d’origine — latitude" valeur={p.lat} />
-              <Champ label="Point d’origine — longitude" valeur={p.lon} />
-              <Champ label="Commune (INSEE)" valeur={p.commune_insee} />
-              {/* Grandeurs de visée (migration 026). Dossiers ANCIENS = colonnes NULL → Champ affiche « — » (pas de crash).
-                  numeric pg = chaîne → Number() ; AFFICHAGE à 2 décimales (toFixed) — valeur STOCKÉE brute inchangée,
-                  aucun recalcul. Lat/lon gardent leur précision complète (jamais arrondis). */}
-              <Champ label="Azimut de l’axe" valeur={p.azimut_deg == null ? null : `${Number(p.azimut_deg).toFixed(2)}°`} />
-              <Champ label="Hauteur sous plafond" valeur={p.hauteur_sous_plafond_m == null ? null : `${Number(p.hauteur_sous_plafond_m).toFixed(2)} m`} />
-              <Champ label="Hauteur de vision" valeur={p.hauteur_vision_m == null ? null : `${Number(p.hauteur_vision_m).toFixed(2)} m`} />
-
-              {/* Action PAR ANALYSE (LOT B) — ex. « Tester dans le banc ». Rendue SEULEMENT si `actionsProjet` est fournie ;
-                  fournie aux DEUX endroits (commercial ET Vérification) mais JAMAIS `actions` (Rectifier/Effacer) côté
-                  Vérification. Chaque bouton porte les grandeurs de SON analyse (`p`), pas celles d'une autre. */}
-              {actionsProjet ? <div style={{ marginTop: 4 }}>{actionsProjet(p)}</div> : null}
-            </div>
-          );
-        })}
+        {/* Conteneur plafonné à ~5 lignes (hauteur ≈ 5 × 60px : bouton 44px + marges) : au-delà → scroll interne, le
+            bloc ne grandit pas (jamais plus de 5 d'un coup). Approximation assumée (lignes de hauteur variable selon le
+            wrapping mobile — une ligne repliée compte pour plus, donc ≤ 5 visibles). Pas de scroll animé imposé
+            (la feuille de style admin respecte prefers-reduced-motion). */}
+        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 5 * 60, overflowY: 'auto' }}>
+          {detail.projets.map((p, idx) => {
+            const note = p.score == null ? null : Number(p.score); // numeric pg → chaîne → number (jamais la chaîne brute)
+            // Libellé produit DÉRIVÉ du /100 : seuils CANONIQUES (config.SCORE_LABEL_*) + mapper partagé (libelleScore) —
+            // jamais re-codés ici (cohérence stricte avec l'enum du moteur). < 60 → pas de libellé, note nue.
+            const lib = note == null ? null : libelleScore(note >= SCORE_LABEL_EXCEPTIONNELLE_MIN ? 'EXCEPTIONNELLE' : note >= SCORE_LABEL_EXCELLENTE_MIN ? 'EXCELLENTE' : null);
+            return (
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: '6px 10px' }}>
+                <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)', fontSize: '.85rem' }}>{verdictFr(p.verdict)}</span>
+                <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
+                <span style={{ color: 'var(--color-svv-ink)', fontSize: '.85rem', fontVariantNumeric: 'tabular-nums' }}>
+                  {note == null ? '—' : `${Math.round(note)}/100`}{lib ? ` · ${lib}` : ''}
+                </span>
+                <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
+                <span style={{ color: 'var(--color-svv-muted)', fontSize: '.78rem' }}>{dateHeureFr(p.cree_a)}</span>
+                {/* Bouton Test À DROITE (marginLeft:auto). Rendu SEULEMENT si `actionsProjet` fournie (les 2 fiches la
+                    fournissent, jamais `actions` côté Vérification). Rejoue CETTE analyse (`p`), jamais « la dernière ». */}
+                {actionsProjet ? <div style={{ marginLeft: 'auto' }}>{actionsProjet(p)}</div> : null}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Profil effacé : note INFORMATIVE (pas une action) — affichée aux deux endroits. */}
