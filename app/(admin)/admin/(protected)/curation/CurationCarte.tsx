@@ -1042,13 +1042,22 @@ export default function CurationCarte() {
     for (const emp of emprisesFond) {
       if (!emp.geom || !emp.cleabs) continue;
       const cleabs = emp.cleabs;
+      // Bâtiment CIBLE d'une création en cours (double-clic → `cleabsCible`) → VERT (--color-svv-green), STRICTEMENT
+      // lié à `cleabsCible` : quand la création est validée/abandonnée, `cleabsCible` repasse à null → cet effet se
+      // reconstruit (cleabsCible ∈ deps) → le bâtiment retrouve son style normal ET son survol rouge. Aucun vert résiduel.
+      const estCible = cleabs === cleabsCible;
       const layer = L.geoJSON(emp.geom, {
         interactive: true,
         pane: 'svv-cur-fond', // pane bas dédié → toujours SOUS les emprises bleu/vert (priorité rattachement)
-        style: { stroke: false, fill: true, fillColor: '#a30402', fillOpacity: 0 },
+        style: estCible
+          ? { stroke: true, color: '#2e9e5b', weight: 2, fill: true, fillColor: '#2e9e5b', fillOpacity: 0.28 } // --color-svv-green
+          : { stroke: false, fill: true, fillColor: '#a30402', fillOpacity: 0 },
       });
-      layer.on('mouseover', () => layer.setStyle({ stroke: true, color: '#a30402', weight: 1, fillOpacity: 0.06 }));
-      layer.on('mouseout', () => layer.setStyle({ stroke: false, fillOpacity: 0 }));
+      if (!estCible) {
+        // Survol rouge NORMAL — uniquement HORS cible : la cible garde son vert tant que `cleabsCible` la désigne.
+        layer.on('mouseover', () => layer.setStyle({ stroke: true, color: '#a30402', weight: 1, fillOpacity: 0.06 }));
+        layer.on('mouseout', () => layer.setStyle({ stroke: false, fillOpacity: 0 }));
+      }
       // Création par double-clic : gardée par la règle pure (suspendue quand le mode bulle est actif).
       layer.on('dblclick', () => {
         if (doitCreerAuDoubleClic(modeBulle)) ouvrirCreationCiblee(cleabs);
@@ -1066,7 +1075,7 @@ export default function CurationCarte() {
       }
       layer.addTo(couche);
     }
-  }, [emprisesFond, ouvrirCreationCiblee, modeBulle]);
+  }, [emprisesFond, ouvrirCreationCiblee, modeBulle, cleabsCible]);
 
   // ── Mode bulle désactivé : referme toute bulle encore ouverte (le rebuild ci-dessus retire déjà les
   //    popups liés, ce close est un filet de sécurité au basculement). ─
@@ -1114,27 +1123,25 @@ export default function CurationCarte() {
 
   // FC-60 : aucun scrollIntoView à l'ouverture du formulaire de création (effet `[creationOuverte]` retiré).
 
-  // ── Scroll vers le PANNEAU quand une action de la CARTE ouvre un module de création (attention sur la carte →
-  //    on amène l'utilisateur au module dans la colonne). UN SEUL mécanisme (même motif reduced-motion + rAF),
-  //    trois déclencheurs venant tous d'un geste carte :
-  //      • `composition` posé (fiche créée depuis la carte)      → cible `formulaireRef`
-  //      • `cleabsCible` posé = double-clic création ciblée       → cible `formulaireRef` (le FORMULAIRE s'y ouvre)
-  //      • `editionProposee` posé = double-clic sur un déjà-tagué  → cible `alerteRef` (l'alerte est AU-DESSUS du form)
-  //    Le bouton « + Nouveau tag » ouvre le formulaire EN PLACE (accordéon, `cleabsCible === null`) → NON scrollé
-  //    (FC-60). `revenirAuRepos` remet ces 3 clés à null → aucun scroll au repli (repli SANS saut préservé).
+  // ── TRANSPORT INSTANTANÉ vers le module ouvert PAR LA CARTE (double-clic) — UN SEUL mécanisme (rAF), deux
+  //    déclencheurs venant d'un geste carte :
+  //      • `cleabsCible` posé = double-clic création ciblée      → cible `formulaireRef` (le FORMULAIRE s'y ouvre)
+  //      • `editionProposee` posé = double-clic sur un déjà-tagué → cible `alerteRef` (l'alerte est AU-DESSUS du form)
+  //    `behavior:'auto'` → on arrive DIRECTEMENT, sans défilement animé (donc prefers-reduced-motion sans objet ici).
+  //    `composition` n'est VOLONTAIREMENT PAS un déclencheur : après VALIDATION d'un tag (soumettreCreation pose
+  //    `composition`), on NE scrolle PAS — la création est finie, on reste EN HAUT. `composition` n'est posé que par
+  //    soumettreCreation, donc retirer ce déclencheur n'affecte QUE le cas « validation ». Le bouton « + Nouveau
+  //    tag » ouvre le formulaire EN PLACE (`cleabsCible === null`) → NON scrollé (FC-60). `revenirAuRepos` remet
+  //    `cleabsCible`/`editionProposee` à null → aucun scroll au repli. (Le scroll `flashId` de sélection est un
+  //    effet DISTINCT, inchangé : il garde son smooth + surbrillance.)
   useEffect(() => {
-    const cible = editionProposee
-      ? alerteRef.current
-      : composition !== null || cleabsCible !== null
-        ? formulaireRef.current
-        : null;
+    const cible = editionProposee ? alerteRef.current : cleabsCible !== null ? formulaireRef.current : null;
     if (!cible) return;
-    const reduire = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const raf = requestAnimationFrame(() => {
-      cible.scrollIntoView({ behavior: reduire ? 'auto' : 'smooth', block: 'start', inline: 'nearest' });
+      cible.scrollIntoView({ behavior: 'auto', block: 'start', inline: 'nearest' });
     });
     return () => cancelAnimationFrame(raf);
-  }, [composition, cleabsCible, editionProposee]);
+  }, [cleabsCible, editionProposee]);
 
   // ── Fermeture de la zone de composition (« Terminer » / « Abandonner ») : COSMÉTIQUE, aucune écriture,
   //    aucune suppression (OQ-1). MÊME retour au repos que « Sortir » (`revenirAuRepos`) → une seule définition
