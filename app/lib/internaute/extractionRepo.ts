@@ -7,29 +7,17 @@ import 'server-only';
  * jamais rappelé (golden intact). La seule écriture est le JOURNAL d'accountability (`internaute_extraction_log`).
  *
  * ⚠️ INVARIANT STRUCTUREL (raison d'être de la vue du LOT 1) : toute lecture exploitable JOINT
- * `internaute_consentement_actif` sur (finalité F1 recontact_interne, actif=true) ET exclut les opposés
- * (`opposition_recontact=false`). Un profil sans consentement F1 actif N'APPARAÎT JAMAIS. Cet invariant vit dans
- * `FROM_INVARIANT` ci-dessous, partagé par le comptage, la liste et l'export.
+ * `internaute_consentement_actif` sur (la finalité-axe, défaut F1 recontact_interne, actif=true) ET exclut les
+ * opposés (`opposition_recontact=false`). Un profil sans consentement à l'axe actif N'APPARAÎT JAMAIS. Cet invariant
+ * est construit par `clauseFromInvariant` (extraction.ts, pur, paramétré par axe — défaut F1 → ISO-comportement),
+ * partagé par le comptage, la liste et l'export.
  */
 import { query } from '../db/client';
-import { construireFiltres, versCsv, type FiltresExtraction, type LigneProfil } from './extraction';
+import { construireFiltres, clauseFromInvariant, AXE_DEFAUT, versCsv, type FiltresExtraction, type LigneProfil } from './extraction';
+import type { CleFinalite } from './textesConsentement';
 
-/**
- * Clause FROM/JOIN portant l'INVARIANT de consentement. Le dernier projet de chaque personne est joint par
- * LATERAL (une personne ↔ N analyses → la plus récente sert aux filtres/affichage). AUCUN paramètre ici : la
- * finalité est un littéral constant (jamais une entrée utilisateur) → les filtres commencent à $1.
- */
-const FROM_INVARIANT = `
-  FROM internaute i
-  JOIN internaute_consentement_actif ca
-    ON ca.internaute_id = i.id AND ca.finalite = 'recontact_interne' AND ca.actif = true
-  LEFT JOIN LATERAL (
-    SELECT verdict, score, dernier_etage, residence_principale, commune_insee
-    FROM internaute_projet pr WHERE pr.internaute_id = i.id ORDER BY pr.cree_a DESC LIMIT 1
-  ) p ON true
-  WHERE i.opposition_recontact = false
-    AND i.efface_a IS NULL            -- LOT 4 : un profil effacé (PII anonymisées) ne réapparaît JAMAIS en extraction
-`;
+// L'invariant de consentement (FROM/JOIN paramétré par finalité-axe) est construit par `clauseFromInvariant`
+// (extraction.ts, pur & testable) ; ici on ne fait que l'EXÉCUTER. Défaut = `AXE_DEFAUT` (F1) → ISO-comportement.
 
 function clauseWhere(clauses: string[]): string {
   return clauses.length ? ` AND ${clauses.join(' AND ')}` : '';
@@ -51,18 +39,20 @@ export async function lireProfilsFiltres(
   filtres: FiltresExtraction,
   page: number,
   taille: number,
+  axe: CleFinalite = AXE_DEFAUT,
 ): Promise<{ total: number; lignes: LigneProfil[] }> {
   const { clauses, params } = construireFiltres(filtres);
   const where = clauseWhere(clauses);
+  const from = clauseFromInvariant(axe);
 
-  const total = await query<{ n: string }>(`SELECT count(*)::text AS n ${FROM_INVARIANT}${where}`, params);
+  const total = await query<{ n: string }>(`SELECT count(*)::text AS n ${from}${where}`, params);
 
   const offset = Math.max(0, (page - 1) * taille);
   const lignes = await query<LigneProfil>(
     `SELECT i.id, i.prenom, i.nom, i.email, i.telephone, i.cree_a,
             p.verdict, p.score, p.commune_insee, p.dernier_etage, p.residence_principale,
             ca.horodatage AS consenti_le
-     ${FROM_INVARIANT}${where}
+     ${from}${where}
      ORDER BY i.cree_a DESC
      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, taille, offset],
@@ -71,13 +61,13 @@ export async function lireProfilsFiltres(
 }
 
 /** Toutes les lignes filtrées (sans pagination) pour l'export CSV — MÊME invariant F1. */
-export async function lireProfilsExport(filtres: FiltresExtraction): Promise<LigneProfil[]> {
+export async function lireProfilsExport(filtres: FiltresExtraction, axe: CleFinalite = AXE_DEFAUT): Promise<LigneProfil[]> {
   const { clauses, params } = construireFiltres(filtres);
   const r = await query<LigneProfil>(
     `SELECT i.id, i.prenom, i.nom, i.email, i.telephone, i.cree_a,
             p.verdict, p.score, p.commune_insee, p.dernier_etage, p.residence_principale,
             ca.horodatage AS consenti_le
-     ${FROM_INVARIANT}${clauseWhere(clauses)}
+     ${clauseFromInvariant(axe)}${clauseWhere(clauses)}
      ORDER BY i.cree_a DESC`,
     params,
   );
@@ -107,15 +97,15 @@ const DEPT_NOM: Record<string, string> = {
 
 /**
  * Communes RÉELLEMENT présentes chez les consentants F1 (extraction commerciale nominative — PAS de k-anonymat ici).
- * DYNAMIQUE : `SELECT DISTINCT p.commune_insee` sur le set F1 (`FROM_INVARIANT`), joint à `adresse_ban` (référentiel
+ * DYNAMIQUE : `SELECT DISTINCT p.commune_insee` sur le set de l'axe (`clauseFromInvariant`, défaut F1), joint à `adresse_ban` (référentiel
  * géo public BAN/IGN) pour le NOM — lu DIRECTEMENT via `db/client`, JAMAIS via `app/lib/analytics/*` (cloisonnement M2).
  * Aucune liste en dur : un nouveau département/commune entrant en base apparaît automatiquement. Nom absent → INSEE.
  * Département = 2 premiers caractères (IDF) ; libellé via `DEPT_NOM`, sinon le code. Lecture seule.
  */
-export async function lireCommunesPresentes(): Promise<{ insee: string; nom: string; dept: string; deptNom: string }[]> {
+export async function lireCommunesPresentes(axe: CleFinalite = AXE_DEFAUT): Promise<{ insee: string; nom: string; dept: string; deptNom: string }[]> {
   const r = await query<{ insee: string; nom: string | null }>(
     `SELECT c.insee AS insee, MAX(a.nom_commune) AS nom
-       FROM (SELECT DISTINCT p.commune_insee AS insee ${FROM_INVARIANT} AND p.commune_insee IS NOT NULL) c
+       FROM (SELECT DISTINCT p.commune_insee AS insee ${clauseFromInvariant(axe)} AND p.commune_insee IS NOT NULL) c
        LEFT JOIN adresse_ban a ON a.insee_commune = c.insee
       GROUP BY c.insee
       ORDER BY 1`,

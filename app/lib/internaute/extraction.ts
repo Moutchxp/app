@@ -1,10 +1,47 @@
 /**
  * Module INTERNAUTE — LOT 3 (exploitation interne) : construction PURE des filtres + sérialisation CSV.
  *
- * Pur, sans accès base, AUCUN import `app/lib/analytics/*` ni moteur → cloisonnement M2 trivial. L'exécution SQL
- * (avec l'INVARIANT de consentement F1 actif) est dans `extractionRepo.ts` (serveur only). Ici : le builder de
- * clauses WHERE paramétrées (extensible) et le sérialiseur CSV — testables sans base.
+ * Pur, sans accès base, AUCUN import `app/lib/analytics/*` ni moteur → cloisonnement M2 trivial. L'EXÉCUTION SQL
+ * (le `query`) reste dans `extractionRepo.ts` (serveur only). Ici, uniquement de la CONSTRUCTION de chaînes SQL,
+ * testable sans base : le fragment FROM/JOIN de l'invariant de consentement (paramétré par finalité-axe), le builder
+ * de clauses WHERE paramétrées (extensible) et le sérialiseur CSV.
  */
+import type { CleFinalite } from './textesConsentement';
+
+/**
+ * Finalité-axe par DÉFAUT de l'extraction commerciale interne : F1 (recontact interne), historiquement la SEULE.
+ * Source unique — le refactor « paramétrable par axe » (LOT 1) conserve ce défaut → ISO-COMPORTEMENT total.
+ */
+export const AXE_DEFAUT: CleFinalite = 'recontact_interne';
+
+/**
+ * Fragment FROM/JOIN portant l'INVARIANT DE CONSENTEMENT, PARAMÉTRÉ par la finalité-`axe` (défaut `AXE_DEFAUT` = F1).
+ * PUR : ne fait que CONSTRUIRE la chaîne SQL — l'exécution reste dans `extractionRepo.ts`. Le dernier projet de chaque
+ * personne est joint par LATERAL. AUCUN paramètre lié ici : la finalité est un LITTÉRAL de type fermé `CleFinalite`
+ * (jamais une entrée utilisateur) → les filtres de `construireFiltres` commencent toujours à `$1`.
+ *
+ * ISO-COMPORTEMENT : avec l'axe par défaut, le fragment est équivalent à l'ancienne constante `FROM_INVARIANT` (seule
+ * la finalité varie si un autre axe est passé). L'opt-out `opposition_recontact` (F1-spécifique) et le filtre
+ * `efface_a IS NULL` sont CONSERVÉS tels quels dans ce lot (généralisation éventuelle → lots ultérieurs).
+ *
+ * Défense en profondeur : `axe` étant INTERPOLÉ (jamais lié), on VALIDE qu'il n'est qu'un identifiant `[a-z0-9_]+`
+ * (toutes les clés de finalité le sont) → toute injection SQL est structurellement impossible même si un appelant
+ * futur contournait le typage.
+ */
+export function clauseFromInvariant(axe: CleFinalite = AXE_DEFAUT): string {
+  if (!/^[a-z0-9_]+$/.test(axe)) throw new Error(`finalité-axe invalide (attendu [a-z0-9_]+) : ${axe}`);
+  return `
+  FROM internaute i
+  JOIN internaute_consentement_actif ca
+    ON ca.internaute_id = i.id AND ca.finalite = '${axe}' AND ca.actif = true
+  LEFT JOIN LATERAL (
+    SELECT verdict, score, dernier_etage, residence_principale, commune_insee
+    FROM internaute_projet pr WHERE pr.internaute_id = i.id ORDER BY pr.cree_a DESC LIMIT 1
+  ) p ON true
+  WHERE i.opposition_recontact = false
+    AND i.efface_a IS NULL            -- LOT 4 : un profil effacé (PII anonymisées) ne réapparaît JAMAIS en extraction
+`;
+}
 
 /** Critères d'extraction. Tous optionnels ; extensible (ajouter un champ + une entrée dans `construireFiltres`). */
 export interface FiltresExtraction {
@@ -64,7 +101,7 @@ export function construireFiltres(f: FiltresExtraction): { clauses: string[]; pa
   if (dateValide(f.creeApres)) clauses.push(`i.cree_a >= ${lier(f.creeApres)}`);
   if (dateValide(f.creeAvant)) clauses.push(`i.cree_a <= ${lier(f.creeAvant)}`);
   // Restriction de consentement PARMI les F1 : AND EXISTS (finalité F2/F3 active pour CETTE personne). C'est un
-  // FILTRE qui RÉDUIT l'ensemble déjà borné à F1 par `FROM_INVARIANT` — JAMAIS un OR, jamais un ajout de non-F1.
+  // FILTRE qui RÉDUIT l'ensemble déjà borné à l'axe (défaut F1) par `clauseFromInvariant` — JAMAIS un OR, jamais un ajout hors-axe.
   // La finalité est un LITTÉRAL constant piloté par un booléen (aucune entrée texte utilisateur → aucune injection).
   if (f.aF2 === true) clauses.push(`EXISTS (SELECT 1 FROM internaute_consentement_actif ca_f2 WHERE ca_f2.internaute_id = i.id AND ca_f2.finalite = 'email_marketing' AND ca_f2.actif = true)`);
   if (f.aF3 === true) clauses.push(`EXISTS (SELECT 1 FROM internaute_consentement_actif ca_f3 WHERE ca_f3.internaute_id = i.id AND ca_f3.finalite = 'retargeting_tiers' AND ca_f3.actif = true)`);

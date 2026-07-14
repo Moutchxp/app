@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { construireFiltres, lireFiltres, versCsv, type LigneProfil } from './extraction';
+import { construireFiltres, clauseFromInvariant, AXE_DEFAUT, lireFiltres, versCsv, type LigneProfil } from './extraction';
+import type { CleFinalite } from './textesConsentement';
 
 describe('construireFiltres — clauses paramétrées, extensibles, anti-injection', () => {
   it('aucun filtre → aucune clause, aucun paramètre', () => {
@@ -70,6 +71,39 @@ describe('construireFiltres — clauses paramétrées, extensibles, anti-injecti
     // Non coché (false / null / absent) → AUCUNE clause (n'élargit ni ne restreint).
     expect(construireFiltres({ aF2: false, aF3: null }).clauses).toEqual([]);
     expect(construireFiltres({}).clauses).toEqual([]);
+  });
+});
+
+describe('clauseFromInvariant — FROM/JOIN paramétré par axe (LOT 1 : refactor ISO-COMPORTEMENT)', () => {
+  it('AXE_DEFAUT = F1, et clauseFromInvariant() (défaut) === clauseFromInvariant("recontact_interne")', () => {
+    expect(AXE_DEFAUT).toBe('recontact_interne');
+    expect(clauseFromInvariant()).toBe(clauseFromInvariant('recontact_interne'));
+  });
+
+  it('axe F1 : joint recontact_interne actif ET CONSERVE tous les garde-fous historiques (opposition, effacé, dernier projet)', () => {
+    const f1 = clauseFromInvariant('recontact_interne');
+    expect(f1).toContain('JOIN internaute_consentement_actif ca');
+    expect(f1).toContain("ca.finalite = 'recontact_interne'");
+    expect(f1).toContain('ca.actif = true');
+    expect(f1).toContain('i.opposition_recontact = false'); // opt-out F1 CONSERVÉ tel quel (inchangé ce lot)
+    expect(f1).toContain('i.efface_a IS NULL'); //             un profil effacé ne réapparaît jamais
+    expect(f1).toContain('ORDER BY pr.cree_a DESC LIMIT 1'); // dernier projet (LATERAL)
+    expect(f1).not.toContain('$1'); //                         AUCUN paramètre lié dans le FROM → les filtres commencent à $1
+  });
+
+  it('axe F2 : SEULE la finalité change — preuve d’ISO (le reste du fragment est identique à F1)', () => {
+    const f1 = clauseFromInvariant('recontact_interne');
+    const f2 = clauseFromInvariant('email_marketing');
+    expect(f2).toContain("ca.finalite = 'email_marketing'");
+    expect(f2).not.toContain("ca.finalite = 'recontact_interne'");
+    // F2 = F1 où l’on n’a substitué QUE le littéral de finalité (aucune autre différence).
+    expect(f2).toBe(f1.replace("ca.finalite = 'recontact_interne'", "ca.finalite = 'email_marketing'"));
+    // F3 : même mécanique paramétrée.
+    expect(clauseFromInvariant('retargeting_tiers')).toContain("ca.finalite = 'retargeting_tiers'");
+  });
+
+  it('anti-injection : un axe non-identifiant est REFUSÉ (défense en profondeur — jamais atteint via le typage)', () => {
+    expect(() => clauseFromInvariant("recontact_interne'; DROP TABLE internaute --" as CleFinalite)).toThrow();
   });
 });
 
