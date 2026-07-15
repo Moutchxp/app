@@ -1,9 +1,9 @@
 import { cookies } from 'next/headers';
-import Link from 'next/link';
 import { NOM_COOKIE, verifierJeton, sessionDepuisPayload } from '../../../lib/admin/session';
 import { lireOrdreModules } from '../../../lib/admin/comptes';
 import { liensVisibles, ordonner } from './menuAdmin';
 import { EnTetePage } from './_composants/EnTetePage';
+import { GrilleModules } from './GrilleModules';
 
 /**
  * Tableau de bord admin. La GRILLE de tuiles dérive de `liensVisibles` — la MÊME source que le menu latéral
@@ -24,18 +24,9 @@ export default async function AdminAccueilPage() {
     <section style={{ maxWidth: 720 }}>
       <EnTetePage titre="Tableau de bord" intro="Interface d’administration interne — Sans Vis-à-Vis®." />
 
-      <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
-        {tuiles.map((t) => (
-          // Trame grise (cohérence admin) sur l'UNIQUE composant de tuile du .map → toute tuile FUTURE
-          // (ajoutée via menuAdmin/liensVisibles) l'hérite automatiquement. Titre/description restent lisibles.
-          <Link key={t.slug} href={t.slug} className="svv-card" style={{ textDecoration: 'none', display: 'block', background: 'var(--color-svv-field)' }}>
-            <span style={{ display: 'block', fontWeight: 700, color: 'var(--color-svv-ink)', marginBottom: 4 }}>
-              {t.libelle}
-            </span>
-            <span style={{ display: 'block', fontSize: '.82rem', color: 'var(--color-svv-muted)' }}>{t.desc}</span>
-          </Link>
-        ))}
-      </div>
+      {/* Grille RÉORDONNABLE (client) : la lecture de l'ordre reste SERVEUR (ci-dessus), on passe la liste
+          déjà ordonnée. Le drag/persistance/accessibilité vivent dans GrilleModules. */}
+      <GrilleModules tuiles={tuiles} />
     </section>
   );
 }
