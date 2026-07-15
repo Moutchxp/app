@@ -3,12 +3,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import { cardinalAbrege } from "./lib/cardinal";
-import { destination } from "./lib/geodesieAffichage";
+import { destination, GEOMETRIE_VALIDATION } from "./lib/geodesieAffichage";
 
-const RAYON_M = 250;            // axe de contrôle (longueur max du faisceau)
-const RAYON_CONE_M = 220;       // cône un peu plus court → la pointe rouge dépasse
-const DEMI_CONE_VISUEL_DEG = 45; // champ de vision VISUEL (90° total) — tunable
-const ARC_POINTS = 13;
+// Géométrie de VALIDATION (= carte du certificat) : centralisée dans le module pur, PARTAGÉE avec le générateur
+// serveur (même géométrie). Rendu écran INCHANGÉ (mêmes valeurs). FaisceauMini garde les siennes, en local.
+const { rayonM: RAYON_M, rayonConeM: RAYON_CONE_M, demiConeDeg: DEMI_CONE_VISUEL_DEG, arcPoints: ARC_POINTS } = GEOMETRIE_VALIDATION;
 const FRAME_H = 288;      // hauteur du cadre (h-72) — DOIT matcher la classe ci-dessous
 
 const MARGE_ROT_DEG = 30;          // borne ± autour de l'azimut capté (= marge roulis photo)

@@ -5,10 +5,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const { query, withTransaction } = vi.hoisted(() => ({ query: vi.fn(), withTransaction: vi.fn() }));
 const { analyserAdresse } = vi.hoisted(() => ({ analyserAdresse: vi.fn() }));
 const { attribuerNumeroCertificat } = vi.hoisted(() => ({ attribuerNumeroCertificat: vi.fn() }));
+const { publierCarteOrientation } = vi.hoisted(() => ({ publierCarteOrientation: vi.fn() }));
 
 vi.mock('./client', () => ({ query, withTransaction }));
 vi.mock('./pipeline', () => ({ analyserAdresse }));
 vi.mock('./certificatNumero', () => ({ attribuerNumeroCertificat }));
+vi.mock('../carte/publierCarteOrientation', () => ({ publierCarteOrientation }));
 
 import { emettreCertificat } from './certificatEmission';
 
@@ -75,6 +77,8 @@ beforeEach(() => {
   withTransaction.mockReset();
   analyserAdresse.mockReset();
   attribuerNumeroCertificat.mockReset();
+  publierCarteOrientation.mockReset();
+  publierCarteOrientation.mockResolvedValue(undefined);
   analyserAdresse.mockResolvedValue(analyseOK);
 });
 
@@ -195,5 +199,28 @@ describe('emettreCertificat — re-jeu & recopie', () => {
     installer({ certAvant: [{ numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS' }] });
     await emettreCertificat('internaute-A', 42);
     expect(withTransaction).not.toHaveBeenCalled(); // ni certificat, ni acheminement réinsérés
+    expect(publierCarteOrientation).not.toHaveBeenCalled(); // chemin idempotent → pas de re-génération de carte
+  });
+});
+
+describe('emettreCertificat — carte d’orientation (après COMMIT)', () => {
+  it('nominal → carte publiée APRÈS le commit, avec l’id du certificat + la géométrie lue en base', async () => {
+    installer({});
+    await emettreCertificat('internaute-A', 42);
+    // certificatId = id renvoyé par l'INSERT (7) ; lat/lon/azimut coercés depuis les chaînes numeric du projet.
+    expect(publierCarteOrientation).toHaveBeenCalledWith('internaute-A', 7, 48.90693182287072, 2.269431435588249, 90);
+  });
+
+  it('un échec de carte ne peut PAS casser l’émission : publierCarteOrientation ne throw jamais (best-effort)', async () => {
+    installer({});
+    // Même si la publication échouait, elle avale ses erreurs ; ici on prouve que le statut 'emis' est rendu.
+    const r = await emettreCertificat('internaute-A', 42);
+    expect(r).toEqual({ statut: 'emis', numero: 'SAVV-2026-000001', verdict: 'SANS_VIS_A_VIS' });
+  });
+
+  it('course 23505 (chemin existant) → PAS de carte régénérée', async () => {
+    installer({ certRelit: [{ numero: 'SAVV-2026-000042', verdict: 'SANS_VIS_A_VIS' }], txThrow: { code: '23505' } });
+    await emettreCertificat('internaute-A', 42);
+    expect(publierCarteOrientation).not.toHaveBeenCalled();
   });
 });

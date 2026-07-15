@@ -13,6 +13,19 @@
  */
 export const R = 6371000; // rayon Terre (m)
 
+/**
+ * Géométrie du faisceau de l'ÉCRAN DE VALIDATION — celle qui FAIT FOI pour le document (carte du certificat).
+ * Valeurs COSMÉTIQUES d'affichage (longueurs dessinées, cône visuel), partagées entre `FaisceauMap` (client) et le
+ * générateur SERVEUR (`lib/carte/orientationCarte`) parce que c'est la MÊME géométrie — jamais une 3e copie.
+ * ⚠️ `FaisceauMini` a les SIENNES, plus courtes et VOLONTAIREMENT différentes : NE PAS mutualiser Map↔Mini.
+ */
+export const GEOMETRIE_VALIDATION = {
+  rayonM: 250, // axe de contrôle (longueur max du faisceau dessiné)
+  rayonConeM: 220, // cône un peu plus court → la pointe rouge dépasse
+  demiConeDeg: 45, // champ de vision VISUEL (90° total)
+  arcPoints: 13, // points d'échantillonnage de l'arc du cône
+} as const;
+
 // Destination géodésique : (lat, lon) + cap + distance → [lat2, lon2].
 export function destination(lat: number, lon: number, bearingDeg: number, distM: number): [number, number] {
   const d = distM / R;

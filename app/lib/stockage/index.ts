@@ -10,7 +10,7 @@
  * Arborescence des clés : `internautes/<internaute_uuid>/<categorie>/<uuid_v4>.<ext>`.
  *  - <internaute_uuid> = sujet RGPD (id stable de l'internaute) → effacement CIBLÉ par PRÉFIXE (`supprimerPrefixe`)
  *    supprime TOUS ses objets d'un coup (bloc C). L'UUID est lui-même non-devinable → préfixe non énumérable.
- *  - <categorie> = 'photos' | 'certificats' (dérivée du type MIME) → lisibilité + futur cycle de vie par catégorie.
+ *  - <categorie> = 'photos' | 'certificats' | 'cartes' (dérivée du type MIME) → lisibilité + futur cycle de vie par catégorie.
  *  - <uuid_v4>.<ext> = nom non séquentiel, non énumérable (jamais « certificat-000123.pdf »).
  *  - Objet SANS internaute (certificat livré hors profil, non-couplage) → `<categorie>/<uuid_v4>.<ext>` (pas de
  *    sujet RGPD associé ; la décision de scope revient au lot de câblage).
@@ -55,6 +55,7 @@ export class TailleDepassee extends ErreurStockage {
 const TYPES_ACCEPTES: Record<string, { categorie: string; ext: string }> = {
   'image/jpeg': { categorie: 'photos', ext: 'jpg' },
   'application/pdf': { categorie: 'certificats', ext: 'pdf' },
+  'image/png': { categorie: 'cartes', ext: 'png' }, // carte d'orientation régénérée serveur (rendu PNG, lignes/texte nets)
 };
 
 /** Client + config, mis en cache au 1er usage CONFIGURÉ (jamais construit au boot). `null` si non configuré. */
@@ -97,7 +98,7 @@ export interface ResultatDepot {
 }
 
 /**
- * Dépose un objet (photo image/jpeg ou certificat application/pdf). Renvoie sa CLÉ (à persister côté base au lot
+ * Dépose un objet (photo image/jpeg, certificat application/pdf, carte image/png). Renvoie sa CLÉ (à persister côté base au lot
  * suivant ; JAMAIS le contenu). Rejette : type non autorisé, taille > borne, stockage non configuré.
  */
 export async function deposer(contenu: Buffer | Uint8Array, typeMime: string, meta: MetaDepot = {}): Promise<ResultatDepot> {

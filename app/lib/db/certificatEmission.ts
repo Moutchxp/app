@@ -28,6 +28,7 @@
 import { query, withTransaction, type RequeteTx } from './client';
 import { analyserAdresse } from './pipeline';
 import { attribuerNumeroCertificat } from './certificatNumero';
+import { publierCarteOrientation } from '../carte/publierCarteOrientation';
 import { THRESHOLD_M, type ModeOrigine } from '../svv/config';
 
 /**
@@ -175,7 +176,7 @@ export async function emettreCertificat(internauteId: string, projetId: number):
   //    perdue (23505 sur certificat_projet_unique) → toute la transaction rollback (y compris l'acheminement) →
   //    on relit et on renvoie l'existant.
   try {
-    return await withTransaction(async (q) => {
+    const res = await withTransaction(async (q) => {
       const numero = await attribuerNumeroCertificat(q);
       const certificatId = await insererCertificat(q, {
         numero,
@@ -211,8 +212,12 @@ export async function emettreCertificat(internauteId: string, projetId: number):
         photoCle: projet.photo_cle, // recopiée du projet ; carte_orientation_cle et analyse_photo restent NULL (lots suivants)
       });
       await ouvrirAcheminement(q, certificatId);
-      return { statut: 'emis' as const, numero, verdict };
+      return { numero, certificatId };
     });
+    // APRÈS COMMIT — carte d'orientation best-effort, HORS transaction (réseau IGN, lent). Ne throw jamais ; un échec
+    // laisse carte_orientation_cle NULL, le certificat existe déjà (carte re-fabricable, cf. publierCarteOrientation).
+    await publierCarteOrientation(internauteId, res.certificatId, lat, lon, azimut);
+    return { statut: 'emis', numero: res.numero, verdict };
   } catch (e) {
     // COURSE : un autre appel concurrent a inséré le certificat entre notre pré-contrôle et notre INSERT →
     // violation de certificat_projet_unique (23505). On RELIT et on renvoie l'existant : idempotence garantie par
