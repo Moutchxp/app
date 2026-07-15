@@ -3,8 +3,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import { cardinalAbrege } from "./lib/cardinal";
+import { destination } from "./lib/geodesieAffichage";
 
-const R = 6371000;        // rayon Terre (m)
 const RAYON_M = 250;            // axe de contrôle (longueur max du faisceau)
 const RAYON_CONE_M = 220;       // cône un peu plus court → la pointe rouge dépasse
 const DEMI_CONE_VISUEL_DEG = 45; // champ de vision VISUEL (90° total) — tunable
@@ -29,18 +29,6 @@ const TUILES = {
   },
 } as const;
 type MapMode = keyof typeof TUILES;
-
-// Destination géodésique : (lat, lon) + cap + distance → [lat2, lon2].
-function destination(lat: number, lon: number, bearingDeg: number, distM: number): [number, number] {
-  const d = distM / R;
-  const t = (bearingDeg * Math.PI) / 180;
-  const p1 = (lat * Math.PI) / 180;
-  const l1 = (lon * Math.PI) / 180;
-  const sinp2 = Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(t);
-  const p2 = Math.asin(sinp2);
-  const l2 = l1 + Math.atan2(Math.sin(t) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * sinp2);
-  return [(p2 * 180) / Math.PI, (l2 * 180) / Math.PI];
-}
 
 // Zoom (fractionnaire) correspondant à une résolution mètres/pixel donnée.
 function zoomDepuisMpp(lat: number, mpp: number): number {

@@ -14,8 +14,8 @@
  */
 import { useEffect, useRef } from "react";
 import "leaflet/dist/leaflet.css";
+import { destination } from "./lib/geodesieAffichage";
 
-const R = 6371000; // rayon Terre (m)
 const RAYON_M = 180; // longueur dessinée du faisceau (cosmétique, rogné)
 const RAYON_CONE_M = 160;
 const DEMI_CONE_DEG = 45;
@@ -26,17 +26,6 @@ const ARC_POINTS = 13;
 const MPP_50M = 250 / 268;
 const MARGE_BAS_PX = 14; // origine ~à cette distance du bas du cadre
 
-// Destination géodésique : (lat, lon) + cap + distance → [lat2, lon2].
-function destination(lat: number, lon: number, bearingDeg: number, distM: number): [number, number] {
-  const d = distM / R;
-  const t = (bearingDeg * Math.PI) / 180;
-  const p1 = (lat * Math.PI) / 180;
-  const l1 = (lon * Math.PI) / 180;
-  const sinp2 = Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(t);
-  const p2 = Math.asin(sinp2);
-  const l2 = l1 + Math.atan2(Math.sin(t) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * sinp2);
-  return [(p2 * 180) / Math.PI, (l2 * 180) / Math.PI];
-}
 
 // Zoom (fractionnaire) correspondant à une résolution mètres/pixel donnée (cf. FaisceauMap).
 function zoomDepuisMpp(lat: number, mpp: number): number {
