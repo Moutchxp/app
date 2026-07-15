@@ -84,6 +84,14 @@ describe('POST /api/certificat — IDOR & mapping des statuts', () => {
     expect(await res.json()).toMatchObject({ ok: false, raison: 'indetermine' });
   });
 
+  it('refus VIS_A_VIS (hors périmètre) → 422 (raison vis_a_vis)', async () => {
+    verifierJetonRectification.mockResolvedValue('internaute-A');
+    emettreCertificat.mockResolvedValue({ statut: 'refus_vis_a_vis' });
+    const res = await POST(req({ jeton: 'jwt', projetId: 42 }));
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({ ok: false, raison: 'vis_a_vis' });
+  });
+
   it('émission nominale → 200, numéro + deja:false', async () => {
     verifierJetonRectification.mockResolvedValue('internaute-A');
     emettreCertificat.mockResolvedValue({ statut: 'emis', numero: 'SAVV-2026-000010', verdict: 'SANS_VIS_A_VIS' });

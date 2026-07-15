@@ -127,6 +127,16 @@ describe('emettreCertificat — gardes & IDOR', () => {
     const r = await emettreCertificat('internaute-A', 42);
     expect(r).toEqual({ statut: 'refus_indetermine' });
   });
+
+  it('verdict = VIS_A_VIS → refus_vis_a_vis (hors périmètre) : aucune transaction, aucun numéro, aucune carte', async () => {
+    installer({});
+    analyserAdresse.mockResolvedValue({ ...analyseOK, resultat: { ...analyseOK.resultat, verdict: { ...analyseOK.resultat.verdict, verdict: 'VIS_A_VIS' } } });
+    const r = await emettreCertificat('internaute-A', 42);
+    expect(r).toEqual({ statut: 'refus_vis_a_vis' });
+    expect(withTransaction).not.toHaveBeenCalled(); // aucune écriture
+    expect(attribuerNumeroCertificat).not.toHaveBeenCalled(); // aucun numéro brûlé
+    expect(publierCarteOrientation).not.toHaveBeenCalled(); // aucune carte
+  });
 });
 
 describe('emettreCertificat — idempotence', () => {

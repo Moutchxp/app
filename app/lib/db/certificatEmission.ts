@@ -16,9 +16,11 @@
  *   • Filet (course concurrente) : deux requêtes lisent toutes deux « rien » puis insèrent ; la seconde viole la
  *     contrainte (23505) → on RELIT et on renvoie l'existant. Jamais un doublon, jamais une erreur à l'appelant.
  *
- * DEUX REFUS D'ÉMETTRE (réponses PROPRES, jamais une exception, jamais un certificat dégradé) :
+ * TROIS REFUS D'ÉMETTRE (réponses PROPRES, jamais une exception, jamais un certificat dégradé) :
  *   • verdict INDETERMINE / validation d'origine KO → aucun certificat. Invariant existant : pas de polygone
  *     bâtiment (ou hors couverture LiDAR) → pas de certification.
+ *   • verdict VIS_A_VIS → aucun certificat. DÉCISION PRODUIT : Sans Vis-à-Vis® ne certifie QUE l'absence de
+ *     vis-à-vis ; un logement avec vis-à-vis est HORS PÉRIMÈTRE du document (ni échec, ni cas dégradé).
  *   • mode_origine NULL → aucun certificat. Sans le mode réellement employé, le re-jeu N'EST PAS garanti fidèle
  *     (semi_auto snappe la façade, manuel prend le point brut → géométries différentes) ; un document qui fait
  *     foi ne se construit pas sur un calcul dont on SAIT qu'il peut diverger de ce que l'internaute a vu.
@@ -64,7 +66,8 @@ export type ResultatEmission =
   | { statut: 'existant'; numero: string; verdict: string }
   | { statut: 'projet_absent' } // ownership KO (IDOR) : le projet n'appartient pas au porteur du jeton
   | { statut: 'refus_indetermine' } // verdict INDETERMINE / origine non validable / analyse non rejouable
-  | { statut: 'refus_mode_inconnu' }; // mode_origine NULL : re-jeu non fidèle → pas de document qui fait foi
+  | { statut: 'refus_mode_inconnu' } // mode_origine NULL : re-jeu non fidèle → pas de document qui fait foi
+  | { statut: 'refus_vis_a_vis' }; // verdict VIS_A_VIS : hors périmètre du document (Sans Vis-à-Vis® ne certifie que l'absence)
 
 /** Ligne projet lue pour l'émission (colonnes numeric → CHAÎNES via driver pg). */
 interface LigneProjet {
@@ -140,8 +143,16 @@ export async function emettreCertificat(internauteId: string, projetId: number):
     mode,
   });
   const resultat = analyse.resultat;
-  // 4-bis) REFUS INDETERMINE — origine non validable (resultat null) OU verdict INDETERMINE.
+  // ── TROIS REFUS D'ÉMETTRE, groupés autour du verdict re-dérivé (le 3e, mode_inconnu, est en amont car il
+  //    conditionne la FIDÉLITÉ même du re-jeu). Seul SANS_VIS_A_VIS produit un document. ──
+  // 4-bis) REFUS INDETERMINE — origine non validable (resultat null) OU verdict INDETERMINE : pas de polygone
+  //   bâtiment / hors couverture LiDAR → l'analyse ne tranche pas, donc aucune certification (invariant existant).
   if (resultat === null || resultat.verdict.verdict === 'INDETERMINE') return { statut: 'refus_indetermine' };
+  // 4-ter) REFUS VIS_A_VIS — DÉCISION PRODUIT : un certificat Sans Vis-à-Vis® n'atteste QUE l'absence de vis-à-vis.
+  //   Un logement AVEC vis-à-vis n'est ni un échec de certification ni un cas dégradé : il est simplement HORS du
+  //   périmètre de ce que ce document certifie. Le document dit une seule chose, et il la dit ou il n'existe pas.
+  //   (La colonne `verdict` garde ses 3 valeurs : c'est l'instantané de l'analyse, pas la liste de ce qu'on émet.)
+  if (resultat.verdict.verdict === 'VIS_A_VIS') return { statut: 'refus_vis_a_vis' };
 
   // 5) PROVENANCE (POOL, hors transaction) : cadastre (parcelle contenant le point, 92 seulement → NULL ailleurs),
   //    année de construction (BDNB via cleabs du bâtiment d'origine), empreinte + génération de barème.

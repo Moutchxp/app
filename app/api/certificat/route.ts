@@ -57,6 +57,9 @@ export async function POST(request: Request): Promise<Response> {
       return NextResponse.json({ ok: false, erreur: 'mode d’origine inconnu', raison: 'mode_inconnu' }, { status: 422 });
     case 'refus_indetermine':
       return NextResponse.json({ ok: false, erreur: 'verdict indéterminé', raison: 'indetermine' }, { status: 422 });
+    case 'refus_vis_a_vis':
+      // Hors périmètre : Sans Vis-à-Vis® ne certifie que l'absence de vis-à-vis (décision produit, pas une erreur).
+      return NextResponse.json({ ok: false, erreur: 'vis-à-vis détecté', raison: 'vis_a_vis' }, { status: 422 });
     case 'existant':
       return NextResponse.json({ ok: true, numero: r.numero, verdict: r.verdict, deja: true });
     case 'emis':
