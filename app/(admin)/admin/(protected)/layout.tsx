@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { NOM_COOKIE, verifierJeton, sessionDepuisPayload } from '../../../lib/admin/session';
-import { trouverCompteParId } from '../../../lib/admin/comptes';
+import { trouverCompteParId, lireOrdreModules } from '../../../lib/admin/comptes';
 import { Sidebar } from './Sidebar';
 import { RevocationWatcher } from './RevocationWatcher';
 
@@ -22,6 +22,9 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
   const session = sessionDepuisPayload(payload);
   const secours = session.sub === null;
   const compte = secours ? null : await trouverCompteParId(session.sub as number);
+  // Ordre personnalisé des modules (migration 030) — voie de secours (sub=null) → null → ordre par défaut.
+  // `Sidebar` (client) appliquera `ordonner()`, à l'identique de la grille du tableau de bord (une source, deux rendus).
+  const ordreModules = secours ? null : await lireOrdreModules(session.sub as number);
   const identite = secours
     ? 'Accès de secours'
     : compte
@@ -32,7 +35,7 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
   return (
     <div className="svv-adm-shell">
       <RevocationWatcher />
-      <Sidebar role={session.role} perms={session.perms} />
+      <Sidebar role={session.role} perms={session.perms} ordreModules={ordreModules} />
       <div className="svv-adm-content">
         <div className="svv-adm-bandeau" style={{ display: 'flex', alignItems: 'center', gap: '.75rem' }}>
           <span>

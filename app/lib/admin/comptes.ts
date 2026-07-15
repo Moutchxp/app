@@ -73,6 +73,25 @@ export async function trouverCompteParId(id: number): Promise<CompteDB | null> {
   return rows[0] ?? null;
 }
 
+/**
+ * Lit l'ordre personnalisé des modules d'un compte (jsonb `ordre_modules`, migration 030). Lecture SÉPARÉE et
+ * RÉSILIENTE — délibérément HORS de `SELECT_COMPTE` (partagé par la connexion) : si la colonne n'existe pas
+ * encore (migration 030 non appliquée) OU toute autre erreur DB, on renvoie `null` (→ ordre par défaut) au lieu
+ * de lever, pour ne JAMAIS casser le layout admin ni le tableau de bord avant migration. La VALIDATION du contenu
+ * (tableau ? slugs connus ?) est faite en aval par `ordonner` — ici on renvoie la valeur jsonb brute.
+ */
+export async function lireOrdreModules(id: number): Promise<unknown> {
+  try {
+    const { rows } = await query<{ ordre_modules: unknown }>(
+      `SELECT ordre_modules FROM admin_utilisateur WHERE id = $1`,
+      [id],
+    );
+    return rows[0]?.ordre_modules ?? null;
+  } catch {
+    return null; // colonne absente (pré-migration) ou erreur DB → ordre par défaut, jamais d'exception
+  }
+}
+
 /** Met à jour `derniere_connexion_a = now()` pour un compte (mono-ligne, sur succès de connexion). */
 export async function marquerConnexion(id: number): Promise<void> {
   await query(`UPDATE admin_utilisateur SET derniere_connexion_a = now() WHERE id = $1`, [id]);

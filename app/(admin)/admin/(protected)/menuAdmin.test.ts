@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { liensVisibles } from './menuAdmin';
+import { liensVisibles, ordonner, type LienMenu } from './menuAdmin';
 import { permsToutes, permsAucune } from '../../../lib/admin/session';
 
 describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
@@ -39,5 +39,68 @@ describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
       expect(l.libelle.length).toBeGreaterThan(0);
       expect(l.desc.length).toBeGreaterThan(0);
     }
+  });
+});
+
+const lien = (slug: string): LienMenu => ({ slug, libelle: slug, desc: '' });
+const slugs = (l: LienMenu[]) => l.map((x) => x.slug);
+const A = lien('/a');
+const B = lien('/b');
+const C = lien('/c');
+
+describe('ordonner — fusion ordre stocké × liens autorisés (3 règles)', () => {
+  it('(a) réordonne les slugs connus dans l’ordre stocké', () => {
+    expect(slugs(ordonner([A, B, C], ['/c', '/a', '/b']))).toEqual(['/c', '/a', '/b']);
+  });
+
+  it('(b) un module absent du stockage est appendé À LA FIN, jamais masqué', () => {
+    // `/c` n’est pas dans l’ordre stocké (module ajouté après) → doit rester visible, à la fin.
+    expect(slugs(ordonner([A, B, C], ['/b', '/a']))).toEqual(['/b', '/a', '/c']);
+  });
+
+  it('(c) un slug stocké absent des liens est IGNORÉ (module supprimé / orphelin)', () => {
+    expect(slugs(ordonner([A, B], ['/b', '/zzz', '/a']))).toEqual(['/b', '/a']);
+  });
+
+  it('null → liens inchangés (ordre par défaut)', () => {
+    expect(slugs(ordonner([A, B, C], null))).toEqual(['/a', '/b', '/c']);
+  });
+
+  it('malformé (non-tableau : objet, chaîne, nombre, undefined) → liens inchangés', () => {
+    expect(slugs(ordonner([A, B, C], { '/c': 1 }))).toEqual(['/a', '/b', '/c']);
+    expect(slugs(ordonner([A, B, C], '/c'))).toEqual(['/a', '/b', '/c']);
+    expect(slugs(ordonner([A, B, C], 42))).toEqual(['/a', '/b', '/c']);
+    expect(slugs(ordonner([A, B, C], undefined))).toEqual(['/a', '/b', '/c']);
+  });
+
+  it('entrées non-string dans le tableau → ignorées, le reste ordonné', () => {
+    expect(slugs(ordonner([A, B, C], ['/b', 42, null, '/a', { x: 1 }]))).toEqual(['/b', '/a', '/c']);
+  });
+
+  it('doublons dans l’ordre stocké → dédupliqués (un slug rendu une seule fois)', () => {
+    expect(slugs(ordonner([A, B, C], ['/a', '/a', '/b', '/a']))).toEqual(['/a', '/b', '/c']);
+  });
+
+  it('tableau vide → liens inchangés (tous appendés par la règle b)', () => {
+    expect(slugs(ordonner([A, B, C], []))).toEqual(['/a', '/b', '/c']);
+  });
+});
+
+describe('ordonner — GARDE DE SÉCURITÉ RÔLE (règle c) : un ordre stocké ne ressuscite JAMAIS un module non autorisé', () => {
+  it('collaborateur : un ordre injectant « /admin/comptes » (admin-only) + « /admin/pilotage » (non permis) → ignorés', () => {
+    const visibles = liensVisibles('collaborateur', { ...permsAucune(), curation: true }); // seulement /admin/curation
+    expect(slugs(visibles)).toEqual(['/admin/curation']);
+    const r = ordonner(visibles, ['/admin/comptes', '/admin/pilotage', '/admin/curation']);
+    // Rendu STRICTEMENT borné par les liens autorisés — réordonné, jamais élargi.
+    expect(slugs(r)).toEqual(['/admin/curation']);
+  });
+
+  it('administrateur : les 8 tuiles restent présentes, réordonnées selon un stockage PARTIEL', () => {
+    const visibles = liensVisibles('administrateur', permsToutes()); // 8 tuiles
+    expect(visibles).toHaveLength(8);
+    const r = ordonner(visibles, ['/admin/curation', '/admin/audit']); // ordre partiel
+    expect(slugs(r).slice(0, 2)).toEqual(['/admin/curation', '/admin/audit']);
+    expect(r).toHaveLength(8); // aucune tuile perdue (règle b appende le reste)
+    expect(new Set(slugs(r)).size).toBe(8); // aucun doublon
   });
 });

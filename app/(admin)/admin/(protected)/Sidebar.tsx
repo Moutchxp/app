@@ -3,15 +3,16 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { liensVisibles } from './menuAdmin';
+import { liensVisibles, ordonner } from './menuAdmin';
 import type { Perms, RoleAdmin } from '../../../lib/admin/session';
 
-export function Sidebar({ role, perms }: { role: RoleAdmin; perms: Perms }) {
+export function Sidebar({ role, perms, ordreModules }: { role: RoleAdmin; perms: Perms; ordreModules?: unknown }) {
   const pathname = usePathname();
   const [ouvert, setOuvert] = useState(false);
   // Filtrage RÔLE D'ABORD (cf. menuAdmin) : administrateur → tout + « Administratif » ; collaborateur → ses perms.
-  // CONFORT uniquement ; proxy.ts reste la seule autorité.
-  const MODULES = liensVisibles(role, perms);
+  // Puis `ordonner()` applique l'ordre personnalisé (migration 030) — MÊME appel que la grille du tableau de bord.
+  // CONFORT uniquement ; proxy.ts reste la seule autorité. `ordonner` ne peut jamais élargir au-delà du rôle.
+  const MODULES = ordonner(liensVisibles(role, perms), ordreModules);
 
   async function deconnexion() {
     try {
