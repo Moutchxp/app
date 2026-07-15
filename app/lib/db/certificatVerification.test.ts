@@ -1,0 +1,127 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// On teste la SÉMANTIQUE (existence vs détails, normalisation, non-fuite) sans base : `withTransaction` est mocké
+// et route par SQL (SET TRANSACTION READ ONLY vs SELECT).
+const { withTransaction } = vi.hoisted(() => ({ withTransaction: vi.fn() }));
+vi.mock('./client', () => ({ withTransaction }));
+
+import { verifierCertificat } from './certificatVerification';
+
+const JETON = 'ABCDEFGHJKMNPQRS'; // 16 car. Crockford valides
+const EMIS = new Date('2026-07-15T09:30:00.000Z');
+
+// Ligne complète telle qu'elle serait en base — inclut des champs INTERDITS de sortie, pour prouver qu'ils ne
+// fuient jamais (même si un jour le SELECT en ramenait plus, la sortie ne doit porter que les 5 champs publics).
+const LIGNE = {
+  numero: 'SAVV-2026-000007',
+  emis_le: EMIS,
+  verdict: 'SANS_VIS_A_VIS',
+  adresse: '12 rue des Fleurs, 92004',
+  etage: 3,
+  jeton_verification: JETON,
+};
+
+/** Route `withTransaction` : la 1re requête DOIT être SET TRANSACTION READ ONLY ; la 2e le SELECT. */
+function installer(row: unknown | null) {
+  const vues: string[] = [];
+  withTransaction.mockImplementation(async (fn: (q: unknown) => unknown) => {
+    const q = vi.fn(async (sql: string) => {
+      vues.push(sql);
+      if (/SELECT .* FROM certificat WHERE numero/.test(sql)) return { rows: row ? [row] : [] };
+      return { rows: [] };
+    });
+    return fn(q);
+  });
+  return { vues };
+}
+
+beforeEach(() => {
+  withTransaction.mockReset();
+});
+
+describe('verifierCertificat — validation du numéro', () => {
+  it.each([['vide', ''], ['garbage', 'xxx'], ['casse basse partielle', 'savv-2026-1'], ['non-string', 42], ['null', null]])(
+    'numéro mal formé (%s) → numero_invalide, AUCUN accès base',
+    async (_l, val) => {
+      installer(null);
+      const r = await verifierCertificat(val as unknown);
+      expect(r).toEqual({ statut: 'numero_invalide' });
+      expect(withTransaction).not.toHaveBeenCalled();
+    },
+  );
+
+  it('numéro en minuscules mais bien formé → normalisé en MAJUSCULES puis interrogé', async () => {
+    const { vues } = installer(LIGNE);
+    await verifierCertificat('savv-2026-000007', JETON);
+    expect(withTransaction).toHaveBeenCalled();
+    // 1re instruction de la transaction = lecture seule réelle
+    expect(vues[0]).toBe('SET TRANSACTION READ ONLY');
+  });
+});
+
+describe('verifierCertificat — existence vs détails', () => {
+  it('numéro inexistant → inexistant', async () => {
+    installer(null);
+    expect(await verifierCertificat('SAVV-2026-000007', JETON)).toEqual({ statut: 'inexistant' });
+  });
+
+  it('numéro réel SANS jeton → existe (rien d’autre)', async () => {
+    installer(LIGNE);
+    expect(await verifierCertificat('SAVV-2026-000007')).toEqual({ statut: 'existe' });
+  });
+
+  it('numéro réel avec jeton FAUX → existe (rien d’autre)', async () => {
+    installer(LIGNE);
+    expect(await verifierCertificat('SAVV-2026-000007', 'ZZZZZZZZZZZZZZZZ')).toEqual({ statut: 'existe' });
+  });
+
+  it('numéro réel avec le BON jeton → verifie + contenu minimal', async () => {
+    installer(LIGNE);
+    const r = await verifierCertificat('SAVV-2026-000007', JETON);
+    expect(r).toEqual({
+      statut: 'verifie',
+      certificat: { numero: 'SAVV-2026-000007', emisLe: EMIS.toISOString(), verdict: 'SANS_VIS_A_VIS', adresse: '12 rue des Fleurs, 92004', etage: 3 },
+    });
+  });
+
+  it('jeton en MINUSCULES → accepté (normalisation canonique majuscules)', async () => {
+    installer(LIGNE);
+    const r = await verifierCertificat('SAVV-2026-000007', JETON.toLowerCase());
+    expect(r.statut).toBe('verifie');
+  });
+
+  it('jeton avec espaces/tirets et saisie Crockford (o→0, i/l→1) → normalisé puis comparé', async () => {
+    installer({ ...LIGNE, jeton_verification: '0123456789ABCDEF' });
+    // saisie « brouillon » : minuscules, tirets, espaces, o pour 0, l/i pour 1 → doit canoniser en 0123456789ABCDEF
+    const r = await verifierCertificat('SAVV-2026-000007', 'o123-4567 89ab-cdef');
+    expect(r.statut).toBe('verifie');
+  });
+});
+
+describe('verifierCertificat — GARANTIE DE NON-FUITE', () => {
+  it('AUCUN champ hors liste ne sort, quel que soit le chemin (jamais le jeton, lat/lon, score, resultat…)', async () => {
+    // La ligne base porte des champs interdits ; on vérifie qu'ils ne transitent jamais vers la sortie.
+    const ligneAvecInterdits = { ...LIGNE, lat: '48.9', lon: '2.26', score: '55.2', distance_obstacle_m: '120', resultat: '{"x":1}' };
+    for (const [numero, jeton] of [
+      ['SAVV-2026-000007', JETON], // verifie
+      ['SAVV-2026-000007', undefined], // existe
+      ['SAVV-2026-000007', 'ZZZZZZZZZZZZZZZZ'], // existe (faux)
+    ] as const) {
+      installer(ligneAvecInterdits);
+      const r = await verifierCertificat(numero, jeton);
+      const json = JSON.stringify(r);
+      for (const interdit of ['jeton', 'lat', 'lon', 'score', 'distance', 'resultat', '48.9', '2.26', '55.2']) {
+        expect(json).not.toContain(interdit);
+      }
+    }
+  });
+
+  it('le contenu « verifie » a EXACTEMENT 5 clés, ni plus ni moins', async () => {
+    installer(LIGNE);
+    const r = await verifierCertificat('SAVV-2026-000007', JETON);
+    expect(r.statut).toBe('verifie');
+    if (r.statut === 'verifie') {
+      expect(Object.keys(r.certificat).sort()).toEqual(['adresse', 'emisLe', 'etage', 'numero', 'verdict']);
+    }
+  });
+});
