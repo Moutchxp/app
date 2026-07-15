@@ -736,7 +736,7 @@ const EPOQUES = [
   "De 2001 à 2010", "De 2011 à 2020", "À partir de 2021",
 ] as const;
 
-function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, hauteurSousPlafond, etageInitial, dernierEtage, verdict, score, communeInsee }: {
+function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, hauteurSousPlafond, etageInitial, dernierEtage, verdict, score, communeInsee, photo }: {
   onRetour: () => void;
   onAccueil: () => void; // retour à la RACINE du tunnel (écran final « Demande validée »)
   adresseBien: string;
@@ -750,6 +750,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   verdict: string | null;
   score: number | null;
   communeInsee: string | null;
+  photo: string | null; // photo base64 capturée dans Home → dépôt ANNEXE fire-and-forget après la soumission de l'Écran A
 }) {
   const [adresseChoisie, setAdresseChoisie] = useState(adresseBien); // libellé affiché, init = adresse auto
   const [adressesAlt, setAdressesAlt] = useState<{ cle: string; libelle: string; distanceM: number; memeParcelle: boolean }[]>([]);
@@ -848,6 +849,20 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     },
   });
 
+  // Dépôt de la photo (Option B) : POST fire-and-forget vers /api/internaute/photo (route ANNEXE). Ne renvoie rien
+  // d'exploité, n'attend rien, ne lève jamais. Voir le commentaire à l'appel dans `soumettre`.
+  const deposerPhoto = async (jeton: string, projetId: number, photoDataUrl: string) => {
+    try {
+      await fetch("/api/internaute/photo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jeton, projetId, photo: photoDataUrl }),
+      });
+    } catch {
+      /* silencieux : la photo est annexe (hors verdict/score) ; un échec ne doit JAMAIS perturber le tunnel */
+    }
+  };
+
   // Soumission Écran A (LOT 2). NON-COUPLAGE : le certificat s'obtient SANS consentement. Sans AUCUN consentement, AUCUNE
   // donnée nominative n'est envoyée (minimisation) → on affiche juste la confirmation. Avec AU MOINS UN consentement,
   // on POSTe le profil à /api/internaute (statut 'incomplet' — les coordonnées seront confirmées à l'Écran B). L'ingestion
@@ -873,8 +888,15 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       if (res.ok) {
         // Jeton-capacité de rectification : présent seulement si un NOUVEAU dossier a été créé (email neuf).
         const data = await res.json().catch(() => null);
-        setJetonRectif(typeof data?.jetonRectification === "string" ? data.jetonRectification : null);
-        setProjetIdA(typeof data?.projetId === "number" ? data.projetId : null); // projet de A → marqué à la validation B
+        const jeton = typeof data?.jetonRectification === "string" ? data.jetonRectification : null;
+        const projetId = typeof data?.projetId === "number" ? data.projetId : null;
+        setJetonRectif(jeton);
+        setProjetIdA(projetId); // projet de A → marqué à la validation B
+        // Dépôt de la photo — SILENCIEUX & NON BLOQUANT (fire-and-forget) : la photo n'entre NI dans le verdict NI
+        // dans le score ; bloquer le tunnel d'un internaute sur un stockage annexe serait absurde. Aucune attente,
+        // aucun message, aucun setState de chargement. Échec (réseau/stockage/jeton/IDOR) → ignoré ; le projet reste
+        // sans photo_cle. La photo ne vit qu'en mémoire front : reprise/rechargement la perdent (accepté).
+        if (jeton && projetId !== null && photo) void deposerPhoto(jeton, projetId, photo);
       } else {
         setErreurEnvoi("Vos coordonnées n'ont pas pu être enregistrées. Le certificat reste disponible.");
       }
@@ -3460,6 +3482,7 @@ export default function Home() {
     verdict={analyse?.resultat?.verdict.verdict ?? null}
     score={analyse?.resultat?.score.total ?? null}
     communeInsee={communeInsee}
+    photo={photo}
   />
 )}
         </section>
