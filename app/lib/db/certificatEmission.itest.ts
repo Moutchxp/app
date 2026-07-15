@@ -9,12 +9,38 @@
  * lisible sans effet de bord est vérifiée en base réelle : l'empreinte SQL est stable et bien formée.
  */
 import { describe, it, expect, afterAll } from 'vitest';
-import { query, closePool } from './client';
-import { SQL_EMPREINTE_BAREME } from './certificatEmission';
+import type { RequeteTx } from './client';
+import { pool, query, closePool } from './client';
+import { SQL_EMPREINTE_BAREME, insererCertificat, ouvrirAcheminement } from './certificatEmission';
 
 afterAll(async () => {
   await closePool();
 });
+
+/** Exécute `fn` dans une transaction TOUJOURS ROLLBACKée (aucune trace : ni certificat immuable, ni compteur brûlé,
+ *  ni ligne d'acheminement laissée). Miroir du harnais de certificatNumero.itest. */
+async function dansRollback(fn: (q: RequeteTx) => Promise<void>): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const q: RequeteTx = (t, p) => client.query(t, p as never);
+    await fn(q);
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+  }
+}
+
+/** Certificat minimal (schéma réel) — numéro SENTINELLE hors de toute série ; seul l'INSERT + l'acheminement comptent. */
+const CERT_MINIMAL = {
+  numero: 'SAVV-9999-999999', projetId: 0, configGeneration: null, configEmpreinte: 'itest',
+  lat: null, lon: null, azimutDeg: null, etage: null, dernierEtage: null,
+  hauteurSousPlafondM: null, hauteurVisionM: null, adresse: null, typeBien: null,
+  surfaceM2: null, nbPieces: null, epoque: null, verdict: 'SANS_VIS_A_VIS', score: 0,
+  distanceObstacleM: null, profondeurMoyenneM: null, faisceauxDegagesPct: null,
+  altitudeTerrainM: null, altitudeSolM: null, toleranceM: 40,
+  referenceCadastrale: null, anneeBatiment: null, resultat: '{}', photoCle: null,
+};
 
 describe('empreinte de barème (SQL, hors JS)', () => {
   it('deux calculs successifs SANS modification du barème → MÊME hash (reproductible)', async () => {
@@ -40,5 +66,51 @@ describe('empreinte de barème (SQL, hors JS)', () => {
     const r = await query<{ empreinte: string }>(SQL_EMPREINTE_BAREME);
     const SHA256_VIDE = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
     expect(r.rows[0].empreinte).not.toBe(SHA256_VIDE);
+  });
+});
+
+describe('acheminement ouvert avec le certificat (schéma réel, transaction ROLLBACKée)', () => {
+  it('INSERT certificat + ouvrirAcheminement → une ligne, statut en_attente, toutes les clés/horodatages NULL', async () => {
+    let vu: Record<string, unknown> | undefined;
+    await dansRollback(async (q) => {
+      // Dépendances FK, éphémères (rollback) : un internaute + un projet à référencer.
+      const ir = await q<{ id: string }>(
+        `INSERT INTO internaute (prenom, nom, email, source_collecte, parcours)
+         VALUES ('T', 'T', $1, 'tunnel', 'incomplet') RETURNING id`,
+        [`itest-ach-${Date.now()}@example.com`],
+      );
+      const pr = await q<{ id: string }>(
+        `INSERT INTO internaute_projet (internaute_id, version_tunnel, payload) VALUES ($1, 1, '{}'::jsonb) RETURNING id`,
+        [ir.rows[0].id],
+      );
+      const projetId = Number(pr.rows[0].id);
+      const certId = await insererCertificat(q, { ...CERT_MINIMAL, projetId });
+      await ouvrirAcheminement(q, certId);
+      const ach = await q<Record<string, unknown>>(
+        `SELECT certificat_id, statut, pdf_cle, carte_orientation_cle, genere_le, envoye_le, derniere_erreur
+         FROM certificat_acheminement WHERE certificat_id = $1`,
+        [certId],
+      );
+      expect(ach.rows).toHaveLength(1); // UNE ligne, née avec le certificat
+      vu = ach.rows[0];
+      expect(Number(vu.certificat_id)).toBe(certId);
+      expect(vu.statut).toBe('en_attente'); // le certificat existe, rien n'est encore généré ni envoyé
+      // Rien n'est généré/envoyé/échoué → aucun mensonge par défaut.
+      for (const cle of ['pdf_cle', 'carte_orientation_cle', 'genere_le', 'envoye_le', 'derniere_erreur']) {
+        expect(vu[cle]).toBeNull();
+      }
+    });
+    expect(vu).toBeDefined(); // le corps de la transaction s'est bien exécuté avant le ROLLBACK
+  });
+
+  it('ROLLBACK de l’émission → AUCUNE ligne d’acheminement (ni certificat) laissée', async () => {
+    // La sentinelle 'SAVV-9999-999999' n'est JAMAIS committée (toujours rollback) → invisible après coup.
+    const c = await query(`SELECT id FROM certificat WHERE numero = $1`, [CERT_MINIMAL.numero]);
+    expect(c.rows).toHaveLength(0);
+    const a = await query(
+      `SELECT id FROM certificat_acheminement WHERE certificat_id IN (SELECT id FROM certificat WHERE numero = $1)`,
+      [CERT_MINIMAL.numero],
+    );
+    expect(a.rows).toHaveLength(0);
   });
 });

@@ -57,8 +57,13 @@ function installer(opts: {
     if (/config_scoring/.test(sql)) return { rows: [{ empreinte: 'abc123', generation: '17' }] };
     return { rows: [] };
   });
-  const qTx = vi.fn();
-  qTx.mockResolvedValue({ rows: [] as unknown[] });
+  // `\b` après « certificat » ne matche PAS « certificat_acheminement » (« _ » est un caractère de mot) → on
+  // distingue l'INSERT certificat (qui doit RETURNING id) de l'INSERT acheminement.
+  const qTx = vi.fn(async (...a: unknown[]) => {
+    const sql = a[0] as string;
+    if (/INSERT INTO certificat\b/.test(sql)) return { rows: [{ id: 7 }] as unknown[] };
+    return { rows: [] as unknown[] };
+  });
   if (txThrow !== undefined) withTransaction.mockRejectedValue(txThrow);
   else withTransaction.mockImplementation(async (fn: (q: unknown) => unknown) => fn(qTx));
   attribuerNumeroCertificat.mockResolvedValue('SAVV-2026-000001');
@@ -157,7 +162,7 @@ describe('emettreCertificat — re-jeu & recopie', () => {
     const r = await emettreCertificat('internaute-A', 42);
     expect(r).toEqual({ statut: 'emis', numero: 'SAVV-2026-000001', verdict: 'SANS_VIS_A_VIS' });
     expect(attribuerNumeroCertificat).toHaveBeenCalledWith(qTx); // numéro attribué avec le q de la transaction
-    const insert = qTx.mock.calls.find((c) => /INSERT INTO certificat/.test(c[0] as string));
+    const insert = qTx.mock.calls.find((c) => /INSERT INTO certificat\b/.test(c[0] as string));
     expect(insert).toBeTruthy();
     const p = insert![1] as unknown[];
     expect(p[0]).toBe('SAVV-2026-000001'); // numero
@@ -174,5 +179,21 @@ describe('emettreCertificat — re-jeu & recopie', () => {
     expect(p[24]).toBe('92004000AM0114'); // reference_cadastrale
     expect(p[25]).toBe(1923); // annee_batiment (BDNB)
     expect(p[27]).toBe('internautes/a/photos/x.jpg'); // photo_cle recopiée
+  });
+
+  it('nominal → ouvre l’acheminement DANS la même transaction : certificat_id renvoyé, statut en_attente', async () => {
+    const { qTx } = installer({});
+    await emettreCertificat('internaute-A', 42);
+    const ach = qTx.mock.calls.find((c) => /INSERT INTO certificat_acheminement/.test(c[0] as string));
+    expect(ach).toBeTruthy();
+    // certificat_id = id renvoyé par l'INSERT certificat (7, mocké) ; statut initial 'en_attente' (rien généré/envoyé)
+    expect(ach![1]).toEqual([7]);
+    expect(ach![0]).toMatch(/statut\) VALUES \(\$1, 'en_attente'\)/);
+  });
+
+  it('idempotence (pré-contrôle) : aucune transaction → AUCUN acheminement ouvert (pas de 2e ligne)', async () => {
+    installer({ certAvant: [{ numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS' }] });
+    await emettreCertificat('internaute-A', 42);
+    expect(withTransaction).not.toHaveBeenCalled(); // ni certificat, ni acheminement réinsérés
   });
 });

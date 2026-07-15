@@ -170,11 +170,14 @@ export async function emettreCertificat(internauteId: string, projetId: number):
   const payload = projet.payload ?? {};
   const adresse = projet.adresse_normalisee ?? projet.adresse_saisie ?? null;
 
-  // 6) TRANSACTION — geste atomique : numéro attribué PUIS INSERT immuable. Course perdue (23505) → relire l'existant.
+  // 6) TRANSACTION — geste atomique : numéro attribué, INSERT certificat immuable, PUIS ouverture de son
+  //    acheminement (le certificat n'est JAMAIS orphelin de suivi : les deux naissent ensemble ou aucun). Course
+  //    perdue (23505 sur certificat_projet_unique) → toute la transaction rollback (y compris l'acheminement) →
+  //    on relit et on renvoie l'existant.
   try {
     return await withTransaction(async (q) => {
       const numero = await attribuerNumeroCertificat(q);
-      await insererCertificat(q, {
+      const certificatId = await insererCertificat(q, {
         numero,
         projetId,
         configGeneration,
@@ -207,6 +210,7 @@ export async function emettreCertificat(internauteId: string, projetId: number):
         resultat: JSON.stringify({ validation: analyse.validation, resultat }),
         photoCle: projet.photo_cle, // recopiée du projet ; carte_orientation_cle et analyse_photo restent NULL (lots suivants)
       });
+      await ouvrirAcheminement(q, certificatId);
       return { statut: 'emis' as const, numero, verdict };
     });
   } catch (e) {
@@ -262,9 +266,13 @@ interface DonneesCertificat {
   photoCle: string | null;
 }
 
-/** INSERT de la ligne certificat dans la transaction d'émission. config_id et emis_le prennent leurs DEFAULT (1, now()). */
-export async function insererCertificat(q: RequeteTx, d: DonneesCertificat): Promise<void> {
-  await q(
+/**
+ * INSERT de la ligne certificat dans la transaction d'émission. config_id et emis_le prennent leurs DEFAULT
+ * (1, now()). Renvoie l'id du certificat créé (bigserial → chaîne pg → number, id < 2^53) pour rattacher son
+ * acheminement dans la MÊME transaction.
+ */
+export async function insererCertificat(q: RequeteTx, d: DonneesCertificat): Promise<number> {
+  const r = await q<{ id: string }>(
     `INSERT INTO certificat
        (numero, projet_id, config_generation, config_empreinte,
         lat, lon, azimut_deg, etage, dernier_etage, hauteur_sous_plafond_m, hauteur_vision_m,
@@ -279,7 +287,8 @@ export async function insererCertificat(q: RequeteTx, d: DonneesCertificat): Pro
              $17, $18, $19, $20, $21,
              $22, $23, $24,
              $25, $26,
-             $27::jsonb, $28)`,
+             $27::jsonb, $28)
+     RETURNING id`,
     [
       d.numero, d.projetId, d.configGeneration, d.configEmpreinte,
       d.lat, d.lon, d.azimutDeg, d.etage, d.dernierEtage, d.hauteurSousPlafondM, d.hauteurVisionM,
@@ -289,5 +298,25 @@ export async function insererCertificat(q: RequeteTx, d: DonneesCertificat): Pro
       d.referenceCadastrale, d.anneeBatiment,
       d.resultat, d.photoCle,
     ],
+  );
+  return Number(r.rows[0].id);
+}
+
+/**
+ * Ouvre la ligne d'ACHEMINEMENT (suivi mutable) du certificat, dans la MÊME transaction que son INSERT → un
+ * certificat émis a TOUJOURS son suivi, dès la seconde zéro (jamais orphelin). Statut initial `'en_attente'` (valeur
+ * du CHECK 031, = DEFAULT) : le certificat existe, RIEN n'est encore généré ni envoyé. Toutes les clés
+ * (pdf_cle, carte_orientation_cle) et horodatages (genere_le, envoye_le) et derniere_erreur restent NULL (leur
+ * défaut) : on ne ment pas par défaut — rien n'est généré, rien n'est envoyé, rien n'a échoué. cree_a/maj_a = now().
+ *
+ * ⚠️ UNICITÉ : le schéma ne pose AUCUNE contrainte d'unicité sur certificat_acheminement.certificat_id (seul un
+ * index NON unique existe, 031:168). L'unicité « un certificat, un acheminement » est garantie ICI par le FLUX :
+ * cet INSERT ne s'exécute QUE sur une émission réelle (nouveau certificat), jamais sur un chemin idempotent (qui
+ * renvoie l'existant sans entrer dans la transaction). Cf. compte rendu.
+ */
+export async function ouvrirAcheminement(q: RequeteTx, certificatId: number): Promise<void> {
+  await q(
+    `INSERT INTO certificat_acheminement (certificat_id, statut) VALUES ($1, 'en_attente')`,
+    [certificatId],
   );
 }
