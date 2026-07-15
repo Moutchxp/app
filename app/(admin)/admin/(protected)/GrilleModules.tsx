@@ -59,21 +59,21 @@ function TuileSortable({ tuile, reduce }: { tuile: LienMenu; reduce: boolean }) 
   };
   return (
     <li ref={setNodeRef} style={style} className={`svv-grille-item${isDragging ? ' svv-grille-item--drag' : ''}`}>
-      <div className="svv-grille-carte">
-        <button
-          type="button"
-          className="svv-grille-poignee"
-          aria-label={`Réordonner la tuile ${tuile.libelle}`}
-          {...attributes}
-          {...listeners}
-        >
-          <span aria-hidden="true">⠿</span>
-        </button>
-        <Link href={tuile.slug} className="svv-grille-lien">
-          <span className="svv-grille-titre">{tuile.libelle}</span>
-          <span className="svv-grille-desc">{tuile.desc}</span>
-        </Link>
-      </div>
+      {/* Le <Link> EST la carte (géométrie d'origine). La poignée est SŒUR (jamais imbriquée : <button> dans <a>
+          serait invalide) et HORS FLUX (position:absolute, coin) → aucune colonne ne pousse le contenu. */}
+      <Link href={tuile.slug} className="svv-grille-lien">
+        <span className="svv-grille-titre">{tuile.libelle}</span>
+        <span className="svv-grille-desc">{tuile.desc}</span>
+      </Link>
+      <button
+        type="button"
+        className="svv-grille-poignee"
+        aria-label={`Réordonner la tuile ${tuile.libelle}`}
+        {...attributes}
+        {...listeners}
+      >
+        <span aria-hidden="true">⠿</span>
+      </button>
     </li>
   );
 }
@@ -163,17 +163,21 @@ export function GrilleModules({ tuiles }: { tuiles: LienMenu[] }) {
 
 const CSS_GRILLE = `
 .svv-grille{list-style:none;margin:0;padding:0;display:grid;gap:12px;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr))}
-.svv-grille-item{margin:0}
+/* Chaque tuile = conteneur RELATIF (ancre la poignée absolue) qui porte le transform dnd-kit. */
+.svv-grille-item{margin:0;position:relative}
 .svv-grille-item--drag{opacity:.6}
-.svv-grille-carte{display:flex;align-items:stretch;gap:.4rem;height:100%;border:1px solid var(--color-svv-line);border-radius:.7rem;background:var(--color-svv-field);overflow:hidden}
-.svv-grille-item--drag .svv-grille-carte{border-color:var(--color-svv-red);box-shadow:0 0 0 1px var(--color-svv-red)}
-.svv-grille-poignee{flex:0 0 auto;min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;border-right:1px solid var(--color-svv-line);background:#fff;color:var(--color-svv-muted);font-size:1.1rem;line-height:1;cursor:grab;touch-action:none}
-.svv-grille-poignee:hover{background:var(--color-svv-field);color:var(--color-svv-ink)}
+/* Le lien EST la carte : géométrie D'ORIGINE (svv-card) — bordure ligne, radius 14, padding 14/16, trame grise. */
+.svv-grille-lien{display:block;height:100%;box-sizing:border-box;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:14px;padding:14px 16px;text-decoration:none}
+.svv-grille-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.svv-grille-item--drag .svv-grille-lien{border-color:var(--color-svv-red);box-shadow:0 0 0 1px var(--color-svv-red)}
+.svv-grille-titre{display:block;font-weight:700;color:var(--color-svv-ink);margin-bottom:4px}
+.svv-grille-desc{display:block;font-size:.82rem;color:var(--color-svv-muted)}
+/* Poignée HORS FLUX (coin haut-droit) : cible tactile 44×44 collée au bord droit (s'étend dans le padding, PAS
+   vers le titre) ; visible EN PERMANENCE (opacité réduite, --color-svv-muted → utilisable au doigt, pas seulement
+   au survol), renforcée au survol ET au focus. touch-action:none limité À la poignée (le scroll de page reste OK). */
+.svv-grille-poignee{position:absolute;top:2px;right:2px;width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:var(--color-svv-muted);opacity:.55;font-size:1rem;line-height:1;cursor:grab;touch-action:none}
+.svv-grille-poignee:hover,.svv-grille-poignee:focus-visible{opacity:1;color:var(--color-svv-ink)}
+.svv-grille-poignee:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-4px;border-radius:8px}
 .svv-grille-poignee:active{cursor:grabbing}
-.svv-grille-poignee:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
-.svv-grille-lien{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;padding:.7rem .8rem;text-decoration:none}
-.svv-grille-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px;border-radius:.5rem}
-.svv-grille-titre{font-weight:700;color:var(--color-svv-ink)}
-.svv-grille-desc{font-size:.82rem;color:var(--color-svv-muted)}
 .svv-grille-erreur{margin:0 0 .6rem;font-size:.85rem;font-weight:600;color:var(--color-svv-red)}
 `;
