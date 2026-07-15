@@ -53,6 +53,35 @@ describe('validerCorpsIngestion — chemin nominal', () => {
   });
 });
 
+describe('validerCorpsIngestion — mode d’origine (ModeOrigine, migration 033)', () => {
+  const projetAvec = (mode: unknown) => ({ projet: { versionTunnel: 1, payload: {}, modeOrigine: mode } });
+
+  it.each(['semi_auto', 'manuel'])('mode valide « %s » → écrit tel quel', (mode) => {
+    const r = validerCorpsIngestion(corpsValide(projetAvec(mode)));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.corps.projet.modeOrigine).toBe(mode);
+  });
+
+  it('mode ABSENT du corps → null (mode inconnu, admis — pas une erreur)', () => {
+    const r = validerCorpsIngestion(corpsValide()); // corpsValide n'envoie aucun modeOrigine
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.corps.projet.modeOrigine).toBeNull();
+  });
+
+  it.each([
+    ['valeur hors liste fermée', 'automatique'],
+    ['chaîne vide', ''],
+    ['nombre (mal typé)', 3],
+    ['booléen (mal typé)', true],
+    ['objet (mal typé)', { x: 1 }],
+    ['null explicite', null],
+  ])('mode %s → null, corps VALIDE (LENIENT : aucune erreur, aucune exception)', (_l, mode) => {
+    const r = validerCorpsIngestion(corpsValide(projetAvec(mode)));
+    expect(r.ok).toBe(true); // une valeur de mode illégitime ne DOIT jamais rejeter le corps ni jeter
+    if (r.ok) expect(r.corps.projet.modeOrigine).toBeNull();
+  });
+});
+
 describe('validerCorpsIngestion — rejets', () => {
   it('corps non-objet → erreur', () => {
     expect(validerCorpsIngestion(null).ok).toBe(false);

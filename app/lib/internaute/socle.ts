@@ -103,8 +103,8 @@ async function insererProjet(
     `INSERT INTO internaute_projet
        (internaute_id, version_tunnel, payload, verdict, score, etage, dernier_etage,
         residence_principale, commune_insee, lat, lon, adresse_saisie, adresse_normalisee,
-        azimut_deg, hauteur_sous_plafond_m, hauteur_vision_m, certificat_envoye)
-     VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        azimut_deg, hauteur_sous_plafond_m, hauteur_vision_m, mode_origine, certificat_envoye)
+     VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
      RETURNING id`,
     [
       internauteId,
@@ -123,6 +123,7 @@ async function insererProjet(
       projet.azimutDeg,
       projet.hauteurSousPlafondM,
       projet.hauteurVisionM,
+      projet.modeOrigine, // ModeOrigine (033) — déjà normalisé (liste fermée ou null) par validerCorpsIngestion
       certificatEnvoye,
     ],
   );

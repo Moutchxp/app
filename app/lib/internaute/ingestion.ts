@@ -33,6 +33,9 @@ export interface ProjetIngestion {
   azimutDeg: number | null;
   hauteurSousPlafondM: number | null;
   hauteurVisionM: number | null;
+  // Mode d'origine réellement employé (ModeOrigine, migration 033) — entrée du pipeline nécessaire à un re-jeu
+  // serveur FIDÈLE. LENIENT : toute valeur hors liste fermée ou absente → null (jamais une erreur, jamais inventée).
+  modeOrigine: string | null;
 }
 
 export interface CorpsIngestion {
@@ -42,6 +45,8 @@ export interface CorpsIngestion {
 }
 
 const VERDICTS = new Set(['SANS_VIS_A_VIS', 'VIS_A_VIS', 'INDETERMINE']);
+/** Liste FERMÉE des valeurs de ModeOrigine (app/lib/svv/config.ts) — miroir du CHECK `internaute_projet.mode_origine` (033). */
+const MODES_ORIGINE = new Set(['semi_auto', 'manuel']);
 
 /** Tolérance de revérification de la hauteur de vision (flottant), en mètres. */
 const EPS_HAUTEUR_VISION_M = 1e-6;
@@ -181,6 +186,13 @@ export function validerCorpsIngestion(
           (projetBrut.etage as number | undefined) ?? null,
           (projetBrut.hauteurSousPlafondM as number | undefined) ?? null,
         ),
+        // Mode d'origine : LENIENT (télémétrie du pipeline, PAS un champ requis du service). Vérifié contre la liste
+        // FERMÉE de ModeOrigine AVANT écriture ; toute valeur inconnue ou absente → null, jamais une erreur remontée,
+        // jamais une valeur inventée. Le CHECK 033 n'est que le filet ; la porte est ici. NULL = mode inconnu, admis.
+        modeOrigine:
+          typeof projetBrut.modeOrigine === 'string' && MODES_ORIGINE.has(projetBrut.modeOrigine)
+            ? projetBrut.modeOrigine
+            : null,
       };
     }
   }

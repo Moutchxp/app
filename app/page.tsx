@@ -736,7 +736,7 @@ const EPOQUES = [
   "De 2001 à 2010", "De 2011 à 2020", "À partir de 2021",
 ] as const;
 
-function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, hauteurSousPlafond, etageInitial, dernierEtage, verdict, score, communeInsee, photo }: {
+function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, hauteurSousPlafond, etageInitial, dernierEtage, verdict, score, communeInsee, photo, mode }: {
   onRetour: () => void;
   onAccueil: () => void; // retour à la RACINE du tunnel (écran final « Demande validée »)
   adresseBien: string;
@@ -751,6 +751,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   score: number | null;
   communeInsee: string | null;
   photo: string | null; // photo base64 capturée dans Home → dépôt ANNEXE fire-and-forget après la soumission de l'Écran A
+  mode: ModeOrigine; // mode d'origine réellement employé (semi_auto/manuel) → persisté en mode_origine (033), re-jeu fidèle
 }) {
   const [adresseChoisie, setAdresseChoisie] = useState(adresseBien); // libellé affiché, init = adresse auto
   const [adressesAlt, setAdressesAlt] = useState<{ cle: string; libelle: string; distanceM: number; memeParcelle: boolean }[]>([]);
@@ -846,6 +847,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       azimutDeg: azimut,
       hauteurSousPlafondM: hauteurSousPlafond,
       hauteurVisionM: hauteurVision(etageInitial, hauteurSousPlafond),
+      modeOrigine: mode, // ModeOrigine réellement employé → mode_origine (033) ; validé serveur contre la liste fermée
     },
   });
 
@@ -3483,6 +3485,7 @@ export default function Home() {
     score={analyse?.resultat?.score.total ?? null}
     communeInsee={communeInsee}
     photo={photo}
+    mode={mode}
   />
 )}
         </section>
