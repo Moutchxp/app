@@ -31,7 +31,19 @@ import { query, withTransaction, type RequeteTx } from './client';
 import { analyserAdresse } from './pipeline';
 import { attribuerNumeroCertificat } from './certificatNumero';
 import { genererJetonVerification } from './certificatJeton';
+import { genererReference } from './certificatReference';
 import { publierCarteOrientation } from '../carte/publierCarteOrientation';
+
+/** Nombre de tentatives de tirage d'une référence UNIQUE avant abandon (collision astronomiquement improbable). */
+const MAX_TENTATIVES_REFERENCE = 5;
+
+/** Levée si aucune référence unique n'a pu être tirée après MAX_TENTATIVES_REFERENCE (pratiquement inatteignable). */
+export class ErreurReferenceCertificat extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ErreurReferenceCertificat';
+  }
+}
 import { THRESHOLD_M, type ModeOrigine } from '../svv/config';
 
 /**
@@ -63,8 +75,8 @@ export const SQL_EMPREINTE_BAREME = `
 
 /** Résultat d'une tentative d'émission. Statuts mappés en HTTP par la route. */
 export type ResultatEmission =
-  | { statut: 'emis'; numero: string; verdict: string }
-  | { statut: 'existant'; numero: string; verdict: string }
+  | { statut: 'emis'; numero: string; verdict: string; reference: string }
+  | { statut: 'existant'; numero: string; verdict: string; reference: string }
   | { statut: 'projet_absent' } // ownership KO (IDOR) : le projet n'appartient pas au porteur du jeton
   | { statut: 'refus_indetermine' } // verdict INDETERMINE / origine non validable / analyse non rejouable
   | { statut: 'refus_mode_inconnu' } // mode_origine NULL : re-jeu non fidèle → pas de document qui fait foi
@@ -187,16 +199,21 @@ export async function emettreCertificat(internauteId: string, projetId: number):
   //    acheminement (le certificat n'est JAMAIS orphelin de suivi : les deux naissent ensemble ou aucun). Course
   //    perdue (23505 sur certificat_projet_unique) → toute la transaction rollback (y compris l'acheminement) →
   //    on relit et on renvoie l'existant.
-  try {
-    const res = await withTransaction(async (q) => {
-      const numero = await attribuerNumeroCertificat(q);
-      // Jeton frappé ICI, dans la transaction, AVANT l'INSERT : un jeton par certificat, à vie (table immuable).
-      // Les chemins idempotents (pré-contrôle / 23505) n'entrent pas dans la transaction → ils n'en frappent aucun.
-      const jetonVerification = genererJetonVerification();
-      const certificatId = await insererCertificat(q, {
-        numero,
-        jetonVerification,
-        projetId,
+  // Boucle de tentatives : le SEUL motif de re-tentative est une COLLISION DE RÉFÉRENCE (voir plus bas). Toute autre
+  // issue (succès, idempotence, refus, incident) sort de la boucle immédiatement.
+  for (let tentative = 1; ; tentative += 1) {
+    try {
+      const res = await withTransaction(async (q) => {
+        const numero = await attribuerNumeroCertificat(q);
+        // Jeton + référence frappés ICI, dans la transaction, AVANT l'INSERT : un de chaque par certificat, à vie
+        // (table immuable). Les chemins idempotents (pré-contrôle / 23505 projet) n'entrent pas dans la transaction.
+        const jetonVerification = genererJetonVerification();
+        const reference = genererReference();
+        const certificatId = await insererCertificat(q, {
+          numero,
+          jetonVerification,
+          reference,
+          projetId,
         configGeneration,
         configEmpreinte,
         // Entrées RECOPIÉES du projet (chaînes numeric telles quelles → précision préservée, aucun arrondi).
@@ -227,29 +244,40 @@ export async function emettreCertificat(internauteId: string, projetId: number):
         resultat: JSON.stringify({ validation: analyse.validation, resultat }),
         photoCle: projet.photo_cle, // recopiée du projet ; carte_orientation_cle et analyse_photo restent NULL (lots suivants)
       });
-      await ouvrirAcheminement(q, certificatId);
-      return { numero, certificatId };
-    });
-    // APRÈS COMMIT — carte d'orientation best-effort, HORS transaction (réseau IGN, lent). Ne throw jamais ; un échec
-    // laisse carte_orientation_cle NULL, le certificat existe déjà (carte re-fabricable, cf. publierCarteOrientation).
-    await publierCarteOrientation(internauteId, res.certificatId, lat, lon, azimut);
-    return { statut: 'emis', numero: res.numero, verdict };
-  } catch (e) {
-    // COURSE : un autre appel concurrent a inséré le certificat entre notre pré-contrôle et notre INSERT →
-    // violation de certificat_projet_unique (23505). On RELIT et on renvoie l'existant : idempotence garantie par
-    // la contrainte (le filet), jamais une erreur remontée à l'appelant.
-    if ((e as { code?: string }).code === '23505') {
-      const relu = await lireCertificatExistant(projetId);
-      if (relu) return { statut: 'existant', ...relu };
+        await ouvrirAcheminement(q, certificatId);
+        return { numero, certificatId, reference };
+      });
+      // APRÈS COMMIT — carte d'orientation best-effort, HORS transaction (réseau IGN, lent). Ne throw jamais ; un échec
+      // laisse carte_orientation_cle NULL, le certificat existe déjà (carte re-fabricable, cf. publierCarteOrientation).
+      await publierCarteOrientation(internauteId, res.certificatId, lat, lon, azimut);
+      return { statut: 'emis', numero: res.numero, verdict, reference: res.reference };
+    } catch (e) {
+      const err = e as { code?: string; constraint?: string };
+      // IDEMPOTENCE (sémantique DISTINCTE) : course sur certificat_projet_unique → un certificat existe DÉJÀ pour ce
+      // projet. On RELIT et on renvoie l'existant. Ce N'EST PAS une collision de référence.
+      if (err.code === '23505' && err.constraint === 'certificat_projet_unique') {
+        const relu = await lireCertificatExistant(projetId);
+        if (relu) return { statut: 'existant', ...relu };
+        throw e; // contrainte violée mais rien à relire (improbable) → on remonte
+      }
+      // COLLISION DE RÉFÉRENCE (sémantique DISTINCTE) : la référence tirée existe déjà sur un AUTRE certificat. Toute
+      // la transaction a rollback (numéro/jeton/référence libérés) → on re-tire une référence et on RETENTE, quelques
+      // fois. À NE PAS confondre avec le 23505 de projet_unique ci-dessus, dont le sens est l'idempotence.
+      if (err.code === '23505' && err.constraint === 'certificat_reference_unique') {
+        if (tentative < MAX_TENTATIVES_REFERENCE) continue;
+        throw new ErreurReferenceCertificat(
+          `référence unique introuvable après ${MAX_TENTATIVES_REFERENCE} tentatives (collisions répétées)`,
+        );
+      }
+      throw e; // incident non lié → remonte (la route répond proprement)
     }
-    throw e; // incident non lié à l'idempotence → remonte (la route répond proprement)
   }
 }
 
-/** Relit le certificat existant d'un projet (numéro + verdict), ou null. */
-async function lireCertificatExistant(projetId: number): Promise<{ numero: string; verdict: string } | null> {
-  const r = await query<{ numero: string; verdict: string }>(
-    `SELECT numero, verdict FROM certificat WHERE projet_id = $1 LIMIT 1`,
+/** Relit le certificat existant d'un projet (numéro + verdict + référence PUBLIQUE), ou null. */
+async function lireCertificatExistant(projetId: number): Promise<{ numero: string; verdict: string; reference: string } | null> {
+  const r = await query<{ numero: string; verdict: string; reference: string }>(
+    `SELECT numero, verdict, reference FROM certificat WHERE projet_id = $1 LIMIT 1`,
     [projetId],
   );
   return r.rows[0] ?? null;
@@ -259,6 +287,7 @@ async function lireCertificatExistant(projetId: number): Promise<{ numero: strin
 interface DonneesCertificat {
   numero: string;
   jetonVerification: string; // 16 car. Crockford Base32 (038), tiré par CSPRNG en amont ; conforme au CHECK par construction
+  reference: string; // SVAV-XXXX-XXXX (039), référence PUBLIQUE tirée par CSPRNG ; conforme au CHECK par construction
   projetId: number;
   configGeneration: number | null;
   configEmpreinte: string;
@@ -303,7 +332,7 @@ export async function insererCertificat(q: RequeteTx, d: DonneesCertificat): Pro
         altitude_terrain_m, altitude_sol_m, tolerance_m,
         reference_cadastrale, annee_batiment,
         resultat, photo_cle,
-        jeton_verification)
+        jeton_verification, reference)
      VALUES ($1, $2, $3, $4,
              $5, $6, $7, $8, $9, $10, $11,
              $12, $13, $14, $15, $16,
@@ -311,7 +340,7 @@ export async function insererCertificat(q: RequeteTx, d: DonneesCertificat): Pro
              $22, $23, $24,
              $25, $26,
              $27::jsonb, $28,
-             $29)
+             $29, $30)
      RETURNING id`,
     [
       d.numero, d.projetId, d.configGeneration, d.configEmpreinte,
@@ -323,6 +352,7 @@ export async function insererCertificat(q: RequeteTx, d: DonneesCertificat): Pro
       d.resultat, d.photoCle,
       d.jetonVerification, // $29 — colonne d'identité placée EN FIN de liste : l'ordre des colonnes d'un INSERT est
       // cosmétique, cela garde stables les positions ($1..$28) des paramètres existants.
+      d.reference, // $30 — référence publique, même logique de placement en fin de liste
     ],
   );
   return Number(r.rows[0].id);

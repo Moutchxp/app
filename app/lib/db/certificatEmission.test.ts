@@ -14,6 +14,7 @@ vi.mock('../carte/publierCarteOrientation', () => ({ publierCarteOrientation }))
 
 import { emettreCertificat } from './certificatEmission';
 import { REGEXP_JETON_VERIFICATION } from './certificatJeton';
+import { REGEXP_REFERENCE } from './certificatReference';
 
 const projetOK = {
   lat: '48.90693182287072', lon: '2.269431435588249', azimut_deg: '90', etage: 2, dernier_etage: false,
@@ -45,9 +46,10 @@ function installer(opts: {
   projet?: unknown;
   certAvant?: unknown[]; // pré-contrôle d'idempotence
   certRelit?: unknown[]; // relecture après 23505
-  txThrow?: unknown; // si défini, withTransaction rejette avec cette valeur (simule course/incident)
+  txThrow?: unknown; // si défini, withTransaction rejette TOUJOURS avec cette valeur (simule course/incident)
+  refCollisions?: number; // nombre de collisions de référence (23505 reference_unique) AVANT succès
 }) {
-  const { projet = projetOK, certAvant = [], certRelit, txThrow } = opts;
+  const { projet = projetOK, certAvant = [], certRelit, txThrow, refCollisions } = opts;
   let certCalls = 0;
   query.mockImplementation(async (sql: string) => {
     if (/FROM internaute_projet/.test(sql)) return { rows: projet ? [projet] : [] };
@@ -67,8 +69,19 @@ function installer(opts: {
     if (/INSERT INTO certificat\b/.test(sql)) return { rows: [{ id: 7 }] as unknown[] };
     return { rows: [] as unknown[] };
   });
-  if (txThrow !== undefined) withTransaction.mockRejectedValue(txThrow);
-  else withTransaction.mockImplementation(async (fn: (q: unknown) => unknown) => fn(qTx));
+  if (txThrow !== undefined) {
+    withTransaction.mockRejectedValue(txThrow);
+  } else if (refCollisions && refCollisions > 0) {
+    // Les `refCollisions` premières transactions échouent sur la contrainte de RÉFÉRENCE (23505), puis succès.
+    let n = 0;
+    withTransaction.mockImplementation(async (fn: (q: unknown) => unknown) => {
+      n += 1;
+      if (n <= refCollisions) throw { code: '23505', constraint: 'certificat_reference_unique' };
+      return fn(qTx);
+    });
+  } else {
+    withTransaction.mockImplementation(async (fn: (q: unknown) => unknown) => fn(qTx));
+  }
   attribuerNumeroCertificat.mockResolvedValue('SAVV-2026-000001');
   return { qTx };
 }
@@ -141,25 +154,38 @@ describe('emettreCertificat — gardes & IDOR', () => {
 });
 
 describe('emettreCertificat — idempotence', () => {
-  it('pré-contrôle : certificat déjà émis → existant (même numéro), aucun re-jeu, aucune transaction', async () => {
-    installer({ certAvant: [{ numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS' }] });
+  it('pré-contrôle : certificat déjà émis → existant (numéro + référence), aucun re-jeu, aucune transaction', async () => {
+    installer({ certAvant: [{ numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS', reference: 'SVAV-K7M2-9QX4' }] });
     const r = await emettreCertificat('internaute-A', 42);
-    expect(r).toEqual({ statut: 'existant', numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS' });
+    expect(r).toEqual({ statut: 'existant', numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS', reference: 'SVAV-K7M2-9QX4' });
     expect(analyserAdresse).not.toHaveBeenCalled();
     expect(withTransaction).not.toHaveBeenCalled();
   });
 
-  it('COURSE : INSERT viole certificat_projet_unique (23505) → on relit et renvoie l’existant, aucune erreur', async () => {
+  it('COURSE certificat_projet_unique (23505) → relit et renvoie l’existant (avec référence), aucune erreur', async () => {
     installer({
       certAvant: [], // pré-contrôle : rien (les deux requêtes ont lu « rien »)
-      certRelit: [{ numero: 'SAVV-2026-000042', verdict: 'SANS_VIS_A_VIS' }], // l'autre transaction a gagné
-      txThrow: { code: '23505' },
+      certRelit: [{ numero: 'SAVV-2026-000042', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-AAAA-BBBB' }], // l'autre transaction a gagné
+      txThrow: { code: '23505', constraint: 'certificat_projet_unique' }, // sémantique idempotence
     });
     const r = await emettreCertificat('internaute-A', 42);
-    expect(r).toEqual({ statut: 'existant', numero: 'SAVV-2026-000042', verdict: 'SANS_VIS_A_VIS' });
+    expect(r).toEqual({ statut: 'existant', numero: 'SAVV-2026-000042', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-AAAA-BBBB' });
   });
 
-  it('incident base NON lié à l’idempotence (autre code) → remonte (la route répondra proprement)', async () => {
+  it('COLLISION de référence (23505 certificat_reference_unique) → re-tire et RETENTE, puis émet', async () => {
+    installer({ refCollisions: 2 }); // 2 collisions de référence, puis succès à la 3e tentative
+    const r = await emettreCertificat('internaute-A', 42);
+    expect(r).toMatchObject({ statut: 'emis', numero: 'SAVV-2026-000001' });
+    if (r.statut === 'emis') expect(r.reference).toMatch(REGEXP_REFERENCE);
+    expect(withTransaction).toHaveBeenCalledTimes(3); // 2 échecs + 1 succès
+  });
+
+  it('collision de référence PERSISTANTE (> MAX tentatives) → échec propre (ErreurReferenceCertificat)', async () => {
+    installer({ refCollisions: 99 }); // ne réussit jamais
+    await expect(emettreCertificat('internaute-A', 42)).rejects.toMatchObject({ name: 'ErreurReferenceCertificat' });
+  });
+
+  it('incident base NON lié (autre code) → remonte (la route répondra proprement)', async () => {
     installer({ txThrow: { code: '08006', message: 'connexion perdue' } });
     await expect(emettreCertificat('internaute-A', 42)).rejects.toMatchObject({ code: '08006' });
   });
@@ -175,7 +201,8 @@ describe('emettreCertificat — re-jeu & recopie', () => {
   it('nominal → emis : numéro attribué DANS la transaction + INSERT recopie les entrées et fige le re-dérivé', async () => {
     const { qTx } = installer({});
     const r = await emettreCertificat('internaute-A', 42);
-    expect(r).toEqual({ statut: 'emis', numero: 'SAVV-2026-000001', verdict: 'SANS_VIS_A_VIS' });
+    expect(r).toMatchObject({ statut: 'emis', numero: 'SAVV-2026-000001', verdict: 'SANS_VIS_A_VIS' });
+    if (r.statut === 'emis') expect(r.reference).toMatch(REGEXP_REFERENCE); // référence publique retournée (peut sortir)
     expect(attribuerNumeroCertificat).toHaveBeenCalledWith(qTx); // numéro attribué avec le q de la transaction
     const insert = qTx.mock.calls.find((c) => /INSERT INTO certificat\b/.test(c[0] as string));
     expect(insert).toBeTruthy();
@@ -195,6 +222,7 @@ describe('emettreCertificat — re-jeu & recopie', () => {
     expect(p[25]).toBe(1923); // annee_batiment (BDNB)
     expect(p[27]).toBe('internautes/a/photos/x.jpg'); // photo_cle recopiée
     expect(p[28]).toMatch(REGEXP_JETON_VERIFICATION); // $29 — jeton frappé, conforme au CHECK 038 par construction
+    expect(p[29]).toMatch(REGEXP_REFERENCE); // $30 — référence publique frappée, conforme au CHECK 039 par construction
   });
 
   it('nominal → ouvre l’acheminement DANS la même transaction : certificat_id renvoyé, statut en_attente', async () => {
@@ -208,7 +236,7 @@ describe('emettreCertificat — re-jeu & recopie', () => {
   });
 
   it('idempotence (pré-contrôle) : aucune transaction → AUCUN acheminement ouvert (pas de 2e ligne)', async () => {
-    installer({ certAvant: [{ numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS' }] });
+    installer({ certAvant: [{ numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS', reference: 'SVAV-K7M2-9QX4' }] });
     await emettreCertificat('internaute-A', 42);
     expect(withTransaction).not.toHaveBeenCalled(); // ni certificat, ni acheminement réinsérés
     expect(publierCarteOrientation).not.toHaveBeenCalled(); // chemin idempotent → pas de re-génération de carte
@@ -227,11 +255,14 @@ describe('emettreCertificat — carte d’orientation (après COMMIT)', () => {
     installer({});
     // Même si la publication échouait, elle avale ses erreurs ; ici on prouve que le statut 'emis' est rendu.
     const r = await emettreCertificat('internaute-A', 42);
-    expect(r).toEqual({ statut: 'emis', numero: 'SAVV-2026-000001', verdict: 'SANS_VIS_A_VIS' });
+    expect(r).toMatchObject({ statut: 'emis', numero: 'SAVV-2026-000001', verdict: 'SANS_VIS_A_VIS' });
   });
 
-  it('course 23505 (chemin existant) → PAS de carte régénérée', async () => {
-    installer({ certRelit: [{ numero: 'SAVV-2026-000042', verdict: 'SANS_VIS_A_VIS' }], txThrow: { code: '23505' } });
+  it('course 23505 projet_unique (chemin existant) → PAS de carte régénérée', async () => {
+    installer({
+      certRelit: [{ numero: 'SAVV-2026-000042', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-AAAA-BBBB' }],
+      txThrow: { code: '23505', constraint: 'certificat_projet_unique' },
+    });
     await emettreCertificat('internaute-A', 42);
     expect(publierCarteOrientation).not.toHaveBeenCalled();
   });

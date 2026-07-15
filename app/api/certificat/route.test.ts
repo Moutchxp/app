@@ -94,17 +94,18 @@ describe('POST /api/certificat — IDOR & mapping des statuts', () => {
 
   it('émission nominale → 200, numéro + deja:false', async () => {
     verifierJetonRectification.mockResolvedValue('internaute-A');
-    emettreCertificat.mockResolvedValue({ statut: 'emis', numero: 'SAVV-2026-000010', verdict: 'SANS_VIS_A_VIS' });
+    emettreCertificat.mockResolvedValue({ statut: 'emis', numero: 'SAVV-2026-000010', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-K7M2-9QX4' });
     const res = await POST(req({ jeton: 'jwt', projetId: 42 }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, numero: 'SAVV-2026-000010', verdict: 'SANS_VIS_A_VIS', deja: false });
+    // La référence PUBLIQUE est transmise dans la réponse (elle peut sortir du serveur, contrairement au jeton).
+    expect(await res.json()).toMatchObject({ ok: true, numero: 'SAVV-2026-000010', reference: 'SVAV-K7M2-9QX4', verdict: 'SANS_VIS_A_VIS', deja: false });
   });
 
-  it('IDEMPOTENCE : certificat déjà émis → 200, MÊME numéro, deja:true (pas d’erreur, pas de 2e document)', async () => {
+  it('IDEMPOTENCE : certificat déjà émis → 200, MÊME numéro + référence, deja:true (pas d’erreur, pas de 2e document)', async () => {
     verifierJetonRectification.mockResolvedValue('internaute-A');
-    emettreCertificat.mockResolvedValue({ statut: 'existant', numero: 'SAVV-2026-000010', verdict: 'SANS_VIS_A_VIS' });
+    emettreCertificat.mockResolvedValue({ statut: 'existant', numero: 'SAVV-2026-000010', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-K7M2-9QX4' });
     const res = await POST(req({ jeton: 'jwt', projetId: 42 }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, numero: 'SAVV-2026-000010', deja: true });
+    expect(await res.json()).toMatchObject({ ok: true, numero: 'SAVV-2026-000010', reference: 'SVAV-K7M2-9QX4', deja: true });
   });
 });

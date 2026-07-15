@@ -61,8 +61,9 @@ export async function POST(request: Request): Promise<Response> {
       // Hors périmètre : Sans Vis-à-Vis® ne certifie que l'absence de vis-à-vis (décision produit, pas une erreur).
       return NextResponse.json({ ok: false, erreur: 'vis-à-vis détecté', raison: 'vis_a_vis' }, { status: 422 });
     case 'existant':
-      return NextResponse.json({ ok: true, numero: r.numero, verdict: r.verdict, deja: true });
+      // `reference` = clé PUBLIQUE (non secrète) → peut sortir du serveur. Le jeton, lui, ne sort jamais.
+      return NextResponse.json({ ok: true, numero: r.numero, reference: r.reference, verdict: r.verdict, deja: true });
     case 'emis':
-      return NextResponse.json({ ok: true, numero: r.numero, verdict: r.verdict, deja: false });
+      return NextResponse.json({ ok: true, numero: r.numero, reference: r.reference, verdict: r.verdict, deja: false });
   }
 }
