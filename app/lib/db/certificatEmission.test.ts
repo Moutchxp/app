@@ -1,0 +1,178 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// Unité : on teste la LOGIQUE d'émission (ordre des gardes, IDOR, refus, recopie/re-dérivation, idempotence par
+// pré-contrôle ET par contrainte 23505) SANS base ni pipeline réels. config.ts (THRESHOLD_M) reste RÉEL (pur).
+const { query, withTransaction } = vi.hoisted(() => ({ query: vi.fn(), withTransaction: vi.fn() }));
+const { analyserAdresse } = vi.hoisted(() => ({ analyserAdresse: vi.fn() }));
+const { attribuerNumeroCertificat } = vi.hoisted(() => ({ attribuerNumeroCertificat: vi.fn() }));
+
+vi.mock('./client', () => ({ query, withTransaction }));
+vi.mock('./pipeline', () => ({ analyserAdresse }));
+vi.mock('./certificatNumero', () => ({ attribuerNumeroCertificat }));
+
+import { emettreCertificat } from './certificatEmission';
+
+const projetOK = {
+  lat: '48.90693182287072', lon: '2.269431435588249', azimut_deg: '90', etage: 2, dernier_etage: false,
+  hauteur_sous_plafond_m: '2.50', hauteur_vision_m: '6.65',
+  adresse_saisie: '1 rue X', adresse_normalisee: '1 Rue X, 92004',
+  payload: { typeBien: 'appartement', surface: '75', nbPieces: '3', epoque: 'moderne' },
+  mode_origine: 'semi_auto', photo_cle: 'internautes/a/photos/x.jpg',
+};
+
+const analyseOK = {
+  validation: {
+    valide: true, raison: '', batimentOrigine: { id: 1, cleabs: 'BATIMENT0000000240319856', polygoneWkt: '' },
+    altitudeTerrainOrigineM: 30.5, altSolBdTopoM: 29.9, distanceAuBatimentM: 0, dansBatiment: true,
+    pointSnappeL93: { x: 0, y: 0 }, pointSnappeWgs84: { lat: 48.9, lon: 2.26 },
+  },
+  resultat: {
+    verdict: { verdict: 'SANS_VIS_A_VIS', distanceM: 120.5, obstacle: null, raison: '', analyseDegradee: false, messageDegrade: null },
+    score: {
+      total: 55.2, libelle: null, scorePartiel: false,
+      famille1: { total: 0, distance: 0, amplitude: 0, orientation: 0, detail: { moyenneProfondeurM: 88.1, pourcentageFaisceauxDegages: 73, penaliteFlancAppliquee: false, secteurOrientation: 'S', bonusDernierEtage: 0, amplitudePartA: 0, amplitudePartB: 0 } },
+      famille2: { scorePartiel: false },
+    },
+    distanceAxePrincipalM: 120.5, contexteDegagement: '', contexteVueNature: null, contexteImmobilier: null, monumentsHistoriques: [],
+  },
+};
+
+/** Configure le routeur `query` par SQL + le comportement de la transaction. */
+function installer(opts: {
+  projet?: unknown;
+  certAvant?: unknown[]; // pré-contrôle d'idempotence
+  certRelit?: unknown[]; // relecture après 23505
+  txThrow?: unknown; // si défini, withTransaction rejette avec cette valeur (simule course/incident)
+}) {
+  const { projet = projetOK, certAvant = [], certRelit, txThrow } = opts;
+  let certCalls = 0;
+  query.mockImplementation(async (sql: string) => {
+    if (/FROM internaute_projet/.test(sql)) return { rows: projet ? [projet] : [] };
+    if (/FROM certificat WHERE projet_id/.test(sql)) {
+      certCalls += 1;
+      return { rows: certCalls === 1 ? certAvant : (certRelit ?? certAvant) };
+    }
+    if (/FROM parcelle/.test(sql)) return { rows: [{ id: '92004000AM0114' }] };
+    if (/bdnb_annee_batiment/.test(sql)) return { rows: [{ annee_construction: 1923 }] };
+    if (/config_scoring/.test(sql)) return { rows: [{ empreinte: 'abc123', generation: '17' }] };
+    return { rows: [] };
+  });
+  const qTx = vi.fn();
+  qTx.mockResolvedValue({ rows: [] as unknown[] });
+  if (txThrow !== undefined) withTransaction.mockRejectedValue(txThrow);
+  else withTransaction.mockImplementation(async (fn: (q: unknown) => unknown) => fn(qTx));
+  attribuerNumeroCertificat.mockResolvedValue('SAVV-2026-000001');
+  return { qTx };
+}
+
+beforeEach(() => {
+  query.mockReset();
+  withTransaction.mockReset();
+  analyserAdresse.mockReset();
+  attribuerNumeroCertificat.mockReset();
+  analyserAdresse.mockResolvedValue(analyseOK);
+});
+
+describe('emettreCertificat — gardes & IDOR', () => {
+  it('projet non possédé (SELECT vide) → projet_absent, aucun re-jeu, aucune transaction', async () => {
+    installer({ projet: null });
+    const r = await emettreCertificat('internaute-A', 42);
+    expect(r).toEqual({ statut: 'projet_absent' });
+    expect(analyserAdresse).not.toHaveBeenCalled();
+    expect(withTransaction).not.toHaveBeenCalled();
+    // l'ownership est bornée (id, internaute_id) — l'internauteId vient de l'appelant (sub du jeton), pas du projet
+    expect(query.mock.calls[0][1]).toEqual([42, 'internaute-A']);
+  });
+
+  it('mode_origine NULL → refus_mode_inconnu, aucun re-jeu (re-jeu non fidèle)', async () => {
+    installer({ projet: { ...projetOK, mode_origine: null } });
+    const r = await emettreCertificat('internaute-A', 42);
+    expect(r).toEqual({ statut: 'refus_mode_inconnu' });
+    expect(analyserAdresse).not.toHaveBeenCalled();
+  });
+
+  it('mode_origine hors liste fermée (valeur aberrante) → refus_mode_inconnu (le code est la porte)', async () => {
+    installer({ projet: { ...projetOK, mode_origine: 'automatique' } });
+    const r = await emettreCertificat('internaute-A', 42);
+    expect(r).toEqual({ statut: 'refus_mode_inconnu' });
+  });
+
+  it('analyse non rejouable (azimut manquant, dossier < 026) → refus_indetermine, aucun re-jeu', async () => {
+    installer({ projet: { ...projetOK, azimut_deg: null } });
+    const r = await emettreCertificat('internaute-A', 42);
+    expect(r).toEqual({ statut: 'refus_indetermine' });
+    expect(analyserAdresse).not.toHaveBeenCalled();
+  });
+
+  it('verdict INDETERMINE (origine non validable / hors LiDAR) → refus_indetermine, aucune transaction', async () => {
+    installer({});
+    analyserAdresse.mockResolvedValue({ validation: analyseOK.validation, resultat: null });
+    const r = await emettreCertificat('internaute-A', 42);
+    expect(r).toEqual({ statut: 'refus_indetermine' });
+    expect(withTransaction).not.toHaveBeenCalled();
+  });
+
+  it('verdict = INDETERMINE explicite → refus_indetermine', async () => {
+    installer({});
+    analyserAdresse.mockResolvedValue({ ...analyseOK, resultat: { ...analyseOK.resultat, verdict: { ...analyseOK.resultat.verdict, verdict: 'INDETERMINE' } } });
+    const r = await emettreCertificat('internaute-A', 42);
+    expect(r).toEqual({ statut: 'refus_indetermine' });
+  });
+});
+
+describe('emettreCertificat — idempotence', () => {
+  it('pré-contrôle : certificat déjà émis → existant (même numéro), aucun re-jeu, aucune transaction', async () => {
+    installer({ certAvant: [{ numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS' }] });
+    const r = await emettreCertificat('internaute-A', 42);
+    expect(r).toEqual({ statut: 'existant', numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS' });
+    expect(analyserAdresse).not.toHaveBeenCalled();
+    expect(withTransaction).not.toHaveBeenCalled();
+  });
+
+  it('COURSE : INSERT viole certificat_projet_unique (23505) → on relit et renvoie l’existant, aucune erreur', async () => {
+    installer({
+      certAvant: [], // pré-contrôle : rien (les deux requêtes ont lu « rien »)
+      certRelit: [{ numero: 'SAVV-2026-000042', verdict: 'SANS_VIS_A_VIS' }], // l'autre transaction a gagné
+      txThrow: { code: '23505' },
+    });
+    const r = await emettreCertificat('internaute-A', 42);
+    expect(r).toEqual({ statut: 'existant', numero: 'SAVV-2026-000042', verdict: 'SANS_VIS_A_VIS' });
+  });
+
+  it('incident base NON lié à l’idempotence (autre code) → remonte (la route répondra proprement)', async () => {
+    installer({ txThrow: { code: '08006', message: 'connexion perdue' } });
+    await expect(emettreCertificat('internaute-A', 42)).rejects.toMatchObject({ code: '08006' });
+  });
+});
+
+describe('emettreCertificat — re-jeu & recopie', () => {
+  it('re-jeu avec le mode LU EN BASE (manuel), jamais le défaut', async () => {
+    installer({ projet: { ...projetOK, mode_origine: 'manuel' } });
+    await emettreCertificat('internaute-A', 42);
+    expect(analyserAdresse).toHaveBeenCalledWith(expect.objectContaining({ mode: 'manuel' }));
+  });
+
+  it('nominal → emis : numéro attribué DANS la transaction + INSERT recopie les entrées et fige le re-dérivé', async () => {
+    const { qTx } = installer({});
+    const r = await emettreCertificat('internaute-A', 42);
+    expect(r).toEqual({ statut: 'emis', numero: 'SAVV-2026-000001', verdict: 'SANS_VIS_A_VIS' });
+    expect(attribuerNumeroCertificat).toHaveBeenCalledWith(qTx); // numéro attribué avec le q de la transaction
+    const insert = qTx.mock.calls.find((c) => /INSERT INTO certificat/.test(c[0] as string));
+    expect(insert).toBeTruthy();
+    const p = insert![1] as unknown[];
+    expect(p[0]).toBe('SAVV-2026-000001'); // numero
+    expect(p[1]).toBe(42); // projet_id
+    expect(p[2]).toBe(17); // config_generation (int8 → number)
+    expect(p[3]).toBe('abc123'); // config_empreinte
+    expect(p[4]).toBe('48.90693182287072'); // lat RECOPIÉ tel quel (chaîne numeric, précision préservée)
+    expect(p[13]).toBe(75); // surface_m2 (payload '75' → 75)
+    expect(p[14]).toBe(3); // nb_pieces
+    expect(p[16]).toBe('SANS_VIS_A_VIS'); // verdict re-dérivé
+    expect(p[17]).toBe(55.2); // score re-dérivé
+    expect(p[18]).toBe(120.5); // distance_obstacle_m (verdict.distanceM)
+    expect(p[23]).toBe(40); // tolerance_m (THRESHOLD_M, réel)
+    expect(p[24]).toBe('92004000AM0114'); // reference_cadastrale
+    expect(p[25]).toBe(1923); // annee_batiment (BDNB)
+    expect(p[27]).toBe('internautes/a/photos/x.jpg'); // photo_cle recopiée
+  });
+});

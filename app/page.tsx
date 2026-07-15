@@ -865,6 +865,23 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     }
   };
 
+  // Émission du certificat (Lot 4) : POST fire-and-forget vers /api/certificat, une fois le parcours COMPLET. Comme
+  // le dépôt photo : aucune attente, aucun message, aucun état de chargement ; un échec ne bloque jamais la fin du
+  // tunnel. Le serveur re-dérive le résultat et attribue le numéro ; le front ne transmet QUE { jeton, projetId }.
+  // Ne s'émet que si l'on a un jeton (nouveau dossier créé en A) + le projetId de A : sans jeton, pas de capacité
+  // d'ownership côté serveur (cas email réutilisé / création directe en B) → émission déléguée à un lot ultérieur.
+  const emettreCertificat = async (jeton: string, projetId: number) => {
+    try {
+      await fetch("/api/certificat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jeton, projetId }),
+      });
+    } catch {
+      /* silencieux : l'émission est best-effort ; un échec ne doit JAMAIS perturber la fin du tunnel */
+    }
+  };
+
   // Soumission Écran A (LOT 2). NON-COUPLAGE : le certificat s'obtient SANS consentement. Sans AUCUN consentement, AUCUNE
   // donnée nominative n'est envoyée (minimisation) → on affiche juste la confirmation. Avec AU MOINS UN consentement,
   // on POSTe le profil à /api/internaute (statut 'incomplet' — les coordonnées seront confirmées à l'Écran B). L'ingestion
@@ -939,6 +956,9 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
         setEnvoiRectif(false);
       }
     }
+    // Émission du certificat — fire-and-forget, parcours désormais complet. Non bloquant : le tunnel se termine quoi
+    // qu'il arrive. Nécessite jeton + projetId de A (capacité d'ownership serveur) ; sinon skip (voir emettreCertificat).
+    if (jetonRectif && projetIdA !== null) void emettreCertificat(jetonRectif, projetIdA);
     setConfirme(true); // certificat délivré quoi qu'il arrive
   };
 
