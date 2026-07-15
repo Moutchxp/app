@@ -96,6 +96,7 @@ const CHEMINS_AUTHENTIFIE_SEUL: ReadonlySet<string> = new Set([
   '/api/admin/ping',
   '/admin/compte/mot-de-passe',
   '/api/admin/compte/mot-de-passe',
+  '/api/admin/compte/ordre-modules', // self-service ordre des modules ; aucune perm de module ; la route se re-garde
 ]);
 
 export async function proxy(request: NextRequest) {

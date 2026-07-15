@@ -69,3 +69,34 @@ export function ordonner(liens: LienMenu[], ordreStocke: unknown): LienMenu[] {
   for (const l of liens) if (!vus.has(l.slug)) ordonnes.push(l); // (b) modules absents du stockage → à la fin
   return ordonnes;
 }
+
+/** Ensemble des slugs de modules CONNUS (les 6 modules + Administratif + Audit) — source unique pour valider un
+ *  ordre reçu. NB : c'est l'univers des slugs EXISTANTS, pas ceux visibles par un rôle donné (cf. `validerOrdreModules`). */
+export const SLUGS_MODULES: ReadonlySet<string> = new Set([...MODULES.map((m) => m.slug), ADMINISTRATIF.slug, AUDIT.slug]);
+
+/** Borne anti-DoS du tableau d'ordre reçu (très au-dessus des 8 modules réels) — évite un payload géant. */
+const MAX_ENTREES_ORDRE = 64;
+
+/**
+ * Valide un ordre reçu du client AVANT écriture (jsonb accepte n'importe quoi, donc on filtre ici). Renvoie la
+ * liste NORMALISÉE (slugs connus, dédupliqués dans l'ordre de 1re apparition), ou `null` si le corps est invalide.
+ * Règles : doit être un TABLEAU de chaînes ; chaque entrée doit être un slug CONNU (`SLUGS_MODULES`) ; longueur
+ * bornée ; toute entrée non-string OU slug inconnu → rejet TOTAL (`null`) — on n'écrit jamais de déchet en base.
+ * ⚠️ On valide contre les slugs EXISTANTS, PAS contre `liensVisibles(role, perms)` : un admin qui perdrait une
+ * permission plus tard verrait sinon son ordre rejeté. La sécurité RÔLE est déjà assurée à la LECTURE par la
+ * règle (c) de `ordonner` — une seule définition, non dupliquée ici. Doublons → DÉDUPLIQUÉS (plutôt que rejetés) :
+ * un doublon est un bruit inoffensif, le normaliser est plus robuste que faire échouer une sauvegarde.
+ */
+export function validerOrdreModules(corps: unknown): string[] | null {
+  if (!Array.isArray(corps) || corps.length > MAX_ENTREES_ORDRE) return null;
+  const ordonnes: string[] = [];
+  const vus = new Set<string>();
+  for (const x of corps) {
+    if (typeof x !== 'string' || !SLUGS_MODULES.has(x)) return null; // non-string ou slug inconnu → rejet total
+    if (!vus.has(x)) {
+      vus.add(x);
+      ordonnes.push(x); // dédup en préservant l'ordre de 1re apparition
+    }
+  }
+  return ordonnes;
+}

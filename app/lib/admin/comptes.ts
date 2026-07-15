@@ -92,6 +92,16 @@ export async function lireOrdreModules(id: number): Promise<unknown> {
   }
 }
 
+/**
+ * Écrit l'ordre personnalisé des modules d'UN compte (self-service). `id` DOIT être le `sub` du jeton de
+ * l'appelant — jamais un id venant du corps de la requête (garde IDOR : un compte ne modifie que SA ligne).
+ * `ordre` est supposé DÉJÀ VALIDÉ (slugs connus, dédupliqués) par `validerOrdreModules`. Sérialisé en jsonb.
+ * Non journalisé : c'est une préférence d'affichage personnelle, pas un changement de compte/sécurité auditable.
+ */
+export async function enregistrerOrdreModules(id: number, ordre: string[]): Promise<void> {
+  await query(`UPDATE admin_utilisateur SET ordre_modules = $1::jsonb WHERE id = $2`, [JSON.stringify(ordre), id]);
+}
+
 /** Met à jour `derniere_connexion_a = now()` pour un compte (mono-ligne, sur succès de connexion). */
 export async function marquerConnexion(id: number): Promise<void> {
   await query(`UPDATE admin_utilisateur SET derniere_connexion_a = now() WHERE id = $1`, [id]);

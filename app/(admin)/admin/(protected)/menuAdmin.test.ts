@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { liensVisibles, ordonner, type LienMenu } from './menuAdmin';
+import { liensVisibles, ordonner, validerOrdreModules, type LienMenu } from './menuAdmin';
 import { permsToutes, permsAucune } from '../../../lib/admin/session';
 
 describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
@@ -102,5 +102,53 @@ describe('ordonner — GARDE DE SÉCURITÉ RÔLE (règle c) : un ordre stocké n
     expect(slugs(r).slice(0, 2)).toEqual(['/admin/curation', '/admin/audit']);
     expect(r).toHaveLength(8); // aucune tuile perdue (règle b appende le reste)
     expect(new Set(slugs(r)).size).toBe(8); // aucun doublon
+  });
+});
+
+describe('validerOrdreModules — filtre du corps AVANT écriture (jsonb accepte tout)', () => {
+  it('tableau de slugs connus → renvoyé tel quel (normalisé)', () => {
+    expect(validerOrdreModules(['/admin/curation', '/admin/pilotage', '/admin/audit'])).toEqual([
+      '/admin/curation',
+      '/admin/pilotage',
+      '/admin/audit',
+    ]);
+  });
+
+  it('doublons → DÉDUPLIQUÉS (ordre de 1re apparition préservé)', () => {
+    expect(validerOrdreModules(['/admin/curation', '/admin/curation', '/admin/pilotage'])).toEqual([
+      '/admin/curation',
+      '/admin/pilotage',
+    ]);
+  });
+
+  it('tableau vide → tableau vide (valide : aucun slug, la lecture appliquera l’ordre par défaut via ordonner)', () => {
+    expect(validerOrdreModules([])).toEqual([]);
+  });
+
+  it.each([
+    ['objet', { '/admin/curation': 1 }],
+    ['chaîne', '/admin/curation'],
+    ['nombre', 42],
+    ['null', null],
+    ['undefined', undefined],
+    ['booléen', true],
+  ])('%s → null (rejet, pas un tableau)', (_libelle, corps) => {
+    expect(validerOrdreModules(corps)).toBeNull();
+  });
+
+  it('tableau d’objets → null (entrées non-string)', () => {
+    expect(validerOrdreModules([{ slug: '/admin/curation' }])).toBeNull();
+  });
+
+  it('tableau contenant un slug INCONNU → null (rejet total, on n’écrit pas de déchet)', () => {
+    expect(validerOrdreModules(['/admin/curation', '/admin/inexistant'])).toBeNull();
+  });
+
+  it('tableau contenant une entrée non-string (nombre) → null', () => {
+    expect(validerOrdreModules(['/admin/curation', 42])).toBeNull();
+  });
+
+  it('tableau GÉANT (> borne) → null (garde anti-DoS)', () => {
+    expect(validerOrdreModules(Array.from({ length: 65 }, () => '/admin/curation'))).toBeNull();
   });
 });
