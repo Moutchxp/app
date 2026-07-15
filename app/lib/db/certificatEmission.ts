@@ -30,6 +30,7 @@
 import { query, withTransaction, type RequeteTx } from './client';
 import { analyserAdresse } from './pipeline';
 import { attribuerNumeroCertificat } from './certificatNumero';
+import { genererJetonVerification } from './certificatJeton';
 import { publierCarteOrientation } from '../carte/publierCarteOrientation';
 import { THRESHOLD_M, type ModeOrigine } from '../svv/config';
 
@@ -189,8 +190,12 @@ export async function emettreCertificat(internauteId: string, projetId: number):
   try {
     const res = await withTransaction(async (q) => {
       const numero = await attribuerNumeroCertificat(q);
+      // Jeton frappé ICI, dans la transaction, AVANT l'INSERT : un jeton par certificat, à vie (table immuable).
+      // Les chemins idempotents (pré-contrôle / 23505) n'entrent pas dans la transaction → ils n'en frappent aucun.
+      const jetonVerification = genererJetonVerification();
       const certificatId = await insererCertificat(q, {
         numero,
+        jetonVerification,
         projetId,
         configGeneration,
         configEmpreinte,
@@ -253,6 +258,7 @@ async function lireCertificatExistant(projetId: number): Promise<{ numero: strin
 /** Données prêtes à l'INSERT (numeric recopiés en chaînes, re-dérivés en nombres JS). */
 interface DonneesCertificat {
   numero: string;
+  jetonVerification: string; // 16 car. Crockford Base32 (038), tiré par CSPRNG en amont ; conforme au CHECK par construction
   projetId: number;
   configGeneration: number | null;
   configEmpreinte: string;
@@ -296,14 +302,16 @@ export async function insererCertificat(q: RequeteTx, d: DonneesCertificat): Pro
         verdict, score, distance_obstacle_m, profondeur_moyenne_m, faisceaux_degages_pct,
         altitude_terrain_m, altitude_sol_m, tolerance_m,
         reference_cadastrale, annee_batiment,
-        resultat, photo_cle)
+        resultat, photo_cle,
+        jeton_verification)
      VALUES ($1, $2, $3, $4,
              $5, $6, $7, $8, $9, $10, $11,
              $12, $13, $14, $15, $16,
              $17, $18, $19, $20, $21,
              $22, $23, $24,
              $25, $26,
-             $27::jsonb, $28)
+             $27::jsonb, $28,
+             $29)
      RETURNING id`,
     [
       d.numero, d.projetId, d.configGeneration, d.configEmpreinte,
@@ -313,6 +321,8 @@ export async function insererCertificat(q: RequeteTx, d: DonneesCertificat): Pro
       d.altitudeTerrainM, d.altitudeSolM, d.toleranceM,
       d.referenceCadastrale, d.anneeBatiment,
       d.resultat, d.photoCle,
+      d.jetonVerification, // $29 — colonne d'identité placée EN FIN de liste : l'ordre des colonnes d'un INSERT est
+      // cosmétique, cela garde stables les positions ($1..$28) des paramètres existants.
     ],
   );
   return Number(r.rows[0].id);

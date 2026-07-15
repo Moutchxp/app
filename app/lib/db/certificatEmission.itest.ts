@@ -33,7 +33,7 @@ async function dansRollback(fn: (q: RequeteTx) => Promise<void>): Promise<void> 
 
 /** Certificat minimal (schéma réel) — numéro SENTINELLE hors de toute série ; seul l'INSERT + l'acheminement comptent. */
 const CERT_MINIMAL = {
-  numero: 'SAVV-9999-999999', projetId: 0, configGeneration: null, configEmpreinte: 'itest',
+  numero: 'SAVV-9999-999999', jetonVerification: 'ABCDEFGHJKMNPQRS', projetId: 0, configGeneration: null, configEmpreinte: 'itest',
   lat: null, lon: null, azimutDeg: null, etage: null, dernierEtage: null,
   hauteurSousPlafondM: null, hauteurVisionM: null, adresse: null, typeBien: null,
   surfaceM2: null, nbPieces: null, epoque: null, verdict: 'SANS_VIS_A_VIS', score: 0,

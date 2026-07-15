@@ -13,6 +13,7 @@ vi.mock('./certificatNumero', () => ({ attribuerNumeroCertificat }));
 vi.mock('../carte/publierCarteOrientation', () => ({ publierCarteOrientation }));
 
 import { emettreCertificat } from './certificatEmission';
+import { REGEXP_JETON_VERIFICATION } from './certificatJeton';
 
 const projetOK = {
   lat: '48.90693182287072', lon: '2.269431435588249', azimut_deg: '90', etage: 2, dernier_etage: false,
@@ -193,6 +194,7 @@ describe('emettreCertificat — re-jeu & recopie', () => {
     expect(p[24]).toBe('92004000AM0114'); // reference_cadastrale
     expect(p[25]).toBe(1923); // annee_batiment (BDNB)
     expect(p[27]).toBe('internautes/a/photos/x.jpg'); // photo_cle recopiée
+    expect(p[28]).toMatch(REGEXP_JETON_VERIFICATION); // $29 — jeton frappé, conforme au CHECK 038 par construction
   });
 
   it('nominal → ouvre l’acheminement DANS la même transaction : certificat_id renvoyé, statut en_attente', async () => {
