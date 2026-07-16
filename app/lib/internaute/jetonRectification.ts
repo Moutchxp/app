@@ -16,9 +16,15 @@ import 'server-only';
  */
 import { SignJWT, jwtVerify } from 'jose';
 
-/** Portée fermée du jeton : seule la rectification des coordonnées (email/téléphone) est permise. */
+/** Portée fermée du jeton de RECTIFICATION : seule la correction des coordonnées (email/téléphone) est permise. */
 const SCOPE_RECTIFICATION = 'rectify-contact';
-/** Durée de vie du jeton (courte : le geste de correction suit immédiatement la soumission). */
+/**
+ * Portée fermée du jeton d'ÉMISSION : seule l'émission du certificat de CE projet est permise. STRICTEMENT distinct
+ * de la rectification (le `scope` sépare les deux capacités, avec le MÊME secret). Un jeton de rectification ne doit
+ * JAMAIS ouvrir l'émission, ni l'inverse — chaque vérifieur exige SON scope.
+ */
+const SCOPE_EMISSION = 'emit-certificate';
+/** Durée de vie du jeton (courte : le geste — correction ou émission — suit immédiatement la soumission). */
 const EXPIRATION = '30m';
 
 /** Clé de signature dérivée du secret DÉDIÉ. Échoue proprement si la variable manque (fail-safe, jamais de repli sur le secret admin). */
@@ -47,8 +53,37 @@ export async function signerJetonRectification(internauteId: string): Promise<st
 export async function verifierJetonRectification(jeton: string): Promise<string | null> {
   try {
     const { payload } = await jwtVerify(jeton, cleSignature(), { algorithms: ['HS256'] });
-    if (payload.scope !== SCOPE_RECTIFICATION) return null;
+    if (payload.scope !== SCOPE_RECTIFICATION) return null; // un jeton d'ÉMISSION est REJETÉ ici (scope différent)
     return typeof payload.sub === 'string' && payload.sub !== '' ? payload.sub : null;
+  } catch {
+    return null; // signature invalide, jeton expiré, malformé…
+  }
+}
+
+/**
+ * Frappe un jeton-capacité d'ÉMISSION scellant le `projetId` dans son `sub` (scope fermé, exp 30 min). Capacité
+ * ÉTROITE : elle n'autorise QUE l'émission du certificat de CE projet, RIEN d'autre (ni rectification du dossier).
+ * Émis pour TOUT projet posté (e-mail neuf OU connu) — l'ownership du projet est prouvée par la possession de ce jeton.
+ */
+export async function signerJetonEmission(projetId: number): Promise<string> {
+  return new SignJWT({ scope: SCOPE_EMISSION })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(String(projetId))
+    .setIssuedAt()
+    .setExpirationTime(EXPIRATION)
+    .sign(cleSignature());
+}
+
+/**
+ * Vérifie signature + expiration + scope `emit-certificate`, et renvoie le `projetId` scellé (`sub`), ou `null`.
+ * ⚠️ REJETTE tout jeton dont le scope n'est pas EXACTEMENT `emit-certificate` (un jeton de rectification → `null`).
+ */
+export async function verifierJetonEmission(jeton: string): Promise<number | null> {
+  try {
+    const { payload } = await jwtVerify(jeton, cleSignature(), { algorithms: ['HS256'] });
+    if (payload.scope !== SCOPE_EMISSION) return null; // un jeton de RECTIFICATION est REJETÉ ici (scope différent)
+    if (typeof payload.sub !== 'string' || !/^\d+$/.test(payload.sub)) return null;
+    return Number(payload.sub);
   } catch {
     return null; // signature invalide, jeton expiré, malformé…
   }

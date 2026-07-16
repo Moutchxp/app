@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { verifierJetonRectification } from '../../lib/internaute/jetonRectification';
+import { verifierJetonEmission } from '../../lib/internaute/jetonRectification';
 import { emettreCertificat } from '../../lib/db/certificatEmission';
 
 // Runtime Node explicite (driver `pg` + pipeline LiDAR/raster, jamais l'edge). Comme /api/internaute/*.
@@ -16,8 +16,10 @@ export const runtime = 'nodejs';
  * ne doit pas apprendre deux dialectes) : 401 jeton invalide/expiré · 403 ownership (IDOR) · 422 entrée invalide
  * OU état du projet interdisant l'émission (mode inconnu, verdict indéterminé) — entité non traitable en l'état.
  *
- * IDOR : l'internauteId agi vient du `sub` du JETON SIGNÉ, JAMAIS du corps. Le projetId du corps est accepté mais
- * l'ownership est vérifiée en base (WHERE id = projetId AND internaute_id = <sub>) → aucun projet d'autrui émis.
+ * OWNERSHIP (IDOR) : par JETON D'ÉMISSION à capacité ÉTROITE (scope `emit-certificate`, `sub` = projetId). La porte
+ * est : `sub du jeton === projetId demandé` → le porteur ne peut émettre QUE le projet scellé dans son jeton, jamais
+ * celui d'un autre. Un jeton de RECTIFICATION est REJETÉ ici (scope différent, cf. verifierJetonEmission). Plus
+ * simple et plus étroit que l'ancienne vérification base (internauteId + le projet lui appartient), désormais retirée.
  *
  * IDEMPOTENCE : un projet a UN certificat à vie (034). Un second appel (double-clic, retry) RENVOIE l'existant
  * (200, `deja: true`), jamais une erreur ni un second document.
@@ -30,10 +32,10 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ ok: false, erreur: 'corps JSON invalide' }, { status: 422 });
   }
 
-  // Jeton → internauteId (sub). Absent/invalide/expiré → 401.
+  // Jeton d'ÉMISSION → projetId scellé (sub). Absent / invalide / expiré / MAUVAIS SCOPE (rectification) → 401.
   const jeton = (body as { jeton?: unknown }).jeton;
-  const internauteId = typeof jeton === 'string' && jeton.length > 0 ? await verifierJetonRectification(jeton) : null;
-  if (!internauteId) {
+  const projetIdDuJeton = typeof jeton === 'string' && jeton.length > 0 ? await verifierJetonEmission(jeton) : null;
+  if (projetIdDuJeton === null) {
     return NextResponse.json({ ok: false, erreur: 'jeton invalide ou expiré' }, { status: 401 });
   }
 
@@ -49,7 +51,12 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ ok: false, erreur: 'projetId invalide' }, { status: 422 });
   }
 
-  const r = await emettreCertificat(internauteId, projetId);
+  // OWNERSHIP : le jeton n'autorise QUE son propre projet. Toute divergence → 403 (jamais le projet d'un autre).
+  if (projetId !== projetIdDuJeton) {
+    return NextResponse.json({ ok: false, erreur: 'projet non autorisé' }, { status: 403 });
+  }
+
+  const r = await emettreCertificat(projetId);
   switch (r.statut) {
     case 'projet_absent':
       return NextResponse.json({ ok: false, erreur: 'projet non autorisé' }, { status: 403 });

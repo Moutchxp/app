@@ -788,6 +788,9 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // (email pré-existant, ou pas de F1, ou échec) → lecture seule. emailInitial/telInitial : valeurs au moment du POST,
   // pour ne PATCHer que si l'internaute a réellement corrigé quelque chose.
   const [jetonRectif, setJetonRectif] = useState<string | null>(null);
+  // Jeton d'ÉMISSION (capacité étroite bornée au projet) : présent MÊME pour un email connu → ferme le CAS 2 (émission
+  // possible sans jeton de rectification). Distinct du jeton de rectification (scope différent côté serveur).
+  const [jetonEmission, setJetonEmission] = useState<string | null>(null);
   // Un POST a-t-il eu lieu à l'Écran A (au moins un consentement coché) ? Distingue, à l'Écran B, le cas « profil créé
   // en A » (jeton présent OU email déjà existant sans jeton) du cas « rien créé en A » (→ création possible en B).
   const [posteEnA, setPosteEnA] = useState(false);
@@ -910,6 +913,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
         const jeton = typeof data?.jetonRectification === "string" ? data.jetonRectification : null;
         const projetId = typeof data?.projetId === "number" ? data.projetId : null;
         setJetonRectif(jeton);
+        setJetonEmission(typeof data?.jetonEmission === "string" ? data.jetonEmission : null); // toujours présent (email neuf OU connu)
         setProjetIdA(projetId); // projet de A → marqué à la validation B
         // Dépôt de la photo — SILENCIEUX & NON BLOQUANT (fire-and-forget) : la photo n'entre NI dans le verdict NI
         // dans le score ; bloquer le tunnel d'un internaute sur un stockage annexe serait absurde. Aucune attente,
@@ -957,8 +961,8 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       }
     }
     // Émission du certificat — fire-and-forget, parcours désormais complet. Non bloquant : le tunnel se termine quoi
-    // qu'il arrive. Nécessite jeton + projetId de A (capacité d'ownership serveur) ; sinon skip (voir emettreCertificat).
-    if (jetonRectif && projetIdA !== null) void emettreCertificat(jetonRectif, projetIdA);
+    // qu'il arrive. Utilise le jeton d'ÉMISSION (présent email neuf OU connu → CAS 2 fermé), borné à CE projet.
+    if (jetonEmission && projetIdA !== null) void emettreCertificat(jetonEmission, projetIdA);
     setConfirme(true); // certificat délivré quoi qu'il arrive
   };
 
@@ -1060,8 +1064,8 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     return () => { clearTimeout(timer); ctrl.abort(); };
   }, [lat, lon]);
 
-  // Écran de SUCCÈS honnête (après clic « Recevoir mon certificat »). Aucun envoi réel (LOT 6 non construit) :
-  // wording strictement « sera préparé et envoyé », jamais « a été envoyé ».
+  // Écran de SUCCÈS honnête (après clic « Recevoir mon certificat »). L'émission + l'envoi e-mail existent (lots 6/7)
+  // mais sont BEST-EFFORT, déclenchés après coup : wording strictement « sera envoyé », jamais « a été envoyé ».
   if (confirme) {
     return (
       <div className="pb-10">

@@ -86,6 +86,7 @@ export type ResultatEmission =
 
 /** Ligne projet lue pour l'émission (colonnes numeric → CHAÎNES via driver pg). */
 interface LigneProjet {
+  internaute_id: string; // sujet RGPD → scope de dépôt (photos/cartes/certificats). NON NULL sur internaute_projet.
   lat: string | null;
   lon: string | null;
   azimut_deg: string | null;
@@ -117,19 +118,23 @@ function texteOuNull(v: unknown): string | null {
 }
 
 /**
- * Émet (ou renvoie l'existant) le certificat d'un projet POSSÉDÉ par `internauteId`. Ne throw jamais pour les cas
- * métier (absent / refus / existant) : ils sont des statuts. Peut throw sur incident base non lié à l'idempotence.
+ * Émet (ou renvoie l'existant) le certificat d'un projet. L'OWNERSHIP est prouvée EN AMONT par le jeton d'émission
+ * (scope `emit-certificate`, `sub === projetId`) : la route ne nous appelle qu'après cette vérification. On lit donc
+ * le projet par son seul `id`, et on en tire `internaute_id` pour le SCOPE de dépôt (photos/cartes/certificats). Ne
+ * throw jamais pour les cas métier (absent / refus / existant) : ce sont des statuts.
  */
-export async function emettreCertificat(internauteId: string, projetId: number): Promise<ResultatEmission> {
-  // 1) OWNERSHIP (IDOR) — le projet doit appartenir au porteur du jeton. internauteId vient du `sub` du jeton signé.
+export async function emettreCertificat(projetId: number): Promise<ResultatEmission> {
+  // 1) Lecture du projet (ownership déjà prouvée par le jeton d'émission borné à CE projetId). `internaute_id` sert
+  //    UNIQUEMENT de scope de dépôt en aval, plus de contrôle d'ownership ici.
   const pr = await query<LigneProjet>(
-    `SELECT lat, lon, azimut_deg, etage, dernier_etage, hauteur_sous_plafond_m, hauteur_vision_m,
+    `SELECT internaute_id, lat, lon, azimut_deg, etage, dernier_etage, hauteur_sous_plafond_m, hauteur_vision_m,
             adresse_saisie, adresse_normalisee, payload, mode_origine, photo_cle
-       FROM internaute_projet WHERE id = $1 AND internaute_id = $2`,
-    [projetId, internauteId],
+       FROM internaute_projet WHERE id = $1`,
+    [projetId],
   );
   if (pr.rows.length === 0) return { statut: 'projet_absent' };
   const projet = pr.rows[0];
+  const internauteId = projet.internaute_id; // scope de dépôt (aval)
 
   // 2) IDEMPOTENCE — pré-contrôle (confort) : un certificat existe déjà pour ce projet → on le renvoie tel quel.
   const existant = await lireCertificatExistant(projetId);

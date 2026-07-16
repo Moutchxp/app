@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { validerCorpsIngestion, auMoinsUnConsentement } from '../../lib/internaute/ingestion';
 import { ingererProfil, ErreurAucunConsentement } from '../../lib/internaute/socle';
-import { signerJetonRectification } from '../../lib/internaute/jetonRectification';
+import { signerJetonRectification, signerJetonEmission } from '../../lib/internaute/jetonRectification';
 
 // Runtime Node explicite (comme /api/analyse) : le driver `pg` (socle.ts) exige Node, jamais l'edge runtime.
 export const runtime = 'nodejs';
@@ -51,9 +51,18 @@ export async function POST(request: Request): Promise<Response> {
         console.error('[internaute] jeton de rectification indisponible', e);
       }
     }
+    // Jeton d'ÉMISSION : capacité ÉTROITE bornée à CE projet (sub = projetId), signée TOUJOURS (e-mail neuf OU connu)
+    // → ferme le CAS 2 (e-mail connu, jeton de rectification null) sans rouvrir l'IDOR de rectification (scope distinct).
+    let jetonEmission: string | null = null;
+    try {
+      jetonEmission = await signerJetonEmission(projetId);
+    } catch (e) {
+      // Secret manquant → émission indisponible pour ce parcours (le certificat reste re-émettable) ; ne bloque pas l'ingestion.
+      console.error('[internaute] jeton d’émission indisponible', e);
+    }
     // `projetId` = id du projet créé à l'Écran A, exposé pour que la complétion de l'Écran B marque CETTE analyse
     // (`certificat_envoye`). Jamais dans l'URL ; l'IDOR est fermé côté complétion (WHERE id ET internaute_id du jeton).
-    return NextResponse.json({ ok: true, cree: true, internauteId, projetId, jetonRectification });
+    return NextResponse.json({ ok: true, cree: true, internauteId, projetId, jetonRectification, jetonEmission });
   } catch (e) {
     if (e instanceof ErreurAucunConsentement) {
       return NextResponse.json({ ok: false, cree: false, erreur: e.message }, { status: 422 });
