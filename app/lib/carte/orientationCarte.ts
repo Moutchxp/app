@@ -4,7 +4,7 @@
  * Régénère la carte du certificat DEPUIS lat/lon/azimut persistés (jamais une capture front) : mosaïque de tuiles
  * IGN « Plan IGN » (WMTS Géoplateforme, licence ouverte Etalab), PIVOTÉE de -azimut (l'axe du verdict pointe TOUJOURS
  * vers le HAUT, origine en bas-centre), + overlay vectoriel (cône, axe, origine, Nord tournant, ATTRIBUTION gravée
- * horizontale APRÈS rotation). Le cône reprend l'esthétique de l'écran de validation (aplat #3b82f6 @0.25, contour
+ * horizontale APRÈS rotation). Le cône reprend l'esthétique de l'écran de validation (bleu #3b82f6, contour
  * #2563eb, axe #dc2626) MAIS garde la GÉOMÉTRIE MOTEUR (champ 180°, portée 200 m) passée par l'appelant.
  *
  * CADRAGE : sur la BBOX de la géométrie dessinée (pas le point d'origine) ; le zoom est DÉRIVÉ de la bbox et du
@@ -26,8 +26,17 @@ const LAYER = 'GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2';
 
 // Sortie au RATIO du cartouche du certificat (certificatPdf : mW ≈ 231,12 pt × mediaH 142,5 pt). Pixels choisis pour
 // ~312 dpi à l'impression. Le ratio EXACT évite tout rognage sous `cover` (la carte remplit le cartouche pile).
+const CARTOUCHE_W_PT = 231.12; // largeur du cartouche carte dans le PDF (sert au ratio de sortie)
+const CARTOUCHE_H_PT = 142.5;
 const OUT_W = 1000;
-const OUT_H = Math.round((OUT_W * 142.5) / 231.12); // 617 — ratio cartouche
+const OUT_H = Math.round((OUT_W * CARTOUCHE_H_PT) / CARTOUCHE_W_PT); // 617 — ratio cartouche
+
+// Découpage d'AFFICHAGE du demi-disque (≠ géométrie moteur, qui reste 180°/200 m) : le cône central
+// ± DECOUPE_AFFICHAGE_DEG est dessiné PLUS DENSE que les deux quartiers latéraux → il se distingue nettement à 8 cm.
+export const DECOUPE_AFFICHAGE_DEG = 45; // demi-ouverture du cône central (CONSTANTE D'AFFICHAGE, pas moteur ; ×2 = 90° nommé dans la légende)
+const OPACITE_CENTRE = 0.25; // teinte du cône central (esthétique écran)
+const OPACITE_LATERAL = 0.1; // teinte des quartiers latéraux (plus transparents)
+const TRAIT_ARC_PX = 2; // trait bleu #2563eb (weight 2) : contour du demi-disque ET radiales ± DECOUPE (le MÊME trait)
 
 const MARGE_FRAC = 0.06; // marge autour de la bbox (fraction de la plus grande dimension)
 const MARGE_BAS_M = 24; // dégagement sous l'origine → elle reste au-dessus de la bande d'attribution (26 px de haut)
@@ -139,7 +148,8 @@ function echapper(s: string): string {
 }
 
 /**
- * OVERLAY SVG (px de SORTIE, repère REDRESSÉ) : cône (aplat #3b82f6 @0.25 + contour #2563eb — esthétique de l'écran),
+ * OVERLAY SVG (px de SORTIE, repère REDRESSÉ) : demi-disque du champ en 3 SECTEURS (cône central ± DECOUPE_AFFICHAGE_DEG
+ * plus dense #3b82f6@0.25, quartiers latéraux plus transparents @0.10, radiales à ± DECOUPE = même trait que le contour #2563eb),
  * axe du verdict VERTICAL (#dc2626, vers le haut), origine (point rouge, liseré blanc pour le fond IGN), flèche NORD
  * qui TOURNE avec la carte (bearing 0 = (−sin az, −cos az) dans le repère redressé), ATTRIBUTION gravée HORIZONTALE
  * (bande basse — obligation légale, lisible après rotation). Analytique : dans le repère redressé, un cap β s'affiche
@@ -151,10 +161,14 @@ export function construireOverlayVueEnHaut(ox: number, oy: number, mpp: number, 
     const a = capRelDeg * RAD;
     return [ox + (dist / mpp) * Math.sin(a), oy - (dist / mpp) * Math.cos(a)];
   };
-  // Cône : origine + arc à ± demiAngle (repère redressé → l'axe est à 0°).
-  const sommets: [number, number][] = [[ox, oy]];
-  for (let i = 0; i < arcPoints; i++) sommets.push(pt(rayonChampM, -demiAngleDeg + (i * 2 * demiAngleDeg) / (arcPoints - 1)));
-  const conePts = sommets.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' ');
+  // Secteur [origine + arc] entre deux caps (repère redressé → axe à 0°). Échantillonnage = arcPoints sur l'ARC.
+  const secteur = (aDeg: number, bDeg: number): string => {
+    const p: [number, number][] = [[ox, oy]];
+    for (let i = 0; i <= arcPoints; i++) p.push(pt(rayonChampM, aDeg + ((bDeg - aDeg) * i) / arcPoints));
+    return p.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' ');
+  };
+  const [rlx, rly] = pt(rayonChampM, -DECOUPE_AFFICHAGE_DEG); // bord de la radiale gauche
+  const [rrx, rry] = pt(rayonChampM, DECOUPE_AFFICHAGE_DEG); // bord de la radiale droite
   const [tx, ty] = pt(rayonAxeM, 0); // pointe de l'axe (droit vers le haut)
 
   // Flèche Nord (coin haut-droit), orientée vers le vrai Nord de la carte pivotée.
@@ -169,8 +183,16 @@ export function construireOverlayVueEnHaut(ox: number, oy: number, mpp: number, 
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${OUT_W}" height="${OUT_H}" viewBox="0 0 ${OUT_W} ${OUT_H}">`,
-    // Cône — APLAT (esthétique de l'écran de validation : #3b82f6 @0.25, contour #2563eb w2).
-    `<polygon points="${conePts}" fill="#3b82f6" fill-opacity="0.25" stroke="#2563eb" stroke-width="2.5" stroke-linejoin="round"/>`,
+    // Demi-disque en 3 SECTEURS (découpage d'AFFICHAGE ± DECOUPE_AFFICHAGE_DEG, PAS une géométrie moteur) : quartiers
+    // latéraux plus transparents, cône central plus dense → le cône central se distingue nettement à 8 cm.
+    `<polygon points="${secteur(-demiAngleDeg, -DECOUPE_AFFICHAGE_DEG)}" fill="#3b82f6" fill-opacity="${OPACITE_LATERAL}" stroke="none"/>`,
+    `<polygon points="${secteur(DECOUPE_AFFICHAGE_DEG, demiAngleDeg)}" fill="#3b82f6" fill-opacity="${OPACITE_LATERAL}" stroke="none"/>`,
+    `<polygon points="${secteur(-DECOUPE_AFFICHAGE_DEG, DECOUPE_AFFICHAGE_DEG)}" fill="#3b82f6" fill-opacity="${OPACITE_CENTRE}" stroke="none"/>`,
+    // Radiales à ± DECOUPE (limites du cône central) — MÊME trait que le contour (simple délimitation, comme le bord).
+    `<line x1="${ox.toFixed(2)}" y1="${oy.toFixed(2)}" x2="${rlx.toFixed(2)}" y2="${rly.toFixed(2)}" stroke="#2563eb" stroke-width="${TRAIT_ARC_PX}"/>`,
+    `<line x1="${ox.toFixed(2)}" y1="${oy.toFixed(2)}" x2="${rrx.toFixed(2)}" y2="${rry.toFixed(2)}" stroke="#2563eb" stroke-width="${TRAIT_ARC_PX}"/>`,
+    // Contour extérieur du demi-disque — #2563eb, MÊME épaisseur que les radiales.
+    `<polygon points="${secteur(-demiAngleDeg, demiAngleDeg)}" fill="none" stroke="#2563eb" stroke-width="${TRAIT_ARC_PX}" stroke-linejoin="round"/>`,
     // Axe du verdict — vertical, rouge SVAV.
     `<line x1="${ox.toFixed(2)}" y1="${oy.toFixed(2)}" x2="${tx.toFixed(2)}" y2="${ty.toFixed(2)}" stroke="#dc2626" stroke-width="5" stroke-linecap="round"/>`,
     // Origine — point rouge (liseré blanc conservé pour la lisibilité sur fond IGN ; l'écran, sur OSM, n'en a pas).

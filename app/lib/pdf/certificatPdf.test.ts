@@ -21,6 +21,7 @@ function donnees(over: Partial<DonneesCertificatPdf> = {}): DonneesCertificatPdf
     dateAnalyse: '14 juillet 2026',
     porteeAnalyse: '200 m',
     champAnalyseDeg: '180°',
+    coneCentralDeg: '90°',
     siteWeb: 'www.sansvisavis.com',
     urlVerification: 'sansvisavis.com/verifier',
     verdictCertifie: true,

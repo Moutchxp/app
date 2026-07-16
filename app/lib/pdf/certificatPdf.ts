@@ -79,7 +79,8 @@ export interface DonneesCertificatPdf {
   emission: string; // date + heure fr, pré-formatée
   dateAnalyse: string;
   porteeAnalyse: string; // "200 m" — DÉRIVÉ du moteur par l'appelant (jamais retapé)
-  champAnalyseDeg: string; // "180°" — DÉRIVÉ du moteur ; alimente la ligne « Source » (plus aucun littéral ici)
+  champAnalyseDeg: string; // "180°" — DÉRIVÉ du moteur ; nommé dans la légende de la carte
+  coneCentralDeg: string; // "90°" — découpage d'AFFICHAGE (2 × 45°), nommé dans la légende de la carte
   siteWeb: string;
   urlVerification: string; // "sansvisavis.com/verifier"
   verdictCertifie: boolean;
@@ -375,7 +376,7 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
   const cX = X0 + wCol2 + gap;
   txt('Carte de localisation', cX + pad, y + pad, 'mono600', px(8), GRIS_CLAIR, { characterSpacing: 0.5 });
   mediaImage(cX + pad, mY, mW, mediaH, d.cartePng, d.carteLegende);
-  txt(`Portée d'analyse : ${d.porteeAnalyse} · Seuil de verdict : 40 m`, cX + pad, mY + mediaH + px(8), 'mono400', px(8.5), GRIS, { width: mW });
+  txt(`Champ ${d.champAnalyseDeg} / ${d.porteeAnalyse} · cône central ${d.coneCentralDeg} (affichage)`, cX + pad, mY + mediaH + px(8), 'mono400', px(8.5), GRIS, { width: mW });
   y += hMedia + px(12);
 
   function mediaImage(ix: number, iy: number, iw: number, ih: number, img: Buffer | null, legende: string) {

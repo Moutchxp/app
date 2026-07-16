@@ -20,6 +20,9 @@ import { genererCertificatPdf, type DonneesCertificatPdf, type LigneKv } from '.
 // Constantes MOTEUR (imports EN LECTURE SEULE ; config.ts n'est PAS modifié). Le certificat AFFICHE ce que le moteur
 // a analysé — champ et portée DÉRIVÉS, jamais retapés. Même source que le tracé de la carte (publierCarteOrientation).
 import { ANALYSIS_RANGE_M, AMPLITUDE_BEAM_COUNT, AMPLITUDE_BEAM_STEP_DEG } from '../svv/config';
+// Découpage d'AFFICHAGE de la carte (le cône central « 90° » de la légende = 2 × demi-ouverture). Nommé « affichage »,
+// ce n'est PAS une grandeur moteur (le champ analysé reste 180°). Single source : la carte et la légende disent le même.
+import { DECOUPE_AFFICHAGE_DEG } from '../carte/orientationCarte';
 
 const CHAMP_DEG = (AMPLITUDE_BEAM_COUNT - 1) * AMPLITUDE_BEAM_STEP_DEG; // balayage réel : 61 faisceaux × 3° = 180°
 const PORTEE_M = ANALYSIS_RANGE_M; // portée d'analyse effective (const du moteur, cf. geo.ts / faisceaux.ts)
@@ -180,7 +183,8 @@ export function assembler(r: LigneJointe, base: string, cartePng: Buffer, photoJ
     emission: dateHeureFr(r.emis_le),
     dateAnalyse: dateFr(r.emis_le),
     porteeAnalyse: PORTEE_ANALYSE,
-    champAnalyseDeg: `${CHAMP_DEG}°`, // dérivé moteur, pour la ligne « Source » du générateur (jamais retapé)
+    champAnalyseDeg: `${CHAMP_DEG}°`, // dérivé moteur (180°) pour la légende de la carte (jamais retapé)
+    coneCentralDeg: `${2 * DECOUPE_AFFICHAGE_DEG}°`, // 90° = découpage d'AFFICHAGE (2 × 45°), single source avec la carte
     siteWeb: host,
     urlVerification: `${host}/verifier`,
     verdictCertifie: r.verdict === 'SANS_VIS_A_VIS',
