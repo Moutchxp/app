@@ -7,12 +7,14 @@ const { analyserAdresse } = vi.hoisted(() => ({ analyserAdresse: vi.fn() }));
 const { attribuerNumeroCertificat } = vi.hoisted(() => ({ attribuerNumeroCertificat: vi.fn() }));
 const { publierCarteOrientation } = vi.hoisted(() => ({ publierCarteOrientation: vi.fn() }));
 const { publierCertificatPdf } = vi.hoisted(() => ({ publierCertificatPdf: vi.fn() }));
+const { publierEnvoiCertificat } = vi.hoisted(() => ({ publierEnvoiCertificat: vi.fn() }));
 
 vi.mock('./client', () => ({ query, withTransaction }));
 vi.mock('./pipeline', () => ({ analyserAdresse }));
 vi.mock('./certificatNumero', () => ({ attribuerNumeroCertificat }));
 vi.mock('../carte/publierCarteOrientation', () => ({ publierCarteOrientation }));
 vi.mock('../pdf/publierCertificatPdf', () => ({ publierCertificatPdf }));
+vi.mock('../email/publierEnvoiCertificat', () => ({ publierEnvoiCertificat }));
 
 import { emettreCertificat } from './certificatEmission';
 import { REGEXP_JETON_VERIFICATION } from './certificatJeton';
@@ -97,6 +99,8 @@ beforeEach(() => {
   publierCarteOrientation.mockResolvedValue(undefined);
   publierCertificatPdf.mockReset();
   publierCertificatPdf.mockResolvedValue(undefined);
+  publierEnvoiCertificat.mockReset();
+  publierEnvoiCertificat.mockResolvedValue(undefined);
   analyserAdresse.mockResolvedValue(analyseOK);
 });
 
@@ -255,13 +259,17 @@ describe('emettreCertificat — carte d’orientation (après COMMIT)', () => {
     expect(publierCarteOrientation).toHaveBeenCalledWith('internaute-A', 7, 48.90693182287072, 2.269431435588249, 90);
     // PDF publié APRÈS la carte, avec l'internaute (scope de dépôt) + l'id du certificat.
     expect(publierCertificatPdf).toHaveBeenCalledWith('internaute-A', 7);
+    // Envoi APRÈS le PDF, avec l'id du certificat.
+    expect(publierEnvoiCertificat).toHaveBeenCalledWith(7);
     expect(publierCarteOrientation.mock.invocationCallOrder[0]).toBeLessThan(publierCertificatPdf.mock.invocationCallOrder[0]);
+    expect(publierCertificatPdf.mock.invocationCallOrder[0]).toBeLessThan(publierEnvoiCertificat.mock.invocationCallOrder[0]);
   });
 
-  it('idempotence (pré-contrôle) : PDF non régénéré', async () => {
+  it('idempotence (pré-contrôle) : ni PDF ni envoi régénérés', async () => {
     installer({ certAvant: [{ numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS', reference: 'SVAV-K7M2-9QX4' }] });
     await emettreCertificat('internaute-A', 42);
     expect(publierCertificatPdf).not.toHaveBeenCalled(); // chemin idempotent → aucun PDF régénéré
+    expect(publierEnvoiCertificat).not.toHaveBeenCalled(); // ni envoi
   });
 
   it('un échec de carte ne peut PAS casser l’émission : publierCarteOrientation ne throw jamais (best-effort)', async () => {

@@ -34,6 +34,7 @@ import { genererJetonVerification } from './certificatJeton';
 import { genererReference } from './certificatReference';
 import { publierCarteOrientation } from '../carte/publierCarteOrientation';
 import { publierCertificatPdf } from '../pdf/publierCertificatPdf';
+import { publierEnvoiCertificat } from '../email/publierEnvoiCertificat';
 
 /** Nombre de tentatives de tirage d'une référence UNIQUE avant abandon (collision astronomiquement improbable). */
 const MAX_TENTATIVES_REFERENCE = 5;
@@ -254,6 +255,9 @@ export async function emettreCertificat(internauteId: string, projetId: number):
       // PUIS le PDF (après la carte : il relit la carte déposée pour l'embarquer, sans la régénérer). Best-effort,
       // ne throw jamais ; un échec laisse le PDF absent (re-fabricable). Le chemin idempotent ci-dessous ne l'atteint pas.
       await publierCertificatPdf(internauteId, res.certificatId);
+      // PUIS l'envoi e-mail (après le PDF : il relit le PDF déposé pour le joindre). Best-effort, ne throw jamais ;
+      // sur échec le statut RESTE 'genere' (retentable). Le chemin idempotent ci-dessous ne l'atteint pas.
+      await publierEnvoiCertificat(res.certificatId);
       return { statut: 'emis', numero: res.numero, verdict, reference: res.reference };
     } catch (e) {
       const err = e as { code?: string; constraint?: string };
