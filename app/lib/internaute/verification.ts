@@ -15,19 +15,24 @@ import { query } from '../db/client';
 
 export type ModeVerification = 'f1' | 'tous';
 
-/** Une ligne de la liste de vérification (identité résumée + drapeaux). */
+/** Une ligne de la liste de vérification (identité résumée + drapeaux). `derniere_analyse_a` = MAX(internaute_projet.cree_a),
+ *  NULL si l'internaute n'a AUCUNE analyse (jamais analysé, ou effacé → projets supprimés cf. cycleVie). */
 export interface LigneRecent {
   id: string;
   prenom: string | null;
   nom: string | null;
   email: string | null;
   cree_a: string;
+  derniere_analyse_a: string | null;
   efface_a: string | null;
   f1_actif: boolean;
 }
 
 /**
- * Les 10 derniers internautes (création décroissante) pour le panneau de vérification.
+ * Les 10 internautes dont la DERNIÈRE ANALYSE est la plus récente (pas la création de la fiche). Une analyse = une
+ * ligne `internaute_projet` (créée à chaque Écran A) ; la dernière = `MAX(ip.cree_a)`. Un internaute qui refait une
+ * analyse remonte en tête. Tri par `COALESCE(MAX(ip.cree_a), i.cree_a)` : un internaute SANS projet (jamais analysé,
+ * ou effacé) reste dans la liste — il retombe sur sa date de création (LEFT JOIN, pas d'INNER qui l'exclurait).
  * - `'f1'`  : uniquement les consentants F1 ACTIF et non effacés — MÊME condition que l'extraction commerciale
  *             (cohérence de contrôle), mais requête DISTINCTE (aucun export possible ici).
  * - `'tous'`: toute la base (consentants ou non), effacés INCLUS (leur PII est déjà NULL, `efface_a` renseigné) —
@@ -36,12 +41,15 @@ export interface LigneRecent {
 export async function lireRecents(mode: ModeVerification): Promise<LigneRecent[]> {
   if (mode === 'f1') {
     const r = await query<LigneRecent>(
-      `SELECT i.id, i.prenom, i.nom, i.email, i.cree_a, i.efface_a, true AS f1_actif
+      `SELECT i.id, i.prenom, i.nom, i.email, i.cree_a, i.efface_a, true AS f1_actif,
+              MAX(ip.cree_a) AS derniere_analyse_a
        FROM internaute i
        JOIN internaute_consentement_actif ca
          ON ca.internaute_id = i.id AND ca.finalite = 'recontact_interne' AND ca.actif = true
+       LEFT JOIN internaute_projet ip ON ip.internaute_id = i.id
        WHERE i.efface_a IS NULL
-       ORDER BY i.cree_a DESC
+       GROUP BY i.id
+       ORDER BY COALESCE(MAX(ip.cree_a), i.cree_a) DESC
        LIMIT 10`,
     );
     return r.rows;
@@ -49,11 +57,14 @@ export async function lireRecents(mode: ModeVerification): Promise<LigneRecent[]
   // mode 'tous' : aucune restriction de consentement (contrôle technique). Effacés inclus (PII déjà anonymisée).
   const r = await query<LigneRecent>(
     `SELECT i.id, i.prenom, i.nom, i.email, i.cree_a, i.efface_a,
-            COALESCE(ca.actif, false) AS f1_actif
+            COALESCE(bool_or(ca.actif), false) AS f1_actif,
+            MAX(ip.cree_a) AS derniere_analyse_a
      FROM internaute i
      LEFT JOIN internaute_consentement_actif ca
        ON ca.internaute_id = i.id AND ca.finalite = 'recontact_interne'
-     ORDER BY i.cree_a DESC
+     LEFT JOIN internaute_projet ip ON ip.internaute_id = i.id
+     GROUP BY i.id
+     ORDER BY COALESCE(MAX(ip.cree_a), i.cree_a) DESC
      LIMIT 10`,
   );
   return r.rows;

@@ -915,6 +915,7 @@ type LigneRecent = {
   nom: string | null;
   email: string | null;
   cree_a: string;
+  derniere_analyse_a: string | null; // MAX(internaute_projet.cree_a) ; NULL si aucune analyse
   efface_a: string | null;
   f1_actif: boolean;
 };
@@ -1256,7 +1257,7 @@ function PanneauVerification() {
   return (
     <div className="svv-card" style={{ marginTop: 18, borderTop: '3px solid var(--color-svv-red)', background: 'var(--color-svv-field)', display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div>
-        <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: 'var(--color-svv-ink)' }}>Vérification — 10 derniers internautes en base</h2>
+        <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: 'var(--color-svv-ink)' }}>Vérification — 10 internautes à la dernière analyse la plus récente</h2>
         <p style={{ margin: '2px 0 0', fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>
           Contrôle technique (consultation seule) : vérifier que l’ingestion du tunnel fonctionne. Aucun export ni recontact ici.
         </p>
@@ -1291,7 +1292,7 @@ function PanneauVerification() {
                     {[r.prenom, r.nom].filter(Boolean).join(' ') || (r.efface_a ? '(identité effacée)' : '—')}
                   </span>
                   <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>{r.email ?? '—'}</span>
-                  <span style={{ fontSize: '.78rem', color: 'var(--color-svv-muted)' }}>{dateFr(r.cree_a)}</span>
+                  <span style={{ fontSize: '.78rem', color: 'var(--color-svv-muted)' }} title="Date de la dernière analyse réalisée (MAX des analyses)">Dernière analyse : {dateFr(r.derniere_analyse_a)}</span>
                   <span style={{ fontSize: '.72rem', fontWeight: 700, color: r.f1_actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)' }}>{r.f1_actif ? 'F1 ✓' : 'F1 ✗'}</span>
                   {r.efface_a ? <span style={{ fontSize: '.72rem', fontWeight: 700, color: 'var(--color-svv-red)' }}>effacé</span> : null}
                   <span aria-hidden style={{ color: 'var(--color-svv-muted)' }}>{ouvert === r.id ? '▲' : '▼'}</span>
