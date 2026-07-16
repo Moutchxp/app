@@ -106,25 +106,61 @@ function echapper(s: string): string {
 }
 
 /**
- * OVERLAY SVG (px LOCAUX de la fenêtre) : cône (origine + arc, bleu métier), faisceau (origine → pointe, rouge),
- * point d'origine, flèche Nord (le Nord est l'axe écran vers le haut en WebMercator), et ATTRIBUTION gravée.
- * Sommets projetés via `destination()` (module pur) puis `projeter()`. PUR, testable sans réseau.
+ * Géométrie du tracé PASSÉE au dessin (plus AUCUN chiffre en dur ici) : demi-ouverture du champ, rayon de l'axe,
+ * rayon du champ, échantillonnage de l'arc. Le CERTIFICAT passe la géométrie MOTEUR (cf. `publierCarteOrientation`).
+ * Le paramètre `geom` est REQUIS partout (aucun défaut) → le compilateur refuse l'oubli, jamais de repli silencieux
+ * vers la cosmétique. L'écran `FaisceauMap` a son PROPRE rendu Leaflet et n'appelle PAS cette fonction.
  */
-export function construireSvg(cadre: Cadre, lat: number, lon: number, azimutDeg: number): string {
-  const { rayonM, rayonConeM, demiConeDeg, arcPoints } = GEOMETRIE_VALIDATION;
+export interface GeometrieTrace {
+  demiAngleDeg: number; // demi-ouverture du champ dessiné (moteur : 90° → champ 180°)
+  rayonAxeM: number; // longueur de l'axe (faisceau / verdict)
+  rayonChampM: number; // rayon du champ (arc de bord + dégradé)
+  arcPoints: number; // nombre de points d'échantillonnage de l'arc
+}
+
+/** Géométrie COSMÉTIQUE de l'écran de validation, EXPORTÉE pour qu'un appelant qui la veut la passe EN CONSCIENCE.
+ *  Ce n'est PAS un défaut : `geom` est requis → aucun repli automatique vers ces valeurs sur le chemin du certificat. */
+export const TRACE_VALIDATION: GeometrieTrace = {
+  demiAngleDeg: GEOMETRIE_VALIDATION.demiConeDeg,
+  rayonAxeM: GEOMETRIE_VALIDATION.rayonM,
+  rayonChampM: GEOMETRIE_VALIDATION.rayonConeM,
+  arcPoints: GEOMETRIE_VALIDATION.arcPoints,
+};
+
+/**
+ * OVERLAY SVG (px LOCAUX de la fenêtre), forme F3 : CHAMP analysé en dégradé radial (dense à l'origine, transparent
+ * à la portée → la carte reste lisible au loin) + ARC DE BORD bleu métier (il PORTE l'affirmation « analysé jusqu'à
+ * la portée sur le champ »), AXE du verdict (rouge), point d'origine, flèche Nord, ATTRIBUTION gravée. Toute la
+ * géométrie vient du paramètre `geom` — aucun chiffre de champ/portée en dur. Sommets projetés via `destination()`
+ * puis `projeter()`. PUR, testable sans réseau.
+ */
+export function construireSvg(
+  cadre: Cadre,
+  lat: number,
+  lon: number,
+  azimutDeg: number,
+  geom: GeometrieTrace, // REQUIS : chaque appelant passe SA géométrie (le certificat = moteur), jamais de défaut
+): string {
+  const { demiAngleDeg, rayonAxeM, rayonChampM, arcPoints } = geom;
   const [ox, oy] = projeter(lat, lon, cadre);
 
-  // Cône : origine + arc à rayonConeM (même construction que FaisceauMap : [origine, ...arc]).
-  const sommets: [number, number][] = [[ox, oy]];
+  // Champ : origine + arc à rayonChampM (secteur ± demiAngleDeg autour de l'axe).
+  const arc: [number, number][] = [];
   for (let i = 0; i < arcPoints; i++) {
-    const b = azimutDeg - demiConeDeg + (i * 2 * demiConeDeg) / (arcPoints - 1);
-    const [dlat, dlon] = destination(lat, lon, b, rayonConeM);
-    sommets.push(projeter(dlat, dlon, cadre));
+    const b = azimutDeg - demiAngleDeg + (i * 2 * demiAngleDeg) / (arcPoints - 1);
+    const [dlat, dlon] = destination(lat, lon, b, rayonChampM);
+    arc.push(projeter(dlat, dlon, cadre));
   }
-  const conePoints = sommets.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' ');
+  const secteur = [[ox, oy] as [number, number], ...arc].map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' ');
+  const arcBord = arc.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(2)},${y.toFixed(2)}`).join(' ');
 
-  // Faisceau : origine → pointe à rayonM.
-  const [tlat, tlon] = destination(lat, lon, azimutDeg, rayonM);
+  // Rayon du champ en pixels (dégradé radial) : distance origine → bord, mesurée sur l'axe.
+  const [clat, clon] = destination(lat, lon, azimutDeg, rayonChampM);
+  const [cxp, cyp] = projeter(clat, clon, cadre);
+  const rChampPx = Math.hypot(cxp - ox, cyp - oy);
+
+  // Faisceau / axe du verdict : origine → pointe à rayonAxeM.
+  const [tlat, tlon] = destination(lat, lon, azimutDeg, rayonAxeM);
   const [tx, ty] = projeter(tlat, tlon, cadre);
 
   const { outW, outH } = cadre;
@@ -136,9 +172,13 @@ export function construireSvg(cadre: Cadre, lat: number, lon: number, azimutDeg:
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${outW}" height="${outH}" viewBox="0 0 ${outW} ${outH}">`,
-    // Cône (bleu métier — exception « aucun bleu », cohérent avec FaisceauMap).
-    `<polygon points="${conePoints}" fill="#3b82f6" fill-opacity="0.25" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/>`,
-    // Faisceau (rouge SVAV).
+    // Dégradé radial du champ (bleu métier) : opaque à l'origine, transparent à la portée.
+    `<defs><radialGradient id="champ" gradientUnits="userSpaceOnUse" cx="${ox.toFixed(2)}" cy="${oy.toFixed(2)}" r="${rChampPx.toFixed(2)}"><stop offset="0" stop-color="#3b82f6" stop-opacity="0.3"/><stop offset="0.75" stop-color="#3b82f6" stop-opacity="0.1"/><stop offset="1" stop-color="#3b82f6" stop-opacity="0"/></radialGradient></defs>`,
+    // Champ analysé (remplissage dégradé, sans contour).
+    `<polygon points="${secteur}" fill="url(#champ)" stroke="none"/>`,
+    // Arc de bord (bleu métier) — PORTE l'affirmation « analysé jusqu'à la portée sur le champ ».
+    `<path d="${arcBord}" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/>`,
+    // Faisceau / axe du verdict (rouge SVAV).
     `<line x1="${ox.toFixed(2)}" y1="${oy.toFixed(2)}" x2="${tx.toFixed(2)}" y2="${ty.toFixed(2)}" stroke="#dc2626" stroke-width="4" stroke-linecap="round"/>`,
     // Point d'origine.
     `<circle cx="${ox.toFixed(2)}" cy="${oy.toFixed(2)}" r="6" fill="#dc2626" stroke="#ffffff" stroke-width="2"/>`,
@@ -183,6 +223,7 @@ export async function genererCarteOrientation(
   lat: number,
   lon: number,
   azimutDeg: number,
+  geom: GeometrieTrace, // REQUIS : géométrie du tracé, passée EN CONSCIENCE par l'appelant (certificat = moteur)
   opts: OptionsGeneration = {},
 ): Promise<Buffer> {
   const cadre = cadrer(lat, lon);
@@ -227,7 +268,7 @@ export async function genererCarteOrientation(
     .png()
     .toBuffer();
 
-  // Overlay vectoriel (rastérisé par librsvg via sharp).
-  const svg = construireSvg(cadre, lat, lon, azimutDeg);
+  // Overlay vectoriel (rastérisé par librsvg via sharp). Géométrie passée EN CONSCIENCE par l'appelant (jamais de défaut).
+  const svg = construireSvg(cadre, lat, lon, azimutDeg, geom);
   return sharp(fond).composite([{ input: Buffer.from(svg), left: 0, top: 0 }]).png().toBuffer();
 }

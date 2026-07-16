@@ -83,7 +83,8 @@ export interface DonneesCertificatPdf {
   reference: string;
   emission: string; // date + heure fr, pré-formatée
   dateAnalyse: string;
-  porteeAnalyse: string; // "200 m"
+  porteeAnalyse: string; // "200 m" — DÉRIVÉ du moteur par l'appelant (jamais retapé)
+  champAnalyseDeg: string; // "180°" — DÉRIVÉ du moteur ; alimente la ligne « Source » (plus aucun littéral ici)
   siteWeb: string;
   urlVerification: string; // "sansvisavis.com/verifier"
   verdictCertifie: boolean;
@@ -338,7 +339,7 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
   panneau(X0, y, CW, hRes);
   titrePanneau(X0 + pad, y + pad, 'Résultat détaillé');
   kvBloc(X0 + pad, y + pad + px(15), CW - 2 * pad, d.analyseResultat);
-  txt('Source : BD TOPO · champ 180° · portée 200 m', X0 + pad, y + hRes - pad - px(8), 'mono400', px(7.5), GRIS_TRES_CLAIR, {
+  txt(`Source : BD TOPO · champ ${d.champAnalyseDeg} · portée ${d.porteeAnalyse}`, X0 + pad, y + hRes - pad - px(8), 'mono400', px(7.5), GRIS_TRES_CLAIR, {
     characterSpacing: 0.3,
   });
   y += hRes + px(12);

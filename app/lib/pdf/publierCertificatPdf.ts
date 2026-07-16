@@ -17,10 +17,15 @@
 import { query } from '../db/client';
 import { deposer, recuperer, stockageConfigure } from '../stockage';
 import { genererCertificatPdf, type DonneesCertificatPdf, type LigneKv } from './certificatPdf';
+// Constantes MOTEUR (imports EN LECTURE SEULE ; config.ts n'est PAS modifié). Le certificat AFFICHE ce que le moteur
+// a analysé — champ et portée DÉRIVÉS, jamais retapés. Même source que le tracé de la carte (publierCarteOrientation).
+import { ANALYSIS_RANGE_M, AMPLITUDE_BEAM_COUNT, AMPLITUDE_BEAM_STEP_DEG } from '../svv/config';
 
-const PORTEE_ANALYSE = '200 m'; // portée d'analyse des faisceaux (BD TOPO), constante du modèle
-const CHAMP = '180° horizontal';
-const CARTE_LEGENDE = 'Plan IGN · portée 200 m';
+const CHAMP_DEG = (AMPLITUDE_BEAM_COUNT - 1) * AMPLITUDE_BEAM_STEP_DEG; // balayage réel : 61 faisceaux × 3° = 180°
+const PORTEE_M = ANALYSIS_RANGE_M; // portée d'analyse effective (const du moteur, cf. geo.ts / faisceaux.ts)
+const PORTEE_ANALYSE = `${PORTEE_M} m`;
+const CHAMP = `${CHAMP_DEG}° horizontal`;
+const CARTE_LEGENDE = `Plan IGN · portée ${PORTEE_M} m`;
 const SCORE_NOTE = 'Le label de qualité s’affiche à partir de 60/100. Il n’affecte pas le verdict.';
 const PIED = 'Certificat délivré par le système d’analyse géométrique Sans Vis-à-Vis®.';
 
@@ -137,7 +142,7 @@ export function assembler(r: LigneJointe, base: string, cartePng: Buffer, photoJ
   ligne(position, 'Dernier étage', r.dernier_etage === null ? null : r.dernier_etage ? 'Oui' : 'Non');
   ligne(position, 'Sous-plafond déclaré', nombre(r.hauteur_sous_plafond_m, 2) ? `${nombre(r.hauteur_sous_plafond_m, 2)} m` : null);
   ligne(position, 'Hauteur de vision', nombre(r.hauteur_vision_m, 2) ? `${nombre(r.hauteur_vision_m, 2)} m` : null); // MOTEUR, jamais recalculée
-  position.push(['Champ analysé', '180°']);
+  position.push(['Champ analysé', `${CHAMP_DEG}°`]);
 
   const caracteristiques: LigneKv[] = [];
   ligne(caracteristiques, 'Surface', nombre(r.surface_m2, 2) ? `${nombre(r.surface_m2, 2)} m²` : null);
@@ -145,9 +150,9 @@ export function assembler(r: LigneJointe, base: string, cartePng: Buffer, photoJ
   ligne(caracteristiques, 'Année', r.annee_batiment === null ? null : String(r.annee_batiment));
   ligne(caracteristiques, 'Extérieur', exterieur(r.payload));
 
-  // Obstacle face : entre 40 et 200 m → valeur ; sinon (null ou ≥ 200) → « > 200 m » (règle du modèle).
+  // Obstacle face : sous la portée → valeur ; sinon (null ou ≥ portée) → « > <portée> m ». Même portée MOTEUR (dérivée).
   const dist = r.distance_obstacle_m === null ? null : Number(r.distance_obstacle_m);
-  const obstacle = dist !== null && Number.isFinite(dist) && dist < 200 ? `${nombre(r.distance_obstacle_m, 1)} m` : '> 200 m';
+  const obstacle = dist !== null && Number.isFinite(dist) && dist < PORTEE_M ? `${nombre(r.distance_obstacle_m, 1)} m` : `> ${PORTEE_M} m`;
   const analyseResultat: LigneKv[] = [['Obstacle face détecté', obstacle]];
   ligne(analyseResultat, 'Moyenne faisceaux', nombre(r.profondeur_moyenne_m, 1) ? `${nombre(r.profondeur_moyenne_m, 1)} m` : null);
 
@@ -163,6 +168,7 @@ export function assembler(r: LigneJointe, base: string, cartePng: Buffer, photoJ
     emission: dateHeureFr(r.emis_le),
     dateAnalyse: dateFr(r.emis_le),
     porteeAnalyse: PORTEE_ANALYSE,
+    champAnalyseDeg: `${CHAMP_DEG}°`, // dérivé moteur, pour la ligne « Source » du générateur (jamais retapé)
     siteWeb: host,
     urlVerification: `${host}/verifier`,
     verdictCertifie: r.verdict === 'SANS_VIS_A_VIS',

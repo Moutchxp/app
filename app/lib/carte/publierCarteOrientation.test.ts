@@ -36,7 +36,14 @@ describe('publierCarteOrientation — best-effort, ne throw jamais', () => {
 
     await publierCarteOrientation('internaute-A', 7, 48.9, 2.26, 90);
 
-    expect(genererCarteOrientation).toHaveBeenCalledWith(48.9, 2.26, 90);
+    // Géométrie MOTEUR transmise au tracé (champ 180° = demi-ouverture 90°, portée 200 m), dérivée des constantes,
+    // en argument POSITIONNEL REQUIS (plus de `{ geom }`, plus de défaut possible).
+    expect(genererCarteOrientation).toHaveBeenCalledWith(48.9, 2.26, 90, {
+      demiAngleDeg: 90,
+      rayonAxeM: 200,
+      rayonChampM: 200,
+      arcPoints: 49,
+    });
     expect(deposer).toHaveBeenCalledWith(expect.any(Buffer), 'image/png', { internauteId: 'internaute-A' });
     const upd = query.mock.calls.find((c) => /UPDATE certificat_acheminement SET carte_orientation_cle/.test(c[0] as string));
     expect(upd?.[1]).toEqual(['internautes/internaute-A/cartes/uuid.png', 7]);

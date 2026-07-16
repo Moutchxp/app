@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import sharp from 'sharp';
-import { cadrer, projeter, construireSvg, genererCarteOrientation, ErreurCarteIncomplete, ZOOM } from './orientationCarte';
+import { cadrer, projeter, construireSvg, genererCarteOrientation, ErreurCarteIncomplete, ZOOM, TRACE_VALIDATION } from './orientationCarte';
 
 // Cas connu : Asnières (le point du golden). Cadrage z18 figé (calculé hors réseau).
 const LAT = 48.90693182287072;
@@ -35,7 +35,7 @@ describe('cadrer — cadrage z18 FIGÉ (pur, sans réseau)', () => {
 describe('construireSvg — overlay vectoriel', () => {
   it('faisceau (rouge) part du centre, cône (bleu métier) + attribution GRAVÉE présents', () => {
     const c = cadrer(LAT, LON);
-    const svg = construireSvg(c, LAT, LON, 90);
+    const svg = construireSvg(c, LAT, LON, 90, TRACE_VALIDATION);
     expect(svg).toContain('#dc2626'); // faisceau rouge SVAV
     expect(svg).toContain('#3b82f6'); // cône bleu métier (fill)
     expect(svg).toContain('#2563eb'); // cône bleu métier (stroke)
@@ -47,7 +47,7 @@ describe('construireSvg — overlay vectoriel', () => {
     const c = cadrer(LAT, LON);
     const [ox] = projeter(LAT, LON, c);
     // pointe du faisceau projetée (réutilise la même géodésie que le module) :
-    const svg = construireSvg(c, LAT, LON, 90);
+    const svg = construireSvg(c, LAT, LON, 90, TRACE_VALIDATION);
     const ligne = svg.match(/<line x1="(-?[\d.]+)" y1="-?[\d.]+" x2="(-?[\d.]+)" y2="-?[\d.]+" stroke="#dc2626"/);
     expect(ligne).toBeTruthy();
     const x1 = Number(ligne![1]);
@@ -58,7 +58,7 @@ describe('construireSvg — overlay vectoriel', () => {
 
   it('cap 270 (Ouest) → pointe à l’Ouest (x décroissant) : la géométrie n’est pas figée sur un sens', () => {
     const c = cadrer(LAT, LON);
-    const svg = construireSvg(c, LAT, LON, 270);
+    const svg = construireSvg(c, LAT, LON, 270, TRACE_VALIDATION);
     const ligne = svg.match(/<line x1="(-?[\d.]+)" y1="-?[\d.]+" x2="(-?[\d.]+)" y2="-?[\d.]+" stroke="#dc2626"/);
     expect(Number(ligne![2])).toBeLessThan(Number(ligne![1]));
   });
@@ -71,7 +71,7 @@ describe('genererCarteOrientation — chaîne complète (réseau stubbé, aucun 
   };
 
   it('toutes les tuiles → PNG 1274×1274 (assemblage + recadrage + overlay)', async () => {
-    const buf = await genererCarteOrientation(LAT, LON, 90, { fetchTuile: stub() });
+    const buf = await genererCarteOrientation(LAT, LON, 90, TRACE_VALIDATION, { fetchTuile: stub() });
     const meta = await sharp(buf).metadata();
     expect(meta.format).toBe('png');
     expect(meta.width).toBe(1427);
@@ -79,12 +79,12 @@ describe('genererCarteOrientation — chaîne complète (réseau stubbé, aucun 
   });
 
   it('une tuile de COIN manquante → carte quand même produite (trou clair toléré)', async () => {
-    const buf = await genererCarteOrientation(LAT, LON, 90, { fetchTuile: stub(new Set(['132721/90126'])) });
+    const buf = await genererCarteOrientation(LAT, LON, 90, TRACE_VALIDATION, { fetchTuile: stub(new Set(['132721/90126'])) });
     expect((await sharp(buf).metadata()).width).toBe(1427);
   });
 
   it('tuile CENTRALE manquante → ErreurCarteIncomplete (le document perdrait son sujet)', async () => {
-    await expect(genererCarteOrientation(LAT, LON, 90, { fetchTuile: stub(new Set(['132724/90129'])) })).rejects.toBeInstanceOf(
+    await expect(genererCarteOrientation(LAT, LON, 90, TRACE_VALIDATION, { fetchTuile: stub(new Set(['132724/90129'])) })).rejects.toBeInstanceOf(
       ErreurCarteIncomplete,
     );
   });
@@ -98,6 +98,6 @@ describe('genererCarteOrientation — chaîne complète (réseau stubbé, aucun 
       if (t.x === c.centerTile.x && t.y === c.centerTile.y) continue;
       fail.add(`${t.x}/${t.y}`);
     }
-    await expect(genererCarteOrientation(LAT, LON, 90, { fetchTuile: stub(fail) })).rejects.toBeInstanceOf(ErreurCarteIncomplete);
+    await expect(genererCarteOrientation(LAT, LON, 90, TRACE_VALIDATION, { fetchTuile: stub(fail) })).rejects.toBeInstanceOf(ErreurCarteIncomplete);
   });
 });
