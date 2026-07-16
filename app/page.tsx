@@ -911,15 +911,17 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
         // Jeton-capacité de rectification : présent seulement si un NOUVEAU dossier a été créé (email neuf).
         const data = await res.json().catch(() => null);
         const jeton = typeof data?.jetonRectification === "string" ? data.jetonRectification : null;
+        const jetonEmi = typeof data?.jetonEmission === "string" ? data.jetonEmission : null; // toujours présent (email neuf OU connu)
         const projetId = typeof data?.projetId === "number" ? data.projetId : null;
         setJetonRectif(jeton);
-        setJetonEmission(typeof data?.jetonEmission === "string" ? data.jetonEmission : null); // toujours présent (email neuf OU connu)
+        setJetonEmission(jetonEmi);
         setProjetIdA(projetId); // projet de A → marqué à la validation B
         // Dépôt de la photo — SILENCIEUX & NON BLOQUANT (fire-and-forget) : la photo n'entre NI dans le verdict NI
         // dans le score ; bloquer le tunnel d'un internaute sur un stockage annexe serait absurde. Aucune attente,
         // aucun message, aucun setState de chargement. Échec (réseau/stockage/jeton/IDOR) → ignoré ; le projet reste
         // sans photo_cle. La photo ne vit qu'en mémoire front : reprise/rechargement la perdent (accepté).
-        if (jeton && projetId !== null && photo) void deposerPhoto(jeton, projetId, photo);
+        // Dépôt via le jeton d'ÉMISSION (sub = projetId), toujours présent → photo déposée e-mail NEUF comme CONNU.
+        if (jetonEmi && projetId !== null && photo) void deposerPhoto(jetonEmi, projetId, photo);
       } else {
         setErreurEnvoi("Vos coordonnées n'ont pas pu être enregistrées. Le certificat reste disponible.");
       }
