@@ -126,6 +126,19 @@ export async function urlSignee(cle: string, dureeS?: number): Promise<string> {
   return getSignedUrl(infra.client, new GetObjectCommand({ Bucket: infra.config.bucket, Key: cle }), { expiresIn });
 }
 
+/**
+ * LECTURE : récupère le CONTENU d'un objet déjà déposé, par sa clé (pendant en lecture de `deposer`). Sert au
+ * ré-emploi serveur (ex. embarquer la photo/carte dans le PDF) sans passer par une URL signée. Rejette si le
+ * stockage n'est pas configuré ou l'objet est absent.
+ */
+export async function recuperer(cle: string): Promise<Buffer> {
+  const infra = obtenir();
+  if (!infra) throw new StockageIndisponible();
+  const r = await infra.client.send(new GetObjectCommand({ Bucket: infra.config.bucket, Key: cle }));
+  if (!r.Body) throw new ErreurStockage(`objet introuvable ou vide : ${cle}`);
+  return Buffer.from(await r.Body.transformToByteArray());
+}
+
 /** Supprime UN objet par sa clé (idempotent côté S3). Nécessaire à l'effacement RGPD unitaire. */
 export async function supprimer(cle: string): Promise<void> {
   const infra = obtenir();

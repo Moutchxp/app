@@ -33,6 +33,7 @@ import { attribuerNumeroCertificat } from './certificatNumero';
 import { genererJetonVerification } from './certificatJeton';
 import { genererReference } from './certificatReference';
 import { publierCarteOrientation } from '../carte/publierCarteOrientation';
+import { publierCertificatPdf } from '../pdf/publierCertificatPdf';
 
 /** Nombre de tentatives de tirage d'une référence UNIQUE avant abandon (collision astronomiquement improbable). */
 const MAX_TENTATIVES_REFERENCE = 5;
@@ -250,6 +251,9 @@ export async function emettreCertificat(internauteId: string, projetId: number):
       // APRÈS COMMIT — carte d'orientation best-effort, HORS transaction (réseau IGN, lent). Ne throw jamais ; un échec
       // laisse carte_orientation_cle NULL, le certificat existe déjà (carte re-fabricable, cf. publierCarteOrientation).
       await publierCarteOrientation(internauteId, res.certificatId, lat, lon, azimut);
+      // PUIS le PDF (après la carte : il relit la carte déposée pour l'embarquer, sans la régénérer). Best-effort,
+      // ne throw jamais ; un échec laisse le PDF absent (re-fabricable). Le chemin idempotent ci-dessous ne l'atteint pas.
+      await publierCertificatPdf(internauteId, res.certificatId);
       return { statut: 'emis', numero: res.numero, verdict, reference: res.reference };
     } catch (e) {
       const err = e as { code?: string; constraint?: string };
