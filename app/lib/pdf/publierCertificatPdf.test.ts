@@ -33,7 +33,8 @@ function ligne(over: Record<string, unknown> = {}) {
 describe('assembler — formatage + tas A nullable', () => {
   it('nominal : demandeur, usage, mode, extérieur, coordonnées, obstacle « > 200 m »', () => {
     const d = assembler(ligne() as never, 'https://www.sansvisavis.com', CARTE, PHOTO);
-    expect(d.demandeur).toEqual({ nom: 'Jean Dupont', email: 'jean@e.fr', telephone: '06 12 34 56 78' });
+    // Modèle : le bloc demandeur porte AUSSI l'adresse (celle du bien, seule dispo — `internaute` n'a pas d'adresse postale).
+    expect(d.demandeur).toEqual({ nom: 'Jean Dupont', adresse: '34 rue de Turenne, 75003 Paris', email: 'jean@e.fr', telephone: '06 12 34 56 78' });
     expect(d.bien.usage).toBe('Habitation principale');
     expect(d.photo.mode).toBe('snapping façade');
     expect(d.empreinteCaracteristiques).toContainEqual(['Extérieur', 'Balcon']);

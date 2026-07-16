@@ -28,6 +28,8 @@ const CHAMP = `${CHAMP_DEG}° horizontal`;
 const CARTE_LEGENDE = `Plan IGN · portée ${PORTEE_M} m`;
 const SCORE_NOTE = 'Le label de qualité s’affiche à partir de 60/100. Il n’affecte pas le verdict.';
 const PIED = 'Certificat délivré par le système d’analyse géométrique Sans Vis-à-Vis®.';
+const TIRET = '—'; // valeur affichée quand AUCUNE source moteur/base n'existe (convention du modèle : jamais inventer)
+const TOLERANCE_MESURE = '± 2 m'; // marge de mesure DÉCLARÉE (constante de la méthode, modèle), pas issue d'un calcul
 
 /** Base absolue du site (serveur only). Null si absente/mal formée → PDF non généré (QR faux évité). */
 function siteUrl(): string | null {
@@ -102,7 +104,8 @@ function coord(v: string | null): string | null {
 }
 function etageLabel(n: number | null): string | null {
   if (n === null) return null;
-  return n === 0 ? 'Rez-de-chaussée' : `${n}ᵉ étage`;
+  // « e » simple (pas l'exposant U+1D49 : absent des 4 polices embarquées → rendrait un tofu).
+  return n === 0 ? 'Rez-de-chaussée' : `${n}e étage`;
 }
 function dateHeureFr(d: Date): string {
   const jour = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Paris' }).format(d);
@@ -136,6 +139,7 @@ export function assembler(r: LigneJointe, base: string, cartePng: Buffer, photoJ
   ligne(coordonnees, 'Longitude', coord(r.lon));
   ligne(coordonnees, 'Alt. terrain (NGF)', nombre(r.altitude_terrain_m, 1) ? `${nombre(r.altitude_terrain_m, 1)} m` : null);
   ligne(coordonnees, 'Alt. sol (BD TOPO)', nombre(r.altitude_sol_m, 1) ? `${nombre(r.altitude_sol_m, 1)} m` : null);
+  coordonnees.push(['Tolérance de mesure', TOLERANCE_MESURE]); // marge DÉCLARÉE de la méthode (constante), modèle
 
   const position: LigneKv[] = [];
   ligne(position, 'Étage', etageLabel(r.etage));
@@ -147,6 +151,7 @@ export function assembler(r: LigneJointe, base: string, cartePng: Buffer, photoJ
   const caracteristiques: LigneKv[] = [];
   ligne(caracteristiques, 'Surface', nombre(r.surface_m2, 2) ? `${nombre(r.surface_m2, 2)} m²` : null);
   ligne(caracteristiques, 'Pièces', r.nb_pieces === null ? null : String(r.nb_pieces));
+  caracteristiques.push(['Chambres', TIRET]); // pas de source (le certificat n'a que nb_pieces) → « — », jamais inventé
   ligne(caracteristiques, 'Année', r.annee_batiment === null ? null : String(r.annee_batiment));
   ligne(caracteristiques, 'Extérieur', exterieur(r.payload));
 
@@ -155,10 +160,17 @@ export function assembler(r: LigneJointe, base: string, cartePng: Buffer, photoJ
   const obstacle = dist !== null && Number.isFinite(dist) && dist < PORTEE_M ? `${nombre(r.distance_obstacle_m, 1)} m` : `> ${PORTEE_M} m`;
   const analyseResultat: LigneKv[] = [['Obstacle face détecté', obstacle]];
   ligne(analyseResultat, 'Moyenne faisceaux', nombre(r.profondeur_moyenne_m, 1) ? `${nombre(r.profondeur_moyenne_m, 1)} m` : null);
+  analyseResultat.push(['Analyses LiDAR', TIRET]); // placeholder du modèle, pas de source moteur exposée → « — »
+
+  // Qualité de vue & Nuisances : AUCUNE source moteur/base à l'émission (photo-IA NULL + non déterministe) → « — »
+  // partout, convention du modèle (qualiteVue). Rien d'inventé, rien de supprimé.
+  const qualiteVue: LigneKv[] = [['Dégagement', TIRET], ['Ouverture', TIRET], ['Végétation', TIRET], ['Patrimoine', TIRET], ['Ciel', TIRET]];
+  const nuisances: LigneKv[] = [['Ligne haute tension', TIRET], ['Site industriel (ICPE)', TIRET], ['Antenne / Relais', TIRET], ['Axe routier majeur', TIRET], ["Source d'eau", TIRET]];
 
   const nomComplet = [r.prenom, r.nom].filter(Boolean).join(' ');
+  // Modèle : bloc demandeur = nom · ADRESSE (celle du bien, seule dispo : `internaute` n'a pas d'adresse postale).
   const demandeur =
-    nomComplet || r.email || r.telephone ? { nom: nomComplet || null, email: r.email, telephone: r.telephone } : null;
+    nomComplet || r.email || r.telephone ? { nom: nomComplet || null, adresse: r.adresse, email: r.email, telephone: r.telephone } : null;
 
   const usage = r.residence_principale === null ? null : r.residence_principale ? 'Habitation principale' : 'Habitation secondaire';
 
@@ -180,6 +192,8 @@ export function assembler(r: LigneJointe, base: string, cartePng: Buffer, photoJ
     empreintePosition: position,
     empreinteCaracteristiques: caracteristiques,
     analyseResultat,
+    qualiteVue,
+    nuisances,
     carteLegende: CARTE_LEGENDE,
     pied: PIED,
     emisLe: r.emis_le,

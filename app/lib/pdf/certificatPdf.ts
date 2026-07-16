@@ -2,13 +2,7 @@ import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import PDFDocument from 'pdfkit';
 import { toBuffer as qrToBuffer } from 'qrcode';
-import {
-  MENTION_EMETTEUR,
-  MENTION_MARQUE,
-  MENTION_DEFINITION,
-  MENTION_DECOUPLAGE,
-  MENTION_PORTEE,
-} from './mentions';
+import { MENTION_EMETTEUR } from './mentions';
 
 /**
  * GÉNÉRATEUR PUR du PDF du certificat (Lot 6b) — REPRODUIT `docs/modele/certificat-savv-v15.html`.
@@ -64,6 +58,7 @@ const POLICES: Record<string, string> = {
 export type LigneKv = [string, string];
 export interface DemandeurPdf {
   nom?: string | null;
+  adresse?: string | null; // modèle : <b>nom</b> · adresse<br>email · téléphone (adresse = celle du bien, seule dispo)
   email?: string | null;
   telephone?: string | null;
 }
@@ -95,12 +90,14 @@ export interface DonneesCertificatPdf {
   // Lignes clé/valeur DÉJÀ construites par l'appelant (retraits + lignes nulles omis en amont).
   empreinteCoordonnees: LigneKv[]; // Latitude, Longitude, Alt. terrain, Alt. sol
   empreintePosition: LigneKv[]; // Étage, Dernier étage, Sous-plafond (OBLIGATOIRE), Hauteur de vision (MOTEUR), Champ analysé
-  empreinteCaracteristiques: LigneKv[]; // Surface, Pièces, Année, [Extérieur]
-  analyseResultat: LigneKv[]; // Obstacle face détecté, Moyenne faisceaux (source BD TOPO / faisceaux)
+  empreinteCaracteristiques: LigneKv[]; // Surface, Pièces, Chambres, Année, [Extérieur]
+  analyseResultat: LigneKv[]; // Obstacle face détecté, Moyenne faisceaux, Analyses LiDAR (rangée g-3, colonne 1)
+  qualiteVue: LigneKv[]; // Dégagement, Ouverture, Végétation, Patrimoine, Ciel (rangée g-3, colonne 2 ; « — » : pas de source)
+  nuisances: LigneKv[]; // Ligne HT, ICPE, Antenne, Axe routier, Source d'eau (rangée g-3, colonne 3 ; « — » : pas de source)
   carteLegende: string;
   pied: string;
   emisLe: Date; // FIGE CreationDate/ModDate/ID
-  jeton: string; // n'apparaît que dans le QR + le bloc de vérification EN CLAIR (code 4×4)
+  jeton: string; // n'apparaît QUE dans le QR (le modèle n'imprime pas le code en clair) ; jamais dans un log
   urlBase: string;
   cartePng: Buffer;
   photoJpeg: Buffer | null;
@@ -278,38 +275,43 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
   // ══════════ DEMANDEUR | BIEN (demandeur omis si null → bien pleine largeur) ══════════
   const champsDem = d.demandeur ? [d.demandeur.nom, d.demandeur.email, d.demandeur.telephone].filter(Boolean) : [];
   const aDemandeur = champsDem.length > 0;
-  const hInfo = px(50);
+  const hInfo = px(66); // deux lignes de contenu (modèle) : nom·adresse / email·téléphone
+  const dyTitre = px(15); // titre → 1re ligne de contenu
+  const dyLigne = px(14); // interligne contenu
   if (aDemandeur) {
     const wCol = (CW - gap) / 2;
     panneau(X0, y, wCol, hInfo);
     panneau(X0 + wCol + gap, y, wCol, hInfo);
     titrePanneau(X0 + pad, y + pad, 'Demandeur');
-    // 1re valeur en gras (nom) si présente.
-    const nomTxt = d.demandeur?.nom ? d.demandeur.nom : null;
-    const reste = [d.demandeur?.email, d.demandeur?.telephone].filter(Boolean) as string[];
+    // Modèle : <b>nom</b> · adresse (ligne 1) ; email · téléphone (ligne 2).
     const dx = X0 + pad;
-    const dy = y + pad + px(16);
+    const l1y = y + pad + dyTitre;
+    const nomTxt = d.demandeur?.nom || null;
+    const adr = d.demandeur?.adresse || null;
+    const contact = [d.demandeur?.email, d.demandeur?.telephone].filter(Boolean).join(' · ');
     if (nomTxt) {
-      doc.font('ps600').fontSize(px(10.5)).fillColor(ENCRE).text(nomTxt, dx, dy, { continued: reste.length > 0, lineBreak: false });
-      if (reste.length) doc.font('ps400').fillColor(GRIS).text(` · ${reste.join(' · ')}`, { lineBreak: false });
-    } else {
-      txt(reste.join(' · '), dx, dy, 'ps400', px(10.5), GRIS, { width: wCol - 2 * pad });
+      doc.font('ps600').fontSize(px(10.5)).fillColor(ENCRE).text(nomTxt, dx, l1y, { continued: !!adr, lineBreak: false });
+      if (adr) doc.font('ps400').fillColor(GRIS).text(` · ${adr}`, { lineBreak: false });
+    } else if (adr) {
+      txt(adr, dx, l1y, 'ps400', px(10.5), GRIS, { width: wCol - 2 * pad });
     }
+    if (contact) txt(contact, dx, l1y + dyLigne, 'ps400', px(10.5), GRIS, { width: wCol - 2 * pad });
     // Bien (droite)
     const bxc = X0 + wCol + gap;
     titrePanneau(bxc + pad, y + pad, 'Identification du bien');
-    bienBloc(bxc + pad, y + pad + px(16), wCol - 2 * pad);
+    bienBloc(bxc + pad, y + pad + dyTitre, wCol - 2 * pad);
   } else {
     panneau(X0, y, CW, hInfo);
     titrePanneau(X0 + pad, y + pad, 'Identification du bien');
-    bienBloc(X0 + pad, y + pad + px(16), CW - 2 * pad);
+    bienBloc(X0 + pad, y + pad + dyTitre, CW - 2 * pad);
   }
   function bienBloc(bx2: number, by2: number, w: number) {
     const l1 = [d.bien.adresse, d.bien.cadastre ? `Cadastre : ${d.bien.cadastre}` : null].filter(Boolean).join(' · ');
     const l2 = [d.bien.type, d.bien.usage].filter(Boolean).join(' · '); // usage nullable
     doc.font('ps400').fontSize(px(10.5)).fillColor(GRIS);
-    if (l1) doc.text(l1, bx2, by2, { width: w, lineBreak: true });
-    if (l2) doc.text(l2, bx2, by2 + px(16), { width: w, lineBreak: true });
+    let yy = by2;
+    if (l1) { doc.text(l1, bx2, yy, { width: w, lineBreak: true }); yy = doc.y; } // MESURE la hauteur enroulée (jamais un y fixe)
+    if (l2) doc.text(l2, bx2, yy, { width: w, lineBreak: true });
   }
 
   y += hInfo + px(12);
@@ -334,19 +336,27 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
   });
   y += hEmp + px(12);
 
-  // ══════════ RÉSULTAT DÉTAILLÉ (FAISCEAUX / BD TOPO) ══════════
-  const hRes = pad + px(12) + d.analyseResultat.length * px(9.5) * 1.8 + px(14) + pad * 0.4;
-  panneau(X0, y, CW, hRes);
-  titrePanneau(X0 + pad, y + pad, 'Résultat détaillé');
-  kvBloc(X0 + pad, y + pad + px(15), CW - 2 * pad, d.analyseResultat);
-  txt(`Source : BD TOPO · champ ${d.champAnalyseDeg} · portée ${d.porteeAnalyse}`, X0 + pad, y + hRes - pad - px(8), 'mono400', px(7.5), GRIS_TRES_CLAIR, {
-    characterSpacing: 0.3,
+  // ══════════ RANGÉE g-3 : RÉSULTAT DÉTAILLÉ | QUALITÉ DE VUE | NUISANCES VISUELLES (modèle) ══════════
+  // Colonnes 2 et 3 = « — » partout (pas de source moteur) : convention du modèle (qualiteVue), aucune valeur inventée.
+  const g3cols: [string, LigneKv[]][] = [
+    ['Résultat détaillé', d.analyseResultat],
+    ['Qualité de vue', d.qualiteVue],
+    ['Nuisances visuelles', d.nuisances],
+  ];
+  const g3rows = Math.max(...g3cols.map(([, r]) => r.length));
+  const hG3 = pad + px(13) + g3rows * px(9.5) * 1.8 + pad * 0.4;
+  const w3 = (CW - 2 * gap) / 3;
+  g3cols.forEach(([titre, rows], i) => {
+    const cx = X0 + i * (w3 + gap);
+    panneau(cx, y, w3, hG3);
+    titrePanneau(cx + pad, y + pad, titre);
+    kvBloc(cx + pad, y + pad + px(15), w3 - 2 * pad, rows);
   });
-  y += hRes + px(12);
+  y += hG3 + px(12);
 
   // ══════════ PHOTO | CARTE ══════════
   const wCol2 = (CW - gap) / 2;
-  const mediaH = px(150);
+  const mediaH = px(190); // modèle : .media{height:190px}
   const hMedia = pad + px(10) + px(12) + mediaH + px(8) + px(22) + pad * 0.2;
   panneau(X0, y, wCol2, hMedia);
   panneau(X0 + wCol2 + gap, y, wCol2, hMedia);
@@ -384,46 +394,37 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
   const hRef = px(46);
   panneau(X0, y, CW, hRef);
   doc.rect(X0, y, px(3), hRef).fill(ROUGE); // liseré gauche
-  const refTxtW = CW - 2 * pad - px(120);
+  // Référence INSÉCABLE (modèle : .ref-code{white-space:nowrap}) : on MESURE sa largeur et on lui réserve la place.
+  const refW = doc.font('mono700').fontSize(px(15)).widthOfString(d.reference) + px(6);
+  const refTxtW = CW - 2 * pad - refW - px(10);
   doc.font('ps400').fontSize(px(9.5)).fillColor(GRIS).text(
     `Référence à reprendre dans votre annonce. Indiquez-la dans le texte de l'annonce : toute personne pourra vérifier sur ${d.urlVerification} que l'analyse provient de nos services et correspond à l'annonce.`,
     X0 + pad, y + px(9), { width: refTxtW, lineBreak: true },
   );
-  txt(d.reference, X0 + CW - pad - px(115), y + (hRef - px(15)) / 2, 'mono700', px(15), ROUGE, { width: px(115), align: 'right', characterSpacing: 0.3 });
+  txt(d.reference, X0 + CW - pad - refW, y + (hRef - px(15)) / 2, 'mono700', px(15), ROUGE, { width: refW, align: 'right', characterSpacing: 0.3, lineBreak: false });
   y += hRef + px(12);
 
-  // ══════════ VÉRIFICATION (QR + EN CLAIR) ══════════
-  const qrS = px(66);
-  doc.image(qrPng, X0, y, { width: qrS, height: qrS });
-  const vx = X0 + qrS + px(14);
-  txt('VÉRIFIER CE CERTIFICAT', vx, y, 'mono600', px(8), GRIS_CLAIR, { characterSpacing: 0.6 });
-  txt(d.urlVerification, vx, y + px(13), 'mono600', px(9.5), ROUGE);
-  doc.font('mono400').fontSize(px(9)).fillColor(GRIS).text('N° : ', vx, y + px(28), { continued: true, lineBreak: false });
-  doc.font('mono600').fillColor(ENCRE).text(d.numero, { lineBreak: false });
-  doc.font('mono400').fontSize(px(9)).fillColor(GRIS).text('Code : ', vx, y + px(41), { continued: true, lineBreak: false });
-  doc.font('mono600').fillColor(ENCRE).text(jeton4x4(d.jeton), { lineBreak: false });
-  txt('Scannez le QR, ou saisissez le numéro et le code ci-dessus sur la page de vérification.', vx, y + px(54), 'mono400', px(7.5), GRIS_TRES_CLAIR, { width: CW - qrS - px(14) });
-  // Site (à droite)
-  txt(d.siteWeb, X0 + CW - px(150), y + px(2), 'mono700', px(12), ROUGE, { width: px(150), align: 'right', characterSpacing: 0.4 });
-  y += qrS + px(12);
-
-  // ══════════ MENTIONS LÉGALES (bas de page, fine print) ══════════
-  doc.rect(X0, y, CW, 0.6).fill(NEUTRE_BORD);
-  y += px(8);
-  const mentions = [
-    ['Date', `Émission : ${d.emission} · Analyse : ${d.dateAnalyse} · ${d.pied}`],
-    ['Définition du label', MENTION_DEFINITION],
-    ['Analyse photographique', MENTION_DECOUPLAGE],
-    ['Portée', MENTION_PORTEE],
-    ['Marque', MENTION_MARQUE],
-    ['Émetteur', MENTION_EMETTEUR],
-  ];
-  const mSize = px(6.6);
-  for (const [t, corps] of mentions) {
-    doc.font('mono600').fontSize(mSize).fillColor(GRIS).text(`${t} — `, X0, y, { continued: true, lineBreak: true, width: CW });
-    doc.font('ps400').fillColor(GRIS_CLAIR).text(corps, { width: CW });
-    y = doc.y + px(2.5);
-  }
+  // ══════════ PIED — modèle .foot : dates + pied (gauche) · site · QR « Vérifier ce certificat » (droite) ══════════
+  y += px(2);
+  doc.rect(X0, y, CW, 0.6).fill(NEUTRE_BORD); // .foot { border-top }
+  y += px(11);
+  const qrS = px(52); // modèle .qr { 52px }
+  const qrX = X0 + CW - qrS;
+  doc.image(qrPng, qrX, y, { width: qrS, height: qrS });
+  const capX = qrX - px(86);
+  txt('VÉRIFIER CE CERTIFICAT', capX, y + px(14), 'mono600', px(7.5), GRIS_CLAIR, { width: px(80), align: 'right', characterSpacing: 0.4, lineBreak: true });
+  // foot-txt (gauche) : dates + analyse, puis le site (rouge) et le pied de page.
+  const footW = capX - X0 - px(12);
+  doc.font('ps400').fontSize(px(10)).fillColor(GRIS).text(
+    `Date d'émission : ${d.emission} · Date d'analyse : ${d.dateAnalyse} · Analyse géométrique : ${d.porteeAnalyse}`,
+    X0, y, { width: footW, lineBreak: true },
+  );
+  doc.font('mono700').fontSize(px(11)).fillColor(ROUGE).text(d.siteWeb, X0, doc.y + px(1), { continued: true, lineBreak: false });
+  doc.font('ps400').fontSize(px(9)).fillColor(GRIS).text(`   ${d.pied}`, { lineBreak: false });
+  // Coordonnées de la SARL CRITERIMMO — remplace le pavé de mentions (fine print, tout en bas).
+  const yC = Math.max(y + qrS, doc.y) + px(7);
+  doc.rect(X0, yC, CW, 0.6).fill(NEUTRE_BORD);
+  doc.font('mono400').fontSize(px(6.8)).fillColor(GRIS_CLAIR).text(MENTION_EMETTEUR, X0, yC + px(4), { width: CW, lineBreak: true });
 
   doc.end();
   return sortie;
