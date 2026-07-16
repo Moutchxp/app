@@ -1,103 +1,75 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import sharp from 'sharp';
-import { cadrer, projeter, construireSvg, genererCarteOrientation, ErreurCarteIncomplete, ZOOM, TRACE_VALIDATION } from './orientationCarte';
+import { cadrerVueEnHaut, construireOverlayVueEnHaut, genererCarteOrientation, ErreurCarteIncomplete, TRACE_VALIDATION } from './orientationCarte';
 
-// Cas connu : Asnières (le point du golden). Cadrage z18 figé (calculé hors réseau).
+// Asnières (le point du golden). Géométrie MOTEUR (champ 180°, portée 200 m) — celle du certificat.
 const LAT = 48.90693182287072;
 const LON = 2.269431435588249;
+const MOTEUR = { demiAngleDeg: 90, rayonAxeM: 200, rayonChampM: 200, arcPoints: 49 };
 
-let tilePng: Buffer; // une vraie tuile 256×256 pour stubber le réseau (aucun appel externe)
+let tilePng: Buffer;
 beforeAll(async () => {
-  tilePng = await sharp({ create: { width: 256, height: 256, channels: 4, background: { r: 210, g: 220, b: 210, alpha: 1 } } })
-    .png()
-    .toBuffer();
+  tilePng = await sharp({ create: { width: 256, height: 256, channels: 4, background: { r: 210, g: 220, b: 210, alpha: 1 } } }).png().toBuffer();
 });
 
-describe('cadrer — cadrage z18 FIGÉ (pur, sans réseau)', () => {
-  it('Asnières → fenêtre 1427×1427, grille 7×7 = 49 tuiles, tuile centrale connue', () => {
-    const c = cadrer(LAT, LON);
-    expect(c.zoom).toBe(ZOOM);
-    expect(c.outW).toBe(1427);
-    expect(c.outH).toBe(1427);
-    expect([c.tMinX, c.tMaxX, c.tMinY, c.tMaxY]).toEqual([132721, 132727, 90126, 90132]);
-    expect(c.tuiles).toHaveLength(49);
-    expect(c.centerTile).toEqual({ x: 132724, y: 90129 });
+describe('cadrerVueEnHaut — cadrage bbox + zoom DÉRIVÉ (pur, sans réseau)', () => {
+  it('origine centrée en largeur, près du bas ; zoom dérivé (pas de 18 en dur)', () => {
+    const f = cadrerVueEnHaut(LAT, MOTEUR);
+    expect(f.ox).toBe(500); // OUT_W / 2 → origine centrée horizontalement
+    expect(f.oy).toBeGreaterThan(560); // près du bord bas (OUT_H = 617)
+    expect(f.oy).toBeLessThan(617);
+    expect(f.zSrc).toBe(18); // DÉRIVÉ de mppOut (pas une constante) — vaut 18 pour cette géométrie/cartouche
+    expect(f.mppOut).toBeCloseTo(0.448, 2);
   });
 
-  it('l’origine se projette au CENTRE de la fenêtre (± 1 px)', () => {
-    const c = cadrer(LAT, LON);
-    const [ox, oy] = projeter(LAT, LON, c);
-    expect(ox).toBeCloseTo(c.outW / 2, 0);
-    expect(oy).toBeCloseTo(c.outH / 2, 0);
+  it('changer la PORTÉE change le cadrage (zoom dérivé, pas figé) → la carte ne casse pas en silence', () => {
+    const proche = cadrerVueEnHaut(LAT, MOTEUR);
+    const loin = cadrerVueEnHaut(LAT, { ...MOTEUR, rayonAxeM: 600, rayonChampM: 600 });
+    expect(loin.mppOut).toBeGreaterThan(proche.mppOut); // portée 3× → résolution plus grossière
+    expect(loin.zSrc).toBeLessThan(proche.zSrc); // et un zoom source plus faible, DÉRIVÉ
   });
 });
 
-describe('construireSvg — overlay vectoriel', () => {
-  it('faisceau (rouge) part du centre, cône (bleu métier) + attribution GRAVÉE présents', () => {
-    const c = cadrer(LAT, LON);
-    const svg = construireSvg(c, LAT, LON, 90, TRACE_VALIDATION);
-    expect(svg).toContain('#dc2626'); // faisceau rouge SVAV
-    expect(svg).toContain('#3b82f6'); // cône bleu métier (fill)
-    expect(svg).toContain('#2563eb'); // cône bleu métier (stroke)
-    expect(svg).toContain('© IGN'); // attribution gravée dans l'image
-    expect(svg).toContain(`width="${c.outW}"`);
+describe('construireOverlayVueEnHaut — overlay VUE EN HAUT (esthétique écran, géométrie moteur)', () => {
+  const f = cadrerVueEnHaut(LAT, MOTEUR);
+  it('cône APLAT écran (#3b82f6 @0.25, contour #2563eb) + axe #dc2626 + attribution gravée', () => {
+    const svg = construireOverlayVueEnHaut(f.ox, f.oy, f.mppOut, 343, MOTEUR);
+    expect(svg).toContain('#3b82f6');
+    expect(svg).toContain('fill-opacity="0.25"'); // APLAT, pas de dégradé
+    expect(svg).toContain('#2563eb');
+    expect(svg).toContain('#dc2626');
+    expect(svg).toContain('© IGN');
   });
 
-  it('le cône s’ouvre du BON côté : cap 90 (Est) → la pointe du faisceau est à l’Est (x croissant)', () => {
-    const c = cadrer(LAT, LON);
-    const [ox] = projeter(LAT, LON, c);
-    // pointe du faisceau projetée (réutilise la même géodésie que le module) :
-    const svg = construireSvg(c, LAT, LON, 90, TRACE_VALIDATION);
-    const ligne = svg.match(/<line x1="(-?[\d.]+)" y1="-?[\d.]+" x2="(-?[\d.]+)" y2="-?[\d.]+" stroke="#dc2626"/);
-    expect(ligne).toBeTruthy();
-    const x1 = Number(ligne![1]);
-    const x2 = Number(ligne![2]);
-    expect(x1).toBeCloseTo(ox, 0); // le faisceau part de l'origine
-    expect(x2).toBeGreaterThan(x1); // cap Est → pointe à droite
-  });
-
-  it('cap 270 (Ouest) → pointe à l’Ouest (x décroissant) : la géométrie n’est pas figée sur un sens', () => {
-    const c = cadrer(LAT, LON);
-    const svg = construireSvg(c, LAT, LON, 270, TRACE_VALIDATION);
-    const ligne = svg.match(/<line x1="(-?[\d.]+)" y1="-?[\d.]+" x2="(-?[\d.]+)" y2="-?[\d.]+" stroke="#dc2626"/);
-    expect(Number(ligne![2])).toBeLessThan(Number(ligne![1]));
+  it("l'axe du verdict est VERTICAL et pointe vers le HAUT (quel que soit l'azimut)", () => {
+    for (const az of [0, 90, 200, 343]) {
+      const svg = construireOverlayVueEnHaut(f.ox, f.oy, f.mppOut, az, MOTEUR);
+      const m = svg.match(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)" stroke="#dc2626"/);
+      expect(m).toBeTruthy();
+      const [x1, y1, x2, y2] = [Number(m![1]), Number(m![2]), Number(m![3]), Number(m![4])];
+      expect(x2).toBeCloseTo(x1, 1); // vertical : même x
+      expect(x1).toBeCloseTo(f.ox, 1); // sur l'axe central
+      expect(y2).toBeLessThan(y1); // pointe (y2) AU-DESSUS de l'origine (y1)
+    }
   });
 });
 
-describe('genererCarteOrientation — chaîne complète (réseau stubbé, aucun appel externe)', () => {
-  const stub = (fail: Set<string> = new Set()) => async (_z: number, x: number, y: number) => {
-    if (fail.has(`${x}/${y}`)) throw new Error('tuile en échec (simulée)');
-    return tilePng;
-  };
-
-  it('toutes les tuiles → PNG 1274×1274 (assemblage + recadrage + overlay)', async () => {
-    const buf = await genererCarteOrientation(LAT, LON, 90, TRACE_VALIDATION, { fetchTuile: stub() });
+describe('genererCarteOrientation — chaîne VUE EN HAUT (réseau stubbé)', () => {
+  it('toutes les tuiles → PNG au ratio du cartouche (1000×617), rien de rogné', async () => {
+    const buf = await genererCarteOrientation(LAT, LON, 343, MOTEUR, { fetchTuile: async () => tilePng });
     const meta = await sharp(buf).metadata();
     expect(meta.format).toBe('png');
-    expect(meta.width).toBe(1427);
-    expect(meta.height).toBe(1427);
+    expect(meta.width).toBe(1000);
+    expect(meta.height).toBe(617);
   });
 
-  it('une tuile de COIN manquante → carte quand même produite (trou clair toléré)', async () => {
-    const buf = await genererCarteOrientation(LAT, LON, 90, TRACE_VALIDATION, { fetchTuile: stub(new Set(['132721/90126'])) });
-    expect((await sharp(buf).metadata()).width).toBe(1427);
+  it('toutes les tuiles en échec (donc la centrale) → ErreurCarteIncomplete', async () => {
+    await expect(
+      genererCarteOrientation(LAT, LON, 343, MOTEUR, { fetchTuile: async () => { throw new Error('réseau'); } }),
+    ).rejects.toBeInstanceOf(ErreurCarteIncomplete);
   });
 
-  it('tuile CENTRALE manquante → ErreurCarteIncomplete (le document perdrait son sujet)', async () => {
-    await expect(genererCarteOrientation(LAT, LON, 90, TRACE_VALIDATION, { fetchTuile: stub(new Set(['132724/90129'])) })).rejects.toBeInstanceOf(
-      ErreurCarteIncomplete,
-    );
-  });
-
-  it('trop de tuiles manquantes (> 25 %) → ErreurCarteIncomplete (une carte à moitié vide ne vaut rien)', async () => {
-    // 13 échecs sur 49 (~27 %), hors tuile centrale.
-    const fail = new Set<string>();
-    const c = cadrer(LAT, LON);
-    for (const t of c.tuiles) {
-      if (fail.size >= 13) break;
-      if (t.x === c.centerTile.x && t.y === c.centerTile.y) continue;
-      fail.add(`${t.x}/${t.y}`);
-    }
-    await expect(genererCarteOrientation(LAT, LON, 90, TRACE_VALIDATION, { fetchTuile: stub(fail) })).rejects.toBeInstanceOf(ErreurCarteIncomplete);
+  it('géométrie REQUISE : l’appelant passe la sienne (ici moteur ; TRACE_VALIDATION exportée pour l’écran)', () => {
+    expect(TRACE_VALIDATION.demiAngleDeg).toBeGreaterThan(0); // simple garde : l'export existe et est cohérent
   });
 });
