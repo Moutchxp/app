@@ -129,10 +129,11 @@ export interface SouhaitConsentement {
  * COMPLÉTION DU PARCOURS (Écran B) sur un profil EXISTANT (créé à l'Écran A). UNE transaction :
  *  1. UPDATE identité (email/tél — les coordonnées de B FONT FOI) + `parcours='complet'` + `maj_a`, profil non
  *     effacé (`efface_a IS NULL`) — whitelist STRICTE `COLONNES_RECTIFIABLES` pour les coordonnées ;
- *  2. RÉCONCILIATION des consentements du `scope` (finalités PRÉSENTÉES à l'Écran B, aujourd'hui F2 seulement), APPEND-ONLY :
- *     coché & inactif → nouvelle ligne 'accorde' ; décoché & actif → nouvelle ligne 'retire' (l'internaute peut décocher
- *     F2 en B) ; inchangé → RIEN. JAMAIS d'UPDATE d'une preuve. Les finalités HORS `scope` (ex. F1, décidé à l'Écran A)
- *     ne sont JAMAIS touchées ici → aucun retrait accidentel si un futur client omettait F1 du corps ;
+ *  2. RÉCONCILIATION des consentements du `scope` (finalités PRÉSENTÉES à l'Écran B, aujourd'hui F2 seulement), ACCORD-ONLY :
+ *     coché & inactif → nouvelle ligne 'accorde' ; tout le reste (déjà actif, ou ABSENT du corps) → RIEN. Le TUNNEL NE
+ *     RETIRE JAMAIS (règle produit) — l'absence d'une finalité ne produit AUCUN 'retire' ; le retrait passe par les voies
+ *     dédiées hors tunnel (admin, lien e-mail). JAMAIS d'UPDATE d'une preuve. Les finalités HORS `scope` (ex. F1, décidé à
+ *     l'Écran A) ne sont de toute façon jamais touchées ici ;
  *  3. journal 'rectification' (champs changés + `parcours`), SANS valeurs.
  * Le consentement reste rattaché à l'UUID STABLE : changer la coordonnée n'altère aucune preuve. `{ complete:false }`
  * si l'id n'existe pas / est effacé. Lève `ErreurEmailDuplique` sur collision d'email (unicité applicative).
@@ -160,7 +161,13 @@ export async function completerParcours(
         params,
       );
       if (r.rows.length === 0) return { complete: false }; // introuvable ou déjà effacé
-      // RÉCONCILIATION append-only, LIMITÉE au `scope` (finalités de l'Écran B) — jamais d'UPDATE de preuve, jamais F1.
+      // RÉCONCILIATION ACCORD-ONLY, LIMITÉE au `scope`. RÈGLE PRODUIT (fondateur, non négociable) : un consentement est
+      // DÉFINITIVEMENT ACQUIS via l'application ; LE TUNNEL NE PEUT QU'ACCORDER, JAMAIS RETIRER. Un retrait n'existe que
+      // hors tunnel, par deux voies dédiées (page admin internautes ; lien de désabonnement dans l'e-mail) — celles-là
+      // appellent `insererConsentement(... 'retire')` (conservé dans socle.ts), PAS ce chemin.
+      // ⚠️ NE PAS RÉ-AJOUTER de branche de retrait ici : l'ABSENCE d'une finalité dans le corps NE DOIT JAMAIS produire un
+      // 'retire'. Ce n'est pas un oubli — c'est la garantie, INTERNE à la fonction (indépendante du scope et de l'appelant),
+      // qu'aucun internaute ne perd un consentement acquis parce qu'il revient et ne re-coche pas la même case.
       const actifs = await q<{ finalite: string; actif: boolean }>(
         `SELECT finalite, actif FROM internaute_consentement_actif WHERE internaute_id = $1`,
         [id],
@@ -170,12 +177,11 @@ export async function completerParcours(
       for (const finalite of scope) {
         const veut = souhaite.has(finalite);
         const actif = estActif.get(finalite) === true;
+        // SEUL cas traité : coché & pas encore actif → nouvelle preuve 'accorde'. Tout le reste (déjà actif, ou absent)
+        // → RIEN : jamais de doublon, et surtout jamais de retrait par absence.
         if (veut && !actif) {
           const texteId = await assurerTexteConsentement(q, finalite, souhaite.get(finalite) ?? texteCourant(finalite)?.version ?? 1);
-          await insererConsentement(q, id, finalite, texteId, 'accorde'); // nouvelle décision
-        } else if (!veut && actif) {
-          const texteId = await assurerTexteConsentement(q, finalite, texteCourant(finalite)?.version ?? 1);
-          await insererConsentement(q, id, finalite, texteId, 'retire'); // retrait (décoché en B)
+          await insererConsentement(q, id, finalite, texteId, 'accorde');
         }
       }
       // STATUT CERTIFICAT PAR ANALYSE (migration 029) : marque l'analyse VALIDÉE à l'Écran B. GARDE IDOR STRICTE :

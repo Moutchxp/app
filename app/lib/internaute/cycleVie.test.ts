@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // `cycleVie` est `server-only` + accède au pool `pg`. On neutralise `server-only` et on MOCKE `withTransaction`/`query`
-// pour PROUVER la RÉCONCILIATION APPEND-ONLY des consentements de `completerParcours` (invariant RGPD : coché+inactif →
-// nouvelle ligne 'accorde' ; décoché+actif → nouvelle ligne 'retire' ; inchangé → RIEN ; jamais d'UPDATE d'une preuve).
+// pour PROUVER la RÉCONCILIATION ACCORD-ONLY des consentements de `completerParcours` (RÈGLE PRODUIT : le tunnel n'ACCORDE
+// jamais ne retire → coché+inactif → 'accorde' ; déjà actif → RIEN ; ABSENT + actif → RIEN, JAMAIS de 'retire' par absence).
 const { withTransaction, query } = vi.hoisted(() => ({ withTransaction: vi.fn(), query: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('../db/client', () => ({ withTransaction, query }));
@@ -56,13 +56,15 @@ describe('completerParcours — réconciliation APPEND-ONLY des consentements + 
     expect(tx.inserts).toEqual([{ finalite: F2, etat: 'accorde' }]);
   });
 
-  it('F2 DÉCOCHÉ en B + F2 ACTIF → append une nouvelle ligne F2 « retire » (l’internaute peut décocher)', async () => {
+  // (a) RÈGLE PRODUIT : le tunnel ne retire JAMAIS par absence. F2 déjà ACTIVE + ABSENTE du corps → elle RESTE active,
+  // AUCUNE ligne insérée (surtout pas un 'retire'). Garantit qu'un internaute qui revient sans re-cocher ne perd rien.
+  it('F2 ACTIVE + ABSENTE du corps → RESTE active, AUCUN insert (jamais de retrait par absence)', async () => {
     const tx = installerTx([{ finalite: F1, actif: true }, { finalite: F2, actif: true }]);
     const r = await completerParcours('uuid-1', { email: 'x@y.z', telephone: null }, [
-      { finalite: F1, version: 1 }, // F2 ABSENT des souhaits → décoché en B
+      { finalite: F1, version: 1 }, // F2 ABSENT des souhaits (non re-cochée)
     ], ['email_marketing'], null, null);
     expect(r).toEqual({ complete: true });
-    expect(tx.inserts).toEqual([{ finalite: F2, etat: 'retire' }]);
+    expect(tx.inserts).toEqual([]); // ni 'retire', ni quoi que ce soit : le consentement acquis est préservé
   });
 
   it('F2 inchangé (coché & déjà actif) → AUCUN insert (pas de doublon de preuve)', async () => {
