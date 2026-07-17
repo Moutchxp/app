@@ -24,6 +24,12 @@ const SCOPE_RECTIFICATION = 'rectify-contact';
  * JAMAIS ouvrir l'émission, ni l'inverse — chaque vérifieur exige SON scope.
  */
 const SCOPE_EMISSION = 'emit-certificate';
+/**
+ * Portée fermée du jeton de RETRAIT de consentement (voie e-mail : désabonnement). STRICTEMENT distincte des deux
+ * autres capacités — même secret, scopes séparés : un jeton de retrait n'ouvre NI la rectification NI l'émission,
+ * et l'inverse (chaque vérifieur exige SON scope).
+ */
+const SCOPE_RETRAIT = 'withdraw-consent';
 /** Durée de vie du jeton (courte : le geste — correction ou émission — suit immédiatement la soumission). */
 const EXPIRATION = '30m';
 
@@ -86,5 +92,36 @@ export async function verifierJetonEmission(jeton: string): Promise<number | nul
     return Number(payload.sub);
   } catch {
     return null; // signature invalide, jeton expiré, malformé…
+  }
+}
+
+/**
+ * Frappe un jeton-capacité de RETRAIT de consentement scellant l'UUID de l'internaute (`sub`, scope `withdraw-consent`).
+ *
+ * SANS EXPIRATION — exception ASSUMÉE au `EXPIRATION` 30 min des jetons rectification/émission. POURQUOI (pas seulement
+ * QUE) : le droit de retrait est PERPÉTUEL (RGPD) et ce jeton voyage dans le pied d'un e-mail archivé indéfiniment ; un
+ * lien qui expire = cul-de-sac (l'internaute ne pourrait plus se désabonner). Le compromis tient parce que ce jeton
+ * n'ouvre qu'un dommage RÉVERSIBLE (un désabonnement se refait en re-consentant par le tunnel) ET que la page publique
+ * de retrait ne DIVULGUE AUCUNE donnée personnelle — c'est la contrepartie non négociable de l'absence d'`exp`.
+ */
+export async function signerJetonRetrait(internauteId: string): Promise<string> {
+  return new SignJWT({ scope: SCOPE_RETRAIT })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(internauteId)
+    .setIssuedAt()
+    .sign(cleSignature()); // aucun setExpirationTime : jeton perpétuel (cf. supra)
+}
+
+/**
+ * Vérifie signature + scope `withdraw-consent` (aucune expiration à contrôler — ce jeton n'en porte pas) et renvoie
+ * l'UUID scellé (`sub`), ou `null`. ⚠️ REJETTE tout jeton d'un autre scope (rectification / émission → `null`).
+ */
+export async function verifierJetonRetrait(jeton: string): Promise<string | null> {
+  try {
+    const { payload } = await jwtVerify(jeton, cleSignature(), { algorithms: ['HS256'] });
+    if (payload.scope !== SCOPE_RETRAIT) return null; // un jeton de rectification/émission est REJETÉ ici (scope différent)
+    return typeof payload.sub === 'string' && payload.sub !== '' ? payload.sub : null;
+  } catch {
+    return null; // signature invalide, malformé…
   }
 }

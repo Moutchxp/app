@@ -254,8 +254,9 @@ export interface ContexteRetrait {
  * RETRAIT d'un consentement (bloc B), HORS TUNNEL uniquement (page admin ; demain le lien e-mail). RÈGLE PRODUIT
  * (fondateur, non négociable) : l'admin PEUT retirer, ne PEUT JAMAIS ré-accorder — accorder est un acte de l'internaute
  * via le tunnel. GARANTIE DANS LE CODE, pas seulement en commentaire :
- *  - la fonction n'a AUCUN paramètre `etat` : elle passe le LITTÉRAL 'retire' (+ canal 'admin') à `insererConsentement`.
- *    Aucun chemin n'insère 'accorde' d'ici.
+ *  - la fonction n'a AUCUN paramètre `etat` : elle passe le LITTÉRAL 'retire' à `insererConsentement`. Le `canal` est un
+ *    paramètre TRAILING (défaut 'admin' ; 'email' pour la voie désabonnement) — il ne renseigne QUE la PROVENANCE de la
+ *    décision, jamais son état. Aucun chemin n'insère 'accorde' d'ici : la garde tient parce que 'retire' reste littéral.
  *  - elle n'écrit QU'UNE ligne dans `internaute_consentement`. Elle ne touche NI `efface_a`, NI `internaute_projet`, NI
  *    les PII — et surtout PAS `opposition_recontact` (cf. garde ci-dessous).
  *
@@ -271,6 +272,7 @@ export async function retirerConsentement(
   finalite: CleFinalite,
   auteurId: number | null,
   contexte: ContexteRetrait,
+  canal: string = 'admin', // PROVENANCE de la décision (défaut 'admin' → appelant admin inchangé ; 'email' = voie désabonnement)
 ): Promise<{ retire: boolean; raison?: 'introuvable' | 'deja_inactif' }> {
   return withTransaction(async (q) => {
     // Profil doit exister ET non effacé (comme `completerParcours`) : rien à retirer sur un dossier effacé.
@@ -284,9 +286,10 @@ export async function retirerConsentement(
     );
     if (etatActuel.rows[0]?.actif !== true) return { retire: false, raison: 'deja_inactif' };
 
-    // SEULE écriture consentement : une ligne 'retire', canal 'admin'. `etat`/`canal` sont des LITTÉRAUX → aucun accord possible.
+    // SEULE écriture consentement : une ligne 'retire' (LITTÉRAL, jamais un paramètre). `canal` n'est QUE la provenance
+    // (paramètre, défaut 'admin') → il ne peut pas transformer un retrait en accord ; l'`etat` reste figé à 'retire'.
     const texteId = await assurerTexteConsentement(q, finalite, texteCourant(finalite)?.version ?? 1);
-    await insererConsentement(q, internauteId, finalite, texteId, 'retire', 'admin');
+    await insererConsentement(q, internauteId, finalite, texteId, 'retire', canal);
 
     // ⚠️ `opposition_recontact` VOLONTAIREMENT NON TOUCHÉE. C'est un filtre AND de l'extraction F1 (extraction.ts) : la
     //    poser à true bloquerait le RETOUR par le tunnel (l'internaute re-consent mais reste filtré hors extraction) →

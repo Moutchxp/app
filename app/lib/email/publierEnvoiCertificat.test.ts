@@ -7,9 +7,11 @@ const { lireConfigEmail, obtenirTransporteur, envoyerCertificat } = vi.hoisted((
   obtenirTransporteur: vi.fn(),
   envoyerCertificat: vi.fn(),
 }));
+const { signerJetonRetrait } = vi.hoisted(() => ({ signerJetonRetrait: vi.fn() }));
 
 vi.mock('../db/client', () => ({ query }));
 vi.mock('../stockage', () => ({ recuperer, stockageConfigure }));
+vi.mock('../internaute/jetonRectification', () => ({ signerJetonRetrait }));
 vi.mock('./index', () => ({ lireConfigEmail, obtenirTransporteur, envoyerCertificat }));
 
 import { publierEnvoiCertificat } from './publierEnvoiCertificat';
@@ -19,7 +21,7 @@ const CONFIG = { host: 'smtp', port: 465, user: 'compte@sansvisavis.com', pass: 
 const TRANSP = { sendMail: vi.fn() };
 
 function ligne(over: Record<string, unknown> = {}) {
-  return { numero: 'SAVV-2026-000123', reference: 'SVAV-K7M2-9QX4', prenom: 'Jean', email: 'client@example.com', pdf_cle: 'internautes/a/certificats/x.pdf', ...over };
+  return { numero: 'SAVV-2026-000123', reference: 'SVAV-K7M2-9QX4', prenom: 'Jean', email: 'client@example.com', pdf_cle: 'internautes/a/certificats/x.pdf', internaute_id: 'uuid-internaute-1', ...over };
 }
 
 const ORIG = { ...process.env };
@@ -30,11 +32,13 @@ beforeEach(() => {
   lireConfigEmail.mockReset();
   obtenirTransporteur.mockReset();
   envoyerCertificat.mockReset();
+  signerJetonRetrait.mockReset();
   process.env.SITE_URL = 'https://www.sansvisavis.com';
   stockageConfigure.mockReturnValue(true);
   lireConfigEmail.mockReturnValue(CONFIG);
   obtenirTransporteur.mockReturnValue(TRANSP);
   envoyerCertificat.mockResolvedValue(undefined);
+  signerJetonRetrait.mockResolvedValue('JETON_DESABO_TEST');
   recuperer.mockResolvedValue(PDF);
   query.mockImplementation(async (sql: string) => (/FROM certificat c/.test(sql) ? { rows: [ligne()] } : { rows: [] }));
 });
@@ -79,9 +83,10 @@ describe('publierEnvoiCertificat — gardes (pas d’envoi à moitié configuré
 });
 
 describe('publierEnvoiCertificat — nominal & échec', () => {
-  it('nominal → relit le PDF, envoie (from alias), statut → envoye', async () => {
+  it('nominal → relit le PDF, envoie (from alias), pied de désabonnement (jeton scellé sur l’internaute), statut → envoye', async () => {
     await publierEnvoiCertificat(7);
     expect(recuperer).toHaveBeenCalledWith('internautes/a/certificats/x.pdf');
+    expect(signerJetonRetrait).toHaveBeenCalledWith('uuid-internaute-1'); // jeton scellé sur l'UUID de l'internaute
     expect(envoyerCertificat).toHaveBeenCalledWith(TRANSP, 'noreply@sansvisavis.com', {
       to: 'client@example.com',
       prenom: 'Jean',
@@ -89,9 +94,23 @@ describe('publierEnvoiCertificat — nominal & échec', () => {
       reference: 'SVAV-K7M2-9QX4',
       siteUrl: 'https://www.sansvisavis.com',
       pdf: PDF,
+      jetonDesabonnement: 'JETON_DESABO_TEST',
     });
     const upd = query.mock.calls.find((c) => /statut = 'envoye'/.test(c[0] as string));
     expect(upd?.[1]).toEqual([7]);
+  });
+
+  it('jeton de désabonnement non frappé (secret absent) → envoi SANS pied (jetonDesabonnement null), jamais d’exception', async () => {
+    signerJetonRetrait.mockRejectedValue(Object.assign(new Error('INTERNAUTE_TOKEN_SECRET manquant'), { name: 'Error' }));
+    await expect(publierEnvoiCertificat(7)).resolves.toBeUndefined();
+    // Best-effort : le certificat part quand même, sans la ligne de désabonnement (le pied est OMIS côté envoyerCertificat).
+    expect(envoyerCertificat).toHaveBeenCalledWith(
+      TRANSP,
+      'noreply@sansvisavis.com',
+      expect.objectContaining({ to: 'client@example.com', jetonDesabonnement: null }),
+    );
+    const upd = query.mock.calls.find((c) => /statut = 'envoye'/.test(c[0] as string));
+    expect(upd?.[1]).toEqual([7]); // envoi réussi malgré l'absence de pied
   });
 
   it('échec d’envoi → statut RESTE genere, derniere_erreur = NOM (jamais adresse/jeton), aucune exception', async () => {

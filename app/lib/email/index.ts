@@ -54,16 +54,20 @@ export interface MailCertificat {
   reference: string;
   siteUrl: string; // base absolue (sans slash final) → lien de vérification
   pdf: Buffer;
+  jetonDesabonnement?: string | null; // jeton de RETRAIT (voie e-mail) → pied de désabonnement ; absent/null → pas de ligne
 }
 
 /**
  * Envoie le certificat en PIÈCE JOINTE (texte brut, aucune tournure commerciale). Le transporteur est INJECTÉ.
- * ⚠️ LE JETON N'APPARAÎT PAS dans le corps : il est déjà dans le PDF (QR + en clair). Un mail se transfère ; le
- * document, lui, est ce qu'on prouve détenir. `from` = MAIL_FROM (alias), distinct du compte authentifié.
+ * ⚠️ LE JETON DE VÉRIFICATION DU CERTIFICAT n'apparaît PAS dans le corps : il est déjà dans le PDF (QR + en clair). Un
+ * mail se transfère ; le document, lui, est ce qu'on prouve détenir → l'y écrire divulguerait le contenu SANS le document.
+ * NB : le jeton de DÉSABONNEMENT du pied ci-dessous est un objet DISTINCT — ancré sur la BOÎTE MAIL (le mail EST la preuve
+ * d'ayant-droit pour se désabonner), pas sur le document → sa présence dans le corps ne viole PAS la règle du dessus.
+ * `from` = MAIL_FROM (alias), distinct du compte authentifié.
  */
 export async function envoyerCertificat(transporteur: Transporter, from: string, m: MailCertificat): Promise<void> {
   const salut = m.prenom && m.prenom.trim() ? `Bonjour ${m.prenom.trim()},` : 'Bonjour,';
-  const corps = [
+  const lignes = [
     salut,
     '',
     'Votre certificat Sans Vis-à-Vis® est joint à ce message.',
@@ -71,8 +75,13 @@ export async function envoyerCertificat(transporteur: Transporter, from: string,
     `Référence à indiquer dans votre annonce : ${m.reference}`,
     `Vérification : ${m.siteUrl}/verifier`,
     '',
-    'Sans Vis-à-Vis® est une marque de la SARL CRITERIMMO.',
-  ].join('\n');
+  ];
+  // Pied de DÉSABONNEMENT (voie de retrait e-mail) — SEULEMENT si le jeton a pu être frappé (best-effort côté publisher).
+  if (m.jetonDesabonnement) {
+    lignes.push(`Ne plus recevoir de mails de Sans Vis-à-Vis® : ${m.siteUrl}/desabonner?j=${m.jetonDesabonnement}`, '');
+  }
+  lignes.push('Sans Vis-à-Vis® est une marque de la SARL CRITERIMMO.');
+  const corps = lignes.join('\n');
 
   await transporteur.sendMail({
     from,

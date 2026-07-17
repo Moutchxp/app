@@ -14,6 +14,7 @@
  */
 import { query } from '../db/client';
 import { recuperer, stockageConfigure } from '../stockage';
+import { signerJetonRetrait } from '../internaute/jetonRectification';
 import { lireConfigEmail, obtenirTransporteur, envoyerCertificat } from './index';
 
 /** Base absolue du site (serveur only), pour le lien de vérification du corps. `null` si absente/mal formée. */
@@ -28,10 +29,11 @@ interface LigneEnvoi {
   prenom: string | null;
   email: string | null; // LEFT JOIN internaute : NULL possible sur un dossier effacé (RGPD)
   pdf_cle: string | null; // sur certificat_acheminement : NULL si PDF non généré
+  internaute_id: string; // internaute_projet.internaute_id (NOT NULL) → scelle le jeton de désabonnement
 }
 
 const REQUETE = `
-  SELECT c.numero, c.reference, i.prenom, i.email, a.pdf_cle
+  SELECT c.numero, c.reference, i.prenom, i.email, a.pdf_cle, ip.internaute_id
     FROM certificat c
     JOIN internaute_projet ip ON ip.id = c.projet_id
     LEFT JOIN internaute i ON i.id = ip.internaute_id
@@ -71,6 +73,16 @@ export async function publierEnvoiCertificat(certificatId: number): Promise<void
     }
 
     const pdf = await recuperer(row.pdf_cle); // relecture (pas de régénération)
+
+    // Jeton de DÉSABONNEMENT (voie de retrait e-mail). BEST-EFFORT : si la signature échoue (secret absent), on envoie
+    // le certificat SANS le pied — ne JAMAIS priver l'internaute de son certificat pour un pied manquant.
+    let jetonDesabonnement: string | null = null;
+    try {
+      jetonDesabonnement = await signerJetonRetrait(row.internaute_id);
+    } catch (e) {
+      console.error('[certificat-envoi] jeton de désabonnement non frappé (envoi sans pied)', (e as Error)?.name ?? 'Erreur');
+    }
+
     await envoyerCertificat(obtenirTransporteur(config), config.from, {
       to: row.email,
       prenom: row.prenom,
@@ -78,6 +90,7 @@ export async function publierEnvoiCertificat(certificatId: number): Promise<void
       reference: row.reference,
       siteUrl: base,
       pdf,
+      jetonDesabonnement,
     });
     await query(
       `UPDATE certificat_acheminement SET statut = 'envoye', envoye_le = now(), maj_a = now() WHERE certificat_id = $1`,
