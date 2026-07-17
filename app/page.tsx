@@ -2299,7 +2299,7 @@ export default function Home() {
     const azimut = azimutAjuste;
     if (azimut === null) {
       setAnalyseErreur(
-        "Orientation manquante. Reprenez la photo pour capturer le cap (boussole).",
+        "Orientation manquante : aucun cap n'a été capté par la boussole. Sur un téléphone, reprenez la photo en le tenant stable pour capter le cap. Sur un appareil sans boussole (ordinateur), l'analyse n'est pas possible — utilisez un smartphone.",
       );
       return;
     }
@@ -2865,14 +2865,20 @@ export default function Home() {
       {orientationRefusee && (
         <div className="fixed inset-0 z-[3100] flex items-center justify-center bg-black/60 p-6">
           <div className="w-full max-w-sm rounded-2xl bg-white p-5 text-center shadow-xl">
-            <h2 className="text-lg font-extrabold text-svv-ink">Accès au mouvement nécessaire</h2>
+            <h2 className="text-lg font-extrabold text-svv-ink">La boussole est nécessaire à l&apos;analyse</h2>
             <p className="mt-3 text-sm leading-relaxed text-svv-gray">
-              Le niveau (inclinaison du téléphone) sert à mesurer l&apos;orientation de votre vue. Sans cette
-              autorisation, l&apos;analyse ne peut pas se faire correctement.
+              L&apos;analyse mesure l&apos;orientation de votre vue avec la boussole du téléphone.
+              <span className="font-semibold text-svv-ink"> Sans cet accès, l&apos;analyse est impossible</span> — il n&apos;y a pas de version dégradée.
             </p>
-            <button type="button" onClick={reessayerOrientation} className="svv-btn svv-btn-primary mt-5">
-              Réessayer
-            </button>
+            <p className="mt-3 rounded-lg bg-svv-field p-3 text-left text-xs leading-relaxed text-svv-gray">
+              Touchez <span className="font-semibold text-svv-ink">Réessayer</span> : à la première demande, iOS réaffiche la boîte.
+              <span className="font-semibold text-svv-ink"> Si « Réessayer » ne fait plus rien, Safari a mémorisé votre choix.</span> Activez alors :
+              <span className="font-semibold text-svv-ink"> Réglages → Safari → Mouvement et orientation</span>, puis <span className="font-semibold text-svv-ink">rechargez cette page</span>.
+            </p>
+            <div className="mt-5 flex flex-col gap-2">
+              <button type="button" onClick={reessayerOrientation} className="svv-btn svv-btn-primary">Réessayer</button>
+              <button type="button" onClick={() => { setOrientationRefusee(false); setIsCameraActive(false); }} className="svv-btn svv-btn-outline">Fermer</button>
+            </div>
           </div>
         </div>
       )}
