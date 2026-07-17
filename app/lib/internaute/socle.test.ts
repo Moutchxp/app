@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const { withTransaction } = vi.hoisted(() => ({ withTransaction: vi.fn() }));
 vi.mock('../db/client', () => ({ withTransaction }));
 
-import { ingererProfil } from './socle';
+import { ingererProfil, insererConsentement } from './socle';
 import type { CorpsIngestion } from './ingestion';
 
 /** Mock du `q` transactionnel : routé par SQL. `reutilise` pilote `creeInternaute` (INSERT internaute → rows vides =
@@ -61,5 +61,25 @@ describe('ingererProfil — parcours MONOTONE (migration 028 : incomplet | compl
     const t = installerTx(false); // e-mail neuf → créé (creeInternaute=true)
     await ingererProfil(CORPS, 'complet', true);
     expect(t.getUpdate().sql).toBeNull();
+  });
+});
+
+describe('insererConsentement — `canal` en paramètre (défaut tunnel, appelants recueil inchangés)', () => {
+  const insertParams = async (...args: [string, string, number] | [string, string, number, 'accorde' | 'retire', string]) => {
+    let captured: unknown[] | undefined;
+    const q = vi.fn(async (_sql: string, params?: unknown[]) => { captured = params; return { rows: [] }; });
+    // @ts-expect-error — on relaie exactement les args du test (surcharge tuple)
+    await insererConsentement(q, ...args);
+    return captured;
+  };
+
+  it("(d) sans canal → INSERT avec canal='tunnel' (comportement des appelants de recueil INCHANGÉ)", async () => {
+    const p = await insertParams('uuid-1', 'email_marketing', 42);
+    expect(p).toEqual(['uuid-1', 'email_marketing', 'accorde', 42, 'tunnel']); // 5e param = canal = 'tunnel'
+  });
+
+  it("canal explicite (ex. 'admin' pour le retrait) → INSERT avec ce canal", async () => {
+    const p = await insertParams('uuid-1', 'email_marketing', 42, 'retire', 'admin');
+    expect(p).toEqual(['uuid-1', 'email_marketing', 'retire', 42, 'admin']);
   });
 });

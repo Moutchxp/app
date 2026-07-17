@@ -74,20 +74,22 @@ async function getOrCreateInternaute(
   return { id: existant.rows[0].id, cree: false };
 }
 
-/** INSERT append-only d'une décision de consentement (bloc B). `etat` : 'accorde' (défaut) ou 'retire' (retrait à
- *  l'Écran B). JAMAIS d'UPDATE : une décision = une nouvelle ligne ; la vue `internaute_consentement_actif` prend la
- *  plus récente. `canal='tunnel'` (recueil public). */
+/** INSERT append-only d'une décision de consentement (bloc B). `etat` : 'accorde' (défaut) ou 'retire'. JAMAIS d'UPDATE :
+ *  une décision = une nouvelle ligne ; la vue `internaute_consentement_actif` prend la plus récente. `canal` = provenance
+ *  de la DÉCISION (propriété du consentement, pas du fichier appelant) : défaut `'tunnel'` (recueil public) → tous les
+ *  appelants existants (recueil) restent inchangés ; le retrait admin passe `'admin'`. `canal` n'a AUCUN CHECK (023). */
 export async function insererConsentement(
   q: RequeteTx,
   internauteId: string,
   finalite: CleFinalite,
   texteId: number,
   etat: 'accorde' | 'retire' = 'accorde',
+  canal = 'tunnel',
 ): Promise<void> {
   await q(
     `INSERT INTO internaute_consentement (internaute_id, finalite, etat, texte_id, canal)
-     VALUES ($1, $2, $3, $4, 'tunnel')`,
-    [internauteId, finalite, etat, texteId],
+     VALUES ($1, $2, $3, $4, $5)`,
+    [internauteId, finalite, etat, texteId, canal],
   );
 }
 

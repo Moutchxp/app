@@ -32,7 +32,7 @@ function estCode(e: unknown, code: string): boolean {
 async function journaliserCycleVie(
   q: RequeteTx,
   auteurId: number | null,
-  action: 'effacement' | 'rectification' | 'purge_auto',
+  action: 'effacement' | 'rectification' | 'purge_auto' | 'retrait_consentement',
   cibleId: string,
   details: Record<string, unknown> | null,
 ): Promise<void> {
@@ -241,4 +241,64 @@ export async function lireRetention(): Promise<{ cle: string; jours: number; des
     `SELECT cle, jours, description FROM internaute_retention ORDER BY cle`,
   );
   return r.rows;
+}
+
+/** Contexte RGPD d'un retrait de consentement. Enum fermé (jamais de PII). `motif` = métadonnée admin OPTIONNELLE et
+ *  courte (jamais l'identité de l'internaute — convention `rectifierInternaute` : on trace le contexte, pas les PII). */
+export interface ContexteRetrait {
+  aLaDemandeDe: 'internaute' | 'admin';
+  motif?: string;
+}
+
+/**
+ * RETRAIT d'un consentement (bloc B), HORS TUNNEL uniquement (page admin ; demain le lien e-mail). RÈGLE PRODUIT
+ * (fondateur, non négociable) : l'admin PEUT retirer, ne PEUT JAMAIS ré-accorder — accorder est un acte de l'internaute
+ * via le tunnel. GARANTIE DANS LE CODE, pas seulement en commentaire :
+ *  - la fonction n'a AUCUN paramètre `etat` : elle passe le LITTÉRAL 'retire' (+ canal 'admin') à `insererConsentement`.
+ *    Aucun chemin n'insère 'accorde' d'ici.
+ *  - elle n'écrit QU'UNE ligne dans `internaute_consentement`. Elle ne touche NI `efface_a`, NI `internaute_projet`, NI
+ *    les PII — et surtout PAS `opposition_recontact` (cf. garde ci-dessous).
+ *
+ * IDEMPOTENT : retirer une finalité DÉJÀ inactive n'insère RIEN → `{ retire:false, raison:'deja_inactif' }`. Choix
+ * assumé : l'état voulu (finalité inactive) est déjà atteint ; un doublon 'retire' polluerait la chaîne append-only de
+ * preuves sans rien changer. La route en fait un succès (200), pas une erreur. Profil inexistant/effacé → 'introuvable'.
+ *
+ * RETOUR GARANTI : après retrait, l'internaute revient par le tunnel (CAS 2 append-only) → nouvelle ligne 'accorde',
+ * plus récente → la vue le repasse actif. Rien ici ne l'empêche (aucun flag posé, aucune PII touchée).
+ */
+export async function retirerConsentement(
+  internauteId: string,
+  finalite: CleFinalite,
+  auteurId: number | null,
+  contexte: ContexteRetrait,
+): Promise<{ retire: boolean; raison?: 'introuvable' | 'deja_inactif' }> {
+  return withTransaction(async (q) => {
+    // Profil doit exister ET non effacé (comme `completerParcours`) : rien à retirer sur un dossier effacé.
+    const prof = await q<{ id: string }>(`SELECT id FROM internaute WHERE id = $1 AND efface_a IS NULL`, [internauteId]);
+    if (prof.rows.length === 0) return { retire: false, raison: 'introuvable' };
+
+    // État actuel de CETTE finalité (vue = décision la plus récente).
+    const etatActuel = await q<{ actif: boolean }>(
+      `SELECT actif FROM internaute_consentement_actif WHERE internaute_id = $1 AND finalite = $2`,
+      [internauteId, finalite],
+    );
+    if (etatActuel.rows[0]?.actif !== true) return { retire: false, raison: 'deja_inactif' };
+
+    // SEULE écriture consentement : une ligne 'retire', canal 'admin'. `etat`/`canal` sont des LITTÉRAUX → aucun accord possible.
+    const texteId = await assurerTexteConsentement(q, finalite, texteCourant(finalite)?.version ?? 1);
+    await insererConsentement(q, internauteId, finalite, texteId, 'retire', 'admin');
+
+    // ⚠️ `opposition_recontact` VOLONTAIREMENT NON TOUCHÉE. C'est un filtre AND de l'extraction F1 (extraction.ts) : la
+    //    poser à true bloquerait le RETOUR par le tunnel (l'internaute re-consent mais reste filtré hors extraction) →
+    //    violation directe de la règle « rien ne doit l'empêcher de revenir ». Ne PAS l'écrire ici : ce n'est PAS un oubli.
+    //    Aucune autre écriture non plus (ni efface_a, ni internaute_projet, ni PII).
+
+    // Journal RGPD (accountability) : QUI (`auteurId`), QUAND (`ts`), quelle finalité, à la demande de qui, motif. JAMAIS de PII.
+    await journaliserCycleVie(q, auteurId, 'retrait_consentement', internauteId, {
+      finalite,
+      a_la_demande_de: contexte.aLaDemandeDe,
+      motif: contexte.motif ?? null,
+    });
+    return { retire: true };
+  });
 }

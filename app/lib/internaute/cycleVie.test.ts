@@ -7,7 +7,7 @@ const { withTransaction, query } = vi.hoisted(() => ({ withTransaction: vi.fn(),
 vi.mock('server-only', () => ({}));
 vi.mock('../db/client', () => ({ withTransaction, query }));
 
-import { completerParcours } from './cycleVie';
+import { completerParcours, retirerConsentement } from './cycleVie';
 
 /** Mock du `q` transactionnel : route par SQL, et CAPTURE les INSERT dans `internaute_consentement` (finalité + état). */
 function installerTx(actif: { finalite: string; actif: boolean }[]) {
@@ -113,5 +113,78 @@ describe('completerParcours — réconciliation APPEND-ONLY des consentements + 
     const r = await completerParcours('absent', { email: 'x@y.z', telephone: null }, [{ finalite: F2, version: 1 }], ['email_marketing'], null, null);
     expect(r).toEqual({ complete: false });
     expect(inserts).toEqual([]); // court-circuit avant toute réconciliation
+  });
+});
+
+describe('retirerConsentement — retrait HORS TUNNEL (admin), accord-only interdit, opposition_recontact intacte', () => {
+  beforeEach(() => {
+    withTransaction.mockReset();
+    query.mockReset();
+  });
+
+  /** Mock du `q` : profil présent/absent + finalité active/inactive pilotables ; CAPTURE l'insert consentement
+   *  (finalité/état/canal), l'entrée de journal, et TOUT le SQL vu (pour prouver qu'`opposition_recontact` n'est jamais écrite). */
+  function installerRetrait({ profilPresent = true, actif = true }: { profilPresent?: boolean; actif?: boolean } = {}) {
+    const inserts: { finalite: string; etat: string; canal: string }[] = [];
+    const journal: { action: unknown; details: unknown }[] = [];
+    const sqls: string[] = [];
+    const q = vi.fn(async (sql: string, params?: unknown[]) => {
+      sqls.push(sql);
+      if (/SELECT id FROM internaute WHERE id = \$1 AND efface_a IS NULL/.test(sql)) return { rows: profilPresent ? [{ id: 'uuid-1' }] : [] };
+      if (/FROM internaute_consentement_actif WHERE internaute_id = \$1 AND finalite = \$2/.test(sql)) return { rows: [{ actif }] };
+      if (/internaute_consentement_texte/.test(sql)) return { rows: [{ id: 42 }] };
+      if (/INSERT INTO internaute_consentement /.test(sql)) {
+        inserts.push({ finalite: String(params?.[1]), etat: String(params?.[2]), canal: String(params?.[4]) });
+        return { rows: [] };
+      }
+      if (/INSERT INTO internaute_cycle_vie_log/.test(sql)) {
+        journal.push({ action: params?.[1], details: params?.[3] });
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+    withTransaction.mockImplementation(async (cb: (q: unknown) => Promise<unknown>) => cb(q));
+    return { inserts, journal, sqls };
+  }
+
+  it('(a) finalité ACTIVE → UNE ligne « retire » canal=admin + une entrée de journal « retrait_consentement »', async () => {
+    const tx = installerRetrait({ actif: true });
+    const r = await retirerConsentement('uuid-1', F2, 7, { aLaDemandeDe: 'internaute', motif: 'désabonnement' });
+    expect(r).toEqual({ retire: true });
+    expect(tx.inserts).toEqual([{ finalite: F2, etat: 'retire', canal: 'admin' }]); // JAMAIS 'accorde', JAMAIS 'tunnel'
+    expect(tx.journal).toHaveLength(1);
+    expect(tx.journal[0].action).toBe('retrait_consentement');
+    expect(tx.journal[0].details).toBe(JSON.stringify({ finalite: F2, a_la_demande_de: 'internaute', motif: 'désabonnement' }));
+  });
+
+  it('(b) opposition_recontact n’est JAMAIS écrite (aucun SQL ne la mentionne)', async () => {
+    const tx = installerRetrait({ actif: true });
+    await retirerConsentement('uuid-1', F1, null, { aLaDemandeDe: 'admin' });
+    expect(tx.sqls.some((s) => /opposition_recontact/i.test(s))).toBe(false);
+    // et rien d'autre que le retrait : ni efface_a, ni internaute_projet
+    expect(tx.sqls.some((s) => /efface_a\s*=|DELETE FROM internaute_projet/i.test(s))).toBe(false);
+  });
+
+  it('(c) aucun chemin n’accorde : la SEULE ligne consentement insérée est « retire »', async () => {
+    const tx = installerRetrait({ actif: true });
+    await retirerConsentement('uuid-1', F2, 7, { aLaDemandeDe: 'admin' });
+    expect(tx.inserts.every((i) => i.etat === 'retire')).toBe(true);
+    expect(tx.inserts.some((i) => i.etat === 'accorde')).toBe(false);
+  });
+
+  it('IDEMPOTENT : finalité DÉJÀ inactive → aucune ligne, aucun journal, { retire:false, raison:deja_inactif }', async () => {
+    const tx = installerRetrait({ actif: false });
+    const r = await retirerConsentement('uuid-1', F2, 7, { aLaDemandeDe: 'admin' });
+    expect(r).toEqual({ retire: false, raison: 'deja_inactif' });
+    expect(tx.inserts).toEqual([]);
+    expect(tx.journal).toEqual([]);
+  });
+
+  it('profil inexistant / effacé → { retire:false, raison:introuvable }, aucune écriture', async () => {
+    const tx = installerRetrait({ profilPresent: false });
+    const r = await retirerConsentement('absent', F2, 7, { aLaDemandeDe: 'admin' });
+    expect(r).toEqual({ retire: false, raison: 'introuvable' });
+    expect(tx.inserts).toEqual([]);
+    expect(tx.journal).toEqual([]);
   });
 });
