@@ -4,6 +4,7 @@
  * Pur, sans accès base, AUCUN import `app/lib/analytics/*` ni moteur → cloisonnement M2 trivial. La rectification
  * ne touche QUE l'identité (A) : jamais les preuves de consentement (B, append-only), jamais le moteur.
  */
+import { normaliserCasseNom } from './casseNom';
 
 /** Champs d'identité rectifiables. Seuls les champs FOURNIS sont mis à jour (patch partiel). `telephone: null` efface le numéro. */
 export interface ChampsRectification {
@@ -28,11 +29,11 @@ export function validerRectification(
   const champs: ChampsRectification = {};
 
   if ('prenom' in b) {
-    if (typeof b.prenom === 'string' && b.prenom.trim() !== '') champs.prenom = b.prenom.trim();
+    if (typeof b.prenom === 'string' && b.prenom.trim() !== '') champs.prenom = normaliserCasseNom(b.prenom.trim());
     else erreurs.push('prenom invalide');
   }
   if ('nom' in b) {
-    if (typeof b.nom === 'string' && b.nom.trim() !== '') champs.nom = b.nom.trim();
+    if (typeof b.nom === 'string' && b.nom.trim() !== '') champs.nom = normaliserCasseNom(b.nom.trim());
     else erreurs.push('nom invalide');
   }
   if ('email' in b) {

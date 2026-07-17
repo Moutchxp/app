@@ -36,11 +36,13 @@ describe('validerCorpsIngestion — chemin nominal', () => {
     }
   });
 
-  it('trim l’identité', () => {
-    const r = validerCorpsIngestion(corpsValide({ identite: { prenom: '  Ada  ', nom: ' Lovelace ', email: ' ada@example.com ' } }));
+  it('trim + normalise la casse de l’identité (par segment ; email intact)', () => {
+    const r = validerCorpsIngestion(corpsValide({ identite: { prenom: '  jean-pierre  ', nom: ' JOREL ', email: ' Ada@Example.com ' } }));
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.corps.identite.prenom).toBe('Ada');
+      expect(r.corps.identite.prenom).toBe('Jean-Pierre'); // trim + 1re lettre de CHAQUE segment
+      expect(r.corps.identite.nom).toBe('Jorel'); // segment tout-majuscule → reste minusculisé
+      expect(r.corps.identite.email).toBe('Ada@Example.com'); // email : trim SEUL, la casse ne bouge pas
       expect(r.corps.identite.telephone).toBeNull(); // absent → null (nullable)
     }
   });

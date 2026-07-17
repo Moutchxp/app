@@ -7,6 +7,7 @@
  * A+B+C) est dans `socle.ts` (serveur only). Ici : uniquement la validation d'entrée et les gardes, testables sans base.
  */
 import { FINALITE_SERVICE, texteExiste, type CleFinalite } from './textesConsentement';
+import { normaliserCasseNom } from './casseNom';
 import { hauteurVision } from '../svv/config';
 
 /** Un choix de consentement ACCEPTÉ (le front n'envoie que les cases cochées). */
@@ -118,8 +119,8 @@ export function validerCorpsIngestion(
     }
     if (identiteBrut.telephone != null && typeof identiteBrut.telephone !== 'string') erreurs.push('telephone invalide');
     if (erreurs.length === 0) {
-      identite.prenom = (identiteBrut.prenom as string).trim();
-      identite.nom = (identiteBrut.nom as string).trim();
+      identite.prenom = normaliserCasseNom((identiteBrut.prenom as string).trim());
+      identite.nom = normaliserCasseNom((identiteBrut.nom as string).trim());
       identite.email = (identiteBrut.email as string).trim();
       identite.telephone = chaineNonVide(identiteBrut.telephone) ? (identiteBrut.telephone as string).trim() : null;
     }
