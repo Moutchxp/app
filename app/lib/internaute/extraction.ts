@@ -271,3 +271,54 @@ export function versCsv(lignes: LigneProfil[]): string {
   const corps = lignes.map((l) => COLONNES_EXPORT.map((c) => champCsv(l[c.cle])).join(','));
   return [entete, ...corps].join('\r\n');
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DOSSIER DE PREUVE DES DÉSABONNEMENTS — sérialisation PARALLÈLE. N'emprunte NI `versCsv` NI `COLONNES_EXPORT` (voie
+// COMMERCIALE, intouchée) ; réutilise seulement `champCsv` (échappement RFC 4180). La REQUÊTE vit dans extractionRepo.ts.
+// RÈGLE PRODUIT : une ligne = UNE décision de consentement (accord | retrait | ré-accord). Le dossier montre la LIGNE
+// DE VIE complète des personnes ayant ≥1 retrait — JAMAIS un état figé, jamais lisible comme une liste noire.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Une ligne du dossier de preuve = une décision BRUTE de `internaute_consentement` + identité + texte + journal. */
+export interface LignePreuveDesabo {
+  internaute_id: string;
+  prenom: string | null;
+  nom: string | null;
+  email: string | null;
+  efface_a: string | null; //     non-NULL = profil anonymisé → identité VIDE, colonne `efface` = 'oui'
+  finalite: string;
+  etat: string; //                'accorde' | 'retire' | 'refuse'
+  horodatage: string; //          timestamptz rendu en texte (`::text`) — précis, sans arrondi
+  canal: string | null; //        'tunnel' | 'admin' | 'email' | …
+  texte_version: number | null;
+  texte_contenu: string | null; // contenu VERBATIM de la mention vue (LEFT JOIN → NULL si texte_id absent)
+  a_la_demande_de: string | null; // ── colonnes JOURNAL : VIDES si la ligne n'a pas d'entrée de journal (fait, pas erreur)
+  admin_auteur_id: number | null;
+  motif: string | null;
+}
+
+/** Colonnes du dossier de preuve, DANS L'ORDRE. `valeur` = accès dérivé (`efface` se déduit d'`efface_a`). */
+export const COLONNES_PREUVE_DESABO: ReadonlyArray<{ entete: string; valeur: (l: LignePreuveDesabo) => unknown }> = [
+  { entete: 'internaute_id', valeur: (l) => l.internaute_id },
+  { entete: 'prenom', valeur: (l) => l.prenom },
+  { entete: 'nom', valeur: (l) => l.nom },
+  { entete: 'email', valeur: (l) => l.email },
+  { entete: 'efface', valeur: (l) => (l.efface_a ? 'oui' : 'non') },
+  { entete: 'finalite', valeur: (l) => l.finalite },
+  { entete: 'etat', valeur: (l) => l.etat },
+  { entete: 'horodatage', valeur: (l) => l.horodatage },
+  { entete: 'canal', valeur: (l) => l.canal },
+  { entete: 'texte_version', valeur: (l) => l.texte_version },
+  { entete: 'texte_contenu', valeur: (l) => l.texte_contenu },
+  { entete: 'a_la_demande_de', valeur: (l) => l.a_la_demande_de },
+  { entete: 'admin_auteur_id', valeur: (l) => l.admin_auteur_id },
+  { entete: 'motif', valeur: (l) => l.motif }, // texte LIBRE → passé à champCsv (quoting), JAMAIS tronqué
+];
+
+/** Sérialise le dossier de preuve en CSV (séparateur `,`, CRLF, en-tête). Même échappement que la voie commerciale
+ *  (`champCsv`), colonnes et type DISTINCTS → `versCsv`/`COLONNES_EXPORT` restent intouchés. */
+export function versCsvPreuveDesabo(lignes: LignePreuveDesabo[]): string {
+  const entete = COLONNES_PREUVE_DESABO.map((c) => c.entete).join(',');
+  const corps = lignes.map((l) => COLONNES_PREUVE_DESABO.map((c) => champCsv(c.valeur(l))).join(','));
+  return [entete, ...corps].join('\r\n');
+}

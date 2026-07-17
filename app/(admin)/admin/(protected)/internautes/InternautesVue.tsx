@@ -446,6 +446,9 @@ export function InternautesVue() {
     p.set('statuts', statutsCoches.map((s) => s.statut).join(','));
     return `/api/admin/internautes/export?${p.toString()}`;
   };
+  // URL du dossier de preuve (route API de TÉLÉCHARGEMENT, pas une page Next). Href calculé (const) → pas un littéral :
+  // c'est un `<a download>` légitime, jamais un `<Link>` (qui ferait de la navigation client, faux pour un fichier).
+  const hrefPreuveDesabo = '/api/admin/internautes/preuve-desabonnements';
 
   const rechargerListe = () => setApplique((a) => ({ ...a })); // nouvelle référence → relance l'effet de fetch
 
@@ -843,6 +846,17 @@ export function InternautesVue() {
             title={aucunStatut ? 'Cochez au moins un statut' : `Exporter tous les consentants ${codesCoches} actifs, sans appliquer les filtres`}
           >
             Exporter toute la base
+          </a>
+          {/* DOSSIER DE PREUVE (désabonnements) — INDÉPENDANT des filtres ET des statuts cochés : il sort TOUTE la ligne
+              de vie (accord → retrait → ré-accord) des personnes ayant ≥1 retrait. Jamais une liste noire. TOUJOURS actif
+              (aucune garde `aucunStatut`). Style outline (gris) → visuellement distinct des exports commerciaux rouges.
+              Téléchargement direct (GET + Content-Disposition), même mécanique que les exports ci-dessus. */}
+          <a
+            style={{ ...btnOutline, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
+            href={hrefPreuveDesabo}
+            title="Dossier de preuve RGPD : toutes les décisions de consentement des personnes ayant au moins un retrait (instantané daté, indépendant des filtres)"
+          >
+            Dossier de preuve (désabonnements)
           </a>
         </div>
       </div>

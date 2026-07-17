@@ -13,7 +13,7 @@ import 'server-only';
  * (extraction.ts, pur & testable), partagé par le comptage, la liste et l'export.
  */
 import { query } from '../db/client';
-import { construireFiltres, clauseStatuts, exprConsentiLe, normaliserStatuts, ordreListe, FINALITE_F1, versCsv, type FiltresExtraction, type LigneProfil } from './extraction';
+import { construireFiltres, clauseStatuts, exprConsentiLe, normaliserStatuts, ordreListe, FINALITE_F1, versCsv, versCsvPreuveDesabo, type FiltresExtraction, type LigneProfil, type LignePreuveDesabo } from './extraction';
 import type { CleFinalite } from './textesConsentement';
 
 // L'invariant de consentement (FROM/WHERE, INTERSECTION de statuts) est construit par `clauseStatuts` (extraction.ts,
@@ -140,7 +140,45 @@ export async function lireCommunesPresentes(statuts: readonly CleFinalite[] = [F
   });
 }
 
-export { versCsv };
+export { versCsv, versCsvPreuveDesabo };
+
+/**
+ * DOSSIER DE PREUVE DES DÉSABONNEMENTS (accountability RGPD). Toutes les décisions BRUTES de `internaute_consentement`
+ * (PAS la vue `_actif` : on veut TOUT l'historique) des personnes ayant AU MOINS une ligne 'retire' → la LIGNE DE VIE
+ * complète (accord → retrait → ré-accord), jamais un état figé, jamais lisible comme une liste noire. INDÉPENDANT des
+ * filtres/statuts commerciaux. Lecture SEULE. Tri déterministe : internaute_id, horodatage, id (chronologie par personne).
+ *
+ * - `LEFT JOIN internaute` : identité VIDE pour un effacé (PII NULLifiées) — c'est la PREUVE que l'effacement fonctionne.
+ * - `LEFT JOIN texte` : `texte_id` est NULLABLE (023) → un INNER JOIN masquerait une décision → on garde la ligne, texte vide.
+ * - `LEFT JOIN journal` : une ligne 'retire' SANS entrée de journal sort quand même, colonnes journal vides (un fait, pas une erreur).
+ */
+export async function lirePreuvesDesabonnement(): Promise<LignePreuveDesabo[]> {
+  const r = await query<LignePreuveDesabo>(
+    `SELECT ic.internaute_id,
+            i.prenom, i.nom, i.email, i.efface_a::text AS efface_a,
+            ic.finalite, ic.etat, ic.horodatage::text AS horodatage, ic.canal,
+            t.version AS texte_version, t.contenu AS texte_contenu,
+            j.details->>'a_la_demande_de' AS a_la_demande_de,
+            j.utilisateur_id              AS admin_auteur_id,
+            j.details->>'motif'           AS motif
+       FROM internaute_consentement ic
+       LEFT JOIN internaute i                    ON i.id = ic.internaute_id
+       LEFT JOIN internaute_consentement_texte t ON t.id = ic.texte_id
+       -- ATTENTION — JOINTURE JOURNAL PAR ÉGALITÉ DE TIMESTAMP (j.ts = ic.horodatage) : il n'existe AUCUNE clé partagée
+       --    entre journal et preuve. Cette égalité tient UNIQUEMENT parce que retirerConsentement (cycleVie.ts) écrit la
+       --    ligne 'retire' ET l'entrée de journal DANS LA MÊME TRANSACTION, où DEFAULT now() = l'instant de transaction
+       --    (identique pour les deux colonnes). Ce n'est PAS une contrainte : un refactor scindant ces deux écritures en
+       --    transactions distinctes casserait cette jointure SILENCIEUSEMENT (colonnes journal vides).
+       LEFT JOIN internaute_cycle_vie_log j
+              ON j.action = 'retrait_consentement'
+             AND j.cible_internaute_id = ic.internaute_id
+             AND j.details->>'finalite' = ic.finalite
+             AND j.ts = ic.horodatage
+      WHERE ic.internaute_id IN (SELECT internaute_id FROM internaute_consentement WHERE etat = 'retire')
+      ORDER BY ic.internaute_id, ic.horodatage, ic.id`,
+  );
+  return r.rows;
+}
 
 /** Dossier complet d'UNE personne (droit d'accès). Renvoie null si l'id n'existe pas. */
 export async function lireProfilComplet(id: string): Promise<{
@@ -185,7 +223,7 @@ export async function lireProfilComplet(id: string): Promise<{
 /** Journalise une action d'exploitation (accountability). Append-only. `auteurId` = admin (null = voie de secours). */
 export async function journaliserExtraction(
   auteurId: number | null,
-  action: 'export_csv' | 'acces_profil',
+  action: 'export_csv' | 'acces_profil' | 'export_preuve_desabo',
   details: { filtres?: FiltresExtraction; nbLignes?: number; cibleInternauteId?: string; statuts?: string },
 ): Promise<void> {
   // Les STATUTS d'export (quelle intersection de consentements) sont tracés DANS le blob jsonb `filtres` (aucune
