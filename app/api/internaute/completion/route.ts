@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { validerCorpsIngestion, auMoinsUnConsentement } from '../../../lib/internaute/ingestion';
 import { ingererProfil, ErreurAucunConsentement } from '../../../lib/internaute/socle';
 import { completerParcours, ErreurEmailDuplique } from '../../../lib/internaute/cycleVie';
-import { verifierJetonRectification } from '../../../lib/internaute/jetonRectification';
+import { verifierJetonRectification, signerJetonEmission } from '../../../lib/internaute/jetonRectification';
 import type { CleFinalite } from '../../../lib/internaute/textesConsentement';
 
 // Runtime Node explicite (driver `pg`, jamais l'edge). Comme /api/internaute.
@@ -66,11 +66,20 @@ export async function POST(request: Request): Promise<Response> {
     }
     // CAS 2 — aucun profil créé en A : si au moins un consentement est coché en B, CRÉER (statut 'complet').
     if (auMoinsUnConsentement(corps.consentements)) {
-      // Email neuf → profil CRÉÉ 'complet' + projet né avec `certificat_envoye=true` (l'Écran B a été validé). Email DÉJÀ
-      // existant → réutilisé SANS preuve de propriété (pas de jeton) : on N'ÉCRASE PAS ses coordonnées/statut (IDOR-safe)
-      // → réponse HONNÊTE `cree:false, complete:false`. Le projet appendé reste marqué (création directe = certificat validé).
-      const { creeInternaute } = await ingererProfil(corps, 'complet', true);
-      return NextResponse.json({ ok: true, cree: creeInternaute, complete: creeInternaute });
+      // Consentement DONNÉ seulement en B (jamais en A) : l'invariant « consentement avant persistance » a légitimement
+      // empêché l'Écran A de créer le projet — c'est ICI le chemin compensatoire. On crée le projet ET on frappe son jeton
+      // d'ÉMISSION (`sub = projetCree`), EXACTEMENT comme /api/internaute le fait à l'Écran A → l'internaute qui consent en
+      // B reçoit bien son certificat (trou d'émission FERMÉ ; la persistance du profil l'était déjà). `cree`/`complete`
+      // suivent `creeInternaute` (e-mail neuf = true ; e-mail connu réutilisé sans preuve = false, réponse HONNÊTE).
+      const { projetId: projetCree, creeInternaute } = await ingererProfil(corps, 'complet', true);
+      let jetonEmission: string | null = null;
+      try {
+        jetonEmission = await signerJetonEmission(projetCree);
+      } catch (e) {
+        // Secret manquant → émission indisponible pour ce parcours (le certificat reste re-émettable) ; ne bloque pas.
+        console.error('[internaute] jeton d’émission indisponible', e);
+      }
+      return NextResponse.json({ ok: true, cree: creeInternaute, complete: creeInternaute, projetId: projetCree, jetonEmission });
     }
     // CAS 3 — aucun consentement : non-couplage. Certificat délivré, aucun profil.
     return NextResponse.json({ ok: true, cree: false, complete: false });

@@ -942,20 +942,27 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // NON-COUPLAGE : le certificat est délivré ; cocher F2 n'est pas requis. AUCUN envoi email (LOT 6 absent).
   const recevoirCertificat = async () => {
     const doitAppeler = jetonRectif !== null || !posteEnA;
+    // Jeton d'émission RENVOYÉ PAR L'ÉCRAN B (CAS 2 : consentement donné seulement en B → le projet n'a pas été créé en
+    // A, donc aucun jeton n'a pu être frappé en A). La complétion crée le projet et frappe son jeton : on le récupère ici.
+    let jetonEmissionB: string | null = null;
+    let projetIdB: number | null = null;
     if (doitAppeler) {
       const corps = construireCorps();
       // CAS 1 (jeton) : on joint le projetId de l'Écran A → la complétion marque CETTE analyse « certificat envoyé ».
-      // CAS 2 (pas de jeton) : le serveur crée le projet en B et le marque directement (pas de projetId à transmettre).
+      // CAS 2 (pas de jeton) : le serveur crée le projet en B, le marque, ET renvoie son jeton d'émission (émission ici).
       const body = jetonRectif !== null ? { jeton: jetonRectif, projetId: projetIdA, ...corps } : corps;
       setEnvoiRectif(true);
       // NON-COUPLAGE (comme l'Écran A) : le certificat est délivré QUOI QU'IL ARRIVE. Un échec d'enregistrement des
       // coordonnées/consentements (jeton expiré, 503, réseau) NE BLOQUE PAS le certificat (best-effort, non bloquant).
       try {
-        await fetch("/api/internaute/completion", {
+        const res = await fetch("/api/internaute/completion", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
+        const data = await res.json().catch(() => null);
+        jetonEmissionB = typeof data?.jetonEmission === "string" ? data.jetonEmission : null;
+        projetIdB = typeof data?.projetId === "number" ? data.projetId : null;
       } catch {
         /* réseau indisponible : non bloquant ; le certificat reste dû */
       } finally {
@@ -963,8 +970,13 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       }
     }
     // Émission du certificat — fire-and-forget, parcours désormais complet. Non bloquant : le tunnel se termine quoi
-    // qu'il arrive. Utilise le jeton d'ÉMISSION (présent email neuf OU connu → CAS 2 fermé), borné à CE projet.
+    // qu'il arrive. DEUX sources MUTUELLEMENT EXCLUSIVES d'un jeton d'émission, jamais les deux pour un même internaute :
+    //  - Écran A a frappé le jeton (consentement en A) → garde ci-dessous ; l'Écran B (CAS 1) ne renvoie alors AUCUN jeton.
+    //  - consentement SEULEMENT en B (CAS 2) → `jetonEmission` d'A est null → on émet avec celui renvoyé par B.
+    // Le `!jetonEmission` verrouille le second chemin sur l'absence du premier (zéro double appel) ; /api/certificat est
+    // de toute façon idempotent (1 projet = 1 certificat) en dernier filet.
     if (jetonEmission && projetIdA !== null) void emettreCertificat(jetonEmission, projetIdA);
+    else if (!jetonEmission && jetonEmissionB && projetIdB !== null) void emettreCertificat(jetonEmissionB, projetIdB);
     setConfirme(true); // certificat délivré quoi qu'il arrive
   };
 
