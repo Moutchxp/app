@@ -144,6 +144,16 @@ export async function ingererProfil(
   if (!auMoinsUnConsentement(corps.consentements)) throw new ErreurAucunConsentement();
   return withTransaction(async (q) => {
     const { id: internauteId, cree: creeInternaute } = await getOrCreateInternaute(q, corps.identite, parcours);
+    // PARCOURS MONOTONE : un internaute RÉUTILISÉ (email connu) qui complète réellement son parcours ('complet') voit son
+    // statut MONTER. La garde est dans le SQL — `WHERE parcours = 'incomplet'` : un 'complet' ne redescend JAMAIS (valeurs
+    // autorisées migration 028 : 'incomplet' | 'complet'). À la CRÉATION l'INSERT a déjà posé le bon parcours → rien à
+    // faire. N'affecte QUE `internaute.parcours` — aucun chemin de consentement touché.
+    if (!creeInternaute && parcours === 'complet') {
+      await q(
+        `UPDATE internaute SET parcours = 'complet', maj_a = now() WHERE id = $1 AND parcours = 'incomplet' AND efface_a IS NULL`,
+        [internauteId],
+      );
+    }
     for (const c of corps.consentements) {
       const texteId = await assurerTexteConsentement(q, c.finalite, c.version);
       await insererConsentement(q, internauteId, c.finalite, texteId);
