@@ -296,6 +296,8 @@ export function InternautesVue() {
   const [confirmEffacement, setConfirmEffacement] = useState(false);
   const [actionEnCours, setActionEnCours] = useState(false);
   const [actionErreur, setActionErreur] = useState<string | null>(null);
+  // Résultat du dernier retrait de consentement (bloc B). Distinct d'`actionErreur` pour SURVIVRE au re-fetch (ouvrirDetail).
+  const [retraitMsg, setRetraitMsg] = useState<{ ton: 'ok' | 'info' | 'err'; texte: string } | null>(null);
   // Bornes de dates de la base (MIN/MAX cree_a, efface_a IS NULL — fournies par la route liste) pour « depuis toujours ».
   const [bornes, setBornes] = useState<{ min: string | null; max: string | null }>({ min: null, max: null });
   // Référence géo DYNAMIQUE (communes présentes chez les consentants F1) pour le sélecteur département→commune.
@@ -452,6 +454,7 @@ export function InternautesVue() {
     setEdition(false);
     setConfirmEffacement(false);
     setActionErreur(null);
+    setRetraitMsg(null); // NB : le handler de retrait re-set le message APRÈS son ouvrirDetail (re-fetch) → il survit
     setDetailChargement(true);
     setDetail(null);
     try {
@@ -478,6 +481,7 @@ export function InternautesVue() {
     setEdition(false);
     setConfirmEffacement(false);
     setActionErreur(null);
+    setRetraitMsg(null);
   };
 
   const soumettreRectification = async () => {
@@ -526,6 +530,43 @@ export function InternautesVue() {
     }
   };
 
+  // RETRAIT d'un consentement (bloc B). Retour : `true` si la confirmation doit se refermer (succès), `false` sinon
+  // (erreur → on garde le formulaire ouvert pour réessayer). Codes serveur RÉELS ; jamais le corps brut d'une 5xx.
+  // Après succès : RE-FETCH (`ouvrirDetail`) → l'affichage reflète la base. Le message est posé APRÈS le re-fetch
+  // (qui remet `retraitMsg` à null en début) → il survit et n'est pas une supposition optimiste.
+  const soumettreRetraitConsentement = async (finalite: string, aLaDemandeDe: 'internaute' | 'admin', motif: string): Promise<boolean> => {
+    if (!detailId) return false;
+    setActionEnCours(true);
+    try {
+      const res = await fetch(`/api/admin/internautes/${detailId}/consentement`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ finalite, aLaDemandeDe, motif: motif.trim() || undefined }),
+      });
+      if (!res.ok) {
+        const texte = res.status === 404
+          ? 'Internaute introuvable ou déjà effacé.'
+          : res.status === 422
+            ? 'Demande invalide (finalité ou motif). Retrait non effectué.'
+            : 'Retrait indisponible pour le moment. Réessayez.';
+        setRetraitMsg({ ton: 'err', texte });
+        return false;
+      }
+      const data = await res.json().catch(() => ({} as { deja?: boolean }));
+      await ouvrirDetail(detailId); // re-fetch : la finalité retirée bascule en « inactif » et perd son bouton
+      // `deja` (idempotent) : la finalité était DÉJÀ inactive, rien n'a été écrit → ne PAS prétendre « retiré ».
+      setRetraitMsg(data?.deja
+        ? { ton: 'info', texte: 'Ce consentement était déjà inactif : rien n’a été retiré.' }
+        : { ton: 'ok', texte: 'Consentement retiré.' });
+      return true;
+    } catch {
+      setRetraitMsg({ ton: 'err', texte: 'Retrait impossible (réseau). Réessayez.' });
+      return false;
+    } finally {
+      setActionEnCours(false);
+    }
+  };
+
   const total = etat.statut === 'ok' ? etat.total : 0;
   const nbPages = Math.max(1, Math.ceil(total / TAILLE));
 
@@ -544,6 +585,10 @@ export function InternautesVue() {
           key={detailId ?? undefined} /* remonte à zéro les dépliages « Voir » (Set local) au changement d'internaute */
           detail={detail}
           actionsProjet={(p) => <BoutonTestProjet projet={p} />}
+          /* Gestion des consentements : RETRAIT seul, bloc HAUT uniquement. Le PanneauVerification omet ces props → lecture seule. */
+          soumettreRetrait={soumettreRetraitConsentement}
+          retraitEnCours={actionEnCours}
+          retraitMsg={retraitMsg}
           actions={
             // Actions cycle de vie (LOT 4) — bloc HAUT uniquement (le bloc Vérification OMET cette prop → lecture seule).
             // Un profil déjà effacé n'a plus d'actions (la note d'effacement est portée par FicheDetail).
@@ -1073,7 +1118,16 @@ function BoutonTestProjet({ projet }: { projet: Record<string, unknown> }) {
  * est fournie (bloc haut). Le bloc Vérification l'OMET → aucune action destructive ne peut y fuiter (invariant RGPD).
  * `actionsProjet` (bouton « Test » par analyse, LOT B) est DISTINCTE : fournie aux DEUX endroits, jamais `actions`.
  */
-function FicheDetail({ detail, actions, actionsProjet }: { detail: Detail; actions?: ReactNode; actionsProjet?: (projet: Record<string, unknown>) => ReactNode }) {
+function FicheDetail({ detail, actions, actionsProjet, soumettreRetrait, retraitEnCours, retraitMsg }: {
+  detail: Detail;
+  actions?: ReactNode;
+  actionsProjet?: (projet: Record<string, unknown>) => ReactNode;
+  // Gestion des consentements (bloc HAUT uniquement) : RETRAIT SEUL. Props absentes (bloc Vérification) → lecture seule,
+  // AUCUN bouton (invariant RGPD : rien de destructif ne fuite dans le panneau de contrôle). Jamais de « ré-accorder ».
+  soumettreRetrait?: (finalite: string, aLaDemandeDe: 'internaute' | 'admin', motif: string) => Promise<boolean>;
+  retraitEnCours?: boolean;
+  retraitMsg?: { ton: 'ok' | 'info' | 'err'; texte: string } | null;
+}) {
   // Dépliages « Voir » MULTIPLES (plusieurs analyses ouvertes simultanément) — clé = id d'analyse (repli sur l'index).
   // État LOCAL à la fiche : remonté à zéro quand FicheDetail remonte (changement d'internaute) → pas de fuite entre profils.
   const [analysesOuvertes, setAnalysesOuvertes] = useState<Set<string>>(() => new Set());
@@ -1084,6 +1138,16 @@ function FicheDetail({ detail, actions, actionsProjet }: { detail: Detail; actio
       else next.add(cle);
       return next;
     });
+  // Confirmation de RETRAIT d'un consentement : une finalité à la fois. `demandeDe` SANS défaut (choix explicite exigé
+  // par le RGPD) ; `motifRetrait` facultatif. État de VUE local — remonté à zéro au changement d'internaute (remontage).
+  const [confirmFinalite, setConfirmFinalite] = useState<string | null>(null);
+  const [demandeDe, setDemandeDe] = useState<'' | 'internaute' | 'admin'>('');
+  const [motifRetrait, setMotifRetrait] = useState('');
+  const confirmerRetrait = async (finalite: string) => {
+    if (!soumettreRetrait || demandeDe === '') return;
+    const ferme = await soumettreRetrait(finalite, demandeDe, motifRetrait);
+    if (ferme) setConfirmFinalite(null); // succès : referme (sur erreur, la confirmation reste ouverte pour réessayer)
+  };
   const i = detail.internaute;
   const prenom = i.prenom ? String(i.prenom) : '';
   const nom = i.nom ? String(i.nom) : '';
@@ -1127,17 +1191,78 @@ function FicheDetail({ detail, actions, actionsProjet }: { detail: Detail; actio
         </div>
       </div>
 
-      {/* Consentements RGPD (3 finalités) — état coloré + date. */}
+      {/* Consentements RGPD (3 finalités) — état coloré + date. Bloc HAUT : l'admin peut RETIRER une finalité ACTIVE
+          (jamais ré-accorder — accorder est un acte de l'internaute via le tunnel). Le bouton « Retirer » n'existe QUE si
+          `soumettreRetrait` est fourni (omis côté Vérification → lecture seule) ET si la finalité est active. */}
       <div>
         <div style={sousTitre}>Consentements</div>
-        {detail.consentements.map((c) => (
-          <div key={c.finalite} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-            <span style={{ color: 'var(--color-svv-ink)' }}>{libelleFinaliteAffichage(c.finalite, c.libelle)}</span>
-            <span style={{ color: c.actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)', fontWeight: 700 }}>
-              {c.actif ? 'Actif' : c.etat ? c.etat : 'Aucun'}{c.depuis ? ` · ${dateFr(c.depuis)}` : ''}
-            </span>
+        {detail.consentements.map((c) => {
+          const peutRetirer = Boolean(soumettreRetrait) && c.actif === true; // finalité inactive → AUCUN bouton
+          const enConfirmation = confirmFinalite === c.finalite;
+          const nomFinalite = libelleFinaliteAffichage(c.finalite, c.libelle);
+          return (
+            <div key={c.finalite} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                <span style={{ color: 'var(--color-svv-ink)' }}>{nomFinalite}</span>
+                <span style={{ color: c.actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)', fontWeight: 700, textAlign: 'right' }}>
+                  {c.actif ? 'Actif' : c.etat ? c.etat : 'Aucun'}{c.depuis ? ` · ${dateFr(c.depuis)}` : ''}
+                </span>
+              </div>
+              {/* « Retirer » : rouge en contour (geste destructif), aligné à gauche. AUCUN bouton « ré-accorder /
+                  réactiver / restaurer » nulle part — accorder est un acte de l'internaute (tunnel), pas de l'admin. */}
+              {peutRetirer && !enConfirmation && (
+                <button
+                  type="button"
+                  onClick={() => { setConfirmFinalite(c.finalite); setDemandeDe(''); setMotifRetrait(''); }}
+                  style={{ ...btnOutline, color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)', alignSelf: 'flex-start' }}
+                >
+                  Retirer
+                </button>
+              )}
+              {peutRetirer && enConfirmation && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, border: '1px solid var(--color-svv-red)', borderRadius: 10, padding: 12, background: 'var(--color-svv-field)' }}>
+                  <div style={{ fontSize: '.85rem', color: 'var(--color-svv-ink)', lineHeight: 1.4 }}>
+                    Retirer le consentement <strong>{nomFinalite}</strong> ? Ce retrait est <strong>irréversible depuis l’administration</strong> : seul l’internaute pourra le redonner, via le tunnel.
+                  </div>
+                  {/* aLaDemandeDe : CHOIX EXPLICITE, AUCUN défaut pré-coché (protège en cas de contrôle RGPD). */}
+                  <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <legend style={{ ...sousTitre, marginBottom: 2 }}>Retrait à la demande de</legend>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, fontSize: '.85rem', color: 'var(--color-svv-ink)', cursor: 'pointer' }}>
+                      <input type="radio" name={`demandeDe-${c.finalite}`} checked={demandeDe === 'internaute'} onChange={() => setDemandeDe('internaute')} style={{ accentColor: 'var(--color-svv-red)', width: 18, height: 18, minHeight: 'auto' }} />
+                      À la demande de l’internaute
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, fontSize: '.85rem', color: 'var(--color-svv-ink)', cursor: 'pointer' }}>
+                      <input type="radio" name={`demandeDe-${c.finalite}`} checked={demandeDe === 'admin'} onChange={() => setDemandeDe('admin')} style={{ accentColor: 'var(--color-svv-red)', width: 18, height: 18, minHeight: 'auto' }} />
+                      De ma propre initiative
+                    </label>
+                  </fieldset>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
+                    Motif (facultatif — 500 caractères max)
+                    <textarea value={motifRetrait} onChange={(e) => setMotifRetrait(e.target.value)} maxLength={500} rows={2} style={{ ...champ, padding: '8px 10px', minHeight: 60, resize: 'vertical', fontFamily: 'inherit' }} />
+                  </label>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      disabled={demandeDe === '' || retraitEnCours}
+                      style={{ ...btnRouge, opacity: demandeDe === '' || retraitEnCours ? 0.5 : 1 }}
+                      onClick={() => { void confirmerRetrait(c.finalite); }}
+                    >
+                      Confirmer le retrait
+                    </button>
+                    <button type="button" disabled={retraitEnCours} style={btnOutline} onClick={() => setConfirmFinalite(null)}>Annuler</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {/* Résultat du dernier retrait (reflète la BASE après re-fetch, jamais une supposition client). Vert = retiré,
+            gris = déjà inactif (rien écrit), rouge = échec. Jamais le contenu brut d'une erreur serveur. */}
+        {retraitMsg && (
+          <div role="status" style={{ marginTop: 6, fontSize: '.8rem', fontWeight: 700, color: retraitMsg.ton === 'err' ? 'var(--color-svv-red)' : retraitMsg.ton === 'ok' ? 'var(--color-svv-green)' : 'var(--color-svv-muted)' }}>
+            {retraitMsg.texte}
           </div>
-        ))}
+        )}
       </div>
 
       {/* Analyses — UNE LIGNE COMPACTE par analyse : verdict · note /100 (+ libellé produit) · date à heure · [Test à droite].
