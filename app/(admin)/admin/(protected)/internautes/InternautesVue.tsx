@@ -922,6 +922,19 @@ type LigneRecent = {
 
 const dateFr = (v: unknown) => (v ? new Date(String(v)).toLocaleDateString('fr-FR') : '—');
 
+/** État RÉEL de l'envoi du certificat d'une analyse, dérivé de `certificat_acheminement.statut` (source de vérité,
+ *  reliée par `certificat.projet_id`). « Aucun certificat » n'est PAS une erreur (verdict vis-à-vis → émission refusée)
+ *  → neutre, jamais rouge. On n'affiche JAMAIS `derniere_erreur` (nom d'erreur seul, sans valeur pour l'admin). */
+function statutCertificat(p: Record<string, unknown>): { texte: string; couleur: string } {
+  const statut = p.acheminement_statut == null ? null : String(p.acheminement_statut);
+  const numero = p.certificat_numero ? String(p.certificat_numero) : null;
+  const prefixe = numero ? `${numero} · ` : '';
+  if (statut === 'envoye') return { texte: `${prefixe}Certificat envoyé le ${dateFr(p.acheminement_envoye_le)}`, couleur: 'var(--color-svv-green)' };
+  if (statut === 'genere' || statut === 'en_attente') return { texte: `${prefixe}Certificat en attente d’envoi`, couleur: 'var(--color-svv-muted)' };
+  if (statut === 'echec') return { texte: `${prefixe}Échec d’envoi`, couleur: 'var(--color-svv-red)' };
+  return { texte: 'Aucun certificat', couleur: 'var(--color-svv-muted)' };
+}
+
 /** Date + heure en fuseau Europe/Paris, format « JJ/MM/AAAA à HHhMM ». */
 const dateHeureFr = (v: unknown) => {
   if (!v) return '—';
@@ -1143,6 +1156,7 @@ function FicheDetail({ detail, actions, actionsProjet }: { detail: Detail; actio
             // Libellé produit DÉRIVÉ du /100 : seuils CANONIQUES (config.SCORE_LABEL_*) + mapper partagé (libelleScore) —
             // jamais re-codés ici (cohérence stricte avec l'enum du moteur). < 60 → pas de libellé, note nue.
             const lib = note == null ? null : libelleScore(note >= SCORE_LABEL_EXCEPTIONNELLE_MIN ? 'EXCEPTIONNELLE' : note >= SCORE_LABEL_EXCELLENTE_MIN ? 'EXCELLENTE' : null);
+            const sCert = statutCertificat(p); // état RÉEL d'envoi (certificat_acheminement), pas le flag vestigial certificat_envoye
             const cle = String(p.id ?? idx); // id d'analyse (stable) ; repli sur l'index
             const ouvert = analysesOuvertes.has(cle);
             return (
@@ -1158,11 +1172,10 @@ function FicheDetail({ detail, actions, actionsProjet }: { detail: Detail; actio
                   <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
                   <span style={{ color: 'var(--color-svv-muted)', fontSize: '.78rem' }}>{dateHeureFr(p.cree_a)}</span>
                   <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
-                  {/* Statut CERTIFICAT PAR ANALYSE (migration 029) — vert si l'Écran B a été validé POUR CETTE analyse,
-                      rouge sinon. Distinct du vert/rouge des COORDONNÉES (celui-là par personne, en-tête de fiche). */}
-                  <span style={{ fontSize: '.78rem', fontWeight: 700, color: p.certificat_envoye === true ? 'var(--color-svv-green)' : 'var(--color-svv-red)' }}>
-                    {p.certificat_envoye === true ? '(Certificat envoyé)' : '(Certificat non envoyé)'}
-                  </span>
+                  {/* Statut RÉEL de l'envoi (certificat_acheminement.statut, source de vérité). Le flag
+                      internaute_projet.certificat_envoye est VESTIGIAL (posé avant l'acte, jamais en CAS 2) → n'alimente
+                      plus l'affichage (cf. migration 041). « Aucun certificat » = neutre, pas une erreur. */}
+                  <span style={{ fontSize: '.78rem', fontWeight: 700, color: sCert.couleur }}>{sCert.texte}</span>
                   {/* Actions À DROITE (marginLeft:auto) : « Voir » (déplie CETTE analyse) À GAUCHE de « Tester ». Le bouton
                       Test (`actionsProjet`) rejoue CETTE analyse (`p`) et n'est fourni QUE si `actionsProjet` est passée
                       (les 2 fiches la fournissent, jamais `actions` côté Vérification). « Voir » est toujours présent. */}

@@ -155,11 +155,18 @@ export async function lireProfilComplet(id: string): Promise<{
   );
   if (pers.rows.length === 0) return null;
 
+  // Statut RÉEL de l'envoi du certificat = `certificat_acheminement` (source de vérité), relié par `certificat.projet_id`.
+  // LEFT JOIN OBLIGATOIRE : un projet peut n'avoir AUCUN certificat (verdict VIS_A_VIS → émission refusée) — pas une
+  // anomalie. Un projet a au plus 1 certificat (034) et 1 acheminement (037) → aucun risque de multiplication de lignes.
   const projets = await query(
-    `SELECT id, version_tunnel, payload, verdict, score, etage, dernier_etage, residence_principale,
-            commune_insee, lat, lon, adresse_saisie, adresse_normalisee, cree_a,
-            azimut_deg, hauteur_sous_plafond_m, hauteur_vision_m, certificat_envoye
-     FROM internaute_projet WHERE internaute_id = $1 ORDER BY cree_a DESC`,
+    `SELECT ip.id, ip.version_tunnel, ip.payload, ip.verdict, ip.score, ip.etage, ip.dernier_etage, ip.residence_principale,
+            ip.commune_insee, ip.lat, ip.lon, ip.adresse_saisie, ip.adresse_normalisee, ip.cree_a,
+            ip.azimut_deg, ip.hauteur_sous_plafond_m, ip.hauteur_vision_m,
+            c.numero AS certificat_numero, a.statut AS acheminement_statut, a.envoye_le AS acheminement_envoye_le
+     FROM internaute_projet ip
+     LEFT JOIN certificat c ON c.projet_id = ip.id
+     LEFT JOIN certificat_acheminement a ON a.certificat_id = c.id
+     WHERE ip.internaute_id = $1 ORDER BY ip.cree_a DESC`,
     [id],
   );
 
