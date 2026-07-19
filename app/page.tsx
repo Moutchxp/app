@@ -885,18 +885,11 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     }
   };
 
-  // Soumission Écran A (LOT 2). NON-COUPLAGE : le certificat s'obtient SANS consentement. Sans AUCUN consentement, AUCUNE
-  // donnée nominative n'est envoyée (minimisation) → on affiche juste la confirmation. Avec AU MOINS UN consentement,
-  // on POSTe le profil à /api/internaute (statut 'incomplet' — les coordonnées seront confirmées à l'Écran B). L'ingestion
-  // NE BLOQUE JAMAIS le flux : la confirmation s'affiche quoi qu'il arrive.
+  // Soumission Écran A. NON-COUPLAGE (Commit 3) : le certificat/PDF est dû à TOUS. On POSTe le profil à /api/internaute
+  // MÊME sans consentement — le serveur crée profil+projet (base légale LIVRAISON) et frappe le jeton d'émission (Commit 2),
+  // exactement comme pour un consentant. Le CLASSEMENT commercial reste conditionné au consentement : 0 consentement → 0
+  // ligne de consentement → absent de la vue `internaute_commercial` (Commit 1). L'ingestion NE BLOQUE JAMAIS le flux.
   const soumettre = async () => {
-    // PORTE DE CRÉATION élargie (miroir front de `auMoinsUnConsentement`) : au moins UNE case active cochée. Sinon
-    // → certificat délivré, AUCUN profil créé (minimisation). Seules les finalités ACTIVES au tunnel sont cochables.
-    const auMoinsUnConsenti = finalitesActivesTunnel().some((t) => consentements[t.finalite]);
-    if (!auMoinsUnConsenti) {
-      setSoumis(true);
-      return;
-    }
     const corps = construireCorps();
     setPosteEnA(true); // un POST a lieu à l'Écran A → profil créé (statut 'incomplet') si l'email est neuf
     setEnvoi(true);
