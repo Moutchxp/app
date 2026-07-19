@@ -84,7 +84,8 @@ export async function lireProfilsExport(filtres: FiltresExtraction, statuts: rea
  * Réutilise EXACTEMENT les MÊMES builders que la liste/l'export (`clauseStatuts` + `construireFiltres`) → le nombre
  * renvoyé est identique à ce que `lireProfilsExport(filtres, statuts)` produirait (mêmes FROM/WHERE, mêmes params).
  * GARDE FAIL-CLOSED (même patron que les 3 lectures) : `statuts` vide (après normalisation) → `0` SANS requête ;
- * défense en profondeur = le `WHERE false` de `clauseStatuts([])`. JAMAIS de `FROM internaute` brut. Lecture seule.
+ * défense en profondeur = le `WHERE false` de `clauseStatuts([])`. JAMAIS `FROM internaute` brut — la base commerciale
+ * est la VUE `internaute_commercial` (migration 044), qui exclut PAR CONSTRUCTION tout internaute sans consentement actif. Lecture seule.
  */
 export async function compterProfils(filtres: FiltresExtraction, statuts: readonly CleFinalite[]): Promise<number> {
   if (normaliserStatuts(statuts).length === 0) return 0; // fail-closed : aucune requête sans contrainte de finalité
@@ -97,15 +98,15 @@ export async function compterProfils(filtres: FiltresExtraction, statuts: readon
 }
 
 /**
- * Bornes de dates de création de la base, pour le bouton « depuis toujours » : MIN/MAX `cree_a` sur `internaute`
- * NON effacés (`efface_a IS NULL`, cohérent avec l'extraction). Étendue TEMPORELLE de la base, indépendante des
- * filtres — sert seulement à pré-remplir les champs de dates côté UI. `to_char` → 'YYYY-MM-DD' directement
- * consommable par un `<input type="date">`. Base vide → `{ null, null }`. Lecture seule.
+ * Bornes de dates de création de la base COMMERCIALE, pour le bouton « depuis toujours » : MIN/MAX `cree_a` sur la VUE
+ * `internaute_commercial` (migration 044) — qui exclut DÉJÀ les effacés ET les internautes sans consentement actif. Cohérent
+ * avec la liste (qui n'affiche que des consentants) : un destinataire de PDF n'étire jamais la plage de dates commerciale.
+ * `to_char` → 'YYYY-MM-DD' directement consommable par un `<input type="date">`. Base vide → `{ null, null }`. Lecture seule.
  */
 export async function lireBornesDates(): Promise<{ min: string | null; max: string | null }> {
   const r = await query<{ min: string | null; max: string | null }>(
     `SELECT to_char(min(cree_a), 'YYYY-MM-DD') AS min, to_char(max(cree_a), 'YYYY-MM-DD') AS max
-     FROM internaute WHERE efface_a IS NULL`,
+     FROM internaute_commercial`,
   );
   return { min: r.rows[0]?.min ?? null, max: r.rows[0]?.max ?? null };
 }

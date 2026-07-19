@@ -40,9 +40,12 @@ function assertFinalite(f: string): void {
   if (!/^[a-z0-9_]+$/.test(f)) throw new Error(`finalité invalide (attendu [a-z0-9_]+) : ${f}`);
 }
 
-/** FROM commun (internaute + dernier projet par LATERAL) — la contrainte de consentement est ajoutée en WHERE. */
+/** FROM commun COMMERCIAL — lit la VUE `internaute_commercial` (migration 044), JAMAIS la table `internaute` brute :
+ *  un internaute sans consentement actif (destinataire d'un PDF, futur Commit 2) en est ABSENT PAR CONSTRUCTION. La
+ *  contrainte de statut SPÉCIFIQUE (intersection F1/F2/F3) reste ajoutée en WHERE par `clauseStatuts` — la vue n'est que
+ *  le plancher « ≥1 consentement actif », infranchissable même si un appelant oubliait la clause. */
 const FROM_BASE = `
-  FROM internaute i
+  FROM internaute_commercial i
   LEFT JOIN LATERAL (
     SELECT verdict, score, dernier_etage, residence_principale, commune_insee
     FROM internaute_projet pr WHERE pr.internaute_id = i.id ORDER BY pr.cree_a DESC LIMIT 1
