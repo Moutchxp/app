@@ -212,11 +212,11 @@ export function consentementServicePresent(consentements: ChoixConsentement[]): 
 }
 
 /**
- * PORTE DE CRÉATION D'UN PROFIL — « au moins un des 3 consentements » (élargie depuis l'ancienne règle F1-only).
- * Chaque consentement reçu a déjà été VALIDÉ contre le catalogue par `validerCorpsIngestion` (anti-forge via
- * `texteExiste`) → une liste NON vide contient au moins un consentement RÉEL et connu. Le certificat reste délivré
- * SANS consentement (non-couplage) ; un PROFIL n'est créé que si au moins un consentement est donné (sinon
- * minimisation : aucune donnée nominative persistée). Ne généralise AUCUNE mécanique F1 (jeton, opposition_recontact).
+ * « AU MOINS UN des 3 consentements est-il donné ? » ⚠️ N'EST PLUS une porte de CRÉATION (Commit 2) : l'Écran A crée un
+ * profil+projet MÊME à 0 consentement (base légale LIVRAISON — le PDF est dû à tous, cf. `ingererProfil`). Sert désormais
+ * UNIQUEMENT à la complétion Écran B (CAS 2 : créer un profil directement en B seulement si un consentement y est coché).
+ * La frontière commercial/livraison est portée PAR CONSTRUCTION par la VUE `internaute_commercial` (Commit 1), PAS par
+ * cette fonction. Chaque consentement reçu est déjà VALIDÉ contre le catalogue par `validerCorpsIngestion` (anti-forge).
  */
 export function auMoinsUnConsentement(consentements: ChoixConsentement[]): boolean {
   return consentements.length > 0;

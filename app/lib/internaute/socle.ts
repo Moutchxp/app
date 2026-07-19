@@ -12,12 +12,14 @@
  */
 import { withTransaction, type RequeteTx } from '../db/client';
 import { TEXTES_CONSENTEMENT, type CleFinalite } from './textesConsentement';
-import { auMoinsUnConsentement, type CorpsIngestion } from './ingestion';
+import type { CorpsIngestion } from './ingestion';
 
 /** Complétude du parcours tunnel (colonne `internaute.parcours`, migration 028). DISTINCT du verdict (bloc C). */
 export type Parcours = 'incomplet' | 'complet';
 
-/** Levée si AUCUN consentement (parmi les 3) n'est donné → aucun profil créé (porte de création, invariant structurel). */
+/** Conservée (importée par les routes pour un `catch` défensif). ⚠️ N'EST PLUS levée par `ingererProfil` depuis Commit 2 :
+ *  l'Écran A crée un profil de LIVRAISON même sans consentement (le PDF est dû à tous). Reste disponible si un appelant
+ *  voulait ré-imposer une garde de consentement. */
 export class ErreurAucunConsentement extends Error {
   constructor() {
     super('au moins un consentement requis pour créer un profil');
@@ -133,17 +135,19 @@ async function insererProjet(
 }
 
 /**
- * Ingestion complète d'un profil, EN UNE TRANSACTION. Refuse si AUCUN consentement n'est donné
- * (`ErreurAucunConsentement`). `parcours` = statut de complétude posé à la CRÉATION : 'incomplet' à l'Écran A (défaut),
- * 'complet' lors d'une création directe à l'Écran B (coordonnées confirmées). `certificatEnvoye` = statut certificat du
- * projet créé (false à l'Écran A ; true lors d'une création directe à l'Écran B). Renvoie les identifiants créés/réutilisés.
+ * Ingestion complète d'un profil, EN UNE TRANSACTION. NE CONDITIONNE PLUS la création au consentement (Commit 2 —
+ * « PDF pour tous ») : un internaute qui ne coche AUCUN consentement obtient quand même son profil+projet (base légale
+ * LIVRAISON — le certificat/PDF est dû à tous), donc son jeton d'émission. Le CLASSEMENT commercial reste conditionné au
+ * consentement, garanti PAR CONSTRUCTION par la VUE `internaute_commercial` (Commit 1) : sans consentement, la boucle
+ * ci-dessous n'insère AUCUNE ligne `internaute_consentement` → l'internaute est absent de la vue. `parcours` = statut de
+ * complétude ('incomplet' à l'Écran A ; 'complet' en création directe Écran B). `certificatEnvoye` = statut certificat du
+ * projet (false Écran A ; true création directe B). Renvoie les identifiants créés/réutilisés.
  */
 export async function ingererProfil(
   corps: CorpsIngestion,
   parcours: Parcours = 'incomplet',
   certificatEnvoye = false,
 ): Promise<{ internauteId: string; projetId: number; creeInternaute: boolean }> {
-  if (!auMoinsUnConsentement(corps.consentements)) throw new ErreurAucunConsentement();
   return withTransaction(async (q) => {
     const { id: internauteId, cree: creeInternaute } = await getOrCreateInternaute(q, corps.identite, parcours);
     // PARCOURS MONOTONE : un internaute RÉUTILISÉ (email connu) qui complète réellement son parcours ('complet') voit son

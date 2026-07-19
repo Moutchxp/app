@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { validerCorpsIngestion, auMoinsUnConsentement } from '../../lib/internaute/ingestion';
+import { validerCorpsIngestion } from '../../lib/internaute/ingestion';
 import { ingererProfil, ErreurAucunConsentement } from '../../lib/internaute/socle';
 import { signerJetonRectification, signerJetonEmission } from '../../lib/internaute/jetonRectification';
 
@@ -28,14 +28,10 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ ok: false, erreurs: validation.erreurs }, { status: 422 });
   }
 
-  // Défense en profondeur : le front ne poste que si au moins un consentement est coché, mais la route l'exige aussi.
-  if (!auMoinsUnConsentement(validation.corps.consentements)) {
-    return NextResponse.json(
-      { ok: false, cree: false, erreur: 'au moins un consentement requis pour créer un profil' },
-      { status: 422 },
-    );
-  }
-
+  // NON-COUPLAGE (Commit 2) : le certificat/PDF est dû à TOUS. On n'exige AUCUN consentement pour ingérer — un internaute
+  // qui ne coche rien obtient son profil+projet (base légale LIVRAISON) puis son jeton d'émission, exactement comme un
+  // consentant. Le CLASSEMENT commercial reste conditionné au consentement : la VUE `internaute_commercial` (Commit 1)
+  // exclut PAR CONSTRUCTION tout internaute sans consentement actif. Conditionner l'émission au consentement = violation RGPD.
   try {
     const { internauteId, projetId, creeInternaute } = await ingererProfil(validation.corps);
     // Jeton-capacité de rectification publique : frappé UNIQUEMENT si un NOUVEAU dossier a été inséré dans cette
