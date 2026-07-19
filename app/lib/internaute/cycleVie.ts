@@ -44,9 +44,11 @@ async function journaliserCycleVie(
 }
 
 /**
- * ANONYMISATION EN PLACE d'un ou plusieurs profils (cœur de la règle asymétrique) : NULLifie les PII (A), pose
- * `efface_a`, SUPPRIME les projets (C). NE TOUCHE PAS `internaute_consentement` (B) — la preuve survit. Idempotent
- * (le `WHERE efface_a IS NULL` évite de ré-anonymiser).
+ * ANONYMISATION EN PLACE de l'IDENTITÉ d'un ou plusieurs profils : NULLifie les PII (A) et pose `efface_a`. NE SUPPRIME
+ * PLUS le projet (Commit 4) — le certificat/PDF SURVIT (vérifiable par jeton) ; de toute façon la FK `certificat.projet_id`
+ * (NO ACTION) INTERDIT de supprimer un projet porteur de certificat (l'ancien DELETE échouait en 503). NE TOUCHE PAS
+ * `internaute_consentement` (B) — la preuve survit. Idempotent (`WHERE efface_a IS NULL`). Un UPDATE d'identité ne heurte
+ * AUCUNE FK (la ligne internaute reste, seules ses PII passent à NULL).
  */
 async function anonymiserEnPlace(q: RequeteTx, ids: string[]): Promise<void> {
   if (ids.length === 0) return;
@@ -56,22 +58,55 @@ async function anonymiserEnPlace(q: RequeteTx, ids: string[]): Promise<void> {
      WHERE id = ANY($1::uuid[]) AND efface_a IS NULL`,
     [ids],
   );
-  await q(`DELETE FROM internaute_projet WHERE internaute_id = ANY($1::uuid[])`, [ids]);
-  // Bloc B (`internaute_consentement`) : VOLONTAIREMENT INTACT (append-only + preuve conservée).
+  // Projet (bloc C) : CONSERVÉ — rattaché à l'UUID désormais SANS PII ; le certificat le référence et doit rester
+  // vérifiable → JAMAIS supprimé. Bloc B (`internaute_consentement`) : intact (append-only, preuve conservée).
 }
 
 /**
- * EFFACEMENT SUR DEMANDE d'un profil (droit à l'effacement). Transactionnel, admin-only (garde en amont dans la
- * route). Renvoie `{ efface: false }` si l'id n'existe pas. La preuve de consentement B est conservée.
+ * EFFACEMENT SUR DEMANDE d'un profil (droit à l'effacement). Transactionnel, admin-only (garde en amont dans la route).
+ * Anonymise l'IDENTITÉ en CONSERVANT projet + certificat (Commit 4 : le PDF reste vérifiable ; RÉPARE le 503 qui frappait
+ * tout porteur de certificat via l'ancien DELETE de projet). Renvoie `{ efface: false }` si l'id n'existe pas. Preuve B conservée.
  */
 export async function effacerInternaute(id: string, auteurId: number | null): Promise<{ efface: boolean }> {
   return withTransaction(async (q) => {
     const existe = await q(`SELECT 1 FROM internaute WHERE id = $1`, [id]);
     if (existe.rows.length === 0) return { efface: false };
     await anonymiserEnPlace(q, [id]);
-    await journaliserCycleVie(q, auteurId, 'effacement', id, { strategie: 'anonymisation_en_place', preuve_b: 'conservee' });
+    await journaliserCycleVie(q, auteurId, 'effacement', id, { strategie: 'anonymisation_identite', projet: 'conserve', preuve_b: 'conservee' });
     return { efface: true };
   });
+}
+
+/**
+ * EFFACEMENT AUTOMATIQUE de l'identité de LIVRAISON (Commit 4 — A2). Appelé UNIQUEMENT après un envoi CONFIRMÉ du
+ * certificat (statut `certificat_acheminement='envoye'`, cf. `publierEnvoiCertificat`) — JAMAIS avant : un envoi raté ne
+ * doit pas effacer l'identité et laisser l'internaute sans certificat livré. Si l'internaute est NON-CONSENTANT (0
+ * consentement actif), anonymise IMMÉDIATEMENT son identité (nom/prénom/e-mail/téléphone → NULL) en CONSERVANT projet +
+ * certificat (vérifiable par jeton). Un CONSENTANT n'est JAMAIS effacé automatiquement (droit à l'oubli sur demande admin
+ * uniquement). `auteurId = null` (acte automatique). BEST-EFFORT : ne throw JAMAIS (ne perturbe ni l'envoi ni l'émission).
+ */
+export async function effacerIdentiteLivraisonSiEligible(internauteId: string): Promise<void> {
+  try {
+    // NON-CONSENTANT ? 0 consentement actif (identique à l'exclusion de la vue `internaute_commercial`, Commit 1).
+    const consent = await query(
+      `SELECT 1 FROM internaute_consentement_actif WHERE internaute_id = $1 AND actif = true LIMIT 1`,
+      [internauteId],
+    );
+    if (consent.rows.length > 0) return; // CONSENTANT → aucun effacement automatique
+    await withTransaction(async (q) => {
+      await anonymiserEnPlace(q, [internauteId]); // identité NULL + efface_a ; projet + certificat CONSERVÉS
+      await journaliserCycleVie(q, null, 'effacement', internauteId, {
+        strategie: 'anonymisation_identite',
+        auto: true,
+        contexte: 'livraison_non_consentant',
+        projet: 'conserve',
+        preuve_b: 'conservee',
+      });
+    });
+  } catch (e) {
+    // Best-effort : ne throw JAMAIS. Un échec laisse l'identité NON effacée (rattrapable par effacement admin / purge).
+    console.error('[cycle-vie] effacement identité livraison indisponible', (e as Error)?.name ?? 'Erreur');
+  }
 }
 
 const COLONNES_RECTIFIABLES: Record<keyof ChampsRectification, string> = {

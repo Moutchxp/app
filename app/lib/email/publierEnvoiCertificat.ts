@@ -15,6 +15,7 @@
 import { query } from '../db/client';
 import { recuperer, stockageConfigure } from '../stockage';
 import { signerJetonRetrait } from '../internaute/jetonRectification';
+import { effacerIdentiteLivraisonSiEligible } from '../internaute/cycleVie';
 import { lireConfigEmail, obtenirTransporteur, envoyerCertificat } from './index';
 
 /** Base absolue du site (serveur only), pour le lien de vérification du corps. `null` si absente/mal formée. */
@@ -96,6 +97,10 @@ export async function publierEnvoiCertificat(certificatId: number): Promise<void
       `UPDATE certificat_acheminement SET statut = 'envoye', envoye_le = now(), maj_a = now() WHERE certificat_id = $1`,
       [certificatId],
     );
+    // EFFACEMENT AUTO (Commit 4 — A2) : l'envoi est CONFIRMÉ ('envoye' posé ci-dessus). Si l'internaute est
+    // NON-CONSENTANT, on anonymise IMMÉDIATEMENT son identité de livraison — le certificat/projet SURVIT (vérifiable
+    // par jeton). Best-effort (la fonction ne throw jamais). JAMAIS avant ce point : un envoi raté n'efface rien.
+    await effacerIdentiteLivraisonSiEligible(row.internaute_id);
   } catch (e) {
     // Best-effort : le statut RESTE 'genere' ; on renseigne seulement derniere_erreur (le NOM, jamais le message).
     const nom = (e as Error)?.name ?? 'Erreur';

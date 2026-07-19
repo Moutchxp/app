@@ -5,9 +5,11 @@ import { effacerInternaute } from '../../../../../../lib/internaute/cycleVie';
 /**
  * POST /api/admin/internautes/[id]/effacement — DROIT À L'EFFACEMENT (module Internaute, LOT 4).
  *
- * RÈGLE ASYMÉTRIQUE : anonymise l'identité (A) + supprime le projet (C), CONSERVE la preuve de consentement (B).
- * RÉSERVÉ RÔLE ADMINISTRATEUR (`exigerAdministrateur` + fail-closed proxy). Transactionnel + journalisé
- * (`internaute_cycle_vie_log`). Après effacement, le profil disparaît des extractions (filtre `efface_a IS NULL`).
+ * RÈGLE (Commit 4) : anonymise l'identité (A), CONSERVE le projet (C) ET le certificat (PDF vérifiable par jeton),
+ * CONSERVE la preuve de consentement (B). NE SUPPRIME PLUS le projet → RÉPARE le 503 qui frappait tout porteur de
+ * certificat (FK `certificat.projet_id` NO ACTION). RÉSERVÉ RÔLE ADMINISTRATEUR (`exigerAdministrateur` + fail-closed
+ * proxy). Transactionnel + journalisé (`internaute_cycle_vie_log`). Après effacement, le profil disparaît des extractions
+ * (filtre `efface_a IS NULL`).
  * Aucun pont M2, moteur jamais rappelé (golden intact). Runtime Node.
  */
 export const runtime = 'nodejs';

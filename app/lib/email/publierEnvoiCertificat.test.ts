@@ -8,10 +8,14 @@ const { lireConfigEmail, obtenirTransporteur, envoyerCertificat } = vi.hoisted((
   envoyerCertificat: vi.fn(),
 }));
 const { signerJetonRetrait } = vi.hoisted(() => ({ signerJetonRetrait: vi.fn() }));
+// Effacement auto (Commit 4-A2) : appelé après le passage à 'envoye'. Mocké en no-op ici → le test de l'ENVOI reste
+// centré sur l'envoi ; le comportement de l'effacement est prouvé dans effacementIdentite.test.ts.
+const { effacerIdentiteLivraisonSiEligible } = vi.hoisted(() => ({ effacerIdentiteLivraisonSiEligible: vi.fn() }));
 
 vi.mock('../db/client', () => ({ query }));
 vi.mock('../stockage', () => ({ recuperer, stockageConfigure }));
 vi.mock('../internaute/jetonRectification', () => ({ signerJetonRetrait }));
+vi.mock('../internaute/cycleVie', () => ({ effacerIdentiteLivraisonSiEligible }));
 vi.mock('./index', () => ({ lireConfigEmail, obtenirTransporteur, envoyerCertificat }));
 
 import { publierEnvoiCertificat } from './publierEnvoiCertificat';
