@@ -14,6 +14,8 @@ import { SceauCertifie } from "./components/SceauCertifie";
 import type { Orientation } from "./lib/svv/config";
 import type { LibelleScore } from "./lib/svv/scoreTotal";
 import { finalitesActivesTunnel, type CleFinalite } from "./lib/internaute/textesConsentement";
+import { ChoixOffre } from "./ChoixOffre";
+import { orchestrerIllimite, LONGUEUR_MIN_MDP } from "./lib/tunnel/choixOffre";
 import { PhoneInput } from "react-international-phone";
 import "react-international-phone/style.css";
 import { getActiveFormattingMask } from "react-international-phone";
@@ -799,6 +801,12 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   const [projetIdA, setProjetIdA] = useState<number | null>(null);
   const [confirme, setConfirme] = useState(false); // clic « Recevoir mon certificat » abouti (état de succès honnête)
   const [envoiRectif, setEnvoiRectif] = useState(false);
+  // D1 — ÉCRAN DE CHOIX (après le résultat) : `choix` null = écran de choix affiché ; 'unique' → flux one-shot EXISTANT
+  // (Écran B ci-dessous, INCHANGÉ) ; 'illimite' → sous-écran création de compte AVANT émission (route Commit B).
+  const [choix, setChoix] = useState<"unique" | "illimite" | null>(null);
+  const [motDePasse, setMotDePasse] = useState("");
+  const [creationCompteEnCours, setCreationCompteEnCours] = useState(false);
+  const [erreurCompte, setErreurCompte] = useState<string | null>(null);
 
   const emailValide = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   // Champs REQUIS manquants/invalides — MÊME règle que l'ancien `estValide` (aucun champ requis ajouté ni retiré),
@@ -973,6 +981,42 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     setConfirme(true); // certificat délivré quoi qu'il arrive
   };
 
+  // D1 — chemin « TEST ILLIMITÉ » : crée le compte (route Commit B `/api/internaute/auth/creer`) AVANT l'émission, sans
+  // écrire AUCUN consentement (base légale = service). L'ordre compte→certificat rend fiable l'exclusion de
+  // l'auto-effacement des titulaires. L'invariant « PDF pour tous » est préservé par `orchestrerIllimite` : tout échec
+  // NON lié au mot de passe émet quand même le certificat via l'émission EXISTANTE (`recevoirCertificat`).
+  const validerIllimite = async () => {
+    setErreurCompte(null);
+    setCreationCompteEnCours(true);
+    const r = await orchestrerIllimite({
+      jeton: jetonRectif,
+      motDePasse,
+      creerCompte: async (jeton, mdp) => {
+        try {
+          const res = await fetch("/api/internaute/auth/creer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jeton, motDePasse: mdp }), // AUCUN consentement : uniquement { jeton, motDePasse }
+          });
+          let erreurs: string[] | undefined;
+          if (res.status === 422) {
+            const d = await res.json().catch(() => null);
+            if (Array.isArray(d?.erreurs)) erreurs = d.erreurs;
+          }
+          return { ok: res.ok, status: res.status, erreurs };
+        } catch {
+          return { ok: false, status: 0 }; // réseau → traité comme « compte indisponible » (certificat émis quand même)
+        }
+      },
+      emettre: () => { void recevoirCertificat(); }, // émission EXISTANTE (complétion + /api/certificat) → confirme
+    });
+    setCreationCompteEnCours(false);
+    if (r.statut === "mot_de_passe_invalide") {
+      setErreurCompte(r.erreurs[0] ?? `Le mot de passe doit contenir au moins ${LONGUEUR_MIN_MDP} caractères.`);
+    }
+    // 'compte_cree' / 'compte_indisponible' → `emettre()` a lancé l'émission ; l'écran de succès (confirme) suivra.
+  };
+
   // Handler téléphone PARTAGÉ (formulaire + écran de vérification) : normalise en E.164. Extrait pour être réutilisé
   // par les deux PhoneInput sans dupliquer la logique.
   const onPhoneChange = (phone: string, meta?: { country?: { dialCode?: string | number; iso2?: string } }) => {
@@ -1100,9 +1144,80 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     );
   }
 
-  // Écran de VÉRIFICATION D'IDENTITÉ : la demande est enregistrée ; dernière chance de corriger email/téléphone
-  // avant préparation du certificat. Champs modifiables SI un jeton a été délivré (dossier fraîchement créé), sinon
-  // en lecture seule (email pré-existant → la correction passe par le canal interne).
+  // D1 — ÉCRAN DE CHOIX (juste après l'enregistrement) : Test unique vs Test illimité. AUCUN consentement ici. Les DEUX
+  // issues délivrent le certificat par e-mail (PDF pour tous) : on force un CHOIX d'offre, jamais un consentement.
+  if (soumis && choix === null) {
+    return (
+      <div className="pb-10">
+        <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
+          <div className="flex items-center gap-3">
+            <SceauCertifie className="h-9 w-auto shrink-0 text-white" />
+            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Votre demande est enregistrée</h1>
+          </div>
+        </div>
+        <ChoixOffre
+          onUnique={() => { mesure("choix_test_unique"); setChoix("unique"); }}
+          onIllimite={() => { mesure("choix_test_illimite"); setChoix("illimite"); }}
+        />
+        <button type="button" onClick={onRetour} className="svv-btn svv-btn-outline mt-6">Retour</button>
+      </div>
+    );
+  }
+
+  // D1 — SOUS-ÉCRAN « TEST ILLIMITÉ » : validation des coordonnées DÉJÀ SAISIES + mot de passe → création de compte
+  // (route Commit B) AVANT émission. AUCUN consentement. « Revenir au choix » permet de repartir vers l'autre offre.
+  if (soumis && choix === "illimite") {
+    const motDePasseValide = motDePasse.length >= LONGUEUR_MIN_MDP;
+    return (
+      <div className="pb-10">
+        <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
+          <div className="flex items-center gap-3">
+            <SceauCertifie className="h-9 w-auto shrink-0 text-white" />
+            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Créez votre compte</h1>
+          </div>
+        </div>
+        <p className="text-sm text-svv-ink">
+          Vérifiez vos coordonnées et choisissez un mot de passe. Votre compte donne accès à vos analyses et à la
+          vérification en ligne de vos certificats. Votre certificat vous sera ensuite envoyé par e-mail.
+        </p>
+
+        <label className="mb-1 mt-4 block text-sm font-semibold text-svv-ink">Email (identifiant de connexion)</label>
+        <div className="w-full rounded-xl border border-svv-line bg-svv-field p-3 text-base text-svv-ink break-words">{email.trim() || "—"}</div>
+        <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone</label>
+        <div className="w-full rounded-xl border border-svv-line bg-svv-field p-3 text-base text-svv-ink break-words">{telephone || "—"}</div>
+
+        <label htmlFor="mdp-illimite" className="mb-1 mt-4 block text-sm font-semibold text-svv-ink">
+          Mot de passe <span className="font-normal text-svv-muted">(au moins {LONGUEUR_MIN_MDP} caractères)</span>
+        </label>
+        <input
+          id="mdp-illimite"
+          type="password"
+          autoComplete="new-password"
+          value={motDePasse}
+          onChange={(e) => setMotDePasse(e.target.value)}
+          className={`w-full rounded-xl ${motDePasse !== "" && !motDePasseValide ? "border-2 border-svv-red" : "border border-svv-line"} bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none`}
+          placeholder="Votre mot de passe"
+        />
+        {erreurCompte && <p role="alert" className="mt-2 text-sm font-semibold text-svv-red">{erreurCompte}</p>}
+
+        <button
+          type="button"
+          onClick={() => void validerIllimite()}
+          disabled={creationCompteEnCours || !motDePasseValide}
+          className={`svv-btn svv-btn-primary mt-6 ${creationCompteEnCours || !motDePasseValide ? "opacity-50" : ""}`}
+        >
+          {creationCompteEnCours ? "Création…" : "Créer mon compte et recevoir mon certificat"}
+        </button>
+        <button type="button" onClick={() => { setErreurCompte(null); setChoix(null); }} className="svv-btn svv-btn-outline mt-3">
+          Revenir au choix
+        </button>
+      </div>
+    );
+  }
+
+  // Écran de VÉRIFICATION D'IDENTITÉ — chemin « TEST UNIQUE » (choix === 'unique'), flux one-shot EXISTANT INCHANGÉ : la
+  // demande est enregistrée ; dernière chance de corriger email/téléphone avant préparation du certificat. Champs
+  // modifiables SI un jeton a été délivré (dossier fraîchement créé), sinon en lecture seule (email pré-existant).
   if (soumis) {
     const modifiable = jetonRectif !== null;
     return (
