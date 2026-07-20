@@ -1152,7 +1152,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
         <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
           <div className="flex items-center gap-3">
             <SceauCertifie className="h-9 w-auto shrink-0 text-white" />
-            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Votre demande est enregistrée</h1>
+            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Votre demande est enregistrée®</h1>
           </div>
         </div>
         <ChoixOffre
@@ -1225,7 +1225,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
         <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
           <div className="flex items-center gap-3">
             <SceauCertifie className="h-9 w-auto shrink-0 text-white" />
-            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Votre demande est enregistrée</h1>
+            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Votre demande est enregistrée®</h1>
           </div>
         </div>
 

@@ -8,6 +8,7 @@ import { formaterTelephone } from '../../../../lib/internaute/formatTelephone';
 import { libelleScore } from '../../../../lib/libelles';
 import { SCORE_LABEL_EXCEPTIONNELLE_MIN, SCORE_LABEL_EXCELLENTE_MIN } from '../../../../lib/svv/config';
 import type { CleFinalite } from '../../../../lib/internaute/textesConsentement';
+import { CapsuleCompte } from './CapsuleCompte';
 
 /**
  * Vue interactive du module « Internautes » (LOT 3). Client PUR : ne touche jamais la base ; consomme
@@ -41,6 +42,7 @@ interface Ligne {
   dernier_etage: boolean | null;
   residence_principale: boolean | null;
   consenti_le: string | null;
+  a_un_compte: boolean; // EXISTS(internaute_auth) → capsule « Compte / One-shot »
 }
 
 interface Detail {
@@ -932,7 +934,10 @@ export function InternautesVue() {
                   <div key={l.id}>
                     <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                       <div style={{ minWidth: 0, flex: '1 1 200px' }}>
-                        <div style={{ fontWeight: 800, color: 'var(--color-svv-ink)' }}>{[l.prenom, l.nom].filter(Boolean).join(' ') || '—'}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 800, color: 'var(--color-svv-ink)' }}>{[l.prenom, l.nom].filter(Boolean).join(' ') || '—'}</span>
+                          <CapsuleCompte aUnCompte={l.a_un_compte} />
+                        </div>
                         <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>{l.email ?? '—'}{l.telephone ? ` · ${l.telephone}` : ''}</div>
                       </div>
                       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: '.78rem', color: 'var(--color-svv-ink)' }}>
@@ -977,6 +982,7 @@ type LigneRecent = {
   derniere_analyse_a: string | null; // MAX(internaute_projet.cree_a) ; NULL si aucune analyse
   efface_a: string | null;
   f1_actif: boolean;
+  a_un_compte: boolean; // EXISTS(internaute_auth) → capsule « Compte / One-shot »
 };
 
 const dateFr = (v: unknown) => (v ? new Date(String(v)).toLocaleDateString('fr-FR') : '—');
@@ -1175,16 +1181,19 @@ function FicheDetail({ detail, actions, actionsProjet, soumettreRetrait, retrait
       {/* EN-TÊTE : prénom en NORMAL + NOM en GRAS (même ligne) ; téléphone puis email sur DEUX lignes séparées ;
           méta création + source de collecte. Plus d'intitulés « Prénom/Nom/Email/Téléphone » (portés par l'en-tête). */}
       <div>
-        <div style={{ fontSize: '1.25rem', color: 'var(--color-svv-ink)', lineHeight: 1.15 }}>
-          {aIdentite ? (
-            <>
-              {prenom && <span style={{ fontWeight: 400 }}>{prenom}</span>}
-              {prenom && nom ? ' ' : ''}
-              {nom && <span style={{ fontWeight: 800 }}>{nom}</span>}
-            </>
-          ) : (
-            i.efface_a ? '(identité effacée)' : '—'
-          )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: '1.25rem', color: 'var(--color-svv-ink)', lineHeight: 1.15 }}>
+          <span>
+            {aIdentite ? (
+              <>
+                {prenom && <span style={{ fontWeight: 400 }}>{prenom}</span>}
+                {prenom && nom ? ' ' : ''}
+                {nom && <span style={{ fontWeight: 800 }}>{nom}</span>}
+              </>
+            ) : (
+              i.efface_a ? '(identité effacée)' : '—'
+            )}
+          </span>
+          <CapsuleCompte aUnCompte={Boolean(i.a_un_compte)} />
         </div>
         {/* Respiration : une ligne vide entre le nom/prénom et les contacts. */}
         <div aria-hidden style={{ height: 10 }} />
@@ -1443,6 +1452,7 @@ function PanneauVerification() {
                   <span style={{ fontWeight: 800, color: 'var(--color-svv-ink)', flex: '1 1 160px', minWidth: 0 }}>
                     {[r.prenom, r.nom].filter(Boolean).join(' ') || (r.efface_a ? '(identité effacée)' : '—')}
                   </span>
+                  <CapsuleCompte aUnCompte={r.a_un_compte} />
                   <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>{r.email ?? '—'}</span>
                   <span style={{ fontSize: '.78rem', color: 'var(--color-svv-muted)' }} title="Date de la dernière analyse réalisée (MAX des analyses)">Dernière analyse : {dateFr(r.derniere_analyse_a)}</span>
                   <span style={{ fontSize: '.72rem', fontWeight: 700, color: r.f1_actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)' }}>{r.f1_actif ? 'F1 ✓' : 'F1 ✗'}</span>

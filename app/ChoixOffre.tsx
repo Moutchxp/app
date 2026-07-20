@@ -70,10 +70,17 @@ export function ChoixOffre({ onUnique, onIllimite }: { onUnique: () => void; onI
 
   return (
     <div>
+      {/* Halo « respirant » du curseur (opacité + léger scale, en boucle). Coupé sous prefers-reduced-motion. */}
+      <style>{`
+        @keyframes svv-curseur-respire {
+          0%   { transform: translate(-50%, -50%) scale(0.8); opacity: 0.5; }
+          70%  { transform: translate(-50%, -50%) scale(1.35); opacity: 0; }
+          100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
+        }
+        .svv-halo-curseur { animation: svv-curseur-respire 2s ease-out infinite; }
+        @media (prefers-reduced-motion: reduce) { .svv-halo-curseur { animation: none; opacity: 0; } }
+      `}</style>
       <h1 className="text-[1.4rem] font-extrabold leading-tight text-svv-ink">Comment souhaitez-vous continuer&nbsp;?</h1>
-      <p className="mt-1 text-sm text-svv-muted">
-        Votre certificat Sans&nbsp;Vis-à-Vis<sup>®</sup> vous sera envoyé par e-mail dans les deux cas.
-      </p>
 
       {/* OFFRES — vrais <button> (accessibles tap + clavier). Aucun consentement. */}
       <div className="mt-5 flex flex-col gap-3">
@@ -83,7 +90,7 @@ export function ChoixOffre({ onUnique, onIllimite }: { onUnique: () => void; onI
           className="rounded-2xl border border-svv-line bg-white p-4 text-left transition hover:border-svv-red focus:outline-none focus-visible:ring-2 focus-visible:ring-svv-red"
         >
           <span className="block text-base font-bold text-svv-ink">Test unique</span>
-          <span className="mt-1 block text-sm text-svv-muted">Une analyse, votre certificat reçu par e-mail.</span>
+          <span className="mt-1 block text-sm text-svv-muted">Une seule analyse, pas d&apos;authentification en ligne du certificat.</span>
         </button>
 
         <button
@@ -118,9 +125,20 @@ export function ChoixOffre({ onUnique, onIllimite }: { onUnique: () => void; onI
           style={{ touchAction: "none" }}
         >
           <div
-            className="absolute top-1/2 h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-svv-red shadow-md"
+            className="absolute top-1/2 h-10 w-10 -translate-x-1/2 -translate-y-1/2"
             style={{ left: `${gauchePct}%`, transition: transitionCurseur }}
-          />
+          >
+            {/* Halo qui respire, DERRIÈRE la poignée (décoratif). */}
+            <span aria-hidden className="svv-halo-curseur absolute left-1/2 top-1/2 h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-svv-red" />
+            {/* Poignée RONDE rouge + 3 traits de préhension clairs au centre. */}
+            <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-svv-red shadow-md">
+              <span aria-hidden className="flex items-center gap-[3px]">
+                <span className="block h-4 w-[2px] rounded-full bg-white/85" />
+                <span className="block h-4 w-[2px] rounded-full bg-white/85" />
+                <span className="block h-4 w-[2px] rounded-full bg-white/85" />
+              </span>
+            </span>
+          </div>
         </div>
         <p className="mt-2 text-center text-xs text-svv-muted">Glissez le curseur, ou touchez directement une option.</p>
       </div>

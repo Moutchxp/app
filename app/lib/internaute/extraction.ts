@@ -244,6 +244,9 @@ export interface LigneProfil {
   dernier_etage: boolean | null;
   residence_principale: boolean | null;
   consenti_le: string | null; // horodatage du consentement F1 actif
+  // Titulaire d'un compte ? `EXISTS(internaute_auth)` (peaufinage : capsule « Compte / One-shot » de la vue admin).
+  // OPTIONNEL : renseigné par la liste admin (`lireProfilsFiltres`) ; ABSENT de l'export CSV (COLONNES_EXPORT figées).
+  a_un_compte?: boolean;
 }
 
 /** Colonnes exportées (MINIMISATION : strictement l'utile au recontact). En-tête + accès à la valeur. */

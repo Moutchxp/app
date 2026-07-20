@@ -26,6 +26,7 @@ export interface LigneRecent {
   derniere_analyse_a: string | null;
   efface_a: string | null;
   f1_actif: boolean;
+  a_un_compte: boolean; // EXISTS(internaute_auth) — titulaire d'un compte (capsule « Compte / One-shot »)
 }
 
 /**
@@ -42,7 +43,8 @@ export async function lireRecents(mode: ModeVerification): Promise<LigneRecent[]
   if (mode === 'f1') {
     const r = await query<LigneRecent>(
       `SELECT i.id, i.prenom, i.nom, i.email, i.cree_a, i.efface_a, true AS f1_actif,
-              MAX(ip.cree_a) AS derniere_analyse_a
+              MAX(ip.cree_a) AS derniere_analyse_a,
+              EXISTS (SELECT 1 FROM internaute_auth ia WHERE ia.internaute_id = i.id) AS a_un_compte
        FROM internaute i
        JOIN internaute_consentement_actif ca
          ON ca.internaute_id = i.id AND ca.finalite = 'recontact_interne' AND ca.actif = true
@@ -58,7 +60,8 @@ export async function lireRecents(mode: ModeVerification): Promise<LigneRecent[]
   const r = await query<LigneRecent>(
     `SELECT i.id, i.prenom, i.nom, i.email, i.cree_a, i.efface_a,
             COALESCE(bool_or(ca.actif), false) AS f1_actif,
-            MAX(ip.cree_a) AS derniere_analyse_a
+            MAX(ip.cree_a) AS derniere_analyse_a,
+            EXISTS (SELECT 1 FROM internaute_auth ia WHERE ia.internaute_id = i.id) AS a_un_compte
      FROM internaute i
      LEFT JOIN internaute_consentement_actif ca
        ON ca.internaute_id = i.id AND ca.finalite = 'recontact_interne'

@@ -55,7 +55,10 @@ export async function lireProfilsFiltres(
   const lignes = await query<LigneProfil>(
     `SELECT i.id, i.prenom, i.nom, i.email, i.telephone, i.cree_a,
             p.verdict, p.score, p.commune_insee, p.dernier_etage, p.residence_principale,
-            ${consenti} AS consenti_le
+            ${consenti} AS consenti_le,
+            -- Capsule « Compte / One-shot » : titulaire d'un credential ? Axe DIFFÉRENT du consentement (F1/F2/F3).
+            -- Colonne ajoutée SANS toucher le FROM/WHERE (intersection des statuts) ni la vue internaute_commercial.
+            EXISTS (SELECT 1 FROM internaute_auth ia WHERE ia.internaute_id = i.id) AS a_un_compte
      ${from}${where}
      ${ordreListe(filtres)}
      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -188,7 +191,8 @@ export async function lireProfilComplet(id: string): Promise<{
   consentements: Record<string, unknown>[];
 } | null> {
   const pers = await query(
-    `SELECT id, prenom, nom, email, telephone, source_collecte, opposition_recontact, parcours, cree_a, maj_a, efface_a
+    `SELECT id, prenom, nom, email, telephone, source_collecte, opposition_recontact, parcours, cree_a, maj_a, efface_a,
+            EXISTS (SELECT 1 FROM internaute_auth ia WHERE ia.internaute_id = internaute.id) AS a_un_compte
      FROM internaute WHERE id = $1`,
     [id],
   );
