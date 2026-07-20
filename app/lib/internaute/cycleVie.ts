@@ -49,6 +49,10 @@ async function journaliserCycleVie(
  * (NO ACTION) INTERDIT de supprimer un projet porteur de certificat (l'ancien DELETE échouait en 503). NE TOUCHE PAS
  * `internaute_consentement` (B) — la preuve survit. Idempotent (`WHERE efface_a IS NULL`). Un UPDATE d'identité ne heurte
  * AUCUNE FK (la ligne internaute reste, seules ses PII passent à NULL).
+ *
+ * CREDENTIAL (Commit B) : SUPPRIME aussi `internaute_auth` — une identité effacée ne doit conserver AUCUN moyen de
+ * connexion (le hash de mot de passe ne survit pas à un compte effacé). C'est le point de passage UNIQUE de tout
+ * effacement d'identité de `cycleVie` (admin `effacerInternaute` + purge) → la suppression du credential y est centralisée.
  */
 async function anonymiserEnPlace(q: RequeteTx, ids: string[]): Promise<void> {
   if (ids.length === 0) return;
@@ -58,6 +62,10 @@ async function anonymiserEnPlace(q: RequeteTx, ids: string[]): Promise<void> {
      WHERE id = ANY($1::uuid[]) AND efface_a IS NULL`,
     [ids],
   );
+  // CREDENTIAL (Commit B) : DELETE EXPLICITE. La ligne `internaute` n'est JAMAIS supprimée (anonymisation en place) → la
+  // FK `internaute_auth ... ON DELETE CASCADE` ne se déclenche PAS ; sans ce DELETE, le hash survivrait à l'effacement.
+  // No-op si l'internaute n'a pas de compte (cas nominal d'une purge / d'un non-titulaire).
+  await q(`DELETE FROM internaute_auth WHERE internaute_id = ANY($1::uuid[])`, [ids]);
   // Projet (bloc C) : CONSERVÉ — rattaché à l'UUID désormais SANS PII ; le certificat le référence et doit rester
   // vérifiable → JAMAIS supprimé. Bloc B (`internaute_consentement`) : intact (append-only, preuve conservée).
 }
@@ -93,6 +101,18 @@ export async function effacerIdentiteLivraisonSiEligible(internauteId: string): 
       [internauteId],
     );
     if (consent.rows.length > 0) return; // CONSENTANT → aucun effacement automatique
+
+    // TITULAIRE DE COMPTE ? (Commit B) La seule présence d'une ligne `internaute_auth` EXCLUT l'auto-effacement : créer
+    // un compte établit une relation de SERVICE (base légale distincte du marketing) qui prime — un titulaire, MÊME sans
+    // consentement, n'est JAMAIS anonymisé automatiquement. Fiable ICI car le compte est créé AVANT l'envoi du certificat
+    // (parcours produit), donc AVANT ce point. Le droit à l'oubli d'un titulaire passe par la voie ADMIN (`effacerInternaute`),
+    // qui — via `anonymiserEnPlace` — SUPPRIME aussi le credential. Formulé `NOT EXISTS (ligne internaute_auth)`.
+    const compte = await query(
+      `SELECT 1 FROM internaute_auth WHERE internaute_id = $1 LIMIT 1`,
+      [internauteId],
+    );
+    if (compte.rows.length > 0) return; // TITULAIRE DE COMPTE → jamais d'auto-effacement
+
     await withTransaction(async (q) => {
       await anonymiserEnPlace(q, [internauteId]); // identité NULL + efface_a ; projet + certificat CONSERVÉS
       await journaliserCycleVie(q, null, 'effacement', internauteId, {
@@ -259,6 +279,12 @@ export async function purgerEchus(auteurId: number | null = null): Promise<{ pur
          AND i.cree_a < now() - make_interval(days => $1)
          AND NOT EXISTS (
            SELECT 1 FROM internaute_consentement_actif ca WHERE ca.internaute_id = i.id AND ca.actif = true
+         )
+         -- TITULAIRE DE COMPTE (Commit B) : jamais purgé automatiquement. Même règle absolue que l'auto-effacement — un
+         -- titulaire ne doit JAMAIS être anonymisé automatiquement (le compte = base légale SERVICE qui justifie la
+         -- conservation), et anonymiser un titulaire NULLifierait son e-mail → login impossible (compte mort).
+         AND NOT EXISTS (
+           SELECT 1 FROM internaute_auth a WHERE a.internaute_id = i.id
          )`,
       [jours],
     );
