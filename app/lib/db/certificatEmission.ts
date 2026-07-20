@@ -136,9 +136,15 @@ export async function emettreCertificat(projetId: number): Promise<ResultatEmiss
   const projet = pr.rows[0];
   const internauteId = projet.internaute_id; // scope de dépôt (aval)
 
-  // 2) IDEMPOTENCE — pré-contrôle (confort) : un certificat existe déjà pour ce projet → on le renvoie tel quel.
+  // 2) IDEMPOTENCE — pré-contrôle : un certificat existe déjà pour ce projet. L'ÉMISSION reste idempotente (on ne frappe
+  //    JAMAIS un 2e certificat). MAIS on SÉPARE émettre de (r)envoyer : si son acheminement n'est pas 'envoye' (PDF absent
+  //    / mail jamais parti — ex. fire-and-forget coupé), on ACHÈVE l'acheminement (PDF si manquant, puis (r)envoi) plutôt
+  //    que de rendre 'existant' sans rien faire. Sur le certificat DU projet demandé uniquement (id lu en base).
   const existant = await lireCertificatExistant(projetId);
-  if (existant) return { statut: 'existant', ...existant };
+  if (existant) {
+    await acheminerSiNonEnvoye(internauteId, existant.id, nombreFini(projet.lat), nombreFini(projet.lon), nombreFini(projet.azimut_deg));
+    return { statut: 'existant', numero: existant.numero, verdict: existant.verdict, reference: existant.reference };
+  }
 
   // 3) REFUS mode inconnu — sans le mode réellement employé, le re-jeu n'est pas fidèle (voir en-tête).
   if (projet.mode_origine !== 'semi_auto' && projet.mode_origine !== 'manuel') {
@@ -270,7 +276,9 @@ export async function emettreCertificat(projetId: number): Promise<ResultatEmiss
       // projet. On RELIT et on renvoie l'existant. Ce N'EST PAS une collision de référence.
       if (err.code === '23505' && err.constraint === 'certificat_projet_unique') {
         const relu = await lireCertificatExistant(projetId);
-        if (relu) return { statut: 'existant', ...relu };
+        // COURSE : l'AUTRE transaction a émis ET s'occupe de son acheminement (carte/PDF/envoi) → on NE (re)déclenche PAS
+        // l'acheminement ici (éviter un double envoi concurrent) ; on renvoie simplement l'existant.
+        if (relu) return { statut: 'existant', numero: relu.numero, verdict: relu.verdict, reference: relu.reference };
         throw e; // contrainte violée mais rien à relire (improbable) → on remonte
       }
       // COLLISION DE RÉFÉRENCE (sémantique DISTINCTE) : la référence tirée existe déjà sur un AUTRE certificat. Toute
@@ -287,13 +295,49 @@ export async function emettreCertificat(projetId: number): Promise<ResultatEmiss
   }
 }
 
-/** Relit le certificat existant d'un projet (numéro + verdict + référence PUBLIQUE), ou null. */
-async function lireCertificatExistant(projetId: number): Promise<{ numero: string; verdict: string; reference: string } | null> {
-  const r = await query<{ numero: string; verdict: string; reference: string }>(
-    `SELECT numero, verdict, reference FROM certificat WHERE projet_id = $1 LIMIT 1`,
+/** Relit le certificat existant d'un projet (id + numéro + verdict + référence PUBLIQUE), ou null. `id` sert le
+ *  (r)acheminement d'un certificat déjà émis (séparation émission / envoi), jamais un 2e certificat. */
+async function lireCertificatExistant(
+  projetId: number,
+): Promise<{ id: number; numero: string; verdict: string; reference: string } | null> {
+  const r = await query<{ id: string; numero: string; verdict: string; reference: string }>(
+    `SELECT id, numero, verdict, reference FROM certificat WHERE projet_id = $1 LIMIT 1`,
     [projetId],
   );
-  return r.rows[0] ?? null;
+  const row = r.rows[0];
+  return row ? { id: Number(row.id), numero: row.numero, verdict: row.verdict, reference: row.reference } : null;
+}
+
+/**
+ * (R)ACHEMINEMENT d'un certificat DÉJÀ ÉMIS — SÉPARE « émettre » (idempotent, une seule fois : jamais un 2e certificat)
+ * de « (r)envoyer le mail ». Si l'acheminement est déjà `'envoye'` → on ne (re)fait RIEN (jamais un 2e mail) ; sinon on
+ * (re)génère le PDF s'il MANQUE (pdf_cle NULL) puis on (r)envoie le mail. Best-effort (les `publier*` ne throw jamais).
+ * SÛR : agit UNIQUEMENT sur le certificat passé (dont l'id a été lu en base POUR le projet demandé) → aucun accès à un
+ * certificat d'autrui. Le certificat lui-même reste IMMUABLE : on ne touche que son acheminement (table mutable).
+ */
+async function acheminerSiNonEnvoye(
+  internauteId: string,
+  certificatId: number,
+  lat: number | null,
+  lon: number | null,
+  azimut: number | null,
+): Promise<void> {
+  const r = await query<{ statut: string; pdf_cle: string | null; carte_orientation_cle: string | null }>(
+    `SELECT statut, pdf_cle, carte_orientation_cle FROM certificat_acheminement WHERE certificat_id = $1`,
+    [certificatId],
+  );
+  const ach = r.rows[0];
+  if (!ach || ach.statut === 'envoye') return; // pas d'acheminement, ou DÉJÀ envoyé → on ne (re)fait rien
+  // Carte best-effort si absente ET géométrie disponible (le PDF l'embarque si présente).
+  if (!ach.carte_orientation_cle && lat !== null && lon !== null && azimut !== null) {
+    await publierCarteOrientation(internauteId, certificatId, lat, lon, azimut);
+  }
+  // PDF best-effort UNIQUEMENT s'il manque (pdf_cle NULL / statut 'en_attente') — sinon on ne le régénère pas.
+  if (!ach.pdf_cle) {
+    await publierCertificatPdf(internauteId, certificatId);
+  }
+  // (R)envoi du mail : publierEnvoiCertificat re-vérifie pdf_cle + destinataire ; sur succès → statut 'envoye'.
+  await publierEnvoiCertificat(certificatId);
 }
 
 /** Données prêtes à l'INSERT (numeric recopiés en chaînes, re-dérivés en nombres JS). */

@@ -51,13 +51,15 @@ function installer(opts: {
   projet?: unknown;
   certAvant?: unknown[]; // pré-contrôle d'idempotence
   certRelit?: unknown[]; // relecture après 23505
+  acheminement?: unknown; // ligne certificat_acheminement lue par le (r)acheminement (chemin idempotent, séparation envoi)
   txThrow?: unknown; // si défini, withTransaction rejette TOUJOURS avec cette valeur (simule course/incident)
   refCollisions?: number; // nombre de collisions de référence (23505 reference_unique) AVANT succès
 }) {
-  const { projet = projetOK, certAvant = [], certRelit, txThrow, refCollisions } = opts;
+  const { projet = projetOK, certAvant = [], certRelit, acheminement, txThrow, refCollisions } = opts;
   let certCalls = 0;
   query.mockImplementation(async (sql: string) => {
     if (/FROM internaute_projet/.test(sql)) return { rows: projet ? [projet] : [] };
+    if (/FROM certificat_acheminement/.test(sql)) return { rows: acheminement ? [acheminement] : [] };
     if (/FROM certificat WHERE projet_id/.test(sql)) {
       certCalls += 1;
       return { rows: certCalls === 1 ? certAvant : (certRelit ?? certAvant) };
@@ -163,8 +165,11 @@ describe('emettreCertificat — gardes & IDOR', () => {
 });
 
 describe('emettreCertificat — idempotence', () => {
-  it('pré-contrôle : certificat déjà émis → existant (numéro + référence), aucun re-jeu, aucune transaction', async () => {
-    installer({ certAvant: [{ numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS', reference: 'SVAV-K7M2-9QX4' }] });
+  it('pré-contrôle : certificat déjà émis (et envoyé) → existant (numéro + référence), aucun re-jeu, aucune transaction', async () => {
+    installer({
+      certAvant: [{ id: 9, numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS', reference: 'SVAV-K7M2-9QX4' }],
+      acheminement: { statut: 'envoye', pdf_cle: 'x', carte_orientation_cle: 'c' }, // déjà acheminé → aucun (r)envoi
+    });
     const r = await emettreCertificat(42);
     expect(r).toEqual({ statut: 'existant', numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS', reference: 'SVAV-K7M2-9QX4' });
     expect(analyserAdresse).not.toHaveBeenCalled();
@@ -244,11 +249,14 @@ describe('emettreCertificat — re-jeu & recopie', () => {
     expect(ach![0]).toMatch(/statut\) VALUES \(\$1, 'en_attente'\)/);
   });
 
-  it('idempotence (pré-contrôle) : aucune transaction → AUCUN acheminement ouvert (pas de 2e ligne)', async () => {
-    installer({ certAvant: [{ numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS', reference: 'SVAV-K7M2-9QX4' }] });
+  it('idempotence (pré-contrôle, déjà envoyé) : aucune transaction → AUCUN acheminement ouvert (pas de 2e ligne)', async () => {
+    installer({
+      certAvant: [{ id: 9, numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS', reference: 'SVAV-K7M2-9QX4' }],
+      acheminement: { statut: 'envoye', pdf_cle: 'x', carte_orientation_cle: 'c' },
+    });
     await emettreCertificat(42);
     expect(withTransaction).not.toHaveBeenCalled(); // ni certificat, ni acheminement réinsérés
-    expect(publierCarteOrientation).not.toHaveBeenCalled(); // chemin idempotent → pas de re-génération de carte
+    expect(publierCarteOrientation).not.toHaveBeenCalled(); // déjà envoyé → pas de re-génération de carte
   });
 });
 
@@ -266,11 +274,14 @@ describe('emettreCertificat — carte d’orientation (après COMMIT)', () => {
     expect(publierCertificatPdf.mock.invocationCallOrder[0]).toBeLessThan(publierEnvoiCertificat.mock.invocationCallOrder[0]);
   });
 
-  it('idempotence (pré-contrôle) : ni PDF ni envoi régénérés', async () => {
-    installer({ certAvant: [{ numero: 'SAVV-2026-000009', verdict: 'VIS_A_VIS', reference: 'SVAV-K7M2-9QX4' }] });
+  it('(c) certificat déjà ENVOYÉ (acheminement envoye) → aucun 2e mail, aucun PDF régénéré', async () => {
+    installer({
+      certAvant: [{ id: 9, numero: 'SAVV-2026-000009', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-K7M2-9QX4' }],
+      acheminement: { statut: 'envoye', pdf_cle: 'internautes/a/certificats/x.pdf', carte_orientation_cle: 'c' },
+    });
     await emettreCertificat(42);
-    expect(publierCertificatPdf).not.toHaveBeenCalled(); // chemin idempotent → aucun PDF régénéré
-    expect(publierEnvoiCertificat).not.toHaveBeenCalled(); // ni envoi
+    expect(publierCertificatPdf).not.toHaveBeenCalled();
+    expect(publierEnvoiCertificat).not.toHaveBeenCalled(); // JAMAIS un mail déjà parti
   });
 
   it('un échec de carte ne peut PAS casser l’émission : publierCarteOrientation ne throw jamais (best-effort)', async () => {
@@ -287,5 +298,43 @@ describe('emettreCertificat — carte d’orientation (après COMMIT)', () => {
     });
     await emettreCertificat(42);
     expect(publierCarteOrientation).not.toHaveBeenCalled();
+  });
+});
+
+describe('emettreCertificat — SÉPARATION émission / (r)envoi (certificat émis, mail jamais parti)', () => {
+  it('(b) acheminement en_attente + PDF absent → carte + PDF (re)générés PUIS mail (r)envoyé, AUCUN nouveau certificat', async () => {
+    installer({
+      certAvant: [{ id: 63, numero: 'SAVV-2026-000016', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-AAAA-BBBB' }],
+      acheminement: { statut: 'en_attente', pdf_cle: null, carte_orientation_cle: null },
+    });
+    const r = await emettreCertificat(77);
+    expect(r).toEqual({ statut: 'existant', numero: 'SAVV-2026-000016', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-AAAA-BBBB' });
+    expect(withTransaction).not.toHaveBeenCalled(); // 1 projet = 1 certificat : AUCUN 2e certificat frappé
+    expect(analyserAdresse).not.toHaveBeenCalled(); // pas de re-jeu du pipeline
+    expect(publierCarteOrientation).toHaveBeenCalledWith('internaute-A', 63, 48.90693182287072, 2.269431435588249, 90);
+    expect(publierCertificatPdf).toHaveBeenCalledWith('internaute-A', 63); // PDF (re)généré (absent)
+    expect(publierEnvoiCertificat).toHaveBeenCalledWith(63); // mail (r)envoyé
+  });
+
+  it('(b-var) acheminement genere + PDF présent, mail non parti → mail (r)envoyé SANS régénérer PDF ni carte', async () => {
+    installer({
+      certAvant: [{ id: 63, numero: 'SAVV-2026-000016', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-AAAA-BBBB' }],
+      acheminement: { statut: 'genere', pdf_cle: 'internautes/a/certificats/x.pdf', carte_orientation_cle: 'c' },
+    });
+    await emettreCertificat(77);
+    expect(publierCarteOrientation).not.toHaveBeenCalled(); // carte déjà présente
+    expect(publierCertificatPdf).not.toHaveBeenCalled(); // PDF déjà présent → pas de régénération
+    expect(publierEnvoiCertificat).toHaveBeenCalledWith(63); // seul le mail est (r)envoyé
+    expect(withTransaction).not.toHaveBeenCalled();
+  });
+
+  it('sûreté : n’agit que sur le certificat DU projet demandé (id lu en base pour ce projet)', async () => {
+    installer({
+      certAvant: [{ id: 63, numero: 'SAVV-2026-000016', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-AAAA-BBBB' }],
+      acheminement: { statut: 'en_attente', pdf_cle: null, carte_orientation_cle: null },
+    });
+    await emettreCertificat(77);
+    expect(publierEnvoiCertificat).toHaveBeenCalledWith(63); // l'id du certificat DE CE projet (lu en base), jamais du corps
+    expect(publierEnvoiCertificat).not.toHaveBeenCalledWith(77); // pas l'id du projet ni un autre certificat
   });
 });

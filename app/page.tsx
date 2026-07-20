@@ -807,6 +807,11 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   const [motDePasse, setMotDePasse] = useState("");
   const [creationCompteEnCours, setCreationCompteEnCours] = useState(false);
   const [erreurCompte, setErreurCompte] = useState<string | null>(null);
+  // CORRECTIF envoi FIABILISÉ — l'émission n'est plus fire-and-forget : `envoiEnCours` = POST /api/certificat en vol
+  // (le serveur ne répond qu'APRÈS PDF + envoi e-mail) ; `erreurEmission` = émission NON confirmée → on ne bascule PAS
+  // sur « Votre demande est enregistrée® », on propose de réessayer.
+  const [envoiEnCours, setEnvoiEnCours] = useState(false);
+  const [erreurEmission, setErreurEmission] = useState<string | null>(null);
 
   const emailValide = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   // Champs REQUIS manquants/invalides — MÊME règle que l'ancien `estValide` (aucun champ requis ajouté ni retiré),
@@ -881,15 +886,19 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // tunnel. Le serveur re-dérive le résultat et attribue le numéro ; le front ne transmet QUE { jeton, projetId }.
   // Ne s'émet que si l'on a un jeton (nouveau dossier créé en A) + le projetId de A : sans jeton, pas de capacité
   // d'ownership côté serveur (cas email réutilisé / création directe en B) → émission déléguée à un lot ultérieur.
-  const emettreCertificat = async (jeton: string, projetId: number) => {
+  // CORRECTIF : l'émission est désormais ATTENDUE et son issue REMONTÉE (plus de `void` fire-and-forget qu'un changement
+  // d'écran pouvait tuer avant l'envoi). Le serveur ne répond qu'APRÈS avoir généré le PDF ET tenté l'envoi e-mail
+  // (certificatEmission → publierEnvoiCertificat) : `res.ok` (200 'emis' ou 'existant') = certificat disponible.
+  const emettreCertificat = async (jeton: string, projetId: number): Promise<boolean> => {
     try {
-      await fetch("/api/certificat", {
+      const res = await fetch("/api/certificat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jeton, projetId }),
       });
+      return res.ok;
     } catch {
-      /* silencieux : l'émission est best-effort ; un échec ne doit JAMAIS perturber la fin du tunnel */
+      return false; // réseau/serveur : émission NON confirmée → l'appelant reste sur un état « réessayer »
     }
   };
 
@@ -976,9 +985,17 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     //  - consentement SEULEMENT en B (CAS 2) → `jetonEmission` d'A est null → on émet avec celui renvoyé par B.
     // Le `!jetonEmission` verrouille le second chemin sur l'absence du premier (zéro double appel) ; /api/certificat est
     // de toute façon idempotent (1 projet = 1 certificat) en dernier filet.
-    if (jetonEmission && projetIdA !== null) void emettreCertificat(jetonEmission, projetIdA);
-    else if (!jetonEmission && jetonEmissionB && projetIdB !== null) void emettreCertificat(jetonEmissionB, projetIdB);
-    setConfirme(true); // certificat délivré quoi qu'il arrive
+    // CORRECTIF — émission ATTENDUE : on ne bascule sur « Votre demande est enregistrée® » qu'une fois le certificat
+    // CONFIRMÉ émis + envoyé par le serveur (le POST reste en vol jusqu'au bout → plus de fire-and-forget tué par
+    // `setConfirme`). Émission non confirmée → état « réessayer », jamais un faux succès.
+    setErreurEmission(null);
+    setEnvoiEnCours(true);
+    let emis = false;
+    if (jetonEmission && projetIdA !== null) emis = await emettreCertificat(jetonEmission, projetIdA);
+    else if (!jetonEmission && jetonEmissionB && projetIdB !== null) emis = await emettreCertificat(jetonEmissionB, projetIdB);
+    setEnvoiEnCours(false);
+    if (emis) setConfirme(true); // certificat émis + envoyé confirmés
+    else setErreurEmission("L’envoi de votre certificat n’a pas abouti. Vérifiez votre connexion, puis réessayez.");
   };
 
   // D1 — chemin « TEST ILLIMITÉ » : crée le compte (route Commit B `/api/internaute/auth/creer`) AVANT l'émission, sans
@@ -987,6 +1004,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // NON lié au mot de passe émet quand même le certificat via l'émission EXISTANTE (`recevoirCertificat`).
   const validerIllimite = async () => {
     setErreurCompte(null);
+    setErreurEmission(null);
     setCreationCompteEnCours(true);
     const r = await orchestrerIllimite({
       jeton: jetonRectif,
@@ -998,23 +1016,33 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ jeton, motDePasse: mdp }), // AUCUN consentement : uniquement { jeton, motDePasse }
           });
-          let erreurs: string[] | undefined;
-          if (res.status === 422) {
-            const d = await res.json().catch(() => null);
-            if (Array.isArray(d?.erreurs)) erreurs = d.erreurs;
-          }
-          return { ok: res.ok, status: res.status, erreurs };
+          if (res.ok) return { ok: true, status: res.status };
+          // Aiguillage CORRIGÉ : la route distingue `{ erreurs }` (mot de passe, 422), `{ erreur }` (coordonnées, 422),
+          // 404 (dossier). On mappe en `motif` → message EXACT + bon repli « PDF pour tous » (seul le mot de passe bloque).
+          const d = await res.json().catch(() => null);
+          const erreurs = Array.isArray(d?.erreurs) ? (d.erreurs as string[]) : undefined;
+          const motif: "mot_de_passe" | "coordonnees" | "dossier" | "autre" = erreurs
+            ? "mot_de_passe"
+            : res.status === 404
+              ? "dossier"
+              : res.status === 422
+                ? "coordonnees"
+                : "autre";
+          return { ok: false, status: res.status, erreurs, motif };
         } catch {
-          return { ok: false, status: 0 }; // réseau → traité comme « compte indisponible » (certificat émis quand même)
+          return { ok: false, status: 0, motif: "autre" as const }; // réseau → certificat émis quand même (PDF pour tous)
         }
       },
-      emettre: () => { void recevoirCertificat(); }, // émission EXISTANTE (complétion + /api/certificat) → confirme
+      emettre: () => recevoirCertificat(), // émission ATTENDUE (complétion + /api/certificat + envoi) → confirme / erreurEmission
     });
     setCreationCompteEnCours(false);
     if (r.statut === "mot_de_passe_invalide") {
       setErreurCompte(r.erreurs[0] ?? `Le mot de passe doit contenir au moins ${LONGUEUR_MIN_MDP} caractères.`);
+    } else if (r.statut === "coordonnees_incompletes") {
+      setErreurCompte("Coordonnées incomplètes : le compte n’a pas pu être créé, mais votre certificat vous est envoyé.");
     }
-    // 'compte_cree' / 'compte_indisponible' → `emettre()` a lancé l'émission ; l'écran de succès (confirme) suivra.
+    // 'compte_cree' / 'compte_indisponible' / 'coordonnees_incompletes' → `emettre()` (recevoirCertificat) a piloté
+    // l'émission (confirme si envoyé, erreurEmission sinon). 'mot_de_passe_invalide' → correction (ou repli « sans compte »).
   };
 
   // Handler téléphone PARTAGÉ (formulaire + écran de vérification) : normalise en E.164. Extrait pour être réutilisé
@@ -1199,16 +1227,33 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
           placeholder="Votre mot de passe"
         />
         {erreurCompte && <p role="alert" className="mt-2 text-sm font-semibold text-svv-red">{erreurCompte}</p>}
+        {erreurEmission && <p role="alert" className="mt-2 text-sm font-semibold text-svv-red">{erreurEmission}</p>}
 
         <button
           type="button"
           onClick={() => void validerIllimite()}
-          disabled={creationCompteEnCours || !motDePasseValide}
-          className={`svv-btn svv-btn-primary mt-6 ${creationCompteEnCours || !motDePasseValide ? "opacity-50" : ""}`}
+          disabled={creationCompteEnCours || envoiEnCours || !motDePasseValide}
+          className={`svv-btn svv-btn-primary mt-6 ${creationCompteEnCours || envoiEnCours || !motDePasseValide ? "opacity-50" : ""}`}
         >
-          {creationCompteEnCours ? "Création…" : "Créer mon compte et recevoir mon certificat"}
+          {creationCompteEnCours ? "Création…" : envoiEnCours ? "Envoi en cours…" : erreurEmission ? "Réessayer" : "Créer mon compte et recevoir mon certificat"}
         </button>
-        <button type="button" onClick={() => { setErreurCompte(null); setChoix(null); }} className="svv-btn svv-btn-outline mt-3">
+        {/* PDF POUR TOUS : un compte refusé (mot de passe, etc.) ne doit JAMAIS priver l'internaute de son certificat.
+            Repli en un clic vers l'envoi SANS compte (émission attendue, comme le chemin unique). */}
+        {erreurCompte && (
+          <button
+            type="button"
+            onClick={() => void recevoirCertificat()}
+            disabled={envoiEnCours}
+            className={`svv-btn svv-btn-outline mt-3 ${envoiEnCours ? "opacity-50" : ""}`}
+          >
+            {envoiEnCours ? "Envoi en cours…" : "Recevoir mon certificat sans créer de compte"}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => { setErreurCompte(null); setErreurEmission(null); setChoix(null); }}
+          className="svv-btn svv-btn-outline mt-3"
+        >
           Revenir au choix
         </button>
       </div>
@@ -1300,13 +1345,14 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
             </div>
           ))}
 
+        {erreurEmission && <p role="alert" className="mt-4 rounded-xl bg-svv-field p-4 text-sm font-semibold text-svv-red">{erreurEmission}</p>}
         <button
           type="button"
           onClick={() => void recevoirCertificat()}
-          disabled={envoiRectif || (modifiable && email.trim() !== "" && !emailValide)}
-          className={`svv-btn svv-btn-primary mt-6 ${envoiRectif ? "opacity-50" : ""}`}
+          disabled={envoiRectif || envoiEnCours || (modifiable && email.trim() !== "" && !emailValide)}
+          className={`svv-btn svv-btn-primary mt-6 ${envoiRectif || envoiEnCours ? "opacity-50" : ""}`}
         >
-          {envoiRectif ? "Enregistrement…" : "Recevoir mon certificat"}
+          {envoiRectif ? "Enregistrement…" : envoiEnCours ? "Envoi en cours…" : erreurEmission ? "Réessayer l’envoi" : "Recevoir mon certificat"}
         </button>
       </div>
     );

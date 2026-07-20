@@ -35,12 +35,16 @@ export interface ReponseCreationCompte {
   ok: boolean;
   status: number;
   erreurs?: string[];
+  // MOTIF d'un échec, déduit par l'appelant du corps de la route (la route renvoie `{ erreurs }` pour le mot de passe,
+  // `{ erreur }` pour les coordonnées, 404 pour le dossier). Sert l'aiguillage : seul le mot de passe empêche l'émission.
+  motif?: 'mot_de_passe' | 'coordonnees' | 'dossier' | 'autre';
 }
 
 /** Issue de l'orchestration « test illimité ». */
 export type ResultatIllimite =
   | { statut: 'compte_cree' } // compte créé (session ouverte) PUIS certificat émis
   | { statut: 'mot_de_passe_invalide'; erreurs: string[] } // politique non respectée → PAS d'émission (l'internaute corrige)
+  | { statut: 'coordonnees_incompletes' } // e-mail manquant : compte impossible, MAIS certificat émis (PDF pour tous)
   | { statut: 'compte_indisponible' }; // jeton absent/expiré, 401/404/503/réseau → certificat émis QUAND MÊME (PDF pour tous)
 
 /**
@@ -63,7 +67,9 @@ export async function orchestrerIllimite(params: {
   jeton: string | null;
   motDePasse: string;
   creerCompte: (jeton: string, motDePasse: string) => Promise<ReponseCreationCompte>;
-  emettre: () => void;
+  // ATTENDU (plus de fire-and-forget) : `emettre` porte l'émission RÉELLE (recevoirCertificat), qui n'aboutit qu'une
+  // fois le certificat confirmé émis + envoyé par le serveur. On l'`await` → le compte précède ET l'émission est fiable.
+  emettre: () => void | Promise<void>;
 }): Promise<ResultatIllimite> {
   const { jeton, motDePasse, creerCompte, emettre } = params;
 
@@ -71,18 +77,26 @@ export async function orchestrerIllimite(params: {
     return { statut: 'mot_de_passe_invalide', erreurs: [`Le mot de passe doit contenir au moins ${LONGUEUR_MIN_MDP} caractères.`] };
   }
   if (!jeton) {
-    emettre(); // pas de compte possible, mais le certificat est dû (PDF pour tous)
+    await emettre(); // pas de compte possible, mais le certificat est dû (PDF pour tous)
     return { statut: 'compte_indisponible' };
   }
 
   const r = await creerCompte(jeton, motDePasse);
   if (r.ok) {
-    emettre(); // compte créé AVANT l'émission
+    await emettre(); // compte créé AVANT l'émission
     return { statut: 'compte_cree' };
   }
-  if (r.status === 422) {
+  // ÉCHEC de création — AIGUILLAGE CORRIGÉ (ne plus ranger TOUT 422 en « mot de passe ») :
+  //  - mot de passe (422 avec `erreurs`) → l'internaute CORRIGE ; on N'ÉMET PAS ici (il gardera un repli « sans compte ») ;
+  //  - coordonnées (422 sans `erreurs`, e-mail manquant) → compte impossible MAIS certificat dû → on émet (PDF pour tous) ;
+  //  - tout autre échec (dossier 404, jeton 401, 503, réseau) → certificat dû → on émet (PDF pour tous).
+  if (r.motif === 'mot_de_passe' || (r.status === 422 && r.erreurs && r.erreurs.length > 0)) {
     return { statut: 'mot_de_passe_invalide', erreurs: r.erreurs && r.erreurs.length > 0 ? r.erreurs : ['Mot de passe non conforme.'] };
   }
-  emettre(); // jeton expiré / 401 / 404 / 503 / réseau → PDF pour tous
+  if (r.motif === 'coordonnees') {
+    await emettre();
+    return { statut: 'coordonnees_incompletes' };
+  }
+  await emettre(); // jeton expiré / 401 / 404 / 503 / réseau → PDF pour tous
   return { statut: 'compte_indisponible' };
 }

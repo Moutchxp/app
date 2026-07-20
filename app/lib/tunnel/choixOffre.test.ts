@@ -88,4 +88,32 @@ describe('orchestrerIllimite — compte AVANT émission, sans consentement, PDF 
       expect(emettre).toHaveBeenCalledTimes(1);
     }
   });
+
+  it('CORRECTIF émission ATTENDUE : orchestrerIllimite ne résout qu’APRÈS la fin de emettre() (plus de fire-and-forget)', async () => {
+    let emisTermine = false;
+    const emettre = vi.fn(async () => {
+      await Promise.resolve();
+      emisTermine = true;
+    });
+    const creerCompte = vi.fn(async () => ({ ok: true, status: 200 }));
+    const r = await orchestrerIllimite({ jeton: 'JETON', motDePasse: MDP_OK, creerCompte, emettre });
+    expect(r).toEqual({ statut: 'compte_cree' });
+    expect(emisTermine).toBe(true); // l'émission est TERMINÉE quand orchestrerIllimite rend la main
+  });
+
+  it('CORRECTIF aiguillage — 422 COORDONNÉES (motif coordonnees) → certificat émis (PDF pour tous), statut DISTINCT du mot de passe', async () => {
+    const creerCompte = vi.fn(async () => ({ ok: false, status: 422, motif: 'coordonnees' as const }));
+    const emettre = vi.fn();
+    const r = await orchestrerIllimite({ jeton: 'JETON', motDePasse: MDP_OK, creerCompte, emettre });
+    expect(r).toEqual({ statut: 'coordonnees_incompletes' });
+    expect(emettre).toHaveBeenCalledTimes(1); // le certificat reste dû
+  });
+
+  it('CORRECTIF aiguillage — 422 MOT DE PASSE (motif mot_de_passe) → PAS d’émission (l’internaute corrige)', async () => {
+    const creerCompte = vi.fn(async () => ({ ok: false, status: 422, erreurs: ['trop simple'], motif: 'mot_de_passe' as const }));
+    const emettre = vi.fn();
+    const r = await orchestrerIllimite({ jeton: 'JETON', motDePasse: MDP_OK, creerCompte, emettre });
+    expect(r).toEqual({ statut: 'mot_de_passe_invalide', erreurs: ['trop simple'] });
+    expect(emettre).not.toHaveBeenCalled();
+  });
 });
