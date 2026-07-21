@@ -47,6 +47,17 @@ function usePrefersReducedMotion(): boolean {
   );
 }
 
+/** `false` au SSR ET au tout premier rendu client (pendant l'hydratation), `true` ensuite — MÊME idiome SSR-safe que
+ *  `usePrefersReducedMotion`, SANS `setState` en effet. Sert à ne monter le sous-arbre dnd-kit qu'APRÈS l'hydratation :
+ *  l'HTML serveur == premier rendu client (rendu statique des deux côtés) → aucun mismatch sur les `aria-describedby`. */
+function useHydrated(): boolean {
+  return useSyncExternalStore(
+    () => () => {}, // aucune souscription : la valeur ne change plus après le 1er passage client
+    () => true, //    snapshot CLIENT (après hydratation)
+    () => false, //   snapshot SERVEUR (et pendant l'hydratation) → rendu statique
+  );
+}
+
 function TuileSortable({ tuile, reduce }: { tuile: LienMenu; reduce: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: tuile.slug,
@@ -78,11 +89,35 @@ function TuileSortable({ tuile, reduce }: { tuile: LienMenu; reduce: boolean }) 
   );
 }
 
+/**
+ * Rendu STATIQUE d'une tuile — IDENTIQUE visuellement à `TuileSortable` (même `<li>`, même carte, même poignée, même
+ * style) mais SANS `useSortable` : aucun hook ni attribut dnd-kit. Rendu au SSR ET au tout premier rendu client (avant
+ * montage). Ainsi l'HTML serveur == premier rendu client → AUCUN mismatch d'hydratation : les `aria-describedby`
+ * non déterministes de dnd-kit (`DndDescribedBy-0` vs `-1`) ne sont émis qu'APRÈS montage, quand `TuileSortable` prend
+ * le relais. La poignée reste présente (pas de saut de mise en page) ; elle devient interactive une fois montée.
+ */
+function TuileStatique({ tuile }: { tuile: LienMenu }) {
+  return (
+    <li className="svv-grille-item">
+      <Link href={tuile.slug} className="svv-grille-lien">
+        <span className="svv-grille-titre">{tuile.libelle}</span>
+        <span className="svv-grille-desc">{tuile.desc}</span>
+      </Link>
+      <button type="button" className="svv-grille-poignee" aria-label={`Réordonner la tuile ${tuile.libelle}`}>
+        <span aria-hidden="true">⠿</span>
+      </button>
+    </li>
+  );
+}
+
 export function GrilleModules({ tuiles }: { tuiles: LienMenu[] }) {
   const router = useRouter();
   const reduce = usePrefersReducedMotion();
   const [ordre, setOrdre] = useState<LienMenu[]>(tuiles);
   const [erreur, setErreur] = useState<string | null>(null);
+  // Le sous-arbre drag-and-drop (dnd-kit) n'est monté qu'APRÈS l'hydratation (`mounted` false au SSR + 1er rendu client
+  // → rendu STATIQUE identique des deux côtés, pas de mismatch ; true ensuite). Via useSyncExternalStore : pas de setState.
+  const mounted = useHydrated();
 
   // Libellé par slug (annonces FR + rétablissement) — stable, dérivé des props.
   const libellePar = useMemo(() => new Map(tuiles.map((t) => [t.slug, t.libelle])), [tuiles]);
@@ -143,20 +178,30 @@ export function GrilleModules({ tuiles }: { tuiles: LienMenu[] }) {
           {erreur}
         </p>
       )}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={onDragEnd}
-        accessibility={{ announcements: annonces, screenReaderInstructions: instructions }}
-      >
-        <SortableContext items={ordre.map((t) => t.slug)} strategy={rectSortingStrategy}>
-          <ul className="svv-grille">
-            {ordre.map((t) => (
-              <TuileSortable key={t.slug} tuile={t} reduce={reduce} />
-            ))}
-          </ul>
-        </SortableContext>
-      </DndContext>
+      {!mounted ? (
+        // SSR + premier rendu client : version STATIQUE (aucun dnd-kit) → HTML serveur == client, pas de mismatch.
+        <ul className="svv-grille">
+          {ordre.map((t) => (
+            <TuileStatique key={t.slug} tuile={t} />
+          ))}
+        </ul>
+      ) : (
+        // Après montage (client) : le drag-and-drop réordonnable prend le relais (mêmes tuiles, même ordre, même style).
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={onDragEnd}
+          accessibility={{ announcements: annonces, screenReaderInstructions: instructions }}
+        >
+          <SortableContext items={ordre.map((t) => t.slug)} strategy={rectSortingStrategy}>
+            <ul className="svv-grille">
+              {ordre.map((t) => (
+                <TuileSortable key={t.slug} tuile={t} reduce={reduce} />
+              ))}
+            </ul>
+          </SortableContext>
+        </DndContext>
+      )}
     </>
   );
 }
