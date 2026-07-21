@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../lib/admin/garde';
-import { lireFiltres, lireStatuts } from '../../../../lib/internaute/extraction';
+import { lireFiltres, lireStatuts, lireFiltreCompte, lireModeConsentement } from '../../../../lib/internaute/extraction';
 import { lireProfilsFiltres, lireBornesDates } from '../../../../lib/internaute/extractionRepo';
 
 /**
@@ -10,10 +10,13 @@ import { lireProfilsFiltres, lireBornesDates } from '../../../../lib/internaute/
  * PAS déclarée dans `proxy.ts` → le défaut FAIL-CLOSED du proxy la réserve déjà à l'administrateur ; ce garde est
  * la seconde barrière (défense en profondeur, comme /api/admin/audit).
  *
- * INVARIANT : le repository contraint par l'INTERSECTION des statuts cochés (param `statuts`, validé/normalisé par
- * `lireStatuts`) — un `EXISTS(finalité active)` par statut, tous en AND (jamais un OR). Sélection VIDE → le repo
- * renvoie 0 résultat SANS requête (fail-closed : jamais toute la base). Lecture SEULE (colonnes déjà persistées ;
- * moteur jamais rappelé → golden intact). Aucun pont M2. Seul GET (aucune méthode mutante). Runtime Node.
+ * GESTION (≠ EXTRACTION) : la liste lit la table `internaute` (non effacés) via `clauseStatutsGestion`. DEUX axes de
+ * filtre INDÉPENDANTS, croisés (ET) : le CONSENTEMENT (`statuts` F1/F2/F3 — critère POSITIF : vide = « sans aucun
+ * consentement actif », ≥1 combinées par `modeConsentement=et|ou` — défaut `et` = « a TOUTES les cochées », `ou` = « a
+ * au moins une ») et le COMPTE (`compte=avec|sans`, `lireFiltreCompte`). Toute combinaison est une requête légitime. Les
+ * EXTRACTIONS commerciales (export/comptage/bornes/communes) gardent, elles, `internaute_commercial` (consentants only,
+ * fail-closed) et IGNORENT l'axe compte. Lecture SEULE (moteur jamais rappelé → golden intact). Aucun pont M2. Seul GET
+ * (aucune méthode mutante). Runtime Node.
  */
 export const runtime = 'nodejs';
 
@@ -24,11 +27,13 @@ export async function GET(request: Request): Promise<Response> {
 
     const url = new URL(request.url);
     const filtres = lireFiltres(url.searchParams);
-    const statuts = lireStatuts(url.searchParams); // intersection des statuts cochés ; vide → repo fail-closed (0 résultat)
+    const statuts = lireStatuts(url.searchParams); // pastilles cochées (axe consentement)
+    const filtreCompte = lireFiltreCompte(url.searchParams); // axe COMPTE, indépendant : avec | sans | null (indifférent)
+    const modeConsentement = lireModeConsentement(url.searchParams); // combinaison des pastilles : 'et' (défaut) | 'ou'
     const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
     const taille = Math.min(100, Math.max(1, Number(url.searchParams.get('taille')) || 25));
 
-    const { total, lignes } = await lireProfilsFiltres(filtres, page, taille, statuts);
+    const { total, lignes } = await lireProfilsFiltres(filtres, page, taille, statuts, filtreCompte, modeConsentement);
     const bornes = await lireBornesDates(); // étendue temporelle de la base (bouton « depuis toujours »)
     return Response.json({ total, page, taille, lignes, bornes });
   } catch {

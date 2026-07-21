@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { lireFiltres, lireStatuts } from '../../../../../lib/internaute/extraction';
+import { lireFiltres, lireStatuts, lireModeConsentement } from '../../../../../lib/internaute/extraction';
 import { lireProfilsExport, versCsv, journaliserExtraction } from '../../../../../lib/internaute/extractionRepo';
 
 /**
@@ -21,9 +21,10 @@ export async function GET(request: Request): Promise<Response> {
 
     const params = new URL(request.url).searchParams;
     const filtres = lireFiltres(params);
-    const statuts = lireStatuts(params); // intersection des statuts cochés ; vide → export vide (fail-closed)
-    const lignes = await lireProfilsExport(filtres, statuts);
-    await journaliserExtraction(garde.auteurId, 'export_csv', { filtres, nbLignes: lignes.length, statuts: statuts.join(',') });
+    const statuts = lireStatuts(params); // statuts cochés ; vide → export vide (fail-closed)
+    const modeConsentement = lireModeConsentement(params); // combinaison des statuts : 'et' (défaut) | 'ou'
+    const lignes = await lireProfilsExport(filtres, statuts, modeConsentement);
+    await journaliserExtraction(garde.auteurId, 'export_csv', { filtres, nbLignes: lignes.length, statuts: `${statuts.join(',')} (${modeConsentement})` });
 
     return new Response(versCsv(lignes), {
       status: 200,

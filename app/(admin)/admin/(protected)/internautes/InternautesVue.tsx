@@ -285,10 +285,19 @@ export function InternautesVue() {
   // UNIQUE : la source ré-initialise le miroir (cf. toggleStatut), le miroir n'a AUCUNE remontée. La LISTE (vers le
   // bas) est pilotée par le miroir + `q` ; l'EXPORT (haut) reste piloté par la source `statuts`.
   const [statutsMiroir, setStatutsMiroir] = useState<Set<CleFinalite>>(() => new Set([FINALITE_F1]));
+  // AXE COMPTE (indépendant des pastilles de consentement) : '' = indifférent, 'avec' = titulaires, 'sans' = one-shot.
+  // Pilote la LISTE uniquement (jamais l'export/compteur, qui restent consentants-only). Combinable avec les statuts miroir.
+  const [filtreCompte, setFiltreCompte] = useState<'' | 'avec' | 'sans'>('');
+  // MODE de combinaison des pastilles cochées : 'et' (défaut) = a TOUTES les cochées ; 'ou' = a au moins une.
+  // N'a d'effet qu'à ≥2 pastilles ; envoyé à l'API (défaut serveur 'et' aussi). Pilote la LISTE uniquement.
+  const [modeConsentement, setModeConsentement] = useState<'et' | 'ou'>('et');
+  // MÊME mode, mais pour le MOTEUR D'EXTRACTION COMMERCIAL du haut (export CSV + compteur). Indépendant de la gestion.
+  // Défaut 'et' (= intersection historique → sortie identique). Sur la VUE `internaute_commercial`, jamais « sans consentement ».
+  const [modeExtraction, setModeExtraction] = useState<'et' | 'ou'>('et');
   const [q, setQ] = useState(''); //          saisie recherche nom/prénom (immédiate, liée à l'input)
   const [qDebounced, setQDebounced] = useState(''); // valeur débouncée (250 ms) réellement envoyée au serveur
   const [page, setPage] = useState(1);
-  const [etat, setEtat] = useState<{ statut: 'chargement' } | { statut: 'aucun_statut' } | { statut: 'erreur'; code: number } | { statut: 'ok'; total: number; lignes: Ligne[] }>({ statut: 'chargement' });
+  const [etat, setEtat] = useState<{ statut: 'chargement' } | { statut: 'erreur'; code: number } | { statut: 'ok'; total: number; lignes: Ligne[] }>({ statut: 'chargement' });
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailChargement, setDetailChargement] = useState(false);
   // Actions cycle de vie (LOT 4) sur le dossier ouvert : rectification (édition A) et effacement (droit RGPD).
@@ -340,18 +349,17 @@ export function InternautesVue() {
   useEffect(() => {
     let annule = false;
     void (async () => {
-      // GARDE-FOU CONFORT (le serveur reste l'autorité) : aucun statut MIROIR coché → on n'appelle PAS l'API (pas de
-      // requête sans contrainte de finalité) et on affiche un message. Le serveur bloque aussi (fail-closed) si forgé.
-      if (statutsMiroir.size === 0) {
-        if (!annule) setEtat({ statut: 'aucun_statut' });
-        return;
-      }
+      // SÉMANTIQUE : aucune pastille MIROIR cochée = « sans aucun consentement actif » (critère POSITIF), pas « rien ».
+      // Toute combinaison (pastilles × compte) est une requête légitime → on interroge TOUJOURS le serveur. L'EXPORT
+      // (bloc SOURCE) reste consent-only et ignore l'axe compte.
       setEtat({ statut: 'chargement' });
       try {
         const p = versParams(applique);
         p.set('page', String(page));
         p.set('taille', String(TAILLE));
-        p.set('statuts', [...statutsMiroir].join(',')); // intersection des statuts (miroir) ; étanchéité côté serveur
+        p.set('statuts', [...statutsMiroir].join(',')); // pastilles cochées (miroir) ; sémantique côté serveur
+        if (statutsMiroir.size >= 2) p.set('modeConsentement', modeConsentement); // combinaison ET/OU (effet à ≥2 pastilles)
+        if (filtreCompte) p.set('compte', filtreCompte); // axe compte, indépendant (jamais transmis à l'export/compteur)
         const recherche = qDebounced.trim();
         if (recherche.length >= 2) p.set('q', recherche); // recherche serveur SEULEMENT à partir de 2 caractères
         const res = await fetch(`/api/admin/internautes?${p.toString()}`);
@@ -371,7 +379,7 @@ export function InternautesVue() {
     return () => {
       annule = true;
     };
-  }, [applique, page, statutsMiroir, qDebounced]);
+  }, [applique, page, statutsMiroir, filtreCompte, modeConsentement, qDebounced]);
 
   // COMPTEUR LIVE : recompte à chaque changement de statuts SOURCE ou de filtres secondaires (live), débounce 300 ms.
   // OPTION 1 (Arno) : mêmes critères que l'export CSV — statuts SOURCE + `filtres` secondaires, `q` NON transmis (ignoré).
@@ -389,6 +397,7 @@ export function InternautesVue() {
       try {
         const p = versParams(filtres);
         p.set('statuts', [...statuts].join(',')); // source ; le serveur re-normalise (ordre indifférent)
+        if (statuts.size >= 2) p.set('modeConsentement', modeExtraction); // combinaison ET/OU (effet à ≥2) ; MÊME clé que l'export
         const res = await fetch(`/api/admin/internautes/compte?${p.toString()}`);
         if (annule) return;
         if (!res.ok) { setCompte(null); return; }
@@ -401,7 +410,7 @@ export function InternautesVue() {
       }
     }, 300);
     return () => { annule = true; clearTimeout(t); };
-  }, [filtres, statuts]);
+  }, [filtres, statuts, modeExtraction]);
 
   const filtrer = () => {
     setPage(1);
@@ -440,12 +449,22 @@ export function InternautesVue() {
   const statutsCoches = STATUTS_EXPORT.filter((s) => statuts.has(s.statut));
   const codesCoches = statutsCoches.map((s) => s.code).join(' ∩ ');
   // Statuts MIROIR cochés (ordre canonique) : libellé du compteur de la liste (reflète la sélection réellement listée).
-  const codesMiroir = STATUTS_EXPORT.filter((s) => statutsMiroir.has(s.statut)).map((s) => s.code).join(' ∩ ');
+  const codesMiroirArr = STATUTS_EXPORT.filter((s) => statutsMiroir.has(s.statut)).map((s) => s.code);
+  // Libellé du filtre consentement : vide = « sans consentement » ; 1 pastille = « a Fx » ; ≥2 selon le mode ET/OU.
+  const libelleConsentement =
+    codesMiroirArr.length === 0
+      ? 'sans consentement'
+      : codesMiroirArr.length === 1
+        ? `a ${codesMiroirArr[0]}`
+        : modeConsentement === 'et'
+          ? `a ${codesMiroirArr.join(' et ')}`
+          : `a au moins : ${codesMiroirArr.join(', ')}`;
   // URL d'export CSV : les statuts cochés accompagnent les filtres (`f` = filtres appliqués OU FILTRES_VIDES pour « toute
   // la base »). Toujours borné par les statuts ; validé/normalisé côté serveur par `lireStatuts`.
   const hrefExport = (f: Filtres) => {
     const p = versParams(f);
     p.set('statuts', statutsCoches.map((s) => s.statut).join(','));
+    if (statutsCoches.length >= 2) p.set('modeConsentement', modeExtraction); // ET/OU (effet à ≥2) ; compteur & export alignés
     return `/api/admin/internautes/export?${p.toString()}`;
   };
   // URL du dossier de preuve (route API de TÉLÉCHARGEMENT, pas une page Next). Href calculé (const) → pas un littéral :
@@ -644,7 +663,7 @@ export function InternautesVue() {
       {/* SÉLECTION DES STATUTS (multi-sélection en ET) : l'admin coche F1/F2/F3 ; l'extraction renvoie l'INTERSECTION
           (tous les cochés actifs). Charte : rouge plein = coché, gris contour = décoché ; ≥44px ; focus rouge (.svv-int). */}
       <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--color-svv-field)' }}>
-        <span style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>Statuts de consentement (intersection — tous les cochés)</span>
+        <span style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>Statuts de consentement (extraction commerciale — consentants){statuts.size >= 2 ? (modeExtraction === 'et' ? ' · ET (toutes)' : ' · OU (au moins une)') : ''}</span>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <div role="group" aria-label="Statuts de consentement" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {STATUTS_EXPORT.map((s) => {
@@ -725,20 +744,58 @@ export function InternautesVue() {
                 >
                   <strong>F1</strong> recontact commercial interne (appel téléphonique), <strong>F2</strong> communications
                   par email, <strong>F3</strong> ciblage publicitaire tiers (retargeting).{' '}
-                  Cochez un ou plusieurs statuts : l’extraction renvoie l’<strong>intersection</strong> (les internautes
-                  ayant <strong>TOUS</strong> les statuts cochés actifs) — jamais un OR. Aucun statut coché → export bloqué.
+                  Cochez un ou plusieurs statuts. À partir de 2 statuts, l’interrupteur <strong>ET/OU</strong> choisit la
+                  combinaison : <strong>ET</strong> = les internautes ayant TOUS les statuts cochés actifs ;{' '}
+                  <strong>OU</strong> = ayant AU MOINS UN des statuts cochés actifs. Toujours des consentants (≥1 consentement) ;
+                  aucun statut coché → export bloqué.
                 </div>
               </>
             )}
           </div>
         </div>
+        {/* MODE DE COMBINAISON ET/OU de l'EXTRACTION (identique à la gestion) — n'apparaît qu'à ≥2 pastilles cochées.
+            « ET » (défaut) = a TOUTES les cochées (intersection historique) ; « OU » = a au moins une. Boutons natifs
+            (clavier), aria-pressed, charte rouge/gris, cibles 44px, aucune animation (neutre prefers-reduced-motion). */}
+        {statuts.size >= 2 && (
+          <div role="group" aria-label="Mode de combinaison des statuts d'extraction" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>Combiner :</span>
+            {([['et', 'ET (toutes)'], ['ou', 'OU (au moins une)']] as const).map(([val, lib]) => {
+              const actif = modeExtraction === val;
+              return (
+                <button
+                  key={val}
+                  type="button"
+                  aria-pressed={actif}
+                  onClick={() => setModeExtraction(val)}
+                  style={{
+                    minHeight: 44,
+                    padding: '0 12px',
+                    borderRadius: 10,
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    fontSize: '.8rem',
+                    border: `2px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
+                    background: '#fff',
+                    color: actif ? 'var(--color-svv-red)' : 'var(--color-svv-ink)',
+                  }}
+                >
+                  {lib}
+                </button>
+              );
+            })}
+          </div>
+        )}
         {aucunStatut ? (
           <span role="alert" style={{ fontSize: '.72rem', fontWeight: 700, color: 'var(--color-svv-red)' }}>
             Cochez au moins un statut pour lister ou exporter.
           </span>
         ) : (
           <span style={{ fontSize: '.7rem', color: 'var(--color-svv-muted)' }}>
-            L’extraction renvoie les internautes ayant TOUS les statuts cochés actifs (intersection ET).
+            {statuts.size >= 2
+              ? modeExtraction === 'et'
+                ? 'L’extraction renvoie les internautes ayant TOUS les statuts cochés actifs (ET).'
+                : 'L’extraction renvoie les internautes ayant AU MOINS UN des statuts cochés actifs (OU).'
+              : 'L’extraction renvoie les internautes ayant le statut coché actif.'}
           </span>
         )}
       </div>
@@ -893,6 +950,52 @@ export function InternautesVue() {
             );
           })}
         </div>
+        {/* MODE DE COMBINAISON ET/OU — n'a d'effet (et n'apparaît) qu'à ≥2 pastilles cochées. « ET » (défaut) = a TOUTES
+            les cochées ; « OU » = a au moins une. Boutons natifs (clavier), aria-pressed, charte rouge/gris, cibles 44px,
+            fond blanc (aucune animation → neutre vis-à-vis de prefers-reduced-motion). */}
+        {statutsMiroir.size >= 2 && (
+          <div role="group" aria-label="Mode de combinaison des pastilles" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>Combiner :</span>
+            {([['et', 'ET (toutes)'], ['ou', 'OU (au moins une)']] as const).map(([val, lib]) => {
+              const actif = modeConsentement === val;
+              return (
+                <button
+                  key={val}
+                  type="button"
+                  aria-pressed={actif}
+                  onClick={() => { setModeConsentement(val); setPage(1); }}
+                  style={{
+                    minHeight: 44,
+                    padding: '0 12px',
+                    borderRadius: 10,
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    fontSize: '.8rem',
+                    border: `2px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
+                    background: '#fff',
+                    color: actif ? 'var(--color-svv-red)' : 'var(--color-svv-ink)',
+                  }}
+                >
+                  {lib}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {/* AXE COMPTE — filtre déroulant INDÉPENDANT des pastilles de consentement (celles-ci filtrent le consentement ;
+            celui-ci filtre la possession d'un compte). Combinable avec elles. Pilote la LISTE en direct (pas l'export). */}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
+          Compte
+          <select
+            style={{ ...champ, minHeight: 44 }}
+            value={filtreCompte}
+            onChange={(e) => { setFiltreCompte(e.target.value as '' | 'avec' | 'sans'); setPage(1); }}
+          >
+            <option value="">Indifférent</option>
+            <option value="avec">Avec compte</option>
+            <option value="sans">Sans compte (one-shot)</option>
+          </select>
+        </label>
         <input
           type="search"
           value={q}
@@ -904,11 +1007,6 @@ export function InternautesVue() {
       </div>
 
       {/* RÉSULTATS */}
-      {etat.statut === 'aucun_statut' && (
-        <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-muted)' }}>
-          Cochez au moins un statut de consentement (F1, F2 ou F3) pour lister ou exporter des profils.
-        </div>
-      )}
       {etat.statut === 'chargement' && <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-muted)' }}>Chargement…</div>}
       {etat.statut === 'erreur' && (
         <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-red)' }}>
@@ -920,7 +1018,10 @@ export function InternautesVue() {
       {etat.statut === 'ok' && (
         <>
           <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)' }}>
-            {total} profil{total > 1 ? 's' : ''} — statuts {codesMiroir}{qDebounced.trim().length >= 2 ? ` · recherche « ${qDebounced.trim()} »` : ''}.
+            {total} profil{total > 1 ? 's' : ''} — {[
+              libelleConsentement,
+              filtreCompte === 'avec' ? 'avec compte' : filtreCompte === 'sans' ? 'sans compte (one-shot)' : null,
+            ].filter(Boolean).join(' · ')}{qDebounced.trim().length >= 2 ? ` · recherche « ${qDebounced.trim()} »` : ''}.
           </div>
           {etat.lignes.length === 0 ? (
             <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-muted)' }}>Aucun profil pour ces critères.</div>

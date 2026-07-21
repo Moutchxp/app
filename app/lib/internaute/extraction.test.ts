@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { construireFiltres, clauseStatuts, exprConsentiLe, normaliserStatuts, lireStatuts, ordreListe, STATUTS_EXPORT, FINALITE_F1, lireFiltres, versCsv, type LigneProfil } from './extraction';
+import { construireFiltres, clauseStatuts, clauseStatutsGestion, clauseCompte, lireFiltreCompte, exprConsentiLe, normaliserStatuts, lireStatuts, ordreListe, STATUTS_EXPORT, FINALITE_F1, lireFiltres, versCsv, type LigneProfil } from './extraction';
 
 describe('construireFiltres — clauses paramétrées, extensibles, anti-injection', () => {
   it('aucun filtre → aucune clause, aucun paramètre', () => {
@@ -187,6 +187,133 @@ describe('clauseStatuts — INTERSECTION de statuts (un EXISTS par statut en AND
     expect(requete).toContain("finalite = 'email_marketing'");
     expect(requete).toContain('p.score >= $1'); // filtre secondaire LIÉ (paramètre), pas interpolé
     expect(requete).not.toMatch(/\bOR\b/);
+  });
+});
+
+describe('clauseStatuts — mode ET/OU de l’EXTRACTION commerciale (défaut ET = intersection historique, byte-identique)', () => {
+  const F1 = 'recontact_interne';
+  const F2 = 'email_marketing';
+  const F3 = 'retargeting_tiers';
+
+  it('DÉFAUT (mode omis) === mode ET explicite === intersection (BYTE-IDENTIQUE → aucune régression au défaut)', () => {
+    expect(clauseStatuts([F1, F2])).toBe(clauseStatuts([F1, F2], 'et'));
+    const q = clauseStatuts([F1, F2], 'et');
+    expect(q).toContain("ca_recontact_interne.finalite = 'recontact_interne' AND ca_recontact_interne.actif = true");
+    expect(q).toContain("ca_email_marketing.finalite = 'email_marketing' AND ca_email_marketing.actif = true");
+    expect((q.match(/EXISTS \(/g) ?? [])).toHaveLength(2); // 2 EXISTS ANDés
+    expect(q).not.toContain('finalite IN');
+  });
+
+  it('mode OU (≥2) → UN SEUL EXISTS `finalite IN (...)` ; base commerciale + prédicat actif + opt-out F1 INCHANGÉS', () => {
+    const q = clauseStatuts([F1, F2], 'ou');
+    expect(q).toContain('FROM internaute_commercial i'); //                       base commerciale INCHANGÉE
+    expect(q).toContain("ca.finalite IN ('recontact_interne', 'email_marketing') AND ca.actif = true");
+    expect((q.match(/EXISTS \(/g) ?? [])).toHaveLength(1); //                     OU = un seul EXISTS
+    expect(q).toContain('i.opposition_recontact = false'); //                     opt-out F1 conservé (F1 ∈ statuts)
+    expect(q).not.toContain('internaute i'); //                                   jamais la table brute (fail-closed structurel)
+  });
+
+  it('OU sans F1 ({F2,F3}) → AUCUN opt-out opposition_recontact (propre à F1), un seul EXISTS IN', () => {
+    const q = clauseStatuts([F2, F3], 'ou');
+    expect(q).toContain("ca.finalite IN ('email_marketing', 'retargeting_tiers')");
+    expect(q).not.toContain('opposition_recontact');
+  });
+
+  it('FAIL-CLOSED inchangé dans les 2 modes : sélection VIDE → `WHERE false` (jamais toute la base)', () => {
+    expect(clauseStatuts([], 'et')).toContain('WHERE false');
+    expect(clauseStatuts([], 'ou')).toContain('WHERE false');
+  });
+
+  it('1 pastille → et == ou (le mode n’agit qu’à ≥2) ; forme intersection à un élément (pas IN)', () => {
+    expect(clauseStatuts([F2], 'et')).toBe(clauseStatuts([F2], 'ou'));
+    expect(clauseStatuts([F2], 'ou')).toContain("finalite = 'email_marketing'");
+    expect(clauseStatuts([F2], 'ou')).not.toContain('finalite IN');
+  });
+});
+
+describe('clauseStatutsGestion — GESTION : consentement = critère POSITIF (vide = sans consentement, ≥1 = OR sur finalités), FROM `internaute`', () => {
+  const F1 = 'recontact_interne';
+  const F2 = 'email_marketing';
+
+  it('VIDE → `FROM internaute i` + `WHERE efface_a IS NULL AND NOT EXISTS(consentement actif)` (« sans aucun consentement »)', () => {
+    const q = clauseStatutsGestion([]);
+    expect(q).toContain('FROM internaute i'); //                                  table brute (surface les one-shots sans consentement)
+    expect(q).toContain('i.efface_a IS NULL');
+    expect(q).toContain('NOT EXISTS (SELECT 1 FROM internaute_consentement_actif ca WHERE ca.internaute_id = i.id AND ca.actif = true)');
+    expect(q).not.toContain('WHERE false'); //                                    pas de fail-closed
+    expect(q).not.toContain('finalite IN'); //                                    aucune finalité listée quand vide
+    expect(q).not.toContain('internaute_commercial'); //                          jamais la vue commerciale
+    expect(q).not.toContain('internaute_gerable'); //                             ni la vue gérable (vestigiale)
+  });
+
+  it('≥2 statuts, mode OU → UN SEUL `EXISTS(... finalite IN (...))` = « a au moins une des cochées »', () => {
+    const q = clauseStatutsGestion([F1, F2], 'ou');
+    expect(q).toContain('FROM internaute i');
+    expect(q).toContain("EXISTS (SELECT 1 FROM internaute_consentement_actif ca WHERE ca.internaute_id = i.id AND ca.actif = true AND ca.finalite IN ('recontact_interne', 'email_marketing'))");
+    expect((q.match(/EXISTS \(/g) ?? [])).toHaveLength(1); //                     OU = un seul EXISTS
+    expect(q).not.toContain('NOT EXISTS');
+    expect(q).not.toContain('opposition_recontact'); //                          l'opt-out F1 est propre au commercial, PAS à la gestion
+  });
+
+  it('≥2 statuts, mode ET (DÉFAUT) → un EXISTS PAR finalité, ANDés = « a TOUTES les cochées »', () => {
+    const q = clauseStatutsGestion([F1, F2]); //                                 pas de mode → défaut 'et'
+    expect(q).toBe(clauseStatutsGestion([F1, F2], 'et')); //                     'et' est bien le défaut
+    expect(q).toContain("ca_recontact_interne.finalite = 'recontact_interne'");
+    expect(q).toContain("ca_email_marketing.finalite = 'email_marketing'");
+    expect((q.match(/EXISTS \(/g) ?? [])).toHaveLength(2); //                     2 EXISTS distincts, joints par AND
+    expect(q).not.toContain('finalite IN'); //                                   PAS la forme OU
+    expect(q).not.toContain('NOT EXISTS');
+  });
+
+  it('1 pastille → IDENTIQUE dans les 2 modes (le mode n’a d’effet qu’à ≥2) ; forme IN à un élément', () => {
+    expect(clauseStatutsGestion([F2], 'et')).toBe(clauseStatutsGestion([F2], 'ou')); // 1 pastille : et == ou
+    expect(clauseStatutsGestion([F2], 'et')).toContain("ca.finalite IN ('email_marketing')");
+  });
+
+  it('ordre canonique déterministe (indépendant de l’ordre d’arrivée), dans les 2 modes', () => {
+    expect(clauseStatutsGestion([F2, F1], 'et')).toBe(clauseStatutsGestion([F1, F2], 'et'));
+    expect(clauseStatutsGestion([F2, F1], 'ou')).toBe(clauseStatutsGestion([F1, F2], 'ou'));
+  });
+
+  it('un statut FORGÉ (normalisé → vide) → « sans consentement » (NOT EXISTS), jamais interpolé', () => {
+    const q = clauseStatutsGestion(["email_marketing'; DROP TABLE internaute --" as never]);
+    expect(q).toContain('NOT EXISTS (SELECT 1 FROM internaute_consentement_actif');
+    expect(q).not.toContain('DROP');
+    expect(q).not.toContain('finalite IN');
+  });
+
+  it('le prédicat « consentement actif » est CELUI de la vue commerciale (ca.actif = true), réutilisé tel quel', () => {
+    // Preuve de réutilisation du prédicat : la même sous-clause `ca.actif = true` borne le commercial ET la gestion.
+    expect(clauseStatutsGestion([]).includes('ca.actif = true')).toBe(true);
+    expect(clauseStatuts([F1]).includes('.actif = true')).toBe(true);
+  });
+});
+
+describe('clauseCompte — axe STATUT DE COMPTE, indépendant du consentement (avec / sans / indifférent)', () => {
+  it('« avec » → EXISTS(internaute_auth) corrélé sur i.id, alias `iac` (distinct de `ia` de a_un_compte)', () => {
+    const c = clauseCompte('avec');
+    expect(c).toBe('EXISTS (SELECT 1 FROM internaute_auth iac WHERE iac.internaute_id = i.id)');
+  });
+  it('« sans » → NOT EXISTS(internaute_auth) (one-shot)', () => {
+    const c = clauseCompte('sans');
+    expect(c).toBe('NOT EXISTS (SELECT 1 FROM internaute_auth iac WHERE iac.internaute_id = i.id)');
+  });
+  it('null (indifférent) → chaîne vide (aucun prédicat)', () => {
+    expect(clauseCompte(null)).toBe('');
+  });
+  it('AUCUN paramètre lié : le prédicat est un littéral (aucun $n) → ne décale pas la numérotation des filtres', () => {
+    expect(clauseCompte('avec')).not.toMatch(/\$\d/);
+    expect(clauseCompte('sans')).not.toMatch(/\$\d/);
+  });
+});
+
+describe('lireFiltreCompte — parse `compte=avec|sans`, liste blanche stricte (sinon null)', () => {
+  it('avec / sans → la valeur ; absent / vide / forgé → null (indifférent)', () => {
+    expect(lireFiltreCompte(new URLSearchParams('compte=avec'))).toBe('avec');
+    expect(lireFiltreCompte(new URLSearchParams('compte=sans'))).toBe('sans');
+    expect(lireFiltreCompte(new URLSearchParams(''))).toBeNull();
+    expect(lireFiltreCompte(new URLSearchParams('compte='))).toBeNull();
+    expect(lireFiltreCompte(new URLSearchParams("compte=avec'; DROP TABLE internaute_auth"))).toBeNull(); // forgé → écarté
   });
 });
 

@@ -40,17 +40,52 @@ function assertFinalite(f: string): void {
   if (!/^[a-z0-9_]+$/.test(f)) throw new Error(`finalité invalide (attendu [a-z0-9_]+) : ${f}`);
 }
 
-/** FROM commun COMMERCIAL — lit la VUE `internaute_commercial` (migration 044), JAMAIS la table `internaute` brute :
- *  un internaute sans consentement actif (destinataire d'un PDF, futur Commit 2) en est ABSENT PAR CONSTRUCTION. La
- *  contrainte de statut SPÉCIFIQUE (intersection F1/F2/F3) reste ajoutée en WHERE par `clauseStatuts` — la vue n'est que
- *  le plancher « ≥1 consentement actif », infranchissable même si un appelant oubliait la clause. */
-const FROM_BASE = `
-  FROM internaute_commercial i
+/** Fabrique le fragment FROM (vue + LEFT JOIN LATERAL du dernier projet) pour une VUE donnée. La vue n'apporte que le
+ *  PLANCHER de population ; la contrainte de statut SPÉCIFIQUE (intersection F1/F2/F3) reste ajoutée en WHERE par les
+ *  builders ci-dessous. Les deux vues (`internaute_commercial`, `internaute_gerable`) exposent les mêmes colonnes
+ *  (`SELECT i.*`) → le LATERAL et les alias `i`/`p` sont identiques quelle que soit la vue. */
+function fromBase(vue: string): string {
+  return `
+  FROM ${vue} i
   LEFT JOIN LATERAL (
     SELECT verdict, score, dernier_etage, residence_principale, commune_insee
     FROM internaute_projet pr WHERE pr.internaute_id = i.id ORDER BY pr.cree_a DESC LIMIT 1
   ) p ON true
 `;
+}
+
+/** FROM COMMERCIAL — lit la VUE `internaute_commercial` (migration 044), JAMAIS la table `internaute` brute : un
+ *  internaute sans consentement actif (destinataire d'un PDF) en est ABSENT PAR CONSTRUCTION. Base de l'EXTRACTION
+ *  (export/comptage/communes) ET du chemin de gestion consent-filtré. Le plancher « ≥1 consentement actif » est
+ *  infranchissable même si un appelant oubliait la clause. */
+const FROM_BASE = fromBase('internaute_commercial');
+
+/** FROM GESTION — lit la table `internaute` BRUTE (non effacés), RÉSERVÉ à la LISTE DE GESTION admin
+ *  (`clauseStatutsGestion`), JAMAIS aux extractions commerciales. La gestion doit pouvoir SURFACER tout internaute non
+ *  effacé — y compris les « one-shots sans consentement » (ni compte, ni consentement actif), que la vue
+ *  `internaute_gerable` (consentement OU compte) exclurait. L'étanchéité RGPD reste portée par les prédicats EXPLICITES
+ *  de `clauseStatutsGestion` (axe consentement) + `clauseCompte` (axe compte), et par le fait que les 4 EXTRACTIONS
+ *  commerciales restent, elles, sur `internaute_commercial`. (La vue `internaute_gerable` / migration 046 n'est donc plus
+ *  référencée par le code — vestigiale.) */
+const FROM_GESTION = fromBase('internaute');
+
+/** WHERE de l'INTERSECTION de consentement (statuts NON vides, déjà normalisés) : un `EXISTS(finalité active)` par
+ *  statut joint en AND (jamais un OR), `opposition_recontact=false` ssi F1 ∈ statuts, `efface_a IS NULL` commun. Partagé
+ *  MOT POUR MOT par le chemin commercial (`clauseStatuts`) et le chemin gestion filtré (`clauseStatutsGestion`) → le
+ *  filtre « a tel consentement » a EXACTEMENT le même sens des deux côtés. Finalités re-validées `[a-z0-9_]+` avant interpolation. */
+function whereIntersection(statuts: readonly CleFinalite[]): string {
+  const opposition = statuts.includes(FINALITE_F1) ? 'i.opposition_recontact = false\n    AND ' : '';
+  const exists = statuts
+    .map((s) => {
+      assertFinalite(s);
+      const a = `ca_${s}`;
+      return `EXISTS (SELECT 1 FROM internaute_consentement_actif ${a} WHERE ${a}.internaute_id = i.id AND ${a}.finalite = '${s}' AND ${a}.actif = true)`;
+    })
+    .join('\n    AND ');
+  return `WHERE ${opposition}i.efface_a IS NULL
+    AND ${exists}
+`;
+}
 
 /**
  * Fragment FROM/WHERE de l'INVARIANT DE CONSENTEMENT pour un ENSEMBLE de statuts (INTERSECTION = AND). PUR : ne fait
@@ -68,20 +103,105 @@ const FROM_BASE = `
  * Défense en profondeur : chaque finalité est re-validée `[a-z0-9_]+` (`assertFinalite`) avant interpolation → toute
  * injection SQL est structurellement impossible même si un appelant contournait le typage/`normaliserStatuts`.
  */
-export function clauseStatuts(statutsBruts: readonly CleFinalite[]): string {
-  const statuts = normaliserStatuts(statutsBruts);
-  if (statuts.length === 0) return `${FROM_BASE}  WHERE false\n`; // fail-closed : sélection vide → matche RIEN
+/** WHERE « a AU MOINS UNE des finalités cochées » (mode OU de l'extraction commerciale) — un seul EXISTS `finalite IN (...)`.
+ *  RÉUTILISE le MÊME prédicat « actif » (`ca.actif = true`) et le MÊME opt-out F1 (`opposition_recontact = false` ssi
+ *  F1 ∈ statuts) que `whereIntersection` : seule la COMBINAISON change (OR au lieu du AND-par-finalité). Suppose `statuts`
+ *  non vide, déjà normalisé (l'appelant valide). Toujours ⊆ base des consentants (`FROM internaute_commercial`). */
+function whereAuMoinsUne(statuts: readonly CleFinalite[]): string {
   const opposition = statuts.includes(FINALITE_F1) ? 'i.opposition_recontact = false\n    AND ' : '';
-  const exists = statuts
-    .map((s) => {
-      assertFinalite(s);
-      const a = `ca_${s}`;
-      return `EXISTS (SELECT 1 FROM internaute_consentement_actif ${a} WHERE ${a}.internaute_id = i.id AND ${a}.finalite = '${s}' AND ${a}.actif = true)`;
-    })
-    .join('\n    AND ');
-  return `${FROM_BASE}  WHERE ${opposition}i.efface_a IS NULL
+  statuts.forEach(assertFinalite);
+  const exists = `EXISTS (SELECT 1 FROM internaute_consentement_actif ca WHERE ca.internaute_id = i.id AND ca.finalite IN (${statuts.map((s) => `'${s}'`).join(', ')}) AND ca.actif = true)`;
+  return `WHERE ${opposition}i.efface_a IS NULL
     AND ${exists}
 `;
+}
+
+export function clauseStatuts(statutsBruts: readonly CleFinalite[], mode: ModeConsentement = 'et'): string {
+  const statuts = normaliserStatuts(statutsBruts);
+  if (statuts.length === 0) return `${FROM_BASE}  WHERE false\n`; // fail-closed RGPD : sélection vide → matche RIEN (JAMAIS toute la base)
+  // 'et' (DÉFAUT) = intersection existante (BYTE-IDENTIQUE). 'ou' à ≥2 = au moins une. À 0/1 pastille, `whereIntersection`
+  // dans les DEUX modes → défaut inchangé ET « 1 pastille : et == ou » garantis (le mode n'agit qu'à ≥2 pastilles).
+  const w = mode === 'ou' && statuts.length >= 2 ? whereAuMoinsUne(statuts) : whereIntersection(statuts);
+  return `${FROM_BASE}  ${w}`;
+}
+
+/**
+ * Mode de combinaison des pastilles de consentement COCHÉES (n'a d'effet qu'à ≥2 pastilles) :
+ *  - `'ou'` : « a AU MOINS UNE des finalités cochées » (un seul EXISTS, `finalite IN (...)`) ;
+ *  - `'et'` (DÉFAUT) : « a TOUTES les finalités cochées » (un EXISTS par finalité, tous ANDés).
+ * Ne s'applique QU'AUX pastilles cochées : 0 pastille (« sans consentement ») et 1 pastille sont IDENTIQUES dans les 2 modes.
+ */
+export type ModeConsentement = 'et' | 'ou';
+
+/**
+ * Fragment FROM/WHERE de la LISTE DE GESTION admin (`lireProfilsFiltres`). Lit la table `internaute` (non effacés) et
+ * porte l'AXE CONSENTEMENT, à croiser (ET) avec l'axe compte (`clauseCompte`) et les filtres secondaires côté repo.
+ *
+ * SÉMANTIQUE (spec figée — le consentement est un critère POSITIF, jamais « indifférent ») :
+ *  - AUCUNE pastille (`statuts` vide) → `NOT EXISTS(consentement actif)` : « n'a AUCUN consentement actif ». C'est le
+ *    prédicat de `internaute_commercial` (migration 044) EXACTEMENT, mais NIÉ. Surface aussi les « one-shots sans
+ *    consentement » (ni compte, ni consentement) — d'où le FROM `internaute` brut (la vue `internaute_gerable` les excluait).
+ *  - ≥1 pastille, `mode` :
+ *      • `'ou'`         → `EXISTS(consentement actif ET finalite IN (:statuts))` : au moins une des finalités cochées ;
+ *      • `'et'` (défaut, effet à ≥2) → un `EXISTS(finalité active)` PAR finalité, tous ANDés : TOUTES les cochées, chacune
+ *        active (même prédicat « actif » = `ca.actif = true`). À 1 seule pastille, `'et'` retombe sur la forme `IN`
+ *        (identique à `'ou'`) : le mode n'a d'effet qu'à partir de 2 pastilles.
+ *
+ * ⚠️ RÉSERVÉ à la gestion (admin, `lireProfilsFiltres`). NE JAMAIS brancher sur un export/comptage/ciblage : ceux-là
+ * restent sur `clauseStatuts` (`internaute_commercial`, consentants-only, fail-closed). Finalités re-validées `[a-z0-9_]+`
+ * (`assertFinalite`) avant interpolation → aucune injection possible (les finalités sont des littéraux de type fermé).
+ */
+export function clauseStatutsGestion(statutsBruts: readonly CleFinalite[], mode: ModeConsentement = 'et'): string {
+  const statuts = normaliserStatuts(statutsBruts);
+  statuts.forEach(assertFinalite); // défense en profondeur avant interpolation (no-op si vide)
+  let predicatConsentement: string;
+  if (statuts.length === 0) {
+    predicatConsentement = `NOT EXISTS (SELECT 1 FROM internaute_consentement_actif ca WHERE ca.internaute_id = i.id AND ca.actif = true)`;
+  } else if (mode === 'et' && statuts.length >= 2) {
+    // ET : une finalité par EXISTS (alias distinct `ca_<finalité>`), TOUS ANDés → l'internaute a TOUTES les cochées, actives.
+    predicatConsentement = statuts
+      .map((s) => {
+        const a = `ca_${s}`;
+        return `EXISTS (SELECT 1 FROM internaute_consentement_actif ${a} WHERE ${a}.internaute_id = i.id AND ${a}.actif = true AND ${a}.finalite = '${s}')`;
+      })
+      .join('\n    AND ');
+  } else {
+    // OU (défaut à 1 pastille, ou 'ou' explicite) : un seul EXISTS `finalite IN (...)` → au moins une des cochées.
+    predicatConsentement = `EXISTS (SELECT 1 FROM internaute_consentement_actif ca WHERE ca.internaute_id = i.id AND ca.actif = true AND ca.finalite IN (${statuts.map((s) => `'${s}'`).join(', ')}))`;
+  }
+  return `${FROM_GESTION}  WHERE i.efface_a IS NULL
+    AND ${predicatConsentement}
+`;
+}
+
+/**
+ * Axe « STATUT DE COMPTE » de la liste de gestion — INDÉPENDANT des consentements F1/F2/F3 (qui filtrent le CONSENTEMENT ;
+ * celui-ci filtre la POSSESSION D'UN COMPTE). `'avec'` = titulaire (EXISTS `internaute_auth`), `'sans'` = one-shot
+ * (NOT EXISTS), `null` = indifférent. Combinable avec les statuts de consentement (ex. `'avec'` + F2 = les comptes ayant
+ * aussi F2 actif). ⚠️ RÉSERVÉ à la LISTE DE GESTION (`lireProfilsFiltres`) : JAMAIS branché sur les extractions
+ * commerciales (elles restent consentants-only sur `internaute_commercial`).
+ */
+export type FiltreCompte = 'avec' | 'sans' | null;
+
+/** Prédicat SQL de l'axe compte, à ANDer aux clauses de la liste. AUCUN paramètre lié (littéral corrélé sur `i.id`) → ne
+ *  décale JAMAIS la numérotation `$1..$n` des filtres. `''` si indifférent. Alias `iac` distinct de la colonne `a_un_compte` (`ia`). */
+export function clauseCompte(fc: FiltreCompte): string {
+  if (fc === 'avec') return 'EXISTS (SELECT 1 FROM internaute_auth iac WHERE iac.internaute_id = i.id)';
+  if (fc === 'sans') return 'NOT EXISTS (SELECT 1 FROM internaute_auth iac WHERE iac.internaute_id = i.id)';
+  return '';
+}
+
+/** Parse l'axe compte depuis les query params (`compte=avec|sans`) ; toute autre valeur (absente, vide, forgée) → `null`
+ *  (indifférent). Liste blanche stricte → aucune interpolation d'entrée utilisateur (le prédicat est un littéral fermé). */
+export function lireFiltreCompte(params: URLSearchParams): FiltreCompte {
+  const v = params.get('compte');
+  return v === 'avec' || v === 'sans' ? v : null;
+}
+
+/** Parse le mode de combinaison des pastilles (`modeConsentement=et|ou`) ; DÉFAUT `'et'`. Liste blanche stricte :
+ *  seule la valeur `'ou'` bascule ; toute autre (absente, vide, forgée) → `'et'`. */
+export function lireModeConsentement(params: URLSearchParams): ModeConsentement {
+  return params.get('modeConsentement') === 'ou' ? 'ou' : 'et';
 }
 
 /**

@@ -13,7 +13,7 @@ import 'server-only';
  * (extraction.ts, pur & testable), partagé par le comptage, la liste et l'export.
  */
 import { query } from '../db/client';
-import { construireFiltres, clauseStatuts, exprConsentiLe, normaliserStatuts, ordreListe, FINALITE_F1, versCsv, versCsvPreuveDesabo, type FiltresExtraction, type LigneProfil, type LignePreuveDesabo } from './extraction';
+import { construireFiltres, clauseStatuts, clauseStatutsGestion, clauseCompte, exprConsentiLe, normaliserStatuts, ordreListe, FINALITE_F1, versCsv, versCsvPreuveDesabo, type FiltresExtraction, type FiltreCompte, type ModeConsentement, type LigneProfil, type LignePreuveDesabo } from './extraction';
 import type { CleFinalite } from './textesConsentement';
 
 // L'invariant de consentement (FROM/WHERE, INTERSECTION de statuts) est construit par `clauseStatuts` (extraction.ts,
@@ -35,19 +35,33 @@ function coercerLigne(r: LigneProfil): LigneProfil {
   return { ...r, score: r.score == null ? null : Number(r.score) };
 }
 
-/** Page de profils = INTERSECTION des statuts cochés (tous actifs) ∩ filtres, + total. Lecture seule.
- *  GARDE FAIL-CLOSED : `statuts` vide (après normalisation) → `{ total: 0, lignes: [] }` SANS requête (jamais toute la base). */
+/**
+ * Page de profils de la LISTE DE GESTION admin — lecture seule. ⚠️ GESTION, PAS EXTRACTION : lit la table `internaute`
+ * (non effacés) via `clauseStatutsGestion` (jamais `internaute_commercial`). Les extractions commerciales
+ * (`lireProfilsExport`/`compterProfils`/`lireBornesDates`/`lireCommunesPresentes`) gardent, elles, `internaute_commercial`.
+ *
+ * DEUX AXES DE FILTRE INDÉPENDANTS, croisés (ET) :
+ *  - CONSENTEMENT (`statuts`, F1/F2/F3, + `modeConsentement`) — critère POSITIF : VIDE = « n'a AUCUN consentement actif »
+ *    (`NOT EXISTS`) ; ≥1 = selon `modeConsentement` : `'ou'` = « au moins une des cochées », `'et'` (défaut, effet à ≥2)
+ *    = « TOUTES les cochées ». Jamais « indifférent ».
+ *  - COMPTE (`filtreCompte`, `clauseCompte`) : `'avec'` = titulaires, `'sans'` = one-shot, `null` = indifférent.
+ *
+ * PLUS DE GARDE « aucun critère → rien » : `statuts` vide n'est plus « rien » mais un filtre à part entière (« sans
+ * consentement »). Toute combinaison est une requête légitime. `a_un_compte` (`EXISTS internaute_auth`) = capsule « Compte / One-shot ».
+ */
 export async function lireProfilsFiltres(
   filtres: FiltresExtraction,
   page: number,
   taille: number,
   statuts: readonly CleFinalite[],
+  filtreCompte: FiltreCompte = null,
+  modeConsentement: ModeConsentement = 'et',
 ): Promise<{ total: number; lignes: LigneProfil[] }> {
-  if (normaliserStatuts(statuts).length === 0) return { total: 0, lignes: [] };
   const { clauses, params } = construireFiltres(filtres);
-  const where = clauseWhere(clauses);
-  const from = clauseStatuts(statuts);
-  const consenti = exprConsentiLe(statuts);
+  const predicatCompte = clauseCompte(filtreCompte); // axe compte, INDÉPENDANT des consentements ; '' si indifférent
+  const where = clauseWhere(predicatCompte ? [...clauses, predicatCompte] : clauses);
+  const from = clauseStatutsGestion(statuts, modeConsentement); // GESTION : table `internaute` + axe consentement (ET/OU)
+  const consenti = exprConsentiLe(statuts); // statuts vide → NULL::timestamptz (un sans-consentement n'a pas de date de référence)
 
   const total = await query<{ n: string }>(`SELECT count(*)::text AS n ${from}${where}`, params);
 
@@ -56,8 +70,8 @@ export async function lireProfilsFiltres(
     `SELECT i.id, i.prenom, i.nom, i.email, i.telephone, i.cree_a,
             p.verdict, p.score, p.commune_insee, p.dernier_etage, p.residence_principale,
             ${consenti} AS consenti_le,
-            -- Capsule « Compte / One-shot » : titulaire d'un credential ? Axe DIFFÉRENT du consentement (F1/F2/F3).
-            -- Colonne ajoutée SANS toucher le FROM/WHERE (intersection des statuts) ni la vue internaute_commercial.
+            -- Capsule « Compte / One-shot » : titulaire d'un credential ? Axe DIFFERENT du consentement (F1/F2/F3).
+            -- Distingue a l'oeil les titulaires (Compte) des non-titulaires (One-shot) listes cote a cote.
             EXISTS (SELECT 1 FROM internaute_auth ia WHERE ia.internaute_id = i.id) AS a_un_compte
      ${from}${where}
      ${ordreListe(filtres)}
@@ -67,15 +81,16 @@ export async function lireProfilsFiltres(
   return { total: Number(total.rows[0]?.n ?? 0), lignes: lignes.rows.map(coercerLigne) };
 }
 
-/** Toutes les lignes de l'INTERSECTION des statuts ∩ filtres (sans pagination), pour l'export CSV. Fail-closed si vide. */
-export async function lireProfilsExport(filtres: FiltresExtraction, statuts: readonly CleFinalite[]): Promise<LigneProfil[]> {
+/** Toutes les lignes des statuts (combinés par `mode` : 'et' défaut = intersection, 'ou' = au moins une) ∩ filtres, sans
+ *  pagination, pour l'export CSV. Fail-closed si vide (base commerciale INCHANGÉE). */
+export async function lireProfilsExport(filtres: FiltresExtraction, statuts: readonly CleFinalite[], mode: ModeConsentement = 'et'): Promise<LigneProfil[]> {
   if (normaliserStatuts(statuts).length === 0) return [];
   const { clauses, params } = construireFiltres(filtres);
   const r = await query<LigneProfil>(
     `SELECT i.id, i.prenom, i.nom, i.email, i.telephone, i.cree_a,
             p.verdict, p.score, p.commune_insee, p.dernier_etage, p.residence_principale,
             ${exprConsentiLe(statuts)} AS consenti_le
-     ${clauseStatuts(statuts)}${clauseWhere(clauses)}
+     ${clauseStatuts(statuts, mode)}${clauseWhere(clauses)}
      ${ordreListe(filtres)}`,
     params,
   );
@@ -90,11 +105,11 @@ export async function lireProfilsExport(filtres: FiltresExtraction, statuts: rea
  * défense en profondeur = le `WHERE false` de `clauseStatuts([])`. JAMAIS `FROM internaute` brut — la base commerciale
  * est la VUE `internaute_commercial` (migration 044), qui exclut PAR CONSTRUCTION tout internaute sans consentement actif. Lecture seule.
  */
-export async function compterProfils(filtres: FiltresExtraction, statuts: readonly CleFinalite[]): Promise<number> {
+export async function compterProfils(filtres: FiltresExtraction, statuts: readonly CleFinalite[], mode: ModeConsentement = 'et'): Promise<number> {
   if (normaliserStatuts(statuts).length === 0) return 0; // fail-closed : aucune requête sans contrainte de finalité
   const { clauses, params } = construireFiltres(filtres);
   const r = await query<{ n: string }>(
-    `SELECT count(*)::text AS n ${clauseStatuts(statuts)}${clauseWhere(clauses)}`,
+    `SELECT count(*)::text AS n ${clauseStatuts(statuts, mode)}${clauseWhere(clauses)}`, // MÊME `mode` que l'export → compteur d'accord
     params,
   );
   return Number(r.rows[0]?.n ?? 0);

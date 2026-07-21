@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { lireFiltres, lireStatuts } from '../../../../../lib/internaute/extraction';
+import { lireFiltres, lireStatuts, lireModeConsentement } from '../../../../../lib/internaute/extraction';
 import { compterProfils } from '../../../../../lib/internaute/extractionRepo';
 
 /**
@@ -27,9 +27,10 @@ export async function GET(request: Request): Promise<Response> {
 
     const url = new URL(request.url);
     const filtres = lireFiltres(url.searchParams); // `q` éventuel ignoré côté compteur (aligné export) : le front ne l'envoie pas
-    const statuts = lireStatuts(url.searchParams); // intersection des statuts ; vide → compterProfils renvoie 0 (fail-closed)
+    const statuts = lireStatuts(url.searchParams); // statuts cochés ; vide → compterProfils renvoie 0 (fail-closed)
+    const modeConsentement = lireModeConsentement(url.searchParams); // MÊME mode que l'export → compteur d'accord avec l'export
 
-    const total = await compterProfils(filtres, statuts);
+    const total = await compterProfils(filtres, statuts, modeConsentement);
     return Response.json({ total });
   } catch {
     return Response.json({ erreur: 'compteur indisponible' }, { status: 503 });
