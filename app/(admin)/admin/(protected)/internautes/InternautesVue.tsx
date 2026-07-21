@@ -19,6 +19,16 @@ import { CapsuleCompte } from './CapsuleCompte';
 const CSS = `
 .svv-int :is(button,input,select,a):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .svv-int :is(button,input,select,a){min-height:44px}
+/* DÉTAIL déplié du bloc Vérification : fond BLANC (#fff — aucun token « blanc » n'existe ; c'est le blanc déjà employé
+   par champ/btnOutline) pour le DÉTACHER nettement des lignes grises (fond --color-svv-field). Les boutons du détail
+   (Voir/Masquer/Tester, en btnOutline BLANC) passent en GRIS CLAIR (--color-svv-field) via !important — nécessaire pour
+   battre le style INLINE de btnOutline — afin de CONTRASTER avec ce fond blanc ; leur bordure grise (--color-svv-line) reste. */
+.svv-detail-verif{background:#fff}
+.svv-detail-verif :is(button){background:var(--color-svv-field)!important}
+/* Champ « Rechercher par nom ou prénom » : placeholder atténué mais LISIBLE (texte secondaire --color-svv-muted) sur le
+   fond gris ; opacity:1 pour contrer l'atténuation par défaut de certains navigateurs. Le fond gris + le texte encre sont
+   posés en inline (via champ + override background), le focus rouge vient de la règle :focus-visible ci-dessus. */
+.svv-recherche::placeholder{color:var(--color-svv-muted);opacity:1}
 /* Grille COMMUNE aux 2 rangées de filtres : mêmes colonnes → largeurs identiques + alignement vertical strict
    (Résidence sous Commune, Créé après sous Score min, …). Responsive : le nombre de colonnes se réduit par paliers,
    les 2 rangées se réagencent ENSEMBLE (jamais de largeurs ad hoc). Mise en page seule. */
@@ -1150,11 +1160,14 @@ export function InternautesVue() {
         </label>
         <input
           type="search"
+          className="svv-recherche"
           value={q}
           onChange={(e) => { setQ(e.target.value); setDernierMoteur('gestion'); }}
           placeholder="Rechercher par nom ou prénom"
           aria-label="Rechercher par nom ou prénom"
-          style={{ ...champ, minHeight: 44 }}
+          // Fond gris (surface --color-svv-field) — texte saisi encre (de `champ`) bien contrasté ; placeholder atténué
+          // LISIBLE (--color-svv-muted, via `.svv-recherche::placeholder`). Bordure grise + focus rouge : inchangés (`champ`/.svv-int).
+          style={{ ...champ, minHeight: 44, background: 'var(--color-svv-field)' }}
         />
       </div>
 
@@ -1571,23 +1584,28 @@ function FicheDetail({ detail, actions, actionsProjet, soumettreRetrait, retrait
               // Analyse = ligne compacte + (si dépliée) son détail JUSTE SOUS, DANS le conteneur scrollable → le plafond
               // 5 lignes ne change pas, le scroll absorbe. Plusieurs analyses peuvent être dépliées simultanément.
               <div key={cle} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: '6px 10px' }}>
-                  <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)', fontSize: '.85rem' }}>{verdictFr(p.verdict)}</span>
-                  <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
-                  <span style={{ color: 'var(--color-svv-ink)', fontSize: '.85rem', fontVariantNumeric: 'tabular-nums' }}>
-                    {note == null ? '—' : `${Math.round(note)}/100`}{lib ? ` · ${lib}` : ''}
-                  </span>
-                  <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
-                  <span style={{ color: 'var(--color-svv-muted)', fontSize: '.78rem' }}>{dateHeureFr(p.cree_a)}</span>
-                  <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
-                  {/* Statut RÉEL de l'envoi (certificat_acheminement.statut, source de vérité). Le flag
-                      internaute_projet.certificat_envoye est VESTIGIAL (posé avant l'acte, jamais en CAS 2) → n'alimente
-                      plus l'affichage (cf. migration 041). « Aucun certificat » = neutre, pas une erreur. */}
-                  <span style={{ fontSize: '.78rem', fontWeight: 700, color: sCert.couleur }}>{sCert.texte}</span>
-                  {/* Actions À DROITE (marginLeft:auto) : « Voir » (déplie CETTE analyse) À GAUCHE de « Tester ». Le bouton
-                      Test (`actionsProjet`) rejoue CETTE analyse (`p`) et n'est fourni QUE si `actionsProjet` est passée
-                      (les 2 fiches la fournissent, jamais `actions` côté Vérification). « Voir » est toujours présent. */}
-                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+                {/* Gabarit UNIFORME : texte sur 2 lignes empilées à GAUCHE, boutons centrés À DROITE (jamais repoussés
+                    dessous). `align-items:center` + `justify-content:space-between`, PAS de `flex-wrap`. Couleurs inchangées. */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: '6px 10px' }}>
+                  <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {/* Ligne 1 : verdict · note/100 (+ libellé) · date-heure — MÊMES couleurs (ink / line / muted) qu'avant. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)', fontSize: '.85rem' }}>{verdictFr(p.verdict)}</span>
+                      <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
+                      <span style={{ color: 'var(--color-svv-ink)', fontSize: '.85rem', fontVariantNumeric: 'tabular-nums' }}>
+                        {note == null ? '—' : `${Math.round(note)}/100`}{lib ? ` · ${lib}` : ''}
+                      </span>
+                      <span aria-hidden style={{ color: 'var(--color-svv-line)' }}>·</span>
+                      <span style={{ color: 'var(--color-svv-muted)', fontSize: '.78rem' }}>{dateHeureFr(p.cree_a)}</span>
+                    </div>
+                    {/* Ligne 2 : SAVV-… + « Certificat envoyé le … » (vert) ou « Aucun certificat » (discret). Statut RÉEL
+                        (certificat_acheminement.statut) ; le flag `certificat_envoye` reste VESTIGIAL (migration 041).
+                        Couleur = `sCert.couleur` EXACTEMENT comme avant. */}
+                    <span style={{ fontSize: '.78rem', fontWeight: 700, color: sCert.couleur }}>{sCert.texte}</span>
+                  </div>
+                  {/* Actions À DROITE, centrées verticalement (align-items:center du parent), `flex-shrink:0` → jamais
+                      repoussées dessous. « Voir » (déplie CETTE analyse) puis « Tester » (`actionsProjet`, si fournie). */}
+                  <div style={{ flexShrink: 0, display: 'flex', gap: 6, alignItems: 'center' }}>
                     <button
                       type="button"
                       onClick={() => basculerAnalyse(cle)}
@@ -1720,7 +1738,7 @@ function PanneauVerification() {
                   <span aria-hidden style={{ color: 'var(--color-svv-muted)' }}>{ouvert === r.id ? '▲' : '▼'}</span>
                 </button>
                 {ouvert === r.id && (
-                  <div style={{ borderTop: '1px solid var(--color-svv-line)', padding: 12, background: 'var(--color-svv-field)' }}>
+                  <div className="svv-detail-verif" style={{ borderTop: '1px solid var(--color-svv-line)', padding: 12 }}>
                     {detailChargement && <div style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
                     {/* Vérification = LECTURE SEULE : on fournit `actionsProjet` (bouton Test) mais JAMAIS `actions`
                         (Rectifier/Effacer) → aucune action destructive ne fuite dans le panneau de contrôle. */}
