@@ -15,7 +15,7 @@ import type { Orientation } from "./lib/svv/config";
 import type { LibelleScore } from "./lib/svv/scoreTotal";
 import { finalitesActivesTunnel, type CleFinalite } from "./lib/internaute/textesConsentement";
 import { ChoixOffre } from "./ChoixOffre";
-import { orchestrerIllimite, LONGUEUR_MIN_MDP } from "./lib/tunnel/choixOffre";
+import { orchestrerIllimite, boutonEnvoiActif, LONGUEUR_MIN_MDP } from "./lib/tunnel/choixOffre";
 import { PhoneInput } from "react-international-phone";
 import "react-international-phone/style.css";
 import { getActiveFormattingMask } from "react-international-phone";
@@ -812,6 +812,10 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // sur « Votre demande est enregistrée® », on propose de réessayer.
   const [envoiEnCours, setEnvoiEnCours] = useState(false);
   const [erreurEmission, setErreurEmission] = useState<string | null>(null);
+  // REFONTE parcours de fin : ÉCRAN 1 « Validez vos coordonnées d'envoi » → ÉCRAN 2 « Comment souhaitez-vous continuer ? ».
+  const [coordsValidees, setCoordsValidees] = useState(false); // ÉCRAN 1 validé → ÉCRAN 2 (choix). false = écran 1.
+  const [motDePasse2, setMotDePasse2] = useState(""); // confirmation du mot de passe (double saisie, chemin illimité)
+  const [mdpVisible, setMdpVisible] = useState(true); // saisie VISIBLE par défaut, option « masquer »
 
   const emailValide = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   // Champs REQUIS manquants/invalides — MÊME règle que l'ancien `estValide` (aucun champ requis ajouté ni retiré),
@@ -1045,6 +1049,21 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     // l'émission (confirme si envoyé, erreurEmission sinon). 'mot_de_passe_invalide' → correction (ou repli « sans compte »).
   };
 
+  // ÉCRAN 1 — « Valider mes coordonnées » : l'e-mail/tél/F2 sont dans l'état (bindés aux champs) et seront persistés à
+  // l'ÉMISSION via la complétion (recevoirCertificat) — inchangé. Aujourd'hui ça passe DIRECT à l'écran de choix.
+  // ⚠️ POINT D'ACCROCHE — la future vérification SMS du téléphone s'insérera ICI (avant `setCoordsValidees`).
+  const onValiderCoordonnees = () => {
+    setErreurEmission(null);
+    setCoordsValidees(true);
+  };
+
+  // ÉCRAN 2 — « Envoyer mon certificat » : aiguille vers l'émission EXISTANTE. Côté unique → émission directe (attendue) ;
+  // côté illimité → création du compte AVANT l'émission (invariants inchangés : PDF pour tous + attente d'envoi).
+  const envoyerCertificat = () => {
+    if (choix === "unique") void recevoirCertificat();
+    else if (choix === "illimite") void validerIllimite();
+  };
+
   // Handler téléphone PARTAGÉ (formulaire + écran de vérification) : normalise en E.164. Extrait pour être réutilisé
   // par les deux PhoneInput sans dupliquer la logique.
   const onPhoneChange = (phone: string, meta?: { country?: { dialCode?: string | number; iso2?: string } }) => {
@@ -1172,120 +1191,28 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     );
   }
 
-  // D1 — ÉCRAN DE CHOIX (juste après l'enregistrement) : Test unique vs Test illimité. AUCUN consentement ici. Les DEUX
-  // issues délivrent le certificat par e-mail (PDF pour tous) : on force un CHOIX d'offre, jamais un consentement.
-  if (soumis && choix === null) {
-    return (
-      <div className="pb-10">
-        <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
-          <div className="flex items-center gap-3">
-            <SceauCertifie className="h-9 w-auto shrink-0 text-white" />
-            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Votre demande est enregistrée®</h1>
-          </div>
-        </div>
-        <ChoixOffre
-          onUnique={() => { mesure("choix_test_unique"); setChoix("unique"); }}
-          onIllimite={() => { mesure("choix_test_illimite"); setChoix("illimite"); }}
-        />
-        <button type="button" onClick={onRetour} className="svv-btn svv-btn-outline mt-6">Retour</button>
-      </div>
-    );
-  }
-
-  // D1 — SOUS-ÉCRAN « TEST ILLIMITÉ » : validation des coordonnées DÉJÀ SAISIES + mot de passe → création de compte
-  // (route Commit B) AVANT émission. AUCUN consentement. « Revenir au choix » permet de repartir vers l'autre offre.
-  if (soumis && choix === "illimite") {
-    const motDePasseValide = motDePasse.length >= LONGUEUR_MIN_MDP;
-    return (
-      <div className="pb-10">
-        <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
-          <div className="flex items-center gap-3">
-            <SceauCertifie className="h-9 w-auto shrink-0 text-white" />
-            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Créez votre compte</h1>
-          </div>
-        </div>
-        <p className="text-sm text-svv-ink">
-          Vérifiez vos coordonnées et choisissez un mot de passe. Votre compte donne accès à vos analyses et à la
-          vérification en ligne de vos certificats. Votre certificat vous sera ensuite envoyé par e-mail.
-        </p>
-
-        <label className="mb-1 mt-4 block text-sm font-semibold text-svv-ink">Email (identifiant de connexion)</label>
-        <div className="w-full rounded-xl border border-svv-line bg-svv-field p-3 text-base text-svv-ink break-words">{email.trim() || "—"}</div>
-        <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone</label>
-        <div className="w-full rounded-xl border border-svv-line bg-svv-field p-3 text-base text-svv-ink break-words">{telephone || "—"}</div>
-
-        <label htmlFor="mdp-illimite" className="mb-1 mt-4 block text-sm font-semibold text-svv-ink">
-          Mot de passe <span className="font-normal text-svv-muted">(au moins {LONGUEUR_MIN_MDP} caractères)</span>
-        </label>
-        <input
-          id="mdp-illimite"
-          type="password"
-          autoComplete="new-password"
-          value={motDePasse}
-          onChange={(e) => setMotDePasse(e.target.value)}
-          className={`w-full rounded-xl ${motDePasse !== "" && !motDePasseValide ? "border-2 border-svv-red" : "border border-svv-line"} bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none`}
-          placeholder="Votre mot de passe"
-        />
-        {erreurCompte && <p role="alert" className="mt-2 text-sm font-semibold text-svv-red">{erreurCompte}</p>}
-        {erreurEmission && <p role="alert" className="mt-2 text-sm font-semibold text-svv-red">{erreurEmission}</p>}
-
-        <button
-          type="button"
-          onClick={() => void validerIllimite()}
-          disabled={creationCompteEnCours || envoiEnCours || !motDePasseValide}
-          className={`svv-btn svv-btn-primary mt-6 ${creationCompteEnCours || envoiEnCours || !motDePasseValide ? "opacity-50" : ""}`}
-        >
-          {creationCompteEnCours ? "Création…" : envoiEnCours ? "Envoi en cours…" : erreurEmission ? "Réessayer" : "Créer mon compte et recevoir mon certificat"}
-        </button>
-        {/* PDF POUR TOUS : un compte refusé (mot de passe, etc.) ne doit JAMAIS priver l'internaute de son certificat.
-            Repli en un clic vers l'envoi SANS compte (émission attendue, comme le chemin unique). */}
-        {erreurCompte && (
-          <button
-            type="button"
-            onClick={() => void recevoirCertificat()}
-            disabled={envoiEnCours}
-            className={`svv-btn svv-btn-outline mt-3 ${envoiEnCours ? "opacity-50" : ""}`}
-          >
-            {envoiEnCours ? "Envoi en cours…" : "Recevoir mon certificat sans créer de compte"}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => { setErreurCompte(null); setErreurEmission(null); setChoix(null); }}
-          className="svv-btn svv-btn-outline mt-3"
-        >
-          Revenir au choix
-        </button>
-      </div>
-    );
-  }
-
-  // Écran de VÉRIFICATION D'IDENTITÉ — chemin « TEST UNIQUE » (choix === 'unique'), flux one-shot EXISTANT INCHANGÉ : la
-  // demande est enregistrée ; dernière chance de corriger email/téléphone avant préparation du certificat. Champs
-  // modifiables SI un jeton a été délivré (dossier fraîchement créé), sinon en lecture seule (email pré-existant).
-  if (soumis) {
+  // REFONTE — ÉCRAN 1 « Validez vos coordonnées d'envoi » : le certificat part à l'e-mail affiché (MODIFIABLE si un jeton a
+  // été délivré). F2 DÉCOCHÉE par défaut. PAS de mot de passe, PAS de mention SMS (vérif tél non branchée). « Valider mes
+  // coordonnées » → ÉCRAN 2. Les valeurs (email/tél/F2) restent dans l'état et sont persistées à l'ÉMISSION (complétion).
+  if (soumis && !coordsValidees) {
     const modifiable = jetonRectif !== null;
     return (
       <div className="pb-10">
         <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
           <div className="flex items-center gap-3">
             <SceauCertifie className="h-9 w-auto shrink-0 text-white" />
-            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Votre demande est enregistrée®</h1>
+            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Validez vos coordonnées d’envoi</h1>
           </div>
         </div>
-
-        <p className="text-xl font-extrabold leading-snug text-svv-ink">
-          Votre certificat est prêt à être envoyé à cette adresse
-        </p>
         <p className="mt-3 rounded-xl bg-svv-field p-4 text-sm text-svv-ink">
-          Sans coordonnées exactes, votre certificat ne pourra pas vous parvenir.
-          {modifiable ? " Vérifiez et corrigez si besoin votre email et votre téléphone ci-dessous." : " Vérifiez vos coordonnées ci-dessous."}
+          Votre certificat Sans&nbsp;Vis-à-Vis® sera envoyé à l’adresse e-mail ci-dessous.
+          {modifiable ? " Vérifiez-la et corrigez-la si besoin avant de valider." : " Vérifiez vos coordonnées avant de valider."}
         </p>
         {erreurEnvoi && (
           <p className="mt-3 rounded-xl bg-svv-field p-4 text-sm font-semibold text-svv-red">{erreurEnvoi}</p>
         )}
 
-        {/* EMAIL */}
+        {/* EMAIL (modifiable = dossier fraîchement créé ; sinon lecture seule) */}
         <label className="mb-1 mt-4 block text-sm font-semibold text-svv-ink">Email</label>
         {modifiable ? (
           <>
@@ -1298,15 +1225,15 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
               placeholder="vous@exemple.fr"
             />
             {email.trim() !== "" && !emailValide && (
-              <p className="mt-1 text-sm text-svv-red">Format d'email invalide.</p>
+              <p className="mt-1 text-sm text-svv-red">Format d&apos;email invalide.</p>
             )}
           </>
         ) : (
           <div className="w-full rounded-xl border border-svv-line bg-svv-field p-3 text-base text-svv-ink break-words">{email.trim() || "—"}</div>
         )}
 
-        {/* TÉLÉPHONE */}
-        <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone <span className="font-normal text-svv-muted">(un code va vous être envoyé)</span></label>
+        {/* TÉLÉPHONE — SANS mention SMS/« code » (vérification non branchée aujourd'hui) */}
+        <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone</label>
         {modifiable ? (
           <PhoneInput
             defaultCountry="fr"
@@ -1317,16 +1244,14 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
             value={telephone}
             onChange={onPhoneChange}
             className={telephoneValide ? "w-full tel-valide" : "w-full"}
-            inputProps={{ name: "telephone-confirm" }}
+            inputProps={{ name: "telephone-coords" }}
           />
         ) : (
           <div className="w-full rounded-xl border border-svv-line bg-svv-field p-3 text-base text-svv-ink break-words">{telephone || "—"}</div>
         )}
 
-        {/* CONSENTEMENT F2 (Écran B) — « Votre accord pour l'envoi de mails », ENTRE le téléphone et le bouton. Case
-            DÉCOCHÉE par défaut, RE-MONTRE l'état déjà choisi à l'Écran A (état PARTAGÉ ; l'internaute garde la maîtrise,
-            peut décocher). Titre + libellé + mention issus du CATALOGUE VERSIONNÉ, jamais en dur. Non-couplage : cocher
-            F2 n'est PAS requis pour le certificat (règle scellée « au moins un consentement » gérée à la validation). */}
+        {/* CONSENTEMENT F2 « communications par e-mail » — case DÉCOCHÉE par défaut, choix explicite (jamais forcée).
+            Non-couplage : cocher F2 n'est PAS requis pour le certificat. Titre/libellé issus du catalogue versionné. */}
         {finalitesActivesTunnel()
           .filter((t) => t.finalite === "email_marketing")
           .map((t) => (
@@ -1345,14 +1270,107 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
             </div>
           ))}
 
-        {erreurEmission && <p role="alert" className="mt-4 rounded-xl bg-svv-field p-4 text-sm font-semibold text-svv-red">{erreurEmission}</p>}
         <button
           type="button"
-          onClick={() => void recevoirCertificat()}
-          disabled={envoiRectif || envoiEnCours || (modifiable && email.trim() !== "" && !emailValide)}
-          className={`svv-btn svv-btn-primary mt-6 ${envoiRectif || envoiEnCours ? "opacity-50" : ""}`}
+          onClick={onValiderCoordonnees}
+          disabled={modifiable && !emailValide}
+          className={`svv-btn svv-btn-primary mt-6 ${modifiable && !emailValide ? "opacity-50" : ""}`}
         >
-          {envoiRectif ? "Enregistrement…" : envoiEnCours ? "Envoi en cours…" : erreurEmission ? "Réessayer l’envoi" : "Recevoir mon certificat"}
+          Valider mes coordonnées
+        </button>
+        <button type="button" onClick={onRetour} className="svv-btn svv-btn-outline mt-3">Retour</button>
+      </div>
+    );
+  }
+
+  // REFONTE — ÉCRAN 2 « Comment souhaitez-vous continuer ? » : le slider SÉLECTIONNE (le choix n'avance plus tout seul).
+  // Test unique → bouton « Envoyer mon certificat » actif, choix modifiable. Test illimité → double mot de passe (visible
+  // par défaut, option masquer), choix VERROUILLÉ, bouton actif seulement si les 2 mdp concordent (≥ 12). Le ® est ici.
+  if (soumis) {
+    const boutonActif = boutonEnvoiActif(choix, motDePasse, motDePasse2);
+    const mdpConcordent = motDePasse2 === "" || motDePasse === motDePasse2;
+    return (
+      <div className="pb-10">
+        <div className="-mx-6 -mt-6 mb-4 rounded-t-3xl bg-svv-red px-6 py-5">
+          <div className="flex items-center gap-3">
+            <SceauCertifie className="h-9 w-auto shrink-0 text-white" />
+            <h1 className="text-[1.45rem] font-extrabold leading-tight text-white">Comment souhaitez-vous continuer&nbsp;?®</h1>
+          </div>
+        </div>
+
+        <ChoixOffre
+          selection={choix}
+          onSelectionner={(c) => {
+            if (choix === "illimite") return; // choix verrouillé après « test illimité »
+            mesure(c === "unique" ? "choix_test_unique" : "choix_test_illimite");
+            setChoix(c);
+          }}
+          verrouille={choix === "illimite"}
+        />
+
+        {/* TEST ILLIMITÉ — double mot de passe, VISIBLE par défaut + option « masquer ». */}
+        {choix === "illimite" && (
+          <div className="mt-6 rounded-2xl bg-svv-field p-5">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="text-sm font-semibold text-svv-ink">
+                Choisissez un mot de passe <span className="font-normal text-svv-muted">(au moins {LONGUEUR_MIN_MDP} caractères)</span>
+              </span>
+              <button type="button" onClick={() => setMdpVisible((v) => !v)} className="shrink-0 text-sm font-semibold text-svv-red">
+                {mdpVisible ? "Masquer" : "Afficher"}
+              </button>
+            </div>
+            <input
+              id="mdp-illimite"
+              type={mdpVisible ? "text" : "password"}
+              autoComplete="new-password"
+              value={motDePasse}
+              onChange={(e) => setMotDePasse(e.target.value)}
+              placeholder="Votre mot de passe"
+              className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
+            />
+            <input
+              id="mdp-illimite-2"
+              type={mdpVisible ? "text" : "password"}
+              autoComplete="new-password"
+              value={motDePasse2}
+              onChange={(e) => setMotDePasse2(e.target.value)}
+              placeholder="Confirmez le mot de passe"
+              className={`mt-2 w-full rounded-xl ${!mdpConcordent ? "border-2 border-svv-red" : "border border-svv-line"} bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none`}
+            />
+            {!mdpConcordent && <p className="mt-1 text-sm text-svv-red">Les deux mots de passe ne correspondent pas.</p>}
+          </div>
+        )}
+
+        {erreurCompte && <p role="alert" className="mt-4 text-sm font-semibold text-svv-red">{erreurCompte}</p>}
+        {erreurEmission && <p role="alert" className="mt-2 text-sm font-semibold text-svv-red">{erreurEmission}</p>}
+
+        <button
+          type="button"
+          onClick={envoyerCertificat}
+          disabled={!boutonActif || envoiRectif || envoiEnCours || creationCompteEnCours}
+          className={`svv-btn svv-btn-primary mt-6 ${!boutonActif || envoiRectif || envoiEnCours || creationCompteEnCours ? "opacity-50" : ""}`}
+        >
+          {creationCompteEnCours ? "Création…" : envoiRectif || envoiEnCours ? "Envoi en cours…" : erreurEmission ? "Réessayer" : "Envoyer mon certificat"}
+        </button>
+
+        {/* PDF POUR TOUS — un compte refusé (mot de passe, etc.) ne prive jamais du certificat : repli sans compte. */}
+        {erreurCompte && (
+          <button
+            type="button"
+            onClick={() => void recevoirCertificat()}
+            disabled={envoiRectif || envoiEnCours}
+            className={`svv-btn svv-btn-outline mt-3 ${envoiRectif || envoiEnCours ? "opacity-50" : ""}`}
+          >
+            {envoiRectif || envoiEnCours ? "Envoi en cours…" : "Recevoir mon certificat sans créer de compte"}
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={() => { setCoordsValidees(false); setChoix(null); setMotDePasse(""); setMotDePasse2(""); setErreurCompte(null); setErreurEmission(null); }}
+          className="svv-btn svv-btn-outline mt-3"
+        >
+          Retour
         </button>
       </div>
     );

@@ -24,6 +24,33 @@ export function choixDepuisRatio(ratio: number, seuil = 0.92): Choix | null {
   return null;
 }
 
+/**
+ * Position du curseur (ratio [-1, +1]) reflétant la SÉLECTION courante. Nouveau comportement : le choix ne fait plus
+ * AVANCER instantanément ; le curseur RESTE sur le côté choisi. Gauche (unique) = -1, droite (illimité) = +1, aucune
+ * sélection = 0 (centre neutre).
+ */
+export function ratioDepuisSelection(selection: Choix | null): number {
+  if (selection === 'unique') return -1;
+  if (selection === 'illimite') return 1;
+  return 0;
+}
+
+/** Politique CLIENT du double mot de passe (chemin illimité) : les deux saisies IDENTIQUES ET ≥ LONGUEUR_MIN_MDP. Le
+ *  serveur re-valide (source de vérité). Deux champs vides → false (longueur insuffisante). */
+export function motDePasseIllimiteValide(mdp: string, confirmation: string): boolean {
+  return mdp.length >= LONGUEUR_MIN_MDP && mdp === confirmation;
+}
+
+/**
+ * Le bouton « Envoyer mon certificat » (ÉCRAN 2) est-il actif ? unique → toujours (coordonnées déjà validées à l'écran
+ * 1) ; illimité → seulement si les 2 mots de passe concordent et sont valides ; aucune sélection → inactif.
+ */
+export function boutonEnvoiActif(selection: Choix | null, mdp: string, confirmation: string): boolean {
+  if (selection === 'unique') return true;
+  if (selection === 'illimite') return motDePasseIllimiteValide(mdp, confirmation);
+  return false;
+}
+
 /** Aiguillage d'un choix vers le bon handler. Garantit, en code testable, le câblage gauche→unique / droite→illimité. */
 export function brancherChoix(choix: Choix, handlers: { surUnique: () => void; surIllimite: () => void }): void {
   if (choix === 'unique') handlers.surUnique();

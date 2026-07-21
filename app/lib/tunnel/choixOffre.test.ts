@@ -1,5 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import { choixDepuisRatio, brancherChoix, orchestrerIllimite, LONGUEUR_MIN_MDP } from './choixOffre';
+import {
+  choixDepuisRatio,
+  brancherChoix,
+  orchestrerIllimite,
+  ratioDepuisSelection,
+  motDePasseIllimiteValide,
+  boutonEnvoiActif,
+  LONGUEUR_MIN_MDP,
+} from './choixOffre';
 
 const MDP_OK = 'motdepasse-solide-1'; // ≥ 12
 
@@ -31,6 +39,44 @@ describe('brancherChoix — câblage gauche→unique / droite→illimité', () =
     brancherChoix('illimite', { surUnique, surIllimite });
     expect(surIllimite).toHaveBeenCalledTimes(1);
     expect(surUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('ratioDepuisSelection — le curseur RESTE sur le côté choisi', () => {
+  it('unique → -1 (gauche) ; illimite → +1 (droite) ; null → 0 (centre)', () => {
+    expect(ratioDepuisSelection('unique')).toBe(-1);
+    expect(ratioDepuisSelection('illimite')).toBe(1);
+    expect(ratioDepuisSelection(null)).toBe(0);
+  });
+});
+
+describe('motDePasseIllimiteValide — double saisie identique + ≥ 12', () => {
+  it('identiques et ≥ 12 → true', () => {
+    expect(motDePasseIllimiteValide('motdepasse-12ok', 'motdepasse-12ok')).toBe(true);
+  });
+  it('non identiques → false (même si ≥ 12)', () => {
+    expect(motDePasseIllimiteValide('motdepasse-12ok', 'motdepasse-12KO')).toBe(false);
+  });
+  it('trop courts (< 12) → false même si identiques', () => {
+    expect(motDePasseIllimiteValide('court', 'court')).toBe(false);
+  });
+  it('deux vides → false', () => {
+    expect(motDePasseIllimiteValide('', '')).toBe(false);
+  });
+});
+
+describe('boutonEnvoiActif — activation du bouton « Envoyer mon certificat »', () => {
+  it('unique → toujours actif (coordonnées déjà validées à l’écran 1)', () => {
+    expect(boutonEnvoiActif('unique', '', '')).toBe(true);
+    expect(boutonEnvoiActif('unique', 'peu importe', 'x')).toBe(true);
+  });
+  it('illimité → actif SEULEMENT si les 2 mots de passe concordent et sont valides', () => {
+    expect(boutonEnvoiActif('illimite', 'motdepasse-12ok', 'motdepasse-12ok')).toBe(true);
+    expect(boutonEnvoiActif('illimite', 'motdepasse-12ok', 'different-12ok')).toBe(false); // mismatch
+    expect(boutonEnvoiActif('illimite', 'court', 'court')).toBe(false); // < 12
+  });
+  it('aucune sélection → inactif (l’internaute doit choisir un côté)', () => {
+    expect(boutonEnvoiActif(null, 'motdepasse-12ok', 'motdepasse-12ok')).toBe(false);
   });
 });
 
