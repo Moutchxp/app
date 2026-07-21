@@ -242,14 +242,21 @@ export async function lireProfilComplet(id: string): Promise<{
   // Source d'imputabilité = `internaute_cycle_vie_log` (append-only, écrit par retirerConsentement, cycleVie.ts). LATERAL
   // LIMIT 1 ORDER BY ts DESC → la décision la plus récente. Champs NULL si la finalité n'a jamais été retirée. Auteur =
   // NULL si `utilisateur_id` NULL (voie de secours) : le LEFT JOIN admin_utilisateur ne renvoie alors aucune ligne.
+  // + `retrait_demande_de` (details->>'a_la_demande_de', même LATERAL journal) : enrichit le libellé admin, NE discrimine PAS.
+  // 2e LATERAL `rc` : le CANAL du retrait ('email' = lien de désabo par l'internaute, 'admin' = geste admin) N'EST NI dans
+  // le journal NI dans la vue `ca` — il vit dans `internaute_consentement.canal` (ligne 'retire' la plus récente). C'est le
+  // SEUL signal autoritatif du canal ; `canal` est un ensemble OUVERT (aucun CHECK, cf. socle.ts) → toute valeur ≠ connue
+  // se traite côté front comme « autre/automatique ». Aucune migration (colonne déjà en base).
   const consentements = await query(
     `SELECT f.cle AS finalite, f.libelle, ca.etat, ca.actif, ca.horodatage AS depuis,
-            rj.retrait_motif, rj.retrait_ts, rj.retrait_auteur
+            rj.retrait_motif, rj.retrait_ts, rj.retrait_auteur, rj.retrait_demande_de,
+            rc.retrait_canal
      FROM internaute_finalite f
      LEFT JOIN internaute_consentement_actif ca ON ca.finalite = f.cle AND ca.internaute_id = $1
      LEFT JOIN LATERAL (
        SELECT j.details->>'motif' AS retrait_motif,
               j.ts               AS retrait_ts,
+              j.details->>'a_la_demande_de' AS retrait_demande_de,
               COALESCE(NULLIF(TRIM(CONCAT_WS(' ', au.prenom, au.nom)), ''), au.identifiant) AS retrait_auteur
        FROM internaute_cycle_vie_log j
        LEFT JOIN admin_utilisateur au ON au.id = j.utilisateur_id
@@ -259,6 +266,13 @@ export async function lireProfilComplet(id: string): Promise<{
        ORDER BY j.ts DESC, j.id DESC
        LIMIT 1
      ) rj ON TRUE
+     LEFT JOIN LATERAL (
+       SELECT icr.canal AS retrait_canal
+       FROM internaute_consentement icr
+       WHERE icr.internaute_id = $1 AND icr.finalite = f.cle AND icr.etat = 'retire'
+       ORDER BY icr.horodatage DESC, icr.id DESC
+       LIMIT 1
+     ) rc ON TRUE
      ORDER BY f.ordre`,
     [id],
   );
