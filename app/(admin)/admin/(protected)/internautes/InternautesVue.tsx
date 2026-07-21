@@ -65,9 +65,12 @@ interface Detail {
   internaute: Record<string, unknown>;
   projets: Record<string, unknown>[];
   consentements: { finalite: string; libelle: string; etat: string | null; actif: boolean | null; depuis: string | null;
-    // Contexte du DERNIER retrait (renseigné UNIQUEMENT pour une finalité retirée ; NULL sinon). `retrait_auteur` NULL =
-    // acte automatique (lien e-mail, `utilisateur_id` NULL). Alimente la bulle du picto « i ». Source : cycle_vie_log.
-    retrait_motif?: string | null; retrait_ts?: string | null; retrait_auteur?: string | null }[];
+    // Contexte du DERNIER retrait (renseigné UNIQUEMENT pour une finalité retirée ; NULL sinon). Alimente la bulle du picto
+    // « i ». `retrait_canal` ('email' = lien de désabo internaute, 'admin' = geste admin, autre/NULL = système) est le SEUL
+    // signal autoritatif du canal ; `retrait_auteur` NULL n'implique PAS le lien e-mail. `retrait_demande_de` enrichit seulement
+    // le libellé admin (jamais discriminant). Sources : cycle_vie_log (motif/ts/auteur/demande_de) + internaute_consentement (canal).
+    retrait_motif?: string | null; retrait_ts?: string | null; retrait_auteur?: string | null;
+    retrait_canal?: string | null; retrait_demande_de?: string | null }[];
 }
 
 const champ: CSSProperties = {
@@ -1540,13 +1543,22 @@ function FicheDetail({ detail, actions, actionsProjet, soumettreRetrait, retrait
           const peutRetirer = Boolean(soumettreRetrait) && c.actif === true; // finalité inactive → AUCUN bouton
           const enConfirmation = confirmFinalite === c.finalite;
           const nomFinalite = libelleFinaliteAffichage(c.finalite, c.libelle);
-          // Ligne RETIRÉE = état 'retire' (et non actif). Seul cas rouge + picto « i ». Repli d'affichage sur l'auteur
-          // (NULL = acte automatique via lien e-mail) et le motif (NULL = non précisé). Résumé réutilisé en aria-label + bulle.
+          // Ligne RETIRÉE = état 'retire' (et non actif). Seul cas rouge + picto « i ». Bulle sur 2 lignes : QUI/COMMENT
+          // (mapping à 3 cas, TESTÉS DANS CET ORDRE — canal 'email' autoritatif d'abord) puis QUAND/MOTIF. Le même texte
+          // (concaténé) sert d'aria-label lu au focus. Replis : « un administrateur » (canal admin sans auteur), « non précisé » (motif null).
           const estRetire = c.actif !== true && c.etat === 'retire';
           const dateRetrait = c.retrait_ts ? dateHeureFr(c.retrait_ts) : c.depuis ? dateFr(c.depuis) : '—';
-          const auteurRetrait = c.retrait_auteur ? String(c.retrait_auteur) : 'automatique (lien e-mail)';
           const motifAffiche = c.retrait_motif ? String(c.retrait_motif) : 'non précisé';
-          const infoRetrait = `Retiré le ${dateRetrait} par ${auteurRetrait} · Motif : ${motifAffiche}`;
+          const retraitPar =
+            c.retrait_canal === 'email'
+              ? "Retiré par l’internaute, via le lien de désabonnement d’un e-mail Sans Vis-à-Vis"
+              : c.retrait_auteur
+                ? `Retiré par ${String(c.retrait_auteur)} (administrateur)`
+                : c.retrait_canal === 'admin'
+                  ? 'Retiré par un administrateur'
+                  : 'Retiré : automatique';
+          const retraitQuand = `le ${dateRetrait} · Motif : ${motifAffiche}`;
+          const infoRetrait = `${retraitPar} — ${retraitQuand}`;
           return (
             <div key={c.finalite} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
@@ -1579,7 +1591,10 @@ function FicheDetail({ detail, actions, actionsProjet, soumettreRetrait, retrait
                       >
                         i
                       </button>
-                      <span className="svv-bulle" role="tooltip">{infoRetrait}</span>
+                      <span className="svv-bulle" role="tooltip">
+                        <span style={{ display: 'block', fontWeight: 700 }}>{retraitPar}</span>
+                        <span style={{ display: 'block' }}>{retraitQuand}</span>
+                      </span>
                     </span>
                   )}
                   <span>{c.actif ? 'Actif' : estRetire ? 'Retiré' : c.etat ? c.etat : 'Aucun'}{c.depuis ? ` · ${dateFr(c.depuis)}` : ''}</span>
