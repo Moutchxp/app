@@ -420,19 +420,29 @@ export function InternautesVue() {
     setFiltres(FILTRES_VIDES);
     setPage(1);
     setApplique(FILTRES_VIDES);
+    // Remet AUSSI les deux toggles ET/OU au défaut (les deux modules repartent cohérents à 'et', comme au chargement).
+    setModeExtraction('et');
+    setModeConsentement('et');
   };
-  // Coche/décoche un statut du bloc SOURCE. SENS UNIQUE (source → miroir) : toute action sur la source RÉINITIALISE
-  // le miroir SUR la nouvelle source ET vide la recherche → l'affichage revient « piloté par le haut ». On calcule
-  // `next` UNE fois et on l'applique à la source ET au miroir (garantie qu'ils sont synchronisés après le toggle).
+  // POUSSE l'ÉTAT COMPLET de la SOURCE (module d'extraction, haut) vers la CIBLE (gestion, bas) : statuts miroir ET mode
+  // de consentement, + réinitialise recherche/page (« l'affichage revient piloté par le haut »). Point de passage UNIQUE
+  // de TOUTE mutation de la source (pastille du haut, interrupteur ET/OU du haut) → aucune ne peut oublier de synchroniser
+  // le bas. Le bas reste éditable localement (`toggleMiroir` + interrupteur du bas), sans JAMAIS remonter vers le haut.
+  const pousserVersGestion = (statutsSource: Set<CleFinalite>, modeSource: 'et' | 'ou') => {
+    setStatutsMiroir(new Set(statutsSource));
+    setModeConsentement(modeSource);
+    setQ('');
+    setQDebounced('');
+    setPage(1);
+  };
+  // Coche/décoche un statut du bloc SOURCE. SENS UNIQUE (source → gestion) : met à jour la source puis pousse l'état
+  // COMPLET (nouveaux statuts + mode COURANT du haut) vers la gestion via `pousserVersGestion`.
   const toggleStatut = (s: CleFinalite) => {
     const next = new Set(statuts);
     if (next.has(s)) next.delete(s);
     else next.add(s);
     setStatuts(next);
-    setStatutsMiroir(new Set(next)); // re-sync du miroir sur la source
-    setQ('');
-    setQDebounced('');
-    setPage(1);
+    pousserVersGestion(next, modeExtraction); // statuts + mode courant → gestion
   };
   // Coche/décoche un statut MIROIR (pilote la LISTE, vers le bas SEULEMENT — AUCUNE remontée vers `statuts`).
   const toggleMiroir = (s: CleFinalite) => {
@@ -443,6 +453,12 @@ export function InternautesVue() {
       return next;
     });
     setPage(1);
+  };
+  // Bascule l'interrupteur ET/OU du HAUT (source) : met à jour le mode source PUIS pousse l'état COMPLET (statuts COURANTS
+  // + nouveau mode) vers la gestion via `pousserVersGestion` — MÊME mécanisme que la pastille du haut (`toggleStatut`).
+  const changerModeExtraction = (m: 'et' | 'ou') => {
+    setModeExtraction(m);
+    pousserVersGestion(statuts, m); // statuts courant + nouveau mode → gestion
   };
   const aucunStatut = statuts.size === 0; // garde des boutons d'EXPORT (bloc source ; la LISTE, elle, teste `statutsMiroir`)
   // Statuts cochés SOURCE (ordre canonique) : param `statuts` de l'export + libellé. Le serveur re-normalise.
@@ -766,7 +782,7 @@ export function InternautesVue() {
                   key={val}
                   type="button"
                   aria-pressed={actif}
-                  onClick={() => setModeExtraction(val)}
+                  onClick={() => changerModeExtraction(val)}
                   style={{
                     minHeight: 44,
                     padding: '0 12px',
