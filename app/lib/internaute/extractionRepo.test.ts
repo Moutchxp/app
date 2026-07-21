@@ -124,6 +124,67 @@ describe('extractionRepo — LISTE DE GESTION : consentement positif (vide = san
   });
 });
 
+describe('lireProfilsFiltres — base COMMERCIALE (tableau piloté par l’extraction) vs gestion (défaut)', () => {
+  beforeEach(() => query.mockReset());
+
+  it('base=\'commercial\' + statuts VIDE → { total: 0, lignes: [] } SANS requête (fail-closed, comme l’export)', async () => {
+    const r = await lireProfilsFiltres({}, 1, 25, [], null, 'et', 'commercial');
+    expect(r).toEqual({ total: 0, lignes: [] });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('base=\'commercial\' + [F1] → FROM internaute_commercial (clauseStatuts), paginé, a_un_compte calculé', async () => {
+    query.mockResolvedValueOnce({ rows: [{ n: '5' }] }).mockResolvedValueOnce({ rows: [] });
+    await lireProfilsFiltres({}, 1, 25, ['recontact_interne'], null, 'et', 'commercial');
+    expect(query).toHaveBeenCalledTimes(2); // count + page (pas de court-circuit ici : statuts non vide)
+    const sqlCount = String(query.mock.calls[0][0]);
+    const sqlPage = String(query.mock.calls[1][0]);
+    expect(sqlCount).toContain('internaute_commercial'); //                base commerciale
+    expect(sqlCount).not.toContain('FROM internaute i'); //                 PAS la table brute (gestion)
+    expect(sqlCount).not.toContain('NOT EXISTS (SELECT 1 FROM internaute_consentement_actif'); // pas la sémantique « sans consentement »
+    expect(sqlCount).toContain("ca_recontact_interne.finalite = 'recontact_interne'"); // clause commerciale (intersection)
+    expect(sqlPage).toContain('EXISTS (SELECT 1 FROM internaute_auth ia'); // a_un_compte (capsule du tableau)
+    expect(sqlPage).toContain('LIMIT $1 OFFSET $2'); //                    paginé
+  });
+
+  it('base=\'commercial\' IGNORE le filtre compte (aucun prédicat `internaute_auth iac`), même si passé', async () => {
+    query.mockResolvedValueOnce({ rows: [{ n: '1' }] }).mockResolvedValueOnce({ rows: [] });
+    await lireProfilsFiltres({}, 1, 25, ['recontact_interne'], 'avec', 'et', 'commercial');
+    expect(String(query.mock.calls[0][0])).not.toContain('internaute_auth iac'); // compte = gestion-only, ignoré en commercial
+  });
+
+  it('base=\'commercial\' IGNORE la recherche nom (q) : aucune clause `unaccent`, q pas lié', async () => {
+    query.mockResolvedValueOnce({ rows: [{ n: '0' }] }).mockResolvedValueOnce({ rows: [] });
+    await lireProfilsFiltres({ q: 'thevenin' }, 1, 25, ['recontact_interne'], null, 'et', 'commercial');
+    expect(String(query.mock.calls[0][0])).not.toContain('unaccent'); // q retiré → aucune clause nom
+    expect(query.mock.calls[0][1]).not.toContain('%thevenin%');
+  });
+
+  it('base=\'commercial\' + [F1,F2] mode « ou » → un seul EXISTS `finalite IN (...)` sur internaute_commercial', async () => {
+    query.mockResolvedValueOnce({ rows: [{ n: '9' }] }).mockResolvedValueOnce({ rows: [] });
+    await lireProfilsFiltres({}, 1, 25, ['recontact_interne', 'email_marketing'], null, 'ou', 'commercial');
+    const sqlCount = String(query.mock.calls[0][0]);
+    expect(sqlCount).toContain('internaute_commercial');
+    expect(sqlCount).toContain("ca.finalite IN ('recontact_interne', 'email_marketing')");
+  });
+
+  it('base=\'commercial\' : les filtres SECONDAIRES (score) s’appliquent, liés en paramètre', async () => {
+    query.mockResolvedValueOnce({ rows: [{ n: '2' }] }).mockResolvedValueOnce({ rows: [] });
+    await lireProfilsFiltres({ scoreMin: 60 }, 1, 25, ['recontact_interne'], null, 'et', 'commercial');
+    expect(String(query.mock.calls[0][0])).toContain('p.score >= $1');
+    expect(query.mock.calls[0][1]).toContain(60);
+  });
+
+  it('base par DÉFAUT = gestion (comportement INCHANGÉ) : FROM internaute brut + NOT EXISTS à 0 pastille', async () => {
+    query.mockResolvedValueOnce({ rows: [{ n: '3' }] }).mockResolvedValueOnce({ rows: [] });
+    await lireProfilsFiltres({}, 1, 25, []); // pas d'argument base → 'gestion'
+    const sqlCount = String(query.mock.calls[0][0]);
+    expect(sqlCount).toContain('FROM internaute i');
+    expect(sqlCount).toContain('NOT EXISTS (SELECT 1 FROM internaute_consentement_actif');
+    expect(sqlCount).not.toContain('internaute_commercial');
+  });
+});
+
 describe('compterProfils — COUNT du compteur LIVE : fail-closed + réutilisation des builders partagés', () => {
   beforeEach(() => query.mockReset());
 

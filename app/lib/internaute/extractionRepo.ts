@@ -36,18 +36,18 @@ function coercerLigne(r: LigneProfil): LigneProfil {
 }
 
 /**
- * Page de profils de la LISTE DE GESTION admin — lecture seule. ⚠️ GESTION, PAS EXTRACTION : lit la table `internaute`
- * (non effacés) via `clauseStatutsGestion` (jamais `internaute_commercial`). Les extractions commerciales
- * (`lireProfilsExport`/`compterProfils`/`lireBornesDates`/`lireCommunesPresentes`) gardent, elles, `internaute_commercial`.
+ * Page de profils paginée — lecture seule. Sert le TABLEAU admin dans deux BASES (param `base`, défaut `'gestion'`) :
  *
- * DEUX AXES DE FILTRE INDÉPENDANTS, croisés (ET) :
- *  - CONSENTEMENT (`statuts`, F1/F2/F3, + `modeConsentement`) — critère POSITIF : VIDE = « n'a AUCUN consentement actif »
- *    (`NOT EXISTS`) ; ≥1 = selon `modeConsentement` : `'ou'` = « au moins une des cochées », `'et'` (défaut, effet à ≥2)
- *    = « TOUTES les cochées ». Jamais « indifférent ».
- *  - COMPTE (`filtreCompte`, `clauseCompte`) : `'avec'` = titulaires, `'sans'` = one-shot, `null` = indifférent.
+ *  - `'gestion'` (DÉFAUT, comportement INCHANGÉ) : table `internaute` brute via `clauseStatutsGestion`. Axe CONSENTEMENT
+ *    (`statuts`+`modeConsentement`) — critère POSITIF : VIDE = « sans aucun consentement actif », ≥1 = 'ou'/'et'. Axe
+ *    COMPTE (`filtreCompte`) actif. Recherche nom (`q` dans `filtres`) active. `a_un_compte` = capsule « Compte / One-shot ».
+ *  - `'commercial'` : MÊME base que l'export/compteur — `FROM internaute_commercial` via `clauseStatuts` (consentants,
+ *    FAIL-CLOSED : `statuts` vide → 0 SANS requête), MÊME mode ET/OU. IGNORE les champs gestion-only : filtre COMPTE et
+ *    recherche NOM (`q`). GARDE la pagination et CALCULE `a_un_compte` (pour la capsule du tableau).
  *
- * PLUS DE GARDE « aucun critère → rien » : `statuts` vide n'est plus « rien » mais un filtre à part entière (« sans
- * consentement »). Toute combinaison est une requête légitime. `a_un_compte` (`EXISTS internaute_auth`) = capsule « Compte / One-shot ».
+ * Les filtres SECONDAIRES (score/verdict/zone/dates/résidence/étage via `construireFiltres`) s'appliquent dans LES DEUX
+ * bases (builder partagé). Les EXTRACTIONS (`lireProfilsExport`/`compterProfils`/`lireBornesDates`/`lireCommunesPresentes`)
+ * ne sont PAS touchées.
  */
 export async function lireProfilsFiltres(
   filtres: FiltresExtraction,
@@ -56,11 +56,20 @@ export async function lireProfilsFiltres(
   statuts: readonly CleFinalite[],
   filtreCompte: FiltreCompte = null,
   modeConsentement: ModeConsentement = 'et',
+  base: 'gestion' | 'commercial' = 'gestion',
 ): Promise<{ total: number; lignes: LigneProfil[] }> {
-  const { clauses, params } = construireFiltres(filtres);
-  const predicatCompte = clauseCompte(filtreCompte); // axe compte, INDÉPENDANT des consentements ; '' si indifférent
+  // BASE COMMERCIALE : fail-closed IDENTIQUE à l'export — statuts vide → 0 SANS requête (jamais toute la base commerciale).
+  if (base === 'commercial' && normaliserStatuts(statuts).length === 0) return { total: 0, lignes: [] };
+
+  // La base COMMERCIALE ignore les champs GESTION-ONLY : recherche nom (`q`, retirée des filtres) et filtre compte (ci-dessous).
+  const filtresEffectifs = base === 'commercial' ? { ...filtres, q: null } : filtres;
+  const { clauses, params } = construireFiltres(filtresEffectifs);
+  const predicatCompte = base === 'commercial' ? '' : clauseCompte(filtreCompte); // compte = gestion-only
   const where = clauseWhere(predicatCompte ? [...clauses, predicatCompte] : clauses);
-  const from = clauseStatutsGestion(statuts, modeConsentement); // GESTION : table `internaute` + axe consentement (ET/OU)
+  const from =
+    base === 'commercial'
+      ? clauseStatuts(statuts, modeConsentement) //         internaute_commercial (consentants, fail-closed, ET/OU)
+      : clauseStatutsGestion(statuts, modeConsentement); // internaute brut (gestion : vide = sans consentement)
   const consenti = exprConsentiLe(statuts); // statuts vide → NULL::timestamptz (un sans-consentement n'a pas de date de référence)
 
   const total = await query<{ n: string }>(`SELECT count(*)::text AS n ${from}${where}`, params);
@@ -71,10 +80,10 @@ export async function lireProfilsFiltres(
             p.verdict, p.score, p.commune_insee, p.dernier_etage, p.residence_principale,
             ${consenti} AS consenti_le,
             -- Capsule « Compte / One-shot » : titulaire d'un credential ? Axe DIFFERENT du consentement (F1/F2/F3).
-            -- Distingue a l'oeil les titulaires (Compte) des non-titulaires (One-shot) listes cote a cote.
+            -- Distingue a l'oeil les titulaires (Compte) des non-titulaires (One-shot). Calcule dans LES DEUX bases.
             EXISTS (SELECT 1 FROM internaute_auth ia WHERE ia.internaute_id = i.id) AS a_un_compte
      ${from}${where}
-     ${ordreListe(filtres)}
+     ${ordreListe(filtresEffectifs)}
      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, taille, offset],
   );
