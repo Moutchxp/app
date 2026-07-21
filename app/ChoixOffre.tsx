@@ -72,10 +72,12 @@ export function ChoixOffre({
   return (
     <div>
       <style>{`
+        /* Scale SEUL (centré via transform-origin par défaut) → le halo, posé en inset-0 sur la poignée, reste
+           PARFAITEMENT concentrique et SUIT la poignée (il en est enfant), quelle que soit la position du curseur. */
         @keyframes svv-curseur-respire {
-          0%   { transform: translate(-50%, -50%) scale(0.8); opacity: 0.5; }
-          70%  { transform: translate(-50%, -50%) scale(1.35); opacity: 0; }
-          100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
+          0%   { transform: scale(0.85); opacity: 0.5; }
+          70%  { transform: scale(1.4); opacity: 0; }
+          100% { transform: scale(0.85); opacity: 0; }
         }
         .svv-halo-curseur { animation: svv-curseur-respire 2s ease-out infinite; }
         @media (prefers-reduced-motion: reduce) { .svv-halo-curseur { animation: none; opacity: 0; } }
@@ -131,7 +133,9 @@ export function ChoixOffre({
             className="absolute top-1/2 h-10 w-10 -translate-x-1/2 -translate-y-1/2"
             style={{ left: `${gauchePct}%`, transition: transitionCurseur }}
           >
-            <span aria-hidden className="svv-halo-curseur absolute left-1/2 top-1/2 h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-svv-red" />
+            {/* Halo concentrique (inset-0 = pile sur la poignée) qui SUIT le curseur. Éteint dès qu'on manipule le
+                slider (`glisse`) — il ne « respire » qu'au repos. Coupé aussi sous prefers-reduced-motion (cf. <style>). */}
+            <span aria-hidden className={`absolute inset-0 rounded-full bg-svv-red ${glisse ? "opacity-0" : "svv-halo-curseur"}`} />
             <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-svv-red shadow-md">
               <span aria-hidden className="flex items-center gap-[3px]">
                 <span className="block h-4 w-[2px] rounded-full bg-white/85" />

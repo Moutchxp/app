@@ -799,19 +799,16 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // id du projet créé à l'Écran A (renvoyé par /api/internaute), porté jusqu'à la complétion pour marquer CETTE analyse
   // « certificat envoyé ». État applicatif, JAMAIS dans l'URL. Null si aucun POST en A (CAS 2 : le serveur marque le projet créé en B).
   const [projetIdA, setProjetIdA] = useState<number | null>(null);
-  const [confirme, setConfirme] = useState(false); // clic « Recevoir mon certificat » abouti (état de succès honnête)
-  const [envoiRectif, setEnvoiRectif] = useState(false);
+  const [confirme, setConfirme] = useState(false); // clic « Envoyer mon certificat » abouti (succès honnête)
   // D1 — ÉCRAN DE CHOIX (après le résultat) : `choix` null = écran de choix affiché ; 'unique' → flux one-shot EXISTANT
   // (Écran B ci-dessous, INCHANGÉ) ; 'illimite' → sous-écran création de compte AVANT émission (route Commit B).
   const [choix, setChoix] = useState<"unique" | "illimite" | null>(null);
   const [motDePasse, setMotDePasse] = useState("");
   const [creationCompteEnCours, setCreationCompteEnCours] = useState(false);
   const [erreurCompte, setErreurCompte] = useState<string | null>(null);
-  // CORRECTIF envoi FIABILISÉ — l'émission n'est plus fire-and-forget : `envoiEnCours` = POST /api/certificat en vol
-  // (le serveur ne répond qu'APRÈS PDF + envoi e-mail) ; `erreurEmission` = émission NON confirmée → on ne bascule PAS
-  // sur « Votre demande est enregistrée® », on propose de réessayer.
+  // AJUSTEMENT 3 — confirmation IMMÉDIATE : `envoiEnCours` = « traitement en cours » (complétion RAPIDE des coordonnées)
+  // → bouton désactivé le temps d'un aller-retour ; l'émission LOURDE part ensuite en ARRIÈRE-PLAN (cf. recevoirCertificat).
   const [envoiEnCours, setEnvoiEnCours] = useState(false);
-  const [erreurEmission, setErreurEmission] = useState<string | null>(null);
   // REFONTE parcours de fin : ÉCRAN 1 « Validez vos coordonnées d'envoi » → ÉCRAN 2 « Comment souhaitez-vous continuer ? ».
   const [coordsValidees, setCoordsValidees] = useState(false); // ÉCRAN 1 validé → ÉCRAN 2 (choix). false = écran 1.
   const [motDePasse2, setMotDePasse2] = useState(""); // confirmation du mot de passe (double saisie, chemin illimité)
@@ -890,19 +887,22 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // tunnel. Le serveur re-dérive le résultat et attribue le numéro ; le front ne transmet QUE { jeton, projetId }.
   // Ne s'émet que si l'on a un jeton (nouveau dossier créé en A) + le projetId de A : sans jeton, pas de capacité
   // d'ownership côté serveur (cas email réutilisé / création directe en B) → émission déléguée à un lot ultérieur.
-  // CORRECTIF : l'émission est désormais ATTENDUE et son issue REMONTÉE (plus de `void` fire-and-forget qu'un changement
-  // d'écran pouvait tuer avant l'envoi). Le serveur ne répond qu'APRÈS avoir généré le PDF ET tenté l'envoi e-mail
-  // (certificatEmission → publierEnvoiCertificat) : `res.ok` (200 'emis' ou 'existant') = certificat disponible.
+  // AJUSTEMENT 3 — l'émission LOURDE (~23 s : re-jeu + carte IGN + PDF + envoi e-mail) part en ARRIÈRE-PLAN après la
+  // confirmation immédiate. `keepalive: true` détache la requête du cycle de vie de la page : elle N'EST PAS tuée par le
+  // changement d'écran (setConfirme) ni par une fermeture d'onglet → JAMAIS le bug fire-and-forget d'origine. Le serveur
+  // va au bout (PDF + envoi). Filet « PDF pour tous » : un acheminement resté ≠ 'envoye' est renvoyé au prochain
+  // re-déclenchement de /api/certificat (séparation émission/(r)envoi, aucun 2e certificat). `res.ok` non exploité ici.
   const emettreCertificat = async (jeton: string, projetId: number): Promise<boolean> => {
     try {
       const res = await fetch("/api/certificat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jeton, projetId }),
+        keepalive: true,
       });
       return res.ok;
     } catch {
-      return false; // réseau/serveur : émission NON confirmée → l'appelant reste sur un état « réessayer »
+      return false; // réseau : l'acheminement restera ≠ 'envoye' → couvert par le filet (r)envoi
     }
   };
 
@@ -955,51 +955,38 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   //    (on n'appelle PAS le serveur → aucune création en double du projet). Documenté.
   // NON-COUPLAGE : le certificat est délivré ; cocher F2 n'est pas requis. AUCUN envoi email (LOT 6 absent).
   const recevoirCertificat = async () => {
+    setEnvoiEnCours(true); // « traitement en cours » (complétion RAPIDE) → boutons désactivés le temps d'un aller-retour
     const doitAppeler = jetonRectif !== null || !posteEnA;
-    // Jeton d'émission RENVOYÉ PAR L'ÉCRAN B (CAS 2 : consentement donné seulement en B → le projet n'a pas été créé en
-    // A, donc aucun jeton n'a pu être frappé en A). La complétion crée le projet et frappe son jeton : on le récupère ici.
     let jetonEmissionB: string | null = null;
     let projetIdB: number | null = null;
     if (doitAppeler) {
       const corps = construireCorps();
-      // CAS 1 (jeton) : on joint le projetId de l'Écran A → la complétion marque CETTE analyse « certificat envoyé ».
-      // CAS 2 (pas de jeton) : le serveur crée le projet en B, le marque, ET renvoie son jeton d'émission (émission ici).
+      // CAS 1 (jeton) : on joint le projetId de l'Écran A. CAS 2 (pas de jeton) : le serveur crée le projet ET renvoie
+      // son jeton d'émission. Complétion RAPIDE (persiste email/tél/F2 → e-mail À JOUR avant l'envoi). keepalive : robuste
+      // à un départ d'onglet. Non bloquant : un échec (jeton expiré, 503, réseau) ne prive pas du certificat (PDF pour tous).
       const body = jetonRectif !== null ? { jeton: jetonRectif, projetId: projetIdA, ...corps } : corps;
-      setEnvoiRectif(true);
-      // NON-COUPLAGE (comme l'Écran A) : le certificat est délivré QUOI QU'IL ARRIVE. Un échec d'enregistrement des
-      // coordonnées/consentements (jeton expiré, 503, réseau) NE BLOQUE PAS le certificat (best-effort, non bloquant).
       try {
         const res = await fetch("/api/internaute/completion", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          keepalive: true,
         });
         const data = await res.json().catch(() => null);
         jetonEmissionB = typeof data?.jetonEmission === "string" ? data.jetonEmission : null;
         projetIdB = typeof data?.projetId === "number" ? data.projetId : null;
       } catch {
         /* réseau indisponible : non bloquant ; le certificat reste dû */
-      } finally {
-        setEnvoiRectif(false);
       }
     }
-    // Émission du certificat — fire-and-forget, parcours désormais complet. Non bloquant : le tunnel se termine quoi
-    // qu'il arrive. DEUX sources MUTUELLEMENT EXCLUSIVES d'un jeton d'émission, jamais les deux pour un même internaute :
-    //  - Écran A a frappé le jeton (consentement en A) → garde ci-dessous ; l'Écran B (CAS 1) ne renvoie alors AUCUN jeton.
-    //  - consentement SEULEMENT en B (CAS 2) → `jetonEmission` d'A est null → on émet avec celui renvoyé par B.
-    // Le `!jetonEmission` verrouille le second chemin sur l'absence du premier (zéro double appel) ; /api/certificat est
-    // de toute façon idempotent (1 projet = 1 certificat) en dernier filet.
-    // CORRECTIF — émission ATTENDUE : on ne bascule sur « Votre demande est enregistrée® » qu'une fois le certificat
-    // CONFIRMÉ émis + envoyé par le serveur (le POST reste en vol jusqu'au bout → plus de fire-and-forget tué par
-    // `setConfirme`). Émission non confirmée → état « réessayer », jamais un faux succès.
-    setErreurEmission(null);
-    setEnvoiEnCours(true);
-    let emis = false;
-    if (jetonEmission && projetIdA !== null) emis = await emettreCertificat(jetonEmission, projetIdA);
-    else if (!jetonEmission && jetonEmissionB && projetIdB !== null) emis = await emettreCertificat(jetonEmissionB, projetIdB);
-    setEnvoiEnCours(false);
-    if (emis) setConfirme(true); // certificat émis + envoyé confirmés
-    else setErreurEmission("L’envoi de votre certificat n’a pas abouti. Vérifiez votre connexion, puis réessayez.");
+    // AJUSTEMENT 3 — CONFIRMATION IMMÉDIATE : la complétion rapide est faite (coordonnées à jour). On affiche « Demande
+    // validée » MAINTENANT ; l'ÉMISSION LOURDE (~23 s : re-jeu + carte + PDF + envoi) part en ARRIÈRE-PLAN, détachée par
+    // keepalive → JAMAIS coupée par ce changement d'écran (plus de fire-and-forget d'origine). Si elle échoue, l'acheminement
+    // reste ≠ 'envoye' → renvoyé au prochain re-déclenchement (filet séparation émission/(r)envoi, aucun 2e certificat).
+    // Le wording de succès reste honnête (« sera envoyé », futur).
+    setConfirme(true);
+    if (jetonEmission && projetIdA !== null) void emettreCertificat(jetonEmission, projetIdA);
+    else if (!jetonEmission && jetonEmissionB && projetIdB !== null) void emettreCertificat(jetonEmissionB, projetIdB);
   };
 
   // D1 — chemin « TEST ILLIMITÉ » : crée le compte (route Commit B `/api/internaute/auth/creer`) AVANT l'émission, sans
@@ -1008,7 +995,6 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // NON lié au mot de passe émet quand même le certificat via l'émission EXISTANTE (`recevoirCertificat`).
   const validerIllimite = async () => {
     setErreurCompte(null);
-    setErreurEmission(null);
     setCreationCompteEnCours(true);
     const r = await orchestrerIllimite({
       jeton: jetonRectif,
@@ -1037,7 +1023,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
           return { ok: false, status: 0, motif: "autre" as const }; // réseau → certificat émis quand même (PDF pour tous)
         }
       },
-      emettre: () => recevoirCertificat(), // émission ATTENDUE (complétion + /api/certificat + envoi) → confirme / erreurEmission
+      emettre: () => recevoirCertificat(), // compte créé AVANT ; recevoirCertificat confirme puis émet en ARRIÈRE-PLAN
     });
     setCreationCompteEnCours(false);
     if (r.statut === "mot_de_passe_invalide") {
@@ -1046,14 +1032,13 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       setErreurCompte("Coordonnées incomplètes : le compte n’a pas pu être créé, mais votre certificat vous est envoyé.");
     }
     // 'compte_cree' / 'compte_indisponible' / 'coordonnees_incompletes' → `emettre()` (recevoirCertificat) a piloté
-    // l'émission (confirme si envoyé, erreurEmission sinon). 'mot_de_passe_invalide' → correction (ou repli « sans compte »).
+    // l'émission (recevoirCertificat : confirmation IMMÉDIATE puis émission en arrière-plan). 'mot_de_passe_invalide' → correction (ou repli « sans compte »).
   };
 
   // ÉCRAN 1 — « Valider mes coordonnées » : l'e-mail/tél/F2 sont dans l'état (bindés aux champs) et seront persistés à
   // l'ÉMISSION via la complétion (recevoirCertificat) — inchangé. Aujourd'hui ça passe DIRECT à l'écran de choix.
   // ⚠️ POINT D'ACCROCHE — la future vérification SMS du téléphone s'insérera ICI (avant `setCoordsValidees`).
   const onValiderCoordonnees = () => {
-    setErreurEmission(null);
     setCoordsValidees(true);
   };
 
@@ -1342,15 +1327,14 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
         )}
 
         {erreurCompte && <p role="alert" className="mt-4 text-sm font-semibold text-svv-red">{erreurCompte}</p>}
-        {erreurEmission && <p role="alert" className="mt-2 text-sm font-semibold text-svv-red">{erreurEmission}</p>}
 
         <button
           type="button"
           onClick={envoyerCertificat}
-          disabled={!boutonActif || envoiRectif || envoiEnCours || creationCompteEnCours}
-          className={`svv-btn svv-btn-primary mt-6 ${!boutonActif || envoiRectif || envoiEnCours || creationCompteEnCours ? "opacity-50" : ""}`}
+          disabled={!boutonActif || envoiEnCours || creationCompteEnCours}
+          className={`svv-btn svv-btn-primary mt-6 ${!boutonActif || envoiEnCours || creationCompteEnCours ? "opacity-50" : ""}`}
         >
-          {creationCompteEnCours ? "Création…" : envoiRectif || envoiEnCours ? "Envoi en cours…" : erreurEmission ? "Réessayer" : "Envoyer mon certificat"}
+          {creationCompteEnCours ? "Création…" : envoiEnCours ? "Envoi en cours…" : "Envoyer mon certificat"}
         </button>
 
         {/* PDF POUR TOUS — un compte refusé (mot de passe, etc.) ne prive jamais du certificat : repli sans compte. */}
@@ -1358,16 +1342,16 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
           <button
             type="button"
             onClick={() => void recevoirCertificat()}
-            disabled={envoiRectif || envoiEnCours}
-            className={`svv-btn svv-btn-outline mt-3 ${envoiRectif || envoiEnCours ? "opacity-50" : ""}`}
+            disabled={envoiEnCours}
+            className={`svv-btn svv-btn-outline mt-3 ${envoiEnCours ? "opacity-50" : ""}`}
           >
-            {envoiRectif || envoiEnCours ? "Envoi en cours…" : "Recevoir mon certificat sans créer de compte"}
+            {envoiEnCours ? "Envoi en cours…" : "Recevoir mon certificat sans créer de compte"}
           </button>
         )}
 
         <button
           type="button"
-          onClick={() => { setCoordsValidees(false); setChoix(null); setMotDePasse(""); setMotDePasse2(""); setErreurCompte(null); setErreurEmission(null); }}
+          onClick={() => { setCoordsValidees(false); setChoix(null); setMotDePasse(""); setMotDePasse2(""); setErreurCompte(null); }}
           className="svv-btn svv-btn-outline mt-3"
         >
           Retour
