@@ -37,6 +37,12 @@ const CSS = `
 @media (max-width:640px){ .svv-int-filtres{grid-template-columns:repeat(2,minmax(0,1fr))} }
 @media (max-width:420px){ .svv-int-filtres{grid-template-columns:1fr} }
 @media (prefers-reduced-motion: reduce){ .svv-int *{transition:none!important;animation:none!important} }
+/* Picto « i » du consentement RETIRÉ : la bulle apparaît au SURVOL et au FOCUS clavier (focus-within → accessible sans
+   souris, pas seulement au hover). Fond encre + texte blanc (tokens établis). L'apparition passe par opacity/visibility ;
+   la règle prefers-reduced-motion ci-dessus neutralise déjà la transition. Le picto lui-même est stylé inline (rond rouge). */
+.svv-info{position:relative;display:inline-flex}
+.svv-bulle{position:absolute;bottom:calc(100% + 6px);right:0;z-index:30;width:max-content;max-width:240px;padding:8px 10px;border-radius:8px;background:var(--color-svv-ink);color:#fff;font-size:.72rem;font-weight:500;line-height:1.35;text-align:left;white-space:normal;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s ease}
+.svv-info:hover .svv-bulle,.svv-info:focus-within .svv-bulle{opacity:1;visibility:visible}
 `;
 
 interface Ligne {
@@ -58,7 +64,10 @@ interface Ligne {
 interface Detail {
   internaute: Record<string, unknown>;
   projets: Record<string, unknown>[];
-  consentements: { finalite: string; libelle: string; etat: string | null; actif: boolean | null; depuis: string | null }[];
+  consentements: { finalite: string; libelle: string; etat: string | null; actif: boolean | null; depuis: string | null;
+    // Contexte du DERNIER retrait (renseigné UNIQUEMENT pour une finalité retirée ; NULL sinon). `retrait_auteur` NULL =
+    // acte automatique (lien e-mail, `utilisateur_id` NULL). Alimente la bulle du picto « i ». Source : cycle_vie_log.
+    retrait_motif?: string | null; retrait_ts?: string | null; retrait_auteur?: string | null }[];
 }
 
 const champ: CSSProperties = {
@@ -1531,6 +1540,13 @@ function FicheDetail({ detail, actions, actionsProjet, soumettreRetrait, retrait
           const peutRetirer = Boolean(soumettreRetrait) && c.actif === true; // finalité inactive → AUCUN bouton
           const enConfirmation = confirmFinalite === c.finalite;
           const nomFinalite = libelleFinaliteAffichage(c.finalite, c.libelle);
+          // Ligne RETIRÉE = état 'retire' (et non actif). Seul cas rouge + picto « i ». Repli d'affichage sur l'auteur
+          // (NULL = acte automatique via lien e-mail) et le motif (NULL = non précisé). Résumé réutilisé en aria-label + bulle.
+          const estRetire = c.actif !== true && c.etat === 'retire';
+          const dateRetrait = c.retrait_ts ? dateHeureFr(c.retrait_ts) : c.depuis ? dateFr(c.depuis) : '—';
+          const auteurRetrait = c.retrait_auteur ? String(c.retrait_auteur) : 'automatique (lien e-mail)';
+          const motifAffiche = c.retrait_motif ? String(c.retrait_motif) : 'non précisé';
+          const infoRetrait = `Retiré le ${dateRetrait} par ${auteurRetrait} · Motif : ${motifAffiche}`;
           return (
             <div key={c.finalite} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
@@ -1549,8 +1565,24 @@ function FicheDetail({ detail, actions, actionsProjet, soumettreRetrait, retrait
                   )}
                   <span style={{ color: 'var(--color-svv-ink)' }}>{nomFinalite}</span>
                 </span>
-                <span style={{ color: c.actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)', fontWeight: 700, textAlign: 'right', flexShrink: 0 }}>
-                  {c.actif ? 'Actif' : c.etat ? c.etat : 'Aucun'}{c.depuis ? ` · ${dateFr(c.depuis)}` : ''}
+                {/* État à droite : « Actif » VERT (inchangé) ; « Retiré » ROUGE (mot + date) ; « Aucun »/autres GRIS (inchangés).
+                    Le picto « i » (bulle motif/auteur/date) est placé À GAUCHE de « Retiré » → la DATE reste le dernier élément,
+                    donc son bord droit coïncide avec celui des lignes « Actif · date » / « Aucun ». Picto QUE pour une ligne retirée ;
+                    sa bulle sort au survol ET au focus clavier (focus-within, CSS). aria-label = résumé complet (lu au focus). */}
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: c.actif ? 'var(--color-svv-green)' : estRetire ? 'var(--color-svv-red)' : 'var(--color-svv-muted)', fontWeight: 700, textAlign: 'right', flexShrink: 0 }}>
+                  {estRetire && (
+                    <span className="svv-info">
+                      <button
+                        type="button"
+                        aria-label={infoRetrait}
+                        style={{ width: 15, height: 15, minHeight: 0, padding: 0, border: '1px solid var(--color-svv-red)', borderRadius: 999, background: '#fff', color: 'var(--color-svv-red)', fontStyle: 'italic', fontWeight: 700, fontSize: '.64rem', lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'help', flexShrink: 0 }}
+                      >
+                        i
+                      </button>
+                      <span className="svv-bulle" role="tooltip">{infoRetrait}</span>
+                    </span>
+                  )}
+                  <span>{c.actif ? 'Actif' : estRetire ? 'Retiré' : c.etat ? c.etat : 'Aucun'}{c.depuis ? ` · ${dateFr(c.depuis)}` : ''}</span>
                 </span>
               </div>
               {peutRetirer && enConfirmation && (
