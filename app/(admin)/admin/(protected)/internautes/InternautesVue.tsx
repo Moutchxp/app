@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { libelleFinaliteAffichage } from '../../../../lib/internaute/libelleFinalite';
 import { STATUTS_EXPORT, FINALITE_F1 } from '../../../../lib/internaute/extraction';
 import { projetVersSaisieBanc, ecrireHandoffBanc } from '../../../../lib/internaute/pontProjetBanc';
@@ -268,6 +268,102 @@ function SelecteurGeo({ communes, selection, onValider }: {
               </div>
             </>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Menu déroulant MAISON — remplace `<select>` natif (le menu/accent système macOS n'est pas teintable, il reste bleu).
+ * Comportement/valeurs IDENTIQUES à un select : `value` / `onChange(value)` / `options`. Bouton (valeur courante +
+ * chevron ROUGE) → liste `role="listbox"`. Charte rouge/blanc/gris, AUCUN bleu. Accessible : aria-haspopup/expanded/
+ * activedescendant, `role="option"` + aria-selected ; clavier ↑/↓ + Entrée/Espace + Échap ; fermeture au clic extérieur ;
+ * focus rouge hérité de `.svv-int` ; aucune animation (neutre vis-à-vis de prefers-reduced-motion). Cibles ≥44px (CSS `.svv-int`).
+ */
+function SelectMaison<T extends string>({ value, onChange, options }: {
+  value: T;
+  onChange: (v: T) => void;
+  options: readonly { value: T; label: string }[];
+}) {
+  const [ouvert, setOuvert] = useState(false);
+  const [survol, setSurvol] = useState(-1); // index surligné (clavier/souris)
+  const boite = useRef<HTMLDivElement | null>(null);
+  const baseId = useId();
+  const idxActuel = Math.max(0, options.findIndex((o) => o.value === value));
+  const libelleCourant = options.find((o) => o.value === value)?.label ?? '';
+  const optId = (i: number) => `${baseId}-o${i}`;
+
+  useEffect(() => {
+    if (!ouvert) return;
+    const onDown = (e: MouseEvent) => { if (boite.current && !boite.current.contains(e.target as Node)) setOuvert(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [ouvert]);
+
+  const ouvrir = () => { setSurvol(idxActuel); setOuvert(true); };
+  const choisir = (v: T) => { onChange(v); setOuvert(false); };
+  const onKey = (e: ReactKeyboardEvent) => {
+    if (e.key === 'Escape') { if (ouvert) { e.preventDefault(); setOuvert(false); } return; }
+    if (!ouvert) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ouvrir(); }
+      return;
+    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSurvol((i) => Math.min(options.length - 1, (i < 0 ? idxActuel : i) + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSurvol((i) => Math.max(0, (i < 0 ? idxActuel : i) - 1)); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const o = options[survol]; if (o) choisir(o.value); }
+  };
+
+  return (
+    <div ref={boite} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={ouvert}
+        aria-activedescendant={ouvert && survol >= 0 ? optId(survol) : undefined}
+        onClick={() => (ouvert ? setOuvert(false) : ouvrir())}
+        onKeyDown={onKey}
+        style={{ ...champ, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, cursor: 'pointer', fontWeight: 600 }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{libelleCourant}</span>
+        <span aria-hidden style={{ color: 'var(--color-svv-red)', fontSize: '.7rem' }}>{ouvert ? '▲' : '▼'}</span>
+      </button>
+      {ouvert && (
+        <div
+          role="listbox"
+          style={{
+            position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 30,
+            background: 'var(--color-svv-field)', border: '1px solid var(--color-svv-line)', borderRadius: 10,
+            padding: 4, boxShadow: '0 4px 14px rgba(0,0,0,.14)', display: 'flex', flexDirection: 'column', gap: 2,
+          }}
+        >
+          {options.map((o, i) => {
+            const sel = o.value === value;
+            const actif = i === survol;
+            return (
+              <button
+                key={o.value}
+                id={optId(i)}
+                type="button"
+                role="option"
+                aria-selected={sel}
+                onMouseEnter={() => setSurvol(i)}
+                onClick={() => choisir(o.value)}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left',
+                  padding: '4px 8px', borderRadius: 8, cursor: 'pointer', fontSize: '.85rem', border: 0,
+                  fontWeight: sel ? 700 : 500,
+                  color: sel ? 'var(--color-svv-red-dark)' : 'var(--color-svv-ink)',
+                  // Sélectionné = rouge TRÈS CLAIR dérivé du rouge charte (aucun hex codé en dur ; pas de token red-soft) ;
+                  // survol = gris clair (`--color-svv-line`) ; repos = transparent (fond blanc de la liste).
+                  background: sel ? 'color-mix(in srgb, var(--color-svv-red) 10%, white)' : actif ? 'var(--color-svv-line)' : 'transparent',
+                }}
+              >
+                <span aria-hidden style={{ flex: '0 0 auto', width: 14, textAlign: 'center', color: 'var(--color-svv-red)', fontWeight: 700 }}>{sel ? '✓' : ''}</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -861,20 +957,28 @@ export function InternautesVue() {
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Verdict
-          <select style={champ} value={filtres.verdict} onChange={(e) => majFiltre({ verdict: e.target.value })}>
-            <option value="">Indifférent</option>
-            <option value="SANS_VIS_A_VIS">Sans vis-à-vis</option>
-            <option value="VIS_A_VIS">Vis-à-vis</option>
-            <option value="INDETERMINE">Indéterminé</option>
-          </select>
+          <SelectMaison
+            value={filtres.verdict}
+            onChange={(v) => majFiltre({ verdict: v })}
+            options={[
+              { value: '', label: 'Indifférent' },
+              { value: 'SANS_VIS_A_VIS', label: 'Sans vis-à-vis' },
+              { value: 'VIS_A_VIS', label: 'Vis-à-vis' },
+              { value: 'INDETERMINE', label: 'Indéterminé' },
+            ]}
+          />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Dernier étage
-          <select style={champ} value={filtres.dernierEtage} onChange={(e) => majFiltre({ dernierEtage: e.target.value as Filtres['dernierEtage'] })}>
-            <option value="">Indifférent</option>
-            <option value="true">Oui</option>
-            <option value="false">Non</option>
-          </select>
+          <SelectMaison
+            value={filtres.dernierEtage}
+            onChange={(v) => majFiltre({ dernierEtage: v })}
+            options={[
+              { value: '', label: 'Indifférent' },
+              { value: 'true', label: 'Oui' },
+              { value: 'false', label: 'Non' },
+            ]}
+          />
         </label>
         {/* MISE EN PAGE (logique inchangée) : 2e rangée = cellules DIRECTES de la grille commune → mêmes colonnes,
             alignées verticalement (Résidence sous Commune, Créé après sous Score min, …). `align-items:start` du
@@ -882,11 +986,15 @@ export function InternautesVue() {
             (au-dessus d'« Exporter toute la base »). */}
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Résidence principale
-          <select style={champ} value={filtres.residencePrincipale} onChange={(e) => majFiltre({ residencePrincipale: e.target.value as Filtres['residencePrincipale'] })}>
-            <option value="">Indifférent</option>
-            <option value="true">Oui</option>
-            <option value="false">Non</option>
-          </select>
+          <SelectMaison
+            value={filtres.residencePrincipale}
+            onChange={(v) => majFiltre({ residencePrincipale: v })}
+            options={[
+              { value: '', label: 'Indifférent' },
+              { value: 'true', label: 'Oui' },
+              { value: 'false', label: 'Non' },
+            ]}
+          />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Créé après
@@ -1030,15 +1138,15 @@ export function InternautesVue() {
             celui-ci filtre la possession d'un compte). Combinable avec elles. Pilote la LISTE en direct (pas l'export). */}
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Compte
-          <select
-            style={{ ...champ, minHeight: 44 }}
+          <SelectMaison
             value={filtreCompte}
-            onChange={(e) => { setFiltreCompte(e.target.value as '' | 'avec' | 'sans'); setPage(1); setDernierMoteur('gestion'); }}
-          >
-            <option value="">Indifférent</option>
-            <option value="avec">Avec compte</option>
-            <option value="sans">Sans compte (one-shot)</option>
-          </select>
+            onChange={(v) => { setFiltreCompte(v); setPage(1); setDernierMoteur('gestion'); }}
+            options={[
+              { value: '', label: 'Indifférent' },
+              { value: 'avec', label: 'Avec compte' },
+              { value: 'sans', label: 'Sans compte (one-shot)' },
+            ]}
+          />
         </label>
         <input
           type="search"
