@@ -238,10 +238,27 @@ export async function lireProfilComplet(id: string): Promise<{
   );
 
   // État de consentement PAR finalité (vue actif) + libellé. Montre à quoi la personne a consenti et depuis quand.
+  // + Contexte du DERNIER retrait de CETTE finalité (bulle « pourquoi/qui/quand ») : motif, date, NOM de l'auteur admin.
+  // Source d'imputabilité = `internaute_cycle_vie_log` (append-only, écrit par retirerConsentement, cycleVie.ts). LATERAL
+  // LIMIT 1 ORDER BY ts DESC → la décision la plus récente. Champs NULL si la finalité n'a jamais été retirée. Auteur =
+  // NULL si `utilisateur_id` NULL (voie de secours) : le LEFT JOIN admin_utilisateur ne renvoie alors aucune ligne.
   const consentements = await query(
-    `SELECT f.cle AS finalite, f.libelle, ca.etat, ca.actif, ca.horodatage AS depuis
+    `SELECT f.cle AS finalite, f.libelle, ca.etat, ca.actif, ca.horodatage AS depuis,
+            rj.retrait_motif, rj.retrait_ts, rj.retrait_auteur
      FROM internaute_finalite f
      LEFT JOIN internaute_consentement_actif ca ON ca.finalite = f.cle AND ca.internaute_id = $1
+     LEFT JOIN LATERAL (
+       SELECT j.details->>'motif' AS retrait_motif,
+              j.ts               AS retrait_ts,
+              COALESCE(NULLIF(TRIM(CONCAT_WS(' ', au.prenom, au.nom)), ''), au.identifiant) AS retrait_auteur
+       FROM internaute_cycle_vie_log j
+       LEFT JOIN admin_utilisateur au ON au.id = j.utilisateur_id
+       WHERE j.action = 'retrait_consentement'
+         AND j.cible_internaute_id = $1
+         AND j.details->>'finalite' = f.cle
+       ORDER BY j.ts DESC, j.id DESC
+       LIMIT 1
+     ) rj ON TRUE
      ORDER BY f.ordre`,
     [id],
   );

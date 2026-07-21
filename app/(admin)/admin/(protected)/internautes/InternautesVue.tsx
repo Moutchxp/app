@@ -1322,9 +1322,25 @@ function Champ({ label, valeur }: { label: string; valeur: unknown }) {
  * Numeric pg (`score`/`azimut`/hauteurs) = chaîne → `Number()` à l'AFFICHAGE (valeur stockée brute inchangée) ;
  * lat/lon en précision complète (jamais arrondis). Fond distinct (`svv-field`) pour lire le panneau comme « déplié ».
  */
+/** Capsule/cartouche « résidence principale » tri-état, MÊMES couleurs que `CapsuleCompte` (aucune teinte nouvelle) :
+ *  true → VERT « Résidence principale » ; false → GRIS « Autre bien » ; null → GRIS « Non renseigné ». */
+function CapsuleResidence({ rp }: { rp: boolean | null }) {
+  const couleurs = rp === true
+    ? { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)' } // vert de CapsuleCompte
+    : { background: '#eef0f3', color: 'var(--color-svv-muted)' }; //                       gris du cartouche « One-shot »
+  const label = rp === true ? 'Résidence principale' : rp === false ? 'Autre bien' : 'Non renseigné';
+  return (
+    <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: '.68rem', fontWeight: 800, lineHeight: 1.4, whiteSpace: 'nowrap', ...couleurs }}>
+      {label}
+    </span>
+  );
+}
+
 function DetailAnalyse({ p }: { p: Record<string, unknown> }) {
   const payload = (p.payload && typeof p.payload === 'object' ? p.payload : {}) as Record<string, unknown>;
   const rpOui = p.residence_principale === true;
+  // Tri-état résidence principale (sans recalcul back) : true / false / null (question non répondue / anciens projets).
+  const rpTri: boolean | null = p.residence_principale === true ? true : p.residence_principale === false ? false : null;
   const adresseRp = payload.adresseResidence;
   const norm = p.adresse_normalisee == null ? '' : String(p.adresse_normalisee);
   const saisie = p.adresse_saisie == null ? '' : String(p.adresse_saisie);
@@ -1338,7 +1354,14 @@ function DetailAnalyse({ p }: { p: Record<string, unknown> }) {
 
       {/* GROUPE 1 — LE BIEN */}
       <div style={groupe}>Le bien</div>
-      <Champ label="Adresse du bien" valeur={norm || '—'} />
+      {/* Adresse du bien (TOUJOURS affichée) précédée de la capsule/cartouche résidence principale (tri-état). */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ color: 'var(--color-svv-muted)' }}>Adresse du bien</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', color: 'var(--color-svv-ink)', textAlign: 'right', wordBreak: 'break-word' }}>
+          <CapsuleResidence rp={rpTri} />
+          <span>{norm || '—'}</span>
+        </span>
+      </div>
       {saisieDifferente && <Champ label="Adresse saisie" valeur={saisie} />}
       <Champ label="Type de bien" valeur={payload.typeBien} />
       <Champ label="Surface (m²)" valeur={payload.surface} />
@@ -1448,6 +1471,11 @@ function FicheDetail({ detail, actions, actionsProjet, soumettreRetrait, retrait
   // Code couleur des coordonnées (migration 028) : complet = confirmé à l'Écran B (fiable) ; incomplet = Écran A seul.
   const parcoursComplet = i.parcours === 'complet';
   const couleurCoord = parcoursComplet ? 'var(--color-svv-green)' : 'var(--color-svv-red)';
+  // Résidence principale de l'internaute — DÉRIVÉE côté front (données déjà chargées, aucun back) : l'analyse la PLUS
+  // RÉCENTE marquée résidence principale (projets déjà triés cree_a DESC → premier match) → son adresse (normalisée, ou
+  // saisie en repli). Aucune analyse RP → chaîne vide → affichage « non renseignée ».
+  const projetRp = detail.projets.find((pr) => pr.residence_principale === true);
+  const adresseRp = projetRp ? String(projetRp.adresse_normalisee ?? projetRp.adresse_saisie ?? '').trim() : '';
   const sousTitre: CSSProperties = { fontWeight: 700, color: 'var(--color-svv-muted)', fontSize: '.75rem', textTransform: 'uppercase' };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: '.85rem' }}>
@@ -1482,6 +1510,13 @@ function FicheDetail({ detail, actions, actionsProjet, soumettreRetrait, retrait
           <span style={{ fontWeight: 600, color: 'var(--color-svv-muted)' }}>Email : </span>
           <span style={{ color: couleurCoord, fontWeight: 700 }}>{i.email ? String(i.email) : '—'}</span>
         </div>
+        {/* Résidence principale (dérivée des analyses) — adresse de l'analyse RP la plus récente, sinon « non renseignée ». */}
+        <div style={{ fontSize: '.95rem', wordBreak: 'break-word' }}>
+          <span style={{ fontWeight: 600, color: 'var(--color-svv-muted)' }}>Résidence principale : </span>
+          {adresseRp
+            ? <span style={{ color: 'var(--color-svv-ink)', fontWeight: 700 }}>{adresseRp}</span>
+            : <span style={{ color: 'var(--color-svv-muted)' }}>non renseignée</span>}
+        </div>
         <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', marginTop: 6 }}>
           Créé le {dateHeureFr(i.cree_a)}{i.source_collecte ? ` · Source : ${String(i.source_collecte)}` : ''}
         </div>
@@ -1499,22 +1534,25 @@ function FicheDetail({ detail, actions, actionsProjet, soumettreRetrait, retrait
           return (
             <div key={c.finalite} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                <span style={{ color: 'var(--color-svv-ink)' }}>{nomFinalite}</span>
-                <span style={{ color: c.actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)', fontWeight: 700, textAlign: 'right' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  {/* « Retirer » : pilule ROUGE fine et COMPACTE (hauteur d'une ligne), EN TÊTE de ligne à GAUCHE du libellé.
+                      Même rouge (var --color-svv-red) et même onClick qu'avant ; `min-height:0` pour échapper au plancher
+                      44px de `.svv-int button`. Geste destructif ; AUCUN bouton « ré-accorder » (accorder = acte du tunnel). */}
+                  {peutRetirer && !enConfirmation && (
+                    <button
+                      type="button"
+                      onClick={() => { setConfirmFinalite(c.finalite); setDemandeDe(''); setMotifRetrait(''); }}
+                      style={{ flexShrink: 0, minHeight: 0, padding: '2px 8px', borderRadius: 999, border: '1px solid var(--color-svv-red)', background: 'transparent', color: 'var(--color-svv-red)', fontWeight: 700, fontSize: '.72rem', lineHeight: 1.3, cursor: 'pointer' }}
+                    >
+                      Retirer
+                    </button>
+                  )}
+                  <span style={{ color: 'var(--color-svv-ink)' }}>{nomFinalite}</span>
+                </span>
+                <span style={{ color: c.actif ? 'var(--color-svv-green)' : 'var(--color-svv-muted)', fontWeight: 700, textAlign: 'right', flexShrink: 0 }}>
                   {c.actif ? 'Actif' : c.etat ? c.etat : 'Aucun'}{c.depuis ? ` · ${dateFr(c.depuis)}` : ''}
                 </span>
               </div>
-              {/* « Retirer » : rouge en contour (geste destructif), aligné à gauche. AUCUN bouton « ré-accorder /
-                  réactiver / restaurer » nulle part — accorder est un acte de l'internaute (tunnel), pas de l'admin. */}
-              {peutRetirer && !enConfirmation && (
-                <button
-                  type="button"
-                  onClick={() => { setConfirmFinalite(c.finalite); setDemandeDe(''); setMotifRetrait(''); }}
-                  style={{ ...btnOutline, color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)', alignSelf: 'flex-start' }}
-                >
-                  Retirer
-                </button>
-              )}
               {peutRetirer && enConfirmation && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, border: '1px solid var(--color-svv-red)', borderRadius: 10, padding: 12, background: 'var(--color-svv-field)' }}>
                   <div style={{ fontSize: '.85rem', color: 'var(--color-svv-ink)', lineHeight: 1.4 }}>
