@@ -294,6 +294,10 @@ export function InternautesVue() {
   // MÊME mode, mais pour le MOTEUR D'EXTRACTION COMMERCIAL du haut (export CSV + compteur). Indépendant de la gestion.
   // Défaut 'et' (= intersection historique → sortie identique). Sur la VUE `internaute_commercial`, jamais « sans consentement ».
   const [modeExtraction, setModeExtraction] = useState<'et' | 'ou'>('et');
+  // DERNIER MOTEUR TOUCHÉ : le TABLEAU reflète le dernier moteur manipulé. 'extraction' (haut) → base commerciale
+  // (consentants, secondaires + statuts[haut] + modeExtraction, pas de compte/nom) ; 'gestion' (bas) → base gestion
+  // (statutsMiroir + modeConsentement + compte + nom, pas de secondaires). Init 'gestion' (vue de gestion au chargement).
+  const [dernierMoteur, setDernierMoteur] = useState<'extraction' | 'gestion'>('gestion');
   const [q, setQ] = useState(''); //          saisie recherche nom/prénom (immédiate, liée à l'input)
   const [qDebounced, setQDebounced] = useState(''); // valeur débouncée (250 ms) réellement envoyée au serveur
   const [page, setPage] = useState(1);
@@ -349,19 +353,28 @@ export function InternautesVue() {
   useEffect(() => {
     let annule = false;
     void (async () => {
-      // SÉMANTIQUE : aucune pastille MIROIR cochée = « sans aucun consentement actif » (critère POSITIF), pas « rien ».
-      // Toute combinaison (pastilles × compte) est une requête légitime → on interroge TOUJOURS le serveur. L'EXPORT
-      // (bloc SOURCE) reste consent-only et ignore l'axe compte.
       setEtat({ statut: 'chargement' });
       try {
-        const p = versParams(applique);
+        let p: URLSearchParams;
+        if (dernierMoteur === 'extraction') {
+          // TABLEAU = résultat du MOTEUR D'EXTRACTION : base COMMERCIALE, MÊME SOURCE de params que le compteur (filtres
+          // LIVE + statuts du HAUT + modeExtraction). PAS de compte ni de nom → total IDENTIQUE au compteur « X extractibles ».
+          p = versParams(filtres);
+          p.set('base', 'commercial');
+          p.set('statuts', [...statuts].join(','));
+          if (statuts.size >= 2) p.set('modeConsentement', modeExtraction);
+        } else {
+          // TABLEAU = MOTEUR DE GESTION : base gestion, pastilles MIROIR + mode + compte + nom. PAS de filtres secondaires
+          // (ils appartiennent à l'extraction). Aucune pastille miroir = « sans consentement » (sémantique gestion).
+          p = new URLSearchParams();
+          p.set('statuts', [...statutsMiroir].join(','));
+          if (statutsMiroir.size >= 2) p.set('modeConsentement', modeConsentement);
+          if (filtreCompte) p.set('compte', filtreCompte);
+          const recherche = qDebounced.trim();
+          if (recherche.length >= 2) p.set('q', recherche); // recherche serveur SEULEMENT à partir de 2 caractères
+        }
         p.set('page', String(page));
         p.set('taille', String(TAILLE));
-        p.set('statuts', [...statutsMiroir].join(',')); // pastilles cochées (miroir) ; sémantique côté serveur
-        if (statutsMiroir.size >= 2) p.set('modeConsentement', modeConsentement); // combinaison ET/OU (effet à ≥2 pastilles)
-        if (filtreCompte) p.set('compte', filtreCompte); // axe compte, indépendant (jamais transmis à l'export/compteur)
-        const recherche = qDebounced.trim();
-        if (recherche.length >= 2) p.set('q', recherche); // recherche serveur SEULEMENT à partir de 2 caractères
         const res = await fetch(`/api/admin/internautes?${p.toString()}`);
         if (annule) return;
         if (!res.ok) {
@@ -379,7 +392,7 @@ export function InternautesVue() {
     return () => {
       annule = true;
     };
-  }, [applique, page, statutsMiroir, filtreCompte, modeConsentement, qDebounced]);
+  }, [dernierMoteur, page, filtres, statuts, modeExtraction, statutsMiroir, modeConsentement, filtreCompte, qDebounced]);
 
   // COMPTEUR LIVE : recompte à chaque changement de statuts SOURCE ou de filtres secondaires (live), débounce 300 ms.
   // OPTION 1 (Arno) : mêmes critères que l'export CSV — statuts SOURCE + `filtres` secondaires, `q` NON transmis (ignoré).
@@ -412,9 +425,17 @@ export function InternautesVue() {
     return () => { annule = true; clearTimeout(t); };
   }, [filtres, statuts, modeExtraction]);
 
+  // Change un filtre SECONDAIRE (zone/score/verdict/étage/résidence/dates) : c'est une mutation du moteur d'EXTRACTION
+  // → le tableau bascule en base commerciale. `setFiltres` FONCTIONNEL (sûr) + reset page.
+  const majFiltre = (patch: Partial<Filtres>) => {
+    setFiltres((f) => ({ ...f, ...patch }));
+    setDernierMoteur('extraction');
+    setPage(1);
+  };
   const filtrer = () => {
     setPage(1);
     setApplique(filtres);
+    setDernierMoteur('extraction'); // « Filtrer » = action du moteur d'extraction → tableau en base commerciale
   };
   const reinitialiser = () => {
     setFiltres(FILTRES_VIDES);
@@ -443,6 +464,7 @@ export function InternautesVue() {
     else next.add(s);
     setStatuts(next);
     pousserVersGestion(next, modeExtraction); // statuts + mode courant → gestion
+    setDernierMoteur('extraction'); // pastille du HAUT → tableau en base commerciale
   };
   // Coche/décoche un statut MIROIR (pilote la LISTE, vers le bas SEULEMENT — AUCUNE remontée vers `statuts`).
   const toggleMiroir = (s: CleFinalite) => {
@@ -453,12 +475,14 @@ export function InternautesVue() {
       return next;
     });
     setPage(1);
+    setDernierMoteur('gestion'); // pastille MIROIR du BAS → tableau en base gestion
   };
   // Bascule l'interrupteur ET/OU du HAUT (source) : met à jour le mode source PUIS pousse l'état COMPLET (statuts COURANTS
   // + nouveau mode) vers la gestion via `pousserVersGestion` — MÊME mécanisme que la pastille du haut (`toggleStatut`).
   const changerModeExtraction = (m: 'et' | 'ou') => {
     setModeExtraction(m);
     pousserVersGestion(statuts, m); // statuts courant + nouveau mode → gestion
+    setDernierMoteur('extraction'); // interrupteur ET/OU du HAUT → tableau en base commerciale
   };
   const aucunStatut = statuts.size === 0; // garde des boutons d'EXPORT (bloc source ; la LISTE, elle, teste `statutsMiroir`)
   // Statuts cochés SOURCE (ordre canonique) : param `statuts` de l'export + libellé. Le serveur re-normalise.
@@ -679,7 +703,10 @@ export function InternautesVue() {
       {/* SÉLECTION DES STATUTS (multi-sélection en ET) : l'admin coche F1/F2/F3 ; l'extraction renvoie l'INTERSECTION
           (tous les cochés actifs). Charte : rouge plein = coché, gris contour = décoché ; ≥44px ; focus rouge (.svv-int). */}
       <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--color-svv-field)' }}>
-        <span style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>Statuts de consentement (extraction commerciale — consentants){statuts.size >= 2 ? (modeExtraction === 'et' ? ' · ET (toutes)' : ' · OU (au moins une)') : ''}</span>
+        <div>
+          <span style={{ display: 'block', fontSize: '.82rem', fontWeight: 800, color: 'var(--color-svv-ink)' }}>Moteur d’extraction commerciale</span>
+          <span style={{ display: 'block', fontSize: '.72rem', fontWeight: 600, color: 'var(--color-svv-muted)' }}>consentants{statuts.size >= 2 ? (modeExtraction === 'et' ? ' · ET (toutes)' : ' · OU (au moins une)') : ''}</span>
+        </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <div role="group" aria-label="Statuts de consentement" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {STATUTS_EXPORT.map((s) => {
@@ -822,19 +849,19 @@ export function InternautesVue() {
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Zone géographique
           {/* Sélecteur département→commune en OVERLAY (position:absolute) → aucun reflow des champs dessous. */}
-          <SelecteurGeo communes={communesRef} selection={filtres.communes} onValider={(communes) => setFiltres((f) => ({ ...f, communes }))} />
+          <SelecteurGeo communes={communesRef} selection={filtres.communes} onValider={(communes) => majFiltre({ communes })} />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Score min
-          <input style={champ} value={filtres.scoreMin} onChange={(e) => setFiltres({ ...filtres, scoreMin: e.target.value })} inputMode="decimal" />
+          <input style={champ} value={filtres.scoreMin} onChange={(e) => majFiltre({ scoreMin: e.target.value })} inputMode="decimal" />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Score max
-          <input style={champ} value={filtres.scoreMax} onChange={(e) => setFiltres({ ...filtres, scoreMax: e.target.value })} inputMode="decimal" />
+          <input style={champ} value={filtres.scoreMax} onChange={(e) => majFiltre({ scoreMax: e.target.value })} inputMode="decimal" />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Verdict
-          <select style={champ} value={filtres.verdict} onChange={(e) => setFiltres({ ...filtres, verdict: e.target.value })}>
+          <select style={champ} value={filtres.verdict} onChange={(e) => majFiltre({ verdict: e.target.value })}>
             <option value="">Indifférent</option>
             <option value="SANS_VIS_A_VIS">Sans vis-à-vis</option>
             <option value="VIS_A_VIS">Vis-à-vis</option>
@@ -843,7 +870,7 @@ export function InternautesVue() {
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Dernier étage
-          <select style={champ} value={filtres.dernierEtage} onChange={(e) => setFiltres({ ...filtres, dernierEtage: e.target.value as Filtres['dernierEtage'] })}>
+          <select style={champ} value={filtres.dernierEtage} onChange={(e) => majFiltre({ dernierEtage: e.target.value as Filtres['dernierEtage'] })}>
             <option value="">Indifférent</option>
             <option value="true">Oui</option>
             <option value="false">Non</option>
@@ -855,7 +882,7 @@ export function InternautesVue() {
             (au-dessus d'« Exporter toute la base »). */}
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Résidence principale
-          <select style={champ} value={filtres.residencePrincipale} onChange={(e) => setFiltres({ ...filtres, residencePrincipale: e.target.value as Filtres['residencePrincipale'] })}>
+          <select style={champ} value={filtres.residencePrincipale} onChange={(e) => majFiltre({ residencePrincipale: e.target.value as Filtres['residencePrincipale'] })}>
             <option value="">Indifférent</option>
             <option value="true">Oui</option>
             <option value="false">Non</option>
@@ -863,11 +890,11 @@ export function InternautesVue() {
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Créé après
-          <input type="date" style={champ} value={filtres.creeApres} onChange={(e) => setFiltres({ ...filtres, creeApres: e.target.value })} />
+          <input type="date" style={champ} value={filtres.creeApres} onChange={(e) => majFiltre({ creeApres: e.target.value })} />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '.75rem', fontWeight: 700, color: 'var(--color-svv-muted)' }}>
           Créé avant
-          <input type="date" style={champ} value={filtres.creeAvant} onChange={(e) => setFiltres({ ...filtres, creeAvant: e.target.value })} />
+          <input type="date" style={champ} value={filtres.creeAvant} onChange={(e) => majFiltre({ creeAvant: e.target.value })} />
         </label>
         {/* « Depuis toujours » : remplit les 2 dates avec les bornes RÉELLES de la base (MIN/MAX cree_a, efface_a IS NULL).
             Spacer (hauteur d'un libellé) → le bouton s'aligne sur le bas des inputs date malgré l'absence de libellé. */}
@@ -878,7 +905,7 @@ export function InternautesVue() {
             style={{ ...btnOutline, minHeight: 44 }}
             disabled={!bornes.min || !bornes.max}
             title={bornes.min && bornes.max ? `Du ${bornes.min} au ${bornes.max}` : 'Base vide'}
-            onClick={() => setFiltres({ ...filtres, creeApres: bornes.min ?? '', creeAvant: bornes.max ?? '' })}
+            onClick={() => majFiltre({ creeApres: bornes.min ?? '', creeAvant: bornes.max ?? '' })}
           >
             Depuis toujours
           </button>
@@ -940,6 +967,7 @@ export function InternautesVue() {
           pilotent la LISTE ci-dessous ; aucune remontée vers la source) + champ recherche nom/prénom (serveur,
           debounce 250 ms, ≥2 car, insensible aux accents). Charte : liseré ROUGE = actif / GRIS = inactif, fond blanc. */}
       <div style={{ border: '1px solid var(--color-svv-line)', borderRadius: 12, padding: 12, background: '#fff', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <span style={{ fontSize: '.82rem', fontWeight: 800, color: 'var(--color-svv-ink)' }}>Moteur de recherche</span>
         <div role="group" aria-label="Statuts filtrant la liste (miroir)" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {STATUTS_EXPORT.map((s) => {
             const actif = statutsMiroir.has(s.statut);
@@ -979,7 +1007,7 @@ export function InternautesVue() {
                   key={val}
                   type="button"
                   aria-pressed={actif}
-                  onClick={() => { setModeConsentement(val); setPage(1); }}
+                  onClick={() => { setModeConsentement(val); setPage(1); setDernierMoteur('gestion'); }}
                   style={{
                     minHeight: 44,
                     padding: '0 12px',
@@ -1005,7 +1033,7 @@ export function InternautesVue() {
           <select
             style={{ ...champ, minHeight: 44 }}
             value={filtreCompte}
-            onChange={(e) => { setFiltreCompte(e.target.value as '' | 'avec' | 'sans'); setPage(1); }}
+            onChange={(e) => { setFiltreCompte(e.target.value as '' | 'avec' | 'sans'); setPage(1); setDernierMoteur('gestion'); }}
           >
             <option value="">Indifférent</option>
             <option value="avec">Avec compte</option>
@@ -1015,7 +1043,7 @@ export function InternautesVue() {
         <input
           type="search"
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => { setQ(e.target.value); setDernierMoteur('gestion'); }}
           placeholder="Rechercher par nom ou prénom"
           aria-label="Rechercher par nom ou prénom"
           style={{ ...champ, minHeight: 44 }}
@@ -1034,10 +1062,17 @@ export function InternautesVue() {
       {etat.statut === 'ok' && (
         <>
           <div style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)' }}>
-            {total} profil{total > 1 ? 's' : ''} — {[
-              libelleConsentement,
-              filtreCompte === 'avec' ? 'avec compte' : filtreCompte === 'sans' ? 'sans compte (one-shot)' : null,
-            ].filter(Boolean).join(' · ')}{qDebounced.trim().length >= 2 ? ` · recherche « ${qDebounced.trim()} »` : ''}.
+            <strong style={{ color: 'var(--color-svv-ink)' }}>
+              Résultats : {dernierMoteur === 'extraction' ? 'moteur d’extraction commerciale' : 'moteur de recherche'}
+            </strong>
+            {' — '}{total} profil{total > 1 ? 's' : ''}
+            {dernierMoteur === 'gestion'
+              ? ` · ${[
+                  libelleConsentement,
+                  filtreCompte === 'avec' ? 'avec compte' : filtreCompte === 'sans' ? 'sans compte (one-shot)' : null,
+                ].filter(Boolean).join(' · ')}${qDebounced.trim().length >= 2 ? ` · recherche « ${qDebounced.trim()} »` : ''}`
+              : ''}
+            .
           </div>
           {etat.lignes.length === 0 ? (
             <div className="svv-card" style={{ textAlign: 'center', color: 'var(--color-svv-muted)' }}>Aucun profil pour ces critères.</div>
