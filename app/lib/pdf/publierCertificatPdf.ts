@@ -17,6 +17,7 @@
 import { query } from '../db/client';
 import { deposer, recuperer, stockageConfigure } from '../stockage';
 import { genererCertificatPdf, type DonneesCertificatPdf, type LigneKv } from './certificatPdf';
+import { deriverExterieur } from '../certificat/descriptif';
 // Constantes MOTEUR (imports EN LECTURE SEULE ; config.ts n'est PAS modifié). Le certificat AFFICHE ce que le moteur
 // a analysé — champ et portée DÉRIVÉS, jamais retapés. Même source que le tracé de la carte (publierCarteOrientation).
 import { ANALYSIS_RANGE_M, AMPLITUDE_BEAM_COUNT, AMPLITUDE_BEAM_STEP_DEG } from '../svv/config';
@@ -120,13 +121,7 @@ function dateHeureFr(d: Date): string {
 function dateFr(d: Date): string {
   return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Paris' }).format(d);
 }
-function exterieur(payload: Record<string, unknown> | null): string | null {
-  if (!payload) return null;
-  if (payload.balcon === true) return 'Balcon';
-  if (payload.terrasse === true) return 'Terrasse';
-  if (payload.jardin === true) return 'Jardin';
-  return 'Aucun';
-}
+// Extérieur : dérivation PARTAGÉE avec l'émission (app/lib/certificat/descriptif.ts) — logique unique, non dupliquée.
 function modeLabel(m: string | null): string | null {
   return m === 'semi_auto' ? 'snapping façade' : m === 'manuel' ? 'GPS libre' : null;
 }
@@ -158,7 +153,7 @@ export function assembler(r: LigneJointe, base: string, cartePng: Buffer, photoJ
   ligne(caracteristiques, 'Pièces', r.nb_pieces === null ? null : String(r.nb_pieces));
   caracteristiques.push(['Chambres', TIRET]); // pas de source (le certificat n'a que nb_pieces) → « — », jamais inventé
   ligne(caracteristiques, 'Année', r.annee_batiment === null ? null : String(r.annee_batiment));
-  ligne(caracteristiques, 'Extérieur', exterieur(r.payload));
+  ligne(caracteristiques, 'Extérieur', deriverExterieur(r.payload));
 
   // Obstacle face : sous la portée → valeur ; sinon (null ou ≥ portée) → « > <portée> m ». Même portée MOTEUR (dérivée).
   const dist = r.distance_obstacle_m === null ? null : Number(r.distance_obstacle_m);

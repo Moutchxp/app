@@ -28,6 +28,7 @@
  * Fichiers moteur (pipeline, config) : APPELÉS, jamais modifiés. Golden 29.107259068449615 inchangé.
  */
 import { query, withTransaction, type RequeteTx } from './client';
+import { deriverExterieur } from '../certificat/descriptif';
 import { analyserAdresse } from './pipeline';
 import { attribuerNumeroCertificat } from './certificatNumero';
 import { genererJetonVerification } from './certificatJeton';
@@ -123,6 +124,23 @@ function texteOuNull(v: unknown): string | null {
  * le projet par son seul `id`, et on en tire `internaute_id` pour le SCOPE de dépôt (photos/cartes/certificats). Ne
  * throw jamais pour les cas métier (absent / refus / existant) : ce sont des statuts.
  */
+/**
+ * Nom de commune du bien résolu depuis lat/lon (WGS84) par PLUS PROCHE VOISIN spatial dans `adresse_ban` (BAN, SRID
+ * 2154 Lambert-93 — index GiST). On ne SELECT QUE `nom_commune` : jamais `nom_voie` ni aucune donnée de rue (non-fuite).
+ * BEST-EFFORT ABSOLU : toute erreur (ou absence de résultat) → `null`. Un champ cosmétique ne bloque JAMAIS l'émission.
+ */
+async function resoudreVille(lat: number, lon: number): Promise<string | null> {
+  try {
+    const r = await query<{ nom_commune: string | null }>(
+      `SELECT nom_commune FROM adresse_ban ORDER BY geom <-> ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 2154) LIMIT 1`,
+      [lon, lat],
+    );
+    return r.rows[0]?.nom_commune ?? null;
+  } catch {
+    return null; // best-effort : la ville ne conditionne jamais la délivrance du certificat
+  }
+}
+
 export async function emettreCertificat(projetId: number): Promise<ResultatEmission> {
   // 1) Lecture du projet (ownership déjà prouvée par le jeton d'émission borné à CE projetId). `internaute_id` sert
   //    UNIQUEMENT de scope de dépôt en aval, plus de contrôle d'ownership ici.
@@ -208,6 +226,12 @@ export async function emettreCertificat(projetId: number): Promise<ResultatEmiss
   const payload = projet.payload ?? {};
   const adresse = projet.adresse_normalisee ?? projet.adresse_saisie ?? null;
 
+  // FIGEMENT VISUEL (best-effort) : extérieur (dérivé du payload, util partagé avec le PDF) + ville (nom de commune résolu
+  // depuis lat/lon via adresse_ban, PostGIS pur). Calculés UNE fois hors transaction (la ville n'est pas re-résolue en cas
+  // de retry de référence). AUCUN des deux ne peut faire échouer l'émission (ville=null sur incident).
+  const exterieurBien = deriverExterieur(projet.payload);
+  const ville = await resoudreVille(lat, lon);
+
   // 6) TRANSACTION — geste atomique : numéro attribué, INSERT certificat immuable, PUIS ouverture de son
   //    acheminement (le certificat n'est JAMAIS orphelin de suivi : les deux naissent ensemble ou aucun). Course
   //    perdue (23505 sur certificat_projet_unique) → toute la transaction rollback (y compris l'acheminement) →
@@ -253,8 +277,9 @@ export async function emettreCertificat(projetId: number): Promise<ResultatEmiss
         toleranceM: THRESHOLD_M, // seuil de verdict (40 m) figé au certificat, cf. compte rendu
         referenceCadastrale,
         anneeBatiment,
-        // Snapshot intégral (audit) : validation + résultat COMPLETS tels que re-dérivés.
-        resultat: JSON.stringify({ validation: analyse.validation, resultat }),
+        // Snapshot intégral (audit) : validation + résultat COMPLETS tels que re-dérivés. + `visuel` : extérieur & ville
+        // FIGÉS pour le visuel d'annonce (lus plus tard par verifierParReference sans jointure). Clés jsonb → aucune migration.
+        resultat: JSON.stringify({ validation: analyse.validation, resultat, visuel: { exterieur: exterieurBien, ville } }),
         photoCle: projet.photo_cle, // recopiée du projet ; carte_orientation_cle et analyse_photo restent NULL (lots suivants)
       });
         await ouvrirAcheminement(q, certificatId);

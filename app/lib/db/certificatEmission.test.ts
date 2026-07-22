@@ -54,10 +54,16 @@ function installer(opts: {
   acheminement?: unknown; // ligne certificat_acheminement lue par le (r)acheminement (chemin idempotent, séparation envoi)
   txThrow?: unknown; // si défini, withTransaction rejette TOUJOURS avec cette valeur (simule course/incident)
   refCollisions?: number; // nombre de collisions de référence (23505 reference_unique) AVANT succès
+  villeCommune?: string; // nom_commune renvoyé par adresse_ban (résolution ville) ; absent → aucune ligne (ville=null)
+  villeThrow?: boolean; // la requête adresse_ban lève → resoudreVille doit retomber sur null sans faire échouer l'émission
 }) {
-  const { projet = projetOK, certAvant = [], certRelit, acheminement, txThrow, refCollisions } = opts;
+  const { projet = projetOK, certAvant = [], certRelit, acheminement, txThrow, refCollisions, villeCommune, villeThrow } = opts;
   let certCalls = 0;
   query.mockImplementation(async (sql: string) => {
+    if (/FROM adresse_ban/.test(sql)) {
+      if (villeThrow) throw new Error('adresse_ban indisponible');
+      return { rows: villeCommune ? [{ nom_commune: villeCommune }] : [] };
+    }
     if (/FROM internaute_projet/.test(sql)) return { rows: projet ? [projet] : [] };
     if (/FROM certificat_acheminement/.test(sql)) return { rows: acheminement ? [acheminement] : [] };
     if (/FROM certificat WHERE projet_id/.test(sql)) {
@@ -336,5 +342,48 @@ describe('emettreCertificat — SÉPARATION émission / (r)envoi (certificat ém
     await emettreCertificat(77);
     expect(publierEnvoiCertificat).toHaveBeenCalledWith(63); // l'id du certificat DE CE projet (lu en base), jamais du corps
     expect(publierEnvoiCertificat).not.toHaveBeenCalledWith(77); // pas l'id du projet ni un autre certificat
+  });
+});
+
+describe('emettreCertificat — figement VISUEL (extérieur + ville) dans le jsonb resultat', () => {
+  /** Extrait le bloc `visuel` du jsonb `resultat` passé à l'INSERT certificat (retrouvé par la clé "visuel"). */
+  function visuelInsere(qTx: { mock: { calls: unknown[][] } }): { exterieur: string | null; ville: string | null } {
+    const insert = qTx.mock.calls.find((c) => /INSERT INTO certificat\b/.test(c[0] as string));
+    const params = (insert![1] as unknown[]);
+    const jsonParam = params.find((p) => typeof p === 'string' && p.includes('"visuel"')) as string;
+    return JSON.parse(jsonParam).visuel;
+  }
+
+  it('ville RÉSOLUE (adresse_ban → nom_commune) + extérieur « Aucun » (payload sans balcon/terrasse/jardin)', async () => {
+    const { qTx } = installer({ villeCommune: 'Asnières-sur-Seine' });
+    const r = await emettreCertificat(42);
+    expect(r).toMatchObject({ statut: 'emis' });
+    expect(visuelInsere(qTx)).toEqual({ exterieur: 'Aucun', ville: 'Asnières-sur-Seine' });
+  });
+
+  it('extérieur reflète les booléens du payload (balcon → « Balcon »)', async () => {
+    const { qTx } = installer({ villeCommune: 'Asnières-sur-Seine', projet: { ...projetOK, payload: { ...projetOK.payload, balcon: true } } });
+    await emettreCertificat(42);
+    expect(visuelInsere(qTx).exterieur).toBe('Balcon');
+  });
+
+  it('payload absent → extérieur null (non-couplage)', async () => {
+    const { qTx } = installer({ villeCommune: 'Asnières-sur-Seine', projet: { ...projetOK, payload: null } });
+    await emettreCertificat(42);
+    expect(visuelInsere(qTx).exterieur).toBeNull();
+  });
+
+  it('ville NON résolue (adresse_ban ne renvoie rien) → ville null, émission RÉUSSIT quand même', async () => {
+    const { qTx } = installer({}); // aucune route villeCommune → rows vides
+    const r = await emettreCertificat(42);
+    expect(r).toMatchObject({ statut: 'emis' });
+    expect(visuelInsere(qTx).ville).toBeNull();
+  });
+
+  it('BEST-EFFORT : la requête ville lève → ville null, l’émission n’échoue JAMAIS', async () => {
+    const { qTx } = installer({ villeThrow: true });
+    const r = await emettreCertificat(42);
+    expect(r).toMatchObject({ statut: 'emis' }); // le certificat est bien délivré malgré l'incident de résolution ville
+    expect(visuelInsere(qTx).ville).toBeNull();
   });
 });
