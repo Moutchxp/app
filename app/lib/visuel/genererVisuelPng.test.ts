@@ -81,6 +81,9 @@ describe('partsDescriptif — omission propre des null (jamais « null » visibl
     expect(partsDescriptif({ ville: null, typeBien: null, surfaceM2: null, pieces: null, anneeOuEpoque: null, etage: null, dernierEtage: false, exterieur: 'Aucun' })).toEqual([]);
     expect(partsDescriptif({ ville: null, typeBien: null, surfaceM2: null, pieces: null, anneeOuEpoque: null, etage: null, dernierEtage: true, exterieur: 'Terrasse' })).toEqual(['Dernier étage', 'Terrasse']);
   });
+  it('MULTI-extérieur : la liste complète passe telle quelle (« Balcon, Terrasse »)', () => {
+    expect(partsDescriptif({ ville: null, typeBien: null, surfaceM2: null, pieces: null, anneeOuEpoque: null, etage: null, dernierEtage: null, exterieur: 'Balcon, Terrasse, Jardin' })).toEqual(['Balcon, Terrasse, Jardin']);
+  });
   it('tout null → tableau vide', () => {
     expect(partsDescriptif({ ville: null, typeBien: null, surfaceM2: null, pieces: null, anneeOuEpoque: null, etage: null, dernierEtage: null, exterieur: null })).toEqual([]);
   });

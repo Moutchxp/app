@@ -367,6 +367,12 @@ describe('emettreCertificat — figement VISUEL (extérieur + ville) dans le jso
     expect(visuelInsere(qTx).exterieur).toBe('Balcon');
   });
 
+  it('MULTI-extérieur : balcon + terrasse → « Balcon, Terrasse » figé dans le snapshot (liste complète)', async () => {
+    const { qTx } = installer({ villeCommune: 'Asnières-sur-Seine', projet: { ...projetOK, payload: { ...projetOK.payload, balcon: true, terrasse: true } } });
+    await emettreCertificat(42);
+    expect(visuelInsere(qTx).exterieur).toBe('Balcon, Terrasse');
+  });
+
   it('payload absent → extérieur null (non-couplage)', async () => {
     const { qTx } = installer({ villeCommune: 'Asnières-sur-Seine', projet: { ...projetOK, payload: null } });
     await emettreCertificat(42);

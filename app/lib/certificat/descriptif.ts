@@ -4,13 +4,15 @@
  */
 
 /**
- * Extérieur du bien dérivé du payload du tunnel (booléens `balcon` / `terrasse` / `jardin`). Priorité au premier vrai,
- * défaut `'Aucun'`. `null` si aucun payload (non-couplage). Sortie stable : `'Balcon' | 'Terrasse' | 'Jardin' | 'Aucun'`.
+ * Extérieur(s) du bien dérivé(s) du payload du tunnel (booléens `balcon` / `terrasse` / `jardin`). Liste TOUS les extérieurs
+ * cochés, dans l'ordre balcon → terrasse → jardin, joints par « , » (ex. « Balcon, Terrasse »). Aucun coché → `'Aucun'`.
+ * `null` si aucun payload (non-couplage). Sortie = chaîne libre (n'est plus une union figée : peut combiner plusieurs valeurs).
  */
 export function deriverExterieur(payload: Record<string, unknown> | null): string | null {
   if (!payload) return null;
-  if (payload.balcon === true) return 'Balcon';
-  if (payload.terrasse === true) return 'Terrasse';
-  if (payload.jardin === true) return 'Jardin';
-  return 'Aucun';
+  const parts: string[] = [];
+  if (payload.balcon === true) parts.push('Balcon');
+  if (payload.terrasse === true) parts.push('Terrasse');
+  if (payload.jardin === true) parts.push('Jardin');
+  return parts.length > 0 ? parts.join(', ') : 'Aucun';
 }
