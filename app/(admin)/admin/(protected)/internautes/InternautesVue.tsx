@@ -1730,6 +1730,10 @@ function PanneauVerification() {
   const [ouvert, setOuvert] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailChargement, setDetailChargement] = useState(false);
+  // Retrait de consentement DEPUIS ce panneau : états LOCAUX (aucun partage avec le bloc du haut, composant distinct).
+  // Même type de message que le haut (`retraitMsg`) ; `retraitEnCours` = busy passé à FicheDetail.
+  const [retraitMsg, setRetraitMsg] = useState<{ ton: 'ok' | 'info' | 'err'; texte: string } | null>(null);
+  const [retraitEnCours, setRetraitEnCours] = useState(false);
 
   useEffect(() => {
     let annule = false;
@@ -1759,12 +1763,9 @@ function PanneauVerification() {
     };
   }, [mode]);
 
-  const basculer = async (id: string) => {
-    if (ouvert === id) {
-      setOuvert(null);
-      return;
-    }
-    setOuvert(id);
+  // Recharge le détail de la fiche DÉJÀ ouverte (NE toggle PAS l'ouverture). Utilisé par `basculer` (ouverture) et par le
+  // retrait de consentement (re-fetch après PATCH) — miroir d'`ouvrirDetail` du bloc du haut.
+  const rechargerDetail = async (id: string) => {
     setDetail(null);
     setDetailChargement(true);
     try {
@@ -1772,6 +1773,52 @@ function PanneauVerification() {
       if (res.ok) setDetail(await res.json());
     } finally {
       setDetailChargement(false);
+    }
+  };
+
+  const basculer = async (id: string) => {
+    setRetraitMsg(null); // ne pas traîner le message d'une autre fiche (miroir du bloc du haut, ouvrirDetail)
+    if (ouvert === id) {
+      setOuvert(null);
+      return;
+    }
+    setOuvert(id);
+    await rechargerDetail(id);
+  };
+
+  // Retrait de consentement DEPUIS le panneau de vérification — calqué EXACTEMENT sur le bloc du haut : PATCH
+  // .../[id]/consentement, mêmes 3 issues (réel 'ok' / idempotent 'info' / erreur 'err' générique, JAMAIS le corps
+  // serveur brut), busy via `retraitEnCours`. Re-fetch AVANT de poser le message → le message survit au re-fetch.
+  // Écrit sur `internaute_consentement` (via la route) ; ne touche jamais `internaute_commercial` (frontière intacte).
+  const soumettreRetraitConsentement = async (finalite: string, aLaDemandeDe: 'internaute' | 'admin', motif: string): Promise<boolean> => {
+    if (!ouvert) return false;
+    setRetraitEnCours(true);
+    try {
+      const res = await fetch(`/api/admin/internautes/${ouvert}/consentement`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ finalite, aLaDemandeDe, motif: motif.trim() || undefined }),
+      });
+      if (!res.ok) {
+        const texte = res.status === 404
+          ? 'Internaute introuvable ou déjà effacé.'
+          : res.status === 422
+            ? 'Demande invalide (finalité ou motif). Retrait non effectué.'
+            : 'Retrait indisponible pour le moment. Réessayez.';
+        setRetraitMsg({ ton: 'err', texte });
+        return false;
+      }
+      const data = await res.json().catch(() => ({} as { deja?: boolean }));
+      await rechargerDetail(ouvert); // re-fetch : la finalité retirée bascule en « inactif » et perd son bouton
+      setRetraitMsg(data?.deja
+        ? { ton: 'info', texte: 'Ce consentement était déjà inactif : rien n’a été retiré.' }
+        : { ton: 'ok', texte: 'Consentement retiré.' });
+      return true;
+    } catch {
+      setRetraitMsg({ ton: 'err', texte: 'Retrait impossible (réseau). Réessayez.' });
+      return false;
+    } finally {
+      setRetraitEnCours(false);
     }
   };
 
@@ -1783,7 +1830,7 @@ function PanneauVerification() {
       <div>
         <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: 'var(--color-svv-ink)' }}>Vérification — 10 internautes à la dernière analyse la plus récente</h2>
         <p style={{ margin: '2px 0 0', fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>
-          Contrôle technique (consultation seule) : vérifier que l’ingestion du tunnel fonctionne. Aucun export ni recontact ici.
+          Contrôle technique : vérifier que l’ingestion du tunnel fonctionne. Aucun export ni recontact ici.
         </p>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -1825,9 +1872,18 @@ function PanneauVerification() {
                 {ouvert === r.id && (
                   <div className="svv-detail-verif" style={{ borderTop: '1px solid var(--color-svv-line)', padding: 12 }}>
                     {detailChargement && <div style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
-                    {/* Vérification = LECTURE SEULE : on fournit `actionsProjet` (bouton Test) mais JAMAIS `actions`
-                        (Rectifier/Effacer) → aucune action destructive ne fuite dans le panneau de contrôle. */}
-                    {detail && <FicheDetail key={ouvert ?? undefined} detail={detail} actionsProjet={(p) => <BoutonTestProjet projet={p} />} />}
+                    {/* Retrait de consentement AUTORISÉ ici (mêmes règles que le bloc du haut) via les 3 props ci-dessous ;
+                        `actions` (Rectifier/Effacer) reste OMISE → ces gestes-là ne fuitent pas dans le panneau de contrôle. */}
+                    {detail && (
+                      <FicheDetail
+                        key={ouvert ?? undefined}
+                        detail={detail}
+                        actionsProjet={(p) => <BoutonTestProjet projet={p} />}
+                        soumettreRetrait={soumettreRetraitConsentement}
+                        retraitEnCours={retraitEnCours}
+                        retraitMsg={retraitMsg}
+                      />
+                    )}
                   </div>
                 )}
               </div>
