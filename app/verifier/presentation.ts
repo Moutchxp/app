@@ -64,16 +64,18 @@ export function formatScoreVisuel(score: number | null): string {
   return score === null ? '—' : `${Math.round(score)} / 100`;
 }
 
-/** Descriptif visuel → lignes « label / valeur » prêtes à afficher. Champs `null` omis ; JAMAIS d'adresse (absente du set). */
+/** Descriptif visuel → lignes « label / valeur » prêtes à afficher. Ordre : ville · type · surface · pièces · étage ·
+ *  (dernier étage) · année · extérieur. Champs `null` OMIS proprement (ville absente → pas de ligne). JAMAIS d'adresse,
+ *  jamais de « chambres » (aucune source). */
 export function formatDescriptifVisuel(d: DescriptifVisuel): Array<{ label: string; valeur: string }> {
   const rows: Array<{ label: string; valeur: string }> = [];
+  if (d.ville) rows.push({ label: 'Ville', valeur: d.ville });
   if (d.typeBien) rows.push({ label: 'Type', valeur: d.typeBien });
   if (d.surfaceM2 !== null) rows.push({ label: 'Surface', valeur: `${String(d.surfaceM2).replace('.', ',')} m²` });
   if (d.pieces !== null) rows.push({ label: 'Pièces', valeur: String(d.pieces) });
-  if (d.chambres !== null) rows.push({ label: 'Chambres', valeur: String(d.chambres) });
-  if (d.anneeOuEpoque) rows.push({ label: 'Année', valeur: d.anneeOuEpoque });
   if (d.etage !== null) rows.push({ label: 'Étage', valeur: formatEtage(d.etage) });
   if (d.dernierEtage !== null) rows.push({ label: 'Dernier étage', valeur: d.dernierEtage ? 'Oui' : 'Non' });
+  if (d.anneeOuEpoque) rows.push({ label: 'Année', valeur: d.anneeOuEpoque });
   if (d.exterieur) rows.push({ label: 'Extérieur', valeur: d.exterieur });
   return rows;
 }

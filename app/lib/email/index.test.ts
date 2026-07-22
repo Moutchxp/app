@@ -50,6 +50,52 @@ describe('envoyerCertificat — texte brut, pièce jointe, from = alias', () => 
   });
 });
 
+describe('envoyerCertificat — jusqu’à 3 pièces jointes (n’inclut que les présentes)', () => {
+  const ANON = Buffer.from('pdf-anonyme');
+  const VIS = Buffer.from('visuel-png');
+
+  it('nominatif seul (aucun secondaire) → 1 PJ', async () => {
+    const { transporteur, sendMail } = faux();
+    await envoyerCertificat(transporteur, 'noreply@sansvisavis.com', MAIL);
+    const arg = sendMail.mock.calls[0]![0] as ArgsSendMail;
+    expect(arg.attachments.map((a) => a.filename)).toEqual(['Certificat-SAVV-2026-000123.pdf']);
+  });
+
+  it('nominatif + anonymisé (sans visuel) → 2 PJ', async () => {
+    const { transporteur, sendMail } = faux();
+    await envoyerCertificat(transporteur, 'noreply@sansvisavis.com', { ...MAIL, pdfAnonyme: ANON });
+    const arg = sendMail.mock.calls[0]![0] as ArgsSendMail;
+    expect(arg.attachments).toEqual([
+      { filename: 'Certificat-SAVV-2026-000123.pdf', content: MAIL.pdf, contentType: 'application/pdf' },
+      { filename: 'Certificat-anonymise-SAVV-2026-000123.pdf', content: ANON, contentType: 'application/pdf' },
+    ]);
+  });
+
+  it('nominatif + visuel (sans anonymisé) → 2 PJ (le PNG)', async () => {
+    const { transporteur, sendMail } = faux();
+    await envoyerCertificat(transporteur, 'noreply@sansvisavis.com', { ...MAIL, visuelPng: VIS });
+    const arg = sendMail.mock.calls[0]![0] as ArgsSendMail;
+    expect(arg.attachments.map((a) => `${a.filename}|${a.contentType}`)).toEqual([
+      'Certificat-SAVV-2026-000123.pdf|application/pdf',
+      'Visuel-annonce-SVAV-K7M2-9QX4.png|image/png',
+    ]);
+  });
+
+  it('les 3 documents → 3 PJ (nominatif, anonymisé, visuel) + corps qui les liste', async () => {
+    const { transporteur, sendMail } = faux();
+    await envoyerCertificat(transporteur, 'noreply@sansvisavis.com', { ...MAIL, pdfAnonyme: ANON, visuelPng: VIS });
+    const arg = sendMail.mock.calls[0]![0] as ArgsSendMail;
+    expect(arg.attachments).toEqual([
+      { filename: 'Certificat-SAVV-2026-000123.pdf', content: MAIL.pdf, contentType: 'application/pdf' },
+      { filename: 'Certificat-anonymise-SAVV-2026-000123.pdf', content: ANON, contentType: 'application/pdf' },
+      { filename: 'Visuel-annonce-SVAV-K7M2-9QX4.png', content: VIS, contentType: 'image/png' },
+    ]);
+    expect(arg.text).toContain('Vous trouverez en pièces jointes :');
+    expect(arg.text).toContain('version anonymisée');
+    expect(arg.text).toContain('visuel');
+  });
+});
+
 describe('lireConfigEmail — repli sûr', () => {
   const ORIG = { ...process.env };
   beforeEach(() => {

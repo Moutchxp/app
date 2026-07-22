@@ -17,6 +17,8 @@ import { recuperer, stockageConfigure } from '../stockage';
 import { signerJetonRetrait } from '../internaute/jetonRectification';
 import { effacerIdentiteLivraisonSiEligible } from '../internaute/cycleVie';
 import { lireConfigEmail, obtenirTransporteur, envoyerCertificat } from './index';
+import { genererBufferCertificat } from '../pdf/publierCertificatPdf';
+import { genererVisuelPng } from '../visuel/genererVisuelPng';
 
 /** Base absolue du site (serveur only), pour le lien de vérification du corps. `null` si absente/mal formée. */
 function siteUrl(): string | null {
@@ -31,10 +33,26 @@ interface LigneEnvoi {
   email: string | null; // LEFT JOIN internaute : NULL possible sur un dossier effacé (RGPD)
   pdf_cle: string | null; // sur certificat_acheminement : NULL si PDF non généré
   internaute_id: string; // internaute_projet.internaute_id (NOT NULL) → scelle le jeton de désabonnement
+  a_un_compte: boolean; // documents secondaires (anonymisé/visuel) réservés aux titulaires de compte
+  // Colonnes du SET VISUEL (snapshot certificat + resultat.visuel figé au Commit 1). Aucune donnée nominative.
+  verdict: string;
+  score: string | null; // numeric → string (driver pg)
+  type_bien: string | null;
+  surface_m2: string | null;
+  nb_pieces: number | null;
+  annee_batiment: number | null;
+  epoque: string | null;
+  etage: number | null;
+  dernier_etage: boolean | null;
+  visuel_exterieur: string | null;
+  visuel_ville: string | null;
 }
 
 const REQUETE = `
-  SELECT c.numero, c.reference, i.prenom, i.email, a.pdf_cle, ip.internaute_id
+  SELECT c.numero, c.reference, i.prenom, i.email, a.pdf_cle, ip.internaute_id,
+         EXISTS (SELECT 1 FROM internaute_auth ia WHERE ia.internaute_id = ip.internaute_id) AS a_un_compte,
+         c.verdict, c.score, c.type_bien, c.surface_m2, c.nb_pieces, c.annee_batiment, c.epoque, c.etage, c.dernier_etage,
+         c.resultat->'visuel'->>'exterieur' AS visuel_exterieur, c.resultat->'visuel'->>'ville' AS visuel_ville
     FROM certificat c
     JOIN internaute_projet ip ON ip.id = c.projet_id
     LEFT JOIN internaute i ON i.id = ip.internaute_id
@@ -73,7 +91,40 @@ export async function publierEnvoiCertificat(certificatId: number): Promise<void
       return;
     }
 
-    const pdf = await recuperer(row.pdf_cle); // relecture (pas de régénération)
+    const pdf = await recuperer(row.pdf_cle); // relecture (pas de régénération) — NOMINATIF, toujours joint
+
+    // DOCUMENTS SECONDAIRES (best-effort), générés À LA VOLÉE, RÉSERVÉS AUX TITULAIRES DE COMPTE : un one-shot n'a ni
+    // anonymisé authentifiable ni visuel exploitable (leur QR renverrait « sans_compte »). Chaque génération est isolée :
+    // un échec omet SEULEMENT la pièce concernée — le nominatif part TOUJOURS. Aucun dépôt, aucune donnée sensible loggée.
+    let pdfAnonyme: Buffer | undefined;
+    let visuelPng: Buffer | undefined;
+    if (row.a_un_compte) {
+      try {
+        pdfAnonyme = (await genererBufferCertificat(certificatId, { anonymise: true, typeDocument: 'anonyme' })) ?? undefined;
+      } catch (e) {
+        console.error('[certificat-envoi] anonymisé non généré (best-effort)', (e as Error)?.name ?? 'Erreur');
+      }
+      try {
+        visuelPng = await genererVisuelPng({
+          verdict: row.verdict,
+          score: row.score === null ? null : Number(row.score),
+          reference: row.reference,
+          urlBase: base,
+          descriptif: {
+            ville: row.visuel_ville,
+            typeBien: row.type_bien,
+            surfaceM2: row.surface_m2 === null ? null : Number(row.surface_m2),
+            pieces: row.nb_pieces,
+            anneeOuEpoque: row.annee_batiment !== null ? String(row.annee_batiment) : row.epoque,
+            etage: row.etage,
+            dernierEtage: row.dernier_etage,
+            exterieur: row.visuel_exterieur,
+          },
+        });
+      } catch (e) {
+        console.error('[certificat-envoi] visuel non généré (best-effort)', (e as Error)?.name ?? 'Erreur');
+      }
+    }
 
     // Jeton de DÉSABONNEMENT (voie de retrait e-mail). BEST-EFFORT : si la signature échoue (secret absent), on envoie
     // le certificat SANS le pied — ne JAMAIS priver l'internaute de son certificat pour un pied manquant.
@@ -91,6 +142,8 @@ export async function publierEnvoiCertificat(certificatId: number): Promise<void
       reference: row.reference,
       siteUrl: base,
       pdf,
+      pdfAnonyme,
+      visuelPng,
       jetonDesabonnement,
     });
     await query(

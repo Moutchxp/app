@@ -170,14 +170,16 @@ describe('verifierCertificat — GATE COMPTE (défense en profondeur one-shot)',
 describe('verifierParReference — VOIE VISUEL (référence seule, sans jeton)', () => {
   const REF = 'SVAV-K7M2-9QX4';
   // Ligne visuel + champs INTERDITS (adresse/lat/lon/prenom/jeton) pour prouver qu'ils ne fuitent jamais dans le set.
+  // `visuel_exterieur`/`visuel_ville` = ce que le SELECT lit de resultat->'visuel' (figé au Commit 1). Champs INTERDITS
+  // (adresse/lat/lon/prenom/jeton) présents dans la ligne pour prouver qu'ils ne fuitent jamais dans le set.
   const VISUEL = {
     reference: REF, verdict: 'SANS_VIS_A_VIS', score: '82.4',
     type_bien: 'Appartement', surface_m2: '72.35', nb_pieces: 3, annee_batiment: 2008, epoque: null,
-    etage: 5, dernier_etage: false, a_un_compte: true,
+    etage: 5, dernier_etage: false, visuel_exterieur: 'Balcon', visuel_ville: 'Asnières-sur-Seine', a_un_compte: true,
     adresse: '12 rue des Fleurs, 92004', lat: '48.9', lon: '2.26', prenom: 'Jean', jeton_verification: JETON,
   };
 
-  it('référence VALIDE d’un compte → visuel_verifie avec le set attendu, SANS adresse', async () => {
+  it('référence VALIDE d’un compte → visuel_verifie avec le set attendu (ville + extérieur du jsonb), SANS adresse ni chambres', async () => {
     installer(VISUEL);
     const r = await verifierParReference(REF);
     expect(r).toEqual({
@@ -185,11 +187,22 @@ describe('verifierParReference — VOIE VISUEL (référence seule, sans jeton)',
       visuel: {
         reference: REF, verdict: 'SANS_VIS_A_VIS', score: 82.4,
         descriptif: {
-          typeBien: 'Appartement', surfaceM2: 72.35, pieces: 3, chambres: null,
-          anneeOuEpoque: '2008', etage: 5, dernierEtage: false, exterieur: null,
+          ville: 'Asnières-sur-Seine', typeBien: 'Appartement', surfaceM2: 72.35, pieces: 3,
+          anneeOuEpoque: '2008', etage: 5, dernierEtage: false, exterieur: 'Balcon',
         },
       },
     });
+  });
+
+  it('TOLÉRANCE : certificat émis AVANT le Commit 1 (pas de clé visuel) → ville & extérieur null, sans erreur', async () => {
+    installer({ ...VISUEL, visuel_exterieur: null, visuel_ville: null }); // resultat->'visuel'->>'…' = NULL
+    const r = await verifierParReference(REF);
+    expect(r.statut).toBe('visuel_verifie');
+    if (r.statut === 'visuel_verifie') {
+      expect(r.visuel.descriptif.ville).toBeNull();
+      expect(r.visuel.descriptif.exterieur).toBeNull();
+      expect(r.visuel.descriptif.typeBien).toBe('Appartement'); // le reste du descriptif reste renseigné
+    }
   });
 
   it('NON-FUITE : le set visuel ne contient JAMAIS adresse / lat / lon / nom / jeton', async () => {

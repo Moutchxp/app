@@ -53,7 +53,9 @@ export interface MailCertificat {
   numero: string;
   reference: string;
   siteUrl: string; // base absolue (sans slash final) → lien de vérification
-  pdf: Buffer;
+  pdf: Buffer; // NOMINATIF (toujours présent — le certificat lui-même)
+  pdfAnonyme?: Buffer; // version anonymisée à diffuser (best-effort : absente si sa génération a échoué)
+  visuelPng?: Buffer; // visuel d'annonce PNG (best-effort : absent si sa génération a échoué)
   jetonDesabonnement?: string | null; // jeton de RETRAIT (voie e-mail) → pied de désabonnement ; absent/null → pas de ligne
 }
 
@@ -67,10 +69,15 @@ export interface MailCertificat {
  */
 export async function envoyerCertificat(transporteur: Transporter, from: string, m: MailCertificat): Promise<void> {
   const salut = m.prenom && m.prenom.trim() ? `Bonjour ${m.prenom.trim()},` : 'Bonjour,';
+  // Liste des documents joints — n'énumère QUE ceux réellement présents (les secondaires sont best-effort).
+  const documents = ['- votre certificat Sans Vis-à-Vis® (PDF) ;'];
+  if (m.pdfAnonyme) documents.push('- sa version anonymisée, à diffuser librement (PDF) ;');
+  if (m.visuelPng) documents.push('- un visuel à joindre à votre annonce immobilière (PNG).');
   const lignes = [
     salut,
     '',
-    'Votre certificat Sans Vis-à-Vis® est joint à ce message.',
+    documents.length > 1 ? 'Vous trouverez en pièces jointes :' : 'Votre certificat Sans Vis-à-Vis® est joint à ce message.',
+    ...(documents.length > 1 ? documents : []),
     '',
     `Référence à indiquer dans votre annonce : ${m.reference}`,
     `Vérification : ${m.siteUrl}/verifier`,
@@ -83,11 +90,18 @@ export async function envoyerCertificat(transporteur: Transporter, from: string,
   lignes.push('Sans Vis-à-Vis® est une marque de la SARL CRITERIMMO.');
   const corps = lignes.join('\n');
 
+  // Jusqu'à 3 pièces jointes ; on n'inclut QUE celles présentes (les secondaires sont best-effort côté publisher).
+  const attachments: { filename: string; content: Buffer; contentType: string }[] = [
+    { filename: `Certificat-${m.numero}.pdf`, content: m.pdf, contentType: 'application/pdf' },
+  ];
+  if (m.pdfAnonyme) attachments.push({ filename: `Certificat-anonymise-${m.numero}.pdf`, content: m.pdfAnonyme, contentType: 'application/pdf' });
+  if (m.visuelPng) attachments.push({ filename: `Visuel-annonce-${m.reference}.png`, content: m.visuelPng, contentType: 'image/png' });
+
   await transporteur.sendMail({
     from,
     to: m.to,
     subject: `Votre certificat Sans Vis-à-Vis® — ${m.numero}`,
     text: corps,
-    attachments: [{ filename: `Certificat-${m.numero}.pdf`, content: m.pdf, contentType: 'application/pdf' }],
+    attachments,
   });
 }

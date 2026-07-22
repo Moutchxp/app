@@ -217,6 +217,30 @@ async function recupererSans(cle: string | null): Promise<Buffer | null> {
   }
 }
 
+/**
+ * Génère le PDF d'un certificat et RETOURNE le buffer, SANS rien déposer en stockage (≠ `publierCertificatPdf`). Réutilise
+ * la MÊME chaîne (REQUETE snapshot + relecture carte/photo + `assembler` + `genererCertificatPdf`) → aucune duplication.
+ * Sert à produire à la volée des variantes (ex. anonymisé) pour l'e-mail d'émission. `null` si SITE_URL absente, certificat
+ * introuvable, ou carte indisponible (prérequis du document). `anonymise`/`typeDocument` surchargent la variante voulue —
+ * `anonymise` reste sans effet sur un one-shot (`aUnCompte===false`, cf. `certificatPdf.ts`). N'écrit RIEN (pas de dépôt,
+ * pas d'UPDATE) → le chemin nominatif existant est INCHANGÉ.
+ */
+export async function genererBufferCertificat(
+  certificatId: number,
+  options?: { anonymise?: boolean; typeDocument?: DonneesCertificatPdf['typeDocument'] },
+): Promise<Buffer | null> {
+  const base = siteUrl();
+  if (!base) return null; // QR faux évité (même garde que le dépôt nominatif)
+  const r = await query<LigneJointe>(REQUETE, [certificatId]);
+  const row = r.rows[0];
+  if (!row) return null;
+  const cartePng = await recupererSans(row.carte_orientation_cle); // RELECTURE (pas de régénération IGN)
+  if (!cartePng) return null; // carte = prérequis du document (comme publierCertificatPdf)
+  const photoJpeg = await recupererSans(row.photo_cle);
+  const donnees = assembler(row, base, cartePng, photoJpeg);
+  return genererCertificatPdf({ ...donnees, anonymise: options?.anonymise, typeDocument: options?.typeDocument });
+}
+
 export async function publierCertificatPdf(internauteId: string, certificatId: number): Promise<void> {
   try {
     if (!stockageConfigure()) return; // silencieux (comme le dépôt carte/photo)

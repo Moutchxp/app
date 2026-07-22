@@ -35,14 +35,14 @@ export interface CertificatPublic {
   etage: number | null;
 }
 
-/** Descriptif NON NOMINATIF du bien pour le SET VISUEL (jamais d'adresse, ni lat/lon, ni nom). `chambres` et `exterieur`
- *  n'existent NI en colonne directe NI dans `certificat.resultat` (ils vivent dans `internaute_projet.payload`, non joint
- *  ici) → toujours `null` sur cette voie sans jointure. La forme est conservée pour un enrichissement futur éventuel. */
+/** Descriptif NON NOMINATIF du bien pour le SET VISUEL (jamais d'adresse, ni lat/lon, ni nom). `ville` et `exterieur` sont
+ *  lus du snapshot `certificat.resultat.visuel` (figés à l'émission, Commit 1) → NULL pour les certificats émis AVANT ce
+ *  figement (tolérance). Les autres champs viennent des colonnes directes du snapshot. Pas de « chambres » (aucune source). */
 export interface DescriptifVisuel {
+  ville: string | null;
   typeBien: string | null;
   surfaceM2: number | null;
   pieces: number | null;
-  chambres: number | null;
   anneeOuEpoque: string | null;
   etage: number | null;
   dernierEtage: boolean | null;
@@ -168,6 +168,8 @@ interface LigneVisuel {
   epoque: string | null;
   etage: number | null;
   dernier_etage: boolean | null;
+  visuel_exterieur: string | null; // resultat->'visuel'->>'exterieur' (jsonb, figé à l'émission ; null si antérieur)
+  visuel_ville: string | null; //     resultat->'visuel'->>'ville'     (jsonb, figé à l'émission ; null si antérieur)
   a_un_compte: boolean;
 }
 
@@ -194,7 +196,10 @@ export async function verifierParReference(refBrut: unknown): Promise<ResultatVe
   const ligne = await withTransaction(async (q) => {
     await q('SET TRANSACTION READ ONLY');
     const r = await q<LigneVisuel>(
-      `SELECT reference, verdict, score, type_bien, surface_m2, nb_pieces, annee_batiment, epoque, etage, dernier_etage, EXISTS (SELECT 1 FROM internaute_auth ia JOIN internaute_projet ip ON ip.internaute_id = ia.internaute_id WHERE ip.id = certificat.projet_id) AS a_un_compte FROM certificat WHERE reference = $1`,
+      // `visuel_*` lus du jsonb figé à l'émission (Commit 1). Sur un certificat émis AVANT, la clé `visuel` est absente →
+      // `->>` renvoie NULL → tolérance (exterieur/ville = null), aucune erreur. AUCUNE colonne nominative. SELECT sur UNE
+      // ligne (routage de test inchangé, comme la voie numéro).
+      `SELECT reference, verdict, score, type_bien, surface_m2, nb_pieces, annee_batiment, epoque, etage, dernier_etage, resultat->'visuel'->>'exterieur' AS visuel_exterieur, resultat->'visuel'->>'ville' AS visuel_ville, EXISTS (SELECT 1 FROM internaute_auth ia JOIN internaute_projet ip ON ip.internaute_id = ia.internaute_id WHERE ip.id = certificat.projet_id) AS a_un_compte FROM certificat WHERE reference = $1`,
       [reference],
     );
     return r.rows[0] ?? null;
@@ -210,14 +215,14 @@ export async function verifierParReference(refBrut: unknown): Promise<ResultatVe
       verdict: ligne.verdict,
       score: ligne.score === null ? null : Number(ligne.score),
       descriptif: {
+        ville: ligne.visuel_ville, // figé à l'émission (jsonb) ; NULL pour les certificats antérieurs au Commit 1
         typeBien: ligne.type_bien,
         surfaceM2: ligne.surface_m2 === null ? null : Number(ligne.surface_m2),
         pieces: ligne.nb_pieces,
-        chambres: null, // aucune source sur le snapshot (cf. DescriptifVisuel)
         anneeOuEpoque: ligne.annee_batiment !== null ? String(ligne.annee_batiment) : ligne.epoque,
         etage: ligne.etage,
         dernierEtage: ligne.dernier_etage,
-        exterieur: null, // non snapshoté (payload projet, non joint) — pas de jointure, pas de migration
+        exterieur: ligne.visuel_exterieur, // figé à l'émission (jsonb) ; NULL si absent (tolérance)
       },
     },
   };

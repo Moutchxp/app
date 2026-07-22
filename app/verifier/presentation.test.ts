@@ -56,25 +56,35 @@ describe('formatScoreVisuel', () => {
 
 describe('formatDescriptifVisuel', () => {
   const base: DescriptifVisuel = {
-    typeBien: 'Appartement', surfaceM2: 72.35, pieces: 3, chambres: null,
-    anneeOuEpoque: '2008', etage: 5, dernierEtage: false, exterieur: null,
+    ville: 'Asnières-sur-Seine', typeBien: 'Appartement', surfaceM2: 72.35, pieces: 3,
+    anneeOuEpoque: '2008', etage: 5, dernierEtage: false, exterieur: 'Balcon',
   };
-  it('compose les lignes présentes, formate la surface (virgule) et l’étage, sans adresse', () => {
+  it('compose ville + descriptif, formate surface/étage, sans chambres ni adresse', () => {
     const rows = formatDescriptifVisuel(base);
     const map = Object.fromEntries(rows.map((r) => [r.label, r.valeur]));
+    expect(map['Ville']).toBe('Asnières-sur-Seine');
     expect(map['Type']).toBe('Appartement');
     expect(map['Surface']).toBe('72,35 m²');
     expect(map['Pièces']).toBe('3');
-    expect(map['Année']).toBe('2008');
     expect(map['Étage']).toBe('5ᵉ étage');
     expect(map['Dernier étage']).toBe('Non');
-    // Champs null omis (chambres, extérieur) ; JAMAIS d'adresse.
+    expect(map['Année']).toBe('2008');
+    expect(map['Extérieur']).toBe('Balcon');
+    // JAMAIS de « Chambres » ni d'adresse.
     expect(map['Chambres']).toBeUndefined();
-    expect(map['Extérieur']).toBeUndefined();
-    expect(JSON.stringify(rows)).not.toMatch(/adresse/i);
+    expect(JSON.stringify(rows)).not.toMatch(/adresse|chambre/i);
+    // Ordre : Ville en tête.
+    expect(rows[0].label).toBe('Ville');
+  });
+  it('ville absente (certificat antérieur) → omission propre, PAS de ligne « Ville »', () => {
+    const rows = formatDescriptifVisuel({ ...base, ville: null, exterieur: null });
+    const labels = rows.map((r) => r.label);
+    expect(labels).not.toContain('Ville');
+    expect(labels).not.toContain('Extérieur');
+    expect(labels).toContain('Type'); // le reste reste affiché
   });
   it('omet toutes les lignes nulles', () => {
-    const rows = formatDescriptifVisuel({ typeBien: null, surfaceM2: null, pieces: null, chambres: null, anneeOuEpoque: null, etage: null, dernierEtage: null, exterieur: null });
+    const rows = formatDescriptifVisuel({ ville: null, typeBien: null, surfaceM2: null, pieces: null, anneeOuEpoque: null, etage: null, dernierEtage: null, exterieur: null });
     expect(rows).toEqual([]);
   });
 });
