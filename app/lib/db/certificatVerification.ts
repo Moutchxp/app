@@ -24,6 +24,9 @@ import { withTransaction } from './client';
 /** Format du numéro — MIROIR du CHECK `certificat.numero` (031). Un numéro mal formé est rejeté AVANT tout accès base. */
 const REGEXP_NUMERO = /^SAVV-[0-9]{4}-[0-9]{6}$/;
 
+/** Format de la référence publique — MIROIR du CHECK `certificat.reference` (039, Crockford SANS I/L/O/U). Rejetée AVANT base. */
+const REGEXP_REFERENCE = /^SVAV-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/;
+
 export interface CertificatPublic {
   numero: string;
   emisLe: string; // ISO 8601 (date d'émission)
@@ -32,12 +35,37 @@ export interface CertificatPublic {
   etage: number | null;
 }
 
+/** Descriptif NON NOMINATIF du bien pour le SET VISUEL (jamais d'adresse, ni lat/lon, ni nom). `chambres` et `exterieur`
+ *  n'existent NI en colonne directe NI dans `certificat.resultat` (ils vivent dans `internaute_projet.payload`, non joint
+ *  ici) → toujours `null` sur cette voie sans jointure. La forme est conservée pour un enrichissement futur éventuel. */
+export interface DescriptifVisuel {
+  typeBien: string | null;
+  surfaceM2: number | null;
+  pieces: number | null;
+  chambres: number | null;
+  anneeOuEpoque: string | null;
+  etage: number | null;
+  dernierEtage: boolean | null;
+  exterieur: string | null;
+}
+
+/** SET VISUEL : ce que le VISUEL d'annonce révèle, débloqué par la RÉFÉRENCE SEULE (clé publique 40 bits non énumérable).
+ *  JAMAIS d'adresse. Minimisation identique à la voie numéro : seul ce qui sert au visuel sort de la base. */
+export interface SetVisuel {
+  reference: string;
+  verdict: string;
+  score: number | null;
+  descriptif: DescriptifVisuel;
+}
+
 export type ResultatVerification =
   | { statut: 'numero_invalide' } // format du numéro non conforme → rejet propre, sans toucher la base
-  | { statut: 'inexistant' } // numéro bien formé mais absent
-  | { statut: 'sans_compte' } // numéro réel MAIS certificat one-shot (non rattaché à un compte) → JAMAIS authentifiable en ligne
+  | { statut: 'reference_invalide' } // format de la référence non conforme → rejet propre, sans toucher la base
+  | { statut: 'inexistant' } // numéro/référence bien formé(e) mais absent(e)
+  | { statut: 'sans_compte' } // certificat one-shot (non rattaché à un compte) → JAMAIS authentifiable en ligne
   | { statut: 'existe' } // numéro réel, jeton absent ou faux → on ne révèle QUE l'existence
-  | { statut: 'verifie'; certificat: CertificatPublic }; // bon jeton → contenu minimal de comparaison
+  | { statut: 'verifie'; certificat: CertificatPublic } // bon jeton → contenu minimal de comparaison (voie numéro)
+  | { statut: 'visuel_verifie'; visuel: SetVisuel }; // référence valide d'un compte → set visuel (voie référence, sans jeton)
 
 interface LigneVerif {
   numero: string;
@@ -124,6 +152,73 @@ export async function verifierCertificat(numeroBrut: unknown, jetonBrut?: unknow
       verdict: ligne.verdict,
       adresse: ligne.adresse,
       etage: ligne.etage,
+    },
+  };
+}
+
+/** Ligne du SET VISUEL — colonnes DIRECTES du snapshot `certificat`. JAMAIS d'adresse, lat/lon, nom ni jeton (non lus). */
+interface LigneVisuel {
+  reference: string;
+  verdict: string;
+  score: string | null; // numeric → string (driver pg)
+  type_bien: string | null;
+  surface_m2: string | null;
+  nb_pieces: number | null;
+  annee_batiment: number | null;
+  epoque: string | null;
+  etage: number | null;
+  dernier_etage: boolean | null;
+  a_un_compte: boolean;
+}
+
+/** Normalise une référence SAISIE → canonique 039 (trim, MAJUSCULES, lecture Crockford I/L→1, O→0). Les tirets sont
+ *  CONSERVÉS (`SVAV-XXXX-XXXX`). `null` pour une entrée non exploitable. */
+function normaliserReference(brut: unknown): string | null {
+  if (typeof brut !== 'string') return null;
+  const s = brut.trim().toUpperCase().replace(/[IL]/g, '1').replace(/O/g, '0');
+  return s.length > 0 ? s : null;
+}
+
+/**
+ * VÉRIFICATION PAR RÉFÉRENCE (voie du VISUEL d'annonce). Fonction sœur de `verifierCertificat`, SANS jeton : la référence
+ * est une clé publique aléatoire 40 bits (NON énumérable) → elle suffit à débloquer un SET NON NOMINATIF (verdict, score,
+ * descriptif — JAMAIS l'adresse). Ordre strict : reference_invalide → inexistant → sans_compte → visuel_verifie.
+ * MÊME gate compte que la voie numéro (défense en profondeur : un one-shot n'est jamais authentifiable). Lecture seule.
+ */
+export async function verifierParReference(refBrut: unknown): Promise<ResultatVerification> {
+  const reference = normaliserReference(refBrut);
+  if (!reference || !REGEXP_REFERENCE.test(reference)) return { statut: 'reference_invalide' };
+
+  // Minimisation à la requête : on ne lit QUE les colonnes du set visuel + le booléen de compte. AUCUNE colonne
+  // nominative (adresse, lat, lon, nom, jeton_verification) n'est sélectionnée → non-fuite garantie au niveau le plus fort.
+  const ligne = await withTransaction(async (q) => {
+    await q('SET TRANSACTION READ ONLY');
+    const r = await q<LigneVisuel>(
+      `SELECT reference, verdict, score, type_bien, surface_m2, nb_pieces, annee_batiment, epoque, etage, dernier_etage, EXISTS (SELECT 1 FROM internaute_auth ia JOIN internaute_projet ip ON ip.internaute_id = ia.internaute_id WHERE ip.id = certificat.projet_id) AS a_un_compte FROM certificat WHERE reference = $1`,
+      [reference],
+    );
+    return r.rows[0] ?? null;
+  });
+
+  if (!ligne) return { statut: 'inexistant' };
+  if (ligne.a_un_compte !== true) return { statut: 'sans_compte' }; // one-shot → jamais de set visuel (fail-closed)
+
+  return {
+    statut: 'visuel_verifie',
+    visuel: {
+      reference: ligne.reference,
+      verdict: ligne.verdict,
+      score: ligne.score === null ? null : Number(ligne.score),
+      descriptif: {
+        typeBien: ligne.type_bien,
+        surfaceM2: ligne.surface_m2 === null ? null : Number(ligne.surface_m2),
+        pieces: ligne.nb_pieces,
+        chambres: null, // aucune source sur le snapshot (cf. DescriptifVisuel)
+        anneeOuEpoque: ligne.annee_batiment !== null ? String(ligne.annee_batiment) : ligne.epoque,
+        etage: ligne.etage,
+        dernierEtage: ligne.dernier_etage,
+        exterieur: null, // non snapshoté (payload projet, non joint) — pas de jointure, pas de migration
+      },
     },
   };
 }

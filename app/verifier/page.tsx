@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { verifierCertificat } from "../lib/db/certificatVerification";
-import { premierParam, formatDateFr, formatEtage, libelleVerdict, libelleTypeDocument, MESSAGE_SANS_COMPTE } from "./presentation";
+import { verifierCertificat, verifierParReference } from "../lib/db/certificatVerification";
+import { premierParam, formatDateFr, formatEtage, libelleVerdict, libelleTypeDocument, formatScoreVisuel, formatDescriptifVisuel, DEFINITION_SVV, MESSAGE_SANS_COMPTE } from "./presentation";
 
 // Runtime Node explicite : la page appelle `verifierCertificat` qui touche Postgres (driver `pg`), jamais l'edge.
 export const runtime = "nodejs";
@@ -68,12 +68,15 @@ export default async function VerifierPage({ searchParams }: { searchParams: Sea
   const sp = await searchParams;
   const n = premierParam(sp.n);
   const j = premierParam(sp.j);
-  // `doc` : TYPE de document scanné, param de PRÉSENTATION uniquement. JAMAIS passé à `verifierCertificat` → il n'influence
-  // ni les 5 champs attestés, ni le gating, ni aucun statut : seulement l'intitulé du bloc « vérifié ».
+  const ref = premierParam(sp.ref); // VOIE VISUEL : la référence publique seule débloque le set visuel (sans jeton, sans adresse).
+  // `doc` : TYPE de document scanné, param de PRÉSENTATION uniquement. JAMAIS passé aux vérificateurs → il n'influence
+  // ni les champs attestés, ni le gating, ni aucun statut : seulement l'intitulé du bloc « vérifié ».
   const doc = premierParam(sp.doc);
 
-  // Page nue (aucun numéro) → formulaire seul. Sinon, vérification (le jeton est OPTIONNEL).
-  const resultat = n === undefined ? null : await verifierCertificat(n, j);
+  // Voie RÉFÉRENCE (visuel) prioritaire si `ref` présent ; sinon voie NUMÉRO+jeton (comportement actuel). Page nue → formulaire.
+  const resultat = ref !== undefined
+    ? await verifierParReference(ref)
+    : n === undefined ? null : await verifierCertificat(n, j);
 
   return (
     <main className="mx-auto flex w-full max-w-md flex-col px-5 py-8">
@@ -92,6 +95,12 @@ export default async function VerifierPage({ searchParams }: { searchParams: Sea
             </p>
             <Formulaire />
           </>
+        )}
+
+        {resultat?.statut === "reference_invalide" && (
+          <p className="leading-relaxed text-svv-ink">
+            Cette référence n&apos;est pas une référence de certificat Sans Vis-à-Vis®.
+          </p>
         )}
 
         {resultat?.statut === "numero_invalide" && (
@@ -140,6 +149,31 @@ export default async function VerifierPage({ searchParams }: { searchParams: Sea
             </Ligne>
             <Ligne label="Adresse">{resultat.certificat.adresse ?? "Non renseignée"}</Ligne>
             <Ligne label="Étage">{formatEtage(resultat.certificat.etage)}</Ligne>
+          </div>
+        )}
+
+        {/* VISUEL certifié (voie référence) : set NON NOMINATIF — verdict + score + descriptif, JAMAIS d'adresse. */}
+        {resultat?.statut === "visuel_verifie" && (
+          <div>
+            <p className="svv-label mb-1">Certificat vérifié</p>
+            <h2 className="mb-3 text-lg font-extrabold text-svv-ink">Analyse de vue certifiée</h2>
+            <Ligne label="Référence">{resultat.visuel.reference}</Ligne>
+            <Ligne label="Verdict">
+              {resultat.visuel.verdict === "SANS_VIS_A_VIS" ? (
+                <span className="inline-block rounded-full border border-svv-red px-3 py-1 text-xs font-bold text-svv-red">
+                  {libelleVerdict(resultat.visuel.verdict)}
+                </span>
+              ) : (
+                <span className="inline-block rounded-full border border-svv-line px-3 py-1 text-xs font-bold text-svv-ink">
+                  {libelleVerdict(resultat.visuel.verdict)}
+                </span>
+              )}
+            </Ligne>
+            <Ligne label="Score de vue">{formatScoreVisuel(resultat.visuel.score)}</Ligne>
+            {formatDescriptifVisuel(resultat.visuel.descriptif).map((r) => (
+              <Ligne key={r.label} label={r.label}>{r.valeur}</Ligne>
+            ))}
+            <p className="mt-4 text-sm leading-relaxed text-svv-muted">{DEFINITION_SVV}</p>
           </div>
         )}
       </section>

@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const { withTransaction } = vi.hoisted(() => ({ withTransaction: vi.fn() }));
 vi.mock('./client', () => ({ withTransaction }));
 
-import { verifierCertificat } from './certificatVerification';
+import { verifierCertificat, verifierParReference } from './certificatVerification';
 
 const JETON = 'ABCDEFGHJKMNPQRS'; // 16 car. Crockford valides
 const EMIS = new Date('2026-07-15T09:30:00.000Z');
@@ -28,7 +28,7 @@ function installer(row: unknown | null) {
   withTransaction.mockImplementation(async (fn: (q: unknown) => unknown) => {
     const q = vi.fn(async (sql: string) => {
       vues.push(sql);
-      if (/SELECT .* FROM certificat WHERE numero/.test(sql)) return { rows: row ? [row] : [] };
+      if (/SELECT .* FROM certificat WHERE (numero|reference)/.test(sql)) return { rows: row ? [row] : [] };
       return { rows: [] };
     });
     return fn(q);
@@ -164,5 +164,74 @@ describe('verifierCertificat — GATE COMPTE (défense en profondeur one-shot)',
       statut: 'verifie',
       certificat: { numero: 'SAVV-2026-000007', emisLe: EMIS.toISOString(), verdict: 'SANS_VIS_A_VIS', adresse: '12 rue des Fleurs, 92004', etage: 3 },
     });
+  });
+});
+
+describe('verifierParReference — VOIE VISUEL (référence seule, sans jeton)', () => {
+  const REF = 'SVAV-K7M2-9QX4';
+  // Ligne visuel + champs INTERDITS (adresse/lat/lon/prenom/jeton) pour prouver qu'ils ne fuitent jamais dans le set.
+  const VISUEL = {
+    reference: REF, verdict: 'SANS_VIS_A_VIS', score: '82.4',
+    type_bien: 'Appartement', surface_m2: '72.35', nb_pieces: 3, annee_batiment: 2008, epoque: null,
+    etage: 5, dernier_etage: false, a_un_compte: true,
+    adresse: '12 rue des Fleurs, 92004', lat: '48.9', lon: '2.26', prenom: 'Jean', jeton_verification: JETON,
+  };
+
+  it('référence VALIDE d’un compte → visuel_verifie avec le set attendu, SANS adresse', async () => {
+    installer(VISUEL);
+    const r = await verifierParReference(REF);
+    expect(r).toEqual({
+      statut: 'visuel_verifie',
+      visuel: {
+        reference: REF, verdict: 'SANS_VIS_A_VIS', score: 82.4,
+        descriptif: {
+          typeBien: 'Appartement', surfaceM2: 72.35, pieces: 3, chambres: null,
+          anneeOuEpoque: '2008', etage: 5, dernierEtage: false, exterieur: null,
+        },
+      },
+    });
+  });
+
+  it('NON-FUITE : le set visuel ne contient JAMAIS adresse / lat / lon / nom / jeton', async () => {
+    installer(VISUEL);
+    const r = await verifierParReference(REF);
+    const json = JSON.stringify(r);
+    for (const interdit of ['adresse', '12 rue des Fleurs', 'lat', 'lon', '48.9', '2.26', 'Jean', 'jeton', JETON]) {
+      expect(json).not.toContain(interdit);
+    }
+  });
+
+  it('anneeOuEpoque : époque en repli quand annee_batiment est null', async () => {
+    installer({ ...VISUEL, annee_batiment: null, epoque: 'Années 1970' });
+    const r = await verifierParReference(REF);
+    expect(r.statut === 'visuel_verifie' && r.visuel.descriptif.anneeOuEpoque).toBe('Années 1970');
+  });
+
+  it('référence d’un ONE-SHOT (pas de compte) → sans_compte (jamais de set visuel)', async () => {
+    installer({ ...VISUEL, a_un_compte: false });
+    expect(await verifierParReference(REF)).toEqual({ statut: 'sans_compte' });
+  });
+
+  it('référence INEXISTANTE (bien formée) → inexistant', async () => {
+    installer(null);
+    expect(await verifierParReference('SVAV-AAAA-BBBB')).toEqual({ statut: 'inexistant' });
+  });
+
+  it.each([['vide', ''], ['garbage', 'xxx'], ['numéro (mauvais préfixe)', 'SAVV-2026-000007'], ['lettres exclues I/L/O/U', 'SVAV-ILOU-2222'], ['non-string', 42], ['null', null]])(
+    'référence mal formée (%s) → reference_invalide, AUCUN accès base',
+    async (_l, val) => {
+      installer(null);
+      // NB : les cas I/L/O sont d'abord canonisés (I/L→1, O→0) ; ici « ILOU » → « 1L0U » contient U (exclu) → invalide.
+      const r = await verifierParReference(val as unknown);
+      expect(r).toEqual({ statut: 'reference_invalide' });
+      expect(withTransaction).not.toHaveBeenCalled();
+    },
+  );
+
+  it('normalisation Crockford : minuscules + O→0 acceptés (référence canonisée puis résolue)', async () => {
+    const { vues } = installer(VISUEL);
+    const r = await verifierParReference('svav-k7m2-9qx4'); // minuscules → MAJUSCULES
+    expect(r.statut).toBe('visuel_verifie');
+    expect(vues[0]).toBe('SET TRANSACTION READ ONLY');
   });
 });

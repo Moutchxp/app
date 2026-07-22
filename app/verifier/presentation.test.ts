@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { premierParam, formatDateFr, formatEtage, libelleVerdict, libelleTypeDocument, MESSAGE_SANS_COMPTE } from './presentation';
+import { premierParam, formatDateFr, formatEtage, libelleVerdict, libelleTypeDocument, formatScoreVisuel, formatDescriptifVisuel, DEFINITION_SVV, MESSAGE_SANS_COMPTE } from './presentation';
+import type { DescriptifVisuel } from '../lib/db/certificatVerification';
 
 describe('premierParam', () => {
   it('string → elle-même', () => expect(premierParam('SAVV-2026-000001')).toBe('SAVV-2026-000001'));
@@ -38,6 +39,44 @@ describe('libelleTypeDocument (param doc, présentation non fiable)', () => {
   it("'visuel' → « le visuel »", () => expect(libelleTypeDocument('visuel')).toBe('le visuel'));
   it('absent (undefined) → générique « ce certificat »', () => expect(libelleTypeDocument(undefined)).toBe('ce certificat'));
   it('valeur inconnue → générique « ce certificat »', () => expect(libelleTypeDocument('n’importe-quoi')).toBe('ce certificat'));
+});
+
+describe('DEFINITION_SVV (texte du visuel)', () => {
+  it('énonce le seuil 40 m, la mesure géométrique et l’exclusion de la végétation', () => {
+    expect(DEFINITION_SVV).toContain('40 mètres');
+    expect(DEFINITION_SVV).toMatch(/g[ée]om[ée]triquement|LiDAR/i);
+    expect(DEFINITION_SVV).toMatch(/v[ée]g[ée]tation/i);
+  });
+});
+
+describe('formatScoreVisuel', () => {
+  it('score numérique → « N / 100 » (arrondi d’affichage)', () => expect(formatScoreVisuel(82.4)).toBe('82 / 100'));
+  it('null → « — »', () => expect(formatScoreVisuel(null)).toBe('—'));
+});
+
+describe('formatDescriptifVisuel', () => {
+  const base: DescriptifVisuel = {
+    typeBien: 'Appartement', surfaceM2: 72.35, pieces: 3, chambres: null,
+    anneeOuEpoque: '2008', etage: 5, dernierEtage: false, exterieur: null,
+  };
+  it('compose les lignes présentes, formate la surface (virgule) et l’étage, sans adresse', () => {
+    const rows = formatDescriptifVisuel(base);
+    const map = Object.fromEntries(rows.map((r) => [r.label, r.valeur]));
+    expect(map['Type']).toBe('Appartement');
+    expect(map['Surface']).toBe('72,35 m²');
+    expect(map['Pièces']).toBe('3');
+    expect(map['Année']).toBe('2008');
+    expect(map['Étage']).toBe('5ᵉ étage');
+    expect(map['Dernier étage']).toBe('Non');
+    // Champs null omis (chambres, extérieur) ; JAMAIS d'adresse.
+    expect(map['Chambres']).toBeUndefined();
+    expect(map['Extérieur']).toBeUndefined();
+    expect(JSON.stringify(rows)).not.toMatch(/adresse/i);
+  });
+  it('omet toutes les lignes nulles', () => {
+    const rows = formatDescriptifVisuel({ typeBien: null, surfaceM2: null, pieces: null, chambres: null, anneeOuEpoque: null, etage: null, dernierEtage: null, exterieur: null });
+    expect(rows).toEqual([]);
+  });
 });
 
 describe('MESSAGE_SANS_COMPTE (statut sans_compte)', () => {
