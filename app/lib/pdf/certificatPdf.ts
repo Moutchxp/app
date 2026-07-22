@@ -471,7 +471,7 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
     const paraA = 'Ce certificat n’est pas rattaché à un compte Sans Vis-à-Vis® : il n’est pas authentifiable en ligne. Relancez une analyse et choisissez l’option ';
     const paraLien = 'Test illimité';
     const paraB = ' pour l’activer.';
-    const introListe = 'Un compte vous permet d’obtenir 3 documents authentifiables par des tiers :';
+    const introListe = 'En plus d’accéder à un nombre illimité d’analyses et de leur historique, la création d’un compte vous permet d’obtenir 3 documents authentifiables par des tiers :';
     const puces = ['Le certificat nominatif', 'Sa version anonymisée', 'Un visuel photo pour vos annonces immobilières'];
 
     // Tailles/interlignes (mêmes valeurs au calcul et au rendu).
@@ -513,10 +513,13 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
     });
 
     // — Colonne droite : FAUX QR décoratif (gris, chaîne neutre) + cadenas rouge + libellés —
-    const qx = X0 + CW - ePadX - qrColW;
+    // Taille du QR INCHANGÉE. Marge DROITE = marge HAUT/BAS (ePadY) → symétrique. Bloc QR+légende CENTRÉ verticalement.
     const qDim = px(52);
+    const qx = X0 + CW - ePadY - qrColW; // marge droite = ePadY (comme les marges haut/bas)
+    const hLegende = doc.font('mono400').fontSize(px(6.5)).heightOfString('Non authentifiable');
+    const qBlockH = qDim + px(3) + px(7) + hLegende; // QR + gap + 2 lignes de légende (« QR inactif » / « Non authentifiable »)
     const qImgX = qx + (qrColW - qDim) / 2;
-    const qImgY = y + ePadY;
+    const qImgY = y + (encH - qBlockH) / 2; // centré verticalement dans l'encart
     doc.image(qrPng, qImgX, qImgY, { width: qDim, height: qDim }); // qrPng = QR GRIS « SANS-VIS-A-VIS » (ni URL, ni jeton)
     // Disque blanc à contour rouge au centre + cadenas (corps + anse) en primitives.
     const dR = px(16), dcx = qImgX + qDim / 2, dcy = qImgY + qDim / 2;
