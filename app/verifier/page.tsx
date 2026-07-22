@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { verifierCertificat } from "../lib/db/certificatVerification";
-import { premierParam, formatDateFr, formatEtage, libelleVerdict, MESSAGE_SANS_COMPTE } from "./presentation";
+import { premierParam, formatDateFr, formatEtage, libelleVerdict, libelleTypeDocument, MESSAGE_SANS_COMPTE } from "./presentation";
 
 // Runtime Node explicite : la page appelle `verifierCertificat` qui touche Postgres (driver `pg`), jamais l'edge.
 export const runtime = "nodejs";
@@ -68,6 +68,9 @@ export default async function VerifierPage({ searchParams }: { searchParams: Sea
   const sp = await searchParams;
   const n = premierParam(sp.n);
   const j = premierParam(sp.j);
+  // `doc` : TYPE de document scanné, param de PRÉSENTATION uniquement. JAMAIS passé à `verifierCertificat` → il n'influence
+  // ni les 5 champs attestés, ni le gating, ni aucun statut : seulement l'intitulé du bloc « vérifié ».
+  const doc = premierParam(sp.doc);
 
   // Page nue (aucun numéro) → formulaire seul. Sinon, vérification (le jeton est OPTIONNEL).
   const resultat = n === undefined ? null : await verifierCertificat(n, j);
@@ -118,7 +121,9 @@ export default async function VerifierPage({ searchParams }: { searchParams: Sea
 
         {resultat?.statut === "verifie" && (
           <div>
-            <p className="svv-label mb-3">Certificat vérifié</p>
+            <p className="svv-label mb-1">Certificat vérifié</p>
+            {/* Intitulé adapté au TYPE scanné (param `doc`, présentation seule). Absent/inconnu → « ce certificat ». */}
+            <p className="mb-3 text-sm text-svv-muted">Vous vérifiez {libelleTypeDocument(doc)}.</p>
             <Ligne label="Numéro">{resultat.certificat.numero}</Ligne>
             <Ligne label="Date d'émission">{formatDateFr(resultat.certificat.emisLe)}</Ligne>
             <Ligne label="Verdict">

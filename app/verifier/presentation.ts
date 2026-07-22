@@ -31,6 +31,24 @@ export function formatEtage(etage: number | null): string {
   return `${etage}ᵉ étage`;
 }
 
+/**
+ * Intitulé du TYPE de document scanné (param `doc` de l'URL du QR). Paramètre de PRÉSENTATION PUR et NON FIABLE (il vient
+ * de l'URL, modifiable) : il n'influence QUE ce libellé, JAMAIS les champs attestés ni le gating. Liste FERMÉE ; toute
+ * valeur absente ou inconnue retombe sur un intitulé générique — un `doc` trafiqué ne change donc rien à l'attestation.
+ */
+export function libelleTypeDocument(doc?: string): string {
+  switch (doc) {
+    case 'nominatif':
+      return 'le certificat nominatif';
+    case 'anonyme':
+      return 'la version anonymisée';
+    case 'visuel':
+      return 'le visuel';
+    default:
+      return 'ce certificat'; // absent ou valeur inconnue → générique
+  }
+}
+
 /** Message du statut `sans_compte` : certificat one-shot, non authentifiable en ligne. AUCUN champ n'est affiché avec. */
 export const MESSAGE_SANS_COMPTE =
   'Ce certificat n’est pas authentifiable en ligne : il n’est pas rattaché à un compte Sans Vis-à-Vis®.';

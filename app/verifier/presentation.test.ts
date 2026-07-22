@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { premierParam, formatDateFr, formatEtage, libelleVerdict, MESSAGE_SANS_COMPTE } from './presentation';
+import { premierParam, formatDateFr, formatEtage, libelleVerdict, libelleTypeDocument, MESSAGE_SANS_COMPTE } from './presentation';
 
 describe('premierParam', () => {
   it('string → elle-même', () => expect(premierParam('SAVV-2026-000001')).toBe('SAVV-2026-000001'));
@@ -30,6 +30,14 @@ describe('libelleVerdict', () => {
   it('SANS_VIS_A_VIS → Sans vis-à-vis', () => expect(libelleVerdict('SANS_VIS_A_VIS')).toBe('Sans vis-à-vis'));
   it('VIS_A_VIS → Vis-à-vis', () => expect(libelleVerdict('VIS_A_VIS')).toBe('Vis-à-vis'));
   it('valeur inconnue → brute', () => expect(libelleVerdict('AUTRE')).toBe('AUTRE'));
+});
+
+describe('libelleTypeDocument (param doc, présentation non fiable)', () => {
+  it("'nominatif' → « le certificat nominatif »", () => expect(libelleTypeDocument('nominatif')).toBe('le certificat nominatif'));
+  it("'anonyme' → « la version anonymisée »", () => expect(libelleTypeDocument('anonyme')).toBe('la version anonymisée'));
+  it("'visuel' → « le visuel »", () => expect(libelleTypeDocument('visuel')).toBe('le visuel'));
+  it('absent (undefined) → générique « ce certificat »', () => expect(libelleTypeDocument(undefined)).toBe('ce certificat'));
+  it('valeur inconnue → générique « ce certificat »', () => expect(libelleTypeDocument('n’importe-quoi')).toBe('ce certificat'));
 });
 
 describe('MESSAGE_SANS_COMPTE (statut sans_compte)', () => {
