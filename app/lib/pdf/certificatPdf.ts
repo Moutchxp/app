@@ -86,6 +86,10 @@ export interface DonneesCertificatPdf {
   verdictCertifie: boolean;
   aUnCompte: boolean; // true = gabarit AUTHENTIFIABLE (actuel : réf. publique + encart annonce + QR de vérification) ;
   //                     false = gabarit ONE-SHOT (pas de réf. publique, encart « non authentifiable », QR décoratif)
+  anonymise?: boolean; // variante ANONYMISÉE du gabarit authentifiable : badge « Version anonymisée » + bloc demandeur RETIRÉ.
+  //                      N'a d'effet QUE si aUnCompte===true (un one-shot n'a pas de version anonymisée → ignoré).
+  //                      OPTIONNEL (absent/undefined = nominatif) : l'orchestrateur actuel ne le pose pas → PDF nominatif
+  //                      inchangé ; la génération anonymisée sera déclenchée par l'espace client dans un chantier suivant.
   score: { valeur: number; note: string };
   demandeur: DemandeurPdf | null; // null = non-couplage RGPD (aucun demandeur)
   bien: BienPdf;
@@ -212,7 +216,10 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
   const gapId = px(9);
   if (d.aUnCompte) {
     const leftOfRef = idBox('Réf. publique', d.reference, true, X0 + CW);
-    idBox('N° de certificat', d.numero, false, leftOfRef - gapId);
+    const leftOfNum = idBox('N° de certificat', d.numero, false, leftOfRef - gapId);
+    // Variante anonymisée : badge d'état (MÊME style que la réf. publique — pavé rouge plein, mono600, rayon px(4)),
+    // chaîné à GAUCHE du N°. Le logo (haut px(48) → ~160 pt de large) s'arrête bien avant → aucun chevauchement.
+    if (d.anonymise) idBox('Statut', 'Version anonymisée', true, leftOfNum - gapId);
   } else {
     // One-shot : AUCUNE référence publique (certificat non authentifiable) → seul le N° de certificat, calé à droite.
     idBox('N° de certificat', d.numero, false, X0 + CW);
@@ -284,7 +291,9 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
 
   // ══════════ DEMANDEUR | BIEN (demandeur omis si null → bien pleine largeur) ══════════
   const champsDem = d.demandeur ? [d.demandeur.nom, d.demandeur.email, d.demandeur.telephone].filter(Boolean) : [];
-  const aDemandeur = champsDem.length > 0;
+  // ANONYMISÉ (compte uniquement) : on RETIRE le bloc demandeur → « Identification du bien » passe en pleine largeur via
+  // la branche `else` existante (aucun `y +=` orphelin, flux inchangé). Le nom/email/téléphone ne sont alors JAMAIS rendus.
+  const aDemandeur = champsDem.length > 0 && !(d.aUnCompte && d.anonymise);
   const hInfo = px(66); // deux lignes de contenu (modèle) : nom·adresse / email·téléphone
   const dyTitre = px(15); // titre → 1re ligne de contenu
   const dyLigne = px(14); // interligne contenu

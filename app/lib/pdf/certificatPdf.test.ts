@@ -26,6 +26,7 @@ function donnees(over: Partial<DonneesCertificatPdf> = {}): DonneesCertificatPdf
     urlVerification: 'sansvisavis.com/verifier',
     verdictCertifie: true,
     aUnCompte: true,
+    anonymise: false,
     score: { valeur: 82, note: 'Le label de qualité s’affiche à partir de 60/100. Il n’affecte pas le verdict.' },
     demandeur: { nom: 'Jean Dupont', adresse: '34 rue de Turenne, 75003 Paris', email: 'jean.dupont@email.fr', telephone: '06 12 34 56 78' },
     bien: { adresse: '34 rue de Turenne, 75003 Paris', cadastre: '000 AB 123', type: 'Appartement', usage: 'Habitation principale' },
@@ -152,6 +153,63 @@ describe('genererCertificatPdf — gabarit ONE-SHOT (aUnCompte:false)', () => {
     const a = await genererCertificatPdf(donnees({ aUnCompte: true, jeton: 'ABCDEFGHJKMNPQRS' }));
     const b = await genererCertificatPdf(donnees({ aUnCompte: true, jeton: 'ZZZZZZZZZZZZZZZZ' }));
     expect(a.equals(b)).toBe(false);
+  });
+});
+
+describe('genererCertificatPdf — variante ANONYMISÉE (aUnCompte:true, anonymise:true)', () => {
+  const DEM_A = { nom: 'Jean Dupont', adresse: '34 rue de Turenne, 75003 Paris', email: 'jean.dupont@email.fr', telephone: '06 12 34 56 78' };
+  const DEM_B = { nom: 'Zoé Martin', adresse: '34 rue de Turenne, 75003 Paris', email: 'zoe.martin@email.fr', telephone: '07 98 76 54 32' };
+
+  it('PDF valide, UNE seule page', async () => {
+    const buf = await genererCertificatPdf(donnees({ anonymise: true }));
+    expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(buf.subarray(-6).toString()).toContain('%%EOF');
+    expect(nbPages(buf)).toBe(1);
+    expect(buf.length).toBeGreaterThan(10000);
+  });
+
+  it('DÉTERMINISME : deux générations anonymisées identiques → mêmes octets', async () => {
+    const a = await genererCertificatPdf(donnees({ anonymise: true }));
+    const b = await genererCertificatPdf(donnees({ anonymise: true }));
+    expect(a.equals(b)).toBe(true);
+  });
+
+  it('diffère du nominatif (badge « Version anonymisée » ajouté + bloc demandeur retiré)', async () => {
+    const nominatif = await genererCertificatPdf(donnees({ anonymise: false }));
+    const anonyme = await genererCertificatPdf(donnees({ anonymise: true }));
+    expect(anonyme.equals(nominatif)).toBe(false);
+  });
+
+  // ANTI-FUITE (le flux PDF est compressé + polices sous-settées → une recherche de sous-chaîne serait un faux négatif) :
+  // preuve robuste = INVARIANCE. En anonymisé, changer nom/email/téléphone du demandeur NE change PAS un octet (jamais rendus).
+  it('non-fuite : nom/email/téléphone du demandeur n’influencent PAS le PDF anonymisé', async () => {
+    const a = await genererCertificatPdf(donnees({ anonymise: true, demandeur: DEM_A }));
+    const b = await genererCertificatPdf(donnees({ anonymise: true, demandeur: DEM_B }));
+    expect(a.equals(b)).toBe(true);
+    // Robustesse du test : demandeur = null donne aussi le même rendu (aucune trace du demandeur).
+    const c = await genererCertificatPdf(donnees({ anonymise: true, demandeur: null }));
+    expect(c.equals(a)).toBe(true);
+  });
+
+  // Contrôle positif (le test ci-dessus a du sens) : en NOMINATIF, changer le demandeur change bien les octets.
+  it('contrôle positif : en nominatif, changer le demandeur change le PDF', async () => {
+    const a = await genererCertificatPdf(donnees({ anonymise: false, demandeur: DEM_A }));
+    const b = await genererCertificatPdf(donnees({ anonymise: false, demandeur: DEM_B }));
+    expect(a.equals(b)).toBe(false);
+  });
+
+  // La réf. publique et le VRAI QR de vérification sont CONSERVÉS en anonymisé → le PDF reflète le jeton (QR présent).
+  it('reste vérifiable : le PDF anonymisé reflète le jeton (QR de vérification conservé)', async () => {
+    const a = await genererCertificatPdf(donnees({ anonymise: true, jeton: 'ABCDEFGHJKMNPQRS' }));
+    const b = await genererCertificatPdf(donnees({ anonymise: true, jeton: 'ZZZZZZZZZZZZZZZZ' }));
+    expect(a.equals(b)).toBe(false);
+  });
+
+  // `anonymise` n'a d'effet QUE si aUnCompte===true : sur un one-shot, il est ignoré (octets identiques).
+  it('ignoré en one-shot : anonymise n’a aucun effet quand aUnCompte===false', async () => {
+    const a = await genererCertificatPdf(donnees({ aUnCompte: false, anonymise: false }));
+    const b = await genererCertificatPdf(donnees({ aUnCompte: false, anonymise: true }));
+    expect(a.equals(b)).toBe(true);
   });
 });
 
