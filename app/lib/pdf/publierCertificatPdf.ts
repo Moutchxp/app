@@ -66,6 +66,7 @@ interface LigneJointe {
   reference_cadastrale: string | null;
   jeton_verification: string;
   photo_cle: string | null;
+  a_un_compte: boolean; // EXISTS(internaute_auth) → gabarit authentifiable (true) vs one-shot (false)
   // internaute_projet
   residence_principale: boolean | null;
   mode_origine: string | null;
@@ -84,6 +85,7 @@ const REQUETE = `
          c.lat, c.lon, c.azimut_deg, c.etage, c.dernier_etage, c.hauteur_sous_plafond_m, c.hauteur_vision_m,
          c.adresse, c.type_bien, c.surface_m2, c.nb_pieces, c.annee_batiment, c.altitude_terrain_m,
          c.altitude_sol_m, c.reference_cadastrale, c.jeton_verification, c.photo_cle,
+         EXISTS (SELECT 1 FROM internaute_auth ia WHERE ia.internaute_id = ip.internaute_id) AS a_un_compte,
          ip.residence_principale, ip.mode_origine, ip.payload,
          i.prenom, i.nom, i.email, i.telephone,
          a.carte_orientation_cle
@@ -188,6 +190,8 @@ export function assembler(r: LigneJointe, base: string, cartePng: Buffer, photoJ
     siteWeb: host,
     urlVerification: `${host}/verifier`,
     verdictCertifie: r.verdict === 'SANS_VIS_A_VIS',
+    aUnCompte: r.a_un_compte === true, // gabarit authentifiable si l'internaute a un compte ; sinon one-shot
+
     score: { valeur: r.score === null ? 0 : Math.round(Number(r.score)), note: SCORE_NOTE },
     demandeur,
     bien: { adresse: r.adresse, cadastre: r.reference_cadastrale, type: r.type_bien, usage },

@@ -25,6 +25,7 @@ function donnees(over: Partial<DonneesCertificatPdf> = {}): DonneesCertificatPdf
     siteWeb: 'www.sansvisavis.com',
     urlVerification: 'sansvisavis.com/verifier',
     verdictCertifie: true,
+    aUnCompte: true,
     score: { valeur: 82, note: 'Le label de qualité s’affiche à partir de 60/100. Il n’affecte pas le verdict.' },
     demandeur: { nom: 'Jean Dupont', adresse: '34 rue de Turenne, 75003 Paris', email: 'jean.dupont@email.fr', telephone: '06 12 34 56 78' },
     bien: { adresse: '34 rue de Turenne, 75003 Paris', cadastre: '000 AB 123', type: 'Appartement', usage: 'Habitation principale' },
@@ -118,6 +119,38 @@ describe('genererCertificatPdf — DÉTERMINISME (exigence dure)', () => {
   it('jeton différent → octets différents (le QR reflète le jeton)', async () => {
     const a = await genererCertificatPdf(donnees());
     const b = await genererCertificatPdf(donnees({ jeton: 'ZZZZZZZZZZZZZZZZ' }));
+    expect(a.equals(b)).toBe(false);
+  });
+});
+
+describe('genererCertificatPdf — gabarit ONE-SHOT (aUnCompte:false)', () => {
+  it('PDF valide, UNE seule page', async () => {
+    const buf = await genererCertificatPdf(donnees({ aUnCompte: false }));
+    expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(buf.subarray(-6).toString()).toContain('%%EOF');
+    expect(nbPages(buf)).toBe(1);
+    expect(buf.length).toBeGreaterThan(10000);
+  });
+
+  it('DÉTERMINISME : deux générations one-shot identiques → mêmes octets', async () => {
+    const a = await genererCertificatPdf(donnees({ aUnCompte: false }));
+    const b = await genererCertificatPdf(donnees({ aUnCompte: false }));
+    expect(a.equals(b)).toBe(true);
+  });
+
+  // ANTI-FUITE (le jeton ne transite que par le QR, ~urlQr) : en one-shot le QR est DÉCORATIF (chaîne neutre). Preuve
+  // robuste (le flux PDF est compressé + polices sous-settées → une recherche de sous-chaîne serait un faux négatif) :
+  // changer le jeton NE DOIT PAS changer d'un octet le PDF one-shot → le jeton n'y est jamais encodé.
+  it('le JETON ne fuit jamais : changer le jeton ne change PAS le PDF one-shot', async () => {
+    const a = await genererCertificatPdf(donnees({ aUnCompte: false, jeton: 'ABCDEFGHJKMNPQRS' }));
+    const b = await genererCertificatPdf(donnees({ aUnCompte: false, jeton: 'ZZZZZZZZZZZZZZZZ' }));
+    expect(a.equals(b)).toBe(true);
+  });
+
+  // Symétrie de non-régression : le gabarit COMPTE, lui, reflète le jeton (QR de vérification) → octets différents.
+  it('le gabarit compte reflète le jeton (contraste avec one-shot)', async () => {
+    const a = await genererCertificatPdf(donnees({ aUnCompte: true, jeton: 'ABCDEFGHJKMNPQRS' }));
+    const b = await genererCertificatPdf(donnees({ aUnCompte: true, jeton: 'ZZZZZZZZZZZZZZZZ' }));
     expect(a.equals(b)).toBe(false);
   });
 });

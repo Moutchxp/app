@@ -84,6 +84,8 @@ export interface DonneesCertificatPdf {
   siteWeb: string;
   urlVerification: string; // "sansvisavis.com/verifier"
   verdictCertifie: boolean;
+  aUnCompte: boolean; // true = gabarit AUTHENTIFIABLE (actuel : réf. publique + encart annonce + QR de vérification) ;
+  //                     false = gabarit ONE-SHOT (pas de réf. publique, encart « non authentifiable », QR décoratif)
   score: { valeur: number; note: string };
   demandeur: DemandeurPdf | null; // null = non-couplage RGPD (aucun demandeur)
   bien: BienPdf;
@@ -130,11 +132,13 @@ function collecter(doc: PDFKit.PDFDocument): Promise<Buffer> {
 }
 
 export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buffer> {
-  const qrPng = await qrToBuffer(urlQr(d.urlBase, d.numero, d.jeton), {
+  // QR — AUTHENTIFIABLE : encode l'URL de vérification (numéro + jeton), INCHANGÉ. ONE-SHOT : QR purement DÉCORATIF —
+  // on encode une chaîne NEUTRE non exploitable (JAMAIS le numéro, le jeton ni une URL) et on le teinte en gris clair.
+  const qrPng = await qrToBuffer(d.aUnCompte ? urlQr(d.urlBase, d.numero, d.jeton) : 'SANS-VIS-A-VIS', {
     type: 'png',
     margin: 1,
     errorCorrectionLevel: 'M',
-    color: { dark: ENCRE, light: '#ffffff' },
+    color: { dark: d.aUnCompte ? ENCRE : GRIS_TRES_CLAIR, light: '#ffffff' },
   });
 
   const doc = new PDFDocument({
@@ -206,8 +210,13 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
     return bx; // bord gauche → pour poser le bloc suivant à sa gauche
   };
   const gapId = px(9);
-  const leftOfRef = idBox('Réf. publique', d.reference, true, X0 + CW);
-  idBox('N° de certificat', d.numero, false, leftOfRef - gapId);
+  if (d.aUnCompte) {
+    const leftOfRef = idBox('Réf. publique', d.reference, true, X0 + CW);
+    idBox('N° de certificat', d.numero, false, leftOfRef - gapId);
+  } else {
+    // One-shot : AUCUNE référence publique (certificat non authentifiable) → seul le N° de certificat, calé à droite.
+    idBox('N° de certificat', d.numero, false, X0 + CW);
+  }
 
   y += logoLongH; // fin de l'en-tête
 
@@ -391,41 +400,138 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
     doc.restore();
   }
 
-  // ══════════ BANDEAU RÉFÉRENCE PUBLIQUE ══════════
-  const hRef = px(46);
-  panneau(X0, y, CW, hRef);
-  doc.rect(X0, y, px(3), hRef).fill(ROUGE); // liseré gauche
-  // Référence INSÉCABLE (modèle : .ref-code{white-space:nowrap}) : on MESURE sa largeur et on lui réserve la place.
-  const refW = doc.font('mono700').fontSize(px(15)).widthOfString(d.reference) + px(6);
-  const refTxtW = CW - 2 * pad - refW - px(10);
-  doc.font('ps400').fontSize(px(9.5)).fillColor(GRIS).text(
-    `Référence à reprendre dans votre annonce. Indiquez-la dans le texte de l'annonce : toute personne pourra vérifier sur ${d.urlVerification} que l'analyse provient de nos services et correspond à l'annonce.`,
-    X0 + pad, y + px(9), { width: refTxtW, lineBreak: true },
-  );
-  txt(d.reference, X0 + CW - pad - refW, y + (hRef - px(15)) / 2, 'mono700', px(15), ROUGE, { width: refW, align: 'right', characterSpacing: 0.3, lineBreak: false });
-  y += hRef + px(12);
+  // ══════════ BANDEAU RÉFÉRENCE PUBLIQUE (gabarit AUTHENTIFIABLE uniquement) ══════════
+  // ONE-SHOT : pas de référence publique → bloc entièrement omis, `y +=` compris (aucun trou, aucun chevauchement).
+  if (d.aUnCompte) {
+    const hRef = px(46);
+    panneau(X0, y, CW, hRef);
+    doc.rect(X0, y, px(3), hRef).fill(ROUGE); // liseré gauche
+    // Référence INSÉCABLE (modèle : .ref-code{white-space:nowrap}) : on MESURE sa largeur et on lui réserve la place.
+    const refW = doc.font('mono700').fontSize(px(15)).widthOfString(d.reference) + px(6);
+    const refTxtW = CW - 2 * pad - refW - px(10);
+    doc.font('ps400').fontSize(px(9.5)).fillColor(GRIS).text(
+      `Référence à reprendre dans votre annonce. Indiquez-la dans le texte de l'annonce : toute personne pourra vérifier sur ${d.urlVerification} que l'analyse provient de nos services et correspond à l'annonce.`,
+      X0 + pad, y + px(9), { width: refTxtW, lineBreak: true },
+    );
+    txt(d.reference, X0 + CW - pad - refW, y + (hRef - px(15)) / 2, 'mono700', px(15), ROUGE, { width: refW, align: 'right', characterSpacing: 0.3, lineBreak: false });
+    y += hRef + px(12);
+  }
 
-  // ══════════ PIED — modèle .foot : dates + pied (gauche) · site · QR « Vérifier ce certificat » (droite) ══════════
-  y += px(2);
-  doc.rect(X0, y, CW, 0.6).fill(NEUTRE_BORD); // .foot { border-top }
-  y += px(11);
-  const qrS = px(52); // modèle .qr { 52px }
-  const qrX = X0 + CW - qrS;
-  doc.image(qrPng, qrX, y, { width: qrS, height: qrS });
-  const capX = qrX - px(86);
-  txt('VÉRIFIER CE CERTIFICAT', capX, y + px(14), 'mono600', px(7.5), GRIS_CLAIR, { width: px(80), align: 'right', characterSpacing: 0.4, lineBreak: true });
-  // foot-txt (gauche) : dates + analyse, puis le site (rouge) et le pied de page.
-  const footW = capX - X0 - px(12);
-  doc.font('ps400').fontSize(px(10)).fillColor(GRIS).text(
-    `Date d'émission : ${d.emission} · Date d'analyse : ${d.dateAnalyse} · Analyse géométrique : ${d.porteeAnalyse}`,
-    X0, y, { width: footW, lineBreak: true },
-  );
-  doc.font('mono700').fontSize(px(11)).fillColor(ROUGE).text(d.siteWeb, X0, doc.y + px(1), { continued: true, lineBreak: false });
-  doc.font('ps400').fontSize(px(9)).fillColor(GRIS).text(`   ${d.pied}`, { lineBreak: false });
-  // Coordonnées de la SARL CRITERIMMO — remplace le pavé de mentions (fine print, tout en bas).
-  const yC = Math.max(y + qrS, doc.y) + px(7);
-  doc.rect(X0, yC, CW, 0.6).fill(NEUTRE_BORD);
-  doc.font('mono400').fontSize(px(6.8)).fillColor(GRIS_CLAIR).text(MENTION_EMETTEUR, X0, yC + px(4), { width: CW, lineBreak: true });
+  if (d.aUnCompte) {
+    // ══════════ PIED AUTHENTIFIABLE — modèle .foot : dates + pied (gauche) · site · QR « Vérifier ce certificat » (droite) ══════════
+    // Chemin STRICTEMENT INCHANGÉ (octet-identique au gabarit actuel).
+    y += px(2);
+    doc.rect(X0, y, CW, 0.6).fill(NEUTRE_BORD); // .foot { border-top }
+    y += px(11);
+    const qrS = px(52); // modèle .qr { 52px }
+    const qrX = X0 + CW - qrS;
+    doc.image(qrPng, qrX, y, { width: qrS, height: qrS });
+    const capX = qrX - px(86);
+    txt('VÉRIFIER CE CERTIFICAT', capX, y + px(14), 'mono600', px(7.5), GRIS_CLAIR, { width: px(80), align: 'right', characterSpacing: 0.4, lineBreak: true });
+    // foot-txt (gauche) : dates + analyse, puis le site (rouge) et le pied de page.
+    const footW = capX - X0 - px(12);
+    doc.font('ps400').fontSize(px(10)).fillColor(GRIS).text(
+      `Date d'émission : ${d.emission} · Date d'analyse : ${d.dateAnalyse} · Analyse géométrique : ${d.porteeAnalyse}`,
+      X0, y, { width: footW, lineBreak: true },
+    );
+    doc.font('mono700').fontSize(px(11)).fillColor(ROUGE).text(d.siteWeb, X0, doc.y + px(1), { continued: true, lineBreak: false });
+    doc.font('ps400').fontSize(px(9)).fillColor(GRIS).text(`   ${d.pied}`, { lineBreak: false });
+    // Coordonnées de la SARL CRITERIMMO — remplace le pavé de mentions (fine print, tout en bas).
+    const yC = Math.max(y + qrS, doc.y) + px(7);
+    doc.rect(X0, yC, CW, 0.6).fill(NEUTRE_BORD);
+    doc.font('mono400').fontSize(px(6.8)).fillColor(GRIS_CLAIR).text(MENTION_EMETTEUR, X0, yC + px(4), { width: CW, lineBreak: true });
+  } else {
+    // ══════════ ENCART ONE-SHOT (remplace le bloc de vérification QR) ══════════
+    // Cadre blanc, bordure fine, liseré gauche rouge, coins arrondis. Colonne gauche = message ; colonne droite = FAUX QR
+    // décoratif barré d'un cadenas. Hauteurs MESURÉES (heightOfString) → texte jamais tronqué. Tailles compactes pour tenir
+    // sur 1 page (l'absence de bandeau annonce a déjà libéré de la place). Aucune couleur/police hors charte existante.
+    const ePadX = pad;              // marge interne horizontale
+    const ePadY = px(7);            // marge interne verticale
+    const qrColW = px(74);          // colonne droite (faux QR + libellés)
+    const eGap = px(12);
+    const lx = X0 + px(3) + ePadX;  // après le liseré gauche (3 pt)
+    const lw = CW - px(3) - ePadX - qrColW - eGap - ePadX; // largeur colonne gauche
+    const triW = px(12);            // gouttière du triangle d'alerte devant le titre
+
+    const titre = 'Authentification en ligne non disponible';
+    const paraA = 'Ce certificat n’est pas rattaché à un compte Sans Vis-à-Vis® : il n’est pas authentifiable en ligne. Relancez une analyse et choisissez l’option ';
+    const paraLien = 'Test illimité';
+    const paraB = ' pour l’activer.';
+    const introListe = 'Un compte vous permet d’obtenir 3 documents authentifiables par des tiers :';
+    const puces = ['Le certificat nominatif', 'Sa version anonymisée', 'Un visuel photo pour vos annonces immobilières'];
+
+    // Tailles/interlignes (mêmes valeurs au calcul et au rendu).
+    const fsTitre = px(9.5), fsCorps = px(8), lhPuce = px(8) * 1.55, gapBloc = px(4);
+    const paraPlein = paraA + paraLien + paraB;
+    const hTitre = doc.font('ps600').fontSize(fsTitre).heightOfString(titre, { width: lw - triW });
+    const hPara = doc.font('ps400').fontSize(fsCorps).heightOfString(paraPlein, { width: lw });
+    const hIntro = doc.font('ps400').fontSize(fsCorps).heightOfString(introListe, { width: lw });
+    const leftH = hTitre + gapBloc + hPara + gapBloc + hIntro + px(3) + puces.length * lhPuce;
+    const encH = Math.max(leftH, qrColW - px(8)) + 2 * ePadY;
+
+    // Cadre.
+    doc.roundedRect(X0, y, CW, encH, px(8)).fill(BLANC);
+    doc.roundedRect(X0, y, CW, encH, px(8)).lineWidth(0.8).stroke(NEUTRE_BORD);
+    doc.rect(X0, y, px(3), encH).fill(ROUGE); // liseré gauche
+
+    // — Colonne gauche —
+    let ty = y + ePadY;
+    // Triangle d'alerte (primitives) + « ! » blanc, aligné à la 1re ligne du titre.
+    const trH = px(9), trTop = ty + px(1);
+    doc.moveTo(lx + triW / 2 - px(0.5), trTop).lineTo(lx, trTop + trH).lineTo(lx + triW - px(1), trTop + trH).fill(ROUGE);
+    doc.rect(lx + triW / 2 - px(1), trTop + trH * 0.32, px(1.1), trH * 0.34).fill(BLANC);
+    doc.rect(lx + triW / 2 - px(1), trTop + trH * 0.74, px(1.1), px(1.1)).fill(BLANC);
+    doc.font('ps600').fontSize(fsTitre).fillColor(ROUGE).text(titre, lx + triW, ty, { width: lw - triW, lineBreak: true });
+    ty += hTitre + gapBloc;
+    // Paragraphe : « Test illimité » en rouge, le reste en gris (segments continued, même police/taille → mesure fidèle).
+    doc.font('ps400').fontSize(fsCorps).fillColor(GRIS).text(paraA, lx, ty, { width: lw, continued: true, lineBreak: true });
+    doc.fillColor(ROUGE).text(paraLien, { continued: true });
+    doc.fillColor(GRIS).text(paraB, { continued: false });
+    ty += hPara + gapBloc;
+    // Intro liste.
+    doc.font('ps400').fontSize(fsCorps).fillColor(GRIS).text(introListe, lx, ty, { width: lw, lineBreak: true });
+    ty += hIntro + px(3);
+    // 3 puces (pastille rouge).
+    puces.forEach((p, i) => {
+      const py = ty + i * lhPuce;
+      doc.circle(lx + px(2), py + lhPuce / 2 - px(0.5), px(1.5)).fill(ROUGE);
+      doc.font('ps400').fontSize(fsCorps).fillColor(GRIS).text(p, lx + px(8), py + (lhPuce - fsCorps) / 2 - px(1.5), { width: lw - px(8), lineBreak: false });
+    });
+
+    // — Colonne droite : FAUX QR décoratif (gris, chaîne neutre) + cadenas rouge + libellés —
+    const qx = X0 + CW - ePadX - qrColW;
+    const qDim = px(52);
+    const qImgX = qx + (qrColW - qDim) / 2;
+    const qImgY = y + ePadY;
+    doc.image(qrPng, qImgX, qImgY, { width: qDim, height: qDim }); // qrPng = QR GRIS « SANS-VIS-A-VIS » (ni URL, ni jeton)
+    // Disque blanc à contour rouge au centre + cadenas (corps + anse) en primitives.
+    const dR = px(16), dcx = qImgX + qDim / 2, dcy = qImgY + qDim / 2;
+    doc.circle(dcx, dcy, dR).fill(BLANC);
+    doc.circle(dcx, dcy, dR).lineWidth(1).stroke(ROUGE);
+    const bodyW = px(11), bodyH = px(8), bodyX = dcx - bodyW / 2, bodyY = dcy - px(0.5);
+    doc.roundedRect(bodyX, bodyY, bodyW, bodyH, px(1.5)).fill(ROUGE);
+    const aR = px(3.1);
+    doc.path(`M ${bodyX + bodyW / 2 - aR} ${bodyY} A ${aR} ${aR} 0 0 1 ${bodyX + bodyW / 2 + aR} ${bodyY}`).lineWidth(px(1.4)).stroke(ROUGE);
+    // Libellés sous le QR (2 lignes centrées).
+    const qLabY = qImgY + qDim + px(3);
+    doc.font('mono600').fontSize(px(6.5)).fillColor(GRIS_CLAIR).text('QR inactif', qx, qLabY, { width: qrColW, align: 'center', lineBreak: false });
+    doc.font('mono400').fontSize(px(6.5)).fillColor(GRIS_CLAIR).text('Non authentifiable', qx, qLabY + px(7), { width: qrColW, align: 'center', lineBreak: false });
+
+    y += encH + px(9);
+
+    // — Pied (dates + site + pied) SANS QR, puis mentions légales (comme le gabarit authentifiable) —
+    doc.rect(X0, y, CW, 0.6).fill(NEUTRE_BORD);
+    y += px(9);
+    doc.font('ps400').fontSize(px(9.5)).fillColor(GRIS).text(
+      `Date d'émission : ${d.emission} · Date d'analyse : ${d.dateAnalyse} · Analyse géométrique : ${d.porteeAnalyse}`,
+      X0, y, { width: CW, lineBreak: true },
+    );
+    doc.font('mono700').fontSize(px(11)).fillColor(ROUGE).text(d.siteWeb, X0, doc.y + px(1), { continued: true, lineBreak: false });
+    doc.font('ps400').fontSize(px(9)).fillColor(GRIS).text(`   ${d.pied}`, { lineBreak: false });
+    const yC = doc.y + px(7);
+    doc.rect(X0, yC, CW, 0.6).fill(NEUTRE_BORD);
+    doc.font('mono400').fontSize(px(6.8)).fillColor(GRIS_CLAIR).text(MENTION_EMETTEUR, X0, yC + px(4), { width: CW, lineBreak: true });
+  }
 
   doc.end();
   return sortie;
