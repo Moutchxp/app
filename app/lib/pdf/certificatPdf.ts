@@ -90,6 +90,9 @@ export interface DonneesCertificatPdf {
   //                      N'a d'effet QUE si aUnCompte===true (un one-shot n'a pas de version anonymisée → ignoré).
   //                      OPTIONNEL (absent/undefined = nominatif) : l'orchestrateur actuel ne le pose pas → PDF nominatif
   //                      inchangé ; la génération anonymisée sera déclenchée par l'espace client dans un chantier suivant.
+  typeDocument?: 'nominatif' | 'anonyme' | 'visuel'; // TYPE encodé dans le QR (param `doc`) → la page de vérification adapte
+  //                      SON libellé. OPTIONNEL : ABSENT = QR inchangé (nominatif byte-identique). Seul un type fourni ajoute
+  //                      `&doc=…`. Paramètre de PRÉSENTATION : n'influence jamais les 5 champs attestés ni le gating compte.
   score: { valeur: number; note: string };
   demandeur: DemandeurPdf | null; // null = non-couplage RGPD (aucun demandeur)
   bien: BienPdf;
@@ -110,10 +113,12 @@ export interface DonneesCertificatPdf {
   photoJpeg: Buffer | null;
 }
 
-/** URL encodée dans le QR : numéro + jeton. */
-export function urlQr(urlBase: string, numero: string, jeton: string): string {
+/** URL encodée dans le QR : numéro + jeton (+ type de document optionnel). `typeDoc` absent → URL STRICTEMENT inchangée
+ *  (nominatif byte-identique) ; fourni → ajoute `&doc=<type>` pour que la page de vérification adapte son libellé. */
+export function urlQr(urlBase: string, numero: string, jeton: string, typeDoc?: string): string {
   const base = urlBase.replace(/\/+$/, '');
-  return `${base}/verifier?n=${encodeURIComponent(numero)}&j=${encodeURIComponent(jeton)}`;
+  const url = `${base}/verifier?n=${encodeURIComponent(numero)}&j=${encodeURIComponent(jeton)}`;
+  return typeDoc ? `${url}&doc=${encodeURIComponent(typeDoc)}` : url;
 }
 
 /** Label de score — RÈGLE DU MODÈLE (verbatim) : ≥75 « Vue exceptionnelle » ; ≥60 « Excellente vue » ; sinon aucun. */
@@ -138,7 +143,7 @@ function collecter(doc: PDFKit.PDFDocument): Promise<Buffer> {
 export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buffer> {
   // QR — AUTHENTIFIABLE : encode l'URL de vérification (numéro + jeton), INCHANGÉ. ONE-SHOT : QR purement DÉCORATIF —
   // on encode une chaîne NEUTRE non exploitable (JAMAIS le numéro, le jeton ni une URL) et on le teinte en gris clair.
-  const qrPng = await qrToBuffer(d.aUnCompte ? urlQr(d.urlBase, d.numero, d.jeton) : 'SANS-VIS-A-VIS', {
+  const qrPng = await qrToBuffer(d.aUnCompte ? urlQr(d.urlBase, d.numero, d.jeton, d.typeDocument) : 'SANS-VIS-A-VIS', {
     type: 'png',
     margin: 1,
     errorCorrectionLevel: 'M',

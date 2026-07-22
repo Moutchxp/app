@@ -59,6 +59,21 @@ describe('helpers purs', () => {
     expect(u).toBe(`https://x.com/verifier?n=SAVV-2026-000123&j=${JETON}`);
   });
 
+  it('urlQr — typeDoc absent → URL STRICTEMENT inchangée (pas de &doc)', () => {
+    const u = urlQr('https://x.com/', 'SAVV-2026-000123', JETON, undefined);
+    expect(u).toBe(`https://x.com/verifier?n=SAVV-2026-000123&j=${JETON}`);
+    expect(u).not.toContain('doc=');
+  });
+
+  it('urlQr — typeDoc fourni → ajoute &doc=<type> (encodé) à la fin', () => {
+    expect(urlQr('https://x.com/', 'SAVV-2026-000123', JETON, 'anonyme')).toBe(
+      `https://x.com/verifier?n=SAVV-2026-000123&j=${JETON}&doc=anonyme`,
+    );
+    expect(urlQr('https://x.com/', 'SAVV-2026-000123', JETON, 'visuel')).toBe(
+      `https://x.com/verifier?n=SAVV-2026-000123&j=${JETON}&doc=visuel`,
+    );
+  });
+
   it('scoreLabel — règle du modèle (75 / 60)', () => {
     expect(scoreLabel(82)).toBe('Vue exceptionnelle');
     expect(scoreLabel(75)).toBe('Vue exceptionnelle');
@@ -209,6 +224,34 @@ describe('genererCertificatPdf — variante ANONYMISÉE (aUnCompte:true, anonymi
   it('ignoré en one-shot : anonymise n’a aucun effet quand aUnCompte===false', async () => {
     const a = await genererCertificatPdf(donnees({ aUnCompte: false, anonymise: false }));
     const b = await genererCertificatPdf(donnees({ aUnCompte: false, anonymise: true }));
+    expect(a.equals(b)).toBe(true);
+  });
+});
+
+describe('genererCertificatPdf — QR par TYPE de document (typeDocument)', () => {
+  it('typeDocument ABSENT → PDF byte-identique à un autre rendu sans type (QR nominatif inchangé)', async () => {
+    const a = await genererCertificatPdf(donnees()); // pas de typeDocument
+    const b = await genererCertificatPdf(donnees({ typeDocument: undefined }));
+    expect(a.equals(b)).toBe(true);
+  });
+
+  it('typeDocument:"anonyme" → le PDF DIFFÈRE du nominatif (le QR encode &doc=anonyme)', async () => {
+    const nominatif = await genererCertificatPdf(donnees());
+    const anonyme = await genererCertificatPdf(donnees({ typeDocument: 'anonyme' }));
+    expect(anonyme.equals(nominatif)).toBe(false);
+  });
+
+  it('typeDocument:"visuel" → PDF encore différent (QR &doc=visuel), déterministe', async () => {
+    const nominatif = await genererCertificatPdf(donnees());
+    const visuel1 = await genererCertificatPdf(donnees({ typeDocument: 'visuel' }));
+    const visuel2 = await genererCertificatPdf(donnees({ typeDocument: 'visuel' }));
+    expect(visuel1.equals(nominatif)).toBe(false);
+    expect(visuel1.equals(visuel2)).toBe(true); // déterministe
+  });
+
+  it('ONE-SHOT : typeDocument est IGNORÉ (QR décoratif, jamais de doc)', async () => {
+    const a = await genererCertificatPdf(donnees({ aUnCompte: false }));
+    const b = await genererCertificatPdf(donnees({ aUnCompte: false, typeDocument: 'anonyme' }));
     expect(a.equals(b)).toBe(true);
   });
 });
