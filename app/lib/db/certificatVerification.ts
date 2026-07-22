@@ -35,6 +35,7 @@ export interface CertificatPublic {
 export type ResultatVerification =
   | { statut: 'numero_invalide' } // format du numéro non conforme → rejet propre, sans toucher la base
   | { statut: 'inexistant' } // numéro bien formé mais absent
+  | { statut: 'sans_compte' } // numéro réel MAIS certificat one-shot (non rattaché à un compte) → JAMAIS authentifiable en ligne
   | { statut: 'existe' } // numéro réel, jeton absent ou faux → on ne révèle QUE l'existence
   | { statut: 'verifie'; certificat: CertificatPublic }; // bon jeton → contenu minimal de comparaison
 
@@ -45,6 +46,7 @@ interface LigneVerif {
   adresse: string | null;
   etage: number | null;
   jeton_verification: string;
+  a_un_compte: boolean; // EXISTS(internaute_auth via internaute_projet) — gate d'authentifiabilité en ligne (défense en profondeur)
 }
 
 /** SHA-256 d'une chaîne (UTF-8) → digest de 32 octets. Sert la comparaison à longueur fixe (voir `jetonEgal`). */
@@ -89,17 +91,23 @@ export async function verifierCertificat(numeroBrut: unknown, jetonBrut?: unknow
   const numero = typeof numeroBrut === 'string' ? numeroBrut.trim().toUpperCase() : '';
   if (!REGEXP_NUMERO.test(numero)) return { statut: 'numero_invalide' };
 
-  // Lecture seule réelle. On ne lit QUE les 5 champs publics + le jeton (comparaison) — rien d'autre ne sort de la base.
+  // Lecture seule réelle. On ne lit QUE les 5 champs publics + le jeton (comparaison) + un booléen d'appartenance à un
+  // compte (jamais aucune donnée du compte : seul l'EXISTS binaire sort). SELECT sur UNE ligne (routage de test inchangé).
   const ligne = await withTransaction(async (q) => {
     await q('SET TRANSACTION READ ONLY'); // 1re instruction : verrouille la transaction en lecture seule
     const r = await q<LigneVerif>(
-      `SELECT numero, emis_le, verdict, adresse, etage, jeton_verification FROM certificat WHERE numero = $1`,
+      `SELECT numero, emis_le, verdict, adresse, etage, jeton_verification, EXISTS (SELECT 1 FROM internaute_auth ia JOIN internaute_projet ip ON ip.internaute_id = ia.internaute_id WHERE ip.id = certificat.projet_id) AS a_un_compte FROM certificat WHERE numero = $1`,
       [numero],
     );
     return r.rows[0] ?? null;
   });
 
   if (!ligne) return { statut: 'inexistant' };
+
+  // DÉFENSE EN PROFONDEUR : un certificat one-shot (non rattaché à un compte) n'est JAMAIS authentifiable en ligne — même
+  // avec numéro + jeton corrects. On tranche AVANT toute comparaison de jeton et on ne renvoie AUCUN des 5 champs (ni le
+  // jeton). `!== true` (pas seulement `=== false`) : fail-closed sur toute valeur non strictement true.
+  if (ligne.a_un_compte !== true) return { statut: 'sans_compte' };
 
   // Jeton absent ou faux → on ne révèle QUE l'existence (jamais un détail).
   const jetonNormalise = normaliserJeton(jetonBrut);

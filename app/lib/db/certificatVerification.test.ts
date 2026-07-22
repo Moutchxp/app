@@ -19,6 +19,7 @@ const LIGNE = {
   adresse: '12 rue des Fleurs, 92004',
   etage: 3,
   jeton_verification: JETON,
+  a_un_compte: true, // par défaut : certificat rattaché à un compte (authentifiable) — cf. cas one-shot dédiés plus bas
 };
 
 /** Route `withTransaction` : la 1re requête DOIT être SET TRANSACTION READ ONLY ; la 2e le SELECT. */
@@ -123,5 +124,45 @@ describe('verifierCertificat — GARANTIE DE NON-FUITE', () => {
     if (r.statut === 'verifie') {
       expect(Object.keys(r.certificat).sort()).toEqual(['adresse', 'emisLe', 'etage', 'numero', 'verdict']);
     }
+  });
+});
+
+describe('verifierCertificat — GATE COMPTE (défense en profondeur one-shot)', () => {
+  const SANS_COMPTE = { ...LIGNE, a_un_compte: false };
+
+  it('certificat SANS compte + BON jeton → sans_compte (jamais verifie), AUCUN champ', async () => {
+    installer(SANS_COMPTE);
+    const r = await verifierCertificat('SAVV-2026-000007', JETON);
+    expect(r).toEqual({ statut: 'sans_compte' }); // exactement ce statut, aucune autre clé (pas de `certificat`)
+  });
+
+  it('certificat SANS compte + jeton absent/faux → sans_compte aussi (tranché avant la comparaison)', async () => {
+    installer(SANS_COMPTE);
+    expect(await verifierCertificat('SAVV-2026-000007')).toEqual({ statut: 'sans_compte' });
+    installer(SANS_COMPTE);
+    expect(await verifierCertificat('SAVV-2026-000007', 'ZZZZZZZZZZZZZZZZ')).toEqual({ statut: 'sans_compte' });
+  });
+
+  it('fail-closed : a_un_compte non strictement true (null/undefined) → sans_compte', async () => {
+    installer({ ...LIGNE, a_un_compte: null as unknown as boolean });
+    expect(await verifierCertificat('SAVV-2026-000007', JETON)).toEqual({ statut: 'sans_compte' });
+  });
+
+  it('NON-FUITE en sans_compte : ni les 5 champs ni le jeton ne sortent', async () => {
+    installer({ ...SANS_COMPTE, lat: '48.9', lon: '2.26', score: '55.2' });
+    const r = await verifierCertificat('SAVV-2026-000007', JETON);
+    const json = JSON.stringify(r);
+    for (const interdit of ['jeton', 'ABCDEFGHJKMNPQRS', '12 rue des Fleurs', 'SANS_VIS_A_VIS', 'emisLe', 'etage', 'lat', 'lon', 'score', '48.9', '2.26', '55.2']) {
+      expect(json).not.toContain(interdit);
+    }
+  });
+
+  it('NON-RÉGRESSION : certificat AVEC compte + BON jeton → verifie (5 champs) inchangé', async () => {
+    installer(LIGNE);
+    const r = await verifierCertificat('SAVV-2026-000007', JETON);
+    expect(r).toEqual({
+      statut: 'verifie',
+      certificat: { numero: 'SAVV-2026-000007', emisLe: EMIS.toISOString(), verdict: 'SANS_VIS_A_VIS', adresse: '12 rue des Fleurs, 92004', etage: 3 },
+    });
   });
 });

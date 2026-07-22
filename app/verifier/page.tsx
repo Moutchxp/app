@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { verifierCertificat } from "../lib/db/certificatVerification";
-import { premierParam, formatDateFr, formatEtage, libelleVerdict } from "./presentation";
+import { premierParam, formatDateFr, formatEtage, libelleVerdict, MESSAGE_SANS_COMPTE } from "./presentation";
 
 // Runtime Node explicite : la page appelle `verifierCertificat` qui touche Postgres (driver `pg`), jamais l'edge.
 export const runtime = "nodejs";
@@ -99,6 +99,11 @@ export default async function VerifierPage({ searchParams }: { searchParams: Sea
 
         {resultat?.statut === "inexistant" && (
           <p className="leading-relaxed text-svv-ink">Aucun certificat ne porte ce numéro.</p>
+        )}
+
+        {/* One-shot : certificat réel mais non rattaché à un compte → jamais authentifiable en ligne. Aucun champ affiché. */}
+        {resultat?.statut === "sans_compte" && (
+          <p className="leading-relaxed text-svv-ink">{MESSAGE_SANS_COMPTE}</p>
         )}
 
         {resultat?.statut === "existe" && (

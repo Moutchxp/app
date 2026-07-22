@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { premierParam, formatDateFr, formatEtage, libelleVerdict } from './presentation';
+import { premierParam, formatDateFr, formatEtage, libelleVerdict, MESSAGE_SANS_COMPTE } from './presentation';
 
 describe('premierParam', () => {
   it('string → elle-même', () => expect(premierParam('SAVV-2026-000001')).toBe('SAVV-2026-000001'));
@@ -30,4 +30,13 @@ describe('libelleVerdict', () => {
   it('SANS_VIS_A_VIS → Sans vis-à-vis', () => expect(libelleVerdict('SANS_VIS_A_VIS')).toBe('Sans vis-à-vis'));
   it('VIS_A_VIS → Vis-à-vis', () => expect(libelleVerdict('VIS_A_VIS')).toBe('Vis-à-vis'));
   it('valeur inconnue → brute', () => expect(libelleVerdict('AUTRE')).toBe('AUTRE'));
+});
+
+describe('MESSAGE_SANS_COMPTE (statut sans_compte)', () => {
+  it('mentionne la non-authentifiabilité en ligne et l’absence de compte, sans révéler aucun champ', () => {
+    expect(MESSAGE_SANS_COMPTE).toContain('authentifiable en ligne');
+    expect(MESSAGE_SANS_COMPTE).toContain('compte Sans Vis-à-Vis®');
+    // Aucun champ du certificat ne doit figurer dans le message (adresse, étage, verdict, date…).
+    expect(MESSAGE_SANS_COMPTE).not.toMatch(/étage|verdict|adresse/i);
+  });
 });

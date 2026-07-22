@@ -31,6 +31,10 @@ export function formatEtage(etage: number | null): string {
   return `${etage}ᵉ étage`;
 }
 
+/** Message du statut `sans_compte` : certificat one-shot, non authentifiable en ligne. AUCUN champ n'est affiché avec. */
+export const MESSAGE_SANS_COMPTE =
+  'Ce certificat n’est pas authentifiable en ligne : il n’est pas rattaché à un compte Sans Vis-à-Vis®.';
+
 /** Verdict brut → libellé humain (seul SANS_VIS_A_VIS est émis ; VIS_A_VIS géré par prudence). */
 export function libelleVerdict(verdict: string): string {
   if (verdict === 'SANS_VIS_A_VIS') return 'Sans vis-à-vis';
