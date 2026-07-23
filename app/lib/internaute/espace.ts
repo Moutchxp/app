@@ -135,13 +135,13 @@ export async function listerCertificats(internauteId: string): Promise<Certifica
  * ne divulgue JAMAIS l'existence d'un certificat d'autrui). `'pdf_absent'` n'est donc renvoyé qu'au PROPRIÉTAIRE.
  */
 export type ResolutionPdf =
-  | { statut: 'ok'; cle: string }
+  | { statut: 'ok'; cle: string; numero: string } // `numero` = identifiant IMPRIMÉ (SAVV-AAAA-NNNNNN), pour un nom de fichier parlant
   | { statut: 'introuvable' } // inexistant OU n'appartient pas à l'internaute de session
-  | { statut: 'pdf_absent' }; // le certificat est bien à lui, mais son PDF n'est pas encore généré
+  | { statut: 'pdf_absent'; numero: string }; // le certificat est bien à lui, mais son PDF n'est pas encore généré
 
 export async function resoudrePdfCertificat(internauteId: string, certificatId: number): Promise<ResolutionPdf> {
-  const r = await query<{ pdf_cle: string | null }>(
-    `SELECT a.pdf_cle
+  const r = await query<{ numero: string; pdf_cle: string | null }>(
+    `SELECT c.numero, a.pdf_cle
        FROM certificat c
        JOIN internaute_projet ip ON ip.id = c.projet_id
        LEFT JOIN certificat_acheminement a ON a.certificat_id = c.id
@@ -150,6 +150,84 @@ export async function resoudrePdfCertificat(internauteId: string, certificatId: 
   );
   const row = r.rows[0];
   if (!row) return { statut: 'introuvable' };
-  if (!row.pdf_cle) return { statut: 'pdf_absent' };
-  return { statut: 'ok', cle: row.pdf_cle };
+  if (!row.pdf_cle) return { statut: 'pdf_absent', numero: row.numero };
+  return { statut: 'ok', cle: row.pdf_cle, numero: row.numero };
+}
+
+/**
+ * Descriptif d'un logement pour le VISUEL d'annonce (aucune donnée nominative : ni nom, ni adresse, ni lat/lon).
+ * ⚠️ DUPLICATION ASSUMÉE : forme et mapping identiques à `DescriptifVisuel`/`mapDescriptif` de
+ * `app/lib/db/certificatVerification.ts` (non exporté, hors périmètre) et à l'assemblage inline de
+ * `app/lib/email/publierEnvoiCertificat.ts`. À factoriser un jour dans une source unique de mapping.
+ */
+export interface VisuelCertificat {
+  reference: string;
+  verdict: string;
+  score: number | null;
+  descriptif: {
+    ville: string | null;
+    typeBien: string | null;
+    surfaceM2: number | null;
+    pieces: number | null;
+    anneeOuEpoque: string | null;
+    etage: number | null;
+    dernierEtage: boolean | null;
+    exterieur: string | null;
+  };
+}
+
+/**
+ * Données du VISUEL d'annonce d'un certificat — LECTURE SEULE, régénérable, NON NOMINATIVE.
+ *
+ * SÉCURITÉ (SECONDE barrière, pas la principale) : cette fonction porte SA PROPRE contrainte de propriété
+ * (jointure `ip.internaute_id = $2`, comme `resoudrePdfCertificat`) → sûre en elle-même, cohérente avec le
+ * doc-contract du module (« toute fonction scopée par internauteId »). Le GATE PRINCIPAL — celui qui produit le
+ * 404 indistinguable et uniforme — reste `resoudrePdfCertificat`, appelé EN PREMIER par la route. Ce re-scope est
+ * un filet : si le gate est passé mais que cette lecture renvoie 0 ligne (incohérence qui ne doit jamais survenir),
+ * l'appelant répond 404. `null` = aucune ligne pour ce couple (certificat, internaute).
+ * `mapDescriptif` étant absente et hors périmètre, le mapping est reproduit ici (cf. `VisuelCertificat`).
+ */
+export async function resoudreVisuelCertificat(
+  internauteId: string,
+  certificatId: number,
+): Promise<VisuelCertificat | null> {
+  const r = await query<{
+    reference: string;
+    verdict: string;
+    score: string | null; // numeric → string (driver pg)
+    type_bien: string | null;
+    surface_m2: string | null; // numeric → string (driver pg)
+    nb_pieces: number | null;
+    annee_batiment: number | null;
+    epoque: string | null;
+    etage: number | null;
+    dernier_etage: boolean | null;
+    visuel_exterieur: string | null;
+    visuel_ville: string | null;
+  }>(
+    `SELECT c.reference, c.verdict, c.score, c.type_bien, c.surface_m2, c.nb_pieces, c.annee_batiment, c.epoque,
+            c.etage, c.dernier_etage,
+            c.resultat->'visuel'->>'exterieur' AS visuel_exterieur, c.resultat->'visuel'->>'ville' AS visuel_ville
+       FROM certificat c
+       JOIN internaute_projet ip ON ip.id = c.projet_id
+      WHERE c.id = $1 AND ip.internaute_id = $2`,
+    [certificatId, internauteId],
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  return {
+    reference: row.reference,
+    verdict: row.verdict,
+    score: row.score === null ? null : Number(row.score),
+    descriptif: {
+      ville: row.visuel_ville,
+      typeBien: row.type_bien,
+      surfaceM2: row.surface_m2 === null ? null : Number(row.surface_m2),
+      pieces: row.nb_pieces,
+      anneeOuEpoque: row.annee_batiment !== null ? String(row.annee_batiment) : row.epoque,
+      etage: row.etage,
+      dernierEtage: row.dernier_etage,
+      exterieur: row.visuel_exterieur,
+    },
+  };
 }
