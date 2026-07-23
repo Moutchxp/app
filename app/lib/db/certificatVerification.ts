@@ -31,8 +31,10 @@ export interface CertificatPublic {
   numero: string;
   emisLe: string; // ISO 8601 (date d'émission)
   verdict: string; // SANS_VIS_A_VIS (seul verdict émis)
-  adresse: string | null;
+  adresse: string | null; // RÉSERVÉE à ce statut `verifie` (jeton) — jamais dans `visuel_verifie`
   etage: number | null;
+  score: number | null; // score de vue /100 (comme la voie référence)
+  descriptif: DescriptifVisuel; // MÊME descriptif que le set visuel (le détenteur voit AU MOINS autant que le public)
 }
 
 /** Descriptif NON NOMINATIF du bien pour le SET VISUEL (jamais d'adresse, ni lat/lon, ni nom). `ville` et `exterieur` sont
@@ -58,6 +60,34 @@ export interface SetVisuel {
   descriptif: DescriptifVisuel;
 }
 
+/** Colonnes du snapshot `certificat` qui composent le descriptif — PARTAGÉES par les deux voies (numéro + jeton ET
+ *  référence). `visuel_*` viennent du jsonb `resultat.visuel` (figé à l'émission ; NULL pour les certificats antérieurs). */
+interface ColonnesDescriptif {
+  type_bien: string | null;
+  surface_m2: string | null; // numeric → string (driver pg)
+  nb_pieces: number | null;
+  annee_batiment: number | null;
+  epoque: string | null;
+  etage: number | null;
+  dernier_etage: boolean | null;
+  visuel_exterieur: string | null;
+  visuel_ville: string | null;
+}
+
+/** Descriptif → forme publique. UNE seule source de mapping pour `verifie` et `visuel_verifie` (aucune duplication). */
+function mapDescriptif(l: ColonnesDescriptif): DescriptifVisuel {
+  return {
+    ville: l.visuel_ville, // figé à l'émission (jsonb) ; NULL pour les certificats antérieurs au figement (tolérance)
+    typeBien: l.type_bien,
+    surfaceM2: l.surface_m2 === null ? null : Number(l.surface_m2),
+    pieces: l.nb_pieces,
+    anneeOuEpoque: l.annee_batiment !== null ? String(l.annee_batiment) : l.epoque,
+    etage: l.etage,
+    dernierEtage: l.dernier_etage,
+    exterieur: l.visuel_exterieur, // figé à l'émission (jsonb) ; NULL si absent (tolérance)
+  };
+}
+
 export type ResultatVerification =
   | { statut: 'numero_invalide' } // format du numéro non conforme → rejet propre, sans toucher la base
   | { statut: 'reference_invalide' } // format de la référence non conforme → rejet propre, sans toucher la base
@@ -67,12 +97,12 @@ export type ResultatVerification =
   | { statut: 'verifie'; certificat: CertificatPublic } // bon jeton → contenu minimal de comparaison (voie numéro)
   | { statut: 'visuel_verifie'; visuel: SetVisuel }; // référence valide d'un compte → set visuel (voie référence, sans jeton)
 
-interface LigneVerif {
+interface LigneVerif extends ColonnesDescriptif {
   numero: string;
   emis_le: Date;
   verdict: string;
   adresse: string | null;
-  etage: number | null;
+  score: string | null; // numeric → string (driver pg)
   jeton_verification: string;
   a_un_compte: boolean; // EXISTS(internaute_auth via internaute_projet) — gate d'authentifiabilité en ligne (défense en profondeur)
 }
@@ -119,12 +149,13 @@ export async function verifierCertificat(numeroBrut: unknown, jetonBrut?: unknow
   const numero = typeof numeroBrut === 'string' ? numeroBrut.trim().toUpperCase() : '';
   if (!REGEXP_NUMERO.test(numero)) return { statut: 'numero_invalide' };
 
-  // Lecture seule réelle. On ne lit QUE les 5 champs publics + le jeton (comparaison) + un booléen d'appartenance à un
-  // compte (jamais aucune donnée du compte : seul l'EXISTS binaire sort). SELECT sur UNE ligne (routage de test inchangé).
+  // Lecture seule réelle. On lit les 5 champs publics (dont adresse, réservée à ce statut) + le jeton (comparaison) + le
+  // score + les colonnes du descriptif (mêmes que la voie référence) + le booléen de compte. AUCUNE colonne nominative
+  // (nom, e-mail, téléphone, lat, lon). SELECT sur UNE ligne (routage de test inchangé).
   const ligne = await withTransaction(async (q) => {
     await q('SET TRANSACTION READ ONLY'); // 1re instruction : verrouille la transaction en lecture seule
     const r = await q<LigneVerif>(
-      `SELECT numero, emis_le, verdict, adresse, etage, jeton_verification, EXISTS (SELECT 1 FROM internaute_auth ia JOIN internaute_projet ip ON ip.internaute_id = ia.internaute_id WHERE ip.id = certificat.projet_id) AS a_un_compte FROM certificat WHERE numero = $1`,
+      `SELECT numero, emis_le, verdict, adresse, etage, jeton_verification, score, type_bien, surface_m2, nb_pieces, annee_batiment, epoque, dernier_etage, resultat->'visuel'->>'exterieur' AS visuel_exterieur, resultat->'visuel'->>'ville' AS visuel_ville, EXISTS (SELECT 1 FROM internaute_auth ia JOIN internaute_projet ip ON ip.internaute_id = ia.internaute_id WHERE ip.id = certificat.projet_id) AS a_un_compte FROM certificat WHERE numero = $1`,
       [numero],
     );
     return r.rows[0] ?? null;
@@ -143,7 +174,8 @@ export async function verifierCertificat(numeroBrut: unknown, jetonBrut?: unknow
     return { statut: 'existe' };
   }
 
-  // Bon jeton → CONTENU MINIMAL (5 champs). Le jeton n'est JAMAIS recopié dans la sortie.
+  // Bon jeton → contenu du détenteur : les 5 champs (dont adresse) + score + descriptif complet. Le jeton n'est JAMAIS
+  // recopié dans la sortie. Le détenteur voit AU MOINS ce que le public (visuel) voit — jamais moins.
   return {
     statut: 'verifie',
     certificat: {
@@ -152,24 +184,17 @@ export async function verifierCertificat(numeroBrut: unknown, jetonBrut?: unknow
       verdict: ligne.verdict,
       adresse: ligne.adresse,
       etage: ligne.etage,
+      score: ligne.score === null ? null : Number(ligne.score),
+      descriptif: mapDescriptif(ligne),
     },
   };
 }
 
 /** Ligne du SET VISUEL — colonnes DIRECTES du snapshot `certificat`. JAMAIS d'adresse, lat/lon, nom ni jeton (non lus). */
-interface LigneVisuel {
+interface LigneVisuel extends ColonnesDescriptif {
   reference: string;
   verdict: string;
   score: string | null; // numeric → string (driver pg)
-  type_bien: string | null;
-  surface_m2: string | null;
-  nb_pieces: number | null;
-  annee_batiment: number | null;
-  epoque: string | null;
-  etage: number | null;
-  dernier_etage: boolean | null;
-  visuel_exterieur: string | null; // resultat->'visuel'->>'exterieur' (jsonb, figé à l'émission ; null si antérieur)
-  visuel_ville: string | null; //     resultat->'visuel'->>'ville'     (jsonb, figé à l'émission ; null si antérieur)
   a_un_compte: boolean;
 }
 
@@ -214,16 +239,7 @@ export async function verifierParReference(refBrut: unknown): Promise<ResultatVe
       reference: ligne.reference,
       verdict: ligne.verdict,
       score: ligne.score === null ? null : Number(ligne.score),
-      descriptif: {
-        ville: ligne.visuel_ville, // figé à l'émission (jsonb) ; NULL pour les certificats antérieurs au Commit 1
-        typeBien: ligne.type_bien,
-        surfaceM2: ligne.surface_m2 === null ? null : Number(ligne.surface_m2),
-        pieces: ligne.nb_pieces,
-        anneeOuEpoque: ligne.annee_batiment !== null ? String(ligne.annee_batiment) : ligne.epoque,
-        etage: ligne.etage,
-        dernierEtage: ligne.dernier_etage,
-        exterieur: ligne.visuel_exterieur, // figé à l'émission (jsonb) ; NULL si absent (tolérance)
-      },
+      descriptif: mapDescriptif(ligne), // MÊME mapping que la voie numéro (aucune duplication) — comportement inchangé
     },
   };
 }

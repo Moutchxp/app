@@ -19,6 +19,9 @@ const LIGNE = {
   adresse: '12 rue des Fleurs, 92004',
   etage: 3,
   jeton_verification: JETON,
+  // Colonnes descriptif (mêmes que la voie référence) + score — désormais exposées au statut `verifie`.
+  score: '82.4', type_bien: 'Appartement', surface_m2: '72.35', nb_pieces: 3, annee_batiment: 2008, epoque: null,
+  dernier_etage: false, visuel_exterieur: 'Balcon', visuel_ville: 'Asnières-sur-Seine',
   a_un_compte: true, // par défaut : certificat rattaché à un compte (authentifiable) — cf. cas one-shot dédiés plus bas
 };
 
@@ -76,13 +79,29 @@ describe('verifierCertificat — existence vs détails', () => {
     expect(await verifierCertificat('SAVV-2026-000007', 'ZZZZZZZZZZZZZZZZ')).toEqual({ statut: 'existe' });
   });
 
-  it('numéro réel avec le BON jeton → verifie + contenu minimal', async () => {
+  it('numéro réel avec le BON jeton → verifie + 5 champs + score + descriptif complet', async () => {
     installer(LIGNE);
     const r = await verifierCertificat('SAVV-2026-000007', JETON);
     expect(r).toEqual({
       statut: 'verifie',
-      certificat: { numero: 'SAVV-2026-000007', emisLe: EMIS.toISOString(), verdict: 'SANS_VIS_A_VIS', adresse: '12 rue des Fleurs, 92004', etage: 3 },
+      certificat: {
+        numero: 'SAVV-2026-000007', emisLe: EMIS.toISOString(), verdict: 'SANS_VIS_A_VIS', adresse: '12 rue des Fleurs, 92004', etage: 3,
+        score: 82.4,
+        descriptif: { ville: 'Asnières-sur-Seine', typeBien: 'Appartement', surfaceM2: 72.35, pieces: 3, anneeOuEpoque: '2008', etage: 3, dernierEtage: false, exterieur: 'Balcon' },
+      },
     });
+  });
+
+  it('TOLÉRANCE : certificat émis AVANT le figement (pas de clé resultat.visuel) → ville/extérieur null, sans erreur', async () => {
+    installer({ ...LIGNE, visuel_exterieur: null, visuel_ville: null });
+    const r = await verifierCertificat('SAVV-2026-000007', JETON);
+    expect(r.statut).toBe('verifie');
+    if (r.statut === 'verifie') {
+      expect(r.certificat.descriptif.ville).toBeNull();
+      expect(r.certificat.descriptif.exterieur).toBeNull();
+      expect(r.certificat.descriptif.typeBien).toBe('Appartement'); // le reste du descriptif reste renseigné
+      expect(r.certificat.adresse).toBe('12 rue des Fleurs, 92004'); // adresse toujours réservée à `verifie`
+    }
   });
 
   it('jeton en MINUSCULES → accepté (normalisation canonique majuscules)', async () => {
@@ -100,29 +119,36 @@ describe('verifierCertificat — existence vs détails', () => {
 });
 
 describe('verifierCertificat — GARANTIE DE NON-FUITE', () => {
-  it('AUCUN champ hors liste ne sort, quel que soit le chemin (jamais le jeton, lat/lon, score, resultat…)', async () => {
-    // La ligne base porte des champs interdits ; on vérifie qu'ils ne transitent jamais vers la sortie.
-    const ligneAvecInterdits = { ...LIGNE, lat: '48.9', lon: '2.26', score: '55.2', distance_obstacle_m: '120', resultat: '{"x":1}' };
+  it('JAMAIS de NOMINATIF (nom/e-mail/téléphone/lat/lon) ni le jeton, quel que soit le chemin', async () => {
+    // La ligne base porte des champs INTERDITS (nominatifs + coordonnées) ; ils ne doivent jamais transiter vers la sortie.
+    // (Le score et le descriptif, eux, sont désormais des champs LÉGITIMES du statut `verifie` — non nominatifs.)
+    const ligneAvecInterdits = { ...LIGNE, lat: '48.9', lon: '2.26', prenom: 'JeanSecret', email: 'secret@ex.fr', telephone: '0600000000' };
     for (const [numero, jeton] of [
       ['SAVV-2026-000007', JETON], // verifie
       ['SAVV-2026-000007', undefined], // existe
       ['SAVV-2026-000007', 'ZZZZZZZZZZZZZZZZ'], // existe (faux)
     ] as const) {
       installer(ligneAvecInterdits);
-      const r = await verifierCertificat(numero, jeton);
-      const json = JSON.stringify(r);
-      for (const interdit of ['jeton', 'lat', 'lon', 'score', 'distance', 'resultat', '48.9', '2.26', '55.2']) {
+      const json = JSON.stringify(await verifierCertificat(numero, jeton));
+      for (const interdit of ['JeanSecret', 'secret@ex.fr', '0600000000', '48.9', '2.26', JETON]) {
         expect(json).not.toContain(interdit);
       }
     }
   });
 
-  it('le contenu « verifie » a EXACTEMENT 5 clés, ni plus ni moins', async () => {
+  it('« existe » (jeton absent/faux) ne révèle AUCUN détail (ni adresse, ni score, ni descriptif)', async () => {
+    installer(LIGNE);
+    expect(await verifierCertificat('SAVV-2026-000007')).toEqual({ statut: 'existe' });
+    installer(LIGNE);
+    expect(await verifierCertificat('SAVV-2026-000007', 'ZZZZZZZZZZZZZZZZ')).toEqual({ statut: 'existe' });
+  });
+
+  it('le contenu « verifie » a EXACTEMENT 7 clés (5 champs + score + descriptif), ni plus ni moins', async () => {
     installer(LIGNE);
     const r = await verifierCertificat('SAVV-2026-000007', JETON);
     expect(r.statut).toBe('verifie');
     if (r.statut === 'verifie') {
-      expect(Object.keys(r.certificat).sort()).toEqual(['adresse', 'emisLe', 'etage', 'numero', 'verdict']);
+      expect(Object.keys(r.certificat).sort()).toEqual(['adresse', 'descriptif', 'emisLe', 'etage', 'numero', 'score', 'verdict']);
     }
   });
 });
@@ -157,12 +183,16 @@ describe('verifierCertificat — GATE COMPTE (défense en profondeur one-shot)',
     }
   });
 
-  it('NON-RÉGRESSION : certificat AVEC compte + BON jeton → verifie (5 champs) inchangé', async () => {
+  it('NON-RÉGRESSION : certificat AVEC compte + BON jeton → verifie (5 champs + score + descriptif)', async () => {
     installer(LIGNE);
     const r = await verifierCertificat('SAVV-2026-000007', JETON);
     expect(r).toEqual({
       statut: 'verifie',
-      certificat: { numero: 'SAVV-2026-000007', emisLe: EMIS.toISOString(), verdict: 'SANS_VIS_A_VIS', adresse: '12 rue des Fleurs, 92004', etage: 3 },
+      certificat: {
+        numero: 'SAVV-2026-000007', emisLe: EMIS.toISOString(), verdict: 'SANS_VIS_A_VIS', adresse: '12 rue des Fleurs, 92004', etage: 3,
+        score: 82.4,
+        descriptif: { ville: 'Asnières-sur-Seine', typeBien: 'Appartement', surfaceM2: 72.35, pieces: 3, anneeOuEpoque: '2008', etage: 3, dernierEtage: false, exterieur: 'Balcon' },
+      },
     });
   });
 });
