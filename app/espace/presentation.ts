@@ -11,17 +11,43 @@ export const TITRE_CONNEXION = 'Connexion';
 /** Sous-ligne sous la phrase d'accueil (dans l'en-tête de la page, sous le bandeau). */
 export const SOUS_LIGNE_ACCUEIL = 'Retrouvez ici toutes vos analyses et vos certificats.';
 
-/** Titres de sections. */
+/** Titre de la liste unifiée (une ligne par analyse ; le certificat, s'il existe, est rattaché à sa ligne). */
 export const TITRE_ANALYSES = 'Mes analyses';
-export const TITRE_CERTIFICATS = 'Mes certificats';
 
-/** États vides. */
+/** État vide (aucune analyse). */
 export const MSG_AUCUNE_ANALYSE = 'Aucune analyse pour le moment.';
-export const MSG_AUCUN_CERTIFICAT = 'Aucun certificat pour le moment.';
 
-/** Libellés de boutons / états du certificat. */
-export const LIB_TELECHARGER = 'Télécharger le PDF';
-export const MSG_PDF_PREPARATION = 'PDF en préparation — disponible sous peu.';
+/**
+ * Analyse SANS certificat (cas structurel : un bien avec vis-à-vis n'émet pas de certificat). La ligne existe, ne se
+ * déplie pas, et affiche cette mention sobre à la place des documents.
+ */
+export const MSG_SANS_CERTIFICAT = 'Aucun certificat pour cette analyse.';
+
+/** Intitulé du bloc déplié listant les documents disponibles. */
+export const LIB_DOCUMENTS = 'Vos documents';
+
+/**
+ * Les TROIS documents proposés au dépliement, avec une phrase courte destinée à un non-technicien. Objets `label` +
+ * `description` (aucune phrase en dur dans le JSX). Ordre d'affichage : nominatif, anonymisé, visuel.
+ */
+export const DOC_NOMINATIF = {
+  label: 'Certificat nominatif',
+  description: 'Le document officiel complet, établi à votre nom.',
+} as const;
+export const DOC_ANONYME = {
+  label: 'Certificat anonymisé',
+  description: 'Le même certificat sans vos coordonnées — à transmettre librement.',
+} as const;
+export const DOC_VISUEL = {
+  label: 'Visuel pour annonce',
+  description: 'Une image prête à coller dans votre annonce immobilière.',
+} as const;
+
+/** Nominatif pas encore déposé (route → 409) : mention sobre en lieu et place de son lien. */
+export const MSG_NOMINATIF_EN_PREPARATION = 'Certificat en préparation — disponible sous peu.';
+
+/** Bouton de retour vers l'accueil de l'application (racine du site). */
+export const LIB_RETOUR = 'Retour';
 
 /** Libellés divers. */
 export const LIB_DECONNEXION = 'Se déconnecter';
@@ -29,6 +55,11 @@ export const LIB_DECONNEXION_EN_COURS = 'Déconnexion…';
 export const MSG_ADRESSE_ABSENTE = 'Adresse non renseignée';
 export const LIB_ETAGE = 'Étage';
 export const LIB_EMIS_LE = 'Émis le';
+
+/** Score de vue /100 → libellé compact d'affichage (arrondi d'AFFICHAGE seulement, jamais réutilisé en calcul). `null` → « — ». */
+export function formatScore(score: number | null): string {
+  return score === null ? '—' : `${Math.round(score)}/100`;
+}
 
 /**
  * Phrase d'accueil personnalisée. « Bonjour <Prénom> <Nom> » UNIQUEMENT si les DEUX sont présents (non vides) ; sinon

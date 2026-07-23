@@ -26,6 +26,8 @@ export interface AnalyseResume {
 /** Un certificat émis, avec l'indicateur de disponibilité du PDF (bouton de téléchargement). */
 export interface CertificatResume {
   id: number;
+  /** Clé de jointure vers l'analyse : `certificat.projet_id` = `internaute_projet.id` = `AnalyseResume.id`. */
+  projetId: number;
   numero: string;
   emisLe: string;
   verdict: Verdict;
@@ -100,6 +102,7 @@ export async function listerAnalyses(internauteId: string): Promise<AnalyseResum
 export async function listerCertificats(internauteId: string): Promise<CertificatResume[]> {
   const r = await query<{
     id: string;
+    projet_id: string;
     numero: string;
     emis_le: Date;
     verdict: Verdict;
@@ -107,7 +110,7 @@ export async function listerCertificats(internauteId: string): Promise<Certifica
     adresse: string | null;
     telechargeable: boolean;
   }>(
-    `SELECT c.id, c.numero, c.emis_le, c.verdict, c.score,
+    `SELECT c.id, c.projet_id, c.numero, c.emis_le, c.verdict, c.score,
             COALESCE(c.adresse, ip.adresse_normalisee, ip.adresse_saisie) AS adresse,
             (a.pdf_cle IS NOT NULL AND a.statut IN ('genere', 'envoye')) AS telechargeable
        FROM certificat c
@@ -119,6 +122,7 @@ export async function listerCertificats(internauteId: string): Promise<Certifica
   );
   return r.rows.map((row) => ({
     id: Number(row.id),
+    projetId: Number(row.projet_id),
     numero: row.numero,
     emisLe: versIso(row.emis_le),
     verdict: row.verdict,

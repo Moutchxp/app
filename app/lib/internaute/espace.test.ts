@@ -26,16 +26,17 @@ describe('espace — accès données scopé par internaute_id (Commit C)', () =>
     expect(r[0]).toEqual({ id: 42, creeA: '2026-07-01T10:00:00.000Z', verdict: 'SANS_VIS_A_VIS', score: 87.5, etage: 3, adresse: '1 rue X' });
   });
 
-  it('listerCertificats : propriété via internaute_projet.internaute_id = $1', async () => {
+  it('listerCertificats : propriété via internaute_projet.internaute_id = $1 + clé de jointure projetId', async () => {
     query.mockResolvedValue({
-      rows: [{ id: '7', numero: 'SAVV-2026-000007', emis_le: new Date('2026-07-02T09:00:00Z'), verdict: 'VIS_A_VIS', score: '60', adresse: '2 rue Y', telechargeable: true }],
+      rows: [{ id: '7', projet_id: '3', numero: 'SAVV-2026-000007', emis_le: new Date('2026-07-02T09:00:00Z'), verdict: 'VIS_A_VIS', score: '60', adresse: '2 rue Y', telechargeable: true }],
     });
     const r = await listerCertificats('A');
     const [sql, params] = query.mock.calls[0];
+    expect(sql).toMatch(/SELECT c\.id, c\.projet_id/); // clé de jointure exposée
     expect(sql).toMatch(/JOIN internaute_projet ip ON ip\.id = c\.projet_id/);
     expect(sql).toMatch(/WHERE ip\.internaute_id = \$1/);
     expect(params).toEqual(['A']);
-    expect(r[0]).toMatchObject({ id: 7, numero: 'SAVV-2026-000007', telechargeable: true });
+    expect(r[0]).toMatchObject({ id: 7, projetId: 3, numero: 'SAVV-2026-000007', telechargeable: true }); // projetId = internaute_projet.id de l'analyse
   });
 
   it('lireIdentite : SELECT prenom, nom scopé par id de session ; que ces 2 colonnes', async () => {

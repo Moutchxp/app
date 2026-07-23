@@ -38,6 +38,19 @@
   .svv-card{background:#fff;border:1px solid var(--color-svv-line);border-radius:14px;padding:14px 16px}
   .svv-pill{display:inline-block;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:700;font-size:12px;border-radius:999px;padding:7px 12px}
   .svv-label{font-size:11px;font-weight:700;letter-spacing:.02em;color:#8a929e}
+  /* Espace client — ligne d'analyse dépliable (accordéon) + choix de document. Tokens de charte uniquement. */
+  /* Carte d'analyse : fond gris léger + bordure existante = relief (le blanc pur manquait de contraste sur la page). */
+  .svv-card-analyse{background:var(--color-svv-field)}
+  .svv-row-btn{display:flex;width:100%;flex-direction:column;gap:0;background:none;border:0;padding:0;margin:0;text-align:left;cursor:pointer;min-height:44px;color:inherit;font:inherit}
+  .svv-chevron{flex-shrink:0;color:var(--color-svv-muted);transition:transform .15s ease}
+  .svv-chevron[data-open="true"]{transform:rotate(180deg)}
+  /* Intérieur BLANC (fond clair habituel de l'app, cf. .svv-card / champs du tunnel) : surface claire + bordure sur la carte
+     grise = trois éléments cliquables distincts. #fff = convention de surface établie, aucun token de surface ajouté. */
+  .svv-doc{display:flex;flex-direction:column;gap:2px;min-height:44px;justify-content:center;background:#fff;border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px;transition:border-color .15s ease}
+  .svv-doc:hover{border-color:var(--color-svv-red)}
+  .svv-doc-label{font-size:.9rem;font-weight:700;color:var(--color-svv-ink)}
+  .svv-doc-desc{font-size:.78rem;line-height:1.35;color:var(--color-svv-muted)}
+  @media (prefers-reduced-motion: reduce){.svv-chevron,.svv-doc{transition:none}}
   /* En-tête standard des pages admin (socle unifié — voir composant EnTetePage). */
   .svv-page-head{margin:0 0 1rem}
   .svv-page-head-ligne{display:flex;align-items:center;justify-content:space-between;gap:.75rem}

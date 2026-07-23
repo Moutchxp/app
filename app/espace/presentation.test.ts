@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  salutation, libelleVerdict, TITRE_ESPACE, TITRE_CONNEXION, SOUS_LIGNE_ACCUEIL,
-  TITRE_ANALYSES, TITRE_CERTIFICATS, LIB_TELECHARGER,
+  salutation, libelleVerdict, formatScore, TITRE_ESPACE, TITRE_CONNEXION, SOUS_LIGNE_ACCUEIL,
+  TITRE_ANALYSES, MSG_AUCUNE_ANALYSE, MSG_SANS_CERTIFICAT, LIB_DOCUMENTS,
+  DOC_NOMINATIF, DOC_ANONYME, DOC_VISUEL, MSG_NOMINATIF_EN_PREPARATION, LIB_RETOUR,
 } from './presentation';
 
 describe('salutation — repli défensif (prénom/nom NULL ou vide)', () => {
@@ -49,7 +50,10 @@ describe('titres de bandeau', () => {
 
 describe('constantes de texte présentes et non vides', () => {
   it('toutes définies', () => {
-    for (const s of [TITRE_ESPACE, TITRE_CONNEXION, SOUS_LIGNE_ACCUEIL, TITRE_ANALYSES, TITRE_CERTIFICATS, LIB_TELECHARGER]) {
+    for (const s of [
+      TITRE_ESPACE, TITRE_CONNEXION, SOUS_LIGNE_ACCUEIL, TITRE_ANALYSES, MSG_AUCUNE_ANALYSE,
+      MSG_SANS_CERTIFICAT, LIB_DOCUMENTS, MSG_NOMINATIF_EN_PREPARATION, LIB_RETOUR,
+    ]) {
       expect(typeof s).toBe('string');
       expect(s.trim().length).toBeGreaterThan(0);
     }
@@ -58,4 +62,32 @@ describe('constantes de texte présentes et non vides', () => {
     expect(SOUS_LIGNE_ACCUEIL).toMatch(/analyses/i);
     expect(SOUS_LIGNE_ACCUEIL).toMatch(/certificats/i);
   });
+});
+
+describe('documents du dépliement (label + description parlante pour un non-technicien)', () => {
+  it('les trois documents ont un label et une description non vides', () => {
+    for (const d of [DOC_NOMINATIF, DOC_ANONYME, DOC_VISUEL]) {
+      expect(d.label.trim().length).toBeGreaterThan(0);
+      expect(d.description.trim().length).toBeGreaterThan(0);
+    }
+  });
+  it('les descriptions collent au rôle de chaque document', () => {
+    expect(DOC_NOMINATIF.description).toMatch(/complet|à votre nom/i);
+    expect(DOC_ANONYME.description).toMatch(/sans vos coordonnées|transmettre/i);
+    expect(DOC_VISUEL.description).toMatch(/annonce/i);
+  });
+  it('libellés distincts (trois documents bien différenciés)', () => {
+    const labels = [DOC_NOMINATIF.label, DOC_ANONYME.label, DOC_VISUEL.label];
+    expect(new Set(labels).size).toBe(3);
+  });
+});
+
+describe('formatScore — arrondi d’AFFICHAGE seulement', () => {
+  it('null → « — »', () => expect(formatScore(null)).toBe('—'));
+  it('entier → « NN/100 »', () => expect(formatScore(88)).toBe('88/100'));
+  it('décimal → arrondi à l’entier (affichage seul)', () => {
+    expect(formatScore(87.4)).toBe('87/100');
+    expect(formatScore(87.6)).toBe('88/100');
+  });
+  it('0 → « 0/100 » (pas confondu avec null)', () => expect(formatScore(0)).toBe('0/100'));
 });
