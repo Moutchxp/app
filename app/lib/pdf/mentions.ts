@@ -19,10 +19,11 @@ export const MENTION_MARQUE =
   '« Sans Vis-à-Vis® » est une marque déposée de la SARL CRITERIMMO. Le présent document est émis par ' +
   'CRITERIMMO sous cette marque.';
 
-/** Définition normative du label (le cœur de ce que le document atteste). */
+/** Définition normative du label (le cœur de ce que le document atteste) — formulation OFFICIELLE, alignée sur le web (DEFINITION_SVV).
+ *  Le découplage photo/verdict est porté SÉPARÉMENT par MENTION_DECOUPLAGE (non dupliqué ici). */
 export const MENTION_DEFINITION =
-  'Le label « Sans Vis-à-Vis® » est attribué lorsque le premier obstacle réel rencontré dans l’axe de la ' +
-  'vue du séjour se situe à 40 mètres ou plus du point d’observation. Ce critère est exclusivement géométrique.';
+  'Le label « Sans Vis-à-Vis® » est attribué lorsqu’aucun obstacle réel n’est présent sur au moins 40 mètres face au ' +
+  'séjour, distance mesurée géométriquement à partir des relevés LiDAR. La végétation n’est jamais comptée comme un obstacle.';
 
 /** Découplage explicite photo / verdict. */
 export const MENTION_DECOUPLAGE =

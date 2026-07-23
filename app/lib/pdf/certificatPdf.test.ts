@@ -262,9 +262,12 @@ describe('mentions légales — faits présents (mentions.ts)', () => {
     expect(MENTION_EMETTEUR).toMatch(/521\s514\s968/);
     expect(MENTION_EMETTEUR).toContain('GALIAN');
   });
-  it('définition : 40 mètres + géométrique', () => {
-    expect(MENTION_DEFINITION).toMatch(/40\smètres/);
-    expect(MENTION_DEFINITION).toContain('géométrique');
+  it('définition OFFICIELLE : aucun obstacle sur 40 m face au séjour, mesuré au LiDAR, végétation exclue', () => {
+    expect(MENTION_DEFINITION).toMatch(/aucun obstacle/i);
+    expect(MENTION_DEFINITION).toMatch(/40\smètres face au séjour/); // \s : tolère l'espace insécable typographique
+    expect(MENTION_DEFINITION).toMatch(/g[ée]om[ée]triquement/);
+    expect(MENTION_DEFINITION).toContain('LiDAR');
+    expect(MENTION_DEFINITION).toMatch(/v[ée]g[ée]tation/i);
   });
   it('découplage photo/verdict + marque déposée', () => {
     expect(MENTION_DECOUPLAGE.toLowerCase()).toContain('photographique');
