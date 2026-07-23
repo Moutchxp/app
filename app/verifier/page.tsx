@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { verifierCertificat, verifierParReference } from "../lib/db/certificatVerification";
 import { premierParam, libelleVerdict, libelleSousLigne, tuilesBien, DEFINITION_SVV, MESSAGE_SANS_COMPTE } from "./presentation";
+import ApercuDocument from "./ApercuDocument";
 
 // Runtime Node explicite : la page appelle les vérificateurs qui touchent Postgres (driver `pg`), jamais l'edge.
 export const runtime = "nodejs";
@@ -79,12 +80,13 @@ function EncartDefinition() {
 
 /** Vue « certificat trouvé » commune aux voies JETON (adresse + numéro) et RÉFÉRENCE (ville, pas de numéro). */
 function VueCertifiee({
-  verdict, score, premierLabel, premierValeur, tuiles, numero, piedLabel, piedId,
+  verdict, score, premierLabel, premierValeur, tuiles, numero, piedLabel, piedId, voie,
 }: {
   verdict: string; score: number | null;
   premierLabel: string; premierValeur: string;
   tuiles: Array<{ label: string; valeur: string }>;
   numero?: string; piedLabel: string; piedId: string;
+  voie: "visuel" | "certificat";
 }) {
   return (
     <>
@@ -113,6 +115,10 @@ function VueCertifiee({
       </section>
 
       <EncartDefinition />
+
+      {/* Aperçu du document scanné (client-only, PDF.js chargé à la demande). Le jeton n'est PAS sérialisé : le composant
+          lit ref/n/j/doc depuis window.location au moment d'ouvrir. Présent UNIQUEMENT sur verifie / visuel_verifie. */}
+      <ApercuDocument disponible voie={voie} />
 
       {/* Appel à l'action */}
       <section className="border-t border-svv-line pt-5 text-center">
@@ -195,6 +201,7 @@ export default async function VerifierPage({ searchParams }: { searchParams: Sea
           numero={c.numero}
           piedLabel="Certificat"
           piedId={c.numero}
+          voie="certificat"
         />
       </Cadre>
     );
@@ -213,6 +220,7 @@ export default async function VerifierPage({ searchParams }: { searchParams: Sea
           tuiles={tuilesBien(v.descriptif)}
           piedLabel="Référence"
           piedId={v.reference}
+          voie="visuel"
         />
       </Cadre>
     );

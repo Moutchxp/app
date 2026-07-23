@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { premierParam, formatDateFr, formatEtage, libelleVerdict, libelleTypeDocument, libelleSousLigne, tuilesBien, formatScoreVisuel, formatDescriptifVisuel, DEFINITION_SVV, MESSAGE_SANS_COMPTE } from './presentation';
+import { premierParam, formatDateFr, formatEtage, libelleVerdict, libelleTypeDocument, libelleSousLigne, tuilesBien, formatScoreVisuel, formatDescriptifVisuel, DEFINITION_SVV, MESSAGE_SANS_COMPTE, LIB_VOIR_DOCUMENT, LEGENDE_ANONYMISE, MSG_DOC_INDISPONIBLE, MSG_CHARGEMENT_APERCU, ARIA_APERCU, ARIA_FERMER_APERCU } from './presentation';
 import type { DescriptifVisuel } from '../lib/db/certificatVerification';
 
 describe('premierParam', () => {
@@ -117,6 +117,26 @@ describe('formatDescriptifVisuel', () => {
   it('omet toutes les lignes nulles', () => {
     const rows = formatDescriptifVisuel({ ville: null, typeBien: null, surfaceM2: null, pieces: null, anneeOuEpoque: null, etage: null, dernierEtage: null, exterieur: null });
     expect(rows).toEqual([]);
+  });
+});
+
+describe('textes de l’aperçu du document', () => {
+  it('libellé du bouton = « Voir le document certifié authentique »', () => {
+    expect(LIB_VOIR_DOCUMENT).toBe('Voir le document certifié authentique');
+  });
+  it('légende de l’anonymisé mentionne l’identité masquée (sans nommer nom/e-mail/téléphone)', () => {
+    expect(LEGENDE_ANONYMISE).toMatch(/masqu/i);
+    expect(LEGENDE_ANONYMISE).not.toMatch(/e-mail|téléphone|adresse/i);
+  });
+  it('message d’indisponibilité sobre (aucun détail technique)', () => {
+    expect(MSG_DOC_INDISPONIBLE).toMatch(/indisponible/i);
+    expect(MSG_DOC_INDISPONIBLE).not.toMatch(/404|503|erreur|exception|http/i);
+  });
+  it('chargement + aria-labels présents et non vides', () => {
+    for (const s of [MSG_CHARGEMENT_APERCU, ARIA_APERCU, ARIA_FERMER_APERCU]) {
+      expect(typeof s).toBe('string');
+      expect(s.trim().length).toBeGreaterThan(0);
+    }
   });
 });
 

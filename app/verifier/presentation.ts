@@ -54,6 +54,20 @@ export function libelleTypeDocument(doc?: string): string {
 export const MESSAGE_SANS_COMPTE =
   'Ce certificat n’est pas authentifiable en ligne : il n’est pas rattaché à un compte Sans Vis-à-Vis®.';
 
+// ── Textes de l'aperçu du document (bouton + surcouche). Toutes les chaînes user-facing sont ICI (aucune en dur dans le JSX). ──
+/** Libellé du bouton d'ouverture de l'aperçu (statuts verifie / visuel_verifie uniquement). */
+export const LIB_VOIR_DOCUMENT = 'Voir le document certifié authentique';
+/** Légende sous l'aperçu du certificat (rendu ANONYMISÉ). */
+export const LEGENDE_ANONYMISE = 'Identité du demandeur masquée pour la consultation en ligne.';
+/** Message d'échec sobre (404/503/exception) — jamais de détail technique. */
+export const MSG_DOC_INDISPONIBLE = 'Document momentanément indisponible.';
+/** Indicateur de chargement de l'aperçu. */
+export const MSG_CHARGEMENT_APERCU = 'Chargement du document…';
+/** aria-label de la surcouche (role=dialog). */
+export const ARIA_APERCU = 'Aperçu du document certifié';
+/** aria-label de la croix de fermeture. */
+export const ARIA_FERMER_APERCU = 'Fermer l’aperçu';
+
 /** Définition officielle du label, affichée sur la page de vérification (texte figé, validé). */
 export const DEFINITION_SVV =
   'Certifié Sans Vis-à-Vis : aucun obstacle sur au moins 40 mètres face au séjour, mesuré géométriquement au LiDAR. ' +

@@ -40,6 +40,7 @@
     "libphonenumber-js": "^1.13.7",
     "next": "16.2.9",
     "nodemailer": "^9.0.3",
+    "pdfjs-dist": "4.10.38",
     "pdfkit": "^0.19.1",
     "pg": "^8.21.0",
     "proj4": "^2.20.9",
