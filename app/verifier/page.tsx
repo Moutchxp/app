@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { verifierCertificat, verifierParReference } from "../lib/db/certificatVerification";
-import { premierParam, libelleVerdict, libelleSousLigne, tuilesBien, DEFINITION_SVV, MESSAGE_SANS_COMPTE } from "./presentation";
+import { premierParam, libelleVerdict, libelleSousLigne, tuilesBien, DEFINITION_SVV, MESSAGE_SANS_COMPTE, ALT_LOGO_SCEAU } from "./presentation";
 import ApercuDocument from "./ApercuDocument";
 
 // Runtime Node explicite : la page appelle les vérificateurs qui touchent Postgres (driver `pg`), jamais l'edge.
@@ -19,12 +20,11 @@ type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
 // ────────────────────────────── Briques d'UI (charte SVAV, mobile d'abord) ──────────────────────────────
 
-/** Sceau blanc à anneau rouge (le logo image viendra plus tard). Purement décoratif. */
+/** Sceau de marque (PNG 500×500, fond transparent → le rouge du bandeau transparaît dans les coins). Dimensions explicites
+ *  (46px, aucun décalage de mise en page au chargement) ; `priority` car au-dessus de la ligne de flottaison. */
 function Sceau() {
   return (
-    <span aria-hidden className="grid size-11 shrink-0 place-items-center rounded-full border-2 border-svv-red bg-white">
-      <span className="size-3.5 rounded-full bg-svv-red" />
-    </span>
+    <Image src="/logo-rond.png" alt={ALT_LOGO_SCEAU} width={46} height={46} priority className="size-[46px] shrink-0" />
   );
 }
 

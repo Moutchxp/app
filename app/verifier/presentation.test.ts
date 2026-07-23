@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { premierParam, formatDateFr, formatEtage, libelleVerdict, libelleTypeDocument, libelleSousLigne, tuilesBien, formatScoreVisuel, formatDescriptifVisuel, DEFINITION_SVV, MESSAGE_SANS_COMPTE, LIB_VOIR_DOCUMENT, LEGENDE_ANONYMISE, MSG_DOC_INDISPONIBLE, MSG_CHARGEMENT_APERCU, ARIA_APERCU, ARIA_FERMER_APERCU } from './presentation';
+import { premierParam, formatDateFr, formatEtage, libelleVerdict, libelleTypeDocument, libelleSousLigne, tuilesBien, formatScoreVisuel, formatDescriptifVisuel, DEFINITION_SVV, MESSAGE_SANS_COMPTE, LIB_VOIR_DOCUMENT, LEGENDE_ANONYMISE, MSG_DOC_INDISPONIBLE, MSG_CHARGEMENT_APERCU, ARIA_APERCU, ARIA_FERMER_APERCU, ALT_LOGO_SCEAU } from './presentation';
 import type { DescriptifVisuel } from '../lib/db/certificatVerification';
 
 describe('premierParam', () => {
@@ -137,6 +137,10 @@ describe('textes de l’aperçu du document', () => {
       expect(typeof s).toBe('string');
       expect(s.trim().length).toBeGreaterThan(0);
     }
+  });
+  it('texte alternatif du sceau : mentionne la marque, non vide', () => {
+    expect(ALT_LOGO_SCEAU).toMatch(/Sans Vis-à-Vis/);
+    expect(ALT_LOGO_SCEAU.trim().length).toBeGreaterThan(0);
   });
 });
 

@@ -68,6 +68,9 @@ export const ARIA_APERCU = 'Aperçu du document certifié';
 /** aria-label de la croix de fermeture. */
 export const ARIA_FERMER_APERCU = 'Fermer l’aperçu';
 
+/** Texte alternatif du sceau de marque du bandeau. */
+export const ALT_LOGO_SCEAU = 'Sceau L’immobilier Sans Vis-à-Vis®';
+
 /** Définition officielle du label, affichée sur la page de vérification (texte figé, validé). */
 export const DEFINITION_SVV =
   'Certifié Sans Vis-à-Vis : aucun obstacle sur au moins 40 mètres face au séjour, mesuré géométriquement au LiDAR. ' +
