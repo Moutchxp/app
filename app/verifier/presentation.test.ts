@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { premierParam, formatDateFr, formatEtage, libelleVerdict, libelleTypeDocument, formatScoreVisuel, formatDescriptifVisuel, DEFINITION_SVV, MESSAGE_SANS_COMPTE } from './presentation';
+import { premierParam, formatDateFr, formatEtage, libelleVerdict, libelleTypeDocument, libelleSousLigne, tuilesBien, formatScoreVisuel, formatDescriptifVisuel, DEFINITION_SVV, MESSAGE_SANS_COMPTE } from './presentation';
 import type { DescriptifVisuel } from '../lib/db/certificatVerification';
 
 describe('premierParam', () => {
@@ -41,11 +41,42 @@ describe('libelleTypeDocument (param doc, présentation non fiable)', () => {
   it('valeur inconnue → générique « ce certificat »', () => expect(libelleTypeDocument('n’importe-quoi')).toBe('ce certificat'));
 });
 
-describe('DEFINITION_SVV (texte du visuel)', () => {
-  it('énonce le seuil 40 m, la mesure géométrique et l’exclusion de la végétation', () => {
-    expect(DEFINITION_SVV).toContain('40 mètres');
-    expect(DEFINITION_SVV).toMatch(/g[ée]om[ée]triquement|LiDAR/i);
+describe('DEFINITION_SVV (texte figé)', () => {
+  it('énonce 40 mètres FACE AU SÉJOUR, la mesure géométrique au LiDAR et l’exclusion de la végétation', () => {
+    expect(DEFINITION_SVV).toContain('40 mètres face au séjour');
+    expect(DEFINITION_SVV).toMatch(/aucun obstacle/i);
+    expect(DEFINITION_SVV).toMatch(/g[ée]om[ée]triquement au LiDAR/i);
     expect(DEFINITION_SVV).toMatch(/v[ée]g[ée]tation/i);
+  });
+});
+
+describe('libelleSousLigne (sous-ligne du bandeau selon doc)', () => {
+  it("'anonyme' → « Certificat anonymisé »", () => expect(libelleSousLigne('anonyme')).toBe('Certificat anonymisé'));
+  it("'visuel' → « Analyse de vue certifiée »", () => expect(libelleSousLigne('visuel')).toBe('Analyse de vue certifiée'));
+  it("'nominatif' → « Certificat nominatif »", () => expect(libelleSousLigne('nominatif')).toBe('Certificat nominatif'));
+  it('absent → « Certificat nominatif » (défaut)', () => expect(libelleSousLigne(undefined)).toBe('Certificat nominatif'));
+  it('valeur inconnue → « Certificat nominatif » (défaut)', () => expect(libelleSousLigne('n’importe')).toBe('Certificat nominatif'));
+});
+
+describe('tuilesBien (tuiles du bien — règles marketing, SANS ville)', () => {
+  const base: DescriptifVisuel = {
+    ville: 'Asnières-sur-Seine', typeBien: 'Appartement', surfaceM2: 72.35, pieces: 3,
+    anneeOuEpoque: '2008', etage: 5, dernierEtage: true, exterieur: 'Balcon',
+  };
+  it('exclut la ville ; « dernier » fusionné à l’étage si vrai ; ordre type→surface→pièces→étage→année→extérieur', () => {
+    const t = tuilesBien(base).map((x) => `${x.label}:${x.valeur}`);
+    expect(t).toEqual(['Type:Appartement', 'Surface:72,35 m²', 'Pièces:3', 'Étage:5ᵉ étage · dernier', 'Année:2008', 'Extérieur:Balcon']);
+  });
+  it('dernier étage FALSE → pas de « · dernier » ; extérieur « Aucun » omis ; champs null omis', () => {
+    const t = tuilesBien({ ville: null, typeBien: 'Maison', surfaceM2: null, pieces: 4, anneeOuEpoque: null, etage: 0, dernierEtage: false, exterieur: 'Aucun' });
+    const map = Object.fromEntries(t.map((x) => [x.label, x.valeur]));
+    expect(map['Étage']).toBe('Rez-de-chaussée');
+    expect(map['Extérieur']).toBeUndefined();
+    expect(map['Surface']).toBeUndefined();
+    expect(map['Type']).toBe('Maison');
+  });
+  it('tout null → []', () => {
+    expect(tuilesBien({ ville: null, typeBien: null, surfaceM2: null, pieces: null, anneeOuEpoque: null, etage: null, dernierEtage: null, exterieur: null })).toEqual([]);
   });
 });
 

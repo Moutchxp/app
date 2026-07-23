@@ -54,10 +54,17 @@ export function libelleTypeDocument(doc?: string): string {
 export const MESSAGE_SANS_COMPTE =
   'Ce certificat n’est pas authentifiable en ligne : il n’est pas rattaché à un compte Sans Vis-à-Vis®.';
 
-/** Définition officielle du label, affichée sur la page du VISUEL certifié (texte figé, validé). */
+/** Définition officielle du label, affichée sur la page de vérification (texte figé, validé). */
 export const DEFINITION_SVV =
-  'Un bien est certifié Sans Vis-à-Vis lorsque le premier obstacle réel se situe à au moins 40 mètres, mesuré ' +
-  'géométriquement au LiDAR ; la végétation n’est jamais comptée comme un obstacle.';
+  'Certifié Sans Vis-à-Vis : aucun obstacle sur au moins 40 mètres face au séjour, mesuré géométriquement au LiDAR. ' +
+  'La végétation n’est jamais comptée comme un obstacle.';
+
+/** Sous-ligne du bandeau selon le TYPE de document scanné (param `doc`, présentation seule). Liste fermée, défaut nominatif. */
+export function libelleSousLigne(doc?: string): string {
+  if (doc === 'anonyme') return 'Certificat anonymisé';
+  if (doc === 'visuel') return 'Analyse de vue certifiée';
+  return 'Certificat nominatif'; // 'nominatif', absent ou valeur inconnue
+}
 
 /** Score de vue /100 → libellé d'affichage (arrondi d'AFFICHAGE seulement). `null` → « — ». */
 export function formatScoreVisuel(score: number | null): string {
@@ -78,6 +85,20 @@ export function formatDescriptifVisuel(d: DescriptifVisuel): Array<{ label: stri
   if (d.anneeOuEpoque) rows.push({ label: 'Année', valeur: d.anneeOuEpoque });
   if (d.exterieur) rows.push({ label: 'Extérieur', valeur: d.exterieur });
   return rows;
+}
+
+/** Tuiles du bien pour la page (voie jeton ET voie référence) — descriptif SANS la ville (affichée à part comme adresse/ville).
+ *  Règles MARKETING : on n'affiche QUE ce qui valorise → « dernier étage » fusionné à l'étage seulement si vrai, extérieur
+ *  « Aucun » omis, champs `null` omis (jamais de « — »). Ordre : type · surface · pièces · étage(+dernier) · année · extérieur. */
+export function tuilesBien(d: DescriptifVisuel): Array<{ label: string; valeur: string }> {
+  const t: Array<{ label: string; valeur: string }> = [];
+  if (d.typeBien) t.push({ label: 'Type', valeur: d.typeBien });
+  if (d.surfaceM2 !== null) t.push({ label: 'Surface', valeur: `${String(d.surfaceM2).replace('.', ',')} m²` });
+  if (d.pieces !== null) t.push({ label: 'Pièces', valeur: String(d.pieces) });
+  if (d.etage !== null) t.push({ label: 'Étage', valeur: d.dernierEtage === true ? `${formatEtage(d.etage)} · dernier` : formatEtage(d.etage) });
+  if (d.anneeOuEpoque) t.push({ label: 'Année', valeur: d.anneeOuEpoque });
+  if (d.exterieur && d.exterieur !== 'Aucun') t.push({ label: 'Extérieur', valeur: d.exterieur });
+  return t;
 }
 
 /** Verdict brut → libellé humain (seul SANS_VIS_A_VIS est émis ; VIS_A_VIS géré par prudence). */

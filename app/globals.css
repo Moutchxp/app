@@ -44,6 +44,12 @@
   .svv-page-sub{font-size:.9rem;color:var(--color-svv-muted);margin:0;line-height:1.45}
   .svv-page-actions{flex-shrink:0}
   .svv-page-note{background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);color:var(--color-svv-ink);padding:.6rem .8rem;border-radius:4px;margin-top:.75rem;font-size:.9rem}
+
+  /* Page /verifier — polices de marque (variables posées par app/verifier/layout.tsx, SCOPÉES à ce segment : le tunnel et
+     l'admin gardent Geist). Fallbacks système si les variables sont absentes. Aucune couleur ici. */
+  .svv-verif{font-family:var(--font-svv-text),system-ui,Arial,Helvetica,sans-serif}
+  .svv-verif-title{font-family:var(--font-svv-title),"Space Grotesk",system-ui,sans-serif}
+  .svv-verif-mono{font-family:var(--font-svv-mono),ui-monospace,"IBM Plex Mono",monospace}
 }
 
 body {
