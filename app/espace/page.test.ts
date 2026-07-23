@@ -11,10 +11,10 @@ const { redirect } = vi.hoisted(() => ({
   }),
 }));
 const { internauteConnecteDepuisCookies } = vi.hoisted(() => ({ internauteConnecteDepuisCookies: vi.fn() }));
-const { listerAnalyses, listerCertificats } = vi.hoisted(() => ({ listerAnalyses: vi.fn(), listerCertificats: vi.fn() }));
+const { listerAnalyses, listerCertificats, lireIdentite } = vi.hoisted(() => ({ listerAnalyses: vi.fn(), listerCertificats: vi.fn(), lireIdentite: vi.fn() }));
 vi.mock('next/navigation', () => ({ redirect }));
 vi.mock('../lib/internaute/gardeEspace', () => ({ internauteConnecteDepuisCookies }));
-vi.mock('../lib/internaute/espace', () => ({ listerAnalyses, listerCertificats }));
+vi.mock('../lib/internaute/espace', () => ({ listerAnalyses, listerCertificats, lireIdentite }));
 
 import EspacePage from './page';
 
@@ -24,6 +24,7 @@ describe('EspacePage — garde serveur (Commit C)', () => {
     internauteConnecteDepuisCookies.mockReset();
     listerAnalyses.mockReset();
     listerCertificats.mockReset();
+    lireIdentite.mockReset();
   });
 
   it('(c) sans session valide → redirige vers /espace/connexion, AUCUNE donnée chargée', async () => {
@@ -32,14 +33,17 @@ describe('EspacePage — garde serveur (Commit C)', () => {
     expect(redirect).toHaveBeenCalledWith('/espace/connexion');
     expect(listerAnalyses).not.toHaveBeenCalled(); // pas de fuite : rien n'est lu avant la garde
     expect(listerCertificats).not.toHaveBeenCalled();
+    expect(lireIdentite).not.toHaveBeenCalled();
   });
 
-  it('session valide → charge les données de l’internaute de SESSION, aucune redirection', async () => {
+  it('session valide → charge les données (dont l’identité) de l’internaute de SESSION, aucune redirection', async () => {
     internauteConnecteDepuisCookies.mockResolvedValue('A');
+    lireIdentite.mockResolvedValue({ prenom: 'Jean', nom: 'Dupont' });
     listerAnalyses.mockResolvedValue([]);
     listerCertificats.mockResolvedValue([]);
     const el = await EspacePage();
     expect(redirect).not.toHaveBeenCalled();
+    expect(lireIdentite).toHaveBeenCalledWith('A');
     expect(listerAnalyses).toHaveBeenCalledWith('A');
     expect(listerCertificats).toHaveBeenCalledWith('A');
     expect(el).toBeTruthy(); // un élément React est renvoyé (le rendu DOM n'est pas requis pour prouver la garde)

@@ -9,7 +9,7 @@ const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('../db/client', () => ({ query }));
 
-import { listerAnalyses, listerCertificats, resoudrePdfCertificat } from './espace';
+import { listerAnalyses, listerCertificats, resoudrePdfCertificat, lireIdentite } from './espace';
 
 describe('espace — accès données scopé par internaute_id (Commit C)', () => {
   beforeEach(() => query.mockReset());
@@ -36,6 +36,26 @@ describe('espace — accès données scopé par internaute_id (Commit C)', () =>
     expect(sql).toMatch(/WHERE ip\.internaute_id = \$1/);
     expect(params).toEqual(['A']);
     expect(r[0]).toMatchObject({ id: 7, numero: 'SAVV-2026-000007', telechargeable: true });
+  });
+
+  it('lireIdentite : SELECT prenom, nom scopé par id de session ; que ces 2 colonnes', async () => {
+    query.mockResolvedValue({ rows: [{ prenom: 'Jean', nom: 'Dupont' }] });
+    const r = await lireIdentite('A');
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toMatch(/SELECT prenom, nom FROM internaute WHERE id = \$1/);
+    expect(sql).not.toMatch(/email|telephone/i); // aucune autre PII
+    expect(params).toEqual(['A']);
+    expect(r).toEqual({ prenom: 'Jean', nom: 'Dupont' });
+  });
+
+  it('lireIdentite : dossier anonymisé (prenom/nom NULL) → renvoyés tels quels', async () => {
+    query.mockResolvedValue({ rows: [{ prenom: null, nom: null }] });
+    expect(await lireIdentite('A')).toEqual({ prenom: null, nom: null });
+  });
+
+  it('lireIdentite : id inconnu (0 ligne) → { null, null }', async () => {
+    query.mockResolvedValue({ rows: [] });
+    expect(await lireIdentite('A')).toEqual({ prenom: null, nom: null });
   });
 
   it('resoudrePdfCertificat : garde de propriété c.id = $1 AND ip.internaute_id = $2 → clé', async () => {

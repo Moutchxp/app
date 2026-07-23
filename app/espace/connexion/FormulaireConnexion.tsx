@@ -47,7 +47,7 @@ export function FormulaireConnexion() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className="svv-input"
-          style={{ width: '100%', padding: '.75rem', borderRadius: '.6rem', border: '1px solid #d7dbe1' }}
+          style={{ width: '100%', padding: '.75rem', borderRadius: '.6rem', border: '1px solid var(--color-svv-line)' }}
         />
       </label>
       <label className="flex flex-col gap-1">
@@ -59,7 +59,7 @@ export function FormulaireConnexion() {
           value={motDePasse}
           onChange={(e) => setMotDePasse(e.target.value)}
           className="svv-input"
-          style={{ width: '100%', padding: '.75rem', borderRadius: '.6rem', border: '1px solid #d7dbe1' }}
+          style={{ width: '100%', padding: '.75rem', borderRadius: '.6rem', border: '1px solid var(--color-svv-line)' }}
         />
       </label>
 

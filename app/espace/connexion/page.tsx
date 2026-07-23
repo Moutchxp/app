@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { internauteConnecteDepuisCookies } from '../../lib/internaute/gardeEspace';
 import { FormulaireConnexion } from './FormulaireConnexion';
+import { Bandeau } from '../Bandeau';
+import { TITRE_CONNEXION } from '../presentation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,15 +23,13 @@ export default async function ConnexionPage() {
   if (internauteId) redirect('/espace');
 
   return (
-    <main className="mx-auto flex w-full max-w-md flex-col px-5 py-8">
-      <header className="mb-6">
-        <p className="svv-label">L&apos;immobilier</p>
-        <h1 className="text-xl font-extrabold text-svv-ink">Sans Vis-à-Vis®</h1>
-        <p className="mt-1 text-sm text-svv-muted">Connexion à mon espace</p>
-      </header>
-      <section className="svv-card">
-        <FormulaireConnexion />
-      </section>
+    <main className="mx-auto flex w-full max-w-[420px] flex-col">
+      <Bandeau titre={TITRE_CONNEXION} />
+      <div className="px-5 py-6">
+        <section className="svv-card">
+          <FormulaireConnexion />
+        </section>
+      </div>
     </main>
   );
 }

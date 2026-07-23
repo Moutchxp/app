@@ -34,6 +34,26 @@ export interface CertificatResume {
   telechargeable: boolean;
 }
 
+/** Identité du titulaire pour l'accueil personnalisé. `null` sur chaque champ possible (dossier anonymisé = prénom/nom NULL). */
+export interface IdentiteTitulaire {
+  prenom: string | null;
+  nom: string | null;
+}
+
+/**
+ * Prénom + nom de l'internaute CONNECTÉ (scopé par l'id de SESSION, jamais une entrée de requête). SELECT d'UNE ligne,
+ * ces DEUX colonnes SEULEMENT (aucune autre PII). Après le droit à l'oubli, `prenom`/`nom` sont NULL → renvoyés tels quels
+ * (l'appelant applique le repli d'affichage). Id inconnu → `{ null, null }`.
+ */
+export async function lireIdentite(internauteId: string): Promise<IdentiteTitulaire> {
+  const r = await query<{ prenom: string | null; nom: string | null }>(
+    `SELECT prenom, nom FROM internaute WHERE id = $1`,
+    [internauteId],
+  );
+  const row = r.rows[0];
+  return { prenom: row?.prenom ?? null, nom: row?.nom ?? null };
+}
+
 function versNombre(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   const n = typeof v === 'number' ? v : Number(v);
