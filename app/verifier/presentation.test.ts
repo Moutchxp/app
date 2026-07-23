@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { premierParam, formatDateFr, formatEtage, libelleVerdict, libelleTypeDocument, libelleSousLigne, tuilesBien, formatScoreVisuel, formatDescriptifVisuel, DEFINITION_SVV, MESSAGE_SANS_COMPTE, LIB_VOIR_DOCUMENT, LEGENDE_ANONYMISE, MSG_DOC_INDISPONIBLE, MSG_CHARGEMENT_APERCU, ARIA_APERCU, ARIA_FERMER_APERCU, ALT_LOGO_SCEAU } from './presentation';
+import { premierParam, formatDateFr, formatDateCourteFr, formatEtage, libelleVerdict, libelleTypeDocument, libelleSousLigne, tuilesBien, formatScoreVisuel, formatDescriptifVisuel, DEFINITION_SVV, MESSAGE_SANS_COMPTE, LIB_VOIR_DOCUMENT, LEGENDE_ANONYMISE, MSG_DOC_INDISPONIBLE, MSG_CHARGEMENT_APERCU, ARIA_APERCU, ARIA_FERMER_APERCU, ALT_LOGO_SCEAU, LIB_EMIS_LE } from './presentation';
 import type { DescriptifVisuel } from '../lib/db/certificatVerification';
 
 describe('premierParam', () => {
@@ -19,6 +19,23 @@ describe('formatDateFr — ancrée Europe/Paris', () => {
   it('entrée illisible → renvoyée telle quelle (pas de crash)', () => {
     expect(formatDateFr('pas-une-date')).toBe('pas-une-date');
   });
+});
+
+describe('formatDateCourteFr — date SANS heure, ancrée Europe/Paris', () => {
+  it('ISO valide → « 15 juillet 2026 », SANS heure', () => {
+    const s = formatDateCourteFr('2026-07-15T09:30:00.000Z');
+    expect(s).toContain('15');
+    expect(s).toContain('juillet');
+    expect(s).toContain('2026');
+    expect(s).not.toMatch(/\d{1,2}:\d{2}|à\s\d/); // aucune heure (ni « 11:30 » ni « à 11 »)
+  });
+  it('entrée illisible → renvoyée telle quelle', () => {
+    expect(formatDateCourteFr('pas-une-date')).toBe('pas-une-date');
+  });
+});
+
+describe('LIB_EMIS_LE (libellé du pied)', () => {
+  it('= « émis le »', () => expect(LIB_EMIS_LE).toBe('émis le'));
 });
 
 describe('formatEtage — null / 0 gérés', () => {

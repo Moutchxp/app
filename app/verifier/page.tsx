@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { verifierCertificat, verifierParReference } from "../lib/db/certificatVerification";
-import { premierParam, libelleVerdict, libelleSousLigne, tuilesBien, DEFINITION_SVV, MESSAGE_SANS_COMPTE, ALT_LOGO_SCEAU } from "./presentation";
+import { premierParam, libelleVerdict, libelleSousLigne, tuilesBien, formatDateCourteFr, DEFINITION_SVV, MESSAGE_SANS_COMPTE, ALT_LOGO_SCEAU, LIB_EMIS_LE } from "./presentation";
 import ApercuDocument from "./ApercuDocument";
 
 // Runtime Node explicite : la page appelle les vérificateurs qui touchent Postgres (driver `pg`), jamais l'edge.
@@ -80,12 +80,13 @@ function EncartDefinition() {
 
 /** Vue « certificat trouvé » commune aux voies JETON (adresse + numéro) et RÉFÉRENCE (ville, pas de numéro). */
 function VueCertifiee({
-  verdict, score, premierLabel, premierValeur, tuiles, numero, piedLabel, piedId, voie,
+  verdict, score, premierLabel, premierValeur, tuiles, numero, piedLabel, piedId, dateEmission, voie,
 }: {
   verdict: string; score: number | null;
   premierLabel: string; premierValeur: string;
   tuiles: Array<{ label: string; valeur: string }>;
   numero?: string; piedLabel: string; piedId: string;
+  dateEmission?: string; // date d'émission FORMATÉE (voie certificat) ; absente sur la voie visuel (set non nominatif)
   voie: "visuel" | "certificat";
 }) {
   return (
@@ -128,9 +129,9 @@ function VueCertifiee({
         <Link href="/" className="svv-btn svv-btn-primary mt-3">Analyser mon bien</Link>
       </section>
 
-      {/* Pied */}
+      {/* Pied — la date d'émission n'est insérée que si fournie (voie certificat) ; omise proprement sur la voie visuel. */}
       <p className="text-center text-xs text-svv-muted">
-        {piedLabel} <span className="svv-verif-mono font-bold text-svv-red">{piedId}</span> · délivré par SARL CRITERIMMO
+        {piedLabel} <span className="svv-verif-mono font-bold text-svv-red">{piedId}</span>{dateEmission ? ` · ${LIB_EMIS_LE} ${dateEmission}` : ""} · délivré par SARL CRITERIMMO
       </p>
     </>
   );
@@ -201,6 +202,7 @@ export default async function VerifierPage({ searchParams }: { searchParams: Sea
           numero={c.numero}
           piedLabel="Certificat"
           piedId={c.numero}
+          dateEmission={formatDateCourteFr(c.emisLe)}
           voie="certificat"
         />
       </Cadre>

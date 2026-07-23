@@ -25,6 +25,14 @@ export function formatDateFr(iso: string): string {
   }).format(d);
 }
 
+/** Date ISO → date COURTE française SANS l'heure (`« 20 juillet 2026 »`), ancrée Europe/Paris. Sur la page /verifier, seule
+ *  la date d'émission compte (l'heure exacte n'apporte rien). Entrée illisible → renvoyée telle quelle. */
+export function formatDateCourteFr(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Paris' }).format(d);
+}
+
 /** Étage (peut être null, ou 0 = rez-de-chaussée) → libellé français. */
 export function formatEtage(etage: number | null): string {
   if (etage === null) return 'Non renseigné';
@@ -70,6 +78,9 @@ export const ARIA_FERMER_APERCU = 'Fermer l’aperçu';
 
 /** Texte alternatif du sceau de marque du bandeau. */
 export const ALT_LOGO_SCEAU = 'Sceau L’immobilier Sans Vis-à-Vis®';
+
+/** Libellé de la date d'émission au pied (voie certificat uniquement). */
+export const LIB_EMIS_LE = 'émis le';
 
 /** Définition officielle du label, affichée sur la page de vérification (texte figé, validé). */
 export const DEFINITION_SVV =
