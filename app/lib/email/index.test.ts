@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Transporter } from 'nodemailer';
-import { lireConfigEmail, envoyerCertificat } from './index';
+import { lireConfigEmail, envoyerCertificat, envoyerReinitialisation } from './index';
 
 interface ArgsSendMail {
   from: string;
@@ -93,6 +93,41 @@ describe('envoyerCertificat — jusqu’à 3 pièces jointes (n’inclut que les
     expect(arg.text).toContain('Vous trouverez en pièces jointes :');
     expect(arg.text).toContain('version anonymisée');
     expect(arg.text).toContain('visuel');
+  });
+});
+
+describe('envoyerReinitialisation — texte brut, aucune PJ, secret seulement dans le lien', () => {
+  const LIEN = 'https://www.sansvisavis.com/espace/reinitialiser?j=SECRET-xyz-123';
+
+  it('sendMail : bon from/to/sujet, texte brut, AUCUNE pièce jointe', async () => {
+    const { transporteur, sendMail } = faux();
+    await envoyerReinitialisation(transporteur, 'noreply@sansvisavis.com', { to: 'client@example.com', lien: LIEN });
+    const arg = sendMail.mock.calls[0]![0] as ArgsSendMail;
+    expect(arg.from).toBe('noreply@sansvisavis.com'); // alias MAIL_FROM
+    expect(arg.to).toBe('client@example.com');
+    expect(arg.subject).toBe('Réinitialisation de votre mot de passe — Sans Vis-à-Vis®');
+    expect(arg.html).toBeUndefined(); // texte brut
+    expect(arg.attachments).toBeUndefined(); // AUCUNE pièce jointe
+  });
+
+  it('corps : lien, durée ~1 h, invite à ignorer, marque', async () => {
+    const { transporteur, sendMail } = faux();
+    await envoyerReinitialisation(transporteur, 'noreply@sansvisavis.com', { to: 'client@example.com', lien: LIEN });
+    const texte = (sendMail.mock.calls[0]![0] as ArgsSendMail).text;
+    expect(texte).toContain(LIEN); // le secret ne vit QUE dans le lien
+    expect(texte).toMatch(/valable 1 heure/i);
+    expect(texte).toMatch(/ignorez cet e-mail/i);
+    expect(texte).toContain('Sans Vis-à-Vis® est une marque de la SARL CRITERIMMO.');
+  });
+
+  it('le secret n’apparaît nulle part AILLEURS que dans le lien (ni sujet, ni autre ligne)', async () => {
+    const { transporteur, sendMail } = faux();
+    await envoyerReinitialisation(transporteur, 'noreply@sansvisavis.com', { to: 'client@example.com', lien: LIEN });
+    const arg = sendMail.mock.calls[0]![0] as ArgsSendMail;
+    expect(arg.subject).not.toContain('SECRET-xyz-123');
+    // La seule occurrence du secret dans le corps est celle du lien (une, pas deux).
+    const occurrences = arg.text.split('SECRET-xyz-123').length - 1;
+    expect(occurrences).toBe(1);
   });
 });
 

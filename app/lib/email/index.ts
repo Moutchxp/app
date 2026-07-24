@@ -105,3 +105,37 @@ export async function envoyerCertificat(transporteur: Transporter, from: string,
     attachments,
   });
 }
+
+export interface MailReinitialisation {
+  to: string;
+  lien: string; // lien ABSOLU vers la page de saisie, portant le secret en query. Le secret ne vit QUE là — jamais ailleurs, jamais loggé.
+}
+
+/**
+ * Envoie l'e-mail de RÉINITIALISATION de mot de passe (« mot de passe oublié »). ADDITIF : réutilise le transport injecté
+ * (`from` = MAIL_FROM alias), NE TOUCHE PAS l'envoi du certificat. Texte brut, AUCUNE pièce jointe. Le secret n'apparaît
+ * QUE dans `m.lien` (jamais dans le sujet, le reste du corps, ni un log). Corps sobre : qui, pourquoi, le lien, la durée
+ * de validité (~1 h), et l'invite à ignorer si la demande n'émane pas du destinataire.
+ */
+export async function envoyerReinitialisation(transporteur: Transporter, from: string, m: MailReinitialisation): Promise<void> {
+  const corps = [
+    'Bonjour,',
+    '',
+    'Vous avez demandé la réinitialisation du mot de passe de votre espace client Sans Vis-à-Vis®.',
+    'Pour choisir un nouveau mot de passe, ouvrez ce lien :',
+    '',
+    m.lien,
+    '',
+    'Ce lien est valable 1 heure. Passé ce délai, il faudra en redemander un.',
+    'Si vous n’êtes pas à l’origine de cette demande, ignorez cet e-mail : votre mot de passe reste inchangé.',
+    '',
+    'Sans Vis-à-Vis® est une marque de la SARL CRITERIMMO.',
+  ].join('\n');
+
+  await transporteur.sendMail({
+    from,
+    to: m.to,
+    subject: 'Réinitialisation de votre mot de passe — Sans Vis-à-Vis®',
+    text: corps, // texte brut UNIQUEMENT ; aucune pièce jointe
+  });
+}
