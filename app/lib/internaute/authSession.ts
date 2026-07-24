@@ -1,10 +1,16 @@
 import 'server-only';
 import { SignJWT, jwtVerify } from 'jose';
+import { lireMajCredential } from './credentialMaj';
 
 /**
  * SESSION INTERNAUTE (JWS apatride, jose HS256) — TOTALEMENT SÉPARÉE de la session admin. Calquée sur
- * `app/lib/admin/session.ts` mais avec un SECRET, un COOKIE et un TTL DÉDIÉS. Aucune notion de rôle/permission :
- * une session internaute ne porte QUE le `sub` = UUID de la personne.
+ * `app/lib/admin/session.ts` mais avec un SECRET, un COOKIE et un TTL DÉDIÉS. Aucune notion de rôle/permission.
+ *
+ * F1 (SCELLAGE INERTE) : en plus du `sub` (UUID), le JWS scelle désormais une claim `cev` (« credential émis à » =
+ * `internaute_auth.maj_a`, pleine précision). Elle est POSÉE à la signature et EXPOSÉE par `verifierSessionDetail`, mais
+ * ENCORE VÉRIFIÉE NULLE PART — la garde continue d'utiliser `verifierSession` (contrat `sub | null` inchangé). C'est le
+ * commit F2 qui comparera `cev` à `maj_a` pour révoquer les sessions antérieures à un changement de mot de passe.
+ * Rétrocompatible : les jetons déjà émis n'ont pas de `cev` (→ `null` ici), rien n'est invalidé par ce commit.
  */
 
 /** Nom du cookie de session CLIENT. Distinct du cookie admin `svv_admin_session`. */
@@ -37,9 +43,17 @@ function cleSignature(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-/** Signe une session internaute (HS256). `sub` = UUID de l'internaute ; `jti` opaque ; exp = TTL. */
+/**
+ * Signe une session internaute (HS256). `sub` = UUID ; `jti` opaque ; `exp` = TTL ; et `cev` = `internaute_auth.maj_a`
+ * (pleine précision) LU AVANT de signer. Les 3 appelants (login, création, reset) posent le credential AVANT `signerSession`
+ * → `cev` reflète le dernier `maj_a` (au reset, la session fraîche scelle donc le NOUVEAU `maj_a` et survivra en F2).
+ * Aucune ligne `internaute_auth` (cas théorique) → claim `cev` OMISE (pas de valeur nulle scellée) : F2 traitera un jeton
+ * sans `cev` en fail-closed.
+ */
 export async function signerSession(internauteId: string): Promise<string> {
-  return new SignJWT({})
+  const cev = await lireMajCredential(internauteId);
+  const revendications = cev !== null ? { cev } : {}; // claim omise si le credential n'existe pas encore
+  return new SignJWT(revendications)
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(internauteId)
     .setJti(crypto.randomUUID())
@@ -48,12 +62,34 @@ export async function signerSession(internauteId: string): Promise<string> {
     .sign(cleSignature());
 }
 
-/** Vérifie une session internaute. Renvoie l'UUID scellé (`sub`) si valide, `null` sinon (signature/exp/malformé). */
-export async function verifierSession(token: string): Promise<string | null> {
+/** Contenu vérifié d'une session : `sub` (UUID) + `cev` (« credential émis à », `null` pour un jeton antérieur à F1). */
+export interface SessionVerifiee {
+  sub: string;
+  cev: string | null;
+}
+
+/**
+ * Vérifie une session et EXPOSE `sub` + `cev`. `cev` est `null` si absent (jeton legacy) ou mal typé. Renvoie `null` si
+ * signature/`exp`/format invalide, ou `sub` vide. ⚠️ F1 : cette fonction existe pour F2 — elle n'est encore appelée par
+ * AUCUNE garde ; `cev` n'est comparé nulle part.
+ */
+export async function verifierSessionDetail(token: string): Promise<SessionVerifiee | null> {
   try {
     const { payload } = await jwtVerify(token, cleSignature(), { algorithms: ['HS256'] });
-    return typeof payload.sub === 'string' && payload.sub !== '' ? payload.sub : null;
+    const sub = typeof payload.sub === 'string' && payload.sub !== '' ? payload.sub : null;
+    if (!sub) return null;
+    const cev = typeof payload.cev === 'string' && payload.cev !== '' ? payload.cev : null;
+    return { sub, cev };
   } catch {
     return null;
   }
+}
+
+/**
+ * Vérifie une session internaute. Renvoie l'UUID scellé (`sub`) si valide, `null` sinon. CONTRAT INCHANGÉ (F1) : délègue
+ * à `verifierSessionDetail` et n'en garde que le `sub` → la garde `exigerInternaute` continue de l'utiliser à l'identique.
+ */
+export async function verifierSession(token: string): Promise<string | null> {
+  const detail = await verifierSessionDetail(token);
+  return detail ? detail.sub : null;
 }
