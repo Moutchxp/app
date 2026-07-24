@@ -78,3 +78,56 @@ export function libelleVerdict(verdict: string | null): string {
   if (verdict === 'VIS_A_VIS') return 'Vis-à-vis détecté';
   return 'Indéterminé';
 }
+
+// ── Mot de passe oublié / réinitialisation (UI, commit E) ────────────────────────────────────────────────
+
+/** Lien discret sous le formulaire de connexion. */
+export const LIB_MDP_OUBLIE = 'Mot de passe oublié ?';
+
+/** Longueur minimale — MIROIR de la politique SERVEUR (`authCredential.LONGUEUR_MIN = 12`). À garder synchronisés. */
+export const LONGUEUR_MIN_MDP = 12;
+
+// Écran DEMANDE (saisie de l'e-mail → envoi du lien).
+export const TITRE_MDP_OUBLIE = 'Mot de passe oublié';
+export const INTRO_MDP_OUBLIE =
+  'Saisissez l’adresse e-mail de votre compte : nous vous enverrons un lien pour choisir un nouveau mot de passe.';
+export const LIB_CHAMP_EMAIL = 'E-mail';
+export const LIB_ENVOYER_LIEN = 'Envoyer le lien';
+export const LIB_ENVOI_EN_COURS = 'Envoi…';
+/**
+ * Confirmation AFFICHÉE DANS TOUS LES CAS (compte existant ou non) — pendant visible de l'anti-énumération : l'écran ne
+ * révèle JAMAIS si l'adresse a un compte. Formulée au conditionnel.
+ */
+export const MSG_DEMANDE_ENVOYEE =
+  'Si un compte est associé à cette adresse, vous allez recevoir un e-mail avec un lien de réinitialisation. Pensez à vérifier vos courriers indésirables.';
+export const LIB_RETOUR_CONNEXION = 'Retour à la connexion';
+/** Panne réseau du navigateur (la route, elle, répond toujours) — n'expose aucune information d'existence. */
+export const MSG_RESEAU_INDISPONIBLE = 'Envoi indisponible pour le moment. Réessayez.';
+
+// Écran SAISIE (nouveau mot de passe depuis le lien).
+export const TITRE_NOUVEAU_MDP = 'Nouveau mot de passe';
+export const INTRO_NOUVEAU_MDP = 'Choisissez un nouveau mot de passe pour votre compte Sans Vis-à-Vis®.';
+export const LIB_CHAMP_NOUVEAU_MDP = 'Nouveau mot de passe';
+export const LIB_CHAMP_CONFIRMATION = 'Confirmez le mot de passe';
+export const AIDE_MDP = `Au moins ${LONGUEUR_MIN_MDP} caractères.`;
+/** aria-label de l'œil DANS le champ, selon l'état courant (le libellé décrit l'action disponible au clic). */
+export const ARIA_AFFICHER_MDP = 'Afficher le mot de passe';
+export const ARIA_MASQUER_MDP = 'Masquer le mot de passe';
+export const LIB_VALIDER_NOUVEAU_MDP = 'Valider';
+export const LIB_ENREGISTREMENT_EN_COURS = 'Enregistrement…';
+export const MSG_MDP_TROP_COURT = `Le mot de passe doit contenir au moins ${LONGUEUR_MIN_MDP} caractères.`;
+export const MSG_MDP_DIVERGENT = 'Les deux mots de passe ne correspondent pas.';
+export const MSG_LIEN_INVALIDE = 'Ce lien n’est plus valide. Demandez un nouveau lien de réinitialisation.';
+export const MSG_ERREUR_REINIT = 'Une erreur est survenue. Réessayez dans un instant.';
+export const LIB_REDEMANDER_LIEN = 'Demander un nouveau lien';
+
+/**
+ * Validation CLIENT du nouveau mot de passe — retour IMMÉDIAT, MIROIR de la politique serveur (`LONGUEUR_MIN_MDP`). La
+ * route re-valide côté serveur ; ce contrôle évite un aller-retour ET préserve le lien (un mot de passe trop court /
+ * divergent n'est jamais envoyé, donc le jeton n'est pas consommé). PUR. La longueur prime sur la divergence.
+ */
+export function validerNouveauMotDePasse(mdp: string, confirmation: string): { ok: boolean; erreur: string | null } {
+  if (mdp.length < LONGUEUR_MIN_MDP) return { ok: false, erreur: MSG_MDP_TROP_COURT };
+  if (mdp !== confirmation) return { ok: false, erreur: MSG_MDP_DIVERGENT };
+  return { ok: true, erreur: null };
+}

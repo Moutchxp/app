@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
+import { LIB_MDP_OUBLIE } from '../presentation';
 
 /**
  * Formulaire de connexion internaute (client). POST `/api/internaute/auth/login` (Commit B) — au succès, le cookie de
@@ -72,6 +74,11 @@ export function FormulaireConnexion() {
       <button type="submit" disabled={enCours} className="svv-btn svv-btn-primary" style={{ marginTop: '.25rem' }}>
         {enCours ? 'Connexion…' : 'Se connecter'}
       </button>
+
+      {/* Lien discret vers la demande de réinitialisation — cible ≥ 44px. */}
+      <Link href="/espace/mot-de-passe-oublie" className="svv-link" style={{ minHeight: 44 }}>
+        {LIB_MDP_OUBLIE}
+      </Link>
     </form>
   );
 }

@@ -3,6 +3,9 @@ import {
   salutation, libelleVerdict, formatScore, TITRE_ESPACE, TITRE_CONNEXION, SOUS_LIGNE_ACCUEIL,
   TITRE_ANALYSES, MSG_AUCUNE_ANALYSE, MSG_SANS_CERTIFICAT, LIB_DOCUMENTS,
   DOC_NOMINATIF, DOC_ANONYME, DOC_VISUEL, MSG_NOMINATIF_EN_PREPARATION, LIB_RETOUR,
+  validerNouveauMotDePasse, LONGUEUR_MIN_MDP, MSG_MDP_TROP_COURT, MSG_MDP_DIVERGENT,
+  MSG_DEMANDE_ENVOYEE, LIB_MDP_OUBLIE, TITRE_MDP_OUBLIE, TITRE_NOUVEAU_MDP,
+  MSG_LIEN_INVALIDE, LIB_REDEMANDER_LIEN,
 } from './presentation';
 
 describe('salutation — repli défensif (prénom/nom NULL ou vide)', () => {
@@ -90,4 +93,37 @@ describe('formatScore — arrondi d’AFFICHAGE seulement', () => {
     expect(formatScore(87.6)).toBe('88/100');
   });
   it('0 → « 0/100 » (pas confondu avec null)', () => expect(formatScore(0)).toBe('0/100'));
+});
+
+describe('validerNouveauMotDePasse — miroir client de la politique serveur', () => {
+  const bon = 'a'.repeat(LONGUEUR_MIN_MDP); // exactement 12
+
+  it('trop court → refus « trop court » (même si divergent : la longueur prime)', () => {
+    expect(validerNouveauMotDePasse('court', 'court')).toEqual({ ok: false, erreur: MSG_MDP_TROP_COURT });
+    expect(validerNouveauMotDePasse('court', 'autre')).toEqual({ ok: false, erreur: MSG_MDP_TROP_COURT });
+  });
+  it('assez long mais divergent → refus « ne correspondent pas »', () => {
+    expect(validerNouveauMotDePasse(bon, bon + 'x')).toEqual({ ok: false, erreur: MSG_MDP_DIVERGENT });
+  });
+  it('assez long ET identique → ok', () => {
+    expect(validerNouveauMotDePasse(bon, bon)).toEqual({ ok: true, erreur: null });
+  });
+  it('borne exacte : LONGUEUR_MIN_MDP caractères acceptés', () => {
+    expect(validerNouveauMotDePasse(bon, bon).ok).toBe(true);
+    expect(validerNouveauMotDePasse(bon.slice(0, -1), bon.slice(0, -1)).ok).toBe(false);
+  });
+  it('LONGUEUR_MIN_MDP = 12 (miroir de la politique serveur)', () => expect(LONGUEUR_MIN_MDP).toBe(12));
+});
+
+describe('chaînes reset — anti-énumération + libellés présents', () => {
+  it('la confirmation de demande est conditionnelle (ne confirme JAMAIS l’existence d’un compte)', () => {
+    expect(MSG_DEMANDE_ENVOYEE).toMatch(/si un compte/i);
+    expect(MSG_DEMANDE_ENVOYEE).not.toMatch(/n’existe pas|inexistant|introuvable/i);
+  });
+  it('libellés user-facing du reset définis et non vides', () => {
+    for (const s of [LIB_MDP_OUBLIE, TITRE_MDP_OUBLIE, TITRE_NOUVEAU_MDP, MSG_LIEN_INVALIDE, LIB_REDEMANDER_LIEN]) {
+      expect(typeof s).toBe('string');
+      expect(s.trim().length).toBeGreaterThan(0);
+    }
+  });
 });
