@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { internauteConnecteDepuisCookies } from '../../lib/internaute/gardeEspace';
 import { FormulaireConnexion } from './FormulaireConnexion';
 import { Bandeau } from '../Bandeau';
-import { TITRE_CONNEXION } from '../presentation';
+import { TITRE_CONNEXION, LIB_RETOUR_MENU } from '../presentation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,6 +30,9 @@ export default async function ConnexionPage() {
         <section className="svv-card">
           <FormulaireConnexion />
         </section>
+        {/* Sortie du mur d'auth : retour au menu (accueil + menu rouvert), MÊME mécanisme/libellé que les 4 destinations.
+            Sous le formulaire, en action secondaire (outline) → ne concurrence ni « Se connecter » ni « Mot de passe oublié ? ». */}
+        <Link className="svv-btn svv-btn-outline mt-4" href="/?menu">{LIB_RETOUR_MENU}</Link>
       </div>
     </main>
   );
