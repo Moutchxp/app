@@ -126,7 +126,7 @@ export function MenuBurger() {
           </div>
 
           <nav className="mx-auto flex w-full max-w-md flex-1 flex-col px-6 pb-6">
-            {/* 1. Historique — actif */}
+            {/* 1-2. Actives (focusables, incluses dans le piège de focus via le sélecteur a[href]). */}
             <Link
               href="/espace"
               onClick={fermer}
@@ -134,9 +134,16 @@ export function MenuBurger() {
             >
               Historique
             </Link>
+            <Link
+              href="/espace/compte"
+              onClick={fermer}
+              className="flex min-h-[56px] items-center border-b border-svv-line py-4 text-lg font-semibold text-svv-ink"
+            >
+              Mon compte
+            </Link>
 
-            {/* 2-4. Désactivées : non focusables, non cliquables, « Bientôt ». */}
-            {["Mon compte", "Qui sommes-nous", "Partenaires"].map((label) => (
+            {/* 3-4. Désactivées : non focusables, non cliquables, « Bientôt ». */}
+            {["Qui sommes-nous", "Partenaires"].map((label) => (
               <div
                 key={label}
                 aria-disabled="true"

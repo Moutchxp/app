@@ -6,6 +6,9 @@ import {
   validerNouveauMotDePasse, LONGUEUR_MIN_MDP, MSG_MDP_TROP_COURT, MSG_MDP_DIVERGENT,
   MSG_DEMANDE_ENVOYEE, LIB_MDP_OUBLIE, TITRE_MDP_OUBLIE, TITRE_NOUVEAU_MDP,
   MSG_LIEN_INVALIDE, LIB_REDEMANDER_LIEN,
+  TITRE_COMPTE, LIB_CHAMP_PRENOM, LIB_CHAMP_NOM, LIB_CHAMP_EMAIL_COMPTE, LIB_CHAMP_TELEPHONE,
+  MSG_TELEPHONE_ABSENT, LIB_MODIFIER, LIB_ENREGISTRER, LIB_ANNULER, ARIA_CADENAS,
+  BULLE_CADENAS_AVANT, BULLE_CADENAS_EMAIL,
 } from './presentation';
 
 describe('salutation — repli défensif (prénom/nom NULL ou vide)', () => {
@@ -125,5 +128,27 @@ describe('chaînes reset — anti-énumération + libellés présents', () => {
       expect(typeof s).toBe('string');
       expect(s.trim().length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('page « Mon compte » — libellés + texte EXACT de la bulle cadenas', () => {
+  it('libellés présents et non vides', () => {
+    for (const s of [TITRE_COMPTE, LIB_CHAMP_PRENOM, LIB_CHAMP_NOM, LIB_CHAMP_EMAIL_COMPTE, LIB_CHAMP_TELEPHONE,
+                     MSG_TELEPHONE_ABSENT, LIB_MODIFIER, LIB_ENREGISTRER, LIB_ANNULER, ARIA_CADENAS]) {
+      expect(typeof s).toBe('string');
+      expect(s.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it('la bulle recompose EXACTEMENT la phrase imposée (AVANT + e-mail + « . »)', () => {
+    const phrase = `${BULLE_CADENAS_AVANT}${BULLE_CADENAS_EMAIL}.`;
+    expect(phrase).toBe(
+      'Votre adresse e-mail et votre numéro de téléphone ne sont pas modifiables depuis l’application : votre e-mail sert d’identifiant de connexion. Pour les faire changer, écrivez-nous à contact@sansvisavis.com.',
+    );
+  });
+
+  it('l’e-mail de contact est bien une adresse (support du lien mailto)', () => {
+    expect(BULLE_CADENAS_EMAIL).toBe('contact@sansvisavis.com');
+    expect(BULLE_CADENAS_AVANT.endsWith('écrivez-nous à ')).toBe(true); // l'adresse suit immédiatement
   });
 });

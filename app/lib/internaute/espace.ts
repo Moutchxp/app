@@ -56,6 +56,33 @@ export async function lireIdentite(internauteId: string): Promise<IdentiteTitula
   return { prenom: row?.prenom ?? null, nom: row?.nom ?? null };
 }
 
+/** Les 4 coordonnées de la page « Mon compte ». Chaque champ `null` possible (dossier anonymisé, téléphone non renseigné). */
+export interface CompteInternaute {
+  prenom: string | null;
+  nom: string | null;
+  email: string | null;
+  telephone: string | null;
+}
+
+/**
+ * Les 4 coordonnées de l'internaute CONNECTÉ (page « Mon compte »), scopées par l'id de SESSION (jamais une entrée de
+ * requête). SELECT d'UNE ligne. ADDITIVE : ne modifie pas `lireIdentite` (utilisée par la page espace). Sert aussi à
+ * relire les valeurs APRÈS une modification (prénom/nom normalisés) pour que l'écran affiche l'état réel de la base.
+ */
+export async function lireCompte(internauteId: string): Promise<CompteInternaute> {
+  const r = await query<{ prenom: string | null; nom: string | null; email: string | null; telephone: string | null }>(
+    `SELECT prenom, nom, email, telephone FROM internaute WHERE id = $1`,
+    [internauteId],
+  );
+  const row = r.rows[0];
+  return {
+    prenom: row?.prenom ?? null,
+    nom: row?.nom ?? null,
+    email: row?.email ?? null,
+    telephone: row?.telephone ?? null,
+  };
+}
+
 function versNombre(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   const n = typeof v === 'number' ? v : Number(v);

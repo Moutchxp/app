@@ -9,7 +9,7 @@ const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('../db/client', () => ({ query }));
 
-import { listerAnalyses, listerCertificats, resoudrePdfCertificat, resoudreVisuelCertificat, lireIdentite } from './espace';
+import { listerAnalyses, listerCertificats, resoudrePdfCertificat, resoudreVisuelCertificat, lireIdentite, lireCompte } from './espace';
 
 describe('espace — accès données scopé par internaute_id (Commit C)', () => {
   beforeEach(() => query.mockReset());
@@ -57,6 +57,20 @@ describe('espace — accès données scopé par internaute_id (Commit C)', () =>
   it('lireIdentite : id inconnu (0 ligne) → { null, null }', async () => {
     query.mockResolvedValue({ rows: [] });
     expect(await lireIdentite('A')).toEqual({ prenom: null, nom: null });
+  });
+
+  it('lireCompte : SELECT prenom, nom, email, telephone scopé par id de SESSION', async () => {
+    query.mockResolvedValue({ rows: [{ prenom: 'Jean', nom: 'Dupont', email: 'a@b.co', telephone: '+33600000000' }] });
+    const r = await lireCompte('A');
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toMatch(/SELECT prenom, nom, email, telephone FROM internaute WHERE id = \$1/);
+    expect(params).toEqual(['A']); // id de session, jamais une entrée de requête
+    expect(r).toEqual({ prenom: 'Jean', nom: 'Dupont', email: 'a@b.co', telephone: '+33600000000' });
+  });
+
+  it('lireCompte : id inconnu / téléphone absent → champs à null', async () => {
+    query.mockResolvedValue({ rows: [] });
+    expect(await lireCompte('A')).toEqual({ prenom: null, nom: null, email: null, telephone: null });
   });
 
   it('resoudrePdfCertificat : garde de propriété c.id = $1 AND ip.internaute_id = $2 → clé + numéro', async () => {

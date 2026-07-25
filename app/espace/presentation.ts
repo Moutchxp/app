@@ -131,3 +131,38 @@ export function validerNouveauMotDePasse(mdp: string, confirmation: string): { o
   if (mdp !== confirmation) return { ok: false, erreur: MSG_MDP_DIVERGENT };
   return { ok: true, erreur: null };
 }
+
+// ── Page « Mon compte » (consultation + modification prénom/nom, commit C3) ──────────────────────────────
+export const TITRE_COMPTE = 'Mon compte';
+export const LIB_RETOUR_ESPACE = 'Retour';
+
+export const LIB_CHAMP_PRENOM = 'Prénom';
+export const LIB_CHAMP_NOM = 'Nom';
+export const LIB_CHAMP_EMAIL_COMPTE = 'E-mail';
+export const LIB_CHAMP_TELEPHONE = 'Téléphone';
+/** Valeur absente affichée en lecture. */
+export const MSG_VALEUR_ABSENTE = '—';
+/** Téléphone non renseigné en base (cadenas conservé). */
+export const MSG_TELEPHONE_ABSENT = 'Non renseigné';
+
+export const LIB_MODIFIER = 'Modifier';
+export const LIB_ENREGISTRER = 'Enregistrer';
+export const LIB_ENREGISTREMENT = 'Enregistrement…';
+export const LIB_ANNULER = 'Annuler';
+
+/** Confirmation discrète (role="status") après enregistrement. */
+export const MSG_COMPTE_ENREGISTRE = 'Modifications enregistrées.';
+/** Échec de validation (400) — message exploitable côté écran. */
+export const MSG_COMPTE_VALIDATION = 'Vérifiez le prénom et le nom saisis.';
+/** Échec générique (500 / réseau) — sans détail technique. */
+export const MSG_COMPTE_ERREUR = 'Une erreur est survenue. Réessayez.';
+
+/** aria-label du bouton cadenas (ouvre l'explication). */
+export const ARIA_CADENAS = 'Pourquoi ce champ n’est-il pas modifiable ?';
+/**
+ * TEXTE EXACT de la bulle du cadenas (NE PAS reformuler). Rendu = `BULLE_CADENAS_AVANT` + lien mailto (`BULLE_CADENAS_EMAIL`)
+ * + « . » → la phrase complète « …écrivez-nous à contact@sansvisavis.com. ». L'adresse est un lien mailto cliquable.
+ */
+export const BULLE_CADENAS_AVANT =
+  'Votre adresse e-mail et votre numéro de téléphone ne sont pas modifiables depuis l’application : votre e-mail sert d’identifiant de connexion. Pour les faire changer, écrivez-nous à ';
+export const BULLE_CADENAS_EMAIL = 'contact@sansvisavis.com';
