@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import Image from "next/image";
 
 /**
@@ -27,6 +27,24 @@ function ChevronEntree() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 text-svv-muted">
       <path d="M9 6l6 6-6 6" />
     </svg>
+  );
+}
+
+/**
+ * Repère de fin de ligne d'une entrée. Comme le panneau ne se ferme plus au clic (il reste visible jusqu'à ce que la
+ * destination prenne la main → aucun aperçu de l'accueil), c'est le SEUL retour immédiat du clic : tant que la navigation
+ * déclenchée par le <Link> parent n'a pas abouti, `useLinkStatus().pending` est vrai (Next 16) et le chevron cède la place
+ * à un point qui pulse — MÊME gabarit 18px, donc zéro décalage. Sous prefers-reduced-motion : point FIXE (le repère reste,
+ * sans animation). Décoratif (aria-hidden), comme le chevron. DESCENDANT obligatoire d'un <Link> (contrat de useLinkStatus).
+ * Route déjà préchargée → transition instantanée, `pending` sauté : le chevron ne bouge pas (rien à signaler).
+ */
+function IndicateurEntree() {
+  const { pending } = useLinkStatus();
+  if (!pending) return <ChevronEntree />;
+  return (
+    <span className="grid size-[18px] shrink-0 place-items-center" aria-hidden="true">
+      <span className="size-2 rounded-full bg-svv-red animate-pulse motion-reduce:animate-none" />
+    </span>
   );
 }
 
@@ -149,23 +167,25 @@ export function MenuBurger() {
               />
             </div>
 
-            {/* Entrées = cartes blanches sur le gris (contraste), libellé à gauche + chevron discret à droite. */}
+            {/* Entrées = cartes blanches sur le gris (contraste), libellé à gauche + repère discret à droite. PAS de
+                `onClick` de fermeture : le panneau reste au-dessus de l'accueil jusqu'à ce que la destination prenne la
+                main (fin du clignotement). Le repère de fin de ligne signale l'attente pendant la navigation. */}
             <nav className="mt-8 flex flex-col gap-3">
-              <Link href="/espace" onClick={fermer} className="svv-menu-entree">
+              <Link href="/espace" className="svv-menu-entree">
                 <span>Historique</span>
-                <ChevronEntree />
+                <IndicateurEntree />
               </Link>
-              <Link href="/espace/compte" onClick={fermer} className="svv-menu-entree">
+              <Link href="/espace/compte" className="svv-menu-entree">
                 <span>Mon compte</span>
-                <ChevronEntree />
+                <IndicateurEntree />
               </Link>
-              <Link href="/qui-sommes-nous" onClick={fermer} className="svv-menu-entree">
+              <Link href="/qui-sommes-nous" className="svv-menu-entree">
                 <span>Qui sommes-nous</span>
-                <ChevronEntree />
+                <IndicateurEntree />
               </Link>
-              <Link href="/partenaires" onClick={fermer} className="svv-menu-entree">
+              <Link href="/partenaires" className="svv-menu-entree">
                 <span>Partenaires</span>
-                <ChevronEntree />
+                <IndicateurEntree />
               </Link>
             </nav>
 
