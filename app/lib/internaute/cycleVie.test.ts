@@ -7,7 +7,7 @@ const { withTransaction, query } = vi.hoisted(() => ({ withTransaction: vi.fn(),
 vi.mock('server-only', () => ({}));
 vi.mock('../db/client', () => ({ withTransaction, query }));
 
-import { completerParcours, retirerConsentement } from './cycleVie';
+import { completerParcours, retirerConsentement, rectifierInternaute } from './cycleVie';
 
 /** Mock du `q` transactionnel : route par SQL, et CAPTURE les INSERT dans `internaute_consentement` (finalité + état). */
 function installerTx(actif: { finalite: string; actif: boolean }[]) {
@@ -186,5 +186,59 @@ describe('retirerConsentement — retrait HORS TUNNEL (admin), accord-only inter
     expect(r).toEqual({ retire: false, raison: 'introuvable' });
     expect(tx.inserts).toEqual([]);
     expect(tx.journal).toEqual([]);
+  });
+});
+
+describe('journal — marqueur de CANAL (J1) : espace_client ≠ tunnel, retrait sans clé canal', () => {
+  beforeEach(() => {
+    withTransaction.mockReset();
+    query.mockReset();
+  });
+
+  /** Mock du `q` pour rectifierInternaute : UPDATE renvoie 1 ligne, CAPTURE le details JSON du journal. */
+  function installerRectif() {
+    const journal: unknown[] = [];
+    const q = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (/UPDATE internaute SET/.test(sql)) return { rows: [{ id: 'uuid-1' }] };
+      if (/INSERT INTO internaute_cycle_vie_log/.test(sql)) { journal.push(params?.[3]); return { rows: [] }; }
+      return { rows: [] };
+    });
+    withTransaction.mockImplementation(async (cb: (q: unknown) => Promise<unknown>) => cb(q));
+    return { journal };
+  }
+
+  it('rectification ESPACE_CLIENT et TUNNEL écrivent des lignes DISTINCTES (canal dans details)', async () => {
+    const a = installerRectif();
+    await rectifierInternaute('uuid-1', { prenom: 'Jean' }, null, 'espace_client');
+    const b = installerRectif();
+    await rectifierInternaute('uuid-1', { prenom: 'Jean' }, null, 'tunnel');
+
+    expect(a.journal[0]).toBe(JSON.stringify({ champs: ['prenom'], canal: 'espace_client' }));
+    expect(b.journal[0]).toBe(JSON.stringify({ champs: ['prenom'], canal: 'tunnel' }));
+    expect(a.journal[0]).not.toBe(b.journal[0]); // lignes désormais DISTINCTES (c'était le défaut de traçabilité)
+  });
+
+  it('admin conserve son id ET reçoit canal=admin', async () => {
+    const tx = installerRectif();
+    await rectifierInternaute('uuid-1', { nom: 'Dupont' }, 7, 'admin');
+    expect(tx.journal[0]).toBe(JSON.stringify({ champs: ['nom'], canal: 'admin' }));
+    // (utilisateur_id = 7 est le 1er paramètre de l'INSERT — sens INCHANGÉ ; le canal ne le remplace pas.)
+  });
+
+  it('retrait_consentement : AUCUNE clé "canal" dans details (provenance portée par internaute_consentement.canal)', async () => {
+    const journal: string[] = [];
+    const q = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (/SELECT id FROM internaute WHERE id = \$1 AND efface_a IS NULL/.test(sql)) return { rows: [{ id: 'uuid-1' }] };
+      if (/FROM internaute_consentement_actif/.test(sql)) return { rows: [{ actif: true }] };
+      if (/internaute_consentement_texte/.test(sql)) return { rows: [{ id: 42 }] };
+      if (/INSERT INTO internaute_cycle_vie_log/.test(sql)) { journal.push(String(params?.[3])); return { rows: [] }; }
+      return { rows: [] };
+    });
+    withTransaction.mockImplementation(async (cb: (q: unknown) => Promise<unknown>) => cb(q));
+
+    await retirerConsentement('uuid-1', 'email_marketing', null, { aLaDemandeDe: 'internaute', motif: 'désabonnement' }, 'email');
+    expect(journal).toHaveLength(1);
+    expect(journal[0]).not.toContain('canal'); // aucune clé canal écrite
+    expect(journal[0]).toBe(JSON.stringify({ finalite: 'email_marketing', a_la_demande_de: 'internaute', motif: 'désabonnement' })); // ligne INCHANGÉE
   });
 });

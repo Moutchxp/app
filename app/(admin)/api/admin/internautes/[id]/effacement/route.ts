@@ -25,7 +25,7 @@ export async function POST(request: Request, ctx: Ctx): Promise<Response> {
     const { id } = await ctx.params;
     if (!UUID.test(id)) return Response.json({ erreur: 'introuvable' }, { status: 404 });
 
-    const { efface } = await effacerInternaute(id, garde.auteurId);
+    const { efface } = await effacerInternaute(id, garde.auteurId, 'admin');
     if (!efface) return Response.json({ erreur: 'introuvable' }, { status: 404 });
     return Response.json({ ok: true, efface: true });
   } catch {

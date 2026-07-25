@@ -44,7 +44,7 @@ export async function PATCH(request: Request): Promise<Response> {
   if (!v.ok) return Response.json({ ok: false }, { status: 400 });
 
   try {
-    const { rectifie } = await rectifierInternaute(garde.internauteId, v.champs, null); // id de SESSION, auteur = l'internaute
+    const { rectifie } = await rectifierInternaute(garde.internauteId, v.champs, null, 'espace_client'); // id de SESSION, auteur = l'internaute, canal = espace connecté
     if (!rectifie) return Response.json({ ok: false }, { status: 500 }); // ne devrait pas arriver (garde a déjà vérifié l'existence)
     const compte = await lireCompte(garde.internauteId); // relecture → valeurs normalisées réellement en base
     return Response.json({ ok: true, prenom: compte.prenom, nom: compte.nom });

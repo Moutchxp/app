@@ -65,7 +65,7 @@ describe('Titulaire de compte × effacement (Commit B)', () => {
   it('(d) effacement ADMIN d’un titulaire → anonymise l’identité ET SUPPRIME internaute_auth', async () => {
     routerLectures({});
     const { sqls } = installerTx(true);
-    const r = await effacerInternaute('uuid-titulaire', 7);
+    const r = await effacerInternaute('uuid-titulaire', 7, 'admin');
     expect(r.efface).toBe(true);
     expect(sqls.some((s) => A_ANONYMISE.test(s))).toBe(true);
     expect(sqls.some((s) => SUPPRIME_CREDENTIAL.test(s))).toBe(true); // le hash ne survit pas au compte effacé

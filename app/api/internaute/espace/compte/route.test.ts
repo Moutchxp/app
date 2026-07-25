@@ -37,10 +37,11 @@ describe('PATCH /api/internaute/espace/compte — modification prénom/nom', () 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, prenom: 'Jean', nom: 'Dupont' });
     expect(rectifierInternaute).toHaveBeenCalledTimes(1);
-    const [id, champs, auteur] = rectifierInternaute.mock.calls[0];
+    const [id, champs, auteur, canal] = rectifierInternaute.mock.calls[0];
     expect(id).toBe('SESSION'); // id de session, jamais du corps
     expect(auteur).toBeNull(); // geste de l'internaute lui-même
     expect(champs).toEqual({ prenom: 'Jean', nom: 'Dupont' }); // casse normalisée
+    expect(canal).toBe('espace_client'); // canal déclaré explicitement (J1)
   });
 
   it('BARRIÈRE DURE : un corps contenant email/telephone ne les transmet JAMAIS à rectifierInternaute', async () => {

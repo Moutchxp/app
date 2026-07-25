@@ -28,18 +28,33 @@ function estCode(e: unknown, code: string): boolean {
   return typeof e === 'object' && e !== null && 'code' in e && (e as { code?: unknown }).code === code;
 }
 
-/** Journal append-only des opérations de cycle de vie (accountability). `details` NE contient JAMAIS de PII. */
+/**
+ * CANAL d'origine d'une ligne de journal — LISTE FERMÉE (jamais de texte libre). Attribue POSITIVEMENT chaque écriture
+ * à sa surface d'appel : `espace_client` (espace connecté), `tunnel`, `admin`, `automatique` (tâche/effet système).
+ * ⚠️ SÉPARÉ de `internaute_consentement.canal` (provenance de la DÉCISION de consentement, ensemble OUVERT incluant
+ * `email`) : on ne duplique pas cette source de vérité ici (cf. `journaliserCycleVie`, cas `null`).
+ */
+export type CanalCycleVie = 'espace_client' | 'tunnel' | 'admin' | 'automatique';
+
+/**
+ * Journal append-only des opérations de cycle de vie (accountability). `details` NE contient JAMAIS de PII. `canal` est
+ * REQUIS (aucun défaut) : chaque site d'appel déclare sa provenance → un nouveau site ne compile pas tant qu'il n'a pas
+ * tranché. `canal = null` = « provenance portée AILLEURS, pas inconnue » (ex. `retrait_consentement` → source autoritative
+ * `internaute_consentement.canal`) : dans ce cas AUCUNE clé `canal` n'est écrite dans `details` (jamais de valeur vide).
+ */
 async function journaliserCycleVie(
   q: RequeteTx,
   auteurId: number | null,
   action: 'effacement' | 'rectification' | 'purge_auto' | 'retrait_consentement',
   cibleId: string,
   details: Record<string, unknown> | null,
+  canal: CanalCycleVie | null,
 ): Promise<void> {
+  const detailsFinal = canal !== null ? { ...(details ?? {}), canal } : details;
   await q(
     `INSERT INTO internaute_cycle_vie_log (utilisateur_id, action, cible_internaute_id, details)
      VALUES ($1, $2, $3, $4::jsonb)`,
-    [auteurId, action, cibleId, details ? JSON.stringify(details) : null],
+    [auteurId, action, cibleId, detailsFinal ? JSON.stringify(detailsFinal) : null],
   );
 }
 
@@ -75,12 +90,12 @@ async function anonymiserEnPlace(q: RequeteTx, ids: string[]): Promise<void> {
  * Anonymise l'IDENTITÉ en CONSERVANT projet + certificat (Commit 4 : le PDF reste vérifiable ; RÉPARE le 503 qui frappait
  * tout porteur de certificat via l'ancien DELETE de projet). Renvoie `{ efface: false }` si l'id n'existe pas. Preuve B conservée.
  */
-export async function effacerInternaute(id: string, auteurId: number | null): Promise<{ efface: boolean }> {
+export async function effacerInternaute(id: string, auteurId: number | null, canal: CanalCycleVie): Promise<{ efface: boolean }> {
   return withTransaction(async (q) => {
     const existe = await q(`SELECT 1 FROM internaute WHERE id = $1`, [id]);
     if (existe.rows.length === 0) return { efface: false };
     await anonymiserEnPlace(q, [id]);
-    await journaliserCycleVie(q, auteurId, 'effacement', id, { strategie: 'anonymisation_identite', projet: 'conserve', preuve_b: 'conservee' });
+    await journaliserCycleVie(q, auteurId, 'effacement', id, { strategie: 'anonymisation_identite', projet: 'conserve', preuve_b: 'conservee' }, canal);
     return { efface: true };
   });
 }
@@ -121,7 +136,7 @@ export async function effacerIdentiteLivraisonSiEligible(internauteId: string): 
         contexte: 'livraison_non_consentant',
         projet: 'conserve',
         preuve_b: 'conservee',
-      });
+      }, 'automatique');
     });
   } catch (e) {
     // Best-effort : ne throw JAMAIS. Un échec laisse l'identité NON effacée (rattrapable par effacement admin / purge).
@@ -145,6 +160,7 @@ export async function rectifierInternaute(
   id: string,
   champs: ChampsRectification,
   auteurId: number | null,
+  canal: CanalCycleVie,
 ): Promise<{ rectifie: boolean }> {
   const sets: string[] = [];
   const params: unknown[] = [id];
@@ -164,8 +180,8 @@ export async function rectifierInternaute(
         params,
       );
       if (r.rows.length === 0) return { rectifie: false };
-      // Journal SANS PII : on trace QUELS champs ont changé, jamais leurs valeurs.
-      await journaliserCycleVie(q, auteurId, 'rectification', id, { champs: Object.keys(champs) });
+      // Journal SANS PII : on trace QUELS champs ont changé, jamais leurs valeurs. `canal` = surface d'appel (espace_client / tunnel / admin).
+      await journaliserCycleVie(q, auteurId, 'rectification', id, { champs: Object.keys(champs) }, canal);
       return { rectifie: true };
     });
   } catch (e) {
@@ -248,7 +264,7 @@ export async function completerParcours(
           [projetId, id],
         );
       }
-      await journaliserCycleVie(q, auteurId, 'rectification', id, { champs: Object.keys(coords), parcours: 'complet' });
+      await journaliserCycleVie(q, auteurId, 'rectification', id, { champs: Object.keys(coords), parcours: 'complet' }, 'tunnel'); // complétion Écran B = tunnel
       return { complete: true };
     });
   } catch (e) {
@@ -291,7 +307,7 @@ export async function purgerEchus(auteurId: number | null = null): Promise<{ pur
     const ids = cand.rows.map((r) => r.id);
     if (ids.length === 0) return { purges: 0 };
     await anonymiserEnPlace(q, ids);
-    for (const id of ids) await journaliserCycleVie(q, auteurId, 'purge_auto', id, { retention_jours: jours });
+    for (const id of ids) await journaliserCycleVie(q, auteurId, 'purge_auto', id, { retention_jours: jours }, 'automatique'); // purge de rétention = tâche automatique
     return { purges: ids.length };
   });
 }
@@ -358,11 +374,13 @@ export async function retirerConsentement(
     //    Aucune autre écriture non plus (ni efface_a, ni internaute_projet, ni PII).
 
     // Journal RGPD (accountability) : QUI (`auteurId`), QUAND (`ts`), quelle finalité, à la demande de qui, motif. JAMAIS de PII.
+    // `canal = null` VOLONTAIRE : la provenance du retrait vit dans `internaute_consentement.canal` (source AUTORITATIVE,
+    // ensemble OUVERT incluant `email`). On ne la duplique PAS ici → aucune clé `canal` dans ce `details` (exclusion explicite).
     await journaliserCycleVie(q, auteurId, 'retrait_consentement', internauteId, {
       finalite,
       a_la_demande_de: contexte.aLaDemandeDe,
       motif: contexte.motif ?? null,
-    });
+    }, null);
     return { retire: true };
   });
 }

@@ -36,7 +36,7 @@ describe('Effacement identité — CONSERVE projet + certificat (Commit 4 — A)
 
   it('(a) effacement ADMIN d’un porteur de certificat → anonymise l’identité, NE SUPPRIME PAS le projet (mur évité)', async () => {
     const { sqls } = installerTx(true);
-    const r = await effacerInternaute('uuid-1', 7);
+    const r = await effacerInternaute('uuid-1', 7, 'admin');
     expect(r.efface).toBe(true);
     expect(sqls.some((s) => A_ANONYMISE.test(s))).toBe(true); //  identité anonymisée
     expect(sqls.some((s) => SUPPRIME_PROJET.test(s))).toBe(false); // projet CONSERVÉ → aucune violation FK, certificat survit

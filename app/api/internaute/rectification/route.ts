@@ -47,7 +47,7 @@ export async function PATCH(request: Request): Promise<Response> {
 
   // 3) Application (bloc A uniquement). `auteurId = null` : geste de l'internaute lui-même (pas un admin).
   try {
-    const { rectifie } = await rectifierInternaute(internauteId, v.champs, null);
+    const { rectifie } = await rectifierInternaute(internauteId, v.champs, null, 'tunnel'); // rectification de fin de tunnel (jeton rectify-contact)
     if (!rectifie) return Response.json({ ok: false, erreur: 'dossier introuvable ou effacé' }, { status: 404 });
     return Response.json({ ok: true, rectifie: true });
   } catch (e) {

@@ -33,7 +33,7 @@ export async function PATCH(request: Request, ctx: Ctx): Promise<Response> {
     if (!v.ok) return Response.json({ erreurs: v.erreurs }, { status: 422 });
 
     try {
-      const { rectifie } = await rectifierInternaute(id, v.champs, garde.auteurId);
+      const { rectifie } = await rectifierInternaute(id, v.champs, garde.auteurId, 'admin');
       if (!rectifie) return Response.json({ erreur: 'introuvable ou effacé' }, { status: 404 });
       return Response.json({ ok: true, rectifie: true });
     } catch (e) {
