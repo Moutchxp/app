@@ -1,18 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import type { CSSProperties, FormEvent } from "react";
+import type { FormEvent } from "react";
 import Link from "next/link";
+import { ChampMotDePasse } from "../../ChampMotDePasse";
 import {
   AVERTISSEMENTS_SUPPRESSION, CONSEIL_TELECHARGER_SUPPRESSION, LIB_ALLER_ESPACE,
   LIB_CASE_SUPPRESSION, LIB_CHAMP_MDP_SUPPRESSION, LIB_BOUTON_SUPPRIMER, LIB_SUPPRESSION_EN_COURS,
   LIB_ANNULER_SUPPRESSION, MSG_SUPPRESSION_MDP, MSG_SUPPRESSION_THROTTLE, MSG_SUPPRESSION_ERREUR,
 } from "../../presentation";
-
-const styleInput: CSSProperties = {
-  width: "100%", padding: ".75rem", minHeight: 44, fontSize: 16,
-  borderRadius: ".6rem", border: "1px solid var(--color-svv-line)",
-};
 
 /**
  * Formulaire de SUPPRESSION de compte (client). Affiche l'avertissement (conséquences), le conseil de sauvegarde, puis
@@ -84,14 +80,8 @@ export function FormulaireSuppression() {
 
         <label className="flex flex-col gap-1">
           <span className="svv-label">{LIB_CHAMP_MDP_SUPPRESSION}</span>
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={motDePasse}
-            onChange={(e) => setMotDePasse(e.target.value)}
-            className="svv-input"
-            style={styleInput}
-          />
+          {/* Champ mot de passe partagé (avec œil). PAS de `required` : la garde `actif` (case + mdp) gouverne l'envoi. */}
+          <ChampMotDePasse value={motDePasse} onChange={setMotDePasse} autoComplete="current-password" />
         </label>
 
         {erreur && <p role="alert" className="svv-page-note" style={{ marginTop: 0 }}>{erreur}</p>}

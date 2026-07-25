@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { ChampMotDePasse } from '../ChampMotDePasse';
 import { LIB_MDP_OUBLIE } from '../presentation';
 
 /**
@@ -54,15 +55,7 @@ export function FormulaireConnexion() {
       </label>
       <label className="flex flex-col gap-1">
         <span className="svv-label">Mot de passe</span>
-        <input
-          type="password"
-          autoComplete="current-password"
-          required
-          value={motDePasse}
-          onChange={(e) => setMotDePasse(e.target.value)}
-          className="svv-input"
-          style={{ width: '100%', padding: '.75rem', borderRadius: '.6rem', border: '1px solid var(--color-svv-line)' }}
-        />
+        <ChampMotDePasse value={motDePasse} onChange={setMotDePasse} autoComplete="current-password" required />
       </label>
 
       {erreur && (
