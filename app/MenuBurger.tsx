@@ -141,18 +141,21 @@ export function MenuBurger() {
             >
               Mon compte
             </Link>
-
-            {/* 3-4. Désactivées : non focusables, non cliquables, « Bientôt ». */}
-            {["Qui sommes-nous", "Partenaires"].map((label) => (
-              <div
-                key={label}
-                aria-disabled="true"
-                className="flex min-h-[56px] items-center justify-between border-b border-svv-line py-4 text-lg font-semibold text-svv-muted"
-              >
-                <span>{label}</span>
-                <span className="text-xs font-medium text-svv-muted">Bientôt</span>
-              </div>
-            ))}
+            {/* 3-4. Actives (pages éditoriales) — focusables, incluses dans le piège de focus via le sélecteur a[href]. */}
+            <Link
+              href="/qui-sommes-nous"
+              onClick={fermer}
+              className="flex min-h-[56px] items-center border-b border-svv-line py-4 text-lg font-semibold text-svv-ink"
+            >
+              Qui sommes-nous
+            </Link>
+            <Link
+              href="/partenaires"
+              onClick={fermer}
+              className="flex min-h-[56px] items-center border-b border-svv-line py-4 text-lg font-semibold text-svv-ink"
+            >
+              Partenaires
+            </Link>
 
             {/* Se déconnecter — bas de panneau, séparé, UNIQUEMENT si connecté. */}
             {connecte === true && (
