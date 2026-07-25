@@ -5,7 +5,7 @@ import { internauteConnecteDepuisCookies } from '../../lib/internaute/gardeEspac
 import { lireCompte } from '../../lib/internaute/espace';
 import { Bandeau } from '../Bandeau';
 import { FicheCompte } from './FicheCompte';
-import { TITRE_COMPTE, LIB_RETOUR_ESPACE, TITRE_ZONE_DANGER, LIB_LIEN_SUPPRESSION } from '../presentation';
+import { TITRE_COMPTE, LIB_RETOUR_MENU, TITRE_ZONE_DANGER, LIB_LIEN_SUPPRESSION } from '../presentation';
 
 // Runtime Node (session + driver pg). JAMAIS de cache : dépend de la session et de l'état base.
 export const runtime = 'nodejs';
@@ -34,8 +34,8 @@ export default async function ComptePage() {
       <div className="flex flex-col gap-6 px-5 py-6">
         <FicheCompte initial={compte} />
 
-        {/* Retour vers l'espace — action secondaire. */}
-        <Link className="svv-btn svv-btn-outline" href="/espace">{LIB_RETOUR_ESPACE}</Link>
+        {/* Retour au menu (accueil + menu rouvert) — action secondaire. */}
+        <Link className="svv-btn svv-btn-outline" href="/?menu">{LIB_RETOUR_MENU}</Link>
 
         {/* Zone sensible — séparée visuellement, mène à la page dédiée de suppression. */}
         <section aria-labelledby="zone-danger" className="mt-4 border-t border-svv-line pt-5">

@@ -8,7 +8,7 @@ import { Bandeau } from './Bandeau';
 import { ListeAnalyses, type LigneEspace } from './ListeAnalyses';
 import {
   TITRE_ESPACE, SOUS_LIGNE_ACCUEIL, TITRE_ANALYSES, MSG_AUCUNE_ANALYSE,
-  MSG_ADRESSE_ABSENTE, LIB_RETOUR, salutation, formatScore,
+  MSG_ADRESSE_ABSENTE, LIB_RETOUR_MENU, salutation, formatScore,
 } from './presentation';
 
 // Runtime Node (session + driver pg). JAMAIS de cache : l'espace dépend de la session et de l'état base.
@@ -83,8 +83,8 @@ export default async function EspacePage() {
           )}
         </section>
 
-        {/* Retour à l'accueil de l'application — action secondaire, en pied de page */}
-        <Link className="svv-btn svv-btn-outline" href="/">{LIB_RETOUR}</Link>
+        {/* Retour au menu (accueil + menu rouvert) — action secondaire, en pied de page */}
+        <Link className="svv-btn svv-btn-outline" href="/?menu">{LIB_RETOUR_MENU}</Link>
       </div>
     </main>
   );

@@ -12,6 +12,8 @@ export const ALT_SCEAU = "Sceau Sans Vis-à-Vis®";
 export const MARQUE = "SANS VIS·A·VIS®";
 /** Lien de retour, en pied de page. */
 export const LIB_RETOUR_ACCUEIL = "Retour à l’accueil";
+/** Bouton de retour des pages éditoriales → accueil AVEC le menu rouvert (marqueur `?menu`). */
+export const LIB_RETOUR_MENU = "Retour au menu";
 /** État d'attente HONNÊTE là où un texte n'est pas encore fourni (jamais de faux paragraphe). */
 export const MSG_CONTENU_A_VENIR = "Contenu à venir.";
 /** État vide de la liste de partenaires (aucune entrée). */

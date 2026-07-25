@@ -50,7 +50,11 @@
   .svv-doc:hover{border-color:var(--color-svv-red)}
   .svv-doc-label{font-size:.9rem;font-weight:700;color:var(--color-svv-ink)}
   .svv-doc-desc{font-size:.78rem;line-height:1.35;color:var(--color-svv-muted)}
-  @media (prefers-reduced-motion: reduce){.svv-chevron,.svv-doc{transition:none}}
+  /* Entrée du menu burger = carte blanche sur fond gris. MÊME geste « cerclage rouge » que .svv-doc (bordure 1px line→red,
+     transition border-color .15s ease, texte inchangé), ÉTENDU à focus-visible (clavier) et active (appui tactile). */
+  .svv-menu-entree{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-height:56px;background:#fff;border:1px solid var(--color-svv-line);border-radius:12px;padding:12px 16px;font-size:1rem;font-weight:600;color:var(--color-svv-ink);transition:border-color .15s ease}
+  .svv-menu-entree:hover,.svv-menu-entree:focus-visible,.svv-menu-entree:active{border-color:var(--color-svv-red)}
+  @media (prefers-reduced-motion: reduce){.svv-chevron,.svv-doc,.svv-menu-entree{transition:none}}
   /* En-tête standard des pages admin (socle unifié — voir composant EnTetePage). */
   .svv-page-head{margin:0 0 1rem}
   .svv-page-head-ligne{display:flex;align-items:center;justify-content:space-between;gap:.75rem}

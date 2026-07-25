@@ -48,6 +48,8 @@ export const MSG_NOMINATIF_EN_PREPARATION = 'Certificat en préparation — disp
 
 /** Bouton de retour vers l'accueil de l'application (racine du site). */
 export const LIB_RETOUR = 'Retour';
+/** Bouton de retour des DESTINATIONS du menu → accueil AVEC le menu rouvert (marqueur `?menu`). */
+export const LIB_RETOUR_MENU = 'Retour au menu';
 
 /** Libellés divers. */
 export const LIB_DECONNEXION = 'Se déconnecter';

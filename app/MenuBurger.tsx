@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 
 /**
  * Menu de la page d'accueil : icône burger FLOTTANTE en haut à droite (se superpose au coin de la rosace — voulu),
@@ -19,23 +20,46 @@ import Link from "next/link";
  * dans le panneau ; scroll du fond bloqué. Aucune animation (prefers-reduced-motion respecté d'office). Charte stricte :
  * uniquement les tokens `--color-svv-*` et les classes existantes.
  */
+
+/** Chevron discret à droite d'une entrée de menu (indication d'action). Muté, décoratif. */
+function ChevronEntree() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 text-svv-muted">
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  );
+}
+
 export function MenuBurger() {
   const [ouvert, setOuvert] = useState(false);
   const [connecte, setConnecte] = useState<boolean | null>(null); // null = inconnu (avant réponse) → déconnexion masquée
   const burgerRef = useRef<HTMLButtonElement>(null);
-  const croixRef = useRef<HTMLButtonElement>(null);
   const panneauRef = useRef<HTMLDivElement>(null);
 
   const fermer = useCallback(() => setOuvert(false), []);
 
-  function ouvrir() {
+  const ouvrir = useCallback(() => {
     setOuvert(true);
     // État de session interrogé à CHAQUE ouverture (pas au montage). Fail-closed : toute erreur → non connecté.
     fetch("/api/internaute/session", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => setConnecte(d?.connecte === true))
       .catch(() => setConnecte(false));
-  }
+  }, []);
+
+  // « Retour au menu » : si l'accueil est chargé avec ?menu, on OUVRE le panneau puis on NETTOIE l'URL sans recharger
+  // (un refresh ou un lien partagé ne rouvre pas le menu par surprise). Marqueur absent → rien ne change. Montage seul.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("menu")) return;
+    params.delete("menu");
+    const q = params.toString();
+    window.history.replaceState(null, "", window.location.pathname + (q ? `?${q}` : "") + window.location.hash);
+    // Ouverture UNE fois au montage en réaction à un état externe (le marqueur d'URL). L'effet est le bon outil ici ;
+    // la règle est un faux positif pour ce cas de synchronisation URL → UI. Aucune cascade (montage seul, deps stables).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    ouvrir();
+  }, [ouvrir]);
 
   async function seDeconnecter() {
     try {
@@ -46,12 +70,12 @@ export function MenuBurger() {
     window.location.href = "/";
   }
 
-  // Ouverture : scroll bloqué, focus sur la croix, Échap ferme, focus PIÉGÉ ; fermeture : scroll rendu, focus au burger.
+  // Ouverture : scroll bloqué, focus sur la 1re entrée, Échap ferme, focus PIÉGÉ ; fermeture : scroll rendu, focus au burger.
   useEffect(() => {
     if (!ouvert) return;
     const scrollPrec = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    croixRef.current?.focus();
+    panneauRef.current?.querySelector<HTMLElement>('a[href], button:not([disabled])')?.focus();
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -86,7 +110,8 @@ export function MenuBurger() {
 
   return (
     <>
-      {/* Burger flottant — cible ≥ 44×44px. Se superpose au coin de la rosace (accepté). */}
+      {/* Burger DANS LE FLUX : placé par la rangée logo de l'accueil (défile avec le contenu, voulu). `shrink-0` → garde
+          44×44px et ne se comprime jamais. Habillage : cercle blanc opaque, bordure marquée, légère ombre, icône encre. */}
       <button
         ref={burgerRef}
         type="button"
@@ -94,7 +119,7 @@ export function MenuBurger() {
         aria-expanded={ouvert}
         aria-controls="menu-burger-panneau"
         aria-label="Ouvrir le menu"
-        className="fixed right-4 top-4 z-40 grid size-11 place-items-center rounded-full border border-svv-line bg-svv-field text-svv-ink"
+        className="grid size-11 shrink-0 place-items-center rounded-full border border-svv-muted bg-white text-svv-ink shadow-md"
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M4 7h16M4 12h16M4 17h16" />
@@ -108,66 +133,59 @@ export function MenuBurger() {
           role="dialog"
           aria-modal="true"
           aria-label="Menu"
-          className="fixed inset-0 z-50 flex flex-col bg-svv-field"
+          className="fixed inset-0 z-50 flex flex-col bg-slate-100 px-4 py-6"
         >
-          {/* Croix, à la place exacte du burger. */}
-          <div className="flex justify-end p-4">
-            <button
-              ref={croixRef}
-              type="button"
-              onClick={fermer}
-              aria-label="Fermer le menu"
-              className="grid size-11 place-items-center rounded-full text-svv-ink"
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
+          {/* Colonne calquée sur l'accueil : même chaîne main(px-4 py-6) → wrapper(max-w-md) → carte(p-6), fond IDENTIQUE
+              (bg-slate-100, valeur brute de l'accueil). Sans carte blanche : les entrées sont des cartes sur le gris. */}
+          <div className="mx-auto flex w-full max-w-md flex-1 flex-col p-6">
+            {/* En-tête : logo seul (la croix est retirée — Échap et le bouton « Retour à l'accueil » du bas ferment le panneau). */}
+            <div className="mt-2">
+              <Image
+                src="/images/logo-svv-lockup.png"
+                alt="Sans Vis-à-Vis®"
+                width={1840}
+                height={413}
+                style={{ width: "100%", height: "auto", maxWidth: "330px" }}
+              />
+            </div>
+
+            {/* Entrées = cartes blanches sur le gris (contraste), libellé à gauche + chevron discret à droite. */}
+            <nav className="mt-8 flex flex-col gap-3">
+              <Link href="/espace" onClick={fermer} className="svv-menu-entree">
+                <span>Historique</span>
+                <ChevronEntree />
+              </Link>
+              <Link href="/espace/compte" onClick={fermer} className="svv-menu-entree">
+                <span>Mon compte</span>
+                <ChevronEntree />
+              </Link>
+              <Link href="/qui-sommes-nous" onClick={fermer} className="svv-menu-entree">
+                <span>Qui sommes-nous</span>
+                <ChevronEntree />
+              </Link>
+              <Link href="/partenaires" onClick={fermer} className="svv-menu-entree">
+                <span>Partenaires</span>
+                <ChevronEntree />
+              </Link>
+            </nav>
+
+            {/* Bas du panneau. « Retour à l'accueil » : même habillage carte que les entrées, SANS chevron + libellé centré
+                + poussé en bas (mt-auto) → DISTINCT des 4 cartes. FERME le panneau (comme l'ancienne croix + Échap). */}
+            <button type="button" onClick={fermer} className="svv-menu-entree mt-auto">
+              <span className="mx-auto">Retour à l&rsquo;accueil</span>
             </button>
-          </div>
 
-          <nav className="mx-auto flex w-full max-w-md flex-1 flex-col px-6 pb-6">
-            {/* 1-2. Actives (focusables, incluses dans le piège de focus via le sélecteur a[href]). */}
-            <Link
-              href="/espace"
-              onClick={fermer}
-              className="flex min-h-[56px] items-center border-b border-svv-line py-4 text-lg font-semibold text-svv-ink"
-            >
-              Historique
-            </Link>
-            <Link
-              href="/espace/compte"
-              onClick={fermer}
-              className="flex min-h-[56px] items-center border-b border-svv-line py-4 text-lg font-semibold text-svv-ink"
-            >
-              Mon compte
-            </Link>
-            {/* 3-4. Actives (pages éditoriales) — focusables, incluses dans le piège de focus via le sélecteur a[href]. */}
-            <Link
-              href="/qui-sommes-nous"
-              onClick={fermer}
-              className="flex min-h-[56px] items-center border-b border-svv-line py-4 text-lg font-semibold text-svv-ink"
-            >
-              Qui sommes-nous
-            </Link>
-            <Link
-              href="/partenaires"
-              onClick={fermer}
-              className="flex min-h-[56px] items-center border-b border-svv-line py-4 text-lg font-semibold text-svv-ink"
-            >
-              Partenaires
-            </Link>
-
-            {/* Se déconnecter — bas de panneau, séparé, UNIQUEMENT si connecté. */}
+            {/* Se déconnecter — DISTINCT de tout (bouton texte rouge séparé par un filet), UNIQUEMENT si connecté. */}
             {connecte === true && (
               <button
                 type="button"
                 onClick={seDeconnecter}
-                className="mt-auto flex min-h-[44px] items-center justify-center border-t border-svv-line pt-5 text-base font-semibold text-svv-red"
+                className="mt-3 flex min-h-[44px] items-center justify-center border-t border-svv-line pt-4 text-base font-semibold text-svv-red"
               >
                 Se déconnecter
               </button>
             )}
-          </nav>
+          </div>
         </div>
       )}
     </>

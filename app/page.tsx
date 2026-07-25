@@ -2650,19 +2650,21 @@ export default function Home() {
             // mt-auto sur la skyline → skyline + boutons + note collés EN BAS ; tout l'espace
             // libre devient du ciel blanc AU-DESSUS de la skyline. -mb-3 réduit le vide sous la note.
             <div className="flex flex-1 flex-col -mb-3">
-              {/* Menu burger flottant — UNIQUEMENT sur l'accueil (position fixed → n'affecte pas le centrage). */}
-              <MenuBurger />
-
-              {/* Logo — uniquement sur l'accueil (firmware écran 1) */}
-              <div className="mb-6 flex justify-center">
-                <Image
-                  src="/images/logo-svv-lockup.png"
-                  alt="Sans Vis-à-Vis®"
-                  width={1840}
-                  height={413}
-                  priority
-                  style={{ width: "auto", height: "auto", maxWidth: "330px" }}
-                />
+              {/* Rangée LOGO + BURGER (dans le flux, défile avec le contenu) : logo à gauche (rétrécit sur écran
+                  étroit via flex-1/min-w-0), burger à droite (shrink-0 → jamais de retour à la ligne ni chevauchement),
+                  alignés au centre, espace franc entre eux. `mt-2` fait descendre légèrement la rangée. */}
+              <div className="mb-6 mt-2 flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <Image
+                    src="/images/logo-svv-lockup.png"
+                    alt="Sans Vis-à-Vis®"
+                    width={1840}
+                    height={413}
+                    priority
+                    style={{ width: "100%", height: "auto", maxWidth: "330px" }}
+                  />
+                </div>
+                <MenuBurger />
               </div>
 
               {/* Titre centré verticalement dans l'espace libre entre le logo (haut) et l'image (bas, mt-auto) */}
