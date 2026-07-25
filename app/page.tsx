@@ -15,6 +15,7 @@ import type { Orientation } from "./lib/svv/config";
 import type { LibelleScore } from "./lib/svv/scoreTotal";
 import { finalitesActivesTunnel, type CleFinalite } from "./lib/internaute/textesConsentement";
 import { ChoixOffre } from "./ChoixOffre";
+import { MenuBurger } from "./MenuBurger";
 import { orchestrerIllimite, boutonEnvoiActif, LONGUEUR_MIN_MDP } from "./lib/tunnel/choixOffre";
 import { PhoneInput } from "react-international-phone";
 import "react-international-phone/style.css";
@@ -2649,6 +2650,9 @@ export default function Home() {
             // mt-auto sur la skyline → skyline + boutons + note collés EN BAS ; tout l'espace
             // libre devient du ciel blanc AU-DESSUS de la skyline. -mb-3 réduit le vide sous la note.
             <div className="flex flex-1 flex-col -mb-3">
+              {/* Menu burger flottant — UNIQUEMENT sur l'accueil (position fixed → n'affecte pas le centrage). */}
+              <MenuBurger />
+
               {/* Logo — uniquement sur l'accueil (firmware écran 1) */}
               <div className="mb-6 flex justify-center">
                 <Image
