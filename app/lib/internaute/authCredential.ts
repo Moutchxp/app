@@ -51,3 +51,16 @@ export async function resoudreCredentialParEmail(email: string): Promise<{ inter
   const row = r.rows[0];
   return row ? { internauteId: row.id, hash: row.mot_de_passe } : null;
 }
+
+/**
+ * Résout le HASH argon2id d'un internaute DÉJÀ authentifié (par son id de SESSION, jamais une entrée de requête) — pour
+ * re-vérifier son mot de passe avant une action sensible (ex. suppression de compte). `null` si aucun credential (dossier
+ * effacé / sans compte). L'appelant réutilise `verifier` (aucune 2ᵉ primitive de vérification).
+ */
+export async function resoudreHashParId(internauteId: string): Promise<string | null> {
+  const r = await query<{ mot_de_passe: string }>(
+    `SELECT mot_de_passe FROM internaute_auth WHERE internaute_id = $1`,
+    [internauteId],
+  );
+  return r.rows[0]?.mot_de_passe ?? null;
+}

@@ -4,7 +4,7 @@ const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('../db/client', () => ({ query }));
 
-import { delaiPour, verifierThrottle, cleThrottle, noterEchec } from './authThrottle';
+import { delaiPour, verifierThrottle, cleThrottle, cleThrottleSuppression, noterEchec } from './authThrottle';
 
 describe('authThrottle — backoff + fail-safe (état séparé, clé HACHÉE)', () => {
   // ⚠️ CORPS DE BLOC (pas d'expression) : `() => query.mockReset()` RENVERRAIT le mock, que vitest prendrait pour un
@@ -44,5 +44,16 @@ describe('authThrottle — backoff + fail-safe (état séparé, clé HACHÉE)', 
     query.mockImplementation(() => { throw new Error('db down'); });
     expect((await verifierThrottle('cle')).bloque).toBe(false);
     await expect(noterEchec('cle')).resolves.toBeUndefined();
+  });
+});
+
+import { createHash } from 'node:crypto';
+describe('cleThrottleSuppression — espace de clés DISJOINT (préfixe suppr:)', () => {
+  it('= sha256("suppr:"+id), keyé par internauteId', () => {
+    expect(cleThrottleSuppression('uuid-1')).toBe(createHash('sha256').update('suppr:uuid-1', 'utf8').digest('hex'));
+  });
+  it('DISJOINT de la clé de login (sha256(email)) — une session volée ne sert pas d’oracle de mot de passe', () => {
+    expect(cleThrottleSuppression('uuid-1')).not.toBe(cleThrottle('uuid-1'));
+    expect(cleThrottleSuppression('a@b.co')).not.toBe(cleThrottle('a@b.co'));
   });
 });

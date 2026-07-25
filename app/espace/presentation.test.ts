@@ -9,6 +9,8 @@ import {
   TITRE_COMPTE, LIB_CHAMP_PRENOM, LIB_CHAMP_NOM, LIB_CHAMP_EMAIL_COMPTE, LIB_CHAMP_TELEPHONE,
   MSG_TELEPHONE_ABSENT, LIB_MODIFIER, LIB_ENREGISTRER, LIB_ANNULER, ARIA_CADENAS,
   BULLE_CADENAS_AVANT, BULLE_CADENAS_EMAIL,
+  TITRE_SUPPRESSION, AVERTISSEMENTS_SUPPRESSION, CONSEIL_TELECHARGER_SUPPRESSION,
+  LIB_CASE_SUPPRESSION, LIB_BOUTON_SUPPRIMER, TITRE_ZONE_DANGER, LIB_LIEN_SUPPRESSION,
 } from './presentation';
 
 describe('salutation — repli défensif (prénom/nom NULL ou vide)', () => {
@@ -150,5 +152,32 @@ describe('page « Mon compte » — libellés + texte EXACT de la bulle cadenas'
   it('l’e-mail de contact est bien une adresse (support du lien mailto)', () => {
     expect(BULLE_CADENAS_EMAIL).toBe('contact@sansvisavis.com');
     expect(BULLE_CADENAS_AVANT.endsWith('écrivez-nous à ')).toBe(true); // l'adresse suit immédiatement
+  });
+});
+
+describe('suppression de compte — avertissement complet et sans ambiguïté (C4)', () => {
+  it('les 5 conséquences imposées sont présentes, chacune séparément', () => {
+    expect(AVERTISSEMENTS_SUPPRESSION).toHaveLength(5);
+    for (const a of AVERTISSEMENTS_SUPPRESSION) expect(a.trim().length).toBeGreaterThan(0);
+  });
+  it('l’avertissement énonce : identité effacée · historique · documents plus authentifiables · QR imprimés · irréversible', () => {
+    const tout = AVERTISSEMENTS_SUPPRESSION.join(' § ');
+    expect(tout).toMatch(/identité/i);
+    expect(tout).toMatch(/historique/i);
+    expect(tout).toMatch(/authentifiable/i);      // documents / certificats plus authentifiables en ligne
+    expect(tout).toMatch(/QR/);                    // QR déjà imprimés / publiés
+    expect(tout).toMatch(/irréversible/i);
+    expect(tout).toMatch(/support/i);              // « même en écrivant au support »
+  });
+  it('le conseil invite à télécharger ses documents ; libellés présents et non vides', () => {
+    expect(CONSEIL_TELECHARGER_SUPPRESSION).toMatch(/téléchargez/i);
+    for (const s of [TITRE_SUPPRESSION, LIB_CASE_SUPPRESSION, LIB_BOUTON_SUPPRIMER, TITRE_ZONE_DANGER, LIB_LIEN_SUPPRESSION]) {
+      expect(typeof s).toBe('string');
+      expect(s.trim().length).toBeGreaterThan(0);
+    }
+  });
+  it('la case reconnaît explicitement la compréhension des conséquences', () => {
+    expect(LIB_CASE_SUPPRESSION).toMatch(/compris/i);
+    expect(LIB_CASE_SUPPRESSION).toMatch(/supprimer/i);
   });
 });

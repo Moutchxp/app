@@ -32,3 +32,21 @@ describe('authCredential — politique + hachage argon2id (roundtrip réel)', ()
     await expect(poserMotDePasse('uuid', 'court')).rejects.toThrow();
   });
 });
+
+import { resoudreHashParId } from './authCredential';
+describe('resoudreHashParId — lecture du hash par id de SESSION', () => {
+  it('SELECT mot_de_passe WHERE internaute_id = $1 → renvoie le hash', async () => {
+    query.mockReset();
+    query.mockResolvedValue({ rows: [{ mot_de_passe: '$argon2id$reel' }] });
+    const h = await resoudreHashParId('uuid-1');
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toMatch(/SELECT mot_de_passe FROM internaute_auth WHERE internaute_id = \$1/);
+    expect(params).toEqual(['uuid-1']);
+    expect(h).toBe('$argon2id$reel');
+  });
+  it('aucune ligne (pas de credential) → null', async () => {
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] });
+    expect(await resoudreHashParId('uuid-1')).toBeNull();
+  });
+});

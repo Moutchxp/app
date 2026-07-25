@@ -18,6 +18,16 @@ export function cleThrottle(email: string): string {
   return createHash('sha256').update(email.trim().toLowerCase(), 'utf8').digest('hex');
 }
 
+/**
+ * Clé de throttle des tentatives de SUPPRESSION de compte — espace DISJOINT (préfixe `suppr:`) de la clé de login
+ * (`sha256(email)`) et de reset (`sha256('reset:'+email)`) : une session volée ne sert PAS d'oracle de mot de passe sur le
+ * quota de login. Keyée par l'`internauteId` de SESSION (l'action est déjà authentifiée). Réutilise `verifierThrottle`/
+ * `noterEchec`/`noterSucces` et la même table `internaute_login_echec` (aucune migration).
+ */
+export function cleThrottleSuppression(internauteId: string): string {
+  return createHash('sha256').update(`suppr:${internauteId}`, 'utf8').digest('hex');
+}
+
 /** Délai requis (s) après `echecs` dans la fenêtre : 0 sous le seuil, sinon backoff `BASE·2^(echecs-SEUIL)` plafonné à
  *  MAX_S. PUR & déterministe. (Ré-implémenté dans le domaine internaute plutôt qu'importé du module admin/analytique.) */
 export function delaiPour(echecs: number): number {

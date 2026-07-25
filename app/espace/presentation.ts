@@ -166,3 +166,36 @@ export const ARIA_CADENAS = 'Pourquoi ce champ n’est-il pas modifiable ?';
 export const BULLE_CADENAS_AVANT =
   'Votre adresse e-mail et votre numéro de téléphone ne sont pas modifiables depuis l’application : votre e-mail sert d’identifiant de connexion. Pour les faire changer, écrivez-nous à ';
 export const BULLE_CADENAS_EMAIL = 'contact@sansvisavis.com';
+
+// ── Suppression de compte (C4 — DESTRUCTIF, IRRÉVERSIBLE) ────────────────────────────────────────────────
+export const TITRE_SUPPRESSION = 'Supprimer mon compte';
+export const INTRO_SUPPRESSION = 'Avant de continuer, lisez attentivement les conséquences.';
+
+/** Conséquences de la suppression — chacune énoncée SÉPARÉMENT (rendues en liste). Ordre imposé. */
+export const AVERTISSEMENTS_SUPPRESSION: string[] = [
+  'Votre identité (prénom, nom, e-mail, téléphone) est définitivement effacée.',
+  'Vous perdez l’accès à votre espace et à tout votre historique d’analyses.',
+  'Vous perdez l’accès à vos documents depuis l’application : les PDF déjà téléchargés restent en votre possession, mais aucun ne sera plus authentifiable en ligne.',
+  'Tous vos certificats déjà émis cessent d’être authentifiables en ligne, y compris les QR codes déjà imprimés ou publiés dans une annonce.',
+  'Cette action est IRRÉVERSIBLE : personne ne peut la défaire, même en écrivant au support.',
+];
+
+/** Conseil AFFICHÉ AVANT les contrôles : sauvegarder ses documents tant que c'est possible. */
+export const CONSEIL_TELECHARGER_SUPPRESSION = 'Conseil : téléchargez vos documents depuis votre espace tant que c’est encore possible.';
+export const LIB_ALLER_ESPACE = 'Aller à mon espace';
+
+/** Case à cocher (reconnaissance) + champ mot de passe + boutons. */
+export const LIB_CASE_SUPPRESSION = 'J’ai compris ces conséquences et je souhaite supprimer définitivement mon compte.';
+export const LIB_CHAMP_MDP_SUPPRESSION = 'Mot de passe';
+export const LIB_BOUTON_SUPPRIMER = 'Supprimer définitivement mon compte';
+export const LIB_SUPPRESSION_EN_COURS = 'Suppression…';
+export const LIB_ANNULER_SUPPRESSION = 'Annuler';
+
+/** Messages d'échec (mappés au statut ; jamais de détail technique). */
+export const MSG_SUPPRESSION_MDP = 'Mot de passe incorrect.';
+export const MSG_SUPPRESSION_THROTTLE = 'Trop de tentatives. Réessayez plus tard.';
+export const MSG_SUPPRESSION_ERREUR = 'Action indisponible pour le moment. Réessayez.';
+
+/** Zone sensible en bas de « Mon compte » (accès à la page de suppression). */
+export const TITRE_ZONE_DANGER = 'Zone sensible';
+export const LIB_LIEN_SUPPRESSION = 'Supprimer mon compte';

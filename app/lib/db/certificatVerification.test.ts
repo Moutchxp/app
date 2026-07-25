@@ -278,3 +278,21 @@ describe('verifierParReference — VOIE VISUEL (référence seule, sans jeton)',
     expect(vues[0]).toBe('SET TRANSACTION READ ONLY');
   });
 });
+
+/**
+ * C4 — L'AVERTISSEMENT DE SUPPRESSION DIT LA VÉRITÉ. La suppression de compte (`effacerInternaute`) DELETE
+ * `internaute_auth` → la gate `a_un_compte` (EXISTS internaute_auth via projet) devient FALSE. On simule cet état
+ * post-suppression (`a_un_compte:false`) et on PROUVE que LES DEUX voies d'authentification en ligne se ferment :
+ * numéro+jeton ET référence → `sans_compte`. Si ce test tombe, l'avertissement mentirait.
+ */
+describe('C4 — après suppression, la vérification en ligne se ferme sur LES DEUX voies', () => {
+  it('voie NUMÉRO + BON jeton → sans_compte (certificat plus authentifiable)', async () => {
+    installer({ ...LIGNE, a_un_compte: false }); // état post-suppression : credential effacé
+    expect(await verifierCertificat('SAVV-2026-000007', JETON)).toEqual({ statut: 'sans_compte' });
+  });
+  it('voie RÉFÉRENCE (visuel) → sans_compte (visuel plus authentifiable)', async () => {
+    // Row minimal de la voie référence : seul `a_un_compte:false` compte (tranché avant lecture du descriptif).
+    installer({ reference: 'SVAV-K7M2-9QX4', verdict: 'SANS_VIS_A_VIS', score: null, a_un_compte: false });
+    expect(await verifierParReference('SVAV-K7M2-9QX4')).toEqual({ statut: 'sans_compte' });
+  });
+});
