@@ -11,7 +11,8 @@ describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
     expect(slugs).toContain('/admin/banc-test');
     expect(slugs).toContain('/admin/comptes'); // tuile Administratif
     expect(slugs).toContain('/admin/audit'); // tuile Audit (Lot 7), administrateur uniquement
-    expect(liens).toHaveLength(8); // 6 modules + Administratif + Audit
+    expect(slugs).toContain('/admin/permis'); // tuile Permis de construire (veille S3), administrateur uniquement
+    expect(liens).toHaveLength(9); // 6 modules + Administratif + Audit + Permis de construire
   });
 
   it('collaborateur → uniquement ses permissions, JAMAIS « Administratif » ni « Audit »', () => {
@@ -95,13 +96,13 @@ describe('ordonner — GARDE DE SÉCURITÉ RÔLE (règle c) : un ordre stocké n
     expect(slugs(r)).toEqual(['/admin/curation']);
   });
 
-  it('administrateur : les 8 tuiles restent présentes, réordonnées selon un stockage PARTIEL', () => {
-    const visibles = liensVisibles('administrateur', permsToutes()); // 8 tuiles
-    expect(visibles).toHaveLength(8);
+  it('administrateur : les 9 tuiles restent présentes, réordonnées selon un stockage PARTIEL', () => {
+    const visibles = liensVisibles('administrateur', permsToutes()); // 9 tuiles
+    expect(visibles).toHaveLength(9);
     const r = ordonner(visibles, ['/admin/curation', '/admin/audit']); // ordre partiel
     expect(slugs(r).slice(0, 2)).toEqual(['/admin/curation', '/admin/audit']);
-    expect(r).toHaveLength(8); // aucune tuile perdue (règle b appende le reste)
-    expect(new Set(slugs(r)).size).toBe(8); // aucun doublon
+    expect(r).toHaveLength(9); // aucune tuile perdue (règle b appende le reste)
+    expect(new Set(slugs(r)).size).toBe(9); // aucun doublon
   });
 });
 

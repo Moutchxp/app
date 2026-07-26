@@ -1,0 +1,97 @@
+/**
+ * Accès données (LECTURE SEULE) de la tuile « Permis de construire » (chantier S3) : exécute les requêtes construites
+ * par `priorite.ts` et attache le libellé de catégorie via `classer` (une seule source de libellé). N'écrit jamais.
+ */
+import { query } from '../db/client';
+import type { ConfigVeille } from './veilleConfig';
+import {
+  type FiltresPermis, type CleCategorie,
+  classer, libelleParRang, construireRequeteListe, construireRequeteTotal, construireRequeteComptes,
+} from './priorite';
+
+/** Une ligne de dossier prête pour l'affichage (champs bruts + catégorie résolue). */
+export interface DossierAffiche {
+  id: number;
+  type: 'PC' | 'PD';
+  numDau: string;
+  codeInsee: string;
+  departement: string;
+  dateReelleAutorisation: string | null;
+  surfCreee: number | null;
+  superficieTerrain: number | null;
+  nbLgtTotCrees: number | null;
+  adrNumTer: string | null;
+  adrLibvoieTer: string | null;
+  adrLocaliteTer: string | null;
+  cadastre: string[]; // 0..3 références « SEC NUM »
+  categorie: CleCategorie;
+  libelleCategorie: string;
+  rang: number;
+}
+
+interface LigneSql {
+  id: number; type: 'PC' | 'PD'; num_dau: string; code_insee: string; departement: string;
+  date_reelle_autorisation: string | null; nature_projet_completee: string | null;
+  i_extension: boolean | null; i_surelevation: boolean | null; nb_lgt_tot_crees: number | null;
+  surf_creee: string | number | null; superficie_terrain: number | null;
+  adr_num_ter: string | null; adr_libvoie_ter: string | null; adr_lieudit_ter: string | null;
+  adr_localite_ter: string | null; adr_codpost_ter: string | null;
+  sec_cadastre1: string | null; num_cadastre1: string | null; sec_cadastre2: string | null;
+  num_cadastre2: string | null; sec_cadastre3: string | null; num_cadastre3: string | null;
+}
+
+const nombre = (v: string | number | null): number | null => (v === null ? null : Number(v));
+
+function refsCadastre(r: LigneSql): string[] {
+  const refs: string[] = [];
+  for (const [sec, num] of [[r.sec_cadastre1, r.num_cadastre1], [r.sec_cadastre2, r.num_cadastre2], [r.sec_cadastre3, r.num_cadastre3]]) {
+    if ((sec ?? '').trim() !== '' || (num ?? '').trim() !== '') refs.push(`${(sec ?? '').trim()} ${(num ?? '').trim()}`.trim());
+  }
+  return refs;
+}
+
+function versAffiche(r: LigneSql, c: ConfigVeille): DossierAffiche {
+  const surf = nombre(r.surf_creee);
+  const cl = classer(
+    { type: r.type, natureProjetCompletee: r.nature_projet_completee, iExtension: r.i_extension, iSurelevation: r.i_surelevation, nbLgtTotCrees: r.nb_lgt_tot_crees, surfCreee: surf },
+    c,
+  );
+  return {
+    id: r.id, type: r.type, numDau: r.num_dau, codeInsee: r.code_insee, departement: r.departement,
+    dateReelleAutorisation: r.date_reelle_autorisation, surfCreee: surf, superficieTerrain: r.superficie_terrain,
+    nbLgtTotCrees: r.nb_lgt_tot_crees, adrNumTer: r.adr_num_ter, adrLibvoieTer: r.adr_libvoie_ter, adrLocaliteTer: r.adr_localite_ter,
+    cadastre: refsCadastre(r), categorie: cl.cle, libelleCategorie: cl.libelle, rang: cl.rang,
+  };
+}
+
+export interface ResultatVeille {
+  total: number;
+  page: number;
+  taille: number;
+  lignes: DossierAffiche[];
+  comptes: { rang: number; libelle: string; n: number }[];
+  bornes: { min: string | null; max: string | null };
+}
+
+/** Liste filtrée paginée + total + compteurs par catégorie + bornes de dates (pour « depuis toujours »). */
+export async function lireVeille(f: FiltresPermis, c: ConfigVeille, page: number, taille: number): Promise<ResultatVeille> {
+  const rq = construireRequeteListe(f, c, page, taille);
+  const rt = construireRequeteTotal(f, c);
+  const rc = construireRequeteComptes(f, c);
+  const [liste, total, comptes, bornes] = await Promise.all([
+    query<LigneSql>(rq.texte, rq.params),
+    query<{ n: number }>(rt.texte, rt.params),
+    query<{ rang: number; n: number }>(rc.texte, rc.params),
+    query<{ min: string | null; max: string | null }>(
+      `SELECT min(date_reelle_autorisation)::text AS min, max(date_reelle_autorisation)::text AS max FROM sitadel_dossier`,
+    ),
+  ]);
+  return {
+    total: total.rows[0]?.n ?? 0,
+    page,
+    taille,
+    lignes: liste.rows.map((r) => versAffiche(r, c)),
+    comptes: comptes.rows.map((x) => ({ rang: x.rang, libelle: libelleParRang(x.rang, c), n: x.n })),
+    bornes: bornes.rows[0] ?? { min: null, max: null },
+  };
+}

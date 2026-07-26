@@ -24,6 +24,11 @@ const ADMINISTRATIF: LienMenu = { slug: '/admin/comptes', libelle: 'Administrati
  *  pas une permission déléguable). Vue AGRÉGÉE : connexions et détection de force brute, sans identité ni IP. */
 const AUDIT: LienMenu = { slug: '/admin/audit', libelle: 'Audit', desc: 'Sécurité : connexions et force brute (agrégé).' };
 
+/** Tuile « Permis de construire » (veille S3) — réservée au rôle administrateur, comme « Audit » (pas une permission de
+ *  module : aucune colonne perm_* ajoutée). Le proxy réserve déjà /admin/permis et /api/admin/permis à l'administrateur
+ *  par son défaut fail-closed. Veille des autorisations d'urbanisme (Sitadel), en LECTURE SEULE. */
+const PERMIS: LienMenu = { slug: '/admin/permis', libelle: 'Permis de construire', desc: 'Veille des autorisations d’urbanisme (Sitadel).' };
+
 /**
  * Liens visibles (M3-4 Lot C/D) — SOURCE UNIQUE du menu latéral (`Sidebar`) ET de la grille du tableau de bord.
  * **RÔLE D'ABORD** : un administrateur voit TOUS les modules (jamais un lien masqué par erreur, même si des
@@ -36,7 +41,7 @@ const AUDIT: LienMenu = { slug: '/admin/audit', libelle: 'Audit', desc: 'Sécuri
 export function liensVisibles(role: RoleAdmin, perms: Perms): LienMenu[] {
   const admin = role === 'administrateur';
   const liens: LienMenu[] = MODULES.filter((m) => admin || perms[m.perm]).map(({ slug, libelle, desc }) => ({ slug, libelle, desc }));
-  if (admin) liens.push(ADMINISTRATIF, AUDIT);
+  if (admin) liens.push(ADMINISTRATIF, AUDIT, PERMIS);
   return liens;
 }
 
@@ -72,7 +77,7 @@ export function ordonner(liens: LienMenu[], ordreStocke: unknown): LienMenu[] {
 
 /** Ensemble des slugs de modules CONNUS (les 6 modules + Administratif + Audit) — source unique pour valider un
  *  ordre reçu. NB : c'est l'univers des slugs EXISTANTS, pas ceux visibles par un rôle donné (cf. `validerOrdreModules`). */
-export const SLUGS_MODULES: ReadonlySet<string> = new Set([...MODULES.map((m) => m.slug), ADMINISTRATIF.slug, AUDIT.slug]);
+export const SLUGS_MODULES: ReadonlySet<string> = new Set([...MODULES.map((m) => m.slug), ADMINISTRATIF.slug, AUDIT.slug, PERMIS.slug]);
 
 /** Borne anti-DoS du tableau d'ordre reçu (très au-dessus des 8 modules réels) — évite un payload géant. */
 const MAX_ENTREES_ORDRE = 64;
