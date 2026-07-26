@@ -9,6 +9,9 @@
 # Parcs & jardins OCS GE (scratch d'inspection) — JAMAIS committée
 /data/parcs_jardins/
 
+# Sitadel (CSV open data téléchargés par sitadel:ingest) — JAMAIS committés (volumineux, re-téléchargeables)
+/data/sitadel/
+
 # dependencies
 /node_modules
 /.pnp

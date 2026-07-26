@@ -25,7 +25,8 @@
     "admin:secours": "tsx app/scripts/admin.ts secours",
     "admin:secours-hash": "tsx app/scripts/admin.ts secours-hash",
     "admin:lister": "tsx app/scripts/admin.ts lister",
-    "analytics:maintenance": "tsx app/scripts/analytics-maintenance.ts"
+    "analytics:maintenance": "tsx app/scripts/analytics-maintenance.ts",
+    "sitadel:ingest": "tsx app/scripts/sitadel-ingest.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",
