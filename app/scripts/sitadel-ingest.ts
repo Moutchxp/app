@@ -14,14 +14,14 @@
  */
 import 'dotenv/config';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, open, rename, rm } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { query, closePool } from '../lib/db/client';
-import { enregistrements } from '../lib/sitadel/csv';
+import { enregistrements, enregistrementsBruts } from '../lib/sitadel/csv';
 import {
   type Dossier, type LigneBrute, type Requete,
-  dansPerimetre, pcRetenu, pdRetenu, mapLignePC, mapLignePD, fusionnerPC, upserterDossier,
+  dansPerimetre, pcRetenu, pdRetenu, mapLignePC, mapLignePD, fusionnerPC, upserterDossier, csvParaitComplet,
 } from '../lib/sitadel/ingest';
 
 const MILLESIME = '2026-06';
@@ -41,16 +41,68 @@ interface StatCommune { lu: number; retenu: number; nouveau: number; dejaConnu: 
 const q: Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]): Promise<{ rows: R[] }> =>
   query(text, params) as unknown as Promise<{ rows: R[] }>;
 
-/** Télécharge un CSV vers un fichier local s'il n'existe pas déjà (re-jouable sans re-télécharger). */
+/** Nombre de champs d'une ligne CSV (via le VRAI tokenizer → guillemets/`;` internes corrects). */
+async function nbChamps(ligne: string): Promise<number> {
+  const src = (async function* () { yield ligne.endsWith('\n') ? ligne : `${ligne}\n`; })();
+  for await (const rec of enregistrementsBruts(src)) return rec.length;
+  return 0;
+}
+
+/**
+ * Un fichier téléchargé est-il COMPLET ? Contrôle léger (en-tête + queue seulement, sans relire tout le fichier) :
+ * la dernière ligne a-t-elle autant de champs que l'en-tête, et le fichier finit-il par un saut de ligne ? Capte la
+ * troncature chunkée observée au 2026-06 (cf. `csvParaitComplet`).
+ */
+async function telechargementComplet(chemin: string): Promise<boolean> {
+  const fh = await open(chemin, 'r');
+  try {
+    const { size } = await fh.stat();
+    if (size === 0) return false;
+    const tete = Buffer.alloc(Math.min(size, 65536));
+    await fh.read(tete, 0, tete.length, 0);
+    const entete = tete.toString('utf8').split('\n')[0];
+    const queueLen = Math.min(size, 1_048_576);
+    const queue = Buffer.alloc(queueLen);
+    await fh.read(queue, 0, queueLen, size - queueLen);
+    const texte = queue.toString('utf8');
+    const lignes = texte.split('\n').filter((l) => l.length > 0);
+    const derniere = lignes[lignes.length - 1] ?? '';
+    return csvParaitComplet(await nbChamps(entete), await nbChamps(derniere), texte.endsWith('\n'));
+  } finally {
+    await fh.close();
+  }
+}
+
+/**
+ * Télécharge un CSV localement, EN REFUSANT toute troncature : téléchargement vers `.part`, vérification de complétude,
+ * puis promotion atomique (rename) — sinon nouvel essai (jusqu'à 3). Un fichier déjà présent n'est réutilisé que s'il est
+ * complet (sinon on le re-télécharge : c'est ce qui répare un cache tronqué). Échec après 3 essais → on JETTE plutôt que
+ * d'ingérer des données partielles en silence.
+ */
 async function telecharger(rid: string, chemin: string): Promise<void> {
-  if (existsSync(chemin)) {
-    console.log(`  ✓ déjà présent : ${chemin}`);
+  if (existsSync(chemin) && (await telechargementComplet(chemin))) {
+    console.log(`  ✓ complet, déjà présent : ${chemin}`);
     return;
   }
-  console.log(`  ↓ téléchargement ${chemin} …`);
-  const res = await fetch(urlDido(rid), { headers: { 'User-Agent': 'sansvisavis-sitadel-ingest' } });
-  if (!res.ok || res.body === null) throw new Error(`DiDo HTTP ${res.status} pour rid ${rid}`);
-  await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(chemin));
+  const part = `${chemin}.part`;
+  const MAX_ESSAIS = 3;
+  for (let essai = 1; essai <= MAX_ESSAIS; essai++) {
+    console.log(`  ↓ téléchargement ${chemin} (essai ${essai}/${MAX_ESSAIS}) …`);
+    const res = await fetch(urlDido(rid), { headers: { 'User-Agent': 'sansvisavis-sitadel-ingest' } });
+    if (!res.ok || res.body === null) throw new Error(`DiDo HTTP ${res.status} pour rid ${rid}`);
+    await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(part));
+    if (await telechargementComplet(part)) {
+      await rename(part, chemin);
+      console.log(`  ✓ complet : ${chemin}`);
+      return;
+    }
+    console.warn(`  ⚠ téléchargement INCOMPLET (tronqué) de ${chemin} — nouvel essai`);
+  }
+  await rm(part, { force: true });
+  throw new Error(
+    `Téléchargement Sitadel incomplet (tronqué) après ${MAX_ESSAIS} essais pour ${chemin} — ` +
+    `ingestion refusée pour ne pas ingérer de données partielles.`,
+  );
 }
 
 /** Flux de lignes objet d'un CSV local (décodage UTF-8, parseur en flux). */

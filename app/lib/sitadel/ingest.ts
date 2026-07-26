@@ -82,6 +82,22 @@ export function pdRetenu(r: LigneBrute): boolean {
   return (r.ETAT_PD ?? '').trim() === '2';
 }
 
+// ── Intégrité du téléchargement ──────────────────────────────────────────────
+/**
+ * Un CSV Sitadel téléchargé paraît COMPLET si sa dernière ligne de données porte le MÊME nombre de champs que l'en-tête
+ * ET si le fichier se termine par un saut de ligne. Détecte une TRONCATURE en cours d'enregistrement — le cas observé au
+ * millésime 2026-06 : le flux chunké s'est coupé sans erreur, laissant `logements.csv` arrêté au milieu d'une ligne
+ * (départements 01→26 seulement), ce qui faisait ingérer les PC des départements cibles depuis le seul fichier LOCAUX
+ * (sans `NB_LGT_TOT_CREES`) → `nb_lgt_tot_crees` NULL partout.
+ *
+ * LIMITE assumée : une coupure tombée PILE sur une fin d'enregistrement (dernier enregistrement complet mais lignes
+ * suivantes manquantes) n'est pas détectable sans un volume attendu — non disponible via l'API DiDo (réponse chunkée,
+ * sans `content-length`). Le mode de coupure réel (au milieu d'un enregistrement) est, lui, capté.
+ */
+export function csvParaitComplet(champsEntete: number, champsDerniereLigne: number, finitParSautDeLigne: boolean): boolean {
+  return champsEntete > 0 && finitParSautDeLigne && champsDerniereLigne === champsEntete;
+}
+
 // ── Mapping ligne → dossier ──────────────────────────────────────────────────
 /** Somme des surfaces créées (habitation + locaux) d'une ligne, ou null si les deux sont absentes. */
 function surfCreee(r: LigneBrute): number | null {

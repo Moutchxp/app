@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   type LigneBrute, type Requete, type Dossier,
-  dansPerimetre, pcRetenu, pdRetenu, mapLignePC, mapLignePD, fusionnerPC, upserterDossier,
+  dansPerimetre, pcRetenu, pdRetenu, mapLignePC, mapLignePD, fusionnerPC, upserterDossier, csvParaitComplet,
 } from './ingest';
 
 /** Ligne PC minimale (logements) surchargée par `over`. */
@@ -80,6 +80,36 @@ describe('Sitadel S2 — champs BRUTS préservés', () => {
     expect(d.denomDem).toBe('SCI DEMO');
     expect(d.natureProjetCompletee).toBeNull();
     expect(d.nbLgtTotCrees).toBeNull();
+  });
+});
+
+describe('Sitadel S2 — nombre de logements (bug 2026-06 : NULL ≠ 0)', () => {
+  it('une ligne portant un nombre de logements ressort avec nb_lgt_tot_crees renseigné', () => {
+    expect(mapLignePC(lignePC({ NB_LGT_TOT_CREES: '7' })).nbLgtTotCrees).toBe(7);
+  });
+
+  it('une ligne SANS logement (champ vide) ressort à NULL, pas à 0 — absence ≠ zéro déclaré', () => {
+    expect(mapLignePC(lignePC({ NB_LGT_TOT_CREES: '' })).nbLgtTotCrees).toBeNull();
+    expect(mapLignePC(lignePC({ NB_LGT_TOT_CREES: '0' })).nbLgtTotCrees).toBe(0); // zéro DÉCLARÉ conservé
+  });
+
+  it('la fusion logements × locaux ne remplace PAS le nombre de logements (locaux sans la colonne)', () => {
+    const logements = mapLignePC(lignePC({ NB_LGT_TOT_CREES: '4' }));      // fichier logements : nb_lgt = 4
+    const locaux = mapLignePC(lignePC({ NB_LGT_TOT_CREES: '' }));          // fichier locaux : colonne absente → null
+    expect(fusionnerPC(logements, locaux).nbLgtTotCrees).toBe(4);          // logements traité en premier → fait foi
+    expect(fusionnerPC(locaux, logements).nbLgtTotCrees).toBe(4);          // et le max protège l'autre ordre
+  });
+});
+
+describe('Sitadel S2 — intégrité du téléchargement (troncature 2026-06)', () => {
+  it('complet : dernière ligne à la bonne largeur + saut de ligne final', () => {
+    expect(csvParaitComplet(93, 93, true)).toBe(true);
+  });
+  it('tronqué en plein enregistrement : dernière ligne trop courte OU pas de saut de ligne final', () => {
+    expect(csvParaitComplet(93, 40, false)).toBe(false); // cas réel observé (arrêt au milieu d'une ligne)
+    expect(csvParaitComplet(93, 40, true)).toBe(false);  // largeur incohérente
+    expect(csvParaitComplet(93, 93, false)).toBe(false); // pas de saut de ligne final
+    expect(csvParaitComplet(0, 0, true)).toBe(false);    // fichier vide
   });
 });
 
