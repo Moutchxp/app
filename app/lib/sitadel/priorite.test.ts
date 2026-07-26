@@ -12,7 +12,8 @@ function pc(over: Partial<DossierClassable> = {}): DossierClassable {
   return { type: 'PC', natureProjetCompletee: null, iExtension: false, iSurelevation: false, nbLgtTotCrees: null, surfCreee: null, ...over };
 }
 const FILTRES_VIDES: FiltresPermis = {
-  departement: null, commune: null, type: null, rang: null, depuis: null, jusqua: null, surfaceMin: null, logementsMin: null, q: null,
+  departement: null, commune: null, type: null, rang: null, depuis: null, jusqua: null,
+  surfaceMin: null, logementsMin: null, q: null, sansDestinataire: false,
 };
 
 describe('Sitadel S3 — classement (un cas par rang)', () => {
@@ -109,6 +110,15 @@ describe('Sitadel S3 — recherche par préfixe / troncature', () => {
     expect(params).toContain('ISSY-LES-MOULINEAUX');      // terme brut pour le trigramme
     expect(params).toContain('%ISSY-LES-MOULINEAUX%');    // sous-chaîne voie
     expect(params).toContain('ISSY-LES-MOULINEAUX%');     // préfixe numéro
+  });
+
+  it('filtre « sans destinataire » : dossiers dont la mairie n’a pas d’e-mail (mc.email IS NULL)', () => {
+    expect(construireRequeteTotal({ ...FILTRES_VIDES, sansDestinataire: true }, C).texte).toContain('mc.email IS NULL');
+    expect(construireRequeteTotal({ ...FILTRES_VIDES, sansDestinataire: false }, C).texte).not.toContain('mc.email IS NULL');
+  });
+
+  it('la requête joint le registre mairie (LEFT JOIN, orphelin/sans contact non exclus)', () => {
+    expect(construireRequeteListe(FILTRES_VIDES, C, 1, 25).texte).toContain('LEFT JOIN mairie_contact mc');
   });
 
   it('filtre commune par NOM : clause insensible casse+accents (svv_unaccent_immutable) OU code exact', () => {

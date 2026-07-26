@@ -24,7 +24,9 @@ export interface DossierAffiche {
   adrLibvoieTer: string | null;
   adrLocaliteTer: string | null;
   cadastre: string[]; // 0..3 références « SEC NUM »
-  communeNom: string | null; // nom depuis le référentiel commune (NULL si code orphelin → affichage dégradé)
+  communeNom: string | null; // nom depuis le référentiel commune (NULL si code orphelin → « commune inconnue »)
+  destEmail: string | null; // e-mail mairie (NULL si commune inconnue OU sans contact → « sans destinataire »)
+  destStatut: 'presume' | 'confirme' | 'invalide' | null;
   categorie: CleCategorie;
   libelleCategorie: string;
   rang: number;
@@ -40,6 +42,8 @@ interface LigneSql {
   sec_cadastre1: string | null; num_cadastre1: string | null; sec_cadastre2: string | null;
   num_cadastre2: string | null; sec_cadastre3: string | null; num_cadastre3: string | null;
   commune_nom: string | null;
+  dest_email: string | null;
+  dest_statut: 'presume' | 'confirme' | 'invalide' | null;
 }
 
 const nombre = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -62,7 +66,8 @@ function versAffiche(r: LigneSql, c: ConfigVeille): DossierAffiche {
     id: r.id, type: r.type, numDau: r.num_dau, codeInsee: r.code_insee, departement: r.departement,
     dateReelleAutorisation: r.date_reelle_autorisation, surfCreee: surf, superficieTerrain: r.superficie_terrain,
     nbLgtTotCrees: r.nb_lgt_tot_crees, adrNumTer: r.adr_num_ter, adrLibvoieTer: r.adr_libvoie_ter, adrLocaliteTer: r.adr_localite_ter,
-    cadastre: refsCadastre(r), communeNom: r.commune_nom, categorie: cl.cle, libelleCategorie: cl.libelle, rang: cl.rang,
+    cadastre: refsCadastre(r), communeNom: r.commune_nom, destEmail: r.dest_email, destStatut: r.dest_statut,
+    categorie: cl.cle, libelleCategorie: cl.libelle, rang: cl.rang,
   };
 }
 

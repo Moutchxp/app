@@ -16,7 +16,10 @@ interface Props { depuisParDefaut: string; categories: Categorie[] }
 interface Filtres {
   departement: string; commune: string; type: '' | 'PC' | 'PD'; rang: string;
   depuis: string; jusqua: string; surfaceMin: string; logementsMin: string; q: string;
+  sansDestinataire: '' | '1';
 }
+
+const STATUT_LIBELLE: Record<string, string> = { presume: 'présumée', confirme: 'confirmée', invalide: 'invalide' };
 
 type Etat =
   | { statut: 'chargement' }
@@ -31,16 +34,34 @@ const fmtSurf = (n: number | null): string => (n === null ? '—' : `${Math.roun
 export function PermisVue({ depuisParDefaut, categories }: Props) {
   const [filtres, setFiltres] = useState<Filtres>({
     departement: '', commune: '', type: '', rang: '',
-    depuis: depuisParDefaut, jusqua: '', surfaceMin: '', logementsMin: '', q: '',
+    depuis: depuisParDefaut, jusqua: '', surfaceMin: '', logementsMin: '', q: '', sansDestinataire: '',
   });
   const [page, setPage] = useState(1);
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
+  const [version, setVersion] = useState(0); // bumpé après une édition de contact → force le rechargement
+  const [edition, setEdition] = useState<{ code: string; nom: string; valeur: string; erreur: string } | null>(null);
 
   /** Toute modif de filtre remet la pagination à 1 (jamais de setState d'effet). */
   const maj = (patch: Partial<Filtres>): void => { setFiltres((f) => ({ ...f, ...patch })); setPage(1); };
 
   const categoriesTriees = useMemo(() => [...categories].sort((a, b) => a.rang - b.rang), [categories]);
   const cle = JSON.stringify(filtres);
+
+  /** Enregistre la correction manuelle d'une adresse de commune (source=saisie_manuelle, statut=confirme) puis recharge. */
+  async function enregistrerContact(): Promise<void> {
+    if (!edition) return;
+    try {
+      const res = await fetch('/api/admin/permis/contact', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codeInsee: edition.code, email: edition.valeur.trim() }),
+      });
+      if (!res.ok) { setEdition({ ...edition, erreur: 'Adresse refusée (format invalide).' }); return; }
+      setEdition(null);
+      setVersion((v) => v + 1);
+    } catch {
+      setEdition({ ...edition, erreur: 'Enregistrement impossible.' });
+    }
+  }
 
   // Fetch débouncé (250 ms) sur (filtres, page). Patron admin : setState DANS l'IIFE async + garde anti-course.
   useEffect(() => {
@@ -65,7 +86,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
     }, 250);
     return () => { annule = true; clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cle, page]);
+  }, [cle, page, version]);
 
   const data = etat.statut === 'ok' ? etat.data : null;
   const nbPages = data ? Math.max(1, Math.ceil(data.total / TAILLE)) : 1;
@@ -112,6 +133,10 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
         <label className="flex flex-col gap-1" style={{ fontSize: 12, flex: '1 1 220px' }}>Recherche (n° de dossier ou voie)
           <input value={filtres.q} onChange={(e) => maj({ q: e.target.value })} placeholder="ex. ISSY-LES-MOULINEAUX" style={styleChamp} />
         </label>
+        <label className="flex items-center gap-2" style={{ fontSize: 13, minHeight: 40 }}>
+          <input type="checkbox" checked={filtres.sansDestinataire === '1'} onChange={(e) => maj({ sansDestinataire: e.target.checked ? '1' : '' })} />
+          Sans destinataire
+        </label>
       </div>
 
       {/* ── Total + compteurs par catégorie ── */}
@@ -124,6 +149,21 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
         ))}
       </div>
 
+      {/* ── Édition manuelle d'une adresse de commune (source=saisie_manuelle, statut=confirme) ── */}
+      {edition && (
+        <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'center' }}>
+          <span style={{ fontSize: 13 }}>Adresse de <strong>{edition.nom}</strong> ({edition.code}) :</span>
+          <input
+            type="email" value={edition.valeur} placeholder="urbanisme@ville.fr"
+            onChange={(e) => setEdition({ ...edition, valeur: e.target.value, erreur: '' })}
+            style={{ ...styleChamp, flex: '1 1 260px' }}
+          />
+          <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.4rem .8rem' }} onClick={() => void enregistrerContact()}>Enregistrer</button>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.4rem .8rem' }} onClick={() => setEdition(null)}>Annuler</button>
+          {edition.erreur && <span role="alert" style={{ color: 'var(--color-svv-red)', fontSize: 13 }}>{edition.erreur}</span>}
+        </div>
+      )}
+
       {/* ── Liste ── */}
       {etat.statut === 'erreur' && <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>Chargement impossible (réservé aux administrateurs).</div>}
       {etat.statut === 'chargement' && !data && <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>}
@@ -132,7 +172,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ textAlign: 'left', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
-                {['Catégorie', 'Date', 'Commune', 'Dép.', 'Surface', 'Logts', 'Adresse du terrain', 'Cadastre', 'N° dossier', 'Type'].map((h) => (
+                {['Catégorie', 'Date', 'Commune', 'Dép.', 'Destinataire', 'Surface', 'Logts', 'Adresse du terrain', 'Cadastre', 'N° dossier', 'Type'].map((h) => (
                   <th key={h} style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -144,6 +184,24 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
                   <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{formaterDateJour(d.dateReelleAutorisation)}</td>
                   <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{libelleCommune(d.communeNom, d.codeInsee)}</td>
                   <td style={{ padding: '.4rem .5rem' }}>{d.departement}</td>
+                  <td style={{ padding: '.4rem .5rem', maxWidth: 240 }}>
+                    {d.communeNom === null ? (
+                      <span style={{ color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>commune inconnue</span>
+                    ) : d.destEmail ? (
+                      <span>
+                        {d.destEmail}{' '}
+                        <span style={{ color: d.destStatut === 'confirme' ? 'var(--color-svv-green-ink)' : d.destStatut === 'invalide' ? 'var(--color-svv-red)' : 'var(--color-svv-muted)', fontSize: 11 }}>
+                          ({STATUT_LIBELLE[d.destStatut ?? 'presume']})
+                        </span>{' '}
+                        <button type="button" onClick={() => setEdition({ code: d.codeInsee, nom: d.communeNom ?? d.codeInsee, valeur: d.destEmail ?? '', erreur: '' })} style={{ background: 'none', border: 0, cursor: 'pointer', color: 'var(--color-svv-red)' }} aria-label="Corriger l'adresse">✎</button>
+                      </span>
+                    ) : (
+                      <span>
+                        <span style={{ color: 'var(--color-svv-red)' }}>sans destinataire</span>{' '}
+                        <button type="button" onClick={() => setEdition({ code: d.codeInsee, nom: d.communeNom ?? d.codeInsee, valeur: '', erreur: '' })} style={{ background: 'none', border: 0, cursor: 'pointer', color: 'var(--color-svv-red)' }} aria-label="Renseigner l'adresse">＋</button>
+                      </span>
+                    )}
+                  </td>
                   <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{fmtSurf(d.type === 'PD' ? d.superficieTerrain : d.surfCreee)}</td>
                   <td style={{ padding: '.4rem .5rem' }}>{fmtNb(d.nbLgtTotCrees)}</td>
                   <td style={{ padding: '.4rem .5rem' }}>{[d.adrNumTer, d.adrLibvoieTer, d.adrLocaliteTer].filter(Boolean).join(' ') || '—'}</td>
@@ -153,7 +211,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
                 </tr>
               ))}
               {data.lignes.length === 0 && (
-                <tr><td colSpan={10} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>Aucun dossier pour ces filtres.</td></tr>
+                <tr><td colSpan={11} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>Aucun dossier pour ces filtres.</td></tr>
               )}
             </tbody>
           </table>

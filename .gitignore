@@ -15,6 +15,9 @@
 # ADMIN EXPRESS communes (GeoJSON IGN téléchargé par commune:import) — JAMAIS committé (re-téléchargeable)
 /data/commune/
 
+# Annuaire mairies (agrégat DILA téléchargé par mairie:contact:import) — JAMAIS committé (re-téléchargeable)
+/data/mairie/
+
 # dependencies
 /node_modules
 /.pnp

@@ -101,8 +101,14 @@ export function expressionRangSql(c: ConfigVeille, params: unknown[]): string {
   )`;
 }
 
-/** Dossier + jointure référentiel commune (LEFT : un code sans commune reste affiché, `commune_nom` = NULL). */
-const FROM_JOIN = 'sitadel_dossier d LEFT JOIN commune c ON c.code_insee = d.code_insee';
+/**
+ * Dossier + référentiel commune + registre mairie (LEFT JOIN : un code sans commune → `commune_nom` NULL (« commune
+ * inconnue ») ; une commune sans contact → `dest_email` NULL (« sans destinataire »)).
+ */
+const FROM_JOIN =
+  'sitadel_dossier d ' +
+  'LEFT JOIN commune c ON c.code_insee = d.code_insee ' +
+  'LEFT JOIN mairie_contact mc ON mc.code_insee = d.code_insee';
 
 /** Ordre secondaire : surface (PC = surf_creee, PD = superficie_terrain) DESC, puis date DESC, puis num_dau (stable). */
 const ORDRE_SECONDAIRE =
@@ -122,13 +128,15 @@ export interface FiltresPermis {
   surfaceMin: number | null;
   logementsMin: number | null;
   q: string | null; // recherche libre : numéro de dossier (préfixe) OU libellé de voie (sous-chaîne + trigramme)
+  sansDestinataire: boolean; // n'afficher que les dossiers non adressables (aucun e-mail de mairie)
 }
 
 const SELECTION =
   `d.id, d.type, d.num_dau, d.code_insee, d.departement, d.date_reelle_autorisation::text AS date_reelle_autorisation, ` +
   `d.nature_projet_completee, d.i_extension, d.i_surelevation, d.nb_lgt_tot_crees, d.surf_creee, d.superficie_terrain, ` +
   `d.adr_num_ter, d.adr_libvoie_ter, d.adr_lieudit_ter, d.adr_localite_ter, d.adr_codpost_ter, ` +
-  `d.sec_cadastre1, d.num_cadastre1, d.sec_cadastre2, d.num_cadastre2, d.sec_cadastre3, d.num_cadastre3, c.nom AS commune_nom`;
+  `d.sec_cadastre1, d.num_cadastre1, d.sec_cadastre2, d.num_cadastre2, d.sec_cadastre3, d.num_cadastre3, ` +
+  `c.nom AS commune_nom, mc.email AS dest_email, mc.statut AS dest_statut`;
 
 /**
  * Clauses WHERE des filtres, poussant leurs paramètres dans `params`. `rangExpr` (déjà construit et paramétré) est requis
@@ -158,6 +166,7 @@ function clausesWhere(f: FiltresPermis, params: unknown[], rangExpr: string | nu
       `OR word_similarity(${add(q)}, d.adr_libvoie_ter) >= ${SIMILARITE_VOIE})`,
     );
   }
+  if (f.sansDestinataire) cl.push('mc.email IS NULL'); // non adressable (commune inconnue OU sans e-mail)
   if (f.rang != null && rangExpr) cl.push(`${rangExpr} = ${add(f.rang)}`);
   return cl.length ? `WHERE ${cl.join(' AND ')}` : '';
 }
@@ -220,6 +229,7 @@ export function lireFiltres(sp: URLSearchParams): FiltresPermis {
     surfaceMin: entierPositif(sp.get('surfaceMin')),
     logementsMin: entierPositif(sp.get('logementsMin')),
     q: q === '' ? null : q,
+    sansDestinataire: sp.get('sansDestinataire') === '1',
   };
 }
 
