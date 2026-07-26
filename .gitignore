@@ -12,6 +12,9 @@
 # Sitadel (CSV open data téléchargés par sitadel:ingest) — JAMAIS committés (volumineux, re-téléchargeables)
 /data/sitadel/
 
+# ADMIN EXPRESS communes (GeoJSON IGN téléchargé par commune:import) — JAMAIS committé (re-téléchargeable)
+/data/commune/
+
 # dependencies
 /node_modules
 /.pnp

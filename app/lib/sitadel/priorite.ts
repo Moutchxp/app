@@ -86,25 +86,28 @@ export function classer(d: DossierClassable, c: ConfigVeille): Classement {
 
 const RANG_AUCUN = 9999;
 
-/** Expression SQL du rang (LEAST des rangs des catégories satisfaites). Pousse ses paramètres dans `params`. */
+/** Expression SQL du rang (LEAST des rangs des catégories satisfaites). Colonnes qualifiées `d.` (dossier). Pousse ses paramètres. */
 export function expressionRangSql(c: ConfigVeille, params: unknown[]): string {
   const p = (v: number): string => { params.push(v); return `$${params.length}`; };
   const rIm = p(c.rangImmeubleNeuf), rSu = p(c.rangSurelevation), rCn = p(c.rangConstructionNeuve);
   const rEx = p(c.rangExtension), rDe = p(c.rangDemolition);
   const sLog = p(c.seuilLogementsImmeuble), sSurf = p(c.seuilSurfaceImmeubleM2);
   return `LEAST(
-    CASE WHEN nature_projet_completee = '1' AND (COALESCE(nb_lgt_tot_crees,0) >= ${sLog} OR COALESCE(surf_creee,0) >= ${sSurf}) THEN ${rIm} ELSE ${RANG_AUCUN} END,
-    CASE WHEN i_surelevation THEN ${rSu} ELSE ${RANG_AUCUN} END,
-    CASE WHEN nature_projet_completee = '1' THEN ${rCn} ELSE ${RANG_AUCUN} END,
-    CASE WHEN (i_extension OR nature_projet_completee IN ('3','5')) THEN ${rEx} ELSE ${RANG_AUCUN} END,
-    CASE WHEN type = 'PD' THEN ${rDe} ELSE ${RANG_AUCUN} END
+    CASE WHEN d.nature_projet_completee = '1' AND (COALESCE(d.nb_lgt_tot_crees,0) >= ${sLog} OR COALESCE(d.surf_creee,0) >= ${sSurf}) THEN ${rIm} ELSE ${RANG_AUCUN} END,
+    CASE WHEN d.i_surelevation THEN ${rSu} ELSE ${RANG_AUCUN} END,
+    CASE WHEN d.nature_projet_completee = '1' THEN ${rCn} ELSE ${RANG_AUCUN} END,
+    CASE WHEN (d.i_extension OR d.nature_projet_completee IN ('3','5')) THEN ${rEx} ELSE ${RANG_AUCUN} END,
+    CASE WHEN d.type = 'PD' THEN ${rDe} ELSE ${RANG_AUCUN} END
   )`;
 }
 
+/** Dossier + jointure référentiel commune (LEFT : un code sans commune reste affiché, `commune_nom` = NULL). */
+const FROM_JOIN = 'sitadel_dossier d LEFT JOIN commune c ON c.code_insee = d.code_insee';
+
 /** Ordre secondaire : surface (PC = surf_creee, PD = superficie_terrain) DESC, puis date DESC, puis num_dau (stable). */
 const ORDRE_SECONDAIRE =
-  `(CASE WHEN type = 'PD' THEN superficie_terrain ELSE surf_creee END) DESC NULLS LAST, ` +
-  `date_reelle_autorisation DESC NULLS LAST, num_dau ASC`;
+  `(CASE WHEN d.type = 'PD' THEN d.superficie_terrain ELSE d.surf_creee END) DESC NULLS LAST, ` +
+  `d.date_reelle_autorisation DESC NULLS LAST, d.num_dau ASC`;
 
 /** Seuil de similarité trigramme pour la recherche de voie tolérante à la troncature 26 c (pg_trgm). */
 const SIMILARITE_VOIE = 0.45;
@@ -122,9 +125,10 @@ export interface FiltresPermis {
 }
 
 const SELECTION =
-  `id, type, num_dau, code_insee, departement, date_reelle_autorisation, nature_projet_completee, i_extension, ` +
-  `i_surelevation, nb_lgt_tot_crees, surf_creee, superficie_terrain, adr_num_ter, adr_libvoie_ter, adr_lieudit_ter, ` +
-  `adr_localite_ter, adr_codpost_ter, sec_cadastre1, num_cadastre1, sec_cadastre2, num_cadastre2, sec_cadastre3, num_cadastre3`;
+  `d.id, d.type, d.num_dau, d.code_insee, d.departement, d.date_reelle_autorisation::text AS date_reelle_autorisation, ` +
+  `d.nature_projet_completee, d.i_extension, d.i_surelevation, d.nb_lgt_tot_crees, d.surf_creee, d.superficie_terrain, ` +
+  `d.adr_num_ter, d.adr_libvoie_ter, d.adr_lieudit_ter, d.adr_localite_ter, d.adr_codpost_ter, ` +
+  `d.sec_cadastre1, d.num_cadastre1, d.sec_cadastre2, d.num_cadastre2, d.sec_cadastre3, d.num_cadastre3, c.nom AS commune_nom`;
 
 /**
  * Clauses WHERE des filtres, poussant leurs paramètres dans `params`. `rangExpr` (déjà construit et paramétré) est requis
@@ -135,18 +139,23 @@ const SELECTION =
 function clausesWhere(f: FiltresPermis, params: unknown[], rangExpr: string | null): string {
   const cl: string[] = [];
   const add = (v: unknown): string => { params.push(v); return `$${params.length}`; };
-  if (f.departement) cl.push(`departement = ${add(f.departement)}`);
-  if (f.commune) cl.push(`code_insee = ${add(f.commune)}`);
-  if (f.type) cl.push(`type = ${add(f.type)}`);
-  if (f.depuis) cl.push(`date_reelle_autorisation >= ${add(f.depuis)}`);
-  if (f.jusqua) cl.push(`date_reelle_autorisation <= ${add(f.jusqua)}`);
-  if (f.surfaceMin != null) cl.push(`COALESCE(surf_creee,0) >= ${add(f.surfaceMin)}`);
-  if (f.logementsMin != null) cl.push(`COALESCE(nb_lgt_tot_crees,0) >= ${add(f.logementsMin)}`);
+  if (f.departement) cl.push(`d.departement = ${add(f.departement)}`);
+  if (f.commune) {
+    // Filtre commune : par CODE INSEE exact OU par NOM (insensible casse + accents, via le référentiel joint). Le NOM
+    // passe par `svv_unaccent_immutable` (même expression que l'index de nom → exploité) ; sous-chaîne, jamais égalité.
+    const v = add(f.commune);
+    cl.push(`(d.code_insee = ${v} OR lower(svv_unaccent_immutable(c.nom)) LIKE '%' || lower(svv_unaccent_immutable(${v})) || '%')`);
+  }
+  if (f.type) cl.push(`d.type = ${add(f.type)}`);
+  if (f.depuis) cl.push(`d.date_reelle_autorisation >= ${add(f.depuis)}`);
+  if (f.jusqua) cl.push(`d.date_reelle_autorisation <= ${add(f.jusqua)}`);
+  if (f.surfaceMin != null) cl.push(`COALESCE(d.surf_creee,0) >= ${add(f.surfaceMin)}`);
+  if (f.logementsMin != null) cl.push(`COALESCE(d.nb_lgt_tot_crees,0) >= ${add(f.logementsMin)}`);
   if (f.q) {
     const q = f.q;
     cl.push(
-      `(num_dau ILIKE ${add(`${q}%`)} OR adr_libvoie_ter ILIKE ${add(`%${q}%`)} ` +
-      `OR word_similarity(${add(q)}, adr_libvoie_ter) >= ${SIMILARITE_VOIE})`,
+      `(d.num_dau ILIKE ${add(`${q}%`)} OR d.adr_libvoie_ter ILIKE ${add(`%${q}%`)} ` +
+      `OR word_similarity(${add(q)}, d.adr_libvoie_ter) >= ${SIMILARITE_VOIE})`,
     );
   }
   if (f.rang != null && rangExpr) cl.push(`${rangExpr} = ${add(f.rang)}`);
@@ -163,7 +172,7 @@ export function construireRequeteListe(
   const limite = add(params, taille);
   const decalage = add(params, (page - 1) * taille);
   const texte =
-    `SELECT ${SELECTION}, ${rangExpr} AS rang FROM sitadel_dossier ${where} ` +
+    `SELECT ${SELECTION}, ${rangExpr} AS rang FROM ${FROM_JOIN} ${where} ` +
     `ORDER BY ${rangExpr} ASC, ${ORDRE_SECONDAIRE} LIMIT ${limite} OFFSET ${decalage}`;
   return { texte, params };
 }
@@ -173,7 +182,7 @@ export function construireRequeteTotal(f: FiltresPermis, c: ConfigVeille): { tex
   const params: unknown[] = [];
   const rangExpr = f.rang != null ? expressionRangSql(c, params) : null; // rang construit UNIQUEMENT s'il sert
   const where = clausesWhere(f, params, rangExpr);
-  return { texte: `SELECT count(*)::int AS n FROM sitadel_dossier ${where}`, params };
+  return { texte: `SELECT count(*)::int AS n FROM ${FROM_JOIN} ${where}`, params };
 }
 
 /** Requête COMPTEURS PAR CATÉGORIE : mêmes filtres SAUF la catégorie (on veut tous les rangs). */
@@ -181,7 +190,7 @@ export function construireRequeteComptes(f: FiltresPermis, c: ConfigVeille): { t
   const params: unknown[] = [];
   const rangExpr = expressionRangSql(c, params);
   const where = clausesWhere({ ...f, rang: null }, params, rangExpr);
-  return { texte: `SELECT ${rangExpr} AS rang, count(*)::int AS n FROM sitadel_dossier ${where} GROUP BY rang ORDER BY rang`, params };
+  return { texte: `SELECT ${rangExpr} AS rang, count(*)::int AS n FROM ${FROM_JOIN} ${where} GROUP BY rang ORDER BY rang`, params };
 }
 
 function add(params: unknown[], v: unknown): string { params.push(v); return `$${params.length}`; }
@@ -219,4 +228,21 @@ export function lirePagination(sp: URLSearchParams): { page: number; taille: num
   const page = Math.max(1, Number(sp.get('page')) || 1);
   const taille = Math.min(100, Math.max(1, Number(sp.get('taille')) || 25));
   return { page, taille };
+}
+
+// ── Affichage (pur, sans fuseau) ─────────────────────────────────────────────
+/**
+ * Jour d'une date de permis, SANS conversion de fuseau. La colonne est un `date` : la requête la renvoie déjà en
+ * `AAAA-MM-JJ` (cast `::text`). Par sécurité, si une valeur ISO horodatée arrivait (« 2025-12-10T23:00:00.000Z »), on
+ * garde les 10 premiers caractères — JAMAIS `new Date(v)`, qui décalerait d'un jour selon le fuseau du serveur.
+ */
+export function formaterDateJour(v: string | null | undefined): string {
+  if (!v) return '—';
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(v);
+  return m ? m[1] : v;
+}
+
+/** Libellé de commune : « Nom (code) » si le nom est connu, sinon le code seul (dégradation gracieuse — code orphelin). */
+export function libelleCommune(nom: string | null | undefined, code: string): string {
+  return nom && nom.trim() !== '' ? `${nom} (${code})` : code;
 }

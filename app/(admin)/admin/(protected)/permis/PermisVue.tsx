@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import type { CleCategorie } from '../../../../lib/sitadel/priorite';
+import { formaterDateJour, libelleCommune, type CleCategorie } from '../../../../lib/sitadel/priorite';
 import type { DossierAffiche, ResultatVeille } from '../../../../lib/sitadel/veilleRepo';
 
 /**
@@ -80,8 +80,8 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
             {['75', '92', '93', '78'].map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
         </label>
-        <label className="flex flex-col gap-1" style={{ fontSize: 12 }}>Commune (INSEE)
-          <input value={filtres.commune} onChange={(e) => maj({ commune: e.target.value })} placeholder="ex. 92050" style={styleChamp} />
+        <label className="flex flex-col gap-1" style={{ fontSize: 12 }}>Commune (nom ou code)
+          <input value={filtres.commune} onChange={(e) => maj({ commune: e.target.value })} placeholder="ex. Nanterre ou 92050" style={styleChamp} />
         </label>
         <label className="flex flex-col gap-1" style={{ fontSize: 12 }}>Type
           <select value={filtres.type} onChange={(e) => maj({ type: e.target.value as Filtres['type'] })} style={styleChamp}>
@@ -141,8 +141,8 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
               {data.lignes.map((d: DossierAffiche) => (
                 <tr key={`${d.type}-${d.id}`} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
                   <td style={{ padding: '.4rem .5rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{d.libelleCategorie}</td>
-                  <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{d.dateReelleAutorisation ?? '—'}</td>
-                  <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{d.codeInsee}</td>
+                  <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{formaterDateJour(d.dateReelleAutorisation)}</td>
+                  <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{libelleCommune(d.communeNom, d.codeInsee)}</td>
                   <td style={{ padding: '.4rem .5rem' }}>{d.departement}</td>
                   <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{fmtSurf(d.type === 'PD' ? d.superficieTerrain : d.surfCreee)}</td>
                   <td style={{ padding: '.4rem .5rem' }}>{fmtNb(d.nbLgtTotCrees)}</td>

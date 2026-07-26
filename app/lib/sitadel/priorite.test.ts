@@ -3,6 +3,7 @@ import { CONFIG_VEILLE_DEFAUT, type ConfigVeille } from './veilleConfig';
 import {
   type DossierClassable, type FiltresPermis,
   classer, construireRequeteListe, construireRequeteTotal, construireRequeteComptes, lireFiltres,
+  formaterDateJour, libelleCommune,
 } from './priorite';
 
 const C = CONFIG_VEILLE_DEFAUT; // seuils 10 / 1500 ; rangs 1..5
@@ -110,6 +111,14 @@ describe('Sitadel S3 — recherche par préfixe / troncature', () => {
     expect(params).toContain('ISSY-LES-MOULINEAUX%');     // préfixe numéro
   });
 
+  it('filtre commune par NOM : clause insensible casse+accents (svv_unaccent_immutable) OU code exact', () => {
+    const { texte, params } = construireRequeteTotal({ ...FILTRES_VIDES, commune: 'Le Chesnay' }, C);
+    expect(texte).toContain('code_insee =');            // accepte encore le code exact
+    expect(texte).toContain('svv_unaccent_immutable');  // + recherche par nom insensible casse/accents
+    expect(texte).toContain('LIKE');
+    expect(params).toContain('Le Chesnay');
+  });
+
   it('lireFiltres : valeurs valides retenues, invalides ignorées', () => {
     const sp = new URLSearchParams('departement=92&type=XX&rang=2&depuis=2024-01-01&jusqua=mauvais&q=%20rue%20');
     const f = lireFiltres(sp);
@@ -119,5 +128,20 @@ describe('Sitadel S3 — recherche par préfixe / troncature', () => {
     expect(f.depuis).toBe('2024-01-01');
     expect(f.jusqua).toBeNull();    // 'mauvais' non ISO
     expect(f.q).toBe('rue');        // trim
+  });
+});
+
+describe('Sitadel S4 — affichage (date sans fuseau, commune dégradée)', () => {
+  it('formaterDateJour : même jour quel que soit le fuseau (jamais new Date())', () => {
+    expect(formaterDateJour('2025-12-10')).toBe('2025-12-10');
+    expect(formaterDateJour('2025-12-10T23:00:00.000Z')).toBe('2025-12-10'); // pas de décalage de jour
+    expect(formaterDateJour('2025-01-01T00:00:00.000Z')).toBe('2025-01-01');
+    expect(formaterDateJour(null)).toBe('—');
+  });
+
+  it('libelleCommune : « Nom (code) » si connu, code seul si orphelin (dégradation propre)', () => {
+    expect(libelleCommune('Nanterre', '92050')).toBe('Nanterre (92050)');
+    expect(libelleCommune(null, '93059')).toBe('93059');   // code Sitadel sans commune → jamais d'erreur
+    expect(libelleCommune('', '78503')).toBe('78503');
   });
 });
