@@ -26,6 +26,11 @@ Inspecte la session courante pour remplir la passation avec des faits, pas des g
 - `git status` pour l'état du working tree (fichiers modifiés non committés).
 - La conversation en cours (ce sur quoi on travaille, les décisions prises, le dernier chantier).
 - Les fichiers docs/ pertinents s'ils existent (SPEC_ponderation_familles.md, etc.).
+- TOUJOURS `docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md` (corpus figé 25-26/07/2026 : fraîcheur
+  LiDAR/BD TOPO, règle de contrôle mixte et ses deux régimes, sources externes de hauteur pour le
+  bâti neuf, cadre juridique des permis, chiffrage Sitadel, conformité/licences, prochain gros
+  chantier). Le résumer dans la section 5 de la passation et renvoyer le nouveau Claude vers lui
+  avant tout chantier données/verdict/certificat/permis.
 Ne recopie pas de code sensible inutilement ; résume.
 
 ## Structure OBLIGATOIRE de la passation
