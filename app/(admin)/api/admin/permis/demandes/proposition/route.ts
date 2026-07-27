@@ -13,8 +13,7 @@ export async function GET(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const lots = await proposition(await chargerConfigVeille());
-    return Response.json({ lots });
+    return Response.json(await proposition(await chargerConfigVeille())); // { lots, diagnostic }
   } catch {
     return Response.json({ erreur: 'proposition indisponible' }, { status: 503 });
   }

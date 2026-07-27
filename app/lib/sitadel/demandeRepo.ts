@@ -7,7 +7,7 @@ import { query, withTransaction } from '../db/client';
 import type { ConfigVeille } from './veilleConfig';
 import { lireDossiersPriorite, type DossierAffiche } from './veilleRepo';
 import {
-  type CandidatDossier, type ConfigDemandeur, type Lot, type HistoriqueDemandes,
+  type CandidatDossier, type ConfigDemandeur, type Lot, type HistoriqueDemandes, type DiagnosticProposition,
   proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande, identiteManquante,
 } from './demande';
 
@@ -53,10 +53,29 @@ async function lireHistorique(): Promise<HistoriqueDemandes> {
   };
 }
 
-/** Lots PROPOSÉS (aucune écriture) — pour revue avant création. */
-export async function proposition(cfg: ConfigVeille): Promise<Lot[]> {
+/** Compteurs expliquant l'absence de lots — calculés à partir des MÊMES candidats/historique (sans toucher proposerLots). */
+function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDemandes, cfg: ConfigVeille): DiagnosticProposition {
+  const sansCanal = new Set<string>();
+  const parCommune = new Map<string, number>();
+  let rattaches = 0;
+  for (const d of candidats) {
+    if (hist.dejaRattaches.has(d.dossierId)) { rattaches += 1; continue; }
+    if (d.communeNom === null || d.canal === null || d.canal === 'inconnu') { sansCanal.add(d.codeInsee); continue; }
+    parCommune.set(d.codeInsee, (parCommune.get(d.codeInsee) ?? 0) + 1);
+  }
+  let plafond = 0;
+  for (const code of parCommune.keys()) {
+    if (cfg.demandesParCommuneParMois - (hist.demandesCeMoisParCommune.get(code) ?? 0) <= 0) plafond += 1;
+  }
+  return { candidatsExamines: candidats.length, dossiersDejaRattaches: rattaches, communesSansCanal: sansCanal.size, communesPlafondMensuel: plafond };
+}
+
+/** Lots PROPOSÉS (aucune écriture) + diagnostic (pour expliquer un « 0 lot ») — pour revue avant création. */
+export async function proposition(cfg: ConfigVeille): Promise<{ lots: Lot[]; diagnostic: DiagnosticProposition }> {
   const [dossiers, hist] = await Promise.all([lireDossiersPriorite(cfg, NB_CANDIDATS), lireHistorique()]);
-  return proposerLots(dossiers.map(versCandidat), { dossiersParDemande: cfg.dossiersParDemande, demandesParCommuneParMois: cfg.demandesParCommuneParMois }, hist);
+  const candidats = dossiers.map(versCandidat);
+  const lots = proposerLots(candidats, { dossiersParDemande: cfg.dossiersParDemande, demandesParCommuneParMois: cfg.demandesParCommuneParMois }, hist);
+  return { lots, diagnostic: diagnostiquer(candidats, hist, cfg) };
 }
 
 /** Attribue une référence SVAV-DEM-AAAA-NNNNNN (compteur atomique, verrou de ligne). */
@@ -75,7 +94,7 @@ async function attribuerReference(q: Requete, annee: number): Promise<string> {
  * Retourne les références créées. AUCUN ENVOI.
  */
 export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: string | null): Promise<{ crees: string[]; ignores: number }> {
-  const lots = await proposition(cfg);
+  const { lots } = await proposition(cfg);
   const cfgDem = await lireConfigDemandeur();
   const pieces = piecesDepuisConfig(cfg.piecesDemandees);
   const crees: string[] = [];
@@ -112,15 +131,23 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
 
 export interface DemandeListe { id: number; reference: string; codeInsee: string; communeNom: string | null; canal: string | null; nbDossiers: number; statut: string; creeLe: string }
 
-export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; identiteManquante: string[] }> {
-  const r = await query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; dest_canal: string | null; nb: number; statut: string; cree_le: string }>(
-    `SELECT d.id, d.reference, d.code_insee, c.nom AS commune_nom, d.dest_canal, d.statut, d.cree_le::text AS cree_le,
-            (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id) AS nb
-     FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee ORDER BY d.cree_le DESC`,
-  );
+export interface ResumeDemandes { parStatut: Record<string, number>; total: number; dossiersCouverts: number }
+
+export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; identiteManquante: string[]; resume: ResumeDemandes }> {
+  const [r, rs, rd] = await Promise.all([
+    query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; dest_canal: string | null; nb: number; statut: string; cree_le: string }>(
+      `SELECT d.id, d.reference, d.code_insee, c.nom AS commune_nom, d.dest_canal, d.statut, d.cree_le::text AS cree_le,
+              (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id) AS nb
+       FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee ORDER BY d.cree_le DESC`),
+    query<{ statut: string; n: number }>(`SELECT statut, count(*)::int AS n FROM demande GROUP BY statut`),
+    query<{ n: number }>(`SELECT count(DISTINCT dossier_id)::int AS n FROM demande_dossier`),
+  ]);
+  const parStatut: Record<string, number> = {};
+  for (const s of rs.rows) parStatut[s.statut] = s.n;
   return {
     demandes: r.rows.map((x) => ({ id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal, nbDossiers: x.nb, statut: x.statut, creeLe: x.cree_le })),
     identiteManquante: identiteManquante(await lireConfigDemandeur()),
+    resume: { parStatut, total: r.rows.length, dossiersCouverts: rd.rows[0]?.n ?? 0 },
   };
 }
 
@@ -161,16 +188,29 @@ export class IdentiteIncompleteError extends Error {
  * ⚠️ 'envoyee' N'EST PAS gérée ici (l'envoi est un chantier ultérieur).
  */
 export async function changerStatut(id: number, nouveau: 'prete' | 'abandonnee', auteur: string | null): Promise<void> {
+  return changerStatutLot([id], nouveau, auteur);
+}
+
+/**
+ * Transition de statut d'un LOT de demandes, EN TOUT-OU-RIEN. Pour 'prete', l'identité est vérifiée UNE FOIS avant toute
+ * écriture (sinon `IdentiteIncompleteError` → AUCUNE demande touchée). Sinon, toutes les transitions passent dans UNE
+ * transaction (échec = rollback total, aucune transition partielle). Chaque transition est journalisée. AUCUN ENVOI.
+ */
+export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'abandonnee', auteur: string | null): Promise<void> {
+  if (ids.length === 0) return;
   if (nouveau === 'prete') {
     const manque = identiteManquante(await lireConfigDemandeur());
-    if (manque.length > 0) throw new IdentiteIncompleteError(manque);
+    if (manque.length > 0) throw new IdentiteIncompleteError(manque); // aucune écriture
   }
+  const motif = ids.length > 1 ? 'transition (lot)' : 'transition';
   await withTransaction(async (tx) => {
     const q = asQ(tx);
-    const av = await q<{ statut: string }>(`SELECT statut FROM demande WHERE id = $1`, [id]);
-    const avant = av.rows[0]?.statut ?? null;
-    await q(`UPDATE demande SET statut = $2, maj_le = now() WHERE id = $1`, [nouveau, id]);
-    if (nouveau === 'abandonnee') await q(`UPDATE demande_dossier SET actif = false WHERE demande_id = $1`, [id]);
-    await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, $3, $4, $5)`, [id, avant, nouveau, 'transition', auteur]);
+    for (const id of ids) {
+      const av = await q<{ statut: string }>(`SELECT statut FROM demande WHERE id = $1`, [id]);
+      const avant = av.rows[0]?.statut ?? null;
+      await q(`UPDATE demande SET statut = $2, maj_le = now() WHERE id = $1`, [nouveau, id]);
+      if (nouveau === 'abandonnee') await q(`UPDATE demande_dossier SET actif = false WHERE demande_id = $1`, [id]);
+      await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, $3, $4, $5)`, [id, avant, nouveau, motif, auteur]);
+    }
   });
 }

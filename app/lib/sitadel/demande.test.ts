@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type { CanalContact } from './mairieContact';
 import {
-  type CandidatDossier, type ConfigDemandeur, type Lot,
+  type CandidatDossier, type ConfigDemandeur, type Lot, type DiagnosticProposition,
   identiteManquante, proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande,
+  ancreDetail, peutPasserLot, expliquerProposition,
 } from './demande';
 
 let seq = 0;
@@ -96,5 +97,35 @@ describe('Sitadel S7 — texte de la demande', () => {
 
   it('formaterReferenceDemande : SVAV-DEM-AAAA-NNNNNN', () => {
     expect(formaterReferenceDemande(2026, 42)).toBe('SVAV-DEM-2026-000042');
+  });
+});
+
+describe('Sitadel S7b — interface (détail cliquable, action groupée, explication chiffrée)', () => {
+  it('ancreDetail : cible RÉELLE et NON VIDE pour un id valide (aurait attrapé le lien mort)', () => {
+    expect(ancreDetail(42)).toBe('demande-42');
+    expect(ancreDetail(1).length).toBeGreaterThan(0);
+    // id absent/invalide → cible vide (jamais un lien qui pointe « quelque part » par erreur)
+    for (const mauvais of [0, -1, NaN, 1.5]) expect(ancreDetail(mauvais)).toBe('');
+  });
+
+  it('action groupée « prête » : appliquée à TOUTES ou à AUCUNE selon l’identité (nomme les champs manquants)', () => {
+    expect(peutPasserLot('prete', CONFIG)).toEqual({ ok: true, champs: [] });
+    const incomplet = peutPasserLot('prete', { ...CONFIG, siegeAdresse: '', emailContact: '' });
+    expect(incomplet.ok).toBe(false);
+    expect(incomplet.champs).toEqual(['adresse du siège', 'e-mail de contact']); // → 0 transition
+    expect(peutPasserLot('abandonnee', { ...CONFIG, siegeAdresse: '' })).toEqual({ ok: true, champs: [] }); // abandon jamais bloqué
+  });
+
+  it('explication du « 0 lot » : reflète les COMPTEURS RÉELS, pas un texte figé', () => {
+    const diag: DiagnosticProposition = { candidatsExamines: 340, dossiersDejaRattaches: 495, communesSansCanal: 3, communesPlafondMensuel: 41 };
+    const m = expliquerProposition(0, diag);
+    expect(m).toContain('340');
+    expect(m).toContain('495 dossier(s) déjà rattaché(s)');
+    expect(m).toContain('plafond mensuel atteint pour 41 commune(s)');
+    expect(m).toContain('3 commune(s) sans canal');
+    // des chiffres différents → message différent (pas figé)
+    expect(expliquerProposition(0, { ...diag, communesPlafondMensuel: 7 })).toContain('7 commune(s)');
+    // des lots existent → aucun message
+    expect(expliquerProposition(2, diag)).toBe('');
   });
 });

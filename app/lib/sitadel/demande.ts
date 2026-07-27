@@ -97,6 +97,39 @@ export function formaterReferenceDemande(annee: number, n: number): string {
   return `SVAV-DEM-${annee}-${String(n).padStart(6, '0')}`;
 }
 
+// ── Aides d'INTERFACE (pures, S7b) ───────────────────────────────────────────
+/** Ancre/cible du détail d'une demande — NON VIDE pour un id réel (garde contre un lien mort/vide). */
+export function ancreDetail(id: number): string {
+  return Number.isInteger(id) && id > 0 ? `demande-${id}` : '';
+}
+
+/** Décision de transition d'un LOT : passer 'prete' exige une identité complète (sinon champs manquants → aucune écriture). */
+export function peutPasserLot(statut: 'prete' | 'abandonnee', config: ConfigDemandeur): { ok: boolean; champs: string[] } {
+  if (statut === 'prete') { const champs = identiteManquante(config); return { ok: champs.length === 0, champs }; }
+  return { ok: true, champs: [] };
+}
+
+/** Compteurs expliquant l'absence de lots (mesurés, jamais figés). */
+export interface DiagnosticProposition {
+  candidatsExamines: number;
+  dossiersDejaRattaches: number;
+  communesSansCanal: number;
+  communesPlafondMensuel: number;
+}
+
+/**
+ * Message expliquant POURQUOI 0 lot, à partir des compteurs RÉELS (jamais un texte générique). '' si des lots existent.
+ */
+export function expliquerProposition(nbLots: number, d: DiagnosticProposition): string {
+  if (nbLots > 0) return '';
+  const raisons: string[] = [];
+  if (d.dossiersDejaRattaches > 0) raisons.push(`${d.dossiersDejaRattaches} dossier(s) déjà rattaché(s) à une demande`);
+  if (d.communesPlafondMensuel > 0) raisons.push(`plafond mensuel atteint pour ${d.communesPlafondMensuel} commune(s)`);
+  if (d.communesSansCanal > 0) raisons.push(`${d.communesSansCanal} commune(s) sans canal de contact connu`);
+  const base = `Aucun lot à proposer sur ${d.candidatsExamines} dossier(s) examiné(s) en tête de classement`;
+  return raisons.length ? `${base} : ${raisons.join(' ; ')}.` : `${base}.`;
+}
+
 export interface TexteDemande { objet: string; corps: string }
 
 /**
