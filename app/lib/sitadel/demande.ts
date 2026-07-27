@@ -18,29 +18,53 @@ export interface ConfigDemandeur {
   telephone: string;
 }
 
+/** Profil du demandeur — deux identités possibles pour exercer le droit d'accès CRPA (cf. migration 055). */
+export type ProfilDemandeur = 'entreprise' | 'personne';
+
+/** Libellés d'affichage des profils (UI + journal + messages). */
+export const ETIQUETTE_PROFIL: Record<ProfilDemandeur, string> = { entreprise: 'Société', personne: 'Personne physique' };
+
+/** Normalise une valeur libre en profil sûr (défaut 'entreprise' si inconnue). */
+export function profilValide(v: unknown): ProfilDemandeur {
+  return v === 'personne' ? 'personne' : 'entreprise';
+}
+
+interface ControleChamp { cle: keyof ConfigDemandeur; libelle: string; min: number; capitales: boolean }
+
 /**
  * Contrôles de PLAUSIBILITÉ de l'identité (hors telephone) requis pour qu'une demande quitte 'brouillon'. Au-delà du
- * simple non-vide (S7), on refuse aussi : e-mail au format invalide, longueur invraisemblable, et — pour raison sociale,
- * nom et adresse du siège — une valeur ENTIÈREMENT EN CAPITALES (souvent un texte de substitution non renseigné).
+ * simple non-vide (S7), on refuse aussi : e-mail au format invalide, longueur invraisemblable, et — pour les champs
+ * marqués — une valeur ENTIÈREMENT EN CAPITALES (souvent un texte de substitution non renseigné). Les champs REQUIS
+ * DIFFÈRENT par profil (S7e) :
+ *  - « entreprise » : identité de société complète (inchangé depuis S7c) ;
+ *  - « personne » : nom + adresse postale + e-mail SEULEMENT (raison sociale / forme juridique / qualité ni requis ni
+ *    utilisés — voir `genererTexte`). Ce n'est PAS anonyme : le demandeur reste identifié (exigence CADA).
  * Chaque problème NOMME le champ ET la raison. Vide = identité plausible.
  */
-const CONTROLES_IDENTITE: { cle: keyof ConfigDemandeur; libelle: string; min: number; capitales: boolean }[] = [
+const CONTROLES_ENTREPRISE: ControleChamp[] = [
   { cle: 'raisonSociale', libelle: 'raison sociale', min: 2, capitales: true },
   { cle: 'formeJuridique', libelle: 'forme juridique', min: 2, capitales: false },
   { cle: 'siegeAdresse', libelle: 'adresse du siège', min: 8, capitales: true },
   { cle: 'representantNom', libelle: 'nom du représentant', min: 3, capitales: true },
   { cle: 'representantQualite', libelle: 'qualité du représentant', min: 2, capitales: false },
 ];
+const CONTROLES_PERSONNE: ControleChamp[] = [
+  { cle: 'representantNom', libelle: 'nom', min: 3, capitales: true },
+  { cle: 'siegeAdresse', libelle: 'adresse postale', min: 8, capitales: true },
+];
+function controlesIdentite(profil: ProfilDemandeur): ControleChamp[] {
+  return profil === 'personne' ? CONTROLES_PERSONNE : CONTROLES_ENTREPRISE;
+}
 
 /** Une valeur est « entièrement en capitales » si elle contient des lettres mais AUCUNE minuscule. */
 function toutEnCapitales(s: string): boolean {
   return /\p{Lu}/u.test(s) && !/\p{Ll}/u.test(s);
 }
 
-/** Problèmes d'identité (champ + raison), vide si plausible. Remplace l'ancien contrôle « non vide ». */
-export function problemesIdentite(c: ConfigDemandeur): string[] {
+/** Problèmes d'identité (champ + raison) pour le profil donné ; vide si plausible. Défaut 'entreprise' (compat S7c/S7d). */
+export function problemesIdentite(c: ConfigDemandeur, profil: ProfilDemandeur = 'entreprise'): string[] {
   const p: string[] = [];
-  for (const ctl of CONTROLES_IDENTITE) {
+  for (const ctl of controlesIdentite(profil)) {
     const v = (c[ctl.cle] ?? '').trim();
     if (v === '') { p.push(`${ctl.libelle} : requis`); continue; }
     if (v.length < ctl.min) { p.push(`${ctl.libelle} : trop court pour être crédible`); continue; }
@@ -175,11 +199,15 @@ export interface TexteDemande { objet: string; corps: string }
 
 /**
  * Génère l'objet + le corps d'une demande selon la trame CRPA imposée, en substituant les variables. AUCUN motif ni
- * justification (cf. règle juridique en tête). Les pièces proviennent de la config.
+ * justification, et AUCUNE date-calendrier dans le corps (la date est apposée à l'ENVOI — chantier ultérieur — car
+ * c'est elle qui fait courir le délai de refus tacite ; une date figée à la création serait fausse). Les pièces
+ * proviennent de la config. `profil` sélectionne le modèle : 'entreprise' (identité de société, INCHANGÉ depuis S7c)
+ * ou 'personne' (en-tête Nom/adresse/e-mail, 1re personne, aucune société/qualité/marque).
  */
-export function genererTexte(lot: Lot, config: ConfigDemandeur, reference: string, pieces: Piece[]): TexteDemande {
+export function genererTexte(
+  lot: Lot, config: ConfigDemandeur, reference: string, pieces: Piece[], profil: ProfilDemandeur = 'entreprise',
+): TexteDemande {
   const n = lot.dossiers.length;
-  const objet = `Demande de communication de documents administratifs — ${lot.communeNom} — ${n} dossier(s) — réf. ${reference}`;
 
   const lignesPieces = pieces.map((p) => `— la pièce ${p.code}${p.description ? `, ${p.description}` : ''} ;`).join('\n');
   const lignesDossiers = lot.dossiers.map((d) => {
@@ -199,8 +227,38 @@ export function genererTexte(lot: Lot, config: ConfigDemandeur, reference: strin
     }
     return segments.join(' — ');
   }).join('\n');
-  const tel = config.telephone.trim() !== '' ? `, téléphone ${config.telephone.trim()}` : '';
 
+  if (profil === 'personne') {
+    // ⚠️ DISCRÉTION (S7e correctif) : objet GÉNÉRIQUE et banal, SANS référence ni aucune chaîne dérivée de la marque
+    // (« SVAV », « Sans Vis-à-Vis »…). La référence sérialisée SVAV-DEM-… trahirait un traitement de masse et
+    // l'identité du système — ce que le profil « personne » existe justement pour éviter. Le suivi reste INTERNE
+    // (demande.reference inchangée en base / admin / journal). En-tête = Nom / adresse postale / e-mail uniquement,
+    // 1re personne, AUCUNE société, qualité ni marque. Signature = le seul nom.
+    const objet = 'Demande de communication de documents administratifs';
+    const enTete = [config.representantNom, config.siegeAdresse, config.emailContact]
+      .map((x) => x.trim()).filter((x) => x !== '').join('\n');
+    const corps = [
+      enTete,
+      '',
+      'Madame, Monsieur,',
+      '',
+      'En application des articles L311-1 et L311-9 3° du code des relations entre le public et l’administration, je demande communication, par voie électronique, des pièces suivantes pour chacun des dossiers listés ci-dessous :',
+      lignesPieces,
+      '',
+      'Dossiers concernés :',
+      lignesDossiers,
+      '',
+      'Je vous remercie de bien vouloir m’adresser ces documents à l’adresse électronique figurant en tête de la présente.',
+      '',
+      'Je vous prie d’agréer, Madame, Monsieur, l’expression de mes salutations distinguées.',
+      '',
+      config.representantNom.trim(),
+    ].join('\n');
+    return { objet, corps };
+  }
+
+  const objet = `Demande de communication de documents administratifs — ${lot.communeNom} — ${n} dossier(s) — réf. ${reference}`;
+  const tel = config.telephone.trim() !== '' ? `, téléphone ${config.telephone.trim()}` : '';
   const corps = [
     'Madame, Monsieur,',
     '',

@@ -24,6 +24,9 @@ export function BandeauIdentite({ problemes }: { problemes: string[] }) {
  */
 export function PlageParam({ param, bornes }: { param: ParamVeille; bornes?: Bornes }) {
   const style: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
+  if (param.type === 'enum') {
+    return <span style={style}>Choix : {(param.optionsEnum ?? []).join(' / ')}.</span>;
+  }
   if (param.type === 'texte') {
     return <span style={style}>Format : codes de pièces séparés par des virgules (ex. PC2, PC3).</span>;
   }

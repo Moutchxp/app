@@ -7,7 +7,7 @@
  *
  * La validation d'identité RÉUTILISE `problemesIdentite` (S7c) — elle n'est pas redéfinie ici.
  */
-import { problemesIdentite, type ConfigDemandeur } from './demande';
+import { problemesIdentite, type ConfigDemandeur, type ProfilDemandeur } from './demande';
 import type { ConfigVeille } from './veilleConfig';
 
 // ── Bornes issues des CHECK SQL (source unique) ──────────────────────────────
@@ -63,10 +63,32 @@ export const CHAMPS_IDENTITE: ChampIdentite[] = [
     aide: 'Téléphone de contact (facultatif). Ajouté à l’adresse de réponse uniquement s’il est renseigné.' },
 ];
 
-/** Retrouve la colonne d'un message `problemesIdentite` (« libellé : raison ») via son préfixe de libellé. */
+/**
+ * Champs du profil « personne physique » (S7e) : nom + adresse postale + e-mail SEULEMENT. Les colonnes sont partagées
+ * avec `config_demandeur` (representant_nom / siege_adresse / email_contact) mais les LIBELLÉS diffèrent (« nom »,
+ * « adresse postale ») et coïncident avec ceux de `problemesIdentite('personne')`. Raison sociale / forme / qualité :
+ * NI requis NI affichés pour ce profil.
+ */
+export const CHAMPS_PERSONNE: ChampIdentite[] = [
+  { cle: 'representantNom', colonne: 'representant_nom', libelle: 'nom',
+    aide: 'Votre nom (personne physique) : il identifie le demandeur et signe la demande. Aucune société n’est mentionnée.' },
+  { cle: 'siegeAdresse', colonne: 'siege_adresse', libelle: 'adresse postale', multiligne: true,
+    aide: 'Votre adresse postale : figure en tête de la demande comme domicile du demandeur.' },
+  { cle: 'emailContact', colonne: 'email_contact', libelle: 'e-mail de contact',
+    aide: 'Adresse de réponse : la mairie renverra les pièces à cette adresse (elle figure en tête de la demande).' },
+];
+
+/** Champs affichés/écrits pour un profil donné. */
+export function champsPourProfil(profil: ProfilDemandeur): ChampIdentite[] {
+  return profil === 'personne' ? CHAMPS_PERSONNE : CHAMPS_IDENTITE;
+}
+
+const TOUS_CHAMPS: ChampIdentite[] = [...CHAMPS_IDENTITE, ...CHAMPS_PERSONNE];
+
+/** Retrouve la colonne d'un message `problemesIdentite` (« libellé : raison ») via son libellé — tous profils. */
 export function colonneDepuisProbleme(probleme: string): string {
   const libelle = probleme.split(' : ')[0];
-  return CHAMPS_IDENTITE.find((c) => c.libelle === libelle)?.colonne ?? '';
+  return TOUS_CHAMPS.find((c) => c.libelle === libelle)?.colonne ?? '';
 }
 
 /** État du bandeau permanent : l'identité est-elle complète (→ les demandes peuvent passer en « prête ») ? */
@@ -86,8 +108,9 @@ export interface ParamVeille {
   cle: keyof ConfigVeille;
   libelle: string;
   unite: string;
-  type: 'entier' | 'texte';
+  type: 'entier' | 'texte' | 'enum';
   aide: string;
+  optionsEnum?: string[]; // pour type 'enum' : liste fermée des valeurs admises
 }
 
 /**
@@ -119,6 +142,8 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Ordre d’affichage de la catégorie (plus petit = affiché en premier). Réordonnable.' },
   { colonne: 'pieces_demandees', cle: 'piecesDemandees', libelle: 'Pièces demandées', unite: 'codes', type: 'texte',
     aide: 'Codes des pièces sollicitées dans le courrier (ex. PC2, PC3), séparés par des virgules.' },
+  { colonne: 'profil_demandeur_defaut', cle: 'profilDemandeurDefaut', libelle: 'Profil de demandeur par défaut', unite: '', type: 'enum', optionsEnum: ['entreprise', 'personne'],
+    aide: 'Profil (société / personne physique) appliqué par défaut à la création de nouvelles demandes.' },
 ];
 
 // ── Validation server-side (identique à l'écran) ─────────────────────────────
@@ -135,6 +160,7 @@ export type ResultatReglages =
 export function validerReglages(
   patch: { demandeur?: Record<string, unknown>; veille?: Record<string, unknown> },
   bornes: BornesParColonne,
+  profil: ProfilDemandeur = 'entreprise',
 ): ResultatReglages {
   const erreurs: ErreurReglage[] = [];
   const demandeur: Record<string, string> = {};
@@ -144,20 +170,20 @@ export function validerReglages(
     return { ok: false, erreurs: [{ colonne: '', message: 'aucun réglage à modifier' }] };
   }
 
-  // ── Identité ───────────────────────────────────────────────────────────────
+  // ── Identité (champs REQUIS selon le profil) ────────────────────────────────
   if (patch.demandeur !== undefined) {
     const cand: ConfigDemandeur = {
       raisonSociale: '', formeJuridique: '', siegeAdresse: '',
       representantNom: '', representantQualite: '', emailContact: '', telephone: '',
     };
-    for (const ch of CHAMPS_IDENTITE) {
+    for (const ch of champsPourProfil(profil)) {
       const v = patch.demandeur[ch.cle];
       if (v === undefined) continue;
       if (typeof v !== 'string') { erreurs.push({ colonne: ch.colonne, message: `${ch.libelle} : texte attendu` }); continue; }
       cand[ch.cle] = v;
       demandeur[ch.colonne] = v.trim();
     }
-    for (const probleme of problemesIdentite(cand)) {
+    for (const probleme of problemesIdentite(cand, profil)) {
       erreurs.push({ colonne: colonneDepuisProbleme(probleme), message: probleme });
     }
   }
@@ -167,6 +193,14 @@ export function validerReglages(
     for (const [cle, valeur] of Object.entries(patch.veille)) {
       const param = PARAMS_VEILLE.find((p) => p.colonne === cle);
       if (!param) { erreurs.push({ colonne: cle, message: `paramètre inconnu « ${cle} »` }); continue; }
+      if (param.type === 'enum') {
+        const options = param.optionsEnum ?? [];
+        if (typeof valeur !== 'string' || !options.includes(valeur)) {
+          erreurs.push({ colonne: cle, message: `${param.libelle} : valeur hors liste fermée {${options.join(', ')}}` }); continue;
+        }
+        veille[cle] = valeur;
+        continue;
+      }
       if (param.type === 'texte') {
         if (typeof valeur !== 'string') { erreurs.push({ colonne: cle, message: `${param.libelle} : texte attendu` }); continue; }
         const codes = valeur.split(',').map((s) => s.trim()).filter((s) => s !== '');

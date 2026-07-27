@@ -55,4 +55,12 @@ describe('S7d — PlageParam (bornes = base)', () => {
     const h = renderToStaticMarkup(createElement(PlageParam, { param: anc, bornes: undefined }));
     expect(h).toContain('introuvable');
   });
+
+  it('paramètre enum (profil par défaut) → liste les choix, pas de plage numérique', () => {
+    const prof = PARAMS_VEILLE.find((p) => p.colonne === 'profil_demandeur_defaut')!;
+    const h = renderToStaticMarkup(createElement(PlageParam, { param: prof, bornes: undefined }));
+    expect(h).toContain('entreprise');
+    expect(h).toContain('personne');
+    expect(h).not.toContain('Plage autorisée');
+  });
 });

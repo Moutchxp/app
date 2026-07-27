@@ -114,3 +114,35 @@ describe('S7d — validation des paramètres moteur (plage = CHECK base)', () =>
     expect(res.ok).toBe(false);
   });
 });
+
+describe('S7e — validation par profil + profil par défaut', () => {
+  const PERS = { representantNom: 'Jean Dupont', siegeAdresse: '12 rue des Lilas, 92000 Nanterre', emailContact: 'jean.dupont@exemple.fr' };
+
+  it('« personne » : identité nom+adresse+e-mail acceptée SANS raison sociale', () => {
+    const res = validerReglages({ demandeur: PERS }, BORNES, 'personne');
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.demandeur.representant_nom).toBe('Jean Dupont');
+      expect(res.demandeur.email_contact).toBe('jean.dupont@exemple.fr');
+    }
+  });
+
+  it('« personne » : nom manquant refusé, nommé « nom »', () => {
+    const res = validerReglages({ demandeur: { ...PERS, representantNom: '' } }, BORNES, 'personne');
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.erreurs.some((e) => e.colonne === 'representant_nom' && /nom : requis/.test(e.message))).toBe(true);
+  });
+
+  it('« entreprise » : la même saisie (sans raison sociale) est refusée', () => {
+    const res = validerReglages({ demandeur: PERS }, BORNES, 'entreprise');
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.erreurs.some((e) => e.colonne === 'raison_sociale')).toBe(true);
+  });
+
+  it('profil_demandeur_defaut : valeur de la liste acceptée, hors-liste refusée', () => {
+    const ok = validerReglages({ veille: { profil_demandeur_defaut: 'personne' } }, BORNES);
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.veille.profil_demandeur_defaut).toBe('personne');
+    expect(validerReglages({ veille: { profil_demandeur_defaut: 'anonyme' } }, BORNES).ok).toBe(false);
+  });
+});

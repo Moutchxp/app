@@ -18,6 +18,7 @@ export interface ConfigVeille {
   demandesParCommuneParMois: number;
   piecesDemandees: string;
   ancienneteMaxDemandeAnnees: number;
+  profilDemandeurDefaut: string;
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -34,6 +35,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   demandesParCommuneParMois: 1,
   piecesDemandees: 'PC2,PC3',
   ancienneteMaxDemandeAnnees: 3,
+  profilDemandeurDefaut: 'entreprise',
 };
 
 interface LigneConfigVeille {
@@ -49,6 +51,7 @@ interface LigneConfigVeille {
   demandes_par_commune_par_mois: number;
   pieces_demandees: string;
   anciennete_max_demande_annees: number;
+  profil_demandeur_defaut: string;
 }
 
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
@@ -57,7 +60,8 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
     const res = await query<LigneConfigVeille>(
       `SELECT seuil_logements_immeuble, seuil_surface_immeuble_m2, annees_par_defaut,
               rang_immeuble_neuf, rang_surelevation, rang_construction_neuve, rang_extension, rang_demolition,
-              dossiers_par_demande, demandes_par_commune_par_mois, pieces_demandees, anciennete_max_demande_annees
+              dossiers_par_demande, demandes_par_commune_par_mois, pieces_demandees, anciennete_max_demande_annees,
+              profil_demandeur_defaut
        FROM config_veille WHERE id = 1`,
     );
     const r = res.rows[0];
@@ -75,6 +79,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       demandesParCommuneParMois: r.demandes_par_commune_par_mois,
       piecesDemandees: r.pieces_demandees,
       ancienneteMaxDemandeAnnees: r.anciennete_max_demande_annees,
+      profilDemandeurDefaut: r.profil_demandeur_defaut,
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

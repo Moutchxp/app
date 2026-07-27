@@ -1,11 +1,12 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
-import { lireDemande, majCorps, changerStatut, IdentiteIncompleteError } from '../../../../../../lib/sitadel/demandeRepo';
+import { lireDemande, majCorps, changerStatut, changerProfil, IdentiteIncompleteError, TransitionInterditeError } from '../../../../../../lib/sitadel/demandeRepo';
 
 /**
- * /api/admin/permis/demandes/[id] (chantier S7). GET = détail (texte éditable + dossiers + destinataire figé).
- * PATCH = édite le corps/objet (brouillon) OU change le statut ('prete' | 'abandonnee'). Passer 'prete' est BLOQUÉ
- * (409 + champs) si l'identité du demandeur est incomplète. AUCUN ENVOI ('envoyee' non gérée ici). Runtime Node.
+ * /api/admin/permis/demandes/[id] (chantier S7 / S7e). GET = détail (texte éditable + dossiers + destinataire figé).
+ * PATCH = édite le corps/objet (brouillon), OU change le statut ('prete'|'abandonnee'), OU bascule le profil
+ * ('entreprise'|'personne'). Passer 'prete' est BLOQUÉ (409 + champs) si l'identité DU PROFIL est incomplète ; basculer
+ * le profil hors brouillon est BLOQUÉ (409 + raison). AUCUN ENVOI ('envoyee' non gérée ici). Runtime Node.
  */
 export const runtime = 'nodejs';
 
@@ -31,9 +32,16 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const id = await idDe(context);
   if (!Number.isInteger(id)) return Response.json({ erreur: 'id invalide' }, { status: 400 });
   try {
-    const corps = (await request.json()) as { corps?: unknown; objet?: unknown; statut?: unknown };
-    if (corps.statut === 'prete' || corps.statut === 'abandonnee') {
-      const auteur = garde.auteurId === null ? null : String(garde.auteurId);
+    const corps = (await request.json()) as { corps?: unknown; objet?: unknown; statut?: unknown; profil?: unknown };
+    const auteur = garde.auteurId === null ? null : String(garde.auteurId);
+    if (corps.profil === 'entreprise' || corps.profil === 'personne') {
+      try {
+        await changerProfil(id, corps.profil, auteur);
+      } catch (e) {
+        if (e instanceof TransitionInterditeError) return Response.json({ erreur: e.raison }, { status: 409 });
+        throw e;
+      }
+    } else if (corps.statut === 'prete' || corps.statut === 'abandonnee') {
       try {
         await changerStatut(id, corps.statut, auteur);
       } catch (e) {

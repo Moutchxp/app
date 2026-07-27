@@ -205,3 +205,92 @@ describe('Sitadel S7b — interface (détail cliquable, action groupée, explica
     expect(expliquerProposition(2, diag)).toBe('');
   });
 });
+
+describe('Sitadel S7e — deux profils de demandeur', () => {
+  // Identité « société » qui renseigne TOUS les champs distinctifs (pour prouver leur ABSENCE dans le corps personne).
+  const CONF_SOC: ConfigDemandeur = {
+    raisonSociale: 'CritérImmoZZZ', formeJuridique: 'SASU-XYZ', siegeAdresse: '191 av. Charles de Gaulle, 92200 Neuilly',
+    representantNom: 'Alix Jorel', representantQualite: 'PrésidentQQ', emailContact: 'contact@sansvisavis.com', telephone: '01 23 45 67 89',
+  };
+  // Identité « personne physique » : nom + adresse + e-mail (e-mail SANS « sansvisavis »).
+  const CONF_PERS: ConfigDemandeur = {
+    raisonSociale: '', formeJuridique: '', siegeAdresse: '12 rue des Lilas, 92000 Nanterre',
+    representantNom: 'Jean Dupont', representantQualite: '', emailContact: 'jean.dupont@exemple.fr', telephone: '',
+  };
+  const lot: Lot = { codeInsee: '92050', communeNom: 'Nanterre', canal: 'email', dossiers: [cand({ numDau: 'PC0001' }), cand({ numDau: 'PC0002' })] };
+  const pieces = piecesDepuisConfig('PC2,PC3');
+  const INTERDITS = /\b(motif|parce que|afin de|en vue de|pour (notre|nos|mon|mes|le compte)|justif|intérêt|usage|raison de la demande)\b/i;
+  const DATE_FR = /\b\d{1,2}\s+(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s+\d{4}\b/i;
+
+  it('corps « personne » : AUCUNE valeur de société (raison sociale / forme / qualité) ni « sansvisavis »', () => {
+    const { corps } = genererTexte(lot, CONF_PERS, 'SVAV-DEM-2026-000100', pieces, 'personne');
+    // même en fournissant une config qui les renseigne, le modèle personne ne doit pas les utiliser :
+    const { corps: corpsAvecSoc } = genererTexte(lot, { ...CONF_PERS, raisonSociale: 'CritérImmoZZZ', formeJuridique: 'SASU-XYZ', representantQualite: 'PrésidentQQ' }, 'SVAV-DEM-2026-000101', pieces, 'personne');
+    for (const c of [corps, corpsAvecSoc]) {
+      expect(c).not.toContain('CritérImmoZZZ');
+      expect(c).not.toContain('SASU-XYZ');
+      expect(c).not.toContain('PrésidentQQ');
+      expect(c.toLowerCase()).not.toContain('sansvisavis');
+    }
+    // en-tête présent (nom / adresse / e-mail) + signature = le nom
+    expect(corps).toContain('Jean Dupont');
+    expect(corps).toContain('jean.dupont@exemple.fr');
+    expect(corps).toContain('12 rue des Lilas, 92000 Nanterre');
+  });
+
+  it('les deux modèles diffèrent sur les MÊMES dossiers', () => {
+    const soc = genererTexte(lot, CONF_SOC, 'SVAV-DEM-2026-000102', pieces, 'entreprise').corps;
+    const per = genererTexte(lot, CONF_PERS, 'SVAV-DEM-2026-000102', pieces, 'personne').corps;
+    expect(soc).not.toBe(per);
+    expect(soc).toContain('représentée par'); // marque du modèle société
+    expect(per).not.toContain('représentée par');
+    expect(soc).toContain('PC0001');
+    expect(per).toContain('PC0001'); // mêmes dossiers dans les deux
+  });
+
+  it('AUCUN motif dans l’un ni l’autre modèle', () => {
+    expect(genererTexte(lot, CONF_SOC, 'SVAV-DEM-2026-000103', pieces, 'entreprise').corps).not.toMatch(INTERDITS);
+    expect(genererTexte(lot, CONF_PERS, 'SVAV-DEM-2026-000103', pieces, 'personne').corps).not.toMatch(INTERDITS);
+  });
+
+  it('AUCUNE date-calendrier dans le corps (la date est apposée à l’envoi) — les deux modèles', () => {
+    // dossiers sans date d'autorisation → aucune date ne doit apparaître dans le corps généré.
+    const lotSansDate: Lot = { ...lot, dossiers: [cand({ numDau: 'PCX', dateReelleAutorisation: null })] };
+    expect(genererTexte(lotSansDate, CONF_SOC, 'SVAV-DEM-2026-000104', pieces, 'entreprise').corps).not.toMatch(DATE_FR);
+    expect(genererTexte(lotSansDate, CONF_PERS, 'SVAV-DEM-2026-000104', pieces, 'personne').corps).not.toMatch(DATE_FR);
+  });
+
+  it('problemesIdentite : « personne » accepte une identité SANS raison sociale ; « entreprise » la refuse toujours', () => {
+    expect(problemesIdentite(CONF_PERS, 'personne')).toEqual([]);
+    const e = problemesIdentite(CONF_PERS, 'entreprise');
+    expect(e).toContain('raison sociale : requis');
+    // « personne » exige quand même nom + adresse + e-mail :
+    expect(problemesIdentite({ ...CONF_PERS, representantNom: '' }, 'personne')).toContain('nom : requis');
+    expect(problemesIdentite({ ...CONF_PERS, emailContact: 'pas-un-mail' }, 'personne')).toContain('e-mail de contact : format invalide');
+  });
+
+  it('« personne » : ni la référence SVAV, ni la marque, ne fuitent dans l’objet ou le corps (casse insensible)', () => {
+    const ref = 'SVAV-DEM-2026-000123';
+    const per = genererTexte(lot, CONF_PERS, ref, pieces, 'personne');
+    for (const t of [per.objet, per.corps]) {
+      const b = t.toLowerCase();
+      expect(b).not.toContain('svav');
+      expect(b).not.toContain(ref.toLowerCase());
+      expect(b).not.toContain('sansvisavis');
+      expect(b).not.toContain('sans vis-à-vis');
+    }
+    expect(per.objet).toBe('Demande de communication de documents administratifs'); // objet générique, banal
+    // symétrie : le profil « entreprise » contient TOUJOURS la référence dans son objet
+    const soc = genererTexte(lot, CONF_SOC, ref, pieces, 'entreprise');
+    expect(soc.objet).toContain(ref);
+    expect(soc.objet.toUpperCase()).toContain('SVAV');
+  });
+
+  it('l’instantané figé du modèle « entreprise » est INCHANGÉ (défaut = entreprise)', () => {
+    // genererTexte sans profil == profil 'entreprise' (compat) — le texte société n'a pas bougé.
+    const sansProfil = genererTexte(lot, CONF_SOC, 'SVAV-DEM-2026-000105', pieces).corps;
+    const avecEntreprise = genererTexte(lot, CONF_SOC, 'SVAV-DEM-2026-000105', pieces, 'entreprise').corps;
+    expect(sansProfil).toBe(avecEntreprise);
+    expect(sansProfil).toContain('l’expression de ma considération distinguée.');
+  });
+});
