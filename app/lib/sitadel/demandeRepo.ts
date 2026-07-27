@@ -7,8 +7,8 @@ import { query, withTransaction } from '../db/client';
 import type { ConfigVeille } from './veilleConfig';
 import { lireDossiersPriorite, type DossierAffiche } from './veilleRepo';
 import {
-  type CandidatDossier, type ConfigDemandeur, type Lot, type HistoriqueDemandes, type DiagnosticProposition,
-  proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande, identiteManquante,
+  type CandidatDossier, type ConfigDemandeur, type Lot, type HistoriqueDemandes, type DiagnosticProposition, type ParamsLot,
+  proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande, problemesIdentite,
 } from './demande';
 
 type Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>;
@@ -22,8 +22,18 @@ function adresseDe(d: DossierAffiche): string {
 function versCandidat(d: DossierAffiche): CandidatDossier {
   return {
     dossierId: d.id, codeInsee: d.codeInsee, communeNom: d.communeNom, canal: d.destCanal,
-    numDau: d.numDau, dateReelleAutorisation: d.dateReelleAutorisation, adresse: adresseDe(d), cadastre: d.cadastre,
+    numDau: d.numDau, dateReelleAutorisation: d.dateReelleAutorisation, adresse: adresseDe(d), codePostal: d.adrCodpostTer, cadastre: d.cadastre,
   };
+}
+
+/** Borne d'ancienneté : aujourd'hui − `annees` (format 'AAAA-MM-JJ'). Au-delà, la hauteur est déjà mesurée au LiDAR. */
+function dateMinDepuis(annees: number): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - annees);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function paramsLot(cfg: ConfigVeille): ParamsLot {
+  return { dossiersParDemande: cfg.dossiersParDemande, demandesParCommuneParMois: cfg.demandesParCommuneParMois, dateMin: dateMinDepuis(cfg.ancienneteMaxDemandeAnnees) };
 }
 
 export async function lireConfigDemandeur(): Promise<ConfigDemandeur> {
@@ -53,29 +63,30 @@ async function lireHistorique(): Promise<HistoriqueDemandes> {
   };
 }
 
-/** Compteurs expliquant l'absence de lots — calculés à partir des MÊMES candidats/historique (sans toucher proposerLots). */
-function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDemandes, cfg: ConfigVeille): DiagnosticProposition {
+/** Compteurs expliquant l'absence de lots — MÊME logique d'exclusion que proposerLots (sans le toucher). */
+function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDemandes, params: ParamsLot): DiagnosticProposition {
   const sansCanal = new Set<string>();
   const parCommune = new Map<string, number>();
-  let rattaches = 0;
+  let rattaches = 0, horsFenetre = 0;
   for (const d of candidats) {
+    if (d.dateReelleAutorisation === null || (params.dateMin !== null && d.dateReelleAutorisation < params.dateMin)) { horsFenetre += 1; continue; }
     if (hist.dejaRattaches.has(d.dossierId)) { rattaches += 1; continue; }
     if (d.communeNom === null || d.canal === null || d.canal === 'inconnu') { sansCanal.add(d.codeInsee); continue; }
     parCommune.set(d.codeInsee, (parCommune.get(d.codeInsee) ?? 0) + 1);
   }
   let plafond = 0;
   for (const code of parCommune.keys()) {
-    if (cfg.demandesParCommuneParMois - (hist.demandesCeMoisParCommune.get(code) ?? 0) <= 0) plafond += 1;
+    if (params.demandesParCommuneParMois - (hist.demandesCeMoisParCommune.get(code) ?? 0) <= 0) plafond += 1;
   }
-  return { candidatsExamines: candidats.length, dossiersDejaRattaches: rattaches, communesSansCanal: sansCanal.size, communesPlafondMensuel: plafond };
+  return { candidatsExamines: candidats.length, dossiersHorsFenetre: horsFenetre, dossiersDejaRattaches: rattaches, communesSansCanal: sansCanal.size, communesPlafondMensuel: plafond };
 }
 
 /** Lots PROPOSÉS (aucune écriture) + diagnostic (pour expliquer un « 0 lot ») — pour revue avant création. */
 export async function proposition(cfg: ConfigVeille): Promise<{ lots: Lot[]; diagnostic: DiagnosticProposition }> {
   const [dossiers, hist] = await Promise.all([lireDossiersPriorite(cfg, NB_CANDIDATS), lireHistorique()]);
   const candidats = dossiers.map(versCandidat);
-  const lots = proposerLots(candidats, { dossiersParDemande: cfg.dossiersParDemande, demandesParCommuneParMois: cfg.demandesParCommuneParMois }, hist);
-  return { lots, diagnostic: diagnostiquer(candidats, hist, cfg) };
+  const params = paramsLot(cfg);
+  return { lots: proposerLots(candidats, params, hist), diagnostic: diagnostiquer(candidats, hist, params) };
 }
 
 /** Attribue une référence SVAV-DEM-AAAA-NNNNNN (compteur atomique, verrou de ligne). */
@@ -146,7 +157,7 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; iden
   for (const s of rs.rows) parStatut[s.statut] = s.n;
   return {
     demandes: r.rows.map((x) => ({ id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal, nbDossiers: x.nb, statut: x.statut, creeLe: x.cree_le })),
-    identiteManquante: identiteManquante(await lireConfigDemandeur()),
+    identiteManquante: problemesIdentite(await lireConfigDemandeur()),
     resume: { parStatut, total: r.rows.length, dossiersCouverts: rd.rows[0]?.n ?? 0 },
   };
 }
@@ -199,7 +210,7 @@ export async function changerStatut(id: number, nouveau: 'prete' | 'abandonnee',
 export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'abandonnee', auteur: string | null): Promise<void> {
   if (ids.length === 0) return;
   if (nouveau === 'prete') {
-    const manque = identiteManquante(await lireConfigDemandeur());
+    const manque = problemesIdentite(await lireConfigDemandeur());
     if (manque.length > 0) throw new IdentiteIncompleteError(manque); // aucune écriture
   }
   const motif = ids.length > 1 ? 'transition (lot)' : 'transition';

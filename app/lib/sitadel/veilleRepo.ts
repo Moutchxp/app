@@ -23,6 +23,7 @@ export interface DossierAffiche {
   adrNumTer: string | null;
   adrLibvoieTer: string | null;
   adrLocaliteTer: string | null;
+  adrCodpostTer: string | null;
   cadastre: string[]; // 0..3 références « SEC NUM »
   communeNom: string | null; // nom depuis le référentiel commune (NULL si code orphelin → « commune inconnue »)
   destEmail: string | null;
@@ -71,7 +72,7 @@ function versAffiche(r: LigneSql, c: ConfigVeille): DossierAffiche {
   return {
     id: r.id, type: r.type, numDau: r.num_dau, codeInsee: r.code_insee, departement: r.departement,
     dateReelleAutorisation: r.date_reelle_autorisation, surfCreee: surf, superficieTerrain: r.superficie_terrain,
-    nbLgtTotCrees: r.nb_lgt_tot_crees, adrNumTer: r.adr_num_ter, adrLibvoieTer: r.adr_libvoie_ter, adrLocaliteTer: r.adr_localite_ter,
+    nbLgtTotCrees: r.nb_lgt_tot_crees, adrNumTer: r.adr_num_ter, adrLibvoieTer: r.adr_libvoie_ter, adrLocaliteTer: r.adr_localite_ter, adrCodpostTer: r.adr_codpost_ter,
     cadastre: refsCadastre(r), communeNom: r.commune_nom, destEmail: r.dest_email, destStatut: r.dest_statut,
     destCanal: r.dest_canal, destUrlFormulaire: r.dest_url_formulaire, destAdressePostale: r.dest_adresse_postale,
     categorie: cl.cle, libelleCategorie: cl.libelle, rang: cl.rang,
