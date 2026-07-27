@@ -7,11 +7,15 @@
 
 export type SourceContact = 'annuaire' | 'saisie_manuelle' | 'reponse_mairie';
 export type StatutContact = 'presume' | 'confirme' | 'invalide';
+export type CanalContact = 'email' | 'formulaire' | 'courrier' | 'inconnu';
 
 export interface ContactExistant {
   email: string | null;
   source: SourceContact;
   statut: StatutContact;
+  canal: CanalContact;
+  urlFormulaire: string | null;
+  adressePostale: string | null;
 }
 
 // ── Validation & choix d'adresse (pur) ───────────────────────────────────────
@@ -67,15 +71,32 @@ export function doitRemplacerDepuisAnnuaire(existant: ContactExistant | null): b
   return existant.source === 'annuaire' && existant.statut !== 'confirme';
 }
 
+// ── Cohérence canal ↔ champ obligatoire (miroir applicatif du CHECK SQL) ─────
+/**
+ * Valide qu'un canal porte son champ obligatoire : 'email' → e-mail valide ; 'formulaire' → URL http(s) ;
+ * 'courrier' → adresse postale non vide ; 'inconnu' → aucun champ requis. Renvoie `null` si valide, sinon le motif.
+ */
+export function validerCanal(
+  canal: CanalContact,
+  champs: { email?: string | null; urlFormulaire?: string | null; adressePostale?: string | null },
+): string | null {
+  const nv = (s: string | null | undefined): string => (s ?? '').trim();
+  if (canal === 'email') return emailValide(nv(champs.email)) ? null : 'e-mail invalide';
+  if (canal === 'formulaire') return /^https?:\/\/\S+$/.test(nv(champs.urlFormulaire)) ? null : 'URL de formulaire invalide';
+  if (canal === 'courrier') return nv(champs.adressePostale) !== '' ? null : 'adresse postale requise';
+  return null; // 'inconnu' : aucun champ requis
+}
+
 // ── Écriture journalisée (q-injecté) ─────────────────────────────────────────
 export type Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>;
 
 /** Lit le contact courant d'une commune (pour la règle d'import et l'email_avant du journal). `null` si aucun. */
 export async function lireContact(q: Requete, codeInsee: string): Promise<ContactExistant | null> {
-  const r = await q<{ email: string | null; source: SourceContact; statut: StatutContact }>(
-    `SELECT email, source, statut FROM mairie_contact WHERE code_insee = $1`, [codeInsee],
+  const r = await q<{ email: string | null; source: SourceContact; statut: StatutContact; canal: CanalContact; url_formulaire: string | null; adresse_postale: string | null }>(
+    `SELECT email, source, statut, canal, url_formulaire, adresse_postale FROM mairie_contact WHERE code_insee = $1`, [codeInsee],
   );
-  return r.rows[0] ?? null;
+  const x = r.rows[0];
+  return x ? { email: x.email, source: x.source, statut: x.statut, canal: x.canal, urlFormulaire: x.url_formulaire, adressePostale: x.adresse_postale } : null;
 }
 
 export interface EcritureContact {
@@ -83,6 +104,9 @@ export interface EcritureContact {
   email: string | null;
   source: SourceContact;
   statut: StatutContact;
+  canal: CanalContact;
+  urlFormulaire?: string | null;
+  adressePostale?: string | null;
   motif: string;
   auteur: string | null;
   note?: string | null;
@@ -95,8 +119,11 @@ export interface EcritureContact {
  * (l'appelant fournit un `q` transactionnel). Retourne `{ change }`.
  */
 export async function ecrireContact(q: Requete, e: EcritureContact): Promise<{ change: boolean }> {
+  const url = e.urlFormulaire ?? null;
+  const adr = e.adressePostale ?? null;
   const avant = await lireContact(q, e.codeInsee);
-  const inchange = avant !== null && avant.email === e.email && avant.source === e.source && avant.statut === e.statut;
+  const inchange = avant !== null && avant.email === e.email && avant.source === e.source && avant.statut === e.statut
+    && avant.canal === e.canal && avant.urlFormulaire === url && avant.adressePostale === adr;
   if (inchange) return { change: false };
 
   await q(
@@ -105,11 +132,12 @@ export async function ecrireContact(q: Requete, e: EcritureContact): Promise<{ c
     [e.codeInsee, avant?.email ?? null, e.email, e.source, e.motif, e.auteur],
   );
   await q(
-    `INSERT INTO mairie_contact (code_insee, email, source, statut, maj_le, note)
-     VALUES ($1, $2, $3, $4, now(), $5)
+    `INSERT INTO mairie_contact (code_insee, email, source, statut, canal, url_formulaire, adresse_postale, maj_le, note)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8)
      ON CONFLICT (code_insee) DO UPDATE SET
-       email = EXCLUDED.email, source = EXCLUDED.source, statut = EXCLUDED.statut, maj_le = now(), note = EXCLUDED.note`,
-    [e.codeInsee, e.email, e.source, e.statut, e.note ?? null],
+       email = EXCLUDED.email, source = EXCLUDED.source, statut = EXCLUDED.statut, canal = EXCLUDED.canal,
+       url_formulaire = EXCLUDED.url_formulaire, adresse_postale = EXCLUDED.adresse_postale, maj_le = now(), note = EXCLUDED.note`,
+    [e.codeInsee, e.email, e.source, e.statut, e.canal, url, adr, e.note ?? null],
   );
   return { change: true };
 }

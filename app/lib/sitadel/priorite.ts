@@ -136,7 +136,8 @@ const SELECTION =
   `d.nature_projet_completee, d.i_extension, d.i_surelevation, d.nb_lgt_tot_crees, d.surf_creee, d.superficie_terrain, ` +
   `d.adr_num_ter, d.adr_libvoie_ter, d.adr_lieudit_ter, d.adr_localite_ter, d.adr_codpost_ter, ` +
   `d.sec_cadastre1, d.num_cadastre1, d.sec_cadastre2, d.num_cadastre2, d.sec_cadastre3, d.num_cadastre3, ` +
-  `c.nom AS commune_nom, mc.email AS dest_email, mc.statut AS dest_statut`;
+  `c.nom AS commune_nom, mc.email AS dest_email, mc.statut AS dest_statut, ` +
+  `mc.canal AS dest_canal, mc.url_formulaire AS dest_url_formulaire, mc.adresse_postale AS dest_adresse_postale`;
 
 /**
  * Clauses WHERE des filtres, poussant leurs paramètres dans `params`. `rangExpr` (déjà construit et paramétré) est requis
@@ -166,7 +167,7 @@ function clausesWhere(f: FiltresPermis, params: unknown[], rangExpr: string | nu
       `OR word_similarity(${add(q)}, d.adr_libvoie_ter) >= ${SIMILARITE_VOIE})`,
     );
   }
-  if (f.sansDestinataire) cl.push('mc.email IS NULL'); // non adressable (commune inconnue OU sans e-mail)
+  if (f.sansDestinataire) cl.push("mc.canal = 'inconnu'"); // non adressable = canal inconnu (S5b) — PAS les orphelins
   if (f.rang != null && rangExpr) cl.push(`${rangExpr} = ${add(f.rang)}`);
   return cl.length ? `WHERE ${cl.join(' AND ')}` : '';
 }

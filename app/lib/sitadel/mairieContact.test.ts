@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   type ContactExistant, type Requete, type EcritureContact,
-  emailValide, choisirEmail, extraireEmailMairie, doitRemplacerDepuisAnnuaire, ecrireContact,
+  emailValide, choisirEmail, extraireEmailMairie, doitRemplacerDepuisAnnuaire, ecrireContact, validerCanal,
 } from './mairieContact';
+
+/** Contact existant avec valeurs par défaut de canal (S5b), surchargeable. */
+const existant = (o: Partial<ContactExistant> & Pick<ContactExistant, 'email' | 'source' | 'statut'>): ContactExistant =>
+  ({ canal: 'email', urlFormulaire: null, adressePostale: null, ...o });
 
 describe('Sitadel S5 — validation & choix d’adresse', () => {
   it('emailValide : accepte une adresse simple, refuse les malformées', () => {
@@ -32,7 +36,7 @@ describe('Sitadel S5 — validation & choix d’adresse', () => {
 });
 
 describe('Sitadel S5 — règle de non-écrasement à l’import', () => {
-  const cas = (source: ContactExistant['source'], statut: ContactExistant['statut']): ContactExistant => ({ email: 'x@y.fr', source, statut });
+  const cas = (source: ContactExistant['source'], statut: ContactExistant['statut']): ContactExistant => existant({ email: 'x@y.fr', source, statut });
   it('remplace : commune sans contact, ou source=annuaire non confirmée', () => {
     expect(doitRemplacerDepuisAnnuaire(null)).toBe(true);
     expect(doitRemplacerDepuisAnnuaire(cas('annuaire', 'presume'))).toBe(true);
@@ -43,23 +47,43 @@ describe('Sitadel S5 — règle de non-écrasement à l’import', () => {
     expect(doitRemplacerDepuisAnnuaire(cas('saisie_manuelle', 'presume'))).toBe(false);
     expect(doitRemplacerDepuisAnnuaire(cas('reponse_mairie', 'confirme'))).toBe(false);
   });
+  it('S5b — un import annuaire ne redescend JAMAIS un « courrier » confirmé (Paris) vers e-mail', () => {
+    const paris = existant({ email: null, source: 'saisie_manuelle', statut: 'confirme', canal: 'courrier', adressePostale: 'BASU…' });
+    expect(doitRemplacerDepuisAnnuaire(paris)).toBe(false);
+  });
+});
+
+describe('Sitadel S5b — cohérence canal ↔ champ obligatoire', () => {
+  it('accepte chaque canal AVEC son champ', () => {
+    expect(validerCanal('email', { email: 'contact@ville.fr' })).toBeNull();
+    expect(validerCanal('formulaire', { urlFormulaire: 'https://ville.fr/urba' })).toBeNull();
+    expect(validerCanal('courrier', { adressePostale: '1 place de la Mairie' })).toBeNull();
+    expect(validerCanal('inconnu', {})).toBeNull();
+  });
+  it('REJETTE un canal sans son champ obligatoire', () => {
+    expect(validerCanal('email', { email: '' })).not.toBeNull();
+    expect(validerCanal('email', { adressePostale: 'x' })).not.toBeNull();          // champ voisin ≠ e-mail
+    expect(validerCanal('formulaire', { urlFormulaire: 'pas-une-url' })).not.toBeNull();
+    expect(validerCanal('courrier', { adressePostale: '   ' })).not.toBeNull();
+  });
 });
 
 describe('Sitadel S5 — écriture journalisée & idempotence', () => {
-  /** Mock : registre + journal en mémoire, émulant lireContact / INSERT journal / upsert. */
-  function fauxDepot(initial: ContactExistant | null = null) {
-    const registre = new Map<string, ContactExistant>();
-    if (initial) registre.set('92050', initial);
+  type Row = { email: string | null; source: string; statut: string; canal: string; url_formulaire: string | null; adresse_postale: string | null };
+  /** Mock : registre + journal en mémoire, émulant lireContact (SELECT) / INSERT journal / upsert. */
+  function fauxDepot(initial: Partial<Row> & Pick<Row, 'email' | 'source' | 'statut'> | null = null) {
+    const registre = new Map<string, Row>();
+    if (initial) registre.set('92050', { canal: 'email', url_formulaire: null, adresse_postale: null, ...initial });
     const journal: unknown[][] = [];
     const q: Requete = (async (text: string, params?: unknown[]) => {
       const p = params ?? [];
-      if (text.includes('SELECT email, source, statut FROM mairie_contact')) {
+      if (text.includes('SELECT email, source, statut')) {
         const c = registre.get(String(p[0]));
         return { rows: c ? [c] : [] };
       }
       if (text.includes('INSERT INTO mairie_contact_journal')) { journal.push([...p]); return { rows: [] }; }
       if (text.includes('INSERT INTO mairie_contact')) {
-        registre.set(String(p[0]), { email: p[1] as string | null, source: p[2] as ContactExistant['source'], statut: p[3] as ContactExistant['statut'] });
+        registre.set(String(p[0]), { email: p[1] as string | null, source: p[2] as string, statut: p[3] as string, canal: p[4] as string, url_formulaire: p[5] as string | null, adresse_postale: p[6] as string | null });
         return { rows: [] };
       }
       return { rows: [] };
@@ -67,7 +91,7 @@ describe('Sitadel S5 — écriture journalisée & idempotence', () => {
     return { q, registre, journal };
   }
   const annuaire = (code: string, email: string): EcritureContact =>
-    ({ codeInsee: code, email, source: 'annuaire', statut: 'presume', motif: 'import annuaire', auteur: null });
+    ({ codeInsee: code, email, source: 'annuaire', statut: 'presume', canal: 'email', motif: 'import annuaire', auteur: null });
 
   it('premier renseignement : écrit EXACTEMENT une ligne de journal', async () => {
     const { q, journal } = fauxDepot(null);
@@ -95,7 +119,7 @@ describe('Sitadel S5 — écriture journalisée & idempotence', () => {
 
   it('correction manuelle sur une ligne annuaire : journalisée (source/statut changent)', async () => {
     const { q, journal, registre } = fauxDepot({ email: 'contact@nanterre.fr', source: 'annuaire', statut: 'presume' });
-    const r = await ecrireContact(q, { codeInsee: '92050', email: 'contact@nanterre.fr', source: 'saisie_manuelle', statut: 'confirme', motif: 'correction', auteur: '7' });
+    const r = await ecrireContact(q, { codeInsee: '92050', email: 'contact@nanterre.fr', source: 'saisie_manuelle', statut: 'confirme', canal: 'email', motif: 'correction', auteur: '7' });
     expect(r.change).toBe(true);           // même email mais source/statut changent
     expect(journal).toHaveLength(1);
     expect(registre.get('92050')).toMatchObject({ source: 'saisie_manuelle', statut: 'confirme' });

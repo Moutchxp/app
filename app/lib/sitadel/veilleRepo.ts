@@ -25,8 +25,11 @@ export interface DossierAffiche {
   adrLocaliteTer: string | null;
   cadastre: string[]; // 0..3 références « SEC NUM »
   communeNom: string | null; // nom depuis le référentiel commune (NULL si code orphelin → « commune inconnue »)
-  destEmail: string | null; // e-mail mairie (NULL si commune inconnue OU sans contact → « sans destinataire »)
+  destEmail: string | null;
   destStatut: 'presume' | 'confirme' | 'invalide' | null;
+  destCanal: 'email' | 'formulaire' | 'courrier' | 'inconnu' | null; // NULL = commune inconnue (pas de ligne contact)
+  destUrlFormulaire: string | null;
+  destAdressePostale: string | null;
   categorie: CleCategorie;
   libelleCategorie: string;
   rang: number;
@@ -44,6 +47,9 @@ interface LigneSql {
   commune_nom: string | null;
   dest_email: string | null;
   dest_statut: 'presume' | 'confirme' | 'invalide' | null;
+  dest_canal: 'email' | 'formulaire' | 'courrier' | 'inconnu' | null;
+  dest_url_formulaire: string | null;
+  dest_adresse_postale: string | null;
 }
 
 const nombre = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -67,6 +73,7 @@ function versAffiche(r: LigneSql, c: ConfigVeille): DossierAffiche {
     dateReelleAutorisation: r.date_reelle_autorisation, surfCreee: surf, superficieTerrain: r.superficie_terrain,
     nbLgtTotCrees: r.nb_lgt_tot_crees, adrNumTer: r.adr_num_ter, adrLibvoieTer: r.adr_libvoie_ter, adrLocaliteTer: r.adr_localite_ter,
     cadastre: refsCadastre(r), communeNom: r.commune_nom, destEmail: r.dest_email, destStatut: r.dest_statut,
+    destCanal: r.dest_canal, destUrlFormulaire: r.dest_url_formulaire, destAdressePostale: r.dest_adresse_postale,
     categorie: cl.cle, libelleCategorie: cl.libelle, rang: cl.rang,
   };
 }

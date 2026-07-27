@@ -112,9 +112,11 @@ describe('Sitadel S3 — recherche par préfixe / troncature', () => {
     expect(params).toContain('ISSY-LES-MOULINEAUX%');     // préfixe numéro
   });
 
-  it('filtre « sans destinataire » : dossiers dont la mairie n’a pas d’e-mail (mc.email IS NULL)', () => {
-    expect(construireRequeteTotal({ ...FILTRES_VIDES, sansDestinataire: true }, C).texte).toContain('mc.email IS NULL');
-    expect(construireRequeteTotal({ ...FILTRES_VIDES, sansDestinataire: false }, C).texte).not.toContain('mc.email IS NULL');
+  it('filtre « sans destinataire » (S5b) : cible le canal INCONNU, pas email IS NULL (courrier/formulaire exclus)', () => {
+    const t = construireRequeteTotal({ ...FILTRES_VIDES, sansDestinataire: true }, C).texte;
+    expect(t).toContain("mc.canal = 'inconnu'");
+    expect(t).not.toContain('mc.email IS NULL'); // une commune 'courrier' n'est PLUS sans destinataire
+    expect(construireRequeteTotal({ ...FILTRES_VIDES, sansDestinataire: false }, C).texte).not.toContain("mc.canal = 'inconnu'");
   });
 
   it('la requête joint le registre mairie (LEFT JOIN, orphelin/sans contact non exclus)', () => {

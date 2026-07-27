@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { formaterDateJour, libelleCommune, type CleCategorie } from '../../../../lib/sitadel/priorite';
 import type { DossierAffiche, ResultatVeille } from '../../../../lib/sitadel/veilleRepo';
+import type { CanalContact } from '../../../../lib/sitadel/mairieContact';
 
 /**
  * Vue de la tuile « Permis de construire » (client) : filtres combinables + liste paginée CÔTÉ SERVEUR (jamais 29 670
@@ -20,6 +21,8 @@ interface Filtres {
 }
 
 const STATUT_LIBELLE: Record<string, string> = { presume: 'présumée', confirme: 'confirmée', invalide: 'invalide' };
+
+interface Edition { code: string; nom: string; canal: CanalContact; email: string; urlFormulaire: string; adressePostale: string; erreur: string }
 
 type Etat =
   | { statut: 'chargement' }
@@ -39,7 +42,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
   const [page, setPage] = useState(1);
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
   const [version, setVersion] = useState(0); // bumpé après une édition de contact → force le rechargement
-  const [edition, setEdition] = useState<{ code: string; nom: string; valeur: string; erreur: string } | null>(null);
+  const [edition, setEdition] = useState<Edition | null>(null);
 
   /** Toute modif de filtre remet la pagination à 1 (jamais de setState d'effet). */
   const maj = (patch: Partial<Filtres>): void => { setFiltres((f) => ({ ...f, ...patch })); setPage(1); };
@@ -47,15 +50,29 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
   const categoriesTriees = useMemo(() => [...categories].sort((a, b) => a.rang - b.rang), [categories]);
   const cle = JSON.stringify(filtres);
 
-  /** Enregistre la correction manuelle d'une adresse de commune (source=saisie_manuelle, statut=confirme) puis recharge. */
+  /** Ouvre l'éditeur de contact pour la commune d'un dossier (pré-rempli avec le canal/valeur courants). */
+  const ouvrirEdition = (d: DossierAffiche): void => setEdition({
+    code: d.codeInsee, nom: d.communeNom ?? d.codeInsee,
+    canal: d.destCanal ?? 'inconnu', email: d.destEmail ?? '',
+    urlFormulaire: d.destUrlFormulaire ?? '', adressePostale: d.destAdressePostale ?? '', erreur: '',
+  });
+
+  /** Enregistre la correction manuelle du contact (source=saisie_manuelle, statut=confirme) puis recharge. */
   async function enregistrerContact(): Promise<void> {
     if (!edition) return;
     try {
       const res = await fetch('/api/admin/permis/contact', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ codeInsee: edition.code, email: edition.valeur.trim() }),
+        body: JSON.stringify({
+          codeInsee: edition.code, canal: edition.canal,
+          email: edition.email.trim(), urlFormulaire: edition.urlFormulaire.trim(), adressePostale: edition.adressePostale.trim(),
+        }),
       });
-      if (!res.ok) { setEdition({ ...edition, erreur: 'Adresse refusée (format invalide).' }); return; }
+      if (!res.ok) {
+        const d = (await res.json().catch(() => ({}))) as { erreur?: string };
+        setEdition({ ...edition, erreur: d.erreur ? `Refusé : ${d.erreur}.` : 'Enregistrement refusé.' });
+        return;
+      }
       setEdition(null);
       setVersion((v) => v + 1);
     } catch {
@@ -152,12 +169,25 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
       {/* ── Édition manuelle d'une adresse de commune (source=saisie_manuelle, statut=confirme) ── */}
       {edition && (
         <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'center' }}>
-          <span style={{ fontSize: 13 }}>Adresse de <strong>{edition.nom}</strong> ({edition.code}) :</span>
-          <input
-            type="email" value={edition.valeur} placeholder="urbanisme@ville.fr"
-            onChange={(e) => setEdition({ ...edition, valeur: e.target.value, erreur: '' })}
-            style={{ ...styleChamp, flex: '1 1 260px' }}
-          />
+          <span style={{ fontSize: 13 }}>Contact de <strong>{edition.nom}</strong> ({edition.code}) :</span>
+          <select value={edition.canal} onChange={(e) => setEdition({ ...edition, canal: e.target.value as CanalContact, erreur: '' })} style={styleChamp}>
+            <option value="email">e-mail</option>
+            <option value="formulaire">formulaire web</option>
+            <option value="courrier">courrier</option>
+            <option value="inconnu">inconnu (sans destinataire)</option>
+          </select>
+          {edition.canal === 'email' && (
+            <input type="email" value={edition.email} placeholder="urbanisme@ville.fr"
+              onChange={(e) => setEdition({ ...edition, email: e.target.value, erreur: '' })} style={{ ...styleChamp, flex: '1 1 260px' }} />
+          )}
+          {edition.canal === 'formulaire' && (
+            <input type="url" value={edition.urlFormulaire} placeholder="https://ville.fr/urbanisme/contact"
+              onChange={(e) => setEdition({ ...edition, urlFormulaire: e.target.value, erreur: '' })} style={{ ...styleChamp, flex: '1 1 260px' }} />
+          )}
+          {edition.canal === 'courrier' && (
+            <input type="text" value={edition.adressePostale} placeholder="Service urbanisme, 1 place de la Mairie, 92000…"
+              onChange={(e) => setEdition({ ...edition, adressePostale: e.target.value, erreur: '' })} style={{ ...styleChamp, flex: '1 1 320px' }} />
+          )}
           <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.4rem .8rem' }} onClick={() => void enregistrerContact()}>Enregistrer</button>
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.4rem .8rem' }} onClick={() => setEdition(null)}>Annuler</button>
           {edition.erreur && <span role="alert" style={{ color: 'var(--color-svv-red)', fontSize: 13 }}>{edition.erreur}</span>}
@@ -184,21 +214,21 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
                   <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{formaterDateJour(d.dateReelleAutorisation)}</td>
                   <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{libelleCommune(d.communeNom, d.codeInsee)}</td>
                   <td style={{ padding: '.4rem .5rem' }}>{d.departement}</td>
-                  <td style={{ padding: '.4rem .5rem', maxWidth: 240 }}>
+                  <td style={{ padding: '.4rem .5rem', maxWidth: 260 }}>
                     {d.communeNom === null ? (
                       <span style={{ color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>commune inconnue</span>
-                    ) : d.destEmail ? (
-                      <span>
-                        {d.destEmail}{' '}
-                        <span style={{ color: d.destStatut === 'confirme' ? 'var(--color-svv-green-ink)' : d.destStatut === 'invalide' ? 'var(--color-svv-red)' : 'var(--color-svv-muted)', fontSize: 11 }}>
-                          ({STATUT_LIBELLE[d.destStatut ?? 'presume']})
-                        </span>{' '}
-                        <button type="button" onClick={() => setEdition({ code: d.codeInsee, nom: d.communeNom ?? d.codeInsee, valeur: d.destEmail ?? '', erreur: '' })} style={{ background: 'none', border: 0, cursor: 'pointer', color: 'var(--color-svv-red)' }} aria-label="Corriger l'adresse">✎</button>
-                      </span>
                     ) : (
                       <span>
-                        <span style={{ color: 'var(--color-svv-red)' }}>sans destinataire</span>{' '}
-                        <button type="button" onClick={() => setEdition({ code: d.codeInsee, nom: d.communeNom ?? d.codeInsee, valeur: '', erreur: '' })} style={{ background: 'none', border: 0, cursor: 'pointer', color: 'var(--color-svv-red)' }} aria-label="Renseigner l'adresse">＋</button>
+                        {d.destCanal === 'email' && <span>{d.destEmail}</span>}
+                        {d.destCanal === 'formulaire' && <a href={d.destUrlFormulaire ?? '#'} target="_blank" rel="noopener noreferrer" className="svv-link">formulaire web ↗</a>}
+                        {d.destCanal === 'courrier' && <span title={d.destAdressePostale ?? ''}>✉ {(d.destAdressePostale ?? '').slice(0, 40)}{(d.destAdressePostale ?? '').length > 40 ? '…' : ''}</span>}
+                        {(d.destCanal === 'inconnu' || d.destCanal === null) && <span style={{ color: 'var(--color-svv-red)' }}>sans destinataire</span>}
+                        {d.destCanal && d.destCanal !== 'inconnu' && (
+                          <span style={{ color: d.destStatut === 'confirme' ? 'var(--color-svv-green-ink)' : d.destStatut === 'invalide' ? 'var(--color-svv-red)' : 'var(--color-svv-muted)', fontSize: 11 }}>
+                            {' '}({STATUT_LIBELLE[d.destStatut ?? 'presume']})
+                          </span>
+                        )}{' '}
+                        <button type="button" onClick={() => ouvrirEdition(d)} style={{ background: 'none', border: 0, cursor: 'pointer', color: 'var(--color-svv-red)' }} aria-label="Modifier le contact">✎</button>
                       </span>
                     )}
                   </td>

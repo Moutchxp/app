@@ -76,7 +76,7 @@ async function main(): Promise<void> {
       const qt: Requete = <R = Record<string, unknown>>(t: string, p?: unknown[]) => tx(t, p) as unknown as Promise<{ rows: R[] }>;
       const existant: ContactExistant | null = await lireContact(qt, c.code_insee);
       if (!doitRemplacerDepuisAnnuaire(existant)) return false; // 'confirme' / 'saisie_manuelle' / 'reponse_mairie' → intouché
-      const r = await ecrireContact(qt, { codeInsee: c.code_insee, email, source: 'annuaire', statut: 'presume', motif: 'import annuaire', auteur: null });
+      const r = await ecrireContact(qt, { codeInsee: c.code_insee, email, source: 'annuaire', statut: 'presume', canal: 'email', motif: 'import annuaire', auteur: null });
       return r.change;
     });
     if (change) ecrits += 1;
