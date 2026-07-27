@@ -6,7 +6,7 @@ import { query } from '../db/client';
 import type { ConfigVeille } from './veilleConfig';
 import {
   type FiltresPermis, type CleCategorie,
-  classer, libelleParRang, construireRequeteListe, construireRequeteTotal, construireRequeteComptes,
+  classer, libelleParRang, construireRequeteListe, construireRequeteTotal, construireRequeteComptes, FILTRES_PERMIS_VIDES,
 } from './priorite';
 
 /** Une ligne de dossier prête pour l'affichage (champs bruts + catégorie résolue). */
@@ -104,6 +104,14 @@ async function lireInclusions(communes: string[]): Promise<ResultatVeille['inclu
     [communes],
   );
   return r.rows.map((x) => ({ ancien: x.ancien, nomAncien: x.nom_ancien, actuel: x.actuel, n: x.n }));
+}
+
+/** Les `n` premiers dossiers du CLASSEMENT DE PRIORITÉ (aucun filtre) — base des candidats à demande (S7). Réutilise
+ *  strictement l'ordonnancement de `construireRequeteListe` (priorite.ts). */
+export async function lireDossiersPriorite(c: ConfigVeille, n: number): Promise<DossierAffiche[]> {
+  const rq = construireRequeteListe(FILTRES_PERMIS_VIDES, c, 1, n);
+  const r = await query<LigneSql>(rq.texte, rq.params);
+  return r.rows.map((row) => versAffiche(row, c));
 }
 
 /** Liste filtrée paginée + total + compteurs par catégorie + bornes de dates + inclusions de fusion. */

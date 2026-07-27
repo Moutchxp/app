@@ -131,6 +131,12 @@ export interface FiltresPermis {
   sansDestinataire: boolean; // n'afficher que les dossiers non adressables (aucun e-mail de mairie)
 }
 
+/** Filtres neutres (aucune restriction) — base pour « top du classement » (constitution des demandes, S7). */
+export const FILTRES_PERMIS_VIDES: FiltresPermis = {
+  departement: null, communes: [], type: null, rang: null, depuis: null, jusqua: null,
+  surfaceMin: null, logementsMin: null, q: null, sansDestinataire: false,
+};
+
 const SELECTION =
   `d.id, d.type, d.num_dau, d.code_insee, d.departement, d.date_reelle_autorisation::text AS date_reelle_autorisation, ` +
   `d.nature_projet_completee, d.i_extension, d.i_surelevation, d.nb_lgt_tot_crees, d.surf_creee, d.superficie_terrain, ` +

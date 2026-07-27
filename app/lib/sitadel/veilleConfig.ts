@@ -14,6 +14,9 @@ export interface ConfigVeille {
   rangConstructionNeuve: number;
   rangExtension: number;
   rangDemolition: number;
+  dossiersParDemande: number;
+  demandesParCommuneParMois: number;
+  piecesDemandees: string;
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -26,6 +29,9 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   rangConstructionNeuve: 3,
   rangExtension: 4,
   rangDemolition: 5,
+  dossiersParDemande: 5,
+  demandesParCommuneParMois: 1,
+  piecesDemandees: 'PC2,PC3',
 };
 
 interface LigneConfigVeille {
@@ -37,6 +43,9 @@ interface LigneConfigVeille {
   rang_construction_neuve: number;
   rang_extension: number;
   rang_demolition: number;
+  dossiers_par_demande: number;
+  demandes_par_commune_par_mois: number;
+  pieces_demandees: string;
 }
 
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
@@ -44,7 +53,8 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
     const res = await query<LigneConfigVeille>(
       `SELECT seuil_logements_immeuble, seuil_surface_immeuble_m2, annees_par_defaut,
-              rang_immeuble_neuf, rang_surelevation, rang_construction_neuve, rang_extension, rang_demolition
+              rang_immeuble_neuf, rang_surelevation, rang_construction_neuve, rang_extension, rang_demolition,
+              dossiers_par_demande, demandes_par_commune_par_mois, pieces_demandees
        FROM config_veille WHERE id = 1`,
     );
     const r = res.rows[0];
@@ -58,6 +68,9 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       rangConstructionNeuve: r.rang_construction_neuve,
       rangExtension: r.rang_extension,
       rangDemolition: r.rang_demolition,
+      dossiersParDemande: r.dossiers_par_demande,
+      demandesParCommuneParMois: r.demandes_par_commune_par_mois,
+      piecesDemandees: r.pieces_demandees,
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

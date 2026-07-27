@@ -3,7 +3,7 @@ import { NOM_COOKIE, verifierJeton, sessionDepuisPayload } from '../../../../lib
 import { EnTetePage } from '../_composants/EnTetePage';
 import { chargerConfigVeille } from '../../../../lib/sitadel/veilleConfig';
 import { categoriesConnues } from '../../../../lib/sitadel/priorite';
-import { PermisVue } from './PermisVue';
+import { PermisTuile } from './PermisTuile';
 
 /**
  * Module « Permis de construire » (chantier S3) — veille des autorisations d'urbanisme (Sitadel).
@@ -31,7 +31,7 @@ export default async function PermisPage() {
         intro="Veille des autorisations d'urbanisme (Sitadel) : constructions, surélévations, extensions et démolitions autorisées, classées par priorité — réservé aux administrateurs."
       />
       {estAdmin ? (
-        <PermisVue depuisParDefaut={depuisParDefaut} categories={categoriesConnues(config)} />
+        <PermisTuile depuisParDefaut={depuisParDefaut} categories={categoriesConnues(config)} />
       ) : (
         <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>
           Cet espace est réservé aux administrateurs.
