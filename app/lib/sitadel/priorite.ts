@@ -120,7 +120,7 @@ const SIMILARITE_VOIE = 0.45;
 
 export interface FiltresPermis {
   departement: string | null;
-  commune: string | null;
+  communes: string[]; // codes INSEE ACTUELS sélectionnés (multi) ; expansion des anciens codes (fusions) au SQL
   type: 'PC' | 'PD' | null;
   rang: number | null;
   depuis: string | null; // 'AAAA-MM-JJ'
@@ -149,11 +149,15 @@ function clausesWhere(f: FiltresPermis, params: unknown[], rangExpr: string | nu
   const cl: string[] = [];
   const add = (v: unknown): string => { params.push(v); return `$${params.length}`; };
   if (f.departement) cl.push(`d.departement = ${add(f.departement)}`);
-  if (f.commune) {
-    // Filtre commune : par CODE INSEE exact OU par NOM (insensible casse + accents, via le référentiel joint). Le NOM
-    // passe par `svv_unaccent_immutable` (même expression que l'index de nom → exploité) ; sous-chaîne, jamais égalité.
-    const v = add(f.commune);
-    cl.push(`(d.code_insee = ${v} OR lower(svv_unaccent_immutable(c.nom)) LIKE '%' || lower(svv_unaccent_immutable(${v})) || '%')`);
+  if (f.communes.length > 0) {
+    // Multi-sélection de communes ACTUELLES. Inclut aussi les dossiers déposés sous un ANCIEN code fusionné dans une
+    // commune sélectionnée (commune_fusion). C'est un WHERE (pas un JOIN) sur `d.code_insee` (unique par ligne) → un
+    // dossier ne peut JAMAIS être doublé, même si l'ancien ET le nouveau code sont dans la sélection.
+    const arr = add(f.communes);
+    cl.push(
+      `(d.code_insee = ANY(${arr}::text[]) ` +
+      `OR d.code_insee IN (SELECT ancien_code FROM commune_fusion WHERE code_actuel = ANY(${arr}::text[])))`,
+    );
   }
   if (f.type) cl.push(`d.type = ${add(f.type)}`);
   if (f.depuis) cl.push(`d.date_reelle_autorisation >= ${add(f.depuis)}`);
@@ -220,9 +224,13 @@ export function lireFiltres(sp: URLSearchParams): FiltresPermis {
   const type = sp.get('type');
   const rang = entierPositif(sp.get('rang'));
   const q = (sp.get('q') ?? '').trim();
+  // `communes` : répété (communes=X&communes=Y) et/ou séparé par virgules ; codes INSEE à 5 chiffres, dédupliqués.
+  const communes = [...new Set(
+    sp.getAll('communes').flatMap((s) => s.split(',')).map((s) => s.trim()).filter((s) => /^\d{5}$/.test(s)),
+  )];
   return {
     departement: dep && DEPARTEMENTS.has(dep) ? dep : null,
-    commune: (sp.get('commune') ?? '').trim() || null,
+    communes,
     type: type === 'PC' || type === 'PD' ? type : null,
     rang: rang,
     depuis: dateIso(sp.get('depuis')),

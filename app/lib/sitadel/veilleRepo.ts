@@ -85,20 +85,40 @@ export interface ResultatVeille {
   lignes: DossierAffiche[];
   comptes: { rang: number; libelle: string; n: number }[];
   bornes: { min: string | null; max: string | null };
+  /** Anciens codes (fusions) dont les dossiers sont inclus par la sélection courante — pour le dire à l'utilisateur. */
+  inclusions: { ancien: string; nomAncien: string | null; actuel: string; n: number }[];
 }
 
-/** Liste filtrée paginée + total + compteurs par catégorie + bornes de dates (pour « depuis toujours »). */
+/**
+ * Anciens codes (fusions) dont des dossiers sont repliés dans les communes ACTUELLES sélectionnées — avec leur nombre.
+ * Vide si aucune commune sélectionnée. Sert l'avertissement « inclut N dossiers déposés sous Pierrefitte-sur-Seine ».
+ */
+async function lireInclusions(communes: string[]): Promise<ResultatVeille['inclusions']> {
+  if (communes.length === 0) return [];
+  const r = await query<{ ancien: string; nom_ancien: string | null; actuel: string; n: number }>(
+    `SELECT f.ancien_code AS ancien, f.nom_ancien, f.code_actuel AS actuel, count(d.*)::int AS n
+     FROM commune_fusion f JOIN sitadel_dossier d ON d.code_insee = f.ancien_code
+     WHERE f.code_actuel = ANY($1::text[])
+     GROUP BY f.ancien_code, f.nom_ancien, f.code_actuel
+     HAVING count(d.*) > 0 ORDER BY n DESC`,
+    [communes],
+  );
+  return r.rows.map((x) => ({ ancien: x.ancien, nomAncien: x.nom_ancien, actuel: x.actuel, n: x.n }));
+}
+
+/** Liste filtrée paginée + total + compteurs par catégorie + bornes de dates + inclusions de fusion. */
 export async function lireVeille(f: FiltresPermis, c: ConfigVeille, page: number, taille: number): Promise<ResultatVeille> {
   const rq = construireRequeteListe(f, c, page, taille);
   const rt = construireRequeteTotal(f, c);
   const rc = construireRequeteComptes(f, c);
-  const [liste, total, comptes, bornes] = await Promise.all([
+  const [liste, total, comptes, bornes, inclusions] = await Promise.all([
     query<LigneSql>(rq.texte, rq.params),
     query<{ n: number }>(rt.texte, rt.params),
     query<{ rang: number; n: number }>(rc.texte, rc.params),
     query<{ min: string | null; max: string | null }>(
       `SELECT min(date_reelle_autorisation)::text AS min, max(date_reelle_autorisation)::text AS max FROM sitadel_dossier`,
     ),
+    lireInclusions(f.communes),
   ]);
   return {
     total: total.rows[0]?.n ?? 0,
@@ -107,5 +127,6 @@ export async function lireVeille(f: FiltresPermis, c: ConfigVeille, page: number
     lignes: liste.rows.map((r) => versAffiche(r, c)),
     comptes: comptes.rows.map((x) => ({ rang: x.rang, libelle: libelleParRang(x.rang, c), n: x.n })),
     bornes: bornes.rows[0] ?? { min: null, max: null },
+    inclusions,
   };
 }

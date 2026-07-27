@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { formaterDateJour, libelleCommune, type CleCategorie } from '../../../../lib/sitadel/priorite';
 import type { DossierAffiche, ResultatVeille } from '../../../../lib/sitadel/veilleRepo';
 import type { CanalContact } from '../../../../lib/sitadel/mairieContact';
+import type { CommuneRef, FusionRef } from '../../../../lib/sitadel/carteRepo';
+import { CartePermis } from './CartePermis';
 
 /**
  * Vue de la tuile « Permis de construire » (client) : filtres combinables + liste paginée CÔTÉ SERVEUR (jamais 29 670
@@ -15,7 +17,7 @@ interface Categorie { cle: CleCategorie; libelle: string; rang: number }
 interface Props { depuisParDefaut: string; categories: Categorie[] }
 
 interface Filtres {
-  departement: string; commune: string; type: '' | 'PC' | 'PD'; rang: string;
+  departement: string; type: '' | 'PC' | 'PD'; rang: string;
   depuis: string; jusqua: string; surfaceMin: string; logementsMin: string; q: string;
   sansDestinataire: '' | '1';
 }
@@ -36,9 +38,13 @@ const fmtSurf = (n: number | null): string => (n === null ? '—' : `${Math.roun
 
 export function PermisVue({ depuisParDefaut, categories }: Props) {
   const [filtres, setFiltres] = useState<Filtres>({
-    departement: '', commune: '', type: '', rang: '',
+    departement: '', type: '', rang: '',
     depuis: depuisParDefaut, jusqua: '', surfaceMin: '', logementsMin: '', q: '', sansDestinataire: '',
   });
+  const [communesSel, setCommunesSel] = useState<string[]>([]); // codes INSEE sélectionnés (multi) — état PARTAGÉ carte ↔ champ
+  const [ref, setRef] = useState<{ communes: CommuneRef[]; fusions: FusionRef[] } | null>(null);
+  const [rechCommune, setRechCommune] = useState('');
+  const [carteOuverte, setCarteOuverte] = useState(false);
   const [page, setPage] = useState(1);
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
   const [version, setVersion] = useState(0); // bumpé après une édition de contact → force le rechargement
@@ -47,8 +53,39 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
   /** Toute modif de filtre remet la pagination à 1 (jamais de setState d'effet). */
   const maj = (patch: Partial<Filtres>): void => { setFiltres((f) => ({ ...f, ...patch })); setPage(1); };
 
+  /** (Dé)sélectionne une commune — MÊME état pour le champ et la carte. Reset pagination. */
+  const basculerCommune = (code: string): void => {
+    setCommunesSel((s) => (s.includes(code) ? s.filter((c) => c !== code) : [...s, code]));
+    setPage(1);
+  };
+  const selectionSet = useMemo(() => new Set(communesSel), [communesSel]);
+
   const categoriesTriees = useMemo(() => [...categories].sort((a, b) => a.rang - b.rang), [categories]);
-  const cle = JSON.stringify(filtres);
+  const cle = JSON.stringify(filtres) + '|' + [...communesSel].sort().join(',');
+
+  // Référentiel léger (noms + fusions) pour le multi-sélecteur, chargé une fois.
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/permis/communes', { cache: 'no-store' });
+        if (!annule && res.ok) setRef((await res.json()) as { communes: CommuneRef[]; fusions: FusionRef[] });
+      } catch { /* le multi-sélecteur restera vide ; la carte reste utilisable */ }
+    })();
+    return () => { annule = true; };
+  }, []);
+
+  const nomCommune = (code: string): string => ref?.communes.find((c) => c.code === code)?.nom ?? code;
+  // Suggestions du multi-sélecteur : par nom (insensible casse/accents, côté client) ou code, hors déjà sélectionnées.
+  const suggestions = useMemo(() => {
+    if (!ref || rechCommune.trim() === '') return [];
+    const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+    const qn = norm(rechCommune.trim());
+    const dep = filtres.departement;
+    return ref.communes
+      .filter((c) => (!dep || c.dep === dep) && !selectionSet.has(c.code) && (norm(c.nom).includes(qn) || c.code.startsWith(qn)))
+      .slice(0, 8);
+  }, [ref, rechCommune, filtres.departement, selectionSet]);
 
   /** Ouvre l'éditeur de contact pour la commune d'un dossier (pré-rempli avec le canal/valeur courants). */
   const ouvrirEdition = (d: DossierAffiche): void => setEdition({
@@ -89,6 +126,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
         try {
           const p = new URLSearchParams();
           for (const [k, v] of Object.entries(filtres)) if (v !== '') p.set(k, v);
+          for (const code of communesSel) p.append('communes', code);
           p.set('page', String(page));
           p.set('taille', String(TAILLE));
           const res = await fetch(`/api/admin/permis?${p.toString()}`, { cache: 'no-store' });
@@ -118,9 +156,39 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
             {['75', '92', '93', '78'].map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
         </label>
-        <label className="flex flex-col gap-1" style={{ fontSize: 12 }}>Commune (nom ou code)
-          <input value={filtres.commune} onChange={(e) => maj({ commune: e.target.value })} placeholder="ex. Nanterre ou 92050" style={styleChamp} />
-        </label>
+        <div className="flex flex-col gap-1" style={{ fontSize: 12, position: 'relative', flex: '1 1 280px' }}>
+          <span>Communes (nom ou code — plusieurs possibles)</span>
+          <input
+            value={rechCommune} onChange={(e) => setRechCommune(e.target.value)}
+            placeholder="ex. Nanterre ou 92050" style={styleChamp}
+          />
+          {suggestions.length > 0 && (
+            <ul style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, margin: 0, padding: 0, listStyle: 'none', background: '#fff', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', maxHeight: 220, overflowY: 'auto' }}>
+              {suggestions.map((c) => (
+                <li key={c.code}>
+                  <button type="button" onClick={() => { basculerCommune(c.code); setRechCommune(''); }}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '.35rem .5rem', background: 'none', border: 0, cursor: 'pointer', fontSize: 13 }}>
+                    {c.nom} <span style={{ color: 'var(--color-svv-muted)' }}>({c.code} · {c.dep})</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {communesSel.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem', marginTop: '.3rem' }}>
+              {communesSel.map((code) => (
+                <span key={code} style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', background: 'var(--color-svv-field)', borderRadius: 999, padding: '.15rem .5rem', fontSize: 12 }}>
+                  {nomCommune(code)}
+                  <button type="button" onClick={() => basculerCommune(code)} aria-label={`Retirer ${nomCommune(code)}`} style={{ background: 'none', border: 0, cursor: 'pointer', color: 'var(--color-svv-red)' }}>×</button>
+                </span>
+              ))}
+              <button type="button" onClick={() => { setCommunesSel([]); setPage(1); }} className="svv-link" style={{ fontSize: 12 }}>tout retirer</button>
+            </div>
+          )}
+        </div>
+        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.4rem .7rem', fontSize: 13, alignSelf: 'flex-start' }} onClick={() => setCarteOuverte((v) => !v)}>
+          {carteOuverte ? 'Masquer la carte' : 'Choisir sur la carte'}
+        </button>
         <label className="flex flex-col gap-1" style={{ fontSize: 12 }}>Type
           <select value={filtres.type} onChange={(e) => maj({ type: e.target.value as Filtres['type'] })} style={styleChamp}>
             <option value="">Tous</option><option value="PC">PC</option><option value="PD">PD</option>
@@ -155,6 +223,19 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
           Sans destinataire
         </label>
       </div>
+
+      {/* ── Carte de sélection (SVG, aucune tuile) ── */}
+      {carteOuverte && <CartePermis selection={selectionSet} onToggle={basculerCommune} departement={filtres.departement || null} />}
+
+      {/* ── Avertissement : la sélection inclut des dossiers d'anciens codes (fusions) ── */}
+      {data && data.inclusions.length > 0 && (
+        <div className="svv-page-note" style={{ marginTop: 0, fontSize: 13 }}>
+          La sélection inclut aussi les dossiers déposés sous d&rsquo;anciens codes (communes fusionnées) :{' '}
+          {data.inclusions.map((i, k) => (
+            <span key={i.ancien}>{k > 0 ? ' · ' : ''}<strong>{i.n.toLocaleString('fr-FR')}</strong> sous {i.nomAncien ?? i.ancien} ({i.ancien})</span>
+          ))}.
+        </div>
+      )}
 
       {/* ── Total + compteurs par catégorie ── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'center', fontSize: 13 }}>

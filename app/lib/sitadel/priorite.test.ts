@@ -12,7 +12,7 @@ function pc(over: Partial<DossierClassable> = {}): DossierClassable {
   return { type: 'PC', natureProjetCompletee: null, iExtension: false, iSurelevation: false, nbLgtTotCrees: null, surfCreee: null, ...over };
 }
 const FILTRES_VIDES: FiltresPermis = {
-  departement: null, commune: null, type: null, rang: null, depuis: null, jusqua: null,
+  departement: null, communes: [], type: null, rang: null, depuis: null, jusqua: null,
   surfaceMin: null, logementsMin: null, q: null, sansDestinataire: false,
 };
 
@@ -67,7 +67,7 @@ describe('Sitadel S3 — construction de la requête filtrée', () => {
 
   it('chaque filtre isolé produit sa clause + son paramètre', () => {
     expect(req({ departement: '92' }).params).toContain('92');
-    expect(req({ commune: '92050' }).texte).toContain('code_insee =');
+    expect(req({ communes: ['92050'] }).texte).toContain('d.code_insee = ANY');
     expect(req({ type: 'PD' }).params).toContain('PD');
     expect(req({ depuis: '2024-01-01' }).texte).toContain('date_reelle_autorisation >=');
     expect(req({ jusqua: '2025-12-31' }).texte).toContain('date_reelle_autorisation <=');
@@ -123,12 +123,30 @@ describe('Sitadel S3 — recherche par préfixe / troncature', () => {
     expect(construireRequeteListe(FILTRES_VIDES, C, 1, 25).texte).toContain('LEFT JOIN mairie_contact mc');
   });
 
-  it('filtre commune par NOM : clause insensible casse+accents (svv_unaccent_immutable) OU code exact', () => {
-    const { texte, params } = construireRequeteTotal({ ...FILTRES_VIDES, commune: 'Le Chesnay' }, C);
-    expect(texte).toContain('code_insee =');            // accepte encore le code exact
-    expect(texte).toContain('svv_unaccent_immutable');  // + recherche par nom insensible casse/accents
-    expect(texte).toContain('LIKE');
-    expect(params).toContain('Le Chesnay');
+  it('multi-communes (S6) : 0 → aucune clause ; 1 et N → ANY(array) + expansion des fusions', () => {
+    expect(construireRequeteTotal({ ...FILTRES_VIDES, communes: [] }, C).texte).not.toContain('code_insee = ANY');
+
+    const un = construireRequeteTotal({ ...FILTRES_VIDES, communes: ['93066'] }, C);
+    expect(un.texte).toContain('d.code_insee = ANY');
+    expect(un.texte).toContain('commune_fusion'); // sélectionner Saint-Denis (93066) inclut ses anciens codes (93059)
+    expect(un.params).toContainEqual(['93066']);  // un SEUL param tableau
+
+    const n = construireRequeteTotal({ ...FILTRES_VIDES, communes: ['92050', '93066'] }, C);
+    expect(n.params).toContainEqual(['92050', '93066']);
+  });
+
+  it('anti-doublon (S6) : filtre = WHERE sur d.code_insee (jamais un JOIN) → une ligne ne peut pas être doublée', () => {
+    const { texte } = construireRequeteTotal({ ...FILTRES_VIDES, communes: ['93066', '93059'] }, C);
+    // `d.code_insee = ANY(...)` OU `IN (SELECT ancien_code ...)` : un dossier a UN code → matché au plus une fois.
+    expect(texte).toContain('d.code_insee = ANY');
+    expect(texte).toContain('d.code_insee IN (SELECT ancien_code FROM commune_fusion');
+  });
+
+  it('multi-communes combiné avec un autre filtre (département)', () => {
+    const { texte, params } = construireRequeteTotal({ ...FILTRES_VIDES, departement: '93', communes: ['93066'] }, C);
+    expect(texte).toContain('d.departement =');
+    expect(texte).toContain('d.code_insee = ANY');
+    expect(params).toEqual(expect.arrayContaining(['93', ['93066']]));
   });
 
   it('lireFiltres : valeurs valides retenues, invalides ignorées', () => {
@@ -140,6 +158,12 @@ describe('Sitadel S3 — recherche par préfixe / troncature', () => {
     expect(f.depuis).toBe('2024-01-01');
     expect(f.jusqua).toBeNull();    // 'mauvais' non ISO
     expect(f.q).toBe('rue');        // trim
+  });
+
+  it('lireFiltres : `communes` répété et/ou séparé par virgules → codes 5 chiffres dédupliqués', () => {
+    const sp = new URLSearchParams('communes=92050&communes=93066,78551&communes=92050&communes=abc');
+    expect(lireFiltres(sp).communes.sort()).toEqual(['78551', '92050', '93066']); // dédup + 'abc' ignoré
+    expect(lireFiltres(new URLSearchParams('')).communes).toEqual([]); // 0 commune
   });
 });
 
