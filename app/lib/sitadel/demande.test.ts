@@ -3,7 +3,7 @@ import type { CanalContact } from './mairieContact';
 import {
   type CandidatDossier, type ConfigDemandeur, type Lot, type DiagnosticProposition, type ParamsLot,
   problemesIdentite, proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande,
-  dateEnFrancais, ancreDetail, peutPasserLot, expliquerProposition,
+  dateEnFrancais, ancreDetail, peutPasserLot, expliquerProposition, resumeDiagnostic,
 } from './demande';
 
 let seq = 0;
@@ -292,5 +292,29 @@ describe('Sitadel S7e — deux profils de demandeur', () => {
     const avecEntreprise = genererTexte(lot, CONF_SOC, 'SVAV-DEM-2026-000105', pieces, 'entreprise').corps;
     expect(sansProfil).toBe(avecEntreprise);
     expect(sansProfil).toContain('l’expression de ma considération distinguée.');
+  });
+});
+
+describe('Sitadel S7f — décompte chiffré du filtrage (jamais un texte figé)', () => {
+  const diag: DiagnosticProposition = { candidatsExamines: 600, dossiersHorsFenetre: 485, dossiersDejaRattaches: 0, communesSansCanal: 11, communesPlafondMensuel: 0 };
+  const FIGES = ['Action impossible.', 'Proposition indisponible.', 'Création impossible.'];
+
+  it('resumeDiagnostic : TOUJOURS chiffré (même avec des lots), inclut le hors-fenêtre d’ancienneté', () => {
+    const m = resumeDiagnostic(diag);
+    expect(m).toContain('600');
+    expect(m).toContain('485');
+    expect(m).toContain("hors fenêtre d'ancienneté");
+    expect(m).toContain('11 commune(s) sans canal');
+    expect(m).toContain('au plafond mensuel');
+    for (const fige of FIGES) expect(m).not.toBe(fige); // jamais un libellé figé à deux mots
+    // des chiffres différents → message différent (pas figé)
+    expect(resumeDiagnostic({ ...diag, dossiersHorsFenetre: 12 })).toContain('12 hors fenêtre');
+  });
+
+  it('expliquerProposition (0 lot) reste chiffré et cite le hors-fenêtre — jamais figé', () => {
+    const m = expliquerProposition(0, diag);
+    expect(m).toContain('600');
+    expect(m).toContain("485 dossier(s) hors fenêtre d'ancienneté");
+    for (const fige of FIGES) expect(m).not.toBe(fige);
   });
 });

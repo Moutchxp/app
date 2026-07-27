@@ -184,6 +184,18 @@ export function expliquerProposition(nbLots: number, d: DiagnosticProposition): 
   return raisons.length ? `${base} : ${raisons.join(' ; ')}.` : `${base}.`;
 }
 
+/**
+ * Décompte CHIFFRÉ du filtrage, TOUJOURS affichable (que des lots existent ou non) — jamais un texte figé. Rend lisible
+ * depuis l'écran l'effet des réglages, notamment `anciennete_max_demande_annees` (dossiers écartés « hors fenêtre »).
+ */
+export function resumeDiagnostic(d: DiagnosticProposition): string {
+  return `Sur ${d.candidatsExamines} dossier(s) examiné(s) en tête de classement : `
+    + `${d.dossiersHorsFenetre} hors fenêtre d'ancienneté (déjà mesurés au LiDAR) ou sans date · `
+    + `${d.dossiersDejaRattaches} déjà rattaché(s) · `
+    + `${d.communesSansCanal} commune(s) sans canal · `
+    + `${d.communesPlafondMensuel} commune(s) au plafond mensuel.`;
+}
+
 const MOIS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 /** Date d'autorisation en toutes lettres : '2017-03-14' → « 14 mars 2017 ». `null`/invalide → « date inconnue »/valeur brute. */
 export function dateEnFrancais(iso: string | null): string {

@@ -51,13 +51,22 @@ export async function lireConfigDemandeur(profil: ProfilDemandeur = 'entreprise'
   };
 }
 
-/** Historique : dossiers déjà rattachés (demande active) + nombre de demandes du mois par commune (hors abandonnées). */
+/**
+ * Historique : dossiers déjà rattachés (demande active) + nombre de demandes du mois par commune QUI COMPTENT pour le
+ * plafond mensuel.
+ * ⚠️ Le plafond `demandes_par_commune_par_mois` borne la SOLLICITATION RÉELLE d'une mairie : seules les demandes
+ * RÉELLEMENT PARTIES le consomment → `statut IN ('envoyee','close')`. Une 'brouillon' (préparée, jamais envoyée), une
+ * 'prete' (prête mais pas partie) et une 'abandonnee' (jamais sortie de la machine) ne sollicitent PAS la commune : elles
+ * ne doivent pas geler son quota (sinon des lots parfaitement valides sont bloqués « au plafond » sans qu'aucun courrier
+ * n'ait quitté le système). AUCUN ENVOI n'existe encore : ce comptage est donc nul aujourd'hui, et le restera tant que
+ * rien n'est envoyé — c'est voulu.
+ */
 async function lireHistorique(): Promise<HistoriqueDemandes> {
   const [att, mois] = await Promise.all([
     query<{ dossier_id: number }>(`SELECT dossier_id FROM demande_dossier WHERE actif`),
     query<{ code_insee: string; n: number }>(
       `SELECT code_insee, count(*)::int AS n FROM demande
-       WHERE statut <> 'abandonnee' AND date_trunc('month', cree_le) = date_trunc('month', now())
+       WHERE statut IN ('envoyee', 'close') AND date_trunc('month', cree_le) = date_trunc('month', now())
        GROUP BY code_insee`,
     ),
   ]);

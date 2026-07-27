@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { type Lot, type DiagnosticProposition, expliquerProposition, ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
+import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagnostic, ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, ResumeDemandes, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
 
 /**
@@ -16,6 +16,12 @@ const styleChamp: CSSProperties = { padding: '.35rem .5rem', border: '1px solid 
 
 type Tri = 'recent' | 'reference' | 'commune' | 'statut';
 type Bascule = { ids: number[]; profil: ProfilDemandeur };
+
+/** Message d'échec = la RAISON réelle renvoyée par le serveur ({erreur}), jamais un libellé figé à deux mots. */
+async function erreurServeur(res: Response, repli: string): Promise<string> {
+  try { const d = (await res.json()) as { erreur?: string }; return d?.erreur && d.erreur.trim() !== '' ? d.erreur : repli; }
+  catch { return repli; }
+}
 
 export function DemandesVue() {
   const [liste, setListe] = useState<{ demandes: DemandeListe[]; alertesIdentite: AlerteIdentite[]; resume: ResumeDemandes } | null>(null);
@@ -79,7 +85,7 @@ export function DemandesVue() {
     setMsg('');
     const res = await fetch(`/api/admin/permis/demandes/proposition?profil=${profilPrep}`, { cache: 'no-store' });
     if (res.ok) { const p = (await res.json()) as { lots: Lot[]; diagnostic: DiagnosticProposition; profil: ProfilDemandeur }; setProp(p); setProfilPrep(p.profil); }
-    else setMsg('Proposition indisponible.');
+    else setMsg(await erreurServeur(res, 'Proposition indisponible.'));
   }
   async function creer(): Promise<void> {
     const res = await fetch('/api/admin/permis/demandes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profil: profilPrep }) });
@@ -87,13 +93,13 @@ export function DemandesVue() {
       const r = (await res.json()) as { crees: string[]; ignores: number; profil: ProfilDemandeur };
       setMsg(`${r.crees.length} demande(s) créée(s) en ${ETIQUETTE_PROFIL[r.profil].toLowerCase()}${r.ignores ? `, ${r.ignores} lot(s) ignoré(s)` : ''}.`);
       setProp(null); rafraichir();
-    } else setMsg('Création impossible.');
+    } else setMsg(await erreurServeur(res, 'Création impossible.'));
   }
   async function ouvrir(id: number): Promise<void> {
     setMsg('');
     const res = await fetch(`/api/admin/permis/demandes/${id}`, { cache: 'no-store' });
     if (res.ok) { const d = (await res.json()) as DemandeDetail; setDetail(d); setCorps(d.corps ?? ''); }
-    else setMsg('Ouverture impossible.');
+    else setMsg(await erreurServeur(res, 'Ouverture impossible.'));
   }
   async function sauverCorps(): Promise<void> {
     if (!detail) return;
@@ -112,7 +118,7 @@ export function DemandesVue() {
     if (res.status === 409) {
       const d = (await res.json()) as { champs?: string[] };
       setMsg(`Aucune demande modifiée : identité du demandeur incomplète — ${(d.champs ?? []).join(' ; ')}. Complétez la configuration dans l’onglet Réglages.`);
-    } else setMsg('Action impossible.');
+    } else setMsg(await erreurServeur(res, 'Action impossible.'));
   }
   /** Applique la bascule de profil confirmée (régénère le texte). Un seul refus ⇒ zéro écriture (tout-ou-rien serveur). */
   async function appliquerBascule(): Promise<void> {
@@ -127,7 +133,7 @@ export function DemandesVue() {
       return;
     }
     if (res.status === 409) { const d = (await res.json()) as { erreur?: string }; setMsg(`Aucune bascule : ${d.erreur ?? 'transition interdite'}.`); }
-    else setMsg('Bascule impossible.');
+    else setMsg(await erreurServeur(res, 'Bascule impossible.'));
   }
 
   const r = liste?.resume;
@@ -175,6 +181,8 @@ export function DemandesVue() {
 
       {prop && (
         <div className="svv-card">
+          {/* Décompte CHIFFRÉ toujours visible : rend lisible l'effet des réglages (dont l'ancienneté maximale). */}
+          <p style={{ margin: '0 0 .5rem', fontSize: 12, color: 'var(--color-svv-muted)' }}>{resumeDiagnostic(prop.diagnostic)}</p>
           {prop.lots.length === 0 ? (
             <p style={{ margin: 0, color: 'var(--color-svv-muted)' }}>{explication}</p>
           ) : (
