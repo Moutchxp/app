@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { messageDemandeManuelle, type RunVeille } from '../../../../lib/sitadel/planification';
 import type { BornesParColonne, ErreurReglage } from '../../../../lib/sitadel/reglagesVeille';
-import { BandeauEtat, AvertissementOrdonnanceur, LigneHistorique } from './AutomatisationRendu';
+import { BandeauEtat, AvertissementOrdonnanceur, AlerteEchecs, AlerteMillesimeFige, LigneHistorique } from './AutomatisationRendu';
 
 /**
  * Onglet « Automatisation » de la tuile Permis (chantier S11b). Pilote la veille automatique SANS code : interrupteur,
@@ -14,12 +14,15 @@ interface EtatAuto {
   autoActive: boolean;
   autoIntervalleHeures: number;
   csvRetentionJours: number;
+  alerteMillesimeFigeJours: number;
+  alerteEchecsConsecutifs: number;
   bornes: BornesParColonne;
   millesimeBase: string | null;
   dernierRun: RunVeille | null;
   demandeEnAttente: boolean;
   prochainPassage: { dateIso: string | null; phrase: string };
   ordonnanceurSuspect: { suspect: boolean; message: string };
+  alarmes: { echecs: { alerte: boolean; phrase: string }; millesimeFige: { alerte: boolean; phrase: string } };
   historique: RunVeille[];
   maintenant: string;
 }
@@ -35,6 +38,8 @@ export function AutomatisationVue() {
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
   const [intervalle, setIntervalle] = useState('');
   const [retention, setRetention] = useState('');
+  const [figeJours, setFigeJours] = useState('');
+  const [echecsSeuil, setEchecsSeuil] = useState('');
   const [msg, setMsg] = useState('');
   const [erreur, setErreur] = useState('');
 
@@ -42,6 +47,8 @@ export function AutomatisationVue() {
     setData(e);
     setIntervalle(String(e.autoIntervalleHeures));
     setRetention(String(e.csvRetentionJours));
+    setFigeJours(String(e.alerteMillesimeFigeJours));
+    setEchecsSeuil(String(e.alerteEchecsConsecutifs));
   }
 
   useEffect(() => {
@@ -76,10 +83,15 @@ export function AutomatisationVue() {
 
   const bInt = data.bornes.auto_intervalle_heures;
   const bRet = data.bornes.csv_retention_jours;
+  const bFige = data.bornes.alerte_millesime_fige_jours;
+  const bEchecs = data.bornes.alerte_echecs_consecutifs;
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Alarmes par ORDRE DE GRAVITÉ : échecs (rouge) → ordonnanceur (rouge) → millésime figé (orange). */}
+      <AlerteEchecs alerte={data.alarmes.echecs.alerte} phrase={data.alarmes.echecs.phrase} />
       <AvertissementOrdonnanceur suspect={data.ordonnanceurSuspect.suspect} message={data.ordonnanceurSuspect.message} />
+      <AlerteMillesimeFige alerte={data.alarmes.millesimeFige.alerte} phrase={data.alarmes.millesimeFige.phrase} />
       <BandeauEtat autoActive={data.autoActive} dernierRun={data.dernierRun} prochainPhrase={data.prochainPassage.phrase} millesimeBase={data.millesimeBase} />
 
       {/* Interrupteur + « Lancer maintenant » */}
@@ -112,6 +124,18 @@ export function AutomatisationVue() {
           <input type="number" value={retention} min={bRet?.min} max={bRet?.max} step={1} onChange={(e) => setRetention(e.target.value)} style={styleInput} />
           <span style={styleAide}>{bRet ? `Plage autorisée : ${bRet.min} – ${bRet.max} j. Le millésime en base n’est jamais supprimé.` : 'Plage indisponible.'}</span>
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => void patch({ csvRetentionJours: Number(retention) })}>Enregistrer</button>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span style={styleLabel}>Alarme « millésime figé » (jours)</span>
+          <input type="number" value={figeJours} min={bFige?.min} max={bFige?.max} step={1} onChange={(e) => setFigeJours(e.target.value)} style={styleInput} />
+          <span style={styleAide}>{bFige ? `Plage autorisée : ${bFige.min} – ${bFige.max} j. Au-delà, l’écran invite à vérifier la source (information, pas panne).` : 'Plage indisponible.'}</span>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => void patch({ alerteMillesimeFigeJours: Number(figeJours) })}>Enregistrer</button>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span style={styleLabel}>Alarme « échecs consécutifs »</span>
+          <input type="number" value={echecsSeuil} min={bEchecs?.min} max={bEchecs?.max} step={1} onChange={(e) => setEchecsSeuil(e.target.value)} style={styleInput} />
+          <span style={styleAide}>{bEchecs ? `Plage autorisée : ${bEchecs.min} – ${bEchecs.max}. Au-delà, alarme rouge (changement d’identifiant/endpoint DiDo probable).` : 'Plage indisponible.'}</span>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => void patch({ alerteEchecsConsecutifs: Number(echecsSeuil) })}>Enregistrer</button>
         </label>
       </section>
 

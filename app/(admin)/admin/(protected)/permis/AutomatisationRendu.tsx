@@ -38,6 +38,26 @@ export function AvertissementOrdonnanceur({ suspect, message }: { suspect: boole
   );
 }
 
+/** Alarme ROUGE (gravité maximale) : échecs consécutifs. Reprend le message d'erreur RÉEL du dernier échec. */
+export function AlerteEchecs({ alerte, phrase }: { alerte: boolean; phrase: string }) {
+  if (!alerte) return null;
+  return (
+    <div role="alert" style={{ ...carte, background: '#fdecec', color: 'var(--color-svv-red)', fontWeight: 600 }}>
+      ⛔ {phrase} L’ingestion échoue à répétition — vérifie l’identifiant du jeu de données ou l’endpoint DiDo.
+    </div>
+  );
+}
+
+/** Alarme ORANGE (information, pas une panne) : millésime figé. Texte prudent. Rien si pas d'alerte. */
+export function AlerteMillesimeFige({ alerte, phrase }: { alerte: boolean; phrase: string }) {
+  if (!alerte) return null;
+  return (
+    <div role="status" style={{ ...carte, background: '#fff4e0', color: '#8a5a00', fontWeight: 600 }}>
+      ⓘ {phrase}
+    </div>
+  );
+}
+
 /** Une ligne de l'historique des passages (statut traduit, durée, millésimes, nouveaux, erreur). */
 export function LigneHistorique({ run }: { run: RunVeille }) {
   const td: CSSProperties = { padding: '.35rem .5rem', borderBottom: '1px solid var(--color-svv-line)', verticalAlign: 'top' };

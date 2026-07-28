@@ -224,14 +224,20 @@ export function validerReglages(
 }
 
 // ── Réglages d'AUTOMATISATION (chantier S11b) ────────────────────────────────
-export interface PatchAutomatisation { autoActive?: unknown; autoIntervalleHeures?: unknown; csvRetentionJours?: unknown; lancerMaintenant?: unknown }
+export interface PatchAutomatisation {
+  autoActive?: unknown; autoIntervalleHeures?: unknown; csvRetentionJours?: unknown;
+  alerteMillesimeFigeJours?: unknown; alerteEchecsConsecutifs?: unknown; lancerMaintenant?: unknown;
+}
 export type ResultatAutomatisation =
   | { ok: true; colonnes: Record<string, number | boolean>; lancer: boolean }
   | { ok: false; erreurs: ErreurReglage[] };
 
-const PARAMS_AUTO: { cle: 'autoIntervalleHeures' | 'csvRetentionJours'; colonne: string; libelle: string }[] = [
+type CleAuto = 'autoIntervalleHeures' | 'csvRetentionJours' | 'alerteMillesimeFigeJours' | 'alerteEchecsConsecutifs';
+const PARAMS_AUTO: { cle: CleAuto; colonne: string; libelle: string }[] = [
   { cle: 'autoIntervalleHeures', colonne: 'auto_intervalle_heures', libelle: 'intervalle (heures)' },
   { cle: 'csvRetentionJours', colonne: 'csv_retention_jours', libelle: 'rétention des CSV (jours)' },
+  { cle: 'alerteMillesimeFigeJours', colonne: 'alerte_millesime_fige_jours', libelle: 'seuil millésime figé (jours)' },
+  { cle: 'alerteEchecsConsecutifs', colonne: 'alerte_echecs_consecutifs', libelle: 'seuil échecs consécutifs' },
 ];
 
 /**

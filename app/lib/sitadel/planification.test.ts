@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger, resumeRun,
   prochainPassage, ordonnanceurSuspect, dureeRun, messageDemandeManuelle,
+  millesimeFige, echecsConsecutifs,
   type ConfigAuto, type RunVeille,
 } from './planification';
 
@@ -200,5 +201,77 @@ describe('S11a — resumeRun (phrase lisible, jamais figée)', () => {
     const s = resumeRun({ ...base, statut: 'echec', erreur: 'DiDo HTTP 503', message: null });
     expect(s).toContain('[echec]');
     expect(s).toContain('DiDo HTTP 503');
+  });
+});
+
+describe('S11c — millesimeFige (prudent, chiffré)', () => {
+  const now = T('2026-07-28T12:00:00Z');
+
+  it('sous le seuil → pas d’alerte', () => {
+    const r = millesimeFige(T('2026-07-20T12:00:00Z'), '2026-07', now, 35); // 8 j
+    expect(r.alerte).toBe(false);
+    expect(r.jours).toBe(8);
+  });
+
+  it('au-dessus du seuil → alerte, avec les jours, le millésime, et un texte PRUDENT (jamais « cassé »)', () => {
+    const r = millesimeFige(T('2026-06-01T12:00:00Z'), '2026-05', now, 35); // ~57 j
+    expect(r.alerte).toBe(true);
+    expect(r.jours).toBeGreaterThanOrEqual(35);
+    expect(r.phrase).toContain('2026-05');
+    expect(r.phrase).toContain(`${r.jours} j`);
+    expect(r.phrase).toContain('vérifie la source');
+    expect(r.phrase).not.toMatch(/cassé|panne|en échec/i);
+  });
+
+  it('une suite de « rien_a_faire » ne remet PAS à zéro : la date reste celle du dernier AVANCE (ancienne) → alerte', () => {
+    // La date d'entrée = min(fini_le) d'un run 'succes' ayant ingéré ce millésime (côté route) ; les 'rien_a_faire'
+    // ultérieurs ne la modifient pas → l'alerte se déclenche bien.
+    expect(millesimeFige(T('2026-06-10T12:00:00Z'), '2026-06', now, 35).alerte).toBe(true);
+  });
+
+  it('un run qui fait avancer le millésime remet à zéro : date récente → pas d’alerte', () => {
+    expect(millesimeFige(T('2026-07-27T12:00:00Z'), '2026-07', now, 35).alerte).toBe(false);
+  });
+
+  it('date/millésime inconnu → pas d’alerte trompeuse', () => {
+    expect(millesimeFige(null, '2026-07', now, 35).alerte).toBe(false);
+    expect(millesimeFige(T('2000-01-01T00:00:00Z'), null, now, 35).alerte).toBe(false);
+  });
+});
+
+describe('S11c — echecsConsecutifs', () => {
+  const run = (statut: string, erreur: string | null = null): RunVeille => ({
+    declencheur: 'planifie', statut, demarreLe: '2026-07-28 12:00:00+00', finiLe: '2026-07-28 12:01:00+00',
+    millesimeDetecte: null, millesimeIngere: null, lignesLues: null, dossiersRetenus: null, dossiersNouveaux: null, message: null, erreur,
+  });
+
+  it('seuil non atteint → pas d’alerte', () => {
+    const r = echecsConsecutifs([run('echec', 'x'), run('succes')], 3);
+    expect(r.alerte).toBe(false);
+    expect(r.nombre).toBe(1);
+  });
+
+  it('seuil atteint → alerte + message d’erreur RÉEL du dernier échec (pas une paraphrase)', () => {
+    const r = echecsConsecutifs([run('echec', 'DiDo HTTP 503'), run('echec', 'x'), run('echec', 'y')], 3);
+    expect(r.alerte).toBe(true);
+    expect(r.nombre).toBe(3);
+    expect(r.dernierMessage).toBe('DiDo HTTP 503');
+    expect(r.phrase).toContain('DiDo HTTP 503');
+  });
+
+  it('un succès intercalé casse la série', () => {
+    expect(echecsConsecutifs([run('echec', 'a'), run('succes'), run('echec', 'b'), run('echec', 'c')], 2).nombre).toBe(1);
+  });
+
+  it('« rien_a_faire » en tête casse la série (0 échec consécutif)', () => {
+    const r = echecsConsecutifs([run('rien_a_faire'), run('echec', 'a')], 1);
+    expect(r.nombre).toBe(0);
+    expect(r.dernierMessage).toBeNull();
+  });
+
+  it('historique vide → 0, pas d’alerte', () => {
+    const r = echecsConsecutifs([], 3);
+    expect(r.nombre).toBe(0);
+    expect(r.alerte).toBe(false);
   });
 });

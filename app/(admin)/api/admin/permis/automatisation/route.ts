@@ -2,8 +2,8 @@ import 'server-only';
 import { query, withTransaction } from '../../../../../lib/db/client';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { parserBornesCheck, validerAutomatisation, type BornesParColonne, type PatchAutomatisation } from '../../../../../lib/sitadel/reglagesVeille';
-import { historiqueRuns, dernierSuccesLe, dernierPassageLe } from '../../../../../lib/sitadel/executerVeille';
-import { prochainPassage, ordonnanceurSuspect, type ConfigAuto } from '../../../../../lib/sitadel/planification';
+import { historiqueRuns, dernierSuccesLe, dernierPassageLe, dateArriveeMillesime } from '../../../../../lib/sitadel/executerVeille';
+import { prochainPassage, ordonnanceurSuspect, millesimeFige, echecsConsecutifs, type ConfigAuto } from '../../../../../lib/sitadel/planification';
 
 /**
  * /api/admin/permis/automatisation (chantier S11b) — pilotage de la veille AUTOMATIQUE. GET = état complet (réglages +
@@ -21,13 +21,20 @@ async function lireBornes(): Promise<BornesParColonne> {
   return parserBornesCheck(rows.map((r) => r.def));
 }
 
-interface LigneConfig { auto_active: boolean; auto_intervalle_heures: number; csv_retention_jours: number; run_demande_le: Date | null }
+interface LigneConfig {
+  auto_active: boolean; auto_intervalle_heures: number; csv_retention_jours: number; run_demande_le: Date | null;
+  alerte_millesime_fige_jours: number; alerte_echecs_consecutifs: number;
+}
 
 async function lireConfig(): Promise<LigneConfig> {
   const { rows } = await query<LigneConfig>(
-    `SELECT auto_active, auto_intervalle_heures, csv_retention_jours, run_demande_le FROM config_veille WHERE id = 1`,
+    `SELECT auto_active, auto_intervalle_heures, csv_retention_jours, run_demande_le,
+            alerte_millesime_fige_jours, alerte_echecs_consecutifs FROM config_veille WHERE id = 1`,
   );
-  return rows[0] ?? { auto_active: false, auto_intervalle_heures: 24, csv_retention_jours: 0, run_demande_le: null };
+  return rows[0] ?? {
+    auto_active: false, auto_intervalle_heures: 24, csv_retention_jours: 0, run_demande_le: null,
+    alerte_millesime_fige_jours: 35, alerte_echecs_consecutifs: 3,
+  };
 }
 
 /** État complet renvoyé par GET (et par PATCH après écriture). */
@@ -38,19 +45,27 @@ async function etatComplet() {
     historiqueRuns(20), dernierSuccesLe(), dernierPassageLe(),
   ]);
   const maintenant = new Date();
+  const millesimeBase = mille.rows[0]?.code ?? null;
   const configAuto: ConfigAuto = { autoActive: cfg.auto_active, autoIntervalleHeures: cfg.auto_intervalle_heures, runDemandeLe: cfg.run_demande_le };
   const prochain = prochainPassage(dernierSucces, configAuto, maintenant);
   const suspect = ordonnanceurSuspect(dernierPassage, configAuto, maintenant);
+  // Date d'arrivée du millésime courant : fallback FIABLE sur veille_run (telecharge_a n'est pas exploitable).
+  const dateAvancee = millesimeBase ? await dateArriveeMillesime(millesimeBase) : null;
+  const millesimeFigeAlarme = millesimeFige(dateAvancee, millesimeBase, maintenant, cfg.alerte_millesime_fige_jours);
+  const echecsAlarme = echecsConsecutifs(historique, cfg.alerte_echecs_consecutifs);
   return {
     autoActive: cfg.auto_active,
     autoIntervalleHeures: cfg.auto_intervalle_heures,
     csvRetentionJours: cfg.csv_retention_jours,
+    alerteMillesimeFigeJours: cfg.alerte_millesime_fige_jours,
+    alerteEchecsConsecutifs: cfg.alerte_echecs_consecutifs,
     bornes,
-    millesimeBase: mille.rows[0]?.code ?? null,
+    millesimeBase,
     dernierRun: historique[0] ?? null,
     demandeEnAttente: cfg.run_demande_le !== null,
     prochainPassage: { dateIso: prochain.date ? prochain.date.toISOString() : null, phrase: prochain.phrase },
     ordonnanceurSuspect: suspect,
+    alarmes: { echecs: echecsAlarme, millesimeFige: millesimeFigeAlarme },
     historique,
     maintenant: maintenant.toISOString(),
   };

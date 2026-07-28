@@ -102,6 +102,47 @@ export function messageDemandeManuelle(dejaEnAttente: boolean): string {
     : 'Demande enregistrée : elle sera exécutée au prochain passage de l’ordonnanceur, dans un quart d’heure au plus. Le travail ne démarre pas à l’instant.';
 }
 
+// ── Alarmes de santé (chantier S11c) ─────────────────────────────────────────
+/**
+ * Le millésime en base est-il FIGÉ ? `dateDernierAvancee` = date d'arrivée du millésime courant (le CALLER la tire de
+ * veille_run : min(fini_le) d'un run 'succes' ayant ingéré ce millésime — `sitadel_millesime.telecharge_a` n'est PAS
+ * fiable, réécrit à chaque ré-ingestion). Un run 'rien_a_faire' n'est PAS une nouveauté et n'entre donc jamais dans ce
+ * calcul ; un run qui fait avancer le millésime le remet à zéro (nouvelle date d'arrivée). Message PRUDENT : c'est une
+ * information (Sitadel publie mensuellement mais à date irrégulière), jamais l'affirmation d'une panne. `null` → pas
+ * d'alerte trompeuse. Renvoie toujours des nombres.
+ */
+export function millesimeFige(dateDernierAvancee: Date | null, millesimeBase: string | null, maintenant: Date, seuilJours: number): { alerte: boolean; jours: number; phrase: string } {
+  if (dateDernierAvancee === null || millesimeBase === null) {
+    return { alerte: false, jours: 0, phrase: 'date d’arrivée du dernier millésime inconnue — pas d’alerte.' };
+  }
+  const jours = Math.floor((maintenant.getTime() - dateDernierAvancee.getTime()) / 86_400_000);
+  return {
+    alerte: jours >= seuilJours,
+    jours,
+    phrase: `aucun nouveau millésime depuis ${jours} j (millésime en base « ${millesimeBase} ») — Sitadel publie mensuellement mais à date irrégulière ; au-delà de ${seuilJours} j, vérifie la source.`,
+  };
+}
+
+/**
+ * Combien d'ÉCHECS CONSÉCUTIFS en tête d'historique (récent → ancien) ? On s'arrête au premier run NON-échec (un succès,
+ * un 'rien_a_faire' ou un 'en_cours' casse la série). `dernierMessage` reprend le message d'erreur RÉEL du dernier échec
+ * (pas une paraphrase). Renvoie toujours des nombres.
+ */
+export function echecsConsecutifs(historique: RunVeille[], seuil: number): { alerte: boolean; nombre: number; dernierMessage: string | null; phrase: string } {
+  let nombre = 0;
+  for (const r of historique) {
+    if (r.statut === 'echec') nombre += 1;
+    else break;
+  }
+  const dernierMessage = historique[0]?.statut === 'echec' ? (historique[0].erreur ?? null) : null;
+  return {
+    alerte: nombre >= seuil,
+    nombre,
+    dernierMessage,
+    phrase: `${nombre} échec(s) consécutif(s) (seuil ${seuil})${dernierMessage ? ` — dernier : ${dernierMessage}` : ''}.`,
+  };
+}
+
 /** Le millésime distant est-il nouveau vs celui en base ? Raison chiffrée (aucun libellé figé). */
 export function millesimeEstNouveau(base: string | null, distant: string): { nouveau: boolean; raison: string } {
   if (base === null || base.trim() === '') return { nouveau: true, raison: `aucun millésime en base ; distant « ${distant} »` };

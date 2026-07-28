@@ -242,3 +242,14 @@ export async function dernierPassageLe(): Promise<Date | null> {
   const { rows } = await query<{ d: Date | null }>(`SELECT max(demarre_le) AS d FROM veille_run`);
   return rows[0]?.d ?? null;
 }
+
+/**
+ * Date d'ARRIVÉE d'un millésime = min(fini_le) d'un run 'succes' l'ayant ingéré. `sitadel_millesime.telecharge_a` n'est
+ * PAS utilisable (réécrit à chaque ré-ingestion via ON CONFLICT). `null` si ce millésime n'a jamais été ingéré via un run.
+ */
+export async function dateArriveeMillesime(code: string): Promise<Date | null> {
+  const { rows } = await query<{ d: Date | null }>(
+    `SELECT min(fini_le) AS d FROM veille_run WHERE statut = 'succes' AND millesime_ingere = $1`, [code],
+  );
+  return rows[0]?.d ?? null;
+}
