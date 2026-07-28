@@ -16,7 +16,7 @@
  */
 import { readdir, stat } from 'node:fs/promises';
 import type { PoolClient } from 'pg';
-import { pool, query } from '../db/client';
+import { pool, query, withTransaction } from '../db/client';
 import { chargerConfigVeille } from './veilleConfig';
 import { ingererMillesime, millesimeDistantDido, DOSSIER_LOCAL, type CompteursIngestion } from './ingestionMillesime';
 import {
@@ -70,14 +70,18 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
   try {
     const config = await deps.chargerConfig();
 
-    // 2) Garde d'automatisation pour les runs PLANIFIÉS (les 'manuel'/'api' et --forcer passent outre).
+    // 2) Garde d'automatisation pour les runs PLANIFIÉS (les 'manuel'/'api' et --forcer passent outre). Le drapeau de
+    //    demande manuelle est prioritaire (cf. doitSExecuter) : s'il est posé, le run devient 'manuel'.
+    let declencheur = opts.declencheur;
     if (opts.declencheur === 'planifie' && !forcer) {
       const decision = doitSExecuter(await deps.dernierSucces(), deps.maintenant(), config);
       if (!decision.executer) return { statut: 'rien_a_faire', raison: decision.raison, runId: null };
+      declencheur = decision.declencheur; // 'manuel' si demande en attente, sinon 'planifie'
     }
 
-    // 3) Ligne 'en_cours'.
-    runId = await deps.insererRun(opts.declencheur, deps.maintenant());
+    // 3) Ligne 'en_cours' + REMISE À NULL du drapeau, dans la MÊME transaction (un plantage ne doit pas laisser une
+    //    demande manuelle qui se rejoue indéfiniment).
+    runId = await deps.insererRun(declencheur, deps.maintenant());
 
     // 4) Millésime distant (bon marché) vs base. ⚠️ Si l'appel DiDo échoue (réseau/format/champ absent), l'exception
     //    remonte au catch → statut 'echec' : SURTOUT PAS de repli vers l'ingestion complète « au cas où ». Un moteur qui,
@@ -124,7 +128,7 @@ function depsReelles(): DepsVeille {
     maintenant: () => new Date(),
     chargerConfig: async () => {
       const c = await chargerConfigVeille();
-      return { autoActive: c.autoActive, autoIntervalleHeures: c.autoIntervalleHeures, csvRetentionJours: c.csvRetentionJours };
+      return { autoActive: c.autoActive, autoIntervalleHeures: c.autoIntervalleHeures, csvRetentionJours: c.csvRetentionJours, runDemandeLe: c.runDemandeLe };
     },
     dernierSucces: async () => {
       const { rows } = await query<{ fini_le: Date | null }>(`SELECT max(fini_le) AS fini_le FROM veille_run WHERE statut = 'succes'`);
@@ -146,11 +150,16 @@ function depsReelles(): DepsVeille {
       finally { clientVerrou.release(); clientVerrou = null; }
     },
     insererRun: async (declencheur, demarreLe) => {
-      const { rows } = await query<{ id: number }>(
-        `INSERT INTO veille_run (declencheur, demarre_le, statut) VALUES ($1, $2, 'en_cours') RETURNING id`,
-        [declencheur, demarreLe],
-      );
-      return rows[0].id;
+      // Transaction ATOMIQUE : consommer le drapeau (run_demande_le → NULL) ET créer la ligne 'en_cours' ensemble, pour
+      // qu'un plantage ne laisse jamais une demande manuelle armée qui se rejouerait indéfiniment.
+      return withTransaction(async (q) => {
+        await q(`UPDATE config_veille SET run_demande_le = NULL WHERE id = 1`);
+        const { rows } = await q<{ id: number }>(
+          `INSERT INTO veille_run (declencheur, demarre_le, statut) VALUES ($1, $2, 'en_cours') RETURNING id`,
+          [declencheur, demarreLe],
+        );
+        return rows[0].id;
+      });
     },
     finaliserRun: async (id, m) => {
       await query(
@@ -201,4 +210,35 @@ export async function dernierRun(): Promise<RunVeille | null> {
     millesimeDetecte: r.millesime_detecte, millesimeIngere: r.millesime_ingere, lignesLues: r.lignes_lues,
     dossiersRetenus: r.dossiers_retenus, dossiersNouveaux: r.dossiers_nouveaux, message: r.message, erreur: r.erreur,
   };
+}
+
+/** Les `limite` derniers runs (récent → ancien), pour l'historique de l'écran d'administration. */
+export async function historiqueRuns(limite: number): Promise<RunVeille[]> {
+  const n = Math.max(1, Math.min(200, Math.trunc(limite)));
+  const { rows } = await query<{
+    declencheur: string; statut: string; demarre_le: string | null; fini_le: string | null;
+    millesime_detecte: string | null; millesime_ingere: string | null; lignes_lues: number | null;
+    dossiers_retenus: number | null; dossiers_nouveaux: number | null; message: string | null; erreur: string | null;
+  }>(
+    `SELECT declencheur, statut, demarre_le::text AS demarre_le, fini_le::text AS fini_le,
+            millesime_detecte, millesime_ingere, lignes_lues, dossiers_retenus, dossiers_nouveaux, message, erreur
+     FROM veille_run ORDER BY demarre_le DESC LIMIT $1`, [n],
+  );
+  return rows.map((r) => ({
+    declencheur: r.declencheur, statut: r.statut, demarreLe: r.demarre_le, finiLe: r.fini_le,
+    millesimeDetecte: r.millesime_detecte, millesimeIngere: r.millesime_ingere, lignesLues: r.lignes_lues,
+    dossiersRetenus: r.dossiers_retenus, dossiersNouveaux: r.dossiers_nouveaux, message: r.message, erreur: r.erreur,
+  }));
+}
+
+/** Date (fini_le) du dernier run RÉUSSI — pour calculer le prochain passage. `null` si aucun succès. */
+export async function dernierSuccesLe(): Promise<Date | null> {
+  const { rows } = await query<{ fini_le: Date | null }>(`SELECT max(fini_le) AS fini_le FROM veille_run WHERE statut = 'succes'`);
+  return rows[0]?.fini_le ?? null;
+}
+
+/** Date (demarre_le) du dernier passage QUEL QUE SOIT le statut — pour détecter un ordonnanceur absent. `null` si aucun. */
+export async function dernierPassageLe(): Promise<Date | null> {
+  const { rows } = await query<{ d: Date | null }>(`SELECT max(demarre_le) AS d FROM veille_run`);
+  return rows[0]?.d ?? null;
 }

@@ -222,3 +222,43 @@ export function validerReglages(
   if (erreurs.length > 0) return { ok: false, erreurs };
   return { ok: true, demandeur, veille };
 }
+
+// ── Réglages d'AUTOMATISATION (chantier S11b) ────────────────────────────────
+export interface PatchAutomatisation { autoActive?: unknown; autoIntervalleHeures?: unknown; csvRetentionJours?: unknown; lancerMaintenant?: unknown }
+export type ResultatAutomatisation =
+  | { ok: true; colonnes: Record<string, number | boolean>; lancer: boolean }
+  | { ok: false; erreurs: ErreurReglage[] };
+
+const PARAMS_AUTO: { cle: 'autoIntervalleHeures' | 'csvRetentionJours'; colonne: string; libelle: string }[] = [
+  { cle: 'autoIntervalleHeures', colonne: 'auto_intervalle_heures', libelle: 'intervalle (heures)' },
+  { cle: 'csvRetentionJours', colonne: 'csv_retention_jours', libelle: 'rétention des CSV (jours)' },
+];
+
+/**
+ * Valide un patch de l'écran Automatisation. `auto_active` = booléen ; `auto_intervalle_heures` et `csv_retention_jours`
+ * = entiers dans les bornes tirées des CHECK (jamais recopiées). `lancerMaintenant` = action (pose du drapeau). Un refus
+ * ne produit aucune colonne (rien n'est écrit).
+ */
+export function validerAutomatisation(patch: PatchAutomatisation, bornes: BornesParColonne): ResultatAutomatisation {
+  const erreurs: ErreurReglage[] = [];
+  const colonnes: Record<string, number | boolean> = {};
+
+  if (patch.autoActive !== undefined) {
+    if (typeof patch.autoActive !== 'boolean') erreurs.push({ colonne: 'auto_active', message: 'automatisation : booléen attendu' });
+    else colonnes.auto_active = patch.autoActive;
+  }
+  for (const p of PARAMS_AUTO) {
+    const v = patch[p.cle];
+    if (v === undefined) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v) || !Number.isInteger(v)) { erreurs.push({ colonne: p.colonne, message: `${p.libelle} : valeur entière attendue` }); continue; }
+    const b = bornes[p.colonne];
+    if (!b) { erreurs.push({ colonne: p.colonne, message: `${p.libelle} : plage indisponible en base (contrainte absente)` }); continue; }
+    if (v < b.min) { erreurs.push({ colonne: p.colonne, message: `${p.libelle} : minimum ${b.min}` }); continue; }
+    if (v > b.max) { erreurs.push({ colonne: p.colonne, message: `${p.libelle} : maximum ${b.max}` }); continue; }
+    colonnes[p.colonne] = v;
+  }
+  const lancer = patch.lancerMaintenant === true;
+  if (Object.keys(colonnes).length === 0 && !lancer) erreurs.push({ colonne: '', message: 'aucun réglage à modifier' });
+  if (erreurs.length > 0) return { ok: false, erreurs };
+  return { ok: true, colonnes, lancer };
+}

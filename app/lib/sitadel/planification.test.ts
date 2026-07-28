@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger, resumeRun,
+  prochainPassage, ordonnanceurSuspect, dureeRun, messageDemandeManuelle,
   type ConfigAuto, type RunVeille,
 } from './planification';
 
-const CFG = (over: Partial<ConfigAuto> = {}): ConfigAuto => ({ autoActive: true, autoIntervalleHeures: 24, ...over });
+const CFG = (over: Partial<ConfigAuto> = {}): ConfigAuto => ({ autoActive: true, autoIntervalleHeures: 24, runDemandeLe: null, ...over });
 const T = (iso: string) => new Date(iso);
 
 describe('S11a — doitSExecuter (planification pure, raison chiffrée)', () => {
@@ -38,6 +39,95 @@ describe('S11a — doitSExecuter (planification pure, raison chiffrée)', () => 
   it('un échec ne bloque pas : le caller passe le dernier SUCCÈS (null si aucun) → OUI', () => {
     // dernier run = échec → dernierSucces reste null → on réessaie.
     expect(doitSExecuter(null, maintenant, CFG()).executer).toBe(true);
+  });
+
+  it('déclencheur par défaut = « planifie »', () => {
+    expect(doitSExecuter(null, maintenant, CFG()).declencheur).toBe('planifie');
+    expect(doitSExecuter(T('2026-07-28T06:00:00Z'), maintenant, CFG()).declencheur).toBe('planifie');
+  });
+});
+
+describe('S11b — doitSExecuter : drapeau de demande manuelle prioritaire', () => {
+  const maintenant = T('2026-07-28T12:00:00Z');
+  const demande = T('2026-07-28T11:59:00Z');
+
+  it('drapeau posé → EXÉCUTER en « manuel », même auto éteinte ET intervalle non écoulé', () => {
+    const d = doitSExecuter(T('2026-07-28T11:00:00Z'), maintenant, CFG({ autoActive: false, autoIntervalleHeures: 24, runDemandeLe: demande }));
+    expect(d.executer).toBe(true);
+    expect(d.declencheur).toBe('manuel');
+    expect(d.raison).toContain('demande manuelle du');
+    expect(d.raison).toContain(demande.toISOString()); // horodatage chiffré
+  });
+
+  it('ordre de priorité : drapeau AVANT auto_active AVANT intervalle', () => {
+    // sans drapeau, auto éteinte → NON (le drapeau ne l'emporte que s'il est posé)
+    expect(doitSExecuter(null, maintenant, CFG({ autoActive: false, runDemandeLe: null })).executer).toBe(false);
+    // drapeau posé l'emporte
+    expect(doitSExecuter(null, maintenant, CFG({ autoActive: false, runDemandeLe: demande })).executer).toBe(true);
+  });
+});
+
+describe('S11b — prochainPassage', () => {
+  const maintenant = T('2026-07-28T12:00:00Z');
+  it('auto éteinte → aucune date', () => {
+    const p = prochainPassage(T('2026-07-28T00:00:00Z'), CFG({ autoActive: false }), maintenant);
+    expect(p.date).toBeNull();
+    expect(p.phrase).toContain('éteinte');
+  });
+  it('aucun run antérieur → dès le prochain passage', () => {
+    const p = prochainPassage(null, CFG(), maintenant);
+    expect(p.date).toEqual(maintenant);
+    expect(p.phrase).toContain('dès le prochain passage');
+  });
+  it('intervalle modifié → date = dernier succès + intervalle', () => {
+    const p = prochainPassage(T('2026-07-28T06:00:00Z'), CFG({ autoIntervalleHeures: 12 }), maintenant); // +12h → 18:00
+    expect(p.date).toEqual(T('2026-07-28T18:00:00Z'));
+    expect(p.phrase).toMatch(/dans ~\d+ h/);
+  });
+  it('échéance dépassée → « dès le prochain passage »', () => {
+    const p = prochainPassage(T('2026-07-26T06:00:00Z'), CFG({ autoIntervalleHeures: 24 }), maintenant);
+    expect(p.phrase).toContain('échéance atteinte');
+  });
+  it('demande manuelle en attente → au prochain passage', () => {
+    const p = prochainPassage(null, CFG({ runDemandeLe: maintenant }), maintenant);
+    expect(p.phrase).toContain('demande manuelle en attente');
+  });
+});
+
+describe('S11b — ordonnanceurSuspect', () => {
+  const maintenant = T('2026-07-28T12:00:00Z');
+  it('auto éteinte → jamais suspect', () => {
+    expect(ordonnanceurSuspect(null, CFG({ autoActive: false }), maintenant).suspect).toBe(false);
+  });
+  it('auto active + aucun passage → suspect', () => {
+    const s = ordonnanceurSuspect(null, CFG(), maintenant);
+    expect(s.suspect).toBe(true);
+    expect(s.message).toContain('ordonnanceur');
+  });
+  it('dernier passage > 2× intervalle → suspect avec les heures', () => {
+    const s = ordonnanceurSuspect(T('2026-07-24T12:00:00Z'), CFG({ autoIntervalleHeures: 24 }), maintenant); // 96 h > 48 h
+    expect(s.suspect).toBe(true);
+    expect(s.message).toMatch(/depuis \d/);
+  });
+  it('dernier passage récent (< 2× intervalle) → non suspect', () => {
+    expect(ordonnanceurSuspect(T('2026-07-28T06:00:00Z'), CFG({ autoIntervalleHeures: 24 }), maintenant).suspect).toBe(false);
+  });
+});
+
+describe('S11b — dureeRun & messageDemandeManuelle', () => {
+  it('durée lisible, — si incohérent', () => {
+    expect(dureeRun('2026-07-28T12:00:00Z', '2026-07-28T12:00:42Z')).toBe('42 s');
+    expect(dureeRun('2026-07-28T12:00:00Z', '2026-07-28T12:07:05Z')).toBe('7 min 5 s');
+    expect(dureeRun(null, '2026-07-28T12:00:00Z')).toBe('—');
+    expect(dureeRun('2026-07-28T12:00:00Z', '2026-07-28T11:00:00Z')).toBe('—'); // fin avant début
+  });
+  it('message « lancer maintenant » ne prétend JAMAIS un démarrage immédiat', () => {
+    for (const m of [messageDemandeManuelle(false), messageDemandeManuelle(true)]) {
+      expect(m).toContain('au prochain passage');
+      expect(m.toLowerCase()).not.toContain('démarre à l’instant'.toLowerCase());
+      expect(m).not.toMatch(/en cours d.exécution|démarré/i);
+    }
+    expect(messageDemandeManuelle(true)).toContain('déjà en attente');
   });
 });
 

@@ -11,7 +11,7 @@ const COMPTEURS: CompteursIngestion = {
 function makeDeps(over: Partial<DepsVeille> = {}): DepsVeille {
   return {
     maintenant: () => new Date('2026-07-28T12:00:00Z'),
-    chargerConfig: vi.fn(async () => ({ autoActive: false, autoIntervalleHeures: 24, csvRetentionJours: 0 })),
+    chargerConfig: vi.fn(async () => ({ autoActive: false, autoIntervalleHeures: 24, csvRetentionJours: 0, runDemandeLe: null })),
     dernierSucces: vi.fn(async () => null),
     millesimeEnBase: vi.fn(async () => '2026-06'),
     acquerirVerrou: vi.fn(async () => true),
@@ -134,12 +134,44 @@ describe('S11a-FIX — executerVeille : échec d’ingestion', () => {
   });
 });
 
+describe('S11b — executerVeille : drapeau de demande manuelle', () => {
+  it('drapeau posé (auto éteinte) → run en « manuel », insererRun consomme le drapeau au démarrage', async () => {
+    const insererRun = vi.fn(async () => 1);
+    const deps = makeDeps({
+      chargerConfig: vi.fn(async () => ({ autoActive: false, autoIntervalleHeures: 24, csvRetentionJours: 0, runDemandeLe: new Date('2026-07-28T11:59:00Z') })),
+      insererRun,
+    });
+
+    const r = await executerVeille({ declencheur: 'planifie' }, deps);
+
+    expect(r.statut).toBe('succes');
+    // le run porte 'manuel' (le drapeau l'emporte) — insererRun (qui, en réel, remet le drapeau à NULL dans SA
+    // transaction) est appelé avec 'manuel' AU DÉMARRAGE, avant tout travail.
+    expect(insererRun).toHaveBeenCalledWith('manuel', expect.any(Date));
+  });
+
+  it('un ÉCHEC ne laisse pas le drapeau armé : insererRun (qui le consomme) est appelé AVANT l’échec', async () => {
+    const insererRun = vi.fn(async () => 1);
+    const finaliserRun = vi.fn(async () => {});
+    const deps = makeDeps({
+      chargerConfig: vi.fn(async () => ({ autoActive: false, autoIntervalleHeures: 24, csvRetentionJours: 0, runDemandeLe: new Date('2026-07-28T11:59:00Z') })),
+      insererRun, finaliserRun,
+      ingerer: vi.fn(async () => { throw new Error('boom'); }),
+    });
+
+    await expect(executerVeille({ declencheur: 'planifie' }, deps)).rejects.toThrow('boom');
+
+    expect(insererRun).toHaveBeenCalledWith('manuel', expect.any(Date)); // drapeau consommé au démarrage
+    expect(finaliserRun).toHaveBeenCalledWith(1, expect.objectContaining({ statut: 'echec' }));
+  });
+});
+
 describe('S11a-FIX — executerVeille : garde d’intervalle (planifie)', () => {
   it('auto éteinte + planifie → « rien_a_faire » sans insérer de run ni toucher le réseau', async () => {
     const insererRun = vi.fn(async () => 1);
     const millesimeDistant = vi.fn(async () => '2026-07');
     const deps = makeDeps({
-      chargerConfig: vi.fn(async () => ({ autoActive: false, autoIntervalleHeures: 24, csvRetentionJours: 0 })),
+      chargerConfig: vi.fn(async () => ({ autoActive: false, autoIntervalleHeures: 24, csvRetentionJours: 0, runDemandeLe: null })),
       insererRun, millesimeDistant,
     });
 

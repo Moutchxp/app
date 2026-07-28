@@ -11,6 +11,8 @@ export type StatutRun = 'en_cours' | 'succes' | 'rien_a_faire' | 'echec';
 export interface ConfigAuto {
   autoActive: boolean;
   autoIntervalleHeures: number;
+  /** Drapeau « demande d'exécution immédiate » (config_veille.run_demande_le) ; null = aucune demande en attente. */
+  runDemandeLe: Date | null;
 }
 
 /** Heures écoulées entre deux instants, arrondi à 1 décimale POUR L'AFFICHAGE seulement (jamais réinjecté dans un calcul). */
@@ -19,19 +21,85 @@ function heuresEcoulees(depuis: Date, jusqua: Date): number {
 }
 
 /**
- * Un run PLANIFIÉ doit-il s'exécuter ? Fondé sur `auto_active`, l'intervalle, et la date du dernier run RÉUSSI
- * (`dernierSucces` = fini_le du dernier 'succes', ou null s'il n'y en a jamais eu — un échec ne compte pas, donc n'empêche
- * pas de réessayer). La raison est toujours chiffrée.
+ * Un run doit-il s'exécuter ? DANS CET ORDRE (chantier S11b) :
+ *   1. demande manuelle en attente (`runDemandeLe`) → exécuter, déclencheur 'manuel' (passe outre auto_active ET l'intervalle) ;
+ *   2. sinon `auto_active` false → ne pas exécuter ;
+ *   3. sinon aucun run réussi antérieur → exécuter ;
+ *   4. sinon intervalle non écoulé → ne pas exécuter (heures restantes chiffrées) ;
+ *   5. sinon exécuter.
+ * `dernierSucces` = fini_le du dernier 'succes' (null s'il n'y en a jamais eu — un échec ne compte pas, donc n'empêche pas
+ * de réessayer). La raison est toujours chiffrée ; le `declencheur` distingue une exécution manuelle d'une planifiée.
  */
-export function doitSExecuter(dernierSucces: Date | null, maintenant: Date, config: ConfigAuto): { executer: boolean; raison: string } {
-  if (!config.autoActive) return { executer: false, raison: 'automatisation désactivée (auto_active = false)' };
-  if (dernierSucces === null) return { executer: true, raison: 'aucun run réussi antérieur — exécution' };
+export function doitSExecuter(
+  dernierSucces: Date | null, maintenant: Date, config: ConfigAuto,
+): { executer: boolean; raison: string; declencheur: Declencheur } {
+  if (config.runDemandeLe !== null) {
+    return { executer: true, raison: `demande manuelle du ${config.runDemandeLe.toISOString()}`, declencheur: 'manuel' };
+  }
+  if (!config.autoActive) return { executer: false, raison: 'automatisation désactivée (auto_active = false)', declencheur: 'planifie' };
+  if (dernierSucces === null) return { executer: true, raison: 'aucun run réussi antérieur — exécution', declencheur: 'planifie' };
   const h = heuresEcoulees(dernierSucces, maintenant);
   if (h >= config.autoIntervalleHeures) {
-    return { executer: true, raison: `dernier succès il y a ${h} h (≥ intervalle ${config.autoIntervalleHeures} h)` };
+    return { executer: true, raison: `dernier succès il y a ${h} h (≥ intervalle ${config.autoIntervalleHeures} h)`, declencheur: 'planifie' };
   }
   const restant = Math.max(0, Math.ceil(config.autoIntervalleHeures - h));
-  return { executer: false, raison: `dernier succès il y a ${h} h ; prochain dans ~${restant} h (intervalle ${config.autoIntervalleHeures} h)` };
+  return { executer: false, raison: `dernier succès il y a ${h} h ; prochain dans ~${restant} h (intervalle ${config.autoIntervalleHeures} h)`, declencheur: 'planifie' };
+}
+
+/**
+ * Prochain passage attendu de l'ordonnanceur (pour l'écran). Fondé sur le dernier run RÉUSSI + l'intervalle. Retourne la
+ * date attendue (ou null si non planifiable) et une phrase lisible chiffrée.
+ */
+export function prochainPassage(dernierSucces: Date | null, config: ConfigAuto, maintenant: Date): { date: Date | null; phrase: string } {
+  if (config.runDemandeLe !== null) return { date: maintenant, phrase: 'demande manuelle en attente — au prochain passage de l’ordonnanceur (un quart d’heure au plus)' };
+  if (!config.autoActive) return { date: null, phrase: 'automatisation éteinte — aucun passage planifié' };
+  if (dernierSucces === null) return { date: maintenant, phrase: 'dès le prochain passage de l’ordonnanceur' };
+  const date = new Date(dernierSucces.getTime() + config.autoIntervalleHeures * 3_600_000);
+  if (date.getTime() <= maintenant.getTime()) return { date, phrase: 'attendu dès le prochain passage de l’ordonnanceur (échéance atteinte)' };
+  const restant = Math.max(0, Math.ceil((date.getTime() - maintenant.getTime()) / 3_600_000));
+  return { date, phrase: `prévu dans ~${restant} h` };
+}
+
+/**
+ * L'ordonnanceur semble-t-il absent ? Vrai si l'automatisation est active MAIS aucun passage récent : soit jamais aucun
+ * run, soit le dernier remonte à PLUS DE DEUX intervalles. Un écran affichant « actif » alors que rien ne tourne est pire
+ * que pas d'écran — d'où cet avertissement chiffré.
+ */
+export function ordonnanceurSuspect(dernierPassage: Date | null, config: ConfigAuto, maintenant: Date): { suspect: boolean; message: string } {
+  if (!config.autoActive) return { suspect: false, message: '' };
+  if (dernierPassage === null) {
+    return { suspect: true, message: 'aucun passage automatique détecté — l’ordonnanceur n’est peut-être pas installé.' };
+  }
+  const seuilMs = 2 * config.autoIntervalleHeures * 3_600_000;
+  if (maintenant.getTime() - dernierPassage.getTime() > seuilMs) {
+    const h = heuresEcoulees(dernierPassage, maintenant);
+    return { suspect: true, message: `aucun passage automatique depuis ${h} h (plus de 2× l’intervalle de ${config.autoIntervalleHeures} h) — l’ordonnanceur n’est peut-être pas installé.` };
+  }
+  return { suspect: false, message: '' };
+}
+
+/** Durée lisible d'un run à partir de ses horodatages ISO (— si indisponible/incohérent). */
+export function dureeRun(demarreLe: string | null, finiLe: string | null): string {
+  if (!demarreLe || !finiLe) return '—';
+  const a = Date.parse(demarreLe), b = Date.parse(finiLe);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return '—';
+  const s = Math.round((b - a) / 1000);
+  if (s < 60) return `${s} s`;
+  return `${Math.floor(s / 60)} min ${s % 60} s`;
+}
+
+/** Traduction française des statuts de run (pour l'écran). */
+export const STATUT_FR: Record<string, string> = { succes: 'succès', rien_a_faire: 'rien à faire', en_cours: 'en cours', echec: 'échec' };
+export function traduireStatut(statut: string): string { return STATUT_FR[statut] ?? statut; }
+
+/**
+ * Message de retour du bouton « Lancer maintenant » — dit la VÉRITÉ : le travail ne démarre PAS à l'instant, il sera pris
+ * au prochain passage de l'ordonnanceur. Si une demande est déjà en attente, on l'indique au lieu d'en poser une seconde.
+ */
+export function messageDemandeManuelle(dejaEnAttente: boolean): string {
+  return dejaEnAttente
+    ? 'Une demande est déjà en attente : elle sera exécutée au prochain passage de l’ordonnanceur (dans un quart d’heure au plus).'
+    : 'Demande enregistrée : elle sera exécutée au prochain passage de l’ordonnanceur, dans un quart d’heure au plus. Le travail ne démarre pas à l’instant.';
 }
 
 /** Le millésime distant est-il nouveau vs celui en base ? Raison chiffrée (aucun libellé figé). */
