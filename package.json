@@ -27,6 +27,7 @@
     "admin:lister": "tsx app/scripts/admin.ts lister",
     "analytics:maintenance": "tsx app/scripts/analytics-maintenance.ts",
     "sitadel:ingest": "tsx app/scripts/sitadel-ingest.ts",
+    "veille:run": "tsx app/scripts/veille-run.ts",
     "commune:import": "tsx app/scripts/commune-import.ts",
     "mairie:contact:import": "tsx app/scripts/mairie-contact-import.ts"
   },

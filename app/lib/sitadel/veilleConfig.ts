@@ -19,6 +19,9 @@ export interface ConfigVeille {
   piecesDemandees: string;
   ancienneteMaxDemandeAnnees: number;
   profilDemandeurDefaut: string;
+  autoActive: boolean;
+  autoIntervalleHeures: number;
+  csvRetentionJours: number;
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -36,6 +39,9 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   piecesDemandees: 'PC2,PC3',
   ancienneteMaxDemandeAnnees: 3,
   profilDemandeurDefaut: 'entreprise',
+  autoActive: false,
+  autoIntervalleHeures: 24,
+  csvRetentionJours: 0,
 };
 
 interface LigneConfigVeille {
@@ -52,6 +58,9 @@ interface LigneConfigVeille {
   pieces_demandees: string;
   anciennete_max_demande_annees: number;
   profil_demandeur_defaut: string;
+  auto_active: boolean;
+  auto_intervalle_heures: number;
+  csv_retention_jours: number;
 }
 
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
@@ -61,7 +70,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       `SELECT seuil_logements_immeuble, seuil_surface_immeuble_m2, annees_par_defaut,
               rang_immeuble_neuf, rang_surelevation, rang_construction_neuve, rang_extension, rang_demolition,
               dossiers_par_demande, demandes_par_commune_par_mois, pieces_demandees, anciennete_max_demande_annees,
-              profil_demandeur_defaut
+              profil_demandeur_defaut, auto_active, auto_intervalle_heures, csv_retention_jours
        FROM config_veille WHERE id = 1`,
     );
     const r = res.rows[0];
@@ -80,6 +89,9 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       piecesDemandees: r.pieces_demandees,
       ancienneteMaxDemandeAnnees: r.anciennete_max_demande_annees,
       profilDemandeurDefaut: r.profil_demandeur_defaut,
+      autoActive: r.auto_active,
+      autoIntervalleHeures: r.auto_intervalle_heures,
+      csvRetentionJours: r.csv_retention_jours,
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;
