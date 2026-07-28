@@ -143,7 +143,7 @@ const SELECTION =
   `d.nature_projet_completee, d.i_extension, d.i_surelevation, d.nb_lgt_tot_crees, d.surf_creee, d.superficie_terrain, ` +
   `d.adr_num_ter, d.adr_libvoie_ter, d.adr_lieudit_ter, d.adr_localite_ter, d.adr_codpost_ter, ` +
   `d.sec_cadastre1, d.num_cadastre1, d.sec_cadastre2, d.num_cadastre2, d.sec_cadastre3, d.num_cadastre3, ` +
-  `d.etat_dau, d.date_doc::text AS date_doc, d.date_daact::text AS date_daact, ` +
+  `d.etat_dau, d.etat_ambigu, d.date_doc::text AS date_doc, d.date_daact::text AS date_daact, ` +
   `(d.vu_le_dernier_millesime = (SELECT max(code) FROM sitadel_millesime)) AS vu_au_dernier, ` +
   `c.nom AS commune_nom, mc.email AS dest_email, mc.statut AS dest_statut, ` +
   `mc.canal AS dest_canal, mc.url_formulaire AS dest_url_formulaire, mc.adresse_postale AS dest_adresse_postale`;
@@ -221,8 +221,20 @@ export function construireRequeteComptes(f: FiltresPermis, c: ConfigVeille): { t
  *  dernier millésime (retirés du fichier). Non ré-écrit par les filtres — ce sont des jauges de santé (S12). */
 export const REQUETE_COMPTEURS_ETAT =
   `SELECT count(*) FILTER (WHERE etat_dau = '4')::int AS annules, ` +
-  `count(*) FILTER (WHERE vu_le_dernier_millesime <> (SELECT max(code) FROM sitadel_millesime))::int AS absents ` +
+  `count(*) FILTER (WHERE vu_le_dernier_millesime <> (SELECT max(code) FROM sitadel_millesime))::int AS absents, ` +
+  `count(*) FILTER (WHERE etat_ambigu)::int AS ambigus ` +
   `FROM sitadel_dossier`;
+
+export interface CompteursEtat { annules: number; absents: number; ambigus: number }
+
+/**
+ * Normalise la ligne (unique) de `REQUETE_COMPTEURS_ETAT` : renvoie TOUJOURS les trois clés, 0 par défaut. Un décompte à
+ * zéro est une INFORMATION, pas une absence — la route ne doit jamais omettre une clé, car le rendu la lit sans condition
+ * (`.toLocaleString`). Robuste à une ligne absente (base vide) ET à une clé manquante/nulle (forme de réponse plus ancienne).
+ */
+export function compteursEtatDepuisRow(row: { annules?: number | null; absents?: number | null; ambigus?: number | null } | undefined): CompteursEtat {
+  return { annules: row?.annules ?? 0, absents: row?.absents ?? 0, ambigus: row?.ambigus ?? 0 };
+}
 
 /** Libellés d'état (source SDES). Valeur inattendue → « état X » ; NULL/vide → « non renseigné » (jamais un tiret muet). */
 export const LIBELLE_ETAT_DAU: Record<string, string> = { '2': 'Autorisé', '4': 'Annulé', '5': 'Commencé', '6': 'Terminé' };

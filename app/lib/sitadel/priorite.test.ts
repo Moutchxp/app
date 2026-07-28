@@ -3,7 +3,7 @@ import { CONFIG_VEILLE_DEFAUT, type ConfigVeille } from './veilleConfig';
 import {
   type DossierClassable, type FiltresPermis,
   classer, construireRequeteListe, construireRequeteTotal, construireRequeteComptes, lireFiltres,
-  formaterDateJour, libelleCommune, libelleEtat,
+  formaterDateJour, libelleCommune, libelleEtat, compteursEtatDepuisRow,
 } from './priorite';
 
 const C = CONFIG_VEILLE_DEFAUT; // seuils 10 / 1500 ; rangs 1..5
@@ -197,5 +197,23 @@ describe('Sitadel S12 — libelleEtat (traduction + non renseigné, jamais un ti
     expect(lireFiltres(new URLSearchParams('etat=4')).etatDau).toBe('4');
     expect(lireFiltres(new URLSearchParams('etat=99')).etatDau).toBeNull();
     expect(lireFiltres(new URLSearchParams('')).etatDau).toBeNull();
+  });
+});
+
+describe('S12b-fix — compteursEtat : contrat route↔vue (toujours 3 clés, 0 par défaut)', () => {
+  it('base VIDE (aucune ligne remontée) → les 3 clés présentes et = 0, jamais undefined', () => {
+    const c = compteursEtatDepuisRow(undefined);
+    expect(c).toEqual({ annules: 0, absents: 0, ambigus: 0 });
+    // la vue appelle .toLocaleString sans condition → aucune valeur ne doit être undefined
+    for (const v of Object.values(c)) expect(typeof v).toBe('number');
+  });
+
+  it('sans AUCUN dossier ambigu → la clé « ambigus » existe et vaut 0 (le cas qui plantait)', () => {
+    expect(compteursEtatDepuisRow({ annules: 5, absents: 3, ambigus: 0 }).ambigus).toBe(0);
+  });
+
+  it('clé manquante ou nulle (forme de réponse plus ancienne) → 0, pas de fuite d’undefined', () => {
+    expect(compteursEtatDepuisRow({ annules: 5, absents: 3 })).toEqual({ annules: 5, absents: 3, ambigus: 0 });
+    expect(compteursEtatDepuisRow({ annules: null, absents: null, ambigus: null })).toEqual({ annules: 0, absents: 0, ambigus: 0 });
   });
 });

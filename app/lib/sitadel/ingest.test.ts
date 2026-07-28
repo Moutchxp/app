@@ -120,7 +120,7 @@ describe('Sitadel S2 — UPSERT idempotent', () => {
     const q: Requete = (async (_text: string, params?: unknown[]) => {
       const p = params ?? [];
       const cle = `${p[0]}|${p[1]}`;                 // (type, num_dau)
-      const vuDernier = p[31] as string;             // vu_le_dernier_millesime (dernière valeur ; +3 colonnes S12)
+      const vuDernier = p[32] as string;             // vu_le_dernier_millesime (dernière valeur ; +4 colonnes S12/S12b)
       if (store.has(cle)) {
         store.get(cle)!.vuDernier = vuDernier;       // seul champ qui avance
         return { rows: [{ est_nouveau: false }] };

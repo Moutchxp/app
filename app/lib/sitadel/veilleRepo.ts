@@ -6,7 +6,8 @@ import { query } from '../db/client';
 import type { ConfigVeille } from './veilleConfig';
 import {
   type FiltresPermis, type CleCategorie,
-  classer, libelleParRang, construireRequeteListe, construireRequeteTotal, construireRequeteComptes, REQUETE_COMPTEURS_ETAT, FILTRES_PERMIS_VIDES,
+  classer, libelleParRang, construireRequeteListe, construireRequeteTotal, construireRequeteComptes,
+  REQUETE_COMPTEURS_ETAT, compteursEtatDepuisRow, FILTRES_PERMIS_VIDES,
 } from './priorite';
 
 /** Une ligne de dossier prête pour l'affichage (champs bruts + catégorie résolue). */
@@ -25,7 +26,8 @@ export interface DossierAffiche {
   adrLocaliteTer: string | null;
   adrCodpostTer: string | null;
   cadastre: string[]; // 0..3 références « SEC NUM »
-  etatDau: string | null; // état d'avancement LIVE (2/4/5/6…), null = jamais revu (S12)
+  etatDau: string | null; // état d'avancement LIVE agrégé (2/4/5/6…), null = jamais revu (S12)
+  etatAmbigu: boolean; // lignes du dossier divergentes (≥ 2 états) — informatif, n'exclut pas (S12b)
   dateDoc: string | null; // ouverture de chantier
   dateDaact: string | null; // achèvement des travaux
   vuAuDernier: boolean; // présent dans le dernier millésime (false = retiré du fichier)
@@ -49,7 +51,7 @@ interface LigneSql {
   adr_localite_ter: string | null; adr_codpost_ter: string | null;
   sec_cadastre1: string | null; num_cadastre1: string | null; sec_cadastre2: string | null;
   num_cadastre2: string | null; sec_cadastre3: string | null; num_cadastre3: string | null;
-  etat_dau: string | null; date_doc: string | null; date_daact: string | null; vu_au_dernier: boolean;
+  etat_dau: string | null; etat_ambigu: boolean; date_doc: string | null; date_daact: string | null; vu_au_dernier: boolean;
   commune_nom: string | null;
   dest_email: string | null;
   dest_statut: 'presume' | 'confirme' | 'invalide' | null;
@@ -78,7 +80,7 @@ function versAffiche(r: LigneSql, c: ConfigVeille): DossierAffiche {
     id: r.id, type: r.type, numDau: r.num_dau, codeInsee: r.code_insee, departement: r.departement,
     dateReelleAutorisation: r.date_reelle_autorisation, surfCreee: surf, superficieTerrain: r.superficie_terrain,
     nbLgtTotCrees: r.nb_lgt_tot_crees, adrNumTer: r.adr_num_ter, adrLibvoieTer: r.adr_libvoie_ter, adrLocaliteTer: r.adr_localite_ter, adrCodpostTer: r.adr_codpost_ter,
-    cadastre: refsCadastre(r), etatDau: r.etat_dau, dateDoc: r.date_doc, dateDaact: r.date_daact, vuAuDernier: r.vu_au_dernier,
+    cadastre: refsCadastre(r), etatDau: r.etat_dau, etatAmbigu: r.etat_ambigu, dateDoc: r.date_doc, dateDaact: r.date_daact, vuAuDernier: r.vu_au_dernier,
     communeNom: r.commune_nom, destEmail: r.dest_email, destStatut: r.dest_statut,
     destCanal: r.dest_canal, destUrlFormulaire: r.dest_url_formulaire, destAdressePostale: r.dest_adresse_postale,
     categorie: cl.cle, libelleCategorie: cl.libelle, rang: cl.rang,
@@ -91,7 +93,7 @@ export interface ResultatVeille {
   taille: number;
   lignes: DossierAffiche[];
   comptes: { rang: number; libelle: string; n: number }[];
-  compteursEtat: { annules: number; absents: number }; // jauges globales (S12)
+  compteursEtat: { annules: number; absents: number; ambigus: number }; // jauges globales (S12/S12b)
   bornes: { min: string | null; max: string | null };
   /** Anciens codes (fusions) dont les dossiers sont inclus par la sélection courante — pour le dire à l'utilisateur. */
   inclusions: { ancien: string; nomAncien: string | null; actuel: string; n: number }[];
@@ -131,7 +133,7 @@ export async function lireVeille(f: FiltresPermis, c: ConfigVeille, page: number
     query<LigneSql>(rq.texte, rq.params),
     query<{ n: number }>(rt.texte, rt.params),
     query<{ rang: number; n: number }>(rc.texte, rc.params),
-    query<{ annules: number; absents: number }>(REQUETE_COMPTEURS_ETAT),
+    query<{ annules: number; absents: number; ambigus: number }>(REQUETE_COMPTEURS_ETAT),
     query<{ min: string | null; max: string | null }>(
       `SELECT min(date_reelle_autorisation)::text AS min, max(date_reelle_autorisation)::text AS max FROM sitadel_dossier`,
     ),
@@ -143,7 +145,7 @@ export async function lireVeille(f: FiltresPermis, c: ConfigVeille, page: number
     taille,
     lignes: liste.rows.map((r) => versAffiche(r, c)),
     comptes: comptes.rows.map((x) => ({ rang: x.rang, libelle: libelleParRang(x.rang, c), n: x.n })),
-    compteursEtat: { annules: etat.rows[0]?.annules ?? 0, absents: etat.rows[0]?.absents ?? 0 },
+    compteursEtat: compteursEtatDepuisRow(etat.rows[0]),
     bornes: bornes.rows[0] ?? { min: null, max: null },
     inclusions,
   };

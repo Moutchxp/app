@@ -17,7 +17,8 @@ export interface Dossier {
   codeInsee: string;
   departement: string;
   etat: string | null;                   // état FIGÉ à la 1re rétention (toujours '2' — legacy)
-  etatDau: string | null;                // état LIVE (2/4/5/6…), rafraîchi à chaque passage — cf. S12
+  etatDau: string | null;                // état LIVE AGRÉGÉ (2/4/5/6…) sur toutes les lignes du dossier — cf. S12/S12b
+  etatAmbigu: boolean;                    // les lignes du dossier ne s'accordaient pas (≥ 2 états distincts) — S12b
   dateReelleAutorisation: string | null; // 'AAAA-MM-JJ' ou null
   dateDoc: string | null;                // ouverture de chantier (DOC), null si non déclarée
   dateDaact: string | null;              // achèvement des travaux (DAACT), null si non déclarée
@@ -119,6 +120,7 @@ export function mapLignePC(r: LigneBrute): Dossier {
     departement: (r.DEP_CODE ?? '').trim(),
     etat: brut(r.ETAT_DAU),
     etatDau: brut(r.ETAT_DAU),
+    etatAmbigu: false, // (mono-ligne ; l'AGRÉGAT sur toutes les lignes est posé à l'ingestion — cf. S12b)
     dateReelleAutorisation: brut(r.DATE_REELLE_AUTORISATION),
     dateDoc: brut(r.DATE_REELLE_DOC),
     dateDaact: brut(r.DATE_REELLE_DAACT),
@@ -154,6 +156,7 @@ export function mapLignePD(r: LigneBrute): Dossier {
     departement: (r.DEP_CODE ?? '').trim(),
     etat: brut(r.ETAT_PD),
     etatDau: brut(r.ETAT_PD),
+    etatAmbigu: false,
     dateReelleAutorisation: brut(r.DATE_REELLE_AUTORISATION),
     dateDoc: brut(r.DATE_REELLE_DOC),
     dateDaact: brut(r.DATE_REELLE_DAACT),
@@ -200,7 +203,8 @@ export function fusionnerPC(a: Dossier, b: Dossier): Dossier {
     codeInsee: a.codeInsee || b.codeInsee,
     departement: a.departement || b.departement,
     etat: garder(a.etat, b.etat),
-    etatDau: garder(a.etatDau, b.etatDau),
+    etatDau: garder(a.etatDau, b.etatDau),   // écrasé par l'AGRÉGAT avant écriture (S12b)
+    etatAmbigu: a.etatAmbigu || b.etatAmbigu, // idem
     dateReelleAutorisation: garder(a.dateReelleAutorisation, b.dateReelleAutorisation),
     dateDoc: garder(a.dateDoc, b.dateDoc),
     dateDaact: garder(a.dateDaact, b.dateDaact),
@@ -240,7 +244,7 @@ export interface ResultatUpsert {
 }
 
 const COLONNES = [
-  'type', 'num_dau', 'code_insee', 'departement', 'etat', 'etat_dau', 'date_reelle_autorisation', 'date_doc', 'date_daact',
+  'type', 'num_dau', 'code_insee', 'departement', 'etat', 'etat_dau', 'etat_ambigu', 'date_reelle_autorisation', 'date_doc', 'date_daact',
   'nature_projet_completee', 'i_extension', 'i_surelevation', 'nb_lgt_tot_crees', 'surf_creee',
   'adr_num_ter', 'adr_libvoie_ter', 'adr_lieudit_ter', 'adr_localite_ter', 'adr_codpost_ter',
   'sec_cadastre1', 'num_cadastre1', 'sec_cadastre2', 'num_cadastre2', 'sec_cadastre3', 'num_cadastre3',
@@ -260,7 +264,7 @@ export async function upserterDossier(
   codeMillesime: string,
 ): Promise<ResultatUpsert> {
   const valeurs: unknown[] = [
-    d.type, d.numDau, d.codeInsee, d.departement, d.etat, d.etatDau, d.dateReelleAutorisation, d.dateDoc, d.dateDaact,
+    d.type, d.numDau, d.codeInsee, d.departement, d.etat, d.etatDau, d.etatAmbigu, d.dateReelleAutorisation, d.dateDoc, d.dateDaact,
     d.natureProjetCompletee, d.iExtension, d.iSurelevation, d.nbLgtTotCrees, d.surfCreee,
     d.adrNumTer, d.adrLibvoieTer, d.adrLieuditTer, d.adrLocaliteTer, d.adrCodpostTer,
     d.secCadastre1, d.numCadastre1, d.secCadastre2, d.numCadastre2, d.secCadastre3, d.numCadastre3,
@@ -275,7 +279,7 @@ export async function upserterDossier(
      VALUES (${placeholders})
      ON CONFLICT (type, num_dau) DO UPDATE SET
        vu_le_dernier_millesime = EXCLUDED.vu_le_dernier_millesime,
-       etat_dau = EXCLUDED.etat_dau, date_doc = EXCLUDED.date_doc, date_daact = EXCLUDED.date_daact
+       etat_dau = EXCLUDED.etat_dau, etat_ambigu = EXCLUDED.etat_ambigu, date_doc = EXCLUDED.date_doc, date_daact = EXCLUDED.date_daact
      RETURNING (xmax = 0) AS est_nouveau`,
     valeurs,
   );

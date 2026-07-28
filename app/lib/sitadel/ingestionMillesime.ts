@@ -14,6 +14,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { query } from '../db/client';
 import { enregistrements, enregistrementsBruts } from './csv';
+import { type AccumEtat, accumInit, accumAjouter, agreger } from './agregerEtat';
 import {
   type Dossier, type LigneBrute, type Requete,
   dansPerimetre, pcRetenu, pdRetenu, mapLignePC, mapLignePD, fusionnerPC, upserterDossier, csvParaitComplet,
@@ -56,8 +57,6 @@ export interface CompteursIngestion {
   pd: number;
 }
 
-/** Enregistrement léger de rafraîchissement d'état d'un dossier connu (S12). */
-interface RafraichirEtat { etatDau: string | null; dateDoc: string | null; dateDaact: string | null }
 const nn = (v: string | undefined): string | null => { const s = (v ?? '').trim(); return s === '' ? null : s; };
 
 interface StatCommune { lu: number; retenu: number; nouveau: number; dejaConnu: number; adr: number; cad: number; }
@@ -180,7 +179,14 @@ export async function ingererMillesime(millesime: string): Promise<CompteursInge
     const r = await q<{ type: string; num_dau: string }>(`SELECT type, num_dau FROM sitadel_dossier`);
     for (const x of r.rows) connus.add(`${x.type}\t${x.num_dau}`);
   }
-  const aRafraichir = new Map<string, RafraichirEtat>();
+  // S12b — Accumulateur d'état par dossier : agrège TOUTES les lignes (retenues ET non retenues) d'un même NUM_DAU pour
+  // écrire un état DÉTERMINISTE (règle dans `agregerEtat`), et non le hasard du dernier lu.
+  const accum = new Map<string, AccumEtat>();
+  const cumuler = (cle: string, r: LigneBrute, colEtat: 'ETAT_DAU' | 'ETAT_PD') => {
+    let a = accum.get(cle);
+    if (!a) { a = accumInit(); accum.set(cle, a); }
+    accumAjouter(a, nn(r[colEtat]), nn(r.DATE_REELLE_DOC), nn(r.DATE_REELLE_DAACT));
+  };
 
   const stats = new Map<string, StatCommune>();
   const stat = (comm: string): StatCommune => {
@@ -198,12 +204,9 @@ export async function ingererMillesime(millesime: string): Promise<CompteursInge
       const dep = (r.DEP_CODE ?? '').trim();
       if (!dansPerimetre(dep, actifs)) continue;
       stat((r.COMM ?? '').trim()).lu++;
-      if (!pcRetenu(r)) {
-        const num = (r.NUM_DAU ?? '').trim();
-        const cle = `PC\t${num}`;
-        if (num !== '' && connus.has(cle)) aRafraichir.set(cle, { etatDau: nn(r.ETAT_DAU), dateDoc: nn(r.DATE_REELLE_DOC), dateDaact: nn(r.DATE_REELLE_DAACT) });
-        continue;
-      }
+      const num = (r.NUM_DAU ?? '').trim();
+      if (num !== '') cumuler(`PC\t${num}`, r, 'ETAT_DAU'); // TOUTES les lignes (même non retenues) alimentent l'agrégat
+      if (!pcRetenu(r)) continue;
       const d = mapLignePC(r);
       const existant = pcParNum.get(d.numDau);
       pcParNum.set(d.numDau, existant ? fusionnerPC(existant, d) : d);
@@ -217,21 +220,24 @@ export async function ingererMillesime(millesime: string): Promise<CompteursInge
     const dep = (r.DEP_CODE ?? '').trim();
     if (!dansPerimetre(dep, actifs)) continue;
     stat((r.COMM ?? '').trim()).lu++;
-    if (!pdRetenu(r)) {
-      const num = (r.NUM_PD ?? '').trim();
-      const cle = `PD\t${num}`;
-      if (num !== '' && connus.has(cle)) aRafraichir.set(cle, { etatDau: nn(r.ETAT_PD), dateDoc: nn(r.DATE_REELLE_DOC), dateDaact: nn(r.DATE_REELLE_DAACT) });
-      continue;
-    }
+    const num = (r.NUM_PD ?? '').trim();
+    if (num !== '') cumuler(`PD\t${num}`, r, 'ETAT_PD');
+    if (!pdRetenu(r)) continue;
     const d = mapLignePD(r);
     if (!pdParNum.has(d.numDau)) pdParNum.set(d.numDau, d);
   }
 
-  // 3) UPSERT (PC puis PD) + compteurs par commune ET totaux.
+  // 3) UPSERT (PC puis PD) + compteurs par commune ET totaux. L'état/dates écrits sont l'AGRÉGAT DÉTERMINISTE de TOUTES
+  //    les lignes du dossier (S12b), pas la dernière lue — la rétention (quels dossiers) est inchangée.
+  const retenus = new Set<string>();
   const tousLesDossiers = [...pcParNum.values(), ...pdParNum.values()];
   let totalNouveau = 0;
   let totalDejaConnu = 0;
   for (const d of tousLesDossiers) {
+    const cle = `${d.type}\t${d.numDau}`;
+    retenus.add(cle);
+    const agg = agreger(accum.get(cle) ?? accumInit());
+    d.etatDau = agg.etatDau; d.etatAmbigu = agg.ambigu; d.dateDoc = agg.dateDoc; d.dateDaact = agg.dateDaact;
     const s = stat(d.codeInsee);
     s.retenu++;
     if (d.adrLibvoieTer !== null) s.adr++;
@@ -241,16 +247,20 @@ export async function ingererMillesime(millesime: string): Promise<CompteursInge
   }
   const lignesRetenues = tousLesDossiers.length;
 
-  // S12 — Rafraîchissement d'état des dossiers connus non retenus (Option B). UPDATE UNIQUEMENT (jamais d'INSERT) : le
-  // dossier voit son etat_dau/dates et son vu_le_dernier_millesime avancer → il n'est plus « absent » et redevient
-  // proposable s'il n'est pas annulé (états 5/6 = confirmations positives). Le nombre de RETENUS ne bouge pas.
-  for (const [cle, e] of aRafraichir) {
+  // S12/S12b — Rafraîchissement d'état des dossiers DÉJÀ CONNUS NON retenus, réapparus dans le fichier courant. UPDATE
+  // UNIQUEMENT (jamais d'INSERT) avec l'AGRÉGAT de leurs lignes → l'état devient déterministe, ils ne sont plus « absents »
+  // et redeviennent proposables sauf annulé. Le nombre de RETENUS ne bouge pas.
+  let dossiersMisAJour = 0;
+  for (const [cle, a] of accum) {
+    if (retenus.has(cle) || !connus.has(cle)) continue; // déjà upserté, ou dossier inconnu (jamais inséré) → ignoré
+    const agg = agreger(a);
     const [type, num] = cle.split('\t');
     await q(
-      `UPDATE sitadel_dossier SET etat_dau = $1, date_doc = $2, date_daact = $3, vu_le_dernier_millesime = $4
-       WHERE type = $5 AND num_dau = $6`,
-      [e.etatDau, e.dateDoc, e.dateDaact, millesime, type, num],
+      `UPDATE sitadel_dossier SET etat_dau = $1, etat_ambigu = $2, date_doc = $3, date_daact = $4, vu_le_dernier_millesime = $5
+       WHERE type = $6 AND num_dau = $7`,
+      [agg.etatDau, agg.ambigu, agg.dateDoc, agg.dateDaact, millesime, type, num],
     );
+    dossiersMisAJour += 1;
   }
   // Dossiers RÉELLEMENT absents = ni retenus ni rafraîchis ce passage (retirés du fichier Sitadel).
   const absentsRow = await q<{ n: number }>(
@@ -272,14 +282,15 @@ export async function ingererMillesime(millesime: string): Promise<CompteursInge
       `${String(s.nouveau).padStart(7)} | ${String(s.dejaConnu).padStart(9)} | ${pct(s.adr, s.retenu)} | ${pct(s.cad, s.retenu)}`,
     );
   }
+  const ambigusRow = await q<{ n: number }>(`SELECT count(*)::int AS n FROM sitadel_dossier WHERE etat_ambigu`);
   console.log(`\nTOTAL : ${lignesLues} lignes lues · ${lignesRetenues} dossiers retenus ` +
-    `(PC ${pcParNum.size} + PD ${pdParNum.size}) · ${aRafraichir.size} état(s) mis à jour · ${dossiersAbsents} absent(s) du fichier ` +
-    `· millésime ${millesime} (id ${millesimeId}).`);
+    `(PC ${pcParNum.size} + PD ${pdParNum.size}) · ${dossiersMisAJour} état(s) mis à jour · ${dossiersAbsents} absent(s) du fichier ` +
+    `· ${ambigusRow.rows[0]?.n ?? 0} état(s) ambigu(s) · millésime ${millesime} (id ${millesimeId}).`);
 
   return {
     millesime, millesimeId, lignesLues, dossiersRetenus: lignesRetenues,
     dossiersNouveaux: totalNouveau, dossiersDejaConnus: totalDejaConnu,
-    dossiersMisAJour: aRafraichir.size, dossiersAbsents,
+    dossiersMisAJour, dossiersAbsents,
     pc: pcParNum.size, pd: pdParNum.size,
   };
 }
