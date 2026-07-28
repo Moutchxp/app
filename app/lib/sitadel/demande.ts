@@ -99,6 +99,8 @@ export interface CandidatDossier {
   adresse: string;
   codePostal: string | null;
   cadastre: string[];
+  etatDau: string | null;               // S12 : 2=Autorisé 4=Annulé 5=Commencé 6=Terminé (null = jamais revu → proposable)
+  absentDuDernierMillesime: boolean;    // S12 : dossier RÉELLEMENT retiré du fichier Sitadel (état futur inconnu)
 }
 export interface HistoriqueDemandes {
   /** dossier_id déjà rattachés à une demande NON abandonnée → jamais reproposés. */
@@ -124,6 +126,13 @@ export interface Lot { codeInsee: string; communeNom: string; canal: CanalContac
 export function proposerLots(candidats: CandidatDossier[], params: ParamsLot, hist: HistoriqueDemandes): Lot[] {
   const parCommune = new Map<string, CandidatDossier[]>();
   for (const d of candidats) {
+    // ── Exclusions FERMES d'état (S12) ──────────────────────────────────────────
+    // ⚠️ SEUL l'état 4 (Annulé) exclut : demander les plans d'un permis annulé est un courrier perdu. Les états 5
+    // (Commencé) et 6 (Terminé) NE SONT JAMAIS exclus — le bâtiment sort de terre ou existe, c'est précisément sa
+    // hauteur qu'on cherche : ce sont des CONFIRMATIONS POSITIVES, pas des prérequis. L'ABSENCE d'état 5/6 (dossier
+    // encore autorisé, ou etat_dau null car jamais revu) n'exclut donc rien (sinon on ignorerait 94 % du gisement récent).
+    if (d.etatDau === '4') continue;                                 // annulé → jamais de courrier
+    if (d.absentDuDernierMillesime) continue;                        // retiré du fichier Sitadel → état futur inconnu
     if (d.dateReelleAutorisation === null) continue;                 // sans date → pertinence non jugeable → exclu
     if (params.dateMin !== null && d.dateReelleAutorisation < params.dateMin) continue; // trop ancien → déjà mesuré au LiDAR
     if (hist.dejaRattaches.has(d.dossierId)) continue;               // déjà demandé
@@ -164,6 +173,8 @@ export function peutPasserLot(statut: 'prete' | 'abandonnee', config: ConfigDema
 /** Compteurs expliquant l'absence de lots (mesurés, jamais figés). */
 export interface DiagnosticProposition {
   candidatsExamines: number;
+  dossiersAnnules: number;      // S12 : etat_dau = 4
+  dossiersAbsents: number;      // S12 : retirés du fichier Sitadel
   dossiersHorsFenetre: number;
   dossiersDejaRattaches: number;
   communesSansCanal: number;
@@ -176,6 +187,8 @@ export interface DiagnosticProposition {
 export function expliquerProposition(nbLots: number, d: DiagnosticProposition): string {
   if (nbLots > 0) return '';
   const raisons: string[] = [];
+  if (d.dossiersAnnules > 0) raisons.push(`${d.dossiersAnnules} dossier(s) annulé(s)`);
+  if (d.dossiersAbsents > 0) raisons.push(`${d.dossiersAbsents} dossier(s) absent(s) du dernier millésime`);
   if (d.dossiersHorsFenetre > 0) raisons.push(`${d.dossiersHorsFenetre} dossier(s) hors fenêtre d'ancienneté (déjà mesurés au LiDAR) ou sans date`);
   if (d.dossiersDejaRattaches > 0) raisons.push(`${d.dossiersDejaRattaches} dossier(s) déjà rattaché(s) à une demande`);
   if (d.communesPlafondMensuel > 0) raisons.push(`plafond mensuel atteint pour ${d.communesPlafondMensuel} commune(s)`);
@@ -190,6 +203,8 @@ export function expliquerProposition(nbLots: number, d: DiagnosticProposition): 
  */
 export function resumeDiagnostic(d: DiagnosticProposition): string {
   return `Sur ${d.candidatsExamines} dossier(s) examiné(s) en tête de classement : `
+    + `${d.dossiersAnnules} annulé(s) · `
+    + `${d.dossiersAbsents} absent(s) du dernier millésime · `
     + `${d.dossiersHorsFenetre} hors fenêtre d'ancienneté (déjà mesurés au LiDAR) ou sans date · `
     + `${d.dossiersDejaRattaches} déjà rattaché(s) · `
     + `${d.communesSansCanal} commune(s) sans canal · `

@@ -16,8 +16,11 @@ export interface Dossier {
   numDau: string;
   codeInsee: string;
   departement: string;
-  etat: string | null;
+  etat: string | null;                   // état FIGÉ à la 1re rétention (toujours '2' — legacy)
+  etatDau: string | null;                // état LIVE (2/4/5/6…), rafraîchi à chaque passage — cf. S12
   dateReelleAutorisation: string | null; // 'AAAA-MM-JJ' ou null
+  dateDoc: string | null;                // ouverture de chantier (DOC), null si non déclarée
+  dateDaact: string | null;              // achèvement des travaux (DAACT), null si non déclarée
   natureProjetCompletee: string | null;
   iExtension: boolean | null;
   iSurelevation: boolean | null;
@@ -115,7 +118,10 @@ export function mapLignePC(r: LigneBrute): Dossier {
     codeInsee: (r.COMM ?? '').trim(),
     departement: (r.DEP_CODE ?? '').trim(),
     etat: brut(r.ETAT_DAU),
+    etatDau: brut(r.ETAT_DAU),
     dateReelleAutorisation: brut(r.DATE_REELLE_AUTORISATION),
+    dateDoc: brut(r.DATE_REELLE_DOC),
+    dateDaact: brut(r.DATE_REELLE_DAACT),
     natureProjetCompletee: brut(r.NATURE_PROJET_COMPLETEE),
     iExtension: estVrai(r.I_EXTENSION),
     iSurelevation: estVrai(r.I_SURELEVATION),
@@ -147,7 +153,10 @@ export function mapLignePD(r: LigneBrute): Dossier {
     codeInsee: (r.COMM ?? '').trim(),
     departement: (r.DEP_CODE ?? '').trim(),
     etat: brut(r.ETAT_PD),
+    etatDau: brut(r.ETAT_PD),
     dateReelleAutorisation: brut(r.DATE_REELLE_AUTORISATION),
+    dateDoc: brut(r.DATE_REELLE_DOC),
+    dateDaact: brut(r.DATE_REELLE_DAACT),
     natureProjetCompletee: null,
     iExtension: null,
     iSurelevation: null,
@@ -191,7 +200,10 @@ export function fusionnerPC(a: Dossier, b: Dossier): Dossier {
     codeInsee: a.codeInsee || b.codeInsee,
     departement: a.departement || b.departement,
     etat: garder(a.etat, b.etat),
+    etatDau: garder(a.etatDau, b.etatDau),
     dateReelleAutorisation: garder(a.dateReelleAutorisation, b.dateReelleAutorisation),
+    dateDoc: garder(a.dateDoc, b.dateDoc),
+    dateDaact: garder(a.dateDaact, b.dateDaact),
     natureProjetCompletee: garder(a.natureProjetCompletee, b.natureProjetCompletee),
     iExtension: a.iExtension || b.iExtension || false,
     iSurelevation: a.iSurelevation || b.iSurelevation || false,
@@ -228,7 +240,7 @@ export interface ResultatUpsert {
 }
 
 const COLONNES = [
-  'type', 'num_dau', 'code_insee', 'departement', 'etat', 'date_reelle_autorisation',
+  'type', 'num_dau', 'code_insee', 'departement', 'etat', 'etat_dau', 'date_reelle_autorisation', 'date_doc', 'date_daact',
   'nature_projet_completee', 'i_extension', 'i_surelevation', 'nb_lgt_tot_crees', 'surf_creee',
   'adr_num_ter', 'adr_libvoie_ter', 'adr_lieudit_ter', 'adr_localite_ter', 'adr_codpost_ter',
   'sec_cadastre1', 'num_cadastre1', 'sec_cadastre2', 'num_cadastre2', 'sec_cadastre3', 'num_cadastre3',
@@ -248,7 +260,7 @@ export async function upserterDossier(
   codeMillesime: string,
 ): Promise<ResultatUpsert> {
   const valeurs: unknown[] = [
-    d.type, d.numDau, d.codeInsee, d.departement, d.etat, d.dateReelleAutorisation,
+    d.type, d.numDau, d.codeInsee, d.departement, d.etat, d.etatDau, d.dateReelleAutorisation, d.dateDoc, d.dateDaact,
     d.natureProjetCompletee, d.iExtension, d.iSurelevation, d.nbLgtTotCrees, d.surfCreee,
     d.adrNumTer, d.adrLibvoieTer, d.adrLieuditTer, d.adrLocaliteTer, d.adrCodpostTer,
     d.secCadastre1, d.numCadastre1, d.secCadastre2, d.numCadastre2, d.secCadastre3, d.numCadastre3,
@@ -256,10 +268,14 @@ export async function upserterDossier(
     millesimeId, codeMillesime, codeMillesime,
   ];
   const placeholders = valeurs.map((_, i) => `$${i + 1}`).join(', ');
+  // ON CONFLICT : la charge utile FIGÉE (adresse/cadastre/nature/`etat`) n'est jamais réécrite ; seul l'ÉTAT LIVE avance
+  // (etat_dau + dates de chantier) et `vu_le_dernier_millesime` — pour qu'un dossier réautorisé re-retenu reste à jour.
   const r = await q<{ est_nouveau: boolean }>(
     `INSERT INTO sitadel_dossier (${COLONNES.join(', ')})
      VALUES (${placeholders})
-     ON CONFLICT (type, num_dau) DO UPDATE SET vu_le_dernier_millesime = EXCLUDED.vu_le_dernier_millesime
+     ON CONFLICT (type, num_dau) DO UPDATE SET
+       vu_le_dernier_millesime = EXCLUDED.vu_le_dernier_millesime,
+       etat_dau = EXCLUDED.etat_dau, date_doc = EXCLUDED.date_doc, date_daact = EXCLUDED.date_daact
      RETURNING (xmax = 0) AS est_nouveau`,
     valeurs,
   );

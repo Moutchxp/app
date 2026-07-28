@@ -3,7 +3,7 @@ import { CONFIG_VEILLE_DEFAUT, type ConfigVeille } from './veilleConfig';
 import {
   type DossierClassable, type FiltresPermis,
   classer, construireRequeteListe, construireRequeteTotal, construireRequeteComptes, lireFiltres,
-  formaterDateJour, libelleCommune,
+  formaterDateJour, libelleCommune, libelleEtat,
 } from './priorite';
 
 const C = CONFIG_VEILLE_DEFAUT; // seuils 10 / 1500 ; rangs 1..5
@@ -13,7 +13,7 @@ function pc(over: Partial<DossierClassable> = {}): DossierClassable {
 }
 const FILTRES_VIDES: FiltresPermis = {
   departement: null, communes: [], type: null, rang: null, depuis: null, jusqua: null,
-  surfaceMin: null, logementsMin: null, q: null, sansDestinataire: false,
+  surfaceMin: null, logementsMin: null, q: null, sansDestinataire: false, etatDau: null,
 };
 
 describe('Sitadel S3 — classement (un cas par rang)', () => {
@@ -179,5 +179,23 @@ describe('Sitadel S4 — affichage (date sans fuseau, commune dégradée)', () =
     expect(libelleCommune('Nanterre', '92050')).toBe('Nanterre (92050)');
     expect(libelleCommune(null, '93059')).toBe('93059');   // code Sitadel sans commune → jamais d'erreur
     expect(libelleCommune('', '78503')).toBe('78503');
+  });
+});
+
+describe('Sitadel S12 — libelleEtat (traduction + non renseigné, jamais un tiret muet)', () => {
+  it('traduit les codes connus, garde l’inattendu, dit « non renseigné » pour null/vide', () => {
+    expect(libelleEtat('2')).toBe('Autorisé');
+    expect(libelleEtat('4')).toBe('Annulé');
+    expect(libelleEtat('5')).toBe('Commencé');
+    expect(libelleEtat('6')).toBe('Terminé');
+    expect(libelleEtat('32')).toBe('état 32'); // inattendu → tel quel
+    expect(libelleEtat(null)).toBe('non renseigné');
+    expect(libelleEtat('')).toBe('non renseigné');
+  });
+
+  it('le filtre etat lit ?etat= et n’accepte que les codes connus', () => {
+    expect(lireFiltres(new URLSearchParams('etat=4')).etatDau).toBe('4');
+    expect(lireFiltres(new URLSearchParams('etat=99')).etatDau).toBeNull();
+    expect(lireFiltres(new URLSearchParams('')).etatDau).toBeNull();
   });
 });

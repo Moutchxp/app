@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { formaterDateJour, libelleCommune, type CleCategorie } from '../../../../lib/sitadel/priorite';
+import { formaterDateJour, libelleCommune, libelleEtat, ETATS_CONNUS, type CleCategorie } from '../../../../lib/sitadel/priorite';
 import type { DossierAffiche, ResultatVeille } from '../../../../lib/sitadel/veilleRepo';
 import type { CanalContact } from '../../../../lib/sitadel/mairieContact';
 import type { CommuneRef, FusionRef } from '../../../../lib/sitadel/carteRepo';
@@ -19,7 +19,7 @@ interface Props { depuisParDefaut: string; categories: Categorie[] }
 interface Filtres {
   departement: string; type: '' | 'PC' | 'PD'; rang: string;
   depuis: string; jusqua: string; surfaceMin: string; logementsMin: string; q: string;
-  sansDestinataire: '' | '1';
+  sansDestinataire: '' | '1'; etat: '' | '2' | '4' | '5' | '6';
 }
 
 const STATUT_LIBELLE: Record<string, string> = { presume: 'présumée', confirme: 'confirmée', invalide: 'invalide' };
@@ -39,7 +39,7 @@ const fmtSurf = (n: number | null): string => (n === null ? '—' : `${Math.roun
 export function PermisVue({ depuisParDefaut, categories }: Props) {
   const [filtres, setFiltres] = useState<Filtres>({
     departement: '', type: '', rang: '',
-    depuis: depuisParDefaut, jusqua: '', surfaceMin: '', logementsMin: '', q: '', sansDestinataire: '',
+    depuis: depuisParDefaut, jusqua: '', surfaceMin: '', logementsMin: '', q: '', sansDestinataire: '', etat: '',
   });
   const [communesSel, setCommunesSel] = useState<string[]>([]); // codes INSEE sélectionnés (multi) — état PARTAGÉ carte ↔ champ
   const [ref, setRef] = useState<{ communes: CommuneRef[]; fusions: FusionRef[] } | null>(null);
@@ -200,6 +200,12 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
             {categoriesTriees.map((c) => <option key={c.cle} value={String(c.rang)}>{c.libelle}</option>)}
           </select>
         </label>
+        <label className="flex flex-col gap-1" style={{ fontSize: 12 }}>État
+          <select value={filtres.etat} onChange={(e) => maj({ etat: e.target.value as Filtres['etat'] })} style={styleChamp}>
+            <option value="">Tous</option>
+            {ETATS_CONNUS.map((code) => <option key={code} value={code}>{libelleEtat(code)}</option>)}
+          </select>
+        </label>
         <label className="flex flex-col gap-1" style={{ fontSize: 12 }}>Depuis
           <input type="date" value={filtres.depuis} onChange={(e) => maj({ depuis: e.target.value })} style={styleChamp} />
         </label>
@@ -245,6 +251,21 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
             {c.libelle} : {c.n.toLocaleString('fr-FR')}
           </span>
         ))}
+        {data && (
+          <>
+            <span className="svv-pill" style={{ background: '#fff4e0', color: '#8a5a00', padding: '.2rem .55rem', borderRadius: 999 }} title="Permis annulés (jamais sollicités)">
+              Annulés : {data.compteursEtat.annules.toLocaleString('fr-FR')}
+            </span>
+            <span className="svv-pill" style={{ background: '#fdecec', color: 'var(--color-svv-red)', padding: '.2rem .55rem', borderRadius: 999 }} title="Dossiers retirés du dernier millésime Sitadel">
+              Absents du dernier millésime : {data.compteursEtat.absents.toLocaleString('fr-FR')}
+            </span>
+          </>
+        )}
+      </div>
+
+      {/* ── Aide : l'absence de déclaration d'ouverture de chantier ── */}
+      <div className="svv-page-note" style={{ marginTop: 0, fontSize: 12, color: 'var(--color-svv-muted)' }}>
+        L&rsquo;<strong>absence de déclaration d&rsquo;ouverture de chantier</strong> ne signifie pas qu&rsquo;il ne se passe rien : c&rsquo;est très majoritairement un <strong>retard de déclaration</strong>. Un permis simplement « Autorisé » reste donc un dossier pertinent — seuls les <strong>annulés</strong> et les <strong>retirés du fichier</strong> sont écartés des demandes.
       </div>
 
       {/* ── Édition manuelle d'une adresse de commune (source=saisie_manuelle, statut=confirme) ── */}
@@ -283,7 +304,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ textAlign: 'left', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
-                {['Catégorie', 'Date', 'Commune', 'Dép.', 'Destinataire', 'Surface', 'Logts', 'Adresse du terrain', 'Cadastre', 'N° dossier', 'Type'].map((h) => (
+                {['Catégorie', 'État', 'Date', 'Commune', 'Dép.', 'Destinataire', 'Surface', 'Logts', 'Adresse du terrain', 'Cadastre', 'N° dossier', 'Type'].map((h) => (
                   <th key={h} style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -292,6 +313,9 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
               {data.lignes.map((d: DossierAffiche) => (
                 <tr key={`${d.type}-${d.id}`} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
                   <td style={{ padding: '.4rem .5rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{d.libelleCategorie}</td>
+                  <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap', color: d.etatDau === '4' ? '#8a5a00' : !d.vuAuDernier ? 'var(--color-svv-red)' : 'inherit' }}>
+                    {libelleEtat(d.etatDau)}{!d.vuAuDernier ? ' · retiré' : ''}
+                  </td>
                   <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{formaterDateJour(d.dateReelleAutorisation)}</td>
                   <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{libelleCommune(d.communeNom, d.codeInsee)}</td>
                   <td style={{ padding: '.4rem .5rem' }}>{d.departement}</td>
@@ -322,7 +346,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
                 </tr>
               ))}
               {data.lignes.length === 0 && (
-                <tr><td colSpan={11} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>Aucun dossier pour ces filtres.</td></tr>
+                <tr><td colSpan={12} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>Aucun dossier pour ces filtres.</td></tr>
               )}
             </tbody>
           </table>

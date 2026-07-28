@@ -11,7 +11,8 @@ function cand(over: Partial<CandidatDossier> = {}): CandidatDossier {
   seq += 1;
   return {
     dossierId: seq, codeInsee: '92050', communeNom: 'Nanterre', canal: 'email' as CanalContact,
-    numDau: `PC${seq}`, dateReelleAutorisation: '2025-03-10', adresse: '10 RUE X', codePostal: '92000', cadastre: ['AB 0012'], ...over,
+    numDau: `PC${seq}`, dateReelleAutorisation: '2025-03-10', adresse: '10 RUE X', codePostal: '92000', cadastre: ['AB 0012'],
+    etatDau: '2', absentDuDernierMillesime: false, ...over,
   };
 }
 const HIST_VIDE = { dejaRattaches: new Set<number>(), demandesCeMoisParCommune: new Map<string, number>() };
@@ -191,7 +192,7 @@ describe('Sitadel S7b — interface (détail cliquable, action groupée, explica
   });
 
   it('explication du « 0 lot » : reflète les COMPTEURS RÉELS, pas un texte figé', () => {
-    const diag: DiagnosticProposition = { candidatsExamines: 340, dossiersHorsFenetre: 0, dossiersDejaRattaches: 495, communesSansCanal: 3, communesPlafondMensuel: 41 };
+    const diag: DiagnosticProposition = { candidatsExamines: 340, dossiersAnnules: 0, dossiersAbsents: 0, dossiersHorsFenetre: 0, dossiersDejaRattaches: 495, communesSansCanal: 3, communesPlafondMensuel: 41 };
     const m = expliquerProposition(0, diag);
     expect(m).toContain('340');
     expect(m).toContain('495 dossier(s) déjà rattaché(s)');
@@ -296,7 +297,7 @@ describe('Sitadel S7e — deux profils de demandeur', () => {
 });
 
 describe('Sitadel S7f — décompte chiffré du filtrage (jamais un texte figé)', () => {
-  const diag: DiagnosticProposition = { candidatsExamines: 600, dossiersHorsFenetre: 485, dossiersDejaRattaches: 0, communesSansCanal: 11, communesPlafondMensuel: 0 };
+  const diag: DiagnosticProposition = { candidatsExamines: 600, dossiersAnnules: 8, dossiersAbsents: 157, dossiersHorsFenetre: 485, dossiersDejaRattaches: 0, communesSansCanal: 11, communesPlafondMensuel: 0 };
   const FIGES = ['Action impossible.', 'Proposition indisponible.', 'Création impossible.'];
 
   it('resumeDiagnostic : TOUJOURS chiffré (même avec des lots), inclut le hors-fenêtre d’ancienneté', () => {
@@ -316,5 +317,27 @@ describe('Sitadel S7f — décompte chiffré du filtrage (jamais un texte figé)
     expect(m).toContain('600');
     expect(m).toContain("485 dossier(s) hors fenêtre d'ancienneté");
     for (const fige of FIGES) expect(m).not.toBe(fige);
+  });
+});
+
+describe('Sitadel S12 — exclusions d’état dans proposerLots', () => {
+  const PP = { ...P, demandesParCommuneParMois: 5 };
+  it('un dossier ANNULÉ (etat_dau=4) n’est JAMAIS proposé', () => {
+    expect(proposerLots([cand({ etatDau: '4' })], PP, HIST_VIDE)).toHaveLength(0);
+  });
+  it('un dossier ABSENT du dernier millésime n’est JAMAIS proposé', () => {
+    expect(proposerLots([cand({ absentDuDernierMillesime: true })], PP, HIST_VIDE)).toHaveLength(0);
+  });
+  it('un dossier COMMENCÉ (5) ou ACHEVÉ (6) RESTE proposable (le bâtiment existe → c’est sa hauteur qu’on cherche)', () => {
+    expect(proposerLots([cand({ etatDau: '5' })], PP, HIST_VIDE)).toHaveLength(1);
+    expect(proposerLots([cand({ etatDau: '6' })], PP, HIST_VIDE)).toHaveLength(1);
+  });
+  it('un dossier SANS etat_dau (null, jamais revu) reste proposable — l’ABSENCE d’état n’exclut jamais', () => {
+    expect(proposerLots([cand({ etatDau: null })], PP, HIST_VIDE)).toHaveLength(1);
+  });
+  it('resumeDiagnostic expose les deux nouveaux compteurs chiffrés (annulés, absents)', () => {
+    const m = resumeDiagnostic({ candidatsExamines: 600, dossiersAnnules: 8, dossiersAbsents: 157, dossiersHorsFenetre: 485, dossiersDejaRattaches: 0, communesSansCanal: 11, communesPlafondMensuel: 0 });
+    expect(m).toContain('8 annulé(s)');
+    expect(m).toContain('157 absent(s) du dernier millésime');
   });
 });

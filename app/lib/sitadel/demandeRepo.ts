@@ -25,6 +25,7 @@ function versCandidat(d: DossierAffiche): CandidatDossier {
   return {
     dossierId: d.id, codeInsee: d.codeInsee, communeNom: d.communeNom, canal: d.destCanal,
     numDau: d.numDau, dateReelleAutorisation: d.dateReelleAutorisation, adresse: adresseDe(d), codePostal: d.adrCodpostTer, cadastre: d.cadastre,
+    etatDau: d.etatDau, absentDuDernierMillesime: !d.vuAuDernier,
   };
 }
 
@@ -80,8 +81,11 @@ async function lireHistorique(): Promise<HistoriqueDemandes> {
 function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDemandes, params: ParamsLot): DiagnosticProposition {
   const sansCanal = new Set<string>();
   const parCommune = new Map<string, number>();
-  let rattaches = 0, horsFenetre = 0;
+  let rattaches = 0, horsFenetre = 0, annules = 0, absents = 0;
   for (const d of candidats) {
+    // MÊME ordre d'exclusion que proposerLots (annulé + absent d'abord — cf. S12).
+    if (d.etatDau === '4') { annules += 1; continue; }
+    if (d.absentDuDernierMillesime) { absents += 1; continue; }
     if (d.dateReelleAutorisation === null || (params.dateMin !== null && d.dateReelleAutorisation < params.dateMin)) { horsFenetre += 1; continue; }
     if (hist.dejaRattaches.has(d.dossierId)) { rattaches += 1; continue; }
     if (d.communeNom === null || d.canal === null || d.canal === 'inconnu') { sansCanal.add(d.codeInsee); continue; }
@@ -91,7 +95,7 @@ function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDemandes, p
   for (const code of parCommune.keys()) {
     if (params.demandesParCommuneParMois - (hist.demandesCeMoisParCommune.get(code) ?? 0) <= 0) plafond += 1;
   }
-  return { candidatsExamines: candidats.length, dossiersHorsFenetre: horsFenetre, dossiersDejaRattaches: rattaches, communesSansCanal: sansCanal.size, communesPlafondMensuel: plafond };
+  return { candidatsExamines: candidats.length, dossiersAnnules: annules, dossiersAbsents: absents, dossiersHorsFenetre: horsFenetre, dossiersDejaRattaches: rattaches, communesSansCanal: sansCanal.size, communesPlafondMensuel: plafond };
 }
 
 /** Lots PROPOSÉS (aucune écriture) + diagnostic (pour expliquer un « 0 lot ») — pour revue avant création. */
@@ -300,6 +304,7 @@ async function chargerPourRegeneration(q: Requete, id: number): Promise<{ statut
     numDau: d.num_dau, dateReelleAutorisation: d.date_reelle_autorisation,
     adresse: [d.adr_num_ter, d.adr_libvoie_ter, d.adr_localite_ter].filter((v) => v && v.trim() !== '').join(' '),
     codePostal: d.adr_codpost_ter, cadastre: cadastreDe(d),
+    etatDau: null, absentDuDernierMillesime: false, // non pertinents pour la RÉGÉNÉRATION de texte (dossiers déjà rattachés)
   }));
   const lot: Lot = { codeInsee: x.code_insee, communeNom, canal: (x.dest_canal as CanalContact) ?? 'email', dossiers };
   return { statut: x.statut, reference: x.reference, profilAvant: profilValide(x.profil_demandeur), lot };

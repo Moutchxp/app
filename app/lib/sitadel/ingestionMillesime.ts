@@ -50,9 +50,15 @@ export interface CompteursIngestion {
   dossiersRetenus: number;
   dossiersNouveaux: number;
   dossiersDejaConnus: number;
+  dossiersMisAJour: number; // S12 : dossiers DÉJÀ CONNUS dont l'état a été rafraîchi (réapparus en 4/5/6, ou état-2 non retenu)
+  dossiersAbsents: number;  // S12 : dossiers en base RÉELLEMENT retirés du fichier (vu_le_dernier_millesime <> courant)
   pc: number;
   pd: number;
 }
+
+/** Enregistrement léger de rafraîchissement d'état d'un dossier connu (S12). */
+interface RafraichirEtat { etatDau: string | null; dateDoc: string | null; dateDaact: string | null }
+const nn = (v: string | undefined): string | null => { const s = (v ?? '').trim(); return s === '' ? null : s; };
 
 interface StatCommune { lu: number; retenu: number; nouveau: number; dejaConnu: number; adr: number; cad: number; }
 
@@ -166,6 +172,16 @@ export async function ingererMillesime(millesime: string): Promise<CompteursInge
   const actifs = new Set(actifsRows.rows.map((r) => r.departement.trim()));
   console.log(`Départements actifs : ${[...actifs].sort().join(', ') || '(aucun)'}`);
 
+  // S12 — Suivi d'état des dossiers DÉJÀ CONNUS (Option B). On charge les clés existantes (`type\tnum_dau`) ; quand une
+  // ligne du fichier courant N'EST PAS RETENUE (état 4/5/6, ou état-2 non retenu) mais correspond à un dossier connu, on
+  // RAFRAÎCHIT son état/dates SANS jamais l'insérer (la rétention des NOUVEAUX reste inchangée → neutralité).
+  const connus = new Set<string>();
+  {
+    const r = await q<{ type: string; num_dau: string }>(`SELECT type, num_dau FROM sitadel_dossier`);
+    for (const x of r.rows) connus.add(`${x.type}\t${x.num_dau}`);
+  }
+  const aRafraichir = new Map<string, RafraichirEtat>();
+
   const stats = new Map<string, StatCommune>();
   const stat = (comm: string): StatCommune => {
     let s = stats.get(comm);
@@ -182,7 +198,12 @@ export async function ingererMillesime(millesime: string): Promise<CompteursInge
       const dep = (r.DEP_CODE ?? '').trim();
       if (!dansPerimetre(dep, actifs)) continue;
       stat((r.COMM ?? '').trim()).lu++;
-      if (!pcRetenu(r)) continue;
+      if (!pcRetenu(r)) {
+        const num = (r.NUM_DAU ?? '').trim();
+        const cle = `PC\t${num}`;
+        if (num !== '' && connus.has(cle)) aRafraichir.set(cle, { etatDau: nn(r.ETAT_DAU), dateDoc: nn(r.DATE_REELLE_DOC), dateDaact: nn(r.DATE_REELLE_DAACT) });
+        continue;
+      }
       const d = mapLignePC(r);
       const existant = pcParNum.get(d.numDau);
       pcParNum.set(d.numDau, existant ? fusionnerPC(existant, d) : d);
@@ -196,7 +217,12 @@ export async function ingererMillesime(millesime: string): Promise<CompteursInge
     const dep = (r.DEP_CODE ?? '').trim();
     if (!dansPerimetre(dep, actifs)) continue;
     stat((r.COMM ?? '').trim()).lu++;
-    if (!pdRetenu(r)) continue;
+    if (!pdRetenu(r)) {
+      const num = (r.NUM_PD ?? '').trim();
+      const cle = `PD\t${num}`;
+      if (num !== '' && connus.has(cle)) aRafraichir.set(cle, { etatDau: nn(r.ETAT_PD), dateDoc: nn(r.DATE_REELLE_DOC), dateDaact: nn(r.DATE_REELLE_DAACT) });
+      continue;
+    }
     const d = mapLignePD(r);
     if (!pdParNum.has(d.numDau)) pdParNum.set(d.numDau, d);
   }
@@ -215,6 +241,23 @@ export async function ingererMillesime(millesime: string): Promise<CompteursInge
   }
   const lignesRetenues = tousLesDossiers.length;
 
+  // S12 — Rafraîchissement d'état des dossiers connus non retenus (Option B). UPDATE UNIQUEMENT (jamais d'INSERT) : le
+  // dossier voit son etat_dau/dates et son vu_le_dernier_millesime avancer → il n'est plus « absent » et redevient
+  // proposable s'il n'est pas annulé (états 5/6 = confirmations positives). Le nombre de RETENUS ne bouge pas.
+  for (const [cle, e] of aRafraichir) {
+    const [type, num] = cle.split('\t');
+    await q(
+      `UPDATE sitadel_dossier SET etat_dau = $1, date_doc = $2, date_daact = $3, vu_le_dernier_millesime = $4
+       WHERE type = $5 AND num_dau = $6`,
+      [e.etatDau, e.dateDoc, e.dateDaact, millesime, type, num],
+    );
+  }
+  // Dossiers RÉELLEMENT absents = ni retenus ni rafraîchis ce passage (retirés du fichier Sitadel).
+  const absentsRow = await q<{ n: number }>(
+    `SELECT count(*)::int AS n FROM sitadel_dossier WHERE vu_le_dernier_millesime <> $1`, [millesime],
+  );
+  const dossiersAbsents = absentsRow.rows[0]?.n ?? 0;
+
   await q(`UPDATE sitadel_millesime SET lignes_lues = $1, lignes_retenues = $2 WHERE id = $3`,
     [lignesLues, lignesRetenues, millesimeId]);
 
@@ -230,10 +273,13 @@ export async function ingererMillesime(millesime: string): Promise<CompteursInge
     );
   }
   console.log(`\nTOTAL : ${lignesLues} lignes lues · ${lignesRetenues} dossiers retenus ` +
-    `(PC ${pcParNum.size} + PD ${pdParNum.size}) · millésime ${millesime} (id ${millesimeId}).`);
+    `(PC ${pcParNum.size} + PD ${pdParNum.size}) · ${aRafraichir.size} état(s) mis à jour · ${dossiersAbsents} absent(s) du fichier ` +
+    `· millésime ${millesime} (id ${millesimeId}).`);
 
   return {
     millesime, millesimeId, lignesLues, dossiersRetenus: lignesRetenues,
-    dossiersNouveaux: totalNouveau, dossiersDejaConnus: totalDejaConnu, pc: pcParNum.size, pd: pdParNum.size,
+    dossiersNouveaux: totalNouveau, dossiersDejaConnus: totalDejaConnu,
+    dossiersMisAJour: aRafraichir.size, dossiersAbsents,
+    pc: pcParNum.size, pd: pdParNum.size,
   };
 }

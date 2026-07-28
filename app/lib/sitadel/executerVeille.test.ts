@@ -4,7 +4,7 @@ import type { CompteursIngestion } from './ingestionMillesime';
 
 const COMPTEURS: CompteursIngestion = {
   millesime: '2026-07', millesimeId: 2, lignesLues: 100, dossiersRetenus: 10,
-  dossiersNouveaux: 3, dossiersDejaConnus: 7, pc: 6, pd: 4,
+  dossiersNouveaux: 3, dossiersDejaConnus: 7, dossiersMisAJour: 0, dossiersAbsents: 0, pc: 6, pd: 4,
 };
 
 /** Deps par défaut = chemin de succès (distant 2026-07 ≠ base 2026-06) ; chaque test surcharge ce qu'il éprouve. */

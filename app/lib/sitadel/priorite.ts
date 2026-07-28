@@ -129,12 +129,13 @@ export interface FiltresPermis {
   logementsMin: number | null;
   q: string | null; // recherche libre : numéro de dossier (préfixe) OU libellé de voie (sous-chaîne + trigramme)
   sansDestinataire: boolean; // n'afficher que les dossiers non adressables (aucun e-mail de mairie)
+  etatDau: string | null; // filtre par état d'avancement (2/4/5/6) ; null = tous (S12)
 }
 
 /** Filtres neutres (aucune restriction) — base pour « top du classement » (constitution des demandes, S7). */
 export const FILTRES_PERMIS_VIDES: FiltresPermis = {
   departement: null, communes: [], type: null, rang: null, depuis: null, jusqua: null,
-  surfaceMin: null, logementsMin: null, q: null, sansDestinataire: false,
+  surfaceMin: null, logementsMin: null, q: null, sansDestinataire: false, etatDau: null,
 };
 
 const SELECTION =
@@ -142,6 +143,8 @@ const SELECTION =
   `d.nature_projet_completee, d.i_extension, d.i_surelevation, d.nb_lgt_tot_crees, d.surf_creee, d.superficie_terrain, ` +
   `d.adr_num_ter, d.adr_libvoie_ter, d.adr_lieudit_ter, d.adr_localite_ter, d.adr_codpost_ter, ` +
   `d.sec_cadastre1, d.num_cadastre1, d.sec_cadastre2, d.num_cadastre2, d.sec_cadastre3, d.num_cadastre3, ` +
+  `d.etat_dau, d.date_doc::text AS date_doc, d.date_daact::text AS date_daact, ` +
+  `(d.vu_le_dernier_millesime = (SELECT max(code) FROM sitadel_millesime)) AS vu_au_dernier, ` +
   `c.nom AS commune_nom, mc.email AS dest_email, mc.statut AS dest_statut, ` +
   `mc.canal AS dest_canal, mc.url_formulaire AS dest_url_formulaire, mc.adresse_postale AS dest_adresse_postale`;
 
@@ -178,6 +181,7 @@ function clausesWhere(f: FiltresPermis, params: unknown[], rangExpr: string | nu
     );
   }
   if (f.sansDestinataire) cl.push("mc.canal = 'inconnu'"); // non adressable = canal inconnu (S5b) — PAS les orphelins
+  if (f.etatDau) cl.push(`d.etat_dau = ${add(f.etatDau)}`); // filtre par état d'avancement (S12)
   if (f.rang != null && rangExpr) cl.push(`${rangExpr} = ${add(f.rang)}`);
   return cl.length ? `WHERE ${cl.join(' AND ')}` : '';
 }
@@ -213,6 +217,23 @@ export function construireRequeteComptes(f: FiltresPermis, c: ConfigVeille): { t
   return { texte: `SELECT ${rangExpr} AS rang, count(*)::int AS n FROM ${FROM_JOIN} ${where} GROUP BY rang ORDER BY rang`, params };
 }
 
+/** Compteurs d'état GLOBAUX (indicateurs de pipeline, indépendants des filtres) : annulés (etat_dau=4) et absents du
+ *  dernier millésime (retirés du fichier). Non ré-écrit par les filtres — ce sont des jauges de santé (S12). */
+export const REQUETE_COMPTEURS_ETAT =
+  `SELECT count(*) FILTER (WHERE etat_dau = '4')::int AS annules, ` +
+  `count(*) FILTER (WHERE vu_le_dernier_millesime <> (SELECT max(code) FROM sitadel_millesime))::int AS absents ` +
+  `FROM sitadel_dossier`;
+
+/** Libellés d'état (source SDES). Valeur inattendue → « état X » ; NULL/vide → « non renseigné » (jamais un tiret muet). */
+export const LIBELLE_ETAT_DAU: Record<string, string> = { '2': 'Autorisé', '4': 'Annulé', '5': 'Commencé', '6': 'Terminé' };
+export function libelleEtat(code: string | null | undefined): string {
+  const c = (code ?? '').trim();
+  if (c === '') return 'non renseigné';
+  return LIBELLE_ETAT_DAU[c] ?? `état ${c}`;
+}
+/** Codes d'état connus (pour peupler un filtre). */
+export const ETATS_CONNUS = ['2', '4', '5', '6'] as const;
+
 function add(params: unknown[], v: unknown): string { params.push(v); return `$${params.length}`; }
 
 // ── Lecture des paramètres d'URL (pur) ───────────────────────────────────────
@@ -245,6 +266,7 @@ export function lireFiltres(sp: URLSearchParams): FiltresPermis {
     logementsMin: entierPositif(sp.get('logementsMin')),
     q: q === '' ? null : q,
     sansDestinataire: sp.get('sansDestinataire') === '1',
+    etatDau: ((): string | null => { const e = (sp.get('etat') ?? '').trim(); return (ETATS_CONNUS as readonly string[]).includes(e) ? e : null; })(),
   };
 }
 

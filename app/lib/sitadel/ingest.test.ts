@@ -120,7 +120,7 @@ describe('Sitadel S2 — UPSERT idempotent', () => {
     const q: Requete = (async (_text: string, params?: unknown[]) => {
       const p = params ?? [];
       const cle = `${p[0]}|${p[1]}`;                 // (type, num_dau)
-      const vuDernier = p[28] as string;             // vu_le_dernier_millesime
+      const vuDernier = p[31] as string;             // vu_le_dernier_millesime (dernière valeur ; +3 colonnes S12)
       if (store.has(cle)) {
         store.get(cle)!.vuDernier = vuDernier;       // seul champ qui avance
         return { rows: [{ est_nouveau: false }] };
@@ -151,5 +151,29 @@ describe('Sitadel S2 — UPSERT idempotent', () => {
     expect(r.nouveau).toBe(false);
     expect(store.size).toBe(1);
     expect(store.get('PC|PC0001')!.vuDernier).toBe('2026-07');
+  });
+});
+
+describe('Sitadel S12 — état d’avancement (ETAT_DAU) + dates de chantier', () => {
+  it('mappe etat_dau, date_doc, date_daact ; guillemets vides → NULL (jamais une chaîne vide ni une date par défaut)', () => {
+    const d = mapLignePC(lignePC({ ETAT_DAU: '5', DATE_REELLE_DOC: '2025-04-01', DATE_REELLE_DAACT: '' }));
+    expect(d.etatDau).toBe('5');
+    expect(d.dateDoc).toBe('2025-04-01');
+    expect(d.dateDaact).toBeNull(); // vide → NULL
+    const t = mapLignePC(lignePC({ ETAT_DAU: '', DATE_REELLE_DOC: '', DATE_REELLE_DAACT: '' }));
+    expect(t.etatDau).toBeNull();
+    expect(t.dateDoc).toBeNull();
+    expect(t.dateDaact).toBeNull();
+  });
+
+  it('une valeur d’ETAT_DAU inattendue est stockée TELLE QUELLE (ne fait pas échouer le mapping)', () => {
+    expect(mapLignePC(lignePC({ ETAT_DAU: '32' })).etatDau).toBe('32'); // ligne corrompue observée au national
+  });
+
+  it('le mapping des états/dates NE CHANGE PAS la rétention : pcRetenu ne dépend que d’ETAT_DAU=2 + nature', () => {
+    // Un état 5/6 (chantier ouvert/achevé) n’est PAS retenu à l’ingestion (rafraîchi séparément, cf. Option B).
+    expect(pcRetenu(lignePC({ ETAT_DAU: '2', NATURE_PROJET_COMPLETEE: '1' }))).toBe(true);
+    expect(pcRetenu(lignePC({ ETAT_DAU: '5', NATURE_PROJET_COMPLETEE: '1' }))).toBe(false);
+    expect(pcRetenu(lignePC({ ETAT_DAU: '4', NATURE_PROJET_COMPLETEE: '1' }))).toBe(false);
   });
 });
