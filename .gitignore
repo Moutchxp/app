@@ -12,6 +12,9 @@
 # Sitadel (CSV open data téléchargés par sitadel:ingest) — JAMAIS committés (volumineux, re-téléchargeables)
 /data/sitadel/
 
+# CSV de l'annuaire CADA téléchargé par prada:ingest — JAMAIS committé (millésimé, re-téléchargeable)
+/data/prada/
+
 # ADMIN EXPRESS communes (GeoJSON IGN téléchargé par commune:import) — JAMAIS committé (re-téléchargeable)
 /data/commune/
 
