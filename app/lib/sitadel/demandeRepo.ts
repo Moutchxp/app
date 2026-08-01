@@ -132,13 +132,16 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
   // mis à jour en mémoire après chaque attribution → deux lots de la même commune dans un run tournent (A, puis B…).
   const collaborateurs = profil === 'entreprise' ? await lireCollaborateursActifs() : [];
   const dernieres = profil === 'entreprise' ? await lireDernieresParCommune() : new Map<string, Map<number, string | null>>();
+  // S8b — charge GLOBALE (nb total de demandes par collaborateur), lue une fois puis mise à jour AU FIL DU LOT (comme
+  // `dernieres`) : elle départage le critère 1 quand la commune est neuve pour tout le monde → équilibrage global.
+  const chargeGlobale = profil === 'entreprise' ? await lireChargeGlobale() : new Map<number, number>();
   const maintenant = new Date();
   const crees: string[] = [];
   let ignores = 0;
   for (const lot of lots) {
     const parCommune = dernieres.get(lot.codeInsee) ?? new Map<number, string | null>();
     const collaborateurId = collaborateurs.length > 0
-      ? choisirCollaborateur(lot.codeInsee, collaborateurs, parCommune, maintenant).collaborateurId
+      ? choisirCollaborateur(lot.codeInsee, collaborateurs, parCommune, chargeGlobale, maintenant).collaborateurId
       : null;
     const collab = collaborateurId !== null ? collaborateurs.find((c) => c.id === collaborateurId) ?? null : null;
     const cfgSignataire = collab
@@ -167,7 +170,10 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
         return reference;
       });
       crees.push(ref);
-      if (collaborateurId !== null) { parCommune.set(collaborateurId, maintenant.toISOString()); dernieres.set(lot.codeInsee, parCommune); }
+      if (collaborateurId !== null) {
+        parCommune.set(collaborateurId, maintenant.toISOString()); dernieres.set(lot.codeInsee, parCommune);
+        chargeGlobale.set(collaborateurId, (chargeGlobale.get(collaborateurId) ?? 0) + 1); // charge globale au fil du lot
+      }
     } catch {
       ignores += 1; // conflit d'unicité (dossier déjà rattaché entre-temps) → lot ignoré, pas d'écriture partielle
     }
@@ -377,6 +383,14 @@ async function lireDernieresParCommune(): Promise<Map<string, Map<number, string
     m.set(r.code_insee, c);
   }
   return m;
+}
+
+/** Pour l'équilibrage GLOBAL du tourniquet (S8b) : nb total de demandes déjà portées par chaque collaborateur, toutes communes confondues. */
+async function lireChargeGlobale(): Promise<Map<number, number>> {
+  const { rows } = await query<{ collaborateur_id: number; n: number }>(
+    `SELECT collaborateur_id, count(*)::int AS n FROM demande WHERE collaborateur_id IS NOT NULL GROUP BY collaborateur_id`,
+  );
+  return new Map(rows.map((r) => [r.collaborateur_id, r.n]));
 }
 
 export interface CollaborateurListe extends Collaborateur { creeLe: string; desactiveLe: string | null; nbPC: number; nbPD: number; nbEnAttente: number }

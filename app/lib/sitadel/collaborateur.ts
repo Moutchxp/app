@@ -41,34 +41,60 @@ export function resumeEligibilite(collaborateurs: Collaborateur[]): {
 }
 
 /**
- * Choisit le collaborateur à qui attribuer une demande pour `codeInsee`. `dernieres` = pour chaque collaborateur, la date
- * ISO de sa DERNIÈRE demande À CETTE COMMUNE (null ou absent = n'y a jamais écrit). Règle : celui qui n'y a jamais écrit
- * passe devant tout le monde ; sinon celui dont la dernière demande y est la plus ANCIENNE ; départage par id croissant
- * (STRICTEMENT déterministe — aucun aléatoire). `raison` toujours chiffrée. Aucun éligible → { null, raison }, jamais
- * d'exception.
+ * Choisit le collaborateur à qui attribuer une demande pour `codeInsee`. Départage à DEUX critères, dans cet ordre STRICT
+ * (correctif S8b) :
+ *   1. ANCIENNETÉ À CETTE COMMUNE (prioritaire) — `dernieres` = date ISO de la DERNIÈRE demande de chaque collaborateur À
+ *      CETTE COMMUNE (null/absent = n'y a jamais écrit). Jamais écrit passe devant ; sinon la plus ANCIENNE d'abord. Cette
+ *      contrainte (« ne pas revenir dans une mairie tant que les autres n'y sont pas passés ») n'est JAMAIS sacrifiée à
+ *      l'équilibre global.
+ *   2. À ÉGALITÉ sur le critère 1 (cas normal quand la commune est neuve pour tout le monde) — CHARGE GLOBALE : celui qui
+ *      porte le MOINS de demandes au total, toutes communes confondues (`chargeGlobale` = nb total par collaborateur, mis à
+ *      jour AU FIL DU LOT par l'appelant, comme `dernieres`).
+ *   3. Toujours à égalité — id croissant.
+ * STRICTEMENT déterministe, AUCUN aléatoire (le tri est total). `raison` chiffrée NOMMANT le critère qui a tranché. Aucun
+ * éligible → { null, raison }, jamais d'exception.
  */
 export function choisirCollaborateur(
   codeInsee: string,
   collaborateurs: Collaborateur[],
   dernieres: ReadonlyMap<number, string | null>,
+  chargeGlobale: ReadonlyMap<number, number>,
   maintenant: Date,
 ): { collaborateurId: number | null; raison: string } {
   const eligibles = collaborateurs.filter(collaborateurEligible);
   if (eligibles.length === 0) {
     return { collaborateurId: null, raison: `aucun collaborateur éligible (0 sur ${collaborateurs.length})` };
   }
+  const dateDe = (id: number) => dernieres.get(id) ?? null;
+  const chargeDe = (id: number) => chargeGlobale.get(id) ?? 0;
   const trie = [...eligibles].sort((a, b) => {
-    const da = dernieres.get(a.id) ?? null, db = dernieres.get(b.id) ?? null;
-    if (da === null && db !== null) return -1;   // jamais écrit → prioritaire
+    const da = dateDe(a.id), db = dateDe(b.id);
+    // critère 1 — ancienneté à CETTE commune (jamais écrit prioritaire, sinon la plus ancienne)
+    if (da === null && db !== null) return -1;
     if (da !== null && db === null) return 1;
-    if (da !== null && db !== null && da !== db) return da < db ? -1 : 1; // la plus ancienne d'abord
-    return a.id - b.id;                            // départage déterministe (aucun aléatoire)
+    if (da !== null && db !== null && da !== db) return da < db ? -1 : 1;
+    // critère 2 — charge globale (le moins chargé d'abord)
+    const ca = chargeDe(a.id), cb = chargeDe(b.id);
+    if (ca !== cb) return ca - cb;
+    // critère 3 — id croissant (départage déterministe, aucun aléatoire)
+    return a.id - b.id;
   });
   const g = trie[0];
-  const d = dernieres.get(g.id) ?? null;
+  const suivant = trie[1] ?? null;
+  const d = dateDe(g.id);
+  const charge = chargeDe(g.id);
   if (d === null) {
+    // g n'a jamais écrit à cette commune. Si le SUIVANT n'y a jamais écrit non plus, le critère 1 était à égalité et c'est
+    // la charge globale qui a tranché ; sinon le critère 1 (ancienneté) a suffi.
+    if (suivant !== null && dateDe(suivant.id) === null) {
+      return { collaborateurId: g.id, raison: `n'a jamais écrit à la commune ${codeInsee} (comme les autres éligibles), et porte le moins de demandes au total : ${charge} contre ${chargeDe(suivant.id)} pour le suivant` };
+    }
     return { collaborateurId: g.id, raison: `n'a jamais écrit à la commune ${codeInsee} (prioritaire parmi ${eligibles.length} éligible(s))` };
   }
   const jours = Math.max(0, Math.floor((maintenant.getTime() - Date.parse(d)) / 86_400_000));
+  if (suivant !== null && dateDe(suivant.id) !== null && d === dateDe(suivant.id)) {
+    // même dernière date que le suivant → critère 1 à égalité, la charge globale a tranché.
+    return { collaborateurId: g.id, raison: `dernière demande à ${codeInsee} il y a ${jours} jour(s), à égalité d'ancienneté, et porte le moins de demandes au total : ${charge} contre ${chargeDe(suivant.id)} pour le suivant` };
+  }
   return { collaborateurId: g.id, raison: `dernière demande à ${codeInsee} il y a ${jours} jour(s), la plus ancienne des ${eligibles.length} éligible(s)` };
 }
