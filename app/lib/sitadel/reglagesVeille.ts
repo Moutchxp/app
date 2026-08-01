@@ -146,6 +146,19 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Profil (société / personne physique) appliqué par défaut à la création de nouvelles demandes.' },
 ];
 
+/**
+ * S13 — partition PUREMENT PRÉSENTATIONNELLE de `PARAMS_VEILLE` en deux sous-blocs à l'écran Réglages (aucune route, aucune
+ * requête, aucun déplacement d'onglet ne change). Les colonnes ci-dessous règlent les DEMANDES aux mairies ; toutes les
+ * autres règlent la classification et l'affichage des DOSSIERS (seuils « immeuble », rangs des catégories, profondeur
+ * d'affichage) — elles relèvent conceptuellement du groupe « Mise à jour des dossiers ». ⚠️ DETTE connue : ces dernières
+ * gagneraient à migrer vers l'onglet Dossiers/Automatisation, mais ce déplacement touche les routes → chantier séparé.
+ */
+export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
+  'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois', 'pieces_demandees', 'profil_demandeur_defaut',
+];
+export const PARAMS_DEMANDES: ParamVeille[] = PARAMS_VEILLE.filter((p) => COLONNES_PARAMS_DEMANDES.includes(p.colonne));
+export const PARAMS_DOSSIERS: ParamVeille[] = PARAMS_VEILLE.filter((p) => !COLONNES_PARAMS_DEMANDES.includes(p.colonne));
+
 // ── Validation server-side (identique à l'écran) ─────────────────────────────
 export interface ErreurReglage { colonne: string; message: string }
 export type ResultatReglages =

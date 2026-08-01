@@ -4,15 +4,15 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import type { ConfigVeille } from '../../../../lib/sitadel/veilleConfig';
 import { ETIQUETTE_PROFIL, type ConfigDemandeur, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import {
-  champsPourProfil, PARAMS_VEILLE, type BornesParColonne, type ErreurReglage,
+  champsPourProfil, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, type ParamVeille, type BornesParColonne, type ErreurReglage,
 } from '../../../../lib/sitadel/reglagesVeille';
-import { BandeauIdentite, PlageParam } from './ReglagesRendu';
+import { BandeauIdentite, PlageParam, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS } from './ReglagesRendu';
 
 /**
  * Écran « Réglages » de la tuile Permis (chantier S7d / S7e). Édite les DEUX identités de demandeur (Société / Personne
  * physique), chacune avec son bandeau et SES champs (le profil 'personne' n'affiche que nom/adresse/e-mail), et les
- * paramètres du moteur (dont le profil par défaut). Motif Pilotage Moteur : validation server-side, message d'erreur au
- * niveau du champ. Mobile-first (accordéon). AUCUN ENVOI.
+ * paramètres, présentés en DEUX sous-blocs (S13) : « Paramètres des demandes » et « Classification et affichage des
+ * dossiers ». Motif Pilotage Moteur : validation server-side, message d'erreur au niveau du champ. Mobile-first. AUCUN ENVOI.
  */
 interface Reglages {
   demandeur: Record<ProfilDemandeur, ConfigDemandeur>;
@@ -96,6 +96,34 @@ export function ReglagesVue() {
   if (etat === 'chargement') return <p style={styleAide} aria-live="polite">Chargement des réglages…</p>;
   if (etat === 'erreur' || !data) return <p role="alert" style={styleErreur}>Réglages indisponibles.</p>;
 
+  // Carte d'UN paramètre (S13) — rendu identique à avant, factorisé pour alimenter les deux sous-blocs sans duplication.
+  const bornes = data.bornes;
+  const carteParam = (p: ParamVeille) => {
+    const b = bornes[p.colonne];
+    return (
+      <article key={p.colonne} className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
+        <span style={styleLabel}>{p.libelle}</span>
+        <span style={styleAide}>{p.aide}</span>
+        <label className="flex flex-col gap-1" style={{ marginTop: '.2rem' }}>
+          {p.type === 'enum'
+            ? <select value={veDraft[p.colonne] ?? ''} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle}>
+                {(p.optionsEnum ?? []).map((o) => <option key={o} value={o}>{o === 'entreprise' || o === 'personne' ? ETIQUETTE_PROFIL[o] : o}</option>)}
+              </select>
+            : p.type === 'entier'
+              ? <input type="number" value={veDraft[p.colonne] ?? ''} min={b?.min} max={b?.max} step={1}
+                  onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />
+              : <input value={veDraft[p.colonne] ?? ''} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />}
+          <PlageParam param={p} bornes={b} />
+        </label>
+        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => void enregistrerParam(p.colonne, p.type)}>Enregistrer</button>
+          {veMsg[p.colonne] && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{veMsg[p.colonne]}</span>}
+        </div>
+        {veErreurs[p.colonne] && <span role="alert" style={styleErreur}>{veErreurs[p.colonne]}</span>}
+      </article>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-4">
       {/* ── Section A : identités (accordéon, un bloc par profil) ── */}
@@ -136,36 +164,20 @@ export function ReglagesVue() {
         })}
       </section>
 
-      {/* ── Section B : paramètres du moteur ── */}
+      {/* ── Section B : paramètres, scindés en 2 sous-blocs (S13) — demandes vs dossiers. Aucune logique déplacée. ── */}
       <section className="flex flex-col gap-3">
-        <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Paramètres du moteur de veille</h2>
+        <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{TITRE_PARAMS_DEMANDES}</h2>
         <p style={styleAide}>Chaque paramètre est appliqué immédiatement. Les plages autorisées proviennent des contraintes de la base de données.</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
-          {PARAMS_VEILLE.map((p) => {
-            const b = data.bornes[p.colonne];
-            return (
-              <article key={p.colonne} className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
-                <span style={styleLabel}>{p.libelle}</span>
-                <span style={styleAide}>{p.aide}</span>
-                <label className="flex flex-col gap-1" style={{ marginTop: '.2rem' }}>
-                  {p.type === 'enum'
-                    ? <select value={veDraft[p.colonne] ?? ''} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle}>
-                        {(p.optionsEnum ?? []).map((o) => <option key={o} value={o}>{o === 'entreprise' || o === 'personne' ? ETIQUETTE_PROFIL[o] : o}</option>)}
-                      </select>
-                    : p.type === 'entier'
-                      ? <input type="number" value={veDraft[p.colonne] ?? ''} min={b?.min} max={b?.max} step={1}
-                          onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />
-                      : <input value={veDraft[p.colonne] ?? ''} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />}
-                  <PlageParam param={p} bornes={b} />
-                </label>
-                <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => void enregistrerParam(p.colonne, p.type)}>Enregistrer</button>
-                  {veMsg[p.colonne] && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{veMsg[p.colonne]}</span>}
-                </div>
-                {veErreurs[p.colonne] && <span role="alert" style={styleErreur}>{veErreurs[p.colonne]}</span>}
-              </article>
-            );
-          })}
+          {PARAMS_DEMANDES.map(carteParam)}
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{TITRE_PARAMS_DOSSIERS}</h2>
+        <p style={styleAide}>{AIDE_PARAMS_DOSSIERS}</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
+          {PARAMS_DOSSIERS.map(carteParam)}
         </div>
       </section>
     </div>

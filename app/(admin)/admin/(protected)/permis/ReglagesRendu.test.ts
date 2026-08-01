@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { BandeauIdentite, PlageParam } from './ReglagesRendu';
-import { parserBornesCheck, PARAMS_VEILLE } from '../../../../lib/sitadel/reglagesVeille';
+import { BandeauIdentite, PlageParam, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS } from './ReglagesRendu';
+import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS } from '../../../../lib/sitadel/reglagesVeille';
 import { problemesIdentite } from '../../../../lib/sitadel/demande';
 
 /**
@@ -62,5 +62,33 @@ describe('S7d — PlageParam (bornes = base)', () => {
     expect(h).toContain('entreprise');
     expect(h).toContain('personne');
     expect(h).not.toContain('Plage autorisée');
+  });
+});
+
+describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => {
+  it('intitulés EXACTS, et plus aucune mention « moteur de veille »', () => {
+    expect(TITRE_PARAMS_DEMANDES).toBe('Paramètres des demandes');
+    expect(TITRE_PARAMS_DOSSIERS).toBe('Classification et affichage des dossiers');
+    expect(TITRE_PARAMS_DEMANDES).not.toContain('moteur de veille');
+    expect(TITRE_PARAMS_DOSSIERS).not.toContain('moteur de veille');
+  });
+
+  it('l’aide du 2e bloc dit qu’il ne concerne PAS les demandes mais la mise à jour/affichage des dossiers', () => {
+    expect(AIDE_PARAMS_DOSSIERS).toContain('ne concernent pas les demandes');
+    expect(AIDE_PARAMS_DOSSIERS).toContain('dossiers');
+    expect(AIDE_PARAMS_DOSSIERS).toContain('Mise à jour des dossiers');
+  });
+
+  it('partition : 5 réglages de demandes / 8 réglages de dossiers, sans perte ni doublon', () => {
+    expect(PARAMS_DEMANDES.map((p) => p.colonne)).toEqual([
+      'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois', 'pieces_demandees', 'profil_demandeur_defaut',
+    ]);
+    expect(PARAMS_DOSSIERS.map((p) => p.colonne)).toEqual([
+      'seuil_logements_immeuble', 'seuil_surface_immeuble_m2', 'annees_par_defaut',
+      'rang_immeuble_neuf', 'rang_surelevation', 'rang_construction_neuve', 'rang_extension', 'rang_demolition',
+    ]);
+    expect(PARAMS_DEMANDES.length + PARAMS_DOSSIERS.length).toBe(PARAMS_VEILLE.length);
+    const cols = new Set([...PARAMS_DEMANDES, ...PARAMS_DOSSIERS].map((p) => p.colonne));
+    expect(cols.size).toBe(PARAMS_VEILLE.length); // aucune colonne perdue ni dupliquée
   });
 });

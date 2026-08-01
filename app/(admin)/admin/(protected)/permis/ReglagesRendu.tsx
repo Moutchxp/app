@@ -9,6 +9,15 @@ import { bandeauIdentite, type Bornes, type ParamVeille } from '../../../../lib/
 
 const styleBase: CSSProperties = { padding: '.6rem .75rem', borderRadius: '.6rem', fontSize: 13, lineHeight: 1.45 };
 
+/**
+ * S13 — intitulés des deux sous-blocs de paramètres de l'écran Réglages. Le premier coiffe les réglages des demandes ; le
+ * second, ceux de la classification/affichage des dossiers — son aide dit explicitement qu'il ne concerne PAS les demandes,
+ * pour que le lecteur comprenne pourquoi ces réglages sont là. Exportés (et non « en dur » dans la vue) pour être testés.
+ */
+export const TITRE_PARAMS_DEMANDES = 'Paramètres des demandes';
+export const TITRE_PARAMS_DOSSIERS = 'Classification et affichage des dossiers';
+export const AIDE_PARAMS_DOSSIERS = 'Ces réglages ne concernent pas les demandes aux mairies : ils pilotent la mise à jour et l’affichage des dossiers (groupe « Mise à jour des dossiers ») — classement « immeuble », ordre des catégories et profondeur d’affichage par défaut.';
+
 /** Bandeau permanent : identité complète (vert) → demandes « prête » possibles ; incomplète (rouge) → bloquées. */
 export function BandeauIdentite({ problemes }: { problemes: string[] }) {
   const { complete, message } = bandeauIdentite(problemes);

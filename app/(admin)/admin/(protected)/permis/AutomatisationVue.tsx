@@ -88,6 +88,8 @@ export function AutomatisationVue() {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* S13 — dire d'emblée ce que cet écran automatise (mise à jour des dossiers depuis Sitadel), pas les demandes. */}
+      <p style={styleAide}>Cette automatisation met à jour les dossiers de permis en récupérant régulièrement le dernier millésime Sitadel. Elle ne prépare ni n’envoie aucune demande aux mairies — c’est le groupe « Demandes aux mairies » qui s’en charge.</p>
       {/* Alarmes par ORDRE DE GRAVITÉ : échecs (rouge) → ordonnanceur (rouge) → millésime figé (orange). */}
       <AlerteEchecs alerte={data.alarmes.echecs.alerte} phrase={data.alarmes.echecs.phrase} />
       <AvertissementOrdonnanceur suspect={data.ordonnanceurSuspect.suspect} message={data.ordonnanceurSuspect.message} />
