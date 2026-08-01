@@ -14,6 +14,7 @@ import {
   configAvecSignataire,
 } from './demande';
 import { type Collaborateur, choisirCollaborateur } from './collaborateur';
+import { resoudreDestination, type ContactCommune } from './destinataire';
 
 type Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>;
 const asQ = (q: (t: string, p?: unknown[]) => Promise<unknown>): Requete => ((t, p) => q(t, p)) as Requete;
@@ -23,11 +24,23 @@ const NB_CANDIDATS = 600; // profondeur de candidats examinés (haut du classeme
 function adresseDe(d: DossierAffiche): string {
   return [d.adrNumTer, d.adrLibvoieTer, d.adrLocaliteTer].filter((x) => x && x.trim() !== '').join(' ');
 }
-function versCandidat(d: DossierAffiche): CandidatDossier {
+/** Contact brut d'un dossier (mairie_contact + PRADA) pour la résolution unique du destinataire (S14d). */
+function contactDe(d: DossierAffiche): ContactCommune {
   return {
-    dossierId: d.id, codeInsee: d.codeInsee, communeNom: d.communeNom, canal: d.destCanal,
+    contactCanal: d.destCanal, contactStatut: d.destStatut, contactEmail: d.destEmail,
+    contactUrlFormulaire: d.destUrlFormulaire, contactAdressePostale: d.destAdressePostale,
+    pradaCourriel: d.destPradaCourriel, pradaImportId: d.destPradaImportId, pradaNom: d.destPradaNom,
+  };
+}
+
+function versCandidat(d: DossierAffiche): CandidatDossier {
+  // S14d : le canal utilisé par proposerLots (adressabilité) est le canal RÉSOLU — une commune 'inconnu' porteuse d'une
+  // PRADA au courriel non vide (et contact 'presume') devient 'email' et cesse donc d'être exclue.
+  const dest = resoudreDestination(contactDe(d));
+  return {
+    dossierId: d.id, codeInsee: d.codeInsee, communeNom: d.communeNom, canal: dest.canal,
     numDau: d.numDau, dateReelleAutorisation: d.dateReelleAutorisation, adresse: adresseDe(d), codePostal: d.adrCodpostTer, cadastre: d.cadastre,
-    etatDau: d.etatDau, absentDuDernierMillesime: !d.vuAuDernier,
+    etatDau: d.etatDau, absentDuDernierMillesime: !d.vuAuDernier, arbitragePrada: dest.arbitragePrada,
   };
 }
 
@@ -83,8 +96,12 @@ async function lireHistorique(): Promise<HistoriqueDemandes> {
 function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDemandes, params: ParamsLot): DiagnosticProposition {
   const sansCanal = new Set<string>();
   const parCommune = new Map<string, number>();
+  const arbitrages = new Set<string>(); // S14d : communes PRADA-disponible mais contact 'confirme' conservé
   let rattaches = 0, horsFenetre = 0, annules = 0, absents = 0;
   for (const d of candidats) {
+    // S14d — arbitrage relevé indépendamment des exclusions de dossiers (il concerne la config du destinataire, pas la
+    // fenêtre) : jamais de bascule silencieuse d'un contact confirmé.
+    if (d.arbitragePrada) arbitrages.add(d.communeNom ?? d.codeInsee);
     // MÊME ordre d'exclusion que proposerLots (annulé + absent d'abord — cf. S12).
     if (d.etatDau === '4') { annules += 1; continue; }
     if (d.absentDuDernierMillesime) { absents += 1; continue; }
@@ -97,7 +114,11 @@ function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDemandes, p
   for (const code of parCommune.keys()) {
     if (params.demandesParCommuneParMois - (hist.demandesCeMoisParCommune.get(code) ?? 0) <= 0) plafond += 1;
   }
-  return { candidatsExamines: candidats.length, dossiersAnnules: annules, dossiersAbsents: absents, dossiersHorsFenetre: horsFenetre, dossiersDejaRattaches: rattaches, communesSansCanal: sansCanal.size, communesPlafondMensuel: plafond };
+  return {
+    candidatsExamines: candidats.length, dossiersAnnules: annules, dossiersAbsents: absents, dossiersHorsFenetre: horsFenetre,
+    dossiersDejaRattaches: rattaches, communesSansCanal: sansCanal.size, communesPlafondMensuel: plafond,
+    arbitragesPrada: [...arbitrages].sort(),
+  };
 }
 
 /** Lots PROPOSÉS (aucune écriture) + diagnostic (pour expliquer un « 0 lot ») — pour revue avant création. */
@@ -152,14 +173,32 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
         const q = asQ(tx);
         const reference = await attribuerReference(q, annee);
         const { objet, corps } = genererTexte(lot, cfgSignataire, reference, pieces, profil);
-        const contact = await q<{ email: string | null; url_formulaire: string | null; adresse_postale: string | null }>(
-          `SELECT email, url_formulaire, adresse_postale FROM mairie_contact WHERE code_insee = $1`, [lot.codeInsee],
+        // S14d — destinataire FIGÉ via la MÊME fonction que la sélection amont (resoudreDestination) : lecture de
+        // mairie_contact ÉTENDUE à mairie_prada, puis précédence PRADA/contact. Le texte du courrier ne dépend pas du
+        // destinataire (genererTexte ne le reçoit pas) → figer un autre e-mail laisse le corps strictement inchangé.
+        const contact = await q<{
+          canal: string | null; statut: string | null; email: string | null; url_formulaire: string | null; adresse_postale: string | null;
+          prada_courriel: string | null; prada_import_id: number | null; prada_nom: string | null; prada_prenom: string | null;
+        }>(
+          `SELECT mc.canal, mc.statut, mc.email, mc.url_formulaire, mc.adresse_postale,
+                  mp.courriel AS prada_courriel, mp.import_id AS prada_import_id, mp.nom AS prada_nom, mp.prenom AS prada_prenom
+           FROM commune c
+           LEFT JOIN mairie_contact mc ON mc.code_insee = c.code_insee
+           LEFT JOIN mairie_prada mp ON mp.code_insee = c.code_insee
+           WHERE c.code_insee = $1`, [lot.codeInsee],
         );
-        const ct = contact.rows[0] ?? { email: null, url_formulaire: null, adresse_postale: null };
+        const row = contact.rows[0] ?? null;
+        const dest = resoudreDestination({
+          contactCanal: (row?.canal ?? null) as ContactCommune['contactCanal'],
+          contactStatut: (row?.statut ?? null) as ContactCommune['contactStatut'],
+          contactEmail: row?.email ?? null, contactUrlFormulaire: row?.url_formulaire ?? null, contactAdressePostale: row?.adresse_postale ?? null,
+          pradaCourriel: row?.prada_courriel ?? null, pradaImportId: row?.prada_import_id ?? null,
+          pradaNom: [row?.prada_prenom, row?.prada_nom].map((x) => (x ?? '').trim()).filter((x) => x !== '').join(' ') || null,
+        });
         const dem = await q<{ id: number }>(
-          `INSERT INTO demande (reference, code_insee, statut, objet, corps, profil_demandeur, collaborateur_id, dest_canal, dest_email, dest_url_formulaire, dest_adresse_postale)
-           VALUES ($1, $2, 'brouillon', $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-          [reference, lot.codeInsee, objet, corps, profil, collaborateurId, lot.canal, ct.email, ct.url_formulaire, ct.adresse_postale],
+          `INSERT INTO demande (reference, code_insee, statut, objet, corps, profil_demandeur, collaborateur_id, dest_canal, dest_email, dest_url_formulaire, dest_adresse_postale, dest_origine, dest_prada_import_id, dest_nom)
+           VALUES ($1, $2, 'brouillon', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+          [reference, lot.codeInsee, objet, corps, profil, collaborateurId, dest.canal, dest.email, dest.urlFormulaire, dest.adressePostale, dest.origine, dest.pradaImportId, dest.nom],
         );
         const id = dem.rows[0].id;
         for (const d of lot.dossiers) {

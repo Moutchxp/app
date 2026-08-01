@@ -37,6 +37,9 @@ export interface DossierAffiche {
   destCanal: 'email' | 'formulaire' | 'courrier' | 'inconnu' | null; // NULL = commune inconnue (pas de ligne contact)
   destUrlFormulaire: string | null;
   destAdressePostale: string | null;
+  destPradaCourriel: string | null;     // S14d : bruts PRADA (résolution du destinataire faite en TS)
+  destPradaImportId: number | null;
+  destPradaNom: string | null;          // « Prénom Nom » composé, ou null
   categorie: CleCategorie;
   libelleCategorie: string;
   rang: number;
@@ -58,6 +61,10 @@ interface LigneSql {
   dest_canal: 'email' | 'formulaire' | 'courrier' | 'inconnu' | null;
   dest_url_formulaire: string | null;
   dest_adresse_postale: string | null;
+  prada_courriel: string | null;
+  prada_import_id: number | null;
+  prada_nom: string | null;
+  prada_prenom: string | null;
 }
 
 const nombre = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -83,6 +90,8 @@ function versAffiche(r: LigneSql, c: ConfigVeille): DossierAffiche {
     cadastre: refsCadastre(r), etatDau: r.etat_dau, etatAmbigu: r.etat_ambigu, dateDoc: r.date_doc, dateDaact: r.date_daact, vuAuDernier: r.vu_au_dernier,
     communeNom: r.commune_nom, destEmail: r.dest_email, destStatut: r.dest_statut,
     destCanal: r.dest_canal, destUrlFormulaire: r.dest_url_formulaire, destAdressePostale: r.dest_adresse_postale,
+    destPradaCourriel: r.prada_courriel, destPradaImportId: r.prada_import_id,
+    destPradaNom: [r.prada_prenom, r.prada_nom].map((x) => (x ?? '').trim()).filter((x) => x !== '').join(' ') || null,
     categorie: cl.cle, libelleCategorie: cl.libelle, rang: cl.rang,
   };
 }

@@ -5,6 +5,7 @@ import {
   problemesIdentite, proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande,
   dateEnFrancais, ancreDetail, peutPasserLot, expliquerProposition, resumeDiagnostic, configAvecSignataire,
 } from './demande';
+import { resoudreDestination } from './destinataire';
 
 let seq = 0;
 function cand(over: Partial<CandidatDossier> = {}): CandidatDossier {
@@ -374,5 +375,33 @@ describe('Sitadel S8a — courrier signé par un collaborateur', () => {
 
   it('sans collaborateur (null) → identité société INCHANGÉE (instantané figé préservé)', () => {
     expect(configAvecSignataire(CONFIG, null)).toBe(CONFIG); // même objet → texte strictement identique
+  });
+});
+
+describe('S14d — destinataire PRADA : adressabilité en amont + texte inchangé', () => {
+  const pieces = piecesDepuisConfig('PC2,PC3');
+
+  it('commune en canal INCONNU mais PRADA au courriel non vide → canal résolu « email » → n’est PLUS exclue de proposerLots', () => {
+    // canal résolu par la MÊME fonction que la prod (versCandidat) : inconnu + presume + PRADA → email
+    const canalResolu = resoudreDestination({
+      contactCanal: 'inconnu', contactStatut: 'presume', contactEmail: null, contactUrlFormulaire: null, contactAdressePostale: null,
+      pradaCourriel: 'prada@ville.fr', pradaImportId: 3, pradaNom: 'Jean Dupont',
+    }).canal;
+    expect(canalResolu).toBe('email');
+    const lots = proposerLots([cand({ canal: canalResolu })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE);
+    expect(lots).toHaveLength(1); // adressable → un lot est proposé
+
+    // témoin : une commune restée 'inconnu' (aucune PRADA) demeure exclue
+    expect(proposerLots([cand({ canal: 'inconnu' as CanalContact })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
+  });
+
+  it('le TEXTE généré est byte-identique quel que soit le destinataire/canal (genererTexte ne le reçoit pas)', () => {
+    const dossiers = [cand({ dossierId: 1, numDau: 'PC0001' }), cand({ dossierId: 2, numDau: 'PC0002' })];
+    const lotEmail: Lot = { codeInsee: '92050', communeNom: 'Nanterre', canal: 'email', dossiers };
+    const lotInconnu: Lot = { ...lotEmail, canal: 'inconnu' as CanalContact };
+    const a = genererTexte(lotEmail, CONFIG, 'SVAV-DEM-2026-000900', pieces);
+    const b = genererTexte(lotInconnu, CONFIG, 'SVAV-DEM-2026-000900', pieces);
+    expect(b.corps).toBe(a.corps);   // instantané figé du corps : indépendant du destinataire
+    expect(b.objet).toBe(a.objet);
   });
 });

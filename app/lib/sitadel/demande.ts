@@ -152,6 +152,7 @@ export interface CandidatDossier {
   cadastre: string[];
   etatDau: string | null;               // S12 : 2=Autorisé 4=Annulé 5=Commencé 6=Terminé (null = jamais revu → proposable)
   absentDuDernierMillesime: boolean;    // S12 : dossier RÉELLEMENT retiré du fichier Sitadel (état futur inconnu)
+  arbitragePrada?: boolean;             // S14d : PRADA au courriel non vide mais contact 'confirme' conservé → à arbitrer
 }
 export interface HistoriqueDemandes {
   /** dossier_id déjà rattachés à une demande NON abandonnée → jamais reproposés. */
@@ -230,6 +231,9 @@ export interface DiagnosticProposition {
   dossiersDejaRattaches: number;
   communesSansCanal: number;
   communesPlafondMensuel: number;
+  /** S14d : communes où une PRADA au courriel non vide existe mais le contact 'confirme' est conservé → arbitrage à
+   *  rendre (jamais de bascule silencieuse). Optionnel : absent = aucun arbitrage (compat des littéraux existants). */
+  arbitragesPrada?: string[];
 }
 
 /**

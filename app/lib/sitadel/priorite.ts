@@ -108,7 +108,9 @@ export function expressionRangSql(c: ConfigVeille, params: unknown[]): string {
 const FROM_JOIN =
   'sitadel_dossier d ' +
   'LEFT JOIN commune c ON c.code_insee = d.code_insee ' +
-  'LEFT JOIN mairie_contact mc ON mc.code_insee = d.code_insee';
+  'LEFT JOIN mairie_contact mc ON mc.code_insee = d.code_insee ' +
+  // S14d : on ÉTEND (jamais on ne remplace) avec la PRADA — la résolution du destinataire est faite en TS (destinataire.ts).
+  'LEFT JOIN mairie_prada mp ON mp.code_insee = d.code_insee';
 
 /** Ordre secondaire : surface (PC = surf_creee, PD = superficie_terrain) DESC, puis date DESC, puis num_dau (stable). */
 const ORDRE_SECONDAIRE =
@@ -146,7 +148,9 @@ const SELECTION =
   `d.etat_dau, d.etat_ambigu, d.date_doc::text AS date_doc, d.date_daact::text AS date_daact, ` +
   `(d.vu_le_dernier_millesime = (SELECT max(code) FROM sitadel_millesime)) AS vu_au_dernier, ` +
   `c.nom AS commune_nom, mc.email AS dest_email, mc.statut AS dest_statut, ` +
-  `mc.canal AS dest_canal, mc.url_formulaire AS dest_url_formulaire, mc.adresse_postale AS dest_adresse_postale`;
+  `mc.canal AS dest_canal, mc.url_formulaire AS dest_url_formulaire, mc.adresse_postale AS dest_adresse_postale, ` +
+  // S14d : bruts PRADA (la précédence est calculée en TS par resoudreDestination, pas en SQL).
+  `mp.courriel AS prada_courriel, mp.import_id AS prada_import_id, mp.nom AS prada_nom, mp.prenom AS prada_prenom`;
 
 /**
  * Clauses WHERE des filtres, poussant leurs paramètres dans `params`. `rangExpr` (déjà construit et paramétré) est requis
