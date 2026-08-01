@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parserAnnuaireCada, AnnuaireInvalideError, EN_TETE_CADA, COLONNES_BRUTES,
   millesimeDepuisNomFichier, extraireLienCsv, rapportDepartements, codeDepartementDe,
-  sqlUpsertPradaImport, sqlUpsertPradaMillesime,
+  sqlUpsertPradaImport, sqlUpsertPradaMillesime, villeDepuisNomMairie,
 } from './prada';
 
 const BOM = '﻿';
@@ -122,6 +122,27 @@ describe('S14b — rapportDepartements', () => {
     expect(codeDepartementDe('Corse-du-Sud (2A)')).toBe('2A');
     expect(codeDepartementDe('Sans chiffre')).toBeNull();
   });
+});
+
+describe('S14c — villeDepuisNomMairie (cas RÉELS relevés en base)', () => {
+  const cas: [string, string][] = [
+    ['Mairie du Pecq', 'Le Pecq'],
+    ['Mairie des Mureaux', 'Les Mureaux'],
+    ['Mairie de La Courneuve', 'La Courneuve'],
+    ['Mairie du Blanc-Mesnil', 'Le Blanc-Mesnil'],
+    ['Mairie du Chesnay-Rocquencourt', 'Le Chesnay-Rocquencourt'],
+    ['Mairie de Clichy (92)', 'Clichy'],
+    ['Mairie de Saint-Denis (93)', 'Saint-Denis'],
+    ['Mairie de La Garenne-Colombes', 'La Garenne-Colombes'],
+    ['Mairie du Plessis-Robinson', 'Le Plessis-Robinson'],
+    ['Mairie des Lilas', 'Les Lilas'],
+    ['Mairie du Raincy', 'Le Raincy'],
+    ['Mairie de La Celle-Saint-Cloud', 'La Celle-Saint-Cloud'],
+    ['Mairie de Paris', 'Paris'],
+  ];
+  for (const [entree, attendu] of cas) {
+    it(`« ${entree} » → « ${attendu} »`, () => { expect(villeDepuisNomMairie(entree)).toBe(attendu); });
+  }
 });
 
 describe('S14b — invariant d’upsert (ré-import NON destructif)', () => {

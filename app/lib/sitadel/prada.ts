@@ -121,6 +121,32 @@ export function extraireLienCsv(html: string, base: string): string {
   return arr[0];
 }
 
+/**
+ * Nom de commune extrait de « nom_administration » (chantier S14c), pour rapprocher une ligne PRADA avec la table
+ * `commune`. Deux étapes, dans cet ordre :
+ *   1) retirer un suffixe de département en fin de chaîne : «  (92) », «  (2A) » ;
+ *   2) l'ARTICLE fait partie du nom de la commune (point clé, mesuré) — on le RÉTABLIT, tandis que la simple préposition
+ *      « de / d' » est SUPPRIMÉE :
+ *        « Mairie du X »    → « Le X »   · « Mairie des X »   → « Les X »
+ *        « Mairie de la X » → « La X »   · « Mairie de l'X »  → « L'X »
+ *        « Mairie de X »    → « X »      · « Mairie d'X »     → « X »   · « Mairie X » → « X »
+ * ⚠️ Aucune règle SAINT/ST, tiret ou distance de chaîne : la comparaison en aval est EXACTE (departement + nom
+ * désaccentué), la mesure prouve qu'aucun échec n'en relève.
+ */
+export function villeDepuisNomMairie(nomAdministration: string): string {
+  const sansDep = nomAdministration.replace(/\s*\([0-9AB]{2,3}\)\s*$/i, '').trim();
+  const m = /^mairie\b\s*(.*)$/i.exec(sansDep);
+  const reste = (m !== null ? m[1] : sansDep).trim();
+  let a: RegExpExecArray | null;
+  if ((a = /^du\s+(.+)$/i.exec(reste)) !== null) return `Le ${a[1].trim()}`;
+  if ((a = /^des\s+(.+)$/i.exec(reste)) !== null) return `Les ${a[1].trim()}`;
+  if ((a = /^de\s+la\s+(.+)$/i.exec(reste)) !== null) return `La ${a[1].trim()}`;
+  if ((a = /^de\s+l['’]\s*(.+)$/i.exec(reste)) !== null) return `L'${a[1].trim()}`;
+  if ((a = /^d['’]\s*(.+)$/i.exec(reste)) !== null) return a[1].trim();
+  if ((a = /^de\s+(.+)$/i.exec(reste)) !== null) return a[1].trim();
+  return reste;
+}
+
 // ── Rapport chiffré (pur) ────────────────────────────────────────────────────
 const IDX_DEPARTEMENT = 1;   // position de « Département de l'autorité » (mapping positionnel EN_TETE_CADA)
 const IDX_COURRIEL = 5;      // position de « Courriel 1 PRADA »
