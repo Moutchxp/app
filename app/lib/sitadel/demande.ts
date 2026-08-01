@@ -86,10 +86,25 @@ function gabaritReconnu(v: string): string | null {
 export function problemeChamp(valeur: string | null | undefined, libelle: string, min: number): string | null {
   const v = (valeur ?? '').trim();
   if (v === '') return `${libelle} : requis`;
+  return problemeChampRenseigne(v, libelle, min);
+}
+
+/** Contrôles applicables SEULEMENT si le champ est renseigné (longueur crédible, gabarit) — factorisé. */
+function problemeChampRenseigne(v: string, libelle: string, min: number): string | null {
   if (v.length < min) return `${libelle} : trop court pour être crédible`;
   const g = gabaritReconnu(v);
   if (g !== null) return `${libelle} : ressemble à un gabarit non rempli (« ${g} »)`;
   return null;
+}
+
+/**
+ * Variante FACULTATIVE : un champ vide est ACCEPTÉ (null). Les autres contrôles (longueur, gabarit) ne s'appliquent QUE
+ * s'il est renseigné. Pour les champs informatifs et non obligatoires (ex. la fonction d'un collaborateur — S8a).
+ */
+export function problemeChampFacultatif(valeur: string | null | undefined, libelle: string, min: number): string | null {
+  const v = (valeur ?? '').trim();
+  if (v === '') return null;
+  return problemeChampRenseigne(v, libelle, min);
 }
 
 /** Problème de plausibilité d'un e-mail (partagé) : requis + format. `libelle` nomme le champ. */
@@ -352,7 +367,9 @@ export function genererTexte(
     'Dossiers concernés :',
     lignesDossiers,
     '',
-    `${config.raisonSociale}, ${config.formeJuridique}, dont le siège est ${config.siegeAdresse}, représentée par ${config.representantNom}, ${config.representantQualite}.`,
+    // La qualité (fonction du signataire) est FACULTATIVE (S8a) : si vide, on l'omet SANS virgule orpheline ni double
+    // espace. Non vide → « , qualité » exactement comme avant (instantané figé préservé pour l'identité société).
+    `${config.raisonSociale}, ${config.formeJuridique}, dont le siège est ${config.siegeAdresse}, représentée par ${config.representantNom}${config.representantQualite.trim() !== '' ? `, ${config.representantQualite}` : ''}.`,
     `Adresse de réponse : ${config.emailContact}${tel}`,
     '',
     `Je vous remercie de bien vouloir rappeler la référence ${reference} dans votre réponse.`,

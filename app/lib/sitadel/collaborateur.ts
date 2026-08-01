@@ -4,7 +4,7 @@
  * fonction TOTALE et DÉTERMINISTE de l'état (deux exécutions sur les mêmes entrées donnent le même résultat), pour que
  * la répartition soit auditable et rejouable.
  */
-import { problemeChamp, problemeEmail } from './demande';
+import { problemeChamp, problemeChampFacultatif, problemeEmail } from './demande';
 
 export interface Collaborateur { id: number; nom: string; prenom: string; fonction: string; email: string; actif: boolean }
 
@@ -17,7 +17,7 @@ export function problemesCollaborateur(c: { nom: string; prenom: string; fonctio
   for (const e of [
     problemeChamp(c.nom, 'nom', 2),
     problemeChamp(c.prenom, 'prénom', 2),
-    problemeChamp(c.fonction, 'fonction', 2),
+    problemeChampFacultatif(c.fonction, 'fonction', 2), // FACULTATIF (S8a) : vide accepté ; contrôlé seulement si renseigné
     problemeEmail(c.email, 'e-mail'),
   ]) if (e) p.push(e);
   return p;

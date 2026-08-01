@@ -14,6 +14,12 @@ describe('S8a — rendu Collaborateurs', () => {
     expect(h).toContain('désactiver');
   });
 
+  it('fonction absente (facultative) → « non renseignée », jamais un tiret muet', () => {
+    const h = tr({ ...base, fonction: '' });
+    expect(h).toContain('non renseignée');
+    expect(h).toContain('Jean Dupont');
+  });
+
   it('collaborateur désactivé → badge « désactivé » + bouton « réactiver »', () => {
     const h = tr({ ...base, actif: false, nbPC: 12, nbPD: 3 });
     expect(h).toContain('désactivé');

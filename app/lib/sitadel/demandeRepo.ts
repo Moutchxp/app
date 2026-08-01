@@ -360,7 +360,7 @@ export async function changerProfilLot(ids: number[], profil: ProfilDemandeur, a
 /** Collaborateurs ACTIFS (l'éligibilité fine — identité crédible — est vérifiée par le tourniquet). */
 export async function lireCollaborateursActifs(): Promise<Collaborateur[]> {
   const { rows } = await query<{ id: number; nom: string; prenom: string; fonction: string; email: string; actif: boolean }>(
-    `SELECT id, nom, prenom, fonction, email, actif FROM collaborateur WHERE actif ORDER BY id`,
+    `SELECT id, nom, prenom, coalesce(fonction, '') AS fonction, email, actif FROM collaborateur WHERE actif ORDER BY id`,
   );
   return rows;
 }
@@ -384,7 +384,7 @@ export interface CollaborateurListe extends Collaborateur { creeLe: string; desa
 /** Tous les collaborateurs (actifs + désactivés) avec compteurs : dossiers PC/PD couverts + demandes en attente de réponse. */
 export async function lireCollaborateurs(): Promise<CollaborateurListe[]> {
   const { rows } = await query<{ id: number; nom: string; prenom: string; fonction: string; email: string; actif: boolean; cree_le: string; desactive_le: string | null; nb_pc: number; nb_pd: number; nb_attente: number }>(
-    `SELECT c.id, c.nom, c.prenom, c.fonction, c.email, c.actif, c.cree_le::text AS cree_le, c.desactive_le::text AS desactive_le,
+    `SELECT c.id, c.nom, c.prenom, coalesce(c.fonction, '') AS fonction, c.email, c.actif, c.cree_le::text AS cree_le, c.desactive_le::text AS desactive_le,
             count(dd.*) FILTER (WHERE s.type = 'PC')::int AS nb_pc,
             count(dd.*) FILTER (WHERE s.type = 'PD')::int AS nb_pd,
             count(DISTINCT d.id) FILTER (WHERE d.statut = 'envoyee')::int AS nb_attente
@@ -405,7 +405,7 @@ export async function creerCollaborateur(champs: { nom: string; prenom: string; 
   try {
     const { rows } = await query<{ id: number }>(
       `INSERT INTO collaborateur (nom, prenom, fonction, email) VALUES ($1, $2, $3, $4) RETURNING id`,
-      [champs.nom.trim(), champs.prenom.trim(), champs.fonction.trim(), champs.email.trim()],
+      [champs.nom.trim(), champs.prenom.trim(), champs.fonction.trim() === '' ? null : champs.fonction.trim(), champs.email.trim()],
     );
     return { id: rows[0].id };
   } catch {

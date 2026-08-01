@@ -67,7 +67,10 @@ export function CollaborateursVue() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '.6rem' }}>
           <input value={form.prenom} onChange={(e) => setForm({ ...form, prenom: e.target.value })} placeholder="Prénom" style={styleInput} aria-label="Prénom" />
           <input value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} placeholder="Nom" style={styleInput} aria-label="Nom" />
-          <input value={form.fonction} onChange={(e) => setForm({ ...form, fonction: e.target.value })} placeholder="Fonction (ex. chargé de recherche)" style={styleInput} aria-label="Fonction" />
+          <label className="flex flex-col gap-1" style={{ minWidth: 0 }}>
+            <input value={form.fonction} onChange={(e) => setForm({ ...form, fonction: e.target.value })} placeholder="Fonction (facultatif)" style={styleInput} aria-label="Fonction (facultatif)" />
+            <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Facultatif : établit la qualité pour agir au nom de la société et renforce la demande si l’administration garde le silence.</span>
+          </label>
           <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="e-mail" style={styleInput} aria-label="e-mail" />
         </div>
         <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>

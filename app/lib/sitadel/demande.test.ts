@@ -355,12 +355,21 @@ describe('Sitadel S8a — courrier signé par un collaborateur', () => {
   it('contient le NOM du collaborateur ET la raison sociale (invariant) ; adresse de réponse = e-mail du collaborateur', () => {
     const cfg = configAvecSignataire(CONFIG, collab);
     const { corps } = genererTexte(lot, cfg, 'SVAV-DEM-2026-000200', pieces, 'entreprise');
-    expect(corps).toContain('Claire Martin');            // signataire = collaborateur
-    expect(corps).toContain('chargée de recherche');     // sa fonction (qualité)
+    expect(corps).toContain('représentée par Claire Martin, chargée de recherche.'); // chaîne EXACTE (fonction renseignée → figé)
     expect(corps).toContain('Criterimmo');               // TOUJOURS la raison sociale de la société (invariant S8a)
     expect(corps).toContain('claire.martin@exemple.fr'); // adresse de réponse = collaborateur
     expect(corps).not.toContain('A. Jorel');             // le représentant société est remplacé
     expect(corps).not.toContain('contact@sansvisavis.com'); // l'e-mail société est remplacé
+  });
+
+  it('collaborateur SANS fonction (facultative) : phrase EXACTE sans virgule orpheline ; raison sociale toujours présente', () => {
+    const cfg = configAvecSignataire(CONFIG, { nom: 'Martin', prenom: 'Lucas', fonction: '', email: 'lucas.martin@exemple.fr' });
+    const { corps } = genererTexte(lot, cfg, 'SVAV-DEM-2026-000201', pieces, 'entreprise');
+    expect(corps).toContain('représentée par Lucas Martin.');     // chaîne EXACTE : point directement après le nom
+    expect(corps).not.toContain('représentée par Lucas Martin,'); // AUCUNE virgule orpheline
+    expect(corps).not.toMatch(/représentée par[^\n]*,\s*\./);     // ni « , . » ni double espace terminal
+    expect(corps).toContain('Criterimmo');                        // invariant S8a : raison sociale toujours mentionnée
+    expect(corps).toContain('lucas.martin@exemple.fr');           // réponse = collaborateur
   });
 
   it('sans collaborateur (null) → identité société INCHANGÉE (instantané figé préservé)', () => {

@@ -44,7 +44,7 @@ export function LigneCollaborateur({ c, onToggle }: { c: CollaborateurLigne; onT
   return (
     <tr style={{ opacity: c.actif ? 1 : 0.55 }}>
       <td style={td}>{c.prenom} {c.nom}</td>
-      <td style={td}>{c.fonction}</td>
+      <td style={td}>{c.fonction.trim() !== '' ? c.fonction : <span style={{ color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>non renseignée</span>}</td>
       <td style={td}>{c.email}</td>
       <td style={td}>
         <span style={{ fontSize: 12, fontWeight: 700, color: c.actif ? 'var(--color-svv-green-ink)' : 'var(--color-svv-muted)' }}>

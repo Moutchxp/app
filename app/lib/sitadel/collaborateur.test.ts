@@ -11,8 +11,21 @@ describe('S8a — problemesCollaborateur (réutilise la plausibilité de problem
     expect(problemesCollaborateur(c({ prenom: 'JEAN' }))).toEqual([]);   // capitales OK (prénom réel)
     expect(problemesCollaborateur(c({ nom: 'DUPONT' }))).toEqual([]);    // nom en capitales OK
     expect(problemesCollaborateur(c({ prenom: 'PRENOM NOM' })).some((m) => m.includes('gabarit'))).toBe(true);
-    expect(problemesCollaborateur(c({ fonction: 'X' }))).toContain('fonction : trop court pour être crédible');
     expect(problemesCollaborateur(c({ email: 'pas-un-mail' }))).toContain('e-mail : format invalide');
+  });
+
+  it('fonction FACULTATIVE (correctif S8a) : vide → accepté et ÉLIGIBLE ; renseignée mais gabarit/court → refusée', () => {
+    expect(problemesCollaborateur(c({ fonction: '' }))).toEqual([]);
+    expect(collaborateurEligible(c({ fonction: '' }))).toBe(true);
+    expect(problemesCollaborateur(c({ fonction: 'QUALITE' })).some((m) => m.includes('gabarit'))).toBe(true);
+    expect(problemesCollaborateur(c({ fonction: 'X' }))).toContain('fonction : trop court pour être crédible');
+  });
+
+  it('nom, prénom, e-mail restent REQUIS ; e-mail sans domaine refusé', () => {
+    expect(problemesCollaborateur(c({ nom: '' }))).toContain('nom : requis');
+    expect(problemesCollaborateur(c({ prenom: '' }))).toContain('prénom : requis');
+    expect(problemesCollaborateur(c({ email: '' }))).toContain('e-mail : requis');
+    expect(problemesCollaborateur(c({ email: 'jean@' })).some((m) => m.includes('format invalide'))).toBe(true);
   });
 });
 
