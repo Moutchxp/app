@@ -98,18 +98,27 @@ export function millesimeDepuisNomFichier(nom: string): string {
  * lien : zéro ou plusieurs → on ÉCHOUE explicitement plutôt que de deviner. Retourne l'URL absolue (résolue contre `base`).
  */
 export function extraireLienCsv(html: string, base: string): string {
+  // Reconnaît la valeur d'un attribut href sous ses 3 formes : "double", 'simple', ou SANS guillemets (terminée par un
+  // espace, '>' ou '<'). Insensible à la casse (attribut et extension). La valeur retenue doit finir par .csv,
+  // éventuellement suivie de paramètres/fragment (?… ou #…). La page réelle de la CADA écrit un chemin RELATIF SANS
+  // guillemets (href=/sites/default/files/annuaire_MM_AA_N.csv) → forme 3.
+  const re = /href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>]+))/gi;
   const liens = new Set<string>();
-  const re = /href\s*=\s*["']([^"']+\.csv)["']/gi;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) liens.add(m[1]);
+  while ((m = re.exec(html)) !== null) {
+    const valeur = m[1] ?? m[2] ?? m[3] ?? '';
+    if (!/\.csv(?:[?#].*)?$/i.test(valeur)) continue;
+    // Résolution relatif OU absolu par le MÊME chemin (jamais de concaténation à la main). Déduplication sur l'URL RÉSOLUE.
+    liens.add(new URL(valeur, base).toString());
+  }
   const arr = [...liens];
   if (arr.length === 0) {
-    throw new Error("Aucun lien .csv trouvé sur la page de l'annuaire CADA — refus de deviner un nom de fichier ou de construire une URL par arithmétique de date.");
+    throw new Error("Aucun lien .csv trouvé sur la page de l'annuaire CADA (0 candidat) — refus de deviner un nom de fichier ou de construire une URL par arithmétique de date.");
   }
   if (arr.length > 1) {
-    throw new Error(`Plusieurs liens .csv (${arr.length}) sur la page de l'annuaire CADA [${arr.join(' | ')}] — refus de choisir arbitrairement.`);
+    throw new Error(`Plusieurs liens .csv (${arr.length} candidats) sur la page de l'annuaire CADA [${arr.join(' | ')}] — refus de choisir arbitrairement.`);
   }
-  return new URL(arr[0], base).toString();
+  return arr[0];
 }
 
 // ── Rapport chiffré (pur) ────────────────────────────────────────────────────

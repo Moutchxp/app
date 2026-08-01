@@ -71,21 +71,39 @@ describe('S14b — millesimeDepuisNomFichier', () => {
 });
 
 describe('S14b — extraireLienCsv', () => {
-  it('exactement un lien .csv → URL absolue résolue', () => {
-    const html = '<a href="/sites/default/files/annuaire_07_26_0.csv">Télécharger</a>';
-    expect(extraireLienCsv(html, 'https://www.cada.fr/lacada/annuaire-des-prada'))
-      .toBe('https://www.cada.fr/sites/default/files/annuaire_07_26_0.csv');
+  const PAGE = 'https://www.cada.fr/lacada/annuaire-des-prada';
+
+  it('CAS RÉEL : href SANS guillemets + chemin RELATIF → URL absolue résolue', () => {
+    // Fragment verbatim de la vraie page CADA (attribut sans guillemets, chemin relatif).
+    const html = '<a href=/sites/default/files/annuaire_07_26_0.csv>Télécharger</a>';
+    expect(extraireLienCsv(html, PAGE)).toBe('https://www.cada.fr/sites/default/files/annuaire_07_26_0.csv');
   });
-  it('zéro lien .csv → échec explicite (jamais deviner)', () => {
-    expect(() => extraireLienCsv('<p>rien</p>', 'https://www.cada.fr/')).toThrow(/Aucun lien \.csv/);
+  it('href entre guillemets DOUBLES + URL absolue', () => {
+    const html = '<a href="https://www.cada.fr/sites/default/files/annuaire_07_26_0.csv">x</a>';
+    expect(extraireLienCsv(html, PAGE)).toBe('https://www.cada.fr/sites/default/files/annuaire_07_26_0.csv');
   });
-  it('plusieurs liens .csv distincts → échec explicite', () => {
-    const html = '<a href="a.csv">a</a><a href="b.csv">b</a>';
-    expect(() => extraireLienCsv(html, 'https://www.cada.fr/')).toThrow(/Plusieurs liens \.csv/);
+  it('href entre guillemets SIMPLES', () => {
+    const html = "<a href='/files/annuaire_07_26.csv'>x</a>";
+    expect(extraireLienCsv(html, PAGE)).toBe('https://www.cada.fr/files/annuaire_07_26.csv');
   });
-  it('le MÊME lien répété deux fois compte pour un seul', () => {
-    const html = '<a href="x.csv">1</a> ... <a href="x.csv">2</a>';
-    expect(extraireLienCsv(html, 'https://www.cada.fr/')).toBe('https://www.cada.fr/x.csv');
+  it('extension en MAJUSCULES (.CSV) reconnue', () => {
+    const html = '<a href=/files/ANNUAIRE_07_26.CSV>x</a>';
+    expect(extraireLienCsv(html, PAGE)).toBe('https://www.cada.fr/files/ANNUAIRE_07_26.CSV');
+  });
+  it('paramètres après l’extension tolérés', () => {
+    const html = '<a href="/files/annuaire_07_26_0.csv?dl=1">x</a>';
+    expect(extraireLienCsv(html, PAGE)).toBe('https://www.cada.fr/files/annuaire_07_26_0.csv?dl=1');
+  });
+  it('zéro lien .csv → échec explicite avec le nombre de candidats (jamais deviner)', () => {
+    expect(() => extraireLienCsv('<p>rien</p>', PAGE)).toThrow(/0 candidat/);
+  });
+  it('deux liens .csv DIFFÉRENTS → échec explicite avec le compte', () => {
+    const html = '<a href=/files/a.csv>a</a><a href=/files/b.csv>b</a>';
+    expect(() => extraireLienCsv(html, PAGE)).toThrow(/2 candidats/);
+  });
+  it('le MÊME lien écrit deux fois → UN seul candidat après déduplication (ne doit PAS échouer)', () => {
+    const html = '<a href=/files/x.csv>1</a> … <a href=/files/x.csv>2</a>';
+    expect(extraireLienCsv(html, PAGE)).toBe('https://www.cada.fr/files/x.csv');
   });
 });
 
