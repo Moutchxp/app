@@ -61,18 +61,35 @@ function toutEnCapitales(s: string): boolean {
   return /\p{Lu}/u.test(s) && !/\p{Ll}/u.test(s);
 }
 
+/**
+ * Contrôle de PLAUSIBILITÉ d'UN champ (partagé identité S7c ↔ collaborateur S8a) : requis / longueur crédible / refus du
+ * tout-majuscules quand `capitales`. Retourne le problème nommé (champ + raison) ou `null` si plausible.
+ */
+export function problemeChamp(valeur: string | null | undefined, libelle: string, min: number, capitales: boolean): string | null {
+  const v = (valeur ?? '').trim();
+  if (v === '') return `${libelle} : requis`;
+  if (v.length < min) return `${libelle} : trop court pour être crédible`;
+  if (capitales && toutEnCapitales(v)) return `${libelle} : entièrement en capitales (valeur de substitution ?)`;
+  return null;
+}
+
+/** Problème de plausibilité d'un e-mail (partagé) : requis + format. `libelle` nomme le champ. */
+export function problemeEmail(valeur: string | null | undefined, libelle: string): string | null {
+  const v = (valeur ?? '').trim();
+  if (v === '') return `${libelle} : requis`;
+  if (!emailValide(v)) return `${libelle} : format invalide`;
+  return null;
+}
+
 /** Problèmes d'identité (champ + raison) pour le profil donné ; vide si plausible. Défaut 'entreprise' (compat S7c/S7d). */
 export function problemesIdentite(c: ConfigDemandeur, profil: ProfilDemandeur = 'entreprise'): string[] {
   const p: string[] = [];
   for (const ctl of controlesIdentite(profil)) {
-    const v = (c[ctl.cle] ?? '').trim();
-    if (v === '') { p.push(`${ctl.libelle} : requis`); continue; }
-    if (v.length < ctl.min) { p.push(`${ctl.libelle} : trop court pour être crédible`); continue; }
-    if (ctl.capitales && toutEnCapitales(v)) p.push(`${ctl.libelle} : entièrement en capitales (valeur de substitution ?)`);
+    const e = problemeChamp(c[ctl.cle], ctl.libelle, ctl.min, ctl.capitales);
+    if (e) p.push(e);
   }
-  const email = (c.emailContact ?? '').trim();
-  if (email === '') p.push('e-mail de contact : requis');
-  else if (!emailValide(email)) p.push('e-mail de contact : format invalide');
+  const e = problemeEmail(c.emailContact, 'e-mail de contact');
+  if (e) p.push(e);
   return p;
 }
 
@@ -220,6 +237,26 @@ export function dateEnFrancais(iso: string | null): string {
   const mois = Number(m[2]) - 1;
   if (mois < 0 || mois > 11) return iso;
   return `${Number(m[3])} ${MOIS_FR[mois]} ${m[1]}`;
+}
+
+/** Signataire alternatif d'un courrier « entreprise » : un COLLABORATEUR (S8a) qui signe au nom de la société. */
+export interface Signataire { nom: string; prenom: string; fonction: string; email: string }
+
+/**
+ * Applique un SIGNATAIRE collaborateur à l'identité de société : le représentant devient le collaborateur (prénom nom,
+ * fonction) et l'adresse de réponse son e-mail — MAIS la raison sociale, la forme juridique et le siège restent CEUX DE
+ * LA SOCIÉTÉ (config_demandeur). ⚠️ MOTIF : l'équipe se répartit la charge, elle ne se présente jamais comme des citoyens
+ * indépendants → un courrier signé par un collaborateur porte TOUJOURS la raison sociale (invariant verrouillé par test).
+ * `null` → config inchangée (repli figé, comportement historique). Pur.
+ */
+export function configAvecSignataire(config: ConfigDemandeur, s: Signataire | null): ConfigDemandeur {
+  if (s === null) return config;
+  return {
+    ...config,
+    representantNom: `${s.prenom.trim()} ${s.nom.trim()}`.trim(),
+    representantQualite: s.fonction.trim(),
+    emailContact: s.email.trim(),
+  };
 }
 
 export interface TexteDemande { objet: string; corps: string }

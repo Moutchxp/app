@@ -11,7 +11,9 @@ import {
   type CandidatDossier, type ConfigDemandeur, type Lot, type HistoriqueDemandes, type DiagnosticProposition, type ParamsLot,
   type ProfilDemandeur,
   proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande, problemesIdentite, profilValide, ETIQUETTE_PROFIL,
+  configAvecSignataire,
 } from './demande';
+import { type Collaborateur, choisirCollaborateur } from './collaborateur';
 
 type Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>;
 const asQ = (q: (t: string, p?: unknown[]) => Promise<unknown>): Requete => ((t, p) => q(t, p)) as Requete;
@@ -126,31 +128,46 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
   const { lots } = await proposition(cfg);
   const cfgDem = await lireConfigDemandeur(profil);
   const pieces = piecesDepuisConfig(cfg.piecesDemandees);
+  // S8a — TOURNIQUET (profil « entreprise » uniquement : un collaborateur signe AU NOM DE LA SOCIÉTÉ). `dernieres` est
+  // mis à jour en mémoire après chaque attribution → deux lots de la même commune dans un run tournent (A, puis B…).
+  const collaborateurs = profil === 'entreprise' ? await lireCollaborateursActifs() : [];
+  const dernieres = profil === 'entreprise' ? await lireDernieresParCommune() : new Map<string, Map<number, string | null>>();
+  const maintenant = new Date();
   const crees: string[] = [];
   let ignores = 0;
   for (const lot of lots) {
+    const parCommune = dernieres.get(lot.codeInsee) ?? new Map<number, string | null>();
+    const collaborateurId = collaborateurs.length > 0
+      ? choisirCollaborateur(lot.codeInsee, collaborateurs, parCommune, maintenant).collaborateurId
+      : null;
+    const collab = collaborateurId !== null ? collaborateurs.find((c) => c.id === collaborateurId) ?? null : null;
+    const cfgSignataire = collab
+      ? configAvecSignataire(cfgDem, { nom: collab.nom, prenom: collab.prenom, fonction: collab.fonction, email: collab.email })
+      : cfgDem;
     try {
       const ref = await withTransaction(async (tx) => {
         const q = asQ(tx);
         const reference = await attribuerReference(q, annee);
-        const { objet, corps } = genererTexte(lot, cfgDem, reference, pieces, profil);
+        const { objet, corps } = genererTexte(lot, cfgSignataire, reference, pieces, profil);
         const contact = await q<{ email: string | null; url_formulaire: string | null; adresse_postale: string | null }>(
           `SELECT email, url_formulaire, adresse_postale FROM mairie_contact WHERE code_insee = $1`, [lot.codeInsee],
         );
         const ct = contact.rows[0] ?? { email: null, url_formulaire: null, adresse_postale: null };
         const dem = await q<{ id: number }>(
-          `INSERT INTO demande (reference, code_insee, statut, objet, corps, profil_demandeur, dest_canal, dest_email, dest_url_formulaire, dest_adresse_postale)
-           VALUES ($1, $2, 'brouillon', $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-          [reference, lot.codeInsee, objet, corps, profil, lot.canal, ct.email, ct.url_formulaire, ct.adresse_postale],
+          `INSERT INTO demande (reference, code_insee, statut, objet, corps, profil_demandeur, collaborateur_id, dest_canal, dest_email, dest_url_formulaire, dest_adresse_postale)
+           VALUES ($1, $2, 'brouillon', $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+          [reference, lot.codeInsee, objet, corps, profil, collaborateurId, lot.canal, ct.email, ct.url_formulaire, ct.adresse_postale],
         );
         const id = dem.rows[0].id;
         for (const d of lot.dossiers) {
           await q(`INSERT INTO demande_dossier (demande_id, dossier_id, actif) VALUES ($1, $2, true)`, [id, d.dossierId]);
         }
-        await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, 'brouillon', 'création', $2)`, [id, auteur]);
+        await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, 'brouillon', $2, $3)`,
+          [id, collaborateurId !== null ? `création (collaborateur ${collaborateurId})` : 'création', auteur]);
         return reference;
       });
       crees.push(ref);
+      if (collaborateurId !== null) { parCommune.set(collaborateurId, maintenant.toISOString()); dernieres.set(lot.codeInsee, parCommune); }
     } catch {
       ignores += 1; // conflit d'unicité (dossier déjà rattaché entre-temps) → lot ignoré, pas d'écriture partielle
     }
@@ -337,4 +354,66 @@ export async function changerProfilLot(ids: number[], profil: ProfilDemandeur, a
       await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, $2, $3, $4)`, [id, d.statut, `profil ${d.profilAvant} → ${profil}`, auteur]);
     }
   });
+}
+
+// ── Collaborateurs (chantier S8a) ────────────────────────────────────────────
+/** Collaborateurs ACTIFS (l'éligibilité fine — identité crédible — est vérifiée par le tourniquet). */
+export async function lireCollaborateursActifs(): Promise<Collaborateur[]> {
+  const { rows } = await query<{ id: number; nom: string; prenom: string; fonction: string; email: string; actif: boolean }>(
+    `SELECT id, nom, prenom, fonction, email, actif FROM collaborateur WHERE actif ORDER BY id`,
+  );
+  return rows;
+}
+
+/** Pour le tourniquet : date ISO de la DERNIÈRE demande de chaque collaborateur, PAR COMMUNE. */
+async function lireDernieresParCommune(): Promise<Map<string, Map<number, string | null>>> {
+  const { rows } = await query<{ code_insee: string; collaborateur_id: number; d: string }>(
+    `SELECT code_insee, collaborateur_id, max(cree_le)::text AS d FROM demande WHERE collaborateur_id IS NOT NULL GROUP BY code_insee, collaborateur_id`,
+  );
+  const m = new Map<string, Map<number, string | null>>();
+  for (const r of rows) {
+    const c = m.get(r.code_insee) ?? new Map<number, string | null>();
+    c.set(r.collaborateur_id, r.d);
+    m.set(r.code_insee, c);
+  }
+  return m;
+}
+
+export interface CollaborateurListe extends Collaborateur { creeLe: string; desactiveLe: string | null; nbPC: number; nbPD: number; nbEnAttente: number }
+
+/** Tous les collaborateurs (actifs + désactivés) avec compteurs : dossiers PC/PD couverts + demandes en attente de réponse. */
+export async function lireCollaborateurs(): Promise<CollaborateurListe[]> {
+  const { rows } = await query<{ id: number; nom: string; prenom: string; fonction: string; email: string; actif: boolean; cree_le: string; desactive_le: string | null; nb_pc: number; nb_pd: number; nb_attente: number }>(
+    `SELECT c.id, c.nom, c.prenom, c.fonction, c.email, c.actif, c.cree_le::text AS cree_le, c.desactive_le::text AS desactive_le,
+            count(dd.*) FILTER (WHERE s.type = 'PC')::int AS nb_pc,
+            count(dd.*) FILTER (WHERE s.type = 'PD')::int AS nb_pd,
+            count(DISTINCT d.id) FILTER (WHERE d.statut = 'envoyee')::int AS nb_attente
+     FROM collaborateur c
+     LEFT JOIN demande d ON d.collaborateur_id = c.id
+     LEFT JOIN demande_dossier dd ON dd.demande_id = d.id
+     LEFT JOIN sitadel_dossier s ON s.id = dd.dossier_id
+     GROUP BY c.id ORDER BY c.actif DESC, c.nom, c.prenom`,
+  );
+  return rows.map((r) => ({
+    id: r.id, nom: r.nom, prenom: r.prenom, fonction: r.fonction, email: r.email, actif: r.actif,
+    creeLe: r.cree_le, desactiveLe: r.desactive_le, nbPC: r.nb_pc, nbPD: r.nb_pd, nbEnAttente: r.nb_attente,
+  }));
+}
+
+/** Crée un collaborateur (identité DÉJÀ validée côté route). Conflit d'e-mail (unique, insensible casse) → null. */
+export async function creerCollaborateur(champs: { nom: string; prenom: string; fonction: string; email: string }): Promise<{ id: number } | null> {
+  try {
+    const { rows } = await query<{ id: number }>(
+      `INSERT INTO collaborateur (nom, prenom, fonction, email) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [champs.nom.trim(), champs.prenom.trim(), champs.fonction.trim(), champs.email.trim()],
+    );
+    return { id: rows[0].id };
+  } catch {
+    return null; // conflit lower(email) unique — l'appelant renvoie « e-mail déjà utilisé »
+  }
+}
+
+/** (Dé)active un collaborateur — JAMAIS de suppression. Désactivé → plus jamais choisi ; historique conservé. */
+export async function changerActivationCollaborateur(id: number, actif: boolean): Promise<void> {
+  await query(`UPDATE collaborateur SET actif = $2, desactive_le = CASE WHEN $2 THEN NULL ELSE now() END WHERE id = $1`, [id, actif]);
 }

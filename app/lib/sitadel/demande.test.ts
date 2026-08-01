@@ -3,7 +3,7 @@ import type { CanalContact } from './mairieContact';
 import {
   type CandidatDossier, type ConfigDemandeur, type Lot, type DiagnosticProposition, type ParamsLot,
   problemesIdentite, proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande,
-  dateEnFrancais, ancreDetail, peutPasserLot, expliquerProposition, resumeDiagnostic,
+  dateEnFrancais, ancreDetail, peutPasserLot, expliquerProposition, resumeDiagnostic, configAvecSignataire,
 } from './demande';
 
 let seq = 0;
@@ -339,5 +339,26 @@ describe('Sitadel S12 — exclusions d’état dans proposerLots', () => {
     const m = resumeDiagnostic({ candidatsExamines: 600, dossiersAnnules: 8, dossiersAbsents: 157, dossiersHorsFenetre: 485, dossiersDejaRattaches: 0, communesSansCanal: 11, communesPlafondMensuel: 0 });
     expect(m).toContain('8 annulé(s)');
     expect(m).toContain('157 absent(s) du dernier millésime');
+  });
+});
+
+describe('Sitadel S8a — courrier signé par un collaborateur', () => {
+  const collab = { nom: 'Martin', prenom: 'Claire', fonction: 'chargée de recherche', email: 'claire.martin@exemple.fr' };
+  const lot: Lot = { codeInsee: '92050', communeNom: 'Nanterre', canal: 'email', dossiers: [cand({ numDau: 'PC0001' })] };
+  const pieces = piecesDepuisConfig('PC2,PC3');
+
+  it('contient le NOM du collaborateur ET la raison sociale (invariant) ; adresse de réponse = e-mail du collaborateur', () => {
+    const cfg = configAvecSignataire(CONFIG, collab);
+    const { corps } = genererTexte(lot, cfg, 'SVAV-DEM-2026-000200', pieces, 'entreprise');
+    expect(corps).toContain('Claire Martin');            // signataire = collaborateur
+    expect(corps).toContain('chargée de recherche');     // sa fonction (qualité)
+    expect(corps).toContain('Criterimmo');               // TOUJOURS la raison sociale de la société (invariant S8a)
+    expect(corps).toContain('claire.martin@exemple.fr'); // adresse de réponse = collaborateur
+    expect(corps).not.toContain('A. Jorel');             // le représentant société est remplacé
+    expect(corps).not.toContain('contact@sansvisavis.com'); // l'e-mail société est remplacé
+  });
+
+  it('sans collaborateur (null) → identité société INCHANGÉE (instantané figé préservé)', () => {
+    expect(configAvecSignataire(CONFIG, null)).toBe(CONFIG); // même objet → texte strictement identique
   });
 });
