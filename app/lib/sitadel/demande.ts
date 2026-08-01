@@ -29,7 +29,7 @@ export function profilValide(v: unknown): ProfilDemandeur {
   return v === 'personne' ? 'personne' : 'entreprise';
 }
 
-interface ControleChamp { cle: keyof ConfigDemandeur; libelle: string; min: number; capitales: boolean }
+interface ControleChamp { cle: keyof ConfigDemandeur; libelle: string; min: number }
 
 /**
  * Contrôles de PLAUSIBILITÉ de l'identité (hors telephone) requis pour qu'une demande quitte 'brouillon'. Au-delà du
@@ -42,34 +42,53 @@ interface ControleChamp { cle: keyof ConfigDemandeur; libelle: string; min: numb
  * Chaque problème NOMME le champ ET la raison. Vide = identité plausible.
  */
 const CONTROLES_ENTREPRISE: ControleChamp[] = [
-  { cle: 'raisonSociale', libelle: 'raison sociale', min: 2, capitales: true },
-  { cle: 'formeJuridique', libelle: 'forme juridique', min: 2, capitales: false },
-  { cle: 'siegeAdresse', libelle: 'adresse du siège', min: 8, capitales: true },
-  { cle: 'representantNom', libelle: 'nom du représentant', min: 3, capitales: true },
-  { cle: 'representantQualite', libelle: 'qualité du représentant', min: 2, capitales: false },
+  { cle: 'raisonSociale', libelle: 'raison sociale', min: 2 },
+  { cle: 'formeJuridique', libelle: 'forme juridique', min: 2 },
+  { cle: 'siegeAdresse', libelle: 'adresse du siège', min: 8 },
+  { cle: 'representantNom', libelle: 'nom du représentant', min: 3 },
+  { cle: 'representantQualite', libelle: 'qualité du représentant', min: 2 },
 ];
 const CONTROLES_PERSONNE: ControleChamp[] = [
-  { cle: 'representantNom', libelle: 'nom', min: 3, capitales: true },
-  { cle: 'siegeAdresse', libelle: 'adresse postale', min: 8, capitales: true },
+  { cle: 'representantNom', libelle: 'nom', min: 3 },
+  { cle: 'siegeAdresse', libelle: 'adresse postale', min: 8 },
 ];
 function controlesIdentite(profil: ProfilDemandeur): ControleChamp[] {
   return profil === 'personne' ? CONTROLES_PERSONNE : CONTROLES_ENTREPRISE;
 }
 
-/** Une valeur est « entièrement en capitales » si elle contient des lettres mais AUCUNE minuscule. */
-function toutEnCapitales(s: string): boolean {
-  return /\p{Lu}/u.test(s) && !/\p{Ll}/u.test(s);
+/**
+ * PRINCIPE (correctif S8a) : BLOQUER SUR LA CERTITUDE, AVERTIR SUR LE SOUPÇON. Un motif qui se terminerait par « ? » (un
+ * doute) ne doit JAMAIS empêcher d'enregistrer — il deviendrait un avertissement affiché à côté du champ. Ici, tous les
+ * refus sont des CERTITUDES (champ vide, longueur invraisemblable, chaîne-témoin de gabarit non rempli).
+ *
+ * ⚠️ On ne refuse PLUS une valeur « tout en capitales » : « CRITERIMMO » (raison sociale au RCS) ou « DUPONT » (nom de
+ * famille) sont légitimes — la casse n'est pas un gabarit. On détecte à la place une LISTE FERMÉE de chaînes-témoins
+ * (comparées sans casse ni accents) qu'un vrai renseignement ne contiendrait jamais.
+ */
+const GABARITS_TEMOINS = [
+  'RAISON SOCIALE', 'FORME JURIDIQUE', 'ADRESSE COMPLETE', 'ADRESSE DU SIEGE', 'PRENOM NOM', 'NOM PRENOM',
+  'QUALITE', 'EXACTE', 'A REMPLIR', 'XXX', 'LOREM',
+] as const;
+function sansCasseNiAccents(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+}
+/** Chaîne-témoin de gabarit RECONNUE dans la valeur (insensible casse/accents, par SOUS-CHAÎNE), ou `null`. */
+function gabaritReconnu(v: string): string | null {
+  const n = sansCasseNiAccents(v);
+  return GABARITS_TEMOINS.find((g) => n.includes(sansCasseNiAccents(g))) ?? null;
 }
 
 /**
- * Contrôle de PLAUSIBILITÉ d'UN champ (partagé identité S7c ↔ collaborateur S8a) : requis / longueur crédible / refus du
- * tout-majuscules quand `capitales`. Retourne le problème nommé (champ + raison) ou `null` si plausible.
+ * Contrôle de PLAUSIBILITÉ d'UN champ (partagé identité S7c ↔ collaborateur S8a) : requis / longueur crédible / refus
+ * d'un GABARIT non rempli (chaîne-témoin). Retourne le problème nommé (champ + raison) ou `null` si plausible. Aucun
+ * refus fondé sur la seule casse (cf. principe ci-dessus).
  */
-export function problemeChamp(valeur: string | null | undefined, libelle: string, min: number, capitales: boolean): string | null {
+export function problemeChamp(valeur: string | null | undefined, libelle: string, min: number): string | null {
   const v = (valeur ?? '').trim();
   if (v === '') return `${libelle} : requis`;
   if (v.length < min) return `${libelle} : trop court pour être crédible`;
-  if (capitales && toutEnCapitales(v)) return `${libelle} : entièrement en capitales (valeur de substitution ?)`;
+  const g = gabaritReconnu(v);
+  if (g !== null) return `${libelle} : ressemble à un gabarit non rempli (« ${g} »)`;
   return null;
 }
 
@@ -85,7 +104,7 @@ export function problemeEmail(valeur: string | null | undefined, libelle: string
 export function problemesIdentite(c: ConfigDemandeur, profil: ProfilDemandeur = 'entreprise'): string[] {
   const p: string[] = [];
   for (const ctl of controlesIdentite(profil)) {
-    const e = problemeChamp(c[ctl.cle], ctl.libelle, ctl.min, ctl.capitales);
+    const e = problemeChamp(c[ctl.cle], ctl.libelle, ctl.min);
     if (e) p.push(e);
   }
   const e = problemeEmail(c.emailContact, 'e-mail de contact');

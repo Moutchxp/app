@@ -34,15 +34,20 @@ describe('Sitadel S7c — plausibilité de l’identité du demandeur', () => {
       .toEqual(['raison sociale : requis', 'e-mail de contact : requis']);
   });
 
-  it('valeur ENTIÈREMENT EN CAPITALES refusée pour raison sociale, nom et adresse du siège — champ + raison', () => {
-    expect(problemesIdentite({ ...CONFIG, raisonSociale: 'CRITERIMMO' }))
-      .toEqual(['raison sociale : entièrement en capitales (valeur de substitution ?)']);
-    expect(problemesIdentite({ ...CONFIG, representantNom: 'JOREL' }))
-      .toEqual(['nom du représentant : entièrement en capitales (valeur de substitution ?)']);
-    expect(problemesIdentite({ ...CONFIG, siegeAdresse: '191 AV CHARLES DE GAULLE, NEUILLY' }))
-      .toEqual(['adresse du siège : entièrement en capitales (valeur de substitution ?)']);
-    // forme juridique / qualité : les capitales sont normales (SARL, SAS…) → tolérées
+  it('CASSE non bloquante (correctif S8a) : « CRITERIMMO », « SARL », « JOREL », adresse en capitales → ACCEPTÉS', () => {
+    expect(problemesIdentite({ ...CONFIG, raisonSociale: 'CRITERIMMO' })).toEqual([]);
+    expect(problemesIdentite({ ...CONFIG, representantNom: 'JOREL' })).toEqual([]);
+    expect(problemesIdentite({ ...CONFIG, siegeAdresse: '191 AV CHARLES DE GAULLE, NEUILLY' })).toEqual([]);
     expect(problemesIdentite({ ...CONFIG, formeJuridique: 'SARL' })).toEqual([]);
+  });
+
+  it('GABARIT non rempli refusé, message nommant la chaîne-témoin reconnue (insensible casse/accents)', () => {
+    expect(problemesIdentite({ ...CONFIG, raisonSociale: 'RAISON SOCIALE EXACTE' }))
+      .toEqual(['raison sociale : ressemble à un gabarit non rempli (« RAISON SOCIALE »)']);
+    expect(problemesIdentite({ ...CONFIG, representantNom: 'PRENOM NOM' }))
+      .toEqual(['nom du représentant : ressemble à un gabarit non rempli (« PRENOM NOM »)']);
+    expect(problemesIdentite({ ...CONFIG, siegeAdresse: 'ADRESSE COMPLETE DU SIEGE' }).some((m) => m.includes('gabarit'))).toBe(true);
+    expect(problemesIdentite({ ...CONFIG, raisonSociale: 'raison sociale exacte' }).some((m) => m.includes('gabarit'))).toBe(true);
   });
 
   it('e-mail au format invalide refusé, longueur invraisemblable refusée', () => {

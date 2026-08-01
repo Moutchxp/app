@@ -58,10 +58,14 @@ describe('S7d — validation de l’identité (réutilise problemesIdentite)', (
     }
   });
 
-  it('valeur entièrement en capitales REFUSÉE (plausibilité S7c)', () => {
-    const res = validerReglages({ demandeur: { ...CONF_OK, raisonSociale: 'CRITERIMMO' } }, BORNES);
+  it('casse NON bloquante : « CRITERIMMO » (raison sociale au RCS) est ACCEPTÉE (correctif S8a)', () => {
+    expect(validerReglages({ demandeur: { ...CONF_OK, raisonSociale: 'CRITERIMMO' } }, BORNES).ok).toBe(true);
+  });
+
+  it('GABARIT non rempli REFUSÉ, message nommant la chaîne reconnue', () => {
+    const res = validerReglages({ demandeur: { ...CONF_OK, raisonSociale: 'RAISON SOCIALE EXACTE' } }, BORNES);
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.erreurs.some((e) => e.colonne === 'raison_sociale' && /capitales/.test(e.message))).toBe(true);
+    if (!res.ok) expect(res.erreurs.some((e) => e.colonne === 'raison_sociale' && /gabarit/.test(e.message))).toBe(true);
   });
 
   it('identité valide ACCEPTÉE (valeurs nettoyées, colonnes snake) et le bandeau bascule', () => {

@@ -6,9 +6,11 @@ const NOW = new Date('2026-08-01T12:00:00Z');
 
 describe('S8a — problemesCollaborateur (réutilise la plausibilité de problemesIdentite)', () => {
   it('complet → aucun problème', () => { expect(problemesCollaborateur(c())).toEqual([]); });
-  it('vide / trop court / tout-majuscules / e-mail invalide → refusés et nommés', () => {
+  it('vide / trop court / gabarit / e-mail invalide → refusés ; CASSE acceptée (garde partagé, correctif S8a)', () => {
     expect(problemesCollaborateur(c({ nom: '' }))).toContain('nom : requis');
-    expect(problemesCollaborateur(c({ prenom: 'JEAN' }))).toContain('prénom : entièrement en capitales (valeur de substitution ?)');
+    expect(problemesCollaborateur(c({ prenom: 'JEAN' }))).toEqual([]);   // capitales OK (prénom réel)
+    expect(problemesCollaborateur(c({ nom: 'DUPONT' }))).toEqual([]);    // nom en capitales OK
+    expect(problemesCollaborateur(c({ prenom: 'PRENOM NOM' })).some((m) => m.includes('gabarit'))).toBe(true);
     expect(problemesCollaborateur(c({ fonction: 'X' }))).toContain('fonction : trop court pour être crédible');
     expect(problemesCollaborateur(c({ email: 'pas-un-mail' }))).toContain('e-mail : format invalide');
   });

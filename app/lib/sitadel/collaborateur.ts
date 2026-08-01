@@ -15,9 +15,9 @@ export interface Collaborateur { id: number; nom: string; prenom: string; foncti
 export function problemesCollaborateur(c: { nom: string; prenom: string; fonction: string; email: string }): string[] {
   const p: string[] = [];
   for (const e of [
-    problemeChamp(c.nom, 'nom', 2, true),
-    problemeChamp(c.prenom, 'prénom', 2, true),
-    problemeChamp(c.fonction, 'fonction', 2, false),
+    problemeChamp(c.nom, 'nom', 2),
+    problemeChamp(c.prenom, 'prénom', 2),
+    problemeChamp(c.fonction, 'fonction', 2),
     problemeEmail(c.email, 'e-mail'),
   ]) if (e) p.push(e);
   return p;
