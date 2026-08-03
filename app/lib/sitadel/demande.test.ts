@@ -421,10 +421,17 @@ describe('S14e — validerIdsLot (action groupée : jamais 0 ligne en silence)',
   });
 });
 
-describe('S15 — TOUT PAR E-MAIL : proposerLots exclut les canaux non-email', () => {
-  it('courrier et formulaire ne produisent AUCUN lot ; email en produit', () => {
+describe('S16 — e-mail ET formulaire produisent des lots ; courrier/inconnu exclus', () => {
+  it('email → lot (canal email) ; formulaire → lot (canal formulaire, dépôt manuel) ; courrier/inconnu → aucun lot', () => {
+    const email = proposerLots([cand({ codeInsee: '93066', communeNom: 'Saint-Denis', canal: 'email' })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE);
+    expect(email).toHaveLength(1);
+    expect(email[0].canal).toBe('email');
+
+    const formulaire = proposerLots([cand({ codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire' as CanalContact })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE);
+    expect(formulaire).toHaveLength(1);
+    expect(formulaire[0].canal).toBe('formulaire'); // séparable de l'e-mail par le canal du lot
+
     expect(proposerLots([cand({ canal: 'courrier' as CanalContact })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
-    expect(proposerLots([cand({ canal: 'formulaire' as CanalContact })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
-    expect(proposerLots([cand({ canal: 'email' })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(1);
+    expect(proposerLots([cand({ canal: 'inconnu' as CanalContact })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
   });
 });

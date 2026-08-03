@@ -6,7 +6,7 @@ import type { DossierAffiche, ResultatVeille } from '../../../../lib/sitadel/vei
 import type { CanalContact } from '../../../../lib/sitadel/mairieContact';
 import type { CommuneRef, FusionRef } from '../../../../lib/sitadel/carteRepo';
 import { CartePermis } from './CartePermis';
-import { corpsPatchContact, noteAuChangementCanal } from './contactForm';
+import { corpsPatchContact, noteAuChangementCanal, problemeContactUI } from './contactForm';
 
 /**
  * Vue de la tuile « Permis de construire » (client) : filtres combinables + liste paginée CÔTÉ SERVEUR (jamais 29 670
@@ -98,6 +98,9 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
   /** Enregistre la correction manuelle du contact (source=saisie_manuelle, statut=confirme) puis recharge. */
   async function enregistrerContact(): Promise<void> {
     if (!edition) return;
+    // S16 — refus côté UI d'un canal incohérent (ex. 'formulaire' sans URL), miroir de la contrainte DB : message clair.
+    const probleme = problemeContactUI(edition);
+    if (probleme) { setEdition({ ...edition, erreur: `Impossible d’enregistrer : ${probleme}.` }); return; }
     try {
       const res = await fetch('/api/admin/permis/contact', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },

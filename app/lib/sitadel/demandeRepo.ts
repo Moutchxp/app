@@ -96,7 +96,8 @@ async function lireHistorique(): Promise<HistoriqueDemandes> {
 /** Compteurs expliquant l'absence de lots — MÊME logique d'exclusion que proposerLots (sans le toucher). */
 export function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDemandes, params: ParamsLot): DiagnosticProposition {
   const sansCanal = new Set<string>();
-  const canalNonEmail = new Map<string, string>(); // S15 : code_insee → « Nom (canal) » (courrier/formulaire écartés)
+  const formulaire = new Map<string, string>(); // S16 : code_insee → Nom (à déposer à la main — PRODUIT des lots)
+  const courrier = new Map<string, string>();    // S16 : code_insee → Nom (écartée faute d'adresse e-mail)
   const parCommune = new Map<string, number>();
   const arbitrages = new Set<string>(); // S14d : communes PRADA-disponible mais contact 'confirme' conservé
   let rattaches = 0, horsFenetre = 0, annules = 0, absents = 0;
@@ -110,8 +111,8 @@ export function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDema
     if (d.dateReelleAutorisation === null || (params.dateMin !== null && d.dateReelleAutorisation < params.dateMin)) { horsFenetre += 1; continue; }
     if (hist.dejaRattaches.has(d.dossierId)) { rattaches += 1; continue; }
     if (d.communeNom === null || d.canal === null || d.canal === 'inconnu') { sansCanal.add(d.codeInsee); continue; }
-    // S15 — canal non-email (courrier/formulaire) : écarté ET NOMMÉ (jamais en silence). MÊME condition que proposerLots.
-    if (d.canal !== 'email') { canalNonEmail.set(d.codeInsee, `${d.communeNom} (${d.canal})`); continue; }
+    if (d.canal === 'courrier') { courrier.set(d.codeInsee, d.communeNom); continue; }        // S16 : écartée (pas de lot)
+    if (d.canal === 'formulaire') formulaire.set(d.codeInsee, d.communeNom);                    // S16 : à déposer — MAIS produit un lot
     parCommune.set(d.codeInsee, (parCommune.get(d.codeInsee) ?? 0) + 1);
   }
   let plafond = 0;
@@ -121,7 +122,8 @@ export function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDema
   return {
     candidatsExamines: candidats.length, dossiersAnnules: annules, dossiersAbsents: absents, dossiersHorsFenetre: horsFenetre,
     dossiersDejaRattaches: rattaches, communesSansCanal: sansCanal.size, communesPlafondMensuel: plafond,
-    communesCanalNonEmail: [...canalNonEmail.values()].sort(),
+    communesFormulaire: [...formulaire.values()].sort(),
+    communesCourrier: [...courrier.values()].sort(),
     arbitragesPrada: [...arbitrages].sort(),
   };
 }
@@ -337,6 +339,46 @@ export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'abando
       if (nouveau === 'abandonnee') await q(`UPDATE demande_dossier SET actif = false WHERE demande_id = $1`, [id]);
       await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, $3, $4, $5)`, [id, avant, nouveau, motif, auteur]);
     }
+  });
+}
+
+// ── Dépôt manuel sur téléservice (canal 'formulaire' — S16) ──────────────────────────────────────────────────────────
+export interface DemandeADeposer {
+  id: number; reference: string; communeNom: string | null; url: string | null; corps: string | null; statut: string; nbDossiers: number;
+}
+
+/** Demandes en canal 'formulaire' encore à déposer (brouillon/prête). Corps = texte figé (genererTexte), URL = téléservice figé. */
+export async function listerADeposer(): Promise<DemandeADeposer[]> {
+  const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; url: string | null; corps: string | null; statut: string; nb: number }>(
+    `SELECT d.id::int AS id, d.reference, c.nom AS commune_nom, d.dest_url_formulaire AS url, d.corps, d.statut,
+            (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id) AS nb
+     FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee
+     WHERE d.dest_canal = 'formulaire' AND d.statut IN ('brouillon', 'prete')
+     ORDER BY d.cree_le DESC`,
+  );
+  return rows.map((x) => ({ id: x.id, reference: x.reference, communeNom: x.commune_nom, url: x.url, corps: x.corps, statut: x.statut, nbDossiers: x.nb }));
+}
+
+/** Dépôt manuel interdit (mauvais canal ou statut déjà avancé) — raison exposée. */
+export class DepotInterditError extends Error {
+  constructor(public raison: string) { super(raison); this.name = 'DepotInterditError'; }
+}
+
+/**
+ * Marque une demande 'formulaire' comme DÉPOSÉE À LA MAIN → statut 'envoyee' (statut existant ; un dépôt réel sollicite la
+ * commune et consomme donc son plafond mensuel — cf. lireHistorique). Réservé au canal 'formulaire' et aux statuts
+ * brouillon/prête. Journalisé. AUCUN envoi automatique.
+ */
+export async function marquerDeposee(id: number, auteur: string | null): Promise<void> {
+  await withTransaction(async (tx) => {
+    const q = asQ(tx);
+    const r = await q<{ statut: string; canal: string | null }>(`SELECT statut, dest_canal AS canal FROM demande WHERE id = $1`, [id]);
+    const row = r.rows[0];
+    if (!row) throw new DepotInterditError('demande introuvable');
+    if (row.canal !== 'formulaire') throw new DepotInterditError('le dépôt manuel est réservé au canal formulaire');
+    if (row.statut !== 'brouillon' && row.statut !== 'prete') throw new DepotInterditError(`déjà « ${row.statut} » — dépôt impossible`);
+    await q(`UPDATE demande SET statut = 'envoyee', maj_le = now() WHERE id = $1`, [id]);
+    await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, 'envoyee', 'dépôt manuel (téléservice)', $3)`, [id, row.statut, auteur]);
   });
 }
 

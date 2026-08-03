@@ -194,10 +194,10 @@ export function proposerLots(candidats: CandidatDossier[], params: ParamsLot, hi
     if (d.dateReelleAutorisation === null) continue;                 // sans date → pertinence non jugeable → exclu
     if (params.dateMin !== null && d.dateReelleAutorisation < params.dateMin) continue; // trop ancien → déjà mesuré au LiDAR
     if (hist.dejaRattaches.has(d.dossierId)) continue;               // déjà demandé
-    // S15 — TOUT PAR E-MAIL : seul le canal 'email' produit une demande. 'inconnu' (sans destinataire), 'courrier' et
-    // 'formulaire' sont exclus (comptés/nommés dans le diagnostic, jamais en silence). Paris (courrier) cesse donc de
-    // produire des demandes jusqu'à bascule manuelle en e-mail.
-    if (d.communeNom === null || d.canal !== 'email') continue;
+    // S16 — e-mail ET formulaire produisent des lots : 'email' (envoi ultérieur) et 'formulaire' (DÉPÔT MANUEL sur
+    // téléservice). Seuls 'inconnu' (sans adresse) et 'courrier' restent exclus. Les trois catégories sont comptées et
+    // nommées dans le diagnostic (jamais de disparition silencieuse).
+    if (d.communeNom === null || (d.canal !== 'email' && d.canal !== 'formulaire')) continue;
     (parCommune.get(d.codeInsee) ?? parCommune.set(d.codeInsee, []).get(d.codeInsee)!).push(d);
   }
   const lots: Lot[] = [];
@@ -254,9 +254,11 @@ export interface DiagnosticProposition {
   dossiersDejaRattaches: number;
   communesSansCanal: number;
   communesPlafondMensuel: number;
-  /** S15 : communes du périmètre ÉCARTÉES car canal non-email ('courrier'/'formulaire'), NOMMÉES « Nom (canal) » — pour ne
-   *  jamais les faire disparaître en silence (ex. Paris en courrier). Optionnel : absent = aucune (compat des littéraux). */
-  communesCanalNonEmail?: string[];
+  /** S16 : communes en canal 'formulaire' — ADRESSABLES mais dépôt MANUEL sur téléservice. Elles PRODUISENT des lots (file
+   *  « à déposer à la main »). Nommées. Optionnel : absent = aucune (compat des littéraux). */
+  communesFormulaire?: string[];
+  /** S16 : communes ÉCARTÉES faute d'adresse e-mail (canal 'courrier') — ne produisent PAS de lot. Nommées. Optionnel. */
+  communesCourrier?: string[];
   /** S14d : communes où une PRADA au courriel non vide existe mais le contact 'confirme' est conservé → arbitrage à
    *  rendre (jamais de bascule silencieuse). Optionnel : absent = aucun arbitrage (compat des littéraux existants). */
   arbitragesPrada?: string[];
@@ -274,7 +276,7 @@ export function expliquerProposition(nbLots: number, d: DiagnosticProposition): 
   if (d.dossiersDejaRattaches > 0) raisons.push(`${d.dossiersDejaRattaches} dossier(s) déjà rattaché(s) à une demande`);
   if (d.communesPlafondMensuel > 0) raisons.push(`plafond mensuel atteint pour ${d.communesPlafondMensuel} commune(s)`);
   if (d.communesSansCanal > 0) raisons.push(`${d.communesSansCanal} commune(s) sans canal de contact connu`);
-  if (d.communesCanalNonEmail && d.communesCanalNonEmail.length > 0) raisons.push(`${d.communesCanalNonEmail.length} commune(s) écartée(s) faute d'e-mail — à basculer à la main : ${d.communesCanalNonEmail.join(', ')}`);
+  if (d.communesCourrier && d.communesCourrier.length > 0) raisons.push(`${d.communesCourrier.length} commune(s) écartée(s) faute d'adresse e-mail (courrier) : ${d.communesCourrier.join(', ')}`);
   const base = `Aucun lot à proposer sur ${d.candidatsExamines} dossier(s) examiné(s) en tête de classement`;
   return raisons.length ? `${base} : ${raisons.join(' ; ')}.` : `${base}.`;
 }
@@ -291,11 +293,15 @@ export function resumeDiagnostic(d: DiagnosticProposition): string {
     + `${d.dossiersDejaRattaches} déjà rattaché(s) · `
     + `${d.communesSansCanal} commune(s) sans canal · `
     + `${d.communesPlafondMensuel} commune(s) au plafond mensuel.`;
-  // S15 : n'apparaît QUE s'il y en a (compat des littéraux existants) → l'écran nomme les communes écartées faute d'e-mail.
-  const nonEmail = d.communesCanalNonEmail && d.communesCanalNonEmail.length > 0
-    ? ` ⚠ ${d.communesCanalNonEmail.length} commune(s) écartée(s) faute d'e-mail (à basculer à la main) : ${d.communesCanalNonEmail.join(', ')}.`
+  // S16 : les catégories « à déposer à la main » (formulaire) et « écartées faute d'adresse » (courrier) n'apparaissent QUE
+  // s'il y en a (compat des littéraux existants) — l'écran les NOMME, jamais de disparition silencieuse.
+  const formulaire = d.communesFormulaire && d.communesFormulaire.length > 0
+    ? ` · ${d.communesFormulaire.length} à déposer à la main (formulaire) : ${d.communesFormulaire.join(', ')}`
     : '';
-  return base + nonEmail;
+  const courrier = d.communesCourrier && d.communesCourrier.length > 0
+    ? ` · ⚠ ${d.communesCourrier.length} écartée(s) faute d'adresse e-mail (courrier) : ${d.communesCourrier.join(', ')}`
+    : '';
+  return base + formulaire + courrier;
 }
 
 const MOIS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];

@@ -32,14 +32,18 @@ const c = (over: Partial<CandidatDossier>): CandidatDossier => ({
   adresse: 'x', codePostal: '75001', cadastre: [], etatDau: '2', absentDuDernierMillesime: false, ...over,
 });
 
-describe('S15 — diagnostiquer COMPTE et NOMME les communes écartées faute d’e-mail', () => {
-  it('courrier/formulaire → listées « Nom (canal) » dans communesCanalNonEmail ; email → non listée', () => {
+describe('S16 — diagnostiquer sépare les TROIS catégories', () => {
+  it('formulaire → « à déposer à la main » (nommée) ; courrier → écartée (nommée) ; email → produit un lot', () => {
     const d = diagnostiquer([
-      c({ dossierId: 1, codeInsee: '75056', communeNom: 'Paris', canal: 'courrier' as CandidatDossier['canal'] }),
-      c({ dossierId: 2, codeInsee: '92050', communeNom: 'Nanterre', canal: 'formulaire' as CandidatDossier['canal'] }),
+      c({ dossierId: 1, codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire' as CandidatDossier['canal'] }),
+      c({ dossierId: 2, codeInsee: '92050', communeNom: 'Nanterre', canal: 'courrier' as CandidatDossier['canal'] }),
       c({ dossierId: 3, codeInsee: '93066', communeNom: 'Saint-Denis', canal: 'email' }),
     ], HIST, PARAMS);
-    expect(d.communesCanalNonEmail).toEqual(['Nanterre (formulaire)', 'Paris (courrier)']);
+    expect(d.communesFormulaire).toEqual(['Paris']);   // à déposer à la main (produit un lot)
+    expect(d.communesCourrier).toEqual(['Nanterre']);  // écartée faute d'adresse e-mail (pas de lot)
+    // e-mail : ni dans formulaire ni dans courrier (envoyable — un lot est produit ailleurs)
+    expect(d.communesFormulaire).not.toContain('Saint-Denis');
+    expect(d.communesCourrier).not.toContain('Saint-Denis');
   });
 });
 

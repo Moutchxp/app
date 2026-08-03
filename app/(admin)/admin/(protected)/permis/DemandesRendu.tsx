@@ -15,6 +15,7 @@ export interface AmbiguiteAffiche {
   courriel: string | null; adresse: string | null; prenom: string | null; nom: string | null; millesime: string;
 }
 export interface CommuneInjoignableAffiche { codeInsee: string; nom: string; departement: string }
+export interface DepotAffiche { id: number; reference: string; communeNom: string | null; url: string | null; corps: string | null; nbDossiers: number; statut: string }
 
 /** Retire une commune d'une liste par son code (retrait optimiste après enregistrement). Pur → testable. */
 export function retirerCommune<T extends { codeInsee: string }>(liste: T[], code: string): T[] {
@@ -79,6 +80,29 @@ export function CarteInjoignable({ c, children }: { c: CommuneInjoignableAffiche
         <span style={{ fontSize: 11, fontWeight: 700, padding: '.05rem .4rem', borderRadius: '.35rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)' }}>dép. {c.departement}</span>
         <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>({c.codeInsee})</span>
       </div>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Carte « à déposer à la main » (S16) : commune, URL de téléservice cliquable (nouvel onglet, rel noopener), nombre de
+ * dossiers, et le TEXTE COMPLET de la demande (celui de genererTexte, figé en base) prêt à copier. Boutons fournis en
+ * `children`. Mobile-first (carte, texte en zone scrollable).
+ */
+export function CarteDepot({ d, children }: { d: DepotAffiche; children?: ReactNode }) {
+  return (
+    <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 14 }}>{d.communeNom ?? d.reference}</strong>
+        <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{d.nbDossiers} dossier(s)</span>
+        <span style={{ fontSize: 11, fontFamily: 'var(--font-svv-mono, monospace)', color: 'var(--color-svv-muted)' }}>{d.reference}</span>
+      </div>
+      {d.url && d.url.trim() !== ''
+        ? <a href={d.url} target="_blank" rel="noopener noreferrer" className="svv-link" style={{ width: 'auto', fontSize: 13 }}>Ouvrir le téléservice ↗</a>
+        : <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>URL de téléservice manquante — à compléter dans l’éditeur de contact (canal formulaire).</span>}
+      <textarea readOnly value={d.corps ?? ''} rows={10} aria-label={`Texte de la demande pour ${d.communeNom ?? d.reference}`}
+        style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }} />
       {children}
     </div>
   );

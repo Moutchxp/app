@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, CarteAmbiguite, CarteInjoignable, retirerCommune, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, CarteAmbiguite, CarteInjoignable, CarteDepot, retirerCommune, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche } from './DemandesRendu';
+import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 
 describe('S14e — OrigineDest (texte porteur, pas seulement couleur)', () => {
   it('origine prada → « PRADA — Nom » (texte lisible)', () => {
@@ -90,5 +91,41 @@ describe('S15 — communes injoignables (saisie par commune)', () => {
     const apres = retirerCommune(communes, '78003');
     expect(apres).toHaveLength(15);
     expect(apres.some((c) => c.codeInsee === '78003')).toBe(false);
+  });
+});
+
+describe('S16 — CarteDepot (file à déposer à la main)', () => {
+  const dossier = {
+    dossierId: 1, codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire', numDau: 'PC0001',
+    dateReelleAutorisation: '2025-03-10', adresse: '10 RUE DE RIVOLI', codePostal: '75001', cadastre: ['AB 12'],
+    etatDau: '2', absentDuDernierMillesime: false,
+  } as CandidatDossier;
+  const lot: Lot = { codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire' as Lot['canal'], dossiers: [dossier] };
+  const CONFIG: ConfigDemandeur = {
+    raisonSociale: 'Criterimmo', formeJuridique: 'SARL', siegeAdresse: '191 av. Charles de Gaulle, 92200 Neuilly',
+    representantNom: 'A. Jorel', representantQualite: 'gérant', emailContact: 'contact@sansvisavis.com', telephone: '',
+  };
+  const { corps } = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000001', piecesDepuisConfig('PC2,PC3'), 'entreprise');
+
+  it('le TEXTE affiché est BYTE-IDENTIQUE à celui de genererTexte (aucune variante)', () => {
+    const d: DepotAffiche = { id: 1, reference: 'SVAV-DEM-2026-000001', communeNom: 'Paris', url: 'https://teleservice.paris.fr/urbanisme', corps, nbDossiers: 1, statut: 'brouillon' };
+    const h = renderToStaticMarkup(createElement(CarteDepot, { d }));
+    expect(h).toContain(corps); // le corps stocké (= genererTexte) est rendu tel quel, sans transformation
+  });
+
+  it('URL de téléservice cliquable en nouvel onglet, rel noopener ; nb dossiers affiché', () => {
+    const d: DepotAffiche = { id: 1, reference: 'SVAV-DEM-2026-000001', communeNom: 'Paris', url: 'https://teleservice.paris.fr/urbanisme', corps, nbDossiers: 4, statut: 'brouillon' };
+    const h = renderToStaticMarkup(createElement(CarteDepot, { d }));
+    expect(h).toContain('https://teleservice.paris.fr/urbanisme');
+    expect(h).toContain('target="_blank"');
+    expect(h).toContain('rel="noopener noreferrer"');
+    expect(h).toContain('4 dossier(s)');
+  });
+
+  it('URL manquante → alerte explicite (jamais un lien mort)', () => {
+    const d: DepotAffiche = { id: 1, reference: 'R', communeNom: 'X', url: null, corps: 'x', nbDossiers: 1, statut: 'brouillon' };
+    const h = renderToStaticMarkup(createElement(CarteDepot, { d }));
+    expect(h).toContain('URL de téléservice manquante');
+    expect(h).toContain('role="alert"');
   });
 });

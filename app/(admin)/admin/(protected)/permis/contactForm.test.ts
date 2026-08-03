@@ -1,5 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { corpsPatchContact, noteAuChangementCanal } from './contactForm';
+import { corpsPatchContact, noteAuChangementCanal, problemeContactUI } from './contactForm';
+
+const base = { code: '75056', email: '', urlFormulaire: '', adressePostale: '', note: '' };
+
+describe('S16 — problemeContactUI refuse un canal incohérent (miroir contrainte DB)', () => {
+  it('formulaire SANS URL → refusé', () => {
+    expect(problemeContactUI({ ...base, canal: 'formulaire' })).toMatch(/URL de formulaire/);
+  });
+  it('formulaire AVEC URL valide → accepté (null)', () => {
+    expect(problemeContactUI({ ...base, canal: 'formulaire', urlFormulaire: 'https://teleservice.paris.fr' })).toBeNull();
+  });
+  it('email sans e-mail → refusé ; email valide → accepté', () => {
+    expect(problemeContactUI({ ...base, canal: 'email' })).toMatch(/e-mail/);
+    expect(problemeContactUI({ ...base, canal: 'email', email: 'urbanisme@ville.fr' })).toBeNull();
+  });
+});
 
 describe('S15 — corpsPatchContact transmet bien la note', () => {
   it('inclut note (trimé) dans le corps envoyé à PATCH /contact', () => {

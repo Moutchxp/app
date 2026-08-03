@@ -5,6 +5,7 @@ import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagn
 import type { DemandeListe, DemandeDetail, ResumeDemandes, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
 import { OrigineDest } from './DemandesRendu';
 import { BlocPrada } from './BlocPrada';
+import { BlocDepot } from './BlocDepot';
 
 /**
  * Gestion des demandes de communication (S7 / S7b / S7e). Deux profils de demandeur (Société / Personne physique) :
@@ -183,6 +184,8 @@ export function DemandesVue() {
 
       {/* S14e — arbitrages PRADA (info) + rapprochements ambigus à trancher (rattachement/écartement manuel) */}
       <BlocPrada />
+      {/* S16 — file « à déposer à la main » (canal formulaire / téléservice) */}
+      <BlocDepot />
 
       {prop && (
         <div className="svv-card">
