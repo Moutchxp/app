@@ -6,7 +6,7 @@ import type { DossierAffiche, ResultatVeille } from '../../../../lib/sitadel/vei
 import type { CommuneRef, FusionRef } from '../../../../lib/sitadel/carteRepo';
 import { CartePermis } from './CartePermis';
 import { corpsPatchContact, noteAuChangementCanal, problemeContactUI, editionInitiale, type EtatEditionContact } from './contactForm';
-import { SelecteurCanal } from './ContactRendu';
+import { SelecteurCanal, ChampsProtocole } from './ContactRendu';
 
 /**
  * Vue de la tuile « Permis de construire » (client) : filtres combinables + liste paginée CÔTÉ SERVEUR (jamais 29 670
@@ -286,6 +286,9 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
             <input type="text" value={edition.adressePostale} placeholder="Service urbanisme, 1 place de la Mairie, 92000…"
               onChange={(e) => setEdition({ ...edition, adressePostale: e.target.value, erreur: '' })} style={{ ...styleChamp, flex: '1 1 320px' }} />
           )}
+          <ChampsProtocole telephone={edition.telephone} responsableNom={edition.responsableNom} protocoleVerifieLe={edition.protocoleVerifieLe}
+            onTelephone={(v) => setEdition({ ...edition, telephone: v, erreur: '' })}
+            onResponsable={(v) => setEdition({ ...edition, responsableNom: v, erreur: '' })} />
           <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', flex: '1 1 100%', fontSize: 12, color: 'var(--color-svv-muted)' }}>
             Note (traçabilité — ex. adresse conservée en quittant le courrier)
             <input type="text" value={edition.note} placeholder="ex. Ancienne adresse courrier : …"

@@ -149,6 +149,8 @@ const SELECTION =
   `(d.vu_le_dernier_millesime = (SELECT max(code) FROM sitadel_millesime)) AS vu_au_dernier, ` +
   `c.nom AS commune_nom, mc.email AS dest_email, mc.statut AS dest_statut, ` +
   `mc.canal AS dest_canal, mc.url_formulaire AS dest_url_formulaire, mc.adresse_postale AS dest_adresse_postale, ` +
+  // S18 : protocole (téléphone / responsable / date de dernière vérification) pour l'éditeur de contact.
+  `mc.telephone AS dest_telephone, mc.responsable_nom AS dest_responsable_nom, mc.protocole_verifie_le::text AS dest_protocole_verifie_le, ` +
   // S14d : bruts PRADA (la précédence est calculée en TS par resoudreDestination, pas en SQL).
   `mp.courriel AS prada_courriel, mp.import_id AS prada_import_id, mp.nom AS prada_nom, mp.prenom AS prada_prenom`;
 

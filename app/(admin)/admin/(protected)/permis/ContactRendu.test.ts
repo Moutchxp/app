@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { SelecteurCanal } from './ContactRendu';
+import { SelecteurCanal, ChampsProtocole } from './ContactRendu';
 
 const rendu = (canal: 'formulaire' | 'email' | 'courrier' | 'inconnu', suggestion: boolean) =>
   renderToStaticMarkup(createElement(SelecteurCanal, { canal, suggestionTeleservice: suggestion, onCanal: () => {} }));
@@ -31,5 +31,24 @@ describe('S17 — SelecteurCanal (rendu)', () => {
 
   it('l’aide contextuelle rappelle que courrier/inconnu ne produisent aucune demande', () => {
     expect(rendu('email', false)).toContain('ne produisent aucune demande');
+  });
+});
+
+describe('S18 — ChampsProtocole (protocole par commune)', () => {
+  const rnd = (tel: string, resp: string, date: string | null) =>
+    renderToStaticMarkup(createElement(ChampsProtocole, { telephone: tel, responsableNom: resp, protocoleVerifieLe: date, onTelephone: () => {}, onResponsable: () => {} }));
+
+  it('date de vérification en lecture seule quand présente + saisies téléphone/responsable pré-remplies', () => {
+    const h = rnd('01 23 45 67 89', 'Charles Chenel', '2026-08-03');
+    expect(h).toContain('Protocole vérifié le');
+    expect(h).toContain('2026-08-03');
+    expect(h).toContain('01 23 45 67 89');
+    expect(h).toContain('Charles Chenel');
+    expect(h).toContain('aria-label="Téléphone du service urbanisme"');
+    expect(h).toContain('aria-label="Responsable du service"');
+  });
+
+  it('sans date de vérification → aucune ligne « vérifié le »', () => {
+    expect(rnd('', '', null)).not.toContain('Protocole vérifié le');
   });
 });

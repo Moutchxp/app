@@ -21,13 +21,16 @@ export async function PATCH(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const c = (await request.json()) as { codeInsee?: unknown; canal?: unknown; email?: unknown; urlFormulaire?: unknown; adressePostale?: unknown; note?: unknown };
+    const c = (await request.json()) as { codeInsee?: unknown; canal?: unknown; email?: unknown; urlFormulaire?: unknown; adressePostale?: unknown; note?: unknown; telephone?: unknown; responsableNom?: unknown };
     const codeInsee = typeof c.codeInsee === 'string' ? c.codeInsee.trim() : '';
     const canal = (typeof c.canal === 'string' ? c.canal : '') as CanalContact;
     const email = typeof c.email === 'string' ? c.email.trim() : '';
     const urlFormulaire = typeof c.urlFormulaire === 'string' ? c.urlFormulaire.trim() : '';
     const adressePostale = typeof c.adressePostale === 'string' ? c.adressePostale.trim() : '';
     const note = typeof c.note === 'string' ? c.note : null;
+    // S18 : protocole. NULL si vide (trim) → ne stocke pas une chaîne vide.
+    const telephone = typeof c.telephone === 'string' && c.telephone.trim() !== '' ? c.telephone.trim() : null;
+    const responsableNom = typeof c.responsableNom === 'string' && c.responsableNom.trim() !== '' ? c.responsableNom.trim() : null;
     if (!/^\d{5}$/.test(codeInsee)) return Response.json({ erreur: 'code INSEE invalide' }, { status: 400 });
     if (!CANAUX.includes(canal)) return Response.json({ erreur: 'canal invalide' }, { status: 400 });
     const motifErreur = validerCanal(canal, { email, urlFormulaire, adressePostale });
@@ -42,6 +45,7 @@ export async function PATCH(request: Request): Promise<Response> {
         urlFormulaire: canal === 'formulaire' ? urlFormulaire : null,
         adressePostale: canal === 'courrier' ? adressePostale : null,
         canal, source: 'saisie_manuelle', statut: 'confirme',
+        telephone, responsableNom, // S18 : protocole (protocole_verifie_le mis à CURRENT_DATE par ecrireContact)
         motif: 'correction manuelle (admin)', auteur: garde.auteurId === null ? null : String(garde.auteurId), note,
       });
     });

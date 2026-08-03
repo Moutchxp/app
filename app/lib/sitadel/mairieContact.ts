@@ -16,6 +16,8 @@ export interface ContactExistant {
   canal: CanalContact;
   urlFormulaire: string | null;
   adressePostale: string | null;
+  telephone?: string | null;       // S18 : protocole
+  responsableNom?: string | null;  // S18
 }
 
 // ── Validation & choix d'adresse (pur) ───────────────────────────────────────
@@ -92,11 +94,11 @@ export type Requete = <R = Record<string, unknown>>(text: string, params?: unkno
 
 /** Lit le contact courant d'une commune (pour la règle d'import et l'email_avant du journal). `null` si aucun. */
 export async function lireContact(q: Requete, codeInsee: string): Promise<ContactExistant | null> {
-  const r = await q<{ email: string | null; source: SourceContact; statut: StatutContact; canal: CanalContact; url_formulaire: string | null; adresse_postale: string | null }>(
-    `SELECT email, source, statut, canal, url_formulaire, adresse_postale FROM mairie_contact WHERE code_insee = $1`, [codeInsee],
+  const r = await q<{ email: string | null; source: SourceContact; statut: StatutContact; canal: CanalContact; url_formulaire: string | null; adresse_postale: string | null; telephone?: string | null; responsable_nom?: string | null }>(
+    `SELECT email, source, statut, canal, url_formulaire, adresse_postale, telephone, responsable_nom FROM mairie_contact WHERE code_insee = $1`, [codeInsee],
   );
   const x = r.rows[0];
-  return x ? { email: x.email, source: x.source, statut: x.statut, canal: x.canal, urlFormulaire: x.url_formulaire, adressePostale: x.adresse_postale } : null;
+  return x ? { email: x.email, source: x.source, statut: x.statut, canal: x.canal, urlFormulaire: x.url_formulaire, adressePostale: x.adresse_postale, telephone: x.telephone ?? null, responsableNom: x.responsable_nom ?? null } : null;
 }
 
 export interface EcritureContact {
@@ -107,6 +109,8 @@ export interface EcritureContact {
   canal: CanalContact;
   urlFormulaire?: string | null;
   adressePostale?: string | null;
+  telephone?: string | null;       // S18 : protocole
+  responsableNom?: string | null;  // S18
   motif: string;
   auteur: string | null;
   note?: string | null;
@@ -121,9 +125,12 @@ export interface EcritureContact {
 export async function ecrireContact(q: Requete, e: EcritureContact): Promise<{ change: boolean }> {
   const url = e.urlFormulaire ?? null;
   const adr = e.adressePostale ?? null;
+  const tel = e.telephone ?? null;
+  const resp = e.responsableNom ?? null;
   const avant = await lireContact(q, e.codeInsee);
   const inchange = avant !== null && avant.email === e.email && avant.source === e.source && avant.statut === e.statut
-    && avant.canal === e.canal && avant.urlFormulaire === url && avant.adressePostale === adr;
+    && avant.canal === e.canal && avant.urlFormulaire === url && avant.adressePostale === adr
+    && (avant.telephone ?? null) === tel && (avant.responsableNom ?? null) === resp; // S18 : téléphone/responsable comptent
   if (inchange) return { change: false };
 
   await q(
@@ -131,13 +138,16 @@ export async function ecrireContact(q: Requete, e: EcritureContact): Promise<{ c
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [e.codeInsee, avant?.email ?? null, e.email, e.source, e.motif, e.auteur],
   );
+  // S18 : protocole_verifie_le = CURRENT_DATE à CHAQUE écriture par cette voie (édition manuelle) — la date reflète la
+  // dernière vérification. `protocole_source` n'est pas touchée ici (elle provient du seed).
   await q(
-    `INSERT INTO mairie_contact (code_insee, email, source, statut, canal, url_formulaire, adresse_postale, maj_le, note)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8)
+    `INSERT INTO mairie_contact (code_insee, email, source, statut, canal, url_formulaire, adresse_postale, maj_le, note, telephone, responsable_nom, protocole_verifie_le)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, CURRENT_DATE)
      ON CONFLICT (code_insee) DO UPDATE SET
        email = EXCLUDED.email, source = EXCLUDED.source, statut = EXCLUDED.statut, canal = EXCLUDED.canal,
-       url_formulaire = EXCLUDED.url_formulaire, adresse_postale = EXCLUDED.adresse_postale, maj_le = now(), note = EXCLUDED.note`,
-    [e.codeInsee, e.email, e.source, e.statut, e.canal, url, adr, e.note ?? null],
+       url_formulaire = EXCLUDED.url_formulaire, adresse_postale = EXCLUDED.adresse_postale, maj_le = now(), note = EXCLUDED.note,
+       telephone = EXCLUDED.telephone, responsable_nom = EXCLUDED.responsable_nom, protocole_verifie_le = CURRENT_DATE`,
+    [e.codeInsee, e.email, e.source, e.statut, e.canal, url, adr, e.note ?? null, tel, resp],
   );
   return { change: true };
 }

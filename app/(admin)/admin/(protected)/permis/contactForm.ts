@@ -6,6 +6,7 @@ import { validerCanal, type CanalContact } from '../../../../lib/sitadel/mairieC
 
 export interface EditionContact {
   code: string; canal: string; email: string; urlFormulaire: string; adressePostale: string; note: string;
+  telephone: string; responsableNom: string;
 }
 
 /**
@@ -27,7 +28,8 @@ export const MENTION_TELESERVICE = 'Un téléservice est connu pour cette commun
 
 export interface EtatEditionContact {
   code: string; nom: string; canal: CanalContact; email: string; urlFormulaire: string; adressePostale: string;
-  note: string; suggestionTeleservice: boolean; erreur: string;
+  note: string; telephone: string; responsableNom: string; protocoleVerifieLe: string | null;
+  suggestionTeleservice: boolean; erreur: string;
 }
 
 /**
@@ -38,6 +40,7 @@ export interface EtatEditionContact {
 export function editionInitiale(d: {
   codeInsee: string; communeNom: string | null;
   destCanal: CanalContact | null; destEmail: string | null; destUrlFormulaire: string | null; destAdressePostale: string | null;
+  destTelephone?: string | null; destResponsableNom?: string | null; destProtocoleVerifieLe?: string | null;
 }): EtatEditionContact {
   const teleserviceConnu = (d.destUrlFormulaire ?? '').trim() !== '';
   return {
@@ -47,6 +50,9 @@ export function editionInitiale(d: {
     urlFormulaire: d.destUrlFormulaire ?? '',
     adressePostale: d.destAdressePostale ?? '',
     note: '',
+    telephone: d.destTelephone ?? '',
+    responsableNom: d.destResponsableNom ?? '',
+    protocoleVerifieLe: d.destProtocoleVerifieLe ?? null,
     suggestionTeleservice: teleserviceConnu,
     erreur: '',
   };
@@ -64,11 +70,12 @@ export function problemeContactUI(e: EditionContact): string | null {
 /** Corps EXACT envoyé à PATCH /api/admin/permis/contact — `note` INCLUSE (la route et ecrireContact l'acceptent déjà). */
 export function corpsPatchContact(e: EditionContact): {
   codeInsee: string; canal: string; email: string; urlFormulaire: string; adressePostale: string; note: string;
+  telephone: string; responsableNom: string;
 } {
   return {
     codeInsee: e.code, canal: e.canal,
     email: e.email.trim(), urlFormulaire: e.urlFormulaire.trim(), adressePostale: e.adressePostale.trim(),
-    note: e.note.trim(),
+    note: e.note.trim(), telephone: e.telephone.trim(), responsableNom: e.responsableNom.trim(),
   };
 }
 

@@ -13,6 +13,13 @@ describe('S17 — ordre des canaux (préférence décroissante) + présélection
     expect(e.suggestionTeleservice).toBe(true);
   });
 
+  it('S18 — editionInitiale porte téléphone / responsable / date de vérification du protocole', () => {
+    const e = editionInitiale({ codeInsee: '75056', communeNom: 'Paris', destCanal: 'formulaire', destEmail: null, destUrlFormulaire: 'https://adsconsult.paris.fr', destAdressePostale: null, destTelephone: '01 42 76 40 40', destResponsableNom: 'Charles Chenel', destProtocoleVerifieLe: '2026-08-03' });
+    expect(e.telephone).toBe('01 42 76 40 40');
+    expect(e.responsableNom).toBe('Charles Chenel');
+    expect(e.protocoleVerifieLe).toBe('2026-08-03');
+  });
+
   it('commune SANS url_formulaire → ouvre sur son canal enregistré, aucune présélection', () => {
     const e = editionInitiale({ codeInsee: '92050', communeNom: 'Nanterre', destCanal: 'email', destEmail: 'x@y.fr', destUrlFormulaire: '', destAdressePostale: '' });
     expect(e.canal).toBe('email');
@@ -24,7 +31,7 @@ describe('S17 — ordre des canaux (préférence décroissante) + présélection
   });
 });
 
-const base = { code: '75056', email: '', urlFormulaire: '', adressePostale: '', note: '' };
+const base = { code: '75056', email: '', urlFormulaire: '', adressePostale: '', note: '', telephone: '', responsableNom: '' };
 
 describe('S16 — problemeContactUI refuse un canal incohérent (miroir contrainte DB)', () => {
   it('formulaire SANS URL → refusé', () => {
@@ -43,11 +50,11 @@ describe('S15 — corpsPatchContact transmet bien la note', () => {
   it('inclut note (trimé) dans le corps envoyé à PATCH /contact', () => {
     const corps = corpsPatchContact({
       code: '75056', canal: 'email', email: '  daj-cada@paris.fr ', urlFormulaire: '', adressePostale: '',
-      note: '  Ancienne adresse courrier : BASU  ',
+      note: '  Ancienne adresse courrier : BASU  ', telephone: '  01 42 76 40 40 ', responsableNom: '  Chenel  ',
     });
     expect(corps).toEqual({
       codeInsee: '75056', canal: 'email', email: 'daj-cada@paris.fr', urlFormulaire: '', adressePostale: '',
-      note: 'Ancienne adresse courrier : BASU',
+      note: 'Ancienne adresse courrier : BASU', telephone: '01 42 76 40 40', responsableNom: 'Chenel',
     });
   });
 });
