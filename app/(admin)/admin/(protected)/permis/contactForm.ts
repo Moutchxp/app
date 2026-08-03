@@ -9,6 +9,50 @@ export interface EditionContact {
 }
 
 /**
+ * Canaux du sélecteur, par PRÉFÉRENCE DÉCROISSANTE (chantier « ergonomie du canal ») : téléservice → e-mail → courrier →
+ * inconnu. ⚠️ 'formulaire' n'est JAMAIS un défaut « à l'aveugle » : il n'est présélectionné que si un téléservice est connu
+ * (url_formulaire renseignée), sinon on ferait mentir l'écran.
+ */
+export const CANAUX_ORDONNES: readonly { value: CanalContact; label: string }[] = [
+  { value: 'formulaire', label: 'formulaire web (téléservice)' },
+  { value: 'email', label: 'e-mail' },
+  { value: 'courrier', label: 'courrier' },
+  { value: 'inconnu', label: 'inconnu (sans destinataire)' },
+];
+
+/** Aide contextuelle sous le sélecteur — rappelle la règle, dont la conséquence surprenante : courrier/inconnu = 0 demande. */
+export const AIDE_CANAL = 'Le téléservice est à privilégier quand il existe ; l’e-mail est le canal par défaut ; le courrier et « inconnu » ne produisent aucune demande.';
+/** Mention affichée quand un téléservice est connu et que « formulaire web » a été présélectionné (suggestion, pas verrou). */
+export const MENTION_TELESERVICE = 'Un téléservice est connu pour cette commune : « formulaire web » est présélectionné (modifiable).';
+
+export interface EtatEditionContact {
+  code: string; nom: string; canal: CanalContact; email: string; urlFormulaire: string; adressePostale: string;
+  note: string; suggestionTeleservice: boolean; erreur: string;
+}
+
+/**
+ * État initial de la modale d'édition de contact. PRÉSÉLECTION QUAND ON SAIT : si la commune a déjà une url_formulaire non
+ * vide, on ouvre sur 'formulaire' (URL pré-remplie) même si le canal enregistré est autre, et on le SIGNALE
+ * (`suggestionTeleservice`). Sinon on ouvre sur le canal enregistré, sans présélection (ne jamais deviner un téléservice).
+ */
+export function editionInitiale(d: {
+  codeInsee: string; communeNom: string | null;
+  destCanal: CanalContact | null; destEmail: string | null; destUrlFormulaire: string | null; destAdressePostale: string | null;
+}): EtatEditionContact {
+  const teleserviceConnu = (d.destUrlFormulaire ?? '').trim() !== '';
+  return {
+    code: d.codeInsee, nom: d.communeNom ?? d.codeInsee,
+    canal: teleserviceConnu ? 'formulaire' : (d.destCanal ?? 'inconnu'),
+    email: d.destEmail ?? '',
+    urlFormulaire: d.destUrlFormulaire ?? '',
+    adressePostale: d.destAdressePostale ?? '',
+    note: '',
+    suggestionTeleservice: teleserviceConnu,
+    erreur: '',
+  };
+}
+
+/**
  * Problème de cohérence à ENREGISTRER, côté UI (S16) — miroir de la contrainte DB (051:28-32) et de `validerCanal` : un
  * canal 'formulaire' SANS URL (ou 'email' sans e-mail, 'courrier' sans adresse) est refusé AVANT l'appel réseau, pour un
  * message clair plutôt qu'un 400 de la route. Retourne le motif, ou `null` si cohérent.

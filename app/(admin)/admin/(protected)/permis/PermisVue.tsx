@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { formaterDateJour, libelleCommune, libelleEtat, ETATS_CONNUS, type CleCategorie } from '../../../../lib/sitadel/priorite';
 import type { DossierAffiche, ResultatVeille } from '../../../../lib/sitadel/veilleRepo';
-import type { CanalContact } from '../../../../lib/sitadel/mairieContact';
 import type { CommuneRef, FusionRef } from '../../../../lib/sitadel/carteRepo';
 import { CartePermis } from './CartePermis';
-import { corpsPatchContact, noteAuChangementCanal, problemeContactUI } from './contactForm';
+import { corpsPatchContact, noteAuChangementCanal, problemeContactUI, editionInitiale, type EtatEditionContact } from './contactForm';
+import { SelecteurCanal } from './ContactRendu';
 
 /**
  * Vue de la tuile « Permis de construire » (client) : filtres combinables + liste paginée CÔTÉ SERVEUR (jamais 29 670
@@ -25,7 +25,7 @@ interface Filtres {
 
 const STATUT_LIBELLE: Record<string, string> = { presume: 'présumée', confirme: 'confirmée', invalide: 'invalide' };
 
-interface Edition { code: string; nom: string; canal: CanalContact; email: string; urlFormulaire: string; adressePostale: string; note: string; erreur: string }
+type Edition = EtatEditionContact; // ordre des canaux + présélection téléservice : cf. contactForm.editionInitiale
 
 type Etat =
   | { statut: 'chargement' }
@@ -89,11 +89,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
   }, [ref, rechCommune, filtres.departement, selectionSet]);
 
   /** Ouvre l'éditeur de contact pour la commune d'un dossier (pré-rempli avec le canal/valeur courants). */
-  const ouvrirEdition = (d: DossierAffiche): void => setEdition({
-    code: d.codeInsee, nom: d.communeNom ?? d.codeInsee,
-    canal: d.destCanal ?? 'inconnu', email: d.destEmail ?? '',
-    urlFormulaire: d.destUrlFormulaire ?? '', adressePostale: d.destAdressePostale ?? '', note: '', erreur: '',
-  });
+  const ouvrirEdition = (d: DossierAffiche): void => setEdition(editionInitiale(d));
 
   /** Enregistre la correction manuelle du contact (source=saisie_manuelle, statut=confirme) puis recharge. */
   async function enregistrerContact(): Promise<void> {
@@ -276,12 +272,8 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
       {edition && (
         <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'center' }}>
           <span style={{ fontSize: 13 }}>Contact de <strong>{edition.nom}</strong> ({edition.code}) :</span>
-          <select value={edition.canal} onChange={(e) => setEdition({ ...edition, canal: e.target.value as CanalContact, note: noteAuChangementCanal(edition.canal, e.target.value, edition.adressePostale, edition.note), erreur: '' })} style={styleChamp}>
-            <option value="email">e-mail</option>
-            <option value="formulaire">formulaire web</option>
-            <option value="courrier">courrier</option>
-            <option value="inconnu">inconnu (sans destinataire)</option>
-          </select>
+          <SelecteurCanal canal={edition.canal} suggestionTeleservice={edition.suggestionTeleservice}
+            onCanal={(c) => setEdition({ ...edition, canal: c, note: noteAuChangementCanal(edition.canal, c, edition.adressePostale, edition.note), erreur: '' })} />
           {edition.canal === 'email' && (
             <input type="email" value={edition.email} placeholder="urbanisme@ville.fr"
               onChange={(e) => setEdition({ ...edition, email: e.target.value, erreur: '' })} style={{ ...styleChamp, flex: '1 1 260px' }} />

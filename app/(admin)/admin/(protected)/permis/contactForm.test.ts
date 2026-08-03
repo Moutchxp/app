@@ -1,5 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { corpsPatchContact, noteAuChangementCanal, problemeContactUI } from './contactForm';
+import { corpsPatchContact, noteAuChangementCanal, problemeContactUI, editionInitiale, CANAUX_ORDONNES } from './contactForm';
+
+describe('S17 — ordre des canaux (préférence décroissante) + présélection téléservice', () => {
+  it('l’ordre est téléservice → e-mail → courrier → inconnu', () => {
+    expect(CANAUX_ORDONNES.map((o) => o.value)).toEqual(['formulaire', 'email', 'courrier', 'inconnu']);
+  });
+
+  it('commune AVEC url_formulaire connue → ouvre sur « formulaire », URL pré-remplie, suggestion signalée (même si canal enregistré ≠)', () => {
+    const e = editionInitiale({ codeInsee: '75056', communeNom: 'Paris', destCanal: 'inconnu', destEmail: '', destUrlFormulaire: 'https://teleservice.paris.fr', destAdressePostale: '' });
+    expect(e.canal).toBe('formulaire');
+    expect(e.urlFormulaire).toBe('https://teleservice.paris.fr');
+    expect(e.suggestionTeleservice).toBe(true);
+  });
+
+  it('commune SANS url_formulaire → ouvre sur son canal enregistré, aucune présélection', () => {
+    const e = editionInitiale({ codeInsee: '92050', communeNom: 'Nanterre', destCanal: 'email', destEmail: 'x@y.fr', destUrlFormulaire: '', destAdressePostale: '' });
+    expect(e.canal).toBe('email');
+    expect(e.suggestionTeleservice).toBe(false);
+    // commune vraiment inconnue → 'inconnu', jamais 'formulaire' deviné
+    const vierge = editionInitiale({ codeInsee: '78475', communeNom: 'Osmoy', destCanal: null, destEmail: null, destUrlFormulaire: null, destAdressePostale: null });
+    expect(vierge.canal).toBe('inconnu');
+    expect(vierge.suggestionTeleservice).toBe(false);
+  });
+});
 
 const base = { code: '75056', email: '', urlFormulaire: '', adressePostale: '', note: '' };
 
