@@ -16,6 +16,9 @@ const styleBase: CSSProperties = { padding: '.6rem .75rem', borderRadius: '.6rem
  */
 export const TITRE_PARAMS_DEMANDES = 'Paramètres des demandes';
 export const TITRE_PARAMS_DOSSIERS = 'Classification et affichage des dossiers';
+/** S30 — 3e sous-bloc : source de l'annuaire des mairies (URL DILA). */
+export const TITRE_PARAMS_SOURCES = 'Source de l’annuaire des mairies';
+export const AIDE_PARAMS_SOURCES = 'Adresse officielle depuis laquelle l’application récupère les coordonnées des mairies (téléphones, adresses). À ne modifier que si l’adresse publiée change.';
 export const AIDE_PARAMS_DOSSIERS = 'Ces réglages ne concernent pas les demandes aux mairies : ils pilotent la mise à jour et l’affichage des dossiers (groupe « Mise à jour des dossiers ») — classement « immeuble », ordre des catégories et profondeur d’affichage par défaut.';
 
 /** Bandeau permanent : identité complète (vert) → demandes « prête » possibles ; incomplète (rouge) → bloquées. */
@@ -38,6 +41,9 @@ export function PlageParam({ param, bornes }: { param: ParamVeille; bornes?: Bor
   }
   if (param.type === 'texte') {
     return <span style={style}>Format : codes de pièces séparés par des virgules (ex. PC2, PC3).</span>;
+  }
+  if (param.type === 'url') {
+    return <span style={style}>Format : adresse web commençant par http:// ou https://</span>;
   }
   if (!bornes) {
     return <span style={{ ...style, color: 'var(--color-svv-red)' }}>Plage indisponible : contrainte introuvable en base.</span>;

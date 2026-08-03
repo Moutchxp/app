@@ -117,6 +117,18 @@ describe('S7d — validation des paramètres moteur (plage = CHECK base)', () =>
     const res = validerReglages({}, BORNES);
     expect(res.ok).toBe(false);
   });
+
+  it('S30 — URL DILA : http(s) accepté (trimé), forme invalide refusée (zéro écriture)', () => {
+    const ok = validerReglages({ veille: { dila_url: '  https://data.gouv.fr/x  ' } }, BORNES);
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.veille.dila_url).toBe('https://data.gouv.fr/x'); // trimé
+    expect(validerReglages({ veille: { dila_url: 'http://ok.example/a' } }, BORNES).ok).toBe(true);
+    // refus : pas d'http, espaces, vide, mauvais schéma → aucune écriture
+    for (const mauvais of ['pas-une-url', 'ftp://x', 'https://a b', '', 'www.data.gouv.fr']) {
+      const r = validerReglages({ veille: { dila_url: mauvais } }, BORNES);
+      expect(r.ok).toBe(false);
+    }
+  });
 });
 
 describe('S7e — validation par profil + profil par défaut', () => {

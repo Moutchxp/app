@@ -108,10 +108,13 @@ export interface ParamVeille {
   cle: keyof ConfigVeille;
   libelle: string;
   unite: string;
-  type: 'entier' | 'texte' | 'enum';
+  type: 'entier' | 'texte' | 'enum' | 'url';
   aide: string;
   optionsEnum?: string[]; // pour type 'enum' : liste fermée des valeurs admises
 }
+
+/** Forme minimale d'une URL http(s) — MIROIR APPLICATIF du CHECK `config_veille_dila_url_check` (migration 069). */
+export const FORME_URL = /^https?:\/\/\S+$/i;
 
 /**
  * Les paramètres éditables de `config_veille`, dans l'ordre d'affichage. ⚠️ AUCUN min/max ici : la plage vient des CHECK
@@ -144,6 +147,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Codes des pièces sollicitées dans le courrier (ex. PC2, PC3), séparés par des virgules.' },
   { colonne: 'profil_demandeur_defaut', cle: 'profilDemandeurDefaut', libelle: 'Profil de demandeur par défaut', unite: '', type: 'enum', optionsEnum: ['entreprise', 'personne'],
     aide: 'Profil (société / personne physique) appliqué par défaut à la création de nouvelles demandes.' },
+  // S30 — source de l'annuaire des mairies (téléphones/adresses des mairies importés par `dila:ingest`).
+  { colonne: 'dila_url', cle: 'dilaUrl', libelle: 'Adresse de l’annuaire des mairies (DILA)', unite: '', type: 'url',
+    aide: 'Adresse web où l’application télécharge l’annuaire officiel des mairies (service-public.gouv.fr). Elle sert à mettre à jour les téléphones et adresses des mairies. À ne changer que si l’adresse officielle change : une adresse erronée fera échouer la prochaine mise à jour de l’annuaire (les données déjà en place ne sont pas perdues).' },
 ];
 
 /**
@@ -156,8 +162,13 @@ export const PARAMS_VEILLE: ParamVeille[] = [
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
   'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois', 'pieces_demandees', 'profil_demandeur_defaut',
 ];
+// S30 — 3e sous-bloc : SOURCES de données (annuaire DILA). Distinct des demandes et de la classification des dossiers.
+export const COLONNES_PARAMS_SOURCES: readonly string[] = ['dila_url'];
 export const PARAMS_DEMANDES: ParamVeille[] = PARAMS_VEILLE.filter((p) => COLONNES_PARAMS_DEMANDES.includes(p.colonne));
-export const PARAMS_DOSSIERS: ParamVeille[] = PARAMS_VEILLE.filter((p) => !COLONNES_PARAMS_DEMANDES.includes(p.colonne));
+export const PARAMS_SOURCES: ParamVeille[] = PARAMS_VEILLE.filter((p) => COLONNES_PARAMS_SOURCES.includes(p.colonne));
+export const PARAMS_DOSSIERS: ParamVeille[] = PARAMS_VEILLE.filter(
+  (p) => !COLONNES_PARAMS_DEMANDES.includes(p.colonne) && !COLONNES_PARAMS_SOURCES.includes(p.colonne),
+);
 
 // ── Validation server-side (identique à l'écran) ─────────────────────────────
 export interface ErreurReglage { colonne: string; message: string }
@@ -219,6 +230,13 @@ export function validerReglages(
         const codes = valeur.split(',').map((s) => s.trim()).filter((s) => s !== '');
         if (codes.length === 0) { erreurs.push({ colonne: cle, message: `${param.libelle} : au moins un code de pièce requis` }); continue; }
         veille[cle] = codes.join(',');
+        continue;
+      }
+      if (param.type === 'url') {
+        if (typeof valeur !== 'string') { erreurs.push({ colonne: cle, message: `${param.libelle} : texte attendu` }); continue; }
+        const u = valeur.trim();
+        if (!FORME_URL.test(u)) { erreurs.push({ colonne: cle, message: `${param.libelle} : adresse http(s):// attendue` }); continue; }
+        veille[cle] = u;
         continue;
       }
       if (typeof valeur !== 'number' || !Number.isFinite(valeur) || !Number.isInteger(valeur)) {

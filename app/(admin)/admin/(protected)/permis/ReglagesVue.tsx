@@ -4,9 +4,9 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import type { ConfigVeille } from '../../../../lib/sitadel/veilleConfig';
 import { ETIQUETTE_PROFIL, type ConfigDemandeur, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import {
-  champsPourProfil, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, type ParamVeille, type BornesParColonne, type ErreurReglage,
+  champsPourProfil, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES, type ParamVeille, type BornesParColonne, type ErreurReglage,
 } from '../../../../lib/sitadel/reglagesVeille';
-import { BandeauIdentite, PlageParam, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS } from './ReglagesRendu';
+import { BandeauIdentite, PlageParam, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES } from './ReglagesRendu';
 
 /**
  * Écran « Réglages » de la tuile Permis (chantier S7d / S7e). Édite les DEUX identités de demandeur (Société / Personne
@@ -78,10 +78,10 @@ export function ReglagesVue() {
     setIdMsg((m) => ({ ...m, [profil]: `Aucune modification : ${(globales.length ? globales : erreurs.map((e) => e.message)).join(' ; ')}.` }));
   }
 
-  async function enregistrerParam(colonne: string, type: 'entier' | 'texte' | 'enum') {
+  async function enregistrerParam(colonne: string, type: 'entier' | 'texte' | 'enum' | 'url') {
     setVeMsg((m) => ({ ...m, [colonne]: '' })); setVeErreurs((m) => ({ ...m, [colonne]: '' }));
     const brut = veDraft[colonne] ?? '';
-    if (type === 'entier' && brut.trim() === '') { setVeErreurs((m) => ({ ...m, [colonne]: 'Valeur requise.' })); return; }
+    if ((type === 'entier' || type === 'url') && brut.trim() === '') { setVeErreurs((m) => ({ ...m, [colonne]: 'Valeur requise.' })); return; }
     const valeur: number | string = type === 'entier' ? Number(brut) : brut;
     const res = await fetch('/api/admin/permis/reglages', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ veille: { [colonne]: valeur } }),
@@ -112,7 +112,10 @@ export function ReglagesVue() {
             : p.type === 'entier'
               ? <input type="number" value={veDraft[p.colonne] ?? ''} min={b?.min} max={b?.max} step={1}
                   onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />
-              : <input value={veDraft[p.colonne] ?? ''} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />}
+              : p.type === 'url'
+                ? <input type="url" inputMode="url" placeholder="https://…" value={veDraft[p.colonne] ?? ''}
+                    onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />
+                : <input value={veDraft[p.colonne] ?? ''} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />}
           <PlageParam param={p} bornes={b} />
         </label>
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -178,6 +181,15 @@ export function ReglagesVue() {
         <p style={styleAide}>{AIDE_PARAMS_DOSSIERS}</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
           {PARAMS_DOSSIERS.map(carteParam)}
+        </div>
+      </section>
+
+      {/* ── Section C : sources de données (annuaire DILA) — S30 ── */}
+      <section className="flex flex-col gap-3">
+        <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{TITRE_PARAMS_SOURCES}</h2>
+        <p style={styleAide}>{AIDE_PARAMS_SOURCES}</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
+          {PARAMS_SOURCES.map(carteParam)}
         </div>
       </section>
     </div>

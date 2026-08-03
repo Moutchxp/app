@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { BandeauIdentite, PlageParam, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS } from './ReglagesRendu';
-import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS } from '../../../../lib/sitadel/reglagesVeille';
+import { BandeauIdentite, PlageParam, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES } from './ReglagesRendu';
+import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES } from '../../../../lib/sitadel/reglagesVeille';
 import { problemesIdentite } from '../../../../lib/sitadel/demande';
 
 /**
@@ -79,7 +79,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(AIDE_PARAMS_DOSSIERS).toContain('Mise à jour des dossiers');
   });
 
-  it('partition : 5 réglages de demandes / 8 réglages de dossiers, sans perte ni doublon', () => {
+  it('partition : 5 demandes / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
     expect(PARAMS_DEMANDES.map((p) => p.colonne)).toEqual([
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois', 'pieces_demandees', 'profil_demandeur_defaut',
     ]);
@@ -87,8 +87,19 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'seuil_logements_immeuble', 'seuil_surface_immeuble_m2', 'annees_par_defaut',
       'rang_immeuble_neuf', 'rang_surelevation', 'rang_construction_neuve', 'rang_extension', 'rang_demolition',
     ]);
-    expect(PARAMS_DEMANDES.length + PARAMS_DOSSIERS.length).toBe(PARAMS_VEILLE.length);
-    const cols = new Set([...PARAMS_DEMANDES, ...PARAMS_DOSSIERS].map((p) => p.colonne));
+    expect(PARAMS_SOURCES.map((p) => p.colonne)).toEqual(['dila_url']); // S30 : 3e sous-bloc, dila_url exclu des 2 autres
+    expect(PARAMS_DEMANDES.length + PARAMS_DOSSIERS.length + PARAMS_SOURCES.length).toBe(PARAMS_VEILLE.length);
+    const cols = new Set([...PARAMS_DEMANDES, ...PARAMS_DOSSIERS, ...PARAMS_SOURCES].map((p) => p.colonne));
     expect(cols.size).toBe(PARAMS_VEILLE.length); // aucune colonne perdue ni dupliquée
+  });
+
+  it('S30 — sous-bloc SOURCES : intitulé + aide, et PlageParam d’une URL rappelle le format http(s)://', () => {
+    expect(TITRE_PARAMS_SOURCES).toContain('annuaire des mairies');
+    expect(AIDE_PARAMS_SOURCES).toMatch(/mairies/i);
+    const dila = PARAMS_VEILLE.find((p) => p.colonne === 'dila_url')!;
+    expect(dila.type).toBe('url');
+    const h = renderToStaticMarkup(createElement(PlageParam, { param: dila, bornes: undefined }));
+    expect(h).toContain('http');                 // format annoncé
+    expect(h).not.toContain('introuvable');       // PAS l'erreur « plage introuvable » (une URL n'a pas de bornes)
   });
 });

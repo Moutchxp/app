@@ -5,6 +5,13 @@
  */
 import { query } from '../db/client';
 
+/**
+ * URL par défaut de l'archive de l'annuaire DILA (ressource data.gouv, qui redirige 302 vers all_latest.tar.bz2). C'est le
+ * DEFAULT de `config_veille.dila_url` (migration 069) ET le repli ultime si la base est injoignable. Défini ici (config)
+ * plutôt que dans `dilaIngest` pour éviter un cycle d'import (dilaIngest → veilleConfig → dilaIngest).
+ */
+export const DILA_URL_DEFAUT = 'https://www.data.gouv.fr/api/1/datasets/r/73302880-e4df-4d4c-8676-1a61bb997f3d';
+
 export interface ConfigVeille {
   seuilLogementsImmeuble: number;
   seuilSurfaceImmeubleM2: number;
@@ -23,6 +30,7 @@ export interface ConfigVeille {
   autoIntervalleHeures: number;
   csvRetentionJours: number;
   runDemandeLe: Date | null;
+  dilaUrl: string; // S30 : URL de l'annuaire DILA, éditable en base (config_veille.dila_url) — pilotage sans code
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -44,6 +52,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   autoIntervalleHeures: 24,
   csvRetentionJours: 0,
   runDemandeLe: null,
+  dilaUrl: DILA_URL_DEFAUT,
 };
 
 interface LigneConfigVeille {
@@ -64,6 +73,22 @@ interface LigneConfigVeille {
   auto_intervalle_heures: number;
   csv_retention_jours: number;
   run_demande_le: Date | null;
+}
+
+/**
+ * Lecture BEST-EFFORT de `config_veille.dila_url`, ISOLÉE du reste (S30). ⚠️ Résilience à l'ORDRE D'APPLICATION : tant que la
+ * migration 069 n'est pas passée, la colonne n'existe pas → cette lecture échoue SEULE et retombe sur le défaut, SANS faire
+ * dégrader tout le reste de la config à ses valeurs par défaut (ce qui arriverait si `dila_url` était dans la requête
+ * principale). Après 069 : renvoie la valeur en base (fait foi), défaut si vide.
+ */
+async function lireDilaUrl(): Promise<string> {
+  try {
+    const { rows } = await query<{ dila_url: string }>(`SELECT dila_url FROM config_veille WHERE id = 1`);
+    const v = (rows[0]?.dila_url ?? '').trim();
+    return v === '' ? DILA_URL_DEFAUT : v;
+  } catch {
+    return DILA_URL_DEFAUT; // colonne pas encore migrée (069) → défaut, sans casser le reste de la config
+  }
 }
 
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
@@ -96,6 +121,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       autoIntervalleHeures: r.auto_intervalle_heures,
       csvRetentionJours: r.csv_retention_jours,
       runDemandeLe: r.run_demande_le,
+      dilaUrl: await lireDilaUrl(), // S30 : lecture isolée (résiliente à l'ordre d'application de la 069)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

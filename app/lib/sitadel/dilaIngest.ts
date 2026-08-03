@@ -26,15 +26,28 @@ import {
   enregistrementsService, estMairie, codesCommune, extraireContexte, rattacher,
   type DilaRecord,
 } from './dilaJson';
+import { chargerConfigVeille, DILA_URL_DEFAUT, type ConfigVeille } from './veilleConfig';
 
+export { DILA_URL_DEFAUT };
 const UA = 'sansvisavis-dila-ingest';
-/** URL par défaut (ressource data.gouv, qui redirige 302 vers lecomarquage/all_latest.tar.bz2). Surchargée par $DILA_URL. */
-export const DILA_URL_DEFAUT = 'https://www.data.gouv.fr/api/1/datasets/r/73302880-e4df-4d4c-8676-1a61bb997f3d';
 /** Paternité EXIGÉE par la Licence Ouverte v2.0 (identique au DEFAULT de dila_millesime.copyright). */
 export const COPYRIGHT_DILA = 'Direction de l\'information légale et administrative (Premier ministre)';
 /** Répertoire de travail HORS DU DÉPÔT (jamais committé). Surchargé par $DILA_DIR. */
 const dossierTravail = (): string => (process.env.DILA_DIR?.trim() || join(tmpdir(), 'svav-dila'));
-export const urlDila = (): string => (process.env.DILA_URL?.trim() || DILA_URL_DEFAUT);
+
+/**
+ * PRÉCÉDENCE S30 de l'URL de téléchargement — la BASE FAIT FOI :
+ *   1) `config_veille.dila_url` (base, éditable depuis l'admin) → autoritatif dès qu'il est renseigné (colonne NOT NULL) ;
+ *   2) `$DILA_URL` (variable d'env) → SECOURS ops UNIQUEMENT si la base ne fournit pas de valeur (ex. table injoignable →
+ *      repli `CONFIG_VEILLE_DEFAUT`), pour débloquer sans accès DB ;
+ *   3) `DILA_URL_DEFAUT` → repli ultime.
+ * On garde l'env comme filet de sécurité (jamais prioritaire) : en fonctionnement normal, la valeur d'Arno (base) gouverne.
+ */
+export function urlDila(config: Pick<ConfigVeille, 'dilaUrl'>): string {
+  const base = (config.dilaUrl ?? '').trim();
+  if (base !== '') return base;                              // la base fait foi
+  return process.env.DILA_URL?.trim() || DILA_URL_DEFAUT;    // secours ops → repli ultime
+}
 
 export interface CompteursDila {
   code: string;                 // millésime (date du fichier, ex. '2026-08-03')
@@ -161,7 +174,8 @@ const SQL_IMPORT =
 export async function importerAnnuaireDila(opts: { forcer?: boolean } = {}): Promise<
   { statut: 'importe'; compteurs: CompteursDila } | { statut: 'rien_a_faire'; code: string }
 > {
-  const { chemin, urlEffective, tailleOctets, membres } = await telecharger(urlDila());
+  const config = await chargerConfigVeille();                 // S30 : l'URL vient de la base (config_veille.dila_url)
+  const { chemin, urlEffective, tailleOctets, membres } = await telecharger(urlDila(config));
   try {
     const { membre, code } = membreAnnuaire(membres);
     const fichierSource = membre.replace(/^\.\//, '');
