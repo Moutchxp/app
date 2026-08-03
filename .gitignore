@@ -21,6 +21,10 @@
 # Annuaire mairies (agrégat DILA téléchargé par mairie:contact:import) — JAMAIS committé (re-téléchargeable)
 /data/mairie/
 
+# Archive DILA « Base de données locales » (tar.bz2 ~348 Mo + JSON ~259 Mo) — dila:ingest télécharge HORS DÉPÔT (tmpdir) et
+# nettoie en fin de run ; cette entrée est un garde-fou si $DILA_DIR pointe ici. JAMAIS committé (volumineux, re-téléchargeable).
+/data/dila/
+
 # dependencies
 /node_modules
 /.pnp
