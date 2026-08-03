@@ -153,6 +153,8 @@ export interface CandidatDossier {
   etatDau: string | null;               // S12 : 2=Autorisé 4=Annulé 5=Commencé 6=Terminé (null = jamais revu → proposable)
   absentDuDernierMillesime: boolean;    // S12 : dossier RÉELLEMENT retiré du fichier Sitadel (état futur inconnu)
   arbitragePrada?: boolean;             // S14d : PRADA au courriel non vide mais contact 'confirme' conservé → à arbitrer
+  destOrigine?: 'mairie_contact' | 'prada'; // S14e : origine du destinataire résolu (affichage)
+  destNom?: string | null;              // S14e : nom de la PRADA quand origine = 'prada'
 }
 export interface HistoriqueDemandes {
   /** dossier_id déjà rattachés à une demande NON abandonnée → jamais reproposés. */
@@ -166,7 +168,11 @@ export interface ParamsLot {
   /** Date d'autorisation minimale ('AAAA-MM-JJ', = aujourd'hui − anciennete_max). `null` = pas de borne (jamais en prod). */
   dateMin: string | null;
 }
-export interface Lot { codeInsee: string; communeNom: string; canal: CanalContact; dossiers: CandidatDossier[] }
+export interface Lot {
+  codeInsee: string; communeNom: string; canal: CanalContact; dossiers: CandidatDossier[];
+  destOrigine?: 'mairie_contact' | 'prada'; // S14e : origine du destinataire résolu du lot (affichage)
+  destNom?: string | null;
+}
 
 /**
  * Propose des lots à partir de candidats DÉJÀ ORDONNÉS par priorité (cf. priorite.ts — on ne réordonne pas ici).
@@ -197,8 +203,10 @@ export function proposerLots(candidats: CandidatDossier[], params: ParamsLot, hi
     if (quota <= 0) continue;
     const commune = dossiers[0].communeNom!;
     const canal = dossiers[0].canal!;
+    const destOrigine = dossiers[0].destOrigine;   // S14e : origine résolue de la commune (identique pour tous ses dossiers)
+    const destNom = dossiers[0].destNom;
     for (let i = 0, faits = 0; i < dossiers.length && faits < quota; i += params.dossiersParDemande, faits += 1) {
-      lots.push({ codeInsee: code, communeNom: commune, canal, dossiers: dossiers.slice(i, i + params.dossiersParDemande) });
+      lots.push({ codeInsee: code, communeNom: commune, canal, destOrigine, destNom, dossiers: dossiers.slice(i, i + params.dossiersParDemande) });
     }
   }
   return lots;

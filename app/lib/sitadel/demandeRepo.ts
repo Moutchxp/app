@@ -41,6 +41,7 @@ function versCandidat(d: DossierAffiche): CandidatDossier {
     dossierId: d.id, codeInsee: d.codeInsee, communeNom: d.communeNom, canal: dest.canal,
     numDau: d.numDau, dateReelleAutorisation: d.dateReelleAutorisation, adresse: adresseDe(d), codePostal: d.adrCodpostTer, cadastre: d.cadastre,
     etatDau: d.etatDau, absentDuDernierMillesime: !d.vuAuDernier, arbitragePrada: dest.arbitragePrada,
+    destOrigine: dest.origine, destNom: dest.nom,
   };
 }
 
@@ -220,7 +221,7 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
   return { crees, ignores, profil };
 }
 
-export interface DemandeListe { id: number; reference: string; codeInsee: string; communeNom: string | null; canal: string | null; nbDossiers: number; statut: string; profil: string; creeLe: string }
+export interface DemandeListe { id: number; reference: string; codeInsee: string; communeNom: string | null; canal: string | null; destOrigine: string; destNom: string | null; nbDossiers: number; statut: string; profil: string; creeLe: string }
 
 export interface ResumeDemandes { parStatut: Record<string, number>; total: number; dossiersCouverts: number }
 
@@ -229,8 +230,8 @@ export interface AlerteIdentite { profil: ProfilDemandeur; libelle: string; manq
 
 export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; alertesIdentite: AlerteIdentite[]; resume: ResumeDemandes }> {
   const [r, rs, rd] = await Promise.all([
-    query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; dest_canal: string | null; nb: number; statut: string; profil_demandeur: string; cree_le: string }>(
-      `SELECT d.id, d.reference, d.code_insee, c.nom AS commune_nom, d.dest_canal, d.statut, d.profil_demandeur, d.cree_le::text AS cree_le,
+    query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; dest_canal: string | null; dest_origine: string; dest_nom: string | null; nb: number; statut: string; profil_demandeur: string; cree_le: string }>(
+      `SELECT d.id, d.reference, d.code_insee, c.nom AS commune_nom, d.dest_canal, d.dest_origine, d.dest_nom, d.statut, d.profil_demandeur, d.cree_le::text AS cree_le,
               (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id) AS nb
        FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee ORDER BY d.cree_le DESC`),
     query<{ statut: string; n: number }>(`SELECT statut, count(*)::int AS n FROM demande GROUP BY statut`),
@@ -249,7 +250,7 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
   }
 
   return {
-    demandes: r.rows.map((x) => ({ id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal, nbDossiers: x.nb, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le })),
+    demandes: r.rows.map((x) => ({ id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal, destOrigine: x.dest_origine, destNom: x.dest_nom, nbDossiers: x.nb, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le })),
     alertesIdentite,
     resume: { parStatut, total: r.rows.length, dossiersCouverts: rd.rows[0]?.n ?? 0 },
   };
@@ -258,9 +259,9 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
 export interface DemandeDetail extends DemandeListe { objet: string | null; corps: string | null; destEmail: string | null; destUrlFormulaire: string | null; destAdressePostale: string | null; dossiers: { numDau: string; date: string | null }[] }
 
 export async function lireDemande(id: number): Promise<DemandeDetail | null> {
-  const r = await query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string; profil_demandeur: string; objet: string | null; corps: string | null; dest_canal: string | null; dest_email: string | null; dest_url_formulaire: string | null; dest_adresse_postale: string | null; cree_le: string }>(
+  const r = await query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string; profil_demandeur: string; objet: string | null; corps: string | null; dest_canal: string | null; dest_email: string | null; dest_url_formulaire: string | null; dest_adresse_postale: string | null; dest_origine: string; dest_nom: string | null; cree_le: string }>(
     `SELECT d.id, d.reference, d.code_insee, c.nom AS commune_nom, d.statut, d.profil_demandeur, d.objet, d.corps,
-            d.dest_canal, d.dest_email, d.dest_url_formulaire, d.dest_adresse_postale, d.cree_le::text AS cree_le
+            d.dest_canal, d.dest_email, d.dest_url_formulaire, d.dest_adresse_postale, d.dest_origine, d.dest_nom, d.cree_le::text AS cree_le
      FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee WHERE d.id = $1`, [id],
   );
   const x = r.rows[0];
@@ -270,6 +271,7 @@ export async function lireDemande(id: number): Promise<DemandeDetail | null> {
   );
   return {
     id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal,
+    destOrigine: x.dest_origine, destNom: x.dest_nom,
     nbDossiers: doss.rows.length, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le, objet: x.objet, corps: x.corps,
     destEmail: x.dest_email, destUrlFormulaire: x.dest_url_formulaire, destAdressePostale: x.dest_adresse_postale,
     dossiers: doss.rows.map((d) => ({ numDau: d.num_dau, date: d.date })),

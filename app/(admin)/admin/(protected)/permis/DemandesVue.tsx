@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagnostic, ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, ResumeDemandes, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
+import { OrigineDest } from './DemandesRendu';
+import { BlocPrada } from './BlocPrada';
 
 /**
  * Gestion des demandes de communication (S7 / S7b / S7e). Deux profils de demandeur (Société / Personne physique) :
@@ -179,6 +181,9 @@ export function DemandesVue() {
         {msg && <span role="status" style={{ fontSize: 13 }}>{msg}</span>}
       </div>
 
+      {/* S14e — arbitrages PRADA (info) + rapprochements ambigus à trancher (rattachement/écartement manuel) */}
+      <BlocPrada />
+
       {prop && (
         <div className="svv-card">
           {/* Décompte CHIFFRÉ toujours visible : rend lisible l'effet des réglages (dont l'ancienneté maximale). */}
@@ -192,7 +197,7 @@ export function DemandesVue() {
                 <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem' }} onClick={() => void creer()}>Créer ces demandes</button>
               </div>
               <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: 13 }}>
-                {prop.lots.map((l, i) => <li key={`${l.codeInsee}-${i}`}>{l.communeNom} ({l.codeInsee}) · {l.canal} · {l.dossiers.length} dossier(s)</li>)}
+                {prop.lots.map((l, i) => <li key={`${l.codeInsee}-${i}`} style={{ marginBottom: '.2rem' }}>{l.communeNom} ({l.codeInsee}) · {l.canal} · {l.dossiers.length} dossier(s) <OrigineDest origine={l.destOrigine} nom={l.destNom} /></li>)}
               </ul>
             </>
           )}
@@ -205,8 +210,9 @@ export function DemandesVue() {
             <strong>{detail.reference} — {detail.communeNom ?? detail.codeInsee} — {STATUT_LIBELLE[detail.statut] ?? detail.statut} — {ETIQUETTE_PROFIL[detail.profil as ProfilDemandeur] ?? detail.profil}</strong>
             <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }} onClick={() => setDetail(null)}>fermer</button>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>
-            Destinataire figé : {detail.canal}{detail.destEmail ? ` · ${detail.destEmail}` : ''}{detail.destAdressePostale ? ` · ${detail.destAdressePostale}` : ''}{detail.destUrlFormulaire ? ` · ${detail.destUrlFormulaire}` : ''}
+          <div style={{ fontSize: 12, color: 'var(--color-svv-muted)', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span>Destinataire figé : {detail.canal}{detail.destEmail ? ` · ${detail.destEmail}` : ''}{detail.destAdressePostale ? ` · ${detail.destAdressePostale}` : ''}{detail.destUrlFormulaire ? ` · ${detail.destUrlFormulaire}` : ''}</span>
+            <OrigineDest origine={detail.destOrigine} nom={detail.destNom} />
           </div>
           {/* Bascule de profil — un clic ; sur brouillon uniquement (sinon désactivée + raison). */}
           <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
@@ -275,7 +281,7 @@ export function DemandesVue() {
           <thead>
             <tr style={{ textAlign: 'left', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
               <th style={{ padding: '.4rem .5rem' }}><input type="checkbox" aria-label="Tout sélectionner" checked={visibles.length > 0 && visibles.every((d) => sel.has(d.id))} onChange={toutSelectionner} /></th>
-              {['Référence', 'Commune', 'Profil', 'Canal', 'Dossiers', 'Statut', ''].map((h) => <th key={h} style={{ padding: '.4rem .5rem' }}>{h}</th>)}
+              {['Référence', 'Commune', 'Profil', 'Canal', 'Destinataire', 'Dossiers', 'Statut', ''].map((h) => <th key={h} style={{ padding: '.4rem .5rem' }}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
@@ -286,13 +292,14 @@ export function DemandesVue() {
                 <td style={{ padding: '.4rem .5rem' }}>{d.communeNom ?? d.codeInsee}</td>
                 <td style={{ padding: '.4rem .5rem' }}>{ETIQUETTE_PROFIL[d.profil as ProfilDemandeur] ?? d.profil}</td>
                 <td style={{ padding: '.4rem .5rem' }}>{d.canal}</td>
+                <td style={{ padding: '.4rem .5rem' }}><OrigineDest origine={d.destOrigine} nom={d.destNom} /></td>
                 <td style={{ padding: '.4rem .5rem' }}>{d.nbDossiers}</td>
                 <td style={{ padding: '.4rem .5rem' }}>{STATUT_LIBELLE[d.statut] ?? d.statut}</td>
                 <td style={{ padding: '.4rem .5rem' }}><button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }} onClick={() => void ouvrir(d.id)}>ouvrir</button></td>
               </tr>
             ))}
             {filtrees.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>{liste ? 'Aucune demande pour ces filtres. Cliquez « Préparer les demandes ».' : 'Chargement…'}</td></tr>
+              <tr><td colSpan={9} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>{liste ? 'Aucune demande pour ces filtres. Cliquez « Préparer les demandes ».' : 'Chargement…'}</td></tr>
             )}
           </tbody>
         </table>
