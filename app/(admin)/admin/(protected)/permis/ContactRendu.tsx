@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { CanalContact } from '../../../../lib/sitadel/mairieContact';
-import { CANAUX_ORDONNES, AIDE_CANAL, MENTION_TELESERVICE, EMAIL_TYPES, MENTION_ACCUEIL, problemeUrlOuverture, origineContact, originePrada, libelleEmailType, type FicheCommune } from './contactForm';
+import { CANAUX_ORDONNES, AIDE_CANAL, MENTION_TELESERVICE, EMAIL_TYPES, MENTION_ACCUEIL, problemeUrlOuverture, origineContact, originePrada, libelleEmailType, libelleStatut, libelleSource, libelleCanal, type FicheCommune } from './contactForm';
 
 /**
  * Rendu PUR du sélecteur de canal de l'éditeur de contact mairie — aucun état, aucun effet → testable en Node via
@@ -80,9 +80,11 @@ function LigneFiche({ label, valeur, origine, lien }: { label: string; valeur: s
 }
 
 /**
- * Bloc LECTURE SEULE « Ce que l'on sait de cette commune » (S21). Affiche les infos PRADA (annuaire CADA) et les champs de
- * contact non éditables ici (adresse postale quel que soit le canal, protocole, nature de l'adresse). Chaque info porte son
- * ORIGINE en TEXTE (jamais la couleur seule). Rien n'est recopié dans les champs éditables. Mobile-first.
+ * Bloc LECTURE SEULE « Ce que l'on sait de cette commune » (S21 / S22). MIROIR de ce qui est ENREGISTRÉ EN BASE : le
+ * destinataire actuel, le canal, le statut/source, les téléphones et le responsable (les champs éditables, vus côté base),
+ * puis l'adresse postale, le protocole et les infos PRADA (annuaire CADA). ⚠️ Cette fiche ne suit JAMAIS l'état d'édition :
+ * `fiche` est construite depuis la ligne en base (`construireFiche`), pas depuis le formulaire — éditer un champ ne change
+ * aucune valeur affichée ici. Chaque info porte son ORIGINE en TEXTE (jamais la couleur seule). Mobile-first.
  */
 export function BlocFicheCommune({ fiche }: { fiche: FicheCommune }) {
   const oc = origineContact(fiche.contactStatut);
@@ -91,7 +93,18 @@ export function BlocFicheCommune({ fiche }: { fiche: FicheCommune }) {
   return (
     <section role="group" aria-label="Ce que l'on sait de cette commune" className="svv-card flex flex-col gap-1"
       style={{ flex: '1 1 100%', background: 'var(--color-svv-field)', minWidth: 0 }}>
-      <strong style={{ fontSize: 12 }}>Ce que l’on sait de cette commune (lecture seule)</strong>
+      <strong style={{ fontSize: 12 }}>Ce que l’on sait de cette commune (lecture seule, état enregistré en base)</strong>
+      <LigneFiche label="Destinataire actuel" valeur={fiche.destinataireActuel} origine={oc} />
+      <LigneFiche label="Canal enregistré" valeur={fiche.canalEnregistre ? libelleCanal(fiche.canalEnregistre) : null} origine={oc} />
+      <LigneFiche label="Statut" valeur={fiche.contactStatut ? libelleStatut(fiche.contactStatut) : null} />
+      <LigneFiche label="Source" valeur={fiche.contactSource ? libelleSource(fiche.contactSource) : null} />
+      <LigneFiche label="Téléphone du service" valeur={fiche.telephone} origine={oc} />
+      <LigneFiche label="Standard de la mairie" valeur={fiche.telephoneStandard} origine={oc} />
+      <LigneFiche label="Responsable du service" valeur={fiche.responsableNom} origine={oc} />
+      <LigneFiche label="Adresse postale" valeur={fiche.adressePostale} origine={oc} />
+      <LigneFiche label="Protocole vérifié le" valeur={fiche.protocoleVerifieLe} origine={oc} />
+      <LigneFiche label="Source du protocole" valeur={fiche.protocoleSource} origine={oc} lien />
+      <LigneFiche label="Nature de l’adresse" valeur={fiche.emailType ? libelleEmailType(fiche.emailType) : null} origine={oc} />
       {aPrada ? (
         <>
           <LigneFiche label="PRADA (nom)" valeur={fiche.pradaNom} origine={opr} />
@@ -100,10 +113,6 @@ export function BlocFicheCommune({ fiche }: { fiche: FicheCommune }) {
           <LigneFiche label="PRADA (millésime)" valeur={fiche.pradaMillesime} origine={opr} />
         </>
       ) : <LigneFiche label="PRADA" valeur={null} />}
-      <LigneFiche label="Adresse postale" valeur={fiche.adressePostale} origine={oc} />
-      <LigneFiche label="Protocole vérifié le" valeur={fiche.protocoleVerifieLe} origine={oc} />
-      <LigneFiche label="Source du protocole" valeur={fiche.protocoleSource} origine={oc} lien />
-      <LigneFiche label="Nature de l’adresse" valeur={fiche.emailType ? libelleEmailType(fiche.emailType) : null} origine={oc} />
     </section>
   );
 }

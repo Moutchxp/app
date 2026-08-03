@@ -34,6 +34,7 @@ export interface DossierAffiche {
   communeNom: string | null; // nom depuis le référentiel commune (NULL si code orphelin → « commune inconnue »)
   destEmail: string | null;
   destStatut: 'presume' | 'confirme' | 'invalide' | null;
+  destSource: string | null;                 // S22 : mairie_contact.source (annuaire|saisie_manuelle|reponse_mairie)
   destCanal: 'email' | 'formulaire' | 'courrier' | 'inconnu' | null; // NULL = commune inconnue (pas de ligne contact)
   destUrlFormulaire: string | null;
   destAdressePostale: string | null;
@@ -69,6 +70,7 @@ interface LigneSql {
   commune_nom: string | null;
   dest_email: string | null;
   dest_statut: 'presume' | 'confirme' | 'invalide' | null;
+  dest_source: string | null;
   dest_canal: 'email' | 'formulaire' | 'courrier' | 'inconnu' | null;
   dest_url_formulaire: string | null;
   dest_adresse_postale: string | null;
@@ -110,7 +112,7 @@ function versAffiche(r: LigneSql, c: ConfigVeille): DossierAffiche {
     dateReelleAutorisation: r.date_reelle_autorisation, surfCreee: surf, superficieTerrain: r.superficie_terrain,
     nbLgtTotCrees: r.nb_lgt_tot_crees, adrNumTer: r.adr_num_ter, adrLibvoieTer: r.adr_libvoie_ter, adrLocaliteTer: r.adr_localite_ter, adrCodpostTer: r.adr_codpost_ter,
     cadastre: refsCadastre(r), etatDau: r.etat_dau, etatAmbigu: r.etat_ambigu, dateDoc: r.date_doc, dateDaact: r.date_daact, vuAuDernier: r.vu_au_dernier,
-    communeNom: r.commune_nom, destEmail: r.dest_email, destStatut: r.dest_statut,
+    communeNom: r.commune_nom, destEmail: r.dest_email, destStatut: r.dest_statut, destSource: r.dest_source,
     destCanal: r.dest_canal, destUrlFormulaire: r.dest_url_formulaire, destAdressePostale: r.dest_adresse_postale,
     destTelephone: r.dest_telephone, destResponsableNom: r.dest_responsable_nom, destProtocoleVerifieLe: r.dest_protocole_verifie_le,
     destTelephoneStandard: r.dest_telephone_standard, destEmailType: r.dest_email_type, destProtocoleSource: r.dest_protocole_source,

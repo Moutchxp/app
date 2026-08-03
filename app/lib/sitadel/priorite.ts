@@ -149,7 +149,7 @@ const SELECTION =
   `d.sec_cadastre1, d.num_cadastre1, d.sec_cadastre2, d.num_cadastre2, d.sec_cadastre3, d.num_cadastre3, ` +
   `d.etat_dau, d.etat_ambigu, d.date_doc::text AS date_doc, d.date_daact::text AS date_daact, ` +
   `(d.vu_le_dernier_millesime = (SELECT max(code) FROM sitadel_millesime)) AS vu_au_dernier, ` +
-  `c.nom AS commune_nom, mc.email AS dest_email, mc.statut AS dest_statut, ` +
+  `c.nom AS commune_nom, mc.email AS dest_email, mc.statut AS dest_statut, mc.source AS dest_source, ` +
   `mc.canal AS dest_canal, mc.url_formulaire AS dest_url_formulaire, mc.adresse_postale AS dest_adresse_postale, ` +
   // S18 : protocole (téléphone / responsable / date de dernière vérification) pour l'éditeur de contact.
   `mc.telephone AS dest_telephone, mc.responsable_nom AS dest_responsable_nom, mc.protocole_verifie_le::text AS dest_protocole_verifie_le, ` +

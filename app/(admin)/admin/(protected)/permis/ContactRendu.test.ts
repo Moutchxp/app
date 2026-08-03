@@ -101,13 +101,26 @@ describe('S19 — BoutonOuvrirLien', () => {
   });
 });
 
-describe('S21 — BlocFicheCommune (lecture seule, origine en texte)', () => {
+describe('S21/S22 — BlocFicheCommune (lecture seule, origine en texte, reflet de la base)', () => {
   const pleine: FicheCommune = {
-    contactStatut: 'presume', adressePostale: '1 place de la Mairie', protocoleSource: 'clamart.fr/urbanisme',
+    destinataireActuel: 'urba@clamart.fr', canalEnregistre: 'email', contactStatut: 'presume', contactSource: 'annuaire',
+    telephone: '01 11 11 11 11', telephoneStandard: '01 22 22 22 22', responsableNom: 'Nom Service',
+    adressePostale: '1 place de la Mairie', protocoleSource: 'clamart.fr/urbanisme',
     protocoleVerifieLe: '2026-08-03', emailType: 'urbanisme',
     pradaCourriel: 'prada@paris.fr', pradaNom: 'Charles Chenel', pradaAdresse: '6 promenade…', pradaMillesime: '2026-07',
     pradaOrigine: 'annuaire_cada', pradaStatut: 'presume', pradaRapprochement: 'automatique',
   };
+  it('affiche le destinataire enregistré + canal/statut/source/téléphones/responsable (miroir de la base)', () => {
+    const h = renderToStaticMarkup(createElement(BlocFicheCommune, { fiche: pleine }));
+    expect(h).toContain('Destinataire actuel');
+    expect(h).toContain('urba@clamart.fr');          // e-mail enregistré (destinataire)
+    expect(h).toContain('e-mail');                    // libellé du canal enregistré
+    expect(h).toContain('Source');
+    expect(h).toContain('annuaire');                  // libellé de la source
+    expect(h).toContain('01 11 11 11 11');            // téléphone du service
+    expect(h).toContain('01 22 22 22 22');            // standard
+    expect(h).toContain('Nom Service');               // responsable
+  });
   it('affiche les infos PRADA + contact, avec leur origine en TEXTE', () => {
     const h = renderToStaticMarkup(createElement(BlocFicheCommune, { fiche: pleine }));
     expect(h).toContain('Charles Chenel');
@@ -126,7 +139,9 @@ describe('S21 — BlocFicheCommune (lecture seule, origine en texte)', () => {
   });
   it('information absente → « non renseigné », jamais un champ vide', () => {
     const vide: FicheCommune = {
-      contactStatut: null, adressePostale: null, protocoleSource: null, protocoleVerifieLe: null, emailType: null,
+      destinataireActuel: null, canalEnregistre: null, contactStatut: null, contactSource: null,
+      telephone: null, telephoneStandard: null, responsableNom: null,
+      adressePostale: null, protocoleSource: null, protocoleVerifieLe: null, emailType: null,
       pradaCourriel: null, pradaNom: null, pradaAdresse: null, pradaMillesime: null, pradaOrigine: null, pradaStatut: null, pradaRapprochement: null,
     };
     const h = renderToStaticMarkup(createElement(BlocFicheCommune, { fiche: vide }));

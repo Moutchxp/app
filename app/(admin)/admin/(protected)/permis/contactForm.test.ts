@@ -1,20 +1,88 @@
 import { describe, it, expect } from 'vitest';
-import { corpsPatchContact, noteAuChangementCanal, problemeContactUI, editionInitiale, CANAUX_ORDONNES, problemeUrlOuverture, origineContact, originePrada, libelleEmailType } from './contactForm';
+import { corpsPatchContact, corpsAdoptionPrada, noteAuChangementCanal, problemeContactUI, editionInitiale, construireFiche, CANAUX_ORDONNES, problemeUrlOuverture, origineContact, originePrada, libelleEmailType, libelleStatut, libelleSource, libelleCanal } from './contactForm';
 
 describe('S21 — INVARIANT : la PRADA n’est JAMAIS recopiée dans un champ éditable de contact', () => {
   it('editionInitiale : responsableNom vient de mairie_contact, JAMAIS de la PRADA ; l’e-mail non plus', () => {
-    const e = editionInitiale({
-      codeInsee: '92050', communeNom: 'Nanterre', destCanal: 'email', destEmail: 'mairie@nanterre.fr',
+    const d = {
+      codeInsee: '92050', communeNom: 'Nanterre', destCanal: 'email' as const, destEmail: 'mairie@nanterre.fr',
       destUrlFormulaire: null, destAdressePostale: null, destResponsableNom: null,
       destPradaNom: 'Jean PRADA', destPradaCourriel: 'prada@x.fr', destPradaAdresse: '1 rue X', destPradaMillesime: '2026-07',
       destPradaOrigine: 'annuaire_cada', destPradaStatut: 'presume', destPradaRapprochement: 'automatique',
-    });
+    };
+    const e = editionInitiale(d);
     expect(e.responsableNom).toBe('');                 // PAS 'Jean PRADA'
     expect(e.telephone).toBe('');                       // ni ailleurs
     expect(e.email).toBe('mairie@nanterre.fr');         // e-mail = contact, pas PRADA
-    // la PRADA n'existe QUE dans la fiche lecture seule
-    expect(e.fiche.pradaNom).toBe('Jean PRADA');
-    expect(e.fiche.pradaCourriel).toBe('prada@x.fr');
+    // la PRADA n'existe QUE dans la fiche lecture seule (état SÉPARÉ, construit depuis la base)
+    const fiche = construireFiche(d);
+    expect(fiche.pradaNom).toBe('Jean PRADA');
+    expect(fiche.pradaCourriel).toBe('prada@x.fr');
+  });
+});
+
+describe('S22 — A : la fiche vient EXCLUSIVEMENT de la base, jamais de l’état d’édition', () => {
+  const d = {
+    codeInsee: '92050', communeNom: 'Nanterre', destCanal: 'email' as const, destEmail: 'mairie@nanterre.fr',
+    destUrlFormulaire: null, destAdressePostale: 'BASU, 3 rue X', destStatut: 'presume', destSource: 'annuaire',
+    destTelephone: '01 11 11 11 11', destTelephoneStandard: '01 22 22 22 22', destResponsableNom: 'Nom Service', destEmailType: 'urbanisme',
+  };
+  it('construireFiche reflète la ligne en base (destinataire, canal, statut, source, téléphones, responsable)', () => {
+    const f = construireFiche(d);
+    expect(f.destinataireActuel).toBe('mairie@nanterre.fr');
+    expect(f.canalEnregistre).toBe('email');
+    expect(f.contactStatut).toBe('presume');
+    expect(f.contactSource).toBe('annuaire');
+    expect(f.telephone).toBe('01 11 11 11 11');
+    expect(f.telephoneStandard).toBe('01 22 22 22 22');
+    expect(f.responsableNom).toBe('Nom Service');
+    expect(f.adressePostale).toBe('BASU, 3 rue X');
+  });
+  it('construireFiche ne prend QUE la base : éditer le formulaire (canal, e-mail) ne change AUCUNE valeur de la fiche', () => {
+    const avant = construireFiche(d);
+    // on « édite » : nouveau canal, nouvel e-mail — construireFiche ne voit pas cet état, il relit la même base
+    const edition = editionInitiale(d);
+    const edite = { ...edition, canal: 'courrier' as const, email: 'autre@zzz.fr' };
+    void edite; // l'état d'édition n'est JAMAIS un paramètre de construireFiche
+    expect(construireFiche(d)).toEqual(avant);
+  });
+  it('champs absents en base → null (jamais chaîne vide dans la fiche)', () => {
+    const f = construireFiche({ codeInsee: '78475', communeNom: 'Osmoy', destCanal: null, destEmail: null, destUrlFormulaire: null, destAdressePostale: null });
+    expect(f.destinataireActuel).toBeNull();
+    expect(f.canalEnregistre).toBeNull();
+    expect(f.contactSource).toBeNull();
+    expect(f.telephone).toBeNull();
+  });
+});
+
+describe('S22 — libellés lecture seule (texte, jamais couleur)', () => {
+  it('libelleStatut / libelleSource / libelleCanal', () => {
+    expect(libelleStatut('confirme')).toBe('confirmé');
+    expect(libelleStatut(null)).toBe('non renseigné');
+    expect(libelleSource('saisie_manuelle')).toBe('saisie manuelle');
+    expect(libelleSource('annuaire')).toBe('annuaire');
+    expect(libelleSource(null)).toBe('non renseigné');
+    expect(libelleCanal('email')).toBe('e-mail');
+    expect(libelleCanal(null)).toBe('non renseigné');
+  });
+});
+
+describe('S22 — D : corpsAdoptionPrada ne touche que e-mail + nature + canal, et PRÉSERVE la BASU en note', () => {
+  const base = { code: '75056', canal: 'courrier', email: 'ancien@mairie.fr', urlFormulaire: '', adressePostale: 'BASU, 6 promenade…',
+    note: '', telephone: '01 42 76 40 40', responsableNom: 'Chenel', telephoneStandard: '01 42 76 40 00', emailType: '' };
+  it('adopter la PRADA : e-mail=courriel PRADA, nature=prada, canal=email ; téléphone/responsable/standard INCHANGÉS', () => {
+    const corps = corpsAdoptionPrada(base, 'prada@paris.fr', 'courrier', 'BASU, 6 promenade…');
+    expect(corps.email).toBe('prada@paris.fr');
+    expect(corps.emailType).toBe('prada');
+    expect(corps.canal).toBe('email');                       // nécessaire au routage — explicité dans la confirmation
+    expect(corps.telephone).toBe('01 42 76 40 40');          // pas touché
+    expect(corps.responsableNom).toBe('Chenel');             // pas touché
+    expect(corps.telephoneStandard).toBe('01 42 76 40 00');  // pas touché
+    // la BASU en base (canal courrier) est conservée en note — pas perdue par le passage à canal='email'
+    expect(corps.note).toBe('Ancienne adresse courrier : BASU, 6 promenade…');
+  });
+  it('ne pré-remplit pas la note si l’utilisateur en a déjà saisi une (jamais d’écrasement)', () => {
+    const corps = corpsAdoptionPrada({ ...base, note: 'ma note' }, 'prada@paris.fr', 'courrier', 'BASU');
+    expect(corps.note).toBe('ma note');
   });
 });
 
