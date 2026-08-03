@@ -55,4 +55,13 @@ describe('S14e — CarteAmbiguite (colonnes brutes, mobile-first)', () => {
     expect(h).toContain('(vide)'); // courriel vide explicitement signalé
     expect(h).toContain('2026-07');
   });
+
+  it('le message de retour (children) est rendu DANS la carte, après les colonnes', () => {
+    const message = createElement('span', { role: 'alert' }, 'Refusé : code INSEE invalide.');
+    const h = renderToStaticMarkup(createElement(CarteAmbiguite, { a: amb }, message));
+    expect(h).toContain('Refusé : code INSEE invalide.');
+    expect(h).toContain('role="alert"');
+    // le message vient bien APRÈS le nom de l'administration (donc dans la même carte, sous les infos)
+    expect(h.indexOf('Refusé')).toBeGreaterThan(h.indexOf('Mairie de Saint-Ouen'));
+  });
 });

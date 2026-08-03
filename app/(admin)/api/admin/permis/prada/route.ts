@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { lireArbitrages, lireAmbiguites, rattacherManuel, ecarterHorsPerimetre, PradaImportIntrouvableError } from '../../../../../lib/sitadel/pradaAdmin';
+import { lireArbitrages, lireAmbiguites, rattacherManuel, ecarterHorsPerimetre, estIdentifiantValide, PradaImportIntrouvableError } from '../../../../../lib/sitadel/pradaAdmin';
 
 /**
  * /api/admin/permis/prada (chantier S14e). GET = arbitrages (PRADA disponible mais contact confirmé conservé) + lignes
@@ -25,8 +25,8 @@ export async function POST(request: Request): Promise<Response> {
   if ('refus' in garde) return garde.refus;
   try {
     const c = (await request.json()) as { action?: unknown; importId?: unknown; codeInsee?: unknown };
-    const importId = Number.isInteger(c.importId) ? (c.importId as number) : NaN;
-    if (!Number.isInteger(importId)) return Response.json({ erreur: 'importId invalide' }, { status: 400 });
+    if (!estIdentifiantValide(c.importId)) return Response.json({ erreur: 'importId invalide' }, { status: 400 });
+    const importId = c.importId;
     const auteur = garde.auteurId === null ? null : String(garde.auteurId);
 
     if (c.action === 'rattacher') {

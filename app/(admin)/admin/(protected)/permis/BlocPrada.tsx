@@ -19,7 +19,8 @@ export function BlocPrada() {
   const [ambiguites, setAmbiguites] = useState<AmbiguiteAffiche[]>([]);
   const [communes, setCommunes] = useState<CommuneRef[]>([]);
   const [lignes, setLignes] = useState<Record<number, EtatLigne>>({});
-  const [msg, setMsg] = useState('');
+  const [okMsg, setOkMsg] = useState('');                       // confirmation de succès (la carte concernée a disparu)
+  const [errLigne, setErrLigne] = useState<Record<number, string>>({}); // échec affiché DANS la carte concernée
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
@@ -58,12 +59,21 @@ export function BlocPrada() {
   const nomCommune = (code: string): string => communes.find((c) => c.code === code)?.nom ?? code;
 
   async function agir(importId: number, body: Record<string, unknown>, ok: string): Promise<void> {
-    setMsg('');
+    setOkMsg('');
+    setErrLigne((s) => { const n = { ...s }; delete n[importId]; return n; });
     try {
       const res = await fetch('/api/admin/permis/prada', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ importId, ...body }) });
-      if (res.ok) { setMsg(ok); setVersion((v) => v + 1); }
-      else { const d = (await res.json().catch(() => ({}))) as { erreur?: string }; setMsg(d.erreur ? `Refusé : ${d.erreur}.` : 'Action refusée.'); }
-    } catch { setMsg('Action impossible.'); }
+      if (res.ok) {
+        setAmbiguites((prev) => prev.filter((x) => x.id !== importId)); // la carte disparaît + compteur à jour, sans reload
+        setOkMsg(ok);
+        setVersion((v) => v + 1); // reconcilie (liste autoritative + arbitrages, ex. si le rattachement crée un arbitrage)
+      } else {
+        const d = (await res.json().catch(() => ({}))) as { erreur?: string };
+        setErrLigne((s) => ({ ...s, [importId]: d.erreur ? `Refusé : ${d.erreur}.` : 'Action refusée.' }));
+      }
+    } catch {
+      setErrLigne((s) => ({ ...s, [importId]: 'Action impossible.' }));
+    }
   }
 
   const arbitragesMemo = useMemo(() => arbitrages, [arbitrages]);
@@ -78,7 +88,7 @@ export function BlocPrada() {
           <div style={{ fontSize: 13 }}>
             <strong>{ambiguites.length} rapprochement(s) ambigu(s)</strong> — aucune commune du périmètre ne correspond exactement au nom. Rattachez à la main, ou écartez si ce n’est pas une commune du périmètre.
           </div>
-          {msg && <span role="status" style={{ fontSize: 13, color: 'var(--color-svv-green-ink)' }}>{msg}</span>}
+          {okMsg && <span role="status" style={{ fontSize: 13, color: 'var(--color-svv-green-ink)' }}>{okMsg}</span>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
             {ambiguites.map((a) => {
               const et = lignes[a.id] ?? { recherche: '', codeSel: null };
@@ -109,6 +119,8 @@ export function BlocPrada() {
                       <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }}
                         onClick={() => void agir(a.id, { action: 'ecarter' }, 'Ligne écartée (hors périmètre).')}>Écarter (hors périmètre)</button>
                     </div>
+                    {/* Retour affiché DANS la carte, sous le bouton cliqué (le succès, lui, fait disparaître la carte). */}
+                    {errLigne[a.id] && <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{errLigne[a.id]}</span>}
                   </div>
                 </CarteAmbiguite>
               );

@@ -22,6 +22,23 @@ export const SQL_LIGNE_IMPORT = `SELECT nom, prenom, courriel, adresse, millesim
 export const SQL_RATTACHER_MANUEL = `UPDATE prada_import SET code_insee = $1, rapprochement = 'manuel' WHERE id = $2`;
 /** Écarter définitivement une ligne qui n'est pas une commune du périmètre. */
 export const SQL_ECARTER = `UPDATE prada_import SET rapprochement = 'hors_perimetre', code_insee = NULL WHERE id = $1`;
+/**
+ * Lignes ambiguës exposées au client. ⚠️ `id::int` : `prada_import.id` est un bigint que node-postgres rend en CHAÎNE
+ * (défaut int8) ; sans cast, l'identifiant arriverait côté client en string et serait rejeté par la validation stricte de
+ * la route (`estIdentifiantValide`). Le cast le rend en nombre JSON (même convention que les `count(*)::int` du module ;
+ * volumétrie de l'annuaire << 2^31).
+ */
+export const SQL_AMBIGUITES = `SELECT id::int AS id, nom_administration, departement, code_postal_ville, courriel, adresse, prenom, nom, millesime
+     FROM prada_import WHERE rapprochement = 'ambigu' ORDER BY nom_administration NULLS LAST, id`;
+
+/**
+ * Validation STRICTE d'un identifiant de ligne reçu du client : DOIT être un entier JS. Un bigint sérialisé en chaîne
+ * (« 1634 ») est REFUSÉ — on ne rattache jamais sur une ligne indéterminée. La source (lireAmbiguites) caste `id::int` pour
+ * que l'identifiant soit bien un nombre ; ce garde reste la barrière côté route.
+ */
+export function estIdentifiantValide(x: unknown): x is number {
+  return Number.isInteger(x);
+}
 
 export class PradaImportIntrouvableError extends Error {
   constructor(public importId: number) { super(`ligne prada_import ${importId} introuvable`); this.name = 'PradaImportIntrouvableError'; }
@@ -58,10 +75,7 @@ export interface LigneAmbigue {
 
 /** Lignes prada_import non tranchées (rapprochement = 'ambigu') — à rattacher à la main. */
 export async function lireAmbiguites(): Promise<LigneAmbigue[]> {
-  const { rows } = await query<{ id: number; nom_administration: string | null; departement: string | null; code_postal_ville: string | null; courriel: string | null; adresse: string | null; prenom: string | null; nom: string | null; millesime: string }>(
-    `SELECT id, nom_administration, departement, code_postal_ville, courriel, adresse, prenom, nom, millesime
-     FROM prada_import WHERE rapprochement = 'ambigu' ORDER BY nom_administration NULLS LAST, id`,
-  );
+  const { rows } = await query<{ id: number; nom_administration: string | null; departement: string | null; code_postal_ville: string | null; courriel: string | null; adresse: string | null; prenom: string | null; nom: string | null; millesime: string }>(SQL_AMBIGUITES);
   return rows.map((r) => ({
     id: r.id, nomAdministration: r.nom_administration, departement: r.departement, codePostalVille: r.code_postal_ville,
     courriel: r.courriel, adresse: r.adresse, prenom: r.prenom, nom: r.nom, millesime: r.millesime,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Requete } from './mairieContact';
-import { rattacherManuelTx, SQL_RATTACHER_MANUEL, SQL_ECARTER, SQL_LIGNE_IMPORT } from './pradaAdmin';
+import { rattacherManuelTx, estIdentifiantValide, SQL_RATTACHER_MANUEL, SQL_ECARTER, SQL_LIGNE_IMPORT, SQL_AMBIGUITES } from './pradaAdmin';
 
 /** Faux `q` (transaction) journalisant chaque requête pour vérifier la SÉQUENCE et les invariants, sans base. */
 function fauxQ(opts: { pradaExistante?: { courriel: string | null; protegee?: boolean } } = {}) {
@@ -59,5 +59,19 @@ describe('S14e — rattachement manuel (invariants)', () => {
 
   it('lit la ligne source avant d’alimenter mairie_prada', () => {
     expect(SQL_LIGNE_IMPORT).toContain('FROM prada_import WHERE id = $1');
+  });
+});
+
+describe('S14e — cause du « importId invalide » : bigint sérialisé en chaîne', () => {
+  it('la sélection des ambiguïtés caste id::int → identifiant rendu en NOMBRE JSON (pas une chaîne)', () => {
+    expect(SQL_AMBIGUITES).toContain('id::int AS id'); // sans ce cast, prada_import.id (bigint) arrive en string
+  });
+
+  it('la route exige un ENTIER JS : « 12 » (chaîne, forme d’un bigint sérialisé) est REFUSÉ, la validation reste stricte', () => {
+    expect(estIdentifiantValide(12)).toBe(true);        // la forme attendue par la route
+    expect(estIdentifiantValide('12')).toBe(false);     // la forme fautive avant correctif → toujours refusée
+    expect(estIdentifiantValide(undefined)).toBe(false);// absent → refusé (jamais de rattachement indéterminé)
+    expect(estIdentifiantValide(1.5)).toBe(false);
+    expect(estIdentifiantValide(null)).toBe(false);
   });
 });
