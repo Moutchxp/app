@@ -20,6 +20,7 @@ export interface ContactExistant {
   responsableNom?: string | null;  // S18
   telephoneStandard?: string | null; // S19 : standard de la mairie
   emailType?: string | null;         // S19 : nature de l'adresse (urbanisme|accueil|prada|inconnu)
+  note?: string | null;              // S24 : lue pour préserver la note lorsqu'un appelant l'omet
 }
 
 // ── Validation & choix d'adresse (pur) ───────────────────────────────────────
@@ -108,11 +109,11 @@ export type Requete = <R = Record<string, unknown>>(text: string, params?: unkno
 
 /** Lit le contact courant d'une commune (pour la règle d'import et l'email_avant du journal). `null` si aucun. */
 export async function lireContact(q: Requete, codeInsee: string): Promise<ContactExistant | null> {
-  const r = await q<{ email: string | null; source: SourceContact; statut: StatutContact; canal: CanalContact; url_formulaire: string | null; adresse_postale: string | null; telephone?: string | null; responsable_nom?: string | null; telephone_standard?: string | null; email_type?: string | null }>(
-    `SELECT email, source, statut, canal, url_formulaire, adresse_postale, telephone, responsable_nom, telephone_standard, email_type FROM mairie_contact WHERE code_insee = $1`, [codeInsee],
+  const r = await q<{ email: string | null; source: SourceContact; statut: StatutContact; canal: CanalContact; url_formulaire: string | null; adresse_postale: string | null; telephone?: string | null; responsable_nom?: string | null; telephone_standard?: string | null; email_type?: string | null; note?: string | null }>(
+    `SELECT email, source, statut, canal, url_formulaire, adresse_postale, telephone, responsable_nom, telephone_standard, email_type, note FROM mairie_contact WHERE code_insee = $1`, [codeInsee],
   );
   const x = r.rows[0];
-  return x ? { email: x.email, source: x.source, statut: x.statut, canal: x.canal, urlFormulaire: x.url_formulaire, adressePostale: x.adresse_postale, telephone: x.telephone ?? null, responsableNom: x.responsable_nom ?? null, telephoneStandard: x.telephone_standard ?? null, emailType: x.email_type ?? null } : null;
+  return x ? { email: x.email, source: x.source, statut: x.statut, canal: x.canal, urlFormulaire: x.url_formulaire, adressePostale: x.adresse_postale, telephone: x.telephone ?? null, responsableNom: x.responsable_nom ?? null, telephoneStandard: x.telephone_standard ?? null, emailType: x.email_type ?? null, note: x.note ?? null } : null;
 }
 
 export interface EcritureContact {
@@ -137,19 +138,29 @@ export interface EcritureContact {
  * ou 1re création) → idempotent (rejouer à l'identique ne fait RIEN). Quand il écrit : une ligne de journal
  * (email_avant→email_apres) PUIS l'upsert du registre — jamais l'un sans l'autre. À exécuter dans une TRANSACTION
  * (l'appelant fournit un `q` transactionnel). Retourne `{ change }`.
+ *
+ * S24 — INVARIANT ANTI-EFFACEMENT PAR OMISSION : l'UPSERT écrase chaque colonne par `EXCLUDED.*`. Pour qu'aucun appelant
+ * (présent ou futur) ne puisse détruire une colonne en ne la mentionnant PAS, chaque champ optionnel ABSENT (`undefined`)
+ * CONSERVE la valeur existante ; seule une valeur EXPLICITEMENT `null` l'efface. « Absent » ≠ « vidé » : l'effacement reste
+ * possible, mais devient un acte délibéré. (email/source/statut/canal restent obligatoires → toujours fournis.)
  */
 export async function ecrireContact(q: Requete, e: EcritureContact): Promise<{ change: boolean }> {
-  const url = e.urlFormulaire ?? null;
-  const adr = e.adressePostale ?? null;
-  const tel = e.telephone ?? null;
-  const resp = e.responsableNom ?? null;
-  const telStd = e.telephoneStandard ?? null;
-  const emailType = e.emailType ?? null;
   const avant = await lireContact(q, e.codeInsee);
+  // Résout un champ optionnel : `undefined` (absent) → garde l'existant ; sinon (string ou null) → valeur fournie.
+  const garder = <T>(fourni: T | null | undefined, existant: T | null | undefined): T | null =>
+    (fourni === undefined ? (existant ?? null) : fourni);
+  const url = garder(e.urlFormulaire, avant?.urlFormulaire);
+  const adr = garder(e.adressePostale, avant?.adressePostale);
+  const tel = garder(e.telephone, avant?.telephone);
+  const resp = garder(e.responsableNom, avant?.responsableNom);
+  const telStd = garder(e.telephoneStandard, avant?.telephoneStandard);
+  const emailType = garder(e.emailType, avant?.emailType);
+  const note = garder(e.note, avant?.note);
   const inchange = avant !== null && avant.email === e.email && avant.source === e.source && avant.statut === e.statut
     && avant.canal === e.canal && avant.urlFormulaire === url && avant.adressePostale === adr
     && (avant.telephone ?? null) === tel && (avant.responsableNom ?? null) === resp        // S18
-    && (avant.telephoneStandard ?? null) === telStd && (avant.emailType ?? null) === emailType; // S19
+    && (avant.telephoneStandard ?? null) === telStd && (avant.emailType ?? null) === emailType // S19
+    && (avant.note ?? null) === note; // S24 : un changement de note seule doit aussi écrire
   if (inchange) return { change: false };
 
   await q(
@@ -167,7 +178,7 @@ export async function ecrireContact(q: Requete, e: EcritureContact): Promise<{ c
        url_formulaire = EXCLUDED.url_formulaire, adresse_postale = EXCLUDED.adresse_postale, maj_le = now(), note = EXCLUDED.note,
        telephone = EXCLUDED.telephone, responsable_nom = EXCLUDED.responsable_nom, protocole_verifie_le = CURRENT_DATE,
        telephone_standard = EXCLUDED.telephone_standard, email_type = EXCLUDED.email_type`,
-    [e.codeInsee, e.email, e.source, e.statut, e.canal, url, adr, e.note ?? null, tel, resp, telStd, emailType],
+    [e.codeInsee, e.email, e.source, e.statut, e.canal, url, adr, note, tel, resp, telStd, emailType],
   );
   return { change: true };
 }
