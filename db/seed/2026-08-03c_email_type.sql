@@ -8,7 +8,9 @@
 -- ecrireContact (e-mail INCHANGÉ). auteur = NULL (hors interface).
 --
 -- GARDES :
---   • email / canal / source / statut / adresse_postale / telephone / … ABSENTS du SET → jamais écrasés.
+--   • NE CRÉE JAMAIS de ligne : POSE email_type par UPDATE sur des lignes existantes uniquement (cible joint mairie_contact).
+--     Une commune sans contact n'est pas jointe → ignorée silencieusement (jamais un contact vide inventé).
+--   • email / canal / source / statut / adresse_postale / telephone / … hors du SET → jamais écrasés.
 --   • Idempotence : marqueur `email_type IS DISTINCT FROM` la valeur cible → rejouer ne touche plus rien, aucun doublon de
 --     journal. (« Le travail humain prime » : si un humain a posé une autre valeur, elle diffère → hélas re-posée ; mais ces
 --     10 adresses sont vérifiées et la valeur est stable — pas de coalesce ici, la valeur EST la décision.)
@@ -47,10 +49,14 @@ journal AS (
   FROM cible c
   RETURNING 1
 )
--- 2) Upsert. ⚠️ SEUL email_type est dans le SET → rien d'autre n'est écrasé.
-INSERT INTO mairie_contact (code_insee, email_type, maj_le)
-SELECT code_insee, email_type, now() FROM cible
-ON CONFLICT (code_insee) DO UPDATE SET email_type = EXCLUDED.email_type, maj_le = now();
+-- 2) Pose email_type par UPDATE — JAMAIS d'INSERT (ce seed ne crée aucune ligne). `cible` joint déjà `mairie_contact`,
+--    donc l'UPDATE n'agit que sur des lignes EXISTANTES ; une commune sans contact n'est pas jointe → ignorée en silence.
+--    ⚠️ Un INSERT ... ON CONFLICT échouerait : PostgreSQL évalue les CHECK sur le tuple TENTÉ à l'insertion AVANT de
+--    résoudre le conflit, et un tuple partiel prendrait canal = DEFAULT 'email' + email NULL → viole
+--    mairie_contact_coherence_chk (051:28-32). SEUL email_type est modifié → rien d'autre n'est écrasé.
+UPDATE mairie_contact mc SET email_type = c.email_type, maj_le = now()
+FROM cible c
+WHERE mc.code_insee = c.code_insee;
 
 COMMIT;
 
@@ -62,6 +68,9 @@ COMMIT;
 --    ORDER BY email_type, code_insee;
 --   -- (b) email_type reste NULL ailleurs (honnête) :
 --   SELECT count(*) FILTER (WHERE email_type IS NULL) AS nuls, count(*) AS total FROM mairie_contact;
+--   -- (b bis) communes de la liste SANS ligne de contact (ignorées silencieusement — attendu : 0 ici, les 10 en ont une) :
+--   SELECT code FROM (VALUES ('78646'),('78322'),('78575'),('78571'),('78475'),('92004'),('93001'),('93063'),('93015'),('78238')) v(code)
+--    WHERE NOT EXISTS (SELECT 1 FROM mairie_contact mc WHERE mc.code_insee = v.code);
 --   -- (c) journal : 1 ligne par commune, aucun doublon si on rejoue :
 --   SELECT code_insee, count(*) FROM mairie_contact_journal
 --    WHERE motif = 'Nature de l''adresse e-mail qualifiée manuellement (recherche manuelle, 03/08/2026)'

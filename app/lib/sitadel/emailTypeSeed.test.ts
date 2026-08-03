@@ -21,12 +21,14 @@ describe('S19 — migration 067 (additive, idempotente)', () => {
 });
 
 describe('S19 — seed email_type', () => {
-  const set = seed.slice(seed.indexOf('DO UPDATE SET'));
-  const clause = set.slice(0, set.indexOf(';'));
-  it('le DO UPDATE SET ne pose QUE email_type (n’écrase ni email ni canal)', () => {
-    expect(clause).toContain('email_type = EXCLUDED.email_type');
-    expect(clause).not.toMatch(/\bemail\s*=\s*EXCLUDED/); // pas d'email = ... (le mot email_type ne compte pas : \bemail\s*=)
-    expect(clause).not.toMatch(/\bcanal\s*=/);
+  // SQL réel (hors lignes de commentaire `--`, qui citent volontairement « ON CONFLICT » pour l'expliquer).
+  const code = seed.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+  it('CAUSE VERROUILLÉE : ne crée JAMAIS de ligne — UPDATE, pas INSERT ... ON CONFLICT dans mairie_contact', () => {
+    expect(code).not.toContain('ON CONFLICT');                 // un INSERT..ON CONFLICT échouait sur le CHECK de cohérence
+    expect(code).not.toContain('INSERT INTO mairie_contact ('); // seule écriture INSERT tolérée : mairie_contact_journal
+    expect(code).toContain('UPDATE mairie_contact');
+    expect(code).toMatch(/SET\s+email_type\s*=\s*c\.email_type/); // pose SEULEMENT email_type
+    expect(code).not.toMatch(/SET[^;]*\bcanal\s*=/);             // n'écrase pas le canal
   });
   it('9 communes urbanisme + Flins (78238) accueil', () => {
     for (const code of ['78646', '78322', '78575', '78571', '78475', '92004', '93001', '93063', '93015']) expect(seed).toContain(`'${code}'`);
