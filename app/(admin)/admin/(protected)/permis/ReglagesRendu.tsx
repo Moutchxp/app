@@ -50,3 +50,36 @@ export function PlageParam({ param, bornes }: { param: ParamVeille; bornes?: Bor
   }
   return <span style={style}>Plage autorisée : {bornes.min} – {bornes.max}{param.unite ? ` ${param.unite}` : ''}</span>;
 }
+
+// ── Carte d'un paramètre ENTIER (S33) ────────────────────────────────────────
+const styleLabelCarte: CSSProperties = { fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' };
+const styleAideCarte: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)', lineHeight: 1.4 };
+const styleInputCarte: CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '.4rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14, fontFamily: 'inherit' };
+const styleErreurCarte: CSSProperties = { fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 };
+
+/**
+ * Carte d'édition d'un paramètre ENTIER (S33 — les 8 réglages « Classification et affichage des dossiers » sont tous des
+ * entiers). PURE : la valeur et les gestionnaires sont fournis par le composant client appelant (état lifté). La plage
+ * autorisée vient des CHECK de la base via `PlageParam` (jamais recopiée). L'erreur est un TEXTE (jamais une couleur seule).
+ */
+export function CarteReglageEntier({ param, bornes, valeur, onValeur, onEnregistrer, message, erreur }: {
+  param: ParamVeille; bornes?: Bornes; valeur: string;
+  onValeur: (v: string) => void; onEnregistrer: () => void; message?: string; erreur?: string;
+}) {
+  return (
+    <article className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
+      <span style={styleLabelCarte}>{param.libelle}</span>
+      <span style={styleAideCarte}>{param.aide}</span>
+      <label className="flex flex-col gap-1" style={{ marginTop: '.2rem' }}>
+        <input type="number" value={valeur} min={bornes?.min} max={bornes?.max} step={1}
+          onChange={(e) => onValeur(e.target.value)} style={styleInputCarte} aria-label={param.libelle} />
+        <PlageParam param={param} bornes={bornes} />
+      </label>
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={onEnregistrer}>Enregistrer</button>
+        {message && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{message}</span>}
+      </div>
+      {erreur && <span role="alert" style={styleErreurCarte}>{erreur}</span>}
+    </article>
+  );
+}

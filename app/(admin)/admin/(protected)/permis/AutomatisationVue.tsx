@@ -4,6 +4,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { messageDemandeManuelle, type RunVeille } from '../../../../lib/sitadel/planification';
 import type { BornesParColonne, ErreurReglage } from '../../../../lib/sitadel/reglagesVeille';
 import { BandeauEtat, AvertissementOrdonnanceur, AlerteEchecs, AlerteMillesimeFige, LigneHistorique } from './AutomatisationRendu';
+import { ClassificationDossiers } from './ClassificationDossiers';
 
 /**
  * Onglet « Automatisation » de la tuile Permis (chantier S11b). Pilote la veille automatique SANS code : interrupteur,
@@ -142,6 +143,11 @@ export function AutomatisationVue() {
       </section>
 
       {erreur && <p role="alert" style={styleErreur}>{erreur}</p>}
+
+      {/* S33 — « Classification et affichage des dossiers » : ces 8 réglages classent/ordonnent la LISTE des dossiers ;
+          ils relèvent donc de ce groupe (« Mise à jour des dossiers »), pas de l'onglet Réglages (« Demandes aux mairies »)
+          où ils vivaient. Propriétaire inchangé : la route /reglages (mêmes invariants). */}
+      <ClassificationDossiers />
 
       {/* Historique des 20 derniers passages */}
       <section className="flex flex-col gap-2">

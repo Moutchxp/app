@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { BandeauIdentite, PlageParam, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES } from './ReglagesRendu';
+import { BandeauIdentite, PlageParam, CarteReglageEntier, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES } from './ReglagesRendu';
 import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES } from '../../../../lib/sitadel/reglagesVeille';
 import { problemesIdentite } from '../../../../lib/sitadel/demande';
 
@@ -101,5 +101,40 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     const h = renderToStaticMarkup(createElement(PlageParam, { param: dila, bornes: undefined }));
     expect(h).toContain('http');                 // format annoncé
     expect(h).not.toContain('introuvable');       // PAS l'erreur « plage introuvable » (une URL n'a pas de bornes)
+  });
+});
+
+describe('S33 — les 8 réglages « dossiers » migrent, CarteReglageEntier les rend', () => {
+  it('les 8 paramètres de PARAMS_DOSSIERS sont TOUS des entiers (rendus par CarteReglageEntier)', () => {
+    expect(PARAMS_DOSSIERS.map((p) => p.colonne)).toEqual([
+      'seuil_logements_immeuble', 'seuil_surface_immeuble_m2', 'annees_par_defaut',
+      'rang_immeuble_neuf', 'rang_surelevation', 'rang_construction_neuve', 'rang_extension', 'rang_demolition',
+    ]);
+    expect(PARAMS_DOSSIERS.every((p) => p.type === 'entier')).toBe(true);
+  });
+
+  it('CarteReglageEntier : input number borné (min/max des CHECK), libellé, plage, bouton — sans couleur seule', () => {
+    const surface = PARAMS_DOSSIERS.find((p) => p.colonne === 'seuil_surface_immeuble_m2')!;
+    const h = renderToStaticMarkup(createElement(CarteReglageEntier, {
+      param: surface, bornes: { min: 100, max: 100000 }, valeur: '1500',
+      onValeur: () => {}, onEnregistrer: () => {}, message: '', erreur: '',
+    }));
+    expect(h).toContain('type="number"');
+    expect(h).toContain('min="100"');
+    expect(h).toContain('max="100000"');
+    expect(h).toContain('value="1500"');
+    expect(h).toContain(surface.libelle);        // libellé lisible
+    expect(h).toContain('Plage autorisée');       // plage tirée des CHECK
+    expect(h).toContain('Enregistrer');
+  });
+
+  it('CarteReglageEntier : une erreur est un TEXTE avec role="alert" (jamais une couleur seule)', () => {
+    const anc = PARAMS_DOSSIERS[0];
+    const h = renderToStaticMarkup(createElement(CarteReglageEntier, {
+      param: anc, bornes: { min: 1, max: 500 }, valeur: '0',
+      onValeur: () => {}, onEnregistrer: () => {}, message: '', erreur: 'minimum 1',
+    }));
+    expect(h).toContain('role="alert"');
+    expect(h).toContain('minimum 1');
   });
 });

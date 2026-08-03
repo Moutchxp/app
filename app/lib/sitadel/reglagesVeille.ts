@@ -153,11 +153,14 @@ export const PARAMS_VEILLE: ParamVeille[] = [
 ];
 
 /**
- * S13 — partition PUREMENT PRÉSENTATIONNELLE de `PARAMS_VEILLE` en deux sous-blocs à l'écran Réglages (aucune route, aucune
- * requête, aucun déplacement d'onglet ne change). Les colonnes ci-dessous règlent les DEMANDES aux mairies ; toutes les
- * autres règlent la classification et l'affichage des DOSSIERS (seuils « immeuble », rangs des catégories, profondeur
- * d'affichage) — elles relèvent conceptuellement du groupe « Mise à jour des dossiers ». ⚠️ DETTE connue : ces dernières
- * gagneraient à migrer vers l'onglet Dossiers/Automatisation, mais ce déplacement touche les routes → chantier séparé.
+ * Partition PRÉSENTATIONNELLE de `PARAMS_VEILLE`. `COLONNES_PARAMS_DEMANDES` règlent les DEMANDES aux mairies (rendues dans
+ * l'onglet Réglages). `PARAMS_DOSSIERS` (seuils « immeuble », rangs des catégories, profondeur d'affichage) classent et
+ * affichent les DOSSIERS.
+ *
+ * ✅ S33 (dette S13 résorbée) — `PARAMS_DOSSIERS` sont désormais rendus dans l'onglet **Automatisation** (groupe « Mise à
+ * jour des dossiers »), et non plus dans l'onglet Réglages (groupe « Demandes aux mairies ») où ils étaient mal placés. Le
+ * PROPRIÉTAIRE reste la route `/reglages` (validation, allowlist `PARAMS_VEILLE`, bornes des CHECK) : seul le RENDU a migré
+ * (cf. `ClassificationDossiers`), tous les invariants de l'écran Réglages sont conservés.
  */
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
   'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois', 'pieces_demandees', 'profil_demandeur_defaut',

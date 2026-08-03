@@ -4,15 +4,17 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import type { ConfigVeille } from '../../../../lib/sitadel/veilleConfig';
 import { ETIQUETTE_PROFIL, type ConfigDemandeur, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import {
-  champsPourProfil, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES, type ParamVeille, type BornesParColonne, type ErreurReglage,
+  champsPourProfil, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_SOURCES, type ParamVeille, type BornesParColonne, type ErreurReglage,
 } from '../../../../lib/sitadel/reglagesVeille';
-import { BandeauIdentite, PlageParam, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES } from './ReglagesRendu';
+import { BandeauIdentite, PlageParam, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES } from './ReglagesRendu';
 
 /**
  * Écran « Réglages » de la tuile Permis (chantier S7d / S7e). Édite les DEUX identités de demandeur (Société / Personne
  * physique), chacune avec son bandeau et SES champs (le profil 'personne' n'affiche que nom/adresse/e-mail), et les
- * paramètres, présentés en DEUX sous-blocs (S13) : « Paramètres des demandes » et « Classification et affichage des
- * dossiers ». Motif Pilotage Moteur : validation server-side, message d'erreur au niveau du champ. Mobile-first. AUCUN ENVOI.
+ * paramètres : « Paramètres des demandes » et « Source de l'annuaire des mairies ». ⚠️ S33 — le sous-bloc « Classification
+ * et affichage des dossiers » a migré vers l'onglet Automatisation (groupe « Mise à jour des dossiers »), voir
+ * `ClassificationDossiers` ; il reste édité par la route /reglages. Motif Pilotage : validation server-side, message
+ * d'erreur au niveau du champ, refus = zéro écriture. Mobile-first. AUCUN ENVOI.
  */
 interface Reglages {
   demandeur: Record<ProfilDemandeur, ConfigDemandeur>;
@@ -176,13 +178,9 @@ export function ReglagesVue() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3">
-        <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{TITRE_PARAMS_DOSSIERS}</h2>
-        <p style={styleAide}>{AIDE_PARAMS_DOSSIERS}</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
-          {PARAMS_DOSSIERS.map(carteParam)}
-        </div>
-      </section>
+      {/* S33 — le sous-bloc « Classification et affichage des dossiers » a QUITTÉ cet onglet (groupe « Demandes aux
+          mairies ») pour l'onglet Automatisation (groupe « Mise à jour des dossiers »), où il relève conceptuellement.
+          Propriétaire inchangé : ces 8 réglages restent édités par la route /reglages (cf. ClassificationDossiers). */}
 
       {/* ── Section C : sources de données (annuaire DILA) — S30 ── */}
       <section className="flex flex-col gap-3">
