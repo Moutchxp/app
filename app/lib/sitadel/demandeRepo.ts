@@ -231,7 +231,9 @@ export interface AlerteIdentite { profil: ProfilDemandeur; libelle: string; manq
 export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; alertesIdentite: AlerteIdentite[]; resume: ResumeDemandes }> {
   const [r, rs, rd] = await Promise.all([
     query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; dest_canal: string | null; dest_origine: string; dest_nom: string | null; nb: number; statut: string; profil_demandeur: string; cree_le: string }>(
-      `SELECT d.id, d.reference, d.code_insee, c.nom AS commune_nom, d.dest_canal, d.dest_origine, d.dest_nom, d.statut, d.profil_demandeur, d.cree_le::text AS cree_le,
+      // d.id::int : `demande.id` est un bigint que node-postgres rend en CHAÎNE ; sans cast, l'id renvoyé au client est une
+      // string et la PATCH groupée (filtre Number.isInteger) l'écarte en silence → boutons « prête »/« abandonner » inertes.
+      `SELECT d.id::int AS id, d.reference, d.code_insee, c.nom AS commune_nom, d.dest_canal, d.dest_origine, d.dest_nom, d.statut, d.profil_demandeur, d.cree_le::text AS cree_le,
               (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id) AS nb
        FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee ORDER BY d.cree_le DESC`),
     query<{ statut: string; n: number }>(`SELECT statut, count(*)::int AS n FROM demande GROUP BY statut`),
@@ -260,7 +262,8 @@ export interface DemandeDetail extends DemandeListe { objet: string | null; corp
 
 export async function lireDemande(id: number): Promise<DemandeDetail | null> {
   const r = await query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string; profil_demandeur: string; objet: string | null; corps: string | null; dest_canal: string | null; dest_email: string | null; dest_url_formulaire: string | null; dest_adresse_postale: string | null; dest_origine: string; dest_nom: string | null; cree_le: string }>(
-    `SELECT d.id, d.reference, d.code_insee, c.nom AS commune_nom, d.statut, d.profil_demandeur, d.objet, d.corps,
+    // d.id::int : cf. listerDemandes — detail.id repart dans le corps de la PATCH groupée (transition/bascule).
+    `SELECT d.id::int AS id, d.reference, d.code_insee, c.nom AS commune_nom, d.statut, d.profil_demandeur, d.objet, d.corps,
             d.dest_canal, d.dest_email, d.dest_url_formulaire, d.dest_adresse_postale, d.dest_origine, d.dest_nom, d.cree_le::text AS cree_le
      FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee WHERE d.id = $1`, [id],
   );

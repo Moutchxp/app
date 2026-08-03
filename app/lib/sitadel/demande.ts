@@ -230,6 +230,18 @@ export function peutPasserLot(statut: 'prete' | 'abandonnee', config: ConfigDema
   return { ok: true, champs: [] };
 }
 
+/**
+ * Valide la liste d'identifiants d'une action groupée (transition / bascule de profil). Validation STRICTE (entiers JS ;
+ * une string n'est jamais un id valide — cf. bigint sérialisé). Distingue « aucun identifiant fourni » de « des id étaient
+ * présents mais TOUS invalides » : ce second cas doit répondre une erreur EXPLICITE, jamais un succès silencieux à 0 ligne.
+ */
+export function validerIdsLot(brut: unknown): { ok: true; ids: number[] } | { ok: false; erreur: string } {
+  if (!Array.isArray(brut) || brut.length === 0) return { ok: false, erreur: 'aucun identifiant fourni' };
+  const ids = brut.filter((x): x is number => Number.isInteger(x));
+  if (ids.length === 0) return { ok: false, erreur: 'identifiants invalides (entiers attendus)' };
+  return { ok: true, ids };
+}
+
 /** Compteurs expliquant l'absence de lots (mesurés, jamais figés). */
 export interface DiagnosticProposition {
   candidatsExamines: number;

@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../lib/sitadel/veilleConfig';
-import { profilValide } from '../../../../../lib/sitadel/demande';
+import { profilValide, validerIdsLot } from '../../../../../lib/sitadel/demande';
 import { listerDemandes, creerDemandes, changerStatutLot, changerProfilLot, IdentiteIncompleteError, TransitionInterditeError } from '../../../../../lib/sitadel/demandeRepo';
 
 /**
@@ -42,8 +42,10 @@ export async function PATCH(request: Request): Promise<Response> {
   if ('refus' in garde) return garde.refus;
   try {
     const corps = (await request.json()) as { ids?: unknown; statut?: unknown; profil?: unknown };
-    const ids = Array.isArray(corps.ids) ? corps.ids.filter((x): x is number => Number.isInteger(x)) : [];
-    if (ids.length === 0) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+    // Erreur EXPLICITE si des id étaient fournis mais tous invalides (ex. bigint sérialisé en chaîne) — jamais un succès à 0.
+    const v = validerIdsLot(corps.ids);
+    if (!v.ok) return Response.json({ erreur: v.erreur }, { status: 400 });
+    const ids = v.ids;
     const auteur = garde.auteurId === null ? null : String(garde.auteurId);
 
     // Bascule de profil (action groupée « Basculer la sélection en… »).

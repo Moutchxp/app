@@ -4,6 +4,7 @@ import {
   type CandidatDossier, type ConfigDemandeur, type Lot, type DiagnosticProposition, type ParamsLot,
   problemesIdentite, proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande,
   dateEnFrancais, ancreDetail, peutPasserLot, expliquerProposition, resumeDiagnostic, configAvecSignataire,
+  validerIdsLot,
 } from './demande';
 import { resoudreDestination } from './destinataire';
 
@@ -403,5 +404,19 @@ describe('S14d — destinataire PRADA : adressabilité en amont + texte inchang�
     const b = genererTexte(lotInconnu, CONFIG, 'SVAV-DEM-2026-000900', pieces);
     expect(b.corps).toBe(a.corps);   // instantané figé du corps : indépendant du destinataire
     expect(b.objet).toBe(a.objet);
+  });
+});
+
+describe('S14e — validerIdsLot (action groupée : jamais 0 ligne en silence)', () => {
+  it('aucun id fourni (vide / non-tableau) → erreur explicite « aucun identifiant fourni »', () => {
+    expect(validerIdsLot([])).toEqual({ ok: false, erreur: 'aucun identifiant fourni' });
+    expect(validerIdsLot(undefined)).toEqual({ ok: false, erreur: 'aucun identifiant fourni' });
+  });
+  it('des id présents mais TOUS invalides (ex. bigint sérialisé en chaîne) → erreur explicite, pas un succès à 0', () => {
+    expect(validerIdsLot(['99', '100'])).toEqual({ ok: false, erreur: 'identifiants invalides (entiers attendus)' });
+  });
+  it('entiers valides → ok ; les invalides sont écartés mais un id valide suffit', () => {
+    expect(validerIdsLot([1, 2, 3])).toEqual({ ok: true, ids: [1, 2, 3] });
+    expect(validerIdsLot([1, '2', 3.5])).toEqual({ ok: true, ids: [1] });
   });
 });
