@@ -6,7 +6,7 @@ import type { DossierAffiche, ResultatVeille } from '../../../../lib/sitadel/vei
 import type { CommuneRef, FusionRef } from '../../../../lib/sitadel/carteRepo';
 import { CartePermis } from './CartePermis';
 import { corpsPatchContact, noteAuChangementCanal, problemeContactUI, editionInitiale, type EtatEditionContact } from './contactForm';
-import { SelecteurCanal, ChampsProtocole } from './ContactRendu';
+import { SelecteurCanal, ChampsProtocole, SelecteurEmailType, BoutonOuvrirLien } from './ContactRendu';
 
 /**
  * Vue de la tuile « Permis de construire » (client) : filtres combinables + liste paginée CÔTÉ SERVEUR (jamais 29 670
@@ -275,19 +275,27 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
           <SelecteurCanal canal={edition.canal} suggestionTeleservice={edition.suggestionTeleservice}
             onCanal={(c) => setEdition({ ...edition, canal: c, note: noteAuChangementCanal(edition.canal, c, edition.adressePostale, edition.note), erreur: '' })} />
           {edition.canal === 'email' && (
-            <input type="email" value={edition.email} placeholder="urbanisme@ville.fr"
-              onChange={(e) => setEdition({ ...edition, email: e.target.value, erreur: '' })} style={{ ...styleChamp, flex: '1 1 260px' }} />
+            <div className="flex flex-col gap-1" style={{ flex: '1 1 260px', minWidth: 0 }}>
+              <input type="email" value={edition.email} placeholder="urbanisme@ville.fr"
+                onChange={(e) => setEdition({ ...edition, email: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
+              {/* S19 — nature de CETTE adresse (une seule adresse ; ce champ ne crée pas de second destinataire) */}
+              <SelecteurEmailType emailType={edition.emailType} onEmailType={(v) => setEdition({ ...edition, emailType: v, erreur: '' })} />
+            </div>
           )}
           {edition.canal === 'formulaire' && (
-            <input type="url" value={edition.urlFormulaire} placeholder="https://ville.fr/urbanisme/contact"
-              onChange={(e) => setEdition({ ...edition, urlFormulaire: e.target.value, erreur: '' })} style={{ ...styleChamp, flex: '1 1 260px' }} />
+            <div className="flex flex-col gap-1" style={{ flex: '1 1 320px', minWidth: 0 }}>
+              <input type="url" value={edition.urlFormulaire} placeholder="https://ville.fr/urbanisme/contact"
+                onChange={(e) => setEdition({ ...edition, urlFormulaire: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
+              <BoutonOuvrirLien url={edition.urlFormulaire} />
+            </div>
           )}
           {edition.canal === 'courrier' && (
             <input type="text" value={edition.adressePostale} placeholder="Service urbanisme, 1 place de la Mairie, 92000…"
               onChange={(e) => setEdition({ ...edition, adressePostale: e.target.value, erreur: '' })} style={{ ...styleChamp, flex: '1 1 320px' }} />
           )}
-          <ChampsProtocole telephone={edition.telephone} responsableNom={edition.responsableNom} protocoleVerifieLe={edition.protocoleVerifieLe}
+          <ChampsProtocole telephone={edition.telephone} telephoneStandard={edition.telephoneStandard} responsableNom={edition.responsableNom} protocoleVerifieLe={edition.protocoleVerifieLe}
             onTelephone={(v) => setEdition({ ...edition, telephone: v, erreur: '' })}
+            onTelephoneStandard={(v) => setEdition({ ...edition, telephoneStandard: v, erreur: '' })}
             onResponsable={(v) => setEdition({ ...edition, responsableNom: v, erreur: '' })} />
           <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', flex: '1 1 100%', fontSize: 12, color: 'var(--color-svv-muted)' }}>
             Note (traçabilité — ex. adresse conservée en quittant le courrier)
@@ -330,7 +338,9 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
                     ) : (
                       <span>
                         {d.destCanal === 'email' && <span>{d.destEmail}</span>}
-                        {d.destCanal === 'formulaire' && <a href={d.destUrlFormulaire ?? '#'} target="_blank" rel="noopener noreferrer" className="svv-link">formulaire web ↗</a>}
+                        {d.destCanal === 'formulaire' && ((d.destUrlFormulaire ?? '').trim() !== ''
+                          ? <a href={d.destUrlFormulaire!} target="_blank" rel="noopener noreferrer" className="svv-link">formulaire web ↗</a>
+                          : <span style={{ color: 'var(--color-svv-red)' }}>formulaire web (URL manquante)</span>)}
                         {d.destCanal === 'courrier' && <span title={d.destAdressePostale ?? ''}>✉ {(d.destAdressePostale ?? '').slice(0, 40)}{(d.destAdressePostale ?? '').length > 40 ? '…' : ''}</span>}
                         {(d.destCanal === 'inconnu' || d.destCanal === null) && <span style={{ color: 'var(--color-svv-red)' }}>sans destinataire</span>}
                         {d.destCanal && d.destCanal !== 'inconnu' && (

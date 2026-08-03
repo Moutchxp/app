@@ -6,7 +6,26 @@ import { validerCanal, type CanalContact } from '../../../../lib/sitadel/mairieC
 
 export interface EditionContact {
   code: string; canal: string; email: string; urlFormulaire: string; adressePostale: string; note: string;
-  telephone: string; responsableNom: string;
+  telephone: string; responsableNom: string; telephoneStandard: string; emailType: string;
+}
+
+/** Natures possibles de l'adresse e-mail (S19), libellés en français clair. '' (option de tête) = non renseignée → NULL. */
+export const EMAIL_TYPES: readonly { value: string; label: string }[] = [
+  { value: '', label: '— non renseignée —' },
+  { value: 'urbanisme', label: 'service urbanisme' },
+  { value: 'accueil', label: 'accueil général de la mairie' },
+  { value: 'prada', label: 'PRADA' },
+  { value: 'inconnu', label: 'non déterminée' },
+];
+/** Mention (information, jamais blocage) affichée quand l'adresse est un accueil général. */
+export const MENTION_ACCUEIL = 'Cette adresse est un accueil général : la demande partira vers l’accueil de la mairie et sera peut-être moins bien orientée vers le service compétent.';
+
+/** Raison pour laquelle une URL de téléservice ne peut pas être ouverte, ou `null` si elle est ouvrable (http/https). */
+export function problemeUrlOuverture(url: string): string | null {
+  const u = url.trim();
+  if (u === '') return 'aucune URL de téléservice';
+  if (!/^https?:\/\/\S+$/.test(u)) return 'URL invalide (attendu http(s)://…)';
+  return null;
 }
 
 /**
@@ -29,6 +48,7 @@ export const MENTION_TELESERVICE = 'Un téléservice est connu pour cette commun
 export interface EtatEditionContact {
   code: string; nom: string; canal: CanalContact; email: string; urlFormulaire: string; adressePostale: string;
   note: string; telephone: string; responsableNom: string; protocoleVerifieLe: string | null;
+  telephoneStandard: string; emailType: string; // S19
   suggestionTeleservice: boolean; erreur: string;
 }
 
@@ -41,6 +61,7 @@ export function editionInitiale(d: {
   codeInsee: string; communeNom: string | null;
   destCanal: CanalContact | null; destEmail: string | null; destUrlFormulaire: string | null; destAdressePostale: string | null;
   destTelephone?: string | null; destResponsableNom?: string | null; destProtocoleVerifieLe?: string | null;
+  destTelephoneStandard?: string | null; destEmailType?: string | null;
 }): EtatEditionContact {
   const teleserviceConnu = (d.destUrlFormulaire ?? '').trim() !== '';
   return {
@@ -53,6 +74,8 @@ export function editionInitiale(d: {
     telephone: d.destTelephone ?? '',
     responsableNom: d.destResponsableNom ?? '',
     protocoleVerifieLe: d.destProtocoleVerifieLe ?? null,
+    telephoneStandard: d.destTelephoneStandard ?? '',
+    emailType: d.destEmailType ?? '',
     suggestionTeleservice: teleserviceConnu,
     erreur: '',
   };
@@ -70,12 +93,13 @@ export function problemeContactUI(e: EditionContact): string | null {
 /** Corps EXACT envoyé à PATCH /api/admin/permis/contact — `note` INCLUSE (la route et ecrireContact l'acceptent déjà). */
 export function corpsPatchContact(e: EditionContact): {
   codeInsee: string; canal: string; email: string; urlFormulaire: string; adressePostale: string; note: string;
-  telephone: string; responsableNom: string;
+  telephone: string; responsableNom: string; telephoneStandard: string; emailType: string;
 } {
   return {
     codeInsee: e.code, canal: e.canal,
     email: e.email.trim(), urlFormulaire: e.urlFormulaire.trim(), adressePostale: e.adressePostale.trim(),
     note: e.note.trim(), telephone: e.telephone.trim(), responsableNom: e.responsableNom.trim(),
+    telephoneStandard: e.telephoneStandard.trim(), emailType: e.emailType.trim(),
   };
 }
 

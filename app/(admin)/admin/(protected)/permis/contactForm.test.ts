@@ -1,5 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { corpsPatchContact, noteAuChangementCanal, problemeContactUI, editionInitiale, CANAUX_ORDONNES } from './contactForm';
+import { corpsPatchContact, noteAuChangementCanal, problemeContactUI, editionInitiale, CANAUX_ORDONNES, problemeUrlOuverture } from './contactForm';
+
+describe('S19 — editionInitiale porte standard + nature de l’adresse ; problemeUrlOuverture', () => {
+  it('editionInitiale : telephoneStandard et emailType repris du dossier', () => {
+    const e = editionInitiale({ codeInsee: '78238', communeNom: 'Flins', destCanal: 'email', destEmail: 'accueil@x.fr', destUrlFormulaire: null, destAdressePostale: null, destTelephoneStandard: '01 30 90 40 00', destEmailType: 'accueil' });
+    expect(e.telephoneStandard).toBe('01 30 90 40 00');
+    expect(e.emailType).toBe('accueil');
+    // absents en base → chaînes vides (NULL honnête)
+    const v = editionInitiale({ codeInsee: '92050', communeNom: 'Nanterre', destCanal: 'email', destEmail: 'x@y.fr', destUrlFormulaire: null, destAdressePostale: null });
+    expect(v.emailType).toBe('');
+    expect(v.telephoneStandard).toBe('');
+  });
+  it('problemeUrlOuverture : vide/invalide → raison ; http(s) → null', () => {
+    expect(problemeUrlOuverture('')).toMatch(/aucune URL/);
+    expect(problemeUrlOuverture('ftp://x')).toMatch(/invalide/);
+    expect(problemeUrlOuverture('https://teleservice.paris.fr')).toBeNull();
+  });
+});
 
 describe('S17 — ordre des canaux (préférence décroissante) + présélection téléservice', () => {
   it('l’ordre est téléservice → e-mail → courrier → inconnu', () => {
@@ -31,7 +48,7 @@ describe('S17 — ordre des canaux (préférence décroissante) + présélection
   });
 });
 
-const base = { code: '75056', email: '', urlFormulaire: '', adressePostale: '', note: '', telephone: '', responsableNom: '' };
+const base = { code: '75056', email: '', urlFormulaire: '', adressePostale: '', note: '', telephone: '', responsableNom: '', telephoneStandard: '', emailType: '' };
 
 describe('S16 — problemeContactUI refuse un canal incohérent (miroir contrainte DB)', () => {
   it('formulaire SANS URL → refusé', () => {
@@ -51,10 +68,12 @@ describe('S15 — corpsPatchContact transmet bien la note', () => {
     const corps = corpsPatchContact({
       code: '75056', canal: 'email', email: '  daj-cada@paris.fr ', urlFormulaire: '', adressePostale: '',
       note: '  Ancienne adresse courrier : BASU  ', telephone: '  01 42 76 40 40 ', responsableNom: '  Chenel  ',
+      telephoneStandard: '  01 42 76 40 00 ', emailType: 'accueil',
     });
     expect(corps).toEqual({
       codeInsee: '75056', canal: 'email', email: 'daj-cada@paris.fr', urlFormulaire: '', adressePostale: '',
       note: 'Ancienne adresse courrier : BASU', telephone: '01 42 76 40 40', responsableNom: 'Chenel',
+      telephoneStandard: '01 42 76 40 00', emailType: 'accueil',
     });
   });
 });

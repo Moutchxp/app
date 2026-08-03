@@ -21,7 +21,7 @@ export async function PATCH(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const c = (await request.json()) as { codeInsee?: unknown; canal?: unknown; email?: unknown; urlFormulaire?: unknown; adressePostale?: unknown; note?: unknown; telephone?: unknown; responsableNom?: unknown };
+    const c = (await request.json()) as { codeInsee?: unknown; canal?: unknown; email?: unknown; urlFormulaire?: unknown; adressePostale?: unknown; note?: unknown; telephone?: unknown; responsableNom?: unknown; telephoneStandard?: unknown; emailType?: unknown };
     const codeInsee = typeof c.codeInsee === 'string' ? c.codeInsee.trim() : '';
     const canal = (typeof c.canal === 'string' ? c.canal : '') as CanalContact;
     const email = typeof c.email === 'string' ? c.email.trim() : '';
@@ -31,6 +31,9 @@ export async function PATCH(request: Request): Promise<Response> {
     // S18 : protocole. NULL si vide (trim) → ne stocke pas une chaîne vide.
     const telephone = typeof c.telephone === 'string' && c.telephone.trim() !== '' ? c.telephone.trim() : null;
     const responsableNom = typeof c.responsableNom === 'string' && c.responsableNom.trim() !== '' ? c.responsableNom.trim() : null;
+    const telephoneStandard = typeof c.telephoneStandard === 'string' && c.telephoneStandard.trim() !== '' ? c.telephoneStandard.trim() : null;
+    // S19 : email_type = l'une des 4 valeurs, sinon NULL (honnête « non renseigné » — la CHECK de la migration 067 le borne aussi).
+    const emailType = typeof c.emailType === 'string' && ['urbanisme', 'accueil', 'prada', 'inconnu'].includes(c.emailType) ? c.emailType : null;
     if (!/^\d{5}$/.test(codeInsee)) return Response.json({ erreur: 'code INSEE invalide' }, { status: 400 });
     if (!CANAUX.includes(canal)) return Response.json({ erreur: 'canal invalide' }, { status: 400 });
     const motifErreur = validerCanal(canal, { email, urlFormulaire, adressePostale });
@@ -46,6 +49,7 @@ export async function PATCH(request: Request): Promise<Response> {
         adressePostale: canal === 'courrier' ? adressePostale : null,
         canal, source: 'saisie_manuelle', statut: 'confirme',
         telephone, responsableNom, // S18 : protocole (protocole_verifie_le mis à CURRENT_DATE par ecrireContact)
+        telephoneStandard, emailType, // S19 : standard + nature de l'adresse
         motif: 'correction manuelle (admin)', auteur: garde.auteurId === null ? null : String(garde.auteurId), note,
       });
     });
