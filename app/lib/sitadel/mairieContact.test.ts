@@ -207,4 +207,35 @@ describe('S24 — ecrireContact ne détruit plus une colonne par OMISSION', () =
     expect(p![6]).toBeNull();             // adresse EFFACÉE car null EXPLICITE
     expect(p![8]).toBe('01 11 11 11 11'); // téléphone OMIS → conservé (l'effacement reste champ par champ)
   });
+
+  // Positions du INSERT (S29) : [..., $8 note, $9 tel, $10 resp, $11 telStd, $12 emailType, $13 toucheProtocole]
+  it('S29 — projection de contexte : SEUL telephone_standard change, protocole NON daté (toucheProtocole:false)', async () => {
+    const { q, getUpsert } = depotComplet(enrichi);
+    // Appel EXACT de la projection DILA : source/statut/canal/email repassés à l'identique, seul telephoneStandard fourni.
+    const r = await ecrireContact(q, {
+      codeInsee: '92050', email: enrichi.email, source: 'annuaire', statut: 'presume', canal: 'email',
+      telephoneStandard: '01 99 99 99 99', toucheProtocole: false, motif: 'contexte DILA (standard mairie)', auteur: null,
+    });
+    expect(r.change).toBe(true);
+    const p = getUpsert();
+    expect(p![10]).toBe('01 99 99 99 99');  // telephone_standard : SEUL champ qui change
+    expect(p![12]).toBe(false);             // toucheProtocole=false → protocole_verifie_le NON (re)daté
+    // TOUT le reste est conservé (aucun autre champ ne bouge) :
+    expect(p![1]).toBe('urba@ville.fr');    // email
+    expect(p![2]).toBe('annuaire');         // source (JAMAIS basculée en annuaire_dila)
+    expect(p![3]).toBe('presume');          // statut
+    expect(p![4]).toBe('email');            // canal
+    expect(p![5]).toBe('https://teleservice.ville.fr'); // url_formulaire
+    expect(p![6]).toBe('BASU, 6 promenade…');           // adresse_postale
+    expect(p![7]).toBe('note préexistante'); // note
+    expect(p![8]).toBe('01 11 11 11 11');    // telephone (service)
+    expect(p![9]).toBe('Chef Service');      // responsable_nom
+    expect(p![11]).toBe('urbanisme');        // email_type
+  });
+
+  it('S29 — défaut inchangé : sans toucheProtocole, le protocole EST daté (compat édition manuelle)', async () => {
+    const { q, getUpsert } = depotComplet({ ...enrichi, telephone_standard: null });
+    await ecrireContact(q, { codeInsee: '92050', email: enrichi.email, source: 'annuaire', statut: 'presume', canal: 'email', telephoneStandard: '01 99 99 99 99', motif: 'édition', auteur: null });
+    expect(getUpsert()![12]).toBe(true);     // toucheProtocole par défaut → true (comportement historique préservé)
+  });
 });

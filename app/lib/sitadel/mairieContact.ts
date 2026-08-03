@@ -5,7 +5,14 @@
  * `mairie-contact-import.ts` fait le réseau ; ici, pas d'I/O réseau.
  */
 
-export type SourceContact = 'annuaire' | 'saisie_manuelle' | 'reponse_mairie';
+/**
+ * Provenance du DESTINATAIRE d'une commune. ⚠️ 'annuaire_dila' est une VALEUR DE GARDE (RÉSERVÉE), PAS vestigiale : ne la
+ * retirez pas au « nettoyage ». La projection de contexte DILA (S29) ne l'emploie PAS — elle ne pose qu'un standard
+ * téléphonique et laisse `source='annuaire'` (la DILA n'est pas le destinataire, et basculer figerait les lignes hors de
+ * `doitRemplacerDepuisAnnuaire`). 'annuaire_dila' est conservée pour le SEUL cas futur où la DILA fournirait le DESTINATAIRE
+ * d'une commune qui n'a rien (ni contact ni PRADA) — 0 cas aujourd'hui. La contrainte CHECK de la migration 068 l'autorise.
+ */
+export type SourceContact = 'annuaire' | 'saisie_manuelle' | 'reponse_mairie' | 'annuaire_dila';
 export type StatutContact = 'presume' | 'confirme' | 'invalide';
 export type CanalContact = 'email' | 'formulaire' | 'courrier' | 'inconnu';
 
@@ -131,6 +138,13 @@ export interface EcritureContact {
   motif: string;
   auteur: string | null;
   note?: string | null;
+  /**
+   * S29 — Faut-il (re)dater `protocole_verifie_le = CURRENT_DATE` à cette écriture ? DÉFAUT `true` (édition manuelle : écrire
+   * un contact vaut vérification). Mettre `false` pour une écriture de CONTEXTE qui NE vérifie PAS le protocole du service
+   * urbanisme — ex. poser un standard téléphonique DILA. Même règle que le groupe C de S20 : on ne date pas une vérification
+   * sans source consultable. Quand `false` : ligne existante → date CONSERVÉE ; création → date NULL.
+   */
+  toucheProtocole?: boolean;
 }
 
 /**
@@ -168,17 +182,20 @@ export async function ecrireContact(q: Requete, e: EcritureContact): Promise<{ c
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [e.codeInsee, avant?.email ?? null, e.email, e.source, e.motif, e.auteur],
   );
-  // S18 : protocole_verifie_le = CURRENT_DATE à CHAQUE écriture par cette voie (édition manuelle) — la date reflète la
-  // dernière vérification. `protocole_source` n'est pas touchée ici (elle provient du seed).
+  // S18/S29 : protocole_verifie_le = CURRENT_DATE quand l'écriture VAUT vérification (édition manuelle, défaut). Une écriture
+  // de contexte (`toucheProtocole:false`, ex. standard DILA) NE date PAS : ligne existante → date conservée
+  // (`mairie_contact.protocole_verifie_le`), création → NULL. `protocole_source` n'est jamais touchée ici (elle vient du seed).
+  const touche = e.toucheProtocole !== false;
   await q(
     `INSERT INTO mairie_contact (code_insee, email, source, statut, canal, url_formulaire, adresse_postale, maj_le, note, telephone, responsable_nom, protocole_verifie_le, telephone_standard, email_type)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, CURRENT_DATE, $11, $12)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, CASE WHEN $13 THEN CURRENT_DATE ELSE NULL END, $11, $12)
      ON CONFLICT (code_insee) DO UPDATE SET
        email = EXCLUDED.email, source = EXCLUDED.source, statut = EXCLUDED.statut, canal = EXCLUDED.canal,
        url_formulaire = EXCLUDED.url_formulaire, adresse_postale = EXCLUDED.adresse_postale, maj_le = now(), note = EXCLUDED.note,
-       telephone = EXCLUDED.telephone, responsable_nom = EXCLUDED.responsable_nom, protocole_verifie_le = CURRENT_DATE,
+       telephone = EXCLUDED.telephone, responsable_nom = EXCLUDED.responsable_nom,
+       protocole_verifie_le = CASE WHEN $13 THEN CURRENT_DATE ELSE mairie_contact.protocole_verifie_le END,
        telephone_standard = EXCLUDED.telephone_standard, email_type = EXCLUDED.email_type`,
-    [e.codeInsee, e.email, e.source, e.statut, e.canal, url, adr, note, tel, resp, telStd, emailType],
+    [e.codeInsee, e.email, e.source, e.statut, e.canal, url, adr, note, tel, resp, telStd, emailType, touche],
   );
   return { change: true };
 }
