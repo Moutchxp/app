@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, CarteAmbiguite, type ArbitrageAffiche, type AmbiguiteAffiche } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, CarteAmbiguite, CarteInjoignable, retirerCommune, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche } from './DemandesRendu';
 
 describe('S14e — OrigineDest (texte porteur, pas seulement couleur)', () => {
   it('origine prada → « PRADA — Nom » (texte lisible)', () => {
@@ -63,5 +63,32 @@ describe('S14e — CarteAmbiguite (colonnes brutes, mobile-first)', () => {
     expect(h).toContain('role="alert"');
     // le message vient bien APRÈS le nom de l'administration (donc dans la même carte, sous les infos)
     expect(h.indexOf('Refusé')).toBeGreaterThan(h.indexOf('Mairie de Saint-Ouen'));
+  });
+});
+
+describe('S15 — communes injoignables (saisie par commune)', () => {
+  const communes: CommuneInjoignableAffiche[] = Array.from({ length: 16 }, (_, i) => ({
+    codeInsee: String(78000 + i), nom: `Commune ${i}`, departement: '78',
+  }));
+
+  it('CarteInjoignable affiche le NOM et le département en texte (jamais la couleur seule)', () => {
+    const h = renderToStaticMarkup(createElement(CarteInjoignable, { c: communes[0] }));
+    expect(h).toContain('Commune 0');
+    expect(h).toContain('dép. 78'); // département en toutes lettres, pas une pastille muette
+    expect(h).toContain('78000');
+  });
+
+  it('la carte accueille le champ e-mail + bouton (children)', () => {
+    const enfant = createElement('button', null, 'Enregistrer l’adresse');
+    const h = renderToStaticMarkup(createElement(CarteInjoignable, { c: communes[0] }, enfant));
+    expect(h).toContain('Enregistrer l’adresse');
+    expect(h.indexOf('Enregistrer')).toBeGreaterThan(h.indexOf('Commune 0')); // dans la carte, sous les infos
+  });
+
+  it('retirerCommune : la liste tombe de 16 à 15 après enregistrement d’une adresse (retrait optimiste)', () => {
+    expect(communes).toHaveLength(16);
+    const apres = retirerCommune(communes, '78003');
+    expect(apres).toHaveLength(15);
+    expect(apres.some((c) => c.codeInsee === '78003')).toBe(false);
   });
 });

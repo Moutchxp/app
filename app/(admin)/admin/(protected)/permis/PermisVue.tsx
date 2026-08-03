@@ -6,6 +6,7 @@ import type { DossierAffiche, ResultatVeille } from '../../../../lib/sitadel/vei
 import type { CanalContact } from '../../../../lib/sitadel/mairieContact';
 import type { CommuneRef, FusionRef } from '../../../../lib/sitadel/carteRepo';
 import { CartePermis } from './CartePermis';
+import { corpsPatchContact, noteAuChangementCanal } from './contactForm';
 
 /**
  * Vue de la tuile « Permis de construire » (client) : filtres combinables + liste paginée CÔTÉ SERVEUR (jamais 29 670
@@ -24,7 +25,7 @@ interface Filtres {
 
 const STATUT_LIBELLE: Record<string, string> = { presume: 'présumée', confirme: 'confirmée', invalide: 'invalide' };
 
-interface Edition { code: string; nom: string; canal: CanalContact; email: string; urlFormulaire: string; adressePostale: string; erreur: string }
+interface Edition { code: string; nom: string; canal: CanalContact; email: string; urlFormulaire: string; adressePostale: string; note: string; erreur: string }
 
 type Etat =
   | { statut: 'chargement' }
@@ -91,7 +92,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
   const ouvrirEdition = (d: DossierAffiche): void => setEdition({
     code: d.codeInsee, nom: d.communeNom ?? d.codeInsee,
     canal: d.destCanal ?? 'inconnu', email: d.destEmail ?? '',
-    urlFormulaire: d.destUrlFormulaire ?? '', adressePostale: d.destAdressePostale ?? '', erreur: '',
+    urlFormulaire: d.destUrlFormulaire ?? '', adressePostale: d.destAdressePostale ?? '', note: '', erreur: '',
   });
 
   /** Enregistre la correction manuelle du contact (source=saisie_manuelle, statut=confirme) puis recharge. */
@@ -100,10 +101,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
     try {
       const res = await fetch('/api/admin/permis/contact', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          codeInsee: edition.code, canal: edition.canal,
-          email: edition.email.trim(), urlFormulaire: edition.urlFormulaire.trim(), adressePostale: edition.adressePostale.trim(),
-        }),
+        body: JSON.stringify(corpsPatchContact(edition)), // S15 : inclut `note` (trace, ex. adresse BASU conservée)
       });
       if (!res.ok) {
         const d = (await res.json().catch(() => ({}))) as { erreur?: string };
@@ -275,7 +273,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
       {edition && (
         <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'center' }}>
           <span style={{ fontSize: 13 }}>Contact de <strong>{edition.nom}</strong> ({edition.code}) :</span>
-          <select value={edition.canal} onChange={(e) => setEdition({ ...edition, canal: e.target.value as CanalContact, erreur: '' })} style={styleChamp}>
+          <select value={edition.canal} onChange={(e) => setEdition({ ...edition, canal: e.target.value as CanalContact, note: noteAuChangementCanal(edition.canal, e.target.value, edition.adressePostale, edition.note), erreur: '' })} style={styleChamp}>
             <option value="email">e-mail</option>
             <option value="formulaire">formulaire web</option>
             <option value="courrier">courrier</option>
@@ -293,6 +291,11 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
             <input type="text" value={edition.adressePostale} placeholder="Service urbanisme, 1 place de la Mairie, 92000…"
               onChange={(e) => setEdition({ ...edition, adressePostale: e.target.value, erreur: '' })} style={{ ...styleChamp, flex: '1 1 320px' }} />
           )}
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', flex: '1 1 100%', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+            Note (traçabilité — ex. adresse conservée en quittant le courrier)
+            <input type="text" value={edition.note} placeholder="ex. Ancienne adresse courrier : …"
+              onChange={(e) => setEdition({ ...edition, note: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
+          </label>
           <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.4rem .8rem' }} onClick={() => void enregistrerContact()}>Enregistrer</button>
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.4rem .8rem' }} onClick={() => setEdition(null)}>Annuler</button>
           {edition.erreur && <span role="alert" style={{ color: 'var(--color-svv-red)', fontSize: 13 }}>{edition.erreur}</span>}

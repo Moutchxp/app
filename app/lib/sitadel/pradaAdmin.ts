@@ -68,6 +68,22 @@ export async function lireArbitrages(): Promise<ArbitragePrada[]> {
   }));
 }
 
+export interface CommuneInjoignable { codeInsee: string; nom: string; departement: string }
+
+/** Requête des communes du périmètre SANS aucune adresse e-mail (ni contact générique, ni PRADA) — testable. */
+export const SQL_INJOIGNABLES = `SELECT c.code_insee, c.nom, c.departement
+     FROM commune c
+     LEFT JOIN mairie_contact mc ON mc.code_insee = c.code_insee
+     LEFT JOIN mairie_prada mp ON mp.code_insee = c.code_insee
+     WHERE coalesce(btrim(mc.email), '') = '' AND coalesce(btrim(mp.courriel), '') = ''
+     ORDER BY c.departement, c.nom`;
+
+/** Communes du périmètre injoignables par e-mail (à saisir à la main). Aujourd'hui 16. */
+export async function lireInjoignables(): Promise<CommuneInjoignable[]> {
+  const { rows } = await query<{ code_insee: string; nom: string; departement: string }>(SQL_INJOIGNABLES);
+  return rows.map((r) => ({ codeInsee: r.code_insee, nom: r.nom, departement: r.departement }));
+}
+
 export interface LigneAmbigue {
   id: number; nomAdministration: string | null; departement: string | null; codePostalVille: string | null;
   courriel: string | null; adresse: string | null; prenom: string | null; nom: string | null; millesime: string;

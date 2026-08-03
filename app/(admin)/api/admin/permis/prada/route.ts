@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { lireArbitrages, lireAmbiguites, rattacherManuel, ecarterHorsPerimetre, estIdentifiantValide, PradaImportIntrouvableError } from '../../../../../lib/sitadel/pradaAdmin';
+import { lireArbitrages, lireAmbiguites, lireInjoignables, rattacherManuel, ecarterHorsPerimetre, estIdentifiantValide, PradaImportIntrouvableError } from '../../../../../lib/sitadel/pradaAdmin';
 
 /**
  * /api/admin/permis/prada (chantier S14e). GET = arbitrages (PRADA disponible mais contact confirmé conservé) + lignes
@@ -13,8 +13,8 @@ export async function GET(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const [arbitrages, ambiguites] = await Promise.all([lireArbitrages(), lireAmbiguites()]);
-    return Response.json({ arbitrages, ambiguites });
+    const [arbitrages, ambiguites, injoignables] = await Promise.all([lireArbitrages(), lireAmbiguites(), lireInjoignables()]);
+    return Response.json({ arbitrages, ambiguites, injoignables });
   } catch {
     return Response.json({ erreur: 'lecture PRADA indisponible' }, { status: 503 });
   }

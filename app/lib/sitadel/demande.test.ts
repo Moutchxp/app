@@ -420,3 +420,11 @@ describe('S14e — validerIdsLot (action groupée : jamais 0 ligne en silence)',
     expect(validerIdsLot([1, '2', 3.5])).toEqual({ ok: true, ids: [1] });
   });
 });
+
+describe('S15 — TOUT PAR E-MAIL : proposerLots exclut les canaux non-email', () => {
+  it('courrier et formulaire ne produisent AUCUN lot ; email en produit', () => {
+    expect(proposerLots([cand({ canal: 'courrier' as CanalContact })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
+    expect(proposerLots([cand({ canal: 'formulaire' as CanalContact })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
+    expect(proposerLots([cand({ canal: 'email' })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(1);
+  });
+});

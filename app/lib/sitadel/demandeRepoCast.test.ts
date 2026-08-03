@@ -20,9 +20,28 @@ vi.mock('../db/client', () => ({
   closePool: async () => undefined,
 }));
 
-import { listerDemandes, lireDemande } from './demandeRepo';
+import { listerDemandes, lireDemande, diagnostiquer } from './demandeRepo';
+import type { CandidatDossier } from './demande';
 
 beforeEach(() => { sqls.length = 0; });
+
+const HIST = { dejaRattaches: new Set<number>(), demandesCeMoisParCommune: new Map<string, number>() };
+const PARAMS = { dossiersParDemande: 5, demandesParCommuneParMois: 5, dateMin: null };
+const c = (over: Partial<CandidatDossier>): CandidatDossier => ({
+  dossierId: 1, codeInsee: '75056', communeNom: 'Paris', canal: 'email', numDau: 'PC1', dateReelleAutorisation: '2025-03-10',
+  adresse: 'x', codePostal: '75001', cadastre: [], etatDau: '2', absentDuDernierMillesime: false, ...over,
+});
+
+describe('S15 — diagnostiquer COMPTE et NOMME les communes écartées faute d’e-mail', () => {
+  it('courrier/formulaire → listées « Nom (canal) » dans communesCanalNonEmail ; email → non listée', () => {
+    const d = diagnostiquer([
+      c({ dossierId: 1, codeInsee: '75056', communeNom: 'Paris', canal: 'courrier' as CandidatDossier['canal'] }),
+      c({ dossierId: 2, codeInsee: '92050', communeNom: 'Nanterre', canal: 'formulaire' as CandidatDossier['canal'] }),
+      c({ dossierId: 3, codeInsee: '93066', communeNom: 'Saint-Denis', canal: 'email' }),
+    ], HIST, PARAMS);
+    expect(d.communesCanalNonEmail).toEqual(['Nanterre (formulaire)', 'Paris (courrier)']);
+  });
+});
 
 describe('S14e — cast int8 des id de demande (round-trip client → PATCH groupée)', () => {
   it('listerDemandes caste d.id::int AS id', async () => {

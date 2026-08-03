@@ -14,6 +14,12 @@ export interface AmbiguiteAffiche {
   id: number; nomAdministration: string | null; departement: string | null; codePostalVille: string | null;
   courriel: string | null; adresse: string | null; prenom: string | null; nom: string | null; millesime: string;
 }
+export interface CommuneInjoignableAffiche { codeInsee: string; nom: string; departement: string }
+
+/** Retire une commune d'une liste par son code (retrait optimiste après enregistrement). Pur → testable. */
+export function retirerCommune<T extends { codeInsee: string }>(liste: T[], code: string): T[] {
+  return liste.filter((c) => c.codeInsee !== code);
+}
 
 const aide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)', lineHeight: 1.45, margin: '.3rem 0 0' };
 
@@ -61,6 +67,23 @@ export function EncartArbitrages({ arbitrages }: { arbitrages: ArbitrageAffiche[
  * Carte d'une ligne AMBIGUË (mobile-first : repli en carte, jamais un tableau qui déborde). Affiche les colonnes brutes ;
  * les contrôles interactifs (recherche de commune, boutons) sont fournis par le parent via `children`.
  */
+/**
+ * Carte d'une commune INJOIGNABLE (aucune adresse e-mail) — mobile-first (carte). Le département est affiché en TEXTE
+ * (« dép. 92 »), jamais porté par la seule couleur. Le champ e-mail + le bouton d'enregistrement sont fournis en `children`.
+ */
+export function CarteInjoignable({ c, children }: { c: CommuneInjoignableAffiche; children?: ReactNode }) {
+  return (
+    <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 14 }}>{c.nom}</strong>
+        <span style={{ fontSize: 11, fontWeight: 700, padding: '.05rem .4rem', borderRadius: '.35rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)' }}>dép. {c.departement}</span>
+        <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>({c.codeInsee})</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export function CarteAmbiguite({ a, children }: { a: AmbiguiteAffiche; children?: ReactNode }) {
   const lignes: [string, string | null][] = [
     ['Département', a.departement],

@@ -94,8 +94,9 @@ async function lireHistorique(): Promise<HistoriqueDemandes> {
 }
 
 /** Compteurs expliquant l'absence de lots — MÊME logique d'exclusion que proposerLots (sans le toucher). */
-function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDemandes, params: ParamsLot): DiagnosticProposition {
+export function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDemandes, params: ParamsLot): DiagnosticProposition {
   const sansCanal = new Set<string>();
+  const canalNonEmail = new Map<string, string>(); // S15 : code_insee → « Nom (canal) » (courrier/formulaire écartés)
   const parCommune = new Map<string, number>();
   const arbitrages = new Set<string>(); // S14d : communes PRADA-disponible mais contact 'confirme' conservé
   let rattaches = 0, horsFenetre = 0, annules = 0, absents = 0;
@@ -109,6 +110,8 @@ function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDemandes, p
     if (d.dateReelleAutorisation === null || (params.dateMin !== null && d.dateReelleAutorisation < params.dateMin)) { horsFenetre += 1; continue; }
     if (hist.dejaRattaches.has(d.dossierId)) { rattaches += 1; continue; }
     if (d.communeNom === null || d.canal === null || d.canal === 'inconnu') { sansCanal.add(d.codeInsee); continue; }
+    // S15 — canal non-email (courrier/formulaire) : écarté ET NOMMÉ (jamais en silence). MÊME condition que proposerLots.
+    if (d.canal !== 'email') { canalNonEmail.set(d.codeInsee, `${d.communeNom} (${d.canal})`); continue; }
     parCommune.set(d.codeInsee, (parCommune.get(d.codeInsee) ?? 0) + 1);
   }
   let plafond = 0;
@@ -118,6 +121,7 @@ function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDemandes, p
   return {
     candidatsExamines: candidats.length, dossiersAnnules: annules, dossiersAbsents: absents, dossiersHorsFenetre: horsFenetre,
     dossiersDejaRattaches: rattaches, communesSansCanal: sansCanal.size, communesPlafondMensuel: plafond,
+    communesCanalNonEmail: [...canalNonEmail.values()].sort(),
     arbitragesPrada: [...arbitrages].sort(),
   };
 }

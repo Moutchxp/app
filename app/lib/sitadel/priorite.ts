@@ -184,7 +184,9 @@ function clausesWhere(f: FiltresPermis, params: unknown[], rangExpr: string | nu
       `OR word_similarity(${add(q)}, d.adr_libvoie_ter) >= ${SIMILARITE_VOIE})`,
     );
   }
-  if (f.sansDestinataire) cl.push("mc.canal = 'inconnu'"); // non adressable = canal inconnu (S5b) — PAS les orphelins
+  // S15 — « sans destinataire » = AUCUNE adresse e-mail nulle part (ni contact générique, ni PRADA), PRADA-aware (mp joint
+  // en S14d). Remplace l'ancien `mc.canal = 'inconnu'` devenu faux (13 des 29 'inconnu' sont joignables par leur PRADA).
+  if (f.sansDestinataire) cl.push("coalesce(btrim(mc.email), '') = '' AND coalesce(btrim(mp.courriel), '') = ''");
   if (f.etatDau) cl.push(`d.etat_dau = ${add(f.etatDau)}`); // filtre par état d'avancement (S12)
   if (f.rang != null && rangExpr) cl.push(`${rangExpr} = ${add(f.rang)}`);
   return cl.length ? `WHERE ${cl.join(' AND ')}` : '';
