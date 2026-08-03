@@ -307,6 +307,8 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
       {edition && (
         <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'center' }}>
           <span style={{ fontSize: 13 }}>Contact de <strong>{edition.nom}</strong> ({edition.code}) :</span>
+          {/* S23 : la protection contre la perte de coordonnées est CÔTÉ ROUTE (champsCoordonnees). `noteAuChangementCanal`
+              n'est plus qu'une commodité (trace lisible en note) au moment où l'on quitte le canal 'courrier'. */}
           <SelecteurCanal canal={edition.canal} suggestionTeleservice={edition.suggestionTeleservice}
             onCanal={(c) => setEdition({ ...edition, canal: c, note: noteAuChangementCanal(edition.canal, c, edition.adressePostale, edition.note), erreur: '' })} />
           {edition.canal === 'email' && (

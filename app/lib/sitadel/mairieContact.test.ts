@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   type ContactExistant, type Requete, type EcritureContact,
-  emailValide, choisirEmail, extraireEmailMairie, doitRemplacerDepuisAnnuaire, ecrireContact, validerCanal,
+  emailValide, choisirEmail, extraireEmailMairie, doitRemplacerDepuisAnnuaire, ecrireContact, validerCanal, champsCoordonnees,
 } from './mairieContact';
 
 /** Contact existant avec valeurs par défaut de canal (S5b), surchargeable. */
@@ -65,6 +65,28 @@ describe('Sitadel S5b — cohérence canal ↔ champ obligatoire', () => {
     expect(validerCanal('email', { adressePostale: 'x' })).not.toBeNull();          // champ voisin ≠ e-mail
     expect(validerCanal('formulaire', { urlFormulaire: 'pas-une-url' })).not.toBeNull();
     expect(validerCanal('courrier', { adressePostale: '   ' })).not.toBeNull();
+  });
+});
+
+describe('S23 — champsCoordonnees : le canal ne détruit plus aucune coordonnée', () => {
+  it('enregistrer un contact e-mail CONSERVE l’adresse postale (plus de NULL par canal)', () => {
+    // Cas Paris : on enregistre en canal 'email' (côté route), l’adresse BASU chargée reste présente.
+    const c = champsCoordonnees({ email: 'urbanisme@paris.fr', urlFormulaire: '', adressePostale: 'BASU, 6 promenade Claude-Lévi-Strauss, 75639 Paris' });
+    expect(c.email).toBe('urbanisme@paris.fr');
+    expect(c.adressePostale).toBe('BASU, 6 promenade Claude-Lévi-Strauss, 75639 Paris'); // ← n’est PLUS mise à NULL
+  });
+  it('enregistrer un contact formulaire CONSERVE e-mail ET adresse postale', () => {
+    const c = champsCoordonnees({ email: 'mairie@x.fr', urlFormulaire: 'https://teleservice.x.fr', adressePostale: '1 place de la Mairie' });
+    expect(c.email).toBe('mairie@x.fr');
+    expect(c.urlFormulaire).toBe('https://teleservice.x.fr');
+    expect(c.adressePostale).toBe('1 place de la Mairie');
+  });
+  it('une coordonnée ne devient NULL que si elle est VIDE (effacement explicite par l’humain), jamais à cause du canal', () => {
+    expect(champsCoordonnees({ email: '  ', urlFormulaire: '', adressePostale: '' })).toEqual({ email: null, urlFormulaire: null, adressePostale: null });
+  });
+  it('trim des coordonnées conservées', () => {
+    expect(champsCoordonnees({ email: '  a@b.fr ', urlFormulaire: '  https://x  ', adressePostale: '  rue X  ' }))
+      .toEqual({ email: 'a@b.fr', urlFormulaire: 'https://x', adressePostale: 'rue X' });
   });
 });
 

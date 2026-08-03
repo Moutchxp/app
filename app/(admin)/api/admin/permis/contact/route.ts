@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { withTransaction } from '../../../../../lib/db/client';
-import { type Requete, type CanalContact, validerCanal, ecrireContact } from '../../../../../lib/sitadel/mairieContact';
+import { type Requete, type CanalContact, validerCanal, champsCoordonnees, ecrireContact } from '../../../../../lib/sitadel/mairieContact';
 
 /**
  * PATCH /api/admin/permis/contact — CORRECTION MANUELLE de l'adresse e-mail d'une commune (chantier S5).
@@ -10,8 +10,10 @@ import { type Requete, type CanalContact, validerCanal, ecrireContact } from '..
  * réservée à l'administrateur par le défaut FAIL-CLOSED (les collaborateurs sont refusés) ; garde = 2e barrière.
  *
  * Effet : valide le CANAL et son champ obligatoire (`validerCanal`), puis écrit le contact en source='saisie_manuelle',
- * statut='confirme', EN JOURNALISANT. Seul le champ du canal choisi est conservé (les autres → NULL). AUCUN envoi
- * d'e-mail. Transaction (journal + registre atomiques). Runtime Node.
+ * statut='confirme', EN JOURNALISANT. S23 — le canal décide ce qu'on UTILISE pour adresser (via `resoudreDestination`),
+ * JAMAIS ce qu'on efface : les trois coordonnées (e-mail, URL, adresse postale) sont CONSERVÉES telles quelles
+ * (`champsCoordonnees`), une coordonnée ne disparaît que si l'humain l'a vidée. AUCUN envoi d'e-mail. Transaction (journal
+ * + registre atomiques). Runtime Node.
  */
 export const runtime = 'nodejs';
 
@@ -39,14 +41,17 @@ export async function PATCH(request: Request): Promise<Response> {
     const motifErreur = validerCanal(canal, { email, urlFormulaire, adressePostale });
     if (motifErreur) return Response.json({ erreur: motifErreur }, { status: 400 });
 
-    // Seul le champ du canal retenu est conservé (cohérence garantie côté SQL par la contrainte de la migration 051).
+    // S23 : les coordonnées sont conservées telles quelles (non gated par le canal). La cohérence utile reste garantie par
+    // `validerCanal` ci-dessus + la contrainte de la 051 (le canal exige SON champ non vide ; elle n'impose PAS le NULL des
+    // autres). Le canal ne pilote QUE le choix du destinataire (`resoudreDestination`), pas l'effacement.
+    const coord = champsCoordonnees({ email, urlFormulaire, adressePostale });
     await withTransaction(async (tx) => {
       const q: Requete = <R = Record<string, unknown>>(t: string, p?: unknown[]) => tx(t, p) as unknown as Promise<{ rows: R[] }>;
       await ecrireContact(q, {
         codeInsee,
-        email: canal === 'email' ? email : null,
-        urlFormulaire: canal === 'formulaire' ? urlFormulaire : null,
-        adressePostale: canal === 'courrier' ? adressePostale : null,
+        email: coord.email,
+        urlFormulaire: coord.urlFormulaire,
+        adressePostale: coord.adressePostale,
         canal, source: 'saisie_manuelle', statut: 'confirme',
         telephone, responsableNom, // S18 : protocole (protocole_verifie_le mis à CURRENT_DATE par ecrireContact)
         telephoneStandard, emailType, // S19 : standard + nature de l'adresse

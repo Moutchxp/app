@@ -220,9 +220,9 @@ export function corpsPatchContact(e: EditionContact): {
  *   - canal   → 'email' (NÉCESSAIRE : c'est le seul canal où mairie_contact.email est le destinataire ; on ne peut donc
  *               PAS adopter un e-mail sans passer le canal en 'email'. Ce changement est explicité dans la confirmation).
  * Tous les autres champs éditables (téléphone, standard, responsable, note) sont repris tels quels — jamais écrasés en
- * douce. ⚠️ La route met `adresse_postale` à NULL dès que le canal n'est plus 'courrier' : pour ne pas perdre la BASU
- * silencieusement, on la pré-remplit en note (via `noteAuChangementCanal`) à partir de la valeur EN BASE (`canalBase` /
- * `adresseBase`), pas de l'état d'édition.
+ * douce. Depuis S23, la route CONSERVE `adresse_postale` même en canal ≠ 'courrier' (plus d'effacement) : la BASU n'est
+ * donc plus perdue. On garde `noteAuChangementCanal` comme TRACE lisible (bonus, plus un sauvetage), à partir de la valeur
+ * EN BASE (`canalBase` / `adresseBase`), pas de l'état d'édition.
  */
 export function corpsAdoptionPrada(e: EditionContact, pradaCourriel: string, canalBase: string, adresseBase: string): ReturnType<typeof corpsPatchContact> {
   const note = noteAuChangementCanal(canalBase, 'email', adresseBase, e.note);
@@ -231,8 +231,10 @@ export function corpsAdoptionPrada(e: EditionContact, pradaCourriel: string, can
 
 /**
  * Au changement de canal : si l'on QUITTE 'courrier' pour un autre canal et que la note est encore vide, on la pré-remplit
- * avec l'adresse postale actuelle — l'utilisateur voit ce qu'il s'apprête à perdre (l'adresse_postale est écrasée à NULL et
- * n'est PAS journalisée) et peut la conserver en note. Sinon on garde la note telle quelle (jamais d'écrasement).
+ * avec l'adresse postale actuelle. ⚠️ S23 — ce n'est PLUS un garde-fou de sauvetage : depuis S23 la route ne détruit plus
+ * `adresse_postale` en fonction du canal (la vraie protection est CÔTÉ ROUTE, cf. `champsCoordonnees`), l'adresse reste donc
+ * dans sa colonne. Cette pré-remplissage n'est qu'une COMMODITÉ D'AFFICHAGE (trace lisible en note), jamais la garantie de
+ * non-perte. Sinon on garde la note telle quelle (jamais d'écrasement).
  */
 export function noteAuChangementCanal(ancienCanal: string, nouveauCanal: string, adressePostale: string, noteActuelle: string): string {
   if (ancienCanal === 'courrier' && nouveauCanal !== 'courrier' && noteActuelle.trim() === '' && adressePostale.trim() !== '') {

@@ -91,6 +91,18 @@ export function validerCanal(
   return null; // 'inconnu' : aucun champ requis
 }
 
+/**
+ * S23 — Coordonnées de contact réellement PERSISTÉES à partir des saisies de la modale. INVARIANT : le canal décide ce
+ * qu'on UTILISE pour adresser une demande (cf. `resoudreDestination`), JAMAIS ce qu'on EFFACE. Les trois coordonnées sont
+ * conservées telles quelles, INDÉPENDAMMENT du canal ; une coordonnée ne devient `null` que si elle est vide — c'est-à-dire
+ * si l'humain l'a laissée ou vidée explicitement. (Auparavant la route mettait à `null` toute coordonnée hors canal → elle
+ * détruisait des données, ex. l'adresse BASU de Paris à chaque passage en canal ≠ 'courrier'.)
+ */
+export function champsCoordonnees(c: { email: string; urlFormulaire: string; adressePostale: string }): { email: string | null; urlFormulaire: string | null; adressePostale: string | null } {
+  const nn = (s: string): string | null => (s.trim() !== '' ? s.trim() : null);
+  return { email: nn(c.email), urlFormulaire: nn(c.urlFormulaire), adressePostale: nn(c.adressePostale) };
+}
+
 // ── Écriture journalisée (q-injecté) ─────────────────────────────────────────
 export type Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>;
 
