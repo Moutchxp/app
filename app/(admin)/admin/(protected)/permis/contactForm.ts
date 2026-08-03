@@ -45,10 +45,52 @@ export const AIDE_CANAL = 'Le téléservice est à privilégier quand il existe 
 /** Mention affichée quand un téléservice est connu et que « formulaire web » a été présélectionné (suggestion, pas verrou). */
 export const MENTION_TELESERVICE = 'Un téléservice est connu pour cette commune : « formulaire web » est présélectionné (modifiable).';
 
+/**
+ * Faits LECTURE SEULE d'une commune (S21) — affichés dans la modale, jamais recopiés dans des champs éditables. ⚠️ La
+ * PRADA (responsable de l'accès aux documents) N'EST PAS le responsable du service urbanisme : ces valeurs restent
+ * distinctes de `mairie_contact.responsable_nom`. Chaque info porte son ORIGINE en texte.
+ */
+export interface FicheCommune {
+  contactStatut: string | null;        // presume|confirme|invalide → origine des infos de contact
+  adressePostale: string | null;       // affichée quel que soit le canal
+  protocoleSource: string | null;      // URL cliquable
+  protocoleVerifieLe: string | null;
+  emailType: string | null;
+  pradaCourriel: string | null;
+  pradaNom: string | null;             // « Prénom Nom » composé (annuaire CADA)
+  pradaAdresse: string | null;
+  pradaMillesime: string | null;
+  pradaOrigine: string | null;         // annuaire_cada|saisie_manuelle
+  pradaStatut: string | null;          // presume|confirme|invalide
+  pradaRapprochement: string | null;   // automatique|manuel|ambigu|…
+}
+
+/** Origine (en texte) d'une info de contact d'après le statut du contact. */
+export function origineContact(statut: string | null): string {
+  if (statut === 'confirme') return 'saisie manuelle (vérifiée)';
+  if (statut === 'invalide') return 'marquée invalide';
+  if (statut === 'presume') return 'présumée (annuaire)';
+  return 'origine inconnue';
+}
+/** Origine (en texte) de la PRADA d'après origine + rapprochement. */
+export function originePrada(origine: string | null, rapprochement: string | null): string {
+  const src = origine === 'saisie_manuelle' ? 'saisie manuelle' : 'annuaire CADA';
+  const rap = rapprochement === 'manuel' ? ', rattachement manuel'
+    : rapprochement === 'automatique' ? ', rattachement automatique'
+    : rapprochement === 'ambigu' ? ', rattachement ambigu' : '';
+  return `${src}${rap}`;
+}
+/** Libellé français d'un email_type (ou 'non renseigné'). */
+export function libelleEmailType(v: string | null): string {
+  const t = EMAIL_TYPES.find((o) => o.value === (v ?? '') && o.value !== '');
+  return t ? t.label : 'non renseigné';
+}
+
 export interface EtatEditionContact {
   code: string; nom: string; canal: CanalContact; email: string; urlFormulaire: string; adressePostale: string;
   note: string; telephone: string; responsableNom: string; protocoleVerifieLe: string | null;
   telephoneStandard: string; emailType: string; // S19
+  fiche: FicheCommune; // S21 : bloc lecture seule « ce que l'on sait de cette commune »
   suggestionTeleservice: boolean; erreur: string;
 }
 
@@ -62,6 +104,9 @@ export function editionInitiale(d: {
   destCanal: CanalContact | null; destEmail: string | null; destUrlFormulaire: string | null; destAdressePostale: string | null;
   destTelephone?: string | null; destResponsableNom?: string | null; destProtocoleVerifieLe?: string | null;
   destTelephoneStandard?: string | null; destEmailType?: string | null;
+  destStatut?: string | null; destProtocoleSource?: string | null;
+  destPradaCourriel?: string | null; destPradaNom?: string | null; destPradaAdresse?: string | null;
+  destPradaMillesime?: string | null; destPradaOrigine?: string | null; destPradaStatut?: string | null; destPradaRapprochement?: string | null;
 }): EtatEditionContact {
   const teleserviceConnu = (d.destUrlFormulaire ?? '').trim() !== '';
   return {
@@ -72,10 +117,26 @@ export function editionInitiale(d: {
     adressePostale: d.destAdressePostale ?? '',
     note: '',
     telephone: d.destTelephone ?? '',
+    // ⚠️ S21 : responsableNom vient de mairie_contact UNIQUEMENT — JAMAIS de la PRADA (destPradaNom). La PRADA n'est pas le
+    // responsable du service ; recopier créerait deux sources de vérité divergentes au prochain millésime de l'annuaire.
     responsableNom: d.destResponsableNom ?? '',
     protocoleVerifieLe: d.destProtocoleVerifieLe ?? null,
     telephoneStandard: d.destTelephoneStandard ?? '',
     emailType: d.destEmailType ?? '',
+    fiche: {
+      contactStatut: d.destStatut ?? null,
+      adressePostale: (d.destAdressePostale ?? '').trim() === '' ? null : (d.destAdressePostale ?? '').trim(),
+      protocoleSource: (d.destProtocoleSource ?? '').trim() === '' ? null : (d.destProtocoleSource ?? '').trim(),
+      protocoleVerifieLe: d.destProtocoleVerifieLe ?? null,
+      emailType: d.destEmailType ?? null,
+      pradaCourriel: (d.destPradaCourriel ?? '').trim() === '' ? null : (d.destPradaCourriel ?? '').trim(),
+      pradaNom: d.destPradaNom ?? null,
+      pradaAdresse: d.destPradaAdresse ?? null,
+      pradaMillesime: d.destPradaMillesime ?? null,
+      pradaOrigine: d.destPradaOrigine ?? null,
+      pradaStatut: d.destPradaStatut ?? null,
+      pradaRapprochement: d.destPradaRapprochement ?? null,
+    },
     suggestionTeleservice: teleserviceConnu,
     erreur: '',
   };

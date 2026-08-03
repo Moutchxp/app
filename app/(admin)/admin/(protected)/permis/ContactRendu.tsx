@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { CanalContact } from '../../../../lib/sitadel/mairieContact';
-import { CANAUX_ORDONNES, AIDE_CANAL, MENTION_TELESERVICE, EMAIL_TYPES, MENTION_ACCUEIL, problemeUrlOuverture } from './contactForm';
+import { CANAUX_ORDONNES, AIDE_CANAL, MENTION_TELESERVICE, EMAIL_TYPES, MENTION_ACCUEIL, problemeUrlOuverture, origineContact, originePrada, libelleEmailType, type FicheCommune } from './contactForm';
 
 /**
  * Rendu PUR du sélecteur de canal de l'éditeur de contact mairie — aucun état, aucun effet → testable en Node via
@@ -57,6 +57,54 @@ export function SelecteurEmailType({ emailType, onEmailType }: { emailType: stri
       </label>
       {emailType === 'accueil' && <span style={{ ...styleAide, color: '#8a5a00' }}>{MENTION_ACCUEIL}</span>}
     </div>
+  );
+}
+
+const styleOrigine: CSSProperties = { fontSize: 10, color: 'var(--color-svv-muted)', fontStyle: 'italic' };
+const hrefProtocole = (s: string): string => (/^https?:\/\//i.test(s) ? s : `https://${s}`);
+
+/** Une ligne « label : valeur (origine) » de la fiche. Valeur absente → « non renseigné » (jamais un champ vide ambigu). */
+function LigneFiche({ label, valeur, origine, lien }: { label: string; valeur: string | null; origine?: string; lien?: boolean }) {
+  const vide = (valeur ?? '').trim() === '';
+  return (
+    <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'baseline', fontSize: 12 }}>
+      <span style={{ color: 'var(--color-svv-muted)', minWidth: '9rem' }}>{label}</span>
+      {vide
+        ? <span style={{ color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>non renseigné</span>
+        : lien
+          ? <a href={hrefProtocole(valeur!)} target="_blank" rel="noopener noreferrer" className="svv-link" style={{ wordBreak: 'break-all' }}>{valeur} ↗</a>
+          : <span style={{ wordBreak: 'break-word' }}>{valeur}</span>}
+      {!vide && origine && <span style={styleOrigine}>· {origine}</span>}
+    </div>
+  );
+}
+
+/**
+ * Bloc LECTURE SEULE « Ce que l'on sait de cette commune » (S21). Affiche les infos PRADA (annuaire CADA) et les champs de
+ * contact non éditables ici (adresse postale quel que soit le canal, protocole, nature de l'adresse). Chaque info porte son
+ * ORIGINE en TEXTE (jamais la couleur seule). Rien n'est recopié dans les champs éditables. Mobile-first.
+ */
+export function BlocFicheCommune({ fiche }: { fiche: FicheCommune }) {
+  const oc = origineContact(fiche.contactStatut);
+  const aPrada = (fiche.pradaCourriel ?? fiche.pradaNom ?? fiche.pradaAdresse) !== null;
+  const opr = originePrada(fiche.pradaOrigine, fiche.pradaRapprochement);
+  return (
+    <section role="group" aria-label="Ce que l'on sait de cette commune" className="svv-card flex flex-col gap-1"
+      style={{ flex: '1 1 100%', background: 'var(--color-svv-field)', minWidth: 0 }}>
+      <strong style={{ fontSize: 12 }}>Ce que l’on sait de cette commune (lecture seule)</strong>
+      {aPrada ? (
+        <>
+          <LigneFiche label="PRADA (nom)" valeur={fiche.pradaNom} origine={opr} />
+          <LigneFiche label="PRADA (courriel)" valeur={fiche.pradaCourriel} origine={opr} />
+          <LigneFiche label="PRADA (adresse)" valeur={fiche.pradaAdresse} origine={opr} />
+          <LigneFiche label="PRADA (millésime)" valeur={fiche.pradaMillesime} origine={opr} />
+        </>
+      ) : <LigneFiche label="PRADA" valeur={null} />}
+      <LigneFiche label="Adresse postale" valeur={fiche.adressePostale} origine={oc} />
+      <LigneFiche label="Protocole vérifié le" valeur={fiche.protocoleVerifieLe} origine={oc} />
+      <LigneFiche label="Source du protocole" valeur={fiche.protocoleSource} origine={oc} lien />
+      <LigneFiche label="Nature de l’adresse" valeur={fiche.emailType ? libelleEmailType(fiche.emailType) : null} origine={oc} />
+    </section>
   );
 }
 

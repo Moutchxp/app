@@ -6,7 +6,7 @@ import type { DossierAffiche, ResultatVeille } from '../../../../lib/sitadel/vei
 import type { CommuneRef, FusionRef } from '../../../../lib/sitadel/carteRepo';
 import { CartePermis } from './CartePermis';
 import { corpsPatchContact, noteAuChangementCanal, problemeContactUI, editionInitiale, type EtatEditionContact } from './contactForm';
-import { SelecteurCanal, ChampsProtocole, SelecteurEmailType, BoutonOuvrirLien } from './ContactRendu';
+import { SelecteurCanal, ChampsProtocole, SelecteurEmailType, BoutonOuvrirLien, BlocFicheCommune } from './ContactRendu';
 
 /**
  * Vue de la tuile « Permis de construire » (client) : filtres combinables + liste paginée CÔTÉ SERVEUR (jamais 29 670
@@ -50,6 +50,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
   const [version, setVersion] = useState(0); // bumpé après une édition de contact → force le rechargement
   const [edition, setEdition] = useState<Edition | null>(null);
+  const [confPrada, setConfPrada] = useState(false); // S21 : confirmation avant d'adopter le courriel PRADA
 
   /** Toute modif de filtre remet la pagination à 1 (jamais de setState d'effet). */
   const maj = (patch: Partial<Filtres>): void => { setFiltres((f) => ({ ...f, ...patch })); setPage(1); };
@@ -89,7 +90,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
   }, [ref, rechCommune, filtres.departement, selectionSet]);
 
   /** Ouvre l'éditeur de contact pour la commune d'un dossier (pré-rempli avec le canal/valeur courants). */
-  const ouvrirEdition = (d: DossierAffiche): void => setEdition(editionInitiale(d));
+  const ouvrirEdition = (d: DossierAffiche): void => { setEdition(editionInitiale(d)); setConfPrada(false); };
 
   /** Enregistre la correction manuelle du contact (source=saisie_manuelle, statut=confirme) puis recharge. */
   async function enregistrerContact(): Promise<void> {
@@ -111,6 +112,32 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
       setVersion((v) => v + 1);
     } catch {
       setEdition({ ...edition, erreur: 'Enregistrement impossible.' });
+    }
+  }
+
+  /**
+   * S21 — adopte le courriel de la PRADA comme destinataire, via la MÊME route /contact (statut='confirme',
+   * source='saisie_manuelle', email_type='prada', journal). Ne recopie AUCUN autre champ PRADA. Confirmation déjà donnée.
+   */
+  async function adopterPrada(): Promise<void> {
+    if (!edition) return;
+    const courriel = (edition.fiche.pradaCourriel ?? '').trim();
+    if (courriel === '') return;
+    setConfPrada(false);
+    try {
+      const res = await fetch('/api/admin/permis/contact', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(corpsPatchContact({ ...edition, canal: 'email', email: courriel, emailType: 'prada' })),
+      });
+      if (!res.ok) {
+        const d = (await res.json().catch(() => ({}))) as { erreur?: string };
+        setEdition({ ...edition, erreur: d.erreur ? `Refusé : ${d.erreur}.` : 'Adoption impossible.' });
+        return;
+      }
+      setEdition(null);
+      setVersion((v) => v + 1);
+    } catch {
+      setEdition({ ...edition, erreur: 'Adoption impossible.' });
     }
   }
 
@@ -302,6 +329,21 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
             <input type="text" value={edition.note} placeholder="ex. Ancienne adresse courrier : …"
               onChange={(e) => setEdition({ ...edition, note: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
           </label>
+          {/* S21 — bloc lecture seule « ce que l'on sait de cette commune » (jamais recopié dans les champs éditables) */}
+          <BlocFicheCommune fiche={edition.fiche} />
+          {/* S21 — adopter le courriel PRADA comme destinataire : uniquement s'il existe, non vide, ET diffère de l'e-mail
+              actuel. Passe par la route /contact existante (statut=confirme, source=saisie_manuelle, journal). */}
+          {(edition.fiche.pradaCourriel ?? '').trim() !== '' && (edition.fiche.pradaCourriel ?? '').trim() !== edition.email.trim() && (
+            confPrada
+              ? (
+                <span role="alert" style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', flex: '1 1 100%', fontSize: 13 }}>
+                  Remplacer le destinataire par <strong>{edition.fiche.pradaCourriel}</strong> (confirmé, saisie manuelle) ?
+                  <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .7rem' }} onClick={() => void adopterPrada()}>Confirmer</button>
+                  <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => setConfPrada(false)}>Annuler</button>
+                </span>
+              )
+              : <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.4rem .8rem', flex: '1 1 100%' }} onClick={() => setConfPrada(true)}>Utiliser le courriel de la PRADA comme destinataire</button>
+          )}
           <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.4rem .8rem' }} onClick={() => void enregistrerContact()}>Enregistrer</button>
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.4rem .8rem' }} onClick={() => setEdition(null)}>Annuler</button>
           {edition.erreur && <span role="alert" style={{ color: 'var(--color-svv-red)', fontSize: 13 }}>{edition.erreur}</span>}

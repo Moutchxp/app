@@ -1,5 +1,39 @@
 import { describe, it, expect } from 'vitest';
-import { corpsPatchContact, noteAuChangementCanal, problemeContactUI, editionInitiale, CANAUX_ORDONNES, problemeUrlOuverture } from './contactForm';
+import { corpsPatchContact, noteAuChangementCanal, problemeContactUI, editionInitiale, CANAUX_ORDONNES, problemeUrlOuverture, origineContact, originePrada, libelleEmailType } from './contactForm';
+
+describe('S21 — INVARIANT : la PRADA n’est JAMAIS recopiée dans un champ éditable de contact', () => {
+  it('editionInitiale : responsableNom vient de mairie_contact, JAMAIS de la PRADA ; l’e-mail non plus', () => {
+    const e = editionInitiale({
+      codeInsee: '92050', communeNom: 'Nanterre', destCanal: 'email', destEmail: 'mairie@nanterre.fr',
+      destUrlFormulaire: null, destAdressePostale: null, destResponsableNom: null,
+      destPradaNom: 'Jean PRADA', destPradaCourriel: 'prada@x.fr', destPradaAdresse: '1 rue X', destPradaMillesime: '2026-07',
+      destPradaOrigine: 'annuaire_cada', destPradaStatut: 'presume', destPradaRapprochement: 'automatique',
+    });
+    expect(e.responsableNom).toBe('');                 // PAS 'Jean PRADA'
+    expect(e.telephone).toBe('');                       // ni ailleurs
+    expect(e.email).toBe('mairie@nanterre.fr');         // e-mail = contact, pas PRADA
+    // la PRADA n'existe QUE dans la fiche lecture seule
+    expect(e.fiche.pradaNom).toBe('Jean PRADA');
+    expect(e.fiche.pradaCourriel).toBe('prada@x.fr');
+  });
+});
+
+describe('S21 — libellés d’origine (texte, pas couleur)', () => {
+  it('origineContact selon le statut', () => {
+    expect(origineContact('presume')).toMatch(/présumée/);
+    expect(origineContact('confirme')).toMatch(/saisie manuelle/);
+    expect(origineContact(null)).toMatch(/inconnue/);
+  });
+  it('originePrada combine source + rapprochement', () => {
+    expect(originePrada('annuaire_cada', 'automatique')).toMatch(/annuaire CADA.*automatique/);
+    expect(originePrada('saisie_manuelle', 'manuel')).toMatch(/saisie manuelle.*manuel/);
+  });
+  it('libelleEmailType : valeur → libellé, absent → « non renseigné »', () => {
+    expect(libelleEmailType('urbanisme')).toBe('service urbanisme');
+    expect(libelleEmailType(null)).toBe('non renseigné');
+    expect(libelleEmailType('')).toBe('non renseigné');
+  });
+});
 
 describe('S19 — editionInitiale porte standard + nature de l’adresse ; problemeUrlOuverture', () => {
   it('editionInitiale : telephoneStandard et emailType repris du dossier', () => {

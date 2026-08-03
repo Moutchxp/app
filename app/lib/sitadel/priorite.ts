@@ -110,7 +110,9 @@ const FROM_JOIN =
   'LEFT JOIN commune c ON c.code_insee = d.code_insee ' +
   'LEFT JOIN mairie_contact mc ON mc.code_insee = d.code_insee ' +
   // S14d : on ÉTEND (jamais on ne remplace) avec la PRADA — la résolution du destinataire est faite en TS (destinataire.ts).
-  'LEFT JOIN mairie_prada mp ON mp.code_insee = d.code_insee';
+  'LEFT JOIN mairie_prada mp ON mp.code_insee = d.code_insee ' +
+  // S21 : la ligne d'import d'origine de la PRADA, pour connaître l'état de rapprochement (automatique/manuel/…).
+  'LEFT JOIN prada_import pi ON pi.id = mp.import_id';
 
 /** Ordre secondaire : surface (PC = surf_creee, PD = superficie_terrain) DESC, puis date DESC, puis num_dau (stable). */
 const ORDRE_SECONDAIRE =
@@ -152,9 +154,11 @@ const SELECTION =
   // S18 : protocole (téléphone / responsable / date de dernière vérification) pour l'éditeur de contact.
   `mc.telephone AS dest_telephone, mc.responsable_nom AS dest_responsable_nom, mc.protocole_verifie_le::text AS dest_protocole_verifie_le, ` +
   // S19 : standard de la mairie + nature de l'adresse (email_type).
-  `mc.telephone_standard AS dest_telephone_standard, mc.email_type AS dest_email_type, ` +
+  `mc.telephone_standard AS dest_telephone_standard, mc.email_type AS dest_email_type, mc.protocole_source AS dest_protocole_source, ` +
   // S14d : bruts PRADA (la précédence est calculée en TS par resoudreDestination, pas en SQL).
-  `mp.courriel AS prada_courriel, mp.import_id AS prada_import_id, mp.nom AS prada_nom, mp.prenom AS prada_prenom`;
+  `mp.courriel AS prada_courriel, mp.import_id AS prada_import_id, mp.nom AS prada_nom, mp.prenom AS prada_prenom, ` +
+  // S21 : fiche PRADA (lecture seule) — adresse/millésime/statut/origine de l'annuaire + état de rapprochement.
+  `mp.adresse_formatee AS prada_adresse, mp.millesime AS prada_millesime, mp.statut AS prada_statut, mp.origine AS prada_origine, pi.rapprochement AS prada_rapprochement`;
 
 /**
  * Clauses WHERE des filtres, poussant leurs paramètres dans `params`. `rangExpr` (déjà construit et paramétré) est requis

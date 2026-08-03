@@ -42,9 +42,15 @@ export interface DossierAffiche {
   destProtocoleVerifieLe: string | null;     // 'AAAA-MM-JJ' ou null
   destTelephoneStandard: string | null;      // S19 : standard de la mairie
   destEmailType: string | null;              // S19 : urbanisme|accueil|prada|inconnu|null
+  destProtocoleSource: string | null;        // S21 : URL de la page d'où vient le protocole (fiche lecture seule)
   destPradaCourriel: string | null;     // S14d : bruts PRADA (résolution du destinataire faite en TS)
   destPradaImportId: number | null;
   destPradaNom: string | null;          // « Prénom Nom » composé, ou null
+  destPradaAdresse: string | null;      // S21 : fiche PRADA (lecture seule)
+  destPradaMillesime: string | null;
+  destPradaStatut: string | null;       // presume|confirme|invalide
+  destPradaOrigine: string | null;      // annuaire_cada|saisie_manuelle
+  destPradaRapprochement: string | null; // automatique|manuel|ambigu|… (prada_import)
   categorie: CleCategorie;
   libelleCategorie: string;
   rang: number;
@@ -71,10 +77,16 @@ interface LigneSql {
   dest_protocole_verifie_le: string | null;
   dest_telephone_standard: string | null;
   dest_email_type: string | null;
+  dest_protocole_source: string | null;
   prada_courriel: string | null;
   prada_import_id: number | null;
   prada_nom: string | null;
   prada_prenom: string | null;
+  prada_adresse: string | null;
+  prada_millesime: string | null;
+  prada_statut: string | null;
+  prada_origine: string | null;
+  prada_rapprochement: string | null;
 }
 
 const nombre = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -101,9 +113,11 @@ function versAffiche(r: LigneSql, c: ConfigVeille): DossierAffiche {
     communeNom: r.commune_nom, destEmail: r.dest_email, destStatut: r.dest_statut,
     destCanal: r.dest_canal, destUrlFormulaire: r.dest_url_formulaire, destAdressePostale: r.dest_adresse_postale,
     destTelephone: r.dest_telephone, destResponsableNom: r.dest_responsable_nom, destProtocoleVerifieLe: r.dest_protocole_verifie_le,
-    destTelephoneStandard: r.dest_telephone_standard, destEmailType: r.dest_email_type,
+    destTelephoneStandard: r.dest_telephone_standard, destEmailType: r.dest_email_type, destProtocoleSource: r.dest_protocole_source,
     destPradaCourriel: r.prada_courriel, destPradaImportId: r.prada_import_id,
     destPradaNom: [r.prada_prenom, r.prada_nom].map((x) => (x ?? '').trim()).filter((x) => x !== '').join(' ') || null,
+    destPradaAdresse: r.prada_adresse, destPradaMillesime: r.prada_millesime, destPradaStatut: r.prada_statut,
+    destPradaOrigine: r.prada_origine, destPradaRapprochement: r.prada_rapprochement,
     categorie: cl.cle, libelleCategorie: cl.libelle, rang: cl.rang,
   };
 }

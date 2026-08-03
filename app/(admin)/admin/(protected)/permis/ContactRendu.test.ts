@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { SelecteurCanal, ChampsProtocole, SelecteurEmailType, BoutonOuvrirLien } from './ContactRendu';
+import { SelecteurCanal, ChampsProtocole, SelecteurEmailType, BoutonOuvrirLien, BlocFicheCommune } from './ContactRendu';
+import type { FicheCommune } from './contactForm';
 
 const rendu = (canal: 'formulaire' | 'email' | 'courrier' | 'inconnu', suggestion: boolean) =>
   renderToStaticMarkup(createElement(SelecteurCanal, { canal, suggestionTeleservice: suggestion, onCanal: () => {} }));
@@ -97,5 +98,40 @@ describe('S19 — BoutonOuvrirLien', () => {
     const h = renderToStaticMarkup(createElement(BoutonOuvrirLien, { url: 'pas-une-url' }));
     expect(h).toContain('disabled');
     expect(h).toContain('URL invalide');
+  });
+});
+
+describe('S21 — BlocFicheCommune (lecture seule, origine en texte)', () => {
+  const pleine: FicheCommune = {
+    contactStatut: 'presume', adressePostale: '1 place de la Mairie', protocoleSource: 'clamart.fr/urbanisme',
+    protocoleVerifieLe: '2026-08-03', emailType: 'urbanisme',
+    pradaCourriel: 'prada@paris.fr', pradaNom: 'Charles Chenel', pradaAdresse: '6 promenade…', pradaMillesime: '2026-07',
+    pradaOrigine: 'annuaire_cada', pradaStatut: 'presume', pradaRapprochement: 'automatique',
+  };
+  it('affiche les infos PRADA + contact, avec leur origine en TEXTE', () => {
+    const h = renderToStaticMarkup(createElement(BlocFicheCommune, { fiche: pleine }));
+    expect(h).toContain('Charles Chenel');
+    expect(h).toContain('prada@paris.fr');
+    expect(h).toContain('2026-07');
+    expect(h).toContain('annuaire CADA');            // origine PRADA en texte
+    expect(h).toContain('1 place de la Mairie');     // adresse postale quel que soit le canal
+    expect(h).toContain('service urbanisme');        // libellé email_type
+    expect(h).toContain('présumée');                 // origine contact en texte
+  });
+  it('protocole_source rendu cliquable en nouvel onglet (https ajouté), rel noopener noreferrer', () => {
+    const h = renderToStaticMarkup(createElement(BlocFicheCommune, { fiche: pleine }));
+    expect(h).toContain('href="https://clamart.fr/urbanisme"');
+    expect(h).toContain('target="_blank"');
+    expect(h).toContain('rel="noopener noreferrer"');
+  });
+  it('information absente → « non renseigné », jamais un champ vide', () => {
+    const vide: FicheCommune = {
+      contactStatut: null, adressePostale: null, protocoleSource: null, protocoleVerifieLe: null, emailType: null,
+      pradaCourriel: null, pradaNom: null, pradaAdresse: null, pradaMillesime: null, pradaOrigine: null, pradaStatut: null, pradaRapprochement: null,
+    };
+    const h = renderToStaticMarkup(createElement(BlocFicheCommune, { fiche: vide }));
+    expect(h).toContain('non renseigné');
+    expect(h).toContain('role="group"');
+    expect(h).toContain('aria-label="Ce que l'); // groupe nommé (apostrophe échappée par le rendu)
   });
 });
