@@ -155,6 +155,8 @@ const SELECTION =
   `mc.telephone AS dest_telephone, mc.responsable_nom AS dest_responsable_nom, mc.protocole_verifie_le::text AS dest_protocole_verifie_le, ` +
   // S19 : standard de la mairie + nature de l'adresse (email_type).
   `mc.telephone_standard AS dest_telephone_standard, mc.email_type AS dest_email_type, mc.protocole_source AS dest_protocole_source, ` +
+  // S25 : note de la commune — chargée dans l'éditeur pour être COMPLÉTÉE, jamais écrasée par une saisie vide.
+  `mc.note AS dest_note, ` +
   // S14d : bruts PRADA (la précédence est calculée en TS par resoudreDestination, pas en SQL).
   `mp.courriel AS prada_courriel, mp.import_id AS prada_import_id, mp.nom AS prada_nom, mp.prenom AS prada_prenom, ` +
   // S21 : fiche PRADA (lecture seule) — adresse/millésime/statut/origine de l'annuaire + état de rapprochement.

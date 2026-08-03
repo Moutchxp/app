@@ -128,7 +128,7 @@ export interface BaseCommune {
   codeInsee: string; communeNom: string | null;
   destCanal: CanalContact | null; destEmail: string | null; destUrlFormulaire: string | null; destAdressePostale: string | null;
   destTelephone?: string | null; destResponsableNom?: string | null; destProtocoleVerifieLe?: string | null;
-  destTelephoneStandard?: string | null; destEmailType?: string | null;
+  destTelephoneStandard?: string | null; destEmailType?: string | null; destNote?: string | null;
   destStatut?: string | null; destSource?: string | null; destProtocoleSource?: string | null;
   destPradaCourriel?: string | null; destPradaNom?: string | null; destPradaAdresse?: string | null;
   destPradaMillesime?: string | null; destPradaOrigine?: string | null; destPradaStatut?: string | null; destPradaRapprochement?: string | null;
@@ -178,7 +178,9 @@ export function editionInitiale(d: BaseCommune): EtatEditionContact {
     email: d.destEmail ?? '',
     urlFormulaire: d.destUrlFormulaire ?? '',
     adressePostale: d.destAdressePostale ?? '',
-    note: '',
+    // S25 : la note est CHARGÉE depuis la base (comme e-mail/canal/téléphone…), pour être complétée et jamais écrasée à
+    // vide. `noteAuChangementCanal` s'appuie dessus : il n'ajoute l'ancienne adresse courrier que si la note est encore vide.
+    note: d.destNote ?? '',
     telephone: d.destTelephone ?? '',
     // ⚠️ S21 : responsableNom vient de mairie_contact UNIQUEMENT — JAMAIS de la PRADA (destPradaNom). La PRADA n'est pas le
     // responsable du service ; recopier créerait deux sources de vérité divergentes au prochain millésime de l'annuaire.
@@ -234,7 +236,8 @@ export function corpsAdoptionPrada(e: EditionContact, pradaCourriel: string, can
  * avec l'adresse postale actuelle. ⚠️ S23 — ce n'est PLUS un garde-fou de sauvetage : depuis S23 la route ne détruit plus
  * `adresse_postale` en fonction du canal (la vraie protection est CÔTÉ ROUTE, cf. `champsCoordonnees`), l'adresse reste donc
  * dans sa colonne. Cette pré-remplissage n'est qu'une COMMODITÉ D'AFFICHAGE (trace lisible en note), jamais la garantie de
- * non-perte. Sinon on garde la note telle quelle (jamais d'écrasement).
+ * non-perte. ⚠️ S25 — la note est désormais CHARGÉE depuis la base : si elle contient DÉJÀ quelque chose, elle est laissée
+ * EXACTEMENT telle quelle (aucun ajout, aucun écrasement) ; la pré-remplissage ne s'applique qu'à une note encore vide.
  */
 export function noteAuChangementCanal(ancienCanal: string, nouveauCanal: string, adressePostale: string, noteActuelle: string): string {
   if (ancienCanal === 'courrier' && nouveauCanal !== 'courrier' && noteActuelle.trim() === '' && adressePostale.trim() !== '') {

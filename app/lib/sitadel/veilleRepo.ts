@@ -44,6 +44,7 @@ export interface DossierAffiche {
   destTelephoneStandard: string | null;      // S19 : standard de la mairie
   destEmailType: string | null;              // S19 : urbanisme|accueil|prada|inconnu|null
   destProtocoleSource: string | null;        // S21 : URL de la page d'où vient le protocole (fiche lecture seule)
+  destNote: string | null;                   // S25 : note libre de la commune (chargée dans l'éditeur, jamais écrasée à vide)
   destPradaCourriel: string | null;     // S14d : bruts PRADA (résolution du destinataire faite en TS)
   destPradaImportId: number | null;
   destPradaNom: string | null;          // « Prénom Nom » composé, ou null
@@ -80,6 +81,7 @@ interface LigneSql {
   dest_telephone_standard: string | null;
   dest_email_type: string | null;
   dest_protocole_source: string | null;
+  dest_note: string | null;
   prada_courriel: string | null;
   prada_import_id: number | null;
   prada_nom: string | null;
@@ -116,6 +118,7 @@ function versAffiche(r: LigneSql, c: ConfigVeille): DossierAffiche {
     destCanal: r.dest_canal, destUrlFormulaire: r.dest_url_formulaire, destAdressePostale: r.dest_adresse_postale,
     destTelephone: r.dest_telephone, destResponsableNom: r.dest_responsable_nom, destProtocoleVerifieLe: r.dest_protocole_verifie_le,
     destTelephoneStandard: r.dest_telephone_standard, destEmailType: r.dest_email_type, destProtocoleSource: r.dest_protocole_source,
+    destNote: r.dest_note,
     destPradaCourriel: r.prada_courriel, destPradaImportId: r.prada_import_id,
     destPradaNom: [r.prada_prenom, r.prada_nom].map((x) => (x ?? '').trim()).filter((x) => x !== '').join(' ') || null,
     destPradaAdresse: r.prada_adresse, destPradaMillesime: r.prada_millesime, destPradaStatut: r.prada_statut,

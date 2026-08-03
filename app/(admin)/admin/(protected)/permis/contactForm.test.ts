@@ -20,6 +20,30 @@ describe('S21 — INVARIANT : la PRADA n’est JAMAIS recopiée dans un champ é
   });
 });
 
+describe('S25 — la note existante est CHARGÉE puis préservée à l’enregistrement', () => {
+  it('editionInitiale charge la note depuis la base (plus de note vide forcée)', () => {
+    const e = editionInitiale({ codeInsee: '75056', communeNom: 'Paris', destCanal: 'formulaire', destEmail: null, destUrlFormulaire: 'https://adsconsult.paris.fr', destAdressePostale: null, destNote: 'Consult ADS ; ancienne adresse BASU conservée.' });
+    expect(e.note).toBe('Consult ADS ; ancienne adresse BASU conservée.');
+  });
+  it('ouvrir une fiche à note NON VIDE et enregistrer SANS y toucher → la note reste INTACTE', () => {
+    const d = { codeInsee: '92050', communeNom: 'Nanterre', destCanal: 'email' as const, destEmail: 'mairie@nanterre.fr', destUrlFormulaire: null, destAdressePostale: null, destNote: 'note métier importante' };
+    const corps = corpsPatchContact(editionInitiale(d)); // aucune modification de l'utilisateur
+    expect(corps.note).toBe('note métier importante'); // ← n'est PLUS écrasée à '' (le bug S24→S25)
+  });
+  it('note absente en base → éditeur ouvert avec une note vide (NULL honnête)', () => {
+    const e = editionInitiale({ codeInsee: '92050', communeNom: 'Nanterre', destCanal: 'email', destEmail: 'x@y.fr', destUrlFormulaire: null, destAdressePostale: null });
+    expect(e.note).toBe('');
+  });
+  it('quitter le canal courrier ne REMPLACE pas une note déjà chargée (complète seulement une note vide)', () => {
+    const d = { codeInsee: '78500', communeNom: 'X', destCanal: 'courrier' as const, destEmail: null, destUrlFormulaire: null, destAdressePostale: 'BASU', destNote: 'déjà une note' };
+    const e = editionInitiale(d);
+    expect(noteAuChangementCanal(e.canal, 'email', e.adressePostale, e.note)).toBe('déjà une note'); // inchangée
+    // …mais une note VIDE est bien complétée par l'ancienne adresse courrier (comportement conservé)
+    const vide = editionInitiale({ codeInsee: '78500', communeNom: 'X', destCanal: 'courrier', destEmail: null, destUrlFormulaire: null, destAdressePostale: 'BASU' });
+    expect(noteAuChangementCanal(vide.canal, 'email', vide.adressePostale, vide.note)).toBe('Ancienne adresse courrier : BASU');
+  });
+});
+
 describe('S22 — A : la fiche vient EXCLUSIVEMENT de la base, jamais de l’état d’édition', () => {
   const d = {
     codeInsee: '92050', communeNom: 'Nanterre', destCanal: 'email' as const, destEmail: 'mairie@nanterre.fr',
