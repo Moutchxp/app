@@ -706,14 +706,19 @@ describe('GET /api/admin/curation/journal (historique global)', () => {
 
   it('entité supprimée : nom/famille résolus en SQL (COALESCE e/sup/fallback) + supprimee', async () => {
     queryMock.mockResolvedValue({ rows: [{ ...LIGNE, nom_affiche: 'Hotel de ville', famille_affiche: 'inconnue', supprimee: true }] });
-    const body = await (await GET_JOURNAL(reqJournal(''))).json();
-    expect(body.lignes[0]).toMatchObject({ supprimee: true, famille_affiche: 'inconnue' });
-    const sql = sqlsEmis()[0];
-    expect(/COALESCE\(e\.nom, sup\.nom, 'entité supprimée #' \|\| l\.entite_id\)/.test(sql)).toBe(true);
-    expect(/COALESCE\(e\.famille, sup\.famille, 'inconnue'\)/.test(sql)).toBe(true);
-    expect(/\(e\.id IS NULL\) AS supprimee/.test(sql)).toBe(true);
-    // filtre famille : une entité 'inconnue' n'apparaît que sous 'toutes'
-    expect(/WHERE \(\$1 = 'toutes' OR COALESCE\(e\.famille, sup\.famille\) = \$1\)/.test(sql)).toBe(true);
+    // COMPORTEMENT : la réponse expose l'entité supprimée (drapeau + nom/famille résolus), et le filtre demandé passe en $1.
+    const body = await (await GET_JOURNAL(reqJournal('?famille=mh'))).json();
+    expect(body.lignes[0]).toMatchObject({ supprimee: true, famille_affiche: 'inconnue', nom_affiche: 'Hotel de ville' });
+    expect(queryMock.mock.calls[0][1][0]).toBe('mh'); // famille passée en paramètre LIÉ $1 (jamais interpolée)
+    // CONTRAT SQL — S31 : on assert des FRAGMENTS sémantiques (robustes au reformatage), PAS la forme exacte du WHERE. La
+    // regex précédente exigeait « WHERE ($1 = 'toutes' OR COALESCE(...) = $1) » d'un seul tenant : l'ajout du filtre « Manuel »
+    // (commit 1118e12) a inséré une branche OR au milieu → l'assertion a cassé alors qu'AUCUN comportement n'a régressé.
+    const sql = sqlsEmis()[0].replace(/\s+/g, ' ');
+    expect(sql).toContain("COALESCE(e.nom, sup.nom, 'entité supprimée #' || l.entite_id)"); // nom de secours d'une entité supprimée
+    expect(sql).toContain("COALESCE(e.famille, sup.famille, 'inconnue')");                   // famille résolue, repli 'inconnue'
+    expect(sql).toContain('(e.id IS NULL) AS supprimee');                                    // drapeau « supprimée »
+    expect(sql).toContain("$1 = 'toutes'");                                                  // « toutes » ne filtre pas la famille
+    expect(sql).toContain('COALESCE(e.famille, sup.famille) = $1');                          // filtre par repli : une 'inconnue' (COALESCE NULL) n'apparaît que sous 'toutes'
   });
 
   it('LECTURE STRICTE : aucune écriture émise', async () => {
