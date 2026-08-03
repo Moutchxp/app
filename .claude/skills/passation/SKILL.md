@@ -51,6 +51,15 @@ TypeScript, Tailwind v4, PostgreSQL 17 + PostGIS.
 - Ne jamais conseiller de faire une pause ou d'arrêter ; Arno décide seul.
 - Proposer plusieurs options AVANT d'implémenter sur un choix de design/ressenti.
 - Les 2 fichiers Gemini (adaptateurIaPhoto.ts, analyse-photo/route.ts) restent hors staging.
+- **CONTRÔLE DE FIN OBLIGATOIRE = `npm test` COMPLET vert (= `vitest run`, 173 fichiers).** Les suites
+  filtrées (internaute / sitadel / permis) sont des contrôles RAPIDES en cours de travail, JAMAIS le
+  contrôle de fin : **114 des 173 fichiers sont hors de ces 3 sous-ensembles** (précédent :
+  `curation.test.ts` rouge du 14/07 au 03/08/2026, invisible aux contrôles filtrés). Pas d'alias
+  `test:tout` — `npm test` fait déjà ça.
+- **Tests : ne jamais figer la FORME d'un SQL émis au runtime** (regex sur le WHERE complet) → asserter
+  le COMPORTEMENT (réponse, paramètres liés) + le SQL par FRAGMENTS sémantiques whitespace-normalisés
+  (`sql.replace(/\s+/g, ' ')` + `toContain`). Exemple de la bonne forme : `curation.test.ts` (« entité
+  supprimée »). Vaut pour les nouveaux tests ; les anciens seront migrés au fil de l'eau.
 
 ### 3. Objectif à atteindre
 Décris l'objectif GLOBAL du projet ET l'objectif du chantier EN COURS au moment de la passation.
