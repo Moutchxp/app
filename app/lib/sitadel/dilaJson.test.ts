@@ -64,7 +64,7 @@ describe('S28 — filtre mairie + extraction de contexte', () => {
 });
 
 describe('S28 — rattachement (direct / desambigue_01 / manquant)', () => {
-  it('1 mairie → direct ; commune fusionnée (2 mairies) → -01 retenue, déléguée hors_perimetre ; sans mairie → manquant', async () => {
+  it('1 mairie → direct ; commune fusionnée (2 mairies) → -01 retenue, déléguée ÉCARTÉE (règle -01) ; sans mairie → manquant', async () => {
     const recs = (await tous(64)).filter(estMairie);
     const perimetre = ['92050', '93066', '99999'];
     const parCode = new Map<string, DilaRecord[]>();
@@ -74,7 +74,7 @@ describe('S28 — rattachement (direct / desambigue_01 / manquant)', () => {
     const rat = rattacher(parCode, perimetre);
     expect(rat.direct).toBe(1);
     expect(rat.desambigue01).toBe(1);
-    expect(rat.horsPerimetre).toBe(1);                   // la mairie déléguée de Pierrefitte, non retenue
+    expect(rat.ecarteesDeleguee).toBe(1);                // la mairie déléguée de Pierrefitte : ÉCARTÉE par la règle -01, PAS « hors périmètre »
     expect(rat.manquants).toEqual(['99999']);
     expect(rat.ambigus).toEqual([]);
     const parInsee = Object.fromEntries(rat.retenues.map((r) => [r.codeInsee, r]));

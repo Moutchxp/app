@@ -162,6 +162,11 @@ export async function* enregistrementsService(chunks: AsyncIterable<string>): As
 /** Résultat du rattachement d'une commune à sa mairie principale. */
 export interface Retenue {
   codeInsee: string;
+  // ⚠️ SEULES valeurs de `rapprochement` réellement ÉCRITES en base aujourd'hui. La colonne `dila_import.rapprochement`
+  // (CHECK migration 068) admet AUSSI 'non_traite'|'manuel'|'ambigu'|'hors_perimetre' : VALEURS DE GARDE réservées, jamais
+  // posées par cette ingestion. En particulier 'hors_perimetre' est RÉSERVÉE à un futur élargissement du périmètre (des
+  // enregistrements qu'on ramènerait alors) — à NE PAS confondre avec les mairies déléguées écartées ici : celles-ci
+  // relèvent de communes DANS le périmètre, écartées par la règle -01, et ne sont PAS écrites (cf. `ecarteesDeleguee`).
   rapprochement: 'direct' | 'desambigue_01';
   rec: DilaRecord;
 }
@@ -169,16 +174,17 @@ export interface Retenue {
 /**
  * Rattache chaque commune du périmètre à SA mairie principale. Une seule mairie → 'direct'. Plusieurs (communes fusionnées :
  * mairie principale + mairie(s) déléguée(s)) → on retient celle dont `ancien_code_pivot = mairie-<INSEE>-01` ('desambigue_01').
- * Les autres candidates (déléguées) ne sont PAS retenues (comptées `horsPerimetre`). Une commune sans mairie ou multiple sans
- * `-01` clair est signalée (`ambigus` / `manquants`) et n'est pas retenue.
+ * Les autres candidates sont des MAIRIES DÉLÉGUÉES : elles ne sont PAS retenues (comptées `ecarteesDeleguee`) — ⚠️ elles ne
+ * sont PAS « hors périmètre » (leur commune EN fait partie), elles sont ÉCARTÉES PAR LA RÈGLE -01. Une commune sans mairie
+ * ou multiple sans `-01` clair est signalée (`ambigus` / `manquants`) et n'est pas retenue.
  */
 export function rattacher(parCode: Map<string, DilaRecord[]>, codesPerimetre: string[]): {
-  retenues: Retenue[]; direct: number; desambigue01: number; horsPerimetre: number; ambigus: string[]; manquants: string[];
+  retenues: Retenue[]; direct: number; desambigue01: number; ecarteesDeleguee: number; ambigus: string[]; manquants: string[];
 } {
   const retenues: Retenue[] = [];
   const ambigus: string[] = [];
   const manquants: string[] = [];
-  let direct = 0, desambigue01 = 0, horsPerimetre = 0;
+  let direct = 0, desambigue01 = 0, ecarteesDeleguee = 0;
   for (const code of codesPerimetre) {
     const cands = parCode.get(code) ?? [];
     if (cands.length === 0) { manquants.push(code); continue; }
@@ -187,10 +193,10 @@ export function rattacher(parCode: Map<string, DilaRecord[]>, codesPerimetre: st
     if (principales.length === 1) {
       retenues.push({ codeInsee: code, rapprochement: 'desambigue_01', rec: principales[0] });
       desambigue01++;
-      horsPerimetre += cands.length - 1; // les déléguées, non retenues
+      ecarteesDeleguee += cands.length - 1; // mairies déléguées écartées par la règle -01 (commune EN périmètre), non écrites
     } else {
       ambigus.push(code); // aucun -01 unique : on ne devine pas
     }
   }
-  return { retenues, direct, desambigue01, horsPerimetre, ambigus, manquants };
+  return { retenues, direct, desambigue01, ecarteesDeleguee, ambigus, manquants };
 }

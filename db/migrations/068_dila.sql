@@ -117,7 +117,7 @@ COMMENT ON COLUMN dila_import.ancien_code_pivot IS 'Ex. ''mairie-92050-01''. Ser
 COMMENT ON COLUMN dila_import.courriel IS 'Courriel VERBATIM (adresse_courriel[].valeur) — souvent VIDE. La DILA n''apporte AUCUN courriel pour les 22 communes en manque : ne JAMAIS en faire un destinataire automatique.';
 COMMENT ON COLUMN dila_import.telephone IS 'Téléphone du guichet (telephone[].valeur). Destiné à mairie_contact.telephone_standard (standard de la mairie), PAS au service urbanisme.';
 COMMENT ON COLUMN dila_import.code_insee IS 'Commune de notre périmètre rattachée (FK nullable). NULL si non traité, ambigu ou hors périmètre.';
-COMMENT ON COLUMN dila_import.rapprochement IS 'État du rattachement : non_traite | direct (code INSEE unique) | desambigue_01 (2 mairies → principale par mairie-<INSEE>-01) | manuel | ambigu | hors_perimetre. Trace le choix, comme prada_import.';
+COMMENT ON COLUMN dila_import.rapprochement IS 'État du rattachement. Valeurs ÉCRITES aujourd''hui : direct (code INSEE unique) | desambigue_01 (>=2 mairies pour une même commune → principale retenue par mairie-<INSEE>-01 ; les mairies déléguées écartées ne sont PAS écrites). ⚠️ VALEURS DE GARDE réservées, JAMAIS écrites par l''ingestion actuelle — NE PAS retirer du CHECK au « nettoyage » : non_traite | manuel | ambigu | hors_perimetre. En particulier ''hors_perimetre'' est réservée à un futur ÉLARGISSEMENT du périmètre (enregistrements qu''on ramènerait alors) — à ne pas confondre avec une mairie déléguée écartée, dont la commune est DANS le périmètre.';
 
 CREATE INDEX IF NOT EXISTS dila_import_code_insee_idx         ON dila_import (code_insee);
 CREATE INDEX IF NOT EXISTS dila_import_code_insee_commune_idx ON dila_import (code_insee_commune);

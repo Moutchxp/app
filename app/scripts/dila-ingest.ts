@@ -19,7 +19,7 @@ function imprimerRapport(c: CompteursDila): void {
   console.log(`  mairies trouvées    : ${c.mairiesTrouvees}`);
   console.log(`  mairies (périmètre) : ${c.mairiesPerimetre}`);
   console.log(`  lignes gardées      : ${c.lignesGardees}`);
-  console.log(`  rattachement        : direct=${c.direct} · desambigue_01=${c.desambigue01} · hors_perimetre=${c.horsPerimetre}`);
+  console.log(`  rattachement        : direct=${c.direct} · desambigue_01=${c.desambigue01} · écartées règle -01 (mairies déléguées, non écrites)=${c.ecarteesDeleguee}`);
   if (c.ambigus.length > 0) console.log(`  ⚠ ambigus (non retenus) : ${c.ambigus.join(', ')}`);
   if (c.manquants.length > 0) console.log(`  ⚠ sans mairie DILA      : ${c.manquants.join(', ')}`);
   console.log(`  → dila_millesime.id = ${c.millesimeId}`);

@@ -62,7 +62,7 @@ export interface CompteursDila {
   lignesGardees: number;        // lignes réellement insérées (une par commune du périmètre)
   direct: number;
   desambigue01: number;
-  horsPerimetre: number;        // candidates non retenues (mairies déléguées des communes fusionnées)
+  ecarteesDeleguee: number;     // mairies DÉLÉGUÉES écartées par la règle -01 (commune EN périmètre) — non écrites en base
   ambigus: string[];
   manquants: string[];
   millesimeId: number;
@@ -216,7 +216,7 @@ export async function importerAnnuaireDila(opts: { forcer?: boolean } = {}): Pro
       compteurs: {
         code, fichierSource, dateFichier: code, urlEffective, tailleOctets, copyright: COPYRIGHT_DILA,
         enregistrementsLus, mairiesTrouvees, mairiesPerimetre, lignesGardees: rat.retenues.length,
-        direct: rat.direct, desambigue01: rat.desambigue01, horsPerimetre: rat.horsPerimetre,
+        direct: rat.direct, desambigue01: rat.desambigue01, ecarteesDeleguee: rat.ecarteesDeleguee,
         ambigus: rat.ambigus, manquants: rat.manquants, millesimeId,
       },
     };
