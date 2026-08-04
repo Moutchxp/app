@@ -22,6 +22,33 @@ export function retirerCommune<T extends { codeInsee: string }>(liste: T[], code
   return liste.filter((c) => c.codeInsee !== code);
 }
 
+/**
+ * S42 — message de retour d'une action de statut. `zone` = là où l'utilisateur a agi ('haut' = actions groupées,
+ * 'detail' = boutons du panneau détail). `ok` distingue succès/échec (couleur + graisse ; le TEXTE reste porteur).
+ */
+export type RetourAction = { texte: string; ok: boolean; zone: 'haut' | 'detail' } | null;
+
+/**
+ * Répartit le message de retour dans UNE seule zone d'affichage (jamais deux à l'écran en même temps) : quand le message
+ * vient du panneau détail ET que ce panneau est ouvert, il s'affiche là ; sinon dans le bandeau du haut (repli inclus si
+ * le détail s'est refermé). Pur → testable en Node.
+ */
+export function repartirRetour(r: RetourAction, detailOuvert: boolean): { haut: RetourAction; detail: RetourAction } {
+  if (!r) return { haut: null, detail: null };
+  if (r.zone === 'detail' && detailOuvert) return { haut: null, detail: r };
+  return { haut: r, detail: null };
+}
+
+/** Rend le message de retour : succès en vert, échec en rouge (gras) — role="status" pour lecteur d'écran. `null` si vide. */
+export function MessageRetour({ r }: { r: RetourAction }) {
+  if (!r || r.texte === '') return null;
+  return (
+    <span role="status" style={{ fontSize: 13, fontWeight: r.ok ? 400 : 600, color: r.ok ? 'var(--color-svv-green)' : 'var(--color-svv-red)' }}>
+      {r.texte}
+    </span>
+  );
+}
+
 const aide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)', lineHeight: 1.45, margin: '.3rem 0 0' };
 
 /** Indication d'origine du destinataire par ligne : « PRADA — Nom » ou « contact mairie ». Texte d'abord, couleur en appui. */

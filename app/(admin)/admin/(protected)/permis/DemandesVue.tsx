@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagnostic, ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, ResumeDemandes, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
-import { OrigineDest } from './DemandesRendu';
+import { OrigineDest, MessageRetour, repartirRetour, type RetourAction } from './DemandesRendu';
 import { BlocPrada } from './BlocPrada';
 import { BlocDepot } from './BlocDepot';
 
@@ -32,7 +32,7 @@ export function DemandesVue() {
   const [profilPrep, setProfilPrep] = useState<ProfilDemandeur>('entreprise');
   const [detail, setDetail] = useState<DemandeDetail | null>(null);
   const [corps, setCorps] = useState('');
-  const [msg, setMsg] = useState('');
+  const [retour, setRetour] = useState<RetourAction>(null);
   const [version, setVersion] = useState(0);
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [fStatut, setFStatut] = useState('');
@@ -43,6 +43,8 @@ export function DemandesVue() {
   const [confBascule, setConfBascule] = useState<Bascule | null>(null); // confirmation avant régénération
 
   const rafraichir = useCallback(() => setVersion((v) => v + 1), []);
+  // S42 — annonce un retour d'action dans la zone où l'utilisateur a agi ('haut' groupé, 'detail' panneau). Texte vide → efface.
+  const annoncer = useCallback((texte: string, ok: boolean, zone: 'haut' | 'detail' = 'haut') => setRetour(texte === '' ? null : { texte, ok, zone }), []);
 
   useEffect(() => {
     let annule = false;
@@ -85,43 +87,45 @@ export function DemandesVue() {
   });
 
   async function preparer(): Promise<void> {
-    setMsg('');
+    setRetour(null);
     const res = await fetch(`/api/admin/permis/demandes/proposition?profil=${profilPrep}`, { cache: 'no-store' });
     if (res.ok) { const p = (await res.json()) as { lots: Lot[]; diagnostic: DiagnosticProposition; profil: ProfilDemandeur }; setProp(p); setProfilPrep(p.profil); }
-    else setMsg(await erreurServeur(res, 'Proposition indisponible.'));
+    else annoncer(await erreurServeur(res, 'Proposition indisponible.'), false);
   }
   async function creer(): Promise<void> {
     const res = await fetch('/api/admin/permis/demandes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profil: profilPrep }) });
     if (res.ok) {
       const r = (await res.json()) as { crees: string[]; ignores: number; profil: ProfilDemandeur };
-      setMsg(`${r.crees.length} demande(s) créée(s) en ${ETIQUETTE_PROFIL[r.profil].toLowerCase()}${r.ignores ? `, ${r.ignores} lot(s) ignoré(s)` : ''}.`);
+      annoncer(`${r.crees.length} demande(s) créée(s) en ${ETIQUETTE_PROFIL[r.profil].toLowerCase()}${r.ignores ? `, ${r.ignores} lot(s) ignoré(s)` : ''}.`, true);
       setProp(null); rafraichir();
-    } else setMsg(await erreurServeur(res, 'Création impossible.'));
+    } else annoncer(await erreurServeur(res, 'Création impossible.'), false);
   }
-  async function ouvrir(id: number): Promise<void> {
-    setMsg('');
+  async function ouvrir(id: number, conserverRetour = false): Promise<void> {
+    if (!conserverRetour) setRetour(null); // rechargement post-transition : ne pas effacer le retour qu'on vient de poser
     const res = await fetch(`/api/admin/permis/demandes/${id}`, { cache: 'no-store' });
     if (res.ok) { const d = (await res.json()) as DemandeDetail; setDetail(d); setCorps(d.corps ?? ''); }
-    else setMsg(await erreurServeur(res, 'Ouverture impossible.'));
+    else annoncer(await erreurServeur(res, 'Ouverture impossible.'), false);
   }
   async function sauverCorps(): Promise<void> {
     if (!detail) return;
     const res = await fetch(`/api/admin/permis/demandes/${detail.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ corps }) });
-    if (res.ok) { setDetail((await res.json()) as DemandeDetail); setMsg('Texte enregistré.'); }
+    if (res.ok) { setDetail((await res.json()) as DemandeDetail); annoncer('Texte enregistré.', true, 'detail'); }
+    else annoncer(await erreurServeur(res, 'Enregistrement impossible.'), false, 'detail');
   }
-  async function transition(ids: number[], statut: 'prete' | 'abandonnee'): Promise<void> {
+  // `origine` = zone d'affichage du retour : 'detail' pour les boutons du panneau détail, 'haut' pour l'action groupée.
+  async function transition(ids: number[], statut: 'prete' | 'abandonnee', origine: 'haut' | 'detail' = 'haut'): Promise<void> {
     if (ids.length === 0) return;
     const res = await fetch('/api/admin/permis/demandes', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, statut }) });
     if (res.ok) {
       const r = (await res.json()) as { traites: number };
-      setMsg(`${r.traites} demande(s) ${statut === 'prete' ? 'marquée(s) prête(s)' : 'abandonnée(s)'}.`);
-      setSel(new Set()); if (detail && ids.includes(detail.id)) void ouvrir(detail.id); rafraichir();
+      annoncer(`${r.traites} demande(s) ${statut === 'prete' ? 'marquée(s) prête(s)' : 'abandonnée(s)'}.`, true, origine);
+      setSel(new Set()); if (detail && ids.includes(detail.id)) void ouvrir(detail.id, true); rafraichir();
       return;
     }
     if (res.status === 409) {
       const d = (await res.json()) as { champs?: string[] };
-      setMsg(`Aucune demande modifiée : identité du demandeur incomplète — ${(d.champs ?? []).join(' ; ')}. Complétez la configuration dans l’onglet Réglages.`);
-    } else setMsg(await erreurServeur(res, 'Action impossible.'));
+      annoncer(`Aucune demande modifiée : identité du demandeur incomplète — ${(d.champs ?? []).join(' ; ')}. Complétez la configuration dans l’onglet Réglages.`, false, origine);
+    } else annoncer(await erreurServeur(res, 'Action impossible.'), false, origine);
   }
   /** Applique la bascule de profil confirmée (régénère le texte). Un seul refus ⇒ zéro écriture (tout-ou-rien serveur). */
   async function appliquerBascule(): Promise<void> {
@@ -131,17 +135,19 @@ export function DemandesVue() {
     const res = await fetch('/api/admin/permis/demandes', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, profil }) });
     if (res.ok) {
       const r = (await res.json()) as { traites: number };
-      setMsg(`${r.traites} demande(s) basculée(s) en ${ETIQUETTE_PROFIL[profil].toLowerCase()} (texte régénéré).`);
-      setSel(new Set()); if (detail && ids.includes(detail.id)) void ouvrir(detail.id); rafraichir();
+      annoncer(`${r.traites} demande(s) basculée(s) en ${ETIQUETTE_PROFIL[profil].toLowerCase()} (texte régénéré).`, true);
+      setSel(new Set()); if (detail && ids.includes(detail.id)) void ouvrir(detail.id, true); rafraichir();
       return;
     }
-    if (res.status === 409) { const d = (await res.json()) as { erreur?: string }; setMsg(`Aucune bascule : ${d.erreur ?? 'transition interdite'}.`); }
-    else setMsg(await erreurServeur(res, 'Bascule impossible.'));
+    if (res.status === 409) { const d = (await res.json()) as { erreur?: string }; annoncer(`Aucune bascule : ${d.erreur ?? 'transition interdite'}.`, false); }
+    else annoncer(await erreurServeur(res, 'Bascule impossible.'), false);
   }
 
   const r = liste?.resume;
   const explication = prop ? expliquerProposition(prop.lots.length, prop.diagnostic) : '';
   const selProfil = (id: string) => id as ProfilDemandeur;
+  // S42 — le retour s'affiche dans UNE seule zone : le panneau détail s'il est ouvert et concerné, sinon le bandeau du haut.
+  const zonesRetour = repartirRetour(retour, detail !== null);
 
   return (
     <div className="flex flex-col gap-4">
@@ -179,7 +185,7 @@ export function DemandesVue() {
             {PROFILS.map((p) => <option key={p} value={p}>{ETIQUETTE_PROFIL[p]}</option>)}
           </select>
         </label>
-        {msg && <span role="status" style={{ fontSize: 13 }}>{msg}</span>}
+        <MessageRetour r={zonesRetour.haut} />
       </div>
 
       {/* S14e — arbitrages PRADA (info) + rapprochements ambigus à trancher (rattachement/écartement manuel) */}
@@ -239,10 +245,12 @@ export function DemandesVue() {
           {detail.statut === 'brouillon' && (
             <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
               <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => void sauverCorps()}>Enregistrer le texte</button>
-              <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem' }} onClick={() => void transition([detail.id], 'prete')}>Marquer prête</button>
-              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => void transition([detail.id], 'abandonnee')}>Abandonner</button>
+              <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem' }} onClick={() => void transition([detail.id], 'prete', 'detail')}>Marquer prête</button>
+              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => void transition([detail.id], 'abandonnee', 'detail')}>Abandonner</button>
             </div>
           )}
+          {/* S42 — retour d'action affiché LÀ où l'utilisateur a cliqué (hors du bloc brouillon : survit au passage en « prête »). */}
+          <MessageRetour r={zonesRetour.detail} />
         </div>
       )}
 

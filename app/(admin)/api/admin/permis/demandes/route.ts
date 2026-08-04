@@ -40,12 +40,18 @@ export async function POST(request: Request): Promise<Response> {
 export async function PATCH(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
+  // Contexte capturé hors du try pour être disponible dans la trace du catch (les refus métier 400/409 sont des
+  // `return`, ils n'atteignent jamais ce catch : seules les exceptions INATTENDUES sont journalisées).
+  let idsCtx: number[] | undefined;
+  let cibleCtx: unknown;
   try {
     const corps = (await request.json()) as { ids?: unknown; statut?: unknown; profil?: unknown };
     // Erreur EXPLICITE si des id étaient fournis mais tous invalides (ex. bigint sérialisé en chaîne) — jamais un succès à 0.
     const v = validerIdsLot(corps.ids);
     if (!v.ok) return Response.json({ erreur: v.erreur }, { status: 400 });
     const ids = v.ids;
+    idsCtx = ids;
+    cibleCtx = corps.profil ?? corps.statut;
     const auteur = garde.auteurId === null ? null : String(garde.auteurId);
 
     // Bascule de profil (action groupée « Basculer la sélection en… »).
@@ -70,7 +76,16 @@ export async function PATCH(request: Request): Promise<Response> {
       throw e;
     }
     return Response.json({ ok: true, traites: ids.length });
-  } catch {
+  } catch (e) {
+    // Trace SERVEUR de l'exception inattendue (S42) : sans elle, un bug d'une ligne (params liés inversés, 22P02)
+    // reste invisible des deux côtés. La réponse HTTP au client est INCHANGÉE (même code 503, même corps).
+    const err = e as { name?: unknown; message?: unknown; stack?: unknown; code?: unknown; detail?: unknown; constraint?: unknown; table?: unknown; column?: unknown };
+    console.error('[permis/demandes] PATCH action impossible (503)', {
+      ids: idsCtx, cible: cibleCtx,
+      name: err?.name, message: err?.message,
+      code: err?.code, detail: err?.detail, constraint: err?.constraint, table: err?.table, column: err?.column,
+      stack: err?.stack,
+    });
     return Response.json({ erreur: 'action impossible' }, { status: 503 });
   }
 }

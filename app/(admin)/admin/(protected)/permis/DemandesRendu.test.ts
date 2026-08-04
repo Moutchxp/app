@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, CarteAmbiguite, CarteInjoignable, CarteDepot, retirerCommune, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, CarteAmbiguite, CarteInjoignable, CarteDepot, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche } from './DemandesRendu';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 
 describe('S14e — OrigineDest (texte porteur, pas seulement couleur)', () => {
@@ -91,6 +91,45 @@ describe('S15 — communes injoignables (saisie par commune)', () => {
     const apres = retirerCommune(communes, '78003');
     expect(apres).toHaveLength(15);
     expect(apres.some((c) => c.codeInsee === '78003')).toBe(false);
+  });
+});
+
+describe('S42 — retour d’action visible LÀ où l’utilisateur a cliqué (jamais dédoublé)', () => {
+  const echecDetail: RetourAction = { texte: 'action impossible', ok: false, zone: 'detail' };
+
+  it('un échec déclenché depuis le panneau détail (panneau ouvert) s’affiche DANS le détail, pas dans le bandeau', () => {
+    const rep = repartirRetour(echecDetail, true);
+    expect(rep.detail).toEqual(echecDetail); // rendu dans le panneau détail
+    expect(rep.haut).toBeNull();             // et NULLE PART ailleurs → jamais deux fois à l’écran
+    // le composant rend bien le texte de l’échec, avec role="status" (a11y) et un rouge (échec ≠ succès)
+    const h = renderToStaticMarkup(createElement(MessageRetour, { r: rep.detail }));
+    expect(h).toContain('action impossible');
+    expect(h).toContain('role="status"');
+    expect(h).toContain('var(--color-svv-red)');
+  });
+
+  it('détail refermé → repli dans le bandeau du haut (le message n’est pas perdu)', () => {
+    const rep = repartirRetour(echecDetail, false);
+    expect(rep.haut).toEqual(echecDetail);
+    expect(rep.detail).toBeNull();
+  });
+
+  it('un retour d’action groupée (zone haut) reste dans le bandeau même détail ouvert', () => {
+    const okHaut: RetourAction = { texte: '3 demande(s) marquée(s) prête(s).', ok: true, zone: 'haut' };
+    const rep = repartirRetour(okHaut, true);
+    expect(rep.haut).toEqual(okHaut);
+    expect(rep.detail).toBeNull();
+    // succès → vert, distinct de l’échec
+    const h = renderToStaticMarkup(createElement(MessageRetour, { r: rep.haut }));
+    expect(h).toContain('var(--color-svv-green)');
+    expect(h).toContain('role="status"');
+  });
+
+  it('aucun retour → aucune des deux zones, et MessageRetour ne rend rien', () => {
+    const rep = repartirRetour(null, true);
+    expect(rep.haut).toBeNull();
+    expect(rep.detail).toBeNull();
+    expect(renderToStaticMarkup(createElement(MessageRetour, { r: null }))).toBe('');
   });
 });
 
