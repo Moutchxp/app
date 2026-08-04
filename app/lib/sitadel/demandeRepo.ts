@@ -336,7 +336,7 @@ export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'abando
     for (const id of ids) {
       const av = await q<{ statut: string }>(`SELECT statut FROM demande WHERE id = $1`, [id]);
       const avant = av.rows[0]?.statut ?? null;
-      await q(`UPDATE demande SET statut = $2, maj_le = now() WHERE id = $1`, [nouveau, id]);
+      await q(`UPDATE demande SET statut = $2, maj_le = now() WHERE id = $1`, [id, nouveau]);
       if (nouveau === 'abandonnee') await q(`UPDATE demande_dossier SET actif = false WHERE demande_id = $1`, [id]);
       await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, $3, $4, $5)`, [id, avant, nouveau, motif, auteur]);
     }
