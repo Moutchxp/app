@@ -116,9 +116,16 @@ describe('session admin — doitChanger (M3-4 Lot B)', () => {
 });
 
 describe('session admin — rejets', () => {
-  it('jeton falsifié (dernier caractère altéré) → null', async () => {
+  it('jeton falsifié (signature altérée) → null', async () => {
     const jeton = await signerJeton(sessionAdmin());
-    const falsifie = jeton.slice(0, -1) + (jeton.slice(-1) === 'A' ? 'B' : 'A');
+    // On altère le PREMIER caractère de la signature (segment après le dernier '.'), PAS le dernier. Motif : dans un segment
+    // base64url, le padding n'occupe QUE les bits de poids faible du DERNIER caractère ; un caractère de DÉBUT de segment
+    // porte 6 bits tous SIGNIFICATIFS. Le modifier change donc toujours au moins un octet de la signature décodée → rejet
+    // DÉTERMINISTE. (L'ancienne version altérait le dernier caractère : ~3 % du temps elle ne changeait qu'un bit de
+    // padding, la signature restait valide et le « jeton falsifié » n'était pas falsifié — faux négatif de sécurité.)
+    const i = jeton.lastIndexOf('.') + 1;
+    const falsifie = jeton.slice(0, i) + (jeton[i] === 'A' ? 'B' : 'A') + jeton.slice(i + 1);
+    expect(falsifie).not.toBe(jeton);
     expect(await verifierJeton(falsifie)).toBeNull();
   });
 
