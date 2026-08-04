@@ -4,7 +4,7 @@ import {
   type CandidatDossier, type ConfigDemandeur, type Lot, type DiagnosticProposition, type ParamsLot,
   problemesIdentite, proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande,
   dateEnFrancais, ancreDetail, peutPasserLot, expliquerProposition, resumeDiagnostic, configAvecSignataire,
-  validerIdsLot,
+  validerIdsLot, problemeCorpsDemande, gabaritsPresents,
 } from './demande';
 import { resoudreDestination } from './destinataire';
 
@@ -171,14 +171,38 @@ describe('Sitadel S7 — texte de la demande', () => {
 
   it('destinataire/texte FIGÉ : muter la source après coup ne change pas le texte déjà généré (instantané figé)', () => {
     const cfgMut: ConfigDemandeur = { ...CONFIG };
-    const fige = genererTexte(lot, cfgMut, 'SVAV-DEM-2026-000003', pieces).corps;
-    cfgMut.emailContact = 'autre@ailleurs.fr'; // modif du « registre » après génération
-    expect(fige).toContain('contact@sansvisavis.com'); // le texte produit reste l'instantané
-    expect(fige).not.toContain('autre@ailleurs.fr');
+    const fige = genererTexte(lot, cfgMut, 'SVAV-DEM-2026-000003', pieces, 'entreprise', 'demandes@sansvisavis.com').corps;
+    cfgMut.raisonSociale = 'SOCIETE MUTÉE ZZZ'; // modif du « registre » après génération
+    expect(fige).toContain('Criterimmo');       // l'identité reste l'instantané figé
+    expect(fige).not.toContain('SOCIETE MUTÉE ZZZ');
+    // S39 (B) — l'adresse de réponse vient de config_veille (paramètre), figée au gel ; plus l'e-mail de contact identité
+    expect(fige).toContain('Adresse de réponse : demandes@sansvisavis.com');
   });
 
   it('formaterReferenceDemande : SVAV-DEM-AAAA-NNNNNN', () => {
     expect(formaterReferenceDemande(2026, 42)).toBe('SVAV-DEM-2026-000042');
+  });
+
+  it('S39 (B) — l’adresse de réponse du corps vient du paramètre (config_veille), pas de config_demandeur.email_contact', () => {
+    const c = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000009', pieces, 'entreprise', 'demandes@svav.fr').corps;
+    expect(c).toContain('Adresse de réponse : demandes@svav.fr');
+    expect(c).not.toContain('contact@sansvisavis.com'); // plus de doublon avec l'e-mail de contact identité
+  });
+
+  it('S39 (A) — problemeCorpsDemande : détecte les gabarits FIGÉS et nomme les champs ; null si exploitable', () => {
+    // corps réel généré avec une identité complète → aucun gabarit → null
+    const propre = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000007', pieces, 'entreprise', 'demandes@svav.fr');
+    expect(problemeCorpsDemande(propre.objet, propre.corps)).toBeNull();
+    // corps figé avec des gabarits (cas SVAV-DEM-2026-000099 : identité jamais renseignée)
+    const corpsGabarit = 'RAISON SOCIALE EXACTE, FORME JURIDIQUE, dont le siège est ADRESSE COMPLETE DU SIEGE, représentée par PRENOM NOM, QUALITE.';
+    const msg = problemeCorpsDemande('Demande', corpsGabarit);
+    expect(msg).not.toBeNull();
+    expect(msg).toMatch(/RAISON SOCIALE/);
+    expect(msg).toMatch(/QUALITE/);
+    expect(msg).toMatch(/complétez l’identité/i);
+    // gabaritsPresents renvoie les marqueurs distincts trouvés
+    expect(gabaritsPresents(corpsGabarit)).toEqual(expect.arrayContaining(['RAISON SOCIALE', 'FORME JURIDIQUE', 'QUALITE']));
+    expect(gabaritsPresents(propre.corps)).toEqual([]);
   });
 });
 
@@ -354,24 +378,25 @@ describe('Sitadel S8a — courrier signé par un collaborateur', () => {
   const lot: Lot = { codeInsee: '92050', communeNom: 'Nanterre', canal: 'email', dossiers: [cand({ numDau: 'PC0001' })] };
   const pieces = piecesDepuisConfig('PC2,PC3');
 
-  it('contient le NOM du collaborateur ET la raison sociale (invariant) ; adresse de réponse = e-mail du collaborateur', () => {
+  it('contient le NOM du collaborateur ET la raison sociale (invariant) ; S39(B) réponse = boîte config_veille, PAS l’e-mail du collaborateur', () => {
     const cfg = configAvecSignataire(CONFIG, collab);
-    const { corps } = genererTexte(lot, cfg, 'SVAV-DEM-2026-000200', pieces, 'entreprise');
+    const { corps } = genererTexte(lot, cfg, 'SVAV-DEM-2026-000200', pieces, 'entreprise', 'demandes@svav.fr');
     expect(corps).toContain('représentée par Claire Martin, chargée de recherche.'); // chaîne EXACTE (fonction renseignée → figé)
-    expect(corps).toContain('Criterimmo');               // TOUJOURS la raison sociale de la société (invariant S8a)
-    expect(corps).toContain('claire.martin@exemple.fr'); // adresse de réponse = collaborateur
-    expect(corps).not.toContain('A. Jorel');             // le représentant société est remplacé
-    expect(corps).not.toContain('contact@sansvisavis.com'); // l'e-mail société est remplacé
+    expect(corps).toContain('Criterimmo');                     // TOUJOURS la raison sociale de la société (invariant S8a)
+    expect(corps).toContain('Adresse de réponse : demandes@svav.fr'); // S39(B) : source unique (boîte relue), pas le collaborateur
+    expect(corps).not.toContain('claire.martin@exemple.fr');   // l'e-mail du collaborateur n'est PLUS l'adresse de réponse
+    expect(corps).not.toContain('A. Jorel');                   // le représentant société est remplacé par le signataire
+    expect(corps).not.toContain('contact@sansvisavis.com');    // l'e-mail société n'apparaît pas non plus
   });
 
   it('collaborateur SANS fonction (facultative) : phrase EXACTE sans virgule orpheline ; raison sociale toujours présente', () => {
     const cfg = configAvecSignataire(CONFIG, { nom: 'Martin', prenom: 'Lucas', fonction: '', email: 'lucas.martin@exemple.fr' });
-    const { corps } = genererTexte(lot, cfg, 'SVAV-DEM-2026-000201', pieces, 'entreprise');
+    const { corps } = genererTexte(lot, cfg, 'SVAV-DEM-2026-000201', pieces, 'entreprise', 'demandes@svav.fr');
     expect(corps).toContain('représentée par Lucas Martin.');     // chaîne EXACTE : point directement après le nom
     expect(corps).not.toContain('représentée par Lucas Martin,'); // AUCUNE virgule orpheline
     expect(corps).not.toMatch(/représentée par[^\n]*,\s*\./);     // ni « , . » ni double espace terminal
     expect(corps).toContain('Criterimmo');                        // invariant S8a : raison sociale toujours mentionnée
-    expect(corps).toContain('lucas.martin@exemple.fr');           // réponse = collaborateur
+    expect(corps).not.toContain('lucas.martin@exemple.fr');       // S39(B) : réponse = boîte config_veille, pas le collaborateur
   });
 
   it('sans collaborateur (null) → identité société INCHANGÉE (instantané figé préservé)', () => {

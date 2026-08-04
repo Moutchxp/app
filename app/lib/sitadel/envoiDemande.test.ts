@@ -84,4 +84,16 @@ describe('S38 — emettreUneDemande : statut envoyee UNIQUEMENT si émission con
     expect(r.issue).toBe('echec');
     expect(calls.some((c) => /statut = 'envoyee'/i.test(c.sql))).toBe(false);
   });
+
+  it('S39 (A) — corps avec GABARIT → « gabarit » : AUCUNE émission, AUCUNE écriture (garde-fou non contournable, y compris en simulation)', async () => {
+    const { q, calls } = fauxQ();
+    let sendAppele = false;
+    const espion = { sendMail: async () => { sendAppele = true; return { messageId: '<x>', response: '250' }; } };
+    const dGabarit: DemandeAEnvoyer = { ...D, corps: 'RAISON SOCIALE EXACTE, représentée par PRENOM NOM, QUALITE.' };
+    const r = await emettreUneDemande(espion, q, dGabarit, OPTS);
+    expect(r.issue).toBe('gabarit');
+    expect(r.motif).toMatch(/RAISON SOCIALE/);
+    expect(sendAppele).toBe(false);   // aucun appel au transport → aucun octet, même chemin en simulation
+    expect(calls).toHaveLength(0);     // aucune écriture
+  });
 });

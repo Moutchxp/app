@@ -78,6 +78,24 @@ function gabaritReconnu(v: string): string | null {
   return GABARITS_TEMOINS.find((g) => n.includes(sansCasseNiAccents(g))) ?? null;
 }
 
+/** Toutes les chaînes-témoins de gabarit ENCORE présentes dans un/des textes (objet + corps FIGÉS), distinctes. */
+export function gabaritsPresents(...textes: string[]): string[] {
+  const n = sansCasseNiAccents(textes.join('\n'));
+  return GABARITS_TEMOINS.filter((g) => n.includes(sansCasseNiAccents(g)));
+}
+
+/**
+ * S39 — GARDE-FOU d'ENVOI : un corps de demande FIGÉ qui contient encore un gabarit non renseigné (identité non complétée
+ * au moment du gel) ne doit JAMAIS partir. Renvoie un message NOMMANT précisément les gabarits trouvés, ou `null` si le
+ * corps est exploitable. PUR — appliqué au corps réellement stocké (pas à la config courante, qui a pu être complétée
+ * depuis, laissant un corps figé périmé).
+ */
+export function problemeCorpsDemande(objet: string, corps: string): string | null {
+  const g = gabaritsPresents(objet, corps);
+  if (g.length === 0) return null;
+  return `le corps contient encore ${g.length > 1 ? 'des gabarits non renseignés' : 'un gabarit non renseigné'} (${g.map((x) => `« ${x} »`).join(', ')}) : complétez l’identité du demandeur dans Réglages, puis régénérez la demande`;
+}
+
 /**
  * Contrôle de PLAUSIBILITÉ d'UN champ (partagé identité S7c ↔ collaborateur S8a) : requis / longueur crédible / refus
  * d'un GABARIT non rempli (chaîne-témoin). Retourne le problème nommé (champ + raison) ou `null` si plausible. Aucun
@@ -346,6 +364,7 @@ export interface TexteDemande { objet: string; corps: string }
  */
 export function genererTexte(
   lot: Lot, config: ConfigDemandeur, reference: string, pieces: Piece[], profil: ProfilDemandeur = 'entreprise',
+  adresseReponse = '',
 ): TexteDemande {
   const n = lot.dossiers.length;
 
@@ -412,7 +431,9 @@ export function genererTexte(
     // La qualité (fonction du signataire) est FACULTATIVE (S8a) : si vide, on l'omet SANS virgule orpheline ni double
     // espace. Non vide → « , qualité » exactement comme avant (instantané figé préservé pour l'identité société).
     `${config.raisonSociale}, ${config.formeJuridique}, dont le siège est ${config.siegeAdresse}, représentée par ${config.representantNom}${config.representantQualite.trim() !== '' ? `, ${config.representantQualite}` : ''}.`,
-    `Adresse de réponse : ${config.emailContact}${tel}`,
+    // S39 (B) — SOURCE UNIQUE : l'adresse de réponse vient de config_veille.adresse_reponse (paramètre `adresseReponse`),
+    // plus de doublon avec config_demandeur.email_contact. C'est la boîte relue vers laquelle la mairie répondra.
+    `Adresse de réponse : ${adresseReponse.trim()}${tel}`,
     '',
     `Je vous remercie de bien vouloir rappeler la référence ${reference} dans votre réponse.`,
     '',

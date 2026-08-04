@@ -179,7 +179,7 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
       const ref = await withTransaction(async (tx) => {
         const q = asQ(tx);
         const reference = await attribuerReference(q, annee);
-        const { objet, corps } = genererTexte(lot, cfgSignataire, reference, pieces, profil);
+        const { objet, corps } = genererTexte(lot, cfgSignataire, reference, pieces, profil, cfg.adresseReponse); // S39 : adresse de réponse figée depuis config_veille
         // S14d — destinataire FIGÉ via la MÊME fonction que la sélection amont (resoudreDestination) : lecture de
         // mairie_contact ÉTENDUE à mairie_prada, puis précédence PRADA/contact. Le texte du courrier ne dépend pas du
         // destinataire (genererTexte ne le reçoit pas) → figer un autre e-mail laisse le corps strictement inchangé.
@@ -445,7 +445,7 @@ export async function changerProfilLot(ids: number[], profil: ProfilDemandeur, a
       const d = await chargerPourRegeneration(q, id);
       if (!d) throw new TransitionInterditeError(`demande ${id} introuvable`);
       if (d.statut !== 'brouillon') throw new TransitionInterditeError(`la demande ${d.reference} n'est pas en brouillon (statut : ${d.statut}) — bascule de profil impossible`);
-      const { objet, corps } = genererTexte(d.lot, cfgProfil, d.reference, pieces, profil);
+      const { objet, corps } = genererTexte(d.lot, cfgProfil, d.reference, pieces, profil, cfgVeille.adresseReponse); // S39 : adresse de réponse figée depuis config_veille
       await q(`UPDATE demande SET objet = $2, corps = $3, profil_demandeur = $4, maj_le = now() WHERE id = $1`, [id, objet, corps, profil]);
       await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, $2, $3, $4)`, [id, d.statut, `profil ${d.profilAvant} → ${profil}`, auteur]);
     }

@@ -15,7 +15,11 @@ function imprimer(r: RapportEnvoi): void {
   console.log(`  candidats (prête, e-mail)   : ${r.candidats}`);
   console.log(`  émissions déjà faites (jour): ${r.emisAujourdhui}`);
   console.log(`  caps                        : ${r.capParRun}/action · ${r.capParJour}/jour`);
-  console.log(`  salve autorisée (budget)    : ${r.budget}   = min(candidats, cap/action, reste du jour)`);
+  if (r.bloqueesCorps.length > 0) {
+    console.log(`  ✗ écartées (corps non exploitable, gabarit non renseigné) : ${r.bloqueesCorps.length}`);
+    for (const b of r.bloqueesCorps) console.log(`      ${b.reference} : ${b.motif}`);
+  }
+  console.log(`  salve autorisée (budget)    : ${r.budget}   = min(envoyables, cap/action, reste du jour)`);
   if (r.destinataires.length > 0) {
     console.log(`  destinataires de la salve   :`);
     for (const d of r.destinataires) console.log(`    ${d.reference}  ${(d.commune ?? '?').padEnd(24)} ${d.email}\n        « ${d.apercuCorps} »`);

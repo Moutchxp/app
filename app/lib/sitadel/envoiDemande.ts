@@ -14,6 +14,7 @@ import nodemailer from 'nodemailer';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { lireConfigEmail, obtenirTransporteur, envoyerDemande } from '../email';
 import { chargerConfigVeille } from './veilleConfig';
+import { problemeCorpsDemande } from './demande';
 import type { Requete } from './mairieContact';
 
 // ── Helpers PURS (testables) ─────────────────────────────────────────────────
@@ -38,7 +39,7 @@ export function classerErreurSmtp(err: unknown): 'rebond' | 'echec' {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface DemandeAEnvoyer { id: number; reference: string; communeNom: string | null; destEmail: string; objet: string; corps: string; }
-export type IssueEmission = 'envoye' | 'rebond' | 'echec';
+export type IssueEmission = 'envoye' | 'rebond' | 'echec' | 'gabarit';
 export interface ResultatDemande { id: number; reference: string; issue: IssueEmission; messageId?: string; motif?: string; }
 
 interface Transport { sendMail: (m: Record<string, unknown>) => Promise<{ messageId?: string; response?: string }>; }
@@ -56,6 +57,10 @@ const SQL_INSERT_ACHEMINEMENT =
 export async function emettreUneDemande(
   transport: Transport, q: Requete, d: DemandeAEnvoyer, opts: { from: string; replyTo: string; auteur: string | null },
 ): Promise<ResultatDemande> {
+  // S39 (A) — GARDE-FOU DE CORPS : un corps figé encore truffé de gabarits ne part JAMAIS. Aucune émission, aucune écriture.
+  // S'applique en simulation ET en réel (le garde-fou est ici, pas contournable). Le message nomme les champs manquants.
+  const gab = problemeCorpsDemande(d.objet, d.corps);
+  if (gab !== null) return { id: d.id, reference: d.reference, issue: 'gabarit', motif: gab };
   try {
     const emission = await envoyerDemande(transport as never, opts.from, { to: d.destEmail, replyTo: opts.replyTo, objet: d.objet, corps: d.corps });
     await q(SQL_INSERT_ACHEMINEMENT, [d.id, 'envoye', new Date(), emission.messageId, emission.retourFournisseur, null, null, null]);
@@ -80,7 +85,8 @@ export interface RapportEnvoi {
   candidats: number;            // demandes 'prete' e-mail adressables
   emisAujourdhui: number;       // émissions déjà faites aujourd'hui (compte du plafond/jour)
   capParRun: number; capParJour: number;
-  budget: number;               // taille de salve autorisée = min(candidats, cap/run, reste du jour)
+  budget: number;               // taille de salve autorisée = min(envoyables, cap/run, reste du jour)
+  bloqueesCorps: { reference: string; motif: string }[]; // S39 : demandes écartées car corps non exploitable (gabarit)
   destinataires: { reference: string; commune: string | null; email: string; apercuCorps: string }[];
   resultats: ResultatDemande[];
   octetsPartis: number;         // toujours 0 en simulation
@@ -122,11 +128,18 @@ export async function envoyerDemandes(opts: { appliquer?: boolean; auteur?: stri
   const probleme = problemeEnvoi(config.adresseReponse, smtp !== null);
 
   const candidats = await lireCandidats();
+  // S39 (A) — on ÉCARTE d'abord les corps non exploitables (gabarits) : ils ne comptent pas dans le budget et sont signalés.
+  const bloqueesCorps: { reference: string; motif: string }[] = [];
+  const envoyables = candidats.filter((d) => {
+    const gab = problemeCorpsDemande(d.objet, d.corps);
+    if (gab !== null) { bloqueesCorps.push({ reference: d.reference, motif: gab }); return false; }
+    return true;
+  });
   const emisAujourdhui = await compterEmisAujourdhui();
-  const budget = capBatch(candidats.length, config.envoisMaxParRun, config.envoisMaxParJour, emisAujourdhui);
-  const aTraiter = candidats.slice(0, budget);
+  const budget = capBatch(envoyables.length, config.envoisMaxParRun, config.envoisMaxParJour, emisAujourdhui);
+  const aTraiter = envoyables.slice(0, budget);
   const base = {
-    probleme, candidats: candidats.length, emisAujourdhui, capParRun: config.envoisMaxParRun, capParJour: config.envoisMaxParJour, budget,
+    probleme, candidats: candidats.length, emisAujourdhui, capParRun: config.envoisMaxParRun, capParJour: config.envoisMaxParJour, budget, bloqueesCorps,
     destinataires: aTraiter.map((d) => ({ reference: d.reference, commune: d.communeNom, email: d.destEmail, apercuCorps: apercu(d.corps) })),
   };
 
