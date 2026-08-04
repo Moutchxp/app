@@ -34,6 +34,10 @@ export interface ConfigVeille {
   envoisMaxParRun: number;  // S37 : cap d'envoi — e-mails aux mairies par action d'envoi (rempart anti-salve)
   envoisMaxParJour: number; // S37 : cap d'envoi — e-mails aux mairies par jour (runs cumulés)
   adresseReponse: string;   // S38 : boîte relue en reply-to des demandes ('' = non configurée → envoi refusé)
+  mentionServiceActive: boolean; // S40 : mention « service destinataire » (en tête du corps)
+  mentionServiceTexte: string;   // S40 : texte éditable de la mention service
+  mentionDelaiActive: boolean;   // S40 : mention « délai d'un mois » (près de la clôture)
+  mentionDelaiTexte: string;     // S40 : texte éditable de la mention délai
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -59,6 +63,8 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   envoisMaxParRun: 10,   // = DEFAULT de la migration 070 (défaut prudent)
   envoisMaxParJour: 25,  // = DEFAULT de la migration 070 (défaut prudent)
   adresseReponse: '',    // = DEFAULT de la migration 071 (non configurée → le send refuse)
+  mentionServiceActive: false, mentionServiceTexte: '', // = DEFAULT de la migration 072 (désactivée, vide)
+  mentionDelaiActive: false, mentionDelaiTexte: '',     // = DEFAULT de la migration 072 (désactivée, vide)
 };
 
 interface LigneConfigVeille {
@@ -127,6 +133,21 @@ async function lireAdresseReponse(): Promise<string> {
   }
 }
 
+/**
+ * Lecture BEST-EFFORT des MENTIONS de courrier (S40), ISOLÉE — même motif de résilience : tant que la migration 072 n'est
+ * pas passée, les colonnes n'existent pas → retombe sur les défauts (désactivées, vides), sans dégrader le reste.
+ */
+async function lireMentions(): Promise<Pick<ConfigVeille, 'mentionServiceActive' | 'mentionServiceTexte' | 'mentionDelaiActive' | 'mentionDelaiTexte'>> {
+  const def = { mentionServiceActive: false, mentionServiceTexte: '', mentionDelaiActive: false, mentionDelaiTexte: '' };
+  try {
+    const { rows } = await query<{ mention_service_active: boolean; mention_service_texte: string; mention_delai_active: boolean; mention_delai_texte: string }>(
+      `SELECT mention_service_active, mention_service_texte, mention_delai_active, mention_delai_texte FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return def;
+    return { mentionServiceActive: r.mention_service_active, mentionServiceTexte: r.mention_service_texte, mentionDelaiActive: r.mention_delai_active, mentionDelaiTexte: r.mention_delai_texte };
+  } catch { return def; } // 072 pas encore appliquée → défauts
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -160,6 +181,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       dilaUrl: await lireDilaUrl(), // S30 : lecture isolée (résiliente à l'ordre d'application de la 069)
       ...(await lireCapsEnvoi()),   // S37 : caps d'envoi, lecture isolée (résiliente à l'ordre d'application de la 070)
       adresseReponse: await lireAdresseReponse(), // S38 : lecture isolée (résiliente à l'ordre d'application de la 071)
+      ...(await lireMentions()),                   // S40 : mentions de courrier, lecture isolée (résiliente à la 072)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

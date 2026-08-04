@@ -16,6 +16,9 @@ const styleBase: CSSProperties = { padding: '.6rem .75rem', borderRadius: '.6rem
  */
 export const TITRE_PARAMS_DEMANDES = 'Paramètres des demandes';
 export const TITRE_PARAMS_DOSSIERS = 'Classification et affichage des dossiers';
+/** S40 — 4e sous-bloc : mentions ajoutées au courrier (phrases de pratique). */
+export const TITRE_PARAMS_MENTIONS = 'Mentions ajoutées au courrier';
+export const AIDE_PARAMS_MENTIONS = 'Phrases de PRATIQUE ajoutées au corps des demandes, que vous activez et rédigez vous-même. Le fondement juridique de la demande (articles de loi, formules, salutations) reste fixe et n’est pas modifiable ici.';
 /** S30 — 3e sous-bloc : source de l'annuaire des mairies (URL DILA). */
 export const TITRE_PARAMS_SOURCES = 'Source de l’annuaire des mairies';
 export const AIDE_PARAMS_SOURCES = 'Adresse officielle depuis laquelle l’application récupère les coordonnées des mairies (téléphones, adresses). À ne modifier que si l’adresse publiée change.';
@@ -47,6 +50,12 @@ export function PlageParam({ param, bornes }: { param: ParamVeille; bornes?: Bor
   }
   if (param.type === 'email') {
     return <span style={style}>Format : une adresse e-mail (ex. demandes@exemple.fr). Vide = non configurée, aucun envoi possible.</span>;
+  }
+  if (param.type === 'booleen') {
+    return <span style={style}>Activé ou désactivé.</span>;
+  }
+  if (param.type === 'texte_libre') {
+    return <span style={style}>Texte libre. Vide = rien n’est ajouté au courrier.</span>;
   }
   if (!bornes) {
     return <span style={{ ...style, color: 'var(--color-svv-red)' }}>Plage indisponible : contrainte introuvable en base.</span>;

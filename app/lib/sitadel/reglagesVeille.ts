@@ -108,7 +108,7 @@ export interface ParamVeille {
   cle: keyof ConfigVeille;
   libelle: string;
   unite: string;
-  type: 'entier' | 'texte' | 'enum' | 'url' | 'email';
+  type: 'entier' | 'texte' | 'enum' | 'url' | 'email' | 'booleen' | 'texte_libre';
   aide: string;
   optionsEnum?: string[]; // pour type 'enum' : liste fermée des valeurs admises
 }
@@ -160,6 +160,15 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   // S30 — source de l'annuaire des mairies (téléphones/adresses des mairies importés par `dila:ingest`).
   { colonne: 'dila_url', cle: 'dilaUrl', libelle: 'Adresse de l’annuaire des mairies (DILA)', unite: '', type: 'url',
     aide: 'Adresse web où l’application télécharge l’annuaire officiel des mairies (service-public.gouv.fr). Elle sert à mettre à jour les téléphones et adresses des mairies. À ne changer que si l’adresse officielle change : une adresse erronée fera échouer la prochaine mise à jour de l’annuaire (les données déjà en place ne sont pas perdues).' },
+  // S40 — MENTIONS de PRATIQUE ajoutées au corps (activables + texte éditable). Le fondement juridique reste EN DUR.
+  { colonne: 'mention_service_active', cle: 'mentionServiceActive', libelle: 'Ajouter la mention du service destinataire', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, la phrase ci-dessous est ajoutée en tête du courrier, avant « Madame, Monsieur ». Utile pour orienter la demande vers le bon service.' },
+  { colonne: 'mention_service_texte', cle: 'mentionServiceTexte', libelle: 'Texte de la mention du service', unite: '', type: 'texte_libre',
+    aide: 'Le texte exact ajouté en tête (ex. « À l’attention du service de l’urbanisme »). Rédigez-le vous-même. S’il est vide, rien n’est ajouté même si l’option est activée.' },
+  { colonne: 'mention_delai_active', cle: 'mentionDelaiActive', libelle: 'Ajouter le rappel du délai d’un mois', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, la phrase ci-dessous est ajoutée près de la fin du courrier. Elle rappelle que sans réponse sous un mois, le silence vaut refus. Le délai s’applique de toute façon par la loi ; cette phrase ne fait que le rappeler.' },
+  { colonne: 'mention_delai_texte', cle: 'mentionDelaiTexte', libelle: 'Texte du rappel de délai', unite: '', type: 'texte_libre',
+    aide: 'Le texte exact du rappel de délai (ex. « À défaut de réponse dans le délai d’un mois, votre silence vaudra décision de refus. »). Rédigez-le vous-même. Vide = rien n’est ajouté.' },
 ];
 
 /**
@@ -180,16 +189,21 @@ export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
 ];
 // S30 — 3e sous-bloc : SOURCES de données (annuaire DILA). Distinct des demandes et de la classification des dossiers.
 export const COLONNES_PARAMS_SOURCES: readonly string[] = ['dila_url'];
+// S40 — 4e sous-bloc : MENTIONS ajoutées au corps (phrases de pratique, activables + éditables).
+export const COLONNES_PARAMS_MENTIONS: readonly string[] = [
+  'mention_service_active', 'mention_service_texte', 'mention_delai_active', 'mention_delai_texte',
+];
 export const PARAMS_DEMANDES: ParamVeille[] = PARAMS_VEILLE.filter((p) => COLONNES_PARAMS_DEMANDES.includes(p.colonne));
 export const PARAMS_SOURCES: ParamVeille[] = PARAMS_VEILLE.filter((p) => COLONNES_PARAMS_SOURCES.includes(p.colonne));
+export const PARAMS_MENTIONS: ParamVeille[] = PARAMS_VEILLE.filter((p) => COLONNES_PARAMS_MENTIONS.includes(p.colonne));
 export const PARAMS_DOSSIERS: ParamVeille[] = PARAMS_VEILLE.filter(
-  (p) => !COLONNES_PARAMS_DEMANDES.includes(p.colonne) && !COLONNES_PARAMS_SOURCES.includes(p.colonne),
+  (p) => !COLONNES_PARAMS_DEMANDES.includes(p.colonne) && !COLONNES_PARAMS_SOURCES.includes(p.colonne) && !COLONNES_PARAMS_MENTIONS.includes(p.colonne),
 );
 
 // ── Validation server-side (identique à l'écran) ─────────────────────────────
 export interface ErreurReglage { colonne: string; message: string }
 export type ResultatReglages =
-  | { ok: true; demandeur: Record<string, string>; veille: Record<string, number | string> }
+  | { ok: true; demandeur: Record<string, string>; veille: Record<string, number | string | boolean> }
   | { ok: false; erreurs: ErreurReglage[] };
 
 /**
@@ -204,7 +218,7 @@ export function validerReglages(
 ): ResultatReglages {
   const erreurs: ErreurReglage[] = [];
   const demandeur: Record<string, string> = {};
-  const veille: Record<string, number | string> = {};
+  const veille: Record<string, number | string | boolean> = {};
 
   if (patch.demandeur === undefined && patch.veille === undefined) {
     return { ok: false, erreurs: [{ colonne: '', message: 'aucun réglage à modifier' }] };
@@ -261,6 +275,16 @@ export function validerReglages(
         // '' est ACCEPTÉ (= non configurée : c'est le send qui refusera, pas les réglages) ; sinon adresse valide exigée.
         if (e !== '' && !FORME_EMAIL.test(e)) { erreurs.push({ colonne: cle, message: `${param.libelle} : adresse e-mail invalide` }); continue; }
         veille[cle] = e;
+        continue;
+      }
+      if (param.type === 'booleen') { // S40 — interrupteur d'une mention
+        if (typeof valeur !== 'boolean') { erreurs.push({ colonne: cle, message: `${param.libelle} : oui/non attendu` }); continue; }
+        veille[cle] = valeur;
+        continue;
+      }
+      if (param.type === 'texte_libre') { // S40 — texte d'une mention (vide autorisé = rien ajouté)
+        if (typeof valeur !== 'string') { erreurs.push({ colonne: cle, message: `${param.libelle} : texte attendu` }); continue; }
+        veille[cle] = valeur.trim();
         continue;
       }
       if (typeof valeur !== 'number' || !Number.isFinite(valeur) || !Number.isInteger(valeur)) {

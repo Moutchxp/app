@@ -4,9 +4,9 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import type { ConfigVeille } from '../../../../lib/sitadel/veilleConfig';
 import { ETIQUETTE_PROFIL, type ConfigDemandeur, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import {
-  champsPourProfil, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_SOURCES, type ParamVeille, type BornesParColonne, type ErreurReglage,
+  champsPourProfil, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_SOURCES, PARAMS_MENTIONS, type ParamVeille, type BornesParColonne, type ErreurReglage,
 } from '../../../../lib/sitadel/reglagesVeille';
-import { BandeauIdentite, PlageParam, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES } from './ReglagesRendu';
+import { BandeauIdentite, PlageParam, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
 
 /**
  * Écran « Réglages » de la tuile Permis (chantier S7d / S7e). Édite les DEUX identités de demandeur (Société / Personne
@@ -80,19 +80,28 @@ export function ReglagesVue() {
     setIdMsg((m) => ({ ...m, [profil]: `Aucune modification : ${(globales.length ? globales : erreurs.map((e) => e.message)).join(' ; ')}.` }));
   }
 
-  async function enregistrerParam(colonne: string, type: 'entier' | 'texte' | 'enum' | 'url' | 'email') {
-    setVeMsg((m) => ({ ...m, [colonne]: '' })); setVeErreurs((m) => ({ ...m, [colonne]: '' }));
-    const brut = veDraft[colonne] ?? '';
-    if ((type === 'entier' || type === 'url') && brut.trim() === '') { setVeErreurs((m) => ({ ...m, [colonne]: 'Valeur requise.' })); return; }
-    const valeur: number | string = type === 'entier' ? Number(brut) : brut;
+  async function patchVeille(colonne: string, valeur: number | string | boolean, msgOk: string) {
     const res = await fetch('/api/admin/permis/reglages', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ veille: { [colonne]: valeur } }),
     });
     const rep = (await res.json()) as ReponsePatch;
-    if (res.ok && 'ok' in rep) { hydrater(rep); setVeMsg((m) => ({ ...m, [colonne]: 'Enregistré.' })); return; }
+    if (res.ok && 'ok' in rep) { hydrater(rep); setVeMsg((m) => ({ ...m, [colonne]: msgOk })); return; }
     const erreurs = 'erreurs' in rep ? rep.erreurs : [{ colonne, message: 'écriture refusée' }];
     const e = erreurs.find((x) => x.colonne === colonne) ?? erreurs[0];
     setVeErreurs((m) => ({ ...m, [colonne]: e?.message ?? 'écriture refusée' }));
+  }
+
+  async function enregistrerParam(colonne: string, type: 'entier' | 'texte' | 'enum' | 'url' | 'email' | 'booleen' | 'texte_libre') {
+    setVeMsg((m) => ({ ...m, [colonne]: '' })); setVeErreurs((m) => ({ ...m, [colonne]: '' }));
+    const brut = veDraft[colonne] ?? '';
+    if ((type === 'entier' || type === 'url') && brut.trim() === '') { setVeErreurs((m) => ({ ...m, [colonne]: 'Valeur requise.' })); return; }
+    await patchVeille(colonne, type === 'entier' ? Number(brut) : brut, 'Enregistré.');
+  }
+
+  /** S40 — interrupteur d'une mention (booléen) : PATCH immédiat, sans bouton « Enregistrer ». */
+  async function basculerBooleen(colonne: string, actif: boolean) {
+    setVeMsg((m) => ({ ...m, [colonne]: '' })); setVeErreurs((m) => ({ ...m, [colonne]: '' }));
+    await patchVeille(colonne, actif, actif ? 'Activé.' : 'Désactivé.');
   }
 
   if (etat === 'chargement') return <p style={styleAide} aria-live="polite">Chargement des réglages…</p>;
@@ -102,6 +111,21 @@ export function ReglagesVue() {
   const bornes = data.bornes;
   const carteParam = (p: ParamVeille) => {
     const b = bornes[p.colonne];
+    // S40 — interrupteur (booléen) : rendu à part (case à cocher, appliqué immédiatement, sans bouton « Enregistrer »).
+    if (p.type === 'booleen') {
+      const actif = Boolean(data.veille[p.cle]);
+      return (
+        <article key={p.colonne} className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
+          <label style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+            <input type="checkbox" checked={actif} onChange={(e) => void basculerBooleen(p.colonne, e.target.checked)} aria-label={p.libelle} />
+            <span style={styleLabel}>{p.libelle}</span>
+          </label>
+          <span style={styleAide}>{p.aide}</span>
+          {veMsg[p.colonne] && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{veMsg[p.colonne]}</span>}
+          {veErreurs[p.colonne] && <span role="alert" style={styleErreur}>{veErreurs[p.colonne]}</span>}
+        </article>
+      );
+    }
     return (
       <article key={p.colonne} className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
         <span style={styleLabel}>{p.libelle}</span>
@@ -120,7 +144,9 @@ export function ReglagesVue() {
                 : p.type === 'email'
                   ? <input type="email" inputMode="email" placeholder="demandes@exemple.fr" value={veDraft[p.colonne] ?? ''}
                       onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />
-                  : <input value={veDraft[p.colonne] ?? ''} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />}
+                  : p.type === 'texte_libre'
+                    ? <textarea value={veDraft[p.colonne] ?? ''} rows={2} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />
+                    : <input value={veDraft[p.colonne] ?? ''} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />}
           <PlageParam param={p} bornes={b} />
         </label>
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -185,7 +211,16 @@ export function ReglagesVue() {
           mairies ») pour l'onglet Automatisation (groupe « Mise à jour des dossiers »), où il relève conceptuellement.
           Propriétaire inchangé : ces 8 réglages restent édités par la route /reglages (cf. ClassificationDossiers). */}
 
-      {/* ── Section C : sources de données (annuaire DILA) — S30 ── */}
+      {/* ── Section C : mentions ajoutées au courrier (phrases de pratique) — S40 ── */}
+      <section className="flex flex-col gap-3">
+        <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{TITRE_PARAMS_MENTIONS}</h2>
+        <p style={styleAide}>{AIDE_PARAMS_MENTIONS}</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
+          {PARAMS_MENTIONS.map(carteParam)}
+        </div>
+      </section>
+
+      {/* ── Section D : sources de données (annuaire DILA) — S30 ── */}
       <section className="flex flex-col gap-3">
         <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{TITRE_PARAMS_SOURCES}</h2>
         <p style={styleAide}>{AIDE_PARAMS_SOURCES}</p>

@@ -356,6 +356,30 @@ export function configAvecSignataire(config: ConfigDemandeur, s: Signataire | nu
 export interface TexteDemande { objet: string; corps: string }
 
 /**
+ * S40 — MENTIONS de PRATIQUE ajoutées au corps, pilotées depuis Réglages (config_veille). Chacune est activable et son
+ * texte est ÉDITABLE (rédigé par l'admin, jamais en dur). ⚠️ FRONTIÈRE : ce sont des phrases de pratique, PAS le fondement
+ * juridique — le socle (articles L311-1 / L311-9 3°, formules, salutations, gabarit de l'objet) reste EN DUR ci-dessous.
+ */
+export interface MentionsCorps {
+  serviceActive?: boolean; serviceTexte?: string; // « À l'attention du service… » — en tête du corps
+  delaiActive?: boolean; delaiTexte?: string;      // « À défaut de réponse dans un délai d'un mois… » — près de la clôture
+}
+/** Une mention retenue (active ET non vide, trimée) ou `null` — pour insertion conditionnelle propre. */
+function mentionRetenue(active: boolean | undefined, texte: string | undefined): string | null {
+  const t = (texte ?? '').trim();
+  return active === true && t !== '' ? t : null;
+}
+
+/**
+ * S40 (point 4) — Référence DISCRÈTE pour le profil « personne » : la référence sérialisée `SVAV-DEM-AAAA-NNNNNN` trahirait
+ * la marque/le système (cf. S7e). On retire le préfixe `SVAV-DEM-` → `AAAA-NNNNNN` : la mairie peut la rappeler (rattachement
+ * possible), sans révéler l'identité du système. L'objet, lui, reste totalement générique.
+ */
+export function referenceDiscrete(reference: string): string {
+  return reference.replace(/^SVAV-DEM-/, '');
+}
+
+/**
  * Génère l'objet + le corps d'une demande selon la trame CRPA imposée, en substituant les variables. AUCUN motif ni
  * justification, et AUCUNE date-calendrier dans le corps (la date est apposée à l'ENVOI — chantier ultérieur — car
  * c'est elle qui fait courir le délai de refus tacite ; une date figée à la création serait fausse). Les pièces
@@ -364,9 +388,12 @@ export interface TexteDemande { objet: string; corps: string }
  */
 export function genererTexte(
   lot: Lot, config: ConfigDemandeur, reference: string, pieces: Piece[], profil: ProfilDemandeur = 'entreprise',
-  adresseReponse = '',
+  adresseReponse = '', mentions: MentionsCorps = {},
 ): TexteDemande {
   const n = lot.dossiers.length;
+  // S40 — mentions de pratique (éditables) ; null si désactivées/vides. Insérées à leur place naturelle dans les 2 gabarits.
+  const ligneService = mentionRetenue(mentions.serviceActive, mentions.serviceTexte);
+  const ligneDelai = mentionRetenue(mentions.delaiActive, mentions.delaiTexte);
 
   const lignesPieces = pieces.map((p) => `— la pièce ${p.code}${p.description ? `, ${p.description}` : ''} ;`).join('\n');
   const lignesDossiers = lot.dossiers.map((d) => {
@@ -399,8 +426,10 @@ export function genererTexte(
     const corps = [
       enTete,
       '',
+      ...(ligneService ? [ligneService, ''] : []), // S40 — mention « service destinataire » (éditable), en tête
       'Madame, Monsieur,',
       '',
+      // SOCLE JURIDIQUE — EN DUR (non éditable) : articles + formule de demande par voie électronique.
       'En application des articles L311-1 et L311-9 3° du code des relations entre le public et l’administration, je demande communication, par voie électronique, des pièces suivantes pour chacun des dossiers listés ci-dessous :',
       lignesPieces,
       '',
@@ -408,6 +437,10 @@ export function genererTexte(
       lignesDossiers,
       '',
       'Je vous remercie de bien vouloir m’adresser ces documents à l’adresse électronique figurant en tête de la présente.',
+      '',
+      // S40 (point 4) — RÉFÉRENCE DISCRÈTE (rattachement de la réponse), sans marque ; l'objet reste générique.
+      `Merci de bien vouloir rappeler la référence ${referenceDiscrete(reference)} dans votre réponse.`,
+      ...(ligneDelai ? ['', ligneDelai] : []),      // S40 — mention « délai d'un mois » (éditable), près de la clôture
       '',
       'Je vous prie d’agréer, Madame, Monsieur, l’expression de mes salutations distinguées.',
       '',
@@ -419,8 +452,10 @@ export function genererTexte(
   const objet = `Demande de communication de documents administratifs — ${lot.communeNom} — ${n} dossier(s) — réf. ${reference}`;
   const tel = config.telephone.trim() !== '' ? `, téléphone ${config.telephone.trim()}` : '';
   const corps = [
+    ...(ligneService ? [ligneService, ''] : []), // S40 — mention « service destinataire » (éditable), en tête
     'Madame, Monsieur,',
     '',
+    // SOCLE JURIDIQUE — EN DUR (non éditable) : articles + formule de demande par voie électronique.
     'En application des articles L311-1 et L311-9 3° du code des relations entre le public et l’administration, je vous demande communication, par voie électronique, des pièces suivantes pour chacun des dossiers listés ci-dessous :',
     '',
     lignesPieces,
@@ -436,6 +471,7 @@ export function genererTexte(
     `Adresse de réponse : ${adresseReponse.trim()}${tel}`,
     '',
     `Je vous remercie de bien vouloir rappeler la référence ${reference} dans votre réponse.`,
+    ...(ligneDelai ? ['', ligneDelai] : []),      // S40 — mention « délai d'un mois » (éditable), près de la clôture
     '',
     'Je vous prie d’agréer, Madame, Monsieur, l’expression de ma considération distinguée.',
   ].join('\n');

@@ -121,6 +121,19 @@ describe('S7d — validation des paramètres moteur (plage = CHECK base)', () =>
     expect(res.ok).toBe(false);
   });
 
+  it('S40 — mention : booléen (oui/non attendu) et texte libre (vide autorisé, trimé)', () => {
+    const on = validerReglages({ veille: { mention_service_active: true } }, BORNES);
+    expect(on.ok).toBe(true);
+    if (on.ok) expect(on.veille.mention_service_active).toBe(true);
+    expect(validerReglages({ veille: { mention_service_active: 'oui' } }, BORNES).ok).toBe(false); // pas un booléen
+    const txt = validerReglages({ veille: { mention_delai_texte: '  À défaut de réponse…  ' } }, BORNES);
+    expect(txt.ok).toBe(true);
+    if (txt.ok) expect(txt.veille.mention_delai_texte).toBe('À défaut de réponse…'); // trimé
+    const vide = validerReglages({ veille: { mention_delai_texte: '' } }, BORNES);
+    expect(vide.ok).toBe(true); // vide autorisé (= rien ajouté)
+    if (vide.ok) expect(vide.veille.mention_delai_texte).toBe('');
+  });
+
   it('S38 — adresse de réponse : e-mail valide accepté (trimé), VIDE accepté (non configurée), invalide refusé', () => {
     const ok = validerReglages({ veille: { adresse_reponse: '  demandes@sansvisavis.com ' } }, BORNES);
     expect(ok.ok).toBe(true);

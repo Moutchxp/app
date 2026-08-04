@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { BandeauIdentite, PlageParam, CarteReglageEntier, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES } from './ReglagesRendu';
-import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES } from '../../../../lib/sitadel/reglagesVeille';
+import { BandeauIdentite, PlageParam, CarteReglageEntier, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
+import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES, PARAMS_MENTIONS } from '../../../../lib/sitadel/reglagesVeille';
 import { problemesIdentite } from '../../../../lib/sitadel/demande';
 
 /**
@@ -90,9 +90,12 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'seuil_logements_immeuble', 'seuil_surface_immeuble_m2', 'annees_par_defaut',
       'rang_immeuble_neuf', 'rang_surelevation', 'rang_construction_neuve', 'rang_extension', 'rang_demolition',
     ]);
-    expect(PARAMS_SOURCES.map((p) => p.colonne)).toEqual(['dila_url']); // S30 : 3e sous-bloc, dila_url exclu des 2 autres
-    expect(PARAMS_DEMANDES.length + PARAMS_DOSSIERS.length + PARAMS_SOURCES.length).toBe(PARAMS_VEILLE.length);
-    const cols = new Set([...PARAMS_DEMANDES, ...PARAMS_DOSSIERS, ...PARAMS_SOURCES].map((p) => p.colonne));
+    expect(PARAMS_SOURCES.map((p) => p.colonne)).toEqual(['dila_url']); // S30 : 3e sous-bloc, dila_url exclu des autres
+    expect(PARAMS_MENTIONS.map((p) => p.colonne)).toEqual([              // S40 : 4e sous-bloc, mentions exclues des autres
+      'mention_service_active', 'mention_service_texte', 'mention_delai_active', 'mention_delai_texte',
+    ]);
+    expect(PARAMS_DEMANDES.length + PARAMS_DOSSIERS.length + PARAMS_SOURCES.length + PARAMS_MENTIONS.length).toBe(PARAMS_VEILLE.length);
+    const cols = new Set([...PARAMS_DEMANDES, ...PARAMS_DOSSIERS, ...PARAMS_SOURCES, ...PARAMS_MENTIONS].map((p) => p.colonne));
     expect(cols.size).toBe(PARAMS_VEILLE.length); // aucune colonne perdue ni dupliquée
   });
 
@@ -121,6 +124,22 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     const h = renderToStaticMarkup(createElement(PlageParam, { param: p, bornes: undefined }));
     expect(h).toMatch(/adresse e-mail/i);          // format annoncé
     expect(h).not.toContain('introuvable');         // pas d'erreur « plage introuvable »
+  });
+
+  it('S40 — sous-bloc MENTIONS : intitulé + aide disent que le fondement juridique reste fixe ; interrupteur + texte libre', () => {
+    expect(TITRE_PARAMS_MENTIONS).toMatch(/courrier/i);
+    expect(AIDE_PARAMS_MENTIONS).toMatch(/juridique|fondement/i);
+    const bool = PARAMS_VEILLE.find((p) => p.colonne === 'mention_service_active')!;
+    const txt = PARAMS_VEILLE.find((p) => p.colonne === 'mention_service_texte')!;
+    expect(bool.type).toBe('booleen');
+    expect(txt.type).toBe('texte_libre');
+    // PlageParam rend une aide de format adaptée, jamais l'erreur « plage introuvable »
+    const hBool = renderToStaticMarkup(createElement(PlageParam, { param: bool, bornes: undefined }));
+    expect(hBool).toMatch(/activé|désactivé/i);
+    expect(hBool).not.toContain('introuvable');
+    const hTxt = renderToStaticMarkup(createElement(PlageParam, { param: txt, bornes: undefined }));
+    expect(hTxt).toMatch(/texte libre|vide/i);
+    expect(hTxt).not.toContain('introuvable');
   });
 
   it('S30 — sous-bloc SOURCES : intitulé + aide, et PlageParam d’une URL rappelle le format http(s)://', () => {

@@ -4,7 +4,7 @@ import {
   type CandidatDossier, type ConfigDemandeur, type Lot, type DiagnosticProposition, type ParamsLot,
   problemesIdentite, proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande,
   dateEnFrancais, ancreDetail, peutPasserLot, expliquerProposition, resumeDiagnostic, configAvecSignataire,
-  validerIdsLot, problemeCorpsDemande, gabaritsPresents,
+  validerIdsLot, problemeCorpsDemande, gabaritsPresents, referenceDiscrete,
 } from './demande';
 import { resoudreDestination } from './destinataire';
 
@@ -187,6 +187,33 @@ describe('Sitadel S7 — texte de la demande', () => {
     const c = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000009', pieces, 'entreprise', 'demandes@svav.fr').corps;
     expect(c).toContain('Adresse de réponse : demandes@svav.fr');
     expect(c).not.toContain('contact@sansvisavis.com'); // plus de doublon avec l'e-mail de contact identité
+  });
+
+  it('S40 — mentions : DÉSACTIVÉES par défaut (rien ajouté) ; ACTIVÉES → insérées aux 2 profils, à leur place', () => {
+    // par défaut (mentions vides) : aucune des deux n'apparaît
+    const off = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000300', pieces, 'entreprise', 'r@svav.fr');
+    expect(off.corps).not.toContain('service de l’urbanisme');
+    expect(off.corps).not.toContain('silence vaudra');
+    // activées + texte : la mention service est EN TÊTE (avant « Madame, Monsieur »), la mention délai près de la clôture
+    const men = { serviceActive: true, serviceTexte: 'À l’attention du service de l’urbanisme', delaiActive: true, delaiTexte: 'À défaut de réponse dans le délai d’un mois, votre silence vaudra décision de refus.' };
+    const soc = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000301', pieces, 'entreprise', 'r@svav.fr', men);
+    expect(soc.corps.indexOf('service de l’urbanisme')).toBeLessThan(soc.corps.indexOf('Madame, Monsieur'));
+    expect(soc.corps).toContain('votre silence vaudra décision de refus');
+    const per = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000302', pieces, 'personne', 'r@svav.fr', men);
+    expect(per.corps.indexOf('service de l’urbanisme')).toBeLessThan(per.corps.indexOf('Madame, Monsieur'));
+    expect(per.corps).toContain('votre silence vaudra décision de refus');
+    // active mais texte VIDE → rien ajouté (garde-fou de cohérence)
+    const videActif = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000303', pieces, 'entreprise', 'r@svav.fr', { serviceActive: true, serviceTexte: '', delaiActive: true, delaiTexte: '   ' });
+    expect(videActif.corps).not.toContain('service de l’urbanisme');
+  });
+
+  it('S40 (point 4) — la référence est présente dans le CORPS du profil Personne, en forme DISCRÈTE (sans marque)', () => {
+    expect(referenceDiscrete('SVAV-DEM-2026-000099')).toBe('2026-000099');
+    const per = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000099', pieces, 'personne', 'r@svav.fr');
+    expect(per.corps).toContain('rappeler la référence 2026-000099'); // rattachement possible
+    expect(per.corps).not.toContain('SVAV-DEM');   // discrétion : ni marque ni préfixe système
+    expect(per.corps).not.toContain('SVAV');
+    expect(per.objet).not.toContain('2026-000099'); // l'objet reste totalement générique (point 4 préservé)
   });
 
   it('S39 (A) — problemeCorpsDemande : détecte les gabarits FIGÉS et nomme les champs ; null si exploitable', () => {
