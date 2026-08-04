@@ -139,3 +139,34 @@ export async function envoyerReinitialisation(transporteur: Transporter, from: s
     text: corps, // texte brut UNIQUEMENT ; aucune pièce jointe
   });
 }
+
+// ── Envoi d'une DEMANDE de communication à une mairie (S38) ──────────────────────────────────────────────────────────
+export interface MailDemande {
+  to: string;       // destinataire figé de la demande (dest_email) — canal 'email' UNIQUEMENT
+  replyTo: string;  // boîte RELUE (config_veille.adresse_reponse) : c'est là que la mairie répond
+  objet: string;    // demande.objet figé
+  corps: string;    // demande.corps figé (texte brut)
+}
+export interface EmissionDemande { messageId: string; retourFournisseur: string }
+
+/**
+ * Envoie UNE demande à une mairie. DISTINCT de l'envoi de certificat : ne réutilise que le TRANSPORT (injecté). `from` =
+ * alias d'expédition ; `reply-to` = la boîte relue (sinon la réponse de la mairie — donc la hauteur du bâti neuf — se perd).
+ * ⚠️ CAPTURE OBLIGATOIRE : on renvoie le `messageId` ET la réponse du fournisseur. Si le `messageId` est absent, on JETTE —
+ * un envoi non traçable est un ÉCHEC, pas un succès silencieux. Le transport peut être le SMTP réel OU un jsonTransport de
+ * SIMULATION (aucune connexion, aucun octet) : cette fonction ne sait pas lequel, et c'est voulu.
+ */
+export async function envoyerDemande(transporteur: Transporter, from: string, m: MailDemande): Promise<EmissionDemande> {
+  const info = await transporteur.sendMail({
+    from,
+    to: m.to,
+    replyTo: m.replyTo,
+    subject: m.objet,
+    text: m.corps, // texte brut UNIQUEMENT ; aucune pièce jointe
+  });
+  const messageId = (info.messageId ?? '').toString().trim();
+  if (messageId === '') throw new Error('émission sans messageId — capture impossible, échec (pas de succès silencieux)');
+  // `response` = réponse SMTP réelle (ex. « 250 2.0.0 OK … ») ; en simulation jsonTransport elle est absente → repli explicite.
+  const retour = (info.response ?? '').toString().trim();
+  return { messageId, retourFournisseur: retour === '' ? '(simulation — aucune connexion SMTP)' : retour };
+}

@@ -80,7 +80,7 @@ export function ReglagesVue() {
     setIdMsg((m) => ({ ...m, [profil]: `Aucune modification : ${(globales.length ? globales : erreurs.map((e) => e.message)).join(' ; ')}.` }));
   }
 
-  async function enregistrerParam(colonne: string, type: 'entier' | 'texte' | 'enum' | 'url') {
+  async function enregistrerParam(colonne: string, type: 'entier' | 'texte' | 'enum' | 'url' | 'email') {
     setVeMsg((m) => ({ ...m, [colonne]: '' })); setVeErreurs((m) => ({ ...m, [colonne]: '' }));
     const brut = veDraft[colonne] ?? '';
     if ((type === 'entier' || type === 'url') && brut.trim() === '') { setVeErreurs((m) => ({ ...m, [colonne]: 'Valeur requise.' })); return; }
@@ -117,7 +117,10 @@ export function ReglagesVue() {
               : p.type === 'url'
                 ? <input type="url" inputMode="url" placeholder="https://…" value={veDraft[p.colonne] ?? ''}
                     onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />
-                : <input value={veDraft[p.colonne] ?? ''} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />}
+                : p.type === 'email'
+                  ? <input type="email" inputMode="email" placeholder="demandes@exemple.fr" value={veDraft[p.colonne] ?? ''}
+                      onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />
+                  : <input value={veDraft[p.colonne] ?? ''} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />}
           <PlageParam param={p} bornes={b} />
         </label>
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>

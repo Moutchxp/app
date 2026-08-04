@@ -108,13 +108,15 @@ export interface ParamVeille {
   cle: keyof ConfigVeille;
   libelle: string;
   unite: string;
-  type: 'entier' | 'texte' | 'enum' | 'url';
+  type: 'entier' | 'texte' | 'enum' | 'url' | 'email';
   aide: string;
   optionsEnum?: string[]; // pour type 'enum' : liste fermée des valeurs admises
 }
 
 /** Forme minimale d'une URL http(s) — MIROIR APPLICATIF du CHECK `config_veille_dila_url_check` (migration 069). */
 export const FORME_URL = /^https?:\/\/\S+$/i;
+/** Forme minimale d'une adresse e-mail — MIROIR APPLICATIF du CHECK `config_veille_adresse_reponse_check` (migration 071). */
+export const FORME_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * Les paramètres éditables de `config_veille`, dans l'ordre d'affichage. ⚠️ AUCUN min/max ici : la plage vient des CHECK
@@ -132,6 +134,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Nombre maximum d’e-mails envoyés aux mairies en UNE seule action d’envoi. C’est le rempart de sécurité : même en cas d’erreur, jamais plus que ce nombre ne part d’un coup. L’augmenter accélère la campagne mais accroît le risque qu’un envoi accidentel touche beaucoup de mairies à la fois.' },
   { colonne: 'envois_max_par_jour', cle: 'envoisMaxParJour', libelle: 'Envois maximum par jour', unite: 'e-mails / jour', type: 'entier',
     aide: 'Nombre maximum d’e-mails envoyés aux mairies sur une journée entière (toutes actions cumulées). L’augmenter raccourcit la durée de la campagne ; le garder bas protège contre un envoi de masse involontaire et évite d’être classé indésirable par la messagerie.' },
+  // S38 — adresse de réponse (reply-to). Sans valeur par défaut : tant qu'elle est vide, l'envoi refuse de s'exécuter.
+  { colonne: 'adresse_reponse', cle: 'adresseReponse', libelle: 'Adresse de réponse des mairies', unite: '', type: 'email',
+    aide: 'Adresse e-mail à laquelle les mairies répondront à vos demandes — c’est là qu’arrive la réponse contenant la hauteur du bâtiment. Ce doit être une boîte réellement relevée. Tant qu’elle est vide, aucun envoi n’est possible : une demande partie sans adresse de réponse serait une demande à laquelle la mairie ne peut pas répondre.' },
   { colonne: 'seuil_logements_immeuble', cle: 'seuilLogementsImmeuble', libelle: 'Seuil de logements « immeuble »', unite: 'logements', type: 'entier',
     aide: 'À partir de ce nombre de logements, un projet est classé « immeuble ». Joue en OU avec la surface (pas en ET).' },
   { colonne: 'seuil_surface_immeuble_m2', cle: 'seuilSurfaceImmeubleM2', libelle: 'Seuil de surface « immeuble »', unite: 'm²', type: 'entier',
@@ -170,6 +175,7 @@ export const PARAMS_VEILLE: ParamVeille[] = [
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
   'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois',
   'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi (groupe « demandes »)
+  'adresse_reponse',                            // S38 — adresse de réponse (reply-to)
   'pieces_demandees', 'profil_demandeur_defaut',
 ];
 // S30 — 3e sous-bloc : SOURCES de données (annuaire DILA). Distinct des demandes et de la classification des dossiers.
@@ -247,6 +253,14 @@ export function validerReglages(
         const u = valeur.trim();
         if (!FORME_URL.test(u)) { erreurs.push({ colonne: cle, message: `${param.libelle} : adresse http(s):// attendue` }); continue; }
         veille[cle] = u;
+        continue;
+      }
+      if (param.type === 'email') {
+        if (typeof valeur !== 'string') { erreurs.push({ colonne: cle, message: `${param.libelle} : texte attendu` }); continue; }
+        const e = valeur.trim();
+        // '' est ACCEPTÉ (= non configurée : c'est le send qui refusera, pas les réglages) ; sinon adresse valide exigée.
+        if (e !== '' && !FORME_EMAIL.test(e)) { erreurs.push({ colonne: cle, message: `${param.libelle} : adresse e-mail invalide` }); continue; }
+        veille[cle] = e;
         continue;
       }
       if (typeof valeur !== 'number' || !Number.isFinite(valeur) || !Number.isInteger(valeur)) {

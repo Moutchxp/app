@@ -30,6 +30,7 @@
     "prada:ingest": "tsx app/scripts/prada-ingest.ts",
     "prada:rapprocher": "tsx app/scripts/prada-rapprocher.ts",
     "dila:ingest": "tsx app/scripts/dila-ingest.ts",
+    "demandes:envoyer": "tsx app/scripts/demandes-envoyer.ts",
     "veille:run": "tsx app/scripts/veille-run.ts",
     "commune:import": "tsx app/scripts/commune-import.ts",
     "mairie:contact:import": "tsx app/scripts/mairie-contact-import.ts"

@@ -121,6 +121,20 @@ describe('S7d — validation des paramètres moteur (plage = CHECK base)', () =>
     expect(res.ok).toBe(false);
   });
 
+  it('S38 — adresse de réponse : e-mail valide accepté (trimé), VIDE accepté (non configurée), invalide refusé', () => {
+    const ok = validerReglages({ veille: { adresse_reponse: '  demandes@sansvisavis.com ' } }, BORNES);
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.veille.adresse_reponse).toBe('demandes@sansvisavis.com');
+    // '' est ACCEPTÉ (c'est le chemin d'envoi qui refuse, pas les réglages)
+    const vide = validerReglages({ veille: { adresse_reponse: '' } }, BORNES);
+    expect(vide.ok).toBe(true);
+    if (vide.ok) expect(vide.veille.adresse_reponse).toBe('');
+    // formes invalides → refus (zéro écriture)
+    for (const mauvais of ['pas-un-email', 'a@b', 'a b@c.fr']) {
+      expect(validerReglages({ veille: { adresse_reponse: mauvais } }, BORNES).ok).toBe(false);
+    }
+  });
+
   it('S30 — URL DILA : http(s) accepté (trimé), forme invalide refusée (zéro écriture)', () => {
     const ok = validerReglages({ veille: { dila_url: '  https://data.gouv.fr/x  ' } }, BORNES);
     expect(ok.ok).toBe(true);

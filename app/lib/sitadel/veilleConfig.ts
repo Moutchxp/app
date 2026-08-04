@@ -33,6 +33,7 @@ export interface ConfigVeille {
   dilaUrl: string; // S30 : URL de l'annuaire DILA, éditable en base (config_veille.dila_url) — pilotage sans code
   envoisMaxParRun: number;  // S37 : cap d'envoi — e-mails aux mairies par action d'envoi (rempart anti-salve)
   envoisMaxParJour: number; // S37 : cap d'envoi — e-mails aux mairies par jour (runs cumulés)
+  adresseReponse: string;   // S38 : boîte relue en reply-to des demandes ('' = non configurée → envoi refusé)
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -57,6 +58,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   dilaUrl: DILA_URL_DEFAUT,
   envoisMaxParRun: 10,   // = DEFAULT de la migration 070 (défaut prudent)
   envoisMaxParJour: 25,  // = DEFAULT de la migration 070 (défaut prudent)
+  adresseReponse: '',    // = DEFAULT de la migration 071 (non configurée → le send refuse)
 };
 
 interface LigneConfigVeille {
@@ -112,6 +114,19 @@ async function lireCapsEnvoi(): Promise<{ envoisMaxParRun: number; envoisMaxParJ
   }
 }
 
+/**
+ * Lecture BEST-EFFORT de l'ADRESSE DE RÉPONSE (S38), ISOLÉE — même motif de résilience : tant que la migration 071 n'est pas
+ * passée, la colonne n'existe pas → cette lecture échoue SEULE et retombe sur '' (non configurée), sans dégrader le reste.
+ */
+async function lireAdresseReponse(): Promise<string> {
+  try {
+    const { rows } = await query<{ adresse_reponse: string }>(`SELECT adresse_reponse FROM config_veille WHERE id = 1`);
+    return (rows[0]?.adresse_reponse ?? '').trim();
+  } catch {
+    return ''; // 071 pas encore appliquée → non configurée (le send refusera)
+  }
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -144,6 +159,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       runDemandeLe: r.run_demande_le,
       dilaUrl: await lireDilaUrl(), // S30 : lecture isolée (résiliente à l'ordre d'application de la 069)
       ...(await lireCapsEnvoi()),   // S37 : caps d'envoi, lecture isolée (résiliente à l'ordre d'application de la 070)
+      adresseReponse: await lireAdresseReponse(), // S38 : lecture isolée (résiliente à l'ordre d'application de la 071)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

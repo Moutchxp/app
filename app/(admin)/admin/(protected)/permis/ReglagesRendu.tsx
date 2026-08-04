@@ -45,6 +45,9 @@ export function PlageParam({ param, bornes }: { param: ParamVeille; bornes?: Bor
   if (param.type === 'url') {
     return <span style={style}>Format : adresse web commençant par http:// ou https://</span>;
   }
+  if (param.type === 'email') {
+    return <span style={style}>Format : une adresse e-mail (ex. demandes@exemple.fr). Vide = non configurée, aucun envoi possible.</span>;
+  }
   if (!bornes) {
     return <span style={{ ...style, color: 'var(--color-svv-red)' }}>Plage indisponible : contrainte introuvable en base.</span>;
   }

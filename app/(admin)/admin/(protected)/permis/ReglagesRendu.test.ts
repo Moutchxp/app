@@ -79,10 +79,11 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(AIDE_PARAMS_DOSSIERS).toContain('Mise à jour des dossiers');
   });
 
-  it('partition : 7 demandes (dont 2 caps d’envoi) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
+  it('partition : 8 demandes (2 caps + adresse de réponse) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
     expect(PARAMS_DEMANDES.map((p) => p.colonne)).toEqual([
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois',
-      'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi dans le groupe « demandes »
+      'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi
+      'adresse_reponse',                            // S38 — adresse de réponse
       'pieces_demandees', 'profil_demandeur_defaut',
     ]);
     expect(PARAMS_DOSSIERS.map((p) => p.colonne)).toEqual([
@@ -110,6 +111,16 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     const run = PARAMS_VEILLE.find((x) => x.colonne === 'envois_max_par_run')!;
     expect(run.aide).toMatch(/rempart|jamais plus/i);
     expect(run.aide).toMatch(/mairies/i);
+  });
+
+  it('S38 — adresse de réponse : type email dans le groupe « demandes », aide dit que sans elle aucun envoi', () => {
+    const p = PARAMS_VEILLE.find((x) => x.colonne === 'adresse_reponse')!;
+    expect(p.type).toBe('email');
+    expect(PARAMS_DEMANDES.some((x) => x.colonne === 'adresse_reponse')).toBe(true);
+    expect(p.aide).toMatch(/aucun envoi|réponse/i);
+    const h = renderToStaticMarkup(createElement(PlageParam, { param: p, bornes: undefined }));
+    expect(h).toMatch(/adresse e-mail/i);          // format annoncé
+    expect(h).not.toContain('introuvable');         // pas d'erreur « plage introuvable »
   });
 
   it('S30 — sous-bloc SOURCES : intitulé + aide, et PlageParam d’une URL rappelle le format http(s)://', () => {
