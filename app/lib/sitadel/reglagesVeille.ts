@@ -127,6 +127,11 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Nombre maximum de dossiers regroupés dans une même demande adressée à une mairie. Borne le volume par courrier.' },
   { colonne: 'demandes_par_commune_par_mois', cle: 'demandesParCommuneParMois', libelle: 'Demandes par commune et par mois', unite: 'demandes / mois', type: 'entier',
     aide: 'Nombre maximum de demandes envoyées à une même commune par mois. Borne la sollicitation d’une même mairie.' },
+  // S37 — CAPS D'ENVOI : le rempart contre un envoi accidentel en masse. À monter avec prudence.
+  { colonne: 'envois_max_par_run', cle: 'envoisMaxParRun', libelle: 'Envois maximum par action', unite: 'e-mails', type: 'entier',
+    aide: 'Nombre maximum d’e-mails envoyés aux mairies en UNE seule action d’envoi. C’est le rempart de sécurité : même en cas d’erreur, jamais plus que ce nombre ne part d’un coup. L’augmenter accélère la campagne mais accroît le risque qu’un envoi accidentel touche beaucoup de mairies à la fois.' },
+  { colonne: 'envois_max_par_jour', cle: 'envoisMaxParJour', libelle: 'Envois maximum par jour', unite: 'e-mails / jour', type: 'entier',
+    aide: 'Nombre maximum d’e-mails envoyés aux mairies sur une journée entière (toutes actions cumulées). L’augmenter raccourcit la durée de la campagne ; le garder bas protège contre un envoi de masse involontaire et évite d’être classé indésirable par la messagerie.' },
   { colonne: 'seuil_logements_immeuble', cle: 'seuilLogementsImmeuble', libelle: 'Seuil de logements « immeuble »', unite: 'logements', type: 'entier',
     aide: 'À partir de ce nombre de logements, un projet est classé « immeuble ». Joue en OU avec la surface (pas en ET).' },
   { colonne: 'seuil_surface_immeuble_m2', cle: 'seuilSurfaceImmeubleM2', libelle: 'Seuil de surface « immeuble »', unite: 'm²', type: 'entier',
@@ -163,7 +168,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
  * (cf. `ClassificationDossiers`), tous les invariants de l'écran Réglages sont conservés.
  */
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
-  'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois', 'pieces_demandees', 'profil_demandeur_defaut',
+  'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois',
+  'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi (groupe « demandes »)
+  'pieces_demandees', 'profil_demandeur_defaut',
 ];
 // S30 — 3e sous-bloc : SOURCES de données (annuaire DILA). Distinct des demandes et de la classification des dossiers.
 export const COLONNES_PARAMS_SOURCES: readonly string[] = ['dila_url'];

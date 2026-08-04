@@ -79,9 +79,11 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(AIDE_PARAMS_DOSSIERS).toContain('Mise à jour des dossiers');
   });
 
-  it('partition : 5 demandes / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
+  it('partition : 7 demandes (dont 2 caps d’envoi) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
     expect(PARAMS_DEMANDES.map((p) => p.colonne)).toEqual([
-      'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois', 'pieces_demandees', 'profil_demandeur_defaut',
+      'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois',
+      'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi dans le groupe « demandes »
+      'pieces_demandees', 'profil_demandeur_defaut',
     ]);
     expect(PARAMS_DOSSIERS.map((p) => p.colonne)).toEqual([
       'seuil_logements_immeuble', 'seuil_surface_immeuble_m2', 'annees_par_defaut',
@@ -91,6 +93,23 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(PARAMS_DEMANDES.length + PARAMS_DOSSIERS.length + PARAMS_SOURCES.length).toBe(PARAMS_VEILLE.length);
     const cols = new Set([...PARAMS_DEMANDES, ...PARAMS_DOSSIERS, ...PARAMS_SOURCES].map((p) => p.colonne));
     expect(cols.size).toBe(PARAMS_VEILLE.length); // aucune colonne perdue ni dupliquée
+  });
+
+  it('S37 — les 2 caps d’envoi sont des entiers du groupe « demandes », plage lue des CHECK, aide anti-salve', () => {
+    for (const col of ['envois_max_par_run', 'envois_max_par_jour']) {
+      const p = PARAMS_VEILLE.find((x) => x.colonne === col)!;
+      expect(p.type).toBe('entier');
+      expect(PARAMS_DEMANDES.some((x) => x.colonne === col)).toBe(true);          // rendu dans « Paramètres des demandes »
+      expect(PARAMS_DOSSIERS.some((x) => x.colonne === col)).toBe(false);
+      // la plage s'affiche à partir des bornes (des CHECK), jamais recopiée
+      const h = renderToStaticMarkup(createElement(PlageParam, { param: p, bornes: { min: 1, max: 200 } }));
+      expect(h).toContain('Plage autorisée');
+      expect(h).toContain('e-mails');
+    }
+    // l'aide dit pour un non-développeur que c'est le rempart contre un envoi accidentel en masse
+    const run = PARAMS_VEILLE.find((x) => x.colonne === 'envois_max_par_run')!;
+    expect(run.aide).toMatch(/rempart|jamais plus/i);
+    expect(run.aide).toMatch(/mairies/i);
   });
 
   it('S30 — sous-bloc SOURCES : intitulé + aide, et PlageParam d’une URL rappelle le format http(s)://', () => {

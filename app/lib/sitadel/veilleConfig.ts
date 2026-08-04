@@ -31,6 +31,8 @@ export interface ConfigVeille {
   csvRetentionJours: number;
   runDemandeLe: Date | null;
   dilaUrl: string; // S30 : URL de l'annuaire DILA, éditable en base (config_veille.dila_url) — pilotage sans code
+  envoisMaxParRun: number;  // S37 : cap d'envoi — e-mails aux mairies par action d'envoi (rempart anti-salve)
+  envoisMaxParJour: number; // S37 : cap d'envoi — e-mails aux mairies par jour (runs cumulés)
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -53,6 +55,8 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   csvRetentionJours: 0,
   runDemandeLe: null,
   dilaUrl: DILA_URL_DEFAUT,
+  envoisMaxParRun: 10,   // = DEFAULT de la migration 070 (défaut prudent)
+  envoisMaxParJour: 25,  // = DEFAULT de la migration 070 (défaut prudent)
 };
 
 interface LigneConfigVeille {
@@ -91,6 +95,23 @@ async function lireDilaUrl(): Promise<string> {
   }
 }
 
+/**
+ * Lecture BEST-EFFORT des CAPS D'ENVOI (S37), ISOLÉE — même motif de résilience que `lireDilaUrl` : tant que la migration
+ * 070 n'est pas passée, les colonnes n'existent pas → cette lecture échoue SEULE et retombe sur les défauts prudents, sans
+ * dégrader tout le reste de la config. Après 070 : renvoie les valeurs en base (font foi).
+ */
+async function lireCapsEnvoi(): Promise<{ envoisMaxParRun: number; envoisMaxParJour: number }> {
+  try {
+    const { rows } = await query<{ envois_max_par_run: number; envois_max_par_jour: number }>(
+      `SELECT envois_max_par_run, envois_max_par_jour FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return { envoisMaxParRun: CONFIG_VEILLE_DEFAUT.envoisMaxParRun, envoisMaxParJour: CONFIG_VEILLE_DEFAUT.envoisMaxParJour };
+    return { envoisMaxParRun: r.envois_max_par_run, envoisMaxParJour: r.envois_max_par_jour };
+  } catch {
+    return { envoisMaxParRun: CONFIG_VEILLE_DEFAUT.envoisMaxParRun, envoisMaxParJour: CONFIG_VEILLE_DEFAUT.envoisMaxParJour }; // 070 pas encore appliquée → défauts
+  }
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -122,6 +143,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       csvRetentionJours: r.csv_retention_jours,
       runDemandeLe: r.run_demande_le,
       dilaUrl: await lireDilaUrl(), // S30 : lecture isolée (résiliente à l'ordre d'application de la 069)
+      ...(await lireCapsEnvoi()),   // S37 : caps d'envoi, lecture isolée (résiliente à l'ordre d'application de la 070)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;
