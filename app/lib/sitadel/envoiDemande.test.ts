@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { capBatch, problemeEnvoi, classerErreurSmtp, emettreUneDemande, type DemandeAEnvoyer } from './envoiDemande';
+import { capBatch, problemeEnvoi, classerErreurSmtp, emettreUneDemande, planifierSalve, type DemandeAEnvoyer } from './envoiDemande';
 import type { Requete } from './mairieContact';
 
 /** Faux `q` transactionnel : enregistre chaque requête écrite, ne touche aucune base. */
@@ -15,7 +15,7 @@ const transport = {
   erreur: { sendMail: async () => { throw new Error('timeout'); } },
   sansId: { sendMail: async () => ({ messageId: '', response: '250 OK' }) },
 };
-const D: DemandeAEnvoyer = { id: 42, reference: 'SVAV-DEM-2026-000001', communeNom: 'Nanterre', destEmail: 'urba@nanterre.fr', objet: 'Demande', corps: 'Corps' };
+const D: DemandeAEnvoyer = { id: 42, reference: 'SVAV-DEM-2026-000001', communeNom: 'Nanterre', destEmail: 'urba@nanterre.fr', objet: 'Demande', corps: 'Corps', profil: 'entreprise' };
 const OPTS = { from: 'noreply@svav.fr', replyTo: 'demandes@svav.fr', auteur: '7' };
 
 describe('S38 — caps (capBatch) : bornent réellement une salve', () => {
@@ -28,13 +28,59 @@ describe('S38 — caps (capBatch) : bornent réellement une salve', () => {
   });
 });
 
-describe('S38 — garde-fous (problemeEnvoi)', () => {
-  it('adresse de réponse vide → bloque, avec message explicite', () => {
-    expect(problemeEnvoi('', true)).toMatch(/adresse de réponse/i);
-    expect(problemeEnvoi('   ', true)).toMatch(/adresse de réponse/i);
+describe('S43 — garde-fou PAR PROFIL (problemeEnvoi)', () => {
+  it('adresse d’expédition/réponse vide → écarte, motif nommant le profil', () => {
+    expect(problemeEnvoi('entreprise', '', true)).toMatch(/Société.*adresse|adresse/i);
+    expect(problemeEnvoi('personne', '   ', true)).toMatch(/adresse/i);
   });
-  it('SMTP absent → bloque', () => { expect(problemeEnvoi('demandes@svav.fr', false)).toMatch(/SMTP/i); });
-  it('tout en place → null (aucun blocage)', () => { expect(problemeEnvoi('demandes@svav.fr', true)).toBeNull(); });
+  it('compte SMTP absent → écarte, motif nommant les variables du BON compte', () => {
+    expect(problemeEnvoi('entreprise', 'a.jorel@sansvisavis.com', false)).toMatch(/SMTP_HOST/);
+    expect(problemeEnvoi('personne', 'arnaud.jorel@gmail.com', false)).toMatch(/SMTP_PERSONNE_/);
+  });
+  it('adresse + compte en place → null (aucun écartement)', () => {
+    expect(problemeEnvoi('entreprise', 'a.jorel@sansvisavis.com', true)).toBeNull();
+    expect(problemeEnvoi('personne', 'arnaud.jorel@gmail.com', true)).toBeNull();
+  });
+});
+
+describe('S43 — planifierSalve : identité d’expédition PAR PROFIL', () => {
+  const dEnt: DemandeAEnvoyer = { id: 1, reference: 'SVAV-DEM-2026-000001', communeNom: 'Nanterre', destEmail: 'urba@nanterre.fr', objet: 'Demande', corps: 'Corps société propre', profil: 'entreprise' };
+  const dPers: DemandeAEnvoyer = { id: 2, reference: 'SVAV-DEM-2026-000002', communeNom: 'Paris', destEmail: 'urba@paris.fr', objet: 'Demande', corps: 'Corps personne propre', profil: 'personne' };
+  const adresses = { entreprise: 'a.jorel@sansvisavis.com', personne: 'arnaud.jorel@gmail.com' };
+
+  it('salve MIXTE, deux comptes configurés → deux expéditeurs DISTINCTS, aucun écartement', () => {
+    const plan = planifierSalve([dEnt, dPers], adresses, { entreprise: true, personne: true });
+    expect(plan.bloqueesCorps).toHaveLength(0);
+    expect(plan.bloqueesCompte).toHaveLength(0);
+    const parRef = Object.fromEntries(plan.envoyables.map((e) => [e.reference, e.expediteur]));
+    expect(parRef['SVAV-DEM-2026-000001']).toBe('a.jorel@sansvisavis.com');
+    expect(parRef['SVAV-DEM-2026-000002']).toBe('arnaud.jorel@gmail.com');
+    expect(new Set(plan.envoyables.map((e) => e.expediteur)).size).toBe(2); // deux expéditeurs distincts
+  });
+
+  it('compte « personne » absent → écarte SEULEMENT la demande personne ; l’entreprise passe', () => {
+    const plan = planifierSalve([dEnt, dPers], adresses, { entreprise: true, personne: false });
+    expect(plan.envoyables.map((e) => e.reference)).toEqual(['SVAV-DEM-2026-000001']);
+    expect(plan.envoyables[0].expediteur).toBe('a.jorel@sansvisavis.com');
+    expect(plan.bloqueesCompte).toHaveLength(1);
+    expect(plan.bloqueesCompte[0].reference).toBe('SVAV-DEM-2026-000002');
+    expect(plan.bloqueesCompte[0].motif).toMatch(/SMTP_PERSONNE_/);
+  });
+
+  it('adresse du profil vide → écarte cette demande avec un motif d’adresse (sans toucher l’autre)', () => {
+    const plan = planifierSalve([dEnt, dPers], { entreprise: 'a.jorel@sansvisavis.com', personne: '' }, { entreprise: true, personne: true });
+    expect(plan.envoyables.map((e) => e.reference)).toEqual(['SVAV-DEM-2026-000001']);
+    expect(plan.bloqueesCompte[0].reference).toBe('SVAV-DEM-2026-000002');
+    expect(plan.bloqueesCompte[0].motif).toMatch(/adresse/i);
+  });
+
+  it('corps avec GABARIT → bloqueesCorps (prioritaire, court-circuite le contrôle de compte)', () => {
+    const dGab: DemandeAEnvoyer = { ...dEnt, corps: 'RAISON SOCIALE à REMPLIR' };
+    const plan = planifierSalve([dGab], adresses, { entreprise: false, personne: false });
+    expect(plan.bloqueesCorps).toHaveLength(1);
+    expect(plan.bloqueesCompte).toHaveLength(0);
+    expect(plan.envoyables).toHaveLength(0);
+  });
 });
 
 describe('S38 — classification d’échec', () => {

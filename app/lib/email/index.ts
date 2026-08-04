@@ -13,38 +13,56 @@ import type { Transporter } from 'nodemailer';
  * Le transporteur est INJECTABLE dans `envoyerCertificat` (tests) → aucun test n'ouvre de connexion SMTP réelle.
  */
 
-export interface ConfigEmail {
+/** Compte SMTP d'AUTHENTIFICATION (host/port/user/pass) SANS adresse d'expédition — le `from` est fourni par l'appelant. */
+export interface CompteSmtp {
   host: string;
   port: number;
   user: string; // s'authentifie (compte réel)
   pass: string; // mot de passe d'application — JAMAIS loggé
+}
+export interface ConfigEmail extends CompteSmtp {
   from: string; // s'affiche (alias) — MAIL_FROM
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** Lit la config SMTP depuis l'environnement. `null` si une variable manque ou est mal formée (repli sûr). */
-export function lireConfigEmail(): ConfigEmail | null {
-  const host = (process.env.SMTP_HOST ?? '').trim();
-  const port = Number(process.env.SMTP_PORT);
-  const user = (process.env.SMTP_USER ?? '').trim();
-  const pass = process.env.SMTP_PASS ?? '';
-  const from = (process.env.MAIL_FROM ?? '').trim();
-  if (!host || !Number.isInteger(port) || port <= 0 || !user || !pass || !EMAIL.test(from)) return null;
-  return { host, port, user, pass, from };
+/**
+ * Lit UN compte SMTP depuis l'environnement par INFIXE de variable : `''` → `SMTP_HOST/PORT/USER/PASS` (compte par défaut) ;
+ * `'PERSONNE_'` → `SMTP_PERSONNE_HOST/PORT/USER/PASS` (second compte, S43). Le `from` n'est PAS lu ici — l'appelant le
+ * fournit (p. ex. l'adresse du profil). `null` si une variable manque/mal formée (repli sûr).
+ */
+export function lireCompteSmtp(infixe: string): CompteSmtp | null {
+  const host = (process.env[`SMTP_${infixe}HOST`] ?? '').trim();
+  const port = Number(process.env[`SMTP_${infixe}PORT`]);
+  const user = (process.env[`SMTP_${infixe}USER`] ?? '').trim();
+  const pass = process.env[`SMTP_${infixe}PASS`] ?? '';
+  if (!host || !Number.isInteger(port) || port <= 0 || !user || !pass) return null;
+  return { host, port, user, pass };
 }
 
-let cache: Transporter | null = null;
-/** Transporteur nodemailer (LAZY + caché). `secure` déduit du port (465 = TLS implicite ; sinon STARTTLS). */
-export function obtenirTransporteur(config: ConfigEmail): Transporter {
-  if (cache) return cache;
-  cache = nodemailer.createTransport({
-    host: config.host,
-    port: config.port,
-    secure: config.port === 465,
-    auth: { user: config.user, pass: config.pass }, // compte RÉEL (≠ from)
+/** Config du compte PAR DÉFAUT (SMTP_* + MAIL_FROM alias). `null` si une variable manque/mal formée (repli sûr). */
+export function lireConfigEmail(): ConfigEmail | null {
+  const compte = lireCompteSmtp('');
+  const from = (process.env.MAIL_FROM ?? '').trim();
+  if (!compte || !EMAIL.test(from)) return null;
+  return { ...compte, from };
+}
+
+// Cache PAR COMPTE (clé host:port:user) : plusieurs comptes SMTP coexistent (défaut + second compte S43) sans s'écraser.
+const cache = new Map<string, Transporter>();
+/** Transporteur nodemailer, LAZY et caché PAR COMPTE. `secure` déduit du port (465 = TLS implicite ; sinon STARTTLS). */
+export function obtenirTransporteur(compte: CompteSmtp): Transporter {
+  const cle = `${compte.host}:${compte.port}:${compte.user}`;
+  const existant = cache.get(cle);
+  if (existant) return existant;
+  const transporteur = nodemailer.createTransport({
+    host: compte.host,
+    port: compte.port,
+    secure: compte.port === 465,
+    auth: { user: compte.user, pass: compte.pass }, // compte RÉEL (≠ from)
   });
-  return cache;
+  cache.set(cle, transporteur);
+  return transporteur;
 }
 
 export interface MailCertificat {

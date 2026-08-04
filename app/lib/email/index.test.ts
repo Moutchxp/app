@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Transporter } from 'nodemailer';
-import { lireConfigEmail, envoyerCertificat, envoyerReinitialisation } from './index';
+import { lireConfigEmail, lireCompteSmtp, obtenirTransporteur, envoyerCertificat, envoyerReinitialisation, type CompteSmtp } from './index';
 
 interface ArgsSendMail {
   from: string;
@@ -163,5 +163,44 @@ describe('lireConfigEmail — repli sûr', () => {
   it('MAIL_FROM mal formée → null', () => {
     process.env.MAIL_FROM = 'pas-une-adresse';
     expect(lireConfigEmail()).toBeNull();
+  });
+});
+
+describe('S43 — lireCompteSmtp : compte par infixe, SANS from', () => {
+  const ORIG = { ...process.env };
+  beforeEach(() => {
+    process.env.SMTP_HOST = 'smtp.workspace.google.com';
+    process.env.SMTP_PORT = '465';
+    process.env.SMTP_USER = 'a.jorel@sansvisavis.com';
+    process.env.SMTP_PASS = 'app-pass-workspace';
+    delete process.env.SMTP_PERSONNE_HOST; delete process.env.SMTP_PERSONNE_PORT;
+    delete process.env.SMTP_PERSONNE_USER; delete process.env.SMTP_PERSONNE_PASS;
+  });
+  afterEach(() => { process.env = { ...ORIG }; });
+
+  it('infixe "" → compte par défaut (SMTP_*), sans champ from', () => {
+    expect(lireCompteSmtp('')).toEqual({ host: 'smtp.workspace.google.com', port: 465, user: 'a.jorel@sansvisavis.com', pass: 'app-pass-workspace' });
+  });
+  it('infixe "PERSONNE_" absent → null ; renseigné → second compte', () => {
+    expect(lireCompteSmtp('PERSONNE_')).toBeNull();
+    process.env.SMTP_PERSONNE_HOST = 'smtp.gmail.com';
+    process.env.SMTP_PERSONNE_PORT = '465';
+    process.env.SMTP_PERSONNE_USER = 'arnaud.jorel@gmail.com';
+    process.env.SMTP_PERSONNE_PASS = 'app-pass-perso';
+    expect(lireCompteSmtp('PERSONNE_')).toEqual({ host: 'smtp.gmail.com', port: 465, user: 'arnaud.jorel@gmail.com', pass: 'app-pass-perso' });
+  });
+});
+
+describe('S43 — obtenirTransporteur : cache PAR COMPTE (aucune régression pour certificat/réinitialisation)', () => {
+  const DEFAUT: CompteSmtp = { host: 'smtp.workspace.google.com', port: 465, user: 'a.jorel@sansvisavis.com', pass: 'p1' };
+  const PERSO: CompteSmtp = { host: 'smtp.gmail.com', port: 465, user: 'arnaud.jorel@gmail.com', pass: 'p2' };
+
+  it('même compte (celui de certificat/réinitialisation) → MÊME transporteur réutilisé', () => {
+    expect(obtenirTransporteur(DEFAUT)).toBe(obtenirTransporteur(DEFAUT));
+  });
+  it('comptes DISTINCTS → transporteurs distincts (le second compte n’écrase pas le premier)', () => {
+    expect(obtenirTransporteur(DEFAUT)).not.toBe(obtenirTransporteur(PERSO));
+    // et le compte par défaut reste inchangé après la création du second (pas d'écrasement de cache)
+    expect(obtenirTransporteur(DEFAUT)).toBe(obtenirTransporteur(DEFAUT));
   });
 });

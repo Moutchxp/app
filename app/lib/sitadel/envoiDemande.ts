@@ -12,10 +12,16 @@
 //  garantie par ses dépendances db/client + nodemailer, qui ne compilent pas côté client.)
 import nodemailer from 'nodemailer';
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { lireConfigEmail, obtenirTransporteur, envoyerDemande } from '../email';
+import { lireCompteSmtp, obtenirTransporteur, envoyerDemande, type CompteSmtp } from '../email';
 import { chargerConfigVeille } from './veilleConfig';
-import { problemeCorpsDemande } from './demande';
+import { problemeCorpsDemande, profilValide, ETIQUETTE_PROFIL, type ProfilDemandeur } from './demande';
 import type { Requete } from './mairieContact';
+
+// Compte SMTP à utiliser PAR PROFIL (S43) : infixe des variables d'env. '' = compte par défaut (SMTP_*, Google Workspace) ;
+// 'PERSONNE_' = second compte (SMTP_PERSONNE_*, boîte personnelle). L'adresse d'expédition/réponse, elle, vient de la base
+// (config_demandeur.email_contact) — aucune adresse en variable d'env, aucune colonne ajoutée.
+const INFIXE_SMTP: Record<ProfilDemandeur, string> = { entreprise: '', personne: 'PERSONNE_' };
+const varsCompte = (profil: ProfilDemandeur): string => `SMTP_${INFIXE_SMTP[profil]}HOST/PORT/USER/PASS`;
 
 // ── Helpers PURS (testables) ─────────────────────────────────────────────────
 
@@ -24,10 +30,18 @@ export function capBatch(nbCandidats: number, capParRun: number, capParJour: num
   return Math.max(0, Math.min(nbCandidats, capParRun, capParJour - emisAujourdhui));
 }
 
-/** Motif de refus d'un envoi RÉEL (garde-fous), ou `null` si tout est en place. Le send refuse tant qu'il y a un motif. */
-export function problemeEnvoi(adresseReponse: string, smtpPresent: boolean): string | null {
-  if ((adresseReponse ?? '').trim() === '') return 'adresse de réponse non configurée (Réglages → « Adresse de réponse des mairies ») : une demande sans reply-to est sans réponse possible';
-  if (!smtpPresent) return 'configuration SMTP absente (variables d’environnement SMTP_*/MAIL_FROM)';
+/**
+ * Motif d'ÉCARTEMENT d'une demande selon SON profil (S43), ou `null` si tout est en place — écarte une demande SANS toucher
+ * les autres profils. (1) adresse d'expédition/réponse du profil absente (config_demandeur.email_contact : c'est le `from`
+ * ET le `reply-to`, donc sans elle la réponse de la mairie n'a pas de destination) ; (2) compte SMTP du profil non configuré.
+ */
+export function problemeEnvoi(profil: ProfilDemandeur, adresseExpedition: string, comptePresent: boolean): string | null {
+  if ((adresseExpedition ?? '').trim() === '') {
+    return `profil « ${ETIQUETTE_PROFIL[profil]} » : adresse d’expédition/réponse absente (Réglages → identité du demandeur, « e-mail de contact ») — sans elle la mairie n’a pas de destination de réponse`;
+  }
+  if (!comptePresent) {
+    return `profil « ${ETIQUETTE_PROFIL[profil]} » : compte SMTP non configuré (variables d’environnement ${varsCompte(profil)})`;
+  }
   return null;
 }
 
@@ -38,9 +52,36 @@ export function classerErreurSmtp(err: unknown): 'rebond' | 'echec' {
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
-export interface DemandeAEnvoyer { id: number; reference: string; communeNom: string | null; destEmail: string; objet: string; corps: string; }
+export interface DemandeAEnvoyer { id: number; reference: string; communeNom: string | null; destEmail: string; objet: string; corps: string; profil: ProfilDemandeur; }
 export type IssueEmission = 'envoye' | 'rebond' | 'echec' | 'gabarit';
 export interface ResultatDemande { id: number; reference: string; issue: IssueEmission; messageId?: string; motif?: string; }
+
+/**
+ * Planifie une salve (PUR, testable) : (1) écarte les corps non exploitables (gabarit) ; (2) écarte, PAR PROFIL, les demandes
+ * dont l'adresse d'expédition ou le compte SMTP manque, sans bloquer les autres profils ; (3) attache à chaque envoyable
+ * l'`expediteur` (= from = reply-to) qui serait réellement utilisé. `adresses`/`comptesPresents` sont indexés par profil.
+ */
+export interface PlanSalve {
+  bloqueesCorps: { reference: string; motif: string }[];
+  bloqueesCompte: { reference: string; motif: string }[];
+  envoyables: (DemandeAEnvoyer & { expediteur: string })[];
+}
+export function planifierSalve(
+  candidats: DemandeAEnvoyer[], adresses: Record<string, string>, comptesPresents: Record<string, boolean>,
+): PlanSalve {
+  const bloqueesCorps: { reference: string; motif: string }[] = [];
+  const bloqueesCompte: { reference: string; motif: string }[] = [];
+  const envoyables: (DemandeAEnvoyer & { expediteur: string })[] = [];
+  for (const d of candidats) {
+    const gab = problemeCorpsDemande(d.objet, d.corps);
+    if (gab !== null) { bloqueesCorps.push({ reference: d.reference, motif: gab }); continue; }
+    const adresse = (adresses[d.profil] ?? '').trim();
+    const motif = problemeEnvoi(d.profil, adresse, comptesPresents[d.profil] === true);
+    if (motif !== null) { bloqueesCompte.push({ reference: d.reference, motif }); continue; }
+    envoyables.push({ ...d, expediteur: adresse });
+  }
+  return { bloqueesCorps, bloqueesCompte, envoyables };
+}
 
 interface Transport { sendMail: (m: Record<string, unknown>) => Promise<{ messageId?: string; response?: string }>; }
 
@@ -80,14 +121,14 @@ export async function emettreUneDemande(
 
 // ── Orchestration (I/O réelle) ───────────────────────────────────────────────
 export interface RapportEnvoi {
-  mode: 'simulation' | 'applique' | 'refuse';
-  probleme: string | null;      // motif de garde-fou (bloque le réel ; informatif en simulation)
+  mode: 'simulation' | 'applique';
   candidats: number;            // demandes 'prete' e-mail adressables
   emisAujourdhui: number;       // émissions déjà faites aujourd'hui (compte du plafond/jour)
   capParRun: number; capParJour: number;
   budget: number;               // taille de salve autorisée = min(envoyables, cap/run, reste du jour)
-  bloqueesCorps: { reference: string; motif: string }[]; // S39 : demandes écartées car corps non exploitable (gabarit)
-  destinataires: { reference: string; commune: string | null; email: string; apercuCorps: string }[];
+  bloqueesCorps: { reference: string; motif: string }[];   // S39 : écartées — corps non exploitable (gabarit)
+  bloqueesCompte: { reference: string; motif: string }[];  // S43 : écartées — adresse/compte d'envoi du profil non configuré
+  destinataires: { reference: string; commune: string | null; email: string; expediteur: string; apercuCorps: string }[];
   resultats: ResultatDemande[];
   octetsPartis: number;         // toujours 0 en simulation
 }
@@ -98,12 +139,22 @@ const SENTINELLE_DRYRUN = new Error('__DRY_RUN_ROLLBACK__');
 const apercu = (corps: string): string => { const l = corps.replace(/\s+/g, ' ').trim(); return l.length > 120 ? l.slice(0, 120) + '…' : l; };
 
 async function lireCandidats(): Promise<DemandeAEnvoyer[]> {
-  const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; dest_email: string; objet: string | null; corps: string | null }>(
-    `SELECT d.id::int AS id, d.reference, c.nom AS commune_nom, d.dest_email, d.objet, d.corps
+  const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; dest_email: string; objet: string | null; corps: string | null; profil: string }>(
+    `SELECT d.id::int AS id, d.reference, c.nom AS commune_nom, d.dest_email, d.objet, d.corps, d.profil_demandeur AS profil
        FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee
       WHERE d.statut = 'prete' AND d.dest_canal = 'email' AND coalesce(btrim(d.dest_email), '') <> ''
       ORDER BY d.cree_le ASC`);
-  return rows.map((r) => ({ id: r.id, reference: r.reference, communeNom: r.commune_nom, destEmail: r.dest_email, objet: r.objet ?? '', corps: r.corps ?? '' }));
+  return rows.map((r) => ({ id: r.id, reference: r.reference, communeNom: r.commune_nom, destEmail: r.dest_email, objet: r.objet ?? '', corps: r.corps ?? '', profil: profilValide(r.profil) }));
+}
+
+/** Adresse d'expédition/réponse PAR PROFIL = config_demandeur.email_contact (déjà ventilé par profil ; aucune colonne ajoutée). */
+async function lireAdressesExpedition(): Promise<Record<string, string>> {
+  const m: Record<string, string> = {};
+  try {
+    const { rows } = await query<{ profil: string; email_contact: string }>(`SELECT profil, email_contact FROM config_demandeur`);
+    for (const r of rows) m[r.profil] = (r.email_contact ?? '').trim();
+  } catch { /* table absente → adresses vides → demandes écartées avec motif nommé (jamais un envoi sans adresse) */ }
+  return m;
 }
 
 /** Nombre d'ÉMISSIONS e-mail confirmées AUJOURD'HUI (compteur du plafond/jour — pas les demandes créées). */
@@ -124,51 +175,46 @@ export async function envoyerDemandes(opts: { appliquer?: boolean; auteur?: stri
   const appliquer = opts.appliquer === true;
   const auteur = opts.auteur ?? null;
   const config = await chargerConfigVeille();
-  const smtp = lireConfigEmail();
-  const probleme = problemeEnvoi(config.adresseReponse, smtp !== null);
+
+  // Résolution PAR PROFIL : adresse d'expédition/réponse (base) + présence du compte SMTP (env). Le from ET le reply-to
+  // d'une demande valent l'adresse de SON profil ; son transport est le compte SMTP de SON profil.
+  const adresses = await lireAdressesExpedition();
+  const comptes: Record<string, CompteSmtp | null> = {
+    entreprise: lireCompteSmtp(INFIXE_SMTP.entreprise),
+    personne: lireCompteSmtp(INFIXE_SMTP.personne),
+  };
+  const comptesPresents: Record<string, boolean> = { entreprise: comptes.entreprise !== null, personne: comptes.personne !== null };
 
   const candidats = await lireCandidats();
-  // S39 (A) — on ÉCARTE d'abord les corps non exploitables (gabarits) : ils ne comptent pas dans le budget et sont signalés.
-  const bloqueesCorps: { reference: string; motif: string }[] = [];
-  const envoyables = candidats.filter((d) => {
-    const gab = problemeCorpsDemande(d.objet, d.corps);
-    if (gab !== null) { bloqueesCorps.push({ reference: d.reference, motif: gab }); return false; }
-    return true;
-  });
+  const plan = planifierSalve(candidats, adresses, comptesPresents);
+
   const emisAujourdhui = await compterEmisAujourdhui();
-  const budget = capBatch(envoyables.length, config.envoisMaxParRun, config.envoisMaxParJour, emisAujourdhui);
-  const aTraiter = envoyables.slice(0, budget);
+  const budget = capBatch(plan.envoyables.length, config.envoisMaxParRun, config.envoisMaxParJour, emisAujourdhui);
+  const aTraiter = plan.envoyables.slice(0, budget);
   const base = {
-    probleme, candidats: candidats.length, emisAujourdhui, capParRun: config.envoisMaxParRun, capParJour: config.envoisMaxParJour, budget, bloqueesCorps,
-    destinataires: aTraiter.map((d) => ({ reference: d.reference, commune: d.communeNom, email: d.destEmail, apercuCorps: apercu(d.corps) })),
+    candidats: candidats.length, emisAujourdhui, capParRun: config.envoisMaxParRun, capParJour: config.envoisMaxParJour, budget,
+    bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte,
+    destinataires: aTraiter.map((d) => ({ reference: d.reference, commune: d.communeNom, email: d.destEmail, expediteur: d.expediteur, apercuCorps: apercu(d.corps) })),
   };
-
-  // Envoi RÉEL : refus dur si un garde-fou manque (aucun octet ne part).
-  if (appliquer && probleme !== null) {
-    return { mode: 'refuse', ...base, resultats: [], octetsPartis: 0 };
-  }
-
-  const from = smtp?.from ?? '(alias non configuré)';
-  const replyTo = config.adresseReponse;
   const resultats: ResultatDemande[] = [];
 
   if (!appliquer) {
-    // SIMULATION : jsonTransport (aucun octet) + écritures ROLLBACK.
+    // SIMULATION : jsonTransport (aucun octet) + écritures ROLLBACK. Le from/reply-to par profil est calculé et affiché.
     const t = nodemailer.createTransport({ jsonTransport: true }) as unknown as Transport;
     try {
       await withTransaction(async (tx) => {
         const q = brancher(tx);
-        for (const d of aTraiter) resultats.push(await emettreUneDemande(t, q, d, { from, replyTo, auteur }));
+        for (const d of aTraiter) resultats.push(await emettreUneDemande(t, q, d, { from: d.expediteur, replyTo: d.expediteur, auteur }));
         throw SENTINELLE_DRYRUN; // rien n'est persisté
       });
     } catch (e) { if (e !== SENTINELLE_DRYRUN) throw e; }
     return { mode: 'simulation', ...base, resultats, octetsPartis: 0 };
   }
 
-  // Envoi RÉEL : chaque demande dans SA transaction (tout-ou-rien par demande).
-  const t = obtenirTransporteur(smtp!) as unknown as Transport;
+  // Envoi RÉEL : chaque demande via LE transport de SON profil (cache par compte), dans SA transaction (tout-ou-rien).
   for (const d of aTraiter) {
-    resultats.push(await withTransaction(async (tx) => emettreUneDemande(t, brancher(tx), d, { from, replyTo, auteur })));
+    const t = obtenirTransporteur(comptes[d.profil]!) as unknown as Transport; // non-null : planifierSalve a écarté les profils sans compte
+    resultats.push(await withTransaction(async (tx) => emettreUneDemande(t, brancher(tx), d, { from: d.expediteur, replyTo: d.expediteur, auteur })));
   }
   return { mode: 'applique', ...base, resultats, octetsPartis: 0 };
 }
