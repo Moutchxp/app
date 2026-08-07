@@ -39,14 +39,16 @@ function imprimer(r: RapportReleve): void {
     return;
   }
   console.log(`  fenêtre (depuis)            : ${r.depuis}`);
-  console.log(`  messages vus                : ${r.vus}`);
+  console.log(`  domaines interrogés (serveur): ${r.domainesInterroges.join(', ') || '(aucun)'}`);
+  console.log(`  UID renvoyés par domaine    : ${r.uidsServeur}${r.plafondAtteint ? '  ⚠ PLAFOND ATTEINT → seuls les plus récents sont traités' : ''}`);
+  console.log(`  messages téléchargés (vus)  : ${r.vus}`);
   console.log(`  déjà connus (ignorés)       : ${r.dejaConnus}`);
   console.log(`  hors périmètre (ignorés)    : ${r.horsPerimetre}`);
   console.log(`  RETENUS                     : ${r.retenus}`);
   console.log(`    · rattachés / non rattachés : ${r.rattaches} / ${r.nonRattaches}`);
   const meth = Object.entries(r.parMethode).map(([m, n]) => `${m}=${n}`).join(' · ') || 'aucune';
   console.log(`    · par méthode               : ${meth}`);
-  console.log(`    · rebonds détectés / appliqués : ${r.rebondsDetectes} / ${r.rebondsAppliques}`);
+  console.log(`    · rebonds détectés / appliqués : ${r.rebondsDetectes} / ${r.rebondsAppliques}  (dont passe générale : ${r.rebondsPasseGenerale})`);
   console.log(`  enregistrées                : ${r.ecrites}`);
   if (r.lignes.length > 0) {
     console.log('  détail :');

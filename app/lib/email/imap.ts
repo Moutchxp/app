@@ -8,7 +8,7 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser, type ParsedMail } from 'mailparser';
 import type { CompteImap } from './index';
-import type { ClientBoite, MessageBoite, PieceMeta } from '../veille/releveReponses';
+import type { ClientBoite, MessageBoite, PieceMeta, CritereRecherche } from '../veille/releveReponses';
 import type { MessageEntrant } from '../veille/rattachementReponse';
 
 function versMessageBoite(parsed: ParsedMail, uid: number): MessageBoite {
@@ -61,8 +61,11 @@ export function creerClientBoite(compte: CompteImap): ClientBoite {
       await client.connect();
       await client.mailboxOpen('INBOX', { readOnly: true }); // EXAMINE : aucune modification de la boîte
     },
-    async chercherDepuis(depuis: Date): Promise<number[]> {
-      const uids = await client.search({ since: depuis }, { uid: true });
+    async chercher(criteres: CritereRecherche): Promise<number[]> {
+      // Recherche SERVEUR : SINCE + éventuellement FROM (imapflow n'accepte qu'UNE chaîne `from` → un appel par domaine).
+      const critere: { since: Date; from?: string } = { since: criteres.depuis };
+      if (criteres.from !== undefined && criteres.from !== '') critere.from = criteres.from;
+      const uids = await client.search(critere, { uid: true });
       return uids === false ? [] : uids;
     },
     async telechargerMessage(uid: number): Promise<MessageBoite> {
