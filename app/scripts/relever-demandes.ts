@@ -48,7 +48,7 @@ function imprimer(r: RapportReleve): void {
   console.log(`    · rattachés / non rattachés : ${r.rattaches} / ${r.nonRattaches}`);
   const meth = Object.entries(r.parMethode).map(([m, n]) => `${m}=${n}`).join(' · ') || 'aucune';
   console.log(`    · par méthode               : ${meth}`);
-  console.log(`    · rebonds détectés / appliqués : ${r.rebondsDetectes} / ${r.rebondsAppliques}  (dont passe générale : ${r.rebondsPasseGenerale})`);
+  console.log(`    · rebonds détectés : ${r.rebondsDetectes} (rattachés ${r.rebondsRattaches}, étrangers ${r.rebondsEtrangers}, acheminements basculés ${r.rebondsAppliques})`);
   console.log(`  enregistrées                : ${r.ecrites}`);
   if (r.lignes.length > 0) {
     console.log('  détail :');

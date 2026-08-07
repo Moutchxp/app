@@ -10,6 +10,7 @@ import { simpleParser, type ParsedMail } from 'mailparser';
 import type { CompteImap } from './index';
 import type { ClientBoite, MessageBoite, PieceMeta, CritereRecherche } from '../veille/releveReponses';
 import type { MessageEntrant } from '../veille/rattachementReponse';
+import type { PartieRapport } from '../veille/rapportRejet';
 
 function versMessageBoite(parsed: ParsedMail, uid: number): MessageBoite {
   const from = parsed.from?.value?.[0];
@@ -36,14 +37,22 @@ function versMessageBoite(parsed: ParsedMail, uid: number): MessageBoite {
     entetes,
   };
 
-  const pieces: PieceMeta[] = parsed.attachments.map((a) => ({
-    nomFichier: a.filename && a.filename.trim() !== '' ? a.filename : '(sans nom)',
-    typeMime: a.contentType ?? null,
-    tailleOctets: typeof a.size === 'number' ? a.size : null,
-  }));
+  // Les sous-parties de RAPPORT (message/rfc822, text/rfc822-headers, message/delivery-status) ne sont PAS des pièces
+  // jointes « métier » : on les sort des pièces et on les expose à part pour l'analyse DSN (rapportRejet).
+  const estPartieRapport = (ct: string): boolean => /delivery-status|rfc822/i.test(ct);
+  const pieces: PieceMeta[] = parsed.attachments
+    .filter((a) => !estPartieRapport(a.contentType ?? ''))
+    .map((a) => ({
+      nomFichier: a.filename && a.filename.trim() !== '' ? a.filename : '(sans nom)',
+      typeMime: a.contentType ?? null,
+      tailleOctets: typeof a.size === 'number' ? a.size : null,
+    }));
+  const partiesRapport: PartieRapport[] = parsed.attachments
+    .filter((a) => estPartieRapport(a.contentType ?? ''))
+    .map((a) => ({ typeMime: a.contentType ?? '', contenu: Buffer.from(a.content).toString('utf8') }));
 
   const deNom = from?.name && from.name.trim() !== '' ? from.name : null;
-  return { uid, message, recuLe: parsed.date ?? new Date(), deNom, pieces };
+  return { uid, message, recuLe: parsed.date ?? new Date(), deNom, pieces, partiesRapport };
 }
 
 /** Construit un ClientBoite réel sur INBOX en lecture seule. Ne relève que ; n'écrit jamais dans la boîte. */
