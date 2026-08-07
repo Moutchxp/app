@@ -50,7 +50,9 @@ export interface RapportReleve {
   depuis: string | null;        // date de départ (ISO), ou null
   vus: number;                  // messages téléchargés dans la fenêtre (après plafond)
   dejaConnus: number;           // ignorés car Message-ID déjà en base
-  rattaches: number;            // demande_id résolue
+  horsPerimetre: number;        // ignorés par le filtre de pertinence (ni rattaché, ni rebond, ni domaine connu, ni objet)
+  retenus: number;              // conservés (= vus − dejaConnus − horsPerimetre) → détail dans `lignes`
+  rattaches: number;            // demande_id résolue (parmi les retenus)
   nonRattaches: number;
   rebondsDetectes: number;
   rebondsAppliques: number;     // lignes d'acheminement passées à 'rebond' (0 en simulation)
@@ -65,10 +67,30 @@ export interface OptionsReleve {
   depuis?: Date;         // override (tests) ; sinon calculé = min(envoye_le des envoyées) − 1 j
   plafond?: number;      // défaut 200
   appliquer?: boolean;   // défaut false (simulation : aucune écriture)
+  sansFiltre?: boolean;  // désactive le filtre de pertinence (débogage) — JAMAIS le défaut
 }
 
 const estMethodeCertaine = (m: RattachementMethode): boolean =>
   m === 'message_id' || m === 'reference_objet' || m === 'reference_corps';
+
+/** Fragment commun aux objets émis (entreprise et personne), normalisé (minuscules, sans accents). */
+const FRAGMENT_OBJET = 'demande de communication de documents administratifs';
+
+/** Normalise un objet : minuscules, accents retirés, espaces normalisés. */
+function normaliserObjet(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/\s+/g, ' ').trim();
+}
+
+/** Domaine d'une adresse (après le dernier @), en minuscules ; '' si absent. */
+function domaineDe(adresse: string): string {
+  const at = adresse.lastIndexOf('@');
+  return at === -1 ? '' : adresse.slice(at + 1).trim().toLowerCase();
+}
+
+/** L'objet contient-il le fragment de l'objet émis (rattrape une réponse depuis un domaine tiers) ? */
+function objetPertinent(objet: string | undefined): boolean {
+  return objet ? normaliserObjet(objet).includes(FRAGMENT_OBJET) : false;
+}
 
 function motifRebond(mb: MessageBoite): string {
   const src = (mb.message.objet ?? mb.message.corpsTexte ?? '').replace(/\s+/g, ' ').trim();
@@ -107,6 +129,17 @@ async function messageIdsConnus(profil: ProfilBoite): Promise<Set<string>> {
   return new Set(rows.map((r) => r.message_id));
 }
 
+/** Domaines (minuscules) des dest_email des demandes envoyées du profil — critère fort du filtre de pertinence. */
+async function lireDomainesDestinataires(profil: ProfilBoite): Promise<Set<string>> {
+  const { rows } = await query<{ domaine: string }>(
+    `SELECT DISTINCT lower(split_part(dest_email, '@', 2)) AS domaine
+       FROM demande
+      WHERE statut = 'envoyee' AND profil_demandeur = $1 AND dest_email LIKE '%@%'`,
+    [profil],
+  );
+  return new Set(rows.map((r) => r.domaine).filter((d) => d !== ''));
+}
+
 /** Passe à 'rebond' les acheminements e-mail encore 'envoye' d'une demande. Seule écriture hors demande_reponse. */
 async function marquerRebond(demandeId: number, motif: string): Promise<number> {
   const res = await query(
@@ -131,13 +164,14 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const depuis = opts.depuis ?? (await dateDepart(opts.profil));
   if (depuis === null) {
     // Aucune demande envoyée → on ne se connecte MÊME PAS.
-    return { mode, profil: opts.profil, connecte: false, depuis: null, vus: 0, dejaConnus: 0, rattaches: 0, nonRattaches: 0, rebondsDetectes: 0, rebondsAppliques: 0, ecrites: 0, parMethode: {}, lignes: [] };
+    return { mode, profil: opts.profil, connecte: false, depuis: null, vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0, nonRattaches: 0, rebondsDetectes: 0, rebondsAppliques: 0, ecrites: 0, parMethode: {}, lignes: [] };
   }
 
   const connus = await messageIdsConnus(opts.profil);
+  const domaines = await lireDomainesDestinataires(opts.profil); // critère fort du filtre de pertinence
   const lignes: LigneReleve[] = [];
   const parMethode: Record<string, number> = {};
-  let vus = 0, dejaConnus = 0, rattaches = 0, nonRattaches = 0, rebondsDetectes = 0, rebondsAppliques = 0, ecrites = 0;
+  let vus = 0, dejaConnus = 0, horsPerimetre = 0, rattaches = 0, nonRattaches = 0, rebondsDetectes = 0, rebondsAppliques = 0, ecrites = 0;
 
   await opts.client.ouvrir();
   try {
@@ -152,6 +186,16 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
 
       const r = rattacherReponse(mb.message, candidates);
       const rebond = estAccuseDeRebond(mb.message);
+
+      // FILTRE DE PERTINENCE (R3b) : on ne CONSERVE que si au moins un critère est vrai — sinon le message est IGNORÉ
+      // (compté « hors périmètre », ni enregistré, ni listé). --sans-filtre désactive ce filtre (débogage).
+      const pertinent = opts.sansFiltre === true
+        || r.methode !== 'aucun'                            // 1. rattachement réussi
+        || rebond                                           // 2. accusé de rebond
+        || domaines.has(domaineDe(mb.message.deAdresse))    // 3. domaine expéditeur = domaine d'un dest_email écrit
+        || objetPertinent(mb.message.objet);                // 4. objet contenant le fragment émis (domaine tiers)
+      if (!pertinent) { horsPerimetre += 1; continue; }
+
       if (r.demandeId !== null) rattaches += 1; else nonRattaches += 1;
       parMethode[r.methode] = (parMethode[r.methode] ?? 0) + 1;
       if (rebond) rebondsDetectes += 1;
@@ -179,5 +223,5 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
     await opts.client.fermer();
   }
 
-  return { mode, profil: opts.profil, connecte: true, depuis: depuis.toISOString(), vus, dejaConnus, rattaches, nonRattaches, rebondsDetectes, rebondsAppliques, ecrites, parMethode, lignes };
+  return { mode, profil: opts.profil, connecte: true, depuis: depuis.toISOString(), vus, dejaConnus, horsPerimetre, retenus: lignes.length, rattaches, nonRattaches, rebondsDetectes, rebondsAppliques, ecrites, parMethode, lignes };
 }

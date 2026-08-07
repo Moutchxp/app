@@ -10,6 +10,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
     candidates: [] as { id: number; reference: string; message_ids: string[] }[],
     depuis: null as Date | null,
     knownIds: [] as string[],
+    domaines: [] as string[],
     rebondRowCount: 1,
     conflit: false,
     nextId: 4242,
@@ -19,6 +20,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
     if (/min\(a\.envoye_le\)/i.test(sql)) return { rows: [{ depuis: etat.depuis }], rowCount: 1 };
     if (/array_agg\(a\.message_id\)/i.test(sql)) return { rows: etat.candidates, rowCount: etat.candidates.length };
     if (/FROM demande_reponse WHERE profil_boite/i.test(sql)) return { rows: etat.knownIds.map((m) => ({ message_id: m })), rowCount: etat.knownIds.length };
+    if (/split_part\(dest_email/i.test(sql)) return { rows: etat.domaines.map((d) => ({ domaine: d })), rowCount: etat.domaines.length };
     if (/UPDATE demande_acheminement/i.test(sql)) return { rows: [], rowCount: etat.rebondRowCount };
     return { rows: [], rowCount: 0 };
   };
@@ -64,7 +66,7 @@ function fauxClient(messages: MessageBoite[]) {
 
 beforeEach(() => {
   appels.length = 0; uidSeq = 0;
-  etat.candidates = [CAND_A]; etat.depuis = DEPUIS; etat.knownIds = []; etat.rebondRowCount = 1; etat.conflit = false; etat.nextId = 4242;
+  etat.candidates = [CAND_A]; etat.depuis = DEPUIS; etat.knownIds = []; etat.domaines = []; etat.rebondRowCount = 1; etat.conflit = false; etat.nextId = 4242;
 });
 
 describe('R3 — releverBoite', () => {
@@ -92,9 +94,12 @@ describe('R3 — releverBoite', () => {
     expect(ins.params[10]).toBe('message_id'); // rattachement_methode lié
   });
 
-  it('non rattaché → demande_id null, enregistré tel quel', async () => {
-    const { client } = fauxClient([boite({ messageId: '<r2@mairie>', corpsTexte: 'Bonjour, bien reçu.' })]);
+  it('domaine expéditeur = domaine d’un dest_email, sans référence → RETENU, demande_id null (file à rattacher)', async () => {
+    etat.domaines = ['mairie-aubervilliers.fr'];
+    const { client } = fauxClient([boite({ messageId: '<r2@mairie>', deAdresse: 'agent.urbanisme@mairie-aubervilliers.fr', corpsTexte: 'Bonjour, bien reçu, nous traitons.' })]);
     const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.retenus).toBe(1);
+    expect(r.horsPerimetre).toBe(0);
     expect(r.rattaches).toBe(0);
     expect(r.nonRattaches).toBe(1);
     expect(r.lignes[0].demandeId).toBeNull();
@@ -141,5 +146,51 @@ describe('R3 — releverBoite', () => {
     expect(r.connecte).toBe(false);
     expect(r.vus).toBe(0);
     expect(suivi.ouvert).toBe(0); // jamais connecté
+  });
+});
+
+describe('R3b — filtre de pertinence', () => {
+  it('newsletter (aucun critère) → ignorée, comptée « hors périmètre », jamais enregistrée', async () => {
+    etat.domaines = ['mairie-aubervilliers.fr'];
+    const { client } = fauxClient([boite({ messageId: '<promo@newsletter-immo.fr>', deAdresse: 'news@newsletter-immo.fr', objet: 'Nos annonces immobilières de la semaine', corpsTexte: 'Découvrez nos biens.' })]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.horsPerimetre).toBe(1);
+    expect(r.retenus).toBe(0);
+    expect(r.lignes).toHaveLength(0);
+    expect(trouver(/RETURNING id/i)).toBeUndefined(); // jamais enregistrée
+  });
+
+  it('domaine tiers mais objet contenant le fragment émis → RETENU', async () => {
+    etat.domaines = ['mairie-aubervilliers.fr'];
+    const { client } = fauxClient([boite({ messageId: '<x@prestataire.fr>', deAdresse: 'contact@prestataire-tiers.fr', objet: 'RE: Demande de communication de documents administratifs — Aubervilliers' })]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: false });
+    expect(r.retenus).toBe(1);
+    expect(r.horsPerimetre).toBe(0);
+    expect(r.lignes[0].demandeId).toBeNull();
+  });
+
+  it('rebond depuis un domaine tiers → RETENU (critère rebond)', async () => {
+    etat.domaines = ['mairie-aubervilliers.fr'];
+    const { client } = fauxClient([boite({ messageId: '<ndr@googlemail.com>', deAdresse: 'mailer-daemon@googlemail.com', objet: 'Delivery Status Notification (Failure)' })]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.retenus).toBe(1);
+    expect(r.rebondsDetectes).toBe(1);
+    expect(r.rebondsAppliques).toBe(0); // non rattaché → pas de MAJ d'acheminement
+    expect(r.lignes[0].demandeId).toBeNull();
+  });
+
+  it('message rattaché → RETENU quel que soit le domaine', async () => {
+    const { client } = fauxClient([boite({ messageId: '<r@tiers-inconnu.fr>', deAdresse: 'inconnu@tiers-inconnu.fr', references: ['<abc-154@sansvisavis.com>'] })]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: false });
+    expect(r.retenus).toBe(1);
+    expect(r.rattaches).toBe(1);
+    expect(r.lignes[0].methode).toBe('message_id');
+  });
+
+  it('--sans-filtre → tout est retenu (même une newsletter)', async () => {
+    const { client } = fauxClient([boite({ messageId: '<promo@x>', deAdresse: 'news@newsletter.fr', objet: 'Promo' })]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: false, sansFiltre: true });
+    expect(r.retenus).toBe(1);
+    expect(r.horsPerimetre).toBe(0);
   });
 });

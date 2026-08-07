@@ -41,10 +41,12 @@ function imprimer(r: RapportReleve): void {
   console.log(`  fenêtre (depuis)            : ${r.depuis}`);
   console.log(`  messages vus                : ${r.vus}`);
   console.log(`  déjà connus (ignorés)       : ${r.dejaConnus}`);
-  console.log(`  rattachés / non rattachés   : ${r.rattaches} / ${r.nonRattaches}`);
+  console.log(`  hors périmètre (ignorés)    : ${r.horsPerimetre}`);
+  console.log(`  RETENUS                     : ${r.retenus}`);
+  console.log(`    · rattachés / non rattachés : ${r.rattaches} / ${r.nonRattaches}`);
   const meth = Object.entries(r.parMethode).map(([m, n]) => `${m}=${n}`).join(' · ') || 'aucune';
-  console.log(`  par méthode                 : ${meth}`);
-  console.log(`  rebonds détectés / appliqués: ${r.rebondsDetectes} / ${r.rebondsAppliques}`);
+  console.log(`    · par méthode               : ${meth}`);
+  console.log(`    · rebonds détectés / appliqués : ${r.rebondsDetectes} / ${r.rebondsAppliques}`);
   console.log(`  enregistrées                : ${r.ecrites}`);
   if (r.lignes.length > 0) {
     console.log('  détail :');
@@ -59,6 +61,7 @@ function imprimer(r: RapportReleve): void {
 async function main(): Promise<void> {
   const profil = lireProfil();
   const appliquer = process.argv.includes('--appliquer');
+  const sansFiltre = process.argv.includes('--sans-filtre');
   const plafond = lirePlafond();
 
   const compte = lireCompteImap(INFIXE[profil]);
@@ -67,8 +70,9 @@ async function main(): Promise<void> {
     return; // sortie 0
   }
 
+  if (sansFiltre) console.log('[demandes:relever] ⚠ --sans-filtre : filtre de pertinence DÉSACTIVÉ (débogage).');
   const client = creerClientBoite(compte);
-  const rapport = await releverBoite({ client, profil, plafond, appliquer });
+  const rapport = await releverBoite({ client, profil, plafond, appliquer, sansFiltre });
   imprimer(rapport);
 }
 
