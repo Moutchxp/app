@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  */
 const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
-  const etat = { rows: [] as unknown[], rowCount: 1 };
+  const etat = { rows: [] as unknown[], rowCount: 1, conflit: false };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
     return { rows: etat.rows, rowCount: etat.rowCount };
@@ -15,7 +15,8 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   const withTransactionMock = async (fn: (q: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[]; rowCount: number }>) => Promise<unknown>) => {
     const q = async (sql: string, params?: unknown[]) => {
       appels.push({ sql, params: params ?? [] });
-      if (/RETURNING id/i.test(sql)) return { rows: [{ id: 4242 }], rowCount: 1 };
+      // ON CONFLICT DO NOTHING : conflit → 0 ligne renvoyée (message déjà connu).
+      if (/RETURNING id/i.test(sql)) return etat.conflit ? { rows: [], rowCount: 0 } : { rows: [{ id: 4242 }], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     };
     return fn(q);
@@ -35,7 +36,7 @@ import { enregistrerReponse, listerReponses, rattacherAMain, marquerTraitee, typ
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 const trouver = (fragment: RegExp) => appels.find((a) => fragment.test(a.sql));
 
-beforeEach(() => { appels.length = 0; etat.rows = []; etat.rowCount = 1; });
+beforeEach(() => { appels.length = 0; etat.rows = []; etat.rowCount = 1; etat.conflit = false; });
 
 const RECU = new Date('2026-08-04T21:30:00.000Z');
 const BASE: ReponseEntrante = {
@@ -55,6 +56,7 @@ describe('R1 — enregistrerReponse', () => {
     const ins = trouver(/INSERT INTO demande_reponse\b/i);
     expect(ins).toBeDefined();
     expect(norm(ins!.sql)).toContain('INSERT INTO demande_reponse');
+    expect(norm(ins!.sql)).toContain('ON CONFLICT (message_id) DO NOTHING'); // idempotence (R3)
     expect(norm(ins!.sql)).toContain('RETURNING id');
     // paramètres liés, dans l'ordre du schéma
     expect(ins!.params).toEqual([
@@ -86,6 +88,13 @@ describe('R1 — enregistrerReponse', () => {
 
   it('sans pièces : aucun INSERT dans demande_reponse_piece', async () => {
     await enregistrerReponse(BASE);
+    expect(trouver(/INSERT INTO demande_reponse_piece\b/i)).toBeUndefined();
+  });
+
+  it('message déjà connu (ON CONFLICT message_id) → renvoie null et n’insère aucune pièce', async () => {
+    etat.conflit = true;
+    const id = await enregistrerReponse({ ...BASE, pieces: [{ nomFichier: 'PC2.pdf', typeMime: 'application/pdf' }] });
+    expect(id).toBeNull();
     expect(trouver(/INSERT INTO demande_reponse_piece\b/i)).toBeUndefined();
   });
 });

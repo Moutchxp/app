@@ -40,6 +40,30 @@ export function lireCompteSmtp(infixe: string): CompteSmtp | null {
   return { host, port, user, pass };
 }
 
+/** Compte IMAP de RELÈVE (lecture seule). Réutilise les identifiants SMTP (user/pass) ; host/port propres à l'IMAP. */
+export interface CompteImap {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  tls: boolean;
+}
+
+/**
+ * Lit un compte IMAP par INFIXE (R3). Les identifiants (user/pass) sont RÉUTILISÉS de `lireCompteSmtp(infixe)` : si le
+ * profil est inactif (variables SMTP absentes), on renvoie `null` (ce n'est pas une erreur). Host = `IMAP_{infixe}HOST`
+ * sinon `imap.gmail.com` ; port = `IMAP_{infixe}PORT` sinon 993 ; TLS toujours actif. Fonction PUREMENT ADDITIVE : ne
+ * modifie AUCUN comportement d'envoi.
+ */
+export function lireCompteImap(infixe: string): CompteImap | null {
+  const compte = lireCompteSmtp(infixe);
+  if (!compte) return null; // profil inactif (pas d'identifiants) → pas de relève
+  const host = (process.env[`IMAP_${infixe}HOST`] ?? '').trim() || 'imap.gmail.com';
+  const portBrut = Number(process.env[`IMAP_${infixe}PORT`]);
+  const port = Number.isInteger(portBrut) && portBrut > 0 ? portBrut : 993;
+  return { host, port, user: compte.user, pass: compte.pass, tls: true };
+}
+
 /** Config du compte PAR DÉFAUT (SMTP_* + MAIL_FROM alias). `null` si une variable manque/mal formée (repli sûr). */
 export function lireConfigEmail(): ConfigEmail | null {
   const compte = lireCompteSmtp('');

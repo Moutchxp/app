@@ -59,16 +59,18 @@ export interface ReponseLigne {
 }
 
 /**
- * Enregistre UN message entrant (+ ses pièces) dans UNE transaction. Renvoie l'id de la réponse créée. Dédoublonnage par
- * message_id : un INSERT sur un message_id déjà présent viole la contrainte UNIQUE (l'appelant décide d'ignorer ce cas).
+ * Enregistre UN message entrant (+ ses pièces) dans UNE transaction, de façon IDEMPOTENTE : `ON CONFLICT (message_id) DO
+ * NOTHING`. Renvoie l'id de la réponse créée, ou **null si le message était déjà en base** (une seconde relève ne lève donc
+ * pas de violation d'unicité et n'insère aucune pièce en double).
  */
-export async function enregistrerReponse(r: ReponseEntrante): Promise<number> {
+export async function enregistrerReponse(r: ReponseEntrante): Promise<number | null> {
   return withTransaction(async (q) => {
     const res = await q<{ id: number }>(
       `INSERT INTO demande_reponse
          (demande_id, profil_boite, message_id, in_reply_to, references_brut, de_adresse, de_nom, objet, recu_le,
           corps_texte, rattachement_methode, rattache_le, note)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       ON CONFLICT (message_id) DO NOTHING
        RETURNING id`,
       [
         r.demandeId ?? null, r.profilBoite, r.messageId, r.inReplyTo ?? null, r.referencesBrut ?? null,
@@ -76,7 +78,9 @@ export async function enregistrerReponse(r: ReponseEntrante): Promise<number> {
         r.rattachementMethode ?? 'aucun', r.rattacheLe ?? null, r.note ?? null,
       ],
     );
-    const id = res.rows[0].id;
+    const ligne = res.rows[0];
+    if (!ligne) return null; // message_id déjà présent → rien inséré (ni réponse, ni pièces)
+    const id = ligne.id;
     for (const p of r.pieces ?? []) {
       await q(
         `INSERT INTO demande_reponse_piece
