@@ -19,6 +19,7 @@ import type { PoolClient } from 'pg';
 import { pool, query, withTransaction } from '../db/client';
 import { chargerConfigVeille } from './veilleConfig';
 import { executerReleveAuto, depsReellesReleveAuto } from '../veille/releveAuto';
+import { executerApprofondieAuto, depsReellesApprofondie } from '../veille/releveApprofondie';
 import { ingererMillesime, millesimeDistantDido, DOSSIER_LOCAL, type CompteursIngestion } from './ingestionMillesime';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger,
@@ -60,6 +61,9 @@ export interface DepsVeille {
   // R7 — relève automatique des réponses CRPA, tentée à chaque tick sous le MÊME verrou. OPTIONNELLE (les tests qui
   //   n'éprouvent pas la relève l'omettent) et ISOLÉE : voir son appel (§1bis) — un échec ici ne touche jamais la veille.
   releveAuto?(): Promise<unknown>;
+  // R6 — relève APPROFONDIE des demandes dont l'échéance est proche/dépassée (après la relève courante). OPTIONNELLE et
+  //   ISOLÉE de la même façon (§1ter) : un échec ne touche jamais la veille Sitadel.
+  echeanceApprofondie?(): Promise<unknown>;
 }
 
 export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = depsReelles()): Promise<ResultatVeille> {
@@ -79,6 +83,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   Sitadel, ni son statut ; la séquence Sitadel continue exactement comme si de rien n'était.
     if (deps.releveAuto) {
       try { await deps.releveAuto(); } catch { /* relève isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1ter) RELÈVE APPROFONDIE (R6) — APRÈS la relève courante (qui vient, si elle a réussi, de rafraîchir la fraîcheur) :
+    //   pour les demandes dont l'échéance d'un mois est proche/dépassée, on regarde dans TOUS les dossiers (indésirables
+    //   compris) « pour être sûr de ne pas avoir loupé le mail ». Garde 1/jour/demande à l'intérieur. MÊME ISOLATION à
+    //   double filet que §1bis : un échec n'impacte jamais la veille Sitadel.
+    if (deps.echeanceApprofondie) {
+      try { await deps.echeanceApprofondie(); } catch { /* approfondie isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     const config = await deps.chargerConfig();
@@ -205,6 +217,8 @@ function depsReelles(): DepsVeille {
     // R7 — relève réelle : orchestrateur pur + ses I/O de production (base + IMAP en lecture stricte). Son propre journal
     //   (releve_run) et son isolation sont dans releveAuto.ts ; ici on se contente de la brancher dans le corps de veille.
     releveAuto: () => executerReleveAuto(depsReellesReleveAuto()),
+    // R6 — relève approfondie réelle : sélection par échéance + garde 1/jour + journal, dans releveApprofondie.ts.
+    echeanceApprofondie: () => executerApprofondieAuto(depsReellesApprofondie()),
   };
 }
 

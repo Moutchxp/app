@@ -144,6 +144,11 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Durée minimale entre deux relèves automatiques : une relève n’est tentée que si la précédente réussie est plus ancienne que cette durée. Plus court = réponses vues plus vite ; plus long = moins de connexions à la boîte.' },
   { colonne: 'releve_profil', cle: 'releveProfil', libelle: 'Boîte relevée automatiquement', unite: '', type: 'enum', optionsEnum: ['entreprise', 'personne'],
     aide: 'Quel compte de messagerie est relevé automatiquement : celui de la société ou celui de la personne physique. La relève à la main peut toujours viser l’un ou l’autre indépendamment.' },
+  // R6 — ÉCHÉANCE d'un mois : quand une demande est « proche » de l'échéance, et fraîcheur exigée pour se prononcer.
+  { colonne: 'echeance_alerte_jours', cle: 'echeanceAlerteJours', libelle: 'Alerte « échéance proche »', unite: 'jours', type: 'entier',
+    aide: 'Combien de jours avant la fin du délai d’un mois une demande est signalée « proche de l’échéance ». Le silence gardé un mois après l’envoi vaut refus tacite (voie CADA) : ce réglage sert à anticiper cette date, pas à la modifier.' },
+  { colonne: 'releve_fraicheur_heures', cle: 'releveFraicheurHeures', libelle: 'Fraîcheur exigée de la relève', unite: 'heures', type: 'entier',
+    aide: 'Si la dernière relève réussie de la boîte est plus ancienne que cette durée, l’échéance reste « indéterminée » : on n’affirme jamais qu’une mairie n’a pas répondu sans avoir regardé récemment. Plus court = exigence de vérification plus stricte.' },
   { colonne: 'seuil_logements_immeuble', cle: 'seuilLogementsImmeuble', libelle: 'Seuil de logements « immeuble »', unite: 'logements', type: 'entier',
     aide: 'À partir de ce nombre de logements, un projet est classé « immeuble ». Joue en OU avec la surface (pas en ET).' },
   { colonne: 'seuil_surface_immeuble_m2', cle: 'seuilSurfaceImmeubleM2', libelle: 'Seuil de surface « immeuble »', unite: 'm²', type: 'entier',
@@ -193,6 +198,7 @@ export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
   'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi (groupe « demandes »)
   'adresse_reponse',                            // S38 — adresse de réponse (reply-to)
   'releve_active', 'releve_intervalle_minutes', 'releve_profil', // R7 — relève automatique des réponses
+  'echeance_alerte_jours', 'releve_fraicheur_heures', // R6 — échéance d'un mois + fraîcheur de la relève
   'pieces_demandees', 'profil_demandeur_defaut',
 ];
 // S30 — 3e sous-bloc : SOURCES de données (annuaire DILA). Distinct des demandes et de la classification des dossiers.

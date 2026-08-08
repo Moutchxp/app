@@ -165,7 +165,8 @@ function cibleRebond(dsn: ResultatRapportRejet, envoyees: DemandeEnvoyee[]): { d
   return null;
 }
 
-function construireLigne(profil: ProfilBoite, mb: MessageBoite, mid: string, demandeId: number | null, methode: RattachementMethode, note: string): ReponseEntrante {
+/** Construit le ReponseEntrante à enregistrer depuis un message de boîte (réutilisé par la relève approfondie R6). */
+export function construireLigne(profil: ProfilBoite, mb: MessageBoite, mid: string, demandeId: number | null, methode: RattachementMethode, note: string): ReponseEntrante {
   return {
     demandeId, profilBoite: profil, messageId: mid,
     inReplyTo: mb.message.inReplyTo ?? null,

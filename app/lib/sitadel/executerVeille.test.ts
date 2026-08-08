@@ -203,6 +203,42 @@ describe('R7 — executerVeille : relève automatique branchée, ISOLÉE, sous l
   });
 });
 
+describe('R6 — executerVeille : relève APPROFONDIE branchée, ISOLÉE, après la relève courante', () => {
+  it('une approfondie qui ÉCHOUE (throw) n’empêche PAS la veille de finaliser en « succes »', async () => {
+    const echeanceApprofondie = vi.fn(async () => { throw new Error('IMAP KO'); });
+    const finaliserRun = vi.fn(async () => {});
+    const libererVerrou = vi.fn(async () => {});
+    const deps = makeDeps({ echeanceApprofondie, finaliserRun, libererVerrou });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(echeanceApprofondie).toHaveBeenCalledTimes(1);
+    expect(r.statut).toBe('succes');
+    expect(libererVerrou).toHaveBeenCalledTimes(1);
+  });
+
+  it('la relève COURANTE (§1bis) tourne AVANT l’approfondie (§1ter)', async () => {
+    const ordre: string[] = [];
+    const releveAuto = vi.fn(async () => { ordre.push('courante'); });
+    const echeanceApprofondie = vi.fn(async () => { ordre.push('approfondie'); });
+    const deps = makeDeps({ releveAuto, echeanceApprofondie });
+
+    await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(ordre).toEqual(['courante', 'approfondie']); // fraîcheur d'abord, puis regard approfondi
+  });
+
+  it('verrou déjà pris → l’approfondie n’est PAS tentée (sortie avant le corps)', async () => {
+    const echeanceApprofondie = vi.fn(async () => {});
+    const deps = makeDeps({ acquerirVerrou: vi.fn(async () => false), echeanceApprofondie });
+
+    const r = await executerVeille({ declencheur: 'planifie' }, deps);
+
+    expect(r.statut).toBe('rien_a_faire');
+    expect(echeanceApprofondie).not.toHaveBeenCalled();
+  });
+});
+
 describe('S11a-FIX — executerVeille : garde d’intervalle (planifie)', () => {
   it('auto éteinte + planifie → « rien_a_faire » sans insérer de run ni toucher le réseau', async () => {
     const insererRun = vi.fn(async () => 1);

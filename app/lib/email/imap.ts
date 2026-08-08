@@ -9,6 +9,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser, type ParsedMail } from 'mailparser';
 import type { CompteImap } from './index';
 import type { ClientBoite, MessageBoite, PieceMeta, CritereRecherche } from '../veille/releveReponses';
+import type { ClientApprofondi } from '../veille/releveApprofondie';
 import type { MessageEntrant } from '../veille/rattachementReponse';
 import type { PartieRapport } from '../veille/rapportRejet';
 
@@ -72,6 +73,50 @@ export function creerClientBoite(compte: CompteImap): ClientBoite {
     },
     async chercher(criteres: CritereRecherche): Promise<number[]> {
       // Recherche SERVEUR : SINCE + éventuellement FROM (imapflow n'accepte qu'UNE chaîne `from` → un appel par domaine).
+      const critere: { since: Date; from?: string } = { since: criteres.depuis };
+      if (criteres.from !== undefined && criteres.from !== '') critere.from = criteres.from;
+      const uids = await client.search(critere, { uid: true });
+      return uids === false ? [] : uids;
+    },
+    async telechargerMessage(uid: number): Promise<MessageBoite> {
+      const msg = await client.fetchOne(uid, { source: true }, { uid: true });
+      if (msg === false || !msg.source) throw new Error(`message uid ${uid} introuvable ou sans source`);
+      const parsed = await simpleParser(msg.source);
+      return versMessageBoite(parsed, uid);
+    },
+    async fermer(): Promise<void> {
+      try { await client.logout(); } catch { /* best-effort : la fermeture ne doit pas faire échouer la relève */ }
+    },
+  };
+}
+
+/**
+ * Client MULTI-BOÎTES pour la relève APPROFONDIE (chantier R6) : liste TOUTES les boîtes et les ouvre une à une, TOUJOURS en
+ * `readOnly` (EXAMINE) — INBOX comme indésirables. Même règle de LECTURE STRICTE que `creerClientBoite` : aucun flag posé,
+ * rien de déplacé ni supprimé. Les boîtes non sélectionnables (\Noselect, simples conteneurs) sont écartées de la liste.
+ */
+export function creerClientApprofondi(compte: CompteImap): ClientApprofondi {
+  const client = new ImapFlow({
+    host: compte.host,
+    port: compte.port,
+    secure: compte.tls,
+    auth: { user: compte.user, pass: compte.pass },
+    logger: false,
+  });
+
+  return {
+    async ouvrir(): Promise<void> {
+      await client.connect(); // connexion seule : chaque boîte est ouverte ensuite par ouvrirBoite()
+    },
+    async listerBoites(): Promise<string[]> {
+      const boites = await client.list();
+      // On écarte les conteneurs non sélectionnables (\Noselect) : les ouvrir échouerait.
+      return boites.filter((b) => !b.flags.has('\\Noselect')).map((b) => b.path);
+    },
+    async ouvrirBoite(chemin: string): Promise<void> {
+      await client.mailboxOpen(chemin, { readOnly: true }); // EXAMINE : aucune modification de la boîte
+    },
+    async chercher(criteres: CritereRecherche): Promise<number[]> {
       const critere: { since: Date; from?: string } = { since: criteres.depuis };
       if (criteres.from !== undefined && criteres.from !== '') critere.from = criteres.from;
       const uids = await client.search(critere, { uid: true });
