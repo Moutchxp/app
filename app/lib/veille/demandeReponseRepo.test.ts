@@ -31,7 +31,8 @@ vi.mock('../db/client', () => ({
   closePool: async () => undefined,
 }));
 
-import { enregistrerReponse, listerReponses, rattacherAMain, marquerTraitee, type ReponseEntrante } from './demandeReponseRepo';
+import { enregistrerReponse, listerReponses, rattacherAMain, marquerTraitee, deposerEtLierPieces, type ReponseEntrante, type PieceAvecContenu } from './demandeReponseRepo';
+import type { ResultatDepotEntrant } from '../stockage';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 const trouver = (fragment: RegExp) => appels.find((a) => fragment.test(a.sql));
@@ -96,6 +97,64 @@ describe('R1 — enregistrerReponse', () => {
     const id = await enregistrerReponse({ ...BASE, pieces: [{ nomFichier: 'PC2.pdf', typeMime: 'application/pdf' }] });
     expect(id).toBeNull();
     expect(trouver(/INSERT INTO demande_reponse_piece\b/i)).toBeUndefined();
+  });
+});
+
+describe('R4 — deposerEtLierPieces (dépôt injecté, base mockée)', () => {
+  const PIECES = (n: number): PieceAvecContenu[] => Array.from({ length: n }, (_, i) => ({ nomFichier: `f${i}.pdf`, typeMime: 'application/pdf', contenu: Buffer.from(`x${i}`) }));
+
+  it('type accepté → déposé : persiste cle_stockage + empreinte ; deposer appelé SANS le nom d’origine', async () => {
+    etat.rows = [{ id: 100, cle_stockage: null }]; // ligne de pièce renvoyée par le SELECT
+    const deposer = vi.fn(async (): Promise<ResultatDepotEntrant> => ({ depose: true, cle: 'demandes/1/reponses/4242/uuid.pdf', taille: 2, empreinte: 'abc123' }));
+    const bilan = await deposerEtLierPieces(4242, 1, PIECES(1), 50 * 1024 * 1024, deposer);
+
+    expect(bilan).toEqual({ deposees: 1, nonDeposees: 0 });
+    // deposer reçoit (contenu, typeMime, opts) — JAMAIS le nomFichier → le nom d'origine ne peut pas entrer dans la clé.
+    expect(deposer).toHaveBeenCalledWith(Buffer.from('x0'), 'application/pdf', { demandeId: 1, reponseId: 4242, tailleMaxOctets: 50 * 1024 * 1024 });
+    const upd = trouver(/SET cle_stockage/i);
+    expect(upd?.params).toEqual([100, 'demandes/1/reponses/4242/uuid.pdf', 2, 'abc123']);
+  });
+
+  it('type refusé → non déposé : ligne conservée, motif renseigné', async () => {
+    etat.rows = [{ id: 100, cle_stockage: null }];
+    const deposer = vi.fn(async (): Promise<ResultatDepotEntrant> => ({ depose: false, motif: 'type non autorisé pour le dépôt : « x/x »' }));
+    const bilan = await deposerEtLierPieces(4242, 1, PIECES(1), 50 * 1024 * 1024, deposer);
+
+    expect(bilan).toEqual({ deposees: 0, nonDeposees: 1 });
+    const upd = trouver(/SET motif_non_stocke/i);
+    expect(upd?.params).toEqual([100, 'type non autorisé pour le dépôt : « x/x »']);
+  });
+
+  it('IDEMPOTENCE : pièce déjà déposée (cle_stockage renseignée) → deposer JAMAIS rappelé', async () => {
+    etat.rows = [{ id: 100, cle_stockage: 'demandes/1/reponses/4242/deja.pdf' }];
+    const deposer = vi.fn(async (): Promise<ResultatDepotEntrant> => ({ depose: true, cle: 'x', taille: 1, empreinte: 'y' }));
+    const bilan = await deposerEtLierPieces(4242, 1, PIECES(1), 50 * 1024 * 1024, deposer);
+
+    expect(deposer).not.toHaveBeenCalled();
+    expect(bilan.deposees).toBe(1);
+  });
+
+  it('ISOLATION : l’échec d’UNE pièce n’empêche ni les autres ni la réponse (aucune exception)', async () => {
+    etat.rows = [{ id: 100, cle_stockage: null }, { id: 101, cle_stockage: null }];
+    let call = 0;
+    const deposer = vi.fn(async (): Promise<ResultatDepotEntrant> => {
+      call += 1;
+      if (call === 1) throw new Error('S3 down');
+      return { depose: true, cle: 'demandes/1/reponses/4242/ok.pdf', taille: 2, empreinte: 'ok' };
+    });
+    const bilan = await deposerEtLierPieces(4242, 1, PIECES(2), 50 * 1024 * 1024, deposer);
+
+    expect(bilan).toEqual({ deposees: 1, nonDeposees: 1 });
+    const echec = appels.find((a) => /SET motif_non_stocke/i.test(a.sql) && String(a.params[1]).includes('échec de dépôt'));
+    expect(echec).toBeDefined();
+  });
+
+  it('réponse NON rattachée → deposer reçoit demandeId null (clé « non-rattachees »)', async () => {
+    etat.rows = [{ id: 100, cle_stockage: null }];
+    const deposer = vi.fn(async (): Promise<ResultatDepotEntrant> => ({ depose: true, cle: 'demandes/non-rattachees/4242/uuid.pdf', taille: 2, empreinte: 'z' }));
+    await deposerEtLierPieces(4242, null, PIECES(1), 50 * 1024 * 1024, deposer);
+
+    expect(deposer).toHaveBeenCalledWith(expect.anything(), 'application/pdf', { demandeId: null, reponseId: 4242, tailleMaxOctets: 50 * 1024 * 1024 });
   });
 });
 

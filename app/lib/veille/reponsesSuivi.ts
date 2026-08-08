@@ -31,7 +31,16 @@ export interface LigneRun {
   rebondsEtrangers: number | null;
   rebondsAppliques: number | null;
   enregistrees: number | null;
+  piecesDeposees: number | null;    // R4
+  piecesNonDeposees: number | null; // R4
   erreur: string | null;
+}
+
+/** R4 — une pièce jointe d'une réponse : stockée (sur l'object storage) ou non, et pourquoi (motif). LECTURE SEULE. */
+export interface PieceInfo {
+  nomFichier: string;
+  stockee: boolean;
+  motif: string | null; // motif_non_stocke si non stockée
 }
 
 /** Un dossier d'une demande suivie (satisfait ou dû, et par quel canal). */
@@ -65,6 +74,7 @@ export interface ReponseARattacher {
   objet: string | null;
   nbPieces: number;
   rattachementMethode: string;
+  pieces: PieceInfo[]; // R4 : détail par pièce (stockée ou non, et pourquoi)
 }
 
 /** Un brouillon de relance prêt (demande_relance 'brouillon'). */
@@ -102,11 +112,12 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
     demarre_le: string; termine_le: string | null; declencheur: string; resultat: string;
     vus: number | null; deja_connus: number | null; hors_perimetre: number | null; retenus: number | null; rattaches: number | null;
     rebonds_detectes: number | null; rebonds_rattaches: number | null; rebonds_etrangers: number | null; rebonds_appliques: number | null;
-    enregistrees: number | null; erreur: string | null;
+    enregistrees: number | null; pieces_deposees: number | null; pieces_non_deposees: number | null; erreur: string | null;
   }>(
     `SELECT demarre_le::text AS demarre_le, termine_le::text AS termine_le, declencheur, resultat,
             vus, deja_connus, hors_perimetre, retenus, rattaches,
-            rebonds_detectes, rebonds_rattaches, rebonds_etrangers, rebonds_appliques, enregistrees, erreur
+            rebonds_detectes, rebonds_rattaches, rebonds_etrangers, rebonds_appliques, enregistrees,
+            pieces_deposees, pieces_non_deposees, erreur
        FROM releve_run ORDER BY demarre_le DESC LIMIT 10`,
   );
 
@@ -161,8 +172,22 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
       WHERE r.demande_id IS NULL
       ORDER BY r.recu_le DESC`,
   );
+  // R4 — détail par pièce des réponses à rattacher (stockée ou non, et pourquoi), en une passe puis groupé par réponse.
+  const pj = await query<{ reponse_id: number; nom_fichier: string; stockee: boolean; motif_non_stocke: string | null }>(
+    `SELECT p.reponse_id::int AS reponse_id, p.nom_fichier, (p.cle_stockage IS NOT NULL) AS stockee, p.motif_non_stocke
+       FROM demande_reponse_piece p
+       JOIN demande_reponse r ON r.id = p.reponse_id
+      WHERE r.demande_id IS NULL
+      ORDER BY p.reponse_id, p.id`,
+  );
+  const piecesParReponse = new Map<number, PieceInfo[]>();
+  for (const p of pj.rows) {
+    (piecesParReponse.get(p.reponse_id) ?? piecesParReponse.set(p.reponse_id, []).get(p.reponse_id)!)
+      .push({ nomFichier: p.nom_fichier, stockee: p.stockee, motif: p.motif_non_stocke });
+  }
   const aRattacher: ReponseARattacher[] = rat.rows.map((r) => ({
-    id: r.id, recuLe: r.recu_le, deAdresse: r.de_adresse, deNom: r.de_nom, objet: r.objet, nbPieces: r.nb_pieces, rattachementMethode: r.rattachement_methode,
+    id: r.id, recuLe: r.recu_le, deAdresse: r.de_adresse, deNom: r.de_nom, objet: r.objet, nbPieces: r.nb_pieces,
+    rattachementMethode: r.rattachement_methode, pieces: piecesParReponse.get(r.id) ?? [],
   }));
 
   const rel = await query<{ id: number; generee_le: string; demande_id: number; reference: string | null; commune_nom: string | null; objet: string; corps: string }>(
@@ -183,7 +208,8 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
       demarreLe: r.demarre_le, termineLe: r.termine_le, declencheur: r.declencheur, resultat: r.resultat,
       vus: r.vus, dejaConnus: r.deja_connus, horsPerimetre: r.hors_perimetre, retenus: r.retenus, rattaches: r.rattaches,
       rebondsDetectes: r.rebonds_detectes, rebondsRattaches: r.rebonds_rattaches, rebondsEtrangers: r.rebonds_etrangers,
-      rebondsAppliques: r.rebonds_appliques, enregistrees: r.enregistrees, erreur: r.erreur,
+      rebondsAppliques: r.rebonds_appliques, enregistrees: r.enregistrees,
+      piecesDeposees: r.pieces_deposees, piecesNonDeposees: r.pieces_non_deposees, erreur: r.erreur,
     })),
     demandes, aRattacher, relances,
   };

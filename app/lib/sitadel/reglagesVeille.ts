@@ -156,6 +156,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Adresse e-mail qui reçoit le récapitulatif quotidien. Tant qu’elle est vide, aucune alerte n’est envoyée, même si les alertes sont activées.' },
   { colonne: 'alerte_heure_locale', cle: 'alerteHeureLocale', libelle: 'Heure d’envoi du récapitulatif', unite: 'heure locale', type: 'entier',
     aide: 'Heure locale (0 à 23) à partir de laquelle le récapitulatif du jour peut partir. Ex. 8 = pas avant 8 h du matin. Il n’y a qu’un envoi par jour.' },
+  // R4 — borne de taille des pièces jointes ENTRANTES (déposées à la réception). Distincte de la borne des photos internaute.
+  { colonne: 'piece_taille_max_mo', cle: 'pieceTailleMaxMo', libelle: 'Taille maximale des pièces reçues', unite: 'Mo', type: 'entier',
+    aide: 'Taille maximale d’une pièce jointe reçue d’une mairie qui sera conservée. Au-delà, la pièce n’est pas stockée mais sa trace (nom, type, taille, motif) reste visible. Les plans d’urbanisme peuvent être lourds : 50 Mo par défaut.' },
   { colonne: 'seuil_logements_immeuble', cle: 'seuilLogementsImmeuble', libelle: 'Seuil de logements « immeuble »', unite: 'logements', type: 'entier',
     aide: 'À partir de ce nombre de logements, un projet est classé « immeuble ». Joue en OU avec la surface (pas en ET).' },
   { colonne: 'seuil_surface_immeuble_m2', cle: 'seuilSurfaceImmeubleM2', libelle: 'Seuil de surface « immeuble »', unite: 'm²', type: 'entier',
@@ -207,6 +210,7 @@ export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
   'releve_active', 'releve_intervalle_minutes', 'releve_profil', // R7 — relève automatique des réponses
   'echeance_alerte_jours', 'releve_fraicheur_heures', // R6 — échéance d'un mois + fraîcheur de la relève
   'alerte_active', 'alerte_email', 'alerte_heure_locale', // R8 — alertes e-mail quotidiennes
+  'piece_taille_max_mo', // R4 — borne de taille des pièces entrantes
   'pieces_demandees', 'profil_demandeur_defaut',
 ];
 // S30 — 3e sous-bloc : SOURCES de données (annuaire DILA). Distinct des demandes et de la classification des dossiers.

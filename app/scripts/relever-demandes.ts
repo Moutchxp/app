@@ -50,6 +50,7 @@ function imprimer(r: RapportReleve): void {
   console.log(`    · par méthode               : ${meth}`);
   console.log(`    · rebonds détectés : ${r.rebondsDetectes} (rattachés ${r.rebondsRattaches}, étrangers ${r.rebondsEtrangers}, acheminements basculés ${r.rebondsAppliques})`);
   console.log(`  enregistrées                : ${r.ecrites}`);
+  console.log(`  pièces déposées / non dép.  : ${r.piecesDeposees} / ${r.piecesNonDeposees}`);
   if (r.lignes.length > 0) {
     console.log('  détail :');
     for (const l of r.lignes) {

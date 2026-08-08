@@ -46,6 +46,7 @@ export interface ConfigVeille {
   alerteActive: boolean;            // R8 : alertes e-mail activées ? (opt-in, défaut false)
   alerteEmail: string;              // R8 : destinataire du récapitulatif quotidien ('' = aucune alerte possible)
   alerteHeureLocale: number;        // R8 : heure locale (0-23) à partir de laquelle le récapitulatif du jour peut partir
+  pieceTailleMaxMo: number;         // R4 : taille max (Mo) d'une pièce jointe entrante déposée
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -76,6 +77,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   releveActive: false, releveIntervalleMinutes: 60, releveProfil: 'entreprise', // = DEFAULT de la migration 074 (opt-in)
   echeanceAlerteJours: 7, releveFraicheurHeures: 48, // = DEFAULT de la migration 075
   alerteActive: false, alerteEmail: '', alerteHeureLocale: 8, // = DEFAULT de la migration 078 (opt-in)
+  pieceTailleMaxMo: 50, // = DEFAULT de la migration 079
 };
 
 interface LigneConfigVeille {
@@ -205,6 +207,17 @@ async function lireAlerte(): Promise<Pick<ConfigVeille, 'alerteActive' | 'alerte
   } catch { return def; } // 078 pas encore appliquée → défauts
 }
 
+/**
+ * Lecture BEST-EFFORT de la BORNE DE TAILLE des pièces entrantes (R4), ISOLÉE — même motif de résilience : tant que la
+ * migration 079 n'est pas passée, la colonne n'existe pas → cette lecture échoue SEULE et retombe sur le défaut (50 Mo).
+ */
+async function lirePieceTaille(): Promise<Pick<ConfigVeille, 'pieceTailleMaxMo'>> {
+  try {
+    const { rows } = await query<{ piece_taille_max_mo: number }>(`SELECT piece_taille_max_mo FROM config_veille WHERE id = 1`);
+    return { pieceTailleMaxMo: rows[0]?.piece_taille_max_mo ?? 50 };
+  } catch { return { pieceTailleMaxMo: 50 }; } // 079 pas encore appliquée → défaut
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -242,6 +255,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireReleve()),                      // R7 : relève automatique, lecture isolée (résiliente à la 074)
       ...(await lireEcheance()),                     // R6 : échéance/fraîcheur, lecture isolée (résiliente à la 075)
       ...(await lireAlerte()),                        // R8 : alertes e-mail, lecture isolée (résiliente à la 078)
+      ...(await lirePieceTaille()),                    // R4 : borne de taille des pièces, lecture isolée (résiliente à la 079)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

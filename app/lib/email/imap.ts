@@ -47,6 +47,7 @@ function versMessageBoite(parsed: ParsedMail, uid: number): MessageBoite {
       nomFichier: a.filename && a.filename.trim() !== '' ? a.filename : '(sans nom)',
       typeMime: a.contentType ?? null,
       tailleOctets: typeof a.size === 'number' ? a.size : null,
+      contenu: Buffer.from(a.content), // R4 : le contenu brut (déposé tel quel plus tard ; jamais ouvert ni parsé ici)
     }));
   const partiesRapport: PartieRapport[] = parsed.attachments
     .filter((a) => estPartieRapport(a.contentType ?? ''))

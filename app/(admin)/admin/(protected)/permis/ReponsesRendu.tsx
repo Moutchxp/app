@@ -79,7 +79,7 @@ export function RappelReglages({ reglages }: { reglages: ReglagesReleve }) {
 /** Les 10 dernières lignes de releve_run (date, déclencheur, résultat, compteurs, erreur). Vide → phrase. */
 export function TableRuns({ runs }: { runs: LigneRun[] }) {
   if (runs.length === 0) return <PhraseVide>Aucune relève enregistrée pour l’instant.</PhraseVide>;
-  const cols = ['vus', 'déjà connus', 'hors périm.', 'retenus', 'rattachés', 'reb. détectés', 'reb. rattachés', 'reb. étrangers', 'reb. appliqués', 'enregistrées'];
+  const cols = ['vus', 'déjà connus', 'hors périm.', 'retenus', 'rattachés', 'reb. détectés', 'reb. rattachés', 'reb. étrangers', 'reb. appliqués', 'enregistrées', 'pièces dép.', 'pièces non dép.'];
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -97,7 +97,7 @@ export function TableRuns({ runs }: { runs: LigneRun[] }) {
                 <span style={{ fontWeight: 600, color: r.resultat === 'erreur' ? 'var(--color-svv-red)' : r.resultat === 'ok' ? 'var(--color-svv-green-ink)' : 'var(--color-svv-muted)' }}>{r.resultat}</span>
                 {r.resultat === 'erreur' && r.erreur ? <div role="alert" style={{ color: 'var(--color-svv-red)', fontSize: 11 }}>{r.erreur}</div> : null}
               </td>
-              {[r.vus, r.dejaConnus, r.horsPerimetre, r.retenus, r.rattaches, r.rebondsDetectes, r.rebondsRattaches, r.rebondsEtrangers, r.rebondsAppliques, r.enregistrees]
+              {[r.vus, r.dejaConnus, r.horsPerimetre, r.retenus, r.rattaches, r.rebondsDetectes, r.rebondsRattaches, r.rebondsEtrangers, r.rebondsAppliques, r.enregistrees, r.piecesDeposees, r.piecesNonDeposees]
                 .map((v, j) => <td key={j} style={{ ...styleTd, textAlign: 'right' }}>{v ?? '·'}</td>)}
             </tr>
           ))}
@@ -173,7 +173,19 @@ export function BlocARattacher({ reponses }: { reponses: ReponseARattacher[] }) 
               <td style={styleTd}>{formaterDateHeure(r.recuLe)}</td>
               <td style={styleTd}>{r.deNom ? `${r.deNom} · ` : ''}{r.deAdresse}</td>
               <td style={styleTd}>{r.objet ?? '(sans objet)'}</td>
-              <td style={{ ...styleTd, textAlign: 'right' }}>{r.nbPieces}</td>
+              <td style={styleTd}>
+                {r.pieces.length === 0 ? <span style={styleMuted}>aucune</span> : (
+                  <ul style={{ margin: 0, paddingLeft: '1rem', fontSize: 12 }}>
+                    {r.pieces.map((p, i) => (
+                      <li key={i}>
+                        {p.nomFichier} — {p.stockee
+                          ? <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>stockée</span>
+                          : <span style={{ color: 'var(--color-svv-red)' }}>non stockée{p.motif ? ` (${p.motif})` : ''}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </td>
               <td style={styleTd}>{r.rattachementMethode}</td>
             </tr>
           ))}

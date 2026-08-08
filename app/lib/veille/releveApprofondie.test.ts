@@ -76,7 +76,7 @@ describe('R6 — releverApprofondie : explore TOUS les dossiers, restreint à la
 
 // ── Orchestration (garde 1/jour + journal), par INJECTION ─────────────────────
 function rapportApprofondi(over: Partial<RapportApprofondi> = {}): RapportApprofondi {
-  return { mode: 'applique', demandeId: 42, boitesExplorees: ['INBOX'], vus: 1, retenus: 1, rattaches: 1, rebondsRattaches: 0, ecrites: 1, lignes: [], ...over };
+  return { mode: 'applique', demandeId: 42, boitesExplorees: ['INBOX'], vus: 1, retenus: 1, rattaches: 1, rebondsRattaches: 0, ecrites: 1, piecesDeposees: 0, piecesNonDeposees: 0, lignes: [], ...over };
 }
 
 const DEMANDE_DEPASSEE: DemandeSuivie = {

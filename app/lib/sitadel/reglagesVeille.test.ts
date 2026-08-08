@@ -33,6 +33,8 @@ const DEFS_BASE = [
   'CHECK (((releve_fraicheur_heures >= 1) AND (releve_fraicheur_heures <= 720)))',
   // R8 — heure d'envoi des alertes (migration 078)
   'CHECK (((alerte_heure_locale >= 0) AND (alerte_heure_locale <= 23)))',
+  // R4 — borne de taille des pièces entrantes (migration 079)
+  'CHECK (((piece_taille_max_mo >= 1) AND (piece_taille_max_mo <= 200)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 

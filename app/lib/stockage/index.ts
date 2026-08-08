@@ -24,7 +24,7 @@ import {
   DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { lireConfigStockage, type ConfigStockage } from './config';
 
 /** Erreur de base du module (permet un `catch` typé côté appelant). */
@@ -173,4 +173,75 @@ export async function supprimerPrefixe(prefixe: string): Promise<number> {
     token = liste.IsTruncated ? liste.NextContinuationToken : undefined;
   } while (token);
   return total;
+}
+
+// ── Chemin ENTRANT (R4) : pièces jointes des réponses des mairies (tiers non fiable) ────────────────────────────────────
+/**
+ * ⚠️ DISTINCT du chemin internaute ci-dessus (types/catégorie/borne/arborescence propres) — ne PAS le confondre. Les pièces
+ * entrantes viennent d'un TIERS NON FIABLE : on les stocke telles quelles, on ne les ouvre pas, on ne les parse pas
+ * (extraction = chantier R9). Whitelist LARGE mais explicite des types d'urbanisme ; borne pilotée par config_veille.
+ */
+const TYPES_ENTRANTS: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/tiff': 'tiff',
+  'application/zip': 'zip',
+  'image/vnd.dwg': 'dwg',
+  'application/acad': 'dwg',
+  'application/x-dwg': 'dwg',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.oasis.opendocument.text': 'odt',
+};
+
+/** Extension du chemin entrant pour un type MIME accepté, ou `null` si le type n'est pas dans la whitelist entrante. */
+export function extensionEntrante(typeMime: string | null): string | null {
+  return TYPES_ENTRANTS[(typeMime ?? '').trim().toLowerCase()] ?? null;
+}
+
+/**
+ * Clé NON ÉNUMÉRABLE d'une pièce entrante : `demandes/<demande_id>/reponses/<reponse_id>/<uuid>.<ext>`, ou
+ * `demandes/non-rattachees/<reponse_id>/<uuid>.<ext>` si la réponse n'est pas rattachée. ⚠️ Le nom d'origine du fichier
+ * (fourni par un tiers, potentiellement piégé — caractères exotiques, chemin) n'entre JAMAIS dans la clé : seul un UUID
+ * v4 + l'extension déduite du type MIME. Le nom d'origine reste en base (colonne nom_fichier) pour l'affichage.
+ */
+export function construireCleEntrante(demandeId: number | null, reponseId: number, ext: string): string {
+  const nom = `${randomUUID()}.${ext}`;
+  return demandeId !== null
+    ? `demandes/${demandeId}/reponses/${reponseId}/${nom}`
+    : `demandes/non-rattachees/${reponseId}/${nom}`;
+}
+
+/** Empreinte SHA-256 (hex) du contenu — traçabilité/intégrité de la pièce déposée. Pur. */
+export function empreinteSha256(contenu: Buffer | Uint8Array): string {
+  return createHash('sha256').update(contenu).digest('hex');
+}
+
+export type ResultatDepotEntrant =
+  | { depose: true; cle: string; taille: number; empreinte: string }
+  | { depose: false; motif: string };
+
+export interface OptionsDepotEntrant { demandeId: number | null; reponseId: number; tailleMaxOctets: number }
+
+/**
+ * Dépose UNE pièce entrante. Ne JETTE jamais pour un cas prévisible : renvoie `{ depose:false, motif }` (type hors
+ * whitelist, taille au-dessus de la borne, stockage non configuré) pour que l'appelant conserve la ligne avec son motif.
+ * Un dépôt réussi renvoie la clé, la taille et l'empreinte SHA-256 (à persister). Aucun parsing du contenu.
+ */
+export async function deposerPieceEntrante(contenu: Buffer | Uint8Array, typeMime: string | null, opts: OptionsDepotEntrant): Promise<ResultatDepotEntrant> {
+  const ext = extensionEntrante(typeMime);
+  if (!ext) return { depose: false, motif: `type non autorisé pour le dépôt : « ${typeMime ?? '(inconnu)'} »` };
+  if (contenu.byteLength > opts.tailleMaxOctets) {
+    const mo = (n: number) => (n / (1024 * 1024)).toFixed(1);
+    return { depose: false, motif: `pièce trop volumineuse : ${mo(contenu.byteLength)} Mo (maximum ${mo(opts.tailleMaxOctets)} Mo)` };
+  }
+  const infra = obtenir();
+  if (!infra) return { depose: false, motif: 'stockage non configuré' };
+  const cle = construireCleEntrante(opts.demandeId, opts.reponseId, ext);
+  const empreinte = empreinteSha256(contenu);
+  await infra.client.send(
+    new PutObjectCommand({ Bucket: infra.config.bucket, Key: cle, Body: contenu, ContentType: typeMime ?? 'application/octet-stream' }),
+  );
+  return { depose: true, cle, taille: contenu.byteLength, empreinte };
 }

@@ -5,6 +5,7 @@
  */
 import { query, withTransaction } from '../db/client';
 import { dossiersSatisfaits, type ReponsePourSatisfaction } from './satisfactionDossier';
+import type { ResultatDepotEntrant } from '../stockage';
 
 export type ProfilBoite = 'entreprise' | 'personne';
 export type RattachementMethode = 'message_id' | 'reference_objet' | 'reference_corps' | 'manuel' | 'aucun';
@@ -172,6 +173,60 @@ export async function marquerDossiersSatisfaitsAuto(demandeId: number, reponseId
     [demandeId, reponseId, ids],
   );
   return res.rowCount ?? 0;
+}
+
+/** R4 — une pièce entrante avec son CONTENU (jamais persisté en base : déposé sur l'object storage). */
+export interface PieceAvecContenu { nomFichier: string; typeMime: string | null; contenu: Buffer | Uint8Array }
+export interface BilanDepot { deposees: number; nonDeposees: number }
+
+/** Signature du dépôt d'UNE pièce (injectable pour les tests ; le réel délègue à stockage.deposerPieceEntrante). */
+type FnDeposer = (contenu: Buffer | Uint8Array, typeMime: string | null, opts: { demandeId: number | null; reponseId: number; tailleMaxOctets: number }) => Promise<ResultatDepotEntrant>;
+
+/** Dépôt RÉEL : import dynamique de `stockage` — garde @aws-sdk HORS du graphe statique (et des tests node-purs). */
+const deposerReel: FnDeposer = async (contenu, typeMime, opts) => {
+  const { deposerPieceEntrante } = await import('../stockage');
+  return deposerPieceEntrante(contenu, typeMime, opts);
+};
+
+/**
+ * R4 — dépose sur l'object storage les pièces d'une réponse déjà enregistrée, puis persiste par pièce, soit
+ * cle_stockage/taille_octets/empreinte_sha256/stocke_le (déposée), soit motif_non_stocke (non déposée). Le contenu vient
+ * d'un TIERS NON FIABLE : stocké tel quel, jamais ouvert/parsé. Garanties :
+ *  - IDEMPOTENCE : une pièce dont cle_stockage est déjà renseignée n'est JAMAIS redéposée ;
+ *  - ISOLATION : l'échec d'UNE pièce n'empêche ni les autres pièces ni la réponse (motif renseigné, on continue).
+ * L'ordre des lignes (par id) reflète l'ordre d'insertion, donc l'ordre de `pieces`.
+ */
+export async function deposerEtLierPieces(
+  reponseId: number, demandeId: number | null, pieces: PieceAvecContenu[], tailleMaxOctets: number,
+  deposer: FnDeposer = deposerReel,
+): Promise<BilanDepot> {
+  const { rows } = await query<{ id: number; cle_stockage: string | null }>(
+    `SELECT id, cle_stockage FROM demande_reponse_piece WHERE reponse_id = $1 ORDER BY id`, [reponseId]);
+  let deposees = 0, nonDeposees = 0;
+  const n = Math.min(rows.length, pieces.length);
+  for (let i = 0; i < n; i++) {
+    const row = rows[i];
+    const p = pieces[i];
+    if (row.cle_stockage !== null) { deposees += 1; continue; } // IDEMPOTENCE : déjà déposée → jamais redéposée
+    try {
+      const res = await deposer(p.contenu, p.typeMime, { demandeId, reponseId, tailleMaxOctets });
+      if (res.depose) {
+        await query(
+          `UPDATE demande_reponse_piece SET cle_stockage = $2, taille_octets = $3, empreinte_sha256 = $4, stocke_le = now(), motif_non_stocke = NULL WHERE id = $1`,
+          [row.id, res.cle, res.taille, res.empreinte]);
+        deposees += 1;
+      } else {
+        await query(`UPDATE demande_reponse_piece SET motif_non_stocke = $2 WHERE id = $1`, [row.id, res.motif]);
+        nonDeposees += 1;
+      }
+    } catch (e) {
+      // ISOLATION : l'échec d'UNE pièce (S3 indisponible…) ne fait pas échouer les autres ni la réponse.
+      const motif = e instanceof Error ? e.message : String(e);
+      try { await query(`UPDATE demande_reponse_piece SET motif_non_stocke = $2 WHERE id = $1`, [row.id, `échec de dépôt : ${motif}`]); } catch { /* best-effort */ }
+      nonDeposees += 1;
+    }
+  }
+  return { deposees, nonDeposees };
 }
 
 /**

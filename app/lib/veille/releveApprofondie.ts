@@ -12,10 +12,10 @@
  */
 import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
-import { enregistrerReponse, type ProfilBoite } from './demandeReponseRepo';
+import { enregistrerReponse, deposerEtLierPieces, type ProfilBoite } from './demandeReponseRepo';
 import { rattacherReponse, estAccuseDeRebond, type DemandeCandidate } from './rattachementReponse';
 import { analyserRapportRejet, normaliserMessageId } from './rapportRejet';
-import { construireLigne, type CritereRecherche, type LigneReleve, type MessageBoite } from './releveReponses';
+import { construireLigne, type CritereRecherche, type LigneReleve, type MessageBoite, type PieceMeta } from './releveReponses';
 import { etatEcheance, type ReglagesEcheance } from './echeance';
 
 /**
@@ -50,6 +50,8 @@ export interface RapportApprofondi {
   rattaches: number;            // lignes avec demande_id renseigné (threading/référence/rebond lié)
   rebondsRattaches: number;
   ecrites: number;
+  piecesDeposees: number;       // R4 : pièces déposées sur l'object storage
+  piecesNonDeposees: number;    // R4 : pièces non déposées (trace + motif conservés)
   lignes: LigneReleve[];
 }
 
@@ -85,7 +87,14 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
   const boitesExplorees: string[] = [];
   const lignes: LigneReleve[] = [];
   const vusIds = new Set<string>(); // dédup par Message-ID à travers les dossiers
-  let vus = 0, rebondsRattaches = 0, ecrites = 0;
+  let vus = 0, rebondsRattaches = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0;
+  // R4 — borne de taille des pièces (config) ; lue seulement en mode APPLIQUÉ (aucun dépôt en simulation).
+  const tailleMaxOctets = appliquer ? (await chargerConfigVeille()).pieceTailleMaxMo * 1024 * 1024 : 0;
+  const deposerPieces = async (reponseId: number, demandeId: number | null, pieces: PieceMeta[]): Promise<void> => {
+    const bilan = await deposerEtLierPieces(reponseId, demandeId,
+      pieces.map((p) => ({ nomFichier: p.nomFichier, typeMime: p.typeMime, contenu: p.contenu })), tailleMaxOctets);
+    piecesDeposees += bilan.deposees; piecesNonDeposees += bilan.nonDeposees;
+  };
 
   await opts.client.ouvrir();
   try {
@@ -116,7 +125,7 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
           const motif = dsn.diagnostic ?? dsn.statut ?? 'rebond';
           rebondsRattaches += 1;
           lignes.push({ messageId: mid, demandeId: cible.demandeId, methode: 'message_id', rebond: true, motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
-          if (appliquer) { const id = await enregistrerReponse(construireLigne(cible.profil, mb, mid, cible.demandeId, 'message_id', motif)); if (id !== null) ecrites += 1; }
+          if (appliquer) { const id = await enregistrerReponse(construireLigne(cible.profil, mb, mid, cible.demandeId, 'message_id', motif)); if (id !== null) { ecrites += 1; await deposerPieces(id, cible.demandeId, mb.pieces); } }
           continue;
         }
 
@@ -127,7 +136,7 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
         // demandeId = celui du rattachement CERTAIN (threading/référence) ; NULL si seulement le domaine correspond
         // (le message part alors dans la file « à rattacher » pour décision humaine — on ne force pas un lien incertain).
         lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
-        if (appliquer) { const id = await enregistrerReponse(construireLigne(cible.profil, mb, mid, r.demandeId, r.methode, r.motif)); if (id !== null) ecrites += 1; }
+        if (appliquer) { const id = await enregistrerReponse(construireLigne(cible.profil, mb, mid, r.demandeId, r.methode, r.motif)); if (id !== null) { ecrites += 1; await deposerPieces(id, r.demandeId, mb.pieces); } }
       }
     }
   } finally {
@@ -135,7 +144,7 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
   }
 
   const rattaches = lignes.filter((l) => l.demandeId !== null).length;
-  return { mode, demandeId: cible.demandeId, boitesExplorees, vus, retenus: lignes.length, rattaches, rebondsRattaches, ecrites, lignes };
+  return { mode, demandeId: cible.demandeId, boitesExplorees, vus, retenus: lignes.length, rattaches, rebondsRattaches, ecrites, piecesDeposees, piecesNonDeposees, lignes };
 }
 
 // ── Orchestration : sélection des demandes dépassées/proches + garde 1/jour + journal ─────────────────────────────────
@@ -288,9 +297,10 @@ export function depsReellesApprofondie(): DepsApprofondie {
       const r = m.rapport;
       await query(
         `UPDATE releve_run SET resultat = $2, termine_le = $3,
-           vus = $4, retenus = $5, rattaches = $6, rebonds_rattaches = $7, enregistrees = $8, erreur = $9
+           vus = $4, retenus = $5, rattaches = $6, rebonds_rattaches = $7, enregistrees = $8,
+           pieces_deposees = $9, pieces_non_deposees = $10, erreur = $11
          WHERE id = $1`,
-        [id, m.resultat, m.termineLe, r?.vus ?? null, r?.retenus ?? null, r?.rattaches ?? null, r?.rebondsRattaches ?? null, r?.ecrites ?? null, m.erreur ?? null]);
+        [id, m.resultat, m.termineLe, r?.vus ?? null, r?.retenus ?? null, r?.rattaches ?? null, r?.rebondsRattaches ?? null, r?.ecrites ?? null, r?.piecesDeposees ?? null, r?.piecesNonDeposees ?? null, m.erreur ?? null]);
     },
   };
 }

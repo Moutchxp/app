@@ -79,7 +79,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(AIDE_PARAMS_DOSSIERS).toContain('Mise à jour des dossiers');
   });
 
-  it('partition : 16 demandes (2 caps + adresse + 3 relève + 2 échéance + 3 alerte) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
+  it('partition : 17 demandes (2 caps + adresse + 3 relève + 2 échéance + 3 alerte + 1 pièce) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
     expect(PARAMS_DEMANDES.map((p) => p.colonne)).toEqual([
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois',
       'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi
@@ -87,6 +87,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'releve_active', 'releve_intervalle_minutes', 'releve_profil', // R7 — relève automatique
       'echeance_alerte_jours', 'releve_fraicheur_heures', // R6 — échéance d'un mois + fraîcheur
       'alerte_active', 'alerte_email', 'alerte_heure_locale', // R8 — alertes e-mail
+      'piece_taille_max_mo', // R4 — borne de taille des pièces entrantes
       'pieces_demandees', 'profil_demandeur_defaut',
     ]);
     expect(PARAMS_DOSSIERS.map((p) => p.colonne)).toEqual([

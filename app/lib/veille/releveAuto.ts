@@ -117,12 +117,12 @@ export function depsReellesReleveAuto(): DepsReleveAuto {
         `UPDATE releve_run SET resultat = $2, termine_le = $3,
            vus = $4, deja_connus = $5, hors_perimetre = $6, retenus = $7, rattaches = $8,
            rebonds_detectes = $9, rebonds_rattaches = $10, rebonds_etrangers = $11, rebonds_appliques = $12,
-           enregistrees = $13, plafond_atteint = $14, erreur = $15
+           enregistrees = $13, plafond_atteint = $14, pieces_deposees = $15, pieces_non_deposees = $16, erreur = $17
          WHERE id = $1`,
         [id, m.resultat, m.termineLe,
           r?.vus ?? null, r?.dejaConnus ?? null, r?.horsPerimetre ?? null, r?.retenus ?? null, r?.rattaches ?? null,
           r?.rebondsDetectes ?? null, r?.rebondsRattaches ?? null, r?.rebondsEtrangers ?? null, r?.rebondsAppliques ?? null,
-          r?.ecrites ?? null, r?.plafondAtteint ?? null, m.erreur ?? null]);
+          r?.ecrites ?? null, r?.plafondAtteint ?? null, r?.piecesDeposees ?? null, r?.piecesNonDeposees ?? null, m.erreur ?? null]);
     },
   };
 }

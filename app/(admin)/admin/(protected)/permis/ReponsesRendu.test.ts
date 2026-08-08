@@ -81,13 +81,29 @@ describe('R5a — blocs vides : phrase explicative, jamais un tableau muet', () 
 
   it('file « à rattacher » non vide → tableau avec l’expéditeur, l’objet et le motif', () => {
     const reponses: ReponseARattacher[] = [
-      { id: 1, recuLe: '2026-04-19T09:30:00Z', deAdresse: 'urba@mairie-x.fr', deNom: 'Service urba', objet: 'RE: demande', nbPieces: 2, rattachementMethode: 'aucun' },
+      { id: 1, recuLe: '2026-04-19T09:30:00Z', deAdresse: 'urba@mairie-x.fr', deNom: 'Service urba', objet: 'RE: demande', nbPieces: 2, rattachementMethode: 'aucun', pieces: [] },
     ];
     const h = renderToStaticMarkup(createElement(BlocARattacher, { reponses }));
     expect(h).toContain('<table');
     expect(h).toContain('urba@mairie-x.fr');
     expect(h).toContain('RE: demande');
     expect(h).toContain('aucun');
+  });
+
+  it('R4 — chaque pièce indique si elle est stockée ou non, et pourquoi', () => {
+    const reponses: ReponseARattacher[] = [
+      { id: 1, recuLe: '2026-04-19T09:30:00Z', deAdresse: 'urba@mairie-x.fr', deNom: null, objet: null, nbPieces: 2, rattachementMethode: 'aucun',
+        pieces: [
+          { nomFichier: 'PC2.pdf', stockee: true, motif: null },
+          { nomFichier: 'plan.dwg', stockee: false, motif: 'type non autorisé pour le dépôt : « application/x-dwg »' },
+        ] },
+    ];
+    const h = renderToStaticMarkup(createElement(BlocARattacher, { reponses }));
+    expect(h).toContain('PC2.pdf');
+    expect(h).toContain('stockée');
+    expect(h).toContain('plan.dwg');
+    expect(h).toContain('non stockée');
+    expect(h).toContain('type non autorisé pour le dépôt');
   });
 
   it('runs vides → phrase, pas de tableau', () => {
@@ -102,7 +118,8 @@ describe('R5a — TableRuns : une erreur est affichée en clair', () => {
     const runs: LigneRun[] = [{
       demarreLe: '2026-04-20T11:00:00Z', termineLe: '2026-04-20T11:00:05Z', declencheur: 'planifie', resultat: 'erreur',
       vus: null, dejaConnus: null, horsPerimetre: null, retenus: null, rattaches: null,
-      rebondsDetectes: null, rebondsRattaches: null, rebondsEtrangers: null, rebondsAppliques: null, enregistrees: null, erreur: 'IMAP timeout',
+      rebondsDetectes: null, rebondsRattaches: null, rebondsEtrangers: null, rebondsAppliques: null, enregistrees: null,
+      piecesDeposees: null, piecesNonDeposees: null, erreur: 'IMAP timeout',
     }];
     const h = renderToStaticMarkup(createElement(TableRuns, { runs }));
     expect(h).toContain('IMAP timeout');
