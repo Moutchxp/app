@@ -19,7 +19,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
-    if (/NOT IN \('close','abandonnee'\)/i.test(sql)) return { rows: etat.references.map((n) => ({ num_dau: n })), rowCount: etat.references.length }; // R3e lireReferencesRecherche
+    if (/\(dd\.satisfait_le IS NULL\) DESC/i.test(sql)) return { rows: etat.references.map((n) => ({ num_dau: n })), rowCount: etat.references.length }; // R3e/R3f lireReferencesRecherche (signature du tri)
     if (/min\(a\.envoye_le\)/i.test(sql)) return { rows: [{ depuis: etat.depuis }], rowCount: 1 };
     if (/array_agg\(a\.message_id\)/i.test(sql)) return { rows: etat.candidates, rowCount: etat.candidates.length };
     if (/FROM demande_reponse WHERE profil_boite/i.test(sql)) return { rows: etat.knownIds.map((m) => ({ message_id: m })), rowCount: etat.knownIds.length };
@@ -269,5 +269,34 @@ describe('R3e — recherche serveur par référence de dossier (en plus des sond
     expect(r.plafondReferencesAtteint).toBe(true);
     expect(r.referencesInterrogees).toBe(50); // plafond par défaut
     expect(recus).toHaveLength(50);
+  });
+});
+
+describe('R3f — la recherche par référence ne porte QUE sur les demandes envoyées', () => {
+  it('la requête des références filtre statut = envoyee (jamais brouillon/prête/abandonnée/close)', async () => {
+    etat.references = ['0930012500081'];
+    const { client } = fauxClient([], undefined, () => []);
+    await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    const q = appels.find((a) => /s\.num_dau/i.test(a.sql) && /demande_dossier/i.test(a.sql) && /\(dd\.satisfait_le IS NULL\) DESC/i.test(a.sql));
+    expect(q).toBeDefined();
+    const norm = q!.sql.replace(/\s+/g, ' ');
+    expect(norm).toContain("d.statut = 'envoyee'");
+    expect(norm).not.toContain("NOT IN ('close'"); // plus de brouillons/abandonnées embarqués
+  });
+
+  it('1 envoyée (le SQL exclut brouillons/abandonnées) → une seule référence interrogée', async () => {
+    etat.references = ['0930012500081']; // ce que renvoie la requête filtrée sur 'envoyee'
+    const { client, suivi } = fauxClient([], undefined, () => []);
+    await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(suivi.referencesInterrogees).toEqual(['0930012500081']);
+  });
+
+  it('aucune demande envoyée → aucune recherche par référence, aucune connexion', async () => {
+    etat.candidates = []; etat.depuis = null; etat.domaines = []; etat.references = ['0930012500081'];
+    const { client, suivi } = fauxClient([], undefined, () => [999]);
+    const r = await releverBoite({ client, profil: 'entreprise' });
+    expect(r.connecte).toBe(false);
+    expect(suivi.ouvert).toBe(0);
+    expect(suivi.referencesInterrogees).toEqual([]); // lireReferencesRecherche pas atteint (retour anticipé « pas de connexion »)
   });
 });

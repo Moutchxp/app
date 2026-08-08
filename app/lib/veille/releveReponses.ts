@@ -132,7 +132,9 @@ async function lireEnvoyees(profil: ProfilBoite): Promise<DemandeEnvoyee[]> {
 }
 
 /**
- * R3e — références de dossier à interroger côté serveur : dossiers des demandes NON closes du profil, NON satisfaits en
+ * R3e/R3f — références de dossier à interroger côté serveur : dossiers des demandes ENVOYÉES du profil (⚠️ R3f : SEULEMENT
+ * 'envoyee' — une demande en brouillon/prête n'est jamais partie, une abandonnée non plus, une close a déjà obtenu ses
+ * pièces ; interroger le serveur sur elles gaspille le plafond et peut évincer une vraie demande). NON satisfaits en
  * priorité, ordonnés par échéance croissante (proxy : envoyé_le croissant), plafonnés. Renvoie les n° (chiffres) dédupliqués
  * et un drapeau si le plafond a mordu (jamais silencieux). LECTURE SEULE.
  */
@@ -142,7 +144,7 @@ async function lireReferencesRecherche(profil: ProfilBoite, max: number): Promis
        FROM demande d
        JOIN demande_dossier dd ON dd.demande_id = d.id AND dd.actif
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
-      WHERE d.statut NOT IN ('close','abandonnee') AND d.profil_demandeur = $1
+      WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1
       ORDER BY (dd.satisfait_le IS NULL) DESC,
                (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id AND a.canal = 'email') ASC NULLS LAST,
                s.num_dau
