@@ -239,6 +239,43 @@ describe('R6 — executerVeille : relève APPROFONDIE branchée, ISOLÉE, après
   });
 });
 
+describe('R6b — executerVeille : génération de relance branchée, ISOLÉE, après l’approfondie', () => {
+  it('une génération de relance qui ÉCHOUE (throw) n’empêche PAS la veille de finaliser en « succes »', async () => {
+    const relanceEcheance = vi.fn(async () => { throw new Error('DB KO'); });
+    const finaliserRun = vi.fn(async () => {});
+    const deps = makeDeps({ relanceEcheance, finaliserRun });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(relanceEcheance).toHaveBeenCalledTimes(1);
+    expect(r.statut).toBe('succes');
+    expect(finaliserRun).toHaveBeenCalledWith(1, expect.objectContaining({ statut: 'succes' }));
+  });
+
+  it('ordre : relève courante → approfondie → relance (chacune avant la suivante)', async () => {
+    const ordre: string[] = [];
+    const deps = makeDeps({
+      releveAuto: vi.fn(async () => { ordre.push('courante'); }),
+      echeanceApprofondie: vi.fn(async () => { ordre.push('approfondie'); }),
+      relanceEcheance: vi.fn(async () => { ordre.push('relance'); }),
+    });
+
+    await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(ordre).toEqual(['courante', 'approfondie', 'relance']);
+  });
+
+  it('verrou déjà pris → la génération de relance n’est PAS tentée', async () => {
+    const relanceEcheance = vi.fn(async () => {});
+    const deps = makeDeps({ acquerirVerrou: vi.fn(async () => false), relanceEcheance });
+
+    const r = await executerVeille({ declencheur: 'planifie' }, deps);
+
+    expect(r.statut).toBe('rien_a_faire');
+    expect(relanceEcheance).not.toHaveBeenCalled();
+  });
+});
+
 describe('S11a-FIX — executerVeille : garde d’intervalle (planifie)', () => {
   it('auto éteinte + planifie → « rien_a_faire » sans insérer de run ni toucher le réseau', async () => {
     const insererRun = vi.fn(async () => 1);
