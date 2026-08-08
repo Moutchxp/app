@@ -149,6 +149,13 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Combien de jours avant la fin du délai d’un mois une demande est signalée « proche de l’échéance ». Le silence gardé un mois après l’envoi vaut refus tacite (voie CADA) : ce réglage sert à anticiper cette date, pas à la modifier.' },
   { colonne: 'releve_fraicheur_heures', cle: 'releveFraicheurHeures', libelle: 'Fraîcheur exigée de la relève', unite: 'heures', type: 'entier',
     aide: 'Si la dernière relève réussie de la boîte est plus ancienne que cette durée, l’échéance reste « indéterminée » : on n’affirme jamais qu’une mairie n’a pas répondu sans avoir regardé récemment. Plus court = exigence de vérification plus stricte.' },
+  // R8 — ALERTES e-mail : un seul récapitulatif par jour, envoyé uniquement s'il y a quelque chose à dire. Opt-in.
+  { colonne: 'alerte_active', cle: 'alerteActive', libelle: 'Alertes par e-mail', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, vous recevez UN récapitulatif par jour — et seulement s’il y a du nouveau (réponses reçues, rebonds, échéances proches ou dépassées). Jamais un e-mail par événement. Désactivé, aucune alerte n’est envoyée.' },
+  { colonne: 'alerte_email', cle: 'alerteEmail', libelle: 'Adresse où recevoir les alertes', unite: '', type: 'email',
+    aide: 'Adresse e-mail qui reçoit le récapitulatif quotidien. Tant qu’elle est vide, aucune alerte n’est envoyée, même si les alertes sont activées.' },
+  { colonne: 'alerte_heure_locale', cle: 'alerteHeureLocale', libelle: 'Heure d’envoi du récapitulatif', unite: 'heure locale', type: 'entier',
+    aide: 'Heure locale (0 à 23) à partir de laquelle le récapitulatif du jour peut partir. Ex. 8 = pas avant 8 h du matin. Il n’y a qu’un envoi par jour.' },
   { colonne: 'seuil_logements_immeuble', cle: 'seuilLogementsImmeuble', libelle: 'Seuil de logements « immeuble »', unite: 'logements', type: 'entier',
     aide: 'À partir de ce nombre de logements, un projet est classé « immeuble ». Joue en OU avec la surface (pas en ET).' },
   { colonne: 'seuil_surface_immeuble_m2', cle: 'seuilSurfaceImmeubleM2', libelle: 'Seuil de surface « immeuble »', unite: 'm²', type: 'entier',
@@ -199,6 +206,7 @@ export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
   'adresse_reponse',                            // S38 — adresse de réponse (reply-to)
   'releve_active', 'releve_intervalle_minutes', 'releve_profil', // R7 — relève automatique des réponses
   'echeance_alerte_jours', 'releve_fraicheur_heures', // R6 — échéance d'un mois + fraîcheur de la relève
+  'alerte_active', 'alerte_email', 'alerte_heure_locale', // R8 — alertes e-mail quotidiennes
   'pieces_demandees', 'profil_demandeur_defaut',
 ];
 // S30 — 3e sous-bloc : SOURCES de données (annuaire DILA). Distinct des demandes et de la classification des dossiers.

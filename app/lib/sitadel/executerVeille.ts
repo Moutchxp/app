@@ -21,6 +21,7 @@ import { chargerConfigVeille } from './veilleConfig';
 import { executerReleveAuto, depsReellesReleveAuto } from '../veille/releveAuto';
 import { executerApprofondieAuto, depsReellesApprofondie } from '../veille/releveApprofondie';
 import { executerRelanceAuto, depsReellesRelance } from '../veille/relanceAuto';
+import { executerAlerteAuto, depsReellesAlerte } from '../veille/alerteAuto';
 import { ingererMillesime, millesimeDistantDido, DOSSIER_LOCAL, type CompteursIngestion } from './ingestionMillesime';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger,
@@ -68,6 +69,9 @@ export interface DepsVeille {
   // R6b — génération des BROUILLONS de relance pour les demandes à l'échéance dépassée (après l'approfondie). OPTIONNELLE et
   //   ISOLÉE (§1quater) : aucun envoi, un échec ne touche jamais la veille Sitadel.
   relanceEcheance?(): Promise<unknown>;
+  // R8 — ALERTE e-mail quotidienne (après les relances). OPTIONNELLE et ISOLÉE (§1quinquies) : un échec d'envoi ne touche
+  //   jamais la veille ni la relève.
+  alerteQuotidienne?(): Promise<unknown>;
 }
 
 export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = depsReelles()): Promise<ResultatVeille> {
@@ -102,6 +106,12 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   ISOLATION que §1bis/§1ter : un échec n'impacte jamais la veille Sitadel.
     if (deps.relanceEcheance) {
       try { await deps.relanceEcheance(); } catch { /* relance isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1quinquies) ALERTE e-mail quotidienne (R8) — APRÈS les relances : un seul récapitulatif par jour, uniquement s'il y a
+    //   quelque chose à dire. MÊME ISOLATION : un échec d'envoi n'impacte jamais la veille ni la relève.
+    if (deps.alerteQuotidienne) {
+      try { await deps.alerteQuotidienne(); } catch { /* alerte isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     const config = await deps.chargerConfig();
@@ -232,6 +242,8 @@ function depsReelles(): DepsVeille {
     echeanceApprofondie: () => executerApprofondieAuto(depsReellesApprofondie()),
     // R6b — brouillons de relance réels : sélection 'depassee' + garde relance vivante + journal, dans relanceAuto.ts.
     relanceEcheance: () => executerRelanceAuto(depsReellesRelance()),
+    // R8 — alerte quotidienne réelle : conditions + composition + envoi SMTP + journal, dans alerteAuto.ts.
+    alerteQuotidienne: () => executerAlerteAuto(depsReellesAlerte()),
   };
 }
 

@@ -31,6 +31,8 @@ const DEFS_BASE = [
   // R6 — échéance + fraîcheur (migration 075)
   'CHECK (((echeance_alerte_jours >= 1) AND (echeance_alerte_jours <= 30)))',
   'CHECK (((releve_fraicheur_heures >= 1) AND (releve_fraicheur_heures <= 720)))',
+  // R8 — heure d'envoi des alertes (migration 078)
+  'CHECK (((alerte_heure_locale >= 0) AND (alerte_heure_locale <= 23)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 

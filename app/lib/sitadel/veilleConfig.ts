@@ -43,6 +43,9 @@ export interface ConfigVeille {
   releveProfil: string;             // R7 : profil de boîte relevé automatiquement ('entreprise' | 'personne')
   echeanceAlerteJours: number;      // R6 : jours avant l'échéance d'un mois à partir desquels elle est « proche »
   releveFraicheurHeures: number;    // R6 : au-delà, la dernière relève est trop vieille → état d'échéance « indéterminé »
+  alerteActive: boolean;            // R8 : alertes e-mail activées ? (opt-in, défaut false)
+  alerteEmail: string;              // R8 : destinataire du récapitulatif quotidien ('' = aucune alerte possible)
+  alerteHeureLocale: number;        // R8 : heure locale (0-23) à partir de laquelle le récapitulatif du jour peut partir
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -72,6 +75,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   mentionDelaiActive: false, mentionDelaiTexte: '',     // = DEFAULT de la migration 072 (désactivée, vide)
   releveActive: false, releveIntervalleMinutes: 60, releveProfil: 'entreprise', // = DEFAULT de la migration 074 (opt-in)
   echeanceAlerteJours: 7, releveFraicheurHeures: 48, // = DEFAULT de la migration 075
+  alerteActive: false, alerteEmail: '', alerteHeureLocale: 8, // = DEFAULT de la migration 078 (opt-in)
 };
 
 interface LigneConfigVeille {
@@ -186,6 +190,21 @@ async function lireEcheance(): Promise<Pick<ConfigVeille, 'echeanceAlerteJours' 
   } catch { return def; } // 075 pas encore appliquée → défauts
 }
 
+/**
+ * Lecture BEST-EFFORT des ALERTES (R8), ISOLÉE — même motif de résilience : tant que la migration 078 n'est pas passée, les
+ * colonnes n'existent pas → cette lecture échoue SEULE et retombe sur les défauts (désactivée, vide, 8 h), sans dégrader le reste.
+ */
+async function lireAlerte(): Promise<Pick<ConfigVeille, 'alerteActive' | 'alerteEmail' | 'alerteHeureLocale'>> {
+  const def = { alerteActive: false, alerteEmail: '', alerteHeureLocale: 8 };
+  try {
+    const { rows } = await query<{ alerte_active: boolean; alerte_email: string; alerte_heure_locale: number }>(
+      `SELECT alerte_active, alerte_email, alerte_heure_locale FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return def;
+    return { alerteActive: r.alerte_active, alerteEmail: (r.alerte_email ?? '').trim(), alerteHeureLocale: r.alerte_heure_locale };
+  } catch { return def; } // 078 pas encore appliquée → défauts
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -222,6 +241,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireMentions()),                   // S40 : mentions de courrier, lecture isolée (résiliente à la 072)
       ...(await lireReleve()),                      // R7 : relève automatique, lecture isolée (résiliente à la 074)
       ...(await lireEcheance()),                     // R6 : échéance/fraîcheur, lecture isolée (résiliente à la 075)
+      ...(await lireAlerte()),                        // R8 : alertes e-mail, lecture isolée (résiliente à la 078)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

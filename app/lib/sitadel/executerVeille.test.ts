@@ -276,6 +276,44 @@ describe('R6b — executerVeille : génération de relance branchée, ISOLÉE, a
   });
 });
 
+describe('R8 — executerVeille : alerte quotidienne branchée, ISOLÉE, après les relances', () => {
+  it('une alerte qui ÉCHOUE (throw) n’empêche PAS la veille de finaliser en « succes »', async () => {
+    const alerteQuotidienne = vi.fn(async () => { throw new Error('SMTP KO'); });
+    const finaliserRun = vi.fn(async () => {});
+    const deps = makeDeps({ alerteQuotidienne, finaliserRun });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(alerteQuotidienne).toHaveBeenCalledTimes(1);
+    expect(r.statut).toBe('succes');
+    expect(finaliserRun).toHaveBeenCalledWith(1, expect.objectContaining({ statut: 'succes' }));
+  });
+
+  it('ordre : relève courante → approfondie → relance → alerte', async () => {
+    const ordre: string[] = [];
+    const deps = makeDeps({
+      releveAuto: vi.fn(async () => { ordre.push('courante'); }),
+      echeanceApprofondie: vi.fn(async () => { ordre.push('approfondie'); }),
+      relanceEcheance: vi.fn(async () => { ordre.push('relance'); }),
+      alerteQuotidienne: vi.fn(async () => { ordre.push('alerte'); }),
+    });
+
+    await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(ordre).toEqual(['courante', 'approfondie', 'relance', 'alerte']);
+  });
+
+  it('verrou déjà pris → l’alerte n’est PAS tentée', async () => {
+    const alerteQuotidienne = vi.fn(async () => {});
+    const deps = makeDeps({ acquerirVerrou: vi.fn(async () => false), alerteQuotidienne });
+
+    const r = await executerVeille({ declencheur: 'planifie' }, deps);
+
+    expect(r.statut).toBe('rien_a_faire');
+    expect(alerteQuotidienne).not.toHaveBeenCalled();
+  });
+});
+
 describe('S11a-FIX — executerVeille : garde d’intervalle (planifie)', () => {
   it('auto éteinte + planifie → « rien_a_faire » sans insérer de run ni toucher le réseau', async () => {
     const insererRun = vi.fn(async () => 1);
