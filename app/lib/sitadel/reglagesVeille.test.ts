@@ -8,7 +8,7 @@ import { problemesIdentite, type ConfigDemandeur } from './demande';
 /**
  * S7d — réglages de la veille permis. Bornes tirées des CHECK de la base (jamais recopiées), validation server-side
  * réutilisant `problemesIdentite`. `DEFS_BASE` reproduit EXACTEMENT la sortie de `pg_get_constraintdef` sur
- * `config_veille` (relevée en base, migrations 048 + 054 + 070) : c'est l'oracle des bornes affichées.
+ * `config_veille` (relevée en base, migrations 048 + 054 + 070 + 074) : c'est l'oracle des bornes affichées.
  */
 const DEFS_BASE = [
   'CHECK (((annees_par_defaut >= 1) AND (annees_par_defaut <= 20)))',
@@ -26,6 +26,8 @@ const DEFS_BASE = [
   // S37 — caps d'envoi (migration 070)
   'CHECK (((envois_max_par_run >= 1) AND (envois_max_par_run <= 200)))',
   'CHECK (((envois_max_par_jour >= 1) AND (envois_max_par_jour <= 500)))',
+  // R7 — relève automatique (migration 074) : Postgres rend `BETWEEN 15 AND 1440` sous cette forme `>= AND <=`
+  'CHECK (((releve_intervalle_minutes >= 15) AND (releve_intervalle_minutes <= 1440)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 

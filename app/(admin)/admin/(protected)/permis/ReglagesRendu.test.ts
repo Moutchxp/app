@@ -79,11 +79,12 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(AIDE_PARAMS_DOSSIERS).toContain('Mise à jour des dossiers');
   });
 
-  it('partition : 8 demandes (2 caps + adresse de réponse) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
+  it('partition : 11 demandes (2 caps + adresse + 3 relève) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
     expect(PARAMS_DEMANDES.map((p) => p.colonne)).toEqual([
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois',
       'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi
       'adresse_reponse',                            // S38 — adresse de réponse
+      'releve_active', 'releve_intervalle_minutes', 'releve_profil', // R7 — relève automatique
       'pieces_demandees', 'profil_demandeur_defaut',
     ]);
     expect(PARAMS_DOSSIERS.map((p) => p.colonne)).toEqual([

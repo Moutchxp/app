@@ -18,6 +18,7 @@ import { readdir, stat } from 'node:fs/promises';
 import type { PoolClient } from 'pg';
 import { pool, query, withTransaction } from '../db/client';
 import { chargerConfigVeille } from './veilleConfig';
+import { executerReleveAuto, depsReellesReleveAuto } from '../veille/releveAuto';
 import { ingererMillesime, millesimeDistantDido, DOSSIER_LOCAL, type CompteursIngestion } from './ingestionMillesime';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger,
@@ -56,6 +57,9 @@ export interface DepsVeille {
   ingerer(millesime: string): Promise<CompteursIngestion>;
   listerCsv(): Promise<FichierCsv[]>;
   supprimerFichiers(chemins: string[]): Promise<void>;
+  // R7 — relève automatique des réponses CRPA, tentée à chaque tick sous le MÊME verrou. OPTIONNELLE (les tests qui
+  //   n'éprouvent pas la relève l'omettent) et ISOLÉE : voir son appel (§1bis) — un échec ici ne touche jamais la veille.
+  releveAuto?(): Promise<unknown>;
 }
 
 export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = depsReelles()): Promise<ResultatVeille> {
@@ -68,6 +72,15 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
 
   let runId: number | null = null;
   try {
+    // 1bis) RELÈVE AUTOMATIQUE des réponses CRPA (R7) — sous le MÊME verrou, à CHAQUE tick, AVANT la garde d'intervalle
+    //   Sitadel (§2) et le contrôle de millésime (§4) : la relève doit tourner même quand la veille Sitadel n'a « rien à
+    //   faire ». ISOLÉE À DOUBLE FILET : un échec de relève ne DOIT JAMAIS faire échouer la veille → try/catch qui avale
+    //   ici (executerReleveAuto journalise déjà son propre « erreur » sans relancer). N'affecte ni le verrou, ni le run
+    //   Sitadel, ni son statut ; la séquence Sitadel continue exactement comme si de rien n'était.
+    if (deps.releveAuto) {
+      try { await deps.releveAuto(); } catch { /* relève isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
     const config = await deps.chargerConfig();
 
     // 2) Garde d'automatisation pour les runs PLANIFIÉS (les 'manuel'/'api' et --forcer passent outre). Le drapeau de
@@ -189,6 +202,9 @@ function depsReelles(): DepsVeille {
       const { rm } = await import('node:fs/promises');
       for (const chemin of chemins) await rm(chemin, { force: true });
     },
+    // R7 — relève réelle : orchestrateur pur + ses I/O de production (base + IMAP en lecture stricte). Son propre journal
+    //   (releve_run) et son isolation sont dans releveAuto.ts ; ici on se contente de la brancher dans le corps de veille.
+    releveAuto: () => executerReleveAuto(depsReellesReleveAuto()),
   };
 }
 

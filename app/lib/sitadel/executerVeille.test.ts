@@ -166,6 +166,43 @@ describe('S11b — executerVeille : drapeau de demande manuelle', () => {
   });
 });
 
+describe('R7 — executerVeille : relève automatique branchée, ISOLÉE, sous le verrou', () => {
+  it('une relève qui ÉCHOUE (throw) n’empêche PAS la veille de finaliser en « succes »', async () => {
+    const releveAuto = vi.fn(async () => { throw new Error('IMAP KO'); });
+    const finaliserRun = vi.fn(async () => {});
+    const libererVerrou = vi.fn(async () => {});
+    const deps = makeDeps({ releveAuto, finaliserRun, libererVerrou });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(releveAuto).toHaveBeenCalledTimes(1);
+    expect(r.statut).toBe('succes'); // la veille n'est PAS contaminée par l'échec de relève
+    expect(finaliserRun).toHaveBeenCalledWith(1, expect.objectContaining({ statut: 'succes' }));
+    expect(libererVerrou).toHaveBeenCalledTimes(1); // verrou toujours libéré
+  });
+
+  it('la relève tourne AUSSI quand la veille Sitadel n’a « rien à faire » (millésime inchangé)', async () => {
+    const releveAuto = vi.fn(async () => {});
+    // distant == base → la veille sort en « rien_a_faire », mais la relève (placée avant §2/§4) a déjà tourné.
+    const deps = makeDeps({ releveAuto, millesimeDistant: vi.fn(async () => '2026-06') });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(r.statut).toBe('rien_a_faire');
+    expect(releveAuto).toHaveBeenCalledTimes(1);
+  });
+
+  it('verrou déjà pris → la relève n’est PAS tentée (sortie avant le corps, sous le verrou)', async () => {
+    const releveAuto = vi.fn(async () => {});
+    const deps = makeDeps({ acquerirVerrou: vi.fn(async () => false), releveAuto });
+
+    const r = await executerVeille({ declencheur: 'planifie' }, deps);
+
+    expect(r.statut).toBe('rien_a_faire');
+    expect(releveAuto).not.toHaveBeenCalled();
+  });
+});
+
 describe('S11a-FIX — executerVeille : garde d’intervalle (planifie)', () => {
   it('auto éteinte + planifie → « rien_a_faire » sans insérer de run ni toucher le réseau', async () => {
     const insererRun = vi.fn(async () => 1);

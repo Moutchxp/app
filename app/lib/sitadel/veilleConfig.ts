@@ -38,6 +38,9 @@ export interface ConfigVeille {
   mentionServiceTexte: string;   // S40 : texte éditable de la mention service
   mentionDelaiActive: boolean;   // S40 : mention « délai d'un mois » (près de la clôture)
   mentionDelaiTexte: string;     // S40 : texte éditable de la mention délai
+  releveActive: boolean;            // R7 : relève automatique des réponses activée ? (opt-in, défaut false)
+  releveIntervalleMinutes: number;  // R7 : intervalle minimum entre deux relèves automatiques (minutes)
+  releveProfil: string;             // R7 : profil de boîte relevé automatiquement ('entreprise' | 'personne')
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -65,6 +68,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   adresseReponse: '',    // = DEFAULT de la migration 071 (non configurée → le send refuse)
   mentionServiceActive: false, mentionServiceTexte: '', // = DEFAULT de la migration 072 (désactivée, vide)
   mentionDelaiActive: false, mentionDelaiTexte: '',     // = DEFAULT de la migration 072 (désactivée, vide)
+  releveActive: false, releveIntervalleMinutes: 60, releveProfil: 'entreprise', // = DEFAULT de la migration 074 (opt-in)
 };
 
 interface LigneConfigVeille {
@@ -148,6 +152,22 @@ async function lireMentions(): Promise<Pick<ConfigVeille, 'mentionServiceActive'
   } catch { return def; } // 072 pas encore appliquée → défauts
 }
 
+/**
+ * Lecture BEST-EFFORT de la RELÈVE AUTOMATIQUE (R7), ISOLÉE — même motif de résilience que `lireMentions` : tant que la
+ * migration 074 n'est pas passée, les colonnes n'existent pas → cette lecture échoue SEULE et retombe sur les défauts
+ * (désactivée, 60 min, entreprise), sans dégrader tout le reste de la config. Après 074 : renvoie les valeurs en base.
+ */
+async function lireReleve(): Promise<Pick<ConfigVeille, 'releveActive' | 'releveIntervalleMinutes' | 'releveProfil'>> {
+  const def = { releveActive: false, releveIntervalleMinutes: 60, releveProfil: 'entreprise' };
+  try {
+    const { rows } = await query<{ releve_active: boolean; releve_intervalle_minutes: number; releve_profil: string }>(
+      `SELECT releve_active, releve_intervalle_minutes, releve_profil FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return def;
+    return { releveActive: r.releve_active, releveIntervalleMinutes: r.releve_intervalle_minutes, releveProfil: r.releve_profil };
+  } catch { return def; } // 074 pas encore appliquée → défauts
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -182,6 +202,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireCapsEnvoi()),   // S37 : caps d'envoi, lecture isolée (résiliente à l'ordre d'application de la 070)
       adresseReponse: await lireAdresseReponse(), // S38 : lecture isolée (résiliente à l'ordre d'application de la 071)
       ...(await lireMentions()),                   // S40 : mentions de courrier, lecture isolée (résiliente à la 072)
+      ...(await lireReleve()),                      // R7 : relève automatique, lecture isolée (résiliente à la 074)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;
