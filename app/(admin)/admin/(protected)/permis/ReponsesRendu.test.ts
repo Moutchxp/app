@@ -3,13 +3,17 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, DetailDossiers, RelanceCarte, TableRuns,
+  messageIci, type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
 import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi } from '../../../../lib/veille/reponsesSuivi';
 
 /**
- * R5a — rendu PUR de l'écran « Réponses » (renderToStaticMarkup, aucun DOM). Couvre l'indicateur de relève (3 signaux),
- * les 7 états d'échéance (libellés distincts), la file vide (phrase, pas de tableau) et le compte de satisfaction partielle.
+ * R5a/R5b — rendu PUR de l'écran « Réponses » (renderToStaticMarkup, aucun DOM). Couvre l'indicateur de relève (3 signaux),
+ * les 7 états d'échéance (libellés distincts), la file vide (phrase, pas de tableau), le compte de satisfaction partielle, et
+ * les ACTIONS R5b : les boutons apparaissent aux bons endroits (rattacher/traitée/télécharger, marquer/annuler), une demande
+ * 'close' affiche son message et AUCUN bouton de marquage, une pièce sans clé affiche son motif et aucun lien, et le message
+ * de retour se rend UNIQUEMENT dans la zone du bouton cliqué (messageIci), jamais dédoublé.
  */
 const NOW = new Date('2026-04-20T12:00:00Z');
 
@@ -94,8 +98,8 @@ describe('R5a — blocs vides : phrase explicative, jamais un tableau muet', () 
     const reponses: ReponseARattacher[] = [
       { id: 1, recuLe: '2026-04-19T09:30:00Z', deAdresse: 'urba@mairie-x.fr', deNom: null, objet: null, nbPieces: 2, rattachementMethode: 'aucun',
         pieces: [
-          { nomFichier: 'PC2.pdf', stockee: true, motif: null },
-          { nomFichier: 'plan.dwg', stockee: false, motif: 'type non autorisé pour le dépôt : « application/x-dwg »' },
+          { id: 11, nomFichier: 'PC2.pdf', stockee: true, motif: null },
+          { id: 12, nomFichier: 'plan.dwg', stockee: false, motif: 'type non autorisé pour le dépôt : « application/x-dwg »' },
         ] },
     ];
     const h = renderToStaticMarkup(createElement(BlocARattacher, { reponses }));
@@ -130,10 +134,10 @@ describe('R5a — TableRuns : une erreur est affichée en clair', () => {
 describe('R5a — DetailDossiers : satisfait/dû et par quoi', () => {
   it('un dossier obtenu (automatique) et un dossier dû sont distingués', () => {
     const dossiers: DossierSuivi[] = [
-      { numDau: 'PC0920042500001', adresse: '12 rue de la Paix', satisfait: true, satisfaitPar: 'automatique' },
-      { numDau: 'PC0920042500002', adresse: null, satisfait: false, satisfaitPar: null },
+      { dossierId: 1, numDau: 'PC0920042500001', adresse: '12 rue de la Paix', satisfait: true, satisfaitPar: 'automatique' },
+      { dossierId: 2, numDau: 'PC0920042500002', adresse: null, satisfait: false, satisfaitPar: null },
     ];
-    const h = renderToStaticMarkup(createElement(DetailDossiers, { dossiers }));
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers }));
     expect(h).toContain('obtenu (automatique)');
     expect(h).toContain('dû');
     expect(h).toContain('PC0920042500001');
@@ -157,5 +161,123 @@ describe('R5a — RelanceCarte : lecture seule, corps consultable', () => {
     expect(h).toContain('CORPS DE LA RELANCE');
     expect(h).not.toContain('<textarea');
     expect(h).not.toContain('<button');
+  });
+});
+
+// ── R5b — actions de l'écran Réponses (rendu pur : les boutons/callbacks sont là, aux bons endroits) ──────────────────────
+const OPT: OptionDemande[] = [
+  { demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnieres', envoyeLe: '2026-04-01T10:00:00Z' },
+];
+/** Une réponse « à rattacher » avec une pièce stockée et une pièce non stockée. */
+function reponse(pieces: ReponseARattacher['pieces']): ReponseARattacher {
+  return { id: 5, recuLe: '2026-04-19T09:30:00Z', deAdresse: 'urba@mairie-x.fr', deNom: null, objet: 'RE: demande', nbPieces: pieces.length, rattachementMethode: 'aucun', pieces };
+}
+const compte = (h: string, s: string) => h.split(s).length - 1;
+
+describe('R5b — BlocARattacher : rattacher / traitée / télécharger', () => {
+  it('avec callbacks → sélecteur de demande (référence + commune + date, jamais un id à saisir) + boutons Rattacher/Traitée', () => {
+    const h = renderToStaticMarkup(createElement(BlocARattacher, {
+      reponses: [reponse([{ id: 50, nomFichier: 'PC2.pdf', stockee: true, motif: null }])],
+      demandes: OPT, selection: {},
+      onChoisir: () => {}, onRattacher: () => {}, onTraiter: () => {}, onTelecharger: () => {},
+    }));
+    expect(h).toContain('Rattacher à…');               // colonne d'action présente
+    expect(h).toContain('<select');                     // sélecteur, pas un champ id libre
+    expect(h).toContain('SVAV-DEM-2026-000042');        // l'option montre la RÉFÉRENCE…
+    expect(h).toContain('Asnieres');                    // …la commune…
+    expect(h).toContain('2026-04-01');                  // …et la date d'envoi
+    expect(h).toContain('Rattacher');
+    expect(h).toContain('Traitée');
+  });
+
+  it('pièce STOCKÉE + onTelecharger → bouton « télécharger » (aucune clé de stockage n’apparaît, PieceInfo n’en porte pas)', () => {
+    const h = renderToStaticMarkup(createElement(BlocARattacher, {
+      reponses: [reponse([{ id: 50, nomFichier: 'PC2.pdf', stockee: true, motif: null }])],
+      demandes: OPT, selection: {}, onRattacher: () => {}, onTelecharger: () => {},
+    }));
+    expect(h).toContain('télécharger');
+    expect(h).not.toContain('cle_stockage');
+    expect(h).not.toContain('href');                    // pas de lien portant un chemin de stockage : l'URL signée est demandée au serveur
+  });
+
+  it('pièce NON stockée → motif affiché, AUCUN lien de téléchargement même si onTelecharger est fourni', () => {
+    const h = renderToStaticMarkup(createElement(BlocARattacher, {
+      reponses: [reponse([{ id: 51, nomFichier: 'plan.dwg', stockee: false, motif: 'type non autorisé pour le dépôt' }])],
+      demandes: OPT, selection: {}, onRattacher: () => {}, onTelecharger: () => {},
+    }));
+    expect(h).toContain('plan.dwg');
+    expect(h).toContain('non stockée');
+    expect(h).toContain('type non autorisé pour le dépôt');
+    expect(h).not.toContain('télécharger');
+  });
+
+  it('sans callbacks (lecture seule R5a) → aucune colonne d’action, aucun sélecteur, aucun bouton de téléchargement', () => {
+    const h = renderToStaticMarkup(createElement(BlocARattacher, {
+      reponses: [reponse([{ id: 50, nomFichier: 'PC2.pdf', stockee: true, motif: null }])],
+    }));
+    expect(h).not.toContain('Rattacher à…');
+    expect(h).not.toContain('<select');
+    expect(h).not.toContain('télécharger');
+    expect(h).toContain('stockée');                     // l'info reste lisible
+  });
+
+  it('bouton Rattacher désactivé tant qu’aucune demande n’est choisie', () => {
+    const h = renderToStaticMarkup(createElement(BlocARattacher, {
+      reponses: [reponse([])], demandes: OPT, selection: {},
+      onChoisir: () => {}, onRattacher: () => {}, onTraiter: () => {}, onTelecharger: () => {},
+    }));
+    expect(h).toContain('disabled');
+  });
+});
+
+describe('R5b — DetailDossiers : marquer reçu / annuler, et garde-fou « close »', () => {
+  const dossiers: DossierSuivi[] = [
+    { dossierId: 1, numDau: 'PC0920042500001', adresse: null, satisfait: true, satisfaitPar: 'manuel' },
+    { dossierId: 2, numDau: 'PC0920042500002', adresse: null, satisfait: false, satisfaitPar: null },
+  ];
+
+  it('demande envoyée + onMarquer → « annuler » sur le satisfait, « marquer reçu » sur le dû', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers, onMarquer: () => {} }));
+    expect(h).toContain('annuler');
+    expect(h).toContain('marquer reçu');
+  });
+
+  it('demande CLOSE → message explicite et AUCUN bouton de marquage (jamais un bouton inerte)', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'close', dossiers, onMarquer: () => {} }));
+    expect(h).toContain('Demande close');
+    expect(h).toContain('le marquage des dossiers est désactivé');
+    expect(h).not.toContain('marquer reçu');
+    expect(h).not.toContain('annuler');
+    expect(h).not.toContain('<button');
+  });
+});
+
+describe('R5b — retour d’action : dans la zone du bouton cliqué, jamais dédoublé', () => {
+  it('messageIci ne rend le message qu’à la clé correspondante', () => {
+    const retour: RetourCible = { cle: 'rattacher-5', texte: 'Rattachée.', ok: true };
+    expect(messageIci(retour, 'rattacher-5')).not.toBeNull();
+    expect(messageIci(retour, 'traiter-5')).toBeNull();
+    expect(messageIci(retour, 'piece-5')).toBeNull();
+    expect(messageIci(null, 'rattacher-5')).toBeNull();
+  });
+
+  it('BlocARattacher : un retour « rattacher-5 » s’affiche UNE seule fois (pas dans les zones traiter/pièce)', () => {
+    const retour: RetourCible = { cle: 'rattacher-5', texte: 'Rattachée à la demande.', ok: true };
+    const h = renderToStaticMarkup(createElement(BlocARattacher, {
+      reponses: [reponse([{ id: 50, nomFichier: 'PC2.pdf', stockee: true, motif: null }])],
+      demandes: OPT, selection: {}, retour,
+      onChoisir: () => {}, onRattacher: () => {}, onTraiter: () => {}, onTelecharger: () => {},
+    }));
+    expect(compte(h, 'Rattachée à la demande.')).toBe(1);
+  });
+
+  it('DetailDossiers : le retour d’un dossier s’affiche à SA ligne, une seule fois', () => {
+    const dossiers: DossierSuivi[] = [
+      { dossierId: 1, numDau: 'PCa', adresse: null, satisfait: false, satisfaitPar: null },
+      { dossierId: 2, numDau: 'PCb', adresse: null, satisfait: false, satisfaitPar: null },
+    ];
+    const retour: RetourCible = { cle: 'dossier-7-1', texte: 'Dossier marqué reçu.', ok: true };
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers, retour, onMarquer: () => {} }));
+    expect(compte(h, 'Dossier marqué reçu.')).toBe(1);
   });
 });

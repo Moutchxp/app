@@ -1,13 +1,24 @@
 import type { CSSProperties } from 'react';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
 import type { LigneRun, DossierSuivi, ReponseARattacher, RelancePreparee, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
+import { MessageRetour, type RetourAction } from './DemandesRendu';
 
 /**
- * R5a — rendu PUR de l'écran « Réponses » (suivi de la boucle CRPA) : aucun état, aucun effet → testable en Node via
- * `renderToStaticMarkup`. LECTURE SEULE (aucune action, aucun champ éditable). ⚠️ a11y : l'information est portée par le
- * TEXTE (libellés, phrases), la couleur n'est qu'un appui. L'état d'échéance est CALCULÉ par etatEcheance (côté Vue) et
- * seulement AFFICHÉ ici : ETAT_LABELS est une table de présentation, pas une règle.
+ * R5a/R5b — rendu PUR de l'écran « Réponses » : aucun état, aucun effet → testable en Node via `renderToStaticMarkup`. Les
+ * ACTIONS (R5b) sont des CALLBACKS fournis par la Vue ; le rendu reste pur. ⚠️ a11y : l'information est portée par le TEXTE
+ * (libellés, phrases), la couleur n'est qu'un appui. L'état d'échéance est CALCULÉ par etatEcheance (côté Vue), affiché ici.
+ *
+ * RETOUR d'action (motif de DemandesRendu) : `RetourCible` porte une CLÉ d'emplacement ; `messageIci` n'affiche le message
+ * qu'à l'emplacement correspondant → exactement UNE zone non nulle, jamais dédoublée (la Vue gère le repli dans le bandeau).
  */
+export type RetourCible = { cle: string; texte: string; ok: boolean } | null;
+export function messageIci(retour: RetourCible, cle: string): RetourAction {
+  return retour && retour.cle === cle ? { texte: retour.texte, ok: retour.ok, zone: 'haut' } : null;
+}
+
+/** Option du sélecteur de demande (rattachement manuel) : jamais un id brut à saisir — référence + commune + date d'envoi. */
+export interface OptionDemande { demandeId: number; reference: string; communeNom: string | null; envoyeLe: string | null }
+
 const MS_HEURE = 3_600_000;
 const styleCarte: CSSProperties = { fontSize: 13 };
 const styleMuted: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
@@ -137,34 +148,61 @@ export function CompteSatisfaction({ satisfaits, total }: { satisfaits: number; 
 }
 
 /** Détail des dossiers d'une demande (dépliant) : numéro, adresse si connue, satisfait/dû et par quoi. */
-export function DetailDossiers({ dossiers }: { dossiers: DossierSuivi[] }) {
+export function DetailDossiers({ demandeId, statut, dossiers, retour, onMarquer }: {
+  demandeId: number; statut: string; dossiers: DossierSuivi[]; retour?: RetourCible;
+  onMarquer?: (demandeId: number, dossierId: number, satisfait: boolean) => void;
+}) {
   if (dossiers.length === 0) return <PhraseVide>Aucun dossier rattaché à cette demande.</PhraseVide>;
+  // R5b — garde-fou : demande close → on ne marque/démarque rien (message explicite, jamais un bouton inerte).
+  const close = statut === 'close';
   return (
-    <ul style={{ margin: '.3rem 0 0', paddingLeft: '1.1rem', fontSize: 12, lineHeight: 1.5 }}>
-      {dossiers.map((d) => (
-        <li key={d.numDau}>
-          <span style={{ fontFamily: 'var(--font-svv-mono, monospace)' }}>{d.numDau}</span>
-          {d.adresse ? ` — ${d.adresse}` : ''}
-          {' — '}
-          {d.satisfait
-            ? <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>obtenu{d.satisfaitPar ? ` (${d.satisfaitPar})` : ''}</span>
-            : <span style={{ color: 'var(--color-svv-muted)' }}>dû</span>}
-        </li>
-      ))}
+    <ul style={{ margin: '.3rem 0 0', paddingLeft: '1.1rem', fontSize: 12, lineHeight: 1.6 }}>
+      {dossiers.map((d) => {
+        const m = messageIci(retour ?? null, `dossier-${demandeId}-${d.dossierId}`);
+        return (
+          <li key={d.dossierId}>
+            <span style={{ fontFamily: 'var(--font-svv-mono, monospace)' }}>{d.numDau}</span>
+            {d.adresse ? ` — ${d.adresse}` : ''}
+            {' — '}
+            {d.satisfait
+              ? <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>obtenu{d.satisfaitPar ? ` (${d.satisfaitPar})` : ''}</span>
+              : <span style={{ color: 'var(--color-svv-muted)' }}>dû</span>}
+            {!close && onMarquer && (
+              <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .4rem', marginLeft: '.4rem' }}
+                onClick={() => onMarquer(demandeId, d.dossierId, !d.satisfait)}>
+                {d.satisfait ? 'annuler' : 'marquer reçu'}
+              </button>
+            )}
+            {m && <span style={{ marginLeft: '.4rem' }}><MessageRetour r={m} /></span>}
+          </li>
+        );
+      })}
+      {close && <li style={{ ...styleMuted, listStyle: 'none', marginLeft: '-1.1rem' }}>Demande close : le marquage des dossiers est désactivé (rouvrir la demande d’abord — chantier ultérieur).</li>}
     </ul>
   );
 }
 
-// ── Bloc 3 : file « à rattacher » ─────────────────────────────────────────────
-/** Table de la file « à rattacher ». Vide → phrase explicative, JAMAIS un tableau muet. */
-export function BlocARattacher({ reponses }: { reponses: ReponseARattacher[] }) {
+// ── Bloc 3 : file « à rattacher » (R5b : rattacher / traiter / télécharger) ────────────────────────────────────────────
+/** Table de la file « à rattacher ». Vide → phrase explicative, JAMAIS un tableau muet. Les actions sont des callbacks. */
+export function BlocARattacher({ reponses, demandes, selection, retour, onChoisir, onRattacher, onTraiter, onTelecharger }: {
+  reponses: ReponseARattacher[];
+  demandes?: OptionDemande[];
+  selection?: Record<number, number>;
+  retour?: RetourCible;
+  onChoisir?: (reponseId: number, demandeId: number) => void;
+  onRattacher?: (reponseId: number) => void;
+  onTraiter?: (reponseId: number) => void;
+  onTelecharger?: (reponseId: number, pieceId: number) => void;
+}) {
   if (reponses.length === 0) return <PhraseVide>Aucune réponse en attente de rattachement.</PhraseVide>;
+  const options = demandes ?? [];
+  const actif = onRattacher !== undefined; // false = rendu lecture seule (compat)
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr style={{ color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
-            {['Reçu le', 'Expéditeur', 'Objet', 'Pièces', 'Motif de non-rattachement'].map((h) => <th key={h} style={styleTh}>{h}</th>)}
+            {['Reçu le', 'Expéditeur', 'Objet', 'Pièces', 'Motif', ...(actif ? ['Rattacher à…'] : [])].map((h) => <th key={h} style={styleTh}>{h}</th>)}
           </tr>
         </thead>
         <tbody>
@@ -176,10 +214,13 @@ export function BlocARattacher({ reponses }: { reponses: ReponseARattacher[] }) 
               <td style={styleTd}>
                 {r.pieces.length === 0 ? <span style={styleMuted}>aucune</span> : (
                   <ul style={{ margin: 0, paddingLeft: '1rem', fontSize: 12 }}>
-                    {r.pieces.map((p, i) => (
-                      <li key={i}>
-                        {p.nomFichier} — {p.stockee
-                          ? <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>stockée</span>
+                    {r.pieces.map((p) => (
+                      <li key={p.id}>
+                        {p.nomFichier} —{' '}
+                        {p.stockee
+                          ? (onTelecharger
+                            ? <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }} onClick={() => onTelecharger(r.id, p.id)}>télécharger</button>
+                            : <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>stockée</span>)
                           : <span style={{ color: 'var(--color-svv-red)' }}>non stockée{p.motif ? ` (${p.motif})` : ''}</span>}
                       </li>
                     ))}
@@ -187,6 +228,22 @@ export function BlocARattacher({ reponses }: { reponses: ReponseARattacher[] }) 
                 )}
               </td>
               <td style={styleTd}>{r.rattachementMethode}</td>
+              {actif && (
+                <td style={styleTd}>
+                  <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <select aria-label={`Demande pour la réponse ${r.id}`} value={selection?.[r.id] ?? ''} onChange={(e) => onChoisir?.(r.id, Number(e.target.value))}
+                      style={{ padding: '.25rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 12, maxWidth: 260 }}>
+                      <option value="">— choisir une demande —</option>
+                      {options.map((o) => <option key={o.demandeId} value={o.demandeId}>{o.reference} · {o.communeNom ?? ''} · {formaterDate(o.envoyeLe)}</option>)}
+                    </select>
+                    <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.25rem .6rem' }} disabled={!selection?.[r.id]} onClick={() => onRattacher?.(r.id)}>Rattacher</button>
+                    <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.25rem .6rem' }} onClick={() => onTraiter?.(r.id)}>Traitée</button>
+                    <MessageRetour r={messageIci(retour ?? null, `rattacher-${r.id}`)} />
+                    <MessageRetour r={messageIci(retour ?? null, `traiter-${r.id}`)} />
+                    <MessageRetour r={messageIci(retour ?? null, `piece-${r.id}`)} />
+                  </div>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

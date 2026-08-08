@@ -250,3 +250,37 @@ export async function marquerDossierSatisfait(demandeId: number, dossierId: numb
     return true;
   });
 }
+
+/**
+ * R5b — ANNULE la satisfaction d'UN dossier (revient en arrière sur un marquage erroné : un dossier faussement « obtenu »
+ * rendrait la demande « répondue » à tort et stopperait le suivi de son échéance). Remet les TROIS colonnes à NULL et
+ * journalise l'auteur (append-only, sans toucher demande.statut). Idempotent : ne fait rien si le dossier n'était pas satisfait.
+ */
+export async function demarquerDossier(demandeId: number, dossierId: number, auteur: string): Promise<boolean> {
+  return withTransaction(async (q) => {
+    const res = await q(
+      `UPDATE demande_dossier SET satisfait_le = NULL, satisfait_par = NULL, reponse_id = NULL
+        WHERE demande_id = $1 AND dossier_id = $2 AND actif AND satisfait_le IS NOT NULL`,
+      [demandeId, dossierId],
+    );
+    if ((res.rowCount ?? 0) === 0) return false;
+    await q(
+      `INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur)
+       VALUES ($1, NULL, NULL, $2, $3)`,
+      [demandeId, `dossier ${dossierId} : satisfaction annulée à la main`, auteur],
+    );
+    return true;
+  });
+}
+
+/** R5b — statut d'une demande (pour le garde-fou « pas de marquage si close »). `null` si la demande est absente. */
+export async function statutDemande(demandeId: number): Promise<string | null> {
+  const { rows } = await query<{ statut: string }>(`SELECT statut FROM demande WHERE id = $1`, [demandeId]);
+  return rows[0]?.statut ?? null;
+}
+
+/** R5b — clé de stockage d'une pièce entrante (pour produire un lien signé côté serveur). `null` si absente ou non déposée. */
+export async function lireClePiece(pieceId: number): Promise<string | null> {
+  const { rows } = await query<{ cle_stockage: string | null }>(`SELECT cle_stockage FROM demande_reponse_piece WHERE id = $1`, [pieceId]);
+  return rows[0]?.cle_stockage ?? null;
+}

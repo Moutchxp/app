@@ -17,7 +17,8 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
       appels.push({ sql, params: params ?? [] });
       // ON CONFLICT DO NOTHING : conflit → 0 ligne renvoyée (message déjà connu).
       if (/RETURNING id/i.test(sql)) return etat.conflit ? { rows: [], rowCount: 0 } : { rows: [{ id: 4242 }], rowCount: 1 };
-      return { rows: [], rowCount: 1 };
+      // Les autres requêtes transactionnelles honorent etat.rowCount (permet de tester l'idempotence : 0 ligne → pas de journal).
+      return { rows: [], rowCount: etat.rowCount };
     };
     return fn(q);
   };
@@ -31,7 +32,11 @@ vi.mock('../db/client', () => ({
   closePool: async () => undefined,
 }));
 
-import { enregistrerReponse, listerReponses, rattacherAMain, marquerTraitee, deposerEtLierPieces, type ReponseEntrante, type PieceAvecContenu } from './demandeReponseRepo';
+import {
+  enregistrerReponse, listerReponses, rattacherAMain, marquerTraitee, deposerEtLierPieces,
+  marquerDossierSatisfait, demarquerDossier, statutDemande, lireClePiece,
+  type ReponseEntrante, type PieceAvecContenu,
+} from './demandeReponseRepo';
 import type { ResultatDepotEntrant } from '../stockage';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -210,6 +215,8 @@ describe('R1 — rattacherAMain (n’écrit JAMAIS demande.statut)', () => {
     expect(s).toContain('UPDATE demande_reponse');
     expect(s).not.toContain('statut');
     expect(appels.some((a) => /UPDATE\s+demande\b(?!_reponse)/i.test(a.sql))).toBe(false);
+    // AUCUN dossier satisfait au passage : rattacher un message ≠ noter qu'il apporte une pièce (deux gestes distincts, R5b).
+    expect(appels.some((a) => /demande_dossier/i.test(a.sql))).toBe(false);
   });
 
   it('aucune ligne modifiée → false', async () => {
@@ -234,5 +241,91 @@ describe('R1 — marquerTraitee (idempotent, n’écrit pas demande.statut)', ()
   it('déjà traitée → aucune ligne → false', async () => {
     etat.rowCount = 0;
     expect(await marquerTraitee(9)).toBe(false);
+  });
+});
+
+describe('R6c/R5b — marquerDossierSatisfait (manuel) : satisfait_par « manuel », journalisé, idempotent', () => {
+  it('happy path → UPDATE demande_dossier (satisfait_par=manuel) + INSERT demande_journal (statut NULL/NULL), renvoie true', async () => {
+    etat.rowCount = 1;
+    const ok = await marquerDossierSatisfait(154, 12, 4242, 'a.jorel');
+    expect(ok).toBe(true);
+    const upd = trouver(/UPDATE demande_dossier\b/i)!;
+    const s = norm(upd.sql);
+    expect(s).toContain("satisfait_par = 'manuel'");
+    expect(s).toContain('satisfait_le = now()');
+    expect(s).toContain('satisfait_le IS NULL');   // idempotence : ne marque QUE ce qui est encore dû
+    expect(upd.params).toEqual([154, 12, 4242]);
+    const jrn = trouver(/INSERT INTO demande_journal\b/i)!;
+    expect(norm(jrn.sql)).toContain('VALUES ($1, NULL, NULL, $2, $3)'); // statut_avant/apres NON écrits (demande.statut sans écrivain)
+    expect(jrn.params).toEqual([154, 'dossier 12 marqué satisfait à la main', 'a.jorel']);
+  });
+
+  it('déjà satisfait (0 ligne) → false ET aucun journal', async () => {
+    etat.rowCount = 0;
+    expect(await marquerDossierSatisfait(154, 12, null, 'a.jorel')).toBe(false);
+    expect(trouver(/INSERT INTO demande_journal\b/i)).toBeUndefined();
+  });
+});
+
+describe('R5b — demarquerDossier : les TROIS colonnes reviennent à NULL, journalisé, idempotent', () => {
+  it('happy path → UPDATE remet satisfait_le/satisfait_par/reponse_id à NULL + journal, renvoie true', async () => {
+    etat.rowCount = 1;
+    const ok = await demarquerDossier(154, 12, 'a.jorel');
+    expect(ok).toBe(true);
+    const upd = trouver(/UPDATE demande_dossier\b/i)!;
+    const s = norm(upd.sql);
+    expect(s).toContain('satisfait_le = NULL');
+    expect(s).toContain('satisfait_par = NULL');
+    expect(s).toContain('reponse_id = NULL');
+    expect(s).toContain('satisfait_le IS NOT NULL'); // ne démarque QUE ce qui était satisfait
+    expect(upd.params).toEqual([154, 12]);
+    const jrn = trouver(/INSERT INTO demande_journal\b/i)!;
+    expect(norm(jrn.sql)).toContain('VALUES ($1, NULL, NULL, $2, $3)');
+    expect(jrn.params).toEqual([154, 'dossier 12 : satisfaction annulée à la main', 'a.jorel']);
+  });
+
+  it('rien à démarquer (0 ligne) → false ET aucun journal (idempotent)', async () => {
+    etat.rowCount = 0;
+    expect(await demarquerDossier(154, 12, 'a.jorel')).toBe(false);
+    expect(trouver(/INSERT INTO demande_journal\b/i)).toBeUndefined();
+  });
+});
+
+describe('R5b — statutDemande / lireClePiece : LECTURE seule', () => {
+  it('statutDemande → statut de la ligne (paramètre lié), null si demande absente', async () => {
+    etat.rows = [{ statut: 'envoyee' }];
+    expect(await statutDemande(154)).toBe('envoyee');
+    const sel = trouver(/FROM demande\b/i)!;
+    expect(norm(sel.sql)).toContain('SELECT statut FROM demande');
+    expect(sel.params).toEqual([154]);
+    appels.length = 0;
+    etat.rows = [];
+    expect(await statutDemande(999)).toBeNull();
+  });
+
+  it('lireClePiece → clé de la pièce, null si absente ou non déposée ; que des SELECT', async () => {
+    etat.rows = [{ cle_stockage: 'demandes/1/reponses/4242/uuid.pdf' }];
+    expect(await lireClePiece(50)).toBe('demandes/1/reponses/4242/uuid.pdf');
+    const sel = trouver(/FROM demande_reponse_piece\b/i)!;
+    expect(norm(sel.sql)).toContain('SELECT cle_stockage FROM demande_reponse_piece');
+    expect(sel.params).toEqual([50]);
+    etat.rows = [{ cle_stockage: null }];
+    expect(await lireClePiece(51)).toBeNull(); // déposée=false → cle NULL
+    etat.rows = [];
+    expect(await lireClePiece(52)).toBeNull(); // pièce absente
+    expect(appels.every((a) => /^\s*SELECT/i.test(a.sql))).toBe(true);
+  });
+});
+
+describe('R5b — demande.statut n’est écrit dans AUCUN chemin d’action (assertion explicite)', () => {
+  it('rattacher / marquer / démarquer / traiter : jamais d’UPDATE demande (table) ni de SET statut', async () => {
+    etat.rowCount = 1;
+    await rattacherAMain(7, 154, 'a.jorel');
+    await marquerDossierSatisfait(154, 12, 4242, 'a.jorel');
+    await demarquerDossier(154, 12, 'a.jorel');
+    await marquerTraitee(9);
+    // La table `demande` (statut, clôture) reste SANS écrivain : demande_reponse / demande_dossier / demande_journal OK, demande NON.
+    expect(appels.some((a) => /UPDATE\s+demande\b/i.test(a.sql))).toBe(false);
+    expect(appels.some((a) => /\bSET\s+statut\b/i.test(a.sql))).toBe(false);
   });
 });

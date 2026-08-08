@@ -38,6 +38,7 @@ export interface LigneRun {
 
 /** R4 — une pièce jointe d'une réponse : stockée (sur l'object storage) ou non, et pourquoi (motif). LECTURE SEULE. */
 export interface PieceInfo {
+  id: number;             // R5b : id de demande_reponse_piece (pour demander un lien signé) — la clé de stockage ne sort JAMAIS
   nomFichier: string;
   stockee: boolean;
   motif: string | null; // motif_non_stocke si non stockée
@@ -45,6 +46,7 @@ export interface PieceInfo {
 
 /** Un dossier d'une demande suivie (satisfait ou dû, et par quel canal). */
 export interface DossierSuivi {
+  dossierId: number;      // R5b : pour marquer/démarquer reçu
   numDau: string;
   adresse: string | null;
   satisfait: boolean;
@@ -57,6 +59,7 @@ export interface DemandeSuivi {
   reference: string;
   codeInsee: string;
   communeNom: string | null;
+  statut: string;         // R5b : statut de la demande (garde-fou : pas de marquage si 'close')
   envoyeLe: string | null;
   statutAcheminement: string;
   dossiersActifs: number;
@@ -123,10 +126,10 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
 
   // Demandes ENVOYÉES (tous profils) : acheminement agrégé + compteurs de dossiers + nombre de réponses rattachées.
   const dem = await query<{
-    id: number; reference: string; code_insee: string; commune_nom: string | null;
+    id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string;
     envoye_le: string | null; statut_acheminement: string; dossiers_actifs: number; dossiers_satisfaits: number; nb_reponses: number;
   }>(
-    `SELECT d.id::int AS id, d.reference, d.code_insee, c.nom AS commune_nom,
+    `SELECT d.id::int AS id, d.reference, d.code_insee, c.nom AS commune_nom, d.statut,
             min(a.envoye_le)::text AS envoye_le,
             CASE WHEN bool_or(a.statut = 'envoye') THEN 'envoye'
                  WHEN bool_or(a.statut = 'rebond') THEN 'rebond'
@@ -139,12 +142,12 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
        LEFT JOIN commune c ON c.code_insee = d.code_insee
        LEFT JOIN demande_acheminement a ON a.demande_id = d.id AND a.canal = 'email'
       WHERE d.statut = 'envoyee'
-      GROUP BY d.id, d.reference, d.code_insee, c.nom`,
+      GROUP BY d.id, d.reference, d.code_insee, c.nom, d.statut`,
   );
 
   // Détail des dossiers de ces demandes (groupés ensuite par demande_id) — évite un N+1.
-  const doss = await query<{ demande_id: number; num_dau: string; adresse: string | null; satisfait: boolean; satisfait_par: string | null }>(
-    `SELECT dd.demande_id::int AS demande_id, s.num_dau,
+  const doss = await query<{ demande_id: number; dossier_id: number; num_dau: string; adresse: string | null; satisfait: boolean; satisfait_par: string | null }>(
+    `SELECT dd.demande_id::int AS demande_id, dd.dossier_id::int AS dossier_id, s.num_dau,
             nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
             (dd.satisfait_le IS NOT NULL) AS satisfait, dd.satisfait_par
        FROM demande_dossier dd
@@ -156,10 +159,10 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
   const parDemande = new Map<number, DossierSuivi[]>();
   for (const r of doss.rows) {
     (parDemande.get(r.demande_id) ?? parDemande.set(r.demande_id, []).get(r.demande_id)!)
-      .push({ numDau: r.num_dau, adresse: r.adresse, satisfait: r.satisfait, satisfaitPar: r.satisfait_par });
+      .push({ dossierId: r.dossier_id, numDau: r.num_dau, adresse: r.adresse, satisfait: r.satisfait, satisfaitPar: r.satisfait_par });
   }
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
-    demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom,
+    demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
     dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits, nbReponses: r.nb_reponses,
     dossiers: parDemande.get(r.id) ?? [],
@@ -173,8 +176,8 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
       ORDER BY r.recu_le DESC`,
   );
   // R4 — détail par pièce des réponses à rattacher (stockée ou non, et pourquoi), en une passe puis groupé par réponse.
-  const pj = await query<{ reponse_id: number; nom_fichier: string; stockee: boolean; motif_non_stocke: string | null }>(
-    `SELECT p.reponse_id::int AS reponse_id, p.nom_fichier, (p.cle_stockage IS NOT NULL) AS stockee, p.motif_non_stocke
+  const pj = await query<{ id: number; reponse_id: number; nom_fichier: string; stockee: boolean; motif_non_stocke: string | null }>(
+    `SELECT p.id::int AS id, p.reponse_id::int AS reponse_id, p.nom_fichier, (p.cle_stockage IS NOT NULL) AS stockee, p.motif_non_stocke
        FROM demande_reponse_piece p
        JOIN demande_reponse r ON r.id = p.reponse_id
       WHERE r.demande_id IS NULL
@@ -183,7 +186,7 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
   const piecesParReponse = new Map<number, PieceInfo[]>();
   for (const p of pj.rows) {
     (piecesParReponse.get(p.reponse_id) ?? piecesParReponse.set(p.reponse_id, []).get(p.reponse_id)!)
-      .push({ nomFichier: p.nom_fichier, stockee: p.stockee, motif: p.motif_non_stocke });
+      .push({ id: p.id, nomFichier: p.nom_fichier, stockee: p.stockee, motif: p.motif_non_stocke });
   }
   const aRattacher: ReponseARattacher[] = rat.rows.map((r) => ({
     id: r.id, recuLe: r.recu_le, deAdresse: r.de_adresse, deNom: r.de_nom, objet: r.objet, nbPieces: r.nb_pieces,
