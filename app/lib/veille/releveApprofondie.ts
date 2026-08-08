@@ -149,14 +149,15 @@ export interface MajApprofondie {
   erreur?: string;
 }
 
-/** Une demande envoyée suivie pour l'échéance (identité + acheminement + présence d'une réponse). */
+/** Une demande envoyée suivie pour l'échéance (identité + acheminement + compteurs de satisfaction au dossier — R6c). */
 export interface DemandeSuivie {
   demandeId: number;
   reference: string;
   destEmail: string;
   envoyeLe: Date | null;
   statutAcheminement: string;
-  aReponseRattachee: boolean;
+  dossiersActifs: number;      // R6c : nb de dossiers actifs
+  dossiersSatisfaits: number;  // R6c : nb de dossiers dont les pièces sont obtenues
   messageIdsEmis: string[];
 }
 
@@ -191,7 +192,7 @@ export async function executerApprofondieAuto(deps: DepsApprofondie): Promise<Bi
   let examinees = 0, lancees = 0, ignorees = 0, erreurs = 0;
   for (const d of demandes) {
     const etat = etatEcheance(
-      { envoyeLe: d.envoyeLe, statutAcheminement: d.statutAcheminement, aReponseRattachee: d.aReponseRattachee, derniereReleveOkLe: derniereOk },
+      { envoyeLe: d.envoyeLe, statutAcheminement: d.statutAcheminement, dossiersActifs: d.dossiersActifs, dossiersSatisfaits: d.dossiersSatisfaits, derniereReleveOkLe: derniereOk },
       maintenant, reglages,
     );
     if ((etat.etat !== 'depassee' && etat.etat !== 'proche') || d.envoyeLe === null) continue;
@@ -235,7 +236,7 @@ export function depsReellesApprofondie(): DepsApprofondie {
       // réussi prime sur un rebond/échec — retry), Message-ID émis, et présence d'une réponse rattachée.
       const { rows } = await query<{
         id: number; reference: string; dest_email: string; envoye_le: Date | null;
-        statut_acheminement: string; message_ids: string[]; a_reponse: boolean;
+        statut_acheminement: string; message_ids: string[]; dossiers_actifs: number; dossiers_satisfaits: number;
       }>(
         `SELECT d.id::int AS id, d.reference, coalesce(d.dest_email, '') AS dest_email,
                 min(a.envoye_le) AS envoye_le,
@@ -244,7 +245,8 @@ export function depsReellesApprofondie(): DepsApprofondie {
                      WHEN bool_or(a.statut = 'echec')  THEN 'echec'
                      ELSE 'en_attente' END AS statut_acheminement,
                 coalesce(array_agg(a.message_id) FILTER (WHERE a.message_id IS NOT NULL), '{}') AS message_ids,
-                EXISTS (SELECT 1 FROM demande_reponse r WHERE r.demande_id = d.id) AS a_reponse
+                (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif) AS dossiers_actifs,
+                (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NOT NULL) AS dossiers_satisfaits
            FROM demande d
            LEFT JOIN demande_acheminement a ON a.demande_id = d.id AND a.canal = 'email'
           WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1
@@ -253,7 +255,7 @@ export function depsReellesApprofondie(): DepsApprofondie {
       );
       return rows.map((r) => ({
         demandeId: r.id, reference: r.reference, destEmail: r.dest_email, envoyeLe: r.envoye_le,
-        statutAcheminement: r.statut_acheminement, aReponseRattachee: r.a_reponse, messageIdsEmis: r.message_ids,
+        statutAcheminement: r.statut_acheminement, dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits, messageIdsEmis: r.message_ids,
       }));
     },
     profilActif: async (profil) => {

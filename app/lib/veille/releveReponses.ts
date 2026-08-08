@@ -14,7 +14,7 @@
  * ⚠️ N'écrit JAMAIS demande.statut ('close' reste sans écrivain, chantier R5). Boîte en LECTURE STRICTE (voir imap.ts).
  */
 import { query } from '../db/client';
-import { enregistrerReponse, type ProfilBoite, type RattachementMethode, type ReponseEntrante } from './demandeReponseRepo';
+import { enregistrerReponse, marquerDossiersSatisfaitsAuto, type ProfilBoite, type RattachementMethode, type ReponseEntrante } from './demandeReponseRepo';
 import { rattacherReponse, estAccuseDeRebond, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
 import { analyserRapportRejet, normaliserMessageId, type PartieRapport, type ResultatRapportRejet } from './rapportRejet';
 
@@ -254,7 +254,14 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
       lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
       if (appliquer) {
         const id = await enregistrerReponse(construireLigne(opts.profil, mb, mid, r.demandeId, r.methode, r.motif));
-        if (id !== null) ecrites += 1;
+        if (id !== null) {
+          ecrites += 1;
+          // R6c — SATISFACTION AUTO : réponse rattachée à une demande → marque les dossiers dont le n° Sitadel complet
+          //   apparaît littéralement (pièces jointes ou corps). Haute précision, jamais de démarquage (voir repo).
+          if (r.demandeId !== null) {
+            await marquerDossiersSatisfaitsAuto(r.demandeId, id, { piecesNoms: mb.pieces.map((p) => p.nomFichier), corpsTexte: mb.message.corpsTexte ?? null });
+          }
+        }
       }
     }
   } finally {

@@ -9,12 +9,13 @@
  * 'indeterminee' — impossible de distinguer « la mairie s'est tue » de « on n'a pas regardé ».
  */
 
-export type EtatEcheance = 'non_delivree' | 'repondue' | 'indeterminee' | 'depassee' | 'proche' | 'en_cours';
+export type EtatEcheance = 'non_delivree' | 'repondue' | 'repondue_partiellement' | 'indeterminee' | 'depassee' | 'proche' | 'en_cours';
 
 export interface EntreeEcheance {
   envoyeLe: Date | null;             // demande_acheminement.envoye_le (envoi RÉEL) ; null si pas encore envoyée
   statutAcheminement: string;        // statut du canal e-mail : 'en_attente' | 'envoye' | 'rebond' | 'echec'
-  aReponseRattachee: boolean;        // une réponse est-elle déjà rattachée à cette demande ?
+  dossiersActifs: number;            // R6c : nb de dossiers ACTIFS de la demande
+  dossiersSatisfaits: number;        // R6c : nb de ces dossiers dont les pièces ont été OBTENUES (satisfait_le renseigné)
   derniereReleveOkLe: Date | null;   // termine_le du dernier releve_run « ok » (fraîcheur) ; null si jamais relevé
 }
 
@@ -48,9 +49,16 @@ export function echeanceDe(envoyeLe: Date): Date {
 }
 
 /**
- * État d'échéance, ordre de PRIORITÉ STRICT :
- *   non_delivree (rebond/échec — prioritaire sur tout) > repondue > [pas encore envoyée] > indeterminee (relève trop
- *   vieille / jamais) > depassee (échéance passée, relève fraîche) > proche > en_cours.
+ * État d'échéance, ordre de PRIORITÉ STRICT (R6c) :
+ *   non_delivree (rebond/échec — prioritaire sur tout) > repondue (documents obtenus pour TOUS les dossiers actifs) >
+ *   [pas encore envoyée] > indeterminee (relève trop vieille / jamais) > depassee (échéance passée, relève fraîche) >
+ *   repondue_partiellement (réponse partielle AVANT l'échéance) > proche > en_cours.
+ *
+ * ⚠️ « repondue » ne signifie plus « un message est arrivé » mais « documents OBTENUS » : elle exige que TOUS les dossiers
+ * actifs soient satisfaits (un accusé de réception ou une réponse partielle ne suffit pas). Une réponse PARTIELLE n'ouvre
+ * AUCUN nouveau délai : l'échéance reste ancrée sur l'envoi d'origine (echeanceDe(envoyeLe)), et une fois cette date passée
+ * l'état devient 'depassee' (pour réclamer les dossiers restants) — 'repondue_partiellement' est donc l'état d'une réponse
+ * partielle tant que le délai court encore. Un message rattaché ne satisfaisant AUCUN dossier ne change rien à l'état.
  */
 export function etatEcheance(entree: EntreeEcheance, maintenant: Date, reglages: ReglagesEcheance): ResultatEcheance {
   // 1) NON DÉLIVRÉE — prioritaire sur TOUT. Une demande jamais arrivée ne peut pas produire de refus tacite : parler de
@@ -59,9 +67,12 @@ export function etatEcheance(entree: EntreeEcheance, maintenant: Date, reglages:
     return { etat: 'non_delivree', joursRestants: null, motif: 'La demande n’est pas parvenue à la mairie (rebond ou échec d’acheminement) : aucun délai ne court, aucun refus tacite possible.' };
   }
 
-  // 2) RÉPONDUE — une réponse est rattachée : le silence est rompu (peu importe la fraîcheur de la relève).
-  if (entree.aReponseRattachee) {
-    return { etat: 'repondue', joursRestants: null, motif: 'Une réponse de la mairie est rattachée à cette demande.' };
+  const actifs = entree.dossiersActifs;
+  const satisfaits = entree.dossiersSatisfaits;
+
+  // 2) RÉPONDUE — documents OBTENUS pour TOUS les dossiers actifs (fait connu ; indépendant de la fraîcheur de la relève).
+  if (actifs > 0 && satisfaits >= actifs) {
+    return { etat: 'repondue', joursRestants: null, motif: `Documents obtenus pour la totalité des dossiers (${satisfaits}/${actifs}).` };
   }
 
   // Pas encore envoyée : le délai d'un mois ne court pas encore.
@@ -77,13 +88,20 @@ export function etatEcheance(entree: EntreeEcheance, maintenant: Date, reglages:
     return { etat: 'indeterminee', joursRestants: null, motif: 'Aucune relève récente de la boîte : impossible d’affirmer que la mairie n’a pas répondu (silence non vérifié).' };
   }
 
-  // 4) Relève fraîche → on peut se prononcer. Échéance = un mois calendaire depuis l'envoi réel.
+  // 4) Relève fraîche → on peut se prononcer. Échéance = un mois calendaire depuis l'envoi réel (ANCRE fixe, jamais
+  //    déplacée par une réponse partielle).
   const echeance = echeanceDe(entree.envoyeLe);
   const resteMs = echeance.getTime() - maintenant.getTime();
   const joursRestants = Math.ceil(resteMs / MS_JOUR);
 
   if (resteMs <= 0) {
-    return { etat: 'depassee', joursRestants, motif: 'Échéance d’un mois dépassée (relève à jour) : le silence gardé peut valoir refus tacite, ce qui ouvre la voie à la CADA.' };
+    // Échéance expirée : dossiers restants en souffrance → 'depassee' (relance partielle ou totale des non satisfaits).
+    const detail = satisfaits > 0 ? ` Réponse partielle reçue (${satisfaits}/${actifs}) : les dossiers restants demeurent dus.` : '';
+    return { etat: 'depassee', joursRestants, motif: `Échéance d’un mois dépassée (relève à jour) : le silence gardé peut valoir refus tacite, ce qui ouvre la voie à la CADA.${detail}` };
+  }
+  // Délai encore en cours. Une réponse PARTIELLE est un état distinct (documents obtenus pour une partie, le délai courant).
+  if (satisfaits > 0) {
+    return { etat: 'repondue_partiellement', joursRestants, motif: `Réponse partielle reçue (${satisfaits}/${actifs}) : le délai d’un mois continue de courir (environ ${joursRestants} jour(s) restants).` };
   }
   if (resteMs <= reglages.echeanceAlerteJours * MS_JOUR) {
     return { etat: 'proche', joursRestants, motif: `Échéance proche : environ ${joursRestants} jour(s) avant la fin du délai d’un mois.` };

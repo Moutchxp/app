@@ -4,6 +4,7 @@
  * dépose aucune pièce. Style calqué sur demandeRepo.ts (query / withTransaction, paramètres liés, aucun `any`).
  */
 import { query, withTransaction } from '../db/client';
+import { dossiersSatisfaits, type ReponsePourSatisfaction } from './satisfactionDossier';
 
 export type ProfilBoite = 'entreprise' | 'personne';
 export type RattachementMethode = 'message_id' | 'reference_objet' | 'reference_corps' | 'manuel' | 'aucun';
@@ -149,4 +150,48 @@ export async function marquerTraitee(reponseId: number): Promise<boolean> {
     [reponseId],
   );
   return (res.rowCount ?? 0) > 0;
+}
+
+/**
+ * R6c — SATISFACTION AUTOMATIQUE : marque les dossiers ENCORE à obtenir de la demande dont le numéro Sitadel COMPLET est
+ * reconnu littéralement dans la réponse (`dossiersSatisfaits`, haute précision). Idempotent (WHERE satisfait_le IS NULL) ;
+ * JAMAIS de démarquage. Renvoie le nombre de dossiers marqués. N'écrit PAS demande.statut.
+ */
+export async function marquerDossiersSatisfaitsAuto(demandeId: number, reponseId: number, reponse: ReponsePourSatisfaction): Promise<number> {
+  const { rows } = await query<{ dossier_id: number; num_dau: string }>(
+    `SELECT dd.dossier_id, s.num_dau
+       FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
+      WHERE dd.demande_id = $1 AND dd.actif AND dd.satisfait_le IS NULL`,
+    [demandeId],
+  );
+  const ids = dossiersSatisfaits(reponse, rows.map((r) => ({ dossierId: r.dossier_id, numDau: r.num_dau })));
+  if (ids.length === 0) return 0;
+  const res = await query(
+    `UPDATE demande_dossier SET satisfait_le = now(), satisfait_par = 'automatique', reponse_id = $2
+      WHERE demande_id = $1 AND dossier_id = ANY($3::bigint[]) AND actif AND satisfait_le IS NULL`,
+    [demandeId, reponseId, ids],
+  );
+  return res.rowCount ?? 0;
+}
+
+/**
+ * R6c — SATISFACTION MANUELLE d'UN dossier (l'écran viendra plus tard ; la fonction doit exister). Pose satisfait_par='manuel'
+ * et journalise l'auteur (append-only, sans toucher demande.statut). Idempotent (ne fait rien si déjà satisfait). `reponseId`
+ * peut être null (ex. pièce reçue hors e-mail). Renvoie true si le dossier a été marqué.
+ */
+export async function marquerDossierSatisfait(demandeId: number, dossierId: number, reponseId: number | null, auteur: string): Promise<boolean> {
+  return withTransaction(async (q) => {
+    const res = await q(
+      `UPDATE demande_dossier SET satisfait_le = now(), satisfait_par = 'manuel', reponse_id = $3
+        WHERE demande_id = $1 AND dossier_id = $2 AND actif AND satisfait_le IS NULL`,
+      [demandeId, dossierId, reponseId],
+    );
+    if ((res.rowCount ?? 0) === 0) return false;
+    await q(
+      `INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur)
+       VALUES ($1, NULL, NULL, $2, $3)`,
+      [demandeId, `dossier ${dossierId} marqué satisfait à la main`, auteur],
+    );
+    return true;
+  });
 }

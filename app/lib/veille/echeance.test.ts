@@ -7,12 +7,13 @@ import { echeanceDe, etatEcheance, type EntreeEcheance, type ReglagesEcheance } 
  */
 const REG: ReglagesEcheance = { echeanceAlerteJours: 7, releveFraicheurHeures: 48 };
 
-// Base « envoyée, relève fraîche » — chaque test surcharge ce qu'il éprouve.
+// Base « envoyée, relève fraîche, 5 dossiers, aucun satisfait » — chaque test surcharge ce qu'il éprouve.
 function entree(over: Partial<EntreeEcheance> = {}): EntreeEcheance {
   return {
     envoyeLe: new Date('2026-03-15T10:00:00Z'),
     statutAcheminement: 'envoye',
-    aReponseRattachee: false,
+    dossiersActifs: 5,
+    dossiersSatisfaits: 0,
     derniereReleveOkLe: new Date('2026-04-20T02:00:00Z'),
     ...over,
   };
@@ -50,9 +51,31 @@ describe('R6 — etatEcheance : ordre de priorité et silence vérifié', () => 
     expect(etatEcheance(entree({ statutAcheminement: 'echec' }), new Date('2026-06-01T10:00:00Z'), REG).etat).toBe('non_delivree');
   });
 
-  it('repondue l’emporte sur l’indétermination (réponse rattachée, même relève absente)', () => {
-    const r = etatEcheance(entree({ aReponseRattachee: true, derniereReleveOkLe: null }), new Date('2026-04-20T10:00:00Z'), REG);
+  it('TOUS les dossiers satisfaits → repondue (même relève absente : c’est un fait connu)', () => {
+    const r = etatEcheance(entree({ dossiersActifs: 5, dossiersSatisfaits: 5, derniereReleveOkLe: null }), new Date('2026-04-20T10:00:00Z'), REG);
     expect(r.etat).toBe('repondue');
+  });
+
+  it('CERTAINS dossiers satisfaits AVANT l’échéance → repondue_partiellement, échéance ancrée sur l’envoi d’origine', () => {
+    // envoi 15 mars → échéance 15 avril ; maintenant 10 avril (avant), relève fraîche → réponse partielle, délai courant.
+    const maintenant = new Date('2026-04-10T10:00:00Z');
+    const r = etatEcheance(entree({ dossiersActifs: 5, dossiersSatisfaits: 2, derniereReleveOkLe: new Date('2026-04-10T06:00:00Z') }), maintenant, REG);
+    expect(r.etat).toBe('repondue_partiellement');
+    // joursRestants comptés depuis l’échéance d’ORIGINE (15 avril), pas depuis la réponse partielle → 5 jours.
+    expect(r.joursRestants).toBe(5);
+  });
+
+  it('CERTAINS satisfaits APRÈS l’échéance → depassee (les dossiers restants sont dus) — pas de nouveau délai', () => {
+    const r = etatEcheance(entree({ dossiersActifs: 5, dossiersSatisfaits: 2 }), new Date('2026-04-20T10:00:00Z'), REG);
+    expect(r.etat).toBe('depassee');
+  });
+
+  it('message rattaché mais AUCUN dossier satisfait → état inchangé (ce n’est pas une communication)', () => {
+    // 0 satisfait se comporte exactement comme « non répondu » : ici échéance passée + relève fraîche → depassee.
+    const r = etatEcheance(entree({ dossiersActifs: 5, dossiersSatisfaits: 0 }), new Date('2026-04-20T10:00:00Z'), REG);
+    expect(r.etat).toBe('depassee');
+    expect(r.etat).not.toBe('repondue');
+    expect(r.etat).not.toBe('repondue_partiellement');
   });
 
   it('POINT CENTRAL : relève trop ancienne → indeterminee MÊME si l’échéance est largement dépassée', () => {
@@ -96,10 +119,11 @@ describe('R6 — etatEcheance : ordre de priorité et silence vérifié', () => 
   it('motif TOUJOURS non vide, quel que soit l’état', () => {
     const cas: EntreeEcheance[] = [
       entree({ statutAcheminement: 'rebond' }),
-      entree({ aReponseRattachee: true }),
-      entree({ derniereReleveOkLe: null }),
-      entree(),
-      entree({ envoyeLe: null }),
+      entree({ dossiersActifs: 5, dossiersSatisfaits: 5 }),                                   // repondue
+      entree({ dossiersActifs: 5, dossiersSatisfaits: 2, envoyeLe: new Date('2026-04-08T10:00:00Z'), derniereReleveOkLe: new Date('2026-04-20T09:00:00Z') }), // repondue_partiellement
+      entree({ derniereReleveOkLe: null }),                                                   // indeterminee
+      entree(),                                                                               // depassee
+      entree({ envoyeLe: null }),                                                             // en_cours
     ];
     for (const c of cas) expect(etatEcheance(c, new Date('2026-04-20T10:00:00Z'), REG).motif.length).toBeGreaterThan(0);
   });

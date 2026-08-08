@@ -29,14 +29,18 @@ export interface ContexteRelance {
   adresseReponse: string;
 }
 
-/** Une demande envoyée candidate à la relance (acheminement agrégé + présence d'une réponse). */
+/** Une demande envoyée candidate à la relance (acheminement agrégé + compteurs de satisfaction au dossier — R6c). */
 export interface DemandeEnvoyeeRelance {
   demandeId: number;
   reference: string;
   envoyeLe: Date | null;
   statutAcheminement: string;
-  aReponseRattachee: boolean;
+  dossiersActifs: number;      // R6c : nb de dossiers actifs
+  dossiersSatisfaits: number;  // R6c : nb de dossiers dont les pièces sont obtenues
 }
+
+/** Dossiers d'une demande + les ids déjà satisfaits (pour ne relancer que les dossiers dus). */
+export interface LotRelance { lot: Lot; satisfaitsIds: number[] }
 
 export interface DepsRelanceAuto {
   maintenant(): Date;
@@ -44,11 +48,13 @@ export interface DepsRelanceAuto {
   derniereReleveOkLe(): Promise<Date | null>;
   lireDemandesEnvoyees(profil: ProfilDemandeur): Promise<DemandeEnvoyeeRelance[]>;
   relanceVivante(demandeId: number): Promise<boolean>;
-  lireLot(demandeId: number): Promise<Lot | null>;
+  dossiersSatisfaitsDepuisRelance(demandeId: number): Promise<boolean>; // R6c : une relance vivante existe ET des dossiers ont été satisfaits après elle
+  journaliser(demandeId: number, motif: string): Promise<void>;         // R6c : note « systeme » sans régénérer le courrier
+  lireLot(demandeId: number): Promise<LotRelance | null>;
   enregistrerRelance(demandeId: number, profil: ProfilDemandeur, objet: string, corps: string, motif: string): Promise<number>;
 }
 
-export interface BilanRelance { examinees: number; creees: number; ignorees: number; erreurs: number; identiteIncomplete: boolean }
+export interface BilanRelance { examinees: number; creees: number; ignorees: number; erreurs: number; signalees: number; identiteIncomplete: boolean }
 
 /**
  * Génère les brouillons de relance dus. GARDE-FOU identité en tête (aucun texte si l'identité est incomplète). Puis, pour
@@ -59,39 +65,52 @@ export async function executerRelanceAuto(deps: DepsRelanceAuto): Promise<BilanR
   const ctx = await deps.lireContexte();
   // Identité incomplète → AUCUNE relance générée (un corps à identité vide est un courrier à jeter — leçon du courrier initial).
   if (problemesIdentite(ctx.config, ctx.profil).length > 0) {
-    return { examinees: 0, creees: 0, ignorees: 0, erreurs: 0, identiteIncomplete: true };
+    return { examinees: 0, creees: 0, ignorees: 0, erreurs: 0, signalees: 0, identiteIncomplete: true };
   }
 
   const derniereOk = await deps.derniereReleveOkLe();
   const demandes = await deps.lireDemandesEnvoyees(ctx.profil);
   const maintenant = deps.maintenant();
 
-  let examinees = 0, creees = 0, ignorees = 0, erreurs = 0;
+  let examinees = 0, creees = 0, ignorees = 0, erreurs = 0, signalees = 0;
   for (const d of demandes) {
     const etat = etatEcheance(
-      { envoyeLe: d.envoyeLe, statutAcheminement: d.statutAcheminement, aReponseRattachee: d.aReponseRattachee, derniereReleveOkLe: derniereOk },
+      { envoyeLe: d.envoyeLe, statutAcheminement: d.statutAcheminement, dossiersActifs: d.dossiersActifs, dossiersSatisfaits: d.dossiersSatisfaits, derniereReleveOkLe: derniereOk },
       maintenant, ctx.reglages,
     );
-    if (etat.etat !== 'depassee') continue; // UNIQUEMENT dépassée (jamais indéterminée / non délivrée / proche / en cours)
+    // UNIQUEMENT dépassée (couvre le cas totalement silencieux ET la réponse partielle expirée). Jamais indéterminée /
+    // non délivrée / repondue / repondue_partiellement (délai encore en cours) / proche / en cours.
+    if (etat.etat !== 'depassee') continue;
     const envoyeLe = d.envoyeLe;
-    if (envoyeLe === null) continue;         // dépassée ⇒ envoyeLe non nul, mais on rassure le typage
+    if (envoyeLe === null) continue; // dépassée ⇒ envoyeLe non nul, mais on rassure le typage
     examinees += 1;
 
-    if (await deps.relanceVivante(d.demandeId)) { ignorees += 1; continue } // une seule relance vivante par demande
+    // Une seule relance vivante par demande. Si elle existe ET que des dossiers ont été satisfaits DEPUIS, on ne
+    // régénère PAS silencieusement (ce serait pire que la laisser) — on le SIGNALE simplement dans le journal.
+    if (await deps.relanceVivante(d.demandeId)) {
+      if (await deps.dossiersSatisfaitsDepuisRelance(d.demandeId)) {
+        await deps.journaliser(d.demandeId, 'des dossiers ont été satisfaits depuis la relance en cours ; relance NON régénérée automatiquement');
+        signalees += 1;
+      }
+      ignorees += 1;
+      continue;
+    }
+
     const lot = await deps.lireLot(d.demandeId);
     if (lot === null) { ignorees += 1; continue }
+    // §5 — aucune relance si zéro dossier non satisfait (course possible entre le comptage et ici).
+    if (lot.lot.dossiers.length - lot.satisfaitsIds.length <= 0) { ignorees += 1; continue }
 
     try {
       const { objet, corps } = genererRelance({
-        reference: d.reference, profil: ctx.profil, lot, config: ctx.config, pieces: ctx.pieces,
-        envoyeeLe: envoyeLe, echeanceLe: echeanceDe(envoyeLe), adresseReponse: ctx.adresseReponse,
+        reference: d.reference, profil: ctx.profil, lot: lot.lot, dossiersSatisfaitsIds: lot.satisfaitsIds,
+        config: ctx.config, pieces: ctx.pieces, envoyeeLe: envoyeLe, echeanceLe: echeanceDe(envoyeLe), adresseReponse: ctx.adresseReponse,
       });
-      await deps.enregistrerRelance(d.demandeId, ctx.profil, objet, corps,
-        `brouillon de relance généré : ${etat.motif}`);
+      await deps.enregistrerRelance(d.demandeId, ctx.profil, objet, corps, `brouillon de relance généré : ${etat.motif}`);
       creees += 1;
     } catch { erreurs += 1; } // isolation : une demande en échec (ex. identité, course sur l'unique) n'arrête pas les autres
   }
-  return { examinees, creees, ignorees, erreurs, identiteIncomplete: false };
+  return { examinees, creees, ignorees, erreurs, signalees, identiteIncomplete: false };
 }
 
 // ── Implémentations RÉELLES (production) ──────────────────────────────────────
@@ -134,20 +153,21 @@ export function depsReellesRelance(): DepsRelanceAuto {
       return rows[0]?.t ?? null;
     },
     lireDemandesEnvoyees: async (profil) => {
-      const { rows } = await query<{ id: number; reference: string; envoye_le: Date | null; statut_acheminement: string; a_reponse: boolean }>(
+      const { rows } = await query<{ id: number; reference: string; envoye_le: Date | null; statut_acheminement: string; dossiers_actifs: number; dossiers_satisfaits: number }>(
         `SELECT d.id::int AS id, d.reference,
                 min(a.envoye_le) AS envoye_le,
                 CASE WHEN bool_or(a.statut = 'envoye') THEN 'envoye'
                      WHEN bool_or(a.statut = 'rebond') THEN 'rebond'
                      WHEN bool_or(a.statut = 'echec')  THEN 'echec'
                      ELSE 'en_attente' END AS statut_acheminement,
-                EXISTS (SELECT 1 FROM demande_reponse r WHERE r.demande_id = d.id) AS a_reponse
+                (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif) AS dossiers_actifs,
+                (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NOT NULL) AS dossiers_satisfaits
            FROM demande d
            LEFT JOIN demande_acheminement a ON a.demande_id = d.id AND a.canal = 'email'
           WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1
           GROUP BY d.id, d.reference`,
         [profil]);
-      return rows.map((r) => ({ demandeId: r.id, reference: r.reference, envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement, aReponseRattachee: r.a_reponse }));
+      return rows.map((r) => ({ demandeId: r.id, reference: r.reference, envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement, dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits }));
     },
     relanceVivante: async (demandeId) => {
       const { rows } = await query<{ vivante: boolean }>(
@@ -155,16 +175,34 @@ export function depsReellesRelance(): DepsRelanceAuto {
         [demandeId]);
       return rows[0]?.vivante === true;
     },
+    dossiersSatisfaitsDepuisRelance: async (demandeId) => {
+      const { rows } = await query<{ obsolete: boolean }>(
+        `SELECT EXISTS (
+            SELECT 1 FROM demande_relance rl
+              JOIN demande_dossier dd ON dd.demande_id = rl.demande_id
+             WHERE rl.demande_id = $1 AND rl.type = 'relance' AND rl.statut <> 'abandonnee'
+               AND dd.satisfait_le IS NOT NULL AND dd.satisfait_le > rl.generee_le
+          ) AS obsolete`,
+        [demandeId]);
+      return rows[0]?.obsolete === true;
+    },
+    journaliser: async (demandeId, motif) => {
+      await query(
+        `INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, 'systeme')`,
+        [demandeId, motif]);
+    },
     lireLot: async (demandeId) => {
       const meta = await query<{ code_insee: string; commune_nom: string | null; dest_canal: string | null }>(
         `SELECT d.code_insee, c.nom AS commune_nom, d.dest_canal FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee WHERE d.id = $1`,
         [demandeId]);
       const m = meta.rows[0];
       if (!m) return null;
-      const doss = await query<LigneDossierSql>(
+      // Tous les dossiers ACTIFS (satisfaits ou non) + le drapeau de satisfaction : genererRelance ne listera que les dus.
+      const doss = await query<LigneDossierSql & { satisfait: boolean }>(
         `SELECT s.id, s.num_dau, s.date_reelle_autorisation::text AS date_reelle_autorisation,
                 s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter, s.adr_codpost_ter,
-                s.sec_cadastre1, s.num_cadastre1, s.sec_cadastre2, s.num_cadastre2, s.sec_cadastre3, s.num_cadastre3
+                s.sec_cadastre1, s.num_cadastre1, s.sec_cadastre2, s.num_cadastre2, s.sec_cadastre3, s.num_cadastre3,
+                (dd.satisfait_le IS NOT NULL) AS satisfait
            FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
           WHERE dd.demande_id = $1 AND dd.actif ORDER BY s.num_dau`,
         [demandeId]);
@@ -175,7 +213,8 @@ export function depsReellesRelance(): DepsRelanceAuto {
         adresse: [d.adr_num_ter, d.adr_libvoie_ter, d.adr_localite_ter].filter((v) => v && v.trim() !== '').join(' '),
         codePostal: d.adr_codpost_ter, cadastre: cadastreDe(d), etatDau: null, absentDuDernierMillesime: false,
       }));
-      return { codeInsee: m.code_insee, communeNom, canal: (m.dest_canal as CanalContact) ?? 'email', dossiers };
+      const satisfaitsIds = doss.rows.filter((d) => d.satisfait).map((d) => d.id);
+      return { lot: { codeInsee: m.code_insee, communeNom, canal: (m.dest_canal as CanalContact) ?? 'email', dossiers }, satisfaitsIds };
     },
     enregistrerRelance: async (demandeId, profil, objet, corps, motif) => {
       return withTransaction(async (q) => {

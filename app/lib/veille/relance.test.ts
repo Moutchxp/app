@@ -1,22 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { genererRelance, IdentiteIncompleteError, type EntreeRelance } from './relance';
+import { genererRelance, IdentiteIncompleteError, AucunDossierNonSatisfaitError, type EntreeRelance } from './relance';
 import type { Lot, CandidatDossier, ConfigDemandeur, Piece } from '../sitadel/demande';
 
 /**
- * R6b — génération PURE du brouillon de relance. Discrétion par profil, références juridiques VÉRIFIÉES et AUCUNE autre,
- * aucun motif, dates (faits passés) présentes / date de la relance absente, garde-fou d'identité.
+ * R6c — génération PURE du brouillon de relance : PARTIELLE (seuls les dossiers non satisfaits) et AUTOSUFFISANTE (fondement
+ * + désignation complète des pièces). Discrétion par profil, références juridiques VÉRIFIÉES (liste close), aucun motif,
+ * dates = faits passés, garde-fous (identité, plus rien à réclamer).
  */
-const DOSSIER: CandidatDossier = {
-  dossierId: 1, codeInsee: '92004', communeNom: 'Asnieres', canal: 'email',
-  numDau: 'PC0920042500001', dateReelleAutorisation: '2025-06-15',
-  adresse: '12 rue de la Paix', codePostal: '92600', cadastre: ['AB 12'],
+const DOSSIER1: CandidatDossier = {
+  dossierId: 1, codeInsee: '92004', communeNom: 'Asnieres', canal: 'email', numDau: 'PC0920042500001',
+  dateReelleAutorisation: '2025-06-15', adresse: '12 rue de la Paix', codePostal: '92600', cadastre: ['AB 12'],
   etatDau: null, absentDuDernierMillesime: false,
 };
-const LOT: Lot = { codeInsee: '92004', communeNom: 'Asnieres', canal: 'email', dossiers: [DOSSIER] };
+const DOSSIER2: CandidatDossier = { ...DOSSIER1, dossierId: 2, numDau: 'PC0920042500002', adresse: '8 avenue des Fleurs' };
+const LOT: Lot = { codeInsee: '92004', communeNom: 'Asnieres', canal: 'email', dossiers: [DOSSIER1, DOSSIER2] };
 
-// Les pièces portent EXPRÈS une description contenant R.431-9 : genererRelance ne doit garder que le CODE (pas la description).
+// Désignations RÉGLEMENTAIRES complètes (PC2 contient R.431-9, désormais AUTORISÉ dans la relance).
 const PIECES: Piece[] = [
-  { code: 'PC2', description: 'plan de masse, prévue à l’article R.431-9 du code de l’urbanisme' },
+  { code: 'PC2', description: 'plan de masse coté dans les trois dimensions, prévue à l’article R.431-9 du code de l’urbanisme' },
   { code: 'PC3', description: 'plan en coupe du terrain et de la construction' },
 ];
 
@@ -31,81 +32,89 @@ const CONFIG_PERS: ConfigDemandeur = {
 
 function entree(over: Partial<EntreeRelance> = {}): EntreeRelance {
   return {
-    reference: 'SVAV-DEM-2026-000123', profil: 'entreprise', lot: LOT, config: CONFIG_ENT, pieces: PIECES,
-    envoyeeLe: new Date('2026-03-14T10:00:00Z'), echeanceLe: new Date('2026-04-14T10:00:00Z'), adresseReponse: 'demandes@sansvisavis.com',
-    ...over,
+    reference: 'SVAV-DEM-2026-000123', profil: 'entreprise', lot: LOT, dossiersSatisfaitsIds: [], config: CONFIG_ENT,
+    pieces: PIECES, envoyeeLe: new Date('2026-03-14T10:00:00Z'), echeanceLe: new Date('2026-04-14T10:00:00Z'),
+    adresseReponse: 'demandes@sansvisavis.com', ...over,
   };
 }
 
-describe('R6b — genererRelance : discrétion par profil', () => {
-  it('profil PERSONNE : objet générique — ni « svav », ni référence complète, ni « sansvisavis », ni commune', () => {
-    const { objet, corps } = genererRelance(entree({ profil: 'personne', config: CONFIG_PERS }));
-    const o = objet.toLowerCase();
-    expect(o).not.toContain('svav');
-    expect(o).not.toContain('sansvisavis');
-    expect(o).not.toContain('svav-dem-2026-000123');
-    expect(o).not.toContain('asnieres');           // pas de nom de commune dans l'objet
-    expect(corps).toContain('2026-000123');         // référence DISCRÈTE, seulement dans le corps
-    expect(corps).not.toContain('SVAV-DEM-2026-000123'); // jamais la référence complète pour une personne
+// Liste CLOSE des références autorisées, normalisées (sans espaces ni points) — R6c.
+const REFS_AUTORISEES = new Set(['L311-1', 'L311-9', 'R311-12', 'R311-13', 'R343-1', 'R431-9']);
+function articlesCites(texte: string): string[] {
+  return (texte.match(/[LR]\.?\s?\d{2,3}-\d+/g) ?? []).map((a) => a.replace(/[\s.]/g, '').toUpperCase());
+}
+
+describe('R6c — genererRelance : partielle (seuls les dossiers dus)', () => {
+  it('un dossier SATISFAIT est ABSENT du corps ; le dossier restant est présent', () => {
+    const { corps } = genererRelance(entree({ dossiersSatisfaitsIds: [1] }));
+    expect(corps).not.toContain('PC0920042500001'); // dossier 1 satisfait → non réclamé
+    expect(corps).toContain('PC0920042500002');      // dossier 2 dû → réclamé
   });
 
-  it('profil ENTREPRISE : référence COMPLÈTE dans l’objet ET le corps', () => {
-    const { objet, corps } = genererRelance(entree());
-    expect(objet).toContain('SVAV-DEM-2026-000123');
-    expect(corps).toContain('SVAV-DEM-2026-000123');
-    expect(objet).toContain('Asnieres'); // entreprise : la commune peut figurer dans l'objet
+  it('TOUS les dossiers satisfaits → AucunDossierNonSatisfaitError (plus rien à réclamer)', () => {
+    expect(() => genererRelance(entree({ dossiersSatisfaitsIds: [1, 2] }))).toThrow(AucunDossierNonSatisfaitError);
   });
 });
 
-describe('R6b — genererRelance : fond juridique et neutralité', () => {
-  it('AUCUN motif ni justification (comme le courrier initial)', () => {
+describe('R6c — genererRelance : autosuffisante (fondement + désignation complète)', () => {
+  it('rappelle le FONDEMENT L311-1 et L311-9 3°', () => {
+    const { corps } = genererRelance(entree());
+    expect(corps).toContain('L311-1 et L311-9 3°');
+  });
+
+  it('désignation COMPLÈTE de PC2 et PC3 (comme le courrier initial)', () => {
+    const { corps } = genererRelance(entree());
+    expect(corps).toContain('plan de masse coté dans les trois dimensions');
+    expect(corps).toContain('plan en coupe du terrain et de la construction');
+  });
+
+  it('rappelle la DATE d’envoi de la demande initiale', () => {
+    const { corps } = genererRelance(entree());
+    expect(corps).toContain('14 mars 2026');
+  });
+});
+
+describe('R6c — genererRelance : références (liste close) et neutralité', () => {
+  it('cite les 6 références autorisées et AUCUNE autre', () => {
+    const { corps } = genererRelance(entree());
+    for (const ref of ['L311-1 et L311-9 3°', 'R. 311-13', 'R. 311-12', 'R. 343-1', 'R.431-9']) expect(corps).toContain(ref);
+    // Test NÉGATIF : tout article cité doit appartenir à la liste close (aucun numéro d'article inventé).
+    for (const a of articlesCites(corps)) expect(REFS_AUTORISEES.has(a), `article hors liste close : ${a}`).toBe(true);
+  });
+
+  it('AUCUN motif ni justification d’intérêt', () => {
     const { corps } = genererRelance(entree());
     expect(corps).not.toMatch(/afin de|en vue de|dans le but|pour les besoins|motif|justif/i);
   });
 
-  it('cite R. 311-12, R. 311-13 et R. 343-1 — et AUCUN autre numéro d’article', () => {
+  it('la date de la relance elle-même est absente (genererRelance ne reçoit aucune date « du jour »)', () => {
     const { corps } = genererRelance(entree());
-    expect(corps).toContain('R. 311-13'); // délai d'un mois à compter de la réception
-    expect(corps).toContain('R. 311-12'); // le silence vaut refus
-    expect(corps).toContain('R. 343-1');  // deux mois pour saisir la CADA
-    // aucun autre article : ni le fondement du droit d'accès (L311-1 / L311-9 3°), ni R.431-9 (venu d'une description de pièce)
-    expect(corps).not.toMatch(/L\.?\s?311/i);
-    expect(corps).not.toContain('431-9');
-    expect(corps).not.toMatch(/L\.?\s?311-9/i);
-  });
-
-  it('mentionne la CADA en une phrase neutre (délai de deux mois)', () => {
-    const { corps } = genererRelance(entree());
-    expect(corps).toMatch(/Commission d’accès aux documents administratifs/);
-    expect(corps).toContain('deux mois');
-  });
-
-  it('pièces nommées par CODE (PC2, PC3), sans la description réglementaire', () => {
-    const { corps } = genererRelance(entree());
-    expect(corps).toContain('PC2');
-    expect(corps).toContain('PC3');
-    expect(corps).not.toContain('plan de masse'); // la description (qui portait R.431-9) est écartée
-  });
-});
-
-describe('R6b — genererRelance : dates (faits passés) et absence de la date de relance', () => {
-  it('mentionne la date d’envoi initiale et la date d’expiration du délai, PAS la date de la relance', () => {
-    const { corps } = genererRelance(entree());
-    expect(corps).toContain('14 mars 2026');   // envoi initial (fait passé)
-    expect(corps).toContain('14 avril 2026');  // expiration du délai d'un mois (fait passé)
-    // genererRelance ne reçoit AUCUNE date « aujourd'hui » : une date de relance ne peut donc pas figurer dans le corps.
     expect(corps).not.toContain('20 avril 2026');
   });
 });
 
-describe('R6b — genererRelance : garde-fou d’identité', () => {
-  it('identité incomplète → IdentiteIncompleteError, aucun texte produit', () => {
-    const incomplet: ConfigDemandeur = { ...CONFIG_ENT, raisonSociale: '' };
-    expect(() => genererRelance(entree({ config: incomplet }))).toThrow(IdentiteIncompleteError);
+describe('R6c — genererRelance : discrétion par profil', () => {
+  it('PERSONNE : objet générique (ni svav, ni référence, ni sansvisavis, ni commune) ; réf discrète dans le corps', () => {
+    const { objet, corps } = genererRelance(entree({ profil: 'personne', config: CONFIG_PERS }));
+    const o = objet.toLowerCase();
+    expect(o).not.toContain('svav');
+    expect(o).not.toContain('sansvisavis');
+    expect(o).not.toContain('asnieres');
+    expect(corps).toContain('2026-000123');
+    expect(corps).not.toContain('SVAV-DEM-2026-000123');
+    // la discrétion n'empêche pas l'autosuffisance : références closes respectées aussi pour la personne
+    for (const a of articlesCites(corps)) expect(REFS_AUTORISEES.has(a), `article hors liste close : ${a}`).toBe(true);
   });
 
-  it('profil personne : nom manquant → erreur', () => {
-    const incomplet: ConfigDemandeur = { ...CONFIG_PERS, representantNom: '' };
-    expect(() => genererRelance(entree({ profil: 'personne', config: incomplet }))).toThrow(IdentiteIncompleteError);
+  it('ENTREPRISE : référence complète dans l’objet ET le corps', () => {
+    const { objet, corps } = genererRelance(entree());
+    expect(objet).toContain('SVAV-DEM-2026-000123');
+    expect(corps).toContain('SVAV-DEM-2026-000123');
+  });
+});
+
+describe('R6c — genererRelance : garde-fou d’identité', () => {
+  it('identité incomplète → IdentiteIncompleteError, aucun texte', () => {
+    expect(() => genererRelance(entree({ config: { ...CONFIG_ENT, raisonSociale: '' } }))).toThrow(IdentiteIncompleteError);
   });
 });

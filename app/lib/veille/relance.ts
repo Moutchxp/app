@@ -2,10 +2,13 @@
  * R6b — BROUILLON de RELANCE à l'échéance. Module PUR : aucune I/O, aucun import de pg ni d'imapflow. Compose UNIQUEMENT le
  * texte (objet + corps) d'une relance ; N'ENVOIE RIEN, ne journalise rien, n'écrit jamais demande.statut.
  *
- * ⚠️ RÉFÉRENCES JURIDIQUES — VÉRIFIÉES, citées telles quelles, AUCUNE AUTRE : CRPA R. 311-12 (le silence vaut refus),
- * R. 311-13 (délai d'un mois à compter de la réception), R. 343-1 (deux mois pour saisir la CADA). La relance porte sur le
- * SILENCE/refus tacite : elle ne recite donc pas le fondement du droit d'accès (L311-1 / L311-9 3°) ni R.431-9, et ne nomme
- * les pièces que par leur CODE (PC2, PC3) — la description réglementaire de PC2 contiendrait R.431-9.
+ * ⚠️ RÉFÉRENCES JURIDIQUES — VÉRIFIÉES, liste CLOSE, AUCUNE AUTRE sous aucun prétexte : L. 311-1 et L. 311-9 3° du CRPA
+ * (fondement du droit d'accès, comme le courrier initial), R. 311-12 (le silence vaut refus), R. 311-13 (délai d'un mois à
+ * compter de la réception), R. 343-1 (deux mois pour saisir la CADA), et R.431-9 du code de l'urbanisme (désignation de PC2).
+ *
+ * R6c — la relance est AUTOSUFFISANTE (lue un mois plus tard, sans le courrier initial) et PARTIELLE :
+ *  - elle ne liste QUE les dossiers NON satisfaits (les pièces déjà obtenues ne sont plus réclamées) ;
+ *  - elle rappelle le fondement (L. 311-1 / L. 311-9 3°) et la désignation COMPLÈTE des pièces (comme le courrier initial).
  *
  * RÈGLES DE FOND héritées du courrier initial (demande.ts, non réimplémenté — on importe ses helpers) :
  *  - AUCUN motif, aucune justification d'intérêt, aucune mention d'usage : le droit d'accès s'exerce sans se justifier ;
@@ -23,12 +26,13 @@ import {
 export interface EntreeRelance {
   reference: string;
   profil: ProfilDemandeur;
-  lot: Lot;                 // dossiers concernés + communeNom (type réutilisé de demande.ts)
-  config: ConfigDemandeur;  // identité du profil (garde-fou d'identité)
-  pieces: Piece[];          // pièces demandées (nommées par CODE uniquement)
-  envoyeeLe: Date;          // envoi RÉEL de la demande initiale (fait passé)
-  echeanceLe: Date;         // expiration du délai d'un mois (fait passé, calculé par echeanceDe en amont)
-  adresseReponse: string;   // boîte relue (profil entreprise) ; le profil personne répond à l'e-mail en tête
+  lot: Lot;                       // dossiers de la demande + communeNom (type réutilisé de demande.ts)
+  dossiersSatisfaitsIds: number[]; // R6c : ids des dossiers DÉJÀ obtenus → exclus de la relance
+  config: ConfigDemandeur;        // identité du profil (garde-fou d'identité)
+  pieces: Piece[];                // pièces demandées AVEC leur désignation complète (code + description)
+  envoyeeLe: Date;                // envoi RÉEL de la demande initiale (fait passé)
+  echeanceLe: Date;               // expiration du délai d'un mois (fait passé, calculé par echeanceDe en amont)
+  adresseReponse: string;         // boîte relue (profil entreprise) ; le profil personne répond à l'e-mail en tête
 }
 
 export interface TexteRelance { objet: string; corps: string }
@@ -38,6 +42,14 @@ export class IdentiteIncompleteError extends Error {
   constructor(public readonly problemes: string[]) {
     super(`identité du demandeur incomplète : ${problemes.join(' ; ')}`);
     this.name = 'IdentiteIncompleteError';
+  }
+}
+
+/** Erreur levée si TOUS les dossiers sont déjà satisfaits : il n'y a plus rien à réclamer (relanceAuto le garantit aussi). */
+export class AucunDossierNonSatisfaitError extends Error {
+  constructor(public readonly reference: string) {
+    super(`aucun dossier à réclamer pour ${reference} : tous les dossiers sont satisfaits`);
+    this.name = 'AucunDossierNonSatisfaitError';
   }
 }
 
@@ -63,12 +75,20 @@ export function genererRelance(e: EntreeRelance): TexteRelance {
   const problemes = problemesIdentite(e.config, e.profil);
   if (problemes.length > 0) throw new IdentiteIncompleteError(problemes);
 
-  const codesPieces = e.pieces.map((p) => p.code).filter((c) => c.trim() !== '').join(', ');
-  const lignesDossiers = e.lot.dossiers.map(ligneDossier).join('\n');
+  // R6c — ne réclamer QUE les dossiers non satisfaits. Si tous le sont, il n'y a plus rien à relancer.
+  const satisfaits = new Set(e.dossiersSatisfaitsIds);
+  const dossiersDus = e.lot.dossiers.filter((d) => !satisfaits.has(d.dossierId));
+  if (dossiersDus.length === 0) throw new AucunDossierNonSatisfaitError(e.reference);
+
+  // Désignation COMPLÈTE des pièces (code + description réglementaire), comme le courrier initial.
+  const lignesPieces = e.pieces.map((p) => `— la pièce ${p.code}${p.description ? `, ${p.description}` : ''} ;`).join('\n');
+  const lignesDossiers = dossiersDus.map(ligneDossier).join('\n');
   const dateEnvoi = dateFr(e.envoyeeLe);
   const dateEcheance = dateFr(e.echeanceLe);
 
-  // Constat commun aux deux profils — SOCLE JURIDIQUE vérifié, EN DUR (R. 311-13 puis R. 311-12).
+  // Rappel du FONDEMENT (L311-1 / L311-9 3°), comme le courrier initial — la relance est autosuffisante.
+  const fondement = 'en application des articles L311-1 et L311-9 3° du code des relations entre le public et l’administration';
+  // Constat commun — SOCLE JURIDIQUE vérifié (R. 311-13 puis R. 311-12).
   const constat = `Le délai d’un mois prévu à l’article R. 311-13 du code des relations entre le public et l’administration, courant à compter de la réception de cette demande, est écoulé depuis le ${dateEcheance}. En application de l’article R. 311-12 du même code, le silence gardé par l’administration a fait naître une décision de refus.`;
   // Mention CADA — une phrase neutre, sans agressivité (R. 343-1).
   const cada = 'À défaut de réponse, la Commission d’accès aux documents administratifs pourra être saisie dans le délai de deux mois prévu à l’article R. 343-1 du même code.';
@@ -83,7 +103,10 @@ export function genererRelance(e: EntreeRelance): TexteRelance {
       '',
       'Madame, Monsieur,',
       '',
-      `Par une demande du ${dateEnvoi}, je vous ai demandé communication, par voie électronique, des pièces ${codesPieces} concernant les dossiers suivants :`,
+      `Par une demande du ${dateEnvoi}, je vous ai demandé, ${fondement}, communication par voie électronique des pièces suivantes concernant les dossiers listés ci-dessous :`,
+      lignesPieces,
+      '',
+      'Dossiers concernés :',
       lignesDossiers,
       '',
       constat,
@@ -108,7 +131,10 @@ export function genererRelance(e: EntreeRelance): TexteRelance {
   const corps = [
     'Madame, Monsieur,',
     '',
-    `Par une demande du ${dateEnvoi}, référencée ${e.reference}, je vous ai demandé communication, par voie électronique, des pièces ${codesPieces} concernant les dossiers suivants :`,
+    `Par une demande du ${dateEnvoi}, référencée ${e.reference}, je vous ai demandé, ${fondement}, communication par voie électronique des pièces suivantes concernant les dossiers listés ci-dessous :`,
+    lignesPieces,
+    '',
+    'Dossiers concernés :',
     lignesDossiers,
     '',
     constat,

@@ -81,7 +81,7 @@ function rapportApprofondi(over: Partial<RapportApprofondi> = {}): RapportApprof
 
 const DEMANDE_DEPASSEE: DemandeSuivie = {
   demandeId: 42, reference: 'SAVV-2026-000042', destEmail: 'urba@mairie-x.fr',
-  envoyeLe: new Date('2026-03-15T10:00:00Z'), statutAcheminement: 'envoye', aReponseRattachee: false,
+  envoyeLe: new Date('2026-03-15T10:00:00Z'), statutAcheminement: 'envoye', dossiersActifs: 1, dossiersSatisfaits: 0,
   messageIdsEmis: ['<emis-1@sansvisavis.com>'],
 };
 
