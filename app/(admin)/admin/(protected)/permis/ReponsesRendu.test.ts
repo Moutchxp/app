@@ -3,7 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, DetailDossiers, RelanceCarte, TableRuns,
-  messageIci, type OptionDemande, type RetourCible,
+  ActionsCloture, messageIci, type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
 import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi } from '../../../../lib/veille/reponsesSuivi';
@@ -279,5 +279,95 @@ describe('R5b — retour d’action : dans la zone du bouton cliqué, jamais dé
     const retour: RetourCible = { cle: 'dossier-7-1', texte: 'Dossier marqué reçu.', ok: true };
     const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers, retour, onMarquer: () => {} }));
     expect(compte(h, 'Dossier marqué reçu.')).toBe(1);
+  });
+});
+
+// ── R5c — relances éditables + clôture / réouverture ──────────────────────────────────────────────────────────────────
+const noop = () => {};
+const RELANCE: RelancePreparee = {
+  id: 9, genereeLe: '2026-04-20T08:00:00Z', demandeId: 42, reference: 'SVAV-DEM-2026-000042',
+  communeNom: 'Asnieres', objet: 'Relance — obj', corps: 'CORPS RELANCE',
+};
+
+describe('R5c — RelanceCarte : édition (objet/corps) + régénérer / abandonner', () => {
+  it('dépliée + callbacks → objet et corps éditables, boutons Enregistrer / Régénérer / Abandonner', () => {
+    const h = renderToStaticMarkup(createElement(RelanceCarte, {
+      relance: RELANCE, ouvert: true, onChangeObjet: noop, onChangeCorps: noop, onEnregistrer: noop, onRegenerer: noop, onAbandonner: noop,
+    }));
+    expect(h).toContain('<input');
+    expect(h).toContain('<textarea');
+    expect(h).toContain('Enregistrer');
+    expect(h).toContain('Régénérer');
+    expect(h).toContain('Abandonner');
+  });
+
+  it('les valeurs d’édition EN COURS priment sur le texte stocké (rien ne le régénère en douce)', () => {
+    const h = renderToStaticMarkup(createElement(RelanceCarte, {
+      relance: RELANCE, ouvert: true, objet: 'OBJ EDITE', corps: 'CORPS EDITE',
+      onChangeObjet: noop, onChangeCorps: noop, onEnregistrer: noop, onRegenerer: noop, onAbandonner: noop,
+    }));
+    expect(h).toContain('OBJ EDITE');
+    expect(h).toContain('CORPS EDITE');
+  });
+
+  it('fermée → pas de textarea (le corps ne s’édite qu’une fois déplié) ; objet lisible', () => {
+    const h = renderToStaticMarkup(createElement(RelanceCarte, {
+      relance: RELANCE, ouvert: false, onChangeObjet: noop, onChangeCorps: noop, onEnregistrer: noop, onRegenerer: noop, onAbandonner: noop,
+    }));
+    expect(h).not.toContain('<textarea');
+    expect(h).toContain('Relance — obj');
+  });
+
+  it('sans callbacks (lecture seule R5a) → corps en <pre>, aucun champ ni bouton', () => {
+    const h = renderToStaticMarkup(createElement(RelanceCarte, { relance: RELANCE, ouvert: true }));
+    expect(h).toContain('CORPS RELANCE');
+    expect(h).not.toContain('<textarea');
+    expect(h).not.toContain('<button');
+  });
+
+  it('le retour « relance-9 » se rend une seule fois, côté carte', () => {
+    const retour: RetourCible = { cle: 'relance-9', texte: 'Relance enregistrée.', ok: true };
+    const h = renderToStaticMarkup(createElement(RelanceCarte, {
+      relance: RELANCE, ouvert: true, retour, onChangeObjet: noop, onChangeCorps: noop, onEnregistrer: noop, onRegenerer: noop, onAbandonner: noop,
+    }));
+    expect(compte(h, 'Relance enregistrée.')).toBe(1);
+  });
+});
+
+describe('R5c — ActionsCloture : clôturer / rouvrir + avertissement de clôture partielle', () => {
+  it('demande CLOSE → badge « Clôturée » et bouton Rouvrir (visible, jamais disparue) ; aucun bouton Clôturer', () => {
+    const h = renderToStaticMarkup(createElement(ActionsCloture, { demandeId: 7, statut: 'close', dossiersDus: 0, onRouvrir: noop }));
+    expect(h).toContain('Clôturée');
+    expect(h).toContain('Rouvrir');
+    expect(h).not.toContain('Clôturer');
+  });
+
+  it('demande ENVOYÉE, tous dossiers obtenus → conséquence annoncée + Clôturer actif, aucun champ motif', () => {
+    const h = renderToStaticMarkup(createElement(ActionsCloture, { demandeId: 7, statut: 'envoyee', dossiersDus: 0, onCloturer: noop, onMotif: noop }));
+    expect(h).toContain('empêche toute relance');
+    expect(h).toContain('sort la demande de la surveillance');
+    expect(h).toContain('Clôturer');
+    expect(h).not.toContain('<input');
+    expect(h).not.toContain('disabled');
+  });
+
+  it('demande ENVOYÉE avec dossiers DUS → avertissement de clôture partielle + champ motif + Clôturer désactivé si motif vide', () => {
+    const h = renderToStaticMarkup(createElement(ActionsCloture, { demandeId: 7, statut: 'envoyee', dossiersDus: 2, motif: '', onCloturer: noop, onMotif: noop }));
+    expect(h).toContain('2 dossier(s) restent dus');
+    expect(h).toContain('un motif est requis');
+    expect(h).toContain('<input');
+    expect(h).toContain('disabled');
+  });
+
+  it('dossiers DUS + motif saisi → bouton Clôturer actif', () => {
+    const h = renderToStaticMarkup(createElement(ActionsCloture, { demandeId: 7, statut: 'envoyee', dossiersDus: 2, motif: 'relance restée sans réponse', onCloturer: noop, onMotif: noop }));
+    expect(h).not.toContain('disabled');
+  });
+
+  it('statut brouillon / prête / abandonnée → aucun contrôle (rien à clôturer)', () => {
+    for (const statut of ['brouillon', 'prete', 'abandonnee']) {
+      const h = renderToStaticMarkup(createElement(ActionsCloture, { demandeId: 7, statut, dossiersDus: 0, onCloturer: noop, onRouvrir: noop }));
+      expect(h).toBe('');
+    }
   });
 });

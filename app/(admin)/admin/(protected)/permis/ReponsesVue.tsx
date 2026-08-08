@@ -5,15 +5,17 @@ import { echeanceDe, etatEcheance, type EtatEcheance } from '../../../../lib/vei
 import type { ReponsesData } from '../../../../lib/veille/reponsesSuivi';
 import {
   IndicateurReleve, RappelReglages, TableRuns, BadgeEtat, CompteSatisfaction, DetailDossiers,
-  BlocARattacher, RelanceCarte, PhraseVide, formaterDate, type RetourCible, type OptionDemande,
+  BlocARattacher, RelanceCarte, ActionsCloture, PhraseVide, formaterDate, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
 import { MessageRetour } from './DemandesRendu';
 
 /**
- * R5a/R5b — écran « Réponses » : suivi de la boucle CRPA + ACTIONS (rattacher, marquer/annuler un dossier reçu, télécharger
- * une pièce, marquer traitée). ⚠️ demande.statut n'est jamais écrit ici. L'état d'échéance est calculé via `etatEcheance`
- * (réutilisé) sur un instant figé au chargement. Le message de retour s'affiche À CÔTÉ du bouton cliqué (repli au bandeau
- * si l'emplacement n'est plus rendu) ; une action réussie recharge les données SANS effacer le message qu'on vient de poser.
+ * R5a/R5b/R5c — écran « Réponses » : suivi de la boucle CRPA + ACTIONS. R5b : rattacher, marquer/annuler un dossier reçu,
+ * télécharger une pièce, marquer traitée. R5c : éditer / régénérer / abandonner un brouillon de relance, CLÔTURER une demande
+ * et la ROUVRIR (une demande close reste visible, identifiée « Clôturée », avec son bouton Rouvrir). ⚠️ demande.statut est
+ * désormais écrit — mais UNIQUEMENT via la route (cloturer/rouvrir), jamais ici. L'état d'échéance est calculé via
+ * `etatEcheance` (réutilisé) sur un instant figé au chargement. Le message de retour s'affiche À CÔTÉ du bouton cliqué (repli
+ * au bandeau si l'emplacement n'est plus rendu) ; une action réussie recharge les données SANS effacer le message posé.
  */
 const PAGE = 20;
 const styleTh: CSSProperties = { padding: '.4rem .5rem', textAlign: 'left' };
@@ -42,6 +44,8 @@ export function ReponsesVue() {
   const [erreur, setErreur] = useState(false);
   const [retour, setRetour] = useState<RetourCible>(null);
   const [selDemande, setSelDemande] = useState<Record<number, number>>({});
+  const [motifCloture, setMotifCloture] = useState<Record<number, string>>({});    // R5c : motif de clôture par demande
+  const [brouillons, setBrouillons] = useState<Record<number, { objet: string; corps: string }>>({}); // R5c : édition relance
   const [dossOuverts, setDossOuverts] = useState<Set<number>>(new Set());
   const [relOuvertes, setRelOuvertes] = useState<Set<number>>(new Set());
   const [pageDem, setPageDem] = useState(1);
@@ -117,8 +121,10 @@ export function ReponsesVue() {
 
   // L'emplacement du retour est-il RENDU ? Sinon on le replie proprement dans le bandeau (jamais dédoublé).
   const estRendu = (cle: string): boolean => {
-    if (cle.startsWith('dossier-')) { const d = Number(cle.split('-')[1]); return dossOuverts.has(d) && demVisibles.some((x) => x.demandeId === d); }
+    // dossier-/cloturer-/rouvrir- vivent dans le dépliant d'UNE demande visible (le 2e segment = demandeId).
+    if (cle.startsWith('dossier-') || cle.startsWith('cloturer-') || cle.startsWith('rouvrir-')) { const d = Number(cle.split('-')[1]); return dossOuverts.has(d) && demVisibles.some((x) => x.demandeId === d); }
     if (cle.startsWith('rattacher-') || cle.startsWith('traiter-') || cle.startsWith('piece-')) { const id = Number(cle.split('-')[1]); return ratVisibles.some((x) => x.id === id); }
+    if (cle.startsWith('relance-')) { const id = Number(cle.split('-')[1]); return relOuvertes.has(id) && relVisibles.some((x) => x.id === id); }
     return false;
   };
   const retourBanniere = retour && !estRendu(retour.cle) ? { texte: retour.texte, ok: retour.ok, zone: 'haut' as const } : null;
@@ -160,8 +166,10 @@ export function ReponsesVue() {
                         <td style={{ ...styleTd, fontFamily: 'var(--font-svv-mono, monospace)' }}>{d.reference}</td>
                         <td style={styleTd}>{d.communeNom ?? d.codeInsee}</td>
                         <td style={styleTd}>{formaterDate(d.envoyeLe)}</td>
-                        <td style={styleTd}>{d.echeanceLe ? formaterDate(d.echeanceLe.toISOString()) : '—'}</td>
-                        <td style={styleTd}><BadgeEtat etat={d.etat} motif={d.motif} /></td>
+                        <td style={styleTd}>{d.statut === 'close' ? '—' : (d.echeanceLe ? formaterDate(d.echeanceLe.toISOString()) : '—')}</td>
+                        <td style={styleTd}>{d.statut === 'close'
+                          ? <span style={{ fontSize: 11, fontWeight: 700, padding: '.1rem .45rem', borderRadius: '.35rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)' }}>Clôturée</span>
+                          : <BadgeEtat etat={d.etat} motif={d.motif} />}</td>
                         <td style={styleTd}><CompteSatisfaction satisfaits={d.dossiersSatisfaits} total={d.dossiersActifs} /></td>
                         <td style={{ ...styleTd, textAlign: 'right' }}>{d.nbReponses}</td>
                         <td style={styleTd}><button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }} aria-expanded={ouvert} onClick={() => setDossOuverts((s) => toggle(s, d.demandeId))}>{ouvert ? 'masquer' : 'détail'}</button></td>
@@ -171,6 +179,13 @@ export function ReponsesVue() {
                           <td colSpan={8} style={{ padding: '0 .5rem .5rem' }}>
                             <DetailDossiers demandeId={d.demandeId} statut={d.statut} dossiers={d.dossiers} retour={retour}
                               onMarquer={(demandeId, dossierId, satisfait) => void agir({ action: 'marquer_dossier', demandeId, dossierId, satisfait }, `dossier-${demandeId}-${dossierId}`, satisfait ? 'Marqué reçu.' : 'Satisfaction annulée.')} />
+                            <div style={{ marginTop: '.5rem' }}>
+                              <ActionsCloture demandeId={d.demandeId} statut={d.statut} dossiersDus={d.dossiersActifs - d.dossiersSatisfaits}
+                                motif={motifCloture[d.demandeId]} retour={retour}
+                                onMotif={(demandeId, v) => setMotifCloture((s) => ({ ...s, [demandeId]: v }))}
+                                onCloturer={(demandeId) => void agir({ action: 'cloturer', demandeId, motif: motifCloture[demandeId] ?? '' }, `cloturer-${demandeId}`, 'Demande clôturée.')}
+                                onRouvrir={(demandeId) => void agir({ action: 'rouvrir', demandeId }, `rouvrir-${demandeId}`, 'Demande rouverte.')} />
+                            </div>
                           </td>
                         </tr>
                       ) : null,
@@ -197,7 +212,7 @@ export function ReponsesVue() {
         <Pagination page={pRat} nbPages={nbPagesRat} total={data.aRattacher.length} onPage={setPageRat} />
       </section>
 
-      {/* ── Bloc 4 : relances préparées (lecture seule — édition/abandon = chantier suivant) ── */}
+      {/* ── Bloc 4 : relances préparées (R5c : objet/corps éditables + régénérer / abandonner) ── */}
       <section className="flex flex-col gap-2">
         <h2 style={styleH2}>Relances préparées</h2>
         {data.relances.length === 0 ? (
@@ -207,10 +222,16 @@ export function ReponsesVue() {
             <div className="flex flex-col gap-2">
               {relVisibles.map((r) => (
                 <div key={r.id} className="flex flex-col gap-1">
-                  <RelanceCarte relance={r} ouvert={relOuvertes.has(r.id)} />
+                  <RelanceCarte relance={r} ouvert={relOuvertes.has(r.id)}
+                    objet={brouillons[r.id]?.objet} corps={brouillons[r.id]?.corps} retour={retour}
+                    onChangeObjet={(id, v) => setBrouillons((s) => ({ ...s, [id]: { objet: v, corps: s[id]?.corps ?? r.corps } }))}
+                    onChangeCorps={(id, v) => setBrouillons((s) => ({ ...s, [id]: { objet: s[id]?.objet ?? r.objet, corps: v } }))}
+                    onEnregistrer={(id) => void agir({ action: 'editer_relance', relanceId: id, objet: brouillons[id]?.objet ?? r.objet, corps: brouillons[id]?.corps ?? r.corps }, `relance-${id}`, 'Relance enregistrée.')}
+                    onRegenerer={(id) => void agir({ action: 'regenerer_relance', relanceId: id }, `relance-${id}`, 'Relance régénérée.')}
+                    onAbandonner={(id) => void agir({ action: 'abandonner_relance', relanceId: id }, `relance-${id}`, 'Relance abandonnée.')} />
                   <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem', alignSelf: 'flex-start' }}
                     aria-expanded={relOuvertes.has(r.id)} onClick={() => setRelOuvertes((s) => toggle(s, r.id))}>
-                    {relOuvertes.has(r.id) ? 'masquer le corps' : 'voir le corps'}
+                    {relOuvertes.has(r.id) ? 'masquer' : 'éditer / voir le corps'}
                   </button>
                 </div>
               ))}

@@ -44,7 +44,7 @@ function makeDeps(over: Partial<DepsRelanceAuto> = {}): DepsRelanceAuto {
     lireContexte: vi.fn(async () => CONTEXTE),
     derniereReleveOkLe: vi.fn(async () => new Date('2026-04-20T06:00:00Z')),   // relève fraîche (6 h)
     lireDemandesEnvoyees: vi.fn(async () => [DEMANDE_DEPASSEE]),
-    relanceVivante: vi.fn(async () => false),
+    relanceExiste: vi.fn(async () => false),
     dossiersSatisfaitsDepuisRelance: vi.fn(async () => false),
     journaliser: vi.fn(async () => {}),
     lireLot: vi.fn(async () => LOT_RELANCE),
@@ -120,10 +120,17 @@ describe('R6c — executerRelanceAuto : ne relance QUE sur « depassee »', () =
   });
 });
 
-describe('R6c — executerRelanceAuto : relance vivante et note d’obsolescence', () => {
-  it('relance vivante SANS nouvelle satisfaction → ignorée, aucune note', async () => {
+describe('R5c/R6c — executerRelanceAuto : une relance EXISTE déjà (règle R5c) et note d’obsolescence', () => {
+  it('R5c — relance déjà présente (même abandonnée) → aucune nouvelle relance (un abandon manuel est respecté)', async () => {
+    const enregistrerRelance = vi.fn(async () => 1);
+    const bilan = await executerRelanceAuto(makeDeps({ relanceExiste: vi.fn(async () => true), enregistrerRelance }));
+    expect(bilan).toMatchObject({ ignorees: 1, creees: 0, signalees: 0 });
+    expect(enregistrerRelance).not.toHaveBeenCalled(); // le changement de règle du chantier : plus de résurrection au tic suivant
+  });
+
+  it('relance existante SANS nouvelle satisfaction → ignorée, aucune note', async () => {
     const journaliser = vi.fn(async () => {});
-    const bilan = await executerRelanceAuto(makeDeps({ relanceVivante: vi.fn(async () => true), journaliser }));
+    const bilan = await executerRelanceAuto(makeDeps({ relanceExiste: vi.fn(async () => true), journaliser }));
     expect(bilan).toMatchObject({ ignorees: 1, creees: 0, signalees: 0 });
     expect(journaliser).not.toHaveBeenCalled();
   });
@@ -132,7 +139,7 @@ describe('R6c — executerRelanceAuto : relance vivante et note d’obsolescence
     const journaliser = vi.fn(async () => {});
     const enregistrerRelance = vi.fn(async () => 1);
     const bilan = await executerRelanceAuto(makeDeps({
-      relanceVivante: vi.fn(async () => true),
+      relanceExiste: vi.fn(async () => true),
       dossiersSatisfaitsDepuisRelance: vi.fn(async () => true),
       journaliser, enregistrerRelance,
     }));
@@ -175,15 +182,16 @@ describe('R6c — depsReellesRelance : SQL émis (fragments sémantiques, param�
     expect(params).toEqual(['entreprise']);
   });
 
-  it('relanceVivante : EXISTS sur demande_relance, non abandonnée', async () => {
-    queryMock.mockResolvedValueOnce({ rows: [{ vivante: true }] });
-    const v = await depsReellesRelance().relanceVivante(42);
+  it('R5c — relanceExiste : EXISTS sur demande_relance SANS filtre de statut (une abandonnée compte aussi)', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ existe: true }] });
+    const v = await depsReellesRelance().relanceExiste(42);
     expect(v).toBe(true);
     const [sql, params] = queryMock.mock.calls[0] as [string, unknown[]];
     const norm = sql.replace(/\s+/g, ' ');
     expect(norm).toContain('FROM demande_relance');
     expect(norm).toContain("type = 'relance'");
-    expect(norm).toContain("statut <> 'abandonnee'");
+    // Le changement de règle : plus de filtre `statut <> 'abandonnee'` → une relance abandonnée bloque aussi l'auto.
+    expect(norm).not.toContain("statut <> 'abandonnee'");
     expect(params).toEqual([42]);
   });
 

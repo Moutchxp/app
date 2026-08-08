@@ -252,19 +252,92 @@ export function BlocARattacher({ reponses, demandes, selection, retour, onChoisi
   );
 }
 
-// ── Bloc 4 : relances préparées ───────────────────────────────────────────────
-/** Carte d'un brouillon de relance : en-tête + corps CONSULTABLE dans un dépliant. LECTURE SEULE (aucun champ, aucun bouton). */
-export function RelanceCarte({ relance, ouvert, id }: { relance: RelancePreparee; ouvert: boolean; id?: string }) {
+// ── Bloc 4 : relances préparées (R5c : objet/corps éditables + régénérer / abandonner) ─────────────────────────────────
+/**
+ * Carte d'un brouillon de relance. R5a : consultation (en-tête + corps dépliant). R5c : si les callbacks d'édition sont
+ * fournis ET la carte dépliée, l'objet et le corps deviennent ÉDITABLES (le texte STOCKÉ est la vérité — rien ne le régénère
+ * dans le dos de l'utilisateur), avec Enregistrer / Régénérer / Abandonner. Sans callback → lecture seule (compat R5a).
+ */
+export function RelanceCarte({ relance, ouvert, id, objet, corps, retour, onChangeObjet, onChangeCorps, onEnregistrer, onRegenerer, onAbandonner }: {
+  relance: RelancePreparee; ouvert: boolean; id?: string;
+  objet?: string; corps?: string; retour?: RetourCible;
+  onChangeObjet?: (relanceId: number, v: string) => void;
+  onChangeCorps?: (relanceId: number, v: string) => void;
+  onEnregistrer?: (relanceId: number) => void;
+  onRegenerer?: (relanceId: number) => void;
+  onAbandonner?: (relanceId: number) => void;
+}) {
+  const editable = onEnregistrer !== undefined; // callbacks présents → mode édition
+  const valObjet = objet ?? relance.objet;
+  const valCorps = corps ?? relance.corps;
+  const champ: CSSProperties = { width: '100%', padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 };
   return (
     <article id={id} className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
         <strong style={{ fontSize: 13 }}>{relance.communeNom ?? relance.reference ?? `demande ${relance.demandeId}`}</strong>
         <span style={styleMuted}>{relance.reference ?? `demande ${relance.demandeId}`} · générée le {formaterDateHeure(relance.genereeLe)}</span>
       </div>
-      <div style={{ fontSize: 13 }}>{relance.objet}</div>
-      {ouvert
-        ? <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '.3rem 0 0', padding: '.5rem', background: 'var(--color-svv-field)', borderRadius: '.4rem', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12 }}>{relance.corps}</pre>
-        : null}
+      {ouvert && editable
+        ? <input aria-label={`Objet de la relance ${relance.id}`} value={valObjet} onChange={(e) => onChangeObjet?.(relance.id, e.target.value)} style={champ} />
+        : <div style={{ fontSize: 13 }}>{relance.objet}</div>}
+      {ouvert && (editable
+        ? (
+          <div className="flex flex-col gap-1">
+            <textarea aria-label={`Corps de la relance ${relance.id}`} value={valCorps} onChange={(e) => onChangeCorps?.(relance.id, e.target.value)} rows={14}
+              style={{ ...champ, fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, resize: 'vertical' }} />
+            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.25rem .6rem' }} onClick={() => onEnregistrer?.(relance.id)}>Enregistrer</button>
+              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.25rem .6rem' }} onClick={() => onRegenerer?.(relance.id)}>Régénérer</button>
+              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.25rem .6rem' }} onClick={() => onAbandonner?.(relance.id)}>Abandonner</button>
+              <MessageRetour r={messageIci(retour ?? null, `relance-${relance.id}`)} />
+            </div>
+          </div>
+          )
+        : <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '.3rem 0 0', padding: '.5rem', background: 'var(--color-svv-field)', borderRadius: '.4rem', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12 }}>{relance.corps}</pre>)}
     </article>
+  );
+}
+
+// ── Bloc 5 : clôture / réouverture d'une demande (R5c) ────────────────────────────────────────────────────────────────
+/**
+ * Contrôle de CLÔTURE / RÉOUVERTURE d'une demande, PUR. Une demande 'close' reste visible, identifiée « Clôturée », avec son
+ * bouton Rouvrir (retour arrière indispensable). Une demande 'envoyee' peut être clôturée : la CONSÉQUENCE est annoncée EN
+ * CLAIR AVANT le clic (arrêt du suivi d'échéance, plus de relance, sortie de la surveillance) ; si des dossiers restent DUS,
+ * un motif est requis (bouton désactivé tant qu'il est vide). Tout autre statut n'a rien à clôturer → aucun contrôle.
+ */
+export function ActionsCloture({ demandeId, statut, dossiersDus, motif, retour, onMotif, onCloturer, onRouvrir }: {
+  demandeId: number; statut: string; dossiersDus: number;
+  motif?: string; retour?: RetourCible;
+  onMotif?: (demandeId: number, v: string) => void;
+  onCloturer?: (demandeId: number) => void;
+  onRouvrir?: (demandeId: number) => void;
+}) {
+  if (statut === 'close') {
+    return (
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, padding: '.1rem .45rem', borderRadius: '.35rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)' }}>Clôturée</span>
+        {onRouvrir && <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.25rem .6rem' }} onClick={() => onRouvrir(demandeId)}>Rouvrir</button>}
+        <MessageRetour r={messageIci(retour ?? null, `rouvrir-${demandeId}`)} />
+      </div>
+    );
+  }
+  if (statut !== 'envoyee') return null; // brouillon / prête / abandonnée : jamais partie, rien à clôturer
+  const dus = dossiersDus > 0;
+  const motifManquant = dus && (motif ?? '').trim() === '';
+  return (
+    <div className="flex flex-col gap-1">
+      <p role="note" style={{ ...styleMuted, margin: 0, lineHeight: 1.4 }}>
+        Clôturer arrête définitivement le suivi de l’échéance, empêche toute relance et sort la demande de la surveillance.
+        {dus ? ` ${dossiersDus} dossier(s) restent dus : un motif est requis.` : ''}
+      </p>
+      <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        {dus && (
+          <input aria-label={`Motif de clôture ${demandeId}`} value={motif ?? ''} onChange={(e) => onMotif?.(demandeId, e.target.value)}
+            placeholder="motif de clôture (requis)" style={{ padding: '.25rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 12, minWidth: 200 }} />
+        )}
+        {onCloturer && <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.25rem .6rem' }} disabled={motifManquant} onClick={() => onCloturer(demandeId)}>Clôturer</button>}
+        <MessageRetour r={messageIci(retour ?? null, `cloturer-${demandeId}`)} />
+      </div>
+    </div>
   );
 }

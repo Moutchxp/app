@@ -6,7 +6,9 @@
  * Une relance n'est générée QUE si l'état d'échéance vaut 'depassee' :
  *  - JAMAIS 'indeterminee' : sans relève fraîche on ignore si la mairie s'est tue — réclamer serait une faute ;
  *  - JAMAIS 'non_delivree' : la demande n'est jamais arrivée, il n'y a pas de refus tacite à constater ;
- *  - JAMAIS si une relance VIVANTE (non abandonnée) existe déjà (vérifié + garanti par l'unique partiel de la 076).
+ *  - JAMAIS si une relance EXISTE DÉJÀ, QUEL QUE SOIT SON STATUT (R5c) — y compris abandonnée. Un abandon manuel est ainsi
+ *    RESPECTÉ : l'auto ne ressuscite jamais une relance au tic suivant. Seul le geste manuel « régénérer » en refait une
+ *    (demandeRelanceRepo). (Avant R5c on ne regardait que les relances vivantes → une abandonnée réapparaissait aussitôt.)
  * Le déclenchement journalise dans demande_journal (auteur 'systeme', motif explicite), et RIEN d'autre.
  * GARDE-FOU IDENTITÉ : aucune relance si l'identité du profil est incomplète (comme le courrier initial).
  */
@@ -47,7 +49,7 @@ export interface DepsRelanceAuto {
   lireContexte(): Promise<ContexteRelance>;
   derniereReleveOkLe(): Promise<Date | null>;
   lireDemandesEnvoyees(profil: ProfilDemandeur): Promise<DemandeEnvoyeeRelance[]>;
-  relanceVivante(demandeId: number): Promise<boolean>;
+  relanceExiste(demandeId: number): Promise<boolean>; // R5c : TOUTE relance (même abandonnée) bloque l'auto → un abandon est respecté
   dossiersSatisfaitsDepuisRelance(demandeId: number): Promise<boolean>; // R6c : une relance vivante existe ET des dossiers ont été satisfaits après elle
   journaliser(demandeId: number, motif: string): Promise<void>;         // R6c : note « systeme » sans régénérer le courrier
   lireLot(demandeId: number): Promise<LotRelance | null>;
@@ -85,9 +87,10 @@ export async function executerRelanceAuto(deps: DepsRelanceAuto): Promise<BilanR
     if (envoyeLe === null) continue; // dépassée ⇒ envoyeLe non nul, mais on rassure le typage
     examinees += 1;
 
-    // Une seule relance vivante par demande. Si elle existe ET que des dossiers ont été satisfaits DEPUIS, on ne
-    // régénère PAS silencieusement (ce serait pire que la laisser) — on le SIGNALE simplement dans le journal.
-    if (await deps.relanceVivante(d.demandeId)) {
+    // R5c — DÈS QU'UNE relance existe (même abandonnée), l'auto n'en crée pas : un abandon manuel est respecté. Cas
+    // particulier conservé : si une relance VIVANTE existe ET que des dossiers ont été satisfaits DEPUIS, on ne régénère
+    // PAS silencieusement (ce serait pire que la laisser) — on le SIGNALE simplement dans le journal.
+    if (await deps.relanceExiste(d.demandeId)) {
       if (await deps.dossiersSatisfaitsDepuisRelance(d.demandeId)) {
         await deps.journaliser(d.demandeId, 'des dossiers ont été satisfaits depuis la relance en cours ; relance NON régénérée automatiquement');
         signalees += 1;
@@ -129,25 +132,62 @@ function cadastreDe(d: LigneDossierSql): string[] {
   return refs;
 }
 
+/**
+ * R5c — contexte de relance au niveau du PROFIL (réglages d'échéance, identité, pièces, adresse de réponse). EXPORTÉ pour être
+ * réutilisé par la régénération MANUELLE (demandeRelanceRepo). `profilOverride` cible un profil précis (relance d'UNE demande
+ * donnée) ; sans lui on prend le profil global de la veille (cfg.releveProfil) — comportement historique de depsReellesRelance.
+ */
+export async function chargerContexteRelance(profilOverride?: ProfilDemandeur): Promise<ContexteRelance> {
+  const cfg = await chargerConfigVeille();
+  const profil: ProfilDemandeur = profilOverride ?? (cfg.releveProfil === 'personne' ? 'personne' : 'entreprise'); // garde : liste fermée
+  const { rows } = await query<{ raison_sociale: string; forme_juridique: string; siege_adresse: string; representant_nom: string; representant_qualite: string; email_contact: string; telephone: string }>(
+    `SELECT raison_sociale, forme_juridique, siege_adresse, representant_nom, representant_qualite, email_contact, telephone FROM config_demandeur WHERE profil = $1`,
+    [profil]);
+  const x = rows[0] ?? { raison_sociale: '', forme_juridique: '', siege_adresse: '', representant_nom: '', representant_qualite: '', email_contact: '', telephone: '' };
+  const config: ConfigDemandeur = {
+    raisonSociale: x.raison_sociale, formeJuridique: x.forme_juridique, siegeAdresse: x.siege_adresse,
+    representantNom: x.representant_nom, representantQualite: x.representant_qualite, emailContact: x.email_contact, telephone: x.telephone,
+  };
+  return {
+    reglages: { echeanceAlerteJours: cfg.echeanceAlerteJours, releveFraicheurHeures: cfg.releveFraicheurHeures },
+    profil, config, pieces: piecesDepuisConfig(cfg.piecesDemandees), adresseReponse: cfg.adresseReponse,
+  };
+}
+
+/**
+ * R5c — charge le LOT d'une demande (tous ses dossiers ACTIFS + les ids déjà satisfaits). EXPORTÉ et réutilisé par la
+ * régénération manuelle : genererRelance ne listera que les dossiers DUS. `null` si la demande est introuvable.
+ */
+export async function chargerLotRelance(demandeId: number): Promise<LotRelance | null> {
+  const meta = await query<{ code_insee: string; commune_nom: string | null; dest_canal: string | null }>(
+    `SELECT d.code_insee, c.nom AS commune_nom, d.dest_canal FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee WHERE d.id = $1`,
+    [demandeId]);
+  const m = meta.rows[0];
+  if (!m) return null;
+  // Tous les dossiers ACTIFS (satisfaits ou non) + le drapeau de satisfaction : genererRelance ne listera que les dus.
+  const doss = await query<LigneDossierSql & { satisfait: boolean }>(
+    `SELECT s.id, s.num_dau, s.date_reelle_autorisation::text AS date_reelle_autorisation,
+            s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter, s.adr_codpost_ter,
+            s.sec_cadastre1, s.num_cadastre1, s.sec_cadastre2, s.num_cadastre2, s.sec_cadastre3, s.num_cadastre3,
+            (dd.satisfait_le IS NOT NULL) AS satisfait
+       FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
+      WHERE dd.demande_id = $1 AND dd.actif ORDER BY s.num_dau`,
+    [demandeId]);
+  const communeNom = m.commune_nom ?? m.code_insee;
+  const dossiers: CandidatDossier[] = doss.rows.map((d) => ({
+    dossierId: d.id, codeInsee: m.code_insee, communeNom, canal: (m.dest_canal as CanalContact | null),
+    numDau: d.num_dau, dateReelleAutorisation: d.date_reelle_autorisation,
+    adresse: [d.adr_num_ter, d.adr_libvoie_ter, d.adr_localite_ter].filter((v) => v && v.trim() !== '').join(' '),
+    codePostal: d.adr_codpost_ter, cadastre: cadastreDe(d), etatDau: null, absentDuDernierMillesime: false,
+  }));
+  const satisfaitsIds = doss.rows.filter((d) => d.satisfait).map((d) => d.id);
+  return { lot: { codeInsee: m.code_insee, communeNom, canal: (m.dest_canal as CanalContact) ?? 'email', dossiers }, satisfaitsIds };
+}
+
 export function depsReellesRelance(): DepsRelanceAuto {
   return {
     maintenant: () => new Date(),
-    lireContexte: async () => {
-      const cfg = await chargerConfigVeille();
-      const profil: ProfilDemandeur = cfg.releveProfil === 'personne' ? 'personne' : 'entreprise'; // garde : liste fermée
-      const { rows } = await query<{ raison_sociale: string; forme_juridique: string; siege_adresse: string; representant_nom: string; representant_qualite: string; email_contact: string; telephone: string }>(
-        `SELECT raison_sociale, forme_juridique, siege_adresse, representant_nom, representant_qualite, email_contact, telephone FROM config_demandeur WHERE profil = $1`,
-        [profil]);
-      const x = rows[0] ?? { raison_sociale: '', forme_juridique: '', siege_adresse: '', representant_nom: '', representant_qualite: '', email_contact: '', telephone: '' };
-      const config: ConfigDemandeur = {
-        raisonSociale: x.raison_sociale, formeJuridique: x.forme_juridique, siegeAdresse: x.siege_adresse,
-        representantNom: x.representant_nom, representantQualite: x.representant_qualite, emailContact: x.email_contact, telephone: x.telephone,
-      };
-      return {
-        reglages: { echeanceAlerteJours: cfg.echeanceAlerteJours, releveFraicheurHeures: cfg.releveFraicheurHeures },
-        profil, config, pieces: piecesDepuisConfig(cfg.piecesDemandees), adresseReponse: cfg.adresseReponse,
-      };
-    },
+    lireContexte: () => chargerContexteRelance(),
     derniereReleveOkLe: async () => {
       const { rows } = await query<{ t: Date | null }>(`SELECT max(termine_le) AS t FROM releve_run WHERE resultat = 'ok'`);
       return rows[0]?.t ?? null;
@@ -169,11 +209,13 @@ export function depsReellesRelance(): DepsRelanceAuto {
         [profil]);
       return rows.map((r) => ({ demandeId: r.id, reference: r.reference, envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement, dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits }));
     },
-    relanceVivante: async (demandeId) => {
-      const { rows } = await query<{ vivante: boolean }>(
-        `SELECT EXISTS (SELECT 1 FROM demande_relance WHERE demande_id = $1 AND type = 'relance' AND statut <> 'abandonnee') AS vivante`,
+    relanceExiste: async (demandeId) => {
+      // R5c — TOUTE relance bloque l'auto, y compris une abandonnée (plus de filtre `statut <> 'abandonnee'`) : un abandon
+      // manuel doit être respecté. Seul le geste manuel « régénérer » (demandeRelanceRepo) en refait une.
+      const { rows } = await query<{ existe: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM demande_relance WHERE demande_id = $1 AND type = 'relance') AS existe`,
         [demandeId]);
-      return rows[0]?.vivante === true;
+      return rows[0]?.existe === true;
     },
     dossiersSatisfaitsDepuisRelance: async (demandeId) => {
       const { rows } = await query<{ obsolete: boolean }>(
@@ -191,31 +233,7 @@ export function depsReellesRelance(): DepsRelanceAuto {
         `INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, 'systeme')`,
         [demandeId, motif]);
     },
-    lireLot: async (demandeId) => {
-      const meta = await query<{ code_insee: string; commune_nom: string | null; dest_canal: string | null }>(
-        `SELECT d.code_insee, c.nom AS commune_nom, d.dest_canal FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee WHERE d.id = $1`,
-        [demandeId]);
-      const m = meta.rows[0];
-      if (!m) return null;
-      // Tous les dossiers ACTIFS (satisfaits ou non) + le drapeau de satisfaction : genererRelance ne listera que les dus.
-      const doss = await query<LigneDossierSql & { satisfait: boolean }>(
-        `SELECT s.id, s.num_dau, s.date_reelle_autorisation::text AS date_reelle_autorisation,
-                s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter, s.adr_codpost_ter,
-                s.sec_cadastre1, s.num_cadastre1, s.sec_cadastre2, s.num_cadastre2, s.sec_cadastre3, s.num_cadastre3,
-                (dd.satisfait_le IS NOT NULL) AS satisfait
-           FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
-          WHERE dd.demande_id = $1 AND dd.actif ORDER BY s.num_dau`,
-        [demandeId]);
-      const communeNom = m.commune_nom ?? m.code_insee;
-      const dossiers: CandidatDossier[] = doss.rows.map((d) => ({
-        dossierId: d.id, codeInsee: m.code_insee, communeNom, canal: (m.dest_canal as CanalContact | null),
-        numDau: d.num_dau, dateReelleAutorisation: d.date_reelle_autorisation,
-        adresse: [d.adr_num_ter, d.adr_libvoie_ter, d.adr_localite_ter].filter((v) => v && v.trim() !== '').join(' '),
-        codePostal: d.adr_codpost_ter, cadastre: cadastreDe(d), etatDau: null, absentDuDernierMillesime: false,
-      }));
-      const satisfaitsIds = doss.rows.filter((d) => d.satisfait).map((d) => d.id);
-      return { lot: { codeInsee: m.code_insee, communeNom, canal: (m.dest_canal as CanalContact) ?? 'email', dossiers }, satisfaitsIds };
-    },
+    lireLot: (demandeId) => chargerLotRelance(demandeId),
     enregistrerRelance: async (demandeId, profil, objet, corps, motif) => {
       return withTransaction(async (q) => {
         const { rows } = await q<{ id: number }>(

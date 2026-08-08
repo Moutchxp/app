@@ -124,7 +124,8 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
        FROM releve_run ORDER BY demarre_le DESC LIMIT 10`,
   );
 
-  // Demandes ENVOYÉES (tous profils) : acheminement agrégé + compteurs de dossiers + nombre de réponses rattachées.
+  // Demandes ENVOYÉES + CLOSES (tous profils) : R5c — une demande close reste VISIBLE (identifiée comme telle, avec Rouvrir),
+  // elle ne disparaît pas de l'écran. Acheminement agrégé + compteurs de dossiers + nombre de réponses rattachées.
   const dem = await query<{
     id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string;
     envoye_le: string | null; statut_acheminement: string; dossiers_actifs: number; dossiers_satisfaits: number; nb_reponses: number;
@@ -141,7 +142,7 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
        FROM demande d
        LEFT JOIN commune c ON c.code_insee = d.code_insee
        LEFT JOIN demande_acheminement a ON a.demande_id = d.id AND a.canal = 'email'
-      WHERE d.statut = 'envoyee'
+      WHERE d.statut IN ('envoyee', 'close')
       GROUP BY d.id, d.reference, d.code_insee, c.nom, d.statut`,
   );
 
@@ -153,7 +154,7 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
        FROM demande_dossier dd
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
        JOIN demande d ON d.id = dd.demande_id
-      WHERE d.statut = 'envoyee' AND dd.actif
+      WHERE d.statut IN ('envoyee', 'close') AND dd.actif
       ORDER BY dd.demande_id, s.num_dau`,
   );
   const parDemande = new Map<number, DossierSuivi[]>();
@@ -198,7 +199,7 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
        FROM demande_relance rl
        JOIN demande d ON d.id = rl.demande_id
        LEFT JOIN commune c ON c.code_insee = d.code_insee
-      WHERE rl.statut = 'brouillon'
+      WHERE rl.statut = 'brouillon' AND d.statut = 'envoyee'
       ORDER BY rl.generee_le DESC`,
   );
   const relances: RelancePreparee[] = rel.rows.map((r) => ({

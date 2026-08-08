@@ -343,6 +343,52 @@ export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'abando
   });
 }
 
+/**
+ * R5c — CLÔTURE d'une demande : enfin un ÉCRIVAIN pour 'close' (statut sans écrivain depuis le premier jour du module).
+ * Réutilise la MÊME ligne de transition que changerStatutLot — `UPDATE demande SET statut = $2 … WHERE id = $1`, params
+ * `[id, nouveau]` — la ligne exacte du bug 22P02 corrigé en S41 : ne JAMAIS réinverser cet ordre (statut lié à $2, id à $1).
+ * INTERDIT hors 'envoyee' : une demande brouillon / prête / abandonnée n'est jamais partie, elle n'a rien à clôturer. Si des
+ * dossiers restent DUS, la clôture reste possible mais EXIGE un motif (elle arrête le suivi d'échéance). Transactionnel
+ * (demande + demande_journal). N'envoie rien ; ne touche pas les relances (l'auto ne relance plus une demande non 'envoyee').
+ */
+export async function cloturerDemande(id: number, motif: string, auteur: string | null): Promise<void> {
+  await withTransaction(async (tx) => {
+    const q = asQ(tx);
+    const r = await q<{ statut: string; dus: number }>(
+      `SELECT statut,
+              (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = $1 AND dd.actif AND dd.satisfait_le IS NULL) AS dus
+         FROM demande WHERE id = $1`,
+      [id]);
+    const row = r.rows[0];
+    if (!row) throw new TransitionInterditeError('demande introuvable');
+    if (row.statut !== 'envoyee') throw new TransitionInterditeError(`demande « ${row.statut} » : seule une demande envoyée peut être clôturée`);
+    const motifNet = (motif ?? '').trim();
+    if (row.dus > 0 && motifNet === '') throw new TransitionInterditeError(`${row.dus} dossier(s) encore dû(s) : un motif de clôture est requis`);
+    const motifFinal = motifNet !== '' ? motifNet : 'clôture (tous les dossiers satisfaits)';
+    await q(`UPDATE demande SET statut = $2, maj_le = now() WHERE id = $1`, [id, 'close']); // ordre [id, nouveau] — cf. S41 (22P02)
+    await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, 'close', $3, $4)`, [id, row.statut, motifFinal, auteur]);
+  });
+}
+
+/**
+ * R5c — RÉOUVERTURE d'une demande clôturée ('close' → 'envoyee'), journalisée. Indispensable, pas un confort : une clôture
+ * erronée sort la demande du suivi d'échéance SANS signal alors que le délai CRPA continue de courir — le retour arrière doit
+ * exister (comme le démarquage d'un dossier en R5b). Après réouverture, l'échéance se RECALCULE seule depuis envoye_le : on ne
+ * stocke AUCUNE date dérivée. Même ligne de transition, même ordre de paramètres `[id, nouveau]`. Transactionnel.
+ */
+export async function rouvrirDemande(id: number, motif: string | null, auteur: string | null): Promise<void> {
+  await withTransaction(async (tx) => {
+    const q = asQ(tx);
+    const r = await q<{ statut: string }>(`SELECT statut FROM demande WHERE id = $1`, [id]);
+    const row = r.rows[0];
+    if (!row) throw new TransitionInterditeError('demande introuvable');
+    if (row.statut !== 'close') throw new TransitionInterditeError(`demande « ${row.statut} » : seule une demande close peut être rouverte`);
+    const motifFinal = (motif ?? '').trim() !== '' ? (motif as string).trim() : 'réouverture (clôture annulée)';
+    await q(`UPDATE demande SET statut = $2, maj_le = now() WHERE id = $1`, [id, 'envoyee']); // ordre [id, nouveau] — cf. S41 (22P02)
+    await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, 'close', 'envoyee', $2, $3)`, [id, motifFinal, auteur]);
+  });
+}
+
 // ── Dépôt manuel sur téléservice (canal 'formulaire' — S16) ──────────────────────────────────────────────────────────
 export interface DemandeADeposer {
   id: number; reference: string; communeNom: string | null; url: string | null; corps: string | null; statut: string; nbDossiers: number;
