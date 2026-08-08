@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { PermisVue } from './PermisVue';
 import { DemandesVue } from './DemandesVue';
+import { ReponsesVue } from './ReponsesVue';
 import { ReglagesVue } from './ReglagesVue';
 import { AutomatisationVue } from './AutomatisationVue';
 import { CollaborateursVue } from './CollaborateursVue';
@@ -23,6 +24,7 @@ export function PermisTuile({ depuisParDefaut, categories }: Props) {
       <OngletsPermis actif={onglet} onChoisir={setOnglet} />
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} />}
       {onglet === 'demandes' && <DemandesVue />}
+      {onglet === 'reponses' && <ReponsesVue />}
       {onglet === 'reglages' && <ReglagesVue />}
       {onglet === 'automatisation' && <AutomatisationVue />}
       {onglet === 'collaborateurs' && <CollaborateursVue />}

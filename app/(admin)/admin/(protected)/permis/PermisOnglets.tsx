@@ -7,11 +7,11 @@ import type { CSSProperties } from 'react';
  * lecteur d'écran (`role="group"` + `aria-label`), pas seulement visuel. La couleur (liseré) n'est qu'un appui : l'intitulé
  * de groupe (les mots) porte l'information. Aucune transition → rien à neutraliser pour prefers-reduced-motion.
  */
-export type CleOnglet = 'dossiers' | 'demandes' | 'reglages' | 'automatisation' | 'collaborateurs';
+export type CleOnglet = 'dossiers' | 'demandes' | 'reponses' | 'reglages' | 'automatisation' | 'collaborateurs';
 
 export const GROUPES_ONGLETS: { titre: string; onglets: { cle: CleOnglet; libelle: string }[] }[] = [
   { titre: 'Mise à jour des dossiers', onglets: [{ cle: 'dossiers', libelle: 'Dossiers' }, { cle: 'automatisation', libelle: 'Automatisation' }] },
-  { titre: 'Demandes aux mairies', onglets: [{ cle: 'demandes', libelle: 'Demandes' }, { cle: 'collaborateurs', libelle: 'Collaborateurs' }, { cle: 'reglages', libelle: 'Réglages' }] },
+  { titre: 'Demandes aux mairies', onglets: [{ cle: 'demandes', libelle: 'Demandes' }, { cle: 'reponses', libelle: 'Réponses' }, { cle: 'collaborateurs', libelle: 'Collaborateurs' }, { cle: 'reglages', libelle: 'Réglages' }] },
 ];
 
 const styleTitreGroupe: CSSProperties = { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--color-svv-muted)' };
