@@ -47,6 +47,7 @@ export interface ConfigVeille {
   alerteEmail: string;              // R8 : destinataire du récapitulatif quotidien ('' = aucune alerte possible)
   alerteHeureLocale: number;        // R8 : heure locale (0-23) à partir de laquelle le récapitulatif du jour peut partir
   pieceTailleMaxMo: number;         // R4 : taille max (Mo) d'une pièce jointe entrante déposée
+  rechercheReferencesMax: number;   // R3e : nb max de numéros de dossier interrogés côté serveur à chaque relève
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -78,6 +79,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   echeanceAlerteJours: 7, releveFraicheurHeures: 48, // = DEFAULT de la migration 075
   alerteActive: false, alerteEmail: '', alerteHeureLocale: 8, // = DEFAULT de la migration 078 (opt-in)
   pieceTailleMaxMo: 50, // = DEFAULT de la migration 079
+  rechercheReferencesMax: 50, // = DEFAULT de la migration 080
 };
 
 interface LigneConfigVeille {
@@ -218,6 +220,14 @@ async function lirePieceTaille(): Promise<Pick<ConfigVeille, 'pieceTailleMaxMo'>
   } catch { return { pieceTailleMaxMo: 50 }; } // 079 pas encore appliquée → défaut
 }
 
+/** Lecture BEST-EFFORT du PLAFOND de références de recherche (R3e), ISOLÉE — retombe sur 50 tant que la migration 080 n'est pas passée. */
+async function lireRechercheReferences(): Promise<Pick<ConfigVeille, 'rechercheReferencesMax'>> {
+  try {
+    const { rows } = await query<{ recherche_references_max: number }>(`SELECT recherche_references_max FROM config_veille WHERE id = 1`);
+    return { rechercheReferencesMax: rows[0]?.recherche_references_max ?? 50 };
+  } catch { return { rechercheReferencesMax: 50 }; } // 080 pas encore appliquée → défaut
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -256,6 +266,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireEcheance()),                     // R6 : échéance/fraîcheur, lecture isolée (résiliente à la 075)
       ...(await lireAlerte()),                        // R8 : alertes e-mail, lecture isolée (résiliente à la 078)
       ...(await lirePieceTaille()),                    // R4 : borne de taille des pièces, lecture isolée (résiliente à la 079)
+      ...(await lireRechercheReferences()),            // R3e : plafond de références, lecture isolée (résiliente à la 080)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

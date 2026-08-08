@@ -8,7 +8,7 @@ import { dossiersSatisfaits, type ReponsePourSatisfaction } from './satisfaction
 import type { ResultatDepotEntrant } from '../stockage';
 
 export type ProfilBoite = 'entreprise' | 'personne';
-export type RattachementMethode = 'message_id' | 'reference_objet' | 'reference_corps' | 'manuel' | 'aucun';
+export type RattachementMethode = 'message_id' | 'reference_objet' | 'reference_corps' | 'numero_dossier' | 'manuel' | 'aucun';
 
 /** Une pièce jointe d'un message entrant. Les champs de dépôt (cle_stockage/empreinte/stocke_le) restent NULL tant que la pièce n'est pas déposée (chantier ultérieur). */
 export interface PieceEntrante {

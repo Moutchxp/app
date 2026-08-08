@@ -37,6 +37,8 @@ export interface CritereRecherche { depuis: Date; from?: string }
 export interface ClientBoite {
   ouvrir(): Promise<void>;
   chercher(criteres: CritereRecherche): Promise<number[]>;
+  /** R3e — recherche serveur TEXT (en-têtes + corps) des références de dossier, par lots en OU ; renvoie l'union dédupliquée des UID. */
+  chercherReferences(depuis: Date, references: string[]): Promise<number[]>;
   telechargerMessage(uid: number): Promise<MessageBoite>;
   fermer(): Promise<void>;
 }
@@ -59,6 +61,9 @@ export interface RapportReleve {
   depuis: string | null;
   domainesInterroges: string[];
   uidsServeur: number;          // UID renvoyés par la recherche par domaine (union dédupliquée)
+  referencesInterrogees: number; // R3e : nombre de numéros de dossier interrogés côté serveur (TEXT)
+  uidsReferences: number;        // R3e : UID ramenés par la recherche par référence (distinct des autres sondes)
+  plafondReferencesAtteint: boolean; // R3e : le plafond recherche_references_max a mordu (les plus urgents seulement)
   plafondAtteint: boolean;
   vus: number;
   dejaConnus: number;
@@ -102,21 +107,53 @@ function domaineDe(adresse: string): string {
 function objetPertinent(objet: string | undefined): boolean {
   return objet ? normaliserObjet(objet).includes(FRAGMENT_OBJET) : false;
 }
+/** R3e — numéro de dossier Sitadel réduit à ses seuls chiffres (ex. « PC 093 001 25 00081 » → « 0930012500081 »). */
+function numeroDossier(numDau: string): string { return numDau.replace(/\D/g, ''); }
 
-/** Une demande envoyée du profil : identité + destinataire + Message-ID émis (pour rattacher réponses ET rebonds). */
-interface DemandeEnvoyee { id: number; reference: string; destEmail: string; messageIdsEmis: string[] }
+/** Une demande envoyée du profil : identité + destinataire + Message-ID émis + n° de dossier (pour rattacher réponses ET rebonds). */
+interface DemandeEnvoyee { id: number; reference: string; destEmail: string; messageIdsEmis: string[]; numerosDossier: string[] }
 
 async function lireEnvoyees(profil: ProfilBoite): Promise<DemandeEnvoyee[]> {
-  const { rows } = await query<{ id: number; reference: string; dest_email: string; message_ids: string[] }>(
+  const { rows } = await query<{ id: number; reference: string; dest_email: string; message_ids: string[]; num_daus: string[] }>(
     `SELECT d.id::int AS id, d.reference, coalesce(d.dest_email, '') AS dest_email,
-            coalesce(array_agg(a.message_id) FILTER (WHERE a.message_id IS NOT NULL), '{}') AS message_ids
+            coalesce(array_agg(a.message_id) FILTER (WHERE a.message_id IS NOT NULL), '{}') AS message_ids,
+            coalesce((SELECT array_agg(s.num_dau) FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
+                       WHERE dd.demande_id = d.id AND dd.actif), '{}') AS num_daus
        FROM demande d
        LEFT JOIN demande_acheminement a ON a.demande_id = d.id AND a.canal = 'email'
       WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1
       GROUP BY d.id, d.reference, d.dest_email`,
     [profil],
   );
-  return rows.map((r) => ({ id: r.id, reference: r.reference, destEmail: r.dest_email, messageIdsEmis: r.message_ids }));
+  return rows.map((r) => ({
+    id: r.id, reference: r.reference, destEmail: r.dest_email, messageIdsEmis: r.message_ids,
+    numerosDossier: r.num_daus.map(numeroDossier).filter((n) => n !== ''),
+  }));
+}
+
+/**
+ * R3e — références de dossier à interroger côté serveur : dossiers des demandes NON closes du profil, NON satisfaits en
+ * priorité, ordonnés par échéance croissante (proxy : envoyé_le croissant), plafonnés. Renvoie les n° (chiffres) dédupliqués
+ * et un drapeau si le plafond a mordu (jamais silencieux). LECTURE SEULE.
+ */
+async function lireReferencesRecherche(profil: ProfilBoite, max: number): Promise<{ references: string[]; plafondAtteint: boolean }> {
+  const { rows } = await query<{ num_dau: string }>(
+    `SELECT s.num_dau
+       FROM demande d
+       JOIN demande_dossier dd ON dd.demande_id = d.id AND dd.actif
+       JOIN sitadel_dossier s ON s.id = dd.dossier_id
+      WHERE d.statut NOT IN ('close','abandonnee') AND d.profil_demandeur = $1
+      ORDER BY (dd.satisfait_le IS NULL) DESC,
+               (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id AND a.canal = 'email') ASC NULLS LAST,
+               s.num_dau
+      LIMIT $2`,
+    [profil, max + 1], // +1 pour détecter le dépassement du plafond
+  );
+  const toutes: string[] = [];
+  const vus = new Set<string>();
+  for (const r of rows) { const n = numeroDossier(r.num_dau); if (n.length >= 10 && !vus.has(n)) { vus.add(n); toutes.push(n); } }
+  const plafondAtteint = toutes.length > max;
+  return { references: toutes.slice(0, max), plafondAtteint };
 }
 
 async function dateDepart(profil: ProfilBoite): Promise<Date | null> {
@@ -192,31 +229,39 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const mode: 'simulation' | 'applique' = appliquer ? 'applique' : 'simulation';
 
   const envoyees = await lireEnvoyees(opts.profil);
-  const candidates: DemandeCandidate[] = envoyees.map((e) => ({ id: e.id, reference: e.reference, profilBoite: opts.profil, statut: 'envoyee', messageIdsEmis: e.messageIdsEmis }));
+  const candidates: DemandeCandidate[] = envoyees.map((e) => ({ id: e.id, reference: e.reference, profilBoite: opts.profil, statut: 'envoyee', messageIdsEmis: e.messageIdsEmis, numerosDossier: e.numerosDossier }));
   const depuis = opts.depuis ?? (await dateDepart(opts.profil));
   const domaines = await lireDomainesDestinataires(opts.profil);
   const domainesInterroges = [...domaines];
 
   const vide = (connecte: boolean): RapportReleve => ({
     mode, profil: opts.profil, connecte, depuis: depuis ? depuis.toISOString() : null, domainesInterroges,
-    uidsServeur: 0, plafondAtteint: false, vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0, nonRattaches: 0,
+    uidsServeur: 0, referencesInterrogees: 0, uidsReferences: 0, plafondReferencesAtteint: false, plafondAtteint: false,
+    vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0, nonRattaches: 0,
     rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, ecrites: 0, piecesDeposees: 0, piecesNonDeposees: 0, parMethode: {}, lignes: [],
   });
 
   if (depuis === null) return vide(false); // aucune demande envoyée → pas de connexion
 
   const connus = await messageIdsConnus(opts.profil);
-  // R4 — borne de taille des pièces entrantes (config, éditable à l'écran). Lue seulement en mode APPLIQUÉ (aucun dépôt en simulation).
-  const tailleMaxOctets = appliquer ? (await chargerConfigVeille()).pieceTailleMaxMo * 1024 * 1024 : 0;
+  // Config lue UNE fois : borne de taille des pièces (R4) + plafond de références de recherche (R3e).
+  const cfg = await chargerConfigVeille();
+  const tailleMaxOctets = cfg.pieceTailleMaxMo * 1024 * 1024; // utilisé seulement en mode APPLIQUÉ (dépôt)
+  const { references, plafondAtteint: plafondReferencesAtteint } = await lireReferencesRecherche(opts.profil, cfg.rechercheReferencesMax);
   const lignes: LigneReleve[] = [];
   let vus = 0, dejaConnus = 0, horsPerimetre = 0, rebondsDetectes = 0, rebondsRattaches = 0, rebondsEtrangers = 0, rebondsAppliques = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0;
-  let uidsServeur = 0, plafondAtteint = false;
+  let uidsServeur = 0, uidsReferences = 0, plafondAtteint = false;
 
   // R4 — dépose les pièces d'une réponse déjà enregistrée (contenu tiers, jamais ouvert) et met à jour les compteurs.
   const deposerPieces = async (reponseId: number, demandeId: number | null, pieces: PieceMeta[]): Promise<void> => {
     const bilan = await deposerEtLierPieces(reponseId, demandeId,
       pieces.map((p) => ({ nomFichier: p.nomFichier, typeMime: p.typeMime, contenu: p.contenu })), tailleMaxOctets);
     piecesDeposees += bilan.deposees; piecesNonDeposees += bilan.nonDeposees;
+  };
+  // R3e — un n° de dossier d'une demande candidate apparaît LITTÉRALEMENT (objet/corps/nom de pièce) ? Critère de pertinence.
+  const contientNumeroDossier = (mb: MessageBoite): boolean => {
+    const foin = `${mb.message.objet ?? ''}\n${mb.message.corpsTexte ?? ''}\n${mb.pieces.map((p) => p.nomFichier).join('\n')}`.replace(/[\s.\-/_]/gu, '');
+    return candidates.some((c) => c.numerosDossier.some((n) => n.length >= 10 && foin.includes(n)));
   };
 
   await opts.client.ouvrir();
@@ -225,16 +270,23 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
     const uidsDomaines = new Set<number>();
     for (const domaine of domainesInterroges) for (const uid of await opts.client.chercher({ depuis, from: domaine })) uidsDomaines.add(uid);
     uidsServeur = uidsDomaines.size;
-    let selDomaines = [...uidsDomaines].sort((a, b) => a - b);
-    if (selDomaines.length > plafond) { plafondAtteint = true; selDomaines = selDomaines.slice(-plafond); }
+
+    // (b2) R3e — sélection SERVEUR par RÉFÉRENCE de dossier (recherche TEXT, TOUS expéditeurs — pas seulement les domaines).
+    const uidsRefs = new Set(references.length > 0 ? await opts.client.chercherReferences(depuis, references) : []);
+    uidsReferences = uidsRefs.size;
+
+    // Sélection PRINCIPALE = domaines ∪ références ; le plafond GÉNÉRAL ne s'applique qu'APRÈS cette sélection serveur.
+    let selPrincipal = [...new Set<number>([...uidsDomaines, ...uidsRefs])].sort((a, b) => a - b);
+    if (selPrincipal.length > plafond) { plafondAtteint = true; selPrincipal = selPrincipal.slice(-plafond); }
 
     // (c) sondes REBONDS côté serveur (mailer-daemon puis postmaster), hors UID déjà couverts, garde-fou plafondRebonds.
+    const dejaCouverts = new Set<number>([...uidsDomaines, ...uidsRefs]);
     const uidsRebonds = new Set<number>();
     for (const sonde of SONDES_REBOND) for (const uid of await opts.client.chercher({ depuis, from: sonde })) uidsRebonds.add(uid);
-    const genRebonds = [...uidsRebonds].filter((u) => !uidsDomaines.has(u)).sort((a, b) => a - b).slice(-plafondRebonds);
+    const genRebonds = [...uidsRebonds].filter((u) => !dejaCouverts.has(u)).sort((a, b) => a - b).slice(-plafondRebonds);
     const genSet = new Set(genRebonds);
 
-    const aTelecharger = [...new Set([...selDomaines, ...genRebonds])].sort((a, b) => a - b);
+    const aTelecharger = [...new Set([...selPrincipal, ...genRebonds])].sort((a, b) => a - b);
     for (const uid of aTelecharger) {
       vus += 1;
       const mb = await opts.client.telechargerMessage(uid);
@@ -262,7 +314,8 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
       const duDomaine = !genSet.has(uid);
       if (!opts.sansFiltre && !duDomaine) { horsPerimetre += 1; continue; } // sonde rebond mais pas un rebond → ignoré
       const r = rattacherReponse(mb.message, candidates);
-      const pertinent = opts.sansFiltre === true || r.methode !== 'aucun' || domaines.has(domaineDe(mb.message.deAdresse)) || objetPertinent(mb.message.objet);
+      // R3e — nouveau critère : un n° de dossier d'une demande candidate apparaît littéralement (objet/corps/nom de pièce).
+      const pertinent = opts.sansFiltre === true || r.methode !== 'aucun' || domaines.has(domaineDe(mb.message.deAdresse)) || objetPertinent(mb.message.objet) || contientNumeroDossier(mb);
       if (!pertinent) { horsPerimetre += 1; continue; }
       lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
       if (appliquer) {
@@ -288,7 +341,8 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const rattaches = lignes.filter((l) => l.demandeId !== null).length;
 
   return {
-    mode, profil: opts.profil, connecte: true, depuis: depuis.toISOString(), domainesInterroges, uidsServeur, plafondAtteint,
+    mode, profil: opts.profil, connecte: true, depuis: depuis.toISOString(), domainesInterroges, uidsServeur,
+    referencesInterrogees: references.length, uidsReferences, plafondReferencesAtteint, plafondAtteint,
     vus, dejaConnus, horsPerimetre, retenus: lignes.length, rattaches, nonRattaches: lignes.length - rattaches,
     rebondsDetectes, rebondsRattaches, rebondsEtrangers, rebondsAppliques, ecrites, piecesDeposees, piecesNonDeposees, parMethode, lignes,
   };

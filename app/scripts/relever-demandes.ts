@@ -41,6 +41,7 @@ function imprimer(r: RapportReleve): void {
   console.log(`  fenêtre (depuis)            : ${r.depuis}`);
   console.log(`  domaines interrogés (serveur): ${r.domainesInterroges.join(', ') || '(aucun)'}`);
   console.log(`  UID renvoyés par domaine    : ${r.uidsServeur}${r.plafondAtteint ? '  ⚠ PLAFOND ATTEINT → seuls les plus récents sont traités' : ''}`);
+  console.log(`  références interrogées / UID : ${r.referencesInterrogees} / ${r.uidsReferences}${r.plafondReferencesAtteint ? '  ⚠ PLAFOND RÉFÉRENCES ATTEINT → seules les plus urgentes' : ''}`);
   console.log(`  messages téléchargés (vus)  : ${r.vus}`);
   console.log(`  déjà connus (ignorés)       : ${r.dejaConnus}`);
   console.log(`  hors périmètre (ignorés)    : ${r.horsPerimetre}`);

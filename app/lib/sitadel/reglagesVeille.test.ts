@@ -35,6 +35,8 @@ const DEFS_BASE = [
   'CHECK (((alerte_heure_locale >= 0) AND (alerte_heure_locale <= 23)))',
   // R4 — borne de taille des pièces entrantes (migration 079)
   'CHECK (((piece_taille_max_mo >= 1) AND (piece_taille_max_mo <= 200)))',
+  // R3e — plafond de références de recherche (migration 080)
+  'CHECK (((recherche_references_max >= 1) AND (recherche_references_max <= 500)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 

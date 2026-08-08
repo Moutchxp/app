@@ -5,8 +5,8 @@ import { rattacherReponse, estAccuseDeRebond, type MessageEntrant, type DemandeC
  * R2 — module PUR de rattachement. Tests sans réseau ni base : on fabrique un message + des candidates et on vérifie la
  * cascade déterministe (threading → référence complète → référence discrète corps → aucun) et la détection de rebond.
  */
-const A: DemandeCandidate = { id: 1, reference: 'SVAV-DEM-2026-000154', profilBoite: 'entreprise', statut: 'envoyee', messageIdsEmis: ['<abc-154@sansvisavis.com>'] };
-const P: DemandeCandidate = { id: 2, reference: 'SVAV-DEM-2026-000200', profilBoite: 'personne', statut: 'envoyee', messageIdsEmis: ['<def-200@sansvisavis.com>'] };
+const A: DemandeCandidate = { id: 1, reference: 'SVAV-DEM-2026-000154', profilBoite: 'entreprise', statut: 'envoyee', messageIdsEmis: ['<abc-154@sansvisavis.com>'], numerosDossier: ['0930012500081'] };
+const P: DemandeCandidate = { id: 2, reference: 'SVAV-DEM-2026-000200', profilBoite: 'personne', statut: 'envoyee', messageIdsEmis: ['<def-200@sansvisavis.com>'], numerosDossier: ['0930012500082'] };
 
 const msg = (over: Partial<MessageEntrant>): MessageEntrant => ({ messageId: '<reply@mairie.fr>', deAdresse: 'urba@mairie.fr', ...over });
 
@@ -64,6 +64,35 @@ describe('R2 — référence discrète (corps SEULEMENT, cas personne)', () => {
     expect(r.demandeId).toBeNull();
     expect(r.methode).toBe('aucun');
     expect(r.motif).toMatch(/envoyee|prete/);
+  });
+});
+
+describe('R3e — numéro de dossier Sitadel (après référence complète, avant discrète)', () => {
+  it('numéro complet dans le CORPS → rattaché par numero_dossier', () => {
+    const r = rattacherReponse(msg({ objet: 'Votre demande', corpsTexte: 'Concernant le dossier 0930012500081, voici les pièces.' }), [A, P]);
+    expect(r).toMatchObject({ demandeId: 1, methode: 'numero_dossier' });
+    expect(r.motif.length).toBeGreaterThan(0);
+  });
+
+  it('numéro avec séparateurs (PC 093 001 25 00081) → reconnu (comparaison normalisée)', () => {
+    const r = rattacherReponse(msg({ corpsTexte: 'Réf. permis PC 093 001 25 00081 — transmis au service instructeur.' }), [A, P]);
+    expect(r).toMatchObject({ demandeId: 1, methode: 'numero_dossier' });
+  });
+
+  it('numéro TRONQUÉ → NON rattaché (aucune correspondance partielle)', () => {
+    const r = rattacherReponse(msg({ corpsTexte: 'dossier 093001250008 (numéro incomplet)' }), [A, P]);
+    expect(r).toMatchObject({ demandeId: null, methode: 'aucun' });
+  });
+
+  it('deux numéros désignant DEUX demandes → AMBIGU → aucun', () => {
+    const r = rattacherReponse(msg({ corpsTexte: 'dossiers 0930012500081 et 0930012500082' }), [A, P]);
+    expect(r).toMatchObject({ demandeId: null, methode: 'aucun' });
+  });
+
+  it('la RÉFÉRENCE COMPLÈTE reste prioritaire sur le numéro de dossier (ordre de la cascade)', () => {
+    // objet/corps contiennent la réf complète de A ET le n° de dossier de P → c'est la réf complète (A) qui l'emporte.
+    const r = rattacherReponse(msg({ corpsTexte: 'SVAV-DEM-2026-000154 — voir aussi dossier 0930012500082' }), [A, P]);
+    expect(r).toMatchObject({ demandeId: 1, methode: 'reference_corps' });
   });
 });
 

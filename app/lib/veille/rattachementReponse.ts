@@ -27,6 +27,7 @@ export interface DemandeCandidate {
   profilBoite: 'entreprise' | 'personne';
   statut: string;
   messageIdsEmis: string[];                // Message-ID des envois sortants de CETTE demande (avec ou sans chevrons)
+  numerosDossier: string[];                // R3e : n° de dossier Sitadel (chiffres) des dossiers de la demande — ancre de rattachement
 }
 
 export interface ResultatRattachement {
@@ -69,12 +70,26 @@ function uniqueParId(list: DemandeCandidate[]): DemandeCandidate[] {
   return out;
 }
 
+/** R3e — plancher : un vrai n° de dossier Sitadel fait ~13 chiffres ; en-dessous on refuse (jamais un rapprochement flou). */
+const LONGUEUR_MIN_NUM = 10;
+/** Supprime espaces/séparateurs (garde lettres+chiffres) pour une comparaison LITTÉRALE tolérant la mise en forme du n°. */
+function normaliserTexte(s: string): string { return s.replace(/[\s.\-/_]/gu, ''); }
+/**
+ * Candidates dont un numéro de dossier COMPLET apparaît LITTÉRALEMENT (après normalisation) dans le texte. Correspondance
+ * exacte du numéro entier — aucun rapprochement approximatif (même exigence que satisfactionDossier).
+ */
+function parNumeroDossier(candidates: DemandeCandidate[], texte: string): DemandeCandidate[] {
+  const foin = normaliserTexte(texte);
+  return uniqueParId(candidates.filter((c) => c.numerosDossier.some((n) => n.length >= LONGUEUR_MIN_NUM && foin.includes(n))));
+}
+
 const aucun = (motif: string): ResultatRattachement => ({ demandeId: null, methode: 'aucun', motif });
 
 /**
  * Décide le rattachement selon une CASCADE DÉTERMINISTE (on s'arrête au premier succès = exactement une demande) :
  *   1. THREADING (In-Reply-To/References ∩ Message-ID émis) → 'message_id'
  *   2. RÉFÉRENCE COMPLÈTE (objet puis corps) → 'reference_objet' | 'reference_corps'
+ *   2bis. NUMÉRO DE DOSSIER SITADEL (objet + corps ; R3e) → 'numero_dossier' (ancre non ambiguë : 1 dossier = 1 demande active)
  *   3. RÉFÉRENCE DISCRÈTE (corps SEULEMENT ; l'objet du profil personne est générique) → 'reference_corps', et
  *      uniquement si la demande retenue est au statut 'envoyee'
  *   4. sinon → { null, 'aucun' }
@@ -106,6 +121,15 @@ export function rattacherReponse(message: MessageEntrant, candidates: DemandeCan
       methode: dansObjet ? 'reference_objet' : 'reference_corps',
       motif: `référence complète ${c.reference} trouvée ${dansObjet ? "dans l'objet" : 'dans le corps'}`,
     };
+  }
+
+  // 2bis) NUMÉRO DE DOSSIER SITADEL (objet + corps) — R3e. Ancre NON AMBIGUË PAR CONSTRUCTION : un dossier n'appartient
+  //   qu'à UNE demande active (garanti par l'index unique partiel `demande_dossier_unique_actif`). Placée APRÈS la
+  //   référence complète et AVANT la référence discrète. Si les numéros trouvés désignent PLUSIEURS demandes → ambigu → aucun.
+  const parDossier = parNumeroDossier(candidates, `${message.objet ?? ''}\n${message.corpsTexte ?? ''}`);
+  if (parDossier.length > 1) return aucun(`numéro de dossier ambigu : ${parDossier.length} demandes désignées`);
+  if (parDossier.length === 1) {
+    return { demandeId: parDossier[0].id, methode: 'numero_dossier', motif: `numéro de dossier Sitadel de ${parDossier[0].reference} reconnu dans le message` };
   }
 
   // 3) RÉFÉRENCE DISCRÈTE (corps seulement) ------------------------------------

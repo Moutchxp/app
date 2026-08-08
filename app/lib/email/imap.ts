@@ -79,6 +79,23 @@ export function creerClientBoite(compte: CompteImap): ClientBoite {
       const uids = await client.search(critere, { uid: true });
       return uids === false ? [] : uids;
     },
+    async chercherReferences(depuis: Date, references: string[]): Promise<number[]> {
+      // R3e — recherche TEXT (en-têtes + corps ; une mairie cite souvent le n° de dossier dans le CORPS). imapflow accepte
+      //   `or: [{text}, …]` (RFC 3501 §6.4.4). On procède par LOTS pour éviter un OU trop profond que certains serveurs
+      //   refusent, puis on fait l'UNION dédupliquée des UID (comme pour les domaines).
+      const TAILLE_LOT = 10;
+      const uids = new Set<number>();
+      for (let i = 0; i < references.length; i += TAILLE_LOT) {
+        const lot = references.slice(i, i + TAILLE_LOT).filter((r) => r.trim() !== '');
+        if (lot.length === 0) continue;
+        const critere = lot.length === 1
+          ? { since: depuis, text: lot[0] }
+          : { since: depuis, or: lot.map((r) => ({ text: r })) };
+        const res = await client.search(critere, { uid: true });
+        if (res !== false) for (const u of res) uids.add(u);
+      }
+      return [...uids].sort((a, b) => a - b);
+    },
     async telechargerMessage(uid: number): Promise<MessageBoite> {
       const msg = await client.fetchOne(uid, { source: true }, { uid: true });
       if (msg === false || !msg.source) throw new Error(`message uid ${uid} introuvable ou sans source`);

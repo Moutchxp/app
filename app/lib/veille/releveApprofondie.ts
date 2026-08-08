@@ -82,7 +82,7 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
   const { cible } = opts;
   const domaineCible = domaineDe(cible.destEmail);
   const depuis = new Date(cible.envoyeLe.getTime() - MS_JOUR); // fenêtre = envoi − 1 jour (et non la fenêtre courante)
-  const candidate: DemandeCandidate = { id: cible.demandeId, reference: cible.reference, profilBoite: cible.profil, statut: 'envoyee', messageIdsEmis: cible.messageIdsEmis };
+  const candidate: DemandeCandidate = { id: cible.demandeId, reference: cible.reference, profilBoite: cible.profil, statut: 'envoyee', messageIdsEmis: cible.messageIdsEmis, numerosDossier: [] };
 
   const boitesExplorees: string[] = [];
   const lignes: LigneReleve[] = [];

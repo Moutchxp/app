@@ -8,16 +8,18 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
   const etat = {
-    candidates: [] as { id: number; reference: string; dest_email: string; message_ids: string[] }[],
+    candidates: [] as { id: number; reference: string; dest_email: string; message_ids: string[]; num_daus: string[] }[],
     depuis: null as Date | null,
     knownIds: [] as string[],
     domaines: [] as string[],
+    references: [] as string[], // R3e — num_dau renvoyés par lireReferencesRecherche
     rebondRowCount: 1,
     conflit: false,
     nextId: 4242,
   };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
+    if (/NOT IN \('close','abandonnee'\)/i.test(sql)) return { rows: etat.references.map((n) => ({ num_dau: n })), rowCount: etat.references.length }; // R3e lireReferencesRecherche
     if (/min\(a\.envoye_le\)/i.test(sql)) return { rows: [{ depuis: etat.depuis }], rowCount: 1 };
     if (/array_agg\(a\.message_id\)/i.test(sql)) return { rows: etat.candidates, rowCount: etat.candidates.length };
     if (/FROM demande_reponse WHERE profil_boite/i.test(sql)) return { rows: etat.knownIds.map((m) => ({ message_id: m })), rowCount: etat.knownIds.length };
@@ -44,7 +46,7 @@ import type { PartieRapport } from './rapportRejet';
 
 const trouver = (r: RegExp) => appels.find((a) => r.test(a.sql));
 const DEPUIS = new Date('2026-08-01T00:00:00.000Z');
-const CAND_A = { id: 1, reference: 'SVAV-DEM-2026-000154', dest_email: 'urba@mairie-aubervilliers.fr', message_ids: ['<abc-154@sansvisavis.com>'] };
+const CAND_A = { id: 1, reference: 'SVAV-DEM-2026-000154', dest_email: 'urba@mairie-aubervilliers.fr', message_ids: ['<abc-154@sansvisavis.com>'], num_daus: [] as string[] };
 const dsnCorps = (dest: string) => ['Your message could not be delivered.', `Final-Recipient: rfc822; ${dest}`, 'Action: failed', 'Status: 5.1.1', 'Diagnostic-Code: smtp; 550 5.1.1 No such user'].join('\n');
 
 let uidSeq = 0;
@@ -57,8 +59,8 @@ const boite = (message: Partial<MessageEntrant>, extra: { pieces?: PieceMeta[]; 
   partiesRapport: extra.partiesRapport,
 });
 
-function fauxClient(messages: MessageBoite[], rechercheImpl?: (c: CritereRecherche) => number[]) {
-  const suivi = { ouvert: 0, ferme: 0, recherches: [] as CritereRecherche[], uidsTelecharges: [] as number[] };
+function fauxClient(messages: MessageBoite[], rechercheImpl?: (c: CritereRecherche) => number[], refImpl?: (refs: string[]) => number[]) {
+  const suivi = { ouvert: 0, ferme: 0, recherches: [] as CritereRecherche[], referencesInterrogees: [] as string[], uidsTelecharges: [] as number[] };
   const client: ClientBoite = {
     async ouvrir() { suivi.ouvert += 1; },
     async chercher(c) {
@@ -66,6 +68,10 @@ function fauxClient(messages: MessageBoite[], rechercheImpl?: (c: CritereRecherc
       if (rechercheImpl) return rechercheImpl(c);
       const f = c.from?.toLowerCase();
       return messages.filter((m) => f === undefined || m.message.deAdresse.toLowerCase().includes(f)).map((m) => m.uid);
+    },
+    async chercherReferences(_depuis, references) {
+      suivi.referencesInterrogees.push(...references);
+      return refImpl ? refImpl(references) : [];
     },
     async telechargerMessage(uid) { suivi.uidsTelecharges.push(uid); const m = messages.find((x) => x.uid === uid); if (!m) throw new Error(`uid ${uid}`); return m; },
     async fermer() { suivi.ferme += 1; },
@@ -75,7 +81,7 @@ function fauxClient(messages: MessageBoite[], rechercheImpl?: (c: CritereRecherc
 
 beforeEach(() => {
   appels.length = 0; uidSeq = 0;
-  etat.candidates = [CAND_A]; etat.depuis = DEPUIS; etat.knownIds = []; etat.domaines = ['mairie-aubervilliers.fr']; etat.rebondRowCount = 1; etat.conflit = false; etat.nextId = 4242;
+  etat.candidates = [CAND_A]; etat.depuis = DEPUIS; etat.knownIds = []; etat.domaines = ['mairie-aubervilliers.fr']; etat.references = []; etat.rebondRowCount = 1; etat.conflit = false; etat.nextId = 4242;
 });
 
 describe('R3c/R3d — recherches serveur', () => {
@@ -214,5 +220,54 @@ describe('R3 — réponses normales & garde-fous', () => {
     expect(r.ecrites).toBe(0);
     expect(trouver(/RETURNING id/i)).toBeUndefined();
     expect(trouver(/UPDATE demande_acheminement/i)).toBeUndefined();
+  });
+});
+
+describe('R3e — recherche serveur par référence de dossier (en plus des sondes)', () => {
+  it('interroge les numéros de dossier (union avec les domaines), distinctement des sondes', async () => {
+    etat.domaines = ['ville.fr'];
+    etat.references = ['0930012500081', '0930012500082'];
+    const parDomaine = boite({ deAdresse: 'x@ville.fr' });          // uid 1 (domaine)
+    const parReference = boite({ deAdresse: 'agent@tiers.fr', corpsTexte: 'dossier 0930012500081' }); // uid 2 (référence)
+    const { client, suivi } = fauxClient([parDomaine, parReference], undefined, (refs) => refs.includes('0930012500081') ? [parReference.uid] : []);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+
+    expect(suivi.referencesInterrogees).toEqual(['0930012500081', '0930012500082']); // les 2 références interrogées
+    expect(suivi.uidsTelecharges).toEqual([1, 2]);                                     // union domaine + référence
+    expect(r.referencesInterrogees).toBe(2);
+    expect(r.uidsReferences).toBe(1);                                                  // 1 UID ramené par les références
+    expect(r.uidsServeur).toBe(1);                                                     // 1 UID par domaine (distinct)
+  });
+
+  it('message d’un domaine TIERS citant le n° de dossier dans le CORPS → téléchargé, retenu et RATTACHÉ', async () => {
+    etat.candidates = [{ ...CAND_A, num_daus: ['0930012500081'] }]; // la demande 1 a ce dossier
+    etat.references = ['0930012500081'];
+    const tiers = boite({ deAdresse: 'agent@prestataire.fr', corpsTexte: 'Concernant le dossier 0930012500081, voici la réponse.' });
+    const { client, suivi } = fauxClient([tiers], undefined, (refs) => refs.includes('0930012500081') ? [tiers.uid] : []);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+
+    expect(suivi.uidsTelecharges).toContain(tiers.uid); // vu alors qu'il ne vient d'aucun domaine/sonde
+    expect(r.retenus).toBe(1);
+    expect(r.lignes[0]).toMatchObject({ demandeId: 1, methode: 'numero_dossier' });
+  });
+
+  it('numéro TRONQUÉ dans le corps → non retenu', async () => {
+    etat.candidates = [{ ...CAND_A, num_daus: ['0930012500081'] }];
+    etat.references = ['0930012500081'];
+    const tiers = boite({ deAdresse: 'agent@prestataire.fr', corpsTexte: 'dossier 093001250008 (incomplet)' });
+    const { client } = fauxClient([tiers], undefined, () => [tiers.uid]); // le serveur l'a ramené, mais le filtre client le rejette
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.retenus).toBe(0);
+    expect(r.horsPerimetre).toBe(1);
+  });
+
+  it('plafond de références atteint → les plus urgentes prises ET avertissement dans le rapport', async () => {
+    etat.references = Array.from({ length: 51 }, (_, i) => String(9300000000000 + i)); // 51 > défaut 50
+    let recus: string[] = [];
+    const { client } = fauxClient([], undefined, (refs) => { recus = refs; return []; });
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.plafondReferencesAtteint).toBe(true);
+    expect(r.referencesInterrogees).toBe(50); // plafond par défaut
+    expect(recus).toHaveLength(50);
   });
 });

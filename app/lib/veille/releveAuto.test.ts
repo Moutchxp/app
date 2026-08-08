@@ -12,7 +12,8 @@ const CLIENT_FACTICE = {} as ClientBoite; // opaque : transite de creerClient à
 function rapport(over: Partial<RapportReleve> = {}): RapportReleve {
   return {
     mode: 'applique', profil: 'entreprise', connecte: true, depuis: null, domainesInterroges: [],
-    uidsServeur: 0, plafondAtteint: false, vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0, nonRattaches: 0,
+    uidsServeur: 0, referencesInterrogees: 0, uidsReferences: 0, plafondReferencesAtteint: false, plafondAtteint: false,
+    vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0, nonRattaches: 0,
     rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, ecrites: 0, piecesDeposees: 0, piecesNonDeposees: 0, parMethode: {}, lignes: [],
     ...over,
   };
