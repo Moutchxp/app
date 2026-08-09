@@ -237,3 +237,32 @@ describe('V2 — sélection des candidats : cap (bornes CHECK) + tri (liste ferm
     expect(tri.optionsEnumLabels?.date_puis_surface).toMatch(/récents/i);
   });
 });
+
+describe('X1 — canal CADA : cada_email (e-mail, vide autorisé) + cada_url_formulaire (URL)', () => {
+  it('les deux paramètres sont dans le sous-bloc « demandes »', () => {
+    for (const col of ['cada_email', 'cada_url_formulaire']) {
+      expect(COLONNES_PARAMS_DEMANDES).toContain(col);
+      expect(PARAMS_DEMANDES.some((p) => p.colonne === col)).toBe(true);
+    }
+  });
+
+  it('cada_email (type email) : vide ACCEPTÉ (= formulaire en ligne), adresse valide ACCEPTÉE, invalide REFUSÉE', () => {
+    const vide = validerReglages({ veille: { cada_email: '' } }, BORNES);
+    expect(vide.ok).toBe(true);
+    if (vide.ok) expect(vide.veille.cada_email).toBe(''); // '' n'est pas une erreur : c'est le mode formulaire
+    expect(validerReglages({ veille: { cada_email: '  cada@cada.fr ' } }, BORNES).ok).toBe(true); // trim + valide
+    expect(validerReglages({ veille: { cada_email: 'pas-une-adresse' } }, BORNES).ok).toBe(false);
+  });
+
+  it('cada_url_formulaire (type url) : http(s) ACCEPTÉE, non-URL et vide REFUSÉES', () => {
+    expect(validerReglages({ veille: { cada_url_formulaire: 'https://www.cada.fr/formulaire-de-saisine' } }, BORNES).ok).toBe(true);
+    expect(validerReglages({ veille: { cada_url_formulaire: 'cada.fr' } }, BORNES).ok).toBe(false); // pas de schéma http(s)
+    expect(validerReglages({ veille: { cada_url_formulaire: '' } }, BORNES).ok).toBe(false);        // une URL de formulaire est requise
+  });
+
+  it('l’aide de cada_email explique le mode « formulaire en ligne » quand l’adresse est vide', () => {
+    const p = PARAMS_DEMANDES.find((x) => x.colonne === 'cada_email')!;
+    expect(p.type).toBe('email');
+    expect(p.aide).toMatch(/formulaire en ligne/i);
+  });
+});

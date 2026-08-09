@@ -198,6 +198,7 @@ export interface MailDemande {
   replyTo: string;  // boîte RELUE (config_veille.adresse_reponse) : c'est là que la mairie répond
   objet: string;    // demande.objet figé
   corps: string;    // demande.corps figé (texte brut)
+  pieces?: { filename: string; content: Buffer; contentType: string }[]; // X1 : pièces jointes OPTIONNELLES (copie de la demande pour la saisine CADA). Omis → aucune pièce (demandes/relances INCHANGÉES).
 }
 export interface EmissionDemande { messageId: string; retourFournisseur: string }
 
@@ -209,13 +210,11 @@ export interface EmissionDemande { messageId: string; retourFournisseur: string 
  * SIMULATION (aucune connexion, aucun octet) : cette fonction ne sait pas lequel, et c'est voulu.
  */
 export async function envoyerDemande(transporteur: Transporter, from: string, m: MailDemande): Promise<EmissionDemande> {
-  const info = await transporteur.sendMail({
-    from,
-    to: m.to,
-    replyTo: m.replyTo,
-    subject: m.objet,
-    text: m.corps, // texte brut UNIQUEMENT ; aucune pièce jointe
-  });
+  // Message texte brut. `attachments` n'est AJOUTÉ que si des pièces sont fournies (X1) : sans pieces, l'objet passé à
+  // nodemailer est EXACTEMENT celui d'avant (aucune clé `attachments`) → demandes et relances strictement inchangées.
+  const message: Parameters<Transporter['sendMail']>[0] = { from, to: m.to, replyTo: m.replyTo, subject: m.objet, text: m.corps };
+  if (m.pieces && m.pieces.length > 0) message.attachments = m.pieces;
+  const info = await transporteur.sendMail(message);
   const messageId = (info.messageId ?? '').toString().trim();
   if (messageId === '') throw new Error('émission sans messageId — capture impossible, échec (pas de succès silencieux)');
   // `response` = réponse SMTP réelle (ex. « 250 2.0.0 OK … ») ; en simulation jsonTransport elle est absente → repli explicite.

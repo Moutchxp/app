@@ -50,6 +50,8 @@ export interface ConfigVeille {
   rechercheReferencesMax: number;   // R3e : nb max de numéros de dossier interrogés côté serveur à chaque relève
   nbCandidatsExamines: number;      // V2 : profondeur du haut du classement examinée pour constituer les demandes (ex-const NB_CANDIDATS)
   triCandidats: string;             // V2 : ordre secondaire de tri des candidats (GARDE, liste fermée) — ex-const ORDRE_SECONDAIRE
+  cadaEmail: string;                // X1 : e-mail de la CADA pour une saisine par e-mail ('' = saisine par formulaire en ligne, dépôt manuel)
+  cadaUrlFormulaire: string;        // X1 : URL du formulaire de saisine en ligne de la CADA (dépôt manuel quand cadaEmail vide)
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -83,6 +85,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   pieceTailleMaxMo: 50, // = DEFAULT de la migration 079
   rechercheReferencesMax: 50, // = DEFAULT de la migration 080
   nbCandidatsExamines: 5000, triCandidats: 'surface_puis_date', // = DEFAULT de la migration 081
+  cadaEmail: '', cadaUrlFormulaire: 'https://www.cada.fr/formulaire-de-saisine', // = DEFAULT de la migration 083
 };
 
 interface LigneConfigVeille {
@@ -248,6 +251,22 @@ async function lireSelectionCandidats(): Promise<Pick<ConfigVeille, 'nbCandidats
   } catch { return def; } // 081 pas encore appliquée → défauts
 }
 
+/**
+ * Lecture BEST-EFFORT du canal CADA (X1 : e-mail + URL du formulaire), ISOLÉE — même motif de résilience : tant que la
+ * migration 083 n'est pas passée, les colonnes n'existent pas → cette lecture échoue SEULE et retombe sur les défauts
+ * ('' e-mail, URL du formulaire), SANS dégrader tout le reste de la config (précédent 054).
+ */
+async function lireCada(): Promise<Pick<ConfigVeille, 'cadaEmail' | 'cadaUrlFormulaire'>> {
+  const def = { cadaEmail: '', cadaUrlFormulaire: 'https://www.cada.fr/formulaire-de-saisine' };
+  try {
+    const { rows } = await query<{ cada_email: string; cada_url_formulaire: string }>(
+      `SELECT cada_email, cada_url_formulaire FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return def;
+    return { cadaEmail: (r.cada_email ?? '').trim(), cadaUrlFormulaire: r.cada_url_formulaire };
+  } catch { return def; } // 083 pas encore appliquée → défauts
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -288,6 +307,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lirePieceTaille()),                    // R4 : borne de taille des pièces, lecture isolée (résiliente à la 079)
       ...(await lireRechercheReferences()),            // R3e : plafond de références, lecture isolée (résiliente à la 080)
       ...(await lireSelectionCandidats()),             // V2 : profondeur + ordre de tri des candidats, lecture isolée (résiliente à la 081)
+      ...(await lireCada()),                           // X1 : canal CADA (e-mail + formulaire), lecture isolée (résiliente à la 083)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

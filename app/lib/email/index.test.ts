@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Transporter } from 'nodemailer';
-import { lireConfigEmail, lireCompteSmtp, obtenirTransporteur, envoyerCertificat, envoyerReinitialisation, type CompteSmtp } from './index';
+import { lireConfigEmail, lireCompteSmtp, obtenirTransporteur, envoyerCertificat, envoyerReinitialisation, envoyerDemande, type CompteSmtp, type MailDemande } from './index';
 
 interface ArgsSendMail {
   from: string;
@@ -202,5 +202,31 @@ describe('S43 — obtenirTransporteur : cache PAR COMPTE (aucune régression pou
     expect(obtenirTransporteur(DEFAUT)).not.toBe(obtenirTransporteur(PERSO));
     // et le compte par défaut reste inchangé après la création du second (pas d'écrasement de cache)
     expect(obtenirTransporteur(DEFAUT)).toBe(obtenirTransporteur(DEFAUT));
+  });
+});
+
+describe('X1 — envoyerDemande : pièce jointe OPTIONNELLE (non-régression)', () => {
+  const DEM: MailDemande = { to: 'urba@mairie.fr', replyTo: 'a.jorel@sansvisavis.com', objet: 'Demande', corps: 'Corps de la demande.' };
+
+  it('SANS pieces → sendMail reçoit EXACTEMENT l’objet actuel (aucune clé attachments)', async () => {
+    const { transporteur, sendMail } = faux();
+    await envoyerDemande(transporteur, 'noreply@sansvisavis.com', DEM);
+    const arg = sendMail.mock.calls[0]![0] as Record<string, unknown>;
+    expect(arg).toEqual({ from: 'noreply@sansvisavis.com', to: 'urba@mairie.fr', replyTo: 'a.jorel@sansvisavis.com', subject: 'Demande', text: 'Corps de la demande.' });
+    expect('attachments' in arg).toBe(false); // identique à aujourd'hui : nodemailer ne reçoit aucune pièce
+  });
+
+  it('AVEC pieces → les attachments sont transmis TELS QUELS', async () => {
+    const { transporteur, sendMail } = faux();
+    const pieces = [{ filename: 'Copie-demande.pdf', content: Buffer.from('%PDF-1.7'), contentType: 'application/pdf' }];
+    await envoyerDemande(transporteur, 'noreply@sansvisavis.com', { ...DEM, pieces });
+    const arg = sendMail.mock.calls[0]![0] as { attachments?: unknown };
+    expect(arg.attachments).toEqual(pieces);
+  });
+
+  it('pieces = tableau VIDE → traité comme absent (aucune clé attachments)', async () => {
+    const { transporteur, sendMail } = faux();
+    await envoyerDemande(transporteur, 'noreply@sansvisavis.com', { ...DEM, pieces: [] });
+    expect('attachments' in (sendMail.mock.calls[0]![0] as Record<string, unknown>)).toBe(false);
   });
 });

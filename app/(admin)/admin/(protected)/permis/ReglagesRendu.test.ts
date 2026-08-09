@@ -79,12 +79,13 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(AIDE_PARAMS_DOSSIERS).toContain('Mise à jour des dossiers');
   });
 
-  it('partition : 20 demandes (+ V2 : profondeur + tri) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
+  it('partition : 22 demandes (+ X1 : canal CADA) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
     expect(PARAMS_DEMANDES.map((p) => p.colonne)).toEqual([
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois',
       'nb_candidats_examines', 'tri_candidats', // V2 — profondeur d'examen + ordre de tri des candidats
       'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi
       'adresse_reponse',                            // S38 — adresse de réponse
+      'cada_email', 'cada_url_formulaire',          // X1 — canal CADA
       'releve_active', 'releve_intervalle_minutes', 'releve_profil', // R7 — relève automatique
       'echeance_alerte_jours', 'releve_fraicheur_heures', // R6 — échéance d'un mois + fraîcheur
       'alerte_active', 'alerte_email', 'alerte_heure_locale', // R8 — alertes e-mail
@@ -214,5 +215,23 @@ describe('V2 — rendu des réglages de sélection des candidats', () => {
     expect(h).toContain('Plus récents d’abord (date, puis surface)');
     expect(h).not.toContain('surface_puis_date'); // la valeur brute technique n'apparaît pas
     expect(h).not.toContain('Plage autorisée');
+  });
+});
+
+describe('X1 — rendu des réglages CADA (types e-mail / URL : indice de format, pas de plage numérique recopiée)', () => {
+  it('cada_email (type email) → indice de format e-mail, mention « vide = non configurée »', () => {
+    const p = PARAMS_VEILLE.find((x) => x.colonne === 'cada_email')!;
+    expect(p.type).toBe('email');
+    const h = renderToStaticMarkup(createElement(PlageParam, { param: p, bornes: undefined }));
+    expect(h).toMatch(/adresse e-mail/i);
+    expect(h).not.toContain('Plage autorisée'); // pas de borne numérique (type format)
+  });
+
+  it('cada_url_formulaire (type url) → indice de format http(s)://', () => {
+    const p = PARAMS_VEILLE.find((x) => x.colonne === 'cada_url_formulaire')!;
+    expect(p.type).toBe('url');
+    const h = renderToStaticMarkup(createElement(PlageParam, { param: p, bornes: undefined }));
+    expect(h).toMatch(/http:\/\/ ou https:\/\//i);
+    expect(h).not.toContain('introuvable'); // une URL n'a pas de bornes → pas l'erreur « plage introuvable »
   });
 });
