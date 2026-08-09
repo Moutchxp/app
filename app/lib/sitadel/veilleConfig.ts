@@ -48,6 +48,8 @@ export interface ConfigVeille {
   alerteHeureLocale: number;        // R8 : heure locale (0-23) à partir de laquelle le récapitulatif du jour peut partir
   pieceTailleMaxMo: number;         // R4 : taille max (Mo) d'une pièce jointe entrante déposée
   rechercheReferencesMax: number;   // R3e : nb max de numéros de dossier interrogés côté serveur à chaque relève
+  nbCandidatsExamines: number;      // V2 : profondeur du haut du classement examinée pour constituer les demandes (ex-const NB_CANDIDATS)
+  triCandidats: string;             // V2 : ordre secondaire de tri des candidats (GARDE, liste fermée) — ex-const ORDRE_SECONDAIRE
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -80,6 +82,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   alerteActive: false, alerteEmail: '', alerteHeureLocale: 8, // = DEFAULT de la migration 078 (opt-in)
   pieceTailleMaxMo: 50, // = DEFAULT de la migration 079
   rechercheReferencesMax: 50, // = DEFAULT de la migration 080
+  nbCandidatsExamines: 5000, triCandidats: 'surface_puis_date', // = DEFAULT de la migration 081
 };
 
 interface LigneConfigVeille {
@@ -228,6 +231,23 @@ async function lireRechercheReferences(): Promise<Pick<ConfigVeille, 'rechercheR
   } catch { return { rechercheReferencesMax: 50 }; } // 080 pas encore appliquée → défaut
 }
 
+/**
+ * Lecture BEST-EFFORT de la SÉLECTION DES CANDIDATS (V2 : profondeur d'examen + ordre de tri), ISOLÉE — même motif de
+ * résilience : tant que la migration 081 n'est pas passée, les colonnes n'existent pas → cette lecture échoue SEULE et
+ * retombe sur les défauts (5000, 'surface_puis_date'), SANS dégrader tout le reste de la config (précédent 054 : une lecture
+ * dans la requête principale aurait replié SILENCIEUSEMENT toute la veille sur ses défauts).
+ */
+async function lireSelectionCandidats(): Promise<Pick<ConfigVeille, 'nbCandidatsExamines' | 'triCandidats'>> {
+  const def = { nbCandidatsExamines: 5000, triCandidats: 'surface_puis_date' };
+  try {
+    const { rows } = await query<{ nb_candidats_examines: number; tri_candidats: string }>(
+      `SELECT nb_candidats_examines, tri_candidats FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return def;
+    return { nbCandidatsExamines: r.nb_candidats_examines, triCandidats: r.tri_candidats };
+  } catch { return def; } // 081 pas encore appliquée → défauts
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -267,6 +287,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireAlerte()),                        // R8 : alertes e-mail, lecture isolée (résiliente à la 078)
       ...(await lirePieceTaille()),                    // R4 : borne de taille des pièces, lecture isolée (résiliente à la 079)
       ...(await lireRechercheReferences()),            // R3e : plafond de références, lecture isolée (résiliente à la 080)
+      ...(await lireSelectionCandidats()),             // V2 : profondeur + ordre de tri des candidats, lecture isolée (résiliente à la 081)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

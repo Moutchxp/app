@@ -79,9 +79,10 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(AIDE_PARAMS_DOSSIERS).toContain('Mise à jour des dossiers');
   });
 
-  it('partition : 18 demandes (2 caps + adresse + 3 relève + 2 échéance + 3 alerte + 1 pièce + 1 référence) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
+  it('partition : 20 demandes (+ V2 : profondeur + tri) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
     expect(PARAMS_DEMANDES.map((p) => p.colonne)).toEqual([
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois',
+      'nb_candidats_examines', 'tri_candidats', // V2 — profondeur d'examen + ordre de tri des candidats
       'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi
       'adresse_reponse',                            // S38 — adresse de réponse
       'releve_active', 'releve_intervalle_minutes', 'releve_profil', // R7 — relève automatique
@@ -190,5 +191,28 @@ describe('S33 — les 8 réglages « dossiers » migrent, CarteReglageEntier les
     }));
     expect(h).toContain('role="alert"');
     expect(h).toContain('minimum 1');
+  });
+});
+
+describe('V2 — rendu des réglages de sélection des candidats', () => {
+  const BORNES_081 = parserBornesCheck(['CHECK (((nb_candidats_examines >= 100) AND (nb_candidats_examines <= 50000)))']);
+
+  it('cap : PlageParam affiche la plage issue du CHECK (100 – 50000), jamais recopiée', () => {
+    const cap = PARAMS_VEILLE.find((p) => p.colonne === 'nb_candidats_examines')!;
+    expect(cap.type).toBe('entier');
+    const h = renderToStaticMarkup(createElement(PlageParam, { param: cap, bornes: BORNES_081.nb_candidats_examines }));
+    expect(h).toContain('Plage autorisée');
+    expect(h).toContain('100');
+    expect(h).toContain('50000');
+  });
+
+  it('tri : PlageParam liste les CHOIX en libellés FRANÇAIS (pas les valeurs brutes), pas de plage numérique', () => {
+    const tri = PARAMS_VEILLE.find((p) => p.colonne === 'tri_candidats')!;
+    expect(tri.type).toBe('enum');
+    const h = renderToStaticMarkup(createElement(PlageParam, { param: tri, bornes: undefined }));
+    expect(h).toContain('Plus grands d’abord (surface, puis date)');
+    expect(h).toContain('Plus récents d’abord (date, puis surface)');
+    expect(h).not.toContain('surface_puis_date'); // la valeur brute technique n'apparaît pas
+    expect(h).not.toContain('Plage autorisée');
   });
 });

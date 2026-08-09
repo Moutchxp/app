@@ -40,7 +40,9 @@ export function BandeauIdentite({ problemes }: { problemes: string[] }) {
 export function PlageParam({ param, bornes }: { param: ParamVeille; bornes?: Bornes }) {
   const style: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
   if (param.type === 'enum') {
-    return <span style={style}>Choix : {(param.optionsEnum ?? []).join(' / ')}.</span>;
+    // Libellés FR si fournis (optionsEnumLabels), sinon la valeur brute — les enum sans libellés (profil…) sont inchangés.
+    const choix = (param.optionsEnum ?? []).map((o) => param.optionsEnumLabels?.[o] ?? o);
+    return <span style={style}>Choix : {choix.join(' / ')}.</span>;
   }
   if (param.type === 'texte') {
     return <span style={style}>Format : codes de pièces séparés par des virgules (ex. PC2, PC3).</span>;

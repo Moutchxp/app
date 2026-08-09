@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parserBornesCheck, validerReglages, bandeauIdentite, colonneDepuisProbleme,
-  PARAMS_VEILLE, CHAMPS_IDENTITE,
+  PARAMS_VEILLE, PARAMS_DEMANDES, COLONNES_PARAMS_DEMANDES, CHAMPS_IDENTITE,
 } from './reglagesVeille';
 import { problemesIdentite, type ConfigDemandeur } from './demande';
 
@@ -37,6 +37,8 @@ const DEFS_BASE = [
   'CHECK (((piece_taille_max_mo >= 1) AND (piece_taille_max_mo <= 200)))',
   // R3e — plafond de références de recherche (migration 080)
   'CHECK (((recherche_references_max >= 1) AND (recherche_references_max <= 500)))',
+  // V2 — profondeur d'examen des candidats (migration 081)
+  'CHECK (((nb_candidats_examines >= 100) AND (nb_candidats_examines <= 50000)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 
@@ -201,5 +203,37 @@ describe('S7e — validation par profil + profil par défaut', () => {
     expect(ok.ok).toBe(true);
     if (ok.ok) expect(ok.veille.profil_demandeur_defaut).toBe('personne');
     expect(validerReglages({ veille: { profil_demandeur_defaut: 'anonyme' } }, BORNES).ok).toBe(false);
+  });
+});
+
+describe('V2 — sélection des candidats : cap (bornes CHECK) + tri (liste fermée)', () => {
+  it('les deux paramètres sont dans le sous-bloc « demandes » (rendus dans l’onglet Réglages)', () => {
+    for (const col of ['nb_candidats_examines', 'tri_candidats']) {
+      expect(COLONNES_PARAMS_DEMANDES).toContain(col);
+      expect(PARAMS_DEMANDES.some((p) => p.colonne === col)).toBe(true);
+    }
+  });
+
+  it('nb_candidats_examines : entier accepté dans la plage, refusé hors bornes (plage = CHECK)', () => {
+    expect(validerReglages({ veille: { nb_candidats_examines: 5000 } }, BORNES).ok).toBe(true);
+    expect(validerReglages({ veille: { nb_candidats_examines: 99 } }, BORNES).ok).toBe(false);     // < 100
+    expect(validerReglages({ veille: { nb_candidats_examines: 50001 } }, BORNES).ok).toBe(false);  // > 50000
+    expect(validerReglages({ veille: { nb_candidats_examines: 1000.5 } }, BORNES).ok).toBe(false); // non entier
+  });
+
+  it('tri_candidats : les deux valeurs de la liste acceptées, une valeur inconnue REFUSÉE', () => {
+    for (const v of ['surface_puis_date', 'date_puis_surface']) {
+      const ok = validerReglages({ veille: { tri_candidats: v } }, BORNES);
+      expect(ok.ok).toBe(true);
+      if (ok.ok) expect(ok.veille.tri_candidats).toBe(v);
+    }
+    expect(validerReglages({ veille: { tri_candidats: 'au_hasard' } }, BORNES).ok).toBe(false);
+  });
+
+  it('tri_candidats porte deux libellés d’affichage en français', () => {
+    const tri = PARAMS_DEMANDES.find((p) => p.colonne === 'tri_candidats')!;
+    expect(tri.type).toBe('enum');
+    expect(tri.optionsEnumLabels?.surface_puis_date).toMatch(/grands/i);
+    expect(tri.optionsEnumLabels?.date_puis_surface).toMatch(/récents/i);
   });
 });

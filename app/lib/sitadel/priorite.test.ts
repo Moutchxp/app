@@ -102,6 +102,45 @@ describe('Sitadel S3 — construction de la requête filtrée', () => {
   });
 });
 
+describe('V2 — ordre secondaire de tri PILOTÉ par config (tri_candidats)', () => {
+  // Chaîne EXACTE de l'ex-const ORDRE_SECONDAIRE (surface DESC, puis date DESC, puis num_dau) — référence de non-régression.
+  const ORDRE_HISTORIQUE =
+    "(CASE WHEN d.type = 'PD' THEN d.superficie_terrain ELSE d.surf_creee END) DESC NULLS LAST, " +
+    "d.date_reelle_autorisation DESC NULLS LAST, d.num_dau ASC";
+  const SURFACE = "CASE WHEN d.type = 'PD' THEN d.superficie_terrain ELSE d.surf_creee END) DESC NULLS LAST";
+  const DATE = 'd.date_reelle_autorisation DESC NULLS LAST';
+
+  it('CONFIG_VEILLE_DEFAUT porte « surface_puis_date »', () => {
+    expect(C.triCandidats).toBe('surface_puis_date');
+  });
+
+  it('défaut « surface_puis_date » → ordre secondaire BYTE-IDENTIQUE à l’historique (non-régression forte)', () => {
+    const c: ConfigVeille = { ...C, triCandidats: 'surface_puis_date' };
+    const { texte } = construireRequeteListe(FILTRES_VIDES, c, 1, 25);
+    expect(texte).toContain(ORDRE_HISTORIQUE);   // exactement la chaîne d'avant le chantier
+    expect(texte).toContain('num_dau ASC LIMIT'); // num_dau reste le dernier départage, avant LIMIT
+  });
+
+  it('« surface_puis_date » : la SURFACE précède la DATE', () => {
+    const c: ConfigVeille = { ...C, triCandidats: 'surface_puis_date' };
+    const { texte } = construireRequeteListe(FILTRES_VIDES, c, 1, 25);
+    expect(texte.indexOf(SURFACE)).toBeLessThan(texte.indexOf(DATE));
+  });
+
+  it('« date_puis_surface » : la DATE précède la SURFACE, num_dau ASC toujours en dernier, NULLS LAST conservé', () => {
+    const c: ConfigVeille = { ...C, triCandidats: 'date_puis_surface' };
+    const { texte } = construireRequeteListe(FILTRES_VIDES, c, 1, 25);
+    const iDate = texte.indexOf(DATE);
+    const iSurface = texte.indexOf(SURFACE);
+    expect(iDate).toBeGreaterThan(-1);
+    expect(iSurface).toBeGreaterThan(-1);
+    expect(iDate).toBeLessThan(iSurface);          // date AVANT surface (l'inverse du défaut)
+    expect(texte).toContain('num_dau ASC LIMIT');  // départage stable conservé en dernier
+    expect((texte.match(/NULLS LAST/g) ?? []).length).toBe(2); // NULLS LAST sur surface ET date
+    expect(texte).not.toContain(ORDRE_HISTORIQUE); // ce n'est plus l'ordre historique
+  });
+});
+
 describe('Sitadel S3 — recherche par préfixe / troncature', () => {
   it('la recherche émet ILIKE (sous-chaîne) ET word_similarity (trigramme) — retrouve un libellé tronqué', () => {
     const { texte, params } = construireRequeteTotal({ ...FILTRES_VIDES, q: 'ISSY-LES-MOULINEAUX' }, C);

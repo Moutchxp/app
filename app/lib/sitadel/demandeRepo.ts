@@ -19,7 +19,8 @@ import { resoudreDestination, type ContactCommune } from './destinataire';
 type Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>;
 const asQ = (q: (t: string, p?: unknown[]) => Promise<unknown>): Requete => ((t, p) => q(t, p)) as Requete;
 
-const NB_CANDIDATS = 600; // profondeur de candidats examinés (haut du classement) — large devant un lot mensuel
+// V2 — la profondeur de candidats examinés (ex-const NB_CANDIDATS=600) est désormais LUE de la config (cfg.nbCandidatsExamines,
+// config_veille, migration 081) : plus aucune valeur recopiée en dur dans le chemin de sélection.
 
 function adresseDe(d: DossierAffiche): string {
   return [d.adrNumTer, d.adrLibvoieTer, d.adrLocaliteTer].filter((x) => x && x.trim() !== '').join(' ');
@@ -130,7 +131,7 @@ export function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDema
 
 /** Lots PROPOSÉS (aucune écriture) + diagnostic (pour expliquer un « 0 lot ») — pour revue avant création. */
 export async function proposition(cfg: ConfigVeille): Promise<{ lots: Lot[]; diagnostic: DiagnosticProposition }> {
-  const [dossiers, hist] = await Promise.all([lireDossiersPriorite(cfg, NB_CANDIDATS), lireHistorique()]);
+  const [dossiers, hist] = await Promise.all([lireDossiersPriorite(cfg, cfg.nbCandidatsExamines), lireHistorique()]);
   const candidats = dossiers.map(versCandidat);
   const params = paramsLot(cfg);
   return { lots: proposerLots(candidats, params, hist), diagnostic: diagnostiquer(candidats, hist, params) };

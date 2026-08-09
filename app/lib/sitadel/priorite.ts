@@ -114,10 +114,20 @@ const FROM_JOIN =
   // S21 : la ligne d'import d'origine de la PRADA, pour connaître l'état de rapprochement (automatique/manuel/…).
   'LEFT JOIN prada_import pi ON pi.id = mp.import_id';
 
-/** Ordre secondaire : surface (PC = surf_creee, PD = superficie_terrain) DESC, puis date DESC, puis num_dau (stable). */
-const ORDRE_SECONDAIRE =
-  `(CASE WHEN d.type = 'PD' THEN d.superficie_terrain ELSE d.surf_creee END) DESC NULLS LAST, ` +
-  `d.date_reelle_autorisation DESC NULLS LAST, d.num_dau ASC`;
+/**
+ * Ordre SECONDAIRE de départage (après le rang), PILOTÉ par config (V2 — ex-const ORDRE_SECONDAIRE) :
+ *  - 'surface_puis_date' (défaut) : surface (PC = surf_creee, PD = superficie_terrain) DESC, puis date DESC, puis num_dau.
+ *    → produit une chaîne BYTE-IDENTIQUE au comportement historique (non-régression).
+ *  - 'date_puis_surface' : intervertit les DEUX premiers critères (les plus récents d'abord).
+ * `num_dau ASC` reste le départage stable en dernier ; `NULLS LAST` conservé sur surface et date dans les deux cas.
+ */
+function ordreSecondaire(c: ConfigVeille): string {
+  const surface = `(CASE WHEN d.type = 'PD' THEN d.superficie_terrain ELSE d.surf_creee END) DESC NULLS LAST`;
+  const date = `d.date_reelle_autorisation DESC NULLS LAST`;
+  return c.triCandidats === 'date_puis_surface'
+    ? `${date}, ${surface}, d.num_dau ASC`
+    : `${surface}, ${date}, d.num_dau ASC`;
+}
 
 /** Seuil de similarité trigramme pour la recherche de voie tolérante à la troncature 26 c (pg_trgm). */
 const SIMILARITE_VOIE = 0.45;
@@ -213,7 +223,7 @@ export function construireRequeteListe(
   const decalage = add(params, (page - 1) * taille);
   const texte =
     `SELECT ${SELECTION}, ${rangExpr} AS rang FROM ${FROM_JOIN} ${where} ` +
-    `ORDER BY ${rangExpr} ASC, ${ORDRE_SECONDAIRE} LIMIT ${limite} OFFSET ${decalage}`;
+    `ORDER BY ${rangExpr} ASC, ${ordreSecondaire(c)} LIMIT ${limite} OFFSET ${decalage}`;
   return { texte, params };
 }
 

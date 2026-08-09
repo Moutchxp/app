@@ -133,7 +133,7 @@ export function ReglagesVue() {
         <label className="flex flex-col gap-1" style={{ marginTop: '.2rem' }}>
           {p.type === 'enum'
             ? <select value={veDraft[p.colonne] ?? ''} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle}>
-                {(p.optionsEnum ?? []).map((o) => <option key={o} value={o}>{o === 'entreprise' || o === 'personne' ? ETIQUETTE_PROFIL[o] : o}</option>)}
+                {(p.optionsEnum ?? []).map((o) => <option key={o} value={o}>{p.optionsEnumLabels?.[o] ?? (o === 'entreprise' || o === 'personne' ? ETIQUETTE_PROFIL[o] : o)}</option>)}
               </select>
             : p.type === 'entier'
               ? <input type="number" value={veDraft[p.colonne] ?? ''} min={b?.min} max={b?.max} step={1}

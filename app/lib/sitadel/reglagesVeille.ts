@@ -111,6 +111,7 @@ export interface ParamVeille {
   type: 'entier' | 'texte' | 'enum' | 'url' | 'email' | 'booleen' | 'texte_libre';
   aide: string;
   optionsEnum?: string[]; // pour type 'enum' : liste fermée des valeurs admises
+  optionsEnumLabels?: Record<string, string>; // libellés d'affichage FR des options 'enum' (repli = la valeur brute)
 }
 
 /** Forme minimale d'une URL http(s) — MIROIR APPLICATIF du CHECK `config_veille_dila_url_check` (migration 069). */
@@ -129,6 +130,14 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Nombre maximum de dossiers regroupés dans une même demande adressée à une mairie. Borne le volume par courrier.' },
   { colonne: 'demandes_par_commune_par_mois', cle: 'demandesParCommuneParMois', libelle: 'Demandes par commune et par mois', unite: 'demandes / mois', type: 'entier',
     aide: 'Nombre maximum de demandes envoyées à une même commune par mois. Borne la sollicitation d’une même mairie.' },
+  // V2 — profondeur d'examen des candidats (ex-const NB_CANDIDATS) : pilotable au runtime, invariant « pilotage sans code ».
+  { colonne: 'nb_candidats_examines', cle: 'nbCandidatsExamines', libelle: 'Profondeur d’examen des dossiers', unite: 'dossiers', type: 'entier',
+    aide: 'Combien de dossiers, tout en haut du classement, sont examinés pour préparer les demandes. Trop bas, des dossiers récents mais moins « gros » ne sont jamais atteints ; plus haut = davantage de dossiers proposés. Au-delà de la taille du fichier des permis, la préparation devient un peu plus lente.' },
+  // V2 — ordre secondaire de tri des candidats (ex-const ORDRE_SECONDAIRE) : GARDE (liste fermée), libellés FR.
+  { colonne: 'tri_candidats', cle: 'triCandidats', libelle: 'Ordre d’examen des dossiers', unite: '', type: 'enum',
+    optionsEnum: ['surface_puis_date', 'date_puis_surface'],
+    optionsEnumLabels: { surface_puis_date: 'Plus grands d’abord (surface, puis date)', date_puis_surface: 'Plus récents d’abord (date, puis surface)' },
+    aide: 'Dans quel ordre les dossiers sont départagés à catégorie égale : « plus grands d’abord » remonte les gros projets (mais peut enterrer des dossiers récents plus petits) ; « plus récents d’abord » privilégie les permis récents. ⚠️ Ce choix change AUSSI l’ordre de la liste affichée dans l’onglet « Dossiers ».' },
   // S37 — CAPS D'ENVOI : le rempart contre un envoi accidentel en masse. À monter avec prudence.
   { colonne: 'envois_max_par_run', cle: 'envoisMaxParRun', libelle: 'Envois maximum par action', unite: 'e-mails', type: 'entier',
     aide: 'Nombre maximum d’e-mails envoyés aux mairies en UNE seule action d’envoi. C’est le rempart de sécurité : même en cas d’erreur, jamais plus que ce nombre ne part d’un coup. L’augmenter accélère la campagne mais accroît le risque qu’un envoi accidentel touche beaucoup de mairies à la fois.' },
@@ -208,6 +217,7 @@ export const PARAMS_VEILLE: ParamVeille[] = [
  */
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
   'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois',
+  'nb_candidats_examines', 'tri_candidats', // V2 — profondeur d'examen + ordre de tri des candidats
   'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi (groupe « demandes »)
   'adresse_reponse',                            // S38 — adresse de réponse (reply-to)
   'releve_active', 'releve_intervalle_minutes', 'releve_profil', // R7 — relève automatique des réponses
