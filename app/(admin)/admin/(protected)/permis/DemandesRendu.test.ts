@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 
@@ -369,5 +369,92 @@ describe('C3 — BlocInjoignables : bloc « sans adresse » repliable, cartes ac
     const msg = createElement('span', { role: 'status' }, 'Adresse enregistrée pour 92004.');
     expect(rendu(3, false, msg)).toContain('Adresse enregistrée pour 92004.'); // fermé
     expect(rendu(3, true, msg)).toContain('Adresse enregistrée pour 92004.');  // ouvert
+  });
+});
+
+// ── D3 : colonne « Type » + tenue du tableau à l'écran ────────────────────────────────────────────────────────────────
+const CATS_D3 = [
+  { libelle: 'Immeuble neuf', rang: 1 },
+  { libelle: 'Construction neuve', rang: 3 },
+  { libelle: 'Extension', rang: 4 },
+];
+const DEM = (over: Partial<DemandeAffichee> = {}): DemandeAffichee => ({
+  id: 1, reference: 'SVAV-DEM-2026-000001', communeNom: 'Asnières', codeInsee: '92004',
+  profil: 'entreprise', canal: 'email', destOrigine: 'mairie_contact', destNom: null,
+  nbDossiers: 3, statut: 'brouillon', rangs: [1], ...over,
+});
+const TRI_COMMUNE: Tri = { colonne: 'commune', sens: 'asc' };
+
+describe('D3 — CelluleType (badge du type + « +N » + title)', () => {
+  const rendu = (rangs: number[] | undefined) => renderToStaticMarkup(createElement(CelluleType, { rangs, categories: CATS_D3 }));
+
+  it('un seul type → le libellé, aucun « +N »', () => {
+    const h = rendu([3]);
+    expect(h).toContain('Construction neuve');
+    expect(h).not.toContain('+1');
+  });
+  it('types différents → badge du plus prioritaire + « +N » + title listant TOUS les types', () => {
+    const h = rendu([4, 1, 3]);
+    expect(h).toContain('Immeuble neuf'); // rang 1 = prioritaire
+    expect(h).toContain('+2');
+    expect(h).toContain('title="Immeuble neuf, Construction neuve, Extension"');
+  });
+  it('catégorie « autre » → libellé « Autre » affiché (jamais une cellule vide)', () => {
+    expect(rendu([9999])).toContain('Autre');
+  });
+  it('aucun rang connu → « — », jamais une cellule vide', () => {
+    expect(rendu([])).toContain('—');
+    expect(rendu(undefined)).toContain('—');
+  });
+});
+
+describe('D3 — ConteneurTableDefilant (défilement horizontal atteignable au clavier)', () => {
+  it('porte role=region, tabIndex et un aria-label explicite', () => {
+    const h = renderToStaticMarkup(createElement(ConteneurTableDefilant, { ariaLabel: 'Tableau des demandes, défilement horizontal' }, 'x'));
+    expect(h).toContain('role="region"');
+    expect(h).toContain('tabindex="0"');
+    expect(h).toContain('aria-label="Tableau des demandes, défilement horizontal"');
+    expect(h).toContain('overflow-x:auto');
+  });
+});
+
+describe('D3 — TableDemandes : colonne « Type » en 2e position + conteneur défilant', () => {
+  const rendu = (over?: Partial<Parameters<typeof TableDemandes>[0]>) => renderToStaticMarkup(createElement(TableDemandes, {
+    visibles: [DEM({ rangs: [1] })], categories: CATS_D3, tri: TRI_COMMUNE, sel: new Set<number>(),
+    toutCoche: false, messageVide: 'Aucune demande.', ...over,
+  }));
+
+  it('en-tête : « Type » vient juste APRÈS « Référence » et AVANT « Commune »', () => {
+    const h = rendu();
+    const iRef = h.indexOf('Référence'); const iType = h.indexOf('Type'); const iCommune = h.indexOf('Commune');
+    expect(iRef).toBeGreaterThanOrEqual(0);
+    expect(iRef).toBeLessThan(iType);
+    expect(iType).toBeLessThan(iCommune);
+  });
+
+  it('ligne : la cellule Type (badge) est ENTRE la référence et la commune → alignée sur l’en-tête', () => {
+    const h = rendu();
+    const iRef = h.indexOf('SVAV-DEM-2026-000001'); const iType = h.indexOf('Immeuble neuf'); const iCommune = h.indexOf('Asnières');
+    expect(iRef).toBeLessThan(iType);
+    expect(iType).toBeLessThan(iCommune);
+  });
+
+  it('le tableau est enveloppé d’un conteneur défilant a11y (region + tabIndex + aria-label)', () => {
+    const h = rendu();
+    expect(h).toContain('role="region"');
+    expect(h).toContain('tabindex="0"');
+    expect(h).toContain('aria-label="Tableau des demandes, défilement horizontal"');
+  });
+
+  it('non-régression : les en-têtes triables de D2 restent triables (aria-sort porté par la colonne active)', () => {
+    const h = rendu({ tri: { colonne: 'commune', sens: 'asc' } });
+    expect(h).toContain('aria-sort="ascending"'); // Commune actif → EnteteTriable inchangé
+    expect(h).toContain('aria-sort="none"');       // les autres colonnes triables
+  });
+
+  it('liste vide → message explicite sur toute la largeur (colSpan = 10, colonne Type incluse)', () => {
+    const h = rendu({ visibles: [], messageVide: 'Aucune demande pour ces filtres.' });
+    expect(h).toContain('Aucune demande pour ces filtres.');
+    expect(h).toContain('colSpan="10"'); // React 19 émet l'attribut tel quel (HTML insensible à la casse)
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  basculerTri, filtrerDemandes, trierDemandes, OPTIONS_TRI, cleTri, triDepuisCle, SENS_DEFAUT,
+  basculerTri, filtrerDemandes, trierDemandes, OPTIONS_TRI, cleTri, triDepuisCle, SENS_DEFAUT, typeDemande,
   type Tri, type LigneDemande,
 } from './demandesListe';
 
@@ -101,5 +101,54 @@ describe('D2 — filtre par TYPE (rangs) : « au moins un dossier », OU, aucun 
   it('se combine avec statut / profil / commune', () => {
     const l2 = [D({ id: 1, rangs: [1], statut: 'prete' }), D({ id: 2, rangs: [1], statut: 'brouillon' })];
     expect(filtrerDemandes(l2, { statut: 'prete', profil: '', commune: '', types: [1] }).map((d) => d.id)).toEqual([1]);
+  });
+});
+
+/**
+ * D3 — dérivation PURE du TYPE affiché (colonne « Type »). Libellés = ceux du dépôt (priorite.ts). Le rang le plus PETIT
+ * l'emporte (le plus prioritaire) ; les rangs sont DISTINCTS (array_agg DISTINCT côté SQL) → un même type ne compte jamais 2×.
+ */
+describe('D3 — typeDemande (rangs → libellé + « +N » + title)', () => {
+  // Libellés réels du dépôt (rangs distincts, valeurs d'exemple : seule leur relation d'ordre compte).
+  const CATS = [
+    { libelle: 'Immeuble neuf', rang: 1 },
+    { libelle: 'Surélévation', rang: 2 },
+    { libelle: 'Construction neuve', rang: 3 },
+    { libelle: 'Extension', rang: 4 },
+    { libelle: 'Démolition', rang: 5 },
+  ];
+
+  it('un seul type → un badge, pas de « +N »', () => {
+    expect(typeDemande([3], CATS)).toEqual({ vide: false, libelle: 'Construction neuve', nAutres: 0, attenue: false, titre: 'Construction neuve' });
+  });
+
+  it('plusieurs dossiers du MÊME type (rangs dupliqués) → un seul badge, PAS de « +N »', () => {
+    expect(typeDemande([3, 3, 3], CATS)).toMatchObject({ libelle: 'Construction neuve', nAutres: 0 });
+  });
+
+  it('types différents → badge du plus prioritaire (rang le plus petit) + « +N » + title de TOUS les types', () => {
+    const t = typeDemande([4, 1, 3], CATS); // sortis dans le désordre
+    expect(t.libelle).toBe('Immeuble neuf'); // rang 1 = le plus prioritaire
+    expect(t.nAutres).toBe(2);
+    expect(t.titre).toBe('Immeuble neuf, Construction neuve, Extension'); // ordre de priorité
+    expect(t.attenue).toBe(false);
+  });
+
+  it('catégorie « autre » (rang 9999) → libellé « Autre » atténué, jamais vide', () => {
+    expect(typeDemande([9999], CATS)).toEqual({ vide: false, libelle: 'Autre', nAutres: 0, attenue: true, titre: 'Autre' });
+  });
+
+  it('« autre » combiné à un vrai type → le vrai type prime, « Autre » listé en dernier dans le title', () => {
+    const t = typeDemande([9999, 1], CATS);
+    expect(t.libelle).toBe('Immeuble neuf');
+    expect(t.attenue).toBe(false);
+    expect(t.nAutres).toBe(1);
+    expect(t.titre).toBe('Immeuble neuf, Autre');
+  });
+
+  it('aucun rang (liste vide, undefined, ou rang hors référentiel) → vide (la cellule affichera « — »)', () => {
+    expect(typeDemande([], CATS).vide).toBe(true);
+    expect(typeDemande(undefined, CATS).vide).toBe(true);
+    expect(typeDemande([7777], CATS).vide).toBe(true); // rang inconnu, ni catégorie ni 9999
   });
 });

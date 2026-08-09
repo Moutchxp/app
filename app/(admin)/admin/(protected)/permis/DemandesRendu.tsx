@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
-import type { Tri, TriColonne } from '../../../../lib/sitadel/demandesListe';
+import { typeDemande, type Tri, type TriColonne } from '../../../../lib/sitadel/demandesListe';
+import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 
 /**
  * Rendu PUR de la visibilité PRADA de l'onglet Demandes (chantier S14e) — aucun état, aucun effet → testable en Node via
@@ -312,6 +313,103 @@ export function FiltreTypes({ categories, coches, onToggle }: {
       </div>
       <p style={aide}>Une demande est retenue si elle contient <strong>au moins un dossier</strong> de l’un des types cochés. Aucun type coché = tous.</p>
     </fieldset>
+  );
+}
+
+// ── D3 : tableau des demandes — colonne « Type » + tenue à l'écran ────────────────────────────────────────────────────
+/** Libellés d'affichage des statuts de demande. SOURCE UNIQUE (le rendu du tableau ET la Vue s'y réfèrent). */
+export const STATUT_LIBELLE: Record<string, string> = { brouillon: 'brouillon', prete: 'prête', envoyee: 'envoyée', close: 'close', abandonnee: 'abandonnée' };
+
+const styleTdD: CSSProperties = { padding: '.4rem .5rem' };
+
+/**
+ * D3 — cellule « Type » PURE. Badge du type le PLUS PRIORITAIRE ; « +N » = nombre d'autres types distincts ; `title` = tous
+ * les types en clair. Catégorie « autre » (rang 9999) → libellé atténué ; aucun rang connu → « — » (jamais vide ambigu).
+ * La dérivation est faite par `typeDemande` (pur, dans demandesListe.ts, testé à part).
+ */
+export function CelluleType({ rangs, categories }: { rangs?: number[]; categories: { libelle: string; rang: number }[] }) {
+  const t = typeDemande(rangs, categories);
+  if (t.vide) return <td style={{ ...styleTdD, whiteSpace: 'nowrap', color: 'var(--color-svv-muted)' }}>—</td>;
+  const badge: CSSProperties = {
+    fontSize: 11, fontWeight: 700, padding: '.05rem .4rem', borderRadius: '.35rem', whiteSpace: 'nowrap',
+    background: 'var(--color-svv-field)', color: t.attenue ? 'var(--color-svv-muted)' : 'var(--color-svv-ink)',
+  };
+  return (
+    <td style={{ ...styleTdD, whiteSpace: 'nowrap' }} title={t.titre}>
+      <span style={badge}>{t.libelle}</span>
+      {t.nAutres > 0 ? <span style={{ fontSize: 11, color: 'var(--color-svv-muted)', marginLeft: '.25rem' }}>+{t.nAutres}</span> : null}
+    </td>
+  );
+}
+
+/**
+ * D3 — conteneur DÉFILANT horizontalement, atteignable au CLAVIER (`role="region"` + `tabIndex={0}` + `aria-label`) : sans ces
+ * attributs, on ne peut pas faire défiler sans souris. Aucun défilement animé (pas de `scroll-behavior` → prefers-reduced-motion
+ * sans objet). PURE.
+ */
+export function ConteneurTableDefilant({ ariaLabel, children }: { ariaLabel: string; children?: ReactNode }) {
+  return <div role="region" aria-label={ariaLabel} tabIndex={0} style={{ overflowX: 'auto' }}>{children}</div>;
+}
+
+/** Sous-ensemble d'une demande nécessaire au tableau (DemandeListe est assignable). */
+export interface DemandeAffichee {
+  id: number; reference: string; communeNom: string | null; codeInsee: string;
+  profil: string; canal: string | null; destOrigine?: string | null; destNom?: string | null;
+  nbDossiers: number; statut: string; rangs?: number[];
+}
+
+/**
+ * D3 — tableau des demandes PUR. Colonnes : [sélection] · Référence · **Type** · Commune · Profil · Canal · Destinataire ·
+ * Dossiers · Statut · [ouvrir]. Le TYPE est en 2e position DONNÉE (juste après Référence), aligné en-tête ↔ ligne par le même
+ * ordre. Tenue à l'écran : conteneur défilant a11y + `nowrap`/`min-width` sobres, « Destinataire » absorbant le surplus. Le
+ * tri (EnteteTriable), le filtre et la pagination restent pilotés par la Vue (callbacks). Aucun état ici → renderToStaticMarkup.
+ */
+export function TableDemandes({
+  visibles, categories, tri, sel, toutCoche, messageVide, onTrier, onToutSelectionner, onBasculer, onOuvrir,
+}: {
+  visibles: DemandeAffichee[]; categories: { libelle: string; rang: number }[];
+  tri: Tri; sel: ReadonlySet<number>; toutCoche: boolean; messageVide: string;
+  onTrier?: (c: TriColonne) => void; onToutSelectionner?: () => void; onBasculer?: (id: number) => void; onOuvrir?: (id: number) => void;
+}) {
+  const nowrap: CSSProperties = { ...styleTdD, whiteSpace: 'nowrap' };
+  return (
+    <ConteneurTableDefilant ariaLabel="Tableau des demandes, défilement horizontal">
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <thead>
+          <tr style={{ textAlign: 'left', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
+            <th style={styleTdD}><input type="checkbox" aria-label="Tout sélectionner" checked={toutCoche} onChange={() => onToutSelectionner?.()} /></th>
+            <th style={{ ...nowrap, minWidth: 150 }}>Référence</th>
+            <th style={nowrap}>Type</th>
+            <EnteteTriable libelle="Commune" colonne="commune" tri={tri} onTrier={onTrier} />
+            <th style={styleTdD}>Profil</th>
+            <th style={nowrap}>Canal</th>
+            <th style={{ ...styleTdD, minWidth: 160 }}>Destinataire</th>
+            <EnteteTriable libelle="Dossiers" colonne="dossiers" tri={tri} onTrier={onTrier} />
+            <EnteteTriable libelle="Statut" colonne="statut" tri={tri} onTrier={onTrier} />
+            <th style={styleTdD} />
+          </tr>
+        </thead>
+        <tbody>
+          {visibles.map((d) => (
+            <tr key={d.id} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
+              <td style={styleTdD}><input type="checkbox" checked={sel.has(d.id)} onChange={() => onBasculer?.(d.id)} aria-label={`Sélectionner ${d.reference}`} /></td>
+              <td style={{ ...nowrap, fontFamily: 'var(--font-svv-mono, monospace)' }}>{d.reference}</td>
+              <CelluleType rangs={d.rangs} categories={categories} />
+              <td style={styleTdD}>{d.communeNom ?? d.codeInsee}</td>
+              <td style={styleTdD}>{ETIQUETTE_PROFIL[d.profil as ProfilDemandeur] ?? d.profil}</td>
+              <td style={nowrap}>{d.canal}</td>
+              <td style={styleTdD}><OrigineDest origine={d.destOrigine} nom={d.destNom} /></td>
+              <td style={styleTdD}>{d.nbDossiers}</td>
+              <td style={nowrap}>{STATUT_LIBELLE[d.statut] ?? d.statut}</td>
+              <td style={styleTdD}><button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }} onClick={() => onOuvrir?.(d.id)}>ouvrir</button></td>
+            </tr>
+          ))}
+          {visibles.length === 0 && (
+            <tr><td colSpan={10} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>{messageVide}</td></tr>
+          )}
+        </tbody>
+      </table>
+    </ConteneurTableDefilant>
   );
 }
 

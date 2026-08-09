@@ -68,6 +68,42 @@ export function filtrerDemandes<T extends LigneDemande>(demandes: T[], f: Filtre
     (types.size === 0 || (d.rangs ?? []).some((r) => types.has(r))));
 }
 
+// ── D3 : dérivation du TYPE de permis affiché (colonne « Type ») ──────────────
+const RANG_AUTRE = 9999; // rang de la catégorie « autre » (cf. priorite.ts : classer → { cle:'autre', rang:9999 })
+
+/** Ce qu'il faut pour afficher la cellule « Type » : libellé du type le plus prioritaire, nombre d'AUTRES types, title complet. */
+export interface TypeAffiche {
+  vide: boolean;     // aucun rang connu → afficher « — » (jamais une cellule vide ambiguë)
+  libelle: string;   // libellé du type le PLUS prioritaire (rang le plus petit) ; '' si vide
+  nAutres: number;   // nombre d'AUTRES types distincts (0 → pas de « +N »)
+  attenue: boolean;  // true si le libellé principal est « Autre » (rang 9999) → à afficher atténué
+  titre: string;     // TOUS les types en clair, séparés par ', ' (ordre de priorité) — pour l'attribut `title`
+}
+
+/**
+ * D3 — dérive le TYPE affiché depuis les rangs DISTINCTS des dossiers d'une demande (cf. listerDemandes.rangs) et le
+ * référentiel de catégories (`categoriesConnues(cfg)` : { libelle, rang }). PURE. Règle : le type le plus PRIORITAIRE (rang
+ * le plus petit) donne le badge ; les autres types distincts alimentent « +N » et le `title`. Le rang 9999 → « Autre »
+ * (atténué). Aucun rang connu (liste vide ou rangs hors référentiel) → `vide` (la cellule affichera « — »).
+ */
+export function typeDemande(rangs: number[] | undefined, categories: { libelle: string; rang: number }[]): TypeAffiche {
+  const parRang = new Map(categories.map((c) => [c.rang, c.libelle]));
+  const libelleDe = (r: number): string | null => parRang.get(r) ?? (r === RANG_AUTRE ? 'Autre' : null);
+  const distincts = [...new Set(rangs ?? [])].sort((a, b) => a - b); // rang croissant = du plus prioritaire au moins
+  const items = distincts
+    .map((r) => ({ rang: r, libelle: libelleDe(r) }))
+    .filter((x): x is { rang: number; libelle: string } => x.libelle !== null);
+  if (items.length === 0) return { vide: true, libelle: '', nAutres: 0, attenue: false, titre: '' };
+  const principal = items[0];
+  return {
+    vide: false,
+    libelle: principal.libelle,
+    nAutres: items.length - 1,
+    attenue: principal.rang === RANG_AUTRE,
+    titre: items.map((x) => x.libelle).join(', '),
+  };
+}
+
 /** Ordre de base (croissant) d'une colonne. Départage FINAL par id → ordre TOTAL, donc « asc » et « desc » sont des
  *  inverses EXACTS l'un de l'autre (Plus ancien = l'exact inverse de Plus récentes). */
 function ordreBase<T extends LigneDemande>(colonne: TriColonne, a: T, b: T): number {

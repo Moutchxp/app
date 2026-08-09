@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagnostic, ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur, cleLot, compterSelection } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, ResumeDemandes, AlerteIdentite, CompteRenduCreation } from '../../../../lib/sitadel/demandeRepo';
 import { type Tri, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle } from '../../../../lib/sitadel/demandesListe';
-import { OrigineDest, MessageRetour, repartirRetour, CartePropositions, EnteteTriable, FiltreTypes, type RetourAction } from './DemandesRendu';
+import { OrigineDest, MessageRetour, repartirRetour, CartePropositions, FiltreTypes, TableDemandes, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 import { BlocPrada } from './BlocPrada';
 import { BlocDepot } from './BlocDepot';
 
@@ -13,7 +13,7 @@ import { BlocDepot } from './BlocDepot';
  * chaque demande porte le sien ; une bascule EN UN CLIC (sur brouillon) régénère le texte après confirmation. Colonne et
  * filtre « profil ». ⚠️ AUCUNE action d'envoi (préparation et revue seulement).
  */
-const STATUT_LIBELLE: Record<string, string> = { brouillon: 'brouillon', prete: 'prête', envoyee: 'envoyée', close: 'close', abandonnee: 'abandonnée' };
+// STATUT_LIBELLE : déplacé dans DemandesRendu.tsx (source unique, réutilisé par le tableau pur et ici) — importé ci-dessus.
 const PROFILS: ProfilDemandeur[] = ['entreprise', 'personne'];
 const PAGE_SIZE = 20;
 const styleChamp: CSSProperties = { padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 };
@@ -300,41 +300,13 @@ export function DemandesVue({ categories }: Props) {
         </label>
       </div>
 
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr style={{ textAlign: 'left', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
-              <th style={{ padding: '.4rem .5rem' }}><input type="checkbox" aria-label="Tout sélectionner" checked={visibles.length > 0 && visibles.every((d) => sel.has(d.id))} onChange={toutSelectionner} /></th>
-              <th style={{ padding: '.4rem .5rem' }}>Référence</th>
-              <EnteteTriable libelle="Commune" colonne="commune" tri={tri} onTrier={trierPar} />
-              <th style={{ padding: '.4rem .5rem' }}>Profil</th>
-              <th style={{ padding: '.4rem .5rem' }}>Canal</th>
-              <th style={{ padding: '.4rem .5rem' }}>Destinataire</th>
-              <EnteteTriable libelle="Dossiers" colonne="dossiers" tri={tri} onTrier={trierPar} />
-              <EnteteTriable libelle="Statut" colonne="statut" tri={tri} onTrier={trierPar} />
-              <th style={{ padding: '.4rem .5rem' }} />
-            </tr>
-          </thead>
-          <tbody>
-            {visibles.map((d) => (
-              <tr key={d.id} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
-                <td style={{ padding: '.4rem .5rem' }}><input type="checkbox" checked={sel.has(d.id)} onChange={() => basculer(d.id)} aria-label={`Sélectionner ${d.reference}`} /></td>
-                <td style={{ padding: '.4rem .5rem', fontFamily: 'var(--font-svv-mono, monospace)' }}>{d.reference}</td>
-                <td style={{ padding: '.4rem .5rem' }}>{d.communeNom ?? d.codeInsee}</td>
-                <td style={{ padding: '.4rem .5rem' }}>{ETIQUETTE_PROFIL[d.profil as ProfilDemandeur] ?? d.profil}</td>
-                <td style={{ padding: '.4rem .5rem' }}>{d.canal}</td>
-                <td style={{ padding: '.4rem .5rem' }}><OrigineDest origine={d.destOrigine} nom={d.destNom} /></td>
-                <td style={{ padding: '.4rem .5rem' }}>{d.nbDossiers}</td>
-                <td style={{ padding: '.4rem .5rem' }}>{STATUT_LIBELLE[d.statut] ?? d.statut}</td>
-                <td style={{ padding: '.4rem .5rem' }}><button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }} onClick={() => void ouvrir(d.id)}>ouvrir</button></td>
-              </tr>
-            ))}
-            {filtrees.length === 0 && (
-              <tr><td colSpan={9} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>{liste ? 'Aucune demande pour ces filtres. Cliquez « Préparer les demandes ».' : 'Chargement…'}</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* D3 — tableau extrait en composant PUR (colonne « Type » + conteneur défilant a11y). Tri/filtre/pagination inchangés. */}
+      <TableDemandes
+        visibles={visibles} categories={categories} tri={tri} sel={sel}
+        toutCoche={visibles.length > 0 && visibles.every((d) => sel.has(d.id))}
+        messageVide={liste ? 'Aucune demande pour ces filtres. Cliquez « Préparer les demandes ».' : 'Chargement…'}
+        onTrier={trierPar} onToutSelectionner={toutSelectionner} onBasculer={basculer} onOuvrir={(id) => void ouvrir(id)}
+      />
 
       {nbPages > 1 && (
         <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>
