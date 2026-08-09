@@ -79,7 +79,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(AIDE_PARAMS_DOSSIERS).toContain('Mise à jour des dossiers');
   });
 
-  it('partition : 22 demandes (+ X1 : canal CADA) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
+  it('partition : 23 demandes (+ X5 : proposition CADA) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
     expect(PARAMS_DEMANDES.map((p) => p.colonne)).toEqual([
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois',
       'nb_candidats_examines', 'tri_candidats', // V2 — profondeur d'examen + ordre de tri des candidats
@@ -89,6 +89,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'releve_active', 'releve_intervalle_minutes', 'releve_profil', // R7 — relève automatique
       'echeance_alerte_jours', 'releve_fraicheur_heures', // R6 — échéance d'un mois + fraîcheur
       'alerte_active', 'alerte_email', 'alerte_heure_locale', // R8 — alertes e-mail
+      'proposition_cada_active', // X5 — proposition de saisine CADA par e-mail
       'piece_taille_max_mo', // R4 — borne de taille des pièces entrantes
       'recherche_references_max', // R3e — plafond de références de dossier
       'pieces_demandees', 'profil_demandeur_defaut',

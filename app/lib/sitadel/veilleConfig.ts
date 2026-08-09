@@ -52,6 +52,7 @@ export interface ConfigVeille {
   triCandidats: string;             // V2 : ordre secondaire de tri des candidats (GARDE, liste fermée) — ex-const ORDRE_SECONDAIRE
   cadaEmail: string;                // X1 : e-mail de la CADA pour une saisine par e-mail ('' = saisine par formulaire en ligne, dépôt manuel)
   cadaUrlFormulaire: string;        // X1 : URL du formulaire de saisine en ligne de la CADA (dépôt manuel quand cadaEmail vide)
+  propositionCadaActive: boolean;   // X5 : proposer par e-mail (à alerteEmail) la saisine CADA d'une demande devenue saisissable (opt-in, défaut false)
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -86,6 +87,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   rechercheReferencesMax: 50, // = DEFAULT de la migration 080
   nbCandidatsExamines: 5000, triCandidats: 'surface_puis_date', // = DEFAULT de la migration 081
   cadaEmail: '', cadaUrlFormulaire: 'https://www.cada.fr/formulaire-de-saisine', // = DEFAULT de la migration 083
+  propositionCadaActive: false, // = DEFAULT de la migration 084 (opt-in)
 };
 
 interface LigneConfigVeille {
@@ -267,6 +269,20 @@ async function lireCada(): Promise<Pick<ConfigVeille, 'cadaEmail' | 'cadaUrlForm
   } catch { return def; } // 083 pas encore appliquée → défauts
 }
 
+/**
+ * Lecture BEST-EFFORT de la PROPOSITION CADA (X5 : interrupteur), ISOLÉE — même motif de résilience : tant que la migration
+ * 084 n'est pas passée, la colonne n'existe pas → cette lecture échoue SEULE et retombe sur le défaut (désactivée), SANS
+ * dégrader tout le reste de la config (précédent 054).
+ */
+async function lireProposition(): Promise<Pick<ConfigVeille, 'propositionCadaActive'>> {
+  try {
+    const { rows } = await query<{ proposition_cada_active: boolean }>(`SELECT proposition_cada_active FROM config_veille WHERE id = 1`);
+    return { propositionCadaActive: rows[0]?.proposition_cada_active === true };
+  } catch {
+    return { propositionCadaActive: false }; // 084 pas encore appliquée → désactivée
+  }
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -308,6 +324,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireRechercheReferences()),            // R3e : plafond de références, lecture isolée (résiliente à la 080)
       ...(await lireSelectionCandidats()),             // V2 : profondeur + ordre de tri des candidats, lecture isolée (résiliente à la 081)
       ...(await lireCada()),                           // X1 : canal CADA (e-mail + formulaire), lecture isolée (résiliente à la 083)
+      ...(await lireProposition()),                    // X5 : interrupteur des propositions CADA, lecture isolée (résiliente à la 084)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

@@ -314,6 +314,44 @@ describe('R8 — executerVeille : alerte quotidienne branchée, ISOLÉE, après 
   });
 });
 
+describe('X5 — executerVeille : propositions CADA branchées, ISOLÉES, après l’alerte', () => {
+  it('une proposition qui ÉCHOUE (throw) n’empêche PAS la veille de finaliser en « succes »', async () => {
+    const propositionCada = vi.fn(async () => { throw new Error('SMTP KO'); });
+    const finaliserRun = vi.fn(async () => {});
+    const deps = makeDeps({ propositionCada, finaliserRun });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(propositionCada).toHaveBeenCalledTimes(1);
+    expect(r.statut).toBe('succes'); // la veille n'est PAS contaminée par l'échec de la proposition
+    expect(finaliserRun).toHaveBeenCalledWith(1, expect.objectContaining({ statut: 'succes' }));
+  });
+
+  it('ordre : relève → approfondie → relance → alerte → proposition (dernière étape auto)', async () => {
+    const ordre: string[] = [];
+    const deps = makeDeps({
+      releveAuto: vi.fn(async () => { ordre.push('courante'); }),
+      echeanceApprofondie: vi.fn(async () => { ordre.push('approfondie'); }),
+      relanceEcheance: vi.fn(async () => { ordre.push('relance'); }),
+      alerteQuotidienne: vi.fn(async () => { ordre.push('alerte'); }),
+      propositionCada: vi.fn(async () => { ordre.push('proposition'); }),
+    });
+
+    await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(ordre).toEqual(['courante', 'approfondie', 'relance', 'alerte', 'proposition']);
+  });
+
+  it('verrou déjà pris → la proposition n’est PAS tentée', async () => {
+    const propositionCada = vi.fn(async () => {});
+    const deps = makeDeps({ acquerirVerrou: vi.fn(async () => false), propositionCada });
+
+    await executerVeille({ declencheur: 'planifie' }, deps);
+
+    expect(propositionCada).not.toHaveBeenCalled();
+  });
+});
+
 describe('S11a-FIX — executerVeille : garde d’intervalle (planifie)', () => {
   it('auto éteinte + planifie → « rien_a_faire » sans insérer de run ni toucher le réseau', async () => {
     const insererRun = vi.fn(async () => 1);

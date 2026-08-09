@@ -22,6 +22,7 @@ import { executerReleveAuto, depsReellesReleveAuto } from '../veille/releveAuto'
 import { executerApprofondieAuto, depsReellesApprofondie } from '../veille/releveApprofondie';
 import { executerRelanceAuto, depsReellesRelance } from '../veille/relanceAuto';
 import { executerAlerteAuto, depsReellesAlerte } from '../veille/alerteAuto';
+import { executerPropositionAuto, depsReellesProposition } from '../veille/propositionAuto';
 import { ingererMillesime, millesimeDistantDido, DOSSIER_LOCAL, type CompteursIngestion } from './ingestionMillesime';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger,
@@ -72,6 +73,9 @@ export interface DepsVeille {
   // R8 — ALERTE e-mail quotidienne (après les relances). OPTIONNELLE et ISOLÉE (§1quinquies) : un échec d'envoi ne touche
   //   jamais la veille ni la relève.
   alerteQuotidienne?(): Promise<unknown>;
+  // X5 — PROPOSITIONS de saisine CADA par e-mail (après l'alerte). OPTIONNELLE et ISOLÉE (§1sexies) : un échec d'envoi ne
+  //   touche jamais la veille ni la relève. N'envoie JAMAIS rien à une mairie ni à la CADA (e-mail interne uniquement).
+  propositionCada?(): Promise<unknown>;
 }
 
 export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = depsReelles()): Promise<ResultatVeille> {
@@ -112,6 +116,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   quelque chose à dire. MÊME ISOLATION : un échec d'envoi n'impacte jamais la veille ni la relève.
     if (deps.alerteQuotidienne) {
       try { await deps.alerteQuotidienne(); } catch { /* alerte isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1sexies) PROPOSITIONS de saisine CADA (X5) — DERNIÈRE étape auto, APRÈS l'alerte : pour chaque demande devenue
+    //   saisissable et jamais encore proposée, un e-mail interne (à l'adresse d'alerte) avec le détail + un lien de
+    //   confirmation. MÊME ISOLATION à double filet : un échec d'envoi n'impacte jamais la veille ni la relève. AUCUN envoi
+    //   vers une mairie ou la CADA (invariant executerVeille).
+    if (deps.propositionCada) {
+      try { await deps.propositionCada(); } catch { /* proposition isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     const config = await deps.chargerConfig();
@@ -244,6 +256,8 @@ function depsReelles(): DepsVeille {
     relanceEcheance: () => executerRelanceAuto(depsReellesRelance()),
     // R8 — alerte quotidienne réelle : conditions + composition + envoi SMTP + journal, dans alerteAuto.ts.
     alerteQuotidienne: () => executerAlerteAuto(depsReellesAlerte()),
+    // X5 — propositions de saisine CADA réelles : conditions + composition + envoi SMTP interne + trace, dans propositionAuto.ts.
+    propositionCada: () => executerPropositionAuto(depsReellesProposition()),
   };
 }
 

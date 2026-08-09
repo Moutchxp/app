@@ -26,6 +26,7 @@ import {
 import { octetsDe } from './envoiRelance'; // RÉUTILISÉ (0 en simulation, octets réels en --appliquer)
 import { fenetreCada } from '../veille/echeance';
 import { genererCopieDemandePdf } from '../pdf/copieDemandePdf';
+import { creerSaisineCada } from '../veille/saisineCadaRepo';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface SaisineAEnvoyer {
@@ -223,4 +224,41 @@ export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: 
     resultats.push(await withTransaction(async (tx) => emettreUneSaisine(t, brancher(tx), s, { from: s.expediteur, replyTo: s.expediteur, to: cadaEmail, piece: s.piece, auteur })));
   }
   return { mode: 'applique', ...base, resultats, octetsPartis: octets() };
+}
+
+// ── Chemin PARTAGÉ « lancer une saisine pour UNE demande » (onglet Saisines CADA + page de confirmation du lien e-mail) ────
+/** Résultat d'un lancement UNITAIRE : de quoi construire une réponse HTTP franche (jamais un faux succès). */
+export interface ResultatLancement {
+  saisineId: number;
+  ok: boolean;                       // true = envoyée (e-mail) ou préparée (formulaire) ; false = brouillon créé, envoi non abouti
+  canal: 'email' | 'formulaire';
+  issue?: string;                    // 'envoye' | 'rebond' | 'echec' | 'gabarit' | 'bloquee'
+  motif?: string;
+}
+/** Collaborateurs injectables (test node-pur du mapping) ; défauts = production. */
+export interface DepsLancement { creer: typeof creerSaisineCada; envoyer: typeof envoyerSaisinesCada; deps: DepsEnvoiSaisine }
+
+/**
+ * Crée la saisine en brouillon (creerSaisineCada) PUIS la fait partir via l'orchestrateur d'envoi RESTREINT à cette seule
+ * saisine (candidats filtrés par id) — AUCUNE logique d'envoi réécrite. UNIQUE point d'entrée du « lancer » : l'onglet
+ * d'admin et la page de confirmation du lien e-mail passent tous deux par ICI (donc même chemin, même anti-doublon). Laisse
+ * remonter SaisineCadaError / 23505 (demande_relance_vivante_uniq) / IdentiteIncompleteError à l'appelant (→ 409 côté route).
+ */
+export async function lancerSaisinePourDemande(demandeId: number, auteur: string | null, dl: Partial<DepsLancement> = {}): Promise<ResultatLancement> {
+  const creer = dl.creer ?? creerSaisineCada;
+  const envoyer = dl.envoyer ?? envoyerSaisinesCada;
+  const deps = dl.deps ?? depsReellesEnvoiSaisine();
+  const saisineId = await creer(demandeId, auteur); // peut lever (état, doublon, identité) → géré par l'appelant
+  const rapport = await envoyer(
+    { appliquer: true, auteur },
+    { ...deps, candidats: async () => (await deps.candidats()).filter((s) => s.saisineId === saisineId) },
+  );
+  if (rapport.canal === 'formulaire') return { saisineId, ok: true, canal: 'formulaire' };
+  const r0 = rapport.resultats.find((x) => x.saisineId === saisineId) ?? rapport.resultats[0];
+  if (r0 && r0.issue === 'envoye') return { saisineId, ok: true, canal: 'email', issue: 'envoye' };
+  const motif = r0?.motif
+    ?? rapport.bloqueesForclusion[0]?.motif ?? rapport.bloqueesPiece[0]?.motif
+    ?? rapport.bloqueesCompte[0]?.motif ?? rapport.bloqueesCorps[0]?.motif
+    ?? (rapport.budget === 0 ? 'plafond d’envoi du jour atteint (saisine préparée en brouillon, à relancer)' : 'envoi impossible (saisine préparée en brouillon)');
+  return { saisineId, ok: false, canal: 'email', issue: r0?.issue ?? 'bloquee', motif };
 }

@@ -2,7 +2,7 @@ import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { chargerSuiviSaisines } from '../../../../../lib/veille/saisinesSuivi';
 import {
-  creerSaisineCada, marquerSaisineDeposee, enregistrerAvisSaisine, SaisineCadaError, SENS_AVIS, type SensAvis,
+  marquerSaisineDeposee, enregistrerAvisSaisine, SaisineCadaError, SENS_AVIS, type SensAvis,
 } from '../../../../../lib/veille/saisineCadaRepo';
 import { abandonnerRelance } from '../../../../../lib/veille/demandeRelanceRepo';
 
@@ -52,28 +52,13 @@ export async function POST(request: Request): Promise<Response> {
     };
     actionCtx = corps.action;
 
-    // « lancer » : crée le brouillon PUIS réutilise l'orchestrateur d'envoi X3, restreint à cette seule saisine (candidats
-    // filtrés). L'orchestrateur décide du canal : e-mail immédiat (copie de la demande en PJ) si cada_email est renseigné,
-    // sinon file de dépôt (aucun envoi). Import DYNAMIQUE : garde nodemailer/pdfkit hors du graphe statique de la route.
+    // « lancer » : chemin PARTAGÉ avec la page de confirmation du lien e-mail (création + orchestrateur d'envoi restreint à
+    // cette saisine — logique NON réécrite). Import DYNAMIQUE : garde nodemailer/pdfkit hors du graphe statique de la route.
+    // SaisineCadaError / 23505 / identité remontent au catch → 409.
     if (corps.action === 'lancer') {
       if (!estEntier(corps.demandeId)) return invalide();
-      const saisineId = await creerSaisineCada(corps.demandeId, auteur); // SaisineCadaError / 23505 / identité → catch → 409
-      const { envoyerSaisinesCada, depsReellesEnvoiSaisine } = await import('../../../../../lib/sitadel/envoiSaisineCada');
-      const base = depsReellesEnvoiSaisine();
-      const rapport = await envoyerSaisinesCada(
-        { appliquer: true, auteur },
-        { ...base, candidats: async () => (await base.candidats()).filter((s) => s.saisineId === saisineId) },
-      );
-      if (rapport.canal === 'formulaire') return Response.json({ ok: true, canal: 'formulaire', saisineId });
-      const r0 = rapport.resultats.find((x) => x.saisineId === saisineId) ?? rapport.resultats[0];
-      if (r0 && r0.issue === 'envoye') return Response.json({ ok: true, canal: 'email', issue: 'envoye', saisineId });
-      // Brouillon créé mais envoi non abouti (forclose de justesse / PJ / compte SMTP / gabarit / budget partagé épuisé) : la
-      // saisine reste en brouillon (visible dans la file de dépôt), on renvoie le motif honnête — jamais un faux succès.
-      const motif = r0?.motif
-        ?? rapport.bloqueesForclusion[0]?.motif ?? rapport.bloqueesPiece[0]?.motif
-        ?? rapport.bloqueesCompte[0]?.motif ?? rapport.bloqueesCorps[0]?.motif
-        ?? (rapport.budget === 0 ? 'plafond d’envoi du jour atteint (saisine préparée en brouillon, à relancer)' : 'envoi impossible (saisine préparée en brouillon)');
-      return Response.json({ ok: false, canal: 'email', issue: r0?.issue ?? 'bloquee', motif, saisineId });
+      const { lancerSaisinePourDemande } = await import('../../../../../lib/sitadel/envoiSaisineCada');
+      return Response.json(await lancerSaisinePourDemande(corps.demandeId, auteur));
     }
 
     // « marquer_deposee » : le gestionnaire a déposé la saisine à la main sur le formulaire → brouillon devient 'envoyee'.

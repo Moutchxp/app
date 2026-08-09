@@ -19,8 +19,8 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: withTransactionMock, pool: {}, closePool: async () => undefined }));
 
 import {
-  partitionForclusion, emettreUneSaisine, envoyerSaisinesCada,
-  type SaisineAEnvoyer, type DepsEnvoiSaisine,
+  partitionForclusion, emettreUneSaisine, envoyerSaisinesCada, lancerSaisinePourDemande,
+  type SaisineAEnvoyer, type DepsEnvoiSaisine, type RapportEnvoiSaisine,
 } from './envoiSaisineCada';
 import type { Requete } from './mairieContact';
 
@@ -187,5 +187,46 @@ describe('X3 — envoyerSaisinesCada : canaux, garde-fous, budget', () => {
     const r = await envoyerSaisinesCada({}, deps({ emisAujourdhui: async () => 25 })); // cap/jour = 25
     expect(r.budget).toBe(0);
     expect(r.resultats).toHaveLength(0);
+  });
+});
+
+describe('X5 — lancerSaisinePourDemande : création + envoi RESTREINT à la saisine (mapping honnête)', () => {
+  const rapport = (over: Partial<RapportEnvoiSaisine> = {}): RapportEnvoiSaisine => ({
+    mode: 'applique', canal: 'email', candidats: 1, emisAujourdhui: 0, capParRun: 10, capParJour: 25, budget: 1,
+    bloqueesForclusion: [], bloqueesCorps: [], bloqueesCompte: [], bloqueesPiece: [], destinataires: [], resultats: [], fileADeposer: [], octetsPartis: 0, ...over,
+  });
+  const depsEnvoi = (cands: { saisineId: number }[]) => ({ candidats: async () => cands } as unknown as DepsEnvoiSaisine);
+
+  it('crée puis RESTREINT l’envoi à la seule saisine créée (candidats filtrés par id)', async () => {
+    let recus: { saisineId: number }[] = [];
+    const envoyer = (async (_opts: unknown, d: DepsEnvoiSaisine) => { recus = (await d.candidats()) as { saisineId: number }[]; return rapport({ resultats: [{ saisineId: 7, reference: 'R', issue: 'envoye' }] }); }) as typeof envoyerSaisinesCada;
+    const r = await lancerSaisinePourDemande(42, 'admin', { creer: async () => 7, envoyer, deps: depsEnvoi([{ saisineId: 7 }, { saisineId: 8 }]) });
+    expect(recus.map((s) => s.saisineId)).toEqual([7]); // 8 est écartée : envoi restreint à la saisine créée
+    expect(r).toMatchObject({ saisineId: 7, ok: true, canal: 'email', issue: 'envoye' });
+  });
+
+  it('canal formulaire → ok:true, canal formulaire', async () => {
+    const envoyer = (async () => rapport({ canal: 'formulaire' })) as typeof envoyerSaisinesCada;
+    expect(await lancerSaisinePourDemande(42, 'admin', { creer: async () => 7, envoyer, deps: depsEnvoi([{ saisineId: 7 }]) }))
+      .toMatchObject({ saisineId: 7, ok: true, canal: 'formulaire' });
+  });
+
+  it('envoi non abouti (echec) → ok:false + motif', async () => {
+    const envoyer = (async () => rapport({ resultats: [{ saisineId: 7, reference: 'R', issue: 'echec', motif: 'timeout' }] })) as typeof envoyerSaisinesCada;
+    expect(await lancerSaisinePourDemande(42, 'admin', { creer: async () => 7, envoyer, deps: depsEnvoi([{ saisineId: 7 }]) }))
+      .toMatchObject({ saisineId: 7, ok: false, issue: 'echec', motif: 'timeout' });
+  });
+
+  it('budget épuisé (rien envoyé) → ok:false + motif « plafond »', async () => {
+    const envoyer = (async () => rapport({ budget: 0, resultats: [] })) as typeof envoyerSaisinesCada;
+    const r = await lancerSaisinePourDemande(42, 'admin', { creer: async () => 7, envoyer, deps: depsEnvoi([{ saisineId: 7 }]) });
+    expect(r.ok).toBe(false);
+    expect(r.motif).toMatch(/plafond/i);
+  });
+
+  it('la création qui échoue (état/doublon) REMONTE à l’appelant (jamais avalée)', async () => {
+    const envoyer = (async () => rapport()) as typeof envoyerSaisinesCada;
+    const creer = (async () => { throw Object.assign(new Error('dup'), { code: '23505', constraint: 'demande_relance_vivante_uniq' }); }) as unknown as (d: number, a: string | null) => Promise<number>;
+    await expect(lancerSaisinePourDemande(42, 'admin', { creer, envoyer, deps: depsEnvoi([]) })).rejects.toMatchObject({ code: '23505' });
   });
 });

@@ -30,8 +30,16 @@ const SCOPE_EMISSION = 'emit-certificate';
  * et l'inverse (chaque vérifieur exige SON scope).
  */
 const SCOPE_RETRAIT = 'withdraw-consent';
+/**
+ * Portée fermée du jeton de CONFIRMATION de saisine CADA (X5, voie e-mail interne). STRICTEMENT distincte des trois autres —
+ * même secret, scopes séparés : un jeton de confirmation n'ouvre NI rectification NI émission NI retrait, et l'inverse.
+ * Son `sub` scelle l'id (numérique) de la DEMANDE ; la page publique n'agit que sur CET id vérifié, jamais un id du client.
+ */
+const SCOPE_CADA = 'confirm-cada';
 /** Durée de vie du jeton (courte : le geste — correction ou émission — suit immédiatement la soumission). */
 const EXPIRATION = '30m';
+/** Durée de vie du jeton de confirmation CADA : 7 JOURS (il voyage dans un e-mail lu quand l'exploitant a le temps). */
+const EXPIRATION_CADA = '7d';
 
 /** Clé de signature dérivée du secret DÉDIÉ. Échoue proprement si la variable manque (fail-safe, jamais de repli sur le secret admin). */
 function cleSignature(): Uint8Array {
@@ -123,5 +131,41 @@ export async function verifierJetonRetrait(jeton: string): Promise<string | null
     return typeof payload.sub === 'string' && payload.sub !== '' ? payload.sub : null;
   } catch {
     return null; // signature invalide, malformé…
+  }
+}
+
+/**
+ * Frappe un jeton-capacité de CONFIRMATION de saisine CADA (X5) scellant l'id de la DEMANDE (`sub`, scope `confirm-cada`,
+ * exp 7 jours). Capacité ÉTROITE : elle n'autorise QUE l'ouverture de la page de confirmation de CETTE demande — l'ACTE
+ * (lancer la saisine) part d'un POST déclenché par un clic humain sur cette page, JAMAIS du seul chargement du lien.
+ */
+export async function signerJetonCada(demandeId: number): Promise<string> {
+  return new SignJWT({ scope: SCOPE_CADA })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(String(demandeId))
+    .setIssuedAt()
+    .setExpirationTime(EXPIRATION_CADA)
+    .sign(cleSignature());
+}
+
+/** Résultat de `verifierJetonCada` : DISCRIMINE l'expiration (le lien fonctionnait, il est juste trop vieux → renvoyer vers
+ *  l'onglet) d'une invalidité (signature/scope/malformé → lien à ne pas suivre). */
+export type VerifCada = { ok: true; demandeId: number } | { ok: false; raison: 'expire' | 'invalide' };
+
+/**
+ * Vérifie signature + expiration + scope `confirm-cada` et renvoie l'id de la DEMANDE scellé (`sub`). DISTINGUE l'expiration
+ * (`raison:'expire'`) des autres échecs (`raison:'invalide'` : signature, mauvais scope, sub non numérique, malformé) pour que
+ * la page affiche le bon message. ⚠️ REJETTE tout jeton d'un autre scope (rectification/émission/retrait → 'invalide').
+ */
+export async function verifierJetonCada(jeton: string): Promise<VerifCada> {
+  try {
+    const { payload } = await jwtVerify(jeton, cleSignature(), { algorithms: ['HS256'] });
+    if (payload.scope !== SCOPE_CADA) return { ok: false, raison: 'invalide' }; // scope différent → rejeté
+    if (typeof payload.sub !== 'string' || !/^\d+$/.test(payload.sub)) return { ok: false, raison: 'invalide' };
+    return { ok: true, demandeId: Number(payload.sub) };
+  } catch (e) {
+    // jose lève JWTExpired (code ERR_JWT_EXPIRED) sur un jeton périmé ; tout le reste = invalide.
+    const code = (e as { code?: string })?.code;
+    return { ok: false, raison: code === 'ERR_JWT_EXPIRED' ? 'expire' : 'invalide' };
   }
 }

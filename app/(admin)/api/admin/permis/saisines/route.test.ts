@@ -10,33 +10,28 @@ vi.mock('../../../../../lib/db/client', () => ({ query: vi.fn(), withTransaction
 vi.mock('../../../../../lib/admin/garde', () => ({ exigerAdministrateur: vi.fn() }));
 vi.mock('../../../../../lib/veille/saisinesSuivi', () => ({ chargerSuiviSaisines: vi.fn() }));
 vi.mock('../../../../../lib/veille/demandeRelanceRepo', () => ({ abandonnerRelance: vi.fn() }));
-vi.mock('../../../../../lib/sitadel/envoiSaisineCada', () => ({
-  envoyerSaisinesCada: vi.fn(),
-  depsReellesEnvoiSaisine: vi.fn(() => ({ candidats: async () => [] })),
-}));
+vi.mock('../../../../../lib/sitadel/envoiSaisineCada', () => ({ lancerSaisinePourDemande: vi.fn() }));
 vi.mock('../../../../../lib/veille/saisineCadaRepo', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
-  return { ...actual, creerSaisineCada: vi.fn(), marquerSaisineDeposee: vi.fn(), enregistrerAvisSaisine: vi.fn() };
+  return { ...actual, marquerSaisineDeposee: vi.fn(), enregistrerAvisSaisine: vi.fn() };
 });
 
 import { GET, POST } from './route';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { chargerSuiviSaisines } from '../../../../../lib/veille/saisinesSuivi';
 import { abandonnerRelance } from '../../../../../lib/veille/demandeRelanceRepo';
-import { envoyerSaisinesCada } from '../../../../../lib/sitadel/envoiSaisineCada';
-import { creerSaisineCada, marquerSaisineDeposee, enregistrerAvisSaisine, SaisineCadaError } from '../../../../../lib/veille/saisineCadaRepo';
+import { lancerSaisinePourDemande } from '../../../../../lib/sitadel/envoiSaisineCada';
+import { marquerSaisineDeposee, enregistrerAvisSaisine, SaisineCadaError } from '../../../../../lib/veille/saisineCadaRepo';
 
 const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
 const suivi = chargerSuiviSaisines as unknown as ReturnType<typeof vi.fn>;
 const abandon = abandonnerRelance as unknown as ReturnType<typeof vi.fn>;
-const envoyer = envoyerSaisinesCada as unknown as ReturnType<typeof vi.fn>;
-const creer = creerSaisineCada as unknown as ReturnType<typeof vi.fn>;
+const lancer = lancerSaisinePourDemande as unknown as ReturnType<typeof vi.fn>;
 const deposer = marquerSaisineDeposee as unknown as ReturnType<typeof vi.fn>;
 const avis = enregistrerAvisSaisine as unknown as ReturnType<typeof vi.fn>;
 
 const reqGet = () => new Request('http://test/api/admin/permis/saisines');
 const post = (body: unknown) => POST(new Request('http://test/api/admin/permis/saisines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
-const RAPPORT_ENVOYE = { canal: 'email', resultats: [{ saisineId: 7, issue: 'envoye' }], bloqueesForclusion: [], bloqueesPiece: [], bloqueesCompte: [], bloqueesCorps: [], budget: 1 };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -62,48 +57,42 @@ describe('X4 — GET : garde + agrégat + 503', () => {
   });
 });
 
-describe('X4 — POST « lancer » : création + orchestrateur d’envoi réutilisé', () => {
-  it('cada renseigné + envoyé → 200 { ok:true, canal:email, issue:envoye } ; envoi en mode --appliquer', async () => {
-    creer.mockResolvedValueOnce(7);
-    envoyer.mockResolvedValueOnce(RAPPORT_ENVOYE);
+describe('X4 — POST « lancer » : chemin partagé lancerSaisinePourDemande', () => {
+  it('envoyé → 200 { ok:true, canal:email, issue:envoye } ; lancé pour (demandeId, auteur)', async () => {
+    lancer.mockResolvedValueOnce({ saisineId: 7, ok: true, canal: 'email', issue: 'envoye' });
     const res = await post({ action: 'lancer', demandeId: 42 });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, canal: 'email', issue: 'envoye', saisineId: 7 });
-    expect(creer).toHaveBeenCalledWith(42, '5');
-    expect(envoyer.mock.calls[0][0]).toMatchObject({ appliquer: true }); // envoi réel demandé par le clic
+    expect(lancer).toHaveBeenCalledWith(42, '5');
   });
-  it('cada vide → 200 { ok:true, canal:formulaire } (placée en file de dépôt, aucun envoi)', async () => {
-    creer.mockResolvedValueOnce(7);
-    envoyer.mockResolvedValueOnce({ canal: 'formulaire', resultats: [], bloqueesForclusion: [], bloqueesPiece: [], bloqueesCompte: [], bloqueesCorps: [], budget: 0 });
+  it('cada vide → 200 { ok:true, canal:formulaire } (placée en file de dépôt)', async () => {
+    lancer.mockResolvedValueOnce({ saisineId: 7, ok: true, canal: 'formulaire' });
     expect(await (await post({ action: 'lancer', demandeId: 42 })).json()).toMatchObject({ ok: true, canal: 'formulaire' });
   });
   it('brouillon créé mais envoi non abouti → 200 { ok:false, motif } (jamais un faux succès)', async () => {
-    creer.mockResolvedValueOnce(7);
-    envoyer.mockResolvedValueOnce({ canal: 'email', resultats: [{ saisineId: 7, issue: 'echec', motif: 'timeout' }], bloqueesForclusion: [], bloqueesPiece: [], bloqueesCompte: [], bloqueesCorps: [], budget: 1 });
-    const b = await (await post({ action: 'lancer', demandeId: 42 })).json();
-    expect(b).toMatchObject({ ok: false, issue: 'echec', motif: 'timeout' });
+    lancer.mockResolvedValueOnce({ saisineId: 7, ok: false, canal: 'email', issue: 'echec', motif: 'timeout' });
+    expect(await (await post({ action: 'lancer', demandeId: 42 })).json()).toMatchObject({ ok: false, issue: 'echec', motif: 'timeout' });
   });
-  it('refus métier de création (état) → 409 explicite, AUCUN envoi', async () => {
-    creer.mockRejectedValueOnce(new SaisineCadaError('demande « close » : seule une demande envoyée peut être saisie devant la CADA'));
+  it('refus métier de création (état) → 409 explicite', async () => {
+    lancer.mockRejectedValueOnce(new SaisineCadaError('demande « close » : seule une demande envoyée peut être saisie devant la CADA'));
     const res = await post({ action: 'lancer', demandeId: 42 });
     expect(res.status).toBe(409);
     expect((await res.json()).erreur).toContain('CADA');
-    expect(envoyer).not.toHaveBeenCalled();
   });
   it('DOUBLE saisine (23505 brut sur demande_relance_vivante_uniq) → 409 NOMMÉ, jamais un 503', async () => {
-    creer.mockRejectedValueOnce(Object.assign(new Error('dup'), { code: '23505', constraint: 'demande_relance_vivante_uniq' }));
+    lancer.mockRejectedValueOnce(Object.assign(new Error('dup'), { code: '23505', constraint: 'demande_relance_vivante_uniq' }));
     const res = await post({ action: 'lancer', demandeId: 42 });
     expect(res.status).toBe(409);
     expect((await res.json()).erreur).toBe('une saisine est déjà en cours pour cette demande');
   });
   it('identité incomplète (name) → 409', async () => {
-    creer.mockRejectedValueOnce(Object.assign(new Error('identité incomplète'), { name: 'IdentiteIncompleteError' }));
+    lancer.mockRejectedValueOnce(Object.assign(new Error('identité incomplète'), { name: 'IdentiteIncompleteError' }));
     expect((await post({ action: 'lancer', demandeId: 42 })).status).toBe(409);
   });
-  it('demandeId non entier → 400, création jamais appelée', async () => {
+  it('demandeId non entier → 400, lancement jamais appelé', async () => {
     const res = await post({ action: 'lancer', demandeId: 'x' });
     expect(res.status).toBe(400);
-    expect(creer).not.toHaveBeenCalled();
+    expect(lancer).not.toHaveBeenCalled();
   });
 });
 

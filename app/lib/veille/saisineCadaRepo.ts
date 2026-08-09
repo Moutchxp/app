@@ -220,3 +220,97 @@ export async function marquerSaisineDeposee(saisineId: number, auteur: string | 
       [row.demande_id, `saisine CADA ${saisineId} déposée à la main sur le formulaire en ligne`, auteur]);
   });
 }
+
+// ── X5 : lecture du CONTEXTE de la page de confirmation (lien e-mail) ──────────
+/**
+ * État d'une demande vis-à-vis d'une saisine CADA, du point de vue de la page de confirmation. MIROIR (en LECTURE) des gardes
+ * de creerSaisineCada — l'AUTORITÉ reste creerSaisineCada au POST (qui peut encore refuser si l'état a changé entre-temps).
+ * Seul 'saisissable' autorise le bouton.
+ */
+export type EtatConfirmation =
+  | 'saisissable' | 'deja_lancee' | 'forclose' | 'refus_non_acquis'
+  | 'plus_de_dossier' | 'silence_non_verifie' | 'demande_absente' | 'demande_hors_etat';
+
+export interface ContexteConfirmation {
+  etat: EtatConfirmation;
+  reference: string | null;
+  communeNom: string | null;
+  envoyeLe: Date | null;
+  refusTaciteLe: Date | null;
+  forclusionLe: Date | null;
+  joursAvantForclusion: number | null;
+  dossiersDusNums: string[];
+  dejaLanceeLe: Date | null; // envoyee_le de la saisine déjà lancée (si 'envoyee'), sinon null
+}
+
+export interface LigneConfirmationDB {
+  statut: string;
+  reference: string;
+  commune_nom: string | null;
+  envoye_le: Date | null;
+  dossiers_dus_nums: string[];
+  saisine_statut: string | null;   // statut d'une saisine_cada vivante (≠ 'abandonnee'), ou null
+  saisine_envoyee_le: Date | null;
+}
+
+export interface DepsConfirmation {
+  lire(demandeId: number): Promise<LigneConfirmationDB | null>;
+  derniereReleveOkLe(): Promise<Date | null>;
+  fraicheurHeures(): Promise<number>;
+  maintenant(): Date;
+}
+
+const SQL_CONFIRMATION =
+  `SELECT d.statut, d.reference, c.nom AS commune_nom,
+          (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id AND a.canal = 'email' AND a.statut = 'envoye') AS envoye_le,
+          COALESCE((SELECT array_agg(s.num_dau ORDER BY s.num_dau)
+                      FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
+                     WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL), '{}') AS dossiers_dus_nums,
+          (SELECT rl.statut FROM demande_relance rl WHERE rl.demande_id = d.id AND rl.type = 'saisine_cada' AND rl.statut <> 'abandonnee' ORDER BY rl.id DESC LIMIT 1) AS saisine_statut,
+          (SELECT rl.envoyee_le FROM demande_relance rl WHERE rl.demande_id = d.id AND rl.type = 'saisine_cada' AND rl.statut <> 'abandonnee' ORDER BY rl.id DESC LIMIT 1) AS saisine_envoyee_le
+     FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee
+    WHERE d.id = $1`;
+
+export function depsReellesConfirmation(): DepsConfirmation {
+  return {
+    lire: async (demandeId) => {
+      const { rows } = await query<LigneConfirmationDB>(SQL_CONFIRMATION, [demandeId]);
+      return rows[0] ?? null;
+    },
+    derniereReleveOkLe: async () => {
+      const { rows } = await query<{ t: Date | null }>(`SELECT max(termine_le) AS t FROM releve_run WHERE resultat = 'ok'`);
+      return rows[0]?.t ?? null;
+    },
+    fraicheurHeures: async () => (await chargerConfigVeille()).releveFraicheurHeures,
+    maintenant: () => new Date(),
+  };
+}
+
+/**
+ * Contexte à afficher sur la page de confirmation d'une demande. Classe l'état EN TS dans le MÊME ordre que creerSaisineCada :
+ * absente → saisine déjà vivante → demande hors état → refus non acquis → forclose → plus de dossier → silence non vérifié →
+ * saisissable. N'expose que l'identification du dossier (référence, commune, dates, jours, numéros de dossiers dus) — aucune
+ * donnée personnelle. Ne DÉCIDE rien : le bouton (côté page) n'apparaît que pour 'saisissable', et le POST re-garde de toute façon.
+ */
+export async function chargerConfirmationCada(demandeId: number, deps: DepsConfirmation = depsReellesConfirmation()): Promise<ContexteConfirmation> {
+  const l = await deps.lire(demandeId);
+  const vide: Omit<ContexteConfirmation, 'etat'> = { reference: null, communeNom: null, envoyeLe: null, refusTaciteLe: null, forclusionLe: null, joursAvantForclusion: null, dossiersDusNums: [], dejaLanceeLe: null };
+  if (!l) return { etat: 'demande_absente', ...vide };
+
+  const socle = { reference: l.reference, communeNom: l.commune_nom, envoyeLe: l.envoye_le, dossiersDusNums: l.dossiers_dus_nums ?? [] };
+  // Saisine déjà vivante (brouillon ou envoyée) → « déjà lancée » (avec la date si elle est partie). Prioritaire (anti-doublon visible).
+  if (l.saisine_statut !== null) {
+    return { etat: 'deja_lancee', ...socle, refusTaciteLe: null, forclusionLe: null, joursAvantForclusion: null, dejaLanceeLe: l.saisine_statut === 'envoyee' ? l.saisine_envoyee_le : null };
+  }
+  if (l.statut !== 'envoyee' || l.envoye_le === null) {
+    return { etat: 'demande_hors_etat', ...socle, refusTaciteLe: null, forclusionLe: null, joursAvantForclusion: null, dejaLanceeLe: null };
+  }
+  const f = fenetreCada(l.envoye_le, deps.maintenant());
+  const avecFenetre = { ...socle, refusTaciteLe: f.refusTaciteLe, forclusionLe: f.forclusionLe, joursAvantForclusion: f.joursAvantForclusion, dejaLanceeLe: null };
+  if (f.etat === 'pas_ouverte') return { etat: 'refus_non_acquis', ...avecFenetre };
+  if (f.etat === 'fermee') return { etat: 'forclose', ...avecFenetre };
+  if ((l.dossiers_dus_nums ?? []).length === 0) return { etat: 'plus_de_dossier', ...avecFenetre };
+  const fraiche = releveEstFraiche(await deps.derniereReleveOkLe(), deps.maintenant(), await deps.fraicheurHeures());
+  if (!fraiche) return { etat: 'silence_non_verifie', ...avecFenetre };
+  return { etat: 'saisissable', ...avecFenetre };
+}

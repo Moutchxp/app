@@ -27,8 +27,8 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: withTransactionMock, pool: {}, closePool: async () => undefined }));
 
 import {
-  lireSaisinesEligibles, creerSaisineCada, marquerSaisineDeposee, enregistrerAvisSaisine, SENS_AVIS, depsReellesSaisissables, SaisineCadaError,
-  type DepsSaisissables, type DepsCreerSaisine, type CandidatSaisine,
+  lireSaisinesEligibles, creerSaisineCada, marquerSaisineDeposee, enregistrerAvisSaisine, SENS_AVIS, chargerConfirmationCada, depsReellesSaisissables, SaisineCadaError,
+  type DepsSaisissables, type DepsCreerSaisine, type CandidatSaisine, type DepsConfirmation, type LigneConfirmationDB,
 } from './saisineCadaRepo';
 import { piecesDepuisConfig, type ConfigDemandeur, type Lot, type CandidatDossier } from '../sitadel/demande';
 
@@ -213,5 +213,60 @@ describe('X4 — enregistrerAvisSaisine : avis CADA (garde envoyee, sens en list
     etat.avisRows = [];
     await expect(enregistrerAvisSaisine(7, 'favorable', 'admin')).rejects.toBeInstanceOf(SaisineCadaError);
     expect(trouver(/INSERT INTO demande_journal/i)).toBeUndefined();
+  });
+});
+
+describe('X5 — chargerConfirmationCada : classification des états (miroir des gardes de creerSaisineCada)', () => {
+  const AVANT_REFUS = new Date('2026-03-20T12:00:00Z'); // avant le 14 avr → refus non acquis
+  const LIGNE = (over: Partial<LigneConfirmationDB> = {}): LigneConfirmationDB => ({
+    statut: 'envoyee', reference: 'SVAV-DEM-2026-000042', commune_nom: 'Asnières-sur-Seine', envoye_le: ENVOI,
+    dossiers_dus_nums: ['DAU-1'], saisine_statut: null, saisine_envoyee_le: null, ...over,
+  });
+  function depsConf(over: Partial<DepsConfirmation> = {}): DepsConfirmation {
+    return {
+      lire: async () => LIGNE(),
+      derniereReleveOkLe: async () => new Date('2026-05-10T06:00:00Z'), // 6 h avant DANS_FENETRE → fraîche (<48 h)
+      fraicheurHeures: async () => 48,
+      maintenant: () => DANS_FENETRE,
+      ...over,
+    };
+  }
+
+  it('demande introuvable → demande_absente', async () => {
+    expect((await chargerConfirmationCada(42, depsConf({ lire: async () => null }))).etat).toBe('demande_absente');
+  });
+  it('saisine déjà envoyée → deja_lancee (avec la date)', async () => {
+    const c = await chargerConfirmationCada(42, depsConf({ lire: async () => LIGNE({ saisine_statut: 'envoyee', saisine_envoyee_le: new Date('2026-05-01T00:00:00Z') }) }));
+    expect(c.etat).toBe('deja_lancee');
+    expect(c.dejaLanceeLe).toEqual(new Date('2026-05-01T00:00:00Z'));
+  });
+  it('saisine en brouillon → deja_lancee (en préparation, sans date)', async () => {
+    const c = await chargerConfirmationCada(42, depsConf({ lire: async () => LIGNE({ saisine_statut: 'brouillon' }) }));
+    expect(c.etat).toBe('deja_lancee');
+    expect(c.dejaLanceeLe).toBeNull();
+  });
+  it('demande hors état (non envoyée, ou sans date d’envoi) → demande_hors_etat', async () => {
+    expect((await chargerConfirmationCada(42, depsConf({ lire: async () => LIGNE({ statut: 'close' }) }))).etat).toBe('demande_hors_etat');
+    expect((await chargerConfirmationCada(42, depsConf({ lire: async () => LIGNE({ envoye_le: null }) }))).etat).toBe('demande_hors_etat');
+  });
+  it('refus tacite non acquis → refus_non_acquis', async () => {
+    expect((await chargerConfirmationCada(42, depsConf({ maintenant: () => AVANT_REFUS }))).etat).toBe('refus_non_acquis');
+  });
+  it('fenêtre forclose → forclose', async () => {
+    expect((await chargerConfirmationCada(42, depsConf({ maintenant: () => APRES_FORCLUSION }))).etat).toBe('forclose');
+  });
+  it('plus aucun dossier dû → plus_de_dossier', async () => {
+    expect((await chargerConfirmationCada(42, depsConf({ lire: async () => LIGNE({ dossiers_dus_nums: [] }) }))).etat).toBe('plus_de_dossier');
+  });
+  it('relève pas assez fraîche → silence_non_verifie (sincérité)', async () => {
+    expect((await chargerConfirmationCada(42, depsConf({ derniereReleveOkLe: async () => new Date('2026-05-01T00:00:00Z') }))).etat).toBe('silence_non_verifie'); // ~9 j → > 48 h
+  });
+  it('tout réuni → saisissable, avec jours avant forclusion + dossiers dus', async () => {
+    const c = await chargerConfirmationCada(42, depsConf());
+    expect(c.etat).toBe('saisissable');
+    expect(c.reference).toBe('SVAV-DEM-2026-000042');
+    expect(c.dossiersDusNums).toEqual(['DAU-1']);
+    expect(typeof c.joursAvantForclusion).toBe('number');
+    expect(c.forclusionLe).not.toBeNull();
   });
 });

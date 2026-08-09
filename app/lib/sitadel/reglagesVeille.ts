@@ -170,6 +170,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Adresse e-mail qui reçoit le récapitulatif quotidien. Tant qu’elle est vide, aucune alerte n’est envoyée, même si les alertes sont activées.' },
   { colonne: 'alerte_heure_locale', cle: 'alerteHeureLocale', libelle: 'Heure d’envoi du récapitulatif', unite: 'heure locale', type: 'entier',
     aide: 'Heure locale (0 à 23) à partir de laquelle le récapitulatif du jour peut partir. Ex. 8 = pas avant 8 h du matin. Il n’y a qu’un envoi par jour.' },
+  // X5 — PROPOSITION de saisine CADA par e-mail. Opt-in. Le destinataire est l'adresse d'alerte ci-dessus (pas un second champ).
+  { colonne: 'proposition_cada_active', cle: 'propositionCadaActive', libelle: 'Proposer la saisine CADA par e-mail', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, dès qu’une demande devient saisissable devant la CADA (silence d’un mois vérifié, délai non forclos), vous recevez UN e-mail — à l’adresse d’alerte ci-dessus — détaillant le dossier, avec un lien pour lancer la saisine. Une seule proposition par demande, jamais de rappel. Rien n’est jamais envoyé à une mairie ni à la CADA sans votre clic.' },
   // R4 — borne de taille des pièces jointes ENTRANTES (déposées à la réception). Distincte de la borne des photos internaute.
   { colonne: 'piece_taille_max_mo', cle: 'pieceTailleMaxMo', libelle: 'Taille maximale des pièces reçues', unite: 'Mo', type: 'entier',
     aide: 'Taille maximale d’une pièce jointe reçue d’une mairie qui sera conservée. Au-delà, la pièce n’est pas stockée mais sa trace (nom, type, taille, motif) reste visible. Les plans d’urbanisme peuvent être lourds : 50 Mo par défaut.' },
@@ -229,6 +232,7 @@ export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
   'releve_active', 'releve_intervalle_minutes', 'releve_profil', // R7 — relève automatique des réponses
   'echeance_alerte_jours', 'releve_fraicheur_heures', // R6 — échéance d'un mois + fraîcheur de la relève
   'alerte_active', 'alerte_email', 'alerte_heure_locale', // R8 — alertes e-mail quotidiennes
+  'proposition_cada_active', // X5 — proposition de saisine CADA par e-mail (destinataire = alerte_email)
   'piece_taille_max_mo', // R4 — borne de taille des pièces entrantes
   'recherche_references_max', // R3e — plafond des références de dossier interrogées
   'pieces_demandees', 'profil_demandeur_defaut',
