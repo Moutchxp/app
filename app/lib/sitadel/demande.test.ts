@@ -5,6 +5,7 @@ import {
   problemesIdentite, proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande,
   dateEnFrancais, ancreDetail, peutPasserLot, expliquerProposition, resumeDiagnostic, configAvecSignataire,
   validerIdsLot, problemeCorpsDemande, gabaritsPresents, referenceDiscrete,
+  cleLot, compterSelection, apparierSelection, validerLotsSelection,
 } from './demande';
 import { resoudreDestination } from './destinataire';
 
@@ -485,5 +486,65 @@ describe('S16 — e-mail ET formulaire produisent des lots ; courrier/inconnu ex
 
     expect(proposerLots([cand({ canal: 'courrier' as CanalContact })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
     expect(proposerLots([cand({ canal: 'inconnu' as CanalContact })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
+  });
+});
+
+// ── V3 : sélection lot-par-lot (helpers PURS) ────────────────────────────────
+describe('V3 — cleLot : clé stable = ensemble TRIÉ des dossierId (indépendante de l’ordre)', () => {
+  const lot = (ids: number[]) => ({ dossiers: ids.map((dossierId) => ({ dossierId })) });
+  it('même ensemble de dossiers → même clé, quel que soit l’ordre', () => {
+    expect(cleLot(lot([3, 1, 2]))).toBe(cleLot(lot([1, 2, 3])));
+    expect(cleLot(lot([1, 2, 3]))).toBe('1-2-3');
+  });
+  it('ensembles différents → clés différentes', () => {
+    expect(cleLot(lot([1, 2]))).not.toBe(cleLot(lot([1, 2, 3])));
+  });
+});
+
+describe('V3 — compterSelection : décompte sur l’ENSEMBLE des lots (jamais la page)', () => {
+  const lots = Array.from({ length: 20 }, (_, i) => ({ dossiers: [{ dossierId: i * 10 }, { dossierId: i * 10 + 1 }] }));
+  it('compte lots ET dossiers cochés, même hors de la page affichée', () => {
+    // On coche un lot de « page 1 » (index 0) et un de « page 2 » (index 19).
+    const sel = new Set([cleLot(lots[0]), cleLot(lots[19])]);
+    expect(compterSelection(lots, sel)).toEqual({ nbLots: 2, nbDossiers: 4 }); // 2 lots × 2 dossiers → survit au changement de page
+  });
+  it('sélection vide → 0 / 0', () => {
+    expect(compterSelection(lots, new Set())).toEqual({ nbLots: 0, nbDossiers: 0 });
+  });
+  it('une clé qui ne correspond à aucun lot n’est pas comptée', () => {
+    expect(compterSelection(lots, new Set(['999-998'])).nbLots).toBe(0);
+  });
+});
+
+describe('V3 — apparierSelection : n’apparie QUE les lots frais, liste les invalidés', () => {
+  const l1 = { dossiers: [{ dossierId: 1 }, { dossierId: 2 }] };
+  const l2 = { dossiers: [{ dossierId: 3 }] };
+  it('sélection présente dans les lots frais → aCreer ; absente → invalides', () => {
+    const { aCreer, invalides } = apparierSelection([l1, l2], [cleLot(l1), '7-8']);
+    expect(aCreer).toEqual([l1]);            // seul l1 est frais
+    expect(invalides).toEqual(['7-8']);      // '7-8' n’existe plus → invalidé (listé)
+  });
+  it('une clé forgée (jamais proposée) n’est JAMAIS créée', () => {
+    const { aCreer, invalides } = apparierSelection([l1], ['forge']);
+    expect(aCreer).toHaveLength(0);
+    expect(invalides).toEqual(['forge']);
+  });
+  it('sélection vide → rien à créer, rien d’invalide', () => {
+    expect(apparierSelection([l1, l2], [])).toEqual({ aCreer: [], invalides: [] });
+  });
+});
+
+describe('V3 — validerLotsSelection : clé requise, dédup, erreurs explicites', () => {
+  it('non-tableau / vide → « aucun lot sélectionné »', () => {
+    expect(validerLotsSelection(undefined)).toEqual({ ok: false, erreur: 'aucun lot sélectionné' });
+    expect(validerLotsSelection([])).toEqual({ ok: false, erreur: 'aucun lot sélectionné' });
+  });
+  it('des entrées présentes mais TOUTES invalides → erreur explicite (jamais un succès à 0)', () => {
+    expect(validerLotsSelection([{ communeNom: 'X' }, { cle: '' }, 42]).ok).toBe(false);
+  });
+  it('clés valides → dédupliquées, communeNom conservé comme libellé (null si absent)', () => {
+    const v = validerLotsSelection([{ cle: '1-2', communeNom: 'Asnières' }, { cle: '1-2', communeNom: 'Asnières' }, { cle: '3' }]);
+    expect(v.ok).toBe(true);
+    if (v.ok) expect(v.lots).toEqual([{ cle: '1-2', communeNom: 'Asnières' }, { cle: '3', communeNom: null }]);
   });
 });

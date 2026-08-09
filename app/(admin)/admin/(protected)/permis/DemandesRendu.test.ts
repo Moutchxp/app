@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, CarteAmbiguite, CarteInjoignable, CarteDepot, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche } from './DemandesRendu';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 
 describe('S14e — OrigineDest (texte porteur, pas seulement couleur)', () => {
@@ -166,5 +166,63 @@ describe('S16 — CarteDepot (file à déposer à la main)', () => {
     const h = renderToStaticMarkup(createElement(CarteDepot, { d }));
     expect(h).toContain('URL de téléservice manquante');
     expect(h).toContain('role="alert"');
+  });
+});
+
+describe('V3 — CartePropositions : choix lot-par-lot (rendu PUR)', () => {
+  const lot = (cle: string, nb: number, communeNom = 'Asnières'): LotAffiche => ({ cle, codeInsee: '92004', communeNom, canal: 'email', nbDossiers: nb });
+  const base = {
+    resumeDiag: 'diag', explication: 'aucun lot', profilLibelle: 'société',
+    pageCourante: 1, nbPages: 1, onBasculer: () => {}, onToutSelectionner: () => {}, onPage: () => {}, onCreer: () => {},
+  };
+  const rendu = (over: Record<string, unknown>) =>
+    renderToStaticMarkup(createElement(CartePropositions, { ...base, ...over } as unknown as Parameters<typeof CartePropositions>[0]));
+
+  it('aucun lot proposé (total 0) → explication, aucune case ni bouton de création', () => {
+    const h = rendu({ total: 0, lotsVisibles: [], selection: new Set(), nbSelLots: 0, nbSelDossiers: 0, toutCoche: false });
+    expect(h).toContain('aucun lot');
+    expect(h).not.toContain('type="checkbox"');
+    expect(h).not.toContain('Créer les demandes sélectionnées');
+  });
+
+  it('par défaut AUCUN lot coché → bouton DÉSACTIVÉ avec sa raison', () => {
+    const lots = [lot('1-2', 2), lot('3', 1)];
+    const h = rendu({ total: 2, lotsVisibles: lots, selection: new Set(), nbSelLots: 0, nbSelDossiers: 0, toutCoche: false });
+    // deux cases, aucune cochée
+    expect((h.match(/type="checkbox"/g) ?? []).length).toBe(2);
+    expect(h).not.toContain('checked');
+    // bouton désactivé + raison lisible
+    expect(h).toMatch(/<button[^>]*disabled[^>]*>Créer les demandes sélectionnées</);
+    expect(h).toContain('Cochez au moins un lot pour créer des demandes');
+  });
+
+  it('le décompte affiche LOTS ET DOSSIERS (rappel + libellé du bouton)', () => {
+    const lots = [lot('1-2', 2)];
+    const h = rendu({ total: 3, lotsVisibles: lots, selection: new Set(['1-2', '3', '4-5']), nbSelLots: 3, nbSelDossiers: 6, toutCoche: true });
+    expect(h).toContain('3 lot(s)');
+    expect(h).toContain('6 dossier(s)');
+    // bouton actif (au moins un coché) et non désactivé
+    expect(h).toMatch(/Créer les demandes sélectionnées \(3 lot\(s\) · 6 dossier\(s\)\)/);
+    expect(h).not.toMatch(/<button[^>]*disabled[^>]*>Créer les demandes/);
+  });
+
+  it('RAPPEL du décompte visible même quand les lots cochés ne sont PAS sur la page affichée (survit à la pagination)', () => {
+    // La page n'affiche que le lot '3' ; mais la sélection (calculée sur l'ENSEMBLE par la Vue) vaut 2 lots / 4 dossiers.
+    const h = rendu({ total: 20, lotsVisibles: [lot('3', 1)], selection: new Set(['hors-page-a', '3']), nbSelLots: 2, nbSelDossiers: 4, toutCoche: false, nbPages: 2, pageCourante: 2 });
+    expect(h).toContain('2 lot(s)');   // le décompte reflète des lots absents de la page
+    expect(h).toContain('4 dossier(s)');
+    expect(h).toContain('Page 2 / 2');
+  });
+
+  it('« tout sélectionner » ↔ « tout désélectionner » selon toutCoche', () => {
+    const lots = [lot('1-2', 2)];
+    expect(rendu({ total: 1, lotsVisibles: lots, selection: new Set(), nbSelLots: 0, nbSelDossiers: 0, toutCoche: false })).toContain('Tout sélectionner');
+    expect(rendu({ total: 1, lotsVisibles: lots, selection: new Set(['1-2']), nbSelLots: 1, nbSelDossiers: 2, toutCoche: true })).toContain('Tout désélectionner');
+  });
+
+  it('une case est cochée ssi sa clé est dans la sélection', () => {
+    const lots = [lot('1-2', 2), lot('3', 1)];
+    const h = rendu({ total: 2, lotsVisibles: lots, selection: new Set(['1-2']), nbSelLots: 1, nbSelDossiers: 2, toutCoche: false });
+    expect((h.match(/checked/g) ?? []).length).toBe(1); // exactement une case cochée
   });
 });

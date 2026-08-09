@@ -1,9 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagnostic, ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
-import type { DemandeListe, DemandeDetail, ResumeDemandes, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
-import { OrigineDest, MessageRetour, repartirRetour, type RetourAction } from './DemandesRendu';
+import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagnostic, ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur, cleLot, compterSelection } from '../../../../lib/sitadel/demande';
+import type { DemandeListe, DemandeDetail, ResumeDemandes, AlerteIdentite, CompteRenduCreation } from '../../../../lib/sitadel/demandeRepo';
+import { OrigineDest, MessageRetour, repartirRetour, CartePropositions, type RetourAction } from './DemandesRendu';
 import { BlocPrada } from './BlocPrada';
 import { BlocDepot } from './BlocDepot';
 
@@ -41,6 +41,9 @@ export function DemandesVue() {
   const [tri, setTri] = useState<Tri>('recent');
   const [page, setPage] = useState(1);
   const [confBascule, setConfBascule] = useState<Bascule | null>(null); // confirmation avant régénération
+  // V3 — sélection des lots à créer : vit ICI (clés de lot stables), JAMAIS dans la page affichée → survit à la pagination.
+  const [selLots, setSelLots] = useState<Set<string>>(new Set());
+  const [pageLots, setPageLots] = useState(1);
 
   const rafraichir = useCallback(() => setVersion((v) => v + 1), []);
   // S42 — annonce un retour d'action dans la zone où l'utilisateur a agi ('haut' groupé, 'detail' panneau). Texte vide → efface.
@@ -89,15 +92,23 @@ export function DemandesVue() {
   async function preparer(): Promise<void> {
     setRetour(null);
     const res = await fetch(`/api/admin/permis/demandes/proposition?profil=${profilPrep}`, { cache: 'no-store' });
-    if (res.ok) { const p = (await res.json()) as { lots: Lot[]; diagnostic: DiagnosticProposition; profil: ProfilDemandeur }; setProp(p); setProfilPrep(p.profil); }
+    // Nouvelle proposition → repart d'une sélection VIDE (jamais « tout créer » par défaut) et de la 1re page.
+    if (res.ok) { const p = (await res.json()) as { lots: Lot[]; diagnostic: DiagnosticProposition; profil: ProfilDemandeur }; setProp(p); setProfilPrep(p.profil); setSelLots(new Set()); setPageLots(1); }
     else annoncer(await erreurServeur(res, 'Proposition indisponible.'), false);
   }
   async function creer(): Promise<void> {
-    const res = await fetch('/api/admin/permis/demandes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profil: profilPrep }) });
+    const lots = prop?.lots ?? [];
+    const selectionnes = lots.filter((l) => selLots.has(cleLot(l))).map((l) => ({ cle: cleLot(l), communeNom: l.communeNom }));
+    if (selectionnes.length === 0) { annoncer('Cochez au moins un lot avant de créer.', false); return; }
+    const res = await fetch('/api/admin/permis/demandes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profil: profilPrep, lots: selectionnes }) });
     if (res.ok) {
-      const r = (await res.json()) as { crees: string[]; ignores: number; profil: ProfilDemandeur };
-      annoncer(`${r.crees.length} demande(s) créée(s) en ${ETIQUETTE_PROFIL[r.profil].toLowerCase()}${r.ignores ? `, ${r.ignores} lot(s) ignoré(s)` : ''}.`, true);
-      setProp(null); rafraichir();
+      const r = (await res.json()) as CompteRenduCreation;
+      // Compte rendu TOUJOURS chiffré (demandes + dossiers), et les lots ignorés/conflits sont nommés (jamais un 0 muet).
+      const bouts = [`${r.demandesCreees} demande(s) créée(s) en ${ETIQUETTE_PROFIL[r.profil].toLowerCase()}`, `${r.dossiersCrees} dossier(s)`];
+      if (r.lotsInvalides.length) bouts.push(`${r.lotsInvalides.length} lot(s) ignoré(s) (${r.lotsInvalides.map((x) => x.communeNom ?? x.cle).join(', ')})`);
+      if (r.ignoresConflit) bouts.push(`${r.ignoresConflit} conflit(s)`);
+      annoncer(`${bouts.join(' · ')}.`, true);
+      setProp(null); setSelLots(new Set()); setPageLots(1); rafraichir();
     } else annoncer(await erreurServeur(res, 'Création impossible.'), false);
   }
   async function ouvrir(id: number, conserverRetour = false): Promise<void> {
@@ -146,6 +157,19 @@ export function DemandesVue() {
   const r = liste?.resume;
   const explication = prop ? expliquerProposition(prop.lots.length, prop.diagnostic) : '';
   const selProfil = (id: string) => id as ProfilDemandeur;
+
+  // V3 — pagination + décompte des lots proposés. La sélection (selLots) est indépendante de la page : le décompte est
+  // calculé sur l'ENSEMBLE des lots (compterSelection), et « tout sélectionner » agit sur tous les lots, pas la page.
+  const lotsProp = prop?.lots ?? [];
+  const nbPagesLots = Math.max(1, Math.ceil(lotsProp.length / PAGE_SIZE));
+  const pLots = Math.min(pageLots, nbPagesLots);
+  const lotsVisibles = lotsProp.slice((pLots - 1) * PAGE_SIZE, pLots * PAGE_SIZE).map((l) => ({
+    cle: cleLot(l), codeInsee: l.codeInsee, communeNom: l.communeNom, canal: l.canal, nbDossiers: l.dossiers.length, destOrigine: l.destOrigine, destNom: l.destNom,
+  }));
+  const selCompte = compterSelection(lotsProp, selLots);
+  const toutCocheLots = lotsProp.length > 0 && selCompte.nbLots === lotsProp.length;
+  const basculerLot = (cle: string): void => setSelLots((s) => { const n = new Set(s); if (n.has(cle)) n.delete(cle); else n.add(cle); return n; });
+  const toutSelectionnerLots = (): void => setSelLots(toutCocheLots ? new Set<string>() : new Set(lotsProp.map(cleLot)));
   // S42 — le retour s'affiche dans UNE seule zone : le panneau détail s'il est ouvert et concerné, sinon le bandeau du haut.
   const zonesRetour = repartirRetour(retour, detail !== null);
 
@@ -194,23 +218,13 @@ export function DemandesVue() {
       <BlocDepot />
 
       {prop && (
-        <div className="svv-card">
-          {/* Décompte CHIFFRÉ toujours visible : rend lisible l'effet des réglages (dont l'ancienneté maximale). */}
-          <p style={{ margin: '0 0 .5rem', fontSize: 12, color: 'var(--color-svv-muted)' }}>{resumeDiagnostic(prop.diagnostic)}</p>
-          {prop.lots.length === 0 ? (
-            <p style={{ margin: 0, color: 'var(--color-svv-muted)' }}>{explication}</p>
-          ) : (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem', gap: '.5rem', flexWrap: 'wrap' }}>
-                <strong>{prop.lots.length} lot(s) proposé(s) — en {ETIQUETTE_PROFIL[profilPrep].toLowerCase()}</strong>
-                <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem' }} onClick={() => void creer()}>Créer ces demandes</button>
-              </div>
-              <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: 13 }}>
-                {prop.lots.map((l, i) => <li key={`${l.codeInsee}-${i}`} style={{ marginBottom: '.2rem' }}>{l.communeNom} ({l.codeInsee}) · {l.canal} · {l.dossiers.length} dossier(s) <OrigineDest origine={l.destOrigine} nom={l.destNom} /></li>)}
-              </ul>
-            </>
-          )}
-        </div>
+        <CartePropositions
+          resumeDiag={resumeDiagnostic(prop.diagnostic)} explication={explication} total={lotsProp.length}
+          profilLibelle={ETIQUETTE_PROFIL[profilPrep].toLowerCase()}
+          lotsVisibles={lotsVisibles} selection={selLots} nbSelLots={selCompte.nbLots} nbSelDossiers={selCompte.nbDossiers} toutCoche={toutCocheLots}
+          pageCourante={pLots} nbPages={nbPagesLots}
+          onBasculer={basculerLot} onToutSelectionner={toutSelectionnerLots} onPage={setPageLots} onCreer={() => void creer()}
+        />
       )}
 
       {detail && (

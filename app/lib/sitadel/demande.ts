@@ -263,6 +263,62 @@ export function validerIdsLot(brut: unknown): { ok: true; ids: number[] } | { ok
   return { ok: true, ids };
 }
 
+// ── V3 : sélection lot-par-lot avant création ─────────────────────────────────
+/**
+ * CLÉ STABLE d'un lot proposé : un lot n'a pas d'id (proposerLots regroupe par commune en tranches de `dossiersParDemande`).
+ * Son identité robuste entre l'AFFICHAGE et la CRÉATION = l'ENSEMBLE de ses `dossierId`, TRIÉ (indépendant de l'ordre). Si la
+ * proposition est re-calculée avant création et qu'un lot a exactement les mêmes dossiers, sa clé est identique ; si sa
+ * composition a changé (un dossier rattaché ailleurs, un regroupement différent), la clé ne correspond plus → le lot est traité
+ * comme invalidé (jamais créé de force). PURE.
+ */
+export function cleLot(lot: { dossiers: { dossierId: number }[] }): string {
+  return lot.dossiers.map((d) => d.dossierId).sort((a, b) => a - b).join('-');
+}
+
+/** Décompte de la sélection sur l'ENSEMBLE des lots proposés (jamais la seule page) : lots ET dossiers cochés. PURE. */
+export function compterSelection(lots: { dossiers: { dossierId: number }[] }[], selection: ReadonlySet<string>): { nbLots: number; nbDossiers: number } {
+  let nbLots = 0, nbDossiers = 0;
+  for (const l of lots) {
+    if (selection.has(cleLot(l))) { nbLots += 1; nbDossiers += l.dossiers.length; }
+  }
+  return { nbLots, nbDossiers };
+}
+
+/**
+ * Apparie une sélection de CLÉS (venue du client) aux lots FRAIS re-calculés côté serveur. `aCreer` = lots frais dont la clé
+ * est demandée (le serveur ne crée QUE ceux qu'il a lui-même re-dérivés, jamais un lot forgé) ; `invalides` = clés demandées
+ * SANS lot frais correspondant (dossiers pris, plafond atteint, ou composition changée depuis l'affichage). PURE.
+ */
+export function apparierSelection<T extends { dossiers: { dossierId: number }[] }>(lotsFrais: T[], cles: readonly string[]): { aCreer: T[]; invalides: string[] } {
+  const demandees = new Set(cles);
+  const clesFraiches = new Set(lotsFrais.map((l) => cleLot(l)));
+  const aCreer = lotsFrais.filter((l) => demandees.has(cleLot(l)));
+  const invalides = [...demandees].filter((c) => !clesFraiches.has(c));
+  return { aCreer, invalides };
+}
+
+/**
+ * Valide la sélection de lots reçue par la route de création. Chaque entrée doit porter une `cle` (string non vide) ; le
+ * `communeNom` optionnel n'est qu'un LIBELLÉ D'AFFICHAGE pour le compte rendu (jamais utilisé pour décider quoi créer — le
+ * serveur ré-apparie par clé sur ses propres lots frais). Dédupe les clés. « aucun lot » et « lots tous invalides » sont deux
+ * erreurs EXPLICITES (jamais un succès silencieux à 0).
+ */
+export function validerLotsSelection(brut: unknown): { ok: true; lots: { cle: string; communeNom: string | null }[] } | { ok: false; erreur: string } {
+  if (!Array.isArray(brut) || brut.length === 0) return { ok: false, erreur: 'aucun lot sélectionné' };
+  const lots: { cle: string; communeNom: string | null }[] = [];
+  const vus = new Set<string>();
+  for (const x of brut) {
+    if (typeof x !== 'object' || x === null) continue;
+    const cle = (x as { cle?: unknown }).cle;
+    if (typeof cle !== 'string' || cle.trim() === '' || vus.has(cle)) continue;
+    vus.add(cle);
+    const communeNom = (x as { communeNom?: unknown }).communeNom;
+    lots.push({ cle, communeNom: typeof communeNom === 'string' ? communeNom : null });
+  }
+  if (lots.length === 0) return { ok: false, erreur: 'lots invalides (clé attendue)' };
+  return { ok: true, lots };
+}
+
 /** Compteurs expliquant l'absence de lots (mesurés, jamais figés). */
 export interface DiagnosticProposition {
   candidatsExamines: number;

@@ -11,7 +11,7 @@ import {
   type CandidatDossier, type ConfigDemandeur, type Lot, type HistoriqueDemandes, type DiagnosticProposition, type ParamsLot,
   type ProfilDemandeur,
   proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande, problemesIdentite, profilValide, ETIQUETTE_PROFIL,
-  configAvecSignataire,
+  configAvecSignataire, apparierSelection,
 } from './demande';
 import { type Collaborateur, choisirCollaborateur } from './collaborateur';
 import { resoudreDestination, type ContactCommune } from './destinataire';
@@ -146,15 +146,35 @@ async function attribuerReference(q: Requete, annee: number): Promise<string> {
   return formaterReferenceDemande(annee, r.rows[0].dernier);
 }
 
+/** Un lot sélectionné mais NON créé (invalidé entre l'affichage et le clic), avec sa raison — pour le compte rendu chiffré. */
+export interface LotIgnore { cle: string; communeNom: string | null; raison: string }
+/** Compte rendu CHIFFRÉ d'une création : demandes créées, dossiers gelés, lots sélectionnés, conflits, lots invalidés listés. */
+export interface CompteRenduCreation {
+  crees: string[];
+  demandesCreees: number;
+  lotsSelectionnes: number;
+  dossiersCrees: number;
+  ignoresConflit: number;      // race sur l'index unique partiel (dossier rattaché entre proposition() et l'INSERT)
+  lotsInvalides: LotIgnore[];  // clés sélectionnées sans lot frais correspondant
+  profil: ProfilDemandeur;
+}
+
+const RAISON_LOT_INVALIDE = 'lot plus disponible : dossiers déjà rattachés, plafond mensuel atteint, ou proposition modifiée depuis l’affichage — ignoré (jamais créé de force)';
+
 /**
- * Crée les demandes à partir des lots proposés. Pour chaque lot (transaction) : référence, destinataire FIGÉ (copie de
- * mairie_contact), texte généré, liens dossiers (actif), journal (→brouillon). L'index unique partiel
- * `demande_dossier_unique_actif` est le filet anti-double : si un dossier a été rattaché entre-temps, le lot est ignoré.
- * Retourne les références créées. AUCUN ENVOI.
+ * Crée les demandes des lots SÉLECTIONNÉS (V3). ⚠️ NE FAIT PAS CONFIANCE AU CLIENT : re-dérive la proposition FRAÎCHE
+ * (`proposition(cfg)` = gardes réappliquées : dossiers encore libres, plafond mensuel, canal exploitable — proposerLots) et
+ * n'apparie la sélection QUE par clé sur ces lots frais (`apparierSelection`). Un lot demandé sans lot frais correspondant est
+ * IGNORÉ et LISTÉ (jamais créé de force). Pour chaque lot créé (transaction) : référence, destinataire FIGÉ, texte généré,
+ * liens dossiers, journal (→brouillon). L'index unique partiel `demande_dossier_unique_actif` est le filet anti-course : un
+ * dossier rattaché entre proposition() et l'INSERT → lot ignoré (ignoresConflit). Compte rendu CHIFFRÉ. AUCUN ENVOI.
  */
-export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: string | null, profilDemande?: ProfilDemandeur): Promise<{ crees: string[]; ignores: number; profil: ProfilDemandeur }> {
+export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: string | null, profilDemande: ProfilDemandeur | undefined, selection: { cle: string; communeNom: string | null }[]): Promise<CompteRenduCreation> {
   const profil = profilDemande ?? profilValide(cfg.profilDemandeurDefaut);
   const { lots } = await proposition(cfg);
+  const { aCreer, invalides } = apparierSelection(lots, selection.map((s) => s.cle));
+  const communeParCle = new Map(selection.map((s) => [s.cle, s.communeNom]));
+  const lotsInvalides: LotIgnore[] = invalides.map((cle) => ({ cle, communeNom: communeParCle.get(cle) ?? null, raison: RAISON_LOT_INVALIDE }));
   const cfgDem = await lireConfigDemandeur(profil);
   const pieces = piecesDepuisConfig(cfg.piecesDemandees);
   // S8a — TOURNIQUET (profil « entreprise » uniquement : un collaborateur signe AU NOM DE LA SOCIÉTÉ). `dernieres` est
@@ -166,8 +186,8 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
   const chargeGlobale = profil === 'entreprise' ? await lireChargeGlobale() : new Map<number, number>();
   const maintenant = new Date();
   const crees: string[] = [];
-  let ignores = 0;
-  for (const lot of lots) {
+  let ignoresConflit = 0, dossiersCrees = 0;
+  for (const lot of aCreer) {
     const parCommune = dernieres.get(lot.codeInsee) ?? new Map<number, string | null>();
     const collaborateurId = collaborateurs.length > 0
       ? choisirCollaborateur(lot.codeInsee, collaborateurs, parCommune, chargeGlobale, maintenant).collaborateurId
@@ -218,15 +238,16 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
         return reference;
       });
       crees.push(ref);
+      dossiersCrees += lot.dossiers.length;
       if (collaborateurId !== null) {
         parCommune.set(collaborateurId, maintenant.toISOString()); dernieres.set(lot.codeInsee, parCommune);
         chargeGlobale.set(collaborateurId, (chargeGlobale.get(collaborateurId) ?? 0) + 1); // charge globale au fil du lot
       }
     } catch {
-      ignores += 1; // conflit d'unicité (dossier déjà rattaché entre-temps) → lot ignoré, pas d'écriture partielle
+      ignoresConflit += 1; // conflit d'unicité (dossier déjà rattaché entre-temps) → lot ignoré, pas d'écriture partielle
     }
   }
-  return { crees, ignores, profil };
+  return { crees, demandesCreees: crees.length, lotsSelectionnes: selection.length, dossiersCrees, ignoresConflit, lotsInvalides, profil };
 }
 
 export interface DemandeListe { id: number; reference: string; codeInsee: string; communeNom: string | null; canal: string | null; destOrigine: string; destNom: string | null; nbDossiers: number; statut: string; profil: string; creeLe: string }

@@ -1,14 +1,15 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../lib/sitadel/veilleConfig';
-import { profilValide, validerIdsLot } from '../../../../../lib/sitadel/demande';
+import { profilValide, validerIdsLot, validerLotsSelection } from '../../../../../lib/sitadel/demande';
 import { listerDemandes, creerDemandes, changerStatutLot, changerProfilLot, IdentiteIncompleteError, TransitionInterditeError } from '../../../../../lib/sitadel/demandeRepo';
 
 /**
- * /api/admin/permis/demandes (chantier S7 / S7e). GET = liste des demandes (+ alertes d'identité ciblées par profil).
- * POST = CRÉE les demandes à partir des lots proposés, pour un PROFIL (défaut config_veille.profil_demandeur_defaut).
- * PATCH = ACTION GROUPÉE tout-ou-rien : transition de statut ('prete'|'abandonnee') OU bascule de profil
- * ('entreprise'|'personne'). AUCUN ENVOI. RÉSERVÉ ADMINISTRATEUR (proxy fail-closed + garde). Runtime Node.
+ * /api/admin/permis/demandes (chantier S7 / S7e / V3). GET = liste des demandes (+ alertes d'identité ciblées par profil).
+ * POST = CRÉE les demandes des LOTS SÉLECTIONNÉS (V3 : `lots` = [{cle, communeNom?}]), pour un PROFIL (défaut config). Le
+ * serveur ré-apparie la sélection sur ses propres lots frais (jamais confiance au client) → compte rendu chiffré. PATCH =
+ * ACTION GROUPÉE tout-ou-rien : transition de statut ('prete'|'abandonnee') OU bascule de profil ('entreprise'|'personne').
+ * AUCUN ENVOI. RÉSERVÉ ADMINISTRATEUR (proxy fail-closed + garde). Runtime Node.
  */
 export const runtime = 'nodejs';
 
@@ -25,14 +26,31 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
+  // Contexte capturé hors du try pour la trace du catch (le refus 400 « sélection invalide » est un `return`).
+  let clesCtx: string[] | undefined;
   try {
-    const corps = (await request.json().catch(() => ({}))) as { profil?: unknown };
+    const corps = (await request.json().catch(() => ({}))) as { profil?: unknown; lots?: unknown };
     const profil = corps.profil === undefined ? undefined : profilValide(corps.profil);
+    // V3 — le CHOIX est obligatoire : sans lot sélectionné (ou tous invalides), on refuse EXPLICITEMENT (400), jamais « tout créer ».
+    const v = validerLotsSelection(corps.lots);
+    if (!v.ok) return Response.json({ erreur: v.erreur }, { status: 400 });
+    clesCtx = v.lots.map((l) => l.cle);
     const annee = new Date().getFullYear();
     const auteur = garde.auteurId === null ? null : String(garde.auteurId);
-    const res = await creerDemandes(await chargerConfigVeille(), annee, auteur, profil);
+    // Aucun refus MÉTIER ici : un lot invalidé entre-temps n'est PAS une erreur (il est ignoré + listé dans le compte
+    // rendu 200, par conception V3). Seule une exception INATTENDUE atteint le catch ci-dessous.
+    const res = await creerDemandes(await chargerConfigVeille(), annee, auteur, profil, v.lots);
     return Response.json(res);
-  } catch {
+  } catch (e) {
+    // Trace SERVEUR de l'exception inattendue (jamais de catch muet) : sans elle, un bug (params liés, 22P02…) reste
+    // invisible des deux côtés. La réponse HTTP au client reste un 503 générique.
+    const err = e as { name?: unknown; message?: unknown; stack?: unknown; code?: unknown; detail?: unknown; constraint?: unknown; table?: unknown; column?: unknown };
+    console.error('[permis/demandes] POST création impossible (503)', {
+      lots: clesCtx,
+      name: err?.name, message: err?.message,
+      code: err?.code, detail: err?.detail, constraint: err?.constraint, table: err?.table, column: err?.column,
+      stack: err?.stack,
+    });
     return Response.json({ erreur: 'création impossible' }, { status: 503 });
   }
 }

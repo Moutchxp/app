@@ -135,6 +135,71 @@ export function CarteDepot({ d, children }: { d: DepotAffiche; children?: ReactN
   );
 }
 
+// ── V3 : carte de PROPOSITION avec choix lot-par-lot ──────────────────────────
+/** Un lot proposé, prêt à afficher/cocher. `cle` = clé stable (cleLot, ensemble trié des dossierId) — l'identité de sélection. */
+export interface LotAffiche { cle: string; codeInsee: string; communeNom: string; canal: string; nbDossiers: number; destOrigine?: 'mairie_contact' | 'prada'; destNom?: string | null }
+
+/**
+ * Carte de proposition PURE (V3) : une case à cocher par lot, « tout sélectionner/désélectionner » (sur l'ENSEMBLE, via le
+ * callback), un rappel du décompte TOUJOURS visible (lots ET dossiers, même quand les lots cochés ne sont pas sur la page), et
+ * un bouton « Créer les demandes sélectionnées » DÉSACTIVÉ avec sa raison tant que rien n'est coché. La sélection vit dans la
+ * Vue (Set de clés) : ce composant ne la stocke pas. Aucun état, aucun effet → testable via renderToStaticMarkup. Responsive.
+ */
+export function CartePropositions({
+  resumeDiag, explication, total, profilLibelle, lotsVisibles, selection, nbSelLots, nbSelDossiers, toutCoche,
+  pageCourante, nbPages, onBasculer, onToutSelectionner, onPage, onCreer,
+}: {
+  resumeDiag: string; explication: string; total: number; profilLibelle: string;
+  lotsVisibles: LotAffiche[]; selection: ReadonlySet<string>; nbSelLots: number; nbSelDossiers: number; toutCoche: boolean;
+  pageCourante: number; nbPages: number;
+  onBasculer?: (cle: string) => void; onToutSelectionner?: () => void; onPage?: (p: number) => void; onCreer?: () => void;
+}) {
+  const muted: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
+  const rien = nbSelLots === 0;
+  return (
+    <div className="svv-card">
+      <p style={{ ...muted, margin: '0 0 .5rem' }}>{resumeDiag}</p>
+      {total === 0 ? (
+        <p role="note" style={{ ...muted, margin: 0 }}>{explication}</p>
+      ) : (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.4rem' }}>
+            <strong>{total} lot(s) proposé(s) — en {profilLibelle}</strong>
+            <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => onToutSelectionner?.()}>
+              {toutCoche ? 'Tout désélectionner' : 'Tout sélectionner'}
+            </button>
+          </div>
+          {/* Rappel du décompte TOUJOURS visible (compté sur l'ensemble des lots, jamais la seule page). */}
+          <p role="status" style={{ ...muted, margin: '0 0 .5rem' }}>Sélection : <strong>{nbSelLots} lot(s)</strong> · <strong>{nbSelDossiers} dossier(s)</strong>.</p>
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5rem' }}>
+            <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem', opacity: rien ? 0.5 : 1 }} disabled={rien} onClick={() => onCreer?.()}>
+              Créer les demandes sélectionnées{rien ? '' : ` (${nbSelLots} lot(s) · ${nbSelDossiers} dossier(s))`}
+            </button>
+            {rien && <span role="note" style={muted}>Cochez au moins un lot pour créer des demandes.</span>}
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', fontSize: 13 }}>
+            {lotsVisibles.map((l) => (
+              <li key={l.cle} style={{ marginBottom: '.2rem' }}>
+                <label style={{ display: 'flex', gap: '.4rem', alignItems: 'baseline', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={selection.has(l.cle)} onChange={() => onBasculer?.(l.cle)} aria-label={`Sélectionner ${l.communeNom} (${l.codeInsee})`} />
+                  <span>{l.communeNom} ({l.codeInsee}) · {l.canal} · {l.nbDossiers} dossier(s) <OrigineDest origine={l.destOrigine} nom={l.destNom} /></span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          {nbPages > 1 && (
+            <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', justifyContent: 'center', fontSize: 13, marginTop: '.5rem' }}>
+              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem' }} disabled={pageCourante <= 1} onClick={() => onPage?.(Math.max(1, pageCourante - 1))}>Précédent</button>
+              <span>Page {pageCourante} / {nbPages} ({total} lot(s))</span>
+              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem' }} disabled={pageCourante >= nbPages} onClick={() => onPage?.(Math.min(nbPages, pageCourante + 1))}>Suivant</button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function CarteAmbiguite({ a, children }: { a: AmbiguiteAffiche; children?: ReactNode }) {
   const lignes: [string, string | null][] = [
     ['Département', a.departement],
