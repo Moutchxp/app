@@ -20,7 +20,8 @@ import type { Requete } from './mairieContact';
 // Compte SMTP à utiliser PAR PROFIL (S43) : infixe des variables d'env. '' = compte par défaut (SMTP_*, Google Workspace) ;
 // 'PERSONNE_' = second compte (SMTP_PERSONNE_*, boîte personnelle). L'adresse d'expédition/réponse, elle, vient de la base
 // (config_demandeur.email_contact) — aucune adresse en variable d'env, aucune colonne ajoutée.
-const INFIXE_SMTP: Record<ProfilDemandeur, string> = { entreprise: '', personne: 'PERSONNE_' };
+// W1 — EXPORTÉ : la sélection du compte SMTP par profil est partagée telle quelle par l'envoi des RELANCES (envoiRelance).
+export const INFIXE_SMTP: Record<ProfilDemandeur, string> = { entreprise: '', personne: 'PERSONNE_' };
 const varsCompte = (profil: ProfilDemandeur): string => `SMTP_${INFIXE_SMTP[profil]}HOST/PORT/USER/PASS`;
 
 // ── Helpers PURS (testables) ─────────────────────────────────────────────────
@@ -61,17 +62,19 @@ export interface ResultatDemande { id: number; reference: string; issue: IssueEm
  * dont l'adresse d'expédition ou le compte SMTP manque, sans bloquer les autres profils ; (3) attache à chaque envoyable
  * l'`expediteur` (= from = reply-to) qui serait réellement utilisé. `adresses`/`comptesPresents` sont indexés par profil.
  */
-export interface PlanSalve {
+export interface PlanSalve<T = DemandeAEnvoyer> {
   bloqueesCorps: { reference: string; motif: string }[];
   bloqueesCompte: { reference: string; motif: string }[];
-  envoyables: (DemandeAEnvoyer & { expediteur: string })[];
+  envoyables: (T & { expediteur: string })[];
 }
-export function planifierSalve(
-  candidats: DemandeAEnvoyer[], adresses: Record<string, string>, comptesPresents: Record<string, boolean>,
-): PlanSalve {
+// W1 — GÉNÉRIQUE : tout candidat exposant reference/objet/corps/profil (demande OU relance). Corps du même comportement
+// qu'avant pour les demandes (T = DemandeAEnvoyer) → non-régression prouvée par les tests S38/S43 existants.
+export function planifierSalve<T extends { reference: string; objet: string; corps: string; profil: ProfilDemandeur }>(
+  candidats: T[], adresses: Record<string, string>, comptesPresents: Record<string, boolean>,
+): PlanSalve<T> {
   const bloqueesCorps: { reference: string; motif: string }[] = [];
   const bloqueesCompte: { reference: string; motif: string }[] = [];
-  const envoyables: (DemandeAEnvoyer & { expediteur: string })[] = [];
+  const envoyables: (T & { expediteur: string })[] = [];
   for (const d of candidats) {
     const gab = problemeCorpsDemande(d.objet, d.corps);
     if (gab !== null) { bloqueesCorps.push({ reference: d.reference, motif: gab }); continue; }
@@ -83,7 +86,7 @@ export function planifierSalve(
   return { bloqueesCorps, bloqueesCompte, envoyables };
 }
 
-interface Transport { sendMail: (m: Record<string, unknown>) => Promise<{ messageId?: string; response?: string }>; }
+export interface Transport { sendMail: (m: Record<string, unknown>) => Promise<{ messageId?: string; response?: string }>; }
 
 const SQL_INSERT_ACHEMINEMENT =
   `INSERT INTO demande_acheminement (demande_id, canal, statut, envoye_le, message_id, retour_fournisseur, rebond_le, rebond_motif, derniere_erreur, maj_a)
@@ -136,7 +139,7 @@ export interface RapportEnvoi {
 const brancher = (tx: RequeteTx): Requete =>
   (<R = Record<string, unknown>>(t: string, p?: unknown[]) => tx(t, p) as unknown as Promise<{ rows: R[] }>);
 const SENTINELLE_DRYRUN = new Error('__DRY_RUN_ROLLBACK__');
-const apercu = (corps: string): string => { const l = corps.replace(/\s+/g, ' ').trim(); return l.length > 120 ? l.slice(0, 120) + '…' : l; };
+export const apercu = (corps: string): string => { const l = corps.replace(/\s+/g, ' ').trim(); return l.length > 120 ? l.slice(0, 120) + '…' : l; };
 
 async function lireCandidats(): Promise<DemandeAEnvoyer[]> {
   const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; dest_email: string; objet: string | null; corps: string | null; profil: string }>(
@@ -147,8 +150,9 @@ async function lireCandidats(): Promise<DemandeAEnvoyer[]> {
   return rows.map((r) => ({ id: r.id, reference: r.reference, communeNom: r.commune_nom, destEmail: r.dest_email, objet: r.objet ?? '', corps: r.corps ?? '', profil: profilValide(r.profil) }));
 }
 
-/** Adresse d'expédition/réponse PAR PROFIL = config_demandeur.email_contact (déjà ventilé par profil ; aucune colonne ajoutée). */
-async function lireAdressesExpedition(): Promise<Record<string, string>> {
+/** Adresse d'expédition/réponse PAR PROFIL = config_demandeur.email_contact (déjà ventilé par profil ; aucune colonne ajoutée).
+ *  W1 — EXPORTÉ : partagé tel quel par l'envoi des relances (même identité d'expédition par profil). */
+export async function lireAdressesExpedition(): Promise<Record<string, string>> {
   const m: Record<string, string> = {};
   try {
     const { rows } = await query<{ profil: string; email_contact: string }>(`SELECT profil, email_contact FROM config_demandeur`);
@@ -157,8 +161,10 @@ async function lireAdressesExpedition(): Promise<Record<string, string>> {
   return m;
 }
 
-/** Nombre d'ÉMISSIONS e-mail confirmées AUJOURD'HUI (compteur du plafond/jour — pas les demandes créées). */
-async function compterEmisAujourdhui(): Promise<number> {
+/** Nombre d'ÉMISSIONS e-mail confirmées AUJOURD'HUI (compteur du plafond/jour — pas les demandes créées).
+ *  W1 — EXPORTÉ : compte TOUTES les lignes 'envoye' du jour (demandes ET relances écrivent ce même canal 'email') → le
+ *  budget d'envoi quotidien est PARTAGÉ entre demandes et relances, sans filtre relance_id. */
+export async function compterEmisAujourdhui(): Promise<number> {
   try {
     const { rows } = await query<{ n: number }>(
       `SELECT count(*)::int AS n FROM demande_acheminement WHERE canal = 'email' AND statut = 'envoye' AND envoye_le::date = CURRENT_DATE`);

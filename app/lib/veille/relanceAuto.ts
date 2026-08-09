@@ -184,6 +184,23 @@ export async function chargerLotRelance(demandeId: number): Promise<LotRelance |
   return { lot: { codeInsee: m.code_insee, communeNom, canal: (m.dest_canal as CanalContact) ?? 'email', dossiers }, satisfaitsIds };
 }
 
+/**
+ * R6c/W1 — une relance VIVANTE de la demande existe-t-elle ET des dossiers ont-ils été satisfaits APRÈS sa génération ?
+ * (le brouillon figé ne liste plus les bons dossiers → il est obsolète). EXPORTÉ pour être réutilisé À L'IDENTIQUE par l'envoi
+ * des relances (W1) comme garde-fou anti-envoi d'un brouillon périmé — jamais réimplémenté.
+ */
+export async function dossiersSatisfaitsDepuisRelance(demandeId: number): Promise<boolean> {
+  const { rows } = await query<{ obsolete: boolean }>(
+    `SELECT EXISTS (
+        SELECT 1 FROM demande_relance rl
+          JOIN demande_dossier dd ON dd.demande_id = rl.demande_id
+         WHERE rl.demande_id = $1 AND rl.type = 'relance' AND rl.statut <> 'abandonnee'
+           AND dd.satisfait_le IS NOT NULL AND dd.satisfait_le > rl.generee_le
+      ) AS obsolete`,
+    [demandeId]);
+  return rows[0]?.obsolete === true;
+}
+
 export function depsReellesRelance(): DepsRelanceAuto {
   return {
     maintenant: () => new Date(),
@@ -217,17 +234,7 @@ export function depsReellesRelance(): DepsRelanceAuto {
         [demandeId]);
       return rows[0]?.existe === true;
     },
-    dossiersSatisfaitsDepuisRelance: async (demandeId) => {
-      const { rows } = await query<{ obsolete: boolean }>(
-        `SELECT EXISTS (
-            SELECT 1 FROM demande_relance rl
-              JOIN demande_dossier dd ON dd.demande_id = rl.demande_id
-             WHERE rl.demande_id = $1 AND rl.type = 'relance' AND rl.statut <> 'abandonnee'
-               AND dd.satisfait_le IS NOT NULL AND dd.satisfait_le > rl.generee_le
-          ) AS obsolete`,
-        [demandeId]);
-      return rows[0]?.obsolete === true;
-    },
+    dossiersSatisfaitsDepuisRelance: (demandeId) => dossiersSatisfaitsDepuisRelance(demandeId), // W1 : délègue à la fonction exportée (SQL inchangé)
     journaliser: async (demandeId, motif) => {
       await query(
         `INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, 'systeme')`,
