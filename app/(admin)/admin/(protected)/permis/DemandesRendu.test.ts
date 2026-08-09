@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche } from './DemandesRendu';
+import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 
 describe('S14e — OrigineDest (texte porteur, pas seulement couleur)', () => {
@@ -224,5 +225,49 @@ describe('V3 — CartePropositions : choix lot-par-lot (rendu PUR)', () => {
     const lots = [lot('1-2', 2), lot('3', 1)];
     const h = rendu({ total: 2, lotsVisibles: lots, selection: new Set(['1-2']), nbSelLots: 1, nbSelDossiers: 2, toutCoche: false });
     expect((h.match(/checked/g) ?? []).length).toBe(1); // exactement une case cochée
+  });
+});
+
+describe('D2 — EnteteTriable : aria-sort + sens + activable au clavier', () => {
+  const th = (colonne: 'commune' | 'dossiers' | 'statut', tri: Tri) =>
+    renderToStaticMarkup(createElement(EnteteTriable, { libelle: 'Commune', colonne, tri, onTrier: () => {} }));
+
+  it('colonne ACTIVE ascendante → aria-sort="ascending" + flèche ▲', () => {
+    const h = th('commune', { colonne: 'commune', sens: 'asc' });
+    expect(h).toContain('aria-sort="ascending"');
+    expect(h).toContain('▲');
+  });
+  it('colonne ACTIVE descendante → aria-sort="descending" + flèche ▼', () => {
+    const h = th('commune', { colonne: 'commune', sens: 'desc' });
+    expect(h).toContain('aria-sort="descending"');
+    expect(h).toContain('▼');
+  });
+  it('colonne INACTIVE → aria-sort="none" (posé sur le BON en-tête seulement)', () => {
+    const h = th('dossiers', { colonne: 'commune', sens: 'asc' });
+    expect(h).toContain('aria-sort="none"');
+    expect(h).not.toContain('▲');
+    expect(h).not.toContain('▼');
+  });
+  it('l’en-tête est un <button> (activable au clavier, pas un simple texte)', () => {
+    expect(th('statut', { colonne: 'statut', sens: 'asc' })).toContain('<button');
+  });
+});
+
+describe('D2 — FiltreTypes : libellés de l’app + sémantique « au moins un dossier »', () => {
+  const cats = [{ cle: 'immeuble_neuf', libelle: 'Immeuble neuf', rang: 1 }, { cle: 'extension', libelle: 'Extension', rang: 4 }];
+  it('rend une case par catégorie avec son libellé', () => {
+    const h = renderToStaticMarkup(createElement(FiltreTypes, { categories: cats, coches: new Set<number>() }));
+    expect(h).toContain('Immeuble neuf');
+    expect(h).toContain('Extension');
+    expect((h.match(/type="checkbox"/g) ?? []).length).toBe(2);
+  });
+  it('l’aide dit EXPLICITEMENT « au moins un dossier » et « aucun type coché = tous »', () => {
+    const h = renderToStaticMarkup(createElement(FiltreTypes, { categories: cats, coches: new Set<number>() }));
+    expect(h).toContain('au moins un dossier');
+    expect(h).toContain('Aucun type coché = tous');
+  });
+  it('une case est cochée ssi son rang est dans `coches`', () => {
+    const h = renderToStaticMarkup(createElement(FiltreTypes, { categories: cats, coches: new Set([4]) }));
+    expect((h.match(/checked/g) ?? []).length).toBe(1); // seule « Extension » (rang 4) cochée
   });
 });

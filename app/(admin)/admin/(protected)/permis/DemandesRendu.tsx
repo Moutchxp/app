@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
+import type { Tri, TriColonne } from '../../../../lib/sitadel/demandesListe';
 
 /**
  * Rendu PUR de la visibilité PRADA de l'onglet Demandes (chantier S14e) — aucun état, aucun effet → testable en Node via
@@ -197,6 +198,53 @@ export function CartePropositions({
         </>
       )}
     </div>
+  );
+}
+
+// ── D2 : en-tête de colonne TRIABLE (clic + clavier, aria-sort) ───────────────
+/**
+ * En-tête `<th>` triable, PUR : bouton activable au clic ET au clavier ; `aria-sort` posé sur la colonne active
+ * (ascending/descending), 'none' sinon ; une flèche TEXTE (▲/▼) indique le sens à l'œil. Cliquer appelle `onTrier(colonne)`
+ * (la Vue bascule le sens via `basculerTri`) — même état que le sélecteur Tri (une seule vérité).
+ */
+export function EnteteTriable({ libelle, colonne, tri, onTrier }: {
+  libelle: string; colonne: TriColonne; tri: Tri; onTrier?: (c: TriColonne) => void;
+}) {
+  const actif = tri.colonne === colonne;
+  const ariaSort: 'ascending' | 'descending' | 'none' = actif ? (tri.sens === 'asc' ? 'ascending' : 'descending') : 'none';
+  return (
+    <th aria-sort={ariaSort} style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>
+      <button type="button" onClick={() => onTrier?.(colonne)}
+        style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit', fontWeight: actif ? 700 : 'inherit', display: 'inline-flex', gap: '.25rem', alignItems: 'center' }}>
+        {libelle}<span aria-hidden="true">{actif ? (tri.sens === 'asc' ? '▲' : '▼') : '↕'}</span>
+      </button>
+    </th>
+  );
+}
+
+// ── D2 : filtre par TYPE de permis (multi-sélection, sémantique « au moins un dossier ») ──────────────────────────────
+/**
+ * Filtre multi-types PUR : une case par catégorie (libellés de l'app, jamais inventés). `coches` = rangs de catégorie
+ * sélectionnés ; aucune case cochée = aucun filtre (tous). L'aide dit EXPLICITEMENT la sémantique « au moins un dossier ».
+ */
+export function FiltreTypes({ categories, coches, onToggle }: {
+  categories: { cle: string; libelle: string; rang: number }[];
+  coches: ReadonlySet<number>;
+  onToggle?: (rang: number) => void;
+}) {
+  return (
+    <fieldset style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .6rem', margin: 0, minWidth: 0 }}>
+      <legend style={{ fontSize: 12, padding: '0 .3rem' }}>Type de permis</legend>
+      <div role="group" aria-label="Filtrer par type de permis" style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        {categories.map((c) => (
+          <label key={c.cle} style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center', fontSize: 12, cursor: 'pointer' }}>
+            <input type="checkbox" checked={coches.has(c.rang)} onChange={() => onToggle?.(c.rang)} />
+            {c.libelle}
+          </label>
+        ))}
+      </div>
+      <p style={aide}>Une demande est retenue si elle contient <strong>au moins un dossier</strong> de l’un des types cochés. Aucun type coché = tous.</p>
+    </fieldset>
   );
 }
 

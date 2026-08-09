@@ -15,6 +15,7 @@ import {
 } from './demande';
 import { type Collaborateur, choisirCollaborateur } from './collaborateur';
 import { resoudreDestination, type ContactCommune } from './destinataire';
+import { expressionRangSql } from './priorite'; // D2 : réutilisé (pur, renvoie une chaîne) pour classer les dossiers d'une demande — NE modifie PAS le chemin candidats
 
 type Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>;
 const asQ = (q: (t: string, p?: unknown[]) => Promise<unknown>): Requete => ((t, p) => q(t, p)) as Requete;
@@ -250,7 +251,9 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
   return { crees, demandesCreees: crees.length, lotsSelectionnes: selection.length, dossiersCrees, ignoresConflit, lotsInvalides, profil };
 }
 
-export interface DemandeListe { id: number; reference: string; codeInsee: string; communeNom: string | null; canal: string | null; destOrigine: string; destNom: string | null; nbDossiers: number; statut: string; profil: string; creeLe: string }
+export interface DemandeListe { id: number; reference: string; codeInsee: string; communeNom: string | null; canal: string | null; destOrigine: string; destNom: string | null; nbDossiers: number; statut: string; profil: string; creeLe: string;
+  /** D2 — rangs de catégorie DISTINCTS des dossiers de la demande (via classement config), pour le filtre par type. Optionnel : présent sur la LISTE, omis sur le détail. */
+  rangs?: number[] }
 
 export interface ResumeDemandes { parStatut: Record<string, number>; total: number; dossiersCouverts: number }
 
@@ -258,7 +261,14 @@ export interface ResumeDemandes { parStatut: Record<string, number>; total: numb
 export interface AlerteIdentite { profil: ProfilDemandeur; libelle: string; manque: string[] }
 
 export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; alertesIdentite: AlerteIdentite[]; resume: ResumeDemandes }> {
-  const [r, rs, rd] = await Promise.all([
+  // D2 — classement des dossiers d'une demande par CATÉGORIE, pour le filtre par type. On RÉUTILISE `expressionRangSql`
+  // (pure) sur une requête PROPRE à la liste : le chemin CANDIDATS (construireRequeteListe) n'est pas touché. LECTURE SEULE.
+  const cfg = await chargerConfigVeille();
+  const paramsRang: unknown[] = [];
+  const rangExpr = expressionRangSql(cfg, paramsRang);
+  const sqlRangs = `SELECT dd.demande_id::int AS demande_id, array_agg(DISTINCT (${rangExpr})) AS rangs
+    FROM demande_dossier dd JOIN sitadel_dossier d ON d.id = dd.dossier_id GROUP BY dd.demande_id`;
+  const [r, rs, rd, rr] = await Promise.all([
     query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; dest_canal: string | null; dest_origine: string; dest_nom: string | null; nb: number; statut: string; profil_demandeur: string; cree_le: string }>(
       // d.id::int : `demande.id` est un bigint que node-postgres rend en CHAÎNE ; sans cast, l'id renvoyé au client est une
       // string et la PATCH groupée (filtre Number.isInteger) l'écarte en silence → boutons « prête »/« abandonner » inertes.
@@ -267,9 +277,11 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
        FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee ORDER BY d.cree_le DESC`),
     query<{ statut: string; n: number }>(`SELECT statut, count(*)::int AS n FROM demande GROUP BY statut`),
     query<{ n: number }>(`SELECT count(DISTINCT dossier_id)::int AS n FROM demande_dossier`),
+    query<{ demande_id: number; rangs: number[] }>(sqlRangs, paramsRang),
   ]);
   const parStatut: Record<string, number> = {};
   for (const s of rs.rows) parStatut[s.statut] = s.n;
+  const rangsParDemande = new Map(rr.rows.map((x) => [x.demande_id, x.rangs]));
 
   // Alertes CIBLÉES : uniquement les profils réellement portés par des demandes EN BROUILLON (celles qui aspirent à
   // passer « prête ») et dont l'identité correspondante est incomplète.
@@ -281,7 +293,7 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
   }
 
   return {
-    demandes: r.rows.map((x) => ({ id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal, destOrigine: x.dest_origine, destNom: x.dest_nom, nbDossiers: x.nb, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le })),
+    demandes: r.rows.map((x) => ({ id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal, destOrigine: x.dest_origine, destNom: x.dest_nom, nbDossiers: x.nb, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le, rangs: rangsParDemande.get(x.id) ?? [] })),
     alertesIdentite,
     resume: { parStatut, total: r.rows.length, dossiersCouverts: rd.rows[0]?.n ?? 0 },
   };

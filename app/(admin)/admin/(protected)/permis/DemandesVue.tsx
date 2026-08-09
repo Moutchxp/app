@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagnostic, ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur, cleLot, compterSelection } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, ResumeDemandes, AlerteIdentite, CompteRenduCreation } from '../../../../lib/sitadel/demandeRepo';
-import { OrigineDest, MessageRetour, repartirRetour, CartePropositions, type RetourAction } from './DemandesRendu';
+import { type Tri, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle } from '../../../../lib/sitadel/demandesListe';
+import { OrigineDest, MessageRetour, repartirRetour, CartePropositions, EnteteTriable, FiltreTypes, type RetourAction } from './DemandesRendu';
 import { BlocPrada } from './BlocPrada';
 import { BlocDepot } from './BlocDepot';
 
@@ -17,8 +18,8 @@ const PROFILS: ProfilDemandeur[] = ['entreprise', 'personne'];
 const PAGE_SIZE = 20;
 const styleChamp: CSSProperties = { padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 };
 
-type Tri = 'recent' | 'reference' | 'commune' | 'statut';
 type Bascule = { ids: number[]; profil: ProfilDemandeur };
+interface Props { categories: { cle: string; libelle: string; rang: number }[] }
 
 /** Message d'échec = la RAISON réelle renvoyée par le serveur ({erreur}), jamais un libellé figé à deux mots. */
 async function erreurServeur(res: Response, repli: string): Promise<string> {
@@ -26,7 +27,7 @@ async function erreurServeur(res: Response, repli: string): Promise<string> {
   catch { return repli; }
 }
 
-export function DemandesVue() {
+export function DemandesVue({ categories }: Props) {
   const [liste, setListe] = useState<{ demandes: DemandeListe[]; alertesIdentite: AlerteIdentite[]; resume: ResumeDemandes } | null>(null);
   const [prop, setProp] = useState<{ lots: Lot[]; diagnostic: DiagnosticProposition; profil: ProfilDemandeur } | null>(null);
   const [profilPrep, setProfilPrep] = useState<ProfilDemandeur>('entreprise');
@@ -38,7 +39,8 @@ export function DemandesVue() {
   const [fStatut, setFStatut] = useState('');
   const [fCommune, setFCommune] = useState('');
   const [fProfil, setFProfil] = useState('');
-  const [tri, setTri] = useState<Tri>('recent');
+  const [fTypes, setFTypes] = useState<Set<number>>(new Set()); // D2 : rangs de catégorie cochés ([]=tous)
+  const [tri, setTri] = useState<Tri>({ colonne: 'date', sens: 'desc' }); // D2 : état de tri PARTAGÉ sélecteur ↔ en-têtes
   const [page, setPage] = useState(1);
   const [confBascule, setConfBascule] = useState<Bascule | null>(null); // confirmation avant régénération
   // V3 — sélection des lots à créer : vit ICI (clés de lot stables), JAMAIS dans la page affichée → survit à la pagination.
@@ -60,26 +62,19 @@ export function DemandesVue() {
     return () => { annule = true; };
   }, [version]);
 
-  const filtrees = useMemo(() => {
-    const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-    const qc = norm(fCommune.trim());
-    let l = (liste?.demandes ?? []).filter((d) =>
-      (fStatut === '' || d.statut === fStatut) &&
-      (fProfil === '' || d.profil === fProfil) &&
-      (qc === '' || norm(d.communeNom ?? d.codeInsee).includes(qc) || d.codeInsee.startsWith(qc)));
-    l = [...l].sort((a, b) => {
-      if (tri === 'reference') return a.reference.localeCompare(b.reference);
-      if (tri === 'commune') return (a.communeNom ?? a.codeInsee).localeCompare(b.communeNom ?? b.codeInsee);
-      if (tri === 'statut') return a.statut.localeCompare(b.statut);
-      return b.creeLe.localeCompare(a.creeLe);
-    });
-    return l;
-  }, [liste, fStatut, fCommune, fProfil, tri]);
+  // D2 — filtre PUIS tri sur l'ENSEMBLE (jamais sur la page) ; la pagination `slice` s'applique APRÈS (cf. `visibles`).
+  const filtrees = useMemo(
+    () => trierDemandes(filtrerDemandes(liste?.demandes ?? [], { statut: fStatut, profil: fProfil, commune: fCommune, types: [...fTypes] }), tri),
+    [liste, fStatut, fCommune, fProfil, fTypes, tri],
+  );
 
   const nbPages = Math.max(1, Math.ceil(filtrees.length / PAGE_SIZE));
   const pageCourante = Math.min(page, nbPages);
   const visibles = filtrees.slice((pageCourante - 1) * PAGE_SIZE, pageCourante * PAGE_SIZE);
   const majFiltre = (fn: () => void): void => { fn(); setPage(1); };
+  // D2 — un clic sur un en-tête bascule le sens (même colonne) ou change de colonne : MÊME état `tri` que le sélecteur.
+  const trierPar = (colonne: Parameters<typeof basculerTri>[1]): void => { setTri((t) => basculerTri(t, colonne)); setPage(1); };
+  const basculerType = (rang: number): void => majFiltre(() => setFTypes((s) => { const n = new Set(s); if (n.has(rang)) n.delete(rang); else n.add(rang); return n; }));
 
   const basculer = (id: number): void => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toutSelectionner = (): void => setSel((s) => {
@@ -286,10 +281,14 @@ export function DemandesVue() {
           <input value={fCommune} onChange={(e) => majFiltre(() => setFCommune(e.target.value))} placeholder="nom ou code" style={styleChamp} />
         </label>
         <label className="flex flex-col gap-1">Tri
-          <select value={tri} onChange={(e) => setTri(e.target.value as Tri)} style={styleChamp}>
-            <option value="recent">Plus récentes</option><option value="reference">Référence</option><option value="commune">Commune</option><option value="statut">Statut</option>
+          <select value={cleTri(tri)} onChange={(e) => setTri(triDepuisCle(e.target.value))} style={styleChamp}>
+            {OPTIONS_TRI.map((o) => <option key={o.valeur} value={o.valeur}>{o.libelle}</option>)}
           </select>
         </label>
+        {/* D2 — filtre par TYPE de permis (multi-sélection, « au moins un dossier ») ; libellés de l'app, jamais inventés. */}
+        <div style={{ flex: '1 1 100%' }}>
+          <FiltreTypes categories={categories} coches={fTypes} onToggle={basculerType} />
+        </div>
         <span style={{ marginLeft: 'auto' }}>{sel.size} sélectionnée(s)</span>
         <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .7rem', opacity: sel.size ? 1 : 0.5 }} disabled={sel.size === 0} onClick={() => void transition([...sel], 'prete')}>Passer en prête</button>
         <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem', opacity: sel.size ? 1 : 0.5 }} disabled={sel.size === 0} onClick={() => void transition([...sel], 'abandonnee')}>Abandonner</button>
@@ -306,7 +305,14 @@ export function DemandesVue() {
           <thead>
             <tr style={{ textAlign: 'left', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
               <th style={{ padding: '.4rem .5rem' }}><input type="checkbox" aria-label="Tout sélectionner" checked={visibles.length > 0 && visibles.every((d) => sel.has(d.id))} onChange={toutSelectionner} /></th>
-              {['Référence', 'Commune', 'Profil', 'Canal', 'Destinataire', 'Dossiers', 'Statut', ''].map((h) => <th key={h} style={{ padding: '.4rem .5rem' }}>{h}</th>)}
+              <th style={{ padding: '.4rem .5rem' }}>Référence</th>
+              <EnteteTriable libelle="Commune" colonne="commune" tri={tri} onTrier={trierPar} />
+              <th style={{ padding: '.4rem .5rem' }}>Profil</th>
+              <th style={{ padding: '.4rem .5rem' }}>Canal</th>
+              <th style={{ padding: '.4rem .5rem' }}>Destinataire</th>
+              <EnteteTriable libelle="Dossiers" colonne="dossiers" tri={tri} onTrier={trierPar} />
+              <EnteteTriable libelle="Statut" colonne="statut" tri={tri} onTrier={trierPar} />
+              <th style={{ padding: '.4rem .5rem' }} />
             </tr>
           </thead>
           <tbody>

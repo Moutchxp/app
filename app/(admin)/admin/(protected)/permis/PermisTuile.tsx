@@ -24,7 +24,7 @@ export function PermisTuile({ depuisParDefaut, categories }: Props) {
     <div className="flex flex-col gap-3">
       <OngletsPermis actif={onglet} onChoisir={setOnglet} />
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} />}
-      {onglet === 'demandes' && <DemandesVue />}
+      {onglet === 'demandes' && <DemandesVue categories={categories} />}
       {onglet === 'reponses' && <ReponsesVue />}
       {onglet === 'saisines' && <SaisinesVue />}
       {onglet === 'reglages' && <ReglagesVue />}
