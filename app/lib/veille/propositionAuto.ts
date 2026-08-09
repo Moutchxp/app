@@ -11,7 +11,7 @@
  */
 import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
-import { signerJetonCada } from '../internaute/jetonRectification';
+import { signerJetonCada } from '../internaute/jetonCada';
 import { lireSaisinesEligibles } from './saisineCadaRepo';
 import { composerProposition } from './propositionCada';
 

@@ -5,9 +5,9 @@ import {
   verifierJetonRectification,
   signerJetonEmission,
   verifierJetonEmission,
-  signerJetonCada,
   verifierJetonCada,
 } from './jetonRectification';
+import { signerJetonCada } from './jetonCada'; // F1 — la signature CADA vit désormais dans un module sans `server-only`
 
 beforeAll(() => {
   process.env.INTERNAUTE_TOKEN_SECRET = 'secret-de-test-au-moins-32-octets-abcdefgh';

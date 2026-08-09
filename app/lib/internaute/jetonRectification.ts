@@ -15,6 +15,9 @@ import 'server-only';
  * public ne doit jamais être signé avec la clé des sessions admin). AUCUN import moteur / analytics → cloisonnement M2.
  */
 import { SignJWT, jwtVerify } from 'jose';
+// F1 — la clé partagée et le scope CADA vivent désormais dans `jetonCada.ts` (module SANS `server-only`, importable par le CLI
+// de veille). Ce fichier CONSERVE son `import 'server-only'` et importe seulement ce qu'il lui faut, sans dupliquer la clé.
+import { cleSignature, SCOPE_CADA } from './jetonCada';
 
 /** Portée fermée du jeton de RECTIFICATION : seule la correction des coordonnées (email/téléphone) est permise. */
 const SCOPE_RECTIFICATION = 'rectify-contact';
@@ -30,25 +33,10 @@ const SCOPE_EMISSION = 'emit-certificate';
  * et l'inverse (chaque vérifieur exige SON scope).
  */
 const SCOPE_RETRAIT = 'withdraw-consent';
-/**
- * Portée fermée du jeton de CONFIRMATION de saisine CADA (X5, voie e-mail interne). STRICTEMENT distincte des trois autres —
- * même secret, scopes séparés : un jeton de confirmation n'ouvre NI rectification NI émission NI retrait, et l'inverse.
- * Son `sub` scelle l'id (numérique) de la DEMANDE ; la page publique n'agit que sur CET id vérifié, jamais un id du client.
- */
-const SCOPE_CADA = 'confirm-cada';
 /** Durée de vie du jeton (courte : le geste — correction ou émission — suit immédiatement la soumission). */
 const EXPIRATION = '30m';
-/** Durée de vie du jeton de confirmation CADA : 7 JOURS (il voyage dans un e-mail lu quand l'exploitant a le temps). */
-const EXPIRATION_CADA = '7d';
-
-/** Clé de signature dérivée du secret DÉDIÉ. Échoue proprement si la variable manque (fail-safe, jamais de repli sur le secret admin). */
-function cleSignature(): Uint8Array {
-  const secret = process.env.INTERNAUTE_TOKEN_SECRET;
-  if (!secret) {
-    throw new Error('INTERNAUTE_TOKEN_SECRET manquant : impossible de signer/vérifier un jeton de rectification.');
-  }
-  return new TextEncoder().encode(secret);
-}
+// `SCOPE_CADA`, `EXPIRATION_CADA`, `cleSignature` et `signerJetonCada` sont désormais dans `./jetonCada` (F1) ;
+// `SCOPE_CADA` et `cleSignature` sont réimportés ci-dessus (le VÉRIFICATEUR CADA reste ici, sous `server-only`).
 
 /** Frappe un jeton-capacité scellant l'UUID du dossier créé (scope fermé, exp 30 min). */
 export async function signerJetonRectification(internauteId: string): Promise<string> {
@@ -132,20 +120,6 @@ export async function verifierJetonRetrait(jeton: string): Promise<string | null
   } catch {
     return null; // signature invalide, malformé…
   }
-}
-
-/**
- * Frappe un jeton-capacité de CONFIRMATION de saisine CADA (X5) scellant l'id de la DEMANDE (`sub`, scope `confirm-cada`,
- * exp 7 jours). Capacité ÉTROITE : elle n'autorise QUE l'ouverture de la page de confirmation de CETTE demande — l'ACTE
- * (lancer la saisine) part d'un POST déclenché par un clic humain sur cette page, JAMAIS du seul chargement du lien.
- */
-export async function signerJetonCada(demandeId: number): Promise<string> {
-  return new SignJWT({ scope: SCOPE_CADA })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setSubject(String(demandeId))
-    .setIssuedAt()
-    .setExpirationTime(EXPIRATION_CADA)
-    .sign(cleSignature());
 }
 
 /** Résultat de `verifierJetonCada` : DISCRIMINE l'expiration (le lien fonctionnait, il est juste trop vieux → renvoyer vers
