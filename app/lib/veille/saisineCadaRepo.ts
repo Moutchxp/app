@@ -181,6 +181,28 @@ export async function creerSaisineCada(demandeId: number, auteur: string | null,
   }
 }
 
+/** Sens d'un avis CADA — liste FERMÉE (miroir exact du CHECK avis_sens, migration 083). Garde pour l'interface d'admin. */
+export const SENS_AVIS = ['favorable', 'defavorable', 'sans_suite'] as const;
+export type SensAvis = (typeof SENS_AVIS)[number];
+
+/**
+ * X4 — enregistre l'AVIS rendu par la CADA sur une saisine (avis_recu_le + avis_sens, migration 083), transactionnel et
+ * journalisé. REFUSE (garde `AND statut='envoyee'`) toute saisine qui n'a pas été envoyée : un brouillon / une saisine
+ * abandonnée ne peut pas « recevoir » un avis → 0 ligne → SaisineCadaError (→ 409 côté route). N'écrit JAMAIS demande.statut.
+ */
+export async function enregistrerAvisSaisine(saisineId: number, sens: SensAvis, auteur: string | null): Promise<void> {
+  await withTransaction(async (q) => {
+    const res = await q<{ demande_id: number }>(
+      `UPDATE demande_relance SET avis_recu_le = now(), avis_sens = $2 WHERE id = $1 AND type = 'saisine_cada' AND statut = 'envoyee' RETURNING demande_id`,
+      [saisineId, sens]);
+    const row = res.rows[0];
+    if (!row) throw new SaisineCadaError('saisine introuvable ou non envoyée (seule une saisine envoyée à la CADA peut recevoir un avis)');
+    // Journal APPEND-ONLY : aucune transition de statut de la DEMANDE (statut_avant/apres NULL).
+    await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, $3)`,
+      [row.demande_id, `avis CADA « ${sens} » enregistré pour la saisine ${saisineId}`, auteur]);
+  });
+}
+
 /**
  * X3 — canal FORMULAIRE : marque une saisine comme DÉPOSÉE À LA MAIN sur le formulaire en ligne de la CADA (statut 'envoyee'
  * + envoyee_le, journal mentionnant le dépôt). AUCUNE ligne d'acheminement (il n'y a aucune émission e-mail à prouver).

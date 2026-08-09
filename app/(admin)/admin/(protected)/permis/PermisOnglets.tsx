@@ -2,16 +2,16 @@ import type { CSSProperties } from 'react';
 
 /**
  * S13 — barre d'onglets PURE de la tuile Permis (aucun état, aucun effet → testable en Node via `renderToStaticMarkup`).
- * Les cinq onglets sont répartis en DEUX groupes nommés, pour séparer visuellement les deux automatisations distinctes :
+ * Les onglets sont répartis en DEUX groupes nommés, pour séparer visuellement les deux automatisations distinctes :
  * mettre à jour les dossiers Sitadel d'un côté, demander les pièces aux mairies de l'autre. Le groupe est RÉEL pour un
  * lecteur d'écran (`role="group"` + `aria-label`), pas seulement visuel. La couleur (liseré) n'est qu'un appui : l'intitulé
  * de groupe (les mots) porte l'information. Aucune transition → rien à neutraliser pour prefers-reduced-motion.
  */
-export type CleOnglet = 'dossiers' | 'demandes' | 'reponses' | 'reglages' | 'automatisation' | 'collaborateurs';
+export type CleOnglet = 'dossiers' | 'demandes' | 'reponses' | 'saisines' | 'reglages' | 'automatisation' | 'collaborateurs';
 
 export const GROUPES_ONGLETS: { titre: string; onglets: { cle: CleOnglet; libelle: string }[] }[] = [
   { titre: 'Mise à jour des dossiers', onglets: [{ cle: 'dossiers', libelle: 'Dossiers' }, { cle: 'automatisation', libelle: 'Automatisation' }] },
-  { titre: 'Demandes aux mairies', onglets: [{ cle: 'demandes', libelle: 'Demandes' }, { cle: 'reponses', libelle: 'Réponses' }, { cle: 'collaborateurs', libelle: 'Collaborateurs' }, { cle: 'reglages', libelle: 'Réglages' }] },
+  { titre: 'Demandes aux mairies', onglets: [{ cle: 'demandes', libelle: 'Demandes' }, { cle: 'reponses', libelle: 'Réponses' }, { cle: 'saisines', libelle: 'Saisines CADA' }, { cle: 'collaborateurs', libelle: 'Collaborateurs' }, { cle: 'reglages', libelle: 'Réglages' }] },
 ];
 
 const styleTitreGroupe: CSSProperties = { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--color-svv-muted)' };

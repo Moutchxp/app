@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  */
 const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
-  const etat = { rows: [] as unknown[], insertThrows: null as null | { code?: string; constraint?: string }, insertedId: 99, deposeRows: [{ demande_id: 42 }] as unknown[] };
+  const etat = { rows: [] as unknown[], insertThrows: null as null | { code?: string; constraint?: string }, insertedId: 99, deposeRows: [{ demande_id: 42 }] as unknown[], avisRows: [{ demande_id: 42 }] as unknown[] };
   const queryMock = async (sql: string, params?: unknown[]) => { appels.push({ sql, params: params ?? [] }); return { rows: etat.rows }; };
   const withTransactionMock = async (fn: (q: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>) => Promise<unknown>) => {
     const q = async (sql: string, params?: unknown[]) => {
@@ -17,6 +17,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
         return { rows: [{ id: etat.insertedId }] };
       }
       if (/UPDATE demande_relance SET statut = 'envoyee'/i.test(sql) && /RETURNING demande_id/i.test(sql)) return { rows: etat.deposeRows }; // marquerSaisineDeposee
+      if (/UPDATE demande_relance SET avis_recu_le/i.test(sql) && /RETURNING demande_id/i.test(sql)) return { rows: etat.avisRows }; // enregistrerAvisSaisine
       return { rows: [] };
     };
     return fn(q);
@@ -26,14 +27,14 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: withTransactionMock, pool: {}, closePool: async () => undefined }));
 
 import {
-  lireSaisinesEligibles, creerSaisineCada, marquerSaisineDeposee, depsReellesSaisissables, SaisineCadaError,
+  lireSaisinesEligibles, creerSaisineCada, marquerSaisineDeposee, enregistrerAvisSaisine, SENS_AVIS, depsReellesSaisissables, SaisineCadaError,
   type DepsSaisissables, type DepsCreerSaisine, type CandidatSaisine,
 } from './saisineCadaRepo';
 import { piecesDepuisConfig, type ConfigDemandeur, type Lot, type CandidatDossier } from '../sitadel/demande';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 const trouver = (re: RegExp) => appels.find((a) => re.test(a.sql));
-beforeEach(() => { appels.length = 0; etat.rows = []; etat.insertThrows = null; etat.insertedId = 99; etat.deposeRows = [{ demande_id: 42 }]; });
+beforeEach(() => { appels.length = 0; etat.rows = []; etat.insertThrows = null; etat.insertedId = 99; etat.deposeRows = [{ demande_id: 42 }]; etat.avisRows = [{ demande_id: 42 }]; });
 
 // Repères temporels : envoi 14 mars → refus tacite 14 avril → forclusion 14 juin.
 const ENVOI = new Date('2026-03-14T10:00:00Z');
@@ -182,6 +183,35 @@ describe('X3 — marquerSaisineDeposee : dépôt manuel (envoyee sans achemineme
   it('saisine non-brouillon (0 ligne mise à jour) → refus métier, aucun journal', async () => {
     etat.deposeRows = [];
     await expect(marquerSaisineDeposee(7, 'admin')).rejects.toBeInstanceOf(SaisineCadaError);
+    expect(trouver(/INSERT INTO demande_journal/i)).toBeUndefined();
+  });
+});
+
+describe('X4 — enregistrerAvisSaisine : avis CADA (garde envoyee, sens en liste fermée, journal)', () => {
+  it('SENS_AVIS = liste fermée (miroir du CHECK avis_sens)', () => {
+    expect(SENS_AVIS).toEqual(['favorable', 'defavorable', 'sans_suite']);
+  });
+
+  it('saisine envoyée → avis_recu_le + avis_sens (garde envoyee) + journal, sens en paramètre LIÉ, demande.statut jamais écrit', async () => {
+    etat.avisRows = [{ demande_id: 42 }];
+    await enregistrerAvisSaisine(7, 'defavorable', 'admin');
+    const upd = trouver(/UPDATE demande_relance SET avis_recu_le/i)!;
+    const s = norm(upd.sql);
+    expect(s).toContain('avis_recu_le = now()');
+    expect(s).toContain('avis_sens = $2');
+    expect(s).toContain("type = 'saisine_cada'");
+    expect(s).toContain("statut = 'envoyee'"); // garde : seule une saisine envoyée peut recevoir un avis
+    expect(upd.params).toEqual([7, 'defavorable']); // sens LIÉ, jamais interpolé
+    const jrn = trouver(/INSERT INTO demande_journal/i)!;
+    expect(norm(jrn.sql)).toContain('VALUES ($1, NULL, NULL, $2, $3)'); // append-only
+    expect(jrn.params[0]).toBe(42);
+    expect(String(jrn.params[1])).toContain('defavorable');
+    expect(appels.some((a) => /UPDATE\s+demande\b/i.test(a.sql))).toBe(false); // jamais demande.statut
+  });
+
+  it('saisine non envoyée (0 ligne) → SaisineCadaError, aucun journal', async () => {
+    etat.avisRows = [];
+    await expect(enregistrerAvisSaisine(7, 'favorable', 'admin')).rejects.toBeInstanceOf(SaisineCadaError);
     expect(trouver(/INSERT INTO demande_journal/i)).toBeUndefined();
   });
 });
