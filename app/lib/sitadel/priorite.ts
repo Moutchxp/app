@@ -101,6 +101,24 @@ export function expressionRangSql(c: ConfigVeille, params: unknown[]): string {
   )`;
 }
 
+// ── D1 : état de RATTACHEMENT d'un dossier (donnée d'AFFICHAGE, jamais un critère de sélection) ────────────────────────
+/** Les trois états, libellés validés côté rendu. Valeurs SQL sans accent (sûres en littéral). */
+export type EtatRattachement = 'rattache' | 'abandonne' | 'jamais';
+export const ETATS_RATTACHEMENT: readonly EtatRattachement[] = ['rattache', 'abandonne', 'jamais'];
+
+/**
+ * Expression SQL de l'état de rattachement d'un dossier (`d.id`). Ordre de priorité STRICT porté par le CASE (court-circuit) :
+ * une ligne ACTIVE l'emporte (« rattache ») sur une ligne quelconque (« abandonne »), qui l'emporte sur l'absence (« jamais »).
+ * Un dossier portant à la fois d'anciennes lignes inactives ET une ligne active tombe donc dans « rattache » (1re branche).
+ * AUCUN paramètre (littéraux sûrs). Utilisée POUR L'AFFICHAGE UNIQUEMENT (SELECT / filtre / compteurs), jamais côté candidats.
+ */
+export function expressionRattachementSql(): string {
+  return `CASE ` +
+    `WHEN EXISTS (SELECT 1 FROM demande_dossier dd WHERE dd.dossier_id = d.id AND dd.actif) THEN 'rattache' ` +
+    `WHEN EXISTS (SELECT 1 FROM demande_dossier dd WHERE dd.dossier_id = d.id) THEN 'abandonne' ` +
+    `ELSE 'jamais' END`;
+}
+
 /**
  * Dossier + référentiel commune + registre mairie (LEFT JOIN : un code sans commune → `commune_nom` NULL (« commune
  * inconnue ») ; une commune sans contact → `dest_email` NULL (« sans destinataire »)).
@@ -144,12 +162,13 @@ export interface FiltresPermis {
   q: string | null; // recherche libre : numéro de dossier (préfixe) OU libellé de voie (sous-chaîne + trigramme)
   sansDestinataire: boolean; // n'afficher que les dossiers non adressables (aucun e-mail de mairie)
   etatDau: string | null; // filtre par état d'avancement (2/4/5/6) ; null = tous (S12)
+  rattachement: EtatRattachement | null; // D1 : n'afficher qu'un état de rattachement ; null = tous. AFFICHAGE seul.
 }
 
 /** Filtres neutres (aucune restriction) — base pour « top du classement » (constitution des demandes, S7). */
 export const FILTRES_PERMIS_VIDES: FiltresPermis = {
   departement: null, communes: [], type: null, rang: null, depuis: null, jusqua: null,
-  surfaceMin: null, logementsMin: null, q: null, sansDestinataire: false, etatDau: null,
+  surfaceMin: null, logementsMin: null, q: null, sansDestinataire: false, etatDau: null, rattachement: null,
 };
 
 const SELECTION =
@@ -208,21 +227,37 @@ function clausesWhere(f: FiltresPermis, params: unknown[], rangExpr: string | nu
   // en S14d). Remplace l'ancien `mc.canal = 'inconnu'` devenu faux (13 des 29 'inconnu' sont joignables par leur PRADA).
   if (f.sansDestinataire) cl.push("coalesce(btrim(mc.email), '') = '' AND coalesce(btrim(mp.courriel), '') = ''");
   if (f.etatDau) cl.push(`d.etat_dau = ${add(f.etatDau)}`); // filtre par état d'avancement (S12)
+  // D1 — filtre par état de rattachement (AFFICHAGE seul). Ajouté UNIQUEMENT quand demandé : FILTRES_PERMIS_VIDES.rattachement
+  // = null → aucune clause → le chemin CANDIDATS reste byte-identique.
+  if (f.rattachement) cl.push(`${expressionRattachementSql()} = ${add(f.rattachement)}`);
   if (f.rang != null && rangExpr) cl.push(`${rangExpr} = ${add(f.rang)}`);
   return cl.length ? `WHERE ${cl.join(' AND ')}` : '';
 }
 
-/** Requête LISTE paginée : rang calculé, tri (rang → surface → date → num_dau), LIMIT/OFFSET. */
+/**
+ * Requête LISTE paginée : rang calculé, tri (rang → surface → date → num_dau), LIMIT/OFFSET.
+ * D1 — `opts.avecRattachement` (opt-in de l'AFFICHAGE) ajoute l'état de rattachement + la référence/statut de la demande
+ * active. Par DÉFAUT (false, chemin CANDIDATS via lireDossiersPriorite) la requête est BYTE-IDENTIQUE à l'historique :
+ * aucune colonne, aucune jointure ajoutée → le plan de sélection des dossiers à démarcher n'est jamais modifié.
+ */
 export function construireRequeteListe(
-  f: FiltresPermis, c: ConfigVeille, page: number, taille: number,
+  f: FiltresPermis, c: ConfigVeille, page: number, taille: number, opts: { avecRattachement?: boolean } = {},
 ): { texte: string; params: unknown[] } {
   const params: unknown[] = [];
   const rangExpr = expressionRangSql(c, params);
   const where = clausesWhere(f, params, rangExpr);
   const limite = add(params, taille);
   const decalage = add(params, (page - 1) * taille);
+  // Colonnes + jointure LATÉRALE de rattachement, UNIQUEMENT sur demande explicite de l'affichage (sinon chaînes vides →
+  // texte byte-identique). La latérale ne renvoie que la demande ACTIVE (index unique partiel → au plus une ligne).
+  const selRatt = opts.avecRattachement
+    ? `, ${expressionRattachementSql()} AS etat_rattachement, rat.reference AS demande_reference, rat.statut AS demande_statut`
+    : '';
+  const joinRatt = opts.avecRattachement
+    ? ' LEFT JOIN LATERAL (SELECT dm.reference, dm.statut FROM demande_dossier dd JOIN demande dm ON dm.id = dd.demande_id WHERE dd.dossier_id = d.id AND dd.actif LIMIT 1) rat ON true'
+    : '';
   const texte =
-    `SELECT ${SELECTION}, ${rangExpr} AS rang FROM ${FROM_JOIN} ${where} ` +
+    `SELECT ${SELECTION}${selRatt}, ${rangExpr} AS rang FROM ${FROM_JOIN}${joinRatt} ${where} ` +
     `ORDER BY ${rangExpr} ASC, ${ordreSecondaire(c)} LIMIT ${limite} OFFSET ${decalage}`;
   return { texte, params };
 }
@@ -241,6 +276,18 @@ export function construireRequeteComptes(f: FiltresPermis, c: ConfigVeille): { t
   const rangExpr = expressionRangSql(c, params);
   const where = clausesWhere({ ...f, rang: null }, params, rangExpr);
   return { texte: `SELECT ${rangExpr} AS rang, count(*)::int AS n FROM ${FROM_JOIN} ${where} GROUP BY rang ORDER BY rang`, params };
+}
+
+/**
+ * D1 — COMPTEURS PAR ÉTAT DE RATTACHEMENT : mêmes filtres en cours SAUF le rattachement lui-même (on veut toujours les
+ * TROIS décomptes). Porte donc sur l'ENSEMBLE des dossiers filtrés, pas sur la page. Modèle : construireRequeteComptes.
+ */
+export function construireRequeteComptesRattachement(f: FiltresPermis, c: ConfigVeille): { texte: string; params: unknown[] } {
+  const params: unknown[] = [];
+  const rangExpr = f.rang != null ? expressionRangSql(c, params) : null; // rang construit UNIQUEMENT s'il filtre
+  const where = clausesWhere({ ...f, rattachement: null }, params, rangExpr);
+  const expr = expressionRattachementSql();
+  return { texte: `SELECT ${expr} AS etat_rattachement, count(*)::int AS n FROM ${FROM_JOIN} ${where} GROUP BY etat_rattachement ORDER BY etat_rattachement`, params };
 }
 
 /** Compteurs d'état GLOBAUX (indicateurs de pipeline, indépendants des filtres) : annulés (etat_dau=4) et absents du
@@ -305,6 +352,7 @@ export function lireFiltres(sp: URLSearchParams): FiltresPermis {
     q: q === '' ? null : q,
     sansDestinataire: sp.get('sansDestinataire') === '1',
     etatDau: ((): string | null => { const e = (sp.get('etat') ?? '').trim(); return (ETATS_CONNUS as readonly string[]).includes(e) ? e : null; })(),
+    rattachement: ((): EtatRattachement | null => { const r = (sp.get('rattachement') ?? '').trim(); return (ETATS_RATTACHEMENT as readonly string[]).includes(r) ? (r as EtatRattachement) : null; })(),
   };
 }
 

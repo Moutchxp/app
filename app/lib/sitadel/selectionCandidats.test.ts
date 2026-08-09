@@ -50,4 +50,12 @@ describe('V2 — la config de sélection arrive jusqu’à la requête des candi
     const iSurface = sql.indexOf("CASE WHEN d.type = 'PD' THEN d.superficie_terrain ELSE d.surf_creee END) DESC NULLS LAST");
     expect(iSurface).toBeLessThan(iDate);
   });
+
+  it('D1 — INVARIANT : la requête des CANDIDATS n’intègre JAMAIS le rattachement (donnée d’affichage seule)', async () => {
+    await proposition(CONFIG_VEILLE_DEFAUT);
+    const sql = reqCandidats()!.sql;
+    expect(sql).not.toContain('demande_dossier');     // ni la jointure/EXISTS de rattachement
+    expect(sql).not.toContain('etat_rattachement');   // ni la colonne d'état
+    expect(sql).not.toContain('LEFT JOIN LATERAL');   // ni la latérale d'affichage
+  });
 });

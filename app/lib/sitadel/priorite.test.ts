@@ -4,6 +4,7 @@ import {
   type DossierClassable, type FiltresPermis,
   classer, construireRequeteListe, construireRequeteTotal, construireRequeteComptes, lireFiltres,
   formaterDateJour, libelleCommune, libelleEtat, compteursEtatDepuisRow,
+  expressionRattachementSql, construireRequeteComptesRattachement,
 } from './priorite';
 
 const C = CONFIG_VEILLE_DEFAUT; // seuils 10 / 1500 ; rangs 1..5
@@ -13,7 +14,7 @@ function pc(over: Partial<DossierClassable> = {}): DossierClassable {
 }
 const FILTRES_VIDES: FiltresPermis = {
   departement: null, communes: [], type: null, rang: null, depuis: null, jusqua: null,
-  surfaceMin: null, logementsMin: null, q: null, sansDestinataire: false, etatDau: null,
+  surfaceMin: null, logementsMin: null, q: null, sansDestinataire: false, etatDau: null, rattachement: null,
 };
 
 describe('Sitadel S3 — classement (un cas par rang)', () => {
@@ -255,5 +256,70 @@ describe('S12b-fix — compteursEtat : contrat route↔vue (toujours 3 clés, 0 
   it('clé manquante ou nulle (forme de réponse plus ancienne) → 0, pas de fuite d’undefined', () => {
     expect(compteursEtatDepuisRow({ annules: 5, absents: 3 })).toEqual({ annules: 5, absents: 3, ambigus: 0 });
     expect(compteursEtatDepuisRow({ annules: null, absents: null, ambigus: null })).toEqual({ annules: 0, absents: 0, ambigus: 0 });
+  });
+});
+
+// ── D1 : état de rattachement (donnée d'affichage, jamais un critère de sélection) ───────────────────
+describe('D1 — expressionRattachementSql : trois états + priorité STRICTE (rattaché > abandonné > jamais)', () => {
+  const e = expressionRattachementSql();
+  it('les trois valeurs sont produites', () => {
+    expect(e).toContain("'rattache'");
+    expect(e).toContain("'abandonne'");
+    expect(e).toContain("'jamais'");
+  });
+  it('la branche ACTIVE est testée EN PREMIER → un dossier avec lignes inactives ET une active est « rattaché »', () => {
+    const iActive = e.indexOf('AND dd.actif'); // 1re branche : EXISTS ligne active → 'rattache'
+    const iRattache = e.indexOf("'rattache'");
+    const iAny = e.indexOf('WHERE dd.dossier_id = d.id) THEN'); // 2e branche : EXISTS ligne quelconque → 'abandonne'
+    const iAbandonne = e.indexOf("'abandonne'");
+    expect(iActive).toBeGreaterThan(-1);
+    expect(iActive).toBeLessThan(iAny);          // actif testé avant « n'importe quelle ligne »
+    expect(iRattache).toBeLessThan(iAbandonne);  // 'rattache' court-circuite avant 'abandonne'
+  });
+});
+
+describe('D1 — construireRequeteListe : jointure de rattachement OPT-IN (byte-identique par défaut)', () => {
+  it('SANS opt-in (chemin CANDIDATS) → AUCUN fragment de rattachement, ordre historique conservé', () => {
+    const { texte } = construireRequeteListe(FILTRES_VIDES, C, 1, 25);
+    expect(texte).not.toContain('demande_dossier');
+    expect(texte).not.toContain('etat_rattachement');
+    expect(texte).not.toContain('LEFT JOIN LATERAL');
+    expect(texte).toContain('num_dau ASC LIMIT'); // structure historique intacte
+  });
+  it('AVEC opt-in (chemin AFFICHAGE) → colonnes + latérale de rattachement ajoutées', () => {
+    const { texte } = construireRequeteListe(FILTRES_VIDES, C, 1, 25, { avecRattachement: true });
+    expect(texte).toContain('etat_rattachement');
+    expect(texte).toContain('rat.reference AS demande_reference');
+    expect(texte).toContain('rat.statut AS demande_statut');
+    expect(texte).toContain('LEFT JOIN LATERAL');
+    expect(texte).toContain('WHERE dd.dossier_id = d.id AND dd.actif'); // latérale = demande ACTIVE seulement
+  });
+});
+
+describe('D1 — filtre par rattachement (affichage) + compteurs sur l’ensemble filtré', () => {
+  it('le filtre rattachement pousse l’expression + LIE la valeur (n’affiche qu’une catégorie)', () => {
+    const { texte, params } = construireRequeteTotal({ ...FILTRES_VIDES, rattachement: 'rattache' }, C);
+    const norm = texte.replace(/\s+/g, ' ');
+    expect(norm).toContain('CASE WHEN EXISTS'); // l'expression de rattachement est dans le WHERE
+    expect(params).toContain('rattache');       // valeur LIÉE (jamais interpolée)
+  });
+  it('sans filtre rattachement → aucune clause de rattachement (invariant candidats)', () => {
+    expect(construireRequeteTotal(FILTRES_VIDES, C).params).not.toContain('rattache');
+  });
+  it('compteurs par rattachement : GROUP BY etat_rattachement, IGNORE le filtre rattachement (toujours 3), garde les autres', () => {
+    const { texte, params } = construireRequeteComptesRattachement({ ...FILTRES_VIDES, rattachement: 'jamais', departement: '92' }, C);
+    const norm = texte.replace(/\s+/g, ' ');
+    expect(norm).toContain('GROUP BY etat_rattachement');
+    expect(norm).toContain('departement =');   // le filtre département reste
+    expect(params).not.toContain('jamais');     // le filtre rattachement est neutralisé (on veut les 3 décomptes)
+  });
+});
+
+describe('D1 — lireFiltres : paramètre rattachement (liste fermée)', () => {
+  it('valeur connue → retenue ; inconnue/absente → null', () => {
+    expect(lireFiltres(new URLSearchParams('rattachement=rattache')).rattachement).toBe('rattache');
+    expect(lireFiltres(new URLSearchParams('rattachement=abandonne')).rattachement).toBe('abandonne');
+    expect(lireFiltres(new URLSearchParams('rattachement=nimporte')).rattachement).toBeNull();
+    expect(lireFiltres(new URLSearchParams('')).rattachement).toBeNull();
   });
 });

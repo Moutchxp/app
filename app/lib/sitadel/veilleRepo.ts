@@ -5,9 +5,9 @@
 import { query } from '../db/client';
 import type { ConfigVeille } from './veilleConfig';
 import {
-  type FiltresPermis, type CleCategorie,
+  type FiltresPermis, type CleCategorie, type EtatRattachement,
   classer, libelleParRang, construireRequeteListe, construireRequeteTotal, construireRequeteComptes,
-  REQUETE_COMPTEURS_ETAT, compteursEtatDepuisRow, FILTRES_PERMIS_VIDES,
+  construireRequeteComptesRattachement, REQUETE_COMPTEURS_ETAT, compteursEtatDepuisRow, FILTRES_PERMIS_VIDES,
 } from './priorite';
 
 /** Une ligne de dossier prête pour l'affichage (champs bruts + catégorie résolue). */
@@ -56,6 +56,10 @@ export interface DossierAffiche {
   categorie: CleCategorie;
   libelleCategorie: string;
   rang: number;
+  // D1 — état de rattachement (présent UNIQUEMENT sur le chemin AFFICHAGE ; absent côté candidats, où il n'est jamais lu).
+  etatRattachement?: EtatRattachement;
+  demandeReference?: string | null; // référence de la demande ACTIVE (si « rattache »)
+  demandeStatut?: string | null;    // statut de la demande active
 }
 
 interface LigneSql {
@@ -91,6 +95,10 @@ interface LigneSql {
   prada_statut: string | null;
   prada_origine: string | null;
   prada_rapprochement: string | null;
+  // D1 — présents uniquement quand la requête d'affichage les demande (opt-in) ; absents côté candidats.
+  etat_rattachement?: EtatRattachement | null;
+  demande_reference?: string | null;
+  demande_statut?: string | null;
 }
 
 const nombre = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -124,6 +132,10 @@ function versAffiche(r: LigneSql, c: ConfigVeille): DossierAffiche {
     destPradaAdresse: r.prada_adresse, destPradaMillesime: r.prada_millesime, destPradaStatut: r.prada_statut,
     destPradaOrigine: r.prada_origine, destPradaRapprochement: r.prada_rapprochement,
     categorie: cl.cle, libelleCategorie: cl.libelle, rang: cl.rang,
+    // D1 — repris tels quels quand présents (affichage) ; undefined côté candidats (colonnes absentes du SELECT).
+    etatRattachement: r.etat_rattachement ?? undefined,
+    demandeReference: r.demande_reference ?? null,
+    demandeStatut: r.demande_statut ?? null,
   };
 }
 
@@ -133,6 +145,7 @@ export interface ResultatVeille {
   taille: number;
   lignes: DossierAffiche[];
   comptes: { rang: number; libelle: string; n: number }[];
+  comptesRattachement: { etat: EtatRattachement; n: number }[]; // D1 : décompte des 3 états sur l'ENSEMBLE filtré (pas la page)
   compteursEtat: { annules: number; absents: number; ambigus: number }; // jauges globales (S12/S12b)
   bornes: { min: string | null; max: string | null };
   /** Anciens codes (fusions) dont les dossiers sont inclus par la sélection courante — pour le dire à l'utilisateur. */
@@ -166,13 +179,15 @@ export async function lireDossiersPriorite(c: ConfigVeille, n: number): Promise<
 
 /** Liste filtrée paginée + total + compteurs par catégorie + bornes de dates + inclusions de fusion. */
 export async function lireVeille(f: FiltresPermis, c: ConfigVeille, page: number, taille: number): Promise<ResultatVeille> {
-  const rq = construireRequeteListe(f, c, page, taille);
+  const rq = construireRequeteListe(f, c, page, taille, { avecRattachement: true }); // D1 : affichage → colonnes de rattachement
   const rt = construireRequeteTotal(f, c);
   const rc = construireRequeteComptes(f, c);
-  const [liste, total, comptes, etat, bornes, inclusions] = await Promise.all([
+  const rr = construireRequeteComptesRattachement(f, c); // D1 : les 3 décomptes sur l'ensemble filtré
+  const [liste, total, comptes, rattach, etat, bornes, inclusions] = await Promise.all([
     query<LigneSql>(rq.texte, rq.params),
     query<{ n: number }>(rt.texte, rt.params),
     query<{ rang: number; n: number }>(rc.texte, rc.params),
+    query<{ etat_rattachement: EtatRattachement; n: number }>(rr.texte, rr.params),
     query<{ annules: number; absents: number; ambigus: number }>(REQUETE_COMPTEURS_ETAT),
     query<{ min: string | null; max: string | null }>(
       `SELECT min(date_reelle_autorisation)::text AS min, max(date_reelle_autorisation)::text AS max FROM sitadel_dossier`,
@@ -185,6 +200,7 @@ export async function lireVeille(f: FiltresPermis, c: ConfigVeille, page: number
     taille,
     lignes: liste.rows.map((r) => versAffiche(r, c)),
     comptes: comptes.rows.map((x) => ({ rang: x.rang, libelle: libelleParRang(x.rang, c), n: x.n })),
+    comptesRattachement: rattach.rows.map((x) => ({ etat: x.etat_rattachement, n: x.n })),
     compteursEtat: compteursEtatDepuisRow(etat.rows[0]),
     bornes: bornes.rows[0] ?? { min: null, max: null },
     inclusions,

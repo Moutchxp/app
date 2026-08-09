@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { formaterDateJour, libelleCommune, libelleEtat, ETATS_CONNUS, type CleCategorie } from '../../../../lib/sitadel/priorite';
+import { formaterDateJour, libelleCommune, libelleEtat, ETATS_CONNUS, type CleCategorie, type EtatRattachement } from '../../../../lib/sitadel/priorite';
 import type { DossierAffiche, ResultatVeille } from '../../../../lib/sitadel/veilleRepo';
 import type { CommuneRef, FusionRef } from '../../../../lib/sitadel/carteRepo';
 import { CartePermis } from './CartePermis';
+import { BadgeRattachement, CompteursRattachement } from './PermisRattachementRendu';
 import { corpsPatchContact, corpsAdoptionPrada, noteAuChangementCanal, problemeContactUI, editionInitiale, construireFiche, type EtatEditionContact, type FicheCommune } from './contactForm';
 import { SelecteurCanal, ChampsProtocole, SelecteurEmailType, BoutonOuvrirLien, BlocFicheCommune } from './ContactRendu';
 
@@ -21,6 +22,7 @@ interface Filtres {
   departement: string; type: '' | 'PC' | 'PD'; rang: string;
   depuis: string; jusqua: string; surfaceMin: string; logementsMin: string; q: string;
   sansDestinataire: '' | '1'; etat: '' | '2' | '4' | '5' | '6';
+  rattachement: '' | EtatRattachement; // D1 : filtre par état de démarchage (vide = tous)
 }
 
 const STATUT_LIBELLE: Record<string, string> = { presume: 'présumée', confirme: 'confirmée', invalide: 'invalide' };
@@ -40,7 +42,7 @@ const fmtSurf = (n: number | null): string => (n === null ? '—' : `${Math.roun
 export function PermisVue({ depuisParDefaut, categories }: Props) {
   const [filtres, setFiltres] = useState<Filtres>({
     departement: '', type: '', rang: '',
-    depuis: depuisParDefaut, jusqua: '', surfaceMin: '', logementsMin: '', q: '', sansDestinataire: '', etat: '',
+    depuis: depuisParDefaut, jusqua: '', surfaceMin: '', logementsMin: '', q: '', sansDestinataire: '', etat: '', rattachement: '',
   });
   const [communesSel, setCommunesSel] = useState<string[]>([]); // codes INSEE sélectionnés (multi) — état PARTAGÉ carte ↔ champ
   const [ref, setRef] = useState<{ communes: CommuneRef[]; fusions: FusionRef[] } | null>(null);
@@ -298,6 +300,15 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
         )}
       </div>
 
+      {/* ── D1 : démarchage (compteurs des 3 états sur l'ensemble filtré + filtre) ── */}
+      {data && (
+        <CompteursRattachement
+          comptes={data.comptesRattachement ?? []}
+          actif={filtres.rattachement === '' ? null : filtres.rattachement}
+          onFiltre={(e) => maj({ rattachement: e ?? '' })}
+        />
+      )}
+
       {/* ── Aide : l'absence de déclaration d'ouverture de chantier ── */}
       <div className="svv-page-note" style={{ marginTop: 0, fontSize: 12, color: 'var(--color-svv-muted)' }}>
         L&rsquo;<strong>absence de déclaration d&rsquo;ouverture de chantier</strong> ne signifie pas qu&rsquo;il ne se passe rien : c&rsquo;est très majoritairement un <strong>retard de déclaration</strong>. Un permis simplement « Autorisé » reste donc un dossier pertinent — seuls les <strong>annulés</strong> et les <strong>retirés du fichier</strong> sont écartés des demandes.
@@ -369,7 +380,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ textAlign: 'left', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
-                {['Catégorie', 'État', 'Date', 'Commune', 'Dép.', 'Destinataire', 'Surface', 'Logts', 'Adresse du terrain', 'Cadastre', 'N° dossier', 'Type'].map((h) => (
+                {['Catégorie', 'Démarchage', 'État', 'Date', 'Commune', 'Dép.', 'Destinataire', 'Surface', 'Logts', 'Adresse du terrain', 'Cadastre', 'N° dossier', 'Type'].map((h) => (
                   <th key={h} style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -378,6 +389,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
               {data.lignes.map((d: DossierAffiche) => (
                 <tr key={`${d.type}-${d.id}`} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
                   <td style={{ padding: '.4rem .5rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{d.libelleCategorie}</td>
+                  <td style={{ padding: '.4rem .5rem' }}><BadgeRattachement etat={d.etatRattachement} reference={d.demandeReference} statut={d.demandeStatut} /></td>
                   <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap', color: d.etatDau === '4' ? '#8a5a00' : !d.vuAuDernier ? 'var(--color-svv-red)' : 'inherit' }}>
                     {libelleEtat(d.etatDau)}{!d.vuAuDernier ? ' · retiré' : ''}
                     {d.etatAmbigu && <span style={{ color: 'var(--color-svv-muted)', fontSize: 11 }} title="Les lignes du dossier portaient des états divergents ; l’état affiché est l’agrégat. Reste proposable."> · ambigu</span>}
@@ -414,7 +426,7 @@ export function PermisVue({ depuisParDefaut, categories }: Props) {
                 </tr>
               ))}
               {data.lignes.length === 0 && (
-                <tr><td colSpan={12} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>Aucun dossier pour ces filtres.</td></tr>
+                <tr><td colSpan={13} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>Aucun dossier pour ces filtres.</td></tr>
               )}
             </tbody>
           </table>
