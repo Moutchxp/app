@@ -49,6 +49,38 @@ export function echeanceDe(envoyeLe: Date): Date {
 }
 
 /**
+ * X2 — critère de FRAÎCHEUR de la relève (EXTRAIT d'etatEcheance pour être partagé, jamais réinventé) : la dernière relève
+ * réussie est-elle assez récente pour qu'on puisse SE PRONONCER sur le silence de la mairie ? `null` (jamais relevé) ou trop
+ * ancienne → non fraîche → on ne peut PAS affirmer que la mairie n'a pas répondu.
+ */
+export function releveEstFraiche(derniereReleveOkLe: Date | null, maintenant: Date, fraicheurHeures: number): boolean {
+  return derniereReleveOkLe !== null && (maintenant.getTime() - derniereReleveOkLe.getTime()) <= fraicheurHeures * MS_HEURE;
+}
+
+/** X2 — état de la FENÊTRE de saisine CADA (trois valeurs). Ancré sur l'envoi réel de la demande initiale. */
+export type EtatFenetreCada = 'pas_ouverte' | 'ouverte' | 'fermee';
+export interface FenetreCada {
+  refusTaciteLe: Date;          // naissance du refus tacite = envoi + 1 mois calendaire (echeanceDe)
+  forclusionLe: Date;           // fin du délai de saisine = refus + 2 mois calendaires (forclusion au-delà)
+  etat: EtatFenetreCada;        // pas_ouverte (refus non acquis) | ouverte (dans les 2 mois) | fermee (forclos)
+  joursAvantForclusion: number; // jours entiers avant la forclusion (négatif une fois forclos)
+}
+
+/**
+ * X2 — fenêtre de saisine CADA à partir de l'envoi réel. Le refus tacite naît à UN mois (echeanceDe) ; la CADA se saisit dans
+ * les DEUX mois suivants — soit `echeanceDe` appliqué DEUX fois de plus (réutilise le mois calendaire, avec son débordement de
+ * fin de mois). La borne de forclusion est INCLUSIVE (le dernier jour du délai est encore ouvert). PUR, aucune requête.
+ */
+export function fenetreCada(envoyeLe: Date, maintenant: Date): FenetreCada {
+  const refusTaciteLe = echeanceDe(envoyeLe);                       // + 1 mois
+  const forclusionLe = echeanceDe(echeanceDe(refusTaciteLe));        // + 2 mois après le refus (mois calendaires réutilisés)
+  const joursAvantForclusion = Math.ceil((forclusionLe.getTime() - maintenant.getTime()) / MS_JOUR);
+  const t = maintenant.getTime();
+  const etat: EtatFenetreCada = t < refusTaciteLe.getTime() ? 'pas_ouverte' : (t <= forclusionLe.getTime() ? 'ouverte' : 'fermee');
+  return { refusTaciteLe, forclusionLe, etat, joursAvantForclusion };
+}
+
+/**
  * État d'échéance, ordre de PRIORITÉ STRICT (R6c) :
  *   non_delivree (rebond/échec — prioritaire sur tout) > repondue (documents obtenus pour TOUS les dossiers actifs) >
  *   [pas encore envoyée] > indeterminee (relève trop vieille / jamais) > depassee (échéance passée, relève fraîche) >
@@ -82,8 +114,7 @@ export function etatEcheance(entree: EntreeEcheance, maintenant: Date, reglages:
 
   // 3) INDÉTERMINÉE — sans relève récente, on ne SAIT pas si la mairie s'est tue ou si on n'a pas regardé. On refuse
   //    d'annoncer un silence non vérifié, MÊME si l'échéance est largement dépassée.
-  const releveFraiche = entree.derniereReleveOkLe !== null
-    && (maintenant.getTime() - entree.derniereReleveOkLe.getTime()) <= reglages.releveFraicheurHeures * MS_HEURE;
+  const releveFraiche = releveEstFraiche(entree.derniereReleveOkLe, maintenant, reglages.releveFraicheurHeures);
   if (!releveFraiche) {
     return { etat: 'indeterminee', joursRestants: null, motif: 'Aucune relève récente de la boîte : impossible d’affirmer que la mairie n’a pas répondu (silence non vérifié).' };
   }

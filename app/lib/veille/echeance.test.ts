@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { echeanceDe, etatEcheance, type EntreeEcheance, type ReglagesEcheance } from './echeance';
+import { echeanceDe, etatEcheance, fenetreCada, releveEstFraiche, type EntreeEcheance, type ReglagesEcheance } from './echeance';
 
 /**
  * R6 — échéance PURE. Mois calendaire (pas 30 jours) + débordement de fin de mois ; ordre de priorité des états
@@ -126,5 +126,41 @@ describe('R6 — etatEcheance : ordre de priorité et silence vérifié', () => 
       entree({ envoyeLe: null }),                                                             // en_cours
     ];
     for (const c of cas) expect(etatEcheance(c, new Date('2026-04-20T10:00:00Z'), REG).motif.length).toBeGreaterThan(0);
+  });
+});
+
+describe('X2 — releveEstFraiche (critère extrait, réutilisé par la saisine CADA)', () => {
+  const now = new Date('2026-04-20T12:00:00Z');
+  it('null (jamais relevé) → non fraîche', () => expect(releveEstFraiche(null, now, 48)).toBe(false));
+  it('récente (< fraîcheur) → fraîche', () => expect(releveEstFraiche(new Date('2026-04-20T06:00:00Z'), now, 48)).toBe(true));
+  it('trop ancienne (> fraîcheur) → non fraîche', () => expect(releveEstFraiche(new Date('2026-04-01T00:00:00Z'), now, 48)).toBe(false));
+});
+
+describe('X2 — fenetreCada : refus tacite (+1 mois), forclusion (+2 mois), 3 états dont forclusion au jour près', () => {
+  const ENVOI = new Date('2026-03-14T10:00:00Z'); // refus tacite 14 avr ; forclusion 14 juin
+
+  it('refus tacite = envoi + 1 mois ; forclusion = refus + 2 mois (mois calendaires)', () => {
+    const f = fenetreCada(ENVOI, new Date('2026-05-01T00:00:00Z'));
+    expect(f.refusTaciteLe.toISOString()).toBe(echeanceDe(ENVOI).toISOString());               // +1 mois
+    expect(f.forclusionLe.toISOString()).toBe(echeanceDe(echeanceDe(echeanceDe(ENVOI))).toISOString()); // +3 mois depuis l'envoi
+  });
+
+  it('avant le refus tacite → « pas_ouverte »', () => {
+    expect(fenetreCada(ENVOI, new Date('2026-04-01T10:00:00Z')).etat).toBe('pas_ouverte'); // < 14 avr
+  });
+
+  it('entre refus et forclusion → « ouverte »', () => {
+    expect(fenetreCada(ENVOI, new Date('2026-05-10T10:00:00Z')).etat).toBe('ouverte');
+  });
+
+  it('AU JOUR PRÈS : à la forclusion exacte → encore « ouverte » ; une milliseconde après → « fermee »', () => {
+    const forclusion = echeanceDe(echeanceDe(echeanceDe(ENVOI)));
+    expect(fenetreCada(ENVOI, forclusion).etat).toBe('ouverte');                                  // borne inclusive
+    expect(fenetreCada(ENVOI, new Date(forclusion.getTime() + 1)).etat).toBe('fermee');           // 1 ms après → forclos
+  });
+
+  it('joursAvantForclusion : positif avant, négatif après', () => {
+    expect(fenetreCada(ENVOI, new Date('2026-05-10T10:00:00Z')).joursAvantForclusion).toBeGreaterThan(0);
+    expect(fenetreCada(ENVOI, new Date('2026-07-01T10:00:00Z')).joursAvantForclusion).toBeLessThan(0);
   });
 });
