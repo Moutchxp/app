@@ -70,24 +70,40 @@ const detailContact = (a: ArbitrageAffiche): string =>
  * Encart d'ARBITRAGE (information seule, AUCUNE bascule) : communes où une PRADA au courriel connu existe mais le contact
  * a été confirmé à la main → rien n'a basculé (le travail humain prime). Groupe nommé pour lecteur d'écran.
  */
-export function EncartArbitrages({ arbitrages }: { arbitrages: ArbitrageAffiche[] }) {
-  if (arbitrages.length === 0) return null;
+/**
+ * C2 — REPLIABLE, fermé par défaut (l'état vit dans le parent, ce rendu reste PUR). Fermé : une ligne qui annonce le
+ * décompte (calculé, jamais figé) ; disparaît si le décompte est nul. Ouvert : EXACTEMENT le contenu d'origine (explication
+ * + liste commune par commune, PRADA + destinataire retenu). Bouton natif (aria-expanded, aria-controls) → clavier ok ;
+ * aucun contenu masqué quand fermé (rien à animer → prefers-reduced-motion sans objet). AUCUNE logique métier ici.
+ */
+const ID_CONTENU_ARBITRAGES = 'arbitrages-prada-contenu';
+export function EncartArbitrages({ arbitrages, ouvert, onToggle }: { arbitrages: ArbitrageAffiche[]; ouvert: boolean; onToggle?: () => void }) {
+  if (arbitrages.length === 0) return null; // décompte nul → rien du tout
+  const n = arbitrages.length;
   return (
     <section role="group" aria-label="Arbitrages PRADA à rendre" className="svv-card" style={{ background: '#fff4e0', color: '#8a5a00' }}>
-      <strong>{arbitrages.length} commune(s) : PRADA disponible, mais contact confirmé conservé</strong>
-      <p style={aide}>
-        Une PRADA au courriel connu existe pour ces communes, mais leur destinataire a été validé À LA MAIN (contact
-        « confirmé ») : <strong>rien n’a basculé automatiquement</strong> — le travail humain prime. À arbitrer manuellement
-        si vous souhaitez plutôt écrire à la PRADA.
-      </p>
-      <ul style={{ margin: '.4rem 0 0', paddingLeft: '1.1rem', fontSize: 13, lineHeight: 1.5 }}>
-        {arbitrages.map((a) => (
-          <li key={a.codeInsee}>
-            <strong>{a.communeNom ?? a.codeInsee}</strong> — PRADA {a.pradaNom ?? '(nom non renseigné)'}
-            {a.pradaCourriel ? ` · ${a.pradaCourriel}` : ''} — <em>retenu&nbsp;:</em> {detailContact(a) || '(contact incomplet)'}
-          </li>
-        ))}
-      </ul>
+      <button type="button" aria-expanded={ouvert} aria-controls={ID_CONTENU_ARBITRAGES} onClick={() => onToggle?.()}
+        style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit', display: 'flex', gap: '.4rem', alignItems: 'baseline', width: '100%', textAlign: 'left' }}>
+        <span aria-hidden="true">{ouvert ? '▾' : '▸'}</span>
+        <strong>{n} commune{n > 1 ? 's' : ''} {n > 1 ? 'ont' : 'a'} une PRADA non adoptée</strong>
+      </button>
+      {ouvert && (
+        <div id={ID_CONTENU_ARBITRAGES}>
+          <p style={aide}>
+            Une PRADA au courriel connu existe pour ces communes, mais leur destinataire a été validé À LA MAIN (contact
+            « confirmé ») : <strong>rien n’a basculé automatiquement</strong> — le travail humain prime. À arbitrer manuellement
+            si vous souhaitez plutôt écrire à la PRADA.
+          </p>
+          <ul style={{ margin: '.4rem 0 0', paddingLeft: '1.1rem', fontSize: 13, lineHeight: 1.5 }}>
+            {arbitrages.map((a) => (
+              <li key={a.codeInsee}>
+                <strong>{a.communeNom ?? a.codeInsee}</strong> — PRADA {a.pradaNom ?? '(nom non renseigné)'}
+                {a.pradaCourriel ? ` · ${a.pradaCourriel}` : ''} — <em>retenu&nbsp;:</em> {detailContact(a) || '(contact incomplet)'}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

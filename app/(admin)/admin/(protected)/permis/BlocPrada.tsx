@@ -16,6 +16,7 @@ const styleInput: CSSProperties = { width: '100%', boxSizing: 'border-box', padd
 const normaliser = (s: string): string => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 
 export function BlocPrada() {
+  const [arbitragesOuvert, setArbitragesOuvert] = useState(false); // C2 : encart PRADA replié par défaut (état non mémorisé entre visites)
   const [arbitrages, setArbitrages] = useState<ArbitrageAffiche[]>([]);
   const [ambiguites, setAmbiguites] = useState<AmbiguiteAffiche[]>([]);
   const [injoignables, setInjoignables] = useState<CommuneInjoignableAffiche[]>([]);
@@ -105,7 +106,7 @@ export function BlocPrada() {
 
   return (
     <div className="flex flex-col gap-3">
-      <EncartArbitrages arbitrages={arbitragesMemo} />
+      <EncartArbitrages arbitrages={arbitragesMemo} ouvert={arbitragesOuvert} onToggle={() => setArbitragesOuvert((o) => !o)} />
 
       {ambiguites.length > 0 && (
         <section role="group" aria-label="Rapprochements PRADA ambigus à trancher" className="flex flex-col gap-2">

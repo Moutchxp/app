@@ -23,13 +23,16 @@ describe('S14e — OrigineDest (texte porteur, pas seulement couleur)', () => {
   });
 });
 
-describe('S14e — EncartArbitrages (information seule, aucune bascule)', () => {
+describe('S14e / C2 — EncartArbitrages (repliable, information seule, aucune bascule)', () => {
   const a: ArbitrageAffiche = {
     codeInsee: '75056', communeNom: 'Paris', pradaNom: 'Marie Martin', pradaCourriel: 'prada@paris.fr',
     contactCanal: 'courrier', contactEmail: null, contactAdressePostale: 'BASU, 75013 Paris',
   };
-  it('liste chaque commune avec PRADA + adresse retenue + explication du non-basculement', () => {
-    const h = renderToStaticMarkup(createElement(EncartArbitrages, { arbitrages: [a] }));
+  const b: ArbitrageAffiche = { ...a, codeInsee: '92004', communeNom: 'Asnières', pradaNom: 'Jean Bon', pradaCourriel: 'prada@asnieres.fr', contactAdressePostale: 'Mairie, 92600' };
+  const rendu = (arbitrages: ArbitrageAffiche[], ouvert: boolean) => renderToStaticMarkup(createElement(EncartArbitrages, { arbitrages, ouvert, onToggle: () => {} }));
+
+  it('OUVERT : liste chaque commune avec PRADA + adresse retenue + explication du non-basculement', () => {
+    const h = rendu([a], true);
     expect(h).toContain('Paris');
     expect(h).toContain('Marie Martin');
     expect(h).toContain('prada@paris.fr');
@@ -38,8 +41,30 @@ describe('S14e — EncartArbitrages (information seule, aucune bascule)', () => 
     expect(h).toContain('role="group"');
     expect(h).toContain('aria-label="Arbitrages PRADA à rendre"');
   });
-  it('aucun arbitrage → rien affiché (null)', () => {
-    expect(renderToStaticMarkup(createElement(EncartArbitrages, { arbitrages: [] }))).toBe('');
+
+  it('C2 — FERMÉ (défaut) : décompte annoncé, mais NI la liste NI l’explication ne sont rendues', () => {
+    const h = rendu([a, b], false);
+    expect(h).toContain('2 communes ont une PRADA non adoptée'); // décompte calculé (pluriel accordé)
+    expect(h).not.toContain('rien n’a basculé'); // explication masquée
+    expect(h).not.toContain('Marie Martin');      // liste masquée
+    expect(h).not.toContain('Jean Bon');
+  });
+
+  it('C2 — le décompte suit les DONNÉES (jamais figé) et accorde le singulier', () => {
+    expect(rendu([a], false)).toContain('1 commune a une PRADA non adoptée');
+    expect(rendu([a, b], false)).toContain('2 communes ont une PRADA non adoptée');
+  });
+
+  it('C2 — aria-expanded suit l’état ; le déclencheur est un vrai <button> (clavier)', () => {
+    expect(rendu([a], false)).toContain('aria-expanded="false"');
+    expect(rendu([a], true)).toContain('aria-expanded="true"');
+    expect(rendu([a], false)).toMatch(/<button[^>]*aria-expanded/);
+    expect(rendu([a], true)).toContain('aria-controls="arbitrages-prada-contenu"');
+  });
+
+  it('C2 — décompte NUL → rien du tout, quel que soit l’état', () => {
+    expect(rendu([], false)).toBe('');
+    expect(rendu([], true)).toBe('');
   });
 });
 
