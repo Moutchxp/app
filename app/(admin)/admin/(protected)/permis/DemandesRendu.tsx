@@ -129,6 +129,57 @@ export function CarteInjoignable({ c, children }: { c: CommuneInjoignableAffiche
   );
 }
 
+// ── C3 — bloc REPLIABLE réutilisable (disclosure) + bloc « communes sans adresse » ────────────────────────────────────
+/**
+ * C3 — primitive de repliage PURE (motif de C2 extrait pour réemploi), fermée/ouverte pilotée par le parent (le rendu reste
+ * PUR). Bouton natif (aria-expanded, aria-controls) → clavier ok ; le contenu déplié n'est rendu QUE quand `ouvert`. ⚠️ Slot
+ * `retour` : rendu TOUJOURS (hors du repli) → un message de saisie n'est jamais masqué par le geste de repli. Pas d'animation
+ * → prefers-reduced-motion sans objet. N.B. : l'encart PRADA de C2 (EncartArbitrages) garde son repliable inline (non touché
+ * par ce chantier) ; cette primitive est disponible pour l'y adopter ultérieurement.
+ */
+export function BlocRepliable({ ligne, ouvert, onToggle, idContenu, ariaLabel, retour, className = 'svv-card', style, children }: {
+  ligne: ReactNode; ouvert: boolean; onToggle?: () => void; idContenu: string; ariaLabel: string;
+  retour?: ReactNode; className?: string; style?: CSSProperties; children?: ReactNode;
+}) {
+  return (
+    <section role="group" aria-label={ariaLabel} className={className} style={style}>
+      <button type="button" aria-expanded={ouvert} aria-controls={idContenu} onClick={() => onToggle?.()}
+        style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit', display: 'flex', gap: '.4rem', alignItems: 'baseline', width: '100%', textAlign: 'left' }}>
+        <span aria-hidden="true">{ouvert ? '▾' : '▸'}</span>
+        <strong>{ligne}</strong>
+      </button>
+      {/* retour de saisie : TOUJOURS visible (hors du repli) */}
+      {retour ? <div style={{ marginTop: '.4rem' }}>{retour}</div> : null}
+      {ouvert && <div id={idContenu} style={{ marginTop: '.4rem' }}>{children}</div>}
+    </section>
+  );
+}
+
+/** Étiquette de la ligne repliée du bloc « sans adresse » : décompte CALCULÉ, « commune » accordée (la locution « sans
+ *  adresse e-mail » n'a pas de verbe à accorder, contrairement à la ligne PRADA de C2). PURE. */
+export function libelleInjoignables(n: number): string {
+  return `${n} commune${n > 1 ? 's' : ''} sans adresse e-mail`;
+}
+
+/**
+ * C3 — bloc REPLIABLE « communes sans adresse e-mail », fermé par défaut. Décompte nul → `null` (rien du tout). Fermé : la
+ * ligne (décompte accordé). Ouvert : les cartes de saisie (`children`, ACTIVES) + leur phrase d'explication. Le `retour` de
+ * saisie (succès) est passé au slot toujours-visible de BlocRepliable → il survit au repli. PUR (l'état + les cartes
+ * interactives viennent du parent).
+ */
+export function BlocInjoignables({ injoignables, ouvert, onToggle, retour, children }: {
+  injoignables: CommuneInjoignableAffiche[]; ouvert: boolean; onToggle?: () => void; retour?: ReactNode; children?: ReactNode;
+}) {
+  if (injoignables.length === 0) return null; // décompte nul → rien du tout
+  return (
+    <BlocRepliable ariaLabel="Communes sans adresse e-mail à renseigner" idContenu="injoignables-contenu"
+      ligne={libelleInjoignables(injoignables.length)} ouvert={ouvert} onToggle={onToggle} retour={retour}
+      className="svv-card">
+      {children}
+    </BlocRepliable>
+  );
+}
+
 /**
  * Carte « à déposer à la main » (S16) : commune, URL de téléservice cliquable (nouvel onglet, rel noopener), nombre de
  * dossiers, et le TEXTE COMPLET de la demande (celui de genererTexte, figé en base) prêt à copier. Boutons fournis en

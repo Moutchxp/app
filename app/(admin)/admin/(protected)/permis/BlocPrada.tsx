@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { EncartArbitrages, CarteAmbiguite, CarteInjoignable, retirerCommune, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche } from './DemandesRendu';
+import { EncartArbitrages, BlocInjoignables, CarteAmbiguite, CarteInjoignable, retirerCommune, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche } from './DemandesRendu';
 
 /**
  * Bloc PRADA de l'onglet Demandes (S14e/S15) : encart d'arbitrages (info seule), résolution des rapprochements AMBIGUS, et
@@ -17,6 +17,7 @@ const normaliser = (s: string): string => s.toLowerCase().normalize('NFD').repla
 
 export function BlocPrada() {
   const [arbitragesOuvert, setArbitragesOuvert] = useState(false); // C2 : encart PRADA replié par défaut (état non mémorisé entre visites)
+  const [injOuvert, setInjOuvert] = useState(false); // C3 : bloc « sans adresse » replié par défaut (état non mémorisé)
   const [arbitrages, setArbitrages] = useState<ArbitrageAffiche[]>([]);
   const [ambiguites, setAmbiguites] = useState<AmbiguiteAffiche[]>([]);
   const [injoignables, setInjoignables] = useState<CommuneInjoignableAffiche[]>([]);
@@ -154,28 +155,28 @@ export function BlocPrada() {
         </section>
       )}
 
-      {injoignables.length > 0 && (
-        <section role="group" aria-label="Communes sans adresse e-mail à renseigner" className="flex flex-col gap-2">
-          <div style={{ fontSize: 13 }}>
-            <strong>{injoignables.length} commune(s) sans adresse e-mail</strong> (ni contact, ni PRADA) — saisissez une adresse pour les rendre adressables. Enregistrée en « confirmée ».
-          </div>
-          {okMsg && <span role="status" style={{ fontSize: 13, color: 'var(--color-svv-green-ink)' }}>{okMsg}</span>}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
-            {injoignables.map((c) => (
-              <CarteInjoignable key={c.codeInsee} c={c}>
-                <input type="email" value={emailInj[c.codeInsee] ?? ''} placeholder="urbanisme@ville.fr" style={styleInput}
-                  aria-label={`Adresse e-mail pour ${c.nom}`}
-                  onChange={(e) => { const v = e.target.value; setEmailInj((s) => ({ ...s, [c.codeInsee]: v })); }} />
-                <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginTop: '.2rem' }}>
-                  <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .7rem' }}
-                    onClick={() => void enregistrerEmailInjoignable(c.codeInsee)}>Enregistrer l’adresse</button>
-                </div>
-                {errInj[c.codeInsee] && <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{errInj[c.codeInsee]}</span>}
-              </CarteInjoignable>
-            ))}
-          </div>
-        </section>
-      )}
+      {/* C3 — bloc repliable (fermé par défaut). Le retour de saisie (okMsg) est passé au slot TOUJOURS visible → il survit
+          au repli. L'action d'enregistrement, la règle « sans adresse » et les cartes restent inchangées. */}
+      <BlocInjoignables injoignables={injoignables} ouvert={injOuvert} onToggle={() => setInjOuvert((o) => !o)}
+        retour={okMsg ? <span role="status" style={{ fontSize: 13, color: 'var(--color-svv-green-ink)' }}>{okMsg}</span> : null}>
+        <div style={{ fontSize: 13 }}>
+          (ni contact, ni PRADA) — saisissez une adresse pour les rendre adressables. Enregistrée en « confirmée ».
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem', marginTop: '.4rem' }}>
+          {injoignables.map((c) => (
+            <CarteInjoignable key={c.codeInsee} c={c}>
+              <input type="email" value={emailInj[c.codeInsee] ?? ''} placeholder="urbanisme@ville.fr" style={styleInput}
+                aria-label={`Adresse e-mail pour ${c.nom}`}
+                onChange={(e) => { const v = e.target.value; setEmailInj((s) => ({ ...s, [c.codeInsee]: v })); }} />
+              <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginTop: '.2rem' }}>
+                <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .7rem' }}
+                  onClick={() => void enregistrerEmailInjoignable(c.codeInsee)}>Enregistrer l’adresse</button>
+              </div>
+              {errInj[c.codeInsee] && <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{errInj[c.codeInsee]}</span>}
+            </CarteInjoignable>
+          ))}
+        </div>
+      </BlocInjoignables>
     </div>
   );
 }

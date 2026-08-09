@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 
@@ -294,5 +294,80 @@ describe('D2 — FiltreTypes : libellés de l’app + sémantique « au moins un
   it('une case est cochée ssi son rang est dans `coches`', () => {
     const h = renderToStaticMarkup(createElement(FiltreTypes, { categories: cats, coches: new Set([4]) }));
     expect((h.match(/checked/g) ?? []).length).toBe(1); // seule « Extension » (rang 4) cochée
+  });
+});
+
+describe('C3 — libelleInjoignables : décompte calculé, « commune » accordée', () => {
+  it('singulier / pluriel', () => {
+    expect(libelleInjoignables(1)).toBe('1 commune sans adresse e-mail');
+    expect(libelleInjoignables(15)).toBe('15 communes sans adresse e-mail');
+  });
+});
+
+describe('C3 — BlocRepliable : disclosure + slot retour hors du repli', () => {
+  const base = { ligne: 'X éléments', idContenu: 'contenu-x', ariaLabel: 'Groupe X', onToggle: () => {} };
+  const rendu = (ouvert: boolean, retour?: unknown) =>
+    renderToStaticMarkup(createElement(BlocRepliable, { ...base, ouvert, retour, children: createElement('p', null, 'CONTENU-DEPLIE') } as Parameters<typeof BlocRepliable>[0]));
+  it('FERMÉ : ligne visible, contenu déplié ABSENT, aria-expanded=false, vrai <button>', () => {
+    const h = rendu(false);
+    expect(h).toContain('X éléments');
+    expect(h).not.toContain('CONTENU-DEPLIE');
+    expect(h).toContain('aria-expanded="false"');
+    expect(h).toMatch(/<button[^>]*aria-expanded/);
+  });
+  it('OUVERT : contenu déplié présent, aria-expanded=true, aria-controls relié', () => {
+    const h = rendu(true);
+    expect(h).toContain('CONTENU-DEPLIE');
+    expect(h).toContain('aria-expanded="true"');
+    expect(h).toContain('aria-controls="contenu-x"');
+  });
+  it('le slot `retour` est TOUJOURS rendu (fermé comme ouvert) → jamais masqué par le repli', () => {
+    const msg = createElement('span', { role: 'status' }, 'RETOUR-VISIBLE');
+    expect(rendu(false, msg)).toContain('RETOUR-VISIBLE'); // même fermé
+    expect(rendu(true, msg)).toContain('RETOUR-VISIBLE');
+  });
+});
+
+describe('C3 — BlocInjoignables : bloc « sans adresse » repliable, cartes actives', () => {
+  const inj = (n: number): CommuneInjoignableAffiche[] => Array.from({ length: n }, (_, i) => ({ codeInsee: String(78000 + i), nom: `Commune ${i}`, departement: '78' }));
+  const carte = (c: CommuneInjoignableAffiche) => createElement(CarteInjoignable, { key: c.codeInsee, c },
+    createElement('input', { type: 'email', 'aria-label': `Adresse e-mail pour ${c.nom}` }),
+    createElement('button', { type: 'button' }, 'Enregistrer l’adresse'));
+  const explication = createElement('div', { key: 'exp' }, '(ni contact, ni PRADA) — saisissez une adresse pour les rendre adressables. Enregistrée en « confirmée ».');
+  const rendu = (n: number, ouvert: boolean, retour?: unknown) =>
+    renderToStaticMarkup(createElement(BlocInjoignables, { injoignables: inj(n), ouvert, onToggle: () => {}, retour, children: [explication, ...inj(n).map(carte)] } as Parameters<typeof BlocInjoignables>[0]));
+
+  it('décompte NUL → rien du tout (null), quel que soit l’état', () => {
+    expect(rendu(0, false)).toBe('');
+    expect(rendu(0, true)).toBe('');
+  });
+  it('FERMÉ (défaut) : décompte accordé, mais NI les cartes NI l’explication ne sont rendues', () => {
+    const h = rendu(3, false);
+    expect(h).toContain('3 communes sans adresse e-mail');
+    expect(h).toContain('aria-expanded="false"');
+    expect(h).not.toContain('ni contact, ni PRADA');           // explication masquée (dans les children)
+    expect(h).not.toContain('Adresse e-mail pour Commune 0');   // carte masquée
+  });
+  it('le décompte SUIT les données (décrément après enregistrement d’une carte) + s’accorde', () => {
+    expect(rendu(15, false)).toContain('15 communes sans adresse e-mail');
+    expect(rendu(14, false)).toContain('14 communes sans adresse e-mail'); // une carte enregistrée → liste 15→14
+    expect(rendu(1, false)).toContain('1 commune sans adresse e-mail');    // singulier
+  });
+  it('OUVERT : chaque commune apparaît avec son CHAMP et son BOUTON', () => {
+    const h = rendu(2, true);
+    expect(h).toContain('Commune 0');
+    expect(h).toContain('Commune 1');
+    expect((h.match(/type="email"/g) ?? []).length).toBe(2);            // un champ par commune
+    expect((h.match(/Enregistrer l’adresse/g) ?? []).length).toBe(2);   // un bouton par commune
+    expect(h).toContain('ni contact, ni PRADA');                         // explication rendue à l’ouverture
+  });
+  it('aria-expanded suit l’état', () => {
+    expect(rendu(2, false)).toContain('aria-expanded="false"');
+    expect(rendu(2, true)).toContain('aria-expanded="true"');
+  });
+  it('le RETOUR de saisie (succès) reste visible même FERMÉ (survit au repli)', () => {
+    const msg = createElement('span', { role: 'status' }, 'Adresse enregistrée pour 92004.');
+    expect(rendu(3, false, msg)).toContain('Adresse enregistrée pour 92004.'); // fermé
+    expect(rendu(3, true, msg)).toContain('Adresse enregistrée pour 92004.');  // ouvert
   });
 });
