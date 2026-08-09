@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, DossierSuivi, ReponseARattacher, RelancePreparee, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, DossierSuivi, ReponseARattacher, RelancePreparee, ReglagesReleve, CumulFenetre } from '../../../../lib/veille/reponsesSuivi';
+import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import { MessageRetour, type RetourAction } from './DemandesRendu';
 
 /**
@@ -93,6 +94,16 @@ const COLS_RUN = ['vus', 'déjà connus', 'hors périm.', 'retenus', 'rattachés
 function compteursDe(r: LigneRun): (number | null)[] {
   return [r.vus, r.dejaConnus, r.horsPerimetre, r.retenus, r.rattaches, r.rebondsDetectes, r.rebondsRattaches, r.rebondsEtrangers, r.rebondsAppliques, r.enregistrees, r.piecesDeposees, r.piecesNonDeposees];
 }
+/** T2 — les 12 compteurs d'un CUMUL dans l'ordre EXACT de `COLS_RUN` (aligne la ligne de total sur l'en-tête). Pur. */
+function cumulEnColonnes(c: CumulFenetre): number[] {
+  return [c.vus, c.dejaConnus, c.horsPerimetre, c.retenus, c.rattaches, c.rebondsDetectes, c.rebondsRattaches, c.rebondsEtrangers, c.rebondsAppliques, c.enregistrees, c.piecesDeposees, c.piecesNonDeposees];
+}
+/**
+ * T2 — colonnes de BRUIT (par libellé de `COLS_RUN`, donc robustes à l'ordre) : un même message y est RECOMPTÉ à chaque passe
+ * (vus, déjà connus, hors périmètre, rebonds détectés, rebonds étrangers, pièces non déposées) → atténuées dans le total. Les
+ * 6 autres colonnes sont des ÉVÉNEMENTS, cumulables sans ambiguïté (miroir d'`apporteUneNouveaute`).
+ */
+const LIBELLES_BRUIT = new Set(['vus', 'déjà connus', 'hors périm.', 'reb. détectés', 'reb. étrangers', 'pièces non dép.']);
 
 /**
  * T1 — une passe apporte une NOUVEAUTÉ si au moins un compteur d'ÉVÉNEMENT (fait réellement acquis) est > 0 : `retenus`,
@@ -106,12 +117,36 @@ export function apporteUneNouveaute(r: LigneRun): boolean {
 }
 
 /**
+ * T2 — sélecteur de la fenêtre de cumul. PUR : l'état (`periode`) et le rechargement local sont portés par la Vue ; ici juste
+ * un `<select>` avec `<label>` associé. Changer de fenêtre ne déclenche AUCUN appel réseau — les six cumuls sont déjà chargés.
+ */
+export function SelecteurPeriode({ periode, onPeriode }: { periode: FenetreCumul; onPeriode: (p: FenetreCumul) => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', margin: '0 0 .4rem' }}>
+      <label htmlFor="cumul-periode" style={styleMuted}>Total cumulé sur&nbsp;:</label>
+      <select id="cumul-periode" value={periode} onChange={(e) => onPeriode(e.currentTarget.value as FenetreCumul)}
+        style={{ fontSize: 12, padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', background: 'var(--color-svv-field)', color: 'inherit' }}>
+        {FENETRES_CUMUL.map((f) => <option key={f.cle} value={f.cle}>{f.libelle}</option>)}
+      </select>
+    </div>
+  );
+}
+
+/**
  * Les 10 dernières lignes de releve_run. T1 — chaque ligne n'affiche en clair QUE ce qu'elle apporte : une passe SANS
  * nouveauté est repliée (date/déclencheur/résultat + « Rien de nouveau »), ses compteurs de bruit restant accessibles dans un
  * dépliant natif `<details>` (aucun état → rendu PUR intégral). Une anomalie (`erreur`/`en_cours`) est TOUJOURS affichée en
  * entier, jamais repliée. Vide → phrase (inchangé).
+ *
+ * T2 — quand `cumul`/`periode`/`onPeriode` sont fournis : un sélecteur de fenêtre au-dessus + une ligne de TOTAL en `<tfoot>`
+ * (alignée sur `COLS_RUN`), compteurs de BRUIT atténués (recomptés à chaque passe). Absents → tableau T1 seul (rétrocompat).
  */
-export function TableRuns({ runs }: { runs: LigneRun[] }) {
+export function TableRuns({ runs, cumul, periode, onPeriode }: {
+  runs: LigneRun[];
+  cumul?: CumulFenetre | null;
+  periode?: FenetreCumul;
+  onPeriode?: (p: FenetreCumul) => void;
+}) {
   if (runs.length === 0) return <PhraseVide>Aucune relève enregistrée pour l’instant.</PhraseVide>;
   const cellulesFixes = (r: LigneRun) => (
     <>
@@ -125,6 +160,7 @@ export function TableRuns({ runs }: { runs: LigneRun[] }) {
   );
   return (
     <div>
+      {periode && onPeriode ? <SelecteurPeriode periode={periode} onPeriode={onPeriode} /> : null}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
@@ -160,12 +196,46 @@ export function TableRuns({ runs }: { runs: LigneRun[] }) {
               );
             })}
           </tbody>
+          {cumul && periode ? (
+            <tfoot>
+              {cumul.nbReleves === 0 ? (
+                <tr style={{ borderTop: '2px solid var(--color-svv-line)' }}>
+                  <td colSpan={3 + COLS_RUN.length} style={{ ...styleTd, ...styleMuted, fontStyle: 'italic' }}>
+                    Aucune relève sur cette fenêtre ({libelleFenetre(periode)}).
+                  </td>
+                </tr>
+              ) : (
+                <tr style={{ borderTop: '2px solid var(--color-svv-line)' }}>
+                  <td colSpan={3} style={{ ...styleTd, fontWeight: 700 }}>
+                    Total · {libelleFenetre(periode)}
+                    <span style={{ ...styleMuted, fontWeight: 400, marginLeft: '.4rem' }}>
+                      {cumul.nbReleves} relève{cumul.nbReleves > 1 ? 's' : ''}{cumul.nbErreurs > 0 ? ` · dont ${cumul.nbErreurs} en erreur` : ''}
+                    </span>
+                  </td>
+                  {cumulEnColonnes(cumul).map((v, j) => {
+                    const bruit = LIBELLES_BRUIT.has(COLS_RUN[j]);
+                    return (
+                      <td key={j} title={bruit ? 'compté plusieurs fois si un même message a été revu à plusieurs passes' : undefined}
+                        style={{ ...styleTd, textAlign: 'right', fontWeight: bruit ? 400 : 700, color: bruit ? 'var(--color-svv-muted)' : 'inherit' }}>{v}</td>
+                    );
+                  })}
+                </tr>
+              )}
+            </tfoot>
+          ) : null}
         </table>
       </div>
       <p role="note" style={{ ...styleMuted, margin: '.4rem 0 0', fontStyle: 'italic' }}>
         Les passes sans nouveauté sont repliées (« voir les compteurs » pour le détail). Les rebonds sans rapport avec une
         demande ne sont jamais enregistrés : ils sont donc re-détectés — et recomptés — à chaque passe.
       </p>
+      {cumul && periode ? (
+        <p role="note" style={{ ...styleMuted, margin: '.2rem 0 0', fontStyle: 'italic' }}>
+          Dans le total, les compteurs atténués (vus, déjà connus, hors périmètre, rebonds détectés, rebonds étrangers, pièces
+          non déposées) peuvent compter plusieurs fois un même message revu à plusieurs passes ; les autres sont cumulables
+          sans ambiguïté.
+        </p>
+      ) : null}
     </div>
   );
 }

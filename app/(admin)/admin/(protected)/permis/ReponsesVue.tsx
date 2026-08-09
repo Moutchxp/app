@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { echeanceDe, etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
 import type { ReponsesData } from '../../../../lib/veille/reponsesSuivi';
+import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import {
   IndicateurReleve, RappelReglages, TableRuns, BadgeEtat, CompteSatisfaction, DetailDossiers,
   BlocARattacher, RelanceCarte, ActionsCloture, PhraseVide, formaterDate, type RetourCible, type OptionDemande,
@@ -51,6 +52,7 @@ export function ReponsesVue() {
   const [pageDem, setPageDem] = useState(1);
   const [pageRat, setPageRat] = useState(1);
   const [pageRel, setPageRel] = useState(1);
+  const [periode, setPeriode] = useState<FenetreCumul>('7j'); // T2 : fenêtre du total ; purement locale (les 6 cumuls sont déjà chargés)
   const [version, setVersion] = useState(0);
 
   // Rechargement = incrément de `version` (dép. de l'effet) SANS toucher au retour : une action réussie recharge les données
@@ -140,7 +142,7 @@ export function ReponsesVue() {
         <RappelReglages reglages={data.reglages} />
         <div>
           <h3 style={{ fontSize: 13, fontWeight: 700, margin: '.4rem 0 .2rem' }}>10 dernières relèves</h3>
-          <TableRuns runs={data.runs} />
+          <TableRuns runs={data.runs} cumul={data.cumuls[periode]} periode={periode} onPeriode={setPeriode} />
         </div>
       </section>
 

@@ -3,10 +3,10 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, DetailDossiers, RelanceCarte, TableRuns,
-  apporteUneNouveaute, ActionsCloture, messageIci, type OptionDemande, type RetourCible,
+  apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi, CumulFenetre } from '../../../../lib/veille/reponsesSuivi';
 
 /**
  * R5a/R5b — rendu PUR de l'écran « Réponses » (renderToStaticMarkup, aucun DOM). Couvre l'indicateur de relève (3 signaux),
@@ -439,5 +439,77 @@ describe('R5c — ActionsCloture : clôturer / rouvrir + avertissement de clôtu
       const h = renderToStaticMarkup(createElement(ActionsCloture, { demandeId: 7, statut, dossiersDus: 0, onCloturer: noop, onRouvrir: noop }));
       expect(h).toBe('');
     }
+  });
+});
+
+describe('T2 — TableRuns : ligne de total en <tfoot> + sélecteur de période', () => {
+  const noop = () => {};
+  const run = (): LigneRun => ({
+    demarreLe: '2026-08-09T09:00:00Z', termineLe: '2026-08-09T09:00:04Z', declencheur: 'planifie', resultat: 'ok',
+    vus: 1, dejaConnus: 0, horsPerimetre: 0, retenus: 1, rattaches: 0,
+    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, enregistrees: 1,
+    piecesDeposees: 0, piecesNonDeposees: 0, erreur: null,
+  });
+  const cumul = (over: Partial<CumulFenetre> = {}): CumulFenetre => ({
+    nbReleves: 5, nbErreurs: 0, vus: 30, dejaConnus: 10, horsPerimetre: 2, retenus: 4, rattaches: 3,
+    rebondsDetectes: 6, rebondsRattaches: 1, rebondsEtrangers: 9, rebondsAppliques: 2, enregistrees: 7,
+    piecesDeposees: 8, piecesNonDeposees: 5, ...over,
+  });
+
+  it('cumul fourni → un <tfoot> avec la ligne de total, alignée sur COLS_RUN (12 cellules) + libellé de fenêtre', () => {
+    const h = renderToStaticMarkup(createElement(TableRuns, { runs: [run()], cumul: cumul(), periode: '7j', onPeriode: noop }));
+    expect(h).toContain('<tfoot');
+    expect(h).toContain('Total');
+    expect(h).toContain('7 derniers jours');
+    // 3 cellules fixes (colSpan 3) + 12 cellules de compteurs → les 12 valeurs du cumul sont présentes
+    for (const v of [30, 10, 2, 4, 3, 6, 1, 9, 2, 7, 8, 5]) expect(h).toContain(`>${v}</td>`);
+  });
+
+  it('le décompte de relèves s’affiche ; « dont N en erreur » seulement si > 0', () => {
+    const sansErr = renderToStaticMarkup(createElement(TableRuns, { runs: [run()], cumul: cumul({ nbReleves: 5, nbErreurs: 0 }), periode: '7j', onPeriode: noop }));
+    expect(sansErr).toContain('5 relèves');
+    expect(sansErr).not.toContain('en erreur');
+    const avecErr = renderToStaticMarkup(createElement(TableRuns, { runs: [run()], cumul: cumul({ nbReleves: 12, nbErreurs: 2 }), periode: '7j', onPeriode: noop }));
+    expect(avecErr).toContain('12 relèves');
+    expect(avecErr).toContain('dont 2 en erreur');
+  });
+
+  it('les 6 colonnes de BRUIT du total portent la marque d’atténuation ; pas les 6 d’événement', () => {
+    const h = renderToStaticMarkup(createElement(TableRuns, { runs: [run()], cumul: cumul(), periode: '7j', onPeriode: noop }));
+    expect(h).toContain('compté plusieurs fois'); // marque présente
+    expect((h.match(/compté plusieurs fois/g) ?? []).length).toBe(6); // exactement les 6 colonnes de bruit
+  });
+
+  it('zéro relève sur la période → phrase explicite, jamais une ligne de zéros muette', () => {
+    const h = renderToStaticMarkup(createElement(TableRuns, { runs: [run()], cumul: cumul({ nbReleves: 0, nbErreurs: 0 }), periode: '24h', onPeriode: noop }));
+    expect(h).toContain('Aucune relève sur cette fenêtre');
+    expect(h).toContain('24 dernières heures');
+    expect(h).not.toContain('5 relèves');
+  });
+
+  it('sélecteur de période présent avec <label> associé et les six options', () => {
+    const h = renderToStaticMarkup(createElement(TableRuns, { runs: [run()], cumul: cumul(), periode: '7j', onPeriode: noop }));
+    expect(h).toContain('id="cumul-periode"');
+    expect(h).toContain('for="cumul-periode"'); // htmlFor rendu en for=
+    expect(h).toContain('24 dernières heures');
+    expect(h).toContain('depuis le début');
+    // note d'honnêteté des chiffres sous le tableau
+    expect(h).toContain('cumulables sans ambiguïté');
+  });
+
+  it('SelecteurPeriode isolé : select contrôlé + label lié + toutes les fenêtres', () => {
+    const h = renderToStaticMarkup(createElement(SelecteurPeriode, { periode: '30j', onPeriode: noop }));
+    expect(h).toContain('for="cumul-periode"');
+    expect(h).toContain('<select');
+    for (const lib of ['24 dernières heures', '7 derniers jours', '30 derniers jours', '90 derniers jours', '365 derniers jours', 'depuis le début']) {
+      expect(h).toContain(lib);
+    }
+  });
+
+  it('rétrocompat T1 : sans cumul → aucun <tfoot>, aucun sélecteur', () => {
+    const h = renderToStaticMarkup(createElement(TableRuns, { runs: [run()] }));
+    expect(h).not.toContain('<tfoot');
+    expect(h).not.toContain('cumul-periode');
+    expect(h).not.toContain('cumulables sans ambiguïté');
   });
 });

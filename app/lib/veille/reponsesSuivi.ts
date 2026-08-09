@@ -5,6 +5,7 @@
  */
 import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
+import { bornesFenetres, type FenetreCumul } from './fenetresCumul';
 
 /** Réglages de relève/échéance en vigueur (lecture seule ; édités dans l'onglet Réglages). */
 export interface ReglagesReleve {
@@ -35,6 +36,20 @@ export interface LigneRun {
   piecesNonDeposees: number | null; // R4
   erreur: string | null;
 }
+
+/**
+ * T2 — cumul d'UNE fenêtre glissante : les 12 mêmes compteurs que `LigneRun` (jamais NULL ici — un `sum` vide vaut 0),
+ * plus le NOMBRE de relèves de la fenêtre et combien en ERREUR (un total de « vus » ne dit rien sans son nombre de passes).
+ */
+export interface CumulFenetre {
+  nbReleves: number;
+  nbErreurs: number;
+  vus: number; dejaConnus: number; horsPerimetre: number; retenus: number; rattaches: number;
+  rebondsDetectes: number; rebondsRattaches: number; rebondsEtrangers: number; rebondsAppliques: number;
+  enregistrees: number; piecesDeposees: number; piecesNonDeposees: number;
+}
+/** Les six fenêtres livrées d'un coup (24h · 7j · 30j · 90j · 365j · total) → changer de période n'exige aucun rechargement. */
+export type CumulsRuns = Record<FenetreCumul, CumulFenetre>;
 
 /** R4 — une pièce jointe d'une réponse : stockée (sur l'object storage) ou non, et pourquoi (motif). LECTURE SEULE. */
 export interface PieceInfo {
@@ -95,9 +110,61 @@ export interface ReponsesData {
   reglages: ReglagesReleve;
   derniereOkLe: string | null;
   runs: LigneRun[];
+  cumuls: CumulsRuns; // T2 — cumuls des six fenêtres glissantes (ligne de total à période sélectionnable)
   demandes: DemandeSuivi[];
   aRattacher: ReponseARattacher[];
   relances: RelancePreparee[];
+}
+
+/** T2 — les 12 compteurs cumulables : colonne SQL ↔ propriété de CumulFenetre (source unique de l'ordre et du nommage). */
+const COMPTEURS_CUMUL: { col: string; prop: keyof Omit<CumulFenetre, 'nbReleves' | 'nbErreurs'> }[] = [
+  { col: 'vus', prop: 'vus' },
+  { col: 'deja_connus', prop: 'dejaConnus' },
+  { col: 'hors_perimetre', prop: 'horsPerimetre' },
+  { col: 'retenus', prop: 'retenus' },
+  { col: 'rattaches', prop: 'rattaches' },
+  { col: 'rebonds_detectes', prop: 'rebondsDetectes' },
+  { col: 'rebonds_rattaches', prop: 'rebondsRattaches' },
+  { col: 'rebonds_etrangers', prop: 'rebondsEtrangers' },
+  { col: 'rebonds_appliques', prop: 'rebondsAppliques' },
+  { col: 'enregistrees', prop: 'enregistrees' },
+  { col: 'pieces_deposees', prop: 'piecesDeposees' },
+  { col: 'pieces_non_deposees', prop: 'piecesNonDeposees' },
+];
+
+/**
+ * T2 — LECTURE d'agrégation DÉDIÉE (séparée des 10 dernières lignes, qu'elle ne touche pas) : UNE seule requête renvoie les
+ * SIX cumuls glissants d'un coup, par agrégats conditionnels `... FILTER (WHERE demarre_le >= $n)` (bornes LIÉES en
+ * paramètres, calculées ici depuis `maintenant`) ; la fenêtre `total` n'a PAS de FILTER (sans borne). Un seul aller-retour,
+ * aucun paramètre de période côté route. LECTURE SEULE. `maintenant` en argument → déterministe et testable.
+ */
+export async function chargerCumulsRuns(maintenant: Date): Promise<CumulsRuns> {
+  const bornes = bornesFenetres(maintenant);
+  const params: string[] = [];
+  const selects: string[] = [];
+  bornes.forEach((b, w) => {
+    // Prédicat de la fenêtre (vide pour `total`) : la borne est liée UNE fois et réutilisée par tous les agrégats de la fenêtre.
+    let cond = '';
+    if (b.depuis !== null) { params.push(b.depuis.toISOString()); cond = `demarre_le >= $${params.length}`; }
+    const filtreFenetre = cond ? ` FILTER (WHERE ${cond})` : '';
+    selects.push(`count(demarre_le)${filtreFenetre}::int AS w${w}_nb`);
+    selects.push(`count(demarre_le) FILTER (WHERE ${cond ? `${cond} AND ` : ''}resultat = 'erreur')::int AS w${w}_err`);
+    for (const m of COMPTEURS_CUMUL) selects.push(`coalesce(sum(${m.col})${filtreFenetre}, 0)::int AS w${w}_${m.col}`);
+  });
+  const res = await query<Record<string, number>>(`SELECT ${selects.join(', ')} FROM releve_run`, params);
+  const row = (res.rows[0] ?? {}) as Record<string, number | undefined>; // alias absent → undefined → 0 (jamais NULL exposé)
+  const out = {} as CumulsRuns;
+  bornes.forEach((b, w) => {
+    const c: CumulFenetre = {
+      nbReleves: row[`w${w}_nb`] ?? 0, nbErreurs: row[`w${w}_err`] ?? 0,
+      vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0,
+      rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0,
+      enregistrees: 0, piecesDeposees: 0, piecesNonDeposees: 0,
+    };
+    for (const m of COMPTEURS_CUMUL) c[m.prop] = row[`w${w}_${m.col}`] ?? 0;
+    out[b.cle] = c;
+  });
+  return out;
 }
 
 /** Charge tout le nécessaire de l'écran « Réponses » en une passe. LECTURE SEULE. */
@@ -206,6 +273,9 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
     id: r.id, genereeLe: r.generee_le, demandeId: r.demande_id, reference: r.reference, communeNom: r.commune_nom, objet: r.objet, corps: r.corps,
   }));
 
+  // T2 — cumuls des six fenêtres glissantes (lecture dédiée, séparée du bloc `runs` ci-dessus qui reste inchangé).
+  const cumuls = await chargerCumulsRuns(new Date());
+
   return {
     reglages, derniereOkLe,
     runs: runs.rows.map((r) => ({
@@ -215,6 +285,7 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
       rebondsAppliques: r.rebonds_appliques, enregistrees: r.enregistrees,
       piecesDeposees: r.pieces_deposees, piecesNonDeposees: r.pieces_non_deposees, erreur: r.erreur,
     })),
+    cumuls,
     demandes, aRattacher, relances,
   };
 }
