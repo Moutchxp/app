@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  */
 const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
-  const etat = { rows: [] as unknown[], insertThrows: null as null | { code?: string; constraint?: string }, insertedId: 99 };
+  const etat = { rows: [] as unknown[], insertThrows: null as null | { code?: string; constraint?: string }, insertedId: 99, deposeRows: [{ demande_id: 42 }] as unknown[] };
   const queryMock = async (sql: string, params?: unknown[]) => { appels.push({ sql, params: params ?? [] }); return { rows: etat.rows }; };
   const withTransactionMock = async (fn: (q: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>) => Promise<unknown>) => {
     const q = async (sql: string, params?: unknown[]) => {
@@ -16,6 +16,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
         if (etat.insertThrows) { const e = new Error('dup'); Object.assign(e, etat.insertThrows); throw e; }
         return { rows: [{ id: etat.insertedId }] };
       }
+      if (/UPDATE demande_relance SET statut = 'envoyee'/i.test(sql) && /RETURNING demande_id/i.test(sql)) return { rows: etat.deposeRows }; // marquerSaisineDeposee
       return { rows: [] };
     };
     return fn(q);
@@ -25,14 +26,14 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: withTransactionMock, pool: {}, closePool: async () => undefined }));
 
 import {
-  lireSaisinesEligibles, creerSaisineCada, depsReellesSaisissables, SaisineCadaError,
+  lireSaisinesEligibles, creerSaisineCada, marquerSaisineDeposee, depsReellesSaisissables, SaisineCadaError,
   type DepsSaisissables, type DepsCreerSaisine, type CandidatSaisine,
 } from './saisineCadaRepo';
 import { piecesDepuisConfig, type ConfigDemandeur, type Lot, type CandidatDossier } from '../sitadel/demande';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 const trouver = (re: RegExp) => appels.find((a) => re.test(a.sql));
-beforeEach(() => { appels.length = 0; etat.rows = []; etat.insertThrows = null; etat.insertedId = 99; });
+beforeEach(() => { appels.length = 0; etat.rows = []; etat.insertThrows = null; etat.insertedId = 99; etat.deposeRows = [{ demande_id: 42 }]; });
 
 // Repères temporels : envoi 14 mars → refus tacite 14 avril → forclusion 14 juin.
 const ENVOI = new Date('2026-03-14T10:00:00Z');
@@ -158,5 +159,29 @@ describe('X2 — creerSaisineCada : garde-fous + création brouillon + 23505', (
   it('23505 sur une AUTRE contrainte → n’est PAS masquée (relancée telle quelle)', async () => {
     etat.insertThrows = { code: '23505', constraint: 'autre_chose' };
     await expect(creerSaisineCada(42, 'admin', depsCreer())).rejects.not.toBeInstanceOf(SaisineCadaError);
+  });
+});
+
+describe('X3 — marquerSaisineDeposee : dépôt manuel (envoyee sans acheminement, refus hors brouillon)', () => {
+  it('brouillon → statut envoyee + envoyee_le (garde brouillon) + journal, AUCUNE ligne d’acheminement', async () => {
+    etat.deposeRows = [{ demande_id: 42 }];
+    await marquerSaisineDeposee(7, 'admin');
+    const upd = trouver(/UPDATE demande_relance SET statut = 'envoyee'/i)!;
+    const s = norm(upd.sql);
+    expect(s).toContain('envoyee_le = now()');
+    expect(s).toContain("type = 'saisine_cada'");
+    expect(s).toContain("statut = 'brouillon'"); // garde : seule une saisine en brouillon
+    expect(upd.params).toEqual([7]);
+    const jrn = trouver(/INSERT INTO demande_journal/i)!;
+    expect(norm(jrn.sql)).toContain('VALUES ($1, NULL, NULL, $2, $3)'); // append-only, demande.statut jamais écrit
+    expect(jrn.params[0]).toBe(42);
+    expect(String(jrn.params[1])).toMatch(/formulaire/i);
+    expect(trouver(/INSERT INTO demande_acheminement/i)).toBeUndefined(); // aucune émission à prouver
+  });
+
+  it('saisine non-brouillon (0 ligne mise à jour) → refus métier, aucun journal', async () => {
+    etat.deposeRows = [];
+    await expect(marquerSaisineDeposee(7, 'admin')).rejects.toBeInstanceOf(SaisineCadaError);
+    expect(trouver(/INSERT INTO demande_journal/i)).toBeUndefined();
   });
 });

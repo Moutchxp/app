@@ -180,3 +180,21 @@ export async function creerSaisineCada(demandeId: number, auteur: string | null,
     throw err;
   }
 }
+
+/**
+ * X3 — canal FORMULAIRE : marque une saisine comme DÉPOSÉE À LA MAIN sur le formulaire en ligne de la CADA (statut 'envoyee'
+ * + envoyee_le, journal mentionnant le dépôt). AUCUNE ligne d'acheminement (il n'y a aucune émission e-mail à prouver).
+ * Transactionnelle. REFUSE (garde `AND statut='brouillon'`) toute saisine qui n'est pas en brouillon. Appelée par l'écran (X4).
+ */
+export async function marquerSaisineDeposee(saisineId: number, auteur: string | null): Promise<void> {
+  await withTransaction(async (q) => {
+    const res = await q<{ demande_id: number }>(
+      `UPDATE demande_relance SET statut = 'envoyee', envoyee_le = now() WHERE id = $1 AND type = 'saisine_cada' AND statut = 'brouillon' RETURNING demande_id`,
+      [saisineId]);
+    const row = res.rows[0];
+    if (!row) throw new SaisineCadaError('saisine introuvable ou déjà déposée/abandonnée (seule une saisine en brouillon peut être marquée déposée)');
+    // Journal APPEND-ONLY : aucune transition de statut de la DEMANDE (statut_avant/apres NULL).
+    await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, $3)`,
+      [row.demande_id, `saisine CADA ${saisineId} déposée à la main sur le formulaire en ligne`, auteur]);
+  });
+}

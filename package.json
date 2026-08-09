@@ -32,6 +32,7 @@
     "dila:ingest": "tsx app/scripts/dila-ingest.ts",
     "demandes:envoyer": "tsx app/scripts/demandes-envoyer.ts",
     "relances:envoyer": "tsx app/scripts/relances-envoyer.ts",
+    "saisines:envoyer": "tsx app/scripts/saisines-envoyer.ts",
     "demandes:relever": "tsx app/scripts/relever-demandes.ts",
     "alertes:envoyer": "tsx app/scripts/envoyer-alerte.ts",
     "veille:run": "tsx app/scripts/veille-run.ts",
