@@ -87,33 +87,85 @@ export function RappelReglages({ reglages }: { reglages: ReglagesReleve }) {
   );
 }
 
-/** Les 10 dernières lignes de releve_run (date, déclencheur, résultat, compteurs, erreur). Vide → phrase. */
+/** Libellés des 12 colonnes de compteurs, dans l'ORDRE de `compteursDe`. */
+const COLS_RUN = ['vus', 'déjà connus', 'hors périm.', 'retenus', 'rattachés', 'reb. détectés', 'reb. rattachés', 'reb. étrangers', 'reb. appliqués', 'enregistrées', 'pièces dép.', 'pièces non dép.'];
+/** Les 12 compteurs d'une ligne dans l'ordre de `COLS_RUN` (NULL rendu tel quel — décidé à l'affichage). */
+function compteursDe(r: LigneRun): (number | null)[] {
+  return [r.vus, r.dejaConnus, r.horsPerimetre, r.retenus, r.rattaches, r.rebondsDetectes, r.rebondsRattaches, r.rebondsEtrangers, r.rebondsAppliques, r.enregistrees, r.piecesDeposees, r.piecesNonDeposees];
+}
+
+/**
+ * T1 — une passe apporte une NOUVEAUTÉ si au moins un compteur d'ÉVÉNEMENT (fait réellement acquis) est > 0 : `retenus`,
+ * `rattaches`, `rebondsRattaches`, `rebondsAppliques`, `enregistrees`, `piecesDeposees`. Les compteurs de BRUIT (`vus`,
+ * `dejaConnus`, `horsPerimetre`, `rebondsDetectes`, `rebondsEtrangers`, `piecesNonDeposees`) NE comptent PAS — ex. les rebonds
+ * ÉTRANGERS ne sont jamais enregistrés (garde-fou), donc re-détectés à chaque passe. NULL = 0. PURE (aucune I/O).
+ */
+export function apporteUneNouveaute(r: LigneRun): boolean {
+  return (r.retenus ?? 0) > 0 || (r.rattaches ?? 0) > 0 || (r.rebondsRattaches ?? 0) > 0
+    || (r.rebondsAppliques ?? 0) > 0 || (r.enregistrees ?? 0) > 0 || (r.piecesDeposees ?? 0) > 0;
+}
+
+/**
+ * Les 10 dernières lignes de releve_run. T1 — chaque ligne n'affiche en clair QUE ce qu'elle apporte : une passe SANS
+ * nouveauté est repliée (date/déclencheur/résultat + « Rien de nouveau »), ses compteurs de bruit restant accessibles dans un
+ * dépliant natif `<details>` (aucun état → rendu PUR intégral). Une anomalie (`erreur`/`en_cours`) est TOUJOURS affichée en
+ * entier, jamais repliée. Vide → phrase (inchangé).
+ */
 export function TableRuns({ runs }: { runs: LigneRun[] }) {
   if (runs.length === 0) return <PhraseVide>Aucune relève enregistrée pour l’instant.</PhraseVide>;
-  const cols = ['vus', 'déjà connus', 'hors périm.', 'retenus', 'rattachés', 'reb. détectés', 'reb. rattachés', 'reb. étrangers', 'reb. appliqués', 'enregistrées', 'pièces dép.', 'pièces non dép.'];
+  const cellulesFixes = (r: LigneRun) => (
+    <>
+      <td style={styleTd}>{formaterDateHeure(r.demarreLe)}</td>
+      <td style={styleTd}>{r.declencheur}</td>
+      <td style={styleTd}>
+        <span style={{ fontWeight: 600, color: r.resultat === 'erreur' ? 'var(--color-svv-red)' : r.resultat === 'ok' ? 'var(--color-svv-green-ink)' : 'var(--color-svv-muted)' }}>{r.resultat}</span>
+        {r.resultat === 'erreur' && r.erreur ? <div role="alert" style={{ color: 'var(--color-svv-red)', fontSize: 11 }}>{r.erreur}</div> : null}
+      </td>
+    </>
+  );
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-        <thead>
-          <tr style={{ color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
-            {['Démarrée', 'Déclencheur', 'Résultat', ...cols].map((h) => <th key={h} style={styleTh}>{h}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {runs.map((r, i) => (
-            <tr key={`${r.demarreLe}-${i}`} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
-              <td style={styleTd}>{formaterDateHeure(r.demarreLe)}</td>
-              <td style={styleTd}>{r.declencheur}</td>
-              <td style={styleTd}>
-                <span style={{ fontWeight: 600, color: r.resultat === 'erreur' ? 'var(--color-svv-red)' : r.resultat === 'ok' ? 'var(--color-svv-green-ink)' : 'var(--color-svv-muted)' }}>{r.resultat}</span>
-                {r.resultat === 'erreur' && r.erreur ? <div role="alert" style={{ color: 'var(--color-svv-red)', fontSize: 11 }}>{r.erreur}</div> : null}
-              </td>
-              {[r.vus, r.dejaConnus, r.horsPerimetre, r.retenus, r.rattaches, r.rebondsDetectes, r.rebondsRattaches, r.rebondsEtrangers, r.rebondsAppliques, r.enregistrees, r.piecesDeposees, r.piecesNonDeposees]
-                .map((v, j) => <td key={j} style={{ ...styleTd, textAlign: 'right' }}>{v ?? '·'}</td>)}
+    <div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
+              {['Démarrée', 'Déclencheur', 'Résultat', ...COLS_RUN].map((h) => <th key={h} style={styleTh}>{h}</th>)}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {runs.map((r, i) => {
+              // Une anomalie ne se cache jamais ; sinon on n'affiche en entier que les passes qui apportent une nouveauté.
+              const complet = r.resultat === 'erreur' || r.resultat === 'en_cours' || apporteUneNouveaute(r);
+              const vals = compteursDe(r);
+              if (complet) {
+                return (
+                  <tr key={`${r.demarreLe}-${i}`} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
+                    {cellulesFixes(r)}
+                    {vals.map((v, j) => <td key={j} style={{ ...styleTd, textAlign: 'right' }}>{v ?? '·'}</td>)}
+                  </tr>
+                );
+              }
+              return (
+                <tr key={`${r.demarreLe}-${i}`} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
+                  {cellulesFixes(r)}
+                  <td style={styleTd} colSpan={COLS_RUN.length}>
+                    <span style={{ ...styleMuted, fontStyle: 'italic' }}>Rien de nouveau</span>
+                    {/* Dépliant natif : les compteurs de bruit ne disparaissent pas de l'application. */}
+                    <details style={{ marginTop: '.15rem' }}>
+                      <summary style={{ cursor: 'pointer', color: 'var(--color-svv-muted)' }}>voir les compteurs</summary>
+                      <span style={styleMuted}>{COLS_RUN.map((label, j) => `${label} ${vals[j] ?? 0}`).join(' · ')}</span>
+                    </details>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p role="note" style={{ ...styleMuted, margin: '.4rem 0 0', fontStyle: 'italic' }}>
+        Les passes sans nouveauté sont repliées (« voir les compteurs » pour le détail). Les rebonds sans rapport avec une
+        demande ne sont jamais enregistrés : ils sont donc re-détectés — et recomptés — à chaque passe.
+      </p>
     </div>
   );
 }

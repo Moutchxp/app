@@ -3,7 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, DetailDossiers, RelanceCarte, TableRuns,
-  ActionsCloture, messageIci, type OptionDemande, type RetourCible,
+  apporteUneNouveaute, ActionsCloture, messageIci, type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
 import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi } from '../../../../lib/veille/reponsesSuivi';
@@ -128,6 +128,76 @@ describe('R5a — TableRuns : une erreur est affichée en clair', () => {
     const h = renderToStaticMarkup(createElement(TableRuns, { runs }));
     expect(h).toContain('IMAP timeout');
     expect(h).toContain('role="alert"');
+  });
+});
+
+describe('T1 — TableRuns : ne montrer en clair que les passes qui apportent quelque chose', () => {
+  // Un run 'ok' terminé, tous compteurs à 0 par défaut ; chaque cas ne surcharge que ce qui l'intéresse.
+  const runOk = (patch: Partial<LigneRun>): LigneRun => ({
+    demarreLe: '2026-04-20T09:00:00Z', termineLe: '2026-04-20T09:00:04Z', declencheur: 'planifie', resultat: 'ok',
+    vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0,
+    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, enregistrees: 0,
+    piecesDeposees: 0, piecesNonDeposees: 0, erreur: null, ...patch,
+  });
+
+  it('apporteUneNouveaute : vrai dès qu’un compteur d’événement > 0, faux pour le seul bruit', () => {
+    expect(apporteUneNouveaute(runOk({ retenus: 1 }))).toBe(true);
+    expect(apporteUneNouveaute(runOk({ rattaches: 1 }))).toBe(true);
+    expect(apporteUneNouveaute(runOk({ rebondsRattaches: 1 }))).toBe(true);
+    expect(apporteUneNouveaute(runOk({ rebondsAppliques: 1 }))).toBe(true);
+    expect(apporteUneNouveaute(runOk({ enregistrees: 1 }))).toBe(true);
+    expect(apporteUneNouveaute(runOk({ piecesDeposees: 1 }))).toBe(true);
+    // bruit seul (dont les 3 rebonds ÉTRANGERS re-détectés à chaque passe) → aucune nouveauté
+    expect(apporteUneNouveaute(runOk({ vus: 3, dejaConnus: 5, horsPerimetre: 2, rebondsDetectes: 3, rebondsEtrangers: 3, piecesNonDeposees: 4 }))).toBe(false);
+    // NULL traité comme 0
+    expect(apporteUneNouveaute(runOk({ vus: null, retenus: null, enregistrees: null }))).toBe(false);
+  });
+
+  it('3 rebonds étrangers, rien d’autre → ligne repliée avec « Rien de nouveau »', () => {
+    const runs: LigneRun[] = [runOk({ vus: 3, rebondsDetectes: 3, rebondsEtrangers: 3 })];
+    const h = renderToStaticMarkup(createElement(TableRuns, { runs }));
+    expect(h).toContain('Rien de nouveau');
+    expect(h).toContain('<details');
+    expect(h).toContain('voir les compteurs');
+  });
+
+  it('1 réponse enregistrée → ligne affichée en entier (pas de repli)', () => {
+    const runs: LigneRun[] = [runOk({ vus: 4, enregistrees: 1 })];
+    const h = renderToStaticMarkup(createElement(TableRuns, { runs }));
+    expect(h).not.toContain('Rien de nouveau');
+    expect(h).not.toContain('<details');
+  });
+
+  it('seulement des pièces déposées > 0 → ligne affichée en entier', () => {
+    const runs: LigneRun[] = [runOk({ piecesDeposees: 2, piecesNonDeposees: 1 })];
+    const h = renderToStaticMarkup(createElement(TableRuns, { runs }));
+    expect(h).not.toContain('Rien de nouveau');
+    expect(h).not.toContain('<details');
+  });
+
+  it('résultat « erreur » avec tous compteurs à 0 → affichée en entier, jamais repliée', () => {
+    const runs: LigneRun[] = [runOk({ resultat: 'erreur', erreur: 'connexion refusée' })];
+    const h = renderToStaticMarkup(createElement(TableRuns, { runs }));
+    expect(h).not.toContain('Rien de nouveau');
+    expect(h).toContain('connexion refusée');
+    expect(h).toContain('role="alert"');
+  });
+
+  it('les compteurs de bruit restent présents dans le dépliant d’une ligne repliée', () => {
+    const runs: LigneRun[] = [runOk({ vus: 3, rebondsDetectes: 3, rebondsEtrangers: 3 })];
+    const h = renderToStaticMarkup(createElement(TableRuns, { runs }));
+    expect(h).toContain('reb. étrangers 3');
+    expect(h).toContain('vus 3');
+    expect(h).toContain('reb. détectés 3');
+  });
+
+  it('tableau non vide → phrase explicative de repli sous le tableau ; tableau vide → phrase existante seule', () => {
+    const avec = renderToStaticMarkup(createElement(TableRuns, { runs: [runOk({ enregistrees: 1 })] }));
+    expect(avec).toContain('re-détectés');
+    const vide = renderToStaticMarkup(createElement(TableRuns, { runs: [] as LigneRun[] }));
+    expect(vide).toContain('Aucune relève enregistrée');
+    expect(vide).not.toContain('re-détectés');
+    expect(vide).not.toContain('<table');
   });
 });
 
