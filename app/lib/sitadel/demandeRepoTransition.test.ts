@@ -83,8 +83,26 @@ describe('S41 — transition brouillon → prete : liaison des paramètres (rég
     expect(jrn!.params[4]).toBe('auteur-test');
   });
 
-  it('n’altère pas demande_dossier lors d’un passage en prete (seul l’abandon le fait)', async () => {
+  it('n’altère pas demande_dossier lors d’un passage en prete (seule l’annulation le fait)', async () => {
     await changerStatut(154, 'prete', 'auteur-test');
     expect(ecritures.some((e) => /UPDATE demande_dossier/.test(e.sql))).toBe(false);
+  });
+});
+
+describe('Q7 — annulation d’une demande : libère TOUJOURS ses dossiers (de nouveau proposables)', () => {
+  it('changerStatut(…, "annulee") pose statut = "annulee" ET émet UPDATE demande_dossier SET actif = false (id lié)', async () => {
+    await changerStatut(154, 'annulee', 'auteur-test');
+
+    // 1) le statut posé est bien la NOUVELLE valeur (jamais 'abandonnee')
+    const upd = ecritures.find((e) => /UPDATE demande SET statut/.test(e.sql));
+    expect(upd, 'un UPDATE de statut doit être émis').toBeDefined();
+    const sql = norm(upd!.sql);
+    const idxStatut = Number(/SET statut = \$(\d+)/.exec(sql)![1]) - 1;
+    expect(upd!.params[idxStatut]).toBe('annulee');
+
+    // 2) les dossiers sont libérés (actif=false) → l'index partiel actif ne les retient plus → reproposables
+    const lib = ecritures.find((e) => /UPDATE demande_dossier SET actif = false/.test(e.sql));
+    expect(lib, 'l’annulation doit libérer les dossiers').toBeDefined();
+    expect(lib!.params[0]).toBe(154); // demande_id lié
   });
 });

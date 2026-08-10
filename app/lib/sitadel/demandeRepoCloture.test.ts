@@ -58,8 +58,8 @@ describe('R5c — cloturerDemande : écrivain de « close », uniquement depuis 
     expect(ecritures.some((e) => /UPDATE demande SET statut/.test(e.sql))).toBe(false);
   });
 
-  it('depuis « abandonnee » → refusée', async () => {
-    etat.statut = 'abandonnee';
+  it('depuis « annulee » → refusée', async () => {
+    etat.statut = 'annulee';
     await expect(cloturerDemande(154, 'x', 'a')).rejects.toThrow(/envoyée/i);
   });
 

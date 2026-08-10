@@ -14,16 +14,16 @@ const badge = (etat?: EtatRattachement, reference?: string | null, statut?: stri
 
 describe('D1 — BadgeRattachement : les trois états, libellés validés', () => {
   it('libellés exacts', () => {
-    expect(LIBELLE_RATTACHEMENT).toEqual({ rattache: 'rattaché', abandonne: 'demande abandonnée', jamais: 'jamais demandé' });
+    expect(LIBELLE_RATTACHEMENT).toEqual({ rattache: 'rattaché', abandonne: 'demande annulée', jamais: 'jamais demandé' });
   });
   it('« jamais demandé » : libellé seul, pas de référence', () => {
     const h = badge('jamais');
     expect(h).toContain('jamais demandé');
     expect(h).not.toContain('SVAV-DEM');
   });
-  it('« demande abandonnée » : libellé seul, pas de référence (le dossier est de nouveau proposable)', () => {
+  it('« demande annulée » : libellé seul, pas de référence (le dossier est de nouveau proposable)', () => {
     const h = badge('abandonne', null, null);
-    expect(h).toContain('demande abandonnée');
+    expect(h).toContain('demande annulée');
     expect(h).not.toContain('SVAV-DEM');
   });
   it('« rattaché » : libellé + RÉFÉRENCE + STATUT de la demande active', () => {
@@ -42,14 +42,14 @@ describe('D1 — CompteursRattachement : décomptes sur l’ensemble filtré + f
   it('affiche les trois états avec leur décompte + « Tous » (total)', () => {
     const h = renderToStaticMarkup(createElement(CompteursRattachement, { comptes, actif: null }));
     expect(h).toContain('rattaché (40)');
-    expect(h).toContain('demande abandonnée (15)');
+    expect(h).toContain('demande annulée (15)');
     expect(h).toContain('jamais demandé (100)');
     expect(h).toContain('Tous (155)'); // total = somme des trois
   });
   it('un état absent des comptes est affiché à 0 (jamais un compteur muet)', () => {
     const h = renderToStaticMarkup(createElement(CompteursRattachement, { comptes: [{ etat: 'rattache' as const, n: 3 }], actif: null }));
     expect(h).toContain('rattaché (3)');
-    expect(h).toContain('demande abandonnée (0)');
+    expect(h).toContain('demande annulée (0)');
     expect(h).toContain('jamais demandé (0)');
   });
   it('dit EXPLICITEMENT que les décomptes portent sur l’ensemble filtré, pas la page', () => {

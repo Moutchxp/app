@@ -109,12 +109,12 @@ describe('Sitadel S7 — constitution des lots (pure)', () => {
     expect(proposerLots(c, P, { ...HIST_VIDE, permisCeMoisParCommune: new Map([['92050', 1]]) })).toHaveLength(0);
   });
 
-  it('un dossier déjà rattaché (demande active) n’est jamais reproposé ; après abandon il redevient proposable', () => {
+  it('un dossier déjà rattaché (demande active) n’est jamais reproposé ; après annulation il redevient proposable', () => {
     const a = cand(); const b = cand();
     const lots = proposerLots([a, b], { ...P, permisParCommuneParMois: 5 }, { ...HIST_VIDE, dejaRattaches: new Set([a.dossierId]) });
     expect(lots).toHaveLength(1);
     expect(lots[0].dossiers.map((d) => d.dossierId)).toEqual([b.dossierId]);
-    // abandon → le dossier n'est plus dans dejaRattaches (index partiel actif) → il redevient proposable
+    // annulation → le dossier n'est plus dans dejaRattaches (index partiel actif) → il redevient proposable
     const apres = proposerLots([a], { ...P, permisParCommuneParMois: 5 }, HIST_VIDE);
     expect(apres).toHaveLength(1);
     expect(apres[0].dossiers.map((d) => d.dossierId)).toEqual([a.dossierId]);
@@ -249,7 +249,7 @@ describe('Sitadel S7b — interface (détail cliquable, action groupée, explica
     const incomplet = peutPasserLot('prete', { ...CONFIG, siegeAdresse: '', emailContact: '' });
     expect(incomplet.ok).toBe(false);
     expect(incomplet.champs).toEqual(['adresse du siège : requis', 'e-mail de contact : requis']); // → 0 transition
-    expect(peutPasserLot('abandonnee', { ...CONFIG, siegeAdresse: '' })).toEqual({ ok: true, champs: [] }); // abandon jamais bloqué
+    expect(peutPasserLot('annulee', { ...CONFIG, siegeAdresse: '' })).toEqual({ ok: true, champs: [] }); // annulation jamais bloquée
   });
 
   it('explication du « 0 lot » : reflète les COMPTEURS RÉELS, pas un texte figé', () => {

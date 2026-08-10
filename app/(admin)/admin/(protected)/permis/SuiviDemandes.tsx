@@ -10,7 +10,7 @@ import { OrigineDest, MessageRetour, repartirRetour, FiltreTypes, TableDemandes,
  * Q6 — tableau des demandes d'UN PÉRIMÈTRE (partagé par « À demander » et « En cours »). Le périmètre est un pré-filtre DUR par
  * statut (`dansPerimetre`) appliqué AVANT le filtre de l'utilisateur : un onglet ne peut JAMAIS afficher les demandes de
  * l'autre, et son sélecteur Statut ne propose QUE ses statuts (« Tous » = tous les statuts DU périmètre). Les compteurs comptent
- * le périmètre, pas le total. `avecActionsGroupees` (⇒ « à demander ») expose « Passer en prête » / « Abandonner » / « Basculer »
+ * le périmètre, pas le total. `avecActionsGroupees` (⇒ « à demander ») expose « Passer en prête » / « Annuler la demande » / « Basculer »
  * (elles portent sur des brouillons) ; « en cours » n'en a aucune. Le panneau détail s'ouvre des DEUX côtés. AUCUN envoi ; on
  * change CE QUI EST AFFICHÉ, pas ce qui est permis (les transitions serveur restent inchangées). Le tri, le filtre multi-types
  * et la pagination portent sur l'ENSEMBLE du périmètre, jamais sur la page.
@@ -123,12 +123,12 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     if (res.ok) { setRefDetail(''); await ouvrir(detail.id, true); annoncer('Référence enregistrée.', true, 'detail'); }
     else annoncer(await erreurServeur(res, 'Ajout impossible.'), false, 'detail');
   }
-  async function transition(ids: number[], statut: 'prete' | 'abandonnee', origine: 'haut' | 'detail' = 'haut'): Promise<void> {
+  async function transition(ids: number[], statut: 'prete' | 'annulee', origine: 'haut' | 'detail' = 'haut'): Promise<void> {
     if (ids.length === 0) return;
     const res = await fetch('/api/admin/permis/demandes', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, statut }) });
     if (res.ok) {
       const r = (await res.json()) as { traites: number };
-      annoncer(`${r.traites} demande(s) ${statut === 'prete' ? 'marquée(s) prête(s)' : 'abandonnée(s)'}.`, true, origine);
+      annoncer(`${r.traites} demande(s) ${statut === 'prete' ? 'marquée(s) prête(s)' : 'annulée(s) (permis remis au stock)'}.`, true, origine);
       setSel(new Set()); if (detail && ids.includes(detail.id)) void ouvrir(detail.id, true); rafraichir();
       return;
     }
@@ -229,7 +229,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
             <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
               <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => void sauverCorps()}>Enregistrer le texte</button>
               <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem' }} onClick={() => void transition([detail.id], 'prete', 'detail')}>Marquer prête</button>
-              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => void transition([detail.id], 'abandonnee', 'detail')}>Abandonner</button>
+              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => void transition([detail.id], 'annulee', 'detail')}>Annuler la demande</button>
             </div>
           )}
           <MessageRetour r={zonesRetour.detail} />
@@ -269,7 +269,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
           <>
             <span style={{ marginLeft: 'auto' }}>{sel.size} sélectionnée(s)</span>
             <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .7rem', opacity: sel.size ? 1 : 0.5 }} disabled={sel.size === 0} onClick={() => void transition([...sel], 'prete')}>Passer en prête</button>
-            <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem', opacity: sel.size ? 1 : 0.5 }} disabled={sel.size === 0} onClick={() => void transition([...sel], 'abandonnee')}>Abandonner</button>
+            <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem', opacity: sel.size ? 1 : 0.5 }} disabled={sel.size === 0} onClick={() => void transition([...sel], 'annulee')}>Annuler la demande</button>
             <label className="flex flex-col gap-1">Basculer la sélection en…
               <select value="" disabled={sel.size === 0} onChange={(e) => { if (e.target.value) setConfBascule({ ids: [...sel], profil: selProfil(e.target.value) }); }} style={{ ...styleChamp, opacity: sel.size ? 1 : 0.5 }}>
                 <option value="">—</option>

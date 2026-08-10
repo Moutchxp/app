@@ -443,7 +443,7 @@ export function ActionsCloture({ demandeId, statut, dossiersDus, motif, retour, 
       </div>
     );
   }
-  if (statut !== 'envoyee') return null; // brouillon / prête / abandonnée : jamais partie, rien à clôturer
+  if (statut !== 'envoyee') return null; // brouillon / prête / annulée : jamais partie, rien à clôturer
   const dus = dossiersDus > 0;
   const motifManquant = dus && (motif ?? '').trim() === '';
   return (

@@ -177,7 +177,7 @@ export interface CandidatDossier {
   profilImpose?: ProfilDemandeur | null;    // P3 : profil imposé par le téléservice de la commune ; null = libre
 }
 export interface HistoriqueDemandes {
-  /** dossier_id déjà rattachés à une demande NON abandonnée → jamais reproposés. */
+  /** dossier_id déjà rattachés à une demande NON annulée → jamais reproposés. */
   dejaRattaches: ReadonlySet<number>;
   /** nombre de demandes déjà créées CE MOIS-CI, par code_insee (plafond mensuel). */
   permisCeMoisParCommune: ReadonlyMap<string, number>;
@@ -299,7 +299,7 @@ export function ancreDetail(id: number): string {
 }
 
 /** Décision de transition d'un LOT : passer 'prete' exige une identité plausible (sinon champs+raisons → aucune écriture). */
-export function peutPasserLot(statut: 'prete' | 'abandonnee', config: ConfigDemandeur): { ok: boolean; champs: string[] } {
+export function peutPasserLot(statut: 'prete' | 'annulee', config: ConfigDemandeur): { ok: boolean; champs: string[] } {
   if (statut === 'prete') { const champs = problemesIdentite(config); return { ok: champs.length === 0, champs }; }
   return { ok: true, champs: [] };
 }

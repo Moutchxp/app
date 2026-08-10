@@ -8,7 +8,7 @@ import { listerDemandes, creerDemandes, changerStatutLot, changerProfilLot, Iden
  * /api/admin/permis/demandes (chantier S7 / S7e / V3). GET = liste des demandes (+ alertes d'identité ciblées par profil).
  * POST = CRÉE les demandes des LOTS SÉLECTIONNÉS (V3 : `lots` = [{cle, communeNom?}]), pour un PROFIL (défaut config). Le
  * serveur ré-apparie la sélection sur ses propres lots frais (jamais confiance au client) → compte rendu chiffré. PATCH =
- * ACTION GROUPÉE tout-ou-rien : transition de statut ('prete'|'abandonnee') OU bascule de profil ('entreprise'|'personne').
+ * ACTION GROUPÉE tout-ou-rien : transition de statut ('prete'|'annulee') OU bascule de profil ('entreprise'|'personne').
  * AUCUN ENVOI. RÉSERVÉ ADMINISTRATEUR (proxy fail-closed + garde). Runtime Node.
  */
 export const runtime = 'nodejs';
@@ -88,7 +88,7 @@ export async function PATCH(request: Request): Promise<Response> {
     }
 
     // Transition de statut.
-    if (corps.statut !== 'prete' && corps.statut !== 'abandonnee') {
+    if (corps.statut !== 'prete' && corps.statut !== 'annulee') {
       return Response.json({ erreur: 'requête invalide' }, { status: 400 });
     }
     try {

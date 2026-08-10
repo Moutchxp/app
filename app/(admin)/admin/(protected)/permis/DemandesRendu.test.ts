@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 import type { LigneStock } from '../../../../lib/sitadel/stock';
@@ -491,6 +491,23 @@ describe('D3 — TableDemandes : colonne « Type » en 2e position + conteneur d
     expect(h).toContain('Aucune demande.');
     expect(h).toContain('colSpan="9"');
     expect(h).not.toContain('colSpan="10"');
+  });
+});
+
+describe('Q7 — STATUT_LIBELLE : « annulée » + lisibilité des lignes de journal d’avant le renommage', () => {
+  it('la valeur COURANTE annulee → « annulée »', () => {
+    expect(STATUT_LIBELLE.annulee).toBe('annulée');
+  });
+  it('les quatre autres statuts inchangés', () => {
+    expect(STATUT_LIBELLE.brouillon).toBe('brouillon');
+    expect(STATUT_LIBELLE.prete).toBe('prête');
+    expect(STATUT_LIBELLE.envoyee).toBe('envoyée');
+    expect(STATUT_LIBELLE.close).toBe('close');
+  });
+  it('l’ANCIENNE valeur abandonnee (demande_journal append-only) reste TRADUITE, jamais brute', () => {
+    // Une ligne de journal écrite avant Q7 porte encore 'abandonnee' : son affichage doit rester lisible.
+    expect(STATUT_LIBELLE.abandonnee).toBe('annulée (ex-abandonnée)');
+    expect(STATUT_LIBELLE.abandonnee).not.toBe('abandonnee'); // jamais le token brut à l’écran
   });
 });
 

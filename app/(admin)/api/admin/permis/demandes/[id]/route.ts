@@ -4,7 +4,7 @@ import { lireDemande, majCorps, changerStatut, changerProfil, IdentiteIncomplete
 
 /**
  * /api/admin/permis/demandes/[id] (chantier S7 / S7e). GET = détail (texte éditable + dossiers + destinataire figé).
- * PATCH = édite le corps/objet (brouillon), OU change le statut ('prete'|'abandonnee'), OU bascule le profil
+ * PATCH = édite le corps/objet (brouillon), OU change le statut ('prete'|'annulee'), OU bascule le profil
  * ('entreprise'|'personne'). Passer 'prete' est BLOQUÉ (409 + champs) si l'identité DU PROFIL est incomplète ; basculer
  * le profil hors brouillon est BLOQUÉ (409 + raison). AUCUN ENVOI ('envoyee' non gérée ici). Runtime Node.
  */
@@ -41,7 +41,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         if (e instanceof TransitionInterditeError) return Response.json({ erreur: e.raison }, { status: 409 });
         throw e;
       }
-    } else if (corps.statut === 'prete' || corps.statut === 'abandonnee') {
+    } else if (corps.statut === 'prete' || corps.statut === 'annulee') {
       try {
         await changerStatut(id, corps.statut, auteur);
       } catch (e) {

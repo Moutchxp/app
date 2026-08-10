@@ -360,7 +360,10 @@ export function FiltreTypes({ categories, coches, onToggle }: {
 
 // ── D3 : tableau des demandes — colonne « Type » + tenue à l'écran ────────────────────────────────────────────────────
 /** Libellés d'affichage des statuts de demande. SOURCE UNIQUE (le rendu du tableau ET la Vue s'y réfèrent). */
-export const STATUT_LIBELLE: Record<string, string> = { brouillon: 'brouillon', prete: 'prête', envoyee: 'envoyée', close: 'close', abandonnee: 'abandonnée' };
+// Q7 — 'annulee' a remplacé 'abandonnee' (annuler une demande = remettre ses permis au stock ; le vrai « abandon » définitif
+// d'un permis n'existe pas). La clé 'abandonnee' est CONSERVÉE en traduction : `demande_journal` est append-only (jamais réécrit),
+// ses lignes d'avant le renommage portent encore l'ancienne valeur → tout affichage historique reste lisible.
+export const STATUT_LIBELLE: Record<string, string> = { brouillon: 'brouillon', prete: 'prête', envoyee: 'envoyée', close: 'close', annulee: 'annulée', abandonnee: 'annulée (ex-abandonnée)' };
 
 const styleTdD: CSSProperties = { padding: '.4rem .5rem' };
 

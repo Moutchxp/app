@@ -7,10 +7,12 @@ import type { EtatRattachement } from '../../../../lib/sitadel/priorite';
  * cibles tactiles suffisantes, aucune interaction au survol seul, aucune transition (prefers-reduced-motion sans objet).
  */
 
-/** Libellés VALIDÉS (au mot près). Ordre d'affichage canonique : rattaché → demande abandonnée → jamais demandé. */
+/** Libellés VALIDÉS (au mot près). Ordre d'affichage canonique : rattaché → demande annulée → jamais demandé.
+ *  Q7 : la CLÉ `abandonne` reste le nom de l'état de rattachement (enum de priorite.ts, INTOUCHÉ) ; seul le LIBELLÉ
+ *  affiché passe à « demande annulée » — annuler une demande remet ses permis au stock (le dossier est de nouveau proposable). */
 export const LIBELLE_RATTACHEMENT: Record<EtatRattachement, string> = {
   rattache: 'rattaché',
-  abandonne: 'demande abandonnée',
+  abandonne: 'demande annulée',
   jamais: 'jamais demandé',
 };
 export const ORDRE_RATTACHEMENT: readonly EtatRattachement[] = ['rattache', 'abandonne', 'jamais'];

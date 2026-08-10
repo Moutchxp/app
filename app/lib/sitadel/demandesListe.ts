@@ -98,12 +98,12 @@ export function filtrerDemandes<T extends LigneDemande>(demandes: T[], f: Filtre
  * Q6 — un onglet ne PEUT PAS afficher les demandes de l'autre. Le périmètre est un pré-filtre par STATUT appliqué EN AMONT
  * (avant le filtre Statut de l'utilisateur), et le sélecteur Statut de chaque onglet ne propose QUE ces statuts. Les CINQ
  * statuts sont couverts et DISJOINTS — donc « Tous » dans un onglet ne ramène jamais l'autre, et aucun statut n'est orphelin :
- *   - « à demander » = brouillon · prête · abandonnée (jamais parties auprès d'une mairie) ;
+ *   - « à demander » = brouillon · prête · annulée (jamais parties auprès d'une mairie ; annuler = remettre les permis au stock) ;
  *   - « en cours »   = envoyée · close (demande INITIÉE auprès de la mairie).
  * ⚠️ Un brouillon n'a jamais atteint une mairie : il appartient à « à demander », pas à « en cours » (règle Q6).
  */
 export type Perimetre = 'a_demander' | 'en_cours';
-export const STATUTS_A_DEMANDER: readonly string[] = ['brouillon', 'prete', 'abandonnee'];
+export const STATUTS_A_DEMANDER: readonly string[] = ['brouillon', 'prete', 'annulee'];
 export const STATUTS_EN_COURS: readonly string[] = ['envoyee', 'close'];
 
 /** Statuts affichables (et donc filtrables) dans un onglet — options du sélecteur Statut. PURE. */

@@ -94,7 +94,7 @@ export async function lireConfigDemandeur(profil: ProfilDemandeur = 'entreprise'
  * ⚠️ Q1 — le plafond `permis_par_commune_par_mois` borne la SOLLICITATION RÉELLE d'une mairie EN NOMBRE DE PERMIS, quel que
  * soit le nombre de courriers/dépôts que cela représente : on compte donc les DOSSIERS (via demande_dossier), pas les
  * demandes. Seules les demandes RÉELLEMENT PARTIES le consomment → `statut IN ('envoyee','close')` (une 'brouillon'/'prete'/
- * 'abandonnee' ne sollicite PAS la commune). AUCUN ENVOI n'existe encore : ce comptage est donc nul aujourd'hui — c'est voulu.
+ * 'annulee' ne sollicite PAS la commune). AUCUN ENVOI n'existe encore : ce comptage est donc nul aujourd'hui — c'est voulu.
  */
 async function lireHistorique(): Promise<HistoriqueDemandes> {
   const [att, mois] = await Promise.all([
@@ -552,7 +552,7 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
   const [r, rs, rd, rr, rx] = await Promise.all([
     query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; dest_canal: string | null; dest_origine: string; dest_nom: string | null; nb: number; statut: string; profil_demandeur: string; cree_le: string }>(
       // d.id::int : `demande.id` est un bigint que node-postgres rend en CHAÎNE ; sans cast, l'id renvoyé au client est une
-      // string et la PATCH groupée (filtre Number.isInteger) l'écarte en silence → boutons « prête »/« abandonner » inertes.
+      // string et la PATCH groupée (filtre Number.isInteger) l'écarte en silence → boutons « prête »/« annuler » inertes.
       `SELECT d.id::int AS id, d.reference, d.code_insee, c.nom AS commune_nom, d.dest_canal, d.dest_origine, d.dest_nom, d.statut, d.profil_demandeur, d.cree_le::text AS cree_le,
               (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id) AS nb
        FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee ORDER BY d.cree_le DESC`),
@@ -643,10 +643,11 @@ export class TransitionInterditeError extends Error {
 
 /**
  * Change le statut EN JOURNALISANT. Quitter 'brouillon' (→ 'prete') exige une identité demandeur COMPLÈTE (sinon
- * `IdentiteIncompleteError` avec la liste des champs). Abandonner libère les dossiers (demande_dossier.actif=false).
+ * `IdentiteIncompleteError` avec la liste des champs). Annuler libère les dossiers (demande_dossier.actif=false), qui
+ * redeviennent immédiatement proposables (le vrai « abandon » — écarter définitivement un permis — n'existe pas ici).
  * ⚠️ 'envoyee' N'EST PAS gérée ici (l'envoi est un chantier ultérieur).
  */
-export async function changerStatut(id: number, nouveau: 'prete' | 'abandonnee', auteur: string | null): Promise<void> {
+export async function changerStatut(id: number, nouveau: 'prete' | 'annulee', auteur: string | null): Promise<void> {
   return changerStatutLot([id], nouveau, auteur);
 }
 
@@ -655,7 +656,7 @@ export async function changerStatut(id: number, nouveau: 'prete' | 'abandonnee',
  * écriture (sinon `IdentiteIncompleteError` → AUCUNE demande touchée). Sinon, toutes les transitions passent dans UNE
  * transaction (échec = rollback total, aucune transition partielle). Chaque transition est journalisée. AUCUN ENVOI.
  */
-export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'abandonnee', auteur: string | null): Promise<void> {
+export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'annulee', auteur: string | null): Promise<void> {
   if (ids.length === 0) return;
   if (nouveau === 'prete') {
     // Verrou 'prete' sur l'identité DU PROFIL PORTÉ par chaque demande (pas un profil global). Une seule identité
@@ -675,7 +676,7 @@ export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'abando
       const av = await q<{ statut: string }>(`SELECT statut FROM demande WHERE id = $1`, [id]);
       const avant = av.rows[0]?.statut ?? null;
       await q(`UPDATE demande SET statut = $2, maj_le = now() WHERE id = $1`, [id, nouveau]);
-      if (nouveau === 'abandonnee') await q(`UPDATE demande_dossier SET actif = false WHERE demande_id = $1`, [id]);
+      if (nouveau === 'annulee') await q(`UPDATE demande_dossier SET actif = false WHERE demande_id = $1`, [id]);
       await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, $3, $4, $5)`, [id, avant, nouveau, motif, auteur]);
     }
   });
@@ -685,7 +686,7 @@ export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'abando
  * R5c — CLÔTURE d'une demande : enfin un ÉCRIVAIN pour 'close' (statut sans écrivain depuis le premier jour du module).
  * Réutilise la MÊME ligne de transition que changerStatutLot — `UPDATE demande SET statut = $2 … WHERE id = $1`, params
  * `[id, nouveau]` — la ligne exacte du bug 22P02 corrigé en S41 : ne JAMAIS réinverser cet ordre (statut lié à $2, id à $1).
- * INTERDIT hors 'envoyee' : une demande brouillon / prête / abandonnée n'est jamais partie, elle n'a rien à clôturer. Si des
+ * INTERDIT hors 'envoyee' : une demande brouillon / prête / annulée n'est jamais partie, elle n'a rien à clôturer. Si des
  * dossiers restent DUS, la clôture reste possible mais EXIGE un motif (elle arrête le suivi d'échéance). Transactionnel
  * (demande + demande_journal). N'envoie rien ; ne touche pas les relances (l'auto ne relance plus une demande non 'envoyee').
  */

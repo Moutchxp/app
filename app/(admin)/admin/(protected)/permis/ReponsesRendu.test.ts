@@ -434,8 +434,8 @@ describe('R5c — ActionsCloture : clôturer / rouvrir + avertissement de clôtu
     expect(h).not.toContain('disabled');
   });
 
-  it('statut brouillon / prête / abandonnée → aucun contrôle (rien à clôturer)', () => {
-    for (const statut of ['brouillon', 'prete', 'abandonnee']) {
+  it('statut brouillon / prête / annulée → aucun contrôle (rien à clôturer)', () => {
+    for (const statut of ['brouillon', 'prete', 'annulee']) {
       const h = renderToStaticMarkup(createElement(ActionsCloture, { demandeId: 7, statut, dossiersDus: 0, onCloturer: noop, onRouvrir: noop }));
       expect(h).toBe('');
     }

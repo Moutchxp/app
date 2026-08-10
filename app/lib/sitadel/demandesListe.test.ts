@@ -191,10 +191,10 @@ describe('Q6 — périmètres des onglets (« À demander » / « En cours ») :
     D({ id: 2, statut: 'prete' }),
     D({ id: 3, statut: 'envoyee' }),
     D({ id: 4, statut: 'close' }),
-    D({ id: 5, statut: 'abandonnee' }),
+    D({ id: 5, statut: 'annulee' }),
   ];
 
-  it('« en cours » n’affiche NI brouillon, NI prête, NI abandonnée — même avec « Tous » en aval', () => {
+  it('« en cours » n’affiche NI brouillon, NI prête, NI annulée — même avec « Tous » en aval', () => {
     const enCours = dansPerimetre(cinq, 'en_cours');
     expect(enCours.map((d) => d.statut).sort()).toEqual(['close', 'envoyee']);
     // même en filtrant explicitement sur un statut de l'AUTRE périmètre : jamais dans l'ensemble
@@ -205,20 +205,20 @@ describe('Q6 — périmètres des onglets (« À demander » / « En cours ») :
 
   it('« à demander » n’affiche NI envoyée, NI close — même avec « Tous »', () => {
     const aDemander = dansPerimetre(cinq, 'a_demander');
-    expect(aDemander.map((d) => d.statut).sort()).toEqual(['abandonnee', 'brouillon', 'prete']);
+    expect(aDemander.map((d) => d.statut).sort()).toEqual(['annulee', 'brouillon', 'prete']);
     expect(filtrerDemandes(aDemander, { statut: 'envoyee', profil: '', commune: '', types: [] })).toHaveLength(0);
     expect(filtrerDemandes(aDemander, { statut: '', profil: '', commune: '', types: [] })).toHaveLength(3);
   });
 
   it('le sélecteur Statut de chaque onglet ne propose QUE ses statuts', () => {
-    expect(statutsDuPerimetre('a_demander')).toEqual(['brouillon', 'prete', 'abandonnee']);
+    expect(statutsDuPerimetre('a_demander')).toEqual(['brouillon', 'prete', 'annulee']);
     expect(statutsDuPerimetre('en_cours')).toEqual(['envoyee', 'close']);
   });
 
   it('périmètres DISJOINTS et COUVRANT les cinq statuts (aucun orphelin)', () => {
     const a = new Set(STATUTS_A_DEMANDER), b = new Set(STATUTS_EN_COURS);
     expect([...a].some((s) => b.has(s))).toBe(false); // disjoints
-    expect(new Set([...a, ...b])).toEqual(new Set(['brouillon', 'prete', 'abandonnee', 'envoyee', 'close'])); // couvrants
+    expect(new Set([...a, ...b])).toEqual(new Set(['brouillon', 'prete', 'annulee', 'envoyee', 'close'])); // couvrants
   });
 
   it('les actions groupées (« à demander ») ne peuvent viser que des statuts du périmètre : leur ensemble sélectionnable n’a aucun envoyée/close', () => {
