@@ -6,6 +6,8 @@ import type { StockResultat, PermisDetail, CompteRenduCreation } from '../../../
 import { PERIODE_STOCK_DEFAUT } from '../../../../lib/sitadel/stock';
 import { MessageRetour, CartePropositions, BlocStock, TableStock, PanneauDetailStock, BandeauReglages, type RetourAction } from './DemandesRendu';
 import { BlocPrada } from './BlocPrada';
+import { BlocDepot } from './BlocDepot';
+import { SuiviDemandes } from './SuiviDemandes';
 
 /**
  * Q5 — onglet « À DEMANDER » : tout ce qui PRÉCÈDE la création d'une demande. Extrait sans changement de logique de l'ex-onglet
@@ -47,6 +49,7 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, onAl
   const [moisSaisie, setMoisSaisie] = useState(String(maxMois));
   const ancienneteMois = bornerAncienneteMois(moisSaisie, ancienneteMaxAnnees);
   const prepSeq = useRef(0); // Q4-fix : compteur de séquence des préparations (anti-race)
+  const [signalSuivi, setSignalSuivi] = useState(0); // Q6 : incrémenté après une création → rafraîchit le tableau des non-envoyées
 
   const annoncer = useCallback((texte: string, ok: boolean) => setRetour(texte === '' ? null : { texte, ok, zone: 'haut' }), []);
 
@@ -116,9 +119,9 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, onAl
       const bouts = [`${r.demandesCreees} demande(s) créée(s) en ${ETIQUETTE_PROFIL[r.profil].toLowerCase()}`, `${r.dossiersCrees} dossier(s)`];
       if (r.lotsInvalides.length) bouts.push(`${r.lotsInvalides.length} lot(s) ignoré(s) (${r.lotsInvalides.map((x) => x.communeNom ?? x.cle).join(', ')})`);
       if (r.ignoresConflit) bouts.push(`${r.ignoresConflit} conflit(s)`);
-      // Q5 — les nouvelles demandes apparaissent dans l'onglet « En cours » (il recharge à son montage) ; on l'annonce.
-      annoncer(`${bouts.join(' · ')}. Retrouvez-les dans l’onglet « En cours ».`, true);
-      setProp(null); setSelLots(new Set()); setPageLots(1);
+      // Q6 — les demandes créées sont des BROUILLONS (non parties) : elles restent DANS CET ONGLET, dans le tableau ci-dessous.
+      annoncer(`${bouts.join(' · ')}. Retrouvez-les dans le tableau des demandes ci-dessous.`, true);
+      setProp(null); setSelLots(new Set()); setPageLots(1); setSignalSuivi((s) => s + 1);
     } else annoncer(await erreurServeur(res, 'Création impossible.'), false);
   }
 
@@ -187,6 +190,12 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, onAl
 
       {/* C2/C3 — arbitrages PRADA (info) + communes sans adresse (saisie) : ils conditionnent la création, ils suivent. */}
       <BlocPrada />
+
+      {/* P3 — « à déposer à la main » (téléservice) : un dépôt non effectué EST un envoi non effectué → il vit ici. */}
+      <BlocDepot />
+
+      {/* Q6 — tableau des demandes NON ENVOYÉES (brouillon/prête ; abandonnée via le filtre) + actions groupées « prête »/« abandonner ». */}
+      <SuiviDemandes categories={categories} perimetre="a_demander" signalRafraichir={signalSuivi} />
     </div>
   );
 }

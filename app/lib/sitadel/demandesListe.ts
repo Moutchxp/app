@@ -93,6 +93,33 @@ export function filtrerDemandes<T extends LigneDemande>(demandes: T[], f: Filtre
     correspondReference(d, qRef));
 }
 
+// ── Q6 : PÉRIMÈTRES des deux onglets (« À demander » / « En cours ») ──────────────────────────────────────────────────
+/**
+ * Q6 — un onglet ne PEUT PAS afficher les demandes de l'autre. Le périmètre est un pré-filtre par STATUT appliqué EN AMONT
+ * (avant le filtre Statut de l'utilisateur), et le sélecteur Statut de chaque onglet ne propose QUE ces statuts. Les CINQ
+ * statuts sont couverts et DISJOINTS — donc « Tous » dans un onglet ne ramène jamais l'autre, et aucun statut n'est orphelin :
+ *   - « à demander » = brouillon · prête · abandonnée (jamais parties auprès d'une mairie) ;
+ *   - « en cours »   = envoyée · close (demande INITIÉE auprès de la mairie).
+ * ⚠️ Un brouillon n'a jamais atteint une mairie : il appartient à « à demander », pas à « en cours » (règle Q6).
+ */
+export type Perimetre = 'a_demander' | 'en_cours';
+export const STATUTS_A_DEMANDER: readonly string[] = ['brouillon', 'prete', 'abandonnee'];
+export const STATUTS_EN_COURS: readonly string[] = ['envoyee', 'close'];
+
+/** Statuts affichables (et donc filtrables) dans un onglet — options du sélecteur Statut. PURE. */
+export function statutsDuPerimetre(p: Perimetre): readonly string[] {
+  return p === 'a_demander' ? STATUTS_A_DEMANDER : STATUTS_EN_COURS;
+}
+
+/**
+ * Pré-filtre DUR : ne garde que les demandes du périmètre. Appliqué AVANT `filtrerDemandes` → même avec le filtre Statut sur
+ * « Tous », l'onglet ne voit JAMAIS les statuts de l'autre périmètre. PURE (générique sur tout objet à `statut`).
+ */
+export function dansPerimetre<T extends { statut: string }>(demandes: T[], p: Perimetre): T[] {
+  const permis = new Set<string>(statutsDuPerimetre(p));
+  return demandes.filter((d) => permis.has(d.statut));
+}
+
 // ── D3 : dérivation du TYPE de permis affiché (colonne « Type ») ──────────────
 const RANG_AUTRE = 9999; // rang de la catégorie « autre » (cf. priorite.ts : classer → { cle:'autre', rang:9999 })
 

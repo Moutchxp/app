@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   basculerTri, filtrerDemandes, trierDemandes, OPTIONS_TRI, cleTri, triDepuisCle, SENS_DEFAUT, typeDemande, normaliserReference,
+  dansPerimetre, statutsDuPerimetre, STATUTS_A_DEMANDER, STATUTS_EN_COURS,
   type Tri, type LigneDemande,
 } from './demandesListe';
 
@@ -181,5 +182,57 @@ describe('P1 — filtrerDemandes : recherche par référence (SVAV ou mairie)', 
   it('normaliserReference : MAJUSCULES, espaces et tirets supprimés', () => {
     expect(normaliserReference(' slc-2608 1044 ')).toBe('SLC26081044');
     expect(normaliserReference('SVAV-DEM-2026-000119')).toBe('SVAVDEM2026000119');
+  });
+});
+
+describe('Q6 — périmètres des onglets (« À demander » / « En cours ») : hermétiques et disjoints', () => {
+  const cinq = [
+    D({ id: 1, statut: 'brouillon' }),
+    D({ id: 2, statut: 'prete' }),
+    D({ id: 3, statut: 'envoyee' }),
+    D({ id: 4, statut: 'close' }),
+    D({ id: 5, statut: 'abandonnee' }),
+  ];
+
+  it('« en cours » n’affiche NI brouillon, NI prête, NI abandonnée — même avec « Tous » en aval', () => {
+    const enCours = dansPerimetre(cinq, 'en_cours');
+    expect(enCours.map((d) => d.statut).sort()).toEqual(['close', 'envoyee']);
+    // même en filtrant explicitement sur un statut de l'AUTRE périmètre : jamais dans l'ensemble
+    expect(filtrerDemandes(enCours, { statut: 'brouillon', profil: '', commune: '', types: [] })).toHaveLength(0);
+    // « Tous » (statut '') ne ramène QUE le périmètre, jamais l'autre
+    expect(filtrerDemandes(enCours, { statut: '', profil: '', commune: '', types: [] }).map((d) => d.statut).sort()).toEqual(['close', 'envoyee']);
+  });
+
+  it('« à demander » n’affiche NI envoyée, NI close — même avec « Tous »', () => {
+    const aDemander = dansPerimetre(cinq, 'a_demander');
+    expect(aDemander.map((d) => d.statut).sort()).toEqual(['abandonnee', 'brouillon', 'prete']);
+    expect(filtrerDemandes(aDemander, { statut: 'envoyee', profil: '', commune: '', types: [] })).toHaveLength(0);
+    expect(filtrerDemandes(aDemander, { statut: '', profil: '', commune: '', types: [] })).toHaveLength(3);
+  });
+
+  it('le sélecteur Statut de chaque onglet ne propose QUE ses statuts', () => {
+    expect(statutsDuPerimetre('a_demander')).toEqual(['brouillon', 'prete', 'abandonnee']);
+    expect(statutsDuPerimetre('en_cours')).toEqual(['envoyee', 'close']);
+  });
+
+  it('périmètres DISJOINTS et COUVRANT les cinq statuts (aucun orphelin)', () => {
+    const a = new Set(STATUTS_A_DEMANDER), b = new Set(STATUTS_EN_COURS);
+    expect([...a].some((s) => b.has(s))).toBe(false); // disjoints
+    expect(new Set([...a, ...b])).toEqual(new Set(['brouillon', 'prete', 'abandonnee', 'envoyee', 'close'])); // couvrants
+  });
+
+  it('les actions groupées (« à demander ») ne peuvent viser que des statuts du périmètre : leur ensemble sélectionnable n’a aucun envoyée/close', () => {
+    // la sélection ne porte que sur les demandes AFFICHÉES = dansPerimetre('a_demander')
+    const selectionnables = dansPerimetre(cinq, 'a_demander');
+    expect(selectionnables.every((d) => STATUTS_A_DEMANDER.includes(d.statut))).toBe(true);
+    expect(selectionnables.some((d) => d.statut === 'envoyee' || d.statut === 'close')).toBe(false);
+  });
+
+  it('tri/pagination sur l’ENSEMBLE du périmètre : dansPerimetre renvoie tout le périmètre AVANT tout slice', () => {
+    const envoyees = Array.from({ length: 25 }, (_, i) => D({ id: i + 1, statut: 'envoyee' }));
+    const bruit = Array.from({ length: 10 }, (_, i) => D({ id: 100 + i, statut: 'brouillon' }));
+    const enCours = dansPerimetre([...envoyees, ...bruit], 'en_cours');
+    expect(enCours).toHaveLength(25);                                   // tout le périmètre (pas une page de 20)
+    expect(trierDemandes(enCours, { colonne: 'dossiers', sens: 'desc' })).toHaveLength(25);
   });
 });

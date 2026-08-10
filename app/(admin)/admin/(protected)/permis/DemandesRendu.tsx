@@ -405,12 +405,14 @@ export interface DemandeAffichee {
  * Dossiers · Statut · [ouvrir]. Le TYPE est en 2e position DONNÉE (juste après Référence), aligné en-tête ↔ ligne par le même
  * ordre. Tenue à l'écran : conteneur défilant a11y + `nowrap`/`min-width` sobres, « Destinataire » absorbant le surplus. Le
  * tri (EnteteTriable), le filtre et la pagination restent pilotés par la Vue (callbacks). Aucun état ici → renderToStaticMarkup.
+ * `avecSelection` (défaut vrai) masque la colonne de cases à cocher là où il n'y a aucune action groupée (Q6 : onglet « en
+ * cours ») — pas de contrôle inerte à l'écran.
  */
 export function TableDemandes({
-  visibles, categories, tri, sel, toutCoche, messageVide, onTrier, onToutSelectionner, onBasculer, onOuvrir,
+  visibles, categories, tri, sel, toutCoche, messageVide, avecSelection = true, onTrier, onToutSelectionner, onBasculer, onOuvrir,
 }: {
   visibles: DemandeAffichee[]; categories: { libelle: string; rang: number }[];
-  tri: Tri; sel: ReadonlySet<number>; toutCoche: boolean; messageVide: string;
+  tri: Tri; sel: ReadonlySet<number>; toutCoche: boolean; messageVide: string; avecSelection?: boolean;
   onTrier?: (c: TriColonne) => void; onToutSelectionner?: () => void; onBasculer?: (id: number) => void; onOuvrir?: (id: number) => void;
 }) {
   const nowrap: CSSProperties = { ...styleTdD, whiteSpace: 'nowrap' };
@@ -419,7 +421,7 @@ export function TableDemandes({
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr style={{ textAlign: 'left', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
-            <th style={styleTdD}><input type="checkbox" aria-label="Tout sélectionner" checked={toutCoche} onChange={() => onToutSelectionner?.()} /></th>
+            {avecSelection && <th style={styleTdD}><input type="checkbox" aria-label="Tout sélectionner" checked={toutCoche} onChange={() => onToutSelectionner?.()} /></th>}
             <th style={{ ...nowrap, minWidth: 150 }}>Référence</th>
             <th style={nowrap}>Type</th>
             <EnteteTriable libelle="Commune" colonne="commune" tri={tri} onTrier={onTrier} />
@@ -434,7 +436,7 @@ export function TableDemandes({
         <tbody>
           {visibles.map((d) => (
             <tr key={d.id} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
-              <td style={styleTdD}><input type="checkbox" checked={sel.has(d.id)} onChange={() => onBasculer?.(d.id)} aria-label={`Sélectionner ${d.reference}`} /></td>
+              {avecSelection && <td style={styleTdD}><input type="checkbox" checked={sel.has(d.id)} onChange={() => onBasculer?.(d.id)} aria-label={`Sélectionner ${d.reference}`} /></td>}
               <td style={{ ...nowrap, fontFamily: 'var(--font-svv-mono, monospace)' }}>{d.reference}</td>
               <CelluleType rangs={d.rangs} categories={categories} />
               <td style={styleTdD}>{d.communeNom ?? d.codeInsee}</td>
@@ -447,7 +449,7 @@ export function TableDemandes({
             </tr>
           ))}
           {visibles.length === 0 && (
-            <tr><td colSpan={10} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>{messageVide}</td></tr>
+            <tr><td colSpan={avecSelection ? 10 : 9} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>{messageVide}</td></tr>
           )}
         </tbody>
       </table>

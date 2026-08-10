@@ -468,6 +468,30 @@ describe('D3 — TableDemandes : colonne « Type » en 2e position + conteneur d
     expect(h).toContain('Aucune demande pour ces filtres.');
     expect(h).toContain('colSpan="10"'); // React 19 émet l'attribut tel quel (HTML insensible à la casse)
   });
+
+  it('défaut (avecSelection omis) : la colonne de sélection est présente (case « Tout sélectionner » + case par ligne)', () => {
+    const h = rendu();
+    expect(h).toContain('aria-label="Tout sélectionner"');
+    expect(h).toContain('aria-label="Sélectionner SVAV-DEM-2026-000001"');
+  });
+
+  it('Q6 — avecSelection=false (ex. « en cours », sans action groupée) : AUCUNE case à cocher, ni en-tête ni ligne', () => {
+    const h = rendu({ avecSelection: false });
+    expect(h).not.toContain('aria-label="Tout sélectionner"');
+    expect(h).not.toContain('aria-label="Sélectionner SVAV-DEM-2026-000001"');
+    expect(h).not.toContain('type="checkbox"');
+    // les colonnes de données restent alignées (Référence → Type → Commune)
+    const iRef = h.indexOf('Référence'); const iType = h.indexOf('Type'); const iCommune = h.indexOf('Commune');
+    expect(iRef).toBeLessThan(iType);
+    expect(iType).toBeLessThan(iCommune);
+  });
+
+  it('Q6 — avecSelection=false : la ligne vide couvre 9 colonnes (la colonne de sélection retirée)', () => {
+    const h = rendu({ avecSelection: false, visibles: [], messageVide: 'Aucune demande.' });
+    expect(h).toContain('Aucune demande.');
+    expect(h).toContain('colSpan="9"');
+    expect(h).not.toContain('colSpan="10"');
+  });
 });
 
 // ── Q2b : STOCK — bloc repliable + tableau par commune + panneau de détail (disclosure natif) ─────────────────────────
