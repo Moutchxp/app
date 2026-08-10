@@ -91,13 +91,15 @@ export async function PATCH(request: Request): Promise<Response> {
     if (corps.statut !== 'prete' && corps.statut !== 'annulee') {
       return Response.json({ erreur: 'requête invalide' }, { status: 400 });
     }
+    let conflitsReactivation: Awaited<ReturnType<typeof changerStatutLot>> = [];
     try {
-      await changerStatutLot(ids, corps.statut, auteur);
+      conflitsReactivation = await changerStatutLot(ids, corps.statut, auteur);
     } catch (e) {
       if (e instanceof IdentiteIncompleteError) return Response.json({ erreur: 'identité du demandeur incomplète', champs: e.champs }, { status: 409 });
       throw e;
     }
-    return Response.json({ ok: true, traites: ids.length });
+    // B1 — compte rendu de réouverture : dossiers NON réactivés car déjà actifs sur une autre demande (jamais silencieux).
+    return Response.json({ ok: true, traites: ids.length, conflitsReactivation });
   } catch (e) {
     // Trace SERVEUR de l'exception inattendue (S42) : sans elle, un bug d'une ligne (params liés inversés, 22P02)
     // reste invisible des deux côtés. La réponse HTTP au client est INCHANGÉE (même code 503, même corps).

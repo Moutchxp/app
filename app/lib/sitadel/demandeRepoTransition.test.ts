@@ -12,9 +12,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  * avec un `q` qui enregistre chaque (sql, params) — on assère le COMPORTEMENT (statut posé, journal écrit) et la
  * LIAISON réelle des paramètres, jamais la forme complète d'un WHERE par regex.
  */
-const { lectures, ecritures, queryMock, withTransactionMock } = vi.hoisted(() => {
+const { lectures, ecritures, cfg, queryMock, withTransactionMock } = vi.hoisted(() => {
   const lectures: { sql: string; params: unknown[] }[] = [];
   const ecritures: { sql: string; params: unknown[] }[] = [];
+  // B1 — statut AVANT la transition (pour tester la réouverture annulee→prete) + conflits renvoyés par la requête de compte rendu.
+  const cfg = { statutAvant: 'brouillon' as string, conflits: [] as { num_dau: string; conflit: number }[] };
   // Identité 'personne' COMPLÈTE (nom ≥3, adresse ≥8, e-mail valide) → le garde d'identité laisse passer la transition.
   const CONFIG_PERSONNE = {
     raison_sociale: '', forme_juridique: '', siege_adresse: '191 avenue Charles de Gaulle 92200 Neuilly-sur-Seine',
@@ -30,12 +32,13 @@ const { lectures, ecritures, queryMock, withTransactionMock } = vi.hoisted(() =>
   const withTransactionMock = async (fn: (q: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>) => Promise<unknown>) => {
     const tx = async (sql: string, params?: unknown[]) => {
       ecritures.push({ sql, params: params ?? [] });
-      if (/SELECT statut FROM demande/.test(sql)) return { rows: [{ statut: 'brouillon' }] };
+      if (/SELECT statut FROM demande/.test(sql)) return { rows: [{ statut: cfg.statutAvant }] };
+      if (/AS conflit/i.test(sql)) return { rows: cfg.conflits }; // B1 — compte rendu de réactivation (dossiers en conflit)
       return { rows: [] as unknown[] };
     };
     return fn(tx);
   };
-  return { lectures, ecritures, queryMock, withTransactionMock };
+  return { lectures, ecritures, cfg, queryMock, withTransactionMock };
 });
 
 vi.mock('../db/client', () => ({
@@ -47,7 +50,7 @@ vi.mock('../db/client', () => ({
 
 import { changerStatut } from './demandeRepo';
 
-beforeEach(() => { lectures.length = 0; ecritures.length = 0; });
+beforeEach(() => { lectures.length = 0; ecritures.length = 0; cfg.statutAvant = 'brouillon'; cfg.conflits = []; });
 
 const norm = (s: string) => s.replace(/\s+/g, ' ');
 
@@ -104,5 +107,48 @@ describe('Q7 — annulation d’une demande : libère TOUJOURS ses dossiers (de 
     const lib = ecritures.find((e) => /UPDATE demande_dossier SET actif = false/.test(e.sql));
     expect(lib, 'l’annulation doit libérer les dossiers').toBeDefined();
     expect(lib!.params[0]).toBe(154); // demande_id lié
+  });
+
+  it('non-régression : l’annulation N’ÉMET PAS de réactivation (actif=true)', async () => {
+    await changerStatut(154, 'annulee', 'auteur-test');
+    expect(ecritures.some((e) => /SET actif = true/.test(e.sql))).toBe(false);
+  });
+});
+
+describe('B1 — réouverture (annulee → prete) : réactive les dossiers, symétriquement à l’annulation', () => {
+  it('depuis « annulee » → pose prete ET émet UPDATE demande_dossier SET actif = true, conflict-safe (NOT EXISTS actif ailleurs)', async () => {
+    cfg.statutAvant = 'annulee';
+    const conflits = await changerStatut(154, 'prete', 'auteur-test');
+
+    const upd = ecritures.find((e) => /UPDATE demande SET statut/.test(e.sql));
+    const sql = norm(upd!.sql);
+    const idxStatut = Number(/SET statut = \$(\d+)/.exec(sql)![1]) - 1;
+    expect(upd!.params[idxStatut]).toBe('prete');
+
+    const reac = ecritures.find((e) => /UPDATE demande_dossier dd SET actif = true/.test(e.sql));
+    expect(reac, 'la réouverture doit réactiver les dossiers').toBeDefined();
+    const rsql = norm(reac!.sql);
+    expect(rsql).toContain('NOT dd.actif');                                   // ne réactive que les liens inactifs
+    expect(rsql).toMatch(/NOT EXISTS.*o\.actif AND o\.demande_id <> dd\.demande_id/); // jamais un dossier tenu par une autre demande active
+    expect(reac!.params[0]).toBe(154);                                        // demande_id lié
+    expect(conflits).toEqual([]);                                            // aucun conflit → compte rendu vide
+  });
+
+  it('conflit d’unicité → réactivation PARTIELLE + compte rendu (jamais un crash)', async () => {
+    cfg.statutAvant = 'annulee';
+    cfg.conflits = [{ num_dau: '0930012500081', conflit: 777 }]; // un dossier déjà actif sur la demande 777
+    const conflits = await changerStatut(154, 'prete', 'auteur-test');
+
+    // la transition RÉUSSIT (pas d'exception) et l'UPDATE conflict-safe est émis (il laisse le dossier en conflit inactif)
+    expect(ecritures.some((e) => /UPDATE demande_dossier dd SET actif = true/.test(e.sql))).toBe(true);
+    // le compte rendu nomme le dossier NON réactivé et la demande qui le détient
+    expect(conflits).toEqual([{ demandeId: 154, numDau: '0930012500081', dejaActiveSurDemandeId: 777 }]);
+  });
+
+  it('brouillon → prete : AUCUNE réactivation (pas une réouverture)', async () => {
+    cfg.statutAvant = 'brouillon';
+    const conflits = await changerStatut(154, 'prete', 'auteur-test');
+    expect(ecritures.some((e) => /SET actif = true/.test(e.sql))).toBe(false);
+    expect(conflits).toEqual([]);
   });
 });

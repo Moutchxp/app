@@ -34,6 +34,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   try {
     const corps = (await request.json()) as { corps?: unknown; objet?: unknown; statut?: unknown; profil?: unknown };
     const auteur = garde.auteurId === null ? null : String(garde.auteurId);
+    let conflitsReactivation: Awaited<ReturnType<typeof changerStatut>> = [];
     if (corps.profil === 'entreprise' || corps.profil === 'personne') {
       try {
         await changerProfil(id, corps.profil, auteur);
@@ -43,7 +44,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       }
     } else if (corps.statut === 'prete' || corps.statut === 'annulee') {
       try {
-        await changerStatut(id, corps.statut, auteur);
+        conflitsReactivation = await changerStatut(id, corps.statut, auteur);
       } catch (e) {
         if (e instanceof IdentiteIncompleteError) {
           return Response.json({ erreur: 'identité du demandeur incomplète', champs: e.champs }, { status: 409 });
@@ -55,7 +56,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     } else {
       return Response.json({ erreur: 'rien à modifier' }, { status: 400 });
     }
-    return Response.json(await lireDemande(id));
+    // B1 — le compte rendu de réouverture (dossiers non réactivés) n'est joint QUE s'il y a des conflits (sinon forme inchangée).
+    const d = await lireDemande(id);
+    return Response.json(d && conflitsReactivation.length > 0 ? { ...d, conflitsReactivation } : d);
   } catch {
     return Response.json({ erreur: 'enregistrement impossible' }, { status: 503 });
   }

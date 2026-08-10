@@ -139,8 +139,14 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     if (ids.length === 0) return;
     const res = await fetch('/api/admin/permis/demandes', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, statut }) });
     if (res.ok) {
-      const r = (await res.json()) as { traites: number };
-      annoncer(`${r.traites} demande(s) ${statut === 'prete' ? 'marquée(s) prête(s)' : 'annulée(s) (permis remis au stock)'}.`, true, origine);
+      const r = (await res.json()) as { traites: number; conflitsReactivation?: { numDau: string; dejaActiveSurDemandeId: number }[] };
+      const base = `${r.traites} demande(s) ${statut === 'prete' ? 'marquée(s) prête(s)' : 'annulée(s) (permis remis au stock)'}.`;
+      // B1 — compte rendu de réouverture : dossiers NON réactivés car déjà rattachés à une autre demande active (jamais silencieux).
+      const conflits = r.conflitsReactivation ?? [];
+      const suffixe = conflits.length > 0
+        ? ` ⚠️ ${conflits.length} dossier(s) NON réactivé(s), déjà rattaché(s) à une autre demande active : ${conflits.map((c) => `${c.numDau} (demande ${c.dejaActiveSurDemandeId})`).join(', ')}.`
+        : '';
+      annoncer(base + suffixe, conflits.length === 0, origine);
       setSel(new Set()); if (detail && ids.includes(detail.id)) void ouvrir(detail.id, true); rafraichir();
       return;
     }

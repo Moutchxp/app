@@ -642,12 +642,20 @@ export class TransitionInterditeError extends Error {
 }
 
 /**
+ * B1 — un dossier NON réactivé à la réouverture parce qu'il est déjà actif sur une AUTRE demande (compte rendu, jamais un
+ * rattachement au jugé). Le lien du dossier reste `actif=false` sur la demande rouverte ; c'est la demande `dejaActiveSurDemandeId`
+ * qui le détient.
+ */
+export interface ConflitReactivation { demandeId: number; numDau: string; dejaActiveSurDemandeId: number }
+
+/**
  * Change le statut EN JOURNALISANT. Quitter 'brouillon' (→ 'prete') exige une identité demandeur COMPLÈTE (sinon
  * `IdentiteIncompleteError` avec la liste des champs). Annuler libère les dossiers (demande_dossier.actif=false), qui
  * redeviennent immédiatement proposables (le vrai « abandon » — écarter définitivement un permis — n'existe pas ici).
- * ⚠️ 'envoyee' N'EST PAS gérée ici (l'envoi est un chantier ultérieur).
+ * B1 — RÉOUVERTURE (annulee → prete) : RÉACTIVE les dossiers, symétriquement à l'annulation (voir changerStatutLot). Renvoie
+ * les conflits de réactivation (vide si aucun). ⚠️ 'envoyee' N'EST PAS gérée ici (l'envoi est un chantier ultérieur).
  */
-export async function changerStatut(id: number, nouveau: 'prete' | 'annulee', auteur: string | null): Promise<void> {
+export async function changerStatut(id: number, nouveau: 'prete' | 'annulee', auteur: string | null): Promise<ConflitReactivation[]> {
   return changerStatutLot([id], nouveau, auteur);
 }
 
@@ -655,9 +663,13 @@ export async function changerStatut(id: number, nouveau: 'prete' | 'annulee', au
  * Transition de statut d'un LOT de demandes, EN TOUT-OU-RIEN. Pour 'prete', l'identité est vérifiée UNE FOIS avant toute
  * écriture (sinon `IdentiteIncompleteError` → AUCUNE demande touchée). Sinon, toutes les transitions passent dans UNE
  * transaction (échec = rollback total, aucune transition partielle). Chaque transition est journalisée. AUCUN ENVOI.
+ * B1 — SYMÉTRIE de l'annulation : annuler pose `demande_dossier.actif=false` ; ROUVRIR (annulee → prete) le repose à true.
+ * Réactivation PARTIELLE conflict-safe : un dossier déjà actif sur une AUTRE demande (index unique partiel
+ * `demande_dossier_unique_actif`) n'est PAS réactivé et est SIGNALÉ (compte rendu), jamais un crash ni un rattachement au jugé.
+ * Renvoie la liste des conflits (vide si aucun).
  */
-export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'annulee', auteur: string | null): Promise<void> {
-  if (ids.length === 0) return;
+export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'annulee', auteur: string | null): Promise<ConflitReactivation[]> {
+  if (ids.length === 0) return [];
   if (nouveau === 'prete') {
     // Verrou 'prete' sur l'identité DU PROFIL PORTÉ par chaque demande (pas un profil global). Une seule identité
     // incomplète parmi les profils concernés bloque TOUT le lot (aucune écriture).
@@ -670,6 +682,7 @@ export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'annule
     if (manque.length > 0) throw new IdentiteIncompleteError(manque);
   }
   const motif = ids.length > 1 ? 'transition (lot)' : 'transition';
+  const conflits: ConflitReactivation[] = [];
   await withTransaction(async (tx) => {
     const q = asQ(tx);
     for (const id of ids) {
@@ -677,9 +690,29 @@ export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'annule
       const avant = av.rows[0]?.statut ?? null;
       await q(`UPDATE demande SET statut = $2, maj_le = now() WHERE id = $1`, [id, nouveau]);
       if (nouveau === 'annulee') await q(`UPDATE demande_dossier SET actif = false WHERE demande_id = $1`, [id]);
+      // B1 — RÉOUVERTURE : réactive les dossiers de la demande, SAUF ceux déjà actifs sur une autre demande (conflict-safe).
+      if (nouveau === 'prete' && avant === 'annulee') {
+        await q(
+          `UPDATE demande_dossier dd SET actif = true
+            WHERE dd.demande_id = $1 AND NOT dd.actif
+              AND NOT EXISTS (SELECT 1 FROM demande_dossier o WHERE o.dossier_id = dd.dossier_id AND o.actif AND o.demande_id <> dd.demande_id)`,
+          [id],
+        );
+        // Les liens restés inactifs après la réactivation = ceux tenus par une autre demande active → compte rendu.
+        const { rows: cr } = await q<{ num_dau: string; conflit: number }>(
+          `SELECT s.num_dau, o.demande_id::int AS conflit
+             FROM demande_dossier dd
+             JOIN demande_dossier o ON o.dossier_id = dd.dossier_id AND o.actif AND o.demande_id <> dd.demande_id
+             JOIN sitadel_dossier s ON s.id = dd.dossier_id
+            WHERE dd.demande_id = $1 AND NOT dd.actif`,
+          [id],
+        );
+        for (const x of cr) conflits.push({ demandeId: id, numDau: x.num_dau, dejaActiveSurDemandeId: x.conflit });
+      }
       await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, $3, $4, $5)`, [id, avant, nouveau, motif, auteur]);
     }
   });
+  return conflits;
 }
 
 /**
