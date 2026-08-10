@@ -10,6 +10,7 @@
  */
 import type { RattachementMethode } from './demandeReponseRepo';
 import { referenceDiscrete } from '../sitadel/demande';
+import { normaliserReference } from '../sitadel/demandesListe';
 
 export interface MessageEntrant {
   messageId: string;
@@ -28,6 +29,7 @@ export interface DemandeCandidate {
   statut: string;
   messageIdsEmis: string[];                // Message-ID des envois sortants de CETTE demande (avec ou sans chevrons)
   numerosDossier: string[];                // R3e : n° de dossier Sitadel (chiffres) des dossiers de la demande — ancre de rattachement
+  referencesExternes?: string[];           // R3f : références MAIRIE (P1, demande_reference_externe) — ancre de rattachement
 }
 
 export interface ResultatRattachement {
@@ -83,6 +85,22 @@ function parNumeroDossier(candidates: DemandeCandidate[], texte: string): Demand
   return uniqueParId(candidates.filter((c) => c.numerosDossier.some((n) => n.length >= LONGUEUR_MIN_NUM && foin.includes(n))));
 }
 
+/** R3f — plancher d'une référence MAIRIE : assez longue pour être discriminante (évite qu'un code court fasse un faux positif
+ *  par simple sous-chaîne). Les références de téléservice réelles (ex. « SLC260810440700 ») dépassent largement ce seuil. */
+const LONGUEUR_MIN_REF = 6;
+/**
+ * R3f — candidates dont une RÉFÉRENCE MAIRIE enregistrée (P1) apparaît LITTÉRALEMENT dans le texte. Comparaison sur la forme
+ * NORMALISÉE de P1 (MAJUSCULES, sans espaces ni tirets — `normaliserReference`, alignée sur l'index SQL), au-dessus d'un
+ * plancher de longueur. Correspondance EXACTE de la référence entière (sous-chaîne normalisée), jamais approximative.
+ */
+function parReferenceMairie(candidates: DemandeCandidate[], texte: string): DemandeCandidate[] {
+  const foin = normaliserReference(texte);
+  return uniqueParId(candidates.filter((c) => (c.referencesExternes ?? []).some((r) => {
+    const rn = normaliserReference(r);
+    return rn.length >= LONGUEUR_MIN_REF && foin.includes(rn);
+  })));
+}
+
 const aucun = (motif: string): ResultatRattachement => ({ demandeId: null, methode: 'aucun', motif });
 
 /**
@@ -90,6 +108,10 @@ const aucun = (motif: string): ResultatRattachement => ({ demandeId: null, metho
  *   1. THREADING (In-Reply-To/References ∩ Message-ID émis) → 'message_id'
  *   2. RÉFÉRENCE COMPLÈTE (objet puis corps) → 'reference_objet' | 'reference_corps'
  *   2bis. NUMÉRO DE DOSSIER SITADEL (objet + corps ; R3e) → 'numero_dossier' (ancre non ambiguë : 1 dossier = 1 demande active)
+ *   2ter. RÉFÉRENCE MAIRIE (objet + corps ; R3f) → 'reference_mairie'. Placée APRÈS le n° de dossier (unique PAR CONSTRUCTION
+ *      via l'index partiel actif) et AVANT la discrète (plus lâche, gated envoyee) : c'est un identifiant mairie EXACT, mais
+ *      dont l'unicité n'est qu'au niveau donnée (le schéma P1 autorise une même référence sur plusieurs demandes) → garde
+ *      d'ambiguïté indispensable.
  *   3. RÉFÉRENCE DISCRÈTE (corps SEULEMENT ; l'objet du profil personne est générique) → 'reference_corps', et
  *      uniquement si la demande retenue est au statut 'envoyee'
  *   4. sinon → { null, 'aucun' }
@@ -130,6 +152,15 @@ export function rattacherReponse(message: MessageEntrant, candidates: DemandeCan
   if (parDossier.length > 1) return aucun(`numéro de dossier ambigu : ${parDossier.length} demandes désignées`);
   if (parDossier.length === 1) {
     return { demandeId: parDossier[0].id, methode: 'numero_dossier', motif: `numéro de dossier Sitadel de ${parDossier[0].reference} reconnu dans le message` };
+  }
+
+  // 2ter) RÉFÉRENCE MAIRIE (objet + corps) — R3f. Identifiant EXACT émis par la mairie (téléservice/accusé), enregistré en P1.
+  //   Unicité seulement AU NIVEAU DONNÉE (schéma UNIQUE(demande_id, reference), pas reference seule) → si la même référence
+  //   désigne PLUSIEURS demandes candidates, on NE devine PAS → 'aucun'.
+  const parRefMairie = parReferenceMairie(candidates, `${message.objet ?? ''}\n${message.corpsTexte ?? ''}`);
+  if (parRefMairie.length > 1) return aucun(`référence mairie ambiguë : ${parRefMairie.length} demandes désignées`);
+  if (parRefMairie.length === 1) {
+    return { demandeId: parRefMairie[0].id, methode: 'reference_mairie', motif: `référence mairie de ${parRefMairie[0].reference} reconnue dans le message` };
   }
 
   // 3) RÉFÉRENCE DISCRÈTE (corps seulement) ------------------------------------

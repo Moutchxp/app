@@ -96,6 +96,64 @@ describe('R3e — numéro de dossier Sitadel (après référence complète, avan
   });
 });
 
+describe('R3f — référence mairie (après numéro de dossier, avant discrète)', () => {
+  // A porte une référence mairie (P1) ; P une autre. Cas Paris : la mairie cite SA référence dans l'objet ET le corps.
+  const AM: DemandeCandidate = { ...A, referencesExternes: ['SLC260810440700'] };
+  const PM: DemandeCandidate = { ...P, referencesExternes: ['ABC-2026-XYZ-42'] };
+
+  it('référence mairie dans le CORPS → rattaché par reference_mairie', () => {
+    const r = rattacherReponse(msg({ objet: 'Votre demande', corpsTexte: 'Bonjour, votre dossier SLC260810440700 est en cours d’instruction.' }), [AM, PM]);
+    expect(r).toMatchObject({ demandeId: 1, methode: 'reference_mairie' });
+    expect(r.motif.length).toBeGreaterThan(0);
+  });
+
+  it('référence mairie dans l’OBJET → rattaché (objet + corps couverts)', () => {
+    const r = rattacherReponse(msg({ objet: 'Accusé — réf. SLC260810440700', corpsTexte: 'Ci-joint.' }), [AM, PM]);
+    expect(r).toMatchObject({ demandeId: 1, methode: 'reference_mairie' });
+  });
+
+  it('référence mairie mise en forme (espaces/tirets) → reconnue (normalisation P1)', () => {
+    const r = rattacherReponse(msg({ corpsTexte: 'Réf : SLC 260810-440700 — service urbanisme.' }), [AM, PM]);
+    expect(r).toMatchObject({ demandeId: 1, methode: 'reference_mairie' });
+  });
+
+  it('MÊME référence mairie sur DEUX demandes → AMBIGU → aucun (jamais au jugé)', () => {
+    const dup1 = { ...A, referencesExternes: ['SLC260810440700'] };
+    const dup2 = { ...P, referencesExternes: ['SLC260810440700'] };
+    const r = rattacherReponse(msg({ corpsTexte: 'dossier SLC260810440700' }), [dup1, dup2]);
+    expect(r).toMatchObject({ demandeId: null, methode: 'aucun' });
+    expect(r.motif).toMatch(/ambigu/i);
+  });
+
+  it('référence mairie INCONNUE → non rattaché', () => {
+    const r = rattacherReponse(msg({ corpsTexte: 'référence SLC999999999999 inconnue' }), [AM, PM]);
+    expect(r).toMatchObject({ demandeId: null, methode: 'aucun' });
+  });
+
+  it('référence externe TROP COURTE (< plancher) → jamais de faux positif par sous-chaîne', () => {
+    const court = { ...A, referencesExternes: ['12'] };
+    const r = rattacherReponse(msg({ corpsTexte: 'le 12 août, dossier 12345.' }), [court]);
+    expect(r).toMatchObject({ demandeId: null, methode: 'aucun' });
+  });
+
+  it('le NUMÉRO DE DOSSIER reste prioritaire sur la référence mairie (ordre de la cascade)', () => {
+    // corps = n° de dossier de A + réf mairie de P → c'est le n° de dossier (A, unique par construction) qui l’emporte.
+    const r = rattacherReponse(msg({ corpsTexte: 'dossier 0930012500081 — réf mairie ABC-2026-XYZ-42' }), [A, PM]);
+    expect(r).toMatchObject({ demandeId: 1, methode: 'numero_dossier' });
+  });
+
+  it('la référence mairie l’emporte sur la référence DISCRÈTE (placée avant dans la cascade)', () => {
+    // corps = réf mairie de A + discrète de P (2026-000200) → reference_mairie (A) l’emporte, avant la discrète.
+    const r = rattacherReponse(msg({ corpsTexte: 'réf SLC260810440700 ; ancien n° 2026-000200' }), [AM, P]);
+    expect(r).toMatchObject({ demandeId: 1, methode: 'reference_mairie' });
+  });
+
+  it('candidate SANS referencesExternes → l’étape n’explose pas et n’ajoute rien', () => {
+    const r = rattacherReponse(msg({ corpsTexte: 'un texte sans aucune référence connue' }), [A, P]);
+    expect(r).toMatchObject({ demandeId: null, methode: 'aucun' });
+  });
+});
+
 describe('R2 — ambiguïté & rien', () => {
   it('deux références complètes distinctes désignant deux demandes → aucun', () => {
     const r = rattacherReponse(msg({ corpsTexte: 'réfs SVAV-DEM-2026-000154 et SVAV-DEM-2026-000200 concernées' }), [A, P]);

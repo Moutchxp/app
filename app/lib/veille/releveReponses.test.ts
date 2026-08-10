@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
   const etat = {
-    candidates: [] as { id: number; reference: string; dest_email: string; message_ids: string[]; num_daus: string[] }[],
+    candidates: [] as { id: number; reference: string; dest_email: string; message_ids: string[]; num_daus: string[]; refs_externes?: string[] }[],
     depuis: null as Date | null,
     knownIds: [] as string[],
     domaines: [] as string[],
@@ -20,6 +20,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
     if (/\(dd\.satisfait_le IS NULL\) DESC/i.test(sql)) return { rows: etat.references.map((n) => ({ num_dau: n })), rowCount: etat.references.length }; // R3e/R3f lireReferencesRecherche (signature du tri)
+    if (/DISTINCT re\.reference/i.test(sql)) { const refs = [...new Set(etat.candidates.flatMap((c) => c.refs_externes ?? []))]; return { rows: refs.map((reference) => ({ reference })), rowCount: refs.length }; } // R3f références MAIRIE à interroger
     if (/min\(a\.envoye_le\)/i.test(sql)) return { rows: [{ depuis: etat.depuis }], rowCount: 1 };
     if (/array_agg\(a\.message_id\)/i.test(sql)) return { rows: etat.candidates, rowCount: etat.candidates.length };
     if (/FROM demande_reponse WHERE profil_boite/i.test(sql)) return { rows: etat.knownIds.map((m) => ({ message_id: m })), rowCount: etat.knownIds.length };
@@ -46,7 +47,7 @@ import type { PartieRapport } from './rapportRejet';
 
 const trouver = (r: RegExp) => appels.find((a) => r.test(a.sql));
 const DEPUIS = new Date('2026-08-01T00:00:00.000Z');
-const CAND_A = { id: 1, reference: 'SVAV-DEM-2026-000154', dest_email: 'urba@mairie-aubervilliers.fr', message_ids: ['<abc-154@sansvisavis.com>'], num_daus: [] as string[] };
+const CAND_A = { id: 1, reference: 'SVAV-DEM-2026-000154', dest_email: 'urba@mairie-aubervilliers.fr', message_ids: ['<abc-154@sansvisavis.com>'], num_daus: [] as string[], refs_externes: [] as string[] };
 const dsnCorps = (dest: string) => ['Your message could not be delivered.', `Final-Recipient: rfc822; ${dest}`, 'Action: failed', 'Status: 5.1.1', 'Diagnostic-Code: smtp; 550 5.1.1 No such user'].join('\n');
 
 let uidSeq = 0;
@@ -298,5 +299,69 @@ describe('R3f — la recherche par référence ne porte QUE sur les demandes env
     expect(r.connecte).toBe(false);
     expect(suivi.ouvert).toBe(0);
     expect(suivi.referencesInterrogees).toEqual([]); // lireReferencesRecherche pas atteint (retour anticipé « pas de connexion »)
+  });
+});
+
+describe('R3f (correctif 1a) — TOUS les dossiers non satisfaits des demandes envoyées sont interrogés (plus de gate dd.actif)', () => {
+  it('les 5 références de dossier (154→1, 119→4) sont interrogées, même quand des attaches sont actif=false', async () => {
+    // ce que renvoie la requête CORRIGÉE (sans AND dd.actif) : les 5 num_dau des 2 demandes envoyées
+    etat.references = ['0930012500081', '075112250010', '075112450025', '075120240037', '075120250035'];
+    const { client, suivi } = fauxClient([], undefined, () => []);
+    await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(suivi.referencesInterrogees).toEqual(etat.references); // 5, pas 1
+  });
+
+  it('la requête des n° de dossier NE filtre PLUS sur dd.actif (mais garde le périmètre envoyee)', async () => {
+    etat.references = ['0930012500081'];
+    const { client } = fauxClient([], undefined, () => []);
+    await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    const q = appels.find((a) => /s\.num_dau/i.test(a.sql) && /demande_dossier/i.test(a.sql) && /\(dd\.satisfait_le IS NULL\) DESC/i.test(a.sql));
+    expect(q).toBeDefined();
+    const norm = q!.sql.replace(/\s+/g, ' ');
+    expect(norm).toContain("d.statut = 'envoyee'"); // périmètre correct conservé
+    expect(norm).not.toContain('dd.actif');          // le gate a disparu (cause du défaut 1a)
+  });
+});
+
+describe('R3f — référence MAIRIE : commune FORMULAIRE (aucun domaine), réponse citant SA référence', () => {
+  const CAND_119 = { id: 119, reference: 'SVAV-DEM-2026-000119', dest_email: '', message_ids: [] as string[], num_daus: [] as string[], refs_externes: ['SLC260810440700'] };
+
+  it('la référence mairie est interrogée côté serveur (au même titre que les n° de dossier)', async () => {
+    etat.candidates = [CAND_119]; etat.domaines = []; etat.references = [];
+    const { client, suivi } = fauxClient([], () => [], () => []);
+    await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(suivi.referencesInterrogees).toContain('SLC260810440700');
+  });
+
+  it('message d’un domaine JAMAIS contacté (paris.fr) citant la référence mairie → retenu ET rattaché (reference_mairie)', async () => {
+    etat.candidates = [CAND_119]; etat.domaines = []; etat.references = [];
+    const m = boite({ deAdresse: 'no-reply@paris.fr', objet: 'Votre demande SLC260810440700', corpsTexte: 'Bonjour, votre dossier SLC260810440700 a bien été enregistré.' });
+    const { client, suivi } = fauxClient([m], () => [], (refs) => refs.includes('SLC260810440700') ? [m.uid] : []);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(suivi.uidsTelecharges).toContain(m.uid); // vu alors qu'il ne vient d'aucun domaine/sonde
+    expect(r.retenus).toBe(1);
+    expect(r.horsPerimetre).toBe(0);
+    expect(r.lignes[0]).toMatchObject({ demandeId: 119, methode: 'reference_mairie' });
+  });
+
+  it('pertinence R3b : un message citant une réf mairie connue est RETENU même si le rattachement est ambigu (aucun)', async () => {
+    // deux demandes partagent la même référence → rattachement 'aucun', MAIS le message reste pertinent (cité) → retenu
+    const dup = { ...CAND_A, id: 155, reference: 'SVAV-DEM-2026-000155', dest_email: '', refs_externes: ['SLC260810440700'] };
+    etat.candidates = [{ ...CAND_119 }, dup]; etat.domaines = []; etat.references = [];
+    const m = boite({ deAdresse: 'no-reply@paris.fr', corpsTexte: 'dossier SLC260810440700' });
+    const { client } = fauxClient([m], () => [], (refs) => refs.includes('SLC260810440700') ? [m.uid] : []);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.retenus).toBe(1);          // retenu (pertinent via réf mairie)
+    expect(r.horsPerimetre).toBe(0);
+    expect(r.lignes[0]).toMatchObject({ demandeId: null, methode: 'aucun' }); // mais NON rattaché (ambigu)
+  });
+
+  it('une référence INCONNUE ne rattache rien et n’est pas retenue', async () => {
+    etat.candidates = [CAND_119]; etat.domaines = []; etat.references = [];
+    const m = boite({ deAdresse: 'no-reply@paris.fr', corpsTexte: 'référence SLC999999999999 inconnue' });
+    const { client } = fauxClient([m], () => [], () => [m.uid]); // serveur le ramène, mais le filtre client le rejette
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.retenus).toBe(0);
+    expect(r.horsPerimetre).toBe(1);
   });
 });

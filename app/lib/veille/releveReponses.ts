@@ -18,6 +18,7 @@ import { enregistrerReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces,
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { rattacherReponse, estAccuseDeRebond, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
 import { analyserRapportRejet, normaliserMessageId, type PartieRapport, type ResultatRapportRejet } from './rapportRejet';
+import { normaliserReference } from '../sitadel/demandesListe';
 
 export interface PieceMeta { nomFichier: string; typeMime: string | null; tailleOctets: number | null; contenu: Buffer }
 
@@ -61,7 +62,7 @@ export interface RapportReleve {
   depuis: string | null;
   domainesInterroges: string[];
   uidsServeur: number;          // UID renvoyés par la recherche par domaine (union dédupliquée)
-  referencesInterrogees: number; // R3e : nombre de numéros de dossier interrogés côté serveur (TEXT)
+  referencesInterrogees: number; // R3e/R3f : nombre de références interrogées côté serveur en TEXT (n° de dossier + réf. mairie)
   uidsReferences: number;        // R3e : UID ramenés par la recherche par référence (distinct des autres sondes)
   plafondReferencesAtteint: boolean; // R3e : le plafond recherche_references_max a mordu (les plus urgents seulement)
   plafondAtteint: boolean;
@@ -110,15 +111,16 @@ function objetPertinent(objet: string | undefined): boolean {
 /** R3e — numéro de dossier Sitadel réduit à ses seuls chiffres (ex. « PC 093 001 25 00081 » → « 0930012500081 »). */
 function numeroDossier(numDau: string): string { return numDau.replace(/\D/g, ''); }
 
-/** Une demande envoyée du profil : identité + destinataire + Message-ID émis + n° de dossier (pour rattacher réponses ET rebonds). */
-interface DemandeEnvoyee { id: number; reference: string; destEmail: string; messageIdsEmis: string[]; numerosDossier: string[] }
+/** Une demande envoyée du profil : identité + destinataire + Message-ID émis + n° de dossier + réf. mairie (pour rattacher réponses ET rebonds). */
+interface DemandeEnvoyee { id: number; reference: string; destEmail: string; messageIdsEmis: string[]; numerosDossier: string[]; referencesExternes: string[] }
 
 async function lireEnvoyees(profil: ProfilBoite): Promise<DemandeEnvoyee[]> {
-  const { rows } = await query<{ id: number; reference: string; dest_email: string; message_ids: string[]; num_daus: string[] }>(
+  const { rows } = await query<{ id: number; reference: string; dest_email: string; message_ids: string[]; num_daus: string[]; refs_externes: string[] }>(
     `SELECT d.id::int AS id, d.reference, coalesce(d.dest_email, '') AS dest_email,
             coalesce(array_agg(a.message_id) FILTER (WHERE a.message_id IS NOT NULL), '{}') AS message_ids,
             coalesce((SELECT array_agg(s.num_dau) FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
-                       WHERE dd.demande_id = d.id AND dd.actif), '{}') AS num_daus
+                       WHERE dd.demande_id = d.id AND dd.actif), '{}') AS num_daus,
+            coalesce((SELECT array_agg(re.reference) FROM demande_reference_externe re WHERE re.demande_id = d.id), '{}') AS refs_externes
        FROM demande d
        LEFT JOIN demande_acheminement a ON a.demande_id = d.id AND a.canal = 'email'
       WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1
@@ -128,32 +130,44 @@ async function lireEnvoyees(profil: ProfilBoite): Promise<DemandeEnvoyee[]> {
   return rows.map((r) => ({
     id: r.id, reference: r.reference, destEmail: r.dest_email, messageIdsEmis: r.message_ids,
     numerosDossier: r.num_daus.map(numeroDossier).filter((n) => n !== ''),
+    referencesExternes: (r.refs_externes ?? []).map((x) => x.trim()).filter((x) => x !== ''),
   }));
 }
 
 /**
- * R3e/R3f — références de dossier à interroger côté serveur : dossiers des demandes ENVOYÉES du profil (⚠️ R3f : SEULEMENT
- * 'envoyee' — une demande en brouillon/prête n'est jamais partie, une abandonnée non plus, une close a déjà obtenu ses
- * pièces ; interroger le serveur sur elles gaspille le plafond et peut évincer une vraie demande). NON satisfaits en
- * priorité, ordonnés par échéance croissante (proxy : envoyé_le croissant), plafonnés. Renvoie les n° (chiffres) dédupliqués
- * et un drapeau si le plafond a mordu (jamais silencieux). LECTURE SEULE.
+ * R3e/R3f — références à interroger côté serveur pour les demandes ENVOYÉES du profil (SEULEMENT 'envoyee' : une brouillon/
+ * prête n'est jamais partie ; une close a déjà ses pièces). DEUX familles, AU MÊME TITRE :
+ *   - n° de dossier Sitadel des dossiers NON satisfaits d'abord (par échéance croissante) ;
+ *   - références MAIRIE (P1, demande_reference_externe) — l'identifiant que la mairie cite dans SA réponse.
+ * ⚠️ Fix 1a : PLUS de gate `dd.actif` — une demande envoyée a sollicité la mairie sur TOUS ses dossiers, que l'attache-stock
+ * soit encore active ou non (cas d'une demande annulée puis revivifiée et renvoyée : ses dossiers restent actif=false). Le
+ * périmètre correct est `statut='envoyee'`. La non-ambiguïté n'est PAS requise ici (on cherche à TROUVER l'e-mail) ; c'est le
+ * rattachement qui l'exige. Dédupliqué, plafonné (réf. mairie d'abord — peu nombreuses, fort signal — pour ne jamais les
+ * évincer), drapeau si le plafond mord (jamais silencieux). LECTURE SEULE.
  */
 async function lireReferencesRecherche(profil: ProfilBoite, max: number): Promise<{ references: string[]; plafondAtteint: boolean }> {
-  const { rows } = await query<{ num_dau: string }>(
+  const { rows: rd } = await query<{ num_dau: string }>(
     `SELECT s.num_dau
        FROM demande d
-       JOIN demande_dossier dd ON dd.demande_id = d.id AND dd.actif
+       JOIN demande_dossier dd ON dd.demande_id = d.id
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
       WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1
       ORDER BY (dd.satisfait_le IS NULL) DESC,
                (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id AND a.canal = 'email') ASC NULLS LAST,
-               s.num_dau
-      LIMIT $2`,
-    [profil, max + 1], // +1 pour détecter le dépassement du plafond
+               s.num_dau`,
+    [profil],
+  );
+  const { rows: rm } = await query<{ reference: string }>(
+    `SELECT DISTINCT re.reference
+       FROM demande d JOIN demande_reference_externe re ON re.demande_id = d.id
+      WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1`,
+    [profil],
   );
   const toutes: string[] = [];
   const vus = new Set<string>();
-  for (const r of rows) { const n = numeroDossier(r.num_dau); if (n.length >= 10 && !vus.has(n)) { vus.add(n); toutes.push(n); } }
+  // Réf. mairie d'abord (jamais évincées par un afflux de n° de dossier), puis n° de dossier (non satisfaits en tête).
+  for (const r of rm) { const ref = r.reference.trim(); const k = `m:${ref.toUpperCase()}`; if (ref !== '' && !vus.has(k)) { vus.add(k); toutes.push(ref); } }
+  for (const r of rd) { const n = numeroDossier(r.num_dau); const k = `d:${n}`; if (n.length >= 10 && !vus.has(k)) { vus.add(k); toutes.push(n); } }
   const plafondAtteint = toutes.length > max;
   return { references: toutes.slice(0, max), plafondAtteint };
 }
@@ -231,7 +245,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const mode: 'simulation' | 'applique' = appliquer ? 'applique' : 'simulation';
 
   const envoyees = await lireEnvoyees(opts.profil);
-  const candidates: DemandeCandidate[] = envoyees.map((e) => ({ id: e.id, reference: e.reference, profilBoite: opts.profil, statut: 'envoyee', messageIdsEmis: e.messageIdsEmis, numerosDossier: e.numerosDossier }));
+  const candidates: DemandeCandidate[] = envoyees.map((e) => ({ id: e.id, reference: e.reference, profilBoite: opts.profil, statut: 'envoyee', messageIdsEmis: e.messageIdsEmis, numerosDossier: e.numerosDossier, referencesExternes: e.referencesExternes }));
   const depuis = opts.depuis ?? (await dateDepart(opts.profil));
   const domaines = await lireDomainesDestinataires(opts.profil);
   const domainesInterroges = [...domaines];
@@ -264,6 +278,12 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const contientNumeroDossier = (mb: MessageBoite): boolean => {
     const foin = `${mb.message.objet ?? ''}\n${mb.message.corpsTexte ?? ''}\n${mb.pieces.map((p) => p.nomFichier).join('\n')}`.replace(/[\s.\-/_]/gu, '');
     return candidates.some((c) => c.numerosDossier.some((n) => n.length >= 10 && foin.includes(n)));
+  };
+  // R3f — une RÉFÉRENCE MAIRIE connue (P1) apparaît LITTÉRALEMENT (objet/corps) ? Critère de pertinence, QUEL QUE SOIT le
+  //   domaine expéditeur (le trou que R3e avait comblé pour les n° de dossier, ici pour la référence mairie).
+  const contientReferenceMairie = (mb: MessageBoite): boolean => {
+    const foin = normaliserReference(`${mb.message.objet ?? ''}\n${mb.message.corpsTexte ?? ''}`);
+    return candidates.some((c) => (c.referencesExternes ?? []).some((r) => { const rn = normaliserReference(r); return rn.length >= 6 && foin.includes(rn); }));
   };
 
   await opts.client.ouvrir();
@@ -317,7 +337,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
       if (!opts.sansFiltre && !duDomaine) { horsPerimetre += 1; continue; } // sonde rebond mais pas un rebond → ignoré
       const r = rattacherReponse(mb.message, candidates);
       // R3e — nouveau critère : un n° de dossier d'une demande candidate apparaît littéralement (objet/corps/nom de pièce).
-      const pertinent = opts.sansFiltre === true || r.methode !== 'aucun' || domaines.has(domaineDe(mb.message.deAdresse)) || objetPertinent(mb.message.objet) || contientNumeroDossier(mb);
+      const pertinent = opts.sansFiltre === true || r.methode !== 'aucun' || domaines.has(domaineDe(mb.message.deAdresse)) || objetPertinent(mb.message.objet) || contientNumeroDossier(mb) || contientReferenceMairie(mb);
       if (!pertinent) { horsPerimetre += 1; continue; }
       lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
       if (appliquer) {
