@@ -3,6 +3,7 @@ import { NOM_COOKIE, verifierJeton, sessionDepuisPayload } from '../../../../lib
 import { EnTetePage } from '../_composants/EnTetePage';
 import { chargerConfigVeille } from '../../../../lib/sitadel/veilleConfig';
 import { categoriesConnues } from '../../../../lib/sitadel/priorite';
+import { libelleTriCandidats } from '../../../../lib/sitadel/reglagesVeille';
 import { PermisTuile } from './PermisTuile';
 
 /**
@@ -31,7 +32,8 @@ export default async function PermisPage() {
         intro="Veille des autorisations d'urbanisme (Sitadel) : constructions, surélévations, extensions et démolitions autorisées, classées par priorité — réservé aux administrateurs."
       />
       {estAdmin ? (
-        <PermisTuile depuisParDefaut={depuisParDefaut} categories={categoriesConnues(config)} />
+        <PermisTuile depuisParDefaut={depuisParDefaut} categories={categoriesConnues(config)}
+          ancienneteMaxAnnees={config.ancienneteMaxDemandeAnnees} triLibelle={libelleTriCandidats(config.triCandidats)} />
       ) : (
         <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>
           Cet espace est réservé aux administrateurs.

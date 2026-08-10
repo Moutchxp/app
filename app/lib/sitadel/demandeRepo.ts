@@ -61,8 +61,17 @@ function dateMinMois(mois: number): string {
   d.setMonth(d.getMonth() - mois);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
-function paramsLot(cfg: ConfigVeille): ParamsLot {
-  return { dossiersParDemande: cfg.dossiersParDemande, permisParCommuneParMois: cfg.permisParCommuneParMois, dateMin: dateMinDepuis(cfg.ancienneteMaxDemandeAnnees) };
+/**
+ * Q4 — `ancienneteMois` (état d'écran, DÉJÀ borné par la route via `bornerAncienneteMois`) raccourcit la fenêtre passée à
+ * l'éligibilité : AU MAXIMUM (ou absent) → `dateMinDepuis(anciennete_max)`, EXACTEMENT le comportement d'avant Q4
+ * (byte-identique) ; en deçà → `dateMinMois(ancienneteMois)`. Réutilise les DEUX helpers existants, n'en crée pas un
+ * troisième. Ne touche NI l'éligibilité (estCandidatEligible) NI le réglage anciennete_max lui-même — seulement la DATE passée.
+ */
+export function paramsLot(cfg: ConfigVeille, ancienneteMois?: number): ParamsLot {
+  const maxMois = 12 * cfg.ancienneteMaxDemandeAnnees;
+  const mois = ancienneteMois ?? maxMois;
+  const dateMin = mois >= maxMois ? dateMinDepuis(cfg.ancienneteMaxDemandeAnnees) : dateMinMois(mois);
+  return { dossiersParDemande: cfg.dossiersParDemande, permisParCommuneParMois: cfg.permisParCommuneParMois, dateMin };
 }
 
 /** Identité d'un profil (défaut 'entreprise'). Ligne absente → champs vides (jamais d'exception). */
@@ -140,10 +149,10 @@ export function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDema
 }
 
 /** Lots PROPOSÉS (aucune écriture) + diagnostic (pour expliquer un « 0 lot ») — pour revue avant création. */
-export async function proposition(cfg: ConfigVeille): Promise<{ lots: Lot[]; diagnostic: DiagnosticProposition }> {
+export async function proposition(cfg: ConfigVeille, ancienneteMois?: number): Promise<{ lots: Lot[]; diagnostic: DiagnosticProposition }> {
   const [dossiers, hist] = await Promise.all([lireDossiersPriorite(cfg, cfg.nbCandidatsExamines), lireHistorique()]);
   const candidats = dossiers.map(versCandidat);
-  const params = paramsLot(cfg);
+  const params = paramsLot(cfg, ancienneteMois); // Q4 : fenêtre d'ancienneté d'écran (bornée), défaut = maximum du réglage
   return { lots: proposerLots(candidats, params, hist), diagnostic: diagnostiquer(candidats, hist, params) };
 }
 
@@ -158,15 +167,15 @@ export interface StockResultat { lignes: LigneStock[]; tronque: boolean; genereE
  * d'éligibilité complète) est appliqué en entier → strictement équivalent à charger toute la fenêtre, en ~5× moins de lignes.
  * `genereEnMs` = temps de génération, rendu à l'écran (transparence de perf). NE touche ni le chemin candidats ni la base.
  */
-export async function stockPermisParCommune(cfg: ConfigVeille): Promise<StockResultat> {
+export async function stockPermisParCommune(cfg: ConfigVeille, fenetreMois: number = FENETRE_STOCK_MOIS): Promise<StockResultat> {
   const t0 = Date.now();
   const dateMin = dateMinDepuis(cfg.ancienneteMaxDemandeAnnees); // borne d'ÉLIGIBILITÉ (inchangée — passée à estCandidatEligible)
-  const dateMin6mois = dateMinMois(FENETRE_STOCK_MOIS);          // borne d'AFFICHAGE (sous-ensemble strict)
-  const [{ lignes, tronque }, hist] = await Promise.all([lireDossiersDepuis(cfg, dateMin6mois), lireHistorique()]);
+  const dateMinFenetre = dateMinMois(fenetreMois);              // Q4 — borne d'AFFICHAGE = fenêtre du filtre (défaut FENETRE_STOCK_MOIS)
+  const [{ lignes, tronque }, hist] = await Promise.all([lireDossiersDepuis(cfg, dateMinFenetre), lireHistorique()]);
   const dossiers: DossierStock[] = lignes.map((d) => ({ candidat: versCandidat(d), categorie: d.categorie }));
-  const stock = agregerStock(dossiers, dateMin, hist.dejaRattaches, dateMin6mois);
+  const stock = agregerStock(dossiers, dateMin, hist.dejaRattaches, dateMinFenetre);
   if (tronque) console.warn('[permis/stock] plafond de chargement atteint — stock possiblement incomplet (réduire la fenêtre ou passer à un agrégat SQL)');
-  return { lignes: stock, tronque, genereEnMs: Date.now() - t0, fenetreMois: FENETRE_STOCK_MOIS };
+  return { lignes: stock, tronque, genereEnMs: Date.now() - t0, fenetreMois };
 }
 
 /** Q2b — un permis délivré (panneau de détail) : identité + type + s'il est DÉJÀ demandé (réf. de la demande active), sinon à demander. */
@@ -253,9 +262,9 @@ const RAISON_LOT_INVALIDE = 'lot plus disponible : dossiers déjà rattachés, p
  * liens dossiers, journal (→brouillon). L'index unique partiel `demande_dossier_unique_actif` est le filet anti-course : un
  * dossier rattaché entre proposition() et l'INSERT → lot ignoré (ignoresConflit). Compte rendu CHIFFRÉ. AUCUN ENVOI.
  */
-export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: string | null, profilDemande: ProfilDemandeur | undefined, selection: { cle: string; communeNom: string | null }[]): Promise<CompteRenduCreation> {
+export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: string | null, profilDemande: ProfilDemandeur | undefined, selection: { cle: string; communeNom: string | null }[], ancienneteMois?: number): Promise<CompteRenduCreation> {
   const profil = profilDemande ?? profilValide(cfg.profilDemandeurDefaut);
-  const { lots } = await proposition(cfg);
+  const { lots } = await proposition(cfg, ancienneteMois); // Q4 : re-dérive avec la MÊME fenêtre que l'aperçu (sinon lots ≠ affichés)
   const { aCreer, invalides } = apparierSelection(lots, selection.map((s) => s.cle));
   const communeParCle = new Map(selection.map((s) => [s.cle, s.communeNom]));
   const lotsInvalides: LotIgnore[] = invalides.map((cle) => ({ cle, communeNom: communeParCle.get(cle) ?? null, raison: RAISON_LOT_INVALIDE }));

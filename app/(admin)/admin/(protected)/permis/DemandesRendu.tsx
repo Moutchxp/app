@@ -56,6 +56,42 @@ export function MessageRetour({ r }: { r: RetourAction }) {
 
 const aide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)', lineHeight: 1.45, margin: '.3rem 0 0' };
 
+/**
+ * Q4 — BANDEAU de rappel des réglages EN VIGUEUR (ancienneté maximale + ordre d'examen), en tête de l'onglet Demandes, avec
+ * le FILTRE d'ancienneté (état d'écran, JAMAIS persisté). PUR : la config et l'état du filtre viennent de la Vue. Le libellé
+ * d'ordre est celui d'`optionsEnumLabels` (source unique — même mot que dans Réglages, 3e valeur de Q3 incluse). Le maximum
+ * DÉRIVE de la config (`maxMois` = 12 × ancienneté max), jamais figé. Mobile-first : les deux blocs s'empilent (flex-wrap) sur
+ * écran étroit ; la borne est affichée sous le champ (motif `PlageParam`), pas de slider. Aucune animation → prefers-reduced-motion sans objet.
+ */
+export function BandeauReglages({
+  ancienneteMaxAnnees, triLibelle, moisSaisie, maxMois, onMois, onAllerReglages,
+}: {
+  ancienneteMaxAnnees: number; triLibelle: string; moisSaisie: string; maxMois: number;
+  onMois?: (v: string) => void; onAllerReglages?: () => void;
+}) {
+  const muted: CSSProperties = { color: 'var(--color-svv-muted)' };
+  return (
+    <section className="svv-card" aria-label="Réglages en vigueur"
+      style={{ display: 'flex', flexWrap: 'wrap', gap: '.8rem 1.4rem', alignItems: 'flex-start', fontSize: 13 }}>
+      <div style={{ flex: '1 1 14rem', minWidth: 0 }}>
+        <div><span style={muted}>Ancienneté maximale des demandes : </span><strong>{ancienneteMaxAnnees} an{ancienneteMaxAnnees > 1 ? 's' : ''}</strong></div>
+        <div><span style={muted}>Ordre d’examen : </span><strong>{triLibelle}</strong></div>
+        <p style={{ ...muted, fontSize: 12, margin: '.3rem 0 0', lineHeight: 1.45 }}>
+          Ces deux valeurs se règlent dans{' '}
+          <button type="button" className="svv-link" style={{ width: 'auto', padding: 0, verticalAlign: 'baseline' }} onClick={() => onAllerReglages?.()}>l’onglet Réglages</button>.
+        </p>
+      </div>
+      <label className="flex flex-col gap-1" style={{ flex: '0 1 auto', minWidth: 0 }}>
+        <span style={{ fontSize: 12 }}>Filtrer par ancienneté</span>
+        <input type="number" min={1} max={maxMois} step={1} inputMode="numeric" value={moisSaisie}
+          onChange={(e) => onMois?.(e.target.value)} aria-label="Ancienneté à filtrer, en mois"
+          style={{ width: '6.5rem', boxSizing: 'border-box', padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 14, fontFamily: 'inherit' }} />
+        <span style={{ ...muted, fontSize: 12 }}>Plage autorisée : 1 – {maxMois} mois</span>
+      </label>
+    </section>
+  );
+}
+
 /** Indication d'origine du destinataire par ligne : « PRADA — Nom » ou « contact mairie ». Texte d'abord, couleur en appui. */
 export function OrigineDest({ origine, nom }: { origine?: string | null; nom?: string | null }) {
   const prada = origine === 'prada';

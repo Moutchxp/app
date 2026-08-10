@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, BlocStock, TableStock, PanneauDetailStock, libelleStock, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 import type { LigneStock } from '../../../../lib/sitadel/stock';
@@ -592,5 +592,55 @@ describe('Q2b — BlocStock (repliable, fermé par défaut, mention du sous-ense
   it('ouvert + en chargement (stock null) → « Chargement du stock… »', () => {
     const h = renderToStaticMarkup(createElement(BlocStock, { ouvert: true, chargement: true, stock: null, fenetreMois: 6, onToggle: () => {} }));
     expect(h).toContain('Chargement du stock');
+  });
+});
+
+describe('Q4 — BandeauReglages (rappel des réglages en vigueur + filtre d’ancienneté)', () => {
+  const rendu = (over: Record<string, unknown> = {}) => renderToStaticMarkup(createElement(BandeauReglages, {
+    ancienneteMaxAnnees: 2, triLibelle: 'ORDRE_LIBELLE_SENTINELLE',
+    moisSaisie: '24', maxMois: 24, onMois: () => {}, onAllerReglages: () => {}, ...over,
+  }));
+
+  it('rappelle l’ancienneté maximale et l’ordre d’examen (libellé fourni par la Vue = source unique)', () => {
+    const h = rendu();
+    expect(h).toContain('Ancienneté maximale des demandes');
+    expect(h).toContain('2 ans');
+    expect(h).toContain('examen');                    // « Ordre d’examen »
+    expect(h).toContain('ORDRE_LIBELLE_SENTINELLE');  // le libellé vient d’optionsEnumLabels, jamais réécrit ici
+  });
+
+  it('1 an → singulier « an »', () => {
+    expect(rendu({ ancienneteMaxAnnees: 1, maxMois: 12, moisSaisie: '12' })).toContain('1 an<');
+  });
+
+  it('champ NOMBRE borné [1, maxMois], borne affichée sous le champ (motif PlageParam), AUCUN slider', () => {
+    const h = rendu();
+    expect(h).toContain('type="number"');
+    expect(h).toContain('min="1"');
+    expect(h).toContain('max="24"');
+    expect(h).toContain('value="24"');
+    expect(h).toContain('Plage autorisée');
+    expect(h).toContain('24 mois');
+    expect(h).not.toContain('type="range"'); // pas de curseur/slider
+  });
+
+  it('propose un lien vers l’onglet Réglages', () => {
+    expect(rendu()).toContain('Réglages');
+  });
+});
+
+describe('Q4 — stock : libellé de fenêtre DYNAMIQUE (plus de « 6 » figé)', () => {
+  it('libelleStock reflète la fenêtre en cours (24 mois, jamais 6)', () => {
+    const l = libelleStock([ligneStock({ parType: { immeuble_neuf: 3 } })], 24);
+    expect(l).toContain('24 derniers mois');
+    expect(l).not.toContain('6 derniers mois');
+  });
+
+  it('BlocStock (ouvert) affiche la fenêtre courante dans l’explication', () => {
+    const h = renderToStaticMarkup(createElement(BlocStock, {
+      ouvert: true, chargement: false, stock: [], genereEnMs: 10, fenetreMois: 18, onToggle: () => {},
+      table: createElement('span', {}, 'TABLE'),
+    }));
+    expect(h).toContain('18 derniers mois');
   });
 });

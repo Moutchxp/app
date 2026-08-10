@@ -3,6 +3,7 @@ import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../../lib/sitadel/veilleConfig';
 import { stockPermisParCommune, lireDetailPermisCommune } from '../../../../../../lib/sitadel/demandeRepo';
 import { CATEGORIES_STOCK } from '../../../../../../lib/sitadel/stock';
+import { bornerAncienneteMois } from '../../../../../../lib/sitadel/demande';
 import type { CleCategorie } from '../../../../../../lib/sitadel/priorite';
 
 /**
@@ -32,7 +33,9 @@ export async function GET(request: Request): Promise<Response> {
       const permis = await lireDetailPermisCommune(cfg, commune, url.searchParams.get('periode'), typeValide(url.searchParams.get('type')));
       return Response.json({ commune, permis });
     }
-    return Response.json(await stockPermisParCommune(cfg));
+    // Q4 — fenêtre d'affichage du stock = filtre d'ancienneté (mois), BORNÉ serveur : absent/invalide/hors plage → maximum.
+    const ancienneteMois = bornerAncienneteMois(url.searchParams.get('ancienneteMois'), cfg.ancienneteMaxDemandeAnnees);
+    return Response.json(await stockPermisParCommune(cfg, ancienneteMois));
   } catch (e) {
     // Jamais de catch muet (cf. P2 / veille:run invisible 9 h) : trace COMPLÈTE côté serveur, 503 générique au client.
     const err = e as { name?: unknown; message?: unknown; stack?: unknown; code?: unknown; detail?: unknown; constraint?: unknown; table?: unknown; column?: unknown };

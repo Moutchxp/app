@@ -227,6 +227,16 @@ export const PARAMS_VEILLE: ParamVeille[] = [
 ];
 
 /**
+ * Q4 — libellé FR d'une valeur de `tri_candidats` (« ordre d'examen »), depuis `optionsEnumLabels` — SOURCE UNIQUE : les
+ * écrans Réglages ET Demandes (et toute vue future) affichent le MÊME libellé, y compris la 3e valeur livrée en Q3. Valeur
+ * inconnue → valeur brute (repli sûr). PURE.
+ */
+export function libelleTriCandidats(valeur: string): string {
+  const p = PARAMS_VEILLE.find((x) => x.colonne === 'tri_candidats');
+  return p?.optionsEnumLabels?.[valeur] ?? valeur;
+}
+
+/**
  * Partition PRÉSENTATIONNELLE de `PARAMS_VEILLE`. `COLONNES_PARAMS_DEMANDES` règlent les DEMANDES aux mairies (rendues dans
  * l'onglet Réglages). `PARAMS_DOSSIERS` (seuils « immeuble », rangs des catégories, profondeur d'affichage) classent et
  * affichent les DOSSIERS.

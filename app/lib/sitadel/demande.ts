@@ -225,6 +225,20 @@ export function estCandidatEligible(d: CandidatDossier, dateMin: string | null, 
 }
 
 /**
+ * Q4 — BORNE une ancienneté SAISIE (en mois) dans ce que le réglage autorise : entier de 1 à 12 × `maxAnnees`. Toute valeur
+ * ABSENTE, non numérique, < 1 ou SUPÉRIEURE au maximum retombe sur le MAXIMUM (jamais d'erreur) : l'écran s'ouvre, et le
+ * serveur se rabat toujours sur « tout ce que le réglage permet ». Le maximum DÉRIVE de la config lue au runtime (jamais figé).
+ * PURE : partagée par la saisie côté écran ET le bornage côté route — une seule définition de la fenêtre autorisée. Ne
+ * PERSISTE rien : ce n'est pas un réglage, c'est un état d'écran.
+ */
+export function bornerAncienneteMois(valeur: unknown, maxAnnees: number): number {
+  const max = Math.max(1, Math.trunc(12 * maxAnnees));
+  const n = typeof valeur === 'number' ? valeur : Number(valeur);
+  if (!Number.isFinite(n) || n < 1) return max;   // absente / non numérique / < 1 → maximum
+  return Math.min(Math.trunc(n), max);            // au-delà du maximum → ramené au maximum
+}
+
+/**
  * Propose des lots à partir de candidats DÉJÀ ORDONNÉS par priorité (cf. priorite.ts — on ne réordonne pas ici).
  * Exclut : dossiers HORS FENÊTRE d'ancienneté (date < `dateMin`) ou SANS DATE d'autorisation (pertinence non jugeable —
  * la cible d'une demande est un bâtiment que le LiDAR ne voit pas encore ; au-delà, la hauteur est déjà mesurée) ;

@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../../lib/sitadel/veilleConfig';
-import { profilValide } from '../../../../../../lib/sitadel/demande';
+import { profilValide, bornerAncienneteMois } from '../../../../../../lib/sitadel/demande';
 import { proposition } from '../../../../../../lib/sitadel/demandeRepo';
 
 /**
@@ -17,9 +17,12 @@ export async function GET(request: Request): Promise<Response> {
   if ('refus' in garde) return garde.refus;
   try {
     const cfg = await chargerConfigVeille();
-    const brut = new URL(request.url).searchParams.get('profil');
+    const sp = new URL(request.url).searchParams;
+    const brut = sp.get('profil');
     const profil = brut === null ? profilValide(cfg.profilDemandeurDefaut) : profilValide(brut);
-    const { lots, diagnostic } = await proposition(cfg);
+    // Q4 — fenêtre d'ancienneté (mois), BORNÉE serveur : absent/invalide/hors plage → maximum du réglage, jamais d'erreur.
+    const ancienneteMois = bornerAncienneteMois(sp.get('ancienneteMois'), cfg.ancienneteMaxDemandeAnnees);
+    const { lots, diagnostic } = await proposition(cfg, ancienneteMois);
     return Response.json({ lots, diagnostic, profil });
   } catch {
     return Response.json({ erreur: 'proposition indisponible' }, { status: 503 });

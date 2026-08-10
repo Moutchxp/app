@@ -18,8 +18,8 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock, withTransaction: async () => undefined, pool: {}, closePool: async () => undefined }));
 
-import { lireDetailPermisCommune } from './demandeRepo';
-import { chargerConfigVeille } from './veilleConfig';
+import { lireDetailPermisCommune, paramsLot } from './demandeRepo';
+import { chargerConfigVeille, type ConfigVeille } from './veilleConfig';
 
 // Lignes SQL brutes (forme renvoyée par la requête de détail).
 const immeuble = (over: Record<string, unknown> = {}) => ({
@@ -86,5 +86,25 @@ describe('Q2b — lireDetailPermisCommune : borne de période', () => {
     const q = detailQuery();
     expect(q.sql).not.toContain('date_reelle_autorisation >= $');
     expect(q.params).toEqual(['75056']);
+  });
+});
+
+describe('Q4 — paramsLot : fenêtre d’ancienneté (dateMin dérivé ; au maximum = comportement d’avant Q4)', () => {
+  const cfg = { ancienneteMaxDemandeAnnees: 2, dossiersParDemande: 5, permisParCommuneParMois: 5 } as unknown as ConfigVeille;
+
+  it('absent === explicitement au maximum (12 × ancienneté) : EXACTEMENT la même dateMin', () => {
+    expect(paramsLot(cfg).dateMin).toBe(paramsLot(cfg, 24).dateMin);
+    expect(paramsLot(cfg, 999).dateMin).toBe(paramsLot(cfg).dateMin); // ≥ maximum → branche dateMinDepuis (comme l’avant-Q4)
+  });
+
+  it('une fenêtre plus courte donne une dateMin PLUS RÉCENTE (borne resserrée)', () => {
+    const court = paramsLot(cfg, 3).dateMin!;
+    const max = paramsLot(cfg).dateMin!;
+    expect(court > max).toBe(true); // ISO 'AAAA-MM-JJ' : plus récent = lexicographiquement supérieur
+  });
+
+  it('les autres paramètres du lot ne dépendent PAS de la fenêtre', () => {
+    expect(paramsLot(cfg, 3).dossiersParDemande).toBe(5);
+    expect(paramsLot(cfg, 3).permisParCommuneParMois).toBe(5);
   });
 });

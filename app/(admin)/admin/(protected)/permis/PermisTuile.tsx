@@ -16,15 +16,15 @@ import type { CleCategorie } from '../../../../lib/sitadel/priorite';
  * Automatisation) et « Demandes aux mairies » (Demandes, Réponses, Saisines CADA, Collaborateurs, Réglages). La barre est PUR
  * (`OngletsPermis`) ; ici on ne gère que l'onglet actif et le montage du corps correspondant.
  */
-interface Props { depuisParDefaut: string; categories: { cle: CleCategorie; libelle: string; rang: number }[] }
+interface Props { depuisParDefaut: string; categories: { cle: CleCategorie; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string }
 
-export function PermisTuile({ depuisParDefaut, categories }: Props) {
+export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, triLibelle }: Props) {
   const [onglet, setOnglet] = useState<CleOnglet>('dossiers');
   return (
     <div className="flex flex-col gap-3">
       <OngletsPermis actif={onglet} onChoisir={setOnglet} />
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} />}
-      {onglet === 'demandes' && <DemandesVue categories={categories} />}
+      {onglet === 'demandes' && <DemandesVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} onAllerReglages={() => setOnglet('reglages')} />}
       {onglet === 'reponses' && <ReponsesVue />}
       {onglet === 'saisines' && <SaisinesVue />}
       {onglet === 'reglages' && <ReglagesVue />}

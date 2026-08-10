@@ -1,11 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagnostic, ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur, cleLot, compterSelection } from '../../../../lib/sitadel/demande';
+import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagnostic, ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur, cleLot, compterSelection, bornerAncienneteMois } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, ResumeDemandes, AlerteIdentite, CompteRenduCreation, StockResultat, PermisDetail } from '../../../../lib/sitadel/demandeRepo';
 import { type Tri, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle } from '../../../../lib/sitadel/demandesListe';
 import { PERIODE_STOCK_DEFAUT, FENETRE_STOCK_MOIS } from '../../../../lib/sitadel/stock';
-import { OrigineDest, MessageRetour, repartirRetour, CartePropositions, FiltreTypes, TableDemandes, STATUT_LIBELLE, BlocStock, TableStock, PanneauDetailStock, type RetourAction } from './DemandesRendu';
+import { OrigineDest, MessageRetour, repartirRetour, CartePropositions, FiltreTypes, TableDemandes, STATUT_LIBELLE, BlocStock, TableStock, PanneauDetailStock, BandeauReglages, type RetourAction } from './DemandesRendu';
 import { BlocPrada } from './BlocPrada';
 import { BlocDepot } from './BlocDepot';
 
@@ -20,7 +20,7 @@ const PAGE_SIZE = 20;
 const styleChamp: CSSProperties = { padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 };
 
 type Bascule = { ids: number[]; profil: ProfilDemandeur };
-interface Props { categories: { cle: string; libelle: string; rang: number }[] }
+interface Props { categories: { cle: string; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; onAllerReglages: () => void }
 
 /** Message d'échec = la RAISON réelle renvoyée par le serveur ({erreur}), jamais un libellé figé à deux mots. */
 async function erreurServeur(res: Response, repli: string): Promise<string> {
@@ -28,7 +28,7 @@ async function erreurServeur(res: Response, repli: string): Promise<string> {
   catch { return repli; }
 }
 
-export function DemandesVue({ categories }: Props) {
+export function DemandesVue({ categories, ancienneteMaxAnnees, triLibelle, onAllerReglages }: Props) {
   const [liste, setListe] = useState<{ demandes: DemandeListe[]; alertesIdentite: AlerteIdentite[]; resume: ResumeDemandes; referencesIndisponibles?: boolean } | null>(null);
   const [prop, setProp] = useState<{ lots: Lot[]; diagnostic: DiagnosticProposition; profil: ProfilDemandeur } | null>(null);
   const [profilPrep, setProfilPrep] = useState<ProfilDemandeur>('entreprise');
@@ -58,6 +58,17 @@ export function DemandesVue({ categories }: Props) {
   const [typeStock, setTypeStock] = useState<string>('immeuble_neuf');              // panneau : type (défaut immeuble neuf)
   const [permisStock, setPermisStock] = useState<PermisDetail[] | null>(null);      // null = en cours de chargement
   const [permisChargement, setPermisChargement] = useState(false);
+  // Q4 — FILTRE d'ancienneté (état d'écran, JAMAIS persisté). `moisSaisie` = saisie brute (édition libre) ; la valeur EFFECTIVE
+  // (bornée) DÉRIVE de la config lue au runtime → le maximum suit le réglage sans être figé. Défaut = maximum (l'écran s'ouvre
+  // sur tout ce que le réglage permet).
+  const maxMois = 12 * ancienneteMaxAnnees;
+  const [moisSaisie, setMoisSaisie] = useState(String(maxMois));
+  const ancienneteMois = bornerAncienneteMois(moisSaisie, ancienneteMaxAnnees);
+  const changerMois = (v: string): void => {
+    setMoisSaisie(v);
+    setProp(null); setSelLots(new Set()); setPageLots(1); // la proposition affichée a été calculée sur l'ancienne fenêtre → caduque
+    setCommuneStock(null);                                 // referme le panneau de stock (sa ligne peut disparaître de la fenêtre)
+  };
 
   const rafraichir = useCallback(() => setVersion((v) => v + 1), []);
   // S42 — annonce un retour d'action dans la zone où l'utilisateur a agi ('haut' groupé, 'detail' panneau). Texte vide → efface.
@@ -74,22 +85,23 @@ export function DemandesVue({ categories }: Props) {
     return () => { annule = true; };
   }, [version]);
 
-  // Q2b — chargement de l'AGRÉGAT du stock (une seule fois, à la 1re ouverture du bloc). Un échec laisse le bloc consultable.
-  const chargerStock = useCallback(() => {
-    setStockChargement(true);
+  const toggleStock = useCallback(() => setStockOuvert((o) => !o), []);
+  // Q2b/Q4 — chargement de l'AGRÉGAT du stock : à l'OUVERTURE du bloc, et RECHARGÉ quand le filtre d'ancienneté change (la
+  // fenêtre effective en dépend). Jamais au montage (stockOuvert=false au départ). Tous les setState vivent DANS l'IIFE async
+  // (jamais synchrones en corps d'effet — cf. eslint). Un échec laisse le bloc consultable (journalisé côté serveur).
+  useEffect(() => {
+    if (!stockOuvert) return;
+    let annule = false;
     void (async () => {
+      setStockChargement(true);
       try {
-        const res = await fetch('/api/admin/permis/demandes/stock', { cache: 'no-store' });
-        if (res.ok) setStock((await res.json()) as StockResultat);
-      } catch { /* stock indisponible (journalisé côté serveur) */ }
-      finally { setStockChargement(false); }
+        const res = await fetch(`/api/admin/permis/demandes/stock?ancienneteMois=${ancienneteMois}`, { cache: 'no-store' });
+        if (!annule && res.ok) setStock((await res.json()) as StockResultat);
+      } catch { /* stock indisponible */ }
+      finally { if (!annule) setStockChargement(false); }
     })();
-  }, []);
-  const toggleStock = useCallback(() => {
-    const ouvrir = !stockOuvert;
-    setStockOuvert(ouvrir);
-    if (ouvrir && stock === null && !stockChargement) chargerStock(); // charge à l'ouverture, pas au montage
-  }, [stockOuvert, stock, stockChargement, chargerStock]);
+    return () => { annule = true; };
+  }, [stockOuvert, ancienneteMois]);
   // Re-clic sur la même commune → referme ; sinon ouvre CETTE commune en repartant des filtres par DÉFAUT (6 mois / immeuble neuf).
   const ouvrirDetailStock = useCallback((code: string) => {
     setCommuneStock((actuel) => {
@@ -140,7 +152,7 @@ export function DemandesVue({ categories }: Props) {
 
   async function preparer(): Promise<void> {
     setRetour(null);
-    const res = await fetch(`/api/admin/permis/demandes/proposition?profil=${profilPrep}`, { cache: 'no-store' });
+    const res = await fetch(`/api/admin/permis/demandes/proposition?profil=${profilPrep}&ancienneteMois=${ancienneteMois}`, { cache: 'no-store' });
     // Nouvelle proposition → repart d'une sélection VIDE (jamais « tout créer » par défaut) et de la 1re page.
     if (res.ok) { const p = (await res.json()) as { lots: Lot[]; diagnostic: DiagnosticProposition; profil: ProfilDemandeur }; setProp(p); setProfilPrep(p.profil); setSelLots(new Set()); setPageLots(1); }
     else annoncer(await erreurServeur(res, 'Proposition indisponible.'), false);
@@ -149,7 +161,7 @@ export function DemandesVue({ categories }: Props) {
     const lots = prop?.lots ?? [];
     const selectionnes = lots.filter((l) => selLots.has(cleLot(l))).map((l) => ({ cle: cleLot(l), communeNom: l.communeNom }));
     if (selectionnes.length === 0) { annoncer('Cochez au moins un lot avant de créer.', false); return; }
-    const res = await fetch('/api/admin/permis/demandes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profil: profilPrep, lots: selectionnes }) });
+    const res = await fetch('/api/admin/permis/demandes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profil: profilPrep, lots: selectionnes, ancienneteMois }) });
     if (res.ok) {
       const r = (await res.json()) as CompteRenduCreation;
       // Compte rendu TOUJOURS chiffré (demandes + dossiers), et les lots ignorés/conflits sont nommés (jamais un 0 muet).
@@ -233,6 +245,11 @@ export function DemandesVue({ categories }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Q4 — rappel des réglages en vigueur + filtre d'ancienneté (état d'écran), en tête de l'onglet. */}
+      <BandeauReglages
+        ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle}
+        moisSaisie={moisSaisie} maxMois={maxMois} onMois={changerMois} onAllerReglages={onAllerReglages}
+      />
       {r && (
         <div className="svv-card" style={{ fontSize: 13 }}>
           <strong>{r.total} demande(s)</strong> · {r.dossiersCouverts} dossier(s) couvert(s) — {['brouillon', 'prete', 'envoyee', 'close', 'abandonnee'].filter((s) => r.parStatut[s]).map((s) => `${r.parStatut[s]} ${STATUT_LIBELLE[s]}`).join(' · ') || 'aucune'}.

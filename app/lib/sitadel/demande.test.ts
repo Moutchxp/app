@@ -6,7 +6,7 @@ import {
   dateEnFrancais, ancreDetail, peutPasserLot, expliquerProposition, resumeDiagnostic, configAvecSignataire,
   validerIdsLot, problemeCorpsDemande, gabaritsPresents, referenceDiscrete,
   cleLot, compterSelection, apparierSelection, validerLotsSelection, profilEffectifLot,
-  estCandidatEligible, raisonInexploitable,
+  estCandidatEligible, raisonInexploitable, bornerAncienneteMois,
 } from './demande';
 import { resoudreDestination } from './destinataire';
 
@@ -761,5 +761,54 @@ describe('Q2a — estCandidatEligible / raisonInexploitable (les 6 critères)', 
     expect(proposerLots(dossiers, par, HIST_VIDE).flatMap((l) => l.dossiers.map((d) => d.dossierId))).toEqual([1, 5, 8]);
     // + un déjà rattaché est aussi écarté
     expect(proposerLots(dossiers, par, { ...HIST_VIDE, dejaRattaches: new Set([1]) }).flatMap((l) => l.dossiers.map((d) => d.dossierId))).toEqual([5, 8]);
+  });
+});
+
+describe('Q4 — bornerAncienneteMois (fenêtre d’ancienneté bornée par le réglage)', () => {
+  it('absente / non numérique / < 1 → maximum (12 × ancienneté max), jamais d’erreur', () => {
+    expect(bornerAncienneteMois(undefined, 1)).toBe(12);
+    expect(bornerAncienneteMois(null, 1)).toBe(12);
+    expect(bornerAncienneteMois('', 1)).toBe(12);
+    expect(bornerAncienneteMois('abc', 1)).toBe(12);
+    expect(bornerAncienneteMois(NaN, 1)).toBe(12);
+    expect(bornerAncienneteMois(0, 1)).toBe(12);
+    expect(bornerAncienneteMois(-5, 1)).toBe(12);
+  });
+  it('supérieure au maximum → ramenée au maximum', () => {
+    expect(bornerAncienneteMois(13, 1)).toBe(12);
+    expect(bornerAncienneteMois(9999, 2)).toBe(24);
+    expect(bornerAncienneteMois('100', 1)).toBe(12);
+  });
+  it('valeur valide dans la plage → conservée (tronquée à l’entier)', () => {
+    expect(bornerAncienneteMois(3, 2)).toBe(3);   // max 24
+    expect(bornerAncienneteMois('7', 1)).toBe(7); // chaîne numérique acceptée
+    expect(bornerAncienneteMois(3.7, 2)).toBe(3); // tronqué à l’entier
+    expect(bornerAncienneteMois(1, 1)).toBe(1);   // borne basse
+  });
+  it('le maximum SUIT le réglage : 1 an → 12, 2 ans → 24, 3 ans → 36', () => {
+    expect(bornerAncienneteMois(999, 1)).toBe(12);
+    expect(bornerAncienneteMois(999, 2)).toBe(24);
+    expect(bornerAncienneteMois(999, 3)).toBe(36);
+  });
+});
+
+describe('Q4 — proposerLots : une fenêtre plus courte réduit STRICTEMENT l’ensemble (sous-ensemble)', () => {
+  const dossiers = [
+    cand({ dossierId: 1, dateReelleAutorisation: '2026-07-01' }),
+    cand({ dossierId: 2, dateReelleAutorisation: '2026-05-01' }),
+    cand({ dossierId: 3, dateReelleAutorisation: '2026-02-01' }),
+    cand({ dossierId: 4, dateReelleAutorisation: '2025-10-01' }),
+    cand({ dossierId: 5, dateReelleAutorisation: '2024-06-01' }),
+  ];
+  const ids = (lots: Lot[]): number[] => lots.flatMap((l) => l.dossiers.map((d) => d.dossierId)).sort((a, b) => a - b);
+  const PARAMS: ParamsLot = { dossiersParDemande: 10, permisParCommuneParMois: 100, dateMin: null };
+
+  it('la fenêtre courte ne retient qu’un SOUS-ENSEMBLE (strict) de la fenêtre large — seule la DATE change', () => {
+    const large = ids(proposerLots(dossiers, { ...PARAMS, dateMin: '2024-01-01' }, HIST_VIDE));
+    const court = ids(proposerLots(dossiers, { ...PARAMS, dateMin: '2026-04-01' }, HIST_VIDE));
+    expect(large).toEqual([1, 2, 3, 4, 5]);
+    expect(court).toEqual([1, 2]);                              // seuls les dossiers postérieurs à la borne courte
+    expect(court.every((x) => large.includes(x))).toBe(true);  // SOUS-ENSEMBLE prouvé (pas seulement un compte différent)
+    expect(court.length).toBeLessThan(large.length);           // STRICTEMENT plus petit
   });
 });

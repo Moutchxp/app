@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../lib/sitadel/veilleConfig';
-import { profilValide, validerIdsLot, validerLotsSelection } from '../../../../../lib/sitadel/demande';
+import { profilValide, validerIdsLot, validerLotsSelection, bornerAncienneteMois } from '../../../../../lib/sitadel/demande';
 import { listerDemandes, creerDemandes, changerStatutLot, changerProfilLot, IdentiteIncompleteError, TransitionInterditeError } from '../../../../../lib/sitadel/demandeRepo';
 
 /**
@@ -29,7 +29,7 @@ export async function POST(request: Request): Promise<Response> {
   // Contexte capturé hors du try pour la trace du catch (le refus 400 « sélection invalide » est un `return`).
   let clesCtx: string[] | undefined;
   try {
-    const corps = (await request.json().catch(() => ({}))) as { profil?: unknown; lots?: unknown };
+    const corps = (await request.json().catch(() => ({}))) as { profil?: unknown; lots?: unknown; ancienneteMois?: unknown };
     const profil = corps.profil === undefined ? undefined : profilValide(corps.profil);
     // V3 — le CHOIX est obligatoire : sans lot sélectionné (ou tous invalides), on refuse EXPLICITEMENT (400), jamais « tout créer ».
     const v = validerLotsSelection(corps.lots);
@@ -37,9 +37,13 @@ export async function POST(request: Request): Promise<Response> {
     clesCtx = v.lots.map((l) => l.cle);
     const annee = new Date().getFullYear();
     const auteur = garde.auteurId === null ? null : String(garde.auteurId);
+    const cfg = await chargerConfigVeille();
+    // Q4 — MÊME fenêtre d'ancienneté (bornée serveur) que l'aperçu : la création re-dérive la proposition, elle doit voir la
+    // même fenêtre, sinon les lots créés diffèrent des lots affichés. Absent/invalide → maximum (comportement d'avant Q4).
+    const ancienneteMois = bornerAncienneteMois(corps.ancienneteMois, cfg.ancienneteMaxDemandeAnnees);
     // Aucun refus MÉTIER ici : un lot invalidé entre-temps n'est PAS une erreur (il est ignoré + listé dans le compte
     // rendu 200, par conception V3). Seule une exception INATTENDUE atteint le catch ci-dessous.
-    const res = await creerDemandes(await chargerConfigVeille(), annee, auteur, profil, v.lots);
+    const res = await creerDemandes(cfg, annee, auteur, profil, v.lots, ancienneteMois);
     return Response.json(res);
   } catch (e) {
     // Trace SERVEUR de l'exception inattendue (jamais de catch muet) : sans elle, un bug (params liés, 22P02…) reste
