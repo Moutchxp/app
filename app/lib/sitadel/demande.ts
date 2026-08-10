@@ -196,6 +196,35 @@ export interface Lot {
 }
 
 /**
+ * Q2a — motif pour lequel un dossier candidat n'est PAS exploitable en demande, ou `null` s'il l'est. UNE SEULE définition des
+ * critères d'éligibilité (partagée par `proposerLots` et `diagnostiquer` — plus de duplication). Ordre des tests = celui,
+ * historique, de `diagnostiquer` : le PREMIER critère qui échoue donne la raison (chaque compteur d'écran en dépend). Les six
+ * critères, INCHANGÉS :
+ *   'annule'        — état 4 (permis annulé) : demander ses plans est un courrier perdu (S12).
+ *   'absent'        — retiré du dernier millésime Sitadel (état futur inconnu).
+ *   'hors_fenetre'  — sans date d'autorisation OU trop ancien (date < dateMin = today − ancienneté max).
+ *   'deja_rattache' — déjà rattaché à une demande active (demande_dossier.actif).
+ *   'sans_canal'    — commune inconnue (communeNom null) ou canal null/'inconnu' (pas d'adresse).
+ *   'courrier'      — canal postal seul : non adressable par e-mail/formulaire.
+ * `null` = exploitable (canal 'email' ou 'formulaire', commune connue, tous les autres critères OK). PURE.
+ */
+export type RaisonInexploitable = 'annule' | 'absent' | 'hors_fenetre' | 'deja_rattache' | 'sans_canal' | 'courrier';
+export function raisonInexploitable(d: CandidatDossier, dateMin: string | null, dejaRattaches: ReadonlySet<number>): RaisonInexploitable | null {
+  if (d.etatDau === '4') return 'annule';
+  if (d.absentDuDernierMillesime) return 'absent';
+  if (d.dateReelleAutorisation === null || (dateMin !== null && d.dateReelleAutorisation < dateMin)) return 'hors_fenetre';
+  if (dejaRattaches.has(d.dossierId)) return 'deja_rattache';
+  if (d.communeNom === null || d.canal === null || d.canal === 'inconnu') return 'sans_canal';
+  if (d.canal === 'courrier') return 'courrier';
+  return null; // exploitable : email ou formulaire
+}
+
+/** Q2a — un dossier candidat est ÉLIGIBLE (produit un lot) ssi il est exploitable (aucun motif d'inexploitabilité). PURE. */
+export function estCandidatEligible(d: CandidatDossier, dateMin: string | null, dejaRattaches: ReadonlySet<number>): boolean {
+  return raisonInexploitable(d, dateMin, dejaRattaches) === null;
+}
+
+/**
  * Propose des lots à partir de candidats DÉJÀ ORDONNÉS par priorité (cf. priorite.ts — on ne réordonne pas ici).
  * Exclut : dossiers HORS FENÊTRE d'ancienneté (date < `dateMin`) ou SANS DATE d'autorisation (pertinence non jugeable —
  * la cible d'une demande est un bâtiment que le LiDAR ne voit pas encore ; au-delà, la hauteur est déjà mesurée) ;
@@ -205,20 +234,10 @@ export interface Lot {
 export function proposerLots(candidats: CandidatDossier[], params: ParamsLot, hist: HistoriqueDemandes): Lot[] {
   const parCommune = new Map<string, CandidatDossier[]>();
   for (const d of candidats) {
-    // ── Exclusions FERMES d'état (S12) ──────────────────────────────────────────
-    // ⚠️ SEUL l'état 4 (Annulé) exclut : demander les plans d'un permis annulé est un courrier perdu. Les états 5
-    // (Commencé) et 6 (Terminé) NE SONT JAMAIS exclus — le bâtiment sort de terre ou existe, c'est précisément sa
-    // hauteur qu'on cherche : ce sont des CONFIRMATIONS POSITIVES, pas des prérequis. L'ABSENCE d'état 5/6 (dossier
-    // encore autorisé, ou etat_dau null car jamais revu) n'exclut donc rien (sinon on ignorerait 94 % du gisement récent).
-    if (d.etatDau === '4') continue;                                 // annulé → jamais de courrier
-    if (d.absentDuDernierMillesime) continue;                        // retiré du fichier Sitadel → état futur inconnu
-    if (d.dateReelleAutorisation === null) continue;                 // sans date → pertinence non jugeable → exclu
-    if (params.dateMin !== null && d.dateReelleAutorisation < params.dateMin) continue; // trop ancien → déjà mesuré au LiDAR
-    if (hist.dejaRattaches.has(d.dossierId)) continue;               // déjà demandé
-    // S16 — e-mail ET formulaire produisent des lots : 'email' (envoi ultérieur) et 'formulaire' (DÉPÔT MANUEL sur
-    // téléservice). Seuls 'inconnu' (sans adresse) et 'courrier' restent exclus. Les trois catégories sont comptées et
-    // nommées dans le diagnostic (jamais de disparition silencieuse).
-    if (d.communeNom === null || (d.canal !== 'email' && d.canal !== 'formulaire')) continue;
+    // Q2a — éligibilité = UNE SEULE définition (`estCandidatEligible`, partagée avec diagnostiquer). Byte-identique à
+    // l'ancien filtre inline (mêmes dossiers exclus, même ordre de parcours → mêmes lots). Détail des 6 critères : cf.
+    // `raisonInexploitable`. Seuls 'email' et 'formulaire' passent (les deux produisent des lots — S16).
+    if (!estCandidatEligible(d, params.dateMin, hist.dejaRattaches)) continue;
     (parCommune.get(d.codeInsee) ?? parCommune.set(d.codeInsee, []).get(d.codeInsee)!).push(d);
   }
   const lots: Lot[] = [];

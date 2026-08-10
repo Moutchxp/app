@@ -11,7 +11,7 @@ import {
   type CandidatDossier, type ConfigDemandeur, type Lot, type HistoriqueDemandes, type DiagnosticProposition, type ParamsLot,
   type ProfilDemandeur,
   proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande, problemesIdentite, profilValide, ETIQUETTE_PROFIL,
-  configAvecSignataire, apparierSelection, profilEffectifLot,
+  configAvecSignataire, apparierSelection, profilEffectifLot, raisonInexploitable,
 } from './demande';
 import { type Collaborateur, choisirCollaborateur } from './collaborateur';
 import { resoudreDestination, type ContactCommune } from './destinataire';
@@ -107,14 +107,16 @@ export function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDema
     // S14d — arbitrage relevé indépendamment des exclusions de dossiers (il concerne la config du destinataire, pas la
     // fenêtre) : jamais de bascule silencieuse d'un contact confirmé.
     if (d.arbitragePrada) arbitrages.add(d.communeNom ?? d.codeInsee);
-    // MÊME ordre d'exclusion que proposerLots (annulé + absent d'abord — cf. S12).
-    if (d.etatDau === '4') { annules += 1; continue; }
-    if (d.absentDuDernierMillesime) { absents += 1; continue; }
-    if (d.dateReelleAutorisation === null || (params.dateMin !== null && d.dateReelleAutorisation < params.dateMin)) { horsFenetre += 1; continue; }
-    if (hist.dejaRattaches.has(d.dossierId)) { rattaches += 1; continue; }
-    if (d.communeNom === null || d.canal === null || d.canal === 'inconnu') { sansCanal.add(d.codeInsee); continue; }
-    if (d.canal === 'courrier') { courrier.set(d.codeInsee, d.communeNom); continue; }        // S16 : écartée (pas de lot)
-    if (d.canal === 'formulaire') formulaire.set(d.codeInsee, d.communeNom);                    // S16 : à déposer — MAIS produit un lot
+    // Q2a — MÊME définition d'éligibilité que proposerLots (`raisonInexploitable`, plus de duplication). Le premier critère
+    // qui échoue donne la raison ; chaque bucket ci-dessous en découle. communeNom est non-null dès que raison ≠ 'sans_canal'.
+    const raison = raisonInexploitable(d, params.dateMin, hist.dejaRattaches);
+    if (raison === 'annule') { annules += 1; continue; }
+    if (raison === 'absent') { absents += 1; continue; }
+    if (raison === 'hors_fenetre') { horsFenetre += 1; continue; }
+    if (raison === 'deja_rattache') { rattaches += 1; continue; }
+    if (raison === 'sans_canal') { sansCanal.add(d.codeInsee); continue; }
+    if (raison === 'courrier') { courrier.set(d.codeInsee, d.communeNom!); continue; }         // S16 : écartée (pas de lot)
+    if (d.canal === 'formulaire') formulaire.set(d.codeInsee, d.communeNom!);                    // S16 : à déposer — MAIS produit un lot
     parCommune.set(d.codeInsee, (parCommune.get(d.codeInsee) ?? 0) + 1);
   }
   let plafond = 0;

@@ -6,6 +6,7 @@ import {
   dateEnFrancais, ancreDetail, peutPasserLot, expliquerProposition, resumeDiagnostic, configAvecSignataire,
   validerIdsLot, problemeCorpsDemande, gabaritsPresents, referenceDiscrete,
   cleLot, compterSelection, apparierSelection, validerLotsSelection, profilEffectifLot,
+  estCandidatEligible, raisonInexploitable,
 } from './demande';
 import { resoudreDestination } from './destinataire';
 
@@ -698,5 +699,67 @@ describe('Q1 — plafond mensuel en PERMIS (dossiers)', () => {
     const c = Array.from({ length: 10 }, () => cand());
     const hist = { dejaRattaches: new Set<number>(), permisCeMoisParCommune: new Map([[COMMUNE, 5]]) };
     expect(proposerLots(c, params(5), hist)).toHaveLength(0);
+  });
+});
+
+/**
+ * Q2a — UNE SEULE définition de « dossier éligible » (extraite de proposerLots, partagée avec diagnostiquer). Un test par
+ * critère d'exclusion, appelant la fonction extraite DIRECTEMENT ; puis proposerLots sur un jeu couvrant les 6 critères pour
+ * prouver le comportement CONSTANT (mêmes dossiers retenus, même ordre).
+ */
+describe('Q2a — estCandidatEligible / raisonInexploitable (les 6 critères)', () => {
+  const DMIN = '2025-01-01';
+  const VIDE = new Set<number>();
+  const base = (): CandidatDossier => cand({ dossierId: 1, etatDau: '2', absentDuDernierMillesime: false, dateReelleAutorisation: '2025-06-01', communeNom: 'Nanterre', canal: 'email' as CanalContact });
+
+  it('base (email, tout OK) → éligible (raison null)', () => {
+    expect(raisonInexploitable(base(), DMIN, VIDE)).toBeNull();
+    expect(estCandidatEligible(base(), DMIN, VIDE)).toBe(true);
+  });
+  it('état 4 (annulé) → « annule », non éligible', () => {
+    expect(raisonInexploitable({ ...base(), etatDau: '4' }, DMIN, VIDE)).toBe('annule');
+    expect(estCandidatEligible({ ...base(), etatDau: '4' }, DMIN, VIDE)).toBe(false);
+  });
+  it('absent du dernier millésime → « absent »', () => {
+    expect(raisonInexploitable({ ...base(), absentDuDernierMillesime: true }, DMIN, VIDE)).toBe('absent');
+  });
+  it('sans date OU trop ancien → « hors_fenetre »', () => {
+    expect(raisonInexploitable({ ...base(), dateReelleAutorisation: null }, DMIN, VIDE)).toBe('hors_fenetre');
+    expect(raisonInexploitable({ ...base(), dateReelleAutorisation: '2020-01-01' }, DMIN, VIDE)).toBe('hors_fenetre');
+  });
+  it('déjà rattaché (demande active) → « deja_rattache »', () => {
+    expect(raisonInexploitable(base(), DMIN, new Set([1]))).toBe('deja_rattache');
+  });
+  it('commune inconnue / canal null|inconnu → « sans_canal »', () => {
+    expect(raisonInexploitable({ ...base(), communeNom: null }, DMIN, VIDE)).toBe('sans_canal');
+    expect(raisonInexploitable({ ...base(), canal: null }, DMIN, VIDE)).toBe('sans_canal');
+    expect(raisonInexploitable({ ...base(), canal: 'inconnu' as CanalContact }, DMIN, VIDE)).toBe('sans_canal');
+  });
+  it('canal courrier → « courrier » (non adressable e-mail/formulaire)', () => {
+    expect(raisonInexploitable({ ...base(), canal: 'courrier' as CanalContact }, DMIN, VIDE)).toBe('courrier');
+    expect(estCandidatEligible({ ...base(), canal: 'courrier' as CanalContact }, DMIN, VIDE)).toBe(false);
+  });
+  it('formulaire → ÉLIGIBLE (produit un lot, comme email)', () => {
+    expect(estCandidatEligible({ ...base(), canal: 'formulaire' as CanalContact }, DMIN, VIDE)).toBe(true);
+  });
+  it('ORDRE des critères : échec multiple → renvoie le PREMIER (garantit les compteurs de diagnostiquer)', () => {
+    expect(raisonInexploitable({ ...base(), etatDau: '4', canal: 'courrier' as CanalContact, communeNom: null }, DMIN, new Set([1]))).toBe('annule');
+  });
+
+  it('proposerLots (comportement CONSTANT) : sur un jeu couvrant les 6 critères, ne retient QUE les éligibles, dans l’ordre', () => {
+    const dossiers = [
+      cand({ dossierId: 1, canal: 'email' as CanalContact }),        // éligible
+      cand({ dossierId: 2, etatDau: '4' }),                          // annulé
+      cand({ dossierId: 3, absentDuDernierMillesime: true }),        // absent
+      cand({ dossierId: 4, dateReelleAutorisation: null }),          // hors fenêtre (sans date)
+      cand({ dossierId: 5, canal: 'formulaire' as CanalContact }),   // éligible
+      cand({ dossierId: 6, canal: 'courrier' as CanalContact }),     // courrier
+      cand({ dossierId: 7, communeNom: null }),                      // sans commune
+      cand({ dossierId: 8, canal: 'email' as CanalContact }),        // éligible
+    ];
+    const par = { dossiersParDemande: 10, permisParCommuneParMois: 10, dateMin: null };
+    expect(proposerLots(dossiers, par, HIST_VIDE).flatMap((l) => l.dossiers.map((d) => d.dossierId))).toEqual([1, 5, 8]);
+    // + un déjà rattaché est aussi écarté
+    expect(proposerLots(dossiers, par, { ...HIST_VIDE, dejaRattaches: new Set([1]) }).flatMap((l) => l.dossiers.map((d) => d.dossierId))).toEqual([5, 8]);
   });
 });

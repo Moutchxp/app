@@ -58,3 +58,30 @@ describe('S14e — cast int8 des id de demande (round-trip client → PATCH grou
     expect(sqls.some((s) => /d\.id::int\s+AS\s+id/.test(s))).toBe(true);
   });
 });
+
+describe('Q2a — diagnostiquer : compteurs CONSTANTS (mêmes buckets, via la définition partagée)', () => {
+  const canal = (v: string) => v as CandidatDossier['canal'];
+  it('un dossier par critère → chaque compteur/bucket exact (comportement inchangé)', () => {
+    const d = diagnostiquer([
+      c({ dossierId: 1, codeInsee: '75056', communeNom: 'Paris', canal: 'email' }),                 // proposable
+      c({ dossierId: 2, etatDau: '4' }),                                                            // annulé
+      c({ dossierId: 3, absentDuDernierMillesime: true }),                                          // absent du millésime
+      c({ dossierId: 4, dateReelleAutorisation: null }),                                            // hors fenêtre (sans date)
+      c({ dossierId: 5, dateReelleAutorisation: '2000-01-01' }),                                    // hors fenêtre (trop ancien)
+      c({ dossierId: 6 }),                                                                          // déjà rattaché (via hist)
+      c({ dossierId: 7, codeInsee: '11111', communeNom: null }),                                    // sans canal (commune inconnue)
+      c({ dossierId: 8, codeInsee: '22222', canal: canal('inconnu') }),                             // sans canal
+      c({ dossierId: 9, codeInsee: '92050', communeNom: 'Nanterre', canal: canal('courrier') }),    // courrier (écartée)
+      c({ dossierId: 10, codeInsee: '93066', communeNom: 'Saint-Denis', canal: canal('formulaire') }), // formulaire (proposable + à déposer)
+    ], { dejaRattaches: new Set([6]), permisCeMoisParCommune: new Map<string, number>() },
+       { dossiersParDemande: 5, permisParCommuneParMois: 5, dateMin: '2020-01-01' });
+    expect(d.candidatsExamines).toBe(10);
+    expect(d.dossiersAnnules).toBe(1);
+    expect(d.dossiersAbsents).toBe(1);
+    expect(d.dossiersHorsFenetre).toBe(2);            // sans date + trop ancien
+    expect(d.dossiersDejaRattaches).toBe(1);
+    expect(d.communesSansCanal).toBe(2);              // commune inconnue (11111) + canal 'inconnu' (22222)
+    expect(d.communesCourrier).toEqual(['Nanterre']);
+    expect(d.communesFormulaire).toEqual(['Saint-Denis']);
+  });
+});
