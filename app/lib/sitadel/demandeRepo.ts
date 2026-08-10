@@ -16,7 +16,7 @@ import {
 import { type Collaborateur, choisirCollaborateur } from './collaborateur';
 import { resoudreDestination, type ContactCommune } from './destinataire';
 import { expressionRangSql, classer, type CleCategorie } from './priorite'; // D2 : expressionRangSql réutilisé (pur) ; Q2b : classer = source unique de catégorie pour le panneau de stock — NE modifie PAS le chemin candidats
-import { agregerStock, moisDePeriode, FENETRE_STOCK_MOIS, type LigneStock, type DossierStock } from './stock'; // Q2b : agrégat PUR du stock (réutilise estCandidatEligible via agregerStock)
+import { agregerStock, moisDePeriode, type LigneStock, type DossierStock } from './stock'; // Q2b : agrégat PUR du stock (réutilise estCandidatEligible via agregerStock)
 
 type Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>;
 const asQ = (q: (t: string, p?: unknown[]) => Promise<unknown>): Requete => ((t, p) => q(t, p)) as Requete;
@@ -160,17 +160,18 @@ export async function proposition(cfg: ConfigVeille, ancienneteMois?: number): P
 export interface StockResultat { lignes: LigneStock[]; tronque: boolean; genereEnMs: number; fenetreMois: number }
 
 /**
- * Q2b — STOCK par commune. Charge la fenêtre d'AFFICHAGE (6 mois), mappe chaque dossier en candidat via le MÊME `versCandidat`
- * que la proposition (donc résolution de destinataire/canal IDENTIQUE), et agrège par `agregerStock` — qui applique
- * `estCandidatEligible` (l'UNIQUE définition d'éligibilité, Q2a) + la borne d'affichage 6 mois. On ne charge QUE 6 mois car
- * la colonne du tableau est « < 6 mois » : aucun dossier plus ancien ne peut y figurer, et `estCandidatEligible` (fenêtre
- * d'éligibilité complète) est appliqué en entier → strictement équivalent à charger toute la fenêtre, en ~5× moins de lignes.
- * `genereEnMs` = temps de génération, rendu à l'écran (transparence de perf). NE touche ni le chemin candidats ni la base.
+ * Q2b/Q4 — STOCK par commune. `fenetreMois` (OBLIGATOIRE — Q4-fix écart 3 : un seul défaut, celui du bornage de la route via
+ * `bornerAncienneteMois`, plus de second défaut ici) est la fenêtre d'AFFICHAGE. On charge UNIQUEMENT cette fenêtre, mappe
+ * chaque dossier en candidat via le MÊME `versCandidat` que la proposition (résolution destinataire/canal IDENTIQUE), et
+ * agrège par `agregerStock` — qui applique `estCandidatEligible` (l'UNIQUE définition d'éligibilité, Q2a) + la borne
+ * d'affichage. Charger la seule fenêtre d'affichage suffit : la colonne « < N mois » ne peut contenir de dossier plus ancien,
+ * et l'éligibilité complète reste appliquée → équivalent à tout charger, en moins de lignes. `genereEnMs` = temps de
+ * génération (transparence de perf). NE touche ni le chemin candidats ni la base.
  */
-export async function stockPermisParCommune(cfg: ConfigVeille, fenetreMois: number = FENETRE_STOCK_MOIS): Promise<StockResultat> {
+export async function stockPermisParCommune(cfg: ConfigVeille, fenetreMois: number): Promise<StockResultat> {
   const t0 = Date.now();
   const dateMin = dateMinDepuis(cfg.ancienneteMaxDemandeAnnees); // borne d'ÉLIGIBILITÉ (inchangée — passée à estCandidatEligible)
-  const dateMinFenetre = dateMinMois(fenetreMois);              // Q4 — borne d'AFFICHAGE = fenêtre du filtre (défaut FENETRE_STOCK_MOIS)
+  const dateMinFenetre = dateMinMois(fenetreMois);              // Q4 — borne d'AFFICHAGE = fenêtre du filtre (bornée par la route)
   const [{ lignes, tronque }, hist] = await Promise.all([lireDossiersDepuis(cfg, dateMinFenetre), lireHistorique()]);
   const dossiers: DossierStock[] = lignes.map((d) => ({ candidat: versCandidat(d), categorie: d.categorie }));
   const stock = agregerStock(dossiers, dateMin, hist.dejaRattaches, dateMinFenetre);

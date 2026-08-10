@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagnostic, ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur, cleLot, compterSelection, bornerAncienneteMois } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, ResumeDemandes, AlerteIdentite, CompteRenduCreation, StockResultat, PermisDetail } from '../../../../lib/sitadel/demandeRepo';
 import { type Tri, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle } from '../../../../lib/sitadel/demandesListe';
-import { PERIODE_STOCK_DEFAUT, FENETRE_STOCK_MOIS } from '../../../../lib/sitadel/stock';
+import { PERIODE_STOCK_DEFAUT } from '../../../../lib/sitadel/stock';
 import { OrigineDest, MessageRetour, repartirRetour, CartePropositions, FiltreTypes, TableDemandes, STATUT_LIBELLE, BlocStock, TableStock, PanneauDetailStock, BandeauReglages, type RetourAction } from './DemandesRendu';
 import { BlocPrada } from './BlocPrada';
 import { BlocDepot } from './BlocDepot';
@@ -64,11 +64,7 @@ export function DemandesVue({ categories, ancienneteMaxAnnees, triLibelle, onAll
   const maxMois = 12 * ancienneteMaxAnnees;
   const [moisSaisie, setMoisSaisie] = useState(String(maxMois));
   const ancienneteMois = bornerAncienneteMois(moisSaisie, ancienneteMaxAnnees);
-  const changerMois = (v: string): void => {
-    setMoisSaisie(v);
-    setProp(null); setSelLots(new Set()); setPageLots(1); // la proposition affichée a été calculée sur l'ancienne fenêtre → caduque
-    setCommuneStock(null);                                 // referme le panneau de stock (sa ligne peut disparaître de la fenêtre)
-  };
+  const prepSeq = useRef(0); // Q4-fix : compteur de séquence des préparations (anti-race quand la saisie s'enchaîne vite)
 
   const rafraichir = useCallback(() => setVersion((v) => v + 1), []);
   // S42 — annonce un retour d'action dans la zone où l'utilisateur a agi ('haut' groupé, 'detail' panneau). Texte vide → efface.
@@ -150,13 +146,29 @@ export function DemandesVue({ categories, ancienneteMaxAnnees, triLibelle, onAll
     return n;
   });
 
-  async function preparer(): Promise<void> {
+  // Q4-fix — la préparation prend la fenêtre d'ancienneté EN PARAMÈTRE (jamais une valeur capturée qui pourrait être stale) :
+  // le bouton passe la valeur courante ; `changerMois` passe la NOUVELLE valeur (avant que l'état ne soit propagé). Un compteur
+  // de séquence (ref) évite la COURSE quand la saisie s'enchaîne : seule la réponse de la préparation la PLUS récente s'applique.
+  async function preparerAvec(mois: number): Promise<void> {
+    const seq = prepSeq.current + 1;
+    prepSeq.current = seq;
     setRetour(null);
-    const res = await fetch(`/api/admin/permis/demandes/proposition?profil=${profilPrep}&ancienneteMois=${ancienneteMois}`, { cache: 'no-store' });
+    const res = await fetch(`/api/admin/permis/demandes/proposition?profil=${profilPrep}&ancienneteMois=${mois}`, { cache: 'no-store' });
+    if (seq !== prepSeq.current) return; // une préparation plus récente a été lancée entre-temps → réponse ignorée (anti-race)
     // Nouvelle proposition → repart d'une sélection VIDE (jamais « tout créer » par défaut) et de la 1re page.
     if (res.ok) { const p = (await res.json()) as { lots: Lot[]; diagnostic: DiagnosticProposition; profil: ProfilDemandeur }; setProp(p); setProfilPrep(p.profil); setSelLots(new Set()); setPageLots(1); }
     else annoncer(await erreurServeur(res, 'Proposition indisponible.'), false);
   }
+  // Q4-fix (DEUX symptômes, UNE cause) — le filtre agit IMMÉDIATEMENT, exactement comme le stock. Avant, `changerMois`
+  // EFFAÇAIT l'aperçu (setProp(null)) sans le re-fetch : la proposition restait donc un SNAPSHOT stale (d'où « Paris
+  // multi-dossiers » quand l'aperçu datait d'avant la contrainte P3). On le RECALCULE désormais avec la nouvelle fenêtre.
+  const changerMois = (v: string): void => {
+    const mois = bornerAncienneteMois(v, ancienneteMaxAnnees);
+    setMoisSaisie(v);
+    if (mois === ancienneteMois) return;        // saisie sans changement effectif (ex. « 6 » → « 06 ») → rien à refaire
+    setCommuneStock(null);                        // referme le panneau de stock (sa ligne peut sortir de la fenêtre)
+    if (prop !== null) void preparerAvec(mois);   // aperçu affiché → recalcul immédiat (le stock se recharge via son effet)
+  };
   async function creer(): Promise<void> {
     const lots = prop?.lots ?? [];
     const selectionnes = lots.filter((l) => selLots.has(cleLot(l))).map((l) => ({ cle: cleLot(l), communeNom: l.communeNom }));
@@ -278,7 +290,7 @@ export function DemandesVue({ categories, ancienneteMaxAnnees, triLibelle, onAll
       )}
 
       <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.4rem .8rem' }} onClick={() => void preparer()}>Préparer les demandes</button>
+        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.4rem .8rem' }} onClick={() => void preparerAvec(ancienneteMois)}>Préparer les demandes</button>
         <label style={{ fontSize: 12, display: 'flex', gap: '.3rem', alignItems: 'center' }}>Profil
           <select value={profilPrep} onChange={(e) => setProfilPrep(selProfil(e.target.value))} style={styleChamp}>
             {PROFILS.map((p) => <option key={p} value={p}>{ETIQUETTE_PROFIL[p]}</option>)}
@@ -361,7 +373,7 @@ export function DemandesVue({ categories, ancienneteMaxAnnees, triLibelle, onAll
       {/* Q2b — STOCK de permis à demander par commune : bloc repliable, AU-DESSUS de la liste, fermé + chargé à l'ouverture. */}
       <BlocStock
         ouvert={stockOuvert} onToggle={toggleStock} chargement={stockChargement}
-        stock={stock?.lignes ?? null} tronque={stock?.tronque} genereEnMs={stock?.genereEnMs} fenetreMois={stock?.fenetreMois ?? FENETRE_STOCK_MOIS}
+        stock={stock?.lignes ?? null} tronque={stock?.tronque} genereEnMs={stock?.genereEnMs} fenetreMois={stock?.fenetreMois ?? ancienneteMois}
         table={stock ? (
           <TableStock
             lignes={stock.lignes} categories={categories} communeOuverte={communeStock} onDetail={ouvrirDetailStock}
