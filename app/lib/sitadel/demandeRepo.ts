@@ -231,6 +231,83 @@ export async function lireDetailPermisCommune(cfg: ConfigVeille, codeInsee: stri
     .filter((p) => cle === null || p.categorie === cle);
 }
 
+// ── A1a : ARCHIVES — permis RENSEIGNÉS par les mairies (dossier satisfait) + leurs pièces (LECTURE SEULE) ───────────────
+/**
+ * Une pièce d'un permis archivé. ⚠️ `cle_stockage` N'EST JAMAIS exposée : seul un booléen `deposee` (téléchargeable ?) sort de
+ * la base — la clé ne quitte jamais le serveur. Le téléchargement passe par l'action `url_piece` (signature serveur unique).
+ */
+export interface PieceArchive {
+  id: number;                    // demande_reponse_piece.id — passé à url_piece pour signer l'URL (jamais la clé)
+  nomFichier: string;
+  typeMime: string | null;
+  tailleOctets: number | null;
+  deposee: boolean;              // cle_stockage IS NOT NULL → téléchargeable
+  motifNonStocke: string | null; // renseigné si NON déposée (jamais un bouton mort côté écran)
+}
+/** Une ligne d'archive = UN PERMIS renseigné : un `demande_dossier` dont `satisfait_le` n'est pas nul. */
+export interface LigneArchive {
+  dossierId: number;
+  numDau: string;
+  codeInsee: string;
+  communeNom: string | null;
+  categorie: CleCategorie;
+  libelleCategorie: string;
+  dateAutorisation: string | null;
+  satisfaitLe: string | null;
+  satisfaitPar: string | null;   // 'automatique' | 'manuel' (origine du marquage)
+  demandeReference: string;
+  pieces: PieceArchive[];
+}
+
+/**
+ * A1a — ARCHIVES : tous les permis RENSEIGNÉS par les mairies, c.-à-d. les `demande_dossier` dont `satisfait_le` n'est pas nul
+ * (marque « pièces obtenues », migration 077), avec leurs pièces (`demande_reponse_piece` de la réponse qui a satisfait le
+ * dossier via `reponse_id` ; NULL — satisfait à la main — → aucune pièce). Une JOINTURE SQL rattache dossier ⋈ demande ⋈
+ * commune, et les pièces sont agrégées en SQL (`json_agg`) : AUCUN rapprochement en mémoire → piège bigint→chaîne évité.
+ * Catégorie via `classer` (source unique). Tri : satisfaction DÉCROISSANTE. ⚠️ `cle_stockage` n'est PAS sélectionnée (seulement
+ * `IS NOT NULL`) : la clé de stockage ne sort jamais de la base. LECTURE SEULE ; ne touche pas le chemin candidats.
+ */
+export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]> {
+  const { rows } = await query<{
+    dossier_id: number; num_dau: string; code_insee: string; commune_nom: string | null;
+    type: 'PC' | 'PD'; nature_projet_completee: string | null; i_extension: boolean | null; i_surelevation: boolean | null;
+    nb_lgt_tot_crees: number | null; surf_creee: string | number | null;
+    date_autorisation: string | null; satisfait_le: string | null; satisfait_par: string | null; demande_reference: string;
+    pieces: { id: number; nomFichier: string; typeMime: string | null; tailleOctets: number | null; deposee: boolean; motifNonStocke: string | null }[] | null;
+  }>(
+    `SELECT s.id::int AS dossier_id, s.num_dau, s.code_insee, c.nom AS commune_nom,
+            s.type, s.nature_projet_completee, s.i_extension, s.i_surelevation, s.nb_lgt_tot_crees, s.surf_creee,
+            s.date_reelle_autorisation::text AS date_autorisation,
+            dd.satisfait_le::date::text AS satisfait_le, dd.satisfait_par, dm.reference AS demande_reference,
+            COALESCE((
+              SELECT json_agg(json_build_object(
+                'id', p.id::int, 'nomFichier', p.nom_fichier, 'typeMime', p.type_mime, 'tailleOctets', p.taille_octets,
+                'deposee', p.cle_stockage IS NOT NULL, 'motifNonStocke', p.motif_non_stocke
+              ) ORDER BY p.id)
+              FROM demande_reponse_piece p WHERE p.reponse_id = dd.reponse_id
+            ), '[]'::json) AS pieces
+       FROM demande_dossier dd
+       JOIN sitadel_dossier s ON s.id = dd.dossier_id
+       JOIN demande dm ON dm.id = dd.demande_id
+       LEFT JOIN commune c ON c.code_insee = s.code_insee
+      WHERE dd.satisfait_le IS NOT NULL
+      ORDER BY dd.satisfait_le DESC, s.num_dau`,
+  );
+  return rows.map((r) => {
+    const cl = classer(
+      { type: r.type, natureProjetCompletee: r.nature_projet_completee, iExtension: r.i_extension, iSurelevation: r.i_surelevation, nbLgtTotCrees: r.nb_lgt_tot_crees, surfCreee: r.surf_creee === null ? null : Number(r.surf_creee) },
+      cfg,
+    );
+    return {
+      dossierId: r.dossier_id, numDau: r.num_dau, codeInsee: r.code_insee, communeNom: r.commune_nom,
+      categorie: cl.cle, libelleCategorie: cl.libelle,
+      dateAutorisation: r.date_autorisation, satisfaitLe: r.satisfait_le, satisfaitPar: r.satisfait_par,
+      demandeReference: r.demande_reference,
+      pieces: (r.pieces ?? []).map((p) => ({ id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, tailleOctets: p.tailleOctets, deposee: p.deposee, motifNonStocke: p.motifNonStocke })),
+    };
+  });
+}
+
 /** Attribue une référence SVAV-DEM-AAAA-NNNNNN (compteur atomique, verrou de ligne). */
 async function attribuerReference(q: Requete, annee: number): Promise<string> {
   const r = await q<{ dernier: number }>(

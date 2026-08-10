@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { PermisVue } from './PermisVue';
 import { DemandesVue } from './DemandesVue';
 import { ReponsesVue } from './ReponsesVue';
+import { ArchivesVue } from './ArchivesVue';
 import { SaisinesVue } from './SaisinesVue';
 import { ReglagesVue } from './ReglagesVue';
 import { AutomatisationVue } from './AutomatisationVue';
@@ -26,6 +27,7 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} />}
       {onglet === 'demandes' && <DemandesVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} onAllerReglages={() => setOnglet('reglages')} />}
       {onglet === 'reponses' && <ReponsesVue />}
+      {onglet === 'archives' && <ArchivesVue />}
       {onglet === 'saisines' && <SaisinesVue />}
       {onglet === 'reglages' && <ReglagesVue />}
       {onglet === 'automatisation' && <AutomatisationVue />}
