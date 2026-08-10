@@ -39,6 +39,8 @@ const DEFS_BASE = [
   'CHECK (((recherche_references_max >= 1) AND (recherche_references_max <= 500)))',
   // V2 — profondeur d'examen des candidats (migration 081)
   'CHECK (((nb_candidats_examines >= 100) AND (nb_candidats_examines <= 50000)))',
+  // Q1 — plafond mensuel en permis (migration 087) : BETWEEN 1 AND 200 → forme `>= AND <=`
+  'CHECK (((permis_par_commune_par_mois >= 1) AND (permis_par_commune_par_mois <= 200)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 
@@ -264,5 +266,24 @@ describe('X1 — canal CADA : cada_email (e-mail, vide autorisé) + cada_url_for
     const p = PARAMS_DEMANDES.find((x) => x.colonne === 'cada_email')!;
     expect(p.type).toBe('email');
     expect(p.aide).toMatch(/formulaire en ligne/i);
+  });
+});
+
+describe('Q1 — paramètre VESTIGIAL : l’API refuse toute modification (le grisé écran ne suffit pas)', () => {
+  it('modifier demandes_par_commune_par_mois (vestigial) → REFUSÉ (« n’agit plus »), rien écrit', () => {
+    const res = validerReglages({ veille: { demandes_par_commune_par_mois: 3 } }, BORNES);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      const e = res.erreurs.find((x) => x.colonne === 'demandes_par_commune_par_mois');
+      expect(e).toBeDefined();
+      expect(e!.message).toMatch(/n['’]agit plus/);
+      expect(e!.message).toContain('Permis par commune et par mois');
+    }
+  });
+
+  it('le NOUVEAU permis_par_commune_par_mois reste éditable (non-régression sur le voisin vivant)', () => {
+    const res = validerReglages({ veille: { permis_par_commune_par_mois: 8 } }, BORNES);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.veille.permis_par_commune_par_mois).toBe(8);
   });
 });

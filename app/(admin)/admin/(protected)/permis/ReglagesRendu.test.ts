@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { BandeauIdentite, PlageParam, CarteReglageEntier, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
+import { BandeauIdentite, PlageParam, CarteReglageEntier, CarteParamVestigial, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
 import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES, PARAMS_MENTIONS } from '../../../../lib/sitadel/reglagesVeille';
 import { problemesIdentite } from '../../../../lib/sitadel/demande';
 
@@ -79,9 +79,9 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(AIDE_PARAMS_DOSSIERS).toContain('Mise à jour des dossiers');
   });
 
-  it('partition : 23 demandes (+ X5 : proposition CADA) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
+  it('partition : 24 demandes (+ Q1 : permis par commune) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
     expect(PARAMS_DEMANDES.map((p) => p.colonne)).toEqual([
-      'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois',
+      'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
       'nb_candidats_examines', 'tri_candidats', // V2 — profondeur d'examen + ordre de tri des candidats
       'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi
       'adresse_reponse',                            // S38 — adresse de réponse
@@ -234,5 +234,32 @@ describe('X1 — rendu des réglages CADA (types e-mail / URL : indice de format
     const h = renderToStaticMarkup(createElement(PlageParam, { param: p, bornes: undefined }));
     expect(h).toMatch(/http:\/\/ ou https:\/\//i);
     expect(h).not.toContain('introuvable'); // une URL n'a pas de bornes → pas l'erreur « plage introuvable »
+  });
+});
+
+describe('Q1 — CarteParamVestigial : lecture seule + mention + a11y', () => {
+  const vestigial = PARAMS_VEILLE.find((p) => p.colonne === 'demandes_par_commune_par_mois')!;
+
+  it('le paramètre est bien marqué vestigial dans PARAMS_VEILLE (avec son remplaçant)', () => {
+    expect(vestigial.vestigial).toBe(true);
+    expect(vestigial.remplacePar).toBe('Permis par commune et par mois');
+  });
+
+  it('input NON MODIFIABLE (disabled + aria-disabled, pas seulement grisé), AUCUN bouton « Enregistrer », mention « n’agit plus »', () => {
+    const h = renderToStaticMarkup(createElement(CarteParamVestigial, { param: vestigial, valeur: '1' }));
+    expect(h).toContain('disabled');            // a11y : annoncé désactivé + hors tabulation
+    expect(h).toContain('aria-disabled="true"');
+    expect(h).not.toContain('Enregistrer');     // rien à envoyer
+    expect(h).toContain('n’agit plus');
+    expect(h).toContain('Permis par commune et par mois'); // remplaçant nommé
+    expect(h).toContain('value="1"');           // valeur RÉELLE affichée
+  });
+
+  it('non-régression : un paramètre VIVANT (CarteReglageEntier) reste éditable (input + Enregistrer)', () => {
+    const vivant = PARAMS_VEILLE.find((p) => p.colonne === 'permis_par_commune_par_mois')!;
+    const h = renderToStaticMarkup(createElement(CarteReglageEntier, { param: vivant, bornes: { min: 1, max: 200 }, valeur: '5', onValeur: () => {}, onEnregistrer: () => {} }));
+    expect(h).toContain('Enregistrer');
+    expect(h).not.toContain('disabled');
+    expect(h).not.toContain('n’agit plus');
   });
 });

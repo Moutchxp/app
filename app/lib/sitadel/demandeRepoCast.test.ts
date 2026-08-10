@@ -25,8 +25,8 @@ import type { CandidatDossier } from './demande';
 
 beforeEach(() => { sqls.length = 0; });
 
-const HIST = { dejaRattaches: new Set<number>(), demandesCeMoisParCommune: new Map<string, number>() };
-const PARAMS = { dossiersParDemande: 5, demandesParCommuneParMois: 5, dateMin: null };
+const HIST = { dejaRattaches: new Set<number>(), permisCeMoisParCommune: new Map<string, number>() };
+const PARAMS = { dossiersParDemande: 5, permisParCommuneParMois: 5, dateMin: null };
 const c = (over: Partial<CandidatDossier>): CandidatDossier => ({
   dossierId: 1, codeInsee: '75056', communeNom: 'Paris', canal: 'email', numDau: 'PC1', dateReelleAutorisation: '2025-03-10',
   adresse: 'x', codePostal: '75001', cadastre: [], etatDau: '2', absentDuDernierMillesime: false, ...over,

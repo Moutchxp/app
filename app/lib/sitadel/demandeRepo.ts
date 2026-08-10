@@ -55,7 +55,7 @@ function dateMinDepuis(annees: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function paramsLot(cfg: ConfigVeille): ParamsLot {
-  return { dossiersParDemande: cfg.dossiersParDemande, demandesParCommuneParMois: cfg.demandesParCommuneParMois, dateMin: dateMinDepuis(cfg.ancienneteMaxDemandeAnnees) };
+  return { dossiersParDemande: cfg.dossiersParDemande, permisParCommuneParMois: cfg.permisParCommuneParMois, dateMin: dateMinDepuis(cfg.ancienneteMaxDemandeAnnees) };
 }
 
 /** Identité d'un profil (défaut 'entreprise'). Ligne absente → champs vides (jamais d'exception). */
@@ -72,27 +72,26 @@ export async function lireConfigDemandeur(profil: ProfilDemandeur = 'entreprise'
 }
 
 /**
- * Historique : dossiers déjà rattachés (demande active) + nombre de demandes du mois par commune QUI COMPTENT pour le
- * plafond mensuel.
- * ⚠️ Le plafond `demandes_par_commune_par_mois` borne la SOLLICITATION RÉELLE d'une mairie : seules les demandes
- * RÉELLEMENT PARTIES le consomment → `statut IN ('envoyee','close')`. Une 'brouillon' (préparée, jamais envoyée), une
- * 'prete' (prête mais pas partie) et une 'abandonnee' (jamais sortie de la machine) ne sollicitent PAS la commune : elles
- * ne doivent pas geler son quota (sinon des lots parfaitement valides sont bloqués « au plafond » sans qu'aucun courrier
- * n'ait quitté le système). AUCUN ENVOI n'existe encore : ce comptage est donc nul aujourd'hui, et le restera tant que
- * rien n'est envoyé — c'est voulu.
+ * Historique : dossiers déjà rattachés (demande active) + nombre de PERMIS (dossiers) déjà demandés ce mois par commune QUI
+ * COMPTENT pour le plafond mensuel.
+ * ⚠️ Q1 — le plafond `permis_par_commune_par_mois` borne la SOLLICITATION RÉELLE d'une mairie EN NOMBRE DE PERMIS, quel que
+ * soit le nombre de courriers/dépôts que cela représente : on compte donc les DOSSIERS (via demande_dossier), pas les
+ * demandes. Seules les demandes RÉELLEMENT PARTIES le consomment → `statut IN ('envoyee','close')` (une 'brouillon'/'prete'/
+ * 'abandonnee' ne sollicite PAS la commune). AUCUN ENVOI n'existe encore : ce comptage est donc nul aujourd'hui — c'est voulu.
  */
 async function lireHistorique(): Promise<HistoriqueDemandes> {
   const [att, mois] = await Promise.all([
     query<{ dossier_id: number }>(`SELECT dossier_id FROM demande_dossier WHERE actif`),
     query<{ code_insee: string; n: number }>(
-      `SELECT code_insee, count(*)::int AS n FROM demande
-       WHERE statut IN ('envoyee', 'close') AND date_trunc('month', cree_le) = date_trunc('month', now())
-       GROUP BY code_insee`,
+      `SELECT d.code_insee, count(dd.dossier_id)::int AS n
+         FROM demande d JOIN demande_dossier dd ON dd.demande_id = d.id
+        WHERE d.statut IN ('envoyee', 'close') AND date_trunc('month', d.cree_le) = date_trunc('month', now())
+        GROUP BY d.code_insee`,
     ),
   ]);
   return {
     dejaRattaches: new Set(att.rows.map((r) => r.dossier_id)),
-    demandesCeMoisParCommune: new Map(mois.rows.map((r) => [r.code_insee, r.n])),
+    permisCeMoisParCommune: new Map(mois.rows.map((r) => [r.code_insee, r.n])),
   };
 }
 
@@ -120,7 +119,7 @@ export function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDema
   }
   let plafond = 0;
   for (const code of parCommune.keys()) {
-    if (params.demandesParCommuneParMois - (hist.demandesCeMoisParCommune.get(code) ?? 0) <= 0) plafond += 1;
+    if (params.permisParCommuneParMois - (hist.permisCeMoisParCommune.get(code) ?? 0) <= 0) plafond += 1;
   }
   return {
     candidatsExamines: candidats.length, dossiersAnnules: annules, dossiersAbsents: absents, dossiersHorsFenetre: horsFenetre,

@@ -18,9 +18,9 @@ function cand(over: Partial<CandidatDossier> = {}): CandidatDossier {
     etatDau: '2', absentDuDernierMillesime: false, ...over,
   };
 }
-const HIST_VIDE = { dejaRattaches: new Set<number>(), demandesCeMoisParCommune: new Map<string, number>() };
+const HIST_VIDE = { dejaRattaches: new Set<number>(), permisCeMoisParCommune: new Map<string, number>() };
 // dateMin: null = pas de borne d'ancienneté (les tests d'ancienneté la fixent explicitement).
-const P: ParamsLot = { dossiersParDemande: 5, demandesParCommuneParMois: 1, dateMin: null };
+const P: ParamsLot = { dossiersParDemande: 5, permisParCommuneParMois: 1, dateMin: null };
 
 const CONFIG: ConfigDemandeur = {
   raisonSociale: 'Criterimmo', formeJuridique: 'SARL', siegeAdresse: '191 av. Charles de Gaulle, 92200 Neuilly',
@@ -62,7 +62,7 @@ describe('Sitadel S7c — plausibilité de l’identité du demandeur', () => {
 });
 
 describe('Sitadel S7c — fenêtre d’ancienneté (pure)', () => {
-  const params: ParamsLot = { dossiersParDemande: 5, demandesParCommuneParMois: 5, dateMin: '2023-01-01' };
+  const params: ParamsLot = { dossiersParDemande: 5, permisParCommuneParMois: 5, dateMin: '2023-01-01' };
 
   it('un dossier trop ancien (avant dateMin) n’est JAMAIS proposé', () => {
     expect(proposerLots([cand({ dateReelleAutorisation: '2019-05-01' })], params, HIST_VIDE)).toHaveLength(0);
@@ -73,7 +73,7 @@ describe('Sitadel S7c — fenêtre d’ancienneté (pure)', () => {
   it('un dossier SANS date d’autorisation n’est JAMAIS proposé (pertinence non jugeable)', () => {
     expect(proposerLots([cand({ dateReelleAutorisation: null })], params, HIST_VIDE)).toHaveLength(0);
     // même sans borne d'ancienneté, l'absence de date exclut
-    expect(proposerLots([cand({ dateReelleAutorisation: null })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
+    expect(proposerLots([cand({ dateReelleAutorisation: null })], { ...P, permisParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
   });
 });
 
@@ -94,7 +94,8 @@ describe('Sitadel S7c — date en toutes lettres', () => {
 describe('Sitadel S7 — constitution des lots (pure)', () => {
   it('respecte le plafond de dossiers par demande', () => {
     const c = Array.from({ length: 7 }, () => cand());
-    const lots = proposerLots(c, { ...P, demandesParCommuneParMois: 3 }, HIST_VIDE);
+    // Q1 — plafond mensuel généreux (10 permis ≥ 7) pour isoler le DÉCOUPAGE par `dossiers_par_demande` (5) : 7 → 5 + 2.
+    const lots = proposerLots(c, { ...P, permisParCommuneParMois: 10 }, HIST_VIDE);
     expect(lots).toHaveLength(2);          // 7 dossiers, 5/demande → 5 + 2
     expect(lots[0].dossiers).toHaveLength(5);
     expect(lots[1].dossiers).toHaveLength(2);
@@ -104,16 +105,16 @@ describe('Sitadel S7 — constitution des lots (pure)', () => {
     const c = Array.from({ length: 12 }, () => cand());
     expect(proposerLots(c, P, HIST_VIDE)).toHaveLength(1);
     // déjà 1 demande ce mois → quota épuisé → aucun lot
-    expect(proposerLots(c, P, { ...HIST_VIDE, demandesCeMoisParCommune: new Map([['92050', 1]]) })).toHaveLength(0);
+    expect(proposerLots(c, P, { ...HIST_VIDE, permisCeMoisParCommune: new Map([['92050', 1]]) })).toHaveLength(0);
   });
 
   it('un dossier déjà rattaché (demande active) n’est jamais reproposé ; après abandon il redevient proposable', () => {
     const a = cand(); const b = cand();
-    const lots = proposerLots([a, b], { ...P, demandesParCommuneParMois: 5 }, { ...HIST_VIDE, dejaRattaches: new Set([a.dossierId]) });
+    const lots = proposerLots([a, b], { ...P, permisParCommuneParMois: 5 }, { ...HIST_VIDE, dejaRattaches: new Set([a.dossierId]) });
     expect(lots).toHaveLength(1);
     expect(lots[0].dossiers.map((d) => d.dossierId)).toEqual([b.dossierId]);
     // abandon → le dossier n'est plus dans dejaRattaches (index partiel actif) → il redevient proposable
-    const apres = proposerLots([a], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE);
+    const apres = proposerLots([a], { ...P, permisParCommuneParMois: 5 }, HIST_VIDE);
     expect(apres).toHaveLength(1);
     expect(apres[0].dossiers.map((d) => d.dossierId)).toEqual([a.dossierId]);
   });
@@ -380,7 +381,7 @@ describe('Sitadel S7f — décompte chiffré du filtrage (jamais un texte figé)
 });
 
 describe('Sitadel S12 — exclusions d’état dans proposerLots', () => {
-  const PP = { ...P, demandesParCommuneParMois: 5 };
+  const PP = { ...P, permisParCommuneParMois: 5 };
   it('un dossier ANNULÉ (etat_dau=4) n’est JAMAIS proposé', () => {
     expect(proposerLots([cand({ etatDau: '4' })], PP, HIST_VIDE)).toHaveLength(0);
   });
@@ -442,11 +443,11 @@ describe('S14d — destinataire PRADA : adressabilité en amont + texte inchang�
       pradaCourriel: 'prada@ville.fr', pradaImportId: 3, pradaNom: 'Jean Dupont',
     }).canal;
     expect(canalResolu).toBe('email');
-    const lots = proposerLots([cand({ canal: canalResolu })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE);
+    const lots = proposerLots([cand({ canal: canalResolu })], { ...P, permisParCommuneParMois: 5 }, HIST_VIDE);
     expect(lots).toHaveLength(1); // adressable → un lot est proposé
 
     // témoin : une commune restée 'inconnu' (aucune PRADA) demeure exclue
-    expect(proposerLots([cand({ canal: 'inconnu' as CanalContact })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
+    expect(proposerLots([cand({ canal: 'inconnu' as CanalContact })], { ...P, permisParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
   });
 
   it('le TEXTE généré est byte-identique quel que soit le destinataire/canal (genererTexte ne le reçoit pas)', () => {
@@ -476,16 +477,16 @@ describe('S14e — validerIdsLot (action groupée : jamais 0 ligne en silence)',
 
 describe('S16 — e-mail ET formulaire produisent des lots ; courrier/inconnu exclus', () => {
   it('email → lot (canal email) ; formulaire → lot (canal formulaire, dépôt manuel) ; courrier/inconnu → aucun lot', () => {
-    const email = proposerLots([cand({ codeInsee: '93066', communeNom: 'Saint-Denis', canal: 'email' })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE);
+    const email = proposerLots([cand({ codeInsee: '93066', communeNom: 'Saint-Denis', canal: 'email' })], { ...P, permisParCommuneParMois: 5 }, HIST_VIDE);
     expect(email).toHaveLength(1);
     expect(email[0].canal).toBe('email');
 
-    const formulaire = proposerLots([cand({ codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire' as CanalContact })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE);
+    const formulaire = proposerLots([cand({ codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire' as CanalContact })], { ...P, permisParCommuneParMois: 5 }, HIST_VIDE);
     expect(formulaire).toHaveLength(1);
     expect(formulaire[0].canal).toBe('formulaire'); // séparable de l'e-mail par le canal du lot
 
-    expect(proposerLots([cand({ canal: 'courrier' as CanalContact })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
-    expect(proposerLots([cand({ canal: 'inconnu' as CanalContact })], { ...P, demandesParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
+    expect(proposerLots([cand({ canal: 'courrier' as CanalContact })], { ...P, permisParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
+    expect(proposerLots([cand({ canal: 'inconnu' as CanalContact })], { ...P, permisParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
   });
 });
 
@@ -551,10 +552,10 @@ describe('V3 — validerLotsSelection : clé requise, dédup, erreurs explicites
 
 /**
  * P3 — DÉCOUPAGE par contrainte de commune. 🔒 INVARIANT : la SÉLECTION (mêmes dossiers, même ORDRE) est byte-identique ;
- * seul le regroupement change (modèle ORDRE_HISTORIQUE). `demandesParCommuneParMois` généreux ici pour isoler le découpage.
+ * seul le regroupement change (modèle ORDRE_HISTORIQUE). `permisParCommuneParMois` généreux ici pour isoler le découpage.
  */
 describe('P3 — découpage : max_dossiers commune, sélection byte-identique', () => {
-  const PGROS: ParamsLot = { dossiersParDemande: 5, demandesParCommuneParMois: 10, dateMin: null };
+  const PGROS: ParamsLot = { dossiersParDemande: 5, permisParCommuneParMois: 10, dateMin: null };
   const base = [
     cand({ dossierId: 101, numDau: 'PC101' }),
     cand({ dossierId: 102, numDau: 'PC102' }),
@@ -659,5 +660,43 @@ describe('P3 — corps FORMULAIRE (téléservice)', () => {
     expect(cEnt).toContain('Criterimmo');                 // identité société (e-mail)
     expect(cEnt).toContain('PC0001');
     expect(cEnt).toContain('PC0002');
+  });
+});
+
+/**
+ * Q1 — le plafond mensuel par commune se compte en PERMIS (dossiers), pas en demandes/courriers. Byte-identique pour une
+ * commune SANS max à demandes pleines ; Paris (max=1) → autant de lots que de permis ; une demande partielle laisse le mois
+ * ouvert au prorata (comportement VOULU, fixé par test pour ne jamais être « corrigé » par erreur).
+ */
+describe('Q1 — plafond mensuel en PERMIS (dossiers)', () => {
+  const COMMUNE = '92050';
+  const params = (permis: number): ParamsLot => ({ dossiersParDemande: 5, permisParCommuneParMois: permis, dateMin: null });
+
+  it('BYTE-IDENTIQUE : commune sans max, plafond PLEIN (défaut 5), 12 dossiers → 1 lot de 5 (comme avant Q1)', () => {
+    const c = Array.from({ length: 12 }, () => cand());
+    const lots = proposerLots(c, params(5), HIST_VIDE);
+    expect(lots).toHaveLength(1);
+    expect(lots[0].dossiers).toHaveLength(5);
+  });
+
+  it('Paris : max = 1, plafond 5 permis/mois → 5 lots d’UN dossier (mêmes dossiers, dans l’ordre)', () => {
+    const c = Array.from({ length: 8 }, (_, i) => cand({ dossierId: 200 + i, maxDossiersParDemande: 1, canal: 'formulaire' as CanalContact }));
+    const lots = proposerLots(c, params(5), HIST_VIDE);
+    expect(lots).toHaveLength(5);
+    expect(lots.every((l) => l.dossiers.length === 1)).toBe(true);
+    expect(lots.flatMap((l) => l.dossiers.map((d) => d.dossierId))).toEqual([200, 201, 202, 203, 204]);
+  });
+
+  it('demande PARTIELLE → le mois reste OUVERT au prorata (2 permis déjà consommés sur 5 → 3 encore proposables, pas 0)', () => {
+    const c = Array.from({ length: 10 }, () => cand());
+    const hist = { dejaRattaches: new Set<number>(), permisCeMoisParCommune: new Map([[COMMUNE, 2]]) };
+    const lots = proposerLots(c, params(5), hist);
+    expect(lots.flatMap((l) => l.dossiers).length).toBe(3); // 5 − 2 = 3 permis restants (un mois n'est PAS gelé par une demande partielle)
+  });
+
+  it('plafond ÉPUISÉ (déjà 5 permis ce mois) → aucun lot pour la commune', () => {
+    const c = Array.from({ length: 10 }, () => cand());
+    const hist = { dejaRattaches: new Set<number>(), permisCeMoisParCommune: new Map([[COMMUNE, 5]]) };
+    expect(proposerLots(c, params(5), hist)).toHaveLength(0);
   });
 });

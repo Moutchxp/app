@@ -112,6 +112,13 @@ export interface ParamVeille {
   aide: string;
   optionsEnum?: string[]; // pour type 'enum' : liste fermée des valeurs admises
   optionsEnumLabels?: Record<string, string>; // libellés d'affichage FR des options 'enum' (repli = la valeur brute)
+  /**
+   * Q1 — motif VESTIGIAL porté sur la veille (miroir de `StatutColonne`/`editable:false` de config_scoring) : un paramètre
+   * marqué N'AGIT PLUS. Il reste EN BASE (lu par l'historique), mais devient NON éditable (écran lecture seule + refus API).
+   * `remplacePar` = libellé du paramètre qui l'a remplacé (pour la mention « remplacé par … »).
+   */
+  vestigial?: boolean;
+  remplacePar?: string;
 }
 
 /** Forme minimale d'une URL http(s) — MIROIR APPLICATIF du CHECK `config_veille_dila_url_check` (migration 069). */
@@ -128,8 +135,14 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Au-delà de cet âge, le bâtiment est déjà mesuré par le LiDAR (MNS) : la demande de pièces devient inutile et n’est plus proposée.' },
   { colonne: 'dossiers_par_demande', cle: 'dossiersParDemande', libelle: 'Dossiers par demande', unite: 'dossiers', type: 'entier',
     aide: 'Nombre maximum de dossiers regroupés dans une même demande adressée à une mairie. Borne le volume par courrier.' },
+  // Q1 — NOUVEAU paramètre VIVANT : le plafond mensuel se compte désormais en PERMIS (dossiers), indépendamment du regroupement.
+  { colonne: 'permis_par_commune_par_mois', cle: 'permisParCommuneParMois', libelle: 'Permis par commune et par mois', unite: 'permis / mois', type: 'entier',
+    aide: 'Nombre maximum de PERMIS (dossiers) demandés à une même commune par mois — quel que soit le nombre de courriers ou de dépôts que cela représente (une commune à un ticket par dossier n’en consomme pas plus qu’une commune à courrier groupé).' },
+  // Q1 — VESTIGIAL : ce paramètre comptait des DEMANDES (courriers) ; il n'agit plus (remplacé par « Permis par commune et par
+  // mois »). Conservé en base (lu par l'historique), rendu en lecture seule + refusé par la route (validerReglages).
   { colonne: 'demandes_par_commune_par_mois', cle: 'demandesParCommuneParMois', libelle: 'Demandes par commune et par mois', unite: 'demandes / mois', type: 'entier',
-    aide: 'Nombre maximum de demandes envoyées à une même commune par mois. Borne la sollicitation d’une même mairie.' },
+    vestigial: true, remplacePar: 'Permis par commune et par mois',
+    aide: 'Comptait le nombre de demandes (courriers) envoyées à une même commune par mois.' },
   // V2 — profondeur d'examen des candidats (ex-const NB_CANDIDATS) : pilotable au runtime, invariant « pilotage sans code ».
   { colonne: 'nb_candidats_examines', cle: 'nbCandidatsExamines', libelle: 'Profondeur d’examen des dossiers', unite: 'dossiers', type: 'entier',
     aide: 'Combien de dossiers, tout en haut du classement, sont examinés pour préparer les demandes. Trop bas, des dossiers récents mais moins « gros » ne sont jamais atteints ; plus haut = davantage de dossiers proposés. Au-delà de la taille du fichier des permis, la préparation devient un peu plus lente.' },
@@ -224,7 +237,7 @@ export const PARAMS_VEILLE: ParamVeille[] = [
  * (cf. `ClassificationDossiers`), tous les invariants de l'écran Réglages sont conservés.
  */
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
-  'anciennete_max_demande_annees', 'dossiers_par_demande', 'demandes_par_commune_par_mois',
+  'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
   'nb_candidats_examines', 'tri_candidats', // V2 — profondeur d'examen + ordre de tri des candidats
   'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi (groupe « demandes »)
   'adresse_reponse',                            // S38 — adresse de réponse (reply-to)
@@ -297,6 +310,9 @@ export function validerReglages(
     for (const [cle, valeur] of Object.entries(patch.veille)) {
       const param = PARAMS_VEILLE.find((p) => p.colonne === cle);
       if (!param) { erreurs.push({ colonne: cle, message: `paramètre inconnu « ${cle} »` }); continue; }
+      // Q1 — un paramètre VESTIGIAL n'agit plus : l'API le REFUSE (le grisé à l'écran ne suffit pas — l'API ne doit pas
+      // accepter ce que l'interface interdit). Rien n'est écrit pour lui.
+      if (param.vestigial) { erreurs.push({ colonne: cle, message: `${param.libelle} : ce réglage n’agit plus${param.remplacePar ? ` (remplacé par « ${param.remplacePar} »)` : ''} — non modifiable` }); continue; }
       if (param.type === 'enum') {
         const options = param.optionsEnum ?? [];
         if (typeof valeur !== 'string' || !options.includes(valeur)) {

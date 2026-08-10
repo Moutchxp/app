@@ -97,3 +97,26 @@ export function CarteReglageEntier({ param, bornes, valeur, onValeur, onEnregist
     </article>
   );
 }
+
+/**
+ * Q1 — carte d'un paramètre VESTIGIAL : rendu LECTURE SEULE. L'input est `disabled` → non modifiable ET annoncé comme tel à
+ * un lecteur d'écran (pas seulement grisé en CSS) et hors de l'ordre de tabulation. AUCUN bouton « Enregistrer » (rien à
+ * envoyer ; l'API le refuse de toute façon). Mention explicite « n'agit plus — remplacé par … ». PURE. Aucune animation
+ * (prefers-reduced-motion sans objet).
+ */
+export function CarteParamVestigial({ param, valeur }: { param: ParamVeille; valeur: string }) {
+  return (
+    <article className="svv-card flex flex-col gap-1" style={{ minWidth: 0, opacity: 0.7 }}>
+      <span style={styleLabelCarte}>{param.libelle}</span>
+      <span style={styleAideCarte}>{param.aide}</span>
+      <label className="flex flex-col gap-1" style={{ marginTop: '.2rem' }}>
+        <input type="number" value={valeur} disabled aria-disabled="true"
+          aria-label={`${param.libelle} — réglage désactivé, non modifiable`}
+          style={{ ...styleInputCarte, background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)', cursor: 'not-allowed' }} />
+      </label>
+      <span role="note" style={{ ...styleAideCarte, fontStyle: 'italic', color: 'var(--color-svv-red)' }}>
+        Ce réglage n’agit plus{param.remplacePar ? ` — remplacé par « ${param.remplacePar} »` : ''}. Conservé pour l’historique.
+      </span>
+    </article>
+  );
+}

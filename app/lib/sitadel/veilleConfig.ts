@@ -22,7 +22,8 @@ export interface ConfigVeille {
   rangExtension: number;
   rangDemolition: number;
   dossiersParDemande: number;
-  demandesParCommuneParMois: number;
+  demandesParCommuneParMois: number; // VESTIGIAL (Q1) : n'agit plus ; conservé et lu pour l'affichage/l'historique
+  permisParCommuneParMois: number;   // Q1 : plafond mensuel en PERMIS (dossiers) — remplace demandesParCommuneParMois
   piecesDemandees: string;
   ancienneteMaxDemandeAnnees: number;
   profilDemandeurDefaut: string;
@@ -66,7 +67,8 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   rangExtension: 4,
   rangDemolition: 5,
   dossiersParDemande: 5,
-  demandesParCommuneParMois: 1,
+  demandesParCommuneParMois: 1,        // VESTIGIAL (Q1)
+  permisParCommuneParMois: 5,          // Q1 : = défaut(demandes 1) × défaut(dossiers 5)
   piecesDemandees: 'PC2,PC3',
   ancienneteMaxDemandeAnnees: 3,
   profilDemandeurDefaut: 'entreprise',
@@ -254,6 +256,18 @@ async function lireSelectionCandidats(): Promise<Pick<ConfigVeille, 'nbCandidats
 }
 
 /**
+ * Q1 — lecture ISOLÉE de `permis_par_commune_par_mois` : tant que la migration 087 n'est pas passée, la colonne n'existe pas →
+ * cette lecture échoue SEULE et renvoie `null`, SANS dégrader tout le reste de la config (motif `lireSelectionCandidats`). Le
+ * repli (calculé par l'appelant) = `demandes_par_commune_par_mois × dossiers_par_demande` = le débit ACTUEL exact.
+ */
+async function lirePermisParCommune(): Promise<number | null> {
+  try {
+    const { rows } = await query<{ permis_par_commune_par_mois: number }>(`SELECT permis_par_commune_par_mois FROM config_veille WHERE id = 1`);
+    return rows[0]?.permis_par_commune_par_mois ?? null;
+  } catch { return null; } // 087 pas encore appliquée → repli calculé
+}
+
+/**
  * Lecture BEST-EFFORT du canal CADA (X1 : e-mail + URL du formulaire), ISOLÉE — même motif de résilience : tant que la
  * migration 083 n'est pas passée, les colonnes n'existent pas → cette lecture échoue SEULE et retombe sur les défauts
  * ('' e-mail, URL du formulaire), SANS dégrader tout le reste de la config (précédent 054).
@@ -305,7 +319,9 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       rangExtension: r.rang_extension,
       rangDemolition: r.rang_demolition,
       dossiersParDemande: r.dossiers_par_demande,
-      demandesParCommuneParMois: r.demandes_par_commune_par_mois,
+      demandesParCommuneParMois: r.demandes_par_commune_par_mois, // VESTIGIAL (Q1) : conservé pour l'affichage
+      // Q1 — plafond mensuel en PERMIS ; lecture isolée (résiliente à l'ordre d'application de 087), repli = ancien × dossiers.
+      permisParCommuneParMois: (await lirePermisParCommune()) ?? (r.demandes_par_commune_par_mois * r.dossiers_par_demande),
       piecesDemandees: r.pieces_demandees,
       ancienneteMaxDemandeAnnees: r.anciennete_max_demande_annees,
       profilDemandeurDefaut: r.profil_demandeur_defaut,

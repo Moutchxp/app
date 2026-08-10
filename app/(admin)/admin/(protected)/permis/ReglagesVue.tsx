@@ -6,7 +6,7 @@ import { ETIQUETTE_PROFIL, type ConfigDemandeur, type ProfilDemandeur } from '..
 import {
   champsPourProfil, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_SOURCES, PARAMS_MENTIONS, type ParamVeille, type BornesParColonne, type ErreurReglage,
 } from '../../../../lib/sitadel/reglagesVeille';
-import { BandeauIdentite, PlageParam, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
+import { BandeauIdentite, PlageParam, CarteParamVestigial, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
 
 /**
  * Écran « Réglages » de la tuile Permis (chantier S7d / S7e). Édite les DEUX identités de demandeur (Société / Personne
@@ -111,6 +111,9 @@ export function ReglagesVue() {
   const bornes = data.bornes;
   const carteParam = (p: ParamVeille) => {
     const b = bornes[p.colonne];
+    // Q1 — paramètre VESTIGIAL : lecture seule (pas d'input éditable, pas de bouton « Enregistrer »). La valeur affichée est
+    // la valeur RÉELLE en base (pas le brouillon). L'API refuse aussi toute écriture (validerReglages).
+    if (p.vestigial) return <CarteParamVestigial key={p.colonne} param={p} valeur={String(data.veille[p.cle] ?? '')} />;
     // S40 — interrupteur (booléen) : rendu à part (case à cocher, appliqué immédiatement, sans bouton « Enregistrer »).
     if (p.type === 'booleen') {
       const actif = Boolean(data.veille[p.cle]);

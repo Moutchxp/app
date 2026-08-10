@@ -180,11 +180,11 @@ export interface HistoriqueDemandes {
   /** dossier_id déjà rattachés à une demande NON abandonnée → jamais reproposés. */
   dejaRattaches: ReadonlySet<number>;
   /** nombre de demandes déjà créées CE MOIS-CI, par code_insee (plafond mensuel). */
-  demandesCeMoisParCommune: ReadonlyMap<string, number>;
+  permisCeMoisParCommune: ReadonlyMap<string, number>;
 }
 export interface ParamsLot {
   dossiersParDemande: number;
-  demandesParCommuneParMois: number;
+  permisParCommuneParMois: number;
   /** Date d'autorisation minimale ('AAAA-MM-JJ', = aujourd'hui − anciennete_max). `null` = pas de borne (jamais en prod). */
   dateMin: string | null;
 }
@@ -223,7 +223,8 @@ export function proposerLots(candidats: CandidatDossier[], params: ParamsLot, hi
   }
   const lots: Lot[] = [];
   for (const [code, dossiers] of parCommune) {
-    const quota = Math.max(0, params.demandesParCommuneParMois - (hist.demandesCeMoisParCommune.get(code) ?? 0));
+    // Q1 — le plafond mensuel se compte en PERMIS (dossiers), pas en demandes/courriers : `quota` = permis restants du mois.
+    const quota = Math.max(0, params.permisParCommuneParMois - (hist.permisCeMoisParCommune.get(code) ?? 0));
     if (quota <= 0) continue;
     const commune = dossiers[0].communeNom!;
     const canal = dossiers[0].canal!;
@@ -231,12 +232,14 @@ export function proposerLots(candidats: CandidatDossier[], params: ParamsLot, hi
     const destNom = dossiers[0].destNom;
     const profilImpose = dossiers[0].profilImpose ?? null; // P3 : contrainte téléservice identique pour tous les dossiers de la commune
     // P3 — taille de tranche = limite globale, OU la limite PROPRE à la commune si plus petite (ex. téléservice Paris = 1).
-    // ⚠️ SEULE la taille de tranche change ici : le FILTRE d'éligibilité (ci-dessus) et l'ORDRE des candidats (amont) sont
-    // inchangés → la SÉLECTION reste BYTE-IDENTIQUE, seul le DÉCOUPAGE diffère (mêmes dossiers, même ordre — prouvé par test).
+    // ⚠️ SEULE la taille de tranche et le PLAFOND (en permis) agissent ici : le FILTRE d'éligibilité (ci-dessus) et l'ORDRE des
+    // candidats (amont) sont inchangés → la SÉLECTION reste BYTE-IDENTIQUE, seul le DÉCOUPAGE diffère.
     const maxCommune = dossiers[0].maxDossiersParDemande;
     const taille = typeof maxCommune === 'number' && maxCommune > 0 ? Math.min(params.dossiersParDemande, maxCommune) : params.dossiersParDemande;
-    for (let i = 0, faits = 0; i < dossiers.length && faits < quota; i += taille, faits += 1) {
-      lots.push({ codeInsee: code, communeNom: commune, canal, destOrigine, destNom, profilImpose, dossiers: dossiers.slice(i, i + taille) });
+    // `i` = permis déjà placés ce mois. On découpe en lots de `taille`, sans jamais dépasser `quota` PERMIS (dernière tranche
+    // écrêtée à `quota`). Défaut (taille = dossiersParDemande, quota multiple) → mêmes lots qu'avant Q1 (byte-identique).
+    for (let i = 0; i < dossiers.length && i < quota; i += taille) {
+      lots.push({ codeInsee: code, communeNom: commune, canal, destOrigine, destNom, profilImpose, dossiers: dossiers.slice(i, Math.min(i + taille, quota)) });
     }
   }
   return lots;
