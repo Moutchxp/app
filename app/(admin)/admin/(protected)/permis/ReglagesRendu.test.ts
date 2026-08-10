@@ -214,6 +214,7 @@ describe('V2 — rendu des réglages de sélection des candidats', () => {
     const h = renderToStaticMarkup(createElement(PlageParam, { param: tri, bornes: undefined }));
     expect(h).toContain('Plus grands d’abord (surface, puis date)');
     expect(h).toContain('Plus récents d’abord (date, puis surface)');
+    expect(h).toContain('Plus anciens d’abord (date, puis surface)');
     expect(h).not.toContain('surface_puis_date'); // la valeur brute technique n'apparaît pas
     expect(h).not.toContain('Plage autorisée');
   });

@@ -148,9 +148,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Combien de dossiers, tout en haut du classement, sont examinés pour préparer les demandes. Trop bas, des dossiers récents mais moins « gros » ne sont jamais atteints ; plus haut = davantage de dossiers proposés. Au-delà de la taille du fichier des permis, la préparation devient un peu plus lente.' },
   // V2 — ordre secondaire de tri des candidats (ex-const ORDRE_SECONDAIRE) : GARDE (liste fermée), libellés FR.
   { colonne: 'tri_candidats', cle: 'triCandidats', libelle: 'Ordre d’examen des dossiers', unite: '', type: 'enum',
-    optionsEnum: ['surface_puis_date', 'date_puis_surface'],
-    optionsEnumLabels: { surface_puis_date: 'Plus grands d’abord (surface, puis date)', date_puis_surface: 'Plus récents d’abord (date, puis surface)' },
-    aide: 'Dans quel ordre les dossiers sont départagés à catégorie égale : « plus grands d’abord » remonte les gros projets (mais peut enterrer des dossiers récents plus petits) ; « plus récents d’abord » privilégie les permis récents. ⚠️ Ce choix change AUSSI l’ordre de la liste affichée dans l’onglet « Dossiers ».' },
+    optionsEnum: ['surface_puis_date', 'date_puis_surface', 'date_ancienne_puis_surface'],
+    optionsEnumLabels: { surface_puis_date: 'Plus grands d’abord (surface, puis date)', date_puis_surface: 'Plus récents d’abord (date, puis surface)', date_ancienne_puis_surface: 'Plus anciens d’abord (date, puis surface)' },
+    aide: 'Dans quel ordre les dossiers sont départagés à catégorie égale : « plus grands d’abord » remonte les gros projets (mais peut enterrer des dossiers récents plus petits) ; « plus récents d’abord » privilégie les permis récents ; « plus anciens d’abord » traite d’abord les permis les plus vieux de la fenêtre (rattraper le retard). ⚠️ Ce choix change AUSSI l’ordre de la liste affichée dans l’onglet « Dossiers ».' },
   // S37 — CAPS D'ENVOI : le rempart contre un envoi accidentel en masse. À monter avec prudence.
   { colonne: 'envois_max_par_run', cle: 'envoisMaxParRun', libelle: 'Envois maximum par action', unite: 'e-mails', type: 'entier',
     aide: 'Nombre maximum d’e-mails envoyés aux mairies en UNE seule action d’envoi. C’est le rempart de sécurité : même en cas d’erreur, jamais plus que ce nombre ne part d’un coup. L’augmenter accélère la campagne mais accroît le risque qu’un envoi accidentel touche beaucoup de mairies à la fois.' },

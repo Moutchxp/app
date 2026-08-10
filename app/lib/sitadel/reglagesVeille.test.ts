@@ -223,8 +223,8 @@ describe('V2 — sélection des candidats : cap (bornes CHECK) + tri (liste ferm
     expect(validerReglages({ veille: { nb_candidats_examines: 1000.5 } }, BORNES).ok).toBe(false); // non entier
   });
 
-  it('tri_candidats : les deux valeurs de la liste acceptées, une valeur inconnue REFUSÉE', () => {
-    for (const v of ['surface_puis_date', 'date_puis_surface']) {
+  it('tri_candidats : les trois valeurs de la liste acceptées, une valeur inconnue REFUSÉE', () => {
+    for (const v of ['surface_puis_date', 'date_puis_surface', 'date_ancienne_puis_surface']) {
       const ok = validerReglages({ veille: { tri_candidats: v } }, BORNES);
       expect(ok.ok).toBe(true);
       if (ok.ok) expect(ok.veille.tri_candidats).toBe(v);
@@ -232,11 +232,12 @@ describe('V2 — sélection des candidats : cap (bornes CHECK) + tri (liste ferm
     expect(validerReglages({ veille: { tri_candidats: 'au_hasard' } }, BORNES).ok).toBe(false);
   });
 
-  it('tri_candidats porte deux libellés d’affichage en français', () => {
+  it('tri_candidats porte trois libellés d’affichage en français', () => {
     const tri = PARAMS_DEMANDES.find((p) => p.colonne === 'tri_candidats')!;
     expect(tri.type).toBe('enum');
     expect(tri.optionsEnumLabels?.surface_puis_date).toMatch(/grands/i);
     expect(tri.optionsEnumLabels?.date_puis_surface).toMatch(/récents/i);
+    expect(tri.optionsEnumLabels?.date_ancienne_puis_surface).toMatch(/anciens/i);
   });
 });
 

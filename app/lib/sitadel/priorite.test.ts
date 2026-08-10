@@ -140,6 +140,19 @@ describe('V2 — ordre secondaire de tri PILOTÉ par config (tri_candidats)', ()
     expect((texte.match(/NULLS LAST/g) ?? []).length).toBe(2); // NULLS LAST sur surface ET date
     expect(texte).not.toContain(ORDRE_HISTORIQUE); // ce n'est plus l'ordre historique
   });
+
+  it('« date_ancienne_puis_surface » (Q3) : DATE CROISSANTE avant la surface ; num_dau ASC en dernier ; NULLS LAST conservé', () => {
+    const c: ConfigVeille = { ...C, triCandidats: 'date_ancienne_puis_surface' };
+    const { texte } = construireRequeteListe(FILTRES_VIDES, c, 1, 25);
+    const ORDRE_ANCIENS =
+      'd.date_reelle_autorisation ASC NULLS LAST, ' +
+      "(CASE WHEN d.type = 'PD' THEN d.superficie_terrain ELSE d.surf_creee END) DESC NULLS LAST, d.num_dau ASC";
+    expect(texte).toContain(ORDRE_ANCIENS);                    // chaîne EXACTE du nouvel ordre
+    expect(texte).toContain('d.date_reelle_autorisation ASC'); // date CROISSANTE (jamais DESC dans ce mode)
+    expect(texte).toContain('num_dau ASC LIMIT');              // départage stable conservé en dernier
+    expect((texte.match(/NULLS LAST/g) ?? []).length).toBe(2); // date ASC + surface DESC
+    expect(texte).not.toContain(ORDRE_HISTORIQUE);             // ce n'est pas l'ordre historique
+  });
 });
 
 describe('Sitadel S3 — recherche par préfixe / troncature', () => {

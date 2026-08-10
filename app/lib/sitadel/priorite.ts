@@ -137,14 +137,17 @@ const FROM_JOIN =
  *  - 'surface_puis_date' (défaut) : surface (PC = surf_creee, PD = superficie_terrain) DESC, puis date DESC, puis num_dau.
  *    → produit une chaîne BYTE-IDENTIQUE au comportement historique (non-régression).
  *  - 'date_puis_surface' : intervertit les DEUX premiers critères (les plus récents d'abord).
- * `num_dau ASC` reste le départage stable en dernier ; `NULLS LAST` conservé sur surface et date dans les deux cas.
+ *  - 'date_ancienne_puis_surface' (Q3) : date d'autorisation CROISSANTE (les plus ANCIENS d'abord), puis surface DESC.
+ * `num_dau ASC` reste le départage stable en dernier ; `NULLS LAST` conservé sur surface et date dans TOUS les cas ; toute
+ * valeur inconnue retombe sur 'surface_puis_date' (comportement historique).
  */
 function ordreSecondaire(c: ConfigVeille): string {
   const surface = `(CASE WHEN d.type = 'PD' THEN d.superficie_terrain ELSE d.surf_creee END) DESC NULLS LAST`;
   const date = `d.date_reelle_autorisation DESC NULLS LAST`;
-  return c.triCandidats === 'date_puis_surface'
-    ? `${date}, ${surface}, d.num_dau ASC`
-    : `${surface}, ${date}, d.num_dau ASC`;
+  if (c.triCandidats === 'date_puis_surface') return `${date}, ${surface}, d.num_dau ASC`;
+  // Q3 — « plus anciens d'abord » : date CROISSANTE avant la surface. Même expression de surface, même départage num_dau.
+  if (c.triCandidats === 'date_ancienne_puis_surface') return `d.date_reelle_autorisation ASC NULLS LAST, ${surface}, d.num_dau ASC`;
+  return `${surface}, ${date}, d.num_dau ASC`; // 'surface_puis_date' (défaut) + valeur inconnue → historique BYTE-IDENTIQUE
 }
 
 /** Seuil de similarité trigramme pour la recherche de voie tolérante à la troncature 26 c (pg_trgm). */
