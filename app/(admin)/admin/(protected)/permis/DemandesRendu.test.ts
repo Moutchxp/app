@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { createElement } from 'react';
+import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, BlocStock, TableStock, PanneauDetailStock, libelleStock, retirerCommune, repartirRetour, MessageRetour, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
+import type { LigneStock } from '../../../../lib/sitadel/stock';
+import type { PermisDetail } from '../../../../lib/sitadel/demandeRepo';
 
 describe('S14e — OrigineDest (texte porteur, pas seulement couleur)', () => {
   it('origine prada → « PRADA — Nom » (texte lisible)', () => {
@@ -465,5 +467,130 @@ describe('D3 — TableDemandes : colonne « Type » en 2e position + conteneur d
     const h = rendu({ visibles: [], messageVide: 'Aucune demande pour ces filtres.' });
     expect(h).toContain('Aucune demande pour ces filtres.');
     expect(h).toContain('colSpan="10"'); // React 19 émet l'attribut tel quel (HTML insensible à la casse)
+  });
+});
+
+// ── Q2b : STOCK — bloc repliable + tableau par commune + panneau de détail (disclosure natif) ─────────────────────────
+const CATS_STOCK = [
+  { cle: 'immeuble_neuf', libelle: 'Immeuble neuf', rang: 1 },
+  { cle: 'surelevation', libelle: 'Surélévation', rang: 2 },
+  { cle: 'construction_neuve', libelle: 'Construction neuve', rang: 3 },
+  { cle: 'extension', libelle: 'Extension', rang: 4 },
+  { cle: 'demolition', libelle: 'Démolition', rang: 5 },
+];
+const ligneStock = (over: Partial<LigneStock> = {}): LigneStock => ({ codeInsee: '75056', communeNom: 'Paris', parType: { immeuble_neuf: 5, extension: 3 }, total: 8, ...over });
+
+describe('Q2b — libelleStock (étiquette de la ligne repliée, décompte calculé)', () => {
+  it('null (rien chargé) → étiquette générique', () => {
+    expect(libelleStock(null, 6)).toBe('Stock de permis à demander (par commune)');
+  });
+  it('stock chargé → chiffre principal (immeubles) sur combien de communes', () => {
+    const l = libelleStock([ligneStock({ parType: { immeuble_neuf: 5 } }), ligneStock({ codeInsee: '93029', parType: { immeuble_neuf: 2 } }), ligneStock({ codeInsee: '92004', parType: { extension: 4 } })], 6);
+    expect(l).toContain('7 immeubles à demander'); // 5 + 2
+    expect(l).toContain('2 communes');             // seules celles avec ≥1 immeuble
+    expect(l).toContain('6 derniers mois');
+  });
+});
+
+describe('Q2b — TableStock (disclosure natif par ligne : aria-expanded / aria-controls)', () => {
+  const rendu = (communeOuverte: string | null, panneau?: ReactNode, lignes: LigneStock[] = [ligneStock()]) =>
+    renderToStaticMarkup(createElement(TableStock, { lignes, categories: CATS_STOCK, communeOuverte, onDetail: () => {}, panneau }));
+
+  it('ligne fermée → bouton « Détail », aria-expanded=false, panneau ABSENT', () => {
+    const h = rendu(null, createElement('span', {}, 'PANNEAU_SENTINELLE'));
+    expect(h).toContain('aria-expanded="false"');
+    expect(h).toContain('Détail');
+    expect(h).not.toContain('PANNEAU_SENTINELLE');   // panneau rendu SEULEMENT quand la ligne est ouverte
+  });
+
+  it('ligne ouverte → aria-expanded=true, aria-controls pointe le panneau, panneau rendu sous la ligne', () => {
+    const h = rendu('75056', createElement('span', {}, 'PANNEAU_SENTINELLE'));
+    expect(h).toContain('aria-expanded="true"');
+    expect(h).toContain('aria-controls="stock-detail-75056"');
+    expect(h).toContain('id="stock-detail-75056"');   // 2ᵉ <tr><td colSpan> porteur du panneau
+    expect(h).toContain('PANNEAU_SENTINELLE');
+    expect(h).toContain('Fermer');
+  });
+
+  it('le panneau s’ouvre sous la BONNE ligne (celle ouverte, pas une autre)', () => {
+    const lignes = [ligneStock({ codeInsee: '75056', communeNom: 'Paris' }), ligneStock({ codeInsee: '93029', communeNom: 'Drancy' })];
+    const h = rendu('93029', createElement('span', {}, 'PANNEAU_SENTINELLE'), lignes);
+    expect(h).toContain('id="stock-detail-93029"');       // panneau sur Drancy
+    expect(h).not.toContain('id="stock-detail-75056"');   // pas sur Paris
+    expect((h.match(/aria-expanded="true"/g) ?? []).length).toBe(1); // une seule ligne ouverte
+  });
+
+  it('un stock à 0 dans une colonne affiche « 0 », jamais une cellule vide', () => {
+    const h = rendu(null, undefined, [ligneStock({ parType: { extension: 2 }, total: 2 })]); // aucun immeuble
+    expect(h).toContain('>0</td>'); // la colonne immeuble neuf rend 0 (pas de blanc)
+  });
+
+  it('en-têtes = libellés de l’app (jamais réinventés), immeuble neuf en tête', () => {
+    const h = rendu(null);
+    for (const c of CATS_STOCK) expect(h).toContain(c.libelle);
+    expect(h.indexOf('Immeuble neuf')).toBeLessThan(h.indexOf('Extension')); // ordre canonique
+  });
+});
+
+describe('Q2b — PanneauDetailStock (période, type, permis, Refermer)', () => {
+  const permisFixture: PermisDetail[] = [
+    { numDau: 'PC-A', date: '2026-05-01', adresse: '10 rue de Paris', categorie: 'immeuble_neuf', libelleCategorie: 'Immeuble neuf', demandeReference: 'SVAV-DEM-2026-000009' },
+    { numDau: 'PC-B', date: '2026-04-01', adresse: '2 rue B', categorie: 'extension', libelleCategorie: 'Extension', demandeReference: null },
+  ];
+  const rendu = (permis: PermisDetail[] | null, chargement = false) =>
+    renderToStaticMarkup(createElement(PanneauDetailStock, {
+      communeNom: 'Paris', categories: CATS_STOCK, periode: '6m', typeFiltre: 'immeuble_neuf', permis, chargement, onRefermer: () => {},
+    }));
+
+  it('permis déjà demandé → référence affichée ; non demandé → « à demander »', () => {
+    const h = rendu(permisFixture);
+    expect(h).toContain('SVAV-DEM-2026-000009');
+    expect(h).toContain('demandé');
+    expect(h).toContain('à demander');
+    expect(h).toContain('PC-A');
+    expect(h).toContain('10 rue de Paris');
+  });
+
+  it('sélecteurs période (6 mois → origine) + type (tous + catégories), bouton Refermer', () => {
+    const h = rendu(permisFixture);
+    expect(h).toContain('6 derniers mois');
+    expect(h).toContain('Depuis l’origine');   // « origine » élargit
+    expect(h).toContain('Tous les types');
+    expect(h).toContain('Immeuble neuf');
+    expect(h).toContain('Refermer');
+  });
+
+  it('chargement (permis=null) → « Chargement… » ; vide ([]) → message explicite', () => {
+    expect(rendu(null, true)).toContain('Chargement');
+    expect(rendu([])).toContain('Aucun permis délivré');
+  });
+});
+
+describe('Q2b — BlocStock (repliable, fermé par défaut, mention du sous-ensemble)', () => {
+  it('fermé (stock null) → étiquette générique, contenu (explication + table) NON rendu', () => {
+    const h = renderToStaticMarkup(createElement(BlocStock, {
+      ouvert: false, chargement: false, stock: null, fenetreMois: 6, onToggle: () => {},
+      table: createElement('span', {}, 'TABLE_SENTINELLE'),
+    }));
+    expect(h).toContain('Stock de permis à demander (par commune)');
+    expect(h).toContain('aria-expanded="false"');
+    expect(h).not.toContain('TABLE_SENTINELLE');     // données chargées SEULEMENT à l'ouverture
+    expect(h).not.toContain('sous-ensemble');
+  });
+
+  it('ouvert + stock chargé → table rendue, mention « sous-ensemble d’affichage », temps de calcul', () => {
+    const h = renderToStaticMarkup(createElement(BlocStock, {
+      ouvert: true, chargement: false, stock: [ligneStock()], genereEnMs: 15, fenetreMois: 6, onToggle: () => {},
+      table: createElement('span', {}, 'TABLE_SENTINELLE'),
+    }));
+    expect(h).toContain('aria-expanded="true"');
+    expect(h).toContain('TABLE_SENTINELLE');
+    expect(h).toContain('sous-ensemble d’affichage'); // n'affecte pas l'éligibilité
+    expect(h).toContain('15 ms');
+  });
+
+  it('ouvert + en chargement (stock null) → « Chargement du stock… »', () => {
+    const h = renderToStaticMarkup(createElement(BlocStock, { ouvert: true, chargement: true, stock: null, fenetreMois: 6, onToggle: () => {} }));
+    expect(h).toContain('Chargement du stock');
   });
 });

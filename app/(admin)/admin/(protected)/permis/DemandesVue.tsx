@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagnostic, ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur, cleLot, compterSelection } from '../../../../lib/sitadel/demande';
-import type { DemandeListe, DemandeDetail, ResumeDemandes, AlerteIdentite, CompteRenduCreation } from '../../../../lib/sitadel/demandeRepo';
+import type { DemandeListe, DemandeDetail, ResumeDemandes, AlerteIdentite, CompteRenduCreation, StockResultat, PermisDetail } from '../../../../lib/sitadel/demandeRepo';
 import { type Tri, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle } from '../../../../lib/sitadel/demandesListe';
-import { OrigineDest, MessageRetour, repartirRetour, CartePropositions, FiltreTypes, TableDemandes, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
+import { PERIODE_STOCK_DEFAUT, FENETRE_STOCK_MOIS } from '../../../../lib/sitadel/stock';
+import { OrigineDest, MessageRetour, repartirRetour, CartePropositions, FiltreTypes, TableDemandes, STATUT_LIBELLE, BlocStock, TableStock, PanneauDetailStock, type RetourAction } from './DemandesRendu';
 import { BlocPrada } from './BlocPrada';
 import { BlocDepot } from './BlocDepot';
 
@@ -48,6 +49,15 @@ export function DemandesVue({ categories }: Props) {
   // V3 — sélection des lots à créer : vit ICI (clés de lot stables), JAMAIS dans la page affichée → survit à la pagination.
   const [selLots, setSelLots] = useState<Set<string>>(new Set());
   const [pageLots, setPageLots] = useState(1);
+  // Q2b — STOCK par commune : bloc repliable FERMÉ par défaut, données chargées à l'OUVERTURE (jamais au montage de l'onglet).
+  const [stockOuvert, setStockOuvert] = useState(false);
+  const [stock, setStock] = useState<StockResultat | null>(null);
+  const [stockChargement, setStockChargement] = useState(false);
+  const [communeStock, setCommuneStock] = useState<string | null>(null);           // code INSEE du panneau ouvert (une seule ligne à la fois)
+  const [periodeStock, setPeriodeStock] = useState<string>(PERIODE_STOCK_DEFAUT);   // panneau : période (défaut 6 mois)
+  const [typeStock, setTypeStock] = useState<string>('immeuble_neuf');              // panneau : type (défaut immeuble neuf)
+  const [permisStock, setPermisStock] = useState<PermisDetail[] | null>(null);      // null = en cours de chargement
+  const [permisChargement, setPermisChargement] = useState(false);
 
   const rafraichir = useCallback(() => setVersion((v) => v + 1), []);
   // S42 — annonce un retour d'action dans la zone où l'utilisateur a agi ('haut' groupé, 'detail' panneau). Texte vide → efface.
@@ -63,6 +73,48 @@ export function DemandesVue({ categories }: Props) {
     })();
     return () => { annule = true; };
   }, [version]);
+
+  // Q2b — chargement de l'AGRÉGAT du stock (une seule fois, à la 1re ouverture du bloc). Un échec laisse le bloc consultable.
+  const chargerStock = useCallback(() => {
+    setStockChargement(true);
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/permis/demandes/stock', { cache: 'no-store' });
+        if (res.ok) setStock((await res.json()) as StockResultat);
+      } catch { /* stock indisponible (journalisé côté serveur) */ }
+      finally { setStockChargement(false); }
+    })();
+  }, []);
+  const toggleStock = useCallback(() => {
+    const ouvrir = !stockOuvert;
+    setStockOuvert(ouvrir);
+    if (ouvrir && stock === null && !stockChargement) chargerStock(); // charge à l'ouverture, pas au montage
+  }, [stockOuvert, stock, stockChargement, chargerStock]);
+  // Re-clic sur la même commune → referme ; sinon ouvre CETTE commune en repartant des filtres par DÉFAUT (6 mois / immeuble neuf).
+  const ouvrirDetailStock = useCallback((code: string) => {
+    setCommuneStock((actuel) => {
+      if (actuel === code) return null;
+      setPeriodeStock(PERIODE_STOCK_DEFAUT); setTypeStock('immeuble_neuf');
+      return code;
+    });
+  }, []);
+
+  // Q2b — chargement du PANNEAU (permis délivrés d'UNE commune), rejoué à chaque changement de commune / période / type.
+  // Tous les setState vivent DANS l'IIFE async (jamais synchrones en corps d'effet) — même motif que l'effet de liste ci-dessus.
+  useEffect(() => {
+    if (communeStock === null) return;
+    let annule = false;
+    void (async () => {
+      setPermisChargement(true); setPermisStock(null); // repart « en chargement » à chaque nouvelle commune/période/type
+      try {
+        const qs = new URLSearchParams({ commune: communeStock, periode: periodeStock, type: typeStock });
+        const res = await fetch(`/api/admin/permis/demandes/stock?${qs.toString()}`, { cache: 'no-store' });
+        if (!annule && res.ok) { const d = (await res.json()) as { permis: PermisDetail[] }; setPermisStock(d.permis); }
+      } catch { /* détail indisponible (journalisé côté serveur) */ }
+      finally { if (!annule) setPermisChargement(false); }
+    })();
+    return () => { annule = true; };
+  }, [communeStock, periodeStock, typeStock]);
 
   // D2 — filtre PUIS tri sur l'ENSEMBLE (jamais sur la page) ; la pagination `slice` s'applique APRÈS (cf. `visibles`).
   const filtrees = useMemo(
@@ -288,6 +340,25 @@ export function DemandesVue({ categories }: Props) {
           <MessageRetour r={zonesRetour.detail} />
         </div>
       )}
+
+      {/* Q2b — STOCK de permis à demander par commune : bloc repliable, AU-DESSUS de la liste, fermé + chargé à l'ouverture. */}
+      <BlocStock
+        ouvert={stockOuvert} onToggle={toggleStock} chargement={stockChargement}
+        stock={stock?.lignes ?? null} tronque={stock?.tronque} genereEnMs={stock?.genereEnMs} fenetreMois={stock?.fenetreMois ?? FENETRE_STOCK_MOIS}
+        table={stock ? (
+          <TableStock
+            lignes={stock.lignes} categories={categories} communeOuverte={communeStock} onDetail={ouvrirDetailStock}
+            panneau={communeStock !== null ? (
+              <PanneauDetailStock
+                communeNom={stock.lignes.find((l) => l.codeInsee === communeStock)?.communeNom ?? communeStock}
+                categories={categories}
+                periode={periodeStock} onPeriode={setPeriodeStock} typeFiltre={typeStock} onType={setTypeStock}
+                permis={permisStock} chargement={permisChargement} onRefermer={() => setCommuneStock(null)}
+              />
+            ) : null}
+          />
+        ) : null}
+      />
 
       {/* Filtres + tri + actions groupées */}
       <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'center', fontSize: 12 }}>

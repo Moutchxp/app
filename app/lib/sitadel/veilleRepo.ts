@@ -189,6 +189,21 @@ export async function lireDossiersPriorite(c: ConfigVeille, n: number): Promise<
 }
 
 /**
+ * Q2b — TOUS les dossiers autorisés depuis `depuis` (borne incluse ; `null` = tout l'historique), pour l'agrégat de STOCK.
+ * Réutilise le MÊME constructeur (`construireRequeteListe`, NON modifié) et le MÊME mappage que le chemin candidats
+ * (`versAffiche` → `classer`, donc chaque ligne porte déjà `.categorie`), avec un filtre de date `depuis` et SANS le plafond
+ * `n` du chemin candidats. Le chemin CANDIDATS (`lireDossiersPriorite`, `FILTRES_PERMIS_VIDES` seuls) reste byte-identique :
+ * on ajoute ici un filtre `depuis`, on n'en retire aucun. `tronque` = le plafond de garde a été atteint (jamais de coupe
+ * silencieuse — l'appelant le journalise / le signale). LECTURE SEULE.
+ */
+const PLAFOND_STOCK = 50000; // garde-fou anti-emballement ; la fenêtre d'affichage (6 mois, 4 dép. ≈ 1,4 k) est très en deçà.
+export async function lireDossiersDepuis(c: ConfigVeille, depuis: string | null): Promise<{ lignes: DossierAffiche[]; tronque: boolean }> {
+  const rq = construireRequeteListe({ ...FILTRES_PERMIS_VIDES, depuis }, c, 1, PLAFOND_STOCK);
+  const r = await query<LigneSql>(rq.texte, rq.params);
+  return { lignes: r.rows.map((row) => versAffiche(row, c)), tronque: r.rows.length >= PLAFOND_STOCK };
+}
+
+/**
  * P3 — contraintes de téléservice par commune (mairie_contact : max_dossiers_par_demande, profil_demandeur_impose). Ne remonte
  * que les communes AYANT une contrainte (petit résultat). Colonnes absentes (migration 086 non appliquée) → JOURNALISÉ et
  * dégradé en « aucune contrainte » (= comportement ACTUEL), jamais un catch muet (cf. P2).

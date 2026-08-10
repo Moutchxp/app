@@ -5,7 +5,7 @@
  */
 import { query, withTransaction } from '../db/client';
 import { chargerConfigVeille, type ConfigVeille } from './veilleConfig';
-import { lireDossiersPriorite, type DossierAffiche } from './veilleRepo';
+import { lireDossiersPriorite, lireDossiersDepuis, type DossierAffiche } from './veilleRepo';
 import type { CanalContact } from './mairieContact';
 import {
   type CandidatDossier, type ConfigDemandeur, type Lot, type HistoriqueDemandes, type DiagnosticProposition, type ParamsLot,
@@ -15,7 +15,8 @@ import {
 } from './demande';
 import { type Collaborateur, choisirCollaborateur } from './collaborateur';
 import { resoudreDestination, type ContactCommune } from './destinataire';
-import { expressionRangSql } from './priorite'; // D2 : réutilisé (pur, renvoie une chaîne) pour classer les dossiers d'une demande — NE modifie PAS le chemin candidats
+import { expressionRangSql, classer, type CleCategorie } from './priorite'; // D2 : expressionRangSql réutilisé (pur) ; Q2b : classer = source unique de catégorie pour le panneau de stock — NE modifie PAS le chemin candidats
+import { agregerStock, moisDePeriode, FENETRE_STOCK_MOIS, type LigneStock, type DossierStock } from './stock'; // Q2b : agrégat PUR du stock (réutilise estCandidatEligible via agregerStock)
 
 type Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>;
 const asQ = (q: (t: string, p?: unknown[]) => Promise<unknown>): Requete => ((t, p) => q(t, p)) as Requete;
@@ -52,6 +53,12 @@ function versCandidat(d: DossierAffiche): CandidatDossier {
 function dateMinDepuis(annees: number): string {
   const d = new Date();
   d.setFullYear(d.getFullYear() - annees);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+/** Q2b — borne en MOIS : aujourd'hui − `mois` (format 'AAAA-MM-JJ'). `setMonth` négatif retombe sur l'année précédente. */
+function dateMinMois(mois: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - mois);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function paramsLot(cfg: ConfigVeille): ParamsLot {
@@ -138,6 +145,80 @@ export async function proposition(cfg: ConfigVeille): Promise<{ lots: Lot[]; dia
   const candidats = dossiers.map(versCandidat);
   const params = paramsLot(cfg);
   return { lots: proposerLots(candidats, params, hist), diagnostic: diagnostiquer(candidats, hist, params) };
+}
+
+// ── Q2b : STOCK de permis encore à demander, par commune et par type (LECTURE SEULE) ─────────────────────────────────
+export interface StockResultat { lignes: LigneStock[]; tronque: boolean; genereEnMs: number; fenetreMois: number }
+
+/**
+ * Q2b — STOCK par commune. Charge la fenêtre d'AFFICHAGE (6 mois), mappe chaque dossier en candidat via le MÊME `versCandidat`
+ * que la proposition (donc résolution de destinataire/canal IDENTIQUE), et agrège par `agregerStock` — qui applique
+ * `estCandidatEligible` (l'UNIQUE définition d'éligibilité, Q2a) + la borne d'affichage 6 mois. On ne charge QUE 6 mois car
+ * la colonne du tableau est « < 6 mois » : aucun dossier plus ancien ne peut y figurer, et `estCandidatEligible` (fenêtre
+ * d'éligibilité complète) est appliqué en entier → strictement équivalent à charger toute la fenêtre, en ~5× moins de lignes.
+ * `genereEnMs` = temps de génération, rendu à l'écran (transparence de perf). NE touche ni le chemin candidats ni la base.
+ */
+export async function stockPermisParCommune(cfg: ConfigVeille): Promise<StockResultat> {
+  const t0 = Date.now();
+  const dateMin = dateMinDepuis(cfg.ancienneteMaxDemandeAnnees); // borne d'ÉLIGIBILITÉ (inchangée — passée à estCandidatEligible)
+  const dateMin6mois = dateMinMois(FENETRE_STOCK_MOIS);          // borne d'AFFICHAGE (sous-ensemble strict)
+  const [{ lignes, tronque }, hist] = await Promise.all([lireDossiersDepuis(cfg, dateMin6mois), lireHistorique()]);
+  const dossiers: DossierStock[] = lignes.map((d) => ({ candidat: versCandidat(d), categorie: d.categorie }));
+  const stock = agregerStock(dossiers, dateMin, hist.dejaRattaches, dateMin6mois);
+  if (tronque) console.warn('[permis/stock] plafond de chargement atteint — stock possiblement incomplet (réduire la fenêtre ou passer à un agrégat SQL)');
+  return { lignes: stock, tronque, genereEnMs: Date.now() - t0, fenetreMois: FENETRE_STOCK_MOIS };
+}
+
+/** Q2b — un permis délivré (panneau de détail) : identité + type + s'il est DÉJÀ demandé (réf. de la demande active), sinon à demander. */
+export interface PermisDetail {
+  numDau: string; date: string | null; adresse: string;
+  categorie: CleCategorie; libelleCategorie: string;
+  demandeReference: string | null; // réf. de la demande ACTIVE rattachée (déjà demandé), sinon null (encore à demander)
+}
+
+/**
+ * Q2b — LISTE des permis DÉLIVRÉS (date d'autorisation non nulle) d'UNE commune, pour le panneau de détail. Chargée à
+ * l'ouverture du panneau, pour cette commune seule. `periodeCle` borne la date (défaut 6 mois → jusqu'à « origine » = tout) ;
+ * `cle` filtre par type (null = tous). Le drapeau « déjà demandé » vient d'une jointure LATÉRALE sur la demande ACTIVE (même
+ * sémantique que `expressionRattachementSql` : rattaché ⇔ une `demande_dossier` active existe) — la référence est celle de
+ * cette demande. La catégorie réutilise `classer` (source unique). LECTURE SEULE ; ne touche pas le chemin candidats.
+ */
+export async function lireDetailPermisCommune(cfg: ConfigVeille, codeInsee: string, periodeCle: string | null, cle: CleCategorie | null): Promise<PermisDetail[]> {
+  const mois = moisDePeriode(periodeCle);
+  const params: unknown[] = [codeInsee];
+  let filtreDate = '';
+  if (mois !== null) { params.push(dateMinMois(mois)); filtreDate = ` AND d.date_reelle_autorisation >= $${params.length}`; }
+  const { rows } = await query<{
+    type: 'PC' | 'PD'; num_dau: string; date: string | null; nature_projet_completee: string | null;
+    i_extension: boolean | null; i_surelevation: boolean | null; nb_lgt_tot_crees: number | null; surf_creee: string | number | null;
+    adr_num_ter: string | null; adr_libvoie_ter: string | null; adr_localite_ter: string | null; demande_reference: string | null;
+  }>(
+    `SELECT d.type, d.num_dau, d.date_reelle_autorisation::text AS date,
+            d.nature_projet_completee, d.i_extension, d.i_surelevation, d.nb_lgt_tot_crees, d.surf_creee,
+            d.adr_num_ter, d.adr_libvoie_ter, d.adr_localite_ter,
+            rat.reference AS demande_reference
+       FROM sitadel_dossier d
+       LEFT JOIN LATERAL (
+         SELECT dm.reference FROM demande_dossier dd JOIN demande dm ON dm.id = dd.demande_id
+          WHERE dd.dossier_id = d.id AND dd.actif LIMIT 1
+       ) rat ON true
+      WHERE d.code_insee = $1 AND d.date_reelle_autorisation IS NOT NULL${filtreDate}
+      ORDER BY d.date_reelle_autorisation DESC, d.num_dau`,
+    params,
+  );
+  return rows
+    .map((r) => {
+      const cl = classer(
+        { type: r.type, natureProjetCompletee: r.nature_projet_completee, iExtension: r.i_extension, iSurelevation: r.i_surelevation, nbLgtTotCrees: r.nb_lgt_tot_crees, surfCreee: r.surf_creee === null ? null : Number(r.surf_creee) },
+        cfg,
+      );
+      return {
+        numDau: r.num_dau, date: r.date,
+        adresse: [r.adr_num_ter, r.adr_libvoie_ter, r.adr_localite_ter].map((x) => (x ?? '').trim()).filter((x) => x !== '').join(' '),
+        categorie: cl.cle, libelleCategorie: cl.libelle, demandeReference: r.demande_reference ?? null,
+      };
+    })
+    .filter((p) => cle === null || p.categorie === cle);
 }
 
 /** Attribue une référence SVAV-DEM-AAAA-NNNNNN (compteur atomique, verrou de ligne). */

@@ -1,6 +1,9 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { Fragment, type CSSProperties, type ReactNode } from 'react';
 import { typeDemande, type Tri, type TriColonne } from '../../../../lib/sitadel/demandesListe';
 import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
+import type { CleCategorie } from '../../../../lib/sitadel/priorite';
+import { PERIODES_STOCK, type LigneStock } from '../../../../lib/sitadel/stock';
+import type { PermisDetail } from '../../../../lib/sitadel/demandeRepo';
 
 /**
  * Rendu PUR de la visibilité PRADA de l'onglet Demandes (chantier S14e) — aucun état, aucun effet → testable en Node via
@@ -438,5 +441,195 @@ export function CarteAmbiguite({ a, children }: { a: AmbiguiteAffiche; children?
       </dl>
       {children}
     </div>
+  );
+}
+
+// ── Q2b : STOCK de permis à demander (bloc repliable + tableau par commune + panneau de détail natif) ─────────────────
+
+/**
+ * Étiquette de la ligne repliée du bloc de stock : générique tant que rien n'est chargé, enrichie une fois le stock connu
+ * (chiffre PRINCIPAL = immeubles neufs à demander, sur combien de communes). Décomptes CALCULÉS, jamais figés. PURE.
+ */
+export function libelleStock(stock: LigneStock[] | null, fenetreMois: number): string {
+  const base = 'Stock de permis à demander (par commune)';
+  if (stock === null) return base;
+  const immeubles = stock.reduce((s, l) => s + (l.parType.immeuble_neuf ?? 0), 0);
+  const communes = stock.filter((l) => (l.parType.immeuble_neuf ?? 0) > 0).length;
+  return `${base} — ${immeubles} immeuble${immeubles > 1 ? 's' : ''} à demander sur ${communes} commune${communes > 1 ? 's' : ''} (${fenetreMois} derniers mois)`;
+}
+
+const styleTdStock: CSSProperties = { padding: '.4rem .55rem', whiteSpace: 'nowrap' };
+/** Id du panneau déplié d'une commune — cible de `aria-controls` du bouton « Détail » de la ligne (disclosure natif). */
+const idPanneauStock = (code: string): string => `stock-detail-${code}`;
+
+/**
+ * Q2b — PANNEAU de détail d'une commune (contenu de la 2ᵉ ligne dépliée). PUR : période + type + liste des permis délivrés
+ * (déjà demandé → réf. de la demande ; sinon « à demander ») fournis par la Vue. Bouton « Refermer ». Mobile-first (colonne
+ * + table défilante a11y). `permis === null` = en cours de chargement.
+ */
+export function PanneauDetailStock({
+  communeNom, categories, periode, onPeriode, typeFiltre, onType, permis, chargement, onRefermer,
+}: {
+  communeNom: string; categories: { cle: string; libelle: string }[];
+  periode: string; onPeriode?: (cle: string) => void; typeFiltre: string; onType?: (cle: string) => void;
+  permis: PermisDetail[] | null; chargement: boolean; onRefermer?: () => void;
+}) {
+  const champ: CSSProperties = { padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 12, fontFamily: 'inherit' };
+  return (
+    <div className="flex flex-col gap-2" style={{ padding: '.6rem .5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 13 }}>Permis délivrés — {communeNom}</strong>
+        <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }} onClick={() => onRefermer?.()}>Refermer</button>
+      </div>
+      <div style={{ display: 'flex', gap: '.7rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <label style={{ fontSize: 12, display: 'flex', gap: '.3rem', alignItems: 'center' }}>Période
+          <select value={periode} onChange={(e) => onPeriode?.(e.target.value)} style={champ} aria-label="Période recherchée">
+            {PERIODES_STOCK.map((p) => <option key={p.cle} value={p.cle}>{p.libelle}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 12, display: 'flex', gap: '.3rem', alignItems: 'center' }}>Type
+          <select value={typeFiltre} onChange={(e) => onType?.(e.target.value)} style={champ} aria-label="Type de permis">
+            <option value="tous">Tous les types</option>
+            {categories.map((c) => <option key={c.cle} value={c.cle}>{c.libelle}</option>)}
+          </select>
+        </label>
+      </div>
+      {chargement || permis === null
+        ? <p role="status" style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>Chargement…</p>
+        : permis.length === 0
+          ? <p role="status" style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>Aucun permis délivré pour cette période et ce type.</p>
+          : (
+            <ConteneurTableDefilant ariaLabel={`Permis délivrés de ${communeNom}, défilement horizontal`}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
+                    <th style={styleTdStock}>N° Sitadel</th>
+                    <th style={styleTdStock}>Date</th>
+                    <th style={{ ...styleTdStock, whiteSpace: 'normal', minWidth: 160 }}>Adresse</th>
+                    <th style={styleTdStock}>Type</th>
+                    <th style={styleTdStock}>Demande</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {permis.map((p, i) => (
+                    <tr key={`${p.numDau}-${i}`} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
+                      <td style={{ ...styleTdStock, fontFamily: 'var(--font-svv-mono, monospace)' }}>{p.numDau}</td>
+                      <td style={styleTdStock}>{p.date ?? '—'}</td>
+                      <td style={{ ...styleTdStock, whiteSpace: 'normal' }}>{p.adresse || '—'}</td>
+                      <td style={styleTdStock}>{p.libelleCategorie}</td>
+                      <td style={styleTdStock}>
+                        {p.demandeReference
+                          ? <span style={{ color: 'var(--color-svv-green-ink)' }}>demandé · <span style={{ fontFamily: 'var(--font-svv-mono, monospace)' }}>{p.demandeReference}</span></span>
+                          : <span style={{ color: 'var(--color-svv-muted)' }}>à demander</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ConteneurTableDefilant>
+          )}
+    </div>
+  );
+}
+
+/**
+ * Q2b — TABLEAU du stock par commune. Une ligne par commune : nom + code, décompte par type (immeuble neuf = chiffre
+ * PRINCIPAL, en gras), puis bouton « Détail » (disclosure NATIF : `aria-expanded` + `aria-controls`). Ligne ouverte → une
+ * 2ᵉ `<tr><td colSpan>` porte le `panneau` (fourni par la Vue). Motif a11y de C3 réutilisé au niveau LIGNE (BlocRepliable =
+ * `<section>`, INVALIDE dans un `<tbody>`). Conteneur défilant a11y (mobile). PUR. Aucune animation → prefers-reduced-motion sans objet.
+ */
+export function TableStock({
+  lignes, categories, communeOuverte, onDetail, panneau,
+}: {
+  lignes: LigneStock[]; categories: { cle: string; libelle: string; rang: number }[];
+  communeOuverte: string | null; onDetail?: (codeInsee: string) => void; panneau?: ReactNode;
+}) {
+  const nCols = categories.length + 2; // Commune + N types + Détail
+  return (
+    <ConteneurTableDefilant ariaLabel="Stock de permis à demander par commune, défilement horizontal">
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <thead>
+          <tr style={{ textAlign: 'left', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
+            <th style={{ ...styleTdStock, minWidth: 150 }}>Commune</th>
+            {categories.map((c) => (
+              <th key={c.cle} style={{ ...styleTdStock, textAlign: 'right' }}
+                title={c.cle === 'immeuble_neuf' ? 'Chiffre principal : immeubles neufs encore à demander' : undefined}>{c.libelle}</th>
+            ))}
+            <th style={styleTdStock} />
+          </tr>
+        </thead>
+        <tbody>
+          {lignes.map((l) => {
+            const ouvert = communeOuverte === l.codeInsee;
+            return (
+              <Fragment key={l.codeInsee}>
+                <tr style={{ borderBottom: ouvert ? 'none' : '1px solid var(--color-svv-line)' }}>
+                  <td style={{ ...styleTdStock, whiteSpace: 'normal' }}>{l.communeNom ?? l.codeInsee} <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>({l.codeInsee})</span></td>
+                  {categories.map((c) => {
+                    const n = l.parType[c.cle as Exclude<CleCategorie, 'autre'>] ?? 0;
+                    const principal = c.cle === 'immeuble_neuf';
+                    return (
+                      <td key={c.cle} style={{ ...styleTdStock, textAlign: 'right', fontWeight: principal ? 700 : 400, color: n === 0 ? 'var(--color-svv-muted)' : undefined }}>{n}</td>
+                    );
+                  })}
+                  <td style={styleTdStock}>
+                    <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .5rem' }}
+                      aria-expanded={ouvert} aria-controls={idPanneauStock(l.codeInsee)} onClick={() => onDetail?.(l.codeInsee)}>
+                      {ouvert ? 'Fermer' : 'Détail'}
+                    </button>
+                  </td>
+                </tr>
+                {ouvert && (
+                  <tr>
+                    <td id={idPanneauStock(l.codeInsee)} colSpan={nCols} style={{ padding: 0, borderBottom: '1px solid var(--color-svv-line)', background: 'var(--color-svv-field)' }}>
+                      {panneau}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+          {lignes.length === 0 && (
+            <tr><td colSpan={nCols} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>Aucun permis à demander sur cette fenêtre.</td></tr>
+          )}
+        </tbody>
+      </table>
+    </ConteneurTableDefilant>
+  );
+}
+
+/**
+ * Q2b — BLOC repliable « Stock de permis à demander (par commune) », FERMÉ par défaut (les données sont chargées par la Vue
+ * à l'OUVERTURE, jamais au montage). Utilise `BlocRepliable` (motif C3 — `<section>`, valide hors tableau). PUR : tout l'état
+ * (ouvert, chargement, stock, ligne ouverte, panneau) vient de la Vue. Mentionne EXPLICITEMENT que « moins de {fenetreMois} mois »
+ * est un sous-ensemble d'AFFICHAGE de la fenêtre d'éligibilité (ne la modifie pas). Aucune animation → prefers-reduced-motion sans objet.
+ */
+export function BlocStock({
+  ouvert, onToggle, chargement, stock, tronque, genereEnMs, fenetreMois, table,
+}: {
+  ouvert: boolean; onToggle?: () => void; chargement: boolean;
+  stock: LigneStock[] | null; tronque?: boolean; genereEnMs?: number; fenetreMois: number; table?: ReactNode;
+}) {
+  return (
+    <BlocRepliable ariaLabel="Stock de permis à demander par commune" idContenu="stock-permis-contenu"
+      ligne={libelleStock(stock, fenetreMois)} ouvert={ouvert} onToggle={onToggle} className="svv-card">
+      <p style={aide}>
+        Permis d’<strong>immeuble neuf</strong> (et autres types) délivrés sur les <strong>{fenetreMois} derniers mois</strong> et
+        <strong> pas encore demandés</strong> : le stock encore à demander, commune par commune, pour savoir combien de courriers reste à envoyer.
+        La fenêtre « {fenetreMois} mois » est un <strong>sous-ensemble d’affichage</strong> de la fenêtre d’éligibilité (inchangée) — elle ne
+        modifie pas l’éligibilité. « Déjà demandé » = rattaché à une demande active.
+      </p>
+      {chargement || stock === null
+        ? <p role="status" style={{ fontSize: 13, color: 'var(--color-svv-muted)', margin: '.4rem 0 0' }}>Chargement du stock…</p>
+        : (
+          <>
+            {table}
+            <p style={{ ...aide, marginTop: '.5rem' }}>
+              {tronque ? <strong style={{ color: 'var(--color-svv-red)' }}>Liste tronquée (plafond de chargement atteint) — stock possiblement incomplet. </strong> : null}
+              Décompte via la définition unique d’éligibilité (la même que la préparation des demandes){typeof genereEnMs === 'number' ? `, calculé en ${genereEnMs} ms` : ''}.
+            </p>
+          </>
+        )}
+    </BlocRepliable>
   );
 }
