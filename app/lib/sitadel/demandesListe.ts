@@ -42,6 +42,7 @@ export function triDepuisCle(valeur: string): Tri {
 export interface LigneDemande {
   id: number; reference: string; communeNom: string | null; codeInsee: string;
   nbDossiers: number; statut: string; profil: string; creeLe: string; rangs?: number[];
+  referencesExternes?: string[]; // P1 — références de la mairie, pour la recherche par référence
 }
 
 export interface FiltreDemandes {
@@ -49,23 +50,47 @@ export interface FiltreDemandes {
   profil: string;   // '' = tous
   commune: string;  // recherche libre (nom/code) ; '' = tous
   types: number[];  // rangs de catégorie cochés ; [] = AUCUN filtre de type (= tous)
+  reference?: string; // P1 — recherche par référence (SVAV ou mairie) ; absent/'' = aucun filtre (OPT-IN, défaut off)
 }
 
 const norm = (s: string): string => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 
 /**
+ * P1 — forme NORMALISÉE d'une référence pour la recherche : MAJUSCULES, espaces et tirets SUPPRIMÉS. Une référence dictée au
+ * téléphone est rarement tapée à l'identique. DOIT rester alignée sur l'index SQL de la migration 085
+ * (`upper(regexp_replace(reference, '[[:space:]-]', '', 'g'))`). PURE.
+ */
+export function normaliserReference(s: string): string {
+  return s.toUpperCase().replace(/[\s-]/g, '');
+}
+
+/**
+ * P1 — la demande correspond-elle à la recherche par référence `q` ? Comparaison sur la forme NORMALISÉE des DEUX côtés
+ * (sous-chaîne) : matche la référence SVAV (`SVAV-DEM-2026-000119` ET sa forme courte `2026-000119`, incluse dans la
+ * normalisée) AUSSI BIEN que n'importe quelle référence mairie rattachée. `q` vide → true (aucun filtre). PURE.
+ */
+export function correspondReference(d: LigneDemande, q: string): boolean {
+  const qn = normaliserReference(q.trim());
+  if (qn === '') return true;
+  if (normaliserReference(d.reference).includes(qn)) return true;
+  return (d.referencesExternes ?? []).some((r) => normaliserReference(r).includes(qn));
+}
+
+/**
  * Filtre l'ENSEMBLE des demandes. Le filtre TYPE = « la demande contient AU MOINS UN dossier de l'un des types cochés »
  * (OU entre types) : `types` vide → aucune clause (équivaut à « tous ») ; sinon on retient la demande dès qu'un de ses
- * rangs de catégorie figure parmi les cochés.
+ * rangs de catégorie figure parmi les cochés. Le filtre RÉFÉRENCE (P1) matche SVAV ou mairie sur forme normalisée.
  */
 export function filtrerDemandes<T extends LigneDemande>(demandes: T[], f: FiltreDemandes): T[] {
   const qc = norm(f.commune.trim());
   const types = new Set(f.types);
+  const qRef = f.reference ?? '';
   return demandes.filter((d) =>
     (f.statut === '' || d.statut === f.statut) &&
     (f.profil === '' || d.profil === f.profil) &&
     (qc === '' || norm(d.communeNom ?? d.codeInsee).includes(qc) || d.codeInsee.startsWith(qc)) &&
-    (types.size === 0 || (d.rangs ?? []).some((r) => types.has(r))));
+    (types.size === 0 || (d.rangs ?? []).some((r) => types.has(r))) &&
+    correspondReference(d, qRef));
 }
 
 // ── D3 : dérivation du TYPE de permis affiché (colonne « Type ») ──────────────

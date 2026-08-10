@@ -11,6 +11,7 @@ import { CarteDepot, type DepotAffiche } from './DemandesRendu';
 export function BlocDepot() {
   const [demandes, setDemandes] = useState<DepotAffiche[]>([]);
   const [msg, setMsg] = useState<Record<number, string>>({});  // retour (ok/échec) par carte
+  const [refs, setRefs] = useState<Record<number, string>>({}); // P1 — référence mairie saisie par carte (facultative)
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
@@ -38,7 +39,9 @@ export function BlocDepot() {
   async function marquerDeposee(id: number): Promise<void> {
     poser(id, '');
     try {
-      const res = await fetch('/api/admin/permis/demandes/depot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+      // P1 — référence FACULTATIVE : envoyée seulement si saisie (le dépôt reste possible sans).
+      const reference = (refs[id] ?? '').trim();
+      const res = await fetch('/api/admin/permis/demandes/depot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reference === '' ? { id } : { id, reference }) });
       if (res.ok) {
         setDemandes((prev) => prev.filter((x) => x.id !== id)); // retrait optimiste (la carte disparaît, compteur à jour)
         setVersion((v) => v + 1);
@@ -59,6 +62,13 @@ export function BlocDepot() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '.6rem' }}>
         {demandes.map((d) => (
           <CarteDepot key={d.id} d={d}>
+            {/* P1 — référence renvoyée par la mairie (accusé de réception). Facultative : ne bloque jamais le dépôt. */}
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+              Référence mairie (accusé de réception) — facultatif
+              <input value={refs[d.id] ?? ''} onChange={(e) => setRefs((s) => ({ ...s, [d.id]: e.target.value }))}
+                placeholder="ex. SLC260810440700"
+                style={{ padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
+            </label>
             <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
               <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => void copier(d)}>Copier le texte</button>
               <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .7rem' }} onClick={() => void marquerDeposee(d.id)}>Marquer comme déposée</button>

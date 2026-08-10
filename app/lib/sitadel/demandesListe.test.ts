@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  basculerTri, filtrerDemandes, trierDemandes, OPTIONS_TRI, cleTri, triDepuisCle, SENS_DEFAUT, typeDemande,
+  basculerTri, filtrerDemandes, trierDemandes, OPTIONS_TRI, cleTri, triDepuisCle, SENS_DEFAUT, typeDemande, normaliserReference,
   type Tri, type LigneDemande,
 } from './demandesListe';
 
@@ -150,5 +150,36 @@ describe('D3 — typeDemande (rangs → libellé + « +N » + title)', () => {
     expect(typeDemande([], CATS).vide).toBe(true);
     expect(typeDemande(undefined, CATS).vide).toBe(true);
     expect(typeDemande([7777], CATS).vide).toBe(true); // rang inconnu, ni catégorie ni 9999
+  });
+});
+
+/**
+ * P1 — recherche par RÉFÉRENCE (un seul champ pour la réf. SVAV ET la réf. mairie). Comparaison sur forme NORMALISÉE des deux
+ * côtés (majuscules, espaces et tirets ignorés), en sous-chaîne → la forme courte de la SVAV et une réf. dictée au téléphone
+ * matchent. Absente/'' = aucun filtre (OPT-IN, défaut off) → les tests D2 ci-dessus (sans `reference`) restent inchangés.
+ */
+describe('P1 — filtrerDemandes : recherche par référence (SVAV ou mairie)', () => {
+  const liste = [
+    D({ id: 1, reference: 'SVAV-DEM-2026-000119', referencesExternes: ['SLC260810440700'] }),
+    D({ id: 2, reference: 'SVAV-DEM-2026-000042', referencesExternes: [] }),
+  ];
+  const cherche = (reference: string) => filtrerDemandes(liste, { statut: '', profil: '', commune: '', types: [], reference }).map((d) => d.id);
+
+  it('trouve par référence mairie EXACTE', () => { expect(cherche('SLC260810440700')).toEqual([1]); });
+  it('trouve malgré une CASSE différente', () => { expect(cherche('slc260810440700')).toEqual([1]); });
+  it('trouve malgré des ESPACES/tirets parasites (dictée au téléphone)', () => { expect(cherche('  slc-2608 1044 0700 ')).toEqual([1]); });
+  it('trouve par référence SVAV COMPLÈTE', () => { expect(cherche('SVAV-DEM-2026-000042')).toEqual([2]); });
+  it('trouve par FORME COURTE de la SVAV (2026-000119)', () => { expect(cherche('2026-000119')).toEqual([1]); });
+  it('rien trouvé → liste vide (la Vue affiche un message explicite)', () => { expect(cherche('ZZZ-INEXISTANTE')).toEqual([]); });
+  it('référence vide → aucun filtre (toutes les demandes)', () => { expect(cherche('')).toEqual([1, 2]); });
+  it('la référence se combine (ET) avec les autres filtres', () => {
+    // D() par défaut statut 'brouillon' : la réf. 000119 (demande 1) passe avec statut 'brouillon', mais pas avec 'prete'.
+    expect(filtrerDemandes(liste, { statut: 'brouillon', profil: '', commune: '', types: [], reference: '000119' }).map((d) => d.id)).toEqual([1]);
+    expect(filtrerDemandes(liste, { statut: 'prete', profil: '', commune: '', types: [], reference: '000119' }).map((d) => d.id)).toEqual([]);
+  });
+
+  it('normaliserReference : MAJUSCULES, espaces et tirets supprimés', () => {
+    expect(normaliserReference(' slc-2608 1044 ')).toBe('SLC26081044');
+    expect(normaliserReference('SVAV-DEM-2026-000119')).toBe('SVAVDEM2026000119');
   });
 });

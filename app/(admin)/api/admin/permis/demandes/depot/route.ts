@@ -22,18 +22,30 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
+  let idCtx: unknown;
   try {
-    const c = (await request.json()) as { id?: unknown };
+    // P1 — `reference` FACULTATIVE : la mairie renvoie parfois sa référence (accusé de réception) au moment du dépôt.
+    const c = (await request.json()) as { id?: unknown; reference?: unknown };
+    idCtx = c.id;
     if (!Number.isInteger(c.id)) return Response.json({ erreur: 'id invalide' }, { status: 400 });
+    const reference = typeof c.reference === 'string' ? c.reference : undefined; // absente/non-string → dépôt sans référence
     const auteur = garde.auteurId === null ? null : String(garde.auteurId);
     try {
-      await marquerDeposee(c.id as number, auteur);
+      await marquerDeposee(c.id as number, auteur, reference);
     } catch (e) {
       if (e instanceof DepotInterditError) return Response.json({ erreur: e.raison }, { status: 409 });
       throw e;
     }
     return Response.json({ ok: true });
-  } catch {
+  } catch (e) {
+    // Trace SERVEUR de l'exception inattendue (jamais de catch muet) : la réponse HTTP reste un 503 générique.
+    const err = e as { name?: unknown; message?: unknown; stack?: unknown; code?: unknown; detail?: unknown; constraint?: unknown; table?: unknown; column?: unknown };
+    console.error('[permis/demandes/depot] POST dépôt impossible (503)', {
+      id: idCtx,
+      name: err?.name, message: err?.message,
+      code: err?.code, detail: err?.detail, constraint: err?.constraint, table: err?.table, column: err?.column,
+      stack: err?.stack,
+    });
     return Response.json({ erreur: 'action impossible' }, { status: 503 });
   }
 }

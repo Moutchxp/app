@@ -253,7 +253,9 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
 
 export interface DemandeListe { id: number; reference: string; codeInsee: string; communeNom: string | null; canal: string | null; destOrigine: string; destNom: string | null; nbDossiers: number; statut: string; profil: string; creeLe: string;
   /** D2 — rangs de catégorie DISTINCTS des dossiers de la demande (via classement config), pour le filtre par type. Optionnel : présent sur la LISTE, omis sur le détail. */
-  rangs?: number[] }
+  rangs?: number[];
+  /** P1 — références internes de la mairie (dépôt manuel), pour la RECHERCHE côté client. Optionnel : présent sur la LISTE. */
+  referencesExternes?: string[] }
 
 export interface ResumeDemandes { parStatut: Record<string, number>; total: number; dossiersCouverts: number }
 
@@ -268,7 +270,7 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
   const rangExpr = expressionRangSql(cfg, paramsRang);
   const sqlRangs = `SELECT dd.demande_id::int AS demande_id, array_agg(DISTINCT (${rangExpr})) AS rangs
     FROM demande_dossier dd JOIN sitadel_dossier d ON d.id = dd.dossier_id GROUP BY dd.demande_id`;
-  const [r, rs, rd, rr] = await Promise.all([
+  const [r, rs, rd, rr, rx] = await Promise.all([
     query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; dest_canal: string | null; dest_origine: string; dest_nom: string | null; nb: number; statut: string; profil_demandeur: string; cree_le: string }>(
       // d.id::int : `demande.id` est un bigint que node-postgres rend en CHAÎNE ; sans cast, l'id renvoyé au client est une
       // string et la PATCH groupée (filtre Number.isInteger) l'écarte en silence → boutons « prête »/« abandonner » inertes.
@@ -278,10 +280,14 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
     query<{ statut: string; n: number }>(`SELECT statut, count(*)::int AS n FROM demande GROUP BY statut`),
     query<{ n: number }>(`SELECT count(DISTINCT dossier_id)::int AS n FROM demande_dossier`),
     query<{ demande_id: number; rangs: number[] }>(sqlRangs, paramsRang),
+    // P1 — références mairie par demande, agrégées (pour la RECHERCHE côté client). Requête PROPRE à la liste, aucune
+    // incidence sur le chemin CANDIDATS. Table absente (migration 085 non appliquée) → géré par un repli plus bas.
+    query<{ demande_id: number; refs: string[] }>(`SELECT demande_id::int AS demande_id, array_agg(reference) AS refs FROM demande_reference_externe GROUP BY demande_id`).catch(() => ({ rows: [] as { demande_id: number; refs: string[] }[] })),
   ]);
   const parStatut: Record<string, number> = {};
   for (const s of rs.rows) parStatut[s.statut] = s.n;
   const rangsParDemande = new Map(rr.rows.map((x) => [x.demande_id, x.rangs]));
+  const refsParDemande = new Map(rx.rows.map((x) => [x.demande_id, x.refs]));
 
   // Alertes CIBLÉES : uniquement les profils réellement portés par des demandes EN BROUILLON (celles qui aspirent à
   // passer « prête ») et dont l'identité correspondante est incomplète.
@@ -293,13 +299,18 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
   }
 
   return {
-    demandes: r.rows.map((x) => ({ id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal, destOrigine: x.dest_origine, destNom: x.dest_nom, nbDossiers: x.nb, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le, rangs: rangsParDemande.get(x.id) ?? [] })),
+    demandes: r.rows.map((x) => ({ id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal, destOrigine: x.dest_origine, destNom: x.dest_nom, nbDossiers: x.nb, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le, rangs: rangsParDemande.get(x.id) ?? [], referencesExternes: refsParDemande.get(x.id) ?? [] })),
     alertesIdentite,
     resume: { parStatut, total: r.rows.length, dossiersCouverts: rd.rows[0]?.n ?? 0 },
   };
 }
 
-export interface DemandeDetail extends DemandeListe { objet: string | null; corps: string | null; destEmail: string | null; destUrlFormulaire: string | null; destAdressePostale: string | null; dossiers: { numDau: string; date: string | null }[] }
+/** P1 — une référence interne de la mairie rattachée à une demande (preuve de dépôt / point d'entrée d'appel). */
+export interface ReferenceExterne { id: number; reference: string; dossierId: number | null; source: string | null; recuLe: string | null; creeLe: string }
+
+export interface DemandeDetail extends DemandeListe { objet: string | null; corps: string | null; destEmail: string | null; destUrlFormulaire: string | null; destAdressePostale: string | null; dossiers: { numDau: string; date: string | null }[];
+  /** P1 — références de la mairie (détail complet : source, dates), pour AFFICHAGE et ajout après coup. */
+  referencesMairie: ReferenceExterne[] }
 
 export async function lireDemande(id: number): Promise<DemandeDetail | null> {
   const r = await query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string; profil_demandeur: string; objet: string | null; corps: string | null; dest_canal: string | null; dest_email: string | null; dest_url_formulaire: string | null; dest_adresse_postale: string | null; dest_origine: string; dest_nom: string | null; cree_le: string }>(
@@ -313,12 +324,18 @@ export async function lireDemande(id: number): Promise<DemandeDetail | null> {
   const doss = await query<{ num_dau: string; date: string | null }>(
     `SELECT s.num_dau, s.date_reelle_autorisation::text AS date FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id WHERE dd.demande_id = $1 ORDER BY s.num_dau`, [id],
   );
+  // P1 — références mairie de la demande (détail). Table absente (migration 085 non appliquée) → repli liste vide.
+  const refs = await query<{ id: number; reference: string; dossier_id: number | null; source: string | null; recu_le: string | null; cree_le: string }>(
+    `SELECT id::int AS id, reference, dossier_id::int AS dossier_id, source, recu_le::text AS recu_le, cree_le::text AS cree_le
+       FROM demande_reference_externe WHERE demande_id = $1 ORDER BY cree_le`, [id],
+  ).catch(() => ({ rows: [] as { id: number; reference: string; dossier_id: number | null; source: string | null; recu_le: string | null; cree_le: string }[] }));
   return {
     id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal,
     destOrigine: x.dest_origine, destNom: x.dest_nom,
     nbDossiers: doss.rows.length, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le, objet: x.objet, corps: x.corps,
     destEmail: x.dest_email, destUrlFormulaire: x.dest_url_formulaire, destAdressePostale: x.dest_adresse_postale,
     dossiers: doss.rows.map((d) => ({ numDau: d.num_dau, date: d.date })),
+    referencesMairie: refs.rows.map((d) => ({ id: d.id, reference: d.reference, dossierId: d.dossier_id, source: d.source, recuLe: d.recu_le, creeLe: d.cree_le })),
   };
 }
 
@@ -445,12 +462,43 @@ export class DepotInterditError extends Error {
   constructor(public raison: string) { super(raison); this.name = 'DepotInterditError'; }
 }
 
+/** P1 — la même référence est déjà enregistrée pour cette demande (violation de l'unique) — 409 métier, jamais 503. */
+export class ReferenceDejaEnregistreeError extends Error {
+  constructor() { super('cette référence est déjà enregistrée pour cette demande'); this.name = 'ReferenceDejaEnregistreeError'; }
+}
+
+/**
+ * P1 — enregistre une RÉFÉRENCE interne de la MAIRIE sur une demande (preuve de dépôt / point d'entrée d'appel). INDÉPENDANT
+ * du statut : une demande DÉJÀ déposée peut en recevoir une APRÈS COUP (l'accusé de réception arrive parfois plus tard que le
+ * dépôt — cas réel de la demande 119). L'unique (demande_id, reference) empêche le doublon → 23505 traduit en
+ * `ReferenceDejaEnregistreeError` (409 métier). `reference` est nettoyée (trim). N'écrit JAMAIS demande.statut.
+ */
+export async function ajouterReferenceExterne(
+  demandeId: number, reference: string,
+  opts: { dossierId?: number | null; source?: string | null; note?: string | null; recuLe?: string | null } = {},
+): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO demande_reference_externe (demande_id, dossier_id, reference, source, note, recu_le)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [demandeId, opts.dossierId ?? null, reference.trim(), opts.source ?? null, opts.note ?? null, opts.recuLe ?? null],
+    );
+  } catch (e) {
+    if ((e as { code?: string }).code === '23505') throw new ReferenceDejaEnregistreeError();
+    throw e; // inattendu → remonte au catch journalisé de la route (503)
+  }
+}
+
 /**
  * Marque une demande 'formulaire' comme DÉPOSÉE À LA MAIN → statut 'envoyee' (statut existant ; un dépôt réel sollicite la
  * commune et consomme donc son plafond mensuel — cf. lireHistorique). Réservé au canal 'formulaire' et aux statuts
  * brouillon/prête. Journalisé. AUCUN envoi automatique.
+ *
+ * P1 — `reference` FACULTATIVE : si la mairie a renvoyé sa référence (accusé de réception), on la greffe DANS LA MÊME
+ * transaction. `ON CONFLICT DO NOTHING` : un doublon ne bloque JAMAIS le dépôt (le geste métier prime). Absente/vide → le
+ * dépôt se fait sans référence (elle pourra être ajoutée après coup via `ajouterReferenceExterne`).
  */
-export async function marquerDeposee(id: number, auteur: string | null): Promise<void> {
+export async function marquerDeposee(id: number, auteur: string | null, reference?: string | null): Promise<void> {
   await withTransaction(async (tx) => {
     const q = asQ(tx);
     const r = await q<{ statut: string; canal: string | null }>(`SELECT statut, dest_canal AS canal FROM demande WHERE id = $1`, [id]);
@@ -460,6 +508,14 @@ export async function marquerDeposee(id: number, auteur: string | null): Promise
     if (row.statut !== 'brouillon' && row.statut !== 'prete') throw new DepotInterditError(`déjà « ${row.statut} » — dépôt impossible`);
     await q(`UPDATE demande SET statut = 'envoyee', maj_le = now() WHERE id = $1`, [id]);
     await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, 'envoyee', 'dépôt manuel (téléservice)', $3)`, [id, row.statut, auteur]);
+    const ref = (reference ?? '').trim();
+    if (ref !== '') {
+      await q(
+        `INSERT INTO demande_reference_externe (demande_id, reference, source, recu_le) VALUES ($1, $2, 'accuse_reception', now())
+         ON CONFLICT (demande_id, reference) DO NOTHING`,
+        [id, ref],
+      );
+    }
   });
 }
 

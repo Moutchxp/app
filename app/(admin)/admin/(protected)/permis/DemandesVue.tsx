@@ -40,6 +40,8 @@ export function DemandesVue({ categories }: Props) {
   const [fCommune, setFCommune] = useState('');
   const [fProfil, setFProfil] = useState('');
   const [fTypes, setFTypes] = useState<Set<number>>(new Set()); // D2 : rangs de catégorie cochés ([]=tous)
+  const [fReference, setFReference] = useState(''); // P1 : recherche par référence (SVAV ou mairie), '' = aucun filtre
+  const [refDetail, setRefDetail] = useState(''); // P1 : saisie d'une référence à ajouter APRÈS COUP depuis le détail
   const [tri, setTri] = useState<Tri>({ colonne: 'date', sens: 'desc' }); // D2 : état de tri PARTAGÉ sélecteur ↔ en-têtes
   const [page, setPage] = useState(1);
   const [confBascule, setConfBascule] = useState<Bascule | null>(null); // confirmation avant régénération
@@ -64,8 +66,8 @@ export function DemandesVue({ categories }: Props) {
 
   // D2 — filtre PUIS tri sur l'ENSEMBLE (jamais sur la page) ; la pagination `slice` s'applique APRÈS (cf. `visibles`).
   const filtrees = useMemo(
-    () => trierDemandes(filtrerDemandes(liste?.demandes ?? [], { statut: fStatut, profil: fProfil, commune: fCommune, types: [...fTypes] }), tri),
-    [liste, fStatut, fCommune, fProfil, fTypes, tri],
+    () => trierDemandes(filtrerDemandes(liste?.demandes ?? [], { statut: fStatut, profil: fProfil, commune: fCommune, types: [...fTypes], reference: fReference }), tri),
+    [liste, fStatut, fCommune, fProfil, fTypes, fReference, tri],
   );
 
   const nbPages = Math.max(1, Math.ceil(filtrees.length / PAGE_SIZE));
@@ -117,6 +119,15 @@ export function DemandesVue({ categories }: Props) {
     const res = await fetch(`/api/admin/permis/demandes/${detail.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ corps }) });
     if (res.ok) { setDetail((await res.json()) as DemandeDetail); annoncer('Texte enregistré.', true, 'detail'); }
     else annoncer(await erreurServeur(res, 'Enregistrement impossible.'), false, 'detail');
+  }
+  // P1 — ajoute une référence mairie APRÈS COUP (fonctionne quel que soit le statut : l'accusé arrive parfois après le dépôt).
+  async function ajouterReference(): Promise<void> {
+    if (!detail) return;
+    const reference = refDetail.trim();
+    if (reference === '') { annoncer('Saisissez une référence.', false, 'detail'); return; }
+    const res = await fetch('/api/admin/permis/demandes/reference', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ demandeId: detail.id, reference }) });
+    if (res.ok) { setRefDetail(''); await ouvrir(detail.id, true); annoncer('Référence enregistrée.', true, 'detail'); } // recharge le détail (référence visible)
+    else annoncer(await erreurServeur(res, 'Ajout impossible.'), false, 'detail'); // 409 nommé : « déjà enregistrée pour cette demande »
   }
   // `origine` = zone d'affichage du retour : 'detail' pour les boutons du panneau détail, 'haut' pour l'action groupée.
   async function transition(ids: number[], statut: 'prete' | 'abandonnee', origine: 'haut' | 'detail' = 'haut'): Promise<void> {
@@ -251,6 +262,18 @@ export function DemandesVue({ categories }: Props) {
           <textarea value={corps} onChange={(e) => setCorps(e.target.value)} rows={16} readOnly={detail.statut !== 'brouillon'}
             style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }} />
           <div><span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Dossiers ({detail.dossiers.length}) : </span><span style={{ fontSize: 12 }}>{detail.dossiers.map((x) => x.numDau).join(', ')}</span></div>
+          {/* P1 — références de la mairie (preuve de dépôt) : VISIBLES + ajout APRÈS COUP (l'accusé de réception arrive parfois plus tard). */}
+          <div style={{ fontSize: 12 }}>
+            <span style={{ color: 'var(--color-svv-muted)' }}>Références mairie : </span>
+            {detail.referencesMairie.length === 0
+              ? <span style={{ color: 'var(--color-svv-muted)' }}>aucune enregistrée</span>
+              : <span style={{ fontFamily: 'var(--font-svv-mono, monospace)' }}>{detail.referencesMairie.map((r) => r.reference).join(', ')}</span>}
+            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginTop: '.3rem', alignItems: 'center' }}>
+              <input value={refDetail} onChange={(e) => setRefDetail(e.target.value)} placeholder="ajouter une référence mairie" aria-label="Ajouter une référence mairie"
+                style={{ padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
+              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => void ajouterReference()}>Ajouter la référence</button>
+            </div>
+          </div>
           {detail.statut === 'brouillon' && (
             <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
               <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => void sauverCorps()}>Enregistrer le texte</button>
@@ -280,6 +303,11 @@ export function DemandesVue({ categories }: Props) {
         <label className="flex flex-col gap-1">Commune
           <input value={fCommune} onChange={(e) => majFiltre(() => setFCommune(e.target.value))} placeholder="nom ou code" style={styleChamp} />
         </label>
+        {/* P1 — recherche par RÉFÉRENCE : un seul champ pour la réf. mairie ET la réf. SVAV (au téléphone, pas de case à choisir). */}
+        <label className="flex flex-col gap-1">Référence
+          <input value={fReference} onChange={(e) => majFiltre(() => setFReference(e.target.value))} placeholder="mairie ou SVAV" style={styleChamp}
+            aria-label="Rechercher par référence (mairie ou SVAV)" />
+        </label>
         <label className="flex flex-col gap-1">Tri
           <select value={cleTri(tri)} onChange={(e) => setTri(triDepuisCle(e.target.value))} style={styleChamp}>
             {OPTIONS_TRI.map((o) => <option key={o.valeur} value={o.valeur}>{o.libelle}</option>)}
@@ -304,7 +332,9 @@ export function DemandesVue({ categories }: Props) {
       <TableDemandes
         visibles={visibles} categories={categories} tri={tri} sel={sel}
         toutCoche={visibles.length > 0 && visibles.every((d) => sel.has(d.id))}
-        messageVide={liste ? 'Aucune demande pour ces filtres. Cliquez « Préparer les demandes ».' : 'Chargement…'}
+        messageVide={!liste ? 'Chargement…' : (fReference.trim() !== ''
+          ? `Aucune demande ne correspond à la référence « ${fReference.trim()} » (mairie ou SVAV ; casse, espaces et tirets ignorés).`
+          : 'Aucune demande pour ces filtres. Cliquez « Préparer les demandes ».')}
         onTrier={trierPar} onToutSelectionner={toutSelectionner} onBasculer={basculer} onOuvrir={(id) => void ouvrir(id)}
       />
 
