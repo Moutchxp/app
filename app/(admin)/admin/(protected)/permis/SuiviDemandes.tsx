@@ -3,14 +3,16 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
-import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre } from '../../../../lib/sitadel/demandesListe';
-import { OrigineDest, MessageRetour, repartirRetour, FiltreTypes, TableDemandes, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
+import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, CHOIX_STATUT_DEFAUT } from '../../../../lib/sitadel/demandesListe';
+import { OrigineDest, MessageRetour, repartirRetour, FiltreTypes, TableDemandes, MentionMasquage, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 
 /**
  * Q6 — tableau des demandes d'UN PÉRIMÈTRE (partagé par « À demander » et « En cours »). Le périmètre est un pré-filtre DUR par
  * statut (`dansPerimetre`) appliqué AVANT le filtre de l'utilisateur : un onglet ne peut JAMAIS afficher les demandes de
- * l'autre, et son sélecteur Statut ne propose QUE ses statuts (« Tous » = tous les statuts DU périmètre). Les compteurs comptent
- * le périmètre, pas le total. `avecActionsGroupees` (⇒ « à demander ») expose « Passer en prête » / « Annuler la demande » / « Basculer »
+ * l'autre, et son sélecteur Statut ne propose QUE ses statuts. Q6b — le DÉFAUT du sélecteur n'est plus « Tous » mais les statuts
+ * VIVANTS (à traiter) : les statuts MORTS (annulée, close = trace) sont masqués par défaut pour ne pas noyer les vivantes,
+ * MAIS jamais en silence (mention + décompte + « les afficher » = bascule sur « Toutes »). Le PÉRIMÈTRE Q6 est inchangé. Les
+ * compteurs comptent CE QUI EST AFFICHÉ. `avecActionsGroupees` (⇒ « à demander ») expose « Passer en prête » / « Annuler la demande » / « Basculer »
  * (elles portent sur des brouillons) ; « en cours » n'en a aucune. Le panneau détail s'ouvre des DEUX côtés. AUCUN envoi ; on
  * change CE QUI EST AFFICHÉ, pas ce qui est permis (les transitions serveur restent inchangées). Le tri, le filtre multi-types
  * et la pagination portent sur l'ENSEMBLE du périmètre, jamais sur la page.
@@ -54,7 +56,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
   const [retour, setRetour] = useState<RetourAction>(null);
   const [version, setVersion] = useState(0);
   const [sel, setSel] = useState<Set<number>>(new Set());
-  const [fStatut, setFStatut] = useState('');
+  const [choixStatut, setChoixStatut] = useState<string>(CHOIX_STATUT_DEFAUT); // Q6b : défaut = statuts VIVANTS, pas « Tous »
   const [fCommune, setFCommune] = useState('');
   const [fProfil, setFProfil] = useState('');
   const [fTypes, setFTypes] = useState<Set<number>>(new Set());
@@ -77,16 +79,26 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     return () => { annule = true; };
   }, [version, signalRafraichir]);
 
-  // Q6 — PRÉ-FILTRE DUR par périmètre (avant le filtre utilisateur), puis filtre PUIS tri sur l'ENSEMBLE ; pagination APRÈS.
+  // Q6 — PRÉ-FILTRE DUR par périmètre (hermeticité). Q6b — puis restreint aux statuts AFFICHÉS selon le choix du sélecteur
+  // (défaut = VIVANTS). `filtrerDemandes` ne refiltre PAS le statut (déjà fait ici) : profil / commune / type / référence seulement.
   const dansP = useMemo(() => dansPerimetre(liste?.demandes ?? [], perimetre), [liste, perimetre]);
+  const statutsVus = useMemo(() => new Set(statutsAffiches(perimetre, choixStatut)), [perimetre, choixStatut]);
+  const dansVue = useMemo(() => dansP.filter((d) => statutsVus.has(d.statut)), [dansP, statutsVus]);
   const filtrees = useMemo(
-    () => trierDemandes(filtrerDemandes(dansP, { statut: fStatut, profil: fProfil, commune: fCommune, types: [...fTypes], reference: fReference }), tri),
-    [dansP, fStatut, fCommune, fProfil, fTypes, fReference, tri],
+    () => trierDemandes(filtrerDemandes(dansVue, { statut: '', profil: fProfil, commune: fCommune, types: [...fTypes], reference: fReference }), tri),
+    [dansVue, fCommune, fProfil, fTypes, fReference, tri],
   );
 
-  // Q6 — compteurs du PÉRIMÈTRE (jamais le total) : décompte par statut du périmètre.
-  const compteursP = statutsFiltre.map((s) => ({ s, n: dansP.filter((d) => d.statut === s).length })).filter((x) => x.n > 0);
-  const dossiersP = dansP.reduce((acc, d) => acc + d.nbDossiers, 0);
+  // Q6b — compteurs de CE QUI EST AFFICHÉ (statuts vus), décompte par statut. Le PÉRIMÈTRE ne bouge pas.
+  const compteursVus = statutsDuPerimetre(perimetre).map((s) => ({ s, n: dansVue.filter((d) => d.statut === s).length })).filter((x) => x.n > 0);
+  const dossiersVus = dansVue.reduce((acc, d) => acc + d.nbDossiers, 0);
+  // Q6b — lignes MORTES (trace) écartées par le DÉFAUT : mention NON silencieuse. Uniquement en mode 'vivants' (choix
+  // explicite « Toutes » ou un statut précis → rien de masqué, donc pas de mention).
+  const mortsDetail = useMemo(
+    () => statutsMorts(perimetre).map((s) => ({ statut: s, n: dansP.filter((d) => d.statut === s).length })),
+    [perimetre, dansP],
+  );
+  const morts = choixStatut === CHOIX_STATUT_DEFAUT ? mortsDetail : [];
 
   const nbPages = Math.max(1, Math.ceil(filtrees.length / PAGE_SIZE));
   const pageCourante = Math.min(page, nbPages);
@@ -157,10 +169,11 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Q6 — compteurs du PÉRIMÈTRE (jamais le total). */}
+      {/* Q6b — compteurs de CE QUI EST AFFICHÉ + mention NON silencieuse des lignes mortes masquées par le défaut. */}
       {liste && (
         <div className="svv-card" style={{ fontSize: 13 }}>
-          <strong>{dansP.length} demande(s)</strong> · {dossiersP} dossier(s) couvert(s) — {compteursP.map((x) => `${x.n} ${STATUT_LIBELLE[x.s]}`).join(' · ') || 'aucune'}.
+          <strong>{dansVue.length} demande(s)</strong> · {dossiersVus} dossier(s) couvert(s) — {compteursVus.map((x) => `${x.n} ${STATUT_LIBELLE[x.s]}`).join(' · ') || 'aucune'}.
+          <MentionMasquage morts={morts} onAfficherTout={() => majFiltre(() => setChoixStatut('tous'))} />
           <div style={{ color: 'var(--color-svv-muted)', marginTop: '.3rem' }}>{TEXTES[perimetre].intro}</div>
         </div>
       )}
@@ -238,10 +251,12 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
 
       {/* Filtres + tri (+ actions groupées si le périmètre en a) */}
       <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'center', fontSize: 12 }}>
+        {/* Q6b — le DÉFAUT est « Actives » (vivants), pas « Tous ». Chaque libellé dit ce qu'il montre ; « Toutes » nomme les morts. */}
         <label className="flex flex-col gap-1">Statut
-          <select value={fStatut} onChange={(e) => majFiltre(() => setFStatut(e.target.value))} style={styleChamp}>
-            <option value="">Tous</option>
-            {statutsFiltre.map((s) => <option key={s} value={s}>{STATUT_LIBELLE[s]}</option>)}
+          <select value={choixStatut} onChange={(e) => majFiltre(() => setChoixStatut(e.target.value))} style={styleChamp}>
+            <option value="vivants">Actives ({statutsVivants(perimetre).map((s) => STATUT_LIBELLE[s]).join(', ')})</option>
+            <option value="tous">Toutes (dont {statutsMorts(perimetre).map((s) => STATUT_LIBELLE[s]).join(', ')})</option>
+            {statutsDuPerimetre(perimetre).map((s) => <option key={s} value={s}>{STATUT_LIBELLE[s]}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1">Profil

@@ -365,6 +365,34 @@ export function FiltreTypes({ categories, coches, onToggle }: {
 // ses lignes d'avant le renommage portent encore l'ancienne valeur → tout affichage historique reste lisible.
 export const STATUT_LIBELLE: Record<string, string> = { brouillon: 'brouillon', prete: 'prête', envoyee: 'envoyée', close: 'close', annulee: 'annulée', abandonnee: 'annulée (ex-abandonnée)' };
 
+/**
+ * Q6b — mention NON silencieuse des lignes écartées par le DÉFAUT (statuts morts masqués). Rendu PUR. Rien si aucune ligne
+ * masquée. Le bouton « les afficher » délègue à la Vue (bascule le filtre Statut sur « Toutes »). Sans cette mention, le défaut
+ * serait un « zéro muet inversé » : l'utilisateur croirait ses demandes disparues. RAPPEL DE SENS : masquer une ligne annulée
+ * ne cache AUCUN permis — ses dossiers sont déjà revenus au stock (demande_dossier.actif=false) et sont proposables ; la ligne
+ * n'est qu'une trace.
+ */
+export function MentionMasquage({ morts, onAfficherTout }: {
+  morts: { statut: string; n: number }[];
+  onAfficherTout?: () => void;
+}) {
+  const visibles = morts.filter((x) => x.n > 0);
+  const total = visibles.reduce((a, x) => a + x.n, 0);
+  if (total === 0) return null;
+  const texte = visibles.map((x) => `${x.n} ${STATUT_LIBELLE[x.statut] ?? x.statut}(s) masquée(s)`).join(' · ');
+  return (
+    <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', marginTop: '.3rem' }}>
+      {texte}
+      {onAfficherTout && (
+        <>
+          {' — '}
+          <button type="button" className="svv-link" style={{ width: 'auto', padding: 0 }} onClick={onAfficherTout}>les afficher</button>
+        </>
+      )}
+    </div>
+  );
+}
+
 const styleTdD: CSSProperties = { padding: '.4rem .5rem' };
 
 /**

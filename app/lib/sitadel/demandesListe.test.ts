@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   basculerTri, filtrerDemandes, trierDemandes, OPTIONS_TRI, cleTri, triDepuisCle, SENS_DEFAUT, typeDemande, normaliserReference,
   dansPerimetre, statutsDuPerimetre, STATUTS_A_DEMANDER, STATUTS_EN_COURS,
+  statutsVivants, statutsMorts, statutsAffiches, CHOIX_STATUT_DEFAUT,
   type Tri, type LigneDemande,
 } from './demandesListe';
 
@@ -234,5 +235,44 @@ describe('Q6 — périmètres des onglets (« À demander » / « En cours ») :
     const enCours = dansPerimetre([...envoyees, ...bruit], 'en_cours');
     expect(enCours).toHaveLength(25);                                   // tout le périmètre (pas une page de 20)
     expect(trierDemandes(enCours, { colonne: 'dossiers', sens: 'desc' })).toHaveLength(25);
+  });
+});
+
+describe('Q6b — statuts vivants / morts + défaut qui masque les morts (sans toucher au périmètre Q6)', () => {
+  it('le DÉFAUT est « vivants », pas « tous »', () => {
+    expect(CHOIX_STATUT_DEFAUT).toBe('vivants');
+  });
+
+  it('vivants / morts par onglet (partition exacte du périmètre)', () => {
+    expect(statutsVivants('a_demander')).toEqual(['brouillon', 'prete']);
+    expect(statutsMorts('a_demander')).toEqual(['annulee']);
+    expect(statutsVivants('en_cours')).toEqual(['envoyee']);
+    expect(statutsMorts('en_cours')).toEqual(['close']);
+    // vivants ∪ morts = périmètre (rien perdu, rien ajouté)
+    for (const p of ['a_demander', 'en_cours'] as const) {
+      expect([...statutsVivants(p), ...statutsMorts(p)].sort()).toEqual([...statutsDuPerimetre(p)].sort());
+    }
+  });
+
+  it('le DÉFAUT (vivants) n’inclut NI annulée NI close', () => {
+    expect(statutsAffiches('a_demander', CHOIX_STATUT_DEFAUT)).not.toContain('annulee');
+    expect(statutsAffiches('a_demander', CHOIX_STATUT_DEFAUT)).toEqual(['brouillon', 'prete']);
+    expect(statutsAffiches('en_cours', CHOIX_STATUT_DEFAUT)).not.toContain('close');
+    expect(statutsAffiches('en_cours', CHOIX_STATUT_DEFAUT)).toEqual(['envoyee']);
+  });
+
+  it('« tous » ramène TOUT le périmètre (morts compris) — et JAMAIS l’autre onglet (non-régression Q6)', () => {
+    expect([...statutsAffiches('a_demander', 'tous')].sort()).toEqual(['annulee', 'brouillon', 'prete']);
+    expect([...statutsAffiches('en_cours', 'tous')].sort()).toEqual(['close', 'envoyee']);
+    // hermeticité : « tous » de « à demander » ne contient aucun statut de « en cours », et réciproquement
+    expect(statutsAffiches('a_demander', 'tous').some((s) => (STATUTS_EN_COURS as string[]).includes(s))).toBe(false);
+    expect(statutsAffiches('en_cours', 'tous').some((s) => (STATUTS_A_DEMANDER as string[]).includes(s))).toBe(false);
+  });
+
+  it('un statut PRÉCIS n’est rendu que s’il appartient au périmètre (sinon [] : jamais l’autre onglet)', () => {
+    expect(statutsAffiches('a_demander', 'annulee')).toEqual(['annulee']); // un mort, isolable à la demande
+    expect(statutsAffiches('a_demander', 'brouillon')).toEqual(['brouillon']);
+    expect(statutsAffiches('a_demander', 'close')).toEqual([]);   // 'close' est de l’AUTRE onglet → rien
+    expect(statutsAffiches('en_cours', 'brouillon')).toEqual([]); // 'brouillon' est de l’AUTRE onglet → rien
   });
 });

@@ -120,6 +120,42 @@ export function dansPerimetre<T extends { statut: string }>(demandes: T[], p: Pe
   return demandes.filter((d) => permis.has(d.statut));
 }
 
+// ── Q6b : au sein d'un périmètre, STATUTS VIVANTS (à traiter) vs MORTS (trace) ────────────────────────────────────────
+/**
+ * Q6b — un statut MORT est la trace d'une démarche finie, pas une demande à traiter :
+ *   - « annulée » : la demande a été annulée → ses dossiers sont DÉJÀ revenus au stock (demande_dossier.actif=false) et sont
+ *     de nouveau proposables. Masquer la ligne ne cache AUCUN permis — la ligne n'est qu'une trace.
+ *   - « close »  : demande clôturée, plus rien à suivre.
+ * Le défaut d'affichage ne montre QUE les VIVANTS pour ne pas les noyer (ex. « à demander » : 54 vivantes noyées sous 99
+ * annulées). Les morts restent accessibles via « Toutes » et le masquage n'est JAMAIS silencieux (mention + décompte).
+ * Le PÉRIMÈTRE Q6 est INCHANGÉ : vivants ∪ morts = statutsDuPerimetre — on ne change QUE le défaut d'affichage.
+ */
+export const STATUTS_VIVANTS: Record<Perimetre, readonly string[]> = {
+  a_demander: ['brouillon', 'prete'],
+  en_cours: ['envoyee'],
+};
+/** Statuts VIVANTS (à traiter) d'un onglet — l'état INITIAL du filtre Statut. PURE. */
+export function statutsVivants(p: Perimetre): readonly string[] { return STATUTS_VIVANTS[p]; }
+/** Statuts MORTS (trace) = périmètre ∖ vivants (a_demander → ['annulee'] ; en_cours → ['close']). PURE. */
+export function statutsMorts(p: Perimetre): readonly string[] {
+  const vivants = new Set(statutsVivants(p));
+  return statutsDuPerimetre(p).filter((s) => !vivants.has(s));
+}
+
+/** Q6b — choix du sélecteur Statut : 'vivants' (DÉFAUT, statuts à traiter), 'tous' (tout le périmètre, morts compris), ou un
+ *  statut précis du périmètre. Le défaut n'est plus « Tous ». */
+export const CHOIX_STATUT_DEFAUT = 'vivants';
+/**
+ * Statuts effectivement AFFICHÉS pour un choix donné, TOUJOURS bornés au périmètre (garde d'hermeticité Q6 : un statut
+ * étranger renvoie [] — jamais l'autre onglet). 'vivants' → statuts vivants ; 'tous' → tout le périmètre ; sinon → ce seul
+ * statut s'il appartient au périmètre. PURE.
+ */
+export function statutsAffiches(p: Perimetre, choix: string): readonly string[] {
+  if (choix === 'tous') return statutsDuPerimetre(p);
+  if (choix === 'vivants') return statutsVivants(p);
+  return statutsDuPerimetre(p).includes(choix) ? [choix] : [];
+}
+
 // ── D3 : dérivation du TYPE de permis affiché (colonne « Type ») ──────────────
 const RANG_AUTRE = 9999; // rang de la catégorie « autre » (cf. priorite.ts : classer → { cle:'autre', rang:9999 })
 

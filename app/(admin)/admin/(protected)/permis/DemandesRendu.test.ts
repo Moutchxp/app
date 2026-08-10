@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 import type { LigneStock } from '../../../../lib/sitadel/stock';
@@ -508,6 +508,34 @@ describe('Q7 — STATUT_LIBELLE : « annulée » + lisibilité des lignes de jou
     // Une ligne de journal écrite avant Q7 porte encore 'abandonnee' : son affichage doit rester lisible.
     expect(STATUT_LIBELLE.abandonnee).toBe('annulée (ex-abandonnée)');
     expect(STATUT_LIBELLE.abandonnee).not.toBe('abandonnee'); // jamais le token brut à l’écran
+  });
+});
+
+describe('Q6b — MentionMasquage : le masquage par défaut n’est JAMAIS silencieux', () => {
+  const rendu = (morts: { statut: string; n: number }[], onAfficherTout?: () => void) =>
+    renderToStaticMarkup(createElement(MentionMasquage, { morts, onAfficherTout }));
+
+  it('aucune ligne masquée → ne rend RIEN (pas de bruit)', () => {
+    expect(rendu([])).toBe('');
+    expect(rendu([{ statut: 'annulee', n: 0 }])).toBe(''); // total 0 → rien
+  });
+
+  it('des annulées masquées → annonce le décompte EXACT + propose « les afficher »', () => {
+    const h = rendu([{ statut: 'annulee', n: 99 }], () => {});
+    expect(h).toContain('99 annulée(s) masquée(s)');
+    expect(h).toContain('les afficher');
+    expect(h).toContain('<button'); // l’offre d’affichage est actionnable
+  });
+
+  it('« En cours » : des closes masquées → « 3 close(s) masquée(s) »', () => {
+    const h = rendu([{ statut: 'close', n: 3 }], () => {});
+    expect(h).toContain('3 close(s) masquée(s)');
+  });
+
+  it('sans callback « les afficher » → décompte annoncé mais aucun bouton', () => {
+    const h = rendu([{ statut: 'annulee', n: 5 }]);
+    expect(h).toContain('5 annulée(s) masquée(s)');
+    expect(h).not.toContain('<button');
   });
 });
 
