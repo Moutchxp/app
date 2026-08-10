@@ -206,7 +206,7 @@ export function CarteDepot({ d, children }: { d: DepotAffiche; children?: ReactN
 
 // ── V3 : carte de PROPOSITION avec choix lot-par-lot ──────────────────────────
 /** Un lot proposé, prêt à afficher/cocher. `cle` = clé stable (cleLot, ensemble trié des dossierId) — l'identité de sélection. */
-export interface LotAffiche { cle: string; codeInsee: string; communeNom: string; canal: string; nbDossiers: number; destOrigine?: 'mairie_contact' | 'prada'; destNom?: string | null }
+export interface LotAffiche { cle: string; codeInsee: string; communeNom: string; canal: string; nbDossiers: number; destOrigine?: 'mairie_contact' | 'prada'; destNom?: string | null; profilImpose?: ProfilDemandeur | null }
 
 /**
  * Carte de proposition PURE (V3) : une case à cocher par lot, « tout sélectionner/désélectionner » (sur l'ENSEMBLE, via le
@@ -251,7 +251,10 @@ export function CartePropositions({
               <li key={l.cle} style={{ marginBottom: '.2rem' }}>
                 <label style={{ display: 'flex', gap: '.4rem', alignItems: 'baseline', cursor: 'pointer' }}>
                   <input type="checkbox" checked={selection.has(l.cle)} onChange={() => onBasculer?.(l.cle)} aria-label={`Sélectionner ${l.communeNom} (${l.codeInsee})`} />
-                  <span>{l.communeNom} ({l.codeInsee}) · {l.canal} · {l.nbDossiers} dossier(s) <OrigineDest origine={l.destOrigine} nom={l.destNom} /></span>
+                  <span>{l.communeNom} ({l.codeInsee}) · {l.canal} · {l.nbDossiers} dossier(s) <OrigineDest origine={l.destOrigine} nom={l.destNom} />
+                    {/* P3 — profil IMPOSÉ par le téléservice de la commune : dit EXPLICITEMENT pourquoi, jamais substitué en silence. */}
+                    {l.profilImpose ? <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}> · profil imposé par le téléservice de cette commune : {ETIQUETTE_PROFIL[l.profilImpose]}</span> : null}
+                  </span>
                 </label>
               </li>
             ))}

@@ -5,7 +5,7 @@ import {
   problemesIdentite, proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande,
   dateEnFrancais, ancreDetail, peutPasserLot, expliquerProposition, resumeDiagnostic, configAvecSignataire,
   validerIdsLot, problemeCorpsDemande, gabaritsPresents, referenceDiscrete,
-  cleLot, compterSelection, apparierSelection, validerLotsSelection,
+  cleLot, compterSelection, apparierSelection, validerLotsSelection, profilEffectifLot,
 } from './demande';
 import { resoudreDestination } from './destinataire';
 
@@ -546,5 +546,118 @@ describe('V3 — validerLotsSelection : clé requise, dédup, erreurs explicites
     const v = validerLotsSelection([{ cle: '1-2', communeNom: 'Asnières' }, { cle: '1-2', communeNom: 'Asnières' }, { cle: '3' }]);
     expect(v.ok).toBe(true);
     if (v.ok) expect(v.lots).toEqual([{ cle: '1-2', communeNom: 'Asnières' }, { cle: '3', communeNom: null }]);
+  });
+});
+
+/**
+ * P3 — DÉCOUPAGE par contrainte de commune. 🔒 INVARIANT : la SÉLECTION (mêmes dossiers, même ORDRE) est byte-identique ;
+ * seul le regroupement change (modèle ORDRE_HISTORIQUE). `demandesParCommuneParMois` généreux ici pour isoler le découpage.
+ */
+describe('P3 — découpage : max_dossiers commune, sélection byte-identique', () => {
+  const PGROS: ParamsLot = { dossiersParDemande: 5, demandesParCommuneParMois: 10, dateMin: null };
+  const base = [
+    cand({ dossierId: 101, numDau: 'PC101' }),
+    cand({ dossierId: 102, numDau: 'PC102' }),
+    cand({ dossierId: 103, numDau: 'PC103' }),
+  ];
+  const ids = (lots: Lot[]): number[] => lots.flatMap((l) => l.dossiers.map((d) => d.dossierId));
+
+  it('commune à max = 1 → N lots d’UN dossier ; MÊMES dossiers, MÊME ordre qu’un lot de N (byte-identique)', () => {
+    const sansMax = proposerLots(base.map((c) => ({ ...c })), PGROS, HIST_VIDE);
+    const avecMax = proposerLots(base.map((c) => ({ ...c, maxDossiersParDemande: 1 })), PGROS, HIST_VIDE);
+    expect(sansMax).toHaveLength(1);              // AVANT : un seul lot de 3
+    expect(sansMax[0].dossiers).toHaveLength(3);
+    expect(avecMax).toHaveLength(3);              // APRÈS : trois lots de 1
+    expect(avecMax.every((l) => l.dossiers.length === 1)).toBe(true);
+    expect(ids(avecMax)).toEqual(ids(sansMax));   // 🔒 même sélection, même ordre
+    expect(ids(avecMax)).toEqual([101, 102, 103]);
+  });
+
+  it('commune SANS max → découpage INCHANGÉ (non-régression explicite : null ≡ absent)', () => {
+    const sansMax = proposerLots(base.map((c) => ({ ...c })), PGROS, HIST_VIDE);
+    const maxNull = proposerLots(base.map((c) => ({ ...c, maxDossiersParDemande: null })), PGROS, HIST_VIDE);
+    // Le DÉCOUPAGE (nb de lots + dossiers par lot) est identique — qu'un max soit absent ou explicitement null.
+    const structure = (lots: Lot[]) => lots.map((l) => l.dossiers.map((d) => d.dossierId));
+    expect(structure(maxNull)).toEqual(structure(sansMax));
+    expect(maxNull).toHaveLength(sansMax.length);
+  });
+
+  it('max plus GRAND que la limite globale → la limite globale prime (pas de découpage plus fin)', () => {
+    const avec = proposerLots(base.map((c) => ({ ...c, maxDossiersParDemande: 99 })), PGROS, HIST_VIDE);
+    expect(avec).toHaveLength(1); // min(5, 99) = 5 ≥ 3 → un seul lot
+  });
+
+  it('profilImpose de la commune est porté par CHAQUE lot', () => {
+    const lots = proposerLots(base.map((c) => ({ ...c, profilImpose: 'personne' as const })), PGROS, HIST_VIDE);
+    expect(lots.every((l) => l.profilImpose === 'personne')).toBe(true);
+  });
+});
+
+describe('P3 — profil imposé (profilEffectifLot)', () => {
+  const lotDe = (profilImpose: 'entreprise' | 'personne' | null): Lot => ({ codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire', dossiers: [cand()], profilImpose });
+  it('commune à profil imposé → la demande porte CE profil, quel que soit le batch', () => {
+    expect(profilEffectifLot(lotDe('personne'), 'entreprise')).toBe('personne');
+    expect(profilEffectifLot(lotDe('entreprise'), 'personne')).toBe('entreprise');
+  });
+  it('commune SANS profil imposé → le profil du batch est conservé', () => {
+    expect(profilEffectifLot(lotDe(null), 'entreprise')).toBe('entreprise');
+    expect(profilEffectifLot(lotDe(null), 'personne')).toBe('personne');
+  });
+});
+
+/**
+ * P3 — corps de la variante CANAL FORMULAIRE (téléservice), validé au mot près : un seul permis, aucune identité/adresse/
+ * société, aucun rappel de la référence SVAV, socle juridique de la liste close (L311-1, L311-9 3°, R431-9) et rien d'autre.
+ */
+describe('P3 — corps FORMULAIRE (téléservice)', () => {
+  const lotForm: Lot = {
+    codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire',
+    dossiers: [cand({ numDau: 'PC0750561234', dateReelleAutorisation: '2024-06-15', adresse: '5 rue de Rivoli', codePostal: '75001', communeNom: 'Paris', cadastre: ['AB 0042'] })],
+  };
+  const { objet, corps } = genererTexte(lotForm, CONFIG, 'SVAV-DEM-2026-000119', piecesDepuisConfig('PC2,PC3'), 'personne', 'reponse@svav.com');
+
+  it('UN SEUL permis nommé (n° Sitadel), jamais une liste « Dossiers concernés »', () => {
+    expect(corps).toContain('Permis concerné : PC0750561234');
+    expect(corps).toContain('autorisé le 15 juin 2024');
+    expect(corps).toContain('parcelle(s) AB 0042');
+    expect(corps).not.toContain('Dossiers concernés');
+    expect((corps.match(/Permis concerné/g) ?? []).length).toBe(1);
+  });
+
+  it('AUCUNE société, AUCUNE adresse de réponse, AUCUN rappel de la référence SVAV', () => {
+    expect(corps).not.toContain('Criterimmo');          // nom de société (CONFIG)
+    expect(corps).not.toContain('SARL');
+    expect(corps).not.toContain('Adresse de réponse');
+    expect(corps).not.toContain('reponse@svav.com');
+    expect(corps).not.toContain('SVAV-DEM-2026-000119'); // référence complète
+    expect(corps).not.toContain('2026-000119');          // forme discrète
+    expect(corps).not.toMatch(/référence/i);             // aucun rappel de référence
+  });
+
+  it('les 3 articles attendus et AUCUN autre (liste close inchangée)', () => {
+    // extrait TOUT article cité (L./R. num-num, éventuel « n° »), normalise l'espacement, vérifie l'appartenance à la liste.
+    const cites = [...corps.matchAll(/\b([LR])\.?\s?(\d+)-(\d+)(?:\s+\d+°)?/g)].map((m) => m[0].replace(/[.\s]/g, ''));
+    const AUTORISES = new Set(['L311-1', 'L311-93°', 'R431-9']);
+    expect(cites.length).toBeGreaterThan(0);
+    for (const a of cites) expect(AUTORISES.has(a)).toBe(true); // aucun article hors liste
+    expect(corps).toContain('L. 311-1');
+    expect(corps).toContain('L. 311-9 3°');
+    expect(corps).toContain('R. 431-9');
+  });
+
+  it('en-tête « service de l’urbanisme » + clôture cordiale ; objet générique', () => {
+    expect(corps).toContain('À l’attention du service de l’urbanisme');
+    expect(corps).toContain('Je vous remercie par avance pour votre aide et vous souhaite une excellente journée.');
+    expect(objet).toBe('Demande de communication de documents administratifs');
+  });
+
+  it('non-régression : le corps E-MAIL est INCHANGÉ (la branche formulaire n’a pas fui)', () => {
+    const lotEmail: Lot = { codeInsee: '92050', communeNom: 'Nanterre', canal: 'email', dossiers: [cand({ numDau: 'PC0001' }), cand({ numDau: 'PC0002' })] };
+    const { corps: cEnt } = genererTexte(lotEmail, CONFIG, 'SVAV-DEM-2026-000200', piecesDepuisConfig('PC2,PC3'), 'entreprise', 'rep@x.com');
+    expect(cEnt).toContain('Dossiers concernés :');
+    expect(cEnt).toContain('SVAV-DEM-2026-000200');       // rappel de la référence (e-mail)
+    expect(cEnt).toContain('Criterimmo');                 // identité société (e-mail)
+    expect(cEnt).toContain('PC0001');
+    expect(cEnt).toContain('PC0002');
   });
 });

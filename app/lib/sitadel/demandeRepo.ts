@@ -11,7 +11,7 @@ import {
   type CandidatDossier, type ConfigDemandeur, type Lot, type HistoriqueDemandes, type DiagnosticProposition, type ParamsLot,
   type ProfilDemandeur,
   proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande, problemesIdentite, profilValide, ETIQUETTE_PROFIL,
-  configAvecSignataire, apparierSelection,
+  configAvecSignataire, apparierSelection, profilEffectifLot,
 } from './demande';
 import { type Collaborateur, choisirCollaborateur } from './collaborateur';
 import { resoudreDestination, type ContactCommune } from './destinataire';
@@ -44,6 +44,7 @@ function versCandidat(d: DossierAffiche): CandidatDossier {
     numDau: d.numDau, dateReelleAutorisation: d.dateReelleAutorisation, adresse: adresseDe(d), codePostal: d.adrCodpostTer, cadastre: d.cadastre,
     etatDau: d.etatDau, absentDuDernierMillesime: !d.vuAuDernier, arbitragePrada: dest.arbitragePrada,
     destOrigine: dest.origine, destNom: dest.nom,
+    maxDossiersParDemande: d.maxDossiersParDemande ?? null, profilImpose: d.profilImpose ?? null, // P3 : contraintes téléservice de la commune
   };
 }
 
@@ -176,24 +177,31 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
   const { aCreer, invalides } = apparierSelection(lots, selection.map((s) => s.cle));
   const communeParCle = new Map(selection.map((s) => [s.cle, s.communeNom]));
   const lotsInvalides: LotIgnore[] = invalides.map((cle) => ({ cle, communeNom: communeParCle.get(cle) ?? null, raison: RAISON_LOT_INVALIDE }));
-  const cfgDem = await lireConfigDemandeur(profil);
   const pieces = piecesDepuisConfig(cfg.piecesDemandees);
-  // S8a — TOURNIQUET (profil « entreprise » uniquement : un collaborateur signe AU NOM DE LA SOCIÉTÉ). `dernieres` est
-  // mis à jour en mémoire après chaque attribution → deux lots de la même commune dans un run tournent (A, puis B…).
-  const collaborateurs = profil === 'entreprise' ? await lireCollaborateursActifs() : [];
-  const dernieres = profil === 'entreprise' ? await lireDernieresParCommune() : new Map<string, Map<number, string | null>>();
-  // S8b — charge GLOBALE (nb total de demandes par collaborateur), lue une fois puis mise à jour AU FIL DU LOT (comme
-  // `dernieres`) : elle départage le critère 1 quand la commune est neuve pour tout le monde → équilibrage global.
-  const chargeGlobale = profil === 'entreprise' ? await lireChargeGlobale() : new Map<number, number>();
+  // P3 — profil EFFECTIF par lot : celui IMPOSÉ par le téléservice de la commune (`lot.profilImpose`, issu de la proposition
+  // re-jouée ici), sinon le profil du batch. La config d'identité est lue par profil réellement utilisé (au plus 2 lectures).
+  const profilDe = (lot: Lot): ProfilDemandeur => profilEffectifLot(lot, profil);
+  const profilsUtilises = new Set(aCreer.map(profilDe));
+  const cfgParProfil = new Map<ProfilDemandeur, ConfigDemandeur>();
+  for (const p of profilsUtilises) cfgParProfil.set(p, await lireConfigDemandeur(p));
+  // S8a/S8b — TOURNIQUET (profil « entreprise » UNIQUEMENT : un collaborateur signe AU NOM DE LA SOCIÉTÉ). Chargé dès qu'un
+  // lot (batch OU imposé) est en entreprise. `dernieres`/`chargeGlobale` sont mis à jour AU FIL DU LOT (équilibrage intra-run).
+  const besoinCollaborateurs = profilsUtilises.has('entreprise');
+  const collaborateurs = besoinCollaborateurs ? await lireCollaborateursActifs() : [];
+  const dernieres = besoinCollaborateurs ? await lireDernieresParCommune() : new Map<string, Map<number, string | null>>();
+  const chargeGlobale = besoinCollaborateurs ? await lireChargeGlobale() : new Map<number, number>();
   const maintenant = new Date();
   const crees: string[] = [];
   let ignoresConflit = 0, dossiersCrees = 0;
   for (const lot of aCreer) {
+    const profilLot = profilDe(lot);                                      // P3 : profil imposé par la commune, sinon batch
+    const cfgDem = cfgParProfil.get(profilLot)!;                          // config d'identité du profil EFFECTIF du lot
+    const collabActifs = profilLot === 'entreprise' ? collaborateurs : []; // tourniquet : profil entreprise uniquement
     const parCommune = dernieres.get(lot.codeInsee) ?? new Map<number, string | null>();
-    const collaborateurId = collaborateurs.length > 0
-      ? choisirCollaborateur(lot.codeInsee, collaborateurs, parCommune, chargeGlobale, maintenant).collaborateurId
+    const collaborateurId = collabActifs.length > 0
+      ? choisirCollaborateur(lot.codeInsee, collabActifs, parCommune, chargeGlobale, maintenant).collaborateurId
       : null;
-    const collab = collaborateurId !== null ? collaborateurs.find((c) => c.id === collaborateurId) ?? null : null;
+    const collab = collaborateurId !== null ? collabActifs.find((c) => c.id === collaborateurId) ?? null : null;
     const cfgSignataire = collab
       ? configAvecSignataire(cfgDem, { nom: collab.nom, prenom: collab.prenom, fonction: collab.fonction, email: collab.email })
       : cfgDem;
@@ -201,7 +209,7 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
       const ref = await withTransaction(async (tx) => {
         const q = asQ(tx);
         const reference = await attribuerReference(q, annee);
-        const { objet, corps } = genererTexte(lot, cfgSignataire, reference, pieces, profil, cfg.adresseReponse,
+        const { objet, corps } = genererTexte(lot, cfgSignataire, reference, pieces, profilLot, cfg.adresseReponse,
           { serviceActive: cfg.mentionServiceActive, serviceTexte: cfg.mentionServiceTexte, delaiActive: cfg.mentionDelaiActive, delaiTexte: cfg.mentionDelaiTexte }); // S39/S40 : réponse + mentions figées
         // S14d — destinataire FIGÉ via la MÊME fonction que la sélection amont (resoudreDestination) : lecture de
         // mairie_contact ÉTENDUE à mairie_prada, puis précédence PRADA/contact. Le texte du courrier ne dépend pas du
@@ -228,7 +236,7 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
         const dem = await q<{ id: number }>(
           `INSERT INTO demande (reference, code_insee, statut, objet, corps, profil_demandeur, collaborateur_id, dest_canal, dest_email, dest_url_formulaire, dest_adresse_postale, dest_origine, dest_prada_import_id, dest_nom)
            VALUES ($1, $2, 'brouillon', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
-          [reference, lot.codeInsee, objet, corps, profil, collaborateurId, dest.canal, dest.email, dest.urlFormulaire, dest.adressePostale, dest.origine, dest.pradaImportId, dest.nom],
+          [reference, lot.codeInsee, objet, corps, profilLot, collaborateurId, dest.canal, dest.email, dest.urlFormulaire, dest.adressePostale, dest.origine, dest.pradaImportId, dest.nom],
         );
         const id = dem.rows[0].id;
         for (const d of lot.dossiers) {

@@ -173,6 +173,8 @@ export interface CandidatDossier {
   arbitragePrada?: boolean;             // S14d : PRADA au courriel non vide mais contact 'confirme' conservé → à arbitrer
   destOrigine?: 'mairie_contact' | 'prada'; // S14e : origine du destinataire résolu (affichage)
   destNom?: string | null;              // S14e : nom de la PRADA quand origine = 'prada'
+  maxDossiersParDemande?: number | null;    // P3 : contrainte téléservice de la commune (mairie_contact) ; null = limite globale
+  profilImpose?: ProfilDemandeur | null;    // P3 : profil imposé par le téléservice de la commune ; null = libre
 }
 export interface HistoriqueDemandes {
   /** dossier_id déjà rattachés à une demande NON abandonnée → jamais reproposés. */
@@ -190,6 +192,7 @@ export interface Lot {
   codeInsee: string; communeNom: string; canal: CanalContact; dossiers: CandidatDossier[];
   destOrigine?: 'mairie_contact' | 'prada'; // S14e : origine du destinataire résolu du lot (affichage)
   destNom?: string | null;
+  profilImpose?: ProfilDemandeur | null;    // P3 : profil imposé par le téléservice de la commune du lot (affichage + création)
 }
 
 /**
@@ -226,11 +229,25 @@ export function proposerLots(candidats: CandidatDossier[], params: ParamsLot, hi
     const canal = dossiers[0].canal!;
     const destOrigine = dossiers[0].destOrigine;   // S14e : origine résolue de la commune (identique pour tous ses dossiers)
     const destNom = dossiers[0].destNom;
-    for (let i = 0, faits = 0; i < dossiers.length && faits < quota; i += params.dossiersParDemande, faits += 1) {
-      lots.push({ codeInsee: code, communeNom: commune, canal, destOrigine, destNom, dossiers: dossiers.slice(i, i + params.dossiersParDemande) });
+    const profilImpose = dossiers[0].profilImpose ?? null; // P3 : contrainte téléservice identique pour tous les dossiers de la commune
+    // P3 — taille de tranche = limite globale, OU la limite PROPRE à la commune si plus petite (ex. téléservice Paris = 1).
+    // ⚠️ SEULE la taille de tranche change ici : le FILTRE d'éligibilité (ci-dessus) et l'ORDRE des candidats (amont) sont
+    // inchangés → la SÉLECTION reste BYTE-IDENTIQUE, seul le DÉCOUPAGE diffère (mêmes dossiers, même ordre — prouvé par test).
+    const maxCommune = dossiers[0].maxDossiersParDemande;
+    const taille = typeof maxCommune === 'number' && maxCommune > 0 ? Math.min(params.dossiersParDemande, maxCommune) : params.dossiersParDemande;
+    for (let i = 0, faits = 0; i < dossiers.length && faits < quota; i += taille, faits += 1) {
+      lots.push({ codeInsee: code, communeNom: commune, canal, destOrigine, destNom, profilImpose, dossiers: dossiers.slice(i, i + taille) });
     }
   }
   return lots;
+}
+
+/**
+ * P3 — profil EFFECTIF d'un lot : celui IMPOSÉ par le téléservice de la commune (`lot.profilImpose`) l'emporte sur le profil
+ * choisi au batch, sinon on garde le profil du batch. PURE. C'est la substitution EXPLICITE (jamais silencieuse) de la Phase 4.
+ */
+export function profilEffectifLot(lot: Lot, profilBatch: ProfilDemandeur): ProfilDemandeur {
+  return lot.profilImpose ?? profilBatch;
 }
 
 // ── Référence + texte ────────────────────────────────────────────────────────
@@ -447,6 +464,40 @@ export function genererTexte(
   adresseReponse = '', mentions: MentionsCorps = {},
 ): TexteDemande {
   const n = lot.dossiers.length;
+
+  // P3 — CANAL FORMULAIRE (dépôt manuel sur téléservice) : corps DÉDIÉ, validé AU MOT PRÈS. Branche PRÉCOCE → le code des
+  // variantes e-mail (ci-dessous) est strictement INCHANGÉ. UN SEUL permis (le téléservice impose un dossier par dépôt),
+  // AUCUNE identité / adresse de réponse / société (FranceConnect les impose et le récapitulatif du formulaire les reprend),
+  // AUCUN rappel de la référence SVAV (une mairie n'adopte pas notre nomenclature ; le lien réponse↔permis se fera par la
+  // référence de la MAIRIE — chantier P5). Socle juridique EN DUR : L311-1, L311-9 3°, R431-9 (liste close INCHANGÉE).
+  if (lot.canal === 'formulaire') {
+    const ligneDossierForm = (d: CandidatDossier): string => {
+      const villeCP = [d.codePostal, d.communeNom].filter((x) => x !== null && x!.trim() !== '').map((x) => x!.trim()).join(' ');
+      const adresse = d.adresse.trim();
+      const cad = d.cadastre.length ? `parcelle(s) ${d.cadastre.join(', ')}` : '';
+      const segments = [d.numDau, `autorisé le ${dateEnFrancais(d.dateReelleAutorisation)}`];
+      if (adresse !== '') { segments.push([adresse, villeCP].filter((x) => x !== '').join(', ')); if (cad) segments.push(cad); }
+      else { const secours = [villeCP, cad].filter((x) => x !== '').join(', '); if (secours) segments.push(secours); }
+      return segments.join(' — ');
+    };
+    const objet = 'Demande de communication de documents administratifs';
+    const corps = [
+      'À l’attention du service de l’urbanisme',
+      '',
+      'Madame, Monsieur,',
+      '',
+      'En application des articles L. 311-1 et L. 311-9 3° du code des relations entre le public et l’administration, pourriez-vous, s’il vous plaît, me communiquer par courrier électronique les pièces suivantes du permis ci-dessous :',
+      '',
+      '— la pièce PC2, plan de masse coté dans les trois dimensions, prévue à l’article R. 431-9 du code de l’urbanisme ;',
+      '— la pièce PC3, plan en coupe du terrain et de la construction.',
+      '',
+      ...lot.dossiers.map((d) => `Permis concerné : ${ligneDossierForm(d)}`),
+      '',
+      'Je vous remercie par avance pour votre aide et vous souhaite une excellente journée.',
+    ].join('\n');
+    return { objet, corps };
+  }
+
   // S40 — mentions de pratique (éditables) ; null si désactivées/vides. Insérées à leur place naturelle dans les 2 gabarits.
   const ligneService = mentionRetenue(mentions.serviceActive, mentions.serviceTexte);
   const ligneDelai = mentionRetenue(mentions.delaiActive, mentions.delaiTexte);

@@ -246,6 +246,15 @@ describe('V3 — CartePropositions : choix lot-par-lot (rendu PUR)', () => {
     expect(rendu({ total: 1, lotsVisibles: lots, selection: new Set(['1-2']), nbSelLots: 1, nbSelDossiers: 2, toutCoche: true })).toContain('Tout désélectionner');
   });
 
+  it('P3 — profil IMPOSÉ par le téléservice : le motif est DIT explicitement (jamais substitué en silence)', () => {
+    const lotImpose: LotAffiche = { ...lot('9-9', 1, 'Paris'), profilImpose: 'personne' };
+    const h = rendu({ total: 1, lotsVisibles: [lotImpose], selection: new Set(), nbSelLots: 0, nbSelDossiers: 0, toutCoche: false });
+    expect(h).toContain('profil imposé par le téléservice de cette commune');
+    expect(h).toContain('Personne physique'); // ETIQUETTE_PROFIL['personne']
+    // un lot SANS contrainte n'affiche AUCUN motif
+    expect(rendu({ total: 1, lotsVisibles: [lot('1-2', 2)], selection: new Set(), nbSelLots: 0, nbSelDossiers: 0, toutCoche: false })).not.toContain('profil imposé');
+  });
+
   it('une case est cochée ssi sa clé est dans la sélection', () => {
     const lots = [lot('1-2', 2), lot('3', 1)];
     const h = rendu({ total: 2, lotsVisibles: lots, selection: new Set(['1-2']), nbSelLots: 1, nbSelDossiers: 2, toutCoche: false });

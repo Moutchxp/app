@@ -4,6 +4,7 @@
  */
 import { query } from '../db/client';
 import type { ConfigVeille } from './veilleConfig';
+import type { ProfilDemandeur } from './demande';
 import {
   type FiltresPermis, type CleCategorie, type EtatRattachement,
   classer, libelleParRang, construireRequeteListe, construireRequeteTotal, construireRequeteComptes,
@@ -60,6 +61,10 @@ export interface DossierAffiche {
   etatRattachement?: EtatRattachement;
   demandeReference?: string | null; // référence de la demande ACTIVE (si « rattache »)
   demandeStatut?: string | null;    // statut de la demande active
+  // P3 — contraintes de téléservice de la commune (présentes UNIQUEMENT sur le chemin CANDIDATS, via une requête séparée →
+  // `construireRequeteListe` reste byte-identique). NULL = pas de contrainte propre (comportement actuel).
+  maxDossiersParDemande?: number | null;
+  profilImpose?: ProfilDemandeur | null;
 }
 
 interface LigneSql {
@@ -173,8 +178,40 @@ async function lireInclusions(communes: string[]): Promise<ResultatVeille['inclu
  *  strictement l'ordonnancement de `construireRequeteListe` (priorite.ts). */
 export async function lireDossiersPriorite(c: ConfigVeille, n: number): Promise<DossierAffiche[]> {
   const rq = construireRequeteListe(FILTRES_PERMIS_VIDES, c, 1, n);
-  const r = await query<LigneSql>(rq.texte, rq.params);
-  return r.rows.map((row) => versAffiche(row, c));
+  // P3 — la requête candidats (`construireRequeteListe`) reste INCHANGÉE ; les contraintes de téléservice sont lues à part et
+  // fusionnées en TS → la SÉLECTION (mêmes dossiers, même ordre) est byte-identique, seul le futur découpage en dépendra.
+  const [r, contraintes] = await Promise.all([query<LigneSql>(rq.texte, rq.params), lireContraintesCommune()]);
+  return r.rows.map((row) => {
+    const d = versAffiche(row, c);
+    const ct = contraintes.get(d.codeInsee);
+    return { ...d, maxDossiersParDemande: ct?.max ?? null, profilImpose: ct?.profil ?? null };
+  });
+}
+
+/**
+ * P3 — contraintes de téléservice par commune (mairie_contact : max_dossiers_par_demande, profil_demandeur_impose). Ne remonte
+ * que les communes AYANT une contrainte (petit résultat). Colonnes absentes (migration 086 non appliquée) → JOURNALISÉ et
+ * dégradé en « aucune contrainte » (= comportement ACTUEL), jamais un catch muet (cf. P2).
+ */
+async function lireContraintesCommune(): Promise<Map<string, { max: number | null; profil: ProfilDemandeur | null }>> {
+  try {
+    const r = await query<{ code_insee: string; max_dossiers: number | null; profil_impose: string | null }>(
+      `SELECT code_insee, max_dossiers_par_demande AS max_dossiers, profil_demandeur_impose AS profil_impose
+         FROM mairie_contact WHERE max_dossiers_par_demande IS NOT NULL OR profil_demandeur_impose IS NOT NULL`,
+    );
+    return new Map(r.rows.map((x) => [x.code_insee, {
+      max: x.max_dossiers,
+      profil: x.profil_impose === 'entreprise' || x.profil_impose === 'personne' ? x.profil_impose : null,
+    }]));
+  } catch (e) {
+    const err = e as { name?: unknown; message?: unknown; stack?: unknown; code?: unknown; detail?: unknown; constraint?: unknown; table?: unknown; column?: unknown };
+    console.error('[veille] contraintes de téléservice indisponibles → aucune contrainte appliquée (comportement actuel)', {
+      name: err?.name, message: err?.message,
+      code: err?.code, detail: err?.detail, constraint: err?.constraint, table: err?.table, column: err?.column,
+      stack: err?.stack,
+    });
+    return new Map();
+  }
 }
 
 /** Liste filtrée paginée + total + compteurs par catégorie + bornes de dates + inclusions de fusion. */

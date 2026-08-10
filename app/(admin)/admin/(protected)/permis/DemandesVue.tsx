@@ -170,7 +170,7 @@ export function DemandesVue({ categories }: Props) {
   const nbPagesLots = Math.max(1, Math.ceil(lotsProp.length / PAGE_SIZE));
   const pLots = Math.min(pageLots, nbPagesLots);
   const lotsVisibles = lotsProp.slice((pLots - 1) * PAGE_SIZE, pLots * PAGE_SIZE).map((l) => ({
-    cle: cleLot(l), codeInsee: l.codeInsee, communeNom: l.communeNom, canal: l.canal, nbDossiers: l.dossiers.length, destOrigine: l.destOrigine, destNom: l.destNom,
+    cle: cleLot(l), codeInsee: l.codeInsee, communeNom: l.communeNom, canal: l.canal, nbDossiers: l.dossiers.length, destOrigine: l.destOrigine, destNom: l.destNom, profilImpose: l.profilImpose,
   }));
   const selCompte = compterSelection(lotsProp, selLots);
   const toutCocheLots = lotsProp.length > 0 && selCompte.nbLots === lotsProp.length;
