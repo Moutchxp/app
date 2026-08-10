@@ -1,8 +1,8 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { chargerSuiviReponses } from '../../../../../lib/veille/reponsesSuivi';
-import { rattacherAMain, marquerTraitee, marquerDossierSatisfait, demarquerDossier, statutDemande, lireClePiece } from '../../../../../lib/veille/demandeReponseRepo';
-import { cloturerDemande, rouvrirDemande, TransitionInterditeError } from '../../../../../lib/sitadel/demandeRepo';
+import { rattacherAMain, marquerTraitee, marquerDossierSatisfait, demarquerDossier, statutDemande } from '../../../../../lib/veille/demandeReponseRepo';
+import { cloturerDemande, rouvrirDemande, TransitionInterditeError, lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
 import { majRelance, abandonnerRelance, regenererRelance, RelanceActionError } from '../../../../../lib/veille/demandeRelanceRepo';
 
 /**
@@ -43,7 +43,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const corps = (await request.json().catch(() => ({}))) as {
       action?: unknown; reponseId?: unknown; demandeId?: unknown; dossierId?: unknown; pieceId?: unknown; satisfait?: unknown;
-      relanceId?: unknown; objet?: unknown; corps?: unknown; motif?: unknown; // R5c (corps.corps = corps de la relance éditée)
+      relanceId?: unknown; objet?: unknown; corps?: unknown; motif?: unknown; source?: unknown; // R5c ; A1b : source pour url_piece ('reponse'|'dossier')
     };
     actionCtx = corps.action;
 
@@ -75,7 +75,10 @@ export async function POST(request: Request): Promise<Response> {
     // Lien de téléchargement d'une pièce déposée : le SERVEUR signe et renvoie l'URL — la clé de stockage ne sort JAMAIS au client.
     if (corps.action === 'url_piece') {
       if (!estEntier(corps.pieceId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
-      const cle = await lireClePiece(corps.pieceId);
+      // A1b — dispatch par ORIGINE (défaut 'reponse' = pièce reçue par e-mail ; 'dossier' = document ajouté à la main) : UNE
+      // seule lecture de clé (lireCleTelechargeable) et UN seul signeur (urlSignee). La clé de stockage ne sort jamais au client.
+      const source = corps.source === 'dossier' ? 'dossier' : 'reponse';
+      const cle = await lireCleTelechargeable(corps.pieceId, source);
       if (cle === null) return Response.json({ erreur: 'pièce non déposée (aucune clé de stockage)' }, { status: 404 });
       const { urlSignee } = await import('../../../../../lib/stockage'); // import dynamique : garde @aws-sdk hors du graphe statique
       return Response.json({ url: await urlSignee(cle) });

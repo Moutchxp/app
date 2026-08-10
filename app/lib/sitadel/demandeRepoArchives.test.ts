@@ -25,7 +25,7 @@ const row = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   dossier_id: 1, num_dau: 'PC0750560001', code_insee: '75056', commune_nom: 'Paris',
   type: 'PC', nature_projet_completee: '1', i_extension: false, i_surelevation: false, nb_lgt_tot_crees: 20, surf_creee: 2000,
   date_autorisation: '2026-05-01', satisfait_le: '2026-07-01', satisfait_par: 'automatique', demande_reference: 'SVAV-DEM-2026-000042',
-  pieces: [{ id: 10, nomFichier: 'plan.pdf', typeMime: 'application/pdf', tailleOctets: 12345, deposee: true, motifNonStocke: null }],
+  pieces: [{ id: 10, nomFichier: 'plan.pdf', typeMime: 'application/pdf', tailleOctets: 12345, deposee: true, motifNonStocke: null, origine: 'email' }],
   ...over,
 });
 const archiveQuery = () => H.appels.find((a) => a.sql.includes('dd.satisfait_le IS NOT NULL'))!;
@@ -60,7 +60,7 @@ describe('A1a — listerArchives : mapping + pièces', () => {
     expect(r[0].categorie).toBe('immeuble_neuf');       // nature '1' + 20 logements ≥ seuil → immeuble neuf
     expect(r[0].demandeReference).toBe('SVAV-DEM-2026-000042');
     expect(r[0].satisfaitPar).toBe('automatique');
-    expect(r[0].pieces).toEqual([{ id: 10, nomFichier: 'plan.pdf', typeMime: 'application/pdf', tailleOctets: 12345, deposee: true, motifNonStocke: null }]);
+    expect(r[0].pieces).toEqual([{ id: 10, nomFichier: 'plan.pdf', typeMime: 'application/pdf', tailleOctets: 12345, deposee: true, motifNonStocke: null, origine: 'email' }]);
     expect(JSON.stringify(r)).not.toContain('cle_stockage'); // la clé n'est nulle part dans le résultat
   });
 
@@ -72,7 +72,7 @@ describe('A1a — listerArchives : mapping + pièces', () => {
   });
 
   it('une pièce NON déposée porte son motif (deposee = false)', async () => {
-    H.state.rows = [row({ pieces: [{ id: 11, nomFichier: 'coupe.pdf', typeMime: null, tailleOctets: null, deposee: false, motifNonStocke: 'dépôt S3 non configuré' }] })];
+    H.state.rows = [row({ pieces: [{ id: 11, nomFichier: 'coupe.pdf', typeMime: null, tailleOctets: null, deposee: false, motifNonStocke: 'dépôt S3 non configuré', origine: 'email' }] })];
     const r = await listerArchives(await chargerConfigVeille());
     expect(r[0].pieces[0].deposee).toBe(false);
     expect(r[0].pieces[0].motifNonStocke).toBe('dépôt S3 non configuré');

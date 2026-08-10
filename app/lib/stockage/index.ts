@@ -245,3 +245,35 @@ export async function deposerPieceEntrante(contenu: Buffer | Uint8Array, typeMim
   );
   return { depose: true, cle, taille: contenu.byteLength, empreinte };
 }
+
+/**
+ * A1b — clé NON ÉNUMÉRABLE d'un document AJOUTÉ À LA MAIN sur un permis : `dossiers/<dossier_id>/<uuid>.<ext>`. ⚠️ Le nom
+ * d'origine du fichier (fourni par l'internaute) n'entre JAMAIS dans la clé (UUID v4 + extension du type MIME) ; il reste en
+ * base (`nom_fichier`) pour l'affichage.
+ */
+export function construireCleDocument(dossierId: number, ext: string): string {
+  return `dossiers/${dossierId}/${randomUUID()}.${ext}`;
+}
+
+/**
+ * A1b — dépose UN document ajouté à la main sur un permis. RÉUTILISE la whitelist MIME du chemin entrant (`extensionEntrante`)
+ * et la borne de taille pilotée par config (passée en `tailleMaxOctets`) — aucune redéfinition. Clé `dossiers/<id>/<uuid>`.
+ * Ne JETTE pas pour un cas prévisible : renvoie `{ depose:false, motif }` (type hors whitelist, trop volumineux, stockage non
+ * configuré) → l'appelant N'INSÈRE PAS. Un succès renvoie clé + taille + empreinte SHA-256 (à persister APRÈS le dépôt).
+ */
+export async function deposerDocumentDossier(contenu: Buffer | Uint8Array, typeMime: string | null, opts: { dossierId: number; tailleMaxOctets: number }): Promise<ResultatDepotEntrant> {
+  const ext = extensionEntrante(typeMime);
+  if (!ext) return { depose: false, motif: `type non autorisé pour le dépôt : « ${typeMime ?? '(inconnu)'} »` };
+  if (contenu.byteLength > opts.tailleMaxOctets) {
+    const mo = (n: number) => (n / (1024 * 1024)).toFixed(1);
+    return { depose: false, motif: `document trop volumineux : ${mo(contenu.byteLength)} Mo (maximum ${mo(opts.tailleMaxOctets)} Mo)` };
+  }
+  const infra = obtenir();
+  if (!infra) return { depose: false, motif: 'stockage non configuré' };
+  const cle = construireCleDocument(opts.dossierId, ext);
+  const empreinte = empreinteSha256(contenu);
+  await infra.client.send(
+    new PutObjectCommand({ Bucket: infra.config.bucket, Key: cle, Body: contenu, ContentType: typeMime ?? 'application/octet-stream' }),
+  );
+  return { depose: true, cle, taille: contenu.byteLength, empreinte };
+}

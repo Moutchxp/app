@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { construireCleEntrante, extensionEntrante, empreinteSha256, deposerPieceEntrante } from './index';
+import { construireCleEntrante, extensionEntrante, empreinteSha256, deposerPieceEntrante, construireCleDocument, deposerDocumentDossier } from './index';
 
 /**
  * R4 — chemin de stockage ENTRANT (pièces des réponses de mairies, tiers non fiable). La clé n'inclut JAMAIS le nom
@@ -62,6 +62,37 @@ describe('R4 — deposerPieceEntrante : garde-fous (ne jette pas, renvoie un mot
 
   it('stockage non configuré (type + taille OK) → non déposé, motif « stockage non configuré » (aucune exception)', async () => {
     const r = await deposerPieceEntrante(Buffer.from('petit pdf'), 'application/pdf', opts);
+    expect(r.depose).toBe(false);
+    if (!r.depose) expect(r.motif).toBe('stockage non configuré');
+  });
+});
+
+describe('A1b — construireCleDocument : clé non énumérable d’un document ajouté à la main, SANS nom d’origine', () => {
+  it('dossiers/<dossier_id>/<uuid>.<ext>', () => {
+    expect(construireCleDocument(75056, 'pdf')).toMatch(/^dossiers\/75056\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$/);
+  });
+  it('le nom d’origine n’entre JAMAIS dans la clé (la fonction ne le reçoit même pas)', () => {
+    expect(construireCleDocument(1, 'pdf')).not.toContain('plan-de-masse');
+  });
+  it('deux appels → deux clés différentes (UUID)', () => {
+    expect(construireCleDocument(1, 'pdf')).not.toBe(construireCleDocument(1, 'pdf'));
+  });
+});
+
+describe('A1b — deposerDocumentDossier : mêmes garde-fous que l’entrant (whitelist + taille RÉUTILISÉES)', () => {
+  const opts = { dossierId: 7, tailleMaxOctets: 50 * 1024 * 1024 };
+  it('type hors whitelist → non déposé, motif explicite (rien à insérer en amont)', async () => {
+    const r = await deposerDocumentDossier(Buffer.from('x'), 'text/plain', opts);
+    expect(r.depose).toBe(false);
+    if (!r.depose) expect(r.motif).toMatch(/type non autorisé/i);
+  });
+  it('trop volumineux → non déposé, motif explicite (borne = piece_taille_max_mo)', async () => {
+    const r = await deposerDocumentDossier(Buffer.alloc(11), 'application/pdf', { ...opts, tailleMaxOctets: 10 });
+    expect(r.depose).toBe(false);
+    if (!r.depose) expect(r.motif).toMatch(/trop volumineux/i);
+  });
+  it('type + taille OK mais stockage non configuré (tests) → non déposé, sans exception', async () => {
+    const r = await deposerDocumentDossier(Buffer.from('petit pdf'), 'application/pdf', opts);
     expect(r.depose).toBe(false);
     if (!r.depose) expect(r.motif).toBe('stockage non configuré');
   });

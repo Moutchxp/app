@@ -17,6 +17,7 @@ import { type Collaborateur, choisirCollaborateur } from './collaborateur';
 import { resoudreDestination, type ContactCommune } from './destinataire';
 import { expressionRangSql, classer, type CleCategorie } from './priorite'; // D2 : expressionRangSql réutilisé (pur) ; Q2b : classer = source unique de catégorie pour le panneau de stock — NE modifie PAS le chemin candidats
 import { agregerStock, moisDePeriode, type LigneStock, type DossierStock } from './stock'; // Q2b : agrégat PUR du stock (réutilise estCandidatEligible via agregerStock)
+import { lireClePiece } from '../veille/demandeReponseRepo'; // A1b : réutilisé par le dispatcher unique de lecture de clé (pas de 2e implémentation)
 
 type Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>;
 const asQ = (q: (t: string, p?: unknown[]) => Promise<unknown>): Requete => ((t, p) => q(t, p)) as Requete;
@@ -237,12 +238,13 @@ export async function lireDetailPermisCommune(cfg: ConfigVeille, codeInsee: stri
  * la base — la clé ne quitte jamais le serveur. Le téléchargement passe par l'action `url_piece` (signature serveur unique).
  */
 export interface PieceArchive {
-  id: number;                    // demande_reponse_piece.id — passé à url_piece pour signer l'URL (jamais la clé)
+  id: number;                    // id de la pièce (demande_reponse_piece OU dossier_document selon `origine`) — passé à url_piece pour signer l'URL (jamais la clé)
   nomFichier: string;
   typeMime: string | null;
   tailleOctets: number | null;
   deposee: boolean;              // cle_stockage IS NOT NULL → téléchargeable
   motifNonStocke: string | null; // renseigné si NON déposée (jamais un bouton mort côté écran)
+  origine: 'email' | 'manuel';   // A1b : reçue par e-mail (registre, non supprimable) OU ajoutée à la main (supprimable)
 }
 /** Une ligne d'archive = UN PERMIS renseigné : un `demande_dossier` dont `satisfait_le` n'est pas nul. */
 export interface LigneArchive {
@@ -273,7 +275,7 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
     type: 'PC' | 'PD'; nature_projet_completee: string | null; i_extension: boolean | null; i_surelevation: boolean | null;
     nb_lgt_tot_crees: number | null; surf_creee: string | number | null;
     date_autorisation: string | null; satisfait_le: string | null; satisfait_par: string | null; demande_reference: string;
-    pieces: { id: number; nomFichier: string; typeMime: string | null; tailleOctets: number | null; deposee: boolean; motifNonStocke: string | null }[] | null;
+    pieces: PieceArchive[] | null;
   }>(
     `SELECT s.id::int AS dossier_id, s.num_dau, s.code_insee, c.nom AS commune_nom,
             s.type, s.nature_projet_completee, s.i_extension, s.i_surelevation, s.nb_lgt_tot_crees, s.surf_creee,
@@ -282,7 +284,7 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
             COALESCE((
               SELECT json_agg(json_build_object(
                 'id', p.id::int, 'nomFichier', p.nom_fichier, 'typeMime', p.type_mime, 'tailleOctets', p.taille_octets,
-                'deposee', p.cle_stockage IS NOT NULL, 'motifNonStocke', p.motif_non_stocke
+                'deposee', p.cle_stockage IS NOT NULL, 'motifNonStocke', p.motif_non_stocke, 'origine', 'email'
               ) ORDER BY p.id)
               FROM demande_reponse_piece p WHERE p.reponse_id = dd.reponse_id
             ), '[]'::json) AS pieces
@@ -293,6 +295,9 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
       WHERE dd.satisfait_le IS NOT NULL
       ORDER BY dd.satisfait_le DESC, s.num_dau`,
   );
+  // A1b — documents AJOUTÉS À LA MAIN (dossier_document), fusionnés par dossier. RÉSILIENT à l'ordre des migrations : si la
+  // table n'existe pas encore (089 non appliquée), on JOURNALISE et on dégrade en « aucun document manuel » (pièces e-mail conservées).
+  const manuels = await lireDocumentsManuels();
   return rows.map((r) => {
     const cl = classer(
       { type: r.type, natureProjetCompletee: r.nature_projet_completee, iExtension: r.i_extension, iSurelevation: r.i_surelevation, nbLgtTotCrees: r.nb_lgt_tot_crees, surfCreee: r.surf_creee === null ? null : Number(r.surf_creee) },
@@ -303,9 +308,91 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
       categorie: cl.cle, libelleCategorie: cl.libelle,
       dateAutorisation: r.date_autorisation, satisfaitLe: r.satisfait_le, satisfaitPar: r.satisfait_par,
       demandeReference: r.demande_reference,
-      pieces: (r.pieces ?? []).map((p) => ({ id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, tailleOctets: p.tailleOctets, deposee: p.deposee, motifNonStocke: p.motifNonStocke })),
+      // E-MAIL d'abord (origine 'email'), puis les documents manuels de CE dossier ('manuel'). Fusion par dossier_id ::int (nombre) → pas de piège chaîne.
+      pieces: [...(r.pieces ?? []), ...(manuels.get(r.dossier_id) ?? [])],
     };
   });
+}
+
+/**
+ * A1b — documents AJOUTÉS À LA MAIN, groupés par dossier (`dossier_document`), avec `origine: 'manuel'` et `deposee: true`
+ * (cle_stockage est NOT NULL). RÉSILIENT à l'ordre des migrations : la table peut ne pas exister (089 non appliquée) → on
+ * JOURNALISE (jamais muet) et on renvoie une Map VIDE, laissant les pièces e-mail intactes. `dossier_id ::int` (nombre) =
+ * clé de fusion cohérente avec `s.id::int` de `listerArchives` (piège bigint→chaîne évité).
+ */
+async function lireDocumentsManuels(): Promise<Map<number, PieceArchive[]>> {
+  try {
+    const { rows } = await query<{ dossier_id: number; docs: PieceArchive[] }>(
+      `SELECT dossier_id::int AS dossier_id,
+              json_agg(json_build_object(
+                'id', id::int, 'nomFichier', nom_fichier, 'typeMime', type_mime, 'tailleOctets', taille_octets,
+                'deposee', true, 'motifNonStocke', NULL, 'origine', 'manuel'
+              ) ORDER BY depose_le, id) AS docs
+         FROM dossier_document GROUP BY dossier_id`,
+    );
+    return new Map(rows.map((r) => [r.dossier_id, r.docs]));
+  } catch (e) {
+    journaliserLectureIndisponible('documents manuels (dossier_document — migration 089 non appliquée ?)', e);
+    return new Map();
+  }
+}
+
+export type ResultatDepotDocument = { ok: true; documentId: number } | { ok: false; motif: string };
+
+/**
+ * A1b — dépose un document AJOUTÉ À LA MAIN sur un permis ARCHIVÉ (satisfait). Un permis NON archivé est REFUSÉ (message
+ * explicite ; le seul chemin de marquage « renseigné » reste R5b/Réponses). ORDRE STRICT : dépôt S3 + empreinte
+ * (`deposerDocumentDossier`, @aws-sdk en import DYNAMIQUE), PUIS insertion — si le dépôt échoue (whitelist, taille, S3),
+ * AUCUNE ligne n'est créée. Whitelist MIME + borne de taille = celles du chemin entrant (réutilisées). Ne touche pas
+ * `demande_reponse_piece`. Le nom d'origine va en base (`nom_fichier`), jamais dans la clé.
+ */
+export async function deposerDocumentSurPermis(
+  dossierId: number, contenu: Buffer, typeMime: string | null, nomFichier: string, deposePar: string | null, note: string | null = null,
+): Promise<ResultatDepotDocument> {
+  const arch = await query<{ ok: boolean }>(`SELECT EXISTS (SELECT 1 FROM demande_dossier dd WHERE dd.dossier_id = $1 AND dd.satisfait_le IS NOT NULL) AS ok`, [dossierId]);
+  if (!arch.rows[0]?.ok) return { ok: false, motif: 'ce permis n’est pas encore renseigné : un document ne peut être ajouté qu’à un permis archivé (satisfait)' };
+  const cfg = await chargerConfigVeille();
+  const { deposerDocumentDossier } = await import('../stockage'); // import DYNAMIQUE : @aws-sdk hors du graphe statique
+  const dep = await deposerDocumentDossier(contenu, typeMime, { dossierId, tailleMaxOctets: cfg.pieceTailleMaxMo * 1024 * 1024 });
+  if (!dep.depose) return { ok: false, motif: dep.motif }; // type hors whitelist / trop volumineux / stockage KO → RIEN inséré
+  const ins = await query<{ id: number }>(
+    `INSERT INTO dossier_document (dossier_id, nom_fichier, type_mime, taille_octets, cle_stockage, empreinte_sha256, depose_par, note)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id::int AS id`,
+    [dossierId, nomFichier, typeMime, dep.taille, dep.cle, dep.empreinte, deposePar, note],
+  );
+  return { ok: true, documentId: ins.rows[0].id };
+}
+
+/**
+ * A1b — supprime un document AJOUTÉ À LA MAIN (`dossier_document`). ORDRE : ligne en base PUIS objet S3 — un objet orphelin
+ * est sans conséquence, une ligne pointant dans le vide non. L'échec de suppression S3 est JOURNALISÉ (jamais muet), sans
+ * annuler la suppression de la ligne. Ne touche JAMAIS `demande_reponse_piece` (registre des pièces reçues par e-mail — le
+ * refus explicite est côté route, discriminé par `source`). Renvoie false si l'id est inconnu.
+ */
+export async function supprimerDocumentDossier(documentId: number): Promise<boolean> {
+  const { rows } = await query<{ cle_stockage: string }>(`DELETE FROM dossier_document WHERE id = $1 RETURNING cle_stockage`, [documentId]);
+  if (rows.length === 0) return false;
+  try {
+    const { supprimer } = await import('../stockage'); // import DYNAMIQUE : @aws-sdk hors du graphe statique
+    await supprimer(rows[0].cle_stockage);
+  } catch (e) {
+    journaliserLectureIndisponible('suppression de l’objet S3 (document manuel) — objet possiblement orphelin, sans conséquence', e);
+  }
+  return true;
+}
+
+/**
+ * A1b — lit la CLÉ de stockage d'une pièce téléchargeable, DISPATCHÉE par `source` : 'reponse' (pièce reçue par e-mail,
+ * `demande_reponse_piece` — réutilise `lireClePiece`, chemin relève inchangé) ou 'dossier' (document ajouté à la main,
+ * `dossier_document`). UNE SEULE fonction de lecture de clé (pas de 2e implémentation) ; la SIGNATURE reste faite par
+ * `urlSignee` (lib/stockage), seul signeur. La clé ne quitte pas le serveur (seul l'appelant qui signe la reçoit).
+ */
+export async function lireCleTelechargeable(id: number, source: 'reponse' | 'dossier'): Promise<string | null> {
+  if (source === 'dossier') {
+    const { rows } = await query<{ cle_stockage: string | null }>(`SELECT cle_stockage FROM dossier_document WHERE id = $1`, [id]);
+    return rows[0]?.cle_stockage ?? null;
+  }
+  return lireClePiece(id);
 }
 
 /** Attribue une référence SVAV-DEM-AAAA-NNNNNN (compteur atomique, verrou de ligne). */
