@@ -19,14 +19,14 @@ describe('S13 — barre d’onglets Permis (deux groupes nommés)', () => {
     expect(h).toContain('aria-label="Demandes aux mairies"');
   });
 
-  it('les huit onglets sont dans le BON groupe et dans le BON ordre', () => {
+  it('les neuf onglets sont dans le BON groupe et dans le BON ordre', () => {
     expect(GROUPES_ONGLETS.map((g) => g.titre)).toEqual(['Mise à jour des dossiers', 'Demandes aux mairies']);
     expect(GROUPES_ONGLETS[0].onglets.map((o) => o.cle)).toEqual(['dossiers', 'automatisation']);
-    expect(GROUPES_ONGLETS[1].onglets.map((o) => o.cle)).toEqual(['demandes', 'reponses', 'archives', 'saisines', 'collaborateurs', 'reglages']);
-    // ordre RÉEL dans le markup : Dossiers, Automatisation, puis Demandes, Réponses, Archives, Saisines CADA, Collaborateurs, Réglages
+    expect(GROUPES_ONGLETS[1].onglets.map((o) => o.cle)).toEqual(['a_demander', 'en_cours', 'reponses', 'archives', 'saisines', 'collaborateurs', 'reglages']);
+    // ordre RÉEL dans le markup : Dossiers, Automatisation, puis À demander, En cours, Réponses, Archives, Saisines CADA, Collaborateurs, Réglages
     const h = rendu('dossiers');
     let pos = -1;
-    for (const lib of ['Dossiers', 'Automatisation', 'Demandes', 'Réponses', 'Archives', 'Saisines CADA', 'Collaborateurs', 'Réglages']) {
+    for (const lib of ['Dossiers', 'Automatisation', 'À demander', 'En cours', 'Réponses', 'Archives', 'Saisines CADA', 'Collaborateurs', 'Réglages']) {
       const i = h.indexOf(`>${lib}<`);
       expect(i).toBeGreaterThan(pos);
       pos = i;
@@ -38,6 +38,6 @@ describe('S13 — barre d’onglets Permis (deux groupes nommés)', () => {
     const hReg = rendu('reglages');
     expect(hReg).toContain('aria-current="page"');                     // groupe 2
     expect(hReg).toMatch(/aria-current="page"[^>]*>Réglages</);        // c'est bien Réglages qui est actif
-    expect(rendu('demandes')).toMatch(/aria-current="page"[^>]*>Demandes</);
+    expect(rendu('a_demander')).toMatch(/aria-current="page"[^>]*>À demander</);
   });
 });
