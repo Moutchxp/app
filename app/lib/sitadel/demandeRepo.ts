@@ -262,7 +262,21 @@ export interface ResumeDemandes { parStatut: Record<string, number>; total: numb
 /** Alerte d'identité CIBLÉE : un profil réellement porté par des demandes en brouillon dont l'identité est incomplète. */
 export interface AlerteIdentite { profil: ProfilDemandeur; libelle: string; manque: string[] }
 
-export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; alertesIdentite: AlerteIdentite[]; resume: ResumeDemandes }> {
+/**
+ * P2 — journalise COMPLÈTEMENT une erreur de lecture d'AFFICHAGE SECONDAIRE (name/message/stack + champs pg), puis laisse
+ * l'appelant marquer l'info « indisponible » (DISTINCTE de « vide ») SANS propager (un 503 viderait l'onglet pour une donnée
+ * secondaire). Remplace le catch muet de P1 — jamais de catch silencieux (le précédent `veille:run` invisible 9 h).
+ */
+function journaliserLectureIndisponible(contexte: string, e: unknown): void {
+  const err = e as { name?: unknown; message?: unknown; stack?: unknown; code?: unknown; detail?: unknown; constraint?: unknown; table?: unknown; column?: unknown };
+  console.error(`[permis/demandes] ${contexte} — indisponible (écran conservé)`, {
+    name: err?.name, message: err?.message,
+    code: err?.code, detail: err?.detail, constraint: err?.constraint, table: err?.table, column: err?.column,
+    stack: err?.stack,
+  });
+}
+
+export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; alertesIdentite: AlerteIdentite[]; resume: ResumeDemandes; referencesIndisponibles: boolean }> {
   // D2 — classement des dossiers d'une demande par CATÉGORIE, pour le filtre par type. On RÉUTILISE `expressionRangSql`
   // (pure) sur une requête PROPRE à la liste : le chemin CANDIDATS (construireRequeteListe) n'est pas touché. LECTURE SEULE.
   const cfg = await chargerConfigVeille();
@@ -270,6 +284,7 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
   const rangExpr = expressionRangSql(cfg, paramsRang);
   const sqlRangs = `SELECT dd.demande_id::int AS demande_id, array_agg(DISTINCT (${rangExpr})) AS rangs
     FROM demande_dossier dd JOIN sitadel_dossier d ON d.id = dd.dossier_id GROUP BY dd.demande_id`;
+  let referencesIndisponibles = false; // P2 — vrai si la lecture des références échoue (à l'écran : « indisponibles » ≠ « aucune »)
   const [r, rs, rd, rr, rx] = await Promise.all([
     query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; dest_canal: string | null; dest_origine: string; dest_nom: string | null; nb: number; statut: string; profil_demandeur: string; cree_le: string }>(
       // d.id::int : `demande.id` est un bigint que node-postgres rend en CHAÎNE ; sans cast, l'id renvoyé au client est une
@@ -281,8 +296,10 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
     query<{ n: number }>(`SELECT count(DISTINCT dossier_id)::int AS n FROM demande_dossier`),
     query<{ demande_id: number; rangs: number[] }>(sqlRangs, paramsRang),
     // P1 — références mairie par demande, agrégées (pour la RECHERCHE côté client). Requête PROPRE à la liste, aucune
-    // incidence sur le chemin CANDIDATS. Table absente (migration 085 non appliquée) → géré par un repli plus bas.
-    query<{ demande_id: number; refs: string[] }>(`SELECT demande_id::int AS demande_id, array_agg(reference) AS refs FROM demande_reference_externe GROUP BY demande_id`).catch(() => ({ rows: [] as { demande_id: number; refs: string[] }[] })),
+    // incidence sur le chemin CANDIDATS. P2 — un échec est JOURNALISÉ et marqué « indisponible » (jamais muet), sans propager
+    // un 503 qui viderait l'onglet pour une donnée d'affichage secondaire.
+    query<{ demande_id: number; refs: string[] }>(`SELECT demande_id::int AS demande_id, array_agg(reference) AS refs FROM demande_reference_externe GROUP BY demande_id`)
+      .catch((e) => { journaliserLectureIndisponible('lecture des références (liste)', e); referencesIndisponibles = true; return { rows: [] as { demande_id: number; refs: string[] }[] }; }),
   ]);
   const parStatut: Record<string, number> = {};
   for (const s of rs.rows) parStatut[s.statut] = s.n;
@@ -302,6 +319,7 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
     demandes: r.rows.map((x) => ({ id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal, destOrigine: x.dest_origine, destNom: x.dest_nom, nbDossiers: x.nb, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le, rangs: rangsParDemande.get(x.id) ?? [], referencesExternes: refsParDemande.get(x.id) ?? [] })),
     alertesIdentite,
     resume: { parStatut, total: r.rows.length, dossiersCouverts: rd.rows[0]?.n ?? 0 },
+    referencesIndisponibles,
   };
 }
 
@@ -310,7 +328,9 @@ export interface ReferenceExterne { id: number; reference: string; dossierId: nu
 
 export interface DemandeDetail extends DemandeListe { objet: string | null; corps: string | null; destEmail: string | null; destUrlFormulaire: string | null; destAdressePostale: string | null; dossiers: { numDau: string; date: string | null }[];
   /** P1 — références de la mairie (détail complet : source, dates), pour AFFICHAGE et ajout après coup. */
-  referencesMairie: ReferenceExterne[] }
+  referencesMairie: ReferenceExterne[];
+  /** P2 — vrai si la LECTURE des références a échoué : « indisponibles » à l'écran, DISTINCT d'une liste vide (« aucune »). */
+  referencesMairieIndisponible: boolean }
 
 export async function lireDemande(id: number): Promise<DemandeDetail | null> {
   const r = await query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string; profil_demandeur: string; objet: string | null; corps: string | null; dest_canal: string | null; dest_email: string | null; dest_url_formulaire: string | null; dest_adresse_postale: string | null; dest_origine: string; dest_nom: string | null; cree_le: string }>(
@@ -324,11 +344,13 @@ export async function lireDemande(id: number): Promise<DemandeDetail | null> {
   const doss = await query<{ num_dau: string; date: string | null }>(
     `SELECT s.num_dau, s.date_reelle_autorisation::text AS date FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id WHERE dd.demande_id = $1 ORDER BY s.num_dau`, [id],
   );
-  // P1 — références mairie de la demande (détail). Table absente (migration 085 non appliquée) → repli liste vide.
+  // P1 — références mairie de la demande (détail). P2 — un échec est JOURNALISÉ et marqué « indisponible » (jamais muet),
+  // sans propager (le reste du détail reste affiché — donnée secondaire).
+  let referencesMairieIndisponible = false;
   const refs = await query<{ id: number; reference: string; dossier_id: number | null; source: string | null; recu_le: string | null; cree_le: string }>(
     `SELECT id::int AS id, reference, dossier_id::int AS dossier_id, source, recu_le::text AS recu_le, cree_le::text AS cree_le
        FROM demande_reference_externe WHERE demande_id = $1 ORDER BY cree_le`, [id],
-  ).catch(() => ({ rows: [] as { id: number; reference: string; dossier_id: number | null; source: string | null; recu_le: string | null; cree_le: string }[] }));
+  ).catch((e) => { journaliserLectureIndisponible('lecture des références (détail)', e); referencesMairieIndisponible = true; return { rows: [] as { id: number; reference: string; dossier_id: number | null; source: string | null; recu_le: string | null; cree_le: string }[] }; });
   return {
     id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal,
     destOrigine: x.dest_origine, destNom: x.dest_nom,
@@ -336,6 +358,7 @@ export async function lireDemande(id: number): Promise<DemandeDetail | null> {
     destEmail: x.dest_email, destUrlFormulaire: x.dest_url_formulaire, destAdressePostale: x.dest_adresse_postale,
     dossiers: doss.rows.map((d) => ({ numDau: d.num_dau, date: d.date })),
     referencesMairie: refs.rows.map((d) => ({ id: d.id, reference: d.reference, dossierId: d.dossier_id, source: d.source, recuLe: d.recu_le, creeLe: d.cree_le })),
+    referencesMairieIndisponible,
   };
 }
 

@@ -28,7 +28,7 @@ async function erreurServeur(res: Response, repli: string): Promise<string> {
 }
 
 export function DemandesVue({ categories }: Props) {
-  const [liste, setListe] = useState<{ demandes: DemandeListe[]; alertesIdentite: AlerteIdentite[]; resume: ResumeDemandes } | null>(null);
+  const [liste, setListe] = useState<{ demandes: DemandeListe[]; alertesIdentite: AlerteIdentite[]; resume: ResumeDemandes; referencesIndisponibles?: boolean } | null>(null);
   const [prop, setProp] = useState<{ lots: Lot[]; diagnostic: DiagnosticProposition; profil: ProfilDemandeur } | null>(null);
   const [profilPrep, setProfilPrep] = useState<ProfilDemandeur>('entreprise');
   const [detail, setDetail] = useState<DemandeDetail | null>(null);
@@ -58,7 +58,7 @@ export function DemandesVue({ categories }: Props) {
     void (async () => {
       try {
         const res = await fetch('/api/admin/permis/demandes', { cache: 'no-store' });
-        if (!annule && res.ok) setListe((await res.json()) as { demandes: DemandeListe[]; alertesIdentite: AlerteIdentite[]; resume: ResumeDemandes });
+        if (!annule && res.ok) setListe((await res.json()) as { demandes: DemandeListe[]; alertesIdentite: AlerteIdentite[]; resume: ResumeDemandes; referencesIndisponibles?: boolean });
       } catch { /* liste indisponible */ }
     })();
     return () => { annule = true; };
@@ -265,9 +265,12 @@ export function DemandesVue({ categories }: Props) {
           {/* P1 — références de la mairie (preuve de dépôt) : VISIBLES + ajout APRÈS COUP (l'accusé de réception arrive parfois plus tard). */}
           <div style={{ fontSize: 12 }}>
             <span style={{ color: 'var(--color-svv-muted)' }}>Références mairie : </span>
-            {detail.referencesMairie.length === 0
-              ? <span style={{ color: 'var(--color-svv-muted)' }}>aucune enregistrée</span>
-              : <span style={{ fontFamily: 'var(--font-svv-mono, monospace)' }}>{detail.referencesMairie.map((r) => r.reference).join(', ')}</span>}
+            {/* P2 — « indisponibles » (lecture en erreur, journalisée) est DISTINCT de « aucune enregistrée » (lecture OK, vide). */}
+            {detail.referencesMairieIndisponible
+              ? <span role="status" style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}>indisponibles (lecture en erreur — voir les journaux)</span>
+              : detail.referencesMairie.length === 0
+                ? <span style={{ color: 'var(--color-svv-muted)' }}>aucune enregistrée</span>
+                : <span style={{ fontFamily: 'var(--font-svv-mono, monospace)' }}>{detail.referencesMairie.map((r) => r.reference).join(', ')}</span>}
             <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginTop: '.3rem', alignItems: 'center' }}>
               <input value={refDetail} onChange={(e) => setRefDetail(e.target.value)} placeholder="ajouter une référence mairie" aria-label="Ajouter une référence mairie"
                 style={{ padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
@@ -328,6 +331,12 @@ export function DemandesVue({ categories }: Props) {
         </label>
       </div>
 
+      {/* P2 — lecture des références en ERREUR (journalisée) : signalée à l'écran, DISTINCTE de « aucun résultat ». */}
+      {liste?.referencesIndisponibles && (
+        <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>
+          Recherche par référence mairie indisponible (lecture en erreur) — seule la référence SVAV est prise en compte.
+        </div>
+      )}
       {/* D3 — tableau extrait en composant PUR (colonne « Type » + conteneur défilant a11y). Tri/filtre/pagination inchangés. */}
       <TableDemandes
         visibles={visibles} categories={categories} tri={tri} sel={sel}
