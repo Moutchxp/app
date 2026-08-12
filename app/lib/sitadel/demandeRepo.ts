@@ -779,21 +779,36 @@ export async function rouvrirDemande(id: number, motif: string | null, auteur: s
 // ── Dépôt manuel sur téléservice (canal 'formulaire' — S16) ──────────────────────────────────────────────────────────
 export interface DemandeADeposer {
   id: number; reference: string; communeNom: string | null; url: string | null; corps: string | null; statut: string; nbDossiers: number;
-  /** U2/U4 : dossiers ATTACHÉS (type + num_dau + adresse) → champ « Numéro de dossier instruit », arrondissement, et affichage/avertissement d'adresse. */
-  dossiers: { type: 'PC' | 'PD'; numDau: string; adresse: string | null; codePostal: string | null; communeNom: string | null }[];
+  /** U2/U4/U5 : dossiers ATTACHÉS + leurs parcelles + les lignes SŒURS (même num_dau, type ≠) → repli d'adresse vérifié par le cadastre. */
+  dossiers: {
+    type: 'PC' | 'PD'; numDau: string; adresse: string | null; codePostal: string | null; communeNom: string | null; parcelles: string[];
+    soeurs: { type: 'PC' | 'PD'; adresse: string | null; codePostal: string | null; communeNom: string | null; parcelles: string[] }[];
+  }[];
 }
 
 /** Demandes en canal 'formulaire' encore à déposer (brouillon/prête). Corps = texte figé (genererTexte), URL = téléservice figé. */
 export async function listerADeposer(): Promise<DemandeADeposer[]> {
-  const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; url: string | null; corps: string | null; statut: string; nb: number; dossiers: { type: 'PC' | 'PD'; numDau: string; adresse: string | null; codePostal: string | null; communeNom: string | null }[] }>(
-    // U2/U4 : on ramène les dossiers ATTACHÉS (type + num_dau + adresse) pour le champ « Numéro de dossier instruit »,
-    //   l'arrondissement, et l'affichage/avertissement d'adresse. `adresse` = voie agrégée (num+voie+localité), NULL si absente.
+  const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; url: string | null; corps: string | null; statut: string; nb: number; dossiers: DemandeADeposer['dossiers'] }>(
+    // U2/U4 : dossiers ATTACHÉS (type + num_dau + adresse). U5 : + `parcelles` (normalisées « SEC-NUM ») et `soeurs` (mêmes num_dau,
+    //   type ≠, avec adresse + parcelles) → repli d'adresse cross-type VÉRIFIÉ PAR LE CADASTRE, résolu côté TS (resoudreAdresseAvecReplis).
     `SELECT d.id::int AS id, d.reference, c.nom AS commune_nom, d.dest_url_formulaire AS url, d.corps, d.statut,
             (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id) AS nb,
             coalesce((SELECT json_agg(json_build_object(
                         'type', s.type, 'numDau', s.num_dau,
                         'adresse', nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), ''),
-                        'codePostal', s.adr_codpost_ter, 'communeNom', cs.nom) ORDER BY s.num_dau)
+                        'codePostal', s.adr_codpost_ter, 'communeNom', cs.nom,
+                        'parcelles', ARRAY(SELECT upper(btrim(px.sec)) || '-' || btrim(px.num)
+                                             FROM (VALUES (s.sec_cadastre1, s.num_cadastre1), (s.sec_cadastre2, s.num_cadastre2), (s.sec_cadastre3, s.num_cadastre3)) px(sec, num)
+                                            WHERE coalesce(btrim(px.sec), '') <> ''),
+                        'soeurs', (SELECT coalesce(json_agg(json_build_object(
+                                       'type', o.type,
+                                       'adresse', nullif(btrim(concat_ws(' ', o.adr_num_ter, o.adr_libvoie_ter, o.adr_localite_ter)), ''),
+                                       'codePostal', o.adr_codpost_ter, 'communeNom', co.nom,
+                                       'parcelles', ARRAY(SELECT upper(btrim(ox.sec)) || '-' || btrim(ox.num)
+                                                            FROM (VALUES (o.sec_cadastre1, o.num_cadastre1), (o.sec_cadastre2, o.num_cadastre2), (o.sec_cadastre3, o.num_cadastre3)) ox(sec, num)
+                                                           WHERE coalesce(btrim(ox.sec), '') <> ''))), '[]'::json)
+                                     FROM sitadel_dossier o LEFT JOIN commune co ON co.code_insee = o.code_insee
+                                    WHERE o.num_dau = s.num_dau AND o.type <> s.type)) ORDER BY s.num_dau)
                         FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
                         LEFT JOIN commune cs ON cs.code_insee = s.code_insee
                        WHERE dd.demande_id = d.id AND dd.actif), '[]'::json) AS dossiers

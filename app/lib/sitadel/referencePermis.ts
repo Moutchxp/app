@@ -65,3 +65,53 @@ export function composerAdressePermis(d: { adresse?: string | null; codePostal?:
   const ligne = [voie, lieu].filter((x) => x !== '').join(', ');
   return { voie, villeCP, arrondissement, voiePresente: voie !== '', ligne };
 }
+
+// ── U5 — repli d'adresse cross-type (PC ↔ PD du même num_dau), VÉRIFIÉ PAR LE CADASTRE ────────────────────────────────
+/** U5 — un dossier (le sien ou une ligne sœur) : champs d'adresse + parcelles cadastrales NORMALISABLES (« SEC-NUM »). */
+export interface DossierAdresse { adresse?: string | null; codePostal?: string | null; communeNom?: string | null; numDau?: string | null; parcelles?: string[] }
+export interface SoeurAdresse extends DossierAdresse { type: 'PC' | 'PD' }
+
+/** Provenance de l'adresse retenue — DESTINÉE À L'OPÉRATEUR (l'écran). Ne doit JAMAIS apparaître dans le corps envoyé à la mairie. */
+export type ProvenanceAdresse =
+  | { origine: 'propre' }                                                     // le dossier a sa propre adresse
+  | { origine: 'repli'; soeurType: 'PC' | 'PD'; parcelleCommune: string }     // empruntée à une sœur, parcelle commune VÉRIFIÉE
+  | { origine: 'non_verifiable'; soeurTypes: ('PC' | 'PD')[] }                // sœur(s) adressée(s) mais lien non vérifiable (parcelles absentes)
+  | { origine: 'ambigu'; soeurTypes: ('PC' | 'PD')[] }                        // ≥ 2 sœurs vérifiées d'adresses différentes (garde défensive)
+  | { origine: 'absente' };                                                    // aucune adresse exploitable (ou sœur au terrain DISJOINT) → dégradation U4
+
+export interface ResolutionAdresse { adresse: AdressePermisComposee; provenance: ProvenanceAdresse }
+
+const normParc = (p: string): string => p.trim().toUpperCase();
+
+/**
+ * U5 — résout l'adresse d'un dossier avec repli cross-type VÉRIFIÉ PAR LE CADASTRE. Priorité : (1) adresse PROPRE ; sinon parmi
+ * les sœurs (même num_dau, type ≠) ADRESSÉES : (2) si ≥ 1 partage AU MOINS UNE parcelle → REPLI (adresses vérifiées identiques)
+ * ou AMBIGU (adresses différentes) ; (3) sinon, si les parcelles sont ABSENTES d'un côté → NON VÉRIFIABLE (l'écran signale, jamais
+ * d'emprunt sur la seule foi du numéro) ; (4) sinon (parcelles présentes mais DISJOINTES → terrain différent) → ABSENTE (U4).
+ * PUR, réutilise composerAdressePermis. La provenance est STRICTEMENT opérateur : le corps ne doit jamais la porter.
+ */
+export function resoudreAdresseAvecReplis(dossier: DossierAdresse, soeurs: SoeurAdresse[]): ResolutionAdresse {
+  const propre = composerAdressePermis(dossier);
+  if (propre.voiePresente) return { adresse: propre, provenance: { origine: 'propre' } };
+
+  const soeursAdressees = soeurs.map((s) => ({ s, a: composerAdressePermis(s) })).filter((x) => x.a.voiePresente);
+  if (soeursAdressees.length === 0) return { adresse: propre, provenance: { origine: 'absente' } };
+
+  const propreParc = new Set((dossier.parcelles ?? []).map(normParc));
+  const verifiees = soeursAdressees
+    .map((x) => ({ ...x, commune: (x.s.parcelles ?? []).map(normParc).find((p) => propreParc.has(p)) }))
+    .filter((x): x is typeof x & { commune: string } => x.commune !== undefined);
+
+  if (verifiees.length > 0) {
+    const adressesDistinctes = new Set(verifiees.map((v) => v.a.ligne));
+    if (adressesDistinctes.size > 1) return { adresse: propre, provenance: { origine: 'ambigu', soeurTypes: verifiees.map((v) => v.s.type) } };
+    return { adresse: verifiees[0].a, provenance: { origine: 'repli', soeurType: verifiees[0].s.type, parcelleCommune: verifiees[0].commune } };
+  }
+
+  // Aucune parcelle commune. NON VÉRIFIABLE si le dossier OU une sœur adressée n'a AUCUNE parcelle (comparaison impossible) ;
+  // sinon parcelles présentes des deux côtés mais DISJOINTES → terrain différent → pas de repli ni de signal (dégradation U4).
+  const dossierAParcelles = propreParc.size > 0;
+  const nonVerifiables = soeursAdressees.filter((x) => !dossierAParcelles || (x.s.parcelles ?? []).length === 0);
+  if (nonVerifiables.length > 0) return { adresse: propre, provenance: { origine: 'non_verifiable', soeurTypes: nonVerifiables.map((x) => x.s.type) } };
+  return { adresse: propre, provenance: { origine: 'absente' } };
+}

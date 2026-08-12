@@ -635,6 +635,8 @@ describe('P3 — corps FORMULAIRE (téléservice)', () => {
     const { corps: c } = genererTexte(lotVide, CONFIG, 'SVAV-DEM-2026-000156', piecesDepuisConfig('PC2,PC3'), 'personne', 'reponse@svav.com');
     expect(c).toContain('Permis concerné : PC07511524V0006 — autorisé le 14 août 2025 — Paris, arrondissement 15e');
     expect(c).not.toMatch(/non renseign|adresse manquante|adresse indisponible/i); // dégradation SILENCIEUSE vers la mairie
+    // U5 — le corps envoyé à la mairie ne porte JAMAIS la provenance d'un éventuel repli cross-type (info STRICTEMENT opérateur).
+    expect(c).not.toMatch(/issue de la ligne|parcelle .* commune vérifiée|ligne sœur|ligne PD/i);
   });
 
   it('AUCUNE société, AUCUNE adresse de réponse, AUCUN rappel de la référence SVAV', () => {

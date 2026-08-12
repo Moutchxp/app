@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formaterReferencePermis, arrondissementParis, formaterArrondissement, composerAdressePermis } from './referencePermis';
+import { formaterReferencePermis, arrondissementParis, formaterArrondissement, composerAdressePermis, resoudreAdresseAvecReplis } from './referencePermis';
 
 /**
  * U2 — SOURCE UNIQUE de la référence de permis (2 lettres de type + num_dau) et dérivation de l'arrondissement parisien depuis
@@ -71,5 +71,55 @@ describe('U4 — composerAdressePermis : source unique, une seule adresse, dégr
     const a = composerAdressePermis({ adresse: '3 rue X', codePostal: '92000', communeNom: 'Nanterre', numDau: '09200124V0006' });
     expect(a.arrondissement).toBeNull();
     expect(a.ligne).toBe('3 rue X, 92000 Nanterre');
+  });
+});
+
+describe('U5 — resoudreAdresseAvecReplis : repli cross-type VÉRIFIÉ par le cadastre', () => {
+  const PARIS = { codePostal: null, communeNom: 'Paris', numDau: '07511524V0006' as string | null };
+
+  it('adresse PROPRE → aucun repli (origine propre)', () => {
+    const r = resoudreAdresseAvecReplis({ ...PARIS, adresse: '5 rue X', parcelles: [] }, [{ type: 'PD', adresse: 'AUTRE', parcelles: [] }]);
+    expect(r.provenance.origine).toBe('propre');
+    expect(r.adresse.voie).toBe('5 rue X');
+  });
+
+  it('absente + sœur adressée ET parcelle COMMUNE → REPLI vérifié (adresse empruntée + provenance)', () => {
+    const r = resoudreAdresseAvecReplis(
+      { ...PARIS, adresse: '', parcelles: ['AS-4'] },
+      [{ type: 'PD', adresse: '1 AVENUE DE LA PORTE BRANCIO', codePostal: '75015', communeNom: 'Paris', numDau: '07511524V0006', parcelles: ['AS-4'] }],
+    );
+    expect(r.provenance).toEqual({ origine: 'repli', soeurType: 'PD', parcelleCommune: 'AS-4' });
+    expect(r.adresse.voie).toBe('1 AVENUE DE LA PORTE BRANCIO');
+  });
+
+  it('absente + sœur adressée mais parcelles DISJOINTES → PAS de repli, dégradation U4 (origine absente)', () => {
+    const r = resoudreAdresseAvecReplis({ ...PARIS, adresse: '', parcelles: ['AB-1'] }, [{ type: 'PD', adresse: '9 rue Y', parcelles: ['XY-9'] }]);
+    expect(r.provenance.origine).toBe('absente'); // terrain différent → jamais d’emprunt
+    expect(r.adresse.voiePresente).toBe(false);
+  });
+
+  it('absente + sœur adressée mais parcelles ABSENTES d’un côté → NON VÉRIFIABLE (signalée, jamais empruntée) — cas demande 156', () => {
+    const r = resoudreAdresseAvecReplis({ ...PARIS, adresse: '', parcelles: [] }, [{ type: 'PD', adresse: '1 AVENUE', parcelles: ['AS-4'] }]);
+    expect(r.provenance).toEqual({ origine: 'non_verifiable', soeurTypes: ['PD'] });
+    expect(r.adresse.voiePresente).toBe(false); // pas d’emprunt sur la seule foi du numéro
+  });
+
+  it('≥ 2 sœurs vérifiées d’adresses DIFFÉRENTES → AMBIGU, aucun choix arbitraire (garde défensive)', () => {
+    const r = resoudreAdresseAvecReplis(
+      { ...PARIS, adresse: '', parcelles: ['AS-4'] },
+      [{ type: 'PC', adresse: 'ADRESSE A', parcelles: ['AS-4'] }, { type: 'PD', adresse: 'ADRESSE B', parcelles: ['AS-4'] }],
+    );
+    expect(r.provenance.origine).toBe('ambigu');
+    expect(r.adresse.voiePresente).toBe(false);
+  });
+
+  it('absente + aucune sœur ADRESSÉE → absente (U4)', () => {
+    const r = resoudreAdresseAvecReplis({ ...PARIS, adresse: '', parcelles: ['AS-4'] }, [{ type: 'PD', adresse: '', parcelles: ['AS-4'] }]);
+    expect(r.provenance.origine).toBe('absente');
+  });
+
+  it('normalisation casse/espaces des parcelles (« as-4 » ≡ « AS-4 »)', () => {
+    const r = resoudreAdresseAvecReplis({ ...PARIS, adresse: '', parcelles: [' as-4 '] }, [{ type: 'PD', adresse: '1 AV', parcelles: ['AS-4'] }]);
+    expect(r.provenance.origine).toBe('repli');
   });
 });

@@ -259,6 +259,36 @@ describe('S16 — CarteDepot (file à déposer à la main)', () => {
     expect(h).toContain('Arrondissement : 15e'); // l’arrondissement reste connu (dérivé du num_dau)
     expect(h).not.toContain('Adresse : '); // pas de fausse ligne d’adresse
   });
+
+  const carte = (dossiers: DepotAffiche['dossiers']) =>
+    renderToStaticMarkup(createElement(CarteDepot, { d: { id: 1, reference: 'R', communeNom: 'Paris', url: 'u', corps: 'x', nbDossiers: 1, statut: 'brouillon', dossiers } }));
+
+  it('U5 — repli VÉRIFIÉ (parcelle commune) → adresse de la sœur affichée + mention de provenance (opérateur)', () => {
+    const h = carte([{ type: 'PC', numDau: '07511524V0006', adresse: null, codePostal: null, communeNom: 'Paris', parcelles: ['AS-4'],
+      soeurs: [{ type: 'PD', adresse: '1 AVENUE DE LA PORTE BRANCIO', codePostal: '75015', communeNom: 'Paris', parcelles: ['AS-4'] }] }]);
+    expect(h).toContain('Adresse : 1 AVENUE DE LA PORTE BRANCIO, 75015 Paris');
+    expect(h).toContain('issue de la ligne PD du même numéro de permis');
+    expect(h).toContain('parcelle AS-4 commune vérifiée');
+    expect(h).not.toContain('Aucune adresse de voie'); // repli vérifié → pas d’avertissement d’absence
+  });
+
+  it('U5 — sœur adressée mais parcelles ABSENTES → NON VÉRIFIABLE : avertissement U4 + signal, JAMAIS d’emprunt (cas demande 156)', () => {
+    const h = carte([{ type: 'PC', numDau: '07511524V0006', adresse: null, codePostal: null, communeNom: 'Paris', parcelles: [],
+      soeurs: [{ type: 'PD', adresse: '1 AVENUE DE LA PORTE BRANCIO', codePostal: '75015', communeNom: 'Paris', parcelles: ['AS-4'] }] }]);
+    expect(h).toContain('Aucune adresse de voie');          // comportement U4
+    expect(h).toContain('Une ligne PD');                    // signal qu’une sœur existe
+    expect(h).toContain('lien n’a pas pu être vérifié');    // …non vérifié
+    expect(h).not.toContain('1 AVENUE DE LA PORTE BRANCIO'); // jamais empruntée sans vérification
+  });
+
+  it('U5 — parcelles DISJOINTES → pas de repli NI de signal, comportement U4 (terrain différent)', () => {
+    const h = carte([{ type: 'PC', numDau: '07511524V0006', adresse: null, codePostal: null, communeNom: 'Paris', parcelles: ['AB-1'],
+      soeurs: [{ type: 'PD', adresse: '9 rue Y', parcelles: ['XY-9'] }] }]);
+    expect(h).toContain('Aucune adresse de voie');
+    expect(h).not.toContain('issue de la ligne');
+    expect(h).not.toContain('lien n’a pas pu être vérifié'); // disjoint ≠ non vérifiable
+    expect(h).not.toContain('9 rue Y');
+  });
 });
 
 describe('U3 (B) — BoutonAnnulerDepot : geste SECONDAIRE + confirmation qui dit ce qui se passe', () => {

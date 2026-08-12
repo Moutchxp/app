@@ -1,7 +1,7 @@
 import { Fragment, type CSSProperties, type ReactNode } from 'react';
 import { typeDemande, type Tri, type TriColonne } from '../../../../lib/sitadel/demandesListe';
 import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
-import { formaterReferencePermis, composerAdressePermis } from '../../../../lib/sitadel/referencePermis';
+import { formaterReferencePermis, resoudreAdresseAvecReplis } from '../../../../lib/sitadel/referencePermis';
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
 import { PERIODES_STOCK, type LigneStock } from '../../../../lib/sitadel/stock';
 import type { PermisDetail } from '../../../../lib/sitadel/demandeRepo';
@@ -22,8 +22,9 @@ export interface AmbiguiteAffiche {
 }
 export interface CommuneInjoignableAffiche { codeInsee: string; nom: string; departement: string }
 export interface DepotAffiche { id: number; reference: string; communeNom: string | null; url: string | null; corps: string | null; nbDossiers: number; statut: string;
-  /** U2/U4 : dossiers attachés (type + num_dau + adresse) → champ « Numéro de dossier instruit », arrondissement, adresse/avertissement. */
-  dossiers: { type: 'PC' | 'PD'; numDau: string; adresse?: string | null; codePostal?: string | null; communeNom?: string | null }[] }
+  /** U2/U4/U5 : dossiers attachés (num_dau + adresse + parcelles + lignes SŒURS) → numéro instruit, arrondissement, adresse et repli cross-type vérifié. */
+  dossiers: { type: 'PC' | 'PD'; numDau: string; adresse?: string | null; codePostal?: string | null; communeNom?: string | null; parcelles?: string[];
+    soeurs?: { type: 'PC' | 'PD'; adresse?: string | null; codePostal?: string | null; communeNom?: string | null; parcelles?: string[] }[] }[] }
 
 /** Retire une commune d'une liste par son code (retrait optimiste après enregistrement). Pur → testable. */
 export function retirerCommune<T extends { codeInsee: string }>(liste: T[], code: string): T[] {
@@ -236,7 +237,14 @@ export function CarteDepot({ d, children, onCopierRef, retourRef }: {
   //   dossier attaché via la SOURCE UNIQUE (formaterReferencePermis / formaterArrondissement). Type inconnu → on DIT pourquoi.
   const dossier = d.dossiers[0];
   const ref = dossier ? formaterReferencePermis(dossier.type, dossier.numDau) : { ok: false as const, raison: 'aucun dossier attaché à cette demande' };
-  const adr = dossier ? composerAdressePermis(dossier) : null; // U4 — source unique (partagée avec le corps)
+  // U5 — résolution d'adresse avec repli cross-type VÉRIFIÉ PAR LE CADASTRE (opérateur uniquement ; le corps reste U4).
+  const resolution = dossier ? resoudreAdresseAvecReplis(
+    { ...dossier, parcelles: dossier.parcelles ?? [] },
+    (dossier.soeurs ?? []).map((s) => ({ ...s, numDau: dossier.numDau, parcelles: s.parcelles ?? [] })),
+  ) : null;
+  const adr = resolution?.adresse ?? null;
+  const prov = resolution?.provenance;
+  const adresseAffichee = adr !== null && (prov?.origine === 'propre' || prov?.origine === 'repli');
   return (
     <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -268,11 +276,15 @@ export function CarteDepot({ d, children, onCopierRef, retourRef }: {
         {retourRef && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourRef}</span>}
       </div>
 
-      {/* U4 — adresse du permis (source unique, comme le corps). Présente → affichée ; ABSENTE → avertissement explicite à
-          l'opérateur (le silence est acceptable vers la mairie, jamais vers l'opérateur avant un dépôt). */}
-      {adr && (adr.voiePresente
-        ? <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Adresse : {[adr.voie, adr.villeCP].filter((x) => x !== '').join(', ')}</span>
-        : <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>Aucune adresse de voie n’est renseignée pour ce permis (base Sitadel) — à vérifier avant de déposer.</span>)}
+      {/* U4/U5 — adresse du permis (source unique). Propre OU repli cross-type VÉRIFIÉ → affichée ; sinon avertissement + éventuel
+          signal (une sœur adressée non vérifiable, ou ambiguïté). TRANSPARENCE STRICTEMENT OPÉRATEUR : la provenance ne va JAMAIS
+          au corps envoyé à la mairie. Le silence est acceptable vers la mairie, jamais vers l'opérateur avant un dépôt. */}
+      {adresseAffichee
+        ? <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Adresse : {[adr!.voie, adr!.villeCP].filter((x) => x !== '').join(', ')}</span>
+        : <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>Aucune adresse de voie n’est renseignée pour ce permis (base Sitadel) — à vérifier avant de déposer.</span>}
+      {prov?.origine === 'repli' && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>Adresse issue de la ligne {prov.soeurType} du même numéro de permis (parcelle {prov.parcelleCommune} commune vérifiée).</span>}
+      {prov?.origine === 'non_verifiable' && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Une ligne {prov.soeurTypes.join('/')} du même numéro de permis porte une adresse, mais le lien n’a pas pu être vérifié (parcelles cadastrales absentes) — à vérifier avant de l’utiliser.</span>}
+      {prov?.origine === 'ambigu' && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Plusieurs lignes sœurs portent des adresses différentes — ambiguïté à trancher manuellement, aucun choix automatique.</span>}
 
       {/* U2 — arrondissement : simple MENTION (aide à choisir la bonne entrée de la liste déroulante Paris), SANS bouton de copie. */}
       <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Arrondissement : {adr?.arrondissement ?? 'indéterminé'}</span>
