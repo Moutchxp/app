@@ -11,8 +11,8 @@ import { SuiviDemandes } from './SuiviDemandes';
 
 /**
  * Q5 — onglet « À DEMANDER » : tout ce qui PRÉCÈDE la création d'une demande. Extrait sans changement de logique de l'ex-onglet
- * « Demandes » : bandeau de rappel + filtre d'ancienneté (Q4), stock par commune (Q2b) devenu le contenu CENTRAL et OUVERT par
- * défaut, « Préparer les demandes » + profil + aperçu des lots avec sélection lot par lot (V3), et le bloc PRADA/injoignables
+ * « Demandes » : bandeau de rappel + filtre d'ancienneté (Q4), stock par commune (Q2b, REPLIÉ par défaut — U6),
+ * « Préparer les demandes » + profil + aperçu des lots avec sélection lot par lot (V3), et le bloc PRADA/injoignables
  * (C2/C3) qui conditionne la création. Aucun état n'est partagé avec « En cours » : la liste des demandes vit là-bas, et une
  * création apparaît dans « En cours » au prochain affichage de cet onglet (il recharge à son montage). AUCUN envoi.
  */
@@ -35,8 +35,10 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, onAl
   // V3 — sélection des lots à créer : vit ICI (clés de lot stables), JAMAIS dans la page affichée → survit à la pagination.
   const [selLots, setSelLots] = useState<Set<string>>(new Set());
   const [pageLots, setPageLots] = useState(1);
-  // Q2b/Q5 — STOCK par commune : contenu CENTRAL de cet onglet, OUVERT par défaut (il n'est plus secondaire). Chargé au montage.
-  const [stockOuvert, setStockOuvert] = useState(true);
+  // Q2b/U6 — STOCK par commune : REPLIÉ par défaut (à l'arrivée sur l'onglet, une seule ligne visible). Aucune mémorisation
+  //   (useState simple, pas de localStorage/URL) → toujours replié à l'arrivée. Chargement LAZY : les données ne sont récupérées
+  //   qu'à l'ouverture (effet ci-dessous gardé sur `stockOuvert`), comme le prévoyait Q2b — l'ouverture manuelle est inchangée.
+  const [stockOuvert, setStockOuvert] = useState(false);
   const [stock, setStock] = useState<StockResultat | null>(null);
   const [stockChargement, setStockChargement] = useState(false);
   const [communeStock, setCommuneStock] = useState<string | null>(null);
@@ -148,7 +150,7 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, onAl
         moisSaisie={moisSaisie} maxMois={maxMois} onMois={changerMois} onAllerReglages={onAllerReglages}
       />
 
-      {/* Q2b/Q5 — STOCK par commune : contenu CENTRAL, ouvert par défaut. */}
+      {/* Q2b/U6 — STOCK par commune : REPLIÉ par défaut (une seule ligne à l'arrivée) ; l'ouverture manuelle charge et déplie. */}
       <BlocStock
         ouvert={stockOuvert} onToggle={toggleStock} chargement={stockChargement}
         stock={stock?.lignes ?? null} tronque={stock?.tronque} genereEnMs={stock?.genereEnMs} fenetreMois={stock?.fenetreMois ?? ancienneteMois}

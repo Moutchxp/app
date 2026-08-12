@@ -800,6 +800,19 @@ describe('Q2b — BlocStock (repliable, fermé par défaut, mention du sous-ense
     const h = renderToStaticMarkup(createElement(BlocStock, { ouvert: true, chargement: true, stock: null, fenetreMois: 6, onToggle: () => {} }));
     expect(h).toContain('Chargement du stock');
   });
+
+  it('U6 — REPLIÉ par défaut : une seule ligne (titre + compteur) visible, contenu du tableau NON rendu ; ouverture manuelle inchangée', () => {
+    const stock = [ligneStock({ parType: { immeuble_neuf: 5 } }), ligneStock({ codeInsee: '93029', parType: { immeuble_neuf: 2 } })];
+    const table = createElement('span', {}, 'TABLE_SENTINELLE');
+    const replie = renderToStaticMarkup(createElement(BlocStock, { ouvert: false, chargement: false, stock, fenetreMois: 6, onToggle: () => {}, table }));
+    expect(replie).toContain('aria-expanded="false"');   // une seule ligne dépliable
+    expect(replie).toContain(libelleStock(stock, 6));     // le titre + son compteur restent visibles
+    expect(replie).not.toContain('TABLE_SENTINELLE');     // le contenu du tableau n'est PAS dans l'état ouvert
+    // ouverture manuelle : le MÊME bloc, ouvert, rend le contenu (comportement inchangé)
+    const ouvert = renderToStaticMarkup(createElement(BlocStock, { ouvert: true, chargement: false, stock, fenetreMois: 6, onToggle: () => {}, table }));
+    expect(ouvert).toContain('aria-expanded="true"');
+    expect(ouvert).toContain('TABLE_SENTINELLE');
+  });
 });
 
 describe('Q4 — BandeauReglages (rappel des réglages en vigueur + filtre d’ancienneté)', () => {
