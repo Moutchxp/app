@@ -279,10 +279,10 @@ export async function demarquerDossier(demandeId: number, dossierId: number, aut
 
 /**
  * T1 — « tous les dossiers statués → réponse(s) traitée(s) », ET SA RÉVERSIBILITÉ. Un dossier ACTIF est STATUÉ s'il est reçu
- * (satisfait_le) OU trié (triage). Tous les actifs statués → marque traitées les réponses rattachées non traitées (elles
- * quittent la file) ; sinon → REMET traite_le à NULL sur les réponses rattachées déjà traitées (dé-statuer une ligne ROUVRE
- * la réponse dans le suivi — sans ça elle resterait sortie pour toujours). Opère DANS la transaction de l'appelant. `bool_and`
- * sur 0 dossier actif → NULL → coalesce(false) (une demande vidée n'est pas « traitée » toute seule).
+ * (satisfait_le) OU trié (triage). Tous les actifs statués → ferme AUTOMATIQUEMENT les réponses rattachées non traitées
+ * (`traite_auto=true`) ; sinon → ROUVRE UNIQUEMENT ce que la synchro avait fermé (`WHERE traite_auto`), pour ne JAMAIS piétiner
+ * une fermeture MANUELLE (action `traiter`, `traite_auto=false`). Opère DANS la transaction de l'appelant. `bool_and` sur 0
+ * dossier actif → NULL → coalesce(false) (une demande vidée n'est pas « traitée » toute seule).
  */
 async function synchroniserTraiteeDemande(q: RequeteTx, demandeId: number): Promise<void> {
   const { rows } = await q<{ tous: boolean }>(
@@ -291,9 +291,10 @@ async function synchroniserTraiteeDemande(q: RequeteTx, demandeId: number): Prom
     [demandeId],
   );
   if (rows[0]?.tous === true) {
-    await q(`UPDATE demande_reponse SET traite_le = now(), maj_le = now() WHERE demande_id = $1 AND traite_le IS NULL`, [demandeId]);
+    await q(`UPDATE demande_reponse SET traite_le = now(), traite_auto = true, maj_le = now() WHERE demande_id = $1 AND traite_le IS NULL`, [demandeId]);
   } else {
-    await q(`UPDATE demande_reponse SET traite_le = NULL, maj_le = now() WHERE demande_id = $1 AND traite_le IS NOT NULL`, [demandeId]);
+    // Réouverture CIBLÉE : uniquement les fermetures AUTOMATIQUES (jamais une fermeture manuelle via l'action `traiter`).
+    await q(`UPDATE demande_reponse SET traite_le = NULL, traite_auto = false, maj_le = now() WHERE demande_id = $1 AND traite_le IS NOT NULL AND traite_auto`, [demandeId]);
   }
 }
 

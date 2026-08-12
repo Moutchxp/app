@@ -112,22 +112,25 @@ describe('T1 — statuer un dossier ligne par ligne', () => {
     expect(s).toContain('actif AND triage IS NOT NULL');
   });
 
-  it('TOUS les dossiers statués → réponse(s) traitée(s) (traite_le = now WHERE traite_le IS NULL)', async () => {
+  it('TOUS les dossiers statués → fermeture AUTOMATIQUE (traite_le=now, traite_auto=true, WHERE traite_le IS NULL)', async () => {
     etat.tous = true;
     await marquerDossierNonFourni(119, 7, 'admin');
     const sync = trouver(/UPDATE demande_reponse SET traite_le = now\(\)/i)!;
     expect(sync).toBeDefined();
-    expect(norm(sync.sql)).toContain('traite_le IS NULL');
-    expect(trouver(/UPDATE demande_reponse SET traite_le = NULL/i)).toBeUndefined();
+    const s = norm(sync.sql);
+    expect(s).toContain('traite_auto = true'); // marque l'origine automatique
+    expect(s).toContain('traite_le IS NULL');
+    expect(trouver(/SET traite_le = NULL/i)).toBeUndefined();
   });
 
-  it('RÉVERSIBILITÉ : dé-statuer (pas tous statués) → REMET traite_le à NULL sur les réponses fermées → réapparaît dans le suivi', async () => {
+  it('RÉVERSIBILITÉ + Correction closure-origin : dé-statuer ne rouvre QUE les fermetures AUTO (WHERE traite_auto), jamais une fermeture MANUELLE', async () => {
     etat.tous = false; // après annulation, un dossier redevient dû
     await annulerTriageDossier(119, 7, 'admin');
     const rouvre = trouver(/UPDATE demande_reponse SET traite_le = NULL/i)!;
     expect(rouvre).toBeDefined();
-    expect(norm(rouvre.sql)).toContain('traite_le IS NOT NULL');
-    expect(trouver(/UPDATE demande_reponse SET traite_le = now\(\)/i)).toBeUndefined();
+    const s = norm(rouvre.sql);
+    expect(s).toContain('traite_le IS NOT NULL AND traite_auto'); // ← ciblé : seules les fermetures automatiques
+    expect(trouver(/SET traite_le = now\(\)/i)).toBeUndefined();
   });
 });
 
