@@ -269,31 +269,90 @@ export function CompteSatisfaction({ satisfaits, total }: { satisfaits: number; 
   return <span style={{ fontWeight: 600, color: complet ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)' }}>{satisfaits} / {total}</span>;
 }
 
-/** Détail des dossiers d'une demande (dépliant) : numéro, adresse si connue, satisfait/dû et par quoi. */
-export function DetailDossiers({ demandeId, statut, dossiers, retour, onMarquer }: {
-  demandeId: number; statut: string; dossiers: DossierSuivi[]; retour?: RetourCible;
+/**
+ * T1 — Détail des dossiers d'une demande : statuer CHAQUE dossier ligne par ligne (marquer reçu · non fourni · refus mairie ·
+ * retirer + annulations). PUR : aucun état ici, tout vient des props (la Vue gère les formulaires inline via `refusOuvert…` /
+ * `retirerOuvert…`). Le champ « date de refus » est borné à AUJOURD'HUI côté écran (max + bouton désactivé) ; la ROUTE reste
+ * l'autorité (400 si future). « Retirer » n'est jamais un « êtes-vous sûr ? » générique : l'avertissement dit ce qui se passe.
+ */
+export function DetailDossiers({
+  demandeId, statut, dossiers, retour, aujourdhui, prefillRefus,
+  onMarquer, onNonFourni, onAnnulerTriage,
+  refusOuvertDossierId, refusDate, onRefusOuvrir, onRefusDateChange, onRefusConfirmer, onRefusAnnuler,
+  retirerOuvertDossierId, onRetirerOuvrir, onRetirerConfirmer, onRetirerAnnuler,
+}: {
+  demandeId: number; statut: string; dossiers: DossierSuivi[]; retour?: RetourCible; aujourdhui?: string; prefillRefus?: string;
   onMarquer?: (demandeId: number, dossierId: number, satisfait: boolean) => void;
+  onNonFourni?: (demandeId: number, dossierId: number) => void;
+  onAnnulerTriage?: (demandeId: number, dossierId: number) => void;
+  refusOuvertDossierId?: number | null; refusDate?: string;
+  onRefusOuvrir?: (demandeId: number, dossierId: number, prefill: string) => void;
+  onRefusDateChange?: (date: string) => void;
+  onRefusConfirmer?: (demandeId: number, dossierId: number, date: string) => void;
+  onRefusAnnuler?: () => void;
+  retirerOuvertDossierId?: number | null;
+  onRetirerOuvrir?: (dossierId: number) => void;
+  onRetirerConfirmer?: (demandeId: number, dossierId: number) => void;
+  onRetirerAnnuler?: () => void;
 }) {
   if (dossiers.length === 0) return <PhraseVide>Aucun dossier rattaché à cette demande.</PhraseVide>;
-  // R5b — garde-fou : demande close → on ne marque/démarque rien (message explicite, jamais un bouton inerte).
+  // R5b — garde-fou : demande close → aucune action sur les dossiers (message explicite, jamais un bouton inerte).
   const close = statut === 'close';
+  const actif = !close && onMarquer !== undefined;
+  const lien: CSSProperties = { width: 'auto', padding: '.1rem .4rem' };
   return (
     <ul style={{ margin: '.3rem 0 0', paddingLeft: '1.1rem', fontSize: 12, lineHeight: 1.6 }}>
       {dossiers.map((d) => {
         const m = messageIci(retour ?? null, `dossier-${demandeId}-${d.dossierId}`);
+        const enRefus = refusOuvertDossierId === d.dossierId;
+        const enRetrait = retirerOuvertDossierId === d.dossierId;
+        let etat: React.ReactNode;
+        if (d.satisfait) etat = <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>obtenu{d.satisfaitPar ? ` (${d.satisfaitPar})` : ''}</span>;
+        else if (d.triage === 'non_fourni') etat = <span style={{ color: 'var(--color-svv-red)' }}>non fourni (reste dû)</span>;
+        else if (d.triage === 'refus_mairie') etat = <span style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}>refus mairie{d.refusLe ? ` (notifié le ${formaterDate(d.refusLe)})` : ''}</span>;
+        else etat = <span style={{ color: 'var(--color-svv-muted)' }}>dû</span>;
         return (
-          <li key={d.dossierId}>
+          <li key={d.dossierId} style={{ marginBottom: '.15rem' }}>
             <span style={{ fontFamily: 'var(--font-svv-mono, monospace)' }}>{d.numDau}</span>
-            {d.adresse ? ` — ${d.adresse}` : ''}
-            {' — '}
-            {d.satisfait
-              ? <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>obtenu{d.satisfaitPar ? ` (${d.satisfaitPar})` : ''}</span>
-              : <span style={{ color: 'var(--color-svv-muted)' }}>dû</span>}
-            {!close && onMarquer && (
-              <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .4rem', marginLeft: '.4rem' }}
-                onClick={() => onMarquer(demandeId, d.dossierId, !d.satisfait)}>
-                {d.satisfait ? 'annuler' : 'marquer reçu'}
-              </button>
+            {d.adresse ? ` — ${d.adresse}` : ''}{' — '}{etat}
+            {actif && !enRefus && !enRetrait && (
+              <span style={{ marginLeft: '.4rem', display: 'inline-flex', gap: '.35rem', flexWrap: 'wrap' }}>
+                {d.satisfait ? (
+                  <button type="button" className="svv-link" style={lien} onClick={() => onMarquer!(demandeId, d.dossierId, false)}>annuler</button>
+                ) : d.triage ? (
+                  <button type="button" className="svv-link" style={lien} onClick={() => onAnnulerTriage?.(demandeId, d.dossierId)}>annuler le statut</button>
+                ) : (
+                  <>
+                    <button type="button" className="svv-link" style={lien} onClick={() => onMarquer!(demandeId, d.dossierId, true)}>marquer reçu</button>
+                    <button type="button" className="svv-link" style={lien} onClick={() => onNonFourni?.(demandeId, d.dossierId)}>non fourni</button>
+                    <button type="button" className="svv-link" style={lien} onClick={() => onRefusOuvrir?.(demandeId, d.dossierId, d.refusLe ?? prefillRefus ?? aujourdhui ?? '')}>refus mairie</button>
+                    <button type="button" className="svv-link" style={{ ...lien, color: 'var(--color-svv-red)' }} onClick={() => onRetirerOuvrir?.(d.dossierId)}>retirer</button>
+                  </>
+                )}
+              </span>
+            )}
+            {/* T1 — DATE du refus exprès : pré-remplie (dernière réponse), bornée à aujourd'hui (max + bouton désactivé) ; la route reste l'autorité. */}
+            {enRefus && (
+              <span style={{ marginLeft: '.4rem', display: 'inline-flex', gap: '.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <label style={{ display: 'inline-flex', gap: '.25rem', alignItems: 'center' }}>Refus notifié le
+                  <input type="date" max={aujourdhui} value={refusDate ?? ''} onChange={(e) => onRefusDateChange?.(e.target.value)}
+                    style={{ padding: '.15rem .3rem', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', fontSize: 12 }} />
+                </label>
+                <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.1rem .5rem' }}
+                  disabled={!refusDate || (aujourdhui !== undefined && refusDate > aujourdhui)}
+                  onClick={() => { if (refusDate) onRefusConfirmer?.(demandeId, d.dossierId, refusDate); }}>confirmer le refus</button>
+                <button type="button" className="svv-link" style={{ width: 'auto', padding: 0 }} onClick={() => onRefusAnnuler?.()}>annuler</button>
+              </span>
+            )}
+            {/* T1 — RETIRER : correction de la demande. L'avertissement DIT ce qui se passe (pas un « êtes-vous sûr ? »). */}
+            {enRetrait && (
+              <span style={{ display: 'block', marginTop: '.25rem', padding: '.35rem .5rem', border: '1px solid var(--color-svv-red)', borderRadius: '.4rem', maxWidth: 520 }}>
+                <span role="alert" style={{ color: 'var(--color-svv-red)', display: 'block', marginBottom: '.3rem', lineHeight: 1.4 }}>
+                  Retirer ce dossier le fait <strong>quitter la demande</strong> : il est détaché, redevient demandable et réapparaît dans « À demander ». La demande sera ramenée à ce qui a vraiment été demandé. (Un dossier déjà obtenu ne peut pas être retiré.)
+                </span>
+                <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.1rem .5rem' }} onClick={() => onRetirerConfirmer?.(demandeId, d.dossierId)}>confirmer le retrait</button>
+                <button type="button" className="svv-link" style={{ width: 'auto', padding: 0, marginLeft: '.4rem' }} onClick={() => onRetirerAnnuler?.()}>annuler</button>
+              </span>
             )}
             {m && <span style={{ marginLeft: '.4rem' }}><MessageRetour r={m} /></span>}
           </li>

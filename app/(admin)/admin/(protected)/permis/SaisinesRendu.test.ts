@@ -90,6 +90,29 @@ describe('X4 — « Lancer » : l’avertissement de conséquence PRÉCÈDE le b
   });
 });
 
+describe('T1 — CarteSaisissable : la VOIE d’entrée CADA + la mention des dossiers exclus', () => {
+  it('refus tacite (silence d’un mois) → « Refus tacite le … »', () => {
+    const m = h(createElement(CarteSaisissable, { d: SAIS({ voie: 'refus_tacite' }), cadaEmailVide: false, onLancer: () => {} }));
+    expect(m).toContain('Refus tacite le');
+    expect(m).not.toContain('Refus exprès');
+  });
+  it('refus exprès (notifié par la mairie) → « Refus exprès notifié le … »', () => {
+    const m = h(createElement(CarteSaisissable, { d: SAIS({ voie: 'refus_expres' }), cadaEmailVide: false, onLancer: () => {} }));
+    expect(m).toContain('Refus exprès notifié le');
+    expect(m).not.toContain('Refus tacite');
+  });
+  it('des dossiers au refus NON acquis → mention explicite « N dossier(s) non inclus » (jamais une omission muette)', () => {
+    const m = h(createElement(CarteSaisissable, { d: SAIS({ dossiersExclusRefusNonAcquis: 2 }), cadaEmailVide: false, onLancer: () => {} }));
+    expect(m).toContain('2 dossiers non inclus');
+    expect(m).toContain('refus pas encore acquis');
+    expect(m).toContain('role="note"');
+  });
+  it('aucun dossier exclu → aucune mention d’exclusion', () => {
+    const m = h(createElement(CarteSaisissable, { d: SAIS({ dossiersExclusRefusNonAcquis: 0 }), cadaEmailVide: false, onLancer: () => {} }));
+    expect(m).not.toContain('non inclus');
+  });
+});
+
 describe('X4 — jours avant forclusion : rendus, et signalés distinctement quand il en reste peu', () => {
   it('peu de jours (≤ seuil) → alerte rouge « Urgent », role=alert', () => {
     const m = h(createElement(JoursForclusion, { jours: 3, forclusionLe: '2026-06-14T10:00:00Z' }));

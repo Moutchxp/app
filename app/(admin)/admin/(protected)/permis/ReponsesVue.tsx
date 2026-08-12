@@ -49,6 +49,8 @@ export function ReponsesVue() {
   const [brouillons, setBrouillons] = useState<Record<number, { objet: string; corps: string }>>({}); // R5c : édition relance
   const [dossOuverts, setDossOuverts] = useState<Set<number>>(new Set());
   const [relOuvertes, setRelOuvertes] = useState<Set<number>>(new Set());
+  const [refus, setRefus] = useState<{ demandeId: number; dossierId: number; date: string } | null>(null);   // T1 : formulaire « refus mairie » ouvert (date en cours de saisie)
+  const [retrait, setRetrait] = useState<{ demandeId: number; dossierId: number } | null>(null);              // T1 : avertissement « retirer » ouvert
   const [pageDem, setPageDem] = useState(1);
   const [pageRat, setPageRat] = useState(1);
   const [pageRel, setPageRel] = useState(1);
@@ -130,6 +132,7 @@ export function ReponsesVue() {
     return false;
   };
   const retourBanniere = retour && !estRendu(retour.cle) ? { texte: retour.texte, ok: retour.ok, zone: 'haut' as const } : null;
+  const aujourdhui = formaterDate(maintenant.toISOString()); // T1 : borne « refus le » (max + garde bouton) — la route reste l'autorité
 
   return (
     <div className="flex flex-col gap-4">
@@ -180,7 +183,20 @@ export function ReponsesVue() {
                         <tr key={`${d.demandeId}-detail`} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
                           <td colSpan={8} style={{ padding: '0 .5rem .5rem' }}>
                             <DetailDossiers demandeId={d.demandeId} statut={d.statut} dossiers={d.dossiers} retour={retour}
-                              onMarquer={(demandeId, dossierId, satisfait) => void agir({ action: 'marquer_dossier', demandeId, dossierId, satisfait }, `dossier-${demandeId}-${dossierId}`, satisfait ? 'Marqué reçu.' : 'Satisfaction annulée.')} />
+                              aujourdhui={aujourdhui} prefillRefus={d.derniereReponseLe ? formaterDate(d.derniereReponseLe) : aujourdhui}
+                              onMarquer={(demandeId, dossierId, satisfait) => void agir({ action: 'marquer_dossier', demandeId, dossierId, satisfait }, `dossier-${demandeId}-${dossierId}`, satisfait ? 'Marqué reçu.' : 'Satisfaction annulée.')}
+                              onNonFourni={(demandeId, dossierId) => void agir({ action: 'dossier_non_fourni', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Marqué « non fourni » — le dossier reste dû.')}
+                              onAnnulerTriage={(demandeId, dossierId) => void agir({ action: 'annuler_triage', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Statut annulé — retour à « dû ».')}
+                              refusOuvertDossierId={refus?.demandeId === d.demandeId ? refus.dossierId : null}
+                              refusDate={refus?.demandeId === d.demandeId ? refus.date : undefined}
+                              onRefusOuvrir={(demandeId, dossierId, prefill) => setRefus({ demandeId, dossierId, date: prefill })}
+                              onRefusDateChange={(date) => setRefus((r) => (r ? { ...r, date } : r))}
+                              onRefusConfirmer={(demandeId, dossierId, date) => { setRefus(null); void agir({ action: 'dossier_refus_mairie', demandeId, dossierId, refusLe: date }, `dossier-${demandeId}-${dossierId}`, 'Refus mairie enregistré — candidat à la saisine CADA.'); }}
+                              onRefusAnnuler={() => setRefus(null)}
+                              retirerOuvertDossierId={retrait?.demandeId === d.demandeId ? retrait.dossierId : null}
+                              onRetirerOuvrir={(dossierId) => setRetrait({ demandeId: d.demandeId, dossierId })}
+                              onRetirerConfirmer={(demandeId, dossierId) => { setRetrait(null); void agir({ action: 'retirer_dossier', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Dossier retiré — il redevient demandable dans « À demander ».'); }}
+                              onRetirerAnnuler={() => setRetrait(null)} />
                             <div style={{ marginTop: '.5rem' }}>
                               <ActionsCloture demandeId={d.demandeId} statut={d.statut} dossiersDus={d.dossiersActifs - d.dossiersSatisfaits}
                                 motif={motifCloture[d.demandeId]} retour={retour}

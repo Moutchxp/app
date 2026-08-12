@@ -70,9 +70,20 @@ export function CarteSaisissable({ d, cadaEmailVide, retour, onLancer }: {
       <EnteteItem reference={d.reference} communeNom={d.communeNom} />
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <JoursForclusion jours={d.joursAvantForclusion} forclusionLe={d.forclusionLe} />
-        <span style={styleMuted}>Refus tacite le {formaterDate(d.refusTaciteLe)} · demande envoyée le {formaterDate(d.envoyeLe)}</span>
+        {/* T1 — la VOIE d'entrée CADA, distincte : refus exprès (notifié) vs refus tacite (silence d'un mois). */}
+        <span style={styleMuted}>
+          {d.voie === 'refus_expres' ? 'Refus exprès notifié le' : 'Refus tacite le'} {formaterDate(d.refusTaciteLe)} · demande envoyée le {formaterDate(d.envoyeLe)}
+        </span>
       </div>
-      <span style={{ fontSize: 13 }}>{d.dossiersDus} dossier{d.dossiersDus > 1 ? 's' : ''} encore dû{d.dossiersDus > 1 ? 's' : ''} à réclamer devant la CADA.</span>
+      <span style={{ fontSize: 13 }}>
+        {d.dossiersDus} dossier{d.dossiersDus > 1 ? 's' : ''} encore dû{d.dossiersDus > 1 ? 's' : ''} à réclamer devant la CADA.
+        {/* T1/Correction 3 — mention EXPLICITE des dossiers exclus du corps (jamais une omission muette). */}
+        {d.dossiersExclusRefusNonAcquis > 0 && (
+          <span role="note" style={{ ...styleMuted, display: 'block', marginTop: '.25rem', color: 'var(--color-svv-red)' }}>
+            {d.dossiersExclusRefusNonAcquis} dossier{d.dossiersExclusRefusNonAcquis > 1 ? 's' : ''} non inclus : refus pas encore acquis (encore dans le mois de silence). La saisine ne portera que sur les dossiers dont le refus est acquis.
+          </span>
+        )}
+      </span>
       <p role="note" style={{ ...styleMuted, margin: 0, lineHeight: 1.4 }}>
         {cadaEmailVide
           ? 'Lancer préparera la saisine et la placera dans la file de dépôt : aucune adresse CADA n’est configurée, il faudra la déposer à la main sur le formulaire en ligne.'

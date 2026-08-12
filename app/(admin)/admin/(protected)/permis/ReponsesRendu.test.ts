@@ -322,6 +322,73 @@ describe('R5b — DetailDossiers : marquer reçu / annuler, et garde-fou « clos
   });
 });
 
+// ── T1 — statuer chaque dossier ligne par ligne (4 actions), formulaire de refus daté, avertissement de retrait ──────────
+describe('T1 — DetailDossiers : 4 actions par ligne + réversibilité', () => {
+  const rien = () => {};
+  const DU: DossierSuivi = { dossierId: 2, numDau: 'PC0920042500002', adresse: null, satisfait: false, satisfaitPar: null, triage: null, refusLe: null };
+  const cbs = { onMarquer: rien, onNonFourni: rien, onAnnulerTriage: rien, onRefusOuvrir: rien, onRefusDateChange: rien, onRefusConfirmer: rien, onRefusAnnuler: rien, onRetirerOuvrir: rien, onRetirerConfirmer: rien, onRetirerAnnuler: rien };
+
+  it('dossier dû → les 4 actions distinctes (reçu / non fourni / refus mairie / retirer)', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [DU], ...cbs }));
+    expect(h).toContain('marquer reçu');
+    expect(h).toContain('non fourni');
+    expect(h).toContain('refus mairie');
+    expect(h).toContain('retirer');
+  });
+
+  it('dossier « non fourni » → état « reste dû » + « annuler le statut » (le dossier n’est PAS satisfait)', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [{ ...DU, triage: 'non_fourni' }], ...cbs }));
+    expect(h).toContain('non fourni (reste dû)');
+    expect(h).toContain('annuler le statut');
+    expect(h).not.toContain('marquer reçu'); // triage en cours → on n’offre que l’annulation du statut
+  });
+
+  it('dossier « refus mairie » → montre la DATE de notification + « annuler le statut »', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [{ ...DU, triage: 'refus_mairie', refusLe: '2026-05-03' }], ...cbs }));
+    expect(h).toContain('refus mairie');
+    expect(h).toContain('notifié le 2026-05-03');
+    expect(h).toContain('annuler le statut');
+  });
+
+  it('dossier SATISFAIT → « annuler » seulement, JAMAIS « retirer » (on ne détache pas un dossier obtenu)', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [{ ...DU, satisfait: true, satisfaitPar: 'manuel' }], ...cbs }));
+    expect(h).toContain('annuler');
+    expect(h).not.toContain('retirer');
+    expect(h).not.toContain('non fourni');
+  });
+
+  it('formulaire de refus ouvert → champ date borné à aujourd’hui (max) + « confirmer le refus »', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, {
+      demandeId: 7, statut: 'envoyee', dossiers: [DU], aujourdhui: '2026-08-12',
+      refusOuvertDossierId: 2, refusDate: '2026-05-03', ...cbs,
+    }));
+    expect(h).toContain('type="date"');
+    expect(h).toContain('max="2026-08-12"');
+    expect(h).toContain('confirmer le refus');
+    expect(h).not.toContain('disabled'); // date passée valide → bouton actif
+  });
+
+  it('formulaire de refus avec date FUTURE → « confirmer » désactivé (garde écran, la route reste l’autorité)', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, {
+      demandeId: 7, statut: 'envoyee', dossiers: [DU], aujourdhui: '2026-08-12',
+      refusOuvertDossierId: 2, refusDate: '2999-12-31', ...cbs,
+    }));
+    expect(h).toContain('disabled');
+  });
+
+  it('avertissement de retrait → DIT ce qui se passe (quitte la demande, redevient demandable dans « À demander »), pas un « êtes-vous sûr ? »', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, {
+      demandeId: 7, statut: 'envoyee', dossiers: [DU], retirerOuvertDossierId: 2, ...cbs,
+    }));
+    expect(h).toContain('role="alert"');
+    expect(h).toContain('quitter la demande');
+    expect(h).toContain('redevient demandable');
+    expect(h).toContain('À demander');
+    expect(h).toContain('confirmer le retrait');
+    expect(h).not.toContain('êtes-vous sûr');
+  });
+});
+
 describe('R5b — retour d’action : dans la zone du bouton cliqué, jamais dédoublé', () => {
   it('messageIci ne rend le message qu’à la clé correspondante', () => {
     const retour: RetourCible = { cle: 'rattacher-5', texte: 'Rattachée.', ok: true };
