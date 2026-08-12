@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { echeanceDe, etatEcheance, fenetreCada, releveEstFraiche, type EntreeEcheance, type ReglagesEcheance } from './echeance';
+import { echeanceDe, etatEcheance, fenetreCada, fenetreCadaDepuisRefus, fenetreCadaEffective, refusAcquis, releveEstFraiche, type EntreeEcheance, type ReglagesEcheance } from './echeance';
 
 /**
  * R6 — échéance PURE. Mois calendaire (pas 30 jours) + débordement de fin de mois ; ordre de priorité des états
@@ -178,5 +178,60 @@ describe('B2 — dépôt téléservice : l’ancre envoyeLe fait courir l’éch
     const r = etatEcheance(entree({ envoyeLe: new Date('2026-03-15T10:00:00Z') }), new Date('2026-04-20T10:00:00Z'), REG);
     expect(r.motif).not.toContain('pas encore envoyée');
     expect(r.etat).toBe('depassee');
+  });
+});
+
+describe('T1 — fenetreCadaEffective : ancre = refus le plus PRÉCOCE déjà acquis (Correction 1)', () => {
+  it('refus tacite = envoi + 1 mois (fenetreCada inchangée)', () => {
+    const f = fenetreCada(new Date('2026-03-15T10:00:00Z'), new Date('2026-05-01T10:00:00Z'));
+    expect(f.refusTaciteLe.toISOString()).toBe('2026-04-15T10:00:00.000Z'); // + 1 mois
+    expect(f.forclusionLe.toISOString()).toBe('2026-06-15T10:00:00.000Z');  // + 2 mois après le refus
+    expect(f.etat).toBe('ouverte');
+  });
+
+  it('EXIGÉ : envoyée il y a 3 mois + refus exprès AUJOURD’HUI → forclusion calée sur le refus TACITE (le plus précoce), pas sur aujourd’hui', () => {
+    const envoyeLe = new Date('2026-05-12T10:00:00Z');        // tacite = 12 juin (acquis)
+    const refusExpresAujourdhui = new Date('2026-08-12T00:00:00Z');
+    const maintenant = new Date('2026-08-12T12:00:00Z');
+    const { fenetre, voie } = fenetreCadaEffective(envoyeLe, [refusExpresAujourdhui], maintenant);
+    expect(voie).toBe('refus_tacite');                        // le min retenu vient du tacite
+    expect(fenetre.forclusionLe.toISOString()).toBe('2026-08-12T10:00:00.000Z'); // tacite (12 juin) + 2 mois
+    expect(fenetre.forclusionLe.toISOString()).not.toBe('2026-10-12T00:00:00.000Z'); // JAMAIS aujourd’hui + 2 mois
+  });
+
+  it('refus exprès PRÉCOCE (avant le mois de silence écoulé) → ancre exprès, ouverture immédiate, voie refus_expres', () => {
+    const envoyeLe = new Date('2026-08-01T10:00:00Z');        // tacite = 1er sept (PAS encore acquis au 10 août)
+    const refusExpres = new Date('2026-08-05T00:00:00Z');     // refus exprès notifié le 5 août
+    const maintenant = new Date('2026-08-10T10:00:00Z');
+    const { fenetre, voie } = fenetreCadaEffective(envoyeLe, [refusExpres], maintenant);
+    expect(voie).toBe('refus_expres');
+    expect(fenetre.etat).toBe('ouverte');                    // ouverte dès le refus exprès (sans attendre le mois)
+    expect(fenetre.forclusionLe.toISOString()).toBe('2026-10-05T00:00:00.000Z'); // refus exprès + 2 mois
+  });
+
+  it('aucun refus acquis (mois de silence en cours, pas d’exprès) → pas_ouverte, voie null', () => {
+    const envoyeLe = new Date('2026-08-01T10:00:00Z');        // tacite = 1er sept (futur)
+    const { fenetre, voie } = fenetreCadaEffective(envoyeLe, [], new Date('2026-08-10T10:00:00Z'));
+    expect(voie).toBeNull();
+    expect(fenetre.etat).toBe('pas_ouverte');
+    expect(fenetre.refusTaciteLe.toISOString()).toBe('2026-09-01T10:00:00.000Z'); // ouverture future = tacite
+  });
+});
+
+describe('T1 — refusAcquis : un dossier est inclus au corps SSI son refus est acquis (Correction 3)', () => {
+  const envoyeRecent = new Date('2026-08-01T10:00:00Z'); // tacite 1er sept
+  const envoyeVieux = new Date('2026-05-01T10:00:00Z');  // tacite 1er juin (échu)
+  const maintenant = new Date('2026-08-10T10:00:00Z');
+  it('refus exprès notifié (≤ maintenant) → acquis, même dans le mois de silence', () => {
+    expect(refusAcquis(envoyeRecent, new Date('2026-08-05T00:00:00Z'), maintenant)).toBe(true);
+  });
+  it('pas d’exprès + tacite NON échu (mois de silence en cours) → PAS acquis (prématuré, à exclure)', () => {
+    expect(refusAcquis(envoyeRecent, null, maintenant)).toBe(false);
+  });
+  it('pas d’exprès + tacite échu → acquis (refus tacite)', () => {
+    expect(refusAcquis(envoyeVieux, null, maintenant)).toBe(true);
+  });
+  it('fenetreCadaDepuisRefus : refus futur → pas_ouverte', () => {
+    expect(fenetreCadaDepuisRefus(new Date('2026-09-01T10:00:00Z'), maintenant).etat).toBe('pas_ouverte');
   });
 });

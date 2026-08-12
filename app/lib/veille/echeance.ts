@@ -71,13 +71,48 @@ export interface FenetreCada {
  * les DEUX mois suivants — soit `echeanceDe` appliqué DEUX fois de plus (réutilise le mois calendaire, avec son débordement de
  * fin de mois). La borne de forclusion est INCLUSIVE (le dernier jour du délai est encore ouvert). PUR, aucune requête.
  */
-export function fenetreCada(envoyeLe: Date, maintenant: Date): FenetreCada {
-  const refusTaciteLe = echeanceDe(envoyeLe);                       // + 1 mois
-  const forclusionLe = echeanceDe(echeanceDe(refusTaciteLe));        // + 2 mois après le refus (mois calendaires réutilisés)
+/**
+ * T1 — cœur PARTAGÉ : fenêtre CADA à partir de la DATE DE REFUS (tacite OU exprès). Forclusion = refus + 2 mois calendaires
+ * (echeanceDe deux fois). Borne inclusive. `refusLe` peut être FUTUR (refus tacite pas encore acquis) → 'pas_ouverte'. PUR.
+ */
+export function fenetreCadaDepuisRefus(refusLe: Date, maintenant: Date): FenetreCada {
+  const forclusionLe = echeanceDe(echeanceDe(refusLe));             // + 2 mois après le refus
   const joursAvantForclusion = Math.ceil((forclusionLe.getTime() - maintenant.getTime()) / MS_JOUR);
   const t = maintenant.getTime();
-  const etat: EtatFenetreCada = t < refusTaciteLe.getTime() ? 'pas_ouverte' : (t <= forclusionLe.getTime() ? 'ouverte' : 'fermee');
-  return { refusTaciteLe, forclusionLe, etat, joursAvantForclusion };
+  const etat: EtatFenetreCada = t < refusLe.getTime() ? 'pas_ouverte' : (t <= forclusionLe.getTime() ? 'ouverte' : 'fermee');
+  return { refusTaciteLe: refusLe, forclusionLe, etat, joursAvantForclusion };
+}
+
+/** Fenêtre CADA du refus TACITE seul (envoi + 1 mois). Conservée pour l'usage historique ; `fenetreCadaEffective` gère les deux voies. */
+export function fenetreCada(envoyeLe: Date, maintenant: Date): FenetreCada {
+  return fenetreCadaDepuisRefus(echeanceDe(envoyeLe), maintenant);  // refus tacite = + 1 mois
+}
+
+/** Voie d'entrée dans l'éligibilité CADA. */
+export type VoieCada = 'refus_tacite' | 'refus_expres';
+
+/**
+ * T1 / Correction 1 — ANCRE CADA d'une demande : le refus le plus PRÉCOCE DÉJÀ ACQUIS (≤ maintenant), toutes voies confondues.
+ * `refusExpres` = dates de NOTIFICATION (refus_le) des dossiers 'refus_mairie' encore dus ; le refus tacite = echeanceDe(envoyeLe).
+ * ⚠️ Un refus exprès TARDIF ne recule JAMAIS l'ancre (sinon il repousserait la forclusion → saisine hors délai) : on prend le
+ * MIN des refus déjà acquis. Ensemble vide (aucun refus acquis) → 'pas_ouverte', ouverture future = le refus tacite. La `voie`
+ * se déduit de l'origine du minimum retenu. PUR.
+ */
+export function fenetreCadaEffective(envoyeLe: Date, refusExpres: Date[], maintenant: Date): { fenetre: FenetreCada; voie: VoieCada | null } {
+  const tacite = echeanceDe(envoyeLe);
+  const acquis: { d: Date; voie: VoieCada }[] = [];
+  for (const r of refusExpres) if (r.getTime() <= maintenant.getTime()) acquis.push({ d: r, voie: 'refus_expres' });
+  if (tacite.getTime() <= maintenant.getTime()) acquis.push({ d: tacite, voie: 'refus_tacite' });
+  if (acquis.length === 0) return { fenetre: fenetreCadaDepuisRefus(tacite, maintenant), voie: null }; // pas encore ouverte (tacite futur)
+  acquis.sort((a, b) => a.d.getTime() - b.d.getTime() || (a.voie === 'refus_expres' ? -1 : 1));
+  return { fenetre: fenetreCadaDepuisRefus(acquis[0].d, maintenant), voie: acquis[0].voie };
+}
+
+/** T1 / Correction 3 — un dossier a-t-il son refus ACQUIS au jour de la saisine ? Refus exprès (refus_le ≤ maintenant) OU refus
+ *  tacite échu (echeanceDe(envoyeLe) ≤ maintenant). Sinon (encore dans son mois de silence) : prématuré, à EXCLURE du corps. PUR. */
+export function refusAcquis(envoyeLe: Date, refusExpresLe: Date | null, maintenant: Date): boolean {
+  if (refusExpresLe !== null && refusExpresLe.getTime() <= maintenant.getTime()) return true;
+  return echeanceDe(envoyeLe).getTime() <= maintenant.getTime();
 }
 
 /**
