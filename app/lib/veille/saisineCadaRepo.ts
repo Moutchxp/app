@@ -7,7 +7,7 @@
 import { query, withTransaction } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { profilValide, type ProfilDemandeur } from '../sitadel/demande';
-import { fenetreCada, releveEstFraiche } from './echeance';
+import { fenetreCadaEffective, refusAcquis, releveEstFraiche, type VoieCada } from './echeance';
 import { chargerContexteRelance, chargerLotRelance, type ContexteRelance, type LotRelance } from './relanceAuto';
 import { genererSaisineCada } from './saisineCada';
 
@@ -16,18 +16,26 @@ export class SaisineCadaError extends Error {
   constructor(public readonly raison: string) { super(raison); this.name = 'SaisineCadaError'; }
 }
 
+/** T1/Correction 3 — aucun dossier dont le refus soit ACQUIS au jour de la saisine (tous les dus encore dans leur mois de
+ *  silence) → saisine prématurée. Sous-type de SaisineCadaError → traité en 409 métier, jamais un 503. */
+export class AucunDossierAcquisError extends SaisineCadaError {
+  constructor() { super('aucun dossier dont le refus soit acquis : saisine prématurée (les dossiers dus sont encore dans leur mois de silence)'); this.name = 'AucunDossierAcquisError'; }
+}
+
 // ── POINT 2 : lecture des demandes saisissables ───────────────────────────────
 export interface DemandeSaisissable {
   demandeId: number; reference: string; communeNom: string | null; profil: ProfilDemandeur;
-  envoyeLe: Date; refusTaciteLe: Date; forclusionLe: Date; joursAvantForclusion: number; // pour l'écran à venir
+  envoyeLe: Date; refusTaciteLe: Date; forclusionLe: Date; joursAvantForclusion: number; // refusTaciteLe = date du refus RETENU (tacite OU exprès)
+  voie: VoieCada; // T1 : voie d'entrée retenue (refus_expres | refus_tacite) — affichée distinctement dans l'onglet Saisines
   dossiersActifs: number; dossiersDus: number;
+  dossiersExclusRefusNonAcquis: number; // T1/Correction 3 : dossiers dus dont le refus N'EST PAS acquis → EXCLUS du corps (jamais muet)
 }
 export interface SaisiesEligibles { saisissables: DemandeSaisissable[]; indeterminees: DemandeSaisissable[] }
 
-/** Candidat brut (filtre SQL passé) AVANT classification fenêtre/fraîcheur. */
+/** Candidat brut (filtre SQL passé) AVANT classification fenêtre/fraîcheur. `refusExpres` = dates de refus exprès des dossiers dus. */
 export interface CandidatSaisine {
   demandeId: number; reference: string; communeNom: string | null; profil: ProfilDemandeur;
-  envoyeLe: Date; dossiersActifs: number; dossiersDus: number;
+  envoyeLe: Date; dossiersActifs: number; dossiersDus: number; refusExpres: Date[];
 }
 
 export interface DepsSaisissables {
@@ -47,7 +55,10 @@ const SQL_CANDIDATS =
    )
    SELECT d.id::int AS id, d.reference, c.nom AS commune_nom, d.profil_demandeur AS profil, a.envoye_le,
           (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif) AS dossiers_actifs,
-          (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL) AS dossiers_dus
+          (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL) AS dossiers_dus,
+          -- T1 : dates de refus EXPRÈS des dossiers encore dus (ancre CADA immédiate ; l'éligibilité effective est calculée en TS).
+          (SELECT coalesce(array_agg(dd.refus_le), '{}') FROM demande_dossier dd
+            WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL AND dd.triage = 'refus_mairie') AS refus_expres
      FROM demande d
      JOIN ach a ON a.demande_id = d.id
      LEFT JOIN commune c ON c.code_insee = d.code_insee
@@ -59,8 +70,8 @@ const SQL_CANDIDATS =
 export function depsReellesSaisissables(): DepsSaisissables {
   return {
     lireCandidats: async () => {
-      const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; profil: string; envoye_le: Date; dossiers_actifs: number; dossiers_dus: number }>(SQL_CANDIDATS);
-      return rows.map((r) => ({ demandeId: r.id, reference: r.reference, communeNom: r.commune_nom, profil: profilValide(r.profil), envoyeLe: r.envoye_le, dossiersActifs: r.dossiers_actifs, dossiersDus: r.dossiers_dus }));
+      const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; profil: string; envoye_le: Date; dossiers_actifs: number; dossiers_dus: number; refus_expres: Date[] }>(SQL_CANDIDATS);
+      return rows.map((r) => ({ demandeId: r.id, reference: r.reference, communeNom: r.commune_nom, profil: profilValide(r.profil), envoyeLe: r.envoye_le, dossiersActifs: r.dossiers_actifs, dossiersDus: r.dossiers_dus, refusExpres: r.refus_expres ?? [] }));
     },
     derniereReleveOkLe: async () => {
       const { rows } = await query<{ t: Date | null }>(`SELECT max(termine_le) AS t FROM releve_run WHERE resultat = 'ok'`);
@@ -83,12 +94,17 @@ export async function lireSaisinesEligibles(deps: DepsSaisissables = depsReelles
   const saisissables: DemandeSaisissable[] = [];
   const indeterminees: DemandeSaisissable[] = [];
   for (const c of candidats) {
-    const f = fenetreCada(c.envoyeLe, maintenant);
-    if (f.etat !== 'ouverte') continue; // pas_ouverte (refus non acquis) ou fermee (forclos) → jamais saisissable
+    // T1/Correction 1 — ancre = refus le plus PRÉCOCE déjà acquis (tacite OU exprès), jamais fenetreCada(envoyeLe) seule.
+    const { fenetre: f, voie } = fenetreCadaEffective(c.envoyeLe, c.refusExpres, maintenant);
+    if (f.etat !== 'ouverte' || voie === null) continue; // aucun refus acquis (pas_ouverte) ou forclos → jamais saisissable
+    // T1/Correction 3 — dossiers dus dont le refus N'EST PAS acquis (exclus du corps). Tacite échu → tous les dus sont acquis.
+    const taciteAcquis = refusAcquis(c.envoyeLe, null, maintenant); // = echeanceDe(envoyeLe) ≤ maintenant
+    const exprAcquis = c.refusExpres.filter((r) => r.getTime() <= maintenant.getTime()).length;
+    const exclus = taciteAcquis ? 0 : Math.max(0, c.dossiersDus - exprAcquis);
     const d: DemandeSaisissable = {
       demandeId: c.demandeId, reference: c.reference, communeNom: c.communeNom, profil: c.profil, envoyeLe: c.envoyeLe,
-      refusTaciteLe: f.refusTaciteLe, forclusionLe: f.forclusionLe, joursAvantForclusion: f.joursAvantForclusion,
-      dossiersActifs: c.dossiersActifs, dossiersDus: c.dossiersDus,
+      refusTaciteLe: f.refusTaciteLe, forclusionLe: f.forclusionLe, joursAvantForclusion: f.joursAvantForclusion, voie,
+      dossiersActifs: c.dossiersActifs, dossiersDus: c.dossiersDus, dossiersExclusRefusNonAcquis: exclus,
     };
     (fraiche ? saisissables : indeterminees).push(d); // silence non vérifié → indéterminée
   }
@@ -96,7 +112,9 @@ export async function lireSaisinesEligibles(deps: DepsSaisissables = depsReelles
 }
 
 // ── POINT 4 : création de la saisine en brouillon ─────────────────────────────
-export interface MetaSaisine { statut: string; reference: string; communeNom: string | null; profil: ProfilDemandeur; envoyeLe: Date | null; saisineVivante: boolean }
+export interface MetaSaisine { statut: string; reference: string; communeNom: string | null; profil: ProfilDemandeur; envoyeLe: Date | null; saisineVivante: boolean;
+  dusRefus: { dossierId: number; refusLe: Date | null }[]; // T1 : dossiers DUS avec leur date de refus exprès (null hors refus_mairie) — ancre + filtre du corps
+}
 export interface DepsCreerSaisine {
   lireMeta(demandeId: number): Promise<MetaSaisine | null>;
   chargerContexte(profil: ProfilDemandeur): Promise<ContexteRelance>;
@@ -108,14 +126,17 @@ export interface DepsCreerSaisine {
 export function depsReellesCreerSaisine(): DepsCreerSaisine {
   return {
     lireMeta: async (demandeId) => {
-      const { rows } = await query<{ statut: string; reference: string; commune_nom: string | null; profil: string; envoye_le: Date | null; saisine_vivante: boolean }>(
+      const { rows } = await query<{ statut: string; reference: string; commune_nom: string | null; profil: string; envoye_le: Date | null; saisine_vivante: boolean; dus_refus: { dossierId: number; refusLe: string | null }[] }>(
         `SELECT d.statut, d.reference, c.nom AS commune_nom, d.profil_demandeur AS profil,
                 (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id AND a.statut = 'envoye') AS envoye_le, -- B2 : agnostique au canal
-                EXISTS (SELECT 1 FROM demande_relance rl WHERE rl.demande_id = d.id AND rl.type = 'saisine_cada' AND rl.statut <> 'abandonnee') AS saisine_vivante
+                EXISTS (SELECT 1 FROM demande_relance rl WHERE rl.demande_id = d.id AND rl.type = 'saisine_cada' AND rl.statut <> 'abandonnee') AS saisine_vivante,
+                (SELECT coalesce(json_agg(json_build_object('dossierId', dd.dossier_id, 'refusLe', dd.refus_le) ORDER BY dd.dossier_id), '[]'::json)
+                   FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL) AS dus_refus -- T1 : dossiers dus + refus exprès
            FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee WHERE d.id = $1`, [demandeId]);
       const r = rows[0];
       if (!r) return null;
-      return { statut: r.statut, reference: r.reference, communeNom: r.commune_nom, profil: profilValide(r.profil), envoyeLe: r.envoye_le, saisineVivante: r.saisine_vivante };
+      return { statut: r.statut, reference: r.reference, communeNom: r.commune_nom, profil: profilValide(r.profil), envoyeLe: r.envoye_le, saisineVivante: r.saisine_vivante,
+        dusRefus: (r.dus_refus ?? []).map((x) => ({ dossierId: x.dossierId, refusLe: x.refusLe ? new Date(x.refusLe) : null })) };
     },
     chargerContexte: (profil) => chargerContexteRelance(profil),
     chargerLot: (demandeId) => chargerLotRelance(demandeId),
@@ -139,24 +160,36 @@ export async function creerSaisineCada(demandeId: number, auteur: string | null,
   if (meta.statut !== 'envoyee') throw new SaisineCadaError(`demande « ${meta.statut} » : seule une demande envoyée peut être saisie devant la CADA`);
   if (meta.envoyeLe === null) throw new SaisineCadaError('aucune émission e-mail confirmée : la demande n’a pas de date d’envoi opposable');
   if (meta.saisineVivante) throw new SaisineCadaError('une saisine est déjà en cours pour cette demande');
+  const envoyeLe = meta.envoyeLe; // Date (garde ci-dessus) — capturé en const pour flotter dans les closures ci-dessous
 
   const ctx = await deps.chargerContexte(meta.profil);
   const maintenant = deps.maintenant();
-  const f = fenetreCada(meta.envoyeLe, maintenant);
-  if (f.etat === 'pas_ouverte') throw new SaisineCadaError('le refus tacite n’est pas encore acquis (délai d’un mois non écoulé)');
-  if (f.etat === 'fermee') throw new SaisineCadaError('délai de saisine forclos (plus de deux mois depuis le refus tacite)');
+  // T1/Correction 1 — ANCRE EFFECTIVE (refus le plus précoce déjà acquis, tacite OU exprès), jamais fenetreCada(envoyeLe) seule.
+  const refusExpres = meta.dusRefus.map((x) => x.refusLe).filter((d): d is Date => d !== null);
+  const { fenetre: f, voie } = fenetreCadaEffective(envoyeLe, refusExpres, maintenant);
+  if (f.etat === 'pas_ouverte' || voie === null) throw new SaisineCadaError('aucun refus acquis : ni refus tacite (délai d’un mois non écoulé) ni refus exprès notifié');
+  if (f.etat === 'fermee') throw new SaisineCadaError('délai de saisine forclos (plus de deux mois depuis le refus)');
   if (!releveEstFraiche(await deps.derniereReleveOkLe(), maintenant, ctx.reglages.releveFraicheurHeures)) {
     throw new SaisineCadaError('silence non vérifié : la relève des réponses n’est pas assez récente pour affirmer une absence de réponse');
   }
 
   const lot = await deps.chargerLot(demandeId);
   if (lot === null) throw new SaisineCadaError('demande introuvable');
-  if (lot.lot.dossiers.length - lot.satisfaitsIds.length <= 0) throw new SaisineCadaError('tous les dossiers sont satisfaits : plus rien à réclamer');
+  // T1/Correction 3 — le corps ne liste QUE les dossiers dont le refus est ACQUIS (exprès notifié OU tacite échu). Les dus encore
+  //   dans leur mois de silence sont EXCLUS (la CADA les écarterait — prématurés). ⚠️ DETTE : demande_relance_vivante_uniq interdit
+  //   une 2e saisine vivante par demande → un dossier exclu aujourd'hui n'aura pas SA saisine plus tard sans chantier dédié.
+  const refusParDossier = new Map(meta.dusRefus.map((x) => [x.dossierId, x.refusLe]));
+  const satisfaits = new Set(lot.satisfaitsIds);
+  const dusIds = lot.lot.dossiers.map((d) => d.dossierId).filter((id) => !satisfaits.has(id));
+  if (dusIds.length === 0) throw new SaisineCadaError('tous les dossiers sont satisfaits : plus rien à réclamer');
+  const exclusNonAcquis = dusIds.filter((id) => !refusAcquis(envoyeLe, refusParDossier.get(id) ?? null, maintenant));
+  if (dusIds.length - exclusNonAcquis.length <= 0) throw new AucunDossierAcquisError();
 
   // genererSaisineCada lève IdentiteIncompleteError / AucunDossierNonSatisfaitError (saisineCada.ts) — laissées remonter.
   const { objet, corps } = genererSaisineCada({
     reference: meta.reference, profil: meta.profil, communeNom: lot.lot.communeNom, lot: lot.lot,
-    dossiersSatisfaitsIds: lot.satisfaitsIds, config: ctx.config, pieces: ctx.pieces, envoyeeLe: meta.envoyeLe, refusTaciteLe: f.refusTaciteLe,
+    dossiersSatisfaitsIds: [...lot.satisfaitsIds, ...exclusNonAcquis], // T1 : exclut satisfaits + refus NON acquis (corps = refus acquis seulement)
+    config: ctx.config, pieces: ctx.pieces, envoyeeLe: envoyeLe, refusTaciteLe: f.refusTaciteLe,
   });
 
   try {
@@ -240,7 +273,9 @@ export interface ContexteConfirmation {
   refusTaciteLe: Date | null;
   forclusionLe: Date | null;
   joursAvantForclusion: number | null;
+  voie: VoieCada | null;                 // T1 : voie retenue (refus_expres | refus_tacite) ; null hors fenêtre ouverte
   dossiersDusNums: string[];
+  dossiersExclusRefusNonAcquis: number;  // T1/Correction 3 : dossiers dus exclus du corps (refus pas encore acquis)
   dejaLanceeLe: Date | null; // envoyee_le de la saisine déjà lancée (si 'envoyee'), sinon null
 }
 
@@ -250,6 +285,7 @@ export interface LigneConfirmationDB {
   commune_nom: string | null;
   envoye_le: Date | null;
   dossiers_dus_nums: string[];
+  refus_expres: Date[];            // T1 : dates de refus exprès des dossiers dus (ancre effective + exclus)
   saisine_statut: string | null;   // statut d'une saisine_cada vivante (≠ 'abandonnee'), ou null
   saisine_envoyee_le: Date | null;
 }
@@ -267,6 +303,8 @@ const SQL_CONFIRMATION =
           COALESCE((SELECT array_agg(s.num_dau ORDER BY s.num_dau)
                       FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
                      WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL), '{}') AS dossiers_dus_nums,
+          COALESCE((SELECT array_agg(dd.refus_le) FROM demande_dossier dd
+                     WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL AND dd.triage = 'refus_mairie'), '{}') AS refus_expres, -- T1 : ancre effective
           (SELECT rl.statut FROM demande_relance rl WHERE rl.demande_id = d.id AND rl.type = 'saisine_cada' AND rl.statut <> 'abandonnee' ORDER BY rl.id DESC LIMIT 1) AS saisine_statut,
           (SELECT rl.envoyee_le FROM demande_relance rl WHERE rl.demande_id = d.id AND rl.type = 'saisine_cada' AND rl.statut <> 'abandonnee' ORDER BY rl.id DESC LIMIT 1) AS saisine_envoyee_le
      FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee
@@ -295,10 +333,10 @@ export function depsReellesConfirmation(): DepsConfirmation {
  */
 export async function chargerConfirmationCada(demandeId: number, deps: DepsConfirmation = depsReellesConfirmation()): Promise<ContexteConfirmation> {
   const l = await deps.lire(demandeId);
-  const vide: Omit<ContexteConfirmation, 'etat'> = { reference: null, communeNom: null, envoyeLe: null, refusTaciteLe: null, forclusionLe: null, joursAvantForclusion: null, dossiersDusNums: [], dejaLanceeLe: null };
+  const vide: Omit<ContexteConfirmation, 'etat'> = { reference: null, communeNom: null, envoyeLe: null, refusTaciteLe: null, forclusionLe: null, joursAvantForclusion: null, voie: null, dossiersDusNums: [], dossiersExclusRefusNonAcquis: 0, dejaLanceeLe: null };
   if (!l) return { etat: 'demande_absente', ...vide };
 
-  const socle = { reference: l.reference, communeNom: l.commune_nom, envoyeLe: l.envoye_le, dossiersDusNums: l.dossiers_dus_nums ?? [] };
+  const socle = { reference: l.reference, communeNom: l.commune_nom, envoyeLe: l.envoye_le, voie: null as VoieCada | null, dossiersDusNums: l.dossiers_dus_nums ?? [], dossiersExclusRefusNonAcquis: 0 };
   // Saisine déjà vivante (brouillon ou envoyée) → « déjà lancée » (avec la date si elle est partie). Prioritaire (anti-doublon visible).
   if (l.saisine_statut !== null) {
     return { etat: 'deja_lancee', ...socle, refusTaciteLe: null, forclusionLe: null, joursAvantForclusion: null, dejaLanceeLe: l.saisine_statut === 'envoyee' ? l.saisine_envoyee_le : null };
@@ -306,9 +344,13 @@ export async function chargerConfirmationCada(demandeId: number, deps: DepsConfi
   if (l.statut !== 'envoyee' || l.envoye_le === null) {
     return { etat: 'demande_hors_etat', ...socle, refusTaciteLe: null, forclusionLe: null, joursAvantForclusion: null, dejaLanceeLe: null };
   }
-  const f = fenetreCada(l.envoye_le, deps.maintenant());
-  const avecFenetre = { ...socle, refusTaciteLe: f.refusTaciteLe, forclusionLe: f.forclusionLe, joursAvantForclusion: f.joursAvantForclusion, dejaLanceeLe: null };
-  if (f.etat === 'pas_ouverte') return { etat: 'refus_non_acquis', ...avecFenetre };
+  // T1/Correction 1 — ancre effective (refus le plus précoce acquis) + voie ; Correction 3 — dus exclus car refus non acquis.
+  const { fenetre: f, voie } = fenetreCadaEffective(l.envoye_le, l.refus_expres ?? [], deps.maintenant());
+  const taciteAcquis = refusAcquis(l.envoye_le, null, deps.maintenant());
+  const exprAcquis = (l.refus_expres ?? []).filter((r) => r.getTime() <= deps.maintenant().getTime()).length;
+  const exclus = taciteAcquis ? 0 : Math.max(0, (l.dossiers_dus_nums ?? []).length - exprAcquis);
+  const avecFenetre = { ...socle, refusTaciteLe: f.refusTaciteLe, forclusionLe: f.forclusionLe, joursAvantForclusion: f.joursAvantForclusion, voie, dossiersExclusRefusNonAcquis: exclus, dejaLanceeLe: null };
+  if (f.etat === 'pas_ouverte' || voie === null) return { etat: 'refus_non_acquis', ...avecFenetre };
   if (f.etat === 'fermee') return { etat: 'forclose', ...avecFenetre };
   if ((l.dossiers_dus_nums ?? []).length === 0) return { etat: 'plus_de_dossier', ...avecFenetre };
   const fraiche = releveEstFraiche(await deps.derniereReleveOkLe(), deps.maintenant(), await deps.fraicheurHeures());

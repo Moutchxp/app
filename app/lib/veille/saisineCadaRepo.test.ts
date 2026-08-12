@@ -27,7 +27,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: withTransactionMock, pool: {}, closePool: async () => undefined }));
 
 import {
-  lireSaisinesEligibles, creerSaisineCada, marquerSaisineDeposee, enregistrerAvisSaisine, SENS_AVIS, chargerConfirmationCada, depsReellesSaisissables, SaisineCadaError,
+  lireSaisinesEligibles, creerSaisineCada, marquerSaisineDeposee, enregistrerAvisSaisine, SENS_AVIS, chargerConfirmationCada, depsReellesSaisissables, SaisineCadaError, AucunDossierAcquisError,
   type DepsSaisissables, type DepsCreerSaisine, type CandidatSaisine, type DepsConfirmation, type LigneConfirmationDB,
 } from './saisineCadaRepo';
 import { piecesDepuisConfig, type ConfigDemandeur, type Lot, type CandidatDossier } from '../sitadel/demande';
@@ -49,13 +49,13 @@ const LOT: Lot = { codeInsee: '92004', communeNom: 'Asnières-sur-Seine', canal:
 const PIECES = piecesDepuisConfig('PC2,PC3');
 const CONF_ENT: ConfigDemandeur = { raisonSociale: 'Criterimmo', formeJuridique: 'SARL', siegeAdresse: '191 avenue Charles de Gaulle 92200 Neuilly', representantNom: 'Arnaud JOREL', representantQualite: 'gérant', emailContact: 'a.jorel@sansvisavis.com', telephone: '' };
 
-const CAND = (over: Partial<CandidatSaisine> = {}): CandidatSaisine => ({ demandeId: 1, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise', envoyeLe: ENVOI, dossiersActifs: 2, dossiersDus: 1, ...over });
+const CAND = (over: Partial<CandidatSaisine> = {}): CandidatSaisine => ({ demandeId: 1, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise', envoyeLe: ENVOI, dossiersActifs: 2, dossiersDus: 1, refusExpres: [], ...over });
 function depsElig(over: Partial<DepsSaisissables> = {}): DepsSaisissables {
   return { lireCandidats: async () => [CAND()], derniereReleveOkLe: async () => RELEVE_FRAICHE, fraicheurHeures: async () => 48, maintenant: () => DANS_FENETRE, ...over };
 }
 function depsCreer(over: Partial<DepsCreerSaisine> = {}): DepsCreerSaisine {
   return {
-    lireMeta: async () => ({ statut: 'envoyee', reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise', envoyeLe: ENVOI, saisineVivante: false }),
+    lireMeta: async () => ({ statut: 'envoyee', reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise', envoyeLe: ENVOI, saisineVivante: false, dusRefus: [] }),
     chargerContexte: async () => ({ reglages: { echeanceAlerteJours: 7, releveFraicheurHeures: 48 }, profil: 'entreprise', config: CONF_ENT, pieces: PIECES, adresseReponse: 'a.jorel@sansvisavis.com' }),
     chargerLot: async () => ({ lot: LOT, satisfaitsIds: [] }),
     derniereReleveOkLe: async () => RELEVE_FRAICHE,
@@ -96,6 +96,23 @@ describe('X2 — lireSaisinesEligibles : fenêtre + sincérité (relève fraîch
     expect(r.saisissables).toHaveLength(0);
     expect(r.indeterminees).toHaveLength(0);
   });
+
+  it('T1 — un REFUS EXPRÈS rend la demande saisissable AVANT l’échéance tacite (ancre effective), voie=refus_expres + exclus comptés', async () => {
+    // envoi 1er mai (tacite = 1er juin, FUTUR au 10 mai) → sans refus exprès : PAS ouverte.
+    const cand: CandidatSaisine = { demandeId: 1, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise',
+      envoyeLe: new Date('2026-05-01T10:00:00Z'), dossiersActifs: 2, dossiersDus: 2, refusExpres: [] };
+    const sansRefus = await lireSaisinesEligibles(depsElig({ lireCandidats: async () => [cand] }));
+    expect(sansRefus.saisissables).toHaveLength(0); // tacite pas acquis, aucun refus exprès → écartée
+    expect(sansRefus.indeterminees).toHaveLength(0);
+
+    // avec 1 refus exprès notifié le 5 mai (acquis au 10 mai) : la fenêtre s'ouvre immédiatement.
+    const avecRefus = await lireSaisinesEligibles(depsElig({ lireCandidats: async () => [{ ...cand, refusExpres: [new Date('2026-05-05T00:00:00Z')] }] }));
+    expect(avecRefus.saisissables).toHaveLength(1);
+    const d = avecRefus.saisissables[0];
+    expect(d.voie).toBe('refus_expres');                       // voie distincte du refus tacite
+    expect(d.forclusionLe.toISOString()).toBe('2026-07-05T00:00:00.000Z'); // refus exprès (5 mai) + 2 mois
+    expect(d.dossiersExclusRefusNonAcquis).toBe(1);            // 2 dus, 1 seul refusé exprès → 1 exclu (refus pas encore acquis)
+  });
 });
 
 describe('X2 — depsReellesSaisissables : SQL des candidats (fragments sémantiques)', () => {
@@ -129,13 +146,40 @@ describe('X2 — creerSaisineCada : garde-fous + création brouillon + 23505', (
     expect(jrn.params[0]).toBe(42);
   });
 
+  it('T1/Correction 3 — corps limité aux dossiers dont le refus est ACQUIS ; un dus « en silence » est EXCLU (jamais muet)', async () => {
+    const D2: CandidatDossier = { ...DOSSIER, dossierId: 2, numDau: 'PC0920042500002' };
+    const deps = depsCreer({
+      // envoi 1er mai (tacite 1er juin, FUTUR au 10 mai) ; dossier 1 refusé exprès le 5 mai (acquis), dossier 2 encore en silence.
+      lireMeta: async () => ({ statut: 'envoyee', reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise',
+        envoyeLe: new Date('2026-05-01T10:00:00Z'), saisineVivante: false, dusRefus: [{ dossierId: 1, refusLe: new Date('2026-05-05T00:00:00Z') }] }),
+      chargerLot: async () => ({ lot: { ...LOT, dossiers: [DOSSIER, D2] }, satisfaitsIds: [] }),
+      maintenant: () => new Date('2026-05-10T12:00:00Z'),
+    });
+    await creerSaisineCada(42, 'admin', deps);
+    const corps = (trouver(/INSERT INTO demande_relance/i)!.params as [number, string, string])[2];
+    expect(corps).toContain('PC0920042500001');     // dossier 1 (refus exprès acquis) → DANS le corps
+    expect(corps).not.toContain('PC0920042500002'); // dossier 2 (refus pas encore acquis) → EXCLU
+  });
+
+  it('T1 — fenêtre ouverte mais AUCUN dossier dus acquis → AucunDossierAcquisError (jamais une saisine prématurée)', async () => {
+    const deps = depsCreer({
+      // la fenêtre s'ouvre via un refus exprès (dossier 99) mais le lot ne porte qu'un dossier NON acquis → rien à réclamer.
+      lireMeta: async () => ({ statut: 'envoyee', reference: 'R', communeNom: 'X', profil: 'entreprise',
+        envoyeLe: new Date('2026-05-01T10:00:00Z'), saisineVivante: false, dusRefus: [{ dossierId: 99, refusLe: new Date('2026-05-05T00:00:00Z') }] }),
+      chargerLot: async () => ({ lot: { ...LOT, dossiers: [DOSSIER] }, satisfaitsIds: [] }),
+      maintenant: () => new Date('2026-05-10T12:00:00Z'),
+    });
+    await expect(creerSaisineCada(42, 'admin', deps)).rejects.toBeInstanceOf(AucunDossierAcquisError);
+    expect(trouver(/INSERT INTO demande_relance/i)).toBeUndefined();
+  });
+
   it('demande non « envoyee » → refus métier, aucune insertion', async () => {
-    await expect(creerSaisineCada(42, 'admin', depsCreer({ lireMeta: async () => ({ statut: 'close', reference: 'R', communeNom: 'X', profil: 'entreprise', envoyeLe: ENVOI, saisineVivante: false }) }))).rejects.toBeInstanceOf(SaisineCadaError);
+    await expect(creerSaisineCada(42, 'admin', depsCreer({ lireMeta: async () => ({ statut: 'close', reference: 'R', communeNom: 'X', profil: 'entreprise', envoyeLe: ENVOI, saisineVivante: false, dusRefus: [] }) }))).rejects.toBeInstanceOf(SaisineCadaError);
     expect(trouver(/INSERT INTO demande_relance/i)).toBeUndefined();
   });
 
   it('saisine déjà vivante (pré-contrôle) → refus « déjà en cours »', async () => {
-    await expect(creerSaisineCada(42, 'admin', depsCreer({ lireMeta: async () => ({ statut: 'envoyee', reference: 'R', communeNom: 'X', profil: 'entreprise', envoyeLe: ENVOI, saisineVivante: true }) }))).rejects.toThrow(/déjà en cours/i);
+    await expect(creerSaisineCada(42, 'admin', depsCreer({ lireMeta: async () => ({ statut: 'envoyee', reference: 'R', communeNom: 'X', profil: 'entreprise', envoyeLe: ENVOI, saisineVivante: true, dusRefus: [] }) }))).rejects.toThrow(/déjà en cours/i);
   });
 
   it('avant refus tacite → refus ; après forclusion → refus', async () => {
@@ -221,7 +265,7 @@ describe('X5 — chargerConfirmationCada : classification des états (miroir des
   const AVANT_REFUS = new Date('2026-03-20T12:00:00Z'); // avant le 14 avr → refus non acquis
   const LIGNE = (over: Partial<LigneConfirmationDB> = {}): LigneConfirmationDB => ({
     statut: 'envoyee', reference: 'SVAV-DEM-2026-000042', commune_nom: 'Asnières-sur-Seine', envoye_le: ENVOI,
-    dossiers_dus_nums: ['DAU-1'], saisine_statut: null, saisine_envoyee_le: null, ...over,
+    dossiers_dus_nums: ['DAU-1'], refus_expres: [], saisine_statut: null, saisine_envoyee_le: null, ...over,
   });
   function depsConf(over: Partial<DepsConfirmation> = {}): DepsConfirmation {
     return {

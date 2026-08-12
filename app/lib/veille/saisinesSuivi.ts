@@ -9,6 +9,7 @@
 import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { lireSaisinesEligibles, type SaisiesEligibles, type DemandeSaisissable } from './saisineCadaRepo';
+import type { VoieCada } from './echeance';
 
 /** Raison EN CLAIR d'une demande indéterminée : silence non vérifié (relève pas assez fraîche) → pas de saisine possible. */
 export const RAISON_INDETERMINEE =
@@ -23,7 +24,9 @@ export interface SaisissableAffichee {
   refusTaciteLe: string | null;
   forclusionLe: string | null;
   joursAvantForclusion: number;
+  voie: VoieCada;                       // T1 : voie d'entrée CADA (refus_expres | refus_tacite) — affichée distinctement
   dossiersDus: number;
+  dossiersExclusRefusNonAcquis: number; // T1/Correction 3 : dossiers dus NON inclus au corps (refus pas encore acquis)
 }
 /** Une demande INDÉTERMINÉE : mêmes faits + la RAISON en clair. Pas de bouton (silence non vérifié). */
 export interface IndetermineeAffichee extends SaisissableAffichee {
@@ -125,7 +128,8 @@ function versAffichee(d: DemandeSaisissable): SaisissableAffichee {
   return {
     demandeId: d.demandeId, reference: d.reference, communeNom: d.communeNom,
     envoyeLe: iso(d.envoyeLe), refusTaciteLe: iso(d.refusTaciteLe), forclusionLe: iso(d.forclusionLe),
-    joursAvantForclusion: d.joursAvantForclusion, dossiersDus: d.dossiersDus,
+    joursAvantForclusion: d.joursAvantForclusion, voie: d.voie, dossiersDus: d.dossiersDus,
+    dossiersExclusRefusNonAcquis: d.dossiersExclusRefusNonAcquis,
   };
 }
 

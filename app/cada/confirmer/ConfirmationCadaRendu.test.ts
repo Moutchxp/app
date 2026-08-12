@@ -14,7 +14,7 @@ const BOUTON = createElement('button', { type: 'button' }, 'BOUTON-ACTE-CADA');
 const CTX = (over: Partial<ContexteConfirmation> = {}): ContexteConfirmation => ({
   etat: 'saisissable', reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine',
   envoyeLe: new Date('2026-03-14T10:00:00Z'), refusTaciteLe: new Date('2026-04-14T10:00:00Z'), forclusionLe: new Date('2026-06-14T10:00:00Z'),
-  joursAvantForclusion: 30, dossiersDusNums: ['DAU-092-2025-0001', 'DAU-092-2025-0002'], dejaLanceeLe: null, ...over,
+  joursAvantForclusion: 30, voie: 'refus_tacite', dossiersDusNums: ['DAU-092-2025-0001', 'DAU-092-2025-0002'], dossiersExclusRefusNonAcquis: 0, dejaLanceeLe: null, ...over,
 });
 
 const rendu = (etat: EtatPageCada, ctx?: ContexteConfirmation | null) =>

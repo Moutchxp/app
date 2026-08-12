@@ -21,7 +21,7 @@ const h = (el: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMark
 const SAIS = (over: Partial<SaisissableAffichee> = {}): SaisissableAffichee => ({
   demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine',
   envoyeLe: '2026-03-14T10:00:00Z', refusTaciteLe: '2026-04-14T10:00:00Z', forclusionLe: '2026-06-14T10:00:00Z',
-  joursAvantForclusion: 30, dossiersDus: 2, ...over,
+  joursAvantForclusion: 30, voie: 'refus_tacite', dossiersDus: 2, dossiersExclusRefusNonAcquis: 0, ...over,
 });
 const INDET = (over: Partial<IndetermineeAffichee> = {}): IndetermineeAffichee => ({ ...SAIS(), raison: RAISON_INDETERMINEE, ...over });
 const COURS = (over: Partial<SaisineEnCours> = {}): SaisineEnCours => ({ saisineId: 7, demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', envoyeeLe: '2026-05-10T09:00:00Z', ...over });

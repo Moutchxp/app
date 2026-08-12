@@ -9,7 +9,7 @@ import type { DemandeSaisissable, SaisiesEligibles } from './saisineCadaRepo';
 const SAIS = (over: Partial<DemandeSaisissable> = {}): DemandeSaisissable => ({
   demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise',
   envoyeLe: new Date('2026-03-14T10:00:00Z'), refusTaciteLe: new Date('2026-04-14T10:00:00Z'), forclusionLe: new Date('2026-06-14T10:00:00Z'),
-  joursAvantForclusion: 30, dossiersActifs: 3, dossiersDus: 2, ...over,
+  joursAvantForclusion: 30, dossiersActifs: 3, dossiersDus: 2, voie: 'refus_tacite', dossiersExclusRefusNonAcquis: 0, ...over,
 });
 const LIGNE = (over: Partial<LigneSaisineDB> = {}): LigneSaisineDB => ({
   saisine_id: 1, demande_id: 42, reference: 'SVAV-DEM-2026-000042', commune_nom: 'Asnières-sur-Seine',
