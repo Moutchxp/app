@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
-import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, CHOIX_STATUT_DEFAUT } from '../../../../lib/sitadel/demandesListe';
-import { OrigineDest, MessageRetour, repartirRetour, FiltreTypes, TableDemandes, MentionMasquage, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
+import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, CHOIX_STATUT_DEFAUT } from '../../../../lib/sitadel/demandesListe';
+import { OrigineDest, MessageRetour, repartirRetour, FiltreTypes, TableDemandes, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 
 /**
  * Q6 — tableau des demandes d'UN PÉRIMÈTRE (partagé par « À demander » et « En cours »). Le périmètre est un pré-filtre DUR par
@@ -83,7 +83,13 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
   // (défaut = VIVANTS). `filtrerDemandes` ne refiltre PAS le statut (déjà fait ici) : profil / commune / type / référence seulement.
   const dansP = useMemo(() => dansPerimetre(liste?.demandes ?? [], perimetre), [liste, perimetre]);
   const statutsVus = useMemo(() => new Set(statutsAffiches(perimetre, choixStatut)), [perimetre, choixStatut]);
-  const dansVue = useMemo(() => dansP.filter((d) => statutsVus.has(d.statut)), [dansP, statutsVus]);
+  const dansVueStatut = useMemo(() => dansP.filter((d) => statutsVus.has(d.statut)), [dansP, statutsVus]);
+  // T2-C — « En cours » applique la règle du commit A de Réponses : une demande sans AUCUN dossier dû (actif ET non satisfait)
+  //   sort de la liste PAR DÉFAUT. Choisir un statut explicite (≠ défaut) désactive ce masquage → elle reste accessible via le
+  //   filtre Statut existant. `À demander` n'est PAS concerné (ses brouillons/prêtes n'ont pas de dossiers retirés/satisfaits).
+  const masquerSoldees = perimetre === 'en_cours' && choixStatut === CHOIX_STATUT_DEFAUT;
+  const partDus = useMemo(() => partitionnerParDus(dansVueStatut), [dansVueStatut]);
+  const dansVue = masquerSoldees ? partDus.vivantes : dansVueStatut;
   const filtrees = useMemo(
     () => trierDemandes(filtrerDemandes(dansVue, { statut: '', profil: fProfil, commune: fCommune, types: [...fTypes], reference: fReference }), tri),
     [dansVue, fCommune, fProfil, fTypes, fReference, tri],
@@ -98,7 +104,10 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     () => statutsMorts(perimetre).map((s) => ({ statut: s, n: dansP.filter((d) => d.statut === s).length })),
     [perimetre, dansP],
   );
-  const morts = choixStatut === CHOIX_STATUT_DEFAUT ? mortsDetail : [];
+  // T2-C — le masquage « 0 dossier dû » (En cours) n'est JAMAIS silencieux : les demandes soldées / sans dossier actif écartées
+  //   par le défaut sont annoncées dans la MÊME mention (MentionMasquage de Q6b, « les afficher » = bascule sur « Toutes »).
+  const mortsSoldees = masquerSoldees ? [{ statut: 'soldée', n: partDus.soldees.length }, { statut: 'sans dossier actif', n: partDus.sansDossier.length }] : [];
+  const morts = choixStatut === CHOIX_STATUT_DEFAUT ? [...mortsDetail, ...mortsSoldees] : [];
 
   const nbPages = Math.max(1, Math.ceil(filtrees.length / PAGE_SIZE));
   const pageCourante = Math.min(page, nbPages);
@@ -230,7 +239,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
           </div>
           <textarea value={corps} onChange={(e) => setCorps(e.target.value)} rows={16} readOnly={detail.statut !== 'brouillon'}
             style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }} />
-          <div><span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Dossiers ({detail.dossiers.length}) : </span><span style={{ fontSize: 12 }}>{detail.dossiers.map((x) => x.numDau).join(', ')}</span></div>
+          <BlocDossiersDetail dossiers={detail.dossiers} retires={detail.dossiersRetires} />
           <div style={{ fontSize: 12 }}>
             <span style={{ color: 'var(--color-svv-muted)' }}>Références mairie : </span>
             {detail.referencesMairieIndisponible

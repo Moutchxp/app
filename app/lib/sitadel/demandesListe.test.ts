@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   basculerTri, filtrerDemandes, trierDemandes, OPTIONS_TRI, cleTri, triDepuisCle, SENS_DEFAUT, typeDemande, normaliserReference,
   dansPerimetre, statutsDuPerimetre, STATUTS_A_DEMANDER, STATUTS_EN_COURS,
-  statutsVivants, statutsMorts, statutsAffiches, CHOIX_STATUT_DEFAUT,
+  statutsVivants, statutsMorts, statutsAffiches, CHOIX_STATUT_DEFAUT, partitionnerParDus,
   type Tri, type LigneDemande,
 } from './demandesListe';
 
@@ -13,6 +13,28 @@ import {
 const D = (over: Partial<LigneDemande> = {}): LigneDemande => ({
   id: 1, reference: 'SVAV-DEM-2026-000001', communeNom: 'Asnières', codeInsee: '92004',
   nbDossiers: 3, statut: 'brouillon', profil: 'entreprise', creeLe: '2026-01-01T00:00:00', rangs: [3], ...over,
+});
+
+describe('T2-C — partitionnerParDus : « En cours » masque les demandes sans dossier dû (comme Réponses)', () => {
+  it('≥ 1 dossier dû → vivante (reste visible) ; ex. 4 attachés dont 1 dû', () => {
+    const { vivantes, soldees, sansDossier } = partitionnerParDus([D({ id: 1, nbDossiers: 4, dossiersDus: 1 })]);
+    expect(vivantes.map((d) => d.id)).toEqual([1]);
+    expect(soldees).toHaveLength(0); expect(sansDossier).toHaveLength(0);
+  });
+  it('des dossiers attachés, tous obtenus (0 dû) → soldée (masquée)', () => {
+    const { vivantes, soldees } = partitionnerParDus([D({ id: 2, nbDossiers: 1, dossiersDus: 0 })]);
+    expect(vivantes).toHaveLength(0);
+    expect(soldees.map((d) => d.id)).toEqual([2]);
+  });
+  it('plus aucun dossier attaché (tous retirés) → sans dossier actif (masquée)', () => {
+    const { soldees, sansDossier } = partitionnerParDus([D({ id: 3, nbDossiers: 0, dossiersDus: 0 })]);
+    expect(soldees).toHaveLength(0);
+    expect(sansDossier.map((d) => d.id)).toEqual([3]);
+  });
+  it('repli SÛR : dossiersDus absent → tout dû → jamais masqué à tort', () => {
+    const { vivantes } = partitionnerParDus([D({ id: 4, nbDossiers: 2, dossiersDus: undefined })]);
+    expect(vivantes.map((d) => d.id)).toEqual([4]);
+  });
 });
 
 describe('D2 — tri : « Plus ancien » est l’inverse EXACT de « Plus récentes »', () => {

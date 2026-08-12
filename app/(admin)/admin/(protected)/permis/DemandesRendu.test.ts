@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 import type { LigneStock } from '../../../../lib/sitadel/stock';
@@ -508,6 +508,29 @@ describe('Q7 — STATUT_LIBELLE : « annulée » + lisibilité des lignes de jou
     // Une ligne de journal écrite avant Q7 porte encore 'abandonnee' : son affichage doit rester lisible.
     expect(STATUT_LIBELLE.abandonnee).toBe('annulée (ex-abandonnée)');
     expect(STATUT_LIBELLE.abandonnee).not.toBe('abandonnee'); // jamais le token brut à l’écran
+  });
+});
+
+describe('T2-C — BlocDossiersDetail : compte les attachés, liste les retirés à part (jamais une disparition muette)', () => {
+  const rendu = (dossiers: { numDau: string }[], retires: { numDau: string }[]) =>
+    renderToStaticMarkup(createElement(BlocDossiersDetail, { dossiers, retires }));
+
+  it('4 dossiers dont 3 retirés → « Dossiers (1) » + les 3 retirés sous leur étiquette, jamais comptés avec', () => {
+    const h = rendu([{ numDau: 'PC-A' }], [{ numDau: 'PC-B' }, { numDau: 'PC-C' }, { numDau: 'PC-D' }]);
+    expect(h).toContain('Dossiers (1)');                       // compte = attachés uniquement
+    expect(h).toContain('PC-A');
+    expect(h).toContain('3 dossiers retirés de la demande');   // étiquette distincte + décompte
+    expect(h).toContain('PC-B, PC-C, PC-D');                   // les retirés restent LISTÉS
+  });
+
+  it('un seul retiré → « 1 dossier retiré de la demande » (singulier)', () => {
+    expect(rendu([{ numDau: 'PC-A' }], [{ numDau: 'PC-Z' }])).toContain('1 dossier retiré de la demande');
+  });
+
+  it('demande SANS retrait → rendue exactement comme avant (une ligne « Dossiers (N) », aucune étiquette de retrait)', () => {
+    const h = rendu([{ numDau: 'PC-A' }, { numDau: 'PC-B' }], []);
+    expect(h).toBe('<div><span style="font-size:12px;color:var(--color-svv-muted)">Dossiers (2) : </span><span style="font-size:12px">PC-A, PC-B</span></div>');
+    expect(h).not.toContain('retiré');
   });
 });
 

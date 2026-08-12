@@ -11,7 +11,7 @@ const { appels, queryMock } = vi.hoisted(() => {
     appels.push({ sql, params: params ?? [] });
     if (sql.includes('config_veille')) return { rows: [] };                                  // → chargerConfigVeille repli défauts
     if (sql.includes('array_agg(DISTINCT')) return { rows: [{ demande_id: 1, rangs: [1, 4] }] };
-    if (sql.includes('FROM demande d LEFT JOIN commune')) return { rows: [{ id: 1, reference: 'SVAV-DEM-2026-000001', code_insee: '92004', commune_nom: 'Asnières', dest_canal: 'email', dest_origine: 'mairie_contact', dest_nom: null, nb: 2, statut: 'prete', profil_demandeur: 'entreprise', cree_le: '2026-01-01' }] };
+    if (sql.includes('FROM demande d LEFT JOIN commune')) return { rows: [{ id: 1, reference: 'SVAV-DEM-2026-000001', code_insee: '92004', commune_nom: 'Asnières', dest_canal: 'email', dest_origine: 'mairie_contact', dest_nom: null, nb: 2, dossiers_dus: 2, statut: 'prete', profil_demandeur: 'entreprise', cree_le: '2026-01-01' }] };
     if (sql.includes('GROUP BY statut')) return { rows: [{ statut: 'prete', n: 1 }] };
     if (sql.includes('count(DISTINCT dossier_id)')) return { rows: [{ n: 2 }] };
     return { rows: [] };
@@ -38,6 +38,17 @@ describe('D2 — listerDemandes : enrichissement rangs, chemin candidats intact'
   it('rattache les rangs à la demande', async () => {
     const { demandes } = await listerDemandes();
     expect(demandes[0].rangs).toEqual([1, 4]);
+  });
+
+  it('T2-C — le compte de dossiers ne compte QUE les attachés (dd.actif) ; expose aussi les dus (actif ET non satisfait)', async () => {
+    const { demandes } = await listerDemandes();
+    const q = appels.find((a) => a.sql.includes('FROM demande d LEFT JOIN commune'));
+    const norm = q!.sql.replace(/\s+/g, ' ');
+    // nb (colonne Dossiers + en-tête) = dossiers ATTACHÉS : un dossier retiré (actif=false) n'est jamais compté comme couvert.
+    expect(norm).toContain('count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif) AS nb');
+    // dossiers_dus = attachés ET non satisfaits → sert au masquage « En cours » des demandes à 0 dû.
+    expect(norm).toContain('dd.actif AND dd.satisfait_le IS NULL) AS dossiers_dus');
+    expect(demandes[0].dossiersDus).toBe(2); // remonté sur la ligne de liste
   });
 
   it('NE réutilise PAS le tri des candidats (aucune requête liste ne porte l’ordre secondaire candidats)', async () => {

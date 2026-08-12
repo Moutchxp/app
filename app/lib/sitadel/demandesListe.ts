@@ -42,7 +42,27 @@ export function triDepuisCle(valeur: string): Tri {
 export interface LigneDemande {
   id: number; reference: string; communeNom: string | null; codeInsee: string;
   nbDossiers: number; statut: string; profil: string; creeLe: string; rangs?: number[];
+  dossiersDus?: number;          // T2-C : dossiers encore dûs (actif ET non satisfaits) — pour le masquage « En cours »
   referencesExternes?: string[]; // P1 — références de la mairie, pour la recherche par référence
+}
+
+/**
+ * T2-C — répartit des demandes par présence de dossier DÛ, comme au commit A de « Réponses » mais pour « En cours ». `nbDossiers`
+ * = dossiers ATTACHÉS (actif) ; `dossiersDus` = attachés ET non satisfaits. PUR → testable sans I/O.
+ *  - vivantes : ≥ 1 dossier dû → restent listées ;
+ *  - soldees : des dossiers attachés, tous obtenus (0 dû) → masquées par défaut ;
+ *  - sansDossier : plus aucun dossier attaché (tous retirés) → masquées.
+ * Repli SÛR : `dossiersDus` absent → on suppose tout dû (jamais masquer par méconnaissance).
+ */
+export function partitionnerParDus<T extends { nbDossiers: number; dossiersDus?: number }>(demandes: T[]): { vivantes: T[]; soldees: T[]; sansDossier: T[] } {
+  const vivantes: T[] = [], soldees: T[] = [], sansDossier: T[] = [];
+  for (const d of demandes) {
+    const dus = d.dossiersDus ?? d.nbDossiers; // repli sûr : sans info de dus → tout dû → jamais masqué à tort
+    if (dus > 0) vivantes.push(d);
+    else if (d.nbDossiers > 0) soldees.push(d); // tout obtenu
+    else sansDossier.push(d);                    // 0 dossier attaché (tous retirés)
+  }
+  return { vivantes, soldees, sansDossier };
 }
 
 export interface FiltreDemandes {

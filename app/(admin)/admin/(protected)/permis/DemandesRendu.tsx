@@ -372,6 +372,26 @@ export const STATUT_LIBELLE: Record<string, string> = { brouillon: 'brouillon', 
  * ne cache AUCUN permis — ses dossiers sont déjà revenus au stock (demande_dossier.actif=false) et sont proposables ; la ligne
  * n'est qu'une trace.
  */
+/**
+ * T2-C — bloc « Dossiers » du DÉTAIL d'une demande. Le COMPTE (« Dossiers (N) ») ne porte que sur les dossiers ATTACHÉS. Les
+ * dossiers RETIRÉS (actif=false) ne disparaissent PAS : ils restent listés sous une étiquette DISTINCTE (« N dossier(s) retiré(s)
+ * de la demande »), jamais mêlés aux attachés ni comptés avec eux — le retrait est une correction traçable, pas un oubli muet.
+ * Sans retrait, le rendu est EXACTEMENT celui d'avant (une seule ligne, fragment sans wrapper). PUR.
+ */
+export function BlocDossiersDetail({ dossiers, retires }: { dossiers: { numDau: string }[]; retires: { numDau: string }[] }) {
+  return (
+    <>
+      <div><span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Dossiers ({dossiers.length}) : </span><span style={{ fontSize: 12 }}>{dossiers.map((x) => x.numDau).join(', ')}</span></div>
+      {retires.length > 0 && (
+        <div role="note" style={{ marginTop: '.2rem' }}>
+          <span style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{retires.length} dossier{retires.length > 1 ? 's' : ''} retiré{retires.length > 1 ? 's' : ''} de la demande : </span>
+          <span style={{ fontSize: 12, color: 'var(--color-svv-muted)', textDecoration: 'line-through' }}>{retires.map((x) => x.numDau).join(', ')}</span>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function MentionMasquage({ morts, onAfficherTout }: {
   morts: { statut: string; n: number }[];
   onAfficherTout?: () => void;

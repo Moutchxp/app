@@ -516,6 +516,8 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
 }
 
 export interface DemandeListe { id: number; reference: string; codeInsee: string; communeNom: string | null; canal: string | null; destOrigine: string; destNom: string | null; nbDossiers: number; statut: string; profil: string; creeLe: string;
+  /** T2-C — dossiers encore DÛS (actif ET non satisfaits) de la demande. Optionnel : présent sur la LISTE, omis sur le détail (comme rangs). Sert au masquage « En cours » des demandes à 0 dû (soldées / sans dossier actif). */
+  dossiersDus?: number;
   /** D2 — rangs de catégorie DISTINCTS des dossiers de la demande (via classement config), pour le filtre par type. Optionnel : présent sur la LISTE, omis sur le détail. */
   rangs?: number[];
   /** P1 — références internes de la mairie (dépôt manuel), pour la RECHERCHE côté client. Optionnel : présent sur la LISTE. */
@@ -550,11 +552,14 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
     FROM demande_dossier dd JOIN sitadel_dossier d ON d.id = dd.dossier_id GROUP BY dd.demande_id`;
   let referencesIndisponibles = false; // P2 — vrai si la lecture des références échoue (à l'écran : « indisponibles » ≠ « aucune »)
   const [r, rs, rd, rr, rx] = await Promise.all([
-    query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; dest_canal: string | null; dest_origine: string; dest_nom: string | null; nb: number; statut: string; profil_demandeur: string; cree_le: string }>(
+    query<{ id: number; reference: string; code_insee: string; commune_nom: string | null; dest_canal: string | null; dest_origine: string; dest_nom: string | null; nb: number; dossiers_dus: number; statut: string; profil_demandeur: string; cree_le: string }>(
       // d.id::int : `demande.id` est un bigint que node-postgres rend en CHAÎNE ; sans cast, l'id renvoyé au client est une
       // string et la PATCH groupée (filtre Number.isInteger) l'écarte en silence → boutons « prête »/« annuler » inertes.
+      // T2-C : `nb` = dossiers ATTACHÉS (dd.actif) — un dossier RETIRÉ (actif=false) n'est plus couvert par la demande, jamais
+      //   compté (colonne Dossiers + en-tête). `dossiers_dus` = attachés ET non satisfaits → « En cours » masque les 0-dû.
       `SELECT d.id::int AS id, d.reference, d.code_insee, c.nom AS commune_nom, d.dest_canal, d.dest_origine, d.dest_nom, d.statut, d.profil_demandeur, d.cree_le::text AS cree_le,
-              (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id) AS nb
+              (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif) AS nb,
+              (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL) AS dossiers_dus
        FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee ORDER BY d.cree_le DESC`),
     query<{ statut: string; n: number }>(`SELECT statut, count(*)::int AS n FROM demande GROUP BY statut`),
     query<{ n: number }>(`SELECT count(DISTINCT dossier_id)::int AS n FROM demande_dossier`),
@@ -580,7 +585,7 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
   }
 
   return {
-    demandes: r.rows.map((x) => ({ id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal, destOrigine: x.dest_origine, destNom: x.dest_nom, nbDossiers: x.nb, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le, rangs: rangsParDemande.get(x.id) ?? [], referencesExternes: refsParDemande.get(x.id) ?? [] })),
+    demandes: r.rows.map((x) => ({ id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal, destOrigine: x.dest_origine, destNom: x.dest_nom, nbDossiers: x.nb, dossiersDus: x.dossiers_dus, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le, rangs: rangsParDemande.get(x.id) ?? [], referencesExternes: refsParDemande.get(x.id) ?? [] })),
     alertesIdentite,
     resume: { parStatut, total: r.rows.length, dossiersCouverts: rd.rows[0]?.n ?? 0 },
     referencesIndisponibles,
@@ -591,6 +596,8 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
 export interface ReferenceExterne { id: number; reference: string; dossierId: number | null; source: string | null; recuLe: string | null; creeLe: string }
 
 export interface DemandeDetail extends DemandeListe { objet: string | null; corps: string | null; destEmail: string | null; destUrlFormulaire: string | null; destAdressePostale: string | null; dossiers: { numDau: string; date: string | null }[];
+  /** T2-C — dossiers RETIRÉS de la demande (actif=false) : listés À PART, jamais mêlés aux attachés ni comptés (nbDossiers = attachés). Le retrait est une correction TRAÇABLE, pas une disparition muette. */
+  dossiersRetires: { numDau: string; date: string | null }[];
   /** P1 — références de la mairie (détail complet : source, dates), pour AFFICHAGE et ajout après coup. */
   referencesMairie: ReferenceExterne[];
   /** P2 — vrai si la LECTURE des références a échoué : « indisponibles » à l'écran, DISTINCT d'une liste vide (« aucune »). */
@@ -605,9 +612,15 @@ export async function lireDemande(id: number): Promise<DemandeDetail | null> {
   );
   const x = r.rows[0];
   if (!x) return null;
-  const doss = await query<{ num_dau: string; date: string | null }>(
-    `SELECT s.num_dau, s.date_reelle_autorisation::text AS date FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id WHERE dd.demande_id = $1 ORDER BY s.num_dau`, [id],
+  // T2-C : on LIT dd.actif pour SCINDER attachés / retirés — on ne filtre PAS (un retrait doit rester visible au détail, jamais
+  //   une disparition muette). Attachés d'abord (actif DESC), puis num_dau.
+  const doss = await query<{ num_dau: string; date: string | null; actif: boolean }>(
+    `SELECT s.num_dau, s.date_reelle_autorisation::text AS date, dd.actif
+       FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
+      WHERE dd.demande_id = $1 ORDER BY dd.actif DESC, s.num_dau`, [id],
   );
+  const attaches = doss.rows.filter((d) => d.actif);   // couverts par la demande → comptés
+  const retires = doss.rows.filter((d) => !d.actif);   // retirés → listés à part, jamais comptés
   // P1 — références mairie de la demande (détail). P2 — un échec est JOURNALISÉ et marqué « indisponible » (jamais muet),
   // sans propager (le reste du détail reste affiché — donnée secondaire).
   let referencesMairieIndisponible = false;
@@ -618,9 +631,10 @@ export async function lireDemande(id: number): Promise<DemandeDetail | null> {
   return {
     id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal,
     destOrigine: x.dest_origine, destNom: x.dest_nom,
-    nbDossiers: doss.rows.length, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le, objet: x.objet, corps: x.corps,
+    nbDossiers: attaches.length, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le, objet: x.objet, corps: x.corps,
     destEmail: x.dest_email, destUrlFormulaire: x.dest_url_formulaire, destAdressePostale: x.dest_adresse_postale,
-    dossiers: doss.rows.map((d) => ({ numDau: d.num_dau, date: d.date })),
+    dossiers: attaches.map((d) => ({ numDau: d.num_dau, date: d.date })),
+    dossiersRetires: retires.map((d) => ({ numDau: d.num_dau, date: d.date })),
     referencesMairie: refs.rows.map((d) => ({ id: d.id, reference: d.reference, dossierId: d.dossier_id, source: d.source, recuLe: d.recu_le, creeLe: d.cree_le })),
     referencesMairieIndisponible,
   };
