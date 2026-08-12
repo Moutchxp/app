@@ -7,7 +7,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  */
 const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
-  const etat = { rows: [] as unknown[], rowCount: 1, conflit: false };
+  // T1 : `tous` pilote le bool_and de synchroniserTraiteeDemande ; `conflitActif` pilote la sonde de conflit du ré-attachement.
+  const etat = { rows: [] as unknown[], rowCount: 1, conflit: false, tous: undefined as boolean | undefined, conflitActif: false };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
     return { rows: etat.rows, rowCount: etat.rowCount };
@@ -17,6 +18,10 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
       appels.push({ sql, params: params ?? [] });
       // ON CONFLICT DO NOTHING : conflit → 0 ligne renvoyée (message déjà connu).
       if (/RETURNING id/i.test(sql)) return etat.conflit ? { rows: [], rowCount: 0 } : { rows: [{ id: 4242 }], rowCount: 1 };
+      // T1 — synchroniserTraiteeDemande : bool_and des dossiers statués (undefined → aucune ligne, comme une demande vidée).
+      if (/bool_and/i.test(sql)) return { rows: etat.tous === undefined ? [] : [{ tous: etat.tous }], rowCount: 1 };
+      // T1 — sonde de conflit du ré-attachement (dossier déjà actif sur une AUTRE demande).
+      if (/AND actif AND demande_id <> \$2/i.test(sql)) return { rows: etat.conflitActif ? [{ demande_id: 999 }] : [], rowCount: etat.conflitActif ? 1 : 0 };
       // Les autres requêtes transactionnelles honorent etat.rowCount (permet de tester l'idempotence : 0 ligne → pas de journal).
       return { rows: [], rowCount: etat.rowCount };
     };
@@ -35,6 +40,7 @@ vi.mock('../db/client', () => ({
 import {
   enregistrerReponse, listerReponses, rattacherAMain, marquerTraitee, deposerEtLierPieces,
   marquerDossierSatisfait, demarquerDossier, statutDemande, lireClePiece,
+  marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
   type ReponseEntrante, type PieceAvecContenu,
 } from './demandeReponseRepo';
 import type { ResultatDepotEntrant } from '../stockage';
@@ -42,7 +48,88 @@ import type { ResultatDepotEntrant } from '../stockage';
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 const trouver = (fragment: RegExp) => appels.find((a) => fragment.test(a.sql));
 
-beforeEach(() => { appels.length = 0; etat.rows = []; etat.rowCount = 1; etat.conflit = false; });
+beforeEach(() => { appels.length = 0; etat.rows = []; etat.rowCount = 1; etat.conflit = false; etat.tous = undefined; etat.conflitActif = false; });
+
+describe('T1 — statuer un dossier ligne par ligne', () => {
+  it('« non fourni » : triage=non_fourni, garde actif/non reçu/non trié, journalisé, reste dû (aucun satisfait_le posé)', async () => {
+    const ok = await marquerDossierNonFourni(119, 7, 'admin');
+    expect(ok).toBe(true);
+    const upd = trouver(/UPDATE demande_dossier SET triage = 'non_fourni'/i)!;
+    expect(upd).toBeDefined();
+    const s = norm(upd.sql);
+    expect(s).toContain('actif AND satisfait_le IS NULL AND triage IS NULL'); // garde : jamais un reçu, jamais un re-triage
+    expect(s).not.toContain('satisfait_le = now'); // reste DÛ
+    expect(trouver(/INSERT INTO demande_journal/i)).toBeDefined();
+  });
+
+  it('« refus mairie » : triage=refus_mairie + refus_le lié (date de notification), garde identique', async () => {
+    const ok = await marquerDossierRefusMairie(119, 7, '2026-08-10', 'admin');
+    expect(ok).toBe(true);
+    const upd = trouver(/UPDATE demande_dossier SET triage = 'refus_mairie'/i)!;
+    expect(upd).toBeDefined();
+    expect(norm(upd.sql)).toContain('refus_le = $3::date');
+    expect(upd.params).toEqual([119, 7, '2026-08-10']); // la date de notification pilote la CADA
+  });
+
+  it('« retirer » : actif=false, GARDE ABSOLUE satisfait_le IS NULL (jamais un dossier obtenu), triage effacé, journalisé', async () => {
+    const ok = await retirerDossierDemande(119, 7, 'admin');
+    expect(ok).toBe(true);
+    const upd = trouver(/UPDATE demande_dossier SET actif = false/i)!;
+    expect(upd).toBeDefined();
+    const s = norm(upd.sql);
+    expect(s).toContain('actif AND satisfait_le IS NULL');   // ne détache JAMAIS un satisfait
+    expect(s).toContain('triage = NULL');                     // le dossier quitte la demande
+    expect(trouver(/INSERT INTO demande_journal/i)).toBeDefined();
+  });
+
+  it('ré-attacher (annuler retrait) — CONFLIT : dossier déjà actif ailleurs → « conflit », AUCUN UPDATE actif=true, jamais un 23505', async () => {
+    etat.conflitActif = true;
+    const r = await reattacherDossierDemande(119, 7, 'admin');
+    expect(r).toBe('conflit');
+    expect(trouver(/UPDATE demande_dossier SET actif = true/i)).toBeUndefined(); // on ne tente JAMAIS l'UPDATE nu
+    expect(trouver(/INSERT INTO demande_journal/i)).toBeUndefined();
+  });
+
+  it('ré-attacher — OK : pas de conflit → UPDATE actif=true (WHERE NOT actif) + journal → « reattache »', async () => {
+    etat.conflitActif = false; etat.rowCount = 1;
+    const r = await reattacherDossierDemande(119, 7, 'admin');
+    expect(r).toBe('reattache');
+    expect(norm(trouver(/UPDATE demande_dossier SET actif = true/i)!.sql)).toContain('NOT actif');
+    expect(trouver(/INSERT INTO demande_journal/i)).toBeDefined();
+  });
+
+  it('ré-attacher — INTROUVABLE : aucun lien inactif (rowCount 0) → « introuvable », pas de journal', async () => {
+    etat.conflitActif = false; etat.rowCount = 0;
+    expect(await reattacherDossierDemande(119, 7, 'admin')).toBe('introuvable');
+    expect(trouver(/INSERT INTO demande_journal/i)).toBeUndefined();
+  });
+
+  it('annuler un triage : remet triage/triage_le/refus_le à NULL, garde actif ET trié', async () => {
+    const ok = await annulerTriageDossier(119, 7, 'admin');
+    expect(ok).toBe(true);
+    const s = norm(trouver(/UPDATE demande_dossier SET triage = NULL/i)!.sql);
+    expect(s).toContain('refus_le = NULL');
+    expect(s).toContain('actif AND triage IS NOT NULL');
+  });
+
+  it('TOUS les dossiers statués → réponse(s) traitée(s) (traite_le = now WHERE traite_le IS NULL)', async () => {
+    etat.tous = true;
+    await marquerDossierNonFourni(119, 7, 'admin');
+    const sync = trouver(/UPDATE demande_reponse SET traite_le = now\(\)/i)!;
+    expect(sync).toBeDefined();
+    expect(norm(sync.sql)).toContain('traite_le IS NULL');
+    expect(trouver(/UPDATE demande_reponse SET traite_le = NULL/i)).toBeUndefined();
+  });
+
+  it('RÉVERSIBILITÉ : dé-statuer (pas tous statués) → REMET traite_le à NULL sur les réponses fermées → réapparaît dans le suivi', async () => {
+    etat.tous = false; // après annulation, un dossier redevient dû
+    await annulerTriageDossier(119, 7, 'admin');
+    const rouvre = trouver(/UPDATE demande_reponse SET traite_le = NULL/i)!;
+    expect(rouvre).toBeDefined();
+    expect(norm(rouvre.sql)).toContain('traite_le IS NOT NULL');
+    expect(trouver(/UPDATE demande_reponse SET traite_le = now\(\)/i)).toBeUndefined();
+  });
+});
 
 const RECU = new Date('2026-08-04T21:30:00.000Z');
 const BASE: ReponseEntrante = {

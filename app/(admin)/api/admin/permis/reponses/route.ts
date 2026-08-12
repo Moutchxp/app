@@ -1,7 +1,8 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { chargerSuiviReponses } from '../../../../../lib/veille/reponsesSuivi';
-import { rattacherAMain, marquerTraitee, marquerDossierSatisfait, demarquerDossier, statutDemande } from '../../../../../lib/veille/demandeReponseRepo';
+import { rattacherAMain, marquerTraitee, marquerDossierSatisfait, demarquerDossier, statutDemande,
+  marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande } from '../../../../../lib/veille/demandeReponseRepo';
 import { cloturerDemande, rouvrirDemande, TransitionInterditeError, lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
 import { majRelance, abandonnerRelance, regenererRelance, RelanceActionError } from '../../../../../lib/veille/demandeRelanceRepo';
 
@@ -44,6 +45,7 @@ export async function POST(request: Request): Promise<Response> {
     const corps = (await request.json().catch(() => ({}))) as {
       action?: unknown; reponseId?: unknown; demandeId?: unknown; dossierId?: unknown; pieceId?: unknown; satisfait?: unknown;
       relanceId?: unknown; objet?: unknown; corps?: unknown; motif?: unknown; source?: unknown; // R5c ; A1b : source pour url_piece ('reponse'|'dossier')
+      refusLe?: unknown; // T1 : date de notification du refus exprès (YYYY-MM-DD)
     };
     actionCtx = corps.action;
 
@@ -70,6 +72,30 @@ export async function POST(request: Request): Promise<Response> {
         ? await marquerDossierSatisfait(corps.demandeId, corps.dossierId, null, auteur) // R6c — manuel, reponse_id null
         : await demarquerDossier(corps.demandeId, corps.dossierId, auteur);             // R5b — annulation
       return Response.json({ ok, traite: ok });
+    }
+
+    // T1 — statuer un dossier : NON FOURNI / REFUS MAIRIE (exprès) / annuler triage / RETIRER / ré-attacher. Toutes INTERDITES
+    //   si la demande est 'close' (comme marquer_dossier). Le refus exprès exige une date de notification NON future.
+    if (corps.action === 'dossier_non_fourni' || corps.action === 'dossier_refus_mairie' || corps.action === 'annuler_triage'
+        || corps.action === 'retirer_dossier' || corps.action === 'reattacher_dossier') {
+      if (!estEntier(corps.demandeId) || !estEntier(corps.dossierId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      const st = await statutDemande(corps.demandeId);
+      if (st === 'close') return Response.json({ erreur: 'demande close : action impossible (rouvrir la demande d’abord)' }, { status: 409 });
+
+      if (corps.action === 'dossier_refus_mairie') {
+        const aujourdhui = new Date().toISOString().slice(0, 10);
+        if (typeof corps.refusLe !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(corps.refusLe)) return Response.json({ erreur: 'date de refus invalide (attendu AAAA-MM-JJ)' }, { status: 400 });
+        if (corps.refusLe > aujourdhui) return Response.json({ erreur: 'la date de notification du refus ne peut pas être dans le futur' }, { status: 400 });
+        const ok = await marquerDossierRefusMairie(corps.demandeId, corps.dossierId, corps.refusLe, auteur);
+        return Response.json({ ok, traite: ok });
+      }
+      if (corps.action === 'dossier_non_fourni') { const ok = await marquerDossierNonFourni(corps.demandeId, corps.dossierId, auteur); return Response.json({ ok, traite: ok }); }
+      if (corps.action === 'annuler_triage') { const ok = await annulerTriageDossier(corps.demandeId, corps.dossierId, auteur); return Response.json({ ok, traite: ok }); }
+      if (corps.action === 'retirer_dossier') { const ok = await retirerDossierDemande(corps.demandeId, corps.dossierId, auteur); return Response.json({ ok, traite: ok }); }
+      // reattacher_dossier — conflict-safe : 'conflit' → 409 explicite (jamais un 23505 nu).
+      const r = await reattacherDossierDemande(corps.demandeId, corps.dossierId, auteur);
+      if (r === 'conflit') return Response.json({ erreur: 'ré-attachement impossible : ce dossier est déjà rattaché à une autre demande active' }, { status: 409 });
+      return Response.json({ ok: r === 'reattache', traite: r === 'reattache' });
     }
 
     // Lien de téléchargement d'une pièce déposée : le SERVEUR signe et renvoie l'URL — la clé de stockage ne sort JAMAIS au client.

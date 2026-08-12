@@ -3,7 +3,7 @@
  * demande_reponse_piece. ⚠️ N'écrit JAMAIS demande.statut (la clôture est un chantier ultérieur), ne lit aucune boîte, ne
  * dépose aucune pièce. Style calqué sur demandeRepo.ts (query / withTransaction, paramètres liés, aucun `any`).
  */
-import { query, withTransaction } from '../db/client';
+import { query, withTransaction, type RequeteTx } from '../db/client';
 import { dossiersSatisfaits, type ReponsePourSatisfaction } from './satisfactionDossier';
 import type { ResultatDepotEntrant } from '../stockage';
 
@@ -247,6 +247,7 @@ export async function marquerDossierSatisfait(demandeId: number, dossierId: numb
        VALUES ($1, NULL, NULL, $2, $3)`,
       [demandeId, `dossier ${dossierId} marqué satisfait à la main`, auteur],
     );
+    await synchroniserTraiteeDemande(q, demandeId); // T1 — tous statués → réponse traitée
     return true;
   });
 }
@@ -269,7 +270,130 @@ export async function demarquerDossier(demandeId: number, dossierId: number, aut
        VALUES ($1, NULL, NULL, $2, $3)`,
       [demandeId, `dossier ${dossierId} : satisfaction annulée à la main`, auteur],
     );
+    await synchroniserTraiteeDemande(q, demandeId); // T1 — dé-statuer rouvre la réponse (réversibilité)
     return true;
+  });
+}
+
+// ── T1 : statuer un dossier ligne par ligne (triage, refus exprès, retrait) + « tous statués → réponse traitée » ─────────
+
+/**
+ * T1 — « tous les dossiers statués → réponse(s) traitée(s) », ET SA RÉVERSIBILITÉ. Un dossier ACTIF est STATUÉ s'il est reçu
+ * (satisfait_le) OU trié (triage). Tous les actifs statués → marque traitées les réponses rattachées non traitées (elles
+ * quittent la file) ; sinon → REMET traite_le à NULL sur les réponses rattachées déjà traitées (dé-statuer une ligne ROUVRE
+ * la réponse dans le suivi — sans ça elle resterait sortie pour toujours). Opère DANS la transaction de l'appelant. `bool_and`
+ * sur 0 dossier actif → NULL → coalesce(false) (une demande vidée n'est pas « traitée » toute seule).
+ */
+async function synchroniserTraiteeDemande(q: RequeteTx, demandeId: number): Promise<void> {
+  const { rows } = await q<{ tous: boolean }>(
+    `SELECT coalesce(bool_and(satisfait_le IS NOT NULL OR triage IS NOT NULL), false) AS tous
+       FROM demande_dossier WHERE demande_id = $1 AND actif`,
+    [demandeId],
+  );
+  if (rows[0]?.tous === true) {
+    await q(`UPDATE demande_reponse SET traite_le = now(), maj_le = now() WHERE demande_id = $1 AND traite_le IS NULL`, [demandeId]);
+  } else {
+    await q(`UPDATE demande_reponse SET traite_le = NULL, maj_le = now() WHERE demande_id = $1 AND traite_le IS NOT NULL`, [demandeId]);
+  }
+}
+
+/** T1 — journalise un geste de statut de dossier (append-only, sans toucher demande.statut). */
+async function journaliserGesteDossier(q: RequeteTx, demandeId: number, dossierId: number, motif: string, auteur: string): Promise<void> {
+  await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, $3)`,
+    [demandeId, `dossier ${dossierId} : ${motif}`, auteur]);
+}
+
+/**
+ * T1 — « NON FOURNI » : la mairie a été saisie mais n'a pas livré ce dossier → simple TRIAGE, il RESTE DÛ (échéance, relance,
+ * CADA tacite inchangés). Garde : dossier ACTIF, NON reçu, NON déjà trié. Journalisé. Réversible via `annulerTriageDossier`.
+ */
+export async function marquerDossierNonFourni(demandeId: number, dossierId: number, auteur: string): Promise<boolean> {
+  return withTransaction(async (q) => {
+    const res = await q(
+      `UPDATE demande_dossier SET triage = 'non_fourni', triage_le = now(), refus_le = NULL
+        WHERE demande_id = $1 AND dossier_id = $2 AND actif AND satisfait_le IS NULL AND triage IS NULL`,
+      [demandeId, dossierId]);
+    if ((res.rowCount ?? 0) === 0) return false;
+    await journaliserGesteDossier(q, demandeId, dossierId, 'marqué NON FOURNI (reste dû)', auteur);
+    await synchroniserTraiteeDemande(q, demandeId);
+    return true;
+  });
+}
+
+/**
+ * T1 — « REFUS MAIRIE » (refus exprès) : ouvre la CADA immédiatement. `refusLe` = date de NOTIFICATION du refus (ancre
+ * juridique R.343-1), validée NON future par l'appelant. Garde : dossier ACTIF, NON reçu, NON déjà trié. Journalisé.
+ * Réversible via `annulerTriageDossier`.
+ */
+export async function marquerDossierRefusMairie(demandeId: number, dossierId: number, refusLe: string, auteur: string): Promise<boolean> {
+  return withTransaction(async (q) => {
+    const res = await q(
+      `UPDATE demande_dossier SET triage = 'refus_mairie', triage_le = now(), refus_le = $3::date
+        WHERE demande_id = $1 AND dossier_id = $2 AND actif AND satisfait_le IS NULL AND triage IS NULL`,
+      [demandeId, dossierId, refusLe]);
+    if ((res.rowCount ?? 0) === 0) return false;
+    await journaliserGesteDossier(q, demandeId, dossierId, `REFUS EXPRÈS de la mairie (notifié le ${refusLe}) — CADA ouverte`, auteur);
+    await synchroniserTraiteeDemande(q, demandeId);
+    return true;
+  });
+}
+
+/** T1 — annule un triage ('non_fourni' ou 'refus_mairie') : remet les 3 colonnes à NULL. Garde : dossier ACTIF et TRIÉ.
+ *  Journalisé. Dé-statuer rouvre la réponse (via synchroniser). */
+export async function annulerTriageDossier(demandeId: number, dossierId: number, auteur: string): Promise<boolean> {
+  return withTransaction(async (q) => {
+    const res = await q(
+      `UPDATE demande_dossier SET triage = NULL, triage_le = NULL, refus_le = NULL
+        WHERE demande_id = $1 AND dossier_id = $2 AND actif AND triage IS NOT NULL`,
+      [demandeId, dossierId]);
+    if ((res.rowCount ?? 0) === 0) return false;
+    await journaliserGesteDossier(q, demandeId, dossierId, 'triage annulé', auteur);
+    await synchroniserTraiteeDemande(q, demandeId);
+    return true;
+  });
+}
+
+/**
+ * T1 — « RETIRER de la demande » : le dossier n'a jamais été réellement pris en charge → DÉTACHÉ (actif=false), redevient
+ * demandable (réapparaît dans « À demander »). ⚠️ CORRECTION de la demande, journalisée. Garde ABSOLUE : jamais un dossier
+ * SATISFAIT (retirer le dernier dû ne doit pas emporter l'obtenu). Le triage est effacé (le dossier quitte la demande).
+ * Réversible via `reattacherDossierDemande` (conflict-safe).
+ */
+export async function retirerDossierDemande(demandeId: number, dossierId: number, auteur: string): Promise<boolean> {
+  return withTransaction(async (q) => {
+    const res = await q(
+      `UPDATE demande_dossier SET actif = false, triage = NULL, triage_le = NULL, refus_le = NULL
+        WHERE demande_id = $1 AND dossier_id = $2 AND actif AND satisfait_le IS NULL`,
+      [demandeId, dossierId]);
+    if ((res.rowCount ?? 0) === 0) return false;
+    await journaliserGesteDossier(q, demandeId, dossierId, 'RETIRÉ de la demande (détaché, redevient demandable)', auteur);
+    await synchroniserTraiteeDemande(q, demandeId);
+    return true;
+  });
+}
+
+/** Compte rendu d'un ré-attachement de dossier retiré (réversibilité de « retirer »). */
+export type ResultatReattachement = 'reattache' | 'introuvable' | 'conflit';
+
+/**
+ * T1 — ANNULE un retrait : ré-attache le dossier (actif=true), CONFLICT-SAFE (motif B1) : refusé si le dossier est déjà actif
+ * sur une AUTRE demande (index unique partiel `demande_dossier_unique_actif`) → renvoie 'conflit', JAMAIS un UPDATE nu qui
+ * planterait en 23505. 'introuvable' si aucun lien inactif à ré-attacher. Journalisé. Le dossier revient « dû ».
+ */
+export async function reattacherDossierDemande(demandeId: number, dossierId: number, auteur: string): Promise<ResultatReattachement> {
+  return withTransaction(async (q) => {
+    const conflit = await q<{ demande_id: number }>(
+      `SELECT demande_id FROM demande_dossier WHERE dossier_id = $1 AND actif AND demande_id <> $2 LIMIT 1`,
+      [dossierId, demandeId]);
+    if ((conflit.rowCount ?? 0) > 0) return 'conflit';
+    const res = await q(
+      `UPDATE demande_dossier SET actif = true
+        WHERE demande_id = $1 AND dossier_id = $2 AND NOT actif`,
+      [demandeId, dossierId]);
+    if ((res.rowCount ?? 0) === 0) return 'introuvable';
+    await journaliserGesteDossier(q, demandeId, dossierId, 'ré-attaché à la demande (retrait annulé)', auteur);
+    await synchroniserTraiteeDemande(q, demandeId);
+    return 'reattache';
   });
 }
 

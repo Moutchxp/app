@@ -204,8 +204,8 @@ describe('T1 — TableRuns : ne montrer en clair que les passes qui apportent qu
 describe('R5a — DetailDossiers : satisfait/dû et par quoi', () => {
   it('un dossier obtenu (automatique) et un dossier dû sont distingués', () => {
     const dossiers: DossierSuivi[] = [
-      { dossierId: 1, numDau: 'PC0920042500001', adresse: '12 rue de la Paix', satisfait: true, satisfaitPar: 'automatique' },
-      { dossierId: 2, numDau: 'PC0920042500002', adresse: null, satisfait: false, satisfaitPar: null },
+      { dossierId: 1, numDau: 'PC0920042500001', adresse: '12 rue de la Paix', satisfait: true, satisfaitPar: 'automatique', triage: null, refusLe: null },
+      { dossierId: 2, numDau: 'PC0920042500002', adresse: null, satisfait: false, satisfaitPar: null, triage: null, refusLe: null },
     ];
     const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers }));
     expect(h).toContain('obtenu (automatique)');
@@ -302,8 +302,8 @@ describe('R5b — BlocARattacher : rattacher / traitée / télécharger', () => 
 
 describe('R5b — DetailDossiers : marquer reçu / annuler, et garde-fou « close »', () => {
   const dossiers: DossierSuivi[] = [
-    { dossierId: 1, numDau: 'PC0920042500001', adresse: null, satisfait: true, satisfaitPar: 'manuel' },
-    { dossierId: 2, numDau: 'PC0920042500002', adresse: null, satisfait: false, satisfaitPar: null },
+    { dossierId: 1, numDau: 'PC0920042500001', adresse: null, satisfait: true, satisfaitPar: 'manuel', triage: null, refusLe: null },
+    { dossierId: 2, numDau: 'PC0920042500002', adresse: null, satisfait: false, satisfaitPar: null, triage: null, refusLe: null },
   ];
 
   it('demande envoyée + onMarquer → « annuler » sur le satisfait, « marquer reçu » sur le dû', () => {
@@ -343,8 +343,8 @@ describe('R5b — retour d’action : dans la zone du bouton cliqué, jamais dé
 
   it('DetailDossiers : le retour d’un dossier s’affiche à SA ligne, une seule fois', () => {
     const dossiers: DossierSuivi[] = [
-      { dossierId: 1, numDau: 'PCa', adresse: null, satisfait: false, satisfaitPar: null },
-      { dossierId: 2, numDau: 'PCb', adresse: null, satisfait: false, satisfaitPar: null },
+      { dossierId: 1, numDau: 'PCa', adresse: null, satisfait: false, satisfaitPar: null, triage: null, refusLe: null },
+      { dossierId: 2, numDau: 'PCb', adresse: null, satisfait: false, satisfaitPar: null, triage: null, refusLe: null },
     ];
     const retour: RetourCible = { cle: 'dossier-7-1', texte: 'Dossier marqué reçu.', ok: true };
     const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers, retour, onMarquer: () => {} }));

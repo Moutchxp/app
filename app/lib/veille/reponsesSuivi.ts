@@ -66,6 +66,8 @@ export interface DossierSuivi {
   adresse: string | null;
   satisfait: boolean;
   satisfaitPar: string | null; // 'automatique' | 'manuel' | null (si dû)
+  triage: string | null;       // T1 : 'non_fourni' | 'refus_mairie' | null (dossier NON reçu trié)
+  refusLe: string | null;      // T1 : date de notification du refus exprès (ISO date) ; null hors refus_mairie
 }
 
 /** Une demande envoyée, avec de quoi calculer son échéance À L'AFFICHAGE (etatEcheance) et son détail par dossier. */
@@ -80,6 +82,7 @@ export interface DemandeSuivi {
   dossiersActifs: number;
   dossiersSatisfaits: number;
   nbReponses: number;
+  derniereReponseLe: string | null; // T1 : date (ISO) de la réponse rattachée la plus récente → pré-remplit « refus le »
   dossiers: DossierSuivi[];
 }
 
@@ -195,10 +198,11 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
   // elle ne disparaît pas de l'écran. Acheminement agrégé + compteurs de dossiers + nombre de réponses rattachées.
   const dem = await query<{
     id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string;
-    envoye_le: string | null; statut_acheminement: string; dossiers_actifs: number; dossiers_satisfaits: number; nb_reponses: number;
+    envoye_le: string | null; statut_acheminement: string; dossiers_actifs: number; dossiers_satisfaits: number; nb_reponses: number; derniere_reponse_le: string | null;
   }>(
     `SELECT d.id::int AS id, d.reference, d.code_insee, c.nom AS commune_nom, d.statut,
             min(a.envoye_le)::text AS envoye_le,
+            (SELECT max(r.recu_le)::text FROM demande_reponse r WHERE r.demande_id = d.id) AS derniere_reponse_le, -- T1 : pré-remplissage « refus le »
             CASE WHEN bool_or(a.statut = 'envoye') THEN 'envoye'
                  WHEN bool_or(a.statut = 'rebond') THEN 'rebond'
                  WHEN bool_or(a.statut = 'echec')  THEN 'echec'
@@ -216,10 +220,10 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
   );
 
   // Détail des dossiers de ces demandes (groupés ensuite par demande_id) — évite un N+1.
-  const doss = await query<{ demande_id: number; dossier_id: number; num_dau: string; adresse: string | null; satisfait: boolean; satisfait_par: string | null }>(
+  const doss = await query<{ demande_id: number; dossier_id: number; num_dau: string; adresse: string | null; satisfait: boolean; satisfait_par: string | null; triage: string | null; refus_le: string | null }>(
     `SELECT dd.demande_id::int AS demande_id, dd.dossier_id::int AS dossier_id, s.num_dau,
             nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
-            (dd.satisfait_le IS NOT NULL) AS satisfait, dd.satisfait_par
+            (dd.satisfait_le IS NOT NULL) AS satisfait, dd.satisfait_par, dd.triage, dd.refus_le::text AS refus_le
        FROM demande_dossier dd
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
        JOIN demande d ON d.id = dd.demande_id
@@ -229,12 +233,13 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
   const parDemande = new Map<number, DossierSuivi[]>();
   for (const r of doss.rows) {
     (parDemande.get(r.demande_id) ?? parDemande.set(r.demande_id, []).get(r.demande_id)!)
-      .push({ dossierId: r.dossier_id, numDau: r.num_dau, adresse: r.adresse, satisfait: r.satisfait, satisfaitPar: r.satisfait_par });
+      .push({ dossierId: r.dossier_id, numDau: r.num_dau, adresse: r.adresse, satisfait: r.satisfait, satisfaitPar: r.satisfait_par, triage: r.triage, refusLe: r.refus_le });
   }
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
     dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits, nbReponses: r.nb_reponses,
+    derniereReponseLe: r.derniere_reponse_le,
     dossiers: parDemande.get(r.id) ?? [],
   }));
 
