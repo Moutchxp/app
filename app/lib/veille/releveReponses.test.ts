@@ -273,16 +273,17 @@ describe('R3e — recherche serveur par référence de dossier (en plus des sond
   });
 });
 
-describe('R3f — la recherche par référence ne porte QUE sur les demandes envoyées', () => {
-  it('la requête des références filtre statut = envoyee (jamais brouillon/prête/abandonnée/close)', async () => {
+describe('T4 — la recherche par référence porte sur les envoyées ET les demandes EN ATTENTE (brouillon/prête)', () => {
+  it('la requête des références inclut envoyée + brouillon + prête (jamais close/annulée)', async () => {
     etat.references = ['0930012500081'];
     const { client } = fauxClient([], undefined, () => []);
     await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
     const q = appels.find((a) => /s\.num_dau/i.test(a.sql) && /demande_dossier/i.test(a.sql) && /\(dd\.satisfait_le IS NULL\) DESC/i.test(a.sql));
     expect(q).toBeDefined();
     const norm = q!.sql.replace(/\s+/g, ' ');
-    expect(norm).toContain("d.statut = 'envoyee'");
-    expect(norm).not.toContain("NOT IN ('close'"); // plus de brouillons/abandonnées embarqués
+    expect(norm).toContain("d.statut IN ('envoyee', 'brouillon', 'prete')"); // T4 : les permis en attente sont AUSSI cherchés
+    expect(norm).not.toContain("'close'");   // une close a déjà ses pièces
+    expect(norm).not.toContain("'annulee'"); // une annulée n'attend rien
   });
 
   it('1 envoyée (le SQL exclut brouillons/abandonnées) → une seule référence interrogée', async () => {
@@ -311,15 +312,45 @@ describe('R3f (correctif 1a) — TOUS les dossiers non satisfaits des demandes e
     expect(suivi.referencesInterrogees).toEqual(etat.references); // 5, pas 1
   });
 
-  it('la requête des n° de dossier NE filtre PLUS sur dd.actif (mais garde le périmètre envoyee)', async () => {
+  it('la requête des n° de dossier NE filtre PLUS sur dd.actif (périmètre = envoyée + en attente)', async () => {
     etat.references = ['0930012500081'];
     const { client } = fauxClient([], undefined, () => []);
     await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
     const q = appels.find((a) => /s\.num_dau/i.test(a.sql) && /demande_dossier/i.test(a.sql) && /\(dd\.satisfait_le IS NULL\) DESC/i.test(a.sql));
     expect(q).toBeDefined();
     const norm = q!.sql.replace(/\s+/g, ' ');
-    expect(norm).toContain("d.statut = 'envoyee'"); // périmètre correct conservé
+    expect(norm).toContain("d.statut IN ('envoyee', 'brouillon', 'prete')"); // T4 : périmètre élargi
     expect(norm).not.toContain('dd.actif');          // le gate a disparu (cause du défaut 1a)
+  });
+});
+
+describe('T4 (commit A) — VOIR un message citant un permis EN ATTENTE, sans le rattacher ni rien écrire de moteur', () => {
+  it('cite un num_dau cherché mais AUCUNE envoyée candidate → vu, retenu, demande_id null, aucune satisfaction', async () => {
+    etat.candidates = [CAND_A];          // une envoyée SANS num_dau (ne matche pas)
+    etat.references = ['0930012500081']; // num_dau d'une demande EN ATTENTE (cherché par lireReferencesRecherche élargi)
+    etat.domaines = [];                  // aucun domaine → seule la citation du permis peut rendre pertinent
+    const m = boite({ deAdresse: 'no-reply@mairie-x.fr', objet: 'Dépôt PC 093 001 25 00081', corpsTexte: 'Votre dossier 0930012500081 a bien été déposé.' });
+    const { client, suivi } = fauxClient([m], () => [], (refs) => refs.includes('0930012500081') ? [m.uid] : []);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(suivi.uidsTelecharges).toContain(m.uid);                       // VU (recherche par référence élargie)
+    expect(r.horsPerimetre).toBe(0);                                      // R3b ne l'écarte plus
+    expect(r.retenus).toBe(1);
+    expect(r.rattaches).toBe(0);                                          // rattaché à RIEN (candidates = envoyées seules)
+    expect(r.nonRattaches).toBe(1);
+    expect(appels.some((a) => /SET satisfait_le/i.test(a.sql))).toBe(false); // aucune satisfaction (demandeId null)
+    expect(appels.some((a) => /UPDATE demande SET statut/i.test(a.sql))).toBe(false); // aucune écriture de demande.statut
+  });
+});
+
+describe('T4 (commit A) — la fenêtre SINCE ne dépend plus des seules envoyées', () => {
+  it('la borne inclut le cree_le des demandes en attente (LEAST envoye_le / cree_le des brouillon/prête)', async () => {
+    const { client } = fauxClient([], undefined, () => []);
+    await releverBoite({ client, profil: 'entreprise' }); // pas de `depuis` fourni → dateDepart est appelé
+    const q = appels.find((a) => /LEAST/i.test(a.sql) && /min\(a\.envoye_le\)/i.test(a.sql));
+    expect(q).toBeDefined();
+    const norm = q!.sql.replace(/\s+/g, ' ');
+    expect(norm).toContain("d.statut IN ('brouillon', 'prete')");
+    expect(norm).toContain('min(d.cree_le)');
   });
 });
 

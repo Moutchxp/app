@@ -135,15 +135,15 @@ async function lireEnvoyees(profil: ProfilBoite): Promise<DemandeEnvoyee[]> {
 }
 
 /**
- * R3e/R3f — références à interroger côté serveur pour les demandes ENVOYÉES du profil (SEULEMENT 'envoyee' : une brouillon/
- * prête n'est jamais partie ; une close a déjà ses pièces). DEUX familles, AU MÊME TITRE :
+ * R3e/R3f + T4 — références à interroger côté serveur, sur `statut IN ('envoyee','brouillon','prete')`. Les ENVOYÉES cherchent
+ * la RÉPONSE de la mairie ; les BROUILLON/PRÊTE (T4) cherchent la preuve qu'un dépôt téléservice a bien eu lieu **sans qu'on ait
+ * cliqué « Marquer comme déposée »** (une close a déjà ses pièces → exclue). DEUX familles, AU MÊME TITRE :
  *   - n° de dossier Sitadel des dossiers NON satisfaits d'abord (par échéance croissante) ;
  *   - références MAIRIE (P1, demande_reference_externe) — l'identifiant que la mairie cite dans SA réponse.
  * ⚠️ Fix 1a : PLUS de gate `dd.actif` — une demande envoyée a sollicité la mairie sur TOUS ses dossiers, que l'attache-stock
- * soit encore active ou non (cas d'une demande annulée puis revivifiée et renvoyée : ses dossiers restent actif=false). Le
- * périmètre correct est `statut='envoyee'`. La non-ambiguïté n'est PAS requise ici (on cherche à TROUVER l'e-mail) ; c'est le
- * rattachement qui l'exige. Dédupliqué, plafonné (réf. mairie d'abord — peu nombreuses, fort signal — pour ne jamais les
- * évincer), drapeau si le plafond mord (jamais silencieux). LECTURE SEULE.
+ * soit encore active ou non. La non-ambiguïté n'est PAS requise ici (on cherche à TROUVER l'e-mail) ; c'est le rattachement qui
+ * l'exige — et il ne rattache JAMAIS une brouillon/prête (candidates = envoyées uniquement). Dédupliqué, plafonné (réf. mairie
+ * d'abord — peu nombreuses, fort signal — pour ne jamais les évincer), drapeau si le plafond mord (jamais silencieux). LECTURE SEULE.
  */
 async function lireReferencesRecherche(profil: ProfilBoite, max: number): Promise<{ references: string[]; plafondAtteint: boolean }> {
   const { rows: rd } = await query<{ num_dau: string }>(
@@ -151,7 +151,7 @@ async function lireReferencesRecherche(profil: ProfilBoite, max: number): Promis
        FROM demande d
        JOIN demande_dossier dd ON dd.demande_id = d.id
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
-      WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1
+      WHERE d.statut IN ('envoyee', 'brouillon', 'prete') AND d.profil_demandeur = $1
       ORDER BY (dd.satisfait_le IS NULL) DESC,
                (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id) ASC NULLS LAST, -- B2 : ancre agnostique au canal
                s.num_dau`,
@@ -160,7 +160,7 @@ async function lireReferencesRecherche(profil: ProfilBoite, max: number): Promis
   const { rows: rm } = await query<{ reference: string }>(
     `SELECT DISTINCT re.reference
        FROM demande d JOIN demande_reference_externe re ON re.demande_id = d.id
-      WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1`,
+      WHERE d.statut IN ('envoyee', 'brouillon', 'prete') AND d.profil_demandeur = $1`,
     [profil],
   );
   const toutes: string[] = [];
@@ -173,11 +173,18 @@ async function lireReferencesRecherche(profil: ProfilBoite, max: number): Promis
 }
 
 async function dateDepart(profil: ProfilBoite): Promise<Date | null> {
+  // T4 — la fenêtre de relève ne dépend plus des SEULES envoyées : SINCE = LEAST(plus ancien envoye_le des envoyées, plus
+  //   ancien cree_le des BROUILLON/PRÊTE) − 1 jour. Motif : une demande en attente n'a pas pu être déposée AVANT sa création,
+  //   donc cree_le est une borne basse SÛRE pour tout message citant son permis ; la marge d'1 jour absorbe le décalage de
+  //   fuseau. Une boîte SANS aucune envoyée mais AVEC des demandes en attente est ainsi relevée. `LEAST` ignore les NULL →
+  //   ni envoyée ni en attente ⇒ NULL ⇒ pas de connexion. (B2 : envoye_le agnostique au canal, téléservice inclus.)
   const { rows } = await query<{ depuis: Date | null }>(
-    `SELECT (min(a.envoye_le) - interval '1 day') AS depuis
-       -- B2 : fenêtre de relève agnostique au canal (téléservice inclus : un dépôt formulaire porte aussi envoye_le)
-       FROM demande d JOIN demande_acheminement a ON a.demande_id = d.id
-      WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1 AND a.envoye_le IS NOT NULL`,
+    `SELECT (LEAST(
+              (SELECT min(a.envoye_le) FROM demande d JOIN demande_acheminement a ON a.demande_id = d.id
+                WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1 AND a.envoye_le IS NOT NULL),
+              (SELECT min(d.cree_le) FROM demande d
+                WHERE d.statut IN ('brouillon', 'prete') AND d.profil_demandeur = $1)
+            ) - interval '1 day') AS depuis`,
     [profil],
   );
   return rows[0]?.depuis ?? null;
@@ -258,7 +265,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
     rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, ecrites: 0, piecesDeposees: 0, piecesNonDeposees: 0, parMethode: {}, lignes: [],
   });
 
-  if (depuis === null) return vide(false); // aucune demande envoyée → pas de connexion
+  if (depuis === null) return vide(false); // T4 : ni demande envoyée ni demande en attente (brouillon/prête) → pas de connexion
 
   const connus = await messageIdsConnus(opts.profil);
   // Config lue UNE fois : borne de taille des pièces (R4) + plafond de références de recherche (R3e).
@@ -285,6 +292,18 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const contientReferenceMairie = (mb: MessageBoite): boolean => {
     const foin = normaliserReference(`${mb.message.objet ?? ''}\n${mb.message.corpsTexte ?? ''}`);
     return candidates.some((c) => (c.referencesExternes ?? []).some((r) => { const rn = normaliserReference(r); return rn.length >= 6 && foin.includes(rn); }));
+  };
+  // T4 — pertinence des demandes EN ATTENTE : `references` (lireReferencesRecherche) inclut désormais les permis des brouillon/
+  //   prête (num_dau + réf. mairie). Un message qui n'est pertinent QUE parce qu'il cite l'un d'eux n'est plus écarté par R3b —
+  //   mais il n'est RATTACHÉ à rien (rattacherReponse ne voit que les envoyées). Sur-ensemble des deux prédicats ci-dessus pour
+  //   les envoyées (aucune régression), + la part en attente. num_dau = suite de chiffres ; réf. mairie = normaliserReference.
+  const contientReferenceCherchee = (mb: MessageBoite): boolean => {
+    const foinNum = `${mb.message.objet ?? ''}\n${mb.message.corpsTexte ?? ''}\n${mb.pieces.map((p) => p.nomFichier).join('\n')}`.replace(/[\s.\-/_]/gu, '');
+    const foinRef = normaliserReference(`${mb.message.objet ?? ''}\n${mb.message.corpsTexte ?? ''}`);
+    return references.some((ref) => {
+      if (/^\d{10,}$/.test(ref)) return foinNum.includes(ref);                       // n° de dossier (chiffres)
+      const rn = normaliserReference(ref); return rn.length >= 6 && foinRef.includes(rn); // référence mairie
+    });
   };
 
   await opts.client.ouvrir();
@@ -338,7 +357,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
       if (!opts.sansFiltre && !duDomaine) { horsPerimetre += 1; continue; } // sonde rebond mais pas un rebond → ignoré
       const r = rattacherReponse(mb.message, candidates);
       // R3e — nouveau critère : un n° de dossier d'une demande candidate apparaît littéralement (objet/corps/nom de pièce).
-      const pertinent = opts.sansFiltre === true || r.methode !== 'aucun' || domaines.has(domaineDe(mb.message.deAdresse)) || objetPertinent(mb.message.objet) || contientNumeroDossier(mb) || contientReferenceMairie(mb);
+      const pertinent = opts.sansFiltre === true || r.methode !== 'aucun' || domaines.has(domaineDe(mb.message.deAdresse)) || objetPertinent(mb.message.objet) || contientNumeroDossier(mb) || contientReferenceMairie(mb) || contientReferenceCherchee(mb);
       if (!pertinent) { horsPerimetre += 1; continue; }
       lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
       if (appliquer) {
