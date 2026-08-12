@@ -248,21 +248,25 @@ export function CarteDepot({ d, children, onCopierRef, retourRef }: {
         ? <a href={d.url} target="_blank" rel="noopener noreferrer" className="svv-link" style={{ width: 'auto', fontSize: 13 }}>Ouvrir le téléservice ↗</a>
         : <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>URL de téléservice manquante — à compléter dans l’éditeur de contact (canal formulaire).</span>}
 
-      {/* U2 — champ « Numéro de dossier instruit » (l'arrondissement est une liste déroulante non collable) : référence formatée
-          + son PROPRE bouton Copier (copie CETTE valeur seule). Le bouton « Copier le texte » (children) reste inchangé. */}
-      <label style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', fontSize: 12, color: 'var(--color-svv-muted)' }}>
-        Numéro de dossier instruit (téléservice)
-        {ref.ok ? (
-          <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <input readOnly value={ref.reference} aria-label="Numéro de dossier instruit"
-              style={{ flex: '1 1 12rem', minWidth: 0, padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
-            {onCopierRef && <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => onCopierRef(ref.reference)}>Copier</button>}
-          </span>
-        ) : (
-          <span role="note" style={{ color: 'var(--color-svv-red)' }}>impossible de pré-remplir : {ref.raison}.</span>
-        )}
-      </label>
-      {retourRef && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourRef}</span>}
+      {/* U3 (A) — CARTOUCHE : le champ « Numéro de dossier instruit » et SON bouton « Copier » forment un ensemble encadré, pour
+          qu'on ne puisse pas croire que ce bouton copie le texte du message. Le bouton « Copier le texte » (children) reste
+          DEHORS et inchangé. La copie ne concerne QUE cette référence (formaterReferencePermis, source unique). */}
+      <div role="group" aria-label="Numéro de dossier instruit à copier"
+        style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.5rem', padding: '.5rem', background: 'var(--color-svv-field)', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+          Numéro de dossier instruit (téléservice)
+          {ref.ok ? (
+            <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input readOnly value={ref.reference} aria-label="Numéro de dossier instruit"
+                style={{ flex: '1 1 12rem', minWidth: 0, padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
+              {onCopierRef && <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => onCopierRef(ref.reference)}>Copier</button>}
+            </span>
+          ) : (
+            <span role="note" style={{ color: 'var(--color-svv-red)' }}>impossible de pré-remplir : {ref.raison}.</span>
+          )}
+        </label>
+        {retourRef && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourRef}</span>}
+      </div>
 
       {/* U2 — arrondissement : simple MENTION (aide à choisir la bonne entrée de la liste déroulante Paris), SANS bouton de copie. */}
       <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Arrondissement : {arr ?? 'indéterminé'}</span>

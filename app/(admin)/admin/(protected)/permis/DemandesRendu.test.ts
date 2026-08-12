@@ -228,6 +228,19 @@ describe('S16 — CarteDepot (file à déposer à la main)', () => {
     expect(h).not.toContain('value="PC'); // aucune référence inventée
     expect(h).toContain('Arrondissement : indéterminé');
   });
+
+  it('U3 (A) — le champ et SON bouton « Copier » sont dans le MÊME cartouche ; « Copier le texte » est DEHORS (valeurs inchangées)', () => {
+    const d: DepotAffiche = { id: 1, reference: 'R', communeNom: 'Paris', url: 'u', corps: 'MESSAGE', nbDossiers: 1, statut: 'brouillon', dossiers: [{ type: 'PC', numDau: '07510124V0034' }] };
+    const h = renderToStaticMarkup(createElement(CarteDepot, { d, onCopierRef: () => {} }, createElement('button', { type: 'button' }, 'Copier le texte')));
+    expect(h).toContain('role="group"');
+    expect(h).toContain('aria-label="Numéro de dossier instruit à copier"'); // le cartouche encadre le champ + son bouton
+    // Le contenu du cartouche (du groupe jusqu'à la mention Arrondissement, hors cartouche) : le champ ET son bouton Copier.
+    const cartouche = h.slice(h.indexOf('aria-label="Numéro de dossier instruit à copier"'), h.indexOf('Arrondissement :'));
+    expect(cartouche).toContain('value="PC07510124V0034"'); // valeur inchangée
+    expect(cartouche).toContain('>Copier<');                 // le bouton dédié est DANS le cartouche
+    expect(cartouche).not.toContain('Copier le texte');      // …mais pas « Copier le texte »
+    expect(h).toContain('Copier le texte');                  // qui reste rendu, DEHORS (children)
+  });
 });
 
 describe('V3 — CartePropositions : choix lot-par-lot (rendu PUR)', () => {
