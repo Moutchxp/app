@@ -37,7 +37,9 @@
     "alertes:envoyer": "tsx app/scripts/envoyer-alerte.ts",
     "veille:run": "tsx app/scripts/veille-run.ts",
     "commune:import": "tsx app/scripts/commune-import.ts",
-    "mairie:contact:import": "tsx app/scripts/mairie-contact-import.ts"
+    "mairie:contact:import": "tsx app/scripts/mairie-contact-import.ts",
+    "demo:reponse:creer": "tsx app/scripts/demo-reponse.ts creer",
+    "demo:reponse:supprimer": "tsx app/scripts/demo-reponse.ts supprimer"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",
