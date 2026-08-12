@@ -813,7 +813,8 @@ export async function ajouterReferenceExterne(
 /**
  * Marque une demande 'formulaire' comme DÉPOSÉE À LA MAIN → statut 'envoyee' (statut existant ; un dépôt réel sollicite la
  * commune et consomme donc son plafond mensuel — cf. lireHistorique). Réservé au canal 'formulaire' et aux statuts
- * brouillon/prête. Journalisé. AUCUN envoi automatique.
+ * brouillon/prête. Journalisé. AUCUN envoi automatique. B2 — écrit AUSSI la ligne demande_acheminement (canal 'formulaire',
+ * envoye_le=now) : le registre juridique unique et l'ancre d'échéance, exactement comme le fait l'e-mail.
  *
  * P1 — `reference` FACULTATIVE : si la mairie a renvoyé sa référence (accusé de réception), on la greffe DANS LA MÊME
  * transaction. `ON CONFLICT DO NOTHING` : un doublon ne bloque JAMAIS le dépôt (le geste métier prime). Absente/vide → le
@@ -828,6 +829,11 @@ export async function marquerDeposee(id: number, auteur: string | null, referenc
     if (row.canal !== 'formulaire') throw new DepotInterditError('le dépôt manuel est réservé au canal formulaire');
     if (row.statut !== 'brouillon' && row.statut !== 'prete') throw new DepotInterditError(`déjà « ${row.statut} » — dépôt impossible`);
     await q(`UPDATE demande SET statut = 'envoyee', maj_le = now() WHERE id = $1`, [id]);
+    // B2 — HORODATE l'envoi dans le registre juridique UNIQUE (demande_acheminement), MÊME ancre `envoye_le` que l'e-mail : sans
+    //   elle, etatEcheance reste « pas encore envoyée » et la boucle juridique (relance, CADA) est inerte. Canal 'formulaire'
+    //   (téléservice) ; PAS de message_id ni de retour fournisseur (un dépôt téléservice n'en produit aucun) → NULL, ce qui DIT
+    //   l'absence d'artefact e-mail sans en inventer. `statut='envoye'` = c'est bien parti à la mairie.
+    await q(`INSERT INTO demande_acheminement (demande_id, canal, statut, envoye_le) VALUES ($1, 'formulaire', 'envoye', now())`, [id]);
     await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, 'envoyee', 'dépôt manuel (téléservice)', $3)`, [id, row.statut, auteur]);
     const ref = (reference ?? '').trim();
     if (ref !== '') {

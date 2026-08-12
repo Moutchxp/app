@@ -53,6 +53,28 @@ describe('P1 — ajouterReferenceExterne', () => {
   });
 });
 
+describe('B2 — marquerDeposee horodate l’envoi dans le registre d’acheminement', () => {
+  it('le dépôt écrit une ligne demande_acheminement (canal formulaire, statut envoye, envoye_le=now) — l’ancre d’échéance', async () => {
+    await marquerDeposee(119, 'admin');
+    const ach = trouver(/INSERT INTO demande_acheminement/i)!;
+    expect(ach, 'le dépôt téléservice doit entrer dans le registre juridique').toBeDefined();
+    const sql = norm(ach.sql);
+    expect(sql).toContain("(demande_id, canal, statut, envoye_le)");
+    expect(sql).toContain("'formulaire'"); // canal téléservice (pas 'email')
+    expect(sql).toContain("'envoye'");     // c’est bien parti à la mairie
+    expect(sql).toContain('envoye_le');    // l’ancre lue par etatEcheance
+    expect(sql).toContain('now()');
+    // seule la demande_id est liée : message_id / retour fournisseur restent NULL (défaut) → aucun artefact e-mail inventé
+    expect(ach.params).toEqual([119]);
+  });
+
+  it('non-régression : le dépôt pose toujours statut=envoyee et journalise « dépôt manuel (téléservice) »', async () => {
+    await marquerDeposee(119, 'admin');
+    expect(appels.some((a) => /UPDATE demande SET statut = 'envoyee'/i.test(a.sql))).toBe(true);
+    expect(appels.some((a) => /INSERT INTO demande_journal/i.test(a.sql) && /dépôt manuel \(téléservice\)/.test(a.sql))).toBe(true);
+  });
+});
+
 describe('P1 — marquerDeposee greffe la référence', () => {
   it('avec référence : dépôt (UPDATE + journal) PUIS greffe ON CONFLICT DO NOTHING, dans la même transaction', async () => {
     await marquerDeposee(42, 'admin', '  REF-42 ');

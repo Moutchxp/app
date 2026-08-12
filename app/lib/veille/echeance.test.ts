@@ -164,3 +164,19 @@ describe('X2 — fenetreCada : refus tacite (+1 mois), forclusion (+2 mois), 3 �
     expect(fenetreCada(ENVOI, new Date('2026-07-01T10:00:00Z')).joursAvantForclusion).toBeLessThan(0);
   });
 });
+
+describe('B2 — dépôt téléservice : l’ancre envoyeLe fait courir l’échéance', () => {
+  it('envoyeLe null (dépôt téléservice NON horodaté = bug B2) → « pas encore envoyée », joursRestants null, AUCUN crash', () => {
+    const r = etatEcheance(entree({ envoyeLe: null }), new Date('2026-04-20T10:00:00Z'), REG);
+    expect(r.etat).toBe('en_cours');
+    expect(r.joursRestants).toBeNull();
+    expect(r.motif).toContain('pas encore envoyée');
+  });
+
+  it('envoyeLe renseigné (après correctif) → PLUS « pas encore envoyée » ; échéance = envoi + 1 mois → dépassée ouvre la CADA', () => {
+    // envoi 15 mars → échéance 15 avril ; au 20 avril, relève fraîche → 'depassee' (le silence peut valoir refus tacite)
+    const r = etatEcheance(entree({ envoyeLe: new Date('2026-03-15T10:00:00Z') }), new Date('2026-04-20T10:00:00Z'), REG);
+    expect(r.motif).not.toContain('pas encore envoyée');
+    expect(r.etat).toBe('depassee');
+  });
+});
