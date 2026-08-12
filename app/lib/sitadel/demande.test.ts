@@ -629,6 +629,14 @@ describe('P3 — corps FORMULAIRE (téléservice)', () => {
     expect((corps.match(/Permis concerné/g) ?? []).length).toBe(1);
   });
 
+  it('U4 — adresse ABSENTE en base → la ligne DÉGRADE (commune + arrondissement), JAMAIS « adresse non renseignée » (cas demande 156)', () => {
+    const lotVide: Lot = { codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire',
+      dossiers: [cand({ type: 'PC', numDau: '07511524V0006', dateReelleAutorisation: '2025-08-14', adresse: '', codePostal: null, communeNom: 'Paris', cadastre: [] })] };
+    const { corps: c } = genererTexte(lotVide, CONFIG, 'SVAV-DEM-2026-000156', piecesDepuisConfig('PC2,PC3'), 'personne', 'reponse@svav.com');
+    expect(c).toContain('Permis concerné : PC07511524V0006 — autorisé le 14 août 2025 — Paris, arrondissement 15e');
+    expect(c).not.toMatch(/non renseign|adresse manquante|adresse indisponible/i); // dégradation SILENCIEUSE vers la mairie
+  });
+
   it('AUCUNE société, AUCUNE adresse de réponse, AUCUN rappel de la référence SVAV', () => {
     expect(corps).not.toContain('Criterimmo');          // nom de société (CONFIG)
     expect(corps).not.toContain('SARL');

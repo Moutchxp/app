@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formaterReferencePermis, arrondissementParis, formaterArrondissement } from './referencePermis';
+import { formaterReferencePermis, arrondissementParis, formaterArrondissement, composerAdressePermis } from './referencePermis';
 
 /**
  * U2 — SOURCE UNIQUE de la référence de permis (2 lettres de type + num_dau) et dérivation de l'arrondissement parisien depuis
@@ -50,5 +50,26 @@ describe('U2 — arrondissement de Paris dérivé du num_dau (source structurée
     expect(arrondissementParis('0751XX24V0006')).toBeNull();   // lettres à la place de l’arrondissement
     expect(arrondissementParis('07512124V0006')).toBeNull();   // 21e n’existe pas (hors [1;20])
     expect(arrondissementParis('')).toBeNull();
+  });
+});
+
+describe('U4 — composerAdressePermis : source unique, une seule adresse, dégradation propre', () => {
+  it('adresse présente → voiePresente + ligne « voie, ville/CP, arrondissement »', () => {
+    const a = composerAdressePermis({ adresse: '1 AVENUE DE LA PORTE BRANCIO', codePostal: '75015', communeNom: 'Paris', numDau: '07511524V0006' });
+    expect(a.voiePresente).toBe(true);
+    expect(a.voie).toBe('1 AVENUE DE LA PORTE BRANCIO');
+    expect(a.villeCP).toBe('75015 Paris');
+    expect(a.ligne).toBe('1 AVENUE DE LA PORTE BRANCIO, 75015 Paris, arrondissement 15e');
+  });
+  it('adresse ABSENTE → voiePresente=false + ligne DÉGRADÉE (ville/CP + arrondissement), JAMAIS « non renseignée »', () => {
+    const a = composerAdressePermis({ adresse: '', codePostal: null, communeNom: 'Paris', numDau: '07511524V0006' });
+    expect(a.voiePresente).toBe(false);
+    expect(a.ligne).toBe('Paris, arrondissement 15e');
+    expect(a.ligne).not.toMatch(/non renseign/i);
+  });
+  it('hors Paris (aucun arrondissement) → ligne = voie + ville/CP, sans mention d’arrondissement', () => {
+    const a = composerAdressePermis({ adresse: '3 rue X', codePostal: '92000', communeNom: 'Nanterre', numDau: '09200124V0006' });
+    expect(a.arrondissement).toBeNull();
+    expect(a.ligne).toBe('3 rue X, 92000 Nanterre');
   });
 });

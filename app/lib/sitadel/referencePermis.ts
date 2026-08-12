@@ -42,3 +42,26 @@ export function formaterArrondissement(numDau: string | null | undefined): strin
   const n = arrondissementParis(numDau);
   return n === null ? null : (n === 1 ? '1er' : `${n}e`);
 }
+
+/** U4 — adresse d'un permis, décomposée + assemblée. Le modèle Sitadel ne stocke QU'UNE adresse par dossier (colonnes `adr_*`). */
+export interface AdressePermisComposee {
+  voie: string;                   // adresse de voie déjà agrégée (num + libellé + localité) ; '' si absente en base
+  villeCP: string;                // « 75015 Paris » | « Paris » | '' (code postal + commune, selon ce qui est présent)
+  arrondissement: string | null;  // « 15e » | null (Paris uniquement)
+  voiePresente: boolean;          // la voie est-elle renseignée ? false → l'ÉCRAN doit avertir l'opérateur (jamais la lettre)
+  ligne: string;                  // ligne d'adresse ASSEMBLÉE pour le corps : voie + ville/CP + arrondissement ; repli propre (ville/CP + arrondissement) si voie absente — JAMAIS « non renseignée »
+}
+
+/**
+ * U4 — SOURCE UNIQUE de composition de l'adresse d'un permis, réutilisée par le CORPS de la demande (variante formulaire) ET par
+ * la CARTE de dépôt. Le modèle n'a qu'UNE adresse par dossier → aucun pluriel. Adresse absente → `voiePresente=false` et la
+ * `ligne` dégrade proprement sur ville/CP + arrondissement (la lettre reste correcte ; c'est l'écran qui avertit). PUR.
+ */
+export function composerAdressePermis(d: { adresse?: string | null; codePostal?: string | null; communeNom?: string | null; numDau?: string | null }): AdressePermisComposee {
+  const arrondissement = formaterArrondissement(d.numDau);
+  const villeCP = [d.codePostal, d.communeNom].map((x) => (x ?? '').trim()).filter((x) => x !== '').join(' ');
+  const voie = (d.adresse ?? '').trim();
+  const lieu = [villeCP, arrondissement ? `arrondissement ${arrondissement}` : ''].filter((x) => x !== '').join(', ');
+  const ligne = [voie, lieu].filter((x) => x !== '').join(', ');
+  return { voie, villeCP, arrondissement, voiePresente: voie !== '', ligne };
+}

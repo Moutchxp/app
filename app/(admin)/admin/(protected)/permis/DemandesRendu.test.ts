@@ -241,6 +241,24 @@ describe('S16 — CarteDepot (file à déposer à la main)', () => {
     expect(cartouche).not.toContain('Copier le texte');      // …mais pas « Copier le texte »
     expect(h).toContain('Copier le texte');                  // qui reste rendu, DEHORS (children)
   });
+
+  it('U4 — adresse PRÉSENTE → affichée sur la carte (source unique, comme le corps) ; aucun avertissement', () => {
+    const d: DepotAffiche = { id: 1, reference: 'R', communeNom: 'Paris', url: 'u', corps: 'x', nbDossiers: 1, statut: 'brouillon',
+      dossiers: [{ type: 'PC', numDau: '07510124V0034', adresse: '5 rue de Rivoli', codePostal: '75001', communeNom: 'Paris' }] };
+    const h = renderToStaticMarkup(createElement(CarteDepot, { d }));
+    expect(h).toContain('Adresse : 5 rue de Rivoli, 75001 Paris');
+    expect(h).not.toContain('Aucune adresse de voie'); // pas d’avertissement quand l’adresse est là
+  });
+
+  it('U4 — adresse ABSENTE → AVERTISSEMENT explicite à l’opérateur (role=alert), jamais un silence ; arrondissement toujours affiché', () => {
+    const d: DepotAffiche = { id: 1, reference: 'R', communeNom: 'Paris', url: 'u', corps: 'x', nbDossiers: 1, statut: 'brouillon',
+      dossiers: [{ type: 'PC', numDau: '07511524V0006', adresse: null, codePostal: null, communeNom: 'Paris' }] };
+    const h = renderToStaticMarkup(createElement(CarteDepot, { d }));
+    expect(h).toContain('Aucune adresse de voie');
+    expect(h).toContain('role="alert"');
+    expect(h).toContain('Arrondissement : 15e'); // l’arrondissement reste connu (dérivé du num_dau)
+    expect(h).not.toContain('Adresse : '); // pas de fausse ligne d’adresse
+  });
 });
 
 describe('U3 (B) — BoutonAnnulerDepot : geste SECONDAIRE + confirmation qui dit ce qui se passe', () => {

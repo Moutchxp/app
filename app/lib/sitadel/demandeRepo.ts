@@ -779,18 +779,23 @@ export async function rouvrirDemande(id: number, motif: string | null, auteur: s
 // ── Dépôt manuel sur téléservice (canal 'formulaire' — S16) ──────────────────────────────────────────────────────────
 export interface DemandeADeposer {
   id: number; reference: string; communeNom: string | null; url: string | null; corps: string | null; statut: string; nbDossiers: number;
-  /** U2 : dossiers ATTACHÉS (type + num_dau) → pré-remplissage du champ « Numéro de dossier instruit » et de l'arrondissement du téléservice. */
-  dossiers: { type: 'PC' | 'PD'; numDau: string }[];
+  /** U2/U4 : dossiers ATTACHÉS (type + num_dau + adresse) → champ « Numéro de dossier instruit », arrondissement, et affichage/avertissement d'adresse. */
+  dossiers: { type: 'PC' | 'PD'; numDau: string; adresse: string | null; codePostal: string | null; communeNom: string | null }[];
 }
 
 /** Demandes en canal 'formulaire' encore à déposer (brouillon/prête). Corps = texte figé (genererTexte), URL = téléservice figé. */
 export async function listerADeposer(): Promise<DemandeADeposer[]> {
-  const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; url: string | null; corps: string | null; statut: string; nb: number; dossiers: { type: 'PC' | 'PD'; numDau: string }[] }>(
-    // U2 : on ramène aussi les dossiers ATTACHÉS (type + num_dau) pour le champ « Numéro de dossier instruit » et l'arrondissement.
+  const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; url: string | null; corps: string | null; statut: string; nb: number; dossiers: { type: 'PC' | 'PD'; numDau: string; adresse: string | null; codePostal: string | null; communeNom: string | null }[] }>(
+    // U2/U4 : on ramène les dossiers ATTACHÉS (type + num_dau + adresse) pour le champ « Numéro de dossier instruit »,
+    //   l'arrondissement, et l'affichage/avertissement d'adresse. `adresse` = voie agrégée (num+voie+localité), NULL si absente.
     `SELECT d.id::int AS id, d.reference, c.nom AS commune_nom, d.dest_url_formulaire AS url, d.corps, d.statut,
             (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id) AS nb,
-            coalesce((SELECT json_agg(json_build_object('type', s.type, 'numDau', s.num_dau) ORDER BY s.num_dau)
+            coalesce((SELECT json_agg(json_build_object(
+                        'type', s.type, 'numDau', s.num_dau,
+                        'adresse', nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), ''),
+                        'codePostal', s.adr_codpost_ter, 'communeNom', cs.nom) ORDER BY s.num_dau)
                         FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
+                        LEFT JOIN commune cs ON cs.code_insee = s.code_insee
                        WHERE dd.demande_id = d.id AND dd.actif), '[]'::json) AS dossiers
      FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee
      WHERE d.dest_canal = 'formulaire' AND d.statut IN ('brouillon', 'prete')
