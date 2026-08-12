@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, DetailDossiers, RelanceCarte, TableRuns,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
-  EtatDemande, RappelObtenusArchives, partitionnerDemandes,
+  EtatDemande, RappelObtenusArchives, partitionnerDemandes, aReponseSansDocuments, BadgeReponseSansDocuments,
   type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
@@ -114,6 +114,35 @@ describe('T2 — exclusivité Réponses / Archives : partition + badges + rappel
     expect(renderToStaticMarkup(createElement(RappelObtenusArchives, { n: 3 }))).toContain('3 dossiers obtenus — voir Archives');
     expect(renderToStaticMarkup(createElement(RappelObtenusArchives, { n: 1 }))).toContain('1 dossier obtenu — voir Archives');
     expect(renderToStaticMarkup(createElement(RappelObtenusArchives, { n: 0 }))).toBe('');
+  });
+});
+
+describe('T2 commit B — badge « réponse sans documents » (dérivé du triage non_fourni, marqueur de lisibilité pur)', () => {
+  it('aReponseSansDocuments : vrai dès UN dossier dû non_fourni ; faux sinon', () => {
+    expect(aReponseSansDocuments([{ triage: 'non_fourni' }, { triage: null }])).toBe(true);
+    expect(aReponseSansDocuments([{ triage: null }, { triage: 'refus_mairie' }])).toBe(false);
+    // un non_fourni SATISFAIT ou RETIRÉ quitte les dus (commit A) → absent de la liste → plus de badge
+    expect(aReponseSansDocuments([])).toBe(false);
+    expect(aReponseSansDocuments([{ triage: null }])).toBe(false);
+  });
+
+  it('le badge réutilise l’infobulle U1 : même phrase source (AIDE_ACTIONS_DOSSIER[non_fourni]) + aria-describedby + .svv-tip', () => {
+    const phrase = AIDE_ACTIONS_DOSSIER.find((a) => a.cle === 'non_fourni')!.phrase;
+    const h = renderToStaticMarkup(createElement(BadgeReponseSansDocuments, { demandeId: 42 }));
+    expect(h).toContain('réponse sans documents');
+    expect(h).toContain('aria-describedby="tip-reponse-sans-doc-42"');
+    expect(h).toContain('id="tip-reponse-sans-doc-42" class="svv-tip"'); // exactement le mécanisme d’aide de U1
+    expect(h).toContain(phrase);                                          // aucune phrase en dur : la source unique
+    expect(h).not.toContain('title='); // pas un title natif (comme U1)
+  });
+
+  it('cohabitation : le badge n’EFFACE PAS l’échéance — les deux coexistent (empilés dans la colonne État)', () => {
+    const h = renderToStaticMarkup(createElement('div', null,
+      createElement(EtatDemande, { statut: 'envoyee', dossiersActifs: 3, etat: 'en_cours', motif: 'Délai en cours…' }),
+      createElement(BadgeReponseSansDocuments, { demandeId: 7 }),
+    ));
+    expect(h).toContain('Délai en cours');         // l’information d’échéance reste
+    expect(h).toContain('réponse sans documents'); // + le nouveau marqueur
   });
 });
 

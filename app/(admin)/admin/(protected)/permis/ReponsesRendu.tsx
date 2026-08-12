@@ -368,6 +368,33 @@ export function AideActionsDossier() {
 }
 
 /**
+ * T2 commit B — une demande a-t-elle « répondu SANS documents » ? = au moins un dossier DÛ trié 'non_fourni' (la mairie a été
+ * saisie mais n'a rien livré). `dossiers` = les dossiers DUS de la demande (le détail ne contient plus que les dus depuis le
+ * commit A) → un 'non_fourni' satisfait ou retiré en est absent, le badge s'éteint tout seul. NE se calcule JAMAIS depuis
+ * nb_reponses (pollué par accusés/rebonds) : uniquement le triage MANUEL, au grain dossier. PUR.
+ */
+export function aReponseSansDocuments(dossiers: { triage: string | null }[]): boolean {
+  return dossiers.some((d) => d.triage === 'non_fourni');
+}
+
+/**
+ * T2 commit B — badge « réponse sans documents » d'une demande. Marqueur de LISIBILITÉ seulement : il ne change AUCUNE mécanique
+ * (échéance, relance, éligibilité CADA inchangées) et COEXISTE avec le badge d'échéance (la Vue les empile, l'échéance n'est
+ * jamais masquée). Expliqué par la MÊME infobulle que U1 (`.svv-tip` + `aria-describedby`, cf. globals.css) et la MÊME phrase
+ * SOURCE (`AIDE_ACTIONS_DOSSIER['non_fourni']` via PHRASE_ACTION) — aucun second mécanisme d'aide. Focusable (clavier) pour que
+ * l'infobulle s'ouvre aussi au focus. `demandeId` → id d'infobulle unique dans la page. PUR.
+ */
+export function BadgeReponseSansDocuments({ demandeId }: { demandeId: number }) {
+  const id = `tip-reponse-sans-doc-${demandeId}`;
+  return (
+    <span className="svv-tip-wrap" style={{ alignSelf: 'flex-start' }}>
+      <span tabIndex={0} aria-describedby={id} style={{ fontSize: 11, fontWeight: 700, padding: '.1rem .45rem', borderRadius: '.35rem', background: '#fff1d6', color: '#8a5a00', border: '1px solid #e0a94f', whiteSpace: 'nowrap', cursor: 'help' }}>réponse sans documents</span>
+      <span role="tooltip" id={id} className="svv-tip">{PHRASE_ACTION.non_fourni}</span>
+    </span>
+  );
+}
+
+/**
  * T1/U1 — Détail des dossiers d'une demande : statuer CHAQUE dossier ligne par ligne (marquer reçu · non fourni · refus mairie ·
  * retirer + annulations), chaque bouton portant son infobulle (U1) reliée par `aria-describedby` ; un dépliant tactile « À quoi
  * servent ces boutons ? » ouvre la liste dès qu'il y a des actions. PUR : aucun état ici (le dépliant est un `<details>` natif),

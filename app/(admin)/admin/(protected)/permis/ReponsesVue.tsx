@@ -6,7 +6,8 @@ import type { ReponsesData } from '../../../../lib/veille/reponsesSuivi';
 import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import {
   IndicateurReleve, RappelReglages, TableRuns, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
-  partitionnerDemandes, BlocARattacher, RelanceCarte, ActionsCloture, PhraseVide, formaterDate, type RetourCible, type OptionDemande,
+  partitionnerDemandes, aReponseSansDocuments, BadgeReponseSansDocuments,
+  BlocARattacher, RelanceCarte, ActionsCloture, PhraseVide, formaterDate, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
 import { MessageRetour, MentionMasquage } from './DemandesRendu';
 
@@ -185,7 +186,13 @@ export function ReponsesVue() {
                         <td style={styleTd}>{d.communeNom ?? d.codeInsee}</td>
                         <td style={styleTd}>{formaterDate(d.envoyeLe)}</td>
                         <td style={styleTd}>{d.statut === 'close' || d.dossiersActifs === 0 ? '—' : (d.echeanceLe ? formaterDate(d.echeanceLe.toISOString()) : '—')}</td>
-                        <td style={styleTd}><EtatDemande statut={d.statut} dossiersActifs={d.dossiersActifs} etat={d.etat} motif={d.motif} /></td>
+                        <td style={styleTd}>
+                          {/* T2 commit B — l'échéance reste TOUJOURS affichée ; le badge « réponse sans documents » s'EMPILE en dessous (jamais de substitution). */}
+                          <div className="flex flex-col gap-1">
+                            <EtatDemande statut={d.statut} dossiersActifs={d.dossiersActifs} etat={d.etat} motif={d.motif} />
+                            {aReponseSansDocuments(d.dossiers) && <BadgeReponseSansDocuments demandeId={d.demandeId} />}
+                          </div>
+                        </td>
                         <td style={styleTd}><CompteSatisfaction satisfaits={d.dossiersSatisfaits} total={d.dossiersActifs} /></td>
                         <td style={{ ...styleTd, textAlign: 'right' }}>{d.nbReponses}</td>
                         <td style={styleTd}><button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }} aria-expanded={ouvert} onClick={() => setDossOuverts((s) => toggle(s, d.demandeId))}>{ouvert ? 'masquer' : 'détail'}</button></td>
