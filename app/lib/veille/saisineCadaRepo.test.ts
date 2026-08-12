@@ -105,7 +105,8 @@ describe('X2 — depsReellesSaisissables : SQL des candidats (fragments sémanti
     const sel = trouver(/FROM demande d/i)!;
     const s = norm(sel.sql);
     expect(s).toContain("d.statut = 'envoyee'");
-    expect(s).toContain("canal = 'email' AND statut = 'envoye'");                 // émission CONFIRMÉE
+    expect(s).toContain("WHERE statut = 'envoye'");                              // B2 — émission CONFIRMÉE, agnostique au canal (téléservice inclus)
+    expect(s).not.toContain("canal = 'email'");                                 // B2 — le filtre e-mail est levé (le dépôt formulaire porte aussi envoye_le)
     expect(s).toContain('dd.actif AND dd.satisfait_le IS NULL');                  // au moins un dossier DÛ
     expect(s).toContain("rl.type = 'saisine_cada' AND rl.statut <> 'abandonnee'"); // pas de saisine vivante
   });

@@ -208,7 +208,9 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
             (SELECT count(*)::int FROM demande_reponse r WHERE r.demande_id = d.id) AS nb_reponses
        FROM demande d
        LEFT JOIN commune c ON c.code_insee = d.code_insee
-       LEFT JOIN demande_acheminement a ON a.demande_id = d.id AND a.canal = 'email'
+       -- B2 — la date d'envoi (ancre d'échéance) se lit QUEL QUE SOIT le canal : un dépôt téléservice écrit une ligne
+       --   canal='formulaire' (pas 'email'). Filtrer canal='email' ici serait le défaut symétrique de l'écriture corrigée.
+       LEFT JOIN demande_acheminement a ON a.demande_id = d.id
       WHERE d.statut IN ('envoyee', 'close')
       GROUP BY d.id, d.reference, d.code_insee, c.nom, d.statut`,
   );

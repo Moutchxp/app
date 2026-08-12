@@ -83,7 +83,8 @@ export function depsReellesRegenerer(): DepsRegenerer {
     lireDemande: async (demandeId) => {
       const { rows } = await query<{ statut: string; reference: string; envoye_le: Date | null }>(
         `SELECT d.statut, d.reference, min(a.envoye_le) AS envoye_le
-           FROM demande d LEFT JOIN demande_acheminement a ON a.demande_id = d.id AND a.canal = 'email'
+           -- B2 : ancre d'échéance agnostique au canal (un dépôt téléservice écrit canal='formulaire', pas 'email')
+           FROM demande d LEFT JOIN demande_acheminement a ON a.demande_id = d.id
           WHERE d.id = $1 GROUP BY d.statut, d.reference`,
         [demandeId]);
       const r = rows[0];

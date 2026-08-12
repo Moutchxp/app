@@ -220,7 +220,8 @@ export function depsReellesRelance(): DepsRelanceAuto {
                 (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif) AS dossiers_actifs,
                 (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NOT NULL) AS dossiers_satisfaits
            FROM demande d
-           LEFT JOIN demande_acheminement a ON a.demande_id = d.id AND a.canal = 'email'
+           -- B2 — ancre d'échéance agnostique au canal (un dépôt téléservice écrit canal='formulaire', pas 'email').
+           LEFT JOIN demande_acheminement a ON a.demande_id = d.id
           WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1
           GROUP BY d.id, d.reference`,
         [profil]);

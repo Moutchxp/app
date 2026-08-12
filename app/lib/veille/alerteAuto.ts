@@ -134,7 +134,8 @@ export async function chargerEntreeAlerte(maintenant: Date = new Date()): Promis
             (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NOT NULL) AS dossiers_satisfaits
        FROM demande d
        LEFT JOIN commune c ON c.code_insee = d.code_insee
-       LEFT JOIN demande_acheminement a ON a.demande_id = d.id AND a.canal = 'email'
+       -- B2 — ancre d'échéance agnostique au canal (téléservice = 'formulaire').
+       LEFT JOIN demande_acheminement a ON a.demande_id = d.id
       WHERE d.statut = 'envoyee'
       GROUP BY d.id, d.reference, c.nom`);
   const demandesEcheance: DemandeEcheanceAlerte[] = [];

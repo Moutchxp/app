@@ -153,7 +153,7 @@ async function lireReferencesRecherche(profil: ProfilBoite, max: number): Promis
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
       WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1
       ORDER BY (dd.satisfait_le IS NULL) DESC,
-               (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id AND a.canal = 'email') ASC NULLS LAST,
+               (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id) ASC NULLS LAST, -- B2 : ancre agnostique au canal
                s.num_dau`,
     [profil],
   );
@@ -175,8 +175,9 @@ async function lireReferencesRecherche(profil: ProfilBoite, max: number): Promis
 async function dateDepart(profil: ProfilBoite): Promise<Date | null> {
   const { rows } = await query<{ depuis: Date | null }>(
     `SELECT (min(a.envoye_le) - interval '1 day') AS depuis
+       -- B2 : fenêtre de relève agnostique au canal (téléservice inclus : un dépôt formulaire porte aussi envoye_le)
        FROM demande d JOIN demande_acheminement a ON a.demande_id = d.id
-      WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1 AND a.canal = 'email' AND a.envoye_le IS NOT NULL`,
+      WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1 AND a.envoye_le IS NOT NULL`,
     [profil],
   );
   return rows[0]?.depuis ?? null;

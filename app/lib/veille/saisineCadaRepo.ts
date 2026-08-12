@@ -41,8 +41,9 @@ export interface DepsSaisissables {
  *  acquis / non forclos) et la fraîcheur sont appliquées EN TS (fenetreCada / releveEstFraiche), sources uniques du calcul. */
 const SQL_CANDIDATS =
   `WITH ach AS (
+     -- B2 — ancre CADA agnostique au canal : un dépôt téléservice écrit statut='envoye' sous canal='formulaire' (pas 'email').
      SELECT demande_id, min(envoye_le) AS envoye_le
-       FROM demande_acheminement WHERE canal = 'email' AND statut = 'envoye' GROUP BY demande_id
+       FROM demande_acheminement WHERE statut = 'envoye' GROUP BY demande_id
    )
    SELECT d.id::int AS id, d.reference, c.nom AS commune_nom, d.profil_demandeur AS profil, a.envoye_le,
           (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif) AS dossiers_actifs,
@@ -109,7 +110,7 @@ export function depsReellesCreerSaisine(): DepsCreerSaisine {
     lireMeta: async (demandeId) => {
       const { rows } = await query<{ statut: string; reference: string; commune_nom: string | null; profil: string; envoye_le: Date | null; saisine_vivante: boolean }>(
         `SELECT d.statut, d.reference, c.nom AS commune_nom, d.profil_demandeur AS profil,
-                (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id AND a.canal = 'email' AND a.statut = 'envoye') AS envoye_le,
+                (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id AND a.statut = 'envoye') AS envoye_le, -- B2 : agnostique au canal
                 EXISTS (SELECT 1 FROM demande_relance rl WHERE rl.demande_id = d.id AND rl.type = 'saisine_cada' AND rl.statut <> 'abandonnee') AS saisine_vivante
            FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee WHERE d.id = $1`, [demandeId]);
       const r = rows[0];
@@ -262,7 +263,7 @@ export interface DepsConfirmation {
 
 const SQL_CONFIRMATION =
   `SELECT d.statut, d.reference, c.nom AS commune_nom,
-          (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id AND a.canal = 'email' AND a.statut = 'envoye') AS envoye_le,
+          (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id AND a.statut = 'envoye') AS envoye_le, -- B2 : agnostique au canal
           COALESCE((SELECT array_agg(s.num_dau ORDER BY s.num_dau)
                       FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
                      WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL), '{}') AS dossiers_dus_nums,

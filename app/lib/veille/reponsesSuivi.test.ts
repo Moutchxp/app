@@ -17,7 +17,7 @@ const { appels, etat, queryMock } = vi.hoisted(() => {
 
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: vi.fn(), pool: {}, closePool: async () => undefined }));
 
-import { chargerCumulsRuns } from './reponsesSuivi';
+import { chargerCumulsRuns, chargerSuiviReponses } from './reponsesSuivi';
 import { bornesFenetres } from './fenetresCumul';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -25,6 +25,20 @@ const MAINTENANT = new Date('2026-08-09T12:00:00.000Z');
 const JOUR = 24 * 3_600_000;
 
 beforeEach(() => { appels.length = 0; etat.rows = []; });
+
+describe('B2 — chargerSuiviReponses : la date d’envoi (échéance à l’écran) se lit QUEL QUE SOIT le canal', () => {
+  it('la jointure d’acheminement (ancre envoye_le) ne filtre PLUS canal=email → un dépôt formulaire est vu à l’écran', async () => {
+    etat.rows = [];
+    await chargerSuiviReponses();
+    // la requête « suivi » = celle qui agrège min(a.envoye_le) en joignant demande_acheminement
+    const dem = appels.find((a) => /min\(a\.envoye_le\)::text AS envoye_le/.test(a.sql));
+    expect(dem, 'la requête suivi doit joindre l’acheminement pour l’ancre envoye_le').toBeDefined();
+    const s = norm(dem!.sql);
+    expect(s).toContain('LEFT JOIN demande_acheminement a ON a.demande_id = d.id');
+    // B2 : plus AUCUN prédicat a.canal (le filtre e-mail est levé → la ligne canal='formulaire' de 119 est jointe → envoye_le lu)
+    expect(s).not.toContain('a.canal');
+  });
+});
 
 describe('T2 — chargerCumulsRuns : une requête, six fenêtres', () => {
   it('émet les cinq fenêtres bornées (FILTER + param lié) et le total sans borne', async () => {
