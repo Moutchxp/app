@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 import { formaterReferencePermis } from '../../../../lib/sitadel/referencePermis';
@@ -240,6 +240,27 @@ describe('S16 — CarteDepot (file à déposer à la main)', () => {
     expect(cartouche).toContain('>Copier<');                 // le bouton dédié est DANS le cartouche
     expect(cartouche).not.toContain('Copier le texte');      // …mais pas « Copier le texte »
     expect(h).toContain('Copier le texte');                  // qui reste rendu, DEHORS (children)
+  });
+});
+
+describe('U3 (B) — BoutonAnnulerDepot : geste SECONDAIRE + confirmation qui dit ce qui se passe', () => {
+  const noop = () => {};
+  it('fermé → un LIEN secondaire « Annuler cette demande », JAMAIS un bouton primaire', () => {
+    const h = renderToStaticMarkup(createElement(BoutonAnnulerDepot, { ouvert: false, onOuvrir: noop, onConfirmer: noop, onFermer: noop }));
+    expect(h).toContain('Annuler cette demande');
+    expect(h).toContain('class="svv-link"');   // secondaire (lien), pas une action principale
+    expect(h).not.toContain('svv-btn-primary'); // JAMAIS rendu comme « Marquer comme déposée »
+  });
+  it('ouvert → confirmation EXPLICITE (annulée + dossiers demandables + « À demander »), pas un « êtes-vous sûr ? » générique', () => {
+    const h = renderToStaticMarkup(createElement(BoutonAnnulerDepot, { ouvert: true, onOuvrir: noop, onConfirmer: noop, onFermer: noop }));
+    expect(h).toContain('role="alert"');
+    expect(h).toContain('annulée');
+    expect(h).toContain('redeviennent demandables');
+    expect(h).toContain('À demander');
+    expect(h).toContain('Confirmer l’annulation');
+    expect(h).toContain('Retour');
+    expect(h).not.toContain('êtes-vous sûr');
+    expect(h).not.toContain('svv-btn-primary'); // même « Confirmer » reste secondaire (outline)
   });
 });
 

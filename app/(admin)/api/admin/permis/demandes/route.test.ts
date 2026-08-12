@@ -10,17 +10,19 @@ vi.mock('../../../../../lib/admin/garde', () => ({ exigerAdministrateur: vi.fn()
 vi.mock('../../../../../lib/sitadel/veilleConfig', () => ({ chargerConfigVeille: vi.fn(async () => ({ profilDemandeurDefaut: 'entreprise' })) }));
 vi.mock('../../../../../lib/sitadel/demandeRepo', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
-  return { ...actual, creerDemandes: vi.fn(), listerDemandes: vi.fn() };
+  return { ...actual, creerDemandes: vi.fn(), listerDemandes: vi.fn(), changerStatutLot: vi.fn() };
 });
 
-import { POST } from './route';
+import { POST, PATCH } from './route';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { creerDemandes } from '../../../../../lib/sitadel/demandeRepo';
+import { creerDemandes, changerStatutLot } from '../../../../../lib/sitadel/demandeRepo';
 
 const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
 const creer = creerDemandes as unknown as ReturnType<typeof vi.fn>;
+const transition = changerStatutLot as unknown as ReturnType<typeof vi.fn>;
 
 const post = (body: unknown) => POST(new Request('http://test/api/admin/permis/demandes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
+const patch = (body: unknown) => PATCH(new Request('http://test/api/admin/permis/demandes', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
 const RAPPORT = { crees: ['SVAV-DEM-2026-000001'], demandesCreees: 1, lotsSelectionnes: 2, dossiersCrees: 5, ignoresConflit: 0, lotsInvalides: [{ cle: '9-9', communeNom: 'Ville', raison: 'lot plus disponible' }], profil: 'entreprise' };
 
 beforeEach(() => {
@@ -83,5 +85,44 @@ describe('V3 — POST : ne crée QUE les lots transmis', () => {
     expect(trace).toMatchObject({ code: '42703', column: 'xxx' });
     expect(trace.lots).toEqual(['1-2']); // contexte tracé
     spy.mockRestore();
+  });
+});
+
+describe('U3 (B) — PATCH annulee : chemin d’annulation UNIQUE réutilisé (changerStatutLot)', () => {
+  it('statut=annulee → 200 ; changerStatutLot([id],\'annulee\',auteur) est l’écrivain appelé', async () => {
+    transition.mockResolvedValueOnce([]);
+    const res = await patch({ ids: [42], statut: 'annulee' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, traites: 1 });
+    expect(transition).toHaveBeenCalledWith([42], 'annulee', '5'); // le SEUL écrivain de demande.statut='annulee'
+  });
+
+  it('statut inconnu → 400, AUCUNE écriture (changerStatutLot jamais appelé)', async () => {
+    const res = await patch({ ids: [42], statut: 'nimportequoi' });
+    expect(res.status).toBe(400);
+    expect(transition).not.toHaveBeenCalled();
+  });
+
+  it('ids tous invalides → 400, aucune écriture (jamais un succès à 0)', async () => {
+    const res = await patch({ ids: [], statut: 'annulee' });
+    expect(res.status).toBe(400);
+    expect(transition).not.toHaveBeenCalled();
+  });
+
+  it('exception inattendue de changerStatutLot → 503 (jamais un faux succès), journalisée', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    transition.mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '22P02' }));
+    const res = await patch({ ids: [42], statut: 'annulee' });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ erreur: 'action impossible' });
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('non-administrateur → 403, aucune écriture', async () => {
+    garde.mockResolvedValueOnce({ refus: Response.json({ erreur: 'INTERDIT' }, { status: 403 }) });
+    const res = await patch({ ids: [42], statut: 'annulee' });
+    expect(res.status).toBe(403);
+    expect(transition).not.toHaveBeenCalled();
   });
 });

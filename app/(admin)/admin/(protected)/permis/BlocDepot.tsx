@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CarteDepot, type DepotAffiche } from './DemandesRendu';
+import { CarteDepot, BoutonAnnulerDepot, type DepotAffiche } from './DemandesRendu';
 
 /**
  * File « À déposer à la main » de l'onglet Demandes (S16) : les demandes en canal 'formulaire' (téléservice). Deux clics
@@ -13,6 +13,8 @@ export function BlocDepot() {
   const [msg, setMsg] = useState<Record<number, string>>({});  // retour (ok/échec) par carte
   const [msgRef, setMsgRef] = useState<Record<number, string>>({}); // U2 — retour du bouton « Copier » du numéro de dossier (distinct du « Copier le texte »)
   const [refs, setRefs] = useState<Record<number, string>>({}); // P1 — référence mairie saisie par carte (facultative)
+  const [annulerOuverts, setAnnulerOuverts] = useState<Set<number>>(new Set()); // U3 — confirmations « Annuler cette demande » ouvertes
+  const [retourAnnul, setRetourAnnul] = useState('');                            // U3 — retour de niveau SECTION (la carte annulée disparaît → retour visible ailleurs)
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
@@ -63,6 +65,27 @@ export function BlocDepot() {
     } catch { poser(id, 'Action impossible.'); }
   }
 
+  const fermerAnnul = (id: number): void => setAnnulerOuverts((s) => { const n = new Set(s); n.delete(id); return n; });
+
+  // U3 — ANNULER : réutilise le chemin EXISTANT (PATCH …/demandes {statut:'annulee'} → changerStatutLot), AUCUN nouvel écrivain
+  //   de demande.statut. Succès → la carte quitte la file (retrait optimiste) + retour de SECTION (la carte a disparu). Refus →
+  //   motif DANS la carte (jamais un échec muet). listerADeposer ne renvoie que brouillon/prête → aucune demande déposée ici.
+  async function annuler(id: number): Promise<void> {
+    poser(id, '');
+    try {
+      const res = await fetch('/api/admin/permis/demandes', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [id], statut: 'annulee' }) });
+      if (res.ok) {
+        fermerAnnul(id);
+        setDemandes((prev) => prev.filter((x) => x.id !== id)); // retrait optimiste (la carte disparaît, compteur à jour)
+        setRetourAnnul('Demande annulée — ses dossiers redeviennent demandables (onglet « À demander »).');
+        setVersion((v) => v + 1);
+      } else {
+        const e = (await res.json().catch(() => ({}))) as { erreur?: string };
+        poser(id, e.erreur ? `Annulation refusée : ${e.erreur}.` : 'Annulation refusée.'); // carte conservée, motif visible
+      }
+    } catch { poser(id, 'Annulation impossible.'); }
+  }
+
   if (demandes.length === 0) return null;
 
   return (
@@ -70,6 +93,8 @@ export function BlocDepot() {
       <div style={{ fontSize: 13 }}>
         <strong>{demandes.length} demande(s) à déposer à la main</strong> — ces communes n’acceptent que leur téléservice. Ouvrez le formulaire, collez le texte, puis marquez la demande déposée.
       </div>
+      {/* U3 — retour de l'annulation : la carte concernée a disparu de la file, le retour reste visible au niveau de la section. */}
+      {retourAnnul && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourAnnul}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '.6rem' }}>
         {demandes.map((d) => (
           <CarteDepot key={d.id} d={d} onCopierRef={(valeur) => void copierRef(d.id, valeur)} retourRef={msgRef[d.id]}>
@@ -85,6 +110,13 @@ export function BlocDepot() {
               <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .7rem' }} onClick={() => void marquerDeposee(d.id)}>Marquer comme déposée</button>
             </div>
             {msg[d.id] && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{msg[d.id]}</span>}
+            {/* U3 — geste SECONDAIRE, nettement séparé de « Marquer comme déposée » (bordure supérieure + zone dédiée). */}
+            <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem', marginTop: '.2rem' }}>
+              <BoutonAnnulerDepot ouvert={annulerOuverts.has(d.id)}
+                onOuvrir={() => setAnnulerOuverts((s) => new Set(s).add(d.id))}
+                onConfirmer={() => void annuler(d.id)}
+                onFermer={() => fermerAnnul(d.id)} />
+            </div>
           </CarteDepot>
         ))}
       </div>

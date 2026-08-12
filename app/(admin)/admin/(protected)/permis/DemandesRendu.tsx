@@ -278,6 +278,32 @@ export function CarteDepot({ d, children, onCopierRef, retourRef }: {
   );
 }
 
+/**
+ * U3 (B) — bouton « Annuler cette demande » de la carte de dépôt. Geste SECONDAIRE (lien rouge — JAMAIS un bouton primaire),
+ * nettement séparé de « Marquer comme déposée » (svv-btn-primary) pour qu'on ne puisse pas les confondre. La confirmation DIT ce
+ * qui se passe (pas un « êtes-vous sûr ? ») : la demande passe en « annulée » et ses dossiers redeviennent demandables → ils
+ * réapparaissent dans « À demander ». PUR : l'ouverture/fermeture et l'appel réseau (chemin PATCH …/demandes existant) vivent
+ * dans la Vue (BlocDepot) ; aucun nouvel écrivain de demande.statut.
+ */
+export function BoutonAnnulerDepot({ ouvert, onOuvrir, onConfirmer, onFermer }: {
+  ouvert: boolean; onOuvrir: () => void; onConfirmer: () => void; onFermer: () => void;
+}) {
+  if (!ouvert) {
+    return <button type="button" className="svv-link" style={{ width: 'auto', padding: '.2rem 0', alignSelf: 'flex-start', color: 'var(--color-svv-red)' }} onClick={onOuvrir}>Annuler cette demande</button>;
+  }
+  return (
+    <span role="group" aria-label="Confirmer l’annulation de la demande" style={{ display: 'block', border: '1px solid var(--color-svv-red)', borderRadius: '.4rem', padding: '.4rem .5rem' }}>
+      <span role="alert" style={{ display: 'block', fontSize: 12, color: 'var(--color-svv-red)', lineHeight: 1.4, marginBottom: '.35rem' }}>
+        Annuler cette demande : elle passe en « annulée » et ses dossiers redeviennent demandables — ils réapparaîtront dans « À demander ». Rien n’est envoyé à la mairie.
+      </span>
+      <span style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.25rem .6rem', color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }} onClick={onConfirmer}>Confirmer l’annulation</button>
+        <button type="button" className="svv-link" style={{ width: 'auto', padding: '.25rem 0' }} onClick={onFermer}>Retour</button>
+      </span>
+    </span>
+  );
+}
+
 // ── V3 : carte de PROPOSITION avec choix lot-par-lot ──────────────────────────
 /** Un lot proposé, prêt à afficher/cocher. `cle` = clé stable (cleLot, ensemble trié des dossierId) — l'identité de sélection. */
 export interface LotAffiche { cle: string; codeInsee: string; communeNom: string; canal: string; nbDossiers: number; destOrigine?: 'mairie_contact' | 'prada'; destNom?: string | null; profilImpose?: ProfilDemandeur | null }
