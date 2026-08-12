@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
 import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre } from '../../../../lib/veille/reponsesSuivi';
 import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../lib/veille/fenetresCumul';
-import { MessageRetour, type RetourAction } from './DemandesRendu';
+import { MessageRetour, BlocRepliable, type RetourAction } from './DemandesRendu';
 
 /**
  * R5a/R5b — rendu PUR de l'écran « Réponses » : aucun état, aucun effet → testable en Node via `renderToStaticMarkup`. Les
@@ -237,6 +237,32 @@ export function TableRuns({ runs, cumul, periode, onPeriode }: {
         </p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * U8 — encart « État de la relève » REPLIABLE (réutilise BlocRepliable, comme BlocStock ; aucun 2ᵉ mécanisme de repli). REPLIÉ
+ * par défaut (l'état `ouvert` vient de la Vue, aucune mémorisation). Replié = titre + LIGNE D'ÉTAT (IndicateurReleve), placée dans
+ * le slot `retour` de BlocRepliable, TOUJOURS visible : elle porte elle-même son alerte (échec / retard) — AUCUN dépliage
+ * automatique, la couleur + le texte suffisent. Déployé = rappel des réglages + « 10 dernières relèves » (TableRuns, qui contient
+ * DÉJÀ le sélecteur de période T2, la ligne de total et les deux phrases explicatives). PUR. Mobile-first (hérité de ses enfants).
+ */
+export function BlocEtatReleve({ reglages, derniereOkLe, runs, cumul, periode, maintenant, ouvert, onToggle, onPeriode }: {
+  reglages: ReglagesReleve; derniereOkLe: string | null; runs: LigneRun[]; cumul?: CumulFenetre; periode: FenetreCumul;
+  maintenant: Date; ouvert: boolean; onToggle?: () => void; onPeriode: (p: FenetreCumul) => void;
+}) {
+  return (
+    <BlocRepliable ariaLabel="État de la relève" idContenu="etat-releve-contenu" ligne="État de la relève"
+      ouvert={ouvert} onToggle={onToggle} className="svv-card"
+      retour={<IndicateurReleve active={reglages.active} derniereOkLe={derniereOkLe} fraicheurHeures={reglages.fraicheurHeures} maintenant={maintenant} />}>
+      <div className="flex flex-col gap-2">
+        <RappelReglages reglages={reglages} />
+        <div>
+          <h3 style={{ fontSize: 13, fontWeight: 700, margin: '.4rem 0 .2rem' }}>10 dernières relèves</h3>
+          <TableRuns runs={runs} cumul={cumul} periode={periode} onPeriode={onPeriode} />
+        </div>
+      </div>
+    </BlocRepliable>
   );
 }
 

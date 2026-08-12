@@ -5,7 +5,7 @@ import { echeanceDe, etatEcheance, type EtatEcheance } from '../../../../lib/vei
 import type { ReponsesData } from '../../../../lib/veille/reponsesSuivi';
 import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import {
-  IndicateurReleve, RappelReglages, TableRuns, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
+  BlocEtatReleve, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
   partitionnerDemandes, aReponseSansDocuments, BadgeReponseSansDocuments,
   BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, formaterDate, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
@@ -59,6 +59,7 @@ export function ReponsesVue() {
   const [propDate, setPropDate] = useState<{ reponseId: number; date: string } | null>(null); // T4 : formulaire « déposée le » ouvert (date en cours) — VIDE au départ
   const [pageRel, setPageRel] = useState(1);
   const [periode, setPeriode] = useState<FenetreCumul>('7j'); // T2 : fenêtre du total ; purement locale (les 6 cumuls sont déjà chargés)
+  const [releveOuvert, setReleveOuvert] = useState(false); // U8 : encart « État de la relève » REPLIÉ par défaut (aucune mémorisation) ; la ligne d'état reste visible
   const [version, setVersion] = useState(0);
 
   // Rechargement = incrément de `version` (dép. de l'effet) SANS toucher au retour : une action réussie recharge les données
@@ -155,16 +156,12 @@ export function ReponsesVue() {
     <div className="flex flex-col gap-4">
       {retourBanniere && <div><MessageRetour r={retourBanniere} /></div>}
 
-      {/* ── Bloc 1 : état de la relève ── */}
-      <section className="svv-card flex flex-col gap-2">
-        <h2 style={styleH2}>État de la relève</h2>
-        <IndicateurReleve active={data.reglages.active} derniereOkLe={data.derniereOkLe} fraicheurHeures={data.reglages.fraicheurHeures} maintenant={maintenant} />
-        <RappelReglages reglages={data.reglages} />
-        <div>
-          <h3 style={{ fontSize: 13, fontWeight: 700, margin: '.4rem 0 .2rem' }}>10 dernières relèves</h3>
-          <TableRuns runs={data.runs} cumul={data.cumuls[periode]} periode={periode} onPeriode={setPeriode} />
-        </div>
-      </section>
+      {/* ── Bloc 1 : état de la relève — U8 REPLIABLE (replié = titre + ligne d'état ; le reste, dont sélecteur/total/phrases
+           de TableRuns, se déploie). Replié par défaut, aucune mémorisation. La ligne d'état porte son alerte, sans dépliage auto. ── */}
+      <BlocEtatReleve
+        reglages={data.reglages} derniereOkLe={data.derniereOkLe} runs={data.runs} cumul={data.cumuls[periode]}
+        periode={periode} maintenant={maintenant} ouvert={releveOuvert} onToggle={() => setReleveOuvert((o) => !o)} onPeriode={setPeriode}
+      />
 
       {/* ── Bloc 2 : suivi des demandes envoyées ── */}
       <section className="flex flex-col gap-2">

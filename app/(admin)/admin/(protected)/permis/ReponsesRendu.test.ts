@@ -2,13 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
-  IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns,
+  IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns, BlocEtatReleve,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
   EtatDemande, RappelObtenusArchives, partitionnerDemandes, aReponseSansDocuments, BadgeReponseSansDocuments,
   type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi, CumulFenetre, PropositionDepotAffichee } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi, CumulFenetre, PropositionDepotAffichee, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 
 /**
  * R5a/R5b — rendu PUR de l'écran « Réponses » (renderToStaticMarkup, aucun DOM). Couvre l'indicateur de relève (3 signaux),
@@ -51,6 +51,64 @@ describe('R5a — IndicateurReleve : trois signaux distincts', () => {
       active: true, derniereOkLe: null, fraicheurHeures: 48, maintenant: NOW,
     }));
     expect(h).toContain('Aucune relève réussie à ce jour');
+  });
+});
+
+describe('U8 — BlocEtatReleve : encart « État de la relève » repliable (replié = titre + ligne d’état)', () => {
+  const REGLAGES: ReglagesReleve = { active: true, intervalleMinutes: 30, profil: 'entreprise', fraicheurHeures: 48, alerteJours: 7 };
+  const RUN = (over: Partial<LigneRun> = {}): LigneRun => ({
+    demarreLe: '2026-04-20T11:00:00Z', termineLe: '2026-04-20T11:00:05Z', declencheur: 'planifie', resultat: 'ok',
+    vus: 4, dejaConnus: 0, horsPerimetre: 0, retenus: 1, rattaches: 0,
+    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, enregistrees: 1,
+    piecesDeposees: 0, piecesNonDeposees: 0, erreur: null, ...over,
+  });
+  const CUMUL: CumulFenetre = {
+    nbReleves: 5, nbErreurs: 0, vus: 30, dejaConnus: 10, horsPerimetre: 2, retenus: 4, rattaches: 3,
+    rebondsDetectes: 6, rebondsRattaches: 1, rebondsEtrangers: 9, rebondsAppliques: 2, enregistrees: 7, piecesDeposees: 8, piecesNonDeposees: 5,
+  };
+  const NOW = new Date('2026-04-20T12:00:00Z');
+  const rendu = (over?: Partial<Parameters<typeof BlocEtatReleve>[0]>) => renderToStaticMarkup(createElement(BlocEtatReleve, {
+    reglages: REGLAGES, derniereOkLe: '2026-04-20T11:48:00Z', runs: [RUN()], cumul: CUMUL, periode: '7j', maintenant: NOW,
+    ouvert: false, onToggle: () => {}, onPeriode: () => {}, ...over,
+  }));
+
+  it('REPLIÉ (défaut) : titre + ligne d’état visibles ; tableau des 10 relèves et phrases explicatives ABSENTS du markup', () => {
+    const h = rendu({ ouvert: false });
+    expect(h).toContain('État de la relève');
+    expect(h).toContain('Dernière relève réussie il y a'); // la ligne d’état (IndicateurReleve) reste visible replié
+    expect(h).toContain('aria-expanded="false"');
+    expect(h).not.toContain('10 dernières relèves');       // le tableau n’est pas dans le markup replié
+    expect(h).not.toContain('cumulables sans ambiguïté');  // ni la dernière phrase explicative
+    expect(h).not.toContain('<table');
+  });
+
+  it('DÉPLOYÉ : tableau, ligne de total et les DEUX phrases explicatives présents (dernière = « … cumulables sans ambiguïté »)', () => {
+    const h = rendu({ ouvert: true });
+    expect(h).toContain('10 dernières relèves');
+    expect(h).toContain('<table');
+    expect(h).toContain('Total');                          // ligne de total (tfoot, cumul fourni)
+    expect(h).toContain('re-détectés');                    // 1re phrase explicative
+    expect(h).toContain('cumulables sans ambiguïté');      // 2e (dernière) phrase, INCLUSE
+    expect(h).toContain('aria-expanded="true"');
+  });
+
+  it('la LIGNE D’ÉTAT est rendue à l’identique replié et déployé, y compris son variant d’ÉCHEC (aucun dépliage auto)', () => {
+    const replieEchec = rendu({ ouvert: false, derniereOkLe: null }); // jamais de relève réussie → alerte
+    expect(replieEchec).toContain('Aucune relève réussie à ce jour'); // l’alerte est portée par la ligne, même repliée
+    expect(replieEchec).not.toContain('10 dernières relèves');        // AUCUN dépliage automatique en échec
+    const deployeEchec = rendu({ ouvert: true, derniereOkLe: null });
+    expect(deployeEchec).toContain('Aucune relève réussie à ce jour'); // même ligne d’état une fois déployé
+    // cas nominal : même texte d’état des deux côtés
+    expect(rendu({ ouvert: false })).toContain('Dernière relève réussie il y a');
+    expect(rendu({ ouvert: true })).toContain('Dernière relève réussie il y a');
+  });
+
+  it('déployé : le dépliant par ligne (T1, <details>) et le sélecteur de période (T2) restent INCHANGÉS à l’intérieur', () => {
+    // run « rien de nouveau » → T1 replie la ligne en <details> ; cumul fourni → le sélecteur de période T2 est présent
+    const h = rendu({ ouvert: true, runs: [RUN({ vus: 3, retenus: 0, enregistrees: 0, rebondsDetectes: 3, rebondsEtrangers: 3 })] });
+    expect(h).toContain('<details');                 // T1 inchangé
+    expect(h).toContain('id="cumul-periode"');       // T2 sélecteur de période inchangé
+    expect(h).toContain('24 dernières heures');
   });
 });
 
