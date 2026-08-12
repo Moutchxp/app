@@ -269,11 +269,69 @@ export function CompteSatisfaction({ satisfaits, total }: { satisfaits: number; 
   return <span style={{ fontWeight: 600, color: complet ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)' }}>{satisfaits} / {total}</span>;
 }
 
+// ── U1 — aide des actions de statut d'un dossier (source de vérité UNIQUE : infobulle des boutons + dépliant tactile) ──────
 /**
- * T1 — Détail des dossiers d'une demande : statuer CHAQUE dossier ligne par ligne (marquer reçu · non fourni · refus mairie ·
- * retirer + annulations). PUR : aucun état ici, tout vient des props (la Vue gère les formulaires inline via `refusOuvert…` /
- * `retirerOuvert…`). Le champ « date de refus » est borné à AUJOURD'HUI côté écran (max + bouton désactivé) ; la ROUTE reste
- * l'autorité (400 si future). « Retirer » n'est jamais un « êtes-vous sûr ? » générique : l'avertissement dit ce qui se passe.
+ * U1 — SOURCE DE VÉRITÉ UNIQUE des légendes des 5 actions de statut d'un dossier (onglet Réponses). Réutilisée SANS
+ * duplication à deux endroits : l'infobulle CSS de chaque bouton (survol + focus clavier, reliée par `aria-describedby`, cf.
+ * `BoutonAction`) ET le dépliant « À quoi servent ces boutons ? » (relais tactile, cf. `AideActionsDossier`). L'ordre suit
+ * l'ordre d'apparition des boutons. « non fourni » et « retirer » ont des sens juridiques OPPOSÉS : ces phrases les distinguent.
+ */
+export const AIDE_ACTIONS_DOSSIER = [
+  { cle: 'marquer_recu', label: 'marquer reçu', phrase: 'La mairie a livré ce document. Le dossier est satisfait et sort des dossiers dus.' },
+  { cle: 'non_fourni', label: 'non fourni', phrase: 'La mairie a bien été saisie, mais n’a pas livré ce dossier. Il RESTE DÛ : l’échéance continue de courir, la relance le listera et la voie CADA reste ouverte.' },
+  { cle: 'refus_mairie', label: 'refus mairie', phrase: 'La mairie refuse explicitement de communiquer ce dossier. Il devient candidat à la saisine CADA immédiatement, sans attendre la fin du mois de silence.' },
+  { cle: 'retirer', label: 'retirer', phrase: 'Ce dossier n’a jamais été réellement demandé à la mairie. Il quitte la demande, redevient demandable et réapparaît dans « À demander ». C’est une correction de la demande, pas un classement de réponse.' },
+  { cle: 'annuler_statut', label: 'annuler le statut', phrase: 'Revient à l’état précédent : le dossier redevient dû.' },
+] as const;
+export type CleActionDossier = (typeof AIDE_ACTIONS_DOSSIER)[number]['cle'];
+const PHRASE_ACTION = Object.fromEntries(AIDE_ACTIONS_DOSSIER.map((a) => [a.cle, a.phrase])) as Record<CleActionDossier, string>;
+const LABEL_ACTION = Object.fromEntries(AIDE_ACTIONS_DOSSIER.map((a) => [a.cle, a.label])) as Record<CleActionDossier, string>;
+const styleActionBtn: CSSProperties = { width: 'auto', padding: '.1rem .4rem' };
+
+/**
+ * U1 — un bouton d'action + son infobulle CSS. La légende vient de AIDE_ACTIONS_DOSSIER (`cle`), jamais de texte en dur ici.
+ * L'infobulle est reliée au bouton par `aria-describedby` et reste dans l'arbre d'accessibilité (masquée par `opacity` en CSS,
+ * pas `display:none`) → un lecteur d'écran l'annonce au focus ; visuellement elle n'apparaît qu'au survol / focus clavier
+ * (`.svv-tip-wrap:focus-within`). `idTip` doit être unique dans la page (préfixé par demande + dossier). `libelle` permet un
+ * texte de bouton distinct de la légende (« annuler » sur un dossier satisfait, qui partage la légende « redevient dû »).
+ */
+function BoutonAction({ cle, idTip, onClick, danger, libelle }: { cle: CleActionDossier; idTip: string; onClick: () => void; danger?: boolean; libelle?: string }) {
+  return (
+    <span className="svv-tip-wrap">
+      <button type="button" className="svv-link" style={danger ? { ...styleActionBtn, color: 'var(--color-svv-red)' } : styleActionBtn}
+        aria-describedby={idTip} onClick={onClick}>{libelle ?? LABEL_ACTION[cle]}</button>
+      <span role="tooltip" id={idTip} className="svv-tip">{PHRASE_ACTION[cle]}</span>
+    </span>
+  );
+}
+
+/**
+ * U1 — relais TACTILE des infobulles (le survol n'existe pas au doigt) : un dépliant NATIF `<details>` (aucun état React →
+ * `DetailDossiers` reste 100 % pur), replié par défaut, qui liste les MÊMES légendes que les infobulles (même objet
+ * AIDE_ACTIONS_DOSSIER — aucune duplication de texte).
+ */
+export function AideActionsDossier() {
+  return (
+    <details style={{ margin: '.1rem 0 .4rem' }}>
+      <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--color-svv-muted)' }}>À quoi servent ces boutons ?</summary>
+      <ul style={{ margin: '.35rem 0 0', paddingLeft: '1.1rem', fontSize: 12, lineHeight: 1.5 }}>
+        {AIDE_ACTIONS_DOSSIER.map((a) => (
+          <li key={a.cle} style={{ marginBottom: '.2rem' }}>
+            <strong style={{ color: 'var(--color-svv-ink)' }}>{a.label}</strong> — {a.phrase}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/**
+ * T1/U1 — Détail des dossiers d'une demande : statuer CHAQUE dossier ligne par ligne (marquer reçu · non fourni · refus mairie ·
+ * retirer + annulations), chaque bouton portant son infobulle (U1) reliée par `aria-describedby` ; un dépliant tactile « À quoi
+ * servent ces boutons ? » ouvre la liste dès qu'il y a des actions. PUR : aucun état ici (le dépliant est un `<details>` natif),
+ * tout vient des props (la Vue gère les formulaires inline via `refusOuvert…` / `retirerOuvert…`). Le champ « date de refus »
+ * est borné à AUJOURD'HUI côté écran (max + bouton désactivé) ; la ROUTE reste l'autorité (400 si future). « Retirer » n'est
+ * jamais un « êtes-vous sûr ? » générique : l'avertissement dit ce qui se passe.
  */
 export function DetailDossiers({
   demandeId, statut, dossiers, retour, aujourdhui, prefillRefus,
@@ -299,8 +357,10 @@ export function DetailDossiers({
   // R5b — garde-fou : demande close → aucune action sur les dossiers (message explicite, jamais un bouton inerte).
   const close = statut === 'close';
   const actif = !close && onMarquer !== undefined;
-  const lien: CSSProperties = { width: 'auto', padding: '.1rem .4rem' };
   return (
+    <>
+      {/* U1 — dépliant tactile en TÊTE de liste (le survol n'existe pas au doigt) ; seulement quand il y a des boutons à expliquer. */}
+      {actif && <AideActionsDossier />}
     <ul style={{ margin: '.3rem 0 0', paddingLeft: '1.1rem', fontSize: 12, lineHeight: 1.6 }}>
       {dossiers.map((d) => {
         const m = messageIci(retour ?? null, `dossier-${demandeId}-${d.dossierId}`);
@@ -318,15 +378,16 @@ export function DetailDossiers({
             {actif && !enRefus && !enRetrait && (
               <span style={{ marginLeft: '.4rem', display: 'inline-flex', gap: '.35rem', flexWrap: 'wrap' }}>
                 {d.satisfait ? (
-                  <button type="button" className="svv-link" style={lien} onClick={() => onMarquer!(demandeId, d.dossierId, false)}>annuler</button>
+                  // Dé-satisfaire = revenir à « dû » : même légende que « annuler le statut », libellé court « annuler ».
+                  <BoutonAction cle="annuler_statut" libelle="annuler" idTip={`tip-${demandeId}-${d.dossierId}-annuler_satisfaction`} onClick={() => onMarquer!(demandeId, d.dossierId, false)} />
                 ) : d.triage ? (
-                  <button type="button" className="svv-link" style={lien} onClick={() => onAnnulerTriage?.(demandeId, d.dossierId)}>annuler le statut</button>
+                  <BoutonAction cle="annuler_statut" idTip={`tip-${demandeId}-${d.dossierId}-annuler_statut`} onClick={() => onAnnulerTriage?.(demandeId, d.dossierId)} />
                 ) : (
                   <>
-                    <button type="button" className="svv-link" style={lien} onClick={() => onMarquer!(demandeId, d.dossierId, true)}>marquer reçu</button>
-                    <button type="button" className="svv-link" style={lien} onClick={() => onNonFourni?.(demandeId, d.dossierId)}>non fourni</button>
-                    <button type="button" className="svv-link" style={lien} onClick={() => onRefusOuvrir?.(demandeId, d.dossierId, d.refusLe ?? prefillRefus ?? aujourdhui ?? '')}>refus mairie</button>
-                    <button type="button" className="svv-link" style={{ ...lien, color: 'var(--color-svv-red)' }} onClick={() => onRetirerOuvrir?.(d.dossierId)}>retirer</button>
+                    <BoutonAction cle="marquer_recu" idTip={`tip-${demandeId}-${d.dossierId}-marquer_recu`} onClick={() => onMarquer!(demandeId, d.dossierId, true)} />
+                    <BoutonAction cle="non_fourni" idTip={`tip-${demandeId}-${d.dossierId}-non_fourni`} onClick={() => onNonFourni?.(demandeId, d.dossierId)} />
+                    <BoutonAction cle="refus_mairie" idTip={`tip-${demandeId}-${d.dossierId}-refus_mairie`} onClick={() => onRefusOuvrir?.(demandeId, d.dossierId, d.refusLe ?? prefillRefus ?? aujourdhui ?? '')} />
+                    <BoutonAction cle="retirer" danger idTip={`tip-${demandeId}-${d.dossierId}-retirer`} onClick={() => onRetirerOuvrir?.(d.dossierId)} />
                   </>
                 )}
               </span>
@@ -360,6 +421,7 @@ export function DetailDossiers({
       })}
       {close && <li style={{ ...styleMuted, listStyle: 'none', marginLeft: '-1.1rem' }}>Demande close : le marquage des dossiers est désactivé (rouvrir la demande d’abord — chantier ultérieur).</li>}
     </ul>
+    </>
   );
 }
 

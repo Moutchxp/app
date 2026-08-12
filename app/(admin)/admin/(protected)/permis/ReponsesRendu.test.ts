@@ -3,7 +3,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, DetailDossiers, RelanceCarte, TableRuns,
-  apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, type OptionDemande, type RetourCible,
+  apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
+  type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
 import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi, CumulFenetre } from '../../../../lib/veille/reponsesSuivi';
@@ -340,7 +341,7 @@ describe('T1 — DetailDossiers : 4 actions par ligne + réversibilité', () => 
     const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [{ ...DU, triage: 'non_fourni' }], ...cbs }));
     expect(h).toContain('non fourni (reste dû)');
     expect(h).toContain('annuler le statut');
-    expect(h).not.toContain('marquer reçu'); // triage en cours → on n’offre que l’annulation du statut
+    expect(h).not.toContain('tip-7-2-marquer_recu'); // le BOUTON « marquer reçu » n’est pas offert (l’aide, elle, décrit toujours toutes les actions)
   });
 
   it('dossier « refus mairie » → montre la DATE de notification + « annuler le statut »', () => {
@@ -353,8 +354,8 @@ describe('T1 — DetailDossiers : 4 actions par ligne + réversibilité', () => 
   it('dossier SATISFAIT → « annuler » seulement, JAMAIS « retirer » (on ne détache pas un dossier obtenu)', () => {
     const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [{ ...DU, satisfait: true, satisfaitPar: 'manuel' }], ...cbs }));
     expect(h).toContain('annuler');
-    expect(h).not.toContain('retirer');
-    expect(h).not.toContain('non fourni');
+    expect(h).not.toContain('tip-7-2-retirer');    // JAMAIS le bouton « retirer » sur un dossier obtenu (l’aide décrit l’action, mais aucun bouton ne l’offre ici)
+    expect(h).not.toContain('tip-7-2-non_fourni'); // ni le bouton « non fourni »
   });
 
   it('formulaire de refus ouvert → champ date borné à aujourd’hui (max) + « confirmer le refus »', () => {
@@ -386,6 +387,52 @@ describe('T1 — DetailDossiers : 4 actions par ligne + réversibilité', () => 
     expect(h).toContain('À demander');
     expect(h).toContain('confirmer le retrait');
     expect(h).not.toContain('êtes-vous sûr');
+  });
+});
+
+// ── U1 — expliquer les boutons : source de vérité unique, infobulle reliée (aria-describedby), relais tactile <details> ──
+describe('U1 — aide des boutons d’action de statut', () => {
+  const rien = () => {};
+  const cbs = { onMarquer: rien, onNonFourni: rien, onAnnulerTriage: rien, onRefusOuvrir: rien, onRefusDateChange: rien, onRefusConfirmer: rien, onRefusAnnuler: rien, onRetirerOuvrir: rien, onRetirerConfirmer: rien, onRetirerAnnuler: rien };
+  const DU: DossierSuivi = { dossierId: 2, numDau: 'PCz', adresse: null, satisfait: false, satisfaitPar: null, triage: null, refusLe: null };
+  const parCle = (cle: string) => AIDE_ACTIONS_DOSSIER.find((a) => a.cle === cle)!;
+
+  it('chaque bouton porte sa légende reliée par aria-describedby (bouton → id de l’infobulle → phrase EXACTE de la source)', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [DU], ...cbs }));
+    for (const cle of ['marquer_recu', 'non_fourni', 'refus_mairie', 'retirer'] as const) {
+      const id = `tip-7-2-${cle}`;
+      expect(h).toContain(`aria-describedby="${id}"`);        // le bouton référence sa description…
+      expect(h).toContain(`id="${id}" class="svv-tip"`);      // …qui est bien l’infobulle CSS portant cet id
+      expect(h).toContain(parCle(cle).phrase);                // et la phrase est celle de la source unique
+    }
+  });
+
+  it('l’infobulle n’est pas un `title` natif (invisible au toucher, non stylable)', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [DU], ...cbs }));
+    expect(h).not.toContain('title=');
+    expect(h).toContain('role="tooltip"'); // infobulle sémantique, stylée en CSS (survol + focus)
+  });
+
+  it('dépliant tactile « À quoi servent ces boutons ? » : <details> replié par défaut, mêmes textes que les infobulles', () => {
+    const h = renderToStaticMarkup(createElement(AideActionsDossier, {}));
+    expect(h).toContain('À quoi servent ces boutons ?');
+    expect(h).toContain('<details');
+    expect(h).not.toContain('open='); // replié par défaut (pas d’attribut open)
+    for (const a of AIDE_ACTIONS_DOSSIER) {
+      expect(h).toContain(a.label);
+      expect(h).toContain(a.phrase); // exactement la même phrase que l’infobulle du bouton correspondant
+    }
+  });
+
+  it('le dépliant est en TÊTE de liste dès qu’il y a des actions, et absent si la demande est close', () => {
+    const ouvert = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [DU], ...cbs }));
+    expect(ouvert).toContain('À quoi servent ces boutons ?');
+    const close = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'close', dossiers: [DU], ...cbs }));
+    expect(close).not.toContain('À quoi servent ces boutons ?'); // aucun bouton à expliquer → aucune aide
+  });
+
+  it('source unique : exactement les 5 actions attendues, dans l’ordre d’apparition des boutons', () => {
+    expect(AIDE_ACTIONS_DOSSIER.map((a) => a.cle)).toEqual(['marquer_recu', 'non_fourni', 'refus_mairie', 'retirer', 'annuler_statut']);
   });
 });
 
