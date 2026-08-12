@@ -76,10 +76,10 @@ describe('A1b — pièces : origine visible, e-mail non supprimable, manuel supp
     expect(h).not.toContain('↓');
   });
 
-  it('permis renseigné SANS aucune pièce → « aucune pièce » (le dossier apparaît quand même)', () => {
+  it('permis renseigné SANS pièce → « aucun document attaché » (jamais une archive vide muette ; le dossier apparaît quand même)', () => {
     const h = rendu([ligne({ pieces: [] })]);
     expect(h).toContain('PC0750560001');
-    expect(h).toContain('aucune pièce');
+    expect(h).toContain('aucun document attaché');
   });
 
   it('la CLÉ de stockage est ABSENTE du HTML (données = booléen + id, jamais la clé)', () => {

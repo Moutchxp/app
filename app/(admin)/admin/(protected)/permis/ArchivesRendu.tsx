@@ -49,11 +49,12 @@ export function PieceLien({ piece, onTelecharger, onSupprimer }: {
   );
 }
 
-/** Cellule « pièces » : la liste des pièces (e-mail + manuelles), ou « aucune pièce » si le permis est renseigné sans document. PURE. */
+/** Cellule « pièces » : la liste des pièces (e-mail + manuelles), ou « aucun document attaché » si le permis est renseigné sans
+ *  document (T2 : jamais une archive vide muette — la ligne le DIT). PURE. */
 export function CellulePieces({ pieces, onTelecharger, onSupprimer }: {
   pieces: PieceArchive[]; onTelecharger?: (id: number, source: 'reponse' | 'dossier') => void; onSupprimer?: (documentId: number) => void;
 }) {
-  if (pieces.length === 0) return <span style={{ fontSize: 12, ...muted }}>aucune pièce</span>;
+  if (pieces.length === 0) return <span style={{ fontSize: 12, ...muted }}>aucun document attaché</span>;
   return (
     <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
       {pieces.map((p) => <li key={`${p.origine}-${p.id}`}><PieceLien piece={p} onTelecharger={onTelecharger} onSupprimer={onSupprimer} /></li>)}

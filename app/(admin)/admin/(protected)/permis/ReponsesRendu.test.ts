@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, DetailDossiers, RelanceCarte, TableRuns,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
+  EtatDemande, RappelObtenusArchives, partitionnerDemandes,
   type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
@@ -74,6 +75,45 @@ describe('R5a — CompteSatisfaction : compte de dossiers', () => {
   it('demande partiellement satisfaite → « 2 / 5 »', () => {
     const h = renderToStaticMarkup(createElement(CompteSatisfaction, { satisfaits: 2, total: 5 }));
     expect(h).toContain('2 / 5');
+  });
+});
+
+describe('T2 — exclusivité Réponses / Archives : partition + badges + rappel Archives', () => {
+  const D = (dossiersActifs: number, dossiersSatisfaits: number) => ({ dossiersActifs, dossiersSatisfaits });
+
+  it('partitionnerDemandes : partielle → vivante ; tout obtenu → soldée ; 0 dossier actif → sans dossier', () => {
+    const { vivantes, soldees, sansDossier } = partitionnerDemandes([
+      D(5, 2), // 3 dus → reste dans Réponses (partielle à cheval)
+      D(5, 5), // 0 du, des actifs → soldée (masquée)
+      D(0, 0), // aucun dossier actif → masquée
+      D(1, 0), // 1 du → reste
+    ]);
+    expect(vivantes).toHaveLength(2);
+    expect(soldees).toHaveLength(1);
+    expect(sansDossier).toHaveLength(1);
+    expect(soldees[0]).toMatchObject({ dossiersActifs: 5, dossiersSatisfaits: 5 });
+    expect(sansDossier[0]).toMatchObject({ dossiersActifs: 0 });
+  });
+
+  it('EtatDemande : 0 dossier actif → « Aucun dossier actif », AUCUNE échéance courante affichée (garde T2)', () => {
+    const h = renderToStaticMarkup(createElement(EtatDemande, { statut: 'envoyee', dossiersActifs: 0, etat: 'depassee', motif: 'Échéance dépassée…' }));
+    expect(h).toContain('Aucun dossier actif');
+    expect(h).toContain('aucun délai ne court');
+    expect(h).not.toContain('Échéance dépassée'); // pas de badge d’échéance qui court
+    expect(h).not.toContain('Délai en cours');
+  });
+
+  it('EtatDemande : close → « Clôturée » ; sinon → le badge d’échéance (décision d’etatEcheance, jamais recopiée)', () => {
+    expect(renderToStaticMarkup(createElement(EtatDemande, { statut: 'close', dossiersActifs: 3, etat: 'en_cours' }))).toContain('Clôturée');
+    const vivant = renderToStaticMarkup(createElement(EtatDemande, { statut: 'envoyee', dossiersActifs: 3, etat: 'en_cours', motif: 'Délai d’un mois en cours…' }));
+    expect(vivant).toContain('Délai en cours'); // ETAT_LABELS.en_cours
+    expect(vivant).not.toContain('Aucun dossier actif');
+  });
+
+  it('RappelObtenusArchives : N>0 → « N dossier(s) obtenu(s) — voir Archives » ; N=0 → rien', () => {
+    expect(renderToStaticMarkup(createElement(RappelObtenusArchives, { n: 3 }))).toContain('3 dossiers obtenus — voir Archives');
+    expect(renderToStaticMarkup(createElement(RappelObtenusArchives, { n: 1 }))).toContain('1 dossier obtenu — voir Archives');
+    expect(renderToStaticMarkup(createElement(RappelObtenusArchives, { n: 0 }))).toBe('');
   });
 });
 

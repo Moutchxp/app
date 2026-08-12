@@ -269,6 +269,48 @@ export function CompteSatisfaction({ satisfaits, total }: { satisfaits: number; 
   return <span style={{ fontWeight: 600, color: complet ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)' }}>{satisfaits} / {total}</span>;
 }
 
+/**
+ * T2 — badge d'ÉTAT d'une demande dans la liste Réponses. Trois cas DISTINCTS (le TEXTE porte l'info) :
+ *  - close → « Clôturée » ;
+ *  - 0 dossier ACTIF (tous les dossiers ont été retirés) → « Aucun dossier actif » : honnête, AUCUNE échéance ne court (garde
+ *    T2 — sans quoi etatEcheance retombe en depassee/en_cours, un délai résiduel trompeur) ;
+ *  - sinon → BadgeEtat (la décision vient d'etatEcheance, jamais recopiée ici). PUR.
+ */
+export function EtatDemande({ statut, dossiersActifs, etat, motif }: { statut: string; dossiersActifs: number; etat: EtatEcheance; motif?: string }) {
+  if (statut === 'close') return <span style={{ fontSize: 11, fontWeight: 700, padding: '.1rem .45rem', borderRadius: '.35rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)' }}>Clôturée</span>;
+  if (dossiersActifs === 0) return (
+    <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
+      <span style={{ alignSelf: 'flex-start', fontSize: 11, fontWeight: 700, padding: '.1rem .45rem', borderRadius: '.35rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)', whiteSpace: 'nowrap' }}>Aucun dossier actif</span>
+      <span style={{ ...styleMuted, lineHeight: 1.35 }}>Tous les dossiers ont été retirés : aucun délai ne court.</span>
+    </div>
+  );
+  return <BadgeEtat etat={etat} motif={motif} />;
+}
+
+/** T2 — dans le détail d'une demande, dire où sont partis les dossiers OBTENUS (ils vivent dans Archives, plus listés ici). PUR. */
+export function RappelObtenusArchives({ n }: { n: number }) {
+  if (n <= 0) return null;
+  return <p role="note" style={{ ...styleMuted, margin: '.1rem 0', fontStyle: 'italic' }}>{n} dossier{n > 1 ? 's' : ''} obtenu{n > 1 ? 's' : ''} — voir Archives.</p>;
+}
+
+/**
+ * T2 — RÉPONSES = dossiers DUS. Répartit les demandes suivies en trois groupes, par simple dérivation (aucun statut nouveau) :
+ *  - VIVANTES : ≥ 1 dossier dû → restent listées (une demande PARTIELLE, des dus + des obtenus, reste vivante) ;
+ *  - SOLDÉES : des dossiers actifs, tous obtenus (0 dû) → masquées par défaut (mention non silencieuse) ;
+ *  - SANS DOSSIER ACTIF : plus aucun dossier actif (tous retirés) → masquées aussi.
+ * Dû = actif non satisfait = dossiersActifs − dossiersSatisfaits. PUR → testable sans I/O.
+ */
+export function partitionnerDemandes<T extends { dossiersActifs: number; dossiersSatisfaits: number }>(demandes: T[]): { vivantes: T[]; soldees: T[]; sansDossier: T[] } {
+  const vivantes: T[] = [], soldees: T[] = [], sansDossier: T[] = [];
+  for (const d of demandes) {
+    const dus = d.dossiersActifs - d.dossiersSatisfaits;
+    if (dus > 0) vivantes.push(d);
+    else if (d.dossiersActifs > 0) soldees.push(d); // tout obtenu → soldée
+    else sansDossier.push(d);                        // 0 dossier actif
+  }
+  return { vivantes, soldees, sansDossier };
+}
+
 // ── U1 — aide des actions de statut d'un dossier (source de vérité UNIQUE : infobulle des boutons + dépliant tactile) ──────
 /**
  * U1 — SOURCE DE VÉRITÉ UNIQUE des légendes des 5 actions de statut d'un dossier (onglet Réponses). Réutilisée SANS

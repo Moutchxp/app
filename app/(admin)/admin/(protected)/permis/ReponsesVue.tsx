@@ -5,10 +5,10 @@ import { echeanceDe, etatEcheance, type EtatEcheance } from '../../../../lib/vei
 import type { ReponsesData } from '../../../../lib/veille/reponsesSuivi';
 import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import {
-  IndicateurReleve, RappelReglages, TableRuns, BadgeEtat, CompteSatisfaction, DetailDossiers,
-  BlocARattacher, RelanceCarte, ActionsCloture, PhraseVide, formaterDate, type RetourCible, type OptionDemande,
+  IndicateurReleve, RappelReglages, TableRuns, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
+  partitionnerDemandes, BlocARattacher, RelanceCarte, ActionsCloture, PhraseVide, formaterDate, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
-import { MessageRetour } from './DemandesRendu';
+import { MessageRetour, MentionMasquage } from './DemandesRendu';
 
 /**
  * R5a/R5b/R5c — écran « Réponses » : suivi de la boucle CRPA + ACTIONS. R5b : rattacher, marquer/annuler un dossier reçu,
@@ -51,6 +51,7 @@ export function ReponsesVue() {
   const [relOuvertes, setRelOuvertes] = useState<Set<number>>(new Set());
   const [refus, setRefus] = useState<{ demandeId: number; dossierId: number; date: string } | null>(null);   // T1 : formulaire « refus mairie » ouvert (date en cours de saisie)
   const [retrait, setRetrait] = useState<{ demandeId: number; dossierId: number } | null>(null);              // T1 : avertissement « retirer » ouvert
+  const [afficherSoldees, setAfficherSoldees] = useState(false); // T2 : par défaut on masque les demandes sans dossier dû (soldées / sans dossier actif)
   const [pageDem, setPageDem] = useState(1);
   const [pageRat, setPageRat] = useState(1);
   const [pageRel, setPageRel] = useState(1);
@@ -111,9 +112,17 @@ export function ReponsesVue() {
 
   const toggle = (set: Set<number>, id: number): Set<number> => { const n = new Set(set); if (n.has(id)) n.delete(id); else n.add(id); return n; };
 
-  const nbPagesDem = Math.max(1, Math.ceil(demandes.length / PAGE));
+  // T2 — RÉPONSES = dossiers dus : une demande sans aucun dossier dû (soldée / sans dossier actif) sort de la liste par défaut,
+  //   jamais en silence (MentionMasquage : « N soldée(s) masquée(s) — les afficher »). La partition est PURE (partitionnerDemandes).
+  const { vivantes, soldees, sansDossier } = partitionnerDemandes(demandes);
+  const demAffichees = afficherSoldees ? demandes : vivantes;
+  const mortsMasquage = afficherSoldees ? [] : [
+    { statut: 'soldée', n: soldees.length },
+    { statut: 'sans dossier actif', n: sansDossier.length },
+  ];
+  const nbPagesDem = Math.max(1, Math.ceil(demAffichees.length / PAGE));
   const pDem = Math.min(pageDem, nbPagesDem);
-  const demVisibles = demandes.slice((pDem - 1) * PAGE, pDem * PAGE);
+  const demVisibles = demAffichees.slice((pDem - 1) * PAGE, pDem * PAGE);
 
   const nbPagesRat = Math.max(1, Math.ceil(data.aRattacher.length / PAGE));
   const pRat = Math.min(pageRat, nbPagesRat);
@@ -156,6 +165,10 @@ export function ReponsesVue() {
           <PhraseVide>Aucune demande envoyée pour l’instant.</PhraseVide>
         ) : (
           <>
+            {demAffichees.length === 0 ? (
+              <PhraseVide>Toutes les demandes suivies sont soldées — plus aucun dossier dû.</PhraseVide>
+            ) : (
+              <>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
@@ -171,10 +184,8 @@ export function ReponsesVue() {
                         <td style={{ ...styleTd, fontFamily: 'var(--font-svv-mono, monospace)' }}>{d.reference}</td>
                         <td style={styleTd}>{d.communeNom ?? d.codeInsee}</td>
                         <td style={styleTd}>{formaterDate(d.envoyeLe)}</td>
-                        <td style={styleTd}>{d.statut === 'close' ? '—' : (d.echeanceLe ? formaterDate(d.echeanceLe.toISOString()) : '—')}</td>
-                        <td style={styleTd}>{d.statut === 'close'
-                          ? <span style={{ fontSize: 11, fontWeight: 700, padding: '.1rem .45rem', borderRadius: '.35rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)' }}>Clôturée</span>
-                          : <BadgeEtat etat={d.etat} motif={d.motif} />}</td>
+                        <td style={styleTd}>{d.statut === 'close' || d.dossiersActifs === 0 ? '—' : (d.echeanceLe ? formaterDate(d.echeanceLe.toISOString()) : '—')}</td>
+                        <td style={styleTd}><EtatDemande statut={d.statut} dossiersActifs={d.dossiersActifs} etat={d.etat} motif={d.motif} /></td>
                         <td style={styleTd}><CompteSatisfaction satisfaits={d.dossiersSatisfaits} total={d.dossiersActifs} /></td>
                         <td style={{ ...styleTd, textAlign: 'right' }}>{d.nbReponses}</td>
                         <td style={styleTd}><button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }} aria-expanded={ouvert} onClick={() => setDossOuverts((s) => toggle(s, d.demandeId))}>{ouvert ? 'masquer' : 'détail'}</button></td>
@@ -182,6 +193,9 @@ export function ReponsesVue() {
                       ouvert ? (
                         <tr key={`${d.demandeId}-detail`} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
                           <td colSpan={8} style={{ padding: '0 .5rem .5rem' }}>
+                            {/* T2 — les dossiers obtenus sont partis en Archives : on le DIT, on ne les fait pas disparaître en silence. */}
+                            <RappelObtenusArchives n={d.dossiersSatisfaits} />
+                            {(d.dossiers.length > 0 || d.dossiersSatisfaits === 0) && (
                             <DetailDossiers demandeId={d.demandeId} statut={d.statut} dossiers={d.dossiers} retour={retour}
                               aujourdhui={aujourdhui} prefillRefus={d.derniereReponseLe ? formaterDate(d.derniereReponseLe) : aujourdhui}
                               onMarquer={(demandeId, dossierId, satisfait) => void agir({ action: 'marquer_dossier', demandeId, dossierId, satisfait }, `dossier-${demandeId}-${dossierId}`, satisfait ? 'Marqué reçu.' : 'Satisfaction annulée.')}
@@ -197,6 +211,7 @@ export function ReponsesVue() {
                               onRetirerOuvrir={(dossierId) => setRetrait({ demandeId: d.demandeId, dossierId })}
                               onRetirerConfirmer={(demandeId, dossierId) => { setRetrait(null); void agir({ action: 'retirer_dossier', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Dossier retiré — il redevient demandable dans « À demander ».'); }}
                               onRetirerAnnuler={() => setRetrait(null)} />
+                            )}
                             <div style={{ marginTop: '.5rem' }}>
                               <ActionsCloture demandeId={d.demandeId} statut={d.statut} dossiersDus={d.dossiersActifs - d.dossiersSatisfaits}
                                 motif={motifCloture[d.demandeId]} retour={retour}
@@ -212,7 +227,11 @@ export function ReponsesVue() {
                 </tbody>
               </table>
             </div>
-            <Pagination page={pDem} nbPages={nbPagesDem} total={demandes.length} onPage={setPageDem} />
+            <Pagination page={pDem} nbPages={nbPagesDem} total={demAffichees.length} onPage={setPageDem} />
+              </>
+            )}
+            {/* T2 — le masquage n'est JAMAIS silencieux (réutilise MentionMasquage de Q6b : « N soldée(s) masquée(s) — les afficher »). */}
+            <MentionMasquage morts={mortsMasquage} onAfficherTout={() => setAfficherSoldees(true)} />
           </>
         )}
       </section>

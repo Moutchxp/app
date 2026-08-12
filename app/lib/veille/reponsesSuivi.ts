@@ -220,6 +220,10 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
   );
 
   // Détail des dossiers de ces demandes (groupés ensuite par demande_id) — évite un N+1.
+  // T2 — RÉPONSES = dossiers DUS. On ne liste QUE `satisfait_le IS NULL` : un dossier OBTENU vit désormais dans l'onglet
+  //   Archives (listerArchives : `dd.satisfait_le IS NOT NULL`), plus sous sa demande ici → un même dossier n'est JAMAIS dans
+  //   les deux onglets. Le nombre d'obtenus reste connu par `dossiers_satisfaits` (dem, ci-dessus) → la Vue affiche « N obtenu(s)
+  //   — voir Archives ». `satisfait` reste dans le SELECT (toujours false ici) pour la compat de type DossierSuivi.
   const doss = await query<{ demande_id: number; dossier_id: number; num_dau: string; adresse: string | null; satisfait: boolean; satisfait_par: string | null; triage: string | null; refus_le: string | null }>(
     `SELECT dd.demande_id::int AS demande_id, dd.dossier_id::int AS dossier_id, s.num_dau,
             nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
@@ -227,7 +231,7 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
        FROM demande_dossier dd
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
        JOIN demande d ON d.id = dd.demande_id
-      WHERE d.statut IN ('envoyee', 'close') AND dd.actif
+      WHERE d.statut IN ('envoyee', 'close') AND dd.actif AND dd.satisfait_le IS NULL
       ORDER BY dd.demande_id, s.num_dau`,
   );
   const parDemande = new Map<number, DossierSuivi[]>();

@@ -40,6 +40,17 @@ describe('B2 — chargerSuiviReponses : la date d’envoi (échéance à l’éc
   });
 });
 
+describe('T2 — le détail des dossiers ne liste QUE les dus (les obtenus vivent dans Archives, jamais dans les deux onglets)', () => {
+  it('la requête de détail exige satisfait_le IS NULL (dossier dû) + dd.actif', async () => {
+    await chargerSuiviReponses();
+    const doss = appels.find((a) => norm(a.sql).includes('ORDER BY dd.demande_id, s.num_dau'));
+    expect(doss, 'la requête de détail des dossiers doit être émise').toBeDefined();
+    const s = norm(doss!.sql);
+    expect(s).toContain('dd.satisfait_le IS NULL'); // seuls les dossiers DUS sont listés sous la demande
+    expect(s).toContain('dd.actif');
+  });
+});
+
 describe('T2 — chargerCumulsRuns : une requête, six fenêtres', () => {
   it('émet les cinq fenêtres bornées (FILTER + param lié) et le total sans borne', async () => {
     etat.rows = [{}];
