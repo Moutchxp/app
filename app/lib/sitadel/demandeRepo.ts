@@ -861,7 +861,7 @@ export async function ajouterReferenceExterne(
  * transaction. `ON CONFLICT DO NOTHING` : un doublon ne bloque JAMAIS le dépôt (le geste métier prime). Absente/vide → le
  * dépôt se fait sans référence (elle pourra être ajoutée après coup via `ajouterReferenceExterne`).
  */
-export async function marquerDeposee(id: number, auteur: string | null, reference?: string | null): Promise<void> {
+export async function marquerDeposee(id: number, auteur: string | null, reference?: string | null, envoyeLe?: Date | string | null): Promise<void> {
   await withTransaction(async (tx) => {
     const q = asQ(tx);
     const r = await q<{ statut: string; canal: string | null }>(`SELECT statut, dest_canal AS canal FROM demande WHERE id = $1`, [id]);
@@ -874,7 +874,9 @@ export async function marquerDeposee(id: number, auteur: string | null, referenc
     //   elle, etatEcheance reste « pas encore envoyée » et la boucle juridique (relance, CADA) est inerte. Canal 'formulaire'
     //   (téléservice) ; PAS de message_id ni de retour fournisseur (un dépôt téléservice n'en produit aucun) → NULL, ce qui DIT
     //   l'absence d'artefact e-mail sans en inventer. `statut='envoye'` = c'est bien parti à la mairie.
-    await q(`INSERT INTO demande_acheminement (demande_id, canal, statut, envoye_le) VALUES ($1, 'formulaire', 'envoye', now())`, [id]);
+    // T4 — `envoyeLe` = la DATE RÉELLE DE DÉPÔT saisie par l'opérateur (rattrapage relève) ; absente → now() (dépôt en direct).
+    //   L'ancre d'échéance/forclusion CADA se cale ainsi sur le dépôt prouvé, jamais sur la date du mail (cf. recon T4).
+    await q(`INSERT INTO demande_acheminement (demande_id, canal, statut, envoye_le) VALUES ($1, 'formulaire', 'envoye', coalesce($2::timestamptz, now()))`, [id, envoyeLe ?? null]);
     await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, 'envoyee', 'dépôt manuel (téléservice)', $3)`, [id, row.statut, auteur]);
     const ref = (reference ?? '').trim();
     if (ref !== '') {

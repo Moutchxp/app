@@ -130,18 +130,36 @@ export async function listerReponses(filtre: FiltreReponses = {}): Promise<Repon
 }
 
 /**
+ * T4 — rattachement manuel REFUSÉ vers une demande NON envoyée (brouillon/prête) : un tel message relève de la file « Dépôts à
+ * confirmer » (confirmer le dépôt bascule la demande, avec la date saisie), jamais d'un rattachement à une demande qui n'est pas
+ * partie (le modèle « réponse = réplique d'une demande envoyée » serait violé). Motif explicite, jamais un échec muet.
+ */
+export class RattachementNonEnvoyeeError extends Error {
+  constructor(public statut: string) {
+    super(`demande « ${statut} » : le rattachement manuel est réservé aux demandes envoyées — confirmez d'abord le dépôt (« cette demande a-t-elle été déposée ? »)`);
+    this.name = 'RattachementNonEnvoyeeError';
+  }
+}
+
+/**
  * Rattache À LA MAIN une réponse à une demande : pose demande_id, rattachement_methode='manuel', rattache_le=now(), et
- * consigne l'auteur dans `note` (append). Ne touche PAS demande.statut. Renvoie true si une ligne a été mise à jour.
+ * consigne l'auteur dans `note` (append). Ne touche PAS demande.statut. T4 : GARDE de statut (repo) — refus si brouillon/prête.
+ * Renvoie true si une ligne a été mise à jour.
  */
 export async function rattacherAMain(reponseId: number, demandeId: number, auteur: string): Promise<boolean> {
-  const res = await query(
-    `UPDATE demande_reponse
-        SET demande_id = $2, rattachement_methode = 'manuel', rattache_le = now(), maj_le = now(),
-            note = btrim(coalesce(note || chr(10), '') || $3)
-      WHERE id = $1`,
-    [reponseId, demandeId, `rattaché à la main par ${auteur}`],
-  );
-  return (res.rowCount ?? 0) > 0;
+  return withTransaction(async (q) => {
+    const st = await q<{ statut: string }>(`SELECT statut FROM demande WHERE id = $1`, [demandeId]);
+    const statut = st.rows[0]?.statut;
+    if (statut === 'brouillon' || statut === 'prete') throw new RattachementNonEnvoyeeError(statut); // T4 — garde repo
+    const res = await q(
+      `UPDATE demande_reponse
+          SET demande_id = $2, rattachement_methode = 'manuel', rattache_le = now(), maj_le = now(),
+              note = btrim(coalesce(note || chr(10), '') || $3)
+        WHERE id = $1`,
+      [reponseId, demandeId, `rattaché à la main par ${auteur}`],
+    );
+    return (res.rowCount ?? 0) > 0;
+  });
 }
 
 /** Marque une réponse comme traitée (traite_le=now()). Idempotent : ne fait rien si déjà traitée. Renvoie true si la transition a eu lieu. */
@@ -402,6 +420,12 @@ export async function reattacherDossierDemande(demandeId: number, dossierId: num
 export async function statutDemande(demandeId: number): Promise<string | null> {
   const { rows } = await query<{ statut: string }>(`SELECT statut FROM demande WHERE id = $1`, [demandeId]);
   return rows[0]?.statut ?? null;
+}
+
+/** T4 — jour de réception d'un message (`recu_le::date`), pour BORNER côté serveur la date de dépôt saisie (le dépôt précède le message). `null` si le message est absent. */
+export async function lireRecuLeReponse(reponseId: number): Promise<string | null> {
+  const { rows } = await query<{ recu_le: string }>(`SELECT recu_le::date::text AS recu_le FROM demande_reponse WHERE id = $1`, [reponseId]);
+  return rows[0]?.recu_le ?? null;
 }
 
 /** R5b — clé de stockage d'une pièce entrante (pour produire un lien signé côté serveur). `null` si absente ou non déposée. */

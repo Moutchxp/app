@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, DossierSuivi, ReponseARattacher, RelancePreparee, ReglagesReleve, CumulFenetre } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre } from '../../../../lib/veille/reponsesSuivi';
 import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import { MessageRetour, type RetourAction } from './DemandesRendu';
 
@@ -561,6 +561,72 @@ export function BlocARattacher({ reponses, demandes, selection, retour, onChoisi
         </tbody>
       </table>
     </div>
+  );
+}
+
+// ── Bloc T4 : dépôts à confirmer (« cette demande a-t-elle été déposée ? ») ────────────────────────────────────────────
+/**
+ * T4 — file « Dépôts à confirmer » : messages relevés citant le permis d'une demande restée EN ATTENTE (formulaire, brouillon/
+ * prête). DISTINCTE de « À rattacher » (messages sans rapport). 1 candidate → actionnable : SAISIE OBLIGATOIRE de la date RÉELLE
+ * de dépôt, VIDE au départ (aucun pré-remplissage), bornée à aujourd'hui ET à la date du message (le dépôt précède la réponse) ;
+ * ≥ 2 candidates → ambiguïté signalée, jamais de confirmation. Les pièces jointes ne satisfont RIEN ici (signalé). PUR : l'état
+ * (formulaire ouvert, date en cours) vit dans la Vue.
+ */
+export function BlocPropositions({ propositions, aujourdhui, retour, dateOuverteId, dateValeur, onOuvrir, onDateChange, onConfirmer, onFermer, onIgnorer }: {
+  propositions: PropositionDepotAffichee[]; aujourdhui: string; retour?: RetourCible;
+  dateOuverteId?: number | null; dateValeur?: string;
+  onOuvrir?: (reponseId: number) => void; onDateChange?: (v: string) => void;
+  onConfirmer?: (reponseId: number, demandeId: number, date: string) => void; onFermer?: () => void;
+  onIgnorer?: (reponseId: number) => void;
+}) {
+  if (propositions.length === 0) return <PhraseVide>Aucun dépôt à confirmer : aucun message relevé ne cite le permis d’une demande restée en attente.</PhraseVide>;
+  return (
+    <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+      {propositions.map((p) => {
+        const m = messageIci(retour ?? null, `proposition-${p.id}`);
+        const recuLe = formaterDate(p.recuLe);
+        const maxDate = recuLe !== '—' && recuLe < aujourdhui ? recuLe : aujourdhui; // le dépôt précède forcément le message
+        const ambigu = p.candidats.length > 1;
+        const enSaisie = dateOuverteId === p.id;
+        return (
+          <li key={p.id} className="svv-card" style={{ fontSize: 13 }}>
+            <div style={styleMuted}>Message de {p.deAdresse}{p.objet ? ` — « ${p.objet} »` : ''} (reçu le {recuLe})</div>
+            {ambigu ? (
+              <div role="note" style={{ color: 'var(--color-svv-red)', margin: '.3rem 0', lineHeight: 1.4 }}>
+                Cite le permis de plusieurs demandes en attente ({p.candidats.map((c) => c.reference).join(', ')}) — ambiguïté, à trancher à la main. Aucune confirmation automatique.
+              </div>
+            ) : (
+              <div style={{ margin: '.3rem 0', lineHeight: 1.4 }}>
+                Cite le permis de la demande <strong>{p.candidats[0].reference}</strong>{p.candidats[0].communeNom ? ` (${p.candidats[0].communeNom})` : ''}, restée <strong>en attente</strong> — l’avez-vous déposée&nbsp;?
+              </div>
+            )}
+            {p.nbPieces > 0 && (
+              <div role="note" style={{ ...styleMuted, color: 'var(--color-svv-red)' }}>{p.nbPieces} pièce{p.nbPieces > 1 ? 's' : ''} jointe{p.nbPieces > 1 ? 's' : ''} : elle{p.nbPieces > 1 ? 's ne satisfont' : ' ne satisfait'} AUCUN dossier automatiquement — à traiter à la main.</div>
+            )}
+            {!ambigu && enSaisie && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem', marginTop: '.3rem' }}>
+                <span style={styleMuted}>Ce message est arrivé le {recuLe} ; le dépôt lui est forcément antérieur. Saisissez la date RÉELLE du dépôt (accusé du téléservice).</span>
+                <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'inline-flex', gap: '.25rem', alignItems: 'center' }}>Déposée le
+                    <input type="date" max={maxDate} value={dateValeur ?? ''} onChange={(e) => onDateChange?.(e.target.value)}
+                      style={{ padding: '.15rem .3rem', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', fontSize: 13 }} />
+                  </label>
+                  <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.1rem .5rem' }}
+                    disabled={!dateValeur || dateValeur > maxDate}
+                    onClick={() => { if (dateValeur && dateValeur <= maxDate) onConfirmer?.(p.id, p.candidats[0].demandeId, dateValeur); }}>Confirmer le dépôt</button>
+                  <button type="button" className="svv-link" style={{ width: 'auto', padding: 0 }} onClick={() => onFermer?.()}>Retour</button>
+                </span>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginTop: '.3rem' }}>
+              {!ambigu && !enSaisie && <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.1rem .5rem' }} onClick={() => onOuvrir?.(p.id)}>Oui, déposée — saisir la date</button>}
+              <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem' }} onClick={() => onIgnorer?.(p.id)}>Ignorer</button>
+            </div>
+            {m && <div style={{ marginTop: '.3rem' }}><MessageRetour r={m} /></div>}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

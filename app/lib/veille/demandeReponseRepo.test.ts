@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
   // T1 : `tous` pilote le bool_and de synchroniserTraiteeDemande ; `conflitActif` pilote la sonde de conflit du ré-attachement.
-  const etat = { rows: [] as unknown[], rowCount: 1, conflit: false, tous: undefined as boolean | undefined, conflitActif: false };
+  const etat = { rows: [] as unknown[], rowCount: 1, conflit: false, tous: undefined as boolean | undefined, conflitActif: false, statutCible: undefined as string | undefined };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
     return { rows: etat.rows, rowCount: etat.rowCount };
@@ -22,6 +22,8 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
       if (/bool_and/i.test(sql)) return { rows: etat.tous === undefined ? [] : [{ tous: etat.tous }], rowCount: 1 };
       // T1 — sonde de conflit du ré-attachement (dossier déjà actif sur une AUTRE demande).
       if (/AND actif AND demande_id <> \$2/i.test(sql)) return { rows: etat.conflitActif ? [{ demande_id: 999 }] : [], rowCount: etat.conflitActif ? 1 : 0 };
+      // T4 — garde de rattacherAMain : SELECT statut de la demande cible. undefined → aucune ligne (statut inconnu → la garde passe, comme avant la garde).
+      if (/SELECT statut FROM demande WHERE id = \$1/i.test(sql)) return { rows: etat.statutCible === undefined ? [] : [{ statut: etat.statutCible }], rowCount: 1 };
       // Les autres requêtes transactionnelles honorent etat.rowCount (permet de tester l'idempotence : 0 ligne → pas de journal).
       return { rows: [], rowCount: etat.rowCount };
     };
@@ -41,6 +43,7 @@ import {
   enregistrerReponse, listerReponses, rattacherAMain, marquerTraitee, deposerEtLierPieces,
   marquerDossierSatisfait, demarquerDossier, statutDemande, lireClePiece,
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
+  lireRecuLeReponse, RattachementNonEnvoyeeError,
   type ReponseEntrante, type PieceAvecContenu,
 } from './demandeReponseRepo';
 import type { ResultatDepotEntrant } from '../stockage';
@@ -48,7 +51,7 @@ import type { ResultatDepotEntrant } from '../stockage';
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 const trouver = (fragment: RegExp) => appels.find((a) => fragment.test(a.sql));
 
-beforeEach(() => { appels.length = 0; etat.rows = []; etat.rowCount = 1; etat.conflit = false; etat.tous = undefined; etat.conflitActif = false; });
+beforeEach(() => { appels.length = 0; etat.rows = []; etat.rowCount = 1; etat.conflit = false; etat.tous = undefined; etat.conflitActif = false; etat.statutCible = undefined; });
 
 describe('T1 — statuer un dossier ligne par ligne', () => {
   it('« non fourni » : triage=non_fourni, garde actif/non reçu/non trié, journalisé, reste dû (aucun satisfait_le posé)', async () => {
@@ -313,6 +316,23 @@ describe('R1 — rattacherAMain (n’écrit JAMAIS demande.statut)', () => {
     etat.rowCount = 0;
     expect(await rattacherAMain(999, 154, 'a.jorel')).toBe(false);
   });
+
+  it('T4 — GARDE : rattachement vers une demande NON envoyée (brouillon/prête) → RattachementNonEnvoyeeError, AUCUN UPDATE', async () => {
+    etat.statutCible = 'brouillon';
+    await expect(rattacherAMain(7, 154, 'a.jorel')).rejects.toBeInstanceOf(RattachementNonEnvoyeeError);
+    // la garde tombe AVANT toute écriture : le message reste dans « Dépôts à confirmer », rien n'est rattaché à une non-envoyée
+    expect(trouver(/UPDATE demande_reponse\b/i)).toBeUndefined();
+    appels.length = 0;
+    etat.statutCible = 'prete';
+    await expect(rattacherAMain(7, 154, 'a.jorel')).rejects.toThrow('réservé aux demandes envoyées');
+    expect(trouver(/UPDATE demande_reponse\b/i)).toBeUndefined();
+  });
+
+  it('T4 — GARDE inerte pour une demande ENVOYÉE : le rattachement passe normalement (true)', async () => {
+    etat.statutCible = 'envoyee'; etat.rowCount = 1;
+    expect(await rattacherAMain(7, 154, 'a.jorel')).toBe(true);
+    expect(trouver(/UPDATE demande_reponse\b/i)).toBeDefined();
+  });
 });
 
 describe('R1 — marquerTraitee (idempotent, n’écrit pas demande.statut)', () => {
@@ -403,6 +423,17 @@ describe('R5b — statutDemande / lireClePiece : LECTURE seule', () => {
     expect(await lireClePiece(51)).toBeNull(); // déposée=false → cle NULL
     etat.rows = [];
     expect(await lireClePiece(52)).toBeNull(); // pièce absente
+    expect(appels.every((a) => /^\s*SELECT/i.test(a.sql))).toBe(true);
+  });
+
+  it('T4 — lireRecuLeReponse → jour de réception (recu_le::date), paramètre lié ; null si message absent ; que du SELECT', async () => {
+    etat.rows = [{ recu_le: '2026-08-04' }];
+    expect(await lireRecuLeReponse(4242)).toBe('2026-08-04'); // borne serveur : le dépôt ne peut être postérieur au message
+    const sel = trouver(/FROM demande_reponse\b/i)!;
+    expect(norm(sel.sql)).toContain('SELECT recu_le::date::text AS recu_le FROM demande_reponse');
+    expect(sel.params).toEqual([4242]);
+    etat.rows = [];
+    expect(await lireRecuLeReponse(999)).toBeNull();
     expect(appels.every((a) => /^\s*SELECT/i.test(a.sql))).toBe(true);
   });
 });

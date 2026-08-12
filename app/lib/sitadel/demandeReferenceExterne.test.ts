@@ -64,8 +64,18 @@ describe('B2 — marquerDeposee horodate l’envoi dans le registre d’achemine
     expect(sql).toContain("'envoye'");     // c’est bien parti à la mairie
     expect(sql).toContain('envoye_le');    // l’ancre lue par etatEcheance
     expect(sql).toContain('now()');
-    // seule la demande_id est liée : message_id / retour fournisseur restent NULL (défaut) → aucun artefact e-mail inventé
-    expect(ach.params).toEqual([119]);
+    // T4 — 2 params liés : demande_id + date de dépôt (null ici → coalesce bascule sur now(), dépôt en direct). message_id /
+    //   retour fournisseur restent NULL (défaut) → aucun artefact e-mail inventé.
+    expect(ach.params).toEqual([119, null]);
+  });
+
+  it('T4 — une date de dépôt RÉELLE fournie est l’ancre LIÉE (envoye_le = saisie), jamais now() : rattrapage d’une relève', async () => {
+    await marquerDeposee(119, 'admin', null, '2026-07-10');
+    const ach = trouver(/INSERT INTO demande_acheminement/i)!;
+    expect(ach).toBeDefined();
+    // La date saisie part en 2e paramètre LIÉ ; coalesce($2, now()) ⇒ c'est ELLE qui ancre l'échéance/forclusion CADA (jamais la date du mail).
+    expect(ach.params).toEqual([119, '2026-07-10']);
+    expect(norm(ach.sql)).toContain('coalesce($2::timestamptz, now())');
   });
 
   it('non-régression : le dépôt pose toujours statut=envoyee et journalise « dépôt manuel (téléservice) »', async () => {

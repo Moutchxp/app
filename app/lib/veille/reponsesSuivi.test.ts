@@ -7,10 +7,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  */
 const { appels, etat, queryMock } = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
-  const etat = { rows: [] as unknown[] };
+  // `dispatch` : rendre des lignes SPÉCIFIQUES à certaines requêtes (par fragment SQL) quand une lecture en enchaîne plusieurs
+  //   (chargerSuiviReponses). Sans dispatch → `rows` par défaut, comme avant (rétrocompatible).
+  const etat = { rows: [] as unknown[], dispatch: [] as { re: RegExp; rows: unknown[] }[] };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
-    return { rows: etat.rows, rowCount: etat.rows.length };
+    const hit = etat.dispatch.find((d) => d.re.test(sql));
+    const rows = hit ? hit.rows : etat.rows;
+    return { rows, rowCount: rows.length };
   };
   return { appels, etat, queryMock };
 });
@@ -24,7 +28,7 @@ const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 const MAINTENANT = new Date('2026-08-09T12:00:00.000Z');
 const JOUR = 24 * 3_600_000;
 
-beforeEach(() => { appels.length = 0; etat.rows = []; });
+beforeEach(() => { appels.length = 0; etat.rows = []; etat.dispatch = []; });
 
 describe('B2 — chargerSuiviReponses : la date d’envoi (échéance à l’écran) se lit QUEL QUE SOIT le canal', () => {
   it('la jointure d’acheminement (ancre envoye_le) ne filtre PLUS canal=email → un dépôt formulaire est vu à l’écran', async () => {
@@ -37,6 +41,50 @@ describe('B2 — chargerSuiviReponses : la date d’envoi (échéance à l’éc
     expect(s).toContain('LEFT JOIN demande_acheminement a ON a.demande_id = d.id');
     // B2 : plus AUCUN prédicat a.canal (le filtre e-mail est levé → la ligne canal='formulaire' de 119 est jointe → envoye_le lu)
     expect(s).not.toContain('a.canal');
+  });
+});
+
+describe('T4 — chargerSuiviReponses : deux files DISTINCTES (« à rattacher » vs « dépôts à confirmer »)', () => {
+  const RAT = /ORDER BY r\.recu_le DESC/;                 // requête des messages non rattachés
+  const CIBLES = /dest_canal = 'formulaire'/;             // requête des demandes EN ATTENTE déposables à la main
+
+  it('citant d’une demande en attente → proposition (hors « à rattacher ») ; sans rapport → reste à rattacher ; citant IGNORÉ → nulle part', async () => {
+    etat.dispatch = [
+      { re: RAT, rows: [
+        // M1 : cite le num_dau de la demande 100 (en attente) → PROPOSITION, 2 pièces (qui ne satisfont RIEN)
+        { id: 10, recu_le: '2026-08-05', de_adresse: 'urba@mairie.fr', de_nom: 'Mairie', objet: 'Dépôt PC 093 001 25 00081 enregistré', corps_texte: null, traite_le: null, rattachement_methode: 'aucun', nb_pieces: 2 },
+        // M2 : sans rapport → reste « à rattacher »
+        { id: 11, recu_le: '2026-08-04', de_adresse: 'pub@spam.fr', de_nom: null, objet: 'Publicité sans rapport', corps_texte: null, traite_le: null, rattachement_methode: 'aucun', nb_pieces: 0 },
+        // M3 : cite la demande 100 mais a été IGNORÉ (traite_le posé) → ni proposition ni « à rattacher » (ne réapparaît pas)
+        { id: 12, recu_le: '2026-08-03', de_adresse: 'urba@mairie.fr', de_nom: 'Mairie', objet: 'Dépôt PC 093 001 25 00081', corps_texte: null, traite_le: '2026-08-06', rattachement_methode: 'aucun', nb_pieces: 0 },
+      ] },
+      { re: CIBLES, rows: [
+        { demande_id: 100, reference: 'SVAV-DEM-2026-000156', commune_nom: 'Paris', num_daus: ['PC 093 001 25 00081'], refs_mairie: [] },
+      ] },
+    ];
+    const data = await chargerSuiviReponses();
+
+    // proposition : un seul message actionnable, la demande 100 candidate, 2 pièces signalées
+    expect(data.propositions).toHaveLength(1);
+    expect(data.propositions[0]).toMatchObject({ id: 10, nbPieces: 2, candidats: [{ demandeId: 100, reference: 'SVAV-DEM-2026-000156', communeNom: 'Paris' }] });
+
+    // à rattacher : SEULEMENT le message sans rapport (M2). M1 (proposition) et M3 (ignoré) en sont EXCLUS.
+    expect(data.aRattacher.map((r) => r.id)).toEqual([11]);
+
+    // la requête des cibles ne regarde QUE les demandes en attente déposables à la main (formulaire, brouillon/prête)
+    const cible = appels.find((a) => CIBLES.test(a.sql))!;
+    expect(cible, 'la requête des cibles de dépôt doit être émise').toBeDefined();
+    expect(norm(cible.sql)).toContain("d.statut IN ('brouillon', 'prete')");
+  });
+
+  it('aucune demande en attente → aucune proposition ; le message non rattaché reste « à rattacher »', async () => {
+    etat.dispatch = [
+      { re: RAT, rows: [{ id: 10, recu_le: '2026-08-05', de_adresse: 'urba@mairie.fr', de_nom: 'Mairie', objet: 'Dépôt PC 093 001 25 00081', corps_texte: null, traite_le: null, rattachement_methode: 'aucun', nb_pieces: 0 }] },
+      { re: CIBLES, rows: [] },
+    ];
+    const data = await chargerSuiviReponses();
+    expect(data.propositions).toHaveLength(0);
+    expect(data.aRattacher.map((r) => r.id)).toEqual([10]); // faute de cible, le message reste à rattacher
   });
 });
 

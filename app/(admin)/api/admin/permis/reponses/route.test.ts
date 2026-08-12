@@ -14,10 +14,13 @@ vi.mock('../../../../../lib/veille/demandeReponseRepo', () => ({
   rattacherAMain: vi.fn(), marquerTraitee: vi.fn(), marquerDossierSatisfait: vi.fn(), demarquerDossier: vi.fn(),
   statutDemande: vi.fn(), marquerDossierNonFourni: vi.fn(), marquerDossierRefusMairie: vi.fn(),
   annulerTriageDossier: vi.fn(), retirerDossierDemande: vi.fn(), reattacherDossierDemande: vi.fn(),
+  lireRecuLeReponse: vi.fn(), // T4
+  RattachementNonEnvoyeeError: class RattachementNonEnvoyeeError extends Error { statut: string; constructor(s: string) { super(`demande « ${s} » : le rattachement manuel est réservé aux demandes envoyées`); this.statut = s; this.name = 'RattachementNonEnvoyeeError'; } },
 }));
 vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({
-  cloturerDemande: vi.fn(), rouvrirDemande: vi.fn(), lireCleTelechargeable: vi.fn(),
+  cloturerDemande: vi.fn(), rouvrirDemande: vi.fn(), lireCleTelechargeable: vi.fn(), marquerDeposee: vi.fn(), // T4
   TransitionInterditeError: class TransitionInterditeError extends Error { raison: string; constructor(r: string) { super(r); this.raison = r; } },
+  DepotInterditError: class DepotInterditError extends Error { raison: string; constructor(r: string) { super(r); this.raison = r; this.name = 'DepotInterditError'; } },
 }));
 vi.mock('../../../../../lib/veille/demandeRelanceRepo', () => ({
   majRelance: vi.fn(), abandonnerRelance: vi.fn(), regenererRelance: vi.fn(),
@@ -28,8 +31,10 @@ import { POST } from './route';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import {
   statutDemande, marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier,
-  retirerDossierDemande, reattacherDossierDemande,
+  retirerDossierDemande, reattacherDossierDemande, rattacherAMain, marquerTraitee, lireRecuLeReponse,
+  RattachementNonEnvoyeeError,
 } from '../../../../../lib/veille/demandeReponseRepo';
+import { marquerDeposee, DepotInterditError } from '../../../../../lib/sitadel/demandeRepo';
 
 const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
 const statut = statutDemande as unknown as ReturnType<typeof vi.fn>;
@@ -38,6 +43,10 @@ const refusMairie = marquerDossierRefusMairie as unknown as ReturnType<typeof vi
 const annulerTriage = annulerTriageDossier as unknown as ReturnType<typeof vi.fn>;
 const retirer = retirerDossierDemande as unknown as ReturnType<typeof vi.fn>;
 const reattacher = reattacherDossierDemande as unknown as ReturnType<typeof vi.fn>;
+const rattacher = rattacherAMain as unknown as ReturnType<typeof vi.fn>;
+const traiter = marquerTraitee as unknown as ReturnType<typeof vi.fn>;
+const recuLe = lireRecuLeReponse as unknown as ReturnType<typeof vi.fn>;
+const deposer = marquerDeposee as unknown as ReturnType<typeof vi.fn>;
 
 const post = (body: unknown) => POST(new Request('http://test/api/admin/permis/reponses', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
 
@@ -134,5 +143,112 @@ describe('T1 — actions simples : transmission au repo + garde-fous', () => {
     const res = await post({ action: 'retirer_dossier', demandeId: 42, dossierId: 7 });
     expect(res.status).toBe(403);
     expect(retirer).not.toHaveBeenCalled();
+  });
+});
+
+describe('T4 — confirmer_depot : la date RÉELLE de dépôt est OBLIGATOIRE et bornée (ni future, ni postérieure au message)', () => {
+  it('date valide (≤ message, non future) → 200 ; bascule par le chemin EXISTANT (marquerDeposee avec la date saisie) PUIS rattache', async () => {
+    recuLe.mockResolvedValueOnce('2020-02-01'); // le message est arrivé après le dépôt
+    deposer.mockResolvedValueOnce(undefined); rattacher.mockResolvedValueOnce(true);
+    const res = await post({ action: 'confirmer_depot', reponseId: 7, demandeId: 42, envoyeLe: '2020-01-01' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true });
+    // AUCUN nouvel écrivain : la date saisie devient l'ancre d'échéance (4e argument), puis le message est rattaché.
+    expect(deposer).toHaveBeenCalledWith(42, '5', null, '2020-01-01');
+    expect(rattacher).toHaveBeenCalledWith(7, 42, '5');
+  });
+
+  it('date ABSENTE → 400, aucune bascule (champ vide et obligatoire)', async () => {
+    const res = await post({ action: 'confirmer_depot', reponseId: 7, demandeId: 42 });
+    expect(res.status).toBe(400);
+    expect(deposer).not.toHaveBeenCalled();
+    expect(rattacher).not.toHaveBeenCalled();
+  });
+
+  it('format non AAAA-MM-JJ → 400', async () => {
+    expect((await post({ action: 'confirmer_depot', reponseId: 7, demandeId: 42, envoyeLe: '01/01/2020' })).status).toBe(400);
+    expect(deposer).not.toHaveBeenCalled();
+  });
+
+  it('date dans le FUTUR → 400, aucune bascule (borne AVANT toute lecture du message)', async () => {
+    const res = await post({ action: 'confirmer_depot', reponseId: 7, demandeId: 42, envoyeLe: '2999-12-31' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).erreur).toMatch(/futur/i);
+    expect(recuLe).not.toHaveBeenCalled();
+    expect(deposer).not.toHaveBeenCalled();
+  });
+
+  it('date POSTÉRIEURE au message reçu → 400 (le dépôt précède la réponse de la mairie)', async () => {
+    recuLe.mockResolvedValueOnce('2020-01-01');
+    const res = await post({ action: 'confirmer_depot', reponseId: 7, demandeId: 42, envoyeLe: '2020-06-01' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).erreur).toMatch(/postérieure au message/i);
+    expect(deposer).not.toHaveBeenCalled();
+  });
+
+  it('message introuvable (recu_le null) → 404, aucune bascule', async () => {
+    recuLe.mockResolvedValueOnce(null);
+    const res = await post({ action: 'confirmer_depot', reponseId: 7, demandeId: 42, envoyeLe: '2020-01-01' });
+    expect(res.status).toBe(404);
+    expect(deposer).not.toHaveBeenCalled();
+  });
+
+  it('identifiants non entiers → 400, aucune lecture ni écriture', async () => {
+    const res = await post({ action: 'confirmer_depot', reponseId: 'x', demandeId: 42, envoyeLe: '2020-01-01' });
+    expect(res.status).toBe(400);
+    expect(recuLe).not.toHaveBeenCalled();
+    expect(deposer).not.toHaveBeenCalled();
+  });
+
+  it('dépôt refusé par le repo (DepotInterditError) → 409 avec le motif métier, jamais un 503', async () => {
+    recuLe.mockResolvedValueOnce('2020-02-01');
+    deposer.mockRejectedValueOnce(new DepotInterditError('déjà « envoyee » — dépôt impossible'));
+    const res = await post({ action: 'confirmer_depot', reponseId: 7, demandeId: 42, envoyeLe: '2020-01-01' });
+    expect(res.status).toBe(409);
+    expect((await res.json()).erreur).toMatch(/dépôt impossible/i);
+    expect(rattacher).not.toHaveBeenCalled();
+  });
+});
+
+describe('T4 — ignorer_proposition : marque le message traité (ne réapparaît plus)', () => {
+  it('→ 200 ; le repo reçoit le reponseId (traite_le posé)', async () => {
+    traiter.mockResolvedValueOnce(true);
+    const res = await post({ action: 'ignorer_proposition', reponseId: 7 });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, traite: true });
+    expect(traiter).toHaveBeenCalledWith(7);
+  });
+
+  it('reponseId non entier → 400, aucune écriture', async () => {
+    expect((await post({ action: 'ignorer_proposition', reponseId: 'x' })).status).toBe(400);
+    expect(traiter).not.toHaveBeenCalled();
+  });
+});
+
+describe('T4 — GARDE rattacher : jamais un rattachement manuel vers une demande NON envoyée', () => {
+  it('demande brouillon/prête → 409 explicite (route pré-check), rattacherAMain JAMAIS appelé', async () => {
+    for (const st of ['brouillon', 'prete'] as const) {
+      statut.mockResolvedValueOnce(st);
+      const res = await post({ action: 'rattacher', reponseId: 7, demandeId: 42 });
+      expect(res.status).toBe(409);
+      expect((await res.json()).erreur).toMatch(/confirmez d.abord le dépôt/i);
+      expect(rattacher).not.toHaveBeenCalled();
+    }
+  });
+
+  it('défense en profondeur : la demande passe le pré-check mais le repo lève RattachementNonEnvoyeeError → 409', async () => {
+    statut.mockResolvedValueOnce('envoyee'); // pré-check route OK…
+    rattacher.mockRejectedValueOnce(new RattachementNonEnvoyeeError('brouillon')); // …mais garde repo (course/état obsolète)
+    const res = await post({ action: 'rattacher', reponseId: 7, demandeId: 42 });
+    expect(res.status).toBe(409);
+    expect((await res.json()).erreur).toMatch(/réservé aux demandes envoyées/i);
+  });
+
+  it('demande envoyée → rattachement normal (200)', async () => {
+    statut.mockResolvedValueOnce('envoyee');
+    rattacher.mockResolvedValueOnce(true);
+    const res = await post({ action: 'rattacher', reponseId: 7, demandeId: 42 });
+    expect(res.status).toBe(200);
+    expect(rattacher).toHaveBeenCalledWith(7, 42, '5');
   });
 });

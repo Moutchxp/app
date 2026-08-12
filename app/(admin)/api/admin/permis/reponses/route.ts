@@ -2,8 +2,9 @@ import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { chargerSuiviReponses } from '../../../../../lib/veille/reponsesSuivi';
 import { rattacherAMain, marquerTraitee, marquerDossierSatisfait, demarquerDossier, statutDemande,
-  marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande } from '../../../../../lib/veille/demandeReponseRepo';
-import { cloturerDemande, rouvrirDemande, TransitionInterditeError, lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
+  marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
+  lireRecuLeReponse, RattachementNonEnvoyeeError } from '../../../../../lib/veille/demandeReponseRepo';
+import { cloturerDemande, rouvrirDemande, TransitionInterditeError, lireCleTelechargeable, marquerDeposee, DepotInterditError } from '../../../../../lib/sitadel/demandeRepo';
 import { majRelance, abandonnerRelance, regenererRelance, RelanceActionError } from '../../../../../lib/veille/demandeRelanceRepo';
 
 /**
@@ -46,13 +47,51 @@ export async function POST(request: Request): Promise<Response> {
       action?: unknown; reponseId?: unknown; demandeId?: unknown; dossierId?: unknown; pieceId?: unknown; satisfait?: unknown;
       relanceId?: unknown; objet?: unknown; corps?: unknown; motif?: unknown; source?: unknown; // R5c ; A1b : source pour url_piece ('reponse'|'dossier')
       refusLe?: unknown; // T1 : date de notification du refus exprès (YYYY-MM-DD)
+      envoyeLe?: unknown; // T4 : date RÉELLE de dépôt saisie (YYYY-MM-DD) pour confirmer une proposition
     };
     actionCtx = corps.action;
 
     // Rattacher une réponse (file « à rattacher ») à une demande choisie → méthode 'manuel', rattache_le posé.
     if (corps.action === 'rattacher') {
       if (!estEntier(corps.reponseId) || !estEntier(corps.demandeId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
-      const ok = await rattacherAMain(corps.reponseId, corps.demandeId, auteur); // R1 — aucune satisfaction auto au passage (volontaire)
+      // T4 — garde ROUTE : jamais un rattachement manuel vers une demande NON envoyée (brouillon/prête) → file « Dépôts à confirmer ».
+      const stRat = await statutDemande(corps.demandeId);
+      if (stRat === 'brouillon' || stRat === 'prete') return Response.json({ erreur: `demande « ${stRat} » : confirmez d'abord le dépôt (« cette demande a-t-elle été déposée ? »)` }, { status: 409 });
+      try {
+        const ok = await rattacherAMain(corps.reponseId, corps.demandeId, auteur); // R1 — aucune satisfaction auto au passage (volontaire)
+        return Response.json({ ok, traite: ok });
+      } catch (e) {
+        if (e instanceof RattachementNonEnvoyeeError) return Response.json({ erreur: e.message }, { status: 409 }); // garde REPO (défense en profondeur)
+        throw e;
+      }
+    }
+
+    // T4 — CONFIRMER un dépôt (proposition « cette demande a-t-elle été déposée ? ») : bascule la demande EN ATTENTE en envoyée
+    //   via le chemin EXISTANT (marquerDeposee) AVEC la date RÉELLE saisie, puis rattache le message. Date OBLIGATOIRE, NON future
+    //   et NON postérieure au message (le dépôt précède la réponse de la mairie) — la même règle côté écran.
+    if (corps.action === 'confirmer_depot') {
+      if (!estEntier(corps.reponseId) || !estEntier(corps.demandeId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      if (typeof corps.envoyeLe !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(corps.envoyeLe)) return Response.json({ erreur: 'date de dépôt requise (AAAA-MM-JJ)' }, { status: 400 });
+      const aujourdhui = new Date().toISOString().slice(0, 10);
+      if (corps.envoyeLe > aujourdhui) return Response.json({ erreur: 'la date de dépôt ne peut pas être dans le futur' }, { status: 400 });
+      const recuLe = await lireRecuLeReponse(corps.reponseId);
+      if (recuLe === null) return Response.json({ erreur: 'message introuvable' }, { status: 404 });
+      if (corps.envoyeLe > recuLe) return Response.json({ erreur: 'la date de dépôt ne peut pas être postérieure au message reçu' }, { status: 400 });
+      try {
+        await marquerDeposee(corps.demandeId, auteur, null, corps.envoyeLe);      // chemin existant : statut envoyée + acheminement (envoye_le = saisie)
+        await rattacherAMain(corps.reponseId, corps.demandeId, auteur);           // la demande est maintenant envoyée → rattachement autorisé
+      } catch (e) {
+        if (e instanceof DepotInterditError) return Response.json({ erreur: e.raison }, { status: 409 });
+        if (e instanceof RattachementNonEnvoyeeError) return Response.json({ erreur: e.message }, { status: 409 });
+        throw e;
+      }
+      return Response.json({ ok: true });
+    }
+
+    // T4 — IGNORER une proposition : marque le message traité (traite_le) → il ne réapparaît plus (ni proposition, ni « à rattacher »).
+    if (corps.action === 'ignorer_proposition') {
+      if (!estEntier(corps.reponseId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      const ok = await marquerTraitee(corps.reponseId);
       return Response.json({ ok, traite: ok });
     }
 

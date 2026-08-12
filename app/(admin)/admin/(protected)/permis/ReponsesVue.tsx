@@ -7,7 +7,7 @@ import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import {
   IndicateurReleve, RappelReglages, TableRuns, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
   partitionnerDemandes, aReponseSansDocuments, BadgeReponseSansDocuments,
-  BlocARattacher, RelanceCarte, ActionsCloture, PhraseVide, formaterDate, type RetourCible, type OptionDemande,
+  BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, formaterDate, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
 import { MessageRetour, MentionMasquage } from './DemandesRendu';
 
@@ -55,6 +55,8 @@ export function ReponsesVue() {
   const [afficherSoldees, setAfficherSoldees] = useState(false); // T2 : par défaut on masque les demandes sans dossier dû (soldées / sans dossier actif)
   const [pageDem, setPageDem] = useState(1);
   const [pageRat, setPageRat] = useState(1);
+  const [pageProp, setPageProp] = useState(1);
+  const [propDate, setPropDate] = useState<{ reponseId: number; date: string } | null>(null); // T4 : formulaire « déposée le » ouvert (date en cours) — VIDE au départ
   const [pageRel, setPageRel] = useState(1);
   const [periode, setPeriode] = useState<FenetreCumul>('7j'); // T2 : fenêtre du total ; purement locale (les 6 cumuls sont déjà chargés)
   const [version, setVersion] = useState(0);
@@ -129,6 +131,10 @@ export function ReponsesVue() {
   const pRat = Math.min(pageRat, nbPagesRat);
   const ratVisibles = data.aRattacher.slice((pRat - 1) * PAGE, pRat * PAGE);
 
+  const nbPagesProp = Math.max(1, Math.ceil(data.propositions.length / PAGE));
+  const pProp = Math.min(pageProp, nbPagesProp);
+  const propVisibles = data.propositions.slice((pProp - 1) * PAGE, pProp * PAGE);
+
   const nbPagesRel = Math.max(1, Math.ceil(data.relances.length / PAGE));
   const pRel = Math.min(pageRel, nbPagesRel);
   const relVisibles = data.relances.slice((pRel - 1) * PAGE, pRel * PAGE);
@@ -138,6 +144,7 @@ export function ReponsesVue() {
     // dossier-/cloturer-/rouvrir- vivent dans le dépliant d'UNE demande visible (le 2e segment = demandeId).
     if (cle.startsWith('dossier-') || cle.startsWith('cloturer-') || cle.startsWith('rouvrir-')) { const d = Number(cle.split('-')[1]); return dossOuverts.has(d) && demVisibles.some((x) => x.demandeId === d); }
     if (cle.startsWith('rattacher-') || cle.startsWith('traiter-') || cle.startsWith('piece-')) { const id = Number(cle.split('-')[1]); return ratVisibles.some((x) => x.id === id); }
+    if (cle.startsWith('proposition-')) { const id = Number(cle.split('-')[1]); return propVisibles.some((x) => x.id === id); }
     if (cle.startsWith('relance-')) { const id = Number(cle.split('-')[1]); return relOuvertes.has(id) && relVisibles.some((x) => x.id === id); }
     return false;
   };
@@ -254,6 +261,21 @@ export function ReponsesVue() {
           onTelecharger={(reponseId, pieceId) => void telecharger(reponseId, pieceId)}
         />
         <Pagination page={pRat} nbPages={nbPagesRat} total={data.aRattacher.length} onPage={setPageRat} />
+      </section>
+
+      {/* ── Bloc T4 : dépôts à confirmer (« cette demande a-t-elle été déposée ? ») — file DISTINCTE de « À rattacher » ── */}
+      <section className="flex flex-col gap-2">
+        <h2 style={styleH2}>Dépôts à confirmer</h2>
+        <BlocPropositions
+          propositions={propVisibles} aujourdhui={aujourdhui} retour={retour}
+          dateOuverteId={propDate?.reponseId ?? null} dateValeur={propDate?.date ?? ''}
+          onOuvrir={(reponseId) => setPropDate({ reponseId, date: '' })}
+          onDateChange={(v) => setPropDate((s) => (s ? { ...s, date: v } : s))}
+          onConfirmer={(reponseId, demandeId, date) => { setPropDate(null); void agir({ action: 'confirmer_depot', reponseId, demandeId, envoyeLe: date }, `proposition-${reponseId}`, 'Dépôt confirmé — demande passée « envoyée », message rattaché.'); }}
+          onFermer={() => setPropDate(null)}
+          onIgnorer={(reponseId) => { setPropDate(null); void agir({ action: 'ignorer_proposition', reponseId }, `proposition-${reponseId}`, 'Proposition ignorée.'); }}
+        />
+        <Pagination page={pProp} nbPages={nbPagesProp} total={data.propositions.length} onPage={setPageProp} />
       </section>
 
       {/* ── Bloc 4 : relances préparées (R5c : objet/corps éditables + régénérer / abandonner) ── */}

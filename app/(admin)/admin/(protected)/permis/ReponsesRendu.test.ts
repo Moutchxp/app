@@ -2,13 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
-  IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, DetailDossiers, RelanceCarte, TableRuns,
+  IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
   EtatDemande, RappelObtenusArchives, partitionnerDemandes, aReponseSansDocuments, BadgeReponseSansDocuments,
   type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi, CumulFenetre } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi, CumulFenetre, PropositionDepotAffichee } from '../../../../lib/veille/reponsesSuivi';
 
 /**
  * R5a/R5b — rendu PUR de l'écran « Réponses » (renderToStaticMarkup, aucun DOM). Couvre l'indicateur de relève (3 signaux),
@@ -367,6 +367,80 @@ describe('R5b — BlocARattacher : rattacher / traitée / télécharger', () => 
       onChoisir: () => {}, onRattacher: () => {}, onTraiter: () => {}, onTelecharger: () => {},
     }));
     expect(h).toContain('disabled');
+  });
+});
+
+// ── T4 — BlocPropositions : file « dépôts à confirmer », DISTINCTE de « à rattacher » ──────────────────────────────────
+describe('T4 — BlocPropositions : confirmer un dépôt (date réelle obligatoire et bornée), ambiguïté, pièces', () => {
+  const noop = () => {};
+  const cbs = { onOuvrir: noop, onDateChange: noop, onConfirmer: noop, onFermer: noop, onIgnorer: noop };
+  const PROP = (over: Partial<PropositionDepotAffichee> = {}): PropositionDepotAffichee => ({
+    id: 10, recuLe: '2026-08-05T09:30:00Z', deAdresse: 'urba@mairie.fr', deNom: 'Mairie', objet: 'Dépôt enregistré', nbPieces: 0,
+    candidats: [{ demandeId: 100, reference: 'SVAV-DEM-2026-000156', communeNom: 'Paris' }], ...over,
+  });
+
+  it('liste vide → phrase explicative, aucun bouton', () => {
+    const h = renderToStaticMarkup(createElement(BlocPropositions, { propositions: [], aujourdhui: '2026-08-12', ...cbs }));
+    expect(h).toContain('Aucun dépôt à confirmer');
+    expect(h).not.toContain('<button');
+  });
+
+  it('1 candidate (fermée) → montre la demande citée + « Oui, déposée » et « Ignorer » ; PAS de champ date tant que non ouvert', () => {
+    const h = renderToStaticMarkup(createElement(BlocPropositions, { propositions: [PROP()], aujourdhui: '2026-08-12', ...cbs }));
+    expect(h).toContain('SVAV-DEM-2026-000156');
+    expect(h).toContain('(Paris)');
+    expect(h).toContain('Oui, déposée — saisir la date');
+    expect(h).toContain('Ignorer');
+    expect(h).not.toContain('type="date"'); // le formulaire n'est pas ouvert
+  });
+
+  it('formulaire ouvert → champ date BORNÉ au message (max) + aide non décisionnelle + « Confirmer le dépôt » DÉSACTIVÉ tant que vide', () => {
+    const h = renderToStaticMarkup(createElement(BlocPropositions, {
+      propositions: [PROP()], aujourdhui: '2026-08-12', dateOuverteId: 10, dateValeur: '', ...cbs,
+    }));
+    expect(h).toContain('type="date"');
+    expect(h).toContain('max="2026-08-05"');             // le message (05/08) borne, plus strict qu'aujourd'hui (12/08)
+    expect(h).toContain('le dépôt lui est forcément antérieur'); // aide, jamais une valeur pré-remplie
+    expect(h).toContain('Confirmer le dépôt');
+    expect(h).toContain('disabled');                      // champ vide → confirmation impossible (date obligatoire)
+  });
+
+  it('date saisie ≤ message → « Confirmer » ACTIF ; date POSTÉRIEURE au message → DÉSACTIVÉ (borne écran, la route reste l’autorité)', () => {
+    const ok = renderToStaticMarkup(createElement(BlocPropositions, {
+      propositions: [PROP()], aujourdhui: '2026-08-12', dateOuverteId: 10, dateValeur: '2026-08-01', ...cbs,
+    }));
+    expect(ok).not.toContain('disabled');                 // 01/08 ≤ 05/08 → valide
+    const tard = renderToStaticMarkup(createElement(BlocPropositions, {
+      propositions: [PROP()], aujourdhui: '2026-08-12', dateOuverteId: 10, dateValeur: '2026-08-10', ...cbs,
+    }));
+    expect(tard).toContain('disabled');                   // 10/08 > 05/08 (postérieure au message) → refus écran
+  });
+
+  it('AMBIGUÏTÉ (≥ 2 candidats) → signale + liste les références ; JAMAIS de confirmation (ni « Oui », ni champ date, même ouvert)', () => {
+    const h = renderToStaticMarkup(createElement(BlocPropositions, {
+      propositions: [PROP({ candidats: [
+        { demandeId: 100, reference: 'SVAV-DEM-2026-000156', communeNom: 'Paris' },
+        { demandeId: 200, reference: 'SVAV-DEM-2026-000200', communeNom: 'Asnieres' },
+      ] })],
+      aujourdhui: '2026-08-12', dateOuverteId: 10, dateValeur: '2026-08-01', ...cbs, // même « ouvert », aucune saisie possible
+    }));
+    expect(h).toContain('ambiguïté');
+    expect(h).toContain('SVAV-DEM-2026-000156');
+    expect(h).toContain('SVAV-DEM-2026-000200');
+    expect(h).not.toContain('Oui, déposée — saisir la date');
+    expect(h).not.toContain('type="date"');
+    expect(h).toContain('Ignorer'); // on peut toujours l'écarter
+  });
+
+  it('pièces jointes → averti qu’elles ne satisfont RIEN automatiquement', () => {
+    const h = renderToStaticMarkup(createElement(BlocPropositions, { propositions: [PROP({ nbPieces: 3 })], aujourdhui: '2026-08-12', ...cbs }));
+    expect(h).toContain('AUCUN dossier');
+  });
+
+  it('le retour « proposition-10 » se rend une seule fois, dans la carte de la proposition', () => {
+    const retour: RetourCible = { cle: 'proposition-10', texte: 'Dépôt confirmé.', ok: true };
+    const h = renderToStaticMarkup(createElement(BlocPropositions, { propositions: [PROP()], aujourdhui: '2026-08-12', retour, ...cbs }));
+    expect(compte(h, 'Dépôt confirmé.')).toBe(1);
   });
 });
 

@@ -6,6 +6,7 @@
 import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { bornesFenetres, type FenetreCumul } from './fenetresCumul';
+import { apparierPropositions, chiffresDossier, type CibleDepot } from './propositionDepot';
 
 /** Réglages de relève/échéance en vigueur (lecture seule ; édités dans l'onglet Réglages). */
 export interface ReglagesReleve {
@@ -116,7 +117,14 @@ export interface ReponsesData {
   cumuls: CumulsRuns; // T2 — cumuls des six fenêtres glissantes (ligne de total à période sélectionnable)
   demandes: DemandeSuivi[];
   aRattacher: ReponseARattacher[];
+  propositions: PropositionDepotAffichee[]; // T4 : « Dépôts à confirmer » (messages citant le permis d'une demande en attente)
   relances: RelancePreparee[];
+}
+
+/** T4 — une proposition « cette demande a-t-elle été déposée ? » : un message + ses demandes candidates (1 = actionnable, ≥ 2 = ambiguë). */
+export interface PropositionDepotAffichee {
+  id: number; recuLe: string; deAdresse: string; deNom: string | null; objet: string | null; nbPieces: number;
+  candidats: { demandeId: number; reference: string; communeNom: string | null }[];
 }
 
 /** T2 — les 12 compteurs cumulables : colonne SQL ↔ propriété de CumulFenetre (source unique de l'ordre et du nommage). */
@@ -247,8 +255,8 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
     dossiers: parDemande.get(r.id) ?? [],
   }));
 
-  const rat = await query<{ id: number; recu_le: string; de_adresse: string; de_nom: string | null; objet: string | null; rattachement_methode: string; nb_pieces: number }>(
-    `SELECT r.id::int AS id, r.recu_le::text AS recu_le, r.de_adresse, r.de_nom, r.objet, r.rattachement_methode,
+  const rat = await query<{ id: number; recu_le: string; de_adresse: string; de_nom: string | null; objet: string | null; corps_texte: string | null; traite_le: string | null; rattachement_methode: string; nb_pieces: number }>(
+    `SELECT r.id::int AS id, r.recu_le::text AS recu_le, r.de_adresse, r.de_nom, r.objet, r.corps_texte, r.traite_le::text AS traite_le, r.rattachement_methode,
             (SELECT count(*)::int FROM demande_reponse_piece p WHERE p.reponse_id = r.id) AS nb_pieces
        FROM demande_reponse r
       WHERE r.demande_id IS NULL
@@ -267,10 +275,32 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
     (piecesParReponse.get(p.reponse_id) ?? piecesParReponse.set(p.reponse_id, []).get(p.reponse_id)!)
       .push({ id: p.id, nomFichier: p.nom_fichier, stockee: p.stockee, motif: p.motif_non_stocke });
   }
-  const aRattacher: ReponseARattacher[] = rat.rows.map((r) => ({
+  // T4 — DÉPÔTS À CONFIRMER : parmi les messages non rattachés, ceux qui citent le permis d'une demande EN ATTENTE (formulaire,
+  //   brouillon/prête). DEUX FILES DISTINCTES : « À rattacher » = messages SANS rapport ; « Dépôts à confirmer » = citants.
+  const cibleRows = await query<{ demande_id: number; reference: string; commune_nom: string | null; num_daus: string[]; refs_mairie: string[] }>(
+    `SELECT d.id::int AS demande_id, d.reference, c.nom AS commune_nom,
+            coalesce((SELECT array_agg(s.num_dau) FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id WHERE dd.demande_id = d.id AND dd.actif), '{}') AS num_daus,
+            coalesce((SELECT array_agg(re.reference) FROM demande_reference_externe re WHERE re.demande_id = d.id), '{}') AS refs_mairie
+       FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee
+      WHERE d.statut IN ('brouillon', 'prete') AND d.dest_canal = 'formulaire'`,
+  );
+  const cibles: CibleDepot[] = cibleRows.rows.map((r) => ({
+    demandeId: r.demande_id, reference: r.reference, communeNom: r.commune_nom,
+    numerosDossier: (r.num_daus ?? []).map(chiffresDossier).filter((n) => n.length >= 10),
+    referencesMairie: (r.refs_mairie ?? []).map((x) => x.trim()).filter((x) => x !== ''),
+  }));
+  const messagesNonRattaches = rat.rows.map((r) => ({ id: r.id, objet: r.objet, corpsTexte: r.corps_texte, nomsPieces: (piecesParReponse.get(r.id) ?? []).map((p) => p.nomFichier), traiteLe: r.traite_le }));
+  const { propositions: propsBrutes, idsCitants } = apparierPropositions(messagesNonRattaches, cibles);
+
+  const aRattacher: ReponseARattacher[] = rat.rows.filter((r) => !idsCitants.has(r.id)).map((r) => ({
     id: r.id, recuLe: r.recu_le, deAdresse: r.de_adresse, deNom: r.de_nom, objet: r.objet, nbPieces: r.nb_pieces,
     rattachementMethode: r.rattachement_methode, pieces: piecesParReponse.get(r.id) ?? [],
   }));
+  const parId = new Map(rat.rows.map((r) => [r.id, r]));
+  const propositions: PropositionDepotAffichee[] = propsBrutes.map((p) => {
+    const r = parId.get(p.messageId)!;
+    return { id: p.messageId, recuLe: r.recu_le, deAdresse: r.de_adresse, deNom: r.de_nom, objet: r.objet, nbPieces: r.nb_pieces, candidats: p.candidats };
+  });
 
   const rel = await query<{ id: number; generee_le: string; demande_id: number; reference: string | null; commune_nom: string | null; objet: string; corps: string }>(
     `SELECT rl.id::int AS id, rl.generee_le::text AS generee_le, rl.demande_id::int AS demande_id, d.reference, c.nom AS commune_nom, rl.objet, rl.corps
@@ -297,6 +327,6 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
       piecesDeposees: r.pieces_deposees, piecesNonDeposees: r.pieces_non_deposees, erreur: r.erreur,
     })),
     cumuls,
-    demandes, aRattacher, relances,
+    demandes, aRattacher, propositions, relances,
   };
 }
