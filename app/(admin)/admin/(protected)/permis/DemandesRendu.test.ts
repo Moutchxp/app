@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 import { formaterReferencePermis } from '../../../../lib/sitadel/referencePermis';
@@ -606,6 +606,118 @@ describe('D3 — TableDemandes : colonne « Type » en 2e position + conteneur d
     expect(h).toContain('Aucune demande.');
     expect(h).toContain('colSpan="9"');
     expect(h).not.toContain('colSpan="10"');
+  });
+});
+
+describe('U7 — TableDemandes : détail en ACCORDÉON à un seul volet, sous la ligne cliquée', () => {
+  const A = DEM({ id: 1, reference: 'SVAV-DEM-2026-000001', communeNom: 'Asnières' });
+  const B = DEM({ id: 2, reference: 'SVAV-DEM-2026-000002', communeNom: 'Clichy' });
+  const PANNEAU = createElement('span', null, 'DETAIL-DE-LA-LIGNE'); // sentinelle du slot fourni par la Vue
+  const rendu = (over?: Partial<Parameters<typeof TableDemandes>[0]>) => renderToStaticMarkup(createElement(TableDemandes, {
+    visibles: [A, B], categories: CATS_D3, tri: TRI_COMMUNE, sel: new Set<number>(),
+    toutCoche: false, messageVide: 'Aucune demande.', panneau: PANNEAU, ...over,
+  }));
+  const compte = (h: string, re: RegExp) => (h.match(re) ?? []).length;
+
+  it('aucune ligne ouverte par défaut (demandeOuverte omis) → AUCUN détail rendu, chaque bouton dit « ouvrir »', () => {
+    const h = rendu(); // demandeOuverte non fourni → null
+    expect(h).not.toContain('DETAIL-DE-LA-LIGNE');   // le panneau n'est pas rendu tant que rien n'est ouvert
+    expect(h).not.toContain('refermer');
+    expect(h).not.toContain('aria-expanded="true"');
+    expect(compte(h, />ouvrir</g)).toBe(2);          // deux lignes, deux boutons « ouvrir »
+  });
+
+  it('ouvrir une ligne rend son détail IMMÉDIATEMENT sous elle (entre sa ligne et la suivante), et nulle part ailleurs', () => {
+    const h = rendu({ demandeOuverte: 1 });
+    const iA = h.indexOf('SVAV-DEM-2026-000001');
+    const iPanneau = h.indexOf('DETAIL-DE-LA-LIGNE');
+    const iB = h.indexOf('SVAV-DEM-2026-000002');
+    expect(iA).toBeLessThan(iPanneau);   // le détail suit la ligne 1…
+    expect(iPanneau).toBeLessThan(iB);   // …et précède la ligne 2 → directement SOUS la ligne 1
+    expect(compte(h, /DETAIL-DE-LA-LIGNE/g)).toBe(1); // rendu une seule fois
+  });
+
+  it('UN SEUL VOLET : demandeOuverte=2 → le détail est sous la ligne 2, la ligne 1 n’a AUCUN détail (jamais deux ouverts)', () => {
+    const h = rendu({ demandeOuverte: 2 });
+    const iB = h.indexOf('SVAV-DEM-2026-000002');
+    const iPanneau = h.indexOf('DETAIL-DE-LA-LIGNE');
+    expect(iPanneau).toBeGreaterThan(iB);             // sous la ligne 2 (la dernière) → pas entre 1 et 2
+    expect(compte(h, /DETAIL-DE-LA-LIGNE/g)).toBe(1); // exactement un panneau, jamais deux
+  });
+
+  it('le bouton de la ligne OUVERTE porte « refermer » (aria-expanded=true + aria-controls) ; la ligne fermée garde « ouvrir »', () => {
+    const h = rendu({ demandeOuverte: 1 });
+    expect(h).toContain('refermer');
+    expect(h).toContain('aria-expanded="true"');
+    expect(h).toContain('aria-controls="demande-1"'); // relie le bouton à son panneau (ancreDetail)
+    expect(h).toContain('id="demande-1"');            // le panneau (2ᵉ tr) porte cet id
+    expect(compte(h, />ouvrir</g)).toBe(1);           // la ligne 2 (fermée) garde « ouvrir »
+    expect(h).toContain('aria-expanded="false"');
+  });
+
+  it('les COLONNES ne bougent pas : panneau pleine largeur (colSpan=10), en-tête et ligne fermée inchangés', () => {
+    const ouvert = rendu({ demandeOuverte: 1 });
+    expect(ouvert).toContain('colSpan="10"');         // le détail couvre toutes les colonnes → aucun décalage
+    const iRef = ouvert.indexOf('Référence'); const iType = ouvert.indexOf('Type'); const iCommune = ouvert.indexOf('Commune');
+    expect(iRef).toBeLessThan(iType); expect(iType).toBeLessThan(iCommune); // en-tête intact
+    expect(ouvert).toContain('aria-label="Sélectionner SVAV-DEM-2026-000002"'); // la ligne fermée 2 est intacte
+  });
+
+  it('avecSelection=false → le panneau couvre 9 colonnes (colonne de sélection retirée), toujours pleine largeur', () => {
+    const h = rendu({ demandeOuverte: 1, avecSelection: false });
+    expect(h).toContain('colSpan="9"');
+    expect(h).not.toContain('colSpan="10"');
+    expect(h).toContain('DETAIL-DE-LA-LIGNE');
+  });
+});
+
+describe('U7 — PanneauDetailDemande : contenu + actions du détail (déplacé sous la ligne, à l’identique)', () => {
+  const noop = () => {};
+  const cbs = { onCorps: noop, onRefDetail: noop, onFermer: noop, onSauverCorps: noop, onAjouterReference: noop, onBascule: noop, onTransition: noop };
+  const DETAIL = (over: Record<string, unknown> = {}) => ({
+    id: 1, reference: 'SVAV-DEM-2026-000001', codeInsee: '92004', communeNom: 'Asnières', statut: 'brouillon',
+    profil: 'entreprise', canal: 'email', destEmail: 'urba@mairie.fr', destAdressePostale: null, destUrlFormulaire: null,
+    destOrigine: 'mairie_contact', destNom: null, corps: 'CORPS DEMANDE',
+    dossiers: [{ numDau: 'PC0920042500001', date: null }], dossiersRetires: [],
+    referencesMairie: [], referencesMairieIndisponible: false, ...over,
+  }) as unknown as Parameters<typeof PanneauDetailDemande>[0]['detail'];
+  const rendu = (over: Record<string, unknown> = {}, corps = 'CORPS DEMANDE', retour: RetourAction = null) =>
+    renderToStaticMarkup(createElement(PanneauDetailDemande, { detail: DETAIL(over), corps, refDetail: '', retour, ...cbs }));
+
+  it('affiche la référence, le destinataire figé, un bouton « fermer »', () => {
+    const h = rendu();
+    expect(h).toContain('SVAV-DEM-2026-000001');
+    expect(h).toContain('Destinataire figé');
+    expect(h).toContain('urba@mairie.fr');
+    expect(h).toContain('fermer');
+  });
+
+  it('brouillon → corps ÉDITABLE + « Enregistrer le texte » / « Marquer prête » / « Annuler la demande »', () => {
+    const h = rendu({ statut: 'brouillon' });
+    expect(h).toContain('Enregistrer le texte');
+    expect(h).toContain('Marquer prête');
+    expect(h).toContain('Annuler la demande');
+    expect(h).not.toContain('readOnly');       // textarea éditable (aucun attribut readOnly)
+    expect(h).not.toContain('bascule impossible');
+  });
+
+  it('non brouillon (prête) → textarea LECTURE SEULE, « bascule impossible », AUCUN bouton de transition', () => {
+    const h = rendu({ statut: 'prete' });
+    expect(h).toContain('readOnly');           // textarea non éditable hors brouillon
+    expect(h).toContain('bascule impossible');
+    expect(h).not.toContain('Marquer prête');
+    expect(h).not.toContain('Enregistrer le texte');
+  });
+
+  it('références mairie : « aucune enregistrée » si vide ; listées sinon ; « indisponibles » si lecture en erreur', () => {
+    expect(rendu({ referencesMairie: [] })).toContain('aucune enregistrée');
+    expect(rendu({ referencesMairie: [{ reference: 'SLC-42' }] })).toContain('SLC-42');
+    expect(rendu({ referencesMairieIndisponible: true })).toContain('indisponibles');
+  });
+
+  it('le retour d’action de la ZONE détail se rend dans le panneau (même MessageRetour qu’avant le déplacement)', () => {
+    expect(rendu()).not.toContain('Texte enregistré.');
+    expect(rendu({}, 'x', { texte: 'Texte enregistré.', ok: true, zone: 'detail' })).toContain('Texte enregistré.');
   });
 });
 

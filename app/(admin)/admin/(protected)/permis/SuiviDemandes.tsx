@@ -1,10 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { ancreDetail, ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
+import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
 import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, CHOIX_STATUT_DEFAUT } from '../../../../lib/sitadel/demandesListe';
-import { OrigineDest, MessageRetour, repartirRetour, FiltreTypes, TableDemandes, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
+import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 
 /**
  * Q6 — tableau des demandes d'UN PÉRIMÈTRE (partagé par « À demander » et « En cours »). Le périmètre est un pré-filtre DUR par
@@ -212,57 +212,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
         </div>
       )}
 
-      {detail && (
-        <div id={ancreDetail(detail.id)} className="svv-card flex flex-col gap-2">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-            <strong>{detail.reference} — {detail.communeNom ?? detail.codeInsee} — {STATUT_LIBELLE[detail.statut] ?? detail.statut} — {ETIQUETTE_PROFIL[detail.profil as ProfilDemandeur] ?? detail.profil}</strong>
-            <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }} onClick={() => setDetail(null)}>fermer</button>
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--color-svv-muted)', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span>Destinataire figé : {detail.canal}{detail.destEmail ? ` · ${detail.destEmail}` : ''}{detail.destAdressePostale ? ` · ${detail.destAdressePostale}` : ''}{detail.destUrlFormulaire ? ` · ${detail.destUrlFormulaire}` : ''}</span>
-            <OrigineDest origine={detail.destOrigine} nom={detail.destNom} />
-          </div>
-          <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
-            <span style={{ color: 'var(--color-svv-muted)' }}>Profil :</span>
-            {PROFILS.map((p) => {
-              const actif = detail.profil === p;
-              const brouillon = detail.statut === 'brouillon';
-              return (
-                <button key={p} type="button"
-                  className={`svv-btn ${actif ? 'svv-btn-primary' : 'svv-btn-outline'}`}
-                  style={{ padding: '.25rem .7rem', opacity: brouillon || actif ? 1 : 0.5, cursor: brouillon && !actif ? 'pointer' : 'default' }}
-                  disabled={actif || !brouillon}
-                  onClick={() => setConfBascule({ ids: [detail.id], profil: p })}>{ETIQUETTE_PROFIL[p]}</button>
-              );
-            })}
-            {detail.statut !== 'brouillon' && <span style={{ color: 'var(--color-svv-muted)' }}>bascule impossible : la demande n&rsquo;est plus en brouillon.</span>}
-          </div>
-          <textarea value={corps} onChange={(e) => setCorps(e.target.value)} rows={16} readOnly={detail.statut !== 'brouillon'}
-            style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }} />
-          <BlocDossiersDetail dossiers={detail.dossiers} retires={detail.dossiersRetires} />
-          <div style={{ fontSize: 12 }}>
-            <span style={{ color: 'var(--color-svv-muted)' }}>Références mairie : </span>
-            {detail.referencesMairieIndisponible
-              ? <span role="status" style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}>indisponibles (lecture en erreur — voir les journaux)</span>
-              : detail.referencesMairie.length === 0
-                ? <span style={{ color: 'var(--color-svv-muted)' }}>aucune enregistrée</span>
-                : <span style={{ fontFamily: 'var(--font-svv-mono, monospace)' }}>{detail.referencesMairie.map((rf) => rf.reference).join(', ')}</span>}
-            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginTop: '.3rem', alignItems: 'center' }}>
-              <input value={refDetail} onChange={(e) => setRefDetail(e.target.value)} placeholder="ajouter une référence mairie" aria-label="Ajouter une référence mairie"
-                style={{ padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
-              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => void ajouterReference()}>Ajouter la référence</button>
-            </div>
-          </div>
-          {detail.statut === 'brouillon' && (
-            <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => void sauverCorps()}>Enregistrer le texte</button>
-              <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem' }} onClick={() => void transition([detail.id], 'prete', 'detail')}>Marquer prête</button>
-              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => void transition([detail.id], 'annulee', 'detail')}>Annuler la demande</button>
-            </div>
-          )}
-          <MessageRetour r={zonesRetour.detail} />
-        </div>
-      )}
+      {/* U7 — le détail ne s'affiche PLUS ici (en haut) : il est rendu SOUS sa ligne, dans TableDemandes (slot `panneau`). */}
 
       {/* Filtres + tri (+ actions groupées si le périmètre en a) */}
       <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'center', fontSize: 12 }}>
@@ -322,7 +272,22 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
         messageVide={!liste ? 'Chargement…' : (fReference.trim() !== ''
           ? `Aucune demande ne correspond à la référence « ${fReference.trim()} » (mairie ou SVAV ; casse, espaces et tirets ignorés).`
           : TEXTES[perimetre].vide)}
-        onTrier={trierPar} onToutSelectionner={avecActionsGroupees ? toutSelectionner : undefined} onBasculer={avecActionsGroupees ? basculer : undefined} onOuvrir={(id) => void ouvrir(id)}
+        // U7 — accordéon À UN SEUL VOLET : `detail` est UN objet (jamais un Set) → au plus une ligne dépliée ; le panneau se rend SOUS sa ligne.
+        demandeOuverte={detail?.id ?? null}
+        panneau={detail ? (
+          <PanneauDetailDemande
+            detail={detail} corps={corps} refDetail={refDetail} retour={zonesRetour.detail}
+            onCorps={setCorps} onRefDetail={setRefDetail}
+            onFermer={() => setDetail(null)}
+            onSauverCorps={() => void sauverCorps()}
+            onAjouterReference={() => void ajouterReference()}
+            onBascule={(p) => setConfBascule({ ids: [detail.id], profil: p })}
+            onTransition={(statut) => void transition([detail.id], statut, 'detail')}
+          />
+        ) : null}
+        onTrier={trierPar} onToutSelectionner={avecActionsGroupees ? toutSelectionner : undefined} onBasculer={avecActionsGroupees ? basculer : undefined}
+        // U7 — le bouton de ligne BASCULE : rouvrir la ligne ouverte la referme ; ouvrir une AUTRE remplace le détail (un seul volet).
+        onOuvrir={(id) => { if (detail?.id === id) setDetail(null); else void ouvrir(id); }}
       />
 
       {nbPages > 1 && (

@@ -1,10 +1,10 @@
 import { Fragment, type CSSProperties, type ReactNode } from 'react';
 import { typeDemande, type Tri, type TriColonne } from '../../../../lib/sitadel/demandesListe';
-import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
+import { ETIQUETTE_PROFIL, ancreDetail, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import { formaterReferencePermis, resoudreAdresseAvecReplis } from '../../../../lib/sitadel/referencePermis';
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
 import { PERIODES_STOCK, type LigneStock } from '../../../../lib/sitadel/stock';
-import type { PermisDetail } from '../../../../lib/sitadel/demandeRepo';
+import type { PermisDetail, DemandeDetail } from '../../../../lib/sitadel/demandeRepo';
 
 /**
  * Rendu PUR de la visibilité PRADA de l'onglet Demandes (chantier S14e) — aucun état, aucun effet → testable en Node via
@@ -539,13 +539,17 @@ export interface DemandeAffichee {
  * cours ») — pas de contrôle inerte à l'écran.
  */
 export function TableDemandes({
-  visibles, categories, tri, sel, toutCoche, messageVide, avecSelection = true, onTrier, onToutSelectionner, onBasculer, onOuvrir,
+  visibles, categories, tri, sel, toutCoche, messageVide, avecSelection = true, demandeOuverte = null, panneau, onTrier, onToutSelectionner, onBasculer, onOuvrir,
 }: {
   visibles: DemandeAffichee[]; categories: { libelle: string; rang: number }[];
   tri: Tri; sel: ReadonlySet<number>; toutCoche: boolean; messageVide: string; avecSelection?: boolean;
+  // U7 — accordéon À UN SEUL VOLET : `demandeOuverte` = l'unique demande dépliée (jamais un Set → jamais deux détails). `panneau` = son
+  //   détail (bâti par la Vue), rendu dans une 2ᵉ `<tr><td colSpan>` JUSTE SOUS sa ligne. Motif de TableStock (disclosure natif au niveau ligne).
+  demandeOuverte?: number | null; panneau?: ReactNode;
   onTrier?: (c: TriColonne) => void; onToutSelectionner?: () => void; onBasculer?: (id: number) => void; onOuvrir?: (id: number) => void;
 }) {
   const nowrap: CSSProperties = { ...styleTdD, whiteSpace: 'nowrap' };
+  const nCols = avecSelection ? 10 : 9; // colonnes du tableau → colSpan du panneau et de la ligne « vide »
   return (
     <ConteneurTableDefilant ariaLabel="Tableau des demandes, défilement horizontal">
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -564,26 +568,112 @@ export function TableDemandes({
           </tr>
         </thead>
         <tbody>
-          {visibles.map((d) => (
-            <tr key={d.id} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
-              {avecSelection && <td style={styleTdD}><input type="checkbox" checked={sel.has(d.id)} onChange={() => onBasculer?.(d.id)} aria-label={`Sélectionner ${d.reference}`} /></td>}
-              <td style={{ ...nowrap, fontFamily: 'var(--font-svv-mono, monospace)' }}>{d.reference}</td>
-              <CelluleType rangs={d.rangs} categories={categories} />
-              <td style={styleTdD}>{d.communeNom ?? d.codeInsee}</td>
-              <td style={styleTdD}>{ETIQUETTE_PROFIL[d.profil as ProfilDemandeur] ?? d.profil}</td>
-              <td style={nowrap}>{d.canal}</td>
-              <td style={styleTdD}><OrigineDest origine={d.destOrigine} nom={d.destNom} /></td>
-              <td style={styleTdD}>{d.nbDossiers}</td>
-              <td style={nowrap}>{STATUT_LIBELLE[d.statut] ?? d.statut}</td>
-              <td style={styleTdD}><button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }} onClick={() => onOuvrir?.(d.id)}>ouvrir</button></td>
-            </tr>
-          ))}
+          {visibles.map((d) => {
+            const ouvert = demandeOuverte === d.id; // U7 — un seul volet : au plus une ligne satisfait ceci
+            return (
+              <Fragment key={d.id}>
+                <tr style={{ borderBottom: ouvert ? 'none' : '1px solid var(--color-svv-line)' }}>
+                  {avecSelection && <td style={styleTdD}><input type="checkbox" checked={sel.has(d.id)} onChange={() => onBasculer?.(d.id)} aria-label={`Sélectionner ${d.reference}`} /></td>}
+                  <td style={{ ...nowrap, fontFamily: 'var(--font-svv-mono, monospace)' }}>{d.reference}</td>
+                  <CelluleType rangs={d.rangs} categories={categories} />
+                  <td style={styleTdD}>{d.communeNom ?? d.codeInsee}</td>
+                  <td style={styleTdD}>{ETIQUETTE_PROFIL[d.profil as ProfilDemandeur] ?? d.profil}</td>
+                  <td style={nowrap}>{d.canal}</td>
+                  <td style={styleTdD}><OrigineDest origine={d.destOrigine} nom={d.destNom} /></td>
+                  <td style={styleTdD}>{d.nbDossiers}</td>
+                  <td style={nowrap}>{STATUT_LIBELLE[d.statut] ?? d.statut}</td>
+                  <td style={styleTdD}>
+                    <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }}
+                      aria-expanded={ouvert} aria-controls={ancreDetail(d.id)} onClick={() => onOuvrir?.(d.id)}>
+                      {ouvert ? 'refermer' : 'ouvrir'}
+                    </button>
+                  </td>
+                </tr>
+                {ouvert && (
+                  <tr>
+                    <td id={ancreDetail(d.id)} colSpan={nCols} style={{ padding: 0, borderBottom: '1px solid var(--color-svv-line)', background: 'var(--color-svv-field)' }}>
+                      {panneau}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
           {visibles.length === 0 && (
-            <tr><td colSpan={avecSelection ? 10 : 9} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>{messageVide}</td></tr>
+            <tr><td colSpan={nCols} style={{ padding: '1rem .5rem', color: 'var(--color-svv-muted)' }}>{messageVide}</td></tr>
           )}
         </tbody>
       </table>
     </ConteneurTableDefilant>
+  );
+}
+
+const PROFILS_DEMANDE: ProfilDemandeur[] = ['entreprise', 'personne'];
+
+/**
+ * U7 — PANNEAU de détail d'UNE demande (contenu de la 2ᵉ ligne dépliée, sous sa ligne). PUR : toutes les données (detail, corps
+ * édité, référence en saisie, retour d'action de la ZONE détail) et TOUTES les actions (fermer, bascule de profil, enregistrer le
+ * corps, ajouter une référence mairie, marquer prête / annuler) viennent de la Vue en props → mêmes routes, mêmes retours qu'avant
+ * (le panneau a seulement CHANGÉ D'EMPLACEMENT). La bascule/les transitions ne sont offertes qu'en brouillon (garde inchangée).
+ */
+export function PanneauDetailDemande({
+  detail, corps, refDetail, retour, onCorps, onRefDetail, onFermer, onSauverCorps, onAjouterReference, onBascule, onTransition,
+}: {
+  detail: DemandeDetail; corps: string; refDetail: string; retour: RetourAction;
+  onCorps: (v: string) => void; onRefDetail: (v: string) => void;
+  onFermer: () => void; onSauverCorps: () => void; onAjouterReference: () => void;
+  onBascule: (profil: ProfilDemandeur) => void; onTransition: (statut: 'prete' | 'annulee') => void;
+}) {
+  const brouillon = detail.statut === 'brouillon';
+  return (
+    <div className="flex flex-col gap-2" style={{ padding: '.6rem .5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+        <strong>{detail.reference} — {detail.communeNom ?? detail.codeInsee} — {STATUT_LIBELLE[detail.statut] ?? detail.statut} — {ETIQUETTE_PROFIL[detail.profil as ProfilDemandeur] ?? detail.profil}</strong>
+        <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }} onClick={() => onFermer()}>fermer</button>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--color-svv-muted)', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <span>Destinataire figé : {detail.canal}{detail.destEmail ? ` · ${detail.destEmail}` : ''}{detail.destAdressePostale ? ` · ${detail.destAdressePostale}` : ''}{detail.destUrlFormulaire ? ` · ${detail.destUrlFormulaire}` : ''}</span>
+        <OrigineDest origine={detail.destOrigine} nom={detail.destNom} />
+      </div>
+      <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+        <span style={{ color: 'var(--color-svv-muted)' }}>Profil :</span>
+        {PROFILS_DEMANDE.map((p) => {
+          const actif = detail.profil === p;
+          return (
+            <button key={p} type="button"
+              className={`svv-btn ${actif ? 'svv-btn-primary' : 'svv-btn-outline'}`}
+              style={{ padding: '.25rem .7rem', opacity: brouillon || actif ? 1 : 0.5, cursor: brouillon && !actif ? 'pointer' : 'default' }}
+              disabled={actif || !brouillon}
+              onClick={() => onBascule(p)}>{ETIQUETTE_PROFIL[p]}</button>
+          );
+        })}
+        {!brouillon && <span style={{ color: 'var(--color-svv-muted)' }}>bascule impossible : la demande n&rsquo;est plus en brouillon.</span>}
+      </div>
+      <textarea value={corps} onChange={(e) => onCorps(e.target.value)} rows={16} readOnly={!brouillon}
+        style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }} />
+      <BlocDossiersDetail dossiers={detail.dossiers} retires={detail.dossiersRetires} />
+      <div style={{ fontSize: 12 }}>
+        <span style={{ color: 'var(--color-svv-muted)' }}>Références mairie : </span>
+        {detail.referencesMairieIndisponible
+          ? <span role="status" style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}>indisponibles (lecture en erreur — voir les journaux)</span>
+          : detail.referencesMairie.length === 0
+            ? <span style={{ color: 'var(--color-svv-muted)' }}>aucune enregistrée</span>
+            : <span style={{ fontFamily: 'var(--font-svv-mono, monospace)' }}>{detail.referencesMairie.map((rf) => rf.reference).join(', ')}</span>}
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginTop: '.3rem', alignItems: 'center' }}>
+          <input value={refDetail} onChange={(e) => onRefDetail(e.target.value)} placeholder="ajouter une référence mairie" aria-label="Ajouter une référence mairie"
+            style={{ padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => onAjouterReference()}>Ajouter la référence</button>
+        </div>
+      </div>
+      {brouillon && (
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => onSauverCorps()}>Enregistrer le texte</button>
+          <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem' }} onClick={() => onTransition('prete')}>Marquer prête</button>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => onTransition('annulee')}>Annuler la demande</button>
+        </div>
+      )}
+      <MessageRetour r={retour} />
+    </div>
   );
 }
 
