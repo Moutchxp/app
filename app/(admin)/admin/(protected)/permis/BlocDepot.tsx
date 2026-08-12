@@ -11,6 +11,7 @@ import { CarteDepot, type DepotAffiche } from './DemandesRendu';
 export function BlocDepot() {
   const [demandes, setDemandes] = useState<DepotAffiche[]>([]);
   const [msg, setMsg] = useState<Record<number, string>>({});  // retour (ok/échec) par carte
+  const [msgRef, setMsgRef] = useState<Record<number, string>>({}); // U2 — retour du bouton « Copier » du numéro de dossier (distinct du « Copier le texte »)
   const [refs, setRefs] = useState<Record<number, string>>({}); // P1 — référence mairie saisie par carte (facultative)
   const [version, setVersion] = useState(0);
 
@@ -33,6 +34,16 @@ export function BlocDepot() {
       poser(d.id, 'Texte copié.');
     } catch {
       poser(d.id, 'Copie impossible — sélectionnez le texte manuellement.');
+    }
+  }
+
+  // U2 — copie du SEUL numéro de dossier instruit (référence formatée), retour distinct de « Copier le texte ».
+  async function copierRef(id: number, valeur: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(valeur);
+      setMsgRef((s) => ({ ...s, [id]: 'Numéro copié.' }));
+    } catch {
+      setMsgRef((s) => ({ ...s, [id]: 'Copie impossible — sélectionnez le numéro manuellement.' }));
     }
   }
 
@@ -61,7 +72,7 @@ export function BlocDepot() {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '.6rem' }}>
         {demandes.map((d) => (
-          <CarteDepot key={d.id} d={d}>
+          <CarteDepot key={d.id} d={d} onCopierRef={(valeur) => void copierRef(d.id, valeur)} retourRef={msgRef[d.id]}>
             {/* P1 — référence renvoyée par la mairie (accusé de réception). Facultative : ne bloque jamais le dépôt. */}
             <label style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', fontSize: 12, color: 'var(--color-svv-muted)' }}>
               Référence mairie (accusé de réception) — facultatif

@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
+import { formaterReferencePermis } from '../../../../lib/sitadel/referencePermis';
 import type { LigneStock } from '../../../../lib/sitadel/stock';
 import type { PermisDetail } from '../../../../lib/sitadel/demandeRepo';
 
@@ -175,13 +176,13 @@ describe('S16 — CarteDepot (file à déposer à la main)', () => {
   const { corps } = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000001', piecesDepuisConfig('PC2,PC3'), 'entreprise');
 
   it('le TEXTE affiché est BYTE-IDENTIQUE à celui de genererTexte (aucune variante)', () => {
-    const d: DepotAffiche = { id: 1, reference: 'SVAV-DEM-2026-000001', communeNom: 'Paris', url: 'https://teleservice.paris.fr/urbanisme', corps, nbDossiers: 1, statut: 'brouillon' };
+    const d: DepotAffiche = { id: 1, reference: 'SVAV-DEM-2026-000001', communeNom: 'Paris', url: 'https://teleservice.paris.fr/urbanisme', corps, nbDossiers: 1, statut: 'brouillon', dossiers: [{ type: 'PC', numDau: '07510124V0034' }] };
     const h = renderToStaticMarkup(createElement(CarteDepot, { d }));
     expect(h).toContain(corps); // le corps stocké (= genererTexte) est rendu tel quel, sans transformation
   });
 
   it('URL de téléservice cliquable en nouvel onglet, rel noopener ; nb dossiers affiché', () => {
-    const d: DepotAffiche = { id: 1, reference: 'SVAV-DEM-2026-000001', communeNom: 'Paris', url: 'https://teleservice.paris.fr/urbanisme', corps, nbDossiers: 4, statut: 'brouillon' };
+    const d: DepotAffiche = { id: 1, reference: 'SVAV-DEM-2026-000001', communeNom: 'Paris', url: 'https://teleservice.paris.fr/urbanisme', corps, nbDossiers: 4, statut: 'brouillon', dossiers: [{ type: 'PC', numDau: '07510124V0034' }] };
     const h = renderToStaticMarkup(createElement(CarteDepot, { d }));
     expect(h).toContain('https://teleservice.paris.fr/urbanisme');
     expect(h).toContain('target="_blank"');
@@ -190,10 +191,42 @@ describe('S16 — CarteDepot (file à déposer à la main)', () => {
   });
 
   it('URL manquante → alerte explicite (jamais un lien mort)', () => {
-    const d: DepotAffiche = { id: 1, reference: 'R', communeNom: 'X', url: null, corps: 'x', nbDossiers: 1, statut: 'brouillon' };
+    const d: DepotAffiche = { id: 1, reference: 'R', communeNom: 'X', url: null, corps: 'x', nbDossiers: 1, statut: 'brouillon', dossiers: [{ type: 'PC', numDau: '07510124V0034' }] };
     const h = renderToStaticMarkup(createElement(CarteDepot, { d }));
     expect(h).toContain('URL de téléservice manquante');
     expect(h).toContain('role="alert"');
+  });
+
+  it('U2 — le CORPS et le CHAMP affichent la MÊME référence pour un même dossier (source de vérité unique)', () => {
+    const numDau = '07510124V0034';
+    const lotT: Lot = { codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire', dossiers: [{ ...dossier, type: 'PC', numDau }] };
+    const { corps: corpsT } = genererTexte(lotT, CONFIG, 'SVAV-DEM-2026-000001', piecesDepuisConfig('PC2,PC3'), 'entreprise');
+    const ref = formaterReferencePermis('PC', numDau);
+    const d: DepotAffiche = { id: 1, reference: 'SVAV-DEM-2026-000001', communeNom: 'Paris', url: 'u', corps: corpsT, nbDossiers: 1, statut: 'brouillon', dossiers: [{ type: 'PC', numDau }] };
+    const h = renderToStaticMarkup(createElement(CarteDepot, { d }));
+    expect(ref.ok).toBe(true);
+    if (ref.ok) {
+      expect(corpsT).toContain(ref.reference);            // le corps porte la référence…
+      expect(h).toContain(`value="${ref.reference}"`);    // …et le champ « Numéro de dossier instruit » la MÊME chaîne
+    }
+  });
+
+  it('U2 — champ « Numéro de dossier instruit » + Copier dédié + mention arrondissement (sans copie) ; « Copier le texte » inchangé', () => {
+    const d: DepotAffiche = { id: 1, reference: 'R', communeNom: 'Paris', url: 'u', corps: 'x', nbDossiers: 1, statut: 'brouillon', dossiers: [{ type: 'PC', numDau: '07510124V0034' }] };
+    const h = renderToStaticMarkup(createElement(CarteDepot, { d, onCopierRef: () => {} }, createElement('button', { type: 'button' }, 'Copier le texte')));
+    expect(h).toContain('Numéro de dossier instruit');
+    expect(h).toContain('value="PC07510124V0034"'); // pré-rempli par la source unique
+    expect(h).toContain('>Copier<');                 // bouton Copier DÉDIÉ au numéro (distinct de « Copier le texte »)
+    expect(h).toContain('Arrondissement : 1er');     // mention, sans bouton de copie
+    expect(h).toContain('Copier le texte');          // le bouton existant (children) reste
+  });
+
+  it('U2 — type indéterminable (aucun dossier) → champ NON pré-rempli + raison ; jamais « PC » inventé ; arrondissement indéterminé', () => {
+    const d: DepotAffiche = { id: 1, reference: 'R', communeNom: 'X', url: 'u', corps: 'x', nbDossiers: 0, statut: 'brouillon', dossiers: [] };
+    const h = renderToStaticMarkup(createElement(CarteDepot, { d }));
+    expect(h).toContain('impossible de pré-remplir');
+    expect(h).not.toContain('value="PC'); // aucune référence inventée
+    expect(h).toContain('Arrondissement : indéterminé');
   });
 });
 

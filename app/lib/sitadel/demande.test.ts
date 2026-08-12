@@ -614,13 +614,16 @@ describe('P3 — profil imposé (profilEffectifLot)', () => {
 describe('P3 — corps FORMULAIRE (téléservice)', () => {
   const lotForm: Lot = {
     codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire',
-    dossiers: [cand({ numDau: 'PC0750561234', dateReelleAutorisation: '2024-06-15', adresse: '5 rue de Rivoli', codePostal: '75001', communeNom: 'Paris', cadastre: ['AB 0042'] })],
+    // U2 : num_dau parisien RÉALISTE (0 + INSEE 75101 + année + V + 4 chiffres → 1er arrondissement) + type PC.
+    dossiers: [cand({ type: 'PC', numDau: '07510124V0034', dateReelleAutorisation: '2024-06-15', adresse: '5 rue de Rivoli', codePostal: '75001', communeNom: 'Paris', cadastre: ['AB 0042'] })],
   };
   const { objet, corps } = genererTexte(lotForm, CONFIG, 'SVAV-DEM-2026-000119', piecesDepuisConfig('PC2,PC3'), 'personne', 'reponse@svav.com');
 
-  it('UN SEUL permis nommé (n° Sitadel), jamais une liste « Dossiers concernés »', () => {
-    expect(corps).toContain('Permis concerné : PC0750561234');
+  it('U2 — UN SEUL permis, référence AU FORMAT téléservice (type + num_dau) + adresse complète + arrondissement', () => {
+    expect(corps).toContain('Permis concerné : PC07510124V0034'); // référence formatée (formaterReferencePermis), pas le num_dau brut
     expect(corps).toContain('autorisé le 15 juin 2024');
+    expect(corps).toContain('5 rue de Rivoli');                    // adresse complète
+    expect(corps).toContain('arrondissement 1er');                 // arrondissement dérivé du num_dau
     expect(corps).toContain('parcelle(s) AB 0042');
     expect(corps).not.toContain('Dossiers concernés');
     expect((corps.match(/Permis concerné/g) ?? []).length).toBe(1);

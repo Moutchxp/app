@@ -43,6 +43,7 @@ function versCandidat(d: DossierAffiche): CandidatDossier {
   const dest = resoudreDestination(contactDe(d));
   return {
     dossierId: d.id, codeInsee: d.codeInsee, communeNom: d.communeNom, canal: dest.canal,
+    type: d.type, // U2 : type d'autorisation (PC/PD) pour la référence téléservice
     numDau: d.numDau, dateReelleAutorisation: d.dateReelleAutorisation, adresse: adresseDe(d), codePostal: d.adrCodpostTer, cadastre: d.cadastre,
     etatDau: d.etatDau, absentDuDernierMillesime: !d.vuAuDernier, arbitragePrada: dest.arbitragePrada,
     destOrigine: dest.origine, destNom: dest.nom,
@@ -778,18 +779,24 @@ export async function rouvrirDemande(id: number, motif: string | null, auteur: s
 // ── Dépôt manuel sur téléservice (canal 'formulaire' — S16) ──────────────────────────────────────────────────────────
 export interface DemandeADeposer {
   id: number; reference: string; communeNom: string | null; url: string | null; corps: string | null; statut: string; nbDossiers: number;
+  /** U2 : dossiers ATTACHÉS (type + num_dau) → pré-remplissage du champ « Numéro de dossier instruit » et de l'arrondissement du téléservice. */
+  dossiers: { type: 'PC' | 'PD'; numDau: string }[];
 }
 
 /** Demandes en canal 'formulaire' encore à déposer (brouillon/prête). Corps = texte figé (genererTexte), URL = téléservice figé. */
 export async function listerADeposer(): Promise<DemandeADeposer[]> {
-  const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; url: string | null; corps: string | null; statut: string; nb: number }>(
+  const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; url: string | null; corps: string | null; statut: string; nb: number; dossiers: { type: 'PC' | 'PD'; numDau: string }[] }>(
+    // U2 : on ramène aussi les dossiers ATTACHÉS (type + num_dau) pour le champ « Numéro de dossier instruit » et l'arrondissement.
     `SELECT d.id::int AS id, d.reference, c.nom AS commune_nom, d.dest_url_formulaire AS url, d.corps, d.statut,
-            (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id) AS nb
+            (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id) AS nb,
+            coalesce((SELECT json_agg(json_build_object('type', s.type, 'numDau', s.num_dau) ORDER BY s.num_dau)
+                        FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
+                       WHERE dd.demande_id = d.id AND dd.actif), '[]'::json) AS dossiers
      FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee
      WHERE d.dest_canal = 'formulaire' AND d.statut IN ('brouillon', 'prete')
      ORDER BY d.cree_le DESC`,
   );
-  return rows.map((x) => ({ id: x.id, reference: x.reference, communeNom: x.commune_nom, url: x.url, corps: x.corps, statut: x.statut, nbDossiers: x.nb }));
+  return rows.map((x) => ({ id: x.id, reference: x.reference, communeNom: x.commune_nom, url: x.url, corps: x.corps, statut: x.statut, nbDossiers: x.nb, dossiers: x.dossiers ?? [] }));
 }
 
 /** Dépôt manuel interdit (mauvais canal ou statut déjà avancé) — raison exposée. */
@@ -862,7 +869,7 @@ export async function marquerDeposee(id: number, auteur: string | null, referenc
 
 // ── Bascule de profil (régénère le corps depuis l'identité COURANTE du profil cible) ─────────────────────────────────
 interface LigneDossierRegen {
-  id: number; num_dau: string; date_reelle_autorisation: string | null;
+  id: number; type: 'PC' | 'PD'; num_dau: string; date_reelle_autorisation: string | null;
   adr_num_ter: string | null; adr_libvoie_ter: string | null; adr_localite_ter: string | null; adr_codpost_ter: string | null;
   sec_cadastre1: string | null; num_cadastre1: string | null; sec_cadastre2: string | null; num_cadastre2: string | null; sec_cadastre3: string | null; num_cadastre3: string | null;
 }
@@ -883,7 +890,7 @@ async function chargerPourRegeneration(q: Requete, id: number): Promise<{ statut
   const x = r.rows[0];
   if (!x) return null;
   const doss = await q<LigneDossierRegen>(
-    `SELECT s.id, s.num_dau, s.date_reelle_autorisation::text AS date_reelle_autorisation,
+    `SELECT s.id, s.type, s.num_dau, s.date_reelle_autorisation::text AS date_reelle_autorisation,
             s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter, s.adr_codpost_ter,
             s.sec_cadastre1, s.num_cadastre1, s.sec_cadastre2, s.num_cadastre2, s.sec_cadastre3, s.num_cadastre3
      FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
@@ -892,6 +899,7 @@ async function chargerPourRegeneration(q: Requete, id: number): Promise<{ statut
   const communeNom = x.commune_nom ?? x.code_insee;
   const dossiers: CandidatDossier[] = doss.rows.map((d) => ({
     dossierId: d.id, codeInsee: x.code_insee, communeNom, canal: (x.dest_canal as CanalContact | null),
+    type: d.type, // U2 : type d'autorisation pour la référence (régénération du corps)
     numDau: d.num_dau, dateReelleAutorisation: d.date_reelle_autorisation,
     adresse: [d.adr_num_ter, d.adr_libvoie_ter, d.adr_localite_ter].filter((v) => v && v.trim() !== '').join(' '),
     codePostal: d.adr_codpost_ter, cadastre: cadastreDe(d),

@@ -7,6 +7,7 @@
  * en exposer un AFFAIBLIRAIT la demande. Les libellés de pièces viennent de la config (`pieces_demandees`), pas du dur.
  */
 import { type CanalContact, emailValide } from './mairieContact';
+import { formaterReferencePermis, formaterArrondissement } from './referencePermis';
 
 export interface ConfigDemandeur {
   raisonSociale: string;
@@ -163,6 +164,7 @@ export interface CandidatDossier {
   codeInsee: string;
   communeNom: string | null;
   canal: CanalContact | null;
+  type?: 'PC' | 'PD';                   // U2 : type d'autorisation Sitadel (PC/PD) → référence téléservice « <type><num_dau> ». Optionnel : posé sur les chemins formulaire (versCandidat / régénération) ; absent ailleurs (relance, tests hors formulaire).
   numDau: string;
   dateReelleAutorisation: string | null;
   adresse: string;
@@ -508,12 +510,19 @@ export function genererTexte(
   // référence de la MAIRIE — chantier P5). Socle juridique EN DUR : L311-1, L311-9 3°, R431-9 (liste close INCHANGÉE).
   if (lot.canal === 'formulaire') {
     const ligneDossierForm = (d: CandidatDossier): string => {
+      // U2 — référence AU MÊME FORMAT que le champ « Numéro de dossier instruit » (formaterReferencePermis, source unique). À
+      //   défaut de type (jamais en pratique — Sitadel garantit PC/PD), on retombe sur le num_dau BRUT : identifiant réel, pas un
+      //   type inventé. Adresse complétée par l'arrondissement dérivé du num_dau (pour choisir la bonne entrée du téléservice).
+      const ref = formaterReferencePermis(d.type, d.numDau);
+      const refTexte = ref.ok ? ref.reference : d.numDau;
       const villeCP = [d.codePostal, d.communeNom].filter((x) => x !== null && x!.trim() !== '').map((x) => x!.trim()).join(' ');
+      const arr = formaterArrondissement(d.numDau);
+      const lieu = arr ? [villeCP, `arrondissement ${arr}`].filter((x) => x !== '').join(', ') : villeCP;
       const adresse = d.adresse.trim();
       const cad = d.cadastre.length ? `parcelle(s) ${d.cadastre.join(', ')}` : '';
-      const segments = [d.numDau, `autorisé le ${dateEnFrancais(d.dateReelleAutorisation)}`];
-      if (adresse !== '') { segments.push([adresse, villeCP].filter((x) => x !== '').join(', ')); if (cad) segments.push(cad); }
-      else { const secours = [villeCP, cad].filter((x) => x !== '').join(', '); if (secours) segments.push(secours); }
+      const segments = [refTexte, `autorisé le ${dateEnFrancais(d.dateReelleAutorisation)}`];
+      if (adresse !== '') { segments.push([adresse, lieu].filter((x) => x !== '').join(', ')); if (cad) segments.push(cad); }
+      else { const secours = [lieu, cad].filter((x) => x !== '').join(', '); if (secours) segments.push(secours); }
       return segments.join(' — ');
     };
     const objet = 'Demande de communication de documents administratifs';

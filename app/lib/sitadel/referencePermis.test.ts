@@ -1,0 +1,54 @@
+import { describe, it, expect } from 'vitest';
+import { formaterReferencePermis, arrondissementParis, formaterArrondissement } from './referencePermis';
+
+/**
+ * U2 — SOURCE UNIQUE de la référence de permis (2 lettres de type + num_dau) et dérivation de l'arrondissement parisien depuis
+ * le num_dau (source structurée, pas de parsing d'adresse). PUR. On PROUVE : pas d'invention du type (jamais « PC » par
+ * défaut), démolitions traitées (PD), et les recoupements d'arrondissement donnés au cahier.
+ */
+describe('U2 — formaterReferencePermis : <type><num_dau>, sans invention', () => {
+  it('PC + num_dau → référence collée, sans espace', () => {
+    expect(formaterReferencePermis('PC', '07511524V0006')).toEqual({ ok: true, reference: 'PC07511524V0006' });
+  });
+  it('démolition (PD) → PD… (« PC » n’est JAMAIS écrit en dur)', () => {
+    expect(formaterReferencePermis('PD', '07511524V0006')).toEqual({ ok: true, reference: 'PD07511524V0006' });
+  });
+  it('type ABSENT / inconnu → indéterminé explicite, jamais « PC » supposé', () => {
+    const a = formaterReferencePermis(null, '07511524V0006');
+    const b = formaterReferencePermis('', '07511524V0006');
+    const c = formaterReferencePermis('XX', '07511524V0006');
+    for (const r of [a, b, c]) { expect(r.ok).toBe(false); if (!r.ok) expect(r.raison).toMatch(/type/i); }
+    expect(JSON.stringify([a, b, c])).not.toContain('PC07511524V0006');
+  });
+  it('num_dau absent → indéterminé explicite', () => {
+    const r = formaterReferencePermis('PC', '   ');
+    expect(r.ok).toBe(false); if (!r.ok) expect(r.raison).toMatch(/num/i);
+  });
+  it('tolère la casse du type (pc → PC), num_dau repris tel quel', () => {
+    expect(formaterReferencePermis('pc', '07511524V0006')).toEqual({ ok: true, reference: 'PC07511524V0006' });
+  });
+});
+
+describe('U2 — arrondissement de Paris dérivé du num_dau (source structurée)', () => {
+  it('07511524V0006 → 15 (Paris 15e)', () => {
+    expect(arrondissementParis('07511524V0006')).toBe(15);
+    expect(formaterArrondissement('07511524V0006')).toBe('15e');
+  });
+  it('07511225V0010 → 12 (Paris 12e)', () => {
+    expect(arrondissementParis('07511225V0010')).toBe(12);
+    expect(formaterArrondissement('07511225V0010')).toBe('12e');
+  });
+  it('1er arrondissement → « 1er » (cas particulier d’affichage)', () => {
+    expect(formaterArrondissement('07510124V0034')).toBe('1er');
+  });
+  it('hors Paris (autre département) → indéterminé (null)', () => {
+    expect(arrondissementParis('09204224V0006')).toBeNull();   // 92xxx
+    expect(formaterArrondissement('09204224V0006')).toBeNull();
+  });
+  it('num_dau malformé → indéterminé (null), jamais deviné', () => {
+    expect(arrondissementParis('nimportequoi')).toBeNull();
+    expect(arrondissementParis('0751XX24V0006')).toBeNull();   // lettres à la place de l’arrondissement
+    expect(arrondissementParis('07512124V0006')).toBeNull();   // 21e n’existe pas (hors [1;20])
+    expect(arrondissementParis('')).toBeNull();
+  });
+});

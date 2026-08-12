@@ -1,6 +1,7 @@
 import { Fragment, type CSSProperties, type ReactNode } from 'react';
 import { typeDemande, type Tri, type TriColonne } from '../../../../lib/sitadel/demandesListe';
 import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
+import { formaterReferencePermis, formaterArrondissement } from '../../../../lib/sitadel/referencePermis';
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
 import { PERIODES_STOCK, type LigneStock } from '../../../../lib/sitadel/stock';
 import type { PermisDetail } from '../../../../lib/sitadel/demandeRepo';
@@ -20,7 +21,9 @@ export interface AmbiguiteAffiche {
   courriel: string | null; adresse: string | null; prenom: string | null; nom: string | null; millesime: string;
 }
 export interface CommuneInjoignableAffiche { codeInsee: string; nom: string; departement: string }
-export interface DepotAffiche { id: number; reference: string; communeNom: string | null; url: string | null; corps: string | null; nbDossiers: number; statut: string }
+export interface DepotAffiche { id: number; reference: string; communeNom: string | null; url: string | null; corps: string | null; nbDossiers: number; statut: string;
+  /** U2 : dossiers attachés (type + num_dau) → champ « Numéro de dossier instruit » + arrondissement du téléservice. */
+  dossiers: { type: 'PC' | 'PD'; numDau: string }[] }
 
 /** Retire une commune d'une liste par son code (retrait optimiste après enregistrement). Pur → testable. */
 export function retirerCommune<T extends { codeInsee: string }>(liste: T[], code: string): T[] {
@@ -225,7 +228,15 @@ export function BlocInjoignables({ injoignables, ouvert, onToggle, retour, child
  * dossiers, et le TEXTE COMPLET de la demande (celui de genererTexte, figé en base) prêt à copier. Boutons fournis en
  * `children`. Mobile-first (carte, texte en zone scrollable).
  */
-export function CarteDepot({ d, children }: { d: DepotAffiche; children?: ReactNode }) {
+export function CarteDepot({ d, children, onCopierRef, retourRef }: {
+  d: DepotAffiche; children?: ReactNode;
+  onCopierRef?: (valeur: string) => void; retourRef?: string;
+}) {
+  // U2 — téléservice = UN dossier par dépôt (P3). La référence « Numéro de dossier instruit » et l'arrondissement dérivent du
+  //   dossier attaché via la SOURCE UNIQUE (formaterReferencePermis / formaterArrondissement). Type inconnu → on DIT pourquoi.
+  const dossier = d.dossiers[0];
+  const ref = dossier ? formaterReferencePermis(dossier.type, dossier.numDau) : { ok: false as const, raison: 'aucun dossier attaché à cette demande' };
+  const arr = dossier ? formaterArrondissement(dossier.numDau) : null;
   return (
     <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -236,6 +247,26 @@ export function CarteDepot({ d, children }: { d: DepotAffiche; children?: ReactN
       {d.url && d.url.trim() !== ''
         ? <a href={d.url} target="_blank" rel="noopener noreferrer" className="svv-link" style={{ width: 'auto', fontSize: 13 }}>Ouvrir le téléservice ↗</a>
         : <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>URL de téléservice manquante — à compléter dans l’éditeur de contact (canal formulaire).</span>}
+
+      {/* U2 — champ « Numéro de dossier instruit » (l'arrondissement est une liste déroulante non collable) : référence formatée
+          + son PROPRE bouton Copier (copie CETTE valeur seule). Le bouton « Copier le texte » (children) reste inchangé. */}
+      <label style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+        Numéro de dossier instruit (téléservice)
+        {ref.ok ? (
+          <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input readOnly value={ref.reference} aria-label="Numéro de dossier instruit"
+              style={{ flex: '1 1 12rem', minWidth: 0, padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
+            {onCopierRef && <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => onCopierRef(ref.reference)}>Copier</button>}
+          </span>
+        ) : (
+          <span role="note" style={{ color: 'var(--color-svv-red)' }}>impossible de pré-remplir : {ref.raison}.</span>
+        )}
+      </label>
+      {retourRef && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourRef}</span>}
+
+      {/* U2 — arrondissement : simple MENTION (aide à choisir la bonne entrée de la liste déroulante Paris), SANS bouton de copie. */}
+      <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Arrondissement : {arr ?? 'indéterminé'}</span>
+
       <textarea readOnly value={d.corps ?? ''} rows={10} aria-label={`Texte de la demande pour ${d.communeNom ?? d.reference}`}
         style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }} />
       {children}
