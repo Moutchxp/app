@@ -32,6 +32,7 @@ export interface LigneRun {
   rebondsRattaches: number | null;
   rebondsEtrangers: number | null;
   rebondsAppliques: number | null;
+  accuses: number | null;           // T3 : accusés enregistrés pendant le run (visibilité au journal)
   enregistrees: number | null;
   piecesDeposees: number | null;    // R4
   piecesNonDeposees: number | null; // R4
@@ -46,7 +47,7 @@ export interface CumulFenetre {
   nbReleves: number;
   nbErreurs: number;
   vus: number; dejaConnus: number; horsPerimetre: number; retenus: number; rattaches: number;
-  rebondsDetectes: number; rebondsRattaches: number; rebondsEtrangers: number; rebondsAppliques: number;
+  rebondsDetectes: number; rebondsRattaches: number; rebondsEtrangers: number; rebondsAppliques: number; accuses: number;
   enregistrees: number; piecesDeposees: number; piecesNonDeposees: number;
 }
 /** Les six fenêtres livrées d'un coup (24h · 7j · 30j · 90j · 365j · total) → changer de période n'exige aucun rechargement. */
@@ -82,8 +83,9 @@ export interface DemandeSuivi {
   statutAcheminement: string;
   dossiersActifs: number;
   dossiersSatisfaits: number;
-  nbReponses: number;
-  derniereReponseLe: string | null; // T1 : date (ISO) de la réponse rattachée la plus récente → pré-remplit « refus le »
+  nbReponses: number;           // T3 : « la mairie a ÉCRIT » — messages rattachés hors rebond (accusé COMPRIS). Pilote « En cours ».
+  nbReponsesReelles: number;    // T3 : « la mairie a RÉPONDU » — hors accusé ET hors rebond. Pilote l'entrée dans « Réponses ».
+  derniereReponseLe: string | null; // T1 : date (ISO) du dernier message « a écrit » (hors rebond) → pré-remplit « refus le »
   dossiers: DossierSuivi[];
 }
 // T6-A/2 — le critère d'inclusion « Réponses » (demandeADuRetour) + la partition d'affichage (partitionnerReponses) vivent dans
@@ -140,6 +142,7 @@ const COMPTEURS_CUMUL: { col: string; prop: keyof Omit<CumulFenetre, 'nbReleves'
   { col: 'rebonds_rattaches', prop: 'rebondsRattaches' },
   { col: 'rebonds_etrangers', prop: 'rebondsEtrangers' },
   { col: 'rebonds_appliques', prop: 'rebondsAppliques' },
+  { col: 'accuses', prop: 'accuses' },
   { col: 'enregistrees', prop: 'enregistrees' },
   { col: 'pieces_deposees', prop: 'piecesDeposees' },
   { col: 'pieces_non_deposees', prop: 'piecesNonDeposees' },
@@ -171,7 +174,7 @@ export async function chargerCumulsRuns(maintenant: Date): Promise<CumulsRuns> {
     const c: CumulFenetre = {
       nbReleves: row[`w${w}_nb`] ?? 0, nbErreurs: row[`w${w}_err`] ?? 0,
       vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0,
-      rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0,
+      rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0,
       enregistrees: 0, piecesDeposees: 0, piecesNonDeposees: 0,
     };
     for (const m of COMPTEURS_CUMUL) c[m.prop] = row[`w${w}_${m.col}`] ?? 0;
@@ -202,18 +205,22 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   // elle ne disparaît pas de l'écran. Acheminement agrégé + compteurs de dossiers + nombre de réponses rattachées.
   const dem = await query<{
     id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string;
-    envoye_le: string | null; statut_acheminement: string; dossiers_actifs: number; dossiers_satisfaits: number; nb_reponses: number; derniere_reponse_le: string | null;
+    envoye_le: string | null; statut_acheminement: string; dossiers_actifs: number; dossiers_satisfaits: number; nb_reponses: number; nb_reponses_reelles: number; derniere_reponse_le: string | null;
   }>(
+    // T3 — DEUX faits DISTINCTS : « la mairie a ÉCRIT » (nb_reponses, accusé COMPRIS, rebond EXCLU → pilote « En cours ») et
+    //   « la mairie a RÉPONDU » (nb_reponses_reelles, hors accusé ET hors rebond → pilote l'entrée dans « Réponses »). Un rebond
+    //   rattaché reste enregistré (preuve) mais N'EST NI l'un NI l'autre. derniere_reponse_le suit « a écrit » (accusé compris).
     `SELECT d.id::int AS id, d.reference, d.code_insee, c.nom AS commune_nom, d.statut,
             min(a.envoye_le)::text AS envoye_le,
-            (SELECT max(r.recu_le)::text FROM demande_reponse r WHERE r.demande_id = d.id) AS derniere_reponse_le, -- T1 : pré-remplissage « refus le »
+            (SELECT max(r.recu_le)::text FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature <> 'rebond') AS derniere_reponse_le, -- T1 : pré-remplissage « refus le »
             CASE WHEN bool_or(a.statut = 'envoye') THEN 'envoye'
                  WHEN bool_or(a.statut = 'rebond') THEN 'rebond'
                  WHEN bool_or(a.statut = 'echec')  THEN 'echec'
                  ELSE 'en_attente' END AS statut_acheminement,
             (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif) AS dossiers_actifs,
             (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NOT NULL) AS dossiers_satisfaits,
-            (SELECT count(*)::int FROM demande_reponse r WHERE r.demande_id = d.id) AS nb_reponses
+            (SELECT count(*)::int FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature <> 'rebond') AS nb_reponses,
+            (SELECT count(*)::int FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature NOT IN ('accuse','rebond')) AS nb_reponses_reelles
        FROM demande d
        LEFT JOIN commune c ON c.code_insee = d.code_insee
        -- B2 — la date d'envoi (ancre d'échéance) se lit QUEL QUE SOIT le canal : un dépôt téléservice écrit une ligne
@@ -246,7 +253,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
-    dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits, nbReponses: r.nb_reponses,
+    dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits, nbReponses: r.nb_reponses, nbReponsesReelles: r.nb_reponses_reelles,
     derniereReponseLe: r.derniere_reponse_le,
     dossiers: parDemande.get(r.id) ?? [],
   }));
@@ -261,12 +268,12 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
   const runs = await query<{
     demarre_le: string; termine_le: string | null; declencheur: string; resultat: string;
     vus: number | null; deja_connus: number | null; hors_perimetre: number | null; retenus: number | null; rattaches: number | null;
-    rebonds_detectes: number | null; rebonds_rattaches: number | null; rebonds_etrangers: number | null; rebonds_appliques: number | null;
+    rebonds_detectes: number | null; rebonds_rattaches: number | null; rebonds_etrangers: number | null; rebonds_appliques: number | null; accuses: number | null;
     enregistrees: number | null; pieces_deposees: number | null; pieces_non_deposees: number | null; erreur: string | null;
   }>(
     `SELECT demarre_le::text AS demarre_le, termine_le::text AS termine_le, declencheur, resultat,
             vus, deja_connus, hors_perimetre, retenus, rattaches,
-            rebonds_detectes, rebonds_rattaches, rebonds_etrangers, rebonds_appliques, enregistrees,
+            rebonds_detectes, rebonds_rattaches, rebonds_etrangers, rebonds_appliques, accuses, enregistrees,
             pieces_deposees, pieces_non_deposees, erreur
        FROM releve_run ORDER BY demarre_le DESC LIMIT 10`,
   );
@@ -339,7 +346,7 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
       demarreLe: r.demarre_le, termineLe: r.termine_le, declencheur: r.declencheur, resultat: r.resultat,
       vus: r.vus, dejaConnus: r.deja_connus, horsPerimetre: r.hors_perimetre, retenus: r.retenus, rattaches: r.rattaches,
       rebondsDetectes: r.rebonds_detectes, rebondsRattaches: r.rebonds_rattaches, rebondsEtrangers: r.rebonds_etrangers,
-      rebondsAppliques: r.rebonds_appliques, enregistrees: r.enregistrees,
+      rebondsAppliques: r.rebonds_appliques, accuses: r.accuses, enregistrees: r.enregistrees,
       piecesDeposees: r.pieces_deposees, piecesNonDeposees: r.pieces_non_deposees, erreur: r.erreur,
     })),
     cumuls,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rattacherReponse, estAccuseDeRebond, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
+import { rattacherReponse, estRebondNonRemise, estAccuseAutomatique, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
 
 /**
  * R2 — module PUR de rattachement. Tests sans réseau ni base : on fabrique un message + des candidates et on vérifie la
@@ -173,20 +173,38 @@ describe('R2 — ambiguïté & rien', () => {
   });
 });
 
-describe('R2 — estAccuseDeRebond', () => {
+describe('T3 — estRebondNonRemise (signaux DSN FIABLES uniquement, PAS Auto-Submitted)', () => {
   it('expéditeur mailer-daemon (casse ignorée) → true', () => {
-    expect(estAccuseDeRebond(msg({ deAdresse: 'MAILER-DAEMON@googlemail.com' }))).toBe(true);
+    expect(estRebondNonRemise(msg({ deAdresse: 'MAILER-DAEMON@googlemail.com' }))).toBe(true);
   });
   it('expéditeur postmaster → true', () => {
-    expect(estAccuseDeRebond(msg({ deAdresse: 'postmaster@mairie.fr' }))).toBe(true);
+    expect(estRebondNonRemise(msg({ deAdresse: 'postmaster@mairie.fr' }))).toBe(true);
   });
   it('Content-Type multipart/report; report-type=delivery-status (clé insensible à la casse) → true', () => {
-    expect(estAccuseDeRebond(msg({ entetes: { 'content-type': 'multipart/report; report-type=delivery-status; boundary=zz' } }))).toBe(true);
+    expect(estRebondNonRemise(msg({ entetes: { 'content-type': 'multipart/report; report-type=delivery-status; boundary=zz' } }))).toBe(true);
   });
-  it('Auto-Submitted autre que « no » → true', () => {
-    expect(estAccuseDeRebond(msg({ entetes: { 'Auto-Submitted': 'auto-replied' } }))).toBe(true);
+  it('⚠️ Auto-Submitted seul (mairie ordinaire) → false : ce N’EST PLUS un rebond (c’est un accusé)', () => {
+    expect(estRebondNonRemise(msg({ deAdresse: 'urba@mairie.fr', entetes: { 'Auto-Submitted': 'auto-replied' } }))).toBe(false);
   });
   it('message normal d’une mairie → false', () => {
-    expect(estAccuseDeRebond(msg({ deAdresse: 'urba@mairie.fr', entetes: { 'Content-Type': 'text/plain; charset=utf-8', 'Auto-Submitted': 'no' } }))).toBe(false);
+    expect(estRebondNonRemise(msg({ deAdresse: 'urba@mairie.fr', entetes: { 'Content-Type': 'text/plain; charset=utf-8' } }))).toBe(false);
+  });
+});
+
+describe('T3 — estAccuseAutomatique (Auto-Submitted ≠ no, et PAS un DSN)', () => {
+  it('Auto-Submitted: auto-replied depuis une mairie → true (accusé, à ENREGISTRER)', () => {
+    expect(estAccuseAutomatique(msg({ deAdresse: 'urba@mairie.fr', entetes: { 'Auto-Submitted': 'auto-replied' } }))).toBe(true);
+  });
+  it('Auto-Submitted: auto-generated → true', () => {
+    expect(estAccuseAutomatique(msg({ entetes: { 'auto-submitted': 'auto-generated' } }))).toBe(true);
+  });
+  it('Auto-Submitted: no → false (message humain explicite)', () => {
+    expect(estAccuseAutomatique(msg({ entetes: { 'Auto-Submitted': 'no' } }))).toBe(false);
+  });
+  it('DSN (mailer-daemon) même AVEC Auto-Submitted → false : un rebond n’est pas un accusé', () => {
+    expect(estAccuseAutomatique(msg({ deAdresse: 'mailer-daemon@google.com', entetes: { 'Auto-Submitted': 'auto-replied' } }))).toBe(false);
+  });
+  it('message normal SANS Auto-Submitted → false (reste indetermine côté relève)', () => {
+    expect(estAccuseAutomatique(msg({ deAdresse: 'urba@mairie.fr', entetes: { 'Content-Type': 'text/plain' } }))).toBe(false);
   });
 });

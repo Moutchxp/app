@@ -157,11 +157,24 @@ describe('R1 — enregistrerReponse', () => {
     expect(norm(ins!.sql)).toContain('INSERT INTO demande_reponse');
     expect(norm(ins!.sql)).toContain('ON CONFLICT (message_id) DO NOTHING'); // idempotence (R3)
     expect(norm(ins!.sql)).toContain('RETURNING id');
-    // paramètres liés, dans l'ordre du schéma
+    // paramètres liés, dans l'ordre du schéma (T3 : nature en dernier, défaut 'indetermine')
     expect(ins!.params).toEqual([
       154, 'entreprise', '<29d85848-20c3-1430-45fe-81c7bcf9cafe@sansvisavis.com>', '<in@reply>', '<a> <b>',
-      'urba-reglementaire@mairie-aubervilliers.fr', 'Mairie', 'RE: réf.', RECU, 'texte', 'message_id', RECU, 'n',
+      'urba-reglementaire@mairie-aubervilliers.fr', 'Mairie', 'RE: réf.', RECU, 'texte', 'message_id', RECU, 'n', 'indetermine',
     ]);
+  });
+
+  it('T3 — nature liée : défaut « indetermine », et la valeur fournie (accuse/rebond) est passée en dernier paramètre', async () => {
+    await enregistrerReponse({ ...BASE, nature: 'accuse' });
+    const ins = trouver(/INSERT INTO demande_reponse\b/i)!;
+    expect(norm(ins.sql)).toContain('nature'); // colonne présente dans l'INSERT
+    expect(ins.params[13]).toBe('accuse');
+    appels.length = 0;
+    await enregistrerReponse({ ...BASE, nature: 'rebond' });
+    expect(trouver(/INSERT INTO demande_reponse\b/i)!.params[13]).toBe('rebond');
+    appels.length = 0;
+    await enregistrerReponse(BASE); // sans nature → défaut
+    expect(trouver(/INSERT INTO demande_reponse\b/i)!.params[13]).toBe('indetermine');
   });
 
   it('demandeId absent → NULL lié (file « à rattacher ») et rattachement_methode défaut « aucun »', async () => {

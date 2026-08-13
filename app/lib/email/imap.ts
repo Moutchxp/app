@@ -21,7 +21,7 @@ function versMessageBoite(parsed: ParsedMail, uid: number): MessageBoite {
       ? [parsed.references]
       : undefined;
 
-  // En-têtes bruts (nom → valeur) pour estAccuseDeRebond (Content-Type, Auto-Submitted…), valeur telle quelle.
+  // En-têtes bruts (nom → valeur) pour estRebondNonRemise / estAccuseAutomatique (Content-Type, Auto-Submitted…), valeur telle quelle.
   const entetes: Record<string, string> = {};
   for (const { key, line } of parsed.headerLines) {
     const i = line.indexOf(':');

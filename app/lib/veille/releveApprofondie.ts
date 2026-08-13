@@ -12,8 +12,8 @@
  */
 import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
-import { enregistrerReponse, deposerEtLierPieces, type ProfilBoite } from './demandeReponseRepo';
-import { rattacherReponse, estAccuseDeRebond, type DemandeCandidate } from './rattachementReponse';
+import { enregistrerReponse, deposerEtLierPieces, type ProfilBoite, type NatureReponse } from './demandeReponseRepo';
+import { rattacherReponse, estRebondNonRemise, estAccuseAutomatique, type DemandeCandidate } from './rattachementReponse';
 import { analyserRapportRejet, normaliserMessageId } from './rapportRejet';
 import { construireLigne, type CritereRecherche, type LigneReleve, type MessageBoite, type PieceMeta } from './releveReponses';
 import { etatEcheance, type ReglagesEcheance } from './echeance';
@@ -49,6 +49,7 @@ export interface RapportApprofondi {
   retenus: number;              // = lignes.length
   rattaches: number;            // lignes avec demande_id renseigné (threading/référence/rebond lié)
   rebondsRattaches: number;
+  accuses: number;              // T3 : accusés de réception (nature 'accuse') retenus
   ecrites: number;
   piecesDeposees: number;       // R4 : pièces déposées sur l'object storage
   piecesNonDeposees: number;    // R4 : pièces non déposées (trace + motif conservés)
@@ -116,27 +117,29 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
         vusIds.add(mid);
         vus += 1;
 
-        // ── REBOND (DSN) : retenu seulement s'il concerne CETTE demande ──
-        if (estAccuseDeRebond(mb.message)) {
+        // ── REBOND DE NON-REMISE (DSN) : retenu seulement s'il concerne CETTE demande (T3 : signaux fiables, nature 'rebond') ──
+        if (estRebondNonRemise(mb.message)) {
           const dsn = analyserRapportRejet({ corpsTexte: mb.message.corpsTexte, parties: mb.partiesRapport });
           const parId = dsn.messageIdOrigine !== undefined && cible.messageIdsEmis.some((m) => normaliserMessageId(m) === dsn.messageIdOrigine);
           const parDest = dsn.destinataireEchec !== undefined && cible.destEmail !== '' && cible.destEmail.toLowerCase() === dsn.destinataireEchec;
           if (!parId && !parDest) continue; // rebond ÉTRANGER → jamais retenu
           const motif = dsn.diagnostic ?? dsn.statut ?? 'rebond';
           rebondsRattaches += 1;
-          lignes.push({ messageId: mid, demandeId: cible.demandeId, methode: 'message_id', rebond: true, motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
-          if (appliquer) { const id = await enregistrerReponse(construireLigne(cible.profil, mb, mid, cible.demandeId, 'message_id', motif)); if (id !== null) { ecrites += 1; await deposerPieces(id, cible.demandeId, mb.pieces); } }
+          lignes.push({ messageId: mid, demandeId: cible.demandeId, methode: 'message_id', rebond: true, nature: 'rebond', motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
+          if (appliquer) { const id = await enregistrerReponse(construireLigne(cible.profil, mb, mid, cible.demandeId, 'message_id', motif, 'rebond')); if (id !== null) { ecrites += 1; await deposerPieces(id, cible.demandeId, mb.pieces); } }
           continue;
         }
 
-        // ── RÉPONSE NORMALE : retenue si threading/référence correspond, OU si elle vient du domaine du destinataire ──
+        // ── MESSAGE (accusé auto OU réponse ordinaire) : retenu si threading/référence correspond, OU s'il vient du domaine ──
         const r = rattacherReponse(mb.message, [candidate]);
         const domaineOk = domaineCible !== '' && domaineDe(mb.message.deAdresse) === domaineCible;
         if (r.methode === 'aucun' && !domaineOk) continue; // ni référence ni domaine → pas lié à cette demande
         // demandeId = celui du rattachement CERTAIN (threading/référence) ; NULL si seulement le domaine correspond
         // (le message part alors dans la file « à rattacher » pour décision humaine — on ne force pas un lien incertain).
-        lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
-        if (appliquer) { const id = await enregistrerReponse(construireLigne(cible.profil, mb, mid, r.demandeId, r.methode, r.motif)); if (id !== null) { ecrites += 1; await deposerPieces(id, r.demandeId, mb.pieces); } }
+        // T3 — un accusé automatique (Auto-Submitted, pas un DSN) est enregistré nature='accuse' (« a écrit », pas « a répondu »).
+        const nature: NatureReponse = estAccuseAutomatique(mb.message) ? 'accuse' : 'indetermine';
+        lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, nature, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
+        if (appliquer) { const id = await enregistrerReponse(construireLigne(cible.profil, mb, mid, r.demandeId, r.methode, r.motif, nature)); if (id !== null) { ecrites += 1; await deposerPieces(id, r.demandeId, mb.pieces); } }
       }
     }
   } finally {
@@ -144,7 +147,8 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
   }
 
   const rattaches = lignes.filter((l) => l.demandeId !== null).length;
-  return { mode, demandeId: cible.demandeId, boitesExplorees, vus, retenus: lignes.length, rattaches, rebondsRattaches, ecrites, piecesDeposees, piecesNonDeposees, lignes };
+  const accuses = lignes.filter((l) => l.nature === 'accuse').length; // T3
+  return { mode, demandeId: cible.demandeId, boitesExplorees, vus, retenus: lignes.length, rattaches, rebondsRattaches, accuses, ecrites, piecesDeposees, piecesNonDeposees, lignes };
 }
 
 // ── Orchestration : sélection des demandes dépassées/proches + garde 1/jour + journal ─────────────────────────────────
@@ -298,10 +302,10 @@ export function depsReellesApprofondie(): DepsApprofondie {
       const r = m.rapport;
       await query(
         `UPDATE releve_run SET resultat = $2, termine_le = $3,
-           vus = $4, retenus = $5, rattaches = $6, rebonds_rattaches = $7, enregistrees = $8,
-           pieces_deposees = $9, pieces_non_deposees = $10, erreur = $11
+           vus = $4, retenus = $5, rattaches = $6, rebonds_rattaches = $7, accuses = $8, enregistrees = $9,
+           pieces_deposees = $10, pieces_non_deposees = $11, erreur = $12
          WHERE id = $1`,
-        [id, m.resultat, m.termineLe, r?.vus ?? null, r?.retenus ?? null, r?.rattaches ?? null, r?.rebondsRattaches ?? null, r?.ecrites ?? null, r?.piecesDeposees ?? null, r?.piecesNonDeposees ?? null, m.erreur ?? null]);
+        [id, m.resultat, m.termineLe, r?.vus ?? null, r?.retenus ?? null, r?.rattaches ?? null, r?.rebondsRattaches ?? null, r?.accuses ?? null, r?.ecrites ?? null, r?.piecesDeposees ?? null, r?.piecesNonDeposees ?? null, m.erreur ?? null]);
     },
   };
 }

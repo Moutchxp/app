@@ -168,6 +168,69 @@ describe('R3d — rattachement réel des rebonds', () => {
   });
 });
 
+describe('T3 — nature du message : accusé enregistré (jamais rebond étranger), rebond rattaché, message ordinaire', () => {
+  it('accusé auto (Auto-Submitted) rattaché par threading → ENREGISTRÉ nature=accuse, compté « accuses », JAMAIS rebond, acheminement INTACT, aucune satisfaction auto', async () => {
+    const { client } = fauxClient([boite(
+      { deAdresse: 'urba@mairie-aubervilliers.fr', references: ['<abc-154@sansvisavis.com>'], objet: 'Accusé de réception de votre demande', corpsTexte: 'Votre demande a bien été reçue.',
+        entetes: { 'Auto-Submitted': 'auto-replied' } },
+    )]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.accuses).toBe(1);
+    expect(r.rebondsDetectes).toBe(0);   // ⚠️ n'est PLUS pris pour un rebond (l'ancien bug)
+    expect(r.rebondsEtrangers).toBe(0);  // …donc PLUS jeté en « rebond étranger »
+    expect(r.retenus).toBe(1);
+    expect(r.rattaches).toBe(1);
+    expect(r.lignes[0].nature).toBe('accuse');
+    const ins = trouver(/INSERT INTO demande_reponse\b/i)!;
+    expect(ins.params[0]).toBe(1);          // rattaché à la demande 154
+    expect(ins.params[13]).toBe('accuse');  // nature liée
+    expect(trouver(/UPDATE demande_acheminement/i)).toBeUndefined();     // pas un rebond → acheminement intact
+    expect(trouver(/SELECT dd\.dossier_id, s\.num_dau/i)).toBeUndefined(); // un accusé ne déclenche AUCUNE satisfaction auto de dossier
+  });
+
+  it('accusé auto SANS Message-ID d’origine ni référence (du domaine) → ENREGISTRÉ nature=accuse, en file « à rattacher », jamais perdu', async () => {
+    const { client } = fauxClient([boite(
+      { deAdresse: 'ne-pas-repondre@mairie-aubervilliers.fr', objet: 'Accusé de réception automatique', corpsTexte: 'Message automatique — ne pas répondre.',
+        entetes: { 'Auto-Submitted': 'auto-generated' } },
+    )]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.accuses).toBe(1);
+    expect(r.rebondsEtrangers).toBe(0);
+    expect(r.retenus).toBe(1);
+    expect(r.rattaches).toBe(0);            // pas de rattachement certain → file « à rattacher »
+    expect(r.lignes[0].nature).toBe('accuse');
+    const ins = trouver(/INSERT INTO demande_reponse\b/i)!;
+    expect(ins.params[0]).toBeNull();       // demande_id NULL (à rattacher), mais ENREGISTRÉ
+    expect(ins.params[13]).toBe('accuse');
+  });
+
+  it('rebond de non-remise RATTACHÉ → ENREGISTRÉ nature=rebond (preuve), acheminement basculé, mais N’EST PAS un accusé', async () => {
+    const { client } = fauxClient([boite(
+      { deAdresse: 'MAILER-DAEMON@google.com', objet: 'Delivery Status Notification (Failure)', corpsTexte: dsnCorps('urba@mairie-aubervilliers.fr') },
+      { partiesRapport: [{ typeMime: 'message/rfc822', contenu: 'Message-ID: <abc-154@sansvisavis.com>\r\n' }] },
+    )]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.rebondsRattaches).toBe(1);
+    expect(r.rebondsAppliques).toBe(1);
+    expect(r.accuses).toBe(0);
+    expect(r.lignes[0].nature).toBe('rebond');
+    const ins = trouver(/INSERT INTO demande_reponse\b/i)!;
+    expect(ins.params[13]).toBe('rebond');
+    expect(trouver(/UPDATE demande_acheminement/i)).toBeDefined(); // la bascule 'envoye' → 'rebond' reste l'autorité
+  });
+
+  it('message ORDINAIRE (sans Auto-Submitted) rattaché → nature=indetermine (se comporte comme un vrai retour)', async () => {
+    const { client } = fauxClient([boite(
+      { deAdresse: 'urba@mairie-aubervilliers.fr', references: ['<abc-154@sansvisavis.com>'], objet: 'Réponse à votre demande', corpsTexte: 'Voici les documents.' },
+    )]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.accuses).toBe(0);
+    expect(r.rattaches).toBe(1);
+    expect(r.lignes[0].nature).toBe('indetermine');
+    expect(trouver(/INSERT INTO demande_reponse\b/i)!.params[13]).toBe('indetermine');
+  });
+});
+
 describe('R3 — réponses normales & garde-fous', () => {
   it('message déjà connu → ignoré, aucune écriture', async () => {
     etat.knownIds = ['<known@x>'];

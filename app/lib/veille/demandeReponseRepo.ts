@@ -9,6 +9,12 @@ import type { ResultatDepotEntrant } from '../stockage';
 
 export type ProfilBoite = 'entreprise' | 'personne';
 export type RattachementMethode = 'message_id' | 'reference_objet' | 'reference_corps' | 'numero_dossier' | 'reference_mairie' | 'manuel' | 'aucun';
+/**
+ * T3 — NATURE d'un message entrant (liste fermée, cf. migration 096). 'accuse' = accusé de réception automatique (« a écrit »,
+ * jamais « a répondu ») ; 'rebond' = non-remise rattachée (preuve, NI « a écrit » NI « a répondu ») ; 'indetermine' (défaut) =
+ * se comporte comme un vrai retour. 'documents' / 'autre' = classification fine, chantier ultérieur.
+ */
+export type NatureReponse = 'accuse' | 'documents' | 'autre' | 'indetermine' | 'rebond';
 
 /** Une pièce jointe d'un message entrant. Les champs de dépôt (cle_stockage/empreinte/stocke_le) restent NULL tant que la pièce n'est pas déposée (chantier ultérieur). */
 export interface PieceEntrante {
@@ -34,6 +40,7 @@ export interface ReponseEntrante {
   recuLe: Date;
   corpsTexte?: string | null;
   rattachementMethode?: RattachementMethode; // défaut 'aucun'
+  nature?: NatureReponse;                    // T3 : défaut 'indetermine' (message ordinaire = vrai retour)
   rattacheLe?: Date | null;
   note?: string | null;
   pieces?: PieceEntrante[];
@@ -70,14 +77,14 @@ export async function enregistrerReponse(r: ReponseEntrante): Promise<number | n
     const res = await q<{ id: number }>(
       `INSERT INTO demande_reponse
          (demande_id, profil_boite, message_id, in_reply_to, references_brut, de_adresse, de_nom, objet, recu_le,
-          corps_texte, rattachement_methode, rattache_le, note)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          corps_texte, rattachement_methode, rattache_le, note, nature)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (message_id) DO NOTHING
        RETURNING id`,
       [
         r.demandeId ?? null, r.profilBoite, r.messageId, r.inReplyTo ?? null, r.referencesBrut ?? null,
         r.deAdresse, r.deNom ?? null, r.objet ?? null, r.recuLe, r.corpsTexte ?? null,
-        r.rattachementMethode ?? 'aucun', r.rattacheLe ?? null, r.note ?? null,
+        r.rattachementMethode ?? 'aucun', r.rattacheLe ?? null, r.note ?? null, r.nature ?? 'indetermine',
       ],
     );
     const ligne = res.rows[0];

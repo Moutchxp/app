@@ -88,15 +88,15 @@ export function RappelReglages({ reglages }: { reglages: ReglagesReleve }) {
   );
 }
 
-/** Libellés des 12 colonnes de compteurs, dans l'ORDRE de `compteursDe`. */
-const COLS_RUN = ['vus', 'déjà connus', 'hors périm.', 'retenus', 'rattachés', 'reb. détectés', 'reb. rattachés', 'reb. étrangers', 'reb. appliqués', 'enregistrées', 'pièces dép.', 'pièces non dép.'];
-/** Les 12 compteurs d'une ligne dans l'ordre de `COLS_RUN` (NULL rendu tel quel — décidé à l'affichage). */
+/** Libellés des 13 colonnes de compteurs, dans l'ORDRE de `compteursDe` (T3 : « accusés » après les rebonds). */
+const COLS_RUN = ['vus', 'déjà connus', 'hors périm.', 'retenus', 'rattachés', 'reb. détectés', 'reb. rattachés', 'reb. étrangers', 'reb. appliqués', 'accusés', 'enregistrées', 'pièces dép.', 'pièces non dép.'];
+/** Les 13 compteurs d'une ligne dans l'ordre de `COLS_RUN` (NULL rendu tel quel — décidé à l'affichage). */
 function compteursDe(r: LigneRun): (number | null)[] {
-  return [r.vus, r.dejaConnus, r.horsPerimetre, r.retenus, r.rattaches, r.rebondsDetectes, r.rebondsRattaches, r.rebondsEtrangers, r.rebondsAppliques, r.enregistrees, r.piecesDeposees, r.piecesNonDeposees];
+  return [r.vus, r.dejaConnus, r.horsPerimetre, r.retenus, r.rattaches, r.rebondsDetectes, r.rebondsRattaches, r.rebondsEtrangers, r.rebondsAppliques, r.accuses, r.enregistrees, r.piecesDeposees, r.piecesNonDeposees];
 }
-/** T2 — les 12 compteurs d'un CUMUL dans l'ordre EXACT de `COLS_RUN` (aligne la ligne de total sur l'en-tête). Pur. */
+/** T2 — les 13 compteurs d'un CUMUL dans l'ordre EXACT de `COLS_RUN` (aligne la ligne de total sur l'en-tête). Pur. */
 function cumulEnColonnes(c: CumulFenetre): number[] {
-  return [c.vus, c.dejaConnus, c.horsPerimetre, c.retenus, c.rattaches, c.rebondsDetectes, c.rebondsRattaches, c.rebondsEtrangers, c.rebondsAppliques, c.enregistrees, c.piecesDeposees, c.piecesNonDeposees];
+  return [c.vus, c.dejaConnus, c.horsPerimetre, c.retenus, c.rattaches, c.rebondsDetectes, c.rebondsRattaches, c.rebondsEtrangers, c.rebondsAppliques, c.accuses, c.enregistrees, c.piecesDeposees, c.piecesNonDeposees];
 }
 /**
  * T2 — colonnes de BRUIT (par libellé de `COLS_RUN`, donc robustes à l'ordre) : un même message y est RECOMPTÉ à chaque passe
@@ -107,13 +107,14 @@ const LIBELLES_BRUIT = new Set(['vus', 'déjà connus', 'hors périm.', 'reb. d�
 
 /**
  * T1 — une passe apporte une NOUVEAUTÉ si au moins un compteur d'ÉVÉNEMENT (fait réellement acquis) est > 0 : `retenus`,
- * `rattaches`, `rebondsRattaches`, `rebondsAppliques`, `enregistrees`, `piecesDeposees`. Les compteurs de BRUIT (`vus`,
+ * `rattaches`, `rebondsRattaches`, `rebondsAppliques`, `accuses` (T3 : accusé enregistré), `enregistrees`, `piecesDeposees`.
+ * Les compteurs de BRUIT (`vus`,
  * `dejaConnus`, `horsPerimetre`, `rebondsDetectes`, `rebondsEtrangers`, `piecesNonDeposees`) NE comptent PAS — ex. les rebonds
  * ÉTRANGERS ne sont jamais enregistrés (garde-fou), donc re-détectés à chaque passe. NULL = 0. PURE (aucune I/O).
  */
 export function apporteUneNouveaute(r: LigneRun): boolean {
   return (r.retenus ?? 0) > 0 || (r.rattaches ?? 0) > 0 || (r.rebondsRattaches ?? 0) > 0
-    || (r.rebondsAppliques ?? 0) > 0 || (r.enregistrees ?? 0) > 0 || (r.piecesDeposees ?? 0) > 0;
+    || (r.rebondsAppliques ?? 0) > 0 || (r.accuses ?? 0) > 0 || (r.enregistrees ?? 0) > 0 || (r.piecesDeposees ?? 0) > 0;
 }
 
 /**
@@ -338,15 +339,17 @@ export function partitionnerDemandes<T extends { dossiersActifs: number; dossier
 }
 
 /**
- * T6-A/2 — critère d'INCLUSION dans « Réponses » : la mairie a ÉCRIT (≥ 1 message RATTACHÉ) OU au moins un dossier est STATUÉ —
- * `satisfait_le` non nul (→ `dossiersSatisfaits`) OU `triage` non nul (un dossier DÛ trié ; décompte au niveau demande via la liste
- * `dossiers` DÉJÀ chargée, sans requête ni migration). Un rebond n'est PAS un message (jamais en `demande_reponse`, cf. Q4) → une
- * demande dont le seul retour est un rebond reste HORS de « Réponses ». Appliqué LOCALEMENT à la vue Réponses (jamais dans
- * `chargerDemandesSuivi`, sinon ces demandes quitteraient aussi « En cours »). PUR, client-safe (aucune I/O). Param LÂCHE (ne lit
- * que ces 3 champs) pour rester réutilisable sur le type ENRICHI de la vue.
+ * T3 (ex-T6-A/2) — critère d'INCLUSION dans « Réponses » : la mairie a RÉPONDU (≥ 1 message rattaché de nature « a répondu »,
+ * c.-à-d. HORS accusé et HORS rebond → `nbReponsesReelles`) OU au moins un dossier est STATUÉ — `satisfait_le` non nul
+ * (→ `dossiersSatisfaits`) OU `triage` non nul (un dossier DÛ trié ; décompte au niveau demande via la liste `dossiers` DÉJÀ
+ * chargée, sans requête ni migration). ⚠️ Un ACCUSÉ (nature 'accuse') et un REBOND rattaché (nature 'rebond') sont bien
+ * ENREGISTRÉS en `demande_reponse`, mais EXCLUS de `nbReponsesReelles` : une demande dont le seul retour est un accusé ou un
+ * rebond reste HORS de « Réponses » (elle reste suivie dans « En cours » — un accusé y compte comme « a écrit », un rebond ni
+ * l'un ni l'autre). Appliqué LOCALEMENT à la vue Réponses (jamais dans `chargerDemandesSuivi`, sinon ces demandes quitteraient
+ * aussi « En cours »). PUR, client-safe (aucune I/O). Param LÂCHE (ne lit que ces 3 champs) pour rester réutilisable.
  */
-export function demandeADuRetour(d: { nbReponses: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[] }): boolean {
-  return d.nbReponses > 0 || d.dossiersSatisfaits > 0 || d.dossiers.some((x) => x.triage !== null);
+export function demandeADuRetour(d: { nbReponsesReelles: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[] }): boolean {
+  return d.nbReponsesReelles > 0 || d.dossiersSatisfaits > 0 || d.dossiers.some((x) => x.triage !== null);
 }
 
 /**
@@ -355,7 +358,7 @@ export function demandeADuRetour(d: { nbReponses: number; dossiersSatisfaits: nu
  * (un invariant qui saute au premier clic n'en est pas un). `afficherTout` ne lève QUE le masquage de CONFORT (soldées / sans
  * dossier actif, qui, elles, ONT un retour → révélables). PUR → testable en node.
  */
-export function partitionnerReponses<T extends { nbReponses: number; dossiersActifs: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[] }>(
+export function partitionnerReponses<T extends { nbReponsesReelles: number; dossiersActifs: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[] }>(
   demandes: T[], afficherTout: boolean,
 ): { affichees: T[]; soldees: number; sansDossier: number; sansRetour: number } {
   const avecRetour = demandes.filter(demandeADuRetour);

@@ -602,10 +602,12 @@ export function CelluleReference({ reference }: { reference: string }) {
 }
 
 /**
- * T6-A — état de RETOUR MAIRIE d'une demande, DÉRIVÉ UNIQUEMENT (aucune détection accusé/documents — chantier ultérieur explicite) :
+ * T6-A / T3 — état de RETOUR MAIRIE d'une demande, DÉRIVÉ UNIQUEMENT :
  *  - 'obtenus' : TOUS les dossiers actifs sont satisfaits (documents obtenus et intégrés) ;
- *  - 'message' : au moins un message RATTACHÉ (la mairie a écrit — un accusé compte ; jamais pollué par les rebonds, cf. Q4) ;
- *  - 'aucun'   : ni message ni satisfaction. Priorité obtenus > message > aucun. PUR.
+ *  - 'message' : la mairie a ÉCRIT — ≥ 1 message rattaché (`nbReponses`). Un ACCUSÉ compte ici (« a écrit ») ; un REBOND non :
+ *    `nbReponses` l'EXCLUT par nature (reponsesSuivi), car une non-remise n'est pas un retour de mairie ;
+ *  - 'aucun'   : ni message ni satisfaction. Priorité obtenus > message > aucun. (La colonne dédiée aux accusés viendra plus
+ *    tard ; ici l'accusé se fond dans « message reçu ».) PUR.
  */
 export type EtatRetourMairie = 'aucun' | 'message' | 'obtenus';
 export function etatRetourMairie(d: { nbReponses: number; dossiersActifs: number; dossiersSatisfaits: number }): EtatRetourMairie {

@@ -194,22 +194,37 @@ function entete(message: MessageEntrant, nom: string): string | undefined {
 }
 
 /**
- * Détecte un accusé de REBOND (NDR). NÉCESSAIRE parce que : (a) le Return-Path n'est PAS posé par notre code (il est décidé
- * par le MTA), et (b) un rebond peut arriver dans une AUTRE boîte que le Reply-To relu — on doit donc reconnaître un NDR au
- * contenu du message lui-même, jamais par l'enveloppe. Trois signaux (un seul suffit) :
+ * T3 — détecte un REBOND de NON-REMISE (DSN / NDR). NÉCESSAIRE parce que : (a) le Return-Path n'est PAS posé par notre code
+ * (il est décidé par le MTA), et (b) un rebond peut arriver dans une AUTRE boîte que le Reply-To relu — on doit donc
+ * reconnaître un NDR au CONTENU du message, jamais par l'enveloppe. DEUX signaux FIABLES (un seul suffit) :
  *   - expéditeur mailer-daemon / postmaster (comparaison sur la partie locale, insensible à la casse) ;
- *   - Content-Type multipart/report avec report-type=delivery-status (rapport de non-remise standard, RFC 6522/3464) ;
- *   - en-tête Auto-Submitted présent et différent de 'no' (message automatique, RFC 3834).
+ *   - Content-Type multipart/report avec report-type=delivery-status (rapport de non-remise standard, RFC 6522/3464).
+ * ⚠️ L'en-tête `Auto-Submitted` NE figure PLUS ici : il marque TOUT message automatique (RFC 3834) — donc AUSSI un accusé de
+ * réception de téléservice ou une réponse d'absence, PAS seulement un NDR. Le mêler à la non-remise faisait passer un accusé
+ * pour un rebond, puis (faute de Message-ID d'origine) le jetait en « rebond étranger », en silence. C'est désormais
+ * `estAccuseAutomatique` qui porte ce signal. Un vrai NDR reste attrapé par ses deux signaux fiables (les sondes serveur
+ * cherchent d'ailleurs mailer-daemon / postmaster).
  */
-export function estAccuseDeRebond(message: MessageEntrant): boolean {
+export function estRebondNonRemise(message: MessageEntrant): boolean {
   const local = partieLocale(message.deAdresse);
   if (local === 'mailer-daemon' || local === 'postmaster') return true;
 
   const contentType = entete(message, 'Content-Type') ?? '';
   if (/multipart\/report/i.test(contentType) && /report-type\s*=\s*"?delivery-status"?/i.test(contentType)) return true;
 
-  const autoSubmitted = entete(message, 'Auto-Submitted');
-  if (autoSubmitted !== undefined && autoSubmitted.trim().toLowerCase() !== 'no') return true;
-
   return false;
+}
+
+/**
+ * T3 — détecte un ACCUSÉ AUTOMATIQUE (accusé de réception de téléservice/mairie, réponse d'absence…). Signal : en-tête
+ * `Auto-Submitted` présent et ≠ 'no' (message automatique, RFC 3834), à condition que le message NE soit PAS un rebond de
+ * non-remise (`estRebondNonRemise` d'abord : un DSN est traité comme rebond, pas comme accusé). Un accusé est un signal FORT et
+ * VÉRIFIABLE que « la mairie a écrit » — il doit être ENREGISTRÉ (nature 'accuse'), mais il ne fait PAS entrer la demande dans
+ * « Réponses » (il n'est pas « a répondu »). La classification fine (gabarit de téléservice reconnu) viendra plus tard ; ici,
+ * seul l'en-tête sert. Tout message SANS ce signal reste 'indetermine' et se comporte comme un vrai retour (défaut = MONTRER).
+ */
+export function estAccuseAutomatique(message: MessageEntrant): boolean {
+  if (estRebondNonRemise(message)) return false; // un DSN est un rebond, jamais un accusé
+  const autoSubmitted = entete(message, 'Auto-Submitted');
+  return autoSubmitted !== undefined && autoSubmitted.trim().toLowerCase() !== 'no';
 }

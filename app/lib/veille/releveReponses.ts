@@ -14,9 +14,9 @@
  * ⚠️ N'écrit JAMAIS demande.statut ('close' reste sans écrivain, chantier R5). Boîte en LECTURE STRICTE (voir imap.ts).
  */
 import { query } from '../db/client';
-import { enregistrerReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, type ProfilBoite, type RattachementMethode, type ReponseEntrante } from './demandeReponseRepo';
+import { enregistrerReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
-import { rattacherReponse, estAccuseDeRebond, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
+import { rattacherReponse, estRebondNonRemise, estAccuseAutomatique, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
 import { analyserRapportRejet, normaliserMessageId, type PartieRapport, type ResultatRapportRejet } from './rapportRejet';
 import { normaliserReference } from '../sitadel/demandesListe';
 
@@ -49,6 +49,7 @@ export interface LigneReleve {
   demandeId: number | null;
   methode: RattachementMethode;
   rebond: boolean;
+  nature: NatureReponse; // T3 : 'rebond' (non-remise), 'accuse' (accusé auto), 'indetermine' (message ordinaire = vrai retour)
   motif: string;
   deAdresse: string;
   objet: string | null;
@@ -72,10 +73,11 @@ export interface RapportReleve {
   retenus: number;              // = lignes.length
   rattaches: number;
   nonRattaches: number;
-  rebondsDetectes: number;      // estAccuseDeRebond vrai
+  rebondsDetectes: number;      // estRebondNonRemise vrai (DSN de non-remise)
   rebondsRattaches: number;     // rebonds reliés à une demande (Message-ID d'origine ou destinataire)
   rebondsEtrangers: number;     // rebonds SANS rapport avec nos demandes → NON enregistrés
   rebondsAppliques: number;     // lignes d'acheminement passées à 'rebond' (0 en simulation)
+  accuses: number;              // T3 : accusés de réception (nature 'accuse') RETENUS → « a écrit », jamais « a répondu »
   ecrites: number;
   piecesDeposees: number;       // R4 : pièces jointes réellement déposées sur l'object storage
   piecesNonDeposees: number;    // R4 : pièces NON déposées (type/taille/stockage indisponible) — trace conservée + motif
@@ -230,14 +232,14 @@ function cibleRebond(dsn: ResultatRapportRejet, envoyees: DemandeEnvoyee[]): { d
 }
 
 /** Construit le ReponseEntrante à enregistrer depuis un message de boîte (réutilisé par la relève approfondie R6). */
-export function construireLigne(profil: ProfilBoite, mb: MessageBoite, mid: string, demandeId: number | null, methode: RattachementMethode, note: string): ReponseEntrante {
+export function construireLigne(profil: ProfilBoite, mb: MessageBoite, mid: string, demandeId: number | null, methode: RattachementMethode, note: string, nature: NatureReponse = 'indetermine'): ReponseEntrante {
   return {
     demandeId, profilBoite: profil, messageId: mid,
     inReplyTo: mb.message.inReplyTo ?? null,
     referencesBrut: mb.message.references && mb.message.references.length > 0 ? mb.message.references.join(' ') : null,
     deAdresse: mb.message.deAdresse, deNom: mb.deNom, objet: mb.message.objet ?? null,
     recuLe: mb.recuLe, corpsTexte: mb.message.corpsTexte ?? null,
-    rattachementMethode: methode, rattacheLe: demandeId !== null ? mb.recuLe : null, note,
+    rattachementMethode: methode, nature, rattacheLe: demandeId !== null ? mb.recuLe : null, note,
     // R4 : métadonnées de la pièce ; le dépôt (cle_stockage/empreinte/stocke_le ou motif) est fait APRÈS, par deposerEtLierPieces.
     pieces: mb.pieces.map((p) => ({ nomFichier: p.nomFichier, typeMime: p.typeMime, tailleOctets: p.tailleOctets, cleStockage: null, empreinteSha256: null, stockeLe: null, motifNonStocke: null })),
   };
@@ -262,7 +264,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
     mode, profil: opts.profil, connecte, depuis: depuis ? depuis.toISOString() : null, domainesInterroges,
     uidsServeur: 0, referencesInterrogees: 0, uidsReferences: 0, plafondReferencesAtteint: false, plafondAtteint: false,
     vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0, nonRattaches: 0,
-    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, ecrites: 0, piecesDeposees: 0, piecesNonDeposees: 0, parMethode: {}, lignes: [],
+    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, ecrites: 0, piecesDeposees: 0, piecesNonDeposees: 0, parMethode: {}, lignes: [],
   });
 
   if (depuis === null) return vide(false); // T4 : ni demande envoyée ni demande en attente (brouillon/prête) → pas de connexion
@@ -336,37 +338,46 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
       if (mid === '' || connus.has(mid)) { dejaConnus += 1; continue; }
       connus.add(mid);
 
-      // ── REBOND ────────────────────────────────────────────────────────────
-      if (estAccuseDeRebond(mb.message)) {
+      // ── REBOND DE NON-REMISE (DSN) ────────────────────────────────────────
+      // T3 — signaux FIABLES uniquement (mailer-daemon/postmaster, multipart/report). L'Auto-Submitted seul n'est PLUS un
+      //   rebond → c'est un accusé, traité plus bas. Un rebond ÉTRANGER n'est jamais enregistré (compté rebondsEtrangers) ; un
+      //   rebond RATTACHÉ est enregistré comme PREUVE avec nature='rebond' (conservé mais NI « a écrit » NI « a répondu » : un
+      //   échec de livraison n'est pas un retour de mairie). Sa bascule d'acheminement 'envoye' → 'rebond' reste l'autorité.
+      if (estRebondNonRemise(mb.message)) {
         rebondsDetectes += 1;
         const dsn = analyserRapportRejet({ corpsTexte: mb.message.corpsTexte, parties: mb.partiesRapport });
         const cible = cibleRebond(dsn, envoyees);
         if (cible === null) { rebondsEtrangers += 1; continue; } // SANS rapport → jamais enregistré
         rebondsRattaches += 1;
-        lignes.push({ messageId: mid, demandeId: cible.demandeId, methode: 'message_id', rebond: true, motif: cible.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
+        lignes.push({ messageId: mid, demandeId: cible.demandeId, methode: 'message_id', rebond: true, nature: 'rebond', motif: cible.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
         if (appliquer) {
-          const id = await enregistrerReponse(construireLigne(opts.profil, mb, mid, cible.demandeId, 'message_id', cible.motif));
+          const id = await enregistrerReponse(construireLigne(opts.profil, mb, mid, cible.demandeId, 'message_id', cible.motif, 'rebond'));
           if (id !== null) { ecrites += 1; await deposerPieces(id, cible.demandeId, mb.pieces); }
           rebondsAppliques += await marquerRebond(cible.demandeId, cible.motif);
         }
         continue;
       }
 
-      // ── RÉPONSE NORMALE (uniquement depuis un domaine destinataire) ─────────
+      // ── MESSAGE : accusé automatique OU réponse ordinaire (depuis un domaine destinataire) ──
       const duDomaine = !genSet.has(uid);
       if (!opts.sansFiltre && !duDomaine) { horsPerimetre += 1; continue; } // sonde rebond mais pas un rebond → ignoré
       const r = rattacherReponse(mb.message, candidates);
       // R3e — nouveau critère : un n° de dossier d'une demande candidate apparaît littéralement (objet/corps/nom de pièce).
       const pertinent = opts.sansFiltre === true || r.methode !== 'aucun' || domaines.has(domaineDe(mb.message.deAdresse)) || objetPertinent(mb.message.objet) || contientNumeroDossier(mb) || contientReferenceMairie(mb) || contientReferenceCherchee(mb);
       if (!pertinent) { horsPerimetre += 1; continue; }
-      lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
+      // T3 — NATURE : un accusé automatique (Auto-Submitted, PAS un DSN) est ENREGISTRÉ et rattaché comme un message (« a
+      //   écrit »), mais nature='accuse' le tient HORS de « Réponses » (« a répondu ») et INTERDIT la satisfaction auto d'un
+      //   dossier (un accusé ne livre aucun document). Tout le reste = 'indetermine' → se comporte comme un vrai retour (MONTRER).
+      const nature: NatureReponse = estAccuseAutomatique(mb.message) ? 'accuse' : 'indetermine';
+      lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, nature, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
       if (appliquer) {
-        const id = await enregistrerReponse(construireLigne(opts.profil, mb, mid, r.demandeId, r.methode, r.motif));
+        const id = await enregistrerReponse(construireLigne(opts.profil, mb, mid, r.demandeId, r.methode, r.motif, nature));
         if (id !== null) {
           ecrites += 1;
           // R6c — SATISFACTION AUTO : réponse rattachée à une demande → marque les dossiers dont le n° Sitadel complet
-          //   apparaît littéralement (pièces jointes ou corps). Haute précision, jamais de démarquage (voir repo).
-          if (r.demandeId !== null) {
+          //   apparaît littéralement (pièces jointes ou corps). Haute précision, jamais de démarquage (voir repo). JAMAIS pour
+          //   un accusé (T3) : il n'apporte aucun document.
+          if (r.demandeId !== null && nature !== 'accuse') {
             await marquerDossiersSatisfaitsAuto(r.demandeId, id, { piecesNoms: mb.pieces.map((p) => p.nomFichier), corpsTexte: mb.message.corpsTexte ?? null });
           }
           // R4 — dépôt des pièces (rattachée ou non : la clé gère « non-rattachees »).
@@ -381,11 +392,12 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const parMethode: Record<string, number> = {};
   for (const l of lignes) parMethode[l.methode] = (parMethode[l.methode] ?? 0) + 1;
   const rattaches = lignes.filter((l) => l.demandeId !== null).length;
+  const accuses = lignes.filter((l) => l.nature === 'accuse').length; // T3 : accusés RETENUS (« a écrit », jamais « a répondu »)
 
   return {
     mode, profil: opts.profil, connecte: true, depuis: depuis.toISOString(), domainesInterroges, uidsServeur,
     referencesInterrogees: references.length, uidsReferences, plafondReferencesAtteint, plafondAtteint,
     vus, dejaConnus, horsPerimetre, retenus: lignes.length, rattaches, nonRattaches: lignes.length - rattaches,
-    rebondsDetectes, rebondsRattaches, rebondsEtrangers, rebondsAppliques, ecrites, piecesDeposees, piecesNonDeposees, parMethode, lignes,
+    rebondsDetectes, rebondsRattaches, rebondsEtrangers, rebondsAppliques, accuses, ecrites, piecesDeposees, piecesNonDeposees, parMethode, lignes,
   };
 }

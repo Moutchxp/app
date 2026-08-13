@@ -59,12 +59,12 @@ describe('U8 — BlocEtatReleve : encart « État de la relève » repliable (re
   const RUN = (over: Partial<LigneRun> = {}): LigneRun => ({
     demarreLe: '2026-04-20T11:00:00Z', termineLe: '2026-04-20T11:00:05Z', declencheur: 'planifie', resultat: 'ok',
     vus: 4, dejaConnus: 0, horsPerimetre: 0, retenus: 1, rattaches: 0,
-    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, enregistrees: 1,
+    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, enregistrees: 1,
     piecesDeposees: 0, piecesNonDeposees: 0, erreur: null, ...over,
   });
   const CUMUL: CumulFenetre = {
     nbReleves: 5, nbErreurs: 0, vus: 30, dejaConnus: 10, horsPerimetre: 2, retenus: 4, rattaches: 3,
-    rebondsDetectes: 6, rebondsRattaches: 1, rebondsEtrangers: 9, rebondsAppliques: 2, enregistrees: 7, piecesDeposees: 8, piecesNonDeposees: 5,
+    rebondsDetectes: 6, rebondsRattaches: 1, rebondsEtrangers: 9, rebondsAppliques: 2, accuses: 3, enregistrees: 7, piecesDeposees: 8, piecesNonDeposees: 5,
   };
   const NOW = new Date('2026-04-20T12:00:00Z');
   const rendu = (over?: Partial<Parameters<typeof BlocEtatReleve>[0]>) => renderToStaticMarkup(createElement(BlocEtatReleve, {
@@ -137,21 +137,23 @@ describe('R5a — CompteSatisfaction : compte de dossiers', () => {
 });
 
 describe('T6-A/2 — demandeADuRetour + partitionnerReponses : filtre local + EXCLUSION stricte des « sans retour »', () => {
-  const dem = (over: Partial<{ nbReponses: number; dossiersActifs: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[] }> = {}) =>
-    ({ nbReponses: 0, dossiersActifs: 2, dossiersSatisfaits: 0, dossiers: [{ triage: null }, { triage: null }], ...over });
+  const dem = (over: Partial<{ nbReponsesReelles: number; dossiersActifs: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[] }> = {}) =>
+    ({ nbReponsesReelles: 0, dossiersActifs: 2, dossiersSatisfaits: 0, dossiers: [{ triage: null }, { triage: null }], ...over });
 
-  it('demandeADuRetour : 154 → false ; message / satisfait / triage → true ; rebond seul → false', () => {
-    expect(demandeADuRetour(dem())).toBe(false);                                        // 154 : 0 message, 0 statué → hors Réponses
-    expect(demandeADuRetour(dem({ nbReponses: 1 }))).toBe(true);                        // ≥ 1 message rattaché
+  it('demandeADuRetour : 154 → false ; a RÉPONDU / satisfait / triage → true ; accusé seul OU rebond seul → false', () => {
+    expect(demandeADuRetour(dem())).toBe(false);                                        // 154 : 0 « a répondu », 0 statué → hors Réponses
+    expect(demandeADuRetour(dem({ nbReponsesReelles: 1 }))).toBe(true);                 // ≥ 1 vrai retour (hors accusé, hors rebond)
     expect(demandeADuRetour(dem({ dossiersSatisfaits: 1 }))).toBe(true);                // ≥ 1 dossier satisfait
     expect(demandeADuRetour(dem({ dossiers: [{ triage: 'non_fourni' }] }))).toBe(true); // dossier dû trié
-    expect(demandeADuRetour(dem({ nbReponses: 0 }))).toBe(false);                       // rebond seul : nbReponses reste 0 (Q4)
+    // T3 — accusé seul OU rebond rattaché seul : nbReponsesReelles reste 0 (nature 'accuse'/'rebond' exclue de « a répondu »,
+    //   cf. reponsesSuivi) → HORS de « Réponses ». (Un accusé compte tout de même comme « a écrit » côté « En cours » ; un rebond non.)
+    expect(demandeADuRetour(dem({ nbReponsesReelles: 0 }))).toBe(false);
   });
 
   it('partitionnerReponses : la demande SANS retour est EXCLUE, MÊME avec afficherTout (jamais dans « affichees »)', () => {
-    const sansRetour = dem({ nbReponses: 0, dossiersActifs: 2, dossiersSatisfaits: 0 });  // 154
-    const avecMessage = dem({ nbReponses: 1, dossiersActifs: 2, dossiersSatisfaits: 0 }); // vivante avec retour
-    const soldee = dem({ nbReponses: 1, dossiersActifs: 2, dossiersSatisfaits: 2 });      // retour + 0 dû → soldée (masquée par confort)
+    const sansRetour = dem({ nbReponsesReelles: 0, dossiersActifs: 2, dossiersSatisfaits: 0 });  // 154 (ou : accusé/rebond seul)
+    const avecMessage = dem({ nbReponsesReelles: 1, dossiersActifs: 2, dossiersSatisfaits: 0 }); // vivante avec vrai retour
+    const soldee = dem({ nbReponsesReelles: 1, dossiersActifs: 2, dossiersSatisfaits: 2 });      // retour + 0 dû → soldée (masquée par confort)
     const liste = [sansRetour, avecMessage, soldee];
 
     const defaut = partitionnerReponses(liste, false);
@@ -295,7 +297,7 @@ describe('R5a — TableRuns : une erreur est affichée en clair', () => {
     const runs: LigneRun[] = [{
       demarreLe: '2026-04-20T11:00:00Z', termineLe: '2026-04-20T11:00:05Z', declencheur: 'planifie', resultat: 'erreur',
       vus: null, dejaConnus: null, horsPerimetre: null, retenus: null, rattaches: null,
-      rebondsDetectes: null, rebondsRattaches: null, rebondsEtrangers: null, rebondsAppliques: null, enregistrees: null,
+      rebondsDetectes: null, rebondsRattaches: null, rebondsEtrangers: null, rebondsAppliques: null, accuses: null, enregistrees: null,
       piecesDeposees: null, piecesNonDeposees: null, erreur: 'IMAP timeout',
     }];
     const h = renderToStaticMarkup(createElement(TableRuns, { runs }));
@@ -309,7 +311,7 @@ describe('T1 — TableRuns : ne montrer en clair que les passes qui apportent qu
   const runOk = (patch: Partial<LigneRun>): LigneRun => ({
     demarreLe: '2026-04-20T09:00:00Z', termineLe: '2026-04-20T09:00:04Z', declencheur: 'planifie', resultat: 'ok',
     vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0,
-    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, enregistrees: 0,
+    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, enregistrees: 0,
     piecesDeposees: 0, piecesNonDeposees: 0, erreur: null, ...patch,
   });
 
@@ -807,22 +809,22 @@ describe('T2 — TableRuns : ligne de total en <tfoot> + sélecteur de période'
   const run = (): LigneRun => ({
     demarreLe: '2026-08-09T09:00:00Z', termineLe: '2026-08-09T09:00:04Z', declencheur: 'planifie', resultat: 'ok',
     vus: 1, dejaConnus: 0, horsPerimetre: 0, retenus: 1, rattaches: 0,
-    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, enregistrees: 1,
+    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, enregistrees: 1,
     piecesDeposees: 0, piecesNonDeposees: 0, erreur: null,
   });
   const cumul = (over: Partial<CumulFenetre> = {}): CumulFenetre => ({
     nbReleves: 5, nbErreurs: 0, vus: 30, dejaConnus: 10, horsPerimetre: 2, retenus: 4, rattaches: 3,
-    rebondsDetectes: 6, rebondsRattaches: 1, rebondsEtrangers: 9, rebondsAppliques: 2, enregistrees: 7,
+    rebondsDetectes: 6, rebondsRattaches: 1, rebondsEtrangers: 9, rebondsAppliques: 2, accuses: 11, enregistrees: 7,
     piecesDeposees: 8, piecesNonDeposees: 5, ...over,
   });
 
-  it('cumul fourni → un <tfoot> avec la ligne de total, alignée sur COLS_RUN (12 cellules) + libellé de fenêtre', () => {
+  it('cumul fourni → un <tfoot> avec la ligne de total, alignée sur COLS_RUN (13 cellules) + libellé de fenêtre', () => {
     const h = renderToStaticMarkup(createElement(TableRuns, { runs: [run()], cumul: cumul(), periode: '7j', onPeriode: noop }));
     expect(h).toContain('<tfoot');
     expect(h).toContain('Total');
     expect(h).toContain('7 derniers jours');
-    // 3 cellules fixes (colSpan 3) + 12 cellules de compteurs → les 12 valeurs du cumul sont présentes
-    for (const v of [30, 10, 2, 4, 3, 6, 1, 9, 2, 7, 8, 5]) expect(h).toContain(`>${v}</td>`);
+    // 3 cellules fixes (colSpan 3) + 13 cellules de compteurs (T3 : « accusés » = 11) → les 13 valeurs du cumul sont présentes
+    for (const v of [30, 10, 2, 4, 3, 6, 1, 9, 2, 11, 7, 8, 5]) expect(h).toContain(`>${v}</td>`);
   });
 
   it('le décompte de relèves s’affiche ; « dont N en erreur » seulement si > 0', () => {
