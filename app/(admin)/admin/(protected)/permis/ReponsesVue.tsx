@@ -160,7 +160,8 @@ export function ReponsesVue() {
       {/* ── Bloc 1 : état de la relève — U8 REPLIABLE (replié = titre + ligne d'état ; le reste, dont sélecteur/total/phrases
            de TableRuns, se déploie). Replié par défaut, aucune mémorisation. La ligne d'état porte son alerte, sans dépliage auto. ── */}
       <BlocEtatReleve
-        reglages={data.reglages} derniereOkLe={data.derniereOkLe} runs={data.runs} cumul={data.cumuls[periode]}
+        reglages={data.reglages} derniereOkLe={data.derniereOkLe} releveDepuisLe={data.releveDepuisLe} relevePlafondAtteint={data.relevePlafondAtteint}
+        runs={data.runs} cumul={data.cumuls[periode]}
         periode={periode} maintenant={maintenant} ouvert={releveOuvert} onToggle={() => setReleveOuvert((o) => !o)} onPeriode={setPeriode}
       />
 

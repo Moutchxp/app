@@ -7,6 +7,8 @@ import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { bornesFenetres, type FenetreCumul } from './fenetresCumul';
 import { apparierPropositions, chiffresDossier, type CibleDepot } from './propositionDepot';
+import { fenetreDepuis } from './releveReponses'; // P1 : MÊME source que la relève pour « on relève depuis le … » (jamais une 2e vérité)
+import type { ProfilBoite } from './demandeReponseRepo';
 
 /** Réglages de relève/échéance en vigueur (lecture seule ; édités dans l'onglet Réglages). */
 export interface ReglagesReleve {
@@ -137,6 +139,8 @@ export interface RelancePreparee {
 export interface ReponsesData {
   reglages: ReglagesReleve;
   derniereOkLe: string | null;
+  releveDepuisLe: string | null;   // P1 : début de la PROCHAINE fenêtre de relève (curseur − 3 j, ou backfill) → « on relève depuis le … »
+  relevePlafondAtteint: boolean;   // P1 : la dernière passe courante a été TRONQUÉE par le plafond → on est EN RETARD (à afficher)
   runs: LigneRun[];
   cumuls: CumulsRuns; // T2 — cumuls des six fenêtres glissantes (ligne de total à période sélectionnable)
   demandes: DemandeSuivi[];
@@ -321,6 +325,14 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
   // T6-A — la donnée par demande (échéance + retour + dossiers) vient de la SOURCE UNIQUE, partagée avec « En cours » (non filtrée ici).
   const { demandes, derniereOkLe, reglages } = await chargerDemandesSuivi();
 
+  // P1 — « on relève depuis le … » : début de la PROCHAINE fenêtre (curseur − 3 j, ou backfill), depuis la MÊME source que la relève.
+  const profil: ProfilBoite = reglages.profil === 'personne' ? 'personne' : 'entreprise';
+  const releveDepuisLe = (await fenetreDepuis(profil))?.toISOString() ?? null;
+  // P1 — plafond atteint sur la dernière passe COURANTE réussie → on est EN RETARD (le curseur n'a pas avancé, cf. curseurReleve).
+  const plaf = await query<{ p: boolean | null }>(
+    `SELECT plafond_atteint AS p FROM releve_run WHERE declencheur = 'planifie' AND resultat = 'ok' ORDER BY termine_le DESC LIMIT 1`);
+  const relevePlafondAtteint = plaf.rows[0]?.p === true;
+
   const runs = await query<{
     demarre_le: string; termine_le: string | null; declencheur: string; resultat: string;
     vus: number | null; deja_connus: number | null; hors_perimetre: number | null; retenus: number | null; rattaches: number | null;
@@ -397,7 +409,7 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
   const cumuls = await chargerCumulsRuns(new Date());
 
   return {
-    reglages, derniereOkLe,
+    reglages, derniereOkLe, releveDepuisLe, relevePlafondAtteint,
     runs: runs.rows.map((r) => ({
       demarreLe: r.demarre_le, termineLe: r.termine_le, declencheur: r.declencheur, resultat: r.resultat,
       vus: r.vus, dejaConnus: r.deja_connus, horsPerimetre: r.hors_perimetre, retenus: r.retenus, rattaches: r.rattaches,

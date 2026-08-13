@@ -41,6 +41,9 @@ export interface ClientBoite {
   chercher(criteres: CritereRecherche): Promise<number[]>;
   /** R3e — recherche serveur TEXT (en-têtes + corps) des références de dossier, par lots en OU ; renvoie l'union dédupliquée des UID. */
   chercherReferences(depuis: Date, references: string[]): Promise<number[]>;
+  /** P1 — Message-ID (UID → valeur) SANS télécharger le corps : sert au plafond CHRONOLOGIQUE à écarter les déjà-vus AVANT de
+   *  tronquer (progression dans le backlog sans boucle). Fetch léger (enveloppe). Un UID sans Message-ID → absent de la Map. */
+  messageIds(uids: number[]): Promise<Map<number, string>>;
   telechargerMessage(uid: number): Promise<MessageBoite>;
   fermer(): Promise<void>;
 }
@@ -194,6 +197,42 @@ async function dateDepart(profil: ProfilBoite): Promise<Date | null> {
   return rows[0]?.depuis ?? null;
 }
 
+/**
+ * P1 — MARGE de la fenêtre de relève, en JOURS. Trois écarts à couvrir, tous documentés ici (pas juste la valeur) :
+ *   1. SINCE filtre l'INTERNALDATE CÔTÉ SERVEUR à la granularité JOUR (l'heure est ignorée) ;
+ *   2. deux horloges, deux fuseaux (notre process vs le serveur IMAP) → jusqu'à ~1 jour d'écart ;
+ *   3. RETARDATAIRES : un message peut apparaître dans la boîte avec une date ANTÉRIEURE au curseur (sorti du spam, livraison
+ *      différée par le serveur émetteur) ; sans marge, il ne serait JAMAIS vu.
+ * 3 jours couvrent (1)+(2) (≤ 2 j) avec de la garde pour (3). Le dédoublonnage par message_id rend cette marge GRATUITE
+ * (un message re-vu tombe en « déjà connu », jamais réinséré).
+ */
+const MARGE_CURSEUR_JOURS = 3;
+
+/**
+ * P1 — CURSEUR de relève = fin (`termine_le`) du DERNIER scan COURANT réussi et COMPLET.
+ *   - `declencheur = 'planifie'` EXCLUT les relèves 'approfondi' (scan LARGE d'UNE demande, pas de l'inbox général : elles ne
+ *     doivent jamais faire avancer le curseur courant) ;
+ *   - `plafond_atteint IS NOT TRUE` EXCLUT une passe TRONQUÉE par le plafond (elle a délibérément jeté des messages non vus) :
+ *     le curseur ne « certifie vu » que ce qui l'a réellement été → jamais de perte silencieuse.
+ * `null` = aucun scan courant complet réussi (premier run, ou journal purgé). LECTURE SEULE ; aucune 2e vérité stockée.
+ */
+async function curseurReleve(): Promise<Date | null> {
+  const { rows } = await query<{ t: Date | null }>(
+    `SELECT max(termine_le) AS t FROM releve_run WHERE resultat = 'ok' AND declencheur = 'planifie' AND plafond_atteint IS NOT TRUE`);
+  return rows[0]?.t ?? null;
+}
+
+/**
+ * P1 — début de la fenêtre de relève. `curseur − 3 j` si un scan courant complet a réussi ; SINON repli SÛR sur `dateDepart`
+ * (backfill complet depuis la plus vieille demande). Le repli n'est JAMAIS une perte : au pire une relève large. EXPORTÉ pour
+ * que l'écran affiche « on relève depuis le … » depuis la MÊME source (jamais une valeur cachée qui dérive).
+ */
+export async function fenetreDepuis(profil: ProfilBoite): Promise<Date | null> {
+  const curseur = await curseurReleve();
+  if (curseur !== null) return new Date(curseur.getTime() - MARGE_CURSEUR_JOURS * 86_400_000);
+  return dateDepart(profil);
+}
+
 async function messageIdsConnus(profil: ProfilBoite): Promise<Set<string>> {
   const { rows } = await query<{ message_id: string }>(`SELECT message_id FROM demande_reponse WHERE profil_boite = $1`, [profil]);
   return new Set(rows.map((r) => r.message_id));
@@ -258,7 +297,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
 
   const envoyees = await lireEnvoyees(opts.profil);
   const candidates: DemandeCandidate[] = envoyees.map((e) => ({ id: e.id, reference: e.reference, profilBoite: opts.profil, statut: 'envoyee', messageIdsEmis: e.messageIdsEmis, numerosDossier: e.numerosDossier, referencesExternes: e.referencesExternes }));
-  const depuis = opts.depuis ?? (await dateDepart(opts.profil));
+  const depuis = opts.depuis ?? (await fenetreDepuis(opts.profil)); // P1 : fenêtre = curseur − 3 j (repli backfill si aucun curseur)
   const domaines = await lireDomainesDestinataires(opts.profil);
   const domainesInterroges = [...domaines];
 
@@ -321,9 +360,20 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
     const uidsRefs = new Set(references.length > 0 ? await opts.client.chercherReferences(depuis, references) : []);
     uidsReferences = uidsRefs.size;
 
-    // Sélection PRINCIPALE = domaines ∪ références ; le plafond GÉNÉRAL ne s'applique qu'APRÈS cette sélection serveur.
+    // Sélection PRINCIPALE = domaines ∪ références, triée par UID CROISSANT (≈ ordre d'arrivée : plus ANCIEN d'abord).
     let selPrincipal = [...new Set<number>([...uidsDomaines, ...uidsRefs])].sort((a, b) => a - b);
-    if (selPrincipal.length > plafond) { plafondAtteint = true; selPrincipal = selPrincipal.slice(-plafond); }
+    // P1 — PLAFOND CHRONOLOGIQUE ET PROGRESSIF. Au-delà du plafond (retard : backfill ou reprise après panne), on ne garde plus
+    //   les plus RÉCENTS (qui feraient perdre à jamais les plus vieux jetés) mais les plus ANCIENS NON ENCORE VUS : on écarte au
+    //   niveau SÉLECTION les Message-ID déjà connus (fetch léger, AVANT toute troncature), puis on prend les `plafond` plus vieux
+    //   du reliquat. Ainsi chaque passe AVANCE dans le backlog (jamais deux fois les mêmes) et — le curseur restant figé tant que
+    //   plafondAtteint est vrai (cf. curseurReleve) — rien n'est « certifié vu » sans l'avoir été. `plafondAtteint` = il reste
+    //   plus de NON-VUS que le plafond (donc on est en retard). Sous le plafond → aucun fetch supplémentaire (comportement inchangé).
+    if (selPrincipal.length > plafond) {
+      const mids = await opts.client.messageIds(selPrincipal);
+      const nonVus = selPrincipal.filter((uid) => { const m = mids.get(uid)?.trim(); return m === undefined || m === '' || !connus.has(m); });
+      if (nonVus.length > plafond) { plafondAtteint = true; selPrincipal = nonVus.slice(0, plafond); }
+      else selPrincipal = nonVus;
+    }
 
     // (c) sondes REBONDS côté serveur (mailer-daemon puis postmaster), hors UID déjà couverts, garde-fou plafondRebonds.
     const dejaCouverts = new Set<number>([...uidsDomaines, ...uidsRefs]);

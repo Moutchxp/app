@@ -248,14 +248,33 @@ export function TableRuns({ runs, cumul, periode, onPeriode }: {
  * automatique, la couleur + le texte suffisent. Déployé = rappel des réglages + « 10 dernières relèves » (TableRuns, qui contient
  * DÉJÀ le sélecteur de période T2, la ligne de total et les deux phrases explicatives). PUR. Mobile-first (hérité de ses enfants).
  */
-export function BlocEtatReleve({ reglages, derniereOkLe, runs, cumul, periode, maintenant, ouvert, onToggle, onPeriode }: {
-  reglages: ReglagesReleve; derniereOkLe: string | null; runs: LigneRun[]; cumul?: CumulFenetre; periode: FenetreCumul;
+/**
+ * P1 — « on relève depuis le … » : début de la fenêtre courante (curseur − 3 j, ou rattrapage complet au premier run), TOUJOURS
+ * visible dans l'encart — jamais une valeur cachée qui dérive. Quand le plafond a été atteint à la dernière passe, un
+ * avertissement FRANC dit qu'on est en retard (le rattrapage se fait des plus anciens d'abord). PUR.
+ */
+export function LigneCurseurReleve({ depuisLe, plafondAtteint }: { depuisLe: string | null; plafondAtteint: boolean }) {
+  return (
+    <div style={{ fontSize: 12, marginTop: '.3rem' }}>
+      <span style={styleMuted}>On relève depuis le {depuisLe ? formaterDate(depuisLe) : '— (première relève : rattrapage complet)'}.</span>
+      {plafondAtteint && (
+        <div role="alert" style={{ color: 'var(--color-svv-red)', fontWeight: 700, marginTop: '.15rem' }}>
+          ⚠ Plafond atteint à la dernière passe : il reste des messages à traiter — la relève est EN RETARD (elle rattrape les plus anciens d’abord).
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function BlocEtatReleve({ reglages, derniereOkLe, releveDepuisLe, relevePlafondAtteint, runs, cumul, periode, maintenant, ouvert, onToggle, onPeriode }: {
+  reglages: ReglagesReleve; derniereOkLe: string | null; releveDepuisLe: string | null; relevePlafondAtteint: boolean;
+  runs: LigneRun[]; cumul?: CumulFenetre; periode: FenetreCumul;
   maintenant: Date; ouvert: boolean; onToggle?: () => void; onPeriode: (p: FenetreCumul) => void;
 }) {
   return (
     <BlocRepliable ariaLabel="État de la relève" idContenu="etat-releve-contenu" ligne="État de la relève"
       ouvert={ouvert} onToggle={onToggle} className="svv-card"
-      retour={<IndicateurReleve active={reglages.active} derniereOkLe={derniereOkLe} fraicheurHeures={reglages.fraicheurHeures} maintenant={maintenant} />}>
+      retour={<><IndicateurReleve active={reglages.active} derniereOkLe={derniereOkLe} fraicheurHeures={reglages.fraicheurHeures} maintenant={maintenant} /><LigneCurseurReleve depuisLe={releveDepuisLe} plafondAtteint={relevePlafondAtteint} /></>}>
       <div className="flex flex-col gap-2">
         <RappelReglages reglages={reglages} />
         <div>

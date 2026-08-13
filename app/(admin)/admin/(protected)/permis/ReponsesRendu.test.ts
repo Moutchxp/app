@@ -69,9 +69,21 @@ describe('U8 — BlocEtatReleve : encart « État de la relève » repliable (re
   };
   const NOW = new Date('2026-04-20T12:00:00Z');
   const rendu = (over?: Partial<Parameters<typeof BlocEtatReleve>[0]>) => renderToStaticMarkup(createElement(BlocEtatReleve, {
-    reglages: REGLAGES, derniereOkLe: '2026-04-20T11:48:00Z', runs: [RUN()], cumul: CUMUL, periode: '7j', maintenant: NOW,
+    reglages: REGLAGES, derniereOkLe: '2026-04-20T11:48:00Z', releveDepuisLe: '2026-04-17T11:00:00Z', relevePlafondAtteint: false,
+    runs: [RUN()], cumul: CUMUL, periode: '7j', maintenant: NOW,
     ouvert: false, onToggle: () => {}, onPeriode: () => {}, ...over,
   }));
+
+  it('P1 — « on relève depuis le … » toujours visible ; plafond atteint → avertissement « EN RETARD » (jamais une valeur cachée)', () => {
+    const h = rendu({ ouvert: false });
+    expect(h).toContain('On relève depuis le 2026-04-17');
+    expect(h).not.toContain('Plafond atteint');
+    const hPlaf = rendu({ ouvert: false, relevePlafondAtteint: true });
+    expect(hPlaf).toContain('Plafond atteint');
+    expect(hPlaf).toContain('EN RETARD');
+    const hVide = rendu({ ouvert: false, releveDepuisLe: null });
+    expect(hVide).toContain('rattrapage complet'); // premier run : jamais muet
+  });
 
   it('REPLIÉ (défaut) : titre + ligne d’état visibles ; tableau des 10 relèves et phrases explicatives ABSENTS du markup', () => {
     const h = rendu({ ouvert: false });

@@ -97,6 +97,17 @@ export function creerClientBoite(compte: CompteImap): ClientBoite {
       }
       return [...uids].sort((a, b) => a - b);
     },
+    async messageIds(uids: number[]): Promise<Map<number, string>> {
+      // P1 — fetch LÉGER (enveloppe seule, PAS le corps) pour connaître le Message-ID de chaque UID → le plafond chronologique
+      //   écarte les déjà-vus avant de tronquer. Lecture stricte (aucun flag posé). Un UID sans Message-ID → absent de la Map.
+      const map = new Map<number, string>();
+      if (uids.length === 0) return map;
+      for await (const msg of client.fetch(uids.join(','), { envelope: true }, { uid: true })) {
+        const mid = msg.envelope?.messageId;
+        if (typeof mid === 'string' && mid.trim() !== '') map.set(msg.uid, mid);
+      }
+      return map;
+    },
     async telechargerMessage(uid: number): Promise<MessageBoite> {
       const msg = await client.fetchOne(uid, { source: true }, { uid: true });
       if (msg === false || !msg.source) throw new Error(`message uid ${uid} introuvable ou sans source`);

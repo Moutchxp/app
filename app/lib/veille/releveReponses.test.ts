@@ -13,12 +13,14 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
     knownIds: [] as string[],
     domaines: [] as string[],
     references: [] as string[], // R3e — num_dau renvoyés par lireReferencesRecherche
+    curseur: null as Date | null, // P1 — max(termine_le) du dernier scan courant complet réussi
     rebondRowCount: 1,
     conflit: false,
     nextId: 4242,
   };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
+    if (/max\(termine_le\) AS t FROM releve_run/i.test(sql)) return { rows: [{ t: etat.curseur }], rowCount: etat.curseur ? 1 : 0 }; // P1 curseurReleve
     if (/\(dd\.satisfait_le IS NULL\) DESC/i.test(sql)) return { rows: etat.references.map((n) => ({ num_dau: n })), rowCount: etat.references.length }; // R3e/R3f lireReferencesRecherche (signature du tri)
     if (/DISTINCT re\.reference/i.test(sql)) { const refs = [...new Set(etat.candidates.flatMap((c) => c.refs_externes ?? []))]; return { rows: refs.map((reference) => ({ reference })), rowCount: refs.length }; } // R3f références MAIRIE à interroger
     if (/min\(a\.envoye_le\)/i.test(sql)) return { rows: [{ depuis: etat.depuis }], rowCount: 1 };
@@ -42,7 +44,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
 
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: withTransactionMock, pool: {}, closePool: async () => undefined }));
 
-import { releverBoite, type ClientBoite, type MessageBoite, type PieceMeta, type CritereRecherche } from './releveReponses';
+import { releverBoite, fenetreDepuis, type ClientBoite, type MessageBoite, type PieceMeta, type CritereRecherche } from './releveReponses';
 import type { MessageEntrant } from './rattachementReponse';
 import type { PartieRapport } from './rapportRejet';
 
@@ -62,7 +64,7 @@ const boite = (message: Partial<MessageEntrant>, extra: { pieces?: PieceMeta[]; 
 });
 
 function fauxClient(messages: MessageBoite[], rechercheImpl?: (c: CritereRecherche) => number[], refImpl?: (refs: string[]) => number[]) {
-  const suivi = { ouvert: 0, ferme: 0, recherches: [] as CritereRecherche[], referencesInterrogees: [] as string[], uidsTelecharges: [] as number[] };
+  const suivi = { ouvert: 0, ferme: 0, recherches: [] as CritereRecherche[], referencesInterrogees: [] as string[], messageIdsInterroges: [] as number[], uidsTelecharges: [] as number[] };
   const client: ClientBoite = {
     async ouvrir() { suivi.ouvert += 1; },
     async chercher(c) {
@@ -75,6 +77,12 @@ function fauxClient(messages: MessageBoite[], rechercheImpl?: (c: CritereRecherc
       suivi.referencesInterrogees.push(...references);
       return refImpl ? refImpl(references) : [];
     },
+    async messageIds(uids) {
+      suivi.messageIdsInterroges.push(...uids); // P1 : fetch léger des Message-ID (plafond chronologique)
+      const m = new Map<number, string>();
+      for (const uid of uids) { const mb = messages.find((x) => x.uid === uid); const mid = mb?.message.messageId.trim(); if (mid) m.set(uid, mid); }
+      return m;
+    },
     async telechargerMessage(uid) { suivi.uidsTelecharges.push(uid); const m = messages.find((x) => x.uid === uid); if (!m) throw new Error(`uid ${uid}`); return m; },
     async fermer() { suivi.ferme += 1; },
   };
@@ -83,7 +91,7 @@ function fauxClient(messages: MessageBoite[], rechercheImpl?: (c: CritereRecherc
 
 beforeEach(() => {
   appels.length = 0; uidSeq = 0;
-  etat.candidates = [CAND_A]; etat.depuis = DEPUIS; etat.knownIds = []; etat.domaines = ['mairie-aubervilliers.fr']; etat.references = []; etat.rebondRowCount = 1; etat.conflit = false; etat.nextId = 4242;
+  etat.candidates = [CAND_A]; etat.depuis = DEPUIS; etat.knownIds = []; etat.domaines = ['mairie-aubervilliers.fr']; etat.references = []; etat.curseur = null; etat.rebondRowCount = 1; etat.conflit = false; etat.nextId = 4242;
 });
 
 describe('R3c/R3d — recherches serveur', () => {
@@ -115,14 +123,15 @@ describe('R3c/R3d — recherches serveur', () => {
     expect(suivi.recherches).toHaveLength(0);
   });
 
-  it('dépassement du plafond → plus récents + avertissement', async () => {
+  it('P1 — dépassement du plafond → les plus ANCIENS non-vus d’abord (chronologique), pas les plus récents + avertissement', async () => {
     etat.domaines = ['mairie.fr'];
     const cinq = [1, 2, 3, 4, 5].map(() => boite({ deAdresse: 'urba@mairie.fr' }));
     const { client, suivi } = fauxClient(cinq);
     const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, plafond: 2 });
     expect(r.uidsServeur).toBe(5);
     expect(r.plafondAtteint).toBe(true);
-    expect(suivi.uidsTelecharges).toEqual([4, 5]);
+    expect(suivi.uidsTelecharges).toEqual([1, 2]);                 // P1 : UID croissant = les plus ANCIENS (jamais les plus récents jetés à jamais)
+    expect(suivi.messageIdsInterroges.length).toBeGreaterThan(0);  // dédup au niveau SÉLECTION (fetch léger avant troncature)
   });
 });
 
@@ -497,5 +506,64 @@ describe('R3f — référence MAIRIE : commune FORMULAIRE (aucun domaine), répo
     const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
     expect(r.retenus).toBe(0);
     expect(r.horsPerimetre).toBe(1);
+  });
+});
+
+describe('P1 — curseur (fin de scan réussi), marge 3 j, plafond chronologique progressif', () => {
+  it('fenêtre = curseur − 3 j : la MARGE capte un retardataire daté AVANT le curseur (spam/livraison différée)', async () => {
+    etat.curseur = new Date('2026-08-20T10:00:00Z');
+    const d = await fenetreDepuis('entreprise');
+    // 20/08 − 3 j = 17/08 → un message d'INTERNALDATE 18/08 (avant le curseur) tombe DANS la fenêtre. La fenêtre est
+    //   curseur-based : la suppression d'un message déjà scanné n'y change RIEN (aucune dépendance à un message côté serveur).
+    expect(d?.toISOString()).toBe('2026-08-17T10:00:00.000Z');
+  });
+
+  it('curseur null (premier run / journal purgé) → repli backfill via dateDepart, sans erreur ; ni curseur ni demande → null', async () => {
+    etat.curseur = null; etat.depuis = new Date('2026-07-01T00:00:00Z');
+    expect((await fenetreDepuis('entreprise'))?.toISOString()).toBe('2026-07-01T00:00:00.000Z'); // backfill complet
+    etat.depuis = null;
+    expect(await fenetreDepuis('entreprise')).toBeNull(); // pas de connexion, aucune exception
+  });
+
+  it('panne de 10 jours : le curseur figé remonte la fenêtre de 10 j + marge (couvre tout l’intervalle)', async () => {
+    etat.curseur = new Date('2026-08-01T12:00:00Z'); // dernier scan réussi il y a 10 j
+    expect((await fenetreDepuis('entreprise'))?.toISOString()).toBe('2026-07-29T12:00:00.000Z'); // 01/08 − 3 j
+  });
+
+  it('une semaine SANS mail : le curseur avance quand même (termine_le du run réussi) → la fenêtre SUIT, ne grossit pas', async () => {
+    etat.curseur = new Date('2026-08-10T00:00:00Z');
+    expect((await fenetreDepuis('entreprise'))?.toISOString()).toBe('2026-08-07T00:00:00.000Z');
+    etat.curseur = new Date('2026-08-17T00:00:00Z'); // +7 j (7 passes réussies, 0 mail) → le curseur a avancé
+    expect((await fenetreDepuis('entreprise'))?.toISOString()).toBe('2026-08-14T00:00:00.000Z'); // fenêtre toujours ~3 j, PAS 2 semaines
+  });
+
+  it('curseur EXCLUT les relèves approfondies ET les passes tronquées par le plafond (fragments SQL)', async () => {
+    await fenetreDepuis('entreprise');
+    const sql = trouver(/max\(termine_le\) AS t FROM releve_run/i)!.sql.replace(/\s+/g, ' ');
+    expect(sql).toContain("resultat = 'ok'");
+    expect(sql).toContain("declencheur = 'planifie'");    // 'approfondi' ne déplace JAMAIS le curseur courant
+    expect(sql).toContain('plafond_atteint IS NOT TRUE');  // un échec/troncature ne « certifie vu » que ce qui l'a été
+  });
+
+  it('plafond : progression SANS BOUCLE — chaque passe traite les ANCIENS non-vus suivants, jamais les mêmes deux fois', async () => {
+    etat.domaines = ['mairie.fr'];
+    const dix = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => boite({ messageId: `<p${n}@x>`, deAdresse: 'urba@mairie.fr' }));
+    // Passe 1 : rien de connu → 4 plus anciens (uid 1..4), plafondAtteint (il reste des non-vus).
+    const c1 = fauxClient(dix);
+    const r1 = await releverBoite({ client: c1.client, profil: 'entreprise', depuis: DEPUIS, plafond: 4, appliquer: true });
+    expect(r1.plafondAtteint).toBe(true);
+    expect(c1.suivi.uidsTelecharges).toEqual([1, 2, 3, 4]);
+    // Passe 2 : les 4 premiers désormais connus → 4 SUIVANTS (uid 5..8), progression réelle.
+    etat.knownIds = ['<p1@x>', '<p2@x>', '<p3@x>', '<p4@x>'];
+    const c2 = fauxClient(dix);
+    const r2 = await releverBoite({ client: c2.client, profil: 'entreprise', depuis: DEPUIS, plafond: 4, appliquer: true });
+    expect(r2.plafondAtteint).toBe(true);
+    expect(c2.suivi.uidsTelecharges).toEqual([5, 6, 7, 8]);
+    // Passe 3 : le reliquat (uid 9, 10) tient sous le plafond → plafondAtteint FAUX → le curseur pourra avancer.
+    etat.knownIds = ['<p1@x>', '<p2@x>', '<p3@x>', '<p4@x>', '<p5@x>', '<p6@x>', '<p7@x>', '<p8@x>'];
+    const c3 = fauxClient(dix);
+    const r3 = await releverBoite({ client: c3.client, profil: 'entreprise', depuis: DEPUIS, plafond: 4, appliquer: true });
+    expect(r3.plafondAtteint).toBe(false);
+    expect(c3.suivi.uidsTelecharges).toEqual([9, 10]);
   });
 });

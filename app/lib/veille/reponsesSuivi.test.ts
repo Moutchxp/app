@@ -9,9 +9,12 @@ const { appels, etat, queryMock } = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
   // `dispatch` : rendre des lignes SPÉCIFIQUES à certaines requêtes (par fragment SQL) quand une lecture en enchaîne plusieurs
   //   (chargerSuiviReponses). Sans dispatch → `rows` par défaut, comme avant (rétrocompatible).
-  const etat = { rows: [] as unknown[], dispatch: [] as { re: RegExp; rows: unknown[] }[] };
+  const etat = { rows: [] as unknown[], dispatch: [] as { re: RegExp; rows: unknown[] }[], curseur: null as Date | null, plafond: false };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
+    // P1 — curseur (Date, PAS ::text) + plafond de la dernière passe courante : requêtes spécifiques (avant le dispatch générique).
+    if (/declencheur = 'planifie' AND plafond_atteint IS NOT TRUE/i.test(sql)) return { rows: etat.curseur ? [{ t: etat.curseur }] : [], rowCount: etat.curseur ? 1 : 0 };
+    if (/plafond_atteint AS p/i.test(sql)) return { rows: [{ p: etat.plafond }], rowCount: 1 };
     const hit = etat.dispatch.find((d) => d.re.test(sql));
     const rows = hit ? hit.rows : etat.rows;
     return { rows, rowCount: rows.length };
@@ -28,7 +31,7 @@ const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 const MAINTENANT = new Date('2026-08-09T12:00:00.000Z');
 const JOUR = 24 * 3_600_000;
 
-beforeEach(() => { appels.length = 0; etat.rows = []; etat.dispatch = []; });
+beforeEach(() => { appels.length = 0; etat.rows = []; etat.dispatch = []; etat.curseur = null; etat.plafond = false; });
 
 describe('T6-A — chargerDemandesSuivi : SOURCE UNIQUE (échéance + retour + dossiers), NON filtrée', () => {
   const DEM = /min\(a\.envoye_le\)::text AS envoye_le/;   // requête des demandes envoyée/close
@@ -218,5 +221,21 @@ describe('L1 — chargerDemandesSuivi : liens captés par demande (forts d’abo
     expect(norm(q.sql)).toContain('ORDER BY r.demande_id, l.fort DESC');
     // LECTURE SEULE : la requête des liens est un SELECT (aucune écriture, aucun appel réseau — c'est de l'affichage).
     expect(/^\s*SELECT/i.test(q.sql)).toBe(true);
+  });
+});
+
+describe('P1 — chargerSuiviReponses : « on relève depuis le … » et plafond exposés à l’écran', () => {
+  it('releveDepuisLe = curseur − 3 j ; relevePlafondAtteint remonte le plafond de la dernière passe courante', async () => {
+    etat.curseur = new Date('2026-08-09T12:00:00Z');
+    etat.plafond = true;
+    const data = await chargerSuiviReponses();
+    expect(data.releveDepuisLe).toBe('2026-08-06T12:00:00.000Z'); // curseur − 3 j (marge)
+    expect(data.relevePlafondAtteint).toBe(true);
+  });
+
+  it('aucun curseur → releveDepuisLe null (repli backfill), plafond faux', async () => {
+    const data = await chargerSuiviReponses();
+    expect(data.releveDepuisLe).toBeNull();
+    expect(data.relevePlafondAtteint).toBe(false);
   });
 });
