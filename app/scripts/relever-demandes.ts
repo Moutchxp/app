@@ -51,6 +51,8 @@ function imprimer(r: RapportReleve): void {
   console.log(`    · par méthode               : ${meth}`);
   console.log(`    · rebonds détectés : ${r.rebondsDetectes} (rattachés ${r.rebondsRattaches}, étrangers ${r.rebondsEtrangers}, acheminements basculés ${r.rebondsAppliques})`);
   console.log(`  enregistrées                : ${r.ecrites}`);
+  console.log(`  accusés (a écrit, pas répondu) : ${r.accuses}`);
+  console.log(`  liens captés (jamais suivis) : ${r.liensCaptes}`);
   console.log(`  pièces déposées / non dép.  : ${r.piecesDeposees} / ${r.piecesNonDeposees}`);
   if (r.lignes.length > 0) {
     console.log('  détail :');

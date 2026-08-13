@@ -26,6 +26,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
     if (/FROM demande_reponse WHERE profil_boite/i.test(sql)) return { rows: etat.knownIds.map((m) => ({ message_id: m })), rowCount: etat.knownIds.length };
     if (/split_part\(dest_email/i.test(sql)) return { rows: etat.domaines.map((d) => ({ domaine: d })), rowCount: etat.domaines.length };
     if (/UPDATE demande_acheminement/i.test(sql)) return { rows: [], rowCount: etat.rebondRowCount };
+    if (/INSERT INTO demande_reponse_lien/i.test(sql)) return { rows: [], rowCount: 1 }; // L1 : un lien inséré
     return { rows: [], rowCount: 0 };
   };
   const withTransactionMock = async (fn: (q: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[]; rowCount: number }>) => Promise<unknown>) => {
@@ -228,6 +229,45 @@ describe('T3 — nature du message : accusé enregistré (jamais rebond étrange
     expect(r.rattaches).toBe(1);
     expect(r.lignes[0].nature).toBe('indetermine');
     expect(trouver(/INSERT INTO demande_reponse\b/i)!.params[13]).toBe('indetermine');
+  });
+});
+
+describe('L1 — capture des liens de téléchargement d’une réponse rattachée', () => {
+  const LIEN = 'https://ged-pcpr.apps.paris.fr/share/s/aB3x9Kf2mNqR7wZ1tYcV0pL5s8Dh/folder'; // jeton FACTICE
+
+  it('lien à jeton dans le corps HTML → EXTRAIT + marqué fort + ENREGISTRÉ ; corps_html stocké ; expiration relative captée', async () => {
+    const html = `<p>Votre dossier : <a href="${LIEN}">ici</a> — le lien étant valable 7 jours.</p>`;
+    const { client } = fauxClient([boite(
+      { deAdresse: 'no-reply@mairie-aubervilliers.fr', references: ['<abc-154@sansvisavis.com>'], objet: 'Réponse à votre demande', corpsTexte: 'Votre dossier en ligne.', corpsHtml: html },
+    )]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.rattaches).toBe(1);
+    expect(r.liensCaptes).toBe(1);
+    expect(trouver(/INSERT INTO demande_reponse\b/i)!.params[14]).toBe(html); // corps_html = dernier paramètre du message
+    const insLien = appels.find((a) => /INSERT INTO demande_reponse_lien/i.test(a.sql))!;
+    expect(insLien).toBeDefined();
+    expect(insLien.params[1]).toBe(LIEN);        // url BRUTE (jamais réécrite)
+    expect(insLien.params[2]).toBe(true);        // fort (chemin à jeton)
+    expect(insLien.params[4]).toBe('relative');  // expiration_source (valable 7 jours)
+  });
+
+  it('RÈGLE DURE : la relève n’émet AUCUN appel réseau sortant vers un lien capté', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const { client } = fauxClient([boite(
+      { deAdresse: 'urba@mairie-aubervilliers.fr', references: ['<abc-154@sansvisavis.com>'], corpsHtml: `<a href="${LIEN}">x</a>` },
+    )]);
+    await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('corps SANS lien sérieux → aucun INSERT de lien', async () => {
+    const { client } = fauxClient([boite(
+      { deAdresse: 'urba@mairie-aubervilliers.fr', references: ['<abc-154@sansvisavis.com>'], corpsTexte: 'Voici les documents ci-joints.' },
+    )]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.liensCaptes).toBe(0);
+    expect(appels.find((a) => /INSERT INTO demande_reponse_lien/i.test(a.sql))).toBeUndefined();
   });
 });
 

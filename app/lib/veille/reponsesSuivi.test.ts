@@ -194,3 +194,29 @@ describe('T2 — chargerCumulsRuns : une requête, six fenêtres', () => {
     expect(c2.total.vus).toBe(0);
   });
 });
+
+describe('L1 — chargerDemandesSuivi : liens captés par demande (forts d’abord), sans jamais suivre un lien', () => {
+  const OK = /max\(termine_le\)/;
+  const DEM = /min\(a\.envoye_le\)::text AS envoye_le/;
+  const LIENS = /FROM demande_reponse_lien/;
+  const GED = 'https://ged.paris.fr/share/s/Zk91Ab34Cd56Ef78Gh/folder';
+
+  it('rattache les liens à leur demande (fort en tête + expiration relative) et lit UNIQUEMENT en base', async () => {
+    etat.dispatch = [
+      { re: OK, rows: [{ t: '2026-08-10T09:00:00Z' }] },
+      { re: DEM, rows: [{ id: 154, reference: 'SVAV-DEM-2026-000154', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 1, dossiers_satisfaits: 0, nb_reponses: 1, nb_reponses_reelles: 1, derniere_reponse_le: '2026-08-10T13:24:00Z' }] },
+      { re: LIENS, rows: [
+        { demande_id: 154, url: GED, fort: true, recu_le: '2026-08-10T13:24:00Z', expire_le: '2026-08-17T13:24:00Z', expiration_source: 'relative', expiration_indice: '7 jours' },
+        { demande_id: 154, url: 'https://opendata.paris.fr', fort: false, recu_le: '2026-08-10T13:24:00Z', expire_le: null, expiration_source: null, expiration_indice: null },
+      ] },
+    ];
+    const { demandes } = await chargerDemandesSuivi();
+    expect(demandes[0].liens).toHaveLength(2);
+    expect(demandes[0].liens[0]).toMatchObject({ url: GED, fort: true, recuLe: '2026-08-10T13:24:00Z', expireLe: '2026-08-17T13:24:00Z', expirationSource: 'relative', expirationIndice: '7 jours' });
+    const q = appels.find((a) => LIENS.test(a.sql))!;
+    expect(norm(q.sql)).toContain('JOIN demande_reponse r ON r.id = l.reponse_id');
+    expect(norm(q.sql)).toContain('ORDER BY r.demande_id, l.fort DESC');
+    // LECTURE SEULE : la requête des liens est un SELECT (aucune écriture, aucun appel réseau — c'est de l'affichage).
+    expect(/^\s*SELECT/i.test(q.sql)).toBe(true);
+  });
+});

@@ -157,10 +157,10 @@ describe('R1 — enregistrerReponse', () => {
     expect(norm(ins!.sql)).toContain('INSERT INTO demande_reponse');
     expect(norm(ins!.sql)).toContain('ON CONFLICT (message_id) DO NOTHING'); // idempotence (R3)
     expect(norm(ins!.sql)).toContain('RETURNING id');
-    // paramètres liés, dans l'ordre du schéma (T3 : nature en dernier, défaut 'indetermine')
+    // paramètres liés, dans l'ordre du schéma (T3 : nature ; L1 : corps_html en dernier, null ici)
     expect(ins!.params).toEqual([
       154, 'entreprise', '<29d85848-20c3-1430-45fe-81c7bcf9cafe@sansvisavis.com>', '<in@reply>', '<a> <b>',
-      'urba-reglementaire@mairie-aubervilliers.fr', 'Mairie', 'RE: réf.', RECU, 'texte', 'message_id', RECU, 'n', 'indetermine',
+      'urba-reglementaire@mairie-aubervilliers.fr', 'Mairie', 'RE: réf.', RECU, 'texte', 'message_id', RECU, 'n', 'indetermine', null,
     ]);
   });
 

@@ -14,9 +14,10 @@
  * ⚠️ N'écrit JAMAIS demande.statut ('close' reste sans écrivain, chantier R5). Boîte en LECTURE STRICTE (voir imap.ts).
  */
 import { query } from '../db/client';
-import { enregistrerReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
+import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { rattacherReponse, estRebondNonRemise, estAccuseAutomatique, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
+import { analyserLiensReponse } from './extractionLiens';
 import { analyserRapportRejet, normaliserMessageId, type PartieRapport, type ResultatRapportRejet } from './rapportRejet';
 import { normaliserReference } from '../sitadel/demandesListe';
 
@@ -78,6 +79,7 @@ export interface RapportReleve {
   rebondsEtrangers: number;     // rebonds SANS rapport avec nos demandes → NON enregistrés
   rebondsAppliques: number;     // lignes d'acheminement passées à 'rebond' (0 en simulation)
   accuses: number;              // T3 : accusés de réception (nature 'accuse') RETENUS → « a écrit », jamais « a répondu »
+  liensCaptes: number;          // L1 : liens candidats extraits et enregistrés (0 en simulation) — jamais suivis
   ecrites: number;
   piecesDeposees: number;       // R4 : pièces jointes réellement déposées sur l'object storage
   piecesNonDeposees: number;    // R4 : pièces NON déposées (type/taille/stockage indisponible) — trace conservée + motif
@@ -238,7 +240,7 @@ export function construireLigne(profil: ProfilBoite, mb: MessageBoite, mid: stri
     inReplyTo: mb.message.inReplyTo ?? null,
     referencesBrut: mb.message.references && mb.message.references.length > 0 ? mb.message.references.join(' ') : null,
     deAdresse: mb.message.deAdresse, deNom: mb.deNom, objet: mb.message.objet ?? null,
-    recuLe: mb.recuLe, corpsTexte: mb.message.corpsTexte ?? null,
+    recuLe: mb.recuLe, corpsTexte: mb.message.corpsTexte ?? null, corpsHtml: mb.message.corpsHtml ?? null,
     rattachementMethode: methode, nature, rattacheLe: demandeId !== null ? mb.recuLe : null, note,
     // R4 : métadonnées de la pièce ; le dépôt (cle_stockage/empreinte/stocke_le ou motif) est fait APRÈS, par deposerEtLierPieces.
     pieces: mb.pieces.map((p) => ({ nomFichier: p.nomFichier, typeMime: p.typeMime, tailleOctets: p.tailleOctets, cleStockage: null, empreinteSha256: null, stockeLe: null, motifNonStocke: null })),
@@ -264,7 +266,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
     mode, profil: opts.profil, connecte, depuis: depuis ? depuis.toISOString() : null, domainesInterroges,
     uidsServeur: 0, referencesInterrogees: 0, uidsReferences: 0, plafondReferencesAtteint: false, plafondAtteint: false,
     vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0, nonRattaches: 0,
-    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, ecrites: 0, piecesDeposees: 0, piecesNonDeposees: 0, parMethode: {}, lignes: [],
+    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, liensCaptes: 0, ecrites: 0, piecesDeposees: 0, piecesNonDeposees: 0, parMethode: {}, lignes: [],
   });
 
   if (depuis === null) return vide(false); // T4 : ni demande envoyée ni demande en attente (brouillon/prête) → pas de connexion
@@ -275,7 +277,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const tailleMaxOctets = cfg.pieceTailleMaxMo * 1024 * 1024; // utilisé seulement en mode APPLIQUÉ (dépôt)
   const { references, plafondAtteint: plafondReferencesAtteint } = await lireReferencesRecherche(opts.profil, cfg.rechercheReferencesMax);
   const lignes: LigneReleve[] = [];
-  let vus = 0, dejaConnus = 0, horsPerimetre = 0, rebondsDetectes = 0, rebondsRattaches = 0, rebondsEtrangers = 0, rebondsAppliques = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0;
+  let vus = 0, dejaConnus = 0, horsPerimetre = 0, rebondsDetectes = 0, rebondsRattaches = 0, rebondsEtrangers = 0, rebondsAppliques = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0, liensCaptes = 0;
   let uidsServeur = 0, uidsReferences = 0, plafondAtteint = false;
 
   // R4 — dépose les pièces d'une réponse déjà enregistrée (contenu tiers, jamais ouvert) et met à jour les compteurs.
@@ -380,6 +382,10 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
           if (r.demandeId !== null && nature !== 'accuse') {
             await marquerDossiersSatisfaitsAuto(r.demandeId, id, { piecesNoms: mb.pieces.map((p) => p.nomFichier), corpsTexte: mb.message.corpsTexte ?? null });
           }
+          // L1 — capter les LIENS du corps (texte + HTML) et les enregistrer. PUR : on ne SUIT JAMAIS un lien (ni vérif ni
+          //   téléchargement). L'expiration n'est captée que si écrite explicitement. Ne fait NI archivage NI satisfait_le.
+          const { liens } = analyserLiensReponse({ corpsTexte: mb.message.corpsTexte ?? null, corpsHtml: mb.message.corpsHtml ?? null, recuLe: mb.recuLe });
+          if (liens.length > 0) liensCaptes += await enregistrerLiensReponse(id, liens);
           // R4 — dépôt des pièces (rattachée ou non : la clé gère « non-rattachees »).
           await deposerPieces(id, r.demandeId, mb.pieces);
         }
@@ -398,6 +404,6 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
     mode, profil: opts.profil, connecte: true, depuis: depuis.toISOString(), domainesInterroges, uidsServeur,
     referencesInterrogees: references.length, uidsReferences, plafondReferencesAtteint, plafondAtteint,
     vus, dejaConnus, horsPerimetre, retenus: lignes.length, rattaches, nonRattaches: lignes.length - rattaches,
-    rebondsDetectes, rebondsRattaches, rebondsEtrangers, rebondsAppliques, accuses, ecrites, piecesDeposees, piecesNonDeposees, parMethode, lignes,
+    rebondsDetectes, rebondsRattaches, rebondsEtrangers, rebondsAppliques, accuses, liensCaptes, ecrites, piecesDeposees, piecesNonDeposees, parMethode, lignes,
   };
 }

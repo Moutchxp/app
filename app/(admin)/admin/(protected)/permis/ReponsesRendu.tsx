@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche } from '../../../../lib/veille/reponsesSuivi';
 import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import { MessageRetour, BlocRepliable, type RetourAction } from './DemandesRendu';
 
@@ -563,6 +563,78 @@ export function DetailDossiers({
       {close && <li style={{ ...styleMuted, listStyle: 'none', marginLeft: '-1.1rem' }}>Demande close : le marquage des dossiers est désactivé (rouvrir la demande d’abord — chantier ultérieur).</li>}
     </ul>
     </>
+  );
+}
+
+// ── Bloc L1 : liens de téléchargement captés dans une réponse ─────────────────────────────────────────────────────────
+/** ISO → « JJ/MM » (déterministe, sans fuseau). */
+function jjmm(iso: string | null): string {
+  if (!iso) return '—';
+  const [a, m, j] = iso.slice(0, 10).split('-');
+  return a && m && j ? `${j}/${m}` : '—';
+}
+
+/**
+ * L1 — phrase datée d'un lien. L'expiration n'est JAMAIS devinée : affichée seulement si captée EXPLICITEMENT.
+ *  - absolue  → « lien reçu le JJ/MM — expire le JJ/MM »
+ *  - relative → « lien reçu le JJ/MM — expire le JJ/MM (7 jours à compter du JJ/MM) » (le calcul est montré)
+ *  - nulle    → « lien reçu le JJ/MM — durée de validité non précisée ». PUR.
+ */
+export function mentionExpiration(lien: { recuLe: string; expireLe: string | null; expirationSource: string | null; expirationIndice: string | null }): string {
+  const recu = jjmm(lien.recuLe);
+  if (!lien.expireLe) return `lien reçu le ${recu} — durée de validité non précisée`;
+  const exp = jjmm(lien.expireLe);
+  if (lien.expirationSource === 'relative' && lien.expirationIndice) {
+    return `lien reçu le ${recu} — expire le ${exp} (${lien.expirationIndice} à compter du ${recu})`;
+  }
+  return `lien reçu le ${recu} — expire le ${exp}`;
+}
+
+/** Une ligne de lien : URL cliquable (le clic HUMAIN est le geste attendu ; jamais de suivi automatique) + mention datée. */
+function LigneLien({ lien }: { lien: LienAffiche }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <a href={lien.url} target="_blank" rel="noopener noreferrer nofollow"
+        style={{ color: 'var(--color-svv-red)', wordBreak: 'break-all', fontSize: 13 }}>{lien.url}</a>
+      <div style={{ ...styleMuted, marginTop: '.1rem' }}>{mentionExpiration(lien)}</div>
+    </div>
+  );
+}
+
+/**
+ * L1 — liens de téléchargement captés dans les réponses d'une demande. Les FORTS (chemin à jeton) sont en tête ; les faibles
+ * (pied de page) sont REPLIÉS. On n'en choisit JAMAIS un automatiquement : plusieurs forts → tous listés + mention d'ambiguïté.
+ * RÈGLE DURE rappelée à l'écran : un lien n'est jamais suivi automatiquement, le téléchargement est un geste humain. PUR, mobile-first.
+ */
+export function BlocLiens({ liens }: { liens: LienAffiche[] }) {
+  if (liens.length === 0) return null;
+  const forts = liens.filter((l) => l.fort);
+  const faibles = liens.filter((l) => !l.fort);
+  return (
+    <div className="svv-card" style={{ marginTop: '.5rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+      <strong style={{ fontSize: 13 }}>Lien(s) de téléchargement reçus</strong>
+      {forts.length === 0
+        ? <PhraseVide>Aucun lien « sérieux » (chemin à jeton) repéré — vérifiez les liens ci-dessous à la main.</PhraseVide>
+        : <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+            {forts.map((l) => <li key={l.url}><LigneLien lien={l} /></li>)}
+          </ul>}
+      {forts.length > 1 && (
+        <p role="note" style={{ ...styleMuted, color: 'var(--color-svv-red)', margin: 0 }}>
+          Plusieurs liens sérieux : à trancher à la main, aucun n’est retenu automatiquement.
+        </p>
+      )}
+      {faibles.length > 0 && (
+        <details>
+          <summary style={{ cursor: 'pointer', ...styleMuted }}>{faibles.length} autre{faibles.length > 1 ? 's' : ''} lien{faibles.length > 1 ? 's' : ''} (pied de page, peu probables)</summary>
+          <ul style={{ margin: '.3rem 0 0', paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+            {faibles.map((l) => <li key={l.url}><LigneLien lien={l} /></li>)}
+          </ul>
+        </details>
+      )}
+      <p role="note" style={{ ...styleMuted, fontStyle: 'italic', margin: 0 }}>
+        Un lien n’est jamais suivi automatiquement (certains sont à usage unique ou tracés) : le téléchargement est un geste humain.
+      </p>
+    </div>
   );
 }
 

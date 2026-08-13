@@ -433,7 +433,8 @@ export function resumeDiagnostic(d: DiagnosticProposition): string {
   return base + formulaire + courrier;
 }
 
-const MOIS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+/** Les 12 mois en français, index 0 = janvier. SOURCE UNIQUE (réutilisée par dateEnFrancais ET le parseur d'expiration L1, `extractionLiens.ts`). */
+export const MOIS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 /** Date d'autorisation en toutes lettres : '2017-03-14' → « 14 mars 2017 ». `null`/invalide → « date inconnue »/valeur brute. */
 export function dateEnFrancais(iso: string | null): string {
   if (!iso) return 'date inconnue';

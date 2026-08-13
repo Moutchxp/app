@@ -5,10 +5,11 @@ import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns, BlocEtatReleve,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
   EtatDemande, RappelObtenusArchives, partitionnerDemandes, partitionnerReponses, demandeADuRetour, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
+  BlocLiens, mentionExpiration,
   type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi, CumulFenetre, PropositionDepotAffichee, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi, CumulFenetre, PropositionDepotAffichee, ReglagesReleve, LienAffiche } from '../../../../lib/veille/reponsesSuivi';
 
 /**
  * R5a/R5b — rendu PUR de l'écran « Réponses » (renderToStaticMarkup, aucun DOM). Couvre l'indicateur de relève (3 signaux),
@@ -873,5 +874,37 @@ describe('T2 — TableRuns : ligne de total en <tfoot> + sélecteur de période'
     expect(h).not.toContain('<tfoot');
     expect(h).not.toContain('cumul-periode');
     expect(h).not.toContain('cumulables sans ambiguïté');
+  });
+});
+
+describe('L1 — BlocLiens + mentionExpiration : forts en tête, faibles repliés, expiration jamais devinée', () => {
+  const lien = (over: Partial<LienAffiche> = {}): LienAffiche =>
+    ({ url: 'https://x.fr', fort: false, recuLe: '2026-08-10T13:24:00Z', expireLe: null, expirationSource: null, expirationIndice: null, ...over });
+
+  it('mentionExpiration : absolue / relative (calcul montré) / nulle', () => {
+    expect(mentionExpiration(lien({ expireLe: '2026-08-17', expirationSource: 'absolue', expirationIndice: "jusqu'au 17/08/2026" })))
+      .toBe('lien reçu le 10/08 — expire le 17/08');
+    expect(mentionExpiration(lien({ expireLe: '2026-08-17', expirationSource: 'relative', expirationIndice: '7 jours' })))
+      .toBe('lien reçu le 10/08 — expire le 17/08 (7 jours à compter du 10/08)');
+    expect(mentionExpiration(lien())).toBe('lien reçu le 10/08 — durée de validité non précisée');
+  });
+
+  it('vide → rien ; fort en tête, URL cliquable (rel noopener), faibles repliés dans <details>, rappel « geste humain »', () => {
+    expect(renderToStaticMarkup(createElement(BlocLiens, { liens: [] }))).toBe('');
+    const fort = lien({ url: 'https://ged.paris.fr/share/s/Zk91Ab34Cd56Ef78Gh/folder', fort: true, expireLe: '2026-08-17', expirationSource: 'relative', expirationIndice: '7 jours' });
+    const faible = lien({ url: 'https://opendata.paris.fr' });
+    const h = renderToStaticMarkup(createElement(BlocLiens, { liens: [fort, faible] }));
+    expect(h).toContain('href="https://ged.paris.fr/share/s/Zk91Ab34Cd56Ef78Gh/folder"');
+    expect(h).toContain('rel="noopener noreferrer nofollow"');
+    expect(h).toContain('7 jours à compter du 10/08');
+    expect(h).toContain('<details');       // les faibles sont repliés
+    expect(h).toContain('geste humain');    // rappel de la règle dure
+  });
+
+  it('plusieurs liens FORTS → mention d’ambiguïté, aucun choisi automatiquement', () => {
+    const a = lien({ url: 'https://ged.paris.fr/share/s/Zk91Ab34Cd56Ef78Gh/folder', fort: true });
+    const b = lien({ url: 'https://ged.paris.fr/share/s/Xy12Wv34Ut56Rs78Qp/folder', fort: true });
+    const h = renderToStaticMarkup(createElement(BlocLiens, { liens: [a, b] }));
+    expect(h).toContain('aucun n’est retenu automatiquement');
   });
 });

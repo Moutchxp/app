@@ -4,6 +4,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, CellulePermis, CelluleReference, sequenceReference, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
+import { BlocLiens } from './ReponsesRendu';
+import type { LienAffiche } from '../../../../lib/veille/reponsesSuivi';
 import { formaterReferencePermis } from '../../../../lib/sitadel/referencePermis';
 import type { LigneStock } from '../../../../lib/sitadel/stock';
 import type { PermisDetail } from '../../../../lib/sitadel/demandeRepo';
@@ -772,6 +774,25 @@ describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours »
     expect(avec).toContain('SLOT-DOSSIERS-RICHE');
     expect(avec).toContain('SLOT-CLOTURE');
     expect(avec).not.toContain('PC-DOSSIER-BRUT'); // remplacé par le slot riche
+  });
+
+  it('L1 — En cours : un accusé porteur d’un lien (hors « Réponses ») affiche ce lien dans le détail, via le MÊME BlocLiens, avec sa mention datée', () => {
+    // Demande « accusé seul » : nbReponsesReelles=0 → EXCLUE de « Réponses » (T3). « En cours » est son SEUL écran → le lien doit
+    //   y apparaître. Le slotDossiers reçoit EXACTEMENT le BlocLiens que SuiviDemandes injecte (composant PARTAGÉ avec « Réponses »).
+    const noop = () => {};
+    const cbs = { onCorps: noop, onRefDetail: noop, onFermer: noop, onSauverCorps: noop, onAjouterReference: noop, onBascule: noop, onTransition: noop };
+    const DETAIL = { id: 1, reference: 'SVAV-DEM-2026-000010', codeInsee: '75056', communeNom: 'Paris', statut: 'envoyee',
+      profil: 'entreprise', canal: 'email', destEmail: null, destAdressePostale: null, destUrlFormulaire: null, destOrigine: 'mairie_contact', destNom: null,
+      corps: 'X', dossiers: [{ numDau: 'PC0750560000001', date: null }], dossiersRetires: [], referencesMairie: [], referencesMairieIndisponible: false,
+    } as unknown as Parameters<typeof PanneauDetailDemande>[0]['detail'];
+    const lien: LienAffiche = { url: 'https://ged.paris.fr/share/s/Zk91Ab34Cd56Ef78Gh/folder', fort: true, recuLe: '2026-08-10T13:24:00Z', expireLe: '2026-08-17T13:24:00Z', expirationSource: 'relative', expirationIndice: '7 jours' };
+    const h = renderToStaticMarkup(createElement(PanneauDetailDemande, {
+      detail: DETAIL, corps: 'X', refDetail: '', retour: null as RetourAction, ...cbs,
+      slotDossiers: createElement(BlocLiens, { liens: [lien] }),
+    }));
+    expect(h).toContain('href="https://ged.paris.fr/share/s/Zk91Ab34Cd56Ef78Gh/folder"');
+    expect(h).toContain('lien reçu le 10/08 — expire le 17/08 (7 jours à compter du 10/08)');
+    expect(h).toContain('geste humain'); // rappel : jamais suivi automatiquement
   });
 });
 

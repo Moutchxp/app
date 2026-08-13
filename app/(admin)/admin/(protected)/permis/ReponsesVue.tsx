@@ -7,7 +7,7 @@ import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import {
   BlocEtatReleve, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
   partitionnerReponses, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
-  BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, formaterDate, type RetourCible, type OptionDemande,
+  BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, BlocLiens, formaterDate, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
 import { MessageRetour, MentionMasquage } from './DemandesRendu';
 
@@ -224,6 +224,8 @@ export function ReponsesVue() {
                               onRetirerConfirmer={(demandeId, dossierId) => { setRetrait(null); void agir({ action: 'retirer_dossier', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Dossier retiré — il redevient demandable dans « À demander ».'); }}
                               onRetirerAnnuler={() => setRetrait(null)} />
                             )}
+                            {/* L1 — liens de téléchargement captés dans les réponses de cette demande (jamais suivis auto). */}
+                            <BlocLiens liens={d.liens} />
                             <div style={{ marginTop: '.5rem' }}>
                               <ActionsCloture demandeId={d.demandeId} statut={d.statut} dossiersDus={d.dossiersActifs - d.dossiersSatisfaits}
                                 motif={motifCloture[d.demandeId]} retour={retour}

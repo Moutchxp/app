@@ -19,6 +19,7 @@ export interface MessageEntrant {
   deAdresse: string;
   objet?: string;
   corpsTexte?: string;
+  corpsHtml?: string; // L1 : corps HTML brut (parallèle à corpsTexte) — porte souvent le lien de téléchargement. Jamais utilisé pour rattacher.
   entetes?: Record<string, string>;
 }
 

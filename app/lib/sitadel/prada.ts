@@ -94,19 +94,27 @@ export function millesimeDepuisNomFichier(nom: string): string {
 }
 
 /**
+ * Valeurs BRUTES des attributs `href` d'un fragment HTML, dans l'ordre d'apparition. Reconnaît les 3 formes : "double",
+ * 'simple', ou SANS guillemets (terminée par un espace, '>' ou '<'), attribut insensible à la casse. SOURCE UNIQUE du regex
+ * `href` : réutilisée par l'extraction des liens d'une réponse mairie (chantier L1, `extractionLiens.ts`) — pas de rival.
+ */
+export function hrefsBruts(html: string): string[] {
+  const re = /href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>]+))/gi;
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) out.push(m[1] ?? m[2] ?? m[3] ?? '');
+  return out;
+}
+
+/**
  * Repère le lien .csv sur la page de l'annuaire CADA (le nom change chaque mois → aucune URL stable). EXIGE EXACTEMENT UN
  * lien : zéro ou plusieurs → on ÉCHOUE explicitement plutôt que de deviner. Retourne l'URL absolue (résolue contre `base`).
  */
 export function extraireLienCsv(html: string, base: string): string {
-  // Reconnaît la valeur d'un attribut href sous ses 3 formes : "double", 'simple', ou SANS guillemets (terminée par un
-  // espace, '>' ou '<'). Insensible à la casse (attribut et extension). La valeur retenue doit finir par .csv,
-  // éventuellement suivie de paramètres/fragment (?… ou #…). La page réelle de la CADA écrit un chemin RELATIF SANS
-  // guillemets (href=/sites/default/files/annuaire_MM_AA_N.csv) → forme 3.
-  const re = /href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>]+))/gi;
+  // La valeur retenue doit finir par .csv, éventuellement suivie de paramètres/fragment (?… ou #…). La page réelle de la CADA
+  // écrit un chemin RELATIF SANS guillemets (href=/sites/default/files/annuaire_MM_AA_N.csv) → forme 3 de `hrefsBruts`.
   const liens = new Set<string>();
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) {
-    const valeur = m[1] ?? m[2] ?? m[3] ?? '';
+  for (const valeur of hrefsBruts(html)) {
     if (!/\.csv(?:[?#].*)?$/i.test(valeur)) continue;
     // Résolution relatif OU absolu par le MÊME chemin (jamais de concaténation à la main). Déduplication sur l'URL RÉSOLUE.
     liens.add(new URL(valeur, base).toString());

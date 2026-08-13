@@ -39,6 +39,7 @@ export interface ReponseEntrante {
   objet?: string | null;
   recuLe: Date;
   corpsTexte?: string | null;
+  corpsHtml?: string | null;                 // L1 : corps HTML brut conservé (ré-extraction des liens + audit)
   rattachementMethode?: RattachementMethode; // défaut 'aucun'
   nature?: NatureReponse;                    // T3 : défaut 'indetermine' (message ordinaire = vrai retour)
   rattacheLe?: Date | null;
@@ -77,14 +78,14 @@ export async function enregistrerReponse(r: ReponseEntrante): Promise<number | n
     const res = await q<{ id: number }>(
       `INSERT INTO demande_reponse
          (demande_id, profil_boite, message_id, in_reply_to, references_brut, de_adresse, de_nom, objet, recu_le,
-          corps_texte, rattachement_methode, rattache_le, note, nature)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          corps_texte, rattachement_methode, rattache_le, note, nature, corps_html)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        ON CONFLICT (message_id) DO NOTHING
        RETURNING id`,
       [
         r.demandeId ?? null, r.profilBoite, r.messageId, r.inReplyTo ?? null, r.referencesBrut ?? null,
         r.deAdresse, r.deNom ?? null, r.objet ?? null, r.recuLe, r.corpsTexte ?? null,
-        r.rattachementMethode ?? 'aucun', r.rattacheLe ?? null, r.note ?? null, r.nature ?? 'indetermine',
+        r.rattachementMethode ?? 'aucun', r.rattacheLe ?? null, r.note ?? null, r.nature ?? 'indetermine', r.corpsHtml ?? null,
       ],
     );
     const ligne = res.rows[0];
@@ -100,6 +101,34 @@ export async function enregistrerReponse(r: ReponseEntrante): Promise<number | n
     }
     return id;
   });
+}
+
+/** L1 — un lien candidat extrait d'une réponse (forme de sortie d'`extractionLiens.analyserLiensReponse`). */
+export interface LienReponseEntrant {
+  url: string;
+  fort: boolean;
+  expireLe: Date | null;
+  expirationSource: 'absolue' | 'relative' | null;
+  expirationIndice: string | null;
+}
+
+/**
+ * L1 — enregistre les liens candidats d'une réponse déjà écrite. IDEMPOTENT (`ON CONFLICT (reponse_id, url) DO NOTHING`) : une
+ * seconde relève du même message n'insère aucun doublon. N'écrit QUE demande_reponse_lien. Renvoie le nombre de liens insérés.
+ * ⚠️ N'OUVRE JAMAIS de connexion réseau vers une URL captée (règle dure L1) : ce n'est que de l'écriture en base.
+ */
+export async function enregistrerLiensReponse(reponseId: number, liens: LienReponseEntrant[]): Promise<number> {
+  let inseres = 0;
+  for (const l of liens) {
+    const res = await query(
+      `INSERT INTO demande_reponse_lien (reponse_id, url, fort, expire_le, expiration_source, expiration_indice)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (reponse_id, url) DO NOTHING`,
+      [reponseId, l.url, l.fort, l.expireLe, l.expirationSource, l.expirationIndice],
+    );
+    inseres += res.rowCount ?? 0;
+  }
+  return inseres;
 }
 
 /**

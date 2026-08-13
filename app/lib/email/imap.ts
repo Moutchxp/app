@@ -35,6 +35,7 @@ function versMessageBoite(parsed: ParsedMail, uid: number): MessageBoite {
     deAdresse: from?.address ?? '',
     objet: parsed.subject,
     corpsTexte: parsed.text,
+    corpsHtml: parsed.html || undefined, // L1 : conserve le corps HTML (mailparser renvoie `false` si absent) → porte souvent le lien
     entetes,
   };
 

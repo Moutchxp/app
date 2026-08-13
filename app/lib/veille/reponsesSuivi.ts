@@ -72,6 +72,16 @@ export interface DossierSuivi {
   refusLe: string | null;      // T1 : date de notification du refus exprès (ISO date) ; null hors refus_mairie
 }
 
+/** L1 — un lien de téléchargement capté dans une réponse rattachée à la demande (jamais suivi ; affiché seulement). */
+export interface LienAffiche {
+  url: string;
+  fort: boolean;                 // chemin à jeton → affiché en tête ; les faibles sont repliés
+  recuLe: string;                // recu_le du message porteur (ISO) → « lien reçu le JJ/MM »
+  expireLe: string | null;       // expiration EXPLICITE (ISO) ou null (« durée de validité non précisée »)
+  expirationSource: string | null; // 'absolue' | 'relative' | null
+  expirationIndice: string | null; // fragment reconnu (« 7 jours », « jusqu'au 17/08/2026 »)
+}
+
 /** Une demande envoyée, avec de quoi calculer son échéance À L'AFFICHAGE (etatEcheance) et son détail par dossier. */
 export interface DemandeSuivi {
   demandeId: number;
@@ -87,6 +97,7 @@ export interface DemandeSuivi {
   nbReponsesReelles: number;    // T3 : « la mairie a RÉPONDU » — hors accusé ET hors rebond. Pilote l'entrée dans « Réponses ».
   derniereReponseLe: string | null; // T1 : date (ISO) du dernier message « a écrit » (hors rebond) → pré-remplit « refus le »
   dossiers: DossierSuivi[];
+  liens: LienAffiche[];         // L1 : liens de téléchargement captés dans les réponses rattachées (forts d'abord)
 }
 // T6-A/2 — le critère d'inclusion « Réponses » (demandeADuRetour) + la partition d'affichage (partitionnerReponses) vivent dans
 //   ReponsesRendu.tsx (module PUR client-safe), PAS ici : ce module importe db/client (pg), qu'on ne veut jamais dans le bundle client.
@@ -250,12 +261,31 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     (parDemande.get(r.demande_id) ?? parDemande.set(r.demande_id, []).get(r.demande_id)!)
       .push({ dossierId: r.dossier_id, numDau: r.num_dau, adresse: r.adresse, satisfait: r.satisfait, satisfaitPar: r.satisfait_par, triage: r.triage, refusLe: r.refus_le });
   }
+
+  // L1 — liens de téléchargement captés dans les réponses RATTACHÉES de ces demandes (une passe, groupés par demande ; forts
+  //   d'abord). `recu_le` du message porteur → « lien reçu le JJ/MM ». On ne suit JAMAIS un lien : lecture d'affichage seule.
+  const liens = await query<{ demande_id: number; url: string; fort: boolean; recu_le: string; expire_le: string | null; expiration_source: string | null; expiration_indice: string | null }>(
+    `SELECT r.demande_id::int AS demande_id, l.url, l.fort, r.recu_le::text AS recu_le,
+            l.expire_le::text AS expire_le, l.expiration_source, l.expiration_indice
+       FROM demande_reponse_lien l
+       JOIN demande_reponse r ON r.id = l.reponse_id
+       JOIN demande d ON d.id = r.demande_id
+      WHERE d.statut IN ('envoyee', 'close') AND r.demande_id IS NOT NULL
+      ORDER BY r.demande_id, l.fort DESC, l.capte_le`,
+  );
+  const parLiens = new Map<number, LienAffiche[]>();
+  for (const r of liens.rows) {
+    (parLiens.get(r.demande_id) ?? parLiens.set(r.demande_id, []).get(r.demande_id)!)
+      .push({ url: r.url, fort: r.fort, recuLe: r.recu_le, expireLe: r.expire_le, expirationSource: r.expiration_source, expirationIndice: r.expiration_indice });
+  }
+
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
     dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits, nbReponses: r.nb_reponses, nbReponsesReelles: r.nb_reponses_reelles,
     derniereReponseLe: r.derniere_reponse_le,
     dossiers: parDemande.get(r.id) ?? [],
+    liens: parLiens.get(r.id) ?? [],
   }));
   return { demandes, derniereOkLe, reglages };
 }

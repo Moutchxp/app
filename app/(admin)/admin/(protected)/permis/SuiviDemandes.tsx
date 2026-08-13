@@ -7,7 +7,7 @@ import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, 
 import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, RetourMairie, etatRetourMairie, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
-import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, formaterDate, type RetourCible } from './ReponsesRendu';
+import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, formaterDate, type RetourCible } from './ReponsesRendu';
 import { etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 
@@ -391,6 +391,9 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
                   onRetirerOuvrir={(dossierId) => setRetrait({ demandeId: detail.id, dossierId })}
                   onRetirerConfirmer={(demandeId, dossierId) => { setRetrait(null); void agirReponse({ action: 'retirer_dossier', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Dossier retiré — il redevient demandable dans « À demander ».'); }}
                   onRetirerAnnuler={() => setRetrait(null)} />
+                {/* L1 — MÊME BlocLiens que « Réponses », injecté par slot avec les liens DÉJÀ chargés (richDetail.liens) : un
+                    accusé porteur d'un lien reste hors de « Réponses » (T3) mais son lien doit rester visible ICI, dans « En cours ». */}
+                <BlocLiens liens={richDetail.liens} />
               </>
             ) : undefined}
             slotActions={richDetail ? (
