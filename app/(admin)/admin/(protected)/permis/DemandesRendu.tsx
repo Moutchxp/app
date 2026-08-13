@@ -531,6 +531,30 @@ export interface DemandeAffichee {
 }
 
 /**
+ * T6-A — état de RETOUR MAIRIE d'une demande, DÉRIVÉ UNIQUEMENT (aucune détection accusé/documents — chantier ultérieur explicite) :
+ *  - 'obtenus' : TOUS les dossiers actifs sont satisfaits (documents obtenus et intégrés) ;
+ *  - 'message' : au moins un message RATTACHÉ (la mairie a écrit — un accusé compte ; jamais pollué par les rebonds, cf. Q4) ;
+ *  - 'aucun'   : ni message ni satisfaction. Priorité obtenus > message > aucun. PUR.
+ */
+export type EtatRetourMairie = 'aucun' | 'message' | 'obtenus';
+export function etatRetourMairie(d: { nbReponses: number; dossiersActifs: number; dossiersSatisfaits: number }): EtatRetourMairie {
+  if (d.dossiersActifs > 0 && d.dossiersSatisfaits >= d.dossiersActifs) return 'obtenus';
+  if (d.nbReponses > 0) return 'message';
+  return 'aucun';
+}
+
+/** T6-A — cellule « Retour mairie » (3 états dérivés). Le TEXTE porte l'information ; date en JJ/MM. PUR. */
+export function RetourMairie({ etat, nbReponses, derniereReponseLe }: { etat: EtatRetourMairie; nbReponses: number; derniereReponseLe: string | null }) {
+  if (etat === 'obtenus') return <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>documents obtenus</span>;
+  if (etat === 'message') {
+    const [a, m, j] = (derniereReponseLe ?? '').slice(0, 10).split('-');
+    const jjmm = a && m && j ? `${j}/${m}` : '—';
+    return <span>message reçu le {jjmm} ({nbReponses})</span>;
+  }
+  return <span style={{ color: 'var(--color-svv-muted)' }}>aucun retour</span>;
+}
+
+/**
  * D3 — tableau des demandes PUR. Colonnes : [sélection] · Référence · **Type** · Commune · Profil · Canal · Destinataire ·
  * Dossiers · Statut · [ouvrir]. Le TYPE est en 2e position DONNÉE (juste après Référence), aligné en-tête ↔ ligne par le même
  * ordre. Tenue à l'écran : conteneur défilant a11y + `nowrap`/`min-width` sobres, « Destinataire » absorbant le surplus. Le
@@ -539,17 +563,20 @@ export interface DemandeAffichee {
  * cours ») — pas de contrôle inerte à l'écran.
  */
 export function TableDemandes({
-  visibles, categories, tri, sel, toutCoche, messageVide, avecSelection = true, demandeOuverte = null, panneau, onTrier, onToutSelectionner, onBasculer, onOuvrir,
+  visibles, categories, tri, sel, toutCoche, messageVide, avecSelection = true, demandeOuverte = null, panneau, colonnesSuivi, onTrier, onToutSelectionner, onBasculer, onOuvrir,
 }: {
   visibles: DemandeAffichee[]; categories: { libelle: string; rang: number }[];
   tri: Tri; sel: ReadonlySet<number>; toutCoche: boolean; messageVide: string; avecSelection?: boolean;
   // U7 — accordéon À UN SEUL VOLET : `demandeOuverte` = l'unique demande dépliée (jamais un Set → jamais deux détails). `panneau` = son
   //   détail (bâti par la Vue), rendu dans une 2ᵉ `<tr><td colSpan>` JUSTE SOUS sa ligne. Motif de TableStock (disclosure natif au niveau ligne).
   demandeOuverte?: number | null; panneau?: ReactNode;
+  // T6-A — colonnes SUPPLÉMENTAIRES (« En cours » : Délai + Retour mairie), injectées APRÈS la colonne Statut. ABSENTES ailleurs →
+  //   « À demander » rigoureusement inchangé (aucune colonne, aucun champ riche à null). `largeur` = nb de colonnes (pour le colSpan).
+  colonnesSuivi?: { entetes: ReactNode; largeur: number; cellule: (d: DemandeAffichee) => ReactNode };
   onTrier?: (c: TriColonne) => void; onToutSelectionner?: () => void; onBasculer?: (id: number) => void; onOuvrir?: (id: number) => void;
 }) {
   const nowrap: CSSProperties = { ...styleTdD, whiteSpace: 'nowrap' };
-  const nCols = avecSelection ? 10 : 9; // colonnes du tableau → colSpan du panneau et de la ligne « vide »
+  const nCols = (avecSelection ? 10 : 9) + (colonnesSuivi?.largeur ?? 0); // colonnes du tableau → colSpan du panneau et de la ligne « vide »
   return (
     <ConteneurTableDefilant ariaLabel="Tableau des demandes, défilement horizontal">
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -564,6 +591,7 @@ export function TableDemandes({
             <th style={{ ...styleTdD, minWidth: 160 }}>Destinataire</th>
             <EnteteTriable libelle="Dossiers" colonne="dossiers" tri={tri} onTrier={onTrier} />
             <EnteteTriable libelle="Statut" colonne="statut" tri={tri} onTrier={onTrier} />
+            {colonnesSuivi?.entetes /* T6-A — Délai + Retour mairie (En cours) */}
             <th style={styleTdD} />
           </tr>
         </thead>
@@ -582,6 +610,7 @@ export function TableDemandes({
                   <td style={styleTdD}><OrigineDest origine={d.destOrigine} nom={d.destNom} /></td>
                   <td style={styleTdD}>{d.nbDossiers}</td>
                   <td style={nowrap}>{STATUT_LIBELLE[d.statut] ?? d.statut}</td>
+                  {colonnesSuivi?.cellule(d) /* T6-A — Délai + Retour mairie (En cours) */}
                   <td style={styleTdD}>
                     <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }}
                       aria-expanded={ouvert} aria-controls={ancreDetail(d.id)} onClick={() => onOuvrir?.(d.id)}>
@@ -617,12 +646,15 @@ const PROFILS_DEMANDE: ProfilDemandeur[] = ['entreprise', 'personne'];
  * (le panneau a seulement CHANGÉ D'EMPLACEMENT). La bascule/les transitions ne sont offertes qu'en brouillon (garde inchangée).
  */
 export function PanneauDetailDemande({
-  detail, corps, refDetail, retour, onCorps, onRefDetail, onFermer, onSauverCorps, onAjouterReference, onBascule, onTransition,
+  detail, corps, refDetail, retour, onCorps, onRefDetail, onFermer, onSauverCorps, onAjouterReference, onBascule, onTransition, slotDossiers, slotActions,
 }: {
   detail: DemandeDetail; corps: string; refDetail: string; retour: RetourAction;
   onCorps: (v: string) => void; onRefDetail: (v: string) => void;
   onFermer: () => void; onSauverCorps: () => void; onAjouterReference: () => void;
   onBascule: (profil: ProfilDemandeur) => void; onTransition: (statut: 'prete' | 'annulee') => void;
+  // T6-A — slots pour « En cours » : `slotDossiers` REMPLACE le détail brut des dossiers par DetailDossiers (actions T1) ;
+  //   `slotActions` ajoute ActionsCloture (clôturer/rouvrir). ABSENTS pour « À demander » → rendu STRICTEMENT inchangé.
+  slotDossiers?: ReactNode; slotActions?: ReactNode;
 }) {
   const brouillon = detail.statut === 'brouillon';
   return (
@@ -651,7 +683,8 @@ export function PanneauDetailDemande({
       </div>
       <textarea value={corps} onChange={(e) => onCorps(e.target.value)} rows={16} readOnly={!brouillon}
         style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }} />
-      <BlocDossiersDetail dossiers={detail.dossiers} retires={detail.dossiersRetires} />
+      {/* T6-A — « En cours » injecte DetailDossiers (actions T1) ; sinon, détail brut des dossiers (À demander, inchangé). */}
+      {slotDossiers ?? <BlocDossiersDetail dossiers={detail.dossiers} retires={detail.dossiersRetires} />}
       <div style={{ fontSize: 12 }}>
         <span style={{ color: 'var(--color-svv-muted)' }}>Références mairie : </span>
         {detail.referencesMairieIndisponible
@@ -665,6 +698,7 @@ export function PanneauDetailDemande({
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => onAjouterReference()}>Ajouter la référence</button>
         </div>
       </div>
+      {slotActions /* T6-A — En cours : ActionsCloture (clôturer + motif / rouvrir) */}
       {brouillon && (
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => onSauverCorps()}>Enregistrer le texte</button>

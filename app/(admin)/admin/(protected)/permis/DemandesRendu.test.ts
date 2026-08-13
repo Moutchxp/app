@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 import { formaterReferencePermis } from '../../../../lib/sitadel/referencePermis';
@@ -718,6 +718,60 @@ describe('U7 — PanneauDetailDemande : contenu + actions du détail (déplacé 
   it('le retour d’action de la ZONE détail se rend dans le panneau (même MessageRetour qu’avant le déplacement)', () => {
     expect(rendu()).not.toContain('Texte enregistré.');
     expect(rendu({}, 'x', { texte: 'Texte enregistré.', ok: true, zone: 'detail' })).toContain('Texte enregistré.');
+  });
+});
+
+describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours » + slots du détail', () => {
+  it('etatRetourMairie : 3 états dérivés (priorité obtenus > message > aucun)', () => {
+    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 2, dossiersSatisfaits: 0 })).toBe('aucun');
+    expect(etatRetourMairie({ nbReponses: 1, dossiersActifs: 2, dossiersSatisfaits: 0 })).toBe('message');
+    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 2, dossiersSatisfaits: 2 })).toBe('obtenus');
+    expect(etatRetourMairie({ nbReponses: 3, dossiersActifs: 2, dossiersSatisfaits: 2 })).toBe('obtenus'); // obtenus prime sur message
+    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 0, dossiersSatisfaits: 0 })).toBe('aucun');   // 0 dossier actif → jamais « obtenus »
+  });
+
+  it('RetourMairie : « aucun retour » / « message reçu le JJ/MM (N) » / « documents obtenus »', () => {
+    expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'aucun', nbReponses: 0, derniereReponseLe: null }))).toContain('aucun retour');
+    expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'message', nbReponses: 2, derniereReponseLe: '2026-08-05T09:30:00Z' }))).toContain('message reçu le 05/08 (2)');
+    expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'obtenus', nbReponses: 0, derniereReponseLe: null }))).toContain('documents obtenus');
+  });
+
+  const COLS = { largeur: 2, entetes: createElement('th', null, 'Délai-EnTete'), cellule: (d: DemandeAffichee) => createElement('td', null, `cell-${d.id}`) };
+  const renduTable = (over?: Partial<Parameters<typeof TableDemandes>[0]>) => renderToStaticMarkup(createElement(TableDemandes, {
+    visibles: [DEM({ id: 1, rangs: [1] })], categories: CATS_D3, tri: TRI_COMMUNE, sel: new Set<number>(),
+    toutCoche: false, messageVide: 'Aucune demande.', ...over,
+  }));
+
+  it('SANS colonnesSuivi (À demander) : aucune colonne supplémentaire, colSpan de base — NON-RÉGRESSION', () => {
+    const h = renduTable({ demandeOuverte: 1, panneau: createElement('span', null, 'PAN') });
+    expect(h).not.toContain('Délai-EnTete');
+    expect(h).toContain('colSpan="10"'); // 10 colonnes (avec sélection) — inchangé par l’ajout de colonnesSuivi
+  });
+
+  it('AVEC colonnesSuivi (En cours) : 2 colonnes ajoutées APRÈS Statut, colSpan du panneau reflète +2', () => {
+    const h = renduTable({ colonnesSuivi: COLS, demandeOuverte: 1, panneau: createElement('span', null, 'PAN') });
+    expect(h).toContain('Délai-EnTete');
+    expect(h).toContain('cell-1');
+    expect(h.indexOf('Statut')).toBeLessThan(h.indexOf('Délai-EnTete')); // injectées après la colonne Statut
+    expect(h).toContain('colSpan="12"'); // 10 + 2
+    expect(h).not.toContain('colSpan="10"');
+  });
+
+  it('PanneauDetailDemande : slotDossiers REMPLACE le détail brut, slotActions s’ajoute (En cours) ; sans slots → détail brut (À demander)', () => {
+    const noop = () => {};
+    const cbs = { onCorps: noop, onRefDetail: noop, onFermer: noop, onSauverCorps: noop, onAjouterReference: noop, onBascule: noop, onTransition: noop };
+    const DETAIL = { id: 1, reference: 'SVAV-DEM-2026-000009', codeInsee: '92004', communeNom: 'Asnières', statut: 'envoyee',
+      profil: 'entreprise', canal: 'email', destEmail: null, destAdressePostale: null, destUrlFormulaire: null, destOrigine: 'mairie_contact', destNom: null,
+      corps: 'X', dossiers: [{ numDau: 'PC-DOSSIER-BRUT', date: null }], dossiersRetires: [], referencesMairie: [], referencesMairieIndisponible: false,
+    } as unknown as Parameters<typeof PanneauDetailDemande>[0]['detail'];
+    const base = { detail: DETAIL, corps: 'X', refDetail: '', retour: null as RetourAction, ...cbs };
+    const sans = renderToStaticMarkup(createElement(PanneauDetailDemande, base));
+    expect(sans).toContain('PC-DOSSIER-BRUT'); // détail brut des dossiers (À demander)
+    const avec = renderToStaticMarkup(createElement(PanneauDetailDemande, { ...base,
+      slotDossiers: createElement('span', null, 'SLOT-DOSSIERS-RICHE'), slotActions: createElement('span', null, 'SLOT-CLOTURE') }));
+    expect(avec).toContain('SLOT-DOSSIERS-RICHE');
+    expect(avec).toContain('SLOT-CLOTURE');
+    expect(avec).not.toContain('PC-DOSSIER-BRUT'); // remplacé par le slot riche
   });
 });
 

@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
 import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, CHOIX_STATUT_DEFAUT } from '../../../../lib/sitadel/demandesListe';
-import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
+import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, RetourMairie, etatRetourMairie, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
+// T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
+//   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
+import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, formaterDate, type RetourCible } from './ReponsesRendu';
+import { etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
+import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 
 /**
  * Q6 — tableau des demandes d'UN PÉRIMÈTRE (partagé par « À demander » et « En cours »). Le périmètre est un pré-filtre DUR par
@@ -65,7 +70,20 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
   const [page, setPage] = useState(1);
   const [confBascule, setConfBascule] = useState<Bascule | null>(null);
 
+  // T6-A — « En cours » UNIQUEMENT : donnée riche partagée (source unique `chargerDemandesSuivi` via /en-cours) pour le compte à
+  //   rebours (etatEcheance INTOUCHÉ), la colonne « Retour mairie » et les 7 actions du détail. `retourReponse` (cle-based) est le
+  //   retour des actions /reponses, DISTINCT de `retour` (zone-based) des actions /demandes. RIEN de ceci n'existe pour « À demander ».
+  const enCours = perimetre === 'en_cours';
+  const [suivi, setSuivi] = useState<{ parId: Map<number, DemandeSuivi>; derniereOkLe: string | null; reglages: ReglagesReleve } | null>(null);
+  const [maintenant, setMaintenant] = useState<Date>(() => new Date());
+  const [versionSuivi, setVersionSuivi] = useState(0);
+  const [retourReponse, setRetourReponse] = useState<RetourCible>(null);
+  const [refus, setRefus] = useState<{ demandeId: number; dossierId: number; date: string } | null>(null); // formulaire « refus mairie » ouvert
+  const [retrait, setRetrait] = useState<{ demandeId: number; dossierId: number } | null>(null);            // avertissement « retirer » ouvert
+  const [motifCloture, setMotifCloture] = useState<Record<number, string>>({});                              // motif de clôture par demande
+
   const rafraichir = useCallback(() => setVersion((v) => v + 1), []);
+  const rafraichirSuivi = useCallback(() => setVersionSuivi((v) => v + 1), []);
   const annoncer = useCallback((texte: string, ok: boolean, zone: 'haut' | 'detail' = 'haut') => setRetour(texte === '' ? null : { texte, ok, zone }), []);
 
   useEffect(() => {
@@ -78,6 +96,37 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     })();
     return () => { annule = true; };
   }, [version, signalRafraichir]);
+
+  // T6-A — « En cours » : charge la donnée riche (SOURCE UNIQUE partagée avec « Réponses »). Le tableau (liste) reste piloté par
+  //   /demandes ; /en-cours ne fournit QUE l'échéance + le retour + les dossiers riches, fusionnés par id. « À demander » ne fetch jamais ceci.
+  useEffect(() => {
+    if (!enCours) return;
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/permis/en-cours', { cache: 'no-store' });
+        if (!annule && res.ok) {
+          const d = (await res.json()) as { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve };
+          setSuivi({ parId: new Map(d.demandes.map((x) => [x.demandeId, x])), derniereOkLe: d.derniereOkLe, reglages: d.reglages });
+          setMaintenant(new Date());
+        }
+      } catch { /* suivi indisponible : le tableau reste, sans compte à rebours (jamais un écran vide) */ }
+    })();
+    return () => { annule = true; };
+  }, [enCours, version, versionSuivi, signalRafraichir]);
+
+  // T6-A — état d'échéance par demande, calculé UNE FOIS par etatEcheance (INTOUCHÉ) sur la donnée de la source unique. Instant `maintenant` figé au chargement.
+  const etatParId = useMemo(() => {
+    const m = new Map<number, { etat: EtatEcheance; motif: string }>();
+    if (!suivi) return m;
+    const reg = { echeanceAlerteJours: suivi.reglages.alerteJours, releveFraicheurHeures: suivi.reglages.fraicheurHeures };
+    const derniere = suivi.derniereOkLe ? new Date(suivi.derniereOkLe) : null;
+    for (const d of suivi.parId.values()) {
+      const r = etatEcheance({ envoyeLe: d.envoyeLe ? new Date(d.envoyeLe) : null, statutAcheminement: d.statutAcheminement, dossiersActifs: d.dossiersActifs, dossiersSatisfaits: d.dossiersSatisfaits, derniereReleveOkLe: derniere }, maintenant, reg);
+      m.set(d.demandeId, { etat: r.etat, motif: r.motif });
+    }
+    return m;
+  }, [suivi, maintenant]);
 
   // Q6 — PRÉ-FILTRE DUR par périmètre (hermeticité). Q6b — puis restreint aux statuts AFFICHÉS selon le choix du sélecteur
   // (défaut = VIVANTS). `filtrerDemandes` ne refiltre PAS le statut (déjà fait ici) : profil / commune / type / référence seulement.
@@ -179,8 +228,46 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     else annoncer(await erreurServeur(res, 'Bascule impossible.'), false);
   }
 
+  // T6-A — actions du détail « En cours » (7 gestes des dossiers/clôture) : MÊME route POST /reponses que « Réponses » (aucune 2e
+  //   implémentation). Retour cle-based (`retourReponse`) ; succès → recharge la liste, la donnée riche ET le détail ouvert (statut/clôture à jour).
+  async function agirReponse(corps: Record<string, unknown>, cle: string, texteOk: string): Promise<void> {
+    const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
+    if (res.ok) {
+      setRetourReponse({ cle, texte: texteOk, ok: true });
+      rafraichir(); rafraichirSuivi();
+      if (detail) void ouvrir(detail.id, true); // rafraîchit l'en-tête du détail (statut après clôture/réouverture) sans effacer le retour
+    } else setRetourReponse({ cle, texte: await erreurServeur(res, 'Action impossible.'), ok: false });
+  }
+
   const selProfil = (id: string) => id as ProfilDemandeur;
   const zonesRetour = repartirRetour(retour, detail !== null);
+  const aujourdhui = formaterDate(maintenant.toISOString()); // borne « refus le » (max) — la route reste l'autorité
+  // T6-A — colonnes « Délai » (compte à rebours) + « Retour mairie », injectées dans TableDemandes UNIQUEMENT en « En cours ».
+  const colonnesSuivi = enCours && suivi ? {
+    largeur: 2,
+    entetes: (
+      <>
+        <th style={{ padding: '.4rem .5rem', textAlign: 'left' as const, whiteSpace: 'nowrap' as const, minWidth: 150 }}>Délai</th>
+        <th style={{ padding: '.4rem .5rem', textAlign: 'left' as const, whiteSpace: 'nowrap' as const }}>Retour mairie</th>
+      </>
+    ),
+    cellule: (d: { id: number }) => {
+      const rich = suivi.parId.get(d.id);
+      const e = etatParId.get(d.id);
+      return (
+        <>
+          <td style={{ padding: '.4rem .5rem', verticalAlign: 'top' as const }}>
+            {rich && e ? <EtatDemande statut={rich.statut} dossiersActifs={rich.dossiersActifs} etat={e.etat} motif={e.motif} /> : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
+          </td>
+          <td style={{ padding: '.4rem .5rem', verticalAlign: 'top' as const }}>
+            {rich ? <RetourMairie etat={etatRetourMairie(rich)} nbReponses={rich.nbReponses} derniereReponseLe={rich.derniereReponseLe} /> : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
+          </td>
+        </>
+      );
+    },
+  } : undefined;
+  // T6-A — donnée riche de la demande OUVERTE (détail « En cours ») : dossiers + statut + compteurs pour DetailDossiers/ActionsCloture.
+  const richDetail = enCours && detail && suivi ? suivi.parId.get(detail.id) ?? null : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -274,6 +361,8 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
           : TEXTES[perimetre].vide)}
         // U7 — accordéon À UN SEUL VOLET : `detail` est UN objet (jamais un Set) → au plus une ligne dépliée ; le panneau se rend SOUS sa ligne.
         demandeOuverte={detail?.id ?? null}
+        // T6-A — colonnes Délai + Retour mairie (En cours seulement ; undefined → « À demander » inchangé).
+        colonnesSuivi={colonnesSuivi}
         panneau={detail ? (
           <PanneauDetailDemande
             detail={detail} corps={corps} refDetail={refDetail} retour={zonesRetour.detail}
@@ -283,6 +372,34 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
             onAjouterReference={() => void ajouterReference()}
             onBascule={(p) => setConfBascule({ ids: [detail.id], profil: p })}
             onTransition={(statut) => void transition([detail.id], statut, 'detail')}
+            // T6-A — En cours : les 7 actions (DetailDossiers + ActionsCloture) via la MÊME route POST /reponses. À demander : slots absents → détail inchangé.
+            slotDossiers={richDetail ? (
+              <>
+                <RappelObtenusArchives n={richDetail.dossiersSatisfaits} />
+                <DetailDossiers demandeId={detail.id} statut={richDetail.statut} dossiers={richDetail.dossiers} retour={retourReponse}
+                  aujourdhui={aujourdhui} prefillRefus={richDetail.derniereReponseLe ? formaterDate(richDetail.derniereReponseLe) : aujourdhui}
+                  onMarquer={(demandeId, dossierId, satisfait) => void agirReponse({ action: 'marquer_dossier', demandeId, dossierId, satisfait }, `dossier-${demandeId}-${dossierId}`, satisfait ? 'Marqué reçu.' : 'Satisfaction annulée.')}
+                  onNonFourni={(demandeId, dossierId) => void agirReponse({ action: 'dossier_non_fourni', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Marqué « non fourni » — le dossier reste dû.')}
+                  onAnnulerTriage={(demandeId, dossierId) => void agirReponse({ action: 'annuler_triage', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Statut annulé — retour à « dû ».')}
+                  refusOuvertDossierId={refus?.demandeId === detail.id ? refus.dossierId : null}
+                  refusDate={refus?.demandeId === detail.id ? refus.date : undefined}
+                  onRefusOuvrir={(demandeId, dossierId, prefill) => setRefus({ demandeId, dossierId, date: prefill })}
+                  onRefusDateChange={(date) => setRefus((r) => (r ? { ...r, date } : r))}
+                  onRefusConfirmer={(demandeId, dossierId, date) => { setRefus(null); void agirReponse({ action: 'dossier_refus_mairie', demandeId, dossierId, refusLe: date }, `dossier-${demandeId}-${dossierId}`, 'Refus mairie enregistré — candidat à la saisine CADA.'); }}
+                  onRefusAnnuler={() => setRefus(null)}
+                  retirerOuvertDossierId={retrait?.demandeId === detail.id ? retrait.dossierId : null}
+                  onRetirerOuvrir={(dossierId) => setRetrait({ demandeId: detail.id, dossierId })}
+                  onRetirerConfirmer={(demandeId, dossierId) => { setRetrait(null); void agirReponse({ action: 'retirer_dossier', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Dossier retiré — il redevient demandable dans « À demander ».'); }}
+                  onRetirerAnnuler={() => setRetrait(null)} />
+              </>
+            ) : undefined}
+            slotActions={richDetail ? (
+              <ActionsCloture demandeId={detail.id} statut={richDetail.statut} dossiersDus={richDetail.dossiersActifs - richDetail.dossiersSatisfaits}
+                motif={motifCloture[detail.id]} retour={retourReponse}
+                onMotif={(demandeId, v) => setMotifCloture((s) => ({ ...s, [demandeId]: v }))}
+                onCloturer={(demandeId) => void agirReponse({ action: 'cloturer', demandeId, motif: motifCloture[demandeId] ?? '' }, `cloturer-${demandeId}`, 'Demande clôturée.')}
+                onRouvrir={(demandeId) => void agirReponse({ action: 'rouvrir', demandeId }, `rouvrir-${demandeId}`, 'Demande rouverte.')} />
+            ) : undefined}
           />
         ) : null}
         onTrier={trierPar} onToutSelectionner={avecActionsGroupees ? toutSelectionner : undefined} onBasculer={avecActionsGroupees ? basculer : undefined}

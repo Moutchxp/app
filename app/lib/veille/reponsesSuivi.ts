@@ -178,8 +178,15 @@ export async function chargerCumulsRuns(maintenant: Date): Promise<CumulsRuns> {
   return out;
 }
 
-/** Charge tout le nécessaire de l'écran « Réponses » en une passe. LECTURE SEULE. */
-export async function chargerSuiviReponses(): Promise<ReponsesData> {
+/**
+ * T6-A — SOURCE UNIQUE de la donnée riche par demande ENVOYÉE/CLOSE : échéance (envoyeLe/statutAcheminement/dossiers) + retour
+ * mairie (nbReponses/derniereReponseLe) + détail des dossiers dus. NON FILTRÉE — « En cours » ET « Réponses » la consomment TOUS
+ * DEUX, chacun filtrant EN AVAL. Le critère « la mairie a écrit » reste LOCAL à la vue Réponses ; il ne doit JAMAIS être appliqué
+ * ici, sinon les demandes sans message disparaîtraient AUSSI d'« En cours ». Un SEUL chargeur → un seul calcul d'échéance
+ * (via etatEcheance, en aval), jamais deux (défaut B2). LECTURE SEULE.
+ */
+export interface SuiviDemandesData { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve }
+export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   const cfg = await chargerConfigVeille();
   const reglages: ReglagesReleve = {
     active: cfg.releveActive, intervalleMinutes: cfg.releveIntervalleMinutes, profil: cfg.releveProfil,
@@ -188,19 +195,6 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
 
   const derniere = await query<{ t: string | null }>(`SELECT max(termine_le)::text AS t FROM releve_run WHERE resultat = 'ok'`);
   const derniereOkLe = derniere.rows[0]?.t ?? null;
-
-  const runs = await query<{
-    demarre_le: string; termine_le: string | null; declencheur: string; resultat: string;
-    vus: number | null; deja_connus: number | null; hors_perimetre: number | null; retenus: number | null; rattaches: number | null;
-    rebonds_detectes: number | null; rebonds_rattaches: number | null; rebonds_etrangers: number | null; rebonds_appliques: number | null;
-    enregistrees: number | null; pieces_deposees: number | null; pieces_non_deposees: number | null; erreur: string | null;
-  }>(
-    `SELECT demarre_le::text AS demarre_le, termine_le::text AS termine_le, declencheur, resultat,
-            vus, deja_connus, hors_perimetre, retenus, rattaches,
-            rebonds_detectes, rebonds_rattaches, rebonds_etrangers, rebonds_appliques, enregistrees,
-            pieces_deposees, pieces_non_deposees, erreur
-       FROM releve_run ORDER BY demarre_le DESC LIMIT 10`,
-  );
 
   // Demandes ENVOYÉES + CLOSES (tous profils) : R5c — une demande close reste VISIBLE (identifiée comme telle, avec Rouvrir),
   // elle ne disparaît pas de l'écran. Acheminement agrégé + compteurs de dossiers + nombre de réponses rattachées.
@@ -254,6 +248,26 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
     derniereReponseLe: r.derniere_reponse_le,
     dossiers: parDemande.get(r.id) ?? [],
   }));
+  return { demandes, derniereOkLe, reglages };
+}
+
+/** Charge tout le nécessaire de l'écran « Réponses » en une passe. LECTURE SEULE. */
+export async function chargerSuiviReponses(): Promise<ReponsesData> {
+  // T6-A — la donnée par demande (échéance + retour + dossiers) vient de la SOURCE UNIQUE, partagée avec « En cours » (non filtrée ici).
+  const { demandes, derniereOkLe, reglages } = await chargerDemandesSuivi();
+
+  const runs = await query<{
+    demarre_le: string; termine_le: string | null; declencheur: string; resultat: string;
+    vus: number | null; deja_connus: number | null; hors_perimetre: number | null; retenus: number | null; rattaches: number | null;
+    rebonds_detectes: number | null; rebonds_rattaches: number | null; rebonds_etrangers: number | null; rebonds_appliques: number | null;
+    enregistrees: number | null; pieces_deposees: number | null; pieces_non_deposees: number | null; erreur: string | null;
+  }>(
+    `SELECT demarre_le::text AS demarre_le, termine_le::text AS termine_le, declencheur, resultat,
+            vus, deja_connus, hors_perimetre, retenus, rattaches,
+            rebonds_detectes, rebonds_rattaches, rebonds_etrangers, rebonds_appliques, enregistrees,
+            pieces_deposees, pieces_non_deposees, erreur
+       FROM releve_run ORDER BY demarre_le DESC LIMIT 10`,
+  );
 
   const rat = await query<{ id: number; recu_le: string; de_adresse: string; de_nom: string | null; objet: string | null; corps_texte: string | null; traite_le: string | null; rattachement_methode: string; nb_pieces: number }>(
     `SELECT r.id::int AS id, r.recu_le::text AS recu_le, r.de_adresse, r.de_nom, r.objet, r.corps_texte, r.traite_le::text AS traite_le, r.rattachement_methode,

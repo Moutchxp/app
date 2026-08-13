@@ -21,7 +21,7 @@ const { appels, etat, queryMock } = vi.hoisted(() => {
 
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: vi.fn(), pool: {}, closePool: async () => undefined }));
 
-import { chargerCumulsRuns, chargerSuiviReponses } from './reponsesSuivi';
+import { chargerCumulsRuns, chargerSuiviReponses, chargerDemandesSuivi } from './reponsesSuivi';
 import { bornesFenetres } from './fenetresCumul';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -29,6 +29,45 @@ const MAINTENANT = new Date('2026-08-09T12:00:00.000Z');
 const JOUR = 24 * 3_600_000;
 
 beforeEach(() => { appels.length = 0; etat.rows = []; etat.dispatch = []; });
+
+describe('T6-A — chargerDemandesSuivi : SOURCE UNIQUE (échéance + retour + dossiers), NON filtrée', () => {
+  const DEM = /min\(a\.envoye_le\)::text AS envoye_le/;   // requête des demandes envoyée/close
+  const DOSS = /ORDER BY dd\.demande_id, s\.num_dau/;     // requête des dossiers dus
+  const OK = /max\(termine_le\)/;                          // fraîcheur (derniereOkLe)
+
+  it('renvoie les demandes envoyée/close + réglages + derniereOkLe ; une demande SANS message y FIGURE (aucun filtre « la mairie a écrit » ici)', async () => {
+    etat.dispatch = [
+      { re: OK, rows: [{ t: '2026-08-10T09:00:00Z' }] },
+      { re: DEM, rows: [{ id: 154, reference: 'SVAV-DEM-2026-000154', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 2, dossiers_satisfaits: 0, nb_reponses: 0, derniere_reponse_le: null }] },
+      { re: DOSS, rows: [
+        { demande_id: 154, dossier_id: 5, num_dau: 'PC0930011', adresse: null, satisfait: false, satisfait_par: null, triage: null, refus_le: null },
+        { demande_id: 154, dossier_id: 6, num_dau: 'PC0930012', adresse: null, satisfait: false, satisfait_par: null, triage: null, refus_le: null },
+      ] },
+    ];
+    const { demandes, derniereOkLe, reglages } = await chargerDemandesSuivi();
+    expect(derniereOkLe).toBe('2026-08-10T09:00:00Z');
+    expect(reglages).toEqual(expect.objectContaining({ fraicheurHeures: expect.any(Number), alerteJours: expect.any(Number) })); // pour etatEcheance
+    expect(demandes).toHaveLength(1);
+    // la demande sans réponse (nb_reponses 0) ET sans dossier statué EST bien renvoyée : le filtre Réponses est EN AVAL, pas ici.
+    expect(demandes[0]).toMatchObject({ demandeId: 154, nbReponses: 0, dossiersActifs: 2, dossiersSatisfaits: 0, statutAcheminement: 'envoye', envoyeLe: '2026-07-01T10:00:00Z' });
+    expect(demandes[0].dossiers).toHaveLength(2); // dossiers DUS présents (alimentent DetailDossiers en « En cours »)
+    // la requête des demandes ne pose AUCUNE condition sur les messages : critère de statut seul (envoyee/close).
+    const dem = appels.find((a) => DEM.test(a.sql))!;
+    expect(norm(dem.sql)).toContain("WHERE d.statut IN ('envoyee', 'close')");
+    expect(norm(dem.sql)).not.toContain('nb_reponses > 0');
+  });
+
+  it('chargerSuiviReponses DÉLÈGUE à chargerDemandesSuivi : mêmes demandes exposées (non-régression de l’extraction)', async () => {
+    etat.dispatch = [
+      { re: OK, rows: [{ t: '2026-08-10T09:00:00Z' }] },
+      { re: DEM, rows: [{ id: 200, reference: 'SVAV-DEM-2026-000200', code_insee: '75056', commune_nom: 'Paris', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 1, dossiers_satisfaits: 0, nb_reponses: 1, derniere_reponse_le: '2026-07-20T08:00:00Z' }] },
+    ];
+    const data = await chargerSuiviReponses();
+    expect(data.demandes).toHaveLength(1);
+    expect(data.demandes[0]).toMatchObject({ demandeId: 200, nbReponses: 1, derniereReponseLe: '2026-07-20T08:00:00Z' });
+    expect(data.derniereOkLe).toBe('2026-08-10T09:00:00Z'); // même valeur, remontée par la source unique
+  });
+});
 
 describe('B2 — chargerSuiviReponses : la date d’envoi (échéance à l’écran) se lit QUEL QUE SOIT le canal', () => {
   it('la jointure d’acheminement (ancre envoye_le) ne filtre PLUS canal=email → un dépôt formulaire est vu à l’écran', async () => {
