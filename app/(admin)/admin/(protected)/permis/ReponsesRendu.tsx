@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche, AlerteGedAffiche } from '../../../../lib/veille/reponsesSuivi';
 import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import { MessageRetour, BlocRepliable, type RetourAction } from './DemandesRendu';
 
@@ -590,13 +590,18 @@ export function mentionExpiration(lien: { recuLe: string; expireLe: string | nul
   return `lien reçu le ${recu} — expire le ${exp}`;
 }
 
-/** Une ligne de lien : URL cliquable (le clic HUMAIN est le geste attendu ; jamais de suivi automatique) + mention datée. */
-function LigneLien({ lien }: { lien: LienAffiche }) {
+/** Une ligne de lien : URL cliquable (le clic HUMAIN est le geste attendu ; jamais de suivi automatique) + mention datée.
+ *  G1 : si `maintenant` est fourni et que le lien FORT a une expiration DÉPASSÉE → avertissement « délai dépassé » (fenêtre manquée). */
+function LigneLien({ lien, maintenant }: { lien: LienAffiche; maintenant?: Date }) {
+  const depasse = lien.fort && lien.expireLe !== null && maintenant !== undefined && new Date(lien.expireLe).getTime() < maintenant.getTime();
   return (
     <div style={{ minWidth: 0 }}>
       <a href={lien.url} target="_blank" rel="noopener noreferrer nofollow"
         style={{ color: 'var(--color-svv-red)', wordBreak: 'break-all', fontSize: 13 }}>{lien.url}</a>
-      <div style={{ ...styleMuted, marginTop: '.1rem' }}>{mentionExpiration(lien)}</div>
+      <div style={{ ...styleMuted, marginTop: '.1rem' }}>
+        {mentionExpiration(lien)}
+        {depasse ? <span style={{ color: 'var(--color-svv-red)', fontWeight: 700 }}> — ⚠ délai dépassé, vérifier le classement en GED</span> : null}
+      </div>
     </div>
   );
 }
@@ -606,7 +611,7 @@ function LigneLien({ lien }: { lien: LienAffiche }) {
  * (pied de page) sont REPLIÉS. On n'en choisit JAMAIS un automatiquement : plusieurs forts → tous listés + mention d'ambiguïté.
  * RÈGLE DURE rappelée à l'écran : un lien n'est jamais suivi automatiquement, le téléchargement est un geste humain. PUR, mobile-first.
  */
-export function BlocLiens({ liens }: { liens: LienAffiche[] }) {
+export function BlocLiens({ liens, maintenant }: { liens: LienAffiche[]; maintenant?: Date }) {
   if (liens.length === 0) return null;
   const forts = liens.filter((l) => l.fort);
   const faibles = liens.filter((l) => !l.fort);
@@ -616,7 +621,7 @@ export function BlocLiens({ liens }: { liens: LienAffiche[] }) {
       {forts.length === 0
         ? <PhraseVide>Aucun lien « sérieux » (chemin à jeton) repéré — vérifiez les liens ci-dessous à la main.</PhraseVide>
         : <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-            {forts.map((l) => <li key={l.url}><LigneLien lien={l} /></li>)}
+            {forts.map((l) => <li key={l.url}><LigneLien lien={l} maintenant={maintenant} /></li>)}
           </ul>}
       {forts.length > 1 && (
         <p role="note" style={{ ...styleMuted, color: 'var(--color-svv-red)', margin: 0 }}>
@@ -627,13 +632,41 @@ export function BlocLiens({ liens }: { liens: LienAffiche[] }) {
         <details>
           <summary style={{ cursor: 'pointer', ...styleMuted }}>{faibles.length} autre{faibles.length > 1 ? 's' : ''} lien{faibles.length > 1 ? 's' : ''} (pied de page, peu probables)</summary>
           <ul style={{ margin: '.3rem 0 0', paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-            {faibles.map((l) => <li key={l.url}><LigneLien lien={l} /></li>)}
+            {faibles.map((l) => <li key={l.url}><LigneLien lien={l} maintenant={maintenant} /></li>)}
           </ul>
         </details>
       )}
       <p role="note" style={{ ...styleMuted, fontStyle: 'italic', margin: 0 }}>
         Un lien n’est jamais suivi automatiquement (certains sont à usage unique ou tracés) : le téléchargement est un geste humain.
       </p>
+    </div>
+  );
+}
+
+/**
+ * G1 — alertes « à classer/télécharger en GED » déjà PARTIES pour la demande (journal alerte_ged). Rend le RETARD visible
+ * (décision 7 : jamais un silence supposé normal). Vide → rien (aucune alerte encore due/envoyée). PUR, mobile-first.
+ */
+export function BlocAlertesGed({ alertes }: { alertes: AlerteGedAffiche[] }) {
+  if (alertes.length === 0) return null;
+  const libelle = (t: string) => (t === 'h24' ? 'Rappel 24 h' : 'Rappel J-3');
+  const enRetard = alertes.some((a) => a.enRetard);
+  return (
+    <div className="svv-card" style={{ marginTop: '.5rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+      <strong style={{ fontSize: 13 }}>Alertes « à classer en GED » envoyées</strong>
+      <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+        {alertes.map((a, i) => (
+          <li key={`${a.type}-${a.numDau ?? '—'}-${a.envoyeLe}-${i}`}>
+            {libelle(a.type)}{a.numDau ? ` — permis N°${a.numDau}` : ' — contenu non rattaché'} — envoyé le {jjmm(a.envoyeLe)}
+            {a.enRetard ? <span style={{ marginLeft: '.35rem', color: 'var(--color-svv-red)', fontWeight: 700 }}>⚠ en retard</span> : null}
+          </li>
+        ))}
+      </ul>
+      {enRetard && (
+        <p role="note" style={{ ...styleMuted, color: 'var(--color-svv-red)', margin: 0 }}>
+          Une alerte est partie EN RETARD (surveillance interrompue) : vérifiez qu’il restait du temps pour récupérer le contenu avant expiration.
+        </p>
+      )}
     </div>
   );
 }

@@ -23,6 +23,7 @@ import { executerApprofondieAuto, depsReellesApprofondie } from '../veille/relev
 import { executerRelanceAuto, depsReellesRelance } from '../veille/relanceAuto';
 import { executerAlerteAuto, depsReellesAlerte } from '../veille/alerteAuto';
 import { executerPropositionAuto, depsReellesProposition } from '../veille/propositionAuto';
+import { executerAlerteGedAuto, depsReellesAlerteGed } from '../veille/alerteGedAuto';
 import { ingererMillesime, millesimeDistantDido, DOSSIER_LOCAL, type CompteursIngestion } from './ingestionMillesime';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger,
@@ -76,6 +77,9 @@ export interface DepsVeille {
   // X5 — PROPOSITIONS de saisine CADA par e-mail (après l'alerte). OPTIONNELLE et ISOLÉE (§1sexies) : un échec d'envoi ne
   //   touche jamais la veille ni la relève. N'envoie JAMAIS rien à une mairie ni à la CADA (e-mail interne uniquement).
   propositionCada?(): Promise<unknown>;
+  // G1 — ALERTES « contenu à classer/télécharger en GED » (après les propositions, §1septies). OPTIONNELLE et ISOLÉE : un
+  //   échec n'impacte jamais la veille ni la relève. E-mail interne à l'exploitant ; on ne suit JAMAIS un lien de mairie.
+  alerteGed?(): Promise<unknown>;
 }
 
 export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = depsReelles()): Promise<ResultatVeille> {
@@ -124,6 +128,13 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   vers une mairie ou la CADA (invariant executerVeille).
     if (deps.propositionCada) {
       try { await deps.propositionCada(); } catch { /* proposition isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1septies) ALERTES « contenu à classer/télécharger en GED » (G1) — DERNIÈRE étape auto : pour chaque réponse porteuse de
+    //   pièces et/ou d'un lien dont le contenu n'est pas encore en GED, un compte à rebours (J-3 puis 24 h) envoie le mail de
+    //   mairie forwardé à l'exploitant. Idempotence par (réponse × permis × type). MÊME ISOLATION : un échec n'impacte rien.
+    if (deps.alerteGed) {
+      try { await deps.alerteGed(); } catch { /* alerte GED isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     const config = await deps.chargerConfig();
@@ -258,6 +269,8 @@ function depsReelles(): DepsVeille {
     alerteQuotidienne: () => executerAlerteAuto(depsReellesAlerte()),
     // X5 — propositions de saisine CADA réelles : conditions + composition + envoi SMTP interne + trace, dans propositionAuto.ts.
     propositionCada: () => executerPropositionAuto(depsReellesProposition()),
+    // G1 — alertes GED réelles : candidats (réponse × permis non classé) + compte à rebours J-3/24 h + forward SMTP + journal, dans alerteGedAuto.ts.
+    alerteGed: () => executerAlerteGedAuto(depsReellesAlerteGed()),
   };
 }
 

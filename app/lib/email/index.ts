@@ -192,6 +192,25 @@ export async function envoyerAlerte(transporteur: Transporter, from: string, m: 
   await transporteur.sendMail({ from, to: m.to, subject: m.sujet, text: m.corps });
 }
 
+export interface MailForwardGed {
+  to: string;
+  sujet: string;
+  corps: string; // texte : le forward composé (lien périssable EN TÊTE)
+  attachments?: { filename: string; content: Buffer; contentType: string }[]; // pièces PETITES relues du stockage ; les lourdes sont liées dans le corps
+}
+
+/**
+ * G1 — envoie une alerte « à classer/télécharger en GED » : le mail de la mairie FORWARDÉ (corps texte + pièces jointes
+ * PETITES). Réutilise le TRANSPORT injecté ; `from` = MAIL_FROM (alias) ; destinataire = l'exploitant (adresse d'alerte).
+ * Les pièces LOURDES ne sont PAS jointes (plafond SMTP) : elles sont liées dans le corps (lien signé). On ne suit JAMAIS un
+ * lien de mairie ici — on ne fait qu'ENVOYER. Additif : ne touche NI le certificat, NI la demande, NI l'alerte quotidienne.
+ */
+export async function envoyerForwardGed(transporteur: Transporter, from: string, m: MailForwardGed): Promise<void> {
+  const message: Parameters<Transporter['sendMail']>[0] = { from, to: m.to, subject: m.sujet, text: m.corps };
+  if (m.attachments && m.attachments.length > 0) message.attachments = m.attachments;
+  await transporteur.sendMail(message);
+}
+
 // ── Envoi d'une DEMANDE de communication à une mairie (S38) ──────────────────────────────────────────────────────────
 export interface MailDemande {
   to: string;       // destinataire figé de la demande (dest_email) — canal 'email' UNIQUEMENT

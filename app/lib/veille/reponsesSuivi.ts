@@ -82,6 +82,14 @@ export interface LienAffiche {
   expirationIndice: string | null; // fragment reconnu (« 7 jours », « jusqu'au 17/08/2026 »)
 }
 
+/** G1 — une alerte GED déjà PARTIE pour cette demande (journal alerte_ged) : rendue visible, retard compris (décision 7). */
+export interface AlerteGedAffiche {
+  type: string;            // 'j3' | 'h24'
+  numDau: string | null;   // permis concerné (null = alerte « contenu non rattaché »)
+  envoyeLe: string;        // ISO
+  enRetard: boolean;       // partie après son seuil (machine éteinte) → jamais un silence supposé normal
+}
+
 /** Une demande envoyée, avec de quoi calculer son échéance À L'AFFICHAGE (etatEcheance) et son détail par dossier. */
 export interface DemandeSuivi {
   demandeId: number;
@@ -98,6 +106,7 @@ export interface DemandeSuivi {
   derniereReponseLe: string | null; // T1 : date (ISO) du dernier message « a écrit » (hors rebond) → pré-remplit « refus le »
   dossiers: DossierSuivi[];
   liens: LienAffiche[];         // L1 : liens de téléchargement captés dans les réponses rattachées (forts d'abord)
+  alertesGed: AlerteGedAffiche[]; // G1 : alertes « à classer/télécharger en GED » déjà envoyées (retard visible)
 }
 // T6-A/2 — le critère d'inclusion « Réponses » (demandeADuRetour) + la partition d'affichage (partitionnerReponses) vivent dans
 //   ReponsesRendu.tsx (module PUR client-safe), PAS ici : ce module importe db/client (pg), qu'on ne veut jamais dans le bundle client.
@@ -279,6 +288,22 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
       .push({ url: r.url, fort: r.fort, recuLe: r.recu_le, expireLe: r.expire_le, expirationSource: r.expiration_source, expirationIndice: r.expiration_indice });
   }
 
+  // G1 — alertes GED déjà parties, par demande (retard rendu visible — décision 7). LECTURE SEULE.
+  const alertes = await query<{ demande_id: number; type: string; num_dau: string | null; envoye_le: string; en_retard: boolean }>(
+    `SELECT r.demande_id::int AS demande_id, ag.type, s.num_dau, ag.envoye_le::text AS envoye_le, ag.en_retard
+       FROM alerte_ged ag
+       JOIN demande_reponse r ON r.id = ag.reponse_id
+       JOIN demande d ON d.id = r.demande_id
+       LEFT JOIN sitadel_dossier s ON s.id = ag.dossier_id
+      WHERE d.statut IN ('envoyee', 'close') AND r.demande_id IS NOT NULL
+      ORDER BY r.demande_id, ag.envoye_le DESC`,
+  );
+  const parAlertes = new Map<number, AlerteGedAffiche[]>();
+  for (const a of alertes.rows) {
+    (parAlertes.get(a.demande_id) ?? parAlertes.set(a.demande_id, []).get(a.demande_id)!)
+      .push({ type: a.type, numDau: a.num_dau, envoyeLe: a.envoye_le, enRetard: a.en_retard });
+  }
+
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
@@ -286,6 +311,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     derniereReponseLe: r.derniere_reponse_le,
     dossiers: parDemande.get(r.id) ?? [],
     liens: parLiens.get(r.id) ?? [],
+    alertesGed: parAlertes.get(r.id) ?? [],
   }));
   return { demandes, derniereOkLe, reglages };
 }

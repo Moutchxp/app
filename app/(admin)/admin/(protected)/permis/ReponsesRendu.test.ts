@@ -5,11 +5,11 @@ import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns, BlocEtatReleve,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
   EtatDemande, RappelObtenusArchives, partitionnerDemandes, partitionnerReponses, demandeADuRetour, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
-  BlocLiens, mentionExpiration,
+  BlocLiens, mentionExpiration, BlocAlertesGed,
   type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi, CumulFenetre, PropositionDepotAffichee, ReglagesReleve, LienAffiche } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi, CumulFenetre, PropositionDepotAffichee, ReglagesReleve, LienAffiche, AlerteGedAffiche } from '../../../../lib/veille/reponsesSuivi';
 
 /**
  * R5a/R5b — rendu PUR de l'écran « Réponses » (renderToStaticMarkup, aucun DOM). Couvre l'indicateur de relève (3 signaux),
@@ -906,5 +906,32 @@ describe('L1 — BlocLiens + mentionExpiration : forts en tête, faibles replié
     const b = lien({ url: 'https://ged.paris.fr/share/s/Xy12Wv34Ut56Rs78Qp/folder', fort: true });
     const h = renderToStaticMarkup(createElement(BlocLiens, { liens: [a, b] }));
     expect(h).toContain('aucun n’est retenu automatiquement');
+  });
+
+  it('G1 — un lien fort dont l’expiration est DÉPASSÉE (maintenant fourni) → « délai dépassé » ; avant → rien', () => {
+    const l = lien({ url: 'https://ged.paris.fr/share/s/Tok9Ab34Cd56Ef78/folder', fort: true, expireLe: '2026-08-17T13:24:00Z', expirationSource: 'relative', expirationIndice: '7 jours' });
+    expect(renderToStaticMarkup(createElement(BlocLiens, { liens: [l], maintenant: new Date('2026-08-20T00:00:00Z') }))).toContain('délai dépassé');
+    expect(renderToStaticMarkup(createElement(BlocLiens, { liens: [l], maintenant: new Date('2026-08-15T00:00:00Z') }))).not.toContain('délai dépassé');
+  });
+});
+
+describe('G1 — BlocAlertesGed : alertes envoyées + retard rendus VISIBLES (décision 7)', () => {
+  it('vide → rien ; sinon liste J-3 / 24 h par permis, avec badge « en retard » + note d’avertissement', () => {
+    expect(renderToStaticMarkup(createElement(BlocAlertesGed, { alertes: [] }))).toBe('');
+    const alertes: AlerteGedAffiche[] = [
+      { type: 'j3', numDau: '0930012500081', envoyeLe: '2026-08-14T13:30:00Z', enRetard: false },
+      { type: 'h24', numDau: '0930012500081', envoyeLe: '2026-08-16T20:00:00Z', enRetard: true },
+    ];
+    const h = renderToStaticMarkup(createElement(BlocAlertesGed, { alertes }));
+    expect(h).toContain('Rappel J-3 — permis N°0930012500081 — envoyé le 14/08');
+    expect(h).toContain('Rappel 24 h — permis N°0930012500081 — envoyé le 16/08');
+    expect(h).toContain('en retard');
+    expect(h).toContain('surveillance interrompue');
+  });
+
+  it('alerte « contenu non rattaché » (permis inconnu) → libellé dédié, sans n° de permis', () => {
+    const h = renderToStaticMarkup(createElement(BlocAlertesGed, { alertes: [{ type: 'j3', numDau: null, envoyeLe: '2026-08-14T13:30:00Z', enRetard: false }] }));
+    expect(h).toContain('contenu non rattaché');
+    expect(h).not.toContain('N°');
   });
 });
