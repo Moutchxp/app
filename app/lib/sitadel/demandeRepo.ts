@@ -522,7 +522,9 @@ export interface DemandeListe { id: number; reference: string; codeInsee: string
   /** D2 — rangs de catégorie DISTINCTS des dossiers de la demande (via classement config), pour le filtre par type. Optionnel : présent sur la LISTE, omis sur le détail. */
   rangs?: number[];
   /** P1 — références internes de la mairie (dépôt manuel), pour la RECHERCHE côté client. Optionnel : présent sur la LISTE. */
-  referencesExternes?: string[] }
+  referencesExternes?: string[];
+  /** T6-B — num_dau des dossiers ACTIFS de la demande (colonne « N° permis »). Optionnel : présent sur la LISTE, omis sur le détail. */
+  numeros?: string[] }
 
 export interface ResumeDemandes { parStatut: Record<string, number>; total: number; dossiersCouverts: number }
 
@@ -549,7 +551,10 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
   const cfg = await chargerConfigVeille();
   const paramsRang: unknown[] = [];
   const rangExpr = expressionRangSql(cfg, paramsRang);
-  const sqlRangs = `SELECT dd.demande_id::int AS demande_id, array_agg(DISTINCT (${rangExpr})) AS rangs
+  // T6-B — même requête (jointure + GROUP BY déjà là → aucun aller-retour) : on agrège AUSSI les num_dau des dossiers ACTIFS
+  //   (FILTER dd.actif), pour la colonne « N° permis ». Cohérent avec `nb` (compte des dossiers actifs). 0 actif → numeros NULL → [].
+  const sqlRangs = `SELECT dd.demande_id::int AS demande_id, array_agg(DISTINCT (${rangExpr})) AS rangs,
+           array_agg(d.num_dau ORDER BY d.num_dau) FILTER (WHERE dd.actif) AS numeros
     FROM demande_dossier dd JOIN sitadel_dossier d ON d.id = dd.dossier_id GROUP BY dd.demande_id`;
   let referencesIndisponibles = false; // P2 — vrai si la lecture des références échoue (à l'écran : « indisponibles » ≠ « aucune »)
   const [r, rs, rd, rr, rx] = await Promise.all([
@@ -564,7 +569,7 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
        FROM demande d LEFT JOIN commune c ON c.code_insee = d.code_insee ORDER BY d.cree_le DESC`),
     query<{ statut: string; n: number }>(`SELECT statut, count(*)::int AS n FROM demande GROUP BY statut`),
     query<{ n: number }>(`SELECT count(DISTINCT dossier_id)::int AS n FROM demande_dossier`),
-    query<{ demande_id: number; rangs: number[] }>(sqlRangs, paramsRang),
+    query<{ demande_id: number; rangs: number[]; numeros: string[] | null }>(sqlRangs, paramsRang),
     // P1 — références mairie par demande, agrégées (pour la RECHERCHE côté client). Requête PROPRE à la liste, aucune
     // incidence sur le chemin CANDIDATS. P2 — un échec est JOURNALISÉ et marqué « indisponible » (jamais muet), sans propager
     // un 503 qui viderait l'onglet pour une donnée d'affichage secondaire.
@@ -574,6 +579,7 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
   const parStatut: Record<string, number> = {};
   for (const s of rs.rows) parStatut[s.statut] = s.n;
   const rangsParDemande = new Map(rr.rows.map((x) => [x.demande_id, x.rangs]));
+  const numerosParDemande = new Map(rr.rows.map((x) => [x.demande_id, x.numeros ?? []])); // T6-B : num_dau actifs (NULL → [])
   const refsParDemande = new Map(rx.rows.map((x) => [x.demande_id, x.refs]));
 
   // Alertes CIBLÉES : uniquement les profils réellement portés par des demandes EN BROUILLON (celles qui aspirent à
@@ -586,7 +592,7 @@ export async function listerDemandes(): Promise<{ demandes: DemandeListe[]; aler
   }
 
   return {
-    demandes: r.rows.map((x) => ({ id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal, destOrigine: x.dest_origine, destNom: x.dest_nom, nbDossiers: x.nb, dossiersDus: x.dossiers_dus, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le, rangs: rangsParDemande.get(x.id) ?? [], referencesExternes: refsParDemande.get(x.id) ?? [] })),
+    demandes: r.rows.map((x) => ({ id: x.id, reference: x.reference, codeInsee: x.code_insee, communeNom: x.commune_nom, canal: x.dest_canal, destOrigine: x.dest_origine, destNom: x.dest_nom, nbDossiers: x.nb, dossiersDus: x.dossiers_dus, statut: x.statut, profil: x.profil_demandeur, creeLe: x.cree_le, rangs: rangsParDemande.get(x.id) ?? [], numeros: numerosParDemande.get(x.id) ?? [], referencesExternes: refsParDemande.get(x.id) ?? [] })),
     alertesIdentite,
     resume: { parStatut, total: r.rows.length, dossiersCouverts: rd.rows[0]?.n ?? 0 },
     referencesIndisponibles,

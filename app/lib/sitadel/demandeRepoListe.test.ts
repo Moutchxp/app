@@ -10,7 +10,7 @@ const { appels, queryMock } = vi.hoisted(() => {
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
     if (sql.includes('config_veille')) return { rows: [] };                                  // → chargerConfigVeille repli défauts
-    if (sql.includes('array_agg(DISTINCT')) return { rows: [{ demande_id: 1, rangs: [1, 4] }] };
+    if (sql.includes('array_agg(DISTINCT')) return { rows: [{ demande_id: 1, rangs: [1, 4], numeros: ['PC0920042500001', 'PC0920042500002'] }] };
     if (sql.includes('FROM demande d LEFT JOIN commune')) return { rows: [{ id: 1, reference: 'SVAV-DEM-2026-000001', code_insee: '92004', commune_nom: 'Asnières', dest_canal: 'email', dest_origine: 'mairie_contact', dest_nom: null, nb: 2, dossiers_dus: 2, statut: 'prete', profil_demandeur: 'entreprise', cree_le: '2026-01-01' }] };
     if (sql.includes('GROUP BY statut')) return { rows: [{ statut: 'prete', n: 1 }] };
     if (sql.includes('count(DISTINCT dossier_id)')) return { rows: [{ n: 2 }] };
@@ -38,6 +38,18 @@ describe('D2 — listerDemandes : enrichissement rangs, chemin candidats intact'
   it('rattache les rangs à la demande', async () => {
     const { demandes } = await listerDemandes();
     expect(demandes[0].rangs).toEqual([1, 4]);
+  });
+
+  it('T6-B — la MÊME requête agrège AUSSI les num_dau des dossiers ACTIFS (colonne « N° permis »), aucun aller-retour', async () => {
+    await listerDemandes();
+    const q = appels.find((a) => a.sql.includes('array_agg(DISTINCT'));
+    const norm = q!.sql.replace(/\s+/g, ' ');
+    expect(norm).toContain('array_agg(d.num_dau ORDER BY d.num_dau) FILTER (WHERE dd.actif) AS numeros'); // ACTIFS seulement → cohérent avec `nb`
+  });
+
+  it('T6-B — rattache les numéros de permis à la demande', async () => {
+    const { demandes } = await listerDemandes();
+    expect(demandes[0].numeros).toEqual(['PC0920042500001', 'PC0920042500002']);
   });
 
   it('T2-C — le compte de dossiers ne compte QUE les attachés (dd.actif) ; expose aussi les dus (actif ET non satisfait)', async () => {

@@ -26,9 +26,10 @@ describe('A1a — TableArchives : état vide EXPLICITE', () => {
 });
 
 describe('A1a — TableArchives : colonnes orientées PERMIS', () => {
-  it('rend N° Sitadel · Commune · Type · Autorisation · Satisfaction · Origine · Demande · Pièces', () => {
+  it('rend N° permis · Commune · Type · Autorisation · Satisfaction · Origine · Demande · Pièces', () => {
     const h = rendu([ligne()]);
-    for (const c of ['N° Sitadel', 'Commune', 'Type', 'Autorisation', 'Satisfaction', 'Origine', 'Demande', 'Pièces']) expect(h).toContain(c);
+    for (const c of ['N° permis', 'Commune', 'Type', 'Autorisation', 'Satisfaction', 'Origine', 'Demande', 'Pièces']) expect(h).toContain(c);
+    expect(h).not.toContain('N° Sitadel'); // T6-B : libellé harmonisé (« N° Sitadel » → « N° permis »)
     expect(h).toContain('PC0750560001');
     expect(h).toContain('Immeuble neuf');        // type via classer (source unique)
     expect(h).toContain('SVAV-DEM-2026-000042');

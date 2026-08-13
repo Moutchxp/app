@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, CellulePermis, CelluleReference, sequenceReference, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 import { formaterReferencePermis } from '../../../../lib/sitadel/referencePermis';
@@ -578,10 +578,10 @@ describe('D3 — TableDemandes : colonne « Type » en 2e position + conteneur d
     expect(h).toContain('aria-sort="none"');       // les autres colonnes triables
   });
 
-  it('liste vide → message explicite sur toute la largeur (colSpan = 10, colonne Type incluse)', () => {
+  it('liste vide → message explicite sur toute la largeur (colSpan = 11 : + colonne « N° permis »)', () => {
     const h = rendu({ visibles: [], messageVide: 'Aucune demande pour ces filtres.' });
     expect(h).toContain('Aucune demande pour ces filtres.');
-    expect(h).toContain('colSpan="10"'); // React 19 émet l'attribut tel quel (HTML insensible à la casse)
+    expect(h).toContain('colSpan="11"'); // T6-B : 11 colonnes (avec sélection, N° permis inclus). React 19 émet l'attribut tel quel
   });
 
   it('défaut (avecSelection omis) : la colonne de sélection est présente (case « Tout sélectionner » + case par ligne)', () => {
@@ -601,11 +601,11 @@ describe('D3 — TableDemandes : colonne « Type » en 2e position + conteneur d
     expect(iType).toBeLessThan(iCommune);
   });
 
-  it('Q6 — avecSelection=false : la ligne vide couvre 9 colonnes (la colonne de sélection retirée)', () => {
+  it('Q6 — avecSelection=false : la ligne vide couvre 10 colonnes (sélection retirée, N° permis inclus)', () => {
     const h = rendu({ avecSelection: false, visibles: [], messageVide: 'Aucune demande.' });
     expect(h).toContain('Aucune demande.');
-    expect(h).toContain('colSpan="9"');
-    expect(h).not.toContain('colSpan="10"');
+    expect(h).toContain('colSpan="10"');
+    expect(h).not.toContain('colSpan="11"');
   });
 });
 
@@ -655,18 +655,18 @@ describe('U7 — TableDemandes : détail en ACCORDÉON à un seul volet, sous la
     expect(h).toContain('aria-expanded="false"');
   });
 
-  it('les COLONNES ne bougent pas : panneau pleine largeur (colSpan=10), en-tête et ligne fermée inchangés', () => {
+  it('les COLONNES ne bougent pas : panneau pleine largeur (colSpan=11), en-tête et ligne fermée inchangés', () => {
     const ouvert = rendu({ demandeOuverte: 1 });
-    expect(ouvert).toContain('colSpan="10"');         // le détail couvre toutes les colonnes → aucun décalage
+    expect(ouvert).toContain('colSpan="11"');         // le détail couvre toutes les colonnes → aucun décalage
     const iRef = ouvert.indexOf('Référence'); const iType = ouvert.indexOf('Type'); const iCommune = ouvert.indexOf('Commune');
     expect(iRef).toBeLessThan(iType); expect(iType).toBeLessThan(iCommune); // en-tête intact
     expect(ouvert).toContain('aria-label="Sélectionner SVAV-DEM-2026-000002"'); // la ligne fermée 2 est intacte
   });
 
-  it('avecSelection=false → le panneau couvre 9 colonnes (colonne de sélection retirée), toujours pleine largeur', () => {
+  it('avecSelection=false → le panneau couvre 10 colonnes (sélection retirée, N° permis inclus), toujours pleine largeur', () => {
     const h = rendu({ demandeOuverte: 1, avecSelection: false });
-    expect(h).toContain('colSpan="9"');
-    expect(h).not.toContain('colSpan="10"');
+    expect(h).toContain('colSpan="10"');
+    expect(h).not.toContain('colSpan="11"');
     expect(h).toContain('DETAIL-DE-LA-LIGNE');
   });
 });
@@ -745,7 +745,7 @@ describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours »
   it('SANS colonnesSuivi (À demander) : aucune colonne supplémentaire, colSpan de base — NON-RÉGRESSION', () => {
     const h = renduTable({ demandeOuverte: 1, panneau: createElement('span', null, 'PAN') });
     expect(h).not.toContain('Délai-EnTete');
-    expect(h).toContain('colSpan="10"'); // 10 colonnes (avec sélection) — inchangé par l’ajout de colonnesSuivi
+    expect(h).toContain('colSpan="11"'); // 11 colonnes (avec sélection, N° permis inclus) — inchangé par l’ajout de colonnesSuivi
   });
 
   it('AVEC colonnesSuivi (En cours) : 2 colonnes ajoutées APRÈS Statut, colSpan du panneau reflète +2', () => {
@@ -753,8 +753,8 @@ describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours »
     expect(h).toContain('Délai-EnTete');
     expect(h).toContain('cell-1');
     expect(h.indexOf('Statut')).toBeLessThan(h.indexOf('Délai-EnTete')); // injectées après la colonne Statut
-    expect(h).toContain('colSpan="12"'); // 10 + 2
-    expect(h).not.toContain('colSpan="10"');
+    expect(h).toContain('colSpan="13"'); // 11 + 2
+    expect(h).not.toContain('colSpan="11"');
   });
 
   it('PanneauDetailDemande : slotDossiers REMPLACE le détail brut, slotActions s’ajoute (En cours) ; sans slots → détail brut (À demander)', () => {
@@ -772,6 +772,56 @@ describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours »
     expect(avec).toContain('SLOT-DOSSIERS-RICHE');
     expect(avec).toContain('SLOT-CLOTURE');
     expect(avec).not.toContain('PC-DOSSIER-BRUT'); // remplacé par le slot riche
+  });
+});
+
+describe('T6-B — colonne « N° permis » (grain demande) + référence interne réduite', () => {
+  it('sequenceReference : dernier segment de SVAV-DEM-AAAA-NNNNNN ; repli sur la référence entière', () => {
+    expect(sequenceReference('SVAV-DEM-2026-000119')).toBe('000119');
+    expect(sequenceReference('AUTREFORMAT')).toBe('AUTREFORMAT');
+  });
+
+  it('CellulePermis : 1 dossier → le numéro SEUL, sans « + » ni infobulle, AUCUN arrêt de tabulation', () => {
+    const h = renderToStaticMarkup(createElement(CellulePermis, { numeros: ['PC0930012500081'], demandeId: 7 }));
+    expect(h).toContain('PC0930012500081');
+    expect(h).not.toContain('+');            // un seul → jamais un « + »
+    expect(h).not.toContain('svv-tip-wrap'); // ni infobulle (inutile pour un seul)
+    expect(h).not.toContain('tabindex');     // → seules les lignes à PLUSIEURS dossiers ajoutent un arrêt de tabulation
+  });
+
+  it('CellulePermis : plusieurs → premier + « +N », TOUS les numéros dans l’infobulle U1 (survol + focus clavier)', () => {
+    const nums = ['PC0930012500081', 'PC0930012500082', 'PC0930012500083', 'PC0930012500084'];
+    const h = renderToStaticMarkup(createElement(CellulePermis, { numeros: nums, demandeId: 119 }));
+    expect(h).toContain('PC0930012500081'); // le premier, visible
+    expect(h).toContain('+3');               // + le compte des autres (jamais présenté comme s’il était seul)
+    expect(h).toContain('class="svv-tip-wrap"'); // mécanisme U1 réutilisé (aucun 2e)
+    expect(h).toContain('role="tooltip"');
+    expect(h).toContain('tabindex="0"');          // focusable → visible au FOCUS clavier (pas seulement au survol)
+    expect(h).toContain('aria-describedby="permis-119"');
+    for (const n of nums) expect(h).toContain(n); // TOUS les numéros (liste complète dans l’infobulle)
+  });
+
+  it('CellulePermis : AUCUN dossier actif → texte EXPLICITE, JAMAIS une cellule vide', () => {
+    expect(renderToStaticMarkup(createElement(CellulePermis, { numeros: [], demandeId: 7 }))).toContain('aucun dossier actif');
+    expect(renderToStaticMarkup(createElement(CellulePermis, { demandeId: 7 }))).toContain('aucun dossier actif'); // numeros absent aussi
+  });
+
+  it('CelluleReference : séquence visible + référence complète ACCESSIBLE (aria-label), mais PLUS un arrêt de tabulation', () => {
+    const h = renderToStaticMarkup(createElement(CelluleReference, { reference: 'SVAV-DEM-2026-000119' }));
+    expect(h).toContain('>000119<');                          // séquence en clair (visible)
+    expect(h).toContain('aria-label="SVAV-DEM-2026-000119"'); // référence complète LISIBLE par un lecteur d'écran (texte accessible SUR la cellule)
+    expect(h).not.toContain('tabindex');                      // PLUS focusable → n'ajoute plus d'arrêt de tabulation (info secondaire)
+    expect(h).toContain('svv-tip');                           // l'infobulle reste au survol souris
+  });
+
+  it('TableDemandes : N° permis = 1re colonne de données (avant Référence) ; la référence interne reste atteignable', () => {
+    const h = renderToStaticMarkup(createElement(TableDemandes, {
+      visibles: [DEM({ id: 5, reference: 'SVAV-DEM-2026-000005', numeros: ['PC0750560001', 'PC0750560002'] })],
+      categories: CATS_D3, tri: TRI_COMMUNE, sel: new Set<number>(), toutCoche: false, messageVide: '—',
+    }));
+    expect(h.indexOf('N° permis')).toBeLessThan(h.indexOf('Référence'));       // en-tête : N° permis AVANT Référence
+    expect(h.indexOf('PC0750560001')).toBeLessThan(h.indexOf('>000005<'));      // cellule : N° permis avant la séquence de référence
+    expect(h).toContain('SVAV-DEM-2026-000005');                               // référence interne complète toujours là (infobulle)
   });
 });
 

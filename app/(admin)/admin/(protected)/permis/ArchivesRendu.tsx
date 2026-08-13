@@ -83,7 +83,7 @@ export const EXPLICATION_VIDE_ARCHIVES =
   'Ces lignes apparaîtront quand une mairie aura répondu à une demande et que les pièces reçues auront été rattachées au dossier (onglet Réponses) : le permis passe alors en « renseigné » et rejoint les archives.';
 
 /**
- * A1a/A1b — TABLEAU des archives, PUR. Une ligne = un permis renseigné. Colonnes : N° Sitadel · Commune · Type · Autorisation ·
+ * A1a/A1b — TABLEAU des archives, PUR. Une ligne = un permis renseigné. Colonnes : N° permis · Commune · Type · Autorisation ·
  * Satisfaction · Origine · Demande · Pièces (les deux origines + l'ajout à la main). Conteneur défilant a11y (mobile). État
  * vide EXPLICITE (message + d'où viennent les lignes), jamais un tableau muet. Tri (satisfaction décroissante) côté serveur.
  */
@@ -107,7 +107,7 @@ export function TableArchives({ lignes, onTelecharger, onSupprimer, onFichier, u
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr style={{ textAlign: 'left', ...muted, borderBottom: '1px solid var(--color-svv-line)' }}>
-            <th style={{ ...styleTd, minWidth: 130 }}>N° Sitadel</th>
+            <th style={{ ...styleTd, minWidth: 130 }}>N° permis</th>
             <th style={{ ...styleTd, whiteSpace: 'normal' }}>Commune</th>
             <th style={styleTd}>Type</th>
             <th style={styleTd}>Autorisation</th>

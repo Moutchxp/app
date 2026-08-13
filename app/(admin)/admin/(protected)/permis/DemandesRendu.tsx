@@ -542,6 +542,63 @@ export interface DemandeAffichee {
   id: number; reference: string; communeNom: string | null; codeInsee: string;
   profil: string; canal: string | null; destOrigine?: string | null; destNom?: string | null;
   nbDossiers: number; statut: string; rangs?: number[];
+  numeros?: string[]; // T6-B — num_dau des dossiers ACTIFS (colonne « N° permis »)
+}
+
+/** T6-B — n° de SÉQUENCE d'une référence SVAV-DEM-AAAA-NNNNNN (dernier segment « NNNNNN »). Repli : la référence entière si le format diffère. PUR. */
+export function sequenceReference(reference: string): string {
+  const parts = reference.split('-');
+  return parts[parts.length - 1] || reference;
+}
+
+const styleMono: CSSProperties = { fontFamily: 'var(--font-svv-mono, monospace)' };
+
+/**
+ * T6-B — cellule d'AFFICHAGE avec INFOBULLE : mécanisme U1 RÉUTILISÉ tel quel (`.svv-tip-wrap` + `.svv-tip`, `aria-describedby`,
+ * visible au SURVOL ET au FOCUS CLAVIER — cf. globals.css:62-66), aucun 2ᵉ mécanisme. Déclencheur = `<span tabIndex={0}>` (focusable
+ * → `:focus-within` révèle l'infobulle au clavier). `idTip` doit être unique dans la page.
+ */
+function AvecInfobulle({ visible, complet, idTip, style }: { visible: ReactNode; complet: string; idTip: string; style?: CSSProperties }) {
+  return (
+    <span className="svv-tip-wrap">
+      <span tabIndex={0} aria-describedby={idTip} style={{ cursor: 'help', ...style }}>{visible}</span>
+      <span role="tooltip" id={idTip} className="svv-tip">{complet}</span>
+    </span>
+  );
+}
+
+/**
+ * T6-B — cellule « N° permis » au grain DEMANDE. 1 dossier → le numéro SEUL (jamais un « + »). Plusieurs → premier numéro + « +N »,
+ * la LISTE COMPLÈTE en infobulle U1. AUCUN dossier actif → texte EXPLICITE (« aucun dossier actif »), JAMAIS une cellule vide (qui
+ * ressemblerait à un bug — même exigence que « rien en silence »). PUR.
+ */
+export function CellulePermis({ numeros, demandeId }: { numeros?: string[]; demandeId: number }) {
+  const nums = numeros ?? [];
+  if (nums.length === 0) return <td style={{ ...styleTdD, whiteSpace: 'nowrap' }}><span style={{ color: 'var(--color-svv-muted)' }}>aucun dossier actif</span></td>;
+  if (nums.length === 1) return <td style={{ ...styleTdD, whiteSpace: 'nowrap', ...styleMono }}>{nums[0]}</td>;
+  return (
+    <td style={{ ...styleTdD, whiteSpace: 'nowrap' }}>
+      <AvecInfobulle idTip={`permis-${demandeId}`} complet={nums.join(', ')} style={styleMono}
+        visible={<>{nums[0]}<span style={{ ...styleMono, color: 'var(--color-svv-muted)', marginLeft: '.25rem' }}>+{nums.length - 1}</span></>} />
+    </td>
+  );
+}
+
+/**
+ * T6-B — cellule « Référence » RÉDUITE : n° de séquence en clair (atténué). La référence COMPLÈTE reste atteignable pour TOUS —
+ * (a) LISIBLE par un lecteur d'écran via `aria-label` SUR LA CELLULE (texte accessible), (b) visible au SURVOL souris (infobulle
+ * `.svv-tip`, aria-hidden pour ne pas doubler la lecture). Retouche a11y : PLUS de `tabIndex` → la cellule cesse d'être un arrêt de
+ * tabulation (info secondaire depuis que le N° permis est en 1re colonne), sans jamais rendre l'information inatteignable. PUR.
+ */
+export function CelluleReference({ reference }: { reference: string }) {
+  return (
+    <td style={{ ...styleTdD, whiteSpace: 'nowrap' }} aria-label={reference}>
+      <span className="svv-tip-wrap">
+        <span style={{ ...styleMono, color: 'var(--color-svv-muted)' }}>{sequenceReference(reference)}</span>
+        <span aria-hidden="true" className="svv-tip">{reference}</span>
+      </span>
+    </td>
+  );
 }
 
 /**
@@ -569,7 +626,7 @@ export function RetourMairie({ etat, nbReponses, derniereReponseLe }: { etat: Et
 }
 
 /**
- * D3 — tableau des demandes PUR. Colonnes : [sélection] · Référence · **Type** · Commune · Profil · Canal · Destinataire ·
+ * D3/T6-B — tableau des demandes PUR. Colonnes : [sélection] · **N° permis** · Référence (réduite) · Type · Commune · Profil · Canal · Destinataire ·
  * Dossiers · Statut · [ouvrir]. Le TYPE est en 2e position DONNÉE (juste après Référence), aligné en-tête ↔ ligne par le même
  * ordre. Tenue à l'écran : conteneur défilant a11y + `nowrap`/`min-width` sobres, « Destinataire » absorbant le surplus. Le
  * tri (EnteteTriable), le filtre et la pagination restent pilotés par la Vue (callbacks). Aucun état ici → renderToStaticMarkup.
@@ -590,14 +647,15 @@ export function TableDemandes({
   onTrier?: (c: TriColonne) => void; onToutSelectionner?: () => void; onBasculer?: (id: number) => void; onOuvrir?: (id: number) => void;
 }) {
   const nowrap: CSSProperties = { ...styleTdD, whiteSpace: 'nowrap' };
-  const nCols = (avecSelection ? 10 : 9) + (colonnesSuivi?.largeur ?? 0); // colonnes du tableau → colSpan du panneau et de la ligne « vide »
+  const nCols = (avecSelection ? 11 : 10) + (colonnesSuivi?.largeur ?? 0); // T6-B : +1 pour « N° permis ». colSpan du panneau et de la ligne « vide »
   return (
     <ConteneurTableDefilant ariaLabel="Tableau des demandes, défilement horizontal">
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr style={{ textAlign: 'left', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
             {avecSelection && <th style={styleTdD}><input type="checkbox" aria-label="Tout sélectionner" checked={toutCoche} onChange={() => onToutSelectionner?.()} /></th>}
-            <th style={{ ...nowrap, minWidth: 150 }}>Référence</th>
+            <th style={{ ...nowrap, minWidth: 130 }}>N° permis</th>
+            <th style={nowrap}>Référence</th>
             <th style={nowrap}>Type</th>
             <EnteteTriable libelle="Commune" colonne="commune" tri={tri} onTrier={onTrier} />
             <th style={styleTdD}>Profil</th>
@@ -616,7 +674,8 @@ export function TableDemandes({
               <Fragment key={d.id}>
                 <tr style={{ borderBottom: ouvert ? 'none' : '1px solid var(--color-svv-line)' }}>
                   {avecSelection && <td style={styleTdD}><input type="checkbox" checked={sel.has(d.id)} onChange={() => onBasculer?.(d.id)} aria-label={`Sélectionner ${d.reference}`} /></td>}
-                  <td style={{ ...nowrap, fontFamily: 'var(--font-svv-mono, monospace)' }}>{d.reference}</td>
+                  <CellulePermis numeros={d.numeros} demandeId={d.id} />
+                  <CelluleReference reference={d.reference} />
                   <CelluleType rangs={d.rangs} categories={categories} />
                   <td style={styleTdD}>{d.communeNom ?? d.codeInsee}</td>
                   <td style={styleTdD}>{ETIQUETTE_PROFIL[d.profil as ProfilDemandeur] ?? d.profil}</td>
