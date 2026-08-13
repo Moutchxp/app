@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns, BlocEtatReleve,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
-  EtatDemande, RappelObtenusArchives, partitionnerDemandes, aReponseSansDocuments, BadgeReponseSansDocuments,
+  EtatDemande, RappelObtenusArchives, partitionnerDemandes, partitionnerReponses, demandeADuRetour, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
   type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
@@ -133,6 +133,51 @@ describe('R5a — CompteSatisfaction : compte de dossiers', () => {
   it('demande partiellement satisfaite → « 2 / 5 »', () => {
     const h = renderToStaticMarkup(createElement(CompteSatisfaction, { satisfaits: 2, total: 5 }));
     expect(h).toContain('2 / 5');
+  });
+});
+
+describe('T6-A/2 — demandeADuRetour + partitionnerReponses : filtre local + EXCLUSION stricte des « sans retour »', () => {
+  const dem = (over: Partial<{ nbReponses: number; dossiersActifs: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[] }> = {}) =>
+    ({ nbReponses: 0, dossiersActifs: 2, dossiersSatisfaits: 0, dossiers: [{ triage: null }, { triage: null }], ...over });
+
+  it('demandeADuRetour : 154 → false ; message / satisfait / triage → true ; rebond seul → false', () => {
+    expect(demandeADuRetour(dem())).toBe(false);                                        // 154 : 0 message, 0 statué → hors Réponses
+    expect(demandeADuRetour(dem({ nbReponses: 1 }))).toBe(true);                        // ≥ 1 message rattaché
+    expect(demandeADuRetour(dem({ dossiersSatisfaits: 1 }))).toBe(true);                // ≥ 1 dossier satisfait
+    expect(demandeADuRetour(dem({ dossiers: [{ triage: 'non_fourni' }] }))).toBe(true); // dossier dû trié
+    expect(demandeADuRetour(dem({ nbReponses: 0 }))).toBe(false);                       // rebond seul : nbReponses reste 0 (Q4)
+  });
+
+  it('partitionnerReponses : la demande SANS retour est EXCLUE, MÊME avec afficherTout (jamais dans « affichees »)', () => {
+    const sansRetour = dem({ nbReponses: 0, dossiersActifs: 2, dossiersSatisfaits: 0 });  // 154
+    const avecMessage = dem({ nbReponses: 1, dossiersActifs: 2, dossiersSatisfaits: 0 }); // vivante avec retour
+    const soldee = dem({ nbReponses: 1, dossiersActifs: 2, dossiersSatisfaits: 2 });      // retour + 0 dû → soldée (masquée par confort)
+    const liste = [sansRetour, avecMessage, soldee];
+
+    const defaut = partitionnerReponses(liste, false);
+    expect(defaut.affichees).toEqual([avecMessage]);   // défaut : seulement les vivantes AVEC retour
+    expect(defaut.soldees).toBe(1);
+    expect(defaut.sansRetour).toBe(1);
+
+    const tout = partitionnerReponses(liste, true);
+    expect(tout.affichees).toEqual([avecMessage, soldee]); // « afficher tout » RÉVÈLE la soldée (masquage de confort)…
+    expect(tout.affichees).not.toContain(sansRetour);       // …mais JAMAIS la sans-retour (EXCLUSION stricte, pas révélable)
+    expect(tout.sansRetour).toBe(1);                        // toujours décomptée (mention non révélable)
+  });
+
+  it('messageReponsesVide : 3 cas d’état vide, JAMAIS de phrase fausse (pas de 4e cas)', () => {
+    // que des soldées / sans dossier dû (révélables) — sansRetour = 0
+    expect(messageReponsesVide({ soldees: 3, sansDossier: 1, sansRetour: 0 })).toContain('soldées ou sans dossier dû');
+    // que des sans-retour (exclues, foyer En cours) — masquées = 0
+    const m2 = messageReponsesVide({ soldees: 0, sansDossier: 0, sansRetour: 2 });
+    expect(m2).toContain('Aucune demande avec retour de la mairie');
+    expect(m2).toContain('En cours');
+    expect(m2).not.toContain('soldées'); // ne dit JAMAIS « soldées » quand ce sont des sans-retour
+    // mélange des deux
+    const m3 = messageReponsesVide({ soldees: 2, sansDossier: 0, sansRetour: 1 });
+    expect(m3).toContain('soldées ou sans dossier dû');
+    expect(m3).toContain('sans retour de la mairie');
+    expect(m3).toContain('En cours');
   });
 });
 

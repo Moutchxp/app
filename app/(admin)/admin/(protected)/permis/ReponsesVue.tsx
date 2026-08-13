@@ -6,7 +6,7 @@ import type { ReponsesData } from '../../../../lib/veille/reponsesSuivi';
 import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import {
   BlocEtatReleve, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
-  partitionnerDemandes, aReponseSansDocuments, BadgeReponseSansDocuments,
+  partitionnerReponses, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
   BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, formaterDate, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
 import { MessageRetour, MentionMasquage } from './DemandesRendu';
@@ -116,13 +116,14 @@ export function ReponsesVue() {
 
   const toggle = (set: Set<number>, id: number): Set<number> => { const n = new Set(set); if (n.has(id)) n.delete(id); else n.add(id); return n; };
 
-  // T2 — RÉPONSES = dossiers dus : une demande sans aucun dossier dû (soldée / sans dossier actif) sort de la liste par défaut,
-  //   jamais en silence (MentionMasquage : « N soldée(s) masquée(s) — les afficher »). La partition est PURE (partitionnerDemandes).
-  const { vivantes, soldees, sansDossier } = partitionnerDemandes(demandes);
-  const demAffichees = afficherSoldees ? demandes : vivantes;
+  // T6-A/2 — FILTRE LOCAL à Réponses (partitionnerReponses, PUR) : EXCLUT les demandes sans retour (foyer = « En cours »), de façon
+  //   STRICTE (jamais révélées, même par « afficher tout »). Le toggle `afficherSoldees` ne lève QUE le masquage de confort (soldées /
+  //   sans dossier actif, qui ONT un retour). Rien en silence : soldées/sans-dossier = révélables (mention + bouton) ; sans-retour =
+  //   EXCLUES (mention `exclus`, sans bouton, « suivies dans En cours »). Jamais dans `chargerDemandesSuivi` → « En cours » les garde.
+  const { affichees: demAffichees, soldees, sansDossier, sansRetour } = partitionnerReponses(demandes, afficherSoldees);
   const mortsMasquage = afficherSoldees ? [] : [
-    { statut: 'soldée', n: soldees.length },
-    { statut: 'sans dossier actif', n: sansDossier.length },
+    { statut: 'soldée', n: soldees },
+    { statut: 'sans dossier actif', n: sansDossier },
   ];
   const nbPagesDem = Math.max(1, Math.ceil(demAffichees.length / PAGE));
   const pDem = Math.min(pageDem, nbPagesDem);
@@ -171,7 +172,7 @@ export function ReponsesVue() {
         ) : (
           <>
             {demAffichees.length === 0 ? (
-              <PhraseVide>Toutes les demandes suivies sont soldées — plus aucun dossier dû.</PhraseVide>
+              <PhraseVide>{messageReponsesVide({ soldees, sansDossier, sansRetour })}</PhraseVide>
             ) : (
               <>
             <div style={{ overflowX: 'auto' }}>
@@ -242,7 +243,9 @@ export function ReponsesVue() {
               </>
             )}
             {/* T2 — le masquage n'est JAMAIS silencieux (réutilise MentionMasquage de Q6b : « N soldée(s) masquée(s) — les afficher »). */}
-            <MentionMasquage morts={mortsMasquage} onAfficherTout={() => setAfficherSoldees(true)} />
+            {/* T6-A/2 — soldées / sans dossier actif = révélables (bouton) ; sans-retour = EXCLUES (motif `exclus`, sans bouton, « suivies dans En cours »). Toujours affiché, même en « afficher tout ». */}
+            <MentionMasquage morts={mortsMasquage} onAfficherTout={() => setAfficherSoldees(true)}
+              exclus={sansRetour > 0 ? { n: sansRetour, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' } : undefined} />
           </>
         )}
       </section>

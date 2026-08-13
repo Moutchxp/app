@@ -337,6 +337,49 @@ export function partitionnerDemandes<T extends { dossiersActifs: number; dossier
   return { vivantes, soldees, sansDossier };
 }
 
+/**
+ * T6-A/2 — critère d'INCLUSION dans « Réponses » : la mairie a ÉCRIT (≥ 1 message RATTACHÉ) OU au moins un dossier est STATUÉ —
+ * `satisfait_le` non nul (→ `dossiersSatisfaits`) OU `triage` non nul (un dossier DÛ trié ; décompte au niveau demande via la liste
+ * `dossiers` DÉJÀ chargée, sans requête ni migration). Un rebond n'est PAS un message (jamais en `demande_reponse`, cf. Q4) → une
+ * demande dont le seul retour est un rebond reste HORS de « Réponses ». Appliqué LOCALEMENT à la vue Réponses (jamais dans
+ * `chargerDemandesSuivi`, sinon ces demandes quitteraient aussi « En cours »). PUR, client-safe (aucune I/O). Param LÂCHE (ne lit
+ * que ces 3 champs) pour rester réutilisable sur le type ENRICHI de la vue.
+ */
+export function demandeADuRetour(d: { nbReponses: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[] }): boolean {
+  return d.nbReponses > 0 || d.dossiersSatisfaits > 0 || d.dossiers.some((x) => x.triage !== null);
+}
+
+/**
+ * T6-A/2 — ce que « Réponses » AFFICHE + les décomptes des motifs écartés. `demandeADuRetour` est une EXCLUSION (foyer = « En
+ * cours ») : une demande SANS retour n'est JAMAIS dans `affichees`, MÊME avec `afficherTout` — elle n'appartient pas à cet onglet
+ * (un invariant qui saute au premier clic n'en est pas un). `afficherTout` ne lève QUE le masquage de CONFORT (soldées / sans
+ * dossier actif, qui, elles, ONT un retour → révélables). PUR → testable en node.
+ */
+export function partitionnerReponses<T extends { nbReponses: number; dossiersActifs: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[] }>(
+  demandes: T[], afficherTout: boolean,
+): { affichees: T[]; soldees: number; sansDossier: number; sansRetour: number } {
+  const avecRetour = demandes.filter(demandeADuRetour);
+  const { vivantes, soldees, sansDossier } = partitionnerDemandes(avecRetour);
+  return {
+    affichees: afficherTout ? avecRetour : vivantes, // JAMAIS `demandes` → les « sans retour » restent exclus, même en « afficher tout »
+    soldees: soldees.length, sansDossier: sansDossier.length,
+    sansRetour: demandes.length - avecRetour.length,
+  };
+}
+
+/**
+ * T6-A/2 — message d'état VIDE de « Réponses » quand des demandes existent mais AUCUNE n'est affichée (`affichees` vide). Trois cas
+ * — et pas un quatrième (si rien n'est affiché, `masquées + sans-retour > 0`) : que des SOLDÉES/sans dossier dû (révélables) ; que
+ * des SANS-RETOUR (exclues, foyer « En cours ») ; MÉLANGE des deux. Une phrase fausse à l'écran reste fausse même corrigée par la
+ * mention en dessous. PUR.
+ */
+export function messageReponsesVide({ soldees, sansDossier, sansRetour }: { soldees: number; sansDossier: number; sansRetour: number }): string {
+  const masquees = soldees + sansDossier; // soldées OU sans dossier actif : ONT un retour → révélables via « afficher tout »
+  if (sansRetour === 0) return 'Toutes les demandes suivies sont soldées ou sans dossier dû (les afficher ci-dessous).';
+  if (masquees === 0) return 'Aucune demande avec retour de la mairie : les demandes envoyées sont suivies dans l’onglet « En cours ».';
+  return 'Aucune demande à afficher ici : certaines sont soldées ou sans dossier dû (révélables ci-dessous), les autres sans retour de la mairie (suivies dans « En cours »).';
+}
+
 // ── U1 — aide des actions de statut d'un dossier (source de vérité UNIQUE : infobulle des boutons + dépliant tactile) ──────
 /**
  * U1 — SOURCE DE VÉRITÉ UNIQUE des légendes des 5 actions de statut d'un dossier (onglet Réponses). Réutilisée SANS

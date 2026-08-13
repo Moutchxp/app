@@ -86,6 +86,8 @@ export interface DemandeSuivi {
   derniereReponseLe: string | null; // T1 : date (ISO) de la réponse rattachée la plus récente → pré-remplit « refus le »
   dossiers: DossierSuivi[];
 }
+// T6-A/2 — le critère d'inclusion « Réponses » (demandeADuRetour) + la partition d'affichage (partitionnerReponses) vivent dans
+//   ReponsesRendu.tsx (module PUR client-safe), PAS ici : ce module importe db/client (pg), qu'on ne veut jamais dans le bundle client.
 
 /** Un message dans la file « à rattacher » (demande_reponse sans demande_id). */
 export interface ReponseARattacher {

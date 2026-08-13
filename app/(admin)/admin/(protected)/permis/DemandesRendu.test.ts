@@ -841,6 +841,31 @@ describe('Q6b — MentionMasquage : le masquage par défaut n’est JAMAIS silen
     expect(h).toContain('5 annulée(s) masquée(s)');
     expect(h).not.toContain('<button');
   });
+
+  it('T6-A/2 — motif EXCLUS (non révélable) : décompte + « suivies dans … », JAMAIS de bouton ni « masquée(s) »', () => {
+    const h = renderToStaticMarkup(createElement(MentionMasquage, { morts: [], exclus: { n: 4, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' } }));
+    expect(h).toContain('4 demande(s) sans retour de la mairie — suivies dans l’onglet En cours');
+    expect(h).not.toContain('<button');      // EXCLUSION : jamais révélable (un invariant qui saute au premier clic n’en est pas un)
+    expect(h).not.toContain('masquée(s)');   // vocabulaire du masquage de confort exclu
+    expect(h).not.toContain('les afficher');
+  });
+
+  it('T6-A/2 — révélables + exclus COEXISTENT sans se confondre (bouton pour les révélables, aucun pour l’exclus)', () => {
+    const h = renderToStaticMarkup(createElement(MentionMasquage, {
+      morts: [{ statut: 'close', n: 2 }], onAfficherTout: () => {},
+      exclus: { n: 4, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' },
+    }));
+    expect(h).toContain('2 close(s) masquée(s)');   // révélable : « masquée(s) » + bouton
+    expect(h).toContain('les afficher');
+    expect(h).toContain('4 demande(s) sans retour de la mairie — suivies dans l’onglet En cours'); // exclus : texte DISTINCT
+    expect((h.match(/<button/g) ?? []).length).toBe(1); // une SEULE offre d’affichage (les révélables), pas une par motif
+  });
+
+  it('T6-A/2 — exclus seul (aucun révélable) → rend quand même la mention (rien en silence)', () => {
+    const h = renderToStaticMarkup(createElement(MentionMasquage, { morts: [], exclus: { n: 1, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' } }));
+    expect(h).toContain('1 demande(s)');
+    expect(h).not.toBe('');
+  });
 });
 
 // ── Q2b : STOCK — bloc repliable + tableau par commune + panneau de détail (disclosure natif) ─────────────────────────

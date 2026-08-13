@@ -471,22 +471,36 @@ export function BlocDossiersDetail({ dossiers, retires }: { dossiers: { numDau: 
   );
 }
 
-export function MentionMasquage({ morts, onAfficherTout }: {
+export function MentionMasquage({ morts, onAfficherTout, exclus }: {
   morts: { statut: string; n: number }[];
   onAfficherTout?: () => void;
+  // T6-A/2 — motif NON RÉVÉLABLE : ces demandes ne sont pas MASQUÉES par confort, elles sont EXCLUES (elles n'appartiennent pas à
+  //   cet onglet — leur foyer est ailleurs). Donc AUCUN bouton d'affichage (un invariant qui saute au premier clic n'en est pas un),
+  //   et une formulation DISTINCTE (« … — suivies dans … », jamais « masquée(s) — les afficher ») + une ligne séparée : révélable et
+  //   non révélable ne se confondent ni visuellement ni dans le texte.
+  exclus?: { n: number; libelle: string };
 }) {
   const visibles = morts.filter((x) => x.n > 0);
   const total = visibles.reduce((a, x) => a + x.n, 0);
-  if (total === 0) return null;
+  const nExclus = exclus?.n ?? 0;
+  if (total === 0 && nExclus === 0) return null;
   const texte = visibles.map((x) => `${x.n} ${STATUT_LIBELLE[x.statut] ?? x.statut}(s) masquée(s)`).join(' · ');
   return (
     <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', marginTop: '.3rem' }}>
-      {texte}
-      {onAfficherTout && (
-        <>
-          {' — '}
-          <button type="button" className="svv-link" style={{ width: 'auto', padding: 0 }} onClick={onAfficherTout}>les afficher</button>
-        </>
+      {total > 0 && (
+        <div>
+          {texte}
+          {onAfficherTout && (
+            <>
+              {' — '}
+              <button type="button" className="svv-link" style={{ width: 'auto', padding: 0 }} onClick={onAfficherTout}>les afficher</button>
+            </>
+          )}
+        </div>
+      )}
+      {nExclus > 0 && (
+        // EXCLUSION (jamais révélable) : ni bouton, ni « masquée(s) ». On DIT le nombre ET où elles sont suivies.
+        <div style={{ marginTop: total > 0 ? '.15rem' : 0 }}>{nExclus} demande(s) {exclus!.libelle}</div>
       )}
     </div>
   );
