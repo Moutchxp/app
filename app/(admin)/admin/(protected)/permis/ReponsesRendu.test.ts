@@ -228,9 +228,9 @@ describe('T2 — exclusivité Réponses / Archives : partition + badges + rappel
     expect(vivant).not.toContain('Aucun dossier actif');
   });
 
-  it('RappelObtenusArchives : N>0 → « N dossier(s) obtenu(s) — voir Archives » ; N=0 → rien', () => {
-    expect(renderToStaticMarkup(createElement(RappelObtenusArchives, { n: 3 }))).toContain('3 dossiers obtenus — voir Archives');
-    expect(renderToStaticMarkup(createElement(RappelObtenusArchives, { n: 1 }))).toContain('1 dossier obtenu — voir Archives');
+  it('T8 — RappelObtenusArchives : « N dossier(s) marqué(s) reçu(s) — voir Archives » (jamais « obtenu ») ; N=0 → rien', () => {
+    expect(renderToStaticMarkup(createElement(RappelObtenusArchives, { n: 3 }))).toContain('3 dossiers marqués reçus — voir Archives');
+    expect(renderToStaticMarkup(createElement(RappelObtenusArchives, { n: 1 }))).toContain('1 dossier marqué reçu — voir Archives');
     expect(renderToStaticMarkup(createElement(RappelObtenusArchives, { n: 0 }))).toBe('');
   });
 });
@@ -390,13 +390,14 @@ describe('T1 — TableRuns : ne montrer en clair que les passes qui apportent qu
 });
 
 describe('R5a — DetailDossiers : satisfait/dû et par quoi', () => {
-  it('un dossier obtenu (automatique) et un dossier dû sont distingués', () => {
+  it('T8 — un dossier MARQUÉ REÇU (automatique) et un dossier dû sont distingués (« reçu », jamais « obtenu »)', () => {
     const dossiers: DossierSuivi[] = [
       { dossierId: 1, numDau: 'PC0920042500001', adresse: '12 rue de la Paix', satisfait: true, satisfaitPar: 'automatique', triage: null, refusLe: null },
       { dossierId: 2, numDau: 'PC0920042500002', adresse: null, satisfait: false, satisfaitPar: null, triage: null, refusLe: null },
     ];
     const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers }));
-    expect(h).toContain('obtenu (automatique)');
+    expect(h).toContain('reçu (automatique)');
+    expect(h).not.toContain('obtenu (automatique)'); // vocabulaire T8 : « obtenu » réservé à un fichier en GED
     expect(h).toContain('dû');
     expect(h).toContain('PC0920042500001');
   });

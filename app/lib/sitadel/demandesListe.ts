@@ -59,10 +59,21 @@ export function partitionnerParDus<T extends { nbDossiers: number; dossiersDus?:
   for (const d of demandes) {
     const dus = d.dossiersDus ?? d.nbDossiers; // repli sûr : sans info de dus → tout dû → jamais masqué à tort
     if (dus > 0) vivantes.push(d);
-    else if (d.nbDossiers > 0) soldees.push(d); // tout obtenu
+    else if (d.nbDossiers > 0) soldees.push(d); // tous marqués reçus (T8 : jamais « obtenu »)
     else sansDossier.push(d);                    // 0 dossier attaché (tous retirés)
   }
   return { vivantes, soldees, sansDossier };
+}
+
+/**
+ * T8 — demandes VISIBLES dans « En cours ». Les SOLDÉES (tous les dossiers actifs marqués reçus) sont **TOUJOURS** exclues, sous
+ * TOUT filtre de statut : leur foyer est Archives, un permis n'est jamais dans deux onglets (règle du fondateur, non révélable —
+ * comme le `sansRetour` de T6-A/2). Les `sansDossier` (0 dossier actif) gardent le masquage RÉVÉLABLE de confort (T2-C) : masquées
+ * au défaut, montrées quand un statut explicite est choisi. PUR → testable sans I/O.
+ */
+export function visiblesEnCours<T extends { nbDossiers: number; dossiersDus?: number }>(demandes: T[], choixParDefaut: boolean): T[] {
+  const { vivantes, sansDossier } = partitionnerParDus(demandes);
+  return choixParDefaut ? vivantes : [...vivantes, ...sansDossier]; // soldées JAMAIS incluses
 }
 
 export interface FiltreDemandes {

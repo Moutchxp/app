@@ -108,7 +108,7 @@ export function SectionSaisissables({ saisissables, cadaEmailVide, retour, onLan
     <section className="flex flex-col gap-2">
       <h2 style={styleH2}>Demandes CADA possibles</h2>
       {saisissables.length === 0 ? (
-        <PhraseVide>Aucune demande n’est actuellement saisissable : soit le refus tacite d’un mois n’est pas encore acquis, soit le délai de saisine (deux mois) est forclos, soit tous les dossiers ont déjà été obtenus.</PhraseVide>
+        <PhraseVide>Aucune demande n’est actuellement saisissable : soit le refus tacite d’un mois n’est pas encore acquis, soit le délai de saisine (deux mois) est forclos, soit tous les dossiers ont déjà été marqués reçus.</PhraseVide>
       ) : (
         saisissables.map((d) => <CarteSaisissable key={d.demandeId} d={d} cadaEmailVide={cadaEmailVide} retour={retour} onLancer={onLancer} />)
       )}

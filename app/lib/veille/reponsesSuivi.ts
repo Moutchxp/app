@@ -102,7 +102,8 @@ export interface DemandeSuivi {
   envoyeLe: string | null;
   statutAcheminement: string;
   dossiersActifs: number;
-  dossiersSatisfaits: number;
+  dossiersSatisfaits: number;   // T8 : dossiers MARQUÉS REÇUS (satisfait_le) — déclaration humaine. JAMAIS « obtenu ».
+  dossiersEnGed: number;        // T8 : dossiers dont un fichier est EN GED (dossier_document, déf. G1/G2) — fait vérifiable. Pilote « obtenu ».
   nbReponses: number;           // T3 : « la mairie a ÉCRIT » — messages rattachés hors rebond (accusé COMPRIS). Pilote « En cours ».
   nbReponsesReelles: number;    // T3 : « la mairie a RÉPONDU » — hors accusé ET hors rebond. Pilote l'entrée dans « Réponses ».
   derniereReponseLe: string | null; // T1 : date (ISO) du dernier message « a écrit » (hors rebond) → pré-remplit « refus le »
@@ -229,7 +230,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   // elle ne disparaît pas de l'écran. Acheminement agrégé + compteurs de dossiers + nombre de réponses rattachées.
   const dem = await query<{
     id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string;
-    envoye_le: string | null; statut_acheminement: string; dossiers_actifs: number; dossiers_satisfaits: number; nb_reponses: number; nb_reponses_reelles: number; derniere_reponse_le: string | null;
+    envoye_le: string | null; statut_acheminement: string; dossiers_actifs: number; dossiers_satisfaits: number; dossiers_en_ged: number; nb_reponses: number; nb_reponses_reelles: number; derniere_reponse_le: string | null;
   }>(
     // T3 — DEUX faits DISTINCTS : « la mairie a ÉCRIT » (nb_reponses, accusé COMPRIS, rebond EXCLU → pilote « En cours ») et
     //   « la mairie a RÉPONDU » (nb_reponses_reelles, hors accusé ET hors rebond → pilote l'entrée dans « Réponses »). Un rebond
@@ -243,6 +244,8 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
                  ELSE 'en_attente' END AS statut_acheminement,
             (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif) AS dossiers_actifs,
             (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NOT NULL) AS dossiers_satisfaits,
+            -- T8 — « EN GED » = une ligne dossier_document (déf. G1/G2), DISTINCT de satisfait_le (« marqué reçu »). Pilote « documents obtenus ».
+            (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif AND EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = dd.dossier_id)) AS dossiers_en_ged,
             (SELECT count(*)::int FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature <> 'rebond') AS nb_reponses,
             (SELECT count(*)::int FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature NOT IN ('accuse','rebond')) AS nb_reponses_reelles
        FROM demande d
@@ -311,7 +314,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
-    dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits, nbReponses: r.nb_reponses, nbReponsesReelles: r.nb_reponses_reelles,
+    dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits, dossiersEnGed: r.dossiers_en_ged, nbReponses: r.nb_reponses, nbReponsesReelles: r.nb_reponses_reelles,
     derniereReponseLe: r.derniere_reponse_le,
     dossiers: parDemande.get(r.id) ?? [],
     liens: parLiens.get(r.id) ?? [],

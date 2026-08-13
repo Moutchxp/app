@@ -602,23 +602,27 @@ export function CelluleReference({ reference }: { reference: string }) {
 }
 
 /**
- * T6-A / T3 — état de RETOUR MAIRIE d'une demande, DÉRIVÉ UNIQUEMENT :
- *  - 'obtenus' : TOUS les dossiers actifs sont satisfaits (documents obtenus et intégrés) ;
- *  - 'message' : la mairie a ÉCRIT — ≥ 1 message rattaché (`nbReponses`). Un ACCUSÉ compte ici (« a écrit ») ; un REBOND non :
- *    `nbReponses` l'EXCLUT par nature (reponsesSuivi), car une non-remise n'est pas un retour de mairie ;
- *  - 'aucun'   : ni message ni satisfaction. Priorité obtenus > message > aucun. (La colonne dédiée aux accusés viendra plus
- *    tard ; ici l'accusé se fond dans « message reçu ».) PUR.
+ * T6-A / T3 / T8 — état de RETOUR MAIRIE d'une demande, DÉRIVÉ UNIQUEMENT. ⚠️ VOCABULAIRE VERROUILLÉ (T8) : « OBTENU » est
+ * RÉSERVÉ à un fichier réellement EN GED (`dossier_document`, déf. G1/G2, importée via `dossiersEnGed`) ; ce qui vient de
+ * `satisfait_le` dit « MARQUÉ REÇU », jamais « obtenu » (une déclaration humaine n'est pas un fait vérifiable) :
+ *  - 'obtenus'         : TOUS les dossiers actifs ont un fichier EN GED → « documents obtenus » ;
+ *  - 'recu_a_classer'  : ≥ 1 dossier MARQUÉ REÇU (satisfait_le) mais PAS (tous) en GED → « reçu, à classer en GED » (nomme l'action attendue) ;
+ *  - 'message'         : la mairie a ÉCRIT — ≥ 1 message rattaché (`nbReponses`, accusé compris, rebond exclu par nature) ;
+ *  - 'aucun'           : rien. Priorité obtenus > reçu-à-classer > message > aucun. PUR.
  */
-export type EtatRetourMairie = 'aucun' | 'message' | 'obtenus';
-export function etatRetourMairie(d: { nbReponses: number; dossiersActifs: number; dossiersSatisfaits: number }): EtatRetourMairie {
-  if (d.dossiersActifs > 0 && d.dossiersSatisfaits >= d.dossiersActifs) return 'obtenus';
+export type EtatRetourMairie = 'aucun' | 'message' | 'recu_a_classer' | 'obtenus';
+export function etatRetourMairie(d: { nbReponses: number; dossiersActifs: number; dossiersSatisfaits: number; dossiersEnGed: number }): EtatRetourMairie {
+  if (d.dossiersActifs > 0 && d.dossiersEnGed >= d.dossiersActifs) return 'obtenus'; // OBTENU = fichiers EN GED (dossier_document), jamais satisfait_le
+  if (d.dossiersSatisfaits > 0) return 'recu_a_classer';                              // marqué reçu, fichier pas (tout) en GED → à classer
   if (d.nbReponses > 0) return 'message';
   return 'aucun';
 }
 
-/** T6-A — cellule « Retour mairie » (3 états dérivés). Le TEXTE porte l'information ; date en JJ/MM. PUR. */
+/** T6-A / T8 — cellule « Retour mairie » (4 états dérivés). Le TEXTE porte l'information ; date en JJ/MM. « obtenu » = fichier
+ *  EN GED (vert) ; « reçu, à classer en GED » = marqué reçu sans fichier (orange, mot G2). PUR. */
 export function RetourMairie({ etat, nbReponses, derniereReponseLe }: { etat: EtatRetourMairie; nbReponses: number; derniereReponseLe: string | null }) {
   if (etat === 'obtenus') return <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>documents obtenus</span>;
+  if (etat === 'recu_a_classer') return <span style={{ color: '#8a5a00', fontWeight: 600 }}>reçu, à classer en GED</span>;
   if (etat === 'message') {
     const [a, m, j] = (derniereReponseLe ?? '').slice(0, 10).split('-');
     const jjmm = a && m && j ? `${j}/${m}` : '—';

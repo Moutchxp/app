@@ -333,10 +333,11 @@ export function EtatDemande({ statut, dossiersActifs, etat, motif }: { statut: s
   return <BadgeEtat etat={etat} motif={motif} />;
 }
 
-/** T2 — dans le détail d'une demande, dire où sont partis les dossiers OBTENUS (ils vivent dans Archives, plus listés ici). PUR. */
+/** T2 / T8 — dans le détail d'une demande, dire où sont partis les dossiers MARQUÉS REÇUS (ils vivent dans Archives, plus listés
+ *  ici). Vocabulaire T8 : « marqué reçu » (satisfait_le), jamais « obtenu » (réservé à un fichier en GED). PUR. */
 export function RappelObtenusArchives({ n }: { n: number }) {
   if (n <= 0) return null;
-  return <p role="note" style={{ ...styleMuted, margin: '.1rem 0', fontStyle: 'italic' }}>{n} dossier{n > 1 ? 's' : ''} obtenu{n > 1 ? 's' : ''} — voir Archives.</p>;
+  return <p role="note" style={{ ...styleMuted, margin: '.1rem 0', fontStyle: 'italic' }}>{n} dossier{n > 1 ? 's' : ''} marqué{n > 1 ? 's' : ''} reçu{n > 1 ? 's' : ''} — voir Archives.</p>;
 }
 
 /**
@@ -351,7 +352,7 @@ export function partitionnerDemandes<T extends { dossiersActifs: number; dossier
   for (const d of demandes) {
     const dus = d.dossiersActifs - d.dossiersSatisfaits;
     if (dus > 0) vivantes.push(d);
-    else if (d.dossiersActifs > 0) soldees.push(d); // tout obtenu → soldée
+    else if (d.dossiersActifs > 0) soldees.push(d); // tout marqué reçu → soldée (T8 : « obtenu » réservé au fichier en GED)
     else sansDossier.push(d);                        // 0 dossier actif
   }
   return { vivantes, soldees, sansDossier };
@@ -527,7 +528,7 @@ export function DetailDossiers({
         const enRefus = refusOuvertDossierId === d.dossierId;
         const enRetrait = retirerOuvertDossierId === d.dossierId;
         let etat: React.ReactNode;
-        if (d.satisfait) etat = <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>obtenu{d.satisfaitPar ? ` (${d.satisfaitPar})` : ''}</span>;
+        if (d.satisfait) etat = <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>reçu{d.satisfaitPar ? ` (${d.satisfaitPar})` : ''}</span>;
         else if (d.triage === 'non_fourni') etat = <span style={{ color: 'var(--color-svv-red)' }}>non fourni (reste dû)</span>;
         else if (d.triage === 'refus_mairie') etat = <span style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}>refus mairie{d.refusLe ? ` (notifié le ${formaterDate(d.refusLe)})` : ''}</span>;
         else etat = <span style={{ color: 'var(--color-svv-muted)' }}>dû</span>;
@@ -569,7 +570,7 @@ export function DetailDossiers({
             {enRetrait && (
               <span style={{ display: 'block', marginTop: '.25rem', padding: '.35rem .5rem', border: '1px solid var(--color-svv-red)', borderRadius: '.4rem', maxWidth: 520 }}>
                 <span role="alert" style={{ color: 'var(--color-svv-red)', display: 'block', marginBottom: '.3rem', lineHeight: 1.4 }}>
-                  Retirer ce dossier le fait <strong>quitter la demande</strong> : il est détaché, redevient demandable et réapparaît dans « À demander ». La demande sera ramenée à ce qui a vraiment été demandé. (Un dossier déjà obtenu ne peut pas être retiré.)
+                  Retirer ce dossier le fait <strong>quitter la demande</strong> : il est détaché, redevient demandable et réapparaît dans « À demander ». La demande sera ramenée à ce qui a vraiment été demandé. (Un dossier déjà marqué reçu ne peut pas être retiré.)
                 </span>
                 <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.1rem .5rem' }} onClick={() => onRetirerConfirmer?.(demandeId, d.dossierId)}>confirmer le retrait</button>
                 <button type="button" className="svv-link" style={{ width: 'auto', padding: 0, marginLeft: '.4rem' }} onClick={() => onRetirerAnnuler?.()}>annuler</button>

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
-import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, CHOIX_STATUT_DEFAUT } from '../../../../lib/sitadel/demandesListe';
+import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, CHOIX_STATUT_DEFAUT } from '../../../../lib/sitadel/demandesListe';
 import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, RetourMairie, etatRetourMairie, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
@@ -136,9 +136,11 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
   // T2-C — « En cours » applique la règle du commit A de Réponses : une demande sans AUCUN dossier dû (actif ET non satisfait)
   //   sort de la liste PAR DÉFAUT. Choisir un statut explicite (≠ défaut) désactive ce masquage → elle reste accessible via le
   //   filtre Statut existant. `À demander` n'est PAS concerné (ses brouillons/prêtes n'ont pas de dossiers retirés/satisfaits).
-  const masquerSoldees = perimetre === 'en_cours' && choixStatut === CHOIX_STATUT_DEFAUT;
+  const enCoursDefaut = perimetre === 'en_cours' && choixStatut === CHOIX_STATUT_DEFAUT;
   const partDus = useMemo(() => partitionnerParDus(dansVueStatut), [dansVueStatut]);
-  const dansVue = masquerSoldees ? partDus.vivantes : dansVueStatut;
+  // T8 — « En cours » : les SOLDÉES (tous dossiers actifs marqués reçus) sont TOUJOURS exclues, sous TOUT filtre (non révélable,
+  //   foyer Archives : un permis n'est jamais dans deux onglets). Les sansDossier gardent le masquage révélable de défaut (T2-C).
+  const dansVue = perimetre === 'en_cours' ? visiblesEnCours(dansVueStatut, enCoursDefaut) : dansVueStatut;
   const filtrees = useMemo(
     () => trierDemandes(filtrerDemandes(dansVue, { statut: '', profil: fProfil, commune: fCommune, types: [...fTypes], reference: fReference }), tri),
     [dansVue, fCommune, fProfil, fTypes, fReference, tri],
@@ -153,10 +155,11 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     () => statutsMorts(perimetre).map((s) => ({ statut: s, n: dansP.filter((d) => d.statut === s).length })),
     [perimetre, dansP],
   );
-  // T2-C — le masquage « 0 dossier dû » (En cours) n'est JAMAIS silencieux : les demandes soldées / sans dossier actif écartées
-  //   par le défaut sont annoncées dans la MÊME mention (MentionMasquage de Q6b, « les afficher » = bascule sur « Toutes »).
-  const mortsSoldees = masquerSoldees ? [{ statut: 'soldée', n: partDus.soldees.length }, { statut: 'sans dossier actif', n: partDus.sansDossier.length }] : [];
-  const morts = choixStatut === CHOIX_STATUT_DEFAUT ? [...mortsDetail, ...mortsSoldees] : [];
+  // T2-C — sansDossier (0 dossier actif) : masquage RÉVÉLABLE de défaut, annoncé avec les morts (« les afficher » = « Toutes »).
+  const mortsSansDossier = enCoursDefaut ? [{ statut: 'sans dossier actif', n: partDus.sansDossier.length }] : [];
+  const morts = choixStatut === CHOIX_STATUT_DEFAUT ? [...mortsDetail, ...mortsSansDossier] : [];
+  // T8 — SOLDÉES : exclusion NON RÉVÉLABLE (mention séparée, sans bouton, → Archives), sous TOUT filtre. Jamais confondue avec le masquage révélable.
+  const exclusSoldees = perimetre === 'en_cours' && partDus.soldees.length > 0 ? { n: partDus.soldees.length, libelle: 'soldée(s) — voir l’onglet Archives' } : undefined;
 
   const nbPages = Math.max(1, Math.ceil(filtrees.length / PAGE_SIZE));
   const pageCourante = Math.min(page, nbPages);
@@ -275,7 +278,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
       {liste && (
         <div className="svv-card" style={{ fontSize: 13 }}>
           <strong>{dansVue.length} demande(s)</strong> · {dossiersVus} dossier(s) couvert(s) — {compteursVus.map((x) => `${x.n} ${STATUT_LIBELLE[x.s]}`).join(' · ') || 'aucune'}.
-          <MentionMasquage morts={morts} onAfficherTout={() => majFiltre(() => setChoixStatut('tous'))} />
+          <MentionMasquage morts={morts} onAfficherTout={() => majFiltre(() => setChoixStatut('tous'))} exclus={exclusSoldees} />
           <div style={{ color: 'var(--color-svv-muted)', marginTop: '.3rem' }}>{TEXTES[perimetre].intro}</div>
         </div>
       )}

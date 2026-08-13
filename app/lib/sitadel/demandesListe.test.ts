@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   basculerTri, filtrerDemandes, trierDemandes, OPTIONS_TRI, cleTri, triDepuisCle, SENS_DEFAUT, typeDemande, normaliserReference,
   dansPerimetre, statutsDuPerimetre, STATUTS_A_DEMANDER, STATUTS_EN_COURS,
-  statutsVivants, statutsMorts, statutsAffiches, CHOIX_STATUT_DEFAUT, partitionnerParDus,
+  statutsVivants, statutsMorts, statutsAffiches, CHOIX_STATUT_DEFAUT, partitionnerParDus, visiblesEnCours,
   type Tri, type LigneDemande,
 } from './demandesListe';
 
@@ -34,6 +34,24 @@ describe('T2-C — partitionnerParDus : « En cours » masque les demandes sans 
   it('repli SÛR : dossiersDus absent → tout dû → jamais masqué à tort', () => {
     const { vivantes } = partitionnerParDus([D({ id: 4, nbDossiers: 2, dossiersDus: undefined })]);
     expect(vivantes.map((d) => d.id)).toEqual([4]);
+  });
+});
+
+describe('T8 — visiblesEnCours : les soldées sont TOUJOURS exclues (non révélable), les sansDossier restent révélables', () => {
+  const vivante = D({ id: 1, nbDossiers: 2, dossiersDus: 1 });
+  const soldee119 = D({ id: 119, nbDossiers: 1, dossiersDus: 0 });  // tous dossiers marqués reçus (satisfait_le) → foyer Archives
+  const sansDoss = D({ id: 3, nbDossiers: 0, dossiersDus: 0 });
+  const liste = [vivante, soldee119, sansDoss];
+
+  it('la 119 (soldée) est ABSENTE au défaut ET sous un filtre explicite (quel que soit le statut choisi)', () => {
+    expect(visiblesEnCours(liste, true).map((d) => d.id)).toEqual([1]);        // défaut : vivante seule
+    expect(visiblesEnCours(liste, false).map((d) => d.id).sort()).toEqual([1, 3]); // filtre explicite : sansDossier révélé, MAIS pas la 119
+    expect(visiblesEnCours(liste, false).some((d) => d.id === 119)).toBe(false); // la soldée n'apparaît JAMAIS
+  });
+
+  it('une demande PARTIELLEMENT satisfaite (≥ 1 dossier dû) reste dans « En cours »', () => {
+    expect(visiblesEnCours([vivante], true).map((d) => d.id)).toEqual([1]);
+    expect(visiblesEnCours([vivante], false).map((d) => d.id)).toEqual([1]);
   });
 });
 

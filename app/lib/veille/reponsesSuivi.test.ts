@@ -41,7 +41,7 @@ describe('T6-A — chargerDemandesSuivi : SOURCE UNIQUE (échéance + retour + d
   it('renvoie les demandes envoyée/close + réglages + derniereOkLe ; une demande SANS message y FIGURE (aucun filtre « la mairie a écrit » ici)', async () => {
     etat.dispatch = [
       { re: OK, rows: [{ t: '2026-08-10T09:00:00Z' }] },
-      { re: DEM, rows: [{ id: 154, reference: 'SVAV-DEM-2026-000154', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 2, dossiers_satisfaits: 0, nb_reponses: 0, nb_reponses_reelles: 0, derniere_reponse_le: null }] },
+      { re: DEM, rows: [{ id: 154, reference: 'SVAV-DEM-2026-000154', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 2, dossiers_satisfaits: 0, dossiers_en_ged: 0, nb_reponses: 0, nb_reponses_reelles: 0, derniere_reponse_le: null }] },
       { re: DOSS, rows: [
         { demande_id: 154, dossier_id: 5, num_dau: 'PC0930011', adresse: null, satisfait: false, satisfait_par: null, triage: null, refus_le: null },
         { demande_id: 154, dossier_id: 6, num_dau: 'PC0930012', adresse: null, satisfait: false, satisfait_par: null, triage: null, refus_le: null },
@@ -52,7 +52,7 @@ describe('T6-A — chargerDemandesSuivi : SOURCE UNIQUE (échéance + retour + d
     expect(reglages).toEqual(expect.objectContaining({ fraicheurHeures: expect.any(Number), alerteJours: expect.any(Number) })); // pour etatEcheance
     expect(demandes).toHaveLength(1);
     // la demande sans réponse (nb_reponses 0) ET sans dossier statué EST bien renvoyée : le filtre Réponses est EN AVAL, pas ici.
-    expect(demandes[0]).toMatchObject({ demandeId: 154, nbReponses: 0, nbReponsesReelles: 0, dossiersActifs: 2, dossiersSatisfaits: 0, statutAcheminement: 'envoye', envoyeLe: '2026-07-01T10:00:00Z' });
+    expect(demandes[0]).toMatchObject({ demandeId: 154, nbReponses: 0, nbReponsesReelles: 0, dossiersActifs: 2, dossiersSatisfaits: 0, dossiersEnGed: 0, statutAcheminement: 'envoye', envoyeLe: '2026-07-01T10:00:00Z' });
     expect(demandes[0].dossiers).toHaveLength(2); // dossiers DUS présents (alimentent DetailDossiers en « En cours »)
     // la requête des demandes ne pose AUCUNE condition sur les messages : critère de statut seul (envoyee/close).
     const dem = appels.find((a) => DEM.test(a.sql))!;
@@ -61,6 +61,9 @@ describe('T6-A — chargerDemandesSuivi : SOURCE UNIQUE (échéance + retour + d
     // T3 — DEUX compteurs distincts : « a écrit » (nb_reponses, hors rebond) et « a répondu » (nb_reponses_reelles, hors accusé ET hors rebond).
     expect(norm(dem.sql)).toContain("nature <> 'rebond'");                // a écrit + derniere_reponse_le
     expect(norm(dem.sql)).toContain("nature NOT IN ('accuse','rebond')"); // a répondu (pilote « Réponses »)
+    // T8 — « en GED » (dossier_document, déf. G1/G2) chargé À PART de satisfait_le → « obtenu » ne ment plus.
+    expect(norm(dem.sql)).toContain('EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = dd.dossier_id)');
+    expect(norm(dem.sql)).toContain('AS dossiers_en_ged');
   });
 
   it('chargerSuiviReponses DÉLÈGUE à chargerDemandesSuivi : mêmes demandes exposées (non-régression de l’extraction)', async () => {

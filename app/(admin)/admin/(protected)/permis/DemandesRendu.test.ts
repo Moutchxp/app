@@ -724,16 +724,21 @@ describe('U7 — PanneauDetailDemande : contenu + actions du détail (déplacé 
 });
 
 describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours » + slots du détail', () => {
-  it('etatRetourMairie : 3 états dérivés (priorité obtenus > message > aucun)', () => {
-    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 2, dossiersSatisfaits: 0 })).toBe('aucun');
-    expect(etatRetourMairie({ nbReponses: 1, dossiersActifs: 2, dossiersSatisfaits: 0 })).toBe('message');
-    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 2, dossiersSatisfaits: 2 })).toBe('obtenus');
-    expect(etatRetourMairie({ nbReponses: 3, dossiersActifs: 2, dossiersSatisfaits: 2 })).toBe('obtenus'); // obtenus prime sur message
-    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 0, dossiersSatisfaits: 0 })).toBe('aucun');   // 0 dossier actif → jamais « obtenus »
+  it('T8 — etatRetourMairie : OBTENU = dossiersEnGed (dossier_document), jamais satisfait_le ; 4e état « reçu, à classer »', () => {
+    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 2, dossiersSatisfaits: 0, dossiersEnGed: 0 })).toBe('aucun');
+    expect(etatRetourMairie({ nbReponses: 1, dossiersActifs: 2, dossiersSatisfaits: 0, dossiersEnGed: 0 })).toBe('message');
+    // « obtenus » UNIQUEMENT quand TOUS les dossiers ont un fichier EN GED :
+    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 2, dossiersSatisfaits: 2, dossiersEnGed: 2 })).toBe('obtenus');
+    expect(etatRetourMairie({ nbReponses: 3, dossiersActifs: 2, dossiersSatisfaits: 2, dossiersEnGed: 2 })).toBe('obtenus'); // obtenus prime
+    // ⚠️ le cas 119 : MARQUÉ REÇU (satisfait_le) sans fichier en GED → JAMAIS « obtenus », mais « reçu, à classer en GED » :
+    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 1, dossiersSatisfaits: 1, dossiersEnGed: 0 })).toBe('recu_a_classer');
+    expect(etatRetourMairie({ nbReponses: 5, dossiersActifs: 2, dossiersSatisfaits: 1, dossiersEnGed: 0 })).toBe('recu_a_classer'); // prime sur message
+    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 0, dossiersSatisfaits: 0, dossiersEnGed: 0 })).toBe('aucun');
   });
 
-  it('RetourMairie : « aucun retour » / « message reçu le JJ/MM (N) » / « documents obtenus »', () => {
+  it('RetourMairie : « aucun retour » / « reçu, à classer en GED » / « message reçu le JJ/MM (N) » / « documents obtenus »', () => {
     expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'aucun', nbReponses: 0, derniereReponseLe: null }))).toContain('aucun retour');
+    expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'recu_a_classer', nbReponses: 0, derniereReponseLe: null }))).toContain('reçu, à classer en GED');
     expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'message', nbReponses: 2, derniereReponseLe: '2026-08-05T09:30:00Z' }))).toContain('message reçu le 05/08 (2)');
     expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'obtenus', nbReponses: 0, derniereReponseLe: null }))).toContain('documents obtenus');
   });
@@ -936,6 +941,13 @@ describe('Q6b — MentionMasquage : le masquage par défaut n’est JAMAIS silen
     const h = renderToStaticMarkup(createElement(MentionMasquage, { morts: [], exclus: { n: 1, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' } }));
     expect(h).toContain('1 demande(s)');
     expect(h).not.toBe('');
+  });
+
+  it('T8 — soldées d’« En cours » : mention NON RÉVÉLABLE « N demande(s) soldée(s) — voir l’onglet Archives » (aucun bouton)', () => {
+    const h = renderToStaticMarkup(createElement(MentionMasquage, { morts: [], exclus: { n: 2, libelle: 'soldée(s) — voir l’onglet Archives' } }));
+    expect(h).toContain('2 demande(s) soldée(s) — voir l’onglet Archives');
+    expect(h).not.toContain('<button');    // jamais révélable : le permis vit dans Archives
+    expect(h).not.toContain('les afficher');
   });
 });
 
