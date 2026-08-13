@@ -88,7 +88,7 @@ export function ArchivesVue() {
       )}
       {message && <p role="alert" style={{ fontSize: 13, color: 'var(--color-svv-red)', fontWeight: 600, margin: 0 }}>{message}</p>}
 
-      <TableArchives lignes={visibles} uploadEnCours={uploadEnCours}
+      <TableArchives lignes={visibles} maintenant={new Date()} uploadEnCours={uploadEnCours}
         onTelecharger={(id, source) => void telecharger(id, source)}
         onSupprimer={(id) => void supprimer(id)}
         onFichier={(dossierId, fichier) => void televerser(dossierId, fichier)} />

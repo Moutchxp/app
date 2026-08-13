@@ -20,6 +20,9 @@ export const SEUIL_PIECE_LOURDE_OCTETS = 20 * 1024 * 1024;
 export const DUREE_LIEN_SIGNE_MIN_S = 72 * 3600;
 /** Au-delà de cette marge après le seuil, l'alerte est « en retard » (la passe launchd est à 15 min → 1 h ne flague jamais un envoi normal). */
 export const MARGE_RETARD_MS = MS_HEURE;
+/** G2 — au-delà de ce nombre de mois CALENDAIRES depuis l'arrivée en Archives (satisfait_le), la ligne repasse en couleur neutre.
+ *  Co-localisé avec les seuils G1 (constante de code, jamais config : c'est un seuil d'AFFICHAGE, pas une variable de veille). */
+export const SEUIL_ARCHIVE_GRIS_MOIS = 2;
 
 /** Expiration EFFECTIVE d'une réponse : l'expiration L1 captée si elle existe, sinon réception + 7 j. */
 export function expirationEffective(recuLe: Date, expireLeCapte: Date | null): Date {

@@ -1,20 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableArchives, PieceLien, AjoutDocument, libelleOrigineSatisfaction, MESSAGE_VIDE_ARCHIVES } from './ArchivesRendu';
+import { TableArchives, PieceLien, AjoutDocument, libelleOrigineSatisfaction, MESSAGE_VIDE_ARCHIVES, etatArchive, BadgeEtatArchive, type EtatArchive } from './ArchivesRendu';
 import type { LigneArchive, PieceArchive } from '../../../../lib/sitadel/demandeRepo';
 
 const emailDeposee: PieceArchive = { id: 10, nomFichier: 'plan-de-masse.pdf', typeMime: 'application/pdf', tailleOctets: 12345, deposee: true, motifNonStocke: null, origine: 'email' };
 const emailNonDeposee: PieceArchive = { id: 11, nomFichier: 'coupe.pdf', typeMime: 'application/pdf', tailleOctets: null, deposee: false, motifNonStocke: 'dépôt S3 non configuré', origine: 'email' };
 const manuel: PieceArchive = { id: 20, nomFichier: 'note-interne.pdf', typeMime: 'application/pdf', tailleOctets: 999, deposee: true, motifNonStocke: null, origine: 'manuel' };
 
+const MAINTENANT = new Date('2026-07-10T12:00:00Z'); // < 2 mois après satisfait_le 2026-07-01, avant le délai (recu_le + 7 j)
 const ligne = (over: Partial<LigneArchive> = {}): LigneArchive => ({
   dossierId: 1, numDau: 'PC0750560001', codeInsee: '75056', communeNom: 'Paris',
   categorie: 'immeuble_neuf', libelleCategorie: 'Immeuble neuf', dateAutorisation: '2026-05-01',
   satisfaitLe: '2026-07-01', satisfaitPar: 'automatique', demandeReference: 'SVAV-DEM-2026-000042',
+  recuLe: '2026-07-01', expireLeCapte: null, aLienFort: false,
   pieces: [emailDeposee], ...over,
 });
-const rendu = (lignes: LigneArchive[]) => renderToStaticMarkup(createElement(TableArchives, { lignes, onTelecharger: () => {}, onSupprimer: () => {}, onFichier: () => {} }));
+const rendu = (lignes: LigneArchive[], maintenant: Date = MAINTENANT) => renderToStaticMarkup(createElement(TableArchives, { lignes, maintenant, onTelecharger: () => {}, onSupprimer: () => {}, onFichier: () => {} }));
 
 describe('A1a — TableArchives : état vide EXPLICITE', () => {
   it('aucune archive → message + explication (d’où viennent les lignes), jamais un tableau muet', () => {
@@ -111,5 +113,61 @@ describe('A1a — libelleOrigineSatisfaction', () => {
     expect(libelleOrigineSatisfaction('manuel')).toBe('manuel');
     expect(libelleOrigineSatisfaction(null)).toBe('—');
     expect(libelleOrigineSatisfaction('bizarre')).toBe('—');
+  });
+});
+
+describe('G2 — etatArchive : 5 états (mot + couleur), 2 mois, exception « versement oublié »', () => {
+  const RECENT = new Date('2026-07-10T12:00:00Z');    // < 2 mois après 2026-07-01, avant délai (recu+7 j = 08/07 déjà passé → dépassé)
+  const AVANT_DELAI = new Date('2026-07-05T12:00:00Z'); // avant recu+7 j
+  const VIEUX = new Date('2026-10-01T12:00:00Z');     // > 2 mois après 2026-07-01
+
+  it('OBTENU (vert) : une pièce manuelle (= dossier_document en GED)', () => {
+    const e = etatArchive(ligne({ pieces: [emailDeposee, manuel] }), RECENT);
+    expect(e).toMatchObject({ cle: 'obtenu', mot: 'obtenu', couleurLigne: 'var(--color-svv-green-ink)' });
+  });
+
+  it('EN ATTENTE (orange) : contenu e-mail non classé, délai NON dépassé', () => {
+    const e = etatArchive(ligne({ pieces: [emailDeposee] }), AVANT_DELAI);
+    expect(e).toMatchObject({ cle: 'attente', mot: 'en attente', couleurLigne: '#8a5a00' });
+  });
+
+  it('DÉLAI DÉPASSÉ (rouge) : contenu non classé, délai G1 (recu + 7 j) passé, < 2 mois', () => {
+    const e = etatArchive(ligne({ recuLe: '2026-07-01', pieces: [emailDeposee] }), RECENT); // 10/07 > 08/07
+    expect(e).toMatchObject({ cle: 'depasse', mot: 'délai dépassé', couleurLigne: 'var(--color-svv-red)' });
+  });
+
+  it('lien fort non classé → même logique de délai (aLienFort compte comme un contenu)', () => {
+    const e = etatArchive(ligne({ pieces: [], aLienFort: true, recuLe: '2026-07-01', expireLeCapte: '2026-07-17' }), AVANT_DELAI);
+    expect(e.cle).toBe('attente'); // expiration L1 17/07 > 05/07
+    expect(etatArchive(ligne({ pieces: [], aLienFort: true, recuLe: '2026-07-01', expireLeCapte: '2026-07-04' }), AVANT_DELAI).cle).toBe('depasse');
+  });
+
+  it('SANS CONTENU REÇU (neutre) : satisfait à la main, aucune pièce, aucun lien → JAMAIS rouge', () => {
+    const e = etatArchive(ligne({ satisfaitPar: 'manuel', recuLe: null, expireLeCapte: null, aLienFort: false, pieces: [] }), VIEUX);
+    expect(e).toMatchObject({ cle: 'sans_contenu', mot: 'sans contenu reçu', couleurLigne: null, couleurPieces: null });
+    expect(e.couleurPieces).not.toBe('var(--color-svv-red)'); // jamais rouge, même vieux
+  });
+
+  it('> 2 mois AVEC documents (classé) → NEUTRE (ligne et pièces sans couleur), mot « obtenu »', () => {
+    const e = etatArchive(ligne({ pieces: [manuel] }), VIEUX);
+    expect(e).toMatchObject({ cle: 'obtenu', mot: 'obtenu', couleurLigne: null, couleurPieces: null });
+  });
+
+  it('> 2 mois SANS documents mais contenu reçu → ligne NEUTRE, colonne Pièces ROUGE « versement oublié »', () => {
+    const e = etatArchive(ligne({ pieces: [emailDeposee] }), VIEUX);
+    expect(e).toMatchObject({ cle: 'versement_oublie', mot: 'versement oublié', couleurLigne: null, couleurPieces: 'var(--color-svv-red)' });
+  });
+});
+
+describe('G2 — rendu : le MOT est TOUJOURS présent (lisible en noir et blanc) + la couleur en appui', () => {
+  it('BadgeEtatArchive rend le mot ; TableArchives colore la ligne et pose le mot dans la colonne Pièces', () => {
+    const etat: EtatArchive = { cle: 'depasse', mot: 'délai dépassé', couleurLigne: 'var(--color-svv-red)', couleurPieces: 'var(--color-svv-red)' };
+    expect(renderToStaticMarkup(createElement(BadgeEtatArchive, { etat }))).toContain('délai dépassé');
+    // ligne « délai dépassé » : mot + couleur rouge présents ; ligne « versement oublié » (>2 mois) : mot présent, ligne neutre
+    const hDepasse = rendu([ligne({ pieces: [emailDeposee] })], new Date('2026-07-15T12:00:00Z'));
+    expect(hDepasse).toContain('délai dépassé');
+    expect(hDepasse).toContain('var(--color-svv-red)');
+    const hOubli = rendu([ligne({ pieces: [emailDeposee] })], new Date('2026-10-01T12:00:00Z'));
+    expect(hOubli).toContain('versement oublié');
   });
 });

@@ -78,3 +78,23 @@ describe('A1a — listerArchives : mapping + pièces', () => {
     expect(r[0].pieces[0].motifNonStocke).toBe('dépôt S3 non configuré');
   });
 });
+
+describe('G2 — listerArchives : charge le délai G1 (recu_le, expiration L1, lien fort) via la réponse', () => {
+  it('la requête joint la réponse et sélectionne recu_le + l’expiration des liens forts + a_lien_fort', async () => {
+    await listerArchives(await chargerConfigVeille());
+    const sql = archiveQuery().sql.replace(/\s+/g, ' ');
+    expect(sql).toContain('LEFT JOIN demande_reponse dr ON dr.id = dd.reponse_id'); // délai G1 via la réponse qui a satisfait
+    expect(sql).toContain('dr.recu_le::text AS recu_le');
+    expect(sql).toContain('AND l.fort'); // expiration + présence limitées aux liens FORTS
+    expect(sql).toContain('AS a_lien_fort');
+  });
+
+  it('mappe recuLe / expireLeCapte / aLienFort ; défauts sûrs si absents (satisfait à la main → recu_le NULL, pas de lien)', async () => {
+    H.state.rows = [row({ recu_le: '2026-07-01', expire_le_capte: '2026-07-17', a_lien_fort: true })];
+    const r = await listerArchives(await chargerConfigVeille());
+    expect(r[0]).toMatchObject({ recuLe: '2026-07-01', expireLeCapte: '2026-07-17', aLienFort: true });
+    H.state.rows = [row({ recu_le: null })]; // satisfait à la main : aucune réponse
+    const r2 = await listerArchives(await chargerConfigVeille());
+    expect(r2[0]).toMatchObject({ recuLe: null, expireLeCapte: null, aLienFort: false });
+  });
+});

@@ -256,9 +256,12 @@ export interface LigneArchive {
   categorie: CleCategorie;
   libelleCategorie: string;
   dateAutorisation: string | null;
-  satisfaitLe: string | null;
+  satisfaitLe: string | null;    // G2 : ancre des « 2 mois » (arrivée en Archives). ⚠️ se remet à jour si le dossier est démarqué puis re-satisfait → l'horloge des 2 mois redémarre (accepté, pas de 2e date).
   satisfaitPar: string | null;   // 'automatique' | 'manuel' (origine du marquage)
   demandeReference: string;
+  recuLe: string | null;         // G2 : date de la réponse qui a satisfait (dd.reponse_id) ; NULL = satisfait à la main sans réponse → aucun délai G1
+  expireLeCapte: string | null;  // G2 : expiration L1 la plus proche des liens forts de cette réponse (NULL → délai G1 = recuLe + 7 j)
+  aLienFort: boolean;            // G2 : la réponse porte un lien fort (contenu périssable non classé) — signal de contenu au même titre qu'une pièce e-mail
   pieces: PieceArchive[];
 }
 
@@ -276,12 +279,19 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
     type: 'PC' | 'PD'; nature_projet_completee: string | null; i_extension: boolean | null; i_surelevation: boolean | null;
     nb_lgt_tot_crees: number | null; surf_creee: string | number | null;
     date_autorisation: string | null; satisfait_le: string | null; satisfait_par: string | null; demande_reference: string;
+    recu_le: string | null; expire_le_capte: string | null; a_lien_fort: boolean;
     pieces: PieceArchive[] | null;
   }>(
+    // G2 — on charge en plus, via la réponse qui a satisfait (dd.reponse_id) : sa date (recu_le, ancre du délai G1), l'expiration
+    //   L1 la plus proche de ses liens forts, et la présence d'un lien fort. LEFT JOIN : un dossier satisfait À LA MAIN (reponse_id
+    //   NULL) n'a ni réponse ni délai (recu_le NULL). Aligné G1 ; « en GED » se lit ensuite des pièces manuelles (dossier_document).
     `SELECT s.id::int AS dossier_id, s.num_dau, s.code_insee, c.nom AS commune_nom,
             s.type, s.nature_projet_completee, s.i_extension, s.i_surelevation, s.nb_lgt_tot_crees, s.surf_creee,
             s.date_reelle_autorisation::text AS date_autorisation,
             dd.satisfait_le::date::text AS satisfait_le, dd.satisfait_par, dm.reference AS demande_reference,
+            dr.recu_le::text AS recu_le,
+            (SELECT min(l.expire_le)::text FROM demande_reponse_lien l WHERE l.reponse_id = dd.reponse_id AND l.fort) AS expire_le_capte,
+            EXISTS (SELECT 1 FROM demande_reponse_lien l WHERE l.reponse_id = dd.reponse_id AND l.fort) AS a_lien_fort,
             COALESCE((
               SELECT json_agg(json_build_object(
                 'id', p.id::int, 'nomFichier', p.nom_fichier, 'typeMime', p.type_mime, 'tailleOctets', p.taille_octets,
@@ -292,6 +302,7 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
        FROM demande_dossier dd
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
        JOIN demande dm ON dm.id = dd.demande_id
+       LEFT JOIN demande_reponse dr ON dr.id = dd.reponse_id
        LEFT JOIN commune c ON c.code_insee = s.code_insee
       WHERE dd.satisfait_le IS NOT NULL
       ORDER BY dd.satisfait_le DESC, s.num_dau`,
@@ -309,6 +320,7 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
       categorie: cl.cle, libelleCategorie: cl.libelle,
       dateAutorisation: r.date_autorisation, satisfaitLe: r.satisfait_le, satisfaitPar: r.satisfait_par,
       demandeReference: r.demande_reference,
+      recuLe: r.recu_le ?? null, expireLeCapte: r.expire_le_capte ?? null, aLienFort: r.a_lien_fort === true,
       // E-MAIL d'abord (origine 'email'), puis les documents manuels de CE dossier ('manuel'). Fusion par dossier_id ::int (nombre) → pas de piège chaîne.
       pieces: [...(r.pieces ?? []), ...(manuels.get(r.dossier_id) ?? [])],
     };
