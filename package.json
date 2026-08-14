@@ -34,6 +34,7 @@
     "relances:envoyer": "tsx app/scripts/relances-envoyer.ts",
     "saisines:envoyer": "tsx app/scripts/saisines-envoyer.ts",
     "demandes:relever": "tsx app/scripts/relever-demandes.ts",
+    "ged:dump": "tsx app/scripts/dumper-ged.ts",
     "alertes:envoyer": "tsx app/scripts/envoyer-alerte.ts",
     "veille:run": "tsx app/scripts/veille-run.ts",
     "commune:import": "tsx app/scripts/commune-import.ts",

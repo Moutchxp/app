@@ -25,6 +25,9 @@
 # nettoie en fin de run ; cette entrée est un garde-fou si $DILA_DIR pointe ici. JAMAIS committé (volumineux, re-téléchargeable).
 /data/dila/
 
+# Sorties locales de dump (ged:dump, etc.) — jamais committées (contenu de documents de mairie, re-générables)
+/.tmp/
+
 # dependencies
 /node_modules
 /.pnp

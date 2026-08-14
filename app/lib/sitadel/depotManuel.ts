@@ -18,6 +18,7 @@ import { createHash } from 'node:crypto';
 import { query } from '../db/client';
 import { dossiersSatisfaits } from '../veille/satisfactionDossier';
 import { libelleNatureProjet } from './priorite'; // N1-B : traduit le code nature (« 1 ») en clair (« Construction neuve »)
+import { extrairePagesPdf } from '../permis/extractionPdf'; // N4 : brique UNIQUE d'extraction PDF (partagée avec lectureGed)
 import type { MessageBoite } from '../veille/releveReponses';
 import type { ProfilBoite } from '../veille/demandeReponseRepo';
 
@@ -223,24 +224,18 @@ export async function chargerAdressesConnues(): Promise<Set<string>> {
   return set;
 }
 
-/** Extraction du texte d'un PDF côté SERVEUR via pdfjs-dist (worker désactivé). Non-PDF ou échec → null (jamais d'exception). */
+/**
+ * Extraction du texte d'un PDF côté SERVEUR — délègue à la brique UNIQUE `extrairePagesPdf` (N4). Concatène les pages (le
+ * rapprochement N1-A cherche un numéro dans tout le texte, la découpe en pages ne lui sert pas). Non-PDF ou échec → null
+ * (jamais d'exception) ; un vrai échec de lecture est journalisé (pas de silence), un simple non-PDF ne l'est pas.
+ */
 async function extraireTextePdfReel(contenu: Buffer, typeMime: string | null): Promise<string | null> {
-  if (typeMime !== 'application/pdf') return null;
-  try {
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(contenu), isEvalSupported: false, useSystemFonts: true }).promise;
-    let texte = '';
-    for (let n = 1; n <= doc.numPages; n++) {
-      const page = await doc.getPage(n);
-      const contenuTexte = await page.getTextContent();
-      texte += contenuTexte.items.map((it) => ('str' in it ? it.str : '')).join(' ') + '\n';
-    }
-    await doc.destroy();
-    return texte;
-  } catch (e) {
-    console.error('[depotManuel] extraction PDF impossible', { message: e instanceof Error ? e.message : String(e) });
+  const r = await extrairePagesPdf(contenu, typeMime);
+  if (!r.ok) {
+    if (typeMime === 'application/pdf') console.error('[depotManuel] extraction PDF impossible', { motif: r.motif });
     return null; // dégradation distinguable : « non extractible » (→ issue extraction_echec), jamais un silence
   }
+  return r.pages.join('\n');
 }
 
 export function depsReellesDepotManuel(): DepsDepotManuel {

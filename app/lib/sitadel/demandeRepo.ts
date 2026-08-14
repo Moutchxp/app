@@ -17,6 +17,7 @@ import { type Collaborateur, choisirCollaborateur } from './collaborateur';
 import { resoudreDestination, type ContactCommune } from './destinataire';
 import { expressionRangSql, classer, libelleNatureProjet, type CleCategorie } from './priorite'; // D2 : expressionRangSql réutilisé (pur) ; Q2b : classer = source unique de catégorie ; N1-B : libelleNatureProjet traduit le code nature
 import type { SourceFichePermis } from '../pdf/fichePermisPdf'; // N1-B : type SEUL (le générateur PDF pdfkit n'entre jamais dans le graphe statique)
+import { MARQUEUR_FICHE_SYNTHESE } from '../permis/gedConstantes'; // N1-B/N4 : sentinelle de la fiche générée (source unique, module propre)
 import { agregerStock, moisDePeriode, type LigneStock, type DossierStock } from './stock'; // Q2b : agrégat PUR du stock (réutilise estCandidatEligible via agregerStock)
 import { lireClePiece } from '../veille/demandeReponseRepo'; // A1b : réutilisé par le dispatcher unique de lecture de clé (pas de 2e implémentation)
 
@@ -285,13 +286,9 @@ export interface LigneArchive {
   pieces: PieceArchive[];
 }
 
-/**
- * N1-B — MARQUEUR d'une fiche de synthèse GÉNÉRÉE, posé dans `dossier_document.note` (colonne texte libre existante, migration
- * 089 — AUCUNE migration nécessaire). Rôle : distinguer la fiche des documents ajoutés à la main (`origine: 'genere'` vs
- * 'manuel'), garantir l'UNICITÉ par permis (delete-then-insert sur ce marqueur) et INTERDIRE sa suppression manuelle. Valeur
- * distinctive, jamais posée par un upload manuel (dont la `note` reste NULL) — pas de collision possible.
- */
-export const MARQUEUR_FICHE_SYNTHESE = '__fiche_synthese_generee__';
+// N1-B / N4 — sentinelle de la fiche générée : source unique dans le module-feuille PROPRE `permis/gedConstantes` (importable
+// par un CLI sans happer `server-only`), importée en tête et RÉ-EXPORTÉE ici pour ne rien casser des usages existants.
+export { MARQUEUR_FICHE_SYNTHESE };
 
 /**
  * A1a — ARCHIVES : tous les permis RENSEIGNÉS par les mairies, c.-à-d. les `demande_dossier` dont `satisfait_le` n'est pas nul
