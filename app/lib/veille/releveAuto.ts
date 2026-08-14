@@ -80,6 +80,41 @@ export async function executerReleveAuto(deps: DepsReleveAuto): Promise<IssueRel
   }
 }
 
+/** Issue d'une relève MANUELLE (chantier R1, bouton « Relever la boîte maintenant »). `inactif` = aucun compte IMAP configuré
+ *  (rien à relever — ce n'est PAS une erreur, cf. convention CLI). `rapport` présent UNIQUEMENT si `resultat === 'ok'`. */
+export interface IssueReleveManuelle {
+  resultat: 'ok' | 'erreur' | 'inactif';
+  raison: string;
+  runId: number | null;
+  rapport: RapportReleve | null;
+}
+
+/**
+ * R1 — relève DÉCLENCHÉE À LA MAIN depuis l'interface. Même CŒUR que `executerReleveAuto` (mêmes deps, même journal releve_run
+ * EN DEUX TEMPS, même ISOLATION : sur échec on journalise « erreur » et on RETOURNE sans relancer) MAIS SANS les gardes
+ * opt-in/intervalle : un clic explicite du fondateur DOIT relever, que la relève automatique soit activée ou non et quelle que
+ * soit l'ancienneté de la dernière passe. `config.active`/`intervalleMinutes` ne sont donc jamais lus ici — seul `profil` sert.
+ * GARDE DE SÛRETÉ : n'appelle QUE `deps.relever` (= releverBoite : LECTURE IMAP stricte + enregistrement des réponses +
+ * versement GED). AUCUN chemin d'envoi d'e-mail n'est atteignable. Ne relance JAMAIS (l'appelant décide de l'issue).
+ */
+export async function executerReleveManuelle(deps: DepsReleveAuto): Promise<IssueReleveManuelle> {
+  const { profil } = await deps.lireConfig(); // SEUL profil est utilisé : ni active ni intervalle (déclenchement explicite)
+  const client = await deps.creerClient(profil);
+  if (client === null) {
+    return { resultat: 'inactif', raison: `profil « ${profil} » inactif (compte IMAP absent)`, runId: null, rapport: null };
+  }
+  const runId = await deps.insererRun(profil); // ligne « en_cours » AVANT d'ouvrir la boîte (trace même en cas de plantage brutal)
+  try {
+    const rapport = await deps.relever(client, profil);
+    await deps.finaliserRun(runId, { resultat: 'ok', termineLe: deps.maintenant(), rapport });
+    return { resultat: 'ok', raison: `${rapport.retenus} retenu(s), ${rapport.rattaches} rattaché(s), ${rapport.ecrites} enregistré(s)`, runId, rapport };
+  } catch (e) {
+    const motif = e instanceof Error ? e.message : String(e);
+    await deps.finaliserRun(runId, { resultat: 'erreur', termineLe: deps.maintenant(), erreur: motif });
+    return { resultat: 'erreur', raison: motif, runId, rapport: null };
+  }
+}
+
 // ── Implémentations RÉELLES (production) ──────────────────────────────────────
 /** Infixe des variables d'environnement par profil (même convention que la CLI `demandes:relever` et `demandes:envoyer`). */
 const INFIXE: Record<ProfilBoite, string> = { entreprise: '', personne: 'PERSONNE_' };

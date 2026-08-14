@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { executerReleveAuto, type DepsReleveAuto } from './releveAuto';
+import { executerReleveAuto, executerReleveManuelle, type DepsReleveAuto } from './releveAuto';
 import type { ClientBoite, RapportReleve } from './releveReponses';
 
 /**
@@ -127,5 +127,57 @@ describe('R7 — executerReleveAuto : tentative réelle journalisée EN DEUX TEM
     await executerReleveAuto(deps);
 
     expect(relever).toHaveBeenCalledWith(client, 'personne');
+  });
+});
+
+describe('R1 — executerReleveManuelle : FORCE la relève (aucune garde opt-in/intervalle)', () => {
+  it('relève DÉSACTIVÉE + dernière « ok » à l’instant → relève quand même (contraste avec executerReleveAuto)', async () => {
+    const relever = vi.fn(async () => rapport({ vus: 4, retenus: 2, rattaches: 2, ecrites: 2 }));
+    const insererRun = vi.fn(async () => 7);
+    const finaliserRun = vi.fn(async () => {});
+    const deps = makeDeps({
+      lireConfig: vi.fn(async () => ({ active: false, intervalleMinutes: 60, profil: 'entreprise' as const })),
+      dernierOkLe: vi.fn(async () => new Date('2026-08-08T11:59:00Z')), // 1 min → executerReleveAuto ignorerait
+      relever, insererRun, finaliserRun,
+    });
+
+    const issue = await executerReleveManuelle(deps);
+
+    expect(issue.resultat).toBe('ok');
+    expect(issue.runId).toBe(7);
+    expect(issue.rapport).toEqual(expect.objectContaining({ vus: 4, ecrites: 2 }));
+    expect(relever).toHaveBeenCalledTimes(1); // la garde « désactivée » NE s'applique PAS au déclenchement manuel
+    expect(insererRun).toHaveBeenCalledWith('entreprise');
+    expect(finaliserRun).toHaveBeenCalledWith(7, expect.objectContaining({ resultat: 'ok' }));
+  });
+
+  it('n’appelle jamais dernierOkLe (aucune notion d’intervalle en manuel)', async () => {
+    const dernierOkLe = vi.fn(async () => new Date('2026-08-08T11:59:00Z'));
+    await executerReleveManuelle(makeDeps({ dernierOkLe }));
+    expect(dernierOkLe).not.toHaveBeenCalled();
+  });
+
+  it('profil INACTIF (creerClient → null) → « inactif », AUCUNE ligne releve_run', async () => {
+    const insererRun = vi.fn(async () => 7);
+    const deps = makeDeps({ creerClient: vi.fn(async () => null), insererRun });
+
+    const issue = await executerReleveManuelle(deps);
+
+    expect(issue.resultat).toBe('inactif');
+    expect(issue.raison).toMatch(/inactif/i);
+    expect(issue.rapport).toBeNull();
+    expect(insererRun).not.toHaveBeenCalled();
+  });
+
+  it('ÉCHEC de relève → journalise « erreur » puis RETOURNE sans jeter (isolation)', async () => {
+    const finaliserRun = vi.fn(async () => {});
+    const deps = makeDeps({ insererRun: vi.fn(async () => 7), finaliserRun, relever: vi.fn(async () => { throw new Error('IMAP timeout'); }) });
+
+    const issue = await executerReleveManuelle(deps);
+
+    expect(issue.resultat).toBe('erreur');
+    expect(issue.raison).toContain('IMAP timeout');
+    expect(issue.rapport).toBeNull();
+    expect(finaliserRun).toHaveBeenCalledWith(7, expect.objectContaining({ resultat: 'erreur', erreur: 'IMAP timeout' }));
   });
 });

@@ -27,6 +27,11 @@ interface Reglages {
 type ReponsePatch = ({ ok: true } & Reglages) | { erreurs: ErreurReglage[] };
 const PROFILS: ProfilDemandeur[] = ['entreprise', 'personne'];
 
+// R1 — forme de la réponse de /api/admin/permis/relever. Type SEUL, déclaré côté client (jamais importé d'un module serveur :
+// on n'importe d'un serveur qu'un `type`, et ici on n'importe même rien — la forme est locale, à l'abri du bundle client).
+type CompteursReleve = { messagesLus: number; retenus: number; rattaches: number; enregistrees: number; depotsGed: number; echecsDepot: number };
+type ReponseReleve = { resultat: 'ok'; compteurs: CompteursReleve } | { resultat: 'inactif'; message: string } | { resultat: 'erreur'; message: string };
+
 const styleInput: CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '.4rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14, fontFamily: 'inherit' };
 const styleLabel: CSSProperties = { fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' };
 const styleAide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)', lineHeight: 1.4 };
@@ -44,6 +49,10 @@ export function ReglagesVue() {
   const [idMsg, setIdMsg] = useState<Record<ProfilDemandeur, string>>({ entreprise: '', personne: '' });
   const [veErreurs, setVeErreurs] = useState<Record<string, string>>({});
   const [veMsg, setVeMsg] = useState<Record<string, string>>({});
+
+  // R1 — relève manuelle de la boîte (ACTION, pas un réglage) : verrou anti-double-clic + résultat affiché en clair.
+  const [releveEnCours, setReleveEnCours] = useState(false);
+  const [releveMsg, setReleveMsg] = useState<{ ton: 'ok' | 'info' | 'erreur'; texte: string } | null>(null);
 
   function hydrater(r: Reglages) {
     setData(r);
@@ -103,6 +112,34 @@ export function ReglagesVue() {
   async function basculerBooleen(colonne: string, actif: boolean) {
     setVeMsg((m) => ({ ...m, [colonne]: '' })); setVeErreurs((m) => ({ ...m, [colonne]: '' }));
     await patchVeille(colonne, actif, actif ? 'Activé.' : 'Désactivé.');
+  }
+
+  /**
+   * R1 — lance la relève de la boîte. Verrou `releveEnCours` = pas de double-clic (donc pas de double relève). Le résultat
+   * (compteurs) est affiché en clair, succès comme échec — jamais un silence. Ce bouton NE DÉCLENCHE AUCUN ENVOI (la route
+   * n'appelle que la relève : lecture de la boîte + classement des réponses).
+   */
+  async function releverBoiteMaintenant() {
+    if (releveEnCours) return;
+    setReleveEnCours(true);
+    setReleveMsg(null);
+    try {
+      const res = await fetch('/api/admin/permis/relever', { method: 'POST' });
+      const rep = (await res.json()) as ReponseReleve;
+      if (rep.resultat === 'ok') {
+        const c = rep.compteurs;
+        const suffixe = c.echecsDepot > 0 ? ` — ${c.echecsDepot} pièce(s) non versée(s) (voir les archives).` : '.';
+        setReleveMsg({ ton: 'ok', texte: `Relève terminée : ${c.messagesLus} message(s) lu(s), ${c.rattaches} rattaché(s), ${c.enregistrees} enregistré(s), ${c.depotsGed} pièce(s) versée(s) en GED${suffixe}` });
+      } else if (rep.resultat === 'inactif') {
+        setReleveMsg({ ton: 'info', texte: rep.message });
+      } else {
+        setReleveMsg({ ton: 'erreur', texte: rep.message ?? 'La relève a échoué.' });
+      }
+    } catch {
+      setReleveMsg({ ton: 'erreur', texte: 'Relève impossible : le serveur n’a pas répondu.' });
+    } finally {
+      setReleveEnCours(false);
+    }
   }
 
   if (etat === 'chargement') return <p style={styleAide} aria-live="polite">Chargement des réglages…</p>;
@@ -212,6 +249,30 @@ export function ReglagesVue() {
         { titre: TITRE_THEME_CADA, icone: '⚖️', params: PARAMS_THEME_CADA },
       ].map(({ titre, icone, params }) => (
         <CarteSection key={titre} titre={titre} icone={icone}>
+          {/* R1 — ACTION « Relever la boîte maintenant » : en tête de la carte « Réponses et échéances », car c'est là qu'on
+              attend les retours de mairie. Aucune animation → prefers-reduced-motion sans objet. */}
+          {titre === TITRE_THEME_REPONSES && (
+            <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
+              <span style={styleLabel}>Relève de la boîte</span>
+              <span style={styleAide}>
+                Lit la boîte e-mail et classe les réponses reçues des mairies (rattachement aux demandes, versement des pièces
+                en GED). <strong>Aucun e-mail n’est envoyé</strong> : ce bouton relève seulement — il ne relance rien et ne
+                saisit jamais la CADA.
+              </span>
+              <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.45rem 1rem' }}
+                  onClick={() => void releverBoiteMaintenant()} disabled={releveEnCours} aria-busy={releveEnCours}>
+                  {releveEnCours ? 'Relève en cours…' : 'Relever la boîte maintenant'}
+                </button>
+              </div>
+              {releveMsg && (
+                <span role={releveMsg.ton === 'erreur' ? 'alert' : 'status'} aria-live="polite"
+                  style={{ fontSize: 13, fontWeight: 600, color: releveMsg.ton === 'ok' ? 'var(--color-svv-green-ink)' : releveMsg.ton === 'erreur' ? 'var(--color-svv-red)' : 'var(--color-svv-ink)' }}>
+                  {releveMsg.texte}
+                </span>
+              )}
+            </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
             {params.map(carteParam)}
           </div>
