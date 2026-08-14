@@ -7,7 +7,7 @@ import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, 
 import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, RetourMairie, etatRetourMairie, nbAutreARepondre, BadgeReponseAttendue, FOND_REPONSE_ATTENDUE, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
-import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, formaterDate, type RetourCible } from './ReponsesRendu';
+import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, formaterDate, type RetourCible } from './ReponsesRendu';
 import { etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 
@@ -242,6 +242,14 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     } else setRetourReponse({ cle, texte: await erreurServeur(res, 'Action impossible.'), ok: false });
   }
 
+  // T5 — téléchargement d'une pièce de réponse : SEUL signeur `url_piece` (source 'reponse' par défaut). Le client n'envoie
+  //   qu'un pieceId ; le serveur lit la clé et renvoie une URL signée (la clé ne transite jamais). Aucune 2e implémentation.
+  async function telechargerPiece(pieceId: number): Promise<void> {
+    const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'url_piece', pieceId }) });
+    if (res.ok) { const { url } = (await res.json()) as { url: string }; window.open(url, '_blank', 'noopener,noreferrer'); }
+    else setRetourReponse({ cle: `piece-${pieceId}`, texte: await erreurServeur(res, 'Lien indisponible.'), ok: false });
+  }
+
   const selProfil = (id: string) => id as ProfilDemandeur;
   const zonesRetour = repartirRetour(retour, detail !== null);
   const aujourdhui = formaterDate(maintenant.toISOString()); // borne « refus le » (max) — la route reste l'autorité
@@ -409,6 +417,8 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
                 {/* L1 — MÊME BlocLiens que « Réponses », injecté par slot avec les liens DÉJÀ chargés (richDetail.liens) : un
                     accusé porteur d'un lien reste hors de « Réponses » (T3) mais son lien doit rester visible ICI, dans « En cours ». */}
                 <BlocLiens liens={richDetail.liens} maintenant={new Date()} />
+                {/* T5 — pièces des réponses rattachées, consultables/téléchargeables ici aussi (une demande porteuse de documents peut être en « En cours »). */}
+                <BlocPiecesReponses groupes={richDetail.piecesReponses} onTelecharger={(pieceId) => void telechargerPiece(pieceId)} />
                 {/* G1 — alertes « à classer/télécharger en GED » envoyées pour cette demande (retard rendu visible). */}
                 <BlocAlertesGed alertes={richDetail.alertesGed} />
                 {/* T7-B (cas ③) — messages « autre » appelant une réponse : bouton « répondu » MANUEL et RÉVERSIBLE par message. */}

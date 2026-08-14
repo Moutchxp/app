@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche, AlerteGedAffiche, MessageAutreAffiche } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche, AlerteGedAffiche, MessageAutreAffiche, ReponsePieces } from '../../../../lib/veille/reponsesSuivi';
 import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import { MessageRetour, BlocRepliable, type RetourAction } from './DemandesRendu';
 
@@ -588,7 +588,7 @@ export function DetailDossiers({
 
 // ── Bloc L1 : liens de téléchargement captés dans une réponse ─────────────────────────────────────────────────────────
 /** ISO → « JJ/MM » (déterministe, sans fuseau). */
-function jjmm(iso: string | null): string {
+export function jjmm(iso: string | null): string {
   if (!iso) return '—';
   const [a, m, j] = iso.slice(0, 10).split('-');
   return a && m && j ? `${j}/${m}` : '—';
@@ -740,6 +740,50 @@ export function BlocMessagesAutre({ messages, retour, compteReleve, onRepondu, o
       <p role="note" style={{ ...styleMuted, margin: 0 }}>
         Pré-cochage automatique : ne détecte que les réponses envoyées depuis {compteReleve && compteReleve.trim() !== '' ? compteReleve : 'le compte de relève'} (webmail ou téléphone du même compte inclus).
       </p>
+    </div>
+  );
+}
+
+/** T5 — tronque proprement un objet de message pour l'étiquette (coupe sur un mot si possible, ajoute « … »). PUR. */
+export function tronquerObjet(objet: string | null, max = 60): string {
+  const s = (objet ?? '').trim();
+  if (s === '') return '(sans objet)';
+  if (s.length <= max) return s;
+  const coupe = s.slice(0, max);
+  const espace = coupe.lastIndexOf(' ');
+  return `${(espace > max * 0.6 ? coupe.slice(0, espace) : coupe).trimEnd()}…`;
+}
+
+/**
+ * T5 — bloc des PIÈCES des réponses rattachées à la demande, groupées par réponse (« reçues le JJ/MM — objet »). Rend enfin
+ * consultables/téléchargeables les pièces d'une réponse rattachée (Réponses ET En cours). Contrat identique à l'existant :
+ * bouton `url_piece` (source 'reponse', signé côté serveur) SEULEMENT si la pièce est stockée ; sinon le motif en clair, JAMAIS
+ * un bouton mort. La CLÉ de stockage n'est PAS dans les props (seul un booléen `stockee` + l'id) → jamais dans le HTML. PUR.
+ */
+export function BlocPiecesReponses({ groupes, onTelecharger }: {
+  groupes: ReponsePieces[];
+  onTelecharger?: (pieceId: number) => void; // le serveur signe (source 'reponse' par défaut) ; le client n'envoie qu'un pieceId
+}) {
+  if (groupes.length === 0) return null;
+  return (
+    <div className="svv-card" style={{ marginTop: '.5rem', display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+      <strong style={{ fontSize: 13 }}>Pièces reçues de la mairie</strong>
+      {groupes.map((g) => (
+        <div key={g.reponseId} style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+          <span style={{ ...styleMuted, fontSize: 12 }}>reçues le {jjmm(g.recuLe)} — {tronquerObjet(g.objet)}</span>
+          <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+            {g.pieces.map((p) => (
+              <li key={p.id}>
+                {p.stockee
+                  ? (onTelecharger
+                    ? <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', textAlign: 'left' }} onClick={() => onTelecharger(p.id)}>{p.nomFichier} ↓</button>
+                    : <span>{p.nomFichier}</span>)
+                  : <span style={{ color: 'var(--color-svv-red)' }}>{p.nomFichier} — <em>non récupérée{p.motif ? ` : ${p.motif}` : ''}</em></span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </div>
   );
 }

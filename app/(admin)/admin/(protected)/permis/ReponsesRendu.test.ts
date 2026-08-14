@@ -5,7 +5,7 @@ import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns, BlocEtatReleve,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
   EtatDemande, RappelObtenusArchives, partitionnerDemandes, partitionnerReponses, demandeADuRetour, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
-  BlocLiens, mentionExpiration, BlocAlertesGed, BlocMessagesAutre,
+  BlocLiens, mentionExpiration, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, tronquerObjet,
   type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
@@ -971,5 +971,48 @@ describe('T7-B — BlocMessagesAutre : bouton « répondu » MANUEL et RÉVERSIB
     expect(h).toContain('par 5');
     expect(h).toContain('annuler');
     expect(h).toContain('tous répondus'); // titre quand aucun ne reste à répondre
+  });
+});
+
+describe('T5 — tronquerObjet', () => {
+  it('objet vide/null → « (sans objet) » ; court → intact ; long → tronqué avec …', () => {
+    expect(tronquerObjet(null)).toBe('(sans objet)');
+    expect(tronquerObjet('   ')).toBe('(sans objet)');
+    expect(tronquerObjet('Réponse courte')).toBe('Réponse courte');
+    const long = 'Réponse de la mairie concernant votre demande de communication de documents administratifs relatifs au permis';
+    const t = tronquerObjet(long, 40);
+    expect(t.length).toBeLessThanOrEqual(41); // ≤ max + « … »
+    expect(t.endsWith('…')).toBe(true);
+  });
+});
+
+describe('T5 — BlocPiecesReponses : pièces rattachées, consultables/téléchargeables', () => {
+  const G = (over: Partial<{ reponseId: number; recuLe: string; objet: string | null; pieces: { id: number; nomFichier: string; stockee: boolean; motif: string | null }[] }> = {}) =>
+    ({ reponseId: 71, recuLe: '2026-08-12T09:00:00Z', objet: 'Envoi des pièces', pieces: [{ id: 500, nomFichier: 'plan.pdf', stockee: true, motif: null }], ...over });
+
+  it('vide → ne rend rien', () => {
+    expect(renderToStaticMarkup(createElement(BlocPiecesReponses, { groupes: [] }))).toBe('');
+  });
+
+  it('pièce stockée → bouton de téléchargement ; étiquette « reçues le JJ/MM — objet »', () => {
+    const h = renderToStaticMarkup(createElement(BlocPiecesReponses, { groupes: [G()], onTelecharger: () => {} }));
+    expect(h).toContain('Pièces reçues de la mairie');
+    expect(h).toContain('reçues le 12/08 — Envoi des pièces');
+    expect(h).toContain('plan.pdf');
+    expect(h).toContain('<button'); // bouton présent pour une pièce stockée
+  });
+
+  it('pièce NON stockée → motif en clair et AUCUN bouton (jamais un fichier « disponible » à tort)', () => {
+    const h = renderToStaticMarkup(createElement(BlocPiecesReponses, {
+      groupes: [G({ pieces: [{ id: 501, nomFichier: 'coupe.pdf', stockee: false, motif: 'pièce trop volumineuse : 60 Mo (maximum 50 Mo)' }] })], onTelecharger: () => {},
+    }));
+    expect(h).toContain('coupe.pdf');
+    expect(h).toContain('non récupérée : pièce trop volumineuse : 60 Mo (maximum 50 Mo)');
+    expect(h).not.toContain('<button'); // AUCUN bouton mort sur une pièce refusée au dépôt
+  });
+
+  it('SÉCURITÉ : la clé de stockage n’apparaît jamais dans le rendu', () => {
+    const h = renderToStaticMarkup(createElement(BlocPiecesReponses, { groupes: [G()], onTelecharger: () => {} }));
+    expect(h).not.toMatch(/cle_stockage|entrantes\/|\.s3\./i);
   });
 });

@@ -7,7 +7,7 @@ import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import {
   BlocEtatReleve, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
   partitionnerReponses, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
-  BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, BlocLiens, BlocAlertesGed, formaterDate, type RetourCible, type OptionDemande,
+  BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, BlocLiens, BlocAlertesGed, BlocPiecesReponses, formaterDate, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
 import { MessageRetour, MentionMasquage } from './DemandesRendu';
 
@@ -227,6 +227,8 @@ export function ReponsesVue() {
                             )}
                             {/* L1 — liens captés (jamais suivis auto) ; G1 — « maintenant » signale un délai dépassé (fenêtre manquée). */}
                             <BlocLiens liens={d.liens} maintenant={new Date()} />
+                            {/* T5 — pièces des réponses rattachées, consultables/téléchargeables (signeur unique url_piece, source 'reponse'). */}
+                            <BlocPiecesReponses groupes={d.piecesReponses} onTelecharger={(pieceId) => void telecharger(d.demandeId, pieceId)} />
                             {/* G1 — alertes « à classer/télécharger en GED » déjà envoyées (retard rendu visible). */}
                             <BlocAlertesGed alertes={d.alertesGed} />
                             <div style={{ marginTop: '.5rem' }}>

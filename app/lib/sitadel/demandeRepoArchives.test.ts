@@ -98,3 +98,31 @@ describe('G2 — listerArchives : charge le délai G1 (recu_le, expiration L1, l
     expect(r2[0]).toMatchObject({ recuLe: null, expireLeCapte: null, aLienFort: false });
   });
 });
+
+describe('T5 — listerArchives : pièces au grain DEMANDE (répare le « marquer reçu » manuel, sans script de reprise)', () => {
+  it('les pièces e-mail sont chargées de TOUTES les réponses de la demande (hors rebond), étiquetées recuLe+objet — plus par dd.reponse_id', async () => {
+    await listerArchives(await chargerConfigVeille());
+    const sql = archiveQuery().sql.replace(/\s+/g, ' ');
+    // repli demande-grain : la sous-requête des pièces ne clé PLUS sur dd.reponse_id
+    expect(sql).toContain('WHERE dr2.demande_id = dd.demande_id AND dr2.nature <> \'rebond\'');
+    expect(sql).not.toContain('FROM demande_reponse_piece p WHERE p.reponse_id = dd.reponse_id'); // ancienne voie supprimée
+    // étiquette par réponse (date + objet)
+    expect(sql).toContain("'recuLe', dr2.recu_le::text");
+    expect(sql).toContain("'objet', dr2.objet");
+    // G1/G2 INCHANGÉS : le délai reste ancré sur la réponse satisfaisante (dd.reponse_id)
+    expect(sql).toContain('LEFT JOIN demande_reponse dr ON dr.id = dd.reponse_id');
+  });
+
+  it('un permis satisfait À LA MAIN (satisfait_par manuel, recu_le NULL) affiche désormais les pièces e-mail de sa demande, étiquetées', async () => {
+    H.state.rows = [row({
+      satisfait_par: 'manuel', recu_le: null, // satisfait à la main : aucune réponse liée par dd.reponse_id
+      pieces: [{ id: 30, nomFichier: 'arrete.pdf', typeMime: 'application/pdf', tailleOctets: 5000, deposee: true, motifNonStocke: null, origine: 'email', recuLe: '2026-06-20', objet: 'Documents demandés' }],
+    })];
+    const r = await listerArchives(await chargerConfigVeille());
+    expect(r[0].satisfaitPar).toBe('manuel');
+    expect(r[0].recuLe).toBeNull();                 // pas de délai G1 (inchangé)
+    expect(r[0].pieces).toHaveLength(1);            // MAIS les pièces e-mail de la demande sont là (le défaut réparé)
+    expect(r[0].pieces[0]).toMatchObject({ id: 30, nomFichier: 'arrete.pdf', origine: 'email', recuLe: '2026-06-20', objet: 'Documents demandés' });
+    expect(JSON.stringify(r)).not.toContain('cle_stockage');
+  });
+});

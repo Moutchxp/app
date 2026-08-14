@@ -258,6 +258,41 @@ describe('T7-B — chargerDemandesSuivi : messages « autre » ancrés par deman
   });
 });
 
+describe('T5 — chargerDemandesSuivi : pièces des réponses rattachées, groupées par réponse (Réponses ET En cours)', () => {
+  const OK = /max\(termine_le\)/;
+  const DEM = /min\(a\.envoye_le\)::text AS envoye_le/;
+  const PJR = /p\.id::int AS piece_id/; // unique à la requête T5 des pièces rattachées
+
+  it('groupe les pièces par réponse (récente d’abord) ; bouton seulement si stockée, sinon motif ; clé jamais sélectionnée', async () => {
+    etat.dispatch = [
+      { re: OK, rows: [{ t: '2026-08-10T09:00:00Z' }] },
+      { re: DEM, rows: [{ id: 154, reference: 'SVAV-DEM-2026-000154', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 1, dossiers_satisfaits: 0, dossiers_en_ged: 0, nb_reponses: 2, nb_reponses_reelles: 2, derniere_reponse_le: '2026-08-12T09:00:00Z' }] },
+      { re: PJR, rows: [
+        { demande_id: 154, reponse_id: 71, recu_le: '2026-08-12T09:00:00Z', objet: 'Envoi des pièces', piece_id: 500, nom_fichier: 'plan.pdf', stockee: true, motif_non_stocke: null },
+        { demande_id: 154, reponse_id: 71, recu_le: '2026-08-12T09:00:00Z', objet: 'Envoi des pièces', piece_id: 501, nom_fichier: 'coupe.pdf', stockee: false, motif_non_stocke: 'pièce trop volumineuse : 60 Mo (maximum 50 Mo)' },
+        { demande_id: 154, reponse_id: 70, recu_le: '2026-08-05T09:00:00Z', objet: 'Première réponse', piece_id: 490, nom_fichier: 'arrete.pdf', stockee: true, motif_non_stocke: null },
+      ] },
+    ];
+    const { demandes } = await chargerDemandesSuivi();
+    const g = demandes[0].piecesReponses;
+    expect(g).toHaveLength(2);                                   // deux réponses porteuses de pièces
+    expect(g[0]).toMatchObject({ reponseId: 71, recuLe: '2026-08-12T09:00:00Z', objet: 'Envoi des pièces' });
+    expect(g[0].pieces).toEqual([
+      { id: 500, nomFichier: 'plan.pdf', stockee: true, motif: null },
+      { id: 501, nomFichier: 'coupe.pdf', stockee: false, motif: 'pièce trop volumineuse : 60 Mo (maximum 50 Mo)' },
+    ]);
+    expect(g[1]).toMatchObject({ reponseId: 70, objet: 'Première réponse' });
+    const q = appels.find((a) => PJR.test(a.sql))!;
+    const sql = norm(q.sql);
+    expect(sql).toContain("r.nature <> 'rebond'");              // un rebond n'est pas une réponse de mairie
+    expect(sql).toContain('r.demande_id IS NOT NULL');         // rattachées uniquement
+    expect(sql).toContain('(p.cle_stockage IS NOT NULL) AS stockee'); // exposée en booléen
+    expect(sql).not.toMatch(/p\.cle_stockage\s+AS/i);          // la clé n'est JAMAIS renvoyée
+    expect(/^\s*SELECT/i.test(q.sql)).toBe(true);              // lecture seule
+    expect(JSON.stringify(demandes)).not.toContain('cle_stockage');
+  });
+});
+
 describe('P1 — chargerSuiviReponses : « on relève depuis le … » et plafond exposés à l’écran', () => {
   it('releveDepuisLe = curseur − 3 j ; relevePlafondAtteint remonte le plafond de la dernière passe courante', async () => {
     etat.curseur = new Date('2026-08-09T12:00:00Z');

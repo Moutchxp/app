@@ -246,6 +246,8 @@ export interface PieceArchive {
   deposee: boolean;              // cle_stockage IS NOT NULL → téléchargeable
   motifNonStocke: string | null; // renseigné si NON déposée (jamais un bouton mort côté écran)
   origine: 'email' | 'manuel';   // A1b : reçue par e-mail (registre, non supprimable) OU ajoutée à la main (supprimable)
+  recuLe: string | null;         // T5 : date de la réponse porteuse (email) → étiquette « reçues le JJ/MM » ; NULL pour un document manuel
+  objet: string | null;          // T5 : objet de la réponse porteuse (email) ; NULL pour un document manuel
 }
 /** Une ligne d'archive = UN PERMIS renseigné : un `demande_dossier` dont `satisfait_le` n'est pas nul. */
 export interface LigneArchive {
@@ -293,11 +295,18 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
             (SELECT min(l.expire_le)::text FROM demande_reponse_lien l WHERE l.reponse_id = dd.reponse_id AND l.fort) AS expire_le_capte,
             EXISTS (SELECT 1 FROM demande_reponse_lien l WHERE l.reponse_id = dd.reponse_id AND l.fort) AS a_lien_fort,
             COALESCE((
+              -- T5 — REPLI AU GRAIN DEMANDE : le schéma n'a AUCUN lien pièce↔permis, donc reponse_id n'apporte pas de précision
+              --   réelle. On liste les pièces de TOUTES les réponses rattachées à la demande du dossier (hors rebond), étiquetées
+              --   par réponse (recu_le + objet). Répare rétroactivement les permis satisfaits À LA MAIN (reponse_id NULL) SANS
+              --   script de reprise. cle_stockage jamais sélectionnée (seulement IS NOT NULL).
               SELECT json_agg(json_build_object(
                 'id', p.id::int, 'nomFichier', p.nom_fichier, 'typeMime', p.type_mime, 'tailleOctets', p.taille_octets,
-                'deposee', p.cle_stockage IS NOT NULL, 'motifNonStocke', p.motif_non_stocke, 'origine', 'email'
-              ) ORDER BY p.id)
-              FROM demande_reponse_piece p WHERE p.reponse_id = dd.reponse_id
+                'deposee', p.cle_stockage IS NOT NULL, 'motifNonStocke', p.motif_non_stocke, 'origine', 'email',
+                'recuLe', dr2.recu_le::text, 'objet', dr2.objet
+              ) ORDER BY dr2.recu_le DESC, p.id)
+              FROM demande_reponse dr2
+              JOIN demande_reponse_piece p ON p.reponse_id = dr2.id
+             WHERE dr2.demande_id = dd.demande_id AND dr2.nature <> 'rebond'
             ), '[]'::json) AS pieces
        FROM demande_dossier dd
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
@@ -339,7 +348,7 @@ async function lireDocumentsManuels(): Promise<Map<number, PieceArchive[]>> {
       `SELECT dossier_id::int AS dossier_id,
               json_agg(json_build_object(
                 'id', id::int, 'nomFichier', nom_fichier, 'typeMime', type_mime, 'tailleOctets', taille_octets,
-                'deposee', true, 'motifNonStocke', NULL, 'origine', 'manuel'
+                'deposee', true, 'motifNonStocke', NULL, 'origine', 'manuel', 'recuLe', NULL, 'objet', NULL
               ) ORDER BY depose_le, id) AS docs
          FROM dossier_document GROUP BY dossier_id`,
     );

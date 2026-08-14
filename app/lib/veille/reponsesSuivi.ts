@@ -64,6 +64,17 @@ export interface PieceInfo {
   motif: string | null; // motif_non_stocke si non stockée
 }
 
+/**
+ * T5 — les pièces d'UNE réponse rattachée à une demande, groupées par réponse pour l'affichage (« reçues le JJ/MM — objet »).
+ * Rend enfin consultables/téléchargeables les pièces d'une réponse rattachée, dans les détails « Réponses » ET « En cours ».
+ */
+export interface ReponsePieces {
+  reponseId: number;
+  recuLe: string;        // ISO — étiquette « reçues le JJ/MM »
+  objet: string | null;  // objet du message (tronqué à l'affichage)
+  pieces: PieceInfo[];   // au moins une (les réponses sans pièce ne figurent pas)
+}
+
 /** Un dossier d'une demande suivie (satisfait ou dû, et par quel canal). */
 export interface DossierSuivi {
   dossierId: number;      // R5b : pour marquer/démarquer reçu
@@ -128,6 +139,7 @@ export interface DemandeSuivi {
   liens: LienAffiche[];         // L1 : liens de téléchargement captés dans les réponses rattachées (forts d'abord)
   alertesGed: AlerteGedAffiche[]; // G1 : alertes « à classer/télécharger en GED » déjà envoyées (retard visible)
   messagesAutre: MessageAutreAffiche[]; // T7-B : messages `autre` ancrés (cas ③) — la ligne est signalée tant qu'il en reste ≥1 non répondu
+  piecesReponses: ReponsePieces[]; // T5 : pièces des réponses rattachées (groupées par réponse), consultables/téléchargeables
 }
 // T6-A/2 — le critère d'inclusion « Réponses » (demandeADuRetour) + la partition d'affichage (partitionnerReponses) vivent dans
 //   ReponsesRendu.tsx (module PUR client-safe), PAS ici : ce module importe db/client (pg), qu'on ne veut jamais dans le bundle client.
@@ -347,6 +359,27 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
       .push({ id: m.id, objet: m.objet, deAdresse: m.de_adresse, deNom: m.de_nom, recuLe: m.recu_le, reponduLe: m.repondu_le, reponduPar: m.repondu_par, reponduAuto: m.repondu_auto });
   }
 
+  // T5 — PIÈCES des réponses RATTACHÉES (hors rebond : un rebond n'est pas une réponse de mairie), pour les détails « Réponses »
+  //   ET « En cours ». Une passe, ordonnée par (demande, réponse récente, pièce), puis groupée par réponse. Réutilise PieceInfo
+  //   (id + stockée + motif) : bouton `url_piece` (source 'reponse') SEULEMENT si stockée, sinon le motif — jamais un bouton mort.
+  //   `cle_stockage` n'est JAMAIS sélectionnée (seulement `IS NOT NULL`).
+  const pjR = await query<{ demande_id: number; reponse_id: number; recu_le: string; objet: string | null; piece_id: number; nom_fichier: string; stockee: boolean; motif_non_stocke: string | null }>(
+    `SELECT r.demande_id::int AS demande_id, r.id::int AS reponse_id, r.recu_le::text AS recu_le, r.objet,
+            p.id::int AS piece_id, p.nom_fichier, (p.cle_stockage IS NOT NULL) AS stockee, p.motif_non_stocke
+       FROM demande_reponse_piece p
+       JOIN demande_reponse r ON r.id = p.reponse_id
+       JOIN demande d ON d.id = r.demande_id
+      WHERE d.statut IN ('envoyee', 'close') AND r.demande_id IS NOT NULL AND r.nature <> 'rebond'
+      ORDER BY r.demande_id, r.recu_le DESC, p.id`,
+  );
+  const parPiecesReponses = new Map<number, ReponsePieces[]>();
+  for (const p of pjR.rows) {
+    const groupes = parPiecesReponses.get(p.demande_id) ?? parPiecesReponses.set(p.demande_id, []).get(p.demande_id)!;
+    let g = groupes.find((x) => x.reponseId === p.reponse_id); // l'ORDER BY garantit la contiguïté par réponse
+    if (!g) { g = { reponseId: p.reponse_id, recuLe: p.recu_le, objet: p.objet, pieces: [] }; groupes.push(g); }
+    g.pieces.push({ id: p.piece_id, nomFichier: p.nom_fichier, stockee: p.stockee, motif: p.motif_non_stocke });
+  }
+
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
@@ -356,6 +389,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     liens: parLiens.get(r.id) ?? [],
     alertesGed: parAlertes.get(r.id) ?? [],
     messagesAutre: parMsgAutre.get(r.id) ?? [],
+    piecesReponses: parPiecesReponses.get(r.id) ?? [],
   }));
   return { demandes, derniereOkLe, reglages };
 }

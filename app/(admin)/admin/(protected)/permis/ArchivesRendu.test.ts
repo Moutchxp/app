@@ -4,9 +4,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { TableArchives, PieceLien, AjoutDocument, libelleOrigineSatisfaction, MESSAGE_VIDE_ARCHIVES, etatArchive, BadgeEtatArchive, type EtatArchive } from './ArchivesRendu';
 import type { LigneArchive, PieceArchive } from '../../../../lib/sitadel/demandeRepo';
 
-const emailDeposee: PieceArchive = { id: 10, nomFichier: 'plan-de-masse.pdf', typeMime: 'application/pdf', tailleOctets: 12345, deposee: true, motifNonStocke: null, origine: 'email' };
-const emailNonDeposee: PieceArchive = { id: 11, nomFichier: 'coupe.pdf', typeMime: 'application/pdf', tailleOctets: null, deposee: false, motifNonStocke: 'dépôt S3 non configuré', origine: 'email' };
-const manuel: PieceArchive = { id: 20, nomFichier: 'note-interne.pdf', typeMime: 'application/pdf', tailleOctets: 999, deposee: true, motifNonStocke: null, origine: 'manuel' };
+const emailDeposee: PieceArchive = { id: 10, nomFichier: 'plan-de-masse.pdf', typeMime: 'application/pdf', tailleOctets: 12345, deposee: true, motifNonStocke: null, origine: 'email', recuLe: '2026-07-01', objet: 'Réponse à votre demande de communication' };
+const emailNonDeposee: PieceArchive = { id: 11, nomFichier: 'coupe.pdf', typeMime: 'application/pdf', tailleOctets: null, deposee: false, motifNonStocke: 'dépôt S3 non configuré', origine: 'email', recuLe: '2026-07-01', objet: 'Réponse à votre demande de communication' };
+const manuel: PieceArchive = { id: 20, nomFichier: 'note-interne.pdf', typeMime: 'application/pdf', tailleOctets: 999, deposee: true, motifNonStocke: null, origine: 'manuel', recuLe: null, objet: null };
 
 const MAINTENANT = new Date('2026-07-10T12:00:00Z'); // < 2 mois après satisfait_le 2026-07-01, avant le délai (recu_le + 7 j)
 const ligne = (over: Partial<LigneArchive> = {}): LigneArchive => ({
@@ -169,5 +169,31 @@ describe('G2 — rendu : le MOT est TOUJOURS présent (lisible en noir et blanc)
     expect(hDepasse).toContain('var(--color-svv-red)');
     const hOubli = rendu([ligne({ pieces: [emailDeposee] })], new Date('2026-10-01T12:00:00Z'));
     expect(hOubli).toContain('versement oublié');
+  });
+});
+
+describe('T5 — CellulePieces : pièces e-mail groupées par réponse (étiquette date + objet)', () => {
+  it('deux réponses porteuses → deux étiquettes « reçues le JJ/MM — objet » ; boutons de téléchargement des pièces stockées', () => {
+    const pieces: PieceArchive[] = [
+      { id: 500, nomFichier: 'plan.pdf', typeMime: 'application/pdf', tailleOctets: 1000, deposee: true, motifNonStocke: null, origine: 'email', recuLe: '2026-08-12', objet: 'Envoi des pièces' },
+      { id: 490, nomFichier: 'arrete.pdf', typeMime: 'application/pdf', tailleOctets: 2000, deposee: true, motifNonStocke: null, origine: 'email', recuLe: '2026-08-05', objet: 'Première réponse' },
+    ];
+    const h = rendu([ligne({ pieces })]);
+    expect(h).toContain('reçues le 12/08 — Envoi des pièces');
+    expect(h).toContain('reçues le 05/08 — Première réponse');
+    expect(h).toContain('plan.pdf');
+    expect(h).toContain('arrete.pdf');
+  });
+
+  it('pièce e-mail NON déposée → motif, aucun bouton (non-régression du contrat) ; pièce déposée → bouton (non-régression auto)', () => {
+    const h = rendu([ligne({ pieces: [emailDeposee, emailNonDeposee] })]);
+    expect(h).toContain('plan-de-masse.pdf');            // déposée → téléchargeable (non-régression)
+    expect(h).toContain('coupe.pdf');
+    expect(h).toContain('non déposée : dépôt S3 non configuré'); // motif rendu
+  });
+
+  it('SÉCURITÉ : la clé de stockage n’apparaît jamais dans le rendu Archives', () => {
+    const h = rendu([ligne({ pieces: [emailDeposee, manuel] })]);
+    expect(h).not.toMatch(/cle_stockage|entrantes\//i);
   });
 });

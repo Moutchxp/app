@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { ConteneurTableDefilant } from './DemandesRendu';
+import { jjmm, tronquerObjet } from './ReponsesRendu'; // T5 : mêmes helpers d'étiquette que BlocPiecesReponses (cohérence Réponses/Archives)
 import { formaterDateJour } from '../../../../lib/sitadel/priorite';
 import { expirationEffective, SEUIL_ARCHIVE_GRIS_MOIS } from '../../../../lib/veille/alerteGed'; // G2 : on IMPORTE les définitions G1 (délai), on ne les recopie pas
 import type { LigneArchive, PieceArchive } from '../../../../lib/sitadel/demandeRepo';
@@ -110,16 +111,37 @@ export function PieceLien({ piece, onTelecharger, onSupprimer }: {
   );
 }
 
-/** Cellule « pièces » : la liste des pièces (e-mail + manuelles), ou « aucun document attaché » si le permis est renseigné sans
- *  document (T2 : jamais une archive vide muette — la ligne le DIT). PURE. */
+/** Cellule « pièces » : les pièces e-mail GROUPÉES PAR RÉPONSE (« reçues le JJ/MM — objet », T5), puis les documents ajoutés à la
+ *  main. « aucun document attaché » si le permis est renseigné sans document (T2 : jamais une archive vide muette). PURE. */
 export function CellulePieces({ pieces, onTelecharger, onSupprimer }: {
   pieces: PieceArchive[]; onTelecharger?: (id: number, source: 'reponse' | 'dossier') => void; onSupprimer?: (documentId: number) => void;
 }) {
   if (pieces.length === 0) return <span style={{ fontSize: 12, ...muted }}>aucun document attaché</span>;
+  const manuels = pieces.filter((p) => p.origine === 'manuel');
+  // T5 — regroupe les pièces e-mail par réponse (clé recuLe|objet), ordre de première apparition préservé (SQL trié par recu_le DESC).
+  const groupes = new Map<string, { recuLe: string | null; objet: string | null; items: PieceArchive[] }>();
+  for (const p of pieces) {
+    if (p.origine !== 'email') continue;
+    const cle = `${p.recuLe ?? ''}|${p.objet ?? ''}`;
+    const g = groupes.get(cle) ?? groupes.set(cle, { recuLe: p.recuLe, objet: p.objet, items: [] }).get(cle)!;
+    g.items.push(p);
+  }
   return (
-    <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-      {pieces.map((p) => <li key={`${p.origine}-${p.id}`}><PieceLien piece={p} onTelecharger={onTelecharger} onSupprimer={onSupprimer} /></li>)}
-    </ul>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+      {[...groupes.values()].map((g, i) => (
+        <div key={`e-${i}`}>
+          <span style={{ fontSize: 11, ...muted }}>reçues le {jjmm(g.recuLe)} — {tronquerObjet(g.objet)}</span>
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+            {g.items.map((p) => <li key={`email-${p.id}`}><PieceLien piece={p} onTelecharger={onTelecharger} onSupprimer={onSupprimer} /></li>)}
+          </ul>
+        </div>
+      ))}
+      {manuels.length > 0 && (
+        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+          {manuels.map((p) => <li key={`manuel-${p.id}`}><PieceLien piece={p} onTelecharger={onTelecharger} onSupprimer={onSupprimer} /></li>)}
+        </ul>
+      )}
+    </div>
   );
 }
 
