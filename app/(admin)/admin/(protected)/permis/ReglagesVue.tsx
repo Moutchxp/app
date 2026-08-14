@@ -7,7 +7,7 @@ import {
   champsPourProfil, PARAMS_VEILLE, PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA,
   PARAMS_SOURCES, PARAMS_MENTIONS, type ParamVeille, type BornesParColonne, type ErreurReglage,
 } from '../../../../lib/sitadel/reglagesVeille';
-import { BandeauIdentite, PlageParam, CarteParamVestigial, TITRE_THEME_PREPARATION, TITRE_THEME_ENVOI, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
+import { BandeauIdentite, PlageParam, CarteParamVestigial, CarteSection, TITRE_THEME_PREPARATION, TITRE_THEME_ENVOI, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
 
 /**
  * Écran « Réglages » de la tuile Permis (chantier S7d / S7e). Édite les DEUX identités de demandeur (Société / Personne
@@ -164,9 +164,8 @@ export function ReglagesVue() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* ── Section A : identités (accordéon, un bloc par profil) ── */}
-      <section className="flex flex-col gap-2">
-        <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Identités du demandeur</h2>
+      {/* ── Section A : identités (accordéon, un bloc par profil) — E2 : carte à en-tête collant ── */}
+      <CarteSection titre="Identités du demandeur" icone="👤">
         <p style={styleAide}>Deux profils pour exercer le droit d’accès : « Société » (identité complète) ou « Personne physique » (nom, adresse, e-mail — sans exposer la société). Chaque demande porte l’un des deux ; l’identité correspondante doit être complète pour passer « prête ».</p>
         {PROFILS.map((profil) => {
           const complet = data.problemesIdentite[profil].length === 0;
@@ -200,24 +199,23 @@ export function ReglagesVue() {
             </details>
           );
         })}
-      </section>
+      </CarteSection>
 
-      {/* ── Section B : paramètres des demandes, rangés par THÈME (E1) — 5 sous-blocs. Chantier PRÉSENTATIONNEL : mêmes
-          paramètres, même route, mêmes valeurs ; seul le regroupement change (l'ex-groupe unique était un fourre-tout). ── */}
+      {/* ── Section B : paramètres des demandes, rangés par THÈME (E1) — 5 cartes (E2). Chantier VISUEL : mêmes paramètres,
+          même route, mêmes valeurs ; seuls le regroupement (E1) et l'encadrement (E2) changent. ── */}
       <p style={styleAide}>Chaque paramètre est appliqué immédiatement. Les plages autorisées proviennent des contraintes de la base de données.</p>
       {[
-        { titre: TITRE_THEME_PREPARATION, params: PARAMS_THEME_PREPARATION },
-        { titre: TITRE_THEME_ENVOI, params: PARAMS_THEME_ENVOI },
-        { titre: TITRE_THEME_REPONSES, params: PARAMS_THEME_REPONSES },
-        { titre: TITRE_THEME_ALERTES, params: PARAMS_THEME_ALERTES },
-        { titre: TITRE_THEME_CADA, params: PARAMS_THEME_CADA },
-      ].map(({ titre, params }) => (
-        <section key={titre} className="flex flex-col gap-3">
-          <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{titre}</h2>
+        { titre: TITRE_THEME_PREPARATION, icone: '🗂', params: PARAMS_THEME_PREPARATION },
+        { titre: TITRE_THEME_ENVOI, icone: '✉️', params: PARAMS_THEME_ENVOI },
+        { titre: TITRE_THEME_REPONSES, icone: '📥', params: PARAMS_THEME_REPONSES },
+        { titre: TITRE_THEME_ALERTES, icone: '🔔', params: PARAMS_THEME_ALERTES },
+        { titre: TITRE_THEME_CADA, icone: '⚖️', params: PARAMS_THEME_CADA },
+      ].map(({ titre, icone, params }) => (
+        <CarteSection key={titre} titre={titre} icone={icone}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
             {params.map(carteParam)}
           </div>
-        </section>
+        </CarteSection>
       ))}
 
       {/* S33 — le sous-bloc « Classification et affichage des dossiers » a QUITTÉ cet onglet (groupe « Demandes aux
@@ -225,22 +223,20 @@ export function ReglagesVue() {
           Propriétaire inchangé : ces 8 réglages restent édités par la route /reglages (cf. ClassificationDossiers). */}
 
       {/* ── Section C : mentions ajoutées au courrier (phrases de pratique) — S40 ── */}
-      <section className="flex flex-col gap-3">
-        <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{TITRE_PARAMS_MENTIONS}</h2>
+      <CarteSection titre={TITRE_PARAMS_MENTIONS} icone="✍️">
         <p style={styleAide}>{AIDE_PARAMS_MENTIONS}</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
           {PARAMS_MENTIONS.map(carteParam)}
         </div>
-      </section>
+      </CarteSection>
 
       {/* ── Section D : sources de données (annuaire DILA) — S30 ── */}
-      <section className="flex flex-col gap-3">
-        <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{TITRE_PARAMS_SOURCES}</h2>
+      <CarteSection titre={TITRE_PARAMS_SOURCES} icone="📇">
         <p style={styleAide}>{AIDE_PARAMS_SOURCES}</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
           {PARAMS_SOURCES.map(carteParam)}
         </div>
-      </section>
+      </CarteSection>
     </div>
   );
 }

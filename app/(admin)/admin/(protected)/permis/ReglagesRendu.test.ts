@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { BandeauIdentite, PlageParam, CarteReglageEntier, CarteParamVestigial, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS, TITRE_THEME_PREPARATION, TITRE_THEME_ENVOI, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA } from './ReglagesRendu';
+import { BandeauIdentite, PlageParam, CarteReglageEntier, CarteParamVestigial, CarteSection, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS, TITRE_THEME_PREPARATION, TITRE_THEME_ENVOI, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA } from './ReglagesRendu';
 import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES, PARAMS_MENTIONS, PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA } from '../../../../lib/sitadel/reglagesVeille';
 import { problemesIdentite } from '../../../../lib/sitadel/demande';
 
@@ -303,5 +303,24 @@ describe('Q1 — CarteParamVestigial : lecture seule + mention + a11y', () => {
     expect(h).toContain('Enregistrer');
     expect(h).not.toContain('disabled');
     expect(h).not.toContain('n’agit plus');
+  });
+});
+
+describe('E2 — CarteSection : carte à en-tête collant (visuel)', () => {
+  it('rend le titre, l’icône en aria-hidden, un en-tête collant, et le corps (children) tel quel', () => {
+    const h = renderToStaticMarkup(createElement(CarteSection, { titre: 'Alertes par e-mail', icone: '🔔' }, createElement('span', {}, 'CHAMP_TEST')));
+    expect(h).toContain('Alertes par e-mail');
+    expect(h).toContain('CHAMP_TEST');            // le corps rend les enfants inchangés
+    expect(h).toContain('aria-hidden="true"');    // l'icône ne double pas la lecture d'écran
+    expect(h).toContain('🔔');
+    expect(h).toMatch(/position:\s*sticky/);      // en-tête collant en haut de la carte
+    expect(h).toMatch(/top:\s*0/);
+    expect(h).toContain('<h2');                    // le titre reste un h2 (structure de titres préservée)
+  });
+
+  it('sans icône : pas de glyphe, le titre reste rendu (repli si aucune icône)', () => {
+    const h = renderToStaticMarkup(createElement(CarteSection, { titre: 'Sans icône' }, createElement('span', {}, 'X')));
+    expect(h).toContain('Sans icône');
+    expect(h).not.toContain('aria-hidden="true"');
   });
 });

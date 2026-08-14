@@ -1,5 +1,30 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { bandeauIdentite, type Bornes, type ParamVeille } from '../../../../lib/sitadel/reglagesVeille';
+
+/**
+ * E2 — carte autonome d'une SECTION de l'écran Réglages (chantier purement VISUEL) : conteneur (fond blanc, bordure fine,
+ * coins arrondis, overflow caché) + en-tête PLEINE LARGEUR légèrement teinté (`--color-svv-field`) COLLANT en haut de la carte
+ * (`position: sticky`) pour que le titre du bloc courant reste visible au défilement. L'icône est un glyphe `aria-hidden`
+ * (convention de la tuile : aucune bibliothèque d'icônes, aucune dépendance). Contraste AA (ink sur field, thème clair unique).
+ * PURE — aucun état, aucun effet, testable via renderToStaticMarkup. Le corps rend `children` tel quel.
+ */
+export function CarteSection({ titre, icone, children }: { titre: string; icone?: string; children?: ReactNode }) {
+  return (
+    <section style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.7rem', overflow: 'hidden', background: '#fff' }}>
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 2,
+        display: 'flex', alignItems: 'center', gap: '.5rem',
+        padding: '.55rem .8rem',
+        background: 'var(--color-svv-field)', borderBottom: '1px solid var(--color-svv-line)',
+      }}>
+        {icone ? <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1, flexShrink: 0 }}>{icone}</span> : null}
+        {/* minWidth:0 + overflowWrap → mobile-first : le titre s'enroule au lieu de déborder/tronquer sur écran étroit. */}
+        <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0, minWidth: 0, overflowWrap: 'anywhere', color: 'var(--color-svv-ink)' }}>{titre}</h2>
+      </div>
+      <div className="flex flex-col gap-3" style={{ padding: '.8rem' }}>{children}</div>
+    </section>
+  );
+}
 
 /**
  * Composants de rendu PURS de l'écran « Réglages » (chantier S7d) — aucun état, aucun effet → testables en Node via
