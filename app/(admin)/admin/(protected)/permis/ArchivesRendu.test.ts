@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableArchives, PieceLien, AjoutDocument, libelleOrigineSatisfaction, MESSAGE_VIDE_ARCHIVES, etatArchive, BadgeEtatArchive, type EtatArchive } from './ArchivesRendu';
+import { TableArchives, PieceLien, AjoutDocument, libelleOrigineSatisfaction, labelNbPieces, MESSAGE_VIDE_ARCHIVES, etatArchive, BadgeEtatArchive, type EtatArchive } from './ArchivesRendu';
 import type { LigneArchive, PieceArchive } from '../../../../lib/sitadel/demandeRepo';
 
 const emailDeposee: PieceArchive = { id: 10, nomFichier: 'plan-de-masse.pdf', typeMime: 'application/pdf', tailleOctets: 12345, deposee: true, motifNonStocke: null, origine: 'email', recuLe: '2026-07-01', objet: 'Réponse à votre demande de communication' };
@@ -16,7 +16,10 @@ const ligne = (over: Partial<LigneArchive> = {}): LigneArchive => ({
   recuLe: '2026-07-01', expireLeCapte: null, aLienFort: false,
   pieces: [emailDeposee], ...over,
 });
-const rendu = (lignes: LigneArchive[], maintenant: Date = MAINTENANT) => renderToStaticMarkup(createElement(TableArchives, { lignes, maintenant, onTelecharger: () => {}, onSupprimer: () => {}, onFichier: () => {} }));
+// N1-C — par défaut on rend la 1ʳᵉ ligne DÉPLOYÉE (dossierOuvert = son id) : les pièces vivent désormais dans le panneau déplié,
+// donc les tests de CONTRAT des pièces (T5, sécurité, origines) doivent ouvrir la ligne pour les voir. `dossierOuvert=null` teste le repli.
+const rendu = (lignes: LigneArchive[], maintenant: Date = MAINTENANT, dossierOuvert: number | null = lignes[0]?.dossierId ?? null) =>
+  renderToStaticMarkup(createElement(TableArchives, { lignes, maintenant, dossierOuvert, onDeplier: () => {}, onTelecharger: () => {}, onSupprimer: () => {}, onFichier: () => {} }));
 
 describe('A1a — TableArchives : état vide EXPLICITE', () => {
   it('aucune archive → message + explication (d’où viennent les lignes), jamais un tableau muet', () => {
@@ -104,6 +107,43 @@ describe('A1b — AjoutDocument', () => {
     const h = renderToStaticMarkup(createElement(AjoutDocument, { dossierId: 7, onFichier: () => {}, enCours: true }));
     expect(h).toContain('disabled');
     expect(h).toContain('Envoi');
+  });
+});
+
+describe('N1-C — repli des pièces par permis (disclosure natif)', () => {
+  it('label du compte : « 1 pièce » (singulier) · « 13 pièces » (pluriel) · « aucune pièce » (zéro, jamais muet)', () => {
+    expect(labelNbPieces(1)).toBe('1 pièce');
+    expect(labelNbPieces(13)).toBe('13 pièces');
+    expect(labelNbPieces(0)).toBe('aucune pièce');
+  });
+
+  it('ligne REPLIÉE (défaut) : compte + état visibles, mais AUCUNE pièce ni ajout de document rendus', () => {
+    const h = rendu([ligne({ pieces: [emailDeposee, manuel] })], MAINTENANT, null);
+    expect(h).toContain('2 pièces');              // U6 : le chiffre porté par la ligne repliée
+    expect(h).toContain('obtenu');                // état G2 conservé sur la ligne repliée (pièce manuelle = obtenu)
+    expect(h).toContain('aria-expanded="false"'); // disclosure fermé
+    expect(h).toContain('Déplier');
+    expect(h).not.toContain('plan-de-masse.pdf'); // pièces masquées tant que replié
+    expect(h).not.toContain('note-interne.pdf');
+    expect(h).not.toContain('type="file"');       // l'ajout de document est dans le panneau → masqué aussi
+  });
+
+  it('ligne DÉPLOYÉE : panneau <td id> ciblé par aria-controls, pièces + ajout présents, bouton « Fermer »', () => {
+    const h = rendu([ligne({ pieces: [emailDeposee, manuel] })], MAINTENANT, 1);
+    expect(h).toContain('aria-expanded="true"');
+    expect(h).toContain('aria-controls="archive-pieces-1"');
+    expect(h).toContain('id="archive-pieces-1"');
+    expect(h).toContain('Fermer');
+    expect(h).toContain('plan-de-masse.pdf');
+    expect(h).toContain('note-interne.pdf');
+    expect(h).toContain('type="file"');           // ajout à la main dans le panneau déployé
+  });
+
+  it('G2 — la couleur d’état de la ligne reste présente, REPLIÉE comme DÉPLOYÉE', () => {
+    const l = ligne({ pieces: [emailDeposee] });
+    const t = new Date('2026-07-15T12:00:00Z'); // délai dépassé (recu + 7 j), < 2 mois → rouge
+    expect(rendu([l], t, null)).toContain('var(--color-svv-red)'); // repliée
+    expect(rendu([l], t, 1)).toContain('var(--color-svv-red)');    // déployée
   });
 });
 

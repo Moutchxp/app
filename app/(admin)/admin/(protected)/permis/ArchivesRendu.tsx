@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { Fragment, type CSSProperties } from 'react';
 import { ConteneurTableDefilant } from './DemandesRendu';
 import { jjmm, tronquerObjet } from './ReponsesRendu'; // T5 : mêmes helpers d'étiquette que BlocPiecesReponses (cohérence Réponses/Archives)
 import { formaterDateJour } from '../../../../lib/sitadel/priorite';
@@ -161,18 +161,36 @@ export function AjoutDocument({ dossierId, onFichier, enCours }: { dossierId: nu
   );
 }
 
+/** N1-C — libellé du COMPTE de pièces porté par la ligne repliée (leçon U6 : une ligne repliée SANS son chiffre perd sa raison
+ *  d'être). Jamais muet : 0 → « aucune pièce ». PUR. */
+export function labelNbPieces(n: number): string {
+  return n === 0 ? 'aucune pièce' : `${n} pièce${n > 1 ? 's' : ''}`;
+}
+
+/** N1-C — id du panneau déplié d'un permis : cible de `aria-controls` du bouton « Déplier » (disclosure natif, motif Q2b/C3). */
+const ancrePieces = (dossierId: number): string => `archive-pieces-${dossierId}`;
+
+/** Nombre de colonnes du tableau (N° permis · Commune · Type · Autorisation · Satisfaction · Origine · Demande · Pièces) → colSpan du panneau. */
+const NB_COLONNES_ARCHIVES = 8;
+
 export const MESSAGE_VIDE_ARCHIVES = 'Aucun permis renseigné pour l’instant.';
 export const EXPLICATION_VIDE_ARCHIVES =
   'Ces lignes apparaîtront quand une mairie aura répondu à une demande et que les pièces reçues auront été rattachées au dossier (onglet Réponses) : le permis passe alors en « renseigné » et rejoint les archives.';
 
 /**
- * A1a/A1b — TABLEAU des archives, PUR. Une ligne = un permis renseigné. Colonnes : N° permis · Commune · Type · Autorisation ·
- * Satisfaction · Origine · Demande · Pièces (les deux origines + l'ajout à la main). Conteneur défilant a11y (mobile). État
- * vide EXPLICITE (message + d'où viennent les lignes), jamais un tableau muet. Tri (satisfaction décroissante) côté serveur.
+ * A1a/A1b + N1-C — TABLEAU des archives, PUR. Une ligne = un permis renseigné, REPLIÉE par défaut (le fondateur : « toutes les
+ * pièces s'accumulent et prennent tout l'écran »). Colonnes : N° permis · Commune · Type · Autorisation · Satisfaction ·
+ * Origine · Demande · Pièces. La colonne « Pièces » de la ligne repliée reste INFORMATIVE : compte de pièces (« 13 pièces »,
+ * leçon U6) + mot d'état G2 + bouton « Déplier ». Déplier ouvre une 2ᵉ `<tr><td colSpan>` sous la ligne (disclosure NATIF,
+ * motif a11y Q2b/C3 : `aria-expanded`/`aria-controls` ; pas de BlocRepliable = `<section>`, INVALIDE dans un `<tbody>`) qui porte
+ * les pièces condensées + l'ajout à la main. Accordéon à UN volet (état `dossierOuvert` levé dans la Vue). Conteneur défilant
+ * a11y (mobile). État vide EXPLICITE. Aucune animation → prefers-reduced-motion sans objet. Tri (satisfaction ↓) côté serveur.
  */
-export function TableArchives({ lignes, maintenant, onTelecharger, onSupprimer, onFichier, uploadEnCours }: {
+export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, onTelecharger, onSupprimer, onFichier, uploadEnCours }: {
   lignes: LigneArchive[];
   maintenant: Date; // G2 : « aujourd'hui » (fourni par la Vue) — pilote les 2 mois et le « délai dépassé ». Injecté → rendu déterministe/testable.
+  dossierOuvert?: number | null; // N1-C : le dossierId de l'UNIQUE ligne dépliée (null = toutes repliées). État levé dans la Vue.
+  onDeplier?: (dossierId: number) => void; // bascule le repli d'une ligne (accordéon à un volet, géré par la Vue)
   onTelecharger?: (id: number, source: 'reponse' | 'dossier') => void;
   onSupprimer?: (documentId: number) => void;
   onFichier?: (dossierId: number, fichier: File) => void;
@@ -198,28 +216,47 @@ export function TableArchives({ lignes, maintenant, onTelecharger, onSupprimer, 
             <th style={styleTd}>Satisfaction</th>
             <th style={styleTd}>Origine</th>
             <th style={styleTd}>Demande</th>
-            <th style={{ ...styleTd, whiteSpace: 'normal', minWidth: 200 }}>Pièces</th>
+            <th style={{ ...styleTd, whiteSpace: 'normal', minWidth: 160 }}>Pièces</th>
           </tr>
         </thead>
         <tbody>
           {lignes.map((l) => {
-            // G2 — état visuel : le TEXTE de la ligne prend la couleur (couleurLigne), le MOT d'état va dans la colonne Pièces.
+            // G2 — état visuel : le TEXTE de la ligne prend la couleur (couleurLigne), le MOT d'état reste sur la ligne repliée.
             const e = etatArchive(l, maintenant);
+            const ouvert = dossierOuvert === l.dossierId;
             return (
-            <tr key={l.dossierId} style={{ borderBottom: '1px solid var(--color-svv-line)', color: e.couleurLigne ?? undefined }}>
-              <td style={{ ...styleTd, fontFamily: 'var(--font-svv-mono, monospace)' }}>{l.numDau}</td>
-              <td style={{ ...styleTd, whiteSpace: 'normal' }}>{l.communeNom ?? l.codeInsee} <span style={{ fontSize: 11, ...muted }}>({l.codeInsee})</span></td>
-              <td style={styleTd}>{l.libelleCategorie}</td>
-              <td style={styleTd}>{formaterDateJour(l.dateAutorisation)}</td>
-              <td style={styleTd}>{formaterDateJour(l.satisfaitLe)}</td>
-              <td style={styleTd}>{libelleOrigineSatisfaction(l.satisfaitPar)}</td>
-              <td style={{ ...styleTd, fontFamily: 'var(--font-svv-mono, monospace)' }}>{l.demandeReference}</td>
-              <td style={{ ...styleTd, whiteSpace: 'normal' }}>
-                <div style={{ marginBottom: '.25rem' }}><BadgeEtatArchive etat={e} /></div>
-                <CellulePieces pieces={l.pieces} onTelecharger={onTelecharger} onSupprimer={onSupprimer} />
-                <div style={{ marginTop: '.35rem' }}><AjoutDocument dossierId={l.dossierId} onFichier={onFichier} enCours={uploadEnCours === l.dossierId} /></div>
-              </td>
-            </tr>
+              <Fragment key={l.dossierId}>
+                <tr style={{ borderBottom: ouvert ? 'none' : '1px solid var(--color-svv-line)', color: e.couleurLigne ?? undefined }}>
+                  <td style={{ ...styleTd, fontFamily: 'var(--font-svv-mono, monospace)' }}>{l.numDau}</td>
+                  <td style={{ ...styleTd, whiteSpace: 'normal' }}>{l.communeNom ?? l.codeInsee} <span style={{ fontSize: 11, ...muted }}>({l.codeInsee})</span></td>
+                  <td style={styleTd}>{l.libelleCategorie}</td>
+                  <td style={styleTd}>{formaterDateJour(l.dateAutorisation)}</td>
+                  <td style={styleTd}>{formaterDateJour(l.satisfaitLe)}</td>
+                  <td style={styleTd}>{libelleOrigineSatisfaction(l.satisfaitPar)}</td>
+                  <td style={{ ...styleTd, fontFamily: 'var(--font-svv-mono, monospace)' }}>{l.demandeReference}</td>
+                  {/* N1-C — ligne repliée informative : compte de pièces (U6) + mot d'état G2 + bouton de disclosure natif. */}
+                  <td style={{ ...styleTd, whiteSpace: 'normal' }}>
+                    <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, ...muted }}>{labelNbPieces(l.pieces.length)}</span>
+                      <BadgeEtatArchive etat={e} />
+                      <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .5rem' }}
+                        aria-expanded={ouvert} aria-controls={ancrePieces(l.dossierId)} onClick={() => onDeplier?.(l.dossierId)}>
+                        {ouvert ? 'Fermer' : 'Déplier'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                {ouvert && (
+                  <tr>
+                    {/* Panneau condensé : pièces (une par ligne compacte, actions alignées — CellulePieces) + ajout à la main. */}
+                    <td id={ancrePieces(l.dossierId)} colSpan={NB_COLONNES_ARCHIVES}
+                      style={{ padding: '.6rem .8rem', borderBottom: '1px solid var(--color-svv-line)', background: 'var(--color-svv-field)', whiteSpace: 'normal' }}>
+                      <CellulePieces pieces={l.pieces} onTelecharger={onTelecharger} onSupprimer={onSupprimer} />
+                      <div style={{ marginTop: '.5rem' }}><AjoutDocument dossierId={l.dossierId} onFichier={onFichier} enCours={uploadEnCours === l.dossierId} /></div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             );
           })}
         </tbody>

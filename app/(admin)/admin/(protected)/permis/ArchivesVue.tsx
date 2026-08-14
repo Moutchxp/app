@@ -22,6 +22,8 @@ export function ArchivesVue() {
   const [version, setVersion] = useState(0);
   const [uploadEnCours, setUploadEnCours] = useState<number | null>(null);
   const [message, setMessage] = useState('');
+  // N1-C — accordéon à UN volet : dossierId de l'unique permis déplié (null = tout replié). Les pièces sont masquées par défaut.
+  const [dossierOuvert, setDossierOuvert] = useState<number | null>(null);
 
   const rafraichir = useCallback(() => setVersion((v) => v + 1), []);
 
@@ -89,6 +91,8 @@ export function ArchivesVue() {
       {message && <p role="alert" style={{ fontSize: 13, color: 'var(--color-svv-red)', fontWeight: 600, margin: 0 }}>{message}</p>}
 
       <TableArchives lignes={visibles} maintenant={new Date()} uploadEnCours={uploadEnCours}
+        dossierOuvert={dossierOuvert}
+        onDeplier={(id) => setDossierOuvert((cur) => (cur === id ? null : id))}
         onTelecharger={(id, source) => void telecharger(id, source)}
         onSupprimer={(id) => void supprimer(id)}
         onFichier={(dossierId, fichier) => void televerser(dossierId, fichier)} />
