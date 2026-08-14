@@ -19,22 +19,32 @@ import { query } from '../db/client';
 import { dossiersSatisfaits } from '../veille/satisfactionDossier';
 import { libelleNatureProjet } from './priorite'; // N1-B : traduit le code nature (« 1 ») en clair (« Construction neuve »)
 import { extrairePagesPdf } from '../permis/extractionPdf'; // N4 : brique UNIQUE d'extraction PDF (partagée avec lectureGed)
-import type { MessageBoite } from '../veille/releveReponses';
+import { extraireIdsDrive } from '../permis/drive'; // N6-B : extraction PURE des FILE_ID Drive (module propre, fetch natif)
+import type { ResultatDrive } from '../permis/drive';
+import type { MessageBoite, PieceMeta } from '../veille/releveReponses';
 import type { ProfilBoite } from '../veille/demandeReponseRepo';
 
 // ── Reconnaissance (PURE) ─────────────────────────────────────────────────────
-/** Normalise un objet : sans accents, minuscules, préfixes Re:/Fwd:/Tr: retirés, espaces réduits. */
+/**
+ * Normalise un objet : sans accents, ESPACES ZÉRO-LARGEUR RETIRÉS (N6-B — Gmail colle les noms de fichiers dans l'objet en les
+ * séparant par U+200B..U+200D / U+FEFF quand il substitue des liens Drive), minuscules, préfixe Re:/Fwd:/Tr: retiré, espaces
+ * réduits. Les zéro-largeur sont remplacés par une ESPACE (jamais supprimés) pour préserver la frontière de mots.
+ */
 function normaliserObjet(objet: string | null | undefined): string {
   return (objet ?? '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '') // accents
+    .replace(/[\u200B-\u200D\uFEFF]/g, ' ') // N6-B : zéro-largeur (U+200B..U+200D, U+FEFF) → espace (préserve « permis <nom> »)
     .toLowerCase()
     .replace(/^\s*(re|fwd|fw|tr)\s*:\s*/i, '') // un préfixe de réponse/transfert
     .replace(/\s+/g, ' ')
     .trim();
 }
-/** L'objet est-il le SEUL mot « permis » ? */
+/**
+ * N6-B — l'objet est accepté si son PREMIER mot est « permis » (assoupli : Gmail ajoute les noms de fichiers après « permis »
+ * lors de la substitution Drive). « les permis », « demande de permis » restent REFUSÉS (premier mot ≠ permis).
+ */
 export function objetEstPermis(objet: string | null | undefined): boolean {
-  return normaliserObjet(objet) === 'permis';
+  return normaliserObjet(objet).split(' ')[0] === 'permis';
 }
 /** Adresse normalisée pour comparaison (trim + minuscules). */
 export function normaliserAdresse(a: string | null | undefined): string {
@@ -47,9 +57,14 @@ export function normaliserAdresse(a: string | null | undefined): string {
 export function parserAdressesConnues(brut: string | null | undefined): string[] {
   return (brut ?? '').split(/[,;\s]+/).map(normaliserAdresse).filter((a) => a !== '');
 }
-/** Les trois conditions cumulatives du déclencheur. `adresses` = ensemble normalisé (minuscules). PURE. */
-export function estCandidatDepot(m: { objet: string | null | undefined; deAdresse: string | null | undefined; nbPieces: number }, adresses: ReadonlySet<string>): boolean {
-  return objetEstPermis(m.objet) && m.nbPieces > 0 && adresses.has(normaliserAdresse(m.deAdresse));
+/**
+ * Déclencheur du traitement : objet « permis » (premier mot) ET expéditeur en liste blanche. N6-B — la présence de PIÈCES n'est
+ * PLUS une condition d'entrée : un mail « permis » d'un expéditeur connu SANS pièce jointe est désormais traité (ses liens Drive
+ * sont suivis ; à défaut, F-N2 alerte au lieu du silence). La décision « d'où vient le contenu » (pièces jointes vs Drive) est
+ * prise DANS l'orchestrateur. PURE.
+ */
+export function estCandidatDepot(m: { objet: string | null | undefined; deAdresse: string | null | undefined }, adresses: ReadonlySet<string>): boolean {
+  return objetEstPermis(m.objet) && adresses.has(normaliserAdresse(m.deAdresse));
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -60,7 +75,10 @@ export interface CaracteristiquesPermis {
   adresse: string | null; communeNom: string | null; codeInsee: string;
   natureTravaux: string | null; dateAutorisation: string | null; surface: string | null; logements: number | null;
 }
-export type IssueDepot = 'non_traite' | 'deja_traite' | 'verse' | 'ambigu' | 'aucun_candidat' | 'extraction_echec';
+// N6-B — nouvelles issues terminales (colonne `depot_manuel_journal.issue` = text SANS CHECK → aucune migration) :
+//   'aucun_contenu' (F-N2 : ni pièce jointe ni lien Drive exploitable) · 'drive_non_configure' (liens Drive mais 3 vars absentes)
+//   · 'drive_jeton' (accès Drive refusé/expiré). Toutes ≠ 'non_traite' → l'appelant les considère TRAITÉES (jamais un silence).
+export type IssueDepot = 'non_traite' | 'deja_traite' | 'verse' | 'ambigu' | 'aucun_candidat' | 'extraction_echec' | 'aucun_contenu' | 'drive_non_configure' | 'drive_jeton';
 export interface ResultatDepot { issue: IssueDepot; dossierId?: number; deposees?: string[]; ignorees?: string[]; echecs?: string[]; candidats?: number }
 
 /** N1-B — résultat de la génération+dépôt de la fiche de synthèse. Un ÉCHEC ne fait JAMAIS perdre les pièces (déjà versées) : il
@@ -81,6 +99,8 @@ export interface DepsDepotManuel {
   caracteristiques(dossierId: number): Promise<CaracteristiquesPermis | null>;
   /** N1-B — (re)génère la fiche de synthèse du permis et la dépose en GED (une seule par permis). Ne jette jamais : renvoie un motif. */
   genererEtDeposerFiche(dossierId: number): Promise<ResultatFiche>;
+  /** N6-B — suit les liens Drive (jeton, métadonnées, contenu) SOUS GARDES et fabrique la liste de pièces. Ne jette jamais. */
+  recupererPiecesDrive(ids: string[], nomsReplis: Record<string, string>): Promise<ResultatDrive>;
   envoyerAlerte(sujet: string, corps: string, pieceJointe?: PieceJointeAlerte): Promise<void>; // N1-B : pièce jointe optionnelle (la fiche)
   forwarder(mb: MessageBoite, sujet: string, corps: string): Promise<void>;
 }
@@ -102,13 +122,26 @@ function ligneCarac(c: CaracteristiquesPermis): string[] {
   if (c.logements !== null) L.push(`Logements créés : ${c.logements}`);
   return L;
 }
-export function corpsSucces(c: CaracteristiquesPermis | null, deposees: string[], ignorees: string[], echecs: string[], expediteur: string, ficheEchec: string | null = null): string {
+/** N6-B — bilan des liens Drive suivis (échecs par fichier + plafonds), inséré dans l'alerte. Vide si aucun Drive n'a été suivi. */
+export interface BilanDrive { echecs: { ref: string; motif: string }[]; plafondFichiers: boolean; plafondVolume: boolean }
+function lignesBilanDrive(b: BilanDrive | null): string[] {
+  if (b === null) return [];
+  const L: string[] = [];
+  if (b.echecs.length > 0) { L.push(`⚠ Fichiers Drive NON récupérés (${b.echecs.length}) :`); for (const e of b.echecs) L.push(`  ⚠ ${e.ref} — ${e.motif}`); }
+  if (b.plafondFichiers) L.push('⚠ Plafond du NOMBRE de fichiers Drive atteint : les liens au-delà de la limite n’ont pas été suivis.');
+  if (b.plafondVolume) L.push('⚠ Plafond de VOLUME Drive atteint : téléchargement arrêté ; seules les pièces déjà obtenues ont été versées.');
+  return L;
+}
+
+export function corpsSucces(c: CaracteristiquesPermis | null, deposees: string[], ignorees: string[], echecs: string[], expediteur: string, ficheEchec: string | null = null, bilanDrive: BilanDrive | null = null): string {
   const L: string[] = ['Des documents reçus par e-mail ont été versés AUTOMATIQUEMENT dans la GED d’un permis.', ''];
   if (c) L.push(...ligneCarac(c), ''); else L.push('⚠ Caractéristiques du permis indisponibles en base (lecture en erreur).', '');
   L.push(deposees.length > 0 ? `Pièces versées (${deposees.length}) :` : 'Aucune nouvelle pièce versée (toutes déjà présentes).');
   for (const n of deposees) L.push(`  · ${n}`);
   if (ignorees.length > 0) { L.push('', `Pièces ignorées car déjà présentes (${ignorees.length}) :`); for (const n of ignorees) L.push(`  · ${n}`); }
   if (echecs.length > 0) { L.push('', `⚠ Pièces NON versées (échec de dépôt) (${echecs.length}) :`); for (const n of echecs) L.push(`  ⚠ ${n}`); }
+  const drive = lignesBilanDrive(bilanDrive); // N6-B : échecs Drive + plafonds (jamais un silence)
+  if (drive.length > 0) L.push('', ...drive);
   // N1-B — état de la fiche de synthèse : jointe (succès) OU non générée (motif). Explicite : un échec de fiche ne perd AUCUNE pièce.
   L.push('', ficheEchec === null
     ? 'Fiche de synthèse : générée, déposée en GED et jointe à cet e-mail.'
@@ -116,13 +149,15 @@ export function corpsSucces(c: CaracteristiquesPermis | null, deposees: string[]
   L.push('', `Expéditeur du mail d’origine : ${expediteur}`);
   return L.join('\n');
 }
-export function corpsAmbigu(caracs: (CaracteristiquesPermis | null)[], expediteur: string): string {
+export function corpsAmbigu(caracs: (CaracteristiquesPermis | null)[], expediteur: string, bilanDrive: BilanDrive | null = null): string {
   const L: string[] = ['Un mail « permis » désigne PLUSIEURS permis en concurrence : AUCUNE pièce n’a été versée. À trancher à la main.', ''];
   caracs.forEach((c, i) => { L.push(`Candidat ${i + 1} :`); L.push(...(c ? ligneCarac(c) : ['(caractéristiques indisponibles)']).map((x) => `  ${x}`)); L.push(''); });
+  const drive = lignesBilanDrive(bilanDrive);
+  if (drive.length > 0) L.push(...drive, '');
   L.push(`Expéditeur du mail d’origine : ${expediteur}`);
   return L.join('\n');
 }
-export function corpsAucun(issue: 'aucun_candidat' | 'extraction_echec', motifs: string[], expediteur: string): string {
+export function corpsAucun(issue: 'aucun_candidat' | 'extraction_echec', motifs: string[], expediteur: string, bilanDrive: BilanDrive | null = null): string {
   const L: string[] = [];
   if (issue === 'extraction_echec') {
     L.push('Un mail « permis » a été reçu mais le NUMÉRO DE PERMIS n’a pas pu être lu dans ses pièces (extraction impossible).', '', 'Motifs :');
@@ -130,8 +165,33 @@ export function corpsAucun(issue: 'aucun_candidat' | 'extraction_echec', motifs:
   } else {
     L.push('Un mail « permis » a été reçu mais AUCUN numéro de permis correspondant à une demande dans l’interface n’a été trouvé.', '');
   }
+  const drive = lignesBilanDrive(bilanDrive);
+  if (drive.length > 0) L.push('', ...drive);
   L.push('', 'Que faire de ce mail et de ses pièces jointes ? (le mail complet est transféré ci-dessus.)', '', `Expéditeur du mail d’origine : ${expediteur}`);
   return L.join('\n');
+}
+
+// ── N6-B — corps des alertes TERMINALES (aucun versement possible) ────────────
+export function corpsSansContenu(expediteur: string): string {
+  return [
+    'Un mail « permis » a été reçu d’un expéditeur connu, mais il ne contient NI pièce jointe NI lien Google Drive exploitable.',
+    'Rien n’a pu être versé. Vérifier le mail d’origine (contenu peut-être vide, ou format de partage non reconnu).',
+    '', `Expéditeur du mail d’origine : ${expediteur}`,
+  ].join('\n');
+}
+export function corpsDriveNonConfigure(nbLiens: number, expediteur: string): string {
+  return [
+    `Un mail « permis » porte ${nbLiens} lien(s) Google Drive, mais l’accès Drive n’est PAS configuré (variables GOOGLE_DRIVE_* absentes).`,
+    'Aucun fichier n’a été téléchargé ni versé. Configurer l’accès (npm run drive:autoriser) puis relever à nouveau.',
+    '', `Expéditeur du mail d’origine : ${expediteur}`,
+  ].join('\n');
+}
+export function corpsDriveJeton(expediteur: string): string {
+  return [
+    'Un mail « permis » porte des liens Google Drive, mais l’accès Drive a été REFUSÉ (jeton expiré ou invalide).',
+    'Aucun fichier n’a été téléchargé ni versé. Régénérer le refresh_token (npm run drive:autoriser) puis relever à nouveau.',
+    '', `Expéditeur du mail d’origine : ${expediteur}`,
+  ].join('\n');
 }
 
 // ── Orchestrateur (INJECTION) ─────────────────────────────────────────────────
@@ -145,10 +205,39 @@ export async function traiterDepotManuel(mb: MessageBoite, profil: ProfilBoite, 
   const expediteur = mb.message.deAdresse;
   if (await deps.dejaTraite(messageId)) return { issue: 'deja_traite' };
 
+  // 0) SOURCE DES PIÈCES (N6-B) : les pièces jointes MIME si présentes ; SINON les liens Google Drive du corps. Une fois la liste
+  //    `pieces` fabriquée, TOUT ce qui suit est le code existant, inchangé (rapprochement, versement, alerte, fiche).
+  let pieces: PieceMeta[] = mb.pieces;
+  let bilanDrive: BilanDrive | null = null;
+  if (mb.pieces.length === 0) {
+    const ids = extraireIdsDrive(mb.message.corpsTexte ?? null, mb.message.corpsHtml ?? null);
+    if (ids.length === 0) {
+      // F-N2 — mail « permis » d'un expéditeur connu, SANS pièce jointe NI lien Drive exploitable → alerte (jamais un silence).
+      await deps.envoyerAlerte('Mail « permis » sans pièce jointe ni lien exploitable', corpsSansContenu(expediteur));
+      await deps.journaliser({ messageId, profil, issue: 'aucun_contenu', dossierId: null, expediteur });
+      return { issue: 'aucun_contenu' };
+    }
+    // Noms lus dans le corps (repli si la métadonnée Drive échoue) : le nom précède le lien (recon N6-A).
+    const nomsReplis = nomsDepuisCorps(mb.message.corpsTexte ?? null, mb.message.corpsHtml ?? null, ids);
+    const drive = await deps.recupererPiecesDrive(ids, nomsReplis);
+    if (!drive.configure) {
+      await deps.envoyerAlerte('Liens Drive détectés mais accès Drive non configuré', corpsDriveNonConfigure(ids.length, expediteur));
+      await deps.journaliser({ messageId, profil, issue: 'drive_non_configure', dossierId: null, expediteur });
+      return { issue: 'drive_non_configure' };
+    }
+    if (drive.jetonRefuse === true) {
+      await deps.envoyerAlerte('Accès Drive refusé (jeton expiré ou invalide)', corpsDriveJeton(expediteur));
+      await deps.journaliser({ messageId, profil, issue: 'drive_jeton', dossierId: null, expediteur });
+      return { issue: 'drive_jeton' };
+    }
+    pieces = drive.pieces.map((p) => ({ nomFichier: p.nomFichier, typeMime: p.typeMime, tailleOctets: p.contenu.length, contenu: p.contenu }));
+    bilanDrive = { echecs: drive.echecs, plafondFichiers: drive.plafondFichiers, plafondVolume: drive.plafondVolume };
+  }
+
   // 1) Extraction du texte des pièces (PDF) — les échecs sont collectés (motif), jamais silencieux.
   const textes: string[] = [];
   const motifs: string[] = [];
-  for (const p of mb.pieces) {
+  for (const p of pieces) {
     const t = await deps.extraireTextePdf(p.contenu, p.typeMime);
     if (t !== null && t.trim() !== '') textes.push(t);
     else motifs.push(`« ${p.nomFichier} » : ${p.typeMime === 'application/pdf' ? 'PDF sans couche texte lisible' : `type non lisible (${p.typeMime ?? 'inconnu'})`}`);
@@ -157,7 +246,7 @@ export async function traiterDepotManuel(mb: MessageBoite, profil: ProfilBoite, 
   // 2) Rapprochement : num_dau connus trouvés dans (noms de fichiers + texte extrait). Technique existante (satisfactionDossier).
   const candidats = await deps.chargerCandidats();
   const trouves = dossiersSatisfaits(
-    { piecesNoms: mb.pieces.map((p) => p.nomFichier), corpsTexte: textes.join('\n') },
+    { piecesNoms: pieces.map((p) => p.nomFichier), corpsTexte: textes.join('\n') },
     candidats.map((c) => ({ dossierId: c.dossierId, numDau: c.numDau })),
   );
   const distincts = [...new Set(trouves)];
@@ -169,7 +258,7 @@ export async function traiterDepotManuel(mb: MessageBoite, profil: ProfilBoite, 
     if (!cand.dejaSatisfait) await deps.marquerSatisfait(cand.demandeId, dossierId); // bascule en Archives AVANT le dépôt (garde saine)
     const dejaEmpreintes = await deps.empreintesEnGed(dossierId);
     const deposees: string[] = []; const ignorees: string[] = []; const echecs: string[] = [];
-    for (const p of mb.pieces) {
+    for (const p of pieces) {
       const emp = empreinteDe(p.contenu);
       if (dejaEmpreintes.has(emp)) { ignorees.push(p.nomFichier); continue; } // déjà en GED → on n'ajoute pas
       const r = await deps.deposer(dossierId, { nomFichier: p.nomFichier, typeMime: p.typeMime, contenu: p.contenu }, expediteur, messageId);
@@ -182,7 +271,7 @@ export async function traiterDepotManuel(mb: MessageBoite, profil: ProfilBoite, 
     const pieceJointe = fiche.ok ? { nomFichier: fiche.nomFichier, contenu: fiche.contenu } : undefined;
     await deps.envoyerAlerte(
       `Versement GED — permis N°${carac?.numDau ?? '?'} (${deposees.length} pièce(s))`,
-      corpsSucces(carac, deposees, ignorees, echecs, expediteur, fiche.ok ? null : fiche.motif),
+      corpsSucces(carac, deposees, ignorees, echecs, expediteur, fiche.ok ? null : fiche.motif, bilanDrive),
       pieceJointe,
     );
     await deps.journaliser({ messageId, profil, issue: 'verse', dossierId, expediteur });
@@ -192,7 +281,7 @@ export async function traiterDepotManuel(mb: MessageBoite, profil: ProfilBoite, 
   // (b) PLUSIEURS candidats → ne rien verser, alerter pour trancher
   if (distincts.length > 1) {
     const caracs = await Promise.all(distincts.map((id) => deps.caracteristiques(id)));
-    await deps.envoyerAlerte(`Versement GED à trancher — ${distincts.length} permis en concurrence`, corpsAmbigu(caracs, expediteur));
+    await deps.envoyerAlerte(`Versement GED à trancher — ${distincts.length} permis en concurrence`, corpsAmbigu(caracs, expediteur, bilanDrive));
     await deps.journaliser({ messageId, profil, issue: 'ambigu', dossierId: null, expediteur });
     return { issue: 'ambigu', candidats: distincts.length };
   }
@@ -200,9 +289,27 @@ export async function traiterDepotManuel(mb: MessageBoite, profil: ProfilBoite, 
   // (c)/(d) AUCUN candidat → forward du mail complet + alerte (avec motif si extraction échouée)
   const issue: IssueDepot = motifs.length > 0 ? 'extraction_echec' : 'aucun_candidat';
   const sujet = issue === 'extraction_echec' ? 'Versement GED impossible — numéro de permis illisible' : 'Versement GED impossible — permis inconnu';
-  await deps.forwarder(mb, sujet, corpsAucun(issue, motifs, expediteur));
+  await deps.forwarder(mb, sujet, corpsAucun(issue, motifs, expediteur, bilanDrive));
   await deps.journaliser({ messageId, profil, issue, dossierId: null, expediteur });
   return { issue };
+}
+
+/**
+ * N6-B — repli de noms : associe à chaque FILE_ID le nom de fichier qui PRÉCÈDE son lien dans le corps (recon N6-A). Sert
+ * UNIQUEMENT si l'appel de métadonnées Drive échoue (le nom/type des métadonnées FONT FOI sinon). PURE, best-effort.
+ */
+export function nomsDepuisCorps(corpsTexte: string | null, corpsHtml: string | null, ids: string[]): Record<string, string> {
+  const noms: Record<string, string> = {};
+  const source = `${corpsTexte ?? ''}\n${corpsHtml ?? ''}`;
+  for (const id of ids) {
+    const i = source.indexOf(id);
+    if (i < 0) continue;
+    // fenêtre AVANT le lien, dé-balisée ; on prend le dernier nom de fichier plausible qui précède.
+    const avant = source.slice(Math.max(0, i - 400), i).replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&');
+    const m = [...avant.matchAll(/([\w %.()\-]+\.(?:pdf|zip|docx?|xlsx?|jpe?g|png|dwg|tiff?))/gi)];
+    if (m.length > 0) noms[id] = m[m.length - 1][1].trim();
+  }
+  return noms;
 }
 
 // ── Implémentation RÉELLE (production) ────────────────────────────────────────
@@ -320,6 +427,20 @@ export function depsReellesDepotManuel(): DepsDepotManuel {
         return { ok: false, motif: 'génération de la fiche impossible' };
       }
     },
+    recupererPiecesDrive: async (ids, nomsReplis) => {
+      // N6-B — actif SSI les 3 variables GOOGLE_DRIVE_* sont présentes. Whitelist MIME (extensionEntrante) et borne de taille
+      //   (piece_taille_max_mo) RÉUTILISÉES du chemin entrant, jamais redéfinies. `stockage` et `drive` en import DYNAMIQUE.
+      const { lireConfigDrive, recupererFichiersDrive, MAX_FICHIERS_DRIVE, MAX_VOLUME_DRIVE_OCTETS } = await import('../permis/drive');
+      const config = lireConfigDrive();
+      if (config === null) return { configure: false };
+      const { chargerConfigVeille } = await import('./veilleConfig');
+      const tailleMaxOctets = (await chargerConfigVeille()).pieceTailleMaxMo * 1024 * 1024;
+      const { extensionEntrante } = await import('../stockage');
+      return recupererFichiersDrive(ids, config, { fetch }, {
+        tailleMaxOctets, maxFichiers: MAX_FICHIERS_DRIVE, maxVolumeOctets: MAX_VOLUME_DRIVE_OCTETS,
+        mimeAutorise: (mime) => extensionEntrante(mime) !== null,
+      }, nomsReplis);
+    },
     envoyerAlerte: async (sujet, corps, pieceJointe) => {
       const { chargerConfigVeille } = await import('./veilleConfig');
       const email = (await chargerConfigVeille()).alerteEmail.trim();
@@ -354,7 +475,7 @@ export async function brancheDepotManuel(profil: ProfilBoite): Promise<BrancheDe
   return {
     adresses,
     traiter: async (mb) => {
-      if (!estCandidatDepot({ objet: mb.message.objet, deAdresse: mb.message.deAdresse, nbPieces: mb.pieces.length }, adresses)) return { issue: 'non_traite' };
+      if (!estCandidatDepot({ objet: mb.message.objet, deAdresse: mb.message.deAdresse }, adresses)) return { issue: 'non_traite' };
       return traiterDepotManuel(mb, profil, deps);
     },
   };

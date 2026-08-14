@@ -4,10 +4,11 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../db/client', () => ({ query: vi.fn() }));
 
 import {
-  objetEstPermis, estCandidatDepot, traiterDepotManuel, empreinteDe, parserAdressesConnues,
+  objetEstPermis, estCandidatDepot, traiterDepotManuel, empreinteDe, parserAdressesConnues, nomsDepuisCorps,
   type DepsDepotManuel, type CandidatDossier, type CaracteristiquesPermis, type IssueDepot,
 } from './depotManuel';
 import type { MessageBoite, PieceMeta } from '../veille/releveReponses';
+import type { ResultatDrive } from '../permis/drive';
 
 // ── Fabriques ─────────────────────────────────────────────────────────────────
 const piece = (nom: string, contenu: string, typeMime: string | null = 'application/pdf'): PieceMeta =>
@@ -25,6 +26,7 @@ function harness(opts: {
   candidats?: CandidatDossier[]; textes?: Record<string, string | null>; dejaTraite?: boolean; empreintes?: Set<string>;
   deposeMotif?: string; // si défini → deposer échoue avec ce motif
   ficheEchec?: string;  // N1-B : si défini → la génération de fiche échoue avec ce motif (les pièces doivent quand même être versées)
+  driveResultat?: ResultatDrive; // N6-B : réponse injectée de recupererPiecesDrive (défaut : configuré, vide)
 } = {}) {
   const journal: { messageId: string; issue: IssueDepot; dossierId: number | null }[] = [];
   const alertes: { sujet: string; corps: string; pieceJointe?: { nomFichier: string; contenu: Buffer } }[] = [];
@@ -32,6 +34,7 @@ function harness(opts: {
   const marques: { demandeId: number; dossierId: number }[] = [];
   const deposes: { dossierId: number; nom: string }[] = [];
   const fiches: number[] = []; // N1-B : dossierIds pour lesquels une (re)génération de fiche a été demandée
+  const drivesDemandes: string[][] = []; // N6-B : ids passés à recupererPiecesDrive
   const deps: DepsDepotManuel = {
     dejaTraite: async () => opts.dejaTraite === true,
     journaliser: async (e) => { journal.push({ messageId: e.messageId, issue: e.issue, dossierId: e.dossierId }); },
@@ -46,10 +49,14 @@ function harness(opts: {
       if (opts.ficheEchec) return { ok: false, motif: opts.ficheEchec };
       return { ok: true, nomFichier: 'Fiche de synthèse du permis.pdf', contenu: Buffer.from('%PDF-fake') };
     },
+    recupererPiecesDrive: async (ids) => {
+      drivesDemandes.push(ids);
+      return opts.driveResultat ?? { configure: true, pieces: [], echecs: [], plafondFichiers: false, plafondVolume: false };
+    },
     envoyerAlerte: async (sujet, corps, pieceJointe) => { alertes.push({ sujet, corps, pieceJointe }); },
     forwarder: async (_mb, sujet, corps) => { forwards.push({ sujet, corps }); },
   };
-  return { deps, journal, alertes, forwards, marques, deposes, fiches };
+  return { deps, journal, alertes, forwards, marques, deposes, fiches, drivesDemandes };
 }
 
 describe('F-N1 — parserAdressesConnues : séparateurs tolérés, casse ignorée, vides ignorés', () => {
@@ -71,17 +78,22 @@ describe('F-N1 — parserAdressesConnues : séparateurs tolérés, casse ignoré
   });
 });
 
-describe('N1-A — reconnaissance (objet « permis » + expéditeur connu + pièces)', () => {
-  it('objetEstPermis : « permis » seul, casse/accents/espaces/Re:/Fwd: tolérés ; jamais un objet composé', () => {
+describe('N1-A / N6-B(a) — reconnaissance de l’objet (premier mot « permis », zéro-largeur tolérés)', () => {
+  it('objetEstPermis : accepté si le PREMIER mot est « permis » ; casse/accents/Re:/Fwd: tolérés', () => {
     for (const o of ['permis', 'Permis', '  PERMIS ', 'Re: permis', 'Fwd: Permis', 'TR : permís']) expect(objetEstPermis(o)).toBe(true);
-    for (const o of ['les permis', 'permis 093', 'demande de permis', '', null, undefined]) expect(objetEstPermis(o as string)).toBe(false);
+    // N6-B(a) — Gmail colle les noms de fichiers après « permis », séparés par des espaces zéro-largeur : ACCEPTÉ
+    expect(objetEstPermis('permis PC14_2D.pdf PC16.1_2D.pdf')).toBe(true);
+    expect(objetEstPermis('permis\u200B PC14_2D.pdf\u200B\u200B PC16.1_2D.pdf\u200B')).toBe(true); // ZWSP (U+200B) comme Gmail
+    expect(objetEstPermis('permis\uFEFFPC14.pdf')).toBe(true); // zéro-largeur (U+FEFF) COLLÉ au mot → frontière préservée
+    // Restent REFUSÉS : le premier mot n'est pas « permis »
+    for (const o of ['les permis', 'demande de permis', '', null, undefined]) expect(objetEstPermis(o as string)).toBe(false);
   });
-  it('estCandidatDepot : les TROIS conditions cumulatives ; une seule manquante → false', () => {
+  it('estCandidatDepot (N6-B) : DEUX conditions — objet « permis » ET expéditeur en liste blanche ; la présence de pièces n’entre PLUS en compte', () => {
     const adr = new Set(['a.jorel@sansvisavis.com']);
-    expect(estCandidatDepot({ objet: 'permis', deAdresse: 'A.Jorel@Sansvisavis.com', nbPieces: 1 }, adr)).toBe(true); // casse ignorée
-    expect(estCandidatDepot({ objet: 'autre', deAdresse: 'a.jorel@sansvisavis.com', nbPieces: 1 }, adr)).toBe(false); // objet
-    expect(estCandidatDepot({ objet: 'permis', deAdresse: 'inconnu@x.fr', nbPieces: 1 }, adr)).toBe(false);           // expéditeur
-    expect(estCandidatDepot({ objet: 'permis', deAdresse: 'a.jorel@sansvisavis.com', nbPieces: 0 }, adr)).toBe(false); // pièces
+    expect(estCandidatDepot({ objet: 'permis', deAdresse: 'A.Jorel@Sansvisavis.com' }, adr)).toBe(true);  // casse ignorée
+    expect(estCandidatDepot({ objet: 'permis PC14.pdf', deAdresse: 'a.jorel@sansvisavis.com' }, adr)).toBe(true); // objet Drive (sans pièce jointe)
+    expect(estCandidatDepot({ objet: 'autre', deAdresse: 'a.jorel@sansvisavis.com' }, adr)).toBe(false);   // objet
+    expect(estCandidatDepot({ objet: 'permis', deAdresse: 'inconnu@x.fr' }, adr)).toBe(false);             // expéditeur
   });
 });
 
@@ -198,5 +210,110 @@ describe('N1-A — dédoublonnage partiel (§6) : ne verse que les pièces absen
     expect(res.issue).toBe('verse');
     expect(res.echecs).toEqual(['x.pdf (type non autorisé pour le dépôt)']);
     expect(h.alertes[0].corps).toContain('NON versées');
+  });
+});
+
+describe('N6-B — versement via liens Google Drive (0 pièce jointe) : MÊMES issues que les pièces jointes', () => {
+  const CAND: CandidatDossier = { dossierId: 1, demandeId: 10, numDau: '0930012500081', dejaSatisfait: false };
+  // Un mail « permis » de Gmail SANS pièce jointe, dont le corps porte 2 liens Drive.
+  const mailDrive = (corps: string) => mail({ objet: 'permis fichier.pdf', corpsTexte: corps, corpsHtml: undefined }, []);
+  const CORPS_2 = 'arrete.pdf https://drive.google.com/file/d/AAA/view?usp=drive_web\nplan.pdf https://drive.google.com/file/d/BBB/view?usp=drive_web';
+
+  it('UN candidat via Drive → fichiers téléchargés fabriquent la liste, versement + Archives + fiche + alerte', async () => {
+    const drivePieces = [
+      { nomFichier: 'arrete.pdf', typeMime: 'application/pdf', contenu: Buffer.from('cite 0930012500081') },
+      { nomFichier: 'plan.pdf', typeMime: 'application/pdf', contenu: Buffer.from('sans ref') },
+    ];
+    const h = harness({
+      candidats: [CAND],
+      textes: { 'cite 0930012500081': 'cite 0930012500081', 'sans ref': 'sans ref' },
+      driveResultat: { configure: true, pieces: drivePieces, echecs: [], plafondFichiers: false, plafondVolume: false },
+    });
+    const res = await traiterDepotManuel(mailDrive(CORPS_2), 'entreprise', h.deps);
+    expect(res.issue).toBe('verse');
+    expect(h.drivesDemandes).toEqual([['AAA', 'BBB']]);              // les 2 FILE_ID extraits, dans l'ordre
+    expect(h.marques).toEqual([{ demandeId: 10, dossierId: 1 }]);    // bascule en Archives (même chemin)
+    expect(h.deposes.map((d) => d.nom)).toEqual(['arrete.pdf', 'plan.pdf']);
+    expect(h.fiches).toEqual([1]);                                   // fiche de synthèse régénérée
+    expect(h.alertes[0].pieceJointe?.nomFichier).toBe('Fiche de synthèse du permis.pdf');
+  });
+
+  it('échecs Drive partiels (trop gros, natif Google) → versement du reste + alerte les liste (jamais un silence)', async () => {
+    const h = harness({
+      candidats: [CAND],
+      textes: { 'cite 0930012500081': 'cite 0930012500081' },
+      driveResultat: {
+        configure: true,
+        pieces: [{ nomFichier: 'ok.pdf', typeMime: 'application/pdf', contenu: Buffer.from('cite 0930012500081') }],
+        echecs: [{ ref: 'gros.pdf', motif: 'trop volumineux : 42.0 Mo (maximum 20.0 Mo)' }, { ref: 'sheet', motif: 'fichier natif Google (application/vnd.google-apps.spreadsheet) — non téléchargeable' }],
+        plafondFichiers: true, plafondVolume: false,
+      },
+    });
+    const res = await traiterDepotManuel(mailDrive(CORPS_2), 'entreprise', h.deps);
+    expect(res.issue).toBe('verse');
+    expect(h.deposes.map((d) => d.nom)).toEqual(['ok.pdf']);
+    expect(h.alertes[0].corps).toContain('Fichiers Drive NON récupérés');
+    expect(h.alertes[0].corps).toContain('trop volumineux');
+    expect(h.alertes[0].corps).toContain('natif Google');
+    expect(h.alertes[0].corps).toContain('Plafond du NOMBRE');
+  });
+
+  it('PLUSIEURS candidats via Drive → ne verse rien + alerte « à trancher »', async () => {
+    const h = harness({
+      candidats: [CAND, { dossierId: 2, demandeId: 11, numDau: '0930012500082', dejaSatisfait: true }],
+      textes: { 'deux 0930012500081 et 0930012500082': 'deux 0930012500081 et 0930012500082' },
+      driveResultat: { configure: true, pieces: [{ nomFichier: 'x.pdf', typeMime: 'application/pdf', contenu: Buffer.from('deux 0930012500081 et 0930012500082') }], echecs: [], plafondFichiers: false, plafondVolume: false },
+    });
+    const res = await traiterDepotManuel(mailDrive(CORPS_2), 'entreprise', h.deps);
+    expect(res.issue).toBe('ambigu');
+    expect(h.deposes).toHaveLength(0);
+    expect(h.alertes[0].corps).toContain('PLUSIEURS permis');
+  });
+
+  it('AUCUN candidat via Drive → forward + alerte', async () => {
+    const h = harness({
+      candidats: [CAND],
+      textes: { 'aucun numero connu': 'aucun numero connu' },
+      driveResultat: { configure: true, pieces: [{ nomFichier: 'x.pdf', typeMime: 'application/pdf', contenu: Buffer.from('aucun numero connu') }], echecs: [], plafondFichiers: false, plafondVolume: false },
+    });
+    const res = await traiterDepotManuel(mailDrive(CORPS_2), 'entreprise', h.deps);
+    expect(res.issue).toBe('aucun_candidat');
+    expect(h.forwards).toHaveLength(1);
+  });
+
+  it('accès Drive NON configuré → alerte explicite + issue drive_non_configure (jamais un silence)', async () => {
+    const h = harness({ driveResultat: { configure: false } });
+    const res = await traiterDepotManuel(mailDrive(CORPS_2), 'entreprise', h.deps);
+    expect(res.issue).toBe('drive_non_configure');
+    expect(h.alertes[0].sujet).toContain('accès Drive non configuré');
+    expect(h.deposes).toHaveLength(0);
+    expect(h.journal[0]).toMatchObject({ issue: 'drive_non_configure' });
+  });
+
+  it('jeton Drive refusé/expiré → alerte explicite + issue drive_jeton', async () => {
+    const h = harness({ driveResultat: { configure: true, jetonRefuse: true } });
+    const res = await traiterDepotManuel(mailDrive(CORPS_2), 'entreprise', h.deps);
+    expect(res.issue).toBe('drive_jeton');
+    expect(h.alertes[0].sujet).toContain('jeton');
+    expect(h.journal[0]).toMatchObject({ issue: 'drive_jeton' });
+  });
+
+  it('F-N2 — 0 pièce jointe ET 0 lien Drive exploitable → alerte, jamais un silence', async () => {
+    const h = harness({});
+    const res = await traiterDepotManuel(mail({ objet: 'permis', corpsTexte: 'bonjour, rien ici', corpsHtml: undefined }, []), 'entreprise', h.deps);
+    expect(res.issue).toBe('aucun_contenu');
+    expect(h.drivesDemandes).toHaveLength(0);       // pas de tentative Drive : aucun lien
+    expect(h.alertes[0].sujet).toContain('sans pièce jointe ni lien');
+    expect(h.journal[0]).toMatchObject({ issue: 'aucun_contenu' });
+  });
+});
+
+describe('N6-B — nomsDepuisCorps (repli de nom : le nom PRÉCÈDE le lien)', () => {
+  it('associe à chaque FILE_ID le nom de fichier qui le précède dans le corps', () => {
+    const corps = 'PC1.pdf https://drive.google.com/file/d/AAA/view\nPC2.pdf https://drive.google.com/file/d/BBB/view';
+    expect(nomsDepuisCorps(corps, null, ['AAA', 'BBB'])).toEqual({ AAA: 'PC1.pdf', BBB: 'PC2.pdf' });
+  });
+  it('id absent du corps → pas d’entrée (best-effort, jamais une erreur)', () => {
+    expect(nomsDepuisCorps('rien', null, ['ZZZ'])).toEqual({});
   });
 });
