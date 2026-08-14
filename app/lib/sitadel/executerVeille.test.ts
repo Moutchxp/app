@@ -369,3 +369,39 @@ describe('S11a-FIX — executerVeille : garde d’intervalle (planifie)', () => 
     expect(millesimeDistant).not.toHaveBeenCalled();
   });
 });
+
+describe('T7-B — executerVeille : alerte « action requise » (cas ③) branchée, ISOLÉE, après les alertes GED', () => {
+  it('une alerte action qui ÉCHOUE (throw) n’empêche PAS la veille de finaliser en « succes »', async () => {
+    const alerteAction = vi.fn(async () => { throw new Error('SMTP KO'); });
+    const finaliserRun = vi.fn(async () => {});
+    const libererVerrou = vi.fn(async () => {});
+    const deps = makeDeps({ alerteAction, finaliserRun, libererVerrou });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(alerteAction).toHaveBeenCalledTimes(1);
+    expect(r.statut).toBe('succes');
+    expect(libererVerrou).toHaveBeenCalledTimes(1);
+  });
+
+  it('l’alerte GED (§1septies) tourne AVANT l’alerte action (§1octies)', async () => {
+    const ordre: string[] = [];
+    const alerteGed = vi.fn(async () => { ordre.push('ged'); });
+    const alerteAction = vi.fn(async () => { ordre.push('action'); });
+    const deps = makeDeps({ alerteGed, alerteAction });
+
+    await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(ordre).toEqual(['ged', 'action']);
+  });
+
+  it('verrou déjà pris → l’alerte action n’est PAS tentée (sortie avant le corps)', async () => {
+    const alerteAction = vi.fn(async () => {});
+    const deps = makeDeps({ acquerirVerrou: vi.fn(async () => false), alerteAction });
+
+    const r = await executerVeille({ declencheur: 'planifie' }, deps);
+
+    expect(r.statut).toBe('rien_a_faire');
+    expect(alerteAction).not.toHaveBeenCalled();
+  });
+});

@@ -92,6 +92,21 @@ export interface AlerteGedAffiche {
   enRetard: boolean;       // partie après son seuil (machine éteinte) → jamais un silence supposé normal
 }
 
+/**
+ * T7-B (cas ③) — un message de mairie de nature `autre` rattaché à cette demande, qui appelle une réponse humaine. On ne
+ * remonte QUE les messages ANCRÉS (nature_classee_le IS NOT NULL) : un `autre` classé par le backfill historique (099) n'arme
+ * jamais le cas ③ (ni alerte, ni signal, ni bouton) — la réponse de Paris est ainsi protégée. `reponduLe` NULL = à répondre.
+ */
+export interface MessageAutreAffiche {
+  id: number;                  // demande_reponse.id (grain du bouton « répondu »)
+  objet: string | null;
+  deAdresse: string;
+  deNom: string | null;
+  recuLe: string;              // ISO
+  reponduLe: string | null;    // ISO si marqué répondu, null sinon (pilote le signal « réponse attendue »)
+  reponduPar: string | null;
+}
+
 /** Une demande envoyée, avec de quoi calculer son échéance À L'AFFICHAGE (etatEcheance) et son détail par dossier. */
 export interface DemandeSuivi {
   demandeId: number;
@@ -110,6 +125,7 @@ export interface DemandeSuivi {
   dossiers: DossierSuivi[];
   liens: LienAffiche[];         // L1 : liens de téléchargement captés dans les réponses rattachées (forts d'abord)
   alertesGed: AlerteGedAffiche[]; // G1 : alertes « à classer/télécharger en GED » déjà envoyées (retard visible)
+  messagesAutre: MessageAutreAffiche[]; // T7-B : messages `autre` ancrés (cas ③) — la ligne est signalée tant qu'il en reste ≥1 non répondu
 }
 // T6-A/2 — le critère d'inclusion « Réponses » (demandeADuRetour) + la partition d'affichage (partitionnerReponses) vivent dans
 //   ReponsesRendu.tsx (module PUR client-safe), PAS ici : ce module importe db/client (pg), qu'on ne veut jamais dans le bundle client.
@@ -311,6 +327,23 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
       .push({ type: a.type, numDau: a.num_dau, envoyeLe: a.envoye_le, enRetard: a.en_retard });
   }
 
+  // T7-B (cas ③) — messages `autre` ANCRÉS rattachés à ces demandes (nature_classee_le IS NOT NULL → jamais un rétro-classé :
+  //   Paris protégée). `repondu_le` NULL = à répondre → pilote le signal de ligne « réponse attendue » et le bouton par message.
+  const msgAutre = await query<{ demande_id: number; id: number; objet: string | null; de_adresse: string; de_nom: string | null; recu_le: string; repondu_le: string | null; repondu_par: string | null }>(
+    `SELECT r.demande_id::int AS demande_id, r.id::int AS id, r.objet, r.de_adresse, r.de_nom,
+            r.recu_le::text AS recu_le, r.repondu_le::text AS repondu_le, r.repondu_par
+       FROM demande_reponse r
+       JOIN demande d ON d.id = r.demande_id
+      WHERE d.statut IN ('envoyee', 'close') AND r.demande_id IS NOT NULL
+        AND r.nature = 'autre' AND r.nature_classee_le IS NOT NULL
+      ORDER BY r.demande_id, r.recu_le DESC`,
+  );
+  const parMsgAutre = new Map<number, MessageAutreAffiche[]>();
+  for (const m of msgAutre.rows) {
+    (parMsgAutre.get(m.demande_id) ?? parMsgAutre.set(m.demande_id, []).get(m.demande_id)!)
+      .push({ id: m.id, objet: m.objet, deAdresse: m.de_adresse, deNom: m.de_nom, recuLe: m.recu_le, reponduLe: m.repondu_le, reponduPar: m.repondu_par });
+  }
+
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
@@ -319,6 +352,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     dossiers: parDemande.get(r.id) ?? [],
     liens: parLiens.get(r.id) ?? [],
     alertesGed: parAlertes.get(r.id) ?? [],
+    messagesAutre: parMsgAutre.get(r.id) ?? [],
   }));
   return { demandes, derniereOkLe, reglages };
 }

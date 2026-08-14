@@ -4,10 +4,10 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
 import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, CHOIX_STATUT_DEFAUT } from '../../../../lib/sitadel/demandesListe';
-import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, RetourMairie, etatRetourMairie, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
+import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, RetourMairie, etatRetourMairie, nbAutreARepondre, BadgeReponseAttendue, FOND_REPONSE_ATTENDUE, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
-import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, formaterDate, type RetourCible } from './ReponsesRendu';
+import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, formaterDate, type RetourCible } from './ReponsesRendu';
 import { etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 
@@ -263,12 +263,22 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
             {rich && e ? <EtatDemande statut={rich.statut} dossiersActifs={rich.dossiersActifs} etat={e.etat} motif={e.motif} /> : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
           </td>
           <td style={{ padding: '.4rem .5rem', verticalAlign: 'top' as const }}>
-            {rich ? <RetourMairie etat={etatRetourMairie(rich)} nbReponses={rich.nbReponses} derniereReponseLe={rich.derniereReponseLe} /> : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
+            {rich ? (
+              <>
+                <RetourMairie etat={etatRetourMairie(rich)} nbReponses={rich.nbReponses} derniereReponseLe={rich.derniereReponseLe} />
+                {/* T7-B — badge « N à répondre » (cas ③), sous l'état documents ; porte le texte (a11y), le fond de ligne n'est qu'un appui. */}
+                <div><BadgeReponseAttendue n={nbAutreARepondre(rich.messagesAutre)} /></div>
+              </>
+            ) : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
           </td>
         </>
       );
     },
   } : undefined;
+  // T7-B — fond bleu de la ligne « réponse attendue » (cas ③) : dérivé du MÊME état (nbAutreARepondre > 0) que le badge.
+  const fondLigne = enCours && suivi
+    ? (d: { id: number }) => { const rich = suivi.parId.get(d.id); return rich && nbAutreARepondre(rich.messagesAutre) > 0 ? FOND_REPONSE_ATTENDUE : undefined; }
+    : undefined;
   // T6-A — donnée riche de la demande OUVERTE (détail « En cours ») : dossiers + statut + compteurs pour DetailDossiers/ActionsCloture.
   const richDetail = enCours && detail && suivi ? suivi.parId.get(detail.id) ?? null : null;
 
@@ -366,6 +376,8 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
         demandeOuverte={detail?.id ?? null}
         // T6-A — colonnes Délai + Retour mairie (En cours seulement ; undefined → « À demander » inchangé).
         colonnesSuivi={colonnesSuivi}
+        // T7-B — fond bleu « réponse attendue » (En cours seulement ; undefined ailleurs).
+        fondLigne={fondLigne}
         panneau={detail ? (
           <PanneauDetailDemande
             detail={detail} corps={corps} refDetail={refDetail} retour={zonesRetour.detail}
@@ -399,6 +411,10 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
                 <BlocLiens liens={richDetail.liens} maintenant={new Date()} />
                 {/* G1 — alertes « à classer/télécharger en GED » envoyées pour cette demande (retard rendu visible). */}
                 <BlocAlertesGed alertes={richDetail.alertesGed} />
+                {/* T7-B (cas ③) — messages « autre » appelant une réponse : bouton « répondu » MANUEL et RÉVERSIBLE par message. */}
+                <BlocMessagesAutre messages={richDetail.messagesAutre} retour={retourReponse}
+                  onRepondu={(reponseId) => void agirReponse({ action: 'repondu', reponseId }, `repondu-${reponseId}`, 'Message marqué « répondu ».')}
+                  onAnnulerRepondu={(reponseId) => void agirReponse({ action: 'annuler_repondu', reponseId }, `repondu-${reponseId}`, '« Répondu » annulé.')} />
               </>
             ) : undefined}
             slotActions={richDetail ? (

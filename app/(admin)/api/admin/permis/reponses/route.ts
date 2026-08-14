@@ -3,7 +3,7 @@ import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { chargerSuiviReponses } from '../../../../../lib/veille/reponsesSuivi';
 import { rattacherAMain, marquerTraitee, marquerDossierSatisfait, demarquerDossier, statutDemande,
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
-  lireRecuLeReponse, reclasserNatureReponse, estNatureReclassable, RattachementNonEnvoyeeError } from '../../../../../lib/veille/demandeReponseRepo';
+  lireRecuLeReponse, reclasserNatureReponse, estNatureReclassable, marquerRepondu, annulerRepondu, RattachementNonEnvoyeeError } from '../../../../../lib/veille/demandeReponseRepo';
 import { cloturerDemande, rouvrirDemande, TransitionInterditeError, lireCleTelechargeable, marquerDeposee, DepotInterditError } from '../../../../../lib/sitadel/demandeRepo';
 import { majRelance, abandonnerRelance, regenererRelance, RelanceActionError } from '../../../../../lib/veille/demandeRelanceRepo';
 
@@ -109,6 +109,16 @@ export async function POST(request: Request): Promise<Response> {
     if (corps.action === 'reclasser') {
       if (!estEntier(corps.reponseId) || !estNatureReclassable(corps.nature)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
       const ok = await reclasserNatureReponse(corps.reponseId, corps.nature, auteur);
+      return Response.json({ ok, traite: ok });
+    }
+
+    // T7-B (cas ③) — MARQUER un message « répondu » (bouton MANUEL) ou ANNULER ce marquage (réversible). Gabarit `action +
+    //   reponseId`, comme reclasser/traiter. Le repo journalise l'auteur ; ne touche NI demande.statut NI satisfait_le NI Archives.
+    if (corps.action === 'repondu' || corps.action === 'annuler_repondu') {
+      if (!estEntier(corps.reponseId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      const ok = corps.action === 'repondu'
+        ? await marquerRepondu(corps.reponseId, auteur)
+        : await annulerRepondu(corps.reponseId, auteur);
       return Response.json({ ok, traite: ok });
     }
 

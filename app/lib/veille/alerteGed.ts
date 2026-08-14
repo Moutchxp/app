@@ -98,8 +98,14 @@ export function sujetAlerte(type: TypeAlerteGed, ctx: ContexteAlerte): string {
     : `PERMIS DE CONSTRUIRE N°${ctx.numDau} - DOCUMENTS À CLASSER DANS LA GED`;
 }
 
-/** Une pièce dans le forward : jointe (petite) OU liée par URL signée (lourde). */
-export interface PieceForward { nomFichier: string; jointe: boolean; lienSigne: string | null }
+/**
+ * Une pièce dans le forward. T7-B : `recuperee` distingue le cas où le contenu N'A PAS pu être stocké (MIME hors whitelist,
+ * > taille max, échec S3) — dans ce cas on ne l'a PAS chez nous, il ne faut donc JAMAIS annoncer « aucune perte possible ».
+ *  - recuperee=true, jointe=true  → jointe (petite) ;
+ *  - recuperee=true, jointe=false → liée par URL signée (lourde) ;
+ *  - recuperee=false              → NON récupérée (motif) : à récupérer depuis le message d'origine ou à redemander à la mairie.
+ */
+export interface PieceForward { nomFichier: string; recuperee: boolean; jointe: boolean; lienSigne: string | null; motif: string | null }
 
 export interface CorpsForwardEntree {
   type: TypeAlerteGed;
@@ -120,6 +126,9 @@ export interface CorpsForwardEntree {
 export function composerCorpsForward(e: CorpsForwardEntree): string {
   const L: string[] = [];
   const urgent = e.type === 'h24';
+  // T7-B — une alerte qui RASSURE À TORT est pire que pas d'alerte : dès qu'une pièce n'a pas pu être récupérée (MIME hors
+  //   whitelist, > taille max, échec S3), on n'annonce JAMAIS « aucune perte possible ».
+  const toutesRecuperees = e.pieces.every((p) => p.recuperee);
 
   if (e.ctx.aLienPerissable) {
     L.push(urgent
@@ -132,13 +141,21 @@ export function composerCorpsForward(e: CorpsForwardEntree): string {
     L.push(urgent
       ? 'RAPPEL — des documents reçus de la mairie ne sont pas encore classés dans la GED du permis.'
       : 'Des documents reçus de la mairie ne sont pas encore classés dans la GED du permis.', '');
-    L.push('Aucune perte à craindre : les pièces jointes sont déjà sauvegardées de notre côté. Il reste seulement à les CLASSER en GED.', '');
+    L.push(toutesRecuperees
+      ? 'Aucune perte à craindre : les pièces jointes sont déjà sauvegardées de notre côté. Il reste seulement à les CLASSER en GED.'
+      : '⚠ ATTENTION : certaines pièces n’ont PAS pu être récupérées de notre côté (voir ci-dessous) — celles-ci ne sont pas sauvegardées.', '');
   }
 
   if (e.pieces.length > 0) {
-    L.push('Pièces reçues (déjà sauvegardées chez nous — aucune perte possible) :');
+    L.push(toutesRecuperees
+      ? 'Pièces reçues (déjà sauvegardées chez nous — aucune perte possible) :'
+      : '⚠ Pièces reçues — certaines NON récupérées (à traiter d’urgence) :');
     for (const p of e.pieces) {
-      L.push(p.jointe ? `  · ${p.nomFichier} — jointe à ce mail` : `  · ${p.nomFichier} — trop volumineuse pour être jointe, lien de téléchargement : ${p.lienSigne}`);
+      if (!p.recuperee) {
+        L.push(`  ⚠ ${p.nomFichier} — NON récupérée${p.motif ? ` (${p.motif})` : ''} : à récupérer depuis le message d’origine ci-dessous, ou à redemander à la mairie.`);
+      } else {
+        L.push(p.jointe ? `  · ${p.nomFichier} — jointe à ce mail` : `  · ${p.nomFichier} — trop volumineuse pour être jointe, lien de téléchargement : ${p.lienSigne}`);
+      }
     }
     L.push('');
   }

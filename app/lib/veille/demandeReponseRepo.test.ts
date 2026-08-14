@@ -44,7 +44,7 @@ import {
   marquerDossierSatisfait, demarquerDossier, statutDemande, lireClePiece,
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
   lireRecuLeReponse, RattachementNonEnvoyeeError,
-  classerNatureContenu, estNatureReclassable, reclasserNatureReponse,
+  classerNatureContenu, estNatureReclassable, reclasserNatureReponse, marquerRepondu, annulerRepondu,
   type ReponseEntrante, type PieceAvecContenu,
 } from './demandeReponseRepo';
 import type { ResultatDepotEntrant } from '../stockage';
@@ -460,9 +460,43 @@ describe('R5b — demande.statut n’est écrit dans AUCUN chemin d’action (as
     await demarquerDossier(154, 12, 'a.jorel');
     await marquerTraitee(9);
     await reclasserNatureReponse(9, 'documents', 'a.jorel'); // T7-A
+    await marquerRepondu(9, 'a.jorel');   // T7-B
+    await annulerRepondu(9, 'a.jorel');   // T7-B
     // La table `demande` (statut, clôture) reste SANS écrivain : demande_reponse / demande_dossier / demande_journal OK, demande NON.
     expect(appels.some((a) => /UPDATE\s+demande\b/i.test(a.sql))).toBe(false);
     expect(appels.some((a) => /\bSET\s+statut\b/i.test(a.sql))).toBe(false);
+  });
+});
+
+describe('T7-B — marquerRepondu / annulerRepondu : bouton « répondu » MANUEL et RÉVERSIBLE', () => {
+  it('marquerRepondu → pose repondu_le=now() + repondu_par, journalise l’auteur, garde IS NULL (idempotent)', async () => {
+    etat.rowCount = 1;
+    const ok = await marquerRepondu(4242, 'a.jorel');
+    expect(ok).toBe(true);
+    const upd = trouver(/UPDATE demande_reponse\b/i)!;
+    const s = norm(upd.sql);
+    expect(s).toContain('SET repondu_le = now()');
+    expect(s).toContain('repondu_par = $2');
+    expect(s).toContain('WHERE id = $1 AND repondu_le IS NULL'); // idempotence : pas de double marquage
+    expect(upd.params[0]).toBe(4242);
+    expect(upd.params[1]).toBe('a.jorel');
+    expect(String(upd.params[2])).toContain('a.jorel'); // note journalisée
+    expect(s).not.toContain('satisfait_le');
+  });
+  it('marquerRepondu sur un message déjà répondu → 0 ligne → false', async () => {
+    etat.rowCount = 0;
+    expect(await marquerRepondu(4242, 'a.jorel')).toBe(false);
+  });
+  it('annulerRepondu → remet repondu_le/repondu_par à NULL (réversible), garde IS NOT NULL, journalise', async () => {
+    etat.rowCount = 1;
+    const ok = await annulerRepondu(4242, 'a.jorel');
+    expect(ok).toBe(true);
+    const upd = trouver(/UPDATE demande_reponse\b/i)!;
+    const s = norm(upd.sql);
+    expect(s).toContain('repondu_le = NULL');
+    expect(s).toContain('repondu_par = NULL');
+    expect(s).toContain('WHERE id = $1 AND repondu_le IS NOT NULL');
+    expect(upd.params[0]).toBe(4242);
   });
 });
 

@@ -17,6 +17,7 @@ vi.mock('../../../../../lib/veille/demandeReponseRepo', () => ({
   lireRecuLeReponse: vi.fn(), // T4
   reclasserNatureReponse: vi.fn(), // T7-A
   estNatureReclassable: (v: unknown) => typeof v === 'string' && ['accuse', 'documents', 'autre'].includes(v), // T7-A — garde réelle (pas un vi.fn)
+  marquerRepondu: vi.fn(), annulerRepondu: vi.fn(), // T7-B
   RattachementNonEnvoyeeError: class RattachementNonEnvoyeeError extends Error { statut: string; constructor(s: string) { super(`demande « ${s} » : le rattachement manuel est réservé aux demandes envoyées`); this.statut = s; this.name = 'RattachementNonEnvoyeeError'; } },
 }));
 vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({
@@ -34,7 +35,7 @@ import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import {
   statutDemande, marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier,
   retirerDossierDemande, reattacherDossierDemande, rattacherAMain, marquerTraitee, lireRecuLeReponse,
-  reclasserNatureReponse, RattachementNonEnvoyeeError,
+  reclasserNatureReponse, marquerRepondu, annulerRepondu, RattachementNonEnvoyeeError,
 } from '../../../../../lib/veille/demandeReponseRepo';
 import { marquerDeposee, DepotInterditError } from '../../../../../lib/sitadel/demandeRepo';
 
@@ -48,6 +49,8 @@ const reattacher = reattacherDossierDemande as unknown as ReturnType<typeof vi.f
 const rattacher = rattacherAMain as unknown as ReturnType<typeof vi.fn>;
 const traiter = marquerTraitee as unknown as ReturnType<typeof vi.fn>;
 const reclasser = reclasserNatureReponse as unknown as ReturnType<typeof vi.fn>;
+const repondu = marquerRepondu as unknown as ReturnType<typeof vi.fn>;
+const annulerRep = annulerRepondu as unknown as ReturnType<typeof vi.fn>;
 const recuLe = lireRecuLeReponse as unknown as ReturnType<typeof vi.fn>;
 const deposer = marquerDeposee as unknown as ReturnType<typeof vi.fn>;
 
@@ -286,5 +289,30 @@ describe('T7-A — reclasser la nature d’un message (accuse | documents | autr
     const res = await post({ action: 'reclasser', nature: 'documents' });
     expect(res.status).toBe(400);
     expect(reclasser).not.toHaveBeenCalled();
+  });
+});
+
+describe('T7-B — répondu / annuler_repondu (bouton MANUEL, RÉVERSIBLE)', () => {
+  it('répondu → 200, le repo reçoit (reponseId, auteur)', async () => {
+    repondu.mockResolvedValueOnce(true);
+    const res = await post({ action: 'repondu', reponseId: 7 });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true });
+    expect(repondu).toHaveBeenCalledWith(7, '5');
+    expect(annulerRep).not.toHaveBeenCalled();
+  });
+
+  it('annuler_repondu → 200, appelle annulerRepondu (réversibilité)', async () => {
+    annulerRep.mockResolvedValueOnce(true);
+    const res = await post({ action: 'annuler_repondu', reponseId: 7 });
+    expect(res.status).toBe(200);
+    expect(annulerRep).toHaveBeenCalledWith(7, '5');
+    expect(repondu).not.toHaveBeenCalled();
+  });
+
+  it('reponseId absent → 400, aucune écriture', async () => {
+    const res = await post({ action: 'repondu' });
+    expect(res.status).toBe(400);
+    expect(repondu).not.toHaveBeenCalled();
   });
 });

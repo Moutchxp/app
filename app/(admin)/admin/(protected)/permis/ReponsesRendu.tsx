@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche, AlerteGedAffiche } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche, AlerteGedAffiche, MessageAutreAffiche } from '../../../../lib/veille/reponsesSuivi';
 import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import { MessageRetour, BlocRepliable, type RetourAction } from './DemandesRendu';
 
@@ -687,6 +687,49 @@ export function BlocAlertesGed({ alertes }: { alertes: AlerteGedAffiche[] }) {
           Une alerte est partie EN RETARD (surveillance interrompue) : vérifiez qu’il restait du temps pour récupérer le contenu avant expiration.
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * T7-B (cas ③) — bloc des messages de mairie de nature `autre` (ni accusé, ni documents) qui appellent une RÉPONSE HUMAINE.
+ * Un bouton « répondu » MANUEL et RÉVERSIBLE par message (grain message). Le TEXTE porte l'état ; jamais la couleur seule. PUR.
+ */
+export function BlocMessagesAutre({ messages, retour, onRepondu, onAnnulerRepondu }: {
+  messages: MessageAutreAffiche[];
+  retour?: RetourCible;
+  onRepondu?: (reponseId: number) => void;
+  onAnnulerRepondu?: (reponseId: number) => void;
+}) {
+  if (messages.length === 0) return null;
+  const nbARepondre = messages.filter((m) => m.reponduLe === null).length;
+  return (
+    <div className="svv-card" style={{ marginTop: '.5rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+      <strong style={{ fontSize: 13 }}>Messages de la mairie appelant une réponse{nbARepondre > 0 ? ` — ${nbARepondre} à répondre` : ' — tous répondus'}</strong>
+      <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+        {messages.map((m) => {
+          const r = messageIci(retour ?? null, `repondu-${m.id}`);
+          return (
+            <li key={m.id}>
+              <div>{m.objet ?? '(sans objet)'} — {m.deNom ? `${m.deNom} <${m.deAdresse}>` : m.deAdresse} — reçu le {jjmm(m.recuLe)}</div>
+              <div style={{ marginTop: '.15rem', display: 'inline-flex', gap: '.4rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                {m.reponduLe === null ? (
+                  <>
+                    <span style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}>à répondre</span>
+                    {onRepondu && <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem' }} onClick={() => onRepondu(m.id)}>marquer répondu</button>}
+                  </>
+                ) : (
+                  <>
+                    <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>répondu le {jjmm(m.reponduLe)}{m.reponduPar ? ` par ${m.reponduPar}` : ''}</span>
+                    {onAnnulerRepondu && <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem' }} onClick={() => onAnnulerRepondu(m.id)}>annuler</button>}
+                  </>
+                )}
+              </div>
+              {r && <div role="status" style={{ fontSize: 12, color: r.ok ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)' }}>{r.texte}</div>}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

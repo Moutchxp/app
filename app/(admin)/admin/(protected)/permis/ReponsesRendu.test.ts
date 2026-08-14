@@ -5,7 +5,7 @@ import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns, BlocEtatReleve,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
   EtatDemande, RappelObtenusArchives, partitionnerDemandes, partitionnerReponses, demandeADuRetour, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
-  BlocLiens, mentionExpiration, BlocAlertesGed,
+  BlocLiens, mentionExpiration, BlocAlertesGed, BlocMessagesAutre,
   type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
@@ -946,5 +946,30 @@ describe('G1 — BlocAlertesGed : alertes envoyées + retard rendus VISIBLES (d�
     const h = renderToStaticMarkup(createElement(BlocAlertesGed, { alertes: [{ type: 'j3', numDau: null, envoyeLe: '2026-08-14T13:30:00Z', enRetard: false }] }));
     expect(h).toContain('contenu non rattaché');
     expect(h).not.toContain('N°');
+  });
+});
+
+describe('T7-B — BlocMessagesAutre : bouton « répondu » MANUEL et RÉVERSIBLE par message', () => {
+  const M = (over: Partial<{ id: number; objet: string | null; deAdresse: string; deNom: string | null; recuLe: string; reponduLe: string | null; reponduPar: string | null }> = {}) =>
+    ({ id: 70, objet: 'Complément', deAdresse: 'urba@mairie.fr', deNom: 'Urba', recuLe: '2026-08-12T09:00:00Z', reponduLe: null, reponduPar: null, ...over });
+
+  it('vide → ne rend rien', () => {
+    expect(renderToStaticMarkup(createElement(BlocMessagesAutre, { messages: [] }))).toBe('');
+  });
+
+  it('message à répondre → « à répondre » + bouton « marquer répondu » ; compte des non-répondus dans le titre', () => {
+    const h = renderToStaticMarkup(createElement(BlocMessagesAutre, { messages: [M(), M({ id: 71, reponduLe: '2026-08-11T00:00:00Z', reponduPar: '5' })], onRepondu: () => {} }));
+    expect(h).toContain('1 à répondre');            // un seul non répondu
+    expect(h).toContain('à répondre');
+    expect(h).toContain('marquer répondu');
+    expect(h).toContain('Complément');
+  });
+
+  it('message déjà répondu → état « répondu le … par … » + bouton « annuler » (réversible)', () => {
+    const h = renderToStaticMarkup(createElement(BlocMessagesAutre, { messages: [M({ reponduLe: '2026-08-11T00:00:00Z', reponduPar: '5' })], onAnnulerRepondu: () => {} }));
+    expect(h).toContain('répondu le');
+    expect(h).toContain('par 5');
+    expect(h).toContain('annuler');
+    expect(h).toContain('tous répondus'); // titre quand aucun ne reste à répondre
   });
 });

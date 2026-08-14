@@ -68,7 +68,7 @@ describe('G1 — executerAlerteGedAuto : preuves fondateur', () => {
   });
 
   it('une pièce au-dessus du seuil produit un LIEN SIGNÉ de durée suffisante (≥ 72 h), pas un échec SMTP', async () => {
-    const lourde = cand({ aLienPerissable: false, liensPerissables: [], pieces: [{ nomFichier: 'gros.zip', tailleOctets: 30 * 1024 * 1024, cleStockage: 'entrantes/1/gros.zip', typeMime: 'application/zip' }] });
+    const lourde = cand({ aLienPerissable: false, liensPerissables: [], pieces: [{ nomFichier: 'gros.zip', tailleOctets: 30 * 1024 * 1024, cleStockage: 'entrantes/1/gros.zip', typeMime: 'application/zip', motifNonStocke: null }] });
     const h = harness([lourde], { maintenant: APRES_J3 });
     const b = await executerAlerteGedAuto(h.deps);
     expect(b.envoyees).toBe(1);
@@ -90,7 +90,7 @@ describe('G1 — executerAlerteGedAuto : preuves fondateur', () => {
   });
 
   it('petite pièce → jointe (relue du stockage) ; désactivé / sans e-mail → rien', async () => {
-    const petite = cand({ aLienPerissable: false, liensPerissables: [], pieces: [{ nomFichier: 'a.pdf', tailleOctets: 1024, cleStockage: 'entrantes/1/a.pdf', typeMime: 'application/pdf' }] });
+    const petite = cand({ aLienPerissable: false, liensPerissables: [], pieces: [{ nomFichier: 'a.pdf', tailleOctets: 1024, cleStockage: 'entrantes/1/a.pdf', typeMime: 'application/pdf', motifNonStocke: null }] });
     const h = harness([petite], { maintenant: APRES_J3 });
     await executerAlerteGedAuto(h.deps);
     expect(h.contenusLus).toEqual(['entrantes/1/a.pdf']);
@@ -99,5 +99,18 @@ describe('G1 — executerAlerteGedAuto : preuves fondateur', () => {
     const off = harness([cand()], { maintenant: APRES_J3 });
     off.deps.lireConfig = async () => ({ active: false, email: 'ops@x.fr' });
     expect((await executerAlerteGedAuto(off.deps)).envoyees).toBe(0);
+  });
+
+  it('T7-B — pièce NON stockée (cle_stockage null) → corps « NON récupérée » + motif, JAMAIS « aucune perte possible »', async () => {
+    const refusee = cand({ aLienPerissable: false, liensPerissables: [], pieces: [
+      { nomFichier: 'plan.pdf', tailleOctets: 60 * 1024 * 1024, cleStockage: null, typeMime: 'application/pdf', motifNonStocke: 'pièce trop volumineuse : 60 Mo (maximum 50 Mo)' },
+    ] });
+    const h = harness([refusee], { maintenant: APRES_J3 });
+    const b = await executerAlerteGedAuto(h.deps);
+    expect(b.envoyees).toBe(1);
+    expect(h.contenusLus).toHaveLength(0);            // rien à relire : on ne l'a pas
+    expect(h.envois[0].attachments).toHaveLength(0);  // rien joint
+    expect(h.envois[0].corps).toContain('plan.pdf — NON récupérée (pièce trop volumineuse : 60 Mo (maximum 50 Mo))');
+    expect(h.envois[0].corps).not.toContain('aucune perte possible');
   });
 });

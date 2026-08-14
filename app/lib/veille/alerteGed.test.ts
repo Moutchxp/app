@@ -89,7 +89,7 @@ describe('G1 — corps du forward : ce qui périt en tête, pièces déclarées 
   const baseE = {
     ctx: { numDau: '0930012500081', aLienPerissable: true },
     liensPerissables: [{ url: 'https://ged.paris.fr/share/s/Zk91Ab34Cd/folder', mention: 'expire le 17/08 (7 jours à compter du 10/08)' }],
-    autresPermis: ['0930012500082'], communeNom: 'Paris', pieces: [] as { nomFichier: string; jointe: boolean; lienSigne: string | null }[],
+    autresPermis: ['0930012500082'], communeNom: 'Paris', pieces: [] as { nomFichier: string; recuperee: boolean; jointe: boolean; lienSigne: string | null; motif: string | null }[],
     deAdresse: 'no-reply@paris.fr', deNom: null, objet: 'Réponse', recuLe: '2026-08-10T13:24:00Z', corpsTexte: 'Voici le lien.', enRetard: false,
   };
 
@@ -105,12 +105,25 @@ describe('G1 — corps du forward : ce qui périt en tête, pièces déclarées 
 
   it('pièces jointes : déclarées « déjà sauvegardées » (jointe) / lien signé (lourde) — jamais de perte annoncée sans lien', () => {
     const c = composerCorpsForward({ type: 'j3', ...baseE, ctx: { numDau: '0930012500081', aLienPerissable: false },
-      liensPerissables: [], pieces: [{ nomFichier: 'a.pdf', jointe: true, lienSigne: null }, { nomFichier: 'gros.zip', jointe: false, lienSigne: 'https://s3/signed' }] });
+      liensPerissables: [], pieces: [{ nomFichier: 'a.pdf', recuperee: true, jointe: true, lienSigne: null, motif: null }, { nomFichier: 'gros.zip', recuperee: true, jointe: false, lienSigne: 'https://s3/signed', motif: null }] });
     expect(c).toContain('déjà sauvegardées');
     expect(c).toContain('a.pdf — jointe à ce mail');
     expect(c).toContain('gros.zip — trop volumineuse');
     expect(c).toContain('https://s3/signed');
     expect(c).not.toContain('AVANT PERTES');
+  });
+
+  it('T7-B — pièce NON récupérée (refus de dépôt) : avertissement explicite, JAMAIS « aucune perte possible »', () => {
+    const c = composerCorpsForward({ type: 'j3', ...baseE, ctx: { numDau: '0930012500081', aLienPerissable: false },
+      liensPerissables: [], pieces: [
+        { nomFichier: 'plan-60mo.pdf', recuperee: false, jointe: false, lienSigne: null, motif: 'pièce trop volumineuse : 60 Mo (maximum 50 Mo)' },
+        { nomFichier: 'a.pdf', recuperee: true, jointe: true, lienSigne: null, motif: null },
+      ] });
+    expect(c).toContain('plan-60mo.pdf — NON récupérée (pièce trop volumineuse : 60 Mo (maximum 50 Mo))');
+    expect(c).toContain('à récupérer depuis le message d’origine');
+    expect(c).not.toContain('aucune perte possible'); // ne rassure JAMAIS à tort
+    expect(c).not.toContain('déjà sauvegardées de notre côté');
+    expect(c).toContain('a.pdf — jointe à ce mail'); // les pièces récupérées restent listées normalement
   });
 
   it('en retard → mention explicite ; non rattaché → invite à rattacher', () => {

@@ -245,6 +245,38 @@ export async function reclasserNatureReponse(reponseId: number, nature: NatureRe
   return (res.rowCount ?? 0) > 0;
 }
 
+/**
+ * T7-B (cas ③) — marque un message « RÉPONDU » à la main (bouton MANUEL). Pose repondu_le=now() + repondu_par, et consigne
+ * l'auteur dans `note` (append). Idempotent (ne fait rien si déjà répondu). Ne touche PAS demande.statut, ne pose aucun
+ * satisfait_le, ne bascule rien vers Archives. Renvoie true si la transition a eu lieu. La détection auto = T7-C.
+ */
+export async function marquerRepondu(reponseId: number, auteur: string): Promise<boolean> {
+  const res = await query(
+    `UPDATE demande_reponse
+        SET repondu_le = now(), repondu_par = $2, maj_le = now(),
+            note = btrim(coalesce(note || chr(10), '') || $3)
+      WHERE id = $1 AND repondu_le IS NULL`,
+    [reponseId, auteur, `marqué « répondu » par ${auteur}`],
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+/**
+ * T7-B (cas ③) — ANNULE le marquage « répondu » (réversibilité : un marquage erroné rendrait la ligne « traitée » à tort et
+ * ferait disparaître le signal). Remet repondu_le/repondu_par à NULL et journalise l'auteur. Idempotent (ne fait rien si non
+ * répondu). Ne touche PAS demande.statut, ni satisfait_le, ni Archives. Renvoie true si la transition a eu lieu.
+ */
+export async function annulerRepondu(reponseId: number, auteur: string): Promise<boolean> {
+  const res = await query(
+    `UPDATE demande_reponse
+        SET repondu_le = NULL, repondu_par = NULL, maj_le = now(),
+            note = btrim(coalesce(note || chr(10), '') || $2)
+      WHERE id = $1 AND repondu_le IS NOT NULL`,
+    [reponseId, `« répondu » annulé par ${auteur}`],
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
 /** Marque une réponse comme traitée (traite_le=now()). Idempotent : ne fait rien si déjà traitée. Renvoie true si la transition a eu lieu. */
 export async function marquerTraitee(reponseId: number): Promise<boolean> {
   const res = await query(

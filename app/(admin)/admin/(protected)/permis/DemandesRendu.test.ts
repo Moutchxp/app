@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, CellulePermis, CelluleReference, sequenceReference, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, nbAutreARepondre, BadgeReponseAttendue, FOND_REPONSE_ATTENDUE, CellulePermis, CelluleReference, sequenceReference, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 import { BlocLiens } from './ReponsesRendu';
@@ -1136,5 +1136,33 @@ describe('Q4 — stock : libellé de fenêtre DYNAMIQUE (plus de « 6 » figé)'
       table: createElement('span', {}, 'TABLE'),
     }));
     expect(h).toContain('18 derniers mois');
+  });
+});
+
+describe('T7-B — signal « réponse attendue » (cas ③) : helper dérivé + badge + fond de ligne', () => {
+  it('nbAutreARepondre compte les messages autre NON répondus (reste ≥1 tant qu’il en reste, tombe à 0 quand tous répondus)', () => {
+    expect(nbAutreARepondre([])).toBe(0);
+    expect(nbAutreARepondre([{ reponduLe: null }, { reponduLe: '2026-08-11T00:00:00Z' }])).toBe(1);
+    expect(nbAutreARepondre([{ reponduLe: null }, { reponduLe: null }])).toBe(2);
+    expect(nbAutreARepondre([{ reponduLe: '2026-08-11T00:00:00Z' }])).toBe(0); // tous répondus → plus de signal
+  });
+
+  it('BadgeReponseAttendue : « N à répondre » (texte porteur) quand n>0 ; rien quand n=0 (jamais un badge vide)', () => {
+    expect(renderToStaticMarkup(createElement(BadgeReponseAttendue, { n: 2 }))).toContain('2 à répondre');
+    expect(renderToStaticMarkup(createElement(BadgeReponseAttendue, { n: 0 }))).toBe('');
+  });
+
+  it('TableDemandes : fondLigne colore la ligne signalée (fond ET, en amont, badge dans la cellule → jamais la couleur seule)', () => {
+    const signalee = renderToStaticMarkup(createElement(TableDemandes, {
+      visibles: [DEM({ rangs: [1] })], categories: CATS_D3, tri: TRI_COMMUNE, sel: new Set<number>(),
+      toutCoche: false, messageVide: 'Aucune demande.', fondLigne: () => FOND_REPONSE_ATTENDUE,
+    }));
+    expect(signalee).toContain(FOND_REPONSE_ATTENDUE);
+    // sans fondLigne (autres onglets) → aucune couleur de fond de ligne : rendu inchangé.
+    const neutre = renderToStaticMarkup(createElement(TableDemandes, {
+      visibles: [DEM({ rangs: [1] })], categories: CATS_D3, tri: TRI_COMMUNE, sel: new Set<number>(),
+      toutCoche: false, messageVide: 'Aucune demande.',
+    }));
+    expect(neutre).not.toContain(FOND_REPONSE_ATTENDUE);
   });
 });

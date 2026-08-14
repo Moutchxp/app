@@ -227,6 +227,33 @@ describe('L1 — chargerDemandesSuivi : liens captés par demande (forts d’abo
   });
 });
 
+describe('T7-B — chargerDemandesSuivi : messages « autre » ancrés par demande (cas ③, Paris protégée)', () => {
+  const OK = /max\(termine_le\)/;
+  const DEM = /min\(a\.envoye_le\)::text AS envoye_le/;
+  const MSG = /r\.nature = 'autre'/; // unique à la requête messagesAutre (la requête des demandes n'emploie jamais « = 'autre' »)
+
+  it('rattache les messages autre à leur demande ; la requête porte l’ANCRE nature_classee_le IS NOT NULL', async () => {
+    etat.dispatch = [
+      { re: OK, rows: [{ t: '2026-08-10T09:00:00Z' }] },
+      { re: DEM, rows: [{ id: 154, reference: 'SVAV-DEM-2026-000154', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 1, dossiers_satisfaits: 0, dossiers_en_ged: 0, nb_reponses: 2, nb_reponses_reelles: 2, derniere_reponse_le: '2026-08-12T09:00:00Z' }] },
+      { re: MSG, rows: [
+        { demande_id: 154, id: 71, objet: 'Complément', de_adresse: 'urba@mairie.fr', de_nom: 'Urba', recu_le: '2026-08-12T09:00:00Z', repondu_le: null, repondu_par: null },
+        { demande_id: 154, id: 70, objet: 'Question', de_adresse: 'urba@mairie.fr', de_nom: null, recu_le: '2026-08-11T09:00:00Z', repondu_le: '2026-08-11T15:00:00Z', repondu_par: '5' },
+      ] },
+    ];
+    const { demandes } = await chargerDemandesSuivi();
+    expect(demandes[0].messagesAutre).toHaveLength(2);
+    expect(demandes[0].messagesAutre[0]).toMatchObject({ id: 71, objet: 'Complément', reponduLe: null });
+    expect(demandes[0].messagesAutre[1]).toMatchObject({ id: 70, reponduLe: '2026-08-11T15:00:00Z', reponduPar: '5' });
+    const q = appels.find((a) => MSG.test(a.sql))!;
+    const sql = norm(q.sql);
+    expect(sql).toContain("r.nature = 'autre'");
+    expect(sql).toContain('r.nature_classee_le IS NOT NULL'); // ANCRE : un autre rétro-classé (Paris) n'apparaît jamais → ni signal ni bouton
+    expect(sql).toContain('r.demande_id IS NOT NULL');        // rattachés uniquement (le signal de ligne exige une demande)
+    expect(/^\s*SELECT/i.test(q.sql)).toBe(true);             // lecture seule
+  });
+});
+
 describe('P1 — chargerSuiviReponses : « on relève depuis le … » et plafond exposés à l’écran', () => {
   it('releveDepuisLe = curseur − 3 j ; relevePlafondAtteint remonte le plafond de la dernière passe courante', async () => {
     etat.curseur = new Date('2026-08-09T12:00:00Z');

@@ -24,6 +24,7 @@ import { executerRelanceAuto, depsReellesRelance } from '../veille/relanceAuto';
 import { executerAlerteAuto, depsReellesAlerte } from '../veille/alerteAuto';
 import { executerPropositionAuto, depsReellesProposition } from '../veille/propositionAuto';
 import { executerAlerteGedAuto, depsReellesAlerteGed } from '../veille/alerteGedAuto';
+import { executerAlerteActionAuto, depsReellesAlerteAction } from '../veille/alerteActionAuto';
 import { ingererMillesime, millesimeDistantDido, DOSSIER_LOCAL, type CompteursIngestion } from './ingestionMillesime';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger,
@@ -80,6 +81,9 @@ export interface DepsVeille {
   // G1 — ALERTES « contenu à classer/télécharger en GED » (après les propositions, §1septies). OPTIONNELLE et ISOLÉE : un
   //   échec n'impacte jamais la veille ni la relève. E-mail interne à l'exploitant ; on ne suit JAMAIS un lien de mairie.
   alerteGed?(): Promise<unknown>;
+  // T7-B — ALERTES « ce message de mairie appelle une réponse » (cas ③, après les alertes GED, §1octies). OPTIONNELLE et
+  //   ISOLÉE. Grain message (nature=autre, ancre nature_classee_le) ; idempotence par alerte_action_le. E-mail interne.
+  alerteAction?(): Promise<unknown>;
 }
 
 export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = depsReelles()): Promise<ResultatVeille> {
@@ -135,6 +139,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   mairie forwardé à l'exploitant. Idempotence par (réponse × permis × type). MÊME ISOLATION : un échec n'impacte rien.
     if (deps.alerteGed) {
       try { await deps.alerteGed(); } catch { /* alerte GED isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1octies) ALERTES « ce message de mairie appelle une réponse » (T7-B, cas ③) — APRÈS les alertes GED : pour chaque message
+    //   de nature `autre` ANCRÉ (nature_classee_le IS NOT NULL, jamais un rétro-classé) et jamais encore alerté, on forwarde le
+    //   mail de mairie à l'exploitant pour qu'il y réponde. Idempotence par message (alerte_action_le). MÊME ISOLATION : un
+    //   échec n'impacte rien. On ne suit JAMAIS un lien ; aucune bascule statut/satisfait_le/Archives.
+    if (deps.alerteAction) {
+      try { await deps.alerteAction(); } catch { /* alerte action isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     const config = await deps.chargerConfig();
@@ -271,6 +283,8 @@ function depsReelles(): DepsVeille {
     propositionCada: () => executerPropositionAuto(depsReellesProposition()),
     // G1 — alertes GED réelles : candidats (réponse × permis non classé) + compte à rebours J-3/24 h + forward SMTP + journal, dans alerteGedAuto.ts.
     alerteGed: () => executerAlerteGedAuto(depsReellesAlerteGed()),
+    // T7-B — alertes « ce message appelle une réponse » réelles (cas ③) : candidats `autre` ancrés + forward SMTP + idempotence, dans alerteActionAuto.ts.
+    alerteAction: () => executerAlerteActionAuto(depsReellesAlerteAction()),
   };
 }
 

@@ -15,8 +15,9 @@ import {
   type TypeAlerteGed, type ContexteAlerte, type PieceForward,
 } from './alerteGed';
 
-/** Une pièce stockée d'une réponse (métadonnées ; le contenu est relu à la demande via le stockage). */
-export interface PieceCandidate { nomFichier: string; tailleOctets: number | null; cleStockage: string | null; typeMime: string | null }
+/** Une pièce d'une réponse (métadonnées ; le contenu est relu à la demande via le stockage). `motifNonStocke` non nul ⟺ pièce
+ *  NON récupérée (cleStockage NULL) : T7-B — jamais annoncée « sauvegardée ». */
+export interface PieceCandidate { nomFichier: string; tailleOctets: number | null; cleStockage: string | null; typeMime: string | null; motifNonStocke: string | null }
 
 /** Un couple (réponse × permis) à surveiller — ou (réponse × NULL) pour une réponse non rattachée porteuse d'un lien. */
 export interface CandidatAlerteGed {
@@ -73,14 +74,15 @@ export async function executerAlerteGedAuto(deps: DepsAlerteGed): Promise<BilanA
         const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
         const piecesForward: PieceForward[] = [];
         for (const p of c.pieces) {
-          if (p.cleStockage === null) { piecesForward.push({ nomFichier: p.nomFichier, jointe: false, lienSigne: null }); continue; }
+          // T7-B — pièce NON récupérée (cle_stockage NULL) : on ne l'a PAS chez nous → jamais « sauvegardée », on porte le motif.
+          if (p.cleStockage === null) { piecesForward.push({ nomFichier: p.nomFichier, recuperee: false, jointe: false, lienSigne: null, motif: p.motifNonStocke }); continue; }
           if (pieceEstLourde(p.tailleOctets)) {
             const url = await deps.lienSigne(p.cleStockage, dureeLienSigne(expiration, maintenant));
-            piecesForward.push({ nomFichier: p.nomFichier, jointe: false, lienSigne: url });
+            piecesForward.push({ nomFichier: p.nomFichier, recuperee: true, jointe: false, lienSigne: url, motif: null });
           } else {
             const contenu = await deps.lireContenuPiece(p.cleStockage);
             attachments.push({ filename: p.nomFichier, content: contenu, contentType: p.typeMime ?? 'application/octet-stream' });
-            piecesForward.push({ nomFichier: p.nomFichier, jointe: true, lienSigne: null });
+            piecesForward.push({ nomFichier: p.nomFichier, recuperee: true, jointe: true, lienSigne: null, motif: null });
           }
         }
 
@@ -159,14 +161,14 @@ export function depsReellesAlerteGed(): DepsAlerteGed {
       }
 
       // 3) Pièces stockées par réponse.
-      const { rows: pieces } = await query<{ reponse_id: number; nom_fichier: string; taille_octets: number | null; cle_stockage: string | null; type_mime: string | null }>(
-        `SELECT reponse_id::int AS reponse_id, nom_fichier, taille_octets::bigint AS taille_octets, cle_stockage, type_mime
+      const { rows: pieces } = await query<{ reponse_id: number; nom_fichier: string; taille_octets: number | null; cle_stockage: string | null; type_mime: string | null; motif_non_stocke: string | null }>(
+        `SELECT reponse_id::int AS reponse_id, nom_fichier, taille_octets::bigint AS taille_octets, cle_stockage, type_mime, motif_non_stocke
            FROM demande_reponse_piece WHERE reponse_id = ANY($1::bigint[]) ORDER BY reponse_id, id`,
         [reponseIds]);
       const piecesParReponse = new Map<number, PieceCandidate[]>();
       for (const p of pieces) {
         (piecesParReponse.get(p.reponse_id) ?? piecesParReponse.set(p.reponse_id, []).get(p.reponse_id)!)
-          .push({ nomFichier: p.nom_fichier, tailleOctets: p.taille_octets === null ? null : Number(p.taille_octets), cleStockage: p.cle_stockage, typeMime: p.type_mime });
+          .push({ nomFichier: p.nom_fichier, tailleOctets: p.taille_octets === null ? null : Number(p.taille_octets), cleStockage: p.cle_stockage, typeMime: p.type_mime, motifNonStocke: p.motif_non_stocke });
       }
 
       // autresPermis : les autres num_dau de la MÊME réponse (dérivé des bases).
