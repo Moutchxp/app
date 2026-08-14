@@ -3,7 +3,7 @@ import { CONFIG_VEILLE_DEFAUT, type ConfigVeille } from './veilleConfig';
 import {
   type DossierClassable, type FiltresPermis,
   classer, construireRequeteListe, construireRequeteTotal, construireRequeteComptes, lireFiltres,
-  formaterDateJour, libelleCommune, libelleEtat, compteursEtatDepuisRow,
+  formaterDateJour, libelleCommune, libelleEtat, libelleNatureProjet, compteursEtatDepuisRow,
   expressionRattachementSql, construireRequeteComptesRattachement,
 } from './priorite';
 
@@ -251,6 +251,20 @@ describe('Sitadel S12 — libelleEtat (traduction + non renseigné, jamais un ti
     expect(lireFiltres(new URLSearchParams('etat=4')).etatDau).toBe('4');
     expect(lireFiltres(new URLSearchParams('etat=99')).etatDau).toBeNull();
     expect(lireFiltres(new URLSearchParams('')).etatDau).toBeNull();
+  });
+});
+
+describe('N1-B — libelleNatureProjet (traduction du code nature ; jamais un chiffre nu)', () => {
+  it('traduit les regroupements documentés, préfixe explicitement l’inattendu, dit « non renseigné » pour null/vide', () => {
+    expect(libelleNatureProjet('1')).toBe('Construction neuve');
+    expect(libelleNatureProjet('3')).toBe('Extension ou surélévation');
+    expect(libelleNatureProjet('5')).toBe('Extension ou surélévation');
+    expect(libelleNatureProjet('2')).toBe('Transformation à surface constante ou en diminution');
+    expect(libelleNatureProjet('4')).toBe('Transformation à surface constante ou en diminution');
+    expect(libelleNatureProjet('6')).toBe('Transformation à surface constante ou en diminution');
+    expect(libelleNatureProjet('9')).toBe('nature (code 9)'); // inconnu → préfixe explicite, JAMAIS « 9 » nu
+    expect(libelleNatureProjet(null)).toBe('non renseigné');
+    expect(libelleNatureProjet('')).toBe('non renseigné');
   });
 });
 

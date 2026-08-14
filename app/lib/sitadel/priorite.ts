@@ -322,6 +322,27 @@ export function libelleEtat(code: string | null | undefined): string {
 /** Codes d'état connus (pour peupler un filtre). */
 export const ETATS_CONNUS = ['2', '4', '5', '6'] as const;
 
+/**
+ * N1-B — libellés de la NATURE DU PROJET (colonne Sitadel `nature_projet_completee`, code numérique brut : « 1 », « 3 »…).
+ * Aucune nomenclature SDES complète n'est publiée dans le repo : on ne mappe donc QUE les regroupements documentés dans
+ * `docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md` (1 = construction neuve ; 3/5 = extension ou surélévation ; 2/4/6 =
+ * transformation à surface constante ou en diminution). Un code hors de cette liste N'EST JAMAIS affiché nu : `libelleNatureProjet`
+ * le préfixe explicitement (« nature (code X) ») pour qu'un chiffre seul ne trompe personne. Calqué sur `LIBELLE_ETAT_DAU`.
+ */
+export const LIBELLE_NATURE_PROJET: Record<string, string> = {
+  '1': 'Construction neuve',
+  '2': 'Transformation à surface constante ou en diminution',
+  '3': 'Extension ou surélévation',
+  '4': 'Transformation à surface constante ou en diminution',
+  '5': 'Extension ou surélévation',
+  '6': 'Transformation à surface constante ou en diminution',
+};
+export function libelleNatureProjet(code: string | null | undefined): string {
+  const c = (code ?? '').trim();
+  if (c === '') return 'non renseigné';
+  return LIBELLE_NATURE_PROJET[c] ?? `nature (code ${c})`; // jamais un chiffre nu : préfixe explicite si le code est inconnu
+}
+
 function add(params: unknown[], v: unknown): string { params.push(v); return `$${params.length}`; }
 
 // ── Lecture des paramètres d'URL (pur) ───────────────────────────────────────

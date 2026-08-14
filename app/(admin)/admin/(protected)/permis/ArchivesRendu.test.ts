@@ -7,6 +7,7 @@ import type { LigneArchive, PieceArchive } from '../../../../lib/sitadel/demande
 const emailDeposee: PieceArchive = { id: 10, nomFichier: 'plan-de-masse.pdf', typeMime: 'application/pdf', tailleOctets: 12345, deposee: true, motifNonStocke: null, origine: 'email', recuLe: '2026-07-01', objet: 'Réponse à votre demande de communication' };
 const emailNonDeposee: PieceArchive = { id: 11, nomFichier: 'coupe.pdf', typeMime: 'application/pdf', tailleOctets: null, deposee: false, motifNonStocke: 'dépôt S3 non configuré', origine: 'email', recuLe: '2026-07-01', objet: 'Réponse à votre demande de communication' };
 const manuel: PieceArchive = { id: 20, nomFichier: 'note-interne.pdf', typeMime: 'application/pdf', tailleOctets: 999, deposee: true, motifNonStocke: null, origine: 'manuel', recuLe: null, objet: null };
+const fiche: PieceArchive = { id: 30, nomFichier: 'Fiche de synthèse du permis.pdf', typeMime: 'application/pdf', tailleOctets: 5000, deposee: true, motifNonStocke: null, origine: 'genere', recuLe: null, objet: null };
 
 const MAINTENANT = new Date('2026-07-10T12:00:00Z'); // < 2 mois après satisfait_le 2026-07-01, avant le délai (recu_le + 7 j)
 const ligne = (over: Partial<LigneArchive> = {}): LigneArchive => ({
@@ -92,6 +93,28 @@ describe('A1b — pièces : origine visible, e-mail non supprimable, manuel supp
     const h = rendu([ligne({ pieces: [emailDeposee, manuel] })]);
     expect(h).not.toContain('dossiers/75056');
     expect(h).not.toContain('cle_stockage');
+  });
+});
+
+describe('N1-B — fiche de synthèse générée (origine « genere »)', () => {
+  it('affichée EN PREMIER dans les pièces, AVANT les pièces reçues par e-mail', () => {
+    const h = rendu([ligne({ pieces: [emailDeposee, fiche] })]);
+    expect(h).toContain('Fiche de synthèse du permis.pdf');
+    expect(h).toContain('fiche de synthèse');                     // pastille distinctive
+    // la fiche apparaît avant la pièce e-mail dans le HTML (rendue en tête)
+    expect(h.indexOf('Fiche de synthèse du permis.pdf')).toBeLessThan(h.indexOf('plan-de-masse.pdf'));
+  });
+
+  it('NON supprimable à la main (aucun bouton « supprimer » sur la fiche générée)', () => {
+    const h = renderToStaticMarkup(createElement(PieceLien, { piece: fiche, onTelecharger: () => {}, onSupprimer: () => {} }));
+    expect(h).toContain('fiche de synthèse');
+    expect(h).not.toContain('supprimer'); // se régénère → jamais supprimable
+    expect(h).toContain('↓');             // mais téléchargeable
+  });
+
+  it('la CLÉ de stockage n’apparaît jamais pour une fiche générée non plus', () => {
+    const h = rendu([ligne({ pieces: [fiche] })]);
+    expect(h).not.toMatch(/cle_stockage|dossiers\/93/i);
   });
 });
 

@@ -15,7 +15,8 @@ import {
 } from './demande';
 import { type Collaborateur, choisirCollaborateur } from './collaborateur';
 import { resoudreDestination, type ContactCommune } from './destinataire';
-import { expressionRangSql, classer, type CleCategorie } from './priorite'; // D2 : expressionRangSql réutilisé (pur) ; Q2b : classer = source unique de catégorie pour le panneau de stock — NE modifie PAS le chemin candidats
+import { expressionRangSql, classer, libelleNatureProjet, type CleCategorie } from './priorite'; // D2 : expressionRangSql réutilisé (pur) ; Q2b : classer = source unique de catégorie ; N1-B : libelleNatureProjet traduit le code nature
+import type { SourceFichePermis } from '../pdf/fichePermisPdf'; // N1-B : type SEUL (le générateur PDF pdfkit n'entre jamais dans le graphe statique)
 import { agregerStock, moisDePeriode, type LigneStock, type DossierStock } from './stock'; // Q2b : agrégat PUR du stock (réutilise estCandidatEligible via agregerStock)
 import { lireClePiece } from '../veille/demandeReponseRepo'; // A1b : réutilisé par le dispatcher unique de lecture de clé (pas de 2e implémentation)
 
@@ -262,7 +263,7 @@ export interface PieceArchive {
   tailleOctets: number | null;
   deposee: boolean;              // cle_stockage IS NOT NULL → téléchargeable
   motifNonStocke: string | null; // renseigné si NON déposée (jamais un bouton mort côté écran)
-  origine: 'email' | 'manuel';   // A1b : reçue par e-mail (registre, non supprimable) OU ajoutée à la main (supprimable)
+  origine: 'email' | 'manuel' | 'genere'; // A1b : reçue par e-mail (registre, non supprimable) OU ajoutée à la main (supprimable) OU N1-B : fiche de synthèse GÉNÉRÉE (non supprimable, régénérée)
   recuLe: string | null;         // T5 : date de la réponse porteuse (email) → étiquette « reçues le JJ/MM » ; NULL pour un document manuel
   objet: string | null;          // T5 : objet de la réponse porteuse (email) ; NULL pour un document manuel
 }
@@ -283,6 +284,14 @@ export interface LigneArchive {
   aLienFort: boolean;            // G2 : la réponse porte un lien fort (contenu périssable non classé) — signal de contenu au même titre qu'une pièce e-mail
   pieces: PieceArchive[];
 }
+
+/**
+ * N1-B — MARQUEUR d'une fiche de synthèse GÉNÉRÉE, posé dans `dossier_document.note` (colonne texte libre existante, migration
+ * 089 — AUCUNE migration nécessaire). Rôle : distinguer la fiche des documents ajoutés à la main (`origine: 'genere'` vs
+ * 'manuel'), garantir l'UNICITÉ par permis (delete-then-insert sur ce marqueur) et INTERDIRE sa suppression manuelle. Valeur
+ * distinctive, jamais posée par un upload manuel (dont la `note` reste NULL) — pas de collision possible.
+ */
+export const MARQUEUR_FICHE_SYNTHESE = '__fiche_synthese_generee__';
 
 /**
  * A1a — ARCHIVES : tous les permis RENSEIGNÉS par les mairies, c.-à-d. les `demande_dossier` dont `satisfait_le` n'est pas nul
@@ -361,13 +370,17 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
  */
 async function lireDocumentsManuels(): Promise<Map<number, PieceArchive[]>> {
   try {
+    // N1-B — origine dérivée de `note` : le marqueur `MARQUEUR_FICHE_SYNTHESE` → 'genere' (fiche non supprimable), sinon 'manuel'.
+    //   ORDER BY : la fiche générée d'abord (note = marqueur), puis les documents manuels par date de dépôt (affichage « en premier »).
     const { rows } = await query<{ dossier_id: number; docs: PieceArchive[] }>(
       `SELECT dossier_id::int AS dossier_id,
               json_agg(json_build_object(
                 'id', id::int, 'nomFichier', nom_fichier, 'typeMime', type_mime, 'tailleOctets', taille_octets,
-                'deposee', true, 'motifNonStocke', NULL, 'origine', 'manuel', 'recuLe', NULL, 'objet', NULL
-              ) ORDER BY depose_le, id) AS docs
+                'deposee', true, 'motifNonStocke', NULL,
+                'origine', CASE WHEN note = $1 THEN 'genere' ELSE 'manuel' END, 'recuLe', NULL, 'objet', NULL
+              ) ORDER BY (note = $1) DESC, depose_le, id) AS docs
          FROM dossier_document GROUP BY dossier_id`,
+      [MARQUEUR_FICHE_SYNTHESE],
     );
     return new Map(rows.map((r) => [r.dossier_id, r.docs]));
   } catch (e) {
@@ -403,13 +416,103 @@ export async function deposerDocumentSurPermis(
 }
 
 /**
+ * N1-B — assemble les DONNÉES d'un permis pour sa fiche de synthèse : uniquement ce qui existe en base. Catégorie via `classer`
+ * (source unique), nature TRADUITE en clair via `libelleNatureProjet` (plus le code brut « 1 »), et la liste des pièces
+ * PRÉSENTES EN GED (`dossier_document` hors la fiche elle-même, marqueur exclu). `null` si le dossier n'est pas archivé (aucune
+ * fiche à produire). Les valeurs manquantes restent `null` : c'est le générateur (composerFichePermis) qui pose « non renseigné ».
+ */
+export async function donneesFicheSynthese(dossierId: number): Promise<SourceFichePermis | null> {
+  const { rows } = await query<{
+    reference: string; num_dau: string; type: 'PC' | 'PD'; adresse: string | null; commune_nom: string | null; code_insee: string;
+    nature: string | null; i_extension: boolean | null; i_surelevation: boolean | null; nb_lgt_tot_crees: number | null; surf_creee: string | number | null;
+    date_autorisation: string | null; satisfait_le: string | null; satisfait_par: string | null;
+  }>(
+    `SELECT dm.reference, s.num_dau, s.type,
+            nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
+            c.nom AS commune_nom, s.code_insee,
+            s.nature_projet_completee AS nature, s.i_extension, s.i_surelevation, s.nb_lgt_tot_crees, s.surf_creee,
+            s.date_reelle_autorisation::text AS date_autorisation,
+            dd.satisfait_le::date::text AS satisfait_le, dd.satisfait_par
+       FROM demande_dossier dd
+       JOIN sitadel_dossier s ON s.id = dd.dossier_id
+       JOIN demande dm ON dm.id = dd.demande_id
+       LEFT JOIN commune c ON c.code_insee = s.code_insee
+      WHERE s.id = $1 AND dd.satisfait_le IS NOT NULL
+      ORDER BY dd.satisfait_le DESC, dm.id
+      LIMIT 1`,
+    [dossierId],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  const cfg = await chargerConfigVeille();
+  const cl = classer(
+    { type: r.type, natureProjetCompletee: r.nature, iExtension: r.i_extension, iSurelevation: r.i_surelevation, nbLgtTotCrees: r.nb_lgt_tot_crees, surfCreee: r.surf_creee === null ? null : Number(r.surf_creee) },
+    cfg,
+  );
+  const { rows: pr } = await query<{ nom: string }>(
+    `SELECT nom_fichier AS nom FROM dossier_document WHERE dossier_id = $1 AND note IS DISTINCT FROM $2 ORDER BY depose_le, id`,
+    [dossierId, MARQUEUR_FICHE_SYNTHESE],
+  );
+  return {
+    numDau: r.num_dau, type: r.type, reference: r.reference,
+    communeNom: r.commune_nom, codeInsee: r.code_insee, adresse: r.adresse,
+    categorie: cl.libelle,
+    natureTravaux: r.nature === null ? null : libelleNatureProjet(r.nature), // traduit en clair (jamais le code nu)
+    dateAutorisation: r.date_autorisation, surface: r.surf_creee === null ? null : String(r.surf_creee), logements: r.nb_lgt_tot_crees,
+    satisfaitLe: r.satisfait_le, satisfaitPar: r.satisfait_par,
+    pieces: pr.map((x) => x.nom),
+  };
+}
+
+/**
+ * N1-B — dépose (ou REMPLACE) la FICHE DE SYNTHÈSE générée d'un permis. UNE SEULE fiche par permis : l'ancienne (même marqueur
+ * `note`) est retirée et la nouvelle insérée ATOMIQUEMENT (withTransaction), donc l'index unique (dossier_id, empreinte) —
+ * inopérant ici puisque l'empreinte change à chaque régénération — n'entraîne AUCUNE accumulation. ORDRE : dépôt S3 (empreinte,
+ * whitelist, borne de taille — mêmes règles que les pièces reçues) PUIS la bascule delete+insert ; sur échec de dépôt, RIEN
+ * n'est modifié. L'ancien objet S3 est nettoyé en best-effort (un orphelin est sans conséquence). La fiche est marquée
+ * `note = MARQUEUR_FICHE_SYNTHESE` → origine 'genere' à l'affichage, et NON supprimable à la main (cf. supprimerDocumentDossier).
+ */
+export async function deposerFicheSynthese(dossierId: number, contenu: Buffer, nomFichier: string): Promise<ResultatDepotDocument> {
+  const arch = await query<{ ok: boolean }>(`SELECT EXISTS (SELECT 1 FROM demande_dossier dd WHERE dd.dossier_id = $1 AND dd.satisfait_le IS NOT NULL) AS ok`, [dossierId]);
+  if (!arch.rows[0]?.ok) return { ok: false, motif: 'ce permis n’est pas archivé : aucune fiche de synthèse ne peut y être déposée' };
+  const cfg = await chargerConfigVeille();
+  const { deposerDocumentDossier } = await import('../stockage'); // import DYNAMIQUE : @aws-sdk hors du graphe statique
+  const dep = await deposerDocumentDossier(contenu, 'application/pdf', { dossierId, tailleMaxOctets: cfg.pieceTailleMaxMo * 1024 * 1024 });
+  if (!dep.depose) return { ok: false, motif: dep.motif }; // S3/whitelist/taille KO → RIEN inséré, ancienne fiche intacte
+  const anciennesCles: string[] = [];
+  const documentId = await withTransaction(async (q) => {
+    const anc = await q<{ cle_stockage: string }>(
+      `DELETE FROM dossier_document WHERE dossier_id = $1 AND note = $2 RETURNING cle_stockage`, [dossierId, MARQUEUR_FICHE_SYNTHESE]);
+    for (const r of anc.rows) anciennesCles.push(r.cle_stockage);
+    const ins = await q<{ id: number }>(
+      `INSERT INTO dossier_document (dossier_id, nom_fichier, type_mime, taille_octets, cle_stockage, empreinte_sha256, depose_par, note)
+       VALUES ($1, $2, 'application/pdf', $3, $4, $5, 'Sans Vis-à-Vis (généré)', $6) RETURNING id::int AS id`,
+      [dossierId, nomFichier, dep.taille, dep.cle, dep.empreinte, MARQUEUR_FICHE_SYNTHESE],
+    );
+    return ins.rows[0].id;
+  });
+  if (anciennesCles.length > 0) {
+    try {
+      const { supprimer } = await import('../stockage');
+      for (const cle of anciennesCles) await supprimer(cle);
+    } catch (e) {
+      journaliserLectureIndisponible('suppression de l’ancienne fiche de synthèse (objet S3) — orphelin possible, sans conséquence', e);
+    }
+  }
+  return { ok: true, documentId };
+}
+
+/**
  * A1b — supprime un document AJOUTÉ À LA MAIN (`dossier_document`). ORDRE : ligne en base PUIS objet S3 — un objet orphelin
  * est sans conséquence, une ligne pointant dans le vide non. L'échec de suppression S3 est JOURNALISÉ (jamais muet), sans
  * annuler la suppression de la ligne. Ne touche JAMAIS `demande_reponse_piece` (registre des pièces reçues par e-mail — le
  * refus explicite est côté route, discriminé par `source`). Renvoie false si l'id est inconnu.
+ * N1-B — GARDE : une fiche de synthèse GÉNÉRÉE (`note = MARQUEUR_FICHE_SYNTHESE`) n'est JAMAIS supprimable à la main (elle se
+ * régénère). `note IS DISTINCT FROM` laisse supprimables les documents manuels ordinaires (note NULL incluse).
  */
 export async function supprimerDocumentDossier(documentId: number): Promise<boolean> {
-  const { rows } = await query<{ cle_stockage: string }>(`DELETE FROM dossier_document WHERE id = $1 RETURNING cle_stockage`, [documentId]);
+  const { rows } = await query<{ cle_stockage: string }>(
+    `DELETE FROM dossier_document WHERE id = $1 AND note IS DISTINCT FROM $2 RETURNING cle_stockage`, [documentId, MARQUEUR_FICHE_SYNTHESE]);
   if (rows.length === 0) return false;
   try {
     const { supprimer } = await import('../stockage'); // import DYNAMIQUE : @aws-sdk hors du graphe statique

@@ -17,6 +17,7 @@
 import { createHash } from 'node:crypto';
 import { query } from '../db/client';
 import { dossiersSatisfaits } from '../veille/satisfactionDossier';
+import { libelleNatureProjet } from './priorite'; // N1-B : traduit le code nature (« 1 ») en clair (« Construction neuve »)
 import type { MessageBoite } from '../veille/releveReponses';
 import type { ProfilBoite } from '../veille/demandeReponseRepo';
 
@@ -61,6 +62,12 @@ export interface CaracteristiquesPermis {
 export type IssueDepot = 'non_traite' | 'deja_traite' | 'verse' | 'ambigu' | 'aucun_candidat' | 'extraction_echec';
 export interface ResultatDepot { issue: IssueDepot; dossierId?: number; deposees?: string[]; ignorees?: string[]; echecs?: string[]; candidats?: number }
 
+/** N1-B — résultat de la génération+dépôt de la fiche de synthèse. Un ÉCHEC ne fait JAMAIS perdre les pièces (déjà versées) : il
+ *  est distinguable (motif) et remonté dans l'alerte. `contenu` (le PDF) sert à joindre la fiche à l'e-mail. */
+export type ResultatFiche = { ok: true; nomFichier: string; contenu: Buffer } | { ok: false; motif: string };
+/** Pièce jointe optionnelle d'une alerte (la fiche de synthèse). */
+export interface PieceJointeAlerte { nomFichier: string; contenu: Buffer }
+
 /** I/O injectables (aucune dépendance lourde dans les tests). */
 export interface DepsDepotManuel {
   dejaTraite(messageId: string): Promise<boolean>;
@@ -71,7 +78,9 @@ export interface DepsDepotManuel {
   marquerSatisfait(demandeId: number, dossierId: number): Promise<void>;
   deposer(dossierId: number, piece: { nomFichier: string; typeMime: string | null; contenu: Buffer }, expediteur: string, messageId: string): Promise<{ ok: true } | { ok: false; motif: string }>;
   caracteristiques(dossierId: number): Promise<CaracteristiquesPermis | null>;
-  envoyerAlerte(sujet: string, corps: string): Promise<void>;
+  /** N1-B — (re)génère la fiche de synthèse du permis et la dépose en GED (une seule par permis). Ne jette jamais : renvoie un motif. */
+  genererEtDeposerFiche(dossierId: number): Promise<ResultatFiche>;
+  envoyerAlerte(sujet: string, corps: string, pieceJointe?: PieceJointeAlerte): Promise<void>; // N1-B : pièce jointe optionnelle (la fiche)
   forwarder(mb: MessageBoite, sujet: string, corps: string): Promise<void>;
 }
 
@@ -86,19 +95,23 @@ function ligneCarac(c: CaracteristiquesPermis): string[] {
   L.push(`Permis N°${c.numDau} (${c.type})${c.communeNom ? ` — ${c.communeNom}` : ''} (INSEE ${c.codeInsee})`);
   L.push(`Référence interne de la demande : ${c.reference}`);
   if (c.adresse) L.push(`Adresse : ${c.adresse}`);
-  if (c.natureTravaux) L.push(`Nature des travaux : ${c.natureTravaux}`);
+  if (c.natureTravaux) L.push(`Nature des travaux : ${libelleNatureProjet(c.natureTravaux)}`); // N1-B : libellé en clair, plus le code brut « 1 »
   if (c.dateAutorisation) L.push(`Date d’acceptation : ${c.dateAutorisation}`);
   if (c.surface) L.push(`Surface créée : ${c.surface} m²`);
   if (c.logements !== null) L.push(`Logements créés : ${c.logements}`);
   return L;
 }
-export function corpsSucces(c: CaracteristiquesPermis | null, deposees: string[], ignorees: string[], echecs: string[], expediteur: string): string {
+export function corpsSucces(c: CaracteristiquesPermis | null, deposees: string[], ignorees: string[], echecs: string[], expediteur: string, ficheEchec: string | null = null): string {
   const L: string[] = ['Des documents reçus par e-mail ont été versés AUTOMATIQUEMENT dans la GED d’un permis.', ''];
   if (c) L.push(...ligneCarac(c), ''); else L.push('⚠ Caractéristiques du permis indisponibles en base (lecture en erreur).', '');
   L.push(deposees.length > 0 ? `Pièces versées (${deposees.length}) :` : 'Aucune nouvelle pièce versée (toutes déjà présentes).');
   for (const n of deposees) L.push(`  · ${n}`);
   if (ignorees.length > 0) { L.push('', `Pièces ignorées car déjà présentes (${ignorees.length}) :`); for (const n of ignorees) L.push(`  · ${n}`); }
   if (echecs.length > 0) { L.push('', `⚠ Pièces NON versées (échec de dépôt) (${echecs.length}) :`); for (const n of echecs) L.push(`  ⚠ ${n}`); }
+  // N1-B — état de la fiche de synthèse : jointe (succès) OU non générée (motif). Explicite : un échec de fiche ne perd AUCUNE pièce.
+  L.push('', ficheEchec === null
+    ? 'Fiche de synthèse : générée, déposée en GED et jointe à cet e-mail.'
+    : `⚠ Fiche de synthèse NON générée (${ficheEchec}). Les pièces ci-dessus ont bien été versées ; la fiche sera régénérée au prochain versement.`);
   L.push('', `Expéditeur du mail d’origine : ${expediteur}`);
   return L.join('\n');
 }
@@ -162,7 +175,15 @@ export async function traiterDepotManuel(mb: MessageBoite, profil: ProfilBoite, 
       if (r.ok) { deposees.push(p.nomFichier); dejaEmpreintes.add(emp); } else echecs.push(`${p.nomFichier} (${r.motif})`);
     }
     const carac = await deps.caracteristiques(dossierId);
-    await deps.envoyerAlerte(`Versement GED — permis N°${carac?.numDau ?? '?'} (${deposees.length} pièce(s))`, corpsSucces(carac, deposees, ignorees, echecs, expediteur));
+    // N1-B — FICHE DE SYNTHÈSE : régénérée à CHAQUE versement (une seule par permis), jointe à l'alerte. Un échec de fiche NE FAIT
+    //   JAMAIS perdre de pièce (elles sont déjà déposées) : il est signalé dans le corps, jamais avalé (pas de catch muet).
+    const fiche = await deps.genererEtDeposerFiche(dossierId);
+    const pieceJointe = fiche.ok ? { nomFichier: fiche.nomFichier, contenu: fiche.contenu } : undefined;
+    await deps.envoyerAlerte(
+      `Versement GED — permis N°${carac?.numDau ?? '?'} (${deposees.length} pièce(s))`,
+      corpsSucces(carac, deposees, ignorees, echecs, expediteur, fiche.ok ? null : fiche.motif),
+      pieceJointe,
+    );
     await deps.journaliser({ messageId, profil, issue: 'verse', dossierId, expediteur });
     return { issue: 'verse', dossierId, deposees, ignorees, echecs };
   }
@@ -286,14 +307,33 @@ export function depsReellesDepotManuel(): DepsDepotManuel {
         natureTravaux: r.nature, dateAutorisation: r.date_autorisation, surface: r.surface === null ? null : String(r.surface), logements: r.logements,
       };
     },
-    envoyerAlerte: async (sujet, corps) => {
+    genererEtDeposerFiche: async (dossierId) => {
+      // N1-B — assemble les données (catégorie via classer, nature traduite, pièces en GED), rend le PDF (1 page) et le dépose
+      //   (remplace l'ancienne fiche). Tout échec est CAPTURÉ ici (motif distinguable) : la génération de fiche ne doit JAMAIS
+      //   faire échouer le versement — les pièces sont déjà déposées quand on arrive ici.
+      try {
+        const { donneesFicheSynthese, deposerFicheSynthese } = await import('./demandeRepo');
+        const source = await donneesFicheSynthese(dossierId);
+        if (source === null) return { ok: false, motif: 'caractéristiques du permis introuvables' };
+        const { genererFichePermisPdf, NOM_FICHIER_FICHE_SYNTHESE } = await import('../pdf/fichePermisPdf');
+        const contenu = await genererFichePermisPdf({ ...source, emisLe: new Date() });
+        const dep = await deposerFicheSynthese(dossierId, contenu, NOM_FICHIER_FICHE_SYNTHESE);
+        if (!dep.ok) return { ok: false, motif: dep.motif };
+        return { ok: true, nomFichier: NOM_FICHIER_FICHE_SYNTHESE, contenu };
+      } catch (e) {
+        console.error('[depotManuel] génération/dépôt de la fiche de synthèse en échec', { message: e instanceof Error ? e.message : String(e) });
+        return { ok: false, motif: 'génération de la fiche impossible' };
+      }
+    },
+    envoyerAlerte: async (sujet, corps, pieceJointe) => {
       const { chargerConfigVeille } = await import('./veilleConfig');
       const email = (await chargerConfigVeille()).alerteEmail.trim();
       if (email === '') return; // pas de destinataire configuré → rien à envoyer (le versement a bien eu lieu ; journalisé)
       const { lireConfigEmail, obtenirTransporteur, envoyerAlerte } = await import('../email');
       const cfg = lireConfigEmail();
       if (cfg === null) throw new Error('compte SMTP par défaut non configuré (SMTP_* / MAIL_FROM)');
-      await envoyerAlerte(obtenirTransporteur(cfg), cfg.from, { to: email, sujet, corps });
+      const attachments = pieceJointe ? [{ filename: pieceJointe.nomFichier, content: pieceJointe.contenu, contentType: 'application/pdf' }] : undefined;
+      await envoyerAlerte(obtenirTransporteur(cfg), cfg.from, { to: email, sujet, corps, attachments });
     },
     forwarder: async (mb, sujet, corps) => {
       const { chargerConfigVeille } = await import('./veilleConfig');

@@ -182,14 +182,24 @@ export async function envoyerReinitialisation(transporteur: Transporter, from: s
   });
 }
 
-export interface MailAlerte { to: string; sujet: string; corps: string }
+export interface MailAlerte {
+  to: string;
+  sujet: string;
+  corps: string;
+  // N1-B — pièces jointes OPTIONNELLES (la fiche de synthèse PDF). AJOUTÉES seulement si fournies → un appel sans `attachments`
+  //   produit EXACTEMENT le message d'avant (aucune clé `attachments`) : alerte quotidienne strictement inchangée.
+  attachments?: { filename: string; content: Buffer; contentType: string }[];
+}
 
 /**
- * R8 — envoie le récapitulatif d'alerte quotidien (texte brut, AUCUNE pièce jointe). Réutilise le TRANSPORT injecté ;
- * `from` = MAIL_FROM (alias). Distinct du certificat/demande : c'est un e-mail interne de suivi vers l'exploitant.
+ * R8 — envoie un e-mail d'alerte interne (texte brut) vers l'exploitant. Réutilise le TRANSPORT injecté ; `from` = MAIL_FROM
+ * (alias). N1-B : accepte des pièces jointes OPTIONNELLES (la fiche de synthèse du versement), ajoutées uniquement si présentes
+ * — les appels existants (récapitulatif quotidien, sans pièce) restent byte-inchangés.
  */
 export async function envoyerAlerte(transporteur: Transporter, from: string, m: MailAlerte): Promise<void> {
-  await transporteur.sendMail({ from, to: m.to, subject: m.sujet, text: m.corps });
+  const message: Parameters<Transporter['sendMail']>[0] = { from, to: m.to, subject: m.sujet, text: m.corps };
+  if (m.attachments && m.attachments.length > 0) message.attachments = m.attachments;
+  await transporteur.sendMail(message);
 }
 
 export interface MailForwardGed {

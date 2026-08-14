@@ -24,12 +24,14 @@ const CARAC: CaracteristiquesPermis = {
 function harness(opts: {
   candidats?: CandidatDossier[]; textes?: Record<string, string | null>; dejaTraite?: boolean; empreintes?: Set<string>;
   deposeMotif?: string; // si défini → deposer échoue avec ce motif
+  ficheEchec?: string;  // N1-B : si défini → la génération de fiche échoue avec ce motif (les pièces doivent quand même être versées)
 } = {}) {
   const journal: { messageId: string; issue: IssueDepot; dossierId: number | null }[] = [];
-  const alertes: { sujet: string; corps: string }[] = [];
+  const alertes: { sujet: string; corps: string; pieceJointe?: { nomFichier: string; contenu: Buffer } }[] = [];
   const forwards: { sujet: string; corps: string }[] = [];
   const marques: { demandeId: number; dossierId: number }[] = [];
   const deposes: { dossierId: number; nom: string }[] = [];
+  const fiches: number[] = []; // N1-B : dossierIds pour lesquels une (re)génération de fiche a été demandée
   const deps: DepsDepotManuel = {
     dejaTraite: async () => opts.dejaTraite === true,
     journaliser: async (e) => { journal.push({ messageId: e.messageId, issue: e.issue, dossierId: e.dossierId }); },
@@ -39,10 +41,15 @@ function harness(opts: {
     marquerSatisfait: async (demandeId, dossierId) => { marques.push({ demandeId, dossierId }); },
     deposer: async (dossierId, p) => { if (opts.deposeMotif) return { ok: false, motif: opts.deposeMotif }; deposes.push({ dossierId, nom: p.nomFichier }); return { ok: true }; },
     caracteristiques: async () => CARAC,
-    envoyerAlerte: async (sujet, corps) => { alertes.push({ sujet, corps }); },
+    genererEtDeposerFiche: async (dossierId) => {
+      fiches.push(dossierId);
+      if (opts.ficheEchec) return { ok: false, motif: opts.ficheEchec };
+      return { ok: true, nomFichier: 'Fiche de synthèse du permis.pdf', contenu: Buffer.from('%PDF-fake') };
+    },
+    envoyerAlerte: async (sujet, corps, pieceJointe) => { alertes.push({ sujet, corps, pieceJointe }); },
     forwarder: async (_mb, sujet, corps) => { forwards.push({ sujet, corps }); },
   };
-  return { deps, journal, alertes, forwards, marques, deposes };
+  return { deps, journal, alertes, forwards, marques, deposes, fiches };
 }
 
 describe('F-N1 — parserAdressesConnues : séparateurs tolérés, casse ignorée, vides ignorés', () => {
@@ -97,6 +104,27 @@ describe('N1-A — les quatre issues (§4)', () => {
     expect(h.alertes[0].corps).toContain('12 rue des Fleurs');
     expect(h.journal[0]).toMatchObject({ issue: 'verse', dossierId: 1 });
     expect(h.forwards).toHaveLength(0);
+  });
+
+  it('N1-B — fiche de synthèse (re)générée sur un versement, JOINTE à l’alerte, mentionnée dans le corps', async () => {
+    const h = harness({ candidats: [CAND], textes: { 'ref 0930012500081': 'ref 0930012500081' } });
+    const res = await traiterDepotManuel(mail({}, [piece('x.pdf', 'ref 0930012500081')]), 'entreprise', h.deps);
+    expect(res.issue).toBe('verse');
+    expect(h.fiches).toEqual([1]);                                   // fiche demandée pour le dossier versé
+    expect(h.alertes[0].pieceJointe?.nomFichier).toBe('Fiche de synthèse du permis.pdf'); // jointe à l'e-mail
+    expect(h.alertes[0].pieceJointe?.contenu.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(h.alertes[0].corps).toContain('Fiche de synthèse : générée, déposée en GED et jointe');
+  });
+
+  it('N1-B — fiche EN ÉCHEC → les pièces sont QUAND MÊME versées, l’alerte le dit, sans pièce jointe (jamais un document perdu)', async () => {
+    const h = harness({ candidats: [CAND], textes: { 'ref 0930012500081': 'ref 0930012500081' }, ficheEchec: 'stockage non configuré' });
+    const res = await traiterDepotManuel(mail({}, [piece('x.pdf', 'ref 0930012500081')]), 'entreprise', h.deps);
+    expect(res.issue).toBe('verse');                                 // le versement RÉUSSIT malgré l'échec de fiche
+    expect(h.deposes).toHaveLength(1);                               // la pièce a bien été versée
+    expect(h.journal[0]).toMatchObject({ issue: 'verse', dossierId: 1 });
+    expect(h.alertes).toHaveLength(1);                               // alerte envoyée (jamais un silence)
+    expect(h.alertes[0].pieceJointe).toBeUndefined();               // pas de fiche jointe (échec)
+    expect(h.alertes[0].corps).toContain('Fiche de synthèse NON générée (stockage non configuré)');
   });
 
   it('(a2) dossier DÉJÀ satisfait (Archives) → n’appelle pas marquerSatisfait, ajoute simplement les pièces', async () => {
