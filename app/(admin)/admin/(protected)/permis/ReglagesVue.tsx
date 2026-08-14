@@ -4,9 +4,10 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import type { ConfigVeille } from '../../../../lib/sitadel/veilleConfig';
 import { ETIQUETTE_PROFIL, type ConfigDemandeur, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import {
-  champsPourProfil, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_SOURCES, PARAMS_MENTIONS, type ParamVeille, type BornesParColonne, type ErreurReglage,
+  champsPourProfil, PARAMS_VEILLE, PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA,
+  PARAMS_SOURCES, PARAMS_MENTIONS, type ParamVeille, type BornesParColonne, type ErreurReglage,
 } from '../../../../lib/sitadel/reglagesVeille';
-import { BandeauIdentite, PlageParam, CarteParamVestigial, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
+import { BandeauIdentite, PlageParam, CarteParamVestigial, TITRE_THEME_PREPARATION, TITRE_THEME_ENVOI, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
 
 /**
  * Écran « Réglages » de la tuile Permis (chantier S7d / S7e). Édite les DEUX identités de demandeur (Société / Personne
@@ -201,14 +202,23 @@ export function ReglagesVue() {
         })}
       </section>
 
-      {/* ── Section B : paramètres, scindés en 2 sous-blocs (S13) — demandes vs dossiers. Aucune logique déplacée. ── */}
-      <section className="flex flex-col gap-3">
-        <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{TITRE_PARAMS_DEMANDES}</h2>
-        <p style={styleAide}>Chaque paramètre est appliqué immédiatement. Les plages autorisées proviennent des contraintes de la base de données.</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
-          {PARAMS_DEMANDES.map(carteParam)}
-        </div>
-      </section>
+      {/* ── Section B : paramètres des demandes, rangés par THÈME (E1) — 5 sous-blocs. Chantier PRÉSENTATIONNEL : mêmes
+          paramètres, même route, mêmes valeurs ; seul le regroupement change (l'ex-groupe unique était un fourre-tout). ── */}
+      <p style={styleAide}>Chaque paramètre est appliqué immédiatement. Les plages autorisées proviennent des contraintes de la base de données.</p>
+      {[
+        { titre: TITRE_THEME_PREPARATION, params: PARAMS_THEME_PREPARATION },
+        { titre: TITRE_THEME_ENVOI, params: PARAMS_THEME_ENVOI },
+        { titre: TITRE_THEME_REPONSES, params: PARAMS_THEME_REPONSES },
+        { titre: TITRE_THEME_ALERTES, params: PARAMS_THEME_ALERTES },
+        { titre: TITRE_THEME_CADA, params: PARAMS_THEME_CADA },
+      ].map(({ titre, params }) => (
+        <section key={titre} className="flex flex-col gap-3">
+          <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{titre}</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
+            {params.map(carteParam)}
+          </div>
+        </section>
+      ))}
 
       {/* S33 — le sous-bloc « Classification et affichage des dossiers » a QUITTÉ cet onglet (groupe « Demandes aux
           mairies ») pour l'onglet Automatisation (groupe « Mise à jour des dossiers »), où il relève conceptuellement.

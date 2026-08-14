@@ -172,7 +172,7 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   { colonne: 'releve_profil', cle: 'releveProfil', libelle: 'Boîte relevée automatiquement', unite: '', type: 'enum', optionsEnum: ['entreprise', 'personne'],
     aide: 'Quel compte de messagerie est relevé automatiquement : celui de la société ou celui de la personne physique. La relève à la main peut toujours viser l’un ou l’autre indépendamment.' },
   // R6 — ÉCHÉANCE d'un mois : quand une demande est « proche » de l'échéance, et fraîcheur exigée pour se prononcer.
-  { colonne: 'echeance_alerte_jours', cle: 'echeanceAlerteJours', libelle: 'Alerte « échéance proche »', unite: 'jours', type: 'entier',
+  { colonne: 'echeance_alerte_jours', cle: 'echeanceAlerteJours', libelle: 'Seuil « échéance proche » (jours)', unite: 'jours', type: 'entier',
     aide: 'Combien de jours avant la fin du délai d’un mois une demande est signalée « proche de l’échéance ». Le silence gardé un mois après l’envoi vaut refus tacite (voie CADA) : ce réglage sert à anticiper cette date, pas à la modifier.' },
   { colonne: 'releve_fraicheur_heures', cle: 'releveFraicheurHeures', libelle: 'Fraîcheur exigée de la relève', unite: 'heures', type: 'entier',
     aide: 'Si la dernière relève réussie de la boîte est plus ancienne que cette durée, l’échéance reste « indéterminée » : on n’affirme jamais qu’une mairie n’a pas répondu sans avoir regardé récemment. Plus court = exigence de vérification plus stricte.' },
@@ -246,19 +246,31 @@ export function libelleTriCandidats(valeur: string): string {
  * PROPRIÉTAIRE reste la route `/reglages` (validation, allowlist `PARAMS_VEILLE`, bornes des CHECK) : seul le RENDU a migré
  * (cf. `ClassificationDossiers`), tous les invariants de l'écran Réglages sont conservés.
  */
+// E1 — les 24 réglages « demandes » sont désormais rangés en 5 THÈMES présentationnels (l'ex-groupe unique « Paramètres des
+//   demandes » était un fourre-tout). ⚠️ Chantier PUREMENT présentationnel : aucune colonne, aucune valeur, aucune route ne
+//   change. La casse des colonnes reprend EXACTEMENT config_veille. L'ordre DANS chaque thème est l'ordre d'AFFICHAGE voulu
+//   (pas celui de PARAMS_VEILLE). `COLONNES_PARAMS_DEMANDES` reste la CONCATÉNATION des 5 (même ENSEMBLE qu'avant E1) → le
+//   complément `PARAMS_DOSSIERS` et la validation (`validerReglages` contre `PARAMS_VEILLE`) sont strictement inchangés.
+export const COLONNES_THEME_PREPARATION: readonly string[] = [
+  'anciennete_max_demande_annees', 'nb_candidats_examines', 'tri_candidats',
+  'dossiers_par_demande', 'permis_par_commune_par_mois', 'pieces_demandees',
+  'profil_demandeur_defaut', 'demandes_par_commune_par_mois', // vestigial → EN DERNIER
+];
+export const COLONNES_THEME_ENVOI: readonly string[] = [
+  'adresse_reponse', 'envois_max_par_run', 'envois_max_par_jour',
+];
+export const COLONNES_THEME_REPONSES: readonly string[] = [
+  'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',
+  'recherche_references_max', 'piece_taille_max_mo', 'echeance_alerte_jours',
+];
+export const COLONNES_THEME_ALERTES: readonly string[] = [
+  'alerte_active', 'alerte_email', 'alerte_heure_locale',
+];
+export const COLONNES_THEME_CADA: readonly string[] = [
+  'proposition_cada_active', 'cada_email', 'cada_url_formulaire',
+];
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
-  'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
-  'nb_candidats_examines', 'tri_candidats', // V2 — profondeur d'examen + ordre de tri des candidats
-  'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi (groupe « demandes »)
-  'adresse_reponse',                            // S38 — adresse de réponse (reply-to)
-  'cada_email', 'cada_url_formulaire',          // X1 — canal CADA (e-mail + formulaire en ligne)
-  'releve_active', 'releve_intervalle_minutes', 'releve_profil', // R7 — relève automatique des réponses
-  'echeance_alerte_jours', 'releve_fraicheur_heures', // R6 — échéance d'un mois + fraîcheur de la relève
-  'alerte_active', 'alerte_email', 'alerte_heure_locale', // R8 — alertes e-mail quotidiennes
-  'proposition_cada_active', // X5 — proposition de saisine CADA par e-mail (destinataire = alerte_email)
-  'piece_taille_max_mo', // R4 — borne de taille des pièces entrantes
-  'recherche_references_max', // R3e — plafond des références de dossier interrogées
-  'pieces_demandees', 'profil_demandeur_defaut',
+  ...COLONNES_THEME_PREPARATION, ...COLONNES_THEME_ENVOI, ...COLONNES_THEME_REPONSES, ...COLONNES_THEME_ALERTES, ...COLONNES_THEME_CADA,
 ];
 // S30 — 3e sous-bloc : SOURCES de données (annuaire DILA). Distinct des demandes et de la classification des dossiers.
 export const COLONNES_PARAMS_SOURCES: readonly string[] = ['dila_url'];
@@ -266,7 +278,23 @@ export const COLONNES_PARAMS_SOURCES: readonly string[] = ['dila_url'];
 export const COLONNES_PARAMS_MENTIONS: readonly string[] = [
   'mention_service_active', 'mention_service_texte', 'mention_delai_active', 'mention_delai_texte',
 ];
-export const PARAMS_DEMANDES: ParamVeille[] = PARAMS_VEILLE.filter((p) => COLONNES_PARAMS_DEMANDES.includes(p.colonne));
+/** E1 — liste ORDONNÉE de ParamVeille d'un thème (ordre = la constante, PAS celui de PARAMS_VEILLE). Lève si une colonne est
+ *  inconnue de PARAMS_VEILLE → un thème mal saisi casse le build plutôt que d'oublier silencieusement un paramètre. */
+function paramsDuTheme(colonnes: readonly string[]): ParamVeille[] {
+  return colonnes.map((c) => {
+    const p = PARAMS_VEILLE.find((x) => x.colonne === c);
+    if (!p) throw new Error(`reglagesVeille: colonne de thème inconnue « ${c} »`);
+    return p;
+  });
+}
+// E1 — les 5 thèmes, dans l'ordre d'affichage voulu (rendus par ReglagesVue, un <section> chacun).
+export const PARAMS_THEME_PREPARATION: ParamVeille[] = paramsDuTheme(COLONNES_THEME_PREPARATION);
+export const PARAMS_THEME_ENVOI: ParamVeille[] = paramsDuTheme(COLONNES_THEME_ENVOI);
+export const PARAMS_THEME_REPONSES: ParamVeille[] = paramsDuTheme(COLONNES_THEME_REPONSES);
+export const PARAMS_THEME_ALERTES: ParamVeille[] = paramsDuTheme(COLONNES_THEME_ALERTES);
+export const PARAMS_THEME_CADA: ParamVeille[] = paramsDuTheme(COLONNES_THEME_CADA);
+// Conservé (même ENSEMBLE qu'avant E1, ordre = concaténation des thèmes). Sert au complément PARAMS_DOSSIERS et à la compat.
+export const PARAMS_DEMANDES: ParamVeille[] = paramsDuTheme(COLONNES_PARAMS_DEMANDES);
 export const PARAMS_SOURCES: ParamVeille[] = PARAMS_VEILLE.filter((p) => COLONNES_PARAMS_SOURCES.includes(p.colonne));
 export const PARAMS_MENTIONS: ParamVeille[] = PARAMS_VEILLE.filter((p) => COLONNES_PARAMS_MENTIONS.includes(p.colonne));
 export const PARAMS_DOSSIERS: ParamVeille[] = PARAMS_VEILLE.filter(

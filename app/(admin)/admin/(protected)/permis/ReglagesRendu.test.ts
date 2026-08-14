@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { BandeauIdentite, PlageParam, CarteReglageEntier, CarteParamVestigial, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
-import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES, PARAMS_MENTIONS } from '../../../../lib/sitadel/reglagesVeille';
+import { BandeauIdentite, PlageParam, CarteReglageEntier, CarteParamVestigial, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS, TITRE_THEME_PREPARATION, TITRE_THEME_ENVOI, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA } from './ReglagesRendu';
+import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES, PARAMS_MENTIONS, PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA } from '../../../../lib/sitadel/reglagesVeille';
 import { problemesIdentite } from '../../../../lib/sitadel/demande';
 
 /**
@@ -73,38 +73,79 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(TITRE_PARAMS_DOSSIERS).not.toContain('moteur de veille');
   });
 
+  it('E1 — les 5 thèmes portent les intitulés EXACTS attendus', () => {
+    expect(TITRE_THEME_PREPARATION).toBe('Préparation des demandes');
+    expect(TITRE_THEME_ENVOI).toBe('Envoi aux mairies');
+    expect(TITRE_THEME_REPONSES).toBe('Réponses et échéances');
+    expect(TITRE_THEME_ALERTES).toBe('Alertes par e-mail');
+    expect(TITRE_THEME_CADA).toBe('Saisine CADA');
+  });
+
   it('l’aide du 2e bloc dit qu’il ne concerne PAS les demandes mais la mise à jour/affichage des dossiers', () => {
     expect(AIDE_PARAMS_DOSSIERS).toContain('ne concernent pas les demandes');
     expect(AIDE_PARAMS_DOSSIERS).toContain('dossiers');
     expect(AIDE_PARAMS_DOSSIERS).toContain('Mise à jour des dossiers');
   });
 
-  it('partition : 24 demandes (+ Q1 : permis par commune) / 8 dossiers / 1 source (dila_url), sans perte ni doublon', () => {
-    expect(PARAMS_DEMANDES.map((p) => p.colonne)).toEqual([
-      'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
-      'nb_candidats_examines', 'tri_candidats', // V2 — profondeur d'examen + ordre de tri des candidats
-      'envois_max_par_run', 'envois_max_par_jour', // S37 — caps d'envoi
-      'adresse_reponse',                            // S38 — adresse de réponse
-      'cada_email', 'cada_url_formulaire',          // X1 — canal CADA
-      'releve_active', 'releve_intervalle_minutes', 'releve_profil', // R7 — relève automatique
-      'echeance_alerte_jours', 'releve_fraicheur_heures', // R6 — échéance d'un mois + fraîcheur
-      'alerte_active', 'alerte_email', 'alerte_heure_locale', // R8 — alertes e-mail
-      'proposition_cada_active', // X5 — proposition de saisine CADA par e-mail
-      'piece_taille_max_mo', // R4 — borne de taille des pièces entrantes
-      'recherche_references_max', // R3e — plafond de références de dossier
-      'pieces_demandees', 'profil_demandeur_defaut',
+  // E1 — les 5 thèmes affichent CHACUN ses colonnes dans l'ORDRE d'affichage voulu (celui de la constante, pas de PARAMS_VEILLE).
+  it('E1 — ordre d’affichage EXACT de chaque thème', () => {
+    expect(PARAMS_THEME_PREPARATION.map((p) => p.colonne)).toEqual([
+      'anciennete_max_demande_annees', 'nb_candidats_examines', 'tri_candidats',
+      'dossiers_par_demande', 'permis_par_commune_par_mois', 'pieces_demandees',
+      'profil_demandeur_defaut', 'demandes_par_commune_par_mois', // vestigial en dernier
     ]);
+    expect(PARAMS_THEME_ENVOI.map((p) => p.colonne)).toEqual(['adresse_reponse', 'envois_max_par_run', 'envois_max_par_jour']);
+    expect(PARAMS_THEME_REPONSES.map((p) => p.colonne)).toEqual([
+      'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',
+      'recherche_references_max', 'piece_taille_max_mo', 'echeance_alerte_jours',
+    ]);
+    expect(PARAMS_THEME_ALERTES.map((p) => p.colonne)).toEqual(['alerte_active', 'alerte_email', 'alerte_heure_locale']);
+    expect(PARAMS_THEME_CADA.map((p) => p.colonne)).toEqual(['proposition_cada_active', 'cada_email', 'cada_url_formulaire']);
+  });
+
+  // E1 — PREUVE « aucun paramètre perdu dans le déménagement » : les 5 thèmes sont DISJOINTS et couvrent EXACTEMENT les 24 clés
+  //   de l'ex-groupe « Paramètres des demandes » (liste littérale figée, comparée en ENSEMBLE — pas en ordre).
+  it('E1 — les 5 thèmes partitionnent les 24 clés « demandes » (disjoints, couvrants, sans perte ni doublon)', () => {
+    const themes = [PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA];
+    const clesThemes = themes.flatMap((t) => t.map((p) => p.colonne));
+    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length).toBe(24);
+    expect(new Set(clesThemes).size).toBe(24); // disjoints (aucun doublon)
+    // liste LITTÉRALE figée des 24 clés « demandes » — comparée en ENSEMBLE à la concaténation des thèmes ET à COLONNES_PARAMS_DEMANDES.
+    const VINGT_QUATRE = [
+      'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
+      'nb_candidats_examines', 'tri_candidats', 'envois_max_par_run', 'envois_max_par_jour', 'adresse_reponse',
+      'cada_email', 'cada_url_formulaire', 'releve_active', 'releve_intervalle_minutes', 'releve_profil',
+      'echeance_alerte_jours', 'releve_fraicheur_heures', 'alerte_active', 'alerte_email', 'alerte_heure_locale',
+      'proposition_cada_active', 'piece_taille_max_mo', 'recherche_references_max', 'pieces_demandees', 'profil_demandeur_defaut',
+    ];
+    expect(new Set(clesThemes)).toEqual(new Set(VINGT_QUATRE));
+    expect(new Set(PARAMS_DEMANDES.map((p) => p.colonne))).toEqual(new Set(VINGT_QUATRE)); // COLONNES_PARAMS_DEMANDES = concat des thèmes, même ENSEMBLE
+  });
+
+  // E1 — PREUVE GLOBALE : les CLÉS RENDUES par l'écran Réglages (les 5 thèmes + mentions + sources, dans l'ordre où ReglagesVue
+  //   les mappe) + les dossiers (rendus ailleurs) === EXACTEMENT l'ensemble de PARAMS_VEILLE. Aucun paramètre perdu ni dupliqué.
+  it('E1 — partition globale : 5 thèmes + mentions + sources + dossiers === PARAMS_VEILLE (aucune clé perdue)', () => {
+    // Ordre EXACT des sections rendues par ReglagesVue (cf. ReglagesVue.tsx, Section B puis Mentions puis Sources).
+    const CLES_RENDUES_REGLAGES = [
+      ...PARAMS_THEME_PREPARATION, ...PARAMS_THEME_ENVOI, ...PARAMS_THEME_REPONSES, ...PARAMS_THEME_ALERTES, ...PARAMS_THEME_CADA,
+      ...PARAMS_MENTIONS, ...PARAMS_SOURCES,
+    ].map((p) => p.colonne);
+    // Snapshot : l'écran Réglages rend 24 + 4 + 1 = 29 clés distinctes (identique avant/après E1 — seul le regroupement change).
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(29);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(29);
+    // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
+    const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
+    expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));
+    expect(toutes.size).toBe(PARAMS_VEILLE.length);
+    // les 3 groupes préservés à l'identique (non touchés par E1).
     expect(PARAMS_DOSSIERS.map((p) => p.colonne)).toEqual([
       'seuil_logements_immeuble', 'seuil_surface_immeuble_m2', 'annees_par_defaut',
       'rang_immeuble_neuf', 'rang_surelevation', 'rang_construction_neuve', 'rang_extension', 'rang_demolition',
     ]);
-    expect(PARAMS_SOURCES.map((p) => p.colonne)).toEqual(['dila_url']); // S30 : 3e sous-bloc, dila_url exclu des autres
-    expect(PARAMS_MENTIONS.map((p) => p.colonne)).toEqual([              // S40 : 4e sous-bloc, mentions exclues des autres
+    expect(PARAMS_SOURCES.map((p) => p.colonne)).toEqual(['dila_url']);
+    expect(PARAMS_MENTIONS.map((p) => p.colonne)).toEqual([
       'mention_service_active', 'mention_service_texte', 'mention_delai_active', 'mention_delai_texte',
     ]);
-    expect(PARAMS_DEMANDES.length + PARAMS_DOSSIERS.length + PARAMS_SOURCES.length + PARAMS_MENTIONS.length).toBe(PARAMS_VEILLE.length);
-    const cols = new Set([...PARAMS_DEMANDES, ...PARAMS_DOSSIERS, ...PARAMS_SOURCES, ...PARAMS_MENTIONS].map((p) => p.colonne));
-    expect(cols.size).toBe(PARAMS_VEILLE.length); // aucune colonne perdue ni dupliquée
   });
 
   it('S37 — les 2 caps d’envoi sont des entiers du groupe « demandes », plage lue des CHECK, aide anti-salve', () => {

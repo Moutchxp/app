@@ -14,7 +14,13 @@ const styleBase: CSSProperties = { padding: '.6rem .75rem', borderRadius: '.6rem
  * second, ceux de la classification/affichage des dossiers — son aide dit explicitement qu'il ne concerne PAS les demandes,
  * pour que le lecteur comprenne pourquoi ces réglages sont là. Exportés (et non « en dur » dans la vue) pour être testés.
  */
-export const TITRE_PARAMS_DEMANDES = 'Paramètres des demandes';
+export const TITRE_PARAMS_DEMANDES = 'Paramètres des demandes'; // conservé (compat) — l'écran affiche désormais les 5 thèmes ci-dessous
+// E1 — les 5 thèmes qui remplacent le groupe fourre-tout « Paramètres des demandes » (chantier purement présentationnel).
+export const TITRE_THEME_PREPARATION = 'Préparation des demandes';
+export const TITRE_THEME_ENVOI = 'Envoi aux mairies';
+export const TITRE_THEME_REPONSES = 'Réponses et échéances';
+export const TITRE_THEME_ALERTES = 'Alertes par e-mail';
+export const TITRE_THEME_CADA = 'Saisine CADA';
 export const TITRE_PARAMS_DOSSIERS = 'Classification et affichage des dossiers';
 /** S40 — 4e sous-bloc : mentions ajoutées au courrier (phrases de pratique). */
 export const TITRE_PARAMS_MENTIONS = 'Mentions ajoutées au courrier';

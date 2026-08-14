@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parserBornesCheck, validerReglages, bandeauIdentite, colonneDepuisProbleme,
   PARAMS_VEILLE, PARAMS_DEMANDES, COLONNES_PARAMS_DEMANDES, CHAMPS_IDENTITE,
+  COLONNES_THEME_PREPARATION, COLONNES_THEME_CADA,
 } from './reglagesVeille';
 import { problemesIdentite, type ConfigDemandeur } from './demande';
 
@@ -209,10 +210,11 @@ describe('S7e — validation par profil + profil par défaut', () => {
 });
 
 describe('V2 — sélection des candidats : cap (bornes CHECK) + tri (liste fermée)', () => {
-  it('les deux paramètres sont dans le sous-bloc « demandes » (rendus dans l’onglet Réglages)', () => {
+  it('les deux paramètres sont dans le sous-bloc « demandes » (rendus dans l’onglet Réglages), thème « Préparation » (E1)', () => {
     for (const col of ['nb_candidats_examines', 'tri_candidats']) {
       expect(COLONNES_PARAMS_DEMANDES).toContain(col);
       expect(PARAMS_DEMANDES.some((p) => p.colonne === col)).toBe(true);
+      expect(COLONNES_THEME_PREPARATION).toContain(col); // E1 — rangés dans « Préparation des demandes »
     }
   });
 
@@ -242,10 +244,11 @@ describe('V2 — sélection des candidats : cap (bornes CHECK) + tri (liste ferm
 });
 
 describe('X1 — canal CADA : cada_email (e-mail, vide autorisé) + cada_url_formulaire (URL)', () => {
-  it('les deux paramètres sont dans le sous-bloc « demandes »', () => {
+  it('les deux paramètres sont dans le sous-bloc « demandes », thème « Saisine CADA » (E1)', () => {
     for (const col of ['cada_email', 'cada_url_formulaire']) {
       expect(COLONNES_PARAMS_DEMANDES).toContain(col);
       expect(PARAMS_DEMANDES.some((p) => p.colonne === col)).toBe(true);
+      expect(COLONNES_THEME_CADA).toContain(col); // E1 — rangés dans « Saisine CADA »
     }
   });
 
