@@ -229,15 +229,47 @@ describe('T3 — nature du message : accusé enregistré (jamais rebond étrange
     expect(trouver(/UPDATE demande_acheminement/i)).toBeDefined(); // la bascule 'envoye' → 'rebond' reste l'autorité
   });
 
-  it('message ORDINAIRE (sans Auto-Submitted) rattaché → nature=indetermine (se comporte comme un vrai retour)', async () => {
+  it('T7-A — message ORDINAIRE sans pièce ni lien fort (texte seul) → nature=autre (le texte n’est JAMAIS lu pour décider)', async () => {
     const { client } = fauxClient([boite(
+      // « Voici les documents » : le TEXTE parle de documents, mais AUCUNE pièce ni lien n'est capté → autre (déterministe).
       { deAdresse: 'urba@mairie-aubervilliers.fr', references: ['<abc-154@sansvisavis.com>'], objet: 'Réponse à votre demande', corpsTexte: 'Voici les documents.' },
     )]);
     const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
     expect(r.accuses).toBe(0);
     expect(r.rattaches).toBe(1);
-    expect(r.lignes[0].nature).toBe('indetermine');
-    expect(trouver(/INSERT INTO demande_reponse\b/i)!.params[13]).toBe('indetermine');
+    expect(r.lignes[0].nature).toBe('autre');
+    expect(trouver(/INSERT INTO demande_reponse\b/i)!.params[13]).toBe('autre');
+  });
+
+  it('T7-A — message avec une PIÈCE JOINTE → nature=documents (la présence de la pièce suffit)', async () => {
+    const { client } = fauxClient([boite(
+      { deAdresse: 'urba@mairie-aubervilliers.fr', references: ['<abc-154@sansvisavis.com>'], objet: 'Réponse', corpsTexte: 'ci-joint' },
+      { pieces: [{ nomFichier: 'arrete.pdf', typeMime: 'application/pdf', tailleOctets: 1024, contenu: Buffer.from('x') }] },
+    )]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.lignes[0].nature).toBe('documents');
+    expect(trouver(/INSERT INTO demande_reponse\b/i)!.params[13]).toBe('documents');
+  });
+
+  it('T7-A — pièce REFUSÉE au dépôt (trop volumineuse) → nature=documents quand même (la nature décrit ce que la mairie a ENVOYÉ)', async () => {
+    // Le dépôt échouera (le mock DB renvoie 0 ligne demande_reponse_piece à mettre à jour) : la nature ne dépend PAS du succès
+    // du stockage, seulement de la présence d'une pièce → documents.
+    const { client } = fauxClient([boite(
+      { deAdresse: 'urba@mairie-aubervilliers.fr', references: ['<abc-154@sansvisavis.com>'], objet: 'Réponse', corpsTexte: 'plan lourd' },
+      { pieces: [{ nomFichier: 'plan-60mo.pdf', typeMime: 'application/pdf', tailleOctets: 60 * 1024 * 1024, contenu: Buffer.from('x') }] },
+    )]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.lignes[0].nature).toBe('documents');
+  });
+
+  it('T7-A — message SANS pièce mais avec un LIEN FORT (jeton) → nature=documents', async () => {
+    const LIEN = 'https://ged-pcpr.apps.paris.fr/share/s/aB3x9Kf2mNqR7wZ1tYcV0pL5s8Dh/folder';
+    const { client } = fauxClient([boite(
+      { deAdresse: 'no-reply@mairie-aubervilliers.fr', references: ['<abc-154@sansvisavis.com>'], objet: 'Réponse', corpsTexte: 'votre dossier en ligne', corpsHtml: `<a href="${LIEN}">ici</a>` },
+    )]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.lignes[0].nature).toBe('documents');
+    expect(r.liensCaptes).toBe(1);
   });
 });
 

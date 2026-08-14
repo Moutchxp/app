@@ -15,6 +15,8 @@ vi.mock('../../../../../lib/veille/demandeReponseRepo', () => ({
   statutDemande: vi.fn(), marquerDossierNonFourni: vi.fn(), marquerDossierRefusMairie: vi.fn(),
   annulerTriageDossier: vi.fn(), retirerDossierDemande: vi.fn(), reattacherDossierDemande: vi.fn(),
   lireRecuLeReponse: vi.fn(), // T4
+  reclasserNatureReponse: vi.fn(), // T7-A
+  estNatureReclassable: (v: unknown) => typeof v === 'string' && ['accuse', 'documents', 'autre'].includes(v), // T7-A — garde réelle (pas un vi.fn)
   RattachementNonEnvoyeeError: class RattachementNonEnvoyeeError extends Error { statut: string; constructor(s: string) { super(`demande « ${s} » : le rattachement manuel est réservé aux demandes envoyées`); this.statut = s; this.name = 'RattachementNonEnvoyeeError'; } },
 }));
 vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({
@@ -32,7 +34,7 @@ import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import {
   statutDemande, marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier,
   retirerDossierDemande, reattacherDossierDemande, rattacherAMain, marquerTraitee, lireRecuLeReponse,
-  RattachementNonEnvoyeeError,
+  reclasserNatureReponse, RattachementNonEnvoyeeError,
 } from '../../../../../lib/veille/demandeReponseRepo';
 import { marquerDeposee, DepotInterditError } from '../../../../../lib/sitadel/demandeRepo';
 
@@ -45,6 +47,7 @@ const retirer = retirerDossierDemande as unknown as ReturnType<typeof vi.fn>;
 const reattacher = reattacherDossierDemande as unknown as ReturnType<typeof vi.fn>;
 const rattacher = rattacherAMain as unknown as ReturnType<typeof vi.fn>;
 const traiter = marquerTraitee as unknown as ReturnType<typeof vi.fn>;
+const reclasser = reclasserNatureReponse as unknown as ReturnType<typeof vi.fn>;
 const recuLe = lireRecuLeReponse as unknown as ReturnType<typeof vi.fn>;
 const deposer = marquerDeposee as unknown as ReturnType<typeof vi.fn>;
 
@@ -250,5 +253,38 @@ describe('T4 — GARDE rattacher : jamais un rattachement manuel vers une demand
     const res = await post({ action: 'rattacher', reponseId: 7, demandeId: 42 });
     expect(res.status).toBe(200);
     expect(rattacher).toHaveBeenCalledWith(7, 42, '5');
+  });
+});
+
+describe('T7-A — reclasser la nature d’un message (accuse | documents | autre)', () => {
+  it('cible valide (documents) → 200 ; le repo reçoit (reponseId, nature, auteur)', async () => {
+    reclasser.mockResolvedValueOnce(true);
+    const res = await post({ action: 'reclasser', reponseId: 7, nature: 'documents' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true });
+    expect(reclasser).toHaveBeenCalledWith(7, 'documents', '5');
+  });
+
+  it('accepte aussi accuse et autre', async () => {
+    for (const nature of ['accuse', 'autre'] as const) {
+      reclasser.mockResolvedValueOnce(true);
+      const res = await post({ action: 'reclasser', reponseId: 7, nature });
+      expect(res.status).toBe(200);
+      expect(reclasser).toHaveBeenCalledWith(7, nature, '5');
+    }
+  });
+
+  it('refuse rebond et indetermine (jamais un jugement humain / état transitoire) → 400, aucune écriture', async () => {
+    for (const nature of ['rebond', 'indetermine', 'bidon']) {
+      const res = await post({ action: 'reclasser', reponseId: 7, nature });
+      expect(res.status).toBe(400);
+    }
+    expect(reclasser).not.toHaveBeenCalled();
+  });
+
+  it('reponseId absent → 400, aucune écriture', async () => {
+    const res = await post({ action: 'reclasser', nature: 'documents' });
+    expect(res.status).toBe(400);
+    expect(reclasser).not.toHaveBeenCalled();
   });
 });

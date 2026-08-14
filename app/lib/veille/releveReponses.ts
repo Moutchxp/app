@@ -14,7 +14,7 @@
  * ⚠️ N'écrit JAMAIS demande.statut ('close' reste sans écrivain, chantier R5). Boîte en LECTURE STRICTE (voir imap.ts).
  */
 import { query } from '../db/client';
-import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
+import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, classerNatureContenu, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { rattacherReponse, estRebondNonRemise, estAccuseAutomatique, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
 import { analyserLiensReponse } from './extractionLiens';
@@ -417,10 +417,17 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
       // R3e — nouveau critère : un n° de dossier d'une demande candidate apparaît littéralement (objet/corps/nom de pièce).
       const pertinent = opts.sansFiltre === true || r.methode !== 'aucun' || domaines.has(domaineDe(mb.message.deAdresse)) || objetPertinent(mb.message.objet) || contientNumeroDossier(mb) || contientReferenceMairie(mb) || contientReferenceCherchee(mb);
       if (!pertinent) { horsPerimetre += 1; continue; }
-      // T3 — NATURE : un accusé automatique (Auto-Submitted, PAS un DSN) est ENREGISTRÉ et rattaché comme un message (« a
+      // L1 — liens candidats du corps (texte + HTML), analyse PURE (aucun appel réseau, on ne SUIT JAMAIS un lien). Calculés en
+      //   AMONT : ils servent à la fois à la NATURE du message (lien fort → documents) et à l'enregistrement des liens ci-dessous.
+      const { liens } = analyserLiensReponse({ corpsTexte: mb.message.corpsTexte ?? null, corpsHtml: mb.message.corpsHtml ?? null, recuLe: mb.recuLe });
+      // T3/T7-A — NATURE : un accusé automatique (Auto-Submitted, PAS un DSN) est ENREGISTRÉ et rattaché comme un message (« a
       //   écrit »), mais nature='accuse' le tient HORS de « Réponses » (« a répondu ») et INTERDIT la satisfaction auto d'un
-      //   dossier (un accusé ne livre aucun document). Tout le reste = 'indetermine' → se comporte comme un vrai retour (MONTRER).
-      const nature: NatureReponse = estAccuseAutomatique(mb.message) ? 'accuse' : 'indetermine';
+      //   dossier (un accusé ne livre aucun document). Sinon, T7-A déduit documents/autre du CONTENU CAPTÉ (pièces OU lien fort),
+      //   jamais du texte. Le contenu est connu AVANT l'insertion (pièces = mb.pieces ; liens = analyse pure) → nature définitive
+      //   posée dès l'insert, sans second passage.
+      const nature: NatureReponse = estAccuseAutomatique(mb.message)
+        ? 'accuse'
+        : classerNatureContenu({ nbPieces: mb.pieces.length, aLienFort: liens.some((l) => l.fort) });
       lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, nature, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
       if (appliquer) {
         const id = await enregistrerReponse(construireLigne(opts.profil, mb, mid, r.demandeId, r.methode, r.motif, nature));
@@ -432,9 +439,8 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
           if (r.demandeId !== null && nature !== 'accuse') {
             await marquerDossiersSatisfaitsAuto(r.demandeId, id, { piecesNoms: mb.pieces.map((p) => p.nomFichier), corpsTexte: mb.message.corpsTexte ?? null });
           }
-          // L1 — capter les LIENS du corps (texte + HTML) et les enregistrer. PUR : on ne SUIT JAMAIS un lien (ni vérif ni
-          //   téléchargement). L'expiration n'est captée que si écrite explicitement. Ne fait NI archivage NI satisfait_le.
-          const { liens } = analyserLiensReponse({ corpsTexte: mb.message.corpsTexte ?? null, corpsHtml: mb.message.corpsHtml ?? null, recuLe: mb.recuLe });
+          // L1 — enregistrer les liens captés. PUR : on ne SUIT JAMAIS un lien. L'expiration n'est captée que si écrite
+          //   explicitement. Ne fait NI archivage NI satisfait_le.
           if (liens.length > 0) liensCaptes += await enregistrerLiensReponse(id, liens);
           // R4 — dépôt des pièces (rattachée ou non : la clé gère « non-rattachees »).
           await deposerPieces(id, r.demandeId, mb.pieces);

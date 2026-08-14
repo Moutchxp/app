@@ -12,9 +12,10 @@
  */
 import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
-import { enregistrerReponse, deposerEtLierPieces, type ProfilBoite, type NatureReponse } from './demandeReponseRepo';
+import { enregistrerReponse, enregistrerLiensReponse, deposerEtLierPieces, classerNatureContenu, type ProfilBoite, type NatureReponse } from './demandeReponseRepo';
 import { rattacherReponse, estRebondNonRemise, estAccuseAutomatique, type DemandeCandidate } from './rattachementReponse';
 import { analyserRapportRejet, normaliserMessageId } from './rapportRejet';
+import { analyserLiensReponse } from './extractionLiens';
 import { construireLigne, type CritereRecherche, type LigneReleve, type MessageBoite, type PieceMeta } from './releveReponses';
 import { etatEcheance, type ReglagesEcheance } from './echeance';
 
@@ -50,6 +51,7 @@ export interface RapportApprofondi {
   rattaches: number;            // lignes avec demande_id renseigné (threading/référence/rebond lié)
   rebondsRattaches: number;
   accuses: number;              // T3 : accusés de réception (nature 'accuse') retenus
+  liensCaptes: number;          // L1/T7-A : liens candidats extraits et enregistrés (0 en simulation) — jamais suivis
   ecrites: number;
   piecesDeposees: number;       // R4 : pièces déposées sur l'object storage
   piecesNonDeposees: number;    // R4 : pièces non déposées (trace + motif conservés)
@@ -88,7 +90,7 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
   const boitesExplorees: string[] = [];
   const lignes: LigneReleve[] = [];
   const vusIds = new Set<string>(); // dédup par Message-ID à travers les dossiers
-  let vus = 0, rebondsRattaches = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0;
+  let vus = 0, rebondsRattaches = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0, liensCaptes = 0;
   // R4 — borne de taille des pièces (config) ; lue seulement en mode APPLIQUÉ (aucun dépôt en simulation).
   const tailleMaxOctets = appliquer ? (await chargerConfigVeille()).pieceTailleMaxMo * 1024 * 1024 : 0;
   const deposerPieces = async (reponseId: number, demandeId: number | null, pieces: PieceMeta[]): Promise<void> => {
@@ -136,10 +138,23 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
         if (r.methode === 'aucun' && !domaineOk) continue; // ni référence ni domaine → pas lié à cette demande
         // demandeId = celui du rattachement CERTAIN (threading/référence) ; NULL si seulement le domaine correspond
         // (le message part alors dans la file « à rattacher » pour décision humaine — on ne force pas un lien incertain).
-        // T3 — un accusé automatique (Auto-Submitted, pas un DSN) est enregistré nature='accuse' (« a écrit », pas « a répondu »).
-        const nature: NatureReponse = estAccuseAutomatique(mb.message) ? 'accuse' : 'indetermine';
+        // L1 — liens candidats (analyse PURE, aucun appel réseau). B2 : la relève approfondie les capte DÉSORMAIS aussi (le
+        //   chemin courant les captait déjà) → `documents` ne dépend plus du chemin de relève emprunté.
+        const { liens } = analyserLiensReponse({ corpsTexte: mb.message.corpsTexte ?? null, corpsHtml: mb.message.corpsHtml ?? null, recuLe: mb.recuLe });
+        // T3/T7-A — accusé auto (Auto-Submitted, pas un DSN) → nature='accuse' (« a écrit », pas « a répondu ») ; sinon
+        //   documents/autre déduit du CONTENU CAPTÉ (pièces OU lien fort), jamais du texte.
+        const nature: NatureReponse = estAccuseAutomatique(mb.message)
+          ? 'accuse'
+          : classerNatureContenu({ nbPieces: mb.pieces.length, aLienFort: liens.some((l) => l.fort) });
         lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, nature, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
-        if (appliquer) { const id = await enregistrerReponse(construireLigne(cible.profil, mb, mid, r.demandeId, r.methode, r.motif, nature)); if (id !== null) { ecrites += 1; await deposerPieces(id, r.demandeId, mb.pieces); } }
+        if (appliquer) {
+          const id = await enregistrerReponse(construireLigne(cible.profil, mb, mid, r.demandeId, r.methode, r.motif, nature));
+          if (id !== null) {
+            ecrites += 1;
+            if (liens.length > 0) liensCaptes += await enregistrerLiensReponse(id, liens); // L1/B2 — jamais suivi, écriture seule
+            await deposerPieces(id, r.demandeId, mb.pieces);
+          }
+        }
       }
     }
   } finally {
@@ -148,7 +163,7 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
 
   const rattaches = lignes.filter((l) => l.demandeId !== null).length;
   const accuses = lignes.filter((l) => l.nature === 'accuse').length; // T3
-  return { mode, demandeId: cible.demandeId, boitesExplorees, vus, retenus: lignes.length, rattaches, rebondsRattaches, accuses, ecrites, piecesDeposees, piecesNonDeposees, lignes };
+  return { mode, demandeId: cible.demandeId, boitesExplorees, vus, retenus: lignes.length, rattaches, rebondsRattaches, accuses, liensCaptes, ecrites, piecesDeposees, piecesNonDeposees, lignes };
 }
 
 // ── Orchestration : sélection des demandes dépassées/proches + garde 1/jour + journal ─────────────────────────────────

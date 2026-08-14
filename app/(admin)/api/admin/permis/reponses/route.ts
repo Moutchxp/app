@@ -3,7 +3,7 @@ import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { chargerSuiviReponses } from '../../../../../lib/veille/reponsesSuivi';
 import { rattacherAMain, marquerTraitee, marquerDossierSatisfait, demarquerDossier, statutDemande,
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
-  lireRecuLeReponse, RattachementNonEnvoyeeError } from '../../../../../lib/veille/demandeReponseRepo';
+  lireRecuLeReponse, reclasserNatureReponse, estNatureReclassable, RattachementNonEnvoyeeError } from '../../../../../lib/veille/demandeReponseRepo';
 import { cloturerDemande, rouvrirDemande, TransitionInterditeError, lireCleTelechargeable, marquerDeposee, DepotInterditError } from '../../../../../lib/sitadel/demandeRepo';
 import { majRelance, abandonnerRelance, regenererRelance, RelanceActionError } from '../../../../../lib/veille/demandeRelanceRepo';
 
@@ -45,6 +45,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const corps = (await request.json().catch(() => ({}))) as {
       action?: unknown; reponseId?: unknown; demandeId?: unknown; dossierId?: unknown; pieceId?: unknown; satisfait?: unknown;
+      nature?: unknown; // T7-A : cible du reclassement manuel (accuse | documents | autre)
       relanceId?: unknown; objet?: unknown; corps?: unknown; motif?: unknown; source?: unknown; // R5c ; A1b : source pour url_piece ('reponse'|'dossier')
       refusLe?: unknown; // T1 : date de notification du refus exprès (YYYY-MM-DD)
       envoyeLe?: unknown; // T4 : date RÉELLE de dépôt saisie (YYYY-MM-DD) pour confirmer une proposition
@@ -99,6 +100,15 @@ export async function POST(request: Request): Promise<Response> {
     if (corps.action === 'traiter') {
       if (!estEntier(corps.reponseId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
       const ok = await marquerTraitee(corps.reponseId); // R1
+      return Response.json({ ok, traite: ok });
+    }
+
+    // T7-A — RECLASSER À LA MAIN la nature d'un message. Cibles autorisées : accuse | documents | autre (jamais rebond, fait
+    //   technique ; jamais indetermine, état transitoire). Gabarit `action + reponseId`, comme rattacher/traiter. Le repo pose
+    //   l'ancre nature_classee_le et journalise l'auteur dans `note` ; ne touche NI demande.statut NI satisfait_le NI Archives.
+    if (corps.action === 'reclasser') {
+      if (!estEntier(corps.reponseId) || !estNatureReclassable(corps.nature)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      const ok = await reclasserNatureReponse(corps.reponseId, corps.nature, auteur);
       return Response.json({ ok, traite: ok });
     }
 

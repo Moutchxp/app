@@ -11,10 +11,34 @@ export type ProfilBoite = 'entreprise' | 'personne';
 export type RattachementMethode = 'message_id' | 'reference_objet' | 'reference_corps' | 'numero_dossier' | 'reference_mairie' | 'manuel' | 'aucun';
 /**
  * T3 — NATURE d'un message entrant (liste fermée, cf. migration 096). 'accuse' = accusé de réception automatique (« a écrit »,
- * jamais « a répondu ») ; 'rebond' = non-remise rattachée (preuve, NI « a écrit » NI « a répondu ») ; 'indetermine' (défaut) =
- * se comporte comme un vrai retour. 'documents' / 'autre' = classification fine, chantier ultérieur.
+ * jamais « a répondu ») ; 'rebond' = non-remise rattachée (preuve, NI « a écrit » NI « a répondu ») ; 'indetermine' (défaut du
+ * schéma / état transitoire) = se comporte comme un vrai retour. T7-A — 'documents' / 'autre' = classification fine déduite du
+ * CONTENU CAPTÉ (jamais du texte) : la relève ne pose plus jamais 'indetermine' pour un message ordinaire (voir classerNatureContenu).
  */
 export type NatureReponse = 'accuse' | 'documents' | 'autre' | 'indetermine' | 'rebond';
+
+/** T7-A — sous-ensemble de NatureReponse déterminé par le CONTENU CAPTÉ d'un message ordinaire (ni accusé ni rebond). */
+export type NatureContenu = 'documents' | 'autre';
+
+/**
+ * T7-A — nature d'un message ORDINAIRE (ni accusé ni rebond) déduite du CONTENU CAPTÉ, JAMAIS du texte : `documents` = au moins
+ * une pièce jointe (ligne demande_reponse_piece présente, STOCKÉE OU refusée au dépôt — la nature décrit ce que la mairie a
+ * ENVOYÉ, pas ce qu'on a réussi à garder) OU au moins un lien FORT (L1). Sinon `autre`. 100 % déterministe : aucun mot-clé,
+ * aucune IA, aucune heuristique de texte.
+ */
+export function classerNatureContenu(entree: { nbPieces: number; aLienFort: boolean }): NatureContenu {
+  return entree.nbPieces > 0 || entree.aLienFort ? 'documents' : 'autre';
+}
+
+/**
+ * T7-A — natures qu'un HUMAIN peut poser à la main (reclassement d'un message). `rebond` (fait technique de non-remise) et
+ * `indetermine` (état transitoire, jamais un choix) sont EXCLUS. Reste dans la liste fermée du CHECK de la migration 096.
+ */
+export type NatureReclassable = 'accuse' | 'documents' | 'autre';
+export const NATURES_RECLASSABLES: readonly NatureReclassable[] = ['accuse', 'documents', 'autre'];
+export function estNatureReclassable(v: unknown): v is NatureReclassable {
+  return typeof v === 'string' && (NATURES_RECLASSABLES as readonly string[]).includes(v);
+}
 
 /** Une pièce jointe d'un message entrant. Les champs de dépôt (cle_stockage/empreinte/stocke_le) restent NULL tant que la pièce n'est pas déposée (chantier ultérieur). */
 export interface PieceEntrante {
@@ -76,10 +100,13 @@ export interface ReponseLigne {
 export async function enregistrerReponse(r: ReponseEntrante): Promise<number | null> {
   return withTransaction(async (q) => {
     const res = await q<{ id: number }>(
+      // T7-A — nature_classee_le (ANCRE T7-B) est posée à now() DÈS l'insert quand la nature est documents/autre : un tel insert
+      //   est TOUJOURS un événement live (relève). Le backfill historique (099) passe par un UPDATE SQL direct → reste NULL.
       `INSERT INTO demande_reponse
          (demande_id, profil_boite, message_id, in_reply_to, references_brut, de_adresse, de_nom, objet, recu_le,
-          corps_texte, rattachement_methode, rattache_le, note, nature, corps_html)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+          corps_texte, rattachement_methode, rattache_le, note, nature, corps_html, nature_classee_le)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+          CASE WHEN $14 IN ('documents', 'autre') THEN now() ELSE NULL END)
        ON CONFLICT (message_id) DO NOTHING
        RETURNING id`,
       [
@@ -196,6 +223,26 @@ export async function rattacherAMain(reponseId: number, demandeId: number, auteu
     );
     return (res.rowCount ?? 0) > 0;
   });
+}
+
+/**
+ * T7-A — RECLASSE À LA MAIN la nature d'un message (gabarit `action + reponseId`, comme rattacherAMain). Cibles autorisées :
+ * accuse | documents | autre — jamais rebond ni indetermine (garde de type `NatureReclassable` + validation côté route). Pose
+ * l'ANCRE nature_classee_le (now() pour documents/autre — un reclassement manuel EST un événement ; NULL sinon) et consigne
+ * l'auteur dans `note` (append). Ne touche PAS demande.statut, ne pose aucun satisfait_le, ne bascule rien vers Archives.
+ * Renvoie true si une ligne a été mise à jour. La liste fermée du CHECK (migration 096) reste respectée.
+ */
+export async function reclasserNatureReponse(reponseId: number, nature: NatureReclassable, auteur: string): Promise<boolean> {
+  const res = await query(
+    `UPDATE demande_reponse
+        SET nature = $2,
+            nature_classee_le = CASE WHEN $2 IN ('documents', 'autre') THEN now() ELSE NULL END,
+            maj_le = now(),
+            note = btrim(coalesce(note || chr(10), '') || $3)
+      WHERE id = $1`,
+    [reponseId, nature, `nature reclassée « ${nature} » par ${auteur}`],
+  );
+  return (res.rowCount ?? 0) > 0;
 }
 
 /** Marque une réponse comme traitée (traite_le=now()). Idempotent : ne fait rien si déjà traitée. Renvoie true si la transition a eu lieu. */

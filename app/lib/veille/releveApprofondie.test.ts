@@ -17,8 +17,8 @@ const queryMock = vi.mocked(query as unknown as (...a: unknown[]) => Promise<{ r
 beforeEach(() => { queryMock.mockReset(); });
 
 // ── Fabriques ─────────────────────────────────────────────────────────────────
-function msg(uid: number, m: Partial<MessageEntrant> & { messageId: string; deAdresse: string }): MessageBoite {
-  return { uid, message: { ...m }, recuLe: new Date('2026-04-18T09:00:00Z'), deNom: null, pieces: [], partiesRapport: undefined };
+function msg(uid: number, m: Partial<MessageEntrant> & { messageId: string; deAdresse: string }, pieces: MessageBoite['pieces'] = []): MessageBoite {
+  return { uid, message: { ...m }, recuLe: new Date('2026-04-18T09:00:00Z'), deNom: null, pieces, partiesRapport: undefined };
 }
 
 /** Client multi-boîtes FACTICE : mémorise les boîtes ouvertes ; `chercher` renvoie les uid de la boîte courante (le `from` est ignoré, la restriction se fait côté client). */
@@ -65,6 +65,27 @@ describe('R6 — releverApprofondie : explore TOUS les dossiers, restreint à la
     expect(rapport.mode).toBe('simulation');
   });
 
+  it('T7-A/B2 — la relève approfondie CLASSE aussi documents/autre : pièce → documents, lien fort → documents, texte seul → autre', async () => {
+    const LIEN = 'https://ged-pcpr.apps.paris.fr/share/s/aB3x9Kf2mNqR7wZ1tYcV0pL5s8Dh/folder'; // jeton FACTICE
+    const contenu = {
+      INBOX: {
+        uids: [20, 21, 22],
+        messages: {
+          20: msg(20, { messageId: '<avec-piece@mairie-x.fr>', inReplyTo: '<emis-1@sansvisavis.com>', deAdresse: 'agent@mairie-x.fr', objet: 'RE: pièces' },
+            [{ nomFichier: 'arrete.pdf', typeMime: 'application/pdf', tailleOctets: 2048, contenu: Buffer.from('x') }]),
+          21: msg(21, { messageId: '<avec-lien@mairie-x.fr>', inReplyTo: '<emis-1@sansvisavis.com>', deAdresse: 'agent@mairie-x.fr', objet: 'RE: lien', corpsHtml: `<a href="${LIEN}">ici</a>` }),
+          22: msg(22, { messageId: '<texte-seul@mairie-x.fr>', inReplyTo: '<emis-1@sansvisavis.com>', deAdresse: 'agent@mairie-x.fr', objet: 'RE: info', corpsTexte: 'Votre demande est en cours de traitement.' }),
+        },
+      },
+    };
+    const { client } = clientFactice(contenu);
+    const rapport = await releverApprofondie({ client, cible: CIBLE }); // simulation : la NATURE est classée dans les deux modes
+    const parId = new Map(rapport.lignes.map((l) => [l.messageId, l.nature]));
+    expect(parId.get('<avec-piece@mairie-x.fr>')).toBe('documents');
+    expect(parId.get('<avec-lien@mairie-x.fr>')).toBe('documents');
+    expect(parId.get('<texte-seul@mairie-x.fr>')).toBe('autre'); // le TEXTE n'est jamais lu pour décider
+  });
+
   it('fenêtre = envoi − 1 jour (et non la fenêtre courante)', async () => {
     const { client } = clientFactice({ INBOX: { uids: [], messages: {} } });
     const chercher = client.chercher as unknown as ReturnType<typeof vi.fn>;
@@ -76,7 +97,7 @@ describe('R6 — releverApprofondie : explore TOUS les dossiers, restreint à la
 
 // ── Orchestration (garde 1/jour + journal), par INJECTION ─────────────────────
 function rapportApprofondi(over: Partial<RapportApprofondi> = {}): RapportApprofondi {
-  return { mode: 'applique', demandeId: 42, boitesExplorees: ['INBOX'], vus: 1, retenus: 1, rattaches: 1, rebondsRattaches: 0, accuses: 0, ecrites: 1, piecesDeposees: 0, piecesNonDeposees: 0, lignes: [], ...over };
+  return { mode: 'applique', demandeId: 42, boitesExplorees: ['INBOX'], vus: 1, retenus: 1, rattaches: 1, rebondsRattaches: 0, accuses: 0, liensCaptes: 0, ecrites: 1, piecesDeposees: 0, piecesNonDeposees: 0, lignes: [], ...over };
 }
 
 const DEMANDE_DEPASSEE: DemandeSuivie = {

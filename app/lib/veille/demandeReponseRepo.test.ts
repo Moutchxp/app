@@ -44,6 +44,7 @@ import {
   marquerDossierSatisfait, demarquerDossier, statutDemande, lireClePiece,
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
   lireRecuLeReponse, RattachementNonEnvoyeeError,
+  classerNatureContenu, estNatureReclassable, reclasserNatureReponse,
   type ReponseEntrante, type PieceAvecContenu,
 } from './demandeReponseRepo';
 import type { ResultatDepotEntrant } from '../stockage';
@@ -452,14 +453,62 @@ describe('R5b — statutDemande / lireClePiece : LECTURE seule', () => {
 });
 
 describe('R5b — demande.statut n’est écrit dans AUCUN chemin d’action (assertion explicite)', () => {
-  it('rattacher / marquer / démarquer / traiter : jamais d’UPDATE demande (table) ni de SET statut', async () => {
+  it('rattacher / marquer / démarquer / traiter / reclasser : jamais d’UPDATE demande (table) ni de SET statut', async () => {
     etat.rowCount = 1;
     await rattacherAMain(7, 154, 'a.jorel');
     await marquerDossierSatisfait(154, 12, 4242, 'a.jorel');
     await demarquerDossier(154, 12, 'a.jorel');
     await marquerTraitee(9);
+    await reclasserNatureReponse(9, 'documents', 'a.jorel'); // T7-A
     // La table `demande` (statut, clôture) reste SANS écrivain : demande_reponse / demande_dossier / demande_journal OK, demande NON.
     expect(appels.some((a) => /UPDATE\s+demande\b/i.test(a.sql))).toBe(false);
     expect(appels.some((a) => /\bSET\s+statut\b/i.test(a.sql))).toBe(false);
+  });
+});
+
+describe('T7-A — classerNatureContenu : nature déduite du CONTENU CAPTÉ, jamais du texte', () => {
+  it('au moins une pièce → documents (indépendant du stockage : c’est la présence qui compte)', () => {
+    expect(classerNatureContenu({ nbPieces: 1, aLienFort: false })).toBe('documents');
+    expect(classerNatureContenu({ nbPieces: 3, aLienFort: false })).toBe('documents');
+  });
+  it('un lien FORT seul (aucune pièce) → documents', () => {
+    expect(classerNatureContenu({ nbPieces: 0, aLienFort: true })).toBe('documents');
+  });
+  it('ni pièce ni lien fort → autre', () => {
+    expect(classerNatureContenu({ nbPieces: 0, aLienFort: false })).toBe('autre');
+  });
+});
+
+describe('T7-A — estNatureReclassable : seules 3 cibles humaines (accuse | documents | autre)', () => {
+  it('accepte accuse, documents, autre', () => {
+    for (const n of ['accuse', 'documents', 'autre']) expect(estNatureReclassable(n)).toBe(true);
+  });
+  it('refuse rebond (fait technique), indetermine (transitoire) et le bruit', () => {
+    for (const n of ['rebond', 'indetermine', '', 'DOCUMENTS', null, undefined, 3]) expect(estNatureReclassable(n as unknown)).toBe(false);
+  });
+});
+
+describe('T7-A — reclasserNatureReponse : pose la nature + l’ancre + journalise dans note', () => {
+  it('vers documents → UPDATE demande_reponse (nature + nature_classee_le now()), auteur consigné dans note, id lié', async () => {
+    etat.rowCount = 1;
+    const ok = await reclasserNatureReponse(4242, 'documents', 'a.jorel');
+    expect(ok).toBe(true);
+    const upd = trouver(/UPDATE demande_reponse\b/i)!;
+    const s = norm(upd.sql);
+    expect(s).toContain('SET nature = $2');
+    expect(s).toContain("nature_classee_le = CASE WHEN $2 IN ('documents', 'autre') THEN now() ELSE NULL END"); // ancre T7-B
+    expect(s).toContain('note = btrim'); // append de l'auteur, comme rattacherAMain
+    expect(upd.params[0]).toBe(4242);
+    expect(upd.params[1]).toBe('documents');
+    expect(String(upd.params[2])).toContain('a.jorel');
+    // ne touche NI satisfait_le NI Archives.
+    expect(s).not.toContain('satisfait_le');
+    expect(appels.some((a) => /dossier_document|demande_dossier/i.test(a.sql))).toBe(false);
+  });
+  it('vers accuse → nature_classee_le remise à NULL (accuse n’est pas documents/autre) ; idempotent (0 ligne → false)', async () => {
+    etat.rowCount = 0;
+    const ok = await reclasserNatureReponse(999, 'accuse', 'a.jorel');
+    expect(ok).toBe(false);
+    expect(trouver(/UPDATE demande_reponse\b/i)!.params[1]).toBe('accuse');
   });
 });
