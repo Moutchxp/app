@@ -695,9 +695,10 @@ export function BlocAlertesGed({ alertes }: { alertes: AlerteGedAffiche[] }) {
  * T7-B (cas ③) — bloc des messages de mairie de nature `autre` (ni accusé, ni documents) qui appellent une RÉPONSE HUMAINE.
  * Un bouton « répondu » MANUEL et RÉVERSIBLE par message (grain message). Le TEXTE porte l'état ; jamais la couleur seule. PUR.
  */
-export function BlocMessagesAutre({ messages, retour, onRepondu, onAnnulerRepondu }: {
+export function BlocMessagesAutre({ messages, retour, compteReleve, onRepondu, onAnnulerRepondu }: {
   messages: MessageAutreAffiche[];
   retour?: RetourCible;
+  compteReleve?: string; // T7-C : adresse du compte relevé (mention de la limite du pré-cochage) ; vide → mention générique
   onRepondu?: (reponseId: number) => void;
   onAnnulerRepondu?: (reponseId: number) => void;
 }) {
@@ -720,7 +721,12 @@ export function BlocMessagesAutre({ messages, retour, onRepondu, onAnnulerRepond
                   </>
                 ) : (
                   <>
-                    <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>répondu le {jjmm(m.reponduLe)}{m.reponduPar ? ` par ${m.reponduPar}` : ''}</span>
+                    {/* T7-C — « auto » se lit sur reponduAuto (repondu_par reste réservé à l'humain) : pré-coché système vs marqué par X. */}
+                    <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>
+                      {m.reponduAuto && !m.reponduPar
+                        ? `pré-coché automatiquement le ${jjmm(m.reponduLe)}`
+                        : `répondu le ${jjmm(m.reponduLe)}${m.reponduPar ? ` par ${m.reponduPar}` : ''}`}
+                    </span>
                     {onAnnulerRepondu && <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem' }} onClick={() => onAnnulerRepondu(m.id)}>annuler</button>}
                   </>
                 )}
@@ -730,6 +736,10 @@ export function BlocMessagesAutre({ messages, retour, onRepondu, onAnnulerRepond
           );
         })}
       </ul>
+      {/* T7-C — limite AFFICHÉE (jamais tue) : le pré-cochage ne voit que le dossier envoyés du compte relevé. */}
+      <p role="note" style={{ ...styleMuted, margin: 0 }}>
+        Pré-cochage automatique : ne détecte que les réponses envoyées depuis {compteReleve && compteReleve.trim() !== '' ? compteReleve : 'le compte de relève'} (webmail ou téléphone du même compte inclus).
+      </p>
     </div>
   );
 }

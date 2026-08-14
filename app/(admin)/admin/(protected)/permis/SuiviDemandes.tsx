@@ -412,7 +412,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
                 {/* G1 — alertes « à classer/télécharger en GED » envoyées pour cette demande (retard rendu visible). */}
                 <BlocAlertesGed alertes={richDetail.alertesGed} />
                 {/* T7-B (cas ③) — messages « autre » appelant une réponse : bouton « répondu » MANUEL et RÉVERSIBLE par message. */}
-                <BlocMessagesAutre messages={richDetail.messagesAutre} retour={retourReponse}
+                <BlocMessagesAutre messages={richDetail.messagesAutre} retour={retourReponse} compteReleve={suivi?.reglages.adresseReleve}
                   onRepondu={(reponseId) => void agirReponse({ action: 'repondu', reponseId }, `repondu-${reponseId}`, 'Message marqué « répondu ».')}
                   onAnnulerRepondu={(reponseId) => void agirReponse({ action: 'annuler_repondu', reponseId }, `repondu-${reponseId}`, '« Répondu » annulé.')} />
               </>

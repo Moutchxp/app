@@ -44,7 +44,7 @@ import {
   marquerDossierSatisfait, demarquerDossier, statutDemande, lireClePiece,
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
   lireRecuLeReponse, RattachementNonEnvoyeeError,
-  classerNatureContenu, estNatureReclassable, reclasserNatureReponse, marquerRepondu, annulerRepondu,
+  classerNatureContenu, estNatureReclassable, reclasserNatureReponse, marquerRepondu, annulerRepondu, marquerReponduAuto,
   type ReponseEntrante, type PieceAvecContenu,
 } from './demandeReponseRepo';
 import type { ResultatDepotEntrant } from '../stockage';
@@ -462,6 +462,7 @@ describe('R5b — demande.statut n’est écrit dans AUCUN chemin d’action (as
     await reclasserNatureReponse(9, 'documents', 'a.jorel'); // T7-A
     await marquerRepondu(9, 'a.jorel');   // T7-B
     await annulerRepondu(9, 'a.jorel');   // T7-B
+    await marquerReponduAuto(9);          // T7-C
     // La table `demande` (statut, clôture) reste SANS écrivain : demande_reponse / demande_dossier / demande_journal OK, demande NON.
     expect(appels.some((a) => /UPDATE\s+demande\b/i.test(a.sql))).toBe(false);
     expect(appels.some((a) => /\bSET\s+statut\b/i.test(a.sql))).toBe(false);
@@ -497,6 +498,29 @@ describe('T7-B — marquerRepondu / annulerRepondu : bouton « répondu » MANUE
     expect(s).toContain('repondu_par = NULL');
     expect(s).toContain('WHERE id = $1 AND repondu_le IS NOT NULL');
     expect(upd.params[0]).toBe(4242);
+    // T7-C — ANTI-RÉSURRECTION : l'annulation humaine NE TOUCHE PAS repondu_auto_le → un pré-cochage annulé n'est JAMAIS re-coché
+    //   (les candidats T7-C exigent repondu_auto_le IS NULL, qui reste FAUX après annulation).
+    expect(s).not.toContain('repondu_auto_le');
+  });
+});
+
+describe('T7-C — marquerReponduAuto : pré-cochage système, ancre anti-résurrection', () => {
+  it('pose repondu_le ET repondu_auto_le ; NE touche PAS repondu_par (réservé à l’humain) ; garde double-NULL', async () => {
+    etat.rowCount = 1;
+    const ok = await marquerReponduAuto(4242);
+    expect(ok).toBe(true);
+    const upd = trouver(/UPDATE demande_reponse\b/i)!;
+    const s = norm(upd.sql);
+    expect(s).toContain('repondu_le = now()');
+    expect(s).toContain('repondu_auto_le = now()');
+    expect(s).not.toContain('repondu_par');                                  // « auto » se lit sur repondu_auto_le, jamais une sentinelle dans repondu_par
+    expect(s).toContain('WHERE id = $1 AND repondu_le IS NULL AND repondu_auto_le IS NULL'); // anti-résurrection
+    expect(upd.params).toEqual([4242]);
+    expect(s).not.toContain('satisfait_le');
+  });
+  it('déjà répondu OU déjà auto-coché (0 ligne) → false : jamais de re-cochage', async () => {
+    etat.rowCount = 0;
+    expect(await marquerReponduAuto(4242)).toBe(false);
   });
 });
 

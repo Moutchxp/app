@@ -237,14 +237,18 @@ describe('T7-B — chargerDemandesSuivi : messages « autre » ancrés par deman
       { re: OK, rows: [{ t: '2026-08-10T09:00:00Z' }] },
       { re: DEM, rows: [{ id: 154, reference: 'SVAV-DEM-2026-000154', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 1, dossiers_satisfaits: 0, dossiers_en_ged: 0, nb_reponses: 2, nb_reponses_reelles: 2, derniere_reponse_le: '2026-08-12T09:00:00Z' }] },
       { re: MSG, rows: [
-        { demande_id: 154, id: 71, objet: 'Complément', de_adresse: 'urba@mairie.fr', de_nom: 'Urba', recu_le: '2026-08-12T09:00:00Z', repondu_le: null, repondu_par: null },
-        { demande_id: 154, id: 70, objet: 'Question', de_adresse: 'urba@mairie.fr', de_nom: null, recu_le: '2026-08-11T09:00:00Z', repondu_le: '2026-08-11T15:00:00Z', repondu_par: '5' },
+        { demande_id: 154, id: 71, objet: 'Complément', de_adresse: 'urba@mairie.fr', de_nom: 'Urba', recu_le: '2026-08-12T09:00:00Z', repondu_le: null, repondu_par: null, repondu_auto: false },
+        { demande_id: 154, id: 70, objet: 'Question', de_adresse: 'urba@mairie.fr', de_nom: null, recu_le: '2026-08-11T09:00:00Z', repondu_le: '2026-08-11T15:00:00Z', repondu_par: '5', repondu_auto: false },
+        { demande_id: 154, id: 69, objet: 'Info', de_adresse: 'urba@mairie.fr', de_nom: null, recu_le: '2026-08-10T09:00:00Z', repondu_le: '2026-08-10T16:00:00Z', repondu_par: null, repondu_auto: true }, // T7-C : pré-coché système
       ] },
     ];
     const { demandes } = await chargerDemandesSuivi();
-    expect(demandes[0].messagesAutre).toHaveLength(2);
-    expect(demandes[0].messagesAutre[0]).toMatchObject({ id: 71, objet: 'Complément', reponduLe: null });
-    expect(demandes[0].messagesAutre[1]).toMatchObject({ id: 70, reponduLe: '2026-08-11T15:00:00Z', reponduPar: '5' });
+    expect(demandes[0].messagesAutre).toHaveLength(3);
+    expect(demandes[0].messagesAutre[0]).toMatchObject({ id: 71, objet: 'Complément', reponduLe: null, reponduAuto: false });
+    expect(demandes[0].messagesAutre[1]).toMatchObject({ id: 70, reponduLe: '2026-08-11T15:00:00Z', reponduPar: '5', reponduAuto: false });
+    expect(demandes[0].messagesAutre[2]).toMatchObject({ id: 69, reponduPar: null, reponduAuto: true }); // T7-C : « auto » lu sur repondu_auto_le
+    const q0 = appels.find((a) => MSG.test(a.sql))!; // la requête expose bien le drapeau auto
+    expect(norm(q0.sql)).toContain('(r.repondu_auto_le IS NOT NULL) AS repondu_auto');
     const q = appels.find((a) => MSG.test(a.sql))!;
     const sql = norm(q.sql);
     expect(sql).toContain("r.nature = 'autre'");

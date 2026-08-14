@@ -17,6 +17,7 @@ export interface ReglagesReleve {
   profil: string;
   fraicheurHeures: number;
   alerteJours: number;
+  adresseReleve: string; // T7-C : adresse du compte relevé (= reply-to des demandes) → mention « le pré-cochage ne voit que les réponses envoyées depuis … ». '' si non configurée.
 }
 
 /** Une ligne du journal releve_run (les compteurs sont NULL pour un run 'en_cours' ou 'ignore'). */
@@ -104,7 +105,8 @@ export interface MessageAutreAffiche {
   deNom: string | null;
   recuLe: string;              // ISO
   reponduLe: string | null;    // ISO si marqué répondu, null sinon (pilote le signal « réponse attendue »)
-  reponduPar: string | null;
+  reponduPar: string | null;   // auteur HUMAIN du marquage (T7-B) ; NULL si système (T7-C) ou non répondu
+  reponduAuto: boolean;        // T7-C : pré-coché automatiquement (repondu_auto_le posé) → « pré-coché automatiquement » vs « marqué par X »
 }
 
 /** Une demande envoyée, avec de quoi calculer son échéance À L'AFFICHAGE (etatEcheance) et son détail par dossier. */
@@ -236,7 +238,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   const cfg = await chargerConfigVeille();
   const reglages: ReglagesReleve = {
     active: cfg.releveActive, intervalleMinutes: cfg.releveIntervalleMinutes, profil: cfg.releveProfil,
-    fraicheurHeures: cfg.releveFraicheurHeures, alerteJours: cfg.echeanceAlerteJours,
+    fraicheurHeures: cfg.releveFraicheurHeures, alerteJours: cfg.echeanceAlerteJours, adresseReleve: cfg.adresseReponse,
   };
 
   const derniere = await query<{ t: string | null }>(`SELECT max(termine_le)::text AS t FROM releve_run WHERE resultat = 'ok'`);
@@ -329,9 +331,10 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
 
   // T7-B (cas ③) — messages `autre` ANCRÉS rattachés à ces demandes (nature_classee_le IS NOT NULL → jamais un rétro-classé :
   //   Paris protégée). `repondu_le` NULL = à répondre → pilote le signal de ligne « réponse attendue » et le bouton par message.
-  const msgAutre = await query<{ demande_id: number; id: number; objet: string | null; de_adresse: string; de_nom: string | null; recu_le: string; repondu_le: string | null; repondu_par: string | null }>(
+  const msgAutre = await query<{ demande_id: number; id: number; objet: string | null; de_adresse: string; de_nom: string | null; recu_le: string; repondu_le: string | null; repondu_par: string | null; repondu_auto: boolean }>(
     `SELECT r.demande_id::int AS demande_id, r.id::int AS id, r.objet, r.de_adresse, r.de_nom,
-            r.recu_le::text AS recu_le, r.repondu_le::text AS repondu_le, r.repondu_par
+            r.recu_le::text AS recu_le, r.repondu_le::text AS repondu_le, r.repondu_par,
+            (r.repondu_auto_le IS NOT NULL) AS repondu_auto
        FROM demande_reponse r
        JOIN demande d ON d.id = r.demande_id
       WHERE d.statut IN ('envoyee', 'close') AND r.demande_id IS NOT NULL
@@ -341,7 +344,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   const parMsgAutre = new Map<number, MessageAutreAffiche[]>();
   for (const m of msgAutre.rows) {
     (parMsgAutre.get(m.demande_id) ?? parMsgAutre.set(m.demande_id, []).get(m.demande_id)!)
-      .push({ id: m.id, objet: m.objet, deAdresse: m.de_adresse, deNom: m.de_nom, recuLe: m.recu_le, reponduLe: m.repondu_le, reponduPar: m.repondu_par });
+      .push({ id: m.id, objet: m.objet, deAdresse: m.de_adresse, deNom: m.de_nom, recuLe: m.recu_le, reponduLe: m.repondu_le, reponduPar: m.repondu_par, reponduAuto: m.repondu_auto });
   }
 
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({

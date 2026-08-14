@@ -56,7 +56,7 @@ describe('R5a — IndicateurReleve : trois signaux distincts', () => {
 });
 
 describe('U8 — BlocEtatReleve : encart « État de la relève » repliable (replié = titre + ligne d’état)', () => {
-  const REGLAGES: ReglagesReleve = { active: true, intervalleMinutes: 30, profil: 'entreprise', fraicheurHeures: 48, alerteJours: 7 };
+  const REGLAGES: ReglagesReleve = { active: true, intervalleMinutes: 30, profil: 'entreprise', fraicheurHeures: 48, alerteJours: 7, adresseReleve: 'permis@sansvisavis.fr' };
   const RUN = (over: Partial<LigneRun> = {}): LigneRun => ({
     demarreLe: '2026-04-20T11:00:00Z', termineLe: '2026-04-20T11:00:05Z', declencheur: 'planifie', resultat: 'ok',
     vus: 4, dejaConnus: 0, horsPerimetre: 0, retenus: 1, rattaches: 0,
@@ -950,8 +950,8 @@ describe('G1 — BlocAlertesGed : alertes envoyées + retard rendus VISIBLES (d�
 });
 
 describe('T7-B — BlocMessagesAutre : bouton « répondu » MANUEL et RÉVERSIBLE par message', () => {
-  const M = (over: Partial<{ id: number; objet: string | null; deAdresse: string; deNom: string | null; recuLe: string; reponduLe: string | null; reponduPar: string | null }> = {}) =>
-    ({ id: 70, objet: 'Complément', deAdresse: 'urba@mairie.fr', deNom: 'Urba', recuLe: '2026-08-12T09:00:00Z', reponduLe: null, reponduPar: null, ...over });
+  const M = (over: Partial<{ id: number; objet: string | null; deAdresse: string; deNom: string | null; recuLe: string; reponduLe: string | null; reponduPar: string | null; reponduAuto: boolean }> = {}) =>
+    ({ id: 70, objet: 'Complément', deAdresse: 'urba@mairie.fr', deNom: 'Urba', recuLe: '2026-08-12T09:00:00Z', reponduLe: null, reponduPar: null, reponduAuto: false, ...over });
 
   it('vide → ne rend rien', () => {
     expect(renderToStaticMarkup(createElement(BlocMessagesAutre, { messages: [] }))).toBe('');

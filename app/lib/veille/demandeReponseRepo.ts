@@ -277,6 +277,23 @@ export async function annulerRepondu(reponseId: number, auteur: string): Promise
   return (res.rowCount ?? 0) > 0;
 }
 
+/**
+ * T7-C — PRÉ-COCHE « répondu » automatiquement (le SYSTÈME a détecté une réponse partie vers la mairie dans le dossier envoyés).
+ * Pose repondu_le=now() ET l'ancre repondu_auto_le=now() ; laisse repondu_par À NULL (le fait « auto » se lit sur repondu_auto_le,
+ * repondu_par reste réservé à l'humain). GARDE anti-résurrection : n'agit QUE si repondu_le IS NULL ET repondu_auto_le IS NULL —
+ * une ligne déjà répondue, ou déjà auto-cochée puis annulée par l'humain, n'est JAMAIS re-cochée. Ne remplace pas le bouton
+ * manuel ; ne touche NI demande.statut NI satisfait_le NI Archives. Renvoie true si la transition a eu lieu.
+ */
+export async function marquerReponduAuto(reponseId: number): Promise<boolean> {
+  const res = await query(
+    `UPDATE demande_reponse
+        SET repondu_le = now(), repondu_auto_le = now(), maj_le = now()
+      WHERE id = $1 AND repondu_le IS NULL AND repondu_auto_le IS NULL`,
+    [reponseId],
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
 /** Marque une réponse comme traitée (traite_le=now()). Idempotent : ne fait rien si déjà traitée. Renvoie true si la transition a eu lieu. */
 export async function marquerTraitee(reponseId: number): Promise<boolean> {
   const res = await query(

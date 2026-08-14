@@ -405,3 +405,39 @@ describe('T7-B — executerVeille : alerte « action requise » (cas ③) branch
     expect(alerteAction).not.toHaveBeenCalled();
   });
 });
+
+describe('T7-C — executerVeille : pré-cochage « répondu » branché, ISOLÉ, après l’alerte action', () => {
+  it('un pré-cochage qui ÉCHOUE (throw) n’empêche PAS la veille de finaliser en « succes »', async () => {
+    const preCochageRepondu = vi.fn(async () => { throw new Error('IMAP KO'); });
+    const finaliserRun = vi.fn(async () => {});
+    const libererVerrou = vi.fn(async () => {});
+    const deps = makeDeps({ preCochageRepondu, finaliserRun, libererVerrou });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(preCochageRepondu).toHaveBeenCalledTimes(1);
+    expect(r.statut).toBe('succes');
+    expect(libererVerrou).toHaveBeenCalledTimes(1);
+  });
+
+  it('l’alerte action (§1octies) tourne AVANT le pré-cochage (§1nonies)', async () => {
+    const ordre: string[] = [];
+    const alerteAction = vi.fn(async () => { ordre.push('action'); });
+    const preCochageRepondu = vi.fn(async () => { ordre.push('precochage'); });
+    const deps = makeDeps({ alerteAction, preCochageRepondu });
+
+    await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(ordre).toEqual(['action', 'precochage']);
+  });
+
+  it('verrou déjà pris → le pré-cochage n’est PAS tenté (sortie avant le corps)', async () => {
+    const preCochageRepondu = vi.fn(async () => {});
+    const deps = makeDeps({ acquerirVerrou: vi.fn(async () => false), preCochageRepondu });
+
+    const r = await executerVeille({ declencheur: 'planifie' }, deps);
+
+    expect(r.statut).toBe('rien_a_faire');
+    expect(preCochageRepondu).not.toHaveBeenCalled();
+  });
+});

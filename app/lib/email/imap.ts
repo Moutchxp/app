@@ -12,6 +12,7 @@ import type { ClientBoite, MessageBoite, PieceMeta, CritereRecherche } from '../
 import type { ClientApprofondi } from '../veille/releveApprofondie';
 import type { MessageEntrant } from '../veille/rattachementReponse';
 import type { PartieRapport } from '../veille/rapportRejet';
+import type { SortantEntete } from '../veille/preCochageRepondu';
 
 function versMessageBoite(parsed: ParsedMail, uid: number): MessageBoite {
   const from = parsed.from?.value?.[0];
@@ -116,6 +117,84 @@ export function creerClientBoite(compte: CompteImap): ClientBoite {
     },
     async fermer(): Promise<void> {
       try { await client.logout(); } catch { /* best-effort : la fermeture ne doit pas faire échouer la relève */ }
+    },
+  };
+}
+
+/**
+ * T7-C — LECTURE STRICTE du dossier ENVOYÉS pour le pré-cochage « répondu ». Contrat `ClientEnvoyes` de preCochageReponduAuto.
+ * ⚠️ EN-TÊTES SEULS : on ne télécharge JAMAIS la `source` (le corps/les pièces des messages sortants ne sont jamais lus). On ne
+ * pose aucun flag, on ne déplace/supprime rien (EXAMINE). Le dossier envoyés est repéré par SPECIAL-USE `\Sent` (imapflow le
+ * résout par l'extension serveur OU par nom localisé) — jamais un nom codé en dur ; absent → aBoiteEnvoyes() faux, aucun effet.
+ */
+export interface ClientEnvoyes {
+  ouvrir(): Promise<void>;
+  aBoiteEnvoyes(): boolean;                                                                  // false = pas de \Sent → repli sûr (aucun scan)
+  lireEntetesReponses(messageIds: string[], depuis: Date): Promise<SortantEntete[]>;         // SEARCH par en-tête + fetch EN-TÊTES seuls
+  fermer(): Promise<void>;
+}
+
+/** Retire les chevrons d'un Message-ID pour la recherche IMAP HEADER (correspondance de sous-chaîne, insensible aux chevrons). */
+function coeurMessageId(brut: string): string {
+  return brut.trim().replace(/^<+/, '').replace(/>+$/, '').trim();
+}
+
+/** Extrait les Message-ID (`<...>`) d'un bloc d'en-têtes brut (la ligne References). */
+function extraireReferences(entetesBrut: string): string[] {
+  return entetesBrut.match(/<[^>]+>/g) ?? [];
+}
+
+export function creerClientEnvoyes(compte: CompteImap): ClientEnvoyes {
+  const client = new ImapFlow({
+    host: compte.host,
+    port: compte.port,
+    secure: compte.tls,
+    auth: { user: compte.user, pass: compte.pass },
+    logger: false,
+  });
+  let cheminEnvoyes: string | null = null;
+  const TAILLE_LOT = 5; // chaque Message-ID → 2 termes OR (In-Reply-To + References) : lot de 5 = 10 termes (OU peu profond)
+
+  return {
+    async ouvrir(): Promise<void> {
+      await client.connect();
+      // SPECIAL-USE : imapflow renseigne `specialUse='\\Sent'` via l'extension serveur OU par nom localisé (Sent, Messages
+      //   envoyés, [Gmail]/Sent Mail…). On ne code AUCUN nom en dur. Aucune boîte \Sent → cheminEnvoyes reste null (repli sûr).
+      const boites = await client.list();
+      const envoyes = boites.find((b) => b.specialUse === '\\Sent');
+      if (envoyes) { cheminEnvoyes = envoyes.path; await client.mailboxOpen(cheminEnvoyes, { readOnly: true }); } // EXAMINE : aucune écriture
+    },
+    aBoiteEnvoyes(): boolean {
+      return cheminEnvoyes !== null;
+    },
+    async lireEntetesReponses(messageIds: string[], depuis: Date): Promise<SortantEntete[]> {
+      if (cheminEnvoyes === null) return []; // pas de dossier envoyés → rien (jamais de scan à l'aveugle)
+      const coeurs = [...new Set(messageIds.map(coeurMessageId).filter((m) => m !== ''))];
+      if (coeurs.length === 0) return [];
+
+      // SEARCH par en-tête (In-Reply-To OU References contient le Message-ID mairie), par LOTS pour un OU peu profond. On ne
+      //   récupère que des UID ; la fenêtre SINCE borne au plus tôt (une réponse ne précède jamais le mail de mairie).
+      const uids = new Set<number>();
+      for (let i = 0; i < coeurs.length; i += TAILLE_LOT) {
+        const lot = coeurs.slice(i, i + TAILLE_LOT);
+        const or: { header: Record<string, string> }[] = lot.flatMap((mid): { header: Record<string, string> }[] => [{ header: { 'in-reply-to': mid } }, { header: { references: mid } }]);
+        const res = await client.search({ since: depuis, or }, { uid: true });
+        if (res !== false) for (const u of res) uids.add(u);
+      }
+      if (uids.size === 0) return [];
+
+      // fetch EN-TÊTES SEULS : envelope (inReplyTo + To/Cc) + la ligne References. JAMAIS `source` → le corps n'est jamais lu.
+      const sortants: SortantEntete[] = [];
+      for await (const msg of client.fetch([...uids].join(','), { envelope: true, headers: ['references'] }, { uid: true })) {
+        const env = msg.envelope;
+        const destinataires = [...(env?.to ?? []), ...(env?.cc ?? [])].map((a) => a.address ?? '').filter((a) => a !== '');
+        const references = msg.headers ? extraireReferences(msg.headers.toString()) : [];
+        sortants.push({ inReplyTo: env?.inReplyTo ?? null, references, destinataires });
+      }
+      return sortants;
+    },
+    async fermer(): Promise<void> {
+      try { await client.logout(); } catch { /* best-effort : la fermeture ne doit pas faire échouer la veille */ }
     },
   };
 }

@@ -25,6 +25,7 @@ import { executerAlerteAuto, depsReellesAlerte } from '../veille/alerteAuto';
 import { executerPropositionAuto, depsReellesProposition } from '../veille/propositionAuto';
 import { executerAlerteGedAuto, depsReellesAlerteGed } from '../veille/alerteGedAuto';
 import { executerAlerteActionAuto, depsReellesAlerteAction } from '../veille/alerteActionAuto';
+import { executerPreCochageAuto, depsReellesPreCochage } from '../veille/preCochageReponduAuto';
 import { ingererMillesime, millesimeDistantDido, DOSSIER_LOCAL, type CompteursIngestion } from './ingestionMillesime';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger,
@@ -84,6 +85,9 @@ export interface DepsVeille {
   // T7-B — ALERTES « ce message de mairie appelle une réponse » (cas ③, après les alertes GED, §1octies). OPTIONNELLE et
   //   ISOLÉE. Grain message (nature=autre, ancre nature_classee_le) ; idempotence par alerte_action_le. E-mail interne.
   alerteAction?(): Promise<unknown>;
+  // T7-C — PRÉ-COCHAGE automatique de « répondu » (après l'alerte action, §1nonies). OPTIONNEL et ISOLÉ. LECTURE STRICTE du
+  //   dossier envoyés (en-têtes seuls) ; ancre anti-résurrection repondu_auto_le. N'écrit jamais demande.statut.
+  preCochageRepondu?(): Promise<unknown>;
 }
 
 export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = depsReelles()): Promise<ResultatVeille> {
@@ -147,6 +151,13 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   échec n'impacte rien. On ne suit JAMAIS un lien ; aucune bascule statut/satisfait_le/Archives.
     if (deps.alerteAction) {
       try { await deps.alerteAction(); } catch { /* alerte action isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1nonies) PRÉ-COCHAGE automatique de « répondu » (T7-C) — APRÈS l'alerte action : on lit le dossier ENVOYÉS (en-têtes seuls,
+    //   lecture stricte) pour cocher les messages `autre` auxquels le fondateur a déjà répondu. Ancre anti-résurrection
+    //   (repondu_auto_le). MÊME ISOLATION : un échec n'impacte rien. Ne remplace jamais le bouton manuel ; jamais demande.statut.
+    if (deps.preCochageRepondu) {
+      try { await deps.preCochageRepondu(); } catch { /* pré-cochage isolé : n'impacte jamais la veille Sitadel */ }
     }
 
     const config = await deps.chargerConfig();
@@ -285,6 +296,8 @@ function depsReelles(): DepsVeille {
     alerteGed: () => executerAlerteGedAuto(depsReellesAlerteGed()),
     // T7-B — alertes « ce message appelle une réponse » réelles (cas ③) : candidats `autre` ancrés + forward SMTP + idempotence, dans alerteActionAuto.ts.
     alerteAction: () => executerAlerteActionAuto(depsReellesAlerteAction()),
+    // T7-C — pré-cochage « répondu » réel : dossier envoyés (en-têtes seuls) + match fil/destinataire + ancre repondu_auto_le, dans preCochageReponduAuto.ts.
+    preCochageRepondu: () => executerPreCochageAuto(depsReellesPreCochage()),
   };
 }
 
