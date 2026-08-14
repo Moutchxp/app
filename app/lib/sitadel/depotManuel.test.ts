@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../db/client', () => ({ query: vi.fn() }));
 
 import {
-  objetEstPermis, estCandidatDepot, traiterDepotManuel, empreinteDe,
+  objetEstPermis, estCandidatDepot, traiterDepotManuel, empreinteDe, parserAdressesConnues,
   type DepsDepotManuel, type CandidatDossier, type CaracteristiquesPermis, type IssueDepot,
 } from './depotManuel';
 import type { MessageBoite, PieceMeta } from '../veille/releveReponses';
@@ -44,6 +44,25 @@ function harness(opts: {
   };
   return { deps, journal, alertes, forwards, marques, deposes };
 }
+
+describe('F-N1 — parserAdressesConnues : séparateurs tolérés, casse ignorée, vides ignorés', () => {
+  it('point-virgule accepté (jamais zéro adresse en silence)', () => {
+    expect(parserAdressesConnues('a@x.com;b@y.com')).toEqual(['a@x.com', 'b@y.com']);
+  });
+  it('virgule + espace acceptés', () => {
+    expect(parserAdressesConnues('a@x.com, b@y.com')).toEqual(['a@x.com', 'b@y.com']);
+  });
+  it('espaces et retours à la ligne acceptés, entrées vides ignorées', () => {
+    expect(parserAdressesConnues('a@x.com\n\nb@y.com ;; , c@z.com')).toEqual(['a@x.com', 'b@y.com', 'c@z.com']);
+  });
+  it('casse normalisée (comparaison insensible)', () => {
+    expect(parserAdressesConnues('A@X.COM')).toEqual(['a@x.com']);
+  });
+  it('chaîne vide → aucune adresse', () => {
+    expect(parserAdressesConnues('')).toEqual([]);
+    expect(parserAdressesConnues('   ')).toEqual([]);
+  });
+});
 
 describe('N1-A — reconnaissance (objet « permis » + expéditeur connu + pièces)', () => {
   it('objetEstPermis : « permis » seul, casse/accents/espaces/Re:/Fwd: tolérés ; jamais un objet composé', () => {

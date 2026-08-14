@@ -50,6 +50,20 @@ describe('S7d — PlageParam (bornes = base)', () => {
     expect(h).toContain('virgules');
   });
 
+  it('F-N1 — le rappel de format d’un « texte » est PROPRE au paramètre (formatHint), jamais le hint « pièces » pour tous', () => {
+    const pieces = PARAMS_VEILLE.find((p) => p.colonne === 'pieces_demandees')!;
+    const depot = PARAMS_VEILLE.find((p) => p.colonne === 'depot_adresses_connues')!;
+    const hPieces = renderToStaticMarkup(createElement(PlageParam, { param: pieces, bornes: undefined }));
+    const hDepot = renderToStaticMarkup(createElement(PlageParam, { param: depot, bornes: undefined }));
+    // pieces_demandees GARDE son propre hint (codes PC2/PC3)
+    expect(hPieces).toContain('codes de pièces');
+    expect(hPieces).toContain('PC2');
+    // depot_adresses_connues a le SIEN (adresses e-mail), et JAMAIS celui des pièces
+    expect(hDepot).toContain('adresses e-mail séparées par des virgules');
+    expect(hDepot).not.toContain('codes de pièces');
+    expect(hDepot).not.toContain('PC2');
+  });
+
   it('borne absente (contrainte introuvable) → le signale, n’invente aucune plage', () => {
     const anc = PARAMS_VEILLE.find((p) => p.colonne === 'anciennete_max_demande_annees')!;
     const h = renderToStaticMarkup(createElement(PlageParam, { param: anc, bornes: undefined }));

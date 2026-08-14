@@ -112,6 +112,7 @@ export interface ParamVeille {
   aide: string;
   optionsEnum?: string[]; // pour type 'enum' : liste fermée des valeurs admises
   optionsEnumLabels?: Record<string, string>; // libellés d'affichage FR des options 'enum' (repli = la valeur brute)
+  formatHint?: string; // F-N1 : rappel de format PROPRE au paramètre (type 'texte') — sinon un défaut générique est affiché
   /**
    * Q1 — motif VESTIGIAL porté sur la veille (miroir de `StatutColonne`/`editable:false` de config_scoring) : un paramètre
    * marqué N'AGIT PLUS. Il reste EN BASE (lu par l'historique), mais devient NON éditable (écran lecture seule + refus API).
@@ -194,6 +195,7 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'À chaque relève, l’application cherche aussi les messages citant le numéro de dossier des permis en attente — même venant d’un autre expéditeur que la mairie. Ce réglage borne combien de numéros sont interrogés (les plus urgents d’abord), pour maîtriser le coût de la recherche.' },
   // N1-A — adresses reconnues pour le VERSEMENT AUTOMATIQUE en GED (union, au runtime, avec les adresses des collaborateurs).
   { colonne: 'depot_adresses_connues', cle: 'depotAdressesConnues', libelle: 'Adresses de versement automatique en GED', unite: 'e-mails', type: 'texte',
+    formatHint: 'adresses e-mail séparées par des virgules.',
     aide: 'Adresses e-mail (séparées par des virgules) reconnues pour le versement automatique en GED : un mail dont l’objet est le seul mot « permis », venant d’une de ces adresses, avec des pièces jointes, voit ses pièces versées sur le permis identifié. Les adresses des collaborateurs sont TOUJOURS reconnues en plus (même désactivés). Mettez ici votre adresse pro et votre adresse perso. Vide = seuls les collaborateurs sont reconnus.' },
   { colonne: 'seuil_logements_immeuble', cle: 'seuilLogementsImmeuble', libelle: 'Seuil de logements « immeuble »', unite: 'logements', type: 'entier',
     aide: 'À partir de ce nombre de logements, un projet est classé « immeuble ». Joue en OU avec la surface (pas en ET).' },
@@ -212,6 +214,7 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   { colonne: 'rang_demolition', cle: 'rangDemolition', libelle: 'Rang — démolition', unite: 'rang', type: 'entier',
     aide: 'Ordre d’affichage de la catégorie (plus petit = affiché en premier). Réordonnable.' },
   { colonne: 'pieces_demandees', cle: 'piecesDemandees', libelle: 'Pièces demandées', unite: 'codes', type: 'texte',
+    formatHint: 'codes de pièces séparés par des virgules (ex. PC2, PC3).',
     aide: 'Codes des pièces sollicitées dans le courrier (ex. PC2, PC3), séparés par des virgules.' },
   { colonne: 'profil_demandeur_defaut', cle: 'profilDemandeurDefaut', libelle: 'Profil de demandeur par défaut', unite: '', type: 'enum', optionsEnum: ['entreprise', 'personne'],
     aide: 'Profil (société / personne physique) appliqué par défaut à la création de nouvelles demandes.' },

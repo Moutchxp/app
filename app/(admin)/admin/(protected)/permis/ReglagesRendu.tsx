@@ -76,7 +76,8 @@ export function PlageParam({ param, bornes }: { param: ParamVeille; bornes?: Bor
     return <span style={style}>Choix : {choix.join(' / ')}.</span>;
   }
   if (param.type === 'texte') {
-    return <span style={style}>Format : codes de pièces séparés par des virgules (ex. PC2, PC3).</span>;
+    // F-N1 — le rappel de format est PROPRE au paramètre (formatHint) ; défaut générique si absent (jamais le hint « pièces » pour tous).
+    return <span style={style}>Format : {param.formatHint ?? 'valeurs séparées par des virgules.'}</span>;
   }
   if (param.type === 'url') {
     return <span style={style}>Format : adresse web commençant par http:// ou https://</span>;

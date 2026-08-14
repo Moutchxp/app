@@ -38,6 +38,13 @@ export function objetEstPermis(objet: string | null | undefined): boolean {
 export function normaliserAdresse(a: string | null | undefined): string {
   return (a ?? '').trim().toLowerCase();
 }
+/**
+ * F-N1 — parse la liste d'adresses connues : séparateurs TOLÉRÉS = virgule, point-virgule, espace, retour à la ligne (un
+ * point-virgule ne doit jamais donner zéro adresse en silence). Entrées vides ignorées, adresses normalisées (trim + minuscules).
+ */
+export function parserAdressesConnues(brut: string | null | undefined): string[] {
+  return (brut ?? '').split(/[,;\s]+/).map(normaliserAdresse).filter((a) => a !== '');
+}
 /** Les trois conditions cumulatives du déclencheur. `adresses` = ensemble normalisé (minuscules). PURE. */
 export function estCandidatDepot(m: { objet: string | null | undefined; deAdresse: string | null | undefined; nbPieces: number }, adresses: ReadonlySet<string>): boolean {
   return objetEstPermis(m.objet) && m.nbPieces > 0 && adresses.has(normaliserAdresse(m.deAdresse));
@@ -186,7 +193,7 @@ export async function chargerAdressesConnues(): Promise<Set<string>> {
   try {
     const { chargerConfigVeille } = await import('./veilleConfig');
     const cfg = await chargerConfigVeille();
-    for (const a of cfg.depotAdressesConnues.split(',')) { const n = normaliserAdresse(a); if (n !== '') set.add(n); }
+    for (const a of parserAdressesConnues(cfg.depotAdressesConnues)) set.add(a); // F-N1 : virgule/point-virgule/espace/retour ligne
   } catch { /* config indisponible → on garde au moins les collaborateurs */ }
   try {
     const { rows } = await query<{ email: string }>(`SELECT email FROM collaborateur`); // statut ignoré (désactivé = adresse connue)

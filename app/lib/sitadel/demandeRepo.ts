@@ -97,9 +97,26 @@ export async function lireConfigDemandeur(profil: ProfilDemandeur = 'entreprise'
  * demandes. Seules les demandes RÉELLEMENT PARTIES le consomment → `statut IN ('envoyee','close')` (une 'brouillon'/'prete'/
  * 'annulee' ne sollicite PAS la commune). AUCUN ENVOI n'existe encore : ce comptage est donc nul aujourd'hui — c'est voulu.
  */
+/**
+ * Q3-B — dossiers qui comptent comme « déjà demandés » (alimente `dejaRattaches`). Le stock reflète le TRAVAIL RESTANT : un
+ * rattachement actif cesse de compter quand la tentative est SOLDÉE SANS DOCUMENTS — demande 'close' sans satisfait_le ni
+ * dossier_document, OU triage='refus_mairie' — pour que le permis REVIENNE demandable. Corrigé par la LECTURE (aucune écriture
+ * de `actif` : la colonne garde ses deux intentions existantes). INVARIANT INVIOLABLE : un dossier OBTENU (satisfait_le sur un
+ * rattachement actif OU ≥ 1 dossier_document) compte TOUJOURS, quelle que soit sa demande → un permis obtenu ne revient JAMAIS.
+ * Exporté pour être joué À L'IDENTIQUE par le test d'intégration (aucune dérive entre le code et sa preuve).
+ */
+export const SQL_DOSSIERS_DEJA_DEMANDES =
+  `SELECT DISTINCT dd.dossier_id
+     FROM demande_dossier dd JOIN demande d ON d.id = dd.demande_id
+    WHERE dd.actif AND (
+          EXISTS (SELECT 1 FROM demande_dossier s WHERE s.dossier_id = dd.dossier_id AND s.actif AND s.satisfait_le IS NOT NULL)
+       OR EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = dd.dossier_id)
+       OR (d.statut <> 'close' AND dd.triage IS DISTINCT FROM 'refus_mairie')
+    )`;
+
 async function lireHistorique(): Promise<HistoriqueDemandes> {
   const [att, mois] = await Promise.all([
-    query<{ dossier_id: number }>(`SELECT dossier_id FROM demande_dossier WHERE actif`),
+    query<{ dossier_id: number }>(SQL_DOSSIERS_DEJA_DEMANDES),
     query<{ code_insee: string; n: number }>(
       `SELECT d.code_insee, count(dd.dossier_id)::int AS n
          FROM demande d JOIN demande_dossier dd ON dd.demande_id = d.id
