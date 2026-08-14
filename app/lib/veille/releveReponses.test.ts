@@ -599,3 +599,28 @@ describe('P1 — curseur (fin de scan réussi), marge 3 j, plafond chronologique
     expect(c3.suivi.uidsTelecharges).toEqual([9, 10]);
   });
 });
+
+describe('N1-A — branchement du dépôt manuel (opt-in via opts.depot)', () => {
+  it('mail « permis » d’une adresse connue → routé vers depot.traiter, HORS flux normal (aucun demande_reponse) ; l’adresse est cherchée côté serveur', async () => {
+    const traiter = vi.fn(async () => ({ issue: 'verse' as const }));
+    const depot = { adresses: new Set(['depot@known.fr']), traiter };
+    etat.domaines = ['mairie-aubervilliers.fr'];
+    const { client, suivi } = fauxClient([boite(
+      { deAdresse: 'depot@known.fr', objet: 'permis' },
+      { pieces: [{ nomFichier: 'a.pdf', typeMime: 'application/pdf', tailleOctets: 3, contenu: Buffer.from('abc') }] },
+    )]);
+    await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true, depot });
+    expect(suivi.recherches.some((c) => c.from === 'depot@known.fr')).toBe(true); // passe de sélection serveur par adresse connue
+    expect(traiter).toHaveBeenCalledTimes(1);
+    expect(trouver(/INSERT INTO demande_reponse\b/i)).toBeUndefined();            // hors flux normal : aucun enregistrement de réponse
+  });
+
+  it('depot.traiter renvoie « non_traite » → le message repart dans le flux normal (enregistré)', async () => {
+    const traiter = vi.fn(async () => ({ issue: 'non_traite' as const }));
+    const depot = { adresses: new Set<string>(), traiter };
+    const { client } = fauxClient([boite({ deAdresse: 'urba@mairie-aubervilliers.fr', references: ['<abc-154@sansvisavis.com>'], corpsTexte: 'Bonjour.' })]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true, depot });
+    expect(r.rattaches).toBe(1);                                    // flux normal repris
+    expect(trouver(/INSERT INTO demande_reponse\b/i)).toBeDefined(); // enregistré normalement
+  });
+});

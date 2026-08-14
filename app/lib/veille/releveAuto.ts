@@ -105,7 +105,10 @@ export function depsReellesReleveAuto(): DepsReleveAuto {
       const { creerClientBoite } = await import('../email/imap');
       return creerClientBoite(compte);
     },
-    relever: (client, profil) => releverBoite({ client, profil, appliquer: true }), // appliquer=true : écriture réelle (R7)
+    relever: async (client, profil) => { // appliquer=true : écriture réelle (R7). N1-A : branche le versement auto en GED.
+      const { brancheDepotManuel } = await import('../sitadel/depotManuel');
+      return releverBoite({ client, profil, appliquer: true, depot: await brancheDepotManuel(profil) });
+    },
     insererRun: async (profil) => {
       const { rows } = await query<{ id: number }>(
         `INSERT INTO releve_run (profil, declencheur, resultat) VALUES ($1, 'planifie', 'en_cours') RETURNING id`, [profil]);

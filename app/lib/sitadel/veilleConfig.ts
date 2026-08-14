@@ -54,6 +54,7 @@ export interface ConfigVeille {
   cadaEmail: string;                // X1 : e-mail de la CADA pour une saisine par e-mail ('' = saisine par formulaire en ligne, dépôt manuel)
   cadaUrlFormulaire: string;        // X1 : URL du formulaire de saisine en ligne de la CADA (dépôt manuel quand cadaEmail vide)
   propositionCadaActive: boolean;   // X5 : proposer par e-mail (à alerteEmail) la saisine CADA d'une demande devenue saisissable (opt-in, défaut false)
+  depotAdressesConnues: string;     // N1-A : adresses reconnues pour le versement auto en GED (virgules ; union avec les collaborateurs)
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -90,6 +91,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   nbCandidatsExamines: 5000, triCandidats: 'surface_puis_date', // = DEFAULT de la migration 081
   cadaEmail: '', cadaUrlFormulaire: 'https://www.cada.fr/formulaire-de-saisine', // = DEFAULT de la migration 083
   propositionCadaActive: false, // = DEFAULT de la migration 084 (opt-in)
+  depotAdressesConnues: '',     // = DEFAULT de la migration 102 (aucune adresse connue en propre → seuls les collaborateurs)
 };
 
 interface LigneConfigVeille {
@@ -297,6 +299,19 @@ async function lireProposition(): Promise<Pick<ConfigVeille, 'propositionCadaAct
   }
 }
 
+/**
+ * Lecture BEST-EFFORT des ADRESSES CONNUES du versement automatique (N1-A), ISOLÉE — tant que la migration 102 n'est pas
+ * passée, la colonne n'existe pas → cette lecture échoue SEULE et retombe sur le défaut ('' = aucune), SANS dégrader le reste.
+ */
+async function lireDepotAdresses(): Promise<Pick<ConfigVeille, 'depotAdressesConnues'>> {
+  try {
+    const { rows } = await query<{ depot_adresses_connues: string }>(`SELECT depot_adresses_connues FROM config_veille WHERE id = 1`);
+    return { depotAdressesConnues: (rows[0]?.depot_adresses_connues ?? '').trim() };
+  } catch {
+    return { depotAdressesConnues: '' }; // 102 pas encore appliquée → aucune adresse en propre
+  }
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -341,6 +356,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireSelectionCandidats()),             // V2 : profondeur + ordre de tri des candidats, lecture isolée (résiliente à la 081)
       ...(await lireCada()),                           // X1 : canal CADA (e-mail + formulaire), lecture isolée (résiliente à la 083)
       ...(await lireProposition()),                    // X5 : interrupteur des propositions CADA, lecture isolée (résiliente à la 084)
+      ...(await lireDepotAdresses()),                  // N1-A : adresses connues du versement auto, lecture isolée (résiliente à la 102)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

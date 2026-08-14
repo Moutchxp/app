@@ -17,6 +17,7 @@ import { rattacherReponse, estRebondNonRemise, estAccuseAutomatique, type Demand
 import { analyserRapportRejet, normaliserMessageId } from './rapportRejet';
 import { analyserLiensReponse } from './extractionLiens';
 import { construireLigne, type CritereRecherche, type LigneReleve, type MessageBoite, type PieceMeta } from './releveReponses';
+import type { BrancheDepot } from '../sitadel/depotManuel'; // N1-A : type SEUL (runtime injecté via opts.depot)
 import { etatEcheance, type ReglagesEcheance } from './echeance';
 
 /**
@@ -63,6 +64,7 @@ export interface OptionsReleveApprofondie {
   cible: CibleApprofondie;
   appliquer?: boolean;       // défaut false (simulation : aucune écriture)
   plafondParBoite?: number;  // défaut 200 (garde-fou par dossier)
+  depot?: BrancheDepot;      // N1-A : versement automatique en GED (présent en mode appliqué réel ; absent → inchangé)
 }
 
 const SONDES_REBOND = ['mailer-daemon', 'postmaster'] as const;
@@ -109,6 +111,8 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
       // Sélection SERVEUR par domaine du destinataire + sondes de rebond (mailer-daemon / postmaster), sur la fenêtre.
       const uids = new Set<number>();
       if (domaineCible !== '') for (const uid of await opts.client.chercher({ depuis, from: domaineCible })) uids.add(uid);
+      // N1-A — + adresses connues (versement auto) : un mail « permis » hors domaine destinataire doit être téléchargé.
+      if (opts.depot) for (const adresse of opts.depot.adresses) for (const uid of await opts.client.chercher({ depuis, from: adresse })) uids.add(uid);
       for (const sonde of SONDES_REBOND) for (const uid of await opts.client.chercher({ depuis, from: sonde })) uids.add(uid);
       const selection = [...uids].sort((a, b) => a - b).slice(-plafond);
 
@@ -130,6 +134,13 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
           lignes.push({ messageId: mid, demandeId: cible.demandeId, methode: 'message_id', rebond: true, nature: 'rebond', motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
           if (appliquer) { const id = await enregistrerReponse(construireLigne(cible.profil, mb, mid, cible.demandeId, 'message_id', motif, 'rebond')); if (id !== null) { ecrites += 1; await deposerPieces(id, cible.demandeId, mb.pieces); } }
           continue;
+        }
+
+        // ── N1-A — VERSEMENT AUTOMATIQUE en GED (objet « permis » + expéditeur connu + pièces). Évalué AVANT le filtre de
+        //   pertinence de la demande cible : le versement vaut pour TOUT permis, pas seulement celui de cette relève ciblée. ──
+        if (opts.depot) {
+          const res = await opts.depot.traiter(mb);
+          if (res.issue !== 'non_traite') continue; // hors flux normal (journalisé par le module)
         }
 
         // ── MESSAGE (accusé auto OU réponse ordinaire) : retenu si threading/référence correspond, OU s'il vient du domaine ──
@@ -305,7 +316,8 @@ export function depsReellesApprofondie(): DepsApprofondie {
       const compte = lireCompteImap(INFIXE[cible.profil]);
       if (compte === null) throw new Error(`profil « ${cible.profil} » inactif (compte IMAP absent)`);
       const { creerClientApprofondi } = await import('../email/imap');
-      return releverApprofondie({ client: creerClientApprofondi(compte), cible, appliquer: true });
+      const { brancheDepotManuel } = await import('../sitadel/depotManuel'); // N1-A : versement auto en GED (même module, 2e chemin)
+      return releverApprofondie({ client: creerClientApprofondi(compte), cible, appliquer: true, depot: await brancheDepotManuel(cible.profil) });
     },
     insererRun: async (profil, demandeId) => {
       const { rows } = await query<{ id: number }>(

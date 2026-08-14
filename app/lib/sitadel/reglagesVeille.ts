@@ -192,6 +192,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   // R3e — plafond du nombre de références de dossier interrogées à chaque relève (recherche par numéro de permis).
   { colonne: 'recherche_references_max', cle: 'rechercheReferencesMax', libelle: 'Références interrogées par relève', unite: 'références', type: 'entier',
     aide: 'À chaque relève, l’application cherche aussi les messages citant le numéro de dossier des permis en attente — même venant d’un autre expéditeur que la mairie. Ce réglage borne combien de numéros sont interrogés (les plus urgents d’abord), pour maîtriser le coût de la recherche.' },
+  // N1-A — adresses reconnues pour le VERSEMENT AUTOMATIQUE en GED (union, au runtime, avec les adresses des collaborateurs).
+  { colonne: 'depot_adresses_connues', cle: 'depotAdressesConnues', libelle: 'Adresses de versement automatique en GED', unite: 'e-mails', type: 'texte',
+    aide: 'Adresses e-mail (séparées par des virgules) reconnues pour le versement automatique en GED : un mail dont l’objet est le seul mot « permis », venant d’une de ces adresses, avec des pièces jointes, voit ses pièces versées sur le permis identifié. Les adresses des collaborateurs sont TOUJOURS reconnues en plus (même désactivés). Mettez ici votre adresse pro et votre adresse perso. Vide = seuls les collaborateurs sont reconnus.' },
   { colonne: 'seuil_logements_immeuble', cle: 'seuilLogementsImmeuble', libelle: 'Seuil de logements « immeuble »', unite: 'logements', type: 'entier',
     aide: 'À partir de ce nombre de logements, un projet est classé « immeuble ». Joue en OU avec la surface (pas en ET).' },
   { colonne: 'seuil_surface_immeuble_m2', cle: 'seuilSurfaceImmeubleM2', libelle: 'Seuil de surface « immeuble »', unite: 'm²', type: 'entier',
@@ -262,6 +265,7 @@ export const COLONNES_THEME_ENVOI: readonly string[] = [
 export const COLONNES_THEME_REPONSES: readonly string[] = [
   'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',
   'recherche_references_max', 'piece_taille_max_mo', 'echeance_alerte_jours',
+  'depot_adresses_connues', // N1-A — versement automatique en GED (adresses reconnues)
 ];
 export const COLONNES_THEME_ALERTES: readonly string[] = [
   'alerte_active', 'alerte_email', 'alerte_heure_locale',

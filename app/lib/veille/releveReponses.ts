@@ -18,6 +18,7 @@ import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsA
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { rattacherReponse, estRebondNonRemise, estAccuseAutomatique, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
 import { analyserLiensReponse } from './extractionLiens';
+import type { BrancheDepot } from '../sitadel/depotManuel'; // N1-A : type SEUL (le runtime est injecté via opts.depot)
 import { analyserRapportRejet, normaliserMessageId, type PartieRapport, type ResultatRapportRejet } from './rapportRejet';
 import { normaliserReference } from '../sitadel/demandesListe';
 
@@ -98,6 +99,7 @@ export interface OptionsReleve {
   plafondRebonds?: number; // défaut 200 — GARDE-FOU sur les sondes mailer-daemon/postmaster (ne devrait plus mordre)
   appliquer?: boolean;   // défaut false (simulation : aucune écriture)
   sansFiltre?: boolean;  // désactive le filtre de pertinence (débogage) — JAMAIS le défaut
+  depot?: BrancheDepot;  // N1-A : versement automatique en GED (présent en mode appliqué réel ; absent → comportement inchangé)
 }
 
 /** Fragment commun aux objets émis (entreprise et personne), normalisé (minuscules, sans accents). */
@@ -354,6 +356,9 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
     // (b) sélection SERVEUR par domaine destinataire (union dédupliquée).
     const uidsDomaines = new Set<number>();
     for (const domaine of domainesInterroges) for (const uid of await opts.client.chercher({ depuis, from: domaine })) uidsDomaines.add(uid);
+    // N1-A — sélection SERVEUR par ADRESSE CONNUE : un mail « permis » vient souvent d'une adresse hors domaine destinataire
+    //   (perso du fondateur, collaborateur) ; sans cette passe, il ne serait jamais téléchargé (donc jamais versé).
+    if (opts.depot) for (const adresse of opts.depot.adresses) for (const uid of await opts.client.chercher({ depuis, from: adresse })) uidsDomaines.add(uid);
     uidsServeur = uidsDomaines.size;
 
     // (b2) R3e — sélection SERVEUR par RÉFÉRENCE de dossier (recherche TEXT, TOUS expéditeurs — pas seulement les domaines).
@@ -408,6 +413,13 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
           rebondsAppliques += await marquerRebond(cible.demandeId, cible.motif);
         }
         continue;
+      }
+
+      // ── N1-A — VERSEMENT AUTOMATIQUE en GED (objet « permis » + expéditeur connu + pièces). Évalué AVANT le filtre de
+      //   pertinence : un mail d'un domaine auquel on n'a jamais écrit ne doit pas être rejeté ici. Handled → hors flux normal.
+      if (opts.depot) {
+        const res = await opts.depot.traiter(mb);
+        if (res.issue !== 'non_traite') continue; // versé / ambigu / aucun / échec / déjà traité → hors flux normal (journalisé par le module)
       }
 
       // ── MESSAGE : accusé automatique OU réponse ordinaire (depuis un domaine destinataire) ──
