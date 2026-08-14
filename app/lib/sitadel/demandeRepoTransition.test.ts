@@ -107,6 +107,8 @@ describe('Q7 — annulation d’une demande : libère TOUJOURS ses dossiers (de 
     const lib = ecritures.find((e) => /UPDATE demande_dossier SET actif = false/.test(e.sql));
     expect(lib, 'l’annulation doit libérer les dossiers').toBeDefined();
     expect(lib!.params[0]).toBe(154); // demande_id lié
+    // Q3-A — GARDE : un dossier SATISFAIT n'est jamais libéré par l'annulation (pas de faux retour d'un permis obtenu).
+    expect(norm(lib!.sql)).toContain('WHERE demande_id = $1 AND satisfait_le IS NULL');
   });
 
   it('non-régression : l’annulation N’ÉMET PAS de réactivation (actif=true)', async () => {

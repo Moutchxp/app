@@ -748,7 +748,9 @@ export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'annule
       const av = await q<{ statut: string }>(`SELECT statut FROM demande WHERE id = $1`, [id]);
       const avant = av.rows[0]?.statut ?? null;
       await q(`UPDATE demande SET statut = $2, maj_le = now() WHERE id = $1`, [id, nouveau]);
-      if (nouveau === 'annulee') await q(`UPDATE demande_dossier SET actif = false WHERE demande_id = $1`, [id]);
+      // Q3-A — un dossier SATISFAIT reste actif=true même si sa demande est annulée : annuler ne doit JAMAIS faire revenir au
+      //   stock un permis dont les documents ont été obtenus. Même garde que le retrait (`satisfait_le IS NULL`).
+      if (nouveau === 'annulee') await q(`UPDATE demande_dossier SET actif = false WHERE demande_id = $1 AND satisfait_le IS NULL`, [id]);
       // B1 — RÉOUVERTURE : réactive les dossiers de la demande, SAUF ceux déjà actifs sur une autre demande (conflict-safe).
       if (nouveau === 'prete' && avant === 'annulee') {
         await q(

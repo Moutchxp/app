@@ -72,4 +72,43 @@ describe('Q3-B (intégration) — soldé sans documents → revient ; obtenu ne 
       client.release();
     }
   });
+
+  it('Q3-A — annuler une demande avec un dossier SATISFAIT et un dossier DÛ : le satisfait garde actif=true, le dû passe à false', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Un dossier SATISFAIT (documents obtenus) + un dossier DÛ, dans une même demande annulée.
+      const mk = async (num: string): Promise<number> => {
+        const r = await client.query<{ id: number }>(
+          `INSERT INTO sitadel_dossier (type, num_dau, code_insee, departement, vu_le_premier_millesime, vu_le_dernier_millesime)
+           VALUES ('PC', $1, '75056', '75', '2024', '2024') RETURNING id`, [num]);
+        return r.rows[0].id;
+      };
+      const dSatisfait = await mk('Q3ASATISFAIT');
+      const dDu = await mk('Q3ADU');
+      const dem = await client.query<{ id: number }>(
+        `INSERT INTO demande (reference, code_insee, statut) VALUES ('SVAV-DEM-9999-100001', '75056', 'annulee') RETURNING id`);
+      const demandeId = dem.rows[0].id;
+      await client.query(`INSERT INTO demande_dossier (demande_id, dossier_id, actif, satisfait_le) VALUES ($1, $2, true, now())`, [demandeId, dSatisfait]);
+      await client.query(`INSERT INTO demande_dossier (demande_id, dossier_id, actif, satisfait_le) VALUES ($1, $2, true, NULL)`, [demandeId, dDu]);
+
+      // Effet de l'annulation sur les dossiers, tel qu'émis par changerStatutLot (garde Q3-A).
+      await client.query(`UPDATE demande_dossier SET actif = false WHERE demande_id = $1 AND satisfait_le IS NULL`, [demandeId]);
+
+      const etat = async (dossierId: number): Promise<boolean> => {
+        const r = await client.query<{ actif: boolean }>(`SELECT actif FROM demande_dossier WHERE demande_id = $1 AND dossier_id = $2`, [demandeId, dossierId]);
+        return r.rows[0].actif;
+      };
+      expect(await etat(dSatisfait)).toBe(true);  // permis OBTENU → jamais libéré (pas de faux retour)
+      expect(await etat(dDu)).toBe(false);        // permis dû → libéré, redevient demandable
+
+      // Le stock (dejaRattaches) ne récupère QUE le dû : le satisfait reste « déjà demandé » (invariant obtenu).
+      const set = new Set((await client.query<{ dossier_id: number }>(SQL_DOSSIERS_DEJA_DEMANDES)).rows.map((r) => r.dossier_id));
+      expect(set.has(dSatisfait)).toBe(true);   // hors stock (obtenu)
+      expect(set.has(dDu)).toBe(false);         // revient au stock
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
 });
