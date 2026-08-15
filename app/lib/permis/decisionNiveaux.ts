@@ -31,7 +31,8 @@ export interface DecisionCorpsNiveaux {
   plancher: (FaitCorrobore & { label: string }) | null;         // cote du plus haut R0n
   nbEtages: (FaitCorrobore & { tension: string | null }) | null; // nombre de R0n (+ tension éventuelle avec le décompte texte)
   nbSousSol: FaitCorrobore | null;
-  sommet: (FaitCorrobore & { qualif: 'acrotere' | 'toiture'; label: string; note: string | null }) | null;
+  sommet: (FaitCorrobore & { qualif: 'acrotere' | 'toiture'; label: string; ecart: number | null; note: string | null }) | null; // ecart = cote − toiture (m) ; null pour une toiture
+
   gardeCorps: { cote: number; pieces: string[] }[];             // écartés (jamais sommet), avec leur étiquette
 }
 export interface DecisionNiveaux {
@@ -56,6 +57,32 @@ const RE_LABEL = new RegExp(VOCAB, 'gi');
 const RE_COTE = /\+\s?(\d+(?:[.,]\d+)?)/g;
 const num = (s: string) => Number(s.replace(',', '.'));
 
+// ── SOMMET par ancrage sur la TOITURE du corps (N9-D). On n'attribue plus par proximité d'étiquette (voies closes P4/P5) : on borne
+//    une FENÊTRE NUMÉRIQUE au-dessus d'une valeur DÉJÀ attribuée et corroborée — la toiture du tableau de niveaux.
+/** Hauteur de la fenêtre au-dessus de la toiture d'un corps où une cote « acrotère » EST son sommet. JUSTIFICATION (mesure sur
+ *  07512025V0035) : les acrotères réels sont à **+0,50 m** (2D1) et **+1,02 m** (2D2) de LEUR toiture ; l'écart entre toitures
+ *  voisines y vaut **2,30 m**. 1,50 m couvre les acrotères réels avec marge (≥ 1,02) tout en restant BIEN sous 2,30 m ; un PLAFOND
+ *  DYNAMIQUE (la toiture du corps immédiatement au-dessus) empêche en outre toute morsure sur un autre corps. Constante nommée,
+ *  éditable ; PAS un nombre magique. */
+const SOMMET_FENETRE_M = 1.5;
+/** Étiquettes de SUPERSTRUCTURE : « acrotère esc/PAC/solaire/… » n'est PAS l'acrotère du toit → écarté du sommet (garde n°2 :
+ *  sans lui, 2D1 basculerait à tort à l'acrotère d'édicule 89,41). */
+const SOMMET_SUPERSTRUCTURE = String.raw`esc|pac|solair|panneau|exutoire|des\.|cta|\ban\b|[eé]dicule|technique|ventilation|local`;
+/** Cote de sommet ÉTIQUETÉE, forme DIRECTE et NGF-contexte : le nombre est une ALTITUDE (précédée de « NGF »/« + »), JAMAIS une NVP
+ *  (garde n°1 : c'est une NVP fuyante — 88,58 de 2D1 — qui avait produit un faux sommet). Étiquette NUE (garde n°2). Deux ordres. */
+const RE_SOMMET_AV = new RegExp(String.raw`NGF\s+(acrot[eè]re|garde-corps)(?:\s+[àa]\s+lisse)?(?!\s+(?:${SOMMET_SUPERSTRUCTURE}))\s+\+?\s?(\d+[.,]\d+)`, 'gi');
+const RE_SOMMET_AP = new RegExp(String.raw`NGF\s+\+?\s?(\d+[.,]\d+)\s+(acrot[eè]re|garde-corps)(?:\s+[àa]\s+lisse)?(?!\s+(?:${SOMMET_SUPERSTRUCTURE}))`, 'gi');
+
+interface CoteSommet { cote: number; qualif: 'acrotere' | 'garde-corps' }
+const typeSommet = (s: string): 'acrotere' | 'garde-corps' => (/garde/i.test(s) ? 'garde-corps' : 'acrotere');
+/** Cotes de sommet ÉTIQUETÉES d'une page (bare acrotère/garde-corps, NGF-contexte, jamais NVP, jamais superstructure). Page-indépendant. */
+function cotesSommetDansTexte(texte: string): CoteSommet[] {
+  const out: CoteSommet[] = [];
+  for (const m of texte.matchAll(RE_SOMMET_AV)) out.push({ cote: num(m[2]), qualif: typeSommet(m[1]) });
+  for (const m of texte.matchAll(RE_SOMMET_AP)) out.push({ cote: num(m[1]), qualif: typeSommet(m[2]) });
+  return out;
+}
+
 function normLabel(raw: string): Omit<NiveauCote, 'cote'> | null {
   const s = raw.trim().toUpperCase().replace(/\s+/g, '');
   let m: RegExpExecArray | null;
@@ -68,7 +95,6 @@ function normLabel(raw: string): Omit<NiveauCote, 'cote'> | null {
 
 interface TitrePos { repere: string; index: number; forme: FormeAncrage }
 interface TablePage { repere: string; niveaux: NiveauCote[]; forme: FormeAncrage }
-interface SommetPage { repere: string; cote: number; qualif: 'acrotere' | 'garde-corps'; forme: FormeAncrage }
 
 /** Ancre la plus proche d'un index (repère + forme). null si la page n'en porte aucune. Sur une page à BAT, seules les ancres BAT jouent. */
 function ancreLaPlusProche(titres: TitrePos[], index: number): { repere: string; forme: FormeAncrage } | null {
@@ -86,10 +112,10 @@ function ancresPage(texte: string): TitrePos[] {
   return autres;
 }
 
-/** Analyse UNE page : ancres bâtiment (BAT/LOT/PLN), tables de niveaux (bloc + inline), cotes de sommet qualifiées (acrotère/garde-corps) par NVP. */
-function analyserPage(texte: string): { tables: TablePage[]; sommets: SommetPage[] } {
+/** Analyse UNE page : ancres bâtiment (BAT/LOT/PLN) + tables de niveaux (bloc + inline). Le sommet est décidé ailleurs (N9-D). */
+function analyserPage(texte: string): { tables: TablePage[] } {
   const titres = ancresPage(texte);
-  if (!titres.length) return { tables: [], sommets: [] };
+  if (!titres.length) return { tables: [] };
 
   // ── Tables : bloc d'abord (on mémorise les portées consommées), puis inline HORS de ces portées ──
   const tables: (TablePage & { index: number })[] = [];
@@ -118,28 +144,9 @@ function analyserPage(texte: string): { tables: TablePage[]; sommets: SommetPage
     courant.niveaux.push({ ...l, cote: num(m[2]) }); courant.fin = idx + m[0].length;
   }
   pousser();
-
-  // ── Sommet : SEULEMENT sur une page ancrée par « BAT » (coupe). L'appariement cote↔étiquette par NVP est fiable sur les coupes,
-  //    mais AMBIGU sur les plans/élévations chargés (une même valeur NVP y côtoie acrotère ET garde-corps → glissement). On ne laisse
-  //    donc PAS les pages LOT/PLN alimenter le sommet ; elles ne corroborent que les TABLES de niveaux (fiables). Cf. N9-C : sans ce
-  //    garde-fou, 87,13 est étiqueté garde-corps sur des pages LOT et le sommet se dégrade. Les tables, elles, profitent des pages LOT.
-  if (titres[0].forme !== 'bat') return { tables: tables.map(({ repere, niveaux, forme }) => ({ repere, niveaux, forme })), sommets: [] };
-  const nvpQualif = new Map<string, 'acrotere' | 'garde-corps'>();
-  const clef = (v: number) => v.toFixed(2);
-  const QUALIF = String.raw`Acrot[eè]re|Garde-corps(?:\s+[àa]\s+lisse)?|Fa[iî]tage`;
-  const typeQualif = (s: string): 'acrotere' | 'garde-corps' => (/garde/i.test(s) ? 'garde-corps' : 'acrotere');
-  for (const m of texte.matchAll(new RegExp(String.raw`(${QUALIF})\s+NVP\s+(\d+(?:[.,]\d+)?)`, 'gi'))) nvpQualif.set(clef(num(m[2])), typeQualif(m[1]));
-  for (const m of texte.matchAll(new RegExp(String.raw`NVP\s+(\d+(?:[.,]\d+)?)\s+(${QUALIF})`, 'gi'))) nvpQualif.set(clef(num(m[1])), typeQualif(m[2]));
-
-  const sommets: SommetPage[] = [];
-  for (const m of texte.matchAll(/(?:NGF\s*)?\+\s?(\d+[.,]\d+)(?:\s*m)?\s*NGF|NGF\s*\+\s?(\d+[.,]\d+)/gi)) {
-    const cote = num(m[1] ?? m[2]);
-    // NVP appariée = valeur du dictionnaire la plus proche sous la cote (δ ∈ [0,05 ; 0,6])
-    let best: { q: 'acrotere' | 'garde-corps'; d: number } | null = null;
-    for (const [k, q] of nvpQualif) { const d = cote - num(k); if (d >= 0.05 && d <= 0.6 && (best === null || d < best.d)) best = { q, d }; }
-    if (best) { const a = ancreLaPlusProche(titres, m.index ?? 0) ?? titres[0]; sommets.push({ repere: a.repere, forme: a.forme, cote, qualif: best.q }); }
-  }
-  return { tables: tables.map(({ repere, niveaux, forme }) => ({ repere, niveaux, forme })), sommets };
+  // Le SOMMET n'est PLUS extrait ici (N9-D) : il est décidé globalement par ancrage sur la toiture (voir `decisionNiveaux`),
+  // à partir des cotes étiquetées de TOUTES les pages — pas seulement des pages ancrées. `analyserPage` ne rend que les tables.
+  return { tables: tables.map(({ repere, niveaux, forme }) => ({ repere, niveaux, forme })) };
 }
 
 /**
@@ -147,14 +154,16 @@ function analyserPage(texte: string): { tables: TablePage[]; sommets: SommetPage
  * decisionLots « Lot 2D<n> en R+<m> ») sert UNIQUEMENT à signaler une tension avec le décompte texte — jamais à choisir en silence.
  */
 export function decisionNiveaux(ged: ResultatLectureGed, floorcountParCorps: Record<string, { valeur: number; piece: string }> = {}): DecisionNiveaux {
-  // 1) rassembler, par corps, toutes les (label → cote) vues, avec leurs pièces/pages
-  interface Acc { cotes: Map<string, Map<number, Set<string>>>; sources: SourceRef[]; sommets: Map<string, Map<number, Set<string>>> }
+  // 1) rassembler, par corps, toutes les (label → cote) des TABLES vues, avec leurs pièces/pages. En parallèle, collecter GLOBALEMENT
+  //    les cotes de sommet étiquetées de TOUTES les pages (indépendamment de l'ancrage) : l'attribution se fera par toiture (N9-D).
+  interface Acc { cotes: Map<string, Map<number, Set<string>>>; sources: SourceRef[] }
   const parCorps = new Map<string, Acc>();
-  const acc = (r: string) => { let a = parCorps.get(r); if (!a) { a = { cotes: new Map(), sources: [], sommets: new Map() }; parCorps.set(r, a); } return a; };
+  const acc = (r: string) => { let a = parCorps.get(r); if (!a) { a = { cotes: new Map(), sources: [] }; parCorps.set(r, a); } return a; };
+  const sommetsGlobaux = new Map<string, Map<string, number>>(); // clé `${cote}#${qualif}` → (pièce → 1re page)
 
   for (const p of ged.pieces) for (const pg of p.pages) {
     if (!pg.aTexte) continue;
-    const { tables, sommets } = analyserPage(pg.texte);
+    const { tables } = analyserPage(pg.texte);
     for (const t of tables) {
       const a = acc(t.repere);
       let compte = false;
@@ -165,12 +174,19 @@ export function decisionNiveaux(ged: ResultatLectureGed, floorcountParCorps: Rec
       }
       if (compte) a.sources.push({ piece: p.nomFichier, page: pg.page, forme: t.forme });
     }
-    for (const s of sommets) {
-      const a = acc(s.repere);
-      const parQ = a.sommets.get(s.qualif) ?? a.sommets.set(s.qualif, new Map()).get(s.qualif)!;
-      (parQ.get(s.cote) ?? (parQ.set(s.cote, new Set()), parQ.get(s.cote)!)).add(p.nomFichier);
+    for (const s of cotesSommetDansTexte(pg.texte)) {
+      const k = `${s.cote}#${s.qualif}`;
+      const m = sommetsGlobaux.get(k) ?? sommetsGlobaux.set(k, new Map()).get(k)!;
+      if (!m.has(p.nomFichier)) m.set(p.nomFichier, pg.page);
     }
   }
+  // Cotes de sommet dans la fenêtre d'un corps : au-dessus de sa toiture et sous le plafond dynamique (jamais la toiture voisine).
+  const sommetsFiltres = (qualif: 'acrotere' | 'garde-corps', toit: number, plafond: number) =>
+    [...sommetsGlobaux.entries()]
+      .filter(([k]) => k.endsWith(`#${qualif}`))
+      .map(([k, pieces]) => ({ cote: num(k.split('#')[0]), pieces }))
+      .filter((x) => x.cote >= toit - 0.005 && x.cote <= plafond)
+      .sort((a, b) => b.cote - a.cote);
 
   const conf = (pieces: Set<string>): 'confirmee' | 'a_verifier' => (pieces.size >= 2 ? 'confirmee' : 'a_verifier');
   // valeur RETENUE d'un label = la cote la plus corroborée (nb de pièces), départage par la plus fréquente
@@ -179,6 +195,10 @@ export function decisionNiveaux(ged: ResultatLectureGed, floorcountParCorps: Rec
     for (const [cote, pieces] of m) if (best === null || pieces.size > best.pieces.size) best = { cote, pieces };
     return best;
   };
+
+  // Toitures RETENUES de tous les corps (triées) : servent d'ancre au sommet ET de PLAFOND dynamique (garde n°3 : la fenêtre d'un
+  // corps ne doit jamais atteindre la toiture d'un autre corps).
+  const toituresTriees = [...parCorps.values()].map((a) => { const t = a.cotes.get('TOITURE'); const r = t ? retenue(t) : null; return r?.cote; }).filter((c): c is number => c !== undefined).sort((x, y) => x - y);
 
   const corps: DecisionCorpsNiveaux[] = [];
   let gardeCorpsAttribue: DecisionNiveaux['gardeCorpsAttribue'] = null;
@@ -208,25 +228,29 @@ export function decisionNiveaux(ged: ResultatLectureGed, floorcountParCorps: Rec
     const nbEtages = etages.length ? { valeur: etages.length, confiance: (nbPieces >= 2 ? 'confirmee' : 'a_verifier') as 'confirmee' | 'a_verifier', sources: srcUniq, tension } : null;
     const nbSousSol = sousSols.length ? { valeur: sousSols.length, confiance: (nbPieces >= 2 ? 'confirmee' : 'a_verifier') as 'confirmee' | 'a_verifier', sources: srcUniq } : null;
 
-    // sommet = acrotère CORROBORÉ au-dessus de la toiture, sinon toiture. garde-corps toujours écarté.
-    const acroMap = a.sommets.get('acrotere') ?? new Map<number, Set<string>>();
-    const gcMap = a.sommets.get('garde-corps') ?? new Map<number, Set<string>>();
+    // ── SOMMET par ancrage sur la toiture (N9-D) : acrotère ÉTIQUETÉ dans la fenêtre [toiture ; toiture + FENÊTRE], plafonnée sous
+    //    la toiture du corps immédiatement au-dessus. Corroboré (≥2 pièces) → retenu ; sinon toiture. garde-corps TOUJOURS écarté.
     const toitCote = toit?.cote ?? null;
-    const acroAudessus = [...acroMap.entries()].filter(([cote]) => toitCote === null || cote >= toitCote - 0.005);
-    const acroCorrobore = acroAudessus.filter(([, pieces]) => pieces.size >= 2).sort((x, y) => y[0] - x[0])[0] ?? null;
-    const acroUnique = acroAudessus.filter(([, pieces]) => pieces.size < 2).sort((x, y) => y[0] - x[0])[0] ?? null;
-
     let sommet: DecisionCorpsNiveaux['sommet'] = null;
-    if (acroCorrobore) {
-      sommet = { valeur: acroCorrobore[0], confiance: 'confirmee', qualif: 'acrotere', label: 'Acrotère', sources: srcUniq, note: null };
-    } else if (toit) {
-      const note = acroUnique ? `acrotère ${acroUnique[0]} vu sur 1 pièce seulement (non corroboré) → non retenu ; toiture retenue` : 'aucun acrotère au-dessus de la toiture → toiture retenue';
-      sommet = { valeur: toit.cote, confiance: conf(a.cotes.get('TOITURE')?.get(toit.cote) ?? new Set()), qualif: 'toiture', label: 'TOITURE', note, sources: srcUniq };
+    let gardeCorps: { cote: number; pieces: string[] }[] = [];
+    if (toitCote !== null) {
+      const toitSup = toituresTriees.find((t) => t > toitCote + 1e-9);                                   // toiture voisine juste au-dessus
+      const plafond = Math.min(toitCote + SOMMET_FENETRE_M, toitSup !== undefined ? toitSup - 0.01 : Infinity);
+      const acros = sommetsFiltres('acrotere', toitCote, plafond);
+      const acroCorrobore = acros.find((x) => x.pieces.size >= 2) ?? null;                                // le plus haut ≥2 pièces (déjà trié desc)
+      const acroUnique = acros.find((x) => x.pieces.size < 2) ?? null;
+      const srcSommet = (m: Map<string, number>): SourceRef[] => [...m.entries()].map(([piece, page]) => ({ piece, page }));
+      if (acroCorrobore) {
+        sommet = { valeur: acroCorrobore.cote, confiance: 'confirmee', qualif: 'acrotere', label: 'Acrotère', ecart: Number((acroCorrobore.cote - toitCote).toFixed(2)), sources: srcSommet(acroCorrobore.pieces), note: null };
+      } else {
+        const note = acroUnique
+          ? `acrotère ${acroUnique.cote} (écart +${(acroUnique.cote - toitCote).toFixed(2)} m) vu sur 1 pièce seulement (non corroboré) → non retenu ; toiture retenue`
+          : `aucun acrotère corroboré dans la fenêtre [${toitCote} ; ${plafond === Infinity ? toitCote + SOMMET_FENETRE_M : plafond}] → toiture retenue`;
+        sommet = { valeur: toitCote, confiance: conf(a.cotes.get('TOITURE')?.get(toitCote) ?? new Set()), qualif: 'toiture', label: 'TOITURE', ecart: null, note, sources: srcUniq };
+      }
+      gardeCorps = sommetsFiltres('garde-corps', toitCote, plafond).map((g) => ({ cote: g.cote, pieces: [...g.pieces.keys()] }));
+      for (const g of gardeCorps) if (!gardeCorpsAttribue || g.cote > gardeCorpsAttribue.cote) gardeCorpsAttribue = { cote: g.cote, repere };
     }
-
-    const gardeCorps = [...gcMap.entries()].filter(([cote]) => toitCote === null || cote >= toitCote - 0.005).map(([cote, pieces]) => ({ cote, pieces: [...pieces] })).sort((x, y) => y.cote - x.cote);
-    // le garde-corps le plus haut du projet devient l'attribution du sommet permis N8-B (89,46)
-    for (const g of gardeCorps) if (!gardeCorpsAttribue || g.cote > gardeCorpsAttribue.cote) gardeCorpsAttribue = { cote: g.cote, repere };
 
     corps.push({ repere, niveaux, sources: srcUniq, nbPieces, plancher, nbEtages, nbSousSol, sommet, gardeCorps });
   }

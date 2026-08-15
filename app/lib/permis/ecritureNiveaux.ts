@@ -91,7 +91,7 @@ export async function ecrireNiveaux(dossierId: number, decision: DecisionNiveaux
       const corrige = avantV !== null && Math.abs(avantV - c.sommet.valeur) > 1e-9;
       if (corrige) corrections.push(`sommet ${avantV} → ${c.sommet.valeur} (${c.sommet.label})`);
       lignes.push(ecrit('altitudeSommetNgf')
-        ? { corpsId, champ: 'altitude_sommet_ngf', valeur: c.sommet.valeur, unite: 'ngf', role: 'retenue', confiance: c.sommet.confiance, reserve: `${c.sommet.label}${c.sommet.note ? ` — ${c.sommet.note}` : ''}`, motif: null, piece: s0(c.sommet.sources)?.piece ?? null, page: s0(c.sommet.sources)?.page ?? null, extrait: extraitDe(s0(c.sommet.sources), `${c.sommet.label} = ${c.sommet.valeur} (BAT ${c.repere})`) }
+        ? { corpsId, champ: 'altitude_sommet_ngf', valeur: c.sommet.valeur, unite: 'ngf', role: 'retenue', confiance: c.sommet.confiance, reserve: `${c.sommet.label}${c.sommet.ecart !== null ? ` (écart +${c.sommet.ecart} m au-dessus de la toiture du corps)` : ''}${c.sommet.note ? ` — ${c.sommet.note}` : ''}`, motif: null, piece: s0(c.sommet.sources)?.piece ?? null, page: s0(c.sommet.sources)?.page ?? null, extrait: extraitDe(s0(c.sommet.sources), `${c.sommet.label} = ${c.sommet.valeur} (${c.repere})`) }
         : { corpsId, champ: 'altitude_sommet_ngf', valeur: null, unite: null, role: 'ecartee', confiance: null, reserve: null, motif: MOTIF_SAISIE, piece: null, page: null, extrait: null });
     }
     // garde-corps : jamais retenu comme sommet (ajouré : ni mesuré au LiDAR ni masquant) → journalisé écarté avec son étiquette
