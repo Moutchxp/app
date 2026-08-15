@@ -21,8 +21,8 @@ const H = vi.hoisted(() => {
     if (sql.includes('EXISTS (SELECT 1 FROM demande_dossier dd')) return { rows: [{ ok: state.archive }] };
     if (sql.includes('INSERT INTO dossier_document')) return { rows: [{ id: state.insertId }] };
     if (sql.includes('DELETE FROM dossier_document')) return { rows: state.deleteCle === null ? [] : [{ cle_stockage: state.deleteCle }] };
-    if (sql.includes('SELECT cle_stockage FROM dossier_document WHERE id')) return { rows: [{ cle_stockage: state.cleDossier }] };
-    if (sql.includes('SELECT cle_stockage FROM demande_reponse_piece WHERE id')) return { rows: [{ cle_stockage: state.cleReponse }] };
+    if (sql.includes('SELECT cle_stockage, nom_fichier FROM dossier_document WHERE id')) return { rows: [{ cle_stockage: state.cleDossier, nom_fichier: 'doc-dossier.pdf' }] };
+    if (sql.includes('SELECT cle_stockage, nom_fichier FROM demande_reponse_piece WHERE id')) return { rows: [{ cle_stockage: state.cleReponse, nom_fichier: 'piece-reponse.pdf' }] };
     return { rows: [] }; // config_veille → défauts (pieceTailleMaxMo = 50)
   };
   const deposerDocumentDossier = async () => { if (state.deposerThrows) throw new Error('S3 down'); return state.depot; };
@@ -97,12 +97,16 @@ describe('A1b — supprimerDocumentDossier : ligne PUIS objet ; ne touche QUE do
   });
 });
 
-describe('A1b — lireCleTelechargeable : UN seul lecteur, dispatché par source', () => {
-  it('« dossier » → lit dossier_document ; « reponse » → lit demande_reponse_piece', async () => {
-    expect(await lireCleTelechargeable(20, 'dossier')).toBe('dossiers/1/uuid.pdf');
-    expect(H.appels.some((a) => a.sql.includes('SELECT cle_stockage FROM dossier_document WHERE id'))).toBe(true);
+describe('A1b / N6-E — lireCleTelechargeable : UN seul lecteur, dispatché par source, clé + nom', () => {
+  it('« dossier » → lit dossier_document ; « reponse » → lit demande_reponse_piece ; renvoie { cle, nomFichier }', async () => {
+    expect(await lireCleTelechargeable(20, 'dossier')).toEqual({ cle: 'dossiers/1/uuid.pdf', nomFichier: 'doc-dossier.pdf' });
+    expect(H.appels.some((a) => a.sql.includes('SELECT cle_stockage, nom_fichier FROM dossier_document WHERE id'))).toBe(true);
     H.appels.length = 0;
-    expect(await lireCleTelechargeable(10, 'reponse')).toBe('demandes/1/reponses/2/uuid.pdf');
+    expect(await lireCleTelechargeable(10, 'reponse')).toEqual({ cle: 'demandes/1/reponses/2/uuid.pdf', nomFichier: 'piece-reponse.pdf' });
     expect(H.appels.some((a) => a.sql.includes('FROM demande_reponse_piece WHERE id'))).toBe(true);
+  });
+  it('clé NULL (pièce non déposée) → null', async () => {
+    H.state.cleDossier = null;
+    expect(await lireCleTelechargeable(20, 'dossier')).toBeNull();
   });
 });

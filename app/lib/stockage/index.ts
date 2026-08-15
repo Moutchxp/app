@@ -116,14 +116,35 @@ export async function deposer(contenu: Buffer | Uint8Array, typeMime: string, me
 }
 
 /**
+ * N6-E — valeur du header `Content-Disposition` pour un TÉLÉCHARGEMENT FORCÉ (jamais un rendu inline). PUR (exporté pour test).
+ * Sécurité : on retire `"` `\` et les retours de ligne du nom (anti-injection d'en-tête). Nom vide → `attachment` seul.
+ */
+export function dispositionTelechargement(nomFichier?: string | null): string {
+  const nom = (nomFichier ?? '').replace(/[\r\n"\\]/g, '_').trim();
+  return nom === '' ? 'attachment' : `attachment; filename="${nom}"`;
+}
+
+/** Options de `urlSignee`. `forcerTelechargement` pose `Content-Disposition: attachment` (le fichier est téléchargé, pas rendu). */
+export interface OptionsUrlSignee { forcerTelechargement?: boolean; nomFichier?: string | null }
+
+/**
  * Renvoie une URL SIGNÉE temporaire (GET) vers l'objet. Durée = `dureeS` si fournie et > 0, sinon la valeur d'env
  * `S3_URL_EXPIRATION_S`. Le bucket restant PRIVÉ, c'est le SEUL moyen de lecture — l'URL est refusée passé le délai.
+ *
+ * N6-E — SÉCURITÉ : `opts.forcerTelechargement` ajoute `ResponseContentDisposition: attachment` à l'URL signée → le navigateur
+ * TÉLÉCHARGE le fichier au lieu de l'afficher. Indispensable pour les pièces GED HTML/CSV (un HTML piégé, servi inline, exécuterait
+ * du script). Sans cette option, comportement STRICTEMENT inchangé (ex. certificat interne servi tel quel).
  */
-export async function urlSignee(cle: string, dureeS?: number): Promise<string> {
+export async function urlSignee(cle: string, dureeS?: number, opts?: OptionsUrlSignee): Promise<string> {
   const infra = obtenir();
   if (!infra) throw new StockageIndisponible();
   const expiresIn = dureeS && dureeS > 0 ? dureeS : infra.config.dureeUrlSigneeS;
-  return getSignedUrl(infra.client, new GetObjectCommand({ Bucket: infra.config.bucket, Key: cle }), { expiresIn });
+  const command = new GetObjectCommand({
+    Bucket: infra.config.bucket,
+    Key: cle,
+    ...(opts?.forcerTelechargement ? { ResponseContentDisposition: dispositionTelechargement(opts.nomFichier) } : {}),
+  });
+  return getSignedUrl(infra.client, command, { expiresIn });
 }
 
 /**
@@ -193,6 +214,11 @@ const TYPES_ENTRANTS: Record<string, string> = {
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
   'application/vnd.oasis.opendocument.text': 'odt',
+  // N6-E — deux types rencontrés en conditions réelles comme pièces de dossier légitimes : accusé de réception d'un téléservice
+  //   (HTML) et récapitulatif de consultation (CSV). RIEN d'autre. ⚠️ Le HTML est stocké tel quel mais SERVI en téléchargement
+  //   forcé (Content-Disposition: attachment, cf. urlSignee) : jamais rendu inline, donc aucun script exécuté.
+  'text/csv': 'csv',
+  'text/html': 'html',
 };
 
 /** Extension du chemin entrant pour un type MIME accepté, ou `null` si le type n'est pas dans la whitelist entrante. */

@@ -561,7 +561,9 @@ export async function lireRecuLeReponse(reponseId: number): Promise<string | nul
 }
 
 /** R5b — clé de stockage d'une pièce entrante (pour produire un lien signé côté serveur). `null` si absente ou non déposée. */
-export async function lireClePiece(pieceId: number): Promise<string | null> {
-  const { rows } = await query<{ cle_stockage: string | null }>(`SELECT cle_stockage FROM demande_reponse_piece WHERE id = $1`, [pieceId]);
-  return rows[0]?.cle_stockage ?? null;
+export async function lireClePiece(pieceId: number): Promise<{ cle: string; nomFichier: string } | null> {
+  // N6-E — renvoie aussi `nom_fichier` (nom de téléchargement forcé). `null` si absente ou pas encore déposée (cle NULL).
+  const { rows } = await query<{ cle_stockage: string | null; nom_fichier: string }>(`SELECT cle_stockage, nom_fichier FROM demande_reponse_piece WHERE id = $1`, [pieceId]);
+  const r = rows[0];
+  return r && r.cle_stockage !== null ? { cle: r.cle_stockage, nomFichier: r.nom_fichier } : null;
 }

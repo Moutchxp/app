@@ -197,7 +197,8 @@ export function depsReellesAlerteGed(): DepsAlerteGed {
     },
     lienSigne: async (cle, dureeS) => {
       const { urlSignee } = await import('../stockage');
-      return urlSignee(cle, dureeS);
+      // N6-E — le lien d'alerte pointe vers une pièce GED (désormais aussi HTML/CSV) : téléchargement FORCÉ, jamais un rendu inline.
+      return urlSignee(cle, dureeS, { forcerTelechargement: true });
     },
     lireContenuPiece: async (cle) => {
       const { recuperer } = await import('../stockage');

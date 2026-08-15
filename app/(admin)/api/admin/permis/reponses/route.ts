@@ -163,10 +163,11 @@ export async function POST(request: Request): Promise<Response> {
       // A1b — dispatch par ORIGINE (défaut 'reponse' = pièce reçue par e-mail ; 'dossier' = document ajouté à la main) : UNE
       // seule lecture de clé (lireCleTelechargeable) et UN seul signeur (urlSignee). La clé de stockage ne sort jamais au client.
       const source = corps.source === 'dossier' ? 'dossier' : 'reponse';
-      const cle = await lireCleTelechargeable(corps.pieceId, source);
-      if (cle === null) return Response.json({ erreur: 'pièce non déposée (aucune clé de stockage)' }, { status: 404 });
+      const piece = await lireCleTelechargeable(corps.pieceId, source);
+      if (piece === null) return Response.json({ erreur: 'pièce non déposée (aucune clé de stockage)' }, { status: 404 });
       const { urlSignee } = await import('../../../../../lib/stockage'); // import dynamique : garde @aws-sdk hors du graphe statique
-      return Response.json({ url: await urlSignee(cle) });
+      // N6-E — SÉCURITÉ : téléchargement FORCÉ (Content-Disposition: attachment) → une pièce HTML/CSV n'est jamais rendue inline.
+      return Response.json({ url: await urlSignee(piece.cle, undefined, { forcerTelechargement: true, nomFichier: piece.nomFichier }) });
     }
 
     // R5c — éditer le brouillon d'une relance (objet + corps). Le texte stocké EST la vérité (aucune régénération implicite).

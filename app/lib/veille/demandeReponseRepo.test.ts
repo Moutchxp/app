@@ -427,13 +427,13 @@ describe('R5b — statutDemande / lireClePiece : LECTURE seule', () => {
     expect(await statutDemande(999)).toBeNull();
   });
 
-  it('lireClePiece → clé de la pièce, null si absente ou non déposée ; que des SELECT', async () => {
-    etat.rows = [{ cle_stockage: 'demandes/1/reponses/4242/uuid.pdf' }];
-    expect(await lireClePiece(50)).toBe('demandes/1/reponses/4242/uuid.pdf');
+  it('lireClePiece → clé + nom de la pièce, null si absente ou non déposée ; que des SELECT', async () => {
+    etat.rows = [{ cle_stockage: 'demandes/1/reponses/4242/uuid.pdf', nom_fichier: 'reponse-mairie.pdf' }];
+    expect(await lireClePiece(50)).toEqual({ cle: 'demandes/1/reponses/4242/uuid.pdf', nomFichier: 'reponse-mairie.pdf' }); // N6-E : nom pour le téléchargement forcé
     const sel = trouver(/FROM demande_reponse_piece\b/i)!;
-    expect(norm(sel.sql)).toContain('SELECT cle_stockage FROM demande_reponse_piece');
+    expect(norm(sel.sql)).toContain('SELECT cle_stockage, nom_fichier FROM demande_reponse_piece');
     expect(sel.params).toEqual([50]);
-    etat.rows = [{ cle_stockage: null }];
+    etat.rows = [{ cle_stockage: null, nom_fichier: 'x.pdf' }];
     expect(await lireClePiece(51)).toBeNull(); // déposée=false → cle NULL
     etat.rows = [];
     expect(await lireClePiece(52)).toBeNull(); // pièce absente

@@ -526,10 +526,12 @@ export async function supprimerDocumentDossier(documentId: number): Promise<bool
  * `dossier_document`). UNE SEULE fonction de lecture de clé (pas de 2e implémentation) ; la SIGNATURE reste faite par
  * `urlSignee` (lib/stockage), seul signeur. La clé ne quitte pas le serveur (seul l'appelant qui signe la reçoit).
  */
-export async function lireCleTelechargeable(id: number, source: 'reponse' | 'dossier'): Promise<string | null> {
+export async function lireCleTelechargeable(id: number, source: 'reponse' | 'dossier'): Promise<{ cle: string; nomFichier: string } | null> {
+  // N6-E — renvoie la clé ET le nom d'origine (nom de téléchargement forcé, cf. urlSignee). `null` = pièce absente / non déposée.
   if (source === 'dossier') {
-    const { rows } = await query<{ cle_stockage: string | null }>(`SELECT cle_stockage FROM dossier_document WHERE id = $1`, [id]);
-    return rows[0]?.cle_stockage ?? null;
+    const { rows } = await query<{ cle_stockage: string | null; nom_fichier: string }>(`SELECT cle_stockage, nom_fichier FROM dossier_document WHERE id = $1`, [id]);
+    const r = rows[0];
+    return r && r.cle_stockage !== null ? { cle: r.cle_stockage, nomFichier: r.nom_fichier } : null;
   }
   return lireClePiece(id);
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { construireCleEntrante, extensionEntrante, empreinteSha256, deposerPieceEntrante, construireCleDocument, deposerDocumentDossier } from './index';
+import { construireCleEntrante, extensionEntrante, empreinteSha256, deposerPieceEntrante, construireCleDocument, deposerDocumentDossier, dispositionTelechargement } from './index';
 
 /**
  * R4 — chemin de stockage ENTRANT (pièces des réponses de mairies, tiers non fiable). La clé n'inclut JAMAIS le nom
@@ -36,6 +36,53 @@ describe('R4 — extensionEntrante : whitelist propre au chemin entrant', () => 
   it('type hors whitelist / vide → null', () => {
     expect(extensionEntrante('application/x-msdownload')).toBeNull();
     expect(extensionEntrante(null)).toBeNull();
+  });
+
+  it('N6-E — text/csv et text/html ACCEPTÉS ; rien d’autre de nouveau (text/plain reste refusé)', () => {
+    expect(extensionEntrante('text/csv')).toBe('csv');
+    expect(extensionEntrante('text/html')).toBe('html');
+    expect(extensionEntrante('TEXT/CSV')).toBe('csv');       // casse ignorée
+    expect(extensionEntrante('text/plain')).toBeNull();      // NON ajouté
+    expect(extensionEntrante('application/x-msdownload')).toBeNull(); // toujours refusé
+  });
+});
+
+describe('N6-E — dépôt des nouveaux types + borne de taille inchangée', () => {
+  const opts = { demandeId: 42, reponseId: 7, tailleMaxOctets: 50 * 1024 * 1024 };
+
+  it('un .csv passe la whitelist (s’arrête sur « stockage non configuré », pas « type non autorisé »)', async () => {
+    const r = await deposerPieceEntrante(Buffer.from('a;b;c\n1;2;3'), 'text/csv', opts);
+    expect(r.depose).toBe(false);
+    if (!r.depose) expect(r.motif).toBe('stockage non configuré'); // whitelist FRANCHIE
+  });
+  it('un .html passe la whitelist (idem)', async () => {
+    const r = await deposerPieceEntrante(Buffer.from('<html><body>AR</body></html>'), 'text/html', opts);
+    expect(r.depose).toBe(false);
+    if (!r.depose) expect(r.motif).toBe('stockage non configuré');
+  });
+  it('la borne de taille s’applique AUSSI aux nouveaux types (csv trop gros → refusé, motif taille)', async () => {
+    const r = await deposerPieceEntrante(Buffer.alloc(11), 'text/csv', { ...opts, tailleMaxOctets: 10 });
+    expect(r.depose).toBe(false);
+    if (!r.depose) expect(r.motif).toMatch(/trop volumineuse/i);
+  });
+  it('deposerDocumentDossier (chemin GED / Drive) accepte aussi text/html (whitelist franchie)', async () => {
+    const r = await deposerDocumentDossier(Buffer.from('<html>x</html>'), 'text/html', { dossierId: 7, tailleMaxOctets: 50 * 1024 * 1024 });
+    expect(r.depose).toBe(false);
+    if (!r.depose) expect(r.motif).toBe('stockage non configuré');
+  });
+});
+
+describe('N6-E — dispositionTelechargement : téléchargement FORCÉ (jamais un rendu inline)', () => {
+  it('nom fourni → attachment + filename', () => {
+    expect(dispositionTelechargement('AR Mail Fast C2025V0035-1.html')).toBe('attachment; filename="AR Mail Fast C2025V0035-1.html"');
+  });
+  it('nom vide/absent → attachment seul (télécharge quand même)', () => {
+    expect(dispositionTelechargement('')).toBe('attachment');
+    expect(dispositionTelechargement(null)).toBe('attachment');
+    expect(dispositionTelechargement(undefined)).toBe('attachment');
+  });
+  it('anti-injection d’en-tête : guillemets, antislash et retours de ligne neutralisés', () => {
+    expect(dispositionTelechargement('a"b\\c\r\nd.csv')).toBe('attachment; filename="a_b_c__d.csv"');
   });
 });
 
