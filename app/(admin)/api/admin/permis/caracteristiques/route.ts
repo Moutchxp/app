@@ -4,7 +4,7 @@ import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { parserBornesCheck, type BornesParColonne } from '../../../../../lib/sitadel/reglagesVeille';
 import { libelleNatureProjet } from '../../../../../lib/sitadel/priorite';
 import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, creerCorps, supprimerCorps, definirRepere, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
-import { lireJournalRetenu, type JournalRetenuParCorps } from '../../../../../lib/permis/journalLecture';
+import { lireJournalChamps, type JournalParCorps } from '../../../../../lib/permis/journalLecture';
 import { MESURES, construireGlobal } from '../../../../admin/(protected)/permis/caracteristiquesForm';
 
 /**
@@ -57,11 +57,11 @@ export async function GET(request: Request): Promise<Response> {
   const dossierId = Number(new URL(request.url).searchParams.get('dossierId'));
   if (!Number.isInteger(dossierId) || dossierId <= 0) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
   try {
-    // N5-D — le JOURNAL (confiance/réserve/provenance des valeurs extraites) est lu dans le MÊME aller-retour, pas par champ.
-    // TOLÉRANT : si la migration 104 n'est pas encore appliquée (table absente), on dégrade en journal vide + log — sans jamais
-    // casser le reste du bloc (faits/global/corps/bornes). Un enrichissement d'affichage ne doit pas faire tomber l'éditeur.
-    const journalSur = lireJournalRetenu(dossierId).catch((e): JournalRetenuParCorps => {
-      console.warn('[permis/caracteristiques] journal indisponible (migration 104 non appliquée ?)', e instanceof Error ? e.message : String(e));
+    // N5-D/E — le JOURNAL (confiance/réserve/provenance des valeurs écrites + MOTIF des champs vides) est lu dans le MÊME
+    // aller-retour, pas par champ. TOLÉRANT : si les migrations 104/105 ne sont pas encore appliquées (table/colonne absente),
+    // on dégrade en journal vide + log — sans jamais casser le reste du bloc. Un enrichissement d'affichage ne fait pas tomber l'éditeur.
+    const journalSur = lireJournalChamps(dossierId).catch((e): JournalParCorps => {
+      console.warn('[permis/caracteristiques] journal indisponible (migrations 104/105 non appliquées ?)', e instanceof Error ? e.message : String(e));
       return {};
     });
     const [faits, etat, bornes, journal] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur]);

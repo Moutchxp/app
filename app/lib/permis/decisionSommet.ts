@@ -48,8 +48,8 @@ export interface DecisionSommet {
 }
 
 /** Rang d'un plancher au-dessus du sol : RDC/R00 → 0, R01→1 … R99→99. Sous-sols, toiture, combles, accès toiture → `null`
- *  (ce ne sont pas des planchers d'étage à cote unique exploitables pour la trame). */
-function rangPlancher(niveau: string): number | null {
+ *  (ce ne sont pas des planchers d'étage à cote unique exploitables pour la trame). Exporté : réutilisé par N5-E (dernier plancher). */
+export function rangPlancher(niveau: string): number | null {
   if (niveau === 'RDC') return 0;
   const m = /^R(\d{1,2})$/.exec(niveau);
   return m ? Number(m[1]) : null; // 'SS1', 'toiture', 'combles', 'accès toiture' → null

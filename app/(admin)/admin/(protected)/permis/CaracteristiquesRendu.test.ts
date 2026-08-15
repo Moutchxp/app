@@ -3,7 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, EditeurParking, FaitsPermisBloc, MESSAGE_AUCUN_CORPS } from './CaracteristiquesRendu';
 import { MESURES, type FaitsPermis } from './caracteristiquesForm';
-import type { JournalRetenu } from '../../../../lib/permis/journalLecture';
+import type { JournalChamp } from '../../../../lib/permis/journalLecture';
 
 /** N3-C — rendu PUR (node pur, renderToStaticMarkup) : origines, bornes lues de la base, NULL affiché vide, mention du sommet. */
 const noop = () => {};
@@ -49,8 +49,8 @@ describe('N3-C — ChampMesureEditeur', () => {
 
 describe('N5-D — confiance, réserve et provenance à côté de la valeur extraite', () => {
   const RESERVE = 'la cote la plus haute des planches peut appartenir à un bâtiment voisin — les coupes et façades figurent le contexte bâti';
-  const journal = (over: Partial<JournalRetenu> = {}): JournalRetenu => ({
-    confiance: 'a_verifier', reserve: RESERVE, provenances: [{ piece: 'PC3.pdf', page: 2 }], ...over,
+  const journal = (over: Partial<JournalChamp> = {}): JournalChamp => ({
+    confiance: 'a_verifier', reserve: RESERVE, provenances: [{ piece: 'PC3.pdf', page: 2 }], motif: null, ...over,
   });
   const rendre = (props: Parameters<typeof ChampMesureEditeur>[0]) => renderToStaticMarkup(createElement(ChampMesureEditeur, props));
   const base = { mesure: sommet, bornes: { min: -50, max: 500 }, valeur: '89.46', onValeur: noop } as const;
@@ -95,6 +95,29 @@ describe('N5-D — confiance, réserve et provenance à côté de la valeur extr
     expect(h).toContain('provenance (2 pièces)');
     expect(h).toContain('PC3.pdf p.2');
     expect(h).toContain('PC5.pdf p.4');
+  });
+});
+
+describe('N5-E — motif de non-écriture sous un champ vide', () => {
+  const rendre = (props: Parameters<typeof ChampMesureEditeur>[0]) => renderToStaticMarkup(createElement(ChampMesureEditeur, props));
+  const base = { mesure: sommet, bornes: { min: -50, max: 500 }, onValeur: noop } as const;
+  const motifJournal = (motif: string): JournalChamp => ({ confiance: null, reserve: null, provenances: [], motif });
+
+  it('champ VIDE dont le journal porte un motif → motif affiché en clair', () => {
+    const h = rendre({ ...base, valeur: '', origine: null, journal: motifJournal('gabarit à plage annoncé pour plusieurs corps, valeur non attribuable') });
+    expect(h).toContain('valeur non attribuable');
+  });
+
+  it('champ VIDE SANS motif journalisé → aucune note', () => {
+    const h = rendre({ ...base, valeur: '', origine: null });
+    expect(h).toContain('non renseignée');
+    expect(h).not.toContain('vide :');
+  });
+
+  it("un motif n'apparaît PAS sous une valeur 'saisie' (la main l'emporte, pas de motif affiché)", () => {
+    const h = rendre({ ...base, valeur: '10', origine: 'saisie', journal: motifJournal('une valeur saisie à la main occupe déjà le champ') });
+    expect(h).toContain('saisie à la main');
+    expect(h).not.toContain('occupe déjà le champ');
   });
 });
 

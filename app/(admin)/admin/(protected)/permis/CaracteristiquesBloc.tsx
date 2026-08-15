@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 // ⚠️ Bundle client (piège du 13/08) : de `caracteristiquesRepo` / `journalLecture` (modules serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { CorpsBatiment, GlobalPermis, OrigineValeur, ValeursCorps } from '../../../../lib/permis/caracteristiquesRepo';
-import type { JournalRetenuParCorps } from '../../../../lib/permis/journalLecture';
+import type { JournalParCorps } from '../../../../lib/permis/journalLecture';
 import type { BornesParColonne } from '../../../../lib/sitadel/reglagesVeille';
 import {
   MESURES, construireCorps, valeurVersInput,
@@ -11,7 +11,7 @@ import {
 } from './caracteristiquesForm';
 import { FaitsPermisBloc, EditeurParking, ChampMesureEditeur, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS } from './CaracteristiquesRendu';
 
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalRetenuParCorps }
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalParCorps }
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '',

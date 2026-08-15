@@ -36,7 +36,7 @@
     "demandes:relever": "tsx app/scripts/relever-demandes.ts",
     "ged:dump": "tsx app/scripts/dumper-ged.ts",
     "permis:extraire": "tsx app/scripts/extraire-caracteristiques.ts",
-    "permis:ecrire-sommet": "tsx app/scripts/ecrire-sommet.ts",
+    "permis:ecrire-champs": "tsx app/scripts/ecrire-champs.ts",
     "drive:autoriser": "tsx app/scripts/drive-autoriser.ts",
     "alertes:envoyer": "tsx app/scripts/envoyer-alerte.ts",
     "veille:run": "tsx app/scripts/veille-run.ts",

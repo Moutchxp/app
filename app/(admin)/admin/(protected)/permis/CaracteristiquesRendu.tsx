@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo';
 // ⚠️ Bundle client (piège du 13/08) : de `journalLecture` (module serveur, pg) on n'importe QUE des `type`, jamais une valeur.
-import type { JournalRetenu } from '../../../../lib/permis/journalLecture';
+import type { JournalChamp } from '../../../../lib/permis/journalLecture';
 import { MESURES, libelleBornes, type Bornes, type FaitsPermis } from './caracteristiquesForm';
 
 /**
@@ -83,10 +83,12 @@ function texteProvenance(p: { piece: string | null; page: number | null }): stri
  *
  * N5-D — pour une valeur d'origine 'extraite', on montre EN PLUS ce que le journal en dit : sa CONFIANCE (pastille distincte de
  * l'origine), sa RÉSERVE en toutes lettres sous le champ, et sa PROVENANCE (pièce/page) dans un repliable. Pour une valeur
- * 'saisie' ou VIDE : rien de tout ça (jamais de « à vérifier » par défaut, jamais de pastille orpheline).
+ * 'saisie' : rien de tout ça (jamais de « à vérifier » par défaut).
+ * N5-E — pour un champ VIDE (non renseigné) dont le journal porte un MOTIF de non-écriture, on affiche ce motif en une phrase
+ * courte (même bloc note lisible que la réserve). Un champ vide SANS motif journalisé n'affiche rien (pas de note orpheline).
  */
 export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, onValeur }: {
-  mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalRetenu; onValeur: (v: string) => void;
+  mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; onValeur: (v: string) => void;
 }) {
   const cadreSommet: CSSProperties = mesure.estSommet
     ? { border: '1px solid var(--color-svv-red)', borderRadius: '.5rem', padding: '.4rem .5rem', background: '#fff8f8' }
@@ -94,6 +96,9 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
   // La confiance/réserve/provenance ne concernent QUE l'extraction : une saisie ou un champ vide n'en portent aucune.
   const j = origine === 'extraite' ? journal : undefined;
   const provenances = j?.provenances ?? [];
+  // N5-E — le MOTIF ne s'affiche que sous un champ VIDE (non renseigné). Une saisie ou une valeur extraite n'en montre pas.
+  const motif = origine === null ? journal?.motif ?? null : null;
+  const styleNote: CSSProperties = { fontSize: 11, lineHeight: 1.4, color: 'var(--color-svv-ink)', background: '#fff8f8', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.25rem .4rem' };
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0, ...cadreSommet }}>
       <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -107,11 +112,8 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
       <span style={styleAide}>{libelleBornes(mesure, bornes)}</span>
       {mesure.estSommet && <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}>{mesure.aide}</span>}
       {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
-      {j?.reserve && (
-        <span role="note" style={{ fontSize: 11, lineHeight: 1.4, color: 'var(--color-svv-ink)', background: '#fff8f8', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.25rem .4rem' }}>
-          ⚠ {j.reserve}
-        </span>
-      )}
+      {j?.reserve && <span role="note" style={styleNote}>⚠ {j.reserve}</span>}
+      {motif && <span role="note" style={{ ...styleNote, color: 'var(--color-svv-muted)' }}>vide : {motif}</span>}
       {provenances.length > 0 && (
         <details style={{ fontSize: 11 }}>
           <summary style={{ ...styleAide, cursor: 'pointer' }}>provenance ({provenances.length} pièce{provenances.length > 1 ? 's' : ''})</summary>
