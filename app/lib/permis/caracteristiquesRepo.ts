@@ -184,3 +184,50 @@ export async function ecrireGlobal(dossierId: number, valeurs: { parking?: boole
     params);
   return { ecrits, ignores };
 }
+
+// ── N7-C/N7-D — ÉCRITURE des CARACTÉRISTIQUES DÉCLARÉES au niveau PERMIS (colonnes de la migration 106) ──────────────────────────
+// Colonnes de permis_caracteristique portant chacune sa valeur ET son `_origine` (invariant 103 réutilisé).
+const COLONNE_GLOBAL_DECLARE = {
+  natureProjet: 'nature_projet',
+  surfacePlancherM2: 'surface_plancher_m2',
+  nbLogements: 'nb_logements',
+  nbPlacesStationnement: 'nb_places_stationnement',
+  adresseTerrain: 'adresse_terrain',
+} as const;
+export type ChampGlobalDeclare = keyof typeof COLONNE_GLOBAL_DECLARE;
+/** Valeurs à poser : texte (nature/adresse) ou nombre (surface/logements/stationnement), ou null. */
+export type ValeursGlobalDeclare = Partial<Record<ChampGlobalDeclare, string | number | null>>;
+
+/**
+ * Upsert des caractéristiques DÉCLARÉES d'un permis (niveau PERMIS — jamais soumis à la règle « ≥2 corps »). Chaque champ suit
+ * l'invariant : mode 'saisie' écrase tout ; mode automatique ('extraite') n'écrase PAS un champ déjà 'saisie' (rendu dans
+ * `ignores`). Valeur + origine posées ENSEMBLE (valeur null ⇒ origine null). Réutilise `repartirEcriture` — pas de réimplémentation.
+ */
+export async function ecrireCaracteristiquesGlobales(dossierId: number, valeurs: ValeursGlobalDeclare, mode: OrigineValeur, majPar: string): Promise<ResultatEcriture<ChampGlobalDeclare>> {
+  const champs = (Object.keys(valeurs) as ChampGlobalDeclare[]).filter((c) => c in COLONNE_GLOBAL_DECLARE);
+  if (champs.length === 0) return { ecrits: [], ignores: [] };
+
+  // Origines actuelles (invariant) — lecture ciblée des seules colonnes `_origine` concernées.
+  const selOrig = champs.map((c) => `${COLONNE_GLOBAL_DECLARE[c]}_origine AS "${c}"`).join(', ');
+  const { rows } = await query<Partial<Record<ChampGlobalDeclare, OrigineValeur | null>>>(
+    `SELECT ${selOrig} FROM permis_caracteristique WHERE dossier_id = $1`, [dossierId]);
+  const origineActuelle = rows[0] ?? {};
+
+  const { ecrits, ignores } = repartirEcriture(mode, champs, origineActuelle);
+  if (ecrits.length === 0) return { ecrits, ignores };
+
+  const cols: string[] = ['dossier_id']; const insVals: string[] = ['$1']; const updSets: string[] = []; const params: unknown[] = [dossierId];
+  const ajoute = (col: string, val: unknown) => { params.push(val); cols.push(col); insVals.push(`$${params.length}`); updSets.push(`${col} = $${params.length}`); };
+  for (const c of ecrits) {
+    const col = COLONNE_GLOBAL_DECLARE[c];
+    const v = valeurs[c] ?? null;
+    ajoute(col, v);
+    ajoute(`${col}_origine`, v === null ? null : mode); // valeur + origine ensemble
+  }
+  ajoute('maj_par', majPar);
+  await query(
+    `INSERT INTO permis_caracteristique (${cols.join(', ')}, maj_le) VALUES (${insVals.join(', ')}, now())
+       ON CONFLICT (dossier_id) DO UPDATE SET ${[...updSets, 'maj_le = now()'].join(', ')}`,
+    params);
+  return { ecrits, ignores };
+}

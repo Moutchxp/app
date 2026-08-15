@@ -13,6 +13,7 @@ const H = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
   const state = {
     originesCorps: {} as Record<string, unknown>,   // ligne renvoyée par le SELECT des colonnes _origine d'un corps
+    originesGlobal: {} as Record<string, unknown>,  // idem pour les colonnes déclarées de permis_caracteristique (N7-D)
     parkingOrigine: null as string | null,           // parking_origine actuel (global)
     parkingRowExiste: false,                         // la ligne permis_caracteristique existe-t-elle ?
     lecture: { global: null as unknown, corps: [] as unknown[] },
@@ -24,6 +25,7 @@ const H = vi.hoisted(() => {
     if (/json_agg/i.test(sql)) return { rows: [state.lecture] };                                   // lecture globale
     if (/SELECT\s+parking_origine\b/i.test(sql)) return { rows: state.parkingRowExiste ? [{ o: state.parkingOrigine }] : [] };
     if (/_origine\s+AS\s+"/i.test(sql) && /FROM\s+permis_corps_batiment/i.test(sql)) return { rows: [state.originesCorps] };
+    if (/_origine\s+AS\s+"/i.test(sql) && /FROM\s+permis_caracteristique/i.test(sql)) return { rows: [state.originesGlobal] };
     if (/INSERT\s+INTO\s+permis_corps_batiment/i.test(sql)) return { rows: [{ id: state.insertId }] };
     if (/DELETE\s+FROM\s+permis_corps_batiment/i.test(sql)) return { rows: [], rowCount: state.deleteCount };
     return { rows: [] };                                                                            // UPDATE / upsert : ignorés du routage
@@ -32,14 +34,42 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock }));
 
-import { repartirEcriture, ecrireCorps, ecrireGlobal, lirePermisCaracteristiques, creerCorps, supprimerCorps, definirRepere } from './caracteristiquesRepo';
+import { repartirEcriture, ecrireCorps, ecrireGlobal, ecrireCaracteristiquesGlobales, lirePermisCaracteristiques, creerCorps, supprimerCorps, definirRepere } from './caracteristiquesRepo';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ');
 const trouver = (re: RegExp) => H.appels.find((a) => re.test(a.sql));
 beforeEach(() => {
   H.appels.length = 0;
-  H.state.originesCorps = {}; H.state.parkingOrigine = null; H.state.parkingRowExiste = false;
+  H.state.originesCorps = {}; H.state.originesGlobal = {}; H.state.parkingOrigine = null; H.state.parkingRowExiste = false;
   H.state.lecture = { global: null, corps: [] }; H.state.insertId = 77; H.state.deleteCount = 1;
+});
+
+describe('N7-D — ecrireCaracteristiquesGlobales (colonnes déclarées 106, invariant réutilisé)', () => {
+  it('écrit valeur + origine ENSEMBLE (mode extraite) via un upsert', async () => {
+    const r = await ecrireCaracteristiquesGlobales(1, { surfacePlancherM2: 13032, natureProjet: 'mixte' }, 'extraite', 'auto');
+    expect(r.ecrits.sort()).toEqual(['natureProjet', 'surfacePlancherM2']);
+    const up = trouver(/INSERT\s+INTO\s+permis_caracteristique/);
+    expect(up).toBeDefined();
+    expect(up!.params).toContain(13032);
+    expect(up!.params).toContain('mixte');
+    expect(norm(up!.sql)).toContain('surface_plancher_m2_origine');
+    expect(norm(up!.sql)).toContain('ON CONFLICT (dossier_id)');
+  });
+
+  it('AUTOMATIQUE sur un champ déjà « saisie » → IGNORÉ, aucun upsert', async () => {
+    H.state.originesGlobal = { surfacePlancherM2: 'saisie' };
+    const r = await ecrireCaracteristiquesGlobales(1, { surfacePlancherM2: 999 }, 'extraite', 'auto');
+    expect(r).toEqual({ ecrits: [], ignores: ['surfacePlancherM2'] });
+    expect(trouver(/INSERT\s+INTO\s+permis_caracteristique/)).toBeUndefined();
+  });
+
+  it('valeur null → origine null (posées ensemble)', async () => {
+    const r = await ecrireCaracteristiquesGlobales(1, { adresseTerrain: null }, 'extraite', 'auto');
+    expect(r.ecrits).toEqual(['adresseTerrain']);
+    const up = trouver(/INSERT\s+INTO\s+permis_caracteristique/)!;
+    // dossier_id=1, adresse_terrain=null, adresse_terrain_origine=null, maj_par='auto'
+    expect(up.params).toEqual([1, null, null, 'auto']);
+  });
 });
 
 describe('N3-B — repartirEcriture (invariant PUR, les deux sens)', () => {
