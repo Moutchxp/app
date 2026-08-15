@@ -157,7 +157,7 @@ export function corpsAmbigu(caracs: (CaracteristiquesPermis | null)[], expediteu
   L.push(`Expéditeur du mail d’origine : ${expediteur}`);
   return L.join('\n');
 }
-export function corpsAucun(issue: 'aucun_candidat' | 'extraction_echec', motifs: string[], expediteur: string, bilanDrive: BilanDrive | null = null): string {
+export function corpsAucun(issue: 'aucun_candidat' | 'extraction_echec', motifs: string[], expediteur: string, nomsExamines: string[], objet: string | null, bilanDrive: BilanDrive | null = null): string {
   const L: string[] = [];
   if (issue === 'extraction_echec') {
     L.push('Un mail « permis » a été reçu mais le NUMÉRO DE PERMIS n’a pas pu être lu dans ses pièces (extraction impossible).', '', 'Motifs :');
@@ -165,6 +165,17 @@ export function corpsAucun(issue: 'aucun_candidat' | 'extraction_echec', motifs:
   } else {
     L.push('Un mail « permis » a été reçu mais AUCUN numéro de permis correspondant à une demande dans l’interface n’a été trouvé.', '');
   }
+  // N6-D — l'alerte devient EXPLOITABLE : elle dit POURQUOI rien n'a été reconnu (objet + noms examinés), et qu'AUCUNE pièce
+  //   n'a été versée POUR CE MESSAGE. Le numéro a été cherché dans : ces noms, le texte des PDF, l'objet et le corps du mail.
+  L.push('', '0 pièce n’a été versée en GED pour ce message.');
+  L.push('', `Objet du mail examiné : « ${objet ?? '(vide)'} »`);
+  if (nomsExamines.length > 0) {
+    L.push(`Noms de fichiers examinés (${nomsExamines.length}) — le numéro de permis n’y figure pas :`);
+    for (const n of nomsExamines) L.push(`  · ${n}`);
+  } else {
+    L.push('Aucun fichier examiné (ni pièce jointe, ni fichier Drive récupéré).');
+  }
+  L.push('Le numéro a aussi été cherché dans le texte des PDF, l’objet et le corps du mail — sans correspondance.');
   const drive = lignesBilanDrive(bilanDrive);
   if (drive.length > 0) L.push('', ...drive);
   L.push('', 'Que faire de ce mail et de ses pièces jointes ? (le mail complet est transféré ci-dessus.)', '', `Expéditeur du mail d’origine : ${expediteur}`);
@@ -243,10 +254,17 @@ export async function traiterDepotManuel(mb: MessageBoite, profil: ProfilBoite, 
     else motifs.push(`« ${p.nomFichier} » : ${p.typeMime === 'application/pdf' ? 'PDF sans couche texte lisible' : `type non lisible (${p.typeMime ?? 'inconnu'})`}`);
   }
 
-  // 2) Rapprochement : num_dau connus trouvés dans (noms de fichiers + texte extrait). Technique existante (satisfactionDossier).
+  // 2) Rapprochement : num_dau connus trouvés dans (noms de fichiers + texte extrait des PDF + N6-D : corps text/plain du mail
+  //    + OBJET + TEXTE du corps HTML). Gmail colle les noms dans l'objet et un correspondant écrit souvent la référence dans son
+  //    message → sources élargies. La règle de sûreté (≥ 2 numéros distincts → on ne verse rien, ci-dessous) absorbe l'ambiguïté.
   const candidats = await deps.chargerCandidats();
   const trouves = dossiersSatisfaits(
-    { piecesNoms: pieces.map((p) => p.nomFichier), corpsTexte: textes.join('\n') },
+    {
+      piecesNoms: pieces.map((p) => p.nomFichier),
+      corpsTexte: [textes.join('\n'), mb.message.corpsTexte ?? ''].join('\n'), // texte des PDF + corps text/plain du mail
+      objet: mb.message.objet ?? null,
+      corpsHtml: mb.message.corpsHtml ?? null,
+    },
     candidats.map((c) => ({ dossierId: c.dossierId, numDau: c.numDau })),
   );
   const distincts = [...new Set(trouves)];
@@ -289,7 +307,7 @@ export async function traiterDepotManuel(mb: MessageBoite, profil: ProfilBoite, 
   // (c)/(d) AUCUN candidat → forward du mail complet + alerte (avec motif si extraction échouée)
   const issue: IssueDepot = motifs.length > 0 ? 'extraction_echec' : 'aucun_candidat';
   const sujet = issue === 'extraction_echec' ? 'Versement GED impossible — numéro de permis illisible' : 'Versement GED impossible — permis inconnu';
-  await deps.forwarder(mb, sujet, corpsAucun(issue, motifs, expediteur, bilanDrive));
+  await deps.forwarder(mb, sujet, corpsAucun(issue, motifs, expediteur, pieces.map((p) => p.nomFichier), mb.message.objet ?? null, bilanDrive));
   await deps.journaliser({ messageId, profil, issue, dossierId: null, expediteur });
   return { issue };
 }

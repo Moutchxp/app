@@ -317,3 +317,60 @@ describe('N6-B — nomsDepuisCorps (repli de nom : le nom PRÉCÈDE le lien)', (
     expect(nomsDepuisCorps('rien', null, ['ZZZ'])).toEqual({});
   });
 });
+
+
+describe('N6-D — rapprochement élargi (objet + corps du mail) + alerte « aucun candidat » exploitable', () => {
+  const CAND: CandidatDossier = { dossierId: 1, demandeId: 10, numDau: '0930012500081', dejaSatisfait: false };
+
+  it('numéro présent SEULEMENT dans l’OBJET → reconnu et versé', async () => {
+    const h = harness({ candidats: [CAND] });
+    const mb = mail({ objet: 'permis 0930012500081 plan.pdf' }, [piece('plan.pdf', 'contenu sans numero')]);
+    const res = await traiterDepotManuel(mb, 'entreprise', h.deps);
+    expect(res.issue).toBe('verse');
+    expect(h.deposes.map((d) => d.nom)).toEqual(['plan.pdf']);
+  });
+
+  it('numéro présent SEULEMENT dans le corps text/plain du mail → reconnu et versé', async () => {
+    const h = harness({ candidats: [CAND] });
+    const mb = mail({ objet: 'permis', corpsTexte: 'Bonjour, référence du dossier 0930012500081, cordialement.' }, [piece('plan.pdf', 'sans numero')]);
+    const res = await traiterDepotManuel(mb, 'entreprise', h.deps);
+    expect(res.issue).toBe('verse');
+  });
+
+  it('numéro présent SEULEMENT dans le corps HTML (texte, pas les balises) → reconnu', async () => {
+    const h = harness({ candidats: [CAND] });
+    const mb = mail({ objet: 'permis', corpsTexte: 'rien', corpsHtml: '<div><p>Dossier&nbsp;: 0930012500081</p></div>' }, [piece('plan.pdf', 'sans numero')]);
+    const res = await traiterDepotManuel(mb, 'entreprise', h.deps);
+    expect(res.issue).toBe('verse');
+  });
+
+  it('DEUX numéros DISTINCTS (un dans un nom de fichier, un dans le corps) → RIEN versé + alerte à trancher (règle de sûreté)', async () => {
+    const CAND2: CandidatDossier = { dossierId: 2, demandeId: 11, numDau: '0930012500082', dejaSatisfait: true };
+    const h = harness({ candidats: [CAND, CAND2] });
+    const mb = mail({ objet: 'permis', corpsTexte: 'référence 0930012500082' }, [piece('0930012500081.pdf', 'rien')]);
+    const res = await traiterDepotManuel(mb, 'entreprise', h.deps);
+    expect(res.issue).toBe('ambigu');
+    expect(h.deposes).toHaveLength(0);
+    expect(h.alertes[0].corps).toContain('PLUSIEURS permis');
+  });
+
+  it('alerte « aucun candidat » : liste les noms examinés, rappelle l’objet, et dit 0 pièce versée POUR CE MESSAGE', async () => {
+    const h = harness({ candidats: [CAND] });
+    const mb = mail({ objet: 'permis dossier.pdf' }, [piece('dossier.pdf', 'aucun numero connu ici')]);
+    const res = await traiterDepotManuel(mb, 'entreprise', h.deps);
+    expect(res.issue).toBe('aucun_candidat');
+    const corps = h.forwards[0].corps;
+    expect(corps).toContain('0 pièce n’a été versée en GED pour ce message.');
+    expect(corps).toContain('Objet du mail examiné : « permis dossier.pdf »');
+    expect(corps).toContain('dossier.pdf'); // nom de fichier examiné listé
+  });
+
+  it('REJOUE le 15/08 : PC1→PC10 / PC4_A1→A7, objet « permis » sans numéro, corps sans numéro → TOUJOURS « aucun candidat » (pas de faux positif)', async () => {
+    const noms = ['PC1_2D_PDM__20251219164001.pdf', 'PC2_2D_PDM__20251219164116.pdf', 'PC4_A1_2D_PDM__20251015130349.pdf', 'PC10_2D_PDM___20251015130706.pdf'];
+    const h = harness({ candidats: [CAND] }); // le permis 0930012500081 existe mais n'apparaît NULLE PART dans ce mail
+    const mb = mail({ objet: 'permis PC14_2D_PDM.pdf PC16.1_2D_PDM.pdf', corpsTexte: 'Bonjour, voici les pièces du dossier.' }, noms.map((n) => piece(n, 'plan sans numero exploitable')));
+    const res = await traiterDepotManuel(mb, 'entreprise', h.deps);
+    expect(res.issue).toBe('aucun_candidat');
+    expect(h.deposes).toHaveLength(0);
+  });
+});

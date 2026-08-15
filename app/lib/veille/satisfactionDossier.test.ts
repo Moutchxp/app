@@ -41,3 +41,24 @@ describe('R6c — dossiersSatisfaits', () => {
     expect(r).toEqual([1, 2]);
   });
 });
+
+describe('N6-D — sources ADDITIVES (objet, corps HTML) : additives, sans seconde normalisation', () => {
+  it('numéro présent SEULEMENT dans l’OBJET → reconnu', () => {
+    const r = dossiersSatisfaits({ piecesNoms: ['plan.pdf'], corpsTexte: null, objet: 'permis PC 092 004 25 00001 pièces' }, DOSSIERS);
+    expect(r).toEqual([2]);
+  });
+  it('numéro présent SEULEMENT dans le corps HTML → reconnu (TEXTE extrait, pas les balises/attributs)', () => {
+    const html = '<div><p>Référence du dossier&nbsp;: PC0920042500001</p></div>';
+    expect(dossiersSatisfaits({ piecesNoms: [], corpsTexte: null, corpsHtml: html }, DOSSIERS)).toEqual([2]);
+  });
+  it('un numéro caché dans un ATTRIBUT HTML (href) n’est PAS lu (on n’examine que le texte)', () => {
+    const html = '<a href="https://x/PC0920042500001/view">télécharger</a>';
+    expect(dossiersSatisfaits({ piecesNoms: [], corpsTexte: null, corpsHtml: html }, DOSSIERS)).toEqual([]);
+  });
+  it('NON-RÉGRESSION : un appelant qui NE fournit ni objet ni corpsHtml → résultat identique à avant', () => {
+    // même entrée que le test « corps » historique, sans les nouveaux champs
+    expect(dossiersSatisfaits({ piecesNoms: [], corpsTexte: 'dossier PC0920042500001 ci-joint' }, DOSSIERS)).toEqual([2]);
+    // objet/corpsHtml undefined ⇒ chaînes vides ⇒ ne peuvent JAMAIS ajouter de correspondance
+    expect(dossiersSatisfaits({ piecesNoms: ['accuse.pdf'], corpsTexte: 'rien' }, DOSSIERS)).toEqual([]);
+  });
+});

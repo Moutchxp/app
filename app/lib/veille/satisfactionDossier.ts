@@ -10,6 +10,9 @@
 export interface ReponsePourSatisfaction {
   piecesNoms: string[];        // noms des fichiers joints
   corpsTexte: string | null;   // corps texte de la réponse
+  // N6-D — sources ADDITIVES (optionnelles) : un appelant qui ne les fournit PAS obtient un résultat STRICTEMENT inchangé.
+  objet?: string | null;       // objet du mail (Gmail y colle les noms de fichiers ; un correspondant y met souvent la référence)
+  corpsHtml?: string | null;   // corps HTML : on en extrait le TEXTE seul (jamais les balises ni les attributs)
 }
 
 export interface DossierPourSatisfaction {
@@ -26,11 +29,31 @@ function normaliser(s: string): string {
 }
 
 /**
+ * N6-D — extrait le TEXTE d'un corps HTML : retire les balises (et donc leurs attributs — on ne cherche JAMAIS un numéro dans un
+ * `href`), décode quelques entités usuelles. Pas une seconde normalisation : `normaliser` reste seul juge du rapprochement.
+ */
+function texteDepuisHtml(html: string | null | undefined): string {
+  if (!html) return '';
+  return html
+    .replace(/<[^>]+>/g, ' ')                 // balises + attributs retirés → seuls les nœuds de texte subsistent
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&#0*39;|&apos;/gi, "'");
+}
+
+/**
  * Renvoie les `dossierId` dont le numéro Sitadel complet apparaît LITTÉRALEMENT (après normalisation) dans un nom de pièce
- * jointe ou dans le corps de la réponse. Un numéro tronqué/partiel ne satisfait rien. Liste vide si aucune correspondance.
+ * jointe, le corps texte, l'OBJET (N6-D) ou le TEXTE du corps HTML (N6-D). Un numéro tronqué/partiel ne satisfait rien. Liste
+ * vide si aucune correspondance. Élargir les sources augmente le risque d'ambiguïté : c'est l'appelant (règle « ≥ 2 numéros
+ * distincts → on ne verse rien ») qui l'absorbe, jamais ce module.
  */
 export function dossiersSatisfaits(reponse: ReponsePourSatisfaction, dossiers: DossierPourSatisfaction[]): number[] {
-  const foin = normaliser([...reponse.piecesNoms, reponse.corpsTexte ?? ''].join('\n'));
+  const foin = normaliser([
+    ...reponse.piecesNoms,
+    reponse.corpsTexte ?? '',
+    reponse.objet ?? '',                       // additif : absent chez les appelants historiques → chaîne vide, foin inchangé
+    texteDepuisHtml(reponse.corpsHtml),        // additif : texte du HTML seul (jamais les balises)
+  ].join('\n'));
   const satisfaits: number[] = [];
   for (const d of dossiers) {
     const num = normaliser(d.numDau);
