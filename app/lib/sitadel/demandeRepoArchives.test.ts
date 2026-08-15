@@ -8,10 +8,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 const H = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
-  const state = { rows: [] as Record<string, unknown>[] };
+  const state = { rows: [] as Record<string, unknown>[], sources: [] as Record<string, unknown>[] };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
     if (sql.includes('dd.satisfait_le IS NOT NULL')) return { rows: state.rows };
+    if (sql.includes('permis_extraction_journal')) return { rows: state.sources }; // N10 : noms des pièces sources par dossier
     return { rows: [] }; // config_veille + sous-lectures → défauts (seuils 10/1500, rangs 1..5)
   };
   return { appels, state, queryMock };
@@ -30,7 +31,7 @@ const row = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
 });
 const archiveQuery = () => H.appels.find((a) => a.sql.includes('dd.satisfait_le IS NOT NULL'))!;
 
-beforeEach(() => { H.appels.length = 0; H.state.rows = []; });
+beforeEach(() => { H.appels.length = 0; H.state.rows = []; H.state.sources = []; });
 
 describe('A1a — listerArchives : filtre satisfait + jointure SQL', () => {
   it('n’archive QUE les dossiers satisfaits (WHERE satisfait_le IS NOT NULL), par JOINTURE SQL (jamais en mémoire)', async () => {
@@ -60,8 +61,19 @@ describe('A1a — listerArchives : mapping + pièces', () => {
     expect(r[0].categorie).toBe('immeuble_neuf');       // nature '1' + 20 logements ≥ seuil → immeuble neuf
     expect(r[0].demandeReference).toBe('SVAV-DEM-2026-000042');
     expect(r[0].satisfaitPar).toBe('automatique');
-    expect(r[0].pieces).toEqual([{ id: 10, nomFichier: 'plan.pdf', typeMime: 'application/pdf', tailleOctets: 12345, deposee: true, motifNonStocke: null, origine: 'email' }]);
+    expect(r[0].pieces).toEqual([{ id: 10, nomFichier: 'plan.pdf', typeMime: 'application/pdf', tailleOctets: 12345, deposee: true, motifNonStocke: null, origine: 'email', estSource: false }]); // N10 : estSource ajouté (aucune source ici)
     expect(JSON.stringify(r)).not.toContain('cle_stockage'); // la clé n'est nulle part dans le résultat
+  });
+
+  it('N10 — une pièce citée par le journal (role retenue) est marquée estSource ; les autres non', async () => {
+    H.state.rows = [row({ pieces: [
+      { id: 10, nomFichier: 'PC3.pdf', typeMime: 'application/pdf', tailleOctets: 1, deposee: true, motifNonStocke: null, origine: 'email' },
+      { id: 11, nomFichier: 'autre.pdf', typeMime: 'application/pdf', tailleOctets: 1, deposee: true, motifNonStocke: null, origine: 'email' },
+    ] })];
+    H.state.sources = [{ dossier_id: 1, noms: ['PC3.pdf'] }]; // seul PC3 a servi à extraire une valeur
+    const r = await listerArchives(await chargerConfigVeille());
+    expect(r[0].pieces.find((p) => p.nomFichier === 'PC3.pdf')!.estSource).toBe(true);
+    expect(r[0].pieces.find((p) => p.nomFichier === 'autre.pdf')!.estSource).toBe(false);
   });
 
   it('un permis renseigné SANS pièce apparaît quand même (pieces = [])', async () => {

@@ -97,7 +97,7 @@ export function ArchivesVue() {
         onTelecharger={(id, source) => void telecharger(id, source)}
         onSupprimer={(id) => void supprimer(id)}
         onFichier={(dossierId, fichier) => void televerser(dossierId, fichier)}
-        slotCaracteristiques={(dossierId) => <CaracteristiquesBloc dossierId={dossierId} />} />
+        slotCaracteristiques={(dossierId) => <CaracteristiquesBloc dossierId={dossierId} onTelecharger={(id, source) => void telecharger(id, source)} />} />
 
       {nbPages > 1 && (
         <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>

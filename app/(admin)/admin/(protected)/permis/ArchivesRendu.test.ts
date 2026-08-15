@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { TableArchives, PieceLien, CellulePieces, AjoutDocument, categoriePiece, libelleOrigineSatisfaction, labelNbPieces, MESSAGE_VIDE_ARCHIVES, etatArchive, BadgeEtatArchive, type EtatArchive } from './ArchivesRendu';
+import { BLEU_SOURCE } from './CaracteristiquesRendu'; // N10 : le bleu partagé des pièces sources
 import type { LigneArchive, PieceArchive } from '../../../../lib/sitadel/demandeRepo';
 
 const emailDeposee: PieceArchive = { id: 10, nomFichier: 'plan-de-masse.pdf', typeMime: 'application/pdf', tailleOctets: 12345, deposee: true, motifNonStocke: null, origine: 'email', recuLe: '2026-07-01', objet: 'Réponse à votre demande de communication' };
@@ -179,6 +180,28 @@ describe('N3-D — CellulePieces : ordre des catégories, ordre d’origine inte
     expect(h.indexOf('Fiche de synthèse du permis.pdf')).toBeLessThan(h.indexOf('PC1_2D.pdf'));
     // la fiche n'a pas de bouton « supprimer » ; la pièce auto en a un → « supprimer » présent une seule fois (pour l'auto)
     expect((h.match(/supprimer/g) ?? []).length).toBe(1);
+  });
+
+  it('N10 — une pièce SOURCE remonte EN TÊTE de SA catégorie ; l’ordre des NON-sources reste stable', () => {
+    const src = (id: number, nom: string): PieceArchive => ({ ...doc(id, nom), estSource: true });
+    // Plans : PC2 (non source), PC5 SOURCE, PC10 (non source) → PC5 doit passer devant PC2, et PC2 rester devant PC10.
+    const h = rendreCellule([doc(1, 'PC2_2D.pdf'), src(2, 'PC5_2D.pdf'), doc(3, 'PC10_2D.pdf')]);
+    expect(h.indexOf('PC5_2D.pdf')).toBeLessThan(h.indexOf('PC2_2D.pdf'));   // source en tête
+    expect(h.indexOf('PC2_2D.pdf')).toBeLessThan(h.indexOf('PC10_2D.pdf'));  // ordre relatif des non-sources conservé
+  });
+
+  it('N10 — l’ordre des CATÉGORIES n’est pas touché par une source dans « Autres »', () => {
+    const src = (id: number, nom: string): PieceArchive => ({ ...doc(id, nom), estSource: true });
+    const h = rendreCellule([src(1, 'inconnu.pdf'), doc(2, 'PC1_2D.pdf')]); // source dans Autres, plan non source
+    expect(h.indexOf('Plans')).toBeLessThan(h.indexOf('Autres pièces'));    // Plans reste avant Autres
+  });
+
+  it('N10 — une pièce source est écrite en BLEU (repérable d’un coup d’œil) ; une non-source ne l’est pas', () => {
+    const src: PieceArchive = { ...doc(1, 'PC3_2D.pdf'), estSource: true };
+    const h = renderToStaticMarkup(createElement(PieceLien, { piece: src, onTelecharger: () => {} }));
+    expect(h).toContain(BLEU_SOURCE);
+    const hn = renderToStaticMarkup(createElement(PieceLien, { piece: doc(2, 'PC4_2D.pdf'), onTelecharger: () => {} }));
+    expect(hn).not.toContain(BLEU_SOURCE);
   });
 });
 

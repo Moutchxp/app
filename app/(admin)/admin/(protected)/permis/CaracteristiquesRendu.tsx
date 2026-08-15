@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { Fragment, type CSSProperties } from 'react';
 import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo';
 // ⚠️ Bundle client (piège du 13/08) : de `journalLecture` (module serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
@@ -14,6 +14,12 @@ const styleLabel: CSSProperties = { fontSize: 12, fontWeight: 700, color: 'var(-
 const styleInput: CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14, fontFamily: 'inherit' };
 const styleErreur: CSSProperties = { fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 600 };
 const styleNote: CSSProperties = { fontSize: 11, lineHeight: 1.4, color: 'var(--color-svv-ink)', background: '#fff8f8', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.25rem .4rem' };
+// N10 — bleu des PIÈCES SOURCES : même couleur pour un lien de provenance et pour une pièce-source dans la liste (« même sens »).
+// Pas de jeton bleu dans la charte → couleur en dur, comme l'ORANGE d'échéance d'ArchivesRendu ; accessible sur fond blanc (AA).
+export const BLEU_SOURCE = '#1a5fb4';
+/** N10 — résout le nom de fichier d'une provenance en un déclencheur de téléchargement, ou `undefined` si la pièce n'est pas résolue
+ *  (→ l'entrée reste en texte simple, jamais un lien mort). Fourni par la Vue (mappe nom → id `dossier_document`, unique par dossier). */
+export type LienPiece = (nomFichier: string) => (() => void) | undefined;
 
 /** Pastille d'ORIGINE d'une valeur : saisie à la main · extraite d'une pièce · non renseignée. Texte porteur, couleur en appui. */
 export function PastilleOrigineValeur({ origine }: { origine: OrigineValeur | null }) {
@@ -57,7 +63,7 @@ export function FaitsPermisBloc({ faits }: { faits: FaitsPermis }) {
 }
 
 /** Éditeur du PARKING en TROIS états (select : non renseigné / oui / non), avec origine + confiance/motif (N7-E). Jamais binaire. */
-export function EditeurParking({ valeur, origine, journal, onValeur }: { valeur: '' | 'oui' | 'non'; origine: OrigineValeur | null; journal?: JournalChamp; onValeur: (v: '' | 'oui' | 'non') => void }) {
+export function EditeurParking({ valeur, origine, journal, lienPiece, onValeur }: { valeur: '' | 'oui' | 'non'; origine: OrigineValeur | null; journal?: JournalChamp; lienPiece?: LienPiece; onValeur: (v: '' | 'oui' | 'non') => void }) {
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
       <LigneLabel libelle="Parking" origine={origine} journal={journal} />
@@ -66,7 +72,7 @@ export function EditeurParking({ valeur, origine, journal, onValeur }: { valeur:
         <option value="oui">oui</option>
         <option value="non">non</option>
       </select>
-      <AnnotationsExtraction origine={origine} journal={journal} />
+      <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} />
     </div>
   );
 }
@@ -82,18 +88,37 @@ function texteProvenance(p: { piece: string | null; page: number | null }): stri
  * PROVENANCE repliable (uniquement pour une valeur 'extraite'), et MOTIF de non-écriture (uniquement pour un champ VIDE, origine
  * null). Une saisie n'en montre aucune. UN SEUL composant, réutilisé par TOUS les éditeurs (mesures, parking, repère, permis).
  */
-export function AnnotationsExtraction({ origine, journal }: { origine: OrigineValeur | null; journal?: JournalChamp }) {
+export function AnnotationsExtraction({ origine, journal, lienPiece }: { origine: OrigineValeur | null; journal?: JournalChamp; lienPiece?: LienPiece }) {
   const j = origine === 'extraite' ? journal : undefined;
-  const provenances = j?.provenances ?? [];
   const motif = origine === null ? journal?.motif ?? null : null;
+  // N10-D — DÉDOUBLONNAGE des entrées identiques (le journal peut répéter une même pièce/page). Le COMPTE annoncé est celui des
+  // PIÈCES DISTINCTES (aligné sur la corroboration du moteur), et on précise le nombre de PAGES quand il diffère — libellé honnête.
+  const provenances = [...new Map((j?.provenances ?? []).map((p) => [`${p.piece ?? ''}#${p.page ?? ''}`, p])).values()];
+  const nbPieces = new Set(provenances.map((p) => p.piece)).size;
+  const nbPages = provenances.length;
+  const compte = `${nbPieces} pièce${nbPieces > 1 ? 's' : ''}${nbPages > nbPieces ? `, ${nbPages} pages` : ''}`;
   return (
     <>
       {j?.reserve && <span role="note" style={styleNote}>⚠ {j.reserve}</span>}
       {motif && <span role="note" style={{ ...styleNote, color: 'var(--color-svv-muted)' }}>vide : {motif}</span>}
       {provenances.length > 0 && (
         <details style={{ fontSize: 11 }}>
-          <summary style={{ ...styleAide, cursor: 'pointer' }}>provenance ({provenances.length} pièce{provenances.length > 1 ? 's' : ''})</summary>
-          <span style={{ ...styleAide, display: 'block', marginTop: '.15rem', overflowWrap: 'anywhere' }}>{provenances.map(texteProvenance).join(' · ')}</span>
+          <summary style={{ ...styleAide, cursor: 'pointer' }}>provenance ({compte})</summary>
+          <span style={{ ...styleAide, display: 'block', marginTop: '.15rem', overflowWrap: 'anywhere' }}>
+            {provenances.map((p, i) => {
+              // N10-A — chaque entrée devient un LIEN bleu (téléchargement) si la pièce est résolue ; sinon texte simple (jamais un lien mort).
+              const decl = p.piece ? lienPiece?.(p.piece) : undefined;
+              const txt = texteProvenance(p);
+              return (
+                <Fragment key={`${p.piece ?? ''}#${p.page ?? ''}`}>
+                  {i > 0 ? ' · ' : null}
+                  {decl
+                    ? <button type="button" onClick={decl} style={{ background: 'none', border: 0, padding: 0, font: 'inherit', color: BLEU_SOURCE, textDecoration: 'underline', cursor: 'pointer' }}>{txt} ↓</button>
+                    : <span>{txt}</span>}
+                </Fragment>
+              );
+            })}
+          </span>
         </details>
       )}
     </>
@@ -115,8 +140,8 @@ function LigneLabel({ libelle, origine, journal }: { libelle: string; origine: O
  * Champ d'UNE mesure : input numérique (VIDE autorisé → jamais 0 par défaut), bornes LUES de la base sous le champ, origine +
  * confiance + réserve + provenance + motif (via `AnnotationsExtraction`). Le SOMMET est signalé + une ligne dit ce qu'il désigne.
  */
-export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, onValeur }: {
-  mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; onValeur: (v: string) => void;
+export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, onValeur }: {
+  mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece; onValeur: (v: string) => void;
 }) {
   const cadreSommet: CSSProperties = mesure.estSommet
     ? { border: '1px solid var(--color-svv-red)', borderRadius: '.5rem', padding: '.4rem .5rem', background: '#fff8f8' }
@@ -130,15 +155,15 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
       <span style={styleAide}>{libelleBornes(mesure, bornes)}</span>
       {mesure.estSommet && <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}>{mesure.aide}</span>}
       {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
-      <AnnotationsExtraction origine={origine} journal={journal} />
+      <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} />
     </div>
   );
 }
 
 /** N7-E — éditeur d'UN champ DÉCLARÉ (niveau permis) : « nature » = sélecteur (options venant du CHECK), sinon nombre (≥0) / texte.
  *  Même traitement d'annotations que les mesures (confiance/réserve/provenance/motif). Tri-état préservé (vide = non renseigné). */
-export function ChampDeclareEditeur({ champ, bornes, valeur, origine, erreur, journal, naturesPossibles, divergence, onValeur }: {
-  champ: ChampDeclare; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; naturesPossibles?: readonly string[]; divergence?: string | null; onValeur: (v: string) => void;
+export function ChampDeclareEditeur({ champ, bornes, valeur, origine, erreur, journal, lienPiece, naturesPossibles, divergence, onValeur }: {
+  champ: ChampDeclare; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece; naturesPossibles?: readonly string[]; divergence?: string | null; onValeur: (v: string) => void;
 }) {
   const libelle = `${champ.libelle}${champ.unite ? ` (${champ.unite})` : ''}`;
   return (
@@ -158,7 +183,7 @@ export function ChampDeclareEditeur({ champ, bornes, valeur, origine, erreur, jo
       {bornes && <span style={styleAide}>valeur attendue entre {bornes.min} et {bornes.max}{champ.unite ? ` ${champ.unite}` : ''}</span>}
       {champ.aide && <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}>{champ.aide}</span>}
       {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
-      <AnnotationsExtraction origine={origine} journal={journal} />
+      <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} />
       {/* N7-F — divergence signalée (ex. parking vestigial vs nombre de places) : information, jamais masquée. */}
       {divergence && <span role="note" style={{ ...styleNote, color: 'var(--color-svv-red)', fontWeight: 600 }}>⚠ divergence : {divergence}</span>}
     </div>

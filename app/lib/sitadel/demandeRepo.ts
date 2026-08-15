@@ -270,6 +270,7 @@ export interface PieceArchive {
   recuLe: string | null;         // T5 : date de la réponse porteuse (email) → étiquette « reçues le JJ/MM » ; NULL pour un document manuel
   objet: string | null;          // T5 : objet de la réponse porteuse (email) ; NULL pour un document manuel
   deposePar?: string | null;     // N6-F : pour une pièce 'auto', l'EXPÉDITEUR du mail d'origine (d'où vient la pièce) ; absent pour l'e-mail
+  estSource?: boolean;           // N10 : cette pièce a servi à EXTRAIRE une valeur (citée par le journal, role='retenue') → affichée en bleu + remontée en tête de catégorie
 }
 /** Une ligne d'archive = UN PERMIS renseigné : un `demande_dossier` dont `satisfait_le` n'est pas nul. */
 export interface LigneArchive {
@@ -345,7 +346,9 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
   // A1b — documents AJOUTÉS À LA MAIN (dossier_document), fusionnés par dossier. RÉSILIENT à l'ordre des migrations : si la
   // table n'existe pas encore (089 non appliquée), on JOURNALISE et on dégrade en « aucun document manuel » (pièces e-mail conservées).
   const manuels = await lireDocumentsManuels();
+  const sources = await lirePiecesSources(); // N10 : noms des pièces citées par le journal (role='retenue'), par dossier
   return rows.map((r) => {
+    const srcNoms = sources.get(r.dossier_id) ?? new Set<string>();
     const cl = classer(
       { type: r.type, natureProjetCompletee: r.nature_projet_completee, iExtension: r.i_extension, iSurelevation: r.i_surelevation, nbLgtTotCrees: r.nb_lgt_tot_crees, surfCreee: r.surf_creee === null ? null : Number(r.surf_creee) },
       cfg,
@@ -357,7 +360,8 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
       demandeReference: r.demande_reference,
       recuLe: r.recu_le ?? null, expireLeCapte: r.expire_le_capte ?? null, aLienFort: r.a_lien_fort === true,
       // E-MAIL d'abord (origine 'email'), puis les documents manuels de CE dossier ('manuel'). Fusion par dossier_id ::int (nombre) → pas de piège chaîne.
-      pieces: [...(r.pieces ?? []), ...(manuels.get(r.dossier_id) ?? [])],
+      // N10 : chaque pièce porte `estSource` (citée par le journal) → l'écran l'affiche en bleu et la remonte en tête de catégorie.
+      pieces: [...(r.pieces ?? []), ...(manuels.get(r.dossier_id) ?? [])].map((p) => ({ ...p, estSource: srcNoms.has(p.nomFichier) })),
     };
   });
 }
@@ -390,6 +394,23 @@ async function lireDocumentsManuels(): Promise<Map<number, PieceArchive[]>> {
     return new Map(rows.map((r) => [r.dossier_id, r.docs]));
   } catch (e) {
     journaliserLectureIndisponible('documents manuels (dossier_document — migration 089 non appliquée ?)', e);
+    return new Map();
+  }
+}
+
+/**
+ * N10 — noms de fichiers des pièces qui ont SERVI À EXTRAIRE une valeur, par dossier : lignes `permis_extraction_journal` role='retenue'
+ * avec une `piece`. Sert à AFFICHER ces pièces en bleu et à les remonter en tête de catégorie. RÉSILIENT : table absente (migration
+ * 104 non appliquée) → Map VIDE + log ; aucune pièce n'est marquée « source », l'affichage reste correct (juste sans mise en avant).
+ */
+async function lirePiecesSources(): Promise<Map<number, Set<string>>> {
+  try {
+    const { rows } = await query<{ dossier_id: number; noms: string[] }>(
+      `SELECT dossier_id::int AS dossier_id, array_agg(DISTINCT piece) AS noms
+         FROM permis_extraction_journal WHERE role = 'retenue' AND piece IS NOT NULL GROUP BY dossier_id`);
+    return new Map(rows.map((r) => [r.dossier_id, new Set(r.noms)]));
+  } catch (e) {
+    journaliserLectureIndisponible('pièces sources (permis_extraction_journal — migration 104 non appliquée ?)', e);
     return new Map();
   }
 }

@@ -9,9 +9,10 @@ import {
   MESURES, CHAMPS_PERMIS, construireCorps, construirePermis, valeurVersInput, permisVersInput,
   type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
-import { FaitsPermisBloc, ChampMesureEditeur, ChampDeclareEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS } from './CaracteristiquesRendu';
+import { FaitsPermisBloc, ChampMesureEditeur, ChampDeclareEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, type LienPiece } from './CaracteristiquesRendu';
 
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[] }
+// N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number> }
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '', adresse: c.adresse ?? '',
@@ -44,7 +45,7 @@ const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '
  * BÂTIMENT (mesurés : repère, altitudes, étages, adresse par corps). Toute écriture est en 'saisie'. Confiance/réserve/motif
  * lus du journal (parCorps + permis). Bornes et liste de nature LUES de la base.
  */
-export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
+export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: number; onTelecharger?: (id: number, source: 'reponse' | 'dossier') => void }) {
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
   const [data, setData] = useState<EtatCharge | null>(null);
   const [edGlobal, setEdGlobal] = useState<EditionGlobal>({ parking: '', commentaire: '' });
@@ -140,6 +141,10 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
 
   const majChamp = (corpsId: number, cle: keyof EditionCorps, v: string) => setEdCorps((m) => ({ ...m, [corpsId]: { ...m[corpsId], [cle]: v } }));
 
+  // N10-A — résout un nom de fichier de provenance en un déclencheur de téléchargement (source 'dossier'), ou undefined si non résolu
+  // (nom absent de la GED → l'entrée reste en texte simple, jamais un lien mort). Le signeur reste le serveur (onTelecharger).
+  const lienPiece: LienPiece = (nom) => { const id = data.piecesParNom?.[nom]; return id != null && onTelecharger ? () => onTelecharger(id, 'dossier') : undefined; };
+
   return (
     <div className="flex flex-col gap-3" style={{ marginTop: '.6rem' }}>
       <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--color-svv-ink)' }}>Caractéristiques</h3>
@@ -157,7 +162,7 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
             const divergence = estStationnement ? divergenceParking(data.global) : null;
             return (
               <ChampDeclareEditeur key={champ.cle} champ={champ} bornes={data.bornes[champ.colonne]} valeur={edPermis[champ.cle]} origine={origineDe(data.global, champ.cle)}
-                erreur={erreursPermis[champ.cle]} journal={journal} naturesPossibles={data.naturesPossibles} divergence={divergence}
+                erreur={erreursPermis[champ.cle]} journal={journal} lienPiece={lienPiece} naturesPossibles={data.naturesPossibles} divergence={divergence}
                 onValeur={(v) => setEdPermis((p) => ({ ...p, [champ.cle]: v }))} />
             );
           })}
@@ -192,7 +197,7 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.6rem' }}>
               {MESURES.map((m) => (
                 <ChampMesureEditeur key={m.cle} mesure={m} bornes={data.bornes[m.colonne]} valeur={ed[m.cle]} origine={origineDe(c, m.cle)}
-                  erreur={err[m.cle]} journal={journalCorps[m.colonne]} onValeur={(v) => majChamp(c.id, m.cle, v)} />
+                  erreur={err[m.cle]} journal={journalCorps[m.colonne]} lienPiece={lienPiece} onValeur={(v) => majChamp(c.id, m.cle, v)} />
               ))}
             </div>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>

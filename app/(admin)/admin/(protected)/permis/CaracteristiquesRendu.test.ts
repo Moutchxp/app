@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, MESSAGE_AUCUN_CORPS } from './CaracteristiquesRendu';
+import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, BLEU_SOURCE } from './CaracteristiquesRendu';
 import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
 
@@ -210,5 +210,32 @@ describe('N3-C — FaitsPermisBloc : lecture seule, surface seulement si présen
   });
   it('message « aucun corps » exporté', () => {
     expect(MESSAGE_AUCUN_CORPS).toContain('Aucun corps');
+  });
+});
+
+describe('N10 — AnnotationsExtraction : provenance dédoublonnée, comptée honnêtement, cliquable', () => {
+  const rendre = (props: Parameters<typeof AnnotationsExtraction>[0]) => renderToStaticMarkup(createElement(AnnotationsExtraction, props));
+  // journal 'extraite' avec un DOUBLON (PC5 p.3 deux fois) sur 3 pièces distinctes / 4 pages distinctes.
+  const j: JournalChamp = { confiance: 'confirmee', reserve: null, motif: null, provenances: [
+    { piece: 'PC5.pdf', page: 3 }, { piece: 'PC5.pdf', page: 3 }, { piece: 'PC5.pdf', page: 4 }, { piece: 'PC3.pdf', page: 2 }, { piece: 'PC40.pdf', page: 26 },
+  ] };
+
+  it('D — dédoublonne (PC5 p.3 une seule fois) et compte des PIÈCES distinctes + pages, pas des pages étiquetées « pièces »', () => {
+    const h = rendre({ origine: 'extraite', journal: j });
+    expect(h).toContain('provenance (3 pièces, 4 pages)'); // 3 pièces distinctes (PC5/PC3/PC40), 4 pages après dédoublonnage
+    expect((h.match(/PC5\.pdf p\.3/g) ?? []).length).toBe(1); // le doublon a disparu
+  });
+  it('A — chaque entrée résolue devient un lien bleu (bouton) ; l’entrée non résolue reste en texte simple', () => {
+    const lienPiece = (nom: string) => (nom === 'PC3.pdf' ? () => {} : undefined); // seule PC3 est résolue
+    const h = rendre({ origine: 'extraite', journal: j, lienPiece });
+    expect(h).toContain(BLEU_SOURCE);            // au moins un lien bleu
+    expect(h).toContain('<button');              // PC3 → bouton (téléchargement)
+    expect(h).toContain('PC5.pdf p.3</span>');   // PC5 non résolue → texte simple, jamais un lien mort
+  });
+  it('une valeur SAISIE ne montre aucune provenance (même journal fourni)', () => {
+    expect(rendre({ origine: 'saisie', journal: j })).not.toContain('provenance');
+  });
+  it('un champ VIDE (origine null) affiche le motif, pas la provenance', () => {
+    expect(rendre({ origine: null, journal: { confiance: null, reserve: null, provenances: [], motif: 'absence' } })).toContain('vide : absence');
   });
 });

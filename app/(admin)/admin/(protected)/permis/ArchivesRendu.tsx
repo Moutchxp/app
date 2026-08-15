@@ -3,6 +3,7 @@ import { ConteneurTableDefilant } from './DemandesRendu';
 import { jjmm, tronquerObjet } from './ReponsesRendu'; // T5 : mêmes helpers d'étiquette que BlocPiecesReponses (cohérence Réponses/Archives)
 import { formaterDateJour } from '../../../../lib/sitadel/priorite';
 import { expirationEffective, SEUIL_ARCHIVE_GRIS_MOIS } from '../../../../lib/veille/alerteGed'; // G2 : on IMPORTE les définitions G1 (délai), on ne les recopie pas
+import { BLEU_SOURCE } from './CaracteristiquesRendu'; // N10 : MÊME bleu que les liens de provenance (source unique = « même sens »)
 import type { LigneArchive, PieceArchive } from '../../../../lib/sitadel/demandeRepo';
 
 /**
@@ -108,9 +109,10 @@ export function PieceLien({ piece, onTelecharger, onSupprimer }: {
     <span style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
       <PastilleOrigine origine={piece.origine} />
       {piece.origine === 'auto' && piece.deposePar ? <span style={{ fontSize: 10, ...muted }}>· {piece.deposePar}</span> : null}
+      {/* N10 — une pièce SOURCE (ayant servi à extraire une valeur) est écrite en BLEU, même sens que les liens de provenance. */}
       {piece.deposee
-        ? <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', textAlign: 'left' }} onClick={() => onTelecharger?.(piece.id, source)}>{piece.nomFichier} ↓</button>
-        : <span style={{ fontSize: 12, ...muted }}>{piece.nomFichier} — <em>non déposée{piece.motifNonStocke ? ` : ${piece.motifNonStocke}` : ''}</em></span>}
+        ? <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', textAlign: 'left', color: piece.estSource ? BLEU_SOURCE : undefined, fontWeight: piece.estSource ? 700 : undefined }} onClick={() => onTelecharger?.(piece.id, source)}>{piece.nomFichier} ↓</button>
+        : <span style={{ fontSize: 12, ...(piece.estSource ? { color: BLEU_SOURCE, fontWeight: 700 } : muted) }}>{piece.nomFichier} — <em>non déposée{piece.motifNonStocke ? ` : ${piece.motifNonStocke}` : ''}</em></span>}
       {supprimable && onSupprimer ? <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', color: 'var(--color-svv-red)' }} onClick={() => onSupprimer(piece.id)}>supprimer</button> : null}
     </span>
   );
@@ -156,10 +158,13 @@ export function CellulePieces({ pieces, onTelecharger, onSupprimer }: {
     const g = groupes.get(cle) ?? groupes.set(cle, { recuLe: p.recuLe, objet: p.objet, items: [] }).get(cle)!;
     g.items.push(p);
   }
+  // N10 — À L'INTÉRIEUR d'une catégorie, les pièces SOURCES remontent EN TÊTE ; l'ordre des catégories (N3-D) et l'ordre relatif des
+  //   pièces non sources restent stables (partition, pas un tri comparatif). L'ordre des catégories lui-même n'est jamais touché.
+  const sourcesEnTete = (items: PieceArchive[]): PieceArchive[] => [...items.filter((p) => p.estSource), ...items.filter((p) => !p.estSource)];
   // N3-D — répartition des documents du dossier par catégorie, dans l'ORDRE défini ; ordre d'origine conservé (filter stable).
   const parCategorie = [
-    ...ORDRE_CATEGORIES_PIECES.map((c) => ({ cle: c.cle as CategoriePiece, libelle: c.libelle, items: documentsDossier.filter((p) => categoriePiece(p.nomFichier) === c.cle) })),
-    { cle: 'autres' as CategoriePiece, libelle: LIBELLE_CATEGORIE_AUTRES, items: documentsDossier.filter((p) => categoriePiece(p.nomFichier) === 'autres') },
+    ...ORDRE_CATEGORIES_PIECES.map((c) => ({ cle: c.cle as CategoriePiece, libelle: c.libelle, items: sourcesEnTete(documentsDossier.filter((p) => categoriePiece(p.nomFichier) === c.cle)) })),
+    { cle: 'autres' as CategoriePiece, libelle: LIBELLE_CATEGORIE_AUTRES, items: sourcesEnTete(documentsDossier.filter((p) => categoriePiece(p.nomFichier) === 'autres')) },
   ].filter((g) => g.items.length > 0);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>

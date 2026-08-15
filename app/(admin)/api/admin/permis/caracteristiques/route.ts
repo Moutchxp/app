@@ -31,6 +31,16 @@ async function lireBornes(): Promise<BornesParColonne> {
   return parserBornesCheck(rows.map((r) => r.def));
 }
 
+/** N10 — nom de fichier → id `dossier_document` du dossier (nom UNIQUE par dossier → résolution SÛRE ; en cas de doublon on garde le
+ *  plus récent, prudent). Sert à rendre CLIQUABLE une provenance du journal. Tolérant : migration 089 absente → map vide. */
+async function lirePiecesParNom(dossierId: number): Promise<Record<string, number>> {
+  const { rows } = await query<{ id: number; nom_fichier: string }>(
+    `SELECT id::int AS id, nom_fichier FROM dossier_document WHERE dossier_id = $1 ORDER BY id`, [dossierId]);
+  const map: Record<string, number> = {};
+  for (const r of rows) map[r.nom_fichier] = r.id; // ORDER BY id → la dernière écriture (id le plus grand) gagne
+  return map;
+}
+
 /** Faits LECTURE SEULE du permis (Sitadel) — jamais recopiés en base. `null` si le dossier n'existe pas. */
 async function lireFaits(dossierId: number) {
   const { rows } = await query<{ num_dau: string; type: string; commune_nom: string | null; code_insee: string; adresse: string | null; nature: string | null; date_autorisation: string | null; surf: string | number | null }>(
@@ -72,9 +82,11 @@ export async function GET(request: Request): Promise<Response> {
     });
     // N7-E — la liste fermée de nature_projet (du CHECK 106) ; tolérante si 106 non appliquée (→ []).
     const naturesSur = lireNaturesPossibles().catch(() => [] as string[]);
-    const [faits, etat, bornes, journal, naturesPossibles] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur]);
+    // N10 — carte nom → id de pièce, pour rendre les provenances cliquables ; tolérante si 089 non appliquée (→ {}).
+    const piecesSur = lirePiecesParNom(dossierId).catch(() => ({} as Record<string, number>));
+    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur]);
     if (faits === null) return Response.json({ erreur: 'permis inconnu' }, { status: 404 });
-    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles });
+    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom });
   } catch (e) {
     console.error('[permis/caracteristiques] GET indisponible', e);
     return Response.json({ erreur: 'caractéristiques indisponibles' }, { status: 503 });
