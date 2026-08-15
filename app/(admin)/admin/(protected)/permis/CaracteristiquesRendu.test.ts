@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, EditeurParking, FaitsPermisBloc, MESSAGE_AUCUN_CORPS } from './CaracteristiquesRendu';
-import { MESURES, type FaitsPermis } from './caracteristiquesForm';
+import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, MESSAGE_AUCUN_CORPS } from './CaracteristiquesRendu';
+import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
 
 /** N3-C — rendu PUR (node pur, renderToStaticMarkup) : origines, bornes lues de la base, NULL affiché vide, mention du sommet. */
@@ -127,6 +127,42 @@ describe('N3-C — EditeurParking : trois états dont « non renseigné »', () 
     expect(h).toContain('non renseigné');
     expect(h).toContain('>oui<');
     expect(h).toContain('>non<');
+  });
+  it('N7-E — parking VIDE avec motif journalisé → motif affiché', () => {
+    const j: JournalChamp = { confiance: null, reserve: null, provenances: [], motif: 'libellés Cerfa présents mais valeurs non extractibles' };
+    const h = renderToStaticMarkup(createElement(EditeurParking, { valeur: '', origine: null, journal: j, onValeur: noop }));
+    expect(h).toContain('non extractibles');
+  });
+});
+
+describe('N7-E — ChampDeclareEditeur (champs permis)', () => {
+  const nature = CHAMPS_PERMIS.find((c) => c.cle === 'natureProjet')!;
+  const surface = CHAMPS_PERMIS.find((c) => c.cle === 'surfacePlancherM2')!;
+  it('nature = SÉLECTEUR dont les options viennent de la liste fournie (pas de champ libre)', () => {
+    const h = renderToStaticMarkup(createElement(ChampDeclareEditeur, { champ: nature, valeur: 'mixte', origine: 'saisie', naturesPossibles: ['bureaux', 'mixte'], onValeur: noop }));
+    expect(h).toContain('<select');
+    expect(h).toContain('>bureaux<');
+    expect(h).toContain('>mixte<');
+  });
+  it('valeur extraite + confiance → pastille ; réserve affichée', () => {
+    const j: JournalChamp = { confiance: 'confirmee', reserve: 'W2SF1=13032 vs Sitadel', provenances: [{ piece: 'cerfa.pdf', page: 8 }], motif: null };
+    const h = renderToStaticMarkup(createElement(ChampDeclareEditeur, { champ: surface, valeur: '13032', origine: 'extraite', journal: j, onValeur: noop }));
+    expect(h).toContain('corroborée');
+    expect(h).toContain('W2SF1=13032');
+    expect(h).toContain('provenance (1 pièce)');
+  });
+  it('champ VIDE avec motif → motif affiché ; sans motif → rien', () => {
+    const j: JournalChamp = { confiance: null, reserve: null, provenances: [], motif: 'absence de champ ne vaut pas zéro' };
+    expect(renderToStaticMarkup(createElement(ChampDeclareEditeur, { champ: surface, valeur: '', origine: null, journal: j, onValeur: noop }))).toContain('ne vaut pas zéro');
+    expect(renderToStaticMarkup(createElement(ChampDeclareEditeur, { champ: surface, valeur: '', origine: null, onValeur: noop }))).not.toContain('vide :');
+  });
+});
+
+describe('N7-E — EditeurRepere : motif sous un repère vide', () => {
+  it('repère VIDE + motif → affiché ; repère RENSEIGNÉ → pas de motif', () => {
+    const j: JournalChamp = { confiance: null, reserve: null, provenances: [], motif: 'attribution par corps indécidable' };
+    expect(renderToStaticMarkup(createElement(EditeurRepere, { valeur: '', journal: j, onValeur: noop }))).toContain('indécidable');
+    expect(renderToStaticMarkup(createElement(EditeurRepere, { valeur: '2D1', journal: j, onValeur: noop }))).not.toContain('indécidable');
   });
 });
 

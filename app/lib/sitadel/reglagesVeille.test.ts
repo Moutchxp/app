@@ -1,9 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import {
-  parserBornesCheck, validerReglages, bandeauIdentite, colonneDepuisProbleme,
+  parserBornesCheck, parserListeCheck, validerReglages, bandeauIdentite, colonneDepuisProbleme,
   PARAMS_VEILLE, PARAMS_DEMANDES, COLONNES_PARAMS_DEMANDES, CHAMPS_IDENTITE,
   COLONNES_THEME_PREPARATION, COLONNES_THEME_CADA,
 } from './reglagesVeille';
+
+describe('N7-E — parserListeCheck : liste fermée depuis le CHECK', () => {
+  it('extrait la liste de la forme = ANY (ARRAY[...]) rendue par Postgres', () => {
+    const def = `CHECK ((nature_projet = ANY (ARRAY['habitation'::text, 'bureaux'::text, 'commerce'::text, 'mixte'::text, 'equipement'::text, 'autre'::text])))`;
+    expect(parserListeCheck([def], 'nature_projet')).toEqual(['habitation', 'bureaux', 'commerce', 'mixte', 'equipement', 'autre']);
+  });
+  it('tolère la forme IN (...) et ignore les CHECK d’une autre colonne', () => {
+    const defs = [`CHECK ((surface_plancher_m2 >= 0))`, `CHECK (nature_projet IN ('a', 'b'))`];
+    expect(parserListeCheck(defs, 'nature_projet')).toEqual(['a', 'b']);
+  });
+  it('colonne absente → liste vide', () => {
+    expect(parserListeCheck([`CHECK ((x >= 0))`], 'nature_projet')).toEqual([]);
+  });
+});
 import { problemesIdentite, type ConfigDemandeur } from './demande';
 
 /**

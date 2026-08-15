@@ -36,6 +36,23 @@ export function parserBornesCheck(defs: string[]): BornesParColonne {
   return bornes;
 }
 
+/**
+ * N7-E — LISTE FERMÉE d'une colonne depuis ses CHECK `IN (...)`. Postgres rend `col IN ('a','b')` comme
+ * `((col = ANY (ARRAY['a'::text, 'b'::text])))` : on repère la définition qui cite la colonne ET porte `= ANY`/`IN (`, puis on
+ * extrait les littéraux quotés dans l'ordre. `[]` si absente. Source = la base, jamais une constante recopiée.
+ */
+export function parserListeCheck(defs: string[], colonne: string): string[] {
+  const nomCol = new RegExp(`\\b${colonne.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+  for (const def of defs) {
+    if (!nomCol.test(def) || !/=\s*ANY|IN\s*\(/i.test(def)) continue;
+    const casts = [...def.matchAll(/'([^']*)'::/g)].map((m) => m[1]);     // 'x'::text (forme = ANY(ARRAY[...]))
+    if (casts.length) return casts;
+    const nus = [...def.matchAll(/'([^']*)'/g)].map((m) => m[1]);          // repli IN ('a','b')
+    if (nus.length) return nus;
+  }
+  return [];
+}
+
 // ── Identité du demandeur (config_demandeur) ─────────────────────────────────
 export interface ChampIdentite {
   cle: keyof ConfigDemandeur;

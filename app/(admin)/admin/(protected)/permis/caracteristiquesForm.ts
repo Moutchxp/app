@@ -4,7 +4,7 @@
  * n'importe de `caracteristiquesRepo` (module serveur, pg) que des TYPES (piège du bundle client du 13/08). Les bornes sont
  * LUES des CHECK de la base (`parserBornesCheck`) et passées ici ; JAMAIS recopiées en dur.
  */
-import type { ChampCorps, ValeursCorps } from '../../../../lib/permis/caracteristiquesRepo';
+import type { ChampCorps, ValeursCorps, ChampGlobalDeclare, ValeursGlobalDeclare } from '../../../../lib/permis/caracteristiquesRepo';
 
 export type ChampMesure = Exclude<ChampCorps, 'emprise'>;
 export interface Bornes { min: number; max: number }
@@ -43,6 +43,7 @@ export const MESURES: readonly Mesure[] = [
 /** Édition d'un corps : tout en CHAÎNE (les inputs). Une chaîne VIDE = champ vide (→ null explicite), jamais 0. */
 export interface EditionCorps {
   repere: string;
+  adresse: string; // N7-E — adresse déclarée du corps (saisie manuelle) ; écrite via definirAdresseCorps, pas via construireCorps
   nbEtages: string; nbNiveauxSousSol: string;
   altitudeDernierPlancherNgf: string; altitudeSommetNgf: string;
   hauteurRelativeM: string; altitudeTerrainNaturelNgf: string;
@@ -105,4 +106,50 @@ export function construireGlobal(ed: Partial<EditionGlobal>): { parking?: boolea
 /** number|null → chaîne pour un input : null → '' (VIDE), 0 → '0' (distinct). Jamais « 0 » à la place d'un vide. */
 export function valeurVersInput(v: number | null | undefined): string {
   return v === null || v === undefined ? '' : String(v);
+}
+
+// ── N7-E — champs DÉCLARÉS au niveau PERMIS (colonnes 106). Éditables comme les mesures, mais niveau permis, pas corps. ──────────
+export type ChampPermis = ChampGlobalDeclare;
+/** `genre` : 'liste' = sélecteur (valeurs venant du CHECK, jamais recopiées) | 'nombre' (≥ 0) | 'texte'. */
+export interface ChampDeclare { cle: ChampPermis; colonne: string; libelle: string; genre: 'liste' | 'nombre' | 'texte'; unite?: string | null; entier?: boolean }
+export const CHAMPS_PERMIS: readonly ChampDeclare[] = [
+  { cle: 'natureProjet', colonne: 'nature_projet', libelle: 'Nature du projet', genre: 'liste' },
+  { cle: 'surfacePlancherM2', colonne: 'surface_plancher_m2', libelle: 'Surface de plancher', genre: 'nombre', unite: 'm²', entier: false },
+  { cle: 'nbLogements', colonne: 'nb_logements', libelle: 'Nombre de logements', genre: 'nombre', entier: true },
+  { cle: 'nbPlacesStationnement', colonne: 'nb_places_stationnement', libelle: 'Places de stationnement', genre: 'nombre', entier: true },
+  { cle: 'adresseTerrain', colonne: 'adresse_terrain', libelle: 'Adresse du terrain', genre: 'texte' },
+];
+/** Édition des champs permis : tout en CHAÎNE (les inputs). Une chaîne VIDE = champ vide (→ null explicite), jamais 0. */
+export type EditionPermis = Record<ChampPermis, string>;
+export type ErreursPermis = Partial<Record<ChampPermis, string>>;
+
+/** number|null|bool|string → chaîne pour un input. */
+export function permisVersInput(v: number | string | null | undefined): string {
+  return v === null || v === undefined ? '' : String(v);
+}
+
+/**
+ * Construit `ValeursGlobalDeclare` (nombres ≥ 0, nature dans la LISTE FERMÉE lue du CHECK, textes) + erreurs par champ. Un champ
+ * VIDE → `null` explicite (tri-état préservé). `naturesPossibles` vient du CHECK de la base (jamais recopié ici).
+ */
+export function construirePermis(ed: EditionPermis, naturesPossibles: readonly string[]): { valeurs: ValeursGlobalDeclare; erreurs: ErreursPermis; valide: boolean } {
+  const valeurs: ValeursGlobalDeclare = {};
+  const erreurs: ErreursPermis = {};
+
+  const nature = ed.natureProjet.trim();
+  if (nature === '') valeurs.natureProjet = null;
+  else if (!naturesPossibles.includes(nature)) erreurs.natureProjet = `valeur hors liste (${naturesPossibles.join(', ')})`;
+  else valeurs.natureProjet = nature;
+
+  for (const m of CHAMPS_PERMIS.filter((c) => c.genre === 'nombre')) {
+    const p = parseNombre(ed[m.cle], !!m.entier);
+    if (!p.ok) { erreurs[m.cle] = m.entier ? 'nombre entier attendu' : 'nombre attendu'; continue; }
+    if (p.valeur !== null && p.valeur < 0) { erreurs[m.cle] = 'valeur ≥ 0 attendue'; continue; }
+    valeurs[m.cle] = p.valeur; // VIDE → null (tri-état)
+  }
+
+  const adr = ed.adresseTerrain.trim();
+  valeurs.adresseTerrain = adr === '' ? null : adr;
+
+  return { valeurs, erreurs, valide: Object.keys(erreurs).length === 0 };
 }

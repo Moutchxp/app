@@ -18,16 +18,24 @@ export interface JournalChamp {
   provenances: ProvenanceRetenue[];
   motif: string | null;
 }
-/** Indexé par corps puis par COLONNE SQL du champ (ex. 'altitude_sommet_ngf') — la même clé que `Mesure.colonne`. */
-export type JournalParCorps = Record<number, Record<string, JournalChamp>>;
+/** Indexé par COLONNE SQL du champ (ex. 'altitude_sommet_ngf') — la même clé que `Mesure.colonne`. */
+export type JournalParChamp = Record<string, JournalChamp>;
+/** Indexé par corps puis par colonne. */
+export type JournalParCorps = Record<number, JournalParChamp>;
+/**
+ * Journal d'affichage d'un permis, séparé par NIVEAU : `parCorps` (lignes attribuées à un corps) et `permis` (lignes de niveau
+ * PERMIS, corps_id NULL — ex. les champs Cerfa de N7-D). ⚠️ N7-E : sans ce niveau `permis`, la confiance/réserve/motif des 4
+ * champs Cerfa (corps_id NULL) seraient perdus à la lecture.
+ */
+export interface JournalPermis { parCorps: JournalParCorps; permis: JournalParChamp }
 
 interface LigneJournal { corps_id: number | null; champ: string; role: 'retenue' | 'ecartee'; confiance: 'a_verifier' | 'confirmee' | null; reserve: string | null; motif: string | null; piece: string | null; page: number | null }
 
 /**
- * Journal d'affichage d'un permis, groupé par (corps, champ). Un champ écrit → lignes 'retenue' (confiance/réserve uniformes,
+ * Journal d'affichage d'un permis, groupé par (niveau, champ). Un champ écrit → lignes 'retenue' (confiance/réserve uniformes,
  * provenances accumulées) ; un champ non écrit → ligne 'ecartee' (motif). On garde la première valeur non nulle de chaque attribut.
  */
-export async function lireJournalChamps(dossierId: number): Promise<JournalParCorps> {
+export async function lireJournalChamps(dossierId: number): Promise<JournalPermis> {
   const { rows } = await query<LigneJournal>(
     `SELECT corps_id, champ, role, confiance, reserve, motif, piece, page
        FROM permis_extraction_journal
@@ -35,15 +43,15 @@ export async function lireJournalChamps(dossierId: number): Promise<JournalParCo
       ORDER BY corps_id, champ, piece, page`,
     [dossierId],
   );
-  const out: JournalParCorps = {};
+  const parCorps: JournalParCorps = {};
+  const permis: JournalParChamp = {};
   for (const r of rows) {
-    if (r.corps_id === null) continue; // retenue/ecartee attribuées portent un corps ; les lignes sans corps ne s'affichent pas ici
-    const parChamp = (out[r.corps_id] ??= {});
-    const j = (parChamp[r.champ] ??= { confiance: null, reserve: null, provenances: [], motif: null });
+    const cible = r.corps_id === null ? permis : (parCorps[r.corps_id] ??= {});
+    const j = (cible[r.champ] ??= { confiance: null, reserve: null, provenances: [], motif: null });
     if (j.confiance === null && r.confiance !== null) j.confiance = r.confiance;
     if (j.reserve === null && r.reserve !== null) j.reserve = r.reserve;
     if (j.motif === null && r.motif !== null) j.motif = r.motif;
     if (r.role === 'retenue' && (r.piece !== null || r.page !== null)) j.provenances.push({ piece: r.piece, page: r.page });
   }
-  return out;
+  return { parCorps, permis };
 }

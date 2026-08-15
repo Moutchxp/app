@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo';
 // ⚠️ Bundle client (piège du 13/08) : de `journalLecture` (module serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
-import { MESURES, libelleBornes, type Bornes, type FaitsPermis } from './caracteristiquesForm';
+import { MESURES, libelleBornes, type Bornes, type ChampDeclare, type FaitsPermis } from './caracteristiquesForm';
 
 /**
  * N3-C — rendu PUR de l'éditeur des caractéristiques physiques (motifs ContactRendu + CarteReglageEntier). Aucun état, aucun
@@ -13,6 +13,7 @@ const styleAide: CSSProperties = { fontSize: 11, color: 'var(--color-svv-muted)'
 const styleLabel: CSSProperties = { fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' };
 const styleInput: CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14, fontFamily: 'inherit' };
 const styleErreur: CSSProperties = { fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 600 };
+const styleNote: CSSProperties = { fontSize: 11, lineHeight: 1.4, color: 'var(--color-svv-ink)', background: '#fff8f8', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.25rem .4rem' };
 
 /** Pastille d'ORIGINE d'une valeur : saisie à la main · extraite d'une pièce · non renseignée. Texte porteur, couleur en appui. */
 export function PastilleOrigineValeur({ origine }: { origine: OrigineValeur | null }) {
@@ -55,18 +56,17 @@ export function FaitsPermisBloc({ faits }: { faits: FaitsPermis }) {
   );
 }
 
-/** Éditeur du PARKING en TROIS états (select : non renseigné / oui / non), avec son origine. Jamais une case binaire. */
-export function EditeurParking({ valeur, origine, onValeur }: { valeur: '' | 'oui' | 'non'; origine: OrigineValeur | null; onValeur: (v: '' | 'oui' | 'non') => void }) {
+/** Éditeur du PARKING en TROIS états (select : non renseigné / oui / non), avec origine + confiance/motif (N7-E). Jamais binaire. */
+export function EditeurParking({ valeur, origine, journal, onValeur }: { valeur: '' | 'oui' | 'non'; origine: OrigineValeur | null; journal?: JournalChamp; onValeur: (v: '' | 'oui' | 'non') => void }) {
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
-      <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <span style={styleLabel}>Parking</span><PastilleOrigineValeur origine={origine} />
-      </span>
+      <LigneLabel libelle="Parking" origine={origine} journal={journal} />
       <select value={valeur} onChange={(e) => onValeur(e.target.value as '' | 'oui' | 'non')} style={styleInput} aria-label="Parking">
         <option value="">— non renseigné —</option>
         <option value="oui">oui</option>
         <option value="non">non</option>
       </select>
+      <AnnotationsExtraction origine={origine} journal={journal} />
     </div>
   );
 }
@@ -78,40 +78,16 @@ function texteProvenance(p: { piece: string | null; page: number | null }): stri
 }
 
 /**
- * Champ d'UNE mesure : input numérique (VIDE autorisé → jamais 0 par défaut), bornes LUES de la base sous le champ, origine, et
- * message d'erreur (au niveau du champ, citant les bornes réelles). Le SOMMET est signalé visuellement + une ligne dit ce qu'il désigne.
- *
- * N5-D — pour une valeur d'origine 'extraite', on montre EN PLUS ce que le journal en dit : sa CONFIANCE (pastille distincte de
- * l'origine), sa RÉSERVE en toutes lettres sous le champ, et sa PROVENANCE (pièce/page) dans un repliable. Pour une valeur
- * 'saisie' : rien de tout ça (jamais de « à vérifier » par défaut).
- * N5-E — pour un champ VIDE (non renseigné) dont le journal porte un MOTIF de non-écriture, on affiche ce motif en une phrase
- * courte (même bloc note lisible que la réserve). Un champ vide SANS motif journalisé n'affiche rien (pas de note orpheline).
+ * N5-D/E (factorisé N7-E) — annotations d'un champ lues du journal, à AFFICHER SOUS le champ. RÉSERVE en toutes lettres +
+ * PROVENANCE repliable (uniquement pour une valeur 'extraite'), et MOTIF de non-écriture (uniquement pour un champ VIDE, origine
+ * null). Une saisie n'en montre aucune. UN SEUL composant, réutilisé par TOUS les éditeurs (mesures, parking, repère, permis).
  */
-export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, onValeur }: {
-  mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; onValeur: (v: string) => void;
-}) {
-  const cadreSommet: CSSProperties = mesure.estSommet
-    ? { border: '1px solid var(--color-svv-red)', borderRadius: '.5rem', padding: '.4rem .5rem', background: '#fff8f8' }
-    : {};
-  // La confiance/réserve/provenance ne concernent QUE l'extraction : une saisie ou un champ vide n'en portent aucune.
+export function AnnotationsExtraction({ origine, journal }: { origine: OrigineValeur | null; journal?: JournalChamp }) {
   const j = origine === 'extraite' ? journal : undefined;
   const provenances = j?.provenances ?? [];
-  // N5-E — le MOTIF ne s'affiche que sous un champ VIDE (non renseigné). Une saisie ou une valeur extraite n'en montre pas.
   const motif = origine === null ? journal?.motif ?? null : null;
-  const styleNote: CSSProperties = { fontSize: 11, lineHeight: 1.4, color: 'var(--color-svv-ink)', background: '#fff8f8', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.25rem .4rem' };
   return (
-    <div className="flex flex-col gap-1" style={{ minWidth: 0, ...cadreSommet }}>
-      <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <span style={styleLabel}>{mesure.libelle}{mesure.unite ? ` (${mesure.unite})` : ''}{mesure.estSommet ? ' ★' : ''}</span>
-        <PastilleOrigineValeur origine={origine} />
-        {j?.confiance && <PastilleConfiance confiance={j.confiance} />}
-      </span>
-      <input type="number" inputMode="decimal" value={valeur} placeholder="vide = non renseigné"
-        min={bornes?.min} max={bornes?.max} step={mesure.entier ? 1 : 'any'}
-        onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label={mesure.libelle} />
-      <span style={styleAide}>{libelleBornes(mesure, bornes)}</span>
-      {mesure.estSommet && <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}>{mesure.aide}</span>}
-      {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
+    <>
       {j?.reserve && <span role="note" style={styleNote}>⚠ {j.reserve}</span>}
       {motif && <span role="note" style={{ ...styleNote, color: 'var(--color-svv-muted)' }}>vide : {motif}</span>}
       {provenances.length > 0 && (
@@ -120,6 +96,79 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
           <span style={{ ...styleAide, display: 'block', marginTop: '.15rem', overflowWrap: 'anywhere' }}>{provenances.map(texteProvenance).join(' · ')}</span>
         </details>
       )}
+    </>
+  );
+}
+
+/** Ligne de LABEL commune : libellé + pastille d'origine + pastille de confiance (si valeur extraite portant une confiance). */
+function LigneLabel({ libelle, origine, journal }: { libelle: string; origine: OrigineValeur | null; journal?: JournalChamp }) {
+  return (
+    <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+      <span style={styleLabel}>{libelle}</span>
+      <PastilleOrigineValeur origine={origine} />
+      {origine === 'extraite' && journal?.confiance && <PastilleConfiance confiance={journal.confiance} />}
+    </span>
+  );
+}
+
+/**
+ * Champ d'UNE mesure : input numérique (VIDE autorisé → jamais 0 par défaut), bornes LUES de la base sous le champ, origine +
+ * confiance + réserve + provenance + motif (via `AnnotationsExtraction`). Le SOMMET est signalé + une ligne dit ce qu'il désigne.
+ */
+export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, onValeur }: {
+  mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; onValeur: (v: string) => void;
+}) {
+  const cadreSommet: CSSProperties = mesure.estSommet
+    ? { border: '1px solid var(--color-svv-red)', borderRadius: '.5rem', padding: '.4rem .5rem', background: '#fff8f8' }
+    : {};
+  return (
+    <div className="flex flex-col gap-1" style={{ minWidth: 0, ...cadreSommet }}>
+      <LigneLabel libelle={`${mesure.libelle}${mesure.unite ? ` (${mesure.unite})` : ''}${mesure.estSommet ? ' ★' : ''}`} origine={origine} journal={journal} />
+      <input type="number" inputMode="decimal" value={valeur} placeholder="vide = non renseigné"
+        min={bornes?.min} max={bornes?.max} step={mesure.entier ? 1 : 'any'}
+        onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label={mesure.libelle} />
+      <span style={styleAide}>{libelleBornes(mesure, bornes)}</span>
+      {mesure.estSommet && <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}>{mesure.aide}</span>}
+      {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
+      <AnnotationsExtraction origine={origine} journal={journal} />
+    </div>
+  );
+}
+
+/** N7-E — éditeur d'UN champ DÉCLARÉ (niveau permis) : « nature » = sélecteur (options venant du CHECK), sinon nombre (≥0) / texte.
+ *  Même traitement d'annotations que les mesures (confiance/réserve/provenance/motif). Tri-état préservé (vide = non renseigné). */
+export function ChampDeclareEditeur({ champ, valeur, origine, erreur, journal, naturesPossibles, onValeur }: {
+  champ: ChampDeclare; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; naturesPossibles?: readonly string[]; onValeur: (v: string) => void;
+}) {
+  const libelle = `${champ.libelle}${champ.unite ? ` (${champ.unite})` : ''}`;
+  return (
+    <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
+      <LigneLabel libelle={libelle} origine={origine} journal={journal} />
+      {champ.genre === 'liste' ? (
+        <select value={valeur} onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label={champ.libelle}>
+          <option value="">— non renseigné —</option>
+          {(naturesPossibles ?? []).map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      ) : champ.genre === 'nombre' ? (
+        <input type="number" inputMode="decimal" value={valeur} placeholder="vide = non renseigné" min={0} step={champ.entier ? 1 : 'any'}
+          onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label={champ.libelle} />
+      ) : (
+        <input type="text" value={valeur} placeholder="vide = non renseignée" onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label={champ.libelle} />
+      )}
+      {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
+      <AnnotationsExtraction origine={origine} journal={journal} />
+    </div>
+  );
+}
+
+/** N7-E — repère d'un corps : libellé humain (pas d'origine). On affiche son MOTIF s'il est VIDE et journalisé (ex. « attribution indécidable »). */
+export function EditeurRepere({ valeur, journal, onValeur }: { valeur: string; journal?: JournalChamp; onValeur: (v: string) => void }) {
+  return (
+    <div className="flex flex-col gap-1" style={{ minWidth: 0, flex: '1 1 160px' }}>
+      <span style={styleLabel}>Repère du corps</span>
+      <input value={valeur} placeholder="A1, 2D1…" onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label="Repère du corps" />
+      {/* origine = null si vide → le motif s'affiche ; sinon 'saisie' → rien. */}
+      <AnnotationsExtraction origine={valeur.trim() === '' ? null : 'saisie'} journal={journal} />
     </div>
   );
 }

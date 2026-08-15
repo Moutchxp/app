@@ -1,5 +1,29 @@
 import { describe, it, expect } from 'vitest';
-import { construireCorps, construireGlobal, valeurVersInput, libelleBornes, MESURES, type EditionCorps, type Bornes } from './caracteristiquesForm';
+import { construireCorps, construireGlobal, construirePermis, valeurVersInput, libelleBornes, MESURES, CHAMPS_PERMIS, type EditionCorps, type EditionPermis, type Bornes } from './caracteristiquesForm';
+
+const NATURES = ['habitation', 'bureaux', 'commerce', 'mixte', 'equipement', 'autre'];
+const edPermis = (over: Partial<EditionPermis> = {}): EditionPermis => ({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '', ...over });
+
+describe('N7-E — construirePermis (champs déclarés du permis)', () => {
+  it('vides → toutes valeurs null (tri-état préservé), aucune erreur', () => {
+    const { valeurs, valide } = construirePermis(edPermis(), NATURES);
+    expect(valide).toBe(true);
+    expect(valeurs).toEqual({ natureProjet: null, surfacePlancherM2: null, nbLogements: null, nbPlacesStationnement: null, adresseTerrain: null });
+  });
+  it('nature dans la liste → acceptée ; hors liste → erreur', () => {
+    expect(construirePermis(edPermis({ natureProjet: 'mixte' }), NATURES).valeurs.natureProjet).toBe('mixte');
+    const ko = construirePermis(edPermis({ natureProjet: 'usine' }), NATURES);
+    expect(ko.valide).toBe(false); expect(ko.erreurs.natureProjet).toBeDefined();
+  });
+  it('nombres : négatif refusé, 0 accepté (0 ≠ vide)', () => {
+    expect(construirePermis(edPermis({ nbPlacesStationnement: '-1' }), NATURES).erreurs.nbPlacesStationnement).toBeDefined();
+    const ok = construirePermis(edPermis({ nbPlacesStationnement: '0', surfacePlancherM2: '13032' }), NATURES);
+    expect(ok.valeurs.nbPlacesStationnement).toBe(0); expect(ok.valeurs.surfacePlancherM2).toBe(13032);
+  });
+  it('les 5 champs déclarés sont exposés', () => {
+    expect(CHAMPS_PERMIS.map((c) => c.cle).sort()).toEqual(['adresseTerrain', 'natureProjet', 'nbLogements', 'nbPlacesStationnement', 'surfacePlancherM2']);
+  });
+});
 
 /**
  * N3-C — helpers PURS de l'éditeur des caractéristiques (motif contactForm). Sémantique `ecrireContact` : champ vidé → null
@@ -15,7 +39,7 @@ const BORNES: Record<string, Bornes> = {
   altitude_terrain_naturel_ngf: { min: -50, max: 500 },
 };
 const edCorps = (over: Partial<EditionCorps> = {}): EditionCorps => ({
-  repere: '', nbEtages: '', nbNiveauxSousSol: '', altitudeDernierPlancherNgf: '', altitudeSommetNgf: '', hauteurRelativeM: '', altitudeTerrainNaturelNgf: '', ...over,
+  repere: '', adresse: '', nbEtages: '', nbNiveauxSousSol: '', altitudeDernierPlancherNgf: '', altitudeSommetNgf: '', hauteurRelativeM: '', altitudeTerrainNaturelNgf: '', ...over,
 });
 
 describe('N3-C — construireCorps : vide → null explicite, bornes de la base, entiers', () => {

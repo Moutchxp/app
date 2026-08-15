@@ -1,11 +1,18 @@
 import 'server-only';
 import { query } from '../../../../../lib/db/client';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { parserBornesCheck, type BornesParColonne } from '../../../../../lib/sitadel/reglagesVeille';
+import { parserBornesCheck, parserListeCheck, type BornesParColonne } from '../../../../../lib/sitadel/reglagesVeille';
 import { libelleNatureProjet } from '../../../../../lib/sitadel/priorite';
-import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, creerCorps, supprimerCorps, definirRepere, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
-import { lireJournalChamps, type JournalParCorps } from '../../../../../lib/permis/journalLecture';
-import { MESURES, construireGlobal } from '../../../../admin/(protected)/permis/caracteristiquesForm';
+import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
+import { lireJournalChamps, type JournalPermis } from '../../../../../lib/permis/journalLecture';
+import { MESURES, construireGlobal, construirePermis, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
+
+/** N7-E — liste FERMÉE de nature_projet, lue du CHECK de permis_caracteristique (jamais recopiée). */
+async function lireNaturesPossibles(): Promise<string[]> {
+  const { rows } = await query<{ def: string }>(
+    `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'permis_caracteristique'::regclass AND contype = 'c'`);
+  return parserListeCheck(rows.map((r) => r.def), 'nature_projet');
+}
 
 /**
  * /api/admin/permis/caracteristiques (chantier N3-C) — édition des caractéristiques physiques d'UN permis. GET = état complet
@@ -57,16 +64,17 @@ export async function GET(request: Request): Promise<Response> {
   const dossierId = Number(new URL(request.url).searchParams.get('dossierId'));
   if (!Number.isInteger(dossierId) || dossierId <= 0) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
   try {
-    // N5-D/E — le JOURNAL (confiance/réserve/provenance des valeurs écrites + MOTIF des champs vides) est lu dans le MÊME
-    // aller-retour, pas par champ. TOLÉRANT : si les migrations 104/105 ne sont pas encore appliquées (table/colonne absente),
-    // on dégrade en journal vide + log — sans jamais casser le reste du bloc. Un enrichissement d'affichage ne fait pas tomber l'éditeur.
-    const journalSur = lireJournalChamps(dossierId).catch((e): JournalParCorps => {
-      console.warn('[permis/caracteristiques] journal indisponible (migrations 104/105 non appliquées ?)', e instanceof Error ? e.message : String(e));
-      return {};
+    // N5-D/E/N7-E — le JOURNAL (confiance/réserve/provenance + MOTIF), séparé par niveau (parCorps / permis), lu dans le MÊME
+    // aller-retour. TOLÉRANT : si les migrations ne sont pas appliquées, on dégrade en journal vide + log — sans casser l'éditeur.
+    const journalSur = lireJournalChamps(dossierId).catch((e): JournalPermis => {
+      console.warn('[permis/caracteristiques] journal indisponible (migrations 104-107 non appliquées ?)', e instanceof Error ? e.message : String(e));
+      return { parCorps: {}, permis: {} };
     });
-    const [faits, etat, bornes, journal] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur]);
+    // N7-E — la liste fermée de nature_projet (du CHECK 106) ; tolérante si 106 non appliquée (→ []).
+    const naturesSur = lireNaturesPossibles().catch(() => [] as string[]);
+    const [faits, etat, bornes, journal, naturesPossibles] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur]);
     if (faits === null) return Response.json({ erreur: 'permis inconnu' }, { status: 404 });
-    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal });
+    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles });
   } catch (e) {
     console.error('[permis/caracteristiques] GET indisponible', e);
     return Response.json({ erreur: 'caractéristiques indisponibles' }, { status: 503 });
@@ -100,7 +108,23 @@ export async function POST(request: Request): Promise<Response> {
       const motif = horsBornes(valeurs, bornes);
       if (motif) return Response.json({ erreur: motif }, { status: 422 });
       if ('repere' in body) await definirRepere(body.corpsId, typeof body.repere === 'string' && body.repere.trim() !== '' ? body.repere.trim() : null, auteur);
+      if ('adresse' in body) await definirAdresseCorps(body.corpsId, typeof body.adresse === 'string' ? body.adresse : null, auteur); // N7-E
       const r = await ecrireCorps(body.corpsId, valeurs, 'saisie', auteur);
+      return Response.json({ ok: true, ...r });
+    }
+
+    // N7-E — édition des caractéristiques DÉCLARÉES au niveau PERMIS (colonnes 106), TOUJOURS en 'saisie' (l'écran n'écrit jamais 'extraite').
+    if (action === 'declare') {
+      if (!estEntier(body.dossierId)) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
+      const src = (typeof body.edition === 'object' && body.edition !== null ? body.edition : {}) as Record<string, unknown>;
+      const chaine = (v: unknown): string => (typeof v === 'string' ? v : '');
+      const ed: EditionPermis = {
+        natureProjet: chaine(src.natureProjet), surfacePlancherM2: chaine(src.surfacePlancherM2), nbLogements: chaine(src.nbLogements),
+        nbPlacesStationnement: chaine(src.nbPlacesStationnement), adresseTerrain: chaine(src.adresseTerrain),
+      };
+      const { valeurs, erreurs, valide } = construirePermis(ed, await lireNaturesPossibles());
+      if (!valide) return Response.json({ erreur: 'valeur(s) invalide(s)', erreurs }, { status: 422 });
+      const r = await ecrireCaracteristiquesGlobales(body.dossierId, valeurs, 'saisie', auteur);
       return Response.json({ ok: true, ...r });
     }
 

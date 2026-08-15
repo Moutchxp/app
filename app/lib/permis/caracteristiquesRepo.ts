@@ -33,6 +33,12 @@ export type ValeursCorps = { [K in Exclude<ChampCorps, 'emprise'>]?: number | nu
 export interface GlobalPermis {
   parking: boolean | null; parkingOrigine: OrigineValeur | null;
   commentaire: string | null; majLe: string | null; majPar: string | null;
+  // N7-C/E — caractéristiques DÉCLARÉES (migration 106), niveau permis.
+  natureProjet: string | null; natureProjetOrigine: OrigineValeur | null;
+  surfacePlancherM2: number | null; surfacePlancherM2Origine: OrigineValeur | null;
+  nbLogements: number | null; nbLogementsOrigine: OrigineValeur | null;
+  nbPlacesStationnement: number | null; nbPlacesStationnementOrigine: OrigineValeur | null;
+  adresseTerrain: string | null; adresseTerrainOrigine: OrigineValeur | null;
 }
 export interface CorpsBatiment {
   id: number; repere: string | null;
@@ -43,6 +49,7 @@ export interface CorpsBatiment {
   hauteurRelativeM: number | null; hauteurRelativeMOrigine: OrigineValeur | null;
   altitudeTerrainNaturelNgf: number | null; altitudeTerrainNaturelNgfOrigine: OrigineValeur | null;
   empriseWkt: string | null; empriseOrigine: OrigineValeur | null;
+  adresse: string | null; adresseOrigine: OrigineValeur | null; // N7-C/E — adresse déclarée du corps
   majLe: string | null; majPar: string | null;
 }
 export interface PermisCaracteristiques { global: GlobalPermis | null; corps: CorpsBatiment[] }
@@ -66,6 +73,11 @@ export async function lirePermisCaracteristiques(dossierId: number): Promise<Per
   const { rows } = await query<{ global: GlobalPermis | null; corps: CorpsBatiment[] | null }>(
     `SELECT
        (SELECT json_build_object('parking', parking, 'parkingOrigine', parking_origine, 'commentaire', commentaire,
+                                 'natureProjet', nature_projet, 'natureProjetOrigine', nature_projet_origine,
+                                 'surfacePlancherM2', surface_plancher_m2, 'surfacePlancherM2Origine', surface_plancher_m2_origine,
+                                 'nbLogements', nb_logements, 'nbLogementsOrigine', nb_logements_origine,
+                                 'nbPlacesStationnement', nb_places_stationnement, 'nbPlacesStationnementOrigine', nb_places_stationnement_origine,
+                                 'adresseTerrain', adresse_terrain, 'adresseTerrainOrigine', adresse_terrain_origine,
                                  'majLe', maj_le::text, 'majPar', maj_par)
           FROM permis_caracteristique WHERE dossier_id = $1) AS global,
        COALESCE((
@@ -78,6 +90,7 @@ export async function lirePermisCaracteristiques(dossierId: number): Promise<Per
            'hauteurRelativeM', hauteur_relative_m, 'hauteurRelativeMOrigine', hauteur_relative_m_origine,
            'altitudeTerrainNaturelNgf', altitude_terrain_naturel_ngf, 'altitudeTerrainNaturelNgfOrigine', altitude_terrain_naturel_ngf_origine,
            'empriseWkt', ST_AsText(emprise), 'empriseOrigine', emprise_origine,
+           'adresse', adresse, 'adresseOrigine', adresse_origine,
            'majLe', maj_le::text, 'majPar', maj_par
          ) ORDER BY id)
          FROM permis_corps_batiment WHERE dossier_id = $1), '[]'::json) AS corps
@@ -144,6 +157,13 @@ export async function supprimerCorps(corpsId: number): Promise<boolean> {
 /** N3-C — renomme un corps (le `repere` n'a PAS d'origine : c'est un libellé humain, comme le commentaire du global). `null` = anonyme. */
 export async function definirRepere(corpsId: number, repere: string | null, majPar: string): Promise<void> {
   await query(`UPDATE permis_corps_batiment SET repere = $2, maj_le = now(), maj_par = $3 WHERE id = $1`, [corpsId, repere, majPar]);
+}
+
+/** N7-E — écrit À LA MAIN l'adresse déclarée d'un corps (origine 'saisie' ; NULL = vide → origine null). La saisie écrase tout. */
+export async function definirAdresseCorps(corpsId: number, adresse: string | null, majPar: string): Promise<void> {
+  const v = adresse && adresse.trim() !== '' ? adresse.trim() : null;
+  await query(`UPDATE permis_corps_batiment SET adresse = $2, adresse_origine = $3, maj_le = now(), maj_par = $4 WHERE id = $1`,
+    [corpsId, v, v === null ? null : 'saisie', majPar]);
 }
 
 // ── ÉCRITURE du GLOBAL (parking porte l'invariant ; commentaire = note humaine sans origine) ───────────────────────────────────

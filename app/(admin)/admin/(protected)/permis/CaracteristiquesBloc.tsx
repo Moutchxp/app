@@ -3,38 +3,46 @@
 import { useCallback, useEffect, useState } from 'react';
 // ⚠️ Bundle client (piège du 13/08) : de `caracteristiquesRepo` / `journalLecture` (modules serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { CorpsBatiment, GlobalPermis, OrigineValeur, ValeursCorps } from '../../../../lib/permis/caracteristiquesRepo';
-import type { JournalParCorps } from '../../../../lib/permis/journalLecture';
+import type { JournalPermis } from '../../../../lib/permis/journalLecture';
 import type { BornesParColonne } from '../../../../lib/sitadel/reglagesVeille';
 import {
-  MESURES, construireCorps, valeurVersInput,
-  type EditionCorps, type EditionGlobal, type ErreursCorps, type FaitsPermis,
+  MESURES, CHAMPS_PERMIS, construireCorps, construirePermis, valeurVersInput, permisVersInput,
+  type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
-import { FaitsPermisBloc, EditeurParking, ChampMesureEditeur, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS } from './CaracteristiquesRendu';
+import { FaitsPermisBloc, EditeurParking, ChampMesureEditeur, ChampDeclareEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS } from './CaracteristiquesRendu';
 
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalParCorps }
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[] }
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
-  repere: c.repere ?? '',
+  repere: c.repere ?? '', adresse: c.adresse ?? '',
   nbEtages: valeurVersInput(c.nbEtages), nbNiveauxSousSol: valeurVersInput(c.nbNiveauxSousSol),
   altitudeDernierPlancherNgf: valeurVersInput(c.altitudeDernierPlancherNgf), altitudeSommetNgf: valeurVersInput(c.altitudeSommetNgf),
   hauteurRelativeM: valeurVersInput(c.hauteurRelativeM), altitudeTerrainNaturelNgf: valeurVersInput(c.altitudeTerrainNaturelNgf),
 });
-const origineCorps = (c: CorpsBatiment, cle: string): OrigineValeur | null => (c as unknown as Record<string, OrigineValeur | null>)[`${cle}Origine`] ?? null;
+const editionDepuisPermis = (g: GlobalPermis | null): EditionPermis => ({
+  natureProjet: g?.natureProjet ?? '', surfacePlancherM2: permisVersInput(g?.surfacePlancherM2), nbLogements: permisVersInput(g?.nbLogements),
+  nbPlacesStationnement: permisVersInput(g?.nbPlacesStationnement), adresseTerrain: g?.adresseTerrain ?? '',
+});
+const origineDe = (o: unknown, cle: string): OrigineValeur | null => (o as Record<string, OrigineValeur | null>)?.[`${cle}Origine`] ?? null;
 const parkingVersEdition = (g: GlobalPermis | null): '' | 'oui' | 'non' => (g?.parking === true ? 'oui' : g?.parking === false ? 'non' : '');
 
 const styleLabel = { fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' } as const;
 const styleAide = { fontSize: 11, color: 'var(--color-svv-muted)', lineHeight: 1.4 } as const;
+const styleTitre = { fontSize: 13, fontWeight: 700, margin: 0, color: 'var(--color-svv-ink)' } as const;
 const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14, fontFamily: 'inherit' };
 
 /**
- * N3-C — bloc « Caractéristiques du bâtiment » du panneau déplié d'un permis (Archives). Charge l'état (GET), édite le global
- * (parking tri-état + commentaire) et les CORPS (repère + mesures), ajoute/supprime un corps. Toute écriture est en mode 'saisie'
- * (le serveur ne pose jamais 'extraite' depuis ici). Bornes LUES de la base, validation AVANT l'appel, message au niveau du champ.
+ * N3-C/N7-E — bloc « Caractéristiques » du panneau permis. DEUX niveaux SÉPARÉS : (1) LE PERMIS (déclaré : nature, surface,
+ * logements, stationnement, adresse, parking, commentaire — vaut pour tout le permis, ne se répète pas) ; (2) LES CORPS DE
+ * BÂTIMENT (mesurés : repère, altitudes, étages, adresse par corps). Toute écriture est en 'saisie'. Confiance/réserve/motif
+ * lus du journal (parCorps + permis). Bornes et liste de nature LUES de la base.
  */
 export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
   const [data, setData] = useState<EtatCharge | null>(null);
   const [edGlobal, setEdGlobal] = useState<EditionGlobal>({ parking: '', commentaire: '' });
+  const [edPermis, setEdPermis] = useState<EditionPermis>({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '' });
+  const [erreursPermis, setErreursPermis] = useState<ErreursPermis>({});
   const [edCorps, setEdCorps] = useState<Record<number, EditionCorps>>({});
   const [erreursCorps, setErreursCorps] = useState<Record<number, ErreursCorps>>({});
   const [message, setMessage] = useState<string>('');
@@ -43,12 +51,12 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
   const appliquer = useCallback((d: EtatCharge) => {
     setData(d);
     setEdGlobal({ parking: parkingVersEdition(d.global), commentaire: d.global?.commentaire ?? '' });
+    setEdPermis(editionDepuisPermis(d.global));
     setEdCorps(Object.fromEntries(d.corps.map((c) => [c.id, editionDepuisCorps(c)])));
-    setErreursCorps({});
+    setErreursCorps({}); setErreursPermis({});
     setEtat('ok');
   }, []);
 
-  // Rechargement (appelé par les handlers APRÈS une écriture) : réaligne valeurs + origines depuis la base.
   const rafraichir = useCallback(async () => {
     try {
       const res = await fetch(`/api/admin/permis/caracteristiques?dossierId=${dossierId}`, { cache: 'no-store' });
@@ -57,7 +65,6 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
     } catch { setEtat('erreur'); }
   }, [dossierId, appliquer]);
 
-  // Chargement INITIAL (motif ArchivesVue : IIFE async + garde d'annulation ; setState hors chemin synchrone de l'effet).
   useEffect(() => {
     let annule = false;
     void (async () => {
@@ -81,13 +88,17 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
     } catch { return { ok: false, erreur: 'le serveur n’a pas répondu' }; }
   }, []);
 
-  const enregistrerGlobal = useCallback(async () => {
+  // Enregistre LE PERMIS : les 5 champs déclarés (action 'declare') + parking/commentaire (action 'global').
+  const enregistrerPermis = useCallback(async () => {
+    const { erreurs, valide } = construirePermis(edPermis, data?.naturesPossibles ?? []);
+    setErreursPermis(erreurs);
+    if (!valide) { setMessage('Corrigez les champs signalés avant d’enregistrer.'); return; }
     setEnCours(true);
-    // On envoie l'édition BRUTE (parking tri-état + commentaire) ; la route la repasse par `construireGlobal` (’’ → null).
-    const r = await poster({ action: 'global', dossierId, parking: edGlobal.parking, commentaire: edGlobal.commentaire });
-    if (r.ok) { await rafraichir(); setMessage('Global enregistré.'); } else setMessage(r.erreur ?? 'échec');
+    const r1 = await poster({ action: 'declare', dossierId, edition: edPermis });
+    const r2 = r1.ok ? await poster({ action: 'global', dossierId, parking: edGlobal.parking, commentaire: edGlobal.commentaire }) : r1;
+    if (r2.ok) { await rafraichir(); setMessage('Permis enregistré.'); } else setMessage(r2.erreur ?? 'échec');
     setEnCours(false);
-  }, [poster, dossierId, edGlobal, rafraichir]);
+  }, [poster, dossierId, edPermis, edGlobal, data, rafraichir]);
 
   const enregistrerCorps = useCallback(async (corpsId: number) => {
     const ed = edCorps[corpsId];
@@ -96,7 +107,7 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
     setErreursCorps((m) => ({ ...m, [corpsId]: erreurs }));
     if (!valide) { setMessage('Corrigez les champs signalés avant d’enregistrer.'); return; }
     setEnCours(true);
-    const r = await poster({ action: 'corps', corpsId, repere: ed.repere, valeurs: valeurs as ValeursCorps });
+    const r = await poster({ action: 'corps', corpsId, repere: ed.repere, adresse: ed.adresse, valeurs: valeurs as ValeursCorps });
     if (r.ok) { await rafraichir(); setMessage('Corps enregistré.'); } else setMessage(r.erreur ?? 'échec');
     setEnCours(false);
   }, [edCorps, data, poster, rafraichir]);
@@ -123,42 +134,52 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
 
   return (
     <div className="flex flex-col gap-3" style={{ marginTop: '.6rem' }}>
-      <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--color-svv-ink)' }}>Caractéristiques du bâtiment</h3>
+      <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--color-svv-ink)' }}>Caractéristiques</h3>
       <FaitsPermisBloc faits={data.faits} />
 
-      {/* ── Global : parking (tri-état) + commentaire ── */}
+      {/* ═══ SECTION 1 — LE PERMIS (déclaré) : vaut pour tout le permis, ne se répète pas ═══ */}
       <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '.6rem' }}>
-          <EditeurParking valeur={edGlobal.parking} origine={data.global?.parkingOrigine ?? null} onValeur={(v) => setEdGlobal((g) => ({ ...g, parking: v }))} />
+        <h4 style={styleTitre}>Le permis <span style={{ ...styleAide, fontWeight: 400 }}>— déclaré (Cerfa), vaut pour l’ensemble du projet</span></h4>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.6rem' }}>
+          {CHAMPS_PERMIS.map((champ) => (
+            <ChampDeclareEditeur key={champ.cle} champ={champ} valeur={edPermis[champ.cle]} origine={origineDe(data.global, champ.cle)}
+              erreur={erreursPermis[champ.cle]} journal={data.journal.permis[champ.colonne]} naturesPossibles={data.naturesPossibles}
+              onValeur={(v) => setEdPermis((p) => ({ ...p, [champ.cle]: v }))} />
+          ))}
+          <EditeurParking valeur={edGlobal.parking} origine={data.global?.parkingOrigine ?? null} journal={data.journal.permis['parking']}
+            onValeur={(v) => setEdGlobal((g) => ({ ...g, parking: v }))} />
           <label className="flex flex-col gap-1" style={{ minWidth: 0 }}>
             <span style={styleLabel}>Commentaire</span>
             <textarea value={edGlobal.commentaire} rows={2} onChange={(e) => setEdGlobal((g) => ({ ...g, commentaire: e.target.value }))} style={styleInput} aria-label="Commentaire" />
           </label>
         </div>
         <div>
-          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} disabled={enCours} onClick={() => void enregistrerGlobal()}>Enregistrer le global</button>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} disabled={enCours} onClick={() => void enregistrerPermis()}>Enregistrer le permis</button>
         </div>
       </div>
 
-      {/* ── Corps de bâtiment ── */}
+      {/* ═══ SECTION 2 — LES CORPS DE BÂTIMENT (mesurés) : un par immeuble ═══ */}
+      <h4 style={styleTitre}>Les corps de bâtiment <span style={{ ...styleAide, fontWeight: 400 }}>— mesurés, un par immeuble (altitudes, étages)</span></h4>
       {data.corps.length === 0 && <p style={styleAide}>{MESSAGE_AUCUN_CORPS}</p>}
       {data.corps.map((c) => {
         const ed = edCorps[c.id];
         const err = erreursCorps[c.id] ?? {};
+        const journalCorps = data.journal.parCorps[c.id] ?? {};
         if (!ed) return null;
         return (
           <div key={c.id} className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <label className="flex flex-col gap-1" style={{ minWidth: 0, flex: '1 1 160px' }}>
-                <span style={styleLabel}>Repère du corps</span>
-                <input value={ed.repere} placeholder="A1, 2D1…" onChange={(e) => majChamp(c.id, 'repere', e.target.value)} style={styleInput} aria-label="Repère du corps" />
+            <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <EditeurRepere valeur={ed.repere} journal={journalCorps['repere']} onValeur={(v) => majChamp(c.id, 'repere', v)} />
+              <label className="flex flex-col gap-1" style={{ minWidth: 0, flex: '1 1 200px' }}>
+                <span style={styleLabel}>Adresse de ce corps</span>
+                <input value={ed.adresse} placeholder="vide = non renseignée" onChange={(e) => majChamp(c.id, 'adresse', e.target.value)} style={styleInput} aria-label="Adresse du corps" />
               </label>
               <button type="button" className="svv-link" style={{ width: 'auto', padding: '.2rem .5rem', color: 'var(--color-svv-red)' }} disabled={enCours} onClick={() => void supprimer(c.id, c.repere)}>supprimer ce corps</button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.6rem' }}>
               {MESURES.map((m) => (
-                <ChampMesureEditeur key={m.cle} mesure={m} bornes={data.bornes[m.colonne]} valeur={ed[m.cle]} origine={origineCorps(c, m.cle)}
-                  erreur={err[m.cle]} journal={data.journal[c.id]?.[m.colonne]} onValeur={(v) => majChamp(c.id, m.cle, v)} />
+                <ChampMesureEditeur key={m.cle} mesure={m} bornes={data.bornes[m.colonne]} valeur={ed[m.cle]} origine={origineDe(c, m.cle)}
+                  erreur={err[m.cle]} journal={journalCorps[m.colonne]} onValeur={(v) => majChamp(c.id, m.cle, v)} />
               ))}
             </div>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>

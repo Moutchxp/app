@@ -24,10 +24,10 @@ describe('lireJournalChamps', () => {
       { corps_id: 42, champ: 'altitude_sommet_ngf', role: 'retenue', confiance: 'a_verifier', reserve: 'voisin possible', motif: null, piece: 'PC5.pdf', page: 4 },
     ];
     const j = await lireJournalChamps(7);
-    expect(j[42].altitude_sommet_ngf.confiance).toBe('a_verifier');
-    expect(j[42].altitude_sommet_ngf.reserve).toBe('voisin possible');
-    expect(j[42].altitude_sommet_ngf.provenances).toEqual([{ piece: 'PC3.pdf', page: 2 }, { piece: 'PC5.pdf', page: 4 }]);
-    expect(j[42].altitude_sommet_ngf.motif).toBeNull();
+    expect(j.parCorps[42].altitude_sommet_ngf.confiance).toBe('a_verifier');
+    expect(j.parCorps[42].altitude_sommet_ngf.reserve).toBe('voisin possible');
+    expect(j.parCorps[42].altitude_sommet_ngf.provenances).toEqual([{ piece: 'PC3.pdf', page: 2 }, { piece: 'PC5.pdf', page: 4 }]);
+    expect(j.parCorps[42].altitude_sommet_ngf.motif).toBeNull();
   });
 
   it('champ ÉCARTÉ : porte le MOTIF, aucune provenance', async () => {
@@ -35,18 +35,24 @@ describe('lireJournalChamps', () => {
       { corps_id: 42, champ: 'hauteur_relative_m', role: 'ecartee', confiance: null, reserve: null, motif: 'aucun candidat trouvé dans le corpus', piece: null, page: null },
     ];
     const j = await lireJournalChamps(7);
-    expect(j[42].hauteur_relative_m.motif).toBe('aucun candidat trouvé dans le corpus');
-    expect(j[42].hauteur_relative_m.provenances).toEqual([]);
-    expect(j[42].hauteur_relative_m.confiance).toBeNull();
+    expect(j.parCorps[42].hauteur_relative_m.motif).toBe('aucun candidat trouvé dans le corpus');
+    expect(j.parCorps[42].hauteur_relative_m.provenances).toEqual([]);
+    expect(j.parCorps[42].hauteur_relative_m.confiance).toBeNull();
   });
 
-  it('ignore les lignes sans corps (corps_id null)', async () => {
-    H.state.rows = [{ corps_id: null, champ: 'parking', role: 'ecartee', confiance: null, reserve: null, motif: 'x', piece: null, page: null }];
-    expect(await lireJournalChamps(7)).toEqual({});
+  it('N7-E — les lignes sans corps (corps_id null) vont au niveau PERMIS (plus perdues)', async () => {
+    H.state.rows = [
+      { corps_id: null, champ: 'surface_plancher_m2', role: 'retenue', confiance: 'confirmee', reserve: null, motif: null, piece: 'cerfa.pdf', page: 4 },
+      { corps_id: null, champ: 'nb_logements', role: 'ecartee', confiance: null, reserve: null, motif: 'absence ≠ zéro', piece: null, page: null },
+    ];
+    const j = await lireJournalChamps(7);
+    expect(j.permis.surface_plancher_m2.confiance).toBe('confirmee');
+    expect(j.permis.nb_logements.motif).toBe('absence ≠ zéro');
+    expect(j.parCorps).toEqual({});
   });
 
-  it('aucune ligne → objet vide', async () => {
-    expect(await lireJournalChamps(7)).toEqual({});
+  it('aucune ligne → parCorps et permis vides', async () => {
+    expect(await lireJournalChamps(7)).toEqual({ parCorps: {}, permis: {} });
   });
 
   it("ne demande que les 'retenue'/'ecartee' du dossier lié", async () => {
