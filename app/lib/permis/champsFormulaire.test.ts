@@ -36,6 +36,28 @@ describe('estChampIdentite — liste noire', () => {
   });
 });
 
+describe('estChampIdentite — terrain libéré, déclarant bloqué (N7-B2)', () => {
+  it('LIBÈRE l’adresse du TERRAIN (préfixe T2… / cadastre)', () => {
+    for (const n of ['T2V_voie', 'T2L_localite', 'T2Q_numero', 'T2N_numero', 'T2S_section', 'T2T_superficie', 'N de parcelle s', 'N° de section'])
+      expect(estChampIdentite(n)).toBe(false);
+  });
+  it('BLOQUE l’adresse ET l’identité du DÉCLARANT / correspondant', () => {
+    for (const n of ['D3V_voie', 'D3L_localite', 'D3N_numero', 'D2N_nom', 'D2P_prenom', 'D2S_siret', 'D3T_telephone', 'H1V_voie', 'H1L_localite', 'H1Q_numero', 'Adresse Numéro', 'Voie_2', 'Localité_3', 'CP_3'])
+      expect(estChampIdentite(n)).toBe(true);
+  });
+  it('un champ « adresse du terrain » passe et un champ « adresse du déclarant » ne passe pas (preuve directe)', () => {
+    const champs = filtrerChamps({
+      'T2V_voie': [{ type: 'text', value: 'Avenue Benoît Frachon', page: 4 }],  // terrain → passe
+      'D3V_voie': [{ type: 'text', value: 'rue privée du déclarant', page: 3 }], // déclarant → bloqué
+    });
+    expect(champs.map((c) => c.nom)).toEqual(['T2V_voie']);
+    expect(champs[0].valeur).toBe('Avenue Benoît Frachon');
+  });
+  it('champ ambigu non préfixé terrain (« M2K_commune ») reste BLOQUÉ', () => {
+    expect(estChampIdentite('M2K_commune')).toBe(true);
+  });
+});
+
 describe('filtrerChamps — pur', () => {
   it('garde les renseignés hors identité, avec page et type ; écarte identité et vides', () => {
     const champs = filtrerChamps({

@@ -18,22 +18,49 @@ export interface ChampFormulaire { nom: string; valeur: string; page: number | n
 export type TableChamps = ChampFormulaire[];
 
 /**
- * LISTE NOIRE des champs d'IDENTITÉ du demandeur — filtrés à la lecture, JAMAIS retournés. Tokens comparés en minuscules,
- * désaccentués, avec une frontière « lettres seulement » (« _ », chiffres, espaces séparent) : « Nom_2 »/« Prénom_2 »/
- * « Adresse Numéro » matchent, mais « Nombre de places » (contient « nom ») ou « section » NE matchent PAS. Un seul endroit.
+ * CRITÈRE (N7-B2) : on bloque ce qui identifie une PERSONNE (le déclarant / correspondant / signataire), PAS ce qui localise le
+ * PROJET. L'adresse du TERRAIN n'est pas une donnée personnelle — c'est l'objet du permis, déjà publique dans Sitadel, et
+ * demandée. On la LIBÈRE ; on bloque l'identité et l'adresse du déclarant.
+ *
+ * Comparaison en minuscules, désaccentués, frontière « lettres seulement » (« _ », chiffres, espaces séparent) : « Nom_2 » et
+ * « D2N_nom » matchent, « Nombre de places » (contient « nom ») NE matche pas.
+ *
+ * Trois familles, évaluées dans l'ordre :
+ *  1. TERRAIN / cadastre → LIBRE (précédence) : « terrain », « parcelle », « section », « cadastr », « superficie », et le
+ *     préfixe codé du terrain « T2… » du Cerfa 13409 (« T2V_voie », « T2L_localite », « T2Q_numero »…). ⚠️ Ce préfixe est calé
+ *     sur le Cerfa PC 13409*15 ; d'autres millésimes/formulaires pourront demander à l'étendre.
+ *  2. IDENTITÉ d'une PERSONNE → BLOQUÉ : nom, prénom, naissance, téléphone, portable, fax, courriel, SIRET, dénomination…
+ *  3. LOCALISATION sans marqueur terrain (adresse, voie, localité, commune, CP, numéro, rue) → BLOQUÉ par prudence : c'est
+ *     l'adresse du déclarant/correspondant. Un champ AMBIGU (ex. « M2K_commune », non préfixé terrain) reste BLOQUÉ.
  */
-export const CHAMPS_IDENTITE_INTERDITS: readonly string[] = [
-  'nom', 'prenom', 'naissance', 'courriel', 'mail', 'telephone', 'portable', 'fax', 'siret', 'soussigne',
-  'raison sociale', 'denomination', 'adresse', 'voie', 'localite', 'commune', 'code postal', 'cp',
-];
-
 const sansAccent = (s: string): string => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[’‘]/g, "'").toLowerCase();
 const echapper = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const RE_IDENTITE = new RegExp(`(?<![a-z])(${CHAMPS_IDENTITE_INTERDITS.map(echapper).join('|')})(?![a-z])`);
+const borne = (tokens: readonly string[]): RegExp => new RegExp(`(?<![a-z])(${tokens.map(echapper).join('|')})(?![a-z])`);
 
-/** Un nom de champ désigne-t-il l'identité du demandeur (→ à ne jamais retourner) ? */
+/** Marqueurs de LOCALISATION DU TERRAIN / cadastre → toujours LIBRES (précédence). `t2[a-z]` = préfixe codé terrain du 13409. */
+export const CHAMPS_TERRAIN_LIBRES: readonly string[] = ['terrain', 'parcelle', 'section', 'cadastr', 'superficie'];
+const RE_TERRAIN = new RegExp(`(?<![a-z])(${CHAMPS_TERRAIN_LIBRES.map(echapper).join('|')}|t2[a-z])`);
+
+/** LISTE NOIRE — identité d'une PERSONNE (déclarant/correspondant/signataire). Restreinte : ne contient PAS les tokens d'adresse. */
+export const CHAMPS_IDENTITE_INTERDITS: readonly string[] = [
+  'nom', 'prenom', 'naissance', 'courriel', 'mail', 'telephone', 'portable', 'fax', 'siret', 'soussigne',
+  'raison sociale', 'denomination',
+];
+const RE_PERSONNE = borne(CHAMPS_IDENTITE_INTERDITS);
+
+/** Tokens d'ADRESSE : bloqués SAUF si le champ porte un marqueur terrain (→ adresse du déclarant par défaut). */
+const CHAMPS_ADRESSE = ['adresse', 'voie', 'localite', 'commune', 'code postal', 'cp', 'numero', 'rue'];
+const RE_ADRESSE = borne(CHAMPS_ADRESSE);
+
+/**
+ * Un nom de champ doit-il être BLOQUÉ (identité/adresse du déclarant) ? La localisation du terrain et le cadastre passent.
+ */
 export function estChampIdentite(nom: string): boolean {
-  return RE_IDENTITE.test(sansAccent(nom));
+  const n = sansAccent(nom);
+  if (RE_TERRAIN.test(n)) return false;  // localisation du PROJET → libre (précédence)
+  if (RE_PERSONNE.test(n)) return true;  // identité d'une PERSONNE → bloqué
+  if (RE_ADRESSE.test(n)) return true;   // adresse sans marqueur terrain → déclarant → bloqué
+  return false;
 }
 
 /** Forme d'un champ telle que rendue par `getFieldObjects()` de pdfjs (typage souple). */
