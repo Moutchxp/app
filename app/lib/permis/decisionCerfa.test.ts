@@ -109,6 +109,6 @@ describe('decisionCerfa — jamais écrits', () => {
   it('corps.adresse → non écrit (attribution non résolue), portée corps', () => {
     const d = col(decisionCerfa([], null), 'adresse', 'corps');
     expect(d).toMatchObject({ statut: 'non_ecrit', portee: 'corps' });
-    expect(d.motif).toContain('attribution par corps');
+    expect(d.motif).toContain('attribution par bâtiment');
   });
 });

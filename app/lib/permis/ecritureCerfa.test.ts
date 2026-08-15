@@ -55,7 +55,7 @@ describe('ecrireCerfa — écriture niveau permis + journal', () => {
     const log = journal().find((p) => p[1] === 'nb_logements')!;
     expect(log[3]).toBe('ecartee'); expect(log[6]).toContain('absence de champ ne vaut pas zéro');
     const corpsAdr = journal().find((p) => p[1] === 'adresse')!;
-    expect(corpsAdr[3]).toBe('ecartee'); expect(corpsAdr[6]).toContain('attribution par corps');
+    expect(corpsAdr[3]).toBe('ecartee'); expect(corpsAdr[6]).toContain('attribution par bâtiment');
   });
 
   it('champ déjà « saisie » → non écrasé, journal ecartee (saisie prioritaire)', async () => {

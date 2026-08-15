@@ -29,7 +29,7 @@ export interface DecisionLots {
 }
 
 export const RESERVE_SOMMET_PERMIS =
-  'la cote la plus haute des planches peut appartenir à un bâtiment voisin ; haut de la superstructure de toiture (édicule ascenseur, local technique CVC/PAC, toiture ENR végétalisée ; toiture cotée +86,11) — non rattaché à un corps';
+  'la cote la plus haute des planches peut appartenir à un bâtiment voisin ; haut de la superstructure de toiture (édicule ascenseur, local technique CVC/PAC, toiture ENR végétalisée ; toiture cotée +86,11) — non rattaché à un bâtiment';
 const MOTIF_SOMMET_LOT = 'attribution par lot non établie (P4/P5)';
 
 const extrait = (t: string, i: number, a = 55) => t.slice(Math.max(0, i - a), i + a).replace(/\s+/g, ' ').trim();

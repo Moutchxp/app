@@ -161,7 +161,7 @@ export function decisionCerfa(champs: ChampCerfa[], surfCreee: number | null, ad
   out.push({ colonne: 'nb_logements', portee: 'permis', statut: 'non_ecrit', motif: 'aucun champ logement renseigné dans le Cerfa ; l’absence de champ ne vaut pas zéro logement' });
 
   // 6) permis_corps_batiment.adresse → JAMAIS écrite
-  out.push({ colonne: 'adresse', portee: 'corps', statut: 'non_ecrit', motif: 'attribution par corps non résolue (N5-F) ; colonne en attente' });
+  out.push({ colonne: 'adresse', portee: 'corps', statut: 'non_ecrit', motif: 'attribution par bâtiment non résolue (N5-F) ; colonne en attente' });
 
   return { champs: out };
 }

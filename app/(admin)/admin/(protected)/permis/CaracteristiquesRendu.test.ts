@@ -104,7 +104,7 @@ describe('N5-E — motif de non-écriture sous un champ vide', () => {
   const motifJournal = (motif: string): JournalChamp => ({ confiance: null, reserve: null, provenances: [], motif });
 
   it('champ VIDE dont le journal porte un motif → motif affiché en clair', () => {
-    const h = rendre({ ...base, valeur: '', origine: null, journal: motifJournal('gabarit à plage annoncé pour plusieurs corps, valeur non attribuable') });
+    const h = rendre({ ...base, valeur: '', origine: null, journal: motifJournal('gabarit à plage annoncé pour plusieurs bâtiments, valeur non attribuable') });
     expect(h).toContain('valeur non attribuable');
   });
 
@@ -167,7 +167,7 @@ describe('N7-E — ChampDeclareEditeur (champs permis)', () => {
     const j: JournalChamp = { confiance: 'a_verifier', reserve: 'superstructure de toiture ; peut appartenir à un bâtiment voisin', provenances: [{ piece: 'PC3.pdf', page: 2 }], motif: null };
     const h = renderToStaticMarkup(createElement(ChampDeclareEditeur, { champ: sommet, bornes: { min: -50, max: 500 }, valeur: '89.46', origine: 'extraite', journal: j, onValeur: noop }));
     expect(h).toContain('Altitude du sommet du permis'); // libellé disambiguant (≠ « Altitude du sommet » d’un corps)
-    expect(h).toContain('NON rattaché à un corps');       // l’aide dit pourquoi la valeur est au niveau permis
+    expect(h).toContain('NON rattaché à un bâtiment');       // l’aide dit pourquoi la valeur est au niveau permis
     expect(h).toContain('l’attribution par lot n’est pas établie');
     expect(h).toContain('à vérifier');                    // confiance de la valeur extraite
     expect(h).toContain('superstructure de toiture');     // réserve conservée
@@ -185,7 +185,7 @@ describe('N7-E — ChampDeclareEditeur (champs permis)', () => {
 
 describe('N7-E — EditeurRepere : motif sous un repère vide', () => {
   it('repère VIDE + motif → affiché ; repère RENSEIGNÉ → pas de motif', () => {
-    const j: JournalChamp = { confiance: null, reserve: null, provenances: [], motif: 'attribution par corps indécidable' };
+    const j: JournalChamp = { confiance: null, reserve: null, provenances: [], motif: 'attribution à un bâtiment indécidable' };
     expect(renderToStaticMarkup(createElement(EditeurRepere, { valeur: '', journal: j, onValeur: noop }))).toContain('indécidable');
     expect(renderToStaticMarkup(createElement(EditeurRepere, { valeur: '2D1', journal: j, onValeur: noop }))).not.toContain('indécidable');
   });
@@ -209,7 +209,7 @@ describe('N3-C — FaitsPermisBloc : lecture seule, surface seulement si présen
     expect(h).toContain('13032 m²');
   });
   it('message « aucun corps » exporté', () => {
-    expect(MESSAGE_AUCUN_CORPS).toContain('Aucun corps');
+    expect(MESSAGE_AUCUN_CORPS).toContain('Aucun bâtiment');
   });
 });
 

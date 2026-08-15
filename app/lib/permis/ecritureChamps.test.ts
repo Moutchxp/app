@@ -93,7 +93,7 @@ describe('ecrireChamps — invariant saisie & motifs', () => {
 
   it('un champ non écrit ne pose AUCUNE valeur, seulement une ligne ecartee avec son motif', async () => {
     H.state.corps = [{ id: 42 }];
-    const d = decision([nonEcrit('nb_etages', 'gabarit à plage annoncé pour plusieurs corps, valeur non attribuable')]);
+    const d = decision([nonEcrit('nb_etages', 'gabarit à plage annoncé pour plusieurs bâtiments, valeur non attribuable')]);
     const r = await ecrireChamps(1, d, 'auto');
     expect((r as { champsEcrits: string[] }).champsEcrits).toEqual([]);
     expect(updatesCorps()).toHaveLength(0); // rien écrit sur le corps

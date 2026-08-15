@@ -79,9 +79,9 @@ export async function ecrireNiveaux(dossierId: number, decision: DecisionNiveaux
     if (c.plancher) {
       const avantV = avant?.altitudeDernierPlancherNgf ?? null;
       const corrige = avantV !== null && Math.abs(avantV - c.plancher.valeur) > 1e-9;
-      if (corrige) corrections.push(`plancher ${avantV} → ${c.plancher.valeur} (l'ancienne valeur était le ${c.plancher.label} d'un AUTRE corps ; attribution par bâtiment via la table)`);
+      if (corrige) corrections.push(`plancher ${avantV} → ${c.plancher.valeur} (l'ancienne valeur était le ${c.plancher.label} d'un AUTRE bâtiment ; attribution par bâtiment via la table)`);
       lignes.push(ecrit('altitudeDernierPlancherNgf')
-        ? { corpsId, champ: 'altitude_dernier_plancher_ngf', valeur: c.plancher.valeur, unite: 'ngf', role: 'retenue', confiance: c.plancher.confiance, reserve: corrige ? `corrige ${avantV} (était le R07 d'un autre corps)` : null, motif: null, piece: s0(c.plancher.sources)?.piece ?? null, page: s0(c.plancher.sources)?.page ?? null, extrait: extraitDe(s0(c.plancher.sources), `${c.plancher.label} = ${c.plancher.valeur} (table BAT ${c.repere})`) }
+        ? { corpsId, champ: 'altitude_dernier_plancher_ngf', valeur: c.plancher.valeur, unite: 'ngf', role: 'retenue', confiance: c.plancher.confiance, reserve: corrige ? `corrige ${avantV} (était le R07 d'un autre bâtiment)` : null, motif: null, piece: s0(c.plancher.sources)?.piece ?? null, page: s0(c.plancher.sources)?.page ?? null, extrait: extraitDe(s0(c.plancher.sources), `${c.plancher.label} = ${c.plancher.valeur} (table BAT ${c.repere})`) }
         : { corpsId, champ: 'altitude_dernier_plancher_ngf', valeur: null, unite: null, role: 'ecartee', confiance: null, reserve: null, motif: MOTIF_SAISIE, piece: null, page: null, extrait: null });
     }
 
@@ -91,7 +91,7 @@ export async function ecrireNiveaux(dossierId: number, decision: DecisionNiveaux
       const corrige = avantV !== null && Math.abs(avantV - c.sommet.valeur) > 1e-9;
       if (corrige) corrections.push(`sommet ${avantV} → ${c.sommet.valeur} (${c.sommet.label})`);
       lignes.push(ecrit('altitudeSommetNgf')
-        ? { corpsId, champ: 'altitude_sommet_ngf', valeur: c.sommet.valeur, unite: 'ngf', role: 'retenue', confiance: c.sommet.confiance, reserve: `${c.sommet.label}${c.sommet.ecart !== null ? ` (écart +${c.sommet.ecart} m au-dessus de la toiture du corps)` : ''}${c.sommet.note ? ` — ${c.sommet.note}` : ''}`, motif: null, piece: s0(c.sommet.sources)?.piece ?? null, page: s0(c.sommet.sources)?.page ?? null, extrait: extraitDe(s0(c.sommet.sources), `${c.sommet.label} = ${c.sommet.valeur} (${c.repere})`) }
+        ? { corpsId, champ: 'altitude_sommet_ngf', valeur: c.sommet.valeur, unite: 'ngf', role: 'retenue', confiance: c.sommet.confiance, reserve: `${c.sommet.label}${c.sommet.ecart !== null ? ` (écart +${c.sommet.ecart} m au-dessus de la toiture du bâtiment)` : ''}${c.sommet.note ? ` — ${c.sommet.note}` : ''}`, motif: null, piece: s0(c.sommet.sources)?.piece ?? null, page: s0(c.sommet.sources)?.page ?? null, extrait: extraitDe(s0(c.sommet.sources), `${c.sommet.label} = ${c.sommet.valeur} (${c.repere})`) }
         : { corpsId, champ: 'altitude_sommet_ngf', valeur: null, unite: null, role: 'ecartee', confiance: null, reserve: null, motif: MOTIF_SAISIE, piece: null, page: null, extrait: null });
     }
     // garde-corps : jamais retenu comme sommet (ajouré : ni mesuré au LiDAR ni masquant) → journalisé écarté avec son étiquette
@@ -110,7 +110,7 @@ export async function ecrireNiveaux(dossierId: number, decision: DecisionNiveaux
     } else {
       await query(`UPDATE permis_caracteristique SET altitude_sommet_ngf = NULL, altitude_sommet_ngf_origine = NULL, maj_le = now(), maj_par = $2 WHERE dossier_id = $1`, [dossierId, majPar]);
       lignes.push({ corpsId: null, champ: 'altitude_sommet_ngf', valeur: null, unite: null, role: 'ecartee', confiance: null, reserve: null,
-        motif: `effacé : ${gca.cote} est le garde-corps à lisse de ${gca.repere}, désormais ATTRIBUÉ (donc plus « non rattachable ») ; garde-corps ajouré, jamais un sommet — le sommet vit maintenant par corps`, piece: null, page: null, extrait: null });
+        motif: `effacé : ${gca.cote} est le garde-corps à lisse de ${gca.repere}, désormais ATTRIBUÉ (donc plus « non rattachable ») ; garde-corps ajouré, jamais un sommet — le sommet vit maintenant par bâtiment`, piece: null, page: null, extrait: null });
       sommetPermisEfface = true;
     }
   }

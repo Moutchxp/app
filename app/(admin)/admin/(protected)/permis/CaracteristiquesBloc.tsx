@@ -129,7 +129,7 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
   }, [poster, dossierId, rafraichir]);
 
   const supprimer = useCallback(async (corpsId: number, repere: string | null) => {
-    if (!window.confirm(`Supprimer le corps « ${repere ?? 'sans nom'} » et toutes ses valeurs ? Cette action est définitive.`)) return;
+    if (!window.confirm(`Supprimer le bâtiment « ${repere ?? 'sans nom'} » et toutes ses valeurs ? Cette action est définitive.`)) return;
     setEnCours(true);
     const r = await poster({ action: 'supprimer', corpsId });
     if (r.ok) { await rafraichir(); setMessage('Corps supprimé.'); } else setMessage(r.erreur ?? 'échec');
@@ -177,7 +177,7 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
       </div>
 
       {/* ═══ SECTION 2 — LES CORPS DE BÂTIMENT (mesurés) : un par immeuble ═══ */}
-      <h4 style={styleTitre}>Les corps de bâtiment <span style={{ ...styleAide, fontWeight: 400 }}>— mesurés, un par immeuble (altitudes, étages)</span></h4>
+      <h4 style={styleTitre}>Les bâtiments <span style={{ ...styleAide, fontWeight: 400 }}>— mesurés, un par immeuble (altitudes, étages)</span></h4>
       {data.corps.length === 0 && <p style={styleAide}>{MESSAGE_AUCUN_CORPS}</p>}
       {data.corps.map((c) => {
         const ed = edCorps[c.id];
@@ -189,10 +189,10 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
               <EditeurRepere valeur={ed.repere} journal={journalCorps['repere']} onValeur={(v) => majChamp(c.id, 'repere', v)} />
               <label className="flex flex-col gap-1" style={{ minWidth: 0, flex: '1 1 200px' }}>
-                <span style={styleLabel}>Adresse de ce corps</span>
-                <input value={ed.adresse} placeholder="vide = non renseignée" onChange={(e) => majChamp(c.id, 'adresse', e.target.value)} style={styleInput} aria-label="Adresse du corps" />
+                <span style={styleLabel}>Adresse de ce bâtiment</span>
+                <input value={ed.adresse} placeholder="vide = non renseignée" onChange={(e) => majChamp(c.id, 'adresse', e.target.value)} style={styleInput} aria-label="Adresse du bâtiment" />
               </label>
-              <button type="button" className="svv-link" style={{ width: 'auto', padding: '.2rem .5rem', color: 'var(--color-svv-red)' }} disabled={enCours} onClick={() => void supprimer(c.id, c.repere)}>supprimer ce corps</button>
+              <button type="button" className="svv-link" style={{ width: 'auto', padding: '.2rem .5rem', color: 'var(--color-svv-red)' }} disabled={enCours} onClick={() => void supprimer(c.id, c.repere)}>supprimer ce bâtiment</button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.6rem' }}>
               {MESURES.map((m) => (
@@ -201,7 +201,7 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
               ))}
             </div>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem' }} disabled={enCours} onClick={() => void enregistrerCorps(c.id)}>Enregistrer ce corps</button>
+              <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem' }} disabled={enCours} onClick={() => void enregistrerCorps(c.id)}>Enregistrer ce bâtiment</button>
               <span style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}><span style={styleAide}>saisie ici :</span><PastilleOrigineValeur origine="saisie" /></span>
             </div>
           </div>
@@ -209,7 +209,7 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
       })}
 
       <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} disabled={enCours} onClick={() => void ajouterCorps()}>+ ajouter un corps de bâtiment</button>
+        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} disabled={enCours} onClick={() => void ajouterCorps()}>+ ajouter un bâtiment</button>
         {message && <span role="status" style={{ fontSize: 12 }}>{message}</span>}
       </div>
     </div>

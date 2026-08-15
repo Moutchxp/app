@@ -194,8 +194,8 @@ export function ChampDeclareEditeur({ champ, bornes, valeur, origine, erreur, jo
 export function EditeurRepere({ valeur, journal, onValeur }: { valeur: string; journal?: JournalChamp; onValeur: (v: string) => void }) {
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0, flex: '1 1 160px' }}>
-      <span style={styleLabel}>Repère du corps</span>
-      <input value={valeur} placeholder="A1, 2D1…" onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label="Repère du corps" />
+      <span style={styleLabel}>Repère du bâtiment</span>
+      <input value={valeur} placeholder="A1, 2D1…" onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label="Repère du bâtiment" />
       {/* origine = null si vide → le motif s'affiche ; sinon 'saisie' → rien. */}
       <AnnotationsExtraction origine={valeur.trim() === '' ? null : 'saisie'} journal={journal} />
     </div>
@@ -203,4 +203,4 @@ export function EditeurRepere({ valeur, journal, onValeur }: { valeur: string; j
 }
 
 /** Message quand un permis n'a encore AUCUN corps de bâtiment (jamais un vide muet). */
-export const MESSAGE_AUCUN_CORPS = 'Aucun corps de bâtiment renseigné. Ajoutez-en un pour saisir étages, altitudes et hauteur.';
+export const MESSAGE_AUCUN_CORPS = 'Aucun bâtiment renseigné. Ajoutez-en un pour saisir étages, altitudes et hauteur.';

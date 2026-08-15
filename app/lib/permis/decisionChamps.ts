@@ -33,13 +33,13 @@ export interface DecisionChamps { champs: DecisionChamp[]; candidatsNiveauFini: 
 
 // ── MOTIFS de non-écriture (source UNIQUE, réutilisée par l'écriture et l'affichage) ───────────────────────────────
 export const MOTIF_AUCUN_CANDIDAT = 'aucun candidat trouvé dans le corpus';
-export const MOTIF_GABARIT_PLAGE = 'gabarit à plage annoncé pour plusieurs corps, valeur non attribuable';
+export const MOTIF_GABARIT_PLAGE = 'gabarit à plage annoncé pour plusieurs bâtiments, valeur non attribuable';
 export const MOTIF_GABARIT_MULTIPLE = 'plusieurs gabarits R+n distincts, valeur non attribuable';
 export const MOTIF_SOUSSOL_MULTIPLE = 'plusieurs valeurs de sous-sol distinctes, ambiguïté non tranchée';
 export const MOTIF_PLANCHER_AMBIGU = 'plusieurs cotes distinctes sur le niveau le plus haut, association ambiguë';
 export const MOTIF_SOMMET_AUCUN = 'aucune cote « acrotère » dans le corpus';
 export const MOTIF_PARKING = 'libellés Cerfa présents mais valeurs non extractibles de la couche texte';
-export const MOTIF_REPERE = 'attribution à un corps indécidable';
+export const MOTIF_REPERE = 'attribution à un bâtiment indécidable';
 
 const piecesDistinctes = (obs: Observation[]): number => new Set(obs.map((o) => o.provenance.pieceId)).size;
 const confianceDe = (obs: Observation[]): Confiance => (piecesDistinctes(obs) >= 2 ? 'confirmee' : 'a_verifier');

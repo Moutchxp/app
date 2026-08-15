@@ -121,7 +121,7 @@ export const CHAMPS_PERMIS: readonly ChampDeclare[] = [
   { cle: 'adresseTerrain', colonne: 'adresse_terrain', libelle: 'Adresse du terrain', genre: 'texte' },
   // N8-C — sommet AU NIVEAU PERMIS (migration 108). Le libellé DIT qu'il n'est pas rattaché à un corps ; l'aide dit POURQUOI.
   { cle: 'altitudeSommetNgf', colonne: 'altitude_sommet_ngf', libelle: 'Altitude du sommet du permis (NGF)', genre: 'nombre', unite: 'm', entier: false,
-    aide: 'Point le plus haut relevé sur les planches du permis (acrotère ou faîtage le plus haut). NON rattaché à un corps de bâtiment : l’attribution par lot n’est pas établie — c’est pourquoi il vit ici, au niveau du permis, et non sur un immeuble précis.' },
+    aide: 'Point le plus haut relevé sur les planches du permis (acrotère ou faîtage le plus haut). NON rattaché à un bâtiment : l’attribution par lot n’est pas établie — c’est pourquoi il vit ici, au niveau du permis, et non sur un immeuble précis.' },
 ];
 /** Édition des champs permis : tout en CHAÎNE (les inputs). Une chaîne VIDE = champ vide (→ null explicite), jamais 0. */
 export type EditionPermis = Record<ChampPermis, string>;

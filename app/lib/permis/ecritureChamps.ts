@@ -19,7 +19,7 @@ import type { CandidatNiveauFiniJournal } from './decisionSommet';
 import type { ChampEcrit, DecisionChamps } from './decisionChamps';
 
 export const MOTIF_SAISIE_PRIORITAIRE = 'une valeur saisie à la main occupe déjà le champ (non écrasée)';
-export const MOTIF_AMBIGU_CORPS = 'attribution ambiguë : ≥2 corps de bâtiment, aucun choix possible';
+export const MOTIF_AMBIGU_CORPS = 'attribution ambiguë : ≥2 bâtiments, aucun choix possible';
 
 export type ResultatEcritureChamps =
   | { statut: 'traite'; corpsId: number | null; corpsCree: boolean; champsEcrits: string[]; champsIgnoresSaisie: string[] }
