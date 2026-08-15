@@ -19,7 +19,8 @@
  */
 import type { ResultatLectureGed } from './lectureGed';
 
-export interface SourceRef { piece: string; page: number }
+export type FormeAncrage = 'bat' | 'lot' | 'pln';
+export interface SourceRef { piece: string; page: number; forme?: FormeAncrage }
 export interface NiveauCote { label: string; niveau: number | null; nature: 'sous_sol' | 'rdc' | 'etage' | 'toiture'; cote: number }
 export interface FaitCorrobore<T = number> { valeur: T; confiance: 'confirmee' | 'a_verifier'; sources: SourceRef[] }
 
@@ -40,7 +41,15 @@ export interface DecisionNiveaux {
 }
 
 const VOCAB = String.raw`SS\d|Rdc|R0?\d{1,2}|TOITURE`;
-const RE_TITRE = /BAT\s*2D(\d)/gi;
+// ── ANCRAGE DU BÂTIMENT — TROIS formes DISTINGUABLES, jamais « 2D » nu (forme bruitée : « LOT 2D » = l'îlot entier, « 2d5567 » = hash) :
+//    'bat' = titre de coupe « BAT 2D<x> » · 'lot' = cartouche/légende « (I)LOT 2D<x> » · 'pln' = code DWG « 2D<x> PLN ». Le DIGIT est
+//    OBLIGATOIRE (un plan-masse « LOT 2D » sans chiffre couvre les deux bâtiments → NON rattaché à un corps). PRIORITÉ : sur une page
+//    qui porte au moins un « BAT », on n'utilise QUE les ancres BAT (comportement des coupes inchangé) ; sinon les ancres LOT/PLN.
+const RE_ANCRES: { forme: FormeAncrage; re: RegExp }[] = [
+  { forme: 'bat', re: /BAT\s*2D(\d)\b/gi },
+  { forme: 'lot', re: /\b[iI]?LOT\s+2D(\d)\b/gi },
+  { forme: 'pln', re: /\b2D(\d)\s+PLN\b/gi },
+];
 const RE_BLOC = new RegExp(String.raw`((?:(?:${VOCAB})\s+){4,})((?:\+\s?\d+(?:[.,]\d+)?\s*m?\s*NGF\s*){4,})`, 'gi');
 const RE_INLINE = new RegExp(String.raw`(${VOCAB})\s*\+\s?(\d+(?:[.,]\d+)?)\s*m?\s*NGF`, 'gi');
 const RE_LABEL = new RegExp(VOCAB, 'gi');
@@ -57,19 +66,29 @@ function normLabel(raw: string): Omit<NiveauCote, 'cote'> | null {
   return null;
 }
 
-interface TitrePos { repere: string; index: number }
-interface TablePage { repere: string; niveaux: NiveauCote[] }
-interface SommetPage { repere: string; cote: number; qualif: 'acrotere' | 'garde-corps' }
+interface TitrePos { repere: string; index: number; forme: FormeAncrage }
+interface TablePage { repere: string; niveaux: NiveauCote[]; forme: FormeAncrage }
+interface SommetPage { repere: string; cote: number; qualif: 'acrotere' | 'garde-corps'; forme: FormeAncrage }
 
-/** Attribue un index de texte au repère « BAT 2D<x> » le plus proche. null si aucun titre sur la page. */
-function repereLePlusProche(titres: TitrePos[], index: number): string | null {
+/** Ancre la plus proche d'un index (repère + forme). null si la page n'en porte aucune. Sur une page à BAT, seules les ancres BAT jouent. */
+function ancreLaPlusProche(titres: TitrePos[], index: number): { repere: string; forme: FormeAncrage } | null {
   if (!titres.length) return null;
-  return titres.reduce((best, t) => (Math.abs(t.index - index) < Math.abs(best.index - index) ? t : best)).repere;
+  const t = titres.reduce((best, x) => (Math.abs(x.index - index) < Math.abs(best.index - index) ? x : best));
+  return { repere: t.repere, forme: t.forme };
 }
 
-/** Analyse UNE page : titres BAT, tables de niveaux (bloc + inline), cotes de sommet qualifiées (acrotère/garde-corps) par NVP. */
+/** Ancres d'une page : les « BAT » si présentes (priorité, coupes inchangées), sinon « LOT »/« PLN » (plans de toiture, élévations). */
+function ancresPage(texte: string): TitrePos[] {
+  const bat: TitrePos[] = [...texte.matchAll(RE_ANCRES[0].re)].map((m) => ({ repere: `2D${m[1]}`, index: m.index ?? 0, forme: 'bat' as const }));
+  if (bat.length) return bat;
+  const autres: TitrePos[] = [];
+  for (const { forme, re } of RE_ANCRES.slice(1)) for (const m of texte.matchAll(re)) autres.push({ repere: `2D${m[1]}`, index: m.index ?? 0, forme });
+  return autres;
+}
+
+/** Analyse UNE page : ancres bâtiment (BAT/LOT/PLN), tables de niveaux (bloc + inline), cotes de sommet qualifiées (acrotère/garde-corps) par NVP. */
 function analyserPage(texte: string): { tables: TablePage[]; sommets: SommetPage[] } {
-  const titres: TitrePos[] = [...texte.matchAll(RE_TITRE)].map((m) => ({ repere: `2D${m[1]}`, index: m.index ?? 0 }));
+  const titres = ancresPage(texte);
   if (!titres.length) return { tables: [], sommets: [] };
 
   // ── Tables : bloc d'abord (on mémorise les portées consommées), puis inline HORS de ces portées ──
@@ -83,13 +102,14 @@ function analyserPage(texte: string): { tables: TablePage[]; sommets: SommetPage
     const niveaux: NiveauCote[] = labels.slice(0, n).map((l, i) => ({ ...l, cote: cotes[i] }));
     const idx = m.index ?? 0;
     portees.push([idx, idx + m[0].length]);
-    tables.push({ repere: repereLePlusProche(titres, idx) ?? titres[0].repere, niveaux, index: idx });
+    const a = ancreLaPlusProche(titres, idx) ?? titres[0];
+    tables.push({ repere: a.repere, forme: a.forme, niveaux, index: idx });
   }
   const dansPortee = (i: number) => portees.some(([a, b]) => i >= a && i < b);
   // inline : on groupe les paires contiguës (< 200 caractères de saut) en une table
   const paires = [...texte.matchAll(RE_INLINE)].filter((m) => !dansPortee(m.index ?? 0));
   let courant: { niveaux: NiveauCote[]; index: number; fin: number } | null = null;
-  const pousser = () => { if (courant && courant.niveaux.length >= 4) tables.push({ repere: repereLePlusProche(titres, courant.index) ?? titres[0].repere, niveaux: courant.niveaux, index: courant.index }); courant = null; };
+  const pousser = () => { if (courant && courant.niveaux.length >= 4) { const a = ancreLaPlusProche(titres, courant.index) ?? titres[0]; tables.push({ repere: a.repere, forme: a.forme, niveaux: courant.niveaux, index: courant.index }); } courant = null; };
   for (const m of paires) {
     const l = normLabel(m[1]); if (!l) continue;
     const idx = m.index ?? 0;
@@ -99,7 +119,11 @@ function analyserPage(texte: string): { tables: TablePage[]; sommets: SommetPage
   }
   pousser();
 
-  // ── Sommet : nvp → étiquette (deux ordres), puis chaque cote « +X » reçoit l'étiquette de la NVP ≈ X − δ (δ petit) ──
+  // ── Sommet : SEULEMENT sur une page ancrée par « BAT » (coupe). L'appariement cote↔étiquette par NVP est fiable sur les coupes,
+  //    mais AMBIGU sur les plans/élévations chargés (une même valeur NVP y côtoie acrotère ET garde-corps → glissement). On ne laisse
+  //    donc PAS les pages LOT/PLN alimenter le sommet ; elles ne corroborent que les TABLES de niveaux (fiables). Cf. N9-C : sans ce
+  //    garde-fou, 87,13 est étiqueté garde-corps sur des pages LOT et le sommet se dégrade. Les tables, elles, profitent des pages LOT.
+  if (titres[0].forme !== 'bat') return { tables: tables.map(({ repere, niveaux, forme }) => ({ repere, niveaux, forme })), sommets: [] };
   const nvpQualif = new Map<string, 'acrotere' | 'garde-corps'>();
   const clef = (v: number) => v.toFixed(2);
   const QUALIF = String.raw`Acrot[eè]re|Garde-corps(?:\s+[àa]\s+lisse)?|Fa[iî]tage`;
@@ -113,9 +137,9 @@ function analyserPage(texte: string): { tables: TablePage[]; sommets: SommetPage
     // NVP appariée = valeur du dictionnaire la plus proche sous la cote (δ ∈ [0,05 ; 0,6])
     let best: { q: 'acrotere' | 'garde-corps'; d: number } | null = null;
     for (const [k, q] of nvpQualif) { const d = cote - num(k); if (d >= 0.05 && d <= 0.6 && (best === null || d < best.d)) best = { q, d }; }
-    if (best) sommets.push({ repere: repereLePlusProche(titres, m.index ?? 0) ?? titres[0].repere, cote, qualif: best.q });
+    if (best) { const a = ancreLaPlusProche(titres, m.index ?? 0) ?? titres[0]; sommets.push({ repere: a.repere, forme: a.forme, cote, qualif: best.q }); }
   }
-  return { tables: tables.map(({ repere, niveaux }) => ({ repere, niveaux })), sommets };
+  return { tables: tables.map(({ repere, niveaux, forme }) => ({ repere, niveaux, forme })), sommets };
 }
 
 /**
@@ -139,7 +163,7 @@ export function decisionNiveaux(ged: ResultatLectureGed, floorcountParCorps: Rec
         const pieces = parLabel.get(nv.cote) ?? (parLabel.set(nv.cote, new Set()), parLabel.get(nv.cote)!);
         pieces.add(p.nomFichier); compte = true;
       }
-      if (compte) a.sources.push({ piece: p.nomFichier, page: pg.page });
+      if (compte) a.sources.push({ piece: p.nomFichier, page: pg.page, forme: t.forme });
     }
     for (const s of sommets) {
       const a = acc(s.repere);

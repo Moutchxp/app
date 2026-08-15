@@ -60,3 +60,46 @@ describe('decisionNiveaux', () => {
     expect(d.gardeCorpsAttribue).toEqual({ cote: 89.46, repere: '2D1' });
   });
 });
+
+/**
+ * N9-C — ancrage bâtiment élargi : « BAT 2D<x> » (coupe) ET cartouche « (I)LOT 2D<x> » / code DWG « 2D<x> PLN » (plans, élévations).
+ * Formes distinguables (`forme` sur chaque source). Le SOMMET reste borné aux pages BAT (l'appariement NVP y est fiable) : une page
+ * LOT/PLN corrobore les TABLES mais n'injecte PAS de sommet (sinon glissement d'étiquette, cf. rapport). Pas de faux positif « 2D » nu.
+ */
+// Table de niveaux de 2D2 en BLOC, page identifiée par le code DWG « 2D2 PLN » (plan de toiture) — SANS titre « BAT ».
+const PLAN_TOITURE_2D2 =
+  '2D2 PLN TOI Carnet Plans de securite  Rdc R01 R02 R03 R04 R05 R06 R07 TOITURE SS1  ' +
+  '+56.47m NGF +61.09m NGF +64.67m NGF +68.19m NGF +71.71m NGF +75.23m NGF +79.30m NGF +82.93m NGF +86.11m NGF +52.93m NGF ' +
+  'ACROTERE TOITURE +99.99 NGF Acrotère NVP 99.66';   // stray « acrotère 99.99 » : DOIT être ignoré (page non-BAT)
+
+describe('decisionNiveaux — N9-C ancrage LOT/PLN', () => {
+  const d = decisionNiveaux(ged([
+    piece(1, 'PC3.pdf', [page(2, COUPE)]),                 // BAT (coupe) : tables 2D1+2D2 + sommets
+    piece(2, 'PC40.pdf', [page(40, PLAN_TOITURE_2D2)]),    // PLN 2D2 : corrobore la table, PAS le sommet
+  ]));
+  const c = (r: string) => d.corps.find((x) => x.repere === r)!;
+
+  it('une page « 2D2 PLN » (sans BAT) est rattachée à 2D2 et corrobore sa table', () => {
+    expect(c('2D2')).toBeTruthy();
+    expect(c('2D2').plancher).toMatchObject({ valeur: 82.93, confiance: 'confirmee' }); // 2 pièces : PC3(bat) + PC40(pln)
+    expect(new Set(c('2D2').sources.map((s) => s.piece)).size).toBe(2);
+  });
+  it('la forme d’ancrage est tracée par source (bat vs pln), jamais fusionnée', () => {
+    const formes = c('2D2').sources.map((s) => s.forme);
+    expect(formes).toContain('bat');
+    expect(formes).toContain('pln');
+  });
+  it('GARDE-FOU : le sommet ne vient QUE des pages BAT — l’« acrotère 99,99 » d’une page PLN est ignoré', () => {
+    expect(c('2D2').sommet!.qualif).toBe('toiture');           // reste 86,11 (coupe), pas 99,99
+    expect(c('2D2').sommet!.valeur).toBe(86.11);
+    expect(c('2D2').gardeCorps.map((g) => g.cote)).not.toContain(99.99);
+    expect(c('2D2').niveaux.some((n) => n.cote === 99.99)).toBe(false);
+  });
+
+  it('faux positifs écartés : « LOT 2D » (sans chiffre) et un hash « 2d5567 » ne créent aucun corps', () => {
+    const bruit = decisionNiveaux(ged([
+      piece(1, 'MASSE.pdf', [page(1, 'LOT 2D plan masse 2d5567 Rdc R01 R02 R03 TOITURE  +56m NGF +61m NGF +64m NGF +68m NGF +86m NGF')]),
+    ]));
+    expect(bruit.corps).toHaveLength(0); // aucune ancre valide → table orpheline, non attribuée
+  });
+});
