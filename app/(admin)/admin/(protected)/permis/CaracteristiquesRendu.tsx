@@ -137,8 +137,8 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
 
 /** N7-E — éditeur d'UN champ DÉCLARÉ (niveau permis) : « nature » = sélecteur (options venant du CHECK), sinon nombre (≥0) / texte.
  *  Même traitement d'annotations que les mesures (confiance/réserve/provenance/motif). Tri-état préservé (vide = non renseigné). */
-export function ChampDeclareEditeur({ champ, valeur, origine, erreur, journal, naturesPossibles, onValeur }: {
-  champ: ChampDeclare; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; naturesPossibles?: readonly string[]; onValeur: (v: string) => void;
+export function ChampDeclareEditeur({ champ, valeur, origine, erreur, journal, naturesPossibles, divergence, onValeur }: {
+  champ: ChampDeclare; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; naturesPossibles?: readonly string[]; divergence?: string | null; onValeur: (v: string) => void;
 }) {
   const libelle = `${champ.libelle}${champ.unite ? ` (${champ.unite})` : ''}`;
   return (
@@ -157,6 +157,8 @@ export function ChampDeclareEditeur({ champ, valeur, origine, erreur, journal, n
       )}
       {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
       <AnnotationsExtraction origine={origine} journal={journal} />
+      {/* N7-F — divergence signalée (ex. parking vestigial vs nombre de places) : information, jamais masquée. */}
+      {divergence && <span role="note" style={{ ...styleNote, color: 'var(--color-svv-red)', fontWeight: 600 }}>⚠ divergence : {divergence}</span>}
     </div>
   );
 }

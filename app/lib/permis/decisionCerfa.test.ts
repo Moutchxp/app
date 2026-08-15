@@ -57,15 +57,26 @@ describe('decisionCerfa — nature_projet (destinations, sans dominante)', () =>
   });
 });
 
-describe('decisionCerfa — adresse_terrain (T2Q + T2V + T2L)', () => {
-  it('les trois présents → « numéro voie, localité »', () => {
-    const d = col(decisionCerfa([champ('T2Q_numero', '3'), champ('T2V_voie', 'AVENUE BENOIT FRACHON'), champ('T2L_localite', 'PARIS')], null), 'adresse_terrain');
-    expect(d).toMatchObject({ statut: 'ecrit', valeur: '3 AVENUE BENOIT FRACHON, PARIS', reserve: null });
+describe('decisionCerfa — adresse_terrain (T2Q + T2V + T2L), recoupée avec Sitadel', () => {
+  const adr = () => [champ('T2Q_numero', '3'), champ('T2V_voie', 'AVENUE BENOIT FRACHON'), champ('T2L_localite', 'PARIS')];
+  it('les trois présents → « numéro voie, localité » ; Sitadel absent → a_verifier sans réserve', () => {
+    const d = col(decisionCerfa(adr(), null, null), 'adresse_terrain');
+    expect(d).toMatchObject({ statut: 'ecrit', valeur: '3 AVENUE BENOIT FRACHON, PARIS', confiance: 'a_verifier', reserve: null });
   });
-  it('un manquant → on écrit ce qu’on a, on journalise le manque', () => {
-    const d = col(decisionCerfa([champ('T2V_voie', 'AVENUE BENOIT FRACHON'), champ('T2L_localite', 'PARIS')], null), 'adresse_terrain');
+  it('concorde avec Sitadel (normalisation casse/abréviation/ponctuation) → confirmee', () => {
+    const d = col(decisionCerfa(adr(), null, '3 AV Benoît Frachon  Paris'), 'adresse_terrain'); // AV→AVENUE, accents, espaces
+    expect(d.confiance).toBe('confirmee');
+    expect(d.reserve).toBeNull();
+  });
+  it('diverge de Sitadel → a_verifier + réserve citant LES DEUX libellés', () => {
+    const d = col(decisionCerfa(adr(), null, '5 RUE DE LA PAIX PARIS'), 'adresse_terrain');
+    expect(d.confiance).toBe('a_verifier');
+    expect(d.reserve).toContain('3 AVENUE BENOIT FRACHON, PARIS');
+    expect(d.reserve).toContain('5 RUE DE LA PAIX PARIS');
+  });
+  it('un manquant → on écrit ce qu’on a (valeur partielle)', () => {
+    const d = col(decisionCerfa([champ('T2V_voie', 'AVENUE BENOIT FRACHON'), champ('T2L_localite', 'PARIS')], null, null), 'adresse_terrain');
     expect(d.valeur).toBe('AVENUE BENOIT FRACHON, PARIS');
-    expect(d.reserve).toContain('T2Q_numero');
   });
   it('aucun champ d’adresse → non écrit', () => {
     expect(col(decisionCerfa([], null), 'adresse_terrain').statut).toBe('non_ecrit');

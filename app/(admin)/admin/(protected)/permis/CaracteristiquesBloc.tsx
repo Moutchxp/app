@@ -9,7 +9,7 @@ import {
   MESURES, CHAMPS_PERMIS, construireCorps, construirePermis, valeurVersInput, permisVersInput,
   type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
-import { FaitsPermisBloc, EditeurParking, ChampMesureEditeur, ChampDeclareEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS } from './CaracteristiquesRendu';
+import { FaitsPermisBloc, ChampMesureEditeur, ChampDeclareEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS } from './CaracteristiquesRendu';
 
 interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[] }
 
@@ -24,7 +24,13 @@ const editionDepuisPermis = (g: GlobalPermis | null): EditionPermis => ({
   nbPlacesStationnement: permisVersInput(g?.nbPlacesStationnement), adresseTerrain: g?.adresseTerrain ?? '',
 });
 const origineDe = (o: unknown, cle: string): OrigineValeur | null => (o as Record<string, OrigineValeur | null>)?.[`${cle}Origine`] ?? null;
-const parkingVersEdition = (g: GlobalPermis | null): '' | 'oui' | 'non' => (g?.parking === true ? 'oui' : g?.parking === false ? 'non' : '');
+/** N7-F — divergence entre le booléen parking (VESTIGIAL, 103) et le nombre de places (106). null si concordant/vide. */
+const divergenceParking = (g: GlobalPermis | null): string | null => {
+  const pk = g?.parking, nb = g?.nbPlacesStationnement;
+  if (pk === false && typeof nb === 'number' && nb > 0) return `parking déclaré « non » mais ${nb} place(s) de stationnement déclarée(s)`;
+  if (pk === true && nb === 0) return 'parking déclaré « oui » mais 0 place de stationnement déclarée';
+  return null;
+};
 
 const styleLabel = { fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' } as const;
 const styleAide = { fontSize: 11, color: 'var(--color-svv-muted)', lineHeight: 1.4 } as const;
@@ -50,7 +56,7 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
 
   const appliquer = useCallback((d: EtatCharge) => {
     setData(d);
-    setEdGlobal({ parking: parkingVersEdition(d.global), commentaire: d.global?.commentaire ?? '' });
+    setEdGlobal({ parking: '', commentaire: d.global?.commentaire ?? '' }); // parking VESTIGIAL : non édité (N7-F)
     setEdPermis(editionDepuisPermis(d.global));
     setEdCorps(Object.fromEntries(d.corps.map((c) => [c.id, editionDepuisCorps(c)])));
     setErreursCorps({}); setErreursPermis({});
@@ -95,7 +101,8 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
     if (!valide) { setMessage('Corrigez les champs signalés avant d’enregistrer.'); return; }
     setEnCours(true);
     const r1 = await poster({ action: 'declare', dossierId, edition: edPermis });
-    const r2 = r1.ok ? await poster({ action: 'global', dossierId, parking: edGlobal.parking, commentaire: edGlobal.commentaire }) : r1;
+    // parking VESTIGIAL : on ne l'envoie plus (une saisie manuelle ne s'efface jamais). Seul le commentaire passe par 'global'.
+    const r2 = r1.ok ? await poster({ action: 'global', dossierId, commentaire: edGlobal.commentaire }) : r1;
     if (r2.ok) { await rafraichir(); setMessage('Permis enregistré.'); } else setMessage(r2.erreur ?? 'échec');
     setEnCours(false);
   }, [poster, dossierId, edPermis, edGlobal, data, rafraichir]);
@@ -141,13 +148,18 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
       <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
         <h4 style={styleTitre}>Le permis <span style={{ ...styleAide, fontWeight: 400 }}>— déclaré (Cerfa), vaut pour l’ensemble du projet</span></h4>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.6rem' }}>
-          {CHAMPS_PERMIS.map((champ) => (
-            <ChampDeclareEditeur key={champ.cle} champ={champ} valeur={edPermis[champ.cle]} origine={origineDe(data.global, champ.cle)}
-              erreur={erreursPermis[champ.cle]} journal={data.journal.permis[champ.colonne]} naturesPossibles={data.naturesPossibles}
-              onValeur={(v) => setEdPermis((p) => ({ ...p, [champ.cle]: v }))} />
-          ))}
-          <EditeurParking valeur={edGlobal.parking} origine={data.global?.parkingOrigine ?? null} journal={data.journal.permis['parking']}
-            onValeur={(v) => setEdGlobal((g) => ({ ...g, parking: v }))} />
+          {CHAMPS_PERMIS.map((champ) => {
+            const estStationnement = champ.cle === 'nbPlacesStationnement';
+            const vide = edPermis[champ.cle].trim() === '';
+            // N7-F — le motif du parking VESTIGIAL vit sous « Places de stationnement » quand ce champ est vide.
+            const journal = estStationnement && vide ? (data.journal.permis['parking'] ?? data.journal.permis[champ.colonne]) : data.journal.permis[champ.colonne];
+            const divergence = estStationnement ? divergenceParking(data.global) : null;
+            return (
+              <ChampDeclareEditeur key={champ.cle} champ={champ} valeur={edPermis[champ.cle]} origine={origineDe(data.global, champ.cle)}
+                erreur={erreursPermis[champ.cle]} journal={journal} naturesPossibles={data.naturesPossibles} divergence={divergence}
+                onValeur={(v) => setEdPermis((p) => ({ ...p, [champ.cle]: v }))} />
+            );
+          })}
           <label className="flex flex-col gap-1" style={{ minWidth: 0 }}>
             <span style={styleLabel}>Commentaire</span>
             <textarea value={edGlobal.commentaire} rows={2} onChange={(e) => setEdGlobal((g) => ({ ...g, commentaire: e.target.value }))} style={styleInput} aria-label="Commentaire" />

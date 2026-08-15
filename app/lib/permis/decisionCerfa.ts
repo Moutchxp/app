@@ -10,8 +10,9 @@
  * - nature_projet ← DÉRIVÉE du tableau des surfaces par destination (« W2·F1 », sauf « W2S » = Somme/total) : UNE destination à
  *   surface > 0 → cette destination ; PLUSIEURS → 'mixte'. Jamais de dominante, jamais de pondération. a_verifier. Le détail par
  *   destination figure dans l'extrait journalisé (pas de colonne dédiée).
- * - adresse_terrain ← T2Q_numero + ' ' + T2V_voie + ', ' + T2L_localite. Un manquant → on écrit ce qu'on a, on journalise le
- *   manque. a_verifier.
+ * - adresse_terrain ← T2Q_numero + ' ' + T2V_voie + ', ' + T2L_localite. Recoupée avec l'adresse terrain de Sitadel (comparaison
+ *   NORMALISÉE : casse/accents/espaces/abréviations de voie — sert à COMPARER, jamais à réécrire) : == → confirmee ; != →
+ *   a_verifier + réserve citant les deux libellés ; Sitadel absent → a_verifier sans réserve. Un manquant → on écrit ce qu'on a.
  * - nb_logements → NON écrit (aucun champ logement ; l'absence ne vaut pas zéro).
  * - permis_corps_batiment.adresse → JAMAIS écrite (attribution par corps non résolue, N5-F).
  *
@@ -43,6 +44,17 @@ export interface DecisionCerfa { champs: DecisionCerfaChamp[] }
 const NATURE_PAR_LETTRE: Record<string, string> = { B: 'bureaux', C: 'commerce', H: 'habitation' };
 const nombre = (s: string): number => Number(String(s).replace(',', '.'));
 
+// Abréviations de voie courantes (pour COMPARER deux adresses, jamais pour réécrire la valeur stockée).
+const ABREV_VOIE: Record<string, string> = {
+  av: 'avenue', ave: 'avenue', bd: 'boulevard', bld: 'boulevard', boul: 'boulevard', imp: 'impasse',
+  all: 'allee', pl: 'place', rte: 'route', che: 'chemin', chem: 'chemin', sq: 'square', pas: 'passage', crs: 'cours',
+};
+/** Normalise une adresse pour la COMPARAISON : minuscules, sans accents, ponctuation → espace, abréviations de voie développées. */
+function normaliserAdresse(s: string): string {
+  const base = s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return base.split(' ').filter(Boolean).map((t) => ABREV_VOIE[t] ?? t).join(' ');
+}
+
 function prov(c: ChampCerfa, champNom: string, extrait: string): ProvenanceCerfa {
   return { pieceNom: c.pieceNom, page: c.page, champNom, extrait };
 }
@@ -59,8 +71,8 @@ function destinationsPresentes(champs: ChampCerfa[]): { lettre: string; valeur: 
   return [...parLettre.values()].sort((a, b) => a.lettre.localeCompare(b.lettre));
 }
 
-/** Applique les règles de mapping. `surfCreee` = surf_creee de Sitadel pour ce dossier (m²), ou null si absent. */
-export function decisionCerfa(champs: ChampCerfa[], surfCreee: number | null): DecisionCerfa {
+/** Applique les règles de mapping. `surfCreee` = surf_creee de Sitadel (m²) ; `adresseSitadel` = adresse terrain Sitadel — pour recouper. */
+export function decisionCerfa(champs: ChampCerfa[], surfCreee: number | null, adresseSitadel: string | null = null): DecisionCerfa {
   const idx = new Map<string, ChampCerfa>();
   for (const c of champs) if (!idx.has(c.nom)) idx.set(c.nom, c); // 1re occurrence
   const out: DecisionCerfaChamp[] = [];
@@ -105,11 +117,17 @@ export function decisionCerfa(champs: ChampCerfa[], surfCreee: number | null): D
   } else {
     const rue = [num?.valeur, voie?.valeur].filter(Boolean).join(' ');
     const adresse = [rue, loc?.valeur].filter(Boolean).join(', ');
-    const manque = ([['T2Q_numero', num], ['T2V_voie', voie], ['T2L_localite', loc]] as const).filter(([, f]) => !f).map(([n]) => n);
-    const reserve = manque.length ? `champ(s) manquant(s) : ${manque.join(', ')}` : null;
     const sources = [num, voie, loc].filter((f): f is ChampCerfa => Boolean(f));
     const extrait = sources.map((f) => `${f.nom}=${f.valeur}`).join(' · ');
-    out.push({ colonne: 'adresse_terrain', cle: 'adresseTerrain', portee: 'permis', statut: 'ecrit', valeur: adresse, confiance: 'a_verifier', reserve, provenance: { pieceNom: sources[0].pieceNom, page: sources[0].page, champNom: 'T2Q_numero + T2V_voie + T2L_localite', extrait } });
+    // Recoupement avec Sitadel (comparaison normalisée), même logique que la surface.
+    let confiance: Confiance = 'a_verifier';
+    let reserve: string | null = null;
+    const sit = (adresseSitadel ?? '').trim();
+    if (sit !== '') {
+      if (normaliserAdresse(adresse) === normaliserAdresse(sit)) confiance = 'confirmee';
+      else reserve = `Cerfa « ${adresse} » vs Sitadel « ${sit} »`;
+    }
+    out.push({ colonne: 'adresse_terrain', cle: 'adresseTerrain', portee: 'permis', statut: 'ecrit', valeur: adresse, confiance, reserve, provenance: { pieceNom: sources[0].pieceNom, page: sources[0].page, champNom: 'T2Q_numero + T2V_voie + T2L_localite', extrait } });
   }
 
   // 5) nb_logements → NON écrit (l'absence de champ ne vaut pas zéro)

@@ -30,6 +30,13 @@ async function lireSurfCreee(dossierId: number): Promise<number | null> {
   return v === null || v === undefined ? null : Number(v);
 }
 
+/** Adresse terrain de Sitadel (num + voie + localité), ou null. Même concat que la fiche ; sert au recoupement de l'adresse. */
+async function lireAdresseTerrainSitadel(dossierId: number): Promise<string | null> {
+  const { rows } = await query<{ adr: string | null }>(
+    `SELECT nullif(btrim(concat_ws(' ', adr_num_ter, adr_libvoie_ter, adr_localite_ter)), '') AS adr FROM sitadel_dossier WHERE id = $1`, [dossierId]);
+  return rows[0]?.adr ?? null;
+}
+
 async function main(): Promise<void> {
   const numDau = lireArg('--permis');
   if (!numDau) { console.error('usage : npm run permis:ecrire-champs -- --permis <num_dau> [--type PC|PD]'); process.exitCode = 2; return; }
@@ -74,10 +81,11 @@ async function main(): Promise<void> {
     for (const c of await lireChampsFormulaire(buf)) champsCerfa.push({ nom: c.nom, valeur: c.valeur, page: c.page, pieceNom: m.nomFichier });
   }
   const surfCreee = await lireSurfCreee(dossierId);
-  const decisionC = decisionCerfa(champsCerfa, surfCreee);
+  const adresseSitadel = await lireAdresseTerrainSitadel(dossierId);
+  const decisionC = decisionCerfa(champsCerfa, surfCreee, adresseSitadel);
   const rc = await ecrireCerfa(dossierId, decisionC, MAJ_PAR_CERFA);
 
-  console.log(`\n── SOURCE : cerfa (champs AcroForm, niveau permis) — surf_creee Sitadel : ${surfCreee ?? '—'} :`);
+  console.log(`\n── SOURCE : cerfa (champs AcroForm, niveau permis) — surf_creee Sitadel : ${surfCreee ?? '—'} · adresse Sitadel : ${adresseSitadel ?? '—'} :`);
   for (const d of decisionC.champs) {
     if (d.statut === 'ecrit') {
       console.log(`  √ ${d.colonne} = ${d.valeur} — confiance ${d.confiance}${d.reserve ? `  ⚠ ${d.reserve}` : ''}  [${d.provenance?.pieceNom} « ${d.provenance?.champNom} »]`);

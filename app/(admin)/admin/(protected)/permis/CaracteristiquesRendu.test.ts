@@ -156,6 +156,12 @@ describe('N7-E — ChampDeclareEditeur (champs permis)', () => {
     expect(renderToStaticMarkup(createElement(ChampDeclareEditeur, { champ: surface, valeur: '', origine: null, journal: j, onValeur: noop }))).toContain('ne vaut pas zéro');
     expect(renderToStaticMarkup(createElement(ChampDeclareEditeur, { champ: surface, valeur: '', origine: null, onValeur: noop }))).not.toContain('vide :');
   });
+  it('N7-F — une divergence (parking vs nombre) est affichée, jamais masquée', () => {
+    const stat = CHAMPS_PERMIS.find((c) => c.cle === 'nbPlacesStationnement')!;
+    const h = renderToStaticMarkup(createElement(ChampDeclareEditeur, { champ: stat, valeur: '3', origine: 'extraite', divergence: 'parking déclaré « non » mais 3 place(s)', onValeur: noop }));
+    expect(h).toContain('divergence');
+    expect(h).toContain('parking déclaré');
+  });
 });
 
 describe('N7-E — EditeurRepere : motif sous un repère vide', () => {
