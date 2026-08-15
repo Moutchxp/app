@@ -81,19 +81,53 @@ describe('trierPieces — priorité entre règles', () => {
   });
 });
 
-describe('trierPieces — exclusions', () => {
-  it('exclut une pièce par NOM (cerfa) — jamais sélectionnée, journalisée', () => {
+describe('trierPieces — exclusion par NOM (portée PIÈCE)', () => {
+  it('exclut la pièce ENTIÈRE (cerfa) — aucune page sélectionnée, portée piece', () => {
     const g = ged([piece(1, 'Cerfa_13409.pdf', [{ page: 1, texte: 'LOT 2D1 LOT 2D2', aTexte: true }, { page: 2, texte: '', aTexte: false }])]);
     const p = trierPieces(g, rapport([cote(1, 'Cerfa_13409.pdf', 1, 89.46, 'acrotère')]));
     expect(p.pages).toHaveLength(0);
-    expect(p.exclusions.some((e) => e.piece === 'Cerfa_13409.pdf' && /nom/.test(e.motif))).toBe(true);
+    const ex = p.exclusions.find((e) => e.piece === 'Cerfa_13409.pdf');
+    expect(ex).toMatchObject({ portee: 'piece' });
+    expect(ex!.page).toBeUndefined();
+    expect(ex!.motif).toContain('nom');
   });
-  it('exclut une pièce par MARQUEUR de texte (« je soussigné »)', () => {
-    const g = ged([piece(1, 'attest_sans_mot_cle.pdf', [{ page: 1, texte: 'Je soussigné M. X, atteste…', aTexte: true }, { page: 2, texte: '', aTexte: false }])]);
-    // le nom « attestation » n'est PAS dans ce fichier → c'est le marqueur qui exclut
-    const p = trierPieces(g, rapport([cote(1, 'attest_sans_mot_cle.pdf', 1, 70, null)]));
+});
+
+describe('trierPieces — exclusion par MARQUEUR (portée PAGE)', () => {
+  it('n’écarte QUE la page marquée ; les autres pages de la pièce restent éligibles', () => {
+    const g = ged([piece(1, 'plan.pdf', [
+      { page: 1, texte: 'Je soussigné M. X, demande…', aTexte: true }, // page identité → exclue
+      { page: 3, texte: 'coupe', aTexte: true },                        // page R1 → retenue
+    ])]);
+    const p = trierPieces(g, rapport([cote(1, 'plan.pdf', 3, 89.46, 'acrotère')]));
+    expect(p.pages).toEqual([expect.objectContaining({ page: 3, regle: 'cote_qualifiee' })]);
+    const ex = p.exclusions.find((e) => e.page === 1);
+    expect(ex).toMatchObject({ portee: 'page', page: 1 });
+    expect(ex!.motif).toContain('je soussigne');
+  });
+});
+
+describe('trierPieces — « siret » n’exclut qu’avec un contexte demandeur (même page)', () => {
+  it('siret SEUL (cartouche architecte) → PAS d’exclusion', () => {
+    const g = ged([piece(1, 'plan.pdf', [{ page: 1, texte: 'Cartouche — SIRET 123 456 789', aTexte: true }])]);
+    const p = trierPieces(g, rapport([cote(1, 'plan.pdf', 1, 89.46, 'acrotère')]));
+    expect(p.pages).toHaveLength(1);
+    expect(p.exclusions).toHaveLength(0);
+  });
+  it('siret + contexte demandeur (même page) → page exclue', () => {
+    const g = ged([piece(1, 'plan.pdf', [{ page: 1, texte: 'Le demandeur, SIRET 123 456 789, atteste', aTexte: true }])]);
+    const p = trierPieces(g, rapport([cote(1, 'plan.pdf', 1, 89.46, 'acrotère')]));
     expect(p.pages).toHaveLength(0);
-    expect(p.exclusions.some((e) => /marqueur/.test(e.motif))).toBe(true);
+    expect(p.exclusions.find((e) => e.page === 1)).toMatchObject({ portee: 'page' });
+  });
+  it('siret sur une page, contexte demandeur sur une AUTRE page → pas d’exclusion (co-occurrence exigée sur la même page)', () => {
+    const g = ged([piece(1, 'plan.pdf', [
+      { page: 1, texte: 'SIRET 123 456 789', aTexte: true },
+      { page: 2, texte: 'le demandeur', aTexte: true },
+    ])]);
+    const p = trierPieces(g, rapport([cote(1, 'plan.pdf', 1, 89.46, 'acrotère')]));
+    expect(p.exclusions).toHaveLength(0);
+    expect(p.pages).toHaveLength(1);
   });
 });
 

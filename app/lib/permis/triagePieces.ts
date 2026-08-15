@@ -28,7 +28,8 @@ const PRIORITE: Record<RegleSelection, number> = { cote_qualifiee: 1, vue_par_lo
 const QUALIFS_R1 = new Set(['acrotère', 'faîtage', 'édicule', 'local technique']);
 
 export interface PageRetenue { piece: string; page: number; regle: RegleSelection; priorite: number; indice: string }
-export interface Exclusion { piece: string; page?: number; motif: string }
+/** Portée d'une exclusion : 'piece' (par nom, toute la pièce) ou 'page' (par marqueur, la page seule). */
+export interface Exclusion { piece: string; page?: number; portee: 'piece' | 'page'; motif: string }
 export interface PlanLecture {
   dossierId: number; totalPages: number; totalPieces: number;
   pages: PageRetenue[]; exclusions: Exclusion[]; tronque: boolean; plafond: number;
@@ -36,14 +37,25 @@ export interface PlanLecture {
 
 const MOTIF_EXCLUSION = 'porte nom, adresse et signature du demandeur ; ne doit jamais sortir dans un plan de lecture';
 
-const sansAccent = (s: string): string => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
-// Exclusion par NOM de fichier (insensible casse/accents).
+const sansAccent = (s: string): string => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[’‘]/g, "'").toLowerCase();
+// EXCLUSION par NOM de fichier → portée PIÈCE (insensible casse/accents).
 const NOMS_EXCLUS = ['cerfa', 'arrete', 'courrier', 'lettre', 'attestation', 'pouvoir', 'mandat', 'declaration', 'notice', 'rib'];
 // Frontière « lettres seulement » : « _ », chiffres, espaces et « . » séparent (« Cerfa_13409.pdf » doit matcher « cerfa »),
 // mais « predeclaration » ou « distribution » ne matchent pas (lettre adjacente).
 const RE_NOM_EXCLU = new RegExp(`(?<![a-z])(${NOMS_EXCLUS.join('|')})(?![a-z])`);
-// Exclusion par MARQUEUR de texte (déjà désaccentués/minuscules).
-const MARQUEURS = ['je soussigne', 'signature du demandeur', 'nom et prenom', 'siret', 'n° de securite'];
+// EXCLUSION par MARQUEUR → portée PAGE (déjà désaccentués/minuscules). Ce qu'on protège = l'identité du DEMANDEUR.
+// Marqueurs AUTONOMES (suffisent seuls) :
+const MARQUEURS_AUTONOMES = ['je soussigne', 'signature du demandeur', 'nom et prenom'];
+// « siret » n'exclut QUE s'il co-occurre, sur la MÊME page, avec un contexte demandeur (un SIRET de cartouche d'architecte
+// n'est pas la donnée protégée) :
+const CONTEXTE_DEMANDEUR = ['je soussigne', 'demandeur', 'nom et prenom', "maitre d'ouvrage"];
+/** Marqueur d'identité du demandeur sur une page (texte déjà normalisé), ou `null`. */
+function marqueurDemandeur(texteNormalise: string): string | null {
+  const auto = MARQUEURS_AUTONOMES.find((m) => texteNormalise.includes(m));
+  if (auto) return `« ${auto} »`;
+  if (texteNormalise.includes('siret') && CONTEXTE_DEMANDEUR.some((c) => texteNormalise.includes(c))) return '« siret » + contexte demandeur';
+  return null;
+}
 
 // Détecteur de repères ÉLARGI (interne à ce module).
 const RE_LOT = /\b2D(\d)\b/gi;
@@ -74,11 +86,9 @@ export function trierPieces(ged: ResultatLectureGed, rapport: RapportExtraction,
   const retenues: PageRetenue[] = [];
 
   for (const p of ged.pieces) {
-    // EXCLUSION AVANT toute sélection, toujours journalisée. Pièce exclue = en entier.
+    // EXCLUSION par NOM = portée PIÈCE, AVANT toute sélection : la pièce entière est écartée et journalisée.
     const nomExclu = RE_NOM_EXCLU.exec(sansAccent(p.nomFichier));
-    if (nomExclu) { exclusions.push({ piece: p.nomFichier, motif: `exclue (nom « ${nomExclu[1]} ») : ${MOTIF_EXCLUSION}` }); continue; }
-    const marqueur = p.pages.map((pg) => sansAccent(pg.texte)).flatMap((t) => MARQUEURS.filter((m) => t.includes(m)))[0];
-    if (marqueur) { exclusions.push({ piece: p.nomFichier, motif: `exclue (marqueur « ${marqueur} ») : ${MOTIF_EXCLUSION}` }); continue; }
+    if (nomExclu) { exclusions.push({ piece: p.nomFichier, portee: 'piece', motif: `pièce exclue (nom « ${nomExclu[1]} ») : ${MOTIF_EXCLUSION}` }); continue; }
 
     const reperes = new Set<string>();
     for (const pg of p.pages) for (const x of reperesDeTexte(pg.texte)) reperes.add(x);
@@ -86,6 +96,10 @@ export function trierPieces(ged: ResultatLectureGed, rapport: RapportExtraction,
     const pieceAvecNgf = piecesAvecNgf.has(p.id);
 
     for (const pg of p.pages) {
+      // EXCLUSION par MARQUEUR = portée PAGE : seule la page marquée est écartée, les autres restent éligibles.
+      const marqueur = marqueurDemandeur(sansAccent(pg.texte));
+      if (marqueur) { exclusions.push({ piece: p.nomFichier, page: pg.page, portee: 'page', motif: `page exclue (marqueur ${marqueur}) : ${MOTIF_EXCLUSION}` }); continue; }
+
       const qs = qualifParPage.get(`${p.id}:${pg.page}`);
       if (qs && qs.length > 0) {
         const valeurs = [...new Set(qs.map((x) => x.valeur))].sort((a, b) => a - b);
@@ -102,7 +116,7 @@ export function trierPieces(ged: ResultatLectureGed, rapport: RapportExtraction,
   retenues.sort((a, b) => a.priorite - b.priorite || a.piece.localeCompare(b.piece) || a.page - b.page);
   const tronque = retenues.length > plafond;
   const pages = tronque ? retenues.slice(0, plafond) : retenues;
-  if (tronque) for (const d of retenues.slice(plafond)) exclusions.push({ piece: d.piece, page: d.page, motif: `écartée par plafond (${plafond}) : règle ${d.regle}` });
+  if (tronque) for (const d of retenues.slice(plafond)) exclusions.push({ piece: d.piece, page: d.page, portee: 'page', motif: `écartée par plafond (${plafond}) : règle ${d.regle}` });
 
   return { dossierId: ged.dossierId, totalPages: ged.bilan.nbPages, totalPieces: ged.bilan.nbPieces, pages, exclusions, tronque, plafond };
 }
