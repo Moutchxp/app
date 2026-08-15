@@ -148,7 +148,7 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
   return (
     <div className="flex flex-col gap-3" style={{ marginTop: '.6rem' }}>
       <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--color-svv-ink)' }}>Caractéristiques</h3>
-      <FaitsPermisBloc faits={data.faits} />
+      <FaitsPermisBloc faits={data.faits} nbBatiments={data.corps.length} />
 
       {/* ═══ SECTION 1 — LE PERMIS (déclaré) : vaut pour tout le permis, ne se répète pas ═══ */}
       <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>

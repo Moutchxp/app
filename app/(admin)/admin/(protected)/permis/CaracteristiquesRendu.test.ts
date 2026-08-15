@@ -208,6 +208,20 @@ describe('N3-C — FaitsPermisBloc : lecture seule, surface seulement si présen
     expect(h).toContain('Surface créée');
     expect(h).toContain('13032 m²');
   });
+  it('N12 — nombre de bâtiments AVEC sa provenance « d’après les pièces » (pas un fait Sitadel)', () => {
+    const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits: faits(), nbBatiments: 2 }));
+    expect(h).toContain('Bâtiments identifiés : ');
+    expect(h).toContain('2');
+    expect(h).toContain('d’après les pièces'); // provenance : pas présenté comme un fait officiel Sitadel
+  });
+  it('N12 — aucun bâtiment identifié → phrase d’ABSENCE, JAMAIS « 0 bâtiment »', () => {
+    const h0 = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits: faits(), nbBatiments: 0 }));
+    expect(h0).toContain('aucun bâtiment identifié dans les pièces');
+    expect(h0).not.toContain('0 bâtiment');
+    // prop absente = même comportement d’absence (jamais un « 0 » trompeur)
+    const hAbs = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits: faits() }));
+    expect(hAbs).toContain('aucun bâtiment identifié dans les pièces');
+  });
   it('message « aucun corps » exporté', () => {
     expect(MESSAGE_AUCUN_CORPS).toContain('Aucun bâtiment');
   });

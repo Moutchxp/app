@@ -40,8 +40,14 @@ export function PastilleConfiance({ confiance }: { confiance: 'a_verifier' | 'co
   return <span style={{ ...base, color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }}>à vérifier</span>;
 }
 
-/** Faits LECTURE SEULE du permis (motif FicheCommune) — informatifs, jamais éditables. La surface n'apparaît que si Sitadel la porte. */
-export function FaitsPermisBloc({ faits }: { faits: FaitsPermis }) {
+/**
+ * Faits LECTURE SEULE du permis (motif FicheCommune) — informatifs, jamais éditables. La surface n'apparaît que si Sitadel la porte.
+ * N12 — `nbBatiments` = nombre de lignes `permis_corps_batiment` du dossier. ⚠️ Ce N'EST PAS un fait Sitadel (Sitadel ne porte aucun
+ * décompte de bâtiments — vérifié champ par champ : nb_lgt_tot_crees compte des LOGEMENTS) : c'est ce que la machine a IDENTIFIÉ dans
+ * les pièces. On le rend donc SÉPARÉ de la grille Sitadel, avec la provenance « d'après les pièces ». Jamais « 0 bâtiment » (un PC en
+ * comporte forcément un) : une absence de lecture s'écrit « aucun bâtiment identifié dans les pièces ».
+ */
+export function FaitsPermisBloc({ faits, nbBatiments }: { faits: FaitsPermis; nbBatiments?: number }) {
   const lignes: [string, string][] = [
     ['N° permis', `${faits.numDau} (${faits.type})`],
     ['Commune', faits.communeNom ? `${faits.communeNom} (INSEE ${faits.codeInsee})` : `INSEE ${faits.codeInsee}`],
@@ -50,6 +56,7 @@ export function FaitsPermisBloc({ faits }: { faits: FaitsPermis }) {
     ['Date d’acceptation', faits.dateAutorisation ?? 'non renseignée'],
   ];
   if (faits.surfaceCreee) lignes.push(['Surface créée', `${faits.surfaceCreee} m²`]);
+  const n = nbBatiments ?? 0;
   return (
     <div className="svv-card" role="note" style={{ fontSize: 12 }}>
       <div style={{ ...styleAide, marginBottom: '.35rem' }}>Faits connus du permis (Sitadel) — lecture seule, non modifiables ici.</div>
@@ -57,6 +64,12 @@ export function FaitsPermisBloc({ faits }: { faits: FaitsPermis }) {
         {lignes.map(([k, v]) => (
           <div key={k} style={{ minWidth: 0 }}><span style={{ color: 'var(--color-svv-muted)' }}>{k} : </span><strong style={{ overflowWrap: 'anywhere' }}>{v}</strong></div>
         ))}
+      </div>
+      {/* N12 — décompte de bâtiments : PAS un fait Sitadel → séparé de la grille + provenance explicite « d'après les pièces ». */}
+      <div style={{ marginTop: '.4rem', paddingTop: '.35rem', borderTop: '1px solid var(--color-svv-line)', overflowWrap: 'anywhere' }}>
+        {n > 0
+          ? <><span style={{ color: 'var(--color-svv-muted)' }}>Bâtiments identifiés : </span><strong>{n}</strong><span style={{ color: 'var(--color-svv-muted)' }}> (d’après les pièces)</span></>
+          : <span style={{ color: 'var(--color-svv-muted)' }}>aucun bâtiment identifié dans les pièces</span>}
       </div>
     </div>
   );
