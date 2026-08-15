@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   cotesNgfDansTexte, niveauDeTexte, gabaritsDansTexte, sousSolsDansTexte, reperesDansTexte, normaliserNiveau, extraireCandidats,
-  qualificatifsDansTexte, qualificatifLePlusProche, hspDansTexte, dallesDansTexte,
+  qualificatifsDansTexte, qualificatifLePlusProche, hspDansTexte, dallesDansTexte, distributionCotesQualifiees,
 } from './extractionCaracteristiques';
 import type { ResultatLectureGed, PieceLue, PageTexte } from './lectureGed';
 
@@ -191,6 +191,38 @@ describe('N5-B — HSP et épaisseur de dalle : des MÈTRES, jamais une cote NGF
     expect(r.hsp.map((h) => h.valeurM)).toEqual([2.5]);
     expect(r.cotes.map((c) => c.valeur)).toEqual([59.63]); // 2,50 (une hauteur) n'entre pas dans les cotes
     expect(r.hsp[0].provenance).toMatchObject({ pieceNom: 'p.pdf', page: 1 });
+  });
+});
+
+describe('N5-B2 — distributionCotesQualifiees : paliers distincts, effectifs, provenances, repères co-occurrents', () => {
+  it('regroupe par VALEUR DISTINCTE, effectifs justes, ordre CROISSANT stable (n’agrège pas)', () => {
+    const r = extraireCandidats(ged([
+      piece(1, 'a.pdf', [page(1, 'NGF +89.46 acrotère NGF +80.42 acrotère')]),
+      piece(2, 'b.pdf', [page(1, 'NGF +89.46 acrotère')]),
+    ]));
+    const acro = distributionCotesQualifiees(r).find((x) => x.qualificatif === 'acrotère')!;
+    expect(acro.valeurs.map((v) => [v.valeur, v.effectif])).toEqual([[80.42, 1], [89.46, 2]]); // trié croissant, 89.46 vu 2×
+  });
+  it('deux cotes ÉGALES sur des pages différentes → 1 valeur distincte, effectif 2, 2 provenances', () => {
+    const r = extraireCandidats(ged([piece(1, 'a.pdf', [page(1, 'NGF +89.46 acrotère'), page(2, 'NGF +89.46 acrotère')])]));
+    const acro = distributionCotesQualifiees(r).find((x) => x.qualificatif === 'acrotère')!;
+    expect(acro.valeurs).toHaveLength(1);
+    expect(acro.valeurs[0]).toMatchObject({ valeur: 89.46, effectif: 2 });
+    expect(acro.valeurs[0].provenances.map((p) => p.page)).toEqual([1, 2]);
+  });
+  it('deux valeurs PROCHES sans être égales → DEUX paliers (jamais fusionnées)', () => {
+    const r = extraireCandidats(ged([piece(1, 'a.pdf', [page(1, 'NGF +89.46 acrotère NGF +89.13 acrotère')])]));
+    const acro = distributionCotesQualifiees(r).find((x) => x.qualificatif === 'acrotère')!;
+    expect(acro.valeurs.map((v) => v.valeur)).toEqual([89.13, 89.46]);
+  });
+  it('repère de corps sur la MÊME page → listé SANS attribution ; cote qualifiée sans repère → repère []', () => {
+    const r = extraireCandidats(ged([
+      piece(1, 'a.pdf', [page(1, 'BATIMENT 2D1 — NGF +89.46 acrotère')]), // repère + acrotère, même page
+      piece(2, 'b.pdf', [page(1, 'NGF +80.42 acrotère')]),                // acrotère sans repère
+    ]));
+    const acro = distributionCotesQualifiees(r).find((x) => x.qualificatif === 'acrotère')!;
+    expect(acro.valeurs.find((v) => v.valeur === 89.46)!.reperesMemePage).toEqual(['2D1']);
+    expect(acro.valeurs.find((v) => v.valeur === 80.42)!.reperesMemePage).toEqual([]); // rendue quand même
   });
 });
 

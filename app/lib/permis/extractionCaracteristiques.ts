@@ -292,3 +292,41 @@ export function extraireCandidats(res: ResultatLectureGed): RapportExtraction {
     },
   };
 }
+
+// ── N5-B2 — DISTRIBUTION des cotes qualifiées (un seul niveau de toiture, ou plusieurs paliers ?) ─────────────────
+/** Une VALEUR DISTINCTE de cote qualifiée : la valeur exacte, son effectif, toutes ses provenances, et les repères de corps
+ *  observés sur les MÊMES pages (co-occurrence brute, JAMAIS une attribution). */
+export interface ValeurQualifiee { valeur: number; effectif: number; provenances: Provenance[]; reperesMemePage: string[] }
+export interface DistributionQualif { qualificatif: string; valeurs: ValeurQualifiee[] }
+
+/**
+ * N5-B2 — regroupe les cotes QUALIFIÉES par qualificatif, puis par VALEUR DISTINCTE. N'AGRÈGE PAS et NE MOYENNE PAS : deux valeurs
+ * proches (89.46 et 89.13) restent deux paliers — c'est justement l'info « un ou plusieurs niveaux de toiture ». Pour chaque
+ * valeur : effectif, toutes ses provenances, et les repères de corps présents sur les mêmes pages (OBSERVÉS, non attribués).
+ * Valeurs triées par ordre croissant ; qualificatifs dans l'ordre de première apparition (déterministe, stable).
+ */
+export function distributionCotesQualifiees(rapport: RapportExtraction): DistributionQualif[] {
+  const reperesParPage = new Map<string, Set<string>>();
+  for (const rp of rapport.reperes) {
+    const cle = `${rp.provenance.pieceId}:${rp.provenance.page}`;
+    (reperesParPage.get(cle) ?? reperesParPage.set(cle, new Set()).get(cle)!).add(rp.repere);
+  }
+  const ordre: string[] = [];
+  const parQualif = new Map<string, Map<number, Provenance[]>>();
+  for (const c of rapport.cotes) {
+    if (c.qualificatifSommet === null) continue;
+    if (!parQualif.has(c.qualificatifSommet)) { parQualif.set(c.qualificatifSommet, new Map()); ordre.push(c.qualificatifSommet); }
+    const parValeur = parQualif.get(c.qualificatifSommet)!;
+    (parValeur.get(c.valeur) ?? parValeur.set(c.valeur, []).get(c.valeur)!).push(c.provenance);
+  }
+  return ordre.map((qualificatif) => ({
+    qualificatif,
+    valeurs: [...parQualif.get(qualificatif)!.entries()]
+      .sort((a, b) => a[0] - b[0]) // valeur croissante
+      .map(([valeur, provenances]) => {
+        const reperes = new Set<string>();
+        for (const p of provenances) for (const rep of reperesParPage.get(`${p.pieceId}:${p.page}`) ?? []) reperes.add(rep);
+        return { valeur, effectif: provenances.length, provenances, reperesMemePage: [...reperes] };
+      }),
+  }));
+}
