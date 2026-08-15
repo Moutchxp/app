@@ -38,6 +38,7 @@
     "permis:extraire": "tsx app/scripts/extraire-caracteristiques.ts",
     "permis:ecrire-champs": "tsx app/scripts/ecrire-champs.ts",
     "permis:trier": "tsx app/scripts/trier-pieces.ts",
+    "permis:champs": "tsx app/scripts/lire-champs.ts",
     "drive:autoriser": "tsx app/scripts/drive-autoriser.ts",
     "alertes:envoyer": "tsx app/scripts/envoyer-alerte.ts",
     "veille:run": "tsx app/scripts/veille-run.ts",
