@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   cotesNgfDansTexte, niveauDeTexte, gabaritsDansTexte, sousSolsDansTexte, reperesDansTexte, normaliserNiveau, extraireCandidats,
+  qualificatifsDansTexte, qualificatifLePlusProche, hspDansTexte, dallesDansTexte,
 } from './extractionCaracteristiques';
 import type { ResultatLectureGed, PieceLue, PageTexte } from './lectureGed';
 
@@ -126,5 +127,85 @@ describe('N5-A — extraireCandidats : provenance, cote↔niveau, cote max, muet
     const r = extraireCandidats(ged([piece(1, 'arrete.pdf', [page(1, 'deux immeubles R+5 à R+7')])]));
     expect(r.gabarits[0]).toMatchObject({ rMin: 5, rMax: 7 });
     expect('corps' in r.gabarits[0]).toBe(false);
+  });
+});
+
+// ── N5-B — qualificatifs de sommet, HSP, dalle ───────────────────────────────────
+describe('N5-B — qualificatifsDansTexte : variantes d’accent/abréviation, normalisées', () => {
+  const mots = (t: string): string[] => qualificatifsDansTexte(t).map((q) => q.mot);
+  it('reconnaît acrotère/acrotere/acrotères, faîtage/faitage, haut de toiture, niveau fini, édicule/edicule, local technique, cage d’escalier', () => {
+    expect(mots('acrotère')).toEqual(['acrotère']);
+    expect(mots('acrotere')).toEqual(['acrotère']);       // sans accent
+    expect(mots('acrotères')).toEqual(['acrotère']);      // pluriel
+    expect(mots('faîtage')).toEqual(['faîtage']);
+    expect(mots('faitage')).toEqual(['faîtage']);         // sans accent circonflexe
+    expect(mots('haut de toiture')).toEqual(['haut de toiture']);
+    expect(mots('Niveau fini sol')).toEqual(['niveau fini']);
+    expect(mots('édicule')).toEqual(['édicule']);
+    expect(mots('edicule')).toEqual(['édicule']);
+    expect(mots('LOCAL TECHNIQUE')).toEqual(['local technique']);
+    expect(mots("cage d'escalier")).toEqual(["cage d'escalier"]);
+  });
+  it('un mot ordinaire n’est pas un qualificatif', () => {
+    expect(mots('la terrasse est accessible')).toEqual([]);
+  });
+});
+
+describe('N5-B — règle de PROXIMITÉ (≤ 40 car.), explicite et testée', () => {
+  it('qualificatif PRÈS de la cote (≤ 40) → porté ; LOIN (> 40) → null', () => {
+    const proche = extraireCandidats(ged([piece(1, 'a.pdf', [page(1, 'NGF +89.46 acrotère')])]));
+    expect(proche.cotes[0].qualificatifSommet).toBe('acrotère');
+    const loin = `NGF +89.46${' '.repeat(50)}acrotère`; // acrotère à > 40 car. de la cote
+    const r = extraireCandidats(ged([piece(1, 'a.pdf', [page(1, loin)])]));
+    expect(r.cotes[0].qualificatifSommet).toBeNull(); // hors fenêtre → non rapproché (jamais au jugé)
+  });
+  it('une cote SANS aucun qualificatif est rendue quand même (qualificatif null)', () => {
+    const r = extraireCandidats(ged([piece(1, 'a.pdf', [page(1, 'coupe NGF +63.15 sans mot-clé')])]));
+    expect(r.cotes[0]).toMatchObject({ valeur: 63.15, qualificatifSommet: null });
+  });
+  it('qualificatifLePlusProche : le plus proche dans la fenêtre, sinon null', () => {
+    const quals = qualificatifsDansTexte('acrotère--------édicule'); // acrotère @0, édicule @16
+    expect(qualificatifLePlusProche(0, quals)).toBe('acrotère');
+    expect(qualificatifLePlusProche(16, quals)).toBe('édicule');
+    expect(qualificatifLePlusProche(1000, quals)).toBeNull(); // aucun dans la fenêtre
+  });
+});
+
+describe('N5-B — HSP et épaisseur de dalle : des MÈTRES, jamais une cote NGF', () => {
+  it('HSP : « hauteur sous plafond », « HSP », « H.S.P », « sous-plafond » + valeur en m', () => {
+    expect(hspDansTexte('hauteur sous plafond : 2,50 m')[0].valeurM).toBe(2.5);
+    expect(hspDansTexte('HSP 2.70 m')[0].valeurM).toBe(2.7);
+    expect(hspDansTexte('H.S.P. 3 m')[0].valeurM).toBe(3);
+    expect(hspDansTexte('sous-plafond 2,80 m')[0].valeurM).toBe(2.8);
+  });
+  it('dalle : « épaisseur de dalle 0,30 m », « ép. dalle 0.20 m »', () => {
+    expect(dallesDansTexte('épaisseur de dalle 0,30 m')[0].valeurM).toBe(0.3);
+    expect(dallesDansTexte('ép. dalle 0.20 m')[0].valeurM).toBe(0.2);
+  });
+  it('« végétalisation sur dalle 9 m2 », « dalle béton » (sans « X m ») → AUCUN candidat (pas de bruit)', () => {
+    expect(dallesDansTexte('VÉGÉTALISATION SUR DALLE 9 m2')).toEqual([]);
+    expect(dallesDansTexte('Dalle béton avec étanchéité')).toEqual([]);
+  });
+  it('HSP/dalle ne contaminent JAMAIS les cotes NGF (types séparés + provenance)', () => {
+    const r = extraireCandidats(ged([piece(1, 'p.pdf', [page(1, 'HSP 2,50 m — plancher — NGF +59.63')])]));
+    expect(r.hsp.map((h) => h.valeurM)).toEqual([2.5]);
+    expect(r.cotes.map((c) => c.valeur)).toEqual([59.63]); // 2,50 (une hauteur) n'entre pas dans les cotes
+    expect(r.hsp[0].provenance).toMatchObject({ pieceNom: 'p.pdf', page: 1 });
+  });
+});
+
+describe('N5-B — non-régression + bilan enrichi', () => {
+  it('cotesNgfDansTexte garde valeur/texteBrut ; ajoute index (non cassant)', () => {
+    const c = cotesNgfDansTexte('NGF +84.24')[0];
+    expect(c.valeur).toBe(84.24);
+    expect(c.texteBrut).toContain('84.24');
+    expect(c).toHaveProperty('index');
+  });
+  it('bilan : cotesQualifiees, qualificatifsVus et coteMax portant son qualificatif', () => {
+    const t = `NGF +89.46 acrotère${' '.repeat(60)}NGF +59.63`; // 59.63 loin de tout mot-clé
+    const r = extraireCandidats(ged([piece(1, 'p.pdf', [page(1, t)])]));
+    expect(r.bilan.cotesQualifiees).toBe(1);
+    expect(r.bilan.qualificatifsVus).toEqual([{ qualificatif: 'acrotère', nb: 1 }]);
+    expect(r.bilan.coteMax).toMatchObject({ valeur: 89.46, qualificatifSommet: 'acrotère' });
   });
 });
