@@ -96,6 +96,12 @@ describe('decisionSommet — confiance', () => {
     expect(d.nbPiecesDistinctes).toBe(1);
     expect(d.confiance).toBe('a_verifier');
   });
+
+  it('porte les observations (provenance + texte brut) de la valeur retenue, pour la colonne extrait du journal', () => {
+    const d = decisionSommet(rapport([cote(89.46, 'acrotère', 3), cote(89.46, 'acrotère', 7)]));
+    expect(d.observations.map((o) => o.provenance.pieceId).sort()).toEqual([3, 7]);
+    expect(d.observations.every((o) => o.texteBrut === 'NGF +89.46')).toBe(true);
+  });
 });
 
 describe('decisionSommet — réserve et journal', () => {
@@ -118,6 +124,6 @@ describe('decisionSommet — réserve et journal', () => {
     expect(d.valeurNgf).toBe(89.46); // le niveau fini n'entre jamais dans le sommet
     expect(d.candidatsNiveauFini.map((c) => c.valeur)).toEqual([66.92, 80.86]); // triés croissant
     const nf66 = d.candidatsNiveauFini.find((c) => c.valeur === 66.92)!;
-    expect(nf66.provenances.map((p) => p.pieceId).sort()).toEqual([2, 3]);
+    expect(nf66.observations.map((o) => o.provenance.pieceId).sort()).toEqual([2, 3]);
   });
 });

@@ -28,15 +28,19 @@ export const RESERVE_SOMMET =
 
 export type Confiance = 'a_verifier' | 'confirmee';
 
-/** Un candidat « niveau fini » journalisé (jamais promu en altitude) : sa valeur et toutes ses provenances. */
-export interface CandidatNiveauFiniJournal { valeur: number; provenances: Provenance[] }
+/** Une OBSERVATION d'une valeur : où elle a été lue (provenance) ET le texte brut capté (pour la colonne `extrait` du journal).
+ *  La décision porte tout ce qu'il faut pour ÉCRIRE et JOURNALISER, afin que le dépôt la consomme sans re-décider ni re-lire. */
+export interface Observation { provenance: Provenance; texteBrut: string }
+
+/** Un candidat « niveau fini » journalisé (jamais promu en altitude) : sa valeur et toutes ses observations. */
+export interface CandidatNiveauFiniJournal { valeur: number; observations: Observation[] }
 
 export interface DecisionSommet {
   valeurNgf: number | null;                 // max acrotère (NGF absolu), ou null si aucune cote acrotère
   qualificatif: string;                     // QUALIFICATIF_SOMMET
   confiance: Confiance;                     // 'a_verifier' par défaut ; 'confirmee' si (cond1 ET cond2)
   reserve: string;                          // RESERVE_SOMMET (toujours : la valeur peut être un voisin)
-  provenances: Provenance[];                // toutes les provenances de la valeur retenue (mêmes valeur exacte) — [] si aucune
+  observations: Observation[];              // toutes les observations de la valeur retenue (même valeur exacte) — [] si aucune
   nbPiecesDistinctes: number;               // nb de pièces DISTINCTES portant la valeur retenue (condition 1)
   coherentTrame: boolean;                   // condition 2 (trame sûre + épaisseur de toiture plausible)
   candidatsNiveauFini: CandidatNiveauFiniJournal[]; // JOURNALISÉS, jamais promus
@@ -87,14 +91,14 @@ function coherentAvecTrame(niveaux: RapportExtraction['bilan']['niveaux'], somme
   return epaisseur >= 0 && epaisseur <= pasMax;
 }
 
-/** Candidats « niveau fini » regroupés par valeur distincte (ordre croissant), avec toutes leurs provenances. JOURNAL, pas mesure. */
+/** Candidats « niveau fini » regroupés par valeur distincte (ordre croissant), avec toutes leurs observations. JOURNAL, pas mesure. */
 function journalNiveauFini(cotes: RapportExtraction['cotes']): CandidatNiveauFiniJournal[] {
-  const parValeur = new Map<number, Provenance[]>();
+  const parValeur = new Map<number, Observation[]>();
   for (const c of cotes) {
     if (c.qualificatifSommet !== 'niveau fini') continue;
-    (parValeur.get(c.valeur) ?? parValeur.set(c.valeur, []).get(c.valeur)!).push(c.provenance);
+    (parValeur.get(c.valeur) ?? parValeur.set(c.valeur, []).get(c.valeur)!).push({ provenance: c.provenance, texteBrut: c.texteBrut });
   }
-  return [...parValeur.entries()].sort((a, b) => a[0] - b[0]).map(([valeur, provenances]) => ({ valeur, provenances }));
+  return [...parValeur.entries()].sort((a, b) => a[0] - b[0]).map(([valeur, observations]) => ({ valeur, observations }));
 }
 
 /**
@@ -113,18 +117,20 @@ export function decisionSommet(rapport: RapportExtraction): DecisionSommet {
   if (acroteres.length === 0) {
     return {
       valeurNgf: null, qualificatif: QUALIFICATIF_SOMMET, confiance: 'a_verifier', reserve: RESERVE_SOMMET,
-      provenances: [], nbPiecesDistinctes: 0, coherentTrame: false, candidatsNiveauFini, raisonAbsence: 'aucune_cote_acrotere',
+      observations: [], nbPiecesDistinctes: 0, coherentTrame: false, candidatsNiveauFini, raisonAbsence: 'aucune_cote_acrotere',
     };
   }
 
   const valeurNgf = acroteres.reduce((max, c) => (c.valeur > max ? c.valeur : max), acroteres[0].valeur);
-  const provenances = acroteres.filter((c) => c.valeur === valeurNgf).map((c) => c.provenance);
-  const nbPiecesDistinctes = new Set(provenances.map((p) => p.pieceId)).size;
+  const observations: Observation[] = acroteres
+    .filter((c) => c.valeur === valeurNgf)
+    .map((c) => ({ provenance: c.provenance, texteBrut: c.texteBrut }));
+  const nbPiecesDistinctes = new Set(observations.map((o) => o.provenance.pieceId)).size;
   const coherentTrame = coherentAvecTrame(rapport.bilan.niveaux, valeurNgf);
   const confiance: Confiance = nbPiecesDistinctes >= 2 && coherentTrame ? 'confirmee' : 'a_verifier';
 
   return {
     valeurNgf, qualificatif: QUALIFICATIF_SOMMET, confiance, reserve: RESERVE_SOMMET,
-    provenances, nbPiecesDistinctes, coherentTrame, candidatsNiveauFini, raisonAbsence: null,
+    observations, nbPiecesDistinctes, coherentTrame, candidatsNiveauFini, raisonAbsence: null,
   };
 }

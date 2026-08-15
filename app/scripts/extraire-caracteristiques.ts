@@ -65,14 +65,14 @@ function imprimer(numDau: string, type: string, r: RapportExtraction): void {
   if (d.valeurNgf === null) {
     console.log(`  aucun sommet : ${d.raisonAbsence} (aucune cote « ${d.qualificatif} »)`);
   } else {
-    const pages = [...new Set(d.provenances.map(prov))];
+    const pages = [...new Set(d.observations.map((o) => prov(o.provenance)))];
     console.log(`  sommet = ${d.valeurNgf} NGF (« ${d.qualificatif} », origine 'extraite')  — confiance : ${d.confiance}`);
     console.log(`  provenance (${d.nbPiecesDistinctes} pièce(s) distincte(s)) : ${pages.slice(0, 8).join(' · ')}${pages.length > 8 ? ` … +${pages.length - 8}` : ''}`);
     console.log(`  cohérent avec la trame des planchers : ${d.coherentTrame ? 'oui' : 'non'}`);
     console.log(`  ⚠ RÉSERVE : ${d.reserve}`);
   }
   if (d.candidatsNiveauFini.length > 0) {
-    console.log(`  candidats « niveau fini » JOURNALISÉS (jamais promus) : ${d.candidatsNiveauFini.map((c) => `${c.valeur} ×${c.provenances.length}`).join(' · ')}`);
+    console.log(`  candidats « niveau fini » JOURNALISÉS (jamais promus) : ${d.candidatsNiveauFini.map((c) => `${c.valeur} ×${c.observations.length}`).join(' · ')}`);
   }
 
   const pasDeTexte = b.piecesSansCandidat.filter((p) => p.motif === 'pas_de_texte');
