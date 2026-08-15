@@ -5,12 +5,20 @@
  * portée du texte : projet vs voisin, et attribution d'une cote à un lot — cf. N5-F).
  *
  * 🔒 RÈGLES (arbitrées) :
- * - EXCLUSION d'abord, toujours journalisée : une pièce qui porte nom/adresse/signature du demandeur ne doit JAMAIS figurer dans
- *   un plan destiné à sortir de la machine → exclue EN ENTIER (par NOM de fichier, ou par MARQUEUR de texte).
- * - SÉLECTION par priorité : R1 cote_qualifiee > R2 vue_par_lot > R3 planche_muette. Une page ne figure qu'UNE fois, avec la
- *   règle la plus prioritaire.
- * - PLAFOND (PLAFOND_PAGES_TRIAGE) : au-delà, on garde par priorité puis ordre naturel, `tronque=true`, et ce qui saute est
+ * - EXCLUSION d'abord, toujours journalisée (avec sa PORTÉE) : par NOM de fichier → portée PIÈCE ; par MARQUEUR d'identité du
+ *   demandeur → portée PAGE. Ce qui porte nom/adresse/signature du demandeur ne doit JAMAIS sortir dans un plan de lecture.
+ * - SÉLECTION par priorité : R1 cote_qualifiee > R2 planche_multi_corps > R3 planche_muette. Une page ne figure qu'UNE fois.
+ * - PLAFOND PAR PIÈCE (PLAFOND_PAGES_PAR_PIECE) appliqué à R2/R3 SEULEMENT : une seule pièce ne peut pas manger tout le budget.
+ *   R1 n'est JAMAIS plafonné (une cote qualifiée passe toujours). Les pages écartées par ce plafond ont un motif DISTINCT de la
+ *   troncature globale.
+ * - PLAFOND GLOBAL (PLAFOND_PAGES_TRIAGE) : au-delà, on garde par priorité puis ordre naturel, `tronque=true`, et ce qui saute est
  *   journalisé (jamais de troncature silencieuse).
+ *
+ * ⚠️ R2 'planche_multi_corps' NE CAPTE PAS les vues aériennes par lot. Mesuré (N5-F/N7-A) : ces vues (ex. C_A2 p.14/16) ne sont
+ * PAS des pages muettes (l'extracteur en tire du texte) et AUCUN signal textuel ne les isole. R2 capte les pages muettes d'une
+ * pièce citant ≥2 repères de corps — typiquement un PLAN DE MASSE muet (l'emprise des bâtiments y est dessinée, précisément ce
+ * qui manque pour attribuer une cote à un lot). Que personne ne croie que le problème d'attribution est résolu par cette règle :
+ * les vues par lot seront prises explicitement par la lecture visuelle, pas par un critère texte.
  *
  * ⚠️ Le détecteur de repères de corps est ÉLARGI ici (formes « 2D1 »/« 2D2 » nues, « LOT/Lot/lot 2Dx », « Bâtiment 2Dx »…) : le
  * `reperesDansTexte` existant ne voit que « BATIMENT 2Dx » et rate la majorité des formes. On n'élargit QUE dans ce module.
@@ -18,12 +26,14 @@
 import type { ResultatLectureGed } from './lectureGed';
 import type { RapportExtraction } from './extractionCaracteristiques';
 
-/** Plafond de pages dans un plan de lecture. Constante exportée (pilotable). */
+/** Plafond GLOBAL de pages dans un plan de lecture. Constante exportée (pilotable). */
 export const PLAFOND_PAGES_TRIAGE = 20;
+/** Plafond PAR PIÈCE, appliqué à R2/R3 seulement (jamais R1). Empêche une seule pièce de manger tout le budget. */
+export const PLAFOND_PAGES_PAR_PIECE = 5;
 
-export type RegleSelection = 'cote_qualifiee' | 'vue_par_lot' | 'planche_muette';
+export type RegleSelection = 'cote_qualifiee' | 'planche_multi_corps' | 'planche_muette';
 /** Priorité : plus petit = plus prioritaire. */
-const PRIORITE: Record<RegleSelection, number> = { cote_qualifiee: 1, vue_par_lot: 2, planche_muette: 3 };
+const PRIORITE: Record<RegleSelection, number> = { cote_qualifiee: 1, planche_multi_corps: 2, planche_muette: 3 };
 /** Qualificatifs de sommet retenus pour R1 (page « à cote qualifiée »). */
 const QUALIFS_R1 = new Set(['acrotère', 'faîtage', 'édicule', 'local technique']);
 
@@ -68,9 +78,10 @@ function reperesDeTexte(texte: string): Set<string> {
 }
 
 /**
- * Produit le plan de lecture d'un permis. PUR et déterministe. `plafond` par défaut = `PLAFOND_PAGES_TRIAGE`.
+ * Produit le plan de lecture d'un permis. PUR et déterministe. `plafond` = plafond GLOBAL (défaut `PLAFOND_PAGES_TRIAGE`) ;
+ * `plafondParPiece` = plafond PAR PIÈCE sur R2/R3 (défaut `PLAFOND_PAGES_PAR_PIECE`).
  */
-export function trierPieces(ged: ResultatLectureGed, rapport: RapportExtraction, plafond: number = PLAFOND_PAGES_TRIAGE): PlanLecture {
+export function trierPieces(ged: ResultatLectureGed, rapport: RapportExtraction, plafond: number = PLAFOND_PAGES_TRIAGE, plafondParPiece: number = PLAFOND_PAGES_PAR_PIECE): PlanLecture {
   // Index du rapport : cotes qualifiées R1 par (pièce, page) ; pièces portant au moins une cote NGF.
   const qualifParPage = new Map<string, { valeur: number; qualif: string }[]>();
   const piecesAvecNgf = new Set<number>();
@@ -106,17 +117,29 @@ export function trierPieces(ged: ResultatLectureGed, rapport: RapportExtraction,
         const quals = [...new Set(qs.map((x) => x.qualif))].join('/');
         retenues.push({ piece: p.nomFichier, page: pg.page, regle: 'cote_qualifiee', priorite: PRIORITE.cote_qualifiee, indice: `${quals} : ${valeurs.join(', ')}` });
       } else if (!pg.aTexte) {
-        if (multiRepere) retenues.push({ piece: p.nomFichier, page: pg.page, regle: 'vue_par_lot', priorite: PRIORITE.vue_par_lot, indice: `repères pièce : {${[...reperes].sort().join(', ')}}` });
+        if (multiRepere) retenues.push({ piece: p.nomFichier, page: pg.page, regle: 'planche_multi_corps', priorite: PRIORITE.planche_multi_corps, indice: `repères pièce : {${[...reperes].sort().join(', ')}}` });
         else if (pieceAvecNgf) retenues.push({ piece: p.nomFichier, page: pg.page, regle: 'planche_muette', priorite: PRIORITE.planche_muette, indice: 'planche muette d’une pièce portant des cotes NGF' });
       }
     }
   }
 
+  // PLAFOND PAR PIÈCE (R2/R3 seulement) : R1 passe toujours. Par pièce, on garde les N premières pages muettes (ordre naturel),
+  // les autres sont écartées avec un motif DISTINCT de la troncature globale.
+  const retenuesR1 = retenues.filter((r) => r.regle === 'cote_qualifiee');
+  const muettesParPiece = new Map<string, PageRetenue[]>();
+  for (const r of retenues) if (r.regle !== 'cote_qualifiee') (muettesParPiece.get(r.piece) ?? muettesParPiece.set(r.piece, []).get(r.piece)!).push(r);
+  const muettesGardees: PageRetenue[] = [];
+  for (const grp of muettesParPiece.values()) {
+    grp.sort((a, b) => a.page - b.page);
+    muettesGardees.push(...grp.slice(0, plafondParPiece));
+    for (const d of grp.slice(plafondParPiece)) exclusions.push({ piece: d.piece, page: d.page, portee: 'page', motif: `écartée par plafond PAR PIÈCE (${plafondParPiece}) : cette pièce fournit trop de planches muettes (règle ${d.regle})` });
+  }
+
   // Tri par priorité puis ordre naturel (pièce, page) — déterministe.
-  retenues.sort((a, b) => a.priorite - b.priorite || a.piece.localeCompare(b.piece) || a.page - b.page);
-  const tronque = retenues.length > plafond;
-  const pages = tronque ? retenues.slice(0, plafond) : retenues;
-  if (tronque) for (const d of retenues.slice(plafond)) exclusions.push({ piece: d.piece, page: d.page, portee: 'page', motif: `écartée par plafond (${plafond}) : règle ${d.regle}` });
+  const candidats = [...retenuesR1, ...muettesGardees].sort((a, b) => a.priorite - b.priorite || a.piece.localeCompare(b.piece) || a.page - b.page);
+  const tronque = candidats.length > plafond;
+  const pages = tronque ? candidats.slice(0, plafond) : candidats;
+  if (tronque) for (const d of candidats.slice(plafond)) exclusions.push({ piece: d.piece, page: d.page, portee: 'page', motif: `écartée par plafond GLOBAL (${plafond}) : budget total atteint (règle ${d.regle})` });
 
   return { dossierId: ged.dossierId, totalPages: ged.bilan.nbPages, totalPieces: ged.bilan.nbPieces, pages, exclusions, tronque, plafond };
 }

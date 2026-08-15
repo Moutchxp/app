@@ -34,7 +34,7 @@ describe('trierPieces — R1 cote_qualifiee', () => {
   });
 });
 
-describe('trierPieces — R2 vue_par_lot', () => {
+describe('trierPieces — R2 planche_multi_corps', () => {
   it('retient une page MUETTE d’une pièce à >=2 repères distincts', () => {
     const g = ged([piece(1, 'C_A2.pdf', [
       { page: 1, texte: 'façades du LOT 2D1 et du lot 2D2', aTexte: true },
@@ -42,7 +42,7 @@ describe('trierPieces — R2 vue_par_lot', () => {
     ])]);
     const p = trierPieces(g, rapport([]));
     expect(p.pages).toHaveLength(1);
-    expect(p.pages[0]).toMatchObject({ page: 14, regle: 'vue_par_lot' });
+    expect(p.pages[0]).toMatchObject({ page: 14, regle: 'planche_multi_corps' });
     expect(p.pages[0].indice).toContain('2D1');
     expect(p.pages[0].indice).toContain('2D2');
   });
@@ -69,7 +69,7 @@ describe('trierPieces — priorité entre règles', () => {
   it('une page muette d’une pièce à la fois multi-repères ET à cotes → R2 (prioritaire sur R3)', () => {
     const g = ged([piece(1, 'MIX.pdf', [{ page: 1, texte: 'LOT 2D1 et LOT 2D2', aTexte: true }, { page: 2, texte: '', aTexte: false }])]);
     const p = trierPieces(g, rapport([cote(1, 'MIX.pdf', 1, 70, null)]));
-    expect(p.pages[0].regle).toBe('vue_par_lot');
+    expect(p.pages[0].regle).toBe('planche_multi_corps');
   });
   it('R1 (cote_qualifiee) passe avant R2 dans le tri', () => {
     const g = ged([
@@ -148,5 +148,51 @@ describe('trierPieces — troncature et cas vide', () => {
     expect(p.pages).toEqual([]);
     expect(p.tronque).toBe(false);
     expect(p.plafond).toBe(PLAFOND_PAGES_TRIAGE);
+  });
+});
+
+describe('trierPieces — plafond PAR PIÈCE (R2/R3)', () => {
+  // Une pièce multi-repères avec 7 pages muettes ; plafondParPiece=5 → 5 gardées, 2 écartées (motif par pièce).
+  const pieceMuette7 = () => {
+    const pages: PageIn[] = [{ page: 1, texte: 'LOT 2D1 LOT 2D2', aTexte: true }];
+    for (let n = 10; n <= 16; n++) pages.push({ page: n, texte: '', aTexte: false });
+    return ged([piece(1, 'PLAN_MASSE.pdf', pages)]);
+  };
+
+  it('borne une pièce à plafondParPiece pages muettes, garde l’ordre naturel, motif « par pièce »', () => {
+    const p = trierPieces(pieceMuette7(), rapport([]), PLAFOND_PAGES_TRIAGE, 5);
+    expect(p.pages).toHaveLength(5);
+    expect(p.pages.map((x) => x.page)).toEqual([10, 11, 12, 13, 14]); // 5 premières, ordre naturel
+    const ecartees = p.exclusions.filter((e) => /par pièce/i.test(e.motif));
+    expect(ecartees.map((e) => e.page)).toEqual([15, 16]);
+    expect(p.tronque).toBe(false); // le plafond global n'est pas en cause ici
+  });
+
+  it('R1 n’est JAMAIS plafonné : 6 pages à cote qualifiée dans une pièce passent toutes', () => {
+    const pages: PageIn[] = [1, 2, 3, 4, 5, 6].map((n) => ({ page: n, texte: 'coupe', aTexte: true }));
+    const g = ged([piece(1, 'COTES.pdf', pages)]);
+    const cotes = pages.map((pg) => cote(1, 'COTES.pdf', pg.page, 80 + pg.page, 'acrotère'));
+    const p = trierPieces(g, rapport(cotes), PLAFOND_PAGES_TRIAGE, 5);
+    expect(p.pages.filter((x) => x.regle === 'cote_qualifiee')).toHaveLength(6); // 6 > plafondParPiece, mais R1 non borné
+  });
+
+  it('distingue le motif « par pièce » du motif « global »', () => {
+    // 2 pièces multi-repères de 6 pages muettes chacune ; plafondParPiece=5 → 5+5=10 gardées ; plafond global=8 → 2 sautent en global.
+    const mk = (id: number, nom: string) => {
+      const pages: PageIn[] = [{ page: 1, texte: 'LOT 2D1 LOT 2D2', aTexte: true }];
+      for (let n = 10; n <= 15; n++) pages.push({ page: n, texte: '', aTexte: false });
+      return piece(id, nom, pages);
+    };
+    const g = ged([mk(1, 'A.pdf'), mk(2, 'B.pdf')]);
+    const p = trierPieces(g, rapport([]), 8, 5);
+    expect(p.pages).toHaveLength(8);
+    expect(p.tronque).toBe(true);
+    expect(p.exclusions.some((e) => /par pièce/i.test(e.motif))).toBe(true);   // 1 page/pièce au-delà de 5
+    expect(p.exclusions.some((e) => /global/i.test(e.motif))).toBe(true);      // budget total atteint
+    // les deux motifs sont bien distincts
+    const parPiece = p.exclusions.filter((e) => /par pièce/i.test(e.motif)).length;
+    const global = p.exclusions.filter((e) => /global/i.test(e.motif)).length;
+    expect(parPiece).toBe(2); // 1 par pièce
+    expect(global).toBe(2);   // 10 gardées par-pièce → 8 dans le budget → 2 en global
   });
 });
