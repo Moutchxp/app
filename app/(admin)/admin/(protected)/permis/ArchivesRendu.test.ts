@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableArchives, PieceLien, AjoutDocument, libelleOrigineSatisfaction, labelNbPieces, MESSAGE_VIDE_ARCHIVES, etatArchive, BadgeEtatArchive, type EtatArchive } from './ArchivesRendu';
+import { TableArchives, PieceLien, CellulePieces, AjoutDocument, categoriePiece, libelleOrigineSatisfaction, labelNbPieces, MESSAGE_VIDE_ARCHIVES, etatArchive, BadgeEtatArchive, type EtatArchive } from './ArchivesRendu';
 import type { LigneArchive, PieceArchive } from '../../../../lib/sitadel/demandeRepo';
 
 const emailDeposee: PieceArchive = { id: 10, nomFichier: 'plan-de-masse.pdf', typeMime: 'application/pdf', tailleOctets: 12345, deposee: true, motifNonStocke: null, origine: 'email', recuLe: '2026-07-01', objet: 'Réponse à votre demande de communication' };
@@ -103,14 +103,14 @@ describe('N3-C — slot « Caractéristiques » dans le panneau déplié (facult
     expect(h).toContain('plan-de-masse.pdf'); // pièces toujours là
     expect(h).not.toContain('data-caract'); // rien d'injecté
   });
-  it('slot FOURNI + ligne DÉPLIÉE → le bloc est injecté APRÈS les pièces', () => {
+  it('N3-D — slot FOURNI + ligne DÉPLIÉE → le bloc est injecté AVANT les pièces (contenu métier d’abord)', () => {
     const h = renderToStaticMarkup(createElement(TableArchives, {
       lignes: [ligne()], maintenant: MAINTENANT, dossierOuvert: 1,
       onDeplier: () => {}, onTelecharger: () => {}, onSupprimer: () => {}, onFichier: () => {},
       slotCaracteristiques: (id: number) => createElement('span', { 'data-caract': id }, `caract-${id}`),
     }));
     expect(h).toContain('caract-1');
-    expect(h.indexOf('plan-de-masse.pdf')).toBeLessThan(h.indexOf('caract-1')); // après les pièces
+    expect(h.indexOf('caract-1')).toBeLessThan(h.indexOf('plan-de-masse.pdf')); // AVANT les pièces
   });
   it('slot FOURNI mais ligne REPLIÉE → pas injecté (le panneau n’est pas rendu)', () => {
     const h = renderToStaticMarkup(createElement(TableArchives, {
@@ -119,6 +119,66 @@ describe('N3-C — slot « Caractéristiques » dans le panneau déplié (facult
       slotCaracteristiques: (id: number) => createElement('span', { 'data-caract': id }, `caract-${id}`),
     }));
     expect(h).not.toContain('caract-1');
+  });
+});
+
+describe('N3-D — categoriePiece (PURE) : classement par nom de fichier, inconnu → « autres »', () => {
+  it('plans : « PC<chiffre> » et « C_A »', () => {
+    expect(categoriePiece('PC1_2D_PDM.pdf')).toBe('plans');
+    expect(categoriePiece('PC16.1_2D_PDM.pdf')).toBe('plans');
+    expect(categoriePiece('C_A2_2D_PDM.pdf')).toBe('plans');
+  });
+  it('décision : autorisation, notification, arrêté', () => {
+    expect(categoriePiece('_autorisation-13-03-2026.pdf')).toBe('decision');
+    expect(categoriePiece('_lettreDeNotification-13-03-2026.pdf')).toBe('decision');
+    expect(categoriePiece('arrete-du-maire.pdf')).toBe('decision');
+  });
+  it('avis : Favorable, UDAP, RATP', () => {
+    expect(categoriePiece('Favorable-470505-106 ENEDIS.pdf')).toBe('avis');
+    expect(categoriePiece('001b UDAP ABF PLATAU.pdf')).toBe('avis');
+    expect(categoriePiece('RATP25-043179_131814.pdf')).toBe('avis');
+  });
+  it('cerfa', () => { expect(categoriePiece('cerfa_13409_15_2D.pdf')).toBe('cerfa'); });
+  it('nom INCONNU → « autres » (jamais deviné)', () => {
+    expect(categoriePiece('note-interne.pdf')).toBe('autres');
+    expect(categoriePiece('document-bizarre.xyz')).toBe('autres');
+  });
+});
+
+describe('N3-D — CellulePieces : ordre des catégories, ordre d’origine interne, rien de masqué', () => {
+  const doc = (id: number, nom: string): PieceArchive => ({ id, nomFichier: nom, typeMime: 'application/pdf', tailleOctets: 100, deposee: true, motifNonStocke: null, origine: 'auto', recuLe: null, objet: null, deposePar: null });
+  const rendreCellule = (pieces: PieceArchive[]) => renderToStaticMarkup(createElement(CellulePieces, { pieces, onTelecharger: () => {}, onSupprimer: () => {} }));
+
+  it('ordre : fiche → Plans → Décision → Avis → Cerfa → Autres', () => {
+    const h = rendreCellule([
+      doc(1, 'cerfa_13409.pdf'), doc(2, 'inconnu.pdf'), doc(3, 'Favorable-ENEDIS.pdf'),
+      doc(4, '_autorisation.pdf'), doc(5, 'PC1_2D.pdf'), fiche,
+    ]);
+    expect(h.indexOf('Fiche de synthèse du permis.pdf')).toBeLessThan(h.indexOf('Plans'));
+    expect(h.indexOf('Plans')).toBeLessThan(h.indexOf('Décision'));
+    expect(h.indexOf('Décision')).toBeLessThan(h.indexOf('Avis de services'));
+    expect(h.indexOf('Avis de services')).toBeLessThan(h.indexOf('Cerfa'));
+    expect(h.indexOf('Cerfa')).toBeLessThan(h.indexOf('Autres pièces'));
+  });
+
+  it('ordre d’ORIGINE conservé À L’INTÉRIEUR d’une catégorie', () => {
+    const h = rendreCellule([doc(1, 'PC1_2D.pdf'), doc(2, 'PC2_2D.pdf'), doc(3, 'PC10_2D.pdf')]);
+    expect(h.indexOf('PC1_2D.pdf')).toBeLessThan(h.indexOf('PC2_2D.pdf'));
+    expect(h.indexOf('PC2_2D.pdf')).toBeLessThan(h.indexOf('PC10_2D.pdf'));
+  });
+
+  it('un nom INCONNU → catégorie « Autres pièces », TOUJOURS rendu + bouton de téléchargement (T5)', () => {
+    const h = rendreCellule([doc(9, 'un-truc-inconnu.pdf')]);
+    expect(h).toContain('Autres pièces');
+    expect(h).toContain('un-truc-inconnu.pdf'); // jamais masqué
+    expect(h).toContain('↓');                    // téléchargeable (contrat T5)
+  });
+
+  it('la fiche « genere » reste en tête et NON supprimable (non-régression N1-B/N6-F)', () => {
+    const h = rendreCellule([doc(1, 'PC1_2D.pdf'), fiche]);
+    expect(h.indexOf('Fiche de synthèse du permis.pdf')).toBeLessThan(h.indexOf('PC1_2D.pdf'));
+    // la fiche n'a pas de bouton « supprimer » ; la pièce auto en a un → « supprimer » présent une seule fois (pour l'auto)
+    expect((h.match(/supprimer/g) ?? []).length).toBe(1);
   });
 });
 

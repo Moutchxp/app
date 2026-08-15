@@ -116,9 +116,32 @@ export function PieceLien({ piece, onTelecharger, onSupprimer }: {
   );
 }
 
-/** Cellule « pièces » : N1-B la FICHE DE SYNTHÈSE générée EN PREMIER (distincte), puis les pièces e-mail GROUPÉES PAR RÉPONSE
- *  (« reçues le JJ/MM — objet », T5), puis les documents du dossier (versés automatiquement N6-F + ajoutés à la main, chacun avec
- *  sa pastille). « aucun document attaché » si le permis est renseigné sans document (T2 : jamais une archive vide muette). PURE. */
+/**
+ * N3-D — CLASSEMENT des pièces du dossier par CATÉGORIE, sur le NOM DE FICHIER. Table de motifs DOCUMENTÉE ICI (source UNIQUE),
+ * fonction PURE et testée. Ordre : plans · décision · avis · cerfa · autres.
+ *
+ * ⚠️ LIMITE ASSUMÉE (à redire dans le rapport) : ces motifs viennent d'UNE SEULE commune (Paris, permis 07512025V0035 — recon
+ * N6-A). Les conventions de nommage varient d'une mairie à l'autre → le classement sera IMPARFAIT ailleurs. C'est acceptable car
+ * toute pièce non reconnue tombe dans « autres » et reste VISIBLE + TÉLÉCHARGEABLE (T5) : RIEN n'est jamais masqué, filtré ni
+ * perdu par ce classement. La seule source VRAIMENT robuste serait un type de document STRUCTURÉ, or ni Sitadel ni la GED n'en
+ * portent (recon N3-A) → le nom de fichier est le seul signal disponible ; on ne DEVINE rien de plus.
+ */
+export type CategoriePiece = 'plans' | 'decision' | 'avis' | 'cerfa' | 'autres';
+export const ORDRE_CATEGORIES_PIECES: readonly { cle: Exclude<CategoriePiece, 'autres'>; libelle: string; motifs: RegExp[] }[] = [
+  { cle: 'plans', libelle: 'Plans', motifs: [/^\s*PC\d/i, /^\s*C_A/i] },                                    // « PC1… », « PC16.1… », « C_A1… »
+  { cle: 'decision', libelle: 'Décision (arrêté, autorisation, notification)', motifs: [/autorisation/i, /notification/i, /arr[eê]t[eé]/i] },
+  { cle: 'avis', libelle: 'Avis de services', motifs: [/favorable/i, /udap/i, /ratp/i] },                    // « Favorable… », « UDAP… », « RATP… »
+  { cle: 'cerfa', libelle: 'Cerfa', motifs: [/cerfa/i] },
+];
+export const LIBELLE_CATEGORIE_AUTRES = 'Autres pièces';
+/** Première catégorie dont un motif reconnaît le nom ; sinon « autres » (jamais masqué). PURE. */
+export function categoriePiece(nomFichier: string): CategoriePiece {
+  for (const c of ORDRE_CATEGORIES_PIECES) if (c.motifs.some((r) => r.test(nomFichier))) return c.cle;
+  return 'autres';
+}
+
+/** Cellule « pièces » : N1-B la FICHE DE SYNTHÈSE en tête ; N3-D les documents du dossier CLASSÉS PAR CATÉGORIE (ordre d'origine
+ *  conservé à l'intérieur) ; puis les pièces e-mail GROUPÉES PAR RÉPONSE (T5). « aucun document attaché » si sans document. PURE. */
 export function CellulePieces({ pieces, onTelecharger, onSupprimer }: {
   pieces: PieceArchive[]; onTelecharger?: (id: number, source: 'reponse' | 'dossier') => void; onSupprimer?: (documentId: number) => void;
 }) {
@@ -133,6 +156,11 @@ export function CellulePieces({ pieces, onTelecharger, onSupprimer }: {
     const g = groupes.get(cle) ?? groupes.set(cle, { recuLe: p.recuLe, objet: p.objet, items: [] }).get(cle)!;
     g.items.push(p);
   }
+  // N3-D — répartition des documents du dossier par catégorie, dans l'ORDRE défini ; ordre d'origine conservé (filter stable).
+  const parCategorie = [
+    ...ORDRE_CATEGORIES_PIECES.map((c) => ({ cle: c.cle as CategoriePiece, libelle: c.libelle, items: documentsDossier.filter((p) => categoriePiece(p.nomFichier) === c.cle) })),
+    { cle: 'autres' as CategoriePiece, libelle: LIBELLE_CATEGORIE_AUTRES, items: documentsDossier.filter((p) => categoriePiece(p.nomFichier) === 'autres') },
+  ].filter((g) => g.items.length > 0);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
       {generes.length > 0 && (
@@ -140,6 +168,14 @@ export function CellulePieces({ pieces, onTelecharger, onSupprimer }: {
           {generes.map((p) => <li key={`genere-${p.id}`}><PieceLien piece={p} onTelecharger={onTelecharger} onSupprimer={onSupprimer} /></li>)}
         </ul>
       )}
+      {parCategorie.map((g) => (
+        <div key={`cat-${g.cle}`}>
+          <span style={{ fontSize: 11, ...muted }}>{g.libelle}</span>
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+            {g.items.map((p) => <li key={`doc-${p.id}`}><PieceLien piece={p} onTelecharger={onTelecharger} onSupprimer={onSupprimer} /></li>)}
+          </ul>
+        </div>
+      ))}
       {[...groupes.values()].map((g, i) => (
         <div key={`e-${i}`}>
           <span style={{ fontSize: 11, ...muted }}>reçues le {jjmm(g.recuLe)} — {tronquerObjet(g.objet)}</span>
@@ -148,11 +184,6 @@ export function CellulePieces({ pieces, onTelecharger, onSupprimer }: {
           </ul>
         </div>
       ))}
-      {documentsDossier.length > 0 && (
-        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-          {documentsDossier.map((p) => <li key={`doc-${p.id}`}><PieceLien piece={p} onTelecharger={onTelecharger} onSupprimer={onSupprimer} /></li>)}
-        </ul>
-      )}
     </div>
   );
 }
@@ -264,10 +295,12 @@ export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, on
                     {/* Panneau condensé : pièces (une par ligne compacte, actions alignées — CellulePieces) + ajout à la main. */}
                     <td id={ancrePieces(l.dossierId)} colSpan={NB_COLONNES_ARCHIVES}
                       style={{ padding: '.6rem .8rem', borderBottom: '1px solid var(--color-svv-line)', background: 'var(--color-svv-field)', whiteSpace: 'normal' }}>
-                      <CellulePieces pieces={l.pieces} onTelecharger={onTelecharger} onSupprimer={onSupprimer} />
-                      <div style={{ marginTop: '.5rem' }}><AjoutDocument dossierId={l.dossierId} onFichier={onFichier} enCours={uploadEnCours === l.dossierId} /></div>
-                      {/* N3-C — bloc « Caractéristiques du bâtiment », APRÈS la fiche et les documents. Slot facultatif (injecté par la Vue). */}
+                      {/* N3-D — le bloc « Caractéristiques du bâtiment » (contenu MÉTIER) passe EN PREMIER ; les documents se consultent ensuite. Slot facultatif. */}
                       {slotCaracteristiques ? slotCaracteristiques(l.dossierId) : null}
+                      <div style={{ marginTop: slotCaracteristiques ? '.6rem' : 0 }}>
+                        <CellulePieces pieces={l.pieces} onTelecharger={onTelecharger} onSupprimer={onSupprimer} />
+                      </div>
+                      <div style={{ marginTop: '.5rem' }}><AjoutDocument dossierId={l.dossierId} onFichier={onFichier} enCours={uploadEnCours === l.dossierId} /></div>
                     </td>
                   </tr>
                 )}
