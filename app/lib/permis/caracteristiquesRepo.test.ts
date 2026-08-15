@@ -70,6 +70,20 @@ describe('N7-D — ecrireCaracteristiquesGlobales (colonnes déclarées 106, inv
     // dossier_id=1, adresse_terrain=null, adresse_terrain_origine=null, maj_par='auto'
     expect(up.params).toEqual([1, null, null, 'auto']);
   });
+
+  it('N8-C — altitude_sommet_ngf du permis : saisie manuelle écrite ; puis AUTOMATIQUE ne l’écrase pas (invariant)', async () => {
+    // (b) le POST écrit le sommet permis en 'saisie'
+    const r1 = await ecrireCaracteristiquesGlobales(1, { altitudeSommetNgf: 91.2 }, 'saisie', 'admin');
+    expect(r1.ecrits).toEqual(['altitudeSommetNgf']);
+    const up = trouver(/INSERT\s+INTO\s+permis_caracteristique/)!;
+    expect(up.params).toContain(91.2);
+    expect(norm(up!.sql)).toContain('altitude_sommet_ngf_origine');
+    // une écriture AUTOMATIQUE ultérieure (ex. N8-B) laisse la saisie intacte → champ IGNORÉ, aucun upsert
+    H.appels.length = 0; H.state.originesGlobal = { altitudeSommetNgf: 'saisie' };
+    const r2 = await ecrireCaracteristiquesGlobales(1, { altitudeSommetNgf: 89.46 }, 'extraite', 'auto');
+    expect(r2).toEqual({ ecrits: [], ignores: ['altitudeSommetNgf'] });
+    expect(trouver(/INSERT\s+INTO\s+permis_caracteristique/)).toBeUndefined();
+  });
 });
 
 describe('N3-B — repartirEcriture (invariant PUR, les deux sens)', () => {

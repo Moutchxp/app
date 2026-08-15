@@ -39,6 +39,9 @@ export interface GlobalPermis {
   nbLogements: number | null; nbLogementsOrigine: OrigineValeur | null;
   nbPlacesStationnement: number | null; nbPlacesStationnementOrigine: OrigineValeur | null;
   adresseTerrain: string | null; adresseTerrainOrigine: OrigineValeur | null;
+  // N8-B/C — point le plus haut relevé sur les planches du permis (acrotère max), NON rattaché à un corps (attribution par lot non
+  // établie, cf. P4/P5). Niveau PERMIS, DISTINCT de CorpsBatiment.altitudeSommetNgf (valeur par corps). Migration 108.
+  altitudeSommetNgf: number | null; altitudeSommetNgfOrigine: OrigineValeur | null;
 }
 export interface CorpsBatiment {
   id: number; repere: string | null;
@@ -78,6 +81,7 @@ export async function lirePermisCaracteristiques(dossierId: number): Promise<Per
                                  'nbLogements', nb_logements, 'nbLogementsOrigine', nb_logements_origine,
                                  'nbPlacesStationnement', nb_places_stationnement, 'nbPlacesStationnementOrigine', nb_places_stationnement_origine,
                                  'adresseTerrain', adresse_terrain, 'adresseTerrainOrigine', adresse_terrain_origine,
+                                 'altitudeSommetNgf', altitude_sommet_ngf, 'altitudeSommetNgfOrigine', altitude_sommet_ngf_origine,
                                  'majLe', maj_le::text, 'majPar', maj_par)
           FROM permis_caracteristique WHERE dossier_id = $1) AS global,
        COALESCE((
@@ -213,6 +217,7 @@ const COLONNE_GLOBAL_DECLARE = {
   nbLogements: 'nb_logements',
   nbPlacesStationnement: 'nb_places_stationnement',
   adresseTerrain: 'adresse_terrain',
+  altitudeSommetNgf: 'altitude_sommet_ngf', // N8-C — sommet du PERMIS (migration 108) : éditable à la main comme les autres déclarés, invariant réutilisé
 } as const;
 export type ChampGlobalDeclare = keyof typeof COLONNE_GLOBAL_DECLARE;
 /** Valeurs à poser : texte (nature/adresse) ou nombre (surface/logements/stationnement), ou null. */

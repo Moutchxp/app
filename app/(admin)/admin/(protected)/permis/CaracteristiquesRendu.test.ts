@@ -162,6 +162,25 @@ describe('N7-E — ChampDeclareEditeur (champs permis)', () => {
     expect(h).toContain('divergence');
     expect(h).toContain('parking déclaré');
   });
+  it('N8-C — sommet du PERMIS : libellé distinct + aide qui dit POURQUOI il n’est pas sur un corps ; extraite → confiance/réserve/provenance', () => {
+    const sommet = CHAMPS_PERMIS.find((c) => c.cle === 'altitudeSommetNgf')!;
+    const j: JournalChamp = { confiance: 'a_verifier', reserve: 'superstructure de toiture ; peut appartenir à un bâtiment voisin', provenances: [{ piece: 'PC3.pdf', page: 2 }], motif: null };
+    const h = renderToStaticMarkup(createElement(ChampDeclareEditeur, { champ: sommet, bornes: { min: -50, max: 500 }, valeur: '89.46', origine: 'extraite', journal: j, onValeur: noop }));
+    expect(h).toContain('Altitude du sommet du permis'); // libellé disambiguant (≠ « Altitude du sommet » d’un corps)
+    expect(h).toContain('NON rattaché à un corps');       // l’aide dit pourquoi la valeur est au niveau permis
+    expect(h).toContain('l’attribution par lot n’est pas établie');
+    expect(h).toContain('à vérifier');                    // confiance de la valeur extraite
+    expect(h).toContain('superstructure de toiture');     // réserve conservée
+    expect(h).toContain('provenance (1 pièce)');          // provenance atteignable
+    expect(h).toContain('-50 et 500');                    // bornes lues de la base
+  });
+  it('N8-C — sommet VIDE (origine null) porte le MOTIF de non-écriture, pas une valeur inventée', () => {
+    const sommet = CHAMPS_PERMIS.find((c) => c.cle === 'altitudeSommetNgf')!;
+    const j: JournalChamp = { confiance: null, reserve: null, provenances: [], motif: 'aucune cote d’acrotère qualifiée dans les planches' };
+    const h = renderToStaticMarkup(createElement(ChampDeclareEditeur, { champ: sommet, bornes: { min: -50, max: 500 }, valeur: '', origine: null, journal: j, onValeur: noop }));
+    expect(h).toContain('vide :');
+    expect(h).toContain('aucune cote d’acrotère');
+  });
 });
 
 describe('N7-E — EditeurRepere : motif sous un repère vide', () => {

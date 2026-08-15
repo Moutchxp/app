@@ -2,13 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { construireCorps, construireGlobal, construirePermis, valeurVersInput, libelleBornes, MESURES, CHAMPS_PERMIS, type EditionCorps, type EditionPermis, type Bornes } from './caracteristiquesForm';
 
 const NATURES = ['habitation', 'bureaux', 'commerce', 'mixte', 'equipement', 'autre'];
-const edPermis = (over: Partial<EditionPermis> = {}): EditionPermis => ({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '', ...over });
+const edPermis = (over: Partial<EditionPermis> = {}): EditionPermis => ({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '', altitudeSommetNgf: '', ...over });
+const BORNES_PERMIS: Record<string, Bornes> = { altitude_sommet_ngf: { min: -50, max: 500 } }; // LUES du CHECK (108/103) ; ici pour le test
 
 describe('N7-E — construirePermis (champs déclarés du permis)', () => {
   it('vides → toutes valeurs null (tri-état préservé), aucune erreur', () => {
     const { valeurs, valide } = construirePermis(edPermis(), NATURES);
     expect(valide).toBe(true);
-    expect(valeurs).toEqual({ natureProjet: null, surfacePlancherM2: null, nbLogements: null, nbPlacesStationnement: null, adresseTerrain: null });
+    expect(valeurs).toEqual({ natureProjet: null, surfacePlancherM2: null, nbLogements: null, nbPlacesStationnement: null, adresseTerrain: null, altitudeSommetNgf: null });
   });
   it('nature dans la liste → acceptée ; hors liste → erreur', () => {
     expect(construirePermis(edPermis({ natureProjet: 'mixte' }), NATURES).valeurs.natureProjet).toBe('mixte');
@@ -20,8 +21,14 @@ describe('N7-E — construirePermis (champs déclarés du permis)', () => {
     const ok = construirePermis(edPermis({ nbPlacesStationnement: '0', surfacePlancherM2: '13032' }), NATURES);
     expect(ok.valeurs.nbPlacesStationnement).toBe(0); expect(ok.valeurs.surfacePlancherM2).toBe(13032);
   });
-  it('les 5 champs déclarés sont exposés', () => {
-    expect(CHAMPS_PERMIS.map((c) => c.cle).sort()).toEqual(['adresseTerrain', 'natureProjet', 'nbLogements', 'nbPlacesStationnement', 'surfacePlancherM2']);
+  it('N8-C — altitude du sommet permis : bornée par le CHECK (négatif admis dans [-50 ; 500]), hors bornes → erreur citant la plage', () => {
+    expect(construirePermis(edPermis({ altitudeSommetNgf: '89.46' }), NATURES, BORNES_PERMIS).valeurs.altitudeSommetNgf).toBe(89.46);
+    expect(construirePermis(edPermis({ altitudeSommetNgf: '-12' }), NATURES, BORNES_PERMIS).valeurs.altitudeSommetNgf).toBe(-12); // borne réelle, PAS la règle ≥0
+    const ko = construirePermis(edPermis({ altitudeSommetNgf: '600' }), NATURES, BORNES_PERMIS);
+    expect(ko.valide).toBe(false); expect(ko.erreurs.altitudeSommetNgf).toContain('-50 et 500'); expect(ko.erreurs.altitudeSommetNgf).toContain('m');
+  });
+  it('les 6 champs déclarés sont exposés (dont le sommet permis)', () => {
+    expect(CHAMPS_PERMIS.map((c) => c.cle).sort()).toEqual(['adresseTerrain', 'altitudeSommetNgf', 'natureProjet', 'nbLogements', 'nbPlacesStationnement', 'surfacePlancherM2']);
   });
 });
 

@@ -22,6 +22,7 @@ const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
 const editionDepuisPermis = (g: GlobalPermis | null): EditionPermis => ({
   natureProjet: g?.natureProjet ?? '', surfacePlancherM2: permisVersInput(g?.surfacePlancherM2), nbLogements: permisVersInput(g?.nbLogements),
   nbPlacesStationnement: permisVersInput(g?.nbPlacesStationnement), adresseTerrain: g?.adresseTerrain ?? '',
+  altitudeSommetNgf: permisVersInput(g?.altitudeSommetNgf), // N8-C — sommet du permis (108), éditable comme les autres déclarés
 });
 const origineDe = (o: unknown, cle: string): OrigineValeur | null => (o as Record<string, OrigineValeur | null>)?.[`${cle}Origine`] ?? null;
 /** N7-F — divergence entre le booléen parking (VESTIGIAL, 103) et le nombre de places (106). null si concordant/vide. */
@@ -47,7 +48,7 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
   const [data, setData] = useState<EtatCharge | null>(null);
   const [edGlobal, setEdGlobal] = useState<EditionGlobal>({ parking: '', commentaire: '' });
-  const [edPermis, setEdPermis] = useState<EditionPermis>({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '' });
+  const [edPermis, setEdPermis] = useState<EditionPermis>({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '', altitudeSommetNgf: '' });
   const [erreursPermis, setErreursPermis] = useState<ErreursPermis>({});
   const [edCorps, setEdCorps] = useState<Record<number, EditionCorps>>({});
   const [erreursCorps, setErreursCorps] = useState<Record<number, ErreursCorps>>({});
@@ -96,7 +97,7 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
 
   // Enregistre LE PERMIS : les 5 champs déclarés (action 'declare') + parking/commentaire (action 'global').
   const enregistrerPermis = useCallback(async () => {
-    const { erreurs, valide } = construirePermis(edPermis, data?.naturesPossibles ?? []);
+    const { erreurs, valide } = construirePermis(edPermis, data?.naturesPossibles ?? [], data?.bornes ?? {});
     setErreursPermis(erreurs);
     if (!valide) { setMessage('Corrigez les champs signalés avant d’enregistrer.'); return; }
     setEnCours(true);
@@ -155,7 +156,7 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
             const journal = estStationnement && vide ? (data.journal.permis['parking'] ?? data.journal.permis[champ.colonne]) : data.journal.permis[champ.colonne];
             const divergence = estStationnement ? divergenceParking(data.global) : null;
             return (
-              <ChampDeclareEditeur key={champ.cle} champ={champ} valeur={edPermis[champ.cle]} origine={origineDe(data.global, champ.cle)}
+              <ChampDeclareEditeur key={champ.cle} champ={champ} bornes={data.bornes[champ.colonne]} valeur={edPermis[champ.cle]} origine={origineDe(data.global, champ.cle)}
                 erreur={erreursPermis[champ.cle]} journal={journal} naturesPossibles={data.naturesPossibles} divergence={divergence}
                 onValeur={(v) => setEdPermis((p) => ({ ...p, [champ.cle]: v }))} />
             );

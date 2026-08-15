@@ -137,8 +137,8 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
 
 /** N7-E — éditeur d'UN champ DÉCLARÉ (niveau permis) : « nature » = sélecteur (options venant du CHECK), sinon nombre (≥0) / texte.
  *  Même traitement d'annotations que les mesures (confiance/réserve/provenance/motif). Tri-état préservé (vide = non renseigné). */
-export function ChampDeclareEditeur({ champ, valeur, origine, erreur, journal, naturesPossibles, divergence, onValeur }: {
-  champ: ChampDeclare; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; naturesPossibles?: readonly string[]; divergence?: string | null; onValeur: (v: string) => void;
+export function ChampDeclareEditeur({ champ, bornes, valeur, origine, erreur, journal, naturesPossibles, divergence, onValeur }: {
+  champ: ChampDeclare; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; naturesPossibles?: readonly string[]; divergence?: string | null; onValeur: (v: string) => void;
 }) {
   const libelle = `${champ.libelle}${champ.unite ? ` (${champ.unite})` : ''}`;
   return (
@@ -150,11 +150,13 @@ export function ChampDeclareEditeur({ champ, valeur, origine, erreur, journal, n
           {(naturesPossibles ?? []).map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
       ) : champ.genre === 'nombre' ? (
-        <input type="number" inputMode="decimal" value={valeur} placeholder="vide = non renseigné" min={0} step={champ.entier ? 1 : 'any'}
+        <input type="number" inputMode="decimal" value={valeur} placeholder="vide = non renseigné" min={bornes?.min ?? 0} max={bornes?.max} step={champ.entier ? 1 : 'any'}
           onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label={champ.libelle} />
       ) : (
         <input type="text" value={valeur} placeholder="vide = non renseignée" onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label={champ.libelle} />
       )}
+      {bornes && <span style={styleAide}>valeur attendue entre {bornes.min} et {bornes.max}{champ.unite ? ` ${champ.unite}` : ''}</span>}
+      {champ.aide && <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}>{champ.aide}</span>}
       {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
       <AnnotationsExtraction origine={origine} journal={journal} />
       {/* N7-F — divergence signalée (ex. parking vestigial vs nombre de places) : information, jamais masquée. */}

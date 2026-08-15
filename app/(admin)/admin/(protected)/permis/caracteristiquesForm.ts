@@ -110,14 +110,18 @@ export function valeurVersInput(v: number | null | undefined): string {
 
 // ── N7-E — champs DÉCLARÉS au niveau PERMIS (colonnes 106). Éditables comme les mesures, mais niveau permis, pas corps. ──────────
 export type ChampPermis = ChampGlobalDeclare;
-/** `genre` : 'liste' = sélecteur (valeurs venant du CHECK, jamais recopiées) | 'nombre' (≥ 0) | 'texte'. */
-export interface ChampDeclare { cle: ChampPermis; colonne: string; libelle: string; genre: 'liste' | 'nombre' | 'texte'; unite?: string | null; entier?: boolean }
+/** `genre` : 'liste' = sélecteur (valeurs venant du CHECK, jamais recopiées) | 'nombre' (≥ 0, ou bornes de la base si fournies) | 'texte'.
+ *  `aide` : ligne d'explication SOUS le champ (ex. sommet permis : dire pourquoi la valeur est ici et pas sur un corps). */
+export interface ChampDeclare { cle: ChampPermis; colonne: string; libelle: string; genre: 'liste' | 'nombre' | 'texte'; unite?: string | null; entier?: boolean; aide?: string }
 export const CHAMPS_PERMIS: readonly ChampDeclare[] = [
   { cle: 'natureProjet', colonne: 'nature_projet', libelle: 'Nature du projet', genre: 'liste' },
   { cle: 'surfacePlancherM2', colonne: 'surface_plancher_m2', libelle: 'Surface de plancher', genre: 'nombre', unite: 'm²', entier: false },
   { cle: 'nbLogements', colonne: 'nb_logements', libelle: 'Nombre de logements', genre: 'nombre', entier: true },
   { cle: 'nbPlacesStationnement', colonne: 'nb_places_stationnement', libelle: 'Places de stationnement', genre: 'nombre', entier: true },
   { cle: 'adresseTerrain', colonne: 'adresse_terrain', libelle: 'Adresse du terrain', genre: 'texte' },
+  // N8-C — sommet AU NIVEAU PERMIS (migration 108). Le libellé DIT qu'il n'est pas rattaché à un corps ; l'aide dit POURQUOI.
+  { cle: 'altitudeSommetNgf', colonne: 'altitude_sommet_ngf', libelle: 'Altitude du sommet du permis (NGF)', genre: 'nombre', unite: 'm', entier: false,
+    aide: 'Point le plus haut relevé sur les planches du permis (acrotère ou faîtage le plus haut). NON rattaché à un corps de bâtiment : l’attribution par lot n’est pas établie — c’est pourquoi il vit ici, au niveau du permis, et non sur un immeuble précis.' },
 ];
 /** Édition des champs permis : tout en CHAÎNE (les inputs). Une chaîne VIDE = champ vide (→ null explicite), jamais 0. */
 export type EditionPermis = Record<ChampPermis, string>;
@@ -129,10 +133,12 @@ export function permisVersInput(v: number | string | null | undefined): string {
 }
 
 /**
- * Construit `ValeursGlobalDeclare` (nombres ≥ 0, nature dans la LISTE FERMÉE lue du CHECK, textes) + erreurs par champ. Un champ
- * VIDE → `null` explicite (tri-état préservé). `naturesPossibles` vient du CHECK de la base (jamais recopié ici).
+ * Construit `ValeursGlobalDeclare` (nature dans la LISTE FERMÉE lue du CHECK, textes, nombres) + erreurs par champ. Un champ VIDE →
+ * `null` explicite (tri-état préservé). `naturesPossibles` vient du CHECK de la base (jamais recopié). `bornes` (LUES des CHECK)
+ * bornent un champ nombre quand elles existent — ex. l'altitude du sommet permis, qui accepte le négatif ([-50 ; 500]) ; les champs
+ * SANS borne (surface, logements, stationnement) gardent la règle « ≥ 0 ». Aucune borne recopiée en dur.
  */
-export function construirePermis(ed: EditionPermis, naturesPossibles: readonly string[]): { valeurs: ValeursGlobalDeclare; erreurs: ErreursPermis; valide: boolean } {
+export function construirePermis(ed: EditionPermis, naturesPossibles: readonly string[], bornes: Record<string, Bornes | undefined> = {}): { valeurs: ValeursGlobalDeclare; erreurs: ErreursPermis; valide: boolean } {
   const valeurs: ValeursGlobalDeclare = {};
   const erreurs: ErreursPermis = {};
 
@@ -144,7 +150,11 @@ export function construirePermis(ed: EditionPermis, naturesPossibles: readonly s
   for (const m of CHAMPS_PERMIS.filter((c) => c.genre === 'nombre')) {
     const p = parseNombre(ed[m.cle], !!m.entier);
     if (!p.ok) { erreurs[m.cle] = m.entier ? 'nombre entier attendu' : 'nombre attendu'; continue; }
-    if (p.valeur !== null && p.valeur < 0) { erreurs[m.cle] = 'valeur ≥ 0 attendue'; continue; }
+    if (p.valeur !== null) {
+      const b = bornes[m.colonne];
+      if (b) { if (p.valeur < b.min || p.valeur > b.max) { erreurs[m.cle] = `valeur attendue entre ${b.min} et ${b.max}${m.unite ? ` ${m.unite}` : ''}`; continue; } }
+      else if (p.valeur < 0) { erreurs[m.cle] = 'valeur ≥ 0 attendue'; continue; }
+    }
     valeurs[m.cle] = p.valeur; // VIDE → null (tri-état)
   }
 

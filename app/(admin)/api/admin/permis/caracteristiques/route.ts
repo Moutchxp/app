@@ -121,8 +121,10 @@ export async function POST(request: Request): Promise<Response> {
       const ed: EditionPermis = {
         natureProjet: chaine(src.natureProjet), surfacePlancherM2: chaine(src.surfacePlancherM2), nbLogements: chaine(src.nbLogements),
         nbPlacesStationnement: chaine(src.nbPlacesStationnement), adresseTerrain: chaine(src.adresseTerrain),
+        altitudeSommetNgf: chaine(src.altitudeSommetNgf), // N8-C — sommet du permis (108), borné par le CHECK lu en base
       };
-      const { valeurs, erreurs, valide } = construirePermis(ed, await lireNaturesPossibles());
+      const [natures, bornes] = await Promise.all([lireNaturesPossibles(), lireBornes()]);
+      const { valeurs, erreurs, valide } = construirePermis(ed, natures, bornes);
       if (!valide) return Response.json({ erreur: 'valeur(s) invalide(s)', erreurs }, { status: 422 });
       const r = await ecrireCaracteristiquesGlobales(body.dossierId, valeurs, 'saisie', auteur);
       return Response.json({ ok: true, ...r });
