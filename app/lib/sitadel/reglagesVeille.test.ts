@@ -63,6 +63,20 @@ describe('S7d — bornes issues des CHECK de la base', () => {
       expect(BORNES[p.colonne], `borne manquante pour ${p.colonne}`).toBeDefined();
     }
   });
+
+  it('N3-C — lit les DEUX formes de CHECK : entière NUE et numeric PARENTHÉSÉE/CASTÉE (borne négative comprise)', () => {
+    const b = parserBornesCheck([
+      // forme integer NUE (nb_etages, nb_niveaux_sous_sol)
+      'CHECK (((nb_etages >= 0) AND (nb_etages <= 70)))',
+      // forme numeric : (N)::numeric
+      'CHECK (((hauteur_relative_m >= (0)::numeric) AND (hauteur_relative_m <= (300)::numeric)))',
+      // forme numeric avec borne NÉGATIVE double-castée : ('-50'::integer)::numeric
+      "CHECK (((altitude_sommet_ngf >= ('-50'::integer)::numeric) AND (altitude_sommet_ngf <= (500)::numeric)))",
+    ]);
+    expect(b.nb_etages).toEqual({ min: 0, max: 70 });
+    expect(b.hauteur_relative_m).toEqual({ min: 0, max: 300 });
+    expect(b.altitude_sommet_ngf).toEqual({ min: -50, max: 500 });
+  });
 });
 
 describe('S7d — validation de l’identité (réutilise problemesIdentite)', () => {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { LigneArchive } from '../../../../lib/sitadel/demandeRepo';
 import { TableArchives } from './ArchivesRendu';
+import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 
 /**
  * A1a/A1b — onglet ARCHIVES : les permis renseignés par les mairies + leurs pièces (reçues par e-mail OU ajoutées à la main).
@@ -95,7 +96,8 @@ export function ArchivesVue() {
         onDeplier={(id) => setDossierOuvert((cur) => (cur === id ? null : id))}
         onTelecharger={(id, source) => void telecharger(id, source)}
         onSupprimer={(id) => void supprimer(id)}
-        onFichier={(dossierId, fichier) => void televerser(dossierId, fichier)} />
+        onFichier={(dossierId, fichier) => void televerser(dossierId, fichier)}
+        slotCaracteristiques={(dossierId) => <CaracteristiquesBloc dossierId={dossierId} />} />
 
       {nbPages > 1 && (
         <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>

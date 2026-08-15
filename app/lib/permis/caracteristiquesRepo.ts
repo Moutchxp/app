@@ -141,6 +141,11 @@ export async function supprimerCorps(corpsId: number): Promise<boolean> {
   return (res.rowCount ?? 0) > 0;
 }
 
+/** N3-C — renomme un corps (le `repere` n'a PAS d'origine : c'est un libellé humain, comme le commentaire du global). `null` = anonyme. */
+export async function definirRepere(corpsId: number, repere: string | null, majPar: string): Promise<void> {
+  await query(`UPDATE permis_corps_batiment SET repere = $2, maj_le = now(), maj_par = $3 WHERE id = $1`, [corpsId, repere, majPar]);
+}
+
 // ── ÉCRITURE du GLOBAL (parking porte l'invariant ; commentaire = note humaine sans origine) ───────────────────────────────────
 /**
  * Upsert du global d'un permis. `parking` suit l'invariant (AUTOMATIQUE ne l'écrase pas s'il est déjà 'saisie') ; `commentaire`

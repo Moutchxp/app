@@ -97,6 +97,31 @@ describe('A1b — pièces : origine visible, e-mail non supprimable, manuel supp
   });
 });
 
+describe('N3-C — slot « Caractéristiques » dans le panneau déplié (facultatif)', () => {
+  it('slot ABSENT → rendu inchangé (aucune régression)', () => {
+    const h = rendu([ligne()]); // pas de slotCaracteristiques
+    expect(h).toContain('plan-de-masse.pdf'); // pièces toujours là
+    expect(h).not.toContain('data-caract'); // rien d'injecté
+  });
+  it('slot FOURNI + ligne DÉPLIÉE → le bloc est injecté APRÈS les pièces', () => {
+    const h = renderToStaticMarkup(createElement(TableArchives, {
+      lignes: [ligne()], maintenant: MAINTENANT, dossierOuvert: 1,
+      onDeplier: () => {}, onTelecharger: () => {}, onSupprimer: () => {}, onFichier: () => {},
+      slotCaracteristiques: (id: number) => createElement('span', { 'data-caract': id }, `caract-${id}`),
+    }));
+    expect(h).toContain('caract-1');
+    expect(h.indexOf('plan-de-masse.pdf')).toBeLessThan(h.indexOf('caract-1')); // après les pièces
+  });
+  it('slot FOURNI mais ligne REPLIÉE → pas injecté (le panneau n’est pas rendu)', () => {
+    const h = renderToStaticMarkup(createElement(TableArchives, {
+      lignes: [ligne()], maintenant: MAINTENANT, dossierOuvert: null,
+      onDeplier: () => {}, onTelecharger: () => {}, onSupprimer: () => {}, onFichier: () => {},
+      slotCaracteristiques: (id: number) => createElement('span', { 'data-caract': id }, `caract-${id}`),
+    }));
+    expect(h).not.toContain('caract-1');
+  });
+});
+
 describe('N6-F — pièce VERSÉE AUTOMATIQUEMENT (origine « auto »)', () => {
   it('pastille « versée automatiquement » (distincte de « ajoutée à la main » et « fiche de synthèse ») + expéditeur affiché', () => {
     const h = renderToStaticMarkup(createElement(PieceLien, { piece: auto, onTelecharger: () => {}, onSupprimer: () => {} }));

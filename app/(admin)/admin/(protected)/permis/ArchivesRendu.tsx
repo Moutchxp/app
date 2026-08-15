@@ -1,4 +1,4 @@
-import { Fragment, type CSSProperties } from 'react';
+import { Fragment, type CSSProperties, type ReactNode } from 'react';
 import { ConteneurTableDefilant } from './DemandesRendu';
 import { jjmm, tronquerObjet } from './ReponsesRendu'; // T5 : mêmes helpers d'étiquette que BlocPiecesReponses (cohérence Réponses/Archives)
 import { formaterDateJour } from '../../../../lib/sitadel/priorite';
@@ -195,7 +195,7 @@ export const EXPLICATION_VIDE_ARCHIVES =
  * les pièces condensées + l'ajout à la main. Accordéon à UN volet (état `dossierOuvert` levé dans la Vue). Conteneur défilant
  * a11y (mobile). État vide EXPLICITE. Aucune animation → prefers-reduced-motion sans objet. Tri (satisfaction ↓) côté serveur.
  */
-export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, onTelecharger, onSupprimer, onFichier, uploadEnCours }: {
+export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, onTelecharger, onSupprimer, onFichier, uploadEnCours, slotCaracteristiques }: {
   lignes: LigneArchive[];
   maintenant: Date; // G2 : « aujourd'hui » (fourni par la Vue) — pilote les 2 mois et le « délai dépassé ». Injecté → rendu déterministe/testable.
   dossierOuvert?: number | null; // N1-C : le dossierId de l'UNIQUE ligne dépliée (null = toutes repliées). État levé dans la Vue.
@@ -204,6 +204,7 @@ export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, on
   onSupprimer?: (documentId: number) => void;
   onFichier?: (dossierId: number, fichier: File) => void;
   uploadEnCours?: number | null;
+  slotCaracteristiques?: (dossierId: number) => ReactNode; // N3-C : bloc « Caractéristiques » injecté par la Vue APRÈS pièces + ajout (facultatif → tests inchangés)
 }) {
   if (lignes.length === 0) {
     return (
@@ -262,6 +263,8 @@ export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, on
                       style={{ padding: '.6rem .8rem', borderBottom: '1px solid var(--color-svv-line)', background: 'var(--color-svv-field)', whiteSpace: 'normal' }}>
                       <CellulePieces pieces={l.pieces} onTelecharger={onTelecharger} onSupprimer={onSupprimer} />
                       <div style={{ marginTop: '.5rem' }}><AjoutDocument dossierId={l.dossierId} onFichier={onFichier} enCours={uploadEnCours === l.dossierId} /></div>
+                      {/* N3-C — bloc « Caractéristiques du bâtiment », APRÈS la fiche et les documents. Slot facultatif (injecté par la Vue). */}
+                      {slotCaracteristiques ? slotCaracteristiques(l.dossierId) : null}
                     </td>
                   </tr>
                 )}

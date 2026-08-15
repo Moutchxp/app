@@ -22,9 +22,13 @@ export type BornesParColonne = Record<string, Bornes>;
  */
 export function parserBornesCheck(defs: string[]): BornesParColonne {
   const bornes: BornesParColonne = {};
+  // N3-C — le littéral comparé à une colonne peut être NU (`>= 0`, colonnes integer) OU parenthésé/quoté/CASTÉ par Postgres pour
+  //   les colonnes numeric : `>= (0)::numeric`, `<= (300)::numeric`, `>= ('-50'::integer)::numeric`. On tolère donc, ENTRE
+  //   l'opérateur et le nombre, une parenthèse ouvrante et/ou une apostrophe optionnelles (`\(?\s*'?`). Le nombre reste capturé
+  //   à l'identique (les casts qui suivent sont ignorés). Additif : les formes nues précédentes matchent toujours.
   for (const def of defs) {
-    const min = /([a-z_][a-z0-9_]*)\s*>=\s*(-?\d+(?:\.\d+)?)/i.exec(def);
-    const max = /([a-z_][a-z0-9_]*)\s*<=\s*(-?\d+(?:\.\d+)?)/i.exec(def);
+    const min = /([a-z_][a-z0-9_]*)\s*>=\s*\(?\s*'?\s*(-?\d+(?:\.\d+)?)/i.exec(def);
+    const max = /([a-z_][a-z0-9_]*)\s*<=\s*\(?\s*'?\s*(-?\d+(?:\.\d+)?)/i.exec(def);
     if (min && max && min[1] === max[1]) {
       bornes[min[1]] = { min: Number(min[2]), max: Number(max[2]) };
     }

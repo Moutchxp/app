@@ -32,7 +32,7 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock }));
 
-import { repartirEcriture, ecrireCorps, ecrireGlobal, lirePermisCaracteristiques, creerCorps, supprimerCorps } from './caracteristiquesRepo';
+import { repartirEcriture, ecrireCorps, ecrireGlobal, lirePermisCaracteristiques, creerCorps, supprimerCorps, definirRepere } from './caracteristiquesRepo';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ');
 const trouver = (re: RegExp) => H.appels.find((a) => re.test(a.sql));
@@ -162,5 +162,14 @@ describe('N3-B — creerCorps / supprimerCorps', () => {
     expect(await supprimerCorps(5)).toBe(true);
     H.state.deleteCount = 0;
     expect(await supprimerCorps(999)).toBe(false);
+  });
+  it('definirRepere → UPDATE repere (sans origine) ; null = anonyme', async () => {
+    await definirRepere(5, 'A1', 'admin');
+    let up = trouver(/UPDATE\s+permis_corps_batiment\s+SET\s+repere/i)!;
+    expect(up.params).toEqual([5, 'A1', 'admin']);
+    H.appels.length = 0;
+    await definirRepere(5, null, 'admin');
+    up = trouver(/UPDATE\s+permis_corps_batiment\s+SET\s+repere/i)!;
+    expect(up.params).toEqual([5, null, 'admin']);
   });
 });
