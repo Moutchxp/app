@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { construireCorps, construireGlobal, construirePermis, valeurVersInput, libelleBornes, composerLibelleDestinations, MESURES, CHAMPS_PERMIS, type EditionCorps, type EditionPermis, type Bornes } from './caracteristiquesForm';
+import { construireCorps, construireGlobal, construirePermis, valeurVersInput, libelleBornes, composerLibelleDestinations, raisonParcelleNonRattachee, ecartSuperficieCadastre, MESURES, CHAMPS_PERMIS, type EditionCorps, type EditionPermis, type Bornes } from './caracteristiquesForm';
 
 const NATURES = ['habitation', 'bureaux', 'commerce', 'mixte', 'equipement', 'autre'];
 const edPermis = (over: Partial<EditionPermis> = {}): EditionPermis => ({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '', altitudeSommetNgf: '', ...over });
@@ -117,5 +117,28 @@ describe('N13 — composerLibelleDestinations : « A, b, et c », minuscule init
   it('3 destinations → « A, b, et c » (virgule avant « et »)', () => {
     expect(composerLibelleDestinations(['Bureau', 'Artisanat et commerce de détail', 'Restauration']))
       .toBe('Bureau, artisanat et commerce de détail, et restauration');
+  });
+});
+
+describe('N3-E — raison de non-rattachement + écart de superficie (purs)', () => {
+  const base = { idu: '75120000DZ0009' as string | null, aGeometrie: false, deptCharge: true, reserve: null as string | null };
+  it('rattachée → aucune raison', () => {
+    expect(raisonParcelleNonRattachee({ ...base, aGeometrie: true })).toBeNull();
+  });
+  it('idu null → commune indéterminée (ou la réserve)', () => {
+    expect(raisonParcelleNonRattachee({ ...base, idu: null, reserve: 'numéro illisible' })).toBe('numéro illisible');
+    expect(raisonParcelleNonRattachee({ ...base, idu: null, reserve: null })).toContain('commune cadastrale indéterminée');
+  });
+  it('idu présent mais département non chargé → « géométrie non chargée pour le département XX »', () => {
+    expect(raisonParcelleNonRattachee({ ...base, deptCharge: false })).toBe('géométrie non chargée pour le département 75');
+  });
+  it('idu présent, département chargé, mais pas trouvé → « référence introuvable au cadastre »', () => {
+    expect(raisonParcelleNonRattachee({ ...base, deptCharge: true })).toContain('introuvable au cadastre');
+  });
+  it('écart superficie : signalé au-delà de l’arrondi (> 1 m²), sinon null', () => {
+    expect(ecartSuperficieCadastre(2631.5, 2631)).toBeNull();          // 0,5 = arrondi
+    expect(ecartSuperficieCadastre(255, 255)).toBeNull();
+    expect(ecartSuperficieCadastre(2631.5, 2000)).toContain('2631.5 m² déclarés vs 2000 m²');
+    expect(ecartSuperficieCadastre(null, 2631)).toBeNull();
   });
 });

@@ -280,3 +280,30 @@ describe('N13 — ChampDestinationsEditeur : cases à cocher + libellé composé
     expect(h).toContain('aucune surface par sous-destination');
   });
 });
+
+describe('N3-E — FaitsPermisBloc : parcelles cadastrales (ligne par parcelle, non-rattachée dit pourquoi, export)', () => {
+  const faits: FaitsPermis = { numDau: '07512025V0035', type: 'PC', communeNom: 'Paris', codeInsee: '75056', adresse: '3 av. Benoît Frachon', natureTravaux: 'Construction neuve', dateAutorisation: '2026-03-13', surfaceCreee: null };
+  const parc = (over = {}) => ({ prefixe: '000', section: 'DZ', numero: '09', superficieDeclareeM2: 2631.5, role: 'origine' as const, origine: 'extraite' as const, idu: '75120000DZ0009', confiance: 'confirmee' as const, reserve: null, provenance: 'Cerfa', communeCadastrale: '75120', contenance: 2631, aireCadastraleM2: 2630, aGeometrie: true, deptCharge: true, ...over });
+
+  it('parcelle rattachée : section, n°, superficie déclarée, contenance + ST_Area (preuve du contour), bouton export', () => {
+    const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits, parcelles: [parc()], onExportGeojson: () => {} }));
+    expect(h).toContain('Section DZ n° 09');
+    expect(h).toContain('2631.5 m² déclarés');
+    expect(h).toContain('cadastre 2631 m²');
+    expect(h).toContain('ST_Area 2630 m²');       // la surface PostGIS prouve que le contour est là et juste
+    expect(h).toContain('exporter le contour (GeoJSON)');
+  });
+  it('parcelle NON rattachée (dept non chargé) → dit POURQUOI, jamais un vide muet', () => {
+    const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits, parcelles: [parc({ aGeometrie: false, deptCharge: false, contenance: null, aireCadastraleM2: null })] }));
+    expect(h).toContain('non rattachée : géométrie non chargée pour le département 75');
+    expect(h).not.toContain('ST_Area');
+  });
+  it('écart superficie déclarée vs contenance cadastrale → signalé', () => {
+    const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits, parcelles: [parc({ contenance: 2000 })] }));
+    expect(h).toContain('2631.5 m² déclarés vs 2000 m²');
+  });
+  it('aucune parcelle → phrase explicite (jamais un vide)', () => {
+    const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits, parcelles: [] }));
+    expect(h).toContain('aucune parcelle rattachée à ce permis');
+  });
+});

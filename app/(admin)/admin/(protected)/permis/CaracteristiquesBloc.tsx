@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 // ⚠️ Bundle client (piège du 13/08) : de `caracteristiquesRepo` / `journalLecture` (modules serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { CorpsBatiment, GlobalPermis, OrigineValeur, ValeursCorps } from '../../../../lib/permis/caracteristiquesRepo';
 import type { JournalPermis } from '../../../../lib/permis/journalLecture';
+import type { ParcelleLigne } from '../../../../lib/permis/parcellesRepo';
 import type { BornesParColonne } from '../../../../lib/sitadel/reglagesVeille';
 import {
   MESURES, CHAMPS_PERMIS, construireCorps, construirePermis, valeurVersInput, permisVersInput,
@@ -13,7 +14,7 @@ import { FaitsPermisBloc, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinat
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
 // N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[] }
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[] }
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '', adresse: c.adresse ?? '',
@@ -155,7 +156,8 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
   return (
     <div className="flex flex-col gap-3" style={{ marginTop: '.6rem' }}>
       <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--color-svv-ink)' }}>Caractéristiques</h3>
-      <FaitsPermisBloc faits={data.faits} nbBatiments={data.corps.length} />
+      <FaitsPermisBloc faits={data.faits} nbBatiments={data.corps.length} parcelles={data.parcelles}
+        onExportGeojson={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=1`, '_blank', 'noopener,noreferrer')} />
 
       {/* ═══ SECTION 1 — LE PERMIS (déclaré) : vaut pour tout le permis, ne se répète pas ═══ */}
       <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>

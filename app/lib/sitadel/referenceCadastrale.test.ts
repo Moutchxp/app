@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { versIdu, depuisIdu, sectionNumeroParses } from './referenceCadastrale';
+import { versIdu, depuisIdu, sectionNumeroParses, communeCadastrale } from './referenceCadastrale';
 
 /**
  * CAD-1 — normalisation de référence cadastrale. On éprouve les DEUX sens (versIdu / depuisIdu), le PADDING des zéros de tête, et
@@ -44,3 +44,26 @@ describe('CAD-1 — aller-retour et forme « colonnes parsées »', () => {
     expect(sectionNumeroParses('75056000DZ0009')).toEqual({ section: 'DZ', numero: '9' });      // le « 9 » de Sitadel retrouvé
   });
 });
+
+describe('N3-E — communeCadastrale : arrondissement dérivé du numéro (garde centrale)', () => {
+  it('Paris (cas réel) : 07512025V0035 → 75120 (Paris 20e), PAS 75056', () => {
+    expect(communeCadastrale('07512025V0035', '75056')).toEqual({ insee: '75120' });
+  });
+  it('Lyon : le numéro donne l’arrondissement 69381, pas la commune entière 69123', () => {
+    expect(communeCadastrale('06938125A0001', '69123')).toEqual({ insee: '69381' });
+  });
+  it('Marseille : 13201, pas 13055', () => {
+    expect(communeCadastrale('01320125B0002', '13055')).toEqual({ insee: '13201' });
+  });
+  it('commune non découpée : la commune cadastrale = la commune Sitadel (cohérent)', () => {
+    expect(communeCadastrale('09205025C0003', '92050')).toEqual({ insee: '92050' });
+  });
+  it('ABSTENTION — format illisible → motif, jamais une parcelle fausse', () => {
+    const r = communeCadastrale('X-mauvais', '75056');
+    expect('motif' in r && r.motif).toContain('illisible');
+  });
+  it('ABSTENTION — dept du numéro ≠ dept Sitadel → motif (on ne devine pas)', () => {
+    const r = communeCadastrale('07512025V0035', '92050'); // numéro dit 75, Sitadel dit 92
+    expect('motif' in r && r.motif).toContain('incohérent');
+  });
+})

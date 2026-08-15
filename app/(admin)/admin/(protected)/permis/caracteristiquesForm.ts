@@ -5,6 +5,7 @@
  * LUES des CHECK de la base (`parserBornesCheck`) et passées ici ; JAMAIS recopiées en dur.
  */
 import type { ChampCorps, ValeursCorps, ChampGlobalDeclare, ValeursGlobalDeclare } from '../../../../lib/permis/caracteristiquesRepo';
+import type { ParcelleLigne } from '../../../../lib/permis/parcellesRepo';
 
 export type ChampMesure = Exclude<ChampCorps, 'emprise'>;
 export interface Bornes { min: number; max: number }
@@ -114,6 +115,23 @@ export function valeurVersInput(v: number | null | undefined): string {
  * [] → '' (le caller affiche « non renseignée »). Exemples : 1 → « Bureau » ; 2 → « Bureau et restauration » ;
  * 3 → « Bureau, artisanat et commerce de détail, et restauration ».
  */
+/**
+ * N3-E — RAISON pour laquelle une parcelle n'a pas de géométrie rattachée. JAMAIS un vide muet ni « 0 » : soit une géométrie, soit
+ * une raison explicite. PUR. Ordre : commune indéterminée (idu null) → département non chargé → référence introuvable au cadastre.
+ */
+export function raisonParcelleNonRattachee(p: Pick<ParcelleLigne, 'idu' | 'aGeometrie' | 'deptCharge' | 'reserve'>): string | null {
+  if (p.aGeometrie) return null;
+  if (!p.idu) return p.reserve ?? 'commune cadastrale indéterminée';
+  if (!p.deptCharge) return `géométrie non chargée pour le département ${p.idu.slice(0, 2)}`;
+  return `référence introuvable au cadastre (${p.idu})`;
+}
+
+/** N3-E — écart entre la superficie DÉCLARÉE (Cerfa) et la contenance CADASTRALE, au-delà de l'arrondi (> 1 m²). null si concordant/absent. PUR. */
+export function ecartSuperficieCadastre(declareeM2: number | null, contenanceM2: number | null): string | null {
+  if (declareeM2 === null || contenanceM2 === null) return null;
+  return Math.abs(declareeM2 - contenanceM2) > 1 ? `écart : ${declareeM2} m² déclarés vs ${contenanceM2} m² au cadastre` : null;
+}
+
 export function composerLibelleDestinations(destinations: readonly string[]): string {
   const bas = (s: string) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s);
   if (destinations.length === 0) return '';

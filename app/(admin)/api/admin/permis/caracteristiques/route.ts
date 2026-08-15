@@ -5,6 +5,7 @@ import { parserBornesCheck, parserListeCheck, parserListeArrayCheck, type Bornes
 import { libelleNatureProjet } from '../../../../../lib/sitadel/priorite';
 import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
 import { lireJournalChamps, type JournalPermis } from '../../../../../lib/permis/journalLecture';
+import { lireParcellesPermis, geojsonParcellesPermis, type ParcelleLigne } from '../../../../../lib/permis/parcellesRepo';
 import { MESURES, construireGlobal, construirePermis, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
 
 /** N7-E — liste FERMÉE de nature_projet, lue du CHECK de permis_caracteristique (jamais recopiée). */
@@ -78,8 +79,14 @@ function horsBornes(valeurs: ValeursCorps, bornes: BornesParColonne): string | n
 export async function GET(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
-  const dossierId = Number(new URL(request.url).searchParams.get('dossierId'));
+  const urlReq = new URL(request.url);
+  const dossierId = Number(urlReq.searchParams.get('dossierId'));
   if (!Number.isInteger(dossierId) || dossierId <= 0) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
+  // N3-E — export GeoJSON des parcelles rattachées (téléchargement ; le contour n'est jamais déversé dans l'écran).
+  if (urlReq.searchParams.get('geojson')) {
+    const fc = await geojsonParcellesPermis(dossierId).catch(() => ({ type: 'FeatureCollection', features: [] }));
+    return new Response(JSON.stringify(fc), { headers: { 'Content-Type': 'application/geo+json', 'Content-Disposition': `attachment; filename="parcelles-${dossierId}.geojson"` } });
+  }
   try {
     // N5-D/E/N7-E — le JOURNAL (confiance/réserve/provenance + MOTIF), séparé par niveau (parCorps / permis), lu dans le MÊME
     // aller-retour. TOLÉRANT : si les migrations ne sont pas appliquées, on dégrade en journal vide + log — sans casser l'éditeur.
@@ -93,9 +100,11 @@ export async function GET(request: Request): Promise<Response> {
     const piecesSur = lirePiecesParNom(dossierId).catch(() => ({} as Record<string, number>));
     // N13 — liste fermée des sous-destinations (du CHECK 110) ; tolérante si 110 non appliquée (→ []).
     const destSur = lireDestinationsPossibles().catch(() => [] as string[]);
-    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur]);
+    // N3-E — parcelles cadastrales rattachées à leur géométrie ; tolérante si 112 non appliquée (→ []).
+    const parcSur = lireParcellesPermis(dossierId).catch(() => [] as ParcelleLigne[]);
+    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur, parcSur]);
     if (faits === null) return Response.json({ erreur: 'permis inconnu' }, { status: 404 });
-    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles });
+    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles });
   } catch (e) {
     console.error('[permis/caracteristiques] GET indisponible', e);
     return Response.json({ erreur: 'caractéristiques indisponibles' }, { status: 503 });

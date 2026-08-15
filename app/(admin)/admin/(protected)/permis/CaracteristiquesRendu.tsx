@@ -2,7 +2,8 @@ import { Fragment, type CSSProperties } from 'react';
 import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo';
 // ⚠️ Bundle client (piège du 13/08) : de `journalLecture` (module serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
-import { MESURES, libelleBornes, composerLibelleDestinations, type Bornes, type ChampDeclare, type FaitsPermis } from './caracteristiquesForm';
+import { MESURES, libelleBornes, composerLibelleDestinations, raisonParcelleNonRattachee, ecartSuperficieCadastre, type Bornes, type ChampDeclare, type FaitsPermis } from './caracteristiquesForm';
+import type { ParcelleLigne } from '../../../../lib/permis/parcellesRepo'; // TYPE seulement (module serveur) — piège du bundle client
 
 /**
  * N3-C — rendu PUR de l'éditeur des caractéristiques physiques (motifs ContactRendu + CarteReglageEntier). Aucun état, aucun
@@ -47,7 +48,10 @@ export function PastilleConfiance({ confiance }: { confiance: 'a_verifier' | 'co
  * les pièces. On le rend donc SÉPARÉ de la grille Sitadel, avec la provenance « d'après les pièces ». Jamais « 0 bâtiment » (un PC en
  * comporte forcément un) : une absence de lecture s'écrit « aucun bâtiment identifié dans les pièces ».
  */
-export function FaitsPermisBloc({ faits, nbBatiments }: { faits: FaitsPermis; nbBatiments?: number }) {
+export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles, onExportGeojson }: {
+  faits: FaitsPermis; nbBatiments?: number;
+  parcelles?: ParcelleLigne[]; ecartsParcelles?: string[]; onExportGeojson?: () => void; // N3-E — parcelles cadastrales + export GeoJSON
+}) {
   const lignes: [string, string][] = [
     ['N° permis', `${faits.numDau} (${faits.type})`],
     ['Commune', faits.communeNom ? `${faits.communeNom} (INSEE ${faits.codeInsee})` : `INSEE ${faits.codeInsee}`],
@@ -71,6 +75,42 @@ export function FaitsPermisBloc({ faits, nbBatiments }: { faits: FaitsPermis; nb
           ? <><span style={{ color: 'var(--color-svv-muted)' }}>Bâtiments identifiés : </span><strong>{n}</strong><span style={{ color: 'var(--color-svv-muted)' }}> (d’après les pièces)</span></>
           : <span style={{ color: 'var(--color-svv-muted)' }}>aucun bâtiment identifié dans les pièces</span>}
       </div>
+      {/* N3-E — PARCELLES CADASTRALES : une ligne par parcelle (section, n°, superficie déclarée, contenance cadastrale). Une parcelle
+          non rattachée DIT pourquoi (jamais un vide muet). Écart déclaré/cadastre signalé. Le contour n'est pas déversé → export GeoJSON. */}
+      {parcelles !== undefined && (
+        <div style={{ marginTop: '.4rem', paddingTop: '.35rem', borderTop: '1px solid var(--color-svv-line)' }}>
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap', marginBottom: '.2rem' }}>
+            <span style={{ color: 'var(--color-svv-muted)' }}>Parcelles cadastrales :</span>
+            {parcelles.some((p) => p.aGeometrie) && onExportGeojson
+              ? <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }} onClick={onExportGeojson}>exporter le contour (GeoJSON) ↓</button>
+              : null}
+          </div>
+          {parcelles.length === 0
+            ? <span style={{ color: 'var(--color-svv-muted)' }}>aucune parcelle rattachée à ce permis</span>
+            : (
+              <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                {parcelles.map((p, i) => {
+                  const raison = raisonParcelleNonRattachee(p);
+                  const ecart = ecartSuperficieCadastre(p.superficieDeclareeM2, p.contenance);
+                  return (
+                    <li key={`${p.section}-${p.numero}-${i}`} style={{ overflowWrap: 'anywhere' }}>
+                      <strong>Section {p.section} n° {p.numero}</strong>
+                      {p.role === 'finale' ? <span style={{ ...styleAide }}> (parcelle finale)</span> : null}
+                      {p.superficieDeclareeM2 !== null ? <span> — {p.superficieDeclareeM2} m² déclarés</span> : null}
+                      {p.aGeometrie
+                        ? <span style={{ color: 'var(--color-svv-muted)' }}> · cadastre {p.contenance} m² (ST_Area {p.aireCadastraleM2} m²)</span>
+                        : <span style={{ color: 'var(--color-svv-red)' }}> · non rattachée : {raison}</span>}
+                      {p.origine === 'extraite' && p.confiance ? <> <PastilleConfiance confiance={p.confiance} /></> : null}
+                      {ecart ? <span role="note" style={{ ...styleNote, color: 'var(--color-svv-red)', marginLeft: '.3rem' }}>⚠ {ecart}</span> : null}
+                      {p.aGeometrie && p.reserve ? <span role="note" style={{ ...styleNote, color: 'var(--color-svv-muted)', marginLeft: '.3rem' }}>{p.reserve}</span> : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          {(ecartsParcelles ?? []).map((e, i) => <div key={`ec-${i}`} role="note" style={{ ...styleNote, color: 'var(--color-svv-red)', marginTop: '.2rem' }}>⚠ {e}</div>)}
+        </div>
+      )}
     </div>
   );
 }
