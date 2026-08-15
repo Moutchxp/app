@@ -9,10 +9,11 @@ import {
   MESURES, CHAMPS_PERMIS, construireCorps, construirePermis, valeurVersInput, permisVersInput,
   type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
-import { FaitsPermisBloc, ChampMesureEditeur, ChampDeclareEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, type LienPiece } from './CaracteristiquesRendu';
+import { FaitsPermisBloc, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, type LienPiece } from './CaracteristiquesRendu';
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number> }
+// N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[] }
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '', adresse: c.adresse ?? '',
@@ -51,6 +52,7 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
   const [edGlobal, setEdGlobal] = useState<EditionGlobal>({ parking: '', commentaire: '' });
   const [edPermis, setEdPermis] = useState<EditionPermis>({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '', altitudeSommetNgf: '' });
   const [erreursPermis, setErreursPermis] = useState<ErreursPermis>({});
+  const [edDestinations, setEdDestinations] = useState<string[]>([]); // N13 — sous-destinations cochées (saisie)
   const [edCorps, setEdCorps] = useState<Record<number, EditionCorps>>({});
   const [erreursCorps, setErreursCorps] = useState<Record<number, ErreursCorps>>({});
   const [message, setMessage] = useState<string>('');
@@ -60,6 +62,7 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
     setData(d);
     setEdGlobal({ parking: '', commentaire: d.global?.commentaire ?? '' }); // parking VESTIGIAL : non édité (N7-F)
     setEdPermis(editionDepuisPermis(d.global));
+    setEdDestinations(d.global?.destinations ?? []); // N13
     setEdCorps(Object.fromEntries(d.corps.map((c) => [c.id, editionDepuisCorps(c)])));
     setErreursCorps({}); setErreursPermis({});
     setEtat('ok');
@@ -105,9 +108,11 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
     const r1 = await poster({ action: 'declare', dossierId, edition: edPermis });
     // parking VESTIGIAL : on ne l'envoie plus (une saisie manuelle ne s'efface jamais). Seul le commentaire passe par 'global'.
     const r2 = r1.ok ? await poster({ action: 'global', dossierId, commentaire: edGlobal.commentaire }) : r1;
-    if (r2.ok) { await rafraichir(); setMessage('Permis enregistré.'); } else setMessage(r2.erreur ?? 'échec');
+    // N13 — destinations (tableau) enregistrées à part (colonne text[], action dédiée).
+    const r3 = r2.ok ? await poster({ action: 'destinations', dossierId, destinations: edDestinations }) : r2;
+    if (r3.ok) { await rafraichir(); setMessage('Permis enregistré.'); } else setMessage(r3.erreur ?? 'échec');
     setEnCours(false);
-  }, [poster, dossierId, edPermis, edGlobal, data, rafraichir]);
+  }, [poster, dossierId, edPermis, edGlobal, edDestinations, data, rafraichir]);
 
   const enregistrerCorps = useCallback(async (corpsId: number) => {
     const ed = edCorps[corpsId];
@@ -154,7 +159,8 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
       <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
         <h4 style={styleTitre}>Le permis <span style={{ ...styleAide, fontWeight: 400 }}>— déclaré (Cerfa), vaut pour l’ensemble du projet</span></h4>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.6rem' }}>
-          {CHAMPS_PERMIS.map((champ) => {
+          {/* N13 — le select « nature du projet » (scalaire, mixte) est VESTIGIAL : remplacé par les cases à cocher « Destinations » ci-dessous. */}
+          {CHAMPS_PERMIS.filter((c) => c.cle !== 'natureProjet').map((champ) => {
             const estStationnement = champ.cle === 'nbPlacesStationnement';
             const vide = edPermis[champ.cle].trim() === '';
             // N7-F — le motif du parking VESTIGIAL vit sous « Places de stationnement » quand ce champ est vide.
@@ -166,6 +172,10 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
                 onValeur={(v) => setEdPermis((p) => ({ ...p, [champ.cle]: v }))} />
             );
           })}
+          {/* N13 — DESTINATIONS (cases à cocher, liste fermée lue du CHECK) : remplace le select « nature » (mixte). Pleine largeur. */}
+          <ChampDestinationsEditeur possibles={data.destinationsPossibles ?? []} valeurs={edDestinations}
+            origine={origineDe(data.global, 'destinations')} journal={data.journal.permis['destinations']} lienPiece={lienPiece}
+            onToggle={(d, coche) => setEdDestinations((prev) => (coche ? [...new Set([...prev, d])] : prev.filter((x) => x !== d)))} />
           <label className="flex flex-col gap-1" style={{ minWidth: 0 }}>
             <span style={styleLabel}>Commentaire</span>
             <textarea value={edGlobal.commentaire} rows={2} onChange={(e) => setEdGlobal((g) => ({ ...g, commentaire: e.target.value }))} style={styleInput} aria-label="Commentaire" />

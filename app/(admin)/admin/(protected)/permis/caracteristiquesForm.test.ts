@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { construireCorps, construireGlobal, construirePermis, valeurVersInput, libelleBornes, MESURES, CHAMPS_PERMIS, type EditionCorps, type EditionPermis, type Bornes } from './caracteristiquesForm';
+import { construireCorps, construireGlobal, construirePermis, valeurVersInput, libelleBornes, composerLibelleDestinations, MESURES, CHAMPS_PERMIS, type EditionCorps, type EditionPermis, type Bornes } from './caracteristiquesForm';
 
 const NATURES = ['habitation', 'bureaux', 'commerce', 'mixte', 'equipement', 'autre'];
 const edPermis = (over: Partial<EditionPermis> = {}): EditionPermis => ({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '', altitudeSommetNgf: '', ...over });
@@ -101,5 +101,21 @@ describe('N3-C — valeurVersInput : NULL affiché vide, 0 affiché « 0 »', ()
     expect(valeurVersInput(undefined)).toBe('');
     expect(valeurVersInput(0)).toBe('0');
     expect(valeurVersInput(12.5)).toBe('12.5');
+  });
+});
+
+describe('N13 — composerLibelleDestinations : « A, b, et c », minuscule initiale sauf en tête', () => {
+  it('0 destination → chaîne vide (le caller affiche « non renseignée »)', () => {
+    expect(composerLibelleDestinations([])).toBe('');
+  });
+  it('1 destination → telle quelle (majuscule conservée)', () => {
+    expect(composerLibelleDestinations(['Bureau'])).toBe('Bureau');
+  });
+  it('2 destinations → « A et b » (pas de virgule)', () => {
+    expect(composerLibelleDestinations(['Bureau', 'Restauration'])).toBe('Bureau et restauration');
+  });
+  it('3 destinations → « A, b, et c » (virgule avant « et »)', () => {
+    expect(composerLibelleDestinations(['Bureau', 'Artisanat et commerce de détail', 'Restauration']))
+      .toBe('Bureau, artisanat et commerce de détail, et restauration');
   });
 });

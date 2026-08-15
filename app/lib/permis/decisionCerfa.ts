@@ -40,10 +40,50 @@ export interface DecisionCerfaChamp {
   provenance?: ProvenanceCerfa;
   motif?: string;                  // présent si 'non_ecrit'
 }
-export interface DecisionCerfa { champs: DecisionCerfaChamp[] }
+/** N13 — décision des DESTINATIONS présentes (tableau de sous-destinations), séparée des champs scalaires. */
+export interface DecisionDestinations {
+  statut: 'ecrit' | 'non_ecrit';
+  valeurs?: string[];              // sous-destinations présentes (libellés du Cerfa) ; présent si 'ecrit'
+  confiance?: Confiance;
+  reserve?: string | null;
+  provenance?: ProvenanceCerfa;
+  motif?: string;                  // présent si 'non_ecrit'
+}
+export interface DecisionCerfa { champs: DecisionCerfaChamp[]; destinations: DecisionDestinations }
 
-// Codes destinations (lettre après « W2 ») → nature. « S » = Somme/total, exclu.
-const NATURE_PAR_LETTRE: Record<string, string> = { B: 'bureaux', C: 'commerce', H: 'habitation' };
+/**
+ * N13 — code destination du Cerfa 13409 (lettre après « W2 », avant la colonne) → SOUS-DESTINATION, LU champ par champ dans
+ * l'AcroForm (recon N13, par position sur la planche du tableau). ⚠️ NE PAS recaler au jugé : le mapping précédent était FAUX
+ * (« H » n'est PAS habitation mais « Lieux de culte » ; le logement est « L » ; « C » est « Artisanat et commerce de détail », pas
+ * « commerce » générique). Un test pinne cette table (decisionCerfa.test) — il casse si on la modifie sans relire le formulaire.
+ * « S » (Somme/total) n'y figure pas : c'est la ligne « Surfaces totales », exclue. Les libellés coïncident EXACTEMENT avec la
+ * liste fermée du CHECK (migration 110) — apostrophes typographiques comprises.
+ */
+export const SOUS_DESTINATION_PAR_LETTRE: Readonly<Record<string, string>> = {
+  A: 'Exploitation agricole',
+  F: 'Exploitation forestière',
+  L: 'Logement',
+  M: 'Hébergement',
+  C: 'Artisanat et commerce de détail',
+  R: 'Restauration',
+  G: 'Commerce de gros',
+  D: 'Activités de services où s’effectue l’accueil d’une clientèle',
+  W: 'Hôtels',
+  X: 'Autres hébergements touristiques',
+  K: 'Cinéma',
+  Y: 'Cuisine dédiée à la vente en ligne',
+  P: 'Locaux et bureaux accueillant du public des administrations publiques et assimilés',
+  T: 'Locaux techniques et industriels des administrations publiques et assimilés',
+  U: 'Établissements d’enseignement, de santé et d’action sociale',
+  J: 'Salles d’art et de spectacles',
+  V: 'Équipements sportifs',
+  H: 'Lieux de culte',
+  N: 'Autres équipements recevant du public',
+  I: 'Industrie',
+  E: 'Entrepôt',
+  B: 'Bureau',
+  Q: 'Centre de congrès et d’exposition',
+};
 const nombre = (s: string): number => Number(String(s).replace(',', '.'));
 
 // Abréviations de voie courantes (pour COMPARER deux adresses, jamais pour réécrire la valeur stockée).
@@ -113,14 +153,20 @@ export function decisionCerfa(champs: ChampCerfa[], surfCreee: number | null, ad
     out.push({ colonne: 'surface_plancher_m2', portee: 'permis', statut: 'non_ecrit', motif: 'champ W2SF1 absent du Cerfa' });
   }
 
-  // 3) nature_projet ← destinations
+  // 3) destinations ← sous-destinations à surface > 0 (W2<lettre>F1). `nature_projet` scalaire devient VESTIGIALE : plus alimentée.
   const dests = destinationsPresentes(champs);
+  let destinations: DecisionDestinations;
   if (dests.length === 0) {
-    out.push({ colonne: 'nature_projet', portee: 'permis', statut: 'non_ecrit', motif: 'aucune surface par destination (W2·F1) renseignée' });
+    destinations = { statut: 'non_ecrit', motif: 'aucune surface par sous-destination (W2·F1) renseignée' };
   } else {
-    const nature = dests.length === 1 ? (NATURE_PAR_LETTRE[dests[0].lettre] ?? 'autre') : 'mixte';
+    const labels = dests.map((d) => SOUS_DESTINATION_PAR_LETTRE[d.lettre]).filter((v): v is string => Boolean(v));
+    const inconnues = dests.filter((d) => !SOUS_DESTINATION_PAR_LETTRE[d.lettre]).map((d) => `W2${d.lettre}`);
     const detail = dests.map((d) => `${d.nom}=${d.valeur}`).join(' · ');
-    out.push({ colonne: 'nature_projet', cle: 'natureProjet', portee: 'permis', statut: 'ecrit', valeur: nature, confiance: 'a_verifier', reserve: null, provenance: { pieceNom: dests[0].source.pieceNom, page: dests[0].source.page, champNom: 'W2·F1 (destinations)', extrait: detail } });
+    destinations = labels.length === 0
+      ? { statut: 'non_ecrit', motif: `sous-destination(s) présente(s) mais hors mapping (${inconnues.join(', ')}) — à relire dans le formulaire` }
+      : { statut: 'ecrit', valeurs: labels, confiance: 'a_verifier',
+          reserve: inconnues.length ? `code(s) hors mapping ignoré(s) : ${inconnues.join(', ')} — à relire dans le formulaire` : null,
+          provenance: { pieceNom: dests[0].source.pieceNom, page: dests[0].source.page, champNom: 'W2·F1 (destinations)', extrait: detail } };
   }
 
   // 4) adresse_terrain ← T2Q_numero + T2V_voie + T2L_localite
@@ -163,5 +209,5 @@ export function decisionCerfa(champs: ChampCerfa[], surfCreee: number | null, ad
   // 6) permis_corps_batiment.adresse → JAMAIS écrite
   out.push({ colonne: 'adresse', portee: 'corps', statut: 'non_ecrit', motif: 'attribution par bâtiment non résolue (N5-F) ; colonne en attente' });
 
-  return { champs: out };
+  return { champs: out, destinations };
 }

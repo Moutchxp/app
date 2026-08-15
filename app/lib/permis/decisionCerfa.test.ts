@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decisionCerfa, type ChampCerfa, type DecisionCerfa } from './decisionCerfa';
+import { decisionCerfa, SOUS_DESTINATION_PAR_LETTRE, type ChampCerfa, type DecisionCerfa } from './decisionCerfa';
 
 /**
  * N7-D — décision de mapping Cerfa (pure, données synthétiques). Chaque règle : le cas « écrit » ET le cas « non écrit ».
@@ -40,20 +40,27 @@ describe('decisionCerfa — surface_plancher_m2 (W2SF1) recoupée avec Sitadel',
   });
 });
 
-describe('decisionCerfa — nature_projet (destinations, sans dominante)', () => {
-  it('une seule destination > 0 → cette destination', () => {
-    const d = col(decisionCerfa([champ('W2BF1', '11901'), champ('W2SF1', '11901')], null), 'nature_projet');
-    expect(d).toMatchObject({ statut: 'ecrit', valeur: 'bureaux', confiance: 'a_verifier' });
+describe('decisionCerfa — destinations (N13 : sous-destinations réelles, jamais « mixte »)', () => {
+  it('une seule sous-destination > 0 → cette destination (libellé exact du Cerfa)', () => {
+    const d = decisionCerfa([champ('W2BF1', '11901'), champ('W2SF1', '11901')], null).destinations;
+    expect(d).toMatchObject({ statut: 'ecrit', valeurs: ['Bureau'], confiance: 'a_verifier' });
   });
-  it('plusieurs destinations > 0 → mixte (jamais de dominante), détail dans l’extrait', () => {
-    const d = col(decisionCerfa([champ('W2BF1', '11901'), champ('W2CF1', '356'), champ('W2SF1', '12257')], null), 'nature_projet');
-    expect(d.valeur).toBe('mixte');
+  it('plusieurs → TABLEAU complet (jamais de dominante, jamais « mixte »), provenance W2·F1', () => {
+    const d = decisionCerfa([champ('W2BF1', '11901'), champ('W2CF1', '356'), champ('W2RF1', '775'), champ('W2SF1', '13032')], null).destinations;
+    expect(d.valeurs).toEqual(['Bureau', 'Artisanat et commerce de détail', 'Restauration']); // ce qui donnera « Bureau, artisanat et commerce de détail, et restauration »
+    expect(d.provenance?.champNom).toContain('W2·F1');
     expect(d.provenance?.extrait).toContain('W2BF1=11901');
-    expect(d.provenance?.extrait).toContain('W2CF1=356');
   });
   it('« W2S » (Somme/total) n’est PAS une destination', () => {
-    const d = col(decisionCerfa([champ('W2SF1', '13032')], null), 'nature_projet');
-    expect(d.statut).toBe('non_ecrit'); // W2S exclu → aucune destination
+    expect(decisionCerfa([champ('W2SF1', '13032')], null).destinations.statut).toBe('non_ecrit');
+  });
+  it('mapping lettre→sous-destination PINNÉ : casse si on le recale au jugé sans relire le formulaire', () => {
+    expect(SOUS_DESTINATION_PAR_LETTRE.B).toBe('Bureau');
+    expect(SOUS_DESTINATION_PAR_LETTRE.C).toBe('Artisanat et commerce de détail'); // PAS « commerce » générique
+    expect(SOUS_DESTINATION_PAR_LETTRE.R).toBe('Restauration');
+    expect(SOUS_DESTINATION_PAR_LETTRE.L).toBe('Logement');
+    expect(SOUS_DESTINATION_PAR_LETTRE.H).toBe('Lieux de culte');   // PAS « habitation » — le piège corrigé
+    expect(SOUS_DESTINATION_PAR_LETTRE.S).toBeUndefined();          // S = Surfaces totales, jamais une destination
   });
 });
 

@@ -41,7 +41,7 @@ describe('ecrireCerfa — écriture niveau permis + journal', () => {
     expect(deletesCerfa()).toHaveLength(1);                       // recompute idempotent, ciblé
     expect(insertCaract().length).toBeGreaterThan(0);            // upsert des colonnes déclarées
     expect(lectureCorps()).toHaveLength(0);                       // règle « ≥2 corps » NON héritée : les corps ne sont pas lus
-    expect(r.champsEcrits.sort()).toEqual(['adresse_terrain', 'nature_projet', 'nb_places_stationnement', 'surface_plancher_m2']);
+    expect(r.champsEcrits.sort()).toEqual(['adresse_terrain', 'destinations', 'nb_places_stationnement', 'surface_plancher_m2']);
   });
 
   it('journalise retenue (pièce, champ, confiance, réserve) et ecartee+motif pour le non-écrit', async () => {
@@ -50,8 +50,8 @@ describe('ecrireCerfa — écriture niveau permis + journal', () => {
     expect(surf[3]).toBe('retenue'); expect(surf[4]).toBe('confirmee'); expect(surf[7]).toBe('cerfa_13409.pdf');
     const stat = journal().find((p) => p[1] === 'nb_places_stationnement')!;
     expect(stat[3]).toBe('retenue'); expect(stat[2]).toBe(0); expect(stat[9]).toContain('S1M_stationnementapres');
-    const nature = journal().find((p) => p[1] === 'nature_projet')!;
-    expect(nature[3]).toBe('retenue'); expect(nature[2]).toBeNull(); expect(nature[9]).toContain('W2BF1'); // texte dans l'extrait
+    const dest = journal().find((p) => p[1] === 'destinations')!; // N13 — tableau des sous-destinations (valeur numérique NULL ; libellés dans l'extrait)
+    expect(dest[3]).toBe('retenue'); expect(dest[2]).toBeNull(); expect(dest[9]).toContain('Bureau'); expect(dest[9]).toContain('W2·F1');
     const log = journal().find((p) => p[1] === 'nb_logements')!;
     expect(log[3]).toBe('ecartee'); expect(log[6]).toContain('absence de champ ne vaut pas zéro');
     const corpsAdr = journal().find((p) => p[1] === 'adresse')!;

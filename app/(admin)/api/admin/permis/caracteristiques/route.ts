@@ -1,9 +1,9 @@
 import 'server-only';
 import { query } from '../../../../../lib/db/client';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { parserBornesCheck, parserListeCheck, type BornesParColonne } from '../../../../../lib/sitadel/reglagesVeille';
+import { parserBornesCheck, parserListeCheck, parserListeArrayCheck, type BornesParColonne } from '../../../../../lib/sitadel/reglagesVeille';
 import { libelleNatureProjet } from '../../../../../lib/sitadel/priorite';
-import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
+import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
 import { lireJournalChamps, type JournalPermis } from '../../../../../lib/permis/journalLecture';
 import { MESURES, construireGlobal, construirePermis, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
 
@@ -12,6 +12,13 @@ async function lireNaturesPossibles(): Promise<string[]> {
   const { rows } = await query<{ def: string }>(
     `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'permis_caracteristique'::regclass AND contype = 'c'`);
   return parserListeCheck(rows.map((r) => r.def), 'nature_projet');
+}
+
+/** N13 — liste FERMÉE des sous-destinations, LUE du CHECK `destinations <@ ARRAY[…]` (jamais recopiée). [] si migration 110 non appliquée. */
+async function lireDestinationsPossibles(): Promise<string[]> {
+  const { rows } = await query<{ def: string }>(
+    `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'permis_caracteristique'::regclass AND contype = 'c'`);
+  return parserListeArrayCheck(rows.map((r) => r.def), 'destinations');
 }
 
 /**
@@ -84,9 +91,11 @@ export async function GET(request: Request): Promise<Response> {
     const naturesSur = lireNaturesPossibles().catch(() => [] as string[]);
     // N10 — carte nom → id de pièce, pour rendre les provenances cliquables ; tolérante si 089 non appliquée (→ {}).
     const piecesSur = lirePiecesParNom(dossierId).catch(() => ({} as Record<string, number>));
-    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur]);
+    // N13 — liste fermée des sous-destinations (du CHECK 110) ; tolérante si 110 non appliquée (→ []).
+    const destSur = lireDestinationsPossibles().catch(() => [] as string[]);
+    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur]);
     if (faits === null) return Response.json({ erreur: 'permis inconnu' }, { status: 404 });
-    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom });
+    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles });
   } catch (e) {
     console.error('[permis/caracteristiques] GET indisponible', e);
     return Response.json({ erreur: 'caractéristiques indisponibles' }, { status: 503 });
@@ -139,6 +148,19 @@ export async function POST(request: Request): Promise<Response> {
       const { valeurs, erreurs, valide } = construirePermis(ed, natures, bornes);
       if (!valide) return Response.json({ erreur: 'valeur(s) invalide(s)', erreurs }, { status: 422 });
       const r = await ecrireCaracteristiquesGlobales(body.dossierId, valeurs, 'saisie', auteur);
+      return Response.json({ ok: true, ...r });
+    }
+
+    // N13 — édition du TABLEAU des destinations (cases à cocher), TOUJOURS en 'saisie'. Chaque valeur DOIT appartenir à la liste
+    //   fermée LUE du CHECK (défense en profondeur avant le CHECK de la base) ; sinon 422 avec la valeur fautive.
+    if (action === 'destinations') {
+      if (!estEntier(body.dossierId)) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
+      const brut = Array.isArray(body.destinations) ? body.destinations.filter((v): v is string => typeof v === 'string') : [];
+      const possibles = await lireDestinationsPossibles();
+      const hors = brut.find((v) => !possibles.includes(v));
+      if (hors !== undefined) return Response.json({ erreur: `destination hors liste : « ${hors} »` }, { status: 422 });
+      const uniques = [...new Set(brut)];
+      const r = await ecrireDestinations(body.dossierId, uniques.length ? uniques : null, 'saisie', auteur);
       return Response.json({ ok: true, ...r });
     }
 

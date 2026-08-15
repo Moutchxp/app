@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  parserBornesCheck, parserListeCheck, validerReglages, bandeauIdentite, colonneDepuisProbleme,
+  parserBornesCheck, parserListeCheck, parserListeArrayCheck, validerReglages, bandeauIdentite, colonneDepuisProbleme,
   PARAMS_VEILLE, PARAMS_DEMANDES, COLONNES_PARAMS_DEMANDES, CHAMPS_IDENTITE,
   COLONNES_THEME_PREPARATION, COLONNES_THEME_CADA,
 } from './reglagesVeille';
@@ -16,6 +16,17 @@ describe('N7-E — parserListeCheck : liste fermée depuis le CHECK', () => {
   });
   it('colonne absente → liste vide', () => {
     expect(parserListeCheck([`CHECK ((x >= 0))`], 'nature_projet')).toEqual([]);
+  });
+});
+
+describe('N13 — parserListeArrayCheck : liste fermée depuis un CHECK « col <@ ARRAY[…] »', () => {
+  it('extrait les littéraux de la forme <@ ARRAY[...] (tableau text[])', () => {
+    const def = `CHECK (((destinations IS NULL) OR (destinations <@ ARRAY['Bureau'::text, 'Restauration'::text, 'Artisanat et commerce de détail'::text])))`;
+    expect(parserListeArrayCheck([def], 'destinations')).toEqual(['Bureau', 'Restauration', 'Artisanat et commerce de détail']);
+  });
+  it('ignore un CHECK d’une autre colonne et un CHECK sans <@ ARRAY', () => {
+    const defs = [`CHECK ((surface_plancher_m2 >= 0))`, `CHECK (destinations_origine = ANY (ARRAY['saisie'::text, 'extraite'::text]))`];
+    expect(parserListeArrayCheck(defs, 'destinations')).toEqual([]); // le seul def « destinations » n'a pas <@ ARRAY
   });
 });
 import { problemesIdentite, type ConfigDemandeur } from './demande';

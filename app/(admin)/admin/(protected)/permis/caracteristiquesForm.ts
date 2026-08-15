@@ -108,6 +108,21 @@ export function valeurVersInput(v: number | null | undefined): string {
   return v === null || v === undefined ? '' : String(v);
 }
 
+/**
+ * N13 — libellé COMPOSÉ des destinations, GÉNÉRÉ à l'affichage (jamais stocké). Style « A, b, et c » : la 1re destination garde
+ * sa majuscule, les suivantes prennent une minuscule initiale ; virgules entre elles, « et » avant la dernière. PUR.
+ * [] → '' (le caller affiche « non renseignée »). Exemples : 1 → « Bureau » ; 2 → « Bureau et restauration » ;
+ * 3 → « Bureau, artisanat et commerce de détail, et restauration ».
+ */
+export function composerLibelleDestinations(destinations: readonly string[]): string {
+  const bas = (s: string) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s);
+  if (destinations.length === 0) return '';
+  if (destinations.length === 1) return destinations[0];
+  if (destinations.length === 2) return `${destinations[0]} et ${bas(destinations[1])}`;
+  const tete = [destinations[0], ...destinations.slice(1, -1).map(bas)].join(', ');
+  return `${tete}, et ${bas(destinations[destinations.length - 1])}`;
+}
+
 // ── N7-E — champs DÉCLARÉS au niveau PERMIS (colonnes 106). Éditables comme les mesures, mais niveau permis, pas corps. ──────────
 export type ChampPermis = ChampGlobalDeclare;
 /** `genre` : 'liste' = sélecteur (valeurs venant du CHECK, jamais recopiées) | 'nombre' (≥ 0, ou bornes de la base si fournies) | 'texte'.

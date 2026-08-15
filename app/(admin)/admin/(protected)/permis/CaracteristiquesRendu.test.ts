@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, BLEU_SOURCE } from './CaracteristiquesRendu';
+import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, BLEU_SOURCE } from './CaracteristiquesRendu';
 import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
 
@@ -251,5 +251,32 @@ describe('N10 — AnnotationsExtraction : provenance dédoublonnée, comptée ho
   });
   it('un champ VIDE (origine null) affiche le motif, pas la provenance', () => {
     expect(rendre({ origine: null, journal: { confiance: null, reserve: null, provenances: [], motif: 'absence' } })).toContain('vide : absence');
+  });
+});
+
+describe('N13 — ChampDestinationsEditeur : cases à cocher + libellé composé, origine/confiance/motif', () => {
+  const possibles = ['Bureau', 'Artisanat et commerce de détail', 'Restauration', 'Logement'];
+  it('coche les destinations présentes et compose le libellé (jamais « mixte »)', () => {
+    const h = renderToStaticMarkup(createElement(ChampDestinationsEditeur, {
+      possibles, valeurs: ['Bureau', 'Artisanat et commerce de détail', 'Restauration'], origine: 'extraite',
+      journal: { confiance: 'a_verifier', reserve: null, provenances: [{ piece: 'cerfa.pdf', page: 8 }], motif: null }, onToggle: noop,
+    }));
+    expect(h).toContain('Bureau, artisanat et commerce de détail, et restauration'); // libellé composé, généré
+    expect(h).not.toContain('mixte');
+    expect((h.match(/checked=""/g) ?? []).length).toBe(3); // 3 cases cochées
+    expect(h).toContain('extraite');        // pastille d'origine, comme les autres champs
+    expect(h).toContain('à vérifier');      // confiance
+    expect(h).toContain('provenance');      // provenance repliable
+  });
+  it('aucune destination cochée → « non renseignée », JAMAIS « 0 » ni « mixte »', () => {
+    const h = renderToStaticMarkup(createElement(ChampDestinationsEditeur, { possibles, valeurs: [], origine: null, onToggle: noop }));
+    expect(h).toContain('non renseignée');
+    expect((h.match(/checked=""/g) ?? []).length).toBe(0);
+    expect(h).not.toContain('mixte');
+  });
+  it('champ VIDE avec motif journalisé → motif affiché (origine null)', () => {
+    const j = { confiance: null, reserve: null, provenances: [], motif: 'aucune surface par sous-destination (W2·F1) renseignée' };
+    const h = renderToStaticMarkup(createElement(ChampDestinationsEditeur, { possibles, valeurs: [], origine: null, journal: j, onToggle: noop }));
+    expect(h).toContain('aucune surface par sous-destination');
   });
 });

@@ -53,6 +53,23 @@ export function parserListeCheck(defs: string[], colonne: string): string[] {
   return [];
 }
 
+/**
+ * N13 — LISTE FERMÉE d'une colonne TABLEAU depuis son CHECK `col <@ ARRAY['a'::text, 'b'::text, …]`. Même principe que
+ * `parserListeCheck` (source = la base, jamais une constante recopiée), pour l'opérateur d'inclusion de tableau `<@`. On repère la
+ * définition qui cite la colonne ET porte `<@ ARRAY`, puis on extrait les littéraux quotés dans l'ordre. `[]` si absente.
+ */
+export function parserListeArrayCheck(defs: string[], colonne: string): string[] {
+  const nomCol = new RegExp(`\\b${colonne.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+  for (const def of defs) {
+    if (!nomCol.test(def) || !/<@\s*ARRAY/i.test(def)) continue;
+    const casts = [...def.matchAll(/'([^']*)'::/g)].map((m) => m[1]);       // 'x'::text
+    if (casts.length) return casts;
+    const nus = [...def.matchAll(/'([^']*)'/g)].map((m) => m[1]);
+    if (nus.length) return nus;
+  }
+  return [];
+}
+
 // ── Identité du demandeur (config_demandeur) ─────────────────────────────────
 export interface ChampIdentite {
   cle: keyof ConfigDemandeur;

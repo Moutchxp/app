@@ -39,6 +39,8 @@ export interface GlobalPermis {
   nbLogements: number | null; nbLogementsOrigine: OrigineValeur | null;
   nbPlacesStationnement: number | null; nbPlacesStationnementOrigine: OrigineValeur | null;
   adresseTerrain: string | null; adresseTerrainOrigine: OrigineValeur | null;
+  // N13 — sous-destinations réelles (tableau ; remplace nature_projet devenue vestigiale). Migration 110.
+  destinations: string[] | null; destinationsOrigine: OrigineValeur | null;
   // N8-B/C — point le plus haut relevé sur les planches du permis (acrotère max), NON rattaché à un corps (attribution par lot non
   // établie, cf. P4/P5). Niveau PERMIS, DISTINCT de CorpsBatiment.altitudeSommetNgf (valeur par corps). Migration 108.
   altitudeSommetNgf: number | null; altitudeSommetNgfOrigine: OrigineValeur | null;
@@ -81,6 +83,7 @@ export async function lirePermisCaracteristiques(dossierId: number): Promise<Per
                                  'nbLogements', nb_logements, 'nbLogementsOrigine', nb_logements_origine,
                                  'nbPlacesStationnement', nb_places_stationnement, 'nbPlacesStationnementOrigine', nb_places_stationnement_origine,
                                  'adresseTerrain', adresse_terrain, 'adresseTerrainOrigine', adresse_terrain_origine,
+                                 'destinations', destinations, 'destinationsOrigine', destinations_origine,
                                  'altitudeSommetNgf', altitude_sommet_ngf, 'altitudeSommetNgfOrigine', altitude_sommet_ngf_origine,
                                  'majLe', maj_le::text, 'majPar', maj_par)
           FROM permis_caracteristique WHERE dossier_id = $1) AS global,
@@ -255,4 +258,22 @@ export async function ecrireCaracteristiquesGlobales(dossierId: number, valeurs:
        ON CONFLICT (dossier_id) DO UPDATE SET ${[...updSets, 'maj_le = now()'].join(', ')}`,
     params);
   return { ecrits, ignores };
+}
+
+// ── N13 — ÉCRITURE du TABLEAU `destinations` (migration 110) ────────────────────────────────────────────────────────────────────
+/**
+ * Upsert du tableau `destinations` (+ `destinations_origine`), invariant 103 RÉUTILISÉ : mode 'saisie' écrase tout ; 'extraite'
+ * n'écrase PAS une valeur déjà 'saisie' (rendu `ignore:true`). Valeur + origine posées ENSEMBLE (tableau vide/null ⇒ origine null).
+ * Le driver `pg` sérialise le `string[]` en `text[]` ; la LISTE FERMÉE est garantie par le CHECK de la base (source unique).
+ */
+export async function ecrireDestinations(dossierId: number, valeurs: string[] | null, mode: OrigineValeur, majPar: string): Promise<{ ecrit: boolean; ignore: boolean }> {
+  const { rows } = await query<{ o: OrigineValeur | null }>(`SELECT destinations_origine AS o FROM permis_caracteristique WHERE dossier_id = $1`, [dossierId]);
+  if (mode === 'extraite' && (rows[0]?.o ?? null) === 'saisie') return { ecrit: false, ignore: true }; // la main l'emporte
+  const v = valeurs && valeurs.length > 0 ? valeurs : null;
+  await query(
+    `INSERT INTO permis_caracteristique (dossier_id, destinations, destinations_origine, maj_le, maj_par)
+       VALUES ($1, $2, $3, now(), $4)
+       ON CONFLICT (dossier_id) DO UPDATE SET destinations = $2, destinations_origine = $3, maj_le = now(), maj_par = $4`,
+    [dossierId, v, v === null ? null : mode, majPar]);
+  return { ecrit: true, ignore: false };
 }

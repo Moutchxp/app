@@ -16,6 +16,7 @@ const H = vi.hoisted(() => {
     originesGlobal: {} as Record<string, unknown>,  // idem pour les colonnes déclarées de permis_caracteristique (N7-D)
     parkingOrigine: null as string | null,           // parking_origine actuel (global)
     parkingRowExiste: false,                         // la ligne permis_caracteristique existe-t-elle ?
+    destinationsOrigine: null as string | null,      // N13 : destinations_origine actuel
     lecture: { global: null as unknown, corps: [] as unknown[] },
     insertId: 77,
     deleteCount: 1,
@@ -24,6 +25,8 @@ const H = vi.hoisted(() => {
     appels.push({ sql, params: params ?? [] });
     if (/json_agg/i.test(sql)) return { rows: [state.lecture] };                                   // lecture globale
     if (/SELECT\s+parking_origine\b/i.test(sql)) return { rows: state.parkingRowExiste ? [{ o: state.parkingOrigine }] : [] };
+    if (/SELECT\s+destinations_origine\b/i.test(sql)) return { rows: [{ o: state.destinationsOrigine }] }; // N13
+    if (/INSERT\s+INTO\s+permis_caracteristique\b[\s\S]*destinations\b/i.test(sql)) return { rows: [] };   // N13 upsert tableau
     if (/_origine\s+AS\s+"/i.test(sql) && /FROM\s+permis_corps_batiment/i.test(sql)) return { rows: [state.originesCorps] };
     if (/_origine\s+AS\s+"/i.test(sql) && /FROM\s+permis_caracteristique/i.test(sql)) return { rows: [state.originesGlobal] };
     if (/INSERT\s+INTO\s+permis_corps_batiment/i.test(sql)) return { rows: [{ id: state.insertId }] };
@@ -34,14 +37,35 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock }));
 
-import { repartirEcriture, ecrireCorps, ecrireGlobal, ecrireCaracteristiquesGlobales, lirePermisCaracteristiques, creerCorps, supprimerCorps, definirRepere } from './caracteristiquesRepo';
+import { repartirEcriture, ecrireCorps, ecrireGlobal, ecrireCaracteristiquesGlobales, ecrireDestinations, lirePermisCaracteristiques, creerCorps, supprimerCorps, definirRepere } from './caracteristiquesRepo';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ');
 const trouver = (re: RegExp) => H.appels.find((a) => re.test(a.sql));
 beforeEach(() => {
   H.appels.length = 0;
   H.state.originesCorps = {}; H.state.originesGlobal = {}; H.state.parkingOrigine = null; H.state.parkingRowExiste = false;
-  H.state.lecture = { global: null, corps: [] }; H.state.insertId = 77; H.state.deleteCount = 1;
+  H.state.lecture = { global: null, corps: [] }; H.state.insertId = 77; H.state.deleteCount = 1; H.state.destinationsOrigine = null;
+});
+
+describe('N13 — ecrireDestinations (tableau text[], invariant réutilisé)', () => {
+  it('mode saisie → upsert du tableau + origine ensemble ; le string[] est passé LIÉ', async () => {
+    const r = await ecrireDestinations(1, ['Bureau', 'Restauration'], 'saisie', 'admin');
+    expect(r).toEqual({ ecrit: true, ignore: false });
+    const up = trouver(/INSERT\s+INTO\s+permis_caracteristique[\s\S]*destinations/i)!;
+    expect(up.params[1]).toEqual(['Bureau', 'Restauration']); // tableau lié tel quel (pg sérialise en text[])
+    expect(up.params[2]).toBe('saisie');                       // valeur + origine ensemble
+  });
+  it('tableau vide → NULL + origine NULL (jamais un tableau vide stocké)', async () => {
+    await ecrireDestinations(1, [], 'saisie', 'admin');
+    const up = trouver(/INSERT\s+INTO\s+permis_caracteristique[\s\S]*destinations/i)!;
+    expect(up.params[1]).toBeNull(); expect(up.params[2]).toBeNull();
+  });
+  it('AUTOMATIQUE sur des destinations déjà « saisie » → IGNORÉ, aucun upsert (la main l’emporte)', async () => {
+    H.state.destinationsOrigine = 'saisie';
+    const r = await ecrireDestinations(1, ['Bureau'], 'extraite', 'auto');
+    expect(r).toEqual({ ecrit: false, ignore: true });
+    expect(trouver(/INSERT\s+INTO\s+permis_caracteristique[\s\S]*destinations/i)).toBeUndefined();
+  });
 });
 
 describe('N7-D — ecrireCaracteristiquesGlobales (colonnes déclarées 106, invariant réutilisé)', () => {

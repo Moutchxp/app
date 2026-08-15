@@ -11,7 +11,7 @@
  * - Chaque valeur écrite laisse une ligne 'retenue' avec sa pièce (le Cerfa), le NOM EXACT du champ dans l'extrait, confiance et réserve.
  */
 import { query } from '../db/client';
-import { ecrireCaracteristiquesGlobales, type ValeursGlobalDeclare } from './caracteristiquesRepo';
+import { ecrireCaracteristiquesGlobales, ecrireDestinations, type ValeursGlobalDeclare } from './caracteristiquesRepo';
 import type { DecisionCerfa, DecisionCerfaChamp } from './decisionCerfa';
 
 export const MOTIF_SAISIE_PRIORITAIRE = 'une valeur saisie à la main occupe déjà le champ (non écrasée)';
@@ -66,6 +66,20 @@ export async function ecrireCerfa(dossierId: number, decision: DecisionCerfa, ma
       else if (res.ignores.includes(d.cle)) { lignes.push(ligneEcartee(d.colonne, MOTIF_SAISIE_PRIORITAIRE)); champsIgnoresSaisie.push(d.colonne); }
     }
   }
+
+  // N13 — DESTINATIONS (tableau) : écrites via `ecrireDestinations` (invariant réutilisé), journalisées comme les autres champs Cerfa
+  //   (valeur numérique NULL ; les libellés vivent dans l'extrait). `nature_projet` scalaire n'est plus alimentée (vestigiale).
+  const dd = decision.destinations;
+  if (dd.statut === 'non_ecrit') { lignes.push(ligneEcartee('destinations', dd.motif ?? 'non écrit')); champsNonEcrits.push('destinations'); }
+  else {
+    const r = await ecrireDestinations(dossierId, dd.valeurs ?? null, 'extraite', majPar);
+    if (r.ecrit) {
+      lignes.push({ champ: 'destinations', valeur: null, role: 'retenue', confiance: dd.confiance ?? null, reserve: dd.reserve ?? null, motif: null,
+        piece: dd.provenance?.pieceNom ?? null, page: dd.provenance?.page ?? null, extrait: `${(dd.valeurs ?? []).join(', ')}${dd.provenance ? ` (${dd.provenance.champNom})` : ''}` });
+      champsEcrits.push('destinations');
+    } else { lignes.push(ligneEcartee('destinations', MOTIF_SAISIE_PRIORITAIRE)); champsIgnoresSaisie.push('destinations'); }
+  }
+
   await journaliser(dossierId, lignes);
   return { champsEcrits, champsIgnoresSaisie, champsNonEcrits };
 }

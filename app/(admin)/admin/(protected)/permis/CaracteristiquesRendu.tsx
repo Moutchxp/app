@@ -2,7 +2,7 @@ import { Fragment, type CSSProperties } from 'react';
 import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo';
 // ⚠️ Bundle client (piège du 13/08) : de `journalLecture` (module serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
-import { MESURES, libelleBornes, type Bornes, type ChampDeclare, type FaitsPermis } from './caracteristiquesForm';
+import { MESURES, libelleBornes, composerLibelleDestinations, type Bornes, type ChampDeclare, type FaitsPermis } from './caracteristiquesForm';
 
 /**
  * N3-C — rendu PUR de l'éditeur des caractéristiques physiques (motifs ContactRendu + CarteReglageEntier). Aucun état, aucun
@@ -199,6 +199,33 @@ export function ChampDeclareEditeur({ champ, bornes, valeur, origine, erreur, jo
       <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} />
       {/* N7-F — divergence signalée (ex. parking vestigial vs nombre de places) : information, jamais masquée. */}
       {divergence && <span role="note" style={{ ...styleNote, color: 'var(--color-svv-red)', fontWeight: 600 }}>⚠ divergence : {divergence}</span>}
+    </div>
+  );
+}
+
+/**
+ * N13 — éditeur des DESTINATIONS : cases à cocher (liste fermée LUE du CHECK), avec la MÊME pastille d'origine / confiance / réserve /
+ * provenance / motif que les autres champs (via `LigneLabel` + `AnnotationsExtraction`). Le libellé COMPOSÉ (« Bureau, artisanat et
+ * commerce de détail, et restauration ») est GÉNÉRÉ ici, jamais stocké. Aucune valeur cochée → « non renseignée » (jamais « mixte »).
+ */
+export function ChampDestinationsEditeur({ possibles, valeurs, origine, erreur, journal, lienPiece, onToggle }: {
+  possibles: readonly string[]; valeurs: readonly string[]; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece; onToggle: (destination: string, coche: boolean) => void;
+}) {
+  const compose = composerLibelleDestinations(valeurs);
+  return (
+    <div className="flex flex-col gap-1" style={{ minWidth: 0, gridColumn: '1 / -1' }}>
+      <LigneLabel libelle="Destinations" origine={origine} journal={journal} />
+      <div style={{ fontSize: 13, fontWeight: 600, overflowWrap: 'anywhere' }}>{compose || <span style={styleAide}>non renseignée</span>}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.05rem .6rem', marginTop: '.15rem' }}>
+        {possibles.map((d) => (
+          <label key={d} style={{ display: 'flex', gap: '.35rem', alignItems: 'baseline', fontSize: 12, cursor: 'pointer' }}>
+            <input type="checkbox" checked={valeurs.includes(d)} onChange={(e) => onToggle(d, e.target.checked)} aria-label={d} />
+            <span style={{ overflowWrap: 'anywhere' }}>{d}</span>
+          </label>
+        ))}
+      </div>
+      {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
+      <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} />
     </div>
   );
 }
