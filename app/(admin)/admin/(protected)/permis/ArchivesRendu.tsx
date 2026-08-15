@@ -80,28 +80,31 @@ export function BadgeEtatArchive({ etat }: { etat: EtatArchive }) {
   );
 }
 
-/** Pastille d'ORIGINE d'une pièce : reçue par e-mail (registre) · ajoutée à la main · N1-B fiche générée. Texte porteur, couleur en appui. */
+/** Pastille d'ORIGINE d'une pièce : reçue par e-mail · ajoutée à la main · N1-B fiche générée · N6-F versée automatiquement. Texte porteur, couleur en appui. */
 function PastilleOrigine({ origine }: { origine: PieceArchive['origine'] }) {
   const base: CSSProperties = { fontSize: 10, fontWeight: 700, padding: '.03rem .3rem', borderRadius: '.3rem', whiteSpace: 'nowrap' };
   if (origine === 'genere') return <span style={{ ...base, background: '#fdecec', color: 'var(--color-svv-red)' }}>fiche de synthèse</span>;
+  if (origine === 'auto') return <span style={{ ...base, background: '#fdf1dd', color: '#8a5a00' }}>versée automatiquement</span>;
   if (origine === 'manuel') return <span style={{ ...base, background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)' }}>ajoutée à la main</span>;
   return <span style={{ ...base, background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)' }}>reçue par e-mail</span>;
 }
 
 /**
  * Une pièce : ORIGINE visible + DÉPOSÉE → bouton « télécharger » (le serveur signera l'URL — la clé ne transite JAMAIS ;
- * `source` dérivée de l'origine : 'reponse' pour l'e-mail, 'dossier' pour un document/fiche du dossier) ; NON déposée → son
- * MOTIF, jamais un bouton mort. SEUL un document AJOUTÉ À LA MAIN est supprimable ; une pièce reçue par e-mail et la FICHE DE
- * SYNTHÈSE GÉNÉRÉE (N1-B : elle se régénère) ne le sont jamais (pas de bouton — et le serveur refuse aussi). PURE.
+ * `source` dérivée de l'origine : 'reponse' pour l'e-mail, 'dossier' pour un document/fiche/versement du dossier) ; NON déposée →
+ * son MOTIF, jamais un bouton mort. SUPPRIMABLE : document ajouté À LA MAIN et pièce VERSÉE AUTOMATIQUEMENT (N6-F : un versement
+ * auto peut se tromper, on doit pouvoir défaire) ; JAMAIS une pièce e-mail (registre) ni la FICHE générée (N1-B : régénérée). Pour
+ * une pièce 'auto', l'EXPÉDITEUR du mail d'origine est affiché (d'où vient la pièce). PURE.
  */
 export function PieceLien({ piece, onTelecharger, onSupprimer }: {
   piece: PieceArchive; onTelecharger?: (id: number, source: 'reponse' | 'dossier') => void; onSupprimer?: (documentId: number) => void;
 }) {
-  const source: 'reponse' | 'dossier' = piece.origine === 'email' ? 'reponse' : 'dossier'; // manuel ET genere vivent dans dossier_document
-  const supprimable = piece.origine === 'manuel';
+  const source: 'reponse' | 'dossier' = piece.origine === 'email' ? 'reponse' : 'dossier'; // manuel, auto ET genere vivent dans dossier_document
+  const supprimable = piece.origine === 'manuel' || piece.origine === 'auto'; // N6-F : l'auto est défaisable ; la fiche générée non
   return (
     <span style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
       <PastilleOrigine origine={piece.origine} />
+      {piece.origine === 'auto' && piece.deposePar ? <span style={{ fontSize: 10, ...muted }}>· {piece.deposePar}</span> : null}
       {piece.deposee
         ? <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', textAlign: 'left' }} onClick={() => onTelecharger?.(piece.id, source)}>{piece.nomFichier} ↓</button>
         : <span style={{ fontSize: 12, ...muted }}>{piece.nomFichier} — <em>non déposée{piece.motifNonStocke ? ` : ${piece.motifNonStocke}` : ''}</em></span>}
@@ -111,14 +114,14 @@ export function PieceLien({ piece, onTelecharger, onSupprimer }: {
 }
 
 /** Cellule « pièces » : N1-B la FICHE DE SYNTHÈSE générée EN PREMIER (distincte), puis les pièces e-mail GROUPÉES PAR RÉPONSE
- *  (« reçues le JJ/MM — objet », T5), puis les documents ajoutés à la main. « aucun document attaché » si le permis est renseigné
- *  sans document (T2 : jamais une archive vide muette). PURE. */
+ *  (« reçues le JJ/MM — objet », T5), puis les documents du dossier (versés automatiquement N6-F + ajoutés à la main, chacun avec
+ *  sa pastille). « aucun document attaché » si le permis est renseigné sans document (T2 : jamais une archive vide muette). PURE. */
 export function CellulePieces({ pieces, onTelecharger, onSupprimer }: {
   pieces: PieceArchive[]; onTelecharger?: (id: number, source: 'reponse' | 'dossier') => void; onSupprimer?: (documentId: number) => void;
 }) {
   if (pieces.length === 0) return <span style={{ fontSize: 12, ...muted }}>aucun document attaché</span>;
   const generes = pieces.filter((p) => p.origine === 'genere'); // N1-B : la ou les fiche(s) générée(s) — affichées en tête
-  const manuels = pieces.filter((p) => p.origine === 'manuel');
+  const documentsDossier = pieces.filter((p) => p.origine === 'manuel' || p.origine === 'auto'); // N6-F : versées auto + ajoutées à la main
   // T5 — regroupe les pièces e-mail par réponse (clé recuLe|objet), ordre de première apparition préservé (SQL trié par recu_le DESC).
   const groupes = new Map<string, { recuLe: string | null; objet: string | null; items: PieceArchive[] }>();
   for (const p of pieces) {
@@ -142,9 +145,9 @@ export function CellulePieces({ pieces, onTelecharger, onSupprimer }: {
           </ul>
         </div>
       ))}
-      {manuels.length > 0 && (
+      {documentsDossier.length > 0 && (
         <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-          {manuels.map((p) => <li key={`manuel-${p.id}`}><PieceLien piece={p} onTelecharger={onTelecharger} onSupprimer={onSupprimer} /></li>)}
+          {documentsDossier.map((p) => <li key={`doc-${p.id}`}><PieceLien piece={p} onTelecharger={onTelecharger} onSupprimer={onSupprimer} /></li>)}
         </ul>
       )}
     </div>

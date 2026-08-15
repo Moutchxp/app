@@ -20,6 +20,7 @@ import { dossiersSatisfaits } from '../veille/satisfactionDossier';
 import { libelleNatureProjet } from './priorite'; // N1-B : traduit le code nature (« 1 ») en clair (« Construction neuve »)
 import { extrairePagesPdf } from '../permis/extractionPdf'; // N4 : brique UNIQUE d'extraction PDF (partagée avec lectureGed)
 import { extraireIdsDrive } from '../permis/drive'; // N6-B : extraction PURE des FILE_ID Drive (module propre, fetch natif)
+import { PREFIXE_NOTE_VERSEMENT_AUTO } from '../permis/gedConstantes'; // N6-F : préfixe de note du versement auto (source unique, écrivain)
 import type { ResultatDrive } from '../permis/drive';
 import type { MessageBoite, PieceMeta } from '../veille/releveReponses';
 import type { ProfilBoite } from '../veille/demandeReponseRepo';
@@ -400,7 +401,7 @@ export function depsReellesDepotManuel(): DepsDepotManuel {
     },
     deposer: async (dossierId, piece, expediteur, messageId) => {
       const { deposerDocumentSurPermis } = await import('./demandeRepo');
-      const r = await deposerDocumentSurPermis(dossierId, piece.contenu, piece.typeMime, piece.nomFichier, expediteur, `versement automatique — message ${messageId}`);
+      const r = await deposerDocumentSurPermis(dossierId, piece.contenu, piece.typeMime, piece.nomFichier, expediteur, `${PREFIXE_NOTE_VERSEMENT_AUTO}${messageId}`);
       return r.ok ? { ok: true } : { ok: false, motif: r.motif };
     },
     caracteristiques: async (dossierId) => {

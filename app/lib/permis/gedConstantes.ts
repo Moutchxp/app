@@ -11,3 +11,11 @@
  * Valeur distinctive, jamais posée par un upload manuel (dont la `note` reste NULL) → aucune collision possible.
  */
 export const MARQUEUR_FICHE_SYNTHESE = '__fiche_synthese_generee__';
+
+/**
+ * N6-F — PRÉFIXE de la `note` d'une pièce VERSÉE AUTOMATIQUEMENT (dépôt N1-A/N6-B). L'ÉCRIVAIN (depotManuel) compose
+ * `${PREFIXE_NOTE_VERSEMENT_AUTO}${messageId}` ; le LECTEUR (lireDocumentsManuels) reconnaît la pièce par ce préfixe → origine
+ * 'auto'. ⚠️ VALEUR EXACTE (tiret cadratin « — » U+2014, espace final) : c'est CELLE DÉJÀ EN BASE sur les pièces existantes
+ * (vérifié en lecture) — aucun rattrapage de données. Une seule source de vérité pour ce préfixe, jamais deux littéraux en dur.
+ */
+export const PREFIXE_NOTE_VERSEMENT_AUTO = 'versement automatique — message ';

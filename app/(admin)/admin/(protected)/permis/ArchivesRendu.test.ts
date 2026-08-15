@@ -8,6 +8,7 @@ const emailDeposee: PieceArchive = { id: 10, nomFichier: 'plan-de-masse.pdf', ty
 const emailNonDeposee: PieceArchive = { id: 11, nomFichier: 'coupe.pdf', typeMime: 'application/pdf', tailleOctets: null, deposee: false, motifNonStocke: 'dépôt S3 non configuré', origine: 'email', recuLe: '2026-07-01', objet: 'Réponse à votre demande de communication' };
 const manuel: PieceArchive = { id: 20, nomFichier: 'note-interne.pdf', typeMime: 'application/pdf', tailleOctets: 999, deposee: true, motifNonStocke: null, origine: 'manuel', recuLe: null, objet: null };
 const fiche: PieceArchive = { id: 30, nomFichier: 'Fiche de synthèse du permis.pdf', typeMime: 'application/pdf', tailleOctets: 5000, deposee: true, motifNonStocke: null, origine: 'genere', recuLe: null, objet: null };
+const auto: PieceArchive = { id: 40, nomFichier: 'arrete-PC.pdf', typeMime: 'application/pdf', tailleOctets: 3000, deposee: true, motifNonStocke: null, origine: 'auto', recuLe: null, objet: null, deposePar: 'a.jorel@sansvisavis.com' };
 
 const MAINTENANT = new Date('2026-07-10T12:00:00Z'); // < 2 mois après satisfait_le 2026-07-01, avant le délai (recu_le + 7 j)
 const ligne = (over: Partial<LigneArchive> = {}): LigneArchive => ({
@@ -93,6 +94,39 @@ describe('A1b — pièces : origine visible, e-mail non supprimable, manuel supp
     const h = rendu([ligne({ pieces: [emailDeposee, manuel] })]);
     expect(h).not.toContain('dossiers/75056');
     expect(h).not.toContain('cle_stockage');
+  });
+});
+
+describe('N6-F — pièce VERSÉE AUTOMATIQUEMENT (origine « auto »)', () => {
+  it('pastille « versée automatiquement » (distincte de « ajoutée à la main » et « fiche de synthèse ») + expéditeur affiché', () => {
+    const h = renderToStaticMarkup(createElement(PieceLien, { piece: auto, onTelecharger: () => {}, onSupprimer: () => {} }));
+    expect(h).toContain('versée automatiquement');
+    expect(h).not.toContain('ajoutée à la main');
+    expect(h).not.toContain('fiche de synthèse');
+    expect(h).toContain('a.jorel@sansvisavis.com'); // point 3 : d'où vient la pièce
+    expect(h).toContain('arrete-PC.pdf');
+  });
+
+  it('SUPPRIMABLE (un versement auto peut se tromper) — bouton « supprimer » présent', () => {
+    const h = renderToStaticMarkup(createElement(PieceLien, { piece: auto, onTelecharger: () => {}, onSupprimer: () => {} }));
+    expect(h).toContain('supprimer');
+    expect(h).toContain('↓'); // téléchargeable aussi
+  });
+
+  it('les trois origines dossier_document COEXISTENT dans le panneau (fiche en tête, auto et manuel distinctes)', () => {
+    const h = rendu([ligne({ pieces: [fiche, auto, manuel] })]);
+    expect(h).toContain('fiche de synthèse');
+    expect(h).toContain('versée automatiquement');
+    expect(h).toContain('ajoutée à la main');
+    // fiche générée en PREMIER (non-régression N1-B)
+    expect(h.indexOf('fiche de synthèse')).toBeLessThan(h.indexOf('versée automatiquement'));
+    // la fiche n'a PAS de bouton supprimer, mais auto ET manuel en ont un → au moins 2 occurrences de « supprimer »
+    expect((h.match(/supprimer/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('la CLÉ de stockage n’apparaît jamais pour une pièce auto', () => {
+    const h = rendu([ligne({ pieces: [auto] })]);
+    expect(h).not.toMatch(/cle_stockage|dossiers\/1\//i);
   });
 });
 

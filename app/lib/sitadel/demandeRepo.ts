@@ -17,7 +17,7 @@ import { type Collaborateur, choisirCollaborateur } from './collaborateur';
 import { resoudreDestination, type ContactCommune } from './destinataire';
 import { expressionRangSql, classer, libelleNatureProjet, type CleCategorie } from './priorite'; // D2 : expressionRangSql réutilisé (pur) ; Q2b : classer = source unique de catégorie ; N1-B : libelleNatureProjet traduit le code nature
 import type { SourceFichePermis } from '../pdf/fichePermisPdf'; // N1-B : type SEUL (le générateur PDF pdfkit n'entre jamais dans le graphe statique)
-import { MARQUEUR_FICHE_SYNTHESE } from '../permis/gedConstantes'; // N1-B/N4 : sentinelle de la fiche générée (source unique, module propre)
+import { MARQUEUR_FICHE_SYNTHESE, PREFIXE_NOTE_VERSEMENT_AUTO } from '../permis/gedConstantes'; // N1-B/N4/N6-F : sentinelle fiche + préfixe versement auto (source unique)
 import { agregerStock, moisDePeriode, type LigneStock, type DossierStock } from './stock'; // Q2b : agrégat PUR du stock (réutilise estCandidatEligible via agregerStock)
 import { lireClePiece } from '../veille/demandeReponseRepo'; // A1b : réutilisé par le dispatcher unique de lecture de clé (pas de 2e implémentation)
 
@@ -264,9 +264,12 @@ export interface PieceArchive {
   tailleOctets: number | null;
   deposee: boolean;              // cle_stockage IS NOT NULL → téléchargeable
   motifNonStocke: string | null; // renseigné si NON déposée (jamais un bouton mort côté écran)
-  origine: 'email' | 'manuel' | 'genere'; // A1b : reçue par e-mail (registre, non supprimable) OU ajoutée à la main (supprimable) OU N1-B : fiche de synthèse GÉNÉRÉE (non supprimable, régénérée)
+  // A1b : 'email' (registre, non supprimable) · 'manuel' (ajoutée à la main, supprimable) · N1-B 'genere' (fiche, non supprimable,
+  // régénérée) · N6-F 'auto' (versée automatiquement, SUPPRIMABLE — un versement auto peut se tromper).
+  origine: 'email' | 'manuel' | 'genere' | 'auto';
   recuLe: string | null;         // T5 : date de la réponse porteuse (email) → étiquette « reçues le JJ/MM » ; NULL pour un document manuel
   objet: string | null;          // T5 : objet de la réponse porteuse (email) ; NULL pour un document manuel
+  deposePar?: string | null;     // N6-F : pour une pièce 'auto', l'EXPÉDITEUR du mail d'origine (d'où vient la pièce) ; absent pour l'e-mail
 }
 /** Une ligne d'archive = UN PERMIS renseigné : un `demande_dossier` dont `satisfait_le` n'est pas nul. */
 export interface LigneArchive {
@@ -367,17 +370,22 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
  */
 async function lireDocumentsManuels(): Promise<Map<number, PieceArchive[]>> {
   try {
-    // N1-B — origine dérivée de `note` : le marqueur `MARQUEUR_FICHE_SYNTHESE` → 'genere' (fiche non supprimable), sinon 'manuel'.
-    //   ORDER BY : la fiche générée d'abord (note = marqueur), puis les documents manuels par date de dépôt (affichage « en premier »).
+    // N1-B / N6-F — origine dérivée de `note` : marqueur `MARQUEUR_FICHE_SYNTHESE` → 'genere' (non supprimable) ; préfixe
+    //   `PREFIXE_NOTE_VERSEMENT_AUTO` → 'auto' (versée automatiquement, SUPPRIMABLE ; `deposePar` = expéditeur du mail) ; NULL ou
+    //   autre → 'manuel' (comportement inchangé). ORDER BY : la fiche générée d'abord, puis par date de dépôt (« en premier »).
     const { rows } = await query<{ dossier_id: number; docs: PieceArchive[] }>(
       `SELECT dossier_id::int AS dossier_id,
               json_agg(json_build_object(
                 'id', id::int, 'nomFichier', nom_fichier, 'typeMime', type_mime, 'tailleOctets', taille_octets,
                 'deposee', true, 'motifNonStocke', NULL,
-                'origine', CASE WHEN note = $1 THEN 'genere' ELSE 'manuel' END, 'recuLe', NULL, 'objet', NULL
+                'origine', CASE WHEN note = $1 THEN 'genere'
+                                WHEN note LIKE $2 THEN 'auto'
+                                ELSE 'manuel' END,
+                'recuLe', NULL, 'objet', NULL,
+                'deposePar', CASE WHEN note LIKE $2 THEN depose_par ELSE NULL END
               ) ORDER BY (note = $1) DESC, depose_le, id) AS docs
          FROM dossier_document GROUP BY dossier_id`,
-      [MARQUEUR_FICHE_SYNTHESE],
+      [MARQUEUR_FICHE_SYNTHESE, `${PREFIXE_NOTE_VERSEMENT_AUTO}%`],
     );
     return new Map(rows.map((r) => [r.dossier_id, r.docs]));
   } catch (e) {
