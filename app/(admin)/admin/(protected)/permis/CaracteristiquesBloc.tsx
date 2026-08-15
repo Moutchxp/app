@@ -149,6 +149,8 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
   // N10-A — résout un nom de fichier de provenance en un déclencheur de téléchargement (source 'dossier'), ou undefined si non résolu
   // (nom absent de la GED → l'entrée reste en texte simple, jamais un lien mort). Le signeur reste le serveur (onTelecharger).
   const lienPiece: LienPiece = (nom) => { const id = data.piecesParNom?.[nom]; return id != null && onTelecharger ? () => onTelecharger(id, 'dossier') : undefined; };
+  // N14 — l'altitude du sommet du permis descend en bas du bloc (à côté du Commentaire) ; on la sort donc de la 1re grille.
+  const champSommet = CHAMPS_PERMIS.find((c) => c.cle === 'altitudeSommetNgf')!;
 
   return (
     <div className="flex flex-col gap-3" style={{ marginTop: '.6rem' }}>
@@ -160,7 +162,8 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
         <h4 style={styleTitre}>Le permis <span style={{ ...styleAide, fontWeight: 400 }}>— déclaré (Cerfa), vaut pour l’ensemble du projet</span></h4>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.6rem' }}>
           {/* N13 — le select « nature du projet » (scalaire, mixte) est VESTIGIAL : remplacé par les cases à cocher « Destinations » ci-dessous. */}
-          {CHAMPS_PERMIS.filter((c) => c.cle !== 'natureProjet').map((champ) => {
+          {/* N14 — le sommet du permis est retiré d'ici (rendu plus bas, à côté du Commentaire). 1re ligne : surface, logements, stationnement, adresse. */}
+          {CHAMPS_PERMIS.filter((c) => c.cle !== 'natureProjet' && c.cle !== 'altitudeSommetNgf').map((champ) => {
             const estStationnement = champ.cle === 'nbPlacesStationnement';
             const vide = edPermis[champ.cle].trim() === '';
             // N7-F — le motif du parking VESTIGIAL vit sous « Places de stationnement » quand ce champ est vide.
@@ -172,10 +175,15 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
                 onValeur={(v) => setEdPermis((p) => ({ ...p, [champ.cle]: v }))} />
             );
           })}
-          {/* N13 — DESTINATIONS (cases à cocher, liste fermée lue du CHECK) : remplace le select « nature » (mixte). Pleine largeur. */}
+          {/* N14/N13 — DESTINATIONS juste sous la 1re ligne (à la place qu'occupait le sommet), pleine largeur : 23 cases sur 4 colonnes. */}
           <ChampDestinationsEditeur possibles={data.destinationsPossibles ?? []} valeurs={edDestinations}
             origine={origineDe(data.global, 'destinations')} journal={data.journal.permis['destinations']} lienPiece={lienPiece}
             onToggle={(d, coche) => setEdDestinations((prev) => (coche ? [...new Set([...prev, d])] : prev.filter((x) => x !== d)))} />
+          {/* N14 — bas du bloc : l'altitude du sommet du permis (avec son aide) À CÔTÉ du Commentaire, sur la même ligne. Contenu du champ inchangé. */}
+          <ChampDeclareEditeur champ={champSommet} bornes={data.bornes[champSommet.colonne]} valeur={edPermis.altitudeSommetNgf}
+            origine={origineDe(data.global, 'altitudeSommetNgf')} erreur={erreursPermis.altitudeSommetNgf} journal={data.journal.permis[champSommet.colonne]}
+            lienPiece={lienPiece} naturesPossibles={data.naturesPossibles}
+            onValeur={(v) => setEdPermis((p) => ({ ...p, altitudeSommetNgf: v }))} />
           <label className="flex flex-col gap-1" style={{ minWidth: 0 }}>
             <span style={styleLabel}>Commentaire</span>
             <textarea value={edGlobal.commentaire} rows={2} onChange={(e) => setEdGlobal((g) => ({ ...g, commentaire: e.target.value }))} style={styleInput} aria-label="Commentaire" />
