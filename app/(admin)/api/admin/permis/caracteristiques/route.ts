@@ -4,6 +4,7 @@ import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { parserBornesCheck, type BornesParColonne } from '../../../../../lib/sitadel/reglagesVeille';
 import { libelleNatureProjet } from '../../../../../lib/sitadel/priorite';
 import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, creerCorps, supprimerCorps, definirRepere, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
+import { lireJournalRetenu, type JournalRetenuParCorps } from '../../../../../lib/permis/journalLecture';
 import { MESURES, construireGlobal } from '../../../../admin/(protected)/permis/caracteristiquesForm';
 
 /**
@@ -56,9 +57,16 @@ export async function GET(request: Request): Promise<Response> {
   const dossierId = Number(new URL(request.url).searchParams.get('dossierId'));
   if (!Number.isInteger(dossierId) || dossierId <= 0) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
   try {
-    const [faits, etat, bornes] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes()]);
+    // N5-D — le JOURNAL (confiance/réserve/provenance des valeurs extraites) est lu dans le MÊME aller-retour, pas par champ.
+    // TOLÉRANT : si la migration 104 n'est pas encore appliquée (table absente), on dégrade en journal vide + log — sans jamais
+    // casser le reste du bloc (faits/global/corps/bornes). Un enrichissement d'affichage ne doit pas faire tomber l'éditeur.
+    const journalSur = lireJournalRetenu(dossierId).catch((e): JournalRetenuParCorps => {
+      console.warn('[permis/caracteristiques] journal indisponible (migration 104 non appliquée ?)', e instanceof Error ? e.message : String(e));
+      return {};
+    });
+    const [faits, etat, bornes, journal] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur]);
     if (faits === null) return Response.json({ erreur: 'permis inconnu' }, { status: 404 });
-    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes });
+    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal });
   } catch (e) {
     console.error('[permis/caracteristiques] GET indisponible', e);
     return Response.json({ erreur: 'caractéristiques indisponibles' }, { status: 503 });

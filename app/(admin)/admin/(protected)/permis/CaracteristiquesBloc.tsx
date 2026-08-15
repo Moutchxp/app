@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-// ⚠️ Bundle client (piège du 13/08) : de `caracteristiquesRepo` (module serveur, pg) on n'importe QUE des `type`, jamais une valeur.
+// ⚠️ Bundle client (piège du 13/08) : de `caracteristiquesRepo` / `journalLecture` (modules serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { CorpsBatiment, GlobalPermis, OrigineValeur, ValeursCorps } from '../../../../lib/permis/caracteristiquesRepo';
+import type { JournalRetenuParCorps } from '../../../../lib/permis/journalLecture';
 import type { BornesParColonne } from '../../../../lib/sitadel/reglagesVeille';
 import {
   MESURES, construireCorps, valeurVersInput,
@@ -10,7 +11,7 @@ import {
 } from './caracteristiquesForm';
 import { FaitsPermisBloc, EditeurParking, ChampMesureEditeur, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS } from './CaracteristiquesRendu';
 
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne }
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalRetenuParCorps }
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '',
@@ -157,7 +158,7 @@ export function CaracteristiquesBloc({ dossierId }: { dossierId: number }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.6rem' }}>
               {MESURES.map((m) => (
                 <ChampMesureEditeur key={m.cle} mesure={m} bornes={data.bornes[m.colonne]} valeur={ed[m.cle]} origine={origineCorps(c, m.cle)}
-                  erreur={err[m.cle]} onValeur={(v) => majChamp(c.id, m.cle, v)} />
+                  erreur={err[m.cle]} journal={data.journal[c.id]?.[m.colonne]} onValeur={(v) => majChamp(c.id, m.cle, v)} />
               ))}
             </div>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>

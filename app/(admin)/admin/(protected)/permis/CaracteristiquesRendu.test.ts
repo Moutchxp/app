@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PastilleOrigineValeur, ChampMesureEditeur, EditeurParking, FaitsPermisBloc, MESSAGE_AUCUN_CORPS } from './CaracteristiquesRendu';
+import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, EditeurParking, FaitsPermisBloc, MESSAGE_AUCUN_CORPS } from './CaracteristiquesRendu';
 import { MESURES, type FaitsPermis } from './caracteristiquesForm';
+import type { JournalRetenu } from '../../../../lib/permis/journalLecture';
 
 /** N3-C — rendu PUR (node pur, renderToStaticMarkup) : origines, bornes lues de la base, NULL affiché vide, mention du sommet. */
 const noop = () => {};
@@ -43,6 +44,57 @@ describe('N3-C — ChampMesureEditeur', () => {
     const h = renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: nbEtages, bornes: { min: 0, max: 70 }, valeur: '100', origine: null, erreur: 'valeur attendue entre 0 et 70', onValeur: noop }));
     expect(h).toContain('role="alert"');
     expect(h).toContain('entre 0 et 70');
+  });
+});
+
+describe('N5-D — confiance, réserve et provenance à côté de la valeur extraite', () => {
+  const RESERVE = 'la cote la plus haute des planches peut appartenir à un bâtiment voisin — les coupes et façades figurent le contexte bâti';
+  const journal = (over: Partial<JournalRetenu> = {}): JournalRetenu => ({
+    confiance: 'a_verifier', reserve: RESERVE, provenances: [{ piece: 'PC3.pdf', page: 2 }], ...over,
+  });
+  const rendre = (props: Parameters<typeof ChampMesureEditeur>[0]) => renderToStaticMarkup(createElement(ChampMesureEditeur, props));
+  const base = { mesure: sommet, bornes: { min: -50, max: 500 }, valeur: '89.46', onValeur: noop } as const;
+
+  it('PastilleConfiance : deux libellés distincts', () => {
+    expect(renderToStaticMarkup(createElement(PastilleConfiance, { confiance: 'a_verifier' }))).toContain('à vérifier');
+    expect(renderToStaticMarkup(createElement(PastilleConfiance, { confiance: 'confirmee' }))).toContain('corroborée');
+  });
+
+  it("extraite + a_verifier + réserve → origine, confiance ET réserve affichées, distinctement", () => {
+    const h = rendre({ ...base, origine: 'extraite', journal: journal() });
+    expect(h).toContain('extraite');       // origine (pastille pleine)
+    expect(h).toContain('à vérifier');     // confiance (pastille contour) — axe différent
+    expect(h).toContain('appartenir à un bâtiment voisin'); // réserve en toutes lettres
+  });
+
+  it('extraite + confirmee SANS réserve → confiance affichée, aucune réserve inventée', () => {
+    const h = rendre({ ...base, origine: 'extraite', journal: journal({ confiance: 'confirmee', reserve: null }) });
+    expect(h).toContain('corroborée');
+    expect(h).not.toContain('appartenir à un bâtiment voisin');
+    expect(h).not.toContain('à vérifier');
+  });
+
+  it("valeur 'saisie' → NI confiance NI réserve, même si un journal est fourni", () => {
+    const h = rendre({ ...base, origine: 'saisie', journal: journal() });
+    expect(h).toContain('saisie à la main');
+    expect(h).not.toContain('à vérifier');
+    expect(h).not.toContain('corroborée');
+    expect(h).not.toContain('appartenir à un bâtiment voisin');
+  });
+
+  it('champ VIDE (origine null, aucun journal) → rien, surtout pas de pastille de confiance orpheline', () => {
+    const h = rendre({ ...base, valeur: '', origine: null });
+    expect(h).toContain('non renseignée');
+    expect(h).not.toContain('à vérifier');
+    expect(h).not.toContain('corroborée');
+    expect(h).not.toContain('provenance');
+  });
+
+  it('provenance (pièce, page) atteignable et exacte', () => {
+    const h = rendre({ ...base, origine: 'extraite', journal: journal({ provenances: [{ piece: 'PC3.pdf', page: 2 }, { piece: 'PC5.pdf', page: 4 }] }) });
+    expect(h).toContain('provenance (2 pièces)');
+    expect(h).toContain('PC3.pdf p.2');
+    expect(h).toContain('PC5.pdf p.4');
   });
 });
 
