@@ -248,6 +248,23 @@ describe('G2 — etatArchive : 5 états (mot + couleur), 2 mois, exception « ve
     expect(e).toMatchObject({ cle: 'obtenu', mot: 'obtenu', couleurLigne: 'var(--color-svv-green-ink)' });
   });
 
+  // N6-G — régression : N6-F a requalifié les pièces versées auto ('manuel' → 'auto'). L'état ne les reconnaissait plus comme
+  //   « en GED » → un permis plein de pièces retombait sur « sans contenu reçu ». Ces tests l'auraient attrapée.
+  it('N6-G — OBTENU : pièces d’origine AUTO SEULES (versées automatiquement) → en GED, JAMAIS « sans contenu reçu »', () => {
+    const e = etatArchive(ligne({ pieces: [auto] }), RECENT);
+    expect(e).toMatchObject({ cle: 'obtenu', mot: 'obtenu', couleurLigne: 'var(--color-svv-green-ink)' });
+    expect(e.cle).not.toBe('sans_contenu'); // le symptôme exact du 07512025V0035
+  });
+  it('N6-G — OBTENU : mélange AUTO + MANUEL → en GED', () => {
+    expect(etatArchive(ligne({ pieces: [auto, manuel] }), RECENT).cle).toBe('obtenu');
+  });
+  it('N6-G — OBTENU : AUTO en GED PRIME sur une pièce e-mail non classée (obtenu, pas « en attente »)', () => {
+    expect(etatArchive(ligne({ pieces: [auto, emailDeposee] }), RECENT).cle).toBe('obtenu');
+  });
+  it('N6-G — la fiche GÉNÉRÉE seule ne suffit PAS à « obtenu » (ce n’est pas une pièce reçue)', () => {
+    expect(etatArchive(ligne({ satisfaitPar: 'manuel', recuLe: null, expireLeCapte: null, aLienFort: false, pieces: [fiche] }), RECENT).cle).toBe('sans_contenu');
+  });
+
   it('EN ATTENTE (orange) : contenu e-mail non classé, délai NON dépassé', () => {
     const e = etatArchive(ligne({ pieces: [emailDeposee] }), AVANT_DELAI);
     expect(e).toMatchObject({ cle: 'attente', mot: 'en attente', couleurLigne: '#8a5a00' });

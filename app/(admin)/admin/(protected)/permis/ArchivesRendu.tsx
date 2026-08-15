@@ -42,20 +42,23 @@ function apresMoisCalendaires(satisfaitLe: string, maintenant: Date, mois: numbe
 }
 
 /**
- * G2 — état visuel d'une ligne d'archive. PUR. ALIGNÉ G1 (définitions IMPORTÉES, pas recopiées) : « en GED / obtenu » = ∃
- * `dossier_document` (ici une pièce d'origine 'manuel', qui EST un dossier_document) ; « délai dépassé » = le délai G1
- * (`expirationEffective` : expiration L1 sinon recu_le + 7 j) est passé SANS dossier_document.
- *  - obtenu (VERT) ; en attente (ORANGE, contenu réel reçu non classé, délai non passé) ; délai dépassé (ROUGE) ;
- *  - sans contenu reçu (NEUTRE) : satisfait à la main, aucune pièce ni lien → rien à classer, JAMAIS rouge.
- * Après 2 mois (satisfait_le) : la LIGNE repasse en neutre « comme aujourd'hui ». EXCEPTION : un contenu reçu jamais classé
- * garde la colonne Pièces en ROUGE avec « versement oublié » (l'oubli est certain, même si le délai n'a peut-être jamais existé).
+ * G2 — état visuel d'une ligne d'archive. PUR. ALIGNÉ G1/T8 (définitions IMPORTÉES, pas recopiées). DEUX notions DISTINCTES :
+ *   - `enGed` = « des PIÈCES sont en GED » = ∃ `dossier_document` REÇU. N6-G : c'est origine ∈ {'manuel', 'auto'} (les deux
+ *     vivent dans dossier_document), quelle que soit la façon dont elles y sont arrivées (à la main, versement auto, Drive). On
+ *     EXCLUT 'genere' (notre fiche de synthèse, pas une pièce obtenue) et 'email' (une pièce e-mail vit dans
+ *     demande_reponse_piece, PAS ENCORE en GED). ⚠️ N6-F a requalifié les pièces versées auto de 'manuel' → 'auto' : tester
+ *     'manuel' SEUL faisait retomber un permis plein de pièces sur « sans contenu reçu ». C'est ce calcul qu'on corrige, pas la donnée.
+ *   - `aContenu` = « la MAIRIE a envoyé du contenu (pas forcément classé en GED) » = pièce e-mail rattachée OU lien fort.
+ * États : obtenu (VERT, enGed) ; en attente (ORANGE, contenu reçu non classé, délai non passé) ; délai dépassé (ROUGE) ;
+ * sans contenu reçu (NEUTRE : ni pièce en GED, ni contenu reçu → rien à classer, JAMAIS rouge). Après 2 mois (satisfait_le) : la
+ * LIGNE repasse en neutre. EXCEPTION : un contenu reçu jamais classé (aContenu sans enGed) garde la colonne Pièces en ROUGE « versement oublié ».
  */
 export function etatArchive(l: Pick<LigneArchive, 'satisfaitLe' | 'recuLe' | 'expireLeCapte' | 'aLienFort' | 'pieces'>, maintenant: Date): EtatArchive {
-  const classe = l.pieces.some((p) => p.origine === 'manuel'); // pièce manuelle = dossier_document = en GED (déf. G1)
+  const enGed = l.pieces.some((p) => p.origine === 'manuel' || p.origine === 'auto'); // ∃ dossier_document REÇU = obtenu (T8) ; 'genere'/'email' exclus
   const aContenu = l.pieces.some((p) => p.origine === 'email') || l.aLienFort;
 
   let cle: EtatArchiveCle, mot: string;
-  if (classe) { cle = 'obtenu'; mot = 'obtenu'; }
+  if (enGed) { cle = 'obtenu'; mot = 'obtenu'; }
   else if (!aContenu) { cle = 'sans_contenu'; mot = 'sans contenu reçu'; } // jamais rouge : on ne reproche pas un contenu inexistant
   else {
     const delai = l.recuLe !== null ? expirationEffective(new Date(l.recuLe), l.expireLeCapte !== null ? new Date(l.expireLeCapte) : null) : null;
@@ -69,7 +72,7 @@ export function etatArchive(l: Pick<LigneArchive, 'satisfaitLe' | 'recuLe' | 'ex
     const c = cle === 'obtenu' ? VERT : cle === 'attente' ? ORANGE : cle === 'depasse' ? ROUGE : null;
     return { cle, mot, couleurLigne: c, couleurPieces: c };
   }
-  if (!classe && aContenu) return { cle: 'versement_oublie', mot: 'versement oublié', couleurLigne: null, couleurPieces: ROUGE };
+  if (!enGed && aContenu) return { cle: 'versement_oublie', mot: 'versement oublié', couleurLigne: null, couleurPieces: ROUGE };
   return { cle, mot, couleurLigne: null, couleurPieces: null }; // > 2 mois, rien à signaler → neutre (mot conservé)
 }
 
