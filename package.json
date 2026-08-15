@@ -42,6 +42,7 @@
     "permis:banc-vision": "tsx app/scripts/banc-vision.ts",
     "permis:banc-geometrie": "tsx app/scripts/banc-geometrie.ts",
     "permis:banc-distribution": "tsx app/scripts/banc-distribution.ts",
+    "permis:banc-titres": "tsx app/scripts/banc-titres.ts",
     "drive:autoriser": "tsx app/scripts/drive-autoriser.ts",
     "alertes:envoyer": "tsx app/scripts/envoyer-alerte.ts",
     "veille:run": "tsx app/scripts/veille-run.ts",
