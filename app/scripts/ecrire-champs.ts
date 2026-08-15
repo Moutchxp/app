@@ -12,7 +12,7 @@ import { extraireCandidats } from '../lib/permis/extractionCaracteristiques';
 import { decisionChamps } from '../lib/permis/decisionChamps';
 import { ecrireChamps } from '../lib/permis/ecritureChamps';
 import { lireChampsFormulaire } from '../lib/permis/champsFormulaire';
-import { decisionCerfa, type ChampCerfa } from '../lib/permis/decisionCerfa';
+import { decisionCerfa, type ChampCerfa, type AdresseTerrainSitadel } from '../lib/permis/decisionCerfa';
 import { ecrireCerfa } from '../lib/permis/ecritureCerfa';
 
 const MAJ_PAR = 'extraction:champs';
@@ -30,11 +30,11 @@ async function lireSurfCreee(dossierId: number): Promise<number | null> {
   return v === null || v === undefined ? null : Number(v);
 }
 
-/** Adresse terrain de Sitadel (num + voie + localité), ou null. Même concat que la fiche ; sert au recoupement de l'adresse. */
-async function lireAdresseTerrainSitadel(dossierId: number): Promise<string | null> {
-  const { rows } = await query<{ adr: string | null }>(
-    `SELECT nullif(btrim(concat_ws(' ', adr_num_ter, adr_libvoie_ter, adr_localite_ter)), '') AS adr FROM sitadel_dossier WHERE id = $1`, [dossierId]);
-  return rows[0]?.adr ?? null;
+/** Adresse terrain de Sitadel en 3 colonnes (numéro / voie / localité) — pour recouper champ par champ. */
+async function lireAdresseTerrainSitadel(dossierId: number): Promise<AdresseTerrainSitadel | null> {
+  const { rows } = await query<{ numero: string | null; voie: string | null; localite: string | null }>(
+    `SELECT adr_num_ter AS numero, adr_libvoie_ter AS voie, adr_localite_ter AS localite FROM sitadel_dossier WHERE id = $1`, [dossierId]);
+  return rows[0] ?? null;
 }
 
 async function main(): Promise<void> {
@@ -85,7 +85,8 @@ async function main(): Promise<void> {
   const decisionC = decisionCerfa(champsCerfa, surfCreee, adresseSitadel);
   const rc = await ecrireCerfa(dossierId, decisionC, MAJ_PAR_CERFA);
 
-  console.log(`\n── SOURCE : cerfa (champs AcroForm, niveau permis) — surf_creee Sitadel : ${surfCreee ?? '—'} · adresse Sitadel : ${adresseSitadel ?? '—'} :`);
+  const adrSitLabel = adresseSitadel ? [adresseSitadel.numero, adresseSitadel.voie, adresseSitadel.localite].filter(Boolean).join(' ') : '—';
+  console.log(`\n── SOURCE : cerfa (champs AcroForm, niveau permis) — surf_creee Sitadel : ${surfCreee ?? '—'} · adresse Sitadel : ${adrSitLabel} :`);
   for (const d of decisionC.champs) {
     if (d.statut === 'ecrit') {
       console.log(`  √ ${d.colonne} = ${d.valeur} — confiance ${d.confiance}${d.reserve ? `  ⚠ ${d.reserve}` : ''}  [${d.provenance?.pieceNom} « ${d.provenance?.champNom} »]`);

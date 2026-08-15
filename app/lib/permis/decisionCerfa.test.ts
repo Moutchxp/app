@@ -57,24 +57,41 @@ describe('decisionCerfa — nature_projet (destinations, sans dominante)', () =>
   });
 });
 
-describe('decisionCerfa — adresse_terrain (T2Q + T2V + T2L), recoupée avec Sitadel', () => {
-  const adr = () => [champ('T2Q_numero', '3'), champ('T2V_voie', 'AVENUE BENOIT FRACHON'), champ('T2L_localite', 'PARIS')];
-  it('les trois présents → « numéro voie, localité » ; Sitadel absent → a_verifier sans réserve', () => {
-    const d = col(decisionCerfa(adr(), null, null), 'adresse_terrain');
-    expect(d).toMatchObject({ statut: 'ecrit', valeur: '3 AVENUE BENOIT FRACHON, PARIS', confiance: 'a_verifier', reserve: null });
+describe('decisionCerfa — adresse_terrain recoupée CHAMP PAR CHAMP avec Sitadel', () => {
+  const adr = (loc = 'PARIS') => [champ('T2Q_numero', '3'), champ('T2V_voie', 'AVENUE BENOIT FRACHON'), champ('T2L_localite', loc)];
+  const sit = (o: Partial<{ numero: string; voie: string; localite: string }> = {}) => ({ numero: '3', voie: 'AV Benoît Frachon', localite: 'PARIS 20', ...o });
+
+  it('Sitadel absent → a_verifier sans réserve', () => {
+    expect(col(decisionCerfa(adr(), null, null), 'adresse_terrain')).toMatchObject({ statut: 'ecrit', valeur: '3 AVENUE BENOIT FRACHON, PARIS', confiance: 'a_verifier', reserve: null });
   });
-  it('concorde avec Sitadel (normalisation casse/abréviation/ponctuation) → confirmee', () => {
-    const d = col(decisionCerfa(adr(), null, '3 AV Benoît Frachon  Paris'), 'adresse_terrain'); // AV→AVENUE, accents, espaces
+  it('arrondissement en supplément (« PARIS » ⊂ « PARIS 20 ») + abréviation voie → CONCORDANCE confirmee', () => {
+    const d = col(decisionCerfa(adr(), null, sit()), 'adresse_terrain');
     expect(d.confiance).toBe('confirmee');
     expect(d.reserve).toBeNull();
   });
-  it('diverge de Sitadel → a_verifier + réserve citant LES DEUX libellés', () => {
-    const d = col(decisionCerfa(adr(), null, '5 RUE DE LA PAIX PARIS'), 'adresse_terrain');
+  it('VRAIE divergence — numéro différent → a_verifier + réserve (numéro JAMAIS relâché)', () => {
+    const d = col(decisionCerfa(adr(), null, sit({ numero: '5' })), 'adresse_terrain');
     expect(d.confiance).toBe('a_verifier');
     expect(d.reserve).toContain('3 AVENUE BENOIT FRACHON, PARIS');
-    expect(d.reserve).toContain('5 RUE DE LA PAIX PARIS');
+    expect(d.reserve).toContain('5 AV Benoît Frachon PARIS 20');
   });
-  it('un manquant → on écrit ce qu’on a (valeur partielle)', () => {
+  it('VRAIE divergence — voie différente → a_verifier + réserve (voie JAMAIS relâchée)', () => {
+    const d = col(decisionCerfa(adr(), null, sit({ voie: 'RUE DE LA PAIX' })), 'adresse_terrain');
+    expect(d.confiance).toBe('a_verifier'); expect(d.reserve).toContain('RUE DE LA PAIX');
+  });
+  it('VRAIE divergence — commune différente (PARIS vs MONTREUIL) → a_verifier + réserve', () => {
+    const d = col(decisionCerfa(adr(), null, sit({ localite: 'MONTREUIL' })), 'adresse_terrain');
+    expect(d.confiance).toBe('a_verifier'); expect(d.reserve).toContain('MONTREUIL');
+  });
+  it('VRAIE divergence — arrondissements distincts (PARIS 19 vs PARIS 20) → a_verifier + réserve', () => {
+    const d = col(decisionCerfa(adr('PARIS 19'), null, sit({ localite: 'PARIS 20' })), 'adresse_terrain');
+    expect(d.confiance).toBe('a_verifier'); expect(d.reserve).toContain('PARIS 20');
+  });
+  it('Sitadel incomplet (localité manquante) mais n°/voie concordent → a_verifier SANS réserve (pas de bruit)', () => {
+    const d = col(decisionCerfa(adr(), null, { numero: '3', voie: 'AV Benoît Frachon', localite: null }), 'adresse_terrain');
+    expect(d).toMatchObject({ confiance: 'a_verifier', reserve: null });
+  });
+  it('un champ Cerfa manquant → on écrit ce qu’on a (valeur partielle)', () => {
     const d = col(decisionCerfa([champ('T2V_voie', 'AVENUE BENOIT FRACHON'), champ('T2L_localite', 'PARIS')], null, null), 'adresse_terrain');
     expect(d.valeur).toBe('AVENUE BENOIT FRACHON, PARIS');
   });
