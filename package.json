@@ -45,6 +45,7 @@
     "permis:banc-titres": "tsx app/scripts/banc-titres.ts",
     "permis:banc-etages": "tsx app/scripts/banc-etages.ts",
     "permis:ecrire-lots": "tsx app/scripts/ecrire-lots.ts",
+    "permis:ecrire-niveaux": "tsx app/scripts/ecrire-niveaux.ts",
     "drive:autoriser": "tsx app/scripts/drive-autoriser.ts",
     "alertes:envoyer": "tsx app/scripts/envoyer-alerte.ts",
     "veille:run": "tsx app/scripts/veille-run.ts",
