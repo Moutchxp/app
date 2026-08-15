@@ -7,6 +7,7 @@ import '../lib/chargerEnv';
 import { closePool } from '../lib/db/client';
 import { resoudreDossier, lireGedPermis, depsReellesLectureGed } from '../lib/permis/lectureGed';
 import { extraireCandidats, distributionCotesQualifiees, type RapportExtraction } from '../lib/permis/extractionCaracteristiques';
+import { decisionSommet } from '../lib/permis/decisionSommet';
 
 function lireArg(nom: string): string | undefined {
   const i = process.argv.indexOf(nom);
@@ -57,6 +58,22 @@ function imprimer(numDau: string, type: string, r: RapportExtraction): void {
   for (const s of r.sousSols) console.log(`  ${s.niveaux} niveau(x) (${prov(s.provenance)}, « ${s.texteBrut} »)`);
   console.log(`[REPÈRES de corps — signal faible] ${r.reperes.length} :`);
   for (const rp of r.reperes.slice(0, 20)) console.log(`  ${rp.repere} (${prov(rp.provenance)}, « ${rp.texteBrut} »)`);
+
+  // N5-C — DÉCISION du sommet : ce qui SERAIT écrit (cette CLI n'écrit rien ; l'écriture encadrée arrive après la migration 104).
+  const d = decisionSommet(r);
+  console.log(`\n[DÉCISION SOMMET (N5-C) — CE QUI SERAIT ÉCRIT — aucune écriture ici]`);
+  if (d.valeurNgf === null) {
+    console.log(`  aucun sommet : ${d.raisonAbsence} (aucune cote « ${d.qualificatif} »)`);
+  } else {
+    const pages = [...new Set(d.provenances.map(prov))];
+    console.log(`  sommet = ${d.valeurNgf} NGF (« ${d.qualificatif} », origine 'extraite')  — confiance : ${d.confiance}`);
+    console.log(`  provenance (${d.nbPiecesDistinctes} pièce(s) distincte(s)) : ${pages.slice(0, 8).join(' · ')}${pages.length > 8 ? ` … +${pages.length - 8}` : ''}`);
+    console.log(`  cohérent avec la trame des planchers : ${d.coherentTrame ? 'oui' : 'non'}`);
+    console.log(`  ⚠ RÉSERVE : ${d.reserve}`);
+  }
+  if (d.candidatsNiveauFini.length > 0) {
+    console.log(`  candidats « niveau fini » JOURNALISÉS (jamais promus) : ${d.candidatsNiveauFini.map((c) => `${c.valeur} ×${c.provenances.length}`).join(' · ')}`);
+  }
 
   const pasDeTexte = b.piecesSansCandidat.filter((p) => p.motif === 'pas_de_texte');
   const texteSansMotif = b.piecesSansCandidat.filter((p) => p.motif === 'texte_sans_motif');
