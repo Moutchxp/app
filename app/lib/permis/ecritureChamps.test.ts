@@ -73,6 +73,8 @@ describe('ecrireChamps — attribution', () => {
     expect(r).toEqual({ statut: 'ambigu_plusieurs_corps', nbCorps: 2 });
     expect(insertsCorps()).toHaveLength(0);
     expect(updatesCorps()).toHaveLength(0);
+    // recompute inoffensif (N8-B) : la purge du journal est BORNÉE à methode='motifs' → elle ne touche jamais nos lignes 'enonce'.
+    expect(deletesJournal().every((a) => /methode\s*=\s*'motifs'/i.test(a.sql))).toBe(true);
     const sommet = journal().find((p) => p[2] === 'altitude_sommet_ngf')!;
     expect(sommet[5]).toBe('ecartee'); expect(sommet[8]).toBe(MOTIF_AMBIGU_CORPS); expect(sommet[1]).toBeNull();
   });
