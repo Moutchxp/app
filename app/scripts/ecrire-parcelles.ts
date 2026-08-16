@@ -9,7 +9,7 @@ import { query, closePool } from '../lib/db/client';
 import { resoudreDossier, depsReellesLectureGed } from '../lib/permis/lectureGed';
 import { lireChampsFormulaire } from '../lib/permis/champsFormulaire';
 import { decisionParcelles, type ParcelleSitadel } from '../lib/permis/decisionParcelles';
-import { ecrireParcelles } from '../lib/permis/parcellesRepo';
+import { ecrireParcelles, figerEmpreinte } from '../lib/permis/parcellesRepo';
 import type { ChampCerfa } from '../lib/permis/decisionCerfa';
 
 const MAJ_PAR = 'cerfa:parcelles';
@@ -47,6 +47,14 @@ async function main(): Promise<void> {
 
   const res = await ecrireParcelles(dossierId, decision.parcelles, MAJ_PAR);
   console.log(`\nÉcrit : ${res.ecrites} parcelle(s) ; ${res.ignorees} ignorée(s) (saisie prioritaire).`);
+
+  // FUS-1 — fige le snapshot géométrique d'origine + calcule l'empreinte attendue (union). EMPREINTE ATTENDUE, pas prédiction.
+  const emp = await figerEmpreinte(dossierId, MAJ_PAR);
+  if (emp.complete) {
+    console.log(`Empreinte attendue : ${emp.surfaceM2 !== null ? `${Math.round((emp.surfaceM2 + Number.EPSILON) * 10) / 10} m²` : '—'} (union de ${emp.nbParcelles} parcelle(s)${emp.millesime ? `, millésime ${emp.millesime}` : ''}).`);
+  } else {
+    console.log(`Empreinte attendue : incomplète — ${emp.motif}`);
+  }
   console.log('');
 }
 

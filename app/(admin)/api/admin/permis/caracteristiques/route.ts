@@ -5,7 +5,7 @@ import { parserBornesCheck, parserListeCheck, parserListeArrayCheck, type Bornes
 import { libelleNatureProjet } from '../../../../../lib/sitadel/priorite';
 import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
 import { lireJournalChamps, type JournalPermis } from '../../../../../lib/permis/journalLecture';
-import { lireParcellesPermis, geojsonParcellesPermis, type ParcelleLigne } from '../../../../../lib/permis/parcellesRepo';
+import { lireParcellesPermis, geojsonParcellesPermis, lireEmpreintePermis, geojsonEmpreintePermis, type ParcelleLigne, type EmpreinteLigne } from '../../../../../lib/permis/parcellesRepo';
 import { MESURES, construireGlobal, construirePermis, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
 
 /** N7-E — liste FERMÉE de nature_projet, lue du CHECK de permis_caracteristique (jamais recopiée). */
@@ -82,10 +82,14 @@ export async function GET(request: Request): Promise<Response> {
   const urlReq = new URL(request.url);
   const dossierId = Number(urlReq.searchParams.get('dossierId'));
   if (!Number.isInteger(dossierId) || dossierId <= 0) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
-  // N3-E — export GeoJSON des parcelles rattachées (téléchargement ; le contour n'est jamais déversé dans l'écran).
-  if (urlReq.searchParams.get('geojson')) {
-    const fc = await geojsonParcellesPermis(dossierId).catch(() => ({ type: 'FeatureCollection', features: [] }));
-    return new Response(JSON.stringify(fc), { headers: { 'Content-Type': 'application/geo+json', 'Content-Disposition': `attachment; filename="parcelles-${dossierId}.geojson"` } });
+  // N3-E / FUS-1 — export GeoJSON (téléchargement ; les contours ne sont jamais déversés dans l'écran).
+  //   geojson=empreinte → l'empreinte attendue (union) ; sinon → les parcelles rattachées.
+  const geojson = urlReq.searchParams.get('geojson');
+  if (geojson) {
+    const empreinte = geojson === 'empreinte';
+    const fc = await (empreinte ? geojsonEmpreintePermis(dossierId) : geojsonParcellesPermis(dossierId)).catch(() => ({ type: 'FeatureCollection', features: [] }));
+    const nom = empreinte ? `empreinte-${dossierId}.geojson` : `parcelles-${dossierId}.geojson`;
+    return new Response(JSON.stringify(fc), { headers: { 'Content-Type': 'application/geo+json', 'Content-Disposition': `attachment; filename="${nom}"` } });
   }
   try {
     // N5-D/E/N7-E — le JOURNAL (confiance/réserve/provenance + MOTIF), séparé par niveau (parCorps / permis), lu dans le MÊME
@@ -102,9 +106,11 @@ export async function GET(request: Request): Promise<Response> {
     const destSur = lireDestinationsPossibles().catch(() => [] as string[]);
     // N3-E — parcelles cadastrales rattachées à leur géométrie ; tolérante si 112 non appliquée (→ []).
     const parcSur = lireParcellesPermis(dossierId).catch(() => [] as ParcelleLigne[]);
-    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur, parcSur]);
+    // FUS-1 — empreinte attendue de la future parcelle fusionnée ; tolérante si 113 non appliquée (→ null).
+    const empSur = lireEmpreintePermis(dossierId).catch(() => null as EmpreinteLigne | null);
+    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur, parcSur, empSur]);
     if (faits === null) return Response.json({ erreur: 'permis inconnu' }, { status: 404 });
-    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles });
+    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte });
   } catch (e) {
     console.error('[permis/caracteristiques] GET indisponible', e);
     return Response.json({ erreur: 'caractéristiques indisponibles' }, { status: 503 });

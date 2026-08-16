@@ -7,9 +7,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 const H = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
-  const state = { insertRowCount: 1 };
+  const state = { insertRowCount: 1, total: 2, avec: 2, unionSurface: 2886.3, unionNb: 2, unionMill: '2026-06-01' };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
+    if (/SELECT\s+count\(\*\)::int\s+AS\s+total/i.test(sql)) return { rows: [{ total: state.total, avec: state.avec }], rowCount: 1 };
+    if (/INSERT\s+INTO\s+permis_empreinte[\s\S]*RETURNING/i.test(sql)) return { rows: [{ surface: state.unionSurface, nb: state.unionNb, mill: state.unionMill }], rowCount: 1 };
     if (/INSERT\s+INTO\s+permis_parcelle/i.test(sql)) return { rows: [], rowCount: state.insertRowCount };
     return { rows: [], rowCount: 0 };
   };
@@ -17,7 +19,7 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock }));
 
-import { ecrireParcelles } from './parcellesRepo';
+import { ecrireParcelles, figerEmpreinte } from './parcellesRepo';
 import type { ParcelleDecision } from './decisionParcelles';
 
 const p = (over: Partial<ParcelleDecision> = {}): ParcelleDecision => ({
@@ -27,7 +29,10 @@ const p = (over: Partial<ParcelleDecision> = {}): ParcelleDecision => ({
 const inserts = () => H.appels.filter((a) => /INSERT\s+INTO\s+permis_parcelle/i.test(a.sql));
 const deletes = () => H.appels.filter((a) => /DELETE\s+FROM\s+permis_parcelle/i.test(a.sql));
 
-beforeEach(() => { H.appels.length = 0; H.state.insertRowCount = 1; });
+const snapshots = () => H.appels.filter((a) => /UPDATE\s+permis_parcelle[\s\S]*geom_snapshot/i.test(a.sql));
+const empreintes = () => H.appels.filter((a) => /INSERT\s+INTO\s+permis_empreinte/i.test(a.sql));
+
+beforeEach(() => { H.appels.length = 0; H.state.insertRowCount = 1; H.state.total = 2; H.state.avec = 2; H.state.unionSurface = 2886.3; H.state.unionNb = 2; H.state.unionMill = '2026-06-01'; });
 
 describe('ecrireParcelles', () => {
   it('purge CIBLÉE origine=extraite (jamais la saisie), puis insère chaque parcelle avec ses paramètres liés', async () => {
@@ -43,5 +48,41 @@ describe('ecrireParcelles', () => {
     H.state.insertRowCount = 0; // ON CONFLICT DO NOTHING → 0 ligne affectée
     const r = await ecrireParcelles(1, [p()], 'auto');
     expect(r).toEqual({ ecrites: 0, ignorees: 1 });
+  });
+});
+
+describe('figerEmpreinte (FUS-1)', () => {
+  it('toutes les parcelles rattachées → snapshot figé PUIS union calculée (complète, surface + millésime)', async () => {
+    const e = await figerEmpreinte(7, 'cerfa:parcelles');
+    // 1) le snapshot est copié depuis parcelle.geom (survit au réimport du cadastre)
+    expect(snapshots()).toHaveLength(1);
+    expect(snapshots()[0].sql).toMatch(/geom_snapshot\s*=\s*par\.geom/i);
+    expect(snapshots()[0].sql).toMatch(/cadastre_millesime/i);       // millésime cadastral courant du dept
+    // 2) union via ST_Union sur les snapshots, upsert complète
+    const ins = empreintes();
+    expect(ins).toHaveLength(1);
+    expect(ins[0].sql).toMatch(/ST_Union\(geom_snapshot\)/i);
+    expect(ins[0].sql).toMatch(/ON CONFLICT[\s\S]*dossier_id[\s\S]*DO UPDATE/i);
+    expect(e).toEqual({ surfaceM2: 2886.3, nbParcelles: 2, complete: true, motif: null, millesime: '2026-06-01', aGeometrie: true });
+  });
+
+  it('UNE parcelle non rattachée → empreinte INCOMPLÈTE avec motif, JAMAIS d’union sur un sous-ensemble', async () => {
+    H.state.total = 2; H.state.avec = 1; // 1 parcelle sans snapshot
+    const e = await figerEmpreinte(7, 'cerfa:parcelles');
+    const ins = empreintes();
+    expect(ins).toHaveLength(1);
+    expect(ins[0].sql).not.toMatch(/ST_Union/i);                     // pas d'union muette
+    expect(ins[0].sql).toMatch(/complete\s*=\s*false/i);
+    expect(e.complete).toBe(false);
+    expect(e.motif).toContain('1 parcelle(s) d’origine non rattachée');
+    expect(e.surfaceM2).toBeNull();
+  });
+
+  it('aucune parcelle d’origine → empreinte non calculable (motif), pas d’union', async () => {
+    H.state.total = 0; H.state.avec = 0;
+    const e = await figerEmpreinte(7, 'cerfa:parcelles');
+    expect(empreintes()[0].sql).not.toMatch(/ST_Union/i);
+    expect(e).toMatchObject({ complete: false, surfaceM2: null });
+    expect(e.motif).toContain('aucune parcelle');
   });
 });

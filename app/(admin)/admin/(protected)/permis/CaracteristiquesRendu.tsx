@@ -3,7 +3,7 @@ import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo'
 // ⚠️ Bundle client (piège du 13/08) : de `journalLecture` (module serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
 import { MESURES, libelleBornes, composerLibelleDestinations, raisonParcelleNonRattachee, ecartSuperficieCadastre, type Bornes, type ChampDeclare, type FaitsPermis } from './caracteristiquesForm';
-import type { ParcelleLigne } from '../../../../lib/permis/parcellesRepo'; // TYPE seulement (module serveur) — piège du bundle client
+import type { ParcelleLigne, EmpreinteLigne } from '../../../../lib/permis/parcellesRepo'; // TYPE seulement (module serveur) — piège du bundle client
 
 /**
  * N3-C — rendu PUR de l'éditeur des caractéristiques physiques (motifs ContactRendu + CarteReglageEntier). Aucun état, aucun
@@ -48,9 +48,10 @@ export function PastilleConfiance({ confiance }: { confiance: 'a_verifier' | 'co
  * les pièces. On le rend donc SÉPARÉ de la grille Sitadel, avec la provenance « d'après les pièces ». Jamais « 0 bâtiment » (un PC en
  * comporte forcément un) : une absence de lecture s'écrit « aucun bâtiment identifié dans les pièces ».
  */
-export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles, onExportGeojson }: {
+export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles, onExportGeojson, empreinte, onExportEmpreinte }: {
   faits: FaitsPermis; nbBatiments?: number;
   parcelles?: ParcelleLigne[]; ecartsParcelles?: string[]; onExportGeojson?: () => void; // N3-E — parcelles cadastrales + export GeoJSON
+  empreinte?: EmpreinteLigne | null; onExportEmpreinte?: () => void; // FUS-1 — empreinte attendue de la future parcelle fusionnée
 }) {
   const lignes: [string, string][] = [
     ['N° permis', `${faits.numDau} (${faits.type})`],
@@ -109,6 +110,21 @@ export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles
               </ul>
             )}
           {(ecartsParcelles ?? []).map((e, i) => <div key={`ec-${i}`} role="note" style={{ ...styleNote, color: 'var(--color-svv-red)', marginTop: '.2rem' }}>⚠ {e}</div>)}
+          {/* FUS-1 — EMPREINTE ATTENDUE de la future parcelle fusionnée (union des parcelles d'origine). ⚠️ ATTENDUE, pas la vraie
+              parcelle future : le projet peut n'occuper qu'une partie, un arpentage peut redécouper, le millésime suivant diffère. */}
+          {empreinte != null && (
+            <div style={{ marginTop: '.35rem', paddingTop: '.3rem', borderTop: '1px dashed var(--color-svv-line)', display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+              {empreinte.complete
+                ? <span><span style={{ color: 'var(--color-svv-muted)' }}>Empreinte attendue de la parcelle fusionnée : </span>
+                    <strong>{empreinte.surfaceM2 !== null ? `${Math.round((empreinte.surfaceM2 + Number.EPSILON) * 10) / 10} m²` : '—'}</strong>
+                    <span style={{ color: 'var(--color-svv-muted)' }}> (union de {empreinte.nbParcelles} parcelle{(empreinte.nbParcelles ?? 0) > 1 ? 's' : ''}{empreinte.millesime ? `, millésime ${empreinte.millesime}` : ''})</span></span>
+                : <span style={{ color: 'var(--color-svv-red)' }}>Empreinte attendue : incomplète — {empreinte.motif}</span>}
+              {empreinte.complete && empreinte.aGeometrie && onExportEmpreinte
+                ? <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }} onClick={onExportEmpreinte}>exporter l’empreinte (GeoJSON) ↓</button>
+                : null}
+              <span style={{ ...styleAide, flexBasis: '100%' }}>Référence à comparer, pas la parcelle future réelle.</span>
+            </div>
+          )}
         </div>
       )}
     </div>

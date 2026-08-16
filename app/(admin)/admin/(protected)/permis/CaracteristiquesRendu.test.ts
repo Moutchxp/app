@@ -307,3 +307,31 @@ describe('N3-E — FaitsPermisBloc : parcelles cadastrales (ligne par parcelle, 
     expect(h).toContain('aucune parcelle rattachée à ce permis');
   });
 });
+
+describe('FUS-1 — FaitsPermisBloc : empreinte attendue de la parcelle fusionnée', () => {
+  const faits: FaitsPermis = { numDau: '07512025V0035', type: 'PC', communeNom: 'Paris', codeInsee: '75056', adresse: '3 av. B. Frachon', natureTravaux: 'Construction neuve', dateAutorisation: '2026-03-13', surfaceCreee: null };
+  const parc = () => ({ prefixe: '000', section: 'DZ', numero: '09', superficieDeclareeM2: 2631.5, role: 'origine' as const, origine: 'extraite' as const, idu: '75120000DZ0009', confiance: 'confirmee' as const, reserve: null, provenance: 'Cerfa', communeCadastrale: '75120', contenance: 2631, aireCadastraleM2: 2630, aGeometrie: true, deptCharge: true });
+
+  it('complète : surface + « union de N parcelles » + bouton export + garde-fou « pas la parcelle future réelle »', () => {
+    const empreinte = { surfaceM2: 2886.3, nbParcelles: 2, complete: true, motif: null, millesime: '2026-06-01', aGeometrie: true };
+    const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits, parcelles: [parc()], empreinte, onExportEmpreinte: () => {} }));
+    expect(h).toContain('Empreinte attendue de la parcelle fusionnée');
+    expect(h).toContain('2886.3 m²');
+    expect(h).toContain('union de 2 parcelles');
+    expect(h).toContain('millésime 2026-06-01');
+    expect(h).toContain('exporter l’empreinte (GeoJSON)');
+    expect(h).toContain('pas la parcelle future réelle');   // la LIMITE est aussi à l'écran, pas seulement dans le code
+  });
+  it('incomplète : dit POURQUOI, pas de surface, pas de bouton export', () => {
+    const empreinte = { surfaceM2: null, nbParcelles: 2, complete: false, motif: '1 parcelle(s) d’origine non rattachée(s) au cadastre → empreinte attendue incomplète (pas d’union sur un sous-ensemble)', millesime: null, aGeometrie: false };
+    const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits, parcelles: [parc()], empreinte, onExportEmpreinte: () => {} }));
+    expect(h).toContain('Empreinte attendue : incomplète');
+    expect(h).toContain('non rattachée');
+    expect(h).not.toContain('exporter l’empreinte');
+  });
+  it('empreinte absente (113 non appliquée) → aucune ligne empreinte, le reste s’affiche', () => {
+    const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits, parcelles: [parc()] }));
+    expect(h).not.toContain('Empreinte attendue');
+    expect(h).toContain('Section DZ n° 09');
+  });
+});
