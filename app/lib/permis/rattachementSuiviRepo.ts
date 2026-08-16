@@ -14,6 +14,8 @@ import { lirePermisCaracteristiques } from './caracteristiquesRepo';
 import { lireParcellesPermis } from './parcellesRepo';
 import { construireComparatif, type LigneComparative } from './comparatifRattachement';
 import type { ResultatRattachement } from './detectionRattachement';
+import { listerPiecesDossier } from '../sitadel/demandeRepo';
+import type { PieceArchive } from '../sitadel/demandeRepo';
 
 export type EtatSuivi = 'suivi_aucun_signal' | 'en_attente_bati' | 'arbitrage_demande' | 'valide' | 'refuse' | 'annule_par_lidar';
 
@@ -134,6 +136,10 @@ export interface DetailSuivi {
   seuilsProvenance: 'base' | 'defaut'; seuilsBrut: { surfacePct: number; bordurePct: number; margeAltitudeCm: number };
   millesimeCadastre: string | null; millesimeBati: string | null;
   comparatif: LigneComparative[];
+  nbParcellesOrigine: number;                                  // FUS-3c — libellé du régime (« fusion attendue (N parcelles) »)
+  streetView: { lat: number; lng: number } | null;            // FUS-3c — centroïde WGS84 de l'empreinte, null si pas de point fiable
+  streetViewMotif: string | null;                             // pourquoi il n'y a pas de lien (empreinte incomplète/absente)
+  pieces: PieceArchive[];                                      // FUS-3c — pièces jointes consultables (rapatriées d'Archives)
 }
 
 /** BD TOPO : les bâtiments COURANTS présents dans l'empreinte (étages, altitude toit, usages) — pour la colonne BD TOPO du comparatif. */
@@ -164,6 +170,20 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
   const carac = await lirePermisCaracteristiques(dossierId);
   const parcelles = (await lireParcellesPermis(dossierId)).filter((p) => p.role === 'origine');
   const rattachees = parcelles.filter((p) => p.aGeometrie);
+
+  // FUS-3c — Street View : centroïde WGS84 de l'empreinte (jamais un point au hasard : null + motif si empreinte incomplète/absente).
+  let streetView: { lat: number; lng: number } | null = null;
+  let streetViewMotif: string | null = null;
+  if (entrees.empreinteComplete) {
+    const { rows } = await query<{ lat: number; lng: number }>(
+      `SELECT ST_Y(ST_Centroid(ST_Transform(geom, 4326))) AS lat, ST_X(ST_Centroid(ST_Transform(geom, 4326))) AS lng
+         FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL`, [dossierId]);
+    if (rows[0]) streetView = { lat: Number(rows[0].lat), lng: Number(rows[0].lng) };
+    else streetViewMotif = 'empreinte figée sans géométrie exploitable';
+  } else {
+    streetViewMotif = 'empreinte incomplète ou non figée (au moins une parcelle d’origine non rattachée) : aucun centroïde fiable';
+  }
+  const pieces = await listerPiecesDossier(dossierId);
   const sumOuNull = (xs: (number | null)[]): number | null => (xs.some((x) => x !== null) ? xs.reduce<number>((a, x) => a + (x ?? 0), 0) : null);
   const bd = await lireBatimentsEmpreinte(dossierId);
 
@@ -190,5 +210,6 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
     criteres: resultat.criteres, seuils: entrees.seuils, seuilsProvenance: contexte.seuilsProvenance, seuilsBrut: contexte.seuilsBrut,
     millesimeCadastre: contexte.empreinteMillesime, millesimeBati: await lireMillesimeBati(dossierId),
     comparatif,
+    nbParcellesOrigine: parcelles.length, streetView, streetViewMotif, pieces,
   };
 }

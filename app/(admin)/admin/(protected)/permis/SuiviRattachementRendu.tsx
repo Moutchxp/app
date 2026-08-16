@@ -96,9 +96,28 @@ function cellule(c: { texte: string; presente: boolean }) {
 
 const pct = (x: number): string => `${(x * 100).toFixed(1).replace(/\.0$/, '')} %`;
 
-/** Détail comparatif « trois sources » + critères / seuils / verdict / millésimes. LECTURE SEULE. */
-export function DetailSuiviRendu({ detail, onOuvrirArchives }: { detail: DetailSuivi; onOuvrirArchives?: (dossierId: number) => void }) {
+/**
+ * FUS-3c — libellé du RÉGIME : un CONSTAT À DATE, jamais une prédiction. « sans fusion de parcelles » dit que les parcelles
+ * d'origine sont encore au cadastre ; l'éventuelle « fusion attendue (N parcelles) » est une INFORMATION à côté, pas un verdict.
+ */
+export function libelleRegime(regime: string, nbParcellesOrigine: number): { constat: string; info: string | null } {
+  if (regime === 'avec_fusion') return { constat: 'avec fusion de parcelles', info: null };
+  if (regime === 'sans_fusion') return {
+    constat: 'sans fusion de parcelles — les parcelles d’origine sont encore au cadastre (constat à date)',
+    info: nbParcellesOrigine >= 2 ? `fusion de parcelles attendue (${nbParcellesOrigine} parcelles d’origine)` : null,
+  };
+  return { constat: 'régime indéterminé', info: null };
+}
+
+/** FUS-3c — URL Street View (pano) au point donné. Aucune clé API : la date de prise de vue est affichée par Google lui-même. */
+export function lienStreetView(lat: number, lng: number): string {
+  return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
+}
+
+/** Détail comparatif « trois sources » + critères / seuils / verdict / millésimes + Street View. LECTURE SEULE. */
+export function DetailSuiviRendu({ detail }: { detail: DetailSuivi }) {
   const c = detail.criteres;
+  const reg = libelleRegime(detail.regime, detail.nbParcellesOrigine);
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -108,8 +127,24 @@ export function DetailSuiviRendu({ detail, onOuvrirArchives }: { detail: DetailS
         {!detail.persiste && <span style={styleAide}>(dérivé — aucun dossier en base)</span>}
       </div>
 
-      {/* Verdict + motif */}
-      <div><span style={{ color: 'var(--color-svv-muted)' }}>Verdict : </span><strong>{detail.verdict}</strong> <span style={{ color: 'var(--color-svv-muted)' }}>(régime {detail.regime})</span><div style={styleAide}>{detail.motif}</div></div>
+      {/* Verdict + motif + régime (constat à date) */}
+      <div>
+        <span style={{ color: 'var(--color-svv-muted)' }}>Verdict : </span><strong>{detail.verdict}</strong>
+        <div style={styleAide}>{detail.motif}</div>
+        <div><span style={{ color: 'var(--color-svv-muted)' }}>Régime : </span>{reg.constat}
+          {reg.info && <span style={{ marginLeft: '.35rem', fontSize: 11, padding: '.05rem .35rem', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)' }}>ℹ {reg.info}</span>}
+        </div>
+      </div>
+
+      {/* Google Street View — sur le centroïde de l'empreinte, ou motif s'il n'y a pas de point fiable */}
+      <div>
+        {detail.streetView
+          ? <>
+              <a href={lienStreetView(detail.streetView.lat, detail.streetView.lng)} target="_blank" rel="noopener noreferrer" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }}>ouvrir Google Street View au droit de l’empreinte ↗</a>
+              <div style={{ ...styleAide, color: 'var(--color-svv-red)' }}>⚠ VÉRIFIER LA DATE DE LA PRISE DE VUE (affichée par Google) : une image antérieure aux travaux ferait conclure à tort qu’ils n’ont pas eu lieu.</div>
+            </>
+          : <span style={styleAide}>Pas de lien Street View : {detail.streetViewMotif ?? 'point indisponible'}.</span>}
+      </div>
 
       {/* Tableau comparatif « trois sources » — dense → scrollable horizontalement sur mobile */}
       <div style={{ overflowX: 'auto' }}>
@@ -144,13 +179,6 @@ export function DetailSuiviRendu({ detail, onOuvrirArchives }: { detail: DetailS
         {' '}({detail.seuilsProvenance === 'base' ? 'valeurs en base' : 'repli sur défaut — migration 115 non appliquée'}).
         {' '}Millésimes : cadastre {detail.millesimeCadastre ?? '—'} · bâti {detail.millesimeBati ?? '—'}.
       </div>
-
-      {/* Lien vers le détail complet façon Archives (pièces jointes) — réutilise l'existant */}
-      {onOuvrirArchives && (
-        <div><button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }} onClick={() => onOuvrirArchives(detail.dossierId)}>
-          ouvrir le détail complet du permis (Archives) ↗
-        </button></div>
-      )}
     </div>
   );
 }

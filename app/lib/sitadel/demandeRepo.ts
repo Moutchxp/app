@@ -415,6 +415,33 @@ async function lirePiecesSources(): Promise<Map<number, Set<string>>> {
   }
 }
 
+/**
+ * FUS-3c — pièces d'UN dossier (pour rapatrier le détail Archives sur la page Rattachement). RÉUTILISE la logique de
+ * `listerArchives` (mêmes deux sources, mêmes helpers `lireDocumentsManuels`/`lirePiecesSources`), scopée à un dossier et SANS
+ * exiger qu'il soit satisfait. `cle_stockage` jamais sélectionnée (seul `IS NOT NULL`) → la clé ne sort pas de la base. Lecture seule.
+ */
+export async function listerPiecesDossier(dossierId: number): Promise<PieceArchive[]> {
+  let email: PieceArchive[] = [];
+  try {
+    const { rows } = await query<{ pieces: PieceArchive[] | null }>(
+      `SELECT COALESCE((
+          SELECT json_agg(json_build_object(
+            'id', p.id::int, 'nomFichier', p.nom_fichier, 'typeMime', p.type_mime, 'tailleOctets', p.taille_octets,
+            'deposee', p.cle_stockage IS NOT NULL, 'motifNonStocke', p.motif_non_stocke, 'origine', 'email',
+            'recuLe', dr2.recu_le::text, 'objet', dr2.objet
+          ) ORDER BY dr2.recu_le DESC, p.id)
+          FROM demande_dossier dd
+          JOIN demande_reponse dr2 ON dr2.demande_id = dd.demande_id AND dr2.nature <> 'rebond'
+          JOIN demande_reponse_piece p ON p.reponse_id = dr2.id
+         WHERE dd.dossier_id = $1
+        ), '[]'::json) AS pieces`, [dossierId]);
+    email = rows[0]?.pieces ?? [];
+  } catch (e) { journaliserLectureIndisponible('pièces e-mail (demande_reponse_piece) du dossier', e); }
+  const manuels = (await lireDocumentsManuels()).get(dossierId) ?? [];
+  const srcNoms = (await lirePiecesSources()).get(dossierId) ?? new Set<string>();
+  return [...email, ...manuels].map((p) => ({ ...p, estSource: srcNoms.has(p.nomFichier) }));
+}
+
 export type ResultatDepotDocument = { ok: true; documentId: number } | { ok: false; motif: string };
 
 /**

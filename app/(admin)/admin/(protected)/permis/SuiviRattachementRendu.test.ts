@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, LIBELLE_ETAT_SUIVI } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, LIBELLE_ETAT_SUIVI, libelleRegime, lienStreetView } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 
 /**
@@ -25,6 +25,7 @@ const detail = (o: Partial<DetailSuivi> = {}): DetailSuivi => ({
     { intitule: 'Surface de parcelle', enBase: { texte: '2631.5 m² déclarés', presente: true }, cadastre: { texte: '2885 m²', presente: true }, bdTopo: { texte: 'sans objet pour cette source', presente: false } },
     { intitule: 'Nombre de bâtiments', enBase: { texte: '2 corps déclarés', presente: true }, cadastre: { texte: 'sans objet pour cette source', presente: false }, bdTopo: { texte: 'aucun bâtiment dans l’empreinte', presente: true } },
   ],
+  nbParcellesOrigine: 2, streetView: { lat: 48.87, lng: 2.35 }, streetViewMotif: null, pieces: [],
   ...o,
 });
 
@@ -73,5 +74,32 @@ describe('FUS-3b — DetailSuiviRendu (comparatif trois sources + provenance)', 
     const h = renderToStaticMarkup(createElement(DetailSuiviRendu, { detail: detail() }));
     expect(h).toContain('surface : sans objet (sans fusion)');
     expect(h).toContain('0 polygone(s)');
+  });
+});
+
+describe('FUS-3c — régime (constat à date), Street View, et libellés purs', () => {
+  it('libelleRegime : « sans fusion de parcelles » + info « fusion attendue » quand 2 parcelles ; « avec fusion » relabellé', () => {
+    expect(libelleRegime('sans_fusion', 2)).toEqual({ constat: expect.stringContaining('sans fusion de parcelles'), info: 'fusion de parcelles attendue (2 parcelles d’origine)' });
+    expect(libelleRegime('sans_fusion', 1).info).toBeNull(); // une seule parcelle → pas de fusion attendue
+    expect(libelleRegime('avec_fusion', 3)).toEqual({ constat: 'avec fusion de parcelles', info: null });
+    expect(libelleRegime('sans_fusion', 2).constat).toMatch(/encore au cadastre \(constat à date\)/);
+  });
+
+  it('lienStreetView : URL pano au viewpoint, sans clé API', () => {
+    expect(lienStreetView(48.87, 2.35)).toBe('https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=48.87,2.35');
+  });
+
+  it('DetailSuiviRendu : régime affiché en constat + info fusion attendue + lien Street View + consigne de date', () => {
+    const h = renderToStaticMarkup(createElement(DetailSuiviRendu, { detail: detail() }));
+    expect(h).toContain('sans fusion de parcelles');
+    expect(h).toContain('fusion de parcelles attendue (2 parcelles');
+    expect(h).toContain('map_action=pano&amp;viewpoint=48.87,2.35');
+    expect(h).toMatch(/VÉRIFIER LA DATE DE LA PRISE DE VUE/);
+  });
+
+  it('DetailSuiviRendu : empreinte absente → pas de lien Street View mais le motif', () => {
+    const h = renderToStaticMarkup(createElement(DetailSuiviRendu, { detail: detail({ streetView: null, streetViewMotif: 'empreinte incomplète ou non figée' }) }));
+    expect(h).not.toContain('map_action=pano');
+    expect(h).toMatch(/Pas de lien Street View : empreinte incomplète ou non figée/);
   });
 });

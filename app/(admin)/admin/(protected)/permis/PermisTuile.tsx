@@ -24,17 +24,15 @@ interface Props { depuisParDefaut: string; categories: { cle: CleCategorie; libe
 
 export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, triLibelle }: Props) {
   const [onglet, setOnglet] = useState<CleOnglet>('dossiers');
-  // FUS-3b — depuis le suivi de rattachement, « ouvrir le détail complet » bascule vers Archives en pré-ouvrant le permis.
-  const [archivesFocus, setArchivesFocus] = useState<number | null>(null);
   return (
     <div className="flex flex-col gap-3">
       <OngletsPermis actif={onglet} onChoisir={setOnglet} />
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} />}
-      {onglet === 'rattachement' && <SuiviRattachementVue onOuvrirArchives={(id) => { setArchivesFocus(id); setOnglet('archives'); }} />}
+      {onglet === 'rattachement' && <SuiviRattachementVue />}
       {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} onAllerReglages={() => setOnglet('reglages')} />}
       {onglet === 'en_cours' && <EnCoursVue categories={categories} />}
       {onglet === 'reponses' && <ReponsesVue />}
-      {onglet === 'archives' && <ArchivesVue initialDossierOuvert={archivesFocus} />}
+      {onglet === 'archives' && <ArchivesVue />}
       {onglet === 'saisines' && <SaisinesVue />}
       {onglet === 'reglages' && <ReglagesVue />}
       {onglet === 'automatisation' && <AutomatisationVue />}
