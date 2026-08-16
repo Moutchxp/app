@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
+import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
+import type { SchemaEmpreinte } from '../../../../lib/permis/affectationSchema';
 
 /**
  * FUS-3b — rendu PUR du suivi (renderToStaticMarkup, aucun DOM). Couvre : compteurs + groupes par état, tri par urgence,
@@ -198,5 +200,67 @@ describe('FUS-3c/3c-ter — régime (n’affirme que le certain), verdict, Stree
     const h = renderToStaticMarkup(createElement(DetailSuiviRendu, { detail: detail({ streetView: null, streetViewMotif: 'empreinte incomplète ou non figée' }) }));
     expect(h).not.toContain('map_action=pano');
     expect(h).toMatch(/Pas de lien Street View : empreinte incomplète ou non figée/);
+  });
+});
+
+describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
+  const schema = (o: Partial<SchemaEmpreinte> = {}): SchemaEmpreinte => ({
+    largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 L10,100 Z', motif: null,
+    polygones: [
+      { repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 L20,40 Z', cx: 30, cy: 30, horsEmpreinte: false },
+      { repere: 'B', cleabs: 'BAT_B', path: 'M60,60 L80,60 L80,80 L60,80 Z', cx: 70, cy: 70, horsEmpreinte: false },
+    ], ...o,
+  });
+  const aff = (o: Partial<AffectationEtat> = {}): AffectationEtat => ({
+    empreinteFigee: true, motif: null, colonneManquante: false, schema: schema(),
+    polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: false }],
+    corps: [
+      { id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffecte: null },
+      { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffecte: null },
+    ], ...o,
+  });
+
+  it('SchemaEmpreinteSvg : dessine l’empreinte + un chemin étiqueté par polygone ; motif → texte, pas de <svg>', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schema(), corps: aff().corps }));
+    expect(h).toContain('<svg');
+    expect(h).toContain('M10,10'); // empreinte
+    expect(h).toContain('>A<'); expect(h).toContain('>B<'); // repères
+    const hMotif = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schema({ motif: 'empreinte incomplète ou absente', empreintePath: null, polygones: [] }), corps: [] }));
+    expect(hMotif).not.toContain('<svg');
+    expect(hMotif).toContain('empreinte incomplète ou absente');
+  });
+
+  it('2 corps / 2 polygones : chaque corps voit A et B ; polygones non affectés signalés', () => {
+    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff() }));
+    expect(h).toContain('polygone A'); expect(h).toContain('polygone B');
+    expect(h).toMatch(/Polygone\(s\) non affecté\(s\) : A, B/); // rien affecté → A et B signalés
+  });
+
+  it('EXCLUSIVITÉ : A affecté au corps 1 → n’est plus proposé au corps 2 (réversible côté corps 1)', () => {
+    const a = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffecte: 'BAT_A' }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffecte: null }] });
+    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a }));
+    // le corps 1 garde A sélectionné (value), le corps 2 ne voit QUE B
+    expect(h).toContain('value="BAT_A"'); // sélection du corps 1
+    // B reste non affecté → signalé
+    expect(h).toMatch(/Polygone\(s\) non affecté\(s\) : B/);
+  });
+
+  it('2 corps / 1 polygone (cardinalités inégales) : un corps peut rester « aucun »', () => {
+    const a = aff({
+      schema: schema({ polygones: [{ repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false }] }),
+      polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }],
+      corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffecte: 'BAT_A' }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffecte: null }],
+    });
+    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a }));
+    expect(h).toContain('aucun (bâtiment sans polygone)'); // le corps 2 peut rester sans polygone
+    expect(h).not.toContain('non affecté(s) :'); // A est affecté → aucun polygone orphelin
+  });
+
+  it('empreinte non figée → motif, pas de schéma ; migration 117 absente → avertissement + sélecteurs désactivés', () => {
+    const hMotif = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff({ empreinteFigee: false, motif: 'empreinte non figée : affectation impossible', schema: { largeur: 320, hauteur: 240, empreintePath: null, polygones: [], motif: 'empreinte non figée : affectation impossible' }, polygones: [] }) }));
+    expect(hMotif).toContain('empreinte non figée : affectation impossible');
+    const hCol = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff({ colonneManquante: true }) }));
+    expect(hCol).toContain('migration 117 non appliquée');
+    expect(hCol).toContain('disabled');
   });
 });

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 // ⚠️ Bundle client : uniquement des TYPES depuis les modules serveur.
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
-import { TableSuivi, DetailSuiviRendu } from './SuiviRattachementRendu';
+import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc } from './SuiviRattachementRendu';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { CellulePieces } from './ArchivesRendu';
 
@@ -11,15 +12,18 @@ import { CellulePieces } from './ArchivesRendu';
  * FUS-3c — onglet SUIVI DU RATTACHEMENT : au clic sur un permis, TOUT le contenu de décision est sur la même page — détail
  * comparatif « trois sources », Street View, ET le détail complet du permis rapatrié d'Archives (caractéristiques, bâtiments,
  * altitudes, parcelles, pièces jointes CONSULTABLES). Réutilise `CaracteristiquesBloc` et `CellulePieces` (déplacement de rendu,
- * pas de réécriture). LECTURE SEULE : aucun bouton valider/refuser/injecter (FUS-3d) ; les pièces sont téléchargeables mais ni
- * supprimables ni ajoutables ici (ça reste dans Archives). Le détail complet est REPLIÉ par défaut (lisible à 20 dossiers).
+ * pas de réécriture). FUS-3d ajoute l'AFFECTATION des polygones BD TOPO aux corps (schéma + sélecteurs) — SEULE écriture ici ;
+ * toujours AUCUN bouton valider/refuser, AUCUNE injection d'altitude (FUS-3e). Les pièces sont téléchargeables mais ni supprimables
+ * ni ajoutables ici (ça reste dans Archives). Le détail complet est REPLIÉ par défaut (lisible à 20 dossiers).
  */
 export function SuiviRattachementVue() {
   const [liste, setListe] = useState<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> } | null>(null);
   const [erreur, setErreur] = useState(false);
   const [ouvert, setOuvert] = useState<number | null>(null);
   const [detail, setDetail] = useState<DetailSuivi | null>(null);
+  const [affectation, setAffectation] = useState<AffectationEtat | null>(null); // FUS-3d
   const [detailErreur, setDetailErreur] = useState(false);
+  const [affErreur, setAffErreur] = useState('');
   const [permisOuvert, setPermisOuvert] = useState(false); // détail complet du permis (caractéristiques + pièces), replié par défaut
 
   useEffect(() => {
@@ -39,15 +43,27 @@ export function SuiviRattachementVue() {
     if (ouvert === null) return; // détail masqué au rendu quand ouvert === null (pas de setState synchrone ici)
     let annule = false;
     void (async () => {
-      setDetail(null); setDetailErreur(false); setPermisOuvert(false); // reset DANS l'async (déféré)
+      setDetail(null); setAffectation(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); // reset DANS l'async (déféré)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
         if (annule) return;
-        if (res.ok) setDetail(((await res.json()) as { detail: DetailSuivi }).detail);
+        if (res.ok) { const d = (await res.json()) as { detail: DetailSuivi; affectation: AffectationEtat | null }; setDetail(d.detail); setAffectation(d.affectation); }
         else setDetailErreur(true);
       } catch { if (!annule) setDetailErreur(true); }
     })();
     return () => { annule = true; };
+  }, [ouvert]);
+
+  // FUS-3d — affecter/désaffecter un polygone à un corps. L'exclusivité est garantie CÔTÉ BASE (index) ; un refus affiche son motif.
+  const affecter = useCallback(async (corpsId: number, cleabs: string | null): Promise<void> => {
+    if (ouvert === null) return;
+    setAffErreur('');
+    try {
+      const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'affecter', dossierId: ouvert, corpsId, cleabs }) });
+      const d = (await res.json().catch(() => ({}))) as { affectation?: AffectationEtat; erreur?: string };
+      if (res.ok && d.affectation) setAffectation(d.affectation);
+      else setAffErreur(d.erreur ?? 'Affectation impossible.');
+    } catch { setAffErreur('Affectation impossible.'); }
   }, [ouvert]);
 
   // Téléchargement d'une pièce — MÊME signeur unique qu'Archives (action url_piece de /reponses ; la clé ne transite jamais).
@@ -74,6 +90,9 @@ export function SuiviRattachementVue() {
           : detail
             ? <div className="flex flex-col gap-2">
                 <DetailSuiviRendu detail={detail} />
+                {/* FUS-3d — affectation des polygones BD TOPO aux corps (schéma + sélecteurs). */}
+                {affectation && <AffectationBloc affectation={affectation} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)} />}
+                {affErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{affErreur}</div>}
                 {/* Détail complet du permis rapatrié d'Archives — replié par défaut. */}
                 <div>
                   <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .4rem' }}

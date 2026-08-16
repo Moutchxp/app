@@ -4,6 +4,9 @@ import { useState, type CSSProperties, type ReactNode } from 'react';
 // ⚠️ Piège du bundle client : on n'importe d'un module serveur que des TYPES (jamais un runtime — rattachementSuiviRepo importe db/client).
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure, CritereBati } from '../../../../lib/permis/detectionRattachement';
+import type { AffectationEtat } from '../../../../lib/permis/affectationRepo'; // TYPE seul (module serveur)
+// affectationSchema est PUR (aucun import serveur) → on peut importer ses fonctions dans le bundle client.
+import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, type SchemaEmpreinte, type CorpsAffectation } from '../../../../lib/permis/affectationSchema';
 
 /**
  * FUS-3b — rendu PUR (testable via renderToStaticMarkup) du SUIVI de rattachement : le tableau récapitulatif groupé par état
@@ -257,6 +260,82 @@ export function DetailSuiviRendu({ detail }: { detail: DetailSuivi }) {
         {' '}({detail.seuilsProvenance === 'base' ? 'valeurs en base' : 'repli sur défaut — migration 115 non appliquée'}).
         {' '}Millésimes : cadastre {detail.millesimeCadastre ?? '—'} · bâti {detail.millesimeBati ?? '—'}.
       </div>
+    </div>
+  );
+}
+
+// ── FUS-3d — affectation polygone ↔ corps ────────────────────────────────────
+const couleurPolygone = (affecte: boolean, hors: boolean): string =>
+  affecte ? 'var(--color-svv-green-soft)' : hors ? '#fde2e1' : 'var(--color-svv-field)';
+
+/** Schéma SVG PUR : empreinte en fond, chaque polygone rempli + étiqueté par son repère. Aucune tuile — projection dans une boîte
+ *  (module `affectationSchema`). `motif` (empreinte incomplète/absente) → on l'écrit, on ne dessine pas au hasard. */
+export function SchemaEmpreinteSvg({ schema, corps }: { schema: SchemaEmpreinte; corps: CorpsAffectation[] }) {
+  if (schema.motif) return <div style={{ ...styleAide, fontStyle: 'italic' }}>{schema.motif}</div>;
+  return (
+    <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} width={schema.largeur} height={schema.hauteur} role="img"
+      aria-label="Schéma des polygones de l’empreinte, étiquetés par repère"
+      style={{ maxWidth: '100%', height: 'auto', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' }}>
+      {schema.empreintePath && <path d={schema.empreintePath} fill="#fff" stroke="var(--color-svv-line)" strokeWidth={1.5} />}
+      {schema.polygones.map((p) => (
+        <g key={p.repere}>
+          <path d={p.path} fill={couleurPolygone(!!corpsDuPolygone(corps, p.cleabs), p.horsEmpreinte)} fillOpacity={0.7}
+            stroke="var(--color-svv-ink)" strokeWidth={1} strokeDasharray={p.horsEmpreinte ? '3 2' : undefined} />
+          <text x={p.cx} y={p.cy} textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight={700} fill="var(--color-svv-ink)">{p.repere}</text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/**
+ * Bloc d'affectation : le schéma + un sélecteur par corps (repères disponibles, EXCLUSIVITÉ appliquée), les polygones NON affectés
+ * signalés. RÉVERSIBLE (le corps garde son polygone dans ses options). `onAffecter(corpsId, cleabs|null)` remonte le choix.
+ * ⚠️ AUCUN bouton valider/refuser, AUCUNE injection (FUS-3e) : ici on ne fait qu'apparier polygone et corps.
+ */
+export function AffectationBloc({ affectation, onAffecter }: { affectation: AffectationEtat; onAffecter?: (corpsId: number, cleabs: string | null) => void }) {
+  const { corps, polygones, schema, motif, colonneManquante } = affectation;
+  const nonAffectes = polygonesNonAffectes(corps, polygones);
+  return (
+    <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+      <div style={{ fontWeight: 700 }}>
+        Affectation des polygones aux bâtiments
+        <InfoDepliable label="comment lire le schéma d’affectation">BD TOPO ne nomme pas ses polygones (seulement un cleabs illisible). Chaque polygone de l’empreinte reçoit un repère STABLE (A, B, C…) et une couleur sur le schéma. Repérez-le sur vos plans de la GED et sur Street View, puis affectez-le au bon corps. Un polygone affecté disparaît des choix des autres corps ; une affectation reste modifiable ; un corps peut rester sans polygone.</InfoDepliable>
+      </div>
+      {colonneManquante && <div role="alert" style={{ color: 'var(--color-svv-red)' }}>Affectation indisponible : migration 117 non appliquée.</div>}
+      {motif
+        ? <div style={{ ...styleAide, fontStyle: 'italic' }}>{motif}</div>
+        : (
+          <>
+            <SchemaEmpreinteSvg schema={schema} corps={corps} />
+            <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+              {corps.length === 0 && <li style={styleAide}>Aucun corps de bâtiment déclaré au permis.</li>}
+              {corps.map((c) => {
+                const options = optionsPourCorps(corps, polygones, c.id);
+                return (
+                  <li key={c.id} style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 600, minWidth: 90 }}>{c.repere ?? `corps ${c.id}`}</span>
+                    <span style={styleAide}>{c.altitudeSommetNgf !== null ? `sommet ${c.altitudeSommetNgf} m NGF` : 'altitude —'}{c.nbEtages !== null ? ` · ${c.nbEtages} ét.` : ''}</span>
+                    <label style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'baseline' }}>
+                      <span style={styleAide}>polygone :</span>
+                      <select value={c.cleabsAffecte ?? ''} disabled={colonneManquante} aria-label={`polygone affecté au corps ${c.repere ?? c.id}`}
+                        onChange={(e) => onAffecter?.(c.id, e.target.value || null)}
+                        style={{ padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' }}>
+                        <option value="">— aucun (bâtiment sans polygone) —</option>
+                        {options.map((o) => <option key={o.cleabs ?? o.repere} value={o.cleabs ?? ''}>polygone {o.repere}{o.horsEmpreinte ? ' (hors empreinte)' : ''}</option>)}
+                      </select>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            {nonAffectes.length > 0 && (
+              <div role="note" style={{ ...styleAide, color: 'var(--color-svv-red)' }}>
+                Polygone(s) non affecté(s) : {nonAffectes.map((p) => p.repere).join(', ')} — à affecter, ou à laisser si aucun corps ne correspond (bâtiments accolés).
+              </div>
+            )}
+          </>
+        )}
     </div>
   );
 }
