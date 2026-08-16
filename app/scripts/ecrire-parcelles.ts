@@ -9,7 +9,7 @@ import { query, closePool } from '../lib/db/client';
 import { resoudreDossier, depsReellesLectureGed } from '../lib/permis/lectureGed';
 import { lireChampsFormulaire } from '../lib/permis/champsFormulaire';
 import { decisionParcelles, type ParcelleSitadel } from '../lib/permis/decisionParcelles';
-import { ecrireParcelles, figerEmpreinte } from '../lib/permis/parcellesRepo';
+import { ecrireParcelles, figerEmpreinte, figerBatiSnapshot } from '../lib/permis/parcellesRepo';
 import type { ChampCerfa } from '../lib/permis/decisionCerfa';
 
 const MAJ_PAR = 'cerfa:parcelles';
@@ -54,6 +54,20 @@ async function main(): Promise<void> {
     console.log(`Empreinte attendue : ${emp.surfaceM2 !== null ? `${Math.round((emp.surfaceM2 + Number.EPSILON) * 10) / 10} m²` : '—'} (union de ${emp.nbParcelles} parcelle(s)${emp.millesime ? `, millésime ${emp.millesime}` : ''}).`);
   } else {
     console.log(`Empreinte attendue : incomplète — ${emp.motif}`);
+  }
+
+  // FUS-1b — photographie le bâti présent dans l'empreinte (footprint + cleabs). Ne fait QUE photographier : ni détection, ni alerte.
+  const bati = await figerBatiSnapshot(dossierId, MAJ_PAR);
+  if (!bati.capture) {
+    console.log(`Bâti au moment de l'analyse : non figé — ${bati.motif}`);
+  } else if ((bati.nbBatiments ?? 0) === 0) {
+    console.log(`Bâti au moment de l'analyse : terrain nu — 0 bâtiment dans l'empreinte${bati.sourceMillesime ? ` (couche bâti au ${bati.sourceMillesime})` : ''}.`);
+  } else {
+    console.log(`Bâti au moment de l'analyse : ${bati.nbBatiments} bâtiment(s)${bati.sourceMillesime ? ` (couche bâti au ${bati.sourceMillesime})` : ''}.`);
+    for (const b of bati.batiments) {
+      const det = [b.nombreEtages !== null ? `${b.nombreEtages} étage(s)` : null, b.altitudeMaxToit !== null ? `toit ${b.altitudeMaxToit} m NGF` : null].filter(Boolean).join(', ');
+      console.log(`  · ${b.cleabs ?? '(cleabs inconnu)'}${det ? ` — ${det}` : ' — étages/altitude non renseignés'}`);
+    }
   }
   console.log('');
 }

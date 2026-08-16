@@ -3,7 +3,7 @@ import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo'
 // ⚠️ Bundle client (piège du 13/08) : de `journalLecture` (module serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
 import { MESURES, libelleBornes, composerLibelleDestinations, raisonParcelleNonRattachee, ecartSuperficieCadastre, type Bornes, type ChampDeclare, type FaitsPermis } from './caracteristiquesForm';
-import type { ParcelleLigne, EmpreinteLigne } from '../../../../lib/permis/parcellesRepo'; // TYPE seulement (module serveur) — piège du bundle client
+import type { ParcelleLigne, EmpreinteLigne, BatiSnapshotResume } from '../../../../lib/permis/parcellesRepo'; // TYPE seulement (module serveur) — piège du bundle client
 
 /**
  * N3-C — rendu PUR de l'éditeur des caractéristiques physiques (motifs ContactRendu + CarteReglageEntier). Aucun état, aucun
@@ -48,10 +48,11 @@ export function PastilleConfiance({ confiance }: { confiance: 'a_verifier' | 'co
  * les pièces. On le rend donc SÉPARÉ de la grille Sitadel, avec la provenance « d'après les pièces ». Jamais « 0 bâtiment » (un PC en
  * comporte forcément un) : une absence de lecture s'écrit « aucun bâtiment identifié dans les pièces ».
  */
-export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles, onExportGeojson, empreinte, onExportEmpreinte }: {
+export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles, onExportGeojson, empreinte, onExportEmpreinte, bati }: {
   faits: FaitsPermis; nbBatiments?: number;
   parcelles?: ParcelleLigne[]; ecartsParcelles?: string[]; onExportGeojson?: () => void; // N3-E — parcelles cadastrales + export GeoJSON
   empreinte?: EmpreinteLigne | null; onExportEmpreinte?: () => void; // FUS-1 — empreinte attendue de la future parcelle fusionnée
+  bati?: BatiSnapshotResume | null; // FUS-1b — photo du bâti au moment de l'analyse (sous l'empreinte)
 }) {
   const lignes: [string, string][] = [
     ['N° permis', `${faits.numDau} (${faits.type})`],
@@ -123,6 +124,36 @@ export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles
                 ? <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }} onClick={onExportEmpreinte}>exporter l’empreinte (GeoJSON) ↓</button>
                 : null}
               <span style={{ ...styleAide, flexBasis: '100%' }}>Référence à comparer, pas la parcelle future réelle.</span>
+            </div>
+          )}
+          {/* FUS-1b — BÂTI AU MOMENT DE L'ANALYSE : photo (footprint + cleabs) des bâtiments présents dans l'empreinte. Aucune détection
+              de changement ici (chantiers suivants). 0 bâtiment = TERRAIN NU (info valable) ; empreinte incomplète = non figé + motif. */}
+          {bati != null && (
+            <div style={{ marginTop: '.35rem', paddingTop: '.3rem', borderTop: '1px dashed var(--color-svv-line)' }}>
+              {!bati.capture
+                ? <span style={{ color: 'var(--color-svv-muted)' }}>Bâti au moment de l’analyse : non figé{bati.motif ? ` — ${bati.motif}` : ''}</span>
+                : (bati.nbBatiments ?? 0) === 0
+                  ? <span><span style={{ color: 'var(--color-svv-muted)' }}>Bâti au moment de l’analyse : </span><strong>terrain nu</strong><span style={{ color: 'var(--color-svv-muted)' }}> — 0 bâtiment dans l’empreinte{bati.sourceMillesime ? ` (couche bâti au ${bati.sourceMillesime})` : ''}</span></span>
+                  : (
+                    <>
+                      <span><span style={{ color: 'var(--color-svv-muted)' }}>Bâti au moment de l’analyse : </span><strong>{bati.nbBatiments} bâtiment{(bati.nbBatiments ?? 0) > 1 ? 's' : ''}</strong><span style={{ color: 'var(--color-svv-muted)' }}>{bati.sourceMillesime ? ` (couche bâti au ${bati.sourceMillesime})` : ''}</span></span>
+                      <ul style={{ margin: '.2rem 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+                        {bati.batiments.map((b, i) => {
+                          const det = [b.nombreEtages !== null ? `${b.nombreEtages} étage${b.nombreEtages > 1 ? 's' : ''}` : null,
+                                       b.altitudeMaxToit !== null ? `toit ${b.altitudeMaxToit} m NGF` : null].filter(Boolean).join(', ');
+                          return (
+                            <li key={b.cleabs ?? `b-${i}`} style={{ overflowWrap: 'anywhere' }}>
+                              <span style={{ color: 'var(--color-svv-muted)' }}>· </span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{b.cleabs ?? '(cleabs inconnu)'}</span>
+                              {det
+                                ? <span style={{ color: 'var(--color-svv-muted)' }}> — {det}</span>
+                                : <span style={{ ...styleAide }}> — étages/altitude non renseignés</span>}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  )}
             </div>
           )}
         </div>

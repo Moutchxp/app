@@ -153,6 +153,103 @@ export async function lireEmpreintePermis(dossierId: number): Promise<EmpreinteL
            motif: r.motif, millesime: r.mill, aGeometrie: r.a_geom === true };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// FUS-1b — PHOTOGRAPHIER le bâti d'origine présent dans l'empreinte d'un permis. On ne FAIT QUE photographier : aucune détection de
+// changement, aucune comparaison de millésimes, aucune alerte (chantiers suivants). Le signal porteur est la GÉOMÉTRIE (footprint 2D)
+// + le cleabs ; étages/altitude sont OPPORTUNISTES (NULL fréquent sur le bâti récent, cf. recon), jamais supposés.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+export interface BatimentSnapshot {
+  cleabs: string | null;             // identité BD TOPO du bâtiment
+  nombreEtages: number | null;       // si présent en BD TOPO ; NULL fréquent sur le bâti récent
+  altitudeMaxToit: number | null;    // altitude_maximale_toit si présente
+  hauteur: number | null;            // hauteur BD TOPO si présente
+  dateModification: string | null;   // horodatage BD TOPO (proxy de millésime par objet), ISO
+}
+
+export interface BatiSnapshotResume {
+  capture: boolean;                  // la photo a été prise (empreinte complète disponible)
+  nbBatiments: number | null;        // NULL si non capturé ; 0 = TERRAIN NU (information valable)
+  motif: string | null;              // si non capturé : pourquoi (jamais un vide muet)
+  sourceMillesime: string | null;    // best-effort : état de la couche bâti au moment du snapshot
+  batiments: BatimentSnapshot[];     // détail (vide si terrain nu OU non capturé)
+}
+
+/**
+ * Fige la PHOTO du bâti d'origine : capture tous les bâtiments dont la géométrie intersecte l'EMPREINTE COMPLÈTE du permis. À lancer
+ * APRÈS `figerEmpreinte`, dans le même run CLI. Requiert la migration 114.
+ *
+ * ⚠️ Un permis sans empreinte COMPLÈTE ne capture RIEN en silence : on enregistre `capture=false` + un motif. 0 bâtiment dans une
+ * empreinte complète = TERRAIN NU (`capture=true`, `nb=0`) — information valable, pas un vide. Intersection via l'index GiST
+ * (`b.geom && e.geom`). Footprint 2D figé (`ST_Force2D`) car le signal est le contour, pas la 3D.
+ */
+export async function figerBatiSnapshot(dossierId: number, majPar: string): Promise<BatiSnapshotResume> {
+  await query(`DELETE FROM permis_bati_snapshot WHERE dossier_id = $1`, [dossierId]); // recompute idempotent
+
+  // L'empreinte est-elle figée ET complète ? (sinon on ne photographie pas — pas de capture muette).
+  const { rows: emp } = await query<{ a_geom: boolean; complete: boolean; motif: string | null }>(
+    `SELECT (geom IS NOT NULL) AS a_geom, complete, motif FROM permis_empreinte WHERE dossier_id = $1`, [dossierId]);
+  const e = emp[0];
+  if (!e || !e.complete || e.a_geom !== true) {
+    const motif = !e
+      ? 'empreinte non figée → bâti non photographié (lancer d’abord figerEmpreinte)'
+      : (e.motif ?? 'empreinte incomplète → bâti non photographié');
+    await query(
+      `INSERT INTO permis_bati_capture (dossier_id, capture, nb_batiments, motif, source_millesime, capture_le, capture_par)
+         VALUES ($1, false, NULL, $3, NULL, now(), $2)
+         ON CONFLICT (dossier_id) DO UPDATE
+           SET capture = false, nb_batiments = NULL, motif = EXCLUDED.motif, source_millesime = NULL,
+               capture_le = EXCLUDED.capture_le, capture_par = EXCLUDED.capture_par`,
+      [dossierId, majPar, motif]);
+    return { capture: false, nbBatiments: null, motif, sourceMillesime: null, batiments: [] };
+  }
+
+  // Best-effort : la couche `batiment` n'a PAS de millésime enregistré → on fige l'état de la couche (max date_modification).
+  const { rows: mill } = await query<{ mill: string | null }>(
+    `SELECT to_char(max(date_modification), 'YYYY-MM-DD') AS mill FROM batiment`);
+  const sourceMillesime = mill[0]?.mill ?? null;
+
+  // Capture : bâtiments dont le footprint intersecte l'empreinte. `b.geom && e.geom` d'abord → index GiST ; ST_Intersects (2D) affine.
+  const { rows } = await query<{ cleabs: string | null; etages: number | null; alt: number | null; hauteur: number | null; dmod: string | null }>(
+    `INSERT INTO permis_bati_snapshot (dossier_id, cleabs, geom, nombre_d_etages, altitude_max_toit, hauteur, date_modification, snapshot_le, snapshot_par)
+       SELECT $1, b.cleabs, ST_Multi(ST_Force2D(b.geom)), b.nombre_d_etages, b.altitude_maximale_toit, b.hauteur, b.date_modification, now(), $2
+         FROM batiment b
+         JOIN permis_empreinte pe ON pe.dossier_id = $1
+        WHERE pe.geom IS NOT NULL AND b.geom && pe.geom AND ST_Intersects(b.geom, pe.geom)
+       RETURNING cleabs, nombre_d_etages AS etages, altitude_max_toit AS alt, hauteur, to_char(date_modification, 'YYYY-MM-DD') AS dmod`,
+    [dossierId, majPar]);
+  const batiments: BatimentSnapshot[] = rows.map((r) => ({
+    cleabs: r.cleabs, nombreEtages: r.etages, altitudeMaxToit: r.alt == null ? null : Number(r.alt),
+    hauteur: r.hauteur == null ? null : Number(r.hauteur), dateModification: r.dmod,
+  }));
+
+  await query(
+    `INSERT INTO permis_bati_capture (dossier_id, capture, nb_batiments, motif, source_millesime, capture_le, capture_par)
+       VALUES ($1, true, $3, NULL, $4, now(), $2)
+       ON CONFLICT (dossier_id) DO UPDATE
+         SET capture = true, nb_batiments = EXCLUDED.nb_batiments, motif = NULL, source_millesime = EXCLUDED.source_millesime,
+             capture_le = EXCLUDED.capture_le, capture_par = EXCLUDED.capture_par`,
+    [dossierId, majPar, batiments.length, sourceMillesime]);
+
+  return { capture: true, nbBatiments: batiments.length, motif: null, sourceMillesime, batiments };
+}
+
+/** Lit la photo du bâti d'un permis (résumé permis_bati_capture + détail permis_bati_snapshot). null si jamais capturé. */
+export async function lireBatiSnapshotPermis(dossierId: number): Promise<BatiSnapshotResume | null> {
+  const { rows: cap } = await query<{ capture: boolean; nb: number | null; motif: string | null; mill: string | null }>(
+    `SELECT capture, nb_batiments AS nb, motif, source_millesime AS mill FROM permis_bati_capture WHERE dossier_id = $1`, [dossierId]);
+  const c = cap[0];
+  if (!c) return null;
+  const { rows } = await query<{ cleabs: string | null; etages: number | null; alt: number | null; hauteur: number | null; dmod: string | null }>(
+    `SELECT cleabs, nombre_d_etages AS etages, altitude_max_toit AS alt, hauteur, to_char(date_modification, 'YYYY-MM-DD') AS dmod
+       FROM permis_bati_snapshot WHERE dossier_id = $1 ORDER BY cleabs`, [dossierId]);
+  const batiments: BatimentSnapshot[] = rows.map((r) => ({
+    cleabs: r.cleabs, nombreEtages: r.etages, altitudeMaxToit: r.alt == null ? null : Number(r.alt),
+    hauteur: r.hauteur == null ? null : Number(r.hauteur), dateModification: r.dmod,
+  }));
+  return { capture: c.capture === true, nbBatiments: c.nb, motif: c.motif, sourceMillesime: c.mill, batiments };
+}
+
 /** GeoJSON (FeatureCollection WGS84, une Feature) de l'empreinte attendue d'un permis — pour export, jamais déversé à l'écran. */
 export async function geojsonEmpreintePermis(dossierId: number): Promise<unknown> {
   const { rows } = await query<{ fc: unknown }>(

@@ -7,19 +7,39 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 const H = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
-  const state = { insertRowCount: 1, total: 2, avec: 2, unionSurface: 2886.3, unionNb: 2, unionMill: '2026-06-01' };
+  type BatiRow = { cleabs: string | null; etages: number | null; alt: number | null; hauteur: number | null; dmod: string | null };
+  type EmpRow = { a_geom: boolean; complete: boolean; motif: string | null } | null;
+  type CapRow = { capture: boolean; nb: number | null; motif: string | null; mill: string | null } | null;
+  const state = {
+    insertRowCount: 1, total: 2, avec: 2, unionSurface: 2886.3, unionNb: 2, unionMill: '2026-06-01',
+    // FUS-1b — état empreinte lu par figerBatiSnapshot, millésime couche bâti, bâtiments capturés, ligne résumé lue par lire…
+    empRow: { a_geom: true, complete: true, motif: null } as EmpRow,
+    batiMill: '2026-03-20' as string | null,
+    batiRows: [
+      { cleabs: 'BATIMENT0001', etages: 3, alt: 42.5, hauteur: 9, dmod: '2019-05-01' },
+      { cleabs: 'BATIMENT0002', etages: null, alt: null, hauteur: null, dmod: '2024-02-01' },
+    ] as BatiRow[],
+    capRow: { capture: true, nb: 2, motif: null, mill: '2026-03-20' } as CapRow,
+  };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
     if (/SELECT\s+count\(\*\)::int\s+AS\s+total/i.test(sql)) return { rows: [{ total: state.total, avec: state.avec }], rowCount: 1 };
     if (/INSERT\s+INTO\s+permis_empreinte[\s\S]*RETURNING/i.test(sql)) return { rows: [{ surface: state.unionSurface, nb: state.unionNb, mill: state.unionMill }], rowCount: 1 };
     if (/INSERT\s+INTO\s+permis_parcelle/i.test(sql)) return { rows: [], rowCount: state.insertRowCount };
+    // FUS-1b
+    if (/SELECT[\s\S]*a_geom[\s\S]*FROM\s+permis_empreinte/i.test(sql)) return { rows: state.empRow ? [state.empRow] : [], rowCount: state.empRow ? 1 : 0 };
+    if (/to_char\(max\(date_modification\)[\s\S]*FROM\s+batiment/i.test(sql)) return { rows: [{ mill: state.batiMill }], rowCount: 1 };
+    if (/INSERT\s+INTO\s+permis_bati_snapshot[\s\S]*RETURNING/i.test(sql)) return { rows: state.batiRows, rowCount: state.batiRows.length };
+    if (/INSERT\s+INTO\s+permis_bati_capture/i.test(sql)) return { rows: [], rowCount: 1 };
+    if (/SELECT\s+capture,\s*nb_batiments[\s\S]*FROM\s+permis_bati_capture/i.test(sql)) return { rows: state.capRow ? [state.capRow] : [], rowCount: state.capRow ? 1 : 0 };
+    if (/SELECT\s+cleabs[\s\S]*FROM\s+permis_bati_snapshot/i.test(sql)) return { rows: state.batiRows, rowCount: state.batiRows.length };
     return { rows: [], rowCount: 0 };
   };
   return { appels, state, queryMock };
 });
 vi.mock('../db/client', () => ({ query: H.queryMock }));
 
-import { ecrireParcelles, figerEmpreinte } from './parcellesRepo';
+import { ecrireParcelles, figerEmpreinte, figerBatiSnapshot, lireBatiSnapshotPermis } from './parcellesRepo';
 import type { ParcelleDecision } from './decisionParcelles';
 
 const p = (over: Partial<ParcelleDecision> = {}): ParcelleDecision => ({
@@ -32,7 +52,20 @@ const deletes = () => H.appels.filter((a) => /DELETE\s+FROM\s+permis_parcelle/i.
 const snapshots = () => H.appels.filter((a) => /UPDATE\s+permis_parcelle[\s\S]*geom_snapshot/i.test(a.sql));
 const empreintes = () => H.appels.filter((a) => /INSERT\s+INTO\s+permis_empreinte/i.test(a.sql));
 
-beforeEach(() => { H.appels.length = 0; H.state.insertRowCount = 1; H.state.total = 2; H.state.avec = 2; H.state.unionSurface = 2886.3; H.state.unionNb = 2; H.state.unionMill = '2026-06-01'; });
+const batiInserts   = () => H.appels.filter((a) => /INSERT\s+INTO\s+permis_bati_snapshot/i.test(a.sql));
+const batiDeletes   = () => H.appels.filter((a) => /DELETE\s+FROM\s+permis_bati_snapshot/i.test(a.sql));
+const batiCaptures  = () => H.appels.filter((a) => /INSERT\s+INTO\s+permis_bati_capture/i.test(a.sql));
+
+beforeEach(() => {
+  H.appels.length = 0; H.state.insertRowCount = 1; H.state.total = 2; H.state.avec = 2; H.state.unionSurface = 2886.3; H.state.unionNb = 2; H.state.unionMill = '2026-06-01';
+  H.state.empRow = { a_geom: true, complete: true, motif: null };
+  H.state.batiMill = '2026-03-20';
+  H.state.batiRows = [
+    { cleabs: 'BATIMENT0001', etages: 3, alt: 42.5, hauteur: 9, dmod: '2019-05-01' },
+    { cleabs: 'BATIMENT0002', etages: null, alt: null, hauteur: null, dmod: '2024-02-01' },
+  ];
+  H.state.capRow = { capture: true, nb: 2, motif: null, mill: '2026-03-20' };
+});
 
 describe('ecrireParcelles', () => {
   it('purge CIBLÉE origine=extraite (jamais la saisie), puis insère chaque parcelle avec ses paramètres liés', async () => {
@@ -84,5 +117,69 @@ describe('figerEmpreinte (FUS-1)', () => {
     expect(empreintes()[0].sql).not.toMatch(/ST_Union/i);
     expect(e).toMatchObject({ complete: false, surfaceM2: null });
     expect(e.motif).toContain('aucune parcelle');
+  });
+});
+
+describe('figerBatiSnapshot (FUS-1b)', () => {
+  it('empreinte complète → photographie les bâtiments intersectant l’empreinte (index GiST + footprint 2D) et enregistre capture=true', async () => {
+    const b = await figerBatiSnapshot(7, 'cerfa:parcelles');
+    // recompute idempotent : purge des lignes bâti du permis AVANT toute capture
+    expect(batiDeletes()).toHaveLength(1);
+    // capture par intersection : `b.geom && pe.geom` (bbox → index GiST) puis ST_Intersects ; footprint figé en 2D
+    const ins = batiInserts();
+    expect(ins).toHaveLength(1);
+    expect(ins[0].sql).toMatch(/b\.geom\s*&&\s*pe\.geom/i);        // prédicat indexable
+    expect(ins[0].sql).toMatch(/ST_Intersects\(b\.geom,\s*pe\.geom\)/i);
+    expect(ins[0].sql).toMatch(/ST_Force2D\(b\.geom\)/i);          // footprint 2D (le signal est le contour)
+    // résumé : capture=true, nb=2, millésime best-effort (état de la couche)
+    expect(batiCaptures()[0].sql).toMatch(/capture\s*=\s*true/i);
+    expect(batiCaptures()[0].params).toContain('2026-03-20');       // source_millesime lié
+    expect(b.capture).toBe(true);
+    expect(b.nbBatiments).toBe(2);
+    expect(b.sourceMillesime).toBe('2026-03-20');
+    // étages/altitude opportunistes : présents pour l’un, NULL pour l’autre — jamais supposés
+    expect(b.batiments[0]).toMatchObject({ cleabs: 'BATIMENT0001', nombreEtages: 3, altitudeMaxToit: 42.5 });
+    expect(b.batiments[1]).toMatchObject({ cleabs: 'BATIMENT0002', nombreEtages: null, altitudeMaxToit: null });
+  });
+
+  it('empreinte complète mais 0 bâtiment → TERRAIN NU (capture=true, nb=0), information stockée', async () => {
+    H.state.batiRows = [];
+    const b = await figerBatiSnapshot(7, 'cerfa:parcelles');
+    expect(batiInserts()).toHaveLength(1);                          // la requête tourne, elle ne ramène rien
+    expect(batiCaptures()[0].sql).toMatch(/capture\s*=\s*true/i);
+    expect(b).toMatchObject({ capture: true, nbBatiments: 0, motif: null, batiments: [] });
+  });
+
+  it('empreinte INCOMPLÈTE → rien photographié EN SILENCE : capture=false + motif, aucune capture de bâtiment', async () => {
+    H.state.empRow = { a_geom: false, complete: false, motif: '1 parcelle(s) d’origine non rattachée(s)' };
+    const b = await figerBatiSnapshot(7, 'cerfa:parcelles');
+    expect(batiInserts()).toHaveLength(0);                          // JAMAIS de capture sur une empreinte incomplète
+    expect(batiCaptures()[0].sql).toMatch(/false/i);
+    expect(b.capture).toBe(false);
+    expect(b.motif).toContain('1 parcelle');
+    expect(b.batiments).toEqual([]);
+  });
+
+  it('empreinte jamais figée → capture=false avec motif explicite (jamais un vide muet)', async () => {
+    H.state.empRow = null;
+    const b = await figerBatiSnapshot(7, 'cerfa:parcelles');
+    expect(batiInserts()).toHaveLength(0);
+    expect(b.capture).toBe(false);
+    expect(b.motif).toContain('empreinte non figée');
+  });
+});
+
+describe('lireBatiSnapshotPermis (FUS-1b)', () => {
+  it('assemble le résumé (capture) + le détail (bâtiments) et mappe les champs', async () => {
+    const r = await lireBatiSnapshotPermis(7);
+    expect(r).not.toBeNull();
+    expect(r).toMatchObject({ capture: true, nbBatiments: 2, motif: null, sourceMillesime: '2026-03-20' });
+    expect(r!.batiments).toHaveLength(2);
+    expect(r!.batiments[0]).toMatchObject({ cleabs: 'BATIMENT0001', nombreEtages: 3, altitudeMaxToit: 42.5, dateModification: '2019-05-01' });
+  });
+
+  it('jamais capturé → null', async () => {
+    H.state.capRow = null;
+    expect(await lireBatiSnapshotPermis(7)).toBeNull();
   });
 });

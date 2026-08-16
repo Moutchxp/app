@@ -5,7 +5,7 @@ import { parserBornesCheck, parserListeCheck, parserListeArrayCheck, type Bornes
 import { libelleNatureProjet } from '../../../../../lib/sitadel/priorite';
 import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
 import { lireJournalChamps, type JournalPermis } from '../../../../../lib/permis/journalLecture';
-import { lireParcellesPermis, geojsonParcellesPermis, lireEmpreintePermis, geojsonEmpreintePermis, type ParcelleLigne, type EmpreinteLigne } from '../../../../../lib/permis/parcellesRepo';
+import { lireParcellesPermis, geojsonParcellesPermis, lireEmpreintePermis, geojsonEmpreintePermis, lireBatiSnapshotPermis, type ParcelleLigne, type EmpreinteLigne, type BatiSnapshotResume } from '../../../../../lib/permis/parcellesRepo';
 import { MESURES, construireGlobal, construirePermis, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
 
 /** N7-E — liste FERMÉE de nature_projet, lue du CHECK de permis_caracteristique (jamais recopiée). */
@@ -108,9 +108,11 @@ export async function GET(request: Request): Promise<Response> {
     const parcSur = lireParcellesPermis(dossierId).catch(() => [] as ParcelleLigne[]);
     // FUS-1 — empreinte attendue de la future parcelle fusionnée ; tolérante si 113 non appliquée (→ null).
     const empSur = lireEmpreintePermis(dossierId).catch(() => null as EmpreinteLigne | null);
-    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur, parcSur, empSur]);
+    // FUS-1b — photo du bâti d'origine dans l'empreinte ; tolérante si 114 non appliquée (→ null).
+    const batiSur = lireBatiSnapshotPermis(dossierId).catch(() => null as BatiSnapshotResume | null);
+    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur, parcSur, empSur, batiSur]);
     if (faits === null) return Response.json({ erreur: 'permis inconnu' }, { status: 404 });
-    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte });
+    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati });
   } catch (e) {
     console.error('[permis/caracteristiques] GET indisponible', e);
     return Response.json({ erreur: 'caractéristiques indisponibles' }, { status: 503 });
