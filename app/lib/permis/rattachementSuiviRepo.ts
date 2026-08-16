@@ -16,6 +16,7 @@ import { construireComparatif, type LigneComparative } from './comparatifRattach
 import type { ResultatRattachement } from './detectionRattachement';
 import { listerPiecesDossier } from '../sitadel/demandeRepo';
 import type { PieceArchive } from '../sitadel/demandeRepo';
+import { libelleNatureProjet } from '../sitadel/priorite';
 
 export type EtatSuivi = 'suivi_aucun_signal' | 'en_attente_bati' | 'arbitrage_demande' | 'valide' | 'refuse' | 'annule_par_lidar';
 
@@ -104,13 +105,16 @@ export async function suivreRattachement(dossierId: number, majPar: string): Pro
 
 export interface LigneSuivi {
   dossierId: number; numDau: string; commune: string | null; codeInsee: string;
+  type: string; adresse: string | null; natureTravaux: string | null;    // FUS-3c-ter — ligne repliée : adresse + type + nature
   etat: EtatSuivi; verdict: string | null; joursAnciennete: number; derniereEvalIso: string | null;
 }
 
 /** Liste l'UNIVERS des permis suivis (ceux qui ont une empreinte) LEFT JOIN leur dossier ; « aucun signal » si pas de dossier. */
 export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> }> {
-  const { rows } = await query<{ dossier_id: number; num_dau: string; code_insee: string; commune: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; jours: number; reevalue: string | null }>(
-    `SELECT e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, r.etat AS ratt_etat, r.verdict,
+  const { rows } = await query<{ dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; jours: number; reevalue: string | null }>(
+    `SELECT e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s.type,
+            nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
+            s.nature_projet_completee AS nature, r.etat AS ratt_etat, r.verdict,
             GREATEST(0, floor(EXTRACT(EPOCH FROM (now() - COALESCE(r.detecte_le, e.maj_le))) / 86400))::int AS jours,
             to_char(r.reevalue_le, 'YYYY-MM-DD') AS reevalue
        FROM permis_empreinte e
@@ -119,6 +123,7 @@ export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: 
        LEFT JOIN permis_rattachement r ON r.dossier_id = e.dossier_id`);
   const lignes: LigneSuivi[] = rows.map((r) => ({
     dossierId: r.dossier_id, numDau: r.num_dau, commune: r.commune, codeInsee: r.code_insee,
+    type: r.type, adresse: r.adresse, natureTravaux: r.nature ? libelleNatureProjet(r.nature) : null,
     etat: r.ratt_etat ?? 'suivi_aucun_signal', verdict: r.verdict, joursAnciennete: r.jours, derniereEvalIso: r.reevalue,
   }));
   lignes.sort((a, b) => ORDRE_URGENCE[a.etat] - ORDRE_URGENCE[b.etat] || b.joursAnciennete - a.joursAnciennete);
@@ -129,6 +134,7 @@ export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: 
 
 export interface DetailSuivi {
   dossierId: number; numDau: string; commune: string | null; codeInsee: string;
+  type: string; adresse: string | null; natureTravaux: string | null;    // FUS-3c-ter — en-tête : adresse + type + nature
   etat: EtatSuivi; persiste: boolean;
   verdict: string; regime: string; motif: string;
   criteres: ResultatRattachement['criteres']; // { surface, bordure, bati } (forme du moteur FUS-2)
@@ -137,6 +143,7 @@ export interface DetailSuivi {
   millesimeCadastre: string | null; millesimeBati: string | null;
   comparatif: LigneComparative[];
   nbParcellesOrigine: number;                                  // FUS-3c — libellé du régime (« fusion attendue (N parcelles) »)
+  nbContoursEmpreinte: number;                                 // FUS-3c-bis — nb de contours de l'empreinte (>1 = parcelles disjointes)
   streetView: { lat: number; lng: number } | null;            // FUS-3c — centroïde WGS84 de l'empreinte, null si pas de point fiable
   streetViewMotif: string | null;                             // pourquoi il n'y a pas de lien (empreinte incomplète/absente)
   pieces: PieceArchive[];                                      // FUS-3c — pièces jointes consultables (rapatriées d'Archives)
@@ -155,8 +162,10 @@ async function lireBatimentsEmpreinte(dossierId: number): Promise<{ etages: (num
 
 /** Détail d'un dossier : verdict/critères/seuils/millésimes (recalculés au runtime) + tableau comparatif « trois sources ». Lecture seule. */
 export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | null> {
-  const { rows: base } = await query<{ num_dau: string; code_insee: string; commune: string | null }>(
-    `SELECT s.num_dau, s.code_insee, c.nom AS commune
+  const { rows: base } = await query<{ num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null }>(
+    `SELECT s.num_dau, s.code_insee, c.nom AS commune, s.type,
+            nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
+            s.nature_projet_completee AS nature
        FROM sitadel_dossier s LEFT JOIN commune c ON c.code_insee = s.code_insee
       WHERE s.id = $1`, [dossierId]);
   const b = base[0];
@@ -174,11 +183,13 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
   // FUS-3c — Street View : centroïde WGS84 de l'empreinte (jamais un point au hasard : null + motif si empreinte incomplète/absente).
   let streetView: { lat: number; lng: number } | null = null;
   let streetViewMotif: string | null = null;
+  let nbContoursEmpreinte = 0;
   if (entrees.empreinteComplete) {
-    const { rows } = await query<{ lat: number; lng: number }>(
-      `SELECT ST_Y(ST_Centroid(ST_Transform(geom, 4326))) AS lat, ST_X(ST_Centroid(ST_Transform(geom, 4326))) AS lng
+    const { rows } = await query<{ lat: number; lng: number; ncontours: number }>(
+      `SELECT ST_Y(ST_Centroid(ST_Transform(geom, 4326))) AS lat, ST_X(ST_Centroid(ST_Transform(geom, 4326))) AS lng,
+              ST_NumGeometries(geom) AS ncontours
          FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL`, [dossierId]);
-    if (rows[0]) streetView = { lat: Number(rows[0].lat), lng: Number(rows[0].lng) };
+    if (rows[0]) { streetView = { lat: Number(rows[0].lat), lng: Number(rows[0].lng) }; nbContoursEmpreinte = Number(rows[0].ncontours) || 0; }
     else streetViewMotif = 'empreinte figée sans géométrie exploitable';
   } else {
     streetViewMotif = 'empreinte incomplète ou non figée (au moins une parcelle d’origine non rattachée) : aucun centroïde fiable';
@@ -205,11 +216,12 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
 
   return {
     dossierId, numDau: b.num_dau, commune: b.commune, codeInsee: b.code_insee,
+    type: b.type, adresse: b.adresse, natureTravaux: b.nature ? libelleNatureProjet(b.nature) : null,
     etat, persiste: rr.length > 0,
     verdict: resultat.verdict, regime: resultat.regime, motif: resultat.motif,
     criteres: resultat.criteres, seuils: entrees.seuils, seuilsProvenance: contexte.seuilsProvenance, seuilsBrut: contexte.seuilsBrut,
     millesimeCadastre: contexte.empreinteMillesime, millesimeBati: await lireMillesimeBati(dossierId),
     comparatif,
-    nbParcellesOrigine: parcelles.length, streetView, streetViewMotif, pieces,
+    nbParcellesOrigine: parcelles.length, nbContoursEmpreinte, streetView, streetViewMotif, pieces,
   };
 }

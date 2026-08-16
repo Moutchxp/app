@@ -67,7 +67,7 @@ export function SuiviRattachementVue() {
         Suivi du rattachement des permis à leur parcelle et à leurs bâtiments futurs. Univers = permis dont les parcelles ont été
         analysées (une empreinte existe). Lecture seule.
       </p>
-      <TableSuivi lignes={liste.lignes} compteurs={liste.compteurs} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} />
+      <TableSuivi lignes={liste.lignes} compteurs={liste.compteurs} ouvert={ouvert} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} />
       {ouvert !== null && (
         detailErreur
           ? <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>Détail indisponible.</div>

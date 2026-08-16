@@ -1,6 +1,9 @@
-import type { CSSProperties } from 'react';
+'use client'; // FUS-3c-quater — ce module porte désormais des disclosures interactives (« i »), donc composants clients.
+
+import { useState, type CSSProperties, type ReactNode } from 'react';
 // ⚠️ Piège du bundle client : on n'importe d'un module serveur que des TYPES (jamais un runtime — rattachementSuiviRepo importe db/client).
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
+import type { CritereSurface, CritereBordure, CritereBati } from '../../../../lib/permis/detectionRattachement';
 
 /**
  * FUS-3b — rendu PUR (testable via renderToStaticMarkup) du SUIVI de rattachement : le tableau récapitulatif groupé par état
@@ -50,8 +53,8 @@ function ancienneteTexte(l: LigneSuivi): string {
 }
 
 /** Tableau récapitulatif groupé par état, avec compteurs en tête et tri par urgence (les `lignes` arrivent déjà triées). */
-export function TableSuivi({ lignes, compteurs, onOuvrir }: {
-  lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number>; onOuvrir?: (dossierId: number) => void;
+export function TableSuivi({ lignes, compteurs, onOuvrir, ouvert }: {
+  lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number>; onOuvrir?: (dossierId: number) => void; ouvert?: number | null;
 }) {
   if (lignes.length === 0) return <div className="svv-card" style={styleAide}>Aucun permis suivi (aucune parcelle analysée pour l’instant).</div>;
   return (
@@ -71,12 +74,17 @@ export function TableSuivi({ lignes, compteurs, onOuvrir }: {
           <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
             {lignes.filter((l) => l.etat === e).map((l) => (
               <li key={l.dossierId} style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap', paddingBottom: '.2rem', borderBottom: '1px solid var(--color-svv-line)' }}>
-                <button type="button" className="svv-link" style={{ width: 'auto', padding: 0, fontFamily: 'var(--font-svv-mono, monospace)', fontWeight: 700 }}
-                  onClick={() => onOuvrir?.(l.dossierId)}>{l.numDau}</button>
-                <span style={{ color: 'var(--color-svv-muted)' }}>{l.commune ?? `INSEE ${l.codeInsee}`}</span>
+                {/* FUS-3c-ter — n° + type/nature + adresse ; l'ouverture passe par un BOUTON EXPLICITE, pas un clic sur la ligne. */}
+                <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', fontWeight: 700 }}>{l.numDau}</span>
+                <span>{l.type}{l.natureTravaux ? ` — ${l.natureTravaux}` : ''}</span>
+                <span style={{ color: 'var(--color-svv-muted)' }}>{l.adresse ?? l.commune ?? `INSEE ${l.codeInsee}`}</span>
                 <span style={{ ...styleAide, marginLeft: 'auto' }}>
                   {l.derniereEvalIso ? `évalué le ${l.derniereEvalIso} · ` : ''}{ancienneteTexte(l)}
                 </span>
+                <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.2rem .6rem', fontSize: 12 }}
+                  aria-expanded={ouvert === l.dossierId} onClick={() => onOuvrir?.(l.dossierId)}>
+                  {ouvert === l.dossierId ? 'Fermer le détail' : 'Ouvrir le détail'}
+                </button>
               </li>
             ))}
           </ul>
@@ -97,16 +105,28 @@ function cellule(c: { texte: string; presente: boolean }) {
 const pct = (x: number): string => `${(x * 100).toFixed(1).replace(/\.0$/, '')} %`;
 
 /**
- * FUS-3c — libellé du RÉGIME : un CONSTAT À DATE, jamais une prédiction. « sans fusion de parcelles » dit que les parcelles
- * d'origine sont encore au cadastre ; l'éventuelle « fusion attendue (N parcelles) » est une INFORMATION à côté, pas un verdict.
+ * FUS-3c-ter — exposition du RÉGIME à l'écran : n'AFFIRME QUE ce qui est CERTAIN.
+ *  · fusion CONSTATÉE (moteur avec_fusion : les parcelles d'origine ont disparu du cadastre) → on peut l'écrire ;
+ *  · UNE seule parcelle → « sans fusion possible » (certitude) ;
+ *  · 2 parcelles ou plus sans fusion encore constatée → INDÉTERMINÉE (on ne peut pas savoir si la mise à jour est arrivée) :
+ *    on n'affirme RIEN, on dit l'attente. (« sans fusion — parcelles encore au cadastre » se lisait comme une conclusion.)
+ * ⚠️ Le régime INTERNE du moteur (detectionRattachement) ne change PAS : il pilote toujours quels critères s'appliquent. Seule
+ *    son EXPOSITION comme fait établi est corrigée ici. Rendu pur.
  */
-export function libelleRegime(regime: string, nbParcellesOrigine: number): { constat: string; info: string | null } {
-  if (regime === 'avec_fusion') return { constat: 'avec fusion de parcelles', info: null };
-  if (regime === 'sans_fusion') return {
-    constat: 'sans fusion de parcelles — les parcelles d’origine sont encore au cadastre (constat à date)',
-    info: nbParcellesOrigine >= 2 ? `fusion de parcelles attendue (${nbParcellesOrigine} parcelles d’origine)` : null,
-  };
-  return { constat: 'régime indéterminé', info: null };
+export function libelleRegimeExpose(regime: string, nbParcellesOrigine: number): string {
+  if (regime === 'avec_fusion') return 'fusion de parcelles constatée';
+  if (regime === 'indetermine') return 'fusion de parcelles : indéterminée — empreinte incomplète';
+  // sans_fusion (les parcelles d'origine sont encore au cadastre) : ce n'est PAS une preuve d'absence de fusion à venir.
+  if (nbParcellesOrigine <= 1) return 'sans fusion de parcelles possible (une seule parcelle)';
+  return 'fusion de parcelles : indéterminée — en attente de la mise à jour du cadastre';
+}
+
+/** FUS-3c-ter — libellé de l'état de détection : RIEN = absence de constat (attente), pas une conclusion. */
+export function libelleVerdict(verdict: string): string {
+  if (verdict === 'RIEN') return 'en attente de la mise à jour du cadastre et de BD TOPO';
+  if (verdict === 'RATTACHEMENT_AUTOMATIQUE') return 'rattachement automatique';
+  if (verdict === 'ARBITRAGE_DEMANDE') return 'arbitrage demandé';
+  return verdict;
 }
 
 /** FUS-3c — URL Street View (pano) au point donné. Aucune clé API : la date de prise de vue est affichée par Google lui-même. */
@@ -114,26 +134,72 @@ export function lienStreetView(lat: number, lng: number): string {
   return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
 }
 
+// FUS-3c-bis — un critère NON APPLICABLE (surface/bordure hors régime de fusion) n'est PAS « sans objet » : il n'est pas ENCORE
+// évaluable. On le dit comme une ATTENTE (ce n'est pas nous qui décidons de la fusion, on la constatera à la mise à jour).
+export const EN_ATTENTE_MAJ = 'en attente de la mise à jour du cadastre et de BD TOPO';
+
+// FUS-3c-quater — un critère est DÉCLENCHÉ (→ ligne verte) quand une mise à jour détectée le franchit ; sinon « en attente ».
+// Le LIBELLÉ porte l'info (« seuil atteint » / « détecté ») → il reste explicite SANS la couleur.
+export function critereSurfaceDeclenche(s: CritereSurface): boolean { return s.applicable && s.franchi; }
+export function critereBordureDeclenche(b: CritereBordure): boolean { return b.applicable && b.franchi; }
+export function critereBatiDeclenche(bati: CritereBati): boolean { return bati.nbNouveauxOuModifies >= 1; }
+
+/** Libellé du critère SURFACE : attente si non applicable ; sinon la valeur MESURÉE + le seuil (atteint ou non — jamais muet). */
+export function libelleCritereSurface(s: CritereSurface, nbParcellesOrigine: number): string {
+  if (!s.applicable) return EN_ATTENTE_MAJ;
+  if (s.ratio === null) return `mesure indisponible — seuil ${pct(s.seuil)}`;
+  const base = `${pct(s.ratio)} de l’empreinte (${nbParcellesOrigine} parcelle${nbParcellesOrigine > 1 ? 's' : ''} d’origine) — seuil ${pct(s.seuil)}`;
+  return s.franchi ? `${base} (seuil atteint)` : `${base} (seuil non atteint)`;
+}
+
+/** Libellé du critère BORDURE : attente si non applicable ; sinon la part de contour commun MESURÉE + le seuil (atteint ou non). */
+export function libelleCritereBordure(b: CritereBordure): string {
+  if (!b.applicable) return EN_ATTENTE_MAJ;
+  if (b.part === null) return `mesure indisponible — seuil ${pct(b.seuil)}`;
+  const base = `${pct(b.part)} de contour commun — seuil ${pct(b.seuil)}`;
+  return b.franchi ? `${base} (seuil atteint)` : `${base} (seuil non atteint)`;
+}
+
+/** Libellé du critère BÂTI : 0 polygone = attente d'une donnée qui viendra (pas un échec) ; sinon le décompte DÉTECTÉ. */
+export function libelleCritereBati(bati: CritereBati): string {
+  const n = bati.nbNouveauxOuModifies;
+  if (n === 0) return 'aucun bâti nouveau ou modifié pour l’instant — en attente de la mise à jour de BD TOPO';
+  return `${n} polygone${n > 1 ? 's' : ''} nouveau${n > 1 ? 'x' : ''}/modifié${n > 1 ? 's' : ''} détecté${n > 1 ? 's' : ''}`;
+}
+
+/** FUS-3c-quater — disclosure « i » accessible (aria-expanded) : une explication longue, repliée par défaut, ouverte à la demande. */
+export function InfoDepliable({ label, children }: { label: string; children: ReactNode }) {
+  const [ouvert, setOuvert] = useState(false);
+  return (
+    <>
+      <button type="button" aria-expanded={ouvert} aria-label={label} title={label}
+        onClick={() => setOuvert((v) => !v)}
+        style={{ width: 'auto', marginLeft: '.35rem', padding: '0 .4rem', borderRadius: '999px', border: '1px solid var(--color-svv-line)', background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)', fontSize: 11, fontWeight: 700, cursor: 'pointer', lineHeight: 1.6 }}>
+        i
+      </button>
+      {ouvert && <div style={{ ...styleAide, marginTop: '.2rem' }}>{children}</div>}
+    </>
+  );
+}
+
 /** Détail comparatif « trois sources » + critères / seuils / verdict / millésimes + Street View. LECTURE SEULE. */
 export function DetailSuiviRendu({ detail }: { detail: DetailSuivi }) {
   const c = detail.criteres;
-  const reg = libelleRegime(detail.regime, detail.nbParcellesOrigine);
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+      {/* FUS-3c-ter — en-tête : n° + commune + état + ADRESSE (plus de « (dérivé — aucun dossier en base) », qui ne disait rien). */}
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
         <strong style={{ fontFamily: 'var(--font-svv-mono, monospace)' }}>{detail.numDau}</strong>
-        <span style={{ color: 'var(--color-svv-muted)' }}>{detail.commune ?? `INSEE ${detail.codeInsee}`}</span>
+        <span>{detail.type}{detail.natureTravaux ? ` — ${detail.natureTravaux}` : ''}</span>
         <BadgeEtatSuivi etat={detail.etat} />
-        {!detail.persiste && <span style={styleAide}>(dérivé — aucun dossier en base)</span>}
+        <span style={{ color: 'var(--color-svv-muted)' }}>{detail.adresse ?? detail.commune ?? `INSEE ${detail.codeInsee}`}</span>
       </div>
 
-      {/* Verdict + motif + régime (constat à date) */}
+      {/* FUS-3c-quater — « Verdict : … » (étiquette restaurée) pour TOUS les verdicts, RIEN compris. La ligne de MOTIF est retirée
+          de l'affichage (doublon moins clair des critères) — le motif reste en base et au journal. Régime : n'affiche que le certain. */}
       <div>
-        <span style={{ color: 'var(--color-svv-muted)' }}>Verdict : </span><strong>{detail.verdict}</strong>
-        <div style={styleAide}>{detail.motif}</div>
-        <div><span style={{ color: 'var(--color-svv-muted)' }}>Régime : </span>{reg.constat}
-          {reg.info && <span style={{ marginLeft: '.35rem', fontSize: 11, padding: '.05rem .35rem', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)' }}>ℹ {reg.info}</span>}
-        </div>
+        <div><span style={{ color: 'var(--color-svv-muted)' }}>Verdict : </span><strong>{libelleVerdict(detail.verdict)}</strong></div>
+        <div><span style={{ color: 'var(--color-svv-muted)' }}>Parcelles : </span>{libelleRegimeExpose(detail.regime, detail.nbParcellesOrigine)}</div>
       </div>
 
       {/* Google Street View — sur le centroïde de l'empreinte, ou motif s'il n'y a pas de point fiable */}
@@ -141,7 +207,9 @@ export function DetailSuiviRendu({ detail }: { detail: DetailSuivi }) {
         {detail.streetView
           ? <>
               <a href={lienStreetView(detail.streetView.lat, detail.streetView.lng)} target="_blank" rel="noopener noreferrer" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }}>ouvrir Google Street View au droit de l’empreinte ↗</a>
-              <div style={{ ...styleAide, color: 'var(--color-svv-red)' }}>⚠ VÉRIFIER LA DATE DE LA PRISE DE VUE (affichée par Google) : une image antérieure aux travaux ferait conclure à tort qu’ils n’ont pas eu lieu.</div>
+              {/* FUS-3c-quater — la consigne courte reste visible ; l'explication longue passe derrière un « i ». */}
+              <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}> ⚠ Vérifier la date de la prise de vue</span>
+              <InfoDepliable label="pourquoi vérifier la date de la prise de vue">La date est affichée par Google dans sa propre interface. Une image ANTÉRIEURE aux travaux ferait conclure à tort qu’ils n’ont pas eu lieu — la vue doit être postérieure au permis.</InfoDepliable>
             </>
           : <span style={styleAide}>Pas de lien Street View : {detail.streetViewMotif ?? 'point indisponible'}.</span>}
       </div>
@@ -163,13 +231,23 @@ export function DetailSuiviRendu({ detail }: { detail: DetailSuivi }) {
         </table>
       </div>
 
-      {/* Critères du moteur avec valeurs MESURÉES */}
+      {/* FUS-3c-quater — « Critères comparatifs du moteur ». Un critère DÉCLENCHÉ passe en VERT (couleur de succès de l'app), la
+          ligne en attente reste grise ; le libellé porte l'info (« seuil atteint » / « détecté ») → explicite SANS la couleur. */}
       <div>
-        <div style={{ fontWeight: 700, marginBottom: '.2rem' }}>Critères du moteur</div>
-        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-          <li>surface : {c.surface.applicable ? `${c.surface.ratio !== null ? pct(c.surface.ratio) : '—'} (seuil ${pct(c.surface.seuil)}) ${c.surface.franchi ? '✓' : '✗'}` : 'sans objet (sans fusion)'}</li>
-          <li>bordure : {c.bordure.applicable ? `${c.bordure.part !== null ? pct(c.bordure.part) : '—'} (seuil ${pct(c.bordure.seuil)}) ${c.bordure.franchi ? '✓' : '✗'}` : 'sans objet (sans fusion)'}</li>
-          <li>bâti : {c.bati.nbNouveauxOuModifies} polygone(s) nouveau(x)/modifié(s) {c.bati.franchi ? '✓' : '✗'}</li>
+        <div style={{ fontWeight: 700, marginBottom: '.2rem', color: 'var(--color-svv-ink)' }}>Critères comparatifs du moteur</div>
+        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+          <li style={{ color: critereSurfaceDeclenche(c.surface) ? 'var(--color-svv-green-ink)' : 'var(--color-svv-muted)' }}>surface : {libelleCritereSurface(c.surface, detail.nbParcellesOrigine)}</li>
+          <li style={{ color: critereBordureDeclenche(c.bordure) ? 'var(--color-svv-green-ink)' : 'var(--color-svv-muted)' }}>
+            bordure : {libelleCritereBordure(c.bordure)}
+            {/* FUS-3c-quater — l'explication (limites extérieures) + l'éventuelle note « contours disjoints » passent derrière un « i ». */}
+            <InfoDepliable label="détails sur la mesure de bordure">
+              La bordure ne compare que les limites EXTÉRIEURES des parcelles réunies (l’empreinte est leur union — la frontière mitoyenne est effacée), jamais les limites qui les séparent entre elles.
+              {detail.nbContoursEmpreinte > 1 && (
+                <div style={{ marginTop: '.3rem', color: 'var(--color-svv-red)' }}>⚠ Empreinte en {detail.nbContoursEmpreinte} contours disjoints (parcelles qui ne se touchent pas) : la bordure est mesurée contre chaque contour extérieur, et le point Street View (centroïde) peut tomber ENTRE les parcelles — à interpréter avec prudence.</div>
+              )}
+            </InfoDepliable>
+          </li>
+          <li style={{ color: critereBatiDeclenche(c.bati) ? 'var(--color-svv-green-ink)' : 'var(--color-svv-muted)' }}>bâti : {libelleCritereBati(c.bati)}</li>
         </ul>
       </div>
 
