@@ -16,7 +16,8 @@ import { CaracteristiquesBloc } from './CaracteristiquesBloc';
  */
 const PAGE_SIZE = 20;
 
-export function ArchivesVue() {
+// FUS-3b — `initialDossierOuvert` : permis pré-déplié à l'arrivée (lien « détail complet » depuis le suivi de rattachement).
+export function ArchivesVue({ initialDossierOuvert }: { initialDossierOuvert?: number | null } = {}) {
   const [archives, setArchives] = useState<LigneArchive[] | null>(null);
   const [erreur, setErreur] = useState(false);
   const [page, setPage] = useState(1);
@@ -24,7 +25,7 @@ export function ArchivesVue() {
   const [uploadEnCours, setUploadEnCours] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   // N1-C — accordéon à UN volet : dossierId de l'unique permis déplié (null = tout replié). Les pièces sont masquées par défaut.
-  const [dossierOuvert, setDossierOuvert] = useState<number | null>(null);
+  const [dossierOuvert, setDossierOuvert] = useState<number | null>(initialDossierOuvert ?? null);
 
   const rafraichir = useCallback(() => setVersion((v) => v + 1), []);
 

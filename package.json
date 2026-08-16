@@ -49,6 +49,7 @@
     "permis:ecrire-niveaux": "tsx app/scripts/ecrire-niveaux.ts",
     "permis:ecrire-parcelles": "tsx app/scripts/ecrire-parcelles.ts",
     "permis:rejouer-rattachement": "tsx app/scripts/rejouer-rattachement.ts",
+    "permis:rattachement-suivre": "tsx app/scripts/rattachement-suivre.ts",
     "drive:autoriser": "tsx app/scripts/drive-autoriser.ts",
     "alertes:envoyer": "tsx app/scripts/envoyer-alerte.ts",
     "veille:run": "tsx app/scripts/veille-run.ts",

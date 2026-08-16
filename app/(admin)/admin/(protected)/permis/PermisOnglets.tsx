@@ -7,10 +7,11 @@ import type { CSSProperties } from 'react';
  * lecteur d'écran (`role="group"` + `aria-label`), pas seulement visuel. La couleur (liseré) n'est qu'un appui : l'intitulé
  * de groupe (les mots) porte l'information. Aucune transition → rien à neutraliser pour prefers-reduced-motion.
  */
-export type CleOnglet = 'dossiers' | 'a_demander' | 'en_cours' | 'reponses' | 'archives' | 'saisines' | 'reglages' | 'automatisation' | 'collaborateurs';
+export type CleOnglet = 'dossiers' | 'a_demander' | 'en_cours' | 'reponses' | 'archives' | 'saisines' | 'reglages' | 'automatisation' | 'collaborateurs' | 'rattachement';
 
 export const GROUPES_ONGLETS: { titre: string; onglets: { cle: CleOnglet; libelle: string }[] }[] = [
-  { titre: 'Mise à jour des dossiers', onglets: [{ cle: 'dossiers', libelle: 'Dossiers' }, { cle: 'automatisation', libelle: 'Automatisation' }] },
+  // FUS-3b — « Rattachement » = suivi du rattachement des permis à leur parcelle/bâtiments futurs (distinct du rattachement permis↔demande).
+  { titre: 'Mise à jour des dossiers', onglets: [{ cle: 'dossiers', libelle: 'Dossiers' }, { cle: 'automatisation', libelle: 'Automatisation' }, { cle: 'rattachement', libelle: 'Rattachement' }] },
   // Q5 — l'ex-onglet « Demandes » est SCINDÉ en « À demander » (préparation) puis « En cours » (suivi), en tête du groupe.
   { titre: 'Demandes aux mairies', onglets: [{ cle: 'a_demander', libelle: 'À demander' }, { cle: 'en_cours', libelle: 'En cours' }, { cle: 'reponses', libelle: 'Réponses' }, { cle: 'archives', libelle: 'Archives' }, { cle: 'saisines', libelle: 'Saisines CADA' }, { cle: 'collaborateurs', libelle: 'Collaborateurs' }, { cle: 'reglages', libelle: 'Réglages' }] },
 ];
