@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 // ⚠️ Bundle client : uniquement des TYPES depuis les modules serveur.
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement } from './SuiviRattachementRendu';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { CellulePieces } from './ArchivesRendu';
 
@@ -25,6 +25,12 @@ export function SuiviRattachementVue() {
   const [detailErreur, setDetailErreur] = useState(false);
   const [affErreur, setAffErreur] = useState('');
   const [permisOuvert, setPermisOuvert] = useState(false); // détail complet du permis (caractéristiques + pièces), replié par défaut
+  // FUS-3e — décisions
+  const [motifRefus, setMotifRefus] = useState('');
+  const [motifConfirmation, setMotifConfirmation] = useState('');
+  const [avertissement, setAvertissement] = useState<string | null>(null);
+  const [actionErreur, setActionErreur] = useState('');
+  const [enCours, setEnCours] = useState(false);
 
   useEffect(() => {
     let annule = false;
@@ -43,7 +49,8 @@ export function SuiviRattachementVue() {
     if (ouvert === null) return; // détail masqué au rendu quand ouvert === null (pas de setState synchrone ici)
     let annule = false;
     void (async () => {
-      setDetail(null); setAffectation(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); // reset DANS l'async (déféré)
+      setDetail(null); setAffectation(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false);
+      setMotifRefus(''); setMotifConfirmation(''); setAvertissement(null); setActionErreur(''); // reset décisions (DANS l'async)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
         if (annule) return;
@@ -64,6 +71,26 @@ export function SuiviRattachementVue() {
       if (res.ok && d.affectation) setAffectation(d.affectation);
       else setAffErreur(d.erreur ?? 'Affectation impossible.');
     } catch { setAffErreur('Affectation impossible.'); }
+  }, [ouvert]);
+
+  // FUS-3e — décisions (valider / refuser / retour_lidar). La validation d'une cardinalité incohérente exige un motif (besoinConfirmation).
+  const agir = useCallback(async (action: 'valider' | 'refuser' | 'retour_lidar', extra: { motif?: string; motifConfirmation?: string } = {}): Promise<void> => {
+    if (ouvert === null) return;
+    setEnCours(true); setActionErreur('');
+    try {
+      const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, dossierId: ouvert, ...extra }) });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; besoinConfirmation?: boolean; avertissement?: string; erreur?: string; detail?: DetailSuivi; affectation?: AffectationEtat | null };
+      if (res.ok && d.ok) {
+        if (d.detail) setDetail(d.detail);
+        if (d.affectation !== undefined) setAffectation(d.affectation ?? null);
+        setAvertissement(null); setMotifRefus(''); setMotifConfirmation('');
+      } else if (d.besoinConfirmation) {
+        setAvertissement(d.avertissement ?? 'Cardinalité incohérente : confirmez avec un motif.');
+      } else {
+        setActionErreur(d.erreur ?? 'Action impossible.');
+      }
+    } catch { setActionErreur('Action impossible.'); }
+    finally { setEnCours(false); }
   }, [ouvert]);
 
   // Téléchargement d'une pièce — MÊME signeur unique qu'Archives (action url_piece de /reponses ; la clé ne transite jamais).
@@ -93,6 +120,17 @@ export function SuiviRattachementVue() {
                 {/* FUS-3d — affectation des polygones BD TOPO aux corps (schéma + sélecteurs). */}
                 {affectation && <AffectationBloc affectation={affectation} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)} />}
                 {affErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{affErreur}</div>}
+                {/* FUS-3e — décisions : uniquement pour un dossier RÉEL (persisté). « aucun signal » (dérivé) n'a rien à décider. */}
+                {detail.persiste && (
+                  <>
+                    <ActionsRattachement avertissement={avertissement} motifRefus={motifRefus} motifConfirmation={motifConfirmation}
+                      onMotifRefus={setMotifRefus} onMotifConfirmation={setMotifConfirmation} enCours={enCours}
+                      onValider={() => void agir('valider', { motifConfirmation: motifConfirmation || undefined })}
+                      onRefuser={() => void agir('refuser', { motif: motifRefus })}
+                      onRetour={() => void agir('retour_lidar')} />
+                    {actionErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{actionErreur}</div>}
+                  </>
+                )}
                 {/* Détail complet du permis rapatrié d'Archives — replié par défaut. */}
                 <div>
                   <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .4rem' }}

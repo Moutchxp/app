@@ -2,14 +2,18 @@ import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { listerSuivi, lireDetailSuivi } from '../../../../../lib/permis/rattachementSuiviRepo';
 import { lireAffectation, affecterPolygone } from '../../../../../lib/permis/affectationRepo';
+import { validerRattachement, refuserRattachement, retourLidar } from '../../../../../lib/permis/actionsRattachement';
 
 /**
  * /api/admin/permis/rattachement — SUIVI du rattachement des permis à leur parcelle / polygones futurs.
  * GET (sans param) → la LISTE (univers = permis avec empreinte) + compteurs par état.
- * GET ?dossierId=N → le DÉTAIL d'un dossier (verdict/critères/seuils/millésimes + comparatif « trois sources ») + l'AFFECTATION
- *   des polygones BD TOPO aux corps (FUS-3d : schéma SVG, repères, exclusivité).
- * POST { action:'affecter', dossierId, corpsId, cleabs|null } → pose/change/retire l'affectation d'un polygone à un corps (FUS-3d).
- *   AUCUNE validation/refus, AUCUNE injection d'altitude (FUS-3e). RÉSERVÉ ADMINISTRATEUR. Runtime Node.
+ * GET ?dossierId=N → le DÉTAIL d'un dossier + l'AFFECTATION des polygones BD TOPO aux corps (FUS-3d).
+ * POST { action, dossierId, … } :
+ *   'affecter' {corpsId, cleabs|null} → pose/change/retire l'affectation (FUS-3d) ;
+ *   'valider' {motifConfirmation?}    → injecte les altitudes (origine 'permis') + dossier 'valide' (FUS-3e) ;
+ *   'refuser' {motif}                 → dossier 'refuse' (motif obligatoire) ;
+ *   'retour_lidar'                    → restaure les altitudes LiDAR refigées (origine 'lidar').
+ * RÉSERVÉ ADMINISTRATEUR. Runtime Node.
  */
 export const runtime = 'nodejs';
 
@@ -34,16 +38,35 @@ export async function POST(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number; corpsId?: number; cleabs?: string | null };
-    if (body.action !== 'affecter' || typeof body.dossierId !== 'number' || typeof body.corpsId !== 'number') {
-      return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number; corpsId?: number; cleabs?: string | null; motif?: string; motifConfirmation?: string };
+    const dossierId = body.dossierId;
+    if (typeof dossierId !== 'number') return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+
+    // FUS-3d — affectation d'un polygone à un corps.
+    if (body.action === 'affecter') {
+      if (typeof body.corpsId !== 'number') return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      const res = await affecterPolygone(dossierId, body.corpsId, body.cleabs ?? null, 'admin:affectation');
+      if (!res.ok) return Response.json({ erreur: res.motif }, { status: 409 });
+      return Response.json({ ok: true, affectation: await lireAffectation(dossierId) });
     }
-    const res = await affecterPolygone(body.dossierId, body.corpsId, body.cleabs ?? null, 'admin:affectation');
-    if (!res.ok) return Response.json({ erreur: res.motif }, { status: 409 });
-    // Renvoie l'état d'affectation à jour (l'écran se rafraîchit sans re-fetch séparé).
-    return Response.json({ ok: true, affectation: await lireAffectation(body.dossierId) });
+
+    // FUS-3e — décisions (aucun autre bouton : ni Street View, ni e-mail).
+    if (body.action === 'valider' || body.action === 'refuser' || body.action === 'retour_lidar') {
+      const res = body.action === 'valider' ? await validerRattachement(dossierId, 'admin:decision', body.motifConfirmation)
+        : body.action === 'refuser' ? await refuserRattachement(dossierId, 'admin:decision', body.motif ?? '')
+          : await retourLidar(dossierId, 'admin:decision');
+      if (!res.ok) {
+        if (res.besoinConfirmation) return Response.json({ besoinConfirmation: true, avertissement: res.avertissement }, { status: 409 });
+        return Response.json({ erreur: res.motif ?? 'action impossible' }, { status: 409 });
+      }
+      // Rafraîchit détail + affectation (état du dossier / altitudes à jour).
+      const [detail, affectation] = await Promise.all([lireDetailSuivi(dossierId), lireAffectation(dossierId).catch(() => null)]);
+      return Response.json({ ok: true, nbInjectes: res.nbInjectes, nbRestaures: res.nbRestaures, detail, affectation });
+    }
+
+    return Response.json({ erreur: 'action inconnue' }, { status: 400 });
   } catch (e) {
     console.error('[permis/rattachement] POST indisponible', e);
-    return Response.json({ erreur: 'affectation indisponible' }, { status: 503 });
+    return Response.json({ erreur: 'action indisponible' }, { status: 503 });
   }
 }

@@ -264,6 +264,58 @@ export function DetailSuiviRendu({ detail }: { detail: DetailSuivi }) {
   );
 }
 
+// ── FUS-3e — les trois décisions (valider / refuser / retour LiDAR) ──────────
+/**
+ * Boutons de décision, PURS et contrôlés (l'état des champs vit dans la Vue). Trois actions distinctes, libellés explicites :
+ *  · Valider → injecte les altitudes (origine 'permis'). Si la cardinalité est incohérente, `avertissement` s'affiche et un
+ *    MOTIF de confirmation devient obligatoire (le bouton exige alors ce motif).
+ *  · Refuser → motif OBLIGATOIRE.
+ *  · Retour LiDAR → restaure l'altitude LiDAR d'origine (filet, reste possible après validation).
+ * ⚠️ Aucune de ces actions ne change le verdict SVAV (le moteur ne lit pas encore permis_polygone_altitude).
+ */
+export function ActionsRattachement({ avertissement, motifRefus, motifConfirmation, onMotifRefus, onMotifConfirmation, onValider, onRefuser, onRetour, enCours }: {
+  avertissement: string | null;
+  motifRefus: string; motifConfirmation: string;
+  onMotifRefus: (v: string) => void; onMotifConfirmation: (v: string) => void;
+  onValider: () => void; onRefuser: () => void; onRetour: () => void; enCours: boolean;
+}) {
+  const styleTA: CSSProperties = { width: '100%', boxSizing: 'border-box', minHeight: '2.2rem', padding: '.3rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' };
+  return (
+    <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+      <div style={{ fontWeight: 700 }}>Décision</div>
+      {/* Valider (avec confirmation si cardinalité incohérente) */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+        {avertissement && (
+          <div role="alert" style={{ color: 'var(--color-svv-red)' }}>
+            {avertissement}
+            <textarea value={motifConfirmation} onChange={(e) => onMotifConfirmation(e.target.value)} disabled={enCours}
+              aria-label="motif de validation malgré l’incohérence" placeholder="motif de validation malgré l’incohérence (obligatoire)…" style={{ ...styleTA, marginTop: '.2rem' }} />
+          </div>
+        )}
+        <button type="button" className="svv-btn" style={{ width: 'auto' }} onClick={onValider}
+          disabled={enCours || (!!avertissement && !motifConfirmation.trim())}>
+          {avertissement ? 'Confirmer la validation (avec motif)' : 'Valider le rattachement'}
+        </button>
+      </div>
+      {/* Refuser (motif obligatoire) */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+        <textarea value={motifRefus} onChange={(e) => onMotifRefus(e.target.value)} disabled={enCours}
+          aria-label="motif de refus" placeholder="motif de refus (obligatoire)…" style={styleTA} />
+        <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={onRefuser} disabled={enCours || !motifRefus.trim()}>
+          Refuser le rattachement
+        </button>
+      </div>
+      {/* Retour LiDAR (filet) */}
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={onRetour} disabled={enCours}>
+          Retour aux caractéristiques LiDAR d’origine
+        </button>
+        <span style={styleAide}>Restaure l’altitude LiDAR d’origine des polygones affectés (filet en cas d’erreur d’affectation) ; reste possible après validation.</span>
+      </div>
+    </div>
+  );
+}
+
 // ── FUS-3d — affectation polygone ↔ corps ────────────────────────────────────
 const couleurPolygone = (affecte: boolean, hors: boolean): string =>
   affecte ? 'var(--color-svv-green-soft)' : hors ? '#fde2e1' : 'var(--color-svv-field)';

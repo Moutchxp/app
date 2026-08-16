@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, ActionsRattachement, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
@@ -262,5 +262,37 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
     const hCol = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff({ colonneManquante: true }) }));
     expect(hCol).toContain('migration 117 non appliquée');
     expect(hCol).toContain('disabled');
+  });
+});
+
+describe('FUS-3e — ActionsRattachement (les trois boutons)', () => {
+  const noop = () => {};
+  const props = (o: Record<string, unknown> = {}) => ({ avertissement: null, motifRefus: '', motifConfirmation: '', onMotifRefus: noop, onMotifConfirmation: noop, onValider: noop, onRefuser: noop, onRetour: noop, enCours: false, ...o });
+
+  it('trois boutons distincts, libellés explicites ; refuser désactivé sans motif', () => {
+    const h = renderToStaticMarkup(createElement(ActionsRattachement, props()));
+    expect(h).toContain('Valider le rattachement');
+    expect(h).toContain('Refuser le rattachement');
+    expect(h).toContain('Retour aux caractéristiques LiDAR d’origine');
+    expect(h).toMatch(/Refuser le rattachement<\/button>/); // présent
+    // refuser désactivé quand motif vide
+    expect(h).toMatch(/disabled[\s\S]*Refuser le rattachement/);
+  });
+
+  it('avertissement de cardinalité → champ de motif de confirmation + bouton « Confirmer » désactivé sans motif', () => {
+    const h = renderToStaticMarkup(createElement(ActionsRattachement, props({ avertissement: '1 corps sans polygone : confirmez avec un motif.' })));
+    expect(h).toContain('1 corps sans polygone');
+    expect(h).toContain('Confirmer la validation (avec motif)');
+    expect(h).toContain('aria-label="motif de validation malgré l’incohérence"');
+    // confirmer désactivé tant que motifConfirmation vide
+    expect(h).toMatch(/disabled[\s\S]*Confirmer la validation/);
+    // avec motif de confirmation → activé
+    const h2 = renderToStaticMarkup(createElement(ActionsRattachement, props({ avertissement: 'x', motifConfirmation: 'bâtiments accolés' })));
+    expect(h2).not.toMatch(/disabled[^>]*>[\s\S]{0,40}Confirmer la validation/);
+  });
+
+  it('refuser ACTIVÉ dès qu’un motif est saisi', () => {
+    const h = renderToStaticMarkup(createElement(ActionsRattachement, props({ motifRefus: 'parcelle erronée' })));
+    expect(h).not.toMatch(/disabled[^>]*>[\s\S]{0,40}Refuser le rattachement/);
   });
 });
