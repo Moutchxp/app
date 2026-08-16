@@ -11,6 +11,7 @@
 import { withTransaction, type RequeteTx } from '../db/client';
 import { appliquerPreseanceAltitude, type EtatAltitudePolygone } from './preseanceAltitude';
 import { lireAffectation } from './affectationRepo';
+import { journalActif, enregistrerLigneJournal, derniereLigne, dateModifBatiment } from './journalAltitude';
 
 export interface ResultatAction {
   ok: boolean;
@@ -19,7 +20,12 @@ export interface ResultatAction {
   motif?: string;                 // motif d'échec, ou motif de confirmation retenu
   nbInjectes?: number;
   nbRestaures?: number;
+  nbTraites?: number;             // import BD TOPO : nb de cleabs suivis parcourus
+  nbEcrases?: number;             // import/mesure LiDAR : nb d'altitudes 'permis' écrasées → dossiers annulés par LiDAR
 }
+
+/** Provenance d'une mesure LiDAR — OBLIGATOIRE (pièce de preuve) : millésime d'édition + source. Refus si l'un manque. */
+export interface ProvenanceMesure { millesime: string; source: string }
 
 /** État d'altitude courant d'un polygone (permis_polygone_altitude), ou état vide s'il n'existe pas encore. */
 async function etatAltitude(q: RequeteTx, cleabs: string): Promise<EtatAltitudePolygone> {
@@ -82,6 +88,7 @@ export async function validerRattachement(dossierId: number, valPar: string, con
   return withTransaction(async (q) => {
     const rid = await rattId(q, dossierId);
     if (rid === null) return { ok: false, motif: 'aucun dossier de rattachement — lancez d’abord le suivi' };
+    const jActif = await journalActif(q); // registre disponible ? (migration 118 appliquée)
 
     let nbInjectes = 0;
     for (const inj of aInjecter) {
@@ -95,6 +102,24 @@ export async function validerRattachement(dossierId: number, valPar: string, con
         apres: { altitude: res.etat.altitudeNgf, origine: res.etat.origine },
         lidarRefige: res.etat.altitudeLidarRefige, trace: res.trace,
       }, valPar);
+      // REGISTRE append-only : la LiDAR qu'on écrase NE DOIT PAS être perdue.
+      if (jActif) {
+        // Ligne de DÉPART 'lidar' si le registre est encore vide pour ce cleabs (préserve la valeur écrasée, avec provenance).
+        if (!(await derniereLigne(q, inj.cleabs))) {
+          const dmod = await dateModifBatiment(q, inj.cleabs);
+          await enregistrerLigneJournal(q, {
+            cleabs: inj.cleabs, altitudeNgf: lidar, origine: 'lidar', cause: 'import',
+            sourceType: 'bdtopo', sourceMillesime: 'inconnu', sourceDate: dmod, // 🔴 édition non étiquetée → 'inconnu', jamais supposée
+            dossierId: null, altitudePrecedente: null, originePrecedente: null, par: valPar,
+            note: `ligne de départ : LiDAR capturée à la 1re injection (édition BD TOPO non étiquetée → millésime inconnu${dmod ? ` ; date_modification objet ${dmod}` : ` ; aucune date_modification objet`})`,
+          });
+        }
+        await enregistrerLigneJournal(q, {
+          cleabs: inj.cleabs, altitudeNgf: res.etat.altitudeNgf, origine: 'permis', cause: 'injection',
+          sourceType: 'permis', sourceMillesime: null, sourceDate: null, dossierId,
+          altitudePrecedente: avant.altitudeNgf, originePrecedente: avant.origine, par: valPar, note: res.trace,
+        });
+      }
       nbInjectes++;
     }
 
@@ -131,6 +156,7 @@ export async function retourLidar(dossierId: number, par: string): Promise<Resul
   return withTransaction(async (q) => {
     const rid = await rattId(q, dossierId);
     if (rid === null) return { ok: false, motif: 'aucun dossier de rattachement' };
+    const jActif = await journalActif(q);
     // Polygones affectés aux corps de CE permis, actuellement en origine 'permis'.
     const { rows } = await q<{ cleabs: string }>(
       `SELECT ppa.cleabs FROM permis_polygone_altitude ppa
@@ -147,8 +173,112 @@ export async function retourLidar(dossierId: number, par: string): Promise<Resul
         cleabs, avant: { altitude: avant.altitudeNgf, origine: avant.origine },
         apres: { altitude: res.etat.altitudeNgf, origine: res.etat.origine }, trace: res.trace,
       }, par);
+      if (jActif) {
+        // La valeur restaurée est une LiDAR déjà tracée à l'import ; sa provenance vit dans la ligne 'import' du même cleabs.
+        await enregistrerLigneJournal(q, {
+          cleabs, altitudeNgf: res.etat.altitudeNgf, origine: 'lidar', cause: 'retour_arriere',
+          sourceType: 'lidar_hd', sourceMillesime: null, sourceDate: null, dossierId,
+          altitudePrecedente: avant.altitudeNgf, originePrecedente: avant.origine, par, note: res.trace,
+        });
+      }
       nbRestaures++;
     }
     return { ok: true, nbRestaures };
+  });
+}
+
+/** Provenance présente et non vide ? Sinon un motif d'échec (millésime + source sont NON négociables — pièce de preuve). */
+function validerProvenance(p: ProvenanceMesure | undefined): { ok: true; millesime: string; source: string } | ResultatAction {
+  const millesime = (p?.millesime ?? '').trim();
+  const source = (p?.source ?? '').trim();
+  if (!millesime || !source) return { ok: false, motif: 'millésime ET source de la mesure sont obligatoires (pièce de preuve — provenance non négociable)' };
+  return { ok: true, millesime, source };
+}
+
+/** dossier_id porté par la ligne d'altitude d'un cleabs (permis ayant injecté), pour l'annulation par LiDAR. */
+async function dossierAltitude(q: RequeteTx, cleabs: string): Promise<number | null> {
+  const { rows } = await q<{ dossier_id: number | null }>(`SELECT dossier_id FROM permis_polygone_altitude WHERE cleabs = $1`, [cleabs]);
+  return rows[0]?.dossier_id ?? null;
+}
+
+/**
+ * 🔴 CŒUR d'une mesure LiDAR postérieure (import d'édition OU écrasement manuel) sur UN cleabs. Passe par le module PUR
+ * `preseanceAltitude` (mesure_lidar) : le LiDAR écrase TOUJOURS, y compris un 'permis' VALIDÉ → dossier `annule_par_lidar`.
+ * Met à jour l'altitude effective SANS effacer le lien `dossier_id` (on garde trace du permis annulé), écrit une ligne de
+ * REGISTRE (provenance obligatoire) et, si un 'permis' est écrasé, annule le dossier + événement. NE lit PAS le moteur SVAV.
+ */
+async function appliquerMesureLidar(q: RequeteTx, cleabs: string, altitudeLidar: number, prov: { millesime: string; source: string }, par: string, cause: 'import' | 'ecrasement_lidar', jActif: boolean): Promise<{ ecrasePermis: boolean }> {
+  const avant = await etatAltitude(q, cleabs);
+  const res = appliquerPreseanceAltitude(avant, { type: 'mesure_lidar', altitudeLidar });
+  // MAJ de l'altitude effective → origine 'lidar', refige effacée. On NE clobber PAS dossier_id (traçabilité du permis annulé).
+  await q(
+    `INSERT INTO permis_polygone_altitude (cleabs, altitude_ngf, altitude_origine, altitude_lidar_refige, altitude_lidar_refige_le, maj_le, maj_par)
+       VALUES ($1, $2, 'lidar', NULL, NULL, now(), $3)
+     ON CONFLICT (cleabs) DO UPDATE SET altitude_ngf = EXCLUDED.altitude_ngf, altitude_origine = 'lidar',
+       altitude_lidar_refige = NULL, altitude_lidar_refige_le = NULL, maj_le = now(), maj_par = EXCLUDED.maj_par`,
+    [cleabs, res.etat.altitudeNgf, par]);
+  const did = await dossierAltitude(q, cleabs);
+  if (jActif) {
+    await enregistrerLigneJournal(q, {
+      cleabs, altitudeNgf: res.etat.altitudeNgf, origine: 'lidar', cause,
+      sourceType: prov.source, sourceMillesime: prov.millesime, sourceDate: null, dossierId: did,
+      altitudePrecedente: avant.altitudeNgf, originePrecedente: avant.origine, par, note: res.trace,
+    });
+  }
+  if (res.ecrasePermis && did != null) {
+    const rid = await rattId(q, did);
+    if (rid != null) {
+      const { rows: before } = await q<{ etat: string }>(`SELECT etat FROM permis_rattachement WHERE id = $1`, [rid]);
+      await q(`UPDATE permis_rattachement SET etat = 'annule_par_lidar', reevalue_le = now() WHERE id = $1`, [rid]);
+      await evenement(q, rid, 'annulation_lidar', before[0]?.etat ?? null, 'annule_par_lidar', {
+        cleabs, altitudeLidar: res.etat.altitudeNgf, millesime: prov.millesime, source: prov.source, trace: res.trace,
+      }, par);
+    }
+  }
+  return { ecrasePermis: res.ecrasePermis };
+}
+
+/**
+ * ÉCRASEMENT MANUEL par une mesure LiDAR sur un cleabs (altitude fournie). Provenance OBLIGATOIRE (millésime + source), sinon
+ * refus. Le seul chemin « mesure LiDAR postérieure » aujourd'hui déclenchable à la main (pas de pipeline de réimport BD TOPO).
+ */
+export async function enregistrerMesureLidar(cleabs: string, altitudeLidar: number, prov: ProvenanceMesure, par: string): Promise<ResultatAction> {
+  const g = validerProvenance(prov);
+  if (!('millesime' in g)) return g;
+  if (!cleabs?.trim()) return { ok: false, motif: 'cleabs obligatoire' };
+  if (!Number.isFinite(altitudeLidar)) return { ok: false, motif: 'altitude LiDAR invalide' };
+  return withTransaction(async (q) => {
+    const jActif = await journalActif(q);
+    const { ecrasePermis } = await appliquerMesureLidar(q, cleabs.trim(), altitudeLidar, g, par, 'ecrasement_lidar', jActif);
+    return { ok: true, nbEcrases: ecrasePermis ? 1 : 0, motif: ecrasePermis ? 'altitude permis écrasée par la mesure LiDAR → dossier annulé par LiDAR' : undefined };
+  });
+}
+
+/**
+ * 🔴 POINT D'ENTRÉE de l'IMPORT BD TOPO — « le trou principal ». Le pipeline de réimport n'existe pas encore ; cette fonction est
+ * ce qu'il appellera. PÉRIMÈTRE BORNÉ : uniquement les cleabs INTERSECTANT une empreinte de permis (jamais le bâti des 4 dép.).
+ * Pour chaque cleabs suivi ayant une altitude de toit, applique la mesure (cause 'import') via la même préséance que ci-dessus.
+ * Provenance OBLIGATOIRE. Les altitudes ABSENTES (NULL) sont IGNORÉES : « attribut absent » n'est pas « bâtiment rasé » — on
+ * n'écrase pas une déclaration permis avec un vide.
+ */
+export async function importBdTopoSuivis(prov: ProvenanceMesure, par: string): Promise<ResultatAction> {
+  const g = validerProvenance(prov);
+  if (!('millesime' in g)) return g;
+  return withTransaction(async (q) => {
+    const jActif = await journalActif(q);
+    const { rows } = await q<{ cleabs: string; alt: string | number | null }>(
+      `SELECT DISTINCT b.cleabs, b.altitude_maximale_toit AS alt
+         FROM batiment b
+         JOIN permis_empreinte e ON e.geom IS NOT NULL AND ST_Intersects(ST_Force2D(b.geom), e.geom)
+        WHERE b.cleabs IS NOT NULL`);
+    let nbTraites = 0, nbEcrases = 0;
+    for (const r of rows) {
+      const alt = r.alt == null ? null : Number(r.alt);
+      if (alt == null) continue; // altitude absente → on n'écrase pas une déclaration permis avec un vide
+      const { ecrasePermis } = await appliquerMesureLidar(q, r.cleabs, alt, g, par, 'import', jActif);
+      nbTraites++;
+      if (ecrasePermis) nbEcrases++;
+    }
+    return { ok: true, nbTraites, nbEcrases };
   });
 }
