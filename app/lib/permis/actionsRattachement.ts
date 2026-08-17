@@ -12,6 +12,7 @@ import { withTransaction, type RequeteTx } from '../db/client';
 import { appliquerPreseanceAltitude, type EtatAltitudePolygone } from './preseanceAltitude';
 import { lireAffectation } from './affectationRepo';
 import { journalActif, enregistrerLigneJournal, derniereLigne, dateModifBatiment } from './journalAltitude';
+import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo';
 
 export interface ResultatAction {
   ok: boolean;
@@ -89,6 +90,8 @@ export async function validerRattachement(dossierId: number, valPar: string, con
     const rid = await rattId(q, dossierId);
     if (rid === null) return { ok: false, motif: 'aucun dossier de rattachement — lancez d’abord le suivi' };
     const jActif = await journalActif(q); // registre disponible ? (migration 118 appliquée)
+    // BDT-2 : millésime de l'édition BD TOPO courante pour la ligne de départ 'lidar' ; 'inconnu' tant que la 120 n'est pas stampée.
+    const milEdition = jActif ? await millesimeEditionCourante(q) : MILLESIME_INCONNU;
 
     let nbInjectes = 0;
     for (const inj of aInjecter) {
@@ -109,9 +112,11 @@ export async function validerRattachement(dossierId: number, valPar: string, con
           const dmod = await dateModifBatiment(q, inj.cleabs);
           await enregistrerLigneJournal(q, {
             cleabs: inj.cleabs, altitudeNgf: lidar, origine: 'lidar', cause: 'import',
-            sourceType: 'bdtopo', sourceMillesime: 'inconnu', sourceDate: dmod, // 🔴 édition non étiquetée → 'inconnu', jamais supposée
+            sourceType: 'bdtopo', sourceMillesime: milEdition, sourceDate: dmod, // BDT-2 : millésime stampé si édition courante, sinon 'inconnu' (jamais supposé)
             dossierId: null, altitudePrecedente: null, originePrecedente: null, par: valPar,
-            note: `ligne de départ : LiDAR capturée à la 1re injection (édition BD TOPO non étiquetée → millésime inconnu${dmod ? ` ; date_modification objet ${dmod}` : ` ; aucune date_modification objet`})`,
+            note: milEdition === MILLESIME_INCONNU
+              ? `ligne de départ : LiDAR capturée à la 1re injection (édition BD TOPO non étiquetée → millésime inconnu${dmod ? ` ; date_modification objet ${dmod}` : ` ; aucune date_modification objet`})`
+              : `ligne de départ : LiDAR capturée à la 1re injection (édition BD TOPO ${milEdition}${dmod ? ` ; date_modification objet ${dmod}` : ``})`,
           });
         }
         await enregistrerLigneJournal(q, {

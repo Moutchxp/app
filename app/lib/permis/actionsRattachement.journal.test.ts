@@ -17,10 +17,13 @@ const H = vi.hoisted(() => {
     dossierAlt: 11434 as number | null,
     etatDossier: 'valide',
     importRows: [] as { cleabs: string; alt: number | null }[],
+    editionMillesime: null as string | null, // BDT-2 : null = table bdtopo_edition absente (→ 'inconnu')
   };
   const queryMock = async (sql: string, params?: unknown[]) => {
     calls.push({ sql, params: params ?? [] });
     if (/to_regclass\('public\.permis_altitude_journal'\)/i.test(sql)) return { rows: [{ t: 'permis_altitude_journal' }] };
+    if (/to_regclass\('public\.bdtopo_edition'\)/i.test(sql)) return { rows: [{ t: state.editionMillesime != null ? 'bdtopo_edition' : null }] };
+    if (/SELECT millesime FROM bdtopo_edition WHERE courante/i.test(sql)) return { rows: state.editionMillesime != null ? [{ millesime: state.editionMillesime }] : [] };
     if (/SELECT id FROM permis_rattachement WHERE dossier_id/i.test(sql)) return { rows: [{ id: 99 }] };
     if (/SELECT altitude_ngf[\s\S]*FROM permis_polygone_altitude WHERE cleabs/i.test(sql)) return { rows: state.altRow ? [state.altRow] : [] };
     if (/SELECT dossier_id FROM permis_polygone_altitude WHERE cleabs/i.test(sql)) return { rows: [{ dossier_id: state.dossierAlt }] };
@@ -51,7 +54,7 @@ const events = () => H.calls.filter((c) => /INSERT INTO permis_rattachement_even
 
 beforeEach(() => {
   H.calls.length = 0;
-  Object.assign(H.state, { aff: aff(), lidar: 42, altRow: null, derniere: null, retourCleabs: [], dossierAlt: 11434, etatDossier: 'valide', importRows: [] });
+  Object.assign(H.state, { aff: aff(), lidar: 42, altRow: null, derniere: null, retourCleabs: [], dossierAlt: 11434, etatDossier: 'valide', importRows: [], editionMillesime: null });
 });
 
 describe('injection → registre', () => {
@@ -74,6 +77,15 @@ describe('injection → registre', () => {
     const j = journal();
     expect(j).toHaveLength(1);
     expect(j[0].params[3]).toBe('injection');
+  });
+
+  it('BDT-2 : édition BD TOPO courante stampée → la ligne de départ porte le millésime (fini « inconnu »)', async () => {
+    H.state.editionMillesime = '2026-03-15';
+    await validerRattachement(11434, 'admin:decision');
+    const j = journal();
+    expect(j[0].params.slice(0, 4)).toEqual(['BAT_A', 42, 'lidar', 'import']); // toujours la ligne de départ lidar
+    expect(j[0].params).toContain('2026-03-15'); // millésime réel injecté
+    expect(j[0].params).not.toContain('inconnu'); // plus de littéral supposé
   });
 });
 
