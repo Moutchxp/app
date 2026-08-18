@@ -44,9 +44,11 @@ import {
   marquerDossierSatisfait, demarquerDossier, statutDemande, lireClePiece,
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
   lireRecuLeReponse, RattachementNonEnvoyeeError,
-  classerNatureContenu, estNatureReclassable, reclasserNatureReponse, marquerRepondu, annulerRepondu, marquerReponduAuto,
+  classerNatureContenu, classerNature, estNatureReclassable, reclasserNatureReponse, marquerRepondu, annulerRepondu, marquerReponduAuto,
   type ReponseEntrante, type PieceAvecContenu,
 } from './demandeReponseRepo';
+import { estAccuseAutomatique, type MessageEntrant } from './rattachementReponse';
+import { readFileSync } from 'node:fs';
 import type { ResultatDepotEntrant } from '../stockage';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -568,5 +570,42 @@ describe('T7-A — reclasserNatureReponse : pose la nature + l’ancre + journal
     const ok = await reclasserNatureReponse(999, 'accuse', 'a.jorel');
     expect(ok).toBe(false);
     expect(trouver(/UPDATE demande_reponse\b/i)!.params[1]).toBe('accuse');
+  });
+});
+
+describe('FUS-4 — classerNature : foyer UNIQUE de la nature (refactor pur, comportement identique)', () => {
+  const msg = (entetes?: Record<string, string>): MessageEntrant => ({ messageId: '<m@x>', deAdresse: 'urba@mairie.fr', entetes });
+  const cas: { nom: string; message: MessageEntrant; contenu: { nbPieces: number; aLienFort: boolean } }[] = [
+    { nom: 'Auto-Submitted → accuse (prime sur le contenu)', message: msg({ 'Auto-Submitted': 'auto-replied' }), contenu: { nbPieces: 2, aLienFort: true } },
+    { nom: 'pièce jointe → documents', message: msg(), contenu: { nbPieces: 1, aLienFort: false } },
+    { nom: 'lien fort → documents', message: msg(), contenu: { nbPieces: 0, aLienFort: true } },
+    { nom: 'ni accusé ni contenu → autre', message: msg(), contenu: { nbPieces: 0, aLienFort: false } },
+    { nom: 'Auto-Submitted: no → PAS un accusé (le contenu décide)', message: msg({ 'Auto-Submitted': 'no' }), contenu: { nbPieces: 0, aLienFort: false } },
+  ];
+
+  it('table de vérité : accusé (Auto-Submitted) prime ; sinon documents/autre selon le contenu capté', () => {
+    expect(classerNature(msg({ 'Auto-Submitted': 'auto-replied' }), { nbPieces: 2, aLienFort: true })).toBe('accuse');
+    expect(classerNature(msg(), { nbPieces: 1, aLienFort: false })).toBe('documents');
+    expect(classerNature(msg(), { nbPieces: 0, aLienFort: true })).toBe('documents');
+    expect(classerNature(msg(), { nbPieces: 0, aLienFort: false })).toBe('autre');
+    expect(classerNature(msg({ 'Auto-Submitted': 'no' }), { nbPieces: 0, aLienFort: false })).toBe('autre');
+  });
+
+  it('ÉQUIVALENCE STRICTE : classerNature ≡ l’ancien snippet inline (estAccuseAutomatique ? accuse : classerNatureContenu)', () => {
+    for (const c of cas) {
+      const attendu = estAccuseAutomatique(c.message) ? 'accuse' : classerNatureContenu(c.contenu);
+      expect(classerNature(c.message, c.contenu), c.nom).toBe(attendu);
+    }
+  });
+});
+
+describe('FUS-4 — un seul foyer : les DEUX relèves passent par classerNature (plus de snippet dupliqué)', () => {
+  it('releverBoite ET releverApprofondie appellent classerNature, et ne classent plus la nature inline', () => {
+    for (const f of ['app/lib/veille/releveReponses.ts', 'app/lib/veille/releveApprofondie.ts']) {
+      const code = readFileSync(f, 'utf8');
+      expect(code, `${f} doit appeler classerNature`).toContain('classerNature(');
+      expect(/classerNatureContenu\s*\(/.test(code), `${f} ne doit plus appeler classerNatureContenu directement`).toBe(false);
+      expect(/estAccuseAutomatique\s*\(/.test(code), `${f} ne doit plus appeler estAccuseAutomatique directement`).toBe(false);
+    }
   });
 });

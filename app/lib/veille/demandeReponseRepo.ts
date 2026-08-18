@@ -6,6 +6,7 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { dossiersSatisfaits, type ReponsePourSatisfaction } from './satisfactionDossier';
 import type { ResultatDepotEntrant } from '../stockage';
+import { estAccuseAutomatique, type MessageEntrant } from './rattachementReponse'; // FUS-4 : foyer unique de la nature (estAccuseAutomatique est PUR ; l'edge est à sens unique, rattachement→repo est type-only)
 
 export type ProfilBoite = 'entreprise' | 'personne';
 export type RattachementMethode = 'message_id' | 'reference_objet' | 'reference_corps' | 'numero_dossier' | 'reference_mairie' | 'manuel' | 'aucun';
@@ -28,6 +29,16 @@ export type NatureContenu = 'documents' | 'autre';
  */
 export function classerNatureContenu(entree: { nbPieces: number; aLienFort: boolean }): NatureContenu {
   return entree.nbPieces > 0 || entree.aLienFort ? 'documents' : 'autre';
+}
+
+/**
+ * FUS-4 (refactor PUR) — NATURE d'un message entrant, SOURCE UNIQUE partagée par les DEUX relèves (`releverBoite` ET
+ * `releverApprofondie`), qui la calculaient jusqu'ici via un snippet DUPLIQUÉ. Reprend la décision À L'IDENTIQUE : accusé
+ * automatique (Auto-Submitted, T3) → 'accuse' ; sinon contenu capté (pièce OU lien fort, T7-A) → 'documents' / 'autre'.
+ * ⚠️ AUCUNE règle nouvelle ici — le motif d'objet viendra dans un lot ultérieur, à ajouter UNE SEULE FOIS dans cette fonction.
+ */
+export function classerNature(message: MessageEntrant, contenu: { nbPieces: number; aLienFort: boolean }): NatureReponse {
+  return estAccuseAutomatique(message) ? 'accuse' : classerNatureContenu(contenu);
 }
 
 /**

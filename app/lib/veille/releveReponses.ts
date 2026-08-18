@@ -14,9 +14,9 @@
  * ⚠️ N'écrit JAMAIS demande.statut ('close' reste sans écrivain, chantier R5). Boîte en LECTURE STRICTE (voir imap.ts).
  */
 import { query } from '../db/client';
-import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, classerNatureContenu, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
+import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, classerNature, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
-import { rattacherReponse, estRebondNonRemise, estAccuseAutomatique, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
+import { rattacherReponse, estRebondNonRemise, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
 import { analyserLiensReponse } from './extractionLiens';
 import type { BrancheDepot } from '../sitadel/depotManuel'; // N1-A : type SEUL (le runtime est injecté via opts.depot)
 import { analyserRapportRejet, normaliserMessageId, type PartieRapport, type ResultatRapportRejet } from './rapportRejet';
@@ -510,9 +510,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
       //   dossier (un accusé ne livre aucun document). Sinon, T7-A déduit documents/autre du CONTENU CAPTÉ (pièces OU lien fort),
       //   jamais du texte. Le contenu est connu AVANT l'insertion (pièces = mb.pieces ; liens = analyse pure) → nature définitive
       //   posée dès l'insert, sans second passage.
-      const nature: NatureReponse = estAccuseAutomatique(mb.message)
-        ? 'accuse'
-        : classerNatureContenu({ nbPieces: mb.pieces.length, aLienFort: liens.some((l) => l.fort) });
+      const nature: NatureReponse = classerNature(mb.message, { nbPieces: mb.pieces.length, aLienFort: liens.some((l) => l.fort) }); // FUS-4 : foyer unique
       lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, nature, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
       if (appliquer) {
         const id = await enregistrerReponse(construireLigne(opts.profil, mb, mid, r.demandeId, r.methode, r.motif, nature));
