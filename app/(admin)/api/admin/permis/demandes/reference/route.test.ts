@@ -11,18 +11,21 @@ vi.mock('../../../../../../lib/sitadel/demandeRepo', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
   return { ...actual, ajouterReferenceExterne: vi.fn(), supprimerReferenceExterne: vi.fn() };
 });
+vi.mock('../../../../../../lib/veille/demandeReponseRepo', () => ({ retenterRattachementParReference: vi.fn() })); // FUS-4 ②
 
 import { POST, DELETE } from './route';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
 import { ajouterReferenceExterne, supprimerReferenceExterne, ReferenceDejaEnregistreeError } from '../../../../../../lib/sitadel/demandeRepo';
+import { retenterRattachementParReference } from '../../../../../../lib/veille/demandeReponseRepo';
 
 const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
 const ajouter = ajouterReferenceExterne as unknown as ReturnType<typeof vi.fn>;
 const supprimer = supprimerReferenceExterne as unknown as ReturnType<typeof vi.fn>;
+const retenter = retenterRattachementParReference as unknown as ReturnType<typeof vi.fn>;
 const post = (body: unknown) => POST(new Request('http://test/api/admin/permis/demandes/reference', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
 const del = (body: unknown) => DELETE(new Request('http://test/api/admin/permis/demandes/reference', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
 
-beforeEach(() => { vi.clearAllMocks(); garde.mockResolvedValue({ auteurId: 5 }); });
+beforeEach(() => { vi.clearAllMocks(); garde.mockResolvedValue({ auteurId: 5 }); retenter.mockResolvedValue(0); });
 
 describe('P1 — POST reference', () => {
   it('non-administrateur → 403, aucun ajout', async () => {
@@ -94,6 +97,29 @@ describe('FUS-4 — DELETE reference (effacer, jamais défaire un envoi)', () =>
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect((await del({ demandeId: 119, reference: 'X' })).status).toBe(503);
     expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
+describe('FUS-4 ② — POST reference déclenche le re-rattachement différé (isolé de l’ajout)', () => {
+  it('ajout OK → retenterRattachementParReference appelé (demandeId, réf trimée, auteur) ; rattaches renvoyé', async () => {
+    ajouter.mockResolvedValueOnce(undefined);
+    retenter.mockResolvedValueOnce(1);
+    const res = await post({ demandeId: 233, reference: ' SLC260818242370 ' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, rattaches: 1 });
+    expect(retenter).toHaveBeenCalledWith(233, 'SLC260818242370', '5'); // auteur = auteurId 5
+  });
+
+  it('🔴 échec ISOLÉ du re-rattachement → réponse reste 200 {ok:true}, l’ajout n’est JAMAIS mis en péril', async () => {
+    ajouter.mockResolvedValueOnce(undefined);
+    retenter.mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '42P01' }));
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await post({ demandeId: 233, reference: 'SLC260818242370' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, rattaches: 0 }); // dégradé : 0, mais l'ajout a bien eu lieu
+    expect(ajouter).toHaveBeenCalledTimes(1);                       // ajout PRÉSERVÉ
+    expect(spy).toHaveBeenCalled();                                 // échec journalisé, jamais muet
     spy.mockRestore();
   });
 });

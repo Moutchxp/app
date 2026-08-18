@@ -1,6 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
 import { ajouterReferenceExterne, supprimerReferenceExterne, ReferenceDejaEnregistreeError } from '../../../../../../lib/sitadel/demandeRepo';
+import { retenterRattachementParReference } from '../../../../../../lib/veille/demandeReponseRepo'; // FUS-4 ② : re-rattachement différé
 
 /**
  * /api/admin/permis/demandes/reference (chantier P1 / FUS-4). POST = enregistre une RÉFÉRENCE interne de la MAIRIE sur une
@@ -32,7 +33,16 @@ export async function POST(request: Request): Promise<Response> {
       if (e instanceof ReferenceDejaEnregistreeError) return Response.json({ erreur: e.message }, { status: 409 });
       throw e;
     }
-    return Response.json({ ok: true });
+    // FUS-4 ② — l'ajout est COMMITTÉ (transaction propre). On re-tente le rattachement des messages non rattachés citant cette
+    //   référence, dans un try/catch ISOLÉ : un échec ici ne remet JAMAIS en cause l'ajout — on log et on répond quand même {ok:true}.
+    let rattaches = 0;
+    try {
+      const auteur = garde.auteurId === null ? 'admin' : String(garde.auteurId);
+      rattaches = await retenterRattachementParReference(c.demandeId as number, reference, auteur);
+    } catch (e) {
+      console.error('[permis/demandes/reference] re-rattachement différé en échec (ajout PRÉSERVÉ)', { demandeId: demandeCtx, message: (e as { message?: unknown })?.message });
+    }
+    return Response.json({ ok: true, rattaches });
   } catch (e) {
     const err = e as { name?: unknown; message?: unknown; stack?: unknown; code?: unknown; detail?: unknown; constraint?: unknown; table?: unknown; column?: unknown };
     console.error('[permis/demandes/reference] POST ajout impossible (503)', {

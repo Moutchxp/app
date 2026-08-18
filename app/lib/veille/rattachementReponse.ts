@@ -94,12 +94,19 @@ const LONGUEUR_MIN_REF = 6;
  * NORMALISÉE de P1 (MAJUSCULES, sans espaces ni tirets — `normaliserReference`, alignée sur l'index SQL), au-dessus d'un
  * plancher de longueur. Correspondance EXACTE de la référence entière (sous-chaîne normalisée), jamais approximative.
  */
+/**
+ * R3f / FUS-4 ② — la référence mairie DÉJÀ NORMALISÉE (`normaliserReference`) est-elle citée dans `texte` ? Règle : plancher de
+ * longueur (≥ `LONGUEUR_MIN_REF`, anti-faux-positif par sous-chaîne courte) + sous-chaîne EXACTE sur la forme normalisée du texte.
+ * PUR. SOURCE UNIQUE de la comparaison, réutilisée par la cascade (relève) ET le re-rattachement différé (saisie de référence,
+ * `retenterRattachementParReference`). ⚠️ `texte` = objet + corps concaténés PAR L'APPELANT, exactement comme la cascade (pas de
+ * corps_html) : toute extension du périmètre de texte devra se faire aux DEUX endroits à la fois (cascade ET différé).
+ */
+export function referenceCiteeDans(refNormalisee: string, texte: string): boolean {
+  return refNormalisee.length >= LONGUEUR_MIN_REF && normaliserReference(texte).includes(refNormalisee);
+}
+
 function parReferenceMairie(candidates: DemandeCandidate[], texte: string): DemandeCandidate[] {
-  const foin = normaliserReference(texte);
-  return uniqueParId(candidates.filter((c) => (c.referencesExternes ?? []).some((r) => {
-    const rn = normaliserReference(r);
-    return rn.length >= LONGUEUR_MIN_REF && foin.includes(rn);
-  })));
+  return uniqueParId(candidates.filter((c) => (c.referencesExternes ?? []).some((r) => referenceCiteeDans(normaliserReference(r), texte))));
 }
 
 const aucun = (motif: string): ResultatRattachement => ({ demandeId: null, methode: 'aucun', motif });

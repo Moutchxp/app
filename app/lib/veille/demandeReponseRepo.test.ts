@@ -8,7 +8,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
   // T1 : `tous` pilote le bool_and de synchroniserTraiteeDemande ; `conflitActif` pilote la sonde de conflit du ré-attachement.
-  const etat = { rows: [] as unknown[], rowCount: 1, conflit: false, tous: undefined as boolean | undefined, conflitActif: false, statutCible: undefined as string | undefined };
+  const etat = { rows: [] as unknown[], rowCount: 1, conflit: false, tous: undefined as boolean | undefined, conflitActif: false, statutCible: undefined as string | undefined,
+    refsExternes: [] as { demande_id: number; reference: string }[], candidats: [] as { id: number; objet: string | null; corps_texte: string | null }[] }; // FUS-4 ②
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
     return { rows: etat.rows, rowCount: etat.rowCount };
@@ -24,6 +25,9 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
       if (/AND actif AND demande_id <> \$2/i.test(sql)) return { rows: etat.conflitActif ? [{ demande_id: 999 }] : [], rowCount: etat.conflitActif ? 1 : 0 };
       // T4 — garde de rattacherAMain : SELECT statut de la demande cible. undefined → aucune ligne (statut inconnu → la garde passe, comme avant la garde).
       if (/SELECT statut FROM demande WHERE id = \$1/i.test(sql)) return { rows: etat.statutCible === undefined ? [] : [{ statut: etat.statutCible }], rowCount: 1 };
+      // FUS-4 ② — retenterRattachementParReference : garde d'ambiguïté (réfs des demandes envoyées/closes) + candidats non rattachés.
+      if (/FROM demande_reference_externe re JOIN demande/i.test(sql)) return { rows: etat.refsExternes, rowCount: etat.refsExternes.length };
+      if (/objet, corps_texte FROM demande_reponse WHERE demande_id IS NULL/i.test(sql)) return { rows: etat.candidats, rowCount: etat.candidats.length };
       // Les autres requêtes transactionnelles honorent etat.rowCount (permet de tester l'idempotence : 0 ligne → pas de journal).
       return { rows: [], rowCount: etat.rowCount };
     };
@@ -44,7 +48,7 @@ import {
   marquerDossierSatisfait, demarquerDossier, statutDemande, lireClePiece,
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
   lireRecuLeReponse, RattachementNonEnvoyeeError,
-  classerNatureContenu, classerNature, parseMotifsAccuse, estNatureReclassable, reclasserNatureReponse, marquerRepondu, annulerRepondu, marquerReponduAuto,
+  classerNatureContenu, classerNature, parseMotifsAccuse, retenterRattachementParReference, estNatureReclassable, reclasserNatureReponse, marquerRepondu, annulerRepondu, marquerReponduAuto,
   type ReponseEntrante, type PieceAvecContenu,
 } from './demandeReponseRepo';
 import { estAccuseAutomatique, type MessageEntrant } from './rattachementReponse';
@@ -54,7 +58,7 @@ import type { ResultatDepotEntrant } from '../stockage';
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 const trouver = (fragment: RegExp) => appels.find((a) => fragment.test(a.sql));
 
-beforeEach(() => { appels.length = 0; etat.rows = []; etat.rowCount = 1; etat.conflit = false; etat.tous = undefined; etat.conflitActif = false; etat.statutCible = undefined; });
+beforeEach(() => { appels.length = 0; etat.rows = []; etat.rowCount = 1; etat.conflit = false; etat.tous = undefined; etat.conflitActif = false; etat.statutCible = undefined; etat.refsExternes = []; etat.candidats = []; });
 
 describe('T1 — statuer un dossier ligne par ligne', () => {
   it('« non fourni » : triage=non_fourni, garde actif/non reçu/non trié, journalisé, reste dû (aucun satisfait_le posé)', async () => {
@@ -641,5 +645,59 @@ describe('FUS-4 — classerNature niveau 3 : motif d’objet « accusé » (pilo
   it('parseMotifsAccuse : séparateurs virgule OU retour à la ligne, trim, vides ignorés', () => {
     expect(parseMotifsAccuse('accusé de réception, confirmation de dépôt\n  récépissé  ,')).toEqual(['accusé de réception', 'confirmation de dépôt', 'récépissé']);
     expect(parseMotifsAccuse('')).toEqual([]);
+  });
+});
+
+describe('FUS-4 ② — retenterRattachementParReference (re-rattachement à la saisie d’une référence)', () => {
+  const REF = 'SLC260818242370';
+
+  it('message non rattaché citant la réf dans l’OBJET → 1 rattaché en reference_differee, auteur journalisé, garde demande_id IS NULL', async () => {
+    etat.refsExternes = [{ demande_id: 233, reference: REF }];          // réf sur UNE seule demande → non ambigu
+    etat.candidats = [{ id: 3, objet: `Accusé de réception (référence ${REF}) | Urbanisme`, corps_texte: null }];
+    etat.rowCount = 1;
+    expect(await retenterRattachementParReference(233, REF, 'admin')).toBe(1);
+    const upd = trouver(/rattachement_methode = 'reference_differee'/i)!;
+    expect(upd).toBeDefined();
+    expect(norm(upd.sql)).toContain('WHERE id = $1 AND demande_id IS NULL'); // ne vole JAMAIS un message déjà rattaché ailleurs
+    expect(upd.params).toEqual([3, 233, 'rattaché par référence (différé) par admin']);
+  });
+
+  it('citant la réf dans le CORPS (objet neutre) → 1 rattaché', async () => {
+    etat.refsExternes = [{ demande_id: 233, reference: REF }];
+    etat.candidats = [{ id: 3, objet: 'Votre demande', corps_texte: `… numéro ${REF} …` }];
+    expect(await retenterRattachementParReference(233, REF, 'admin')).toBe(1);
+  });
+
+  it('AMBIGUÏTÉ : la même réf NORMALISÉE sur 2 demandes envoyées/closes → 0, aucun rattachement', async () => {
+    etat.refsExternes = [{ demande_id: 233, reference: REF }, { demande_id: 999, reference: 'slc-260818242370' }]; // même réf une fois normalisée
+    etat.candidats = [{ id: 3, objet: REF, corps_texte: null }];
+    expect(await retenterRattachementParReference(233, REF, 'admin')).toBe(0);
+    expect(trouver(/rattachement_methode = 'reference_differee'/i)).toBeUndefined();
+  });
+
+  it('la cible n’est PAS dans l’ensemble envoyées/closes portant la réf (ex. brouillon) → 0', async () => {
+    etat.refsExternes = [{ demande_id: 999, reference: REF }]; // une autre demande porte la réf ; 233 (cible) absente → on ne devine pas
+    etat.candidats = [{ id: 3, objet: REF, corps_texte: null }];
+    expect(await retenterRattachementParReference(233, REF, 'admin')).toBe(0);
+  });
+
+  it('réf < 6 après normalisation → 0, AUCUNE requête (ni garde ni candidats)', async () => {
+    expect(await retenterRattachementParReference(233, 'AB12', 'admin')).toBe(0);
+    expect(trouver(/FROM demande_reference_externe re JOIN demande/i)).toBeUndefined();
+    expect(trouver(/demande_id IS NULL/i)).toBeUndefined();
+  });
+
+  it('candidat ne citant PAS la réf → non rattaché (0)', async () => {
+    etat.refsExternes = [{ demande_id: 233, reference: REF }];
+    etat.candidats = [{ id: 7, objet: 'Autre chose', corps_texte: 'sans référence' }];
+    expect(await retenterRattachementParReference(233, REF, 'admin')).toBe(0);
+  });
+
+  it('🔴 n’écrit QUE demande_reponse : aucune requête ne touche statut / envoye_le / demande_acheminement', async () => {
+    etat.refsExternes = [{ demande_id: 233, reference: REF }];
+    etat.candidats = [{ id: 3, objet: REF, corps_texte: null }];
+    await retenterRattachementParReference(233, REF, 'admin');
+    const toutSql = appels.map((a) => a.sql).join(' | ');
+    expect(/envoye_le|SET\s+statut|UPDATE\s+demande\b|demande_acheminement/i.test(toutSql)).toBe(false);
   });
 });

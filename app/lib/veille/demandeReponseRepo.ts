@@ -6,7 +6,8 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { dossiersSatisfaits, type ReponsePourSatisfaction } from './satisfactionDossier';
 import type { ResultatDepotEntrant } from '../stockage';
-import { estAccuseAutomatique, type MessageEntrant } from './rattachementReponse'; // FUS-4 : foyer unique de la nature (estAccuseAutomatique est PUR ; l'edge est à sens unique, rattachement→repo est type-only)
+import { estAccuseAutomatique, referenceCiteeDans, type MessageEntrant } from './rattachementReponse'; // FUS-4 : foyer unique de la nature + comparaison de référence (rattachementReponse est PUR ; l'edge est à sens unique, rattachement→repo est type-only)
+import { normaliserReference } from '../sitadel/demandesListe'; // FUS-4 ② : forme normalisée des références (alignée sur la cascade)
 
 export type ProfilBoite = 'entreprise' | 'personne';
 export type RattachementMethode = 'message_id' | 'reference_objet' | 'reference_corps' | 'numero_dossier' | 'reference_mairie' | 'manuel' | 'aucun';
@@ -255,6 +256,50 @@ export async function rattacherAMain(reponseId: number, demandeId: number, auteu
       [reponseId, demandeId, `rattaché à la main par ${auteur}`],
     );
     return (res.rowCount ?? 0) > 0;
+  });
+}
+
+/**
+ * FUS-4 ② — RE-TENTE le rattachement des messages NON rattachés qui citent `reference`, dès qu'elle est saisie sur `demandeId`
+ * (l'accusé arrive parfois AVANT que sa référence soit connue — cas 233). Réutilisable par tout second appelant (ex. la greffe
+ * de référence de marquerDeposee), sans dépendance à la route. Renvoie le nombre de messages effectivement rattachés.
+ *
+ * GARDES (dans cet ordre) :
+ *   1. plancher de longueur (≥ 6 après normalisation, via referenceCiteeDans) → sinon 0, aucune écriture ;
+ *   2. AMBIGUÏTÉ (dette P1 : UNIQUE(demande_id, reference), pas global) : la référence NORMALISÉE doit désigner EXACTEMENT une
+ *      demande de statut IN ('envoyee','close'), ET que ce soit `demandeId` → sinon 0 (on ne devine pas). Exclut aussi le cas
+ *      d'une cible brouillon/prête (elle n'est pas dans l'ensemble → ≠ 1) ;
+ *   3. ne touche QUE les messages `demande_id IS NULL` (WHERE explicite) → ne VOLE jamais un message déjà rattaché ailleurs.
+ * Match sur `objet + '\n' + corps_texte` — ALIGNÉ MOT POUR MOT sur la cascade (pas de corps_html ; cf. referenceCiteeDans).
+ * N'écrit QUE `demande_reponse` (jamais statut / envoye_le / demande_acheminement). Méthode 'reference_differee' (migration 126).
+ */
+export async function retenterRattachementParReference(demandeId: number, reference: string, auteur: string): Promise<number> {
+  const refN = normaliserReference(reference);
+  if (refN.length < 6) return 0; // plancher : un code court ne rattache jamais (aligné cascade)
+  return withTransaction(async (q) => {
+    // Garde d'ambiguïté : quelles demandes ENVOYÉES/CLOSES portent cette référence (comparée en NORMALISÉ) ?
+    const refs = await q<{ demande_id: number; reference: string }>(
+      `SELECT re.demande_id::int AS demande_id, re.reference
+         FROM demande_reference_externe re JOIN demande d ON d.id = re.demande_id
+        WHERE d.statut IN ('envoyee', 'close')`);
+    const cibles = new Set(refs.rows.filter((r) => normaliserReference(r.reference) === refN).map((r) => r.demande_id));
+    if (cibles.size !== 1 || !cibles.has(demandeId)) return 0; // ≠ 1 demande, ou pas la cible → on ne tranche pas
+
+    // Candidats : messages NON rattachés dont l'objet + corps_texte cite la référence.
+    const cand = await q<{ id: number; objet: string | null; corps_texte: string | null }>(
+      `SELECT id::int AS id, objet, corps_texte FROM demande_reponse WHERE demande_id IS NULL`);
+    let rattaches = 0;
+    for (const m of cand.rows) {
+      if (!referenceCiteeDans(refN, `${m.objet ?? ''}\n${m.corps_texte ?? ''}`)) continue;
+      const res = await q(
+        `UPDATE demande_reponse
+            SET demande_id = $2, rattachement_methode = 'reference_differee', rattache_le = now(), maj_le = now(),
+                note = btrim(coalesce(note || chr(10), '') || $3)
+          WHERE id = $1 AND demande_id IS NULL`, // idempotent : ne vole jamais un message déjà rattaché
+        [m.id, demandeId, `rattaché par référence (différé) par ${auteur}`]);
+      rattaches += res.rowCount ?? 0;
+    }
+    return rattaches;
   });
 }
 

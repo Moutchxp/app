@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rattacherReponse, estRebondNonRemise, estAccuseAutomatique, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
+import { rattacherReponse, estRebondNonRemise, estAccuseAutomatique, referenceCiteeDans, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
 
 /**
  * R2 — module PUR de rattachement. Tests sans réseau ni base : on fabrique un message + des candidates et on vérifie la
@@ -206,5 +206,16 @@ describe('T3 — estAccuseAutomatique (Auto-Submitted ≠ no, et PAS un DSN)', (
   });
   it('message normal SANS Auto-Submitted → false (reste indetermine côté relève)', () => {
     expect(estAccuseAutomatique(msg({ deAdresse: 'urba@mairie.fr', entetes: { 'Content-Type': 'text/plain' } }))).toBe(false);
+  });
+});
+
+describe('R3f / FUS-4 ② — referenceCiteeDans (helper PUR, source unique de la comparaison de référence)', () => {
+  it('table de vérité : plancher ≥ 6, sous-chaîne, insensible aux accents ET à la casse (le texte est normalisé)', () => {
+    // La réf est passée DÉJÀ normalisée (normaliserReference = MAJUSCULES, sans espaces ni tirets).
+    expect(referenceCiteeDans('SLC260818242370', 'Accusé de réception (référence SLC260818242370) | Urbanisme')).toBe(true);
+    expect(referenceCiteeDans('SLC260818242370', 'objet: slc-260818242370 (minuscules + tirets)')).toBe(true); // normalisation du texte
+    expect(referenceCiteeDans('SLC260818242370', 'aucune référence ici')).toBe(false);
+    expect(referenceCiteeDans('AB12', 'contient AB12 mais trop court')).toBe(false); // plancher de longueur (6)
+    expect(referenceCiteeDans('', 'texte quelconque')).toBe(false);
   });
 });
