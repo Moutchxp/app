@@ -48,3 +48,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Vérification** : tout nouveau `<->` se contrôle par un `EXPLAIN (ANALYZE, BUFFERS)` sur la requête **RÉELLE
   telle qu'émise**, jamais une version simplifiée — une mesure sur un `SELECT id` réduit a fait conclure à tort.
 - **Précédents** : `validerOrigine` 1919 ms → 310 ms ; `adressesProches` 629 ms → 125 ms.
+- **Un index n'aide que si le planificateur le PREND.** PostGIS estime très mal la sélectivité des jointures
+  `ST_DWithin` à petit rayon (0,1–1 m) sur données urbaines denses, et `ANALYZE` ne corrige PAS ce type d'erreur
+  → sur une cardinalité surestimée, le planificateur peut écarter un index parfaitement utilisable au profit d'un
+  hash sur TOUTE la table. Précédent : un btree sur `adresse_ban.cle_d_interoperabilite` (créé puis retiré le
+  18/08/2026) était bon (2,4 ms avec `enable_hashjoin=off` contre 183 ms) mais systématiquement évité en pratique.
+  **Règle** : avant d'ajouter un index pour tuer un seq scan, vérifier par `EXPLAIN` que le plan le PREND
+  réellement — pas seulement qu'il existe. (Et `enable_hashjoin=off` est un outil de DIAGNOSTIC, jamais un correctif de prod.)
