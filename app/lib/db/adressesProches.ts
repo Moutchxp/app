@@ -61,7 +61,13 @@ export async function adressesProches(
       FROM (SELECT * FROM dans_parcelle UNION ALL SELECT * FROM dans_voisine) u
       GROUP BY cle, ageom
     )
-    SELECT
+    SELECT DISTINCT
+      -- DISTINCT : deduplique la sortie. Le JOIN par cle ramene TOUTES les lignes adresse_ban d'une meme cle (8 109 cles ont
+      -- plusieurs POSITIONS geometriques pour la MEME adresse, affichage identique) -> N lignes IDENTIQUES en sortie. Sans DISTINCT,
+      -- un LIMIT 50 rempli de doublons pourrait MASQUER une adresse reelle du bien (visible sur le certificat). Les lignes en double
+      -- etant byte-identiques (affichage identique par cle, distance issue du point matche fixe), DISTINCT ne perd AUCUNE adresse
+      -- distincte (verifie : cas a cle dupliquee 22 -> 18 lignes, 18 adresses preservees ; cas propres inchanges). Choisi plutot que
+      -- le JOIN par (cle, geom) car ce dernier laisse un residu (18 cles a geometrie identique restent en double).
       f.cle AS cle,
       trim(concat_ws(' ', NULLIF(a.numero::text, ''), NULLIF(a.suffixe, ''), a.nom_voie)) || ', ' || a.nom_commune AS libelle,
       ST_Distance(f.ageom, pt.g) AS "distanceM",
