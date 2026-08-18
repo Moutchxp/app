@@ -25,7 +25,7 @@ async function pointInterieur(approx: PointWgs84): Promise<PointWgs84 | null> {
     `WITH pt AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g)
      SELECT ST_X(ST_Transform(ST_PointOnSurface(ST_Force2D(b.geom)),4326)) AS lon,
             ST_Y(ST_Transform(ST_PointOnSurface(ST_Force2D(b.geom)),4326)) AS lat
-     FROM bdtopo_batiment b, pt ORDER BY ST_Force2D(b.geom) <-> pt.g LIMIT 1;`,
+     FROM bdtopo_batiment b, pt ORDER BY b.geom <-> pt.g LIMIT 1;`,
     [approx.lon, approx.lat],
   );
   return res.rows[0] ? { lat: res.rows[0].lat, lon: res.rows[0].lon } : null;

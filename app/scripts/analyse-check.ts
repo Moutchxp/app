@@ -36,7 +36,7 @@ async function pointInterieurBatiment(approx: PointWgs84): Promise<LigneBatInter
             ST_X(ST_Transform(ST_PointOnSurface(ST_Force2D(b.geom)), 4326)) AS lon,
             ST_Y(ST_Transform(ST_PointOnSurface(ST_Force2D(b.geom)), 4326)) AS lat
      FROM bdtopo_batiment b, pt
-     ORDER BY ST_Force2D(b.geom) <-> pt.g
+     ORDER BY b.geom <-> pt.g                                        -- #2c : KNN nu (index de base)
      LIMIT 1;`,
     [approx.lon, approx.lat],
   );

@@ -75,7 +75,7 @@ export async function exporterParParcelle(idu: string, genereLe: string | null =
        FROM batiment b
        JOIN permis_parcelle p  ON p.idu = $1
        JOIN permis_empreinte e ON e.dossier_id = p.dossier_id AND e.geom IS NOT NULL
-      WHERE b.cleabs IS NOT NULL AND ST_Intersects(ST_Force2D(b.geom), e.geom)
+      WHERE b.cleabs IS NOT NULL AND ST_Intersects(b.geom, e.geom)   -- #2c : b.geom nu → index de base (Z ignoré par ST_Intersects, prouvé #2a)
       ORDER BY b.cleabs`, [idu]);
   const polygones: PolygoneExport[] = [];
   for (const r of rows) polygones.push(await polygone(r.cleabs));

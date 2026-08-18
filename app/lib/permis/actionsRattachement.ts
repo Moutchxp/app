@@ -274,7 +274,7 @@ export async function importBdTopoSuivis(prov: ProvenanceMesure, par: string): P
     const { rows } = await q<{ cleabs: string; alt: string | number | null }>(
       `SELECT DISTINCT b.cleabs, b.altitude_maximale_toit AS alt
          FROM batiment b
-         JOIN permis_empreinte e ON e.geom IS NOT NULL AND ST_Intersects(ST_Force2D(b.geom), e.geom)
+         JOIN permis_empreinte e ON e.geom IS NOT NULL AND ST_Intersects(b.geom, e.geom)   -- #2c : b.geom nu → index de base (Z ignoré par ST_Intersects, prouvé #2a)
         WHERE b.cleabs IS NOT NULL`);
     let nbTraites = 0, nbEcrases = 0;
     for (const r of rows) {

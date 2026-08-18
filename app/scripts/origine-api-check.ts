@@ -36,7 +36,7 @@ async function pointRue(): Promise<{ lat: number; lon: number }> {
      SELECT ST_X(ST_Transform(cand.p,4326)) AS lon, ST_Y(ST_Transform(cand.p,4326)) AS lat
      FROM cand,
           LATERAL (SELECT MIN(ST_Distance(ST_Force2D(b.geom), cand.p)) AS dmin
-                   FROM bdtopo_batiment b WHERE ST_DWithin(ST_Force2D(b.geom), cand.p, 80)) d
+                   FROM bdtopo_batiment b WHERE ST_DWithin(b.geom, cand.p, 80)) d   -- #2c : b.geom nu → index de base (ST_DWithin ignore Z, prouvé #2c)
      ORDER BY d.dmin DESC NULLS LAST
      LIMIT 1;`,
     [ORIGINE.lon, ORIGINE.lat],
