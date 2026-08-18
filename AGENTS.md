@@ -34,3 +34,17 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Exemple de la bonne forme : `app/(admin)/api/admin/curation/curation.test.ts` (cas « entité supprimée »).
 - Règle pour les **NOUVEAUX** tests. Les ~24 tests existants qui figent encore la forme d'un SQL émis seront
   migrés au fil de l'eau, quand un chantier les touche (pas de chantier de masse).
+
+# Écriture des requêtes spatiales — un KNN ne lit JAMAIS son point d'un CTE multi-référencé
+
+- **Le piège** : un CTE (`WITH …`) produisant un point/une géométrie ET **référencé plusieurs fois** est
+  MATÉRIALISÉ par PostgreSQL. Tout opérateur exigeant un opérande scalaire — au premier rang le **KNN `<->`**
+  — perd alors son index **EN SILENCE** : ni erreur, ni warning, juste un seq scan de toute la table.
+- **La règle** : pour un `<->`, **INLINER** l'expression du point dans le `ORDER BY`
+  (`ORDER BY b.geom <-> ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154)`), jamais la lire d'un CTE
+  multi-référencé (`pt.g`).
+- **Nuance (évite le faux positif)** : les JOIN `ST_Intersects` / `ST_DWithin` ne sont **PAS** concernés — la
+  géométrie du CTE pilote une nested loop paramétrée et l'index tient (cas `calageFacade`). N'inline pas par réflexe.
+- **Vérification** : tout nouveau `<->` se contrôle par un `EXPLAIN (ANALYZE, BUFFERS)` sur la requête **RÉELLE
+  telle qu'émise**, jamais une version simplifiée — une mesure sur un `SELECT id` réduit a fait conclure à tort.
+- **Précédents** : `validerOrigine` 1919 ms → 310 ms ; `adressesProches` 629 ms → 125 ms.
