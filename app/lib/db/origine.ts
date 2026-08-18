@@ -53,7 +53,7 @@ export async function validerOrigine(
      nn AS (                                            -- bâtiment le plus proche
        SELECT b.id, b.cleabs, ST_Force2D(b.geom) AS geom, b.altitude_minimale_sol AS alt_sol_bdtopo
        FROM bdtopo_batiment b, pt
-       ORDER BY ST_Force2D(b.geom) <-> pt.g
+       ORDER BY b.geom <-> pt.g                          -- #2 : KNN via index de base (Z ignoré par <->, prouvé #2a) ; ST_Force2D gardé en projection L54 (sortie/distance)
        LIMIT 1
      ),
      snap AS (                                          -- semi_auto : projection bordure ; manuel : point brut tel quel

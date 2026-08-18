@@ -575,12 +575,12 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
      FROM bdtopo_batiment b
        LEFT JOIN bdnb_annee_batiment ba ON ba.cleabs = b.cleabs,  -- F2 : année (PK cleabs, 1:0/1:1)
        couloir c
-     WHERE ST_Intersects(ST_Force2D(b.geom), c.corr)
+     WHERE ST_Intersects(b.geom, c.corr)                             -- #2 : b.geom NON wrappé → index de base batiment_geom_geom_idx (Z ignoré par ST_Intersects, prouvé sur données #2a)
        AND b.id <> $6
        -- Exclusion GÉOMÉTRIQUE (en plus de l'id) : un faisceau ne doit jamais être plafonné à 0 m
        -- par le bâtiment qui CONTIENT son point de départ (cas où l'id d'origine enregistré diffère
        -- du polygone réellement sous le marqueur). c.origine = point d'origine snappé, déjà en 2154.
-       AND NOT ST_Contains(ST_Force2D(b.geom), c.origine)
+       AND NOT ST_Contains(b.geom, c.origine)                        -- #2 : nu (Z ignoré par ST_Contains, prouvé #2a)
      ORDER BY dist_m ASC;`,
     [
       params.point.lon,
