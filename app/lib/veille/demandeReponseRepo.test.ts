@@ -9,7 +9,8 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
   // T1 : `tous` pilote le bool_and de synchroniserTraiteeDemande ; `conflitActif` pilote la sonde de conflit du ré-attachement.
   const etat = { rows: [] as unknown[], rowCount: 1, conflit: false, tous: undefined as boolean | undefined, conflitActif: false, statutCible: undefined as string | undefined,
-    refsExternes: [] as { demande_id: number; reference: string }[], candidats: [] as { id: number; objet: string | null; corps_texte: string | null }[] }; // FUS-4 ②
+    refsExternes: [] as { demande_id: number; reference: string }[], candidats: [] as { id: number; objet: string | null; corps_texte: string | null }[], // FUS-4 ②
+    reclasseDemandeId: null as number | null }; // FUS : demande_id renvoyé par le RETURNING de reclasserNatureReponse (pilote le foyer)
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
     return { rows: etat.rows, rowCount: etat.rowCount };
@@ -28,6 +29,9 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
       // FUS-4 ② — retenterRattachementParReference : garde d'ambiguïté (réfs des demandes envoyées/closes) + candidats non rattachés.
       if (/FROM demande_reference_externe re JOIN demande/i.test(sql)) return { rows: etat.refsExternes, rowCount: etat.refsExternes.length };
       if (/objet, corps_texte FROM demande_reponse WHERE demande_id IS NULL/i.test(sql)) return { rows: etat.candidats, rowCount: etat.candidats.length };
+      // FUS — reclasserNatureReponse : UPDATE demande_reponse … RETURNING demande_id. rowCount pilote ok (comme avant) ; la ligne
+      //   porte le demande_id (null par défaut = message non rattaché → le foyer n'est pas appelé).
+      if (/UPDATE demande_reponse[\s\S]*RETURNING demande_id/i.test(sql)) return etat.rowCount > 0 ? { rows: [{ demande_id: etat.reclasseDemandeId }], rowCount: 1 } : { rows: [], rowCount: 0 };
       // Les autres requêtes transactionnelles honorent etat.rowCount (permet de tester l'idempotence : 0 ligne → pas de journal).
       return { rows: [], rowCount: etat.rowCount };
     };
@@ -48,7 +52,7 @@ import {
   marquerDossierSatisfait, demarquerDossier, statutDemande, lireClePiece,
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
   lireRecuLeReponse, RattachementNonEnvoyeeError,
-  classerNatureContenu, classerNature, parseMotifsAccuse, retenterRattachementParReference, estNatureReclassable, reclasserNatureReponse, marquerRepondu, annulerRepondu, marquerReponduAuto,
+  classerNatureContenu, classerNature, parseMotifsAccuse, retenterRattachementParReference, estNatureReclassable, reclasserNatureReponse, reclamperEnvoyeLe, marquerRepondu, annulerRepondu, marquerReponduAuto,
   type ReponseEntrante, type PieceAvecContenu,
 } from './demandeReponseRepo';
 import { estAccuseAutomatique, type MessageEntrant } from './rattachementReponse';
@@ -58,7 +62,7 @@ import type { ResultatDepotEntrant } from '../stockage';
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 const trouver = (fragment: RegExp) => appels.find((a) => fragment.test(a.sql));
 
-beforeEach(() => { appels.length = 0; etat.rows = []; etat.rowCount = 1; etat.conflit = false; etat.tous = undefined; etat.conflitActif = false; etat.statutCible = undefined; etat.refsExternes = []; etat.candidats = []; });
+beforeEach(() => { appels.length = 0; etat.rows = []; etat.rowCount = 1; etat.conflit = false; etat.tous = undefined; etat.conflitActif = false; etat.statutCible = undefined; etat.refsExternes = []; etat.candidats = []; etat.reclasseDemandeId = null; });
 
 describe('T1 — statuer un dossier ligne par ligne', () => {
   it('« non fourni » : triage=non_fourni, garde actif/non reçu/non trié, journalisé, reste dû (aucun satisfait_le posé)', async () => {
@@ -693,11 +697,100 @@ describe('FUS-4 ② — retenterRattachementParReference (re-rattachement à la 
     expect(await retenterRattachementParReference(233, REF, 'admin')).toBe(0);
   });
 
-  it('🔴 n’écrit QUE demande_reponse : aucune requête ne touche statut / envoye_le / demande_acheminement', async () => {
+  it('🔴 ne touche jamais la table demande / son statut ; le re-clamp de envoye_le passe DÉSORMAIS par le foyer', async () => {
     etat.refsExternes = [{ demande_id: 233, reference: REF }];
     etat.candidats = [{ id: 3, objet: REF, corps_texte: null }];
     await retenterRattachementParReference(233, REF, 'admin');
     const toutSql = appels.map((a) => a.sql).join(' | ');
-    expect(/envoye_le|SET\s+statut|UPDATE\s+demande\b|demande_acheminement/i.test(toutSql)).toBe(false);
+    // FUS — un accusé arrivé avant sa réf. peut plafonner envoye_le : le re-clamp passe par le foyer (UPDATE demande_acheminement
+    //   borné à l'accusé). Ce qui reste INTERDIT : écrire la table `demande` ou son statut (les tables `demande_*` sont exclues
+    //   par le `\b`, car « _ » n'est pas une frontière de mot).
+    expect(/UPDATE\s+demande\b/i.test(toutSql)).toBe(false);
+    expect(/\bSET\s+statut\b/i.test(toutSql)).toBe(false);
+    expect(/UPDATE demande_acheminement/i.test(toutSql)).toBe(true); // le foyer EST bien passé (c'est le sens du chantier)
+  });
+});
+
+describe('FUS — reclamperEnvoyeLe : foyer unique de l’invariant « envoye_le ≤ 1er accusé » (canal formulaire)', () => {
+  // q factice : capture (sql, params) et pilote le RETURNING de l'UPDATE demande_acheminement (les lignes ayant reculé).
+  const fakeQ = (returning: { ancien: string; nouveau: string }[]) => {
+    const journaux: { sql: string; params: unknown[] }[] = [];
+    const q = (async (sql: string, params?: unknown[]) => {
+      journaux.push({ sql, params: params ?? [] });
+      if (/UPDATE demande_acheminement/i.test(sql)) return { rows: returning, rowCount: returning.length };
+      return { rows: [], rowCount: 1 };
+    }) as unknown as Parameters<typeof reclamperEnvoyeLe>[0]; // signature RequeteTx
+    return { q, journaux };
+  };
+
+  it('accusé rattaché APRÈS le clic → la date RECULE et UNE SEULE ligne de journal (ancien → nouveau, cause)', async () => {
+    const { q, journaux } = fakeQ([{ ancien: '2026-08-18T10:39:53Z', nouveau: '2026-08-18T10:38:51Z' }]);
+    const bouge = await reclamperEnvoyeLe(q, 233, 'systeme');
+    expect(bouge).toBe(true);
+    const upd = journaux.find((a) => /UPDATE demande_acheminement/i.test(a.sql))!;
+    const s = norm(upd.sql);
+    expect(s).toContain("a2.canal = 'formulaire'");  // borné au téléservice → canal e-mail JAMAIS touché
+    expect(s).toContain("a2.statut = 'envoye'");
+    expect(s).toContain("nature = 'accuse'");         // borne = 1er accusé
+    expect(s).toContain('a.envoye_le > sub.borne');   // MONOTONIE + IDEMPOTENCE : ne fait que RECULER
+    expect(s).toContain('sub.borne IS NOT NULL');      // aucun accusé → borne NULL → no-op
+    expect(s).not.toContain("'email'");                // le canal e-mail n'apparaît nulle part
+    expect(upd.params).toEqual([233]);
+    // UNE SEULE ligne de journal ; statut_avant/apres sont des NULL LITTÉRAUX du SQL (pas des params) → params = [id, motif, auteur].
+    const jour = journaux.filter((a) => /INSERT INTO demande_journal/i.test(a.sql));
+    expect(jour).toHaveLength(1);
+    expect(norm(jour[0].sql)).toContain('(demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, $3)');
+    const [demandeId, motif, auteur] = jour[0].params as [number, string, string];
+    expect(demandeId).toBe(233);
+    expect(motif).toContain('2026-08-18T10:39:53Z'); // ancienne
+    expect(motif).toContain('2026-08-18T10:38:51Z'); // nouvelle
+    expect(motif.toLowerCase()).toContain('accusé');  // cause explicite
+    expect(auteur).toBe('systeme');
+  });
+
+  it('idempotence : 2ᵉ appel (aucune ligne ne recule) → false, AUCUNE ligne de journal', async () => {
+    const { q, journaux } = fakeQ([]); // « envoye_le > borne » déjà faux → 0 ligne
+    const bouge = await reclamperEnvoyeLe(q, 233, 'systeme');
+    expect(bouge).toBe(false);
+    expect(journaux.some((a) => /INSERT INTO demande_journal/i.test(a.sql))).toBe(false);
+  });
+});
+
+describe('FUS — le foyer est branché sur les 5 chemins qui attachent/reclassent un accusé (aucun ne l’oublie)', () => {
+  it('reclasser EN « accuse » d’un message rattaché → passe par le foyer ; reclasser HORS accusé → JAMAIS (la date ne remonte pas)', async () => {
+    etat.rowCount = 1; etat.reclasseDemandeId = 233;
+    await reclasserNatureReponse(9, 'accuse', 'a.jorel');
+    expect(appels.some((a) => /UPDATE demande_acheminement/i.test(a.sql))).toBe(true);
+    appels.length = 0;
+    await reclasserNatureReponse(9, 'autre', 'a.jorel'); // la borne disparaît, mais AUCUN re-clamp (monotonie : jamais de remontée)
+    expect(appels.some((a) => /UPDATE demande_acheminement/i.test(a.sql))).toBe(false);
+  });
+
+  it('reclasser EN « accuse » d’un message NON rattaché (demande_id NULL) → no-op, pas de foyer', async () => {
+    etat.rowCount = 1; etat.reclasseDemandeId = null;
+    await reclasserNatureReponse(9, 'accuse', 'a.jorel');
+    expect(appels.some((a) => /UPDATE demande_acheminement/i.test(a.sql))).toBe(false);
+  });
+
+  it('rattacherAMain (accusé rattaché à la main) → passe par le foyer', async () => {
+    etat.rowCount = 1; etat.statutCible = 'envoyee';
+    await rattacherAMain(7, 154, 'a.jorel');
+    expect(appels.some((a) => /UPDATE demande_acheminement/i.test(a.sql))).toBe(true);
+  });
+
+  it('retenterRattachementParReference (accusé rattaché par réf. — cas 233) → passe par le foyer', async () => {
+    const REF = 'SLC260818242370';
+    etat.refsExternes = [{ demande_id: 233, reference: REF }];
+    etat.candidats = [{ id: 3, objet: `Accusé de réception ${REF}`, corps_texte: null }];
+    etat.rowCount = 1;
+    expect(await retenterRattachementParReference(233, REF, 'a.jorel')).toBeGreaterThan(0);
+    expect(appels.some((a) => /UPDATE demande_acheminement/i.test(a.sql))).toBe(true);
+  });
+
+  it('les DEUX relèves appellent reclamperEnvoyeLe dans la boucle (chemins 1 & 2)', () => {
+    for (const f of ['app/lib/veille/releveReponses.ts', 'app/lib/veille/releveApprofondie.ts']) {
+      const code = readFileSync(f, 'utf8');
+      expect(code, `${f} doit appeler reclamperEnvoyeLe`).toContain('reclamperEnvoyeLe(');
+    }
   });
 });

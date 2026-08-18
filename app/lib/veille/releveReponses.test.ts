@@ -196,7 +196,12 @@ describe('T3 — nature du message : accusé enregistré (jamais rebond étrange
     const ins = trouver(/INSERT INTO demande_reponse\b/i)!;
     expect(ins.params[0]).toBe(1);          // rattaché à la demande 154
     expect(ins.params[13]).toBe('accuse');  // nature liée
-    expect(trouver(/UPDATE demande_acheminement/i)).toBeUndefined();     // pas un rebond → acheminement intact
+    // FUS — FOYER : un accusé rattaché en relève peut plafonner envoye_le au 1er accusé → l'UPDATE demande_acheminement porte
+    //   SUR envoye_le (re-clamp borné à l'accusé), JAMAIS un marquage rebond (statut='rebond').
+    const ach = trouver(/UPDATE demande_acheminement/i)!;
+    const sAch = ach.sql.replace(/\s+/g, ' ');
+    expect(sAch).toContain('SET envoye_le = sub.borne');
+    expect(sAch).not.toContain("statut = 'rebond'");
     expect(trouver(/SELECT dd\.dossier_id, s\.num_dau/i)).toBeUndefined(); // un accusé ne déclenche AUCUNE satisfaction auto de dossier
   });
 

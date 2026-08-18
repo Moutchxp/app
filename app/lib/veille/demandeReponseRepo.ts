@@ -239,6 +239,46 @@ export class RattachementNonEnvoyeeError extends Error {
 }
 
 /**
+ * FUS — FOYER UNIQUE de l'invariant téléservice : `envoye_le` d'un dépôt 'formulaire' ne peut JAMAIS être postérieur au PREMIER
+ * accusé rattaché à la demande. Rejoue le prédicat de la migration 127 À CHAUD, à chaque fois qu'un accusé se rattache/reclasse
+ * APRÈS le clic « marquer déposée » (l'ordre réel étant dépôt → accusé → relève → rattachement, le clamp posé à l'écriture de
+ * `marquerDeposee` ne mordait presque jamais — cas 000157/233). DOIT tourner DANS la transaction de l'appelant (nature et date
+ * bougent ensemble ou pas du tout).
+ *
+ * GARANTIES structurelles, portées par le SEUL prédicat (comme la migration 127) :
+ *   • MONOTONIE : ne fait que RECULER (`a.envoye_le > sub.borne`) — un accusé reclassé « autre » ou détaché fait disparaître la
+ *     borne mais ne REMONTE jamais la date ;
+ *   • IDEMPOTENCE : après correction `envoye_le = borne` ⇒ « > » faux ⇒ 2ᵉ passage = 0 ligne, aucun journal ;
+ *   • aucun accusé ⇒ borne NULL ⇒ 0 ligne (le clic reste la seule ancre) ;
+ *   • canal 'formulaire' UNIQUEMENT → le canal e-mail (émission SMTP réelle, `envoiDemande`) n'est JAMAIS touché.
+ * Chaque re-clamp EFFECTIF est journalisé (ancienne → nouvelle valeur, cause) dans demande_journal (statut_avant/apres NULL, comme
+ * une écriture d'événement, cf. dossiers satisfaits/relance auto). Le `RETURNING` remonte l'ANCIENNE valeur (via la sous-requête
+ * FROM) → on ne journalise QUE ce qui a effectivement bougé. Renvoie true si ≥ 1 ligne a reculé.
+ */
+export async function reclamperEnvoyeLe(q: RequeteTx, demandeId: number, auteur: string): Promise<boolean> {
+  const res = await q<{ ancien: string; nouveau: string }>(
+    `UPDATE demande_acheminement a
+        SET envoye_le = sub.borne, maj_a = now()
+       FROM (
+         SELECT a2.id, a2.envoye_le AS ancien,
+                (SELECT min(r.recu_le) FROM demande_reponse r WHERE r.demande_id = a2.demande_id AND r.nature = 'accuse') AS borne
+           FROM demande_acheminement a2
+          WHERE a2.demande_id = $1 AND a2.canal = 'formulaire' AND a2.statut = 'envoye'
+       ) sub
+      WHERE a.id = sub.id AND sub.borne IS NOT NULL AND a.envoye_le > sub.borne
+      RETURNING sub.ancien::text AS ancien, a.envoye_le::text AS nouveau`,
+    [demandeId],
+  );
+  for (const ligne of res.rows) {
+    await q(
+      `INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, $3)`,
+      [demandeId, `envoye_le re-plafonné au 1er accusé (téléservice) : ${ligne.ancien} → ${ligne.nouveau}`, auteur],
+    );
+  }
+  return res.rows.length > 0;
+}
+
+/**
  * Rattache À LA MAIN une réponse à une demande : pose demande_id, rattachement_methode='manuel', rattache_le=now(), et
  * consigne l'auteur dans `note` (append). Ne touche PAS demande.statut. T4 : GARDE de statut (repo) — refus si brouillon/prête.
  * Renvoie true si une ligne a été mise à jour.
@@ -255,7 +295,11 @@ export async function rattacherAMain(reponseId: number, demandeId: number, auteu
         WHERE id = $1`,
       [reponseId, demandeId, `rattaché à la main par ${auteur}`],
     );
-    return (res.rowCount ?? 0) > 0;
+    const ok = (res.rowCount ?? 0) > 0;
+    // FUS — le message rattaché peut être un accusé (ou la demande en porter un) : re-plafonne envoye_le au 1er accusé. No-op si
+    //   aucun accusé, ou si la date est déjà conforme (idempotent/monotone, cf. reclamperEnvoyeLe). MÊME transaction.
+    if (ok) await reclamperEnvoyeLe(q, demandeId, auteur);
+    return ok;
   });
 }
 
@@ -299,6 +343,9 @@ export async function retenterRattachementParReference(demandeId: number, refere
         [m.id, demandeId, `rattaché par référence (différé) par ${auteur}`]);
       rattaches += res.rowCount ?? 0;
     }
+    // FUS — l'accusé arrive parfois AVANT sa référence (cas 233) : dès qu'il est rattaché ici, re-plafonner envoye_le au 1er
+    //   accusé. No-op si aucun message rattaché (ou aucun accusé). MÊME transaction que le rattachement.
+    if (rattaches > 0) await reclamperEnvoyeLe(q, demandeId, auteur);
     return rattaches;
   });
 }
@@ -311,16 +358,27 @@ export async function retenterRattachementParReference(demandeId: number, refere
  * Renvoie true si une ligne a été mise à jour. La liste fermée du CHECK (migration 096) reste respectée.
  */
 export async function reclasserNatureReponse(reponseId: number, nature: NatureReclassable, auteur: string): Promise<boolean> {
-  const res = await query(
-    `UPDATE demande_reponse
-        SET nature = $2,
-            nature_classee_le = CASE WHEN $2 IN ('documents', 'autre') THEN now() ELSE NULL END,
-            maj_le = now(),
-            note = btrim(coalesce(note || chr(10), '') || $3)
-      WHERE id = $1`,
-    [reponseId, nature, `nature reclassée « ${nature} » par ${auteur}`],
-  );
-  return (res.rowCount ?? 0) > 0;
+  return withTransaction(async (q) => {
+    const res = await q<{ demande_id: number | null }>(
+      `UPDATE demande_reponse
+          SET nature = $2,
+              nature_classee_le = CASE WHEN $2 IN ('documents', 'autre') THEN now() ELSE NULL END,
+              maj_le = now(),
+              note = btrim(coalesce(note || chr(10), '') || $3)
+        WHERE id = $1
+        RETURNING demande_id`,
+      [reponseId, nature, `nature reclassée « ${nature} » par ${auteur}`],
+    );
+    const ok = (res.rowCount ?? 0) > 0;
+    // FUS — reclasser EN 'accuse' un message DÉJÀ rattaché crée une borne → re-plafonne envoye_le. Un reclassement HORS accusé
+    //   ne touche jamais la date : la borne disparaît, mais la MONOTONIE du foyer interdit toute remontée (donc on ne l'appelle
+    //   même pas). Message non rattaché (demande_id NULL) → rien à plafonner. MÊME transaction que le reclassement.
+    if (ok && nature === 'accuse') {
+      const demandeId = res.rows[0]?.demande_id ?? null;
+      if (demandeId !== null) await reclamperEnvoyeLe(q, demandeId, auteur);
+    }
+    return ok;
+  });
 }
 
 /**

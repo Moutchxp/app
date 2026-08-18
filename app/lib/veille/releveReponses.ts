@@ -13,8 +13,8 @@
  *
  * ⚠️ N'écrit JAMAIS demande.statut ('close' reste sans écrivain, chantier R5). Boîte en LECTURE STRICTE (voir imap.ts).
  */
-import { query } from '../db/client';
-import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, classerNature, parseMotifsAccuse, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
+import { query, withTransaction } from '../db/client';
+import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, classerNature, parseMotifsAccuse, reclamperEnvoyeLe, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { rattacherReponse, estRebondNonRemise, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
 import { analyserLiensReponse } from './extractionLiens';
@@ -522,6 +522,13 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
           //   un accusé (T3) : il n'apporte aucun document.
           if (r.demandeId !== null && nature !== 'accuse') {
             await marquerDossiersSatisfaitsAuto(r.demandeId, id, { piecesNoms: mb.pieces.map((p) => p.nomFichier), corpsTexte: mb.message.corpsTexte ?? null });
+          }
+          // FUS — FOYER : un accusé rattaché ICI arrive APRÈS le clic « déposée » (ordre réel dépôt → accusé → relève) → re-plafonne
+          //   envoye_le au 1er accusé (canal formulaire). Auteur 'systeme' (relève auto, aucun humain). Transaction propre au foyer
+          //   (l'insert de la réponse a déjà commité) ; idempotent/monotone → sans risque de doublon ni de remontée de date.
+          if (r.demandeId !== null && nature === 'accuse') {
+            const demandeId = r.demandeId;
+            await withTransaction((q) => reclamperEnvoyeLe(q, demandeId, 'systeme'));
           }
           // L1 — enregistrer les liens captés. PUR : on ne SUIT JAMAIS un lien. L'expiration n'est captée que si écrite
           //   explicitement. Ne fait NI archivage NI satisfait_le.

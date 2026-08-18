@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // La relève approfondie réelle passe par la base : on mocke le client DB pour éprouver le SQL émis (fragments sémantiques)
 // sans connexion. Les tests d'orchestration/relève utilisent l'INJECTION (aucun accès DB réel).
-vi.mock('../db/client', () => ({ query: vi.fn(), withTransaction: vi.fn(async (fn: (q: unknown) => unknown) => fn(vi.fn())) }));
+vi.mock('../db/client', () => ({ query: vi.fn(), withTransaction: vi.fn(async (fn: (q: unknown) => unknown) => fn(vi.fn(async () => ({ rows: [], rowCount: 0 })))) }));
 
 import { query } from '../db/client';
 import {

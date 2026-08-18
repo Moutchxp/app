@@ -10,9 +10,9 @@
  * l'orchestrateur est appelé depuis le CORPS d'executerVeille (déjà sous CLE_VERROU). GARDE : au plus une approfondie par
  * demande et par jour. ISOLATION : un échec est journalisé 'erreur' et jamais relancé (l'appelant l'enveloppe en plus).
  */
-import { query } from '../db/client';
+import { query, withTransaction } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
-import { enregistrerReponse, enregistrerLiensReponse, deposerEtLierPieces, classerNature, parseMotifsAccuse, type ProfilBoite, type NatureReponse } from './demandeReponseRepo';
+import { enregistrerReponse, enregistrerLiensReponse, deposerEtLierPieces, classerNature, parseMotifsAccuse, reclamperEnvoyeLe, type ProfilBoite, type NatureReponse } from './demandeReponseRepo';
 import { rattacherReponse, estRebondNonRemise, type DemandeCandidate } from './rattachementReponse';
 import { analyserRapportRejet, normaliserMessageId } from './rapportRejet';
 import { analyserLiensReponse } from './extractionLiens';
@@ -165,6 +165,12 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
             ecrites += 1;
             if (liens.length > 0) liensCaptes += await enregistrerLiensReponse(id, liens); // L1/B2 — jamais suivi, écriture seule
             await deposerPieces(id, r.demandeId, mb.pieces);
+            // FUS — FOYER : un accusé rattaché ICI (relève approfondie) arrive APRÈS le clic « déposée » → re-plafonne envoye_le au
+            //   1er accusé (canal formulaire). Auteur 'systeme'. Idempotent/monotone, transaction propre au foyer (cf. releverBoite).
+            if (r.demandeId !== null && nature === 'accuse') {
+              const demandeId = r.demandeId;
+              await withTransaction((q) => reclamperEnvoyeLe(q, demandeId, 'systeme'));
+            }
           }
         }
       }
