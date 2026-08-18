@@ -295,7 +295,9 @@ async function calageFacade(params: ParametresAxe, distM: number, offM: number):
      bords AS (                                                    -- bord ∩ cellule (segment DANS la cellule)
        SELECT ST_Intersection(ST_Boundary(ST_Force2D(b.geom)), cell.g) AS seg
        FROM bdtopo_batiment b, cell
-       WHERE b.id <> $6 AND ST_Intersects(ST_Boundary(ST_Force2D(b.geom)), cell.g)
+       WHERE b.id <> $6
+         AND ST_Intersects(b.geom, cell.g)                          -- #2b-2 : PREFILTRE indexe (batiment_geom_geom_idx) : le POLYGONE touche la cellule -> ~1-2 candidats. Le bord est inclus dans le polygone donc ce prefiltre est un SUR-ENSEMBLE (0 perdu, prouve sur 500 cellules #2a, trous compris).
+         AND ST_Intersects(ST_Boundary(ST_Force2D(b.geom)), cell.g) -- exact CONSERVE (le bord = la facade) : distance rendue byte-identique (verifie a 14 decimales #2b-2). ST_Force2D reste ici + dans ST_Intersection/ST_ClosestPoint/ST_Distance (invariant).
      ),
      bord AS (                                                     -- point du segment le plus proche de l'origine
        SELECT ST_ClosestPoint(bs.seg, o.g) AS p
