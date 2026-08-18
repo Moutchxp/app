@@ -300,7 +300,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
           <td style={{ padding: '.4rem .5rem', verticalAlign: 'top' as const }}>
             {rich ? (
               <>
-                <RetourMairie etat={etatRetourMairie(rich)} nbReponses={rich.nbReponses} derniereReponseLe={rich.derniereReponseLe} />
+                <RetourMairie etat={etatRetourMairie(rich)} nbReponses={rich.nbReponsesReelles} derniereReponseLe={rich.derniereReponseLe} />
                 {/* T7-B — badge « N à répondre » (cas ③), sous l'état documents ; porte le texte (a11y), le fond de ligne n'est qu'un appui. */}
                 <div><BadgeReponseAttendue n={nbAutreARepondre(rich.messagesAutre)} /></div>
               </>
@@ -456,7 +456,8 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
                 {/* T7-B (cas ③) — messages « autre » appelant une réponse : bouton « répondu » MANUEL et RÉVERSIBLE par message. */}
                 <BlocMessagesAutre messages={richDetail.messagesAutre} retour={retourReponse} compteReleve={suivi?.reglages.adresseReleve}
                   onRepondu={(reponseId) => void agirReponse({ action: 'repondu', reponseId }, `repondu-${reponseId}`, 'Message marqué « répondu ».')}
-                  onAnnulerRepondu={(reponseId) => void agirReponse({ action: 'annuler_repondu', reponseId }, `repondu-${reponseId}`, '« Répondu » annulé.')} />
+                  onAnnulerRepondu={(reponseId) => void agirReponse({ action: 'annuler_repondu', reponseId }, `repondu-${reponseId}`, '« Répondu » annulé.')}
+                  onReclasser={(reponseId, nature) => void agirReponse({ action: 'reclasser', reponseId, nature }, `repondu-${reponseId}`, `Message reclassé « ${nature} ».`)} />
               </>
             ) : undefined}
             slotActions={richDetail ? (

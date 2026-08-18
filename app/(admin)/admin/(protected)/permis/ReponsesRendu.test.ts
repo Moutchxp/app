@@ -972,6 +972,17 @@ describe('T7-B — BlocMessagesAutre : bouton « répondu » MANUEL et RÉVERSIB
     expect(h).toContain('annuler');
     expect(h).toContain('tous répondus'); // titre quand aucun ne reste à répondre
   });
+
+  it('FUS-4 — geste « reclasser » VISIBLE (le trou réparé) : 3 cibles quand onReclasser fourni ; absent sinon', () => {
+    const avec = renderToStaticMarkup(createElement(BlocMessagesAutre, { messages: [M()], onRepondu: () => {}, onReclasser: () => {} }));
+    expect(avec).toContain('reclasser en :');
+    expect(avec).toContain('accusé de réception'); // cible 1
+    expect(avec).toContain('documents');            // cible 2
+    expect(avec).toContain('autre (actuel)');       // cible 3 = état courant, non actionnable
+    // sans le câblage → aucun geste (état d'avant ce lot : action serveur invisible)
+    const sans = renderToStaticMarkup(createElement(BlocMessagesAutre, { messages: [M()], onRepondu: () => {} }));
+    expect(sans).not.toContain('reclasser en :');
+  });
 });
 
 describe('T5 — tronquerObjet', () => {

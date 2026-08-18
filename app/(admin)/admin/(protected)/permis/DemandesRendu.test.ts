@@ -748,6 +748,11 @@ describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours »
     // JAMAIS au-dessus d’un état supérieur : documents en GED restent « obtenus » ; un vrai message reste « message »
     expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 2, dossiersSatisfaits: 2, dossiersEnGed: 2, referencesMairie: ['SLC…'], aAccuse: true })).toBe('obtenus');
     expect(etatRetourMairie({ nbReponses: 1, dossiersActifs: 1, dossiersSatisfaits: 0, dossiersEnGed: 0, referencesMairie: ['SLC…'], aAccuse: true })).toBe('message');
+    // ⚠️ APRÈS reclassement de id=3 en accusé (rattaché) : nbReponses=1 (accusé COMPRIS) mais nbReponsesReelles=0 → 'accuse',
+    //   PAS 'message' (« accusé reçu » au lieu de « message reçu », vérification d'Arno). 'message' se base sur les réelles.
+    expect(etatRetourMairie({ nbReponses: 1, nbReponsesReelles: 0, dossiersActifs: 1, dossiersSatisfaits: 0, dossiersEnGed: 0, referencesMairie: [], aAccuse: true })).toBe('accuse');
+    // une VRAIE réponse (réelle) reste 'message' même en présence d'un accusé
+    expect(etatRetourMairie({ nbReponses: 2, nbReponsesReelles: 1, dossiersActifs: 1, dossiersSatisfaits: 0, dossiersEnGed: 0, referencesMairie: [], aAccuse: true })).toBe('message');
     // EFFACER la référence (referencesMairie → []) fait RETOMBER le badge (aucun accusé par ailleurs) → « aucun retour »
     expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 1, dossiersSatisfaits: 0, dossiersEnGed: 0, referencesMairie: [], aAccuse: false })).toBe('aucun');
   });

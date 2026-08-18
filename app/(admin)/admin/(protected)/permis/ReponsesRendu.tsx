@@ -3,6 +3,7 @@ import type { EtatEcheance } from '../../../../lib/veille/echeance';
 import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche, AlerteGedAffiche, MessageAutreAffiche, ReponsePieces } from '../../../../lib/veille/reponsesSuivi';
 import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import { MessageRetour, BlocRepliable, type RetourAction } from './DemandesRendu';
+import type { NatureReclassable } from '../../../../lib/veille/demandeReponseRepo'; // FUS-4 : type SEUL (erasé) — 3 cibles du reclassement
 
 /**
  * R5a/R5b — rendu PUR de l'écran « Réponses » : aucun état, aucun effet → testable en Node via `renderToStaticMarkup`. Les
@@ -695,12 +696,15 @@ export function BlocAlertesGed({ alertes }: { alertes: AlerteGedAffiche[] }) {
  * T7-B (cas ③) — bloc des messages de mairie de nature `autre` (ni accusé, ni documents) qui appellent une RÉPONSE HUMAINE.
  * Un bouton « répondu » MANUEL et RÉVERSIBLE par message (grain message). Le TEXTE porte l'état ; jamais la couleur seule. PUR.
  */
-export function BlocMessagesAutre({ messages, retour, compteReleve, onRepondu, onAnnulerRepondu }: {
+export function BlocMessagesAutre({ messages, retour, compteReleve, onRepondu, onAnnulerRepondu, onReclasser }: {
   messages: MessageAutreAffiche[];
   retour?: RetourCible;
   compteReleve?: string; // T7-C : adresse du compte relevé (mention de la limite du pré-cochage) ; vide → mention générique
   onRepondu?: (reponseId: number) => void;
   onAnnulerRepondu?: (reponseId: number) => void;
+  // FUS-4 — reclasser la nature d'un message À LA MAIN (3 cibles autorisées, T7-A). Ces messages sont des 'autre' (le bloc ne
+  //   montre qu'eux) → reclasser en accusé/documents les fait QUITTER ce bloc au rafraîchissement ; 'autre' reste l'état courant.
+  onReclasser?: (reponseId: number, nature: NatureReclassable) => void;
 }) {
   if (messages.length === 0) return null;
   const nbARepondre = messages.filter((m) => m.reponduLe === null).length;
@@ -731,6 +735,15 @@ export function BlocMessagesAutre({ messages, retour, compteReleve, onRepondu, o
                   </>
                 )}
               </div>
+              {/* FUS-4 — reclassement à la main (3 cibles T7-A). Le message étant un 'autre', « autre » est l'état COURANT (non actionnable). */}
+              {onReclasser && (
+                <div style={{ marginTop: '.15rem', display: 'inline-flex', gap: '.4rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <span style={{ color: 'var(--color-svv-muted)' }}>reclasser en :</span>
+                  <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem' }} onClick={() => onReclasser(m.id, 'accuse')}>accusé de réception</button>
+                  <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem' }} onClick={() => onReclasser(m.id, 'documents')}>documents</button>
+                  <span style={{ color: 'var(--color-svv-muted)' }}>autre (actuel)</span>
+                </div>
+              )}
               {r && <div role="status" style={{ fontSize: 12, color: r.ok ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)' }}>{r.texte}</div>}
             </li>
           );

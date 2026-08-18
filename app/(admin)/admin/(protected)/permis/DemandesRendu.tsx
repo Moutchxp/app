@@ -626,11 +626,13 @@ export function CelluleReference({ reference }: { reference: string }) {
  *  - 'aucun'           : rien. Priorité obtenus > reçu-à-classer > message > accusé reçu > aucun. PUR.
  */
 export type EtatRetourMairie = 'aucun' | 'accuse' | 'message' | 'recu_a_classer' | 'obtenus';
-export function etatRetourMairie(d: { nbReponses: number; dossiersActifs: number; dossiersSatisfaits: number; dossiersEnGed: number; referencesMairie?: string[]; aAccuse?: boolean }): EtatRetourMairie {
+export function etatRetourMairie(d: { nbReponses: number; nbReponsesReelles?: number; dossiersActifs: number; dossiersSatisfaits: number; dossiersEnGed: number; referencesMairie?: string[]; aAccuse?: boolean }): EtatRetourMairie {
   if (d.dossiersActifs > 0 && d.dossiersEnGed >= d.dossiersActifs) return 'obtenus'; // OBTENU = fichiers EN GED (dossier_document), jamais satisfait_le
   if (d.dossiersSatisfaits > 0) return 'recu_a_classer';                              // marqué reçu, fichier pas (tout) en GED → à classer
-  if (d.nbReponses > 0) return 'message';
-  if (accuseRecu({ referencesMairie: d.referencesMairie ?? [], aAccuse: d.aAccuse ?? false })) return 'accuse'; // FUS-4 : sous message
+  // 'message' = la mairie a RÉPONDU pour de vrai : nbReponsesReelles (accusé EXCLU). Un accusé SEUL rattaché relève de 'accuse'
+  //   (sinon il masquerait « accusé reçu » derrière « message reçu »). Repli sur nbReponses si reelles absent (compat appelants).
+  if ((d.nbReponsesReelles ?? d.nbReponses) > 0) return 'message';
+  if (accuseRecu({ referencesMairie: d.referencesMairie ?? [], aAccuse: d.aAccuse ?? false })) return 'accuse'; // FUS-4 : sous message réel
   return 'aucun';
 }
 
