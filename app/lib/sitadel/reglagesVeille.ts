@@ -235,6 +235,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   { colonne: 'depot_adresses_connues', cle: 'depotAdressesConnues', libelle: 'Adresses de versement automatique en GED', unite: 'e-mails', type: 'texte',
     formatHint: 'adresses e-mail séparées par des virgules.',
     aide: 'Adresses e-mail (séparées par des virgules) reconnues pour le versement automatique en GED : un mail dont l’objet est le seul mot « permis », venant d’une de ces adresses, avec des pièces jointes, voit ses pièces versées sur le permis identifié. Les adresses des collaborateurs sont TOUJOURS reconnues en plus (même désactivés). Mettez ici votre adresse pro et votre adresse perso. Vide = seuls les collaborateurs sont reconnus.' },
+  { colonne: 'nature_accuse_motifs', cle: 'natureAccuseMotifs', libelle: 'Motifs d’objet « accusé de réception »', unite: 'motifs', type: 'texte',
+    formatHint: 'formules séparées par des virgules ou des retours à la ligne.',
+    aide: 'Formules (séparées par des virgules ou des retours à la ligne) qui, trouvées dans l’OBJET d’un message, le classent comme accusé de réception — SEULEMENT s’il ne porte ni pièce jointe ni lien de téléchargement (un vrai envoi de documents n’est jamais requalifié). Insensible aux accents et à la casse. Chaque téléservice a sa formule : Paris écrit « Accusé de réception ». Vide = seul l’en-tête technique Auto-Submitted déclenche l’accusé.' },
   { colonne: 'seuil_logements_immeuble', cle: 'seuilLogementsImmeuble', libelle: 'Seuil de logements « immeuble »', unite: 'logements', type: 'entier',
     aide: 'À partir de ce nombre de logements, un projet est classé « immeuble ». Joue en OU avec la surface (pas en ET).' },
   { colonne: 'seuil_surface_immeuble_m2', cle: 'seuilSurfaceImmeubleM2', libelle: 'Seuil de surface « immeuble »', unite: 'm²', type: 'entier',
@@ -307,6 +310,7 @@ export const COLONNES_THEME_REPONSES: readonly string[] = [
   'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',
   'recherche_references_max', 'piece_taille_max_mo', 'echeance_alerte_jours',
   'depot_adresses_connues', // N1-A — versement automatique en GED (adresses reconnues)
+  'nature_accuse_motifs',   // FUS-4 — motifs d'objet reconnaissant un accusé de réception
 ];
 export const COLONNES_THEME_ALERTES: readonly string[] = [
   'alerte_active', 'alerte_email', 'alerte_heure_locale',

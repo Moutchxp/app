@@ -44,7 +44,7 @@ import {
   marquerDossierSatisfait, demarquerDossier, statutDemande, lireClePiece,
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
   lireRecuLeReponse, RattachementNonEnvoyeeError,
-  classerNatureContenu, classerNature, estNatureReclassable, reclasserNatureReponse, marquerRepondu, annulerRepondu, marquerReponduAuto,
+  classerNatureContenu, classerNature, parseMotifsAccuse, estNatureReclassable, reclasserNatureReponse, marquerRepondu, annulerRepondu, marquerReponduAuto,
   type ReponseEntrante, type PieceAvecContenu,
 } from './demandeReponseRepo';
 import { estAccuseAutomatique, type MessageEntrant } from './rattachementReponse';
@@ -607,5 +607,39 @@ describe('FUS-4 — un seul foyer : les DEUX relèves passent par classerNature 
       expect(/classerNatureContenu\s*\(/.test(code), `${f} ne doit plus appeler classerNatureContenu directement`).toBe(false);
       expect(/estAccuseAutomatique\s*\(/.test(code), `${f} ne doit plus appeler estAccuseAutomatique directement`).toBe(false);
     }
+  });
+});
+
+describe('FUS-4 — classerNature niveau 3 : motif d’objet « accusé » (pilotage sans code, sans pièce ni lien)', () => {
+  const msgObjet = (objet: string, entetes?: Record<string, string>): MessageEntrant => ({ messageId: '<m@x>', deAdresse: 'no-reply@paris.fr', objet, entetes });
+  const MOTIFS = parseMotifsAccuse('accusé de réception');
+
+  it('le cas id=3 : objet Paris SANS pièce ni lien + motif → accuse', () => {
+    expect(classerNature(msgObjet('Accusé de réception (référence SLC260818242370) | Urbanisme'), { nbPieces: 0, aLienFort: false }, MOTIFS)).toBe('accuse');
+  });
+  it('insensible aux accents ET à la casse', () => {
+    expect(classerNature(msgObjet('ACCUSE DE RECEPTION de votre demande'), { nbPieces: 0, aLienFort: false }, MOTIFS)).toBe('accuse');
+  });
+  it('AVEC pièce → documents MÊME si l’objet matche (un envoi de docs n’est JAMAIS requalifié)', () => {
+    expect(classerNature(msgObjet('Accusé de réception + pièces'), { nbPieces: 1, aLienFort: false }, MOTIFS)).toBe('documents');
+  });
+  it('AVEC lien fort → documents même si l’objet matche', () => {
+    expect(classerNature(msgObjet('Accusé de réception'), { nbPieces: 0, aLienFort: true }, MOTIFS)).toBe('documents');
+  });
+  it('objet SANS motif → autre (inchangé)', () => {
+    expect(classerNature(msgObjet('Votre dossier avance'), { nbPieces: 0, aLienFort: false }, MOTIFS)).toBe('autre');
+  });
+  it('motifs VIDES → cascade d’AVANT ce lot : un objet « accusé » sans motif configuré reste autre (non-régression)', () => {
+    expect(classerNature(msgObjet('Accusé de réception'), { nbPieces: 0, aLienFort: false }, [])).toBe('autre');
+  });
+  it('Auto-Submitted prime toujours (niveau 1) même sans motif', () => {
+    expect(classerNature(msgObjet('n’importe quoi', { 'Auto-Submitted': 'auto-replied' }), { nbPieces: 0, aLienFort: false }, [])).toBe('accuse');
+  });
+  it('GÉNÉRALISABLE (rien de spécifique à Paris) : un autre téléservice avec le motif « récépissé » matche', () => {
+    expect(classerNature(msgObjet('Récépissé de votre déclaration'), { nbPieces: 0, aLienFort: false }, parseMotifsAccuse('récépissé'))).toBe('accuse');
+  });
+  it('parseMotifsAccuse : séparateurs virgule OU retour à la ligne, trim, vides ignorés', () => {
+    expect(parseMotifsAccuse('accusé de réception, confirmation de dépôt\n  récépissé  ,')).toEqual(['accusé de réception', 'confirmation de dépôt', 'récépissé']);
+    expect(parseMotifsAccuse('')).toEqual([]);
   });
 });

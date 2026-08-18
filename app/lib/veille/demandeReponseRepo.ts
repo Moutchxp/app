@@ -31,14 +31,36 @@ export function classerNatureContenu(entree: { nbPieces: number; aLienFort: bool
   return entree.nbPieces > 0 || entree.aLienFort ? 'documents' : 'autre';
 }
 
+/** FUS-4 — normalisation d'un texte pour comparaison de motif : minuscules, sans accents, espaces compactés. PUR. */
+function normaliserMotifObjet(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/\s+/g, ' ').trim();
+}
+/** FUS-4 — parse la liste de motifs de la config `nature_accuse_motifs` : séparateurs virgule OU retour à la ligne, nettoyée. PUR. */
+export function parseMotifsAccuse(brut: string): string[] {
+  return brut.split(/[\n,]/).map((m) => m.trim()).filter((m) => m !== '');
+}
+/** FUS-4 — l'objet contient-il l'un des motifs d'accusé (comparaison NORMALISÉE, sans accents ni casse) ? PUR. */
+function objetMatcheMotifAccuse(objet: string | undefined, motifs: string[]): boolean {
+  if (!objet || motifs.length === 0) return false;
+  const o = normaliserMotifObjet(objet);
+  return motifs.some((m) => { const n = normaliserMotifObjet(m); return n !== '' && o.includes(n); });
+}
+
 /**
- * FUS-4 (refactor PUR) — NATURE d'un message entrant, SOURCE UNIQUE partagée par les DEUX relèves (`releverBoite` ET
- * `releverApprofondie`), qui la calculaient jusqu'ici via un snippet DUPLIQUÉ. Reprend la décision À L'IDENTIQUE : accusé
- * automatique (Auto-Submitted, T3) → 'accuse' ; sinon contenu capté (pièce OU lien fort, T7-A) → 'documents' / 'autre'.
- * ⚠️ AUCUNE règle nouvelle ici — le motif d'objet viendra dans un lot ultérieur, à ajouter UNE SEULE FOIS dans cette fonction.
+ * FUS-4 — NATURE d'un message entrant, SOURCE UNIQUE partagée par les DEUX relèves (`releverBoite` ET `releverApprofondie`).
+ * Cascade à 3 niveaux, dans cet ORDRE (le contenu prime toujours sur l'objet) :
+ *   1) accusé automatique (en-tête Auto-Submitted, T3)                        → 'accuse' ;
+ *   2) contenu capté — pièce OU lien fort (T7-A)                              → 'documents' (JAMAIS requalifié en accusé) ;
+ *   3) FUS-4 : sans pièce ni lien, si l'OBJET contient un motif configuré      → 'accuse' (ex. Paris « Accusé de réception ») ;
+ *      sinon                                                                  → 'autre'.
+ * `motifsAccuse` vient de la config (pilotage sans code) ; VIDE par défaut → cascade d'AVANT ce lot (aucune requalification).
+ * Le texte du corps n'est JAMAIS lu (T7-A) : seuls en-tête, contenu capté, et objet (motif fermé) décident.
  */
-export function classerNature(message: MessageEntrant, contenu: { nbPieces: number; aLienFort: boolean }): NatureReponse {
-  return estAccuseAutomatique(message) ? 'accuse' : classerNatureContenu(contenu);
+export function classerNature(message: MessageEntrant, contenu: { nbPieces: number; aLienFort: boolean }, motifsAccuse: string[] = []): NatureReponse {
+  if (estAccuseAutomatique(message)) return 'accuse';
+  const parContenu = classerNatureContenu(contenu);
+  if (parContenu !== 'autre') return parContenu; // 'documents' : un vrai envoi de docs n'est jamais requalifié
+  return objetMatcheMotifAccuse(message.objet, motifsAccuse) ? 'accuse' : 'autre';
 }
 
 /**

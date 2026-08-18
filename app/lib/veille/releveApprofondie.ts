@@ -12,7 +12,7 @@
  */
 import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
-import { enregistrerReponse, enregistrerLiensReponse, deposerEtLierPieces, classerNature, type ProfilBoite, type NatureReponse } from './demandeReponseRepo';
+import { enregistrerReponse, enregistrerLiensReponse, deposerEtLierPieces, classerNature, parseMotifsAccuse, type ProfilBoite, type NatureReponse } from './demandeReponseRepo';
 import { rattacherReponse, estRebondNonRemise, type DemandeCandidate } from './rattachementReponse';
 import { analyserRapportRejet, normaliserMessageId } from './rapportRejet';
 import { analyserLiensReponse } from './extractionLiens';
@@ -93,8 +93,11 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
   const lignes: LigneReleve[] = [];
   const vusIds = new Set<string>(); // dédup par Message-ID à travers les dossiers
   let vus = 0, rebondsRattaches = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0, liensCaptes = 0;
-  // R4 — borne de taille des pièces (config) ; lue seulement en mode APPLIQUÉ (aucun dépôt en simulation).
-  const tailleMaxOctets = appliquer ? (await chargerConfigVeille()).pieceTailleMaxMo * 1024 * 1024 : 0;
+  // R4/FUS-4 — config lue UNE fois : borne de taille des pièces (mode APPLIQUÉ seul) + motifs d'objet « accusé » (les deux modes,
+  //   car la nature est calculée en simulation comme en appliqué). Résiliente (chargerConfigVeille : lireX isolés à repli).
+  const cfg = await chargerConfigVeille();
+  const tailleMaxOctets = appliquer ? cfg.pieceTailleMaxMo * 1024 * 1024 : 0;
+  const motifsAccuse = parseMotifsAccuse(cfg.natureAccuseMotifs);
   const deposerPieces = async (reponseId: number, demandeId: number | null, pieces: PieceMeta[]): Promise<void> => {
     const bilan = await deposerEtLierPieces(reponseId, demandeId,
       pieces.map((p) => ({ nomFichier: p.nomFichier, typeMime: p.typeMime, contenu: p.contenu })), tailleMaxOctets);
@@ -154,7 +157,7 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
         const { liens } = analyserLiensReponse({ corpsTexte: mb.message.corpsTexte ?? null, corpsHtml: mb.message.corpsHtml ?? null, recuLe: mb.recuLe });
         // T3/T7-A — accusé auto (Auto-Submitted, pas un DSN) → nature='accuse' (« a écrit », pas « a répondu ») ; sinon
         //   documents/autre déduit du CONTENU CAPTÉ (pièces OU lien fort), jamais du texte.
-        const nature: NatureReponse = classerNature(mb.message, { nbPieces: mb.pieces.length, aLienFort: liens.some((l) => l.fort) }); // FUS-4 : foyer unique (identique à releverBoite)
+        const nature: NatureReponse = classerNature(mb.message, { nbPieces: mb.pieces.length, aLienFort: liens.some((l) => l.fort) }, motifsAccuse); // FUS-4 : foyer unique + motif d'objet (identique à releverBoite)
         lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, nature, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
         if (appliquer) {
           const id = await enregistrerReponse(construireLigne(cible.profil, mb, mid, r.demandeId, r.methode, r.motif, nature));

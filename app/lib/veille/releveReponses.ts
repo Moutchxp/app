@@ -14,7 +14,7 @@
  * ⚠️ N'écrit JAMAIS demande.statut ('close' reste sans écrivain, chantier R5). Boîte en LECTURE STRICTE (voir imap.ts).
  */
 import { query } from '../db/client';
-import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, classerNature, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
+import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, classerNature, parseMotifsAccuse, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { rattacherReponse, estRebondNonRemise, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
 import { analyserLiensReponse } from './extractionLiens';
@@ -381,6 +381,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   // Config lue UNE fois : borne de taille des pièces (R4) + plafond de références de recherche (R3e).
   const cfg = await chargerConfigVeille();
   const tailleMaxOctets = cfg.pieceTailleMaxMo * 1024 * 1024; // utilisé seulement en mode APPLIQUÉ (dépôt)
+  const motifsAccuse = parseMotifsAccuse(cfg.natureAccuseMotifs); // FUS-4 : motifs d'objet « accusé » (config, pilotage sans code)
   const { references, plafondAtteint: plafondReferencesAtteint } = await lireReferencesRecherche(opts.profil, cfg.rechercheReferencesMax);
   const lignes: LigneReleve[] = [];
   let vus = 0, dejaConnus = 0, horsPerimetre = 0, rebondsDetectes = 0, rebondsRattaches = 0, rebondsEtrangers = 0, rebondsAppliques = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0, liensCaptes = 0;
@@ -510,7 +511,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
       //   dossier (un accusé ne livre aucun document). Sinon, T7-A déduit documents/autre du CONTENU CAPTÉ (pièces OU lien fort),
       //   jamais du texte. Le contenu est connu AVANT l'insertion (pièces = mb.pieces ; liens = analyse pure) → nature définitive
       //   posée dès l'insert, sans second passage.
-      const nature: NatureReponse = classerNature(mb.message, { nbPieces: mb.pieces.length, aLienFort: liens.some((l) => l.fort) }); // FUS-4 : foyer unique
+      const nature: NatureReponse = classerNature(mb.message, { nbPieces: mb.pieces.length, aLienFort: liens.some((l) => l.fort) }, motifsAccuse); // FUS-4 : foyer unique + motif d'objet
       lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, nature, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
       if (appliquer) {
         const id = await enregistrerReponse(construireLigne(opts.profil, mb, mid, r.demandeId, r.methode, r.motif, nature));

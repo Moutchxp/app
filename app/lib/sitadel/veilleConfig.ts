@@ -55,6 +55,7 @@ export interface ConfigVeille {
   cadaUrlFormulaire: string;        // X1 : URL du formulaire de saisine en ligne de la CADA (dépôt manuel quand cadaEmail vide)
   propositionCadaActive: boolean;   // X5 : proposer par e-mail (à alerteEmail) la saisine CADA d'une demande devenue saisissable (opt-in, défaut false)
   depotAdressesConnues: string;     // N1-A : adresses reconnues pour le versement auto en GED (virgules ; union avec les collaborateurs)
+  natureAccuseMotifs: string;       // FUS-4 : motifs d'objet reconnaissant un accusé (liste virgules/retours) — pilotage sans code
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -92,6 +93,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   cadaEmail: '', cadaUrlFormulaire: 'https://www.cada.fr/formulaire-de-saisine', // = DEFAULT de la migration 083
   propositionCadaActive: false, // = DEFAULT de la migration 084 (opt-in)
   depotAdressesConnues: '',     // = DEFAULT de la migration 102 (aucune adresse connue en propre → seuls les collaborateurs)
+  natureAccuseMotifs: '',       // FUS-4 : repli ultime = aucun motif → comportement d'AVANT ce lot (la 125 pose 'accusé de réception')
 };
 
 interface LigneConfigVeille {
@@ -312,6 +314,17 @@ async function lireDepotAdresses(): Promise<Pick<ConfigVeille, 'depotAdressesCon
   }
 }
 
+// FUS-4 — motifs d'objet « accusé de réception ». Lecture ISOLÉE (résiliente à l'ordre d'application de la 125) : '' si la
+//   colonne n'existe pas encore → aucun motif → nature inchangée (comme avant ce lot).
+async function lireNatureAccuseMotifs(): Promise<Pick<ConfigVeille, 'natureAccuseMotifs'>> {
+  try {
+    const { rows } = await query<{ nature_accuse_motifs: string }>(`SELECT nature_accuse_motifs FROM config_veille WHERE id = 1`);
+    return { natureAccuseMotifs: (rows[0]?.nature_accuse_motifs ?? '').trim() };
+  } catch {
+    return { natureAccuseMotifs: '' };
+  }
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -357,6 +370,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireCada()),                           // X1 : canal CADA (e-mail + formulaire), lecture isolée (résiliente à la 083)
       ...(await lireProposition()),                    // X5 : interrupteur des propositions CADA, lecture isolée (résiliente à la 084)
       ...(await lireDepotAdresses()),                  // N1-A : adresses connues du versement auto, lecture isolée (résiliente à la 102)
+      ...(await lireNatureAccuseMotifs()),             // FUS-4 : motifs d'objet « accusé », lecture isolée (résiliente à la 125)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;
