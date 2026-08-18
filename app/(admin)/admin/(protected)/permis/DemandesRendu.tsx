@@ -490,12 +490,12 @@ export function MentionMasquage({ morts, onAfficherTout, exclus }: {
   //   cet onglet — leur foyer est ailleurs). Donc AUCUN bouton d'affichage (un invariant qui saute au premier clic n'en est pas un),
   //   et une formulation DISTINCTE (« … — suivies dans … », jamais « masquée(s) — les afficher ») + une ligne séparée : révélable et
   //   non révélable ne se confondent ni visuellement ni dans le texte.
-  exclus?: { n: number; libelle: string };
+  exclus?: { n: number; libelle: string }[]; // plusieurs registres d'exclusion NON RÉVÉLABLES (soldées → Archives ; à retour → Réponses), chacun sur SA ligne
 }) {
   const visibles = morts.filter((x) => x.n > 0);
   const total = visibles.reduce((a, x) => a + x.n, 0);
-  const nExclus = exclus?.n ?? 0;
-  if (total === 0 && nExclus === 0) return null;
+  const exclusVus = (exclus ?? []).filter((e) => e.n > 0);
+  if (total === 0 && exclusVus.length === 0) return null;
   const texte = visibles.map((x) => `${x.n} ${STATUT_LIBELLE[x.statut] ?? x.statut}(s) masquée(s)`).join(' · ');
   return (
     <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', marginTop: '.3rem' }}>
@@ -510,10 +510,10 @@ export function MentionMasquage({ morts, onAfficherTout, exclus }: {
           )}
         </div>
       )}
-      {nExclus > 0 && (
-        // EXCLUSION (jamais révélable) : ni bouton, ni « masquée(s) ». On DIT le nombre ET où elles sont suivies.
-        <div style={{ marginTop: total > 0 ? '.15rem' : 0 }}>{nExclus} demande(s) {exclus!.libelle}</div>
-      )}
+      {/* EXCLUSION (jamais révélable) : ni bouton, ni « masquée(s) ». On DIT le nombre ET où elles sont suivies. Une ligne par registre. */}
+      {exclusVus.map((e, i) => (
+        <div key={e.libelle} style={{ marginTop: (total > 0 || i > 0) ? '.15rem' : 0 }}>{e.n} demande(s) {e.libelle}</div>
+      ))}
     </div>
   );
 }

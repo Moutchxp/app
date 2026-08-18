@@ -7,7 +7,7 @@ import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import {
   BlocEtatReleve, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
   partitionnerReponses, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
-  BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, BlocLiens, BlocAlertesGed, BlocPiecesReponses, formaterDate, type RetourCible, type OptionDemande,
+  BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, formaterDate, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
 import { MessageRetour, MentionMasquage } from './DemandesRendu';
 
@@ -225,6 +225,13 @@ export function ReponsesVue() {
                               onRetirerConfirmer={(demandeId, dossierId) => { setRetrait(null); void agir({ action: 'retirer_dossier', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Dossier retiré — il redevient demandable dans « À demander ».'); }}
                               onRetirerAnnuler={() => setRetrait(null)} />
                             )}
+                            {/* FUS — cas ③ : les messages « autre » appelant une réponse (marquer répondu / reclasser) suivent la
+                                demande dans son foyer « Réponses ». MÊME route /reponses (via `agir`), auteur journalisé — un seul
+                                chemin d'écriture, identique à celui du détail « En cours ». */}
+                            <BlocMessagesAutre messages={d.messagesAutre} retour={retour} compteReleve={data.reglages.adresseReleve}
+                              onRepondu={(reponseId) => void agir({ action: 'repondu', reponseId }, `repondu-${reponseId}`, 'Message marqué « répondu ».')}
+                              onAnnulerRepondu={(reponseId) => void agir({ action: 'annuler_repondu', reponseId }, `repondu-${reponseId}`, '« Répondu » annulé.')}
+                              onReclasser={(reponseId, nature) => void agir({ action: 'reclasser', reponseId, nature }, `repondu-${reponseId}`, `Message reclassé « ${nature} ».`)} />
                             {/* L1 — liens captés (jamais suivis auto) ; G1 — « maintenant » signale un délai dépassé (fenêtre manquée). */}
                             <BlocLiens liens={d.liens} maintenant={new Date()} />
                             {/* T5 — pièces des réponses rattachées, consultables/téléchargeables (signeur unique url_piece, source 'reponse'). */}
@@ -252,7 +259,7 @@ export function ReponsesVue() {
             {/* T2 — le masquage n'est JAMAIS silencieux (réutilise MentionMasquage de Q6b : « N soldée(s) masquée(s) — les afficher »). */}
             {/* T6-A/2 — soldées / sans dossier actif = révélables (bouton) ; sans-retour = EXCLUES (motif `exclus`, sans bouton, « suivies dans En cours »). Toujours affiché, même en « afficher tout ». */}
             <MentionMasquage morts={mortsMasquage} onAfficherTout={() => setAfficherSoldees(true)}
-              exclus={sansRetour > 0 ? { n: sansRetour, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' } : undefined} />
+              exclus={sansRetour > 0 ? [{ n: sansRetour, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' }] : []} />
           </>
         )}
       </section>

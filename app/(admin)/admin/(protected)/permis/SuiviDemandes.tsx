@@ -7,7 +7,7 @@ import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, 
 import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, RetourMairie, etatRetourMairie, nbAutreARepondre, BadgeReponseAttendue, FOND_REPONSE_ATTENDUE, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
-import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, formaterDate, type RetourCible } from './ReponsesRendu';
+import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, demandeADuRetour, formaterDate, type RetourCible } from './ReponsesRendu';
 import { etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
 import { RefMairieCellule } from './RefMairieCellule';
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
@@ -142,14 +142,23 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
   // T8 — « En cours » : les SOLDÉES (tous dossiers actifs marqués reçus) sont TOUJOURS exclues, sous TOUT filtre (non révélable,
   //   foyer Archives : un permis n'est jamais dans deux onglets). Les sansDossier gardent le masquage révélable de défaut (T2-C).
   const dansVue = perimetre === 'en_cours' ? visiblesEnCours(dansVueStatut, enCoursDefaut) : dansVueStatut;
+  // FUS — FOYER UNIQUE, « Réponses prime » : une demande à RETOUR (demandeADuRetour, MÊME règle que l'onglet Réponses, réutilisée
+  //   telle quelle — un seul foyer) quitte l'AFFICHAGE « En cours ». Son échéance/compte à rebours reste sous les yeux dans
+  //   Réponses (colonnes Échéance/État, etatEcheance INTOUCHÉ). Exclusion NON RÉVÉLABLE (comme les soldées). FILTRE D'AFFICHAGE
+  //   SEUL : ne touche NI chargerDemandesSuivi (source partagée) NI relance/alerte/CADA/échéance (qui lisent la base). Donnée riche suivi.parId.
+  const aRetourIds = useMemo(() => {
+    if (perimetre !== 'en_cours' || !suivi) return new Set<number>();
+    return new Set(dansVue.filter((d) => { const rich = suivi.parId.get(d.id); return rich !== undefined && demandeADuRetour(rich); }).map((d) => d.id));
+  }, [perimetre, suivi, dansVue]);
+  const dansVueAffiche = aRetourIds.size > 0 ? dansVue.filter((d) => !aRetourIds.has(d.id)) : dansVue;
   const filtrees = useMemo(
-    () => trierDemandes(filtrerDemandes(dansVue, { statut: '', profil: fProfil, commune: fCommune, types: [...fTypes], reference: fReference }), tri),
-    [dansVue, fCommune, fProfil, fTypes, fReference, tri],
+    () => trierDemandes(filtrerDemandes(dansVueAffiche, { statut: '', profil: fProfil, commune: fCommune, types: [...fTypes], reference: fReference }), tri),
+    [dansVueAffiche, fCommune, fProfil, fTypes, fReference, tri],
   );
 
   // Q6b — compteurs de CE QUI EST AFFICHÉ (statuts vus), décompte par statut. Le PÉRIMÈTRE ne bouge pas.
-  const compteursVus = statutsDuPerimetre(perimetre).map((s) => ({ s, n: dansVue.filter((d) => d.statut === s).length })).filter((x) => x.n > 0);
-  const dossiersVus = dansVue.reduce((acc, d) => acc + d.nbDossiers, 0);
+  const compteursVus = statutsDuPerimetre(perimetre).map((s) => ({ s, n: dansVueAffiche.filter((d) => d.statut === s).length })).filter((x) => x.n > 0);
+  const dossiersVus = dansVueAffiche.reduce((acc, d) => acc + d.nbDossiers, 0);
   // Q6b — lignes MORTES (trace) écartées par le DÉFAUT : mention NON silencieuse. Uniquement en mode 'vivants' (choix
   // explicite « Toutes » ou un statut précis → rien de masqué, donc pas de mention).
   const mortsDetail = useMemo(
@@ -161,6 +170,9 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
   const morts = choixStatut === CHOIX_STATUT_DEFAUT ? [...mortsDetail, ...mortsSansDossier] : [];
   // T8 — SOLDÉES : exclusion NON RÉVÉLABLE (mention séparée, sans bouton, → Archives), sous TOUT filtre. Jamais confondue avec le masquage révélable.
   const exclusSoldees = perimetre === 'en_cours' && partDus.soldees.length > 0 ? { n: partDus.soldees.length, libelle: 'soldée(s) — voir l’onglet Archives' } : undefined;
+  // FUS — 2e registre NON RÉVÉLABLE : demandes à retour, foyer désormais « Réponses ». Même traitement visuel que les soldées.
+  const exclusReponses = perimetre === 'en_cours' && aRetourIds.size > 0 ? { n: aRetourIds.size, libelle: 'suivie(s) dans l’onglet Réponses' } : undefined;
+  const exclus = [exclusSoldees, exclusReponses].filter((x): x is { n: number; libelle: string } => x !== undefined);
 
   const nbPages = Math.max(1, Math.ceil(filtrees.length / PAGE_SIZE));
   const pageCourante = Math.min(page, nbPages);
@@ -327,8 +339,8 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
       {/* Q6b — compteurs de CE QUI EST AFFICHÉ + mention NON silencieuse des lignes mortes masquées par le défaut. */}
       {liste && (
         <div className="svv-card" style={{ fontSize: 13 }}>
-          <strong>{dansVue.length} demande(s)</strong> · {dossiersVus} dossier(s) couvert(s) — {compteursVus.map((x) => `${x.n} ${STATUT_LIBELLE[x.s]}`).join(' · ') || 'aucune'}.
-          <MentionMasquage morts={morts} onAfficherTout={() => majFiltre(() => setChoixStatut('tous'))} exclus={exclusSoldees} />
+          <strong>{dansVueAffiche.length} demande(s)</strong> · {dossiersVus} dossier(s) couvert(s) — {compteursVus.map((x) => `${x.n} ${STATUT_LIBELLE[x.s]}`).join(' · ') || 'aucune'}.
+          <MentionMasquage morts={morts} onAfficherTout={() => majFiltre(() => setChoixStatut('tous'))} exclus={exclus} />
           <div style={{ color: 'var(--color-svv-muted)', marginTop: '.3rem' }}>{TEXTES[perimetre].intro}</div>
         </div>
       )}

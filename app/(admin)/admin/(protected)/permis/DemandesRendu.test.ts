@@ -942,7 +942,7 @@ describe('Q6b — MentionMasquage : le masquage par défaut n’est JAMAIS silen
   });
 
   it('T6-A/2 — motif EXCLUS (non révélable) : décompte + « suivies dans … », JAMAIS de bouton ni « masquée(s) »', () => {
-    const h = renderToStaticMarkup(createElement(MentionMasquage, { morts: [], exclus: { n: 4, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' } }));
+    const h = renderToStaticMarkup(createElement(MentionMasquage, { morts: [], exclus: [{ n: 4, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' }] }));
     expect(h).toContain('4 demande(s) sans retour de la mairie — suivies dans l’onglet En cours');
     expect(h).not.toContain('<button');      // EXCLUSION : jamais révélable (un invariant qui saute au premier clic n’en est pas un)
     expect(h).not.toContain('masquée(s)');   // vocabulaire du masquage de confort exclu
@@ -952,7 +952,7 @@ describe('Q6b — MentionMasquage : le masquage par défaut n’est JAMAIS silen
   it('T6-A/2 — révélables + exclus COEXISTENT sans se confondre (bouton pour les révélables, aucun pour l’exclus)', () => {
     const h = renderToStaticMarkup(createElement(MentionMasquage, {
       morts: [{ statut: 'close', n: 2 }], onAfficherTout: () => {},
-      exclus: { n: 4, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' },
+      exclus: [{ n: 4, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' }],
     }));
     expect(h).toContain('2 close(s) masquée(s)');   // révélable : « masquée(s) » + bouton
     expect(h).toContain('les afficher');
@@ -961,15 +961,26 @@ describe('Q6b — MentionMasquage : le masquage par défaut n’est JAMAIS silen
   });
 
   it('T6-A/2 — exclus seul (aucun révélable) → rend quand même la mention (rien en silence)', () => {
-    const h = renderToStaticMarkup(createElement(MentionMasquage, { morts: [], exclus: { n: 1, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' } }));
+    const h = renderToStaticMarkup(createElement(MentionMasquage, { morts: [], exclus: [{ n: 1, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' }] }));
     expect(h).toContain('1 demande(s)');
     expect(h).not.toBe('');
   });
 
   it('T8 — soldées d’« En cours » : mention NON RÉVÉLABLE « N demande(s) soldée(s) — voir l’onglet Archives » (aucun bouton)', () => {
-    const h = renderToStaticMarkup(createElement(MentionMasquage, { morts: [], exclus: { n: 2, libelle: 'soldée(s) — voir l’onglet Archives' } }));
+    const h = renderToStaticMarkup(createElement(MentionMasquage, { morts: [], exclus: [{ n: 2, libelle: 'soldée(s) — voir l’onglet Archives' }] }));
     expect(h).toContain('2 demande(s) soldée(s) — voir l’onglet Archives');
     expect(h).not.toContain('<button');    // jamais révélable : le permis vit dans Archives
+    expect(h).not.toContain('les afficher');
+  });
+
+  it('FUS — DEUX registres d’exclusion coexistent, chacun sur SA ligne, sans bouton (soldées → Archives ; à retour → Réponses)', () => {
+    const h = renderToStaticMarkup(createElement(MentionMasquage, { morts: [], exclus: [
+      { n: 2, libelle: 'soldée(s) — voir l’onglet Archives' },
+      { n: 3, libelle: 'suivie(s) dans l’onglet Réponses' },
+    ] }));
+    expect(h).toContain('2 demande(s) soldée(s) — voir l’onglet Archives');
+    expect(h).toContain('3 demande(s) suivie(s) dans l’onglet Réponses');
+    expect(h).not.toContain('<button');   // aucune des deux n’est révélable
     expect(h).not.toContain('les afficher');
   });
 });

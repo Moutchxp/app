@@ -163,6 +163,16 @@ describe('T6-A/2 — demandeADuRetour + partitionnerReponses : filtre local + EX
     expect(demandeADuRetour(dem({ nbReponsesReelles: 0 }))).toBe(false);
   });
 
+  it('FUS — EXCLUSIVITÉ En cours ↔ Réponses par la MÊME règle : une demande à retour (même PARTIELLE, dossiers dus) est EXCLUE de En cours ET présente dans Réponses ; une sans-retour l’inverse', () => {
+    const partielle = dem({ nbReponsesReelles: 1, dossiersActifs: 2, dossiersSatisfaits: 0 }); // 1 retour + 2 dus
+    const sansRetour = dem({ nbReponsesReelles: 0, dossiersActifs: 2, dossiersSatisfaits: 0 });
+    // L'exclusion d'affichage « En cours » (aRetourIds dans SuiviDemandes) réutilise EXACTEMENT ce prédicat (un seul foyer).
+    expect(demandeADuRetour(partielle)).toBe(true);   // → quitte l'affichage En cours (foyer Réponses), même avec des dus
+    expect(demandeADuRetour(sansRetour)).toBe(false); // → reste En cours
+    // …et le MÊME prédicat la fait ENTRER dans Réponses → jamais dans les deux onglets à la fois.
+    expect(partitionnerReponses([partielle, sansRetour], true).affichees).toEqual([partielle]);
+  });
+
   it('partitionnerReponses : la demande SANS retour est EXCLUE, MÊME avec afficherTout (jamais dans « affichees »)', () => {
     const sansRetour = dem({ nbReponsesReelles: 0, dossiersActifs: 2, dossiersSatisfaits: 0 });  // 154 (ou : accusé/rebond seul)
     const avecMessage = dem({ nbReponsesReelles: 1, dossiersActifs: 2, dossiersSatisfaits: 0 }); // vivante avec vrai retour
