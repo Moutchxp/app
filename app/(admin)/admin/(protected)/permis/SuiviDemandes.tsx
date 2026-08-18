@@ -9,6 +9,7 @@ import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetai
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
 import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, formaterDate, type RetourCible } from './ReponsesRendu';
 import { etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
+import { RefMairieCellule } from './RefMairieCellule';
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 
 /**
@@ -196,6 +197,31 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     if (res.ok) { setRefDetail(''); await ouvrir(detail.id, true); annoncer('Référence enregistrée.', true, 'detail'); }
     else annoncer(await erreurServeur(res, 'Ajout impossible.'), false, 'detail');
   }
+
+  // FUS-4 — actions « Réf. mairie » DEPUIS LE TABLEAU (En cours). MÊME route que le détail (POST ajoute, DELETE retire) → un
+  //   SEUL chemin d'écriture, jamais un second. Rafraîchissent le suivi (source des colonnes). Renvoient un message d'erreur
+  //   (affiché dans la cellule) ou null. La route n'écrit jamais statut/envoye_le → effacer/modifier ne défait aucun envoi.
+  const URL_REF = '/api/admin/permis/demandes/reference';
+  async function ajouterRefTable(demandeId: number, reference: string): Promise<string | null> {
+    const res = await fetch(URL_REF, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ demandeId, reference }) });
+    if (res.ok) { rafraichirSuivi(); return null; }
+    return await erreurServeur(res, 'Ajout impossible.');
+  }
+  async function supprimerRefTable(demandeId: number, reference: string): Promise<string | null> {
+    const res = await fetch(URL_REF, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ demandeId, reference }) });
+    if (res.ok) { rafraichirSuivi(); return null; }
+    return await erreurServeur(res, 'Effacement impossible.');
+  }
+  async function modifierRefTable(demandeId: number, ancien: string, nouveau: string): Promise<string | null> {
+    if (nouveau === ancien) return null;
+    // Remplacer SANS jamais laisser la demande sans référence : on AJOUTE d'abord le nouveau ; on ne retire l'ancien que si le
+    //   nouveau est en place (ajouté, ou 409 = déjà présent sur cette demande). Un échec RÉEL de l'ajout garde l'ancien intact.
+    const resAjout = await fetch(URL_REF, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ demandeId, reference: nouveau }) });
+    if (!resAjout.ok && resAjout.status !== 409) return await erreurServeur(resAjout, 'Modification impossible.');
+    await fetch(URL_REF, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ demandeId, reference: ancien }) });
+    rafraichirSuivi();
+    return null;
+  }
   async function transition(ids: number[], statut: 'prete' | 'annulee', origine: 'haut' | 'detail' = 'haut'): Promise<void> {
     if (ids.length === 0) return;
     const res = await fetch('/api/admin/permis/demandes', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, statut }) });
@@ -255,11 +281,12 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
   const aujourdhui = formaterDate(maintenant.toISOString()); // borne « refus le » (max) — la route reste l'autorité
   // T6-A — colonnes « Délai » (compte à rebours) + « Retour mairie », injectées dans TableDemandes UNIQUEMENT en « En cours ».
   const colonnesSuivi = enCours && suivi ? {
-    largeur: 2,
+    largeur: 3,
     entetes: (
       <>
         <th style={{ padding: '.4rem .5rem', textAlign: 'left' as const, whiteSpace: 'nowrap' as const, minWidth: 150 }}>Délai</th>
         <th style={{ padding: '.4rem .5rem', textAlign: 'left' as const, whiteSpace: 'nowrap' as const }}>Retour mairie</th>
+        <th style={{ padding: '.4rem .5rem', textAlign: 'left' as const, whiteSpace: 'nowrap' as const }}>Réf. mairie</th>
       </>
     ),
     cellule: (d: { id: number }) => {
@@ -279,6 +306,11 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
               </>
             ) : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
           </td>
+          {/* FUS-4 — Réf. mairie éditable (ajouter/modifier/effacer) via la MÊME route que le détail. « accusé reçu » DÉRIVÉ (aAccuse). */}
+          {rich
+            ? <RefMairieCellule references={rich.referencesMairie} aAccuse={rich.aAccuse}
+                onAjouter={(r) => ajouterRefTable(d.id, r)} onModifier={(a, n) => modifierRefTable(d.id, a, n)} onSupprimer={(r) => supprimerRefTable(d.id, r)} />
+            : <td style={{ padding: '.4rem .5rem', color: 'var(--color-svv-muted)' }}>—</td>}
         </>
       );
     },

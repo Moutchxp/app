@@ -1056,6 +1056,20 @@ export async function ajouterReferenceExterne(
 }
 
 /**
+ * FUS-4 — SUPPRIME une référence mairie d'une demande (corriger une saisie, retirer un accusé mal capté). 🔴 N'écrit JAMAIS
+ * demande.statut ni envoye_le : effacer une référence NE DÉFAIT JAMAIS un envoi validé — l'échéance CRPA et le verrou de dépôt
+ * (Lot A) ne bougent pas. Le statut « accusé reçu » étant DÉRIVÉ (référence OU message 'accuse'), l'affichage revient de
+ * lui-même. Idempotent : renvoie true si une ligne a été retirée, false si la référence n'existait pas. `reference` nettoyée (trim).
+ */
+export async function supprimerReferenceExterne(demandeId: number, reference: string): Promise<boolean> {
+  const res = await query(
+    `DELETE FROM demande_reference_externe WHERE demande_id = $1 AND reference = $2`,
+    [demandeId, reference.trim()],
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+/**
  * Marque une demande 'formulaire' comme DÉPOSÉE À LA MAIN → statut 'envoyee' (statut existant ; un dépôt réel sollicite la
  * commune et consomme donc son plafond mensuel — cf. lireHistorique). Réservé au canal 'formulaire' et aux statuts
  * brouillon/prête. Journalisé. AUCUN envoi automatique. B2 — écrit AUSSI la ligne demande_acheminement (canal 'formulaire',

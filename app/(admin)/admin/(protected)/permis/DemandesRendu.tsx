@@ -444,6 +444,18 @@ export function FiltreTypes({ categories, coches, onToggle }: {
 // ses lignes d'avant le renommage portent encore l'ancienne valeur → tout affichage historique reste lisible.
 export const STATUT_LIBELLE: Record<string, string> = { brouillon: 'brouillon', prete: 'prête', envoyee: 'envoyée', close: 'close', annulee: 'annulée', abandonnee: 'annulée (ex-abandonnée)' };
 
+/** FUS-4 — ORIGINE d'une demande, en clair : 'formulaire' → « Téléservice », 'email' → « Mail ». Repli : la valeur brute. La
+ *  colonne « Canal » du tableau devient « Origine » et affiche ce libellé (identique dans les deux onglets). PUR. */
+export function libelleOrigine(canal: string | null | undefined): string {
+  return canal === 'formulaire' ? 'Téléservice' : canal === 'email' ? 'Mail' : (canal ?? '—');
+}
+
+/** FUS-4 / décision 1 — « accusé de réception reçu » est DÉRIVÉ, jamais stocké : vrai si une référence mairie est présente OU
+ *  si un message de nature `accuse` est rattaché. Effacer la référence fait donc revenir l'état antérieur TOUT SEUL. PUR. */
+export function accuseRecu(d: { referencesMairie: string[]; aAccuse: boolean }): boolean {
+  return d.referencesMairie.length > 0 || d.aAccuse;
+}
+
 /**
  * Q6b — mention NON silencieuse des lignes écartées par le DÉFAUT (statuts morts masqués). Rendu PUR. Rien si aucune ligne
  * masquée. Le bouton « les afficher » délègue à la Vue (bascule le filtre Statut sur « Toutes »). Sans cette mention, le défaut
@@ -691,7 +703,7 @@ export function TableDemandes({
             <th style={nowrap}>Type</th>
             <EnteteTriable libelle="Commune" colonne="commune" tri={tri} onTrier={onTrier} />
             <th style={styleTdD}>Profil</th>
-            <th style={nowrap}>Canal</th>
+            <th style={nowrap}>Origine</th>
             <th style={{ ...styleTdD, minWidth: 160 }}>Destinataire</th>
             <EnteteTriable libelle="Dossiers" colonne="dossiers" tri={tri} onTrier={onTrier} />
             <EnteteTriable libelle="Statut" colonne="statut" tri={tri} onTrier={onTrier} />
@@ -711,7 +723,7 @@ export function TableDemandes({
                   <CelluleType rangs={d.rangs} categories={categories} />
                   <td style={styleTdD}>{d.communeNom ?? d.codeInsee}</td>
                   <td style={styleTdD}>{ETIQUETTE_PROFIL[d.profil as ProfilDemandeur] ?? d.profil}</td>
-                  <td style={nowrap}>{d.canal}</td>
+                  <td style={nowrap}>{libelleOrigine(d.canal)}</td>
                   <td style={styleTdD}><OrigineDest origine={d.destOrigine} nom={d.destNom} /></td>
                   <td style={styleTdD}>{d.nbDossiers}</td>
                   <td style={nowrap}>{STATUT_LIBELLE[d.statut] ?? d.statut}</td>

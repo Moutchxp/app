@@ -8,10 +8,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  */
 const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
-  const etat = { statut: 'prete' as string, canal: 'formulaire' as string | null, conflit23505: false };
+  const etat = { statut: 'prete' as string, canal: 'formulaire' as string | null, conflit23505: false, deleteRowCount: 1 };
   const run = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
     if (/SELECT statut, dest_canal/i.test(sql)) return { rows: [{ statut: etat.statut, canal: etat.canal }], rowCount: 1 };
+    if (/DELETE FROM demande_reference_externe/i.test(sql)) return { rows: [], rowCount: etat.deleteRowCount }; // FUS-4 : effacement
     // INSERT DIRECT (ajouterReferenceExterne, SANS ON CONFLICT) → peut lever 23505 ; la greffe (ON CONFLICT) n'est jamais bloquée.
     if (/INSERT INTO demande_reference_externe/i.test(sql) && !/ON CONFLICT/i.test(sql) && etat.conflit23505) {
       throw Object.assign(new Error('duplicate key'), { code: '23505', constraint: 'demande_reference_externe_demande_id_reference_key' });
@@ -23,11 +24,11 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: withTransactionMock, pool: {}, closePool: async () => undefined }));
 
-import { ajouterReferenceExterne, marquerDeposee, ReferenceDejaEnregistreeError } from './demandeRepo';
+import { ajouterReferenceExterne, supprimerReferenceExterne, marquerDeposee, ReferenceDejaEnregistreeError } from './demandeRepo';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 const trouver = (re: RegExp) => appels.find((a) => re.test(a.sql));
-beforeEach(() => { appels.length = 0; etat.statut = 'prete'; etat.canal = 'formulaire'; etat.conflit23505 = false; });
+beforeEach(() => { appels.length = 0; etat.statut = 'prete'; etat.canal = 'formulaire'; etat.conflit23505 = false; etat.deleteRowCount = 1; });
 
 describe('P1 — ajouterReferenceExterne', () => {
   it('insère avec les paramètres liés, référence NETTOYÉE (trim)', async () => {
@@ -106,5 +107,26 @@ describe('P1 — marquerDeposee greffe la référence', () => {
   it('un doublon de référence NE BLOQUE JAMAIS le dépôt (la greffe est ON CONFLICT DO NOTHING)', async () => {
     etat.conflit23505 = true; // n'affecte que l'INSERT DIRECT, pas la greffe
     await expect(marquerDeposee(42, 'admin', 'REF')).resolves.toBeUndefined();
+  });
+});
+
+describe('FUS-4 — supprimerReferenceExterne (effacer une référence, jamais défaire un envoi)', () => {
+  it('DELETE par (demande_id, reference) NETTOYÉE ; renvoie true si une ligne retirée', async () => {
+    const ok = await supprimerReferenceExterne(119, '  SLC260810440700  ');
+    const del = trouver(/DELETE FROM demande_reference_externe/i)!;
+    expect(del).toBeDefined();
+    expect(norm(del.sql)).toContain('DELETE FROM demande_reference_externe WHERE demande_id = $1 AND reference = $2');
+    expect(del.params).toEqual([119, 'SLC260810440700']); // référence trimée
+    expect(ok).toBe(true);
+  });
+
+  it('référence absente → false (idempotent), sans erreur', async () => {
+    etat.deleteRowCount = 0;
+    expect(await supprimerReferenceExterne(119, 'INCONNUE')).toBe(false);
+  });
+
+  it('🔴 n’écrit NI demande.statut NI envoye_le NI acheminement (effacer ne défait aucun envoi)', async () => {
+    await supprimerReferenceExterne(119, 'REF');
+    expect(appels.every((a) => !/UPDATE\s+demande\b|SET\s+statut|envoye_le|demande_acheminement/i.test(a.sql))).toBe(true);
   });
 });

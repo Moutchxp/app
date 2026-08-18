@@ -135,6 +135,8 @@ export interface DemandeSuivi {
   nbReponses: number;           // T3 : « la mairie a ÉCRIT » — messages rattachés hors rebond (accusé COMPRIS). Pilote « En cours ».
   nbReponsesReelles: number;    // T3 : « la mairie a RÉPONDU » — hors accusé ET hors rebond. Pilote l'entrée dans « Réponses ».
   derniereReponseLe: string | null; // T1 : date (ISO) du dernier message « a écrit » (hors rebond) → pré-remplit « refus le »
+  referencesMairie: string[];   // FUS-4 : références mairie (SLC…) de la demande — colonne « Réf. mairie » éditable (ajouter/modifier/effacer)
+  aAccuse: boolean;             // FUS-4 : ≥ 1 message de nature 'accuse' rattaché → « accusé reçu » DÉRIVÉ (avec ou sans référence)
   dossiers: DossierSuivi[];
   liens: LienAffiche[];         // L1 : liens de téléchargement captés dans les réponses rattachées (forts d'abord)
   alertesGed: AlerteGedAffiche[]; // G1 : alertes « à classer/télécharger en GED » déjà envoyées (retard visible)
@@ -261,6 +263,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   const dem = await query<{
     id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string;
     envoye_le: string | null; statut_acheminement: string; dossiers_actifs: number; dossiers_satisfaits: number; dossiers_en_ged: number; nb_reponses: number; nb_reponses_reelles: number; derniere_reponse_le: string | null;
+    refs_mairie: string[]; a_accuse: boolean; // FUS-4 : réf. mairie (colonne éditable) + « accusé » DÉRIVÉ (message nature 'accuse')
   }>(
     // T3 — DEUX faits DISTINCTS : « la mairie a ÉCRIT » (nb_reponses, accusé COMPRIS, rebond EXCLU → pilote « En cours ») et
     //   « la mairie a RÉPONDU » (nb_reponses_reelles, hors accusé ET hors rebond → pilote l'entrée dans « Réponses »). Un rebond
@@ -277,7 +280,11 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
             -- T8 — « EN GED » = une ligne dossier_document (déf. G1/G2), DISTINCT de satisfait_le (« marqué reçu »). Pilote « documents obtenus ».
             (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif AND EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = dd.dossier_id)) AS dossiers_en_ged,
             (SELECT count(*)::int FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature <> 'rebond') AS nb_reponses,
-            (SELECT count(*)::int FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature NOT IN ('accuse','rebond')) AS nb_reponses_reelles
+            (SELECT count(*)::int FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature NOT IN ('accuse','rebond')) AS nb_reponses_reelles,
+            -- FUS-4 : références mairie de la demande (colonne « Réf. mairie » éditable) + « accusé reçu » DÉRIVÉ (message nature
+            --   'accuse' rattaché). La présence d'une référence OU d'un accusé pilote l'affichage « accusé reçu » côté Vue (jamais stocké).
+            coalesce((SELECT array_agg(re.reference ORDER BY re.cree_le) FROM demande_reference_externe re WHERE re.demande_id = d.id), '{}') AS refs_mairie,
+            EXISTS (SELECT 1 FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature = 'accuse') AS a_accuse
        FROM demande d
        LEFT JOIN commune c ON c.code_insee = d.code_insee
        -- B2 — la date d'envoi (ancre d'échéance) se lit QUEL QUE SOIT le canal : un dépôt téléservice écrit une ligne
@@ -385,6 +392,8 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
     dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits, dossiersEnGed: r.dossiers_en_ged, nbReponses: r.nb_reponses, nbReponsesReelles: r.nb_reponses_reelles,
     derniereReponseLe: r.derniere_reponse_le,
+    referencesMairie: r.refs_mairie ?? [], aAccuse: r.a_accuse ?? false, // FUS-4
+
     dossiers: parDemande.get(r.id) ?? [],
     liens: parLiens.get(r.id) ?? [],
     alertesGed: parAlertes.get(r.id) ?? [],
