@@ -58,7 +58,6 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
   const [liste, setListe] = useState<{ demandes: DemandeListe[]; alertesIdentite: AlerteIdentite[]; referencesIndisponibles?: boolean } | null>(null);
   const [detail, setDetail] = useState<DemandeDetail | null>(null);
   const [corps, setCorps] = useState('');
-  const [refDetail, setRefDetail] = useState('');
   const [retour, setRetour] = useState<RetourAction>(null);
   const [version, setVersion] = useState(0);
   const [sel, setSel] = useState<Set<number>>(new Set());
@@ -200,14 +199,6 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     const res = await fetch(`/api/admin/permis/demandes/${detail.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ corps }) });
     if (res.ok) { setDetail((await res.json()) as DemandeDetail); annoncer('Texte enregistré.', true, 'detail'); }
     else annoncer(await erreurServeur(res, 'Enregistrement impossible.'), false, 'detail');
-  }
-  async function ajouterReference(): Promise<void> {
-    if (!detail) return;
-    const reference = refDetail.trim();
-    if (reference === '') { annoncer('Saisissez une référence.', false, 'detail'); return; }
-    const res = await fetch('/api/admin/permis/demandes/reference', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ demandeId: detail.id, reference }) });
-    if (res.ok) { setRefDetail(''); await ouvrir(detail.id, true); annoncer('Référence enregistrée.', true, 'detail'); }
-    else annoncer(await erreurServeur(res, 'Ajout impossible.'), false, 'detail');
   }
 
   // FUS-4 — actions « Réf. mairie » DEPUIS LE TABLEAU (En cours). MÊME route que le détail (POST ajoute, DELETE retire) → un
@@ -434,11 +425,14 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
         fondLigne={fondLigne}
         panneau={detail ? (
           <PanneauDetailDemande
-            detail={detail} corps={corps} refDetail={refDetail} retour={zonesRetour.detail}
-            onCorps={setCorps} onRefDetail={setRefDetail}
+            detail={detail} corps={corps} retour={zonesRetour.detail}
+            onCorps={setCorps}
             onFermer={() => setDetail(null)}
             onSauverCorps={() => void sauverCorps()}
-            onAjouterReference={() => void ajouterReference()}
+            /* FUS — éditeur de référence PARTAGÉ avec le tableau : MÊMES handlers (POST/DELETE /reference) + rafraîchit le détail après succès. */
+            onAjouterRef={async (r) => { const e = await ajouterRefTable(detail.id, r); if (!e) await ouvrir(detail.id, true); return e; }}
+            onModifierRef={async (a, n) => { const e = await modifierRefTable(detail.id, a, n); if (!e) await ouvrir(detail.id, true); return e; }}
+            onSupprimerRef={async (r) => { const e = await supprimerRefTable(detail.id, r); if (!e) await ouvrir(detail.id, true); return e; }}
             onBascule={(p) => setConfBascule({ ids: [detail.id], profil: p })}
             onTransition={(statut) => void transition([detail.id], statut, 'detail')}
             // T6-A — En cours : les 7 actions (DetailDossiers + ActionsCloture) via la MÊME route POST /reponses. À demander : slots absents → détail inchangé.

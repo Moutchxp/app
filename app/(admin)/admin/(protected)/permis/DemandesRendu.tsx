@@ -4,6 +4,7 @@ import { ETIQUETTE_PROFIL, ancreDetail, type ProfilDemandeur } from '../../../..
 import { formaterReferencePermis, resoudreAdresseAvecReplis } from '../../../../lib/sitadel/referencePermis';
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
 import { PERIODES_STOCK, type LigneStock } from '../../../../lib/sitadel/stock';
+import { EditeurReferenceMairie } from './RefMairieCellule'; // FUS — éditeur PARTAGÉ de la référence mairie (cellule tableau ET détail : un seul comportement)
 import type { PermisDetail, DemandeDetail } from '../../../../lib/sitadel/demandeRepo';
 
 /**
@@ -789,11 +790,15 @@ const PROFILS_DEMANDE: ProfilDemandeur[] = ['entreprise', 'personne'];
  * (le panneau a seulement CHANGÉ D'EMPLACEMENT). La bascule/les transitions ne sont offertes qu'en brouillon (garde inchangée).
  */
 export function PanneauDetailDemande({
-  detail, corps, refDetail, retour, onCorps, onRefDetail, onFermer, onSauverCorps, onAjouterReference, onBascule, onTransition, slotDossiers, slotActions,
+  detail, corps, retour, onCorps, onFermer, onSauverCorps, onAjouterRef, onModifierRef, onSupprimerRef, onBascule, onTransition, slotDossiers, slotActions,
 }: {
-  detail: DemandeDetail; corps: string; refDetail: string; retour: RetourAction;
-  onCorps: (v: string) => void; onRefDetail: (v: string) => void;
-  onFermer: () => void; onSauverCorps: () => void; onAjouterReference: () => void;
+  detail: DemandeDetail; corps: string; retour: RetourAction;
+  onCorps: (v: string) => void;
+  onFermer: () => void; onSauverCorps: () => void;
+  // FUS — édition de LA référence mairie via l'éditeur PARTAGÉ (mêmes callbacks que la cellule du tableau → un seul comportement).
+  onAjouterRef: (reference: string) => Promise<string | null>;
+  onModifierRef: (ancien: string, nouveau: string) => Promise<string | null>;
+  onSupprimerRef: (reference: string) => Promise<string | null>;
   onBascule: (profil: ProfilDemandeur) => void; onTransition: (statut: 'prete' | 'annulee') => void;
   // T6-A — slots pour « En cours » : `slotDossiers` REMPLACE le détail brut des dossiers par DetailDossiers (actions T1) ;
   //   `slotActions` ajoute ActionsCloture (clôturer/rouvrir). ABSENTS pour « À demander » → rendu STRICTEMENT inchangé.
@@ -832,14 +837,10 @@ export function PanneauDetailDemande({
         <span style={{ color: 'var(--color-svv-muted)' }}>Références mairie : </span>
         {detail.referencesMairieIndisponible
           ? <span role="status" style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}>indisponibles (lecture en erreur — voir les journaux)</span>
-          : detail.referencesMairie.length === 0
-            ? <span style={{ color: 'var(--color-svv-muted)' }}>aucune enregistrée</span>
-            : <span style={{ fontFamily: 'var(--font-svv-mono, monospace)' }}>{detail.referencesMairie.map((rf) => rf.reference).join(', ')}</span>}
-        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginTop: '.3rem', alignItems: 'center' }}>
-          <input value={refDetail} onChange={(e) => onRefDetail(e.target.value)} placeholder="ajouter une référence mairie" aria-label="Ajouter une référence mairie"
-            style={{ padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
-          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => onAjouterReference()}>Ajouter la référence</button>
-        </div>
+          : <div style={{ marginTop: '.3rem' }}>
+              {/* FUS — MÊME éditeur que la cellule du tableau (un seul comportement) : « ajouter » seulement si aucune référence ; sinon modifier/effacer. */}
+              <EditeurReferenceMairie references={detail.referencesMairie.map((rf) => rf.reference)} onAjouter={onAjouterRef} onModifier={onModifierRef} onSupprimer={onSupprimerRef} />
+            </div>}
       </div>
       {slotActions /* T6-A — En cours : ActionsCloture (clôturer + motif / rouvrir) */}
       {brouillon && (

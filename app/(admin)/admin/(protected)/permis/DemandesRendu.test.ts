@@ -689,7 +689,7 @@ describe('U7 — TableDemandes : détail en ACCORDÉON à un seul volet, sous la
 
 describe('U7 — PanneauDetailDemande : contenu + actions du détail (déplacé sous la ligne, à l’identique)', () => {
   const noop = () => {};
-  const cbs = { onCorps: noop, onRefDetail: noop, onFermer: noop, onSauverCorps: noop, onAjouterReference: noop, onBascule: noop, onTransition: noop };
+  const cbs = { onCorps: noop, onFermer: noop, onSauverCorps: noop, onAjouterRef: async () => null, onModifierRef: async () => null, onSupprimerRef: async () => null, onBascule: noop, onTransition: noop };
   const DETAIL = (over: Record<string, unknown> = {}) => ({
     id: 1, reference: 'SVAV-DEM-2026-000001', codeInsee: '92004', communeNom: 'Asnières', statut: 'brouillon',
     profil: 'entreprise', canal: 'email', destEmail: 'urba@mairie.fr', destAdressePostale: null, destUrlFormulaire: null,
@@ -698,7 +698,7 @@ describe('U7 — PanneauDetailDemande : contenu + actions du détail (déplacé 
     referencesMairie: [], referencesMairieIndisponible: false, ...over,
   }) as unknown as Parameters<typeof PanneauDetailDemande>[0]['detail'];
   const rendu = (over: Record<string, unknown> = {}, corps = 'CORPS DEMANDE', retour: RetourAction = null) =>
-    renderToStaticMarkup(createElement(PanneauDetailDemande, { detail: DETAIL(over), corps, refDetail: '', retour, ...cbs }));
+    renderToStaticMarkup(createElement(PanneauDetailDemande, { detail: DETAIL(over), corps, retour, ...cbs }));
 
   it('affiche la référence, le destinataire figé, un bouton « fermer »', () => {
     const h = rendu();
@@ -706,6 +706,17 @@ describe('U7 — PanneauDetailDemande : contenu + actions du détail (déplacé 
     expect(h).toContain('Destinataire figé');
     expect(h).toContain('urba@mairie.fr');
     expect(h).toContain('fermer');
+  });
+
+  it('FUS — bloc « Références mairie » : MÊME règle que la cellule (éditeur partagé) — add si vide, modifier/effacer si présent', () => {
+    const vide = rendu(); // referencesMairie: [] par défaut
+    expect(vide).toContain('Références mairie');
+    expect(vide).toContain('Ajouter une référence mairie'); // champ visible car aucune référence
+    const pleine = rendu({ referencesMairie: [{ reference: 'SLC260810440700' }] });
+    expect(pleine).toContain('SLC260810440700');
+    expect(pleine).toContain('modifier');
+    expect(pleine).toContain('Effacer la référence SLC260810440700');
+    expect(pleine).not.toContain('Ajouter une référence mairie'); // champ NON rendu tant qu'une référence existe
   });
 
   it('brouillon → corps ÉDITABLE + « Enregistrer le texte » / « Marquer prête » / « Annuler la demande »', () => {
@@ -725,10 +736,12 @@ describe('U7 — PanneauDetailDemande : contenu + actions du détail (déplacé 
     expect(h).not.toContain('Enregistrer le texte');
   });
 
-  it('références mairie : « aucune enregistrée » si vide ; listées sinon ; « indisponibles » si lecture en erreur', () => {
-    expect(rendu({ referencesMairie: [] })).toContain('aucune enregistrée');
+  it('références mairie : champ d’ajout si vide ; référence listée si présente ; « indisponibles » (sans éditeur) si lecture en erreur', () => {
+    expect(rendu({ referencesMairie: [] })).toContain('Ajouter une référence mairie'); // vide → éditeur montre le champ d’ajout
     expect(rendu({ referencesMairie: [{ reference: 'SLC-42' }] })).toContain('SLC-42');
-    expect(rendu({ referencesMairieIndisponible: true })).toContain('indisponibles');
+    const err = rendu({ referencesMairieIndisponible: true });
+    expect(err).toContain('indisponibles');
+    expect(err).not.toContain('Ajouter une référence mairie'); // l’état d’erreur remplace l’éditeur, ne l’affiche pas
   });
 
   it('le retour d’action de la ZONE détail se rend dans le panneau (même MessageRetour qu’avant le déplacement)', () => {
@@ -820,12 +833,12 @@ describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours »
 
   it('PanneauDetailDemande : slotDossiers REMPLACE le détail brut, slotActions s’ajoute (En cours) ; sans slots → détail brut (À demander)', () => {
     const noop = () => {};
-    const cbs = { onCorps: noop, onRefDetail: noop, onFermer: noop, onSauverCorps: noop, onAjouterReference: noop, onBascule: noop, onTransition: noop };
+    const cbs = { onCorps: noop, onFermer: noop, onSauverCorps: noop, onAjouterRef: async () => null, onModifierRef: async () => null, onSupprimerRef: async () => null, onBascule: noop, onTransition: noop };
     const DETAIL = { id: 1, reference: 'SVAV-DEM-2026-000009', codeInsee: '92004', communeNom: 'Asnières', statut: 'envoyee',
       profil: 'entreprise', canal: 'email', destEmail: null, destAdressePostale: null, destUrlFormulaire: null, destOrigine: 'mairie_contact', destNom: null,
       corps: 'X', dossiers: [{ numDau: 'PC-DOSSIER-BRUT', date: null }], dossiersRetires: [], referencesMairie: [], referencesMairieIndisponible: false,
     } as unknown as Parameters<typeof PanneauDetailDemande>[0]['detail'];
-    const base = { detail: DETAIL, corps: 'X', refDetail: '', retour: null as RetourAction, ...cbs };
+    const base = { detail: DETAIL, corps: 'X', retour: null as RetourAction, ...cbs };
     const sans = renderToStaticMarkup(createElement(PanneauDetailDemande, base));
     expect(sans).toContain('PC-DOSSIER-BRUT'); // détail brut des dossiers (À demander)
     const avec = renderToStaticMarkup(createElement(PanneauDetailDemande, { ...base,
@@ -839,14 +852,14 @@ describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours »
     // Demande « accusé seul » : nbReponsesReelles=0 → EXCLUE de « Réponses » (T3). « En cours » est son SEUL écran → le lien doit
     //   y apparaître. Le slotDossiers reçoit EXACTEMENT le BlocLiens que SuiviDemandes injecte (composant PARTAGÉ avec « Réponses »).
     const noop = () => {};
-    const cbs = { onCorps: noop, onRefDetail: noop, onFermer: noop, onSauverCorps: noop, onAjouterReference: noop, onBascule: noop, onTransition: noop };
+    const cbs = { onCorps: noop, onFermer: noop, onSauverCorps: noop, onAjouterRef: async () => null, onModifierRef: async () => null, onSupprimerRef: async () => null, onBascule: noop, onTransition: noop };
     const DETAIL = { id: 1, reference: 'SVAV-DEM-2026-000010', codeInsee: '75056', communeNom: 'Paris', statut: 'envoyee',
       profil: 'entreprise', canal: 'email', destEmail: null, destAdressePostale: null, destUrlFormulaire: null, destOrigine: 'mairie_contact', destNom: null,
       corps: 'X', dossiers: [{ numDau: 'PC0750560000001', date: null }], dossiersRetires: [], referencesMairie: [], referencesMairieIndisponible: false,
     } as unknown as Parameters<typeof PanneauDetailDemande>[0]['detail'];
     const lien: LienAffiche = { url: 'https://ged.paris.fr/share/s/Zk91Ab34Cd56Ef78Gh/folder', fort: true, recuLe: '2026-08-10T13:24:00Z', expireLe: '2026-08-17T13:24:00Z', expirationSource: 'relative', expirationIndice: '7 jours' };
     const h = renderToStaticMarkup(createElement(PanneauDetailDemande, {
-      detail: DETAIL, corps: 'X', refDetail: '', retour: null as RetourAction, ...cbs,
+      detail: DETAIL, corps: 'X', retour: null as RetourAction, ...cbs,
       slotDossiers: createElement(BlocLiens, { liens: [lien] }),
     }));
     expect(h).toContain('href="https://ged.paris.fr/share/s/Zk91Ab34Cd56Ef78Gh/folder"');

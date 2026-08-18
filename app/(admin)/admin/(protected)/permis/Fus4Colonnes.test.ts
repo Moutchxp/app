@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import { libelleOrigine, accuseRecu } from './DemandesRendu';
-import { RefMairieCellule } from './RefMairieCellule';
+import { RefMairieCellule, EditeurReferenceMairie } from './RefMairieCellule';
 
 /**
  * FUS-4 — colonnes « Origine » (libellé) + « Réf. mairie » (éditable) de l'onglet « En cours ». libelleOrigine et accuseRecu
@@ -31,19 +31,32 @@ describe('FUS-4 — accuseRecu (décision 1 : état DÉRIVÉ, jamais stocké)', 
 
 const noop = async () => null;
 
-describe('FUS-4 — RefMairieCellule (② colonne PUREMENT référence, rendu initial)', () => {
-  it('aucune référence → « aucune » + champ d’ajout (plus de mention « accusé » ici : elle vit dans « Retour mairie »)', () => {
+describe('FUS — RefMairieCellule / EditeurReferenceMairie : RÈGLE « une seule référence » (add SEULEMENT si 0)', () => {
+  it('AUCUNE référence → champ + « ajouter » VISIBLES (le SEUL cas) ; aucun modifier/effacer', () => {
     const h = renderToStaticMarkup(createElement(RefMairieCellule, { references: [], onAjouter: noop, onModifier: noop, onSupprimer: noop }));
-    expect(h).toContain('aucune');
-    expect(h).toContain('Ajouter une référence mairie'); // aria-label du champ d’ajout, toujours présent
-    expect(h).not.toContain('accusé'); // pas de doublon avec la colonne Retour mairie
+    expect(h).toContain('Ajouter une référence mairie'); // aria-label du champ de saisie
+    expect(h).toContain('ajouter');
+    expect(h).not.toContain('modifier');
+    expect(h).not.toContain('Effacer la référence');
+    expect(h).not.toContain('accusé'); // « accusé reçu » vit dans « Retour mairie », pas ici
   });
 
-  it('référence présente → affichée + gestes « modifier » et « effacer » + ajout d’une autre', () => {
+  it('référence PRÉSENTE → SEULEMENT « modifier » + « effacer » ; champ « ajouter » PAS rendu (pas grisé — absent)', () => {
     const h = renderToStaticMarkup(createElement(RefMairieCellule, { references: ['SLC260810440700'], onAjouter: noop, onModifier: noop, onSupprimer: noop }));
     expect(h).toContain('SLC260810440700');
     expect(h).toContain('modifier');
     expect(h).toContain('Effacer la référence SLC260810440700'); // aria-label de l’effacement
+    expect(h).not.toContain('Ajouter une référence mairie');  // champ NON rendu tant qu'une référence existe (plus d'empilement)
+    expect(h).not.toContain('placeholder="ajouter une référence"');
     expect(h).not.toContain('aucune');
+  });
+
+  it('EditeurReferenceMairie (FOYER PARTAGÉ, hors cellule) : même règle → add si vide, modifier/effacer si présent', () => {
+    const vide = renderToStaticMarkup(createElement(EditeurReferenceMairie, { references: [], onAjouter: noop, onModifier: noop, onSupprimer: noop }));
+    expect(vide).toContain('Ajouter une référence mairie');
+    expect(vide).not.toContain('modifier');
+    const pleine = renderToStaticMarkup(createElement(EditeurReferenceMairie, { references: ['REF-1'], onAjouter: noop, onModifier: noop, onSupprimer: noop }));
+    expect(pleine).toContain('modifier');
+    expect(pleine).not.toContain('Ajouter une référence mairie');
   });
 });
