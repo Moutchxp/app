@@ -52,8 +52,12 @@ export async function validerOrigine(
      ),
      nn AS (                                            -- bâtiment le plus proche
        SELECT b.id, b.cleabs, ST_Force2D(b.geom) AS geom, b.altitude_minimale_sol AS alt_sol_bdtopo
-       FROM bdtopo_batiment b, pt
-       ORDER BY b.geom <-> pt.g                          -- #2 : KNN via index de base (Z ignoré par <->, prouvé #2a) ; ST_Force2D gardé en projection L54 (sortie/distance)
+       FROM bdtopo_batiment b
+       -- #2b-1 : point INLINE dans le <-> (au lieu de pt.g). Le CTE pt est multi-reference (snap / SELECT / sous-plan raster) donc
+       --         MATERIALISE : pt.g devient une valeur de CTE Scan et le KNN GiST PERD son index (Seq Scan 3 M, ~1,6 s). Inline =
+       --         point scalaire -> Index Scan batiment_geom_geom_idx (~1900 ms -> ~300 ms). MEME plus-proche-voisin (Z ignore par
+       --         le <->, prouve #2a). ST_Force2D reste en projection (L54, sortie/distance) -- invariant intact.
+       ORDER BY b.geom <-> ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 2154)
        LIMIT 1
      ),
      snap AS (                                          -- semi_auto : projection bordure ; manuel : point brut tel quel
