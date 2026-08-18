@@ -14,6 +14,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
     domaines: [] as string[],
     references: [] as string[], // R3e — num_dau renvoyés par lireReferencesRecherche
     curseur: null as Date | null, // P1 — max(termine_le) du dernier scan courant complet réussi
+    domainesDerivesRows: [] as { url_formulaire: string | null; prada: string | null; dila: string | null }[], // LOT 2 — sources domaine dérivé
     rebondRowCount: 1,
     conflit: false,
     nextId: 4242,
@@ -27,6 +28,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
     if (/array_agg\(a\.message_id\)/i.test(sql)) return { rows: etat.candidates, rowCount: etat.candidates.length };
     if (/FROM demande_reponse WHERE profil_boite/i.test(sql)) return { rows: etat.knownIds.map((m) => ({ message_id: m })), rowCount: etat.knownIds.length };
     if (/split_part\(dest_email/i.test(sql)) return { rows: etat.domaines.map((d) => ({ domaine: d })), rowCount: etat.domaines.length };
+    if (/di\.site_internet/i.test(sql)) return { rows: etat.domainesDerivesRows, rowCount: etat.domainesDerivesRows.length }; // LOT 2 — lireDomainesDerives
     if (/UPDATE demande_acheminement/i.test(sql)) return { rows: [], rowCount: etat.rebondRowCount };
     if (/INSERT INTO demande_reponse_lien/i.test(sql)) return { rows: [], rowCount: 1 }; // L1 : un lien inséré
     return { rows: [], rowCount: 0 };
@@ -44,7 +46,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
 
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: withTransactionMock, pool: {}, closePool: async () => undefined }));
 
-import { releverBoite, fenetreDepuis, type ClientBoite, type MessageBoite, type PieceMeta, type CritereRecherche } from './releveReponses';
+import { releverBoite, fenetreDepuis, domaineRacine, hoteDepuisSource, type ClientBoite, type MessageBoite, type PieceMeta, type CritereRecherche } from './releveReponses';
 import type { MessageEntrant } from './rattachementReponse';
 import type { PartieRapport } from './rapportRejet';
 
@@ -91,7 +93,7 @@ function fauxClient(messages: MessageBoite[], rechercheImpl?: (c: CritereRecherc
 
 beforeEach(() => {
   appels.length = 0; uidSeq = 0;
-  etat.candidates = [CAND_A]; etat.depuis = DEPUIS; etat.knownIds = []; etat.domaines = ['mairie-aubervilliers.fr']; etat.references = []; etat.curseur = null; etat.rebondRowCount = 1; etat.conflit = false; etat.nextId = 4242;
+  etat.candidates = [CAND_A]; etat.depuis = DEPUIS; etat.knownIds = []; etat.domaines = ['mairie-aubervilliers.fr']; etat.references = []; etat.curseur = null; etat.domainesDerivesRows = []; etat.rebondRowCount = 1; etat.conflit = false; etat.nextId = 4242;
 });
 
 describe('R3c/R3d — recherches serveur', () => {
@@ -622,5 +624,79 @@ describe('N1-A — branchement du dépôt manuel (opt-in via opts.depot)', () =>
     const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true, depot });
     expect(r.rattaches).toBe(1);                                    // flux normal repris
     expect(trouver(/INSERT INTO demande_reponse\b/i)).toBeDefined(); // enregistré normalement
+  });
+});
+
+describe('LOT 2 — helpers de dérivation de domaine (unité)', () => {
+  it('hoteDepuisSource : URL → hôte, courriel → domaine', () => {
+    expect(hoteDepuisSource('https://sollicitations.paris.fr/ticketing/jsp/site/Portal.jsp?page=ticket')).toBe('sollicitations.paris.fr');
+    expect(hoteDepuisSource('https://www.paris.fr/')).toBe('www.paris.fr');
+    expect(hoteDepuisSource('daj-cada@paris.fr')).toBe('paris.fr');
+    expect(hoteDepuisSource('  ')).toBe('');
+  });
+  it('domaineRacine : réduit au registrable, .gouv.fr préservé (pas de « 2 derniers labels » naïf)', () => {
+    expect(domaineRacine('sollicitations.paris.fr')).toBe('paris.fr');
+    expect(domaineRacine('www.paris.fr')).toBe('paris.fr');
+    expect(domaineRacine('paris.fr')).toBe('paris.fr');
+    expect(domaineRacine('mairie-x.fr')).toBe('mairie-x.fr');
+    expect(domaineRacine('demarches.mairie-y.gouv.fr')).toBe('mairie-y.gouv.fr'); // gouv.fr = suffixe public → 3 labels
+    expect(domaineRacine('gouv.fr')).toBe('gouv.fr');
+  });
+});
+
+describe('LOT 2 — porte expéditeur (domaines dérivés + garde-fou)', () => {
+  const PARIS_ROWS = [{ url_formulaire: 'https://sollicitations.paris.fr/ticketing/jsp/site/Portal.jsp?page=ticket', prada: null, dila: null }];
+
+  it('NON-RÉGRESSION dest_email : un message texte seul, sans signal, d’un domaine dest_email reste RETENU (porte inchangée), même quand un domaine dérivé est actif', async () => {
+    etat.domainesDerivesRows = PARIS_ROWS; // paris.fr dérivé actif en parallèle
+    const { client } = fauxClient([boite({ deAdresse: 'urba@mairie-aubervilliers.fr', objet: 'Bonjour', corpsTexte: 'Texte sans référence, sans pièce, sans lien.' })]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.retenus).toBe(1);        // dest_email = domaine seul suffit, exactement comme avant
+    expect(r.horsPerimetre).toBe(0);
+  });
+
+  it('la porte est OUVERTE côté serveur pour le domaine dérivé : paris.fr est interrogé', async () => {
+    etat.domainesDerivesRows = PARIS_ROWS;
+    const { client, suivi } = fauxClient([]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(suivi.recherches.some((c) => c.from === 'paris.fr')).toBe(true);
+    expect(r.domainesInterroges).toContain('paris.fr');
+  });
+
+  it('CAS PARIS : no-reply@paris.fr citant un SLC en objet (sans pièce, sans lien, réf. inconnue) → RETENU via le motif, en file « à rattacher »', async () => {
+    etat.domainesDerivesRows = PARIS_ROWS;
+    const { client } = fauxClient([boite({ deAdresse: 'no-reply@paris.fr', objet: 'Réponse à votre demande numéro SLC260810440700', corpsTexte: 'Bonjour Arnaud Michel JOREL,' })]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.retenus).toBe(1);
+    expect(r.horsPerimetre).toBe(0);
+    expect(r.lignes[0].demandeId).toBeNull(); // réf. SLC encore inconnue → non rattaché (file à rattacher), mais RETENU
+    expect(r.lignes[0].deAdresse).toBe('no-reply@paris.fr');
+  });
+
+  it('GARDE-FOU : une newsletter de paris.fr sans AUCUN signal (pas de réf, pas de pièce, pas de lien fort) → NON retenue', async () => {
+    etat.domainesDerivesRows = PARIS_ROWS;
+    const { client } = fauxClient([boite({ deAdresse: 'newsletter@paris.fr', objet: 'La lettre d’information de la Ville de Paris', corpsTexte: 'Découvrez l’actualité de votre ville cette semaine.' })]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.retenus).toBe(0);
+    expect(r.horsPerimetre).toBe(1);
+  });
+
+  it('GARDE-FOU levé par une PIÈCE : un message de paris.fr sans référence mais AVEC une pièce jointe → RETENU (signal = pièce)', async () => {
+    etat.domainesDerivesRows = PARIS_ROWS;
+    const { client } = fauxClient([boite(
+      { deAdresse: 'urbanisme@paris.fr', objet: 'Documents', corpsTexte: 'Veuillez trouver les pièces.' },
+      { pieces: [{ nomFichier: 'plan.pdf', typeMime: 'application/pdf', tailleOctets: 5, contenu: Buffer.from('plan!') }] },
+    )]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.retenus).toBe(1);
+    expect(r.horsPerimetre).toBe(0);
+  });
+
+  it('aucun domaine dérivé (row vide) → paris.fr n’est ni interrogé ni retenu (comportement d’avant le lot)', async () => {
+    etat.domainesDerivesRows = [];
+    const { client, suivi } = fauxClient([boite({ deAdresse: 'no-reply@paris.fr', objet: 'Réponse à votre demande numéro SLC260810440700', corpsTexte: 'Bonjour.' })]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(suivi.recherches.some((c) => c.from === 'paris.fr')).toBe(false);
+    expect(r.retenus).toBe(0);
   });
 });

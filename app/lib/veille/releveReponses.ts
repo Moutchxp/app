@@ -114,6 +114,37 @@ function domaineDe(adresse: string): string {
   const at = adresse.lastIndexOf('@');
   return at === -1 ? '' : adresse.slice(at + 1).trim().toLowerCase();
 }
+// LOT 2 — suffixes publics MULTI-labels rencontrés côté mairies FR (gouv.fr pour les services de l'État déconcentrés, sous-
+//   domaines .fr réservés). Le domaine RACINE = suffixe public + 1 label. Un « 2 derniers labels » naïf casserait sur
+//   x.mairie-y.gouv.fr (donnerait gouv.fr, un suffixe partagé) → faux positifs. Liste conservatrice, extensible.
+const SUFFIXES_PUBLICS_MULTI = new Set(['gouv.fr', 'asso.fr', 'com.fr', 'nom.fr', 'prd.fr', 'tm.fr', 'presse.fr']);
+/** LOT 2 — hôte d'une URL/hôte nu, ou domaine d'un courriel. `https://sollicitations.paris.fr/x` → `sollicitations.paris.fr` ;
+ *  `daj-cada@paris.fr` → `paris.fr`. Purement lexical (aucun réseau). */
+export function hoteDepuisSource(valeur: string): string {
+  const v = valeur.trim();
+  if (v === '') return '';
+  if (v.includes('@') && !v.includes('/')) return v.slice(v.lastIndexOf('@') + 1).trim().toLowerCase(); // courriel → domaine
+  const sansSchema = v.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');                 // retire http:// https:// …
+  const hote = (sansSchema.split(/[/?#]/)[0] ?? '').split('@').pop() ?? '';     // hôte avant le 1er /?#, sans un éventuel user@
+  return hote.trim().toLowerCase();
+}
+/** LOT 2 — domaine RACINE (registrable) d'un hôte, via la liste de suffixes publics. `sollicitations.paris.fr` → `paris.fr` ;
+ *  `x.mairie-y.gouv.fr` → `mairie-y.gouv.fr`. Sert à matcher l'expéditeur (`no-reply@paris.fr`) au domaine dérivé d'une mairie. */
+export function domaineRacine(hote: string): string {
+  const h = hote.trim().toLowerCase().replace(/\.$/, '');
+  if (h === '' || !h.includes('.')) return h;
+  const labels = h.split('.');
+  const n = SUFFIXES_PUBLICS_MULTI.has(labels.slice(-2).join('.')) ? 3 : 2;
+  return labels.slice(-n).join('.');
+}
+// LOT 2 — TOKEN en forme de référence de téléservice : préfixe alpha (2–6 lettres) accolé à une longue série de chiffres (≥8),
+//   ex. « SLC260810440700 ». Conservateur À DESSEIN (ne mord pas sur un n° de commande court d'une newsletter). Sert de SIGNAL
+//   pour les domaines DÉRIVÉS uniquement : capte le PREMIER accusé Paris, dont la référence SLC est encore INCONNUE (donc
+//   invisible à contientReferenceMairie). N'accorde JAMAIS la pertinence hors d'un domaine dérivé (cf. garde-fou plus bas).
+const MOTIF_REFERENCE = /[A-Z]{2,6}\d{8,}/;
+function citeMotifReference(mb: MessageBoite): boolean {
+  return MOTIF_REFERENCE.test(normaliserReference(`${mb.message.objet ?? ''}\n${mb.message.corpsTexte ?? ''}`));
+}
 function objetPertinent(objet: string | undefined): boolean {
   return objet ? normaliserObjet(objet).includes(FRAGMENT_OBJET) : false;
 }
@@ -250,6 +281,39 @@ async function lireDomainesDestinataires(profil: ProfilBoite): Promise<Set<strin
   return new Set(rows.map((r) => r.domaine).filter((d) => d !== ''));
 }
 
+/**
+ * LOT 2 — DOMAINES DÉRIVÉS. Pour les communes dont une demande est ENVOYÉE mais SANS dest_email (canal formulaire : Paris…), le
+ * domaine mairie est dérivé de `mairie_contact.url_formulaire` → sinon `mairie_prada.courriel` (S14) → sinon
+ * `dila_import.site_internet` (annuaire, ~94 % de couverture), réduit au domaine RACINE. Ces domaines n'ouvrent PAS la même
+ * porte que dest_email : la RÉTENTION exige un SIGNAL en plus (cf. garde-fou dans releverBoite). LECTURE SEULE, aucune table
+ * nouvelle (les 3 sources existent déjà). Retourne les domaines racines distincts.
+ */
+async function lireDomainesDerives(profil: ProfilBoite): Promise<Set<string>> {
+  const { rows } = await query<{ url_formulaire: string | null; prada: string | null; dila: string | null }>(
+    `SELECT DISTINCT d.code_insee,
+            (SELECT mc.url_formulaire FROM mairie_contact mc
+              WHERE mc.code_insee = d.code_insee AND mc.url_formulaire LIKE '%.%' LIMIT 1)                        AS url_formulaire,
+            (SELECT mp.courriel FROM mairie_prada mp
+              WHERE mp.code_insee = d.code_insee AND mp.courriel LIKE '%@%' LIMIT 1)                              AS prada,
+            (SELECT di.site_internet FROM dila_import di
+              WHERE di.code_insee = d.code_insee AND di.site_internet LIKE '%.%'
+              ORDER BY di.importe_le DESC NULLS LAST LIMIT 1)                                                     AS dila
+       FROM demande d
+      WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1
+        AND (d.dest_email IS NULL OR d.dest_email NOT LIKE '%@%')`,
+    [profil],
+  );
+  const out = new Set<string>();
+  for (const r of rows) {
+    // Priorité url_formulaire → prada → dila (première source non vide) ; réduction au domaine racine.
+    const source = [r.url_formulaire, r.prada, r.dila].map((x) => (x ?? '').trim()).find((x) => x !== '');
+    if (source === undefined) continue;
+    const dom = domaineRacine(hoteDepuisSource(source));
+    if (dom.includes('.')) out.add(dom);
+  }
+  return out;
+}
+
 async function marquerRebond(demandeId: number, motif: string): Promise<number> {
   const res = await query(
     `UPDATE demande_acheminement
@@ -301,7 +365,8 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const candidates: DemandeCandidate[] = envoyees.map((e) => ({ id: e.id, reference: e.reference, profilBoite: opts.profil, statut: 'envoyee', messageIdsEmis: e.messageIdsEmis, numerosDossier: e.numerosDossier, referencesExternes: e.referencesExternes }));
   const depuis = opts.depuis ?? (await fenetreDepuis(opts.profil)); // P1 : fenêtre = curseur − 3 j (repli backfill si aucun curseur)
   const domaines = await lireDomainesDestinataires(opts.profil);
-  const domainesInterroges = [...domaines];
+  const domainesDerives = await lireDomainesDerives(opts.profil); // LOT 2 — communes sans dest_email (formulaire) ; porte GARDÉE
+  const domainesInterroges = [...new Set([...domaines, ...domainesDerives])];
 
   const vide = (connecte: boolean): RapportReleve => ({
     mode, profil: opts.profil, connecte, depuis: depuis ? depuis.toISOString() : null, domainesInterroges,
@@ -426,12 +491,20 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
       const duDomaine = !genSet.has(uid);
       if (!opts.sansFiltre && !duDomaine) { horsPerimetre += 1; continue; } // sonde rebond mais pas un rebond → ignoré
       const r = rattacherReponse(mb.message, candidates);
-      // R3e — nouveau critère : un n° de dossier d'une demande candidate apparaît littéralement (objet/corps/nom de pièce).
-      const pertinent = opts.sansFiltre === true || r.methode !== 'aucun' || domaines.has(domaineDe(mb.message.deAdresse)) || objetPertinent(mb.message.objet) || contientNumeroDossier(mb) || contientReferenceMairie(mb) || contientReferenceCherchee(mb);
-      if (!pertinent) { horsPerimetre += 1; continue; }
       // L1 — liens candidats du corps (texte + HTML), analyse PURE (aucun appel réseau, on ne SUIT JAMAIS un lien). Calculés en
-      //   AMONT : ils servent à la fois à la NATURE du message (lien fort → documents) et à l'enregistrement des liens ci-dessous.
+      //   AMONT du filtre de pertinence : ils servent à la NATURE du message (lien fort → documents), à l'enregistrement des
+      //   liens plus bas, ET au garde-fou LOT 2 (lien fort = signal). L'analyse étant pure, l'avancer ne change AUCUN
+      //   comportement observable pour un message retenu.
       const { liens } = analyserLiensReponse({ corpsTexte: mb.message.corpsTexte ?? null, corpsHtml: mb.message.corpsHtml ?? null, recuLe: mb.recuLe });
+      // R3e — critère : un n° de dossier d'une demande candidate apparaît littéralement (objet/corps/nom de pièce).
+      const pertinentBase = opts.sansFiltre === true || r.methode !== 'aucun' || domaines.has(domaineDe(mb.message.deAdresse)) || objetPertinent(mb.message.objet) || contientNumeroDossier(mb) || contientReferenceMairie(mb) || contientReferenceCherchee(mb);
+      // LOT 2 — GARDE-FOU : un domaine DÉRIVÉ (mairie sans dest_email : Paris…) n'ouvre la porte QUE si le message porte un
+      //   SIGNAL — motif de référence (1er accusé, réf. SLC encore inconnue), pièce jointe, ou lien fort. Le domaine SEUL ne
+      //   suffit JAMAIS (anti-noyade d'un domaine municipal géant type paris.fr). Les domaines dest_email — adresses de service
+      //   précises — restent INCHANGÉS : `pertinentBase` ≡ le filtre d'avant ce lot (domaines = dest_email) → aucune régression.
+      const estDomaineDerive = domainesDerives.size > 0 && domainesDerives.has(domaineRacine(domaineDe(mb.message.deAdresse)));
+      const pertinent = pertinentBase || (estDomaineDerive && (citeMotifReference(mb) || mb.pieces.length > 0 || liens.some((l) => l.fort)));
+      if (!pertinent) { horsPerimetre += 1; continue; }
       // T3/T7-A — NATURE : un accusé automatique (Auto-Submitted, PAS un DSN) est ENREGISTRÉ et rattaché comme un message (« a
       //   écrit »), mais nature='accuse' le tient HORS de « Réponses » (« a répondu ») et INTERDIT la satisfaction auto d'un
       //   dossier (un accusé ne livre aucun document). Sinon, T7-A déduit documents/autre du CONTENU CAPTÉ (pièces OU lien fort),
