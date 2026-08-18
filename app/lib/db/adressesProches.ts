@@ -22,8 +22,12 @@ export async function adressesProches(
     -- parcelle la plus proche du point
     par AS (
       SELECT p.id, p.geom AS g
-      FROM parcelle p, pt
-      ORDER BY p.geom <-> pt.g
+      FROM parcelle p
+      -- #2b-4 : point INLINE dans le <-> (pt est multi-reference : par_ok, SELECT final -> MATERIALISE -> le KNN perd son index,
+      --         Seq Scan 1,14 M). Inline = point scalaire -> Index Scan parcelle_geom_geom_idx. MEME parcelle la plus proche
+      --         (sortie identique verifiee sur 3 points #2b-4). pt reste pour par_ok (ST_Covers) et le SELECT (ST_Distance) ; les
+      --         ST_DWithin (dans_parcelle/contig/dans_voisine) ne sont PAS concernes (JOIN parametre, deja Index Scan).
+      ORDER BY p.geom <-> ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 2154)
       LIMIT 1
     ),
     -- on ne retient la parcelle du bien que si elle COUVRE le point
