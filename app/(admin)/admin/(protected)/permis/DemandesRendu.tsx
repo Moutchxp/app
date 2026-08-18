@@ -518,7 +518,19 @@ export function MentionMasquage({ morts, onAfficherTout, exclus }: {
   );
 }
 
-const styleTdD: CSSProperties = { padding: '.4rem .5rem' };
+/** Horodatage ISO → « JJ/MM/AAAA HH:MM » en heure LOCALE Europe/Paris (convention du projet : certificat PDF, analytics —
+ *  cf. publierCertificatPdf). Fuseau FIXE → DÉTERMINISTE (insensible au fuseau de la machine, testable). Distinct de
+ *  formaterDateHeure (UTC brut, usage technique du journal). '' / date invalide → '—'. */
+export function formaterDateHeureLocale(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(d);
+}
+
+// Cellule des tableaux de demandes : contenu CENTRÉ (horizontal + vertical). Scopé à ce fichier (TableDemandes + Cellule*), pas
+//   à TableStock ni au panneau détail (styles propres). Le `<tr>` d'en-tête passe aussi en textAlign center (cf. thead).
+const styleTdD: CSSProperties = { padding: '.4rem .5rem', textAlign: 'center', verticalAlign: 'middle' };
 
 /**
  * D3 — cellule « Type » PURE. Badge du type le PLUS PRIORITAIRE ; « +N » = nombre d'autres types distincts ; `title` = tous
@@ -555,6 +567,7 @@ export interface DemandeAffichee {
   profil: string; canal: string | null; destOrigine?: string | null; destNom?: string | null;
   nbDossiers: number; statut: string; rangs?: number[];
   numeros?: string[]; // T6-B — num_dau des dossiers ACTIFS (colonne « N° permis »)
+  envoyeLe?: string | null; // FUS — date/heure effective d'envoi (min demande_acheminement.envoye_le), affichée sous le statut ; absente hors « En cours »
 }
 
 /** T6-B — n° de SÉQUENCE d'une référence SVAV-DEM-AAAA-NNNNNN (dernier segment « NNNNNN »). Repli : la référence entière si le format diffère. PUR. */
@@ -664,13 +677,14 @@ export function BadgeReponseAttendue({ n }: { n: number }) {
 export function RetourMairie({ etat, nbReponses, derniereReponseLe }: { etat: EtatRetourMairie; nbReponses: number; derniereReponseLe: string | null }) {
   if (etat === 'obtenus') return <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>documents obtenus</span>;
   if (etat === 'recu_a_classer') return <span style={{ color: '#8a5a00', fontWeight: 600 }}>reçu, à classer en GED</span>;
-  if (etat === 'message') {
-    const [a, m, j] = (derniereReponseLe ?? '').slice(0, 10).split('-');
-    const jjmm = a && m && j ? `${j}/${m}` : '—';
-    return <span>message reçu le {jjmm} ({nbReponses})</span>;
-  }
+  // FUS — DATE/HEURE de l'événement qui FONDE l'état (heure locale Paris) : `derniereReponseLe` = max(recu_le) hors rebond, accusé
+  //   COMPRIS. Pour « message reçu », c'est le dernier message ; pour « accusé reçu » fondé sur un message d'accusé, c'est cet
+  //   accusé. Pour un accusé fondé UNIQUEMENT sur une référence saisie (aucun message), `derniereReponseLe` est null → AUCUNE date
+  //   (jamais une date approchée ni celle d'un autre événement). Les états dossier (obtenus / reçu-à-classer) n'affichent pas de date.
+  const dateRetour = derniereReponseLe ? <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{formaterDateHeureLocale(derniereReponseLe)}</div> : null;
+  if (etat === 'message') return <div><span>message reçu ({nbReponses})</span>{dateRetour}</div>;
   // FUS-4 — accusé reçu (dérivé). Texte porteur (a11y), pas seulement une couleur. Un accusé n'est pas une réponse : le statut ne bouge pas.
-  if (etat === 'accuse') return <span style={{ color: '#1a4d8f', fontWeight: 600 }}>accusé reçu</span>;
+  if (etat === 'accuse') return <div><span style={{ color: '#1a4d8f', fontWeight: 600 }}>accusé reçu</span>{dateRetour}</div>;
   return <span style={{ color: 'var(--color-svv-muted)' }}>aucun retour</span>;
 }
 
@@ -704,7 +718,7 @@ export function TableDemandes({
     <ConteneurTableDefilant ariaLabel="Tableau des demandes, défilement horizontal">
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
-          <tr style={{ textAlign: 'left', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
+          <tr style={{ textAlign: 'center', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
             {avecSelection && <th style={styleTdD}><input type="checkbox" aria-label="Tout sélectionner" checked={toutCoche} onChange={() => onToutSelectionner?.()} /></th>}
             <th style={{ ...nowrap, minWidth: 130 }}>N° permis</th>
             <th style={nowrap}>Référence</th>
@@ -734,7 +748,11 @@ export function TableDemandes({
                   <td style={nowrap}>{libelleOrigine(d.canal)}</td>
                   <td style={styleTdD}><OrigineDest origine={d.destOrigine} nom={d.destNom} /></td>
                   <td style={styleTdD}>{d.nbDossiers}</td>
-                  <td style={nowrap}>{STATUT_LIBELLE[d.statut] ?? d.statut}</td>
+                  {/* FUS — Statut + DATE/HEURE effective d'envoi (envoyeLe = min demande_acheminement.envoye_le), en heure locale Paris. */}
+                  <td style={nowrap}>
+                    <div>{STATUT_LIBELLE[d.statut] ?? d.statut}</div>
+                    {d.envoyeLe ? <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{formaterDateHeureLocale(d.envoyeLe)}</div> : null}
+                  </td>
                   {colonnesSuivi?.cellule(d) /* T6-A — Délai + Retour mairie (En cours) */}
                   <td style={styleTdD}>
                     <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }}

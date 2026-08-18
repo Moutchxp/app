@@ -32,7 +32,7 @@ export function RefMairieCellule({ references, onAjouter, onModifier, onSupprime
   const inputStyle = { padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'var(--font-svv-mono, monospace)', maxWidth: 140 } as const;
 
   return (
-    <td style={{ padding: '.4rem .5rem', verticalAlign: 'top', minWidth: 190 }}>
+    <td style={{ padding: '.4rem .5rem', textAlign: 'center', verticalAlign: 'middle', minWidth: 190 }}>
       {/* FUS-4 — colonne PUREMENT référence : « accusé reçu » vit dans « Retour mairie » (etatRetourMairie), plus de doublon ici. */}
       {references.length === 0 && <div style={{ color: 'var(--color-svv-muted)', marginBottom: '.2rem' }}>aucune</div>}
 

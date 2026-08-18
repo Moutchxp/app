@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, nbAutreARepondre, BadgeReponseAttendue, FOND_REPONSE_ATTENDUE, CellulePermis, CelluleReference, sequenceReference, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, nbAutreARepondre, BadgeReponseAttendue, FOND_REPONSE_ATTENDUE, CellulePermis, CelluleReference, sequenceReference, formaterDateHeureLocale, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 import { BlocLiens } from './ReponsesRendu';
@@ -574,6 +574,20 @@ describe('D3 — TableDemandes : colonne « Type » en 2e position + conteneur d
     expect(h).toContain('aria-label="Tableau des demandes, défilement horizontal"');
   });
 
+  it('FUS — colonne Statut : la DATE/HEURE d’envoi (envoyeLe, heure Paris) s’affiche sous le libellé ; absente si non fournie', () => {
+    const avec = rendu({ visibles: [DEM({ statut: 'envoyee', envoyeLe: '2026-08-18T08:38:00Z' })] });
+    expect(avec).toContain('envoyée');
+    expect(avec).toContain('18/08/2026 10:38');            // 08:38 UTC → 10:38 Paris, sous le statut
+    const sans = rendu({ visibles: [DEM({ statut: 'prete' })] }); // « À demander » : pas d’envoi → aucune date
+    expect(sans).not.toMatch(/\d{2}\/\d{2}\/\d{4}/);
+  });
+
+  it('FUS — cellules du tableau CENTRÉES (horizontal + vertical)', () => {
+    const h = rendu({ visibles: [DEM({ rangs: [1] })] });
+    expect(h).toContain('text-align:center');
+    expect(h).toContain('vertical-align:middle');
+  });
+
   it('non-régression : les en-têtes triables de D2 restent triables (aria-sort porté par la colonne active)', () => {
     const h = rendu({ tri: { colonne: 'commune', sens: 'asc' } });
     expect(h).toContain('aria-sort="ascending"'); // Commune actif → EnteteTriable inchangé
@@ -757,13 +771,30 @@ describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours »
     expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 1, dossiersSatisfaits: 0, dossiersEnGed: 0, referencesMairie: [], aAccuse: false })).toBe('aucun');
   });
 
-  it('RetourMairie : « aucun retour » / « accusé reçu » / « reçu, à classer en GED » / « message reçu le JJ/MM (N) » / « documents obtenus »', () => {
+  it('RetourMairie : libellés inchangés ; message/accusé montrent la DATE du retour en heure locale Paris ; sinon aucune date', () => {
     expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'aucun', nbReponses: 0, derniereReponseLe: null }))).toContain('aucun retour');
-    expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'accuse', nbReponses: 0, derniereReponseLe: null }))).toContain('accusé reçu');
     expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'recu_a_classer', nbReponses: 0, derniereReponseLe: null }))).toContain('reçu, à classer en GED');
-    expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'message', nbReponses: 2, derniereReponseLe: '2026-08-05T09:30:00Z' }))).toContain('message reçu le 05/08 (2)');
     expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'obtenus', nbReponses: 0, derniereReponseLe: null }))).toContain('documents obtenus');
-    expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'accuse', nbReponses: 0, derniereReponseLe: null }))).not.toContain('obtenu'); // T8 : accuse ne dit jamais « obtenu »
+    // message reçu : « (N) » + date/heure LOCALE sous le libellé (09:30 UTC → 11:30 Paris)
+    const msg = renderToStaticMarkup(createElement(RetourMairie, { etat: 'message', nbReponses: 2, derniereReponseLe: '2026-08-05T09:30:00Z' }));
+    expect(msg).toContain('message reçu (2)');
+    expect(msg).toContain('05/08/2026 11:30');
+    // accusé fondé sur un message (derniereReponseLe présent) : « accusé reçu » + date de l'accusé (08:38 UTC → 10:38 Paris)
+    const acc = renderToStaticMarkup(createElement(RetourMairie, { etat: 'accuse', nbReponses: 0, derniereReponseLe: '2026-08-18T08:38:00Z' }));
+    expect(acc).toContain('accusé reçu');
+    expect(acc).toContain('18/08/2026 10:38');
+    // accusé fondé UNIQUEMENT sur une référence saisie (aucun message → derniereReponseLe null) : « accusé reçu » SANS date
+    const accSansDate = renderToStaticMarkup(createElement(RetourMairie, { etat: 'accuse', nbReponses: 0, derniereReponseLe: null }));
+    expect(accSansDate).toContain('accusé reçu');
+    expect(accSansDate).not.toMatch(/\d{2}\/\d{2}\/\d{4}/); // jamais une date approchée
+    expect(accSansDate).not.toContain('obtenu'); // T8 : accuse ne dit jamais « obtenu »
+  });
+
+  it('formaterDateHeureLocale : heure LOCALE Europe/Paris (jamais UTC), déterministe ; null/invalide → «—»', () => {
+    expect(formaterDateHeureLocale('2026-08-18T08:38:00Z')).toBe('18/08/2026 10:38'); // été : UTC+2
+    expect(formaterDateHeureLocale('2026-01-15T23:30:00Z')).toBe('16/01/2026 00:30'); // hiver : UTC+1, bascule de jour
+    expect(formaterDateHeureLocale(null)).toBe('—');
+    expect(formaterDateHeureLocale('pas une date')).toBe('—');
   });
 
   const COLS = { largeur: 2, entetes: createElement('th', null, 'Délai-EnTete'), cellule: (d: DemandeAffichee) => createElement('td', null, `cell-${d.id}`) };

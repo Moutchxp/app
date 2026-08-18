@@ -296,9 +296,9 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     largeur: 3,
     entetes: (
       <>
-        <th style={{ padding: '.4rem .5rem', textAlign: 'left' as const, whiteSpace: 'nowrap' as const, minWidth: 150 }}>Délai</th>
-        <th style={{ padding: '.4rem .5rem', textAlign: 'left' as const, whiteSpace: 'nowrap' as const }}>Retour mairie</th>
-        <th style={{ padding: '.4rem .5rem', textAlign: 'left' as const, whiteSpace: 'nowrap' as const }}>Réf. mairie</th>
+        <th style={{ padding: '.4rem .5rem', textAlign: 'center' as const, whiteSpace: 'nowrap' as const, minWidth: 150 }}>Délai</th>
+        <th style={{ padding: '.4rem .5rem', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>Retour mairie</th>
+        <th style={{ padding: '.4rem .5rem', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>Réf. mairie</th>
       </>
     ),
     cellule: (d: { id: number }) => {
@@ -306,10 +306,10 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
       const e = etatParId.get(d.id);
       return (
         <>
-          <td style={{ padding: '.4rem .5rem', verticalAlign: 'top' as const }}>
+          <td style={{ padding: '.4rem .5rem', textAlign: 'center' as const, verticalAlign: 'middle' as const }}>
             {rich && e ? <EtatDemande statut={rich.statut} dossiersActifs={rich.dossiersActifs} etat={e.etat} motif={e.motif} /> : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
           </td>
-          <td style={{ padding: '.4rem .5rem', verticalAlign: 'top' as const }}>
+          <td style={{ padding: '.4rem .5rem', textAlign: 'center' as const, verticalAlign: 'middle' as const }}>
             {rich ? (
               <>
                 <RetourMairie etat={etatRetourMairie(rich)} nbReponses={rich.nbReponsesReelles} derniereReponseLe={rich.derniereReponseLe} />
@@ -322,7 +322,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
           {rich
             ? <RefMairieCellule references={rich.referencesMairie}
                 onAjouter={(r) => ajouterRefTable(d.id, r)} onModifier={(a, n) => modifierRefTable(d.id, a, n)} onSupprimer={(r) => supprimerRefTable(d.id, r)} />
-            : <td style={{ padding: '.4rem .5rem', color: 'var(--color-svv-muted)' }}>—</td>}
+            : <td style={{ padding: '.4rem .5rem', textAlign: 'center' as const, verticalAlign: 'middle' as const, color: 'var(--color-svv-muted)' }}>—</td>}
         </>
       );
     },
@@ -419,7 +419,9 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
       )}
 
       <TableDemandes
-        visibles={visibles} categories={categories} tri={tri} sel={sel} avecSelection={avecActionsGroupees}
+        /* FUS — En cours : greffe la date d'envoi (suivi.parId, source chargerDemandesSuivi) sur la ligne pour la colonne Statut. Aucun WHERE ajouté, aucune source modifiée. */
+        visibles={enCours && suivi ? visibles.map((d) => ({ ...d, envoyeLe: suivi.parId.get(d.id)?.envoyeLe ?? null })) : visibles}
+        categories={categories} tri={tri} sel={sel} avecSelection={avecActionsGroupees}
         toutCoche={visibles.length > 0 && visibles.every((d) => sel.has(d.id))}
         messageVide={!liste ? 'Chargement…' : (fReference.trim() !== ''
           ? `Aucune demande ne correspond à la référence « ${fReference.trim()} » (mairie ou SVAV ; casse, espaces et tirets ignorés).`
