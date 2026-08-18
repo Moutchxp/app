@@ -8,6 +8,15 @@ import { CarteDepot, BoutonAnnulerDepot, type DepotAffiche } from './DemandesRen
  * par commune — « Copier le texte » puis « Marquer comme déposée » (→ statut 'envoyee'). Retour DANS la carte, retrait
  * optimiste. Mobile-first (cartes). AUCUN envoi automatique.
  */
+
+// LOT A — trace BEST-EFFORT du clic « copier » (signal d'intention de dépôt téléservice). Détachée À DESSEIN : jamais
+//   attendue, jamais rethrow → la copie clipboard d'Arno (déjà faite) n'est bloquée par rien, même si le serveur échoue.
+function signalerDepot(demandeId: number, bouton: 'texte' | 'ref'): void {
+  void fetch('/api/admin/permis/depot-presume', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ demandeId, bouton }),
+  }).catch(() => undefined);
+}
+
 export function BlocDepot() {
   const [demandes, setDemandes] = useState<DepotAffiche[]>([]);
   const [msg, setMsg] = useState<Record<number, string>>({});  // retour (ok/échec) par carte
@@ -34,6 +43,7 @@ export function BlocDepot() {
     try {
       await navigator.clipboard.writeText(d.corps ?? '');
       poser(d.id, 'Texte copié.');
+      signalerDepot(d.id, 'texte'); // trace bonus, non bloquante (la copie a réussi ; le signal part sans être attendu)
     } catch {
       poser(d.id, 'Copie impossible — sélectionnez le texte manuellement.');
     }
@@ -44,6 +54,7 @@ export function BlocDepot() {
     try {
       await navigator.clipboard.writeText(valeur);
       setMsgRef((s) => ({ ...s, [id]: 'Numéro copié.' }));
+      signalerDepot(id, 'ref'); // trace bonus, non bloquante (idem « Copier le texte »)
     } catch {
       setMsgRef((s) => ({ ...s, [id]: 'Copie impossible — sélectionnez le numéro manuellement.' }));
     }
