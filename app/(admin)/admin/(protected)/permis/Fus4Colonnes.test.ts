@@ -31,22 +31,16 @@ describe('FUS-4 — accuseRecu (décision 1 : état DÉRIVÉ, jamais stocké)', 
 
 const noop = async () => null;
 
-describe('FUS-4 — RefMairieCellule (② colonne éditable, rendu initial)', () => {
-  it('aucune référence, aucun accusé → « aucune » + champ d’ajout', () => {
-    const h = renderToStaticMarkup(createElement(RefMairieCellule, { references: [], aAccuse: false, onAjouter: noop, onModifier: noop, onSupprimer: noop }));
+describe('FUS-4 — RefMairieCellule (② colonne PUREMENT référence, rendu initial)', () => {
+  it('aucune référence → « aucune » + champ d’ajout (plus de mention « accusé » ici : elle vit dans « Retour mairie »)', () => {
+    const h = renderToStaticMarkup(createElement(RefMairieCellule, { references: [], onAjouter: noop, onModifier: noop, onSupprimer: noop }));
     expect(h).toContain('aucune');
     expect(h).toContain('Ajouter une référence mairie'); // aria-label du champ d’ajout, toujours présent
-    expect(h).toContain('ajouter');
-  });
-
-  it('accusé DÉRIVÉ sans référence (message accuse capté sans SLC) → « accusé reçu — référence inconnue »', () => {
-    const h = renderToStaticMarkup(createElement(RefMairieCellule, { references: [], aAccuse: true, onAjouter: noop, onModifier: noop, onSupprimer: noop }));
-    expect(h).toContain('accusé reçu');
-    expect(h).toContain('référence inconnue');
+    expect(h).not.toContain('accusé'); // pas de doublon avec la colonne Retour mairie
   });
 
   it('référence présente → affichée + gestes « modifier » et « effacer » + ajout d’une autre', () => {
-    const h = renderToStaticMarkup(createElement(RefMairieCellule, { references: ['SLC260810440700'], aAccuse: false, onAjouter: noop, onModifier: noop, onSupprimer: noop }));
+    const h = renderToStaticMarkup(createElement(RefMairieCellule, { references: ['SLC260810440700'], onAjouter: noop, onModifier: noop, onSupprimer: noop }));
     expect(h).toContain('SLC260810440700');
     expect(h).toContain('modifier');
     expect(h).toContain('Effacer la référence SLC260810440700'); // aria-label de l’effacement

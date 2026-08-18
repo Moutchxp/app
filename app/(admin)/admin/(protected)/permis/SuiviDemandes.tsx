@@ -308,7 +308,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
           </td>
           {/* FUS-4 — Réf. mairie éditable (ajouter/modifier/effacer) via la MÊME route que le détail. « accusé reçu » DÉRIVÉ (aAccuse). */}
           {rich
-            ? <RefMairieCellule references={rich.referencesMairie} aAccuse={rich.aAccuse}
+            ? <RefMairieCellule references={rich.referencesMairie}
                 onAjouter={(r) => ajouterRefTable(d.id, r)} onModifier={(a, n) => modifierRefTable(d.id, a, n)} onSupprimer={(r) => supprimerRefTable(d.id, r)} />
             : <td style={{ padding: '.4rem .5rem', color: 'var(--color-svv-muted)' }}>—</td>}
         </>

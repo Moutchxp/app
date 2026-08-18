@@ -734,13 +734,31 @@ describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours »
     expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 1, dossiersSatisfaits: 1, dossiersEnGed: 0 })).toBe('recu_a_classer');
     expect(etatRetourMairie({ nbReponses: 5, dossiersActifs: 2, dossiersSatisfaits: 1, dossiersEnGed: 0 })).toBe('recu_a_classer'); // prime sur message
     expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 0, dossiersSatisfaits: 0, dossiersEnGed: 0 })).toBe('aucun');
+    // NON-RÉGRESSION : sans les champs FUS-4 (appels historiques), le comportement est INCHANGÉ (accuse ne se déclenche pas).
+    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 1, dossiersSatisfaits: 0, dossiersEnGed: 0 })).toBe('aucun');
   });
 
-  it('RetourMairie : « aucun retour » / « reçu, à classer en GED » / « message reçu le JJ/MM (N) » / « documents obtenus »', () => {
+  it('FUS-4 — etatRetourMairie : « accusé reçu » DÉRIVÉ, en position BASSE (jamais au-dessus d’obtenus/reçu/message)', () => {
+    // 233 : référence saisie, aucun message rattaché → « accusé reçu »
+    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 1, dossiersSatisfaits: 0, dossiersEnGed: 0, referencesMairie: ['SLC260818242370'], aAccuse: false })).toBe('accuse');
+    // dérivé AUSSI d’un message nature 'accuse' rattaché, même sans référence
+    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 1, dossiersSatisfaits: 0, dossiersEnGed: 0, referencesMairie: [], aAccuse: true })).toBe('accuse');
+    // 154 (Aubervilliers) : aucune référence, aucun message, aucun accusé → « aucun retour »
+    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 1, dossiersSatisfaits: 0, dossiersEnGed: 0, referencesMairie: [], aAccuse: false })).toBe('aucun');
+    // JAMAIS au-dessus d’un état supérieur : documents en GED restent « obtenus » ; un vrai message reste « message »
+    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 2, dossiersSatisfaits: 2, dossiersEnGed: 2, referencesMairie: ['SLC…'], aAccuse: true })).toBe('obtenus');
+    expect(etatRetourMairie({ nbReponses: 1, dossiersActifs: 1, dossiersSatisfaits: 0, dossiersEnGed: 0, referencesMairie: ['SLC…'], aAccuse: true })).toBe('message');
+    // EFFACER la référence (referencesMairie → []) fait RETOMBER le badge (aucun accusé par ailleurs) → « aucun retour »
+    expect(etatRetourMairie({ nbReponses: 0, dossiersActifs: 1, dossiersSatisfaits: 0, dossiersEnGed: 0, referencesMairie: [], aAccuse: false })).toBe('aucun');
+  });
+
+  it('RetourMairie : « aucun retour » / « accusé reçu » / « reçu, à classer en GED » / « message reçu le JJ/MM (N) » / « documents obtenus »', () => {
     expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'aucun', nbReponses: 0, derniereReponseLe: null }))).toContain('aucun retour');
+    expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'accuse', nbReponses: 0, derniereReponseLe: null }))).toContain('accusé reçu');
     expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'recu_a_classer', nbReponses: 0, derniereReponseLe: null }))).toContain('reçu, à classer en GED');
     expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'message', nbReponses: 2, derniereReponseLe: '2026-08-05T09:30:00Z' }))).toContain('message reçu le 05/08 (2)');
     expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'obtenus', nbReponses: 0, derniereReponseLe: null }))).toContain('documents obtenus');
+    expect(renderToStaticMarkup(createElement(RetourMairie, { etat: 'accuse', nbReponses: 0, derniereReponseLe: null }))).not.toContain('obtenu'); // T8 : accuse ne dit jamais « obtenu »
   });
 
   const COLS = { largeur: 2, entetes: createElement('th', null, 'Délai-EnTete'), cellule: (d: DemandeAffichee) => createElement('td', null, `cell-${d.id}`) };

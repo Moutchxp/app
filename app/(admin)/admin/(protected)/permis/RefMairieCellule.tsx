@@ -9,9 +9,8 @@ import { useState } from 'react';
  * `accuse`) : effacer une référence fait revenir l'affichage, jamais un envoi défait. Mobile : cibles tactiles, pas de survol seul.
  * Les callbacks renvoient un message d'erreur (string) à afficher, ou null si l'action a réussi.
  */
-export function RefMairieCellule({ references, aAccuse, onAjouter, onModifier, onSupprimer }: {
+export function RefMairieCellule({ references, onAjouter, onModifier, onSupprimer }: {
   references: string[];
-  aAccuse: boolean;
   onAjouter: (reference: string) => Promise<string | null>;
   onModifier: (ancien: string, nouveau: string) => Promise<string | null>;
   onSupprimer: (reference: string) => Promise<string | null>;
@@ -34,11 +33,8 @@ export function RefMairieCellule({ references, aAccuse, onAjouter, onModifier, o
 
   return (
     <td style={{ padding: '.4rem .5rem', verticalAlign: 'top', minWidth: 190 }}>
-      {references.length === 0 && (
-        aAccuse
-          ? <div role="status" style={{ color: 'var(--color-svv-muted)', fontSize: 12, marginBottom: '.2rem' }}>accusé reçu — référence inconnue</div>
-          : <div style={{ color: 'var(--color-svv-muted)', marginBottom: '.2rem' }}>aucune</div>
-      )}
+      {/* FUS-4 — colonne PUREMENT référence : « accusé reçu » vit dans « Retour mairie » (etatRetourMairie), plus de doublon ici. */}
+      {references.length === 0 && <div style={{ color: 'var(--color-svv-muted)', marginBottom: '.2rem' }}>aucune</div>}
 
       {references.map((ref) => (
         <div key={ref} style={{ display: 'flex', gap: '.3rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.25rem' }}>

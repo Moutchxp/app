@@ -620,13 +620,17 @@ export function CelluleReference({ reference }: { reference: string }) {
  *  - 'obtenus'         : TOUS les dossiers actifs ont un fichier EN GED → « documents obtenus » ;
  *  - 'recu_a_classer'  : ≥ 1 dossier MARQUÉ REÇU (satisfait_le) mais PAS (tous) en GED → « reçu, à classer en GED » (nomme l'action attendue) ;
  *  - 'message'         : la mairie a ÉCRIT — ≥ 1 message rattaché (`nbReponses`, accusé compris, rebond exclu par nature) ;
- *  - 'aucun'           : rien. Priorité obtenus > reçu-à-classer > message > aucun. PUR.
+ *  - 'accuse'          : FUS-4 — « accusé reçu » DÉRIVÉ (référence mairie présente OU message nature 'accuse'), rien de stocké.
+ *                        Position BASSE : ne prend JAMAIS le pas sur obtenus/reçu-à-classer/message. Un accusé n'est PAS une
+ *                        réponse (T3) → n'affecte NI le statut de la demande NI le vocabulaire T8 (« obtenu »/« marqué reçu »).
+ *  - 'aucun'           : rien. Priorité obtenus > reçu-à-classer > message > accusé reçu > aucun. PUR.
  */
-export type EtatRetourMairie = 'aucun' | 'message' | 'recu_a_classer' | 'obtenus';
-export function etatRetourMairie(d: { nbReponses: number; dossiersActifs: number; dossiersSatisfaits: number; dossiersEnGed: number }): EtatRetourMairie {
+export type EtatRetourMairie = 'aucun' | 'accuse' | 'message' | 'recu_a_classer' | 'obtenus';
+export function etatRetourMairie(d: { nbReponses: number; dossiersActifs: number; dossiersSatisfaits: number; dossiersEnGed: number; referencesMairie?: string[]; aAccuse?: boolean }): EtatRetourMairie {
   if (d.dossiersActifs > 0 && d.dossiersEnGed >= d.dossiersActifs) return 'obtenus'; // OBTENU = fichiers EN GED (dossier_document), jamais satisfait_le
   if (d.dossiersSatisfaits > 0) return 'recu_a_classer';                              // marqué reçu, fichier pas (tout) en GED → à classer
   if (d.nbReponses > 0) return 'message';
+  if (accuseRecu({ referencesMairie: d.referencesMairie ?? [], aAccuse: d.aAccuse ?? false })) return 'accuse'; // FUS-4 : sous message
   return 'aucun';
 }
 
@@ -663,6 +667,8 @@ export function RetourMairie({ etat, nbReponses, derniereReponseLe }: { etat: Et
     const jjmm = a && m && j ? `${j}/${m}` : '—';
     return <span>message reçu le {jjmm} ({nbReponses})</span>;
   }
+  // FUS-4 — accusé reçu (dérivé). Texte porteur (a11y), pas seulement une couleur. Un accusé n'est pas une réponse : le statut ne bouge pas.
+  if (etat === 'accuse') return <span style={{ color: '#1a4d8f', fontWeight: 600 }}>accusé reçu</span>;
   return <span style={{ color: 'var(--color-svv-muted)' }}>aucun retour</span>;
 }
 
