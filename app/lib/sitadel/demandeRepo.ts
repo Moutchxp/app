@@ -1094,7 +1094,20 @@ export async function marquerDeposee(id: number, auteur: string | null, referenc
     //   l'absence d'artefact e-mail sans en inventer. `statut='envoye'` = c'est bien parti à la mairie.
     // T4 — `envoyeLe` = la DATE RÉELLE DE DÉPÔT saisie par l'opérateur (rattrapage relève) ; absente → now() (dépôt en direct).
     //   L'ancre d'échéance/forclusion CADA se cale ainsi sur le dépôt prouvé, jamais sur la date du mail (cf. recon T4).
-    await q(`INSERT INTO demande_acheminement (demande_id, canal, statut, envoye_le) VALUES ($1, 'formulaire', 'envoye', coalesce($2::timestamptz, now()))`, [id, envoyeLe ?? null]);
+    // FUS — INVARIANT téléservice : `envoye_le` ne peut JAMAIS être postérieur au PREMIER accusé rattaché à la demande.
+    //   Chronologie réelle copier ≤ dépôt ≤ accusé : l'accusé PROUVE que le dépôt existait à cet instant et, pour un
+    //   téléservice qui accuse immédiatement, c'est l'estimation la plus SERRÉE du dépôt réel. On garde l'instant de validation
+    //   (coalesce($2, now())), plafonné à l'accusé via LEAST. Aucun accusé rattaché → 'infinity' ⇒ pas de plafond, le clic
+    //   reste la seule ancre (cf. recon §6). Le clic « copier » (borne INFÉRIEURE, « j'ai copié » ≠ « j'ai déposé ») n'entre
+    //   PAS dans le calcul. UNIQUEMENT le canal 'formulaire' : l'e-mail horodate déjà l'émission SMTP réelle (envoiDemande),
+    //   jamais touché. Même invariant que la validation T4 (envoyeLe ≤ message), en UN SEUL endroit — l'écriture.
+    await q(
+      `INSERT INTO demande_acheminement (demande_id, canal, statut, envoye_le)
+       VALUES ($1, 'formulaire', 'envoye', LEAST(
+         coalesce($2::timestamptz, now()),
+         coalesce((SELECT min(r.recu_le) FROM demande_reponse r WHERE r.demande_id = $1 AND r.nature = 'accuse'), 'infinity'::timestamptz)))`,
+      [id, envoyeLe ?? null],
+    );
     await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, 'envoyee', 'dépôt manuel (téléservice)', $3)`, [id, row.statut, auteur]);
     const ref = (reference ?? '').trim();
     if (ref !== '') {

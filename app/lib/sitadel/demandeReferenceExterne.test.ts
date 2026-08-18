@@ -84,6 +84,40 @@ describe('B2 — marquerDeposee horodate l’envoi dans le registre d’achemine
     expect(appels.some((a) => /UPDATE demande SET statut = 'envoyee'/i.test(a.sql))).toBe(true);
     expect(appels.some((a) => /INSERT INTO demande_journal/i.test(a.sql) && /dépôt manuel \(téléservice\)/.test(a.sql))).toBe(true);
   });
+
+  // FUS — INVARIANT téléservice : envoye_le PLAFONNÉ au premier accusé rattaché (chronologie copier ≤ dépôt ≤ accusé).
+  //   Le clamp est appliqué à l'ÉCRITURE, DB-side (LEAST + sous-requête) : on prouve son ÉMISSION (le mock n'exécute pas le SQL).
+  describe('FUS — envoye_le jamais postérieur au premier accusé (clamp LEAST à l’écriture)', () => {
+    it('dépôt en direct (now()) : LEAST(coalesce($2, now()), min(accusé)) ⇒ validation postérieure à l’accusé bornée à l’accusé', async () => {
+      await marquerDeposee(119, 'admin');
+      const sql = norm(trouver(/INSERT INTO demande_acheminement/i)!.sql);
+      expect(sql).toContain('LEAST('); // plafonnement
+      expect(sql).toContain('coalesce($2::timestamptz, now())'); // l’instant de validation reste l’ancre par défaut
+      expect(sql).toContain("FROM demande_reponse r WHERE r.demande_id = $1 AND r.nature = 'accuse'"); // le plafond = 1er accusé
+      expect(sql).toContain('min(r.recu_le)'); // « premier » accusé = le plus ancien recu_le
+    });
+
+    it('aucun accusé rattaché → coalesce(..., \'infinity\') ⇒ pas de plafond, l’instant de validation reste inchangé', async () => {
+      await marquerDeposee(119, 'admin');
+      const sql = norm(trouver(/INSERT INTO demande_acheminement/i)!.sql);
+      // sous-requête accusé absente ⇒ NULL ⇒ coalesce bascule sur 'infinity' ⇒ LEAST renvoie toujours l’instant de validation.
+      expect(sql).toContain("'infinity'::timestamptz");
+    });
+
+    it('T4 — date de dépôt RÉELLE fournie : ancre LIÉE ($2) toujours plafonnée à l’accusé (même invariant, un seul endroit)', async () => {
+      await marquerDeposee(119, 'admin', null, '2026-07-10');
+      const ach = trouver(/INSERT INTO demande_acheminement/i)!;
+      expect(ach.params).toEqual([119, '2026-07-10']); // la date saisie reste le 2e paramètre lié
+      expect(norm(ach.sql)).toContain('LEAST('); // et passe par le même plafond que le dépôt direct
+    });
+
+    it('canal e-mail JAMAIS touché : le clamp vit dans marquerDeposee (canal formulaire codé en dur), pas dans l’envoi e-mail', async () => {
+      await marquerDeposee(119, 'admin');
+      const sql = norm(trouver(/INSERT INTO demande_acheminement/i)!.sql);
+      expect(sql).toContain("'formulaire'"); // le plafond ne s’applique qu’au dépôt téléservice
+      expect(sql).not.toContain("'email'");
+    });
+  });
 });
 
 describe('P1 — marquerDeposee greffe la référence', () => {
