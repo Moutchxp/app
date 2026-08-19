@@ -650,29 +650,6 @@ export function etatRetourMairie(d: { nbReponses: number; nbReponsesReelles?: nu
   return 'aucun';
 }
 
-/**
- * T7-B (cas ③) — nombre de messages `autre` NON répondus d'une demande (pilote le signal « réponse attendue » : ligne + badge).
- * PUR. La ligne est signalée tant que ce nombre est > 0 ; il tombe à 0 quand tous les `autre` sont marqués répondus.
- */
-export function nbAutreARepondre(messagesAutre: { reponduLe: string | null }[]): number {
-  return messagesAutre.filter((m) => m.reponduLe === null).length;
-}
-
-/** T7-B — fond bleu DOUX de la ligne signalée (jamais seul porteur : toujours accompagné du badge texte ci-dessous). */
-export const FOND_REPONSE_ATTENDUE = '#e8f0fe';
-const BLEU_REPONSE_ATTENDUE = '#1a4d8f';
-
-/** T7-B — badge « N à répondre » (texte porteur, couleur en appui — a11y). Rien si n ≤ 0. PUR. */
-export function BadgeReponseAttendue({ n }: { n: number }) {
-  if (n <= 0) return null;
-  return (
-    <span role="status" style={{ display: 'inline-block', marginTop: '.2rem', fontSize: 11, fontWeight: 700,
-      padding: '.05rem .4rem', borderRadius: '.35rem', background: FOND_REPONSE_ATTENDUE, color: BLEU_REPONSE_ATTENDUE }}>
-      {n} à répondre
-    </span>
-  );
-}
-
 /** T6-A / T8 — cellule « Retour mairie » (4 états dérivés). Le TEXTE porte l'information ; date en JJ/MM. « obtenu » = fichier
  *  EN GED (vert) ; « reçu, à classer en GED » = marqué reçu sans fichier (orange, mot G2). PUR. */
 export function RetourMairie({ etat, nbReponses, derniereReponseLe }: { etat: EtatRetourMairie; nbReponses: number; derniereReponseLe: string | null }) {
@@ -698,13 +675,10 @@ export function RetourMairie({ etat, nbReponses, derniereReponseLe }: { etat: Et
  * cours ») — pas de contrôle inerte à l'écran.
  */
 export function TableDemandes({
-  visibles, categories, tri, sel, toutCoche, messageVide, avecSelection = true, demandeOuverte = null, panneau, colonnesSuivi, fondLigne, onTrier, onToutSelectionner, onBasculer, onOuvrir,
+  visibles, categories, tri, sel, toutCoche, messageVide, avecSelection = true, demandeOuverte = null, panneau, colonnesSuivi, onTrier, onToutSelectionner, onBasculer, onOuvrir,
 }: {
   visibles: DemandeAffichee[]; categories: { libelle: string; rang: number }[];
   tri: Tri; sel: ReadonlySet<number>; toutCoche: boolean; messageVide: string; avecSelection?: boolean;
-  // T7-B — fond de ligne OPTIONNEL (En cours : bleu doux « réponse attendue »). Dérivé du même état que le badge (jamais un 3e
-  //   système de couleurs) ; la couleur n'est jamais seule porteuse (badge texte dans la cellule Retour mairie). Absent ailleurs.
-  fondLigne?: (d: DemandeAffichee) => string | undefined;
   // U7 — accordéon À UN SEUL VOLET : `demandeOuverte` = l'unique demande dépliée (jamais un Set → jamais deux détails). `panneau` = son
   //   détail (bâti par la Vue), rendu dans une 2ᵉ `<tr><td colSpan>` JUSTE SOUS sa ligne. Motif de TableStock (disclosure natif au niveau ligne).
   demandeOuverte?: number | null; panneau?: ReactNode;
@@ -739,7 +713,7 @@ export function TableDemandes({
             const ouvert = demandeOuverte === d.id; // U7 — un seul volet : au plus une ligne satisfait ceci
             return (
               <Fragment key={d.id}>
-                <tr style={{ borderBottom: ouvert ? 'none' : '1px solid var(--color-svv-line)', background: fondLigne?.(d) }}>
+                <tr style={{ borderBottom: ouvert ? 'none' : '1px solid var(--color-svv-line)' }}>
                   {avecSelection && <td style={styleTdD}><input type="checkbox" checked={sel.has(d.id)} onChange={() => onBasculer?.(d.id)} aria-label={`Sélectionner ${d.reference}`} /></td>}
                   <CellulePermis numeros={d.numeros} demandeId={d.id} />
                   <CelluleReference reference={d.reference} />
