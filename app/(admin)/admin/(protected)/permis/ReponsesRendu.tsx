@@ -19,7 +19,33 @@ export function messageIci(retour: RetourCible, cle: string): RetourAction {
 }
 
 /** Option du sélecteur de demande (rattachement manuel) : jamais un id brut à saisir — référence + commune + date d'envoi. */
-export interface OptionDemande { demandeId: number; reference: string; communeNom: string | null; envoyeLe: string | null }
+export interface OptionDemande { demandeId: number; reference: string; communeNom: string | null; envoyeLe: string | null; statut: string; soldee: boolean }
+
+/** T4 — une entrée du sélecteur « à rattacher » est DÉMOTÉE (candidate moins probable) si elle est SOLDÉE (dossiers attachés,
+ *  tous reçus — définition `partitionnerParDus`) OU CLOSE. Elle reste TOUJOURS présente et sélectionnable : filtrer, pas amputer. PUR. */
+function optionDemotee(o: { soldee: boolean; statut: string }): boolean {
+  return o.soldee || o.statut === 'close';
+}
+
+/** T4 — marqueur textuel d'une entrée DÉMOTÉE (« soldée » ou « close »), sinon null (aucune décoration sur une candidate probable). PUR. */
+export function marqueurOption(o: { soldee: boolean; statut: string }): 'soldée' | 'close' | null {
+  if (o.soldee) return 'soldée';
+  if (o.statut === 'close') return 'close';
+  return null;
+}
+
+/** T4 — ORDRE du sélecteur « à rattacher » : candidates probables (NON démotées) d'abord, puis `envoyeLe` DÉCROISSANT dans chaque
+ *  groupe (date nulle en bas). NE FILTRE RIEN — toutes les demandes restent atteignables ; on n'améliore que le choix humain. PUR
+ *  (copie, aucune mutation). Aucune règle de rattachement touchée. */
+export function trierOptionsDemandes(options: OptionDemande[]): OptionDemande[] {
+  return [...options].sort((a, b) => {
+    const da = optionDemotee(a) ? 1 : 0, db = optionDemotee(b) ? 1 : 0;
+    if (da !== db) return da - db;                     // non démotées (0) avant démotées (1)
+    const ca = a.envoyeLe ?? '', cb = b.envoyeLe ?? ''; // envoyeLe DÉCROISSANT ; date nulle → '' → en bas du groupe
+    if (ca !== cb) return ca < cb ? 1 : -1;
+    return 0;
+  });
+}
 
 const MS_HEURE = 3_600_000;
 const styleCarte: CSSProperties = { fontSize: 13 };
@@ -896,7 +922,7 @@ export function BlocARattacher({ reponses, demandes, selection, retour, onChoisi
                     <select aria-label={`Demande pour la réponse ${r.id}`} value={selection?.[r.id] ?? ''} onChange={(e) => onChoisir?.(r.id, Number(e.target.value))}
                       style={{ padding: '.25rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 12, maxWidth: 260 }}>
                       <option value="">— choisir une demande —</option>
-                      {options.map((o) => <option key={o.demandeId} value={o.demandeId}>{o.reference} · {o.communeNom ?? ''} · {formaterDate(o.envoyeLe)}</option>)}
+                      {options.map((o) => { const m = marqueurOption(o); return <option key={o.demandeId} value={o.demandeId}>{o.reference} · {o.communeNom ?? ''} · {formaterDate(o.envoyeLe)}{m ? ` · ${m}` : ''}</option>; })}
                     </select>
                     <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.25rem .6rem' }} disabled={!selection?.[r.id]} onClick={() => onRattacher?.(r.id)}>Rattacher</button>
                     <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.25rem .6rem' }} onClick={() => onTraiter?.(r.id)}>Traitée</button>

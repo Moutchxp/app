@@ -6,6 +6,7 @@ import {
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
   EtatDemande, RappelObtenusArchives, partitionnerDemandes, partitionnerReponses, demandeADuRetour, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
   BlocLiens, mentionExpiration, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, tronquerObjet,
+  trierOptionsDemandes, marqueurOption,
   type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
@@ -435,13 +436,65 @@ describe('R5a — RelanceCarte : lecture seule, corps consultable', () => {
 
 // ── R5b — actions de l'écran Réponses (rendu pur : les boutons/callbacks sont là, aux bons endroits) ──────────────────────
 const OPT: OptionDemande[] = [
-  { demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnieres', envoyeLe: '2026-04-01T10:00:00Z' },
+  { demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnieres', envoyeLe: '2026-04-01T10:00:00Z', statut: 'envoyee', soldee: false },
 ];
 /** Une réponse « à rattacher » avec une pièce stockée et une pièce non stockée. */
 function reponse(pieces: ReponseARattacher['pieces']): ReponseARattacher {
   return { id: 5, recuLe: '2026-04-19T09:30:00Z', deAdresse: 'urba@mairie-x.fr', deNom: null, objet: 'RE: demande', nbPieces: pieces.length, rattachementMethode: 'aucun', pieces };
 }
 const compte = (h: string, s: string) => h.split(s).length - 1;
+
+describe('T4 — sélecteur « à rattacher » : tri PUR (candidates probables d’abord) + marqueurs (filtrer, pas amputer)', () => {
+  const opt = (demandeId: number, envoyeLe: string | null, over: Partial<OptionDemande> = {}): OptionDemande =>
+    ({ demandeId, reference: `R${demandeId}`, communeNom: 'X', envoyeLe, statut: 'envoyee', soldee: false, ...over });
+
+  it('soldées DÉMOTÉES : les non soldées passent avant, même plus récente que la soldée', () => {
+    const tri = trierOptionsDemandes([
+      opt(1, '2026-01-01T00:00:00Z', { soldee: true }), // soldée, pourtant la plus ancienne → doit finir en bas
+      opt(2, '2026-03-01T00:00:00Z'),
+      opt(3, '2026-02-01T00:00:00Z'),
+    ]);
+    expect(tri.map((x) => x.demandeId)).toEqual([2, 3, 1]); // non soldées (par date desc) puis la soldée
+  });
+
+  it('CLOSE aussi démotée (même rang que soldée)', () => {
+    const tri = trierOptionsDemandes([opt(1, '2026-05-01T00:00:00Z', { statut: 'close' }), opt(2, '2026-01-01T00:00:00Z')]);
+    expect(tri.map((x) => x.demandeId)).toEqual([2, 1]);
+  });
+
+  it('date DÉCROISSANTE dans chaque groupe (date nulle en bas du groupe)', () => {
+    const tri = trierOptionsDemandes([
+      opt(1, '2026-01-01T00:00:00Z'), opt(2, null), opt(3, '2026-06-01T00:00:00Z'), opt(4, '2026-03-01T00:00:00Z'),
+    ]);
+    expect(tri.map((x) => x.demandeId)).toEqual([3, 4, 1, 2]); // récent → ancien → null
+  });
+
+  it('une soldée reste PRÉSENTE et sélectionnable (démotée, jamais retirée)', () => {
+    const tri = trierOptionsDemandes([opt(1, '2026-01-01T00:00:00Z', { soldee: true })]);
+    expect(tri.map((x) => x.demandeId)).toEqual([1]);
+  });
+
+  it('liste vide → [] (aucun plantage)', () => {
+    expect(trierOptionsDemandes([])).toEqual([]);
+  });
+
+  it('marqueur UNIQUEMENT sur les démotées : « soldée » / « close » / null (soldée prime)', () => {
+    expect(marqueurOption({ soldee: true, statut: 'envoyee' })).toBe('soldée');
+    expect(marqueurOption({ soldee: false, statut: 'close' })).toBe('close');
+    expect(marqueurOption({ soldee: false, statut: 'envoyee' })).toBeNull();
+    expect(marqueurOption({ soldee: true, statut: 'close' })).toBe('soldée');
+  });
+
+  it('rendu : le marqueur apparaît sur l’option démotée, sur UNE seule, pas sur la candidate probable', () => {
+    const h = renderToStaticMarkup(createElement(BlocARattacher, {
+      reponses: [reponse([])],
+      demandes: [opt(2, '2026-03-01T00:00:00Z'), opt(1, '2026-01-01T00:00:00Z', { soldee: true })],
+      selection: {}, onChoisir: () => {}, onRattacher: () => {},
+    }));
+    expect(h).toContain('· soldée');        // marqueur présent sur la démotée
+    expect(compte(h, '· soldée')).toBe(1);  // et sur une seule (la candidate probable n'en porte pas)
+  });
+});
 
 describe('R5b — BlocARattacher : rattacher / traitée / télécharger', () => {
   it('avec callbacks → sélecteur de demande (référence + commune + date, jamais un id à saisir) + boutons Rattacher/Traitée', () => {

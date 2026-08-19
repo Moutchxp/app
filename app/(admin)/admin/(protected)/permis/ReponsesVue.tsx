@@ -7,9 +7,10 @@ import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import {
   BlocEtatReleve, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
   partitionnerReponses, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
-  BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, formaterDate, type RetourCible, type OptionDemande,
+  BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, formaterDate, trierOptionsDemandes, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
 import { MessageRetour, MentionMasquage } from './DemandesRendu';
+import { partitionnerParDus } from '../../../../lib/sitadel/demandesListe'; // T4 : définition unique de « soldée » (réutilisée telle quelle)
 
 /**
  * R5a/R5b/R5c — écran « Réponses » : suivi de la boucle CRPA + ACTIONS. R5b : rattacher, marquer/annuler un dossier reçu,
@@ -93,11 +94,21 @@ export function ReponsesVue() {
     });
   }, [data, maintenant]);
 
-  // Options du sélecteur de rattachement : les demandes envoyées (référence + commune + date d'envoi, jamais un id brut).
-  const optionsDemandes: OptionDemande[] = useMemo(
-    () => (data?.demandes ?? []).map((d) => ({ demandeId: d.demandeId, reference: d.reference, communeNom: d.communeNom, envoyeLe: d.envoyeLe })),
-    [data],
-  );
+  // Options du sélecteur de rattachement : les demandes envoyée/close (référence + commune + date, jamais un id brut). T4 : les
+  //   SOLDÉES et CLOSE sont DÉMOTÉES (candidates moins probables) mais restent présentes et sélectionnables (filtrer, pas amputer).
+  const optionsDemandes: OptionDemande[] = useMemo(() => {
+    const dem = data?.demandes ?? [];
+    // soldée = MÊME définition que partout (partitionnerParDus, réutilisée telle quelle) : des dossiers attachés, 0 dû.
+    const idsSoldees = new Set(
+      partitionnerParDus(dem.map((d) => ({ demandeId: d.demandeId, nbDossiers: d.dossiersActifs, dossiersDus: d.dossiersActifs - d.dossiersSatisfaits })))
+        .soldees.map((x) => x.demandeId),
+    );
+    const options: OptionDemande[] = dem.map((d) => ({
+      demandeId: d.demandeId, reference: d.reference, communeNom: d.communeNom, envoyeLe: d.envoyeLe,
+      statut: d.statut, soldee: idsSoldees.has(d.demandeId),
+    }));
+    return trierOptionsDemandes(options); // candidates probables (non soldées/close) d'abord, puis date décroissante
+  }, [data]);
 
   // ── Actions (POST) ─ toutes journalisées côté serveur ; le retour s'affiche à la CLÉ de l'emplacement cliqué. ──
   const agir = useCallback(async (corps: Record<string, unknown>, cle: string, texteOk: string): Promise<void> => {
