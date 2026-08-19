@@ -11,7 +11,7 @@
  * l'affaiblirait. Aucune date/aucun nom/aucun chiffre inventé : ce qui n'est pas fourni n'est pas imprimé.
  */
 import {
-  referenceDiscrete, problemesIdentite, dateEnFrancais,
+  referenceDiscrete, problemesIdentite, dateEnFrancais, signatureEntreprise,
   type Lot, type CandidatDossier, type ConfigDemandeur, type Piece, type ProfilDemandeur,
 } from '../sitadel/demande';
 import { IdentiteIncompleteError, AucunDossierNonSatisfaitError } from './relance';
@@ -127,6 +127,8 @@ export function genererSaisineCada(e: EntreeSaisine): TexteSaisine {
     pieceJointe,
     '',
     'Je vous prie d’agréer, Madame, Monsieur, l’expression de ma considération distinguée.',
+    '',
+    ...signatureEntreprise(e.config), // FUS — signature du représentant (nom + qualité si renseignée), comme la demande et la relance
   ].join('\n');
   return { objet, corps };
 }

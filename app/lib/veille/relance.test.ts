@@ -117,4 +117,10 @@ describe('R6c — genererRelance : garde-fou d’identité', () => {
   it('identité incomplète → IdentiteIncompleteError, aucun texte', () => {
     expect(() => genererRelance(entree({ config: { ...CONFIG_ENT, raisonSociale: '' } }))).toThrow(IdentiteIncompleteError);
   });
+
+  it('FUS — relance entreprise SIGNÉE du nom + qualité en fin de lettre (comme la demande initiale)', () => {
+    const { corps } = genererRelance(entree());
+    expect(corps.trimEnd().endsWith('ma considération distinguée.\n\nA. Jorel\ngérant')).toBe(true);
+    expect(corps).toContain('représentée par A. Jorel, gérant.'); // clause d'identité (personne morale) toujours présente
+  });
 });

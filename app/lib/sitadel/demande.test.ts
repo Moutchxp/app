@@ -825,3 +825,35 @@ describe('Q4 — proposerLots : une fenêtre plus courte réduit STRICTEMENT l�
     expect(court.length).toBeLessThan(large.length);           // STRICTEMENT plus petit
   });
 });
+
+describe('FUS — bloc-signature ENTREPRISE (une personne SIGNE, une personne morale demande)', () => {
+  const lotSig: Lot = { codeInsee: '92050', communeNom: 'Nanterre', canal: 'email', dossiers: [cand({ numDau: 'PC0001' })] };
+  const piecesSig = piecesDepuisConfig('PC2,PC3');
+
+  it('demande entreprise : signée du NOM + QUALITÉ après la politesse ; la clause « représentée par » RESTE (rôles distincts)', () => {
+    const { corps } = genererTexte(lotSig, CONFIG, 'SVAV-DEM-2026-000900', piecesSig, 'entreprise', 'demandes@svav.fr');
+    expect(corps).toContain('représentée par A. Jorel, gérant.'); // clause d'identité (personne MORALE) conservée
+    // signature (personne PHYSIQUE) = fin de lettre, APRÈS la politesse
+    expect(corps.indexOf('A. Jorel\ngérant')).toBeGreaterThan(corps.indexOf('ma considération distinguée.'));
+    expect(corps.trimEnd().endsWith('ma considération distinguée.\n\nA. Jorel\ngérant')).toBe(true);
+  });
+
+  it('qualité FACULTATIVE vide → signature = le NOM SEUL (aucune ligne de qualité vide, aucun résidu)', () => {
+    const cfg = configAvecSignataire(CONFIG, { nom: 'Martin', prenom: 'Lucas', fonction: '', email: 'l@svav.fr' });
+    const { corps } = genererTexte(lotSig, cfg, 'SVAV-DEM-2026-000901', piecesSig, 'entreprise', 'demandes@svav.fr');
+    expect(corps.trimEnd().endsWith('ma considération distinguée.\n\nLucas Martin')).toBe(true);
+  });
+
+  it('téléservice (canal formulaire) : AUCUNE signature ajoutée (identité portée par FranceConnect) — se termine sur la politesse existante', () => {
+    const { corps } = genererTexte({ ...lotSig, canal: 'formulaire' }, CONFIG, 'SVAV-DEM-2026-000902', piecesSig, 'entreprise', 'demandes@svav.fr');
+    expect(corps).not.toContain('A. Jorel');                       // aucun nom de signataire dans le corps téléservice
+    expect(corps.trimEnd().endsWith('excellente journée.')).toBe(true);
+  });
+
+  it('profil PERSONNE : signature nominative déjà là (nom SEUL), INCHANGÉE — jamais de qualité, jamais dédoublée', () => {
+    const per = { ...CONFIG, representantNom: 'Camille Durand', representantQualite: 'gérant' };
+    const { corps } = genererTexte(lotSig, per, 'SVAV-DEM-2026-000903', piecesSig, 'personne', 'demandes@svav.fr');
+    expect(corps.trimEnd().endsWith('mes salutations distinguées.\n\nCamille Durand')).toBe(true);
+    expect(corps).not.toContain('gérant'); // personne : aucune qualité (discrétion S7e)
+  });
+});

@@ -492,6 +492,17 @@ export function referenceDiscrete(reference: string): string {
 }
 
 /**
+ * FUS — bloc-signature du SIGNATAIRE (personne PHYSIQUE) d'une lettre profil ENTREPRISE : le nom, puis la qualité SI renseignée
+ * (facultative, comme dans la clause « représentée par »). Lignes prêtes à insérer APRÈS la politesse. ⚠️ DISTINCT de la clause
+ * d'identité « représentée par [nom] » : celle-ci porte l'identité de la personne MORALE demandeuse, la signature porte celle du
+ * signataire — une personne écrit (« je »), une personne morale demande. JAMAIS VIDE : `representantNom` est un champ REQUIS
+ * (`CONTROLES_ENTREPRISE`, min 3 → `problemesIdentite`). PUR. Réutilisé par la demande, la relance et la saisine CADA.
+ */
+export function signatureEntreprise(config: ConfigDemandeur): string[] {
+  return [config.representantNom.trim(), config.representantQualite.trim()].filter((x) => x !== '');
+}
+
+/**
  * Génère l'objet + le corps d'une demande selon la trame CRPA imposée, en substituant les variables. AUCUN motif ni
  * justification, et AUCUNE date-calendrier dans le corps (la date est apposée à l'ENVOI — chantier ultérieur — car
  * c'est elle qui fait courir le délai de refus tacite ; une date figée à la création serait fausse). Les pièces
@@ -622,6 +633,8 @@ export function genererTexte(
     ...(ligneDelai ? ['', ligneDelai] : []),      // S40 — mention « délai d'un mois » (éditable), près de la clôture
     '',
     'Je vous prie d’agréer, Madame, Monsieur, l’expression de ma considération distinguée.',
+    '',
+    ...signatureEntreprise(config), // FUS — la lettre au « je » est SIGNÉE par le représentant (nom + qualité si renseignée)
   ].join('\n');
 
   return { objet, corps };

@@ -19,7 +19,7 @@
  *  - GARDE-FOU IDENTITÉ : pas de texte si l'identité du profil est incomplète (réutilise problemesIdentite).
  */
 import {
-  referenceDiscrete, problemesIdentite, dateEnFrancais,
+  referenceDiscrete, problemesIdentite, dateEnFrancais, signatureEntreprise,
   type Lot, type CandidatDossier, type ConfigDemandeur, type Piece, type ProfilDemandeur,
 } from '../sitadel/demande';
 
@@ -146,6 +146,8 @@ export function genererRelance(e: EntreeRelance): TexteRelance {
     cada,
     '',
     'Je vous prie d’agréer, Madame, Monsieur, l’expression de ma considération distinguée.',
+    '',
+    ...signatureEntreprise(e.config), // FUS — signature du représentant (nom + qualité si renseignée), comme la demande initiale
   ].join('\n');
   return { objet, corps };
 }

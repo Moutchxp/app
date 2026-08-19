@@ -113,4 +113,10 @@ describe('X2 — garde-fous', () => {
   it('plus aucun dossier dû → AucunDossierNonSatisfaitError', () => {
     expect(() => genererSaisineCada(ent({ dossiersSatisfaitsIds: [1, 2] }))).toThrow(AucunDossierNonSatisfaitError);
   });
+
+  it('FUS — saisine CADA entreprise SIGNÉE du nom + qualité en fin de lettre (comme la demande et la relance)', () => {
+    const { corps } = genererSaisineCada(ent());
+    expect(corps.trimEnd().endsWith('ma considération distinguée.\n\nArnaud JOREL\ngérant')).toBe(true);
+    expect(corps).toContain('représentée par Arnaud JOREL, gérant.'); // clause d'identité (personne morale) toujours présente
+  });
 });
