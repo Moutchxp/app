@@ -80,6 +80,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
   const [retourReponse, setRetourReponse] = useState<RetourCible>(null);
   const [refus, setRefus] = useState<{ demandeId: number; dossierId: number; date: string } | null>(null); // formulaire « refus mairie » ouvert
   const [retrait, setRetrait] = useState<{ demandeId: number; dossierId: number } | null>(null);            // avertissement « retirer » ouvert
+  const [reattach, setReattach] = useState<{ demandeId: number; dossierId: number } | null>(null);          // T1 : confirmation « annuler le retrait » ouverte
   const [motifCloture, setMotifCloture] = useState<Record<number, string>>({});                              // motif de clôture par demande
 
   const rafraichir = useCallback(() => setVersion((v) => v + 1), []);
@@ -271,6 +272,19 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     } else setRetourReponse({ cle, texte: await erreurServeur(res, 'Action impossible.'), ok: false });
   }
 
+  // T1 — RÉ-ATTACHER un dossier retiré (« annuler le retrait »). Route EXISTANTE, réutilisée telle quelle. Trois issues rendues
+  //   clairement : 200 {ok:true} → de nouveau dû (recharge) ; 200 {ok:false} → 'introuvable' (le retrait n'existe plus) ; 409 →
+  //   'conflit' (message serveur : déjà actif sur une autre demande). Sur échec, AUCUN changement d'état.
+  async function reattacher(demandeId: number, dossierId: number): Promise<void> {
+    const cle = `dossier-${demandeId}-${dossierId}`;
+    const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reattacher_dossier', demandeId, dossierId }) });
+    if (res.ok) {
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean };
+      if (d.ok) { setRetourReponse({ cle, texte: 'Dossier ré-attaché — il redevient dû.', ok: true }); rafraichir(); rafraichirSuivi(); if (detail) void ouvrir(detail.id, true); }
+      else setRetourReponse({ cle, texte: 'Ré-attachement impossible : ce retrait n’existe plus (déjà ré-attaché ?).', ok: false });
+    } else setRetourReponse({ cle, texte: await erreurServeur(res, 'Ré-attachement impossible.'), ok: false });
+  }
+
   // T5 — téléchargement d'une pièce de réponse : SEUL signeur `url_piece` (source 'reponse' par défaut). Le client n'envoie
   //   qu'un pieceId ; le serveur lit la clé et renvoie une URL signée (la clé ne transite jamais). Aucune 2e implémentation.
   async function telechargerPiece(pieceId: number): Promise<void> {
@@ -443,7 +457,12 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
                   retirerOuvertDossierId={retrait?.demandeId === detail.id ? retrait.dossierId : null}
                   onRetirerOuvrir={(dossierId) => setRetrait({ demandeId: detail.id, dossierId })}
                   onRetirerConfirmer={(demandeId, dossierId) => { setRetrait(null); void agirReponse({ action: 'retirer_dossier', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Dossier retiré — il redevient demandable dans « À demander ».'); }}
-                  onRetirerAnnuler={() => setRetrait(null)} />
+                  onRetirerAnnuler={() => setRetrait(null)}
+                  dossiersRetires={richDetail.dossiersRetires}
+                  reattachOuvertDossierId={reattach?.demandeId === detail.id ? reattach.dossierId : null}
+                  onReattachOuvrir={(dossierId) => setReattach({ demandeId: detail.id, dossierId })}
+                  onReattachConfirmer={(demandeId, dossierId) => { setReattach(null); void reattacher(demandeId, dossierId); }}
+                  onReattachAnnuler={() => setReattach(null)} />
                 {/* L1 — MÊME BlocLiens que « Réponses », injecté par slot avec les liens DÉJÀ chargés (richDetail.liens) : un
                     accusé porteur d'un lien reste hors de « Réponses » (T3) mais son lien doit rester visible ICI, dans « En cours ». */}
                 <BlocLiens liens={richDetail.liens} maintenant={new Date()} />

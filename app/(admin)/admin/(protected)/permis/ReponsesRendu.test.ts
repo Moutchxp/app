@@ -662,6 +662,43 @@ describe('T1 — DetailDossiers : 4 actions par ligne + réversibilité', () => 
   });
 });
 
+describe('T1 — DetailDossiers : sous-liste des dossiers RETIRÉS + « annuler le retrait » (réversibilité de « retirer »)', () => {
+  const rien = () => {};
+  const DU: DossierSuivi = { dossierId: 2, numDau: 'PC-DU', adresse: null, satisfait: false, satisfaitPar: null, triage: null, refusLe: null };
+  const RET = { dossierId: 9, numDau: 'PC-RETIRE', adresse: '3 rue X' };
+  const cbs = { onMarquer: rien, onNonFourni: rien, onAnnulerTriage: rien, onRefusOuvrir: rien, onRefusDateChange: rien, onRefusConfirmer: rien, onRefusAnnuler: rien, onRetirerOuvrir: rien, onRetirerConfirmer: rien, onRetirerAnnuler: rien, onReattachOuvrir: rien, onReattachConfirmer: rien, onReattachAnnuler: rien };
+
+  it('un dossier retiré → sous-liste barrée + « annuler le retrait » ; il n’est PAS dans les dus (aucun bouton d’action de dû)', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [DU], dossiersRetires: [RET], ...cbs }));
+    expect(h).toContain('1 dossier retiré de la demande');
+    expect(h).toContain('PC-RETIRE');
+    expect(h).toContain('annuler le retrait');
+    expect(h).toContain('line-through');           // le n° du retiré est barré
+    expect(h).toContain('tip-7-2-retirer');         // le DU, lui, offre bien « retirer »
+    expect(h).not.toContain('tip-7-9');             // le RETIRÉ n’a AUCUN bouton d’action de dû (ni retirer, ni marquer reçu, …)
+  });
+
+  it('aucun retiré → AUCUNE sous-liste rendue (jamais de section vide)', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [DU], ...cbs }));
+    expect(h).not.toContain('retiré de la demande');
+    expect(h).not.toContain('annuler le retrait');
+  });
+
+  it('confirmation « annuler le retrait » ouverte → deux temps (dit ce qui se passe, « confirmer » + « annuler »)', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [DU], dossiersRetires: [RET], reattachOuvertDossierId: 9, ...cbs }));
+    expect(h).toContain('revenir dans la demande');
+    expect(h).toContain('redevient dû');
+    expect(h).toContain('>confirmer<');
+  });
+
+  it('TOUS les dossiers retirés (0 dû) → la sous-liste reste rendue MALGRÉ « Aucun dossier rattaché » (repli n’avale pas les retirés)', () => {
+    const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [], dossiersRetires: [RET], ...cbs }));
+    expect(h).toContain('Aucun dossier rattaché');
+    expect(h).toContain('1 dossier retiré de la demande');
+    expect(h).toContain('annuler le retrait');
+  });
+});
+
 // ── U1 — expliquer les boutons : source de vérité unique, infobulle reliée (aria-describedby), relais tactile <details> ──
 describe('U1 — aide des boutons d’action de statut', () => {
   const rien = () => {};

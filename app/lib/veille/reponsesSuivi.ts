@@ -138,6 +138,7 @@ export interface DemandeSuivi {
   referencesMairie: string[];   // FUS-4 : références mairie (SLC…) de la demande — colonne « Réf. mairie » éditable (ajouter/modifier/effacer)
   aAccuse: boolean;             // FUS-4 : ≥ 1 message de nature 'accuse' rattaché → « accusé reçu » DÉRIVÉ (avec ou sans référence)
   dossiers: DossierSuivi[];
+  dossiersRetires: { dossierId: number; numDau: string; adresse: string | null }[]; // T1 : dossiers RETIRÉS (actif=false) — sous-liste du détail (réversibilité de « retirer » via reattacher). N'affecte NI le périmètre NI demandeADuRetour.
   liens: LienAffiche[];         // L1 : liens de téléchargement captés dans les réponses rattachées (forts d'abord)
   alertesGed: AlerteGedAffiche[]; // G1 : alertes « à classer/télécharger en GED » déjà envoyées (retard visible)
   messagesAutre: MessageAutreAffiche[]; // T7-B : messages `autre` ancrés (cas ③) — la ligne est signalée tant qu'il en reste ≥1 non répondu
@@ -315,6 +316,25 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
       .push({ dossierId: r.dossier_id, numDau: r.num_dau, adresse: r.adresse, satisfait: r.satisfait, satisfaitPar: r.satisfait_par, triage: r.triage, refusLe: r.refus_le });
   }
 
+  // T1 — dossiers RETIRÉS (actif=false) de ces demandes → sous-liste du détail (réversibilité de « retirer » : bouton « annuler le
+  //   retrait » = reattacherDossierDemande). SELECT ajouté EN LECTURE, DANS LE MÊME PÉRIMÈTRE (statut IN ('envoyee','close')) : la
+  //   requête `dem` de chargerDemandesSuivi reste INCHANGÉE — aucun WHERE ajouté à la source partagée En cours ↔ Réponses. `NOT
+  //   dd.actif` = le retrait ; distinct de la requête des DUS (dd.actif AND satisfait_le IS NULL) → aucun dossier dans les deux.
+  const dossRetires = await query<{ demande_id: number; dossier_id: number; num_dau: string; adresse: string | null }>(
+    `SELECT dd.demande_id::int AS demande_id, dd.dossier_id::int AS dossier_id, s.num_dau,
+            nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse
+       FROM demande_dossier dd
+       JOIN sitadel_dossier s ON s.id = dd.dossier_id
+       JOIN demande d ON d.id = dd.demande_id
+      WHERE d.statut IN ('envoyee', 'close') AND NOT dd.actif
+      ORDER BY dd.demande_id, s.num_dau`,
+  );
+  const parDemandeRetires = new Map<number, { dossierId: number; numDau: string; adresse: string | null }[]>();
+  for (const r of dossRetires.rows) {
+    (parDemandeRetires.get(r.demande_id) ?? parDemandeRetires.set(r.demande_id, []).get(r.demande_id)!)
+      .push({ dossierId: r.dossier_id, numDau: r.num_dau, adresse: r.adresse });
+  }
+
   // L1 — liens de téléchargement captés dans les réponses RATTACHÉES de ces demandes (une passe, groupés par demande ; forts
   //   d'abord). `recu_le` du message porteur → « lien reçu le JJ/MM ». On ne suit JAMAIS un lien : lecture d'affichage seule.
   const liens = await query<{ demande_id: number; url: string; fort: boolean; recu_le: string; expire_le: string | null; expiration_source: string | null; expiration_indice: string | null }>(
@@ -395,6 +415,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     referencesMairie: r.refs_mairie ?? [], aAccuse: r.a_accuse ?? false, // FUS-4
 
     dossiers: parDemande.get(r.id) ?? [],
+    dossiersRetires: parDemandeRetires.get(r.id) ?? [],
     liens: parLiens.get(r.id) ?? [],
     alertesGed: parAlertes.get(r.id) ?? [],
     messagesAutre: parMsgAutre.get(r.id) ?? [],

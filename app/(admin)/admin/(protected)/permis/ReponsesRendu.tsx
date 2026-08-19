@@ -500,6 +500,7 @@ export function DetailDossiers({
   onMarquer, onNonFourni, onAnnulerTriage,
   refusOuvertDossierId, refusDate, onRefusOuvrir, onRefusDateChange, onRefusConfirmer, onRefusAnnuler,
   retirerOuvertDossierId, onRetirerOuvrir, onRetirerConfirmer, onRetirerAnnuler,
+  dossiersRetires, reattachOuvertDossierId, onReattachOuvrir, onReattachConfirmer, onReattachAnnuler,
 }: {
   demandeId: number; statut: string; dossiers: DossierSuivi[]; retour?: RetourCible; aujourdhui?: string; prefillRefus?: string;
   onMarquer?: (demandeId: number, dossierId: number, satisfait: boolean) => void;
@@ -514,8 +515,49 @@ export function DetailDossiers({
   onRetirerOuvrir?: (dossierId: number) => void;
   onRetirerConfirmer?: (demandeId: number, dossierId: number) => void;
   onRetirerAnnuler?: () => void;
+  // T1 — dossiers RETIRÉS : sous-liste (réversibilité de « retirer »). « annuler le retrait » = geste inverse, MÊME confirmation en deux temps.
+  dossiersRetires?: { dossierId: number; numDau: string; adresse: string | null }[];
+  reattachOuvertDossierId?: number | null;
+  onReattachOuvrir?: (dossierId: number) => void;
+  onReattachConfirmer?: (demandeId: number, dossierId: number) => void;
+  onReattachAnnuler?: () => void;
 }) {
-  if (dossiers.length === 0) return <PhraseVide>Aucun dossier rattaché à cette demande.</PhraseVide>;
+  // T1 — sous-liste des RETIRÉS (rendue s'il y en a, JAMAIS de section vide). Calculée AVANT le repli « aucun dossier » pour rester
+  //   visible même quand tous les dossiers ont été retirés (0 dû). Chaque ligne porte « annuler le retrait » → même confirmation
+  //   en deux temps que « retirer » (bouton → confirmer/annuler), mais NON destructive (bordure neutre, pas de role=alert).
+  const retires = dossiersRetires ?? [];
+  const blocRetires = retires.length > 0 ? (
+    <div role="note" style={{ marginTop: '.4rem' }}>
+      <span style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{retires.length} dossier{retires.length > 1 ? 's' : ''} retiré{retires.length > 1 ? 's' : ''} de la demande :</span>
+      <ul style={{ margin: '.2rem 0 0', paddingLeft: '1.1rem', fontSize: 12, lineHeight: 1.6 }}>
+        {retires.map((d) => {
+          const enReattach = reattachOuvertDossierId === d.dossierId;
+          const mr = messageIci(retour ?? null, `dossier-${demandeId}-${d.dossierId}`);
+          return (
+            <li key={d.dossierId} style={{ marginBottom: '.15rem' }}>
+              <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', textDecoration: 'line-through', color: 'var(--color-svv-muted)' }}>{d.numDau}</span>
+              {d.adresse ? ` — ${d.adresse}` : ''}
+              {onReattachOuvrir && !enReattach && (
+                <button type="button" className="svv-link" style={{ width: 'auto', padding: 0, marginLeft: '.4rem' }} onClick={() => onReattachOuvrir?.(d.dossierId)}>annuler le retrait</button>
+              )}
+              {enReattach && (
+                <span style={{ display: 'block', marginTop: '.25rem', padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', maxWidth: 520 }}>
+                  <span style={{ display: 'block', marginBottom: '.3rem', lineHeight: 1.4 }}>
+                    Ré-attacher ce dossier le fait <strong>revenir dans la demande</strong> : il redevient dû. (Refusé s’il est déjà rattaché à une autre demande active.)
+                  </span>
+                  <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.1rem .5rem' }} onClick={() => onReattachConfirmer?.(demandeId, d.dossierId)}>confirmer</button>
+                  <button type="button" className="svv-link" style={{ width: 'auto', padding: 0, marginLeft: '.4rem' }} onClick={() => onReattachAnnuler?.()}>annuler</button>
+                </span>
+              )}
+              {mr && <span style={{ marginLeft: '.4rem' }}><MessageRetour r={mr} /></span>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  ) : null;
+
+  if (dossiers.length === 0) return <><PhraseVide>Aucun dossier rattaché à cette demande.</PhraseVide>{blocRetires}</>;
   // R5b — garde-fou : demande close → aucune action sur les dossiers (message explicite, jamais un bouton inerte).
   const close = statut === 'close';
   const actif = !close && onMarquer !== undefined;
@@ -583,6 +625,7 @@ export function DetailDossiers({
       })}
       {close && <li style={{ ...styleMuted, listStyle: 'none', marginLeft: '-1.1rem' }}>Demande close : le marquage des dossiers est désactivé (rouvrir la demande d’abord — chantier ultérieur).</li>}
     </ul>
+    {blocRetires}
     </>
   );
 }

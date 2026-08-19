@@ -66,6 +66,28 @@ describe('T6-A — chargerDemandesSuivi : SOURCE UNIQUE (échéance + retour + d
     expect(norm(dem.sql)).toContain('AS dossiers_en_ged');
   });
 
+  it('T1 — dossiers RETIRÉS exposés par une requête SÉPARÉE (NOT dd.actif) ; le PÉRIMÈTRE de `dem` reste INCHANGÉ', async () => {
+    const RETIRES = /NOT dd\.actif/; // requête dédiée aux dossiers retirés (distincte des DUS : dd.actif AND satisfait_le IS NULL)
+    etat.dispatch = [
+      { re: OK, rows: [{ t: '2026-08-10T09:00:00Z' }] },
+      { re: DEM, rows: [{ id: 154, reference: 'SVAV-DEM-2026-000154', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 1, dossiers_satisfaits: 0, dossiers_en_ged: 0, nb_reponses: 0, nb_reponses_reelles: 0, derniere_reponse_le: null }] },
+      { re: RETIRES, rows: [{ demande_id: 154, dossier_id: 9, num_dau: 'PC0930099', adresse: '3 rue X' }] }, // AVANT DOSS : la requête retirés partage l'ORDER BY
+      { re: DOSS, rows: [{ demande_id: 154, dossier_id: 5, num_dau: 'PC0930011', adresse: null, satisfait: false, satisfait_par: null, triage: null, refus_le: null }] },
+    ];
+    const { demandes } = await chargerDemandesSuivi();
+    // la donnée est exposée, DISTINCTE des dus (un dossier n'est jamais dans les deux).
+    expect(demandes[0].dossiers).toHaveLength(1);
+    expect(demandes[0].dossiersRetires).toEqual([{ dossierId: 9, numDau: 'PC0930099', adresse: '3 rue X' }]);
+    // 🔴 PÉRIMÈTRE INCHANGÉ : la requête `dem` garde son SEUL critère de statut, sans aucune condition sur dd.actif / retirés.
+    const dem = appels.find((a) => DEM.test(a.sql))!;
+    expect(norm(dem.sql)).toContain("WHERE d.statut IN ('envoyee', 'close')");
+    expect(norm(dem.sql)).not.toContain('NOT dd.actif');
+    // une requête SÉPARÉE porte les retirés, DANS LE MÊME périmètre de statut (aucun WHERE ajouté à la source partagée).
+    const ret = appels.find((a) => RETIRES.test(a.sql))!;
+    expect(ret, 'une requête dédiée aux dossiers retirés doit être émise').toBeDefined();
+    expect(norm(ret.sql)).toContain("WHERE d.statut IN ('envoyee', 'close') AND NOT dd.actif");
+  });
+
   it('chargerSuiviReponses DÉLÈGUE à chargerDemandesSuivi : mêmes demandes exposées (non-régression de l’extraction)', async () => {
     etat.dispatch = [
       { re: OK, rows: [{ t: '2026-08-10T09:00:00Z' }] },

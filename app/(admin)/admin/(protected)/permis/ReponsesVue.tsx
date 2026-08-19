@@ -52,6 +52,7 @@ export function ReponsesVue() {
   const [relOuvertes, setRelOuvertes] = useState<Set<number>>(new Set());
   const [refus, setRefus] = useState<{ demandeId: number; dossierId: number; date: string } | null>(null);   // T1 : formulaire « refus mairie » ouvert (date en cours de saisie)
   const [retrait, setRetrait] = useState<{ demandeId: number; dossierId: number } | null>(null);              // T1 : avertissement « retirer » ouvert
+  const [reattach, setReattach] = useState<{ demandeId: number; dossierId: number } | null>(null);            // T1 : confirmation « annuler le retrait » ouverte
   const [afficherSoldees, setAfficherSoldees] = useState(false); // T2 : par défaut on masque les demandes sans dossier dû (soldées / sans dossier actif)
   const [pageDem, setPageDem] = useState(1);
   const [pageRat, setPageRat] = useState(1);
@@ -103,6 +104,18 @@ export function ReponsesVue() {
     const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
     if (res.ok) { setRetour({ cle, texte: texteOk, ok: true }); rafraichir(); } // recharge sans effacer le retour
     else setRetour({ cle, texte: await erreurServeur(res, 'Action impossible.'), ok: false });
+  }, [rafraichir]);
+
+  // T1 — RÉ-ATTACHER un dossier retiré (« annuler le retrait »). Route EXISTANTE, telle quelle. 200 {ok:true} → de nouveau dû ;
+  //   200 {ok:false} → 'introuvable' (le retrait n'existe plus) ; 409 → 'conflit' (message serveur). Sur échec, aucun état changé.
+  const reattacher = useCallback(async (demandeId: number, dossierId: number): Promise<void> => {
+    const cle = `dossier-${demandeId}-${dossierId}`;
+    const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reattacher_dossier', demandeId, dossierId }) });
+    if (res.ok) {
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean };
+      if (d.ok) { setRetour({ cle, texte: 'Dossier ré-attaché — il redevient dû.', ok: true }); rafraichir(); }
+      else setRetour({ cle, texte: 'Ré-attachement impossible : ce retrait n’existe plus (déjà ré-attaché ?).', ok: false });
+    } else setRetour({ cle, texte: await erreurServeur(res, 'Ré-attachement impossible.'), ok: false });
   }, [rafraichir]);
 
   const telecharger = useCallback(async (reponseId: number, pieceId: number): Promise<void> => {
@@ -208,7 +221,7 @@ export function ReponsesVue() {
                           <td colSpan={8} style={{ padding: '0 .5rem .5rem' }}>
                             {/* T2 — les dossiers obtenus sont partis en Archives : on le DIT, on ne les fait pas disparaître en silence. */}
                             <RappelObtenusArchives n={d.dossiersSatisfaits} />
-                            {(d.dossiers.length > 0 || d.dossiersSatisfaits === 0) && (
+                            {(d.dossiers.length > 0 || d.dossiersSatisfaits === 0 || d.dossiersRetires.length > 0) && (
                             <DetailDossiers demandeId={d.demandeId} statut={d.statut} dossiers={d.dossiers} retour={retour}
                               aujourdhui={aujourdhui} prefillRefus={d.derniereReponseLe ? formaterDate(d.derniereReponseLe) : aujourdhui}
                               onMarquer={(demandeId, dossierId, satisfait) => void agir({ action: 'marquer_dossier', demandeId, dossierId, satisfait }, `dossier-${demandeId}-${dossierId}`, satisfait ? 'Marqué reçu.' : 'Satisfaction annulée.')}
@@ -223,7 +236,12 @@ export function ReponsesVue() {
                               retirerOuvertDossierId={retrait?.demandeId === d.demandeId ? retrait.dossierId : null}
                               onRetirerOuvrir={(dossierId) => setRetrait({ demandeId: d.demandeId, dossierId })}
                               onRetirerConfirmer={(demandeId, dossierId) => { setRetrait(null); void agir({ action: 'retirer_dossier', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Dossier retiré — il redevient demandable dans « À demander ».'); }}
-                              onRetirerAnnuler={() => setRetrait(null)} />
+                              onRetirerAnnuler={() => setRetrait(null)}
+                              dossiersRetires={d.dossiersRetires}
+                              reattachOuvertDossierId={reattach?.demandeId === d.demandeId ? reattach.dossierId : null}
+                              onReattachOuvrir={(dossierId) => setReattach({ demandeId: d.demandeId, dossierId })}
+                              onReattachConfirmer={(demandeId, dossierId) => { setReattach(null); void reattacher(demandeId, dossierId); }}
+                              onReattachAnnuler={() => setReattach(null)} />
                             )}
                             {/* FUS — cas ③ : les messages « autre » appelant une réponse (marquer répondu / reclasser) suivent la
                                 demande dans son foyer « Réponses ». MÊME route /reponses (via `agir`), auteur journalisé — un seul
