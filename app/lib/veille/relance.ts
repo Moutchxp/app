@@ -67,11 +67,16 @@ function ligneDossier(d: CandidatDossier): string {
 }
 
 /**
- * Génère l'objet + le corps d'une relance. Lève `IdentiteIncompleteError` si l'identité est incomplète (aucun texte). Le
- * corps constate l'écoulement du délai d'un mois (R. 311-13), le refus tacite né du silence (R. 311-12), renouvelle la
- * demande par voie électronique, et mentionne — en une phrase neutre — la saisine possible de la CADA sous deux mois (R. 343-1).
+ * Génère l'objet + le corps d'une relance selon la `variante` (défaut 'formelle'). Lève `IdentiteIncompleteError` si l'identité
+ * est incomplète (aucun texte), `AucunDossierNonSatisfaitError` si plus rien à réclamer.
+ *  - **'formelle'** (mairie HORS délai, texte INCHANGÉ) : constate l'écoulement du délai d'un mois (R. 311-13), le refus tacite né
+ *    du silence (R. 311-12), renouvelle la demande, et mentionne la saisine possible de la CADA (R. 343-1).
+ *  - **'rappel'** (mairie ENCORE DANS son délai) : rappelle COURTOISEMENT la demande, sa date et l'échéance À VENIR, propose un
+ *    lien de téléchargement si les documents sont volumineux et la transmission au service compétent — **SANS refus tacite NI
+ *    CADA** (faux et prématuré : la mairie n'est pas en faute). Le TYPE se choisit sur la DATE D'ENVOI RÉELLE (câblage au lot B/C).
+ * Les DEUX variantes portent : référence, permis + commune, pièces demandées, date de la demande initiale, date d'échéance, signature.
  */
-export function genererRelance(e: EntreeRelance): TexteRelance {
+export function genererRelance(e: EntreeRelance, variante: 'rappel' | 'formelle' = 'formelle'): TexteRelance {
   const problemes = problemesIdentite(e.config, e.profil);
   if (problemes.length > 0) throw new IdentiteIncompleteError(problemes);
 
@@ -85,19 +90,28 @@ export function genererRelance(e: EntreeRelance): TexteRelance {
   const lignesDossiers = dossiersDus.map(ligneDossier).join('\n');
   const dateEnvoi = dateFr(e.envoyeeLe);
   const dateEcheance = dateFr(e.echeanceLe);
+  const estRappel = variante === 'rappel';
+  const prefixeObjet = estRappel ? 'Rappel' : 'Relance';
 
   // Rappel du FONDEMENT (L311-1 / L311-9 3°), comme le courrier initial — la relance est autosuffisante.
   const fondement = 'en application des articles L311-1 et L311-9 3° du code des relations entre le public et l’administration';
-  // Constat commun — SOCLE JURIDIQUE vérifié (R. 311-13 puis R. 311-12).
+  // FORMELLE (hors délai) — SOCLE JURIDIQUE vérifié (R. 311-13 puis R. 311-12) + saisine CADA (R. 343-1).
   const constat = `Le délai d’un mois prévu à l’article R. 311-13 du code des relations entre le public et l’administration, courant à compter de la réception de cette demande, est écoulé depuis le ${dateEcheance}. En application de l’article R. 311-12 du même code, le silence gardé par l’administration a fait naître une décision de refus.`;
-  // Mention CADA — une phrase neutre, sans agressivité (R. 343-1).
   const cada = 'À défaut de réponse, la Commission d’accès aux documents administratifs pourra être saisie dans le délai de deux mois prévu à l’article R. 343-1 du même code.';
+  // RAPPEL (dans le délai) — courtois, SANS reproche : ni refus tacite ni CADA (la mairie n'est pas en faute à ce stade).
+  //   « délai d'un mois » (CRPA R. 311-13), JAMAIS « délai d'instruction » — l'instruction est celle du permis, pas de l'accès CRPA.
+  const rappelEcheance = `Je me permets de vous rappeler cette demande, dont le délai d’un mois arrive à échéance le ${dateEcheance}.`;
+  const offres = 'Si les documents sont volumineux, un lien de téléchargement me conviendra parfaitement. Si cette demande ne relève pas de votre service, je vous remercie de bien vouloir la transmettre au service compétent.';
 
   if (e.profil === 'personne') {
     // Objet GÉNÉRIQUE (aucune référence, aucune marque, aucune commune) ; référence DISCRÈTE dans le seul corps.
-    const objet = 'Relance — demande de communication de documents administratifs';
+    const objet = `${prefixeObjet} — demande de communication de documents administratifs`;
     const enTete = [e.config.representantNom, e.config.siegeAdresse, e.config.emailContact]
       .map((x) => x.trim()).filter((x) => x !== '').join('\n');
+    const refLigne = `Merci de bien vouloir rappeler la référence ${referenceDiscrete(e.reference)} dans votre réponse.`;
+    const milieu = estRappel
+      ? [rappelEcheance, '', offres, '', refLigne]
+      : [constat, '', 'Je renouvelle cette demande de communication, par voie électronique, à l’adresse figurant en tête de la présente.', '', refLigne, '', cada];
     const corps = [
       enTete,
       '',
@@ -109,13 +123,7 @@ export function genererRelance(e: EntreeRelance): TexteRelance {
       'Dossiers concernés :',
       lignesDossiers,
       '',
-      constat,
-      '',
-      'Je renouvelle cette demande de communication, par voie électronique, à l’adresse figurant en tête de la présente.',
-      '',
-      `Merci de bien vouloir rappeler la référence ${referenceDiscrete(e.reference)} dans votre réponse.`,
-      '',
-      cada,
+      ...milieu,
       '',
       'Je vous prie d’agréer, Madame, Monsieur, l’expression de mes salutations distinguées.',
       '',
@@ -125,9 +133,13 @@ export function genererRelance(e: EntreeRelance): TexteRelance {
   }
 
   // Profil ENTREPRISE : référence COMPLÈTE dans l'objet et le corps ; identité de société ; adresse de réponse = boîte relue.
-  const objet = `Relance — demande de communication de documents administratifs — ${e.lot.communeNom} — réf. ${e.reference}`;
+  const objet = `${prefixeObjet} — demande de communication de documents administratifs — ${e.lot.communeNom} — réf. ${e.reference}`;
   const tel = e.config.telephone.trim() !== '' ? `, téléphone ${e.config.telephone.trim()}` : '';
   const identite = `${e.config.raisonSociale}, ${e.config.formeJuridique}, dont le siège est ${e.config.siegeAdresse}, représentée par ${e.config.representantNom}${e.config.representantQualite.trim() !== '' ? `, ${e.config.representantQualite}` : ''}.`;
+  const adresse = `Adresse de réponse : ${e.adresseReponse.trim()}${tel}`;
+  const milieu = estRappel
+    ? [rappelEcheance, '', identite, adresse, '', offres] // rappel : la clause d'identité dans SON propre paragraphe (ligne vide avant)
+    : [constat, '', 'Je renouvelle cette demande de communication, par voie électronique.', identite, adresse, '', cada];
   const corps = [
     'Madame, Monsieur,',
     '',
@@ -137,13 +149,7 @@ export function genererRelance(e: EntreeRelance): TexteRelance {
     'Dossiers concernés :',
     lignesDossiers,
     '',
-    constat,
-    '',
-    'Je renouvelle cette demande de communication, par voie électronique.',
-    identite,
-    `Adresse de réponse : ${e.adresseReponse.trim()}${tel}`,
-    '',
-    cada,
+    ...milieu,
     '',
     'Je vous prie d’agréer, Madame, Monsieur, l’expression de ma considération distinguée.',
     '',

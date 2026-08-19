@@ -124,3 +124,48 @@ describe('R6c — genererRelance : garde-fou d’identité', () => {
     expect(corps).toContain('représentée par A. Jorel, gérant.'); // clause d'identité (personne morale) toujours présente
   });
 });
+
+describe('LOT A — genererRelance variante « rappel » (mairie ENCORE dans son délai : courtois, ni refus tacite ni CADA)', () => {
+  it('la variante « formelle » est le DÉFAUT et reste le texte actuel (refus tacite + CADA + objet « Relance — »)', () => {
+    const parDefaut = genererRelance(entree());
+    const explicite = genererRelance(entree(), 'formelle');
+    expect(parDefaut).toEqual(explicite);                                              // défaut === 'formelle'
+    expect(parDefaut.corps).toContain('a fait naître une décision de refus');          // refus tacite (R. 311-12)
+    expect(parDefaut.corps).toContain('Commission d’accès aux documents administratifs'); // CADA (R. 343-1)
+    expect(parDefaut.objet.startsWith('Relance —')).toBe(true);
+  });
+
+  it('rappel ENTREPRISE : objet « Rappel — … réf. », échéance À VENIR, offres (lien volumineux + service), identité + signature ; JAMAIS refus tacite ni CADA', () => {
+    const { objet, corps } = genererRelance(entree(), 'rappel');
+    expect(objet.startsWith('Rappel — demande de communication')).toBe(true);
+    expect(objet).toContain('réf. SVAV-DEM-2026-000123');                              // référence dans l'objet
+    expect(corps).toContain('Par une demande du 14 mars 2026, référencée SVAV-DEM-2026-000123'); // date initiale + référence
+    expect(corps).toContain('dont le délai d’un mois arrive à échéance le 14 avril 2026');  // « délai d'un mois » (échéance À VENIR)
+    expect(corps).not.toContain('délai d’instruction');                                // JAMAIS « instruction » (≠ instruction du permis)
+    expect(corps).toContain('un lien de téléchargement me conviendra parfaitement');   // offre : documents volumineux
+    expect(corps).toContain('la transmettre au service compétent');                    // offre : bon service
+    // point 2 — la clause d'identité est dans SON PROPRE paragraphe (ligne vide AVANT), adresse à sa suite
+    expect(corps).toContain('à échéance le 14 avril 2026.\n\nCriterimmo, SARL, dont le siège est');
+    expect(corps).toContain('représentée par A. Jorel, gérant.\nAdresse de réponse :');
+    expect(corps.trimEnd().endsWith('ma considération distinguée.\n\nA. Jorel\ngérant')).toBe(true); // signature
+    expect(corps).not.toContain('…'); // aucun texte tronqué ne part en mairie (U+2026 interdit)
+    // 🔴 NI refus tacite NI CADA (faux et prématuré) :
+    expect(corps).not.toContain('refus');
+    expect(corps).not.toContain('R. 311-12');
+    expect(corps).not.toContain('Commission d’accès aux documents administratifs');
+    expect(corps).not.toContain('R. 343-1');
+  });
+
+  it('rappel PERSONNE : objet générique « Rappel — … » (sans commune/réf), échéance à venir, offres, référence discrète + signature nominative ; ni refus tacite ni CADA', () => {
+    const { objet, corps } = genererRelance(entree({ profil: 'personne', config: CONFIG_PERS }), 'rappel');
+    expect(objet).toBe('Rappel — demande de communication de documents administratifs'); // générique
+    expect(corps).toContain('dont le délai d’un mois arrive à échéance le 14 avril 2026');
+    expect(corps).not.toContain('délai d’instruction');
+    expect(corps).toContain('un lien de téléchargement me conviendra parfaitement');
+    expect(corps).toContain('rappeler la référence 2026-000123');                      // référence DISCRÈTE (sans « SVAV-DEM- »)
+    expect(corps.trimEnd().endsWith('mes salutations distinguées.\n\nJean Dupont')).toBe(true);
+    expect(corps).not.toContain('…');
+    expect(corps).not.toContain('refus');
+    expect(corps).not.toContain('Commission d’accès');
+  });
+});
