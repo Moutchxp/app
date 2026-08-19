@@ -650,20 +650,45 @@ export function etatRetourMairie(d: { nbReponses: number; nbReponsesReelles?: nu
   return 'aucun';
 }
 
+/** Un message porteur de CONTENU (lien fort OU pièce), pour la PROVENANCE affichée sur la ligne (source : `provenancesContenu`). */
+export interface ProvenanceLigneContenu { recuLe: string; deAdresse: string; aLien: boolean; aPiece: boolean }
+
+/** FUS — PROVENANCE du contenu sur la ligne : le message le PLUS RÉCENT porteur d'un lien/pièce (date+heure Europe/Paris +
+ *  adresse COMPLÈTE, non tronquée — clé de recherche Gmail) + compteur « +N autre(s) ». Les autres sont au déplié. PUR. */
+function ProvenanceContenuLigne({ provenances }: { provenances: ProvenanceLigneContenu[] }) {
+  const p = provenances[0]; // le PLUS RÉCENT (source triée recu_le DESC)
+  const reste = provenances.length - 1;
+  const quoi = p.aLien && p.aPiece ? 'lien + pièces' : p.aLien ? 'lien' : 'pièces';
+  return (
+    <div style={{ fontSize: 11, marginTop: '.15rem', color: 'var(--color-svv-ink)' }}>
+      <span style={{ color: 'var(--color-svv-muted)' }}>contenu ({quoi}) reçu le </span>
+      {formaterDateHeureLocale(p.recuLe)}
+      <span style={{ color: 'var(--color-svv-muted)' }}> · </span>
+      <span style={{ wordBreak: 'break-all' }}>{p.deAdresse}</span>
+      {reste > 0 ? <span style={{ color: 'var(--color-svv-muted)' }}> · +{reste} autre{reste > 1 ? 's' : ''}</span> : null}
+    </div>
+  );
+}
+
 /** T6-A / T8 — cellule « Retour mairie » (4 états dérivés). Le TEXTE porte l'information ; date en JJ/MM. « obtenu » = fichier
- *  EN GED (vert) ; « reçu, à classer en GED » = marqué reçu sans fichier (orange, mot G2). PUR. */
-export function RetourMairie({ etat, nbReponses, derniereReponseLe }: { etat: EtatRetourMairie; nbReponses: number; derniereReponseLe: string | null }) {
-  if (etat === 'obtenus') return <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>documents obtenus</span>;
-  if (etat === 'recu_a_classer') return <span style={{ color: '#8a5a00', fontWeight: 600 }}>reçu, à classer en GED</span>;
+ *  EN GED (vert) ; « reçu, à classer en GED » = marqué reçu sans fichier (orange, mot G2). FUS — la PROVENANCE du contenu (le
+ *  message porteur d'un lien/pièce le plus récent + expéditeur) est affichée SOUS le libellé, jamais pour un accusé seul. PUR. */
+export function RetourMairie({ etat, nbReponses, derniereReponseLe, provenances }: {
+  etat: EtatRetourMairie; nbReponses: number; derniereReponseLe: string | null; provenances?: ProvenanceLigneContenu[];
+}) {
+  const prov = provenances ?? [];
+  const provBloc = prov.length > 0 ? <ProvenanceContenuLigne provenances={prov} /> : null; // rien sans lien ni pièce (accusé seul)
   // FUS — DATE/HEURE de l'événement qui FONDE l'état (heure locale Paris) : `derniereReponseLe` = max(recu_le) hors rebond, accusé
-  //   COMPRIS. Pour « message reçu », c'est le dernier message ; pour « accusé reçu » fondé sur un message d'accusé, c'est cet
-  //   accusé. Pour un accusé fondé UNIQUEMENT sur une référence saisie (aucun message), `derniereReponseLe` est null → AUCUNE date
-  //   (jamais une date approchée ni celle d'un autre événement). Les états dossier (obtenus / reçu-à-classer) n'affichent pas de date.
+  //   COMPRIS. Pour « accusé reçu » fondé UNIQUEMENT sur une référence saisie (aucun message), `derniereReponseLe` est null → AUCUNE
+  //   date. Les états dossier (obtenus / reçu-à-classer) n'affichent pas cette date, mais gardent la PROVENANCE si contenu.
   const dateRetour = derniereReponseLe ? <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{formaterDateHeureLocale(derniereReponseLe)}</div> : null;
-  if (etat === 'message') return <div><span>message reçu ({nbReponses})</span>{dateRetour}</div>;
-  // FUS-4 — accusé reçu (dérivé). Texte porteur (a11y), pas seulement une couleur. Un accusé n'est pas une réponse : le statut ne bouge pas.
-  if (etat === 'accuse') return <div><span style={{ color: '#1a4d8f', fontWeight: 600 }}>accusé reçu</span>{dateRetour}</div>;
-  return <span style={{ color: 'var(--color-svv-muted)' }}>aucun retour</span>;
+  const libelle = etat === 'obtenus' ? <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>documents obtenus</span>
+    : etat === 'recu_a_classer' ? <span style={{ color: '#8a5a00', fontWeight: 600 }}>reçu, à classer en GED</span>
+    : etat === 'message' ? <><span>message reçu ({nbReponses})</span>{dateRetour}</>
+    // FUS-4 — accusé reçu (dérivé). Texte porteur (a11y), pas seulement une couleur. Un accusé n'est pas une réponse : le statut ne bouge pas.
+    : etat === 'accuse' ? <><span style={{ color: '#1a4d8f', fontWeight: 600 }}>accusé reçu</span>{dateRetour}</>
+    : <span style={{ color: 'var(--color-svv-muted)' }}>aucun retour</span>;
+  return <div>{libelle}{provBloc}</div>;
 }
 
 /**

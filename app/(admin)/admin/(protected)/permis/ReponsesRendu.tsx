@@ -692,6 +692,8 @@ function LigneLien({ lien, maintenant }: { lien: LienAffiche; maintenant?: Date 
         {mentionExpiration(lien)}
         {depasse ? <span style={{ color: 'var(--color-svv-red)', fontWeight: 700 }}> — ⚠ délai dépassé, vérifier le classement en GED</span> : null}
       </div>
+      {/* FUS — expéditeur du message porteur (adresse COMPLÈTE, non tronquée) : clé de recherche « retrouver ce mail dans Gmail ». */}
+      <div style={{ ...styleMuted, fontSize: 11, wordBreak: 'break-all' }}>de {lien.deAdresse}</div>
     </div>
   );
 }
@@ -852,7 +854,7 @@ export function BlocPiecesReponses({ groupes, onTelecharger }: {
       <strong style={{ fontSize: 13 }}>Pièces reçues de la mairie</strong>
       {groupes.map((g) => (
         <div key={g.reponseId} style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-          <span style={{ ...styleMuted, fontSize: 12 }}>reçues le {jjmm(g.recuLe)} — {tronquerObjet(g.objet)}</span>
+          <span style={{ ...styleMuted, fontSize: 12, wordBreak: 'break-word' }}>reçues le {jjmm(g.recuLe)} — {tronquerObjet(g.objet)} · de {g.deAdresse}</span>
           <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
             {g.pieces.map((p) => (
               <li key={p.id}>

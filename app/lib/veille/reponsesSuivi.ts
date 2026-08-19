@@ -71,8 +71,17 @@ export interface PieceInfo {
 export interface ReponsePieces {
   reponseId: number;
   recuLe: string;        // ISO — étiquette « reçues le JJ/MM »
+  deAdresse: string;     // FUS — adresse COMPLÈTE de l'expéditeur (clé de recherche Gmail), affichée à côté du groupe de pièces
   objet: string | null;  // objet du message (tronqué à l'affichage)
   pieces: PieceInfo[];   // au moins une (les réponses sans pièce ne figurent pas)
+}
+
+/** FUS — provenance d'un message porteur de CONTENU (lien FORT OU pièce) : clé de recherche « retrouver ce mail dans Gmail ». */
+export interface ProvenanceContenu {
+  recuLe: string;      // ISO — date+heure d'arrivée (affichée en heure locale Europe/Paris)
+  deAdresse: string;   // adresse COMPLÈTE de l'expéditeur (jamais tronquée)
+  aLien: boolean;      // porte au moins un lien FORT
+  aPiece: boolean;     // porte au moins une pièce
 }
 
 /** Un dossier d'une demande suivie (satisfait ou dû, et par quel canal). */
@@ -91,6 +100,7 @@ export interface LienAffiche {
   url: string;
   fort: boolean;                 // chemin à jeton → affiché en tête ; les faibles sont repliés
   recuLe: string;                // recu_le du message porteur (ISO) → « lien reçu le JJ/MM »
+  deAdresse: string;             // FUS — adresse COMPLÈTE de l'expéditeur (clé de recherche Gmail), affichée à côté du lien
   expireLe: string | null;       // expiration EXPLICITE (ISO) ou null (« durée de validité non précisée »)
   expirationSource: string | null; // 'absolue' | 'relative' | null
   expirationIndice: string | null; // fragment reconnu (« 7 jours », « jusqu'au 17/08/2026 »)
@@ -143,6 +153,7 @@ export interface DemandeSuivi {
   alertesGed: AlerteGedAffiche[]; // G1 : alertes « à classer/télécharger en GED » déjà envoyées (retard visible)
   messagesAutre: MessageAutreAffiche[]; // T7-B : messages `autre` ancrés (cas ③) — la ligne est signalée tant qu'il en reste ≥1 non répondu
   piecesReponses: ReponsePieces[]; // T5 : pièces des réponses rattachées (groupées par réponse), consultables/téléchargeables
+  provenancesContenu: ProvenanceContenu[]; // FUS : messages porteurs de CONTENU (lien fort OU pièce), le PLUS RÉCENT d'abord — provenance affichée sur la ligne (date+heure + expéditeur), les autres au déplié
 }
 // T6-A/2 — le critère d'inclusion « Réponses » (demandeADuRetour) + la partition d'affichage (partitionnerReponses) vivent dans
 //   ReponsesRendu.tsx (module PUR client-safe), PAS ici : ce module importe db/client (pg), qu'on ne veut jamais dans le bundle client.
@@ -337,8 +348,8 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
 
   // L1 — liens de téléchargement captés dans les réponses RATTACHÉES de ces demandes (une passe, groupés par demande ; forts
   //   d'abord). `recu_le` du message porteur → « lien reçu le JJ/MM ». On ne suit JAMAIS un lien : lecture d'affichage seule.
-  const liens = await query<{ demande_id: number; url: string; fort: boolean; recu_le: string; expire_le: string | null; expiration_source: string | null; expiration_indice: string | null }>(
-    `SELECT r.demande_id::int AS demande_id, l.url, l.fort, r.recu_le::text AS recu_le,
+  const liens = await query<{ demande_id: number; url: string; fort: boolean; recu_le: string; de_adresse: string; expire_le: string | null; expiration_source: string | null; expiration_indice: string | null }>(
+    `SELECT r.demande_id::int AS demande_id, l.url, l.fort, r.recu_le::text AS recu_le, r.de_adresse,
             l.expire_le::text AS expire_le, l.expiration_source, l.expiration_indice
        FROM demande_reponse_lien l
        JOIN demande_reponse r ON r.id = l.reponse_id
@@ -349,7 +360,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   const parLiens = new Map<number, LienAffiche[]>();
   for (const r of liens.rows) {
     (parLiens.get(r.demande_id) ?? parLiens.set(r.demande_id, []).get(r.demande_id)!)
-      .push({ url: r.url, fort: r.fort, recuLe: r.recu_le, expireLe: r.expire_le, expirationSource: r.expiration_source, expirationIndice: r.expiration_indice });
+      .push({ url: r.url, fort: r.fort, recuLe: r.recu_le, deAdresse: r.de_adresse, expireLe: r.expire_le, expirationSource: r.expiration_source, expirationIndice: r.expiration_indice });
   }
 
   // G1 — alertes GED déjà parties, par demande (retard rendu visible — décision 7). LECTURE SEULE.
@@ -390,8 +401,8 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   //   ET « En cours ». Une passe, ordonnée par (demande, réponse récente, pièce), puis groupée par réponse. Réutilise PieceInfo
   //   (id + stockée + motif) : bouton `url_piece` (source 'reponse') SEULEMENT si stockée, sinon le motif — jamais un bouton mort.
   //   `cle_stockage` n'est JAMAIS sélectionnée (seulement `IS NOT NULL`).
-  const pjR = await query<{ demande_id: number; reponse_id: number; recu_le: string; objet: string | null; piece_id: number; nom_fichier: string; stockee: boolean; motif_non_stocke: string | null }>(
-    `SELECT r.demande_id::int AS demande_id, r.id::int AS reponse_id, r.recu_le::text AS recu_le, r.objet,
+  const pjR = await query<{ demande_id: number; reponse_id: number; recu_le: string; de_adresse: string; objet: string | null; piece_id: number; nom_fichier: string; stockee: boolean; motif_non_stocke: string | null }>(
+    `SELECT r.demande_id::int AS demande_id, r.id::int AS reponse_id, r.recu_le::text AS recu_le, r.de_adresse, r.objet,
             p.id::int AS piece_id, p.nom_fichier, (p.cle_stockage IS NOT NULL) AS stockee, p.motif_non_stocke
        FROM demande_reponse_piece p
        JOIN demande_reponse r ON r.id = p.reponse_id
@@ -403,8 +414,29 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   for (const p of pjR.rows) {
     const groupes = parPiecesReponses.get(p.demande_id) ?? parPiecesReponses.set(p.demande_id, []).get(p.demande_id)!;
     let g = groupes.find((x) => x.reponseId === p.reponse_id); // l'ORDER BY garantit la contiguïté par réponse
-    if (!g) { g = { reponseId: p.reponse_id, recuLe: p.recu_le, objet: p.objet, pieces: [] }; groupes.push(g); }
+    if (!g) { g = { reponseId: p.reponse_id, recuLe: p.recu_le, deAdresse: p.de_adresse, objet: p.objet, pieces: [] }; groupes.push(g); }
     g.pieces.push({ id: p.piece_id, nomFichier: p.nom_fichier, stockee: p.stockee, motif: p.motif_non_stocke });
+  }
+
+  // FUS — PROVENANCE du CONTENU : messages porteurs d'un lien FORT OU d'au moins une pièce (MÊME définition que l'alerte GED),
+  //   PLUS RÉCENT d'abord (recu_le DESC) → la LIGNE du permis affiche le dernier (date+heure + expéditeur) + « +N autre(s) », le
+  //   détail les liste tous. SELECT AJOUTÉ EN LECTURE : ne touche NI le périmètre de `dem` NI celui des dossiers (aucun WHERE
+  //   ajouté à la source partagée). Rien pour un accusé seul (sans lien ni pièce) → aucune provenance.
+  const prov = await query<{ demande_id: number; recu_le: string; de_adresse: string; a_lien: boolean; a_piece: boolean }>(
+    `SELECT r.demande_id::int AS demande_id, r.recu_le::text AS recu_le, r.de_adresse,
+            EXISTS (SELECT 1 FROM demande_reponse_lien l WHERE l.reponse_id = r.id AND l.fort) AS a_lien,
+            EXISTS (SELECT 1 FROM demande_reponse_piece p WHERE p.reponse_id = r.id) AS a_piece
+       FROM demande_reponse r
+       JOIN demande d ON d.id = r.demande_id
+      WHERE d.statut IN ('envoyee', 'close') AND r.demande_id IS NOT NULL AND r.nature <> 'rebond'
+        AND (EXISTS (SELECT 1 FROM demande_reponse_lien l WHERE l.reponse_id = r.id AND l.fort)
+             OR EXISTS (SELECT 1 FROM demande_reponse_piece p WHERE p.reponse_id = r.id))
+      ORDER BY r.demande_id, r.recu_le DESC`,
+  );
+  const parProvenances = new Map<number, ProvenanceContenu[]>();
+  for (const r of prov.rows) {
+    (parProvenances.get(r.demande_id) ?? parProvenances.set(r.demande_id, []).get(r.demande_id)!)
+      .push({ recuLe: r.recu_le, deAdresse: r.de_adresse, aLien: r.a_lien, aPiece: r.a_piece });
   }
 
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
@@ -420,6 +452,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     alertesGed: parAlertes.get(r.id) ?? [],
     messagesAutre: parMsgAutre.get(r.id) ?? [],
     piecesReponses: parPiecesReponses.get(r.id) ?? [],
+    provenancesContenu: parProvenances.get(r.id) ?? [],
   }));
   return { demandes, derniereOkLe, reglages };
 }

@@ -88,6 +88,35 @@ describe('T6-A — chargerDemandesSuivi : SOURCE UNIQUE (échéance + retour + d
     expect(norm(ret.sql)).toContain("WHERE d.statut IN ('envoyee', 'close') AND NOT dd.actif");
   });
 
+  it('FUS — provenancesContenu : messages porteurs de contenu (lien fort OU pièce), le PLUS RÉCENT d’abord + expéditeur ; `dem` inchangé', async () => {
+    const PROV = /AS a_lien/; // requête dédiée à la provenance du contenu
+    etat.dispatch = [
+      { re: OK, rows: [{ t: '2026-08-10T09:00:00Z' }] },
+      { re: DEM, rows: [{ id: 154, reference: 'R', code_insee: '75056', commune_nom: 'Paris', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 1, dossiers_satisfaits: 0, dossiers_en_ged: 0, nb_reponses: 1, nb_reponses_reelles: 1, derniere_reponse_le: '2026-08-12T09:00:00Z' }] },
+      { re: PROV, rows: [ // fournies plus-récent-d'abord (l'ORDER BY vit dans le SQL, pas dans le mock)
+        { demande_id: 154, recu_le: '2026-08-12T09:00:00Z', de_adresse: 'urba@paris.fr', a_lien: false, a_piece: true },
+        { demande_id: 154, recu_le: '2026-08-10T13:24:00Z', de_adresse: 'no-reply@paris.fr', a_lien: true, a_piece: false },
+      ] },
+    ];
+    const { demandes } = await chargerDemandesSuivi();
+    expect(demandes[0].provenancesContenu).toEqual([
+      { recuLe: '2026-08-12T09:00:00Z', deAdresse: 'urba@paris.fr', aLien: false, aPiece: true },
+      { recuLe: '2026-08-10T13:24:00Z', deAdresse: 'no-reply@paris.fr', aLien: true, aPiece: false },
+    ]);
+    // le SELECT ajouté porte le prédicat de CONTENU (lien fort OU pièce) + `de_adresse`, ordonné plus récent d'abord.
+    const prov = appels.find((a) => PROV.test(a.sql))!;
+    expect(prov, 'un SELECT de provenance doit être émis').toBeDefined();
+    const s = norm(prov.sql);
+    expect(s).toContain("l.fort");
+    expect(s).toContain('demande_reponse_piece');
+    expect(s).toContain('r.de_adresse');
+    expect(s).toContain('r.recu_le DESC');
+    // 🔴 PÉRIMÈTRE INCHANGÉ : la requête `dem` garde son seul critère de statut ; aucune condition « contenu » ne s'y invite.
+    const dem = appels.find((a) => DEM.test(a.sql))!;
+    expect(norm(dem.sql)).toContain("WHERE d.statut IN ('envoyee', 'close')");
+    expect(norm(dem.sql)).not.toContain('AS a_lien');
+  });
+
   it('chargerSuiviReponses DÉLÈGUE à chargerDemandesSuivi : mêmes demandes exposées (non-régression de l’extraction)', async () => {
     etat.dispatch = [
       { re: OK, rows: [{ t: '2026-08-10T09:00:00Z' }] },

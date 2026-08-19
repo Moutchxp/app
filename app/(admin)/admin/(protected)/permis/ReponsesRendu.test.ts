@@ -992,7 +992,12 @@ describe('T2 — TableRuns : ligne de total en <tfoot> + sélecteur de période'
 
 describe('L1 — BlocLiens + mentionExpiration : forts en tête, faibles repliés, expiration jamais devinée', () => {
   const lien = (over: Partial<LienAffiche> = {}): LienAffiche =>
-    ({ url: 'https://x.fr', fort: false, recuLe: '2026-08-10T13:24:00Z', expireLe: null, expirationSource: null, expirationIndice: null, ...over });
+    ({ url: 'https://x.fr', fort: false, recuLe: '2026-08-10T13:24:00Z', deAdresse: 'urba@mairie-x.fr', expireLe: null, expirationSource: null, expirationIndice: null, ...over });
+
+  it('FUS — expéditeur (adresse COMPLÈTE) affiché à côté du lien : clé de recherche « retrouver ce mail dans Gmail »', () => {
+    const h = renderToStaticMarkup(createElement(BlocLiens, { liens: [lien({ fort: true, deAdresse: 'no-reply@paris.fr' })] }));
+    expect(h).toContain('de no-reply@paris.fr'); // adresse entière, non tronquée
+  });
 
   it('mentionExpiration : absolue / relative (calcul montré) / nulle', () => {
     expect(mentionExpiration(lien({ expireLe: '2026-08-17', expirationSource: 'absolue', expirationIndice: "jusqu'au 17/08/2026" })))
@@ -1098,17 +1103,18 @@ describe('T5 — tronquerObjet', () => {
 });
 
 describe('T5 — BlocPiecesReponses : pièces rattachées, consultables/téléchargeables', () => {
-  const G = (over: Partial<{ reponseId: number; recuLe: string; objet: string | null; pieces: { id: number; nomFichier: string; stockee: boolean; motif: string | null }[] }> = {}) =>
-    ({ reponseId: 71, recuLe: '2026-08-12T09:00:00Z', objet: 'Envoi des pièces', pieces: [{ id: 500, nomFichier: 'plan.pdf', stockee: true, motif: null }], ...over });
+  const G = (over: Partial<{ reponseId: number; recuLe: string; deAdresse: string; objet: string | null; pieces: { id: number; nomFichier: string; stockee: boolean; motif: string | null }[] }> = {}) =>
+    ({ reponseId: 71, recuLe: '2026-08-12T09:00:00Z', deAdresse: 'urba@mairie-x.fr', objet: 'Envoi des pièces', pieces: [{ id: 500, nomFichier: 'plan.pdf', stockee: true, motif: null }], ...over });
 
   it('vide → ne rend rien', () => {
     expect(renderToStaticMarkup(createElement(BlocPiecesReponses, { groupes: [] }))).toBe('');
   });
 
-  it('pièce stockée → bouton de téléchargement ; étiquette « reçues le JJ/MM — objet »', () => {
-    const h = renderToStaticMarkup(createElement(BlocPiecesReponses, { groupes: [G()], onTelecharger: () => {} }));
+  it('pièce stockée → bouton de téléchargement ; étiquette « reçues le JJ/MM — objet · de expéditeur »', () => {
+    const h = renderToStaticMarkup(createElement(BlocPiecesReponses, { groupes: [G({ deAdresse: 'urba@paris.fr' })], onTelecharger: () => {} }));
     expect(h).toContain('Pièces reçues de la mairie');
     expect(h).toContain('reçues le 12/08 — Envoi des pièces');
+    expect(h).toContain('de urba@paris.fr'); // FUS — expéditeur (adresse complète) à côté du groupe de pièces
     expect(h).toContain('plan.pdf');
     expect(h).toContain('<button'); // bouton présent pour une pièce stockée
   });

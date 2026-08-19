@@ -316,7 +316,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
           </td>
           <td style={{ padding: '.4rem .5rem', textAlign: 'center' as const, verticalAlign: 'middle' as const }}>
             {rich ? (
-              <RetourMairie etat={etatRetourMairie(rich)} nbReponses={rich.nbReponsesReelles} derniereReponseLe={rich.derniereReponseLe} />
+              <RetourMairie etat={etatRetourMairie(rich)} nbReponses={rich.nbReponsesReelles} derniereReponseLe={rich.derniereReponseLe} provenances={rich.provenancesContenu} />
             ) : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
           </td>
           {/* FUS-4 — Réf. mairie éditable (ajouter/modifier/effacer) via la MÊME route que le détail. « accusé reçu » DÉRIVÉ (aAccuse). */}

@@ -803,6 +803,22 @@ describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours »
     expect(accSansDate).not.toContain('obtenu'); // T8 : accuse ne dit jamais « obtenu »
   });
 
+  it('FUS — provenance du contenu sur la ligne : le PLUS RÉCENT (date+heure Paris + adresse complète) + « +N autre(s) » ; rien sans contenu', () => {
+    const prov = [
+      { recuLe: '2026-08-12T09:00:00Z', deAdresse: 'urba@paris.fr', aLien: false, aPiece: true },       // le plus récent
+      { recuLe: '2026-08-10T13:24:00Z', deAdresse: 'no-reply@paris.fr', aLien: true, aPiece: false },
+    ];
+    const h = renderToStaticMarkup(createElement(RetourMairie, { etat: 'message', nbReponses: 2, derniereReponseLe: '2026-08-12T09:00:00Z', provenances: prov }));
+    expect(h).toContain('urba@paris.fr');          // adresse COMPLÈTE du plus récent
+    expect(h).toContain('12/08/2026 11:00');        // date + heure locale Paris (UTC+2)
+    expect(h).toContain('(pièces)');                // nature du contenu
+    expect(h).toContain('+1 autre');                // compteur des autres
+    expect(h).not.toContain('no-reply@paris.fr');   // le 2e message n'est PAS sur la ligne (atteignable au déplié)
+    // accusé SEUL (ni lien ni pièce) → AUCUNE provenance affichée
+    const accuse = renderToStaticMarkup(createElement(RetourMairie, { etat: 'accuse', nbReponses: 0, derniereReponseLe: '2026-08-18T08:00:00Z', provenances: [] }));
+    expect(accuse).not.toContain('contenu (');
+  });
+
   it('formaterDateHeureLocale : heure LOCALE Europe/Paris (jamais UTC), déterministe ; null/invalide → «—»', () => {
     expect(formaterDateHeureLocale('2026-08-18T08:38:00Z')).toBe('18/08/2026 10:38'); // été : UTC+2
     expect(formaterDateHeureLocale('2026-01-15T23:30:00Z')).toBe('16/01/2026 00:30'); // hiver : UTC+1, bascule de jour
@@ -857,7 +873,7 @@ describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours »
       profil: 'entreprise', canal: 'email', destEmail: null, destAdressePostale: null, destUrlFormulaire: null, destOrigine: 'mairie_contact', destNom: null,
       corps: 'X', dossiers: [{ numDau: 'PC0750560000001', date: null }], dossiersRetires: [], referencesMairie: [], referencesMairieIndisponible: false,
     } as unknown as Parameters<typeof PanneauDetailDemande>[0]['detail'];
-    const lien: LienAffiche = { url: 'https://ged.paris.fr/share/s/Zk91Ab34Cd56Ef78Gh/folder', fort: true, recuLe: '2026-08-10T13:24:00Z', expireLe: '2026-08-17T13:24:00Z', expirationSource: 'relative', expirationIndice: '7 jours' };
+    const lien: LienAffiche = { url: 'https://ged.paris.fr/share/s/Zk91Ab34Cd56Ef78Gh/folder', fort: true, recuLe: '2026-08-10T13:24:00Z', deAdresse: 'no-reply@paris.fr', expireLe: '2026-08-17T13:24:00Z', expirationSource: 'relative', expirationIndice: '7 jours' };
     const h = renderToStaticMarkup(createElement(PanneauDetailDemande, {
       detail: DETAIL, corps: 'X', retour: null as RetourAction, ...cbs,
       slotDossiers: createElement(BlocLiens, { liens: [lien] }),
