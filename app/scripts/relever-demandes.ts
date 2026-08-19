@@ -1,87 +1,166 @@
 /**
- * CLI de RELÈVE des réponses CRPA (chantier R3) : npm run demandes:relever [-- --appliquer] [--profil=entreprise|personne] [--plafond=N]
+ * CLI `demandes:relever` — DEUX modes, UNE SEULE frontière d'écriture.
  *
- * SIMULATION PAR DÉFAUT : la boîte est lue (LECTURE STRICTE, jamais de modification) mais AUCUNE écriture en base — le
- * rapport dit ce qui SERAIT enregistré. `--appliquer` = écriture réelle (enregistrement des réponses + passage des
- * acheminements rebondés à 'rebond'). Profil inactif (compte IMAP absent) → message clair + sortie 0 (pas une erreur).
- * Même convention que `demandes:envoyer`.
+ *   • DÉFAUT (sans --appliquer) = INSPECTION LECTURE SEULE. Lit la boîte (LECTURE STRICTE, jamais de modification) et imprime
+ *     ce qui SERAIT retenu / rattaché, **sans AUCUNE écriture en base**. Sert à inspecter une boîte sans rien toucher, et à
+ *     déboguer le filtre de pertinence (`--sans-filtre`). ⚠️ Ce mode n'est PAS une relève — il n'écrit jamais. Options :
+ *     `--profil=entreprise|personne`, `--plafond=N`, `--sans-filtre`.
+ *
+ *   • --appliquer = VRAIE RELÈVE. Délègue à l'orchestrateur `executerReleveManuelle(depsReellesReleveAuto())` — EXACTEMENT le
+ *     chemin du bouton « Relever la boîte » (route /relever) : versement GED, ligne `releve_run`, avancée du curseur, isolation
+ *     d'erreur. La CLI n'est donc PAS un chemin d'écriture à elle : elle appelle le foyer unique et imprime son résultat.
+ *     ⚠️ En --appliquer, profil / plafond / filtre viennent de la CONFIG de veille (l'orchestrateur les lit) → `--profil`,
+ *     `--plafond` et `--sans-filtre` y sont REFUSÉS (jamais ignorés en silence). Pour les utiliser : lancer SANS --appliquer.
+ *
+ * Profil inactif (compte IMAP absent) → message clair + sortie 0 (pas une erreur). Même convention que `demandes:envoyer`.
  */
 import '../lib/chargerEnv';
-import { closePool } from '../lib/db/client';
-import { lireCompteImap } from '../lib/email';
-import { creerClientBoite } from '../lib/email/imap';
-import { releverBoite, type RapportReleve } from '../lib/veille/releveReponses';
+import { pathToFileURL } from 'node:url';
 import type { ProfilBoite } from '../lib/veille/demandeReponseRepo';
+import type { RapportReleve } from '../lib/veille/releveReponses';
+import type { IssueReleveManuelle } from '../lib/veille/releveAuto';
 
 const INFIXE: Record<ProfilBoite, string> = { entreprise: '', personne: 'PERSONNE_' };
 
-function lireProfil(): ProfilBoite {
-  const arg = process.argv.find((a) => a.startsWith('--profil='))?.split('=')[1] ?? 'entreprise';
-  if (arg !== 'entreprise' && arg !== 'personne') {
-    console.error(`[demandes:relever] profil invalide « ${arg} » (attendu : entreprise | personne)`);
-    process.exit(2);
-  }
-  return arg;
+/** Options réservées au mode INSPECTION : elles paramètrent une lecture, pas la vraie relève (dont la config vient de la veille). */
+const OPTIONS_INSPECTION = ['--profil', '--plafond', '--sans-filtre'] as const;
+
+/** Profil demandé (défaut 'entreprise'), ou `null` si la valeur est invalide. PUR. */
+export function lireProfil(argv: string[]): ProfilBoite | null {
+  const arg = argv.find((a) => a.startsWith('--profil='))?.split('=')[1] ?? 'entreprise';
+  return arg === 'entreprise' || arg === 'personne' ? arg : null;
 }
 
-function lirePlafond(): number | undefined {
-  const brut = process.argv.find((a) => a.startsWith('--plafond='))?.split('=')[1];
+/** Plafond d'UID (>0, entier), ou `undefined`. PUR. */
+export function lirePlafond(argv: string[]): number | undefined {
+  const brut = argv.find((a) => a.startsWith('--plafond='))?.split('=')[1];
   if (brut === undefined) return undefined;
   const n = Number(brut);
   return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
-function imprimer(r: RapportReleve): void {
-  const titre = r.mode === 'simulation' ? 'SIMULATION (aucune écriture)' : 'APPLIQUÉ (écriture réelle)';
-  console.log(`\n[demandes:relever] ${titre} — profil « ${r.profil} »`);
+/** Les options d'INSPECTION effectivement présentes dans argv (avec ou sans `=`). PUR — pilote le refus en --appliquer. */
+export function optionsInspectionPresentes(argv: string[]): string[] {
+  return OPTIONS_INSPECTION.filter((o) => argv.some((a) => a === o || a.startsWith(`${o}=`)));
+}
+
+/** Rapport d'INSPECTION (lecture seule) — mêmes compteurs que la relève, mais AUCUNE écriture n'a eu lieu. */
+function imprimerInspection(r: RapportReleve, log: (s: string) => void): void {
+  log(`\n[demandes:relever] INSPECTION (lecture seule, aucune écriture) — profil « ${r.profil} »`);
   if (!r.connecte) {
-    console.log('  aucune demande envoyée pour ce profil → pas de connexion à la boîte, rien à relever.');
+    log('  aucune demande envoyée pour ce profil → pas de connexion à la boîte, rien à inspecter.');
     return;
   }
-  console.log(`  fenêtre (depuis)            : ${r.depuis}`);
-  console.log(`  domaines interrogés (serveur): ${r.domainesInterroges.join(', ') || '(aucun)'}`);
-  console.log(`  UID renvoyés par domaine    : ${r.uidsServeur}${r.plafondAtteint ? '  ⚠ PLAFOND ATTEINT → seuls les plus récents sont traités' : ''}`);
-  console.log(`  références interrogées / UID : ${r.referencesInterrogees} / ${r.uidsReferences}${r.plafondReferencesAtteint ? '  ⚠ PLAFOND RÉFÉRENCES ATTEINT → seules les plus urgentes' : ''}`);
-  console.log(`  messages téléchargés (vus)  : ${r.vus}`);
-  console.log(`  déjà connus (ignorés)       : ${r.dejaConnus}`);
-  console.log(`  hors périmètre (ignorés)    : ${r.horsPerimetre}`);
-  console.log(`  RETENUS                     : ${r.retenus}`);
-  console.log(`    · rattachés / non rattachés : ${r.rattaches} / ${r.nonRattaches}`);
+  log(`  fenêtre (depuis)            : ${r.depuis}`);
+  log(`  domaines interrogés (serveur): ${r.domainesInterroges.join(', ') || '(aucun)'}`);
+  log(`  UID renvoyés par domaine    : ${r.uidsServeur}${r.plafondAtteint ? '  ⚠ PLAFOND ATTEINT → seuls les plus récents' : ''}`);
+  log(`  références interrogées / UID : ${r.referencesInterrogees} / ${r.uidsReferences}${r.plafondReferencesAtteint ? '  ⚠ PLAFOND RÉFÉRENCES ATTEINT' : ''}`);
+  log(`  messages téléchargés (vus)  : ${r.vus}`);
+  log(`  déjà connus (ignorés)       : ${r.dejaConnus}`);
+  log(`  hors périmètre (ignorés)    : ${r.horsPerimetre}`);
+  log(`  RETENUS                     : ${r.retenus}`);
+  log(`    · rattachés / non rattachés : ${r.rattaches} / ${r.nonRattaches}`);
   const meth = Object.entries(r.parMethode).map(([m, n]) => `${m}=${n}`).join(' · ') || 'aucune';
-  console.log(`    · par méthode               : ${meth}`);
-  console.log(`    · rebonds détectés : ${r.rebondsDetectes} (rattachés ${r.rebondsRattaches}, étrangers ${r.rebondsEtrangers}, acheminements basculés ${r.rebondsAppliques})`);
-  console.log(`  enregistrées                : ${r.ecrites}`);
-  console.log(`  accusés (a écrit, pas répondu) : ${r.accuses}`);
-  console.log(`  liens captés (jamais suivis) : ${r.liensCaptes}`);
-  console.log(`  pièces déposées / non dép.  : ${r.piecesDeposees} / ${r.piecesNonDeposees}`);
+  log(`    · par méthode               : ${meth}`);
+  log(`    · rebonds détectés : ${r.rebondsDetectes} (rattachés ${r.rebondsRattaches}, étrangers ${r.rebondsEtrangers}, acheminements ${r.rebondsAppliques})`);
+  log(`  SERAIT enregistré           : ${r.ecrites}`);
+  log(`  accusés (a écrit, pas répondu) : ${r.accuses}`);
+  log(`  liens captés (jamais suivis) : ${r.liensCaptes}`);
+  log(`  pièces déposables / non     : ${r.piecesDeposees} / ${r.piecesNonDeposees}`);
   if (r.lignes.length > 0) {
-    console.log('  détail :');
+    log('  détail :');
     for (const l of r.lignes) {
       const cible = l.demandeId === null ? '— (à rattacher)' : `demande ${l.demandeId}`;
-      console.log(`    ${l.rebond ? '↩ REBOND ' : ''}${cible} [${l.methode}] ${l.deAdresse}  « ${(l.objet ?? '').slice(0, 60)} »`);
+      log(`    ${l.rebond ? '↩ REBOND ' : ''}${cible} [${l.methode}] ${l.deAdresse}  « ${(l.objet ?? '').slice(0, 60)} »`);
     }
   }
-  if (r.mode === 'simulation') console.log(`\n  ⚠ SIMULATION : rien n'a été écrit. Relancer avec « --appliquer » pour enregistrer.`);
+  log('\n  ⚠ INSPECTION : rien n\'a été écrit. La VRAIE relève (écriture) = « npm run demandes:relever -- --appliquer » (délègue à l\'orchestrateur) ou le bouton « Relever la boîte » de l\'interface.');
 }
 
-async function main(): Promise<void> {
-  const profil = lireProfil();
-  const appliquer = process.argv.includes('--appliquer');
-  const sansFiltre = process.argv.includes('--sans-filtre');
-  const plafond = lirePlafond();
+/** Résultat de la VRAIE relève déléguée à l'orchestrateur (écriture réelle : GED, run, curseur). */
+function imprimerRelance(i: IssueReleveManuelle, log: (s: string) => void): void {
+  if (i.resultat === 'inactif') { log(`[demandes:relever] ${i.raison} — rien à relever (ce n'est pas une erreur).`); return; }
+  const etat = i.resultat === 'ok' ? 'RELÈVE APPLIQUÉE (écriture réelle via l\'orchestrateur)' : 'RELÈVE EN ÉCHEC';
+  log(`\n[demandes:relever] ${etat}${i.runId !== null ? ` — run #${i.runId}` : ''}`);
+  log(`  ${i.raison}`);
+}
 
-  const compte = lireCompteImap(INFIXE[profil]);
-  if (compte === null) {
-    console.log(`[demandes:relever] profil « ${profil} » INACTIF : aucun compte IMAP configuré (variables SMTP_${INFIXE[profil]}* absentes). Rien à relever — ce n'est pas une erreur.`);
-    return; // sortie 0
+/** Dépendances injectables du CLI (I/O et effets sortis → cœur PUR et testable sans IMAP ni DB). */
+export interface DepsCli {
+  argv: string[];
+  /** VRAIE relève : `executerReleveManuelle(depsReellesReleveAuto())` — le foyer unique d'écriture. */
+  orchestrer: () => Promise<IssueReleveManuelle>;
+  /** INSPECTION lecture seule : `releverBoite({ ..., appliquer: false })`. `null` = profil inactif (compte IMAP absent). */
+  inspecter: (profil: ProfilBoite, plafond: number | undefined, sansFiltre: boolean) => Promise<RapportReleve | null>;
+  log: (s: string) => void;
+  erreur: (s: string) => void;
+}
+
+/**
+ * Cœur du CLI — renvoie le CODE DE SORTIE (0 ok, 1 échec, 2 usage). Deux modes STRICTEMENT séparés :
+ *  - `--appliquer` → délègue à l'orchestrateur (aucune écriture propre) ; REFUSE toute option d'inspection (jamais un drapeau
+ *    silencieusement inopérant) ;
+ *  - défaut → inspection lecture seule (`inspecter`). PUR : n'appelle QUE les deux dépendances injectées.
+ */
+export async function executerCli(deps: DepsCli): Promise<number> {
+  const { argv, orchestrer, inspecter, log, erreur } = deps;
+
+  if (argv.includes('--appliquer')) {
+    const refusees = optionsInspectionPresentes(argv);
+    if (refusees.length > 0) {
+      for (const o of refusees) {
+        erreur(`[demandes:relever] ${o} n'est PAS accepté avec --appliquer : la vraie relève délègue à l'orchestrateur, qui lit profil, plafond et filtre depuis la CONFIG de veille (jamais depuis la ligne de commande). Pour utiliser ${o}, relance SANS --appliquer (mode INSPECTION, lecture seule).`);
+      }
+      return 2; // usage : refus explicite, jamais un drapeau ignoré en silence
+    }
+    const issue = await orchestrer();
+    imprimerRelance(issue, log);
+    return issue.resultat === 'erreur' ? 1 : 0; // 'inactif' → 0 (convention)
   }
 
-  if (sansFiltre) console.log('[demandes:relever] ⚠ --sans-filtre : filtre de pertinence DÉSACTIVÉ (débogage).');
-  const client = creerClientBoite(compte);
-  const rapport = await releverBoite({ client, profil, plafond, appliquer, sansFiltre });
-  imprimer(rapport);
+  // ── INSPECTION (défaut) — LECTURE SEULE, aucune écriture ──
+  const profil = lireProfil(argv);
+  if (profil === null) {
+    erreur('[demandes:relever] profil invalide (attendu : entreprise | personne)');
+    return 2;
+  }
+  const sansFiltre = argv.includes('--sans-filtre');
+  if (sansFiltre) log('[demandes:relever] ⚠ --sans-filtre : filtre de pertinence DÉSACTIVÉ (inspection/débogage).');
+  const rapport = await inspecter(profil, lirePlafond(argv), sansFiltre);
+  if (rapport === null) {
+    log(`[demandes:relever] profil « ${profil} » INACTIF : aucun compte IMAP configuré (variables SMTP_${INFIXE[profil]}* absentes). Rien à inspecter — ce n'est pas une erreur.`);
+    return 0;
+  }
+  imprimerInspection(rapport, log);
+  return 0;
 }
 
-void main()
-  .catch((e) => { console.error('[demandes:relever] échec', e); process.exitCode = 1; })
-  .finally(() => closePool());
+/** Câblage RÉEL des dépendances (imports dynamiques : gardent imapflow/pg HORS du graphe importé par les tests). */
+async function main(): Promise<void> {
+  const { executerReleveManuelle, depsReellesReleveAuto } = await import('../lib/veille/releveAuto');
+  const code = await executerCli({
+    argv: process.argv,
+    orchestrer: () => executerReleveManuelle(depsReellesReleveAuto()),
+    inspecter: async (profil, plafond, sansFiltre) => {
+      const { lireCompteImap } = await import('../lib/email');
+      const compte = lireCompteImap(INFIXE[profil]);
+      if (compte === null) return null; // profil inactif
+      const { creerClientBoite } = await import('../lib/email/imap');
+      const { releverBoite } = await import('../lib/veille/releveReponses');
+      const client = creerClientBoite(compte);
+      return releverBoite({ client, profil, plafond, appliquer: false, sansFiltre }); // INSPECTION : lecture seule
+    },
+    log: (s) => console.log(s),
+    erreur: (s) => console.error(s),
+  });
+  process.exitCode = code;
+}
+
+// Point d'entrée : n'exécute `main()` que si le fichier est lancé DIRECTEMENT (`tsx …/relever-demandes.ts`), jamais à l'import
+//   par un test (qui n'importe que le cœur PUR `executerCli`).
+const lanceDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (lanceDirect) {
+  void main()
+    .catch((e) => { console.error('[demandes:relever] échec', e); process.exitCode = 1; })
+    .finally(async () => { const { closePool } = await import('../lib/db/client'); await closePool(); });
+}
