@@ -1,6 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
 import { listerADeposer, marquerDeposee, DepotInterditError } from '../../../../../../lib/sitadel/demandeRepo';
+import { retenterRattachementParReference } from '../../../../../../lib/veille/demandeReponseRepo'; // FUS-4 ② : re-rattachement différé, second appelant
 
 /**
  * /api/admin/permis/demandes/depot (chantier S16). GET = demandes en canal 'formulaire' encore à déposer à la main sur le
@@ -36,7 +37,23 @@ export async function POST(request: Request): Promise<Response> {
       if (e instanceof DepotInterditError) return Response.json({ erreur: e.raison }, { status: 409 });
       throw e;
     }
-    return Response.json({ ok: true });
+    // FUS-4 ② — SECOND appelant du re-rattachement différé (le plus fréquent) : Arno colle la référence de l'accusé dans le champ
+    //   « Référence mairie » puis « Marquer comme déposée », alors que le message de la mairie est souvent déjà arrivé, non rattaché.
+    //   L'appel se fait APRÈS le commit du dépôt (marquerDeposee a sa transaction propre ; statut = 'envoyee'), dans un try/catch
+    //   ISOLÉ. DEUX raisons : la garde d'ambiguïté de retenter exige un statut IN ('envoyee','close') → elle doit voir le NOUVEAU
+    //   statut ; et le dépôt ne doit JAMAIS être défait par un rattachement → échec = log serveur, réponse inchangée. Canal
+    //   'formulaire' garanti (marquerDeposee refuse les autres). Réutilise retenter TEL QUEL (plancher, ambiguïté, WHERE
+    //   demande_id IS NULL, méthode 'reference_differee'). Pas de référence saisie → aucun appel.
+    let rattaches = 0;
+    const refTrim = typeof reference === 'string' ? reference.trim() : '';
+    if (refTrim !== '') {
+      try {
+        rattaches = await retenterRattachementParReference(c.id as number, refTrim, auteur ?? 'admin');
+      } catch (e) {
+        console.error('[permis/demandes/depot] re-rattachement différé en échec (dépôt PRÉSERVÉ)', { id: idCtx, message: (e as { message?: unknown })?.message });
+      }
+    }
+    return Response.json({ ok: true, rattaches });
   } catch (e) {
     // Trace SERVEUR de l'exception inattendue (jamais de catch muet) : la réponse HTTP reste un 503 générique.
     const err = e as { name?: unknown; message?: unknown; stack?: unknown; code?: unknown; detail?: unknown; constraint?: unknown; table?: unknown; column?: unknown };
