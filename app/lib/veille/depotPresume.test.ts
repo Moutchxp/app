@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const queryMock = vi.fn();
 vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
 
-import { signalerDepotPresume } from './depotPresume';
+import { signalerDepotPresume, resoudreDepotPresume } from './depotPresume';
 
 const norm = (s: unknown) => String(s).replace(/\s+/g, ' ');
 beforeEach(() => queryMock.mockReset());
@@ -62,5 +62,29 @@ describe('LOT A — signalerDepotPresume', () => {
     queryMock.mockResolvedValueOnce({ rows: [{ code_insee: '75056', dest_canal: 'formulaire' }] });
     queryMock.mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '42P01' }));
     await expect(signalerDepotPresume(1, 'texte')).rejects.toThrow('boom');
+  });
+});
+
+describe('LOT B1 — resoudreDepotPresume (lève le verrou de commune au geste terminal)', () => {
+  it('UPDATE … resolu_le/resolution/resolu_par WHERE demande_id ET resolu_le IS NULL (présomption VIVANTE seule), params liés', async () => {
+    const q = vi.fn(async () => ({ rows: [], rowCount: 1 }));
+    await resoudreDepotPresume(q, 233, 'deposee', 'admin');
+    expect(q).toHaveBeenCalledTimes(1);
+    const [sql, params] = q.mock.calls[0] as unknown as [string, unknown[]];
+    const n = norm(sql);
+    expect(n).toContain('UPDATE demande_depot_presume');
+    expect(n).toContain('SET resolu_le = now()');
+    expect(n).toContain('resolution = $2');
+    expect(n).toContain('resolu_par = $3');
+    // le prédicat EST l'idempotence + la monotonie : une ligne déjà résolue (resolu_le non-NULL) n'est jamais réécrite.
+    expect(n).toContain('WHERE demande_id = $1 AND resolu_le IS NULL');
+    expect(params).toEqual([233, 'deposee', 'admin']);
+  });
+
+  it('idempotence : 0 ligne concernée = NO-OP silencieux (aucune erreur) ; resolu_par peut être null', async () => {
+    const q = vi.fn(async () => ({ rows: [], rowCount: 0 })); // aucune présomption vivante (déjà résolue, ou jamais « copié »)
+    await expect(resoudreDepotPresume(q, 999, 'renoncee', null)).resolves.toBeUndefined();
+    expect(q).toHaveBeenCalledTimes(1);
+    expect((q.mock.calls[0] as unknown as [string, unknown[]])[1]).toEqual([999, 'renoncee', null]);
   });
 });

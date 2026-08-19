@@ -20,6 +20,7 @@ import type { SourceFichePermis } from '../pdf/fichePermisPdf'; // N1-B : type S
 import { MARQUEUR_FICHE_SYNTHESE, PREFIXE_NOTE_VERSEMENT_AUTO } from '../permis/gedConstantes'; // N1-B/N4/N6-F : sentinelle fiche + préfixe versement auto (source unique)
 import { agregerStock, moisDePeriode, type LigneStock, type DossierStock } from './stock'; // Q2b : agrégat PUR du stock (réutilise estCandidatEligible via agregerStock)
 import { lireClePiece } from '../veille/demandeReponseRepo'; // A1b : réutilisé par le dispatcher unique de lecture de clé (pas de 2e implémentation)
+import { resoudreDepotPresume } from '../veille/depotPresume'; // LOT B1 : résout la présomption de dépôt téléservice au geste terminal (dépôt/annulation)
 
 type Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>;
 const asQ = (q: (t: string, p?: unknown[]) => Promise<unknown>): Requete => ((t, p) => q(t, p)) as Requete;
@@ -903,12 +904,18 @@ export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'annule
   await withTransaction(async (tx) => {
     const q = asQ(tx);
     for (const id of ids) {
-      const av = await q<{ statut: string }>(`SELECT statut FROM demande WHERE id = $1`, [id]);
+      const av = await q<{ statut: string; dest_canal: string | null }>(`SELECT statut, dest_canal FROM demande WHERE id = $1`, [id]);
       const avant = av.rows[0]?.statut ?? null;
+      const canal = av.rows[0]?.dest_canal ?? null;
       await q(`UPDATE demande SET statut = $2, maj_le = now() WHERE id = $1`, [id, nouveau]);
       // Q3-A — un dossier SATISFAIT reste actif=true même si sa demande est annulée : annuler ne doit JAMAIS faire revenir au
       //   stock un permis dont les documents ont été obtenus. Même garde que le retrait (`satisfait_le IS NULL`).
       if (nouveau === 'annulee') await q(`UPDATE demande_dossier SET actif = false WHERE demande_id = $1 AND satisfait_le IS NULL`, [id]);
+      // LOT B1 — annuler une demande TÉLÉSERVICE lève sa présomption de dépôt (verrou de commune) → 'renoncee' (geste = renoncement ;
+      //   aucune échéance CRPA ne court d'ici). POINT UNIQUE : BlocDepot.annuler ET « abandonner » de SuiviDemandes passent par ici.
+      //   Autres canaux : aucune présomption n'existe (le signal « copier » est formulaire-only) → on ne l'appelle pas. Idempotent
+      //   (0 ligne = no-op) ; dans la MÊME transaction, sans pouvoir faire échouer l'annulation. PAS sur 'prete' (encore à déposer).
+      if (nouveau === 'annulee' && canal === 'formulaire') await resoudreDepotPresume(q, id, 'renoncee', auteur);
       // B1 — RÉOUVERTURE : réactive les dossiers de la demande, SAUF ceux déjà actifs sur une autre demande (conflict-safe).
       if (nouveau === 'prete' && avant === 'annulee') {
         await q(
@@ -1117,6 +1124,10 @@ export async function marquerDeposee(id: number, auteur: string | null, referenc
         [id, ref],
       );
     }
+    // LOT B1 — le dépôt téléservice RÉSOUT la présomption (signal « copier ») → 'deposee', dans la MÊME transaction (atomicité :
+    //   aucune fenêtre « déposée mais verrou de commune encore tenu »). marquerDeposee est déjà formulaire-only (garde ci-dessus).
+    //   Idempotent (0 ligne = no-op si jamais « copié ») ; ne peut pas faire échouer le dépôt.
+    await resoudreDepotPresume(q, id, 'deposee', auteur);
   });
 }
 

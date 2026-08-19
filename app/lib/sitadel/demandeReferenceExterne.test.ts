@@ -120,6 +120,29 @@ describe('B2 — marquerDeposee horodate l’envoi dans le registre d’achemine
   });
 });
 
+describe('LOT B1 — marquerDeposee résout la présomption de dépôt en « deposee » (lève le verrou de commune)', () => {
+  it('le dépôt émet UPDATE demande_depot_presume … resolution = deposee, params liés [id, deposee, auteur], dans la MÊME transaction', async () => {
+    await marquerDeposee(119, 'admin');
+    const res = trouver(/UPDATE demande_depot_presume/i)!;
+    expect(res, 'le dépôt téléservice doit résoudre la présomption').toBeDefined();
+    const sql = norm(res.sql);
+    expect(sql).toContain('SET resolu_le = now()');
+    expect(sql).toContain('WHERE demande_id = $1 AND resolu_le IS NULL'); // présomption VIVANTE seule (idempotent)
+    expect(res.params).toEqual([119, 'deposee', 'admin']);
+  });
+
+  it('geste sans erreur : la résolution n’ajoute aucune condition d’échec au dépôt (UPDATE émis, no-op côté DB si aucune présomption)', async () => {
+    await expect(marquerDeposee(119, 'admin')).resolves.toBeUndefined();
+    expect(trouver(/UPDATE demande_depot_presume/i)).toBeDefined();
+  });
+
+  it('canal e-mail JAMAIS concerné : marquerDeposee refuse un non-formulaire AVANT toute résolution', async () => {
+    etat.canal = 'email';
+    await expect(marquerDeposee(119, 'admin')).rejects.toThrow(); // DepotInterditError (garde canal, en amont)
+    expect(trouver(/UPDATE demande_depot_presume/i)).toBeUndefined();
+  });
+});
+
 describe('P1 — marquerDeposee greffe la référence', () => {
   it('avec référence : dépôt (UPDATE + journal) PUIS greffe ON CONFLICT DO NOTHING, dans la même transaction', async () => {
     await marquerDeposee(42, 'admin', '  REF-42 ');

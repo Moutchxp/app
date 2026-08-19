@@ -16,7 +16,7 @@ const { lectures, ecritures, cfg, queryMock, withTransactionMock } = vi.hoisted(
   const lectures: { sql: string; params: unknown[] }[] = [];
   const ecritures: { sql: string; params: unknown[] }[] = [];
   // B1 — statut AVANT la transition (pour tester la réouverture annulee→prete) + conflits renvoyés par la requête de compte rendu.
-  const cfg = { statutAvant: 'brouillon' as string, conflits: [] as { num_dau: string; conflit: number }[] };
+  const cfg = { statutAvant: 'brouillon' as string, canal: 'email' as string | null, conflits: [] as { num_dau: string; conflit: number }[] };
   // Identité 'personne' COMPLÈTE (nom ≥3, adresse ≥8, e-mail valide) → le garde d'identité laisse passer la transition.
   const CONFIG_PERSONNE = {
     raison_sociale: '', forme_juridique: '', siege_adresse: '191 avenue Charles de Gaulle 92200 Neuilly-sur-Seine',
@@ -32,7 +32,7 @@ const { lectures, ecritures, cfg, queryMock, withTransactionMock } = vi.hoisted(
   const withTransactionMock = async (fn: (q: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>) => Promise<unknown>) => {
     const tx = async (sql: string, params?: unknown[]) => {
       ecritures.push({ sql, params: params ?? [] });
-      if (/SELECT statut FROM demande/.test(sql)) return { rows: [{ statut: cfg.statutAvant }] };
+      if (/SELECT statut(?:, dest_canal)? FROM demande/.test(sql)) return { rows: [{ statut: cfg.statutAvant, dest_canal: cfg.canal }] };
       if (/AS conflit/i.test(sql)) return { rows: cfg.conflits }; // B1 — compte rendu de réactivation (dossiers en conflit)
       return { rows: [] as unknown[] };
     };
@@ -50,7 +50,7 @@ vi.mock('../db/client', () => ({
 
 import { changerStatut } from './demandeRepo';
 
-beforeEach(() => { lectures.length = 0; ecritures.length = 0; cfg.statutAvant = 'brouillon'; cfg.conflits = []; });
+beforeEach(() => { lectures.length = 0; ecritures.length = 0; cfg.statutAvant = 'brouillon'; cfg.canal = 'email'; cfg.conflits = []; });
 
 const norm = (s: string) => s.replace(/\s+/g, ' ');
 
@@ -152,5 +152,28 @@ describe('B1 — réouverture (annulee → prete) : réactive les dossiers, sym�
     const conflits = await changerStatut(154, 'prete', 'auteur-test');
     expect(ecritures.some((e) => /SET actif = true/.test(e.sql))).toBe(false);
     expect(conflits).toEqual([]);
+  });
+});
+
+describe('LOT B1 — l’annulation d’une demande TÉLÉSERVICE résout sa présomption en « renoncee » (point unique)', () => {
+  it('annulee + canal formulaire → UPDATE demande_depot_presume … resolution = renoncee, params liés [id, renoncee, auteur]', async () => {
+    cfg.canal = 'formulaire';
+    await changerStatut(154, 'annulee', 'auteur-test');
+    const res = ecritures.find((e) => /UPDATE demande_depot_presume/i.test(e.sql));
+    expect(res, 'annuler une demande téléservice doit lever son verrou de commune').toBeDefined();
+    expect(norm(res!.sql)).toContain('WHERE demande_id = $1 AND resolu_le IS NULL');
+    expect(res!.params).toEqual([154, 'renoncee', 'auteur-test']);
+  });
+
+  it('annulee + canal e-mail → AUCUNE résolution (aucune présomption n’existe hors téléservice)', async () => {
+    cfg.canal = 'email';
+    await changerStatut(154, 'annulee', 'auteur-test');
+    expect(ecritures.some((e) => /UPDATE demande_depot_presume/i.test(e.sql))).toBe(false);
+  });
+
+  it('prete (même en formulaire) → AUCUNE résolution : la demande est encore à déposer, la présomption reste vivante', async () => {
+    cfg.canal = 'formulaire';
+    await changerStatut(154, 'prete', 'auteur-test');
+    expect(ecritures.some((e) => /UPDATE demande_depot_presume/i.test(e.sql))).toBe(false);
   });
 });

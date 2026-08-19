@@ -51,3 +51,29 @@ export async function signalerDepotPresume(demandeId: number, bouton: BoutonCopi
     throw e;
   }
 }
+
+/** LOT B1 — issues explicites de résolution (liste fermée du CHECK, migration 124). */
+export type ResolutionDepot = 'deposee' | 'renoncee';
+
+/** Exécuteur SQL minimal : compatible AUSSI BIEN `query` (pool) que l'exécuteur d'une `withTransaction` — on n'a besoin que
+ *  d'ÉMETTRE l'UPDATE, jamais de son résultat. Permet d'appeler la résolution DANS la transaction du geste sans coupler les types. */
+type ExecuteurSql = (text: string, params?: unknown[]) => Promise<unknown>;
+
+/**
+ * LOT B1 — RÉSOUT la présomption VIVANTE d'une demande téléservice (lève le verrou de commune), au moment du geste terminal :
+ * dépôt (`marquerDeposee` → 'deposee') ou annulation (`changerStatutLot` → 'renoncee'). Pose les TROIS colonnes ensemble
+ * (`resolu_le`/`resolution`/`resolu_par`) → respecte le CHECK. `WHERE demande_id = $1 AND resolu_le IS NULL` :
+ *   · IDEMPOTENT — 0 ligne concernée = NO-OP silencieux (aucune erreur) : rejouable, et sans danger quand AUCUNE présomption
+ *     n'existe (geste sur une demande jamais « copiée ») ;
+ *   · ne touche QUE la présomption VIVANTE (une ligne déjà résolue n'est jamais réécrite).
+ * DOIT tourner DANS la transaction du geste (atomicité : aucune fenêtre « déposée/annulée mais verrou encore tenu »). L'UPDATE
+ * étant sans contrainte rejetable, il ne peut JAMAIS faire échouer le geste appelant. N'écrit QUE cette table.
+ */
+export async function resoudreDepotPresume(q: ExecuteurSql, demandeId: number, resolution: ResolutionDepot, resoluPar: string | null): Promise<void> {
+  await q(
+    `UPDATE demande_depot_presume
+        SET resolu_le = now(), resolution = $2, resolu_par = $3, maj_le = now()
+      WHERE demande_id = $1 AND resolu_le IS NULL`,
+    [demandeId, resolution, resoluPar],
+  );
+}
