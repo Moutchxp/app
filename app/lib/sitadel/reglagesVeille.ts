@@ -198,6 +198,13 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   // S38 — adresse de réponse (reply-to). Sans valeur par défaut : tant qu'elle est vide, l'envoi refuse de s'exécuter.
   { colonne: 'adresse_reponse', cle: 'adresseReponse', libelle: 'Adresse de réponse des mairies', unite: '', type: 'email',
     aide: 'Adresse e-mail à laquelle les mairies répondront à vos demandes — c’est là qu’arrive la réponse contenant la hauteur du bâtiment. Ce doit être une boîte réellement relevée. Tant qu’elle est vide, aucun envoi n’est possible : une demande partie sans adresse de réponse serait une demande à laquelle la mairie ne peut pas répondre.' },
+  // LOT B — RELANCES : le duo « à partir de quand un rappel est préparé » + « les relances partent-elles toutes seules ». Rangés
+  //   dans « Envoi aux mairies » (thème ENVOI). ⚠️ relance_auto_active est STOCKÉ et AFFICHÉ, mais LU PAR AUCUN CODE D'ENVOI dans
+  //   ce lot (l'envoi automatique est un lot ultérieur) — l'aide le dit sans détour puisque le thème s'appelle « Envoi aux mairies ».
+  { colonne: 'relance_jours_avant_echeance', cle: 'relanceJoursAvantEcheance', libelle: 'Nombre de jours avant l’échéance', unite: 'jours', type: 'entier',
+    aide: 'À partir de ce nombre de jours avant l’échéance, un rappel est préparé pour les demandes restées sans réponse. La préparation a toujours lieu et n’envoie rien.' },
+  { colonne: 'relance_auto_active', cle: 'relanceAutoActive', libelle: 'Envoyer les relances automatiquement', unite: '', type: 'booleen',
+    aide: 'Si cette case est cochée, les relances partiront vers les mairies sans relecture. Tant qu’elle est décochée, rien ne part sans un clic.' },
   // X1 — CANAL CADA (saisine quand une mairie reste silencieuse plus d’un mois). L’adresse VIDE n’est PAS une erreur : c’est le mode « formulaire en ligne ».
   { colonne: 'cada_email', cle: 'cadaEmail', libelle: 'Adresse e-mail de la CADA', unite: '', type: 'email',
     aide: 'Adresse e-mail où saisir la CADA (Commission d’accès aux documents administratifs) quand une mairie n’a pas répondu. Si vous la renseignez, la saisine part par e-mail avec, en pièce jointe, une copie de votre demande initiale. Laissée VIDE, ce n’est PAS bloquant : la saisine se fait alors à la main sur le formulaire en ligne de la CADA (adresse ci-dessous).' },
@@ -305,6 +312,9 @@ export const COLONNES_THEME_PREPARATION: readonly string[] = [
 ];
 export const COLONNES_THEME_ENVOI: readonly string[] = [
   'adresse_reponse', 'envois_max_par_run', 'envois_max_par_jour',
+  // LOT B — duo « relances » : à partir de quand un rappel est préparé, puis part-il tout seul (adjacents, sans sous-titre :
+  //   l'écran Réglages ne rend pas de sous-groupe dans un thème — non inventé pour ce lot).
+  'relance_jours_avant_echeance', 'relance_auto_active',
 ];
 export const COLONNES_THEME_REPONSES: readonly string[] = [
   'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',

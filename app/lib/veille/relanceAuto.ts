@@ -245,8 +245,9 @@ export function depsReellesRelance(): DepsRelanceAuto {
     enregistrerRelance: async (demandeId, profil, objet, corps, motif) => {
       return withTransaction(async (q) => {
         const { rows } = await q<{ id: number }>(
-          `INSERT INTO demande_relance (demande_id, type, objet, corps, profil_demandeur, statut)
-           VALUES ($1, 'relance', $2, $3, $4, 'brouillon') RETURNING id`,
+          // LOT B — variante='formelle' à la création (registre de langage du brouillon ; le lot A la calcule, ici toujours 'formelle').
+          `INSERT INTO demande_relance (demande_id, type, variante, objet, corps, profil_demandeur, statut)
+           VALUES ($1, 'relance', 'formelle', $2, $3, $4, 'brouillon') RETURNING id`,
           [demandeId, objet, corps, profil]);
         // Journal APPEND-ONLY : aucune transition de statut de la DEMANDE (statut_avant/apres NULL) — on n'écrit jamais demande.statut.
         await q(

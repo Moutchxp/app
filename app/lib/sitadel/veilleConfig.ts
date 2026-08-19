@@ -56,6 +56,8 @@ export interface ConfigVeille {
   propositionCadaActive: boolean;   // X5 : proposer par e-mail (à alerteEmail) la saisine CADA d'une demande devenue saisissable (opt-in, défaut false)
   depotAdressesConnues: string;     // N1-A : adresses reconnues pour le versement auto en GED (virgules ; union avec les collaborateurs)
   natureAccuseMotifs: string;       // FUS-4 : motifs d'objet reconnaissant un accusé (liste virgules/retours) — pilotage sans code
+  relanceAutoActive: boolean;       // LOT B : envoyer les relances automatiquement ? STOCKÉ/AFFICHÉ, LU PAR AUCUN CODE D'ENVOI dans ce lot
+  relanceJoursAvantEcheance: number; // LOT B : jours avant l'échéance à partir desquels un rappel est PRÉPARÉ (n'envoie rien) — borné 1..30
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -94,6 +96,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   propositionCadaActive: false, // = DEFAULT de la migration 084 (opt-in)
   depotAdressesConnues: '',     // = DEFAULT de la migration 102 (aucune adresse connue en propre → seuls les collaborateurs)
   natureAccuseMotifs: '',       // FUS-4 : repli ultime = aucun motif → comportement d'AVANT ce lot (la 125 pose 'accusé de réception')
+  relanceAutoActive: false, relanceJoursAvantEcheance: 10, // = DEFAULT de la migration 128 (LOT B : opt-out d'envoi auto, préparation à J-10)
 };
 
 interface LigneConfigVeille {
@@ -325,6 +328,20 @@ async function lireNatureAccuseMotifs(): Promise<Pick<ConfigVeille, 'natureAccus
   }
 }
 
+// LOT B — réglages de RELANCE (relance_auto_active + relance_jours_avant_echeance). Lecture ISOLÉE (résiliente à l'ordre
+//   d'application de la 128, livrée NON APPLIQUÉE) : tant que les colonnes n'existent pas, cette lecture échoue SEULE et
+//   retombe sur les défauts (false, 10), SANS dégrader tout le reste de la config (motif des migrations 069+).
+async function lireRelanceReglages(): Promise<Pick<ConfigVeille, 'relanceAutoActive' | 'relanceJoursAvantEcheance'>> {
+  const def = { relanceAutoActive: false, relanceJoursAvantEcheance: 10 };
+  try {
+    const { rows } = await query<{ relance_auto_active: boolean; relance_jours_avant_echeance: number }>(
+      `SELECT relance_auto_active, relance_jours_avant_echeance FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return def;
+    return { relanceAutoActive: r.relance_auto_active === true, relanceJoursAvantEcheance: r.relance_jours_avant_echeance };
+  } catch { return def; } // 128 pas encore appliquée → défauts
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -371,6 +388,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireProposition()),                    // X5 : interrupteur des propositions CADA, lecture isolée (résiliente à la 084)
       ...(await lireDepotAdresses()),                  // N1-A : adresses connues du versement auto, lecture isolée (résiliente à la 102)
       ...(await lireNatureAccuseMotifs()),             // FUS-4 : motifs d'objet « accusé », lecture isolée (résiliente à la 125)
+      ...(await lireRelanceReglages()),                // LOT B : réglages de relance, lecture isolée (résiliente à la 128)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

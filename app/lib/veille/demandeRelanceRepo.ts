@@ -126,8 +126,9 @@ export async function regenererRelance(relanceId: number, auteur: string | null,
     // Abandon D'ABORD : sinon l'INSERT 'brouillon' violerait demande_relance_vivante_uniq (une seule relance vivante par demande).
     await q(`UPDATE demande_relance SET statut = 'abandonnee' WHERE id = $1 AND statut = 'brouillon'`, [relanceId]);
     const ins = await q<{ id: number }>(
-      `INSERT INTO demande_relance (demande_id, type, objet, corps, profil_demandeur, statut)
-       VALUES ($1, 'relance', $2, $3, $4, 'brouillon') RETURNING id`,
+      // LOT B — variante='formelle' à la création (registre de langage du brouillon ; le lot A la calcule, ici toujours 'formelle').
+      `INSERT INTO demande_relance (demande_id, type, variante, objet, corps, profil_demandeur, statut)
+       VALUES ($1, 'relance', 'formelle', $2, $3, $4, 'brouillon') RETURNING id`,
       [rel.demandeId, objet, corps, rel.profil]);
     const nouvelId = ins.rows[0].id;
     await q(

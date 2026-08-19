@@ -108,7 +108,10 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'dossiers_par_demande', 'permis_par_commune_par_mois', 'pieces_demandees',
       'profil_demandeur_defaut', 'demandes_par_commune_par_mois', // vestigial en dernier
     ]);
-    expect(PARAMS_THEME_ENVOI.map((p) => p.colonne)).toEqual(['adresse_reponse', 'envois_max_par_run', 'envois_max_par_jour']);
+    expect(PARAMS_THEME_ENVOI.map((p) => p.colonne)).toEqual([
+      'adresse_reponse', 'envois_max_par_run', 'envois_max_par_jour',
+      'relance_jours_avant_echeance', 'relance_auto_active', // LOT B — duo « relances » (à partir de quand + part-il tout seul)
+    ]);
     expect(PARAMS_THEME_REPONSES.map((p) => p.colonne)).toEqual([
       'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',
       'recherche_references_max', 'piece_taille_max_mo', 'echeance_alerte_jours',
@@ -124,9 +127,9 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
   it('les 5 thèmes partitionnent les clés « demandes » (disjoints, couvrants, sans perte ni doublon)', () => {
     const themes = [PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA];
     const clesThemes = themes.flatMap((t) => t.map((p) => p.colonne));
-    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length).toBe(26);
-    expect(new Set(clesThemes).size).toBe(26); // disjoints (aucun doublon)
-    // liste LITTÉRALE figée des 26 clés « demandes » — comparée en ENSEMBLE à la concaténation des thèmes ET à COLONNES_PARAMS_DEMANDES.
+    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length).toBe(28);
+    expect(new Set(clesThemes).size).toBe(28); // disjoints (aucun doublon)
+    // liste LITTÉRALE figée des 28 clés « demandes » — comparée en ENSEMBLE à la concaténation des thèmes ET à COLONNES_PARAMS_DEMANDES.
     const CLES_DEMANDES = [
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
       'nb_candidats_examines', 'tri_candidats', 'envois_max_par_run', 'envois_max_par_jour', 'adresse_reponse',
@@ -135,6 +138,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'proposition_cada_active', 'piece_taille_max_mo', 'recherche_references_max', 'pieces_demandees', 'profil_demandeur_defaut',
       'depot_adresses_connues', // N1-A
       'nature_accuse_motifs',   // FUS-4
+      'relance_jours_avant_echeance', 'relance_auto_active', // LOT B — duo « relances » rangé dans « Envoi aux mairies »
     ];
     expect(new Set(clesThemes)).toEqual(new Set(CLES_DEMANDES));
     expect(new Set(PARAMS_DEMANDES.map((p) => p.colonne))).toEqual(new Set(CLES_DEMANDES)); // COLONNES_PARAMS_DEMANDES = concat des thèmes, même ENSEMBLE
@@ -148,9 +152,9 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       ...PARAMS_THEME_PREPARATION, ...PARAMS_THEME_ENVOI, ...PARAMS_THEME_REPONSES, ...PARAMS_THEME_ALERTES, ...PARAMS_THEME_CADA,
       ...PARAMS_MENTIONS, ...PARAMS_SOURCES,
     ].map((p) => p.colonne);
-    // Snapshot : l'écran Réglages rend 26 + 4 + 1 = 31 clés distinctes (FUS-4 a ajouté nature_accuse_motifs au thème Réponses).
-    expect(CLES_RENDUES_REGLAGES).toHaveLength(31);
-    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(31);
+    // Snapshot : l'écran Réglages rend 28 + 4 + 1 = 33 clés distinctes (LOT B a ajouté le duo « relances » au thème Envoi).
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(33);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(33);
     // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
     const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
     expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));
@@ -191,6 +195,32 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     const h = renderToStaticMarkup(createElement(PlageParam, { param: p, bornes: undefined }));
     expect(h).toMatch(/adresse e-mail/i);          // format annoncé
     expect(h).not.toContain('introuvable');         // pas d'erreur « plage introuvable »
+  });
+
+  it('LOT B — duo « relances » dans « Envoi aux mairies » : entier borné + booléen, libellés/aides EXACTS, rendu sans « introuvable »', () => {
+    const jours = PARAMS_VEILLE.find((p) => p.colonne === 'relance_jours_avant_echeance')!;
+    const auto = PARAMS_VEILLE.find((p) => p.colonne === 'relance_auto_active')!;
+    // types
+    expect(jours.type).toBe('entier');
+    expect(auto.type).toBe('booleen');
+    // rangés dans le thème ENVOI (« Envoi aux mairies »), pas dans les dossiers
+    for (const col of ['relance_jours_avant_echeance', 'relance_auto_active']) {
+      expect(PARAMS_THEME_ENVOI.some((x) => x.colonne === col)).toBe(true);
+      expect(PARAMS_DOSSIERS.some((x) => x.colonne === col)).toBe(false);
+    }
+    // libellés EXACTS demandés
+    expect(jours.libelle).toBe('Nombre de jours avant l’échéance');
+    expect(auto.libelle).toBe('Envoyer les relances automatiquement');
+    // aides EXACTES demandées (le compteur de jours lève l'ambiguïté « la préparation n'envoie rien »)
+    expect(jours.aide).toBe('À partir de ce nombre de jours avant l’échéance, un rappel est préparé pour les demandes restées sans réponse. La préparation a toujours lieu et n’envoie rien.');
+    expect(auto.aide).toBe('Si cette case est cochée, les relances partiront vers les mairies sans relecture. Tant qu’elle est décochée, rien ne part sans un clic.');
+    // rendu : entier → plage tirée des CHECK ; booléen → « activé/désactivé » ; jamais l'erreur « introuvable »
+    const hJours = renderToStaticMarkup(createElement(PlageParam, { param: jours, bornes: { min: 1, max: 30 } }));
+    expect(hJours).toContain('Plage autorisée');
+    expect(hJours).toContain('jours');
+    const hAuto = renderToStaticMarkup(createElement(PlageParam, { param: auto, bornes: undefined }));
+    expect(hAuto).toMatch(/activé|désactivé/i);
+    expect(hAuto).not.toContain('introuvable');
   });
 
   it('S40 — sous-bloc MENTIONS : intitulé + aide disent que le fondement juridique reste fixe ; interrupteur + texte libre', () => {

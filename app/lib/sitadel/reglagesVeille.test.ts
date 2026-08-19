@@ -67,6 +67,8 @@ const DEFS_BASE = [
   'CHECK (((nb_candidats_examines >= 100) AND (nb_candidats_examines <= 50000)))',
   // Q1 — plafond mensuel en permis (migration 087) : BETWEEN 1 AND 200 → forme `>= AND <=`
   'CHECK (((permis_par_commune_par_mois >= 1) AND (permis_par_commune_par_mois <= 200)))',
+  // LOT B — jours avant l'échéance à partir desquels un rappel est préparé (migration 128) : BETWEEN 1 AND 30 → forme `>= AND <=`
+  'CHECK (((relance_jours_avant_echeance >= 1) AND (relance_jours_avant_echeance <= 30)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 
@@ -201,6 +203,21 @@ describe('S7d — validation des paramètres moteur (plage = CHECK base)', () =>
     for (const mauvais of ['pas-un-email', 'a@b', 'a b@c.fr']) {
       expect(validerReglages({ veille: { adresse_reponse: mauvais } }, BORNES).ok).toBe(false);
     }
+  });
+
+  it('LOT B — réglages de relance : entier borné 1..30 (plage des CHECK) + booléen strict, refus hors bornes / mauvais type', () => {
+    // relance_jours_avant_echeance : entier accepté dans [1, 30] (bornes tirées du CHECK 128), refusé hors plage ou non entier.
+    const ok = validerReglages({ veille: { relance_jours_avant_echeance: 10 } }, BORNES);
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.veille.relance_jours_avant_echeance).toBe(10);
+    expect(validerReglages({ veille: { relance_jours_avant_echeance: 0 } }, BORNES).ok).toBe(false);  // < min 1
+    expect(validerReglages({ veille: { relance_jours_avant_echeance: 31 } }, BORNES).ok).toBe(false); // > max 30
+    expect(validerReglages({ veille: { relance_jours_avant_echeance: 2.5 } }, BORNES).ok).toBe(false); // pas un entier
+    // relance_auto_active : booléen strict (STOCKÉ ; aucun code d'envoi ne le lit dans ce lot).
+    const on = validerReglages({ veille: { relance_auto_active: true } }, BORNES);
+    expect(on.ok).toBe(true);
+    if (on.ok) expect(on.veille.relance_auto_active).toBe(true);
+    expect(validerReglages({ veille: { relance_auto_active: 'oui' } }, BORNES).ok).toBe(false); // pas un booléen
   });
 
   it('S30 — URL DILA : http(s) accepté (trimé), forme invalide refusée (zéro écriture)', () => {

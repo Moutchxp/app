@@ -226,7 +226,9 @@ describe('R6c — depsReellesRelance : SQL émis (fragments sémantiques, param�
     const relanceSql = (q.mock.calls[0][0] as string).replace(/\s+/g, ' ');
     expect(relanceSql).toContain('INSERT INTO demande_relance');
     expect(relanceSql).toContain("'brouillon'");
-    expect(q.mock.calls[0][1]).toEqual([42, 'OBJ', 'CORPS', 'entreprise']);
+    expect(relanceSql).toContain('variante');       // LOT B — variante écrite à la création…
+    expect(relanceSql).toContain("'formelle'");      // …et vaut toujours 'formelle' pour une relance auto
+    expect(q.mock.calls[0][1]).toEqual([42, 'OBJ', 'CORPS', 'entreprise']); // variante = littéral, pas un paramètre lié
     const journalSql = (q.mock.calls[1][0] as string).replace(/\s+/g, ' ');
     expect(journalSql).toContain('INSERT INTO demande_journal');
     expect(journalSql).toContain('VALUES ($1, NULL, NULL, $2,');
