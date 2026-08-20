@@ -40,6 +40,8 @@ export interface GlobalPermis {
   nbLogements: number | null; nbLogementsOrigine: OrigineValeur | null;
   nbPlacesStationnement: number | null; nbPlacesStationnementOrigine: OrigineValeur | null;
   adresseTerrain: string | null; adresseTerrainOrigine: OrigineValeur | null;
+  // N10-H — DÉSIGNATION de l'opération (nom du projet, texte libre VERBATIM). Migration 132. Niveau permis, comme les autres déclarés.
+  designation: string | null; designationOrigine: OrigineValeur | null;
   // N13 — sous-destinations réelles (tableau ; remplace nature_projet devenue vestigiale). Migration 110.
   destinations: string[] | null; destinationsOrigine: OrigineValeur | null;
   // N8-B/C — point le plus haut relevé sur les planches du permis (acrotère max), NON rattaché à un corps (attribution par lot non
@@ -92,6 +94,7 @@ export async function lirePermisCaracteristiques(dossierId: number): Promise<Per
                                  'nbLogements', nb_logements, 'nbLogementsOrigine', nb_logements_origine,
                                  'nbPlacesStationnement', nb_places_stationnement, 'nbPlacesStationnementOrigine', nb_places_stationnement_origine,
                                  'adresseTerrain', adresse_terrain, 'adresseTerrainOrigine', adresse_terrain_origine,
+                                 'designation', designation, 'designationOrigine', designation_origine,
                                  'destinations', destinations, 'destinationsOrigine', destinations_origine,
                                  'altitudeSommetNgf', altitude_sommet_ngf, 'altitudeSommetNgfOrigine', altitude_sommet_ngf_origine,
                                  'majLe', maj_le::text, 'majPar', maj_par)
@@ -261,6 +264,7 @@ const COLONNE_GLOBAL_DECLARE = {
   nbLogements: 'nb_logements',
   nbPlacesStationnement: 'nb_places_stationnement',
   adresseTerrain: 'adresse_terrain',
+  designation: 'designation', // N10-H — désignation de l'opération (texte libre VERBATIM, migration 132) : invariant saisie réutilisé
   altitudeSommetNgf: 'altitude_sommet_ngf', // N8-C — sommet du PERMIS (migration 108) : éditable à la main comme les autres déclarés, invariant réutilisé
 } as const;
 export type ChampGlobalDeclare = keyof typeof COLONNE_GLOBAL_DECLARE;

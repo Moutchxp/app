@@ -14,9 +14,12 @@ import { ecrireChamps } from '../lib/permis/ecritureChamps';
 import { lireChampsFormulaire } from '../lib/permis/champsFormulaire';
 import { decisionCerfa, type ChampCerfa, type AdresseTerrainSitadel } from '../lib/permis/decisionCerfa';
 import { ecrireCerfa } from '../lib/permis/ecritureCerfa';
+import { decisionDesignation, type PagePermis } from '../lib/permis/decisionDesignation';
+import { ecrireDesignation } from '../lib/permis/ecritureDesignation';
 
 const MAJ_PAR = 'extraction:champs';
 const MAJ_PAR_CERFA = 'extraction:cerfa';
+const MAJ_PAR_DESIGNATION = 'extraction:designation';
 
 function lireArg(nom: string): string | undefined {
   const i = process.argv.indexOf(nom);
@@ -95,6 +98,17 @@ async function main(): Promise<void> {
     }
   }
   console.log(`  → écrits : ${rc.champsEcrits.length ? rc.champsEcrits.join(', ') : 'aucun'}${rc.champsIgnoresSaisie.length ? ` · non écrasés (saisie) : ${rc.champsIgnoresSaisie.join(', ')}` : ''}.`);
+
+  // ── N10-H — SOURCE énoncé : DÉSIGNATION de l'opération (ligne libellée du corpus, niveau permis) ──
+  const pages: PagePermis[] = ged.pieces.flatMap((p) => p.pages.filter((pg) => pg.aTexte).map((pg) => ({ piece: p.nomFichier, page: pg.page, texte: pg.texte })));
+  const decisionD = decisionDesignation(pages);
+  const rd = await ecrireDesignation(dossierId, decisionD, MAJ_PAR_DESIGNATION);
+  console.log(`\n── SOURCE : énoncé (désignation de l'opération, niveau permis) :`);
+  if (decisionD.statut === 'retenue') {
+    console.log(`  √ designation = « ${decisionD.valeur} »  [${decisionD.piece} p.${decisionD.page}]${rd.ignoreSaisie ? '  (non écrasée : une saisie occupe le champ)' : ''}`);
+  } else {
+    console.log(`  ✗ designation — ${decisionD.motif}`);
+  }
   console.log('');
 }
 

@@ -174,6 +174,7 @@ export async function POST(request: Request): Promise<Response> {
       const ed: EditionPermis = {
         natureProjet: chaine(src.natureProjet), surfacePlancherM2: chaine(src.surfacePlancherM2), nbLogements: chaine(src.nbLogements),
         nbPlacesStationnement: chaine(src.nbPlacesStationnement), adresseTerrain: chaine(src.adresseTerrain),
+        designation: chaine(src.designation), // N10-H — désignation de l'opération (texte libre verbatim, 132), TOUJOURS 'saisie' ici
         altitudeSommetNgf: chaine(src.altitudeSommetNgf), // N8-C — sommet du permis (108), borné par le CHECK lu en base
       };
       const [natures, bornes] = await Promise.all([lireNaturesPossibles(), lireBornes()]);

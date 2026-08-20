@@ -26,6 +26,7 @@ const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
 const editionDepuisPermis = (g: GlobalPermis | null): EditionPermis => ({
   natureProjet: g?.natureProjet ?? '', surfacePlancherM2: permisVersInput(g?.surfacePlancherM2), nbLogements: permisVersInput(g?.nbLogements),
   nbPlacesStationnement: permisVersInput(g?.nbPlacesStationnement), adresseTerrain: g?.adresseTerrain ?? '',
+  designation: g?.designation ?? '', // N10-H — désignation de l'opération (texte libre verbatim, 132)
   altitudeSommetNgf: permisVersInput(g?.altitudeSommetNgf), // N8-C — sommet du permis (108), éditable comme les autres déclarés
 });
 const origineDe = (o: unknown, cle: string): OrigineValeur | null => (o as Record<string, OrigineValeur | null>)?.[`${cle}Origine`] ?? null;
@@ -52,7 +53,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
   const [data, setData] = useState<EtatCharge | null>(null);
   const [edGlobal, setEdGlobal] = useState<EditionGlobal>({ parking: '', commentaire: '' });
-  const [edPermis, setEdPermis] = useState<EditionPermis>({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '', altitudeSommetNgf: '' });
+  const [edPermis, setEdPermis] = useState<EditionPermis>({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '', designation: '', altitudeSommetNgf: '' });
   const [erreursPermis, setErreursPermis] = useState<ErreursPermis>({});
   const [edDestinations, setEdDestinations] = useState<string[]>([]); // N13 — sous-destinations cochées (saisie)
   const [edCorps, setEdCorps] = useState<Record<number, EditionCorps>>({});

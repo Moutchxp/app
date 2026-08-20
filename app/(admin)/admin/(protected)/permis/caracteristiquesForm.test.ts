@@ -2,14 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { construireCorps, construireGlobal, construirePermis, valeurVersInput, libelleBornes, composerLibelleDestinations, raisonParcelleNonRattachee, ecartSuperficieCadastre, MESURES, CHAMPS_PERMIS, type EditionCorps, type EditionPermis, type Bornes } from './caracteristiquesForm';
 
 const NATURES = ['habitation', 'bureaux', 'commerce', 'mixte', 'equipement', 'autre'];
-const edPermis = (over: Partial<EditionPermis> = {}): EditionPermis => ({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '', altitudeSommetNgf: '', ...over });
+const edPermis = (over: Partial<EditionPermis> = {}): EditionPermis => ({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '', designation: '', altitudeSommetNgf: '', ...over });
 const BORNES_PERMIS: Record<string, Bornes> = { altitude_sommet_ngf: { min: -50, max: 500 } }; // LUES du CHECK (108/103) ; ici pour le test
 
 describe('N7-E — construirePermis (champs déclarés du permis)', () => {
   it('vides → toutes valeurs null (tri-état préservé), aucune erreur', () => {
     const { valeurs, valide } = construirePermis(edPermis(), NATURES);
     expect(valide).toBe(true);
-    expect(valeurs).toEqual({ natureProjet: null, surfacePlancherM2: null, nbLogements: null, nbPlacesStationnement: null, adresseTerrain: null, altitudeSommetNgf: null });
+    expect(valeurs).toEqual({ natureProjet: null, surfacePlancherM2: null, nbLogements: null, nbPlacesStationnement: null, adresseTerrain: null, designation: null, altitudeSommetNgf: null });
   });
   it('nature dans la liste → acceptée ; hors liste → erreur', () => {
     expect(construirePermis(edPermis({ natureProjet: 'mixte' }), NATURES).valeurs.natureProjet).toBe('mixte');
@@ -27,8 +27,14 @@ describe('N7-E — construirePermis (champs déclarés du permis)', () => {
     const ko = construirePermis(edPermis({ altitudeSommetNgf: '600' }), NATURES, BORNES_PERMIS);
     expect(ko.valide).toBe(false); expect(ko.erreurs.altitudeSommetNgf).toContain('-50 et 500'); expect(ko.erreurs.altitudeSommetNgf).toContain('m');
   });
-  it('les 6 champs déclarés sont exposés (dont le sommet permis)', () => {
-    expect(CHAMPS_PERMIS.map((c) => c.cle).sort()).toEqual(['adresseTerrain', 'altitudeSommetNgf', 'natureProjet', 'nbLogements', 'nbPlacesStationnement', 'surfacePlancherM2']);
+  it('les 7 champs déclarés sont exposés (dont le sommet permis et la désignation)', () => {
+    expect(CHAMPS_PERMIS.map((c) => c.cle).sort()).toEqual(['adresseTerrain', 'altitudeSommetNgf', 'designation', 'natureProjet', 'nbLogements', 'nbPlacesStationnement', 'surfacePlancherM2']);
+  });
+
+  it('N10-H — la désignation est un TEXTE LIBRE verbatim : conservée telle quelle, VIDE → null (jamais reformulée)', () => {
+    expect(construirePermis(edPermis({ designation: 'Équipement M ultisport s ZAC Python Duvernois' }), NATURES).valeurs.designation).toBe('Équipement M ultisport s ZAC Python Duvernois');
+    expect(construirePermis(edPermis({ designation: '   ' }), NATURES).valeurs.designation).toBeNull(); // vide → null explicite
+    expect(construirePermis(edPermis(), NATURES).valide).toBe(true); // aucune contrainte de forme sur un texte libre
   });
 });
 

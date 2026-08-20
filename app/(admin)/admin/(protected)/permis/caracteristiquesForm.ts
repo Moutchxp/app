@@ -156,6 +156,10 @@ export const CHAMPS_PERMIS: readonly ChampDeclare[] = [
   { cle: 'nbLogements', colonne: 'nb_logements', libelle: 'Nombre de logements', genre: 'nombre', entier: true },
   { cle: 'nbPlacesStationnement', colonne: 'nb_places_stationnement', libelle: 'Places de stationnement', genre: 'nombre', entier: true },
   { cle: 'adresseTerrain', colonne: 'adresse_terrain', libelle: 'Adresse du terrain', genre: 'texte' },
+  // N10-H — DÉSIGNATION de l'opération (nom du projet), texte libre VERBATIM. Placée EN DERNIER de la grille → juste avant les cases
+  //   de destination, pour que la case vide cesse de ressembler à un échec quand le document dit clairement de quoi il s'agit.
+  { cle: 'designation', colonne: 'designation', libelle: 'Désignation de l’opération', genre: 'texte',
+    aide: 'Reprise telle qu’elle est écrite dans le dossier. Une valeur EXTRAITE peut porter un résidu de mise en page (mots espacés, ex. « M ultisport s ») dû au PDF — corrigez-la à la main, la correction est conservée définitivement.' },
   // N8-C — sommet AU NIVEAU PERMIS (migration 108). Le libellé DIT qu'il n'est pas rattaché à un corps ; l'aide dit POURQUOI.
   { cle: 'altitudeSommetNgf', colonne: 'altitude_sommet_ngf', libelle: 'Altitude du sommet du permis (NGF)', genre: 'nombre', unite: 'm', entier: false,
     aide: 'Point le plus haut relevé sur les planches du permis (acrotère ou faîtage le plus haut). NON rattaché à un bâtiment : l’attribution par lot n’est pas établie — c’est pourquoi il vit ici, au niveau du permis, et non sur un immeuble précis.' },
@@ -195,8 +199,11 @@ export function construirePermis(ed: EditionPermis, naturesPossibles: readonly s
     valeurs[m.cle] = p.valeur; // VIDE → null (tri-état)
   }
 
-  const adr = ed.adresseTerrain.trim();
-  valeurs.adresseTerrain = adr === '' ? null : adr;
+  // Champs TEXTE (adresse du terrain, désignation) : trim, VIDE → null explicite. Verbatim, aucune normalisation de contenu.
+  for (const c of CHAMPS_PERMIS.filter((c) => c.genre === 'texte')) {
+    const t = ed[c.cle].trim();
+    valeurs[c.cle] = t === '' ? null : t;
+  }
 
   return { valeurs, erreurs, valide: Object.keys(erreurs).length === 0 };
 }
