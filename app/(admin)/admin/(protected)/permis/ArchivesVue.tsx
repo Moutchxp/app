@@ -51,6 +51,16 @@ export function ArchivesVue() {
     } catch { setMessage('Lien de téléchargement indisponible.'); }
   }, []);
 
+  // N10-B — OUVERTURE d'une pièce À LA PAGE (variante `inline` ; #page ajouté côté client, jamais signé). MÊME signeur serveur, clé jamais exposée.
+  const ouvrirPiece = useCallback(async (pieceId: number, source: 'reponse' | 'dossier', page?: number): Promise<void> => {
+    setMessage('');
+    try {
+      const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'url_piece', pieceId, source, inline: true }) });
+      if (res.ok) { const { url } = (await res.json()) as { url: string }; window.open(page ? `${url}#page=${page}` : url, '_blank', 'noopener,noreferrer'); }
+      else setMessage('Lien indisponible.');
+    } catch { setMessage('Lien indisponible.'); }
+  }, []);
+
   // Téléversement d'un document à la main sur un permis (multipart). Un refus (type/taille/non archivé) affiche son motif.
   const televerser = useCallback(async (dossierId: number, fichier: File): Promise<void> => {
     setUploadEnCours(dossierId); setMessage('');
@@ -97,7 +107,7 @@ export function ArchivesVue() {
         onTelecharger={(id, source) => void telecharger(id, source)}
         onSupprimer={(id) => void supprimer(id)}
         onFichier={(dossierId, fichier) => void televerser(dossierId, fichier)}
-        slotCaracteristiques={(dossierId) => <CaracteristiquesBloc dossierId={dossierId} onTelecharger={(id, source) => void telecharger(id, source)} />} />
+        slotCaracteristiques={(dossierId) => <CaracteristiquesBloc dossierId={dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />} />
 
       {nbPages > 1 && (
         <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>

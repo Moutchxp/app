@@ -239,18 +239,50 @@ describe('N10 — AnnotationsExtraction : provenance dédoublonnée, comptée ho
     expect(h).toContain('provenance (3 pièces, 4 pages)'); // 3 pièces distinctes (PC5/PC3/PC40), 4 pages après dédoublonnage
     expect((h.match(/PC5\.pdf p\.3/g) ?? []).length).toBe(1); // le doublon a disparu
   });
-  it('A — chaque entrée résolue devient un lien bleu (bouton) ; l’entrée non résolue reste en texte simple', () => {
+  it('A — chaque entrée résolue devient un lien bleu (bouton) ; l’entrée non résolue reste en texte, avec la mention de l’échec', () => {
     const lienPiece = (nom: string) => (nom === 'PC3.pdf' ? () => {} : undefined); // seule PC3 est résolue
     const h = rendre({ origine: 'extraite', journal: j, lienPiece });
-    expect(h).toContain(BLEU_SOURCE);            // au moins un lien bleu
-    expect(h).toContain('<button');              // PC3 → bouton (téléchargement)
-    expect(h).toContain('PC5.pdf p.3</span>');   // PC5 non résolue → texte simple, jamais un lien mort
+    expect(h).toContain(BLEU_SOURCE);                          // au moins un lien bleu
+    expect(h).toContain('<button');                           // PC3 → bouton (ouverture)
+    expect(h).toContain('PC5.pdf p.3 (document introuvable)'); // PC5 non résolue → texte + mention de ce qui manque, jamais un lien mort
   });
   it('une valeur SAISIE ne montre aucune provenance (même journal fourni)', () => {
     expect(rendre({ origine: 'saisie', journal: j })).not.toContain('provenance');
   });
   it('un champ VIDE (origine null) affiche le motif, pas la provenance', () => {
     expect(rendre({ origine: null, journal: { confiance: null, reserve: null, provenances: [], motif: 'absence' } })).toContain('vide : absence');
+  });
+});
+
+describe('N10-B — AnnotationsExtraction : provenances des ÉCARTÉS (superstructures) cliquables à la page', () => {
+  const rendre = (props: Parameters<typeof AnnotationsExtraction>[0]) => renderToStaticMarkup(createElement(AnnotationsExtraction, props));
+  const j: JournalChamp = {
+    confiance: 'confirmee', reserve: 'TOITURE — superstructures cotées au-dessus', motif: null,
+    provenances: [{ piece: 'PC3.pdf', page: 1 }],
+    ecartes: [{ valeur: 108.93, piece: 'PC5.5.pdf', page: 1, motif: 'superstructure' }, { valeur: 100, piece: 'renommee.pdf', page: 2, motif: 'superstructure' }],
+  };
+
+  it('① une cote écartée dont la pièce est résolue rend un LIEN, et la page est transmise au résolveur (ouverture à la page)', () => {
+    const vues: { nom: string; page?: number | null }[] = [];
+    const lienPiece = (nom: string, page?: number | null) => { vues.push({ nom, page }); return nom === 'PC5.5.pdf' ? () => {} : undefined; };
+    const h = rendre({ origine: 'extraite', journal: j, lienPiece });
+    expect(h).toContain('cotes écartées au-dessus (2)');
+    expect(h).toContain('108.93');
+    expect(h).toContain(BLEU_SOURCE);                                   // PC5.5 résolue → lien
+    expect(vues).toContainEqual({ nom: 'PC5.5.pdf', page: 1 });          // la PAGE est bien passée au résolveur (→ #page côté client)
+  });
+
+  it('② une cote écartée NON résolue rend du texte sans lien, avec la mention de l’échec', () => {
+    const lienPiece = (nom: string) => (nom === 'PC5.5.pdf' ? () => {} : undefined); // renommee.pdf ne résout pas
+    const h = rendre({ origine: 'extraite', journal: j, lienPiece });
+    expect(h).toContain('renommee.pdf p.2 (document introuvable)');
+  });
+
+  it('③ la clé de stockage n’apparaît JAMAIS dans le rendu (ni URL, ni clé)', () => {
+    const lienPiece = (nom: string) => (nom === 'PC5.5.pdf' ? () => {} : undefined);
+    const h = rendre({ origine: 'extraite', journal: j, lienPiece });
+    expect(h).not.toContain('http');   // aucun href/URL dans le markup (le lien est un bouton → signé à la demande)
+    expect(h).not.toMatch(/cle|cle_stockage|s3|bucket/i);
   });
 });
 

@@ -47,7 +47,7 @@ const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '
  * BÂTIMENT (mesurés : repère, altitudes, étages, adresse par corps). Toute écriture est en 'saisie'. Confiance/réserve/motif
  * lus du journal (parCorps + permis). Bornes et liste de nature LUES de la base.
  */
-export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: number; onTelecharger?: (id: number, source: 'reponse' | 'dossier') => void }) {
+export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void }) {
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
   const [data, setData] = useState<EtatCharge | null>(null);
   const [edGlobal, setEdGlobal] = useState<EditionGlobal>({ parking: '', commentaire: '' });
@@ -148,8 +148,9 @@ export function CaracteristiquesBloc({ dossierId, onTelecharger }: { dossierId: 
   const majChamp = (corpsId: number, cle: keyof EditionCorps, v: string) => setEdCorps((m) => ({ ...m, [corpsId]: { ...m[corpsId], [cle]: v } }));
 
   // N10-A — résout un nom de fichier de provenance en un déclencheur de téléchargement (source 'dossier'), ou undefined si non résolu
-  // (nom absent de la GED → l'entrée reste en texte simple, jamais un lien mort). Le signeur reste le serveur (onTelecharger).
-  const lienPiece: LienPiece = (nom) => { const id = data.piecesParNom?.[nom]; return id != null && onTelecharger ? () => onTelecharger(id, 'dossier') : undefined; };
+  // (nom absent de la GED → l'entrée reste en texte simple, jamais un lien mort). Le signeur reste le SERVEUR (onOuvrir → variante
+  //   inline signée + #page côté client) ; la clé de stockage ne transite jamais. N10-B : ouverture À LA PAGE de la provenance.
+  const lienPiece: LienPiece = (nom, page) => { const id = data.piecesParNom?.[nom]; return id != null && onOuvrir ? () => onOuvrir(id, 'dossier', page ?? undefined) : undefined; };
   // N14 — l'altitude du sommet du permis descend en bas du bloc (à côté du Commentaire) ; on la sort donc de la 1re grille.
   const champSommet = CHAMPS_PERMIS.find((c) => c.cle === 'altitudeSommetNgf')!;
 

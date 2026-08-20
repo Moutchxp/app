@@ -101,6 +101,15 @@ export function SuiviRattachementVue() {
     } catch { /* lien indisponible : silencieux (lecture seule) */ }
   }, []);
 
+  // N10-B — OUVERTURE d'une pièce À LA PAGE (variante `inline` de url_piece → visionneur, sans forcer le téléchargement) ; le fragment
+  //   #page=N est ajouté ICI, côté client (jamais signé → sécurité intacte). MÊME signeur serveur, la clé ne transite jamais.
+  const ouvrirPiece = useCallback(async (pieceId: number, source: 'reponse' | 'dossier', page?: number): Promise<void> => {
+    try {
+      const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'url_piece', pieceId, source, inline: true }) });
+      if (res.ok) { const { url } = (await res.json()) as { url: string }; window.open(page ? `${url}#page=${page}` : url, '_blank', 'noopener,noreferrer'); }
+    } catch { /* lien indisponible : silencieux (lecture seule) */ }
+  }, []);
+
   if (erreur) return <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>Suivi indisponible.</div>;
   if (!liste) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>;
 
@@ -140,7 +149,7 @@ export function SuiviRattachementVue() {
                 </div>
                 {permisOuvert && (
                   <div className="flex flex-col gap-2">
-                    <CaracteristiquesBloc dossierId={detail.dossierId} onTelecharger={(id, source) => void telecharger(id, source)} />
+                    <CaracteristiquesBloc dossierId={detail.dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />
                     <div className="svv-card" style={{ fontSize: 12 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, marginBottom: '.3rem' }}>Pièces jointes</div>
                       <CellulePieces pieces={detail.pieces} onTelecharger={(id, source) => void telecharger(id, source)} />

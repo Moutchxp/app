@@ -47,6 +47,7 @@
     "permis:banc-etages": "tsx app/scripts/banc-etages.ts",
     "permis:ecrire-lots": "tsx app/scripts/ecrire-lots.ts",
     "permis:ecrire-niveaux": "tsx app/scripts/ecrire-niveaux.ts",
+    "permis:alerter-superstructures": "tsx app/scripts/alerter-superstructures.ts",
     "permis:ecrire-parcelles": "tsx app/scripts/ecrire-parcelles.ts",
     "permis:rejouer-rattachement": "tsx app/scripts/rejouer-rattachement.ts",
     "permis:rattachement-suivre": "tsx app/scripts/rattachement-suivre.ts",

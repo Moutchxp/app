@@ -18,9 +18,10 @@ const styleNote: CSSProperties = { fontSize: 11, lineHeight: 1.4, color: 'var(--
 // N10 — bleu des PIÈCES SOURCES : même couleur pour un lien de provenance et pour une pièce-source dans la liste (« même sens »).
 // Pas de jeton bleu dans la charte → couleur en dur, comme l'ORANGE d'échéance d'ArchivesRendu ; accessible sur fond blanc (AA).
 export const BLEU_SOURCE = '#1a5fb4';
-/** N10 — résout le nom de fichier d'une provenance en un déclencheur de téléchargement, ou `undefined` si la pièce n'est pas résolue
- *  (→ l'entrée reste en texte simple, jamais un lien mort). Fourni par la Vue (mappe nom → id `dossier_document`, unique par dossier). */
-export type LienPiece = (nomFichier: string) => (() => void) | undefined;
+/** N10 / N10-B — résout le nom de fichier d'une provenance en un déclencheur d'OUVERTURE du document (à la page `page` si fournie, via
+ *  la variante inline signée), ou `undefined` si la pièce n'est pas résolue (→ l'entrée reste en texte simple, jamais un lien mort).
+ *  Fourni par la Vue (mappe nom → id `dossier_document`, unique par dossier). La clé de stockage ne transite jamais côté client. */
+export type LienPiece = (nomFichier: string, page?: number | null) => (() => void) | undefined;
 
 /** Pastille d'ORIGINE d'une valeur : saisie à la main · extraite d'une pièce · non renseignée. Texte porteur, couleur en appui. */
 export function PastilleOrigineValeur({ origine }: { origine: OrigineValeur | null }) {
@@ -188,6 +189,16 @@ function texteProvenance(p: { piece: string | null; page: number | null }): stri
  * PROVENANCE repliable (uniquement pour une valeur 'extraite'), et MOTIF de non-écriture (uniquement pour un champ VIDE, origine
  * null). Une saisie n'en montre aucune. UN SEUL composant, réutilisé par TOUS les éditeurs (mesures, parking, repère, permis).
  */
+/** N10-B — une entrée de provenance : lien bleu OUVRANT le document à sa page si la pièce résout ; sinon texte simple. Quand la
+ *  résolution a été TENTÉE (lienPiece fourni) mais a ÉCHOUÉ (doublon/renommage/pièce supprimée), on l'affiche « (document introuvable) »
+ *  — jamais un lien mort, jamais une disparition silencieuse. Sans lienPiece (vue non câblée), texte nu (pas de fausse mention d'échec). */
+function EntreeProvenance({ txt, piece, page, lienPiece }: { txt: string; piece: string | null; page: number | null; lienPiece?: LienPiece }) {
+  const decl = piece ? lienPiece?.(piece, page) : undefined;
+  if (decl) return <button type="button" onClick={decl} style={{ background: 'none', border: 0, padding: 0, font: 'inherit', color: BLEU_SOURCE, textDecoration: 'underline', cursor: 'pointer' }}>{txt} ↗</button>;
+  const echecResolution = lienPiece !== undefined; // la Vue a fourni le résolveur mais la pièce n'a pas été retrouvée
+  return <span>{txt}{echecResolution ? ' (document introuvable)' : ''}</span>;
+}
+
 export function AnnotationsExtraction({ origine, journal, lienPiece }: { origine: OrigineValeur | null; journal?: JournalChamp; lienPiece?: LienPiece }) {
   const j = origine === 'extraite' ? journal : undefined;
   const motif = origine === null ? journal?.motif ?? null : null;
@@ -197,6 +208,9 @@ export function AnnotationsExtraction({ origine, journal, lienPiece }: { origine
   const nbPieces = new Set(provenances.map((p) => p.piece)).size;
   const nbPages = provenances.length;
   const compte = `${nbPieces} pièce${nbPieces > 1 ? 's' : ''}${nbPages > nbPieces ? `, ${nbPages} pages` : ''}`;
+  // N10-B — les ÉCARTÉS avec provenance (superstructures au-dessus de la toiture…) : montrés SUR une valeur extraite (contexte de la réserve),
+  //   chacun avec sa cote + pièce/page CLIQUABLE. Dédoublonnés par cote#pièce#page.
+  const ecartes = j ? [...new Map((j.ecartes ?? []).map((e) => [`${e.valeur ?? ''}#${e.piece ?? ''}#${e.page ?? ''}`, e])).values()] : [];
   return (
     <>
       {j?.reserve && <span role="note" style={styleNote}>⚠ {j.reserve}</span>}
@@ -205,19 +219,25 @@ export function AnnotationsExtraction({ origine, journal, lienPiece }: { origine
         <details style={{ fontSize: 11 }}>
           <summary style={{ ...styleAide, cursor: 'pointer' }}>provenance ({compte})</summary>
           <span style={{ ...styleAide, display: 'block', marginTop: '.15rem', overflowWrap: 'anywhere' }}>
-            {provenances.map((p, i) => {
-              // N10-A — chaque entrée devient un LIEN bleu (téléchargement) si la pièce est résolue ; sinon texte simple (jamais un lien mort).
-              const decl = p.piece ? lienPiece?.(p.piece) : undefined;
-              const txt = texteProvenance(p);
-              return (
-                <Fragment key={`${p.piece ?? ''}#${p.page ?? ''}`}>
-                  {i > 0 ? ' · ' : null}
-                  {decl
-                    ? <button type="button" onClick={decl} style={{ background: 'none', border: 0, padding: 0, font: 'inherit', color: BLEU_SOURCE, textDecoration: 'underline', cursor: 'pointer' }}>{txt} ↓</button>
-                    : <span>{txt}</span>}
-                </Fragment>
-              );
-            })}
+            {provenances.map((p, i) => (
+              <Fragment key={`${p.piece ?? ''}#${p.page ?? ''}`}>
+                {i > 0 ? ' · ' : null}
+                <EntreeProvenance txt={texteProvenance(p)} piece={p.piece} page={p.page} lienPiece={lienPiece} />
+              </Fragment>
+            ))}
+          </span>
+        </details>
+      )}
+      {ecartes.length > 0 && (
+        <details style={{ fontSize: 11 }}>
+          <summary style={{ ...styleAide, cursor: 'pointer' }}>cotes écartées au-dessus ({ecartes.length})</summary>
+          <span style={{ ...styleAide, display: 'block', marginTop: '.15rem', overflowWrap: 'anywhere' }}>
+            {ecartes.map((e, i) => (
+              <Fragment key={`${e.valeur ?? ''}#${e.piece ?? ''}#${e.page ?? ''}`}>
+                {i > 0 ? ' · ' : null}
+                <EntreeProvenance txt={`${e.valeur ?? '?'} — ${texteProvenance(e)}`} piece={e.piece} page={e.page} lienPiece={lienPiece} />
+              </Fragment>
+            ))}
           </span>
         </details>
       )}

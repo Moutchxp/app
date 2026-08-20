@@ -47,6 +47,7 @@ export async function POST(request: Request): Promise<Response> {
       action?: unknown; reponseId?: unknown; demandeId?: unknown; dossierId?: unknown; pieceId?: unknown; satisfait?: unknown;
       nature?: unknown; // T7-A : cible du reclassement manuel (accuse | documents | autre)
       relanceId?: unknown; objet?: unknown; corps?: unknown; motif?: unknown; source?: unknown; // R5c ; A1b : source pour url_piece ('reponse'|'dossier')
+      inline?: unknown; // N10-B : variante d'AFFICHAGE (ouvrir à la page) ; ABSENT/false = téléchargement forcé (comportement inchangé)
       refusLe?: unknown; // T1 : date de notification du refus exprès (YYYY-MM-DD)
       envoyeLe?: unknown; // T4 : date RÉELLE de dépôt saisie (YYYY-MM-DD) pour confirmer une proposition
     };
@@ -166,8 +167,11 @@ export async function POST(request: Request): Promise<Response> {
       const piece = await lireCleTelechargeable(corps.pieceId, source);
       if (piece === null) return Response.json({ erreur: 'pièce non déposée (aucune clé de stockage)' }, { status: 404 });
       const { urlSignee } = await import('../../../../../lib/stockage'); // import dynamique : garde @aws-sdk hors du graphe statique
-      // N6-E — SÉCURITÉ : téléchargement FORCÉ (Content-Disposition: attachment) → une pièce HTML/CSV n'est jamais rendue inline.
-      return Response.json({ url: await urlSignee(piece.cle, undefined, { forcerTelechargement: true, nomFichier: piece.nomFichier }) });
+      // N10-B — VARIANTE INLINE (opt-in `inline:true`) : signe SANS forcer le téléchargement → le PDF s'ouvre dans le visionneur
+      //   (le client y ajoute #page=N, fragment jamais signé → sécurité intacte, clé jamais exposée). DÉFAUT (inline absent/false) :
+      //   téléchargement FORCÉ, STRICTEMENT inchangé (N6-E) — tous les appelants existants omettent `inline` → comportement identique.
+      const inline = corps.inline === true;
+      return Response.json({ url: await urlSignee(piece.cle, undefined, inline ? {} : { forcerTelechargement: true, nomFichier: piece.nomFichier }) });
     }
 
     // R5c — éditer le brouillon d'une relance (objet + corps). Le texte stocké EST la vérité (aucune régénération implicite).

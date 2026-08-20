@@ -29,6 +29,7 @@ vi.mock('../../../../../lib/veille/demandeRelanceRepo', () => ({
   majRelance: vi.fn(), abandonnerRelance: vi.fn(), regenererRelance: vi.fn(),
   RelanceActionError: class RelanceActionError extends Error { raison: string; constructor(r: string) { super(r); this.raison = r; } },
 }));
+vi.mock('../../../../../lib/stockage', () => ({ urlSignee: vi.fn(async () => 'https://signed/url') })); // N10-B : capter les options de signature
 
 import { POST } from './route';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
@@ -37,7 +38,8 @@ import {
   retirerDossierDemande, reattacherDossierDemande, rattacherAMain, marquerTraitee, lireRecuLeReponse,
   reclasserNatureReponse, marquerRepondu, annulerRepondu, RattachementNonEnvoyeeError,
 } from '../../../../../lib/veille/demandeReponseRepo';
-import { marquerDeposee, DepotInterditError } from '../../../../../lib/sitadel/demandeRepo';
+import { marquerDeposee, DepotInterditError, lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
+import { urlSignee } from '../../../../../lib/stockage';
 
 const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
 const statut = statutDemande as unknown as ReturnType<typeof vi.fn>;
@@ -53,6 +55,8 @@ const repondu = marquerRepondu as unknown as ReturnType<typeof vi.fn>;
 const annulerRep = annulerRepondu as unknown as ReturnType<typeof vi.fn>;
 const recuLe = lireRecuLeReponse as unknown as ReturnType<typeof vi.fn>;
 const deposer = marquerDeposee as unknown as ReturnType<typeof vi.fn>;
+const cleTel = lireCleTelechargeable as unknown as ReturnType<typeof vi.fn>;
+const signee = urlSignee as unknown as ReturnType<typeof vi.fn>;
 
 const post = (body: unknown) => POST(new Request('http://test/api/admin/permis/reponses', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
 
@@ -314,5 +318,28 @@ describe('T7-B — répondu / annuler_repondu (bouton MANUEL, RÉVERSIBLE)', () 
     const res = await post({ action: 'repondu' });
     expect(res.status).toBe(400);
     expect(repondu).not.toHaveBeenCalled();
+  });
+});
+
+describe('N10-B — url_piece : variante INLINE (ouverture à la page) sans changer le téléchargement existant', () => {
+  beforeEach(() => { cleTel.mockResolvedValue({ cle: 'k/abc', nomFichier: 'PC3.pdf' }); signee.mockResolvedValue('https://signed/url'); });
+
+  it('① DÉFAUT (aucun `inline`) → téléchargement FORCÉ, STRICTEMENT inchangé (forcerTelechargement:true)', async () => {
+    const res = await post({ action: 'url_piece', pieceId: 7, source: 'dossier' });
+    expect(res.status).toBe(200);
+    expect(signee).toHaveBeenCalledWith('k/abc', undefined, { forcerTelechargement: true, nomFichier: 'PC3.pdf' });
+  });
+
+  it('inline:true → signe SANS forcer le téléchargement (ouverture au visionneur)', async () => {
+    const res = await post({ action: 'url_piece', pieceId: 7, source: 'dossier', inline: true });
+    expect(res.status).toBe(200);
+    expect(signee).toHaveBeenCalledWith('k/abc', undefined, {}); // aucune option → Content-Disposition inline
+  });
+
+  it('la clé de stockage ne figure PAS dans la réponse (seule l’URL signée sort)', async () => {
+    const res = await post({ action: 'url_piece', pieceId: 7, source: 'dossier', inline: true });
+    const body = await res.json();
+    expect(body.url).toBe('https://signed/url');
+    expect(JSON.stringify(body)).not.toContain('k/abc');
   });
 });
