@@ -8,7 +8,6 @@ import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { bornesFenetres, type FenetreCumul } from './fenetresCumul';
 import { apparierPropositions, chiffresDossier, type CibleDepot } from './propositionDepot';
 import { fenetreDepuis } from './releveReponses'; // P1 : MÊME source que la relève pour « on relève depuis le … » (jamais une 2e vérité)
-import type { ProfilBoite } from './demandeReponseRepo';
 
 /** Réglages de relève/échéance en vigueur (lecture seule ; édités dans l'onglet Réglages). */
 export interface ReglagesReleve {
@@ -463,8 +462,8 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
   const { demandes, derniereOkLe, reglages } = await chargerDemandesSuivi();
 
   // P1 — « on relève depuis le … » : début de la PROCHAINE fenêtre (curseur − 3 j, ou backfill), depuis la MÊME source que la relève.
-  const profil: ProfilBoite = reglages.profil === 'personne' ? 'personne' : 'entreprise';
-  const releveDepuisLe = (await fenetreDepuis(profil))?.toISOString() ?? null;
+  //   LOT 2 — la fenêtre ne dépend plus du profil (boîte unique, backfill tous profils).
+  const releveDepuisLe = (await fenetreDepuis())?.toISOString() ?? null;
   // P1 — plafond atteint sur la dernière passe COURANTE réussie → on est EN RETARD (le curseur n'a pas avancé, cf. curseurReleve).
   const plaf = await query<{ p: boolean | null }>(
     `SELECT plafond_atteint AS p FROM releve_run WHERE declencheur = 'planifie' AND resultat = 'ok' ORDER BY termine_le DESC LIMIT 1`);

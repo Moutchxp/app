@@ -154,7 +154,14 @@ function numeroDossier(numDau: string): string { return numDau.replace(/\D/g, ''
 /** Une demande envoyée du profil : identité + destinataire + Message-ID émis + n° de dossier + réf. mairie (pour rattacher réponses ET rebonds). */
 interface DemandeEnvoyee { id: number; reference: string; destEmail: string; messageIdsEmis: string[]; numerosDossier: string[]; referencesExternes: string[] }
 
-async function lireEnvoyees(profil: ProfilBoite): Promise<DemandeEnvoyee[]> {
+// LOT 2 — RÈGLE GRAVÉE (candidates du rattachement) : le profil dit qui SIGNE la lettre. Il ne dit JAMAIS qui a le droit de
+//   RECEVOIR une réponse, ni de la RECONNAÎTRE. Le rattachement compare des IDENTIFIANTS UNIQUES (Message-ID émis, notre
+//   référence SVAV-DEM, n° de dossier Sitadel, référence mairie) — chacun ne désigne qu'UNE demande au monde : sa comparaison
+//   n'a aucune raison d'être bornée au profil (le cloisonnement par profil découpait un ensemble physiquement indivisible — il
+//   n'y a qu'une boîte). Seul l'ENVOI lit le profil (identité du signataire), et il lit déjà le profil PROPRE à la demande.
+//   Ces candidates = TOUTES les demandes envoyées, tous profils ; la garde d'ambiguïté de la cascade (≥2 désignées → aucun)
+//   reste le filet, désormais TOUS PROFILS CONFONDUS. (`profil_boite` de la réponse reste écrit = fait d'audit, jamais une clé.)
+async function lireEnvoyees(): Promise<DemandeEnvoyee[]> {
   const { rows } = await query<{ id: number; reference: string; dest_email: string; message_ids: string[]; num_daus: string[]; refs_externes: string[] }>(
     `SELECT d.id::int AS id, d.reference, coalesce(d.dest_email, '') AS dest_email,
             coalesce(array_agg(a.message_id) FILTER (WHERE a.message_id IS NOT NULL), '{}') AS message_ids,
@@ -163,9 +170,8 @@ async function lireEnvoyees(profil: ProfilBoite): Promise<DemandeEnvoyee[]> {
             coalesce((SELECT array_agg(re.reference) FROM demande_reference_externe re WHERE re.demande_id = d.id), '{}') AS refs_externes
        FROM demande d
        LEFT JOIN demande_acheminement a ON a.demande_id = d.id AND a.canal = 'email'
-      WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1
+      WHERE d.statut = 'envoyee'
       GROUP BY d.id, d.reference, d.dest_email`,
-    [profil],
   );
   return rows.map((r) => ({
     id: r.id, reference: r.reference, destEmail: r.dest_email, messageIdsEmis: r.message_ids,
@@ -185,23 +191,23 @@ async function lireEnvoyees(profil: ProfilBoite): Promise<DemandeEnvoyee[]> {
  * l'exige — et il ne rattache JAMAIS une brouillon/prête (candidates = envoyées uniquement). Dédupliqué, plafonné (réf. mairie
  * d'abord — peu nombreuses, fort signal — pour ne jamais les évincer), drapeau si le plafond mord (jamais silencieux). LECTURE SEULE.
  */
-async function lireReferencesRecherche(profil: ProfilBoite, max: number): Promise<{ references: string[]; plafondAtteint: boolean }> {
+// LOT 2 — clés cherchées côté serveur : TOUS PROFILS (même règle gravée que lireEnvoyees). Une réponse citant un n° de dossier
+//   ou une référence mairie d'UNE demande peut arriver dans la seule boîte qui existe, quel que soit le profil de cette demande.
+async function lireReferencesRecherche(max: number): Promise<{ references: string[]; plafondAtteint: boolean }> {
   const { rows: rd } = await query<{ num_dau: string }>(
     `SELECT s.num_dau
        FROM demande d
        JOIN demande_dossier dd ON dd.demande_id = d.id
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
-      WHERE d.statut IN ('envoyee', 'brouillon', 'prete') AND d.profil_demandeur = $1
+      WHERE d.statut IN ('envoyee', 'brouillon', 'prete')
       ORDER BY (dd.satisfait_le IS NULL) DESC,
                (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id) ASC NULLS LAST, -- B2 : ancre agnostique au canal
                s.num_dau`,
-    [profil],
   );
   const { rows: rm } = await query<{ reference: string }>(
     `SELECT DISTINCT re.reference
        FROM demande d JOIN demande_reference_externe re ON re.demande_id = d.id
-      WHERE d.statut IN ('envoyee', 'brouillon', 'prete') AND d.profil_demandeur = $1`,
-    [profil],
+      WHERE d.statut IN ('envoyee', 'brouillon', 'prete')`,
   );
   const toutes: string[] = [];
   const vus = new Set<string>();
@@ -212,7 +218,10 @@ async function lireReferencesRecherche(profil: ProfilBoite, max: number): Promis
   return { references: toutes.slice(0, max), plafondAtteint };
 }
 
-async function dateDepart(profil: ProfilBoite): Promise<Date | null> {
+// LOT 2 — fenêtre SINCE de backfill : TOUS PROFILS. La boîte unique doit être scannée depuis la plus vieille demande de
+//   N'IMPORTE quel profil ; la borner à un profil rouvrirait le même trou une couche plus haut (une vieille réponse d'un autre
+//   profil ne serait jamais fetchée au backfill). En marche normale, le curseur global (curseurReleve) gouverne déjà.
+async function dateDepart(): Promise<Date | null> {
   // T4 — la fenêtre de relève ne dépend plus des SEULES envoyées : SINCE = LEAST(plus ancien envoye_le des envoyées, plus
   //   ancien cree_le des BROUILLON/PRÊTE) − 1 jour. Motif : une demande en attente n'a pas pu être déposée AVANT sa création,
   //   donc cree_le est une borne basse SÛRE pour tout message citant son permis ; la marge d'1 jour absorbe le décalage de
@@ -221,11 +230,10 @@ async function dateDepart(profil: ProfilBoite): Promise<Date | null> {
   const { rows } = await query<{ depuis: Date | null }>(
     `SELECT (LEAST(
               (SELECT min(a.envoye_le) FROM demande d JOIN demande_acheminement a ON a.demande_id = d.id
-                WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1 AND a.envoye_le IS NOT NULL),
+                WHERE d.statut = 'envoyee' AND a.envoye_le IS NOT NULL),
               (SELECT min(d.cree_le) FROM demande d
-                WHERE d.statut IN ('brouillon', 'prete') AND d.profil_demandeur = $1)
+                WHERE d.statut IN ('brouillon', 'prete'))
             ) - interval '1 day') AS depuis`,
-    [profil],
   );
   return rows[0]?.depuis ?? null;
 }
@@ -260,10 +268,10 @@ async function curseurReleve(): Promise<Date | null> {
  * (backfill complet depuis la plus vieille demande). Le repli n'est JAMAIS une perte : au pire une relève large. EXPORTÉ pour
  * que l'écran affiche « on relève depuis le … » depuis la MÊME source (jamais une valeur cachée qui dérive).
  */
-export async function fenetreDepuis(profil: ProfilBoite): Promise<Date | null> {
+export async function fenetreDepuis(): Promise<Date | null> {
   const curseur = await curseurReleve();
   if (curseur !== null) return new Date(curseur.getTime() - MARGE_CURSEUR_JOURS * 86_400_000);
-  return dateDepart(profil);
+  return dateDepart(); // LOT 2 : backfill tous profils (la boîte est unique)
 }
 
 async function messageIdsConnus(profil: ProfilBoite): Promise<Set<string>> {
@@ -271,12 +279,12 @@ async function messageIdsConnus(profil: ProfilBoite): Promise<Set<string>> {
   return new Set(rows.map((r) => r.message_id));
 }
 
-async function lireDomainesDestinataires(profil: ProfilBoite): Promise<Set<string>> {
+// LOT 2 — sondes domaine destinataire : TOUS PROFILS. Une réponse arrive dans la seule boîte qui existe quel que soit le profil.
+async function lireDomainesDestinataires(): Promise<Set<string>> {
   const { rows } = await query<{ domaine: string }>(
     `SELECT DISTINCT lower(split_part(dest_email, '@', 2)) AS domaine
        FROM demande
-      WHERE statut = 'envoyee' AND profil_demandeur = $1 AND dest_email LIKE '%@%'`,
-    [profil],
+      WHERE statut = 'envoyee' AND dest_email LIKE '%@%'`,
   );
   return new Set(rows.map((r) => r.domaine).filter((d) => d !== ''));
 }
@@ -288,7 +296,9 @@ async function lireDomainesDestinataires(profil: ProfilBoite): Promise<Set<strin
  * porte que dest_email : la RÉTENTION exige un SIGNAL en plus (cf. garde-fou dans releverBoite). LECTURE SEULE, aucune table
  * nouvelle (les 3 sources existent déjà). Retourne les domaines racines distincts.
  */
-async function lireDomainesDerives(profil: ProfilBoite): Promise<Set<string>> {
+// LOT 2 — sondes domaine DÉRIVÉ (communes sans dest_email : Paris…) : TOUS PROFILS, même règle. Le garde-fou de rétention
+//   (signal requis en plus du domaine) reste inchangé plus bas ; seul le périmètre profil est levé.
+async function lireDomainesDerives(): Promise<Set<string>> {
   const { rows } = await query<{ url_formulaire: string | null; prada: string | null; dila: string | null }>(
     `SELECT DISTINCT d.code_insee,
             (SELECT mc.url_formulaire FROM mairie_contact mc
@@ -299,9 +309,8 @@ async function lireDomainesDerives(profil: ProfilBoite): Promise<Set<string>> {
               WHERE di.code_insee = d.code_insee AND di.site_internet LIKE '%.%'
               ORDER BY di.importe_le DESC NULLS LAST LIMIT 1)                                                     AS dila
        FROM demande d
-      WHERE d.statut = 'envoyee' AND d.profil_demandeur = $1
+      WHERE d.statut = 'envoyee'
         AND (d.dest_email IS NULL OR d.dest_email NOT LIKE '%@%')`,
-    [profil],
   );
   const out = new Set<string>();
   for (const r of rows) {
@@ -361,11 +370,11 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const plafondRebonds = opts.plafondRebonds ?? 200;
   const mode: 'simulation' | 'applique' = appliquer ? 'applique' : 'simulation';
 
-  const envoyees = await lireEnvoyees(opts.profil);
+  const envoyees = await lireEnvoyees(); // LOT 2 : candidates TOUS PROFILS (identifiants uniques ; voir la règle gravée sur lireEnvoyees)
   const candidates: DemandeCandidate[] = envoyees.map((e) => ({ id: e.id, reference: e.reference, profilBoite: opts.profil, statut: 'envoyee', messageIdsEmis: e.messageIdsEmis, numerosDossier: e.numerosDossier, referencesExternes: e.referencesExternes }));
-  const depuis = opts.depuis ?? (await fenetreDepuis(opts.profil)); // P1 : fenêtre = curseur − 3 j (repli backfill si aucun curseur)
-  const domaines = await lireDomainesDestinataires(opts.profil);
-  const domainesDerives = await lireDomainesDerives(opts.profil); // LOT 2 — communes sans dest_email (formulaire) ; porte GARDÉE
+  const depuis = opts.depuis ?? (await fenetreDepuis()); // P1 : fenêtre = curseur − 3 j (repli backfill si aucun curseur) — LOT 2 : tous profils
+  const domaines = await lireDomainesDestinataires();
+  const domainesDerives = await lireDomainesDerives(); // LOT 2 — communes sans dest_email (formulaire) ; porte GARDÉE
   const domainesInterroges = [...new Set([...domaines, ...domainesDerives])];
 
   const vide = (connecte: boolean): RapportReleve => ({
@@ -382,7 +391,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const cfg = await chargerConfigVeille();
   const tailleMaxOctets = cfg.pieceTailleMaxMo * 1024 * 1024; // utilisé seulement en mode APPLIQUÉ (dépôt)
   const motifsAccuse = parseMotifsAccuse(cfg.natureAccuseMotifs); // FUS-4 : motifs d'objet « accusé » (config, pilotage sans code)
-  const { references, plafondAtteint: plafondReferencesAtteint } = await lireReferencesRecherche(opts.profil, cfg.rechercheReferencesMax);
+  const { references, plafondAtteint: plafondReferencesAtteint } = await lireReferencesRecherche(cfg.rechercheReferencesMax); // LOT 2 : tous profils
   const lignes: LigneReleve[] = [];
   let vus = 0, dejaConnus = 0, horsPerimetre = 0, rebondsDetectes = 0, rebondsRattaches = 0, rebondsEtrangers = 0, rebondsAppliques = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0, liensCaptes = 0;
   let uidsServeur = 0, uidsReferences = 0, plafondAtteint = false;

@@ -551,7 +551,7 @@ describe('R3f — référence MAIRIE : commune FORMULAIRE (aucun domaine), répo
 describe('P1 — curseur (fin de scan réussi), marge 3 j, plafond chronologique progressif', () => {
   it('fenêtre = curseur − 3 j : la MARGE capte un retardataire daté AVANT le curseur (spam/livraison différée)', async () => {
     etat.curseur = new Date('2026-08-20T10:00:00Z');
-    const d = await fenetreDepuis('entreprise');
+    const d = await fenetreDepuis();
     // 20/08 − 3 j = 17/08 → un message d'INTERNALDATE 18/08 (avant le curseur) tombe DANS la fenêtre. La fenêtre est
     //   curseur-based : la suppression d'un message déjà scanné n'y change RIEN (aucune dépendance à un message côté serveur).
     expect(d?.toISOString()).toBe('2026-08-17T10:00:00.000Z');
@@ -559,25 +559,25 @@ describe('P1 — curseur (fin de scan réussi), marge 3 j, plafond chronologique
 
   it('curseur null (premier run / journal purgé) → repli backfill via dateDepart, sans erreur ; ni curseur ni demande → null', async () => {
     etat.curseur = null; etat.depuis = new Date('2026-07-01T00:00:00Z');
-    expect((await fenetreDepuis('entreprise'))?.toISOString()).toBe('2026-07-01T00:00:00.000Z'); // backfill complet
+    expect((await fenetreDepuis())?.toISOString()).toBe('2026-07-01T00:00:00.000Z'); // backfill complet
     etat.depuis = null;
-    expect(await fenetreDepuis('entreprise')).toBeNull(); // pas de connexion, aucune exception
+    expect(await fenetreDepuis()).toBeNull(); // pas de connexion, aucune exception
   });
 
   it('panne de 10 jours : le curseur figé remonte la fenêtre de 10 j + marge (couvre tout l’intervalle)', async () => {
     etat.curseur = new Date('2026-08-01T12:00:00Z'); // dernier scan réussi il y a 10 j
-    expect((await fenetreDepuis('entreprise'))?.toISOString()).toBe('2026-07-29T12:00:00.000Z'); // 01/08 − 3 j
+    expect((await fenetreDepuis())?.toISOString()).toBe('2026-07-29T12:00:00.000Z'); // 01/08 − 3 j
   });
 
   it('une semaine SANS mail : le curseur avance quand même (termine_le du run réussi) → la fenêtre SUIT, ne grossit pas', async () => {
     etat.curseur = new Date('2026-08-10T00:00:00Z');
-    expect((await fenetreDepuis('entreprise'))?.toISOString()).toBe('2026-08-07T00:00:00.000Z');
+    expect((await fenetreDepuis())?.toISOString()).toBe('2026-08-07T00:00:00.000Z');
     etat.curseur = new Date('2026-08-17T00:00:00Z'); // +7 j (7 passes réussies, 0 mail) → le curseur a avancé
-    expect((await fenetreDepuis('entreprise'))?.toISOString()).toBe('2026-08-14T00:00:00.000Z'); // fenêtre toujours ~3 j, PAS 2 semaines
+    expect((await fenetreDepuis())?.toISOString()).toBe('2026-08-14T00:00:00.000Z'); // fenêtre toujours ~3 j, PAS 2 semaines
   });
 
   it('curseur EXCLUT les relèves approfondies ET les passes tronquées par le plafond (fragments SQL)', async () => {
-    await fenetreDepuis('entreprise');
+    await fenetreDepuis();
     const sql = trouver(/max\(termine_le\) AS t FROM releve_run/i)!.sql.replace(/\s+/g, ' ');
     expect(sql).toContain("resultat = 'ok'");
     expect(sql).toContain("declencheur = 'planifie'");    // 'approfondi' ne déplace JAMAIS le curseur courant
@@ -703,5 +703,59 @@ describe('LOT 2 — porte expéditeur (domaines dérivés + garde-fou)', () => {
     const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
     expect(suivi.recherches.some((c) => c.from === 'paris.fr')).toBe(false);
     expect(r.retenus).toBe(0);
+  });
+});
+
+describe('LOT 2 — rattachement par identifiant unique, INDÉPENDANT du profil (la boîte est unique)', () => {
+  // Une demande PERSONNE (profil ≠ boîte relevée), canal formulaire (dest_email vide), porteuse de sa réf. mairie SLC.
+  const PERS_233 = { id: 233, reference: 'SVAV-DEM-2026-000157', dest_email: '', message_ids: [] as string[], num_daus: [] as string[], refs_externes: ['SLC260818242370'] };
+  const parReference = (uid: number) => (refs: string[]) => (refs.includes('SLC260818242370') ? [uid] : []);
+
+  it('① cas réel du 20/08 : message relevé sous la boîte ENTREPRISE, réf. mairie sur une demande PERSONNE → RATTACHÉ (étape 2ter)', async () => {
+    etat.candidates = [PERS_233]; etat.domaines = []; // aucun domaine dest_email : le message entre par la recherche de RÉFÉRENCE
+    const message = boite({ deAdresse: 'no-reply@paris.fr', objet: 'Réponse à votre demande numéro SLC260818242370', corpsTexte: 'Bonjour.' });
+    const { client } = fauxClient([message], undefined, parReference(message.uid));
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS }); // boîte entreprise, demande personne
+    expect(r.retenus).toBe(1);
+    expect(r.rattaches).toBe(1);
+    expect(r.lignes[0]).toMatchObject({ demandeId: 233, methode: 'reference_mairie' });
+  });
+
+  it('④ non-régression : un rattachement mono-profil (référence complète dans l’objet) fonctionne à l’identique', async () => {
+    etat.candidates = [CAND_A]; etat.domaines = ['mairie-aubervilliers.fr'];
+    const { client } = fauxClient([boite({ deAdresse: 'urba@mairie-aubervilliers.fr', objet: 'RE — réf. SVAV-DEM-2026-000154', corpsTexte: 'pièces jointes' })]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.rattaches).toBe(1);
+    expect(r.lignes[0]).toMatchObject({ demandeId: 1, methode: 'reference_objet' });
+  });
+
+  it('⑤ rétention : un message citant une référence connue d’un AUTRE profil, venu d’un expéditeur HORS domaine → RETENU (pas hors périmètre)', async () => {
+    etat.candidates = [PERS_233]; etat.domaines = ['mairie-aubervilliers.fr']; // le message ne vient PAS de ce domaine
+    const message = boite({ deAdresse: 'expediteur-inconnu@autre.fr', objet: 'référence SLC260818242370', corpsTexte: 'Bonjour.' });
+    const { client } = fauxClient([message], undefined, parReference(message.uid));
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.horsPerimetre).toBe(0);
+    expect(r.retenus).toBe(1);
+    expect(r.lignes[0]).toMatchObject({ demandeId: 233, methode: 'reference_mairie' });
+  });
+
+  it('preuve structurelle : plus AUCUNE des requêtes du périmètre ne lie le profil du demandeur', async () => {
+    etat.candidates = [PERS_233];
+    const { client } = fauxClient([]);
+    await releverBoite({ client, profil: 'entreprise' }); // SANS depuis → dateDepart émise (curseur null par défaut)
+    const requetes: [string, RegExp][] = [
+      ['candidates (lireEnvoyees)', /array_agg\(a\.message_id\)/i],
+      ['clés n° dossier (lireReferencesRecherche)', /\(dd\.satisfait_le IS NULL\) DESC/i],
+      ['clés réf. mairie (lireReferencesRecherche)', /DISTINCT re\.reference/i],
+      ['domaines destinataires', /split_part\(dest_email/i],
+      ['domaines dérivés', /di\.site_internet/i],
+      ['fenêtre backfill (dateDepart)', /LEAST\(/i],
+    ];
+    for (const [nom, re] of requetes) {
+      const a = trouver(re);
+      expect(a, `requête introuvable : ${nom}`).toBeTruthy();
+      expect(a!.sql.replace(/\s+/g, ' '), `${nom} lie encore le profil`).not.toContain('profil_demandeur');
+      expect(a!.params, `${nom} passe encore un paramètre lié`).toHaveLength(0);
+    }
   });
 });

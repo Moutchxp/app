@@ -154,6 +154,37 @@ describe('R3f — référence mairie (après numéro de dossier, avant discrète
   });
 });
 
+describe('LOT 2 — la cascade compare des identifiants uniques, TOUS PROFILS confondus (la garde d’ambiguïté aussi)', () => {
+  // A = entreprise, P = personne : la cascade est agnostique au profil ; c'est releverBoite qui lui fournit désormais des
+  //   candidates tous profils. Ces cas prouvent que, quand les candidates MÊLENT les profils, l'identifiant unique rattache
+  //   à travers eux et la garde d'ambiguïté (≥2 → aucun) s'entend tous profils confondus.
+  it('② même référence MAIRIE sur deux demandes de profils DIFFÉRENTS → aucun (garde d’ambiguïté inter-profils)', () => {
+    const ent = { ...A, referencesExternes: ['SLC260818242370'] };       // entreprise
+    const pers = { ...P, referencesExternes: ['SLC260818242370'] };      // personne, MÊME référence mairie
+    const r = rattacherReponse(msg({ objet: 'Réponse — référence SLC260818242370' }), [ent, pers]);
+    expect(r).toMatchObject({ demandeId: null, methode: 'aucun' });
+    expect(r.motif).toMatch(/ambigu/i);
+  });
+
+  it('③ référence MAIRIE d’une demande PERSONNE citée, candidates mêlées → rattaché à la personne (2ter, à travers les profils)', () => {
+    const ent = { ...A, referencesExternes: ['SLC260810440700'] };       // entreprise (autre réf)
+    const pers = { ...P, referencesExternes: ['SLC260818242370'] };      // personne (la réf citée)
+    const r = rattacherReponse(msg({ objet: 'Réponse à votre demande numéro SLC260818242370' }), [ent, pers]);
+    expect(r).toMatchObject({ demandeId: 2, methode: 'reference_mairie' }); // P = personne
+  });
+
+  it('③ référence DISCRÈTE d’une demande PERSONNE (corps) parmi des candidates mêlées → reference_corps (à travers les profils)', () => {
+    const r = rattacherReponse(msg({ objet: 'Demande de communication de documents administratifs', corpsTexte: 'Votre référence 2026-000200 a été traitée.' }), [A, P]);
+    expect(r).toMatchObject({ demandeId: 2, methode: 'reference_corps' }); // P = personne, relève pouvant être entreprise
+  });
+
+  it('③ discrète désignant DEUX demandes de profils différents (deux réfs dans le corps) → aucun', () => {
+    const r = rattacherReponse(msg({ corpsTexte: 'anciens numéros 2026-000154 et 2026-000200 traités.' }), [A, P]);
+    expect(r).toMatchObject({ demandeId: null, methode: 'aucun' }); // A entreprise + P personne toutes deux désignées
+    expect(r.motif).toMatch(/ambigu/i);
+  });
+});
+
 describe('R2 — ambiguïté & rien', () => {
   it('deux références complètes distinctes désignant deux demandes → aucun', () => {
     const r = rattacherReponse(msg({ corpsTexte: 'réfs SVAV-DEM-2026-000154 et SVAV-DEM-2026-000200 concernées' }), [A, P]);
