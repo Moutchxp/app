@@ -1,6 +1,8 @@
 /**
- * N3-E — DÉCISION PURE des PARCELLES cadastrales d'un permis. Aucune base, aucune IA. Le CERFA fait foi (bloc T2 : préfixe +
- * section + numéro + superficie PAR parcelle, non plafonné, 3 emplacements) ; SITADEL corrobore (sec/num_cadastre1..3, plafonné à 3).
+ * N3-E — DÉCISION PURE des PARCELLES cadastrales d'un permis. Aucune base, aucune IA. Le CERFA fait foi par DEUX sources de même
+ * autorité : le bloc T2 (préfixe + section + numéro + superficie PAR parcelle, 3 emplacements) ET, N10-G, l'ANNEXE 4 (fiche
+ * complémentaire : réf. « DH18 » en un seul champ « T5Z?3 » + superficie « T5Z?4 », slots lettrés NON plafonnés). SITADEL corrobore
+ * (sec/num_cadastre1..3, plafonné à 3) — d'où une 4e parcelle du Cerfa légitimement absente de Sitadel (absence ATTENDUE, pas un doute).
  * L'IDU est calculé via la COMMUNE CADASTRALE (arrondissement dérivé du numéro de dossier — garde `communeCadastrale`) ; s'il ne peut
  * pas être tranché, la parcelle reste connue mais NON rattachée (idu null + motif), jamais une parcelle fausse.
  *
@@ -69,6 +71,39 @@ export function decisionParcelles(champsCerfa: ChampCerfa[], sitadel: ParcelleSi
       confiance: corrobore && inseeCad ? 'confirmee' : 'a_verifier',
       reserve: reserves.length ? reserves.join(' ; ') : null,
       provenance: `Cerfa ${s.section}/${s.numero}/${s.superficie} (parcelle ${s.rang})`,
+    });
+  }
+
+  // 1bis) parcelles de l'ANNEXE 4 du Cerfa (fiche complémentaire des parcelles) — MÊME AUTORITÉ que le bloc T2 (le Cerfa fait foi).
+  //   Forme mesurée : la référence tient dans UN SEUL champ « T5Z?3 » (« DH18 » = section + numéro collés, sans préfixe) ; la
+  //   superficie est dans son jumeau « T5Z?4 ». Slots lettrés (A, B, C, …) NON plafonnés → on énumère tous les « T5Z?3 » présents.
+  //   ⚠️ Noms calés sur cette annexe (comme T2 l'est sur le 13409*15) : d'autres millésimes pourront demander à les étendre.
+  const slotsAnnexe = [...idx.keys()].filter((n) => /^T5Z[A-Z]3$/.test(n)).sort();
+  for (const refNom of slotsAnnexe) {
+    const m = /^\s*([A-Za-z]+)\s*(\d+)\s*$/.exec(val(refNom));
+    if (!m) continue;                                  // référence illisible → ignorée (rien d'inventé)
+    const section = m[1].toUpperCase(), numero = m[2];
+    const k = cle(section, numero);
+    if (cerfaCles.has(k)) continue;                    // déjà donnée par le bloc T2 → pas de doublon (dédup section/numéro)
+    cerfaCles.add(k);
+    const supNom = refNom.replace(/3$/, '4');
+    const superficie = nombre(val(supNom));
+    const corrobore = sitadelCles.has(k);
+    const idu = inseeCad ? versIdu({ insee: inseeCad, prefixe: '000', section, numero }) : null;
+    const reserves: string[] = [];
+    if (!inseeCad && motifCommune) reserves.push(motifCommune);
+    // Non corroborée par Sitadel : quand Sitadel est SATURÉ (3 parcelles), l'absence d'une 4e est ATTENDUE — la parcelle est
+    // déclarée au Cerfa, son existence n'est PAS en doute (source Sitadel tronquée), ne pas la lire comme une contradiction.
+    if (!corrobore) reserves.push(
+      sitadelCles.size >= 3
+        ? 'parcelle déclarée à l’annexe 4 du Cerfa ; non reprise par Sitadel, plafonné à 3 parcelles — absence attendue, aucune incidence sur son existence (à corroborer géométriquement, pas à vérifier)'
+        : 'parcelle déclarée à l’annexe 4 du Cerfa mais absente des références Sitadel',
+    );
+    parcelles.push({
+      prefixe: '000', section, numero, superficieDeclareeM2: superficie, role: 'origine', idu,
+      confiance: corrobore && inseeCad ? 'confirmee' : 'a_verifier',
+      reserve: reserves.length ? reserves.join(' ; ') : null,
+      provenance: `Cerfa annexe 4 (${refNom}/${supNom})`,
     });
   }
 
