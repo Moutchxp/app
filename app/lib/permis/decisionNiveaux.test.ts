@@ -129,8 +129,82 @@ describe('decisionNiveaux — N9-C ancrage LOT/PLN', () => {
     // ici 87,13 n'est que sur PC40 → non corroboré → toiture ; le motif cite bien l'acrotère vu 1 fois
     expect(c('2D2').sommet!.note).toContain('87.13');
   });
-  it('faux positifs écartés : « LOT 2D » (sans chiffre) et un hash « 2d5567 » ne créent aucun corps', () => {
+  it('N10-A — aucun repère inventé : « LOT 2D » (sans chiffre) et un hash « 2d5567 » ne créent aucun corps TITRÉ ; le tableau sans titre devient UN corps sans titre', () => {
     const bruit = decisionNiveaux(ged([piece(1, 'MASSE.pdf', [page(1, 'LOT 2D plan masse 2d5567 Rdc R01 R02 R03 TOITURE  +56m NGF +61m NGF +64m NGF +68m NGF +86m NGF')])]));
-    expect(bruit.corps).toHaveLength(0);
+    expect(bruit.corps).toHaveLength(1);
+    expect(bruit.corps[0].repere).toBeNull();                       // aucun « 2D5 » inventé depuis le hash ou le « LOT 2D » sans chiffre
+    expect(bruit.corps.map((c) => c.repere)).not.toContain('2D5');
+    expect(bruit.nonAttribue).toBeNull();                            // un seul jeu → attribué (corps sans titre)
+  });
+});
+
+// ── N10-A : convention 07512024V0037 — cote AVANT le label, sans « + » ni « m », « (NGF) » listé À PART ; labels signés R-1/R+n ;
+//    AUCUN titre de bâtiment ; un niveau NOMMÉ hors vocabulaire (« BIBLIOTHEQUE NZI » à 50,83) ; superstructures cotées au-dessus. ──
+const COUPE_37 =
+  '50,83 BIBLIOTHEQUE NZI  60,83 R-1  65,23 RDC  71,23 R+1  74,63 R+2  80,83 R+3  84,63 R+4  92,63 R+5  97,13 TOITURE  ' +
+  '60,83 (NGF) 60,50 (NVP)  97,13 (NGF) 96,80 (NVP)  100,00 (NGF) 99,67 (NVP)  108,93 (NGF) 108,60 (NVP)  hauteur maximale PLU';
+const corpus37 = () => ged([piece(1, 'PC3.1_Coupe_AA.pdf', [page(1, COUPE_37)]), piece(2, 'PC40.5_Coupes.pdf', [page(1, COUPE_37)])]);
+
+describe('N10-A — convention 07512024V0037 : ancre/vocab/sérialisation ouverts, corps unique sans titre', () => {
+  const d = decisionNiveaux(corpus37());
+  const c = d.corps;
+
+  it('① lu et attribué à UN corps unique SANS TITRE ; 4 champs avec valeurs et confiances, R-1 en a_verifier', () => {
+    expect(c).toHaveLength(1);
+    expect(c[0].repere).toBeNull();
+    expect(c[0].plancher).toMatchObject({ valeur: 92.63, label: 'R05', confiance: 'confirmee' }); // plus haut étage R+5
+    expect(c[0].nbEtages).toMatchObject({ valeur: 5, confiance: 'confirmee' });                    // R+1..R+5
+    expect(c[0].nbSousSol!.valeur).toBe(1);                                                          // R-1
+    expect(c[0].nbSousSol!.confiance).toBe('a_verifier');                                            // R-n FORCÉ a_verifier (décision Arno)
+    expect(c[0].nbSousSol!.reserve).toMatch(/R-n|air libre|pente/i);                                 // réserve nommant le doute
+    expect(c[0].sommet).toMatchObject({ valeur: 97.13, qualif: 'toiture', confiance: 'confirmee' }); // plus haut niveau NOMMÉ
+  });
+
+  it('④ le libellé HORS vocabulaire « BIBLIOTHEQUE NZI » est capté (50,83), pas jeté — et n’empêche pas la lecture', () => {
+    expect(c[0].plancher).not.toBeNull();                                                            // la lecture n'a pas échoué
+    const nz = c[0].niveauxNommes.find((n) => /BIBLIOTHEQUE/i.test(n.label));
+    expect(nz).toBeTruthy();
+    expect(nz!.cote).toBe(50.83);
+    expect(c[0].niveaux.some((n) => /BIBLIOTHEQUE/i.test(n.label))).toBe(false);                     // non compté dans l'échelle vocab
+  });
+
+  it('⑤ une cote au-dessus du plus haut niveau nommé est journalisée AVEC provenance, et le sommet porte la réserve', () => {
+    expect(c[0].superstructures.some((s) => s.cote === 108.93)).toBe(true);
+    expect(c[0].superstructures.some((s) => s.cote === 100.00)).toBe(true);
+    for (const s of c[0].superstructures) { expect(s.piece).toBeTruthy(); expect(s.page).toBeGreaterThan(0); } // provenance
+    expect(c[0].superstructures.every((s) => s.cote > 97.13)).toBe(true);                             // jamais la toiture ni en dessous
+    expect(c[0].sommet!.note).toMatch(/RÉSERVE/);
+    expect(c[0].sommet!.note).toMatch(/LiDAR|SOUS-ESTIMER/i);                                          // le motif du sens d'erreur dangereux
+  });
+});
+
+describe('N10-A — sérialisation ouverte aux deux ordres (③)', () => {
+  const TABLE_COTE_APRES = 'R-1 60,83  RDC 65,23  R+1 71,23  R+2 74,63  R+3 80,83  R+4 84,63  R+5 92,63  TOITURE 97,13'; // label puis cote
+  const TABLE_COTE_AVANT = '60,83 R-1  65,23 RDC  71,23 R+1  74,63 R+2  80,83 R+3  84,63 R+4  92,63 R+5  97,13 TOITURE'; // cote puis label
+  const TABLE_AVEC_UNITE = 'R-1 +60,83 m NGF  RDC +65,23 m NGF  R+1 +71,23 m NGF  R+2 +74,63 m NGF  R+3 +80,83 m NGF  R+4 +84,63 m NGF  R+5 +92,63 m NGF  TOITURE +97,13 m NGF';
+  const lire = (t: string) => decisionNiveaux(ged([piece(1, 'A.pdf', [page(1, t)]), piece(2, 'B.pdf', [page(1, t)])])).corps[0];
+
+  it('cote AVANT, cote APRÈS, et avec unité « +…m NGF » → MÊME échelle et mêmes champs', () => {
+    const ap = lire(TABLE_COTE_APRES), av = lire(TABLE_COTE_AVANT), un = lire(TABLE_AVEC_UNITE);
+    const sig = (x: ReturnType<typeof lire>) => x.niveaux.map((n) => `${n.label}=${n.cote}`).join('|');
+    expect(sig(av)).toBe(sig(ap));
+    expect(sig(un)).toBe(sig(ap));
+    for (const x of [ap, av, un]) {
+      expect(x.plancher).toMatchObject({ valeur: 92.63, label: 'R05' });
+      expect(x.nbEtages!.valeur).toBe(5);
+      expect(x.nbSousSol!.valeur).toBe(1);
+      expect(x.sommet!.valeur).toBe(97.13);
+    }
+  });
+});
+
+describe('N10-A — deux jeux d’altitudes distincts SANS titre → aucune attribution (⑥)', () => {
+  const JEU_A = '60,83 R-1  65,23 RDC  71,23 R+1  74,63 R+2  97,13 TOITURE';
+  const JEU_B = '50,00 R-1  55,00 RDC  60,00 R+1  65,00 R+2  90,00 TOITURE';
+  const d = decisionNiveaux(ged([piece(1, 'A.pdf', [page(1, JEU_A)]), piece(2, 'B.pdf', [page(1, JEU_B)])]));
+
+  it('aucun corps attribué + motif journalisable', () => {
+    expect(d.corps).toHaveLength(0);
+    expect(d.nonAttribue).toMatch(/jeux|distinct/i);
   });
 });

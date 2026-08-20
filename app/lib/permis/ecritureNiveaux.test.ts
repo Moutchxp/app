@@ -28,17 +28,18 @@ const decision = (): DecisionNiveaux => ({
     { repere: '2D1', niveaux: [], sources: [src('PC3.pdf', 2)], nbPieces: 3,
       plancher: { valeur: 84.57, label: 'R07', confiance: 'confirmee', sources: [src('PC3.pdf', 2)] },
       nbEtages: { valeur: 7, confiance: 'confirmee', sources: [src('PC3.pdf', 2)], tension: null },
-      nbSousSol: { valeur: 1, confiance: 'confirmee', sources: [src('PC3.pdf', 2)] },
+      nbSousSol: { valeur: 1, confiance: 'confirmee', sources: [src('PC3.pdf', 2)], reserve: null },
       sommet: { valeur: 88.91, confiance: 'confirmee', qualif: 'acrotere', label: 'Acrotère', ecart: 0.5, sources: [src('PC3.pdf', 2)], note: null },
-      gardeCorps: [{ cote: 89.46, pieces: ['PC3.pdf', 'PC40.pdf'] }] },
+      gardeCorps: [{ cote: 89.46, pieces: ['PC3.pdf', 'PC40.pdf'] }], niveauxNommes: [], superstructures: [] },
     { repere: '2D2', niveaux: [], sources: [src('PC3.pdf', 2)], nbPieces: 3,
       plancher: { valeur: 82.93, label: 'R07', confiance: 'confirmee', sources: [src('PC3.pdf', 2)] },
       nbEtages: { valeur: 7, confiance: 'confirmee', sources: [src('PC3.pdf', 2)], tension: 'la coupe donne 7 niveaux R0n ; le décompte texte dit R+6 (PC4.pdf)' },
-      nbSousSol: { valeur: 1, confiance: 'confirmee', sources: [src('PC3.pdf', 2)] },
+      nbSousSol: { valeur: 1, confiance: 'confirmee', sources: [src('PC3.pdf', 2)], reserve: null },
       sommet: { valeur: 86.11, confiance: 'confirmee', qualif: 'toiture', label: 'TOITURE', ecart: null, sources: [src('PC3.pdf', 2)], note: 'acrotère 87.13 vu sur 1 pièce seulement (non corroboré) → non retenu' },
-      gardeCorps: [] },
+      gardeCorps: [], niveauxNommes: [], superstructures: [] },
   ],
   gardeCorpsAttribue: { cote: 89.46, repere: '2D1' },
+  nonAttribue: null,
 });
 
 const journal = () => H.appels.filter((a) => /INSERT\s+INTO\s+permis_extraction_journal/i.test(a.sql)).map((a) => a.params);

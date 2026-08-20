@@ -17,7 +17,7 @@ import type { DecisionNiveaux, SourceRef } from './decisionNiveaux';
 
 const MOTIF_SAISIE = 'une valeur saisie à la main occupe déjà le champ (non écrasée)';
 export interface ResultatEcritureNiveaux {
-  corps: { repere: string; corpsId: number; cree: boolean; ecrits: string[]; corrections: string[] }[];
+  corps: { repere: string | null; corpsId: number; cree: boolean; ecrits: string[]; corrections: string[] }[];
   sommetPermisEfface: boolean;
 }
 
@@ -51,11 +51,14 @@ export async function ecrireNiveaux(dossierId: number, decision: DecisionNiveaux
 
   for (const c of decision.corps) {
     let corpsId: number, cree = false;
-    if (parRepere.has(c.repere)) corpsId = parRepere.get(c.repere)!;
-    else if (libres.length) { corpsId = libres.shift()!; await definirRepere(corpsId, c.repere, majPar); parRepere.set(c.repere, corpsId); }
-    else { corpsId = await creerCorps(dossierId, c.repere, majPar); cree = true; parRepere.set(c.repere, corpsId); }
+    // N10-A — un corps SANS titre (repere null) réutilise un corps libre (repere reste null) ou en crée un ; on ne l'indexe jamais par repère.
+    if (c.repere !== null && parRepere.has(c.repere)) corpsId = parRepere.get(c.repere)!;
+    else if (libres.length) { corpsId = libres.shift()!; await definirRepere(corpsId, c.repere, majPar); if (c.repere !== null) parRepere.set(c.repere, corpsId); }
+    else { corpsId = await creerCorps(dossierId, c.repere, majPar); cree = true; if (c.repere !== null) parRepere.set(c.repere, corpsId); }
     const avant = ancien.get(corpsId) ?? null;
     const corrections: string[] = [];
+    // N10-A — un extrait ne doit JAMAIS nommer un repère qui n'existe pas : pour un corps sans titre, on parle du « bâtiment sans titre ».
+    const refTxt = c.repere !== null ? `BAT ${c.repere}` : 'bâtiment sans titre';
 
     const valeurs: ValeursCorps = {};
     if (c.nbEtages) (valeurs as Record<string, number>).nbEtages = c.nbEtages.valeur;
@@ -67,12 +70,12 @@ export async function ecrireNiveaux(dossierId: number, decision: DecisionNiveaux
 
     // nb_etages (+ tension éventuelle en réserve)
     if (c.nbEtages) lignes.push(ecrit('nbEtages')
-      ? { corpsId, champ: 'nb_etages', valeur: c.nbEtages.valeur, unite: null, role: 'retenue', confiance: c.nbEtages.confiance, reserve: c.nbEtages.tension, motif: null, piece: s0(c.nbEtages.sources)?.piece ?? null, page: s0(c.nbEtages.sources)?.page ?? null, extrait: extraitDe(s0(c.nbEtages.sources), `${c.nbEtages.valeur} niveaux R0n dans la table BAT ${c.repere}`) }
+      ? { corpsId, champ: 'nb_etages', valeur: c.nbEtages.valeur, unite: null, role: 'retenue', confiance: c.nbEtages.confiance, reserve: c.nbEtages.tension, motif: null, piece: s0(c.nbEtages.sources)?.piece ?? null, page: s0(c.nbEtages.sources)?.page ?? null, extrait: extraitDe(s0(c.nbEtages.sources), `${c.nbEtages.valeur} étages dans la table du ${refTxt}`) }
       : { corpsId, champ: 'nb_etages', valeur: null, unite: null, role: 'ecartee', confiance: null, reserve: null, motif: MOTIF_SAISIE, piece: null, page: null, extrait: null });
 
-    // nb_niveaux_sous_sol
+    // nb_niveaux_sous_sol (réserve R-n portée par la décision, sinon la réserve historique « partage commun/séparé »)
     if (c.nbSousSol) lignes.push(ecrit('nbNiveauxSousSol')
-      ? { corpsId, champ: 'nb_niveaux_sous_sol', valeur: c.nbSousSol.valeur, unite: null, role: 'retenue', confiance: c.nbSousSol.confiance, reserve: 'partage commun/séparé non déterminé', motif: null, piece: s0(c.nbSousSol.sources)?.piece ?? null, page: s0(c.nbSousSol.sources)?.page ?? null, extrait: extraitDe(s0(c.nbSousSol.sources), `SS dans la table BAT ${c.repere}`) }
+      ? { corpsId, champ: 'nb_niveaux_sous_sol', valeur: c.nbSousSol.valeur, unite: null, role: 'retenue', confiance: c.nbSousSol.confiance, reserve: c.nbSousSol.reserve ?? 'partage commun/séparé non déterminé', motif: null, piece: s0(c.nbSousSol.sources)?.piece ?? null, page: s0(c.nbSousSol.sources)?.page ?? null, extrait: extraitDe(s0(c.nbSousSol.sources), `niveau(x) en sous-sol dans la table du ${refTxt}`) }
       : { corpsId, champ: 'nb_niveaux_sous_sol', valeur: null, unite: null, role: 'ecartee', confiance: null, reserve: null, motif: MOTIF_SAISIE, piece: null, page: null, extrait: null });
 
     // altitude_dernier_plancher_ngf — CORRECTION explicite si la valeur en base diffère
@@ -81,7 +84,7 @@ export async function ecrireNiveaux(dossierId: number, decision: DecisionNiveaux
       const corrige = avantV !== null && Math.abs(avantV - c.plancher.valeur) > 1e-9;
       if (corrige) corrections.push(`plancher ${avantV} → ${c.plancher.valeur} (l'ancienne valeur était le ${c.plancher.label} d'un AUTRE bâtiment ; attribution par bâtiment via la table)`);
       lignes.push(ecrit('altitudeDernierPlancherNgf')
-        ? { corpsId, champ: 'altitude_dernier_plancher_ngf', valeur: c.plancher.valeur, unite: 'ngf', role: 'retenue', confiance: c.plancher.confiance, reserve: corrige ? `corrige ${avantV} (était le R07 d'un autre bâtiment)` : null, motif: null, piece: s0(c.plancher.sources)?.piece ?? null, page: s0(c.plancher.sources)?.page ?? null, extrait: extraitDe(s0(c.plancher.sources), `${c.plancher.label} = ${c.plancher.valeur} (table BAT ${c.repere})`) }
+        ? { corpsId, champ: 'altitude_dernier_plancher_ngf', valeur: c.plancher.valeur, unite: 'ngf', role: 'retenue', confiance: c.plancher.confiance, reserve: corrige ? `corrige ${avantV} (était le R07 d'un autre bâtiment)` : null, motif: null, piece: s0(c.plancher.sources)?.piece ?? null, page: s0(c.plancher.sources)?.page ?? null, extrait: extraitDe(s0(c.plancher.sources), `${c.plancher.label} = ${c.plancher.valeur} (table du ${refTxt})`) }
         : { corpsId, champ: 'altitude_dernier_plancher_ngf', valeur: null, unite: null, role: 'ecartee', confiance: null, reserve: null, motif: MOTIF_SAISIE, piece: null, page: null, extrait: null });
     }
 
@@ -91,14 +94,23 @@ export async function ecrireNiveaux(dossierId: number, decision: DecisionNiveaux
       const corrige = avantV !== null && Math.abs(avantV - c.sommet.valeur) > 1e-9;
       if (corrige) corrections.push(`sommet ${avantV} → ${c.sommet.valeur} (${c.sommet.label})`);
       lignes.push(ecrit('altitudeSommetNgf')
-        ? { corpsId, champ: 'altitude_sommet_ngf', valeur: c.sommet.valeur, unite: 'ngf', role: 'retenue', confiance: c.sommet.confiance, reserve: `${c.sommet.label}${c.sommet.ecart !== null ? ` (écart +${c.sommet.ecart} m au-dessus de la toiture du bâtiment)` : ''}${c.sommet.note ? ` — ${c.sommet.note}` : ''}`, motif: null, piece: s0(c.sommet.sources)?.piece ?? null, page: s0(c.sommet.sources)?.page ?? null, extrait: extraitDe(s0(c.sommet.sources), `${c.sommet.label} = ${c.sommet.valeur} (${c.repere})`) }
+        ? { corpsId, champ: 'altitude_sommet_ngf', valeur: c.sommet.valeur, unite: 'ngf', role: 'retenue', confiance: c.sommet.confiance, reserve: `${c.sommet.label}${c.sommet.ecart !== null ? ` (écart +${c.sommet.ecart} m au-dessus de la toiture du bâtiment)` : ''}${c.sommet.note ? ` — ${c.sommet.note}` : ''}`, motif: null, piece: s0(c.sommet.sources)?.piece ?? null, page: s0(c.sommet.sources)?.page ?? null, extrait: extraitDe(s0(c.sommet.sources), `${c.sommet.label} = ${c.sommet.valeur} (${c.repere ?? 'sans titre'})`) }
         : { corpsId, champ: 'altitude_sommet_ngf', valeur: null, unite: null, role: 'ecartee', confiance: null, reserve: null, motif: MOTIF_SAISIE, piece: null, page: null, extrait: null });
     }
     // garde-corps : jamais retenu comme sommet (ajouré : ni mesuré au LiDAR ni masquant) → journalisé écarté avec son étiquette
     for (const g of c.gardeCorps) lignes.push({ corpsId, champ: 'altitude_sommet_ngf', valeur: g.cote, unite: 'ngf', role: 'ecartee', confiance: null, reserve: null, motif: `garde-corps à lisse (ajouré : ni mesuré par le MNS LiDAR ni masquant) — jamais retenu comme sommet`, piece: g.pieces[0] ?? null, page: null, extrait: `garde-corps = ${g.cote}` });
 
+    // N10-A — niveaux NOMMÉS hors vocabulaire (ex. « BIBLIOTHEQUE NZI » à 50,83) : captés et journalisés, JAMAIS jetés, jamais comptés.
+    for (const nv of c.niveauxNommes) lignes.push({ corpsId, champ: 'niveau_nomme', valeur: nv.cote, unite: 'ngf', role: 'ecartee', confiance: null, reserve: null, motif: `libellé hors vocabulaire « ${nv.label} » — capté et journalisé, non compté dans les étages/sous-sols`, piece: nv.pieces[0] ?? null, page: null, extrait: `${nv.label} = ${nv.cote}` });
+
+    // N10-A — SUPERSTRUCTURES : cotes au-dessus du plus haut niveau nommé (hauteur PLU, ombrières PV…) — écartées AVEC pièce/page, jamais appariées.
+    for (const su of c.superstructures) lignes.push({ corpsId, champ: 'altitude_sommet_ngf', valeur: su.cote, unite: 'ngf', role: 'ecartee', confiance: null, reserve: null, motif: `cote au-dessus du plus haut niveau nommé (superstructure : hauteur PLU / ombrière…) — jamais appariée ; le MNS LiDAR la mesurerait, donc le sommet retenu peut sous-estimer l'obstacle (alerte lot B)`, piece: su.piece, page: su.page, extrait: `superstructure ${su.cote} NGF` });
+
     resCorps.push({ repere: c.repere, corpsId, cree, ecrits: res.ecrits, corrections });
   }
+
+  // N10-A — NON-ATTRIBUTION : ≥2 jeux d'altitudes distincts SANS titre → aucun corps ; on JOURNALISE le motif (jamais un échec muet).
+  if (decision.nonAttribue) lignes.push({ corpsId: null, champ: 'corps', valeur: null, unite: null, role: 'ecartee', confiance: null, reserve: null, motif: decision.nonAttribue, piece: null, page: null, extrait: null });
 
   // Niveau PERMIS : le sommet 89,46 de N8-B est désormais ATTRIBUÉ (garde-corps de 2D1) → sans objet. On EFFACE (invariant : jamais
   // une saisie) et on journalise la réattribution, pour ne pas laisser une valeur ni une réserve devenues fausses.
