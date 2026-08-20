@@ -420,3 +420,38 @@ describe('N10-C — ⑤ détection « Cerfa = scan sans champ lisible » (method
     expect(cerfaEstScanSansChamps({ surface_plancher_m2: j('cerfa') }, false)).toBe(false);
   });
 });
+
+describe('N10-E — la limite PLU à côté du sommet + dépassement signalé (jamais bloquant)', () => {
+  const rendreSommet = (props: Partial<Parameters<typeof ChampMesureEditeur>[0]>) =>
+    renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: sommet, valeur: '97.13', origine: 'saisie', valeurBase: 97.13, onValeur: noop, onValider: noop, ...props }));
+  const pluMesure = MESURES.find((m) => m.cle === 'hauteurMaxPluNgf')!;
+
+  it('la limite PLU s’affiche À CÔTÉ de la hauteur retenue', () => {
+    const h = rendreSommet({ limitePluNgf: 101 });
+    expect(h).toContain('limite PLU : 101 m');
+    expect(h).toContain('hauteur retenue : 97.13 m');
+  });
+
+  it('hauteur retenue SOUS la limite → pas d’alerte de dépassement', () => {
+    const h = rendreSommet({ limitePluNgf: 101, valeurBase: 97.13 });
+    expect(h).not.toContain('dépasse la limite');
+  });
+
+  it('hauteur retenue AU-DESSUS de la limite → dépassement SIGNALÉ, non bloquant', () => {
+    const h = rendreSommet({ limitePluNgf: 101, valeurBase: 105 });
+    expect(h).toContain('dépasse la limite PLU (101 m)');
+    expect(h).toContain('non bloquant');
+  });
+
+  it('sans limite renseignée → aucune ligne « limite PLU »', () => {
+    expect(rendreSommet({ limitePluNgf: null })).not.toContain('limite PLU');
+  });
+
+  it('la hauteur max PLU est un champ ordinaire (input + libellé), sans violet ni « Valider »', () => {
+    const h = renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: pluMesure, valeur: '101', origine: 'saisie', onValeur: noop }));
+    expect(h).toContain('Hauteur maximale PLU (NGF)');
+    expect(h).toContain('value="101"');
+    expect(h).not.toContain('à confirmer');
+    expect(h).not.toContain('Valider cette hauteur');
+  });
+});

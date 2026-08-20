@@ -41,12 +41,13 @@ const BORNES: Record<string, Bornes> = {
   nb_etages: { min: 0, max: 70 },
   nb_niveaux_sous_sol: { min: 0, max: 10 },
   altitude_sommet_ngf: { min: -50, max: 500 },
+  hauteur_max_plu_ngf: { min: -50, max: 500 }, // N10-E
   altitude_dernier_plancher_ngf: { min: -50, max: 500 },
   hauteur_relative_m: { min: 0, max: 300 },
   altitude_terrain_naturel_ngf: { min: -50, max: 500 },
 };
 const edCorps = (over: Partial<EditionCorps> = {}): EditionCorps => ({
-  repere: '', adresse: '', nbEtages: '', nbNiveauxSousSol: '', altitudeDernierPlancherNgf: '', altitudeSommetNgf: '', hauteurRelativeM: '', altitudeTerrainNaturelNgf: '', ...over,
+  repere: '', adresse: '', nbEtages: '', nbNiveauxSousSol: '', altitudeDernierPlancherNgf: '', altitudeSommetNgf: '', hauteurMaxPluNgf: '', hauteurRelativeM: '', altitudeTerrainNaturelNgf: '', ...over,
 });
 
 describe('N3-C — construireCorps : vide → null explicite, bornes de la base, entiers', () => {
@@ -61,6 +62,14 @@ describe('N3-C — construireCorps : vide → null explicite, bornes de la base,
     const { valeurs } = construireCorps(edCorps({ nbEtages: '0', altitudeSommetNgf: '42.5' }), BORNES);
     expect(valeurs.nbEtages).toBe(0);            // 0 posé, PAS null
     expect(valeurs.altitudeSommetNgf).toBe(42.5);
+  });
+
+  it('N10-E — la hauteur maximale PLU est un champ de corps comme les autres (parsé + borné)', () => {
+    expect(construireCorps(edCorps({ hauteurMaxPluNgf: '101' }), BORNES).valeurs.hauteurMaxPluNgf).toBe(101);
+    const ko = construireCorps(edCorps({ hauteurMaxPluNgf: '999' }), BORNES); // hors bornes NGF
+    expect(ko.valide).toBe(false);
+    expect(ko.erreurs.hauteurMaxPluNgf).toContain('-50 et 500');
+    expect('hauteurMaxPluNgf' in ko.valeurs).toBe(false); // champ hors bornes exclu (non touché)
   });
 
   it('valeur HORS BORNES → refusée + message citant les bornes RÉELLES ; champ exclu du corps (non touché)', () => {

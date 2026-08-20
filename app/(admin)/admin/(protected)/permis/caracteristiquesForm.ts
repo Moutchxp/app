@@ -37,6 +37,9 @@ export const MESURES: readonly Mesure[] = [
   { cle: 'altitudeDernierPlancherNgf', colonne: 'altitude_dernier_plancher_ngf', libelle: 'Altitude du dernier plancher (NGF)', unite: 'm', entier: false },
   { cle: 'altitudeSommetNgf', colonne: 'altitude_sommet_ngf', libelle: 'Altitude du sommet (NGF)', unite: 'm', entier: false, estSommet: true,
     aide: 'Le HAUT de la construction (acrotère ou faîtage), pas le dernier plancher. C’est la valeur qui compte.' },
+  // N10-E — la limite administrative du PLU, à côté du sommet (l'écart doit sauter aux yeux). NGF ABSOLU pour être comparable au sommet.
+  { cle: 'hauteurMaxPluNgf', colonne: 'hauteur_max_plu_ngf', libelle: 'Hauteur maximale PLU (NGF)', unite: 'm', entier: false,
+    aide: 'Limite fixée par le règlement du PLU, en NGF ABSOLU (comparable au sommet). Si le règlement donne une hauteur RELATIVE, l’additionner à l’altitude du plateau de nivellement (lisible sur la coupe) avant de la saisir. Vaut pour ce bâtiment.' },
   { cle: 'hauteurRelativeM', colonne: 'hauteur_relative_m', libelle: 'Hauteur relative', unite: 'm', entier: false },
   { cle: 'altitudeTerrainNaturelNgf', colonne: 'altitude_terrain_naturel_ngf', libelle: 'Altitude du terrain naturel (NGF)', unite: 'm', entier: false },
 ];
@@ -47,6 +50,7 @@ export interface EditionCorps {
   adresse: string; // N7-E — adresse déclarée du corps (saisie manuelle) ; écrite via definirAdresseCorps, pas via construireCorps
   nbEtages: string; nbNiveauxSousSol: string;
   altitudeDernierPlancherNgf: string; altitudeSommetNgf: string;
+  hauteurMaxPluNgf: string; // N10-E — limite PLU (NGF)
   hauteurRelativeM: string; altitudeTerrainNaturelNgf: string;
 }
 /** Parking en TROIS états distincts : '' = non renseigné (NULL), 'oui' = true, 'non' = false. Jamais une case à cocher binaire. */

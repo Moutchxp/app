@@ -300,11 +300,14 @@ function champDiffereBase(valeurChamp: string, base: number | null | undefined):
   return (c ?? null) !== ((base ?? null) as number | null);
 }
 
-export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, confirmeLe, confirmeParNom, valeurAuto, valeurBase, onValider, onValeur }: {
+export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, confirmeLe, confirmeParNom, valeurAuto, valeurBase, limitePluNgf, onValider, onValeur }: {
   mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece;
-  confirmeLe?: string | null; confirmeParNom?: string | null; valeurAuto?: number | null; valeurBase?: number | null; onValider?: () => void; onValeur: (v: string) => void;
+  confirmeLe?: string | null; confirmeParNom?: string | null; valeurAuto?: number | null; valeurBase?: number | null; limitePluNgf?: number | null; onValider?: () => void; onValeur: (v: string) => void;
 }) {
   const estSommet = mesure.estSommet === true;
+  // N10-E — la LIMITE PLU s'affiche À CÔTÉ du sommet, pour que l'écart saute aux yeux. On SIGNALE un dépassement (hauteur retenue > limite),
+  //   on N'INTERDIT PAS : un bâtiment peut légitimement dépasser un gabarit (superstructures techniques) ; ce n'est pas à nous d'arbitrer.
+  const depasseLimite = estSommet && valeurBase !== null && valeurBase !== undefined && limitePluNgf !== null && limitePluNgf !== undefined && valeurBase > limitePluNgf;
   // « à confirmer » (violet) : le SOMMET extrait, JAMAIS examiné (origine 'extraite' ET confirme_le null). Une décision humaine (saisie
   //   validée) l'éteint. La TRACE « validée par NOM le … » s'affiche dès qu'une validation existe (confirme_le posé), quelle que soit l'origine.
   const aConfirmer = estSommet && origine === 'extraite' && !confirmeLe;
@@ -326,6 +329,11 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
         onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label={mesure.libelle} />
       <span style={styleAide}>{libelleBornes(mesure, bornes)}</span>
       {estSommet && <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}>{mesure.aide}</span>}
+      {/* N10-E — la limite PLU À CÔTÉ de la hauteur retenue + le dépassement signalé (jamais bloquant). */}
+      {estSommet && limitePluNgf !== null && limitePluNgf !== undefined && (
+        <span style={styleAide}>limite PLU : {limitePluNgf} m{valeurBase !== null && valeurBase !== undefined ? ` — hauteur retenue : ${valeurBase} m` : ''}</span>
+      )}
+      {depasseLimite && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-red)' }}>⚠ la hauteur retenue ({valeurBase} m) dépasse la limite PLU ({limitePluNgf} m) — signalé, non bloquant.</span>}
       {/* N10-D — B : la valeur AUTOMATIQUE (journal) reste accessible et remise en un clic dans le champ (aucune écriture ici). */}
       {estSommet && valeurAuto !== null && valeurAuto !== undefined && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>

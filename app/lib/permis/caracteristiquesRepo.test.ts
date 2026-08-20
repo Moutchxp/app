@@ -285,3 +285,22 @@ describe('N3-B — creerCorps / supprimerCorps', () => {
     expect(up.params).toEqual([5, null, 'admin']);
   });
 });
+
+describe('N10-E — hauteur maximale PLU : champ de corps ordinaire (invariant réutilisé)', () => {
+  it('AUTOMATIQUE sur un champ vierge → écrit valeur + origine ensemble', async () => {
+    const r = await ecrireCorps(1, { hauteurMaxPluNgf: 101 }, 'saisie', 'admin');
+    expect(r.ecrits).toContain('hauteurMaxPluNgf');
+    const up = trouver(/UPDATE\s+permis_corps_batiment/i)!;
+    expect(norm(up.sql)).toContain('hauteur_max_plu_ngf = $');
+    expect(norm(up.sql)).toContain('hauteur_max_plu_ngf_origine = $');
+    expect(up.params).toContain(101);
+    expect(up.params).toContain('saisie');
+  });
+
+  it('AUTOMATIQUE n’écrase pas une hauteur PLU déjà « saisie » (invariant standard)', async () => {
+    H.state.originesCorps = { hauteurMaxPluNgf: 'saisie' };
+    const r = await ecrireCorps(1, { hauteurMaxPluNgf: 90 }, 'extraite', 'bot');
+    expect(r).toEqual({ ecrits: [], ignores: ['hauteurMaxPluNgf'] });
+    expect(trouver(/UPDATE\s+permis_corps_batiment/i)).toBeUndefined();
+  });
+});

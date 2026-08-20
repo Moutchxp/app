@@ -20,6 +20,7 @@ const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '', adresse: c.adresse ?? '',
   nbEtages: valeurVersInput(c.nbEtages), nbNiveauxSousSol: valeurVersInput(c.nbNiveauxSousSol),
   altitudeDernierPlancherNgf: valeurVersInput(c.altitudeDernierPlancherNgf), altitudeSommetNgf: valeurVersInput(c.altitudeSommetNgf),
+  hauteurMaxPluNgf: valeurVersInput(c.hauteurMaxPluNgf), // N10-E — limite PLU (NGF)
   hauteurRelativeM: valeurVersInput(c.hauteurRelativeM), altitudeTerrainNaturelNgf: valeurVersInput(c.altitudeTerrainNaturelNgf),
 });
 const editionDepuisPermis = (g: GlobalPermis | null): EditionPermis => ({
@@ -253,6 +254,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
                   erreur={err[m.cle]} journal={journalCorps[m.colonne]} lienPiece={lienPiece}
                   confirmeLe={m.estSommet ? c.altitudeSommetNgfConfirmeLe : undefined} confirmeParNom={m.estSommet ? c.altitudeSommetNgfConfirmeParNom : undefined}
                   valeurAuto={m.estSommet ? (journalCorps[m.colonne]?.valeurRetenue ?? null) : undefined} valeurBase={m.estSommet ? c.altitudeSommetNgf : undefined}
+                  limitePluNgf={m.estSommet ? c.hauteurMaxPluNgf : undefined}
                   onValider={m.estSommet ? () => void validerSommet(c.id) : undefined}
                   onValeur={(v) => majChamp(c.id, m.cle, v)} />
               ))}
