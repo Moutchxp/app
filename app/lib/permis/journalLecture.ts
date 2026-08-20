@@ -22,6 +22,7 @@ export interface JournalChamp {
   ecartes?: ProvenanceEcartee[]; // N10-B : lignes écartées AVEC provenance (rendues cliquables) — optionnel (additif ; `lireJournalChamps` le remplit toujours)
   motif: string | null;
   methode?: string | null; // N10-C : d'où vient la ligne (liste fermée 'motifs'|'cerfa'|'ia'|'enonce') — test EXACT, jamais un rapprochement sur le texte du motif
+  valeurRetenue?: number | null; // N10-D : la valeur AUTOMATIQUE retenue (ligne 'retenue') — reste consultable même après qu'une saisie a écrasé la colonne
 }
 /** Indexé par COLONNE SQL du champ (ex. 'altitude_sommet_ngf') — la même clé que `Mesure.colonne`. */
 export type JournalParChamp = Record<string, JournalChamp>;
@@ -52,11 +53,12 @@ export async function lireJournalChamps(dossierId: number): Promise<JournalPermi
   const permis: JournalParChamp = {};
   for (const r of rows) {
     const cible = r.corps_id === null ? permis : (parCorps[r.corps_id] ??= {});
-    const j = (cible[r.champ] ??= { confiance: null, reserve: null, provenances: [], ecartes: [], motif: null, methode: null });
+    const j = (cible[r.champ] ??= { confiance: null, reserve: null, provenances: [], ecartes: [], motif: null, methode: null, valeurRetenue: null });
     if (j.confiance === null && r.confiance !== null) j.confiance = r.confiance;
     if (j.reserve === null && r.reserve !== null) j.reserve = r.reserve;
     if (j.motif === null && r.motif !== null) j.motif = r.motif;
     if ((j.methode ?? null) === null && r.methode !== null) j.methode = r.methode; // N10-C : d'où vient la ligne (pour détecter « Cerfa = scan sans champs »)
+    if ((j.valeurRetenue ?? null) === null && r.role === 'retenue' && r.valeur !== null) j.valeurRetenue = r.valeur; // N10-D : valeur automatique (retenue)
     if (r.role === 'retenue' && (r.piece !== null || r.page !== null)) j.provenances.push({ piece: r.piece, page: r.page });
     // N10-B — les écartés AVEC provenance (superstructures, garde-corps, niveaux nommés) : rendus cliquables au même titre que les retenues.
     if (r.role === 'ecartee' && (r.piece !== null || r.page !== null)) (j.ecartes ??= []).push({ valeur: r.valeur, piece: r.piece, page: r.page, motif: r.motif });

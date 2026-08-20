@@ -51,8 +51,9 @@ export interface CorpsBatiment {
   nbNiveauxSousSol: number | null; nbNiveauxSousSolOrigine: OrigineValeur | null;
   altitudeDernierPlancherNgf: number | null; altitudeDernierPlancherNgfOrigine: OrigineValeur | null;
   altitudeSommetNgf: number | null; altitudeSommetNgfOrigine: OrigineValeur | null;
-  // N10-C — CONFIRMATION HUMAINE du sommet (seul champ marqué). « à confirmer » = origine 'extraite' ET confirmeLe null. Orthogonal à l'origine.
-  altitudeSommetNgfConfirmeLe: string | null; altitudeSommetNgfConfirmePar: string | null;
+  // N10-C/D — VALIDATION HUMAINE du sommet (seul champ marqué). « à confirmer » = origine 'extraite' ET confirmeLe null. `…ConfirmeParNom`
+  //   = auteur résolu en « prénom nom » (N10-D : l'écran nomme l'auteur, pas son id).
+  altitudeSommetNgfConfirmeLe: string | null; altitudeSommetNgfConfirmePar: string | null; altitudeSommetNgfConfirmeParNom: string | null;
   hauteurRelativeM: number | null; hauteurRelativeMOrigine: OrigineValeur | null;
   altitudeTerrainNaturelNgf: number | null; altitudeTerrainNaturelNgfOrigine: OrigineValeur | null;
   empriseWkt: string | null; empriseOrigine: OrigineValeur | null;
@@ -101,6 +102,8 @@ export async function lirePermisCaracteristiques(dossierId: number): Promise<Per
            'altitudeDernierPlancherNgf', altitude_dernier_plancher_ngf, 'altitudeDernierPlancherNgfOrigine', altitude_dernier_plancher_ngf_origine,
            'altitudeSommetNgf', altitude_sommet_ngf, 'altitudeSommetNgfOrigine', altitude_sommet_ngf_origine,
            'altitudeSommetNgfConfirmeLe', altitude_sommet_ngf_confirme_le::text, 'altitudeSommetNgfConfirmePar', altitude_sommet_ngf_confirme_par,
+           -- N10-D — auteur résolu en « prénom nom » (comparaison en TEXTE : pas de cast qui échouerait sur un auteur non numérique).
+           'altitudeSommetNgfConfirmeParNom', (SELECT nullif(btrim(concat_ws(' ', u.prenom, u.nom)), '') FROM admin_utilisateur u WHERE u.id::text = altitude_sommet_ngf_confirme_par LIMIT 1),
            'hauteurRelativeM', hauteur_relative_m, 'hauteurRelativeMOrigine', hauteur_relative_m_origine,
            'altitudeTerrainNaturelNgf', altitude_terrain_naturel_ngf, 'altitudeTerrainNaturelNgfOrigine', altitude_terrain_naturel_ngf_origine,
            'empriseWkt', ST_AsText(emprise), 'empriseOrigine', emprise_origine,
@@ -152,9 +155,6 @@ export async function ecrireCorps(corpsId: number, valeurs: ValeursCorps, mode: 
       params.push(v); sets.push(`${col} = $${params.length}`);
     }
     params.push(v === null ? null : mode); sets.push(`${col}_origine = $${params.length}`);
-    // N10-C — une SAISIE du sommet remplace une éventuelle confirmation par une décision fraîche : on efface le marqueur (sinon la
-    //   trace « confirmée par … » resterait sur une valeur saisie, et une valeur vidée resterait protégée à tort d'un recompute).
-    if (c === 'altitudeSommetNgf' && mode === 'saisie') sets.push(`altitude_sommet_ngf_confirme_le = NULL`, `altitude_sommet_ngf_confirme_par = NULL`);
   }
   params.push(majPar); const pMajPar = params.length;
   params.push(corpsId); const pId = params.length;
@@ -189,17 +189,26 @@ export async function definirAdresseCorps(corpsId: number, adresse: string | nul
 }
 
 /**
- * N10-C — CONFIRME le sommet EXTRAIT d'un corps : pose confirme_le/confirme_par SANS toucher la valeur ni l'origine (elle vient bien
- * de l'extraction, mais est désormais approuvée). Ne confirme QUE si le sommet est réellement 'extraite' ET non nul (on ne confirme ni
- * une valeur vide, ni une saisie — rien à approuver). Idempotent : re-confirmer ne change rien de visible. Renvoie `false` si rien à confirmer.
+ * N10-D — VALIDE la hauteur de sommet : écrit LA VALEUR DU CHAMP (fournie par l'utilisateur, modifiée ou non) en origine 'saisie'
+ * — c'est une DÉCISION HUMAINE — et pose la trace nominative (confirme_le/confirme_par). Corrige le piège N10-C où « Confirmer »
+ * tamponnait la valeur STOCKÉE, pas celle sous les yeux. `valeur` null (champ vidé) → efface la hauteur (valeur + origine + marqueur,
+ * ensemble). Le contrôle des bornes est fait par la route (comme pour une écriture de corps). Le recompute ne réécrit jamais une
+ * valeur 'saisie' (invariant), donc la décision est protégée.
  */
-export async function confirmerSommetCorps(corpsId: number, majPar: string): Promise<boolean> {
-  const res = await query(
+export async function validerSommetCorps(corpsId: number, valeur: number | null, majPar: string): Promise<void> {
+  if (valeur === null) {
+    await query(
+      `UPDATE permis_corps_batiment
+          SET altitude_sommet_ngf = NULL, altitude_sommet_ngf_origine = NULL,
+              altitude_sommet_ngf_confirme_le = NULL, altitude_sommet_ngf_confirme_par = NULL, maj_le = now(), maj_par = $2
+        WHERE id = $1`, [corpsId, majPar]);
+    return;
+  }
+  await query(
     `UPDATE permis_corps_batiment
-        SET altitude_sommet_ngf_confirme_le = now(), altitude_sommet_ngf_confirme_par = $2, maj_le = now(), maj_par = $2
-      WHERE id = $1 AND altitude_sommet_ngf_origine = 'extraite' AND altitude_sommet_ngf IS NOT NULL`,
-    [corpsId, majPar]);
-  return (res.rowCount ?? 0) > 0;
+        SET altitude_sommet_ngf = $2, altitude_sommet_ngf_origine = 'saisie',
+            altitude_sommet_ngf_confirme_le = now(), altitude_sommet_ngf_confirme_par = $3, maj_le = now(), maj_par = $3
+      WHERE id = $1`, [corpsId, valeur, majPar]);
 }
 
 // ── ÉCRITURE du GLOBAL (parking porte l'invariant ; commentaire = note humaine sans origine) ───────────────────────────────────

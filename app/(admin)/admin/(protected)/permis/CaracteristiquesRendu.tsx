@@ -291,39 +291,56 @@ function LigneLabel({ libelle, origine, journal }: { libelle: string; origine: O
  * Champ d'UNE mesure : input numérique (VIDE autorisé → jamais 0 par défaut), bornes LUES de la base sous le champ, origine +
  * confiance + réserve + provenance + motif (via `AnnotationsExtraction`). Le SOMMET est signalé + une ligne dit ce qu'il désigne.
  */
-/** N10-C — « JJ/MM/AAAA » depuis un ISO (trace de confirmation). */
+/** N10-C — « JJ/MM/AAAA » depuis un ISO (trace de validation). */
 function jjmmaaaa(iso: string): string { const d = iso.slice(0, 10); return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`; }
+/** N10-D — la valeur du champ diffère-t-elle de la valeur EN BASE ? (comparaison numérique, champ vide = null). Sert au garde « non validée ». */
+function champDiffereBase(valeurChamp: string, base: number | null | undefined): boolean {
+  const c = valeurChamp.trim() === '' ? null : Number(valeurChamp);
+  if (c !== null && !Number.isFinite(c)) return false; // saisie en cours illisible → pas d'alerte parasite
+  return (c ?? null) !== ((base ?? null) as number | null);
+}
 
-export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, confirmeLe, confirmePar, onConfirmer, onValeur }: {
+export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, confirmeLe, confirmeParNom, valeurAuto, valeurBase, onValider, onValeur }: {
   mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece;
-  confirmeLe?: string | null; confirmePar?: string | null; onConfirmer?: () => void; onValeur: (v: string) => void;
+  confirmeLe?: string | null; confirmeParNom?: string | null; valeurAuto?: number | null; valeurBase?: number | null; onValider?: () => void; onValeur: (v: string) => void;
 }) {
-  // N10-C — « à confirmer » : le SOMMET, extrait par l'automatisation et JAMAIS examiné (confirme_le null). Confirmé (confirme_le posé)
-  //   → violet éteint + trace. Une valeur 'saisie' (modifiée à la main) n'est JAMAIS « à confirmer » (déjà une décision humaine).
-  const aConfirmer = mesure.estSommet === true && origine === 'extraite' && !confirmeLe;
-  const confirme = mesure.estSommet === true && origine === 'extraite' && !!confirmeLe;
-  const cadreSommet: CSSProperties = mesure.estSommet
+  const estSommet = mesure.estSommet === true;
+  // « à confirmer » (violet) : le SOMMET extrait, JAMAIS examiné (origine 'extraite' ET confirme_le null). Une décision humaine (saisie
+  //   validée) l'éteint. La TRACE « validée par NOM le … » s'affiche dès qu'une validation existe (confirme_le posé), quelle que soit l'origine.
+  const aConfirmer = estSommet && origine === 'extraite' && !confirmeLe;
+  const valide = estSommet && !!confirmeLe;
+  // N10-D — GARDE ANTI-PIÈGE JUMEAU : la hauteur du champ diffère de la base → elle n'est PAS validée. « Enregistrer ce bâtiment » ne
+  //   l'écrira pas → on prévient, visiblement, près du bouton de validation.
+  const modifieeNonValidee = estSommet && !!onValider && champDiffereBase(valeur, valeurBase);
+  const cadreSommet: CSSProperties = estSommet
     ? { border: `1px solid ${aConfirmer ? VIOLET_A_CONFIRMER : 'var(--color-svv-red)'}`, borderRadius: '.5rem', padding: '.4rem .5rem', background: aConfirmer ? '#faf5ff' : '#fff8f8' }
     : {};
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0, ...cadreSommet }}>
       <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <LigneLabel libelle={`${mesure.libelle}${mesure.unite ? ` (${mesure.unite})` : ''}${mesure.estSommet ? ' ★' : ''}`} origine={origine} journal={journal} />
+        <LigneLabel libelle={`${mesure.libelle}${mesure.unite ? ` (${mesure.unite})` : ''}${estSommet ? ' ★' : ''}`} origine={origine} journal={journal} />
         {aConfirmer && <PastilleAConfirmer />}
       </span>
       <input type="number" inputMode="decimal" value={valeur} placeholder="vide = non renseigné"
         min={bornes?.min} max={bornes?.max} step={mesure.entier ? 1 : 'any'}
         onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label={mesure.libelle} />
       <span style={styleAide}>{libelleBornes(mesure, bornes)}</span>
-      {mesure.estSommet && <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}>{mesure.aide}</span>}
-      {/* N10-C — le GESTE « confirmer » : visible SEULEMENT en état « à confirmer ». Confirme la valeur telle quelle (le violet s'éteint). */}
-      {aConfirmer && onConfirmer && (
+      {estSommet && <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}>{mesure.aide}</span>}
+      {/* N10-D — B : la valeur AUTOMATIQUE (journal) reste accessible et remise en un clic dans le champ (aucune écriture ici). */}
+      {estSommet && valeurAuto !== null && valeurAuto !== undefined && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
-          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.2rem .55rem', borderColor: VIOLET_A_CONFIRMER, color: VIOLET_A_CONFIRMER }} onClick={onConfirmer}>Confirmer cette valeur</button>
-          <span style={styleAide}>valeur automatique jamais examinée — la confirmer, ou la corriger dans le champ.</span>
+          <span style={styleAide}>valeur automatique : {valeurAuto}</span>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.15rem .5rem' }} onClick={() => onValeur(String(valeurAuto))}>Remettre la valeur automatique</button>
         </div>
       )}
-      {confirme && <span role="note" style={{ ...styleAide, color: 'var(--color-svv-green-ink)' }}>✓ confirmée{confirmePar ? ` par ${confirmePar}` : ''}{confirmeLe ? ` le ${jjmmaaaa(confirmeLe)}` : ''}</span>}
+      {/* N10-D — le GESTE dédié au sommet : écrit LA VALEUR DU CHAMP (modifiée ou non) comme décision humaine. Périmètre disjoint d'« Enregistrer ce bâtiment ». */}
+      {estSommet && onValider && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+          <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.25rem .7rem' }} onClick={onValider}>Valider cette hauteur</button>
+          {modifieeNonValidee && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: VIOLET_A_CONFIRMER }}>hauteur modifiée, non validée</span>}
+        </div>
+      )}
+      {valide && <span role="note" style={{ ...styleAide, color: 'var(--color-svv-green-ink)' }}>✓ validée{confirmeParNom ? ` par ${confirmeParNom}` : ''}{confirmeLe ? ` le ${jjmmaaaa(confirmeLe)}` : ''}</span>}
       {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
       <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} />
     </div>

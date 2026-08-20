@@ -121,8 +121,12 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
     const { valeurs, erreurs, valide } = construireCorps(ed, data?.bornes ?? {});
     setErreursCorps((m) => ({ ...m, [corpsId]: erreurs }));
     if (!valide) { setMessage('Corrigez les champs signalés avant d’enregistrer.'); return; }
+    // N10-D — PÉRIMÈTRES DISJOINTS : « Enregistrer ce bâtiment » ne touche PAS au sommet (ni valeur, ni marqueur de validation) —
+    //   le sommet a son propre geste « Valider cette hauteur ». On retire donc altitudeSommetNgf du lot enregistré ici.
+    const valeursHorsSommet = { ...(valeurs as ValeursCorps) };
+    delete valeursHorsSommet.altitudeSommetNgf;
     setEnCours(true);
-    const r = await poster({ action: 'corps', corpsId, repere: ed.repere, adresse: ed.adresse, valeurs: valeurs as ValeursCorps });
+    const r = await poster({ action: 'corps', corpsId, repere: ed.repere, adresse: ed.adresse, valeurs: valeursHorsSommet });
     if (r.ok) { await rafraichir(); setMessage('Corps enregistré.'); } else setMessage(r.erreur ?? 'échec');
     setEnCours(false);
   }, [edCorps, data, poster, rafraichir]);
@@ -142,13 +146,17 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
     setEnCours(false);
   }, [poster, rafraichir]);
 
-  // N10-C — CONFIRMER le sommet extrait d'un bâtiment (le violet s'éteint, la trace « confirmée par … » apparaît). Ne touche pas la valeur.
-  const confirmerSommet = useCallback(async (corpsId: number) => {
+  // N10-D — VALIDER la hauteur : écrit LA VALEUR DU CHAMP (celle sous les yeux, modifiée ou non) comme décision humaine + trace. Bornée
+  //   côté route. Le violet s'éteint, l'avertissement « non validée » disparaît. C'est le SEUL chemin d'écriture du sommet.
+  const validerSommet = useCallback(async (corpsId: number) => {
+    const ed = edCorps[corpsId];
+    if (!ed) return;
+    const brut = ed.altitudeSommetNgf.trim();
     setEnCours(true);
-    const r = await poster({ action: 'confirmer_sommet', corpsId });
-    if (r.ok) { await rafraichir(); setMessage('Sommet confirmé.'); } else setMessage(r.erreur ?? 'échec');
+    const r = await poster({ action: 'valider_sommet', corpsId, valeur: brut === '' ? '' : brut });
+    if (r.ok) { await rafraichir(); setMessage('Hauteur validée.'); } else setMessage(r.erreur ?? 'échec');
     setEnCours(false);
-  }, [poster, rafraichir]);
+  }, [edCorps, poster, rafraichir]);
 
   if (etat === 'chargement') return <p style={styleAide} aria-live="polite">Chargement des caractéristiques…</p>;
   if (etat === 'erreur' || !data) return <p role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>Caractéristiques indisponibles.</p>;
@@ -243,8 +251,9 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
               {MESURES.map((m) => (
                 <ChampMesureEditeur key={m.cle} mesure={m} bornes={data.bornes[m.colonne]} valeur={ed[m.cle]} origine={origineDe(c, m.cle)}
                   erreur={err[m.cle]} journal={journalCorps[m.colonne]} lienPiece={lienPiece}
-                  confirmeLe={m.estSommet ? c.altitudeSommetNgfConfirmeLe : undefined} confirmePar={m.estSommet ? c.altitudeSommetNgfConfirmePar : undefined}
-                  onConfirmer={m.estSommet ? () => void confirmerSommet(c.id) : undefined}
+                  confirmeLe={m.estSommet ? c.altitudeSommetNgfConfirmeLe : undefined} confirmeParNom={m.estSommet ? c.altitudeSommetNgfConfirmeParNom : undefined}
+                  valeurAuto={m.estSommet ? (journalCorps[m.colonne]?.valeurRetenue ?? null) : undefined} valeurBase={m.estSommet ? c.altitudeSommetNgf : undefined}
+                  onValider={m.estSommet ? () => void validerSommet(c.id) : undefined}
                   onValeur={(v) => majChamp(c.id, m.cle, v)} />
               ))}
             </div>

@@ -368,34 +368,43 @@ describe('FUS-1 — FaitsPermisBloc : empreinte attendue de la parcelle fusionn�
   });
 });
 
-describe('N10-C — le violet « à confirmer » sur le sommet + le geste + la trace', () => {
+describe('N10-D — le sommet : violet « à confirmer », geste « Valider cette hauteur », valeur auto, trace, garde « non validée »', () => {
   const rendreSommet = (props: Partial<Parameters<typeof ChampMesureEditeur>[0]>) =>
-    renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: sommet, valeur: '97.13', origine: 'extraite', onValeur: noop, onConfirmer: noop, ...props }));
+    renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: sommet, valeur: '97.13', origine: 'extraite', valeurBase: 97.13, onValeur: noop, onValider: noop, ...props }));
 
-  it('① extraite JAMAIS examinée (confirmeLe null) → le MOT « à confirmer » ET le violet (jamais la couleur seule) + bouton Confirmer', () => {
+  it('① extraite JAMAIS examinée → le MOT « à confirmer » ET le violet + le bouton « Valider cette hauteur »', () => {
     const h = rendreSommet({ confirmeLe: null });
     expect(h).toContain('à confirmer');                 // le mot est obligatoire (règle T2-B)
     expect(h).toContain(VIOLET_A_CONFIRMER);            // le violet n'est qu'un appui
-    expect(h).toContain('Confirmer cette valeur');       // le geste, visible seulement dans cet état
+    expect(h).toContain('Valider cette hauteur');        // le geste dédié au sommet
   });
 
-  it('② confirmée → plus de « à confirmer » ni de violet, mais la TRACE « confirmée par X le JJ/MM/AAAA »', () => {
-    const h = rendreSommet({ confirmeLe: '2026-08-20T09:30:00Z', confirmePar: 'a.jorel' });
+  it('④ validée → plus de « à confirmer » ni violet, mais la TRACE « validée par NOM le JJ/MM/AAAA »', () => {
+    const h = rendreSommet({ origine: 'saisie', valeurBase: 101, valeur: '101', confirmeLe: '2026-08-20T09:30:00Z', confirmeParNom: 'Camille Moreau' });
     expect(h).not.toContain('à confirmer');
-    expect(h).not.toContain('Confirmer cette valeur');
-    expect(h).toContain('confirmée par a.jorel le 20/08/2026'); // trace auteur + date
+    expect(h).toContain('validée par Camille Moreau le 20/08/2026'); // ④ : un NOM, pas un numéro
   });
 
-  it('③ modifiée à la main (origine saisie) → ni violet ni mot (déjà une décision humaine)', () => {
-    const h = rendreSommet({ origine: 'saisie', confirmeLe: null });
-    expect(h).not.toContain('à confirmer');
-    expect(h).not.toContain(VIOLET_A_CONFIRMER);
-    expect(h).not.toContain('Confirmer cette valeur');
+  it('B — la valeur automatique est affichée et remise en un clic (aucune écriture au rendu)', () => {
+    const h = rendreSommet({ confirmeLe: null, valeurAuto: 97.13 });
+    expect(h).toContain('valeur automatique : 97.13');
+    expect(h).toContain('Remettre la valeur automatique');
   });
 
-  it('le violet ne touche QUE le sommet : un autre champ extrait non examiné n’est jamais « à confirmer »', () => {
+  it('⑥ garde anti-piège : le champ diffère de la base → « hauteur modifiée, non validée »', () => {
+    const h = rendreSommet({ valeur: '101', valeurBase: 97.13, confirmeLe: null });
+    expect(h).toContain('hauteur modifiée, non validée');
+  });
+
+  it('champ ÉGAL à la base → pas d’avertissement « non validée »', () => {
+    const h = rendreSommet({ valeur: '97.13', valeurBase: 97.13 });
+    expect(h).not.toContain('non validée');
+  });
+
+  it('le violet et le geste ne touchent QUE le sommet : un autre champ extrait n’a ni « à confirmer » ni « Valider »', () => {
     const h = renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: nbEtages, valeur: '5', origine: 'extraite', onValeur: noop }));
     expect(h).not.toContain('à confirmer');
+    expect(h).not.toContain('Valider cette hauteur');
   });
 });
 

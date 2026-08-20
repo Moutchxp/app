@@ -37,7 +37,7 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock }));
 
-import { repartirEcriture, ecrireCorps, ecrireGlobal, ecrireCaracteristiquesGlobales, ecrireDestinations, lirePermisCaracteristiques, creerCorps, supprimerCorps, definirRepere, confirmerSommetCorps } from './caracteristiquesRepo';
+import { repartirEcriture, ecrireCorps, ecrireGlobal, ecrireCaracteristiquesGlobales, ecrireDestinations, lirePermisCaracteristiques, creerCorps, supprimerCorps, definirRepere, validerSommetCorps } from './caracteristiquesRepo';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ');
 const trouver = (re: RegExp) => H.appels.find((a) => re.test(a.sql));
@@ -184,32 +184,39 @@ describe('N3-B — ecrireCorps : invariant appliqué', () => {
   });
 });
 
-describe('N10-C — confirmation du sommet (invariant étendu + geste + reset)', () => {
-  it('④ AUTOMATIQUE sur un sommet CONFIRMÉ (origine extraite, confirme_le posé) → INCHANGÉ, aucun UPDATE', async () => {
-    H.state.originesCorps = { altitudeSommetNgf: 'extraite', __sommetConfirme: true }; // le SELECT rend le drapeau confirmé
+describe('N10-C/D — invariant confirmé + geste « Valider cette hauteur »', () => {
+  it('④/⑤ AUTOMATIQUE sur un sommet DÉCIDÉ (confirme_le posé) → INCHANGÉ, aucun UPDATE (recompute n’efface pas une décision humaine)', async () => {
+    H.state.originesCorps = { altitudeSommetNgf: 'extraite', __sommetConfirme: true }; // le SELECT rend le drapeau de validation
     const r = await ecrireCorps(1, { altitudeSommetNgf: 42 }, 'extraite', 'bot');
-    expect(r).toEqual({ ecrits: [], ignores: ['altitudeSommetNgf'] }); // recompute n'efface pas une décision humaine
+    expect(r).toEqual({ ecrits: [], ignores: ['altitudeSommetNgf'] });
     expect(trouver(/UPDATE\s+permis_corps_batiment/i)).toBeUndefined();
   });
 
-  it('une SAISIE du sommet remet le marqueur de confirmation à NULL (décision fraîche ≠ confirmation)', async () => {
-    H.state.originesCorps = { altitudeSommetNgf: 'extraite', __sommetConfirme: true };
-    await ecrireCorps(1, { altitudeSommetNgf: 88 }, 'saisie', 'admin');
+  it('⑥ « Enregistrer ce bâtiment » (sans le sommet dans le lot) ne touche JAMAIS la colonne du sommet', async () => {
+    await ecrireCorps(1, { nbEtages: 5 }, 'saisie', 'admin'); // le sommet est EXCLU par l'appelant
     const up = trouver(/UPDATE\s+permis_corps_batiment/i)!;
-    expect(norm(up.sql)).toContain('altitude_sommet_ngf_confirme_le = NULL');
-    expect(norm(up.sql)).toContain('altitude_sommet_ngf_confirme_par = NULL');
+    expect(norm(up.sql)).toContain('nb_etages = $');
+    expect(norm(up.sql)).not.toContain('altitude_sommet_ngf'); // ni valeur, ni origine, ni marqueur
   });
 
-  it('confirmerSommetCorps : pose confirme_le/par SANS toucher la valeur ni l’origine, gated sur extraite + non nul', async () => {
-    await confirmerSommetCorps(9, 'admin');
-    const up = trouver(/UPDATE\s+permis_corps_batiment[\s\S]*confirme_le\s*=\s*now\(\)/i)!;
+  it('⑦ validerSommetCorps(valeur) : écrit LA VALEUR fournie en origine « saisie » + trace nominative', async () => {
+    await validerSommetCorps(9, 101, 'admin');
+    const up = trouver(/UPDATE\s+permis_corps_batiment/i)!;
     const s = norm(up.sql);
-    expect(s).toContain('altitude_sommet_ngf_confirme_le = now()');
-    expect(s).toContain('altitude_sommet_ngf_confirme_par = $');
-    expect(s).not.toContain('altitude_sommet_ngf = ');   // le SET ne touche PAS la valeur (seul « _confirme_… » est posé)
-    expect(s).toContain("altitude_sommet_ngf_origine = 'extraite'"); // gate (WHERE) : seulement une valeur extraite…
-    expect(s).toContain('altitude_sommet_ngf IS NOT NULL');          // …et non nulle
+    expect(s).toContain('altitude_sommet_ngf = $');                  // écrit LA VALEUR du champ
+    expect(s).toContain("altitude_sommet_ngf_origine = 'saisie'");    // décision humaine
+    expect(s).toContain('altitude_sommet_ngf_confirme_le = now()');   // trace : quand
+    expect(s).toContain('altitude_sommet_ngf_confirme_par = $');      // trace : qui
+    expect(up.params).toContain(101);
     expect(up.params).toContain('admin');
+  });
+
+  it('validerSommetCorps(null) : champ vidé → efface valeur, origine ET marqueur (ensemble)', async () => {
+    await validerSommetCorps(9, null, 'admin');
+    const s = norm(trouver(/UPDATE\s+permis_corps_batiment/i)!.sql);
+    expect(s).toContain('altitude_sommet_ngf = NULL');
+    expect(s).toContain('altitude_sommet_ngf_origine = NULL');
+    expect(s).toContain('altitude_sommet_ngf_confirme_le = NULL');
   });
 });
 

@@ -3,7 +3,7 @@ import { query } from '../../../../../lib/db/client';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { parserBornesCheck, parserListeCheck, parserListeArrayCheck, type BornesParColonne } from '../../../../../lib/sitadel/reglagesVeille';
 import { libelleNatureProjet } from '../../../../../lib/sitadel/priorite';
-import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, confirmerSommetCorps, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
+import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, validerSommetCorps, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
 import { lireJournalChamps, type JournalPermis } from '../../../../../lib/permis/journalLecture';
 import { lireParcellesPermis, geojsonParcellesPermis, lireEmpreintePermis, geojsonEmpreintePermis, lireBatiSnapshotPermis, type ParcelleLigne, type EmpreinteLigne, type BatiSnapshotResume } from '../../../../../lib/permis/parcellesRepo';
 import { MESURES, construireGlobal, construirePermis, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
@@ -151,12 +151,19 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: true, ...r });
     }
 
-    // N10-C — CONFIRMER le sommet extrait d'un bâtiment : pose la trace (confirme_le/par) sans toucher la valeur ni l'origine. Ne
-    //   confirme qu'un sommet réellement 'extraite' non nul (sinon rien à approuver → { confirme:false }). L'invariant est inchangé.
-    if (action === 'confirmer_sommet') {
+    // N10-D — VALIDER la hauteur de sommet : on écrit LA VALEUR DU CHAMP (fournie par le client), bornée comme une écriture de corps,
+    //   en 'saisie' + trace nominative. C'est une décision humaine ; le recompute ne la réécrit jamais (invariant). Champ vide → efface.
+    if (action === 'valider_sommet') {
       if (!estEntier(body.corpsId)) return Response.json({ erreur: 'corpsId invalide' }, { status: 400 });
-      const confirme = await confirmerSommetCorps(body.corpsId, auteur);
-      return Response.json({ ok: true, confirme });
+      const brut = typeof body.valeur === 'number' ? String(body.valeur) : (typeof body.valeur === 'string' ? body.valeur.trim() : '');
+      const valeur = brut === '' ? null : Number(brut);
+      if (valeur !== null && !Number.isFinite(valeur)) return Response.json({ erreur: 'valeur de sommet invalide' }, { status: 422 });
+      if (valeur !== null) {
+        const motif = horsBornes({ altitudeSommetNgf: valeur }, await lireBornes());
+        if (motif) return Response.json({ erreur: motif }, { status: 422 });
+      }
+      await validerSommetCorps(body.corpsId, valeur, auteur);
+      return Response.json({ ok: true });
     }
 
     // N7-E — édition des caractéristiques DÉCLARÉES au niveau PERMIS (colonnes 106), TOUJOURS en 'saisie' (l'écran n'écrit jamais 'extraite').
