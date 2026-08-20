@@ -51,6 +51,8 @@ export interface CorpsBatiment {
   nbNiveauxSousSol: number | null; nbNiveauxSousSolOrigine: OrigineValeur | null;
   altitudeDernierPlancherNgf: number | null; altitudeDernierPlancherNgfOrigine: OrigineValeur | null;
   altitudeSommetNgf: number | null; altitudeSommetNgfOrigine: OrigineValeur | null;
+  // N10-C — CONFIRMATION HUMAINE du sommet (seul champ marqué). « à confirmer » = origine 'extraite' ET confirmeLe null. Orthogonal à l'origine.
+  altitudeSommetNgfConfirmeLe: string | null; altitudeSommetNgfConfirmePar: string | null;
   hauteurRelativeM: number | null; hauteurRelativeMOrigine: OrigineValeur | null;
   altitudeTerrainNaturelNgf: number | null; altitudeTerrainNaturelNgfOrigine: OrigineValeur | null;
   empriseWkt: string | null; empriseOrigine: OrigineValeur | null;
@@ -64,12 +66,16 @@ export interface ResultatEcriture<C extends string = string> { ecrits: C[]; igno
 
 /**
  * 🔒 CŒUR de l'invariant, PUR (testable sans base). `saisie` → on écrit TOUT (la main écrase, y compris une valeur 'extraite').
- * `extraite` → on écarte les champs dont l'origine ACTUELLE est déjà 'saisie' (jamais écrasés), les autres sont écrits.
+ * `extraite` → on écarte les champs dont l'origine ACTUELLE est déjà 'saisie', OU qui ont été CONFIRMÉS par un humain (N10-C) :
+ * un recompute n'efface JAMAIS une décision humaine (saisie OU confirmation). Les autres sont écrits.
+ * ⚠️ `confirmes` fait partie de l'invariant : le RETIRER ferait réécraser une valeur confirmée par une extraction (test ④).
  */
-export function repartirEcriture<C extends string>(mode: OrigineValeur, champs: readonly C[], origineActuelle: Partial<Record<C, OrigineValeur | null>>): ResultatEcriture<C> {
+export function repartirEcriture<C extends string>(
+  mode: OrigineValeur, champs: readonly C[], origineActuelle: Partial<Record<C, OrigineValeur | null>>, confirmes: ReadonlySet<C> = new Set(),
+): ResultatEcriture<C> {
   if (mode === 'saisie') return { ecrits: [...champs], ignores: [] };
   const ecrits: C[] = []; const ignores: C[] = [];
-  for (const c of champs) (origineActuelle[c] === 'saisie' ? ignores : ecrits).push(c);
+  for (const c of champs) ((origineActuelle[c] === 'saisie' || confirmes.has(c)) ? ignores : ecrits).push(c);
   return { ecrits, ignores };
 }
 
@@ -94,6 +100,7 @@ export async function lirePermisCaracteristiques(dossierId: number): Promise<Per
            'nbNiveauxSousSol', nb_niveaux_sous_sol, 'nbNiveauxSousSolOrigine', nb_niveaux_sous_sol_origine,
            'altitudeDernierPlancherNgf', altitude_dernier_plancher_ngf, 'altitudeDernierPlancherNgfOrigine', altitude_dernier_plancher_ngf_origine,
            'altitudeSommetNgf', altitude_sommet_ngf, 'altitudeSommetNgfOrigine', altitude_sommet_ngf_origine,
+           'altitudeSommetNgfConfirmeLe', altitude_sommet_ngf_confirme_le::text, 'altitudeSommetNgfConfirmePar', altitude_sommet_ngf_confirme_par,
            'hauteurRelativeM', hauteur_relative_m, 'hauteurRelativeMOrigine', hauteur_relative_m_origine,
            'altitudeTerrainNaturelNgf', altitude_terrain_naturel_ngf, 'altitudeTerrainNaturelNgfOrigine', altitude_terrain_naturel_ngf_origine,
            'empriseWkt', ST_AsText(emprise), 'empriseOrigine', emprise_origine,
@@ -118,13 +125,18 @@ export async function ecrireCorps(corpsId: number, valeurs: ValeursCorps, mode: 
   const champs = (Object.keys(valeurs) as ChampCorps[]).filter((c) => c in COLONNE_CORPS);
   if (champs.length === 0) return { ecrits: [], ignores: [] };
 
-  // Origines actuelles (invariant) — lecture ciblée des seules colonnes `_origine` concernées.
+  // Origines actuelles (invariant) — lecture ciblée des seules colonnes `_origine` concernées. N10-C : + le drapeau CONFIRMÉ du sommet
+  //   (seul champ marqué) : une valeur confirmée est protégée d'un recompute au même titre qu'une saisie.
   const selOrig = champs.map((c) => `${COLONNE_CORPS[c]}_origine AS "${c}"`).join(', ');
-  const { rows } = await query<Partial<Record<ChampCorps, OrigineValeur | null>>>(
-    `SELECT ${selOrig} FROM permis_corps_batiment WHERE id = $1`, [corpsId]);
+  const litSommet = champs.includes('altitudeSommetNgf' as ChampCorps);
+  const selConfirme = litSommet ? `, (altitude_sommet_ngf_confirme_le IS NOT NULL) AS "__sommetConfirme"` : '';
+  const { rows } = await query<Partial<Record<ChampCorps, OrigineValeur | null>> & { __sommetConfirme?: boolean }>(
+    `SELECT ${selOrig}${selConfirme} FROM permis_corps_batiment WHERE id = $1`, [corpsId]);
   const origineActuelle = rows[0] ?? {};
+  const confirmes = new Set<ChampCorps>();
+  if (rows[0]?.__sommetConfirme) confirmes.add('altitudeSommetNgf' as ChampCorps);
 
-  const { ecrits, ignores } = repartirEcriture(mode, champs, origineActuelle);
+  const { ecrits, ignores } = repartirEcriture(mode, champs, origineActuelle, confirmes);
   if (ecrits.length === 0) return { ecrits, ignores };
 
   const params: unknown[] = [];
@@ -140,6 +152,9 @@ export async function ecrireCorps(corpsId: number, valeurs: ValeursCorps, mode: 
       params.push(v); sets.push(`${col} = $${params.length}`);
     }
     params.push(v === null ? null : mode); sets.push(`${col}_origine = $${params.length}`);
+    // N10-C — une SAISIE du sommet remplace une éventuelle confirmation par une décision fraîche : on efface le marqueur (sinon la
+    //   trace « confirmée par … » resterait sur une valeur saisie, et une valeur vidée resterait protégée à tort d'un recompute).
+    if (c === 'altitudeSommetNgf' && mode === 'saisie') sets.push(`altitude_sommet_ngf_confirme_le = NULL`, `altitude_sommet_ngf_confirme_par = NULL`);
   }
   params.push(majPar); const pMajPar = params.length;
   params.push(corpsId); const pId = params.length;
@@ -171,6 +186,20 @@ export async function definirAdresseCorps(corpsId: number, adresse: string | nul
   const v = adresse && adresse.trim() !== '' ? adresse.trim() : null;
   await query(`UPDATE permis_corps_batiment SET adresse = $2, adresse_origine = $3, maj_le = now(), maj_par = $4 WHERE id = $1`,
     [corpsId, v, v === null ? null : 'saisie', majPar]);
+}
+
+/**
+ * N10-C — CONFIRME le sommet EXTRAIT d'un corps : pose confirme_le/confirme_par SANS toucher la valeur ni l'origine (elle vient bien
+ * de l'extraction, mais est désormais approuvée). Ne confirme QUE si le sommet est réellement 'extraite' ET non nul (on ne confirme ni
+ * une valeur vide, ni une saisie — rien à approuver). Idempotent : re-confirmer ne change rien de visible. Renvoie `false` si rien à confirmer.
+ */
+export async function confirmerSommetCorps(corpsId: number, majPar: string): Promise<boolean> {
+  const res = await query(
+    `UPDATE permis_corps_batiment
+        SET altitude_sommet_ngf_confirme_le = now(), altitude_sommet_ngf_confirme_par = $2, maj_le = now(), maj_par = $2
+      WHERE id = $1 AND altitude_sommet_ngf_origine = 'extraite' AND altitude_sommet_ngf IS NOT NULL`,
+    [corpsId, majPar]);
+  return (res.rowCount ?? 0) > 0;
 }
 
 // ── ÉCRITURE du GLOBAL (parking porte l'invariant ; commentaire = note humaine sans origine) ───────────────────────────────────

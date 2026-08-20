@@ -51,6 +51,16 @@ describe('lireJournalChamps', () => {
     expect(j.parCorps).toEqual({});
   });
 
+  it('N10-C — expose la METHODE (liste fermée) : première non nulle par champ ; sert à détecter « Cerfa scan »', async () => {
+    H.state.rows = [
+      { corps_id: null, champ: 'surface_plancher_m2', role: 'ecartee', confiance: null, reserve: null, motif: 'champ absent du Cerfa', piece: null, page: null, valeur: null, methode: 'cerfa' },
+      { corps_id: 42, champ: 'altitude_sommet_ngf', role: 'retenue', confiance: 'confirmee', reserve: null, motif: null, piece: 'PC3.pdf', page: 1, valeur: 97.13, methode: 'enonce' },
+    ];
+    const j = await lireJournalChamps(7);
+    expect(j.permis.surface_plancher_m2.methode).toBe('cerfa'); // niveau permis → détection scan
+    expect(j.parCorps[42].altitude_sommet_ngf.methode).toBe('enonce');
+  });
+
   it('aucune ligne → parCorps et permis vides', async () => {
     expect(await lireJournalChamps(7)).toEqual({ parCorps: {}, permis: {} });
   });

@@ -37,7 +37,7 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock }));
 
-import { repartirEcriture, ecrireCorps, ecrireGlobal, ecrireCaracteristiquesGlobales, ecrireDestinations, lirePermisCaracteristiques, creerCorps, supprimerCorps, definirRepere } from './caracteristiquesRepo';
+import { repartirEcriture, ecrireCorps, ecrireGlobal, ecrireCaracteristiquesGlobales, ecrireDestinations, lirePermisCaracteristiques, creerCorps, supprimerCorps, definirRepere, confirmerSommetCorps } from './caracteristiquesRepo';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ');
 const trouver = (re: RegExp) => H.appels.find((a) => re.test(a.sql));
@@ -122,6 +122,14 @@ describe('N3-B — repartirEcriture (invariant PUR, les deux sens)', () => {
   it('extraite sur un champ vierge (origine null) → écrit', () => {
     expect(repartirEcriture('extraite', ['nbEtages'], {})).toEqual({ ecrits: ['nbEtages'], ignores: [] });
   });
+  // N10-C — ④ : une valeur CONFIRMÉE est protégée d'un recompute EXACTEMENT comme une saisie. Retirer `confirmes` casse ce test.
+  it('extraite → écarte aussi un champ CONFIRMÉ (même origine extraite) ; sans le set confirmes il serait réécrit', () => {
+    expect(repartirEcriture('extraite', ['altitudeSommetNgf'], { altitudeSommetNgf: 'extraite' }, new Set(['altitudeSommetNgf'])))
+      .toEqual({ ecrits: [], ignores: ['altitudeSommetNgf'] });
+    // preuve que la garde `confirmes` EST la cause : sans elle, la même valeur extraite serait écrite.
+    expect(repartirEcriture('extraite', ['altitudeSommetNgf'], { altitudeSommetNgf: 'extraite' }))
+      .toEqual({ ecrits: ['altitudeSommetNgf'], ignores: [] });
+  });
 });
 
 describe('N3-B — ecrireCorps : invariant appliqué', () => {
@@ -173,6 +181,35 @@ describe('N3-B — ecrireCorps : invariant appliqué', () => {
     await ecrireCorps(1, { emprise: null }, 'saisie', 'admin');
     up = trouver(/UPDATE\s+permis_corps_batiment/i)!;
     expect(norm(up.sql)).toContain('emprise = NULL');
+  });
+});
+
+describe('N10-C — confirmation du sommet (invariant étendu + geste + reset)', () => {
+  it('④ AUTOMATIQUE sur un sommet CONFIRMÉ (origine extraite, confirme_le posé) → INCHANGÉ, aucun UPDATE', async () => {
+    H.state.originesCorps = { altitudeSommetNgf: 'extraite', __sommetConfirme: true }; // le SELECT rend le drapeau confirmé
+    const r = await ecrireCorps(1, { altitudeSommetNgf: 42 }, 'extraite', 'bot');
+    expect(r).toEqual({ ecrits: [], ignores: ['altitudeSommetNgf'] }); // recompute n'efface pas une décision humaine
+    expect(trouver(/UPDATE\s+permis_corps_batiment/i)).toBeUndefined();
+  });
+
+  it('une SAISIE du sommet remet le marqueur de confirmation à NULL (décision fraîche ≠ confirmation)', async () => {
+    H.state.originesCorps = { altitudeSommetNgf: 'extraite', __sommetConfirme: true };
+    await ecrireCorps(1, { altitudeSommetNgf: 88 }, 'saisie', 'admin');
+    const up = trouver(/UPDATE\s+permis_corps_batiment/i)!;
+    expect(norm(up.sql)).toContain('altitude_sommet_ngf_confirme_le = NULL');
+    expect(norm(up.sql)).toContain('altitude_sommet_ngf_confirme_par = NULL');
+  });
+
+  it('confirmerSommetCorps : pose confirme_le/par SANS toucher la valeur ni l’origine, gated sur extraite + non nul', async () => {
+    await confirmerSommetCorps(9, 'admin');
+    const up = trouver(/UPDATE\s+permis_corps_batiment[\s\S]*confirme_le\s*=\s*now\(\)/i)!;
+    const s = norm(up.sql);
+    expect(s).toContain('altitude_sommet_ngf_confirme_le = now()');
+    expect(s).toContain('altitude_sommet_ngf_confirme_par = $');
+    expect(s).not.toContain('altitude_sommet_ngf = ');   // le SET ne touche PAS la valeur (seul « _confirme_… » est posé)
+    expect(s).toContain("altitude_sommet_ngf_origine = 'extraite'"); // gate (WHERE) : seulement une valeur extraite…
+    expect(s).toContain('altitude_sommet_ngf IS NOT NULL');          // …et non nulle
+    expect(up.params).toContain('admin');
   });
 });
 

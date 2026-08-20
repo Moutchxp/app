@@ -10,7 +10,7 @@ import {
   MESURES, CHAMPS_PERMIS, construireCorps, construirePermis, valeurVersInput, permisVersInput,
   type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
-import { FaitsPermisBloc, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, type LienPiece } from './CaracteristiquesRendu';
+import { FaitsPermisBloc, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, type LienPiece } from './CaracteristiquesRendu';
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
 // N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
@@ -142,6 +142,14 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
     setEnCours(false);
   }, [poster, rafraichir]);
 
+  // N10-C — CONFIRMER le sommet extrait d'un bâtiment (le violet s'éteint, la trace « confirmée par … » apparaît). Ne touche pas la valeur.
+  const confirmerSommet = useCallback(async (corpsId: number) => {
+    setEnCours(true);
+    const r = await poster({ action: 'confirmer_sommet', corpsId });
+    if (r.ok) { await rafraichir(); setMessage('Sommet confirmé.'); } else setMessage(r.erreur ?? 'échec');
+    setEnCours(false);
+  }, [poster, rafraichir]);
+
   if (etat === 'chargement') return <p style={styleAide} aria-live="polite">Chargement des caractéristiques…</p>;
   if (etat === 'erreur' || !data) return <p role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>Caractéristiques indisponibles.</p>;
 
@@ -153,6 +161,8 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
   const lienPiece: LienPiece = (nom, page) => { const id = data.piecesParNom?.[nom]; return id != null && onOuvrir ? () => onOuvrir(id, 'dossier', page ?? undefined) : undefined; };
   // N14 — l'altitude du sommet du permis descend en bas du bloc (à côté du Commentaire) ; on la sort donc de la 1re grille.
   const champSommet = CHAMPS_PERMIS.find((c) => c.cle === 'altitudeSommetNgf')!;
+  // N10-C — D : les 4 champs Cerfa du permis sont-ils tous vides ? (avec methode='cerfa' → « scan sans champ lisible »).
+  const cerfaTousVides = (['surfacePlancherM2', 'nbLogements', 'nbPlacesStationnement', 'adresseTerrain'] as const).every((k) => (edPermis[k] ?? '').trim() === '');
 
   return (
     <div className="flex flex-col gap-3" style={{ marginTop: '.6rem' }}>
@@ -164,6 +174,17 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
       {/* ═══ SECTION 1 — LE PERMIS (déclaré) : vaut pour tout le permis, ne se répète pas ═══ */}
       <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
         <h4 style={styleTitre}>Le permis <span style={{ ...styleAide, fontWeight: 400 }}>— déclaré (Cerfa), vaut pour l’ensemble du projet</span></h4>
+        {/* N10-C — D : ce que contient la section et d'où ça vient. */}
+        <p style={styleAide}>Ce que le pétitionnaire a <strong>déclaré</strong> dans le Cerfa.</p>
+        {/* N10-C — D : le Cerfa est un scan sans champ lisible → on le DIT une fois, au lieu de laisser déduire un échec (détection methode='cerfa'). */}
+        {cerfaEstScanSansChamps(data.journal.permis, cerfaTousVides) && (
+          <p role="note" style={{ fontSize: 12, lineHeight: 1.45, padding: '.35rem .5rem', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', border: '1px solid var(--color-svv-line)' }}>
+            Le Cerfa de ce permis est un <strong>scan sans champ lisible</strong> : rien n’a pu en être extrait automatiquement — ce n’est pas une donnée perdue (voir les valeurs mesurées dans « Les bâtiments », et Sitadel ci-dessus).
+          </p>
+        )}
+        {/* N10-C — E : Sitadel et Cerfa EN REGARD, sans report d'une source sur l'autre. */}
+        <SourcesEnRegard surfaceCreeeSitadel={data.faits.surfaceCreee ?? null} surfacePlancherCerfa={data.global?.surfacePlancherM2 ?? null}
+          adresseSitadel={data.faits.adresse ?? null} adresseCerfa={data.global?.adresseTerrain ?? null} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.6rem' }}>
           {/* N13 — le select « nature du projet » (scalaire, mixte) est VESTIGIAL : remplacé par les cases à cocher « Destinations » ci-dessous. */}
           {/* N14 — le sommet du permis est retiré d'ici (rendu plus bas, à côté du Commentaire). 1re ligne : surface, logements, stationnement, adresse. */}
@@ -200,6 +221,8 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
 
       {/* ═══ SECTION 2 — LES CORPS DE BÂTIMENT (mesurés) : un par immeuble ═══ */}
       <h4 style={styleTitre}>Les bâtiments <span style={{ ...styleAide, fontWeight: 400 }}>— mesurés, un par immeuble (altitudes, étages)</span></h4>
+      {/* N10-C — D : ce que contient la section et d'où ça vient. */}
+      <p style={styleAide}>Ce que la machine a <strong>mesuré</strong> sur les plans (coupes, façades) — distinct de ce que le Cerfa déclare.</p>
       {data.corps.length === 0 && <p style={styleAide}>{MESSAGE_AUCUN_CORPS}</p>}
       {data.corps.map((c) => {
         const ed = edCorps[c.id];
@@ -219,7 +242,10 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.6rem' }}>
               {MESURES.map((m) => (
                 <ChampMesureEditeur key={m.cle} mesure={m} bornes={data.bornes[m.colonne]} valeur={ed[m.cle]} origine={origineDe(c, m.cle)}
-                  erreur={err[m.cle]} journal={journalCorps[m.colonne]} lienPiece={lienPiece} onValeur={(v) => majChamp(c.id, m.cle, v)} />
+                  erreur={err[m.cle]} journal={journalCorps[m.colonne]} lienPiece={lienPiece}
+                  confirmeLe={m.estSommet ? c.altitudeSommetNgfConfirmeLe : undefined} confirmePar={m.estSommet ? c.altitudeSommetNgfConfirmePar : undefined}
+                  onConfirmer={m.estSommet ? () => void confirmerSommet(c.id) : undefined}
+                  onValeur={(v) => majChamp(c.id, m.cle, v)} />
               ))}
             </div>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>

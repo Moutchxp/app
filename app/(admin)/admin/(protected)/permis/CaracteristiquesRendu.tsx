@@ -43,6 +43,37 @@ export function PastilleConfiance({ confiance }: { confiance: 'a_verifier' | 'co
 }
 
 /**
+ * N10-C — VIOLET « à confirmer » : une valeur du SOMMET issue de l'automatisation et JAMAIS examinée par un humain. RÈGLE DU PROJET
+ * (précédent T2-B) : la couleur ne porte JAMAIS l'information seule — le MOT « à confirmer » est obligatoire, pas décoratif. Le violet
+ * n'est qu'un appui. Contraste AA sur fond blanc. Distinct de la confiance (« corroborée » = axe du moteur, pas l'examen humain).
+ */
+export const VIOLET_A_CONFIRMER = '#7d3ac1';
+export function PastilleAConfirmer() {
+  return <span style={{ fontSize: 10, fontWeight: 700, padding: '.02rem .3rem', borderRadius: '.3rem', whiteSpace: 'nowrap', background: '#f3e8ff', color: VIOLET_A_CONFIRMER, border: `1px solid ${VIOLET_A_CONFIRMER}` }}>à confirmer</span>;
+}
+
+/** N10-C — « Cerfa = scan sans champ lisible » (liste fermée `methode='cerfa'`, jamais un rapprochement sur le TEXTE du motif) :
+ *  tous les champs Cerfa du permis vides ET au moins une ligne de journal issue de l'extraction Cerfa. Sert à l'expliquer UNE FOIS. PURE. */
+const CHAMPS_CERFA_PERMIS = ['surface_plancher_m2', 'nb_logements', 'nb_places_stationnement', 'adresse_terrain'];
+export function cerfaEstScanSansChamps(journalPermis: Record<string, JournalChamp | undefined>, tousChampsCerfaVides: boolean): boolean {
+  return tousChampsCerfaVides && CHAMPS_CERFA_PERMIS.some((c) => journalPermis[c]?.methode === 'cerfa');
+}
+
+/** N10-C — SITADEL et CERFA EN REGARD (lecture seule) : on VOIT ce que chaque source dit, sans jamais reporter l'une sur l'autre. */
+export function SourcesEnRegard({ surfaceCreeeSitadel, surfacePlancherCerfa, adresseSitadel, adresseCerfa }: {
+  surfaceCreeeSitadel: string | number | null; surfacePlancherCerfa: string | number | null; adresseSitadel: string | null; adresseCerfa: string | null;
+}) {
+  const nn = (v: string | number | null, unite = ''): string => (v === null || v === '' ? 'non renseignée' : `${v}${unite}`);
+  return (
+    <div style={{ fontSize: 12, lineHeight: 1.45, padding: '.4rem .55rem', borderRadius: '.4rem', background: 'var(--color-svv-field)', border: '1px solid var(--color-svv-line)', color: 'var(--color-svv-ink)', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+      <span><strong>Surface</strong> — Sitadel (créée) : {nn(surfaceCreeeSitadel, ' m²')}  ·  Cerfa (plancher) : {nn(surfacePlancherCerfa, ' m²')}</span>
+      <span><strong>Adresse</strong> — Sitadel : {nn(adresseSitadel)}  ·  Cerfa (terrain) : {nn(adresseCerfa)}</span>
+      <span style={{ ...styleAide, color: 'var(--color-svv-muted)' }}>La « surface créée » (Sitadel) et la « surface de plancher » (Cerfa) ne sont pas la même mesure — jamais reportées de l’une à l’autre.</span>
+    </div>
+  );
+}
+
+/**
  * Faits LECTURE SEULE du permis (motif FicheCommune) — informatifs, jamais éditables. La surface n'apparaît que si Sitadel la porte.
  * N12 — `nbBatiments` = nombre de lignes `permis_corps_batiment` du dossier. ⚠️ Ce N'EST PAS un fait Sitadel (Sitadel ne porte aucun
  * décompte de bâtiments — vérifié champ par champ : nb_lgt_tot_crees compte des LOGEMENTS) : c'est ce que la machine a IDENTIFIÉ dans
@@ -260,20 +291,39 @@ function LigneLabel({ libelle, origine, journal }: { libelle: string; origine: O
  * Champ d'UNE mesure : input numérique (VIDE autorisé → jamais 0 par défaut), bornes LUES de la base sous le champ, origine +
  * confiance + réserve + provenance + motif (via `AnnotationsExtraction`). Le SOMMET est signalé + une ligne dit ce qu'il désigne.
  */
-export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, onValeur }: {
-  mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece; onValeur: (v: string) => void;
+/** N10-C — « JJ/MM/AAAA » depuis un ISO (trace de confirmation). */
+function jjmmaaaa(iso: string): string { const d = iso.slice(0, 10); return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`; }
+
+export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, confirmeLe, confirmePar, onConfirmer, onValeur }: {
+  mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece;
+  confirmeLe?: string | null; confirmePar?: string | null; onConfirmer?: () => void; onValeur: (v: string) => void;
 }) {
+  // N10-C — « à confirmer » : le SOMMET, extrait par l'automatisation et JAMAIS examiné (confirme_le null). Confirmé (confirme_le posé)
+  //   → violet éteint + trace. Une valeur 'saisie' (modifiée à la main) n'est JAMAIS « à confirmer » (déjà une décision humaine).
+  const aConfirmer = mesure.estSommet === true && origine === 'extraite' && !confirmeLe;
+  const confirme = mesure.estSommet === true && origine === 'extraite' && !!confirmeLe;
   const cadreSommet: CSSProperties = mesure.estSommet
-    ? { border: '1px solid var(--color-svv-red)', borderRadius: '.5rem', padding: '.4rem .5rem', background: '#fff8f8' }
+    ? { border: `1px solid ${aConfirmer ? VIOLET_A_CONFIRMER : 'var(--color-svv-red)'}`, borderRadius: '.5rem', padding: '.4rem .5rem', background: aConfirmer ? '#faf5ff' : '#fff8f8' }
     : {};
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0, ...cadreSommet }}>
-      <LigneLabel libelle={`${mesure.libelle}${mesure.unite ? ` (${mesure.unite})` : ''}${mesure.estSommet ? ' ★' : ''}`} origine={origine} journal={journal} />
+      <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <LigneLabel libelle={`${mesure.libelle}${mesure.unite ? ` (${mesure.unite})` : ''}${mesure.estSommet ? ' ★' : ''}`} origine={origine} journal={journal} />
+        {aConfirmer && <PastilleAConfirmer />}
+      </span>
       <input type="number" inputMode="decimal" value={valeur} placeholder="vide = non renseigné"
         min={bornes?.min} max={bornes?.max} step={mesure.entier ? 1 : 'any'}
         onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label={mesure.libelle} />
       <span style={styleAide}>{libelleBornes(mesure, bornes)}</span>
       {mesure.estSommet && <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}>{mesure.aide}</span>}
+      {/* N10-C — le GESTE « confirmer » : visible SEULEMENT en état « à confirmer ». Confirme la valeur telle quelle (le violet s'éteint). */}
+      {aConfirmer && onConfirmer && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.2rem .55rem', borderColor: VIOLET_A_CONFIRMER, color: VIOLET_A_CONFIRMER }} onClick={onConfirmer}>Confirmer cette valeur</button>
+          <span style={styleAide}>valeur automatique jamais examinée — la confirmer, ou la corriger dans le champ.</span>
+        </div>
+      )}
+      {confirme && <span role="note" style={{ ...styleAide, color: 'var(--color-svv-green-ink)' }}>✓ confirmée{confirmePar ? ` par ${confirmePar}` : ''}{confirmeLe ? ` le ${jjmmaaaa(confirmeLe)}` : ''}</span>}
       {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
       <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} />
     </div>

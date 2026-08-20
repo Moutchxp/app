@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, BLEU_SOURCE } from './CaracteristiquesRendu';
+import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps } from './CaracteristiquesRendu';
 import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
 
@@ -365,5 +365,49 @@ describe('FUS-1 — FaitsPermisBloc : empreinte attendue de la parcelle fusionn�
     const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits, parcelles: [parc()] }));
     expect(h).not.toContain('Empreinte attendue');
     expect(h).toContain('Section DZ n° 09');
+  });
+});
+
+describe('N10-C — le violet « à confirmer » sur le sommet + le geste + la trace', () => {
+  const rendreSommet = (props: Partial<Parameters<typeof ChampMesureEditeur>[0]>) =>
+    renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: sommet, valeur: '97.13', origine: 'extraite', onValeur: noop, onConfirmer: noop, ...props }));
+
+  it('① extraite JAMAIS examinée (confirmeLe null) → le MOT « à confirmer » ET le violet (jamais la couleur seule) + bouton Confirmer', () => {
+    const h = rendreSommet({ confirmeLe: null });
+    expect(h).toContain('à confirmer');                 // le mot est obligatoire (règle T2-B)
+    expect(h).toContain(VIOLET_A_CONFIRMER);            // le violet n'est qu'un appui
+    expect(h).toContain('Confirmer cette valeur');       // le geste, visible seulement dans cet état
+  });
+
+  it('② confirmée → plus de « à confirmer » ni de violet, mais la TRACE « confirmée par X le JJ/MM/AAAA »', () => {
+    const h = rendreSommet({ confirmeLe: '2026-08-20T09:30:00Z', confirmePar: 'a.jorel' });
+    expect(h).not.toContain('à confirmer');
+    expect(h).not.toContain('Confirmer cette valeur');
+    expect(h).toContain('confirmée par a.jorel le 20/08/2026'); // trace auteur + date
+  });
+
+  it('③ modifiée à la main (origine saisie) → ni violet ni mot (déjà une décision humaine)', () => {
+    const h = rendreSommet({ origine: 'saisie', confirmeLe: null });
+    expect(h).not.toContain('à confirmer');
+    expect(h).not.toContain(VIOLET_A_CONFIRMER);
+    expect(h).not.toContain('Confirmer cette valeur');
+  });
+
+  it('le violet ne touche QUE le sommet : un autre champ extrait non examiné n’est jamais « à confirmer »', () => {
+    const h = renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: nbEtages, valeur: '5', origine: 'extraite', onValeur: noop }));
+    expect(h).not.toContain('à confirmer');
+  });
+});
+
+describe('N10-C — ⑤ détection « Cerfa = scan sans champ lisible » (methode=\'cerfa\', liste fermée, jamais le texte du motif)', () => {
+  const j = (methode: string | null) => ({ confiance: null, reserve: null, provenances: [], motif: 'peu importe le libellé', methode });
+  it('tous les champs Cerfa vides ET une ligne methode=cerfa → scan détecté', () => {
+    expect(cerfaEstScanSansChamps({ surface_plancher_m2: j('cerfa') }, true)).toBe(true);
+  });
+  it('une ligne d’une AUTRE méthode (enonce) → PAS un scan (exact, pas un rapprochement de texte)', () => {
+    expect(cerfaEstScanSansChamps({ surface_plancher_m2: j('enonce') }, true)).toBe(false);
+  });
+  it('des champs remplis (tousVides=false) → PAS le message, même avec methode=cerfa', () => {
+    expect(cerfaEstScanSansChamps({ surface_plancher_m2: j('cerfa') }, false)).toBe(false);
   });
 });

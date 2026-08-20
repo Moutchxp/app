@@ -21,6 +21,7 @@ export interface JournalChamp {
   provenances: ProvenanceRetenue[];
   ecartes?: ProvenanceEcartee[]; // N10-B : lignes écartées AVEC provenance (rendues cliquables) — optionnel (additif ; `lireJournalChamps` le remplit toujours)
   motif: string | null;
+  methode?: string | null; // N10-C : d'où vient la ligne (liste fermée 'motifs'|'cerfa'|'ia'|'enonce') — test EXACT, jamais un rapprochement sur le texte du motif
 }
 /** Indexé par COLONNE SQL du champ (ex. 'altitude_sommet_ngf') — la même clé que `Mesure.colonne`. */
 export type JournalParChamp = Record<string, JournalChamp>;
@@ -33,7 +34,7 @@ export type JournalParCorps = Record<number, JournalParChamp>;
  */
 export interface JournalPermis { parCorps: JournalParCorps; permis: JournalParChamp }
 
-interface LigneJournal { corps_id: number | null; champ: string; role: 'retenue' | 'ecartee'; confiance: 'a_verifier' | 'confirmee' | null; reserve: string | null; motif: string | null; piece: string | null; page: number | null; valeur: number | null }
+interface LigneJournal { corps_id: number | null; champ: string; role: 'retenue' | 'ecartee'; confiance: 'a_verifier' | 'confirmee' | null; reserve: string | null; motif: string | null; piece: string | null; page: number | null; valeur: number | null; methode: string | null }
 
 /**
  * Journal d'affichage d'un permis, groupé par (niveau, champ). Un champ écrit → lignes 'retenue' (confiance/réserve uniformes,
@@ -41,7 +42,7 @@ interface LigneJournal { corps_id: number | null; champ: string; role: 'retenue'
  */
 export async function lireJournalChamps(dossierId: number): Promise<JournalPermis> {
   const { rows } = await query<LigneJournal>(
-    `SELECT corps_id, champ, role, confiance, reserve, motif, piece, page, valeur
+    `SELECT corps_id, champ, role, confiance, reserve, motif, piece, page, valeur, methode
        FROM permis_extraction_journal
       WHERE dossier_id = $1 AND role IN ('retenue', 'ecartee')
       ORDER BY corps_id, champ, piece, page`,
@@ -51,10 +52,11 @@ export async function lireJournalChamps(dossierId: number): Promise<JournalPermi
   const permis: JournalParChamp = {};
   for (const r of rows) {
     const cible = r.corps_id === null ? permis : (parCorps[r.corps_id] ??= {});
-    const j = (cible[r.champ] ??= { confiance: null, reserve: null, provenances: [], ecartes: [], motif: null });
+    const j = (cible[r.champ] ??= { confiance: null, reserve: null, provenances: [], ecartes: [], motif: null, methode: null });
     if (j.confiance === null && r.confiance !== null) j.confiance = r.confiance;
     if (j.reserve === null && r.reserve !== null) j.reserve = r.reserve;
     if (j.motif === null && r.motif !== null) j.motif = r.motif;
+    if ((j.methode ?? null) === null && r.methode !== null) j.methode = r.methode; // N10-C : d'où vient la ligne (pour détecter « Cerfa = scan sans champs »)
     if (r.role === 'retenue' && (r.piece !== null || r.page !== null)) j.provenances.push({ piece: r.piece, page: r.page });
     // N10-B — les écartés AVEC provenance (superstructures, garde-corps, niveaux nommés) : rendus cliquables au même titre que les retenues.
     if (r.role === 'ecartee' && (r.piece !== null || r.page !== null)) (j.ecartes ??= []).push({ valeur: r.valeur, piece: r.piece, page: r.page, motif: r.motif });
