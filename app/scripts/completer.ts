@@ -94,7 +94,8 @@ async function main(): Promise<void> {
       const pdf = await deps.lireObjet(rows[0].cle_stockage);
       const lectures = await lireCerfaScan(pdf, lecteurMistral(usage));
       const res = await ecrireCerfaScan(dossierId, rows[0].nom_fichier, lectures, 'extraction:cerfa-scan', dry);
-      return { resume: `écrits : ${res.ecrits.join(', ') || 'aucun'} · abstentions : ${res.abstentions.join(', ') || '—'} · désaccords : ${res.desaccords.join(', ') || '—'}`, coutApiUsd: coutUsd(usage) };
+      const prec = res.ecartesPrecedence.map((e) => `${e.champ} (${e.owner} > ia${e.extrait ? ` : « ${e.extrait} »` : ''})`).join(', ');
+      return { resume: `écrits : ${res.ecrits.join(', ') || 'aucun'} · abstentions : ${res.abstentions.join(', ') || '—'} · désaccords : ${res.desaccords.join(', ') || '—'}${prec ? ` · écartés par précédence : ${prec}` : ''}`, coutApiUsd: coutUsd(usage) };
     } },
   ];
 
@@ -114,6 +115,7 @@ async function main(): Promise<void> {
   for (const r of rapport) {
     if (r.valeur !== null) console.log(`  ${r.niveau.padEnd(16)} ${r.champ.padEnd(28)} = ${r.valeur}  · ${r.origine ?? '?'}/${r.methode ?? '?'}`);
     else console.log(`  ${r.niveau.padEnd(16)} ${r.champ.padEnd(28)} — VIDE · ${r.permanent ? '🔒 SANS EXTRACTEUR' : 'motif'} : ${r.motif}${r.sansMotif ? '  ⚠ SANS MOTIF JOURNALISÉ' : ''}`);
+    for (const e of r.ecarts) console.log(`  ${''.padEnd(16)} ${''.padEnd(28)}   ↳ écart (précédence) : ${e.methode ?? '?'} lisait « ${e.extrait ?? e.valeur ?? '∅'} » — ${e.motif}`);
   }
   const sans = compterSansMotif(rapport);
   console.log(`\n→ ${res.filter((e) => e.statut === 'echec').length} étape(s) en échec · ${sans} champ(s) vide(s) sans motif journalisé${sans && !dry ? '  ⚠ À CORRIGER (doctrine : jamais un vide muet)' : ''}`);

@@ -15,14 +15,17 @@
  */
 import { query } from '../db/client';
 import { lirePermisCaracteristiques, creerCorps, ecrireCorps, type ValeursCorps } from './caracteristiquesRepo';
+import { proprietairesRetenue } from './journalLecture';
+import { domine, motifEcartePrecedence } from './precedenceMethodes';
 import type { CandidatNiveauFiniJournal } from './decisionSommet';
 import type { ChampEcrit, DecisionChamps } from './decisionChamps';
 
 export const MOTIF_SAISIE_PRIORITAIRE = 'une valeur saisie à la main occupe déjà le champ (non écrasée)';
 export const MOTIF_AMBIGU_CORPS = 'attribution ambiguë : ≥2 bâtiments, aucun choix possible';
+const METHODE = 'motifs';
 
 export type ResultatEcritureChamps =
-  | { statut: 'traite'; corpsId: number | null; corpsCree: boolean; champsEcrits: string[]; champsIgnoresSaisie: string[] }
+  | { statut: 'traite'; corpsId: number | null; corpsCree: boolean; champsEcrits: string[]; champsIgnoresSaisie: string[]; champsEcartesPrecedence: string[] }
   | { statut: 'ambigu_plusieurs_corps'; nbCorps: number };
 
 type Role = 'retenue' | 'candidat' | 'ecartee';
@@ -46,6 +49,12 @@ function lignesRetenue(d: ChampEcrit, corpsId: number | null): LigneJournal[] {
 /** Une ligne 'ecartee' portant le MOTIF de non-écriture (aucune valeur, aucune provenance). */
 function ligneEcartee(champ: string, corpsId: number | null, motif: string): LigneJournal {
   return { corpsId, champ, valeur: null, unite: null, role: 'ecartee', confiance: null, reserve: null, motif, piece: null, page: null, extrait: null };
+}
+
+/** N10-T — ligne 'ecartee' d'un champ écarté par PRÉCÉDENCE : on CONSERVE la valeur et la provenance lues (l'écart reste visible/cliquable). */
+function lignePrecedence(d: ChampEcrit, corpsId: number | null, motif: string): LigneJournal {
+  const o = d.observations[0];
+  return { corpsId, champ: d.champ, valeur: d.valeur, unite: d.unite, role: 'ecartee', confiance: null, reserve: null, motif, piece: o?.provenance.pieceNom ?? null, page: o?.provenance.page ?? null, extrait: o?.texteBrut ?? null };
 }
 
 /** Candidats « niveau fini » → toujours 'candidat', corps_id=null, jamais promus en valeur. */
@@ -94,18 +103,27 @@ export async function ecrireChamps(dossierId: number, decision: DecisionChamps, 
   const corpsCree = corps.length === 0 && aEcrire.length > 0;
   const corpsId = corps.length > 0 ? corps[0].id : (corpsCree ? await creerCorps(dossierId, null, majPar) : null);
 
+  // N10-T — PRÉCÉDENCE : 'motifs' (cote isolée) est de rang LE PLUS FAIBLE. Un champ déjà détenu par une méthode supérieure
+  //   (typiquement 'enonce', la table structurée des niveaux, écrite plus tôt) n'est PAS réécrit : la cote est écartée, journalisée
+  //   avec le motif qui nomme la règle — ce qui rend enfin EFFECTIVE l'intention « la table prime sur les cotes isolées ».
+  const owner = corpsId !== null ? await proprietairesRetenue(dossierId, corpsId, aEcrire.map((d) => d.champ)) : new Map<string, string | null>();
+  const rejetePar = (champ: string): string | null => { const o = owner.get(champ); return o != null && !domine(METHODE, o) ? o : null; };
+
   let ecrits: string[] = [];
   let ignores: string[] = [];
   if (corpsId !== null && aEcrire.length > 0) {
     const valeurs: ValeursCorps = {};
-    for (const d of aEcrire) (valeurs as Record<string, number>)[d.cle] = d.valeur;
-    const res = await ecrireCorps(corpsId, valeurs, 'extraite', majPar);
+    for (const d of aEcrire) if (!rejetePar(d.champ)) (valeurs as Record<string, number>)[d.cle] = d.valeur;
+    const res = Object.keys(valeurs).length > 0 ? await ecrireCorps(corpsId, valeurs, 'extraite', majPar) : { ecrits: [], ignores: [] };
     ecrits = res.ecrits; ignores = res.ignores;
   }
 
   const lignes: LigneJournal[] = [];
+  const champsEcartesPrecedence: string[] = [];
   for (const d of champsCorps) {
     if (d.statut === 'non_ecrit') { lignes.push(ligneEcartee(d.champ, corpsId, d.motif)); continue; }
+    const o = rejetePar(d.champ);
+    if (o) { lignes.push(lignePrecedence(d, corpsId, motifEcartePrecedence(METHODE, o))); champsEcartesPrecedence.push(d.champ); continue; } // écartée par précédence, valeur conservée (visible)
     if (ecrits.includes(d.cle)) lignes.push(...lignesRetenue(d, corpsId));
     else if (ignores.includes(d.cle)) lignes.push(ligneEcartee(d.champ, corpsId, MOTIF_SAISIE_PRIORITAIRE)); // la main l'emporte, le journal le dit
   }
@@ -113,5 +131,5 @@ export async function ecrireChamps(dossierId: number, decision: DecisionChamps, 
   lignes.push(...lignesCandidats(decision.candidatsNiveauFini));
   await journaliser(dossierId, lignes);
 
-  return { statut: 'traite', corpsId, corpsCree, champsEcrits: ecrits, champsIgnoresSaisie: ignores };
+  return { statut: 'traite', corpsId, corpsCree, champsEcrits: ecrits, champsIgnoresSaisie: ignores, champsEcartesPrecedence };
 }

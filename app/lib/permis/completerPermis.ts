@@ -10,6 +10,7 @@
  */
 import type { GlobalPermis, CorpsBatiment, OrigineValeur } from './caracteristiquesRepo';
 import type { JournalPermis, JournalChamp } from './journalLecture';
+import { estMotifPrecedence } from './precedenceMethodes';
 
 // ── Contrôle de flux ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** N10-R — abstention PRÉVUE par une étape (décision du corpus), pour tracer le motif même en --dry-run (où rien n'est écrit). */
@@ -33,7 +34,9 @@ export async function executerEtapes(etapes: readonly Etape[], sauter: readonly 
 }
 
 // ── Compte rendu champ par champ ─────────────────────────────────────────────────────────────────────────────────────────────────
-export interface LigneRapport { niveau: string; champ: string; valeur: string | null; origine: OrigineValeur | null; methode: string | null; motif: string | null; sansMotif: boolean; permanent: boolean }
+/** N10-T — une lecture concurrente ÉCARTÉE par précédence (une autre méthode de rang supérieur a gagné le champ). Rendue VISIBLE. */
+export interface EcartPrecedence { methode: string | null; valeur: number | null; extrait: string | null; motif: string | null }
+export interface LigneRapport { niveau: string; champ: string; valeur: string | null; origine: OrigineValeur | null; methode: string | null; motif: string | null; sansMotif: boolean; permanent: boolean; ecarts: EcartPrecedence[] }
 
 /** N10-R (cause 2) — champs SANS aucun extracteur (mesure du 21/08 : non lisibles) : motif PERMANENT, distinct d'une abstention
  *  circonstancielle. « aucun extracteur » = on a DÉCIDÉ de ne pas extraire ; « aucune planche… » = le corpus est muet. À distinguer. */
@@ -64,13 +67,15 @@ const MESURES: { cle: keyof CorpsBatiment; colonne: string; libelle: string }[] 
 export const MOTIF_ABSENT = 'non renseigné — aucune extraction ni abstention journalisée (à vérifier)';
 
 function ligne(niveau: string, libelle: string, colonne: string, corpsId: number | null, valeur: unknown, origine: OrigineValeur | null, j: JournalChamp | undefined, overlay: Map<string, string>): LigneRapport {
+  // N10-T — lectures concurrentes écartées par PRÉCÉDENCE (ex. l'adresse IA écartée au profit du Cerfa) : rendues visibles à côté de la valeur retenue.
+  const ecarts: EcartPrecedence[] = (j?.ecartes ?? []).filter((e) => estMotifPrecedence(e.motif)).map((e) => ({ methode: e.methode ?? null, valeur: e.valeur, extrait: e.extrait ?? null, motif: e.motif }));
   const rempli = valeur !== null && valeur !== undefined && !(Array.isArray(valeur) && valeur.length === 0);
-  if (rempli) return { niveau, champ: libelle, valeur: Array.isArray(valeur) ? valeur.join(', ') : String(valeur), origine, methode: j?.methode ?? null, motif: null, sansMotif: false, permanent: false };
+  if (rempli) return { niveau, champ: libelle, valeur: Array.isArray(valeur) ? valeur.join(', ') : String(valeur), origine, methode: j?.methode ?? null, motif: null, sansMotif: false, permanent: false, ecarts };
   // Cause 2 (motif PERMANENT) prime sur tout : champ sans extracteur → jamais un vide muet, jamais confondu avec une abstention circonstancielle.
-  if (SANS_EXTRACTEUR.has(colonne)) return { niveau, champ: libelle, valeur: null, origine: null, methode: null, motif: MOTIF_SANS_EXTRACTEUR, sansMotif: false, permanent: true };
+  if (SANS_EXTRACTEUR.has(colonne)) return { niveau, champ: libelle, valeur: null, origine: null, methode: null, motif: MOTIF_SANS_EXTRACTEUR, sansMotif: false, permanent: true, ecarts };
   // Sinon : motif journalisé (abstention persistée) → sinon motif prévu par une étape (overlay dry-run) → sinon défaut visible.
   const motif = j?.motif ?? overlay.get(cle(corpsId, colonne)) ?? null;
-  return { niveau, champ: libelle, valeur: null, origine: null, methode: null, motif: motif ?? MOTIF_ABSENT, sansMotif: motif === null, permanent: false };
+  return { niveau, champ: libelle, valeur: null, origine: null, methode: null, motif: motif ?? MOTIF_ABSENT, sansMotif: motif === null, permanent: false, ecarts };
 }
 
 /**

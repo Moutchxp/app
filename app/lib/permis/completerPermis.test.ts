@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { executerEtapes, construireRapport, compterSansMotif, MOTIF_ABSENT, MOTIF_SANS_EXTRACTEUR, type Etape, type PrevisionAbstention } from './completerPermis';
+import { motifEcartePrecedence } from './precedenceMethodes';
 import type { GlobalPermis, CorpsBatiment } from './caracteristiquesRepo';
 import type { JournalPermis, JournalChamp } from './journalLecture';
 
@@ -67,6 +68,17 @@ describe('construireRapport — champ par champ, JAMAIS un vide muet', () => {
     nb_places_stationnement: ecartee('champ non renseigné (les deux lectures : case blanche)'),
     altitude_sommet_ngf: ecartee('aucune cote « acrotère » dans le corpus'),
   } };
+
+  it('N10-T — un champ REMPLI dont une lecture concurrente fut écartée par précédence : l’écart est VISIBLE (jamais un silence)', () => {
+    const j: JournalPermis = { parCorps: {}, permis: {
+      adresse_terrain: { confiance: 'confirmee', reserve: null, provenances: [{ piece: 'cerfa.pdf', page: 5 }], motif: null, methode: 'cerfa',
+        ecartes: [{ valeur: null, piece: 'PC-scan.pdf', page: 5, motif: motifEcartePrecedence('ia', 'cerfa'), methode: 'ia', extrait: '3 AVENUE BENOIT FRACHON 75020 PARIS' }] },
+    } };
+    const a = construireRapport(global(), [], j).find((r) => r.champ === 'Adresse du terrain')!;
+    expect(a.methode).toBe('cerfa'); // la valeur retenue est étiquetée de la méthode GAGNANTE
+    expect(a.ecarts).toHaveLength(1);
+    expect(a.ecarts[0]).toMatchObject({ methode: 'ia', extrait: '3 AVENUE BENOIT FRACHON 75020 PARIS' }); // le code postal « perdu » reste visible
+  });
 
   it('un champ REMPLI porte valeur + origine + méthode', () => {
     const rows = construireRapport(global(), [], journal);

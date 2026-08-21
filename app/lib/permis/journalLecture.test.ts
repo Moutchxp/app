@@ -13,7 +13,7 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock }));
 
-import { lireJournalChamps } from './journalLecture';
+import { lireJournalChamps, proprietairesRetenue } from './journalLecture';
 
 beforeEach(() => { H.appels.length = 0; H.state.rows = []; });
 
@@ -71,5 +71,32 @@ describe('lireJournalChamps', () => {
     expect(sql).toContain("role IN ('retenue', 'ecartee')");
     expect(sql).toContain('permis_extraction_journal');
     expect(H.appels[0].params).toEqual([7]);
+  });
+
+  it('N10-T — deux « retenue » de méthodes distinctes : la GAGNANTE est la plus forte, quel que soit l’ORDRE (l’ordre ne décide plus)', async () => {
+    // l'IA trie AVANT cerfa (pièce « PC… » < « cerfa… ») : l'ancien reader « première ligne triée » aurait choisi l'IA. La précédence non.
+    const ia = { corps_id: null, champ: 'adresse_terrain', role: 'retenue', confiance: 'confirmee', reserve: null, motif: null, piece: 'PC-scan.pdf', page: 5, valeur: null, methode: 'ia', extrait: '3 AVENUE BENOIT FRACHON 75020 PARIS' };
+    const cerfa = { corps_id: null, champ: 'adresse_terrain', role: 'retenue', confiance: 'confirmee', reserve: null, motif: null, piece: 'cerfa.pdf', page: 5, valeur: null, methode: 'cerfa', extrait: '3 AVENUE BENOIT FRACHON, PARIS' };
+    for (const rows of [[cerfa, ia], [ia, cerfa]]) {
+      H.state.rows = rows;
+      const a = (await lireJournalChamps(7)).permis.adresse_terrain;
+      expect(a.methode).toBe('cerfa');                                  // le formulaire gagne, DANS LES DEUX ORDRES
+      expect(a.provenances).toEqual([{ piece: 'cerfa.pdf', page: 5 }]); // provenance du GAGNANT seulement (pas mélangée)
+      expect(a.ecartes?.some((e) => e.methode === 'ia' && (e.extrait ?? '').includes('75020'))).toBe(true); // l'IA écartée reste VISIBLE
+    }
+  });
+
+  it('N10-T — proprietairesRetenue : rend la méthode « retenue » de plus haut rang par champ (garde des writers faibles)', async () => {
+    H.state.rows = [
+      { champ: 'nb_niveaux_sous_sol', methode: 'motifs' },
+      { champ: 'nb_niveaux_sous_sol', methode: 'enonce' },
+      { champ: 'nb_etages', methode: 'enonce' },
+    ];
+    const o = await proprietairesRetenue(7, 3, ['nb_niveaux_sous_sol', 'nb_etages']);
+    expect(o.get('nb_niveaux_sous_sol')).toBe('enonce'); // enonce > motifs
+    expect(o.get('nb_etages')).toBe('enonce');
+    const sql = H.appels[0].sql.replace(/\s+/g, ' ');
+    expect(sql).toContain("role = 'retenue'");
+    expect(H.appels[0].params).toEqual([7, ['nb_niveaux_sous_sol', 'nb_etages'], 3]); // corps_id lié
   });
 });

@@ -10,6 +10,10 @@ import { query } from '../db/client';
 import { ecrireCaracteristiquesGlobales, ecrireDestinations, type ValeursGlobalDeclare } from './caracteristiquesRepo';
 import { accorder, accorderDestinations, planifierEcriture, type LectureValeur, type ChampScalaire } from './decisionCerfaScan';
 import { SOUS_DESTINATIONS } from './lireCerfaScan';
+import { proprietairesRetenue } from './journalLecture';
+import { domine, motifEcartePrecedence } from './precedenceMethodes';
+
+const METHODE = 'ia';
 
 export interface LecturesCerfa {
   scalaires: Record<'surfacePlancherM2' | 'nbLogements' | 'nbPlacesStationnement' | 'adresseTerrain', { ocr: LectureValeur; vision: LectureValeur }>;
@@ -24,7 +28,7 @@ const META: { cle: ChampScalaire['cle']; colonne: string; page: number; numeriqu
 ];
 const CHAMPS = [...META.map((m) => m.colonne), 'destinations'];
 
-export interface ResultatCerfaScan { ecrits: string[]; abstentions: string[]; desaccords: string[]; nbJournal: number }
+export interface ResultatCerfaScan { ecrits: string[]; abstentions: string[]; desaccords: string[]; ecartesPrecedence: { champ: string; owner: string; extrait: string | null }[]; nbJournal: number }
 
 /** Construit le plan (pur) à partir des lectures — exposé pour l'affichage à blanc (--dry-run) et les tests. */
 export function planDepuisLectures(piece: string, lectures: LecturesCerfa) {
@@ -37,35 +41,52 @@ export function planDepuisLectures(piece: string, lectures: LecturesCerfa) {
 export async function ecrireCerfaScan(dossierId: number, piece: string, lectures: LecturesCerfa, majPar: string, dryRun = false): Promise<ResultatCerfaScan & { plan: ReturnType<typeof planDepuisLectures>['plan'] }> {
   const { plan } = planDepuisLectures(piece, lectures);
   const ecrits: string[] = [], abstentions: string[] = [], desaccords: string[] = [];
+  const ecartesPrecedence: { champ: string; owner: string; extrait: string | null }[] = [];
 
   const classer = (champ: string, motif: string | null) => { const c = motif && /divergent|non concordant/i.test(motif) ? desaccords : abstentions; if (!c.includes(champ)) c.push(champ); };
+
+  // N10-T — PRÉCÉDENCE : 'ia' (lecture d'image) est de rang FAIBLE. Un champ déjà détenu par une méthode supérieure (typiquement
+  //   'cerfa', le formulaire lui-même) n'est PAS réécrit : la lecture 'ia' est écartée, journalisée avec le motif qui nomme la règle.
+  const owner = await proprietairesRetenue(dossierId, null, CHAMPS);
+  const rejetePar = (champ: string): string | null => { const o = owner.get(champ); return o != null && !domine(METHODE, o) ? o : null; };
+
   if (dryRun) {
-    for (const l of plan.journal) { if (l.role === 'retenue') { if (!ecrits.includes(l.champ)) ecrits.push(l.champ); } else classer(l.champ, l.motif); }
-    return { plan, ecrits, abstentions: abstentions.filter((c) => !ecrits.includes(c)), desaccords, nbJournal: plan.journal.length };
+    for (const l of plan.journal) {
+      if (l.role !== 'retenue') { classer(l.champ, l.motif); continue; }
+      const o = rejetePar(l.champ);
+      if (o) ecartesPrecedence.push({ champ: l.champ, owner: o, extrait: l.extrait }); else if (!ecrits.includes(l.champ)) ecrits.push(l.champ);
+    }
+    return { plan, ecrits, abstentions: abstentions.filter((c) => !ecrits.includes(c)), desaccords, ecartesPrecedence, nbJournal: plan.journal.length };
   }
 
   // Purge idempotente CIBLÉE (jamais 'cerfa'/'motifs'/'plan', jamais la saisie).
   await query(`DELETE FROM permis_extraction_journal WHERE dossier_id = $1 AND methode = 'ia' AND champ = ANY($2::text[])`, [dossierId, CHAMPS]);
 
-  // Colonnes déclarées scalaires (invariant 103 réutilisé).
+  // Colonnes déclarées scalaires (invariant 103 réutilisé) — SAUF les champs écartés par précédence (on ne réécrit pas au-dessus d'une méthode supérieure).
   const valeurs: ValeursGlobalDeclare = {};
   for (const s of plan.scalaires) {
     const m = META.find((x) => x.cle === s.cle)!;
+    if (rejetePar(m.colonne)) continue;
     (valeurs as Record<string, string | number>)[s.cle] = m.numerique ? Number(String(s.valeur).replace(',', '.').replace(/\s/g, '')) : s.valeur;
   }
   if (Object.keys(valeurs).length > 0) { const r = await ecrireCaracteristiquesGlobales(dossierId, valeurs, 'extraite', majPar); ecrits.push(...r.ecrits.map((c) => META.find((m) => m.cle === c)?.colonne ?? c)); }
 
-  // Destinations (tableau) — seulement si accord ET non vide.
-  if (plan.destinations && plan.destinations.length > 0) { const rd = await ecrireDestinations(dossierId, plan.destinations, 'extraite', majPar); if (rd.ecrit) ecrits.push('destinations'); }
+  // Destinations (tableau) — seulement si accord ET non vide ET non écarté par précédence.
+  if (plan.destinations && plan.destinations.length > 0 && !rejetePar('destinations')) { const rd = await ecrireDestinations(dossierId, plan.destinations, 'extraite', majPar); if (rd.ecrit) ecrits.push('destinations'); }
 
-  // Journal (methode='ia', niveau permis corps_id NULL).
+  // Journal (methode='ia', niveau permis corps_id NULL). Une 'retenue' écartée par précédence devient 'ecartee' + motif de la règle,
+  //   en CONSERVANT la valeur/l'extrait lus (l'écart reste VISIBLE et cliquable — ex. le code postal perdu sur adresse_terrain).
   for (const l of plan.journal) {
+    const o = l.role === 'retenue' ? rejetePar(l.champ) : null;
+    const role = o ? 'ecartee' : l.role;
+    const motif = o ? motifEcartePrecedence(METHODE, o) : l.motif;
     await query(
       `INSERT INTO permis_extraction_journal (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
        VALUES ($1, NULL, $2, $3, NULL, $4, 'ia', $5, $6, $7, $8, $9, $10, now())`,
-      [dossierId, l.champ, l.valeur, l.role, l.confiance, l.reserve, l.motif, l.piece, l.page, l.extrait],
+      [dossierId, l.champ, l.valeur, role, l.confiance, l.reserve, motif, l.piece, l.page, l.extrait],
     );
-    if (l.role === 'ecartee') classer(l.champ, l.motif);
+    if (o) ecartesPrecedence.push({ champ: l.champ, owner: o, extrait: l.extrait });
+    else if (role === 'ecartee') classer(l.champ, l.motif);
   }
-  return { plan, ecrits: [...new Set(ecrits)], abstentions: abstentions.filter((c) => !ecrits.includes(c)), desaccords, nbJournal: plan.journal.length };
+  return { plan, ecrits: [...new Set(ecrits)], abstentions: abstentions.filter((c) => !ecrits.includes(c)), desaccords, ecartesPrecedence, nbJournal: plan.journal.length };
 }
