@@ -20,14 +20,14 @@ import { decisionCerfa, type ChampCerfa, type AdresseTerrainSitadel } from '../l
 import { ecrireCerfa } from '../lib/permis/ecritureCerfa';
 import { decisionDesignation, type PagePermis } from '../lib/permis/decisionDesignation';
 import { ecrireDesignation } from '../lib/permis/ecritureDesignation';
-import { extrairePlanchesDossier, ecrireGabaritPlu } from '../lib/permis/ecritureGabaritPlu';
+import { extrairePlanchesDossier, ecrireGabaritPlu, abstentionsGabarit } from '../lib/permis/ecritureGabaritPlu';
 import { decisionParcelles, type ParcelleSitadel } from '../lib/permis/decisionParcelles';
 import { ecrireParcelles, figerEmpreinte, figerBatiSnapshot } from '../lib/permis/parcellesRepo';
 import { lireCerfaScan, lecteurMistral, coutUsd, type UsageMistral } from '../lib/permis/lireCerfaScan';
 import { ecrireCerfaScan } from '../lib/permis/ecritureCerfaScan';
 import { lirePermisCaracteristiques } from '../lib/permis/caracteristiquesRepo';
 import { lireJournalChamps } from '../lib/permis/journalLecture';
-import { executerEtapes, construireRapport, compterSansMotif, type Etape } from '../lib/permis/completerPermis';
+import { executerEtapes, construireRapport, compterSansMotif, type Etape, type PrevisionAbstention } from '../lib/permis/completerPermis';
 
 const MAJ = 'completer';
 const arg = (n: string): string | undefined => { const i = process.argv.indexOf(n); return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : undefined; };
@@ -73,7 +73,15 @@ async function main(): Promise<void> {
       if (!dry) await ecrireDesignation(dossierId, desig, 'extraction:designation');
       const brutes = await extrairePlanchesDossier(dossierId, deps);
       if (!dry) await ecrireGabaritPlu(dossierId, brutes, 'extraction:gabarit-plu');
-      return { resume: `motifs+cerfa (${cerfa.champs.filter((c) => c.statut === 'ecrit').length} écrits) · désignation ${desig.statut} · gabarit ${brutes.length} planche(s)` };
+      // N10-R — prévoir les abstentions de corpus muet (désignation + gabarit/plateau par corps) pour que le compte rendu
+      //   n'affiche AUCUN vide muet, y compris en --dry-run (où rien n'est journalisé). Mêmes conditions que les écritures.
+      const { rows: cr } = await query<{ id: number }>(`SELECT id::int AS id FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY id`, [dossierId]);
+      const cibles: (number | null)[] = cr.length > 0 ? cr.map((r) => r.id) : [null];
+      const abstentions: PrevisionAbstention[] = [
+        ...(desig.statut === 'abstenue' ? [{ champ: 'designation', corpsId: null, motif: desig.motif }] : []),
+        ...abstentionsGabarit(brutes, cibles),
+      ];
+      return { resume: `motifs+cerfa (${cerfa.champs.filter((c) => c.statut === 'ecrit').length} écrits) · désignation ${desig.statut} · gabarit ${brutes.length} planche(s)`, abstentions };
     } },
     { nom: 'parcelles', executer: async () => {
       const d = decisionParcelles(champsCerfa, sitadelParcelles, dau, codeInsee);
@@ -92,20 +100,20 @@ async function main(): Promise<void> {
 
   const t0 = Date.now();
   console.log(`\n══════ COMPLÉTER — ${dau} (${resolu.dossier.type})${dry ? ' · DRY-RUN (aucune écriture)' : ''} ══════`);
-  const { etapes: res, coutApiUsd } = await executerEtapes(etapes, sauter);
+  const { etapes: res, coutApiUsd, overlay } = await executerEtapes(etapes, sauter);
   const ms = Date.now() - t0;
 
   console.log('\n── étapes :');
   for (const e of res) console.log(`  ${e.statut === 'ok' ? '√' : e.statut === 'ignoree' ? '·' : '✗'} ${e.nom.padEnd(11)} — ${e.resume}`);
 
-  // ── COMPTE RENDU champ par champ (lu de l'état : colonnes + journal) ──
+  // ── COMPTE RENDU champ par champ (lu de l'état : colonnes + journal ; overlay = abstentions prévues, pour ne pas afficher de vide muet en dry-run) ──
   const { global, corps } = await lirePermisCaracteristiques(dossierId);
   const journal = await lireJournalChamps(dossierId);
-  const rapport = construireRapport(global, corps, journal);
+  const rapport = construireRapport(global, corps, journal, overlay);
   console.log(`\n── compte rendu champ par champ${dry ? ' (état ACTUEL — le dry-run n’a rien écrit ; voir les résumés d’étape pour ce qui SERAIT posé)' : ''} :`);
   for (const r of rapport) {
     if (r.valeur !== null) console.log(`  ${r.niveau.padEnd(16)} ${r.champ.padEnd(28)} = ${r.valeur}  · ${r.origine ?? '?'}/${r.methode ?? '?'}`);
-    else console.log(`  ${r.niveau.padEnd(16)} ${r.champ.padEnd(28)} — VIDE · motif : ${r.motif}${r.sansMotif ? '  ⚠ SANS MOTIF JOURNALISÉ' : ''}`);
+    else console.log(`  ${r.niveau.padEnd(16)} ${r.champ.padEnd(28)} — VIDE · ${r.permanent ? '🔒 SANS EXTRACTEUR' : 'motif'} : ${r.motif}${r.sansMotif ? '  ⚠ SANS MOTIF JOURNALISÉ' : ''}`);
   }
   const sans = compterSansMotif(rapport);
   console.log(`\n→ ${res.filter((e) => e.statut === 'echec').length} étape(s) en échec · ${sans} champ(s) vide(s) sans motif journalisé${sans && !dry ? '  ⚠ À CORRIGER (doctrine : jamais un vide muet)' : ''}`);

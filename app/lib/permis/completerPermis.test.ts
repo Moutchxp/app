@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { executerEtapes, construireRapport, compterSansMotif, MOTIF_ABSENT, type Etape } from './completerPermis';
+import { executerEtapes, construireRapport, compterSansMotif, MOTIF_ABSENT, MOTIF_SANS_EXTRACTEUR, type Etape, type PrevisionAbstention } from './completerPermis';
 import type { GlobalPermis, CorpsBatiment } from './caracteristiquesRepo';
 import type { JournalPermis, JournalChamp } from './journalLecture';
 
-const etape = (nom: string, impl: () => Promise<{ resume: string; coutApiUsd?: number }>): Etape => ({ nom, executer: impl });
+const etape = (nom: string, impl: () => Promise<{ resume: string; coutApiUsd?: number; abstentions?: PrevisionAbstention[] }>): Etape => ({ nom, executer: impl });
 
 describe('executerEtapes — ordre, continue-sur-échec, --sauter, coût cumulé', () => {
   it('respecte l’ORDRE et cumule le coût API', async () => {
@@ -34,6 +34,17 @@ describe('executerEtapes — ordre, continue-sur-échec, --sauter, coût cumulé
     const r = await executerEtapes([etape('cerfa-scan', async () => { lance = true; return { resume: 'ok' }; })], ['cerfa-scan']);
     expect(lance).toBe(false);
     expect(r.etapes[0].statut).toBe('ignoree');
+  });
+
+  it('N10-R — collecte l’overlay des abstentions PRÉVUES (par champ/corps), clé permis vs corps', async () => {
+    const r = await executerEtapes([
+      etape('champs', async () => ({ resume: 'ok', abstentions: [
+        { champ: 'designation', corpsId: null, motif: 'aucune ligne « Nom de l’opération »' },
+        { champ: 'hauteur_max_plu_ngf', corpsId: 7, motif: 'aucune planche « hauteur maximale PLU »' },
+      ] })),
+    ]);
+    expect(r.overlay.get('permis:designation')).toBe('aucune ligne « Nom de l’opération »');
+    expect(r.overlay.get('7:hauteur_max_plu_ngf')).toBe('aucune planche « hauteur maximale PLU »');
   });
 });
 
@@ -96,5 +107,44 @@ describe('construireRapport — champ par champ, JAMAIS un vide muet', () => {
     const etages = rows.find((r) => r.niveau.startsWith('corps #7') && r.champ === 'Étages')!;
     expect(etages.valeur).toBeNull();
     expect(etages.sansMotif).toBe(true); // aucune valeur, aucun journal → à faire remonter
+  });
+
+  it('N10-R (cause 2) — champ SANS extracteur → motif PERMANENT, distinct, jamais sansMotif (même sans journal)', () => {
+    const corps: CorpsBatiment[] = [{ id: 7, repere: 'A' } as CorpsBatiment];
+    const rows = construireRapport(global(), corps, { parCorps: {}, permis: {} }); // aucun journal
+    for (const lib of ['Hauteur relative', 'Terrain naturel (NGF)']) {
+      const m = rows.find((r) => r.niveau.startsWith('corps #7') && r.champ === lib)!;
+      expect(m.valeur).toBeNull();
+      expect(m.motif).toBe(MOTIF_SANS_EXTRACTEUR);
+      expect(m.permanent).toBe(true);
+      expect(m.sansMotif).toBe(false); // motif permanent = jamais un vide muet
+    }
+  });
+
+  it('N10-R (cause 2) — le motif permanent PRIME sur un overlay (on a décidé de ne pas extraire, pas « corpus muet »)', () => {
+    const corps: CorpsBatiment[] = [{ id: 7, repere: 'A' } as CorpsBatiment];
+    const overlay = new Map<string, string>([['7:hauteur_relative_m', 'un motif circonstanciel qui ne doit PAS gagner']]);
+    const hr = construireRapport(global(), corps, { parCorps: {}, permis: {} }, overlay).find((r) => r.niveau.startsWith('corps #7') && r.champ === 'Hauteur relative')!;
+    expect(hr.motif).toBe(MOTIF_SANS_EXTRACTEUR);
+    expect(hr.permanent).toBe(true);
+  });
+
+  it('N10-R (cause 1) — un champ vide sans journal mais couvert par l’OVERLAY porte ce motif (dry-run : rien écrit) → 0 sansMotif', () => {
+    const corps: CorpsBatiment[] = [{ id: 7, repere: 'A' } as CorpsBatiment];
+    const overlay = new Map<string, string>([
+      ['permis:designation', 'aucune ligne « Nom de l’opération » dans le corpus'],
+      ['7:hauteur_max_plu_ngf', 'aucune planche du corpus ne porte le libellé « hauteur maximale PLU »'],
+      ['7:altitude_plateau_nivellement_ngf', 'aucune planche du corpus ne porte le libellé « plateau de nivellement »'],
+    ]);
+    const rows = construireRapport(global({ designation: null, designationOrigine: null }), corps, { parCorps: {}, permis: {} }, overlay);
+    const desig = rows.find((r) => r.niveau === 'permis' && r.champ === 'Désignation de l’opération')!;
+    expect(desig.motif).toContain('Nom de l’opération');
+    expect(desig.sansMotif).toBe(false);
+    const gab = rows.find((r) => r.niveau.startsWith('corps #7') && r.champ === 'Gabarit PLU (NGF)')!;
+    expect(gab.motif).toContain('hauteur maximale PLU');
+    expect(gab.sansMotif).toBe(false);
+    // les 4 champs jadis « vides sans motif » (désignation + gabarit/plateau/hauteur relative/terrain naturel du corps) sont tous couverts
+    const jadisMuets = ['Désignation de l’opération', 'Gabarit PLU (NGF)', 'Plateau de nivellement (NGF)', 'Hauteur relative', 'Terrain naturel (NGF)'];
+    expect(compterSansMotif(rows.filter((r) => jadisMuets.includes(r.champ)))).toBe(0);
   });
 });

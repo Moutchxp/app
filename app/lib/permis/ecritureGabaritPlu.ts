@@ -15,7 +15,7 @@ import { query } from '../db/client';
 import { ecrireCorps } from './caracteristiquesRepo';
 import {
   decisionGabaritPlanche, agregerGabarit, controlerRegleGabarit, enonceRegle,
-  RESERVE_DIVERGENCE, RESERVE_MULTI_CORPS,
+  RESERVE_DIVERGENCE, RESERVE_MULTI_CORPS, MOTIF_ABSENCE_GABARIT, MOTIF_ABSENCE_PLATEAU,
   type ItemTexte, type GabaritRetenu, type CandidatGabarit, type LecturePlanche,
 } from './decisionGabaritPlu';
 
@@ -79,6 +79,24 @@ export interface ResultatGabarit {
 const conf = (cs: { confiance: 'confirmee' | 'a_verifier' }[]): 'confirmee' | 'a_verifier' =>
   cs.length > 0 && cs.every((c) => c.confiance === 'confirmee') ? 'confirmee' : 'a_verifier';
 
+/** N10-R — une abstention PRÉVISIBLE du gabarit/plateau (aucune planche ne porte le libellé), par corps. */
+export interface AbstentionGabarit { corpsId: number | null; champ: string; motif: string }
+/**
+ * SOURCE UNIQUE des abstentions de corpus muet : ce que `ecrireGabaritPlu` JOURNALISE, et ce que l'orchestrateur peut prévoir en
+ * --dry-run (aucune écriture). Le gabarit s'abstient quand AUCUNE planche ne porte le libellé (≡ `cands.length === 0`) ; le plateau,
+ * quand aucune planche ne porte le sien. Une ligne PAR CHAMP CONCERNÉ ET PAR CORPS, motif = la vérité du dossier — jamais un silence.
+ */
+export function abstentionsGabarit(brutes: readonly LectureBrute[], cibles: readonly (number | null)[]): AbstentionGabarit[] {
+  if (!brutes.every((b) => !b.gabarit)) return []; // au moins une planche porte le gabarit → pas d'abstention de corpus muet
+  const aucunPlateau = brutes.every((b) => !b.plateau);
+  const out: AbstentionGabarit[] = [];
+  for (const c of cibles) {
+    out.push({ corpsId: c, champ: CHAMP_GABARIT, motif: MOTIF_ABSENCE_GABARIT });
+    if (aucunPlateau) out.push({ corpsId: c, champ: CHAMP_PLATEAU, motif: MOTIF_ABSENCE_PLATEAU });
+  }
+  return out;
+}
+
 async function journaliser(dossierId: number, corpsId: number | null, champ: string, role: 'retenue' | 'ecartee', valeur: number | null, confiance: 'confirmee' | 'a_verifier' | null, reserve: string | null, motif: string | null, piece: string | null, page: number | null, extrait: string): Promise<void> {
   await query(
     `INSERT INTO permis_extraction_journal (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
@@ -98,7 +116,12 @@ export async function ecrireGabaritPlu(dossierId: number, brutes: readonly Lectu
   // Purge idempotente CIBLÉE (jamais les autres méthodes/champs, jamais la saisie).
   await query(`DELETE FROM permis_extraction_journal WHERE dossier_id = $1 AND methode = 'plan' AND champ = ANY($2::text[])`, [dossierId, [CHAMP_GABARIT, CHAMP_PLATEAU]]);
 
-  if (cands.length === 0) return { statut: 'aucune', ecritGabarit: false, ecritPlateau: false, nbCorps: corps.length, nbPlanches: brutes.length, exclues: [] };
+  if (cands.length === 0) {
+    // N10-R — ABSTENTION décidée au niveau du corpus : aucune planche ne porte le libellé. On JOURNALISE par champ ET par corps
+    //   (motif = la vérité du dossier, via la SOURCE UNIQUE `abstentionsGabarit`), au lieu de sortir en silence. Aucune valeur écrite.
+    for (const a of abstentionsGabarit(brutes, cibles)) await journaliser(dossierId, a.corpsId, a.champ, 'ecartee', null, null, null, a.motif, null, null, `abstention — ${a.motif}`);
+    return { statut: 'aucune', ecritGabarit: false, ecritPlateau: false, nbCorps: corps.length, nbPlanches: brutes.length, exclues: [] };
+  }
 
   const multiCorps = corps.length !== 1;
 

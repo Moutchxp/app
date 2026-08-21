@@ -142,6 +142,10 @@ export function agregerGabarit(candidats: readonly CandidatGabarit[]): Aggregati
   return { statut: 'divergente', groupes };
 }
 
+/** N10-R — motifs d'ABSTENTION décidée au niveau du corpus (aucune planche ne porte le libellé) : la vérité du dossier, par champ. */
+export const MOTIF_ABSENCE_GABARIT = 'aucune planche du corpus ne porte le libellé « hauteur maximale PLU »';
+export const MOTIF_ABSENCE_PLATEAU = 'aucune planche du corpus ne porte le libellé « plateau de nivellement »';
+
 /** Réserve à écrire TELLE QUELLE quand ça diverge (motif métier arbitré). */
 export const RESERVE_DIVERGENCE = 'le gabarit NGF varie selon le plateau de nivellement de la portion coupée';
 /** Réserve à ajouter quand le permis a plusieurs corps (pas de répartition au jugé, doctrine P4/P5). */
