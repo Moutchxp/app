@@ -7,10 +7,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 const H = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
-  const state = { corps: [] as { id: number; repere: string | null }[], origineCorps: {} as Record<string, unknown>, insertCorpsId: 200, sommetOrigine: null as string | null };
+  // N10-S — `journal` modélise permis_extraction_journal (methode/champ) : le mock applique la VRAIE sémantique DELETE (methode +
+  //   éventuel filtre champ = ANY) et INSERT, pour PROUVER qu'une purge scopée épargne la trace d'un autre writer.
+  const state = { corps: [] as { id: number; repere: string | null }[], origineCorps: {} as Record<string, unknown>, insertCorpsId: 200, sommetOrigine: null as string | null, journal: [] as { methode: string | null; champ: unknown }[] };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
     if (/json_agg/i.test(sql)) return { rows: [{ global: null, corps: state.corps }] };
+    if (/DELETE\s+FROM\s+permis_extraction_journal/i.test(sql)) {
+      const methode = /methode\s*=\s*'(\w+)'/i.exec(sql)?.[1] ?? null;
+      const parChamp = /champ\s*=\s*ANY/i.test(sql) ? (params?.[1] as unknown[]) : null; // null = purge NON filtrée par champ (l'ancien défaut)
+      for (let i = state.journal.length - 1; i >= 0; i--) { const r = state.journal[i]; if ((methode === null || r.methode === methode) && (parChamp === null || parChamp.includes(r.champ))) state.journal.splice(i, 1); }
+      return { rows: [] };
+    }
+    if (/INSERT\s+INTO\s+permis_extraction_journal/i.test(sql)) { state.journal.push({ methode: /'(\w+)'/.exec(sql)?.[1] ?? null, champ: params?.[2] }); return { rows: [] }; }
     if (/INSERT\s+INTO\s+permis_corps_batiment/i.test(sql)) return { rows: [{ id: state.insertCorpsId }] };
     if (/_origine\s+AS\s+"/i.test(sql) && /FROM\s+permis_corps_batiment/i.test(sql)) return { rows: [state.origineCorps] };
     if (/SELECT\s+altitude_sommet_ngf_origine/i.test(sql)) return { rows: [{ o: state.sommetOrigine }] };
@@ -37,7 +46,7 @@ const jrows = () => journal().map((a) => a.params); // 0 dossier 1 corps 2 champ
 const updatesCorps = () => H.appels.filter((a) => /UPDATE\s+permis_corps_batiment\s+SET\s+repere/i.test(a.sql));
 const insertsCorps = () => H.appels.filter((a) => /INSERT\s+INTO\s+permis_corps_batiment/i.test(a.sql));
 
-beforeEach(() => { H.appels.length = 0; H.state.corps = []; H.state.origineCorps = {}; H.state.insertCorpsId = 200; H.state.sommetOrigine = null; });
+beforeEach(() => { H.appels.length = 0; H.state.corps = []; H.state.origineCorps = {}; H.state.insertCorpsId = 200; H.state.sommetOrigine = null; H.state.journal = []; });
 
 describe('ecrireLots — premier passage', () => {
   it('renomme le corps anonyme → 2D1, crée 2D2, écrit les valeurs, déplace le sommet au permis', async () => {
@@ -70,6 +79,17 @@ describe('ecrireLots — premier passage', () => {
     H.state.corps = [{ id: 1, repere: null }];
     await ecrireLots(1, decision(), 'enonce:lots');
     expect(H.appels.some((a) => /DELETE\s+FROM\s+permis_extraction_journal/i.test(a.sql) && /methode\s*=\s*'enonce'/i.test(a.sql))).toBe(true);
+  });
+
+  it('N10-S — la purge est SCOPÉE par champ : la trace « enonce/designation » d’un AUTRE writer SURVIT', async () => {
+    H.state.corps = [{ id: 1, repere: null }];
+    H.state.journal = [{ methode: 'enonce', champ: 'designation' }]; // posée par ecritureDesignation avant que lots tourne
+    await ecrireLots(1, decision(), 'enonce:lots');
+    expect(H.state.journal.some((r) => r.methode === 'enonce' && r.champ === 'designation')).toBe(true); // SURVIT
+    const del = H.appels.find((a) => /DELETE\s+FROM\s+permis_extraction_journal/i.test(a.sql))!;
+    expect(/champ\s*=\s*ANY/i.test(del.sql)).toBe(true); // filtré par champ — échoue si on réélargit la purge
+    expect(del.params[1]).toContain('altitude_sommet_ngf');
+    expect(del.params[1]).not.toContain('designation');
   });
 });
 

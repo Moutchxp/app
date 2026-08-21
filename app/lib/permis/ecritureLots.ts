@@ -12,6 +12,12 @@ import { lirePermisCaracteristiques, creerCorps, definirRepere, ecrireCorps, typ
 import type { DecisionLots } from './decisionLots';
 
 const MOTIF_SAISIE = 'une valeur saisie à la main occupe déjà le champ (non écrasée)';
+/**
+ * N10-S — DOMAINE des champs que CE writer pose au journal (methode='enonce'). SOURCE UNIQUE : la purge idempotente s'y LIMITE. Sans
+ * ce filtre, elle effacerait la trace 'enonce' d'un AUTRE writer partageant la méthode (la désignation, les lignes de niveaux). La
+ * garde dans `journaliser` interdit d'écrire un champ hors de ce domaine — sinon la purge le laisserait fantôme. Ajouter un champ ⇒ ICI.
+ */
+const CHAMPS_ENONCE: readonly string[] = ['nb_etages', 'nb_niveaux_sous_sol', 'altitude_dernier_plancher_ngf', 'altitude_sommet_ngf'];
 export interface ResultatEcritureLots { corps: { repere: string; corpsId: number; cree: boolean; ecrits: string[] }[]; sommetPermisEcrit: boolean }
 
 type Role = 'retenue' | 'ecartee';
@@ -19,6 +25,7 @@ interface Ligne { corpsId: number | null; champ: string; valeur: number | null; 
 
 async function journaliser(dossierId: number, lignes: Ligne[]): Promise<void> {
   for (const l of lignes) {
+    if (!CHAMPS_ENONCE.includes(l.champ)) throw new Error(`ecritureLots : champ '${l.champ}' hors du domaine 'enonce' déclaré (CHAMPS_ENONCE) — l'y ajouter, sinon la purge le laisse fantôme`);
     await query(
       `INSERT INTO permis_extraction_journal
          (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
@@ -30,7 +37,8 @@ async function journaliser(dossierId: number, lignes: Ligne[]): Promise<void> {
 
 /** Applique la décision. `majPar` identifie l'auteur. */
 export async function ecrireLots(dossierId: number, decision: DecisionLots, majPar: string): Promise<ResultatEcritureLots> {
-  await query(`DELETE FROM permis_extraction_journal WHERE dossier_id = $1 AND methode = 'enonce'`, [dossierId]); // recompute idempotent (ciblé)
+  // Recompute idempotent SCOPÉ à ce writer (N10-S) : ne touche jamais la trace 'enonce' de la désignation ni des niveaux.
+  await query(`DELETE FROM permis_extraction_journal WHERE dossier_id = $1 AND methode = 'enonce' AND champ = ANY($2::text[])`, [dossierId, CHAMPS_ENONCE]);
   const { corps } = await lirePermisCaracteristiques(dossierId);
   const parRepere = new Map<string, number>(corps.filter((c) => c.repere).map((c) => [c.repere as string, c.id]));
   const libres = corps.filter((c) => c.repere === null).map((c) => c.id); // corps anonymes à renommer avant d'en créer

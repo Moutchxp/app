@@ -16,6 +16,13 @@ import { lirePermisCaracteristiques, creerCorps, definirRepere, ecrireCorps, typ
 import type { DecisionNiveaux, SourceRef } from './decisionNiveaux';
 
 const MOTIF_SAISIE = 'une valeur saisie à la main occupe déjà le champ (non écrasée)';
+/**
+ * N10-S — DOMAINE des champs que CE writer pose au journal (methode='enonce'). SOURCE UNIQUE : la purge idempotente s'y LIMITE. Sans
+ * ce filtre, elle effacerait la trace 'enonce' d'un AUTRE writer partageant la méthode (la désignation d'`ecritureDesignation`, les
+ * lignes d'`ecritureLots`) : une valeur qui reste juste mais perd sa preuve. La garde dans `journaliser` interdit d'écrire un champ
+ * hors de ce domaine — sans quoi la purge le laisserait fantôme. Ajouter un champ ⇒ l'ajouter ICI (et la purge le couvre du même coup).
+ */
+const CHAMPS_ENONCE: readonly string[] = ['nb_etages', 'nb_niveaux_sous_sol', 'altitude_dernier_plancher_ngf', 'altitude_sommet_ngf', 'niveau_nomme', 'corps'];
 export interface ResultatEcritureNiveaux {
   corps: { repere: string | null; corpsId: number; cree: boolean; ecrits: string[]; corrections: string[] }[];
   sommetPermisEfface: boolean;
@@ -26,6 +33,7 @@ interface Ligne { corpsId: number | null; champ: string; valeur: number | null; 
 
 async function journaliser(dossierId: number, lignes: Ligne[]): Promise<void> {
   for (const l of lignes) {
+    if (!CHAMPS_ENONCE.includes(l.champ)) throw new Error(`ecritureNiveaux : champ '${l.champ}' hors du domaine 'enonce' déclaré (CHAMPS_ENONCE) — l'y ajouter, sinon la purge le laisse fantôme`);
     await query(
       `INSERT INTO permis_extraction_journal
          (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
@@ -40,7 +48,8 @@ const extraitDe = (s: SourceRef | null, txt: string): string | null => (s ? `${t
 
 /** Applique la décision « tableaux de niveaux ». `majPar` identifie l'auteur. */
 export async function ecrireNiveaux(dossierId: number, decision: DecisionNiveaux, majPar: string): Promise<ResultatEcritureNiveaux> {
-  await query(`DELETE FROM permis_extraction_journal WHERE dossier_id = $1 AND methode = 'enonce'`, [dossierId]); // recompute idempotent (ciblé)
+  // Recompute idempotent SCOPÉ à ce writer (N10-S) : ne touche jamais la trace 'enonce' de la désignation ni des lots.
+  await query(`DELETE FROM permis_extraction_journal WHERE dossier_id = $1 AND methode = 'enonce' AND champ = ANY($2::text[])`, [dossierId, CHAMPS_ENONCE]);
   const { corps, global } = await lirePermisCaracteristiques(dossierId);
   const parRepere = new Map<string, number>(corps.filter((c) => c.repere).map((c) => [c.repere as string, c.id]));
   const libres = corps.filter((c) => c.repere === null).map((c) => c.id);

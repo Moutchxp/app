@@ -3,10 +3,10 @@
  * et rend UN compte rendu champ par champ. N'invente AUCUNE extraction : elle appelle les fonctions existantes (injectées comme
  * `Etape`). PUR côté contrôle-de-flux et construction du rapport (testable sans base ni API) ; les étapes réelles vivent dans la CLI.
  *
- * ⚠️ ORDRE IMPOSÉ (défaut signalé, N10-Q recon) : `niveaux` AVANT `champs`. `ecritureNiveaux.ts:43` (et `ecritureLots.ts:33`)
- * purgent `methode='enonce'` SANS filtre de champ ; or la désignation écrit `enonce`/champ='designation' (`ecritureDesignation.ts:32`).
- * Si `champs` (qui produit la désignation) tournait AVANT `niveaux`, la purge large de niveaux effacerait la ligne journal de la
- * désignation (la valeur en colonne survit ; sa TRACE non). À corriger un jour en scopant la purge niveaux/lots à leurs champs.
+ * ORDRE `niveaux` AVANT `champs` : conservé par CONVENTION, plus par CONTRAINTE de correction. Le défaut d'origine (N10-Q) — les purges
+ * `methode='enonce'` de `ecritureNiveaux`/`ecritureLots`, non filtrées par champ, effaçaient la trace journal de la désignation
+ * (`enonce`/champ='designation') — a été CORRIGÉ en N10-S : chaque purge est désormais scopée au DOMAINE de champs de son writer, si
+ * bien qu'aucun ordre d'étapes ne peut plus détruire la trace d'un autre. On ne réordonne pas ici (un lot, un sujet).
  */
 import type { GlobalPermis, CorpsBatiment, OrigineValeur } from './caracteristiquesRepo';
 import type { JournalPermis, JournalChamp } from './journalLecture';

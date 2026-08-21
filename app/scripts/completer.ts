@@ -2,7 +2,7 @@
  * N10-Q — UNE commande qui complète UN permis : enchaîne niveaux → champs → parcelles → cerfa-scan et rend UN compte rendu champ
  * par champ. Idempotente (chaque étape l'est). Orchestre l'EXISTANT (aucune nouvelle extraction). UN permis par appel : aucune passe
  * sur le stock, aucun ordonnanceur.
- *   ⚠️ ORDRE : niveaux AVANT champs (la purge large 'enonce' de niveaux effacerait la trace journal de la désignation — cf. completerPermis).
+ *   ORDRE : niveaux AVANT champs — par CONVENTION (N10-S a scopé les purges 'enonce' par champ ; l'ordre n'est plus une contrainte de correction).
  * Options : --dry-run (aucune écriture ; l'étape cerfa-scan lit quand même l'API pour montrer ce qu'elle produirait) · --sauter <a,b>.
  * Lancer : npm run permis:completer -- --permis <num_dau> [--type PC|PD] [--dry-run] [--sauter niveaux,cerfa-scan].
  */
