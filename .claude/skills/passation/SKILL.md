@@ -60,6 +60,11 @@ TypeScript, Tailwind v4, PostgreSQL 17 + PostGIS.
   le COMPORTEMENT (réponse, paramètres liés) + le SQL par FRAGMENTS sémantiques whitespace-normalisés
   (`sql.replace(/\s+/g, ' ')` + `toContain`). Exemple de la bonne forme : `curation.test.ts` (« entité
   supprimée »). Vaut pour les nouveaux tests ; les anciens seront migrés au fil de l'eau.
+- **Flakes connus** : ne PAS décrire un flake par une hypothèse présentée comme une cause. Renvoyer au
+  registre versionné `docs/FLAKES_CONNUS.md` (une entrée par flake, niveau de preuve explicite). En
+  particulier pour `certificatPdf.test.ts` : dire que la cause est **NON ÉTABLIE** et que l'ancien
+  diagnostic « comparaison d'octets non déterministe / timestamp » est **RÉFUTÉ** (générateur prouvé
+  déterministe octet à octet) — ne JAMAIS réimprimer « octets non déterministes » ; pointer vers le registre.
 
 ### 3. Objectif à atteindre
 Décris l'objectif GLOBAL du projet ET l'objectif du chantier EN COURS au moment de la passation.

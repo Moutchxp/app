@@ -23,6 +23,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
   « pré-existant » sans jamais le voir dans un jeu de contrôle.
 - Ne PAS créer d'alias `test:tout` : `npm test` fait déjà exactement ça ; un alias serait une 2e vérité à
   maintenir.
+- **Suite rouge par intermittence ?** Consulter `docs/FLAKES_CONNUS.md` (registre des flakes connus avec
+  leur niveau de preuve) AVANT de diagnostiquer : un échec déjà instruit — et ses pistes déjà réfutées — y
+  figure, avec la conduite à tenir (p. ex. le flake `certificatPdf.test.ts` dumpe ses buffers dans tmpdir).
 
 # Écriture des tests — ne jamais figer la FORME d'un SQL émis au runtime
 
