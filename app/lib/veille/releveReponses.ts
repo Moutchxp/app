@@ -21,6 +21,7 @@ import { analyserLiensReponse } from './extractionLiens';
 import type { BrancheDepot } from '../sitadel/depotManuel'; // N1-A : type SEUL (le runtime est injecté via opts.depot)
 import { analyserRapportRejet, normaliserMessageId, type PartieRapport, type ResultatRapportRejet } from './rapportRejet';
 import { normaliserReference } from '../sitadel/demandesListe';
+import { estEmisParNous } from '../email/enteteAuto'; // module PUR (pas de nodemailer) : sûr à importer statiquement ici
 
 export interface PieceMeta { nomFichier: string; typeMime: string | null; tailleOctets: number | null; contenu: Buffer }
 
@@ -75,6 +76,7 @@ export interface RapportReleve {
   vus: number;
   dejaConnus: number;
   horsPerimetre: number;
+  emisParNous: number;          // CORRECTIF boucle : messages émis PAR NOUS (en-tête d'auto-émission OU expéditeur = MAIL_FROM) ignorés en amont — jamais retenus/rattachés/classés/enregistrés
   retenus: number;              // = lignes.length
   rattaches: number;
   nonRattaches: number;
@@ -100,6 +102,13 @@ export interface OptionsReleve {
   appliquer?: boolean;   // défaut false (simulation : aucune écriture)
   sansFiltre?: boolean;  // désactive le filtre de pertinence (débogage) — JAMAIS le défaut
   depot?: BrancheDepot;  // N1-A : versement automatique en GED (présent en mode appliqué réel ; absent → comportement inchangé)
+  adressesNous?: string[]; // CORRECTIF boucle : NOS adresses d'expédition (repli au signal en-tête). Défaut = [MAIL_FROM] (env).
+}
+
+/** CORRECTIF boucle — NOS adresses d'expédition par défaut (MAIL_FROM). Repli du signal en-tête pour les messages déjà en boîte. */
+function adressesNousDefaut(): string[] {
+  const f = (process.env.MAIL_FROM ?? '').trim().toLowerCase();
+  return f !== '' ? [f] : [];
 }
 
 /** Fragment commun aux objets émis (entreprise et personne), normalisé (minuscules, sans accents). */
@@ -380,7 +389,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const vide = (connecte: boolean): RapportReleve => ({
     mode, profil: opts.profil, connecte, depuis: depuis ? depuis.toISOString() : null, domainesInterroges,
     uidsServeur: 0, referencesInterrogees: 0, uidsReferences: 0, plafondReferencesAtteint: false, plafondAtteint: false,
-    vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0, nonRattaches: 0,
+    vus: 0, dejaConnus: 0, horsPerimetre: 0, emisParNous: 0, retenus: 0, rattaches: 0, nonRattaches: 0,
     rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, liensCaptes: 0, ecrites: 0, piecesDeposees: 0, piecesNonDeposees: 0, parMethode: {}, lignes: [],
   });
 
@@ -392,8 +401,9 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const tailleMaxOctets = cfg.pieceTailleMaxMo * 1024 * 1024; // utilisé seulement en mode APPLIQUÉ (dépôt)
   const motifsAccuse = parseMotifsAccuse(cfg.natureAccuseMotifs); // FUS-4 : motifs d'objet « accusé » (config, pilotage sans code)
   const { references, plafondAtteint: plafondReferencesAtteint } = await lireReferencesRecherche(cfg.rechercheReferencesMax); // LOT 2 : tous profils
+  const adressesNous = opts.adressesNous ?? adressesNousDefaut(); // CORRECTIF boucle : NOS adresses (repli du signal en-tête)
   const lignes: LigneReleve[] = [];
-  let vus = 0, dejaConnus = 0, horsPerimetre = 0, rebondsDetectes = 0, rebondsRattaches = 0, rebondsEtrangers = 0, rebondsAppliques = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0, liensCaptes = 0;
+  let vus = 0, dejaConnus = 0, horsPerimetre = 0, emisParNous = 0, rebondsDetectes = 0, rebondsRattaches = 0, rebondsEtrangers = 0, rebondsAppliques = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0, liensCaptes = 0;
   let uidsServeur = 0, uidsReferences = 0, plafondAtteint = false;
 
   // R4 — dépose les pièces d'une réponse déjà enregistrée (contenu tiers, jamais ouvert) et met à jour les compteurs.
@@ -467,6 +477,10 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
       vus += 1;
       const mb = await opts.client.telechargerMessage(uid);
       const mid = mb.message.messageId.trim();
+      // CORRECTIF boucle d'auto-alerte — AVANT TOUTE RÉTENTION : un message émis PAR NOUS (en-tête d'auto-émission OU expéditeur =
+      //   MAIL_FROM) n'est JAMAIS retenu, ni rattaché, ni classé, ni enregistré, MÊME s'il cite une de nos références (c'est le cas
+      //   qui bouclait : l'alerte T7-B forwarde le corps mairie → cite la réf. → l'ancien filtre la retenait → re-classée → re-alertée).
+      if (estEmisParNous(mb.message.deAdresse, mb.message.entetes, adressesNous)) { emisParNous += 1; continue; }
       if (mid === '' || connus.has(mid)) { dejaConnus += 1; continue; }
       connus.add(mid);
 
@@ -559,7 +573,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   return {
     mode, profil: opts.profil, connecte: true, depuis: depuis.toISOString(), domainesInterroges, uidsServeur,
     referencesInterrogees: references.length, uidsReferences, plafondReferencesAtteint, plafondAtteint,
-    vus, dejaConnus, horsPerimetre, retenus: lignes.length, rattaches, nonRattaches: lignes.length - rattaches,
+    vus, dejaConnus, horsPerimetre, emisParNous, retenus: lignes.length, rattaches, nonRattaches: lignes.length - rattaches,
     rebondsDetectes, rebondsRattaches, rebondsEtrangers, rebondsAppliques, accuses, liensCaptes, ecrites, piecesDeposees, piecesNonDeposees, parMethode, lignes,
   };
 }

@@ -759,3 +759,25 @@ describe('LOT 2 — rattachement par identifiant unique, INDÉPENDANT du profil 
     }
   });
 });
+
+describe('CORRECTIF boucle d’auto-alerte — la relève ignore ses PROPRES envois', () => {
+  it('un message ÉMIS PAR NOUS, MÊME citant une de nos références, est IGNORÉ (chaque signal seul suffit) — jamais retenu ni enregistré', async () => {
+    // la candidate porte une référence mairie : sans le filtre, un message la citant serait RETENU (c'est ce qui bouclait).
+    etat.candidates = [{ ...CAND_A, refs_externes: ['SLC260818242370'] }];
+    const cas: { titre: string; message: Partial<MessageEntrant>; adressesNous: string[] }[] = [
+      { titre: 'en-tête seul (adresse inconnue)', message: { deAdresse: 'expediteur-inconnu@example.org', corpsTexte: 'Réf SLC260818242370', entetes: { 'X-SVAV-Auto': 'sans-vis-a-vis-emission-automatique' } }, adressesNous: [] },
+      { titre: 'adresse seule (pas d’en-tête)', message: { deAdresse: 'noreply@sansvisavis.com', corpsTexte: 'Réf SLC260818242370' }, adressesNous: ['noreply@sansvisavis.com'] },
+    ];
+    for (const c of cas) {
+      uidSeq = 0; appels.length = 0;
+      const messages = [boite(c.message)];
+      // sélectionné par la recherche de RÉFÉRENCE (exactement comme la boucle réelle : le corps cite la réf.), pas par le domaine.
+      const { client } = fauxClient(messages, () => [], () => [messages[0].uid]);
+      const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true, adressesNous: c.adressesNous });
+      expect(r.emisParNous, c.titre).toBe(1);   // COMPTÉ (visible au journal)
+      expect(r.retenus, c.titre).toBe(0);       // jamais retenu
+      expect(r.ecrites, c.titre).toBe(0);       // jamais enregistré
+      expect(r.lignes.length, c.titre).toBe(0); // ni classé ni rattaché
+    }
+  });
+});

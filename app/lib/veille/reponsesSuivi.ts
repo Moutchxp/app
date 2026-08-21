@@ -28,6 +28,7 @@ export interface LigneRun {
   vus: number | null;
   dejaConnus: number | null;
   horsPerimetre: number | null;
+  emisParNous: number | null;       // correctif boucle : messages émis PAR NOUS ignorés en amont (jamais retenus)
   retenus: number | null;
   rattaches: number | null;
   rebondsDetectes: number | null;
@@ -48,7 +49,7 @@ export interface LigneRun {
 export interface CumulFenetre {
   nbReleves: number;
   nbErreurs: number;
-  vus: number; dejaConnus: number; horsPerimetre: number; retenus: number; rattaches: number;
+  vus: number; dejaConnus: number; horsPerimetre: number; emisParNous: number; retenus: number; rattaches: number;
   rebondsDetectes: number; rebondsRattaches: number; rebondsEtrangers: number; rebondsAppliques: number; accuses: number;
   enregistrees: number; piecesDeposees: number; piecesNonDeposees: number;
 }
@@ -204,6 +205,7 @@ const COMPTEURS_CUMUL: { col: string; prop: keyof Omit<CumulFenetre, 'nbReleves'
   { col: 'vus', prop: 'vus' },
   { col: 'deja_connus', prop: 'dejaConnus' },
   { col: 'hors_perimetre', prop: 'horsPerimetre' },
+  { col: 'emis_par_nous', prop: 'emisParNous' },
   { col: 'retenus', prop: 'retenus' },
   { col: 'rattaches', prop: 'rattaches' },
   { col: 'rebonds_detectes', prop: 'rebondsDetectes' },
@@ -241,7 +243,7 @@ export async function chargerCumulsRuns(maintenant: Date): Promise<CumulsRuns> {
   bornes.forEach((b, w) => {
     const c: CumulFenetre = {
       nbReleves: row[`w${w}_nb`] ?? 0, nbErreurs: row[`w${w}_err`] ?? 0,
-      vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0,
+      vus: 0, dejaConnus: 0, horsPerimetre: 0, emisParNous: 0, retenus: 0, rattaches: 0,
       rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0,
       enregistrees: 0, piecesDeposees: 0, piecesNonDeposees: 0,
     };
@@ -471,12 +473,12 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
 
   const runs = await query<{
     demarre_le: string; termine_le: string | null; declencheur: string; resultat: string;
-    vus: number | null; deja_connus: number | null; hors_perimetre: number | null; retenus: number | null; rattaches: number | null;
+    vus: number | null; deja_connus: number | null; hors_perimetre: number | null; emis_par_nous: number | null; retenus: number | null; rattaches: number | null;
     rebonds_detectes: number | null; rebonds_rattaches: number | null; rebonds_etrangers: number | null; rebonds_appliques: number | null; accuses: number | null;
     enregistrees: number | null; pieces_deposees: number | null; pieces_non_deposees: number | null; erreur: string | null;
   }>(
     `SELECT demarre_le::text AS demarre_le, termine_le::text AS termine_le, declencheur, resultat,
-            vus, deja_connus, hors_perimetre, retenus, rattaches,
+            vus, deja_connus, hors_perimetre, emis_par_nous, retenus, rattaches,
             rebonds_detectes, rebonds_rattaches, rebonds_etrangers, rebonds_appliques, accuses, enregistrees,
             pieces_deposees, pieces_non_deposees, erreur
        FROM releve_run ORDER BY demarre_le DESC LIMIT 10`,
@@ -548,7 +550,7 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
     reglages, derniereOkLe, releveDepuisLe, relevePlafondAtteint,
     runs: runs.rows.map((r) => ({
       demarreLe: r.demarre_le, termineLe: r.termine_le, declencheur: r.declencheur, resultat: r.resultat,
-      vus: r.vus, dejaConnus: r.deja_connus, horsPerimetre: r.hors_perimetre, retenus: r.retenus, rattaches: r.rattaches,
+      vus: r.vus, dejaConnus: r.deja_connus, horsPerimetre: r.hors_perimetre, emisParNous: r.emis_par_nous, retenus: r.retenus, rattaches: r.rattaches,
       rebondsDetectes: r.rebonds_detectes, rebondsRattaches: r.rebonds_rattaches, rebondsEtrangers: r.rebonds_etrangers,
       rebondsAppliques: r.rebonds_appliques, accuses: r.accuses, enregistrees: r.enregistrees,
       piecesDeposees: r.pieces_deposees, piecesNonDeposees: r.pieces_non_deposees, erreur: r.erreur,

@@ -116,21 +116,21 @@ export function RappelReglages({ reglages }: { reglages: ReglagesReleve }) {
 }
 
 /** Libellés des 13 colonnes de compteurs, dans l'ORDRE de `compteursDe` (T3 : « accusés » après les rebonds). */
-const COLS_RUN = ['vus', 'déjà connus', 'hors périm.', 'retenus', 'rattachés', 'reb. détectés', 'reb. rattachés', 'reb. étrangers', 'reb. appliqués', 'accusés', 'enregistrées', 'pièces dép.', 'pièces non dép.'];
+const COLS_RUN = ['vus', 'déjà connus', 'hors périm.', 'émis par nous', 'retenus', 'rattachés', 'reb. détectés', 'reb. rattachés', 'reb. étrangers', 'reb. appliqués', 'accusés', 'enregistrées', 'pièces dép.', 'pièces non dép.'];
 /** Les 13 compteurs d'une ligne dans l'ordre de `COLS_RUN` (NULL rendu tel quel — décidé à l'affichage). */
 function compteursDe(r: LigneRun): (number | null)[] {
-  return [r.vus, r.dejaConnus, r.horsPerimetre, r.retenus, r.rattaches, r.rebondsDetectes, r.rebondsRattaches, r.rebondsEtrangers, r.rebondsAppliques, r.accuses, r.enregistrees, r.piecesDeposees, r.piecesNonDeposees];
+  return [r.vus, r.dejaConnus, r.horsPerimetre, r.emisParNous, r.retenus, r.rattaches, r.rebondsDetectes, r.rebondsRattaches, r.rebondsEtrangers, r.rebondsAppliques, r.accuses, r.enregistrees, r.piecesDeposees, r.piecesNonDeposees];
 }
 /** T2 — les 13 compteurs d'un CUMUL dans l'ordre EXACT de `COLS_RUN` (aligne la ligne de total sur l'en-tête). Pur. */
 function cumulEnColonnes(c: CumulFenetre): number[] {
-  return [c.vus, c.dejaConnus, c.horsPerimetre, c.retenus, c.rattaches, c.rebondsDetectes, c.rebondsRattaches, c.rebondsEtrangers, c.rebondsAppliques, c.accuses, c.enregistrees, c.piecesDeposees, c.piecesNonDeposees];
+  return [c.vus, c.dejaConnus, c.horsPerimetre, c.emisParNous, c.retenus, c.rattaches, c.rebondsDetectes, c.rebondsRattaches, c.rebondsEtrangers, c.rebondsAppliques, c.accuses, c.enregistrees, c.piecesDeposees, c.piecesNonDeposees];
 }
 /**
  * T2 — colonnes de BRUIT (par libellé de `COLS_RUN`, donc robustes à l'ordre) : un même message y est RECOMPTÉ à chaque passe
  * (vus, déjà connus, hors périmètre, rebonds détectés, rebonds étrangers, pièces non déposées) → atténuées dans le total. Les
  * 6 autres colonnes sont des ÉVÉNEMENTS, cumulables sans ambiguïté (miroir d'`apporteUneNouveaute`).
  */
-const LIBELLES_BRUIT = new Set(['vus', 'déjà connus', 'hors périm.', 'reb. détectés', 'reb. étrangers', 'pièces non dép.']);
+const LIBELLES_BRUIT = new Set(['vus', 'déjà connus', 'hors périm.', 'émis par nous', 'reb. détectés', 'reb. étrangers', 'pièces non dép.']);
 
 /**
  * T1 — une passe apporte une NOUVEAUTÉ si au moins un compteur d'ÉVÉNEMENT (fait réellement acquis) est > 0 : `retenus`,

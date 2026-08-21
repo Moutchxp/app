@@ -1,5 +1,11 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import { ENTETE_AUTO_EMISSION, VALEUR_AUTO_EMISSION } from './enteteAuto';
+
+/** En-tête d'auto-identification posé sur nos envois AUTOMATIQUES (alerte, forward GED, demande/relance) : la relève l'ignore
+ *  en amont de toute rétention (correctif « boucle d'auto-alerte »). Le certificat et la réinitialisation (transactionnels,
+ *  jamais dans la boîte relue) n'en ont pas besoin. */
+const ENTETES_AUTO = { [ENTETE_AUTO_EMISSION]: VALEUR_AUTO_EMISSION } as const;
 
 /**
  * TRANSPORT E-MAIL (SMTP Google Workspace, via nodemailer). SERVEUR only.
@@ -197,7 +203,7 @@ export interface MailAlerte {
  * — les appels existants (récapitulatif quotidien, sans pièce) restent byte-inchangés.
  */
 export async function envoyerAlerte(transporteur: Transporter, from: string, m: MailAlerte): Promise<void> {
-  const message: Parameters<Transporter['sendMail']>[0] = { from, to: m.to, subject: m.sujet, text: m.corps };
+  const message: Parameters<Transporter['sendMail']>[0] = { from, to: m.to, subject: m.sujet, text: m.corps, headers: { ...ENTETES_AUTO } };
   if (m.attachments && m.attachments.length > 0) message.attachments = m.attachments;
   await transporteur.sendMail(message);
 }
@@ -216,7 +222,7 @@ export interface MailForwardGed {
  * lien de mairie ici — on ne fait qu'ENVOYER. Additif : ne touche NI le certificat, NI la demande, NI l'alerte quotidienne.
  */
 export async function envoyerForwardGed(transporteur: Transporter, from: string, m: MailForwardGed): Promise<void> {
-  const message: Parameters<Transporter['sendMail']>[0] = { from, to: m.to, subject: m.sujet, text: m.corps };
+  const message: Parameters<Transporter['sendMail']>[0] = { from, to: m.to, subject: m.sujet, text: m.corps, headers: { ...ENTETES_AUTO } };
   if (m.attachments && m.attachments.length > 0) message.attachments = m.attachments;
   await transporteur.sendMail(message);
 }
@@ -241,7 +247,7 @@ export interface EmissionDemande { messageId: string; retourFournisseur: string 
 export async function envoyerDemande(transporteur: Transporter, from: string, m: MailDemande): Promise<EmissionDemande> {
   // Message texte brut. `attachments` n'est AJOUTÉ que si des pièces sont fournies (X1) : sans pieces, l'objet passé à
   // nodemailer est EXACTEMENT celui d'avant (aucune clé `attachments`) → demandes et relances strictement inchangées.
-  const message: Parameters<Transporter['sendMail']>[0] = { from, to: m.to, replyTo: m.replyTo, subject: m.objet, text: m.corps };
+  const message: Parameters<Transporter['sendMail']>[0] = { from, to: m.to, replyTo: m.replyTo, subject: m.objet, text: m.corps, headers: { ...ENTETES_AUTO } };
   if (m.pieces && m.pieces.length > 0) message.attachments = m.pieces;
   const info = await transporteur.sendMail(message);
   const messageId = (info.messageId ?? '').toString().trim();

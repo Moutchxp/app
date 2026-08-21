@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Transporter } from 'nodemailer';
 import { lireConfigEmail, lireCompteSmtp, obtenirTransporteur, envoyerCertificat, envoyerReinitialisation, envoyerDemande, type CompteSmtp, type MailDemande } from './index';
+import { ENTETE_AUTO_EMISSION, VALEUR_AUTO_EMISSION } from './enteteAuto';
 
 interface ArgsSendMail {
   from: string;
@@ -208,11 +209,11 @@ describe('S43 — obtenirTransporteur : cache PAR COMPTE (aucune régression pou
 describe('X1 — envoyerDemande : pièce jointe OPTIONNELLE (non-régression)', () => {
   const DEM: MailDemande = { to: 'urba@mairie.fr', replyTo: 'a.jorel@sansvisavis.com', objet: 'Demande', corps: 'Corps de la demande.' };
 
-  it('SANS pieces → sendMail reçoit EXACTEMENT l’objet actuel (aucune clé attachments)', async () => {
+  it('SANS pieces → sendMail reçoit l’objet attendu + l’en-tête d’auto-émission (correctif boucle), aucune clé attachments', async () => {
     const { transporteur, sendMail } = faux();
     await envoyerDemande(transporteur, 'noreply@sansvisavis.com', DEM);
     const arg = sendMail.mock.calls[0]![0] as Record<string, unknown>;
-    expect(arg).toEqual({ from: 'noreply@sansvisavis.com', to: 'urba@mairie.fr', replyTo: 'a.jorel@sansvisavis.com', subject: 'Demande', text: 'Corps de la demande.' });
+    expect(arg).toEqual({ from: 'noreply@sansvisavis.com', to: 'urba@mairie.fr', replyTo: 'a.jorel@sansvisavis.com', subject: 'Demande', text: 'Corps de la demande.', headers: { [ENTETE_AUTO_EMISSION]: VALEUR_AUTO_EMISSION } });
     expect('attachments' in arg).toBe(false); // identique à aujourd'hui : nodemailer ne reçoit aucune pièce
   });
 

@@ -58,6 +58,7 @@ function imprimerInspection(r: RapportReleve, log: (s: string) => void): void {
   log(`  messages téléchargés (vus)  : ${r.vus}`);
   log(`  déjà connus (ignorés)       : ${r.dejaConnus}`);
   log(`  hors périmètre (ignorés)    : ${r.horsPerimetre}`);
+  log(`  émis par nous (ignorés)     : ${r.emisParNous}`);
   log(`  RETENUS                     : ${r.retenus}`);
   log(`    · rattachés / non rattachés : ${r.rattaches} / ${r.nonRattaches}`);
   const meth = Object.entries(r.parMethode).map(([m, n]) => `${m}=${n}`).join(' · ') || 'aucune';

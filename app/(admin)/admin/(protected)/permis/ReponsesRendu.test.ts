@@ -60,12 +60,12 @@ describe('U8 — BlocEtatReleve : encart « État de la relève » repliable (re
   const REGLAGES: ReglagesReleve = { active: true, intervalleMinutes: 30, profil: 'entreprise', fraicheurHeures: 48, alerteJours: 7, adresseReleve: 'permis@sansvisavis.fr' };
   const RUN = (over: Partial<LigneRun> = {}): LigneRun => ({
     demarreLe: '2026-04-20T11:00:00Z', termineLe: '2026-04-20T11:00:05Z', declencheur: 'planifie', resultat: 'ok',
-    vus: 4, dejaConnus: 0, horsPerimetre: 0, retenus: 1, rattaches: 0,
+    vus: 4, dejaConnus: 0, horsPerimetre: 0, emisParNous: 0, retenus: 1, rattaches: 0,
     rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, enregistrees: 1,
     piecesDeposees: 0, piecesNonDeposees: 0, erreur: null, ...over,
   });
   const CUMUL: CumulFenetre = {
-    nbReleves: 5, nbErreurs: 0, vus: 30, dejaConnus: 10, horsPerimetre: 2, retenus: 4, rattaches: 3,
+    nbReleves: 5, nbErreurs: 0, vus: 30, dejaConnus: 10, horsPerimetre: 2, emisParNous: 0, retenus: 4, rattaches: 3,
     rebondsDetectes: 6, rebondsRattaches: 1, rebondsEtrangers: 9, rebondsAppliques: 2, accuses: 3, enregistrees: 7, piecesDeposees: 8, piecesNonDeposees: 5,
   };
   const NOW = new Date('2026-04-20T12:00:00Z');
@@ -320,7 +320,7 @@ describe('R5a — TableRuns : une erreur est affichée en clair', () => {
   it('résultat « erreur » → message d’erreur avec role="alert"', () => {
     const runs: LigneRun[] = [{
       demarreLe: '2026-04-20T11:00:00Z', termineLe: '2026-04-20T11:00:05Z', declencheur: 'planifie', resultat: 'erreur',
-      vus: null, dejaConnus: null, horsPerimetre: null, retenus: null, rattaches: null,
+      vus: null, dejaConnus: null, horsPerimetre: null, emisParNous: null, retenus: null, rattaches: null,
       rebondsDetectes: null, rebondsRattaches: null, rebondsEtrangers: null, rebondsAppliques: null, accuses: null, enregistrees: null,
       piecesDeposees: null, piecesNonDeposees: null, erreur: 'IMAP timeout',
     }];
@@ -334,7 +334,7 @@ describe('T1 — TableRuns : ne montrer en clair que les passes qui apportent qu
   // Un run 'ok' terminé, tous compteurs à 0 par défaut ; chaque cas ne surcharge que ce qui l'intéresse.
   const runOk = (patch: Partial<LigneRun>): LigneRun => ({
     demarreLe: '2026-04-20T09:00:00Z', termineLe: '2026-04-20T09:00:04Z', declencheur: 'planifie', resultat: 'ok',
-    vus: 0, dejaConnus: 0, horsPerimetre: 0, retenus: 0, rattaches: 0,
+    vus: 0, dejaConnus: 0, horsPerimetre: 0, emisParNous: 0, retenus: 0, rattaches: 0,
     rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, enregistrees: 0,
     piecesDeposees: 0, piecesNonDeposees: 0, erreur: null, ...patch,
   });
@@ -922,12 +922,12 @@ describe('T2 — TableRuns : ligne de total en <tfoot> + sélecteur de période'
   const noop = () => {};
   const run = (): LigneRun => ({
     demarreLe: '2026-08-09T09:00:00Z', termineLe: '2026-08-09T09:00:04Z', declencheur: 'planifie', resultat: 'ok',
-    vus: 1, dejaConnus: 0, horsPerimetre: 0, retenus: 1, rattaches: 0,
+    vus: 1, dejaConnus: 0, horsPerimetre: 0, emisParNous: 0, retenus: 1, rattaches: 0,
     rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, enregistrees: 1,
     piecesDeposees: 0, piecesNonDeposees: 0, erreur: null,
   });
   const cumul = (over: Partial<CumulFenetre> = {}): CumulFenetre => ({
-    nbReleves: 5, nbErreurs: 0, vus: 30, dejaConnus: 10, horsPerimetre: 2, retenus: 4, rattaches: 3,
+    nbReleves: 5, nbErreurs: 0, vus: 30, dejaConnus: 10, horsPerimetre: 2, emisParNous: 0, retenus: 4, rattaches: 3,
     rebondsDetectes: 6, rebondsRattaches: 1, rebondsEtrangers: 9, rebondsAppliques: 2, accuses: 11, enregistrees: 7,
     piecesDeposees: 8, piecesNonDeposees: 5, ...over,
   });
@@ -950,10 +950,10 @@ describe('T2 — TableRuns : ligne de total en <tfoot> + sélecteur de période'
     expect(avecErr).toContain('dont 2 en erreur');
   });
 
-  it('les 6 colonnes de BRUIT du total portent la marque d’atténuation ; pas les 6 d’événement', () => {
+  it('les 7 colonnes de BRUIT du total portent la marque d’atténuation ; pas les 7 d’événement', () => {
     const h = renderToStaticMarkup(createElement(TableRuns, { runs: [run()], cumul: cumul(), periode: '7j', onPeriode: noop }));
     expect(h).toContain('compté plusieurs fois'); // marque présente
-    expect((h.match(/compté plusieurs fois/g) ?? []).length).toBe(6); // exactement les 6 colonnes de bruit
+    expect((h.match(/compté plusieurs fois/g) ?? []).length).toBe(7); // les 7 colonnes de bruit (dont « émis par nous », N10 correctif boucle)
   });
 
   it('zéro relève sur la période → phrase explicite, jamais une ligne de zéros muette', () => {
