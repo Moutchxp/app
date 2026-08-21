@@ -151,6 +151,23 @@ describe('N3-B — ecrireCorps : invariant appliqué', () => {
     expect(up.params).toContain('saisie');
   });
 
+  it('N10-L — « utiliser N » du gabarit : écrit hauteur_max_plu_ngf = N en origine SAISIE (persiste ; visible après rechargement)', async () => {
+    const r = await ecrireCorps(1, { hauteurMaxPluNgf: 101 }, 'saisie', 'admin'); // exactement ce que poste le bouton
+    expect(r).toEqual({ ecrits: ['hauteurMaxPluNgf'], ignores: [] });
+    const up = trouver(/UPDATE\s+permis_corps_batiment/i)!;
+    expect(norm(up.sql)).toContain('hauteur_max_plu_ngf = $');
+    expect(norm(up.sql)).toContain('hauteur_max_plu_ngf_origine = $');
+    expect(up.params).toContain(101);
+    expect(up.params).toContain('saisie');
+  });
+
+  it('N10-L — invariant 103 : une extraction ULTÉRIEURE ne réécrase PAS la valeur du bouton (saisie protégée)', async () => {
+    H.state.originesCorps = { hauteurMaxPluNgf: 'saisie' };
+    const r = await ecrireCorps(1, { hauteurMaxPluNgf: 100 }, 'extraite', 'bot');
+    expect(r).toEqual({ ecrits: [], ignores: ['hauteurMaxPluNgf'] });
+    expect(trouver(/UPDATE\s+permis_corps_batiment/i)).toBeUndefined();
+  });
+
   it('AUTOMATIQUE mixte → écrit le champ vierge, IGNORE le champ « saisie »', async () => {
     H.state.originesCorps = { nbEtages: 'saisie', altitudeSommetNgf: 'extraite' };
     const r = await ecrireCorps(1, { nbEtages: 3, altitudeSommetNgf: 30 }, 'extraite', 'bot');

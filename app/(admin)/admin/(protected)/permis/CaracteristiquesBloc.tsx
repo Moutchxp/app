@@ -160,6 +160,16 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
     setEnCours(false);
   }, [edCorps, poster, rafraichir]);
 
+  // N10-L — « utiliser N » du gabarit PLU : le bouton ÉCRIT (il ne pré-remplit plus). Écrit hauteur_max_plu_ngf=N sur le corps en
+  //   origine 'saisie' (action 'corps' avec les SEULES clés fournies → ne touche ni repère ni adresse ni autre mesure). Invariant 103
+  //   réutilisé (une saisie n'est jamais réécrasée par une extraction). Retour de réussite explicite, comme « Hauteur validée. ».
+  const utiliserGabaritPlu = useCallback(async (corpsId: number, valeur: number) => {
+    setEnCours(true);
+    const r = await poster({ action: 'corps', corpsId, valeurs: { hauteurMaxPluNgf: valeur } });
+    if (r.ok) { await rafraichir(); setMessage('Hauteur maximale PLU enregistrée.'); } else setMessage(r.erreur ?? 'échec');
+    setEnCours(false);
+  }, [poster, rafraichir]);
+
   if (etat === 'chargement') return <p style={styleAide} aria-live="polite">Chargement des caractéristiques…</p>;
   if (etat === 'erreur' || !data) return <p role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>Caractéristiques indisponibles.</p>;
 
@@ -257,6 +267,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
                   valeurAuto={m.estSommet ? (journalCorps[m.colonne]?.valeurRetenue ?? null) : undefined} valeurBase={m.estSommet ? c.altitudeSommetNgf : undefined}
                   limitePluNgf={m.estSommet ? c.hauteurMaxPluNgf : undefined}
                   onValider={m.estSommet ? () => void validerSommet(c.id) : undefined}
+                  onUtiliserGabarit={m.cle === 'hauteurMaxPluNgf' ? (v) => void utiliserGabaritPlu(c.id, v) : undefined}
                   onValeur={(v) => majChamp(c.id, m.cle, v)} />
               ))}
             </div>

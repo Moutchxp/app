@@ -317,9 +317,10 @@ function grouperCandidatsGabarit(ecartes: readonly ProvenanceEcartee[]): { valeu
   return groupes;
 }
 
-export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, confirmeLe, confirmeParNom, valeurAuto, valeurBase, limitePluNgf, onValider, onValeur }: {
+export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, confirmeLe, confirmeParNom, valeurAuto, valeurBase, limitePluNgf, onValider, onUtiliserGabarit, onValeur }: {
   mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece;
-  confirmeLe?: string | null; confirmeParNom?: string | null; valeurAuto?: number | null; valeurBase?: number | null; limitePluNgf?: number | null; onValider?: () => void; onValeur: (v: string) => void;
+  confirmeLe?: string | null; confirmeParNom?: string | null; valeurAuto?: number | null; valeurBase?: number | null; limitePluNgf?: number | null; onValider?: () => void;
+  onUtiliserGabarit?: (valeur: number) => void; onValeur: (v: string) => void; // N10-L : « utiliser N » ÉCRIT en base (origine 'saisie') ; sans lui, repli sur le brouillon
 }) {
   const estSommet = mesure.estSommet === true;
   // N10-E — la LIMITE PLU s'affiche À CÔTÉ du sommet, pour que l'écart saute aux yeux. On SIGNALE un dépassement (hauteur retenue > limite),
@@ -384,19 +385,28 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
           {/* Chaque valeur = un bloc REPLIABLE (planches cachées par défaut), trié par VALEUR croissante — jamais par nombre : un
               compte présenté comme un score ferait cocher la majorité et masquerait le côté le plus haut. Le bouton « utiliser »
               reste HORS du repli (geste principal, toujours accessible). Le compte est un CONSTAT, pas un classement. */}
-          {candidatsGabarit.map((c) => (
-            <div key={c.valeur} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
-              <details style={{ flex: '1 1 auto', minWidth: 0 }}>
-                <summary style={{ ...styleAide, cursor: 'pointer' }}>{c.valeur} m — {c.sources.length} planche{c.sources.length > 1 ? 's montrent' : ' montre'} cette face</summary>
-                <span style={{ ...styleAide, display: 'block', marginTop: '.15rem', overflowWrap: 'anywhere' }}>
-                  {c.sources.map((s, i) => (
-                    <Fragment key={`${s.piece ?? ''}#${s.page ?? ''}`}>{i > 0 ? ' · ' : null}<EntreeProvenance txt={texteProvenance(s)} piece={s.piece} page={s.page} lienPiece={lienPiece} /></Fragment>
-                  ))}
-                </span>
-              </details>
-              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.15rem .5rem' }} onClick={() => onValeur(String(c.valeur))}>utiliser {c.valeur}</button>
-            </div>
-          ))}
+          {candidatsGabarit.map((c) => {
+            // N10-L — GARDE anti-piège (sens inverse de N10-D) : si une valeur est EN COURS DE SAISIE dans le champ et diffère de ce
+            //   candidat, cliquer « utiliser N » l'écrasera par N (c'est ce qui est cliqué) — on PRÉVIENT, on ne tranche pas en silence.
+            const brouillon = valeur.trim() === '' ? null : Number(valeur.replace(',', '.'));
+            const ecraseSaisie = brouillon !== null && Number.isFinite(brouillon) && brouillon !== c.valeur;
+            return (
+              <div key={c.valeur} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                <details style={{ flex: '1 1 auto', minWidth: 0 }}>
+                  <summary style={{ ...styleAide, cursor: 'pointer' }}>{c.valeur} m — {c.sources.length} planche{c.sources.length > 1 ? 's montrent' : ' montre'} cette face</summary>
+                  <span style={{ ...styleAide, display: 'block', marginTop: '.15rem', overflowWrap: 'anywhere' }}>
+                    {c.sources.map((s, i) => (
+                      <Fragment key={`${s.piece ?? ''}#${s.page ?? ''}`}>{i > 0 ? ' · ' : null}<EntreeProvenance txt={texteProvenance(s)} piece={s.piece} page={s.page} lienPiece={lienPiece} /></Fragment>
+                    ))}
+                  </span>
+                </details>
+                {/* N10-L — le bouton ÉCRIT (origine 'saisie') et le dit ; repli sur le brouillon seulement si le parent ne câble pas l'écriture. */}
+                <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.15rem .5rem' }}
+                  onClick={() => (onUtiliserGabarit ? onUtiliserGabarit(c.valeur) : onValeur(String(c.valeur)))}>utiliser {c.valeur}</button>
+                {ecraseSaisie && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-red)' }}>⚠ écrasera la valeur en cours de saisie ({valeur})</span>}
+              </div>
+            );
+          })}
         </div>
       )}
       <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} masquerEcartes={estGabaritPlu} />

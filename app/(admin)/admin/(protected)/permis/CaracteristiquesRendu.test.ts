@@ -565,3 +565,25 @@ describe('N10-K — la liste des bâtiments (bâti au moment de l’analyse) est
     expect(h).not.toContain('<details');
   });
 })
+
+describe('N10-L — « utiliser N » du gabarit écrit (et prévient s’il écrase une saisie en cours)', () => {
+  const gab = MESURES.find((m) => m.cle === 'hauteurMaxPluNgf')!;
+  type Ecarte = NonNullable<JournalChamp['ecartes']>[number];
+  const j: JournalChamp = { confiance: null, reserve: null, provenances: [], ecartes: [{ valeur: 101, piece: 'PC3.2 BB', page: 1, motif: null } as Ecarte], motif: null };
+  const rendre = (valeur: string) => renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: gab, valeur, origine: valeur ? 'saisie' : null, journal: j, onUtiliserGabarit: () => {}, onValeur: noop }));
+
+  it('champ VIDE → bouton « utiliser 101 » présent, AUCUN avertissement d’écrasement', () => {
+    const h = rendre('');
+    expect(h).toContain('utiliser 101');
+    expect(h).not.toContain('écrasera la valeur en cours de saisie');
+  });
+
+  it('brouillon DIFFÉRENT (99) → prévient qu’« utiliser 101 » écrasera la saisie en cours (99)', () => {
+    const h = rendre('99');
+    expect(h).toContain('écrasera la valeur en cours de saisie (99)');
+  });
+
+  it('brouillon ÉGAL à la valeur du bouton → pas d’avertissement (rien à écraser)', () => {
+    expect(rendre('101')).not.toContain('écrasera la valeur en cours de saisie');
+  });
+})
