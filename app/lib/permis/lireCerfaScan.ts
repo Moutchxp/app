@@ -1,0 +1,171 @@
+/**
+ * N10-O — LECTURE d'un Cerfa SCANNÉ par DEUX sources indépendantes : OCR (mistral-ocr-latest) et VISION (mistral-medium-latest).
+ * IMPUR (modèle + pdftoppm). N'envoie à l'API que les PAGES DU TRIAGE (jamais le document en aveugle page par page). Les parsers
+ * OCR sont calés sur le Cerfa 13409*15 (comme decisionCerfa) ; un autre millésime demandera à les étendre.
+ *
+ * 🔒 Deux lectures SÉPARÉES → la décision (decisionCerfaScan) n'écrit que si elles s'accordent. Ce module NE décide rien, il LIT.
+ * Le `LecteurCerfa` est INJECTABLE : les tests bouchonnent OCR + vision (aucun appel réseau en test).
+ */
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { SOUS_DESTINATION_PAR_LETTRE } from './decisionCerfa';
+import type { LectureValeur } from './decisionCerfaScan';
+
+/** Sous-destinations de la liste fermée (mêmes libellés que le CHECK 110). */
+export const SOUS_DESTINATIONS: readonly string[] = [...new Set(Object.values(SOUS_DESTINATION_PAR_LETTRE))];
+
+/** Triage MESURÉ (N10-O, Cerfa 13409*15) — pages 1-based. */
+export const PAGES_CERFA = { adresse: 5, logements: 7, destinations: 9, stationnement: 10 } as const;
+
+/** Deux sources indépendantes + rasterisation (INJECTABLE → les tests bouchonnent tout, aucun appel réseau ni pdftoppm). */
+export interface LecteurCerfa {
+  ocr(pdf: Buffer): Promise<string[]>;                                  // markdown par page (index 0-based)
+  rasteriser(pdf: Buffer, page: number): string;                        // image base64 d'une page (1-based)
+  vision(imageB64: string, prompt: string): Promise<Record<string, unknown>>;
+}
+
+// ── PARSERS OCR (purs) — markdown d'une page → LectureValeur ─────────────────────────────────────────────────────────────────────
+const nettoieChiffres = (s: string) => s.replace(/\s+/g, ''); // « 7 5 0 2 0 » → « 75020 »
+
+export function parseAdresseOcr(md: string): LectureValeur {
+  const num = /Num[ée]ro\s*:\s*([0-9]+)/i.exec(md)?.[1];
+  const voie = /Voie\s*:\s*([^\n]+?)\s*(?:Lieu-dit|Localit|$)/i.exec(md)?.[1]?.trim();
+  const cp = /Code postal\s*:\s*([0-9 ]{5,})/i.exec(md)?.[1];
+  const loc = /Localit[ée]\s*:\s*([^\n]+?)\s*(?:Code postal|$)/i.exec(md)?.[1]?.trim();
+  const parts = [num, voie, cp ? nettoieChiffres(cp) : undefined, loc].filter(Boolean);
+  return parts.length >= 3 ? { statut: 'valeur', valeur: parts.join(' ') } : { statut: 'vide' };
+}
+
+/** « Nombre total de logements créés : N » — N present ⇒ valeur (y compris « 0 » écrit) ; libellé présent sans nombre ⇒ vide. */
+export function parseLogementsOcr(md: string): LectureValeur {
+  const m = /Nombre total de logements? cr[ée]{1,2}s?\s*:\s*([0-9]+)?/i.exec(md);
+  if (!m) return { statut: 'illisible' };
+  return m[1] !== undefined ? { statut: 'valeur', valeur: m[1] } : { statut: 'vide' };
+}
+
+/** Ligne « Surfaces totales (en m²) » → dernière colonne (Surface totale). Aucun nombre ⇒ vide. */
+export function parseSurfaceOcr(md: string): LectureValeur {
+  const ligne = /Surfaces? totales[^\n|]*\|([^\n]*)/i.exec(md)?.[1];
+  if (!ligne) return { statut: 'illisible' };
+  const nums = [...ligne.matchAll(/([0-9][0-9 ]*)/g)].map((x) => nettoieChiffres(x[1])).filter((x) => x !== '');
+  return nums.length > 0 ? { statut: 'valeur', valeur: nums[nums.length - 1] } : { statut: 'vide' };
+}
+
+/** « Nombre de places de stationnement … Après réalisation … : N » — pas de nombre ⇒ vide (JAMAIS 0). */
+export function parseStationnementOcr(md: string): LectureValeur {
+  const zone = /stationnement([\s\S]{0,400})/i.exec(md)?.[1] ?? '';
+  const m = /Apr[èe]s r[ée]alisation[^:]*:\s*([0-9]+)?/i.exec(zone);
+  if (!m) return { statut: 'illisible' };
+  return m[1] !== undefined ? { statut: 'valeur', valeur: m[1] } : { statut: 'vide' };
+}
+
+/** Tableau des surfaces → pour chaque sous-destination : un nombre sur sa ligne ⇒ 'valeur' (la surface), sinon 'vide'. */
+export function parseDestinationsOcr(md: string): Record<string, LectureValeur> {
+  const out: Record<string, LectureValeur> = {};
+  const lignes = md.split('\n');
+  for (const sd of SOUS_DESTINATIONS) {
+    const re = new RegExp(sd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/'/g, "['’]"), 'i');
+    const l = lignes.find((x) => re.test(x));
+    if (!l) { out[sd] = { statut: 'illisible' }; continue; }
+    const nums = [...l.matchAll(/\|?\s*([0-9][0-9 ]*)\s*(?=\|)/g)].map((x) => nettoieChiffres(x[1])).filter((x) => x !== '' && x !== '0');
+    out[sd] = nums.length > 0 ? { statut: 'valeur', valeur: nums[0] } : { statut: 'vide' };
+  }
+  return out;
+}
+
+// ── VISION (prompts calés sur la mesure N10-O) ──────────────────────────────────────────────────────────────────────────────────
+const CONSIGNE = " Si un champ ne contient AUCUN chiffre/texte écrit, réponds 'vide'. NE réponds JAMAIS 0 pour un champ vide. N'invente rien ; en cas de doute 'illisible'.";
+const etatVersLecture = (etat: unknown, valeur: unknown): LectureValeur => {
+  const e = String(etat ?? '').toLowerCase();
+  if (e.startsWith('rens') || e === 'rempli' || e === 'coche' || e === 'cochee') { const v = String(valeur ?? '').trim(); return v && v !== 'None' && v.toLowerCase() !== 'vide' ? { statut: 'valeur', valeur: v } : { statut: 'vide' }; }
+  if (e.startsWith('vide')) return { statut: 'vide' };
+  return { statut: 'illisible' };
+};
+
+/** Lit les DEUX sources et rend, par champ, la lecture OCR et la lecture vision (pures LectureValeur). */
+export async function lireCerfaScan(pdf: Buffer, lecteur: LecteurCerfa): Promise<{
+  scalaires: Record<'surfacePlancherM2' | 'nbLogements' | 'nbPlacesStationnement' | 'adresseTerrain', { ocr: LectureValeur; vision: LectureValeur }>;
+  destinations: { ocr: Record<string, LectureValeur>; vision: Record<string, LectureValeur> };
+}> {
+  const md = await lecteur.ocr(pdf);                    // markdown par page (index 0-based)
+  const page = (n: number) => md[n - 1] ?? '';
+
+  const visU = async (n: number, prompt: string) => lecteur.vision(lecteur.rasteriser(pdf, n), prompt);
+
+  // OCR (déterministe)
+  const ocr = {
+    adresseTerrain: parseAdresseOcr(page(PAGES_CERFA.adresse)),
+    surfacePlancherM2: parseSurfaceOcr(page(PAGES_CERFA.destinations)),
+    nbLogements: parseLogementsOcr(page(PAGES_CERFA.logements)),
+    nbPlacesStationnement: parseStationnementOcr(page(PAGES_CERFA.stationnement)),
+    destinations: parseDestinationsOcr(page(PAGES_CERFA.destinations)),
+  };
+
+  // VISION (une passe par page-champ, uniquement les pages triées)
+  const vAdr = (await visU(PAGES_CERFA.adresse, "Lis l'ADRESSE DU TERRAIN (section 3.1) : numero, voie, code_postal, localite. JSON {numero,voie,code_postal,localite}." + CONSIGNE)) as Record<string, unknown>;
+  const adrParts = ['numero', 'voie', 'code_postal', 'localite'].map((k) => String(vAdr[k] ?? '').trim()).filter((x) => x && x.toLowerCase() !== 'vide');
+  const visAdresse: LectureValeur = adrParts.length >= 3 ? { statut: 'valeur', valeur: adrParts.join(' ') } : { statut: 'vide' };
+
+  const vLog = (await visU(PAGES_CERFA.logements, "Lis « Nombre total de logements créés » (§4.3). JSON {logements_crees:{etat:'renseigne|vide|illisible',valeur}}." + CONSIGNE)) as { logements_crees?: { etat?: unknown; valeur?: unknown } };
+  const vSta = (await visU(PAGES_CERFA.stationnement, "Lis « Nombre de places de stationnement » APRÈS réalisation (§4.7). JSON {apres:{etat,valeur}}." + CONSIGNE)) as { apres?: { etat?: unknown; valeur?: unknown } };
+  const vSur = (await visU(PAGES_CERFA.destinations, "Dans le tableau des surfaces, lis « Surfaces totales », dernière colonne (Surface totale). JSON {surface_plancher_totale:{etat,valeur}}." + CONSIGNE)) as { surface_plancher_totale?: { etat?: unknown; valeur?: unknown } };
+
+  const vDestBrut = (await visU(PAGES_CERFA.destinations,
+    "Tableau « Destination, sous-destination et surfaces » d'un Cerfa 13409. Pour CHAQUE sous-destination listée, dis si une SURFACE (un nombre) figure sur sa ligne : 'renseignee' (+valeur), 'vide', ou 'illisible'. N'invente aucun nombre ; ligne sans chiffre = 'vide'. JSON {resultats:[{sous_destination,etat,valeur}]}. Sous-destinations : " + SOUS_DESTINATIONS.join(' | '))) as { resultats?: { sous_destination?: string; etat?: unknown; valeur?: unknown }[] };
+  const visDest: Record<string, LectureValeur> = {};
+  for (const sd of SOUS_DESTINATIONS) {
+    const r = (vDestBrut.resultats ?? []).find((x) => (x.sous_destination ?? '').toLowerCase() === sd.toLowerCase());
+    visDest[sd] = r ? etatVersLecture(r.etat, r.valeur) : { statut: 'illisible' };
+  }
+
+  return {
+    scalaires: {
+      adresseTerrain: { ocr: ocr.adresseTerrain, vision: visAdresse },
+      surfacePlancherM2: { ocr: ocr.surfacePlancherM2, vision: etatVersLecture(vSur.surface_plancher_totale?.etat, vSur.surface_plancher_totale?.valeur) },
+      nbLogements: { ocr: ocr.nbLogements, vision: etatVersLecture(vLog.logements_crees?.etat, vLog.logements_crees?.valeur) },
+      nbPlacesStationnement: { ocr: ocr.nbPlacesStationnement, vision: etatVersLecture(vSta.apres?.etat, vSta.apres?.valeur) },
+    },
+    destinations: { ocr: ocr.destinations, vision: visDest },
+  };
+}
+
+// ── Lecteur RÉEL (Mistral) — hors des tests ─────────────────────────────────────────────────────────────────────────────────────
+function rasteriser(pdf: Buffer, page: number): string {
+  const dir = mkdtempSync(join(tmpdir(), 'cerfa-scan-'));
+  try {
+    writeFileSync(join(dir, 'd.pdf'), pdf);
+    execFileSync('pdftoppm', ['-jpeg', '-r', '200', '-f', String(page), '-l', String(page), '-singlefile', join(dir, 'd.pdf'), join(dir, 'p')]);
+    return readFileSync(join(dir, 'p.jpg')).toString('base64');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+/** Lecteur RÉEL : OCR + vision via l'API Mistral (clé MISTRAL_API_KEY). Jamais utilisé par les tests. */
+export function lecteurMistral(): LecteurCerfa {
+  const cle = process.env.MISTRAL_API_KEY;
+  if (!cle) throw new Error('MISTRAL_API_KEY absente — lecture Cerfa scanné impossible');
+  const post = async (url: string, body: unknown): Promise<Record<string, unknown>> => {
+    const res = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${cle}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`Mistral HTTP ${res.status}`);
+    return (await res.json()) as Record<string, unknown>;
+  };
+  return {
+    rasteriser,
+    async ocr(pdf) {
+      const d = await post('https://api.mistral.ai/v1/ocr', { model: 'mistral-ocr-latest', document: { type: 'document_url', document_url: `data:application/pdf;base64,${pdf.toString('base64')}` }, include_image_base64: false });
+      const pages = (d.pages as { index: number; markdown?: string }[]) ?? [];
+      const out: string[] = [];
+      for (const p of pages) out[p.index] = p.markdown ?? '';
+      return out;
+    },
+    async vision(imageB64, prompt) {
+      const d = await post('https://api.mistral.ai/v1/chat/completions', {
+        model: 'mistral-medium-latest', temperature: 0, response_format: { type: 'json_object' },
+        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: `data:image/jpeg;base64,${imageB64}` }] }],
+      });
+      const content = (((d.choices as { message?: { content?: string } }[])?.[0]?.message?.content) ?? '{}');
+      try { return JSON.parse(content) as Record<string, unknown>; } catch { return {}; }
+    },
+  };
+}

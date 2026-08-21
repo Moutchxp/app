@@ -38,6 +38,7 @@
     "ged:dump": "tsx app/scripts/dumper-ged.ts",
     "permis:extraire": "tsx app/scripts/extraire-caracteristiques.ts",
     "permis:ecrire-champs": "tsx app/scripts/ecrire-champs.ts",
+    "permis:ecrire-cerfa-scan": "tsx app/scripts/ecrire-cerfa-scan.ts",
     "permis:trier": "tsx app/scripts/trier-pieces.ts",
     "permis:champs": "tsx app/scripts/lire-champs.ts",
     "permis:banc-vision": "tsx app/scripts/banc-vision.ts",
