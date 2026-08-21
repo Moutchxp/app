@@ -537,3 +537,31 @@ describe('N10-J A — candidates du gabarit repliées, comptées comme un CONSTA
     expect(h).toContain('plateau de nivellement');
   });
 });
+
+describe('N10-K — la liste des bâtiments (bâti au moment de l’analyse) est repliée par défaut', () => {
+  const faitsMin = (): FaitsPermis => ({ numDau: '07512024V0037', type: 'PC', communeNom: 'Paris', codeInsee: '75056', adresse: null, natureTravaux: null, dateAutorisation: null, surfaceCreee: null });
+  const bati = (n: number) => ({ capture: true, nbBatiments: n, motif: null, sourceMillesime: '2025-01-01', batiments: Array.from({ length: n }, (_, i) => ({ cleabs: `BATIMENT000000${i}`, nombreEtages: null, altitudeMaxToit: null, hauteur: null, dateModification: null })) });
+
+  it('N bâtiments → UNE ligne visible portant le COMPTE dans un <summary>, la liste dans <details> (repliée)', () => {
+    const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits: faitsMin(), parcelles: [], bati: bati(16) }));
+    expect(h).toContain('<details');
+    expect(h).toContain('<summary');
+    expect(h).toContain('16 bâtiments');                    // le compte, dans l'en-tête
+    expect(h).toContain('(couche bâti au 2025-01-01)');     // millésime conservé
+    expect(h).not.toContain('open');                        // replié par défaut (pas d'attribut open)
+    // les 16 cleabs sont présents dans le DOM (déplié = même liste, inchangée)
+    expect((h.match(/BATIMENT/g) ?? []).length).toBe(16);
+  });
+
+  it('l’en-tête ne porte QUE le nombre (lignes purement informatives : aucun état actionnable à remonter)', () => {
+    const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits: faitsMin(), parcelles: [], bati: bati(16) }));
+    const sommaire = h.slice(h.indexOf('<summary'), h.indexOf('</summary>'));
+    for (const actionnable of ['rattaché', 'sélectionn', 'alerte', 'en attente', '<button']) expect(sommaire).not.toContain(actionnable);
+  });
+
+  it('terrain nu (0 bâtiment) → PAS de dépliable, message inchangé', () => {
+    const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits: faitsMin(), parcelles: [], bati: { capture: true, nbBatiments: 0, motif: null, sourceMillesime: '2025-01-01', batiments: [] } }));
+    expect(h).toContain('terrain nu');
+    expect(h).not.toContain('<details');
+  });
+})

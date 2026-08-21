@@ -167,8 +167,13 @@ export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles
                 : (bati.nbBatiments ?? 0) === 0
                   ? <span><span style={{ color: 'var(--color-svv-muted)' }}>Bâti au moment de l’analyse : </span><strong>terrain nu</strong><span style={{ color: 'var(--color-svv-muted)' }}> — 0 bâtiment dans l’empreinte{bati.sourceMillesime ? ` (couche bâti au ${bati.sourceMillesime})` : ''}</span></span>
                   : (
-                    <>
-                      <span><span style={{ color: 'var(--color-svv-muted)' }}>Bâti au moment de l’analyse : </span><strong>{bati.nbBatiments} bâtiment{(bati.nbBatiments ?? 0) > 1 ? 's' : ''}</strong><span style={{ color: 'var(--color-svv-muted)' }}>{bati.sourceMillesime ? ` (couche bâti au ${bati.sourceMillesime})` : ''}</span></span>
+                    // N10-K — MÊME motif de repli que N10-J (gabarit) : une seule ligne visible (le COMPTE), liste dépliable au clavier.
+                    //   Ces lignes sont PUREMENT INFORMATIVES (cleabs + étages/altitude opportunistes) : aucun état actionnable à
+                    //   remonter → l'en-tête ne porte que le nombre (+ millésime), replier ne masque aucune décision en attente.
+                    <details>
+                      <summary style={{ cursor: 'pointer' }}>
+                        <span style={{ color: 'var(--color-svv-muted)' }}>Bâti au moment de l’analyse : </span><strong>{bati.nbBatiments} bâtiment{(bati.nbBatiments ?? 0) > 1 ? 's' : ''}</strong><span style={{ color: 'var(--color-svv-muted)' }}>{bati.sourceMillesime ? ` (couche bâti au ${bati.sourceMillesime})` : ''}</span>
+                      </summary>
                       <ul style={{ margin: '.2rem 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
                         {bati.batiments.map((b, i) => {
                           const det = [b.nombreEtages !== null ? `${b.nombreEtages} étage${b.nombreEtages > 1 ? 's' : ''}` : null,
@@ -184,7 +189,7 @@ export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles
                           );
                         })}
                       </ul>
-                    </>
+                    </details>
                   )}
             </div>
           )}
