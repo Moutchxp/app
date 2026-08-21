@@ -443,8 +443,18 @@ export async function marquerTraitee(reponseId: number): Promise<boolean> {
  * R6c — SATISFACTION AUTOMATIQUE : marque les dossiers ENCORE à obtenir de la demande dont le numéro Sitadel COMPLET est
  * reconnu littéralement dans la réponse (`dossiersSatisfaits`, haute précision). Idempotent (WHERE satisfait_le IS NULL) ;
  * JAMAIS de démarquage. Renvoie le nombre de dossiers marqués. N'écrit PAS demande.statut.
+ *
+ * GARDE DE PORTEUR (correctif du 21/08) — la satisfaction n'est prise QUE si le message déclencheur est un PORTEUR DE CONTENU au
+ * sens T7-A : `nature === 'documents'` (≥ 1 pièce jointe OU ≥ 1 lien fort). On réutilise le foyer T7-A via `nature` (déjà calculé
+ * par classerNature) — PAS de 3e définition du « contenu livré » (on a déjà payé le prix de « obtenu » vs « marqué reçu »).
+ * Motif : la mention littérale du num_dau dit QUEL dossier, jamais qu'il a été LIVRÉ. Un simple mail citant le numéro (nature
+ * 'autre' : demande de précision…) ne solde plus rien ; un accusé (nature 'accuse') reste exclu. DÉCISION et ATTRIBUTION sont
+ * corrigées ENSEMBLE (même mécanisme) : sans porteur, ni satisfait_le ni reponse_id ne sont posés → jamais une attribution NULL
+ * sur une décision qui n'aurait pas dû être prise, ni une provenance mensongère (reponse_id = le porteur, sinon rien). La mention
+ * reste NÉCESSAIRE (elle désigne le dossier), elle n'est plus SUFFISANTE. Changement de comportement ASSUMÉ.
  */
-export async function marquerDossiersSatisfaitsAuto(demandeId: number, reponseId: number, reponse: ReponsePourSatisfaction): Promise<number> {
+export async function marquerDossiersSatisfaitsAuto(demandeId: number, reponseId: number, reponse: ReponsePourSatisfaction, nature: NatureReponse): Promise<number> {
+  if (nature !== 'documents') return 0; // porteur de contenu SEULEMENT (T7-A) : ni 'autre' (mention seule) ni 'accuse' ne solde
   const { rows } = await query<{ dossier_id: number; num_dau: string }>(
     `SELECT dd.dossier_id, s.num_dau
        FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id

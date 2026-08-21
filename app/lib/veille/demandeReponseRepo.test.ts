@@ -49,7 +49,7 @@ vi.mock('../db/client', () => ({
 
 import {
   enregistrerReponse, listerReponses, rattacherAMain, marquerTraitee, deposerEtLierPieces,
-  marquerDossierSatisfait, demarquerDossier, statutDemande, lireClePiece,
+  marquerDossierSatisfait, marquerDossiersSatisfaitsAuto, demarquerDossier, statutDemande, lireClePiece,
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
   lireRecuLeReponse, RattachementNonEnvoyeeError,
   classerNatureContenu, classerNature, parseMotifsAccuse, retenterRattachementParReference, estNatureReclassable, reclasserNatureReponse, reclamperEnvoyeLe, marquerRepondu, annulerRepondu, marquerReponduAuto,
@@ -422,6 +422,45 @@ describe('R5b — demarquerDossier : les TROIS colonnes reviennent à NULL, jour
     etat.rowCount = 0;
     expect(await demarquerDossier(154, 12, 'a.jorel')).toBe(false);
     expect(trouver(/INSERT INTO demande_journal\b/i)).toBeUndefined();
+  });
+});
+
+describe('R6c — marquerDossiersSatisfaitsAuto : GARDE DE PORTEUR (nature=documents) — décision ET attribution', () => {
+  const DEMANDE = 233, REPONSE = 4, DOSSIER = 11430, NUM = '07512024V0037';
+  // Un même message citant le num_dau : la SEULE variable du test est `nature` (le porteur), jamais le texte.
+  const citeLeNum = () => ({ piecesNoms: [] as string[], corpsTexte: `Réponse concernant le dossier ${NUM}.` });
+  const majSatisf = () => appels.filter((a) => /UPDATE demande_dossier SET satisfait_le = now\(\), satisfait_par = 'automatique'/i.test(norm(a.sql)));
+
+  it("nature 'documents' + num_dau cité → SOLDE, et reponse_id désigne CE message (le porteur), pas un autre", async () => {
+    etat.rows = [{ dossier_id: DOSSIER, num_dau: NUM }];
+    const n = await marquerDossiersSatisfaitsAuto(DEMANDE, REPONSE, citeLeNum(), 'documents');
+    expect(n).toBe(1);
+    const upd = majSatisf();
+    expect(upd).toHaveLength(1);
+    expect(norm(upd[0].sql)).toContain('reponse_id = $2');            // attribution par paramètre lié
+    expect(upd[0].params).toEqual([DEMANDE, REPONSE, [DOSSIER]]);     // reponse_id = LE porteur (REPONSE)
+  });
+
+  it("nature 'autre' (mention SEULE : ni pièce ni lien fort) → ne solde RIEN — la décision n'est plus prise sur la mention", async () => {
+    etat.rows = [{ dossier_id: DOSSIER, num_dau: NUM }];
+    const n = await marquerDossiersSatisfaitsAuto(DEMANDE, REPONSE, citeLeNum(), 'autre');
+    expect(n).toBe(0);
+    expect(majSatisf()).toHaveLength(0);   // ⟵ CASSE si quelqu'un rebranche la décision sur la seule mention du numéro
+    expect(appels).toHaveLength(0);        // garde AVANT toute lecture : ni SELECT ni UPDATE
+  });
+
+  it("nature 'accuse' → exclu (jamais de satisfaction auto sur un accusé)", async () => {
+    etat.rows = [{ dossier_id: DOSSIER, num_dau: NUM }];
+    expect(await marquerDossiersSatisfaitsAuto(DEMANDE, REPONSE, citeLeNum(), 'accuse')).toBe(0);
+    expect(majSatisf()).toHaveLength(0);
+  });
+
+  it("nature 'documents' mais num_dau ABSENT → la mention reste NÉCESSAIRE (elle dit QUEL dossier) : rien soldé", async () => {
+    etat.rows = [{ dossier_id: DOSSIER, num_dau: NUM }];
+    const n = await marquerDossiersSatisfaitsAuto(DEMANDE, REPONSE, { piecesNoms: [], corpsTexte: 'Message sans aucun numéro de dossier.' }, 'documents');
+    expect(n).toBe(0);
+    expect(majSatisf()).toHaveLength(0);
+    expect(appels.some((a) => /SELECT dd\.dossier_id, s\.num_dau/i.test(norm(a.sql)))).toBe(true); // porteur OK → on a bien LU les dossiers, mais aucun match
   });
 });
 

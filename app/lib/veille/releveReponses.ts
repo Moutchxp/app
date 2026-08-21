@@ -540,11 +540,12 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
         const id = await enregistrerReponse(construireLigne(opts.profil, mb, mid, r.demandeId, r.methode, r.motif, nature));
         if (id !== null) {
           ecrites += 1;
-          // R6c — SATISFACTION AUTO : réponse rattachée à une demande → marque les dossiers dont le n° Sitadel complet
-          //   apparaît littéralement (pièces jointes ou corps). Haute précision, jamais de démarquage (voir repo). JAMAIS pour
-          //   un accusé (T3) : il n'apporte aucun document.
+          // R6c — SATISFACTION AUTO : réponse rattachée à une demande → marque les dossiers dont le n° Sitadel complet apparaît
+          //   littéralement (pièces jointes ou corps). Haute précision, jamais de démarquage (voir repo). GARDE DE PORTEUR (repo) :
+          //   ne solde QUE si `nature === 'documents'` (T7-A : pièce OU lien fort) — un accusé ou un simple mail citant le numéro
+          //   (nature 'autre') ne solde plus rien. `nature` est passé pour que le repo tranche décision ET attribution ensemble.
           if (r.demandeId !== null && nature !== 'accuse') {
-            await marquerDossiersSatisfaitsAuto(r.demandeId, id, { piecesNoms: mb.pieces.map((p) => p.nomFichier), corpsTexte: mb.message.corpsTexte ?? null });
+            await marquerDossiersSatisfaitsAuto(r.demandeId, id, { piecesNoms: mb.pieces.map((p) => p.nomFichier), corpsTexte: mb.message.corpsTexte ?? null }, nature);
           }
           // FUS — FOYER : un accusé rattaché ICI arrive APRÈS le clic « déposée » (ordre réel dépôt → accusé → relève) → re-plafonne
           //   envoye_le au 1er accusé (canal formulaire). Auteur 'systeme' (relève auto, aucun humain). Transaction propre au foyer
