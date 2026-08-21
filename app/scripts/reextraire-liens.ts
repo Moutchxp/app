@@ -35,10 +35,12 @@ interface LigneLien { id: number; url: string; fort: boolean; expire_le: string 
 async function main(): Promise<void> {
   console.log(`\n══════ RÉ-EXTRACTION DES LIENS (L1) — ${APPLY ? 'APPLICATION' : 'DRY-RUN (aucune écriture)'} ══════\n`);
 
-  // Réponses porteuses d'au moins un lien déjà capté (INNER JOIN) : seules elles peuvent voir un fort/expire_le recalculé.
+  // Réponses porteuses d'au moins un lien déjà capté : seules elles peuvent voir un fort/expire_le recalculé. EXISTS (et non un
+  //   JOIN + DISTINCT) → une seule ligne par réponse sans dédoublonnage, l'id restant unique → ORDER BY r.id sans contrainte.
   const { rows: reponses } = await query<{ id: number; corps_texte: string | null; corps_html: string | null; recu_le: string }>(
-    `SELECT DISTINCT r.id::int AS id, r.corps_texte, r.corps_html, r.recu_le::text AS recu_le
-       FROM demande_reponse r JOIN demande_reponse_lien l ON l.reponse_id = r.id
+    `SELECT r.id::int AS id, r.corps_texte, r.corps_html, r.recu_le::text AS recu_le
+       FROM demande_reponse r
+      WHERE EXISTS (SELECT 1 FROM demande_reponse_lien l WHERE l.reponse_id = r.id)
       ORDER BY r.id`,
   );
 
