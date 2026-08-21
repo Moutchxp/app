@@ -150,8 +150,13 @@ function rasteriser(pdf: Buffer, page: number): string {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
-/** Lecteur RÉEL : OCR + vision via l'API Mistral (clé MISTRAL_API_KEY). Jamais utilisé par les tests. */
-export function lecteurMistral(): LecteurCerfa {
+/** Usage cumulé d'une passe Mistral, pour chiffrer le coût. */
+export interface UsageMistral { ocrPages: number; promptTokens: number; completionTokens: number }
+/** Coût USD (tarifs LISTE : mistral-medium-3 0,40 $/M in · 2,00 $/M out ; mistral-ocr 1 $/1000 pages). */
+export const coutUsd = (u: UsageMistral): number => u.ocrPages * 1e-3 + u.promptTokens * 0.4e-6 + u.completionTokens * 2e-6;
+
+/** Lecteur RÉEL : OCR + vision via l'API Mistral (clé MISTRAL_API_KEY). Jamais utilisé par les tests. `usage` (optionnel) cumule les tokens. */
+export function lecteurMistral(usage?: UsageMistral): LecteurCerfa {
   const cle = process.env.MISTRAL_API_KEY;
   if (!cle) throw new Error('MISTRAL_API_KEY absente — lecture Cerfa scanné impossible');
   const post = async (url: string, body: unknown): Promise<Record<string, unknown>> => {
@@ -163,6 +168,7 @@ export function lecteurMistral(): LecteurCerfa {
     rasteriser,
     async ocr(pdf) {
       const d = await post('https://api.mistral.ai/v1/ocr', { model: 'mistral-ocr-latest', document: { type: 'document_url', document_url: `data:application/pdf;base64,${pdf.toString('base64')}` }, include_image_base64: false });
+      if (usage) usage.ocrPages += (d.usage_info as { pages_processed?: number })?.pages_processed ?? 0;
       const pages = (d.pages as { index: number; markdown?: string }[]) ?? [];
       const out: string[] = [];
       for (const p of pages) out[p.index] = p.markdown ?? '';
@@ -173,6 +179,8 @@ export function lecteurMistral(): LecteurCerfa {
         model: 'mistral-medium-latest', temperature: 0, response_format: { type: 'json_object' },
         messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: `data:image/jpeg;base64,${imageB64}` }] }],
       });
+      const u = d.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+      if (usage) { usage.promptTokens += u?.prompt_tokens ?? 0; usage.completionTokens += u?.completion_tokens ?? 0; }
       const content = (((d.choices as { message?: { content?: string } }[])?.[0]?.message?.content) ?? '{}');
       try { return JSON.parse(content) as Record<string, unknown>; } catch { return {}; }
     },
