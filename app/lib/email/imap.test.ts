@@ -24,7 +24,10 @@ const h = vi.hoisted(() => ({
 // `new ImapFlow(...)` doit être constructible : une fonction (nommée) qui recopie le faux client sur l'instance.
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn(function FakeImapFlow(this: Record<string, unknown>) { Object.assign(this, h.fake); }) }));
 
-import { creerClientApprofondi, creerClientEnvoyes } from './imap';
+import { creerClientApprofondi, creerClientEnvoyes, versMessageBoite } from './imap';
+import { simpleParser } from 'mailparser';
+import { estEmisParNous } from './enteteAuto';
+import { estRebondNonRemise } from '../veille/rattachementReponse';
 
 const COMPTE = { host: 'imap.exemple.fr', port: 993, user: 'u@exemple.fr', pass: 'secret', tls: true };
 
@@ -49,6 +52,72 @@ describe('R6 — creerClientApprofondi : multi-boîtes en LECTURE STRICTE', () =
     expect((h.fake as Record<string, unknown>).messageFlagsAdd).toBeUndefined();
     expect((h.fake as Record<string, unknown>).messageMove).toBeUndefined();
     expect((h.fake as Record<string, unknown>).messageDelete).toBeUndefined();
+  });
+});
+
+describe('T3 — un DSN de non-remise n’est PAS avalé par estEmisParNous (en-têtes RACINE seuls)', () => {
+  // Dette signalée en T3 : quand une de NOS demandes CRPA n'arrive pas, le rapport de non-remise (DSN) EMBARQUE notre message
+  // d'origine — donc nos en-têtes, dont X-SVAV-Auto, ET notre From. Si le filtre d'auto-émission (placé EN AMONT de la détection
+  // de rebond, releveReponses.ts:483 avant :492) lisait les en-têtes de la partie embarquée, il conclurait « émis par nous » et
+  // jetterait le DSN en silence → l'échéance CRPA courrait sur une demande jamais parvenue, une saisine CADA sur un délai jamais
+  // commencé. On prouve ici, sur un DSN RÉEL (multipart/report à 3 parties), que l'extraction ne remonte QUE les en-têtes racine.
+
+  // DSN RÉEL : From racine = mailer-daemon ; 3 parties (texte lisible, message/delivery-status, message/rfc822 = NOTRE message
+  //   d'origine AVEC son X-SVAV-Auto et notre From). CRLF (exigé par le format MIME). Le jeton d'auto-émission est celui de prod.
+  const DSN_BRUT = [
+    'From: Mail Delivery System <mailer-daemon@mail.example.net>',
+    'To: noreply@sansvisavis.com',
+    'Subject: Undelivered Mail Returned to Sender',
+    'Content-Type: multipart/report; report-type=delivery-status; boundary="OUTER"',
+    'Message-ID: <dsn-root-123@mail.example.net>',
+    '',
+    '--OUTER',
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    'Delivery to the following recipient failed permanently: urbanisme@mairie-exemple.fr',
+    '',
+    '--OUTER',
+    'Content-Type: message/delivery-status',
+    '',
+    'Reporting-MTA: dns; mail.example.net',
+    '',
+    'Final-Recipient: rfc822; urbanisme@mairie-exemple.fr',
+    'Action: failed',
+    'Status: 5.1.1',
+    'Diagnostic-Code: smtp; 550 5.1.1 unknown user',
+    '',
+    '--OUTER',
+    'Content-Type: message/rfc822',
+    '',
+    'From: noreply@sansvisavis.com',
+    'To: urbanisme@mairie-exemple.fr',
+    'Subject: Demande CRPA — dossier PC 075 001 24 X0042',
+    'X-SVAV-Auto: sans-vis-a-vis-emission-automatique',
+    'Message-ID: <origine-abc@sansvisavis.com>',
+    '',
+    'Bonjour, veuillez nous communiquer le dossier…',
+    '--OUTER--',
+    '',
+  ].join('\r\n');
+
+  const ADRESSES_NOUS = ['noreply@sansvisavis.com'];
+
+  it('l’extraction ne remonte QUE les en-têtes racine : X-SVAV-Auto embarqué N’ENTRE PAS dans `entetes`', async () => {
+    const mb = versMessageBoite(await simpleParser(DSN_BRUT), 1);
+    expect(mb.message.deAdresse).toBe('mailer-daemon@mail.example.net');   // From RACINE, jamais le From embarqué
+    const cles = Object.keys(mb.message.entetes ?? {}).map((k) => k.toLowerCase());
+    expect(cles).not.toContain('x-svav-auto');                             // l'en-tête embarqué ne fuit pas dans les en-têtes racine
+    // La preuve structurelle : le message d'origine est isolé dans les parties de RAPPORT (message/rfc822), hors des en-têtes.
+    expect((mb.partiesRapport ?? []).some((p) => /rfc822/i.test(p.typeMime) && p.contenu.includes('X-SVAV-Auto'))).toBe(true);
+  });
+
+  it('estEmisParNous = FALSE (non avalé) ET estRebondNonRemise = TRUE (reconnu comme rebond)', async () => {
+    const mb = versMessageBoite(await simpleParser(DSN_BRUT), 1);
+    // Les DEUX signaux d'auto-émission portent sur la RACINE : en-tête absent des en-têtes racine, From = mailer-daemon (≠ nous).
+    expect(estEmisParNous(mb.message.deAdresse, mb.message.entetes, ADRESSES_NOUS)).toBe(false);
+    // Donc le flux (auto-émission d'abord) ne l'écarte pas, et la détection de rebond le reconnaît. Ce test CASSE si l'extraction
+    //   se met à aplatir les en-têtes embarqués (estEmisParNous repasserait à true et le DSN serait perdu avant le rebond).
+    expect(estRebondNonRemise(mb.message)).toBe(true);
   });
 });
 

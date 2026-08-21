@@ -14,7 +14,10 @@ import type { MessageEntrant } from '../veille/rattachementReponse';
 import type { PartieRapport } from '../veille/rapportRejet';
 import type { SortantEntete } from '../veille/preCochageRepondu';
 
-function versMessageBoite(parsed: ParsedMail, uid: number): MessageBoite {
+// Exporté pour le test de non-régression DSN : on prouve, sur un rapport de non-remise RÉEL (multipart/report à 3 parties), que
+// les en-têtes construits ici (`entetes`) ne proviennent QUE du message RACINE — jamais de la partie message/rfc822 embarquée —,
+// sinon un DSN embarquant notre message d'origine (avec son X-SVAV-Auto) serait pris pour « émis par nous » et avalé en silence.
+export function versMessageBoite(parsed: ParsedMail, uid: number): MessageBoite {
   const from = parsed.from?.value?.[0];
   const references = Array.isArray(parsed.references)
     ? parsed.references
