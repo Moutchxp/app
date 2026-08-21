@@ -1,10 +1,53 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import { writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import sharp from 'sharp';
 import { genererCertificatPdf, urlQr, scoreLabel, jeton4x4, type DonneesCertificatPdf } from './certificatPdf';
 import { MENTION_EMETTEUR, MENTION_DEFINITION, MENTION_DECOUPLAGE, MENTION_MARQUE } from './mentions';
 
 const JETON = 'ABCDEFGHJKMNPQRS';
 const EMIS = new Date('2026-07-14T12:32:00.000Z');
+
+/**
+ * Assertion de DÉTERMINISME INSTRUMENTÉE — l'égalité reste `Buffer.equals` INTÉGRALE (jamais affaiblie). Le flake historique
+ * (échec intermittent en suite complète, cause NON ÉTABLIE, générateur prouvé déterministe) était MUET : `expect(a.equals(b))`
+ * ne disait rien de la divergence. Ici, en cas d'inégalité, on produit un message exploitable (longueurs, nombre d'octets
+ * divergents, 5 premiers offsets, contexte ASCII ±60 du 1er) ET on dépose les DEUX buffers dans os.tmpdir() (noms horodatés)
+ * pour analyse hors ligne. L'écriture disque est enveloppée : si elle échoue, on le SIGNALE — jamais elle ne masque l'échec
+ * d'origine (l'`expect` final rejoue et fait échouer l'assertion dans tous les cas).
+ */
+function attendreIdentiques(a: Buffer, b: Buffer, libelle: string): void {
+  if (a.equals(b)) return; // chemin nominal : silencieux
+  let total = 0;
+  const premiers: number[] = [];
+  const n = Math.max(a.length, b.length);
+  for (let i = 0; i < n; i++) if (a[i] !== b[i]) { total++; if (premiers.length < 5) premiers.push(i); }
+  const o0 = premiers[0] ?? 0;
+  const ascii = (buf: Buffer) =>
+    buf.subarray(Math.max(0, o0 - 60), Math.min(buf.length, o0 + 60)).toString('latin1').replace(/[^\x20-\x7e]/g, '.');
+  const lignes = [
+    `DÉTERMINISME ROMPU — ${libelle}`,
+    `longueur(a)=${a.length}  longueur(b)=${b.length}  octets divergents=${total}`,
+    `5 premiers offsets divergents: ${premiers.join(', ')}`,
+    `contexte ±60 octets au 1er offset (${o0}) :`,
+    `  a='${ascii(a)}'`,
+    `  b='${ascii(b)}'`,
+  ];
+  try {
+    const slug = libelle.replace(/[^a-z0-9]+/gi, '-').slice(0, 60);
+    const ts = new Date(EMIS).getTime() + total + o0; // suffixe stable-ish (pas d'horloge : reste unique par cas + divergence)
+    const pa = join(tmpdir(), `svav-flake-${slug}-${ts}-a.pdf`);
+    const pb = join(tmpdir(), `svav-flake-${slug}-${ts}-b.pdf`);
+    writeFileSync(pa, a);
+    writeFileSync(pb, b);
+    lignes.push(`buffers dumpés :`, `  ${pa}`, `  ${pb}`);
+  } catch (e) {
+    lignes.push(`(échec d'écriture du dump — NON bloquant : ${e instanceof Error ? e.message : String(e)})`);
+  }
+  // L'assertion rejoue et échoue TOUJOURS (le dump ne la remplace pas) ; le message porte le diagnostic.
+  expect(a.equals(b), lignes.join('\n')).toBe(true);
+}
 
 let cartePng: Buffer;
 let photoJpeg: Buffer;
@@ -123,7 +166,7 @@ describe('genererCertificatPdf — DÉTERMINISME (exigence dure)', () => {
   it('deux générations, MÊMES entrées → MÊMES octets (polices embarquées comprises)', async () => {
     const a = await genererCertificatPdf(donnees());
     const b = await genererCertificatPdf(donnees());
-    expect(a.equals(b)).toBe(true);
+    attendreIdentiques(a, b, 'nominal : deux générations identiques');
   });
 
   it('emisLe différent → octets différents (CreationDate/ModDate/ID figés dessus)', async () => {
@@ -151,7 +194,7 @@ describe('genererCertificatPdf — gabarit ONE-SHOT (aUnCompte:false)', () => {
   it('DÉTERMINISME : deux générations one-shot identiques → mêmes octets', async () => {
     const a = await genererCertificatPdf(donnees({ aUnCompte: false }));
     const b = await genererCertificatPdf(donnees({ aUnCompte: false }));
-    expect(a.equals(b)).toBe(true);
+    attendreIdentiques(a, b, 'one-shot : deux générations identiques');
   });
 
   // ANTI-FUITE (le jeton ne transite que par le QR, ~urlQr) : en one-shot le QR est DÉCORATIF (chaîne neutre). Preuve
@@ -160,7 +203,7 @@ describe('genererCertificatPdf — gabarit ONE-SHOT (aUnCompte:false)', () => {
   it('le JETON ne fuit jamais : changer le jeton ne change PAS le PDF one-shot', async () => {
     const a = await genererCertificatPdf(donnees({ aUnCompte: false, jeton: 'ABCDEFGHJKMNPQRS' }));
     const b = await genererCertificatPdf(donnees({ aUnCompte: false, jeton: 'ZZZZZZZZZZZZZZZZ' }));
-    expect(a.equals(b)).toBe(true);
+    attendreIdentiques(a, b, 'one-shot : le jeton ne fuit pas (invariance)');
   });
 
   // Symétrie de non-régression : le gabarit COMPTE, lui, reflète le jeton (QR de vérification) → octets différents.
@@ -186,7 +229,7 @@ describe('genererCertificatPdf — variante ANONYMISÉE (aUnCompte:true, anonymi
   it('DÉTERMINISME : deux générations anonymisées identiques → mêmes octets', async () => {
     const a = await genererCertificatPdf(donnees({ anonymise: true }));
     const b = await genererCertificatPdf(donnees({ anonymise: true }));
-    expect(a.equals(b)).toBe(true);
+    attendreIdentiques(a, b, 'anonymisé : deux générations identiques');
   });
 
   it('diffère du nominatif (badge « Version anonymisée » ajouté + bloc demandeur retiré)', async () => {
@@ -200,10 +243,10 @@ describe('genererCertificatPdf — variante ANONYMISÉE (aUnCompte:true, anonymi
   it('non-fuite : nom/email/téléphone du demandeur n’influencent PAS le PDF anonymisé', async () => {
     const a = await genererCertificatPdf(donnees({ anonymise: true, demandeur: DEM_A }));
     const b = await genererCertificatPdf(donnees({ anonymise: true, demandeur: DEM_B }));
-    expect(a.equals(b)).toBe(true);
+    attendreIdentiques(a, b, 'anonymisé : nom/email/téléphone du demandeur sans effet');
     // Robustesse du test : demandeur = null donne aussi le même rendu (aucune trace du demandeur).
     const c = await genererCertificatPdf(donnees({ anonymise: true, demandeur: null }));
-    expect(c.equals(a)).toBe(true);
+    attendreIdentiques(c, a, 'anonymisé : demandeur null = même rendu');
   });
 
   // Contrôle positif (le test ci-dessus a du sens) : en NOMINATIF, changer le demandeur change bien les octets.
@@ -224,7 +267,7 @@ describe('genererCertificatPdf — variante ANONYMISÉE (aUnCompte:true, anonymi
   it('ignoré en one-shot : anonymise n’a aucun effet quand aUnCompte===false', async () => {
     const a = await genererCertificatPdf(donnees({ aUnCompte: false, anonymise: false }));
     const b = await genererCertificatPdf(donnees({ aUnCompte: false, anonymise: true }));
-    expect(a.equals(b)).toBe(true);
+    attendreIdentiques(a, b, 'one-shot : anonymise ignoré');
   });
 });
 
@@ -232,7 +275,7 @@ describe('genererCertificatPdf — QR par TYPE de document (typeDocument)', () =
   it('typeDocument ABSENT → PDF byte-identique à un autre rendu sans type (QR nominatif inchangé)', async () => {
     const a = await genererCertificatPdf(donnees()); // pas de typeDocument
     const b = await genererCertificatPdf(donnees({ typeDocument: undefined }));
-    expect(a.equals(b)).toBe(true);
+    attendreIdentiques(a, b, 'typeDocument absent : byte-identique au rendu sans type');
   });
 
   it('typeDocument:"anonyme" → le PDF DIFFÈRE du nominatif (le QR encode &doc=anonyme)', async () => {
@@ -246,13 +289,13 @@ describe('genererCertificatPdf — QR par TYPE de document (typeDocument)', () =
     const visuel1 = await genererCertificatPdf(donnees({ typeDocument: 'visuel' }));
     const visuel2 = await genererCertificatPdf(donnees({ typeDocument: 'visuel' }));
     expect(visuel1.equals(nominatif)).toBe(false);
-    expect(visuel1.equals(visuel2)).toBe(true); // déterministe
+    attendreIdentiques(visuel1, visuel2, 'typeDocument visuel : déterministe'); // déterministe
   });
 
   it('ONE-SHOT : typeDocument est IGNORÉ (QR décoratif, jamais de doc)', async () => {
     const a = await genererCertificatPdf(donnees({ aUnCompte: false }));
     const b = await genererCertificatPdf(donnees({ aUnCompte: false, typeDocument: 'anonyme' }));
-    expect(a.equals(b)).toBe(true);
+    attendreIdentiques(a, b, 'ONE-SHOT typeDocument ignoré');
   });
 });
 
