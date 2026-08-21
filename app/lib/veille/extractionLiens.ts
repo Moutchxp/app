@@ -50,12 +50,18 @@ function estParasite(u: URL): boolean {
 }
 
 // ── Détection d'un chemin « à jeton » (candidat FORT) ────────────────────────
-/** Un segment de chemin est un JETON s'il est OPAQUE : ≥ 16 caractères, mélange lettres+chiffres, et PAS un slug de mots-tirets
- *  (ex. « le-plan-local-d-urbanisme-plu-2329 » est un slug, PAS un jeton). Erreur de côté SÛRE : dans le doute → faible. */
+/** Un segment de chemin est un JETON s'il est OPAQUE. L'opacité se juge sur le segment ENTIER, TIRETS COMPRIS — le tiret n'est
+ *  PAS un critère (un jeton base64url comme « NvurYVHvT-iMfIC9RJ2LQQ » en contient légitimement). Critère retenu : longueur ≥ 16,
+ *  lettres ET chiffres mêlés, ET une CASSE MIXTE (au moins une minuscule ET une majuscule). C'est la casse mixte qui sépare le
+ *  jeton du slug : les slugs d'URL sont en minuscules par convention web (« le-plan-local-d-urbanisme-plu-2329 »,
+ *  « demarches-2094 ») → jamais de majuscule → jamais retenus. Un jeton d'accès (identifiant machine) mêle les deux casses. Sans
+ *  casse mixte (segment monocasse), on retombe sur la garde anti-slug d'origine (mots-tirets → faible). Erreur de côté SÛRE :
+ *  dans le doute → faible. */
 function segmentEstJeton(seg: string): boolean {
   if (seg.length < 16) return false;
-  if (/^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(seg)) return false; // slug kebab (mots séparés par tirets) → jamais un jeton
-  return /[A-Za-z]/.test(seg) && /[0-9]/.test(seg);           // opaque = lettres ET chiffres mêlés
+  if (!/[A-Za-z]/.test(seg) || !/[0-9]/.test(seg)) return false;   // opaque = lettres ET chiffres mêlés (segment entier)
+  if (/[a-z]/.test(seg) && /[A-Z]/.test(seg)) return true;          // casse MIXTE → jeton (un slug web reste en minuscules)
+  return !/^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(seg);                  // monocasse : garde anti-slug (mots-tirets → jamais un jeton)
 }
 function cheminAJeton(u: URL): boolean {
   return u.pathname.split('/').filter(Boolean).some(segmentEstJeton);

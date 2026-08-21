@@ -95,6 +95,45 @@ describe('L1 — analyserLiensReponse : cas RÉEL Paris (jeton factice)', () => 
   });
 });
 
+describe('L1 — opacité du jeton : le TIRET ne déclasse plus (régression du 20/08)', () => {
+  // Jeton FACTICE de MÊME FORME que le réel (Paris : 22 car., UN tiret, casse mixte + chiffres) — jamais la vraie valeur.
+  const JETON_TIRET = 'Kp7mTQxLa2-Ht8WvY9Cb3z';
+  const GED_TIRET = `https://ged-pcpr.apps.paris.fr/share/s/${JETON_TIRET}/folder`;
+
+  it('un jeton AVEC tiret (casse mixte) est FORT — l’ancienne garde le lisait « slug » et le déclassait', () => {
+    const { liens } = analyserLiensReponse({ corpsTexte: `Votre dossier : ${GED_TIRET}, valable 7 jours.`, recuLe: RECU });
+    const ged = liens.find((l) => l.url === GED_TIRET)!;
+    expect(ged.fort).toBe(true);
+    expect(ged.expirationSource).toBe('relative'); // l'expiration se rattache désormais au lien (fort)
+    expect(ged.expireLe?.toISOString().slice(0, 10)).toBe('2026-08-17');
+  });
+
+  it('un jeton SANS tiret (casse mixte) reste FORT', () => {
+    const lien = `https://ged-pcpr.apps.paris.fr/share/s/${JETON}/folder`;
+    const { liens } = analyserLiensReponse({ corpsTexte: lien, recuLe: RECU });
+    expect(liens.find((l) => l.url === lien)?.fort).toBe(true);
+  });
+
+  it('un slug kebab lisible (minuscules), même long et chiffré, reste FAIBLE', () => {
+    const slug = 'https://www.paris.fr/pages/le-plan-local-d-urbanisme-plu-2329';
+    const { liens } = analyserLiensReponse({ corpsTexte: slug, recuLe: RECU });
+    expect(liens.find((l) => l.url === slug)?.fort).toBe(false);
+  });
+
+  it('les 5 URL parasites/pieds de page RÉELLES du mail de Paris restent toutes FAIBLES', () => {
+    const { liens } = analyserLiensReponse({ corpsTexte: PARIS_TEXTE, recuLe: RECU });
+    for (const u of [
+      'https://opendata.paris.fr',
+      'https://teleservices.paris.fr/demarcheurbanisme/',
+      'https://www.paris.fr/pages/le-plan-local-d-urbanisme-plu-2329',
+      'https://www.paris.fr/pages/demarches-2094',
+      'https://regles-urbanisme.paris.fr',
+    ]) {
+      expect(liens.find((l) => l.url === u)?.fort).toBe(false);
+    }
+  });
+});
+
 describe('L1 — filtrage des parasites + garde d’ambiguïté', () => {
   it('réseaux sociaux, tracking, désabonnement, assets → AUCUNE capture abusive', () => {
     const html = [
