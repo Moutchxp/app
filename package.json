@@ -60,6 +60,7 @@
     "alertes:envoyer": "tsx app/scripts/envoyer-alerte.ts",
     "veille:run": "tsx app/scripts/veille-run.ts",
     "veille:reextraire-liens": "tsx app/scripts/reextraire-liens.ts",
+    "veille:reclasser-natures": "tsx app/scripts/reclasser-natures.ts",
     "commune:import": "tsx app/scripts/commune-import.ts",
     "mairie:contact:import": "tsx app/scripts/mairie-contact-import.ts",
     "demo:reponse:creer": "tsx app/scripts/demo-reponse.ts creer",

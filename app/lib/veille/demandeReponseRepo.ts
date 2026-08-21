@@ -74,6 +74,40 @@ export function estNatureReclassable(v: unknown): v is NatureReclassable {
   return typeof v === 'string' && (NATURES_RECLASSABLES as readonly string[]).includes(v);
 }
 
+/** T7-A décision #2 — une nature périmée à reclasser (recalcul additif `autre` → `documents`). */
+export interface NaturePerimee { id: number; demandeId: number | null; objet: string | null; deAdresse: string; nbPieces: number; aLienFort: boolean; }
+
+/**
+ * T7-A décision #2 — RECLASSEMENT RÉTROACTIF ADDITIF des natures devenues périmées : un message classé `autre` à l'insertion,
+ * mais dont le CONTENU CAPTÉ justifie désormais `documents` (≥ 1 pièce OU ≥ 1 lien FORT — typiquement un lien passé fort après le
+ * correctif du tiret). On RECALCULE via le foyer T7-A `classerNatureContenu` (PAS de 3e définition), à partir de ce qui est EN
+ * BASE (pièces enregistrées, liens fort/faible) : aucune relecture d'e-mail, aucun réseau, aucune ré-extraction. ADDITIF et
+ * idempotent : uniquement `autre` → `documents` (jamais l'inverse) et le guard `WHERE nature = 'autre'` rend un 2ᵉ passage nul.
+ *
+ * 🔴 N'ÉCRIT JAMAIS `nature_classee_le` (ancre anti-alerte-rétroactive T7-B) : un reclassement n'est PAS un événement live. Ne
+ * touche NI satisfait_le, NI reponse_id, NI rattachement, NI repondu_*, NI aucun compteur (tous DÉRIVÉS de la nature). `apply`
+ * false = DRY-RUN (aucune écriture). Renvoie la liste des messages à reclasser (ou reclassés).
+ */
+export async function reclasserNaturesPerimees(apply: boolean): Promise<NaturePerimee[]> {
+  const { rows } = await query<{ id: number; demande_id: number | null; objet: string | null; de_adresse: string; nb_pieces: number; a_lien_fort: boolean }>(
+    `SELECT r.id::int AS id, r.demande_id::int AS demande_id, r.objet, r.de_adresse,
+            (SELECT count(*)::int FROM demande_reponse_piece p WHERE p.reponse_id = r.id) AS nb_pieces,
+            EXISTS (SELECT 1 FROM demande_reponse_lien l WHERE l.reponse_id = r.id AND l.fort) AS a_lien_fort
+       FROM demande_reponse r
+      WHERE r.nature = 'autre'
+      ORDER BY r.id`,
+  );
+  // Recalcul par le FOYER T7-A : on ne reclasse QUE ce que le contenu justifie (pièce OU lien fort → 'documents' ; sinon 'autre').
+  const aReclasser = rows.filter((r) => classerNatureContenu({ nbPieces: r.nb_pieces, aLienFort: r.a_lien_fort }) === 'documents');
+  if (apply) {
+    for (const r of aReclasser) {
+      // Guard idempotent `nature = 'autre'` ; SET nature SEUL — jamais nature_classee_le (l'ancre reste telle quelle).
+      await query(`UPDATE demande_reponse SET nature = 'documents' WHERE id = $1 AND nature = 'autre'`, [r.id]);
+    }
+  }
+  return aReclasser.map((r) => ({ id: r.id, demandeId: r.demande_id, objet: r.objet, deAdresse: r.de_adresse, nbPieces: r.nb_pieces, aLienFort: r.a_lien_fort }));
+}
+
 /** Une pièce jointe d'un message entrant. Les champs de dépôt (cle_stockage/empreinte/stocke_le) restent NULL tant que la pièce n'est pas déposée (chantier ultérieur). */
 export interface PieceEntrante {
   nomFichier: string;

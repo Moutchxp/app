@@ -52,7 +52,7 @@ import {
   marquerDossierSatisfait, marquerDossiersSatisfaitsAuto, demarquerDossier, statutDemande, lireClePiece,
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
   lireRecuLeReponse, RattachementNonEnvoyeeError,
-  classerNatureContenu, classerNature, parseMotifsAccuse, retenterRattachementParReference, estNatureReclassable, reclasserNatureReponse, reclamperEnvoyeLe, marquerRepondu, annulerRepondu, marquerReponduAuto,
+  classerNatureContenu, classerNature, parseMotifsAccuse, retenterRattachementParReference, estNatureReclassable, reclasserNatureReponse, reclasserNaturesPerimees, reclamperEnvoyeLe, marquerRepondu, annulerRepondu, marquerReponduAuto,
   type ReponseEntrante, type PieceAvecContenu,
 } from './demandeReponseRepo';
 import { estAccuseAutomatique, type MessageEntrant } from './rattachementReponse';
@@ -461,6 +461,38 @@ describe('R6c — marquerDossiersSatisfaitsAuto : GARDE DE PORTEUR (nature=docum
     expect(n).toBe(0);
     expect(majSatisf()).toHaveLength(0);
     expect(appels.some((a) => /SELECT dd\.dossier_id, s\.num_dau/i.test(norm(a.sql)))).toBe(true); // porteur OK → on a bien LU les dossiers, mais aucun match
+  });
+});
+
+describe('T7-A #2 — reclasserNaturesPerimees : recalcul ADDITIF autre → documents (foyer T7-A), sans toucher l’ancre', () => {
+  const AUTRE_FORT = { id: 4, demande_id: 233, objet: 'Réponse à votre demande', de_adresse: 'no-reply@paris.fr', nb_pieces: 0, a_lien_fort: true };
+  const AUTRE_NU = { id: 7, demande_id: 233, objet: 'Demande de précision', de_adresse: 'no-reply@paris.fr', nb_pieces: 0, a_lien_fort: false };
+  const majNature = () => appels.filter((a) => /UPDATE demande_reponse SET nature = 'documents'/i.test(norm(a.sql)));
+
+  it('DRY-RUN : renvoie les candidats (lien fort ⇒ documents) mais N’ÉCRIT RIEN', async () => {
+    etat.rows = [AUTRE_FORT, AUTRE_NU];
+    const res = await reclasserNaturesPerimees(false);
+    expect(res.map((r) => r.id)).toEqual([4]);        // seul le porteur (lien fort) ; le mail nu reste 'autre'
+    expect(majNature()).toHaveLength(0);              // dry-run → aucun UPDATE
+  });
+
+  it('APPLY : UPDATE nature=documents, guard nature=\'autre\', et JAMAIS nature_classee_le (ancre intouchable)', async () => {
+    etat.rows = [AUTRE_FORT, AUTRE_NU];
+    const res = await reclasserNaturesPerimees(true);
+    expect(res.map((r) => r.id)).toEqual([4]);
+    const upd = majNature();
+    expect(upd).toHaveLength(1);                       // uniquement le message 4 (le mail nu n'est pas reclassé)
+    const s = norm(upd[0].sql);
+    expect(s).toContain("SET nature = 'documents'");
+    expect(s).toContain("WHERE id = $1 AND nature = 'autre'"); // idempotent + ne promeut que depuis 'autre'
+    expect(s).not.toContain('nature_classee_le');     // 🔴 ancre anti-alerte-rétroactive JAMAIS écrite
+    expect(upd[0].params).toEqual([4]);
+  });
+
+  it('IDEMPOTENT : aucun candidat (que des mails nus) → 0, aucun UPDATE', async () => {
+    etat.rows = [AUTRE_NU];
+    expect(await reclasserNaturesPerimees(true)).toHaveLength(0);
+    expect(majNature()).toHaveLength(0);
   });
 });
 
