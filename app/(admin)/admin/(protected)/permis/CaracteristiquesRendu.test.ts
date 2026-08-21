@@ -426,21 +426,27 @@ describe('N10-E — la limite PLU à côté du sommet + dépassement signalé (j
     renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: sommet, valeur: '97.13', origine: 'saisie', valeurBase: 97.13, onValeur: noop, onValider: noop, ...props }));
   const pluMesure = MESURES.find((m) => m.cle === 'hauteurMaxPluNgf')!;
 
-  it('la limite PLU s’affiche À CÔTÉ de la hauteur retenue', () => {
+  it('le gabarit PLU s’affiche À CÔTÉ de la hauteur retenue (plafond au droit du plateau le plus bas)', () => {
     const h = rendreSommet({ limitePluNgf: 101 });
-    expect(h).toContain('limite PLU : 101 m');
+    expect(h).toContain('gabarit PLU : 101 m au droit du plateau le plus bas');
     expect(h).toContain('hauteur retenue : 97.13 m');
   });
 
-  it('hauteur retenue SOUS la limite → pas d’alerte de dépassement', () => {
+  it('hauteur retenue SOUS le gabarit → pas d’alerte de dépassement', () => {
     const h = rendreSommet({ limitePluNgf: 101, valeurBase: 97.13 });
-    expect(h).not.toContain('dépasse la limite');
+    expect(h).not.toContain('dépasse le gabarit');
   });
 
-  it('hauteur retenue AU-DESSUS de la limite → dépassement SIGNALÉ, non bloquant', () => {
+  it('hauteur retenue AU-DESSUS du gabarit le plus haut → dépassement SIGNALÉ, non bloquant', () => {
     const h = rendreSommet({ limitePluNgf: 101, valeurBase: 105 });
-    expect(h).toContain('dépasse la limite PLU (101 m)');
+    expect(h).toContain('dépasse le gabarit PLU le plus haut applicable (101 m)');
     expect(h).toContain('non bloquant');
+  });
+
+  it('N10-M — fausse alarme fermée : sommet 101 au droit d’un plateau où le gabarit vaut 101, plafond bas 100 → AUCUN dépassement', () => {
+    const h = rendreSommet({ limitePluNgf: 100, limitePluHauteNgf: 102, valeur: '101', valeurBase: 101 });
+    expect(h).not.toContain('dépasse le gabarit'); // 101 ≤ 102 (le plus haut applicable), pas > 100
+    expect(h).toContain('jusqu’à 102 m selon le plateau');
   });
 
   it('sans limite renseignée → aucune ligne « limite PLU »', () => {
@@ -585,5 +591,26 @@ describe('N10-L — « utiliser N » du gabarit écrit (et prévient s’il écr
 
   it('brouillon ÉGAL à la valeur du bouton → pas d’avertissement (rien à écraser)', () => {
     expect(rendre('101')).not.toContain('écrasera la valeur en cours de saisie');
+  });
+})
+
+describe('N10-M — règle vérifiée : l’écran énonce la règle, pas une divergence', () => {
+  const gab = MESURES.find((m) => m.cle === 'hauteurMaxPluNgf')!;
+  type Ecarte = NonNullable<JournalChamp['ecartes']>[number];
+  const ec = (v: number, p: string): Ecarte => ({ valeur: v, piece: p, page: 1, motif: null });
+  const ENONCE = 'gabarit = plateau de nivellement + 31 m — de 100 à 102 NGF selon le plateau (69 à 71)';
+  const journalRegle: JournalChamp = { confiance: 'confirmee', reserve: ENONCE, provenances: [], ecartes: [ec(100, 'AA'), ec(101, 'BB'), ec(102, 'Est')], motif: null };
+
+  it('valeur écrite (extraite) + plusieurs valeurs → ÉNONCÉ de la règle, aucune mention de « divergentes »', () => {
+    const h = renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: gab, valeur: '100', origine: 'extraite', journal: journalRegle, lienPiece: () => () => {}, onUtiliserGabarit: () => {}, onValeur: noop }));
+    expect(h).toContain('gabarit = plateau de nivellement + 31 m');
+    expect(h).toContain('de 100 à 102 NGF');
+    expect(h).not.toContain('valeurs divergentes');
+    expect(h).not.toContain('À trancher à la main');
+  });
+
+  it('même journal mais RIEN d’écrit (origine null) → vraie divergence signalée (chemin N10-I préservé)', () => {
+    const h = renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: gab, valeur: '', origine: null, journal: journalRegle, onValeur: noop }));
+    expect(h).toContain('valeurs divergentes');
   });
 })

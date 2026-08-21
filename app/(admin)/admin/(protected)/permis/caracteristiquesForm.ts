@@ -40,6 +40,9 @@ export const MESURES: readonly Mesure[] = [
   // N10-E — la limite administrative du PLU, à côté du sommet (l'écart doit sauter aux yeux). NGF ABSOLU pour être comparable au sommet.
   { cle: 'hauteurMaxPluNgf', colonne: 'hauteur_max_plu_ngf', libelle: 'Hauteur maximale PLU (NGF)', unite: 'm', entier: false,
     aide: 'Limite fixée par le règlement du PLU, en NGF ABSOLU (comparable au sommet). Si le règlement donne une hauteur RELATIVE, l’additionner à l’altitude du plateau de nivellement (lisible sur la coupe) avant de la saisir. Vaut pour ce bâtiment.' },
+  // N10-M — plateau de nivellement : le PLAN DE RÉFÉRENCE du gabarit PLU (article UV 3.2), en NGF absolu. À NE PAS confondre avec le terrain naturel.
+  { cle: 'altitudePlateauNivellementNgf', colonne: 'altitude_plateau_nivellement_ngf', libelle: 'Plateau de nivellement (NGF)', unite: 'm', entier: false,
+    aide: 'Plan de référence du nivellement à partir duquel le PLU mesure le gabarit (le plus bas si plusieurs plateaux). NGF absolu. Ce n’est PAS le terrain naturel — ne pas confondre.' },
   { cle: 'hauteurRelativeM', colonne: 'hauteur_relative_m', libelle: 'Hauteur relative', unite: 'm', entier: false },
   { cle: 'altitudeTerrainNaturelNgf', colonne: 'altitude_terrain_naturel_ngf', libelle: 'Altitude du terrain naturel (NGF)', unite: 'm', entier: false },
 ];
@@ -51,6 +54,7 @@ export interface EditionCorps {
   nbEtages: string; nbNiveauxSousSol: string;
   altitudeDernierPlancherNgf: string; altitudeSommetNgf: string;
   hauteurMaxPluNgf: string; // N10-E — limite PLU (NGF)
+  altitudePlateauNivellementNgf: string; // N10-M — plateau de nivellement (NGF)
   hauteurRelativeM: string; altitudeTerrainNaturelNgf: string;
 }
 /** Parking en TROIS états distincts : '' = non renseigné (NULL), 'oui' = true, 'non' = false. Jamais une case à cocher binaire. */

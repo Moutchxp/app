@@ -21,6 +21,7 @@ const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   nbEtages: valeurVersInput(c.nbEtages), nbNiveauxSousSol: valeurVersInput(c.nbNiveauxSousSol),
   altitudeDernierPlancherNgf: valeurVersInput(c.altitudeDernierPlancherNgf), altitudeSommetNgf: valeurVersInput(c.altitudeSommetNgf),
   hauteurMaxPluNgf: valeurVersInput(c.hauteurMaxPluNgf), // N10-E — limite PLU (NGF)
+  altitudePlateauNivellementNgf: valeurVersInput(c.altitudePlateauNivellementNgf), // N10-M — plateau de nivellement (NGF)
   hauteurRelativeM: valeurVersInput(c.hauteurRelativeM), altitudeTerrainNaturelNgf: valeurVersInput(c.altitudeTerrainNaturelNgf),
 });
 const editionDepuisPermis = (g: GlobalPermis | null): EditionPermis => ({
@@ -249,6 +250,10 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
         const err = erreursCorps[c.id] ?? {};
         const journalCorps = data.journal.parCorps[c.id] ?? {};
         if (!ed) return null;
+        // N10-M — gabarit PLU le PLUS HAUT applicable (max des cotes candidates lues sur les planches) : le dépassement du sommet se
+        //   compare à lui, pas à hauteur_max_plu_ngf (le plafond au droit du plateau le plus bas), pour ne pas crier une fausse alarme.
+        const candidatsGab = (journalCorps['hauteur_max_plu_ngf']?.ecartes ?? []).map((e) => e.valeur).filter((v): v is number => v != null);
+        const plafondHaut = candidatsGab.length > 0 ? Math.max(...candidatsGab) : null;
         return (
           <div key={c.id} className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -266,6 +271,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
                   confirmeLe={m.estSommet ? c.altitudeSommetNgfConfirmeLe : undefined} confirmeParNom={m.estSommet ? c.altitudeSommetNgfConfirmeParNom : undefined}
                   valeurAuto={m.estSommet ? (journalCorps[m.colonne]?.valeurRetenue ?? null) : undefined} valeurBase={m.estSommet ? c.altitudeSommetNgf : undefined}
                   limitePluNgf={m.estSommet ? c.hauteurMaxPluNgf : undefined}
+                  limitePluHauteNgf={m.estSommet ? plafondHaut : undefined}
                   onValider={m.estSommet ? () => void validerSommet(c.id) : undefined}
                   onUtiliserGabarit={m.cle === 'hauteurMaxPluNgf' ? (v) => void utiliserGabaritPlu(c.id, v) : undefined}
                   onValeur={(v) => majChamp(c.id, m.cle, v)} />

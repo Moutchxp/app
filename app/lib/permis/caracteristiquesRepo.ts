@@ -20,6 +20,7 @@ const COLONNE_CORPS = {
   altitudeDernierPlancherNgf: 'altitude_dernier_plancher_ngf',
   altitudeSommetNgf: 'altitude_sommet_ngf',
   hauteurMaxPluNgf: 'hauteur_max_plu_ngf', // N10-E — limite de hauteur du PLU (NGF absolu), saisie humaine, éditée comme les autres mesures
+  altitudePlateauNivellementNgf: 'altitude_plateau_nivellement_ngf', // N10-M — plateau de nivellement (plan de réf. du gabarit ; PAS le terrain naturel)
   hauteurRelativeM: 'hauteur_relative_m',
   altitudeTerrainNaturelNgf: 'altitude_terrain_naturel_ngf',
   emprise: 'emprise',
@@ -58,6 +59,7 @@ export interface CorpsBatiment {
   //   = auteur résolu en « prénom nom » (N10-D : l'écran nomme l'auteur, pas son id).
   altitudeSommetNgfConfirmeLe: string | null; altitudeSommetNgfConfirmePar: string | null; altitudeSommetNgfConfirmeParNom: string | null;
   hauteurMaxPluNgf: number | null; hauteurMaxPluNgfOrigine: OrigineValeur | null; // N10-E — limite PLU (NGF), affichée à côté du sommet
+  altitudePlateauNivellementNgf: number | null; altitudePlateauNivellementNgfOrigine: OrigineValeur | null; // N10-M — plateau de nivellement (NGF)
   hauteurRelativeM: number | null; hauteurRelativeMOrigine: OrigineValeur | null;
   altitudeTerrainNaturelNgf: number | null; altitudeTerrainNaturelNgfOrigine: OrigineValeur | null;
   empriseWkt: string | null; empriseOrigine: OrigineValeur | null;
@@ -110,6 +112,7 @@ export async function lirePermisCaracteristiques(dossierId: number): Promise<Per
            -- N10-D — auteur résolu en « prénom nom » (comparaison en TEXTE : pas de cast qui échouerait sur un auteur non numérique).
            'altitudeSommetNgfConfirmeParNom', (SELECT nullif(btrim(concat_ws(' ', u.prenom, u.nom)), '') FROM admin_utilisateur u WHERE u.id::text = altitude_sommet_ngf_confirme_par LIMIT 1),
            'hauteurMaxPluNgf', hauteur_max_plu_ngf, 'hauteurMaxPluNgfOrigine', hauteur_max_plu_ngf_origine,
+           'altitudePlateauNivellementNgf', altitude_plateau_nivellement_ngf, 'altitudePlateauNivellementNgfOrigine', altitude_plateau_nivellement_ngf_origine,
            'hauteurRelativeM', hauteur_relative_m, 'hauteurRelativeMOrigine', hauteur_relative_m_origine,
            'altitudeTerrainNaturelNgf', altitude_terrain_naturel_ngf, 'altitudeTerrainNaturelNgfOrigine', altitude_terrain_naturel_ngf_origine,
            'empriseWkt', ST_AsText(emprise), 'empriseOrigine', emprise_origine,

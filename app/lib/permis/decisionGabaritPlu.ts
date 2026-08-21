@@ -24,9 +24,10 @@ export interface ItemTexte { str: string; x: number; y: number; fs: number }
 export type Confiance = 'confirmee' | 'a_verifier';
 export interface GabaritRetenu {
   statut: 'retenue';
-  valeurNgf: number;      // la cote NGF portée par la ligne de gabarit (JAMAIS le NVP)
+  valeurNgf: number;      // la cote NGF portée par la ligne (gabarit OU plateau) — JAMAIS le NVP
   ecartM: number | null;  // écart |y_libellé − y_cote| converti en mètres (null si échelle non calibrable)
   confiance: Confiance;
+  fitOk: boolean;         // N10-M : l'échelle de la planche passe les seuils (≥5 ancrages, R²≥0,9999, résidu≤0,15 m) — sinon lecture non fiable
   r2: number | null; residuMaxM: number | null; nbAncrages: number;
   motifEchelle: string | null; // « écart non convertible en mètres » quand le fit échoue
 }
@@ -35,9 +36,17 @@ export type DecisionGabaritPlanche = GabaritRetenu | GabaritAbstenu;
 
 const SEUIL_ANCRAGES = 5, SEUIL_R2 = 0.9999, SEUIL_RESIDU_M = 0.15, SEUIL_ECART_M = 0.50;
 
-// Libellé exact, casse et espaces multiples tolérés (jamais « les hauteurs plafond » : ancrage sur « maximale plu »).
+// Libellés ciblés (casse et espaces multiples tolérés). Deux notions LUES PAR LA MÊME MÉTHODE (N10-M) :
+//  - 'gabarit' : « hauteur maximale PLU » (jamais « les hauteurs plafond ») ;
+//  - 'plateau' : « plateau de nivellement » (le PLAN DE RÉFÉRENCE du nivellement — PAS le sol naturel ; jamais la note « Précision… »).
+export type CibleLibelle = 'gabarit' | 'plateau';
 const norm = (s: string) => s.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
-const estLibelle = (s: string) => norm(s).includes('hauteur maximale plu');
+const MATCH: Record<CibleLibelle, (s: string) => boolean> = {
+  gabarit: (s) => norm(s).includes('hauteur maximale plu'),
+  // « plateau » OU « plateaux » (le pluriel apparaît sur certaines coupes) de nivellement ; jamais la note « Précision… ».
+  plateau: (s) => { const n = norm(s); return /plateaux? de nivellement/.test(n) && !n.includes('précision'); },
+};
+const NOM_LIBELLE: Record<CibleLibelle, string> = { gabarit: 'hauteur maximale PLU', plateau: 'plateau de nivellement' };
 // Cote NGF : le nombre placé JUSTE AVANT « (NGF) ». La part NVP (après) est ignorée par construction.
 const NGF_RE = /(\d{2,3}(?:[.,]\d{1,2})?)\s*\(\s*NGF\s*\)/gi;
 
@@ -78,10 +87,10 @@ function calibrer(cotes: readonly Cote[]): { m: number; b: number; r2: number; r
   return { m: f.m, b: f.b, r2, residuMaxM, nb: garde.length };
 }
 
-/** Décision pour UNE planche (page). */
-export function decisionGabaritPlanche(items: readonly ItemTexte[]): DecisionGabaritPlanche {
-  const libelle = items.find((it) => estLibelle(it.str));
-  if (!libelle) return { statut: 'abstenue', motif: 'libellé « hauteur maximale PLU » absent de la planche' };
+/** Décision pour UNE planche (page). `cible` = libellé visé (défaut 'gabarit', rétrocompat N10-I). MÊME méthode pour le plateau. */
+export function decisionGabaritPlanche(items: readonly ItemTexte[], cible: CibleLibelle = 'gabarit'): DecisionGabaritPlanche {
+  const libelle = items.find((it) => MATCH[cible](it.str));
+  if (!libelle) return { statut: 'abstenue', motif: `libellé « ${NOM_LIBELLE[cible]} » absent de la planche` };
 
   const cotes = cotesNgf(items);
   if (cotes.length === 0) return { statut: 'abstenue', motif: 'aucune cote étiquetée « (NGF) » sur la planche' };
@@ -105,7 +114,7 @@ export function decisionGabaritPlanche(items: readonly ItemTexte[]): DecisionGab
 
   const confiance: Confiance = fitOk && ecartM !== null && ecartM <= 0.30 ? 'confirmee' : 'a_verifier';
   return {
-    statut: 'retenue', valeurNgf: proche.valeur, ecartM, confiance,
+    statut: 'retenue', valeurNgf: proche.valeur, ecartM, confiance, fitOk,
     r2: cal?.r2 ?? null, residuMaxM: cal?.residuMaxM ?? null, nbAncrages: cal?.nb ?? 0, motifEchelle,
   };
 }
@@ -137,3 +146,44 @@ export function agregerGabarit(candidats: readonly CandidatGabarit[]): Aggregati
 export const RESERVE_DIVERGENCE = 'le gabarit NGF varie selon le plateau de nivellement de la portion coupée';
 /** Réserve à ajouter quand le permis a plusieurs corps (pas de répartition au jugé, doctrine P4/P5). */
 export const RESERVE_MULTI_CORPS = 'valeur au niveau du permis, pas pour ce bâtiment en particulier';
+
+// ── CONTRÔLE DE RÈGLE (N10-M) ────────────────────────────────────────────────────────────────────────────────────────────────
+// Sur les planches portant LES DEUX libellés (gabarit + plateau) et dont le fit passe le seuil : gabarit − plateau doit être
+// CONSTANT. S'il l'est (≤0,05 m d'étendue) sur ≥3 planches → RÈGLE VÉRIFIÉE, le constant EST le plafond (établi par la MESURE,
+// jamais lu dans une notice). Les 3 valeurs de gabarit ne sont alors PAS des candidates rivales : chacune vaut au droit de son
+// plateau. Sinon → NON vérifiée : on retombe sur le comportement N10-I (candidates + avertissement). Les planches au fit hors
+// seuil sont EXCLUES du contrôle (lecture non fiable) et journalisées « non concluante », JAMAIS parce que leur résultat dérange.
+export const TOL_REGLE = 0.05, MIN_PLANCHES_REGLE = 3;
+
+/** Ce qu'une planche donne pour LES DEUX libellés (null si le libellé est absent). `fitOk` = échelle fiable sur la planche. */
+export interface LecturePlanche { planche: string; page: number; gabarit: number | null; plateau: number | null; fitOk: boolean }
+export interface PlancheRegle { planche: string; page: number; gabarit: number; plateau: number; ecart: number }
+export interface PlancheExclue { planche: string; page: number; motif: string }
+export type ControleRegle =
+  | { statut: 'verifiee'; plafond: number; plateauMin: number; plateauMax: number; gabaritMin: number; gabaritMax: number; planches: PlancheRegle[]; exclues: PlancheExclue[] }
+  | { statut: 'non_verifiee'; exclues: PlancheExclue[] };
+
+/** Éprouve la règle gabarit = plateau + plafond. PUR. N'analyse AUCUN texte de notice : le plafond sort de la mesure. */
+export function controlerRegleGabarit(lectures: readonly LecturePlanche[]): ControleRegle {
+  const deuxLibelles = lectures.filter((l) => l.gabarit !== null && l.plateau !== null);
+  const exclues: PlancheExclue[] = deuxLibelles.filter((l) => !l.fitOk).map((l) => ({ planche: l.planche, page: l.page, motif: 'non concluante (fit hors seuil)' }));
+  const util = deuxLibelles.filter((l) => l.fitOk);
+  if (util.length < MIN_PLANCHES_REGLE) return { statut: 'non_verifiee', exclues };
+  const planches: PlancheRegle[] = util.map((l) => ({ planche: l.planche, page: l.page, gabarit: l.gabarit!, plateau: l.plateau!, ecart: l.gabarit! - l.plateau! }));
+  const ecarts = planches.map((p) => p.ecart);
+  if (Math.max(...ecarts) - Math.min(...ecarts) > TOL_REGLE) return { statut: 'non_verifiee', exclues };
+  const gabarits = planches.map((p) => p.gabarit), plateaux = planches.map((p) => p.plateau);
+  return {
+    statut: 'verifiee',
+    plafond: ecarts.reduce((s, e) => s + e, 0) / ecarts.length, // le constant, établi par la mesure (moyenne des écarts ≤0,05 m)
+    plateauMin: Math.min(...plateaux), plateauMax: Math.max(...plateaux),
+    gabaritMin: Math.min(...gabarits), gabaritMax: Math.max(...gabarits),
+    planches, exclues,
+  };
+}
+
+/** Énoncé FACTUEL de la règle (affiché à la place de « valeurs divergentes »). Sans jargon. */
+export function enonceRegle(r: Extract<ControleRegle, { statut: 'verifiee' }>): string {
+  const p = Number.isInteger(r.plafond) ? String(r.plafond) : r.plafond.toFixed(2);
+  return `gabarit = plateau de nivellement + ${p} m — de ${r.gabaritMin} à ${r.gabaritMax} NGF selon le plateau (${r.plateauMin} à ${r.plateauMax})`;
+}

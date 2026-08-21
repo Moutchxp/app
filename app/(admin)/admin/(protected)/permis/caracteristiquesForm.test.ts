@@ -48,12 +48,13 @@ const BORNES: Record<string, Bornes> = {
   nb_niveaux_sous_sol: { min: 0, max: 10 },
   altitude_sommet_ngf: { min: -50, max: 500 },
   hauteur_max_plu_ngf: { min: -50, max: 500 }, // N10-E
+  altitude_plateau_nivellement_ngf: { min: -50, max: 500 }, // N10-M
   altitude_dernier_plancher_ngf: { min: -50, max: 500 },
   hauteur_relative_m: { min: 0, max: 300 },
   altitude_terrain_naturel_ngf: { min: -50, max: 500 },
 };
 const edCorps = (over: Partial<EditionCorps> = {}): EditionCorps => ({
-  repere: '', adresse: '', nbEtages: '', nbNiveauxSousSol: '', altitudeDernierPlancherNgf: '', altitudeSommetNgf: '', hauteurMaxPluNgf: '', hauteurRelativeM: '', altitudeTerrainNaturelNgf: '', ...over,
+  repere: '', adresse: '', nbEtages: '', nbNiveauxSousSol: '', altitudeDernierPlancherNgf: '', altitudeSommetNgf: '', hauteurMaxPluNgf: '', altitudePlateauNivellementNgf: '', hauteurRelativeM: '', altitudeTerrainNaturelNgf: '', ...over,
 });
 
 describe('N3-C — construireCorps : vide → null explicite, bornes de la base, entiers', () => {

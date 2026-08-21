@@ -101,3 +101,59 @@ describe('agregerGabarit — concordance / divergence', () => {
     expect(RESERVE_DIVERGENCE).toBe('le gabarit NGF varie selon le plateau de nivellement de la portion coupée');
   });
 });
+
+import { controlerRegleGabarit, enonceRegle, type LecturePlanche } from './decisionGabaritPlu';
+
+describe('N10-M — contrôle de règle gabarit = plateau + plafond', () => {
+  // reproduction 07512024V0037 : AA 100/69 · CC 101/70 · Est 102/71 · Nord 101/70 · Ouest 101/70 (fit OK) ; BB fit hors seuil ; Sud plateau absent
+  const L = (planche: string, gabarit: number | null, plateau: number | null, fitOk = true): LecturePlanche => ({ planche, page: 1, gabarit, plateau, fitOk });
+  const lectures0037 = (): LecturePlanche[] => [
+    L('PC3.1 AA', 100, 69), L('PC3.3 CC', 101, 70), L('PC5.2 Est', 102, 71), L('PC5.4 Nord', 101, 70), L('PC5.3 Ouest', 101, 70),
+    L('PC3.2 BB', 101, 70.63, false), // fit hors seuil → EXCLUE (jamais parce que 30,37 dérange)
+    L('PC5.5 Sud', 100, null),        // plateau absent → pas dans le contrôle
+  ];
+
+  it('règle VÉRIFIÉE : plafond 31, plateau min 69, gabarit 100→102, BB exclue « non concluante »', () => {
+    const r = controlerRegleGabarit(lectures0037());
+    expect(r.statut).toBe('verifiee');
+    if (r.statut === 'verifiee') {
+      expect(r.plafond).toBeCloseTo(31, 5);
+      expect(r.plateauMin).toBe(69); expect(r.plateauMax).toBe(71);
+      expect(r.gabaritMin).toBe(100); expect(r.gabaritMax).toBe(102);
+      expect(r.planches).toHaveLength(5);                 // BB et Sud hors contrôle
+      expect(r.exclues).toEqual([{ planche: 'PC3.2 BB', page: 1, motif: 'non concluante (fit hors seuil)' }]);
+    }
+  });
+
+  it('la valeur par défaut = plateau min + plafond = 69 + 31 = 100', () => {
+    const r = controlerRegleGabarit(lectures0037());
+    if (r.statut === 'verifiee') expect(r.plateauMin + r.plafond).toBeCloseTo(100, 5);
+  });
+
+  it('énoncé factuel de la règle (sans jargon, sans « divergentes »)', () => {
+    const r = controlerRegleGabarit(lectures0037());
+    if (r.statut === 'verifiee') {
+      const s = enonceRegle(r);
+      expect(s).toContain('gabarit = plateau de nivellement + 31 m');
+      expect(s).toContain('de 100 à 102 NGF');
+      expect(s).toContain('(69 à 71)');
+      expect(s).not.toContain('divergent');
+    }
+  });
+
+  it('écarts NON constants → NON vérifiée (vraie divergence, comportement N10-I préservé)', () => {
+    const r = controlerRegleGabarit([L('A', 100, 69), L('B', 101, 69), L('C', 102, 69)]); // écarts 31/32/33
+    expect(r.statut).toBe('non_verifiee');
+  });
+
+  it('moins de 3 planches à deux libellés + fit OK → NON vérifiée', () => {
+    const r = controlerRegleGabarit([L('A', 100, 69), L('B', 101, 70)]);
+    expect(r.statut).toBe('non_verifiee');
+  });
+
+  it('BB seule (fit hors seuil) n’entre jamais dans le contrôle et ne bascule pas en divergence', () => {
+    const r = controlerRegleGabarit([L('A', 100, 69), L('B', 101, 70), L('C', 102, 71), L('BB', 101, 70.63, false)]);
+    expect(r.statut).toBe('verifiee');
+    if (r.statut === 'verifiee') expect(r.plafond).toBeCloseTo(31, 5);
+  });
+});

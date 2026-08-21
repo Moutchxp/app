@@ -317,22 +317,26 @@ function grouperCandidatsGabarit(ecartes: readonly ProvenanceEcartee[]): { valeu
   return groupes;
 }
 
-export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, confirmeLe, confirmeParNom, valeurAuto, valeurBase, limitePluNgf, onValider, onUtiliserGabarit, onValeur }: {
+export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, confirmeLe, confirmeParNom, valeurAuto, valeurBase, limitePluNgf, limitePluHauteNgf, onValider, onUtiliserGabarit, onValeur }: {
   mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece;
-  confirmeLe?: string | null; confirmeParNom?: string | null; valeurAuto?: number | null; valeurBase?: number | null; limitePluNgf?: number | null; onValider?: () => void;
+  confirmeLe?: string | null; confirmeParNom?: string | null; valeurAuto?: number | null; valeurBase?: number | null; limitePluNgf?: number | null;
+  limitePluHauteNgf?: number | null; onValider?: () => void; // N10-M : gabarit PLU le PLUS HAUT applicable (le plafond descend à `limitePluNgf` au droit du plateau le plus bas)
   onUtiliserGabarit?: (valeur: number) => void; onValeur: (v: string) => void; // N10-L : « utiliser N » ÉCRIT en base (origine 'saisie') ; sans lui, repli sur le brouillon
 }) {
   const estSommet = mesure.estSommet === true;
-  // N10-E — la LIMITE PLU s'affiche À CÔTÉ du sommet, pour que l'écart saute aux yeux. On SIGNALE un dépassement (hauteur retenue > limite),
-  //   on N'INTERDIT PAS : un bâtiment peut légitimement dépasser un gabarit (superstructures techniques) ; ce n'est pas à nous d'arbitrer.
-  const depasseLimite = estSommet && valeurBase !== null && valeurBase !== undefined && limitePluNgf !== null && limitePluNgf !== undefined && valeurBase > limitePluNgf;
+  // N10-E/N10-M — la LIMITE PLU s'affiche À CÔTÉ du sommet. On SIGNALE un dépassement (non bloquant), mais on le compare au gabarit le
+  //   PLUS HAUT applicable (`limitePluHauteNgf`) — le plafond descend à `limitePluNgf` seulement au droit du plateau le plus bas.
+  //   Sinon un sommet à 101 au droit d'un plateau où le gabarit vaut 101 déclencherait une fausse alarme contre le plafond 100.
+  const plafondSignal = limitePluHauteNgf ?? limitePluNgf;
+  const depasseLimite = estSommet && valeurBase !== null && valeurBase !== undefined && plafondSignal !== null && plafondSignal !== undefined && valeurBase > plafondSignal;
   // « à confirmer » (violet) : le SOMMET extrait, JAMAIS examiné (origine 'extraite' ET confirme_le null). Une décision humaine (saisie
   //   validée) l'éteint. La TRACE « validée par NOM le … » s'affiche dès qu'une validation existe (confirme_le posé), quelle que soit l'origine.
-  // N10-I — le gabarit PLU : ses cotes candidates (journal 'plan') sont montrées SOUS le champ, groupées par valeur, chacune avec
-  //   planche + page cliquables et un bouton qui la POSE en saisie. Plusieurs groupes = divergence signalée (jamais tranchée ici).
+  // N10-I/N10-M — le gabarit PLU : ses cotes candidates (journal 'plan') sont montrées SOUS le champ. Quand la RÈGLE est vérifiée
+  //   (valeur écrite en 'extraite' + plusieurs valeurs) l'écran ÉNONCE la règle ; sinon plusieurs groupes = vraie divergence signalée.
   const estGabaritPlu = mesure.cle === 'hauteurMaxPluNgf';
   const candidatsGabarit = estGabaritPlu ? grouperCandidatsGabarit(journal?.ecartes ?? []) : [];
-  const gabaritDivergent = candidatsGabarit.length > 1;
+  const gabaritRegleVerifiee = estGabaritPlu && origine === 'extraite' && candidatsGabarit.length > 1; // règle établie : ce n'est PAS une divergence
+  const gabaritDivergent = candidatsGabarit.length > 1 && !gabaritRegleVerifiee;
   const aConfirmer = estSommet && origine === 'extraite' && !confirmeLe;
   const valide = estSommet && !!confirmeLe;
   // N10-D — GARDE ANTI-PIÈGE JUMEAU : la hauteur du champ diffère de la base → elle n'est PAS validée. « Enregistrer ce bâtiment » ne
@@ -352,11 +356,12 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
         onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label={mesure.libelle} />
       <span style={styleAide}>{libelleBornes(mesure, bornes)}</span>
       {estSommet && <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}>{mesure.aide}</span>}
-      {/* N10-E — la limite PLU À CÔTÉ de la hauteur retenue + le dépassement signalé (jamais bloquant). */}
+      {/* N10-E/N10-M — le gabarit PLU À CÔTÉ de la hauteur retenue. Le plafond descend à `limitePluNgf` AU DROIT DU PLATEAU LE PLUS BAS
+          et monte jusqu'à `limitePluHauteNgf` ailleurs — le dépassement se compare au plus haut applicable (jamais bloquant). */}
       {estSommet && limitePluNgf !== null && limitePluNgf !== undefined && (
-        <span style={styleAide}>limite PLU : {limitePluNgf} m{valeurBase !== null && valeurBase !== undefined ? ` — hauteur retenue : ${valeurBase} m` : ''}</span>
+        <span style={styleAide}>gabarit PLU : {limitePluNgf} m au droit du plateau le plus bas{limitePluHauteNgf != null && limitePluHauteNgf !== limitePluNgf ? `, jusqu’à ${limitePluHauteNgf} m selon le plateau` : ''}{valeurBase !== null && valeurBase !== undefined ? ` — hauteur retenue : ${valeurBase} m` : ''}</span>
       )}
-      {depasseLimite && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-red)' }}>⚠ la hauteur retenue ({valeurBase} m) dépasse la limite PLU ({limitePluNgf} m) — signalé, non bloquant.</span>}
+      {depasseLimite && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-red)' }}>⚠ la hauteur retenue ({valeurBase} m) dépasse le gabarit PLU le plus haut applicable ({plafondSignal} m) — signalé, non bloquant.</span>}
       {/* N10-D — B : la valeur AUTOMATIQUE (journal) reste accessible et remise en un clic dans le champ (aucune écriture ici). */}
       {estSommet && valeurAuto !== null && valeurAuto !== undefined && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
@@ -373,10 +378,14 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
       )}
       {valide && <span role="note" style={{ ...styleAide, color: 'var(--color-svv-green-ink)' }}>✓ validée{confirmeParNom ? ` par ${confirmeParNom}` : ''}{confirmeLe ? ` le ${jjmmaaaa(confirmeLe)}` : ''}</span>}
       {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
-      {/* N10-I — cotes de gabarit lues sur les planches : à choisir à la main (pose en 'saisie'). Divergence signalée, jamais tranchée. */}
+      {/* N10-I/N10-M — cotes de gabarit lues sur les planches. RÈGLE VÉRIFIÉE → on ÉNONCE la règle (factuel, pas une divergence :
+          chaque valeur vaut au droit de son plateau). Sinon, plusieurs groupes = VRAIE divergence, à trancher à la main. */}
       {estGabaritPlu && candidatsGabarit.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', marginTop: '.15rem' }}>
           <span style={styleAide}>gabarit PLU lu sur les planches :</span>
+          {gabaritRegleVerifiee && journal?.reserve && (
+            <span role="note" style={styleAide}>{journal.reserve}</span>
+          )}
           {gabaritDivergent && (
             <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-red)' }}>
               ⚠ valeurs divergentes selon la planche — {journal?.reserve ?? 'le gabarit NGF varie selon le plateau de nivellement de la portion coupée'}. À trancher à la main.
