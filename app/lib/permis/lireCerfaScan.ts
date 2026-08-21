@@ -77,12 +77,21 @@ export function parseDestinationsOcr(md: string): Record<string, LectureValeur> 
 
 // ── VISION (prompts calés sur la mesure N10-O) ──────────────────────────────────────────────────────────────────────────────────
 const CONSIGNE = " Si un champ ne contient AUCUN chiffre/texte écrit, réponds 'vide'. NE réponds JAMAIS 0 pour un champ vide. N'invente rien ; en cas de doute 'illisible'.";
-const etatVersLecture = (etat: unknown, valeur: unknown): LectureValeur => {
-  const e = String(etat ?? '').toLowerCase();
-  if (e.startsWith('rens') || e === 'rempli' || e === 'coche' || e === 'cochee') { const v = String(valeur ?? '').trim(); return v && v !== 'None' && v.toLowerCase() !== 'vide' ? { statut: 'valeur', valeur: v } : { statut: 'vide' }; }
-  if (e.startsWith('vide')) return { statut: 'vide' };
-  return { statut: 'illisible' };
-};
+
+/**
+ * N10-P — LA VALEUR PRIME SUR LE MOT D'ÉTAT. La vision lit la bonne valeur mais l'ÉTIQUETTE d'un mot instable (« rempli » / « valide »
+ * / « valeur »…). Donc : (1) une valeur exploitable présente → VALEUR, quel que soit le mot d'état (on ne jette JAMAIS un nombre lu) ;
+ * (2) pas de valeur + état signalant le vide → VIDE (distinction vide ≠ 0 de N10-O intacte) ; (3) sinon → ILLISIBLE. Le mot d'état ne
+ * sert plus qu'à reconnaître un vide, jamais à valider une valeur.
+ */
+export function etatVersLecture(etat: unknown, valeur: unknown): LectureValeur {
+  const v = String(valeur ?? '').trim();
+  const nonExploitable = new Set(['', 'vide', 'none', 'null', 'n/a', 'na', '-', '—']);
+  if (!nonExploitable.has(v.toLowerCase())) return { statut: 'valeur', valeur: v };   // (1) un nombre/texte lu survit à tout adjectif
+  const e = String(etat ?? '').toLowerCase().trim();
+  if (e.startsWith('vide') || e.startsWith('non') || e === 'absent') return { statut: 'vide' }; // (2) vide explicite (≠ 0)
+  return { statut: 'illisible' };                                                     // (3) ni valeur ni vide franc
+}
 
 /** Lit les DEUX sources et rend, par champ, la lecture OCR et la lecture vision (pures LectureValeur). */
 export async function lireCerfaScan(pdf: Buffer, lecteur: LecteurCerfa): Promise<{
@@ -103,17 +112,17 @@ export async function lireCerfaScan(pdf: Buffer, lecteur: LecteurCerfa): Promise
     destinations: parseDestinationsOcr(page(PAGES_CERFA.destinations)),
   };
 
-  // VISION (une passe par page-champ, uniquement les pages triées)
-  const vAdr = (await visU(PAGES_CERFA.adresse, "Lis l'ADRESSE DU TERRAIN (section 3.1) : numero, voie, code_postal, localite. JSON {numero,voie,code_postal,localite}." + CONSIGNE)) as Record<string, unknown>;
+  // VISION — chaque prompt NOMME sa cible sans ambiguïté (N10-P : le banc obtenait un état stable ainsi ; le point 1 verrouille de toute façon).
+  const vAdr = (await visU(PAGES_CERFA.adresse, "Dans la section « 3.1 Localisation du (ou des) terrain(s) », sous « Adresse du (ou des) terrain(s) », lis : Numéro, Voie, Code postal, Localité. JSON {numero,voie,code_postal,localite}." + CONSIGNE)) as Record<string, unknown>;
   const adrParts = ['numero', 'voie', 'code_postal', 'localite'].map((k) => String(vAdr[k] ?? '').trim()).filter((x) => x && x.toLowerCase() !== 'vide');
   const visAdresse: LectureValeur = adrParts.length >= 3 ? { statut: 'valeur', valeur: adrParts.join(' ') } : { statut: 'vide' };
 
-  const vLog = (await visU(PAGES_CERFA.logements, "Lis « Nombre total de logements créés » (§4.3). JSON {logements_crees:{etat:'renseigne|vide|illisible',valeur}}." + CONSIGNE)) as { logements_crees?: { etat?: unknown; valeur?: unknown } };
-  const vSta = (await visU(PAGES_CERFA.stationnement, "Lis « Nombre de places de stationnement » APRÈS réalisation (§4.7). JSON {apres:{etat,valeur}}." + CONSIGNE)) as { apres?: { etat?: unknown; valeur?: unknown } };
-  const vSur = (await visU(PAGES_CERFA.destinations, "Dans le tableau des surfaces, lis « Surfaces totales », dernière colonne (Surface totale). JSON {surface_plancher_totale:{etat,valeur}}." + CONSIGNE)) as { surface_plancher_totale?: { etat?: unknown; valeur?: unknown } };
+  const vLog = (await visU(PAGES_CERFA.logements, "Dans « 4.3 Informations complémentaires », lis la ligne « Nombre total de logements créés ». JSON {logements_crees:{etat:'renseigne|vide|illisible',valeur}}." + CONSIGNE)) as { logements_crees?: { etat?: unknown; valeur?: unknown } };
+  const vSta = (await visU(PAGES_CERFA.stationnement, "Dans « 4.7 Stationnement », sous « Nombre de places de stationnement », lis la ligne « Après réalisation du projet ». JSON {apres:{etat,valeur}}." + CONSIGNE)) as { apres?: { etat?: unknown; valeur?: unknown } };
+  const vSur = (await visU(PAGES_CERFA.destinations, "Dans le tableau des surfaces, lis la ligne « Surfaces totales (en m²) », colonne « Surface totale = (A)+(B)+(C)-(D)-(E) » (dernière colonne du tableau). JSON {surface_plancher_totale:{etat,valeur}}." + CONSIGNE)) as { surface_plancher_totale?: { etat?: unknown; valeur?: unknown } };
 
   const vDestBrut = (await visU(PAGES_CERFA.destinations,
-    "Tableau « Destination, sous-destination et surfaces » d'un Cerfa 13409. Pour CHAQUE sous-destination listée, dis si une SURFACE (un nombre) figure sur sa ligne : 'renseignee' (+valeur), 'vide', ou 'illisible'. N'invente aucun nombre ; ligne sans chiffre = 'vide'. JSON {resultats:[{sous_destination,etat,valeur}]}. Sous-destinations : " + SOUS_DESTINATIONS.join(' | '))) as { resultats?: { sous_destination?: string; etat?: unknown; valeur?: unknown }[] };
+    "Tableau « 4.5 Destination, sous-destination des constructions et tableau des surfaces » d'un Cerfa 13409. Pour CHAQUE sous-destination listée, regarde sa LIGNE et dis si une SURFACE (un nombre) y figure : 'renseignee' (+valeur), 'vide', ou 'illisible'. N'invente aucun nombre ; ligne sans chiffre = 'vide'. JSON {resultats:[{sous_destination,etat,valeur}]}. Sous-destinations : " + SOUS_DESTINATIONS.join(' | '))) as { resultats?: { sous_destination?: string; etat?: unknown; valeur?: unknown }[] };
   const visDest: Record<string, LectureValeur> = {};
   for (const sd of SOUS_DESTINATIONS) {
     const r = (vDestBrut.resultats ?? []).find((x) => (x.sous_destination ?? '').toLowerCase() === sd.toLowerCase());

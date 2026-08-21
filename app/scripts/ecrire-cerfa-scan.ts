@@ -36,9 +36,13 @@ async function main(): Promise<void> {
   const res = await ecrireCerfaScan(dossierId, piece, lectures, MAJ_PAR, dryRun);
 
   console.log('\n── lectures (OCR ⟷ vision) et décision par champ :');
-  for (const l of res.plan.journal) {
-    const tag = l.role === 'retenue' ? '√ ÉCRIT ' : '✗ non écrit';
-    console.log(`  ${tag} · ${l.champ.padEnd(24)} · ${l.extrait}${l.motif ? `  [${l.motif}]` : ''}`);
+  // N10-P — UNE ligne par CHAMP (les deux entrées de journal restent écrites ; c'est l'affichage qu'on regroupe).
+  const parChamp = new Map<string, typeof res.plan.journal>();
+  for (const l of res.plan.journal) (parChamp.get(l.champ) ?? parChamp.set(l.champ, []).get(l.champ)!).push(l);
+  for (const [champ, lignes] of parChamp) {
+    const retenues = lignes.filter((l) => l.role === 'retenue');
+    if (retenues.length) console.log(`  √ ÉCRIT     · ${champ.padEnd(24)} · ${retenues.map((l) => l.extrait).join(' · ')}`);
+    else console.log(`  ✗ non écrit · ${champ.padEnd(24)} · ${lignes.map((l) => l.extrait).join(' | ')}${lignes.find((l) => l.motif)?.motif ? `  [${lignes.find((l) => l.motif)!.motif}]` : ''}`);
   }
   console.log(`\n→ écrits : ${res.ecrits.length ? res.ecrits.join(', ') : 'aucun'} · abstentions : ${res.abstentions.join(', ') || '—'} · désaccords : ${res.desaccords.join(', ') || '—'}`);
 

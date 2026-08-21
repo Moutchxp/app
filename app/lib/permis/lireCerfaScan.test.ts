@@ -40,9 +40,9 @@ const lecteur = (visionImpl: LecteurCerfa['vision']): LecteurCerfa => ({ ocr: as
 
 // vision qui CONCORDE avec l'OCR (cas réel 0037)
 const visionAccord: LecteurCerfa['vision'] = async (_img, prompt) => {
-  if (prompt.includes('ADRESSE')) return { numero: '30', voie: 'rue Louis Lumière', code_postal: '75020', localite: 'Paris' };
+  if (prompt.includes('Localisation du (ou des) terrain')) return { numero: '30', voie: 'rue Louis Lumière', code_postal: '75020', localite: 'Paris' };
   if (prompt.includes('logements créés')) return { logements_crees: { etat: 'renseigne', valeur: '0' } };
-  if (prompt.includes('APRÈS')) return { apres: { etat: 'vide', valeur: null } };
+  if (prompt.includes('places de stationnement')) return { apres: { etat: 'vide', valeur: null } };
   if (prompt.includes('Surfaces totales')) return { surface_plancher_totale: { etat: 'rempli', valeur: 9470 } };
   if (prompt.includes('Pour CHAQUE sous-destination')) return { resultats: [{ sous_destination: 'Équipements sportifs', etat: 'renseignee', valeur: '9470' }] };
   return {};
@@ -83,3 +83,40 @@ describe('lireCerfaScan + plan — désaccord : la vision invente, rien écrit s
     expect(lignes.some((l) => l.extrait.includes('8888'))).toBe(true); // vision
   });
 });
+
+import { etatVersLecture } from './lireCerfaScan';
+
+describe('N10-P — etatVersLecture : la VALEUR prime sur le mot d’état', () => {
+  it('une valeur présente SURVIT à n’importe quel mot d’état (« valide », « valeur », mot inventé)', () => {
+    for (const etat of ['valide', 'valeur', 'rempli', 'renseignee', 'coché', 'bidule-inventé', '']) {
+      expect(etatVersLecture(etat, '9470')).toEqual({ statut: 'valeur', valeur: '9470' });
+    }
+  });
+  it('un « 0 » lu survit aussi (vide ≠ 0 : 0 est une valeur)', () => {
+    expect(etatVersLecture('valide', '0')).toEqual({ statut: 'valeur', valeur: '0' });
+  });
+  it('PAS de valeur + état de vide → VIDE (jamais 0)', () => {
+    for (const [e, v] of [['vide', null], ['vide', ''], ['non renseigné', null], ['absent', '—']] as const) {
+      expect(etatVersLecture(e, v)).toEqual({ statut: 'vide' });
+    }
+  });
+  it('PAS de valeur et mot d’état non concluant → ILLISIBLE', () => {
+    expect(etatVersLecture('valeur', '')).toEqual({ statut: 'illisible' });   // dit « rempli » mais rien lu → on ne fabrique pas
+    expect(etatVersLecture('illisible', 'None')).toEqual({ statut: 'illisible' });
+  });
+});
+
+describe('N10-P — reproduction du faux désaccord : vision « valide/9470 » → surface ÉCRITE (plus jetée)', () => {
+  it('OCR 9470 + vision {etat:valide, valeur:9470} → accord, écrit', async () => {
+    const visionValide: LecteurCerfa['vision'] = async (_img, prompt) => {
+      if (prompt.includes('Surface totale')) return { surface_plancher_totale: { etat: 'valide', valeur: 9470 } }; // le mot qui faisait tout planter
+      return visionAccord(_img, prompt);
+    };
+    const lectures = await lireCerfaScan(Buffer.from('x'), lecteur(visionValide));
+    expect(lectures.scalaires.surfacePlancherM2.vision).toEqual({ statut: 'valeur', valeur: '9470' });
+    const { plan } = planDepuisLectures('CERFA.pdf', lectures);
+    expect(plan.scalaires.find((s) => s.cle === 'surfacePlancherM2')!.valeur).toBe('9470');
+    // la garde reste : stationnement vide → non écrit
+    expect(plan.scalaires.some((s) => s.cle === 'nbPlacesStationnement')).toBe(false);
+  });
+})
