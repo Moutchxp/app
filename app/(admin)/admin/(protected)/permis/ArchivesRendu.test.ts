@@ -17,7 +17,7 @@ const ligne = (over: Partial<LigneArchive> = {}): LigneArchive => ({
   categorie: 'immeuble_neuf', libelleCategorie: 'Immeuble neuf', dateAutorisation: '2026-05-01',
   satisfaitLe: '2026-07-01', satisfaitPar: 'automatique', demandeReference: 'SVAV-DEM-2026-000042',
   recuLe: '2026-07-01', expireLeCapte: null, aLienFort: false,
-  pieces: [emailDeposee], ...over,
+  pieces: [emailDeposee], sourcesNonResolues: [], ...over,
 });
 // N1-C — par défaut on rend la 1ʳᵉ ligne DÉPLOYÉE (dossierOuvert = son id) : les pièces vivent désormais dans le panneau déplié,
 // donc les tests de CONTRAT des pièces (T5, sécurité, origines) doivent ouvrir la ligne pour les voir. `dossierOuvert=null` teste le repli.
@@ -419,3 +419,29 @@ describe('T5 — CellulePieces : pièces e-mail groupées par réponse (étiquet
     expect(h).not.toMatch(/cle_stockage|entrantes\//i);
   });
 });
+
+describe('N10-J B — pièce source : libellé texte + résolution ambiguë rendue visible', () => {
+  const doc = (id: number, nom: string): PieceArchive => ({ id, nomFichier: nom, typeMime: 'application/pdf', tailleOctets: 100, deposee: true, motifNonStocke: null, origine: 'auto', recuLe: null, objet: null, deposePar: null });
+
+  it('une source porte un LIBELLÉ TEXTE « a servi à remplir N champs » (jamais la couleur seule)', () => {
+    const h = renderToStaticMarkup(createElement(PieceLien, { piece: { ...doc(1, 'PC3.2_Coupe_BB.pdf'), estSource: true, nbChampsSource: 2 }, onTelecharger: () => {} }));
+    expect(h).toContain('a servi à remplir 2 champs');
+  });
+
+  it('singulier : « 1 champ »', () => {
+    const h = renderToStaticMarkup(createElement(PieceLien, { piece: { ...doc(1, 'PC3.pdf'), estSource: true, nbChampsSource: 1 }, onTelecharger: () => {} }));
+    expect(h).toContain('a servi à remplir 1 champ');
+    expect(h).not.toContain('1 champs');
+  });
+
+  it('source sans compte (défensif) → pas de libellé « undefined »', () => {
+    const h = renderToStaticMarkup(createElement(PieceLien, { piece: { ...doc(1, 'PC3.pdf'), estSource: true }, onTelecharger: () => {} }));
+    expect(h).not.toContain('a servi à remplir');
+  });
+
+  it('CellulePieces : les sources NON résolues (homonyme/ambigu) sont RENDUES VISIBLES, sans rien épingler', () => {
+    const h = renderToStaticMarkup(createElement(CellulePieces, { pieces: [doc(1, 'PC3.pdf'), doc(2, 'PC3.pdf')], sourcesNonResolues: ['PC3.pdf'], onTelecharger: () => {}, onSupprimer: () => {} }));
+    expect(h).toContain('source non résolue');
+    expect(h).toContain('PC3.pdf');
+  });
+})

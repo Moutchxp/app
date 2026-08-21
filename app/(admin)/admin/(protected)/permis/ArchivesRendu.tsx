@@ -113,6 +113,10 @@ export function PieceLien({ piece, onTelecharger, onSupprimer }: {
       {piece.deposee
         ? <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', textAlign: 'left', color: piece.estSource ? BLEU_SOURCE : undefined, fontWeight: piece.estSource ? 700 : undefined }} onClick={() => onTelecharger?.(piece.id, source)}>{piece.nomFichier} ↓</button>
         : <span style={{ fontSize: 12, ...(piece.estSource ? { color: BLEU_SOURCE, fontWeight: 700 } : muted) }}>{piece.nomFichier} — <em>non déposée{piece.motifNonStocke ? ` : ${piece.motifNonStocke}` : ''}</em></span>}
+      {/* N10-J — LIBELLÉ TEXTE de la source (jamais la couleur seule) : ce que la pièce a servi à remplir. */}
+      {piece.estSource && piece.nbChampsSource != null && (
+        <span style={{ fontSize: 10, color: BLEU_SOURCE }}>· a servi à remplir {piece.nbChampsSource} champ{piece.nbChampsSource > 1 ? 's' : ''}</span>
+      )}
       {supprimable && onSupprimer ? <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', color: 'var(--color-svv-red)' }} onClick={() => onSupprimer(piece.id)}>supprimer</button> : null}
     </span>
   );
@@ -144,8 +148,8 @@ export function categoriePiece(nomFichier: string): CategoriePiece {
 
 /** Cellule « pièces » : N1-B la FICHE DE SYNTHÈSE en tête ; N3-D les documents du dossier CLASSÉS PAR CATÉGORIE (ordre d'origine
  *  conservé à l'intérieur) ; puis les pièces e-mail GROUPÉES PAR RÉPONSE (T5). « aucun document attaché » si sans document. PURE. */
-export function CellulePieces({ pieces, onTelecharger, onSupprimer }: {
-  pieces: PieceArchive[]; onTelecharger?: (id: number, source: 'reponse' | 'dossier') => void; onSupprimer?: (documentId: number) => void;
+export function CellulePieces({ pieces, sourcesNonResolues, onTelecharger, onSupprimer }: {
+  pieces: PieceArchive[]; sourcesNonResolues?: string[]; onTelecharger?: (id: number, source: 'reponse' | 'dossier') => void; onSupprimer?: (documentId: number) => void;
 }) {
   if (pieces.length === 0) return <span style={{ fontSize: 12, ...muted }}>aucun document attaché</span>;
   const generes = pieces.filter((p) => p.origine === 'genere'); // N1-B : la ou les fiche(s) générée(s) — affichées en tête
@@ -181,6 +185,12 @@ export function CellulePieces({ pieces, onTelecharger, onSupprimer }: {
           </ul>
         </div>
       ))}
+      {/* N10-J — sources du journal NON résolues (homonyme ambigu, ou nom absent de la GED) : rien épinglé, mais RENDU VISIBLE. */}
+      {sourcesNonResolues && sourcesNonResolues.length > 0 && (
+        <span role="note" style={{ fontSize: 11, ...muted }}>
+          source{sourcesNonResolues.length > 1 ? 's' : ''} non résolue{sourcesNonResolues.length > 1 ? 's' : ''} (non épinglée{sourcesNonResolues.length > 1 ? 's' : ''}) : {sourcesNonResolues.join(', ')}
+        </span>
+      )}
       {[...groupes.values()].map((g, i) => (
         <div key={`e-${i}`}>
           <span style={{ fontSize: 11, ...muted }}>reçues le {jjmm(g.recuLe)} — {tronquerObjet(g.objet)}</span>
@@ -303,7 +313,7 @@ export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, on
                       {/* N3-D — le bloc « Caractéristiques du bâtiment » (contenu MÉTIER) passe EN PREMIER ; les documents se consultent ensuite. Slot facultatif. */}
                       {slotCaracteristiques ? slotCaracteristiques(l.dossierId) : null}
                       <div style={{ marginTop: slotCaracteristiques ? '.6rem' : 0 }}>
-                        <CellulePieces pieces={l.pieces} onTelecharger={onTelecharger} onSupprimer={onSupprimer} />
+                        <CellulePieces pieces={l.pieces} sourcesNonResolues={l.sourcesNonResolues} onTelecharger={onTelecharger} onSupprimer={onSupprimer} />
                       </div>
                       <div style={{ marginTop: '.5rem' }}><AjoutDocument dossierId={l.dossierId} onFichier={onFichier} enCours={uploadEnCours === l.dossierId} /></div>
                     </td>

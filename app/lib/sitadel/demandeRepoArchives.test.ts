@@ -65,15 +65,39 @@ describe('A1a — listerArchives : mapping + pièces', () => {
     expect(JSON.stringify(r)).not.toContain('cle_stockage'); // la clé n'est nulle part dans le résultat
   });
 
-  it('N10 — une pièce citée par le journal (role retenue) est marquée estSource ; les autres non', async () => {
+  const deuxPieces = () => row({ pieces: [
+    { id: 10, nomFichier: 'PC3.pdf', typeMime: 'application/pdf', tailleOctets: 1, deposee: true, motifNonStocke: null, origine: 'email' },
+    { id: 11, nomFichier: 'autre.pdf', typeMime: 'application/pdf', tailleOctets: 1, deposee: true, motifNonStocke: null, origine: 'email' },
+  ] });
+
+  it('N10 — une pièce source est marquée estSource + PORTE le nombre de champs remplis ; les autres non', async () => {
+    H.state.rows = [deuxPieces()];
+    H.state.sources = [{ dossier_id: 1, piece: 'PC3.pdf', nb: 2 }]; // PC3 a servi à remplir 2 champs
+    const r = await listerArchives(await chargerConfigVeille());
+    const pc3 = r[0].pieces.find((p) => p.nomFichier === 'PC3.pdf')!;
+    expect(pc3.estSource).toBe(true);
+    expect(pc3.nbChampsSource).toBe(2);
+    expect(r[0].pieces.find((p) => p.nomFichier === 'autre.pdf')!.estSource).toBe(false);
+    expect(r[0].sourcesNonResolues).toEqual([]);
+  });
+
+  it('N10-J — la SOURCE = valeur retenue OU candidate proposée (methode = plan), lu du journal', async () => {
+    H.state.rows = [row()];
+    await listerArchives(await chargerConfigVeille());
+    const sql = H.appels.find((a) => a.sql.includes('permis_extraction_journal'))!.sql.replace(/\s+/g, ' ');
+    expect(sql).toContain("role = 'retenue' OR methode = 'plan'"); // les candidates 'plan' comptent, pas les vrais 'ecartee'
+    expect(sql).toContain('count(DISTINCT champ)');                 // le nombre de CHAMPS remplis par pièce
+  });
+
+  it('N10-J — nom SOURCE homonyme (2 pièces même nom) → AMBIGU : rien marqué, mais rendu VISIBLE (sourcesNonResolues)', async () => {
     H.state.rows = [row({ pieces: [
       { id: 10, nomFichier: 'PC3.pdf', typeMime: 'application/pdf', tailleOctets: 1, deposee: true, motifNonStocke: null, origine: 'email' },
-      { id: 11, nomFichier: 'autre.pdf', typeMime: 'application/pdf', tailleOctets: 1, deposee: true, motifNonStocke: null, origine: 'email' },
+      { id: 11, nomFichier: 'PC3.pdf', typeMime: 'application/pdf', tailleOctets: 1, deposee: true, motifNonStocke: null, origine: 'manuel' },
     ] })];
-    H.state.sources = [{ dossier_id: 1, noms: ['PC3.pdf'] }]; // seul PC3 a servi à extraire une valeur
+    H.state.sources = [{ dossier_id: 1, piece: 'PC3.pdf', nb: 1 }];
     const r = await listerArchives(await chargerConfigVeille());
-    expect(r[0].pieces.find((p) => p.nomFichier === 'PC3.pdf')!.estSource).toBe(true);
-    expect(r[0].pieces.find((p) => p.nomFichier === 'autre.pdf')!.estSource).toBe(false);
+    expect(r[0].pieces.every((p) => p.estSource === false)).toBe(true); // aucune des deux homonymes n'est épinglée
+    expect(r[0].sourcesNonResolues).toContain('PC3.pdf');             // mais c'est VISIBLE, pas deviné
   });
 
   it('un permis renseigné SANS pièce apparaît quand même (pieces = [])', async () => {

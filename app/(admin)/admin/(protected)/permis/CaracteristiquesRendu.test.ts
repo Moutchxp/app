@@ -498,3 +498,42 @@ describe('N10-I — gabarit PLU : cotes candidates lues sur les planches (choix 
     expect(h).toContain('cotes écartées au-dessus');
   });
 });
+
+describe('N10-J A — candidates du gabarit repliées, comptées comme un CONSTAT (jamais un score)', () => {
+  const gab = MESURES.find((m) => m.cle === 'hauteurMaxPluNgf')!;
+  type Ecarte = NonNullable<JournalChamp['ecartes']>[number];
+  const ec = (valeur: number, piece: string): Ecarte => ({ valeur, piece, page: 1, motif: null });
+  // reproduction 07512024V0037 (balayage complet) : 100 → 3 planches, 101 → 5, 102 → 1 (façade Est unique)
+  const ecartes0037: Ecarte[] = [
+    ...['PC3.1 AA', 'PC5.5 Sud', 'PC5.4 Nord'].map((p) => ec(100, p)),
+    ...['PC3.2 BB', 'PC3.3 CC', 'PC40.5 a', 'PC40.5 b', 'PC5.3 Ouest'].map((p) => ec(101, p)),
+    ec(102, 'PC5.2 Est'),
+  ];
+  const j: JournalChamp = { confiance: null, reserve: 'le gabarit NGF varie selon le plateau de nivellement de la portion coupée', provenances: [], ecartes: ecartes0037, motif: null };
+  const h = renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: gab, valeur: '', origine: null, journal: j, lienPiece: () => () => {}, onValeur: noop }));
+
+  it('3 blocs dépliables (<details>/<summary>), un par valeur, avec le compte formulé en CONSTAT', () => {
+    expect((h.match(/<details/g) ?? []).length).toBe(3);
+    expect(h).toContain('3 planches montrent cette face'); // 100
+    expect(h).toContain('5 planches montrent cette face'); // 101
+    expect(h).toContain('1 planche montre cette face');    // 102 (singulier)
+  });
+
+  it('boutons « utiliser N » HORS du repli (accessibles sans déplier), un par valeur', () => {
+    for (const v of [100, 101, 102]) expect(h).toContain(`utiliser ${v}`);
+  });
+
+  it('tri par VALEUR croissante (100 avant 101 avant 102), jamais par nombre', () => {
+    expect(h.indexOf('100 m')).toBeLessThan(h.indexOf('101 m'));
+    expect(h.indexOf('101 m')).toBeLessThan(h.indexOf('102 m'));
+  });
+
+  it('aucun langage de SCORE / majorité (le compte n’est pas un classement)', () => {
+    for (const interdit of ['le plus cité', 'majoritaire', '/9', 'sur 9', 'recommand']) expect(h.toLowerCase()).not.toContain(interdit);
+  });
+
+  it('l’avertissement de divergence reste visible hors du repli', () => {
+    expect(h).toContain('valeurs divergentes');
+    expect(h).toContain('plateau de nivellement');
+  });
+});

@@ -271,7 +271,8 @@ export interface PieceArchive {
   recuLe: string | null;         // T5 : date de la réponse porteuse (email) → étiquette « reçues le JJ/MM » ; NULL pour un document manuel
   objet: string | null;          // T5 : objet de la réponse porteuse (email) ; NULL pour un document manuel
   deposePar?: string | null;     // N6-F : pour une pièce 'auto', l'EXPÉDITEUR du mail d'origine (d'où vient la pièce) ; absent pour l'e-mail
-  estSource?: boolean;           // N10 : cette pièce a servi à EXTRAIRE une valeur (citée par le journal, role='retenue') → affichée en bleu + remontée en tête de catégorie
+  estSource?: boolean;           // N10 : cette pièce a servi à une valeur RETENUE ou à une CANDIDATE proposée (journal 'plan') → bleu + tête de catégorie. Résolue SANS ambiguïté (nom unique dans la GED) sinon non marquée (N10-J).
+  nbChampsSource?: number;        // N10-J : nombre de CHAMPS distincts que cette pièce a servi à remplir/proposer → libellé « a servi à remplir N champ(s) » (la couleur seule ne porte jamais l'info)
 }
 /** Une ligne d'archive = UN PERMIS renseigné : un `demande_dossier` dont `satisfait_le` n'est pas nul. */
 export interface LigneArchive {
@@ -289,6 +290,7 @@ export interface LigneArchive {
   expireLeCapte: string | null;  // G2 : expiration L1 la plus proche des liens forts de cette réponse (NULL → délai G1 = recuLe + 7 j)
   aLienFort: boolean;            // G2 : la réponse porte un lien fort (contenu périssable non classé) — signal de contenu au même titre qu'une pièce e-mail
   pieces: PieceArchive[];
+  sourcesNonResolues: string[];  // N10-J : noms de pièces SOURCES du journal non résolus (homonymes → ambigu, ou absents de la GED) → RIEN épinglé, mais RENDU VISIBLE (jamais deviné)
 }
 
 // N1-B / N4 — sentinelle de la fiche générée : source unique dans le module-feuille PROPRE `permis/gedConstantes` (importable
@@ -347,9 +349,9 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
   // A1b — documents AJOUTÉS À LA MAIN (dossier_document), fusionnés par dossier. RÉSILIENT à l'ordre des migrations : si la
   // table n'existe pas encore (089 non appliquée), on JOURNALISE et on dégrade en « aucun document manuel » (pièces e-mail conservées).
   const manuels = await lireDocumentsManuels();
-  const sources = await lirePiecesSources(); // N10 : noms des pièces citées par le journal (role='retenue'), par dossier
+  const sources = await lirePiecesSources(); // N10-J : par dossier, nom de pièce source → nb de champs remplis (retenue OU candidate 'plan')
   return rows.map((r) => {
-    const srcNoms = sources.get(r.dossier_id) ?? new Set<string>();
+    const marque = marquerSources([...(r.pieces ?? []), ...(manuels.get(r.dossier_id) ?? [])], sources.get(r.dossier_id) ?? new Map());
     const cl = classer(
       { type: r.type, natureProjetCompletee: r.nature_projet_completee, iExtension: r.i_extension, iSurelevation: r.i_surelevation, nbLgtTotCrees: r.nb_lgt_tot_crees, surfCreee: r.surf_creee === null ? null : Number(r.surf_creee) },
       cfg,
@@ -361,8 +363,9 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
       demandeReference: r.demande_reference,
       recuLe: r.recu_le ?? null, expireLeCapte: r.expire_le_capte ?? null, aLienFort: r.a_lien_fort === true,
       // E-MAIL d'abord (origine 'email'), puis les documents manuels de CE dossier ('manuel'). Fusion par dossier_id ::int (nombre) → pas de piège chaîne.
-      // N10 : chaque pièce porte `estSource` (citée par le journal) → l'écran l'affiche en bleu et la remonte en tête de catégorie.
-      pieces: [...(r.pieces ?? []), ...(manuels.get(r.dossier_id) ?? [])].map((p) => ({ ...p, estSource: srcNoms.has(p.nomFichier) })),
+      // N10-J : chaque pièce porte `estSource`/`nbChampsSource` (source résolue sans ambiguïté) ; les sources non résolues sont remontées à part.
+      pieces: marque.pieces,
+      sourcesNonResolues: marque.sourcesNonResolues,
     };
   });
 }
@@ -400,20 +403,40 @@ async function lireDocumentsManuels(): Promise<Map<number, PieceArchive[]>> {
 }
 
 /**
- * N10 — noms de fichiers des pièces qui ont SERVI À EXTRAIRE une valeur, par dossier : lignes `permis_extraction_journal` role='retenue'
- * avec une `piece`. Sert à AFFICHER ces pièces en bleu et à les remonter en tête de catégorie. RÉSILIENT : table absente (migration
- * 104 non appliquée) → Map VIDE + log ; aucune pièce n'est marquée « source », l'affichage reste correct (juste sans mise en avant).
+ * N10 / N10-J — par dossier, pour CHAQUE pièce SOURCE (nom de fichier), le nombre de CHAMPS distincts qu'elle a servi à remplir.
+ * Une pièce est SOURCE si elle est citée par une valeur RETENUE (`role='retenue'`) OU par une CANDIDATE proposée (`methode='plan'` :
+ * les cotes de gabarit lues par position, journalisées en 'ecartee' mais PROPOSÉES). Une pièce citée SEULEMENT pour un vrai
+ * 'ecartee' (superstructure au-dessus du toit) n'est PAS une source. RÉSILIENT : table absente → Map VIDE + log.
  */
-async function lirePiecesSources(): Promise<Map<number, Set<string>>> {
+async function lirePiecesSources(): Promise<Map<number, Map<string, number>>> {
   try {
-    const { rows } = await query<{ dossier_id: number; noms: string[] }>(
-      `SELECT dossier_id::int AS dossier_id, array_agg(DISTINCT piece) AS noms
-         FROM permis_extraction_journal WHERE role = 'retenue' AND piece IS NOT NULL GROUP BY dossier_id`);
-    return new Map(rows.map((r) => [r.dossier_id, new Set(r.noms)]));
+    const { rows } = await query<{ dossier_id: number; piece: string; nb: number }>(
+      `SELECT dossier_id::int AS dossier_id, piece, count(DISTINCT champ)::int AS nb
+         FROM permis_extraction_journal
+        WHERE (role = 'retenue' OR methode = 'plan') AND piece IS NOT NULL
+        GROUP BY dossier_id, piece`);
+    const m = new Map<number, Map<string, number>>();
+    for (const r of rows) (m.get(r.dossier_id) ?? m.set(r.dossier_id, new Map()).get(r.dossier_id)!).set(r.piece, r.nb);
+    return m;
   } catch (e) {
     journaliserLectureIndisponible('pièces sources (permis_extraction_journal — migration 104 non appliquée ?)', e);
     return new Map();
   }
+}
+
+/**
+ * N10-J — marque les pièces SOURCES et rend visible ce qui NE se résout PAS. Une source ne se colore/épingle QUE si son nom est
+ * UNIQUE dans la GED du dossier (le journal stocke un NOM, pas un id : deux homonymes = ambigu → on ne devine pas). Nom source
+ * absent des pièces = introuvable. Dans les deux cas : rien de marqué, mais le nom est remonté dans `sourcesNonResolues`.
+ */
+function marquerSources(pieces: PieceArchive[], srcMap: Map<string, number>): { pieces: PieceArchive[]; sourcesNonResolues: string[] } {
+  const compte = new Map<string, number>();
+  for (const p of pieces) compte.set(p.nomFichier, (compte.get(p.nomFichier) ?? 0) + 1);
+  const resolue = (nom: string) => srcMap.has(nom) && compte.get(nom) === 1;
+  return {
+    pieces: pieces.map((p) => resolue(p.nomFichier) ? { ...p, estSource: true, nbChampsSource: srcMap.get(p.nomFichier) } : { ...p, estSource: false }),
+    sourcesNonResolues: [...srcMap.keys()].filter((nom) => (compte.get(nom) ?? 0) !== 1), // homonyme (≥2) ou introuvable (0)
+  };
 }
 
 /**
@@ -439,8 +462,8 @@ export async function listerPiecesDossier(dossierId: number): Promise<PieceArchi
     email = rows[0]?.pieces ?? [];
   } catch (e) { journaliserLectureIndisponible('pièces e-mail (demande_reponse_piece) du dossier', e); }
   const manuels = (await lireDocumentsManuels()).get(dossierId) ?? [];
-  const srcNoms = (await lirePiecesSources()).get(dossierId) ?? new Set<string>();
-  return [...email, ...manuels].map((p) => ({ ...p, estSource: srcNoms.has(p.nomFichier) }));
+  const srcMap = (await lirePiecesSources()).get(dossierId) ?? new Map<string, number>();
+  return marquerSources([...email, ...manuels], srcMap).pieces; // N10-J : même résolution non ambiguë (les non résolues ne sont pas rendues ici)
 }
 
 export type ResultatDepotDocument = { ok: true; documentId: number } | { ok: false; motif: string };

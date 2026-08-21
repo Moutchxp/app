@@ -376,14 +376,19 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
               ⚠ valeurs divergentes selon la planche — {journal?.reserve ?? 'le gabarit NGF varie selon le plateau de nivellement de la portion coupée'}. À trancher à la main.
             </span>
           )}
+          {/* Chaque valeur = un bloc REPLIABLE (planches cachées par défaut), trié par VALEUR croissante — jamais par nombre : un
+              compte présenté comme un score ferait cocher la majorité et masquerait le côté le plus haut. Le bouton « utiliser »
+              reste HORS du repli (geste principal, toujours accessible). Le compte est un CONSTAT, pas un classement. */}
           {candidatsGabarit.map((c) => (
             <div key={c.valeur} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
-              <span style={styleAide}>
-                {c.valeur} m —{' '}
-                {c.sources.map((s, i) => (
-                  <Fragment key={`${s.piece ?? ''}#${s.page ?? ''}`}>{i > 0 ? ' · ' : null}<EntreeProvenance txt={texteProvenance(s)} piece={s.piece} page={s.page} lienPiece={lienPiece} /></Fragment>
-                ))}
-              </span>
+              <details style={{ flex: '1 1 auto', minWidth: 0 }}>
+                <summary style={{ ...styleAide, cursor: 'pointer' }}>{c.valeur} m — {c.sources.length} planche{c.sources.length > 1 ? 's montrent' : ' montre'} cette face</summary>
+                <span style={{ ...styleAide, display: 'block', marginTop: '.15rem', overflowWrap: 'anywhere' }}>
+                  {c.sources.map((s, i) => (
+                    <Fragment key={`${s.piece ?? ''}#${s.page ?? ''}`}>{i > 0 ? ' · ' : null}<EntreeProvenance txt={texteProvenance(s)} piece={s.piece} page={s.page} lienPiece={lienPiece} /></Fragment>
+                  ))}
+                </span>
+              </details>
               <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.15rem .5rem' }} onClick={() => onValeur(String(c.valeur))}>utiliser {c.valeur}</button>
             </div>
           ))}
