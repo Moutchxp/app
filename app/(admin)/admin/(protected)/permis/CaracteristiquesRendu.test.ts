@@ -455,3 +455,46 @@ describe('N10-E — la limite PLU à côté du sommet + dépassement signalé (j
     expect(h).not.toContain('Valider cette hauteur');
   });
 });
+
+describe('N10-I — gabarit PLU : cotes candidates lues sur les planches (choix à la main, divergence signalée)', () => {
+  const gab = MESURES.find((m) => m.cle === 'hauteurMaxPluNgf')!;
+  type Ecarte = NonNullable<JournalChamp['ecartes']>[number];
+  const ecarte = (valeur: number, piece: string, page = 1): Ecarte => ({ valeur, piece, page, motif: null });
+  const journal = (ecartes: Ecarte[], reserve: string | null = null): JournalChamp =>
+    ({ confiance: null, reserve, provenances: [], ecartes, motif: null });
+  const rendre = (j: JournalChamp, origine: 'extraite' | null = null) =>
+    renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: gab, valeur: '', origine, journal: j, onValeur: noop }));
+
+  it('DIVERGENT (101 sur BB/CC, 100 sur AA/Sud) → deux groupes, avertissement, un bouton par valeur, planches cliquables', () => {
+    const j = journal([ecarte(101, 'PC3.2 BB'), ecarte(101, 'PC3.3 CC'), ecarte(100, 'PC3.1 AA'), ecarte(100, 'PC5.5 Sud')],
+      'le gabarit NGF varie selon le plateau de nivellement de la portion coupée');
+    const h = renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: gab, valeur: '', origine: null, journal: j, lienPiece: () => () => {}, onValeur: noop }));
+    expect(h).toContain('gabarit PLU lu sur les planches');
+    expect(h).toContain('valeurs divergentes');
+    expect(h).toContain('plateau de nivellement');
+    expect(h).toContain('101 m');
+    expect(h).toContain('100 m');
+    expect(h).toContain('utiliser 101');
+    expect(h).toContain('utiliser 100');
+  });
+
+  it('CONCORDANT (tout 101) → un seul groupe, PAS d’avertissement de divergence', () => {
+    const h = rendre(journal([ecarte(101, 'PC3.2 BB'), ecarte(101, 'PC3.3 CC')]));
+    expect(h).toContain('utiliser 101');
+    expect(h).not.toContain('utiliser 100');
+    expect(h).not.toContain('valeurs divergentes');
+  });
+
+  it('le bloc « cotes écartées au-dessus » générique est MASQUÉ sur le champ gabarit (candidats affichés à la place)', () => {
+    const h = renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: gab, valeur: '101', origine: 'extraite', journal: journal([ecarte(101, 'PC3.2 BB')]), onValeur: noop }));
+    expect(h).not.toContain('cotes écartées au-dessus');
+    expect(h).toContain('gabarit PLU lu sur les planches');
+  });
+
+  it('un AUTRE champ (nb d’étages) avec des écartés → aucun bloc gabarit, le détail générique reste', () => {
+    const nb = MESURES.find((m) => m.cle === 'nbEtages')!;
+    const h = renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: nb, valeur: '5', origine: 'extraite', journal: { confiance: null, reserve: null, provenances: [], ecartes: [{ valeur: 9, piece: 'x.pdf', page: 2, motif: null }], motif: null }, onValeur: noop }));
+    expect(h).not.toContain('gabarit PLU lu sur les planches');
+    expect(h).toContain('cotes écartées au-dessus');
+  });
+});

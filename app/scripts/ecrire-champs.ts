@@ -16,10 +16,12 @@ import { decisionCerfa, type ChampCerfa, type AdresseTerrainSitadel } from '../l
 import { ecrireCerfa } from '../lib/permis/ecritureCerfa';
 import { decisionDesignation, type PagePermis } from '../lib/permis/decisionDesignation';
 import { ecrireDesignation } from '../lib/permis/ecritureDesignation';
+import { extraireGabaritDossier, ecrireGabaritPlu } from '../lib/permis/ecritureGabaritPlu';
 
 const MAJ_PAR = 'extraction:champs';
 const MAJ_PAR_CERFA = 'extraction:cerfa';
 const MAJ_PAR_DESIGNATION = 'extraction:designation';
+const MAJ_PAR_GABARIT = 'extraction:gabarit-plu';
 
 function lireArg(nom: string): string | undefined {
   const i = process.argv.indexOf(nom);
@@ -108,6 +110,19 @@ async function main(): Promise<void> {
     console.log(`  √ designation = « ${decisionD.valeur} »  [${decisionD.piece} p.${decisionD.page}]${rd.ignoreSaisie ? '  (non écrasée : une saisie occupe le champ)' : ''}`);
   } else {
     console.log(`  ✗ designation — ${decisionD.motif}`);
+  }
+
+  // ── N10-I — SOURCE plan : HAUTEUR MAXIMALE PLU lue par POSITION sur les planches (niveau corps) ──
+  const candidatsGabarit = await extraireGabaritDossier(dossierId, deps);
+  const rg = await ecrireGabaritPlu(dossierId, candidatsGabarit, MAJ_PAR_GABARIT);
+  console.log(`\n── SOURCE : plan (hauteur max PLU par position, ${rg.nbCorps} corps) :`);
+  if (rg.agg.statut === 'aucune') {
+    console.log(`  ✗ aucune planche ne porte « hauteur maximale PLU » à portée d'une cote NGF`);
+  } else if (rg.agg.statut === 'concordante') {
+    console.log(`  √ concordant : ${rg.agg.valeur} m NGF sur ${rg.nbCandidats} planche(s) — ${rg.ecrit ? 'écrit (extraite)' : rg.nbCorps === 1 ? 'non écrit (saisie prioritaire)' : `non écrit (${rg.nbCorps} corps → proposé, pas réparti)`}`);
+  } else {
+    console.log(`  ⚠ DIVERGENT (le gabarit NGF varie selon le plateau de nivellement) — rien d'écrit, chaque valeur journalisée :`);
+    for (const g of rg.agg.groupes) console.log(`      ${g.valeur} m NGF — ${g.sources.map((s) => `${s.planche} p.${s.page}`).join(', ')}`);
   }
   console.log('');
 }

@@ -1,7 +1,7 @@
 import { Fragment, type CSSProperties } from 'react';
 import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo';
 // ⚠️ Bundle client (piège du 13/08) : de `journalLecture` (module serveur, pg) on n'importe QUE des `type`, jamais une valeur.
-import type { JournalChamp } from '../../../../lib/permis/journalLecture';
+import type { JournalChamp, ProvenanceEcartee } from '../../../../lib/permis/journalLecture';
 import { MESURES, libelleBornes, composerLibelleDestinations, raisonParcelleNonRattachee, ecartSuperficieCadastre, type Bornes, type ChampDeclare, type FaitsPermis } from './caracteristiquesForm';
 import type { ParcelleLigne, EmpreinteLigne, BatiSnapshotResume } from '../../../../lib/permis/parcellesRepo'; // TYPE seulement (module serveur) — piège du bundle client
 
@@ -230,7 +230,7 @@ function EntreeProvenance({ txt, piece, page, lienPiece }: { txt: string; piece:
   return <span>{txt}{echecResolution ? ' (document introuvable)' : ''}</span>;
 }
 
-export function AnnotationsExtraction({ origine, journal, lienPiece }: { origine: OrigineValeur | null; journal?: JournalChamp; lienPiece?: LienPiece }) {
+export function AnnotationsExtraction({ origine, journal, lienPiece, masquerEcartes }: { origine: OrigineValeur | null; journal?: JournalChamp; lienPiece?: LienPiece; masquerEcartes?: boolean }) {
   const j = origine === 'extraite' ? journal : undefined;
   const motif = origine === null ? journal?.motif ?? null : null;
   // N10-D — DÉDOUBLONNAGE des entrées identiques (le journal peut répéter une même pièce/page). Le COMPTE annoncé est celui des
@@ -259,7 +259,7 @@ export function AnnotationsExtraction({ origine, journal, lienPiece }: { origine
           </span>
         </details>
       )}
-      {ecartes.length > 0 && (
+      {!masquerEcartes && ecartes.length > 0 && (
         <details style={{ fontSize: 11 }}>
           <summary style={{ ...styleAide, cursor: 'pointer' }}>cotes écartées au-dessus ({ecartes.length})</summary>
           <span style={{ ...styleAide, display: 'block', marginTop: '.15rem', overflowWrap: 'anywhere' }}>
@@ -300,6 +300,18 @@ function champDiffereBase(valeurChamp: string, base: number | null | undefined):
   return (c ?? null) !== ((base ?? null) as number | null);
 }
 
+/** N10-I — groupe les cotes candidates du gabarit PLU (journalisées en 'plan', role='ecartee') par VALEUR (tolérance 0,05 m).
+ *  Un seul groupe = concordant ; plusieurs = divergent (le gabarit NGF varie selon le plateau de nivellement). Aucune moyenne. */
+function grouperCandidatsGabarit(ecartes: readonly ProvenanceEcartee[]): { valeur: number; sources: ProvenanceEcartee[] }[] {
+  const dedup = [...new Map(ecartes.filter((e) => e.valeur != null).map((e) => [`${e.valeur}#${e.piece ?? ''}#${e.page ?? ''}`, e])).values()];
+  const groupes: { valeur: number; sources: ProvenanceEcartee[] }[] = [];
+  for (const e of dedup.sort((a, b) => (a.valeur as number) - (b.valeur as number))) {
+    const g = groupes.find((g) => Math.abs(g.valeur - (e.valeur as number)) <= 0.05);
+    if (g) g.sources.push(e); else groupes.push({ valeur: e.valeur as number, sources: [e] });
+  }
+  return groupes;
+}
+
 export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, confirmeLe, confirmeParNom, valeurAuto, valeurBase, limitePluNgf, onValider, onValeur }: {
   mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece;
   confirmeLe?: string | null; confirmeParNom?: string | null; valeurAuto?: number | null; valeurBase?: number | null; limitePluNgf?: number | null; onValider?: () => void; onValeur: (v: string) => void;
@@ -310,6 +322,11 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
   const depasseLimite = estSommet && valeurBase !== null && valeurBase !== undefined && limitePluNgf !== null && limitePluNgf !== undefined && valeurBase > limitePluNgf;
   // « à confirmer » (violet) : le SOMMET extrait, JAMAIS examiné (origine 'extraite' ET confirme_le null). Une décision humaine (saisie
   //   validée) l'éteint. La TRACE « validée par NOM le … » s'affiche dès qu'une validation existe (confirme_le posé), quelle que soit l'origine.
+  // N10-I — le gabarit PLU : ses cotes candidates (journal 'plan') sont montrées SOUS le champ, groupées par valeur, chacune avec
+  //   planche + page cliquables et un bouton qui la POSE en saisie. Plusieurs groupes = divergence signalée (jamais tranchée ici).
+  const estGabaritPlu = mesure.cle === 'hauteurMaxPluNgf';
+  const candidatsGabarit = estGabaritPlu ? grouperCandidatsGabarit(journal?.ecartes ?? []) : [];
+  const gabaritDivergent = candidatsGabarit.length > 1;
   const aConfirmer = estSommet && origine === 'extraite' && !confirmeLe;
   const valide = estSommet && !!confirmeLe;
   // N10-D — GARDE ANTI-PIÈGE JUMEAU : la hauteur du champ diffère de la base → elle n'est PAS validée. « Enregistrer ce bâtiment » ne
@@ -350,7 +367,29 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
       )}
       {valide && <span role="note" style={{ ...styleAide, color: 'var(--color-svv-green-ink)' }}>✓ validée{confirmeParNom ? ` par ${confirmeParNom}` : ''}{confirmeLe ? ` le ${jjmmaaaa(confirmeLe)}` : ''}</span>}
       {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
-      <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} />
+      {/* N10-I — cotes de gabarit lues sur les planches : à choisir à la main (pose en 'saisie'). Divergence signalée, jamais tranchée. */}
+      {estGabaritPlu && candidatsGabarit.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', marginTop: '.15rem' }}>
+          <span style={styleAide}>gabarit PLU lu sur les planches :</span>
+          {gabaritDivergent && (
+            <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-red)' }}>
+              ⚠ valeurs divergentes selon la planche — {journal?.reserve ?? 'le gabarit NGF varie selon le plateau de nivellement de la portion coupée'}. À trancher à la main.
+            </span>
+          )}
+          {candidatsGabarit.map((c) => (
+            <div key={c.valeur} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+              <span style={styleAide}>
+                {c.valeur} m —{' '}
+                {c.sources.map((s, i) => (
+                  <Fragment key={`${s.piece ?? ''}#${s.page ?? ''}`}>{i > 0 ? ' · ' : null}<EntreeProvenance txt={texteProvenance(s)} piece={s.piece} page={s.page} lienPiece={lienPiece} /></Fragment>
+                ))}
+              </span>
+              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.15rem .5rem' }} onClick={() => onValeur(String(c.valeur))}>utiliser {c.valeur}</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} masquerEcartes={estGabaritPlu} />
     </div>
   );
 }
