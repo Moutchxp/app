@@ -33,6 +33,7 @@ const CARTE_LEGENDE = `Plan IGN · portée ${PORTEE_M} m`;
 const SCORE_NOTE = 'Le label de qualité s’affiche à partir de 60/100. Il n’affecte pas le verdict.';
 const PIED = 'Certificat délivré par le système d’analyse géométrique Sans Vis-à-Vis®.';
 const TIRET = '—'; // valeur affichée quand AUCUNE source moteur/base n'existe (convention du modèle : jamais inventer)
+const TOLERANCE_MESURE = '± 2 m'; // marge de mesure DÉCLARÉE (constante de la méthode, modèle), pas issue d'un calcul
 
 /** Base absolue du site (serveur only). Null si absente/mal formée → PDF non généré (QR faux évité). */
 function siteUrl(): string | null {
@@ -138,6 +139,7 @@ export function assembler(r: LigneJointe, base: string, cartePng: Buffer, photoJ
   ligne(coordonnees, 'Longitude', coord(r.lon));
   ligne(coordonnees, 'Alt. terrain (NGF)', nombre(r.altitude_terrain_m, 1) ? `${nombre(r.altitude_terrain_m, 1)} m` : null);
   ligne(coordonnees, 'Alt. sol (BD TOPO)', nombre(r.altitude_sol_m, 1) ? `${nombre(r.altitude_sol_m, 1)} m` : null);
+  coordonnees.push(['Tolérance de mesure', TOLERANCE_MESURE]); // marge DÉCLARÉE de la méthode (constante), modèle
 
   const position: LigneKv[] = [];
   ligne(position, 'Étage', etageLabel(r.etage));
