@@ -10,6 +10,8 @@
 import { query } from '../db/client';
 import { rejouerRattachement } from './rattachementRepo';
 import { etatInitialDepuisResultat } from './preseanceAltitude';
+import { resoudreEtatSuivi, MOTIF_DAACT } from './etatSuiviRattachement';
+import { lireDaactDeclencheurActif } from './rattachementConfig';
 import { lirePermisCaracteristiques } from './caracteristiquesRepo';
 import { lireParcellesPermis } from './parcellesRepo';
 import { construireComparatif, type LigneComparative } from './comparatifRattachement';
@@ -44,8 +46,22 @@ async function lireMillesimeBati(dossierId: number): Promise<string | null> {
 export async function suivreRattachement(dossierId: number, majPar: string): Promise<ResultatSuivi> {
   const { entrees, contexte, resultat } = await rejouerRattachement(dossierId);
   const initial = etatInitialDepuisResultat(resultat);
-  if (initial === null) {
-    // Verdict RIEN → aucun dossier (les permis sans signal sont DÉRIVÉS à l'affichage). On n'écrit rien.
+
+  // DAACT — déclencheur DISTINCT (repli quand la géométrie = RIEN) : achèvement déclaré (etat_dau='6') + réglage d'activation.
+  // + dossier existant (pour la préservation d'un terminal). Trois lectures indépendantes.
+  const [{ rows: etatRows }, daactActif, { rows: before }] = await Promise.all([
+    query<{ e: string | null }>(`SELECT etat_dau AS e FROM sitadel_dossier WHERE id = $1`, [dossierId]),
+    lireDaactDeclencheurActif(),
+    query<{ id: number; etat: EtatSuivi; valide_par: string | null }>(
+      `SELECT id, etat, valide_par FROM permis_rattachement WHERE dossier_id = $1`, [dossierId]),
+  ]);
+  const existing = before[0];
+  const existant = existing ? { etat: existing.etat, valideParHumain: !!existing.valide_par && existing.valide_par !== 'moteur:auto' } : null;
+
+  // DÉCISION PURE : géométrie → DAACT (en_attente_bati, jamais d'injection) → préservation d'un terminal. Cf. etatSuiviRattachement.
+  const decision = resoudreEtatSuivi({ initialGeom: initial, daactActif, acheveDaact: etatRows[0]?.e === '6', existant });
+  if (!decision.persister) {
+    // Ni géométrie, ni DAACT active/achevée → aucun dossier (les permis sans signal sont DÉRIVÉS à l'affichage). On n'écrit rien.
     return { dossierId, persiste: false, action: 'aucun_signal', verdict: resultat.verdict, etat: null };
   }
 
@@ -55,15 +71,10 @@ export async function suivreRattachement(dossierId: number, majPar: string): Pro
   const polysJson = JSON.stringify(entrees.polygones.map((p) => ({ cleabs: p.cleabs, etat: p.etat })));
   const idu = entrees.parcelleCandidate?.idu ?? null;
 
-  const { rows: before } = await query<{ id: number; etat: EtatSuivi; valide_par: string | null }>(
-    `SELECT id, etat, valide_par FROM permis_rattachement WHERE dossier_id = $1`, [dossierId]);
-  const existing = before[0];
-
-  // PRÉSERVER une décision terminale humaine / LiDAR : la réévaluation ne la rétrograde pas (FUS-3c gère les transitions).
-  const preserver = !!existing && (existing.etat === 'refuse' || existing.etat === 'annule_par_lidar' ||
-    (existing.etat === 'valide' && !!existing.valide_par && existing.valide_par !== 'moteur:auto'));
-  const nouvelEtat: EtatSuivi = preserver ? existing.etat : initial.etat;
-  const valPar = !preserver && initial.auto ? 'moteur:auto' : (existing?.valide_par ?? null);
+  const nouvelEtat: EtatSuivi = decision.etat;
+  const valPar = decision.auto ? 'moteur:auto' : (existing?.valide_par ?? null);
+  // MOTIF : la DAACT porte son propre motif (traçabilité) ; sinon le motif géométrique du moteur.
+  const motif = decision.origineDaact ? MOTIF_DAACT : resultat.motif;
 
   let rattId: number; let action: ResultatSuivi['action'];
   if (!existing) {
@@ -73,7 +84,7 @@ export async function suivreRattachement(dossierId: number, majPar: string): Pro
           polygones_concernes, millesime_cadastre, millesime_bati, valide_par, valide_le, detecte_le, reevalue_le)
        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10::jsonb,$11,$12,$13, CASE WHEN $13 IS NOT NULL THEN now() END, now(), now())
        RETURNING id`,
-      [dossierId, idu, resultat.regime, resultat.verdict, nouvelEtat, resultat.motif, criteresJson, seuilsJson, contexte.seuilsProvenance,
+      [dossierId, idu, resultat.regime, resultat.verdict, nouvelEtat, motif, criteresJson, seuilsJson, contexte.seuilsProvenance,
        polysJson, contexte.empreinteMillesime, millesimeBati, valPar]);
     rattId = rows[0].id; action = 'cree';
   } else {
@@ -84,14 +95,16 @@ export async function suivreRattachement(dossierId: number, majPar: string): Pro
               seuils_provenance=$9, polygones_concernes=$10::jsonb, millesime_cadastre=$11, millesime_bati=$12,
               valide_par=$13, valide_le = CASE WHEN $13 = 'moteur:auto' THEN now() ELSE valide_le END, reevalue_le=now()
         WHERE id=$1`,
-      [existing.id, idu, resultat.regime, resultat.verdict, nouvelEtat, resultat.motif, criteresJson, seuilsJson, contexte.seuilsProvenance,
+      [existing.id, idu, resultat.regime, resultat.verdict, nouvelEtat, motif, criteresJson, seuilsJson, contexte.seuilsProvenance,
        polysJson, contexte.empreinteMillesime, millesimeBati, valPar]);
-    rattId = existing.id; action = preserver ? 'preserve' : 'reevalue';
+    rattId = existing.id; action = decision.preserve ? 'preserve' : 'reevalue';
   }
 
   // ÉVÉNEMENT append-only — l'historique n'est jamais écrasé.
   const details = JSON.stringify({
-    verdict: resultat.verdict, regime: resultat.regime, motif: resultat.motif, criteres: resultat.criteres,
+    verdict: resultat.verdict, regime: resultat.regime, motif, criteres: resultat.criteres,
+    // TRAÇABILITÉ (SPEC C) : d'où vient ce dossier — un signal DAACT (achèvement) ou la géométrie (cadastre/BD TOPO) ?
+    declencheur: decision.origineDaact ? 'daact' : 'geometrie',
     seuils: entrees.seuils, provenance: contexte.seuilsProvenance,
     millesimeCadastre: contexte.empreinteMillesime, millesimeBati, nbPolygones: entrees.polygones.length,
   });

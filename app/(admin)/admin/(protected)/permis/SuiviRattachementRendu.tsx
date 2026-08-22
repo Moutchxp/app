@@ -371,7 +371,7 @@ export function LegendeAffectation() {
  * (EXCLUSIVITÉ) et les polygones non affectés. `persiste=false` (« aucun signal ») → on n'ouvre PAS les sélecteurs mais on DIT
  * pourquoi (on ne cache pas sans dire) ; le schéma reste consultable. RÉVERSIBLE. ⚠️ AUCUN valider/refuser, AUCUNE injection (FUS-3e).
  */
-export function AffectationBloc({ affectation, persiste, onAffecter }: { affectation: AffectationEtat; persiste: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void }) {
+export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void }) {
   const { corps, polygones, schema, motif, colonneManquante } = affectation;
   const nonAffectes = polygonesNonAffectes(corps, polygones);
   return (
@@ -385,10 +385,20 @@ export function AffectationBloc({ affectation, persiste, onAffecter }: { affecta
         ? <div style={{ ...styleAide, fontStyle: 'italic' }}>{motif}</div>
         : (
           <>
-            {/* Schéma + légende : TOUJOURS rendus (informatifs — comprendre le site), que le dossier soit persisté ou non. */}
+            {/* Schéma + légende : TOUJOURS rendus (informatifs — comprendre le site), quel que soit l'état du dossier. */}
             <SchemaEmpreinteSvg schema={schema} corps={corps} />
             <LegendeAffectation />
-            {persiste ? (
+            {!persiste ? (
+              // « Aucun signal » (dossier non persisté) : on n'ouvre pas l'arbitrage, mais on DIT pourquoi (jamais de disparition muette).
+              <div role="note" style={{ ...styleAide }}>
+                Aucun signal de mise à jour n’a encore été détecté pour ce permis : il n’y a rien à arbitrer pour l’instant. L’affectation des polygones aux bâtiments s’ouvrira dès qu’un changement (parcelle ou bâti) sera détecté. Le schéma ci-dessus reste consultable pour comprendre le site.
+              </div>
+            ) : enAttenteBati ? (
+              // DAACT / fusion sans bâti : dossier ouvert, mais le bâtiment n'est pas encore mesuré → affectation FERMÉE (on n'invente pas un polygone).
+              <div role="note" style={{ ...styleAide }}>
+                En attente du bâti : les travaux sont déclarés terminés, mais BD TOPO n’a pas encore de bâtiment mesuré dans l’empreinte. L’affectation s’ouvrira quand le bâtiment apparaîtra — on n’affecte pas un polygone préexistant à un bâtiment qui n’est pas encore construit.
+              </div>
+            ) : (
               <>
                 <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
                   {corps.length === 0 && <li style={styleAide}>Aucun corps de bâtiment déclaré au permis.</li>}
@@ -417,11 +427,6 @@ export function AffectationBloc({ affectation, persiste, onAffecter }: { affecta
                   </div>
                 )}
               </>
-            ) : (
-              // « Aucun signal » (dossier non persisté) : on n'ouvre pas l'arbitrage, mais on DIT pourquoi (jamais de disparition muette).
-              <div role="note" style={{ ...styleAide }}>
-                Aucun signal de mise à jour n’a encore été détecté pour ce permis : il n’y a rien à arbitrer pour l’instant. L’affectation des polygones aux bâtiments s’ouvrira dès qu’un changement (parcelle ou bâti) sera détecté. Le schéma ci-dessus reste consultable pour comprendre le site.
-              </div>
             )}
           </>
         )}

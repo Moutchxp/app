@@ -19,6 +19,7 @@ import { recompterSiSucces } from './comptesActions';
  */
 export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void } = {}) {
   const [liste, setListe] = useState<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> } | null>(null);
+  const [daactActif, setDaactActif] = useState<boolean | null>(null); // réglage : la DAACT déclenche-t-elle un dossier ?
   const [erreur, setErreur] = useState(false);
   const [ouvert, setOuvert] = useState<number | null>(null);
   const [detail, setDetail] = useState<DetailSuivi | null>(null);
@@ -39,7 +40,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
       try {
         const res = await fetch('/api/admin/permis/rattachement', { cache: 'no-store' });
         if (annule) return;
-        if (res.ok) setListe((await res.json()) as { lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> });
+        if (res.ok) { const d = (await res.json()) as { lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number>; daactActif?: boolean }; setListe({ lignes: d.lignes, compteurs: d.compteurs }); setDaactActif(d.daactActif ?? null); }
         else setErreur(true);
       } catch { if (!annule) setErreur(true); }
     })();
@@ -96,6 +97,15 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   }, [ouvert, onRecompter]);
 
   // Téléchargement d'une pièce — MÊME signeur unique qu'Archives (action url_piece de /reponses ; la clé ne transite jamais).
+  // Réglage GLOBAL : la DAACT (achèvement déclaré) déclenche-t-elle l'ouverture d'un dossier de rattachement ?
+  const basculerDaact = useCallback(async (actif: boolean): Promise<void> => {
+    setDaactActif(actif); // optimiste
+    try {
+      const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reglage_daact', actif }) });
+      if (!res.ok) setDaactActif(!actif); // rétablissement sur échec
+    } catch { setDaactActif(!actif); }
+  }, []);
+
   const telecharger = useCallback(async (pieceId: number, source: 'reponse' | 'dossier'): Promise<void> => {
     try {
       const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'url_piece', pieceId, source }) });
@@ -121,6 +131,17 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
         Suivi du rattachement des permis à leur parcelle et à leurs bâtiments futurs. Univers = permis dont les parcelles ont été
         analysées (une empreinte existe). Lecture seule.
       </p>
+      {/* Réglage : la DAACT (attestation d'achèvement) comme déclencheur. Ouvre un dossier « en attente du bâti » — jamais d'injection. */}
+      {daactActif !== null && (
+        <label className="svv-card" style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start', fontSize: 12 }}>
+          <input type="checkbox" checked={daactActif} onChange={(e) => void basculerDaact(e.target.checked)} style={{ marginTop: '.15rem' }} />
+          <span>
+            <strong>Ouvrir un dossier dès l’achèvement déclaré (DAACT)</strong> — quand un permis passe « Terminé », un dossier de
+            rattachement est créé, en attente du bâti dans BD TOPO. Il ouvre l’arbitrage, il ne l’injecte jamais : aucune altitude
+            n’est écrite automatiquement. Décochez pour n’utiliser que les signaux cadastre / BD TOPO.
+          </span>
+        </label>
+      )}
       <TableSuivi lignes={liste.lignes} compteurs={liste.compteurs} ouvert={ouvert} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} />
       {ouvert !== null && (
         detailErreur
@@ -129,7 +150,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
             ? <div className="flex flex-col gap-2">
                 <DetailSuiviRendu detail={detail} />
                 {/* FUS-3d — affectation des polygones BD TOPO aux corps (schéma + sélecteurs). */}
-                {affectation && <AffectationBloc affectation={affectation} persiste={detail.persiste} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)} />}
+                {affectation && <AffectationBloc affectation={affectation} persiste={detail.persiste} enAttenteBati={detail.etat === 'en_attente_bati'} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)} />}
                 {affErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{affErreur}</div>}
                 {/* FUS-3e — décisions : uniquement pour un dossier RÉEL (persisté). « aucun signal » (dérivé) n'a rien à décider. */}
                 {detail.persiste && (

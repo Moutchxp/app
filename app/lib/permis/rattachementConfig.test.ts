@@ -41,3 +41,29 @@ describe('lireSeuilsRattachement', () => {
     expect(r.seuils.seuilSurface).toBe(0.8);
   });
 });
+
+import { lireDaactDeclencheurActif, ecrireDaactDeclencheurActif } from './rattachementConfig';
+
+describe('RATTACHEMENT — déclencheur DAACT (réglage)', () => {
+  it('valeur en base false → false', async () => {
+    H.state.mode = 'ok'; H.state.row = { actif: false } as unknown as { s: number; b: number; m: number };
+    expect(await lireDaactDeclencheurActif()).toBe(false);
+  });
+  it('valeur en base true → true', async () => {
+    H.state.mode = 'ok'; H.state.row = { actif: true } as unknown as { s: number; b: number; m: number };
+    expect(await lireDaactDeclencheurActif()).toBe(true);
+  });
+  it('colonne non migrée (erreur SQL) → défaut ACTIVÉ (true), sans casser', async () => {
+    H.state.mode = 'throw';
+    expect(await lireDaactDeclencheurActif()).toBe(true);
+  });
+  it('ligne absente → défaut ACTIVÉ (true)', async () => {
+    H.state.mode = 'vide';
+    expect(await lireDaactDeclencheurActif()).toBe(true);
+  });
+  it('écriture : renvoie l’état APRÈS écriture (booléen strict)', async () => {
+    H.state.mode = 'ok';
+    expect(await ecrireDaactDeclencheurActif(true)).toBe(true);
+    expect(await ecrireDaactDeclencheurActif(false)).toBe(false);
+  });
+});

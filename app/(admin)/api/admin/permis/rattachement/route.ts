@@ -3,6 +3,7 @@ import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { listerSuivi, lireDetailSuivi } from '../../../../../lib/permis/rattachementSuiviRepo';
 import { lireAffectation, affecterPolygone } from '../../../../../lib/permis/affectationRepo';
 import { validerRattachement, refuserRattachement, retourLidar } from '../../../../../lib/permis/actionsRattachement';
+import { lireDaactDeclencheurActif, ecrireDaactDeclencheurActif } from '../../../../../lib/permis/rattachementConfig';
 
 /**
  * /api/admin/permis/rattachement — SUIVI du rattachement des permis à leur parcelle / polygones futurs.
@@ -27,7 +28,8 @@ export async function GET(request: Request): Promise<Response> {
       if (!detail) return Response.json({ erreur: 'dossier inconnu' }, { status: 404 });
       return Response.json({ detail, affectation });
     }
-    return Response.json(await listerSuivi());
+    const [suivi, daactActif] = await Promise.all([listerSuivi(), lireDaactDeclencheurActif()]);
+    return Response.json({ ...suivi, daactActif });
   } catch (e) {
     console.error('[permis/rattachement] GET indisponible', e);
     return Response.json({ erreur: 'suivi indisponible' }, { status: 503 });
@@ -38,7 +40,14 @@ export async function POST(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number; corpsId?: number; cleabs?: string | null; motif?: string; motifConfirmation?: string };
+    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number; corpsId?: number; cleabs?: string | null; motif?: string; motifConfirmation?: string; actif?: boolean };
+
+    // RATTACHEMENT — réglage GLOBAL (pas un dossier) : la DAACT comme déclencheur. Traité AVANT la garde `dossierId`.
+    if (body.action === 'reglage_daact') {
+      if (typeof body.actif !== 'boolean') return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      return Response.json({ ok: true, daactActif: await ecrireDaactDeclencheurActif(body.actif) });
+    }
+
     const dossierId = body.dossierId;
     if (typeof dossierId !== 'number') return Response.json({ erreur: 'requête invalide' }, { status: 400 });
 

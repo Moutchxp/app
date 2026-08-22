@@ -275,6 +275,14 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
     expect(h).not.toContain('Polygones non affectés');
   });
 
+  it('DAACT « en attente du bâti » (persiste=true, enAttenteBati=true) : affectation FERMÉE + libellé explicite, schéma RESTE', () => {
+    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff(), persiste: true, enAttenteBati: true }));
+    expect(h).toContain('<svg');                    // schéma toujours consultable
+    expect(h).toContain('En attente du bâti');       // libellé explicite (SPEC B)
+    expect(h).toContain('travaux sont déclarés terminés');
+    expect(h).not.toContain('<select');              // affectation FERMÉE (on n'invente pas un polygone)
+  });
+
   it('LÉGENDE : les trois styles nommés — l’information ne dépend PAS de la seule couleur (libellés + contour tireté)', () => {
     const h = renderToStaticMarkup(createElement(LegendeAffectation, {}));
     expect(h).toContain('affecté à un corps');

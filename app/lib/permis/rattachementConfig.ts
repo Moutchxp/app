@@ -52,3 +52,24 @@ export async function lireSeuilsRattachement(): Promise<SeuilsRattachementSource
     return defaut; // 115 pas encore appliquée (colonnes absentes) → défauts, sans casser le moteur
   }
 }
+
+/**
+ * RATTACHEMENT — la DAACT (achèvement déclaré) est-elle un déclencheur de dossier ? Lecture ISOLÉE et RÉSILIENTE : tant que la
+ * migration 141 n'est pas appliquée (colonne absente), on retombe sur le DÉFAUT `true` (stock actuel vide → aucune vague). Jamais
+ * d'exception propagée. ⚠️ La DAACT OUVRE l'arbitrage, elle ne CONCLUT jamais : aucune injection d'altitude n'en découle.
+ */
+export async function lireDaactDeclencheurActif(): Promise<boolean> {
+  try {
+    const { rows } = await query<{ actif: boolean }>(
+      `SELECT rattachement_daact_declencheur_actif AS actif FROM config_veille WHERE id = 1`);
+    return rows[0]?.actif ?? true;
+  } catch {
+    return true; // 141 pas encore appliquée → défaut activé
+  }
+}
+
+/** RATTACHEMENT — active/désactive le déclencheur DAACT (config_veille, singleton). Renvoie l'état APRÈS écriture. */
+export async function ecrireDaactDeclencheurActif(actif: boolean): Promise<boolean> {
+  await query(`UPDATE config_veille SET rattachement_daact_declencheur_actif = $1 WHERE id = 1`, [actif === true]);
+  return actif === true;
+}
