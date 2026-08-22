@@ -13,7 +13,7 @@ const { appels, etat, queryMock } = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: async () => undefined, pool: {}, closePool: async () => undefined }));
 
-import { planifierRelances, octetsDe, emettreUneRelance, lireCandidatsRelance, type RelanceAEnvoyer } from './envoiRelance';
+import { planifierRelances, octetsDe, emettreUneRelance, lireCandidatsRelance, motifDesalignement, type RelanceAEnvoyer } from './envoiRelance';
 import { compterEmisAujourdhui } from './envoiDemande';
 import type { Requete } from './mairieContact';
 
@@ -35,6 +35,7 @@ const transport = {
 const R: RelanceAEnvoyer = {
   relanceId: 7, demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnieres',
   destEmail: 'urba@asnieres.fr', objet: 'Relance', corps: 'Corps de relance propre', profil: 'entreprise',
+  variante: 'saisine', envoyeLe: new Date('2026-03-14T10:00:00Z'), // H — étape enregistrée + ancre d'échéance
 };
 const OPTS = { from: 'a.jorel@sansvisavis.com', replyTo: 'a.jorel@sansvisavis.com', auteur: 'admin' };
 
@@ -72,6 +73,33 @@ describe('W1 — planifierRelances : réutilise les garde-fous demandes + ajoute
     expect(plan.bloqueesObsoletes[0].motif).toMatch(/régénérez ou abandonnez/i);
     expect(plan.bloqueesObsoletes[0].motif).toMatch(/aucune régénération automatique/i);
     expect(plan.envoyables).toHaveLength(0); // le garde-fou bloque : la relance ne partira pas
+  });
+
+  it('H — variante DÉSALIGNÉE (relanceId dans desalignees) → bloqueesObsoletes avec le motif, JAMAIS envoyable', () => {
+    const plan = planifierRelances([R], adresses, comptes, new Map(), new Map([[7, 'l’étape enregistrée « rappel » ne correspond plus à la fenêtre du jour (« avis »)']]));
+    expect(plan.bloqueesObsoletes).toHaveLength(1);
+    expect(plan.bloqueesObsoletes[0].motif).toMatch(/ne correspond plus à la fenêtre du jour/);
+    expect(plan.envoyables).toHaveLength(0);
+  });
+});
+
+describe('H — motifDesalignement : la variante enregistrée est re-dérivée sur la date d’envoi réelle', () => {
+  const REG = { rappelJoursAvant: 10, avisJoursAvant: 3, saisineDelaiJours: 4 };
+  const ENVOI = new Date('2026-03-14T10:00:00Z'); // échéance 14 avril
+  it('alignée (saisine le jour de l’échéance) → null (pas obsolète)', () => {
+    expect(motifDesalignement('saisine', ENVOI, new Date('2026-04-14T10:00:00Z'), REG)).toBeNull();
+  });
+  it('« formelle » (héritée) ≡ saisine → null', () => {
+    expect(motifDesalignement('formelle', ENVOI, new Date('2026-04-20T10:00:00Z'), REG)).toBeNull();
+  });
+  it('« rappel » enregistrée mais fenêtre du jour = « avis » → motif nommant l’écart', () => {
+    const m = motifDesalignement('rappel', ENVOI, new Date('2026-04-12T10:00:00Z'), REG); // reste 2 j → avis
+    expect(m).toContain('« rappel »');
+    expect(m).toContain('« avis »');
+    expect(m).toMatch(/aucune régénération automatique/);
+  });
+  it('ancre d’envoi inconnue → null (laissé aux autres gardes)', () => {
+    expect(motifDesalignement('rappel', null, new Date('2026-04-12T10:00:00Z'), REG)).toBeNull();
   });
 });
 

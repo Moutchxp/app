@@ -51,7 +51,7 @@ function depsRegen(over: Partial<DepsRegenerer> = {}): DepsRegenerer {
   return {
     lireRelance: async () => ({ demandeId: 42, profil: 'entreprise', statut: 'brouillon' }),
     lireDemande: async () => ({ statut: 'envoyee', reference: 'SVAV-DEM-2026-000042', envoyeLe: new Date('2026-03-14T10:00:00Z') }),
-    chargerContexte: async () => ({ reglages: { echeanceAlerteJours: 7, releveFraicheurHeures: 48 }, profil: 'entreprise', config: CONFIG_ENT, pieces: PIECES, adresseReponse: 'demandes@sansvisavis.com' }),
+    chargerContexte: async () => ({ reglages: { echeanceAlerteJours: 7, releveFraicheurHeures: 48 }, cascade: { rappelJoursAvant: 10, avisJoursAvant: 3, saisineDelaiJours: 4 }, profil: 'entreprise', config: CONFIG_ENT, pieces: PIECES, adresseReponse: 'demandes@sansvisavis.com' }),
     chargerLot: async () => ({ lot: { codeInsee: '92004', communeNom: 'Asnieres', canal: 'email', dossiers: [DOSSIER_DU, DOSSIER_FAIT] }, satisfaitsIds: [DOSSIER_FAIT.dossierId] }),
     ...over,
   };

@@ -19,16 +19,19 @@ import {
   type ConfigDemandeur, type ProfilDemandeur, type Lot, type CandidatDossier, type Piece,
 } from '../sitadel/demande';
 import type { CanalContact } from '../sitadel/mairieContact';
-import { echeanceDe, etatEcheance, type ReglagesEcheance } from './echeance';
-import { genererRelance, DELAI_SAISINE_JOURS } from './relance';
+import { echeanceDe, releveEstFraiche, type ReglagesEcheance } from './echeance';
+import { genererRelance, type VarianteRelance } from './relance';
+import { etapeCible, saisineLeDe, rangVariante, type ReglagesCascade, type VarianteEnBase } from './cascadeRelance';
 
-/** Contexte au niveau du PROFIL (chargé une fois) : réglages d'échéance, identité, pièces, adresse de réponse. */
+/** Contexte au niveau du PROFIL (chargé une fois) : réglages d'échéance + de cascade, identité, pièces, adresse, service. */
 export interface ContexteRelance {
-  reglages: ReglagesEcheance;
+  reglages: ReglagesEcheance;         // fraîcheur de la relève (échéance d'alerte non utilisée par la cascade)
+  cascade: ReglagesCascade;           // lot 3 : seuils rappel/avis + délai de saisine (config_veille, lot 2)
   profil: ProfilDemandeur;
   config: ConfigDemandeur;
   pieces: Piece[];
   adresseReponse: string;
+  serviceDestinataire?: string;       // F : mention de service (config_veille mention_service_*), rendue seulement si active + non vide
 }
 
 /** Une demande envoyée candidate à la relance (acheminement agrégé + compteurs de satisfaction au dossier — R6c). */
@@ -44,24 +47,36 @@ export interface DemandeEnvoyeeRelance {
 /** Dossiers d'une demande + les ids déjà satisfaits (pour ne relancer que les dossiers dus). */
 export interface LotRelance { lot: Lot; satisfaitsIds: number[] }
 
+/** Une entrée de l'HISTORIQUE des envois d'une demande (E) — dérivée de la jointure demande_acheminement × demande_relance. */
+export interface EnvoiHistorique { date: Date; libelle: string }
+/** La relance VIVANTE (non abandonnée) d'une demande, s'il y en a une — avec sa variante (pour l'idempotence/transition). */
+export interface RelanceVivante { relanceId: number; variante: VarianteEnBase }
+
 export interface DepsRelanceAuto {
   maintenant(): Date;
   lireContexte(): Promise<ContexteRelance>;
   derniereReleveOkLe(): Promise<Date | null>;
   lireDemandesEnvoyees(profil: ProfilDemandeur): Promise<DemandeEnvoyeeRelance[]>;
+  lireVivante(demandeId: number): Promise<RelanceVivante | null>;       // C : la relance vivante + sa variante (null si aucune)
   relanceExiste(demandeId: number): Promise<boolean>; // R5c : TOUTE relance (même abandonnée) bloque l'auto → un abandon est respecté
   dossiersSatisfaitsDepuisRelance(demandeId: number): Promise<boolean>; // R6c : une relance vivante existe ET des dossiers ont été satisfaits après elle
   journaliser(demandeId: number, motif: string): Promise<void>;         // R6c : note « systeme » sans régénérer le courrier
   lireLot(demandeId: number): Promise<LotRelance | null>;
-  enregistrerRelance(demandeId: number, profil: ProfilDemandeur, objet: string, corps: string, motif: string): Promise<number>;
+  lireHistorique(demandeId: number): Promise<EnvoiHistorique[]>;         // E : historique des envois (jamais stocké), trié par date
+  enregistrerRelance(demandeId: number, profil: ProfilDemandeur, variante: VarianteRelance, objet: string, corps: string, motif: string): Promise<number>;
+  transiterRelance(ancienneRelanceId: number, demandeId: number, profil: ProfilDemandeur, variante: VarianteRelance, objet: string, corps: string, cible: VarianteRelance): Promise<number>; // D : abandon + note + journal + insert, UNE transaction
 }
 
 export interface BilanRelance { examinees: number; creees: number; ignorees: number; erreurs: number; signalees: number; identiteIncomplete: boolean }
 
 /**
- * Génère les brouillons de relance dus. GARDE-FOU identité en tête (aucun texte si l'identité est incomplète). Puis, pour
- * chaque demande envoyée dont l'échéance est 'depassee' et sans relance vivante : compose le texte et l'enregistre (brouillon),
- * en journalisant. Un échec sur une demande n'interrompt pas les suivantes.
+ * Lot 3/6 — ORDONNANCE la cascade de relance : pour chaque demande envoyée, calcule l'ÉTAPE CIBLE du jour (rappel/avis/saisine)
+ * et PRÉPARE le brouillon correspondant (jamais d'envoi). GARDE-FOU identité en tête. Un échec sur une demande n'interrompt pas
+ * les suivantes. ⚠️ INVARIANT : l'ordonnanceur n'envoie JAMAIS rien à une mairie — il ne fait que ranger des brouillons.
+ *
+ * Par demande : B qualification (délivrée + relève fraîche + ≥1 dossier dû) → A fenêtre cible → C idempotence par la variante de
+ * la vivante (== → rien ; précède → D transition en UNE transaction ; pas de vivante mais relance existante → R5c stop ; aucune →
+ * création). Le texte porte l'historique (E) et le service (F) ; la saisine annonce sa date (G).
  */
 export async function executerRelanceAuto(deps: DepsRelanceAuto): Promise<BilanRelance> {
   const ctx = await deps.lireContexte();
@@ -76,46 +91,58 @@ export async function executerRelanceAuto(deps: DepsRelanceAuto): Promise<BilanR
 
   let examinees = 0, creees = 0, ignorees = 0, erreurs = 0, signalees = 0;
   for (const d of demandes) {
-    const etat = etatEcheance(
-      { envoyeLe: d.envoyeLe, statutAcheminement: d.statutAcheminement, dossiersActifs: d.dossiersActifs, dossiersSatisfaits: d.dossiersSatisfaits, derniereReleveOkLe: derniereOk },
-      maintenant, ctx.reglages,
-    );
-    // UNIQUEMENT dépassée (couvre le cas totalement silencieux ET la réponse partielle expirée). Jamais indéterminée /
-    // non délivrée / repondue / repondue_partiellement (délai encore en cours) / proche / en cours.
-    if (etat.etat !== 'depassee') continue;
     const envoyeLe = d.envoyeLe;
-    if (envoyeLe === null) continue; // dépassée ⇒ envoyeLe non nul, mais on rassure le typage
+    // B — QUALIFICATION : délivrée (acheminement 'envoye', jamais rebond/échec), envoi connu, relève FRAÎCHE (sinon le silence
+    //   n'est pas vérifié → aucune étape n'est visée).
+    if (d.statutAcheminement !== 'envoye' || envoyeLe === null) continue;
+    if (!releveEstFraiche(derniereOk, maintenant, ctx.reglages.releveFraicheurHeures)) continue;
+    // A — FENÊTRE CIBLE : quelle étape aujourd'hui (ou null = trop tôt, aucune étape).
+    const cible = etapeCible(envoyeLe, maintenant, ctx.cascade);
+    if (cible === null) continue;
     examinees += 1;
 
-    // R5c — DÈS QU'UNE relance existe (même abandonnée), l'auto n'en crée pas : un abandon manuel est respecté. Cas
-    // particulier conservé : si une relance VIVANTE existe ET que des dossiers ont été satisfaits DEPUIS, on ne régénère
-    // PAS silencieusement (ce serait pire que la laisser) — on le SIGNALE simplement dans le journal.
-    if (await deps.relanceExiste(d.demandeId)) {
-      if (await deps.dossiersSatisfaitsDepuisRelance(d.demandeId)) {
-        await deps.journaliser(d.demandeId, 'des dossiers ont été satisfaits depuis la relance en cours ; relance NON régénérée automatiquement');
-        signalees += 1;
+    // C — IDEMPOTENCE par la variante de la VIVANTE.
+    const vivante = await deps.lireVivante(d.demandeId);
+    let transiter = false;
+    if (vivante !== null) {
+      if (rangVariante(vivante.variante) >= rangVariante(cible)) {
+        // Même étape (ou déjà plus avancée) → ne rien régénérer. On CONSERVE le signalement R6c d'une vivante devenue obsolète.
+        if (await deps.dossiersSatisfaitsDepuisRelance(d.demandeId)) {
+          await deps.journaliser(d.demandeId, 'des dossiers ont été satisfaits depuis la relance en cours ; relance NON régénérée automatiquement');
+          signalees += 1;
+        }
+        ignorees += 1;
+        continue;
       }
+      transiter = true; // la vivante PRÉCÈDE la cible → transition (D)
+    } else if (await deps.relanceExiste(d.demandeId)) {
+      // R5c — pas de vivante MAIS une relance existe (abandonnée) : un abandon manuel arrête la cascade. NE RIEN FAIRE.
       ignorees += 1;
       continue;
     }
+    // sinon (pas de vivante, aucune relance) → création fraîche
 
     const lot = await deps.lireLot(d.demandeId);
-    if (lot === null) { ignorees += 1; continue }
-    // §5 — aucune relance si zéro dossier non satisfait (course possible entre le comptage et ici).
-    if (lot.lot.dossiers.length - lot.satisfaitsIds.length <= 0) { ignorees += 1; continue }
+    if (lot === null) { ignorees += 1; continue; }
+    if (lot.lot.dossiers.length - lot.satisfaitsIds.length <= 0) { ignorees += 1; continue; } // aucun dossier dû
 
     try {
-      // relanceAuto ne génère qu'en état 'depassee' (APRÈS l'échéance) → variante 'saisine' (équivalent sémantique de l'ancienne
-      //   'formelle'). Le choix réel de variante (rappel/avis/saisine selon la position dans le délai) et l'historique sont le lot 3.
       const echeanceLe = echeanceDe(envoyeLe);
+      const historique = await deps.lireHistorique(d.demandeId); // E — construit par jointure, JAMAIS stocké
       const { objet, corps } = genererRelance({
         reference: d.reference, profil: ctx.profil, lot: lot.lot, dossiersSatisfaitsIds: lot.satisfaitsIds,
         config: ctx.config, pieces: ctx.pieces, envoyeeLe: envoyeLe, echeanceLe,
-        saisineLe: new Date(echeanceLe.getTime() + DELAI_SAISINE_JOURS * 86_400_000), adresseReponse: ctx.adresseReponse,
-      }, 'saisine');
-      await deps.enregistrerRelance(d.demandeId, ctx.profil, objet, corps, `brouillon de relance généré : ${etat.motif}`);
+        saisineLe: saisineLeDe(envoyeLe, ctx.cascade.saisineDelaiJours),   // G — délai de saisine RÉGLAGE
+        adresseReponse: ctx.adresseReponse, historique, serviceDestinataire: ctx.serviceDestinataire, // E + F
+      }, cible);
+      if (transiter && vivante !== null) {
+        // D — UNE SEULE TRANSACTION : abandon de la vivante (+ note) + journal + INSERT de la nouvelle étape.
+        await deps.transiterRelance(vivante.relanceId, d.demandeId, ctx.profil, cible, objet, corps, cible);
+      } else {
+        await deps.enregistrerRelance(d.demandeId, ctx.profil, cible, objet, corps, `brouillon de relance « ${cible} » généré`);
+      }
       creees += 1;
-    } catch { erreurs += 1; } // isolation : une demande en échec (ex. identité, course sur l'unique) n'arrête pas les autres
+    } catch { erreurs += 1; } // isolation : une demande en échec n'arrête pas les suivantes
   }
   return { examinees, creees, ignorees, erreurs, signalees, identiteIncomplete: false };
 }
@@ -154,7 +181,10 @@ export async function chargerContexteRelance(profilOverride?: ProfilDemandeur): 
   };
   return {
     reglages: { echeanceAlerteJours: cfg.echeanceAlerteJours, releveFraicheurHeures: cfg.releveFraicheurHeures },
+    cascade: { rappelJoursAvant: cfg.relanceRappelJoursAvant, avisJoursAvant: cfg.relanceAvisJoursAvant, saisineDelaiJours: cfg.relanceSaisineDelaiJours },
     profil, config, pieces: piecesDepuisConfig(cfg.piecesDemandees), adresseReponse: cfg.adresseReponse,
+    // F — service destinataire : la mention S40 (config_veille), passée SEULEMENT si active ET non vide (aucun littéral en dur).
+    serviceDestinataire: cfg.mentionServiceActive && cfg.mentionServiceTexte.trim() !== '' ? cfg.mentionServiceTexte : undefined,
   };
 }
 
@@ -231,6 +261,14 @@ export function depsReellesRelance(): DepsRelanceAuto {
         [profil]);
       return rows.map((r) => ({ demandeId: r.id, reference: r.reference, envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement, dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits }));
     },
+    lireVivante: async (demandeId) => {
+      // C — la relance VIVANTE (non abandonnée) et sa variante. L'unique partiel (076) en garantit au plus une.
+      const { rows } = await query<{ id: number; variante: string }>(
+        `SELECT id::int AS id, variante FROM demande_relance WHERE demande_id = $1 AND type = 'relance' AND statut <> 'abandonnee' LIMIT 1`,
+        [demandeId]);
+      const r = rows[0];
+      return r ? { relanceId: r.id, variante: r.variante as VarianteEnBase } : null;
+    },
     relanceExiste: async (demandeId) => {
       // R5c — TOUTE relance bloque l'auto, y compris une abandonnée (plus de filtre `statut <> 'abandonnee'`) : un abandon
       // manuel doit être respecté. Seul le geste manuel « régénérer » (demandeRelanceRepo) en refait une.
@@ -246,22 +284,62 @@ export function depsReellesRelance(): DepsRelanceAuto {
         [demandeId, motif]);
     },
     lireLot: (demandeId) => chargerLotRelance(demandeId),
-    enregistrerRelance: async (demandeId, profil, objet, corps, motif) => {
+    lireHistorique: (demandeId) => chargerHistoriqueEnvois(demandeId), // E — jointure acheminement × relance (exportée, testable)
+    enregistrerRelance: async (demandeId, profil, variante, objet, corps, motif) => {
       return withTransaction(async (q) => {
         const { rows } = await q<{ id: number }>(
-          // Cascade lot 2 — variante='saisine' à la création (relanceAuto ne génère qu'en état 'depassee', après l'échéance) :
-          //   le CHECK élargi (migration 136) l'accepte désormais ; l'écart transitoire du lot 1 est refermé. Le choix réel de
-          //   variante selon la position dans le délai (rappel/avis/saisine) est le lot 3.
           `INSERT INTO demande_relance (demande_id, type, variante, objet, corps, profil_demandeur, statut)
-           VALUES ($1, 'relance', 'saisine', $2, $3, $4, 'brouillon') RETURNING id`,
-          [demandeId, objet, corps, profil]);
+           VALUES ($1, 'relance', $5, $2, $3, $4, 'brouillon') RETURNING id`,
+          [demandeId, objet, corps, profil, variante]);
         // Journal APPEND-ONLY : aucune transition de statut de la DEMANDE (statut_avant/apres NULL) — on n'écrit jamais demande.statut.
         await q(
-          `INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur)
-           VALUES ($1, NULL, NULL, $2, 'systeme')`,
+          `INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, 'systeme')`,
           [demandeId, motif]);
         return rows[0].id;
       });
     },
+    transiterRelance: async (ancienneRelanceId, demandeId, profil, variante, objet, corps, cible) => {
+      // D — UNE SEULE TRANSACTION : abandon de la vivante (+ note lisible) → INSERT de la nouvelle étape → journal. En deux
+      //   transactions, une interruption laisserait la demande SANS vivante et relanceExiste=true la bloquerait à jamais.
+      return withTransaction(async (q) => {
+        await q(
+          `UPDATE demande_relance SET statut = 'abandonnee', note = btrim(coalesce(note || chr(10), '') || $2)
+            WHERE id = $1 AND statut <> 'abandonnee'`,
+          [ancienneRelanceId, `remplacée par l'étape « ${cible} »`]);
+        const { rows } = await q<{ id: number }>(
+          `INSERT INTO demande_relance (demande_id, type, variante, objet, corps, profil_demandeur, statut)
+           VALUES ($1, 'relance', $5, $2, $3, $4, 'brouillon') RETURNING id`,
+          [demandeId, objet, corps, profil, variante]);
+        const nouvelId = rows[0].id;
+        await q(
+          `INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, 'systeme')`,
+          [demandeId, `relance ${ancienneRelanceId} remplacée par l'étape « ${cible} » → nouvelle relance ${nouvelId}`]);
+        return nouvelId;
+      });
+    },
   };
+}
+
+// ── Historique des envois (E) — dérivé, jamais stocké ─────────────────────────
+/**
+ * Lot 3/6 — HISTORIQUE des envois d'une demande, par la jointure demande_acheminement × demande_relance : chaque ÉMISSION réelle
+ * (`envoye_le` non nul, statut 'envoye') donne sa DATE et sa NATURE — `relance_id IS NULL` = demande initiale, sinon la variante
+ * de la relance. Trié par date CROISSANTE. JAMAIS stocké (reconstruit à chaque génération). Exporté pour être testé.
+ */
+export async function chargerHistoriqueEnvois(demandeId: number): Promise<EnvoiHistorique[]> {
+  const { rows } = await query<{ envoye_le: Date; relance_id: number | null; variante: string | null }>(
+    `SELECT a.envoye_le, a.relance_id::int AS relance_id, rl.variante
+       FROM demande_acheminement a
+       LEFT JOIN demande_relance rl ON rl.id = a.relance_id
+      WHERE a.demande_id = $1 AND a.envoye_le IS NOT NULL AND a.statut = 'envoye'
+      ORDER BY a.envoye_le ASC`,
+    [demandeId]);
+  return rows.map((r) => ({ date: r.envoye_le, libelle: libelleEnvoi(r.relance_id, r.variante) }));
+}
+
+/** Libellé d'un envoi de l'historique : demande initiale, ou étape de relance (rappel/avis → « nouvelle demande »). */
+export function libelleEnvoi(relanceId: number | null, variante: string | null): string {
+  if (relanceId === null) return 'demande initiale, adressée par courrier électronique';
+  if (variante === 'saisine') return 'information de la saisine à venir';
+  return 'nouvelle demande'; // rappel, avis (et 'formelle' héritée)
 }

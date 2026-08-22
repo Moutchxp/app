@@ -56,7 +56,7 @@ function depsElig(over: Partial<DepsSaisissables> = {}): DepsSaisissables {
 function depsCreer(over: Partial<DepsCreerSaisine> = {}): DepsCreerSaisine {
   return {
     lireMeta: async () => ({ statut: 'envoyee', reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise', envoyeLe: ENVOI, saisineVivante: false, dusRefus: [] }),
-    chargerContexte: async () => ({ reglages: { echeanceAlerteJours: 7, releveFraicheurHeures: 48 }, profil: 'entreprise', config: CONF_ENT, pieces: PIECES, adresseReponse: 'a.jorel@sansvisavis.com' }),
+    chargerContexte: async () => ({ reglages: { echeanceAlerteJours: 7, releveFraicheurHeures: 48 }, cascade: { rappelJoursAvant: 10, avisJoursAvant: 3, saisineDelaiJours: 4 }, profil: 'entreprise', config: CONF_ENT, pieces: PIECES, adresseReponse: 'a.jorel@sansvisavis.com' }),
     chargerLot: async () => ({ lot: LOT, satisfaitsIds: [] }),
     derniereReleveOkLe: async () => RELEVE_FRAICHE,
     maintenant: () => DANS_FENETRE,

@@ -24,6 +24,7 @@ import {
   type Transport, type IssueEmission,
 } from './envoiDemande';
 import { dossiersSatisfaitsDepuisRelance } from '../veille/relanceAuto';
+import { etapeCible, rangVariante, type ReglagesCascade, type VarianteEnBase } from '../veille/cascadeRelance';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface RelanceAEnvoyer {
@@ -35,6 +36,21 @@ export interface RelanceAEnvoyer {
   objet: string;             // demande_relance.objet figé (édité à la main = fait foi)
   corps: string;             // demande_relance.corps figé (jamais régénéré à l'envoi)
   profil: ProfilDemandeur;   // profil PORTÉ PAR LA RELANCE → choisit le compte SMTP + l'adresse d'expédition
+  variante: string;          // H : étape ENREGISTRÉE (rappel/avis/saisine/formelle) — re-dérivée à l'envoi
+  envoyeLe: Date | null;     // H : envoi RÉEL de la demande (ancre d'échéance) — pour recalculer la fenêtre du jour
+}
+
+/**
+ * H — RE-DÉRIVATION À L'ENVOI : la variante ENREGISTRÉE correspond-elle encore à la fenêtre du jour, recalculée sur la date
+ * d'envoi RÉELLE ? Si NON → motif d'obsolescence (aucune régénération silencieuse à l'envoi). Aligné (dont 'formelle' ≡ 'saisine')
+ * ou ancre inconnue / trop tôt (impossible pour une relance existante) → null. PUR.
+ */
+export function motifDesalignement(variante: string, envoyeLe: Date | null, maintenant: Date, reglages: ReglagesCascade): string | null {
+  if (envoyeLe === null) return null;                       // pas d'ancre d'échéance → laissé aux autres gardes
+  const cible = etapeCible(envoyeLe, maintenant, reglages);
+  if (cible === null) return null;                          // trop tôt (ne survient pas pour une relance déjà générée)
+  if (rangVariante(variante as VarianteEnBase) === rangVariante(cible)) return null; // aligné
+  return `l’étape enregistrée « ${variante} » ne correspond plus à la fenêtre du jour (« ${cible} ») : régénérez ou abandonnez cette relance — aucune régénération automatique à l’envoi`;
 }
 export interface ResultatRelance { relanceId: number; reference: string; issue: IssueEmission; messageId?: string; motif?: string; }
 
@@ -53,14 +69,17 @@ export interface PlanRelances {
 }
 export function planifierRelances(
   candidats: RelanceAEnvoyer[], adresses: Record<string, string>, comptesPresents: Record<string, boolean>,
-  obsoletes: Map<number, string[]>,
+  obsoletes: Map<number, string[]>, desalignees: Map<number, string> = new Map(),
 ): PlanRelances {
   const base = planifierSalve(candidats, adresses, comptesPresents); // gabarit + adresse/compte, réutilisé tel quel
   const bloqueesObsoletes: { reference: string; motif: string }[] = [];
   const envoyables: (RelanceAEnvoyer & { expediteur: string })[] = [];
   for (const e of base.envoyables) {
-    const dus = obsoletes.get(e.demandeId);
-    if (dus && dus.length > 0) {
+    const desal = desalignees.get(e.relanceId); // H — variante enregistrée ≠ fenêtre du jour
+    const dus = obsoletes.get(e.demandeId);     // dossiers satisfaits depuis le brouillon
+    if (desal) {
+      bloqueesObsoletes.push({ reference: e.reference, motif: desal });
+    } else if (dus && dus.length > 0) {
       bloqueesObsoletes.push({ reference: e.reference, motif: `des dossiers ont été satisfaits depuis la génération du brouillon (${dus.join(', ')}) : régénérez ou abandonnez cette relance — aucune régénération automatique à l’envoi` });
     } else {
       envoyables.push(e);
@@ -131,9 +150,11 @@ const SENTINELLE_DRYRUN = new Error('__DRY_RUN_ROLLBACK__');
  *  demande close (d.statut≠'envoyee') et une relance non-'brouillon' (déjà envoyée / abandonnée) → jamais candidates.
  *  EXPORTÉ pour tester ce filtre de sélection (garde-fous close / non-brouillon). */
 export async function lireCandidatsRelance(): Promise<RelanceAEnvoyer[]> {
-  const { rows } = await query<{ relance_id: number; demande_id: number; reference: string; commune_nom: string | null; dest_email: string; objet: string | null; corps: string | null; profil: string }>(
+  const { rows } = await query<{ relance_id: number; demande_id: number; reference: string; commune_nom: string | null; dest_email: string; objet: string | null; corps: string | null; profil: string; variante: string; envoye_le: Date | null }>(
     `SELECT dr.id::int AS relance_id, dr.demande_id::int AS demande_id, d.reference, c.nom AS commune_nom,
-            d.dest_email, dr.objet, dr.corps, dr.profil_demandeur AS profil
+            d.dest_email, dr.objet, dr.corps, dr.profil_demandeur AS profil, dr.variante,
+            -- H : ancre d'échéance (envoi RÉEL) pour re-dériver la fenêtre à l'envoi ; agnostique au canal (formulaire compris).
+            (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id) AS envoye_le
        FROM demande_relance dr
        JOIN demande d ON d.id = dr.demande_id
        LEFT JOIN commune c ON c.code_insee = d.code_insee
@@ -143,6 +164,7 @@ export async function lireCandidatsRelance(): Promise<RelanceAEnvoyer[]> {
   return rows.map((r) => ({
     relanceId: r.relance_id, demandeId: r.demande_id, reference: r.reference, communeNom: r.commune_nom,
     destEmail: r.dest_email, objet: r.objet ?? '', corps: r.corps ?? '', profil: profilValide(r.profil),
+    variante: r.variante, envoyeLe: r.envoye_le,
   }));
 }
 
@@ -182,7 +204,15 @@ export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: stri
   for (const r of candidats) {
     if (await dossiersSatisfaitsDepuisRelance(r.demandeId)) obsoletes.set(r.demandeId, await nommerDossiersSatisfaitsDepuis(r.demandeId));
   }
-  const plan = planifierRelances(candidats, adresses, comptesPresents, obsoletes);
+  // H — RE-DÉRIVATION À L'ENVOI : la variante enregistrée d'un brouillon ne correspond plus à la fenêtre du jour → bloquée obsolète.
+  const reglagesCascade: ReglagesCascade = { rappelJoursAvant: config.relanceRappelJoursAvant, avisJoursAvant: config.relanceAvisJoursAvant, saisineDelaiJours: config.relanceSaisineDelaiJours };
+  const maintenant = new Date();
+  const desalignees = new Map<number, string>();
+  for (const r of candidats) {
+    const m = motifDesalignement(r.variante, r.envoyeLe, maintenant, reglagesCascade);
+    if (m !== null) desalignees.set(r.relanceId, m);
+  }
+  const plan = planifierRelances(candidats, adresses, comptesPresents, obsoletes, desalignees);
 
   const emisAujourdhui = await compterEmisAujourdhui(); // PARTAGÉ avec les demandes (même table, même compteur)
   const budget = capBatch(plan.envoyables.length, config.envoisMaxParRun, config.envoisMaxParJour, emisAujourdhui);
