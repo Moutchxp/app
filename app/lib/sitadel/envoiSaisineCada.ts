@@ -45,7 +45,7 @@ export interface SaisineAEnvoyer {
 }
 export interface ResultatSaisine { saisineId: number; reference: string; issue: IssueEmission; messageId?: string; motif?: string; }
 export interface LigneMotif { reference: string; motif: string }
-export interface LigneFile { saisineId: number; reference: string; communeNom: string | null; objet: string; corps: string; urlFormulaire: string }
+export interface LigneFile { saisineId: number; demandeId: number; reference: string; communeNom: string | null; numeros: string[]; objet: string; corps: string; urlFormulaire: string }
 
 /** Date d'un instant en français (« 14 mars 2026 »), en date UTC (cohérent avec echeanceDe). */
 function dateFr(d: Date): string { return dateEnFrancais(d.toISOString().slice(0, 10)); }
@@ -105,7 +105,8 @@ export interface RapportEnvoiSaisine {
   bloqueesCorps: LigneMotif[];
   bloqueesCompte: LigneMotif[];
   bloqueesPiece: LigneMotif[];      // copie de la demande impossible à produire → jamais envoyée sans PJ
-  destinataires: { reference: string; commune: string | null; email: string; expediteur: string; apercuCorps: string }[];
+  destinataires: { saisineId: number; demandeId: number; reference: string; commune: string | null; email: string; expediteur: string; apercuCorps: string; numeros: string[] }[];
+  reportes: { reference: string; commune: string | null; numeros: string[]; motif: string }[]; // LOT 6 : envoyables au-delà du plafond (auto/caps) — reportées, NOMMÉES
   resultats: ResultatSaisine[];
   fileADeposer: LigneFile[];        // canal 'formulaire' : à saisir à la main sur le formulaire en ligne
   octetsPartis: number;
@@ -199,9 +200,11 @@ export function depsReellesEnvoiSaisine(): DepsEnvoiSaisine {
  * renseigné ; sinon canal FORMULAIRE : aucune émission, aucune ligne d'acheminement, la file « à déposer » est renvoyée.
  * AUCUN branchement dans executerVeille.
  */
-export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: string | null } = {}, deps: DepsEnvoiSaisine = depsReellesEnvoiSaisine()): Promise<RapportEnvoiSaisine> {
+export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: string | null; plafondAuto?: number } = {}, deps: DepsEnvoiSaisine = depsReellesEnvoiSaisine()): Promise<RapportEnvoiSaisine> {
   const appliquer = opts.appliquer === true;
   const auteur = opts.auteur ?? null;
+  // LOT 6 : plafond d'envoi AUTOMATIQUE (EN PLUS des caps, jamais à leur place). Absent (appel manuel) → aucune borne ajoutée.
+  const plafondAuto = typeof opts.plafondAuto === 'number' ? Math.max(0, Math.trunc(opts.plafondAuto)) : Infinity;
   const [cadaEmail, cadaUrl, caps, candidats] = await Promise.all([deps.cadaEmail(), deps.cadaUrlFormulaire(), deps.caps(), deps.candidats()]);
   const maintenant = deps.maintenant();
   const mode = appliquer ? 'applique' : 'simulation';
@@ -211,8 +214,10 @@ export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: 
 
   // CANAL FORMULAIRE (cada_email vide) : aucune tentative d'envoi, aucune ligne d'acheminement — la file est renvoyée.
   if (cadaEmail.trim() === '') {
-    const fileADeposer: LigneFile[] = recevables.map((s) => ({ saisineId: s.saisineId, reference: s.reference, communeNom: s.communeNom, objet: s.objet, corps: s.corps, urlFormulaire: cadaUrl }));
-    return { mode, canal: 'formulaire', candidats: candidats.length, emisAujourdhui: 0, capParRun: caps.capParRun, capParJour: caps.capParJour, budget: 0, bloqueesForclusion: forcloses, bloqueesCorps: [], bloqueesCompte: [], bloqueesPiece: [], destinataires: [], resultats: [], fileADeposer, octetsPartis: 0 };
+    // LOT 6 : le plafond d'envoi AUTO ne borne PAS la file de dépôt (aucun envoi n'y a lieu ; elle est déjà visible dans l'onglet
+    // Saisines et le dépôt reste MANUEL). Le canal formulaire n'expédie rien → « reportes » vide.
+    const fileADeposer: LigneFile[] = recevables.map((s) => ({ saisineId: s.saisineId, demandeId: s.demandeId, reference: s.reference, communeNom: s.communeNom, numeros: s.numeros, objet: s.objet, corps: s.corps, urlFormulaire: cadaUrl }));
+    return { mode, canal: 'formulaire', candidats: candidats.length, emisAujourdhui: 0, capParRun: caps.capParRun, capParJour: caps.capParJour, budget: 0, bloqueesForclusion: forcloses, bloqueesCorps: [], bloqueesCompte: [], bloqueesPiece: [], destinataires: [], reportes: [], resultats: [], fileADeposer, octetsPartis: 0 };
   }
 
   // CANAL E-MAIL. Garde-fous gabarit + adresse/compte du profil (planifierSalve réutilisé).
@@ -220,8 +225,13 @@ export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: 
   const comptes = deps.comptes();
   const comptesPresents: Record<string, boolean> = { entreprise: comptes.entreprise !== null, personne: comptes.personne !== null };
   const plan = planifierSalve(recevables, adresses, comptesPresents);
-  const budget = capBatch(plan.envoyables.length, caps.capParRun, caps.capParJour, emisAujourdhui);
+  // Salve réelle = MIN(candidats, cap/run, reste du jour, plafond auto) — le plafond auto resserre les 3 bornes de capBatch.
+  const budget = Math.min(capBatch(plan.envoyables.length, caps.capParRun, caps.capParJour, emisAujourdhui), plafondAuto);
   const aTraiter = plan.envoyables.slice(0, budget);
+  const reportes = plan.envoyables.slice(budget).map((s) => ({
+    reference: s.reference, commune: s.communeNom, numeros: s.numeros,
+    motif: 'plafond d’envoi atteint (envoi auto / caps) — saisine reportée au prochain run, aucune donnée perdue',
+  }));
 
   // PIÈCE JOINTE OBLIGATOIRE (R343-1) : produire la copie de la demande ; un échec ÉCARTE la saisine (jamais envoyée sans PJ).
   const bloqueesPiece: LigneMotif[] = [];
@@ -235,8 +245,8 @@ export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: 
   const octets = (): number => octetsDe(prets.filter((s) => resultats.find((x) => x.saisineId === s.saisineId)?.issue === 'envoye'), appliquer);
   const base = {
     canal: 'email' as const, candidats: candidats.length, emisAujourdhui, capParRun: caps.capParRun, capParJour: caps.capParJour, budget,
-    bloqueesForclusion: forcloses, bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte, bloqueesPiece,
-    destinataires: prets.map((s) => ({ reference: s.reference, commune: s.communeNom, email: cadaEmail, expediteur: s.expediteur, apercuCorps: apercu(s.corps) })),
+    bloqueesForclusion: forcloses, bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte, bloqueesPiece, reportes,
+    destinataires: prets.map((s) => ({ saisineId: s.saisineId, demandeId: s.demandeId, reference: s.reference, commune: s.communeNom, email: cadaEmail, expediteur: s.expediteur, apercuCorps: apercu(s.corps), numeros: s.numeros })),
     fileADeposer: [] as LigneFile[],
   };
 

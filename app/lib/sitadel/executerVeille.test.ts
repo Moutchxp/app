@@ -441,3 +441,38 @@ describe('T7-C — executerVeille : pré-cochage « répondu » branché, ISOLÉ
     expect(preCochageRepondu).not.toHaveBeenCalled();
   });
 });
+
+describe('RELANCE lot 6 — executerVeille : envoi automatique branché (§1decies), ISOLÉ, après le pré-cochage', () => {
+  it('un envoi auto qui ÉCHOUE (throw) n’empêche PAS la veille de finaliser en « succes »', async () => {
+    const envoiAuto = vi.fn(async () => { throw new Error('SMTP mairie KO'); });
+    const libererVerrou = vi.fn(async () => {});
+    const deps = makeDeps({ envoiAuto, libererVerrou });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(envoiAuto).toHaveBeenCalledTimes(1);
+    expect(r.statut).toBe('succes');        // isolation : un échec d'envoi ne fait jamais échouer la veille
+    expect(libererVerrou).toHaveBeenCalledTimes(1);
+  });
+
+  it('l’envoi auto tourne APRÈS le pré-cochage (§1nonies → §1decies)', async () => {
+    const ordre: string[] = [];
+    const preCochageRepondu = vi.fn(async () => { ordre.push('precochage'); });
+    const envoiAuto = vi.fn(async () => { ordre.push('envoiauto'); });
+    const deps = makeDeps({ preCochageRepondu, envoiAuto });
+
+    await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(ordre).toEqual(['precochage', 'envoiauto']);
+  });
+
+  it('verrou déjà pris → l’envoi auto n’est PAS tenté (sortie avant le corps)', async () => {
+    const envoiAuto = vi.fn(async () => {});
+    const deps = makeDeps({ acquerirVerrou: vi.fn(async () => false), envoiAuto });
+
+    const r = await executerVeille({ declencheur: 'planifie' }, deps);
+
+    expect(r.statut).toBe('rien_a_faire');
+    expect(envoiAuto).not.toHaveBeenCalled();
+  });
+});

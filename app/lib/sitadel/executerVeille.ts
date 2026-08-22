@@ -1,7 +1,12 @@
 /**
  * Point d'entrée UNIQUE et idempotent du moteur de veille Sitadel (chantier S11a). Réutilisable par le CLI planifié
- * (`veille-run.ts`) et, plus tard, par une route HTTP à secret. NE crée AUCUN déclencheur. AUCUN ENVOI ; la seule requête
- * sortante est le téléchargement Sitadel (via la chaîne d'ingestion existante) et la lecture bon marché du millésime.
+ * (`veille-run.ts`) et, plus tard, par une route HTTP à secret. NE crée AUCUN déclencheur.
+ *
+ * ⚠️ INVARIANT RÉVISÉ (RELANCE lot 6) — l'ordonnanceur peut désormais écrire à un TIERS (mairie, CADA), mais UNIQUEMENT si
+ * l'interrupteur correspondant est EXPLICITEMENT activé (relance_auto_active / saisine_cada_auto_active, défauts false). Choix
+ * ASSUMÉ, pas un effet de bord : désactivés, la veille prépare la cascade et n'envoie rien à un tiers ; les seuls e-mails qui
+ * partent alors sont INTERNES (alertes, propositions, compte rendu). Hors envoi auto, la seule requête sortante reste le
+ * téléchargement Sitadel + la lecture bon marché du millésime.
  *
  * Séquence (cf. étape 4 du chantier) :
  *   1) verrou `pg_try_advisory_lock` dédié — si un run tourne déjà → 'rien_a_faire' immédiat, SANS réseau ni écriture ;
@@ -26,6 +31,7 @@ import { executerPropositionAuto, depsReellesProposition } from '../veille/propo
 import { executerAlerteGedAuto, depsReellesAlerteGed } from '../veille/alerteGedAuto';
 import { executerAlerteActionAuto, depsReellesAlerteAction } from '../veille/alerteActionAuto';
 import { executerPreCochageAuto, depsReellesPreCochage } from '../veille/preCochageReponduAuto';
+import { executerEnvoiAuto, depsReellesEnvoiAuto } from '../veille/envoiAuto';
 import { ingererMillesime, millesimeDistantDido, DOSSIER_LOCAL, type CompteursIngestion } from './ingestionMillesime';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger,
@@ -77,7 +83,8 @@ export interface DepsVeille {
   //   jamais la veille ni la relève.
   alerteQuotidienne?(): Promise<unknown>;
   // X5 — PROPOSITIONS de saisine CADA par e-mail (après l'alerte). OPTIONNELLE et ISOLÉE (§1sexies) : un échec d'envoi ne
-  //   touche jamais la veille ni la relève. N'envoie JAMAIS rien à une mairie ni à la CADA (e-mail interne uniquement).
+  //   touche jamais la veille ni la relève. E-mail INTERNE uniquement (jamais la mairie ni la CADA) : la proposition demande un
+  //   avis AVANT toute saisine ; l'envoi à un tiers, lui, passe par l'étape d'envoi automatique (§1decies), sous interrupteur.
   propositionCada?(): Promise<unknown>;
   // G1 — ALERTES « contenu à classer/télécharger en GED » (après les propositions, §1septies). OPTIONNELLE et ISOLÉE : un
   //   échec n'impacte jamais la veille ni la relève. E-mail interne à l'exploitant ; on ne suit JAMAIS un lien de mairie.
@@ -88,6 +95,11 @@ export interface DepsVeille {
   // T7-C — PRÉ-COCHAGE automatique de « répondu » (après l'alerte action, §1nonies). OPTIONNEL et ISOLÉ. LECTURE STRICTE du
   //   dossier envoyés (en-têtes seuls) ; ancre anti-résurrection repondu_auto_le. N'écrit jamais demande.statut.
   preCochageRepondu?(): Promise<unknown>;
+  // RELANCE lot 6 — ENVOI AUTOMATIQUE aux mairies / à la CADA (après le pré-cochage, §1decies). OPTIONNEL et ISOLÉ. ⚠️ SEUL
+  //   point où l'ordonnanceur écrit à un TIERS, et UNIQUEMENT sous interrupteur explicite (relance_auto_active /
+  //   saisine_cada_auto_active, défauts false). Désactivés → rien ne part à un tiers. APPELLE envoyerRelances/envoyerSaisinesCada
+  //   (gardes intactes) ; compte rendu interne à alerte_email. Un échec ne touche jamais la veille ni la relève.
+  envoiAuto?(): Promise<unknown>;
 }
 
 export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = depsReelles()): Promise<ResultatVeille> {
@@ -158,6 +170,16 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   (repondu_auto_le). MÊME ISOLATION : un échec n'impacte rien. Ne remplace jamais le bouton manuel ; jamais demande.statut.
     if (deps.preCochageRepondu) {
       try { await deps.preCochageRepondu(); } catch { /* pré-cochage isolé : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1decies) ENVOI AUTOMATIQUE aux mairies / à la CADA (RELANCE lot 6) — DERNIÈRE étape auto, APRÈS que la cascade a préparé
+    //   ses brouillons (§1quater) : si relance_auto_active, les relances dont la variante correspond à la fenêtre du JOUR
+    //   partent (la garde d'obsolescence du lot 3 s'applique telle quelle) ; si saisine_cada_auto_active, la saisine part
+    //   (ou va en file de dépôt si cada_email est vide). Interrupteurs à false (défaut) → rien ne part à un tiers. MÊME
+    //   ISOLATION à double filet : un échec d'envoi n'impacte jamais la veille ni la relève ; les deux étapes sont isolées l'une
+    //   de l'autre (dans executerEnvoiAuto). Un compte rendu INTERNE (alerte_email) récapitule tout envoi effectué.
+    if (deps.envoiAuto) {
+      try { await deps.envoiAuto(); } catch { /* envoi auto isolé : n'impacte jamais la veille Sitadel */ }
     }
 
     const config = await deps.chargerConfig();
@@ -298,6 +320,8 @@ function depsReelles(): DepsVeille {
     alerteAction: () => executerAlerteActionAuto(depsReellesAlerteAction()),
     // T7-C — pré-cochage « répondu » réel : dossier envoyés (en-têtes seuls) + match fil/destinataire + ancre repondu_auto_le, dans preCochageReponduAuto.ts.
     preCochageRepondu: () => executerPreCochageAuto(depsReellesPreCochage()),
+    // RELANCE lot 6 — envoi automatique réel : DEUX interrupteurs + plafond auto + appels envoyerRelances/envoyerSaisinesCada (gardes intactes) + compte rendu interne, dans envoiAuto.ts.
+    envoiAuto: () => executerEnvoiAuto(depsReellesEnvoiAuto()),
   };
 }
 

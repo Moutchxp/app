@@ -189,12 +189,22 @@ describe('X3 — envoyerSaisinesCada : canaux, garde-fous, budget', () => {
     expect(r.budget).toBe(0);
     expect(r.resultats).toHaveLength(0);
   });
+
+  it('LOT 6 — plafond d’envoi AUTO : 12 candidats, plafondAuto 5 (caps manuels plus larges) → 5 retenus, 7 REPORTÉS et NOMMÉS', async () => {
+    const douze = Array.from({ length: 12 }, (_, i) => S({ saisineId: i + 1, reference: `SVAV-DEM-${i + 1}`, numeros: [`P${i + 1}`] }));
+    const r = await envoyerSaisinesCada({ plafondAuto: 5 }, deps({ candidats: async () => douze }));
+    expect(r.budget).toBe(5);                    // min(capBatch(12,10,25,0)=10, plafondAuto=5) = 5
+    expect(r.destinataires).toHaveLength(5);
+    expect(r.reportes).toHaveLength(7);          // 7 au-delà du plafond, JAMAIS perdus
+    expect(r.reportes.map((x) => x.numeros[0])).toEqual(['P6', 'P7', 'P8', 'P9', 'P10', 'P11', 'P12']); // nommés
+    expect(r.reportes[0].motif).toMatch(/plafond/);
+  });
 });
 
 describe('X5 — lancerSaisinePourDemande : création + envoi RESTREINT à la saisine (mapping honnête)', () => {
   const rapport = (over: Partial<RapportEnvoiSaisine> = {}): RapportEnvoiSaisine => ({
     mode: 'applique', canal: 'email', candidats: 1, emisAujourdhui: 0, capParRun: 10, capParJour: 25, budget: 1,
-    bloqueesForclusion: [], bloqueesCorps: [], bloqueesCompte: [], bloqueesPiece: [], destinataires: [], resultats: [], fileADeposer: [], octetsPartis: 0, ...over,
+    bloqueesForclusion: [], bloqueesCorps: [], bloqueesCompte: [], bloqueesPiece: [], destinataires: [], reportes: [], resultats: [], fileADeposer: [], octetsPartis: 0, ...over,
   });
   const depsEnvoi = (cands: { saisineId: number }[]) => ({ candidats: async () => cands } as unknown as DepsEnvoiSaisine);
 

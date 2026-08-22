@@ -34,6 +34,7 @@ export interface ConfigVeille {
   dilaUrl: string; // S30 : URL de l'annuaire DILA, éditable en base (config_veille.dila_url) — pilotage sans code
   envoisMaxParRun: number;  // S37 : cap d'envoi — e-mails aux mairies par action d'envoi (rempart anti-salve)
   envoisMaxParJour: number; // S37 : cap d'envoi — e-mails aux mairies par jour (runs cumulés)
+  envoisAutoMaxParRun: number; // LOT 6 : plafond SPÉCIFIQUE à l'envoi AUTOMATIQUE (relances + saisines) — EN PLUS des caps manuels, jamais à leur place ; borne l'accident (1..50, défaut 5)
   adresseReponse: string;   // S38 : boîte relue en reply-to des demandes ('' = non configurée → envoi refusé)
   mentionServiceActive: boolean; // S40 : mention « service destinataire » (en tête du corps)
   mentionServiceTexte: string;   // S40 : texte éditable de la mention service
@@ -87,6 +88,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   dilaUrl: DILA_URL_DEFAUT,
   envoisMaxParRun: 10,   // = DEFAULT de la migration 070 (défaut prudent)
   envoisMaxParJour: 25,  // = DEFAULT de la migration 070 (défaut prudent)
+  envoisAutoMaxParRun: 5, // = DEFAULT de la migration 137 (plafond d'envoi automatique)
   adresseReponse: '',    // = DEFAULT de la migration 071 (non configurée → le send refuse)
   mentionServiceActive: false, mentionServiceTexte: '', // = DEFAULT de la migration 072 (désactivée, vide)
   mentionDelaiActive: false, mentionDelaiTexte: '',     // = DEFAULT de la migration 072 (désactivée, vide)
@@ -154,6 +156,21 @@ async function lireCapsEnvoi(): Promise<{ envoisMaxParRun: number; envoisMaxParJ
     return { envoisMaxParRun: r.envois_max_par_run, envoisMaxParJour: r.envois_max_par_jour };
   } catch {
     return { envoisMaxParRun: CONFIG_VEILLE_DEFAUT.envoisMaxParRun, envoisMaxParJour: CONFIG_VEILLE_DEFAUT.envoisMaxParJour }; // 070 pas encore appliquée → défauts
+  }
+}
+
+/**
+ * LOT 6 — Lecture BEST-EFFORT du PLAFOND D'ENVOI AUTOMATIQUE, ISOLÉE (même motif de résilience que `lireCapsEnvoi`) : tant que
+ * la migration 137 n'est pas passée, la colonne n'existe pas → cette lecture échoue SEULE et retombe sur le défaut prudent 5,
+ * sans dégrader le reste de la config. Après 137 : renvoie la valeur en base (fait foi).
+ */
+async function lireEnvoiAutoPlafond(): Promise<Pick<ConfigVeille, 'envoisAutoMaxParRun'>> {
+  try {
+    const { rows } = await query<{ envois_auto_max_par_run: number }>(
+      `SELECT envois_auto_max_par_run FROM config_veille WHERE id = 1`);
+    return { envoisAutoMaxParRun: rows[0]?.envois_auto_max_par_run ?? CONFIG_VEILLE_DEFAUT.envoisAutoMaxParRun };
+  } catch {
+    return { envoisAutoMaxParRun: CONFIG_VEILLE_DEFAUT.envoisAutoMaxParRun }; // 137 pas encore appliquée → défaut
   }
 }
 
@@ -398,6 +415,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       runDemandeLe: r.run_demande_le,
       dilaUrl: await lireDilaUrl(), // S30 : lecture isolée (résiliente à l'ordre d'application de la 069)
       ...(await lireCapsEnvoi()),   // S37 : caps d'envoi, lecture isolée (résiliente à l'ordre d'application de la 070)
+      ...(await lireEnvoiAutoPlafond()), // LOT 6 : plafond d'envoi automatique, lecture isolée (résiliente à la 137)
       adresseReponse: await lireAdresseReponse(), // S38 : lecture isolée (résiliente à l'ordre d'application de la 071)
       ...(await lireMentions()),                   // S40 : mentions de courrier, lecture isolée (résiliente à la 072)
       ...(await lireReleve()),                      // R7 : relève automatique, lecture isolée (résiliente à la 074)

@@ -38,6 +38,7 @@ export interface RelanceAEnvoyer {
   profil: ProfilDemandeur;   // profil PORTÉ PAR LA RELANCE → choisit le compte SMTP + l'adresse d'expédition
   variante: string;          // H : étape ENREGISTRÉE (rappel/avis/saisine/formelle) — re-dérivée à l'envoi
   envoyeLe: Date | null;     // H : envoi RÉEL de la demande (ancre d'échéance) — pour recalculer la fenêtre du jour
+  numeros: string[];         // LOT 6 : num_dau des dossiers dus (permis) — pour NOMMER la demande dans le compte rendu d'envoi auto
 }
 
 /**
@@ -137,7 +138,8 @@ export interface RapportEnvoiRelance {
   bloqueesCorps: { reference: string; motif: string }[];
   bloqueesCompte: { reference: string; motif: string }[];
   bloqueesObsoletes: { reference: string; motif: string }[]; // W1 : dossiers satisfaits depuis le brouillon
-  destinataires: { reference: string; commune: string | null; email: string; expediteur: string; apercuCorps: string }[];
+  destinataires: { relanceId: number; demandeId: number; reference: string; commune: string | null; email: string; expediteur: string; apercuCorps: string; variante: string; numeros: string[] }[];
+  reportes: { reference: string; commune: string | null; numeros: string[]; motif: string }[]; // LOT 6 : envoyables au-delà du plafond (auto/caps) — reportés au prochain run, NOMMÉS
   resultats: ResultatRelance[];
   octetsPartis: number;        // 0 en simulation ; octets du texte réellement transmis en --appliquer
 }
@@ -150,11 +152,14 @@ const SENTINELLE_DRYRUN = new Error('__DRY_RUN_ROLLBACK__');
  *  demande close (d.statut≠'envoyee') et une relance non-'brouillon' (déjà envoyée / abandonnée) → jamais candidates.
  *  EXPORTÉ pour tester ce filtre de sélection (garde-fous close / non-brouillon). */
 export async function lireCandidatsRelance(): Promise<RelanceAEnvoyer[]> {
-  const { rows } = await query<{ relance_id: number; demande_id: number; reference: string; commune_nom: string | null; dest_email: string; objet: string | null; corps: string | null; profil: string; variante: string; envoye_le: Date | null }>(
+  const { rows } = await query<{ relance_id: number; demande_id: number; reference: string; commune_nom: string | null; dest_email: string; objet: string | null; corps: string | null; profil: string; variante: string; envoye_le: Date | null; dus_nums: string[] | null }>(
     `SELECT dr.id::int AS relance_id, dr.demande_id::int AS demande_id, d.reference, c.nom AS commune_nom,
             d.dest_email, dr.objet, dr.corps, dr.profil_demandeur AS profil, dr.variante,
             -- H : ancre d'échéance (envoi RÉEL) pour re-dériver la fenêtre à l'envoi ; agnostique au canal (formulaire compris).
-            (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id) AS envoye_le
+            (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id) AS envoye_le,
+            -- LOT 6 : num_dau des dossiers DUS (permis), pour nommer la demande dans le compte rendu d'envoi automatique.
+            coalesce((SELECT array_agg(s.num_dau ORDER BY s.num_dau) FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
+                       WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL), '{}') AS dus_nums
        FROM demande_relance dr
        JOIN demande d ON d.id = dr.demande_id
        LEFT JOIN commune c ON c.code_insee = d.code_insee
@@ -164,7 +169,7 @@ export async function lireCandidatsRelance(): Promise<RelanceAEnvoyer[]> {
   return rows.map((r) => ({
     relanceId: r.relance_id, demandeId: r.demande_id, reference: r.reference, communeNom: r.commune_nom,
     destEmail: r.dest_email, objet: r.objet ?? '', corps: r.corps ?? '', profil: profilValide(r.profil),
-    variante: r.variante, envoyeLe: r.envoye_le,
+    variante: r.variante, envoyeLe: r.envoye_le, numeros: r.dus_nums ?? [],
   }));
 }
 
@@ -186,9 +191,12 @@ async function nommerDossiersSatisfaitsDepuis(demandeId: number): Promise<string
  * transaction ROLLBACK (rien persisté). `appliquer:true` = envoi RÉEL : chaque relance dans SA transaction (tout-ou-rien),
  * via le compte SMTP de SON profil. AUCUN branchement dans executerVeille : ce point d'entrée est manuel (CLI).
  */
-export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: string | null } = {}): Promise<RapportEnvoiRelance> {
+export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: string | null; plafondAuto?: number } = {}): Promise<RapportEnvoiRelance> {
   const appliquer = opts.appliquer === true;
   const auteur = opts.auteur ?? null;
+  // LOT 6 : plafond d'envoi AUTOMATIQUE, EN PLUS des caps (jamais à leur place) → la salve réelle est le MIN des trois. Absent
+  // (appel manuel/CLI) → aucune borne supplémentaire (comportement d'avant le lot 6 strictement préservé).
+  const plafondAuto = typeof opts.plafondAuto === 'number' ? Math.max(0, Math.trunc(opts.plafondAuto)) : Infinity;
   const config = await chargerConfigVeille();
 
   const adresses = await lireAdressesExpedition();
@@ -215,12 +223,17 @@ export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: stri
   const plan = planifierRelances(candidats, adresses, comptesPresents, obsoletes, desalignees);
 
   const emisAujourdhui = await compterEmisAujourdhui(); // PARTAGÉ avec les demandes (même table, même compteur)
-  const budget = capBatch(plan.envoyables.length, config.envoisMaxParRun, config.envoisMaxParJour, emisAujourdhui);
+  // Salve réelle = MIN(candidats, cap/run, reste du jour, plafond auto). capBatch borne les 3 premiers ; le plafond auto resserre.
+  const budget = Math.min(capBatch(plan.envoyables.length, config.envoisMaxParRun, config.envoisMaxParJour, emisAujourdhui), plafondAuto);
   const aTraiter = plan.envoyables.slice(0, budget);
+  const reportes = plan.envoyables.slice(budget).map((r) => ({
+    reference: r.reference, commune: r.communeNom, numeros: r.numeros,
+    motif: 'plafond d’envoi atteint (envoi auto / caps) — relance reportée au prochain run, aucune donnée perdue',
+  }));
   const base = {
     candidats: candidats.length, emisAujourdhui, capParRun: config.envoisMaxParRun, capParJour: config.envoisMaxParJour, budget,
-    bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte, bloqueesObsoletes: plan.bloqueesObsoletes,
-    destinataires: aTraiter.map((r) => ({ reference: r.reference, commune: r.communeNom, email: r.destEmail, expediteur: r.expediteur, apercuCorps: apercu(r.corps) })),
+    bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte, bloqueesObsoletes: plan.bloqueesObsoletes, reportes,
+    destinataires: aTraiter.map((r) => ({ relanceId: r.relanceId, demandeId: r.demandeId, reference: r.reference, commune: r.communeNom, email: r.destEmail, expediteur: r.expediteur, apercuCorps: apercu(r.corps), variante: r.variante, numeros: r.numeros })),
   };
   const resultats: ResultatRelance[] = [];
   const octets = (): number => octetsDe(aTraiter.filter((r) => resultats.find((x) => x.relanceId === r.relanceId)?.issue === 'envoye'), appliquer);
