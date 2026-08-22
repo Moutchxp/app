@@ -74,7 +74,7 @@ function donnees(over: Partial<DonneesCertificatPdf> = {}): DonneesCertificatPdf
     demandeur: { nom: 'Jean Dupont', adresse: '34 rue de Turenne, 75003 Paris', email: 'jean.dupont@email.fr', telephone: '06 12 34 56 78' },
     bien: { adresse: '34 rue de Turenne, 75003 Paris', cadastre: '000 AB 123', type: 'Appartement', usage: 'Habitation principale' },
     photo: { azimut: '123,4°', mode: 'snapping façade', champ: '180° horizontal' },
-    empreinteCoordonnees: [['Latitude', '48.858370'], ['Longitude', '2.362350'], ['Alt. terrain (NGF)', '35,2 m'], ['Alt. sol (BD TOPO)', '34,8 m'], ['Tolérance de mesure', '± 2 m']],
+    empreinteCoordonnees: [['Latitude', '48.858370'], ['Longitude', '2.362350'], ['Alt. terrain (NGF)', '35,2 m'], ['Alt. sol (BD TOPO)', '34,8 m']],
     empreintePosition: [['Étage', '5e étage'], ['Dernier étage', 'Non'], ['Sous-plafond déclaré', '2,50 m'], ['Hauteur de vision', '12,85 m'], ['Champ analysé', '180°']],
     empreinteCaracteristiques: [['Surface', '72,35 m²'], ['Pièces', '3'], ['Chambres', '—'], ['Année', '2008'], ['Extérieur', 'Balcon']],
     analyseResultat: [['Obstacle face détecté', '> 200 m'], ['Moyenne faisceaux', '187,4 m'], ['Analyses LiDAR', '—']],
