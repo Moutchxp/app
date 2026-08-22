@@ -8,6 +8,7 @@ import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { bornesFenetres, type FenetreCumul } from './fenetresCumul';
 import { apparierPropositions, chiffresDossier, type CibleDepot } from './propositionDepot';
 import { fenetreDepuis } from './releveReponses'; // P1 : MÊME source que la relève pour « on relève depuis le … » (jamais une 2e vérité)
+import type { ReglagesCascade } from './cascadeRelance'; // cascade lot 4 : seuils exposés à l'affichage (type-only → erasé côté client)
 
 /** Réglages de relève/échéance en vigueur (lecture seule ; édités dans l'onglet Réglages). */
 export interface ReglagesReleve {
@@ -147,6 +148,9 @@ export interface DemandeSuivi {
   derniereReponseLe: string | null; // T1 : date (ISO) du dernier message « a écrit » (hors rebond) → pré-remplit « refus le »
   referencesMairie: string[];   // FUS-4 : références mairie (SLC…) de la demande — colonne « Réf. mairie » éditable (ajouter/modifier/effacer)
   aAccuse: boolean;             // FUS-4 : ≥ 1 message de nature 'accuse' rattaché → « accusé reçu » DÉRIVÉ (avec ou sans référence)
+  dernierEnvoiRelance: { variante: string; envoyeLe: string } | null; // cascade lot 4 : dernière relance RÉELLEMENT envoyée (pilote le statut)
+  relancePreparee: { variante: string } | null;                        // cascade lot 4 : brouillon vivant NON envoyé (« prêt, non envoyé »)
+  saisineCadaEnvoyeeLe: string | null;                                 // cascade lot 4 : saisine CADA (type='saisine_cada') envoyée
   dossiers: DossierSuivi[];
   dossiersRetires: { dossierId: number; numDau: string; adresse: string | null }[]; // T1 : dossiers RETIRÉS (actif=false) — sous-liste du détail (réversibilité de « retirer » via reattacher). N'affecte NI le périmètre NI demandeADuRetour.
   liens: LienAffiche[];         // L1 : liens de téléchargement captés dans les réponses rattachées (forts d'abord)
@@ -260,13 +264,15 @@ export async function chargerCumulsRuns(maintenant: Date): Promise<CumulsRuns> {
  * ici, sinon les demandes sans message disparaîtraient AUSSI d'« En cours ». Un SEUL chargeur → un seul calcul d'échéance
  * (via etatEcheance, en aval), jamais deux (défaut B2). LECTURE SEULE.
  */
-export interface SuiviDemandesData { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve }
+export interface SuiviDemandesData { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade }
 export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   const cfg = await chargerConfigVeille();
   const reglages: ReglagesReleve = {
     active: cfg.releveActive, intervalleMinutes: cfg.releveIntervalleMinutes, profil: cfg.releveProfil,
     fraicheurHeures: cfg.releveFraicheurHeures, alerteJours: cfg.echeanceAlerteJours, adresseReleve: cfg.adresseReponse,
   };
+  // Cascade lot 4 — seuils de la cascade (config_veille, lot 2) : pilotent le libellé « à lancer » et la prochaine étape à l'affichage.
+  const cascade: ReglagesCascade = { rappelJoursAvant: cfg.relanceRappelJoursAvant, avisJoursAvant: cfg.relanceAvisJoursAvant, saisineDelaiJours: cfg.relanceSaisineDelaiJours };
 
   const derniere = await query<{ t: string | null }>(`SELECT max(termine_le)::text AS t FROM releve_run WHERE resultat = 'ok'`);
   const derniereOkLe = derniere.rows[0]?.t ?? null;
@@ -277,6 +283,8 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string;
     envoye_le: string | null; statut_acheminement: string; dossiers_actifs: number; dossiers_satisfaits: number; dossiers_en_ged: number; nb_reponses: number; nb_reponses_reelles: number; derniere_reponse_le: string | null;
     refs_mairie: string[]; a_accuse: boolean; // FUS-4 : réf. mairie (colonne éditable) + « accusé » DÉRIVÉ (message nature 'accuse')
+    dernier_relance_variante: string | null; dernier_relance_envoye_le: string | null; // cascade lot 4 : dernier envoi RÉEL de relance
+    relance_preparee_variante: string | null; saisine_cada_envoyee_le: string | null;  // cascade lot 4 : brouillon préparé + saisine CADA envoyée
   }>(
     // T3 — DEUX faits DISTINCTS : « la mairie a ÉCRIT » (nb_reponses, accusé COMPRIS, rebond EXCLU → pilote « En cours ») et
     //   « la mairie a RÉPONDU » (nb_reponses_reelles, hors accusé ET hors rebond → pilote l'entrée dans « Réponses »). Un rebond
@@ -297,7 +305,14 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
             -- FUS-4 : références mairie de la demande (colonne « Réf. mairie » éditable) + « accusé reçu » DÉRIVÉ (message nature
             --   'accuse' rattaché). La présence d'une référence OU d'un accusé pilote l'affichage « accusé reçu » côté Vue (jamais stocké).
             coalesce((SELECT array_agg(re.reference ORDER BY re.cree_le) FROM demande_reference_externe re WHERE re.demande_id = d.id), '{}') AS refs_mairie,
-            EXISTS (SELECT 1 FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature = 'accuse') AS a_accuse
+            EXISTS (SELECT 1 FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature = 'accuse') AS a_accuse,
+            -- Cascade lot 4 — DERNIER envoi RÉEL de relance (variante + date) : le statut de cascade reflète l'envoi, jamais un brouillon.
+            (SELECT rl.variante FROM demande_acheminement a2 JOIN demande_relance rl ON rl.id = a2.relance_id
+              WHERE a2.demande_id = d.id AND a2.statut = 'envoye' AND a2.relance_id IS NOT NULL ORDER BY a2.envoye_le DESC LIMIT 1) AS dernier_relance_variante,
+            (SELECT max(a2.envoye_le)::text FROM demande_acheminement a2 WHERE a2.demande_id = d.id AND a2.statut = 'envoye' AND a2.relance_id IS NOT NULL) AS dernier_relance_envoye_le,
+            -- brouillon vivant NON envoyé (préparé, à afficher « prêt, non envoyé ») + saisine CADA (type='saisine_cada') envoyée.
+            (SELECT rl.variante FROM demande_relance rl WHERE rl.demande_id = d.id AND rl.type = 'relance' AND rl.statut = 'brouillon' ORDER BY rl.generee_le DESC LIMIT 1) AS relance_preparee_variante,
+            (SELECT max(rl.envoyee_le)::text FROM demande_relance rl WHERE rl.demande_id = d.id AND rl.type = 'saisine_cada' AND rl.statut = 'envoyee') AS saisine_cada_envoyee_le
        FROM demande d
        LEFT JOIN commune c ON c.code_insee = d.code_insee
        -- B2 — la date d'envoi (ancre d'échéance) se lit QUEL QUE SOIT le canal : un dépôt téléservice écrit une ligne
@@ -446,6 +461,10 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits, dossiersEnGed: r.dossiers_en_ged, nbReponses: r.nb_reponses, nbReponsesReelles: r.nb_reponses_reelles,
     derniereReponseLe: r.derniere_reponse_le,
     referencesMairie: r.refs_mairie ?? [], aAccuse: r.a_accuse ?? false, // FUS-4
+    // Cascade lot 4 — variante+date du dernier envoi RÉEL, brouillon préparé, saisine CADA envoyée (tous DÉRIVÉS, jamais stockés côté demande).
+    dernierEnvoiRelance: r.dernier_relance_variante !== null && r.dernier_relance_envoye_le !== null ? { variante: r.dernier_relance_variante, envoyeLe: r.dernier_relance_envoye_le } : null,
+    relancePreparee: r.relance_preparee_variante !== null ? { variante: r.relance_preparee_variante } : null,
+    saisineCadaEnvoyeeLe: r.saisine_cada_envoyee_le,
 
     dossiers: parDemande.get(r.id) ?? [],
     dossiersRetires: parDemandeRetires.get(r.id) ?? [],
@@ -455,7 +474,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     piecesReponses: parPiecesReponses.get(r.id) ?? [],
     provenancesContenu: parProvenances.get(r.id) ?? [],
   }));
-  return { demandes, derniereOkLe, reglages };
+  return { demandes, derniereOkLe, reglages, cascade };
 }
 
 /** Charge tout le nécessaire de l'écran « Réponses » en une passe. LECTURE SEULE. */

@@ -174,6 +174,14 @@ describe('T6-A/2 — demandeADuRetour + partitionnerReponses : filtre local + EX
     expect(partitionnerReponses([partielle, sansRetour], true).affichees).toEqual([partielle]);
   });
 
+  it('lot 4 — EXCLUSIVITÉ : un permis EN CASCADE (relance vivante/préparée, aucun retour mairie) reste « En cours », JAMAIS dans « Réponses »', () => {
+    // demandeADuRetour ne regarde QUE le retour de la MAIRIE (nbReponsesReelles / satisfait / triage) — jamais « a une relance vivante ».
+    //   Un permis en pleine cascade sans vrai retour = nbReponsesReelles 0, aucun dossier satisfait/trié → hors Réponses.
+    const enCascade = dem({ nbReponsesReelles: 0, dossiersActifs: 2, dossiersSatisfaits: 0, dossiers: [{ triage: null }, { triage: null }] });
+    expect(demandeADuRetour(enCascade)).toBe(false);                         // reste « En cours » (la relance est NOTRE action, pas un retour)
+    expect(partitionnerReponses([enCascade], true).affichees).toEqual([]);   // n'apparaît PAS dans « Réponses » → jamais dans les deux onglets
+  });
+
   it('partitionnerReponses : la demande SANS retour est EXCLUE, MÊME avec afficherTout (jamais dans « affichees »)', () => {
     const sansRetour = dem({ nbReponsesReelles: 0, dossiersActifs: 2, dossiersSatisfaits: 0 });  // 154 (ou : accusé/rebond seul)
     const avecMessage = dem({ nbReponsesReelles: 1, dossiersActifs: 2, dossiersSatisfaits: 0 }); // vivante avec vrai retour

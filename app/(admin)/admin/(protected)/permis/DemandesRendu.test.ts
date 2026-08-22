@@ -582,6 +582,13 @@ describe('D3 — TableDemandes : colonne « Type » en 2e position + conteneur d
     expect(sans).not.toMatch(/\d{2}\/\d{2}\/\d{4}/);
   });
 
+  it('lot 4 — colonne Statut « En cours » : le statut DÉRIVÉ de la cascade (libellé + prochaine étape) PRIME sur « envoyée + date »', () => {
+    const h = rendu({ visibles: [DEM({ statut: 'envoyee', envoyeLe: '2026-08-18T08:38:00Z', cascade: { libelle: 'Rappel envoyé le 25 août 2026 à 10:00', prochaine: 'Avis d’échéance prévu le 1 septembre 2026' } })] });
+    expect(h).toContain('Rappel envoyé le 25 août 2026 à 10:00'); // libellé de cascade dans la colonne Statut
+    expect(h).toContain('Avis d’échéance prévu le 1 septembre 2026'); // prochaine étape en information secondaire
+    expect(h).not.toContain('18/08/2026 10:38'); // la date brute d'envoi ne s'affiche plus quand la cascade prend la main
+  });
+
   it('FUS — cellules du tableau CENTRÉES (horizontal + vertical)', () => {
     const h = rendu({ visibles: [DEM({ rangs: [1] })] });
     expect(h).toContain('text-align:center');

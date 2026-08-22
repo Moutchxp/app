@@ -569,6 +569,7 @@ export interface DemandeAffichee {
   nbDossiers: number; statut: string; rangs?: number[];
   numeros?: string[]; // T6-B — num_dau des dossiers ACTIFS (colonne « N° permis »)
   envoyeLe?: string | null; // FUS — date/heure effective d'envoi (min demande_acheminement.envoye_le), affichée sous le statut ; absente hors « En cours »
+  cascade?: { libelle: string; prochaine: string } | null; // lot 4 — statut DÉRIVÉ de la cascade (colonne Statut, « En cours ») : libellé + prochaine étape. Absent ailleurs.
 }
 
 /** T6-B — n° de SÉQUENCE d'une référence SVAV-DEM-AAAA-NNNNNN (dernier segment « NNNNNN »). Repli : la référence entière si le format diffère. PUR. */
@@ -748,10 +749,20 @@ export function TableDemandes({
                   <td style={nowrap}>{libelleOrigine(d.canal)}</td>
                   <td style={styleTdD}><OrigineDest origine={d.destOrigine} nom={d.destNom} /></td>
                   <td style={styleTdD}>{d.nbDossiers}</td>
-                  {/* FUS — Statut + DATE/HEURE effective d'envoi (envoyeLe = min demande_acheminement.envoye_le), en heure locale Paris. */}
+                  {/* FUS — Statut + DATE/HEURE effective d'envoi. Lot 4 (« En cours ») — le STATUT DÉRIVÉ de la cascade (libellé + prochaine
+                       étape) prime : il reflète le dernier envoi RÉEL. La colonne « Retour mairie » (à côté) reste réservée à la MAIRIE. */}
                   <td style={nowrap}>
-                    <div>{STATUT_LIBELLE[d.statut] ?? d.statut}</div>
-                    {d.envoyeLe ? <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{formaterDateHeureLocale(d.envoyeLe)}</div> : null}
+                    {d.cascade ? (
+                      <>
+                        <div>{d.cascade.libelle}</div>
+                        <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{d.cascade.prochaine}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div>{STATUT_LIBELLE[d.statut] ?? d.statut}</div>
+                        {d.envoyeLe ? <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{formaterDateHeureLocale(d.envoyeLe)}</div> : null}
+                      </>
+                    )}
                   </td>
                   {colonnesSuivi?.cellule(d) /* T6-A — Délai + Retour mairie (En cours) */}
                   <td style={styleTdD}>
