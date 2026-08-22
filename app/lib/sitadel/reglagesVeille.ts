@@ -215,6 +215,11 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Combien de jours AVANT l’échéance l’AVIS est préparé. Il prévient la mairie que l’échéance approche et qu’à défaut de réponse vous pourrez saisir la CADA — sans encore la saisir. Une réponse de sa part rend la démarche sans objet.' },
   { colonne: 'relance_saisine_delai_jours', cle: 'relanceSaisineDelaiJours', libelle: 'Saisine CADA — délai après l’échéance', unite: 'jours', type: 'entier',
     aide: 'Combien de jours APRÈS l’échéance la saisine de la CADA sera déposée. Le jour de l’échéance, un message l’annonce à la mairie ; ce délai lui laisse une dernière chance de transmettre les pièces avant le dépôt.' },
+  // RELANCE — fenêtre HORAIRE d'envoi automatique (matin, jours ouvrés). Un rappel expédié un dimanche soir « fait robot » ; en semaine le matin, il « fait une personne ».
+  { colonne: 'envoi_heure_debut', cle: 'envoiHeureDebut', libelle: 'Envoi automatique — heure de début', unite: 'heure locale', type: 'entier',
+    aide: 'Les relances automatiques ne partent qu’entre cette heure et l’heure de fin ci-dessous, du lundi au vendredi. Les jours fériés ne sont pas pris en compte. Un brouillon préparé un week-end attend le lundi matin. (L’envoi que VOUS déclenchez à la main n’est jamais bridé.)' },
+  { colonne: 'envoi_heure_fin', cle: 'envoiHeureFin', libelle: 'Envoi automatique — heure de fin', unite: 'heure locale', type: 'entier',
+    aide: 'Fin (exclue) de la fenêtre d’envoi automatique. Doit être PLUS GRANDE que l’heure de début ; sinon, par sécurité, rien ne part automatiquement (et le compte rendu le signale). La veille passe toutes les 15 min : une fenêtre de deux heures suffit largement à ce qu’un envoi tombe dedans.' },
   // X1 — CANAL CADA (saisine quand une mairie reste silencieuse plus d’un mois). L’adresse VIDE n’est PAS une erreur : c’est le mode « formulaire en ligne ».
   { colonne: 'cada_email', cle: 'cadaEmail', libelle: 'Adresse e-mail de la CADA', unite: '', type: 'email',
     aide: 'Adresse e-mail où saisir la CADA (Commission d’accès aux documents administratifs) quand une mairie n’a pas répondu. Si vous la renseignez, la saisine part par e-mail avec, en pièce jointe, une copie de votre demande initiale. Laissée VIDE, ce n’est PAS bloquant : la saisine se fait alors à la main sur le formulaire en ligne de la CADA (adresse ci-dessous).' },
@@ -330,6 +335,8 @@ export const COLONNES_THEME_ENVOI: readonly string[] = [
   'relance_jours_avant_echeance', 'relance_auto_active',
   // Cascade lot 2 — les 3 délais, à la suite du réglage de relance existant, dans l'ordre chronologique (rappel → avis → saisine).
   'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours',
+  // RELANCE — fenêtre horaire d'envoi automatique (matin, jours ouvrés).
+  'envoi_heure_debut', 'envoi_heure_fin',
 ];
 export const COLONNES_THEME_REPONSES: readonly string[] = [
   'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',

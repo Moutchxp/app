@@ -73,6 +73,9 @@ const DEFS_BASE = [
   'CHECK (((relance_rappel_jours_avant >= 1) AND (relance_rappel_jours_avant <= 30)))',
   'CHECK (((relance_avis_jours_avant >= 1) AND (relance_avis_jours_avant <= 30)))',
   'CHECK (((relance_saisine_delai_jours >= 1) AND (relance_saisine_delai_jours <= 30)))',
+  // RELANCE — fenêtre horaire d'envoi automatique (migration 140) : BETWEEN 0 AND 23 → forme `>= AND <=`
+  'CHECK (((envoi_heure_debut >= 0) AND (envoi_heure_debut <= 23)))',
+  'CHECK (((envoi_heure_fin >= 0) AND (envoi_heure_fin <= 23)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 

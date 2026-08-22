@@ -36,6 +36,8 @@ export interface ConfigVeille {
   envoisMaxParJour: number; // S37 : cap d'envoi — e-mails aux mairies par jour (runs cumulés)
   envoisAutoMaxParRun: number; // LOT 6 : plafond SPÉCIFIQUE à l'envoi AUTOMATIQUE (relances + saisines) — EN PLUS des caps manuels, jamais à leur place ; borne l'accident (1..50, défaut 5)
   recomptageHeureLocale: number; // PASTILLES : heure locale (0..23) du recomptage quotidien des compteurs « actions en attente » — ne lit pas la boîte mail (défaut 8)
+  envoiHeureDebut: number; // RELANCE : début (0..23) de la fenêtre d'envoi automatique (jours ouvrés) — défaut 9
+  envoiHeureFin: number;   // RELANCE : fin (0..23, exclue) de la fenêtre d'envoi automatique — défaut 11 ; doit être > début (sinon rien ne part)
   adresseReponse: string;   // S38 : boîte relue en reply-to des demandes ('' = non configurée → envoi refusé)
   mentionServiceActive: boolean; // S40 : mention « service destinataire » (en tête du corps)
   mentionServiceTexte: string;   // S40 : texte éditable de la mention service
@@ -91,6 +93,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   envoisMaxParJour: 25,  // = DEFAULT de la migration 070 (défaut prudent)
   envoisAutoMaxParRun: 5, // = DEFAULT de la migration 137 (plafond d'envoi automatique)
   recomptageHeureLocale: 8, // = DEFAULT de la migration 139 (recomptage quotidien des pastilles)
+  envoiHeureDebut: 9, envoiHeureFin: 11, // = DEFAULT de la migration 140 (fenêtre d'envoi automatique, jours ouvrés)
   adresseReponse: '',    // = DEFAULT de la migration 071 (non configurée → le send refuse)
   mentionServiceActive: false, mentionServiceTexte: '', // = DEFAULT de la migration 072 (désactivée, vide)
   mentionDelaiActive: false, mentionDelaiTexte: '',     // = DEFAULT de la migration 072 (désactivée, vide)
@@ -172,6 +175,22 @@ async function lireRecomptageHeure(): Promise<Pick<ConfigVeille, 'recomptageHeur
     return { recomptageHeureLocale: rows[0]?.recomptage_heure_locale ?? CONFIG_VEILLE_DEFAUT.recomptageHeureLocale };
   } catch {
     return { recomptageHeureLocale: CONFIG_VEILLE_DEFAUT.recomptageHeureLocale }; // 139 pas encore appliquée → défaut
+  }
+}
+
+/**
+ * RELANCE — Lecture BEST-EFFORT de la FENÊTRE HORAIRE d'envoi automatique, ISOLÉE : tant que la migration 140 n'est pas passée,
+ * les colonnes n'existent pas → retombe sur les défauts 9/11, sans dégrader le reste de la config.
+ */
+async function lireFenetreEnvoi(): Promise<Pick<ConfigVeille, 'envoiHeureDebut' | 'envoiHeureFin'>> {
+  try {
+    const { rows } = await query<{ envoi_heure_debut: number; envoi_heure_fin: number }>(
+      `SELECT envoi_heure_debut, envoi_heure_fin FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return { envoiHeureDebut: CONFIG_VEILLE_DEFAUT.envoiHeureDebut, envoiHeureFin: CONFIG_VEILLE_DEFAUT.envoiHeureFin };
+    return { envoiHeureDebut: r.envoi_heure_debut, envoiHeureFin: r.envoi_heure_fin };
+  } catch {
+    return { envoiHeureDebut: CONFIG_VEILLE_DEFAUT.envoiHeureDebut, envoiHeureFin: CONFIG_VEILLE_DEFAUT.envoiHeureFin }; // 140 pas encore appliquée → défauts
   }
 }
 
@@ -433,6 +452,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireCapsEnvoi()),   // S37 : caps d'envoi, lecture isolée (résiliente à l'ordre d'application de la 070)
       ...(await lireEnvoiAutoPlafond()), // LOT 6 : plafond d'envoi automatique, lecture isolée (résiliente à la 137)
       ...(await lireRecomptageHeure()),  // PASTILLES : heure de recomptage quotidien, lecture isolée (résiliente à la 139)
+      ...(await lireFenetreEnvoi()),     // RELANCE : fenêtre horaire d'envoi automatique, lecture isolée (résiliente à la 140)
       adresseReponse: await lireAdresseReponse(), // S38 : lecture isolée (résiliente à l'ordre d'application de la 071)
       ...(await lireMentions()),                   // S40 : mentions de courrier, lecture isolée (résiliente à la 072)
       ...(await lireReleve()),                      // R7 : relève automatique, lecture isolée (résiliente à la 074)

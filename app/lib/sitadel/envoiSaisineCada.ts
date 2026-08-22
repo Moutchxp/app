@@ -28,6 +28,7 @@ import { fenetreCada } from '../veille/echeance';
 import { genererCopieDemandePdf } from '../pdf/copieDemandePdf';
 import { creerSaisineCada } from '../veille/saisineCadaRepo';
 import { sujetAlerteSaisine, corpsAlerteSaisine, type InfoAlerteSaisine } from '../veille/alerteSaisineContenu'; // C (lot 5b)
+import { prochainCreneauEnvoi, etatFiltreHoraire, type FiltreHoraire } from '../veille/envoiOuvre'; // ENVOI OUVRÉ : même fenêtre horaire, SANS décalage de jour
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface SaisineAEnvoyer {
@@ -107,6 +108,7 @@ export interface RapportEnvoiSaisine {
   bloqueesPiece: LigneMotif[];      // copie de la demande impossible à produire → jamais envoyée sans PJ
   destinataires: { saisineId: number; demandeId: number; reference: string; commune: string | null; email: string; expediteur: string; apercuCorps: string; numeros: string[] }[];
   reportes: { reference: string; commune: string | null; numeros: string[]; motif: string }[]; // LOT 6 : envoyables au-delà du plafond (auto/caps) — reportées, NOMMÉES
+  reportesHoraire: { reference: string; commune: string | null; numeros: string[]; motif: string; prevu: string | null }[]; // ENVOI OUVRÉ : reportées pour cause d'heure/jour (SANS décalage de jour : la saisine a son propre délai)
   resultats: ResultatSaisine[];
   fileADeposer: LigneFile[];        // canal 'formulaire' : à saisir à la main sur le formulaire en ligne
   octetsPartis: number;
@@ -200,7 +202,7 @@ export function depsReellesEnvoiSaisine(): DepsEnvoiSaisine {
  * renseigné ; sinon canal FORMULAIRE : aucune émission, aucune ligne d'acheminement, la file « à déposer » est renvoyée.
  * AUCUN branchement dans executerVeille.
  */
-export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: string | null; plafondAuto?: number } = {}, deps: DepsEnvoiSaisine = depsReellesEnvoiSaisine()): Promise<RapportEnvoiSaisine> {
+export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: string | null; plafondAuto?: number; filtreHoraire?: FiltreHoraire } = {}, deps: DepsEnvoiSaisine = depsReellesEnvoiSaisine()): Promise<RapportEnvoiSaisine> {
   const appliquer = opts.appliquer === true;
   const auteur = opts.auteur ?? null;
   // LOT 6 : plafond d'envoi AUTOMATIQUE (EN PLUS des caps, jamais à leur place). Absent (appel manuel) → aucune borne ajoutée.
@@ -217,7 +219,7 @@ export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: 
     // LOT 6 : le plafond d'envoi AUTO ne borne PAS la file de dépôt (aucun envoi n'y a lieu ; elle est déjà visible dans l'onglet
     // Saisines et le dépôt reste MANUEL). Le canal formulaire n'expédie rien → « reportes » vide.
     const fileADeposer: LigneFile[] = recevables.map((s) => ({ saisineId: s.saisineId, demandeId: s.demandeId, reference: s.reference, communeNom: s.communeNom, numeros: s.numeros, objet: s.objet, corps: s.corps, urlFormulaire: cadaUrl }));
-    return { mode, canal: 'formulaire', candidats: candidats.length, emisAujourdhui: 0, capParRun: caps.capParRun, capParJour: caps.capParJour, budget: 0, bloqueesForclusion: forcloses, bloqueesCorps: [], bloqueesCompte: [], bloqueesPiece: [], destinataires: [], reportes: [], resultats: [], fileADeposer, octetsPartis: 0 };
+    return { mode, canal: 'formulaire', candidats: candidats.length, emisAujourdhui: 0, capParRun: caps.capParRun, capParJour: caps.capParJour, budget: 0, bloqueesForclusion: forcloses, bloqueesCorps: [], bloqueesCompte: [], bloqueesPiece: [], destinataires: [], reportes: [], reportesHoraire: [], resultats: [], fileADeposer, octetsPartis: 0 };
   }
 
   // CANAL E-MAIL. Garde-fous gabarit + adresse/compte du profil (planifierSalve réutilisé).
@@ -227,10 +229,23 @@ export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: 
   const plan = planifierSalve(recevables, adresses, comptesPresents);
   // Salve réelle = MIN(candidats, cap/run, reste du jour, plafond auto) — le plafond auto resserre les 3 bornes de capBatch.
   const budget = Math.min(capBatch(plan.envoyables.length, caps.capParRun, caps.capParJour, emisAujourdhui), plafondAuto);
-  const aTraiter = plan.envoyables.slice(0, budget);
+  const aTraiterBudget = plan.envoyables.slice(0, budget);
   const reportes = plan.envoyables.slice(budget).map((s) => ({
     reference: s.reference, commune: s.communeNom, numeros: s.numeros,
     motif: 'plafond d’envoi atteint (envoi auto / caps) — saisine reportée au prochain run, aucune donnée perdue',
+  }));
+
+  // ENVOI OUVRÉ (D) — MÊME fenêtre horaire que les relances, mais SANS décalage de jour (la saisine a déjà son propre délai de
+  // 4 j). Hors fenêtre ou config incohérente (auto seulement ; manuel = filtre absent) → on n'envoie rien, on reporte.
+  const filtre = opts.filtreHoraire;
+  const { envoie } = etatFiltreHoraire(filtre);
+  const aTraiter = envoie ? aTraiterBudget : [];
+  const reportesHoraire = (!envoie && filtre ? aTraiterBudget : []).map((s) => ({
+    reference: s.reference, commune: s.communeNom, numeros: s.numeros,
+    motif: filtre!.coherente
+      ? 'hors fenêtre d’envoi automatique (jour ouvré / heures ouvrées)'
+      : 'fenêtre horaire incohérente (début ≥ fin) — aucun envoi automatique tant qu’elle n’est pas corrigée',
+    prevu: filtre!.coherente ? prochainCreneauEnvoi(filtre!.maintenant, filtre!.heureDebut).toISOString() : null,
   }));
 
   // PIÈCE JOINTE OBLIGATOIRE (R343-1) : produire la copie de la demande ; un échec ÉCARTE la saisine (jamais envoyée sans PJ).
@@ -245,7 +260,7 @@ export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: 
   const octets = (): number => octetsDe(prets.filter((s) => resultats.find((x) => x.saisineId === s.saisineId)?.issue === 'envoye'), appliquer);
   const base = {
     canal: 'email' as const, candidats: candidats.length, emisAujourdhui, capParRun: caps.capParRun, capParJour: caps.capParJour, budget,
-    bloqueesForclusion: forcloses, bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte, bloqueesPiece, reportes,
+    bloqueesForclusion: forcloses, bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte, bloqueesPiece, reportes, reportesHoraire,
     destinataires: prets.map((s) => ({ saisineId: s.saisineId, demandeId: s.demandeId, reference: s.reference, commune: s.communeNom, email: cadaEmail, expediteur: s.expediteur, apercuCorps: apercu(s.corps), numeros: s.numeros })),
     fileADeposer: [] as LigneFile[],
   };

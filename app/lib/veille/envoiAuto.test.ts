@@ -16,13 +16,13 @@ const MAINTENANT = new Date('2026-08-25T07:00:00Z');
 function rapportRelance(over: Partial<RapportEnvoiRelance> = {}): RapportEnvoiRelance {
   return {
     mode: 'applique', candidats: 0, emisAujourdhui: 0, capParRun: 10, capParJour: 25, budget: 0,
-    bloqueesCorps: [], bloqueesCompte: [], bloqueesObsoletes: [], destinataires: [], reportes: [], resultats: [], octetsPartis: 0, ...over,
+    bloqueesCorps: [], bloqueesCompte: [], bloqueesObsoletes: [], destinataires: [], reportes: [], reportesHoraire: [], resultats: [], octetsPartis: 0, ...over,
   };
 }
 function rapportSaisine(over: Partial<RapportEnvoiSaisine> = {}): RapportEnvoiSaisine {
   return {
     mode: 'applique', canal: 'email', candidats: 0, emisAujourdhui: 0, capParRun: 10, capParJour: 25, budget: 0,
-    bloqueesForclusion: [], bloqueesCorps: [], bloqueesCompte: [], bloqueesPiece: [], destinataires: [], reportes: [], resultats: [], fileADeposer: [], octetsPartis: 0, ...over,
+    bloqueesForclusion: [], bloqueesCorps: [], bloqueesCompte: [], bloqueesPiece: [], destinataires: [], reportes: [], reportesHoraire: [], resultats: [], fileADeposer: [], octetsPartis: 0, ...over,
   };
 }
 // une relance ENVOYÉE (destinataire + résultat 'envoye' cohérents)
@@ -41,7 +41,7 @@ function saisineEnvoyee(saisineId: number, demandeId: number, commune: string, n
 
 function deps(over: Partial<DepsEnvoiAuto> = {}): DepsEnvoiAuto {
   return {
-    lireConfig: async () => ({ relanceActive: true, saisineActive: true, plafondAuto: 5, alerteEmail: 'a.jorel@sansvisavis.com' }),
+    lireConfig: async () => ({ relanceActive: true, saisineActive: true, plafondAuto: 5, alerteEmail: 'a.jorel@sansvisavis.com', envoiHeureDebut: 9, envoiHeureFin: 11 }),
     envoyerRelances: vi.fn(async () => rapportRelance()),
     envoyerSaisines: vi.fn(async () => rapportSaisine()),
     envoyerCompteRendu: vi.fn(async () => undefined),
@@ -54,7 +54,7 @@ const spy = <K extends keyof DepsEnvoiAuto>(d: DepsEnvoiAuto, k: K) => d[k] as u
 
 describe('lot 6 — interrupteurs : rien ne part sans activation explicite', () => {
   it('les DEUX interrupteurs OFF → resultat ignore, AUCUN appel d’envoi, AUCUN compte rendu', async () => {
-    const d = deps({ lireConfig: async () => ({ relanceActive: false, saisineActive: false, plafondAuto: 5, alerteEmail: 'a@b.fr' }) });
+    const d = deps({ lireConfig: async () => ({ relanceActive: false, saisineActive: false, plafondAuto: 5, alerteEmail: 'a@b.fr', envoiHeureDebut: 9, envoiHeureFin: 11 }) });
     const r = await executerEnvoiAuto(d);
     expect(r.resultat).toBe('ignore');
     expect(spy(d, 'envoyerRelances')).not.toHaveBeenCalled();
@@ -65,7 +65,7 @@ describe('lot 6 — interrupteurs : rien ne part sans activation explicite', () 
   it('relance ON, saisine OFF → SEULES les relances sont tentées (les interrupteurs sont distincts)', async () => {
     const { dest, res } = relanceEnvoyee(7, 42, 'Asnières', ['PC1'], 'rappel');
     const d = deps({
-      lireConfig: async () => ({ relanceActive: true, saisineActive: false, plafondAuto: 5, alerteEmail: 'a@b.fr' }),
+      lireConfig: async () => ({ relanceActive: true, saisineActive: false, plafondAuto: 5, alerteEmail: 'a@b.fr', envoiHeureDebut: 9, envoiHeureFin: 11 }),
       envoyerRelances: vi.fn(async () => rapportRelance({ destinataires: [dest], resultats: [res] })),
     });
     const r = await executerEnvoiAuto(d);
@@ -75,7 +75,7 @@ describe('lot 6 — interrupteurs : rien ne part sans activation explicite', () 
   });
 
   it('saisine ON, relance OFF → SEULES les saisines sont tentées', async () => {
-    const d = deps({ lireConfig: async () => ({ relanceActive: false, saisineActive: true, plafondAuto: 5, alerteEmail: 'a@b.fr' }) });
+    const d = deps({ lireConfig: async () => ({ relanceActive: false, saisineActive: true, plafondAuto: 5, alerteEmail: 'a@b.fr', envoiHeureDebut: 9, envoiHeureFin: 11 }) });
     await executerEnvoiAuto(d);
     expect(spy(d, 'envoyerRelances')).not.toHaveBeenCalled();
     expect(spy(d, 'envoyerSaisines')).toHaveBeenCalledTimes(1);
@@ -84,9 +84,9 @@ describe('lot 6 — interrupteurs : rien ne part sans activation explicite', () 
 
 describe('lot 6 — appel des fonctions d’envoi EXISTANTES avec le plafond auto (jamais réécrites)', () => {
   it('relance ON → envoyerRelances appelé avec le plafond auto', async () => {
-    const d = deps({ lireConfig: async () => ({ relanceActive: true, saisineActive: false, plafondAuto: 5, alerteEmail: 'a@b.fr' }) });
+    const d = deps({ lireConfig: async () => ({ relanceActive: true, saisineActive: false, plafondAuto: 5, alerteEmail: 'a@b.fr', envoiHeureDebut: 9, envoiHeureFin: 11 }) });
     await executerEnvoiAuto(d);
-    expect(spy(d, 'envoyerRelances')).toHaveBeenCalledWith(5);
+    expect(spy(d, 'envoyerRelances')).toHaveBeenCalledWith(5, expect.anything());
   });
 
   it('plafond auto PARTAGÉ sur le run : 3 relances envoyées (plafond 5) → saisines appelées avec le RESTANT (2)', async () => {
@@ -95,12 +95,12 @@ describe('lot 6 — appel des fonctions d’envoi EXISTANTES avec le plafond aut
       envoyerRelances: vi.fn(async () => rapportRelance({ destinataires: rel.map((x) => x.dest), resultats: rel.map((x) => x.res) })),
     });
     await executerEnvoiAuto(d);
-    expect(spy(d, 'envoyerSaisines')).toHaveBeenCalledWith(2); // 5 − 3
+    expect(spy(d, 'envoyerSaisines')).toHaveBeenCalledWith(2, expect.anything()); // 5 − 3
   });
 
   it('relance OBSOLÈTE (bloquée par la garde du lot 3) → JAMAIS dans les envoyés, NOMMÉE dans les écartés', async () => {
     const d = deps({
-      lireConfig: async () => ({ relanceActive: true, saisineActive: false, plafondAuto: 5, alerteEmail: 'a@b.fr' }),
+      lireConfig: async () => ({ relanceActive: true, saisineActive: false, plafondAuto: 5, alerteEmail: 'a@b.fr', envoiHeureDebut: 9, envoiHeureFin: 11 }),
       envoyerRelances: vi.fn(async () => rapportRelance({ bloqueesObsoletes: [{ reference: 'SVAV-DEM-99', motif: 'l’étape enregistrée « rappel » ne correspond plus à la fenêtre du jour' }] })),
     });
     const r = await executerEnvoiAuto(d);
@@ -125,7 +125,7 @@ describe('lot 6 — cada_email vide : la saisine va en FILE de dépôt, le compt
   it('canal formulaire + 1 en file → aucun envoi, compte rendu émis mentionnant « à déposer à la main »', async () => {
     const file = [{ saisineId: 5, demandeId: 55, reference: 'SVAV-DEM-55', communeNom: 'Aubervilliers', numeros: ['0930012500081'], objet: 'Saisine', corps: 'C', urlFormulaire: 'https://cada' }];
     const d = deps({
-      lireConfig: async () => ({ relanceActive: false, saisineActive: true, plafondAuto: 5, alerteEmail: 'a.jorel@sansvisavis.com' }),
+      lireConfig: async () => ({ relanceActive: false, saisineActive: true, plafondAuto: 5, alerteEmail: 'a.jorel@sansvisavis.com', envoiHeureDebut: 9, envoiHeureFin: 11 }),
       envoyerSaisines: vi.fn(async () => rapportSaisine({ canal: 'formulaire', fileADeposer: file })),
     });
     const r = await executerEnvoiAuto(d);
@@ -135,6 +135,28 @@ describe('lot 6 — cada_email vide : la saisine va en FILE de dépôt, le compt
     const [, , corps] = spy(d, 'envoyerCompteRendu').mock.calls[0];
     expect(corps).toContain('à DÉPOSER À LA MAIN');
     expect(corps).toContain('0930012500081');
+  });
+});
+
+describe('ENVOI OUVRÉ — reportés (heure/jour) mentionnés dans le compte rendu avec la date d’envoi prévue', () => {
+  it('1 relance envoyée + 1 reportée hors fenêtre → le compte rendu NOMME la reportée + « envoi prévu le … »', async () => {
+    const { dest, res } = relanceEnvoyee(7, 42, 'Asnières', ['PC1'], 'rappel');
+    const d = deps({
+      lireConfig: async () => ({ relanceActive: true, saisineActive: false, plafondAuto: 5, alerteEmail: 'a.jorel@sansvisavis.com', envoiHeureDebut: 9, envoiHeureFin: 11 }),
+      envoyerRelances: vi.fn(async () => rapportRelance({
+        destinataires: [dest], resultats: [res],
+        reportesHoraire: [{ reference: 'SVAV-DEM-99', commune: 'Pantin', numeros: ['PC9'], motif: 'hors fenêtre d’envoi automatique (jour ouvré / heures ouvrées)', prevu: '2026-08-31T07:00:00Z' }],
+      })),
+    });
+    const r = await executerEnvoiAuto(d);
+    expect(r.relancesEnvoyees).toBe(1);
+    expect(r.ecartes).toBe(1); // la reportée-horaire compte comme un écart
+    expect(spy(d, 'envoyerCompteRendu')).toHaveBeenCalledTimes(1);
+    const [, , corps] = spy(d, 'envoyerCompteRendu').mock.calls[0];
+    expect(corps).toContain('Pantin');          // la reportée est nommée (commune + permis)
+    expect(corps).toContain('PC9');
+    expect(corps).toContain('hors fenêtre');
+    expect(corps).toContain('envoi prévu le 31 août 2026'); // la date prévue est jointe au motif
   });
 });
 
@@ -153,7 +175,7 @@ describe('lot 6 — isolation', () => {
   it('le compte rendu qui ÉCHOUE ne défait pas les envois (comptés, tracés) et se journalise', async () => {
     const { dest, res } = relanceEnvoyee(7, 42, 'Asnières', ['PC1'], 'saisine');
     const d = deps({
-      lireConfig: async () => ({ relanceActive: true, saisineActive: false, plafondAuto: 5, alerteEmail: 'a.jorel@sansvisavis.com' }),
+      lireConfig: async () => ({ relanceActive: true, saisineActive: false, plafondAuto: 5, alerteEmail: 'a.jorel@sansvisavis.com', envoiHeureDebut: 9, envoiHeureFin: 11 }),
       envoyerRelances: vi.fn(async () => rapportRelance({ destinataires: [dest], resultats: [res] })),
       envoyerCompteRendu: vi.fn(async () => { throw new Error('compte rendu SMTP down'); }),
     });
@@ -166,7 +188,7 @@ describe('lot 6 — isolation', () => {
   it('alerte_email vide → aucun compte rendu envoyé, mais l’absence est journalisée (envois faits)', async () => {
     const { dest, res } = relanceEnvoyee(7, 42, 'Asnières', ['PC1'], 'saisine');
     const d = deps({
-      lireConfig: async () => ({ relanceActive: true, saisineActive: false, plafondAuto: 5, alerteEmail: '' }),
+      lireConfig: async () => ({ relanceActive: true, saisineActive: false, plafondAuto: 5, alerteEmail: '', envoiHeureDebut: 9, envoiHeureFin: 11 }),
       envoyerRelances: vi.fn(async () => rapportRelance({ destinataires: [dest], resultats: [res] })),
     });
     const r = await executerEnvoiAuto(d);

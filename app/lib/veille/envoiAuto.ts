@@ -19,6 +19,7 @@ import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { query } from '../db/client';
 import { envoyerRelances, type RapportEnvoiRelance } from '../sitadel/envoiRelance';
 import { envoyerSaisinesCada, type RapportEnvoiSaisine } from '../sitadel/envoiSaisineCada';
+import { fenetreEnvoiOuverte, type FiltreHoraire } from './envoiOuvre';
 
 // ── Types du compte rendu (purs) ─────────────────────────────────────────────
 export interface LigneEmis { reference: string; commune: string | null; numeros: string[]; etape: string }
@@ -64,9 +65,9 @@ export function composerCompteRenduEnvoiAuto(input: { emis: LigneEmis[]; ecartes
 
 // ── Orchestration ─────────────────────────────────────────────────────────────
 export interface DepsEnvoiAuto {
-  lireConfig(): Promise<{ relanceActive: boolean; saisineActive: boolean; plafondAuto: number; alerteEmail: string }>;
-  envoyerRelances(plafondAuto: number): Promise<RapportEnvoiRelance>;
-  envoyerSaisines(plafondAuto: number): Promise<RapportEnvoiSaisine>;
+  lireConfig(): Promise<{ relanceActive: boolean; saisineActive: boolean; plafondAuto: number; alerteEmail: string; envoiHeureDebut: number; envoiHeureFin: number }>;
+  envoyerRelances(plafondAuto: number, filtreHoraire: FiltreHoraire): Promise<RapportEnvoiRelance>;
+  envoyerSaisines(plafondAuto: number, filtreHoraire: FiltreHoraire): Promise<RapportEnvoiSaisine>;
   envoyerCompteRendu(destinataire: string, sujet: string, corps: string): Promise<void>;
   journaliser(demandeIds: number[], motif: string): Promise<void>; // best-effort, ancré sur les demandes concernées
   maintenant(): Date;
@@ -94,10 +95,16 @@ export async function executerEnvoiAuto(deps: DepsEnvoiAuto): Promise<IssueEnvoi
     return { resultat: 'ignore', relancesEnvoyees: 0, saisinesEnvoyees: 0, saisinesEnFile: 0, ecartes: 0, compteRenduEmis: false, raison: 'aucun interrupteur d’envoi automatique activé' };
   }
 
+  // ENVOI OUVRÉ — la fenêtre horaire (jour ouvré + heures ouvrées) décide, au tic courant, si on envoie ou si on reporte. Bornes
+  // incohérentes → on n'envoie rien (fen.coherente=false), signalé au compte rendu. Ce filtre ne concerne QUE l'envoi automatique.
+  const maintenant = deps.maintenant();
+  const fen = fenetreEnvoiOuverte(maintenant, cfg.envoiHeureDebut, cfg.envoiHeureFin);
+  const filtreHoraire: FiltreHoraire = { coherente: fen.coherente, ouverte: fen.ouverte, heureDebut: cfg.envoiHeureDebut, heureFin: cfg.envoiHeureFin, maintenant };
+
   // ÉTAPE relances (isolée). Le plafond auto = envois_auto_max_par_run (par run, relances + saisines cumulées).
   let rRel: RapportEnvoiRelance | null = null;
   if (cfg.relanceActive) {
-    try { rRel = await deps.envoyerRelances(cfg.plafondAuto); }
+    try { rRel = await deps.envoyerRelances(cfg.plafondAuto, filtreHoraire); }
     catch (e) { await deps.journaliser([], `envoi automatique des relances en échec (${nomErr(e)}) — isolé, la veille continue`); }
   }
   const relEnvoyees = rRel ? rRel.resultats.filter((x) => x.issue === 'envoye') : [];
@@ -107,7 +114,7 @@ export async function executerEnvoiAuto(deps: DepsEnvoiAuto): Promise<IssueEnvoi
   const restantAuto = Math.max(0, cfg.plafondAuto - relEnvoyees.length);
   let rSai: RapportEnvoiSaisine | null = null;
   if (cfg.saisineActive) {
-    try { rSai = await deps.envoyerSaisines(restantAuto); }
+    try { rSai = await deps.envoyerSaisines(restantAuto, filtreHoraire); }
     catch (e) { await deps.journaliser([], `envoi automatique des saisines en échec (${nomErr(e)}) — isolé, la veille continue`); }
   }
   const saiEnvoyees = rSai ? rSai.resultats.filter((x) => x.issue === 'envoye') : [];
@@ -124,11 +131,13 @@ export async function executerEnvoiAuto(deps: DepsEnvoiAuto): Promise<IssueEnvoi
     }),
   ];
   const ecartes: LigneEcarte[] = [];
+  const motifHoraire = (m: string, prevu: string | null): string => (prevu ? `${m} — envoi prévu le ${heureParis(new Date(prevu))}` : m);
   if (rRel) {
     for (const b of rRel.bloqueesObsoletes) ecartes.push({ reference: b.reference, commune: null, numeros: [], motif: b.motif });
     for (const b of rRel.bloqueesCompte) ecartes.push({ reference: b.reference, commune: null, numeros: [], motif: b.motif });
     for (const b of rRel.bloqueesCorps) ecartes.push({ reference: b.reference, commune: null, numeros: [], motif: b.motif });
     for (const b of rRel.reportes) ecartes.push({ reference: b.reference, commune: b.commune, numeros: b.numeros, motif: b.motif });
+    for (const b of rRel.reportesHoraire) ecartes.push({ reference: b.reference, commune: b.commune, numeros: b.numeros, motif: motifHoraire(b.motif, b.prevu) });
   }
   if (rSai) {
     for (const b of rSai.bloqueesForclusion) ecartes.push({ reference: b.reference, commune: null, numeros: [], motif: `forclusion : ${b.motif}` });
@@ -136,6 +145,7 @@ export async function executerEnvoiAuto(deps: DepsEnvoiAuto): Promise<IssueEnvoi
     for (const b of rSai.bloqueesCorps) ecartes.push({ reference: b.reference, commune: null, numeros: [], motif: b.motif });
     for (const b of rSai.bloqueesCompte) ecartes.push({ reference: b.reference, commune: null, numeros: [], motif: b.motif });
     for (const b of rSai.reportes) ecartes.push({ reference: b.reference, commune: b.commune, numeros: b.numeros, motif: b.motif });
+    for (const b of rSai.reportesHoraire) ecartes.push({ reference: b.reference, commune: b.commune, numeros: b.numeros, motif: motifHoraire(b.motif, b.prevu) });
   }
   const file: LigneFileRendu[] = rSai ? rSai.fileADeposer.map((f) => ({ reference: f.reference, commune: f.communeNom, numeros: f.numeros })) : [];
   const idsConcernes = [
@@ -176,10 +186,10 @@ export function depsReellesEnvoiAuto(): DepsEnvoiAuto {
   return {
     lireConfig: async () => {
       const c = await chargerConfigVeille();
-      return { relanceActive: c.relanceAutoActive === true, saisineActive: c.saisineCadaAutoActive === true, plafondAuto: c.envoisAutoMaxParRun, alerteEmail: c.alerteEmail };
+      return { relanceActive: c.relanceAutoActive === true, saisineActive: c.saisineCadaAutoActive === true, plafondAuto: c.envoisAutoMaxParRun, alerteEmail: c.alerteEmail, envoiHeureDebut: c.envoiHeureDebut, envoiHeureFin: c.envoiHeureFin };
     },
-    envoyerRelances: (plafondAuto) => envoyerRelances({ appliquer: true, auteur: 'auto', plafondAuto }),
-    envoyerSaisines: (plafondAuto) => envoyerSaisinesCada({ appliquer: true, auteur: 'auto', plafondAuto }),
+    envoyerRelances: (plafondAuto, filtreHoraire) => envoyerRelances({ appliquer: true, auteur: 'auto', plafondAuto, filtreHoraire }),
+    envoyerSaisines: (plafondAuto, filtreHoraire) => envoyerSaisinesCada({ appliquer: true, auteur: 'auto', plafondAuto, filtreHoraire }),
     envoyerCompteRendu: envoyerCompteRenduReel,
     journaliser: async (demandeIds, motif) => {
       // Ancré sur CHAQUE demande concernée (append-only, statut_avant/apres NULL, jamais demande.statut). Best-effort : une

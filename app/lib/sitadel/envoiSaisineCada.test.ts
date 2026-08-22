@@ -204,7 +204,7 @@ describe('X3 — envoyerSaisinesCada : canaux, garde-fous, budget', () => {
 describe('X5 — lancerSaisinePourDemande : création + envoi RESTREINT à la saisine (mapping honnête)', () => {
   const rapport = (over: Partial<RapportEnvoiSaisine> = {}): RapportEnvoiSaisine => ({
     mode: 'applique', canal: 'email', candidats: 1, emisAujourdhui: 0, capParRun: 10, capParJour: 25, budget: 1,
-    bloqueesForclusion: [], bloqueesCorps: [], bloqueesCompte: [], bloqueesPiece: [], destinataires: [], reportes: [], resultats: [], fileADeposer: [], octetsPartis: 0, ...over,
+    bloqueesForclusion: [], bloqueesCorps: [], bloqueesCompte: [], bloqueesPiece: [], destinataires: [], reportes: [], reportesHoraire: [], resultats: [], fileADeposer: [], octetsPartis: 0, ...over,
   });
   const depsEnvoi = (cands: { saisineId: number }[]) => ({ candidats: async () => cands } as unknown as DepsEnvoiSaisine);
 

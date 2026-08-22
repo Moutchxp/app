@@ -25,6 +25,8 @@ import {
 } from './envoiDemande';
 import { dossiersSatisfaitsDepuisRelance } from '../veille/relanceAuto';
 import { etapeCible, rangVariante, type ReglagesCascade, type VarianteEnBase } from '../veille/cascadeRelance';
+import { momentPrevuRelance, etatFiltreHoraire, type FiltreHoraire } from '../veille/envoiOuvre';
+import type { VarianteRelance } from '../veille/relance';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface RelanceAEnvoyer {
@@ -140,6 +142,7 @@ export interface RapportEnvoiRelance {
   bloqueesObsoletes: { reference: string; motif: string }[]; // W1 : dossiers satisfaits depuis le brouillon
   destinataires: { relanceId: number; demandeId: number; reference: string; commune: string | null; email: string; expediteur: string; apercuCorps: string; variante: string; numeros: string[] }[];
   reportes: { reference: string; commune: string | null; numeros: string[]; motif: string }[]; // LOT 6 : envoyables au-delà du plafond (auto/caps) — reportés au prochain run, NOMMÉS
+  reportesHoraire: { reference: string; commune: string | null; numeros: string[]; motif: string; prevu: string | null }[]; // ENVOI OUVRÉ : reportés pour cause d'heure/jour, avec la date d'envoi prévue
   resultats: ResultatRelance[];
   octetsPartis: number;        // 0 en simulation ; octets du texte réellement transmis en --appliquer
 }
@@ -191,9 +194,12 @@ async function nommerDossiersSatisfaitsDepuis(demandeId: number): Promise<string
  * transaction ROLLBACK (rien persisté). `appliquer:true` = envoi RÉEL : chaque relance dans SA transaction (tout-ou-rien),
  * via le compte SMTP de SON profil. AUCUN branchement dans executerVeille : ce point d'entrée est manuel (CLI).
  */
-export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: string | null; plafondAuto?: number } = {}): Promise<RapportEnvoiRelance> {
+export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: string | null; plafondAuto?: number; filtreHoraire?: FiltreHoraire } = {}): Promise<RapportEnvoiRelance> {
   const appliquer = opts.appliquer === true;
   const auteur = opts.auteur ?? null;
+  // ENVOI OUVRÉ (envoi AUTOMATIQUE seulement) : `filtreHoraire` ABSENT = envoi MANUEL → jamais bridé. Présent = auto : la fenêtre
+  // décide si on envoie MAINTENANT ou si on reporte au prochain créneau ouvré (jour ouvré + heures ouvrées).
+  const filtre = opts.filtreHoraire;
   // LOT 6 : plafond d'envoi AUTOMATIQUE, EN PLUS des caps (jamais à leur place) → la salve réelle est le MIN des trois. Absent
   // (appel manuel/CLI) → aucune borne supplémentaire (comportement d'avant le lot 6 strictement préservé).
   const plafondAuto = typeof opts.plafondAuto === 'number' ? Math.max(0, Math.trunc(opts.plafondAuto)) : Infinity;
@@ -225,14 +231,30 @@ export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: stri
   const emisAujourdhui = await compterEmisAujourdhui(); // PARTAGÉ avec les demandes (même table, même compteur)
   // Salve réelle = MIN(candidats, cap/run, reste du jour, plafond auto). capBatch borne les 3 premiers ; le plafond auto resserre.
   const budget = Math.min(capBatch(plan.envoyables.length, config.envoisMaxParRun, config.envoisMaxParJour, emisAujourdhui), plafondAuto);
-  const aTraiter = plan.envoyables.slice(0, budget);
+  const aTraiterBudget = plan.envoyables.slice(0, budget);
   const reportes = plan.envoyables.slice(budget).map((r) => ({
     reference: r.reference, commune: r.communeNom, numeros: r.numeros,
     motif: 'plafond d’envoi atteint (envoi auto / caps) — relance reportée au prochain run, aucune donnée perdue',
   }));
+
+  // ENVOI OUVRÉ — porte horaire de l'envoi AUTOMATIQUE : hors fenêtre (jour/heure) ou config incohérente → on N'ENVOIE RIEN et
+  // on reporte chaque envoyable, avec la date d'envoi PRÉVUE (variante → sens du décalage). Manuel (filtre absent) → passe tout droit.
+  const { envoie } = etatFiltreHoraire(filtre);
+  const aTraiter = envoie ? aTraiterBudget : [];
+  const reportesHoraire = (!envoie && filtre ? aTraiterBudget : []).map((r) => ({
+    reference: r.reference, commune: r.communeNom, numeros: r.numeros,
+    motif: filtre!.coherente
+      ? 'hors fenêtre d’envoi automatique (jour ouvré / heures ouvrées)'
+      : 'fenêtre horaire incohérente (début ≥ fin) — aucun envoi automatique tant qu’elle n’est pas corrigée',
+    // 'formelle' (héritée) ≡ 'saisine' pour le sens du décalage. Ancre d'échéance absente → prochain créneau via `maintenant`.
+    prevu: filtre!.coherente
+      ? momentPrevuRelance(r.variante === 'formelle' ? 'saisine' : (r.variante as VarianteRelance), r.envoyeLe ?? maintenant, reglagesCascade, filtre!.heureDebut, filtre!.maintenant).toISOString()
+      : null,
+  }));
+
   const base = {
     candidats: candidats.length, emisAujourdhui, capParRun: config.envoisMaxParRun, capParJour: config.envoisMaxParJour, budget,
-    bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte, bloqueesObsoletes: plan.bloqueesObsoletes, reportes,
+    bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte, bloqueesObsoletes: plan.bloqueesObsoletes, reportes, reportesHoraire,
     destinataires: aTraiter.map((r) => ({ relanceId: r.relanceId, demandeId: r.demandeId, reference: r.reference, commune: r.communeNom, email: r.destEmail, expediteur: r.expediteur, apercuCorps: apercu(r.corps), variante: r.variante, numeros: r.numeros })),
   };
   const resultats: ResultatRelance[] = [];
