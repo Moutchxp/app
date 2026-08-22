@@ -6,9 +6,16 @@
  */
 import { query, withTransaction } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
-import { profilValide, type ProfilDemandeur } from '../sitadel/demande';
+import { profilValide, dateEnFrancais, type ProfilDemandeur } from '../sitadel/demande';
 import { fenetreCadaEffective, refusAcquis, releveEstFraiche, type VoieCada } from './echeance';
+import { saisineLeDe } from './cascadeRelance'; // A (lot 5) — date de dépôt annoncée = échéance + délai (réglage)
 import { chargerContexteRelance, chargerLotRelance, type ContexteRelance, type LotRelance } from './relanceAuto';
+
+/** A (lot 5) — jour à partir duquel la saisine TACITE devient déposable : échéance + délai de dépôt (réglage), comme annoncé à
+ *  la mairie par le courrier d'étape 'saisine'. Le refus EXPRÈS n'a rien annoncé → aucun délai (déposable dès le refus notifié). */
+function deposableTardif(voie: VoieCada, envoyeLe: Date, maintenant: Date, saisineDelaiJours: number): boolean {
+  return voie === 'refus_tacite' && maintenant.getTime() < saisineLeDe(envoyeLe, saisineDelaiJours).getTime();
+}
 import { genererSaisineCada } from './saisineCada';
 
 /** Refus métier d'une action de saisine (non saisissable, saisine déjà en cours…) — raison exposée, jamais un 503. */
@@ -42,6 +49,7 @@ export interface DepsSaisissables {
   lireCandidats(): Promise<CandidatSaisine[]>;
   derniereReleveOkLe(): Promise<Date | null>;
   fraicheurHeures(): Promise<number>;
+  saisineDelaiJours(): Promise<number>; // A (lot 5) — délai de dépôt (config_veille.relance_saisine_delai_jours) : la saisine tacite n'est possible qu'à échéance + ce délai
   maintenant(): Date;
 }
 
@@ -78,6 +86,7 @@ export function depsReellesSaisissables(): DepsSaisissables {
       return rows[0]?.t ?? null;
     },
     fraicheurHeures: async () => (await chargerConfigVeille()).releveFraicheurHeures,
+    saisineDelaiJours: async () => (await chargerConfigVeille()).relanceSaisineDelaiJours, // A (lot 5)
     maintenant: () => new Date(),
   };
 }
@@ -88,7 +97,7 @@ export function depsReellesSaisissables(): DepsSaisissables {
  * → écartée. Fenêtre ouverte MAIS relève non fraîche → INDÉTERMINÉE (pas saisissable).
  */
 export async function lireSaisinesEligibles(deps: DepsSaisissables = depsReellesSaisissables()): Promise<SaisiesEligibles> {
-  const [candidats, derniereOk, fraicheur] = await Promise.all([deps.lireCandidats(), deps.derniereReleveOkLe(), deps.fraicheurHeures()]);
+  const [candidats, derniereOk, fraicheur, saisineDelai] = await Promise.all([deps.lireCandidats(), deps.derniereReleveOkLe(), deps.fraicheurHeures(), deps.saisineDelaiJours()]);
   const maintenant = deps.maintenant();
   const fraiche = releveEstFraiche(derniereOk, maintenant, fraicheur);
   const saisissables: DemandeSaisissable[] = [];
@@ -97,6 +106,8 @@ export async function lireSaisinesEligibles(deps: DepsSaisissables = depsReelles
     // T1/Correction 1 — ancre = refus le plus PRÉCOCE déjà acquis (tacite OU exprès), jamais fenetreCada(envoyeLe) seule.
     const { fenetre: f, voie } = fenetreCadaEffective(c.envoyeLe, c.refusExpres, maintenant);
     if (f.etat !== 'ouverte' || voie === null) continue; // aucun refus acquis (pas_ouverte) ou forclos → jamais saisissable
+    // A (lot 5) — saisine TACITE pas encore déposable (échéance + délai annoncé) → hors des « possibles » (comme avant l'échéance).
+    if (deposableTardif(voie, c.envoyeLe, maintenant, saisineDelai)) continue;
     // T1/Correction 3 — dossiers dus dont le refus N'EST PAS acquis (exclus du corps). Tacite échu → tous les dus sont acquis.
     const taciteAcquis = refusAcquis(c.envoyeLe, null, maintenant); // = echeanceDe(envoyeLe) ≤ maintenant
     const exprAcquis = c.refusExpres.filter((r) => r.getTime() <= maintenant.getTime()).length;
@@ -169,6 +180,11 @@ export async function creerSaisineCada(demandeId: number, auteur: string | null,
   const { fenetre: f, voie } = fenetreCadaEffective(envoyeLe, refusExpres, maintenant);
   if (f.etat === 'pas_ouverte' || voie === null) throw new SaisineCadaError('aucun refus acquis : ni refus tacite (délai d’un mois non écoulé) ni refus exprès notifié');
   if (f.etat === 'fermee') throw new SaisineCadaError('délai de saisine forclos (plus de deux mois depuis le refus)');
+  // A (lot 5) — la FORCLUSION prime toujours ; SI encore ouverte, la saisine TACITE n'est déposable qu'à échéance + délai (réglage) :
+  //   déposer avant contredirait la date annoncée à la mairie par le courrier d'étape 'saisine'.
+  if (deposableTardif(voie, envoyeLe, maintenant, ctx.cascade.saisineDelaiJours)) {
+    throw new SaisineCadaError(`date de dépôt annoncée non atteinte : la saisine sera possible le ${dateEnFrancais(saisineLeDe(envoyeLe, ctx.cascade.saisineDelaiJours).toISOString().slice(0, 10))} (échéance + ${ctx.cascade.saisineDelaiJours} j, comme annoncé à la mairie)`);
+  }
   if (!releveEstFraiche(await deps.derniereReleveOkLe(), maintenant, ctx.reglages.releveFraicheurHeures)) {
     throw new SaisineCadaError('silence non vérifié : la relève des réponses n’est pas assez récente pour affirmer une absence de réponse');
   }
@@ -263,6 +279,7 @@ export async function marquerSaisineDeposee(saisineId: number, auteur: string | 
  */
 export type EtatConfirmation =
   | 'saisissable' | 'deja_lancee' | 'forclose' | 'refus_non_acquis'
+  | 'delai_non_atteint' // A (lot 5) : refus tacite acquis, mais la date de dépôt annoncée (échéance + délai) n'est pas atteinte
   | 'plus_de_dossier' | 'silence_non_verifie' | 'demande_absente' | 'demande_hors_etat';
 
 export interface ContexteConfirmation {
@@ -294,6 +311,7 @@ export interface DepsConfirmation {
   lire(demandeId: number): Promise<LigneConfirmationDB | null>;
   derniereReleveOkLe(): Promise<Date | null>;
   fraicheurHeures(): Promise<number>;
+  saisineDelaiJours(): Promise<number>; // A (lot 5) — date de dépôt annoncée = échéance + délai
   maintenant(): Date;
 }
 
@@ -321,6 +339,7 @@ export function depsReellesConfirmation(): DepsConfirmation {
       return rows[0]?.t ?? null;
     },
     fraicheurHeures: async () => (await chargerConfigVeille()).releveFraicheurHeures,
+    saisineDelaiJours: async () => (await chargerConfigVeille()).relanceSaisineDelaiJours, // A (lot 5)
     maintenant: () => new Date(),
   };
 }
@@ -352,6 +371,8 @@ export async function chargerConfirmationCada(demandeId: number, deps: DepsConfi
   const avecFenetre = { ...socle, refusTaciteLe: f.refusTaciteLe, forclusionLe: f.forclusionLe, joursAvantForclusion: f.joursAvantForclusion, voie, dossiersExclusRefusNonAcquis: exclus, dejaLanceeLe: null };
   if (f.etat === 'pas_ouverte' || voie === null) return { etat: 'refus_non_acquis', ...avecFenetre };
   if (f.etat === 'fermee') return { etat: 'forclose', ...avecFenetre };
+  // A (lot 5) — refus tacite acquis MAIS date de dépôt annoncée (échéance + délai) non atteinte → pas encore déposable (bouton masqué).
+  if (deposableTardif(voie, l.envoye_le, deps.maintenant(), await deps.saisineDelaiJours())) return { etat: 'delai_non_atteint', ...avecFenetre };
   if ((l.dossiers_dus_nums ?? []).length === 0) return { etat: 'plus_de_dossier', ...avecFenetre };
   const fraiche = releveEstFraiche(await deps.derniereReleveOkLe(), deps.maintenant(), await deps.fraicheurHeures());
   if (!fraiche) return { etat: 'silence_non_verifie', ...avecFenetre };

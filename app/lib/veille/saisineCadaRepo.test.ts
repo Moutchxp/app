@@ -51,7 +51,7 @@ const CONF_ENT: ConfigDemandeur = { raisonSociale: 'Criterimmo', formeJuridique:
 
 const CAND = (over: Partial<CandidatSaisine> = {}): CandidatSaisine => ({ demandeId: 1, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise', envoyeLe: ENVOI, dossiersActifs: 2, dossiersDus: 1, refusExpres: [], ...over });
 function depsElig(over: Partial<DepsSaisissables> = {}): DepsSaisissables {
-  return { lireCandidats: async () => [CAND()], derniereReleveOkLe: async () => RELEVE_FRAICHE, fraicheurHeures: async () => 48, maintenant: () => DANS_FENETRE, ...over };
+  return { lireCandidats: async () => [CAND()], derniereReleveOkLe: async () => RELEVE_FRAICHE, fraicheurHeures: async () => 48, saisineDelaiJours: async () => 4, maintenant: () => DANS_FENETRE, ...over };
 }
 function depsCreer(over: Partial<DepsCreerSaisine> = {}): DepsCreerSaisine {
   return {
@@ -63,6 +63,32 @@ function depsCreer(over: Partial<DepsCreerSaisine> = {}): DepsCreerSaisine {
     ...over,
   };
 }
+
+describe('A (lot 5) — la saisine TACITE n’est possible qu’à échéance + délai de dépôt (réglage 4 j) ; le refus EXPRÈS reste immédiat', () => {
+  // ENVOI 14/03 → échéance 14/04 → dépôt annoncé 18/04 10:00 (échéance + 4 j). Forclusion tacite = 14/06 (bornes déjà testées).
+  const veille = new Date('2026-04-18T09:00:00Z'); // 1 h AVANT le dépôt annoncé
+  const jour = new Date('2026-04-18T10:00:00Z');   // dépôt annoncé ATTEINT
+  const fresh = (t: Date) => async () => new Date(t.getTime() - 3_600_000); // relève 1 h avant → fraîche
+
+  it('la veille du dépôt annoncé → HORS des possibles (refus tacite acquis, date non atteinte) — jamais indéterminée', async () => {
+    const r = await lireSaisinesEligibles(depsElig({ maintenant: () => veille, derniereReleveOkLe: fresh(veille) }));
+    expect(r.saisissables).toHaveLength(0);
+    expect(r.indeterminees).toHaveLength(0);
+  });
+  it('le jour du dépôt annoncé → SAISISSABLE', async () => {
+    const r = await lireSaisinesEligibles(depsElig({ maintenant: () => jour, derniereReleveOkLe: fresh(jour) }));
+    expect(r.saisissables).toHaveLength(1);
+  });
+  it('refus EXPRÈS notifié AVANT l’échéance (donc ancre = exprès, rien n’a été annoncé) → possible sans attendre le délai', async () => {
+    const cand = CAND({ refusExpres: [new Date('2026-03-20T00:00:00Z')] }); // refus exprès pendant le mois de silence → antérieur au tacite
+    const r = await lireSaisinesEligibles(depsElig({ maintenant: () => veille, derniereReleveOkLe: fresh(veille), lireCandidats: async () => [cand] }));
+    expect(r.saisissables).toHaveLength(1); // voie refus_expres (ancre la plus précoce) → aucun délai de dépôt
+  });
+  it('creerSaisineCada REFUSE avant le dépôt annoncé (motif nommant la date)', async () => {
+    await expect(creerSaisineCada(1, 'a', depsCreer({ maintenant: () => veille, derniereReleveOkLe: fresh(veille) })))
+      .rejects.toThrow(/date de dépôt annoncée non atteinte/);
+  });
+});
 
 describe('X2 — lireSaisinesEligibles : fenêtre + sincérité (relève fraîche)', () => {
   it('fenêtre ouverte + relève fraîche → SAISISSABLE (avec jours avant forclusion)', async () => {
@@ -272,6 +298,7 @@ describe('X5 — chargerConfirmationCada : classification des états (miroir des
       lire: async () => LIGNE(),
       derniereReleveOkLe: async () => new Date('2026-05-10T06:00:00Z'), // 6 h avant DANS_FENETRE → fraîche (<48 h)
       fraicheurHeures: async () => 48,
+      saisineDelaiJours: async () => 4, // A (lot 5)
       maintenant: () => DANS_FENETRE,
       ...over,
     };

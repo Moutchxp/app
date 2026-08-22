@@ -60,6 +60,8 @@ function messageEtat(etat: EtatPageCada, ctx: ContexteConfirmation | null, urlOn
       return <p className="leading-relaxed text-svv-ink">Le délai de saisine (deux mois après le refus tacite) est forclos{ctx?.forclusionLe ? ` depuis le ${fmt(ctx.forclusionLe)}` : ''}. Il n’est plus possible de saisir la CADA pour cette demande.</p>;
     case 'refus_non_acquis':
       return <p className="leading-relaxed text-svv-ink">Le refus tacite n’est pas encore acquis : il faut attendre un mois après l’envoi de la demande avant de pouvoir saisir la CADA.</p>;
+    case 'delai_non_atteint':
+      return <p className="leading-relaxed text-svv-ink">Le refus tacite est acquis, mais la date de dépôt annoncée à la mairie (quelques jours après l’échéance) n’est pas encore atteinte. La saisine sera possible à cette date — déposer avant contredirait ce qui a été écrit à la mairie.</p>;
     case 'plus_de_dossier':
       return <p className="leading-relaxed text-svv-ink">Tous les dossiers réclamés ont été obtenus : il n’y a plus rien à saisir devant la CADA.</p>;
     case 'silence_non_verifie':
