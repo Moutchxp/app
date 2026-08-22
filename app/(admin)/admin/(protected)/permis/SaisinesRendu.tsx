@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type {
   SaisissableAffichee, IndetermineeAffichee, SaisineEnCours, SaisineRecue, SaisineAbandonnee, FileDepotSaisine,
 } from '../../../../lib/veille/saisinesSuivi';
@@ -252,9 +252,11 @@ export function SectionAbandonnees({ abandonnees }: { abandonnees: SaisineAbando
  * des brouillons dont l'envoi automatique n'a pas abouti (jamais orphelins). Retourne `null` sinon (canal e-mail, rien à
  * finaliser) → « n'apparaît que si cada_email est vide » dans le cas nominal. Chaque item : corps à copier + URL du formulaire.
  */
-export function SectionFileDepot({ items, cadaEmailVide, urlFormulaire, retour, onMarquerDeposee, onAbandonner }: {
+export function SectionFileDepot({ items, cadaEmailVide, urlFormulaire, retour, onMarquerDeposee, onAbandonner, renderExtra }: {
   items: FileDepotSaisine[]; cadaEmailVide: boolean; urlFormulaire: string; retour?: RetourCible;
   onMarquerDeposee?: (saisineId: number) => void; onAbandonner?: (saisineId: number) => void;
+  // CADA lot A — encart interactif optionnel par saisine (carte de copier-coller). Optionnel → SectionFileDepot reste PUR/testable.
+  renderExtra?: (s: FileDepotSaisine) => ReactNode;
 }) {
   if (!cadaEmailVide && items.length === 0) return null; // canal e-mail nominal : rien à déposer
   return (
@@ -287,6 +289,7 @@ export function SectionFileDepot({ items, cadaEmailVide, urlFormulaire, retour, 
               <MessageRetour r={messageIci(retour ?? null, `deposee-${s.saisineId}`)} />
               <MessageRetour r={messageIci(retour ?? null, `abandon-${s.saisineId}`)} />
             </div>
+            {renderExtra && renderExtra(s)}
           </article>
         ))
       )}

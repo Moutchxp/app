@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { CarteDepot, BoutonAnnulerDepot, type DepotAffiche } from './DemandesRendu';
+import { BoutonCopier } from './BoutonCopier';
 
 /**
  * File « À déposer à la main » de l'onglet Demandes (S16) : les demandes en canal 'formulaire' (téléservice). Deux clics
@@ -38,16 +39,6 @@ export function BlocDepot() {
   }, [version]);
 
   const poser = (id: number, texte: string): void => setMsg((s) => ({ ...s, [id]: texte }));
-
-  async function copier(d: DepotAffiche): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(d.corps ?? '');
-      poser(d.id, 'Texte copié.');
-      signalerDepot(d.id, 'texte'); // trace bonus, non bloquante (la copie a réussi ; le signal part sans être attendu)
-    } catch {
-      poser(d.id, 'Copie impossible — sélectionnez le texte manuellement.');
-    }
-  }
 
   // U2 — copie du SEUL numéro de dossier instruit (référence formatée), retour distinct de « Copier le texte ».
   async function copierRef(id: number, valeur: string): Promise<void> {
@@ -116,8 +107,9 @@ export function BlocDepot() {
                 placeholder="ex. SLC260810440700"
                 style={{ padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
             </label>
-            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => void copier(d)}>Copier le texte</button>
+            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              {/* CADA lot A — bouton copier PARTAGÉ (même composant que la carte CADA) ; la trace de dépôt présumé reste bonus. */}
+              <BoutonCopier valeur={d.corps ?? ''} libelle="Copier le texte" onCopie={() => signalerDepot(d.id, 'texte')} />
               <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .7rem' }} onClick={() => void marquerDeposee(d.id)}>Marquer comme déposée</button>
             </div>
             {msg[d.id] && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{msg[d.id]}</span>}

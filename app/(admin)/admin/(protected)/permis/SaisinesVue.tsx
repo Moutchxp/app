@@ -7,6 +7,7 @@ import {
 } from './SaisinesRendu';
 import type { RetourCible } from './ReponsesRendu';
 import { MessageRetour } from './DemandesRendu';
+import { CarteCadaFormulaire } from './CarteCadaFormulaire';
 
 /**
  * X4 — écran « Saisines CADA » : suivi + ACTIONS (lancer une saisine, marquer déposée, abandonner, enregistrer l'avis). Le
@@ -132,7 +133,8 @@ export function SaisinesVue() {
 
       <SectionFileDepot items={file.vis} cadaEmailVide={data.cadaEmailVide} urlFormulaire={data.urlFormulaire} retour={retour}
         onMarquerDeposee={(id) => void agir({ action: 'marquer_deposee', saisineId: id }, `deposee-${id}`, 'Marquée déposée.')}
-        onAbandonner={(id) => void agir({ action: 'abandonner', saisineId: id }, `abandon-${id}`, 'Saisine abandonnée.', 'Déjà abandonnée ou introuvable.')} />
+        onAbandonner={(id) => void agir({ action: 'abandonner', saisineId: id }, `abandon-${id}`, 'Saisine abandonnée.', 'Déjà abandonnée ou introuvable.')}
+        renderExtra={(s) => <CarteCadaFormulaire saisineId={s.saisineId} />} />
       {(data.cadaEmailVide || data.fileADeposer.length > 0) && <Pagination page={file.pc} nbPages={file.nb} total={data.fileADeposer.length} onPage={setPageFile} />}
     </div>
   );
