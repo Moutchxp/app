@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, ActionsRattachement, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
@@ -230,19 +230,29 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
     expect(hMotif).toContain('empreinte incomplète ou absente');
   });
 
-  it('2 corps / 2 polygones : chaque corps voit A et B ; polygones non affectés signalés', () => {
-    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff() }));
+  it('DOSSIER PERSISTÉ — 2 corps / 2 polygones : chaque corps voit A et B ; polygones non affectés signalés', () => {
+    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff(), persiste: true }));
     expect(h).toContain('polygone A'); expect(h).toContain('polygone B');
-    expect(h).toMatch(/Polygone\(s\) non affecté\(s\) : A, B/); // rien affecté → A et B signalés
+    expect(h).toMatch(/Polygones non affectés — dans l’empreinte : A, B/); // rien affecté → A et B signalés (tous deux DANS l'empreinte)
   });
 
   it('EXCLUSIVITÉ : A affecté au corps 1 → n’est plus proposé au corps 2 (réversible côté corps 1)', () => {
     const a = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffecte: 'BAT_A' }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffecte: null }] });
-    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a }));
-    // le corps 1 garde A sélectionné (value), le corps 2 ne voit QUE B
+    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a, persiste: true }));
     expect(h).toContain('value="BAT_A"'); // sélection du corps 1
-    // B reste non affecté → signalé
-    expect(h).toMatch(/Polygone\(s\) non affecté\(s\) : B/);
+    expect(h).toMatch(/Polygones non affectés — dans l’empreinte : B/); // B reste non affecté → signalé
+  });
+
+  it('distinction HORS empreinte : le décompte sépare « dans l’empreinte » et « hors empreinte » (cohérent avec le schéma)', () => {
+    const a = aff({
+      schema: schema({ polygones: [
+        { repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false },
+        { repere: 'B', cleabs: 'BAT_B', path: 'M60,60 L80,60 L80,80 Z', cx: 70, cy: 70, horsEmpreinte: true },
+      ] }),
+      polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: true }],
+    });
+    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a, persiste: true }));
+    expect(h).toMatch(/dans l’empreinte : A ; hors empreinte : B/); // ← ne fond PLUS les 2 catégories en « A, B »
   });
 
   it('2 corps / 1 polygone (cardinalités inégales) : un corps peut rester « aucun »', () => {
@@ -251,15 +261,33 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
       polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }],
       corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffecte: 'BAT_A' }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffecte: null }],
     });
-    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a }));
+    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a, persiste: true }));
     expect(h).toContain('aucun (bâtiment sans polygone)'); // le corps 2 peut rester sans polygone
-    expect(h).not.toContain('non affecté(s) :'); // A est affecté → aucun polygone orphelin
+    expect(h).not.toContain('Polygones non affectés'); // A est affecté → aucun polygone orphelin
+  });
+
+  it('GARDE D’AFFICHAGE — « aucun signal » (persiste=false) : PAS de sélecteur, mais l’explication est dite, et le schéma RESTE', () => {
+    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff(), persiste: false }));
+    expect(h).toContain('<svg');                              // le schéma reste affiché (informatif)
+    expect(h).toContain('Légende du schéma');                // la légende reste
+    expect(h).toContain('Aucun signal de mise à jour');       // on DIT pourquoi (jamais de disparition muette)
+    expect(h).not.toContain('<select');                       // aucun sélecteur d’affectation
+    expect(h).not.toContain('Polygones non affectés');
+  });
+
+  it('LÉGENDE : les trois styles nommés — l’information ne dépend PAS de la seule couleur (libellés + contour tireté)', () => {
+    const h = renderToStaticMarkup(createElement(LegendeAffectation, {}));
+    expect(h).toContain('affecté à un corps');
+    expect(h).toContain('hors empreinte');
+    expect(h).toContain('dans l’empreinte, non affecté');
+    expect(h).toContain('contour tireté'); // le style hors-empreinte est décrit par le TEXTE, pas que par la couleur
+    expect(h).toContain('dashed');          // et matérialisé par un contour tireté sur la puce
   });
 
   it('empreinte non figée → motif, pas de schéma ; migration 117 absente → avertissement + sélecteurs désactivés', () => {
-    const hMotif = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff({ empreinteFigee: false, motif: 'empreinte non figée : affectation impossible', schema: { largeur: 320, hauteur: 240, empreintePath: null, polygones: [], motif: 'empreinte non figée : affectation impossible' }, polygones: [] }) }));
+    const hMotif = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff({ empreinteFigee: false, motif: 'empreinte non figée : affectation impossible', schema: { largeur: 320, hauteur: 240, empreintePath: null, polygones: [], motif: 'empreinte non figée : affectation impossible' }, polygones: [] }), persiste: true }));
     expect(hMotif).toContain('empreinte non figée : affectation impossible');
-    const hCol = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff({ colonneManquante: true }) }));
+    const hCol = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff({ colonneManquante: true }), persiste: true }));
     expect(hCol).toContain('migration 117 non appliquée');
     expect(hCol).toContain('disabled');
   });

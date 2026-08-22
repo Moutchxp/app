@@ -80,6 +80,13 @@ export type ResultatAffecter = { ok: true } | { ok: false; motif: string };
  * RÉVERSIBLE (aucun verrouillage). NE FAIT AUCUNE injection d'altitude (FUS-3e).
  */
 export async function affecterPolygone(dossierId: number, corpsId: number, cleabs: string | null, majPar: string): Promise<ResultatAffecter> {
+  // GARDE DE PERSISTANCE : tant qu'aucun dossier de rattachement n'existe pour ce permis (« aucun signal » = rien de mesuré à
+  // arbitrer), on n'écrit AUCUN appariement — sinon on stockerait une donnée morte, relue plus tard sans être revérifiée. Message
+  // EXPLICATIF (jamais technique) : l'affectation s'ouvrira quand un changement sera détecté. Même intention que validerRattachement.
+  const { rows: dossier } = await query(`SELECT 1 FROM permis_rattachement WHERE dossier_id = $1`, [dossierId]);
+  if (dossier.length === 0) {
+    return { ok: false, motif: 'aucun signal de mise à jour n’a encore été détecté pour ce permis : il n’y a rien à arbitrer. L’affectation des polygones aux bâtiments s’ouvrira dès qu’un changement (parcelle ou bâti) sera détecté.' };
+  }
   const { rows } = await query(`SELECT 1 FROM permis_corps_batiment WHERE id = $1 AND dossier_id = $2`, [corpsId, dossierId]);
   if (rows.length === 0) return { ok: false, motif: 'corps inconnu pour ce permis' };
   try {

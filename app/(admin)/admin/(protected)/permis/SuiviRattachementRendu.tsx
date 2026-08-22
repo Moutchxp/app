@@ -340,12 +340,38 @@ export function SchemaEmpreinteSvg({ schema, corps }: { schema: SchemaEmpreinte;
   );
 }
 
+/** Texte des polygones non affectés, DISTINGUANT « dans l'empreinte » (gris) et « hors empreinte » (rouge tireté) — cohérent avec le schéma. */
+export function texteNonAffectes(nonAffectes: { repere: string; horsEmpreinte: boolean }[]): string {
+  const dans = nonAffectes.filter((p) => !p.horsEmpreinte).map((p) => p.repere);
+  const hors = nonAffectes.filter((p) => p.horsEmpreinte).map((p) => p.repere);
+  const parts: string[] = [];
+  if (dans.length > 0) parts.push(`dans l’empreinte : ${dans.join(', ')}`);
+  if (hors.length > 0) parts.push(`hors empreinte : ${hors.join(', ')}`);
+  return parts.join(' ; ');
+}
+
+/** Légende du schéma : les TROIS styles. La couleur n'est jamais seule — le LIBELLÉ et le contour TIRETÉ (hors empreinte) portent l'information. */
+export function LegendeAffectation() {
+  const puce = (fill: string, tirete: boolean): CSSProperties => ({
+    display: 'inline-block', width: 14, height: 14, borderRadius: 3, marginRight: '.35rem', verticalAlign: 'middle',
+    background: fill, opacity: 0.85, border: `1px ${tirete ? 'dashed' : 'solid'} var(--color-svv-ink)`,
+  });
+  const item: CSSProperties = { display: 'inline-flex', alignItems: 'center' };
+  return (
+    <div role="note" aria-label="Légende du schéma d’affectation" style={{ ...styleAide, display: 'flex', flexWrap: 'wrap', gap: '.75rem' }}>
+      <span style={item}><span aria-hidden="true" style={puce('var(--color-svv-green-soft)', false)} />affecté à un corps</span>
+      <span style={item}><span aria-hidden="true" style={puce('#fde2e1', true)} />hors empreinte (déborde de l’emprise), contour tireté</span>
+      <span style={item}><span aria-hidden="true" style={puce('var(--color-svv-field)', false)} />dans l’empreinte, non affecté</span>
+    </div>
+  );
+}
+
 /**
- * Bloc d'affectation : le schéma + un sélecteur par corps (repères disponibles, EXCLUSIVITÉ appliquée), les polygones NON affectés
- * signalés. RÉVERSIBLE (le corps garde son polygone dans ses options). `onAffecter(corpsId, cleabs|null)` remonte le choix.
- * ⚠️ AUCUN bouton valider/refuser, AUCUNE injection (FUS-3e) : ici on ne fait qu'apparier polygone et corps.
+ * Bloc d'affectation : le SCHÉMA + sa LÉGENDE (toujours, informatif), puis — SI le dossier est PERSISTÉ — un sélecteur par corps
+ * (EXCLUSIVITÉ) et les polygones non affectés. `persiste=false` (« aucun signal ») → on n'ouvre PAS les sélecteurs mais on DIT
+ * pourquoi (on ne cache pas sans dire) ; le schéma reste consultable. RÉVERSIBLE. ⚠️ AUCUN valider/refuser, AUCUNE injection (FUS-3e).
  */
-export function AffectationBloc({ affectation, onAffecter }: { affectation: AffectationEtat; onAffecter?: (corpsId: number, cleabs: string | null) => void }) {
+export function AffectationBloc({ affectation, persiste, onAffecter }: { affectation: AffectationEtat; persiste: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void }) {
   const { corps, polygones, schema, motif, colonneManquante } = affectation;
   const nonAffectes = polygonesNonAffectes(corps, polygones);
   return (
@@ -359,31 +385,42 @@ export function AffectationBloc({ affectation, onAffecter }: { affectation: Affe
         ? <div style={{ ...styleAide, fontStyle: 'italic' }}>{motif}</div>
         : (
           <>
+            {/* Schéma + légende : TOUJOURS rendus (informatifs — comprendre le site), que le dossier soit persisté ou non. */}
             <SchemaEmpreinteSvg schema={schema} corps={corps} />
-            <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-              {corps.length === 0 && <li style={styleAide}>Aucun corps de bâtiment déclaré au permis.</li>}
-              {corps.map((c) => {
-                const options = optionsPourCorps(corps, polygones, c.id);
-                return (
-                  <li key={c.id} style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
-                    <span style={{ fontWeight: 600, minWidth: 90 }}>{c.repere ?? `corps ${c.id}`}</span>
-                    <span style={styleAide}>{c.altitudeSommetNgf !== null ? `sommet ${c.altitudeSommetNgf} m NGF` : 'altitude —'}{c.nbEtages !== null ? ` · ${c.nbEtages} ét.` : ''}</span>
-                    <label style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'baseline' }}>
-                      <span style={styleAide}>polygone :</span>
-                      <select value={c.cleabsAffecte ?? ''} disabled={colonneManquante} aria-label={`polygone affecté au corps ${c.repere ?? c.id}`}
-                        onChange={(e) => onAffecter?.(c.id, e.target.value || null)}
-                        style={{ padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' }}>
-                        <option value="">— aucun (bâtiment sans polygone) —</option>
-                        {options.map((o) => <option key={o.cleabs ?? o.repere} value={o.cleabs ?? ''}>polygone {o.repere}{o.horsEmpreinte ? ' (hors empreinte)' : ''}</option>)}
-                      </select>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-            {nonAffectes.length > 0 && (
-              <div role="note" style={{ ...styleAide, color: 'var(--color-svv-red)' }}>
-                Polygone(s) non affecté(s) : {nonAffectes.map((p) => p.repere).join(', ')} — à affecter, ou à laisser si aucun corps ne correspond (bâtiments accolés).
+            <LegendeAffectation />
+            {persiste ? (
+              <>
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+                  {corps.length === 0 && <li style={styleAide}>Aucun corps de bâtiment déclaré au permis.</li>}
+                  {corps.map((c) => {
+                    const options = optionsPourCorps(corps, polygones, c.id);
+                    return (
+                      <li key={c.id} style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600, minWidth: 90 }}>{c.repere ?? `corps ${c.id}`}</span>
+                        <span style={styleAide}>{c.altitudeSommetNgf !== null ? `sommet ${c.altitudeSommetNgf} m NGF` : 'altitude —'}{c.nbEtages !== null ? ` · ${c.nbEtages} ét.` : ''}</span>
+                        <label style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'baseline' }}>
+                          <span style={styleAide}>polygone :</span>
+                          <select value={c.cleabsAffecte ?? ''} disabled={colonneManquante} aria-label={`polygone affecté au corps ${c.repere ?? c.id}`}
+                            onChange={(e) => onAffecter?.(c.id, e.target.value || null)}
+                            style={{ padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' }}>
+                            <option value="">— aucun (bâtiment sans polygone) —</option>
+                            {options.map((o) => <option key={o.cleabs ?? o.repere} value={o.cleabs ?? ''}>polygone {o.repere}{o.horsEmpreinte ? ' (hors empreinte)' : ''}</option>)}
+                          </select>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {nonAffectes.length > 0 && (
+                  <div role="note" style={{ ...styleAide, color: 'var(--color-svv-red)' }}>
+                    Polygones non affectés — {texteNonAffectes(nonAffectes)}. À affecter au bon corps, ou à laisser si aucun corps ne correspond (bâtiments accolés / débords).
+                  </div>
+                )}
+              </>
+            ) : (
+              // « Aucun signal » (dossier non persisté) : on n'ouvre pas l'arbitrage, mais on DIT pourquoi (jamais de disparition muette).
+              <div role="note" style={{ ...styleAide }}>
+                Aucun signal de mise à jour n’a encore été détecté pour ce permis : il n’y a rien à arbitrer pour l’instant. L’affectation des polygones aux bâtiments s’ouvrira dès qu’un changement (parcelle ou bâti) sera détecté. Le schéma ci-dessus reste consultable pour comprendre le site.
               </div>
             )}
           </>

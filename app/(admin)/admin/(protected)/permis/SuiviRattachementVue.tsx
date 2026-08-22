@@ -129,7 +129,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
             ? <div className="flex flex-col gap-2">
                 <DetailSuiviRendu detail={detail} />
                 {/* FUS-3d — affectation des polygones BD TOPO aux corps (schéma + sélecteurs). */}
-                {affectation && <AffectationBloc affectation={affectation} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)} />}
+                {affectation && <AffectationBloc affectation={affectation} persiste={detail.persiste} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)} />}
                 {affErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{affErreur}</div>}
                 {/* FUS-3e — décisions : uniquement pour un dossier RÉEL (persisté). « aucun signal » (dérivé) n'a rien à décider. */}
                 {detail.persiste && (
