@@ -106,8 +106,7 @@ export async function executerRelanceAuto(deps: DepsRelanceAuto): Promise<BilanR
 
     try {
       // relanceAuto ne génère qu'en état 'depassee' (APRÈS l'échéance) → variante 'saisine' (équivalent sémantique de l'ancienne
-      //   'formelle'). ⚠️ TRANSITOIRE : l'INSERT stocke encore variante='formelle' (CHECK migration 128, élargi au lot 2) ; le
-      //   choix réel de variante et l'alimentation de l'historique sont le lot 3.
+      //   'formelle'). Le choix réel de variante (rappel/avis/saisine selon la position dans le délai) et l'historique sont le lot 3.
       const echeanceLe = echeanceDe(envoyeLe);
       const { objet, corps } = genererRelance({
         reference: d.reference, profil: ctx.profil, lot: lot.lot, dossiersSatisfaitsIds: lot.satisfaitsIds,
@@ -250,9 +249,11 @@ export function depsReellesRelance(): DepsRelanceAuto {
     enregistrerRelance: async (demandeId, profil, objet, corps, motif) => {
       return withTransaction(async (q) => {
         const { rows } = await q<{ id: number }>(
-          // LOT B — variante='formelle' à la création (registre de langage du brouillon ; le lot A la calcule, ici toujours 'formelle').
+          // Cascade lot 2 — variante='saisine' à la création (relanceAuto ne génère qu'en état 'depassee', après l'échéance) :
+          //   le CHECK élargi (migration 136) l'accepte désormais ; l'écart transitoire du lot 1 est refermé. Le choix réel de
+          //   variante selon la position dans le délai (rappel/avis/saisine) est le lot 3.
           `INSERT INTO demande_relance (demande_id, type, variante, objet, corps, profil_demandeur, statut)
-           VALUES ($1, 'relance', 'formelle', $2, $3, $4, 'brouillon') RETURNING id`,
+           VALUES ($1, 'relance', 'saisine', $2, $3, $4, 'brouillon') RETURNING id`,
           [demandeId, objet, corps, profil]);
         // Journal APPEND-ONLY : aucune transition de statut de la DEMANDE (statut_avant/apres NULL) — on n'écrit jamais demande.statut.
         await q(

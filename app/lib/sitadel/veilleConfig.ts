@@ -57,7 +57,11 @@ export interface ConfigVeille {
   depotAdressesConnues: string;     // N1-A : adresses reconnues pour le versement auto en GED (virgules ; union avec les collaborateurs)
   natureAccuseMotifs: string;       // FUS-4 : motifs d'objet reconnaissant un accusé (liste virgules/retours) — pilotage sans code
   relanceAutoActive: boolean;       // LOT B : envoyer les relances automatiquement ? STOCKÉ/AFFICHÉ, LU PAR AUCUN CODE D'ENVOI dans ce lot
-  relanceJoursAvantEcheance: number; // LOT B : jours avant l'échéance à partir desquels un rappel est PRÉPARÉ (n'envoie rien) — borné 1..30
+  relanceJoursAvantEcheance: number; // LOT B (VESTIGIAL, cascade lot 2) : remplacé par relanceRappelJoursAvant — conservé, non éditable
+  relanceRappelJoursAvant: number;   // Cascade lot 2 : jours avant l'échéance où le RAPPEL (J-10) est préparé — borné 1..30, défaut 10
+  relanceAvisJoursAvant: number;     // Cascade lot 2 : jours avant l'échéance où l'AVIS (J-3, possibilité CADA) est préparé — borné 1..30, défaut 3
+  relanceSaisineDelaiJours: number;  // Cascade lot 2 : délai (jours) après l'échéance au terme duquel la SAISINE CADA sera déposée — borné 1..30, défaut 4
+  saisineCadaAutoActive: boolean;    // Cascade lot 2 : envoyer la saisine CADA SANS relecture ? Sans effet tant que cadaEmail est vide — défaut false
 }
 
 /** Repli : valeurs identiques aux DEFAULT de la migration 048 (si `config_veille` est absente/vide). */
@@ -97,6 +101,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   depotAdressesConnues: '',     // = DEFAULT de la migration 102 (aucune adresse connue en propre → seuls les collaborateurs)
   natureAccuseMotifs: '',       // FUS-4 : repli ultime = aucun motif → comportement d'AVANT ce lot (la 125 pose 'accusé de réception')
   relanceAutoActive: false, relanceJoursAvantEcheance: 10, // = DEFAULT de la migration 128 (LOT B : opt-out d'envoi auto, préparation à J-10)
+  relanceRappelJoursAvant: 10, relanceAvisJoursAvant: 3, relanceSaisineDelaiJours: 4, saisineCadaAutoActive: false, // = DEFAULT de la migration 136 (cascade lot 2)
 };
 
 interface LigneConfigVeille {
@@ -342,6 +347,23 @@ async function lireRelanceReglages(): Promise<Pick<ConfigVeille, 'relanceAutoAct
   } catch { return def; } // 128 pas encore appliquée → défauts
 }
 
+// Cascade lot 2 — réglages de la CASCADE (3 délais + auto-saisine CADA). Lecture ISOLÉE (résiliente à l'ordre d'application de
+//   la 136, livrée NON APPLIQUÉE) : tant que ces colonnes n'existent pas, cette lecture échoue SEULE et retombe sur les défauts
+//   (10 / 3 / 4 / false), SANS dégrader le reste de la config (motif lireRelanceReglages / lireCapsEnvoi).
+async function lireRelanceCascadeReglages(): Promise<Pick<ConfigVeille, 'relanceRappelJoursAvant' | 'relanceAvisJoursAvant' | 'relanceSaisineDelaiJours' | 'saisineCadaAutoActive'>> {
+  const def = { relanceRappelJoursAvant: 10, relanceAvisJoursAvant: 3, relanceSaisineDelaiJours: 4, saisineCadaAutoActive: false };
+  try {
+    const { rows } = await query<{ relance_rappel_jours_avant: number; relance_avis_jours_avant: number; relance_saisine_delai_jours: number; saisine_cada_auto_active: boolean }>(
+      `SELECT relance_rappel_jours_avant, relance_avis_jours_avant, relance_saisine_delai_jours, saisine_cada_auto_active FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return def;
+    return {
+      relanceRappelJoursAvant: r.relance_rappel_jours_avant, relanceAvisJoursAvant: r.relance_avis_jours_avant,
+      relanceSaisineDelaiJours: r.relance_saisine_delai_jours, saisineCadaAutoActive: r.saisine_cada_auto_active === true,
+    };
+  } catch { return def; } // 136 pas encore appliquée → défauts
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -389,6 +411,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireDepotAdresses()),                  // N1-A : adresses connues du versement auto, lecture isolée (résiliente à la 102)
       ...(await lireNatureAccuseMotifs()),             // FUS-4 : motifs d'objet « accusé », lecture isolée (résiliente à la 125)
       ...(await lireRelanceReglages()),                // LOT B : réglages de relance, lecture isolée (résiliente à la 128)
+      ...(await lireRelanceCascadeReglages()),          // Cascade lot 2 : 3 délais + auto-saisine CADA, lecture isolée (résiliente à la 136)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

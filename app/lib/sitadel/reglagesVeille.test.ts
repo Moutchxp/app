@@ -69,6 +69,10 @@ const DEFS_BASE = [
   'CHECK (((permis_par_commune_par_mois >= 1) AND (permis_par_commune_par_mois <= 200)))',
   // LOT B — jours avant l'échéance à partir desquels un rappel est préparé (migration 128) : BETWEEN 1 AND 30 → forme `>= AND <=`
   'CHECK (((relance_jours_avant_echeance >= 1) AND (relance_jours_avant_echeance <= 30)))',
+  // Cascade lot 2 — les 3 délais de la cascade (migration 136) : BETWEEN 1 AND 30 → forme `>= AND <=`
+  'CHECK (((relance_rappel_jours_avant >= 1) AND (relance_rappel_jours_avant <= 30)))',
+  'CHECK (((relance_avis_jours_avant >= 1) AND (relance_avis_jours_avant <= 30)))',
+  'CHECK (((relance_saisine_delai_jours >= 1) AND (relance_saisine_delai_jours <= 30)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 

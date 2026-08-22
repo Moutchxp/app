@@ -111,6 +111,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(PARAMS_THEME_ENVOI.map((p) => p.colonne)).toEqual([
       'adresse_reponse', 'envois_max_par_run', 'envois_max_par_jour',
       'relance_jours_avant_echeance', 'relance_auto_active', // LOT B — duo « relances » (à partir de quand + part-il tout seul)
+      'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours', // cascade lot 2 — 3 délais (rappel/avis/saisine)
     ]);
     expect(PARAMS_THEME_REPONSES.map((p) => p.colonne)).toEqual([
       'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',
@@ -119,7 +120,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'nature_accuse_motifs',   // FUS-4 — motifs d'objet « accusé de réception »
     ]);
     expect(PARAMS_THEME_ALERTES.map((p) => p.colonne)).toEqual(['alerte_active', 'alerte_email', 'alerte_heure_locale']);
-    expect(PARAMS_THEME_CADA.map((p) => p.colonne)).toEqual(['proposition_cada_active', 'cada_email', 'cada_url_formulaire']);
+    expect(PARAMS_THEME_CADA.map((p) => p.colonne)).toEqual(['proposition_cada_active', 'cada_email', 'cada_url_formulaire', 'saisine_cada_auto_active']);
   });
 
   // E1/N1-A — PREUVE « aucun paramètre perdu » : les 5 thèmes sont DISJOINTS et couvrent EXACTEMENT les clés « demandes »
@@ -127,9 +128,9 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
   it('les 5 thèmes partitionnent les clés « demandes » (disjoints, couvrants, sans perte ni doublon)', () => {
     const themes = [PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA];
     const clesThemes = themes.flatMap((t) => t.map((p) => p.colonne));
-    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length).toBe(28);
-    expect(new Set(clesThemes).size).toBe(28); // disjoints (aucun doublon)
-    // liste LITTÉRALE figée des 28 clés « demandes » — comparée en ENSEMBLE à la concaténation des thèmes ET à COLONNES_PARAMS_DEMANDES.
+    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length).toBe(32);
+    expect(new Set(clesThemes).size).toBe(32); // disjoints (aucun doublon)
+    // liste LITTÉRALE figée des 32 clés « demandes » — comparée en ENSEMBLE à la concaténation des thèmes ET à COLONNES_PARAMS_DEMANDES.
     const CLES_DEMANDES = [
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
       'nb_candidats_examines', 'tri_candidats', 'envois_max_par_run', 'envois_max_par_jour', 'adresse_reponse',
@@ -139,6 +140,8 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'depot_adresses_connues', // N1-A
       'nature_accuse_motifs',   // FUS-4
       'relance_jours_avant_echeance', 'relance_auto_active', // LOT B — duo « relances » rangé dans « Envoi aux mairies »
+      'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours', // cascade lot 2 — 3 délais (Envoi)
+      'saisine_cada_auto_active', // cascade lot 2 — auto-saisine (CADA)
     ];
     expect(new Set(clesThemes)).toEqual(new Set(CLES_DEMANDES));
     expect(new Set(PARAMS_DEMANDES.map((p) => p.colonne))).toEqual(new Set(CLES_DEMANDES)); // COLONNES_PARAMS_DEMANDES = concat des thèmes, même ENSEMBLE
@@ -152,9 +155,9 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       ...PARAMS_THEME_PREPARATION, ...PARAMS_THEME_ENVOI, ...PARAMS_THEME_REPONSES, ...PARAMS_THEME_ALERTES, ...PARAMS_THEME_CADA,
       ...PARAMS_MENTIONS, ...PARAMS_SOURCES,
     ].map((p) => p.colonne);
-    // Snapshot : l'écran Réglages rend 28 + 4 + 1 = 33 clés distinctes (LOT B a ajouté le duo « relances » au thème Envoi).
-    expect(CLES_RENDUES_REGLAGES).toHaveLength(33);
-    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(33);
+    // Snapshot : l'écran Réglages rend 32 + 4 + 1 = 37 clés distinctes (cascade lot 2 a ajouté 3 délais au thème Envoi + 1 à CADA).
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(37);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(37);
     // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
     const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
     expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));

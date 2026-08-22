@@ -111,8 +111,8 @@ describe('R5c — regenererRelance (abandonne le courant + produit un nouveau de
 
     const ins = appels[iIns];
     expect(norm(ins.sql)).toContain("'brouillon'");
-    expect(norm(ins.sql)).toContain('variante');    // LOT B — variante écrite à la création (régénération manuelle)…
-    expect(norm(ins.sql)).toContain("'formelle'");   // …et vaut toujours 'formelle'
+    expect(norm(ins.sql)).toContain('variante');    // cascade lot 2 — variante écrite à la création (régénération manuelle)…
+    expect(norm(ins.sql)).toContain("'saisine'");    // …et vaut 'saisine' (CHECK élargi migration 136 ; écart 'formelle' du lot 1 refermé)
     const [demandeId, objet, corps, profil] = ins.params as [number, string, string, string];
     expect(demandeId).toBe(42);
     expect(profil).toBe('entreprise');

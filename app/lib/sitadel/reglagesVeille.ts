@@ -201,15 +201,28 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   // LOT B — RELANCES : le duo « à partir de quand un rappel est préparé » + « les relances partent-elles toutes seules ». Rangés
   //   dans « Envoi aux mairies » (thème ENVOI). ⚠️ relance_auto_active est STOCKÉ et AFFICHÉ, mais LU PAR AUCUN CODE D'ENVOI dans
   //   ce lot (l'envoi automatique est un lot ultérieur) — l'aide le dit sans détour puisque le thème s'appelle « Envoi aux mairies ».
+  // Cascade lot 2 — DOUBLON transitoire de « Rappel — jours avant l’échéance » (migration 136 : COMMENT vestigial en base, valeur
+  //   reportée dans le successeur). Laissé ÉDITABLE ici : marquer le descripteur vestigial (écran lecture seule) relève de l’affichage (lot 4).
   { colonne: 'relance_jours_avant_echeance', cle: 'relanceJoursAvantEcheance', libelle: 'Nombre de jours avant l’échéance', unite: 'jours', type: 'entier',
     aide: 'À partir de ce nombre de jours avant l’échéance, un rappel est préparé pour les demandes restées sans réponse. La préparation a toujours lieu et n’envoie rien.' },
   { colonne: 'relance_auto_active', cle: 'relanceAutoActive', libelle: 'Envoyer les relances automatiquement', unite: '', type: 'booleen',
     aide: 'Si cette case est cochée, les relances partiront vers les mairies sans relecture. Tant qu’elle est décochée, rien ne part sans un clic.' },
+  // Cascade lot 2 — les 3 délais de la cascade, dans l’ordre chronologique (rappel J-10, avis J-3, saisine J+délai). Bornes 1..30
+  //   lues au runtime depuis les CHECK (migration 136). Aides en conséquences concrètes : ce qui part, quand.
+  { colonne: 'relance_rappel_jours_avant', cle: 'relanceRappelJoursAvant', libelle: 'Rappel — jours avant l’échéance', unite: 'jours', type: 'entier',
+    aide: 'Combien de jours AVANT la fin du délai d’un mois le premier RAPPEL est préparé. Ce rappel est courtois : il ne parle NI de refus tacite NI de la CADA, car la mairie est encore dans son délai.' },
+  { colonne: 'relance_avis_jours_avant', cle: 'relanceAvisJoursAvant', libelle: 'Avis d’échéance — jours avant l’échéance', unite: 'jours', type: 'entier',
+    aide: 'Combien de jours AVANT l’échéance l’AVIS est préparé. Il prévient la mairie que l’échéance approche et qu’à défaut de réponse vous pourrez saisir la CADA — sans encore la saisir. Une réponse de sa part rend la démarche sans objet.' },
+  { colonne: 'relance_saisine_delai_jours', cle: 'relanceSaisineDelaiJours', libelle: 'Saisine CADA — délai après l’échéance', unite: 'jours', type: 'entier',
+    aide: 'Combien de jours APRÈS l’échéance la saisine de la CADA sera déposée. Le jour de l’échéance, un message l’annonce à la mairie ; ce délai lui laisse une dernière chance de transmettre les pièces avant le dépôt.' },
   // X1 — CANAL CADA (saisine quand une mairie reste silencieuse plus d’un mois). L’adresse VIDE n’est PAS une erreur : c’est le mode « formulaire en ligne ».
   { colonne: 'cada_email', cle: 'cadaEmail', libelle: 'Adresse e-mail de la CADA', unite: '', type: 'email',
     aide: 'Adresse e-mail où saisir la CADA (Commission d’accès aux documents administratifs) quand une mairie n’a pas répondu. Si vous la renseignez, la saisine part par e-mail avec, en pièce jointe, une copie de votre demande initiale. Laissée VIDE, ce n’est PAS bloquant : la saisine se fait alors à la main sur le formulaire en ligne de la CADA (adresse ci-dessous).' },
   { colonne: 'cada_url_formulaire', cle: 'cadaUrlFormulaire', libelle: 'Formulaire de saisine en ligne de la CADA', unite: '', type: 'url',
     aide: 'Adresse web du formulaire de saisine de la CADA. C’est là que vous déposez la saisine à la main quand l’adresse e-mail ci-dessus est laissée vide. À ne changer que si l’adresse officielle du formulaire change.' },
+  // Cascade lot 2 — auto-saisine CADA (thème CADA). ⚠️ Sans effet tant que cada_email est vide (dépôt manuel sur le formulaire).
+  { colonne: 'saisine_cada_auto_active', cle: 'saisineCadaAutoActive', libelle: 'Saisir la CADA automatiquement', unite: '', type: 'booleen',
+    aide: 'Si cette case est cochée, la saisine de la CADA part TOUTE SEULE, sans relecture de votre part, une fois le délai écoulé. ⚠️ Tant que l’adresse e-mail de la CADA (ci-dessus) n’est pas renseignée, ce réglage reste SANS EFFET : la saisine est alors seulement préparée pour un dépôt à la main sur le formulaire en ligne. Décochée, rien ne part sans un clic.' },
   // R7 — RELÈVE AUTOMATIQUE des réponses des mairies (lecture de la boîte de réponse ci-dessus). Opt-in : désactivée par défaut.
   { colonne: 'releve_active', cle: 'releveActive', libelle: 'Relève automatique des réponses', unite: '', type: 'booleen',
     aide: 'Quand c’est activé, l’application relève seule la boîte de réponse à intervalle régulier, enregistre les réponses des mairies et les rattache aux demandes. Désactivé, rien n’est relevé tout seul : il faut lancer la relève à la main. La boîte est TOUJOURS lue sans jamais être modifiée.' },
@@ -315,6 +328,8 @@ export const COLONNES_THEME_ENVOI: readonly string[] = [
   // LOT B — duo « relances » : à partir de quand un rappel est préparé, puis part-il tout seul (adjacents, sans sous-titre :
   //   l'écran Réglages ne rend pas de sous-groupe dans un thème — non inventé pour ce lot).
   'relance_jours_avant_echeance', 'relance_auto_active',
+  // Cascade lot 2 — les 3 délais, à la suite du réglage de relance existant, dans l'ordre chronologique (rappel → avis → saisine).
+  'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours',
 ];
 export const COLONNES_THEME_REPONSES: readonly string[] = [
   'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',
@@ -327,6 +342,7 @@ export const COLONNES_THEME_ALERTES: readonly string[] = [
 ];
 export const COLONNES_THEME_CADA: readonly string[] = [
   'proposition_cada_active', 'cada_email', 'cada_url_formulaire',
+  'saisine_cada_auto_active', // Cascade lot 2 — auto-saisine (sans effet tant que cada_email vide)
 ];
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
   ...COLONNES_THEME_PREPARATION, ...COLONNES_THEME_ENVOI, ...COLONNES_THEME_REPONSES, ...COLONNES_THEME_ALERTES, ...COLONNES_THEME_CADA,

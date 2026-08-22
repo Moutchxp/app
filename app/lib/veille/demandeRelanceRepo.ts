@@ -117,8 +117,7 @@ export async function regenererRelance(relanceId: number, auteur: string | null,
   if (lot === null) throw new RelanceActionError('demande introuvable');
 
   // genererRelance lève IdentiteIncompleteError / AucunDossierNonSatisfaitError (relance.ts) — laissées remonter à la route.
-  // Variante 'saisine' (équivalent sémantique de l'ancienne 'formelle'). ⚠️ TRANSITOIRE : l'INSERT stocke encore
-  //   variante='formelle' (CHECK migration 128, élargi au lot 2) ; le choix réel de variante et l'historique sont le lot 3.
+  // Variante 'saisine' (équivalent sémantique de l'ancienne 'formelle'). Le choix réel de variante et l'historique sont le lot 3.
   const echeanceLe = echeanceDe(dem.envoyeLe);
   const { objet, corps } = genererRelance({
     reference: dem.reference, profil: rel.profil, lot: lot.lot, dossiersSatisfaitsIds: lot.satisfaitsIds,
@@ -130,9 +129,10 @@ export async function regenererRelance(relanceId: number, auteur: string | null,
     // Abandon D'ABORD : sinon l'INSERT 'brouillon' violerait demande_relance_vivante_uniq (une seule relance vivante par demande).
     await q(`UPDATE demande_relance SET statut = 'abandonnee' WHERE id = $1 AND statut = 'brouillon'`, [relanceId]);
     const ins = await q<{ id: number }>(
-      // LOT B — variante='formelle' à la création (registre de langage du brouillon ; le lot A la calcule, ici toujours 'formelle').
+      // Cascade lot 2 — variante='saisine' à la création (CHECK élargi, migration 136) : l'écart transitoire du lot 1 est
+      //   refermé. Le choix réel de variante selon la position dans le délai (rappel/avis/saisine) est le lot 3.
       `INSERT INTO demande_relance (demande_id, type, variante, objet, corps, profil_demandeur, statut)
-       VALUES ($1, 'relance', 'formelle', $2, $3, $4, 'brouillon') RETURNING id`,
+       VALUES ($1, 'relance', 'saisine', $2, $3, $4, 'brouillon') RETURNING id`,
       [rel.demandeId, objet, corps, rel.profil]);
     const nouvelId = ins.rows[0].id;
     await q(
