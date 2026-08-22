@@ -484,18 +484,19 @@ export function validerReglages(
 // ── Réglages d'AUTOMATISATION (chantier S11b) ────────────────────────────────
 export interface PatchAutomatisation {
   autoActive?: unknown; autoIntervalleHeures?: unknown; csvRetentionJours?: unknown;
-  alerteMillesimeFigeJours?: unknown; alerteEchecsConsecutifs?: unknown; lancerMaintenant?: unknown;
+  alerteMillesimeFigeJours?: unknown; alerteEchecsConsecutifs?: unknown; recomptageHeureLocale?: unknown; lancerMaintenant?: unknown;
 }
 export type ResultatAutomatisation =
   | { ok: true; colonnes: Record<string, number | boolean>; lancer: boolean }
   | { ok: false; erreurs: ErreurReglage[] };
 
-type CleAuto = 'autoIntervalleHeures' | 'csvRetentionJours' | 'alerteMillesimeFigeJours' | 'alerteEchecsConsecutifs';
+type CleAuto = 'autoIntervalleHeures' | 'csvRetentionJours' | 'alerteMillesimeFigeJours' | 'alerteEchecsConsecutifs' | 'recomptageHeureLocale';
 const PARAMS_AUTO: { cle: CleAuto; colonne: string; libelle: string }[] = [
   { cle: 'autoIntervalleHeures', colonne: 'auto_intervalle_heures', libelle: 'intervalle (heures)' },
   { cle: 'csvRetentionJours', colonne: 'csv_retention_jours', libelle: 'rétention des CSV (jours)' },
   { cle: 'alerteMillesimeFigeJours', colonne: 'alerte_millesime_fige_jours', libelle: 'seuil millésime figé (jours)' },
   { cle: 'alerteEchecsConsecutifs', colonne: 'alerte_echecs_consecutifs', libelle: 'seuil échecs consécutifs' },
+  { cle: 'recomptageHeureLocale', colonne: 'recomptage_heure_locale', libelle: 'heure du recomptage des compteurs' }, // PASTILLES (0..23)
 ];
 
 /**

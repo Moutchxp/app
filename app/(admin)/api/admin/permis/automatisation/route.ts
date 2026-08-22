@@ -37,12 +37,21 @@ async function lireConfig(): Promise<LigneConfig> {
   };
 }
 
+/** PASTILLES — heure de recomptage, lue À PART et BEST-EFFORT : tant que la 139 n'est pas appliquée, la colonne n'existe pas →
+ *  défaut 8, SANS casser l'écran Automatisation (résilience à l'ordre d'application, comme les lecteurs isolés de veilleConfig). */
+async function lireRecomptageHeure(): Promise<number> {
+  try {
+    const { rows } = await query<{ recomptage_heure_locale: number }>(`SELECT recomptage_heure_locale FROM config_veille WHERE id = 1`);
+    return rows[0]?.recomptage_heure_locale ?? 8;
+  } catch { return 8; }
+}
+
 /** État complet renvoyé par GET (et par PATCH après écriture). */
 async function etatComplet() {
-  const [cfg, bornes, mille, historique, dernierSucces, dernierPassage] = await Promise.all([
+  const [cfg, bornes, mille, historique, dernierSucces, dernierPassage, recompteHeure] = await Promise.all([
     lireConfig(), lireBornes(),
     query<{ code: string }>(`SELECT code FROM sitadel_millesime ORDER BY code DESC LIMIT 1`),
-    historiqueRuns(20), dernierSuccesLe(), dernierPassageLe(),
+    historiqueRuns(20), dernierSuccesLe(), dernierPassageLe(), lireRecomptageHeure(),
   ]);
   const maintenant = new Date();
   const millesimeBase = mille.rows[0]?.code ?? null;
@@ -59,6 +68,7 @@ async function etatComplet() {
     csvRetentionJours: cfg.csv_retention_jours,
     alerteMillesimeFigeJours: cfg.alerte_millesime_fige_jours,
     alerteEchecsConsecutifs: cfg.alerte_echecs_consecutifs,
+    recomptageHeureLocale: recompteHeure,
     bornes,
     millesimeBase,
     dernierRun: historique[0] ?? null,

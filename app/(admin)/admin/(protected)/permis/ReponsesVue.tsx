@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { recompterSiSucces } from './comptesActions';
 import { echeanceDe, etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
 import type { ReponsesData } from '../../../../lib/veille/reponsesSuivi';
 import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
@@ -41,7 +42,7 @@ function Pagination({ page, nbPages, total, onPage }: { page: number; nbPages: n
   );
 }
 
-export function ReponsesVue() {
+export function ReponsesVue({ onRecompter }: { onRecompter?: () => void } = {}) {
   const [data, setData] = useState<ReponsesData | null>(null);
   const [maintenant, setMaintenant] = useState<Date>(() => new Date());
   const [erreur, setErreur] = useState(false);
@@ -115,7 +116,8 @@ export function ReponsesVue() {
     const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
     if (res.ok) { setRetour({ cle, texte: texteOk, ok: true }); rafraichir(); } // recharge sans effacer le retour
     else setRetour({ cle, texte: await erreurServeur(res, 'Action impossible.'), ok: false });
-  }, [rafraichir]);
+    recompterSiSucces(res.ok, onRecompter); // pastille : recompter après une action réussie (jamais après un échec)
+  }, [rafraichir, onRecompter]);
 
   // T1 — RÉ-ATTACHER un dossier retiré (« annuler le retrait »). Route EXISTANTE, telle quelle. 200 {ok:true} → de nouveau dû ;
   //   200 {ok:false} → 'introuvable' (le retrait n'existe plus) ; 409 → 'conflit' (message serveur). Sur échec, aucun état changé.
@@ -127,7 +129,8 @@ export function ReponsesVue() {
       if (d.ok) { setRetour({ cle, texte: 'Dossier ré-attaché — il redevient dû.', ok: true }); rafraichir(); }
       else setRetour({ cle, texte: 'Ré-attachement impossible : ce retrait n’existe plus (déjà ré-attaché ?).', ok: false });
     } else setRetour({ cle, texte: await erreurServeur(res, 'Ré-attachement impossible.'), ok: false });
-  }, [rafraichir]);
+    recompterSiSucces(res.ok, onRecompter); // pastille : recompter après un ré-attachement réussi
+  }, [rafraichir, onRecompter]);
 
   const telecharger = useCallback(async (reponseId: number, pieceId: number): Promise<void> => {
     const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'url_piece', pieceId }) });

@@ -7,6 +7,7 @@ import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
 import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement } from './SuiviRattachementRendu';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { CellulePieces } from './ArchivesRendu';
+import { recompterSiSucces } from './comptesActions';
 
 /**
  * FUS-3c — onglet SUIVI DU RATTACHEMENT : au clic sur un permis, TOUT le contenu de décision est sur la même page — détail
@@ -16,7 +17,7 @@ import { CellulePieces } from './ArchivesRendu';
  * toujours AUCUN bouton valider/refuser, AUCUNE injection d'altitude (FUS-3e). Les pièces sont téléchargeables mais ni supprimables
  * ni ajoutables ici (ça reste dans Archives). Le détail complet est REPLIÉ par défaut (lisible à 20 dossiers).
  */
-export function SuiviRattachementVue() {
+export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void } = {}) {
   const [liste, setListe] = useState<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> } | null>(null);
   const [erreur, setErreur] = useState(false);
   const [ouvert, setOuvert] = useState<number | null>(null);
@@ -84,6 +85,7 @@ export function SuiviRattachementVue() {
         if (d.detail) setDetail(d.detail);
         if (d.affectation !== undefined) setAffectation(d.affectation ?? null);
         setAvertissement(null); setMotifRefus(''); setMotifConfirmation('');
+        recompterSiSucces(true, onRecompter); // pastille : la décision (valider/refuser/retour) a changé l'état « arbitrage »
       } else if (d.besoinConfirmation) {
         setAvertissement(d.avertissement ?? 'Cardinalité incohérente : confirmez avec un motif.');
       } else {
@@ -91,7 +93,7 @@ export function SuiviRattachementVue() {
       }
     } catch { setActionErreur('Action impossible.'); }
     finally { setEnCours(false); }
-  }, [ouvert]);
+  }, [ouvert, onRecompter]);
 
   // Téléchargement d'une pièce — MÊME signeur unique qu'Archives (action url_piece de /reponses ; la clé ne transite jamais).
   const telecharger = useCallback(async (pieceId: number, source: 'reponse' | 'dossier'): Promise<void> => {

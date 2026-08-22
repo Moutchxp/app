@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { PastilleActions } from './PastilleActions';
 
 /**
  * S13 — barre d'onglets PURE de la tuile Permis (aucun état, aucun effet → testable en Node via `renderToStaticMarkup`).
@@ -27,8 +28,14 @@ function styleOnglet(actif: boolean): CSSProperties {
   };
 }
 
-/** Deux blocs nommés qui s'empilent sur écran étroit (flex-wrap), chacun gardant son intitulé au-dessus de ses onglets. */
-export function OngletsPermis({ actif, onChoisir }: { actif: CleOnglet; onChoisir: (cle: CleOnglet) => void }) {
+/**
+ * Deux blocs nommés qui s'empilent sur écran étroit (flex-wrap), chacun gardant son intitulé au-dessus de ses onglets.
+ * `compteurs` (optionnel) porte le nombre d'actions en attente par onglet → une PastilleActions rouge s'affiche À GAUCHE du titre
+ * quand le compteur est > 0 (zéro → rien). Seuls les onglets concernés (Réponses / Saisines CADA / Rattachement) reçoivent un compteur.
+ */
+export function OngletsPermis({ actif, onChoisir, compteurs }: {
+  actif: CleOnglet; onChoisir: (cle: CleOnglet) => void; compteurs?: Partial<Record<CleOnglet, number>>;
+}) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.25rem', alignItems: 'flex-end' }}>
       {GROUPES_ONGLETS.map((g) => (
@@ -36,8 +43,9 @@ export function OngletsPermis({ actif, onChoisir }: { actif: CleOnglet; onChoisi
           <span style={styleTitreGroupe}>{g.titre}</span>
           <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', borderBottom: '1px solid var(--color-svv-line)' }}>
             {g.onglets.map((o) => (
-              <button key={o.cle} type="button" style={styleOnglet(actif === o.cle)}
+              <button key={o.cle} type="button" style={{ ...styleOnglet(actif === o.cle), display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}
                 aria-current={actif === o.cle ? 'page' : undefined} onClick={() => onChoisir(o.cle)}>
+                <PastilleActions n={compteurs?.[o.cle] ?? 0} />
                 {o.libelle}
               </button>
             ))}

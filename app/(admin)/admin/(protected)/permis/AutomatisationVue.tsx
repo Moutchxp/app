@@ -17,6 +17,7 @@ interface EtatAuto {
   csvRetentionJours: number;
   alerteMillesimeFigeJours: number;
   alerteEchecsConsecutifs: number;
+  recomptageHeureLocale: number;
   bornes: BornesParColonne;
   millesimeBase: string | null;
   dernierRun: RunVeille | null;
@@ -41,6 +42,7 @@ export function AutomatisationVue() {
   const [retention, setRetention] = useState('');
   const [figeJours, setFigeJours] = useState('');
   const [echecsSeuil, setEchecsSeuil] = useState('');
+  const [recompteHeure, setRecompteHeure] = useState('');
   const [msg, setMsg] = useState('');
   const [erreur, setErreur] = useState('');
 
@@ -50,6 +52,7 @@ export function AutomatisationVue() {
     setRetention(String(e.csvRetentionJours));
     setFigeJours(String(e.alerteMillesimeFigeJours));
     setEchecsSeuil(String(e.alerteEchecsConsecutifs));
+    setRecompteHeure(String(e.recomptageHeureLocale));
   }
 
   useEffect(() => {
@@ -86,6 +89,7 @@ export function AutomatisationVue() {
   const bRet = data.bornes.csv_retention_jours;
   const bFige = data.bornes.alerte_millesime_fige_jours;
   const bEchecs = data.bornes.alerte_echecs_consecutifs;
+  const bRecompte = data.bornes.recomptage_heure_locale;
 
   return (
     <div className="flex flex-col gap-4">
@@ -139,6 +143,13 @@ export function AutomatisationVue() {
           <input type="number" value={echecsSeuil} min={bEchecs?.min} max={bEchecs?.max} step={1} onChange={(e) => setEchecsSeuil(e.target.value)} style={styleInput} />
           <span style={styleAide}>{bEchecs ? `Plage autorisée : ${bEchecs.min} – ${bEchecs.max}. Au-delà, alarme rouge (changement d’identifiant/endpoint DiDo probable).` : 'Plage indisponible.'}</span>
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => void patch({ alerteEchecsConsecutifs: Number(echecsSeuil) })}>Enregistrer</button>
+        </label>
+        {/* PASTILLES — heure du recomptage QUOTIDIEN des compteurs « actions en attente ». Aide SANS AMBIGUÏTÉ : ne lit pas la boîte mail. */}
+        <label className="flex flex-col gap-1">
+          <span style={styleLabel}>Heure du recomptage des compteurs (0–23)</span>
+          <input type="number" value={recompteHeure} min={bRecompte?.min ?? 0} max={bRecompte?.max ?? 23} step={1} onChange={(e) => setRecompteHeure(e.target.value)} style={styleInput} />
+          <span style={styleAide}>Rafraîchit une fois par jour, à cette heure, les pastilles « actions en attente » des onglets — <strong>uniquement si l’écran est resté ouvert</strong>. Cela <strong>ne relève AUCUN message</strong> : la boîte mail n’est pas consultée. Sinon, ouvrir un onglet recompte déjà. {bRecompte ? `Plage : ${bRecompte.min} – ${bRecompte.max} h.` : 'Réglable une fois la migration appliquée.'}</span>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => void patch({ recomptageHeureLocale: Number(recompteHeure) })}>Enregistrer</button>
         </label>
       </section>
 

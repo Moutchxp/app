@@ -8,6 +8,7 @@ import {
 import type { RetourCible } from './ReponsesRendu';
 import { MessageRetour } from './DemandesRendu';
 import { CarteCadaFormulaire } from './CarteCadaFormulaire';
+import { recompterSiSucces } from './comptesActions';
 
 /**
  * X4 — écran « Saisines CADA » : suivi + ACTIONS (lancer une saisine, marquer déposée, abandonner, enregistrer l'avis). Le
@@ -42,7 +43,7 @@ function ListePaginee<T>({ items, children }: { items: T[]; children: (visibles:
   return <>{children(items.slice((pc - 1) * PAGE, pc * PAGE))}<Pagination page={pc} nbPages={nb} total={items.length} onPage={setP} /></>;
 }
 
-export function SaisinesVue() {
+export function SaisinesVue({ onRecompter }: { onRecompter?: () => void } = {}) {
   const [data, setData] = useState<SaisinesData | null>(null);
   const [erreur, setErreur] = useState(false);
   const [retour, setRetour] = useState<RetourCible>(null);
@@ -74,7 +75,8 @@ export function SaisinesVue() {
       setRetour({ cle, texte: b.ok === false ? texteRien : texteOk, ok: b.ok !== false });
       rafraichir();
     } else setRetour({ cle, texte: await erreurServeur(res, 'Action impossible.'), ok: false });
-  }, [rafraichir]);
+    recompterSiSucces(res.ok, onRecompter); // pastille : recompter après une action réussie (jamais après un échec)
+  }, [rafraichir, onRecompter]);
 
   // « Lancer » : succès = envoyée (e-mail) ou préparée (file) ; brouillon créé mais envoi non abouti = motif honnête (on
   // recharge quand même : la saisine est passée en brouillon / file). Refus de création (état, doublon) = 409 → message serveur.
@@ -87,7 +89,8 @@ export function SaisinesVue() {
       else setRetour({ cle, texte: b.motif ?? 'Envoi impossible.', ok: false });
       rafraichir();
     } else setRetour({ cle, texte: await erreurServeur(res, 'Lancement impossible.'), ok: false });
-  }, [rafraichir]);
+    recompterSiSucces(res.ok, onRecompter); // pastille : recompter après un lancement réussi
+  }, [rafraichir, onRecompter]);
 
   if (erreur) return <p role="alert" style={{ color: 'var(--color-svv-red)' }}>Suivi des saisines indisponible.</p>;
   if (!data) return <p style={{ color: 'var(--color-svv-muted)' }} aria-live="polite">Chargement des saisines…</p>;

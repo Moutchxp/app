@@ -23,6 +23,16 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { LienMenu } from './menuAdmin';
+import { TuilePermisActions } from './TuilePermisActions';
+
+/** Slug de la tuile « Permis de construire » (menuAdmin) — la seule à porter le cumul d'actions en attente. */
+const SLUG_PERMIS = '/admin/permis';
+
+/** Sous-titre d'une tuile : pour « Permis », le sous-titre + le cumul d'actions (client) ; sinon le sous-titre simple. */
+function DescriptionTuile({ tuile }: { tuile: LienMenu }) {
+  if (tuile.slug === SLUG_PERMIS) return <TuilePermisActions desc={tuile.desc} />;
+  return <span className="svv-grille-desc">{tuile.desc}</span>;
+}
 
 /**
  * Grille de tuiles RÉORDONNABLE (dnd-kit) — composant CLIENT. `page.tsx` reste SERVEUR : il lit l'ordre
@@ -74,7 +84,7 @@ function TuileSortable({ tuile, reduce }: { tuile: LienMenu; reduce: boolean }) 
           serait invalide) et HORS FLUX (position:absolute, coin) → aucune colonne ne pousse le contenu. */}
       <Link href={tuile.slug} className="svv-grille-lien">
         <span className="svv-grille-titre">{tuile.libelle}</span>
-        <span className="svv-grille-desc">{tuile.desc}</span>
+        <DescriptionTuile tuile={tuile} />
       </Link>
       <button
         type="button"
@@ -101,7 +111,7 @@ function TuileStatique({ tuile }: { tuile: LienMenu }) {
     <li className="svv-grille-item">
       <Link href={tuile.slug} className="svv-grille-lien">
         <span className="svv-grille-titre">{tuile.libelle}</span>
-        <span className="svv-grille-desc">{tuile.desc}</span>
+        <DescriptionTuile tuile={tuile} />
       </Link>
       <button type="button" className="svv-grille-poignee" aria-label={`Réordonner la tuile ${tuile.libelle}`}>
         <span aria-hidden="true">⠿</span>
@@ -217,6 +227,10 @@ const CSS_GRILLE = `
 .svv-grille-item--drag .svv-grille-lien{border-color:var(--color-svv-red);box-shadow:0 0 0 1px var(--color-svv-red)}
 .svv-grille-titre{display:block;font-weight:700;color:var(--color-svv-ink);margin-bottom:4px}
 .svv-grille-desc{display:block;font-size:.82rem;color:var(--color-svv-muted)}
+/* PASTILLES — quand il y a des actions : sous-titre tronqué proprement à UNE ligne (jamais coupé au milieu d'un mot). */
+.svv-grille-desc--clamp{display:-webkit-box;-webkit-line-clamp:1;line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis}
+/* PASTILLES — ligne « [pastille] Actions en attente » sous le sous-titre. */
+.svv-grille-actions{display:flex;align-items:center;gap:.4rem;margin-top:6px;font-size:.82rem;font-weight:600;color:var(--color-svv-ink)}
 /* Poignée HORS FLUX (coin haut-droit) : cible tactile 44×44 collée au bord droit (s'étend dans le padding, PAS
    vers le titre) ; visible EN PERMANENCE (opacité réduite, --color-svv-muted → utilisable au doigt, pas seulement
    au survol), renforcée au survol ET au focus. touch-action:none limité À la poignée (le scroll de page reste OK). */
