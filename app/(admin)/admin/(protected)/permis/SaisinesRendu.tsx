@@ -40,6 +40,22 @@ function EnteteItem({ reference, communeNom }: { reference: string; communeNom: 
   );
 }
 
+/**
+ * Lot 5b (B) — statut explicite d'une saisine (« envoyée le… » vs « déposée le… », « à lancer », etc.) + les NUMÉROS DE PERMIS
+ * concernés (jamais seulement la référence interne). Le TEXTE porte tout ; la pastille n'est qu'un appui visuel.
+ */
+function StatutEtPermis({ statut, numeros }: { statut: string; numeros: string[] }) {
+  return (
+    <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+      <span style={{ fontSize: 12, fontWeight: 700, padding: '.15rem .5rem', borderRadius: '.35rem',
+        background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' }}>{statut}</span>
+      <span style={styleMuted}>
+        {numeros.length > 0 ? `Permis : ${numeros.join(', ')}` : 'Aucun numéro de permis rattaché'}
+      </span>
+    </div>
+  );
+}
+
 /** Jours avant forclusion : signalé DISTINCTEMENT (rouge/gras + mot « urgent ») quand il en reste peu. Le TEXTE porte l'info. */
 export function JoursForclusion({ jours, forclusionLe }: { jours: number; forclusionLe: string | null }) {
   const proche = jours <= SEUIL_JOURS_FORCLUSION_PROCHE;
@@ -68,6 +84,7 @@ export function CarteSaisissable({ d, cadaEmailVide, retour, onLancer }: {
   return (
     <article className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
       <EnteteItem reference={d.reference} communeNom={d.communeNom} />
+      <StatutEtPermis statut={d.statut} numeros={d.numeros} />
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <JoursForclusion jours={d.joursAvantForclusion} forclusionLe={d.forclusionLe} />
         {/* T1 — la VOIE d'entrée CADA, distincte : refus exprès (notifié) vs refus tacite (silence d'un mois). */}
@@ -153,6 +170,7 @@ export function SectionEnCours({ enCours, retour, sensAvis, onSens, onEnregistre
         enCours.map((s) => (
           <article key={s.saisineId} className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
             <EnteteItem reference={s.reference} communeNom={s.communeNom} />
+            <StatutEtPermis statut={s.statut} numeros={s.numeros} />
             <span style={styleMuted}>Saisine envoyée le {formaterDate(s.envoyeeLe)} · en attente de l’avis de la CADA (un mois, prorogeable).</span>
             <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <label style={styleMuted} htmlFor={`avis-${s.saisineId}`}>Avis reçu :</label>
@@ -193,6 +211,7 @@ export function SectionRecues({ recues }: { recues: SaisineRecue[] }) {
           return (
             <article key={s.saisineId} className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
               <EnteteItem reference={s.reference} communeNom={s.communeNom} />
+              <StatutEtPermis statut={s.statut} numeros={s.numeros} />
               <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                 <span style={{ fontSize: 12, fontWeight: 700, padding: '.15rem .5rem', borderRadius: '.35rem',
                   background: fav ? 'var(--color-svv-green-soft)' : 'var(--color-svv-field)',
@@ -218,6 +237,7 @@ export function SectionAbandonnees({ abandonnees }: { abandonnees: SaisineAbando
         abandonnees.map((s) => (
           <article key={s.saisineId} className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
             <EnteteItem reference={s.reference} communeNom={s.communeNom} />
+            <StatutEtPermis statut={s.statut} numeros={s.numeros} />
             <span style={styleMuted}>Abandonnée · préparée le {formaterDate(s.genereeLe)}. La demande redevient saisissable si la fenêtre CADA est encore ouverte.</span>
           </article>
         ))
@@ -251,6 +271,7 @@ export function SectionFileDepot({ items, cadaEmailVide, urlFormulaire, retour, 
         items.map((s) => (
           <article key={s.saisineId} className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
             <EnteteItem reference={s.reference} communeNom={s.communeNom} />
+            <StatutEtPermis statut={s.statut} numeros={s.numeros} />
             <div style={{ fontSize: 13 }}>{s.objet}</div>
             <details>
               <summary style={{ ...styleMuted, cursor: 'pointer' }}>voir / copier le corps de la saisine</summary>

@@ -36,13 +36,14 @@ export interface DemandeSaisissable {
   voie: VoieCada; // T1 : voie d'entrée retenue (refus_expres | refus_tacite) — affichée distinctement dans l'onglet Saisines
   dossiersActifs: number; dossiersDus: number;
   dossiersExclusRefusNonAcquis: number; // T1/Correction 3 : dossiers dus dont le refus N'EST PAS acquis → EXCLUS du corps (jamais muet)
+  numeros: string[]; // lot 5b (B) : num_dau des dossiers dus (permis) — affiché dans l'onglet Saisines
 }
 export interface SaisiesEligibles { saisissables: DemandeSaisissable[]; indeterminees: DemandeSaisissable[] }
 
 /** Candidat brut (filtre SQL passé) AVANT classification fenêtre/fraîcheur. `refusExpres` = dates de refus exprès des dossiers dus. */
 export interface CandidatSaisine {
   demandeId: number; reference: string; communeNom: string | null; profil: ProfilDemandeur;
-  envoyeLe: Date; dossiersActifs: number; dossiersDus: number; refusExpres: Date[];
+  envoyeLe: Date; dossiersActifs: number; dossiersDus: number; refusExpres: Date[]; numeros: string[]; // lot 5b (B) : num_dau des dus
 }
 
 export interface DepsSaisissables {
@@ -64,6 +65,9 @@ const SQL_CANDIDATS =
    SELECT d.id::int AS id, d.reference, c.nom AS commune_nom, d.profil_demandeur AS profil, a.envoye_le,
           (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif) AS dossiers_actifs,
           (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL) AS dossiers_dus,
+          -- lot 5b (B) : num_dau des dossiers dus (permis affichés dans l'onglet Saisines).
+          coalesce((SELECT array_agg(s.num_dau ORDER BY s.num_dau) FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
+                     WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL), '{}') AS dus_nums,
           -- T1 : dates de refus EXPRÈS des dossiers encore dus (ancre CADA immédiate ; l'éligibilité effective est calculée en TS).
           (SELECT coalesce(array_agg(dd.refus_le), '{}') FROM demande_dossier dd
             WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL AND dd.triage = 'refus_mairie') AS refus_expres
@@ -78,8 +82,8 @@ const SQL_CANDIDATS =
 export function depsReellesSaisissables(): DepsSaisissables {
   return {
     lireCandidats: async () => {
-      const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; profil: string; envoye_le: Date; dossiers_actifs: number; dossiers_dus: number; refus_expres: Date[] }>(SQL_CANDIDATS);
-      return rows.map((r) => ({ demandeId: r.id, reference: r.reference, communeNom: r.commune_nom, profil: profilValide(r.profil), envoyeLe: r.envoye_le, dossiersActifs: r.dossiers_actifs, dossiersDus: r.dossiers_dus, refusExpres: r.refus_expres ?? [] }));
+      const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; profil: string; envoye_le: Date; dossiers_actifs: number; dossiers_dus: number; refus_expres: Date[]; dus_nums: string[] }>(SQL_CANDIDATS);
+      return rows.map((r) => ({ demandeId: r.id, reference: r.reference, communeNom: r.commune_nom, profil: profilValide(r.profil), envoyeLe: r.envoye_le, dossiersActifs: r.dossiers_actifs, dossiersDus: r.dossiers_dus, refusExpres: r.refus_expres ?? [], numeros: r.dus_nums ?? [] }));
     },
     derniereReleveOkLe: async () => {
       const { rows } = await query<{ t: Date | null }>(`SELECT max(termine_le) AS t FROM releve_run WHERE resultat = 'ok'`);
@@ -115,7 +119,7 @@ export async function lireSaisinesEligibles(deps: DepsSaisissables = depsReelles
     const d: DemandeSaisissable = {
       demandeId: c.demandeId, reference: c.reference, communeNom: c.communeNom, profil: c.profil, envoyeLe: c.envoyeLe,
       refusTaciteLe: f.refusTaciteLe, forclusionLe: f.forclusionLe, joursAvantForclusion: f.joursAvantForclusion, voie,
-      dossiersActifs: c.dossiersActifs, dossiersDus: c.dossiersDus, dossiersExclusRefusNonAcquis: exclus,
+      dossiersActifs: c.dossiersActifs, dossiersDus: c.dossiersDus, dossiersExclusRefusNonAcquis: exclus, numeros: c.numeros,
     };
     (fraiche ? saisissables : indeterminees).push(d); // silence non vérifié → indéterminée
   }

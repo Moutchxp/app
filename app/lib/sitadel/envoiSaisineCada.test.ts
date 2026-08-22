@@ -45,7 +45,7 @@ const transportSansId = { sendMail: async () => ({ messageId: '', response: '250
 const S = (over: Partial<SaisineAEnvoyer> = {}): SaisineAEnvoyer => ({
   saisineId: 7, demandeId: 42, profil: 'entreprise', reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine',
   objet: 'Saisine — réf. SVAV-DEM-2026-000042', corps: 'Corps de saisine propre', envoyeLe: ENVOI,
-  demandeDestEmail: 'urba@asnieres.fr', demandeCorps: 'Corps figé de la demande initiale', ...over,
+  demandeDestEmail: 'urba@asnieres.fr', demandeCorps: 'Corps figé de la demande initiale', numeros: ['PC0920042500001'], ...over,
 });
 const OPTS = { from: 'a.jorel@sansvisavis.com', replyTo: 'a.jorel@sansvisavis.com', to: 'cada@cada.fr', piece: Buffer.from('%PDF-1.7'), auteur: 'admin' };
 
@@ -59,6 +59,7 @@ function deps(over: Partial<DepsEnvoiSaisine> = {}): DepsEnvoiSaisine {
     comptes: () => ({ entreprise: { host: 'h', port: 587, user: 'u', pass: 'p' }, personne: null }),
     emisAujourdhui: async () => 0,
     produireCopie: async () => Buffer.from('%PDF-1.7 copie'),
+    emettreAlerte: async () => undefined,
     maintenant: () => DANS_FENETRE,
     ...over,
   };
@@ -228,5 +229,30 @@ describe('X5 — lancerSaisinePourDemande : création + envoi RESTREINT à la sa
     const envoyer = (async () => rapport()) as typeof envoyerSaisinesCada;
     const creer = (async () => { throw Object.assign(new Error('dup'), { code: '23505', constraint: 'demande_relance_vivante_uniq' }); }) as unknown as (d: number, a: string | null) => Promise<number>;
     await expect(lancerSaisinePourDemande(42, 'admin', { creer, envoyer, deps: depsEnvoi([]) })).rejects.toMatchObject({ code: '23505' });
+  });
+
+  // ── C (lot 5b) — alerte « saisine partie » sur le canal FORMULAIRE (dépôt manuel), hookée DANS lancerSaisinePourDemande ──
+  describe('C (lot 5b) — alerte « saisine partie » (canal formulaire)', () => {
+    const depsAlerte = (over: Partial<DepsEnvoiSaisine> = {}) =>
+      ({ candidats: async () => [S({ saisineId: 7 })], emettreAlerte: vi.fn(async () => undefined), maintenant: () => DANS_FENETRE, ...over } as unknown as DepsEnvoiSaisine);
+
+    it('dépôt formulaire préparé → alerte émise UNE seule fois, avec commune + numéros + canal formulaire', async () => {
+      const deps = depsAlerte();
+      const envoyer = (async () => rapport({ canal: 'formulaire' })) as typeof envoyerSaisinesCada;
+      const r = await lancerSaisinePourDemande(42, 'admin', { creer: async () => 7, envoyer, deps });
+      expect(r).toMatchObject({ saisineId: 7, ok: true, canal: 'formulaire' });
+      const spy = (deps as unknown as { emettreAlerte: ReturnType<typeof vi.fn> }).emettreAlerte;
+      expect(spy).toHaveBeenCalledTimes(1);
+      const [info, demandeId] = spy.mock.calls[0];
+      expect(info).toMatchObject({ communeNom: 'Asnières-sur-Seine', numeros: ['PC0920042500001'], canal: 'formulaire' });
+      expect(demandeId).toBe(42);
+    });
+
+    it('ISOLATION : une alerte qui échoue n’annule PAS la saisine (le lancement reste ok)', async () => {
+      const deps = depsAlerte({ emettreAlerte: vi.fn(async () => { throw new Error('SMTP alerte down'); }) } as Partial<DepsEnvoiSaisine>);
+      const envoyer = (async () => rapport({ canal: 'formulaire' })) as typeof envoyerSaisinesCada;
+      const r = await lancerSaisinePourDemande(42, 'admin', { creer: async () => 7, envoyer, deps });
+      expect(r).toMatchObject({ saisineId: 7, ok: true, canal: 'formulaire' }); // l'échec d'alerte est avalé, la saisine tient
+    });
   });
 });

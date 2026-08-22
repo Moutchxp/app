@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { statutCascade, prochaineEtape, type EntreeStatutCascade } from './statutCascade';
+import { statutCascade, prochaineEtape, statutSaisine, type EntreeStatutCascade, type EntreeStatutSaisine } from './statutCascade';
 import type { ReglagesCascade } from './cascadeRelance';
 
 /**
@@ -69,5 +69,31 @@ describe('lot 4 — prochaineEtape : étape suivante datée, ou absence explicit
     expect(prochaineEtape(e({ statutAcheminement: 'rebond' }), j('2026-04-06T10:00:00Z'), REG)).toBe('Demande non délivrée — aucune étape prévue.');
     expect(prochaineEtape(e({ dossiersDus: 0 }), j('2026-04-06T10:00:00Z'), REG)).toBe('Tous les dossiers obtenus — cascade terminée.');
     expect(prochaineEtape(e({ saisineCadaEnvoyeeLe: '2026-04-19T10:00:00Z' }), j('2026-04-20T10:00:00Z'), REG)).toBe('Saisine CADA envoyée — plus d’étape de relance.');
+  });
+});
+
+describe('lot 5b (B) — statutSaisine : un libellé lisible par état, e-mail vs dépôt formulaire distingués', () => {
+  const s = (over: Partial<EntreeStatutSaisine> = {}): EntreeStatutSaisine =>
+    ({ materialisee: true, cadaEmailVide: false, ...over });
+
+  it('pas encore matérialisée (rien en base) → « Saisine à lancer »', () => {
+    expect(statutSaisine(s({ materialisee: false }))).toBe('Saisine à lancer');
+  });
+  it('abandonnée → « Saisine abandonnée »', () => {
+    expect(statutSaisine(s({ statut: 'abandonnee' }))).toBe('Saisine abandonnée');
+  });
+  it('envoyée par e-mail (acheminement canal=email) → « Saisine envoyée le … »', () => {
+    expect(statutSaisine(s({ statut: 'envoyee', canal: 'email', envoyeeLe: '2026-05-10T09:00:00Z' })))
+      .toBe('Saisine envoyée le 10 mai 2026');
+  });
+  it('déposée sur le formulaire (envoyée SANS acheminement → canal null) → « Saisine déposée le … »', () => {
+    expect(statutSaisine(s({ statut: 'envoyee', canal: null, envoyeeLe: '2026-05-10T09:00:00Z' })))
+      .toBe('Saisine déposée le 10 mai 2026');
+  });
+  it('préparée mais pas envoyée, adresse CADA vide → « Saisine à déposer sur le formulaire »', () => {
+    expect(statutSaisine(s({ statut: 'brouillon', cadaEmailVide: true }))).toBe('Saisine à déposer sur le formulaire');
+  });
+  it('préparée mais pas envoyée, adresse CADA configurée → « Saisine préparée, non envoyée »', () => {
+    expect(statutSaisine(s({ statut: 'brouillon', cadaEmailVide: false }))).toBe('Saisine préparée, non envoyée');
   });
 });

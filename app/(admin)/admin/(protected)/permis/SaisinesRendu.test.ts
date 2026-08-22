@@ -21,13 +21,14 @@ const h = (el: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMark
 const SAIS = (over: Partial<SaisissableAffichee> = {}): SaisissableAffichee => ({
   demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine',
   envoyeLe: '2026-03-14T10:00:00Z', refusTaciteLe: '2026-04-14T10:00:00Z', forclusionLe: '2026-06-14T10:00:00Z',
-  joursAvantForclusion: 30, voie: 'refus_tacite', dossiersDus: 2, dossiersExclusRefusNonAcquis: 0, ...over,
+  joursAvantForclusion: 30, voie: 'refus_tacite', dossiersDus: 2, dossiersExclusRefusNonAcquis: 0,
+  statut: 'Saisine à lancer', numeros: ['PC0920042500001'], ...over,
 });
 const INDET = (over: Partial<IndetermineeAffichee> = {}): IndetermineeAffichee => ({ ...SAIS(), raison: RAISON_INDETERMINEE, ...over });
-const COURS = (over: Partial<SaisineEnCours> = {}): SaisineEnCours => ({ saisineId: 7, demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', envoyeeLe: '2026-05-10T09:00:00Z', ...over });
-const RECUE = (over: Partial<SaisineRecue> = {}): SaisineRecue => ({ saisineId: 7, demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', envoyeeLe: '2026-05-10T09:00:00Z', avisRecuLe: '2026-06-01T09:00:00Z', avisSens: 'favorable', ...over });
-const ABAND = (over: Partial<SaisineAbandonnee> = {}): SaisineAbandonnee => ({ saisineId: 9, demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', genereeLe: '2026-05-01T09:00:00Z', ...over });
-const FILE = (over: Partial<FileDepotSaisine> = {}): FileDepotSaisine => ({ saisineId: 7, demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', objet: 'Saisine CADA — réf. SVAV-DEM-2026-000042', corps: 'CORPS-INTEGRAL-DE-LA-SAISINE', genereeLe: '2026-05-01T09:00:00Z', ...over });
+const COURS = (over: Partial<SaisineEnCours> = {}): SaisineEnCours => ({ saisineId: 7, demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', envoyeeLe: '2026-05-10T09:00:00Z', statut: 'Saisine envoyée le 10 mai 2026', numeros: ['PC0920042500001'], ...over });
+const RECUE = (over: Partial<SaisineRecue> = {}): SaisineRecue => ({ saisineId: 7, demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', envoyeeLe: '2026-05-10T09:00:00Z', avisRecuLe: '2026-06-01T09:00:00Z', avisSens: 'favorable', statut: 'Saisine envoyée le 10 mai 2026', numeros: ['PC0920042500001'], ...over });
+const ABAND = (over: Partial<SaisineAbandonnee> = {}): SaisineAbandonnee => ({ saisineId: 9, demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', genereeLe: '2026-05-01T09:00:00Z', statut: 'Saisine abandonnée', numeros: ['PC0920042500001'], ...over });
+const FILE = (over: Partial<FileDepotSaisine> = {}): FileDepotSaisine => ({ saisineId: 7, demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', objet: 'Saisine CADA — réf. SVAV-DEM-2026-000042', corps: 'CORPS-INTEGRAL-DE-LA-SAISINE', genereeLe: '2026-05-01T09:00:00Z', statut: 'Saisine à déposer sur le formulaire', numeros: ['PC0920042500001'], ...over });
 
 const URL_FORM = 'https://www.cada.fr/formulaire-de-saisine';
 
@@ -171,5 +172,26 @@ describe('X4 — actions des sections en cours / reçues', () => {
   it('reçue : le sens est rendu en clair (défavorable via le libellé FR)', () => {
     expect(h(createElement(SectionRecues, { recues: [RECUE({ avisSens: 'defavorable' })] }))).toContain('Avis défavorable');
     expect(h(createElement(SectionRecues, { recues: [RECUE({ avisSens: 'favorable' })] }))).toContain('Avis favorable');
+  });
+});
+
+describe('lot 5b (B) — statut explicite + numéros de permis affichés dans chaque carte', () => {
+  it('carte saisissable : porte son statut ET ses numéros de permis (pas seulement la référence interne)', () => {
+    const m = h(createElement(CarteSaisissable, { d: SAIS({ statut: 'Saisine à lancer', numeros: ['PC0920042500001', 'PC0920042500002'] }), cadaEmailVide: false }));
+    expect(m).toContain('Saisine à lancer');
+    expect(m).toContain('Permis : PC0920042500001, PC0920042500002');
+  });
+  it('saisine en cours : statut « envoyée le … » (e-mail) rendu tel quel', () => {
+    const m = h(createElement(SectionEnCours, { enCours: [COURS({ statut: 'Saisine envoyée le 10 mai 2026', numeros: ['PC0920042500001'] })] }));
+    expect(m).toContain('Saisine envoyée le 10 mai 2026');
+    expect(m).toContain('Permis : PC0920042500001');
+  });
+  it('saisine à déposer (formulaire) : statut « déposée le … » distinct de « envoyée le … »', () => {
+    const m = h(createElement(SectionFileDepot, { items: [FILE({ statut: 'Saisine à déposer sur le formulaire' })], cadaEmailVide: true, urlFormulaire: URL_FORM }));
+    expect(m).toContain('Saisine à déposer sur le formulaire');
+  });
+  it('sans numéro rattaché : phrase explicite (jamais un vide muet)', () => {
+    const m = h(createElement(CarteSaisissable, { d: SAIS({ numeros: [] }), cadaEmailVide: false }));
+    expect(m).toContain('Aucun numéro de permis rattaché');
   });
 });

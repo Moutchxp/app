@@ -49,7 +49,7 @@ const LOT: Lot = { codeInsee: '92004', communeNom: 'Asnières-sur-Seine', canal:
 const PIECES = piecesDepuisConfig('PC2,PC3');
 const CONF_ENT: ConfigDemandeur = { raisonSociale: 'Criterimmo', formeJuridique: 'SARL', siegeAdresse: '191 avenue Charles de Gaulle 92200 Neuilly', representantNom: 'Arnaud JOREL', representantQualite: 'gérant', emailContact: 'a.jorel@sansvisavis.com', telephone: '' };
 
-const CAND = (over: Partial<CandidatSaisine> = {}): CandidatSaisine => ({ demandeId: 1, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise', envoyeLe: ENVOI, dossiersActifs: 2, dossiersDus: 1, refusExpres: [], ...over });
+const CAND = (over: Partial<CandidatSaisine> = {}): CandidatSaisine => ({ demandeId: 1, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise', envoyeLe: ENVOI, dossiersActifs: 2, dossiersDus: 1, refusExpres: [], numeros: ['PC0920042500001'], ...over });
 function depsElig(over: Partial<DepsSaisissables> = {}): DepsSaisissables {
   return { lireCandidats: async () => [CAND()], derniereReleveOkLe: async () => RELEVE_FRAICHE, fraicheurHeures: async () => 48, saisineDelaiJours: async () => 4, maintenant: () => DANS_FENETRE, ...over };
 }
@@ -126,7 +126,7 @@ describe('X2 — lireSaisinesEligibles : fenêtre + sincérité (relève fraîch
   it('T1 — un REFUS EXPRÈS rend la demande saisissable AVANT l’échéance tacite (ancre effective), voie=refus_expres + exclus comptés', async () => {
     // envoi 1er mai (tacite = 1er juin, FUTUR au 10 mai) → sans refus exprès : PAS ouverte.
     const cand: CandidatSaisine = { demandeId: 1, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise',
-      envoyeLe: new Date('2026-05-01T10:00:00Z'), dossiersActifs: 2, dossiersDus: 2, refusExpres: [] };
+      envoyeLe: new Date('2026-05-01T10:00:00Z'), dossiersActifs: 2, dossiersDus: 2, refusExpres: [], numeros: [] };
     const sansRefus = await lireSaisinesEligibles(depsElig({ lireCandidats: async () => [cand] }));
     expect(sansRefus.saisissables).toHaveLength(0); // tacite pas acquis, aucun refus exprès → écartée
     expect(sansRefus.indeterminees).toHaveLength(0);

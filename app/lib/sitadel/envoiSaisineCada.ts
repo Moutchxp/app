@@ -27,6 +27,7 @@ import { octetsDe } from './envoiRelance'; // RÉUTILISÉ (0 en simulation, octe
 import { fenetreCada } from '../veille/echeance';
 import { genererCopieDemandePdf } from '../pdf/copieDemandePdf';
 import { creerSaisineCada } from '../veille/saisineCadaRepo';
+import { sujetAlerteSaisine, corpsAlerteSaisine, type InfoAlerteSaisine } from '../veille/alerteSaisineContenu'; // C (lot 5b)
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface SaisineAEnvoyer {
@@ -40,6 +41,7 @@ export interface SaisineAEnvoyer {
   envoyeLe: Date;                  // envoi RÉEL de la demande initiale (fenetreCada + date de la copie)
   demandeDestEmail: string | null; // destinataire figé de la demande (en-tête de la copie)
   demandeCorps: string;            // corps FIGÉ de la DEMANDE initiale (contenu de la copie PDF)
+  numeros: string[];               // C (lot 5b) : num_dau des dossiers DUS (permis) — pour l'alerte « saisine partie »
 }
 export interface ResultatSaisine { saisineId: number; reference: string; issue: IssueEmission; messageId?: string; motif?: string; }
 export interface LigneMotif { reference: string; motif: string }
@@ -116,10 +118,13 @@ const SENTINELLE_DRYRUN = new Error('__DRY_RUN_ROLLBACK__');
 /** Candidats : saisines 'brouillon' d'une demande 'envoyee' (émission e-mail confirmée) portant au moins un dossier DÛ. La
  *  forclusion et le canal sont décidés ensuite (TS). EXPORTÉ pour tester le filtre (close / non-brouillon exclus). */
 export async function lireCandidatsSaisine(): Promise<SaisineAEnvoyer[]> {
-  const { rows } = await query<{ saisine_id: number; demande_id: number; reference: string; commune_nom: string | null; objet: string | null; corps: string | null; profil: string; envoye_le: Date; demande_dest_email: string | null; demande_corps: string | null }>(
+  const { rows } = await query<{ saisine_id: number; demande_id: number; reference: string; commune_nom: string | null; objet: string | null; corps: string | null; profil: string; envoye_le: Date; demande_dest_email: string | null; demande_corps: string | null; dus_nums: string[] }>(
     `WITH ach AS (SELECT demande_id, min(envoye_le) AS envoye_le FROM demande_acheminement WHERE canal = 'email' AND statut = 'envoye' GROUP BY demande_id)
      SELECT dr.id::int AS saisine_id, dr.demande_id::int AS demande_id, d.reference, c.nom AS commune_nom,
-            dr.objet, dr.corps, dr.profil_demandeur AS profil, a.envoye_le, d.dest_email AS demande_dest_email, d.corps AS demande_corps
+            dr.objet, dr.corps, dr.profil_demandeur AS profil, a.envoye_le, d.dest_email AS demande_dest_email, d.corps AS demande_corps,
+            -- C (lot 5b) : num_dau des dossiers DUS (permis concernés) pour l'alerte « saisine partie ».
+            coalesce((SELECT array_agg(s.num_dau ORDER BY s.num_dau) FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id
+                       WHERE dd.demande_id = d.id AND dd.actif AND dd.satisfait_le IS NULL), '{}') AS dus_nums
        FROM demande_relance dr
        JOIN demande d ON d.id = dr.demande_id
        JOIN ach a ON a.demande_id = d.id
@@ -130,8 +135,34 @@ export async function lireCandidatsSaisine(): Promise<SaisineAEnvoyer[]> {
       ORDER BY dr.generee_le ASC`);
   return rows.map((r) => ({
     saisineId: r.saisine_id, demandeId: r.demande_id, profil: profilValide(r.profil), reference: r.reference, communeNom: r.commune_nom,
-    objet: r.objet ?? '', corps: r.corps ?? '', envoyeLe: r.envoye_le, demandeDestEmail: r.demande_dest_email, demandeCorps: r.demande_corps ?? '',
+    objet: r.objet ?? '', corps: r.corps ?? '', envoyeLe: r.envoye_le, demandeDestEmail: r.demande_dest_email, demandeCorps: r.demande_corps ?? '', numeros: r.dus_nums ?? [],
   }));
+}
+
+// ── C (lot 5b) : ALERTE INTERNE « une saisine est partie » — ISOLÉE, une par saisine ─────────────────────────────────────────
+/** Émet l'alerte interne (vers alerte_email) APRÈS un envoi confirmé. ISOLÉE : ne throw JAMAIS (un échec journalise sans défaire
+ *  la saisine). `alerte_email` vide → aucune alerte (journalisé). JAMAIS vers la mairie ni la CADA. */
+async function emettreAlerteSaisineReel(info: InfoAlerteSaisine, demandeId: number): Promise<void> {
+  const journal = async (motif: string): Promise<void> => {
+    try { await query(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, 'systeme')`, [demandeId, motif]); } catch { /* best-effort */ }
+  };
+  try {
+    const dest = (await chargerConfigVeille()).alerteEmail.trim();
+    if (dest === '') { await journal('saisine partie : alerte NON émise (aucune adresse d’alerte configurée)'); return; }
+    const { lireConfigEmail, obtenirTransporteur } = await import('../email');
+    const cfg = lireConfigEmail();
+    if (cfg === null) { await journal('saisine partie : alerte NON émise (compte SMTP par défaut non configuré)'); return; }
+    await obtenirTransporteur(cfg).sendMail({ from: cfg.from, to: dest, subject: sujetAlerteSaisine(info), text: corpsAlerteSaisine(info) });
+    await journal(`alerte interne « saisine partie » envoyée à ${dest}`);
+  } catch (e) {
+    // ISOLÉ : la saisine est déjà envoyée/tracée ; l'échec d'alerte ne défait rien.
+    await journal(`échec d’émission de l’alerte « saisine partie » (${e instanceof Error ? e.name : 'Error'}) — la saisine reste envoyée`);
+  }
+}
+
+/** Construit l'info d'alerte d'une saisine partie (forclusion dérivée de la date d'envoi de la demande). PUR. */
+function infoAlerteDe(s: SaisineAEnvoyer, canal: 'email' | 'formulaire', maintenant: Date): InfoAlerteSaisine {
+  return { communeNom: s.communeNom, reference: s.reference, numeros: s.numeros, envoyeeLe: maintenant, canal, forclusionLe: fenetreCada(s.envoyeLe, maintenant).forclusionLe };
 }
 
 /** Lectures + production de PJ injectables (test node-pur) ; l'ÉCRITURE passe par withTransaction (db/client). */
@@ -144,6 +175,7 @@ export interface DepsEnvoiSaisine {
   comptes(): Record<string, CompteSmtp | null>;
   emisAujourdhui(): Promise<number>;
   produireCopie(s: SaisineAEnvoyer): Promise<Buffer>; // genererCopieDemandePdf ; throw → PJ non produite → saisine écartée
+  emettreAlerte(info: InfoAlerteSaisine, demandeId: number): Promise<void>; // C (lot 5b) : alerte interne « saisine partie » (isolée)
   maintenant(): Date;
 }
 
@@ -157,6 +189,7 @@ export function depsReellesEnvoiSaisine(): DepsEnvoiSaisine {
     comptes: () => ({ entreprise: lireCompteSmtp(INFIXE_SMTP.entreprise), personne: lireCompteSmtp(INFIXE_SMTP.personne) }),
     emisAujourdhui: () => compterEmisAujourdhui(),
     produireCopie: (s) => genererCopieDemandePdf({ reference: s.reference, destinataire: s.demandeDestEmail, dateEnvoi: dateFr(s.envoyeLe), corps: s.demandeCorps }),
+    emettreAlerte: (info, demandeId) => emettreAlerteSaisineReel(info, demandeId), // C (lot 5b)
     maintenant: () => new Date(),
   };
 }
@@ -223,6 +256,12 @@ export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: 
     const t = obtenirTransporteur(comptes[s.profil]!) as unknown as Transport; // non-null : planifierSalve a écarté les profils sans compte
     resultats.push(await withTransaction(async (tx) => emettreUneSaisine(t, brancher(tx), s, { from: s.expediteur, replyTo: s.expediteur, to: cadaEmail, piece: s.piece, auteur })));
   }
+  // C (lot 5b) — ALERTE « saisine partie » APRÈS chaque envoi CONFIRMÉ (apply seulement, jamais en simulation). Une par saisine :
+  //   une fois envoyée elle passe 'envoyee' → n'est plus candidate. ISOLÉE : un échec n'annule ni ne masque la saisine.
+  for (const s of prets) {
+    if (resultats.find((x) => x.saisineId === s.saisineId)?.issue !== 'envoye') continue;
+    try { await deps.emettreAlerte(infoAlerteDe(s, 'email', deps.maintenant()), s.demandeId); } catch { /* isolation : la saisine est déjà envoyée/tracée */ }
+  }
   return { mode: 'applique', ...base, resultats, octetsPartis: octets() };
 }
 
@@ -253,7 +292,12 @@ export async function lancerSaisinePourDemande(demandeId: number, auteur: string
     { appliquer: true, auteur },
     { ...deps, candidats: async () => (await deps.candidats()).filter((s) => s.saisineId === saisineId) },
   );
-  if (rapport.canal === 'formulaire') return { saisineId, ok: true, canal: 'formulaire' };
+  if (rapport.canal === 'formulaire') {
+    // C (lot 5b) — saisine FORMULAIRE « lancée » (à déposer) : alerte une fois (re-lancer bloqué par « déjà lancée »). ISOLÉE.
+    const cand = (await deps.candidats()).find((s) => s.saisineId === saisineId);
+    if (cand) { try { await deps.emettreAlerte(infoAlerteDe(cand, 'formulaire', deps.maintenant()), demandeId); } catch { /* isolation */ } }
+    return { saisineId, ok: true, canal: 'formulaire' };
+  }
   const r0 = rapport.resultats.find((x) => x.saisineId === saisineId) ?? rapport.resultats[0];
   if (r0 && r0.issue === 'envoye') return { saisineId, ok: true, canal: 'email', issue: 'envoye' };
   const motif = r0?.motif

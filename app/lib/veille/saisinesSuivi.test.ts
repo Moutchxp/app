@@ -9,12 +9,12 @@ import type { DemandeSaisissable, SaisiesEligibles } from './saisineCadaRepo';
 const SAIS = (over: Partial<DemandeSaisissable> = {}): DemandeSaisissable => ({
   demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise',
   envoyeLe: new Date('2026-03-14T10:00:00Z'), refusTaciteLe: new Date('2026-04-14T10:00:00Z'), forclusionLe: new Date('2026-06-14T10:00:00Z'),
-  joursAvantForclusion: 30, dossiersActifs: 3, dossiersDus: 2, voie: 'refus_tacite', dossiersExclusRefusNonAcquis: 0, ...over,
+  joursAvantForclusion: 30, dossiersActifs: 3, dossiersDus: 2, voie: 'refus_tacite', dossiersExclusRefusNonAcquis: 0, numeros: ['PC1','PC2'], ...over,
 });
 const LIGNE = (over: Partial<LigneSaisineDB> = {}): LigneSaisineDB => ({
   saisine_id: 1, demande_id: 42, reference: 'SVAV-DEM-2026-000042', commune_nom: 'Asnières-sur-Seine',
   statut: 'brouillon', generee_le: '2026-05-01T09:00:00Z', envoyee_le: null, objet: 'Saisine', corps: 'CORPS',
-  avis_recu_le: null, avis_sens: null, ...over,
+  avis_recu_le: null, avis_sens: null, dus_nums: ['PC1', 'PC2'], canal: null, ...over,
 });
 
 function deps(over: Partial<DepsSuiviSaisines> = {}): DepsSuiviSaisines {

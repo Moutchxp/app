@@ -92,3 +92,30 @@ export function prochaineEtape(e: EntreeStatutCascade, maintenant: Date, reglage
 
 /** Étape cible du jour (réexport pratique pour le rendu : la Vue n'importe qu'un module). */
 export { etapeCible };
+
+/**
+ * Lot 5b (B) — STATUT lisible d'une saisine CADA dans l'onglet Saisines, cohérent avec la colonne Statut d'« En cours ».
+ * Réutilise le même formateur de date (Europe/Paris) que `statutCascade`, sans dupliquer la mécanique. Cinq libellés :
+ *   - « Saisine à lancer »               : possible, aucune saisine matérialisée (une demande saisissable) ;
+ *   - « Saisine préparée, non envoyée »  : brouillon existant, e-mail CADA configuré, pas parti (« envoi à finaliser ») ;
+ *   - « Saisine envoyée le <date> »      : e-mail parti (acheminement canal='email') ;
+ *   - « Saisine à déposer sur le formulaire » : brouillon, aucune adresse CADA (canal formulaire) ;
+ *   - « Saisine déposée le <date> »      : marquée à la main après dépôt sur le formulaire (envoyée SANS acheminement e-mail).
+ * (« Saisine abandonnée » couvre la trace conservée, hors des cinq.)
+ */
+export interface EntreeStatutSaisine {
+  materialisee: boolean;              // false = aucune ligne saisine_cada encore (demande seulement SAISISSABLE)
+  statut?: string;                    // 'brouillon' | 'envoyee' | 'abandonnee' (si matérialisée)
+  canal?: string | null;             // canal de l'acheminement de l'envoi : 'email' (e-mail parti) ; null = dépôt formulaire
+  envoyeeLe?: string | null;          // date d'envoi/dépôt (ISO)
+  cadaEmailVide: boolean;             // adresse CADA non configurée → canal formulaire
+}
+export function statutSaisine(e: EntreeStatutSaisine): string {
+  if (!e.materialisee) return 'Saisine à lancer';
+  if (e.statut === 'abandonnee') return 'Saisine abandonnée';
+  if (e.statut === 'envoyee') {
+    const d = e.envoyeeLe ? dateSeule(e.envoyeeLe) : '—';
+    return e.canal === 'email' ? `Saisine envoyée le ${d}` : `Saisine déposée le ${d}`;
+  }
+  return e.cadaEmailVide ? 'Saisine à déposer sur le formulaire' : 'Saisine préparée, non envoyée';
+}
