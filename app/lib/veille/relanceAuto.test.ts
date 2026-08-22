@@ -63,7 +63,10 @@ describe('R6c — executerRelanceAuto : ne relance QUE sur « depassee »', () =
     const [demandeId, profil, objet, corps, motif] = enregistrerRelance.mock.calls[0] as unknown as [number, string, string, string, string];
     expect(demandeId).toBe(42);
     expect(profil).toBe('entreprise');
-    expect(objet).toContain('SVAV-DEM-2026-000042');
+    // lot 1 — relanceAuto génère la variante 'saisine' (après échéance) ; un SEUL dossier dû → objet par NUMÉRO de permis,
+    //   la référence interne SVAV-DEM n'apparaît nulle part (règle E) ; le corps constate le refus tacite (R. 311-12).
+    expect(objet).toContain('n° PC0920042500001');
+    expect(objet).not.toContain('SVAV-DEM-2026-000042');
     expect(corps).toContain('R. 311-12');
     expect(motif).toMatch(/relance/i);
   });

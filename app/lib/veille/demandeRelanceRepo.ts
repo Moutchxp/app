@@ -7,7 +7,7 @@
  */
 import { query, withTransaction } from '../db/client';
 import { echeanceDe } from './echeance';
-import { genererRelance } from './relance';
+import { genererRelance, DELAI_SAISINE_JOURS } from './relance';
 import { chargerContexteRelance, chargerLotRelance, type ContexteRelance, type LotRelance } from './relanceAuto';
 import type { ProfilDemandeur } from '../sitadel/demande';
 
@@ -117,10 +117,14 @@ export async function regenererRelance(relanceId: number, auteur: string | null,
   if (lot === null) throw new RelanceActionError('demande introuvable');
 
   // genererRelance lève IdentiteIncompleteError / AucunDossierNonSatisfaitError (relance.ts) — laissées remonter à la route.
+  // Variante 'saisine' (équivalent sémantique de l'ancienne 'formelle'). ⚠️ TRANSITOIRE : l'INSERT stocke encore
+  //   variante='formelle' (CHECK migration 128, élargi au lot 2) ; le choix réel de variante et l'historique sont le lot 3.
+  const echeanceLe = echeanceDe(dem.envoyeLe);
   const { objet, corps } = genererRelance({
     reference: dem.reference, profil: rel.profil, lot: lot.lot, dossiersSatisfaitsIds: lot.satisfaitsIds,
-    config: ctx.config, pieces: ctx.pieces, envoyeeLe: dem.envoyeLe, echeanceLe: echeanceDe(dem.envoyeLe), adresseReponse: ctx.adresseReponse,
-  });
+    config: ctx.config, pieces: ctx.pieces, envoyeeLe: dem.envoyeLe, echeanceLe,
+    saisineLe: new Date(echeanceLe.getTime() + DELAI_SAISINE_JOURS * 86_400_000), adresseReponse: ctx.adresseReponse,
+  }, 'saisine');
 
   return withTransaction(async (q) => {
     // Abandon D'ABORD : sinon l'INSERT 'brouillon' violerait demande_relance_vivante_uniq (une seule relance vivante par demande).

@@ -116,7 +116,10 @@ describe('R5c — regenererRelance (abandonne le courant + produit un nouveau de
     const [demandeId, objet, corps, profil] = ins.params as [number, string, string, string];
     expect(demandeId).toBe(42);
     expect(profil).toBe('entreprise');
-    expect(objet).toContain('SVAV-DEM-2026-000042');       // objet régénéré depuis les données actuelles
+    // lot 1 — un SEUL dossier DÛ (l'autre satisfait) → objet par NUMÉRO de permis, la référence interne SVAV-DEM n'apparaît
+    //   nulle part (règle E). L'INSERT stocke toujours variante='formelle' (assertions ci-dessus, CHECK migration 128).
+    expect(objet).toContain('n° PC0920042500001');         // objet régénéré depuis les données actuelles (numéro de permis)
+    expect(objet).not.toContain('SVAV-DEM-2026-000042');
     expect(corps).toContain('PC0920042500001');            // dossier DÛ listé…
     expect(corps).not.toContain('PC0920042500002');        // …dossier déjà satisfait EXCLU (R6c)
     expect(trouver(/INSERT INTO demande_journal/i)).toBeDefined();

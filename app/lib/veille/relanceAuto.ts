@@ -20,7 +20,7 @@ import {
 } from '../sitadel/demande';
 import type { CanalContact } from '../sitadel/mairieContact';
 import { echeanceDe, etatEcheance, type ReglagesEcheance } from './echeance';
-import { genererRelance } from './relance';
+import { genererRelance, DELAI_SAISINE_JOURS } from './relance';
 
 /** Contexte au niveau du PROFIL (chargé une fois) : réglages d'échéance, identité, pièces, adresse de réponse. */
 export interface ContexteRelance {
@@ -105,10 +105,15 @@ export async function executerRelanceAuto(deps: DepsRelanceAuto): Promise<BilanR
     if (lot.lot.dossiers.length - lot.satisfaitsIds.length <= 0) { ignorees += 1; continue }
 
     try {
+      // relanceAuto ne génère qu'en état 'depassee' (APRÈS l'échéance) → variante 'saisine' (équivalent sémantique de l'ancienne
+      //   'formelle'). ⚠️ TRANSITOIRE : l'INSERT stocke encore variante='formelle' (CHECK migration 128, élargi au lot 2) ; le
+      //   choix réel de variante et l'alimentation de l'historique sont le lot 3.
+      const echeanceLe = echeanceDe(envoyeLe);
       const { objet, corps } = genererRelance({
         reference: d.reference, profil: ctx.profil, lot: lot.lot, dossiersSatisfaitsIds: lot.satisfaitsIds,
-        config: ctx.config, pieces: ctx.pieces, envoyeeLe: envoyeLe, echeanceLe: echeanceDe(envoyeLe), adresseReponse: ctx.adresseReponse,
-      });
+        config: ctx.config, pieces: ctx.pieces, envoyeeLe: envoyeLe, echeanceLe,
+        saisineLe: new Date(echeanceLe.getTime() + DELAI_SAISINE_JOURS * 86_400_000), adresseReponse: ctx.adresseReponse,
+      }, 'saisine');
       await deps.enregistrerRelance(d.demandeId, ctx.profil, objet, corps, `brouillon de relance généré : ${etat.motif}`);
       creees += 1;
     } catch { erreurs += 1; } // isolation : une demande en échec (ex. identité, course sur l'unique) n'arrête pas les autres
