@@ -212,9 +212,11 @@ export async function figerBatiSnapshot(dossierId: number, majPar: string): Prom
   const sourceMillesime = mEdition === MILLESIME_INCONNU ? null : mEdition;
 
   // Capture : bâtiments dont le footprint intersecte l'empreinte. `b.geom && e.geom` d'abord → index GiST ; ST_Intersects (2D) affine.
+  // L9 — on fige AUSSI etat_de_l_objet + usage_1/usage_2 (copie BRUTE de la source, aucune interprétation). Donnée périssable :
+  //   perdue au remplacement d'édition BD TOPO si non capturée. NULL propagé tel quel quand la source est vide (pas de défaut).
   const { rows } = await query<{ cleabs: string | null; etages: number | null; alt: number | null; hauteur: number | null; dmod: string | null }>(
-    `INSERT INTO permis_bati_snapshot (dossier_id, cleabs, geom, nombre_d_etages, altitude_max_toit, hauteur, date_modification, snapshot_le, snapshot_par)
-       SELECT $1, b.cleabs, ST_Multi(ST_Force2D(b.geom)), b.nombre_d_etages, b.altitude_maximale_toit, b.hauteur, b.date_modification, now(), $2
+    `INSERT INTO permis_bati_snapshot (dossier_id, cleabs, geom, nombre_d_etages, altitude_max_toit, hauteur, date_modification, etat_de_l_objet, usage_1, usage_2, snapshot_le, snapshot_par)
+       SELECT $1, b.cleabs, ST_Multi(ST_Force2D(b.geom)), b.nombre_d_etages, b.altitude_maximale_toit, b.hauteur, b.date_modification, b.etat_de_l_objet, b.usage_1, b.usage_2, now(), $2
          FROM batiment b
          JOIN permis_empreinte pe ON pe.dossier_id = $1
         WHERE pe.geom IS NOT NULL AND b.geom && pe.geom AND ST_Intersects(b.geom, pe.geom)

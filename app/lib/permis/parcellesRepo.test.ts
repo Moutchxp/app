@@ -136,6 +136,11 @@ describe('figerBatiSnapshot (FUS-1b)', () => {
     expect(ins[0].sql).toMatch(/b\.geom\s*&&\s*pe\.geom/i);        // prédicat indexable
     expect(ins[0].sql).toMatch(/ST_Intersects\(b\.geom,\s*pe\.geom\)/i);
     expect(ins[0].sql).toMatch(/ST_Force2D\(b\.geom\)/i);          // footprint 2D (le signal est le contour)
+    // L9 — on fige AUSSI etat_de_l_objet + usage_1/usage_2 : colonnes cibles ET lecture BRUTE de la source (aucun défaut/COALESCE)
+    expect(ins[0].sql).toMatch(/INSERT INTO permis_bati_snapshot[\s\S]*etat_de_l_objet[\s\S]*usage_1[\s\S]*usage_2/i);
+    expect(ins[0].sql).toMatch(/b\.etat_de_l_objet/i);
+    expect(ins[0].sql).toMatch(/b\.usage_1/i); expect(ins[0].sql).toMatch(/b\.usage_2/i);
+    expect(ins[0].sql).not.toMatch(/COALESCE\([\s\S]*etat_de_l_objet/i); // NULL source → NULL figé (jamais une valeur inventée)
     // résumé : capture=true, nb=2, millésime = AUTORITÉ (registre bdtopo_edition.courante), plus le proxy max(date_modification)
     expect(batiCaptures()[0].sql).toMatch(/capture\s*=\s*true/i);
     expect(batiCaptures()[0].params).toContain('2026-06-15');       // L8 — source_millesime = registre, pas le proxy (2026-03-20)
