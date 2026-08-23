@@ -121,6 +121,16 @@ describe('FUS-3b — DetailSuiviRendu (comparatif trois sources + provenance)', 
     expect(h).toContain('PC — construction neuve');
   });
 
+  it('L8 — millésime bâti = valeur du registre affichée ; MILLESIME_INCONNU (null) → « non renseigné », jamais un blanc ni le proxy ; cadastre inchangé', () => {
+    const hVal = renderToStaticMarkup(createElement(DetailSuiviRendu, { detail: detail({ millesimeBati: '2026-06-15', millesimeCadastre: '2026-06-01' }) }));
+    expect(hVal).toContain('bâti 2026-06-15');   // la valeur du registre (autorité)
+    expect(hVal).toContain('cadastre 2026-06-01'); // cadastre inchangé (son autorité)
+    const hInconnu = renderToStaticMarkup(createElement(DetailSuiviRendu, { detail: detail({ millesimeBati: null, millesimeCadastre: '2026-06-01' }) }));
+    expect(hInconnu).toContain('bâti non renseigné'); // registre absent → dit explicitement
+    expect(hInconnu).not.toMatch(/bâti\s+—/);         // jamais un tiret muet pour le bâti
+    expect(hInconnu).toContain('cadastre 2026-06-01'); // le cadastre garde son rendu
+  });
+
   it('critères NON évaluables → statut d’ATTENTE (jamais « sans objet »), bâti 0 = attente aussi', () => {
     const h = renderToStaticMarkup(createElement(DetailSuiviRendu, { detail: detail() }));
     expect(h).not.toContain('sans objet (sans fusion)');

@@ -7,6 +7,7 @@
  */
 import { query } from '../db/client';
 import type { ParcelleDecision } from './decisionParcelles';
+import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti = AUTORITÉ (registre), plus le proxy
 
 export interface ParcelleLigne {
   prefixe: string | null; section: string; numero: string; superficieDeclareeM2: number | null;
@@ -204,10 +205,11 @@ export async function figerBatiSnapshot(dossierId: number, majPar: string): Prom
     return { capture: false, nbBatiments: null, motif, sourceMillesime: null, batiments: [] };
   }
 
-  // Best-effort : la couche `batiment` n'a PAS de millésime enregistré → on fige l'état de la couche (max date_modification).
-  const { rows: mill } = await query<{ mill: string | null }>(
-    `SELECT to_char(max(date_modification), 'YYYY-MM-DD') AS mill FROM batiment`);
-  const sourceMillesime = mill[0]?.mill ?? null;
+  // L8 — millésime bâti = AUTORITÉ : registre `bdtopo_edition.courante` (helper défensif), plus le proxy max(date_modification).
+  //   MILLESIME_INCONNU (table/édition absente) → NULL : honnête (« non renseigné » à l'affichage), jamais une date supposée.
+  //   N'affecte QUE les captures FUTURES ; les `source_millesime` déjà écrits ne sont pas réécrits (aucun backfill).
+  const mEdition = await millesimeEditionCourante(query);
+  const sourceMillesime = mEdition === MILLESIME_INCONNU ? null : mEdition;
 
   // Capture : bâtiments dont le footprint intersecte l'empreinte. `b.geom && e.geom` d'abord → index GiST ; ST_Intersects (2D) affine.
   const { rows } = await query<{ cleabs: string | null; etages: number | null; alt: number | null; hauteur: number | null; dmod: string | null }>(

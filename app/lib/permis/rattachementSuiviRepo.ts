@@ -20,6 +20,7 @@ import { listerPiecesDossier } from '../sitadel/demandeRepo';
 import type { PieceArchive } from '../sitadel/demandeRepo';
 import { libelleNatureProjet } from '../sitadel/priorite';
 import { estAFaire } from './rattachementGroupes'; // L6 — coupure en deux (source unique) ; le tri ci-dessous s'appuie dessus
+import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti AFFICHÉ = registre (autorité), plus le proxy
 
 export type EtatSuivi = 'suivi_aucun_signal' | 'en_attente_bati' | 'arbitrage_demande' | 'valide' | 'refuse' | 'annule_par_lidar';
 
@@ -263,13 +264,17 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
     etagesBdTopo: bd.etages, altitudesToitBdTopo: bd.altitudes, usagesBdTopo: bd.usages,
   });
 
+  // L8 — millésime BÂTI affiché = AUTORITÉ (registre bdtopo_edition.courante), plus le proxy `permis_bati_capture.source_millesime`.
+  //   MILLESIME_INCONNU → null (l'écran dira « non renseigné » ; jamais un repli muet sur le proxy). Le cadastre garde sa source.
+  const mEditionBati = await millesimeEditionCourante(query);
+
   return {
     dossierId, numDau: b.num_dau, commune: b.commune, codeInsee: b.code_insee,
     type: b.type, adresse: b.adresse, natureTravaux: b.nature ? libelleNatureProjet(b.nature) : null,
     etat, persiste: rr.length > 0,
     verdict: resultat.verdict, regime: resultat.regime, motif: resultat.motif,
     criteres: resultat.criteres, seuils: entrees.seuils, seuilsProvenance: contexte.seuilsProvenance, seuilsBrut: contexte.seuilsBrut,
-    millesimeCadastre: contexte.empreinteMillesime, millesimeBati: await lireMillesimeBati(dossierId),
+    millesimeCadastre: contexte.empreinteMillesime, millesimeBati: mEditionBati === MILLESIME_INCONNU ? null : mEditionBati,
     comparatif,
     nbParcellesOrigine: parcelles.length, nbContoursEmpreinte, streetView, streetViewMotif, pieces,
   };

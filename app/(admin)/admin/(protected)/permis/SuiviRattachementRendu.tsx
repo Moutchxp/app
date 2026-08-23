@@ -314,7 +314,8 @@ export function DetailSuiviRendu({ detail }: { detail: DetailSuivi }) {
       <div style={styleAide}>
         Seuils utilisés : surface {detail.seuilsBrut.surfacePct} % · bordure {detail.seuilsBrut.bordurePct} % · marge altitude {detail.seuilsBrut.margeAltitudeCm} cm
         {' '}({detail.seuilsProvenance === 'base' ? 'valeurs en base' : 'repli sur défaut — migration 115 non appliquée'}).
-        {' '}Millésimes : cadastre {detail.millesimeCadastre ?? '—'} · bâti {detail.millesimeBati ?? '—'}.
+        {/* L8 — millésime bâti = registre BD TOPO (autorité) ; null = registre absent/vide → « non renseigné » (jamais le proxy, jamais un blanc). Cadastre inchangé. */}
+        {' '}Millésimes : cadastre {detail.millesimeCadastre ?? '—'} · bâti {detail.millesimeBati ?? 'non renseigné'}.
       </div>
     </div>
   );

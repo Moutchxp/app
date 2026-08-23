@@ -14,7 +14,9 @@ const H = vi.hoisted(() => {
     insertRowCount: 1, total: 2, avec: 2, unionSurface: 2886.3, unionNb: 2, unionMill: '2026-06-01',
     // FUS-1b — état empreinte lu par figerBatiSnapshot, millésime couche bâti, bâtiments capturés, ligne résumé lue par lire…
     empRow: { a_geom: true, complete: true, motif: null } as EmpRow,
-    batiMill: '2026-03-20' as string | null,
+    batiMill: '2026-03-20' as string | null,           // proxy max(date_modification) — plus utilisé par le stampage depuis L8
+    editionTable: 'bdtopo_edition' as string | null,   // L8 — to_regclass(bdtopo_edition) : null = migration 120 absente
+    editionMill: '2026-06-15' as string | null,        // L8 — bdtopo_edition.courante : le millésime AUTORITÉ stampé
     batiRows: [
       { cleabs: 'BATIMENT0001', etages: 3, alt: 42.5, hauteur: 9, dmod: '2019-05-01' },
       { cleabs: 'BATIMENT0002', etages: null, alt: null, hauteur: null, dmod: '2024-02-01' },
@@ -29,6 +31,8 @@ const H = vi.hoisted(() => {
     // FUS-1b
     if (/SELECT[\s\S]*a_geom[\s\S]*FROM\s+permis_empreinte/i.test(sql)) return { rows: state.empRow ? [state.empRow] : [], rowCount: state.empRow ? 1 : 0 };
     if (/to_char\(max\(date_modification\)[\s\S]*FROM\s+batiment/i.test(sql)) return { rows: [{ mill: state.batiMill }], rowCount: 1 };
+    if (/to_regclass\('public\.bdtopo_edition'\)/i.test(sql)) return { rows: [{ t: state.editionTable }], rowCount: 1 }; // L8 — registre présent ?
+    if (/FROM\s+bdtopo_edition\s+WHERE\s+courante/i.test(sql)) return { rows: state.editionMill != null ? [{ millesime: state.editionMill }] : [], rowCount: state.editionMill != null ? 1 : 0 };
     if (/INSERT\s+INTO\s+permis_bati_snapshot[\s\S]*RETURNING/i.test(sql)) return { rows: state.batiRows, rowCount: state.batiRows.length };
     if (/INSERT\s+INTO\s+permis_bati_capture/i.test(sql)) return { rows: [], rowCount: 1 };
     if (/SELECT\s+capture,\s*nb_batiments[\s\S]*FROM\s+permis_bati_capture/i.test(sql)) return { rows: state.capRow ? [state.capRow] : [], rowCount: state.capRow ? 1 : 0 };
@@ -60,6 +64,7 @@ beforeEach(() => {
   H.appels.length = 0; H.state.insertRowCount = 1; H.state.total = 2; H.state.avec = 2; H.state.unionSurface = 2886.3; H.state.unionNb = 2; H.state.unionMill = '2026-06-01';
   H.state.empRow = { a_geom: true, complete: true, motif: null };
   H.state.batiMill = '2026-03-20';
+  H.state.editionTable = 'bdtopo_edition'; H.state.editionMill = '2026-06-15';
   H.state.batiRows = [
     { cleabs: 'BATIMENT0001', etages: 3, alt: 42.5, hauteur: 9, dmod: '2019-05-01' },
     { cleabs: 'BATIMENT0002', etages: null, alt: null, hauteur: null, dmod: '2024-02-01' },
@@ -131,15 +136,23 @@ describe('figerBatiSnapshot (FUS-1b)', () => {
     expect(ins[0].sql).toMatch(/b\.geom\s*&&\s*pe\.geom/i);        // prédicat indexable
     expect(ins[0].sql).toMatch(/ST_Intersects\(b\.geom,\s*pe\.geom\)/i);
     expect(ins[0].sql).toMatch(/ST_Force2D\(b\.geom\)/i);          // footprint 2D (le signal est le contour)
-    // résumé : capture=true, nb=2, millésime best-effort (état de la couche)
+    // résumé : capture=true, nb=2, millésime = AUTORITÉ (registre bdtopo_edition.courante), plus le proxy max(date_modification)
     expect(batiCaptures()[0].sql).toMatch(/capture\s*=\s*true/i);
-    expect(batiCaptures()[0].params).toContain('2026-03-20');       // source_millesime lié
+    expect(batiCaptures()[0].params).toContain('2026-06-15');       // L8 — source_millesime = registre, pas le proxy (2026-03-20)
+    expect(batiCaptures()[0].params).not.toContain('2026-03-20');   // le proxy n'est plus stampé
     expect(b.capture).toBe(true);
     expect(b.nbBatiments).toBe(2);
-    expect(b.sourceMillesime).toBe('2026-03-20');
+    expect(b.sourceMillesime).toBe('2026-06-15');
     // étages/altitude opportunistes : présents pour l’un, NULL pour l’autre — jamais supposés
     expect(b.batiments[0]).toMatchObject({ cleabs: 'BATIMENT0001', nombreEtages: 3, altitudeMaxToit: 42.5 });
     expect(b.batiments[1]).toMatchObject({ cleabs: 'BATIMENT0002', nombreEtages: null, altitudeMaxToit: null });
+  });
+
+  it('L8 — registre absent/vide (MILLESIME_INCONNU) → source_millesime = NULL (honnête, jamais une date supposée)', async () => {
+    H.state.editionTable = null; // migration 120 non appliquée
+    const b = await figerBatiSnapshot(7, 'cerfa:parcelles');
+    expect(b.sourceMillesime).toBeNull();
+    expect(batiCaptures()[0].params).not.toContain('2026-03-20'); // surtout PAS le proxy en repli
   });
 
   it('empreinte complète mais 0 bâtiment → TERRAIN NU (capture=true, nb=0), information stockée', async () => {
