@@ -6,7 +6,7 @@ import type { LigneSuivi, DetailSuivi } from '../../../../lib/permis/rattachemen
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
 import { couleurRepere, repereDepuisIndex, PALETTE_REPERE, type SchemaEmpreinte } from '../../../../lib/permis/affectationSchema';
-import { lignesBulle, InterrupteurReperes, estFuturBati, libelleEtatBati } from './SuiviRattachementRendu';
+import { lignesBulle, InterrupteurReperes, InterrupteurFuturBati, estFuturBati, libelleEtatBati } from './SuiviRattachementRendu';
 import type { AttributsPolygone } from '../../../../lib/permis/affectationSchema';
 
 /**
@@ -909,5 +909,72 @@ describe('L12 — distinguer le futur bâti (En projet) sur le schéma', () => {
     const sansFutur: SchemaEmpreinte = { ...schemaEtats(), polygones: [{ repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false, attributs: attr('En service') }] };
     const hSans = renderToStaticMarkup(createElement(LegendeRepetesComplete, { schema: sansFutur, corps: [] }));
     expect(hSans).not.toContain('futur bâti');
+  });
+});
+
+describe('L14 — l’interrupteur du futur bâti ne masque QUE la marque (croisillon), jamais un polygone', () => {
+  const noop = () => {};
+  const attr = (etat: string | null): AttributsPolygone => ({ nombreEtages: null, hauteurM: null, altitudeToitNgf: null, surfaceM2: null, etatDeLObjet: etat });
+  // A existant, C EN PROJET (comme le dossier 11430), B existant.
+  const schemaABC = (): SchemaEmpreinte => ({
+    largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null,
+    polygones: [
+      { repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false, attributs: attr('En service') },
+      { repere: 'B', cleabs: 'BAT_B', path: 'M50,50 L70,50 L70,70 Z', cx: 60, cy: 60, horsEmpreinte: false, attributs: attr('En service') },
+      { repere: 'C', cleabs: 'BAT_C', path: 'M80,80 L95,80 L95,95 Z', cx: 88, cy: 88, horsEmpreinte: false, attributs: attr('En projet') },
+    ],
+  });
+
+  it('DÉFAUT 1 corrigé : décoché → le croisillon disparaît, mais TOUS les polygones restent dessinés (aucun bâti ne disparaît)', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaABC(), corps: [], afficherFutur: false }));
+    expect(h).not.toContain('data-futur-bati');      // la MARQUE (croisillon) est masquée
+    expect(h).toContain('M80,80 L95,80 L95,95 Z');   // le polygone C (En projet) est TOUJOURS dessiné à sa position
+    expect(h).toContain('M20,20 L40,20 L40,40 Z');   // A
+    expect(h).toContain('M50,50 L70,50 L70,70 Z');   // B
+    expect(h).toContain('>A<'); expect(h).toContain('>B<'); expect(h).toContain('>C<'); // les 3 repères présents
+    expect(h).toContain('BAT_C');                    // la bulle de C reste (polygone toujours là)
+  });
+
+  it('coché (défaut) → le croisillon marque le futur bâti ; le polygone est là dans les deux cas', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaABC(), corps: [] }));
+    expect(h).toContain('data-futur-bati="true"');   // C marqué
+    expect((h.match(/data-futur-bati="true"/g) ?? []).length).toBe(1); // 1 seul futur (C)
+    expect(h).toContain('M80,80 L95,80 L95,95 Z');   // C dessiné
+  });
+
+  it('le COMPTE et la légende restent complets dans les deux états (le futur bâti n’est jamais retiré)', () => {
+    const hOn = renderToStaticMarkup(createElement(LegendeRepetesComplete, { schema: schemaABC(), corps: [] }));
+    expect(hOn).toContain('BAT_A'); expect(hOn).toContain('BAT_B'); expect(hOn).toContain('BAT_C'); // les 3 listés
+    expect(hOn).toContain('futur bâti (en projet)'); // clé du croisillon (marque affichée)
+    const hOff = renderToStaticMarkup(createElement(LegendeRepetesComplete, { schema: schemaABC(), corps: [], afficherFutur: false }));
+    expect(hOff).toContain('BAT_A'); expect(hOff).toContain('BAT_B'); expect(hOff).toContain('BAT_C'); // TOUJOURS les 3 (rien retiré)
+    expect(hOff).not.toContain('futur bâti');        // marque masquée → pas de clé, mais les polygones restent
+  });
+
+  it('les repères ne sont jamais renumérotés (A/B/C stables quel que soit l’interrupteur)', () => {
+    const rep = (h: string) => (h.match(/>([A-Z])<\/text>/g) ?? []).join(',');
+    const hOn = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaABC(), corps: [] }));
+    const hOff = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaABC(), corps: [], afficherFutur: false }));
+    expect(rep(hOn)).toBe(rep(hOff)); // mêmes lettres, même ordre, dans les deux états
+  });
+
+  it('les deux interrupteurs restent INDÉPENDANTS et le cadrage ne bouge pas', () => {
+    const hFuturOff = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaABC(), corps: [], afficherFutur: false, afficherReperes: true }));
+    expect(hFuturOff).toContain('>A<'); expect(hFuturOff).not.toContain('data-futur-bati'); // repères OK, marque off
+    const hReperesOff = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaABC(), corps: [], afficherFutur: true, afficherReperes: false }));
+    expect(hReperesOff).toContain('data-futur-bati="true"'); expect(hReperesOff).not.toContain('<text'); // marque on, repères off
+    expect(hFuturOff).toContain('viewBox="0 0 320 240"'); expect(hReperesOff).toContain('viewBox="0 0 320 240"'); // cadrage stable
+  });
+
+  it('InterrupteurFuturBati : libellé « Signaler le futur bâti » (il marque, il ne masque pas de bâti), distinct des repères', () => {
+    const h = renderToStaticMarkup(createElement(InterrupteurFuturBati, { afficherFutur: true, onAfficherFutur: noop }));
+    expect(h).toContain('Signaler le futur bâti'); expect(h).toContain('checked');
+    expect(h).not.toContain('Afficher les repères');
+  });
+
+  it('les deux interrupteurs sont présents en plein écran quand leurs handlers sont fournis', () => {
+    const aff: AffectationEtat = { empreinteFigee: true, motif: null, colonneManquante: false, schema: schemaABC(), polygones: [], corps: [] };
+    const h = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: NOM_SCHEMA_ORIGINE, affectation: aff, persiste: true, onAffecter: noop, onFermer: noop, onAfficherReperes: noop, onAfficherFutur: noop }));
+    expect(h).toContain('Afficher les repères'); expect(h).toContain('Signaler le futur bâti');
   });
 });

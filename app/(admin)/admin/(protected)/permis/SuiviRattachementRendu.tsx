@@ -93,6 +93,21 @@ export function InterrupteurReperes({ afficherReperes, onAfficherReperes }: { af
   );
 }
 
+/**
+ * L13/L14 — interrupteur SÉPARÉ, INDÉPENDANT de celui des repères. Il ne RETIRE JAMAIS un polygone : il ne fait que MONTRER/MASQUER
+ * la MARQUE (croisillon) qui signale « ici il y aura du neuf ». Tous les polygones restent dessinés dans les deux états. N'a de sens
+ * que s'il y a du futur bâti à signaler → la Vue ne le monte que dans ce cas.
+ */
+export function InterrupteurFuturBati({ afficherFutur, onAfficherFutur }: { afficherFutur: boolean; onAfficherFutur: (v: boolean) => void }) {
+  return (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: 12, width: 'auto' }}>
+      <input type="checkbox" checked={afficherFutur} onChange={(e) => onAfficherFutur(e.target.checked)}
+        aria-label="Signaler le futur bâti (en projet) par un croisillon sur les schémas" />
+      <span>Signaler le futur bâti (en projet)</span>
+    </label>
+  );
+}
+
 /** L1 — formate une date ISO 'YYYY-MM-DD' en 'JJ/MM/AAAA'. Découpage de chaîne (jamais `new Date`) : déterministe et sans piège de fuseau. */
 export function formatDateFr(iso: string | null): string {
   if (!iso) return '';
@@ -436,7 +451,7 @@ export function ActionsRattachement({ avertissement, motifRefus, motifConfirmati
  *     (halo blanc sous le glyphe → lisible sur n'importe quelle teinte). Affecté → contour VERT ; hors empreinte → contour TIRETÉ
  *     (canaux NON colorés : l'information ne dépend jamais de la seule couleur).
  */
-export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs, afficherReperes = true, sourceLibelle = '' }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; agrandi?: boolean; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string }) {
+export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; agrandi?: boolean; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean }) {
   const uid = useId();
   const trameId = `trame-${uid.replace(/:/g, '')}`; // id unique (deux schémas côte à côte en L5 ne partageront pas le motif)
   const hachureId = `hachure-${uid.replace(/:/g, '')}`; // L12 — croisillon du FUTUR BÂTI (id unique par schéma)
@@ -448,7 +463,8 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
   const styleSvg: CSSProperties = agrandi
     ? { width: '100%', height: 'auto', maxHeight: '72vh', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' }
     : { maxWidth: '100%', height: 'auto', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' };
-  // L11 — polygone actif pour la bulle VISUELLE (état-dépendante). Neutralisée si repères masqués.
+  // L14 — l'interrupteur du futur bâti ne RETIRE JAMAIS un polygone (ne pas faire disparaître du bâti). TOUS les polygones sont
+  //   toujours dessinés ; l'interrupteur ne bascule QUE la MARQUE (croisillon L12) — cf. plus bas `afficherFutur && estFuturBati(...)`.
   const actifPoly = afficherReperes ? schema.polygones.find((p) => p.repere === actif) ?? null : null;
   return (
     <div style={{ position: 'relative', display: agrandi ? 'block' : 'inline-block', maxWidth: '100%', width: agrandi ? '100%' : undefined }}>
@@ -469,7 +485,7 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
         <rect x={0} y={0} width={schema.largeur} height={schema.hauteur} fill={`url(#${trameId})`} />
         {/* ② parcelle : blanc plein par-dessus la trame → son contour se détache */}
         {schema.empreintePath && <path d={schema.empreintePath} fill="#fff" stroke="var(--color-svv-ink)" strokeWidth={1.5} />}
-        {/* ③ polygones : couleur franche par repère (identité stable) ; affecté = contour vert ; hors empreinte = contour tireté */}
+        {/* ③ TOUS les polygones (le futur bâti n'est JAMAIS retiré) : couleur par repère ; affecté = contour vert ; hors = tireté */}
         {schema.polygones.map((p) => {
           const affecte = !!corpsDuPolygone(corps, p.cleabs);
           const estRouge = p.cleabs != null && !!rougeCleabs?.includes(p.cleabs); // L5 — nouveau/modifié → rouge (jamais seul porteur)
@@ -488,9 +504,10 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
               <path d={p.path} fill={estRouge ? 'var(--color-svv-red)' : couleurRepere(indexDepuisRepere(p.repere))} fillOpacity={0.85}
                 stroke={affecte ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'} strokeWidth={affecte ? 2.5 : 1}
                 strokeDasharray={p.horsEmpreinte ? '3 2' : undefined} />
-              {/* L12 — FUTUR BÂTI (« En projet »/« En construction ») : croisillon en surimpression, NON coloré (le remplissage
-                  reste la couleur du repère, aucun rouge). TOUJOURS visible (propriété du polygone, pas un repère → l'interrupteur ne le masque pas). */}
-              {estFuturBati(p.attributs?.etatDeLObjet) && (
+              {/* L12/L14 — FUTUR BÂTI (« En projet »/« En construction ») : croisillon en surimpression, NON coloré (le remplissage
+                  reste la couleur du repère, aucun rouge). C'est la MARQUE de la projection : l'interrupteur `afficherFutur` la montre
+                  (coché) ou la masque (décoché) — SANS jamais retirer le polygone, qui reste toujours dessiné à sa position. */}
+              {afficherFutur && estFuturBati(p.attributs?.etatDeLObjet) && (
                 <path d={p.path} fill={`url(#${hachureId})`} stroke="none" pointerEvents="none" data-futur-bati="true" />
               )}
               {/* L10 — repère + HALO masquables. Le path ci-dessus (forme + couleur) ne change jamais. */}
@@ -631,14 +648,14 @@ export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onA
  * FIGURE du schéma : le SVG + son NOM écrit DANS le visuel (figcaption en surimpression, pas seulement au-dessus). Quand `onAgrandir`
  * est fourni, la figure devient une cible cliquable ET focalisable au clavier (role=button, Entrée/Espace) → ouvre le plein écran.
  */
-export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, onAgrandir, rougeCleabs, afficherReperes = true, sourceLibelle = '' }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; mention?: string; agrandi?: boolean; onAgrandir?: () => void; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string }) {
+export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, onAgrandir, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; mention?: string; agrandi?: boolean; onAgrandir?: () => void; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean }) {
   const contenu = (
     <>
       <figure style={{ position: 'relative', margin: 0 }}>
         {titre && (
           <figcaption style={{ position: 'absolute', top: 6, left: 6, zIndex: 1, fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,.85)', color: 'var(--color-svv-ink)', padding: '.1rem .45rem', borderRadius: '.3rem', border: '1px solid var(--color-svv-line)' }}>{titre}</figcaption>
         )}
-        <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} />
+        <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} afficherFutur={afficherFutur} />
       </figure>
       {/* L4 — mention (provenance + millésime du gel) écrite DANS le visuel, juste sous le nom du schéma. */}
       {mention && <div style={{ ...styleAide }}>{mention}</div>}
@@ -662,12 +679,14 @@ export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, o
  * retrouver un polygone précis — une pastille générique n'identifie pas un bâtiment. Affecté → mention du corps ; hors empreinte
  * signalé (contour tireté). La couleur n'est qu'une aide : le repère écrit reste la référence.
  */
-export function LegendeRepetesComplete({ schema, corps, rougeCleabs }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; rougeCleabs?: readonly string[] }) {
+export function LegendeRepetesComplete({ schema, corps, rougeCleabs, afficherFutur = true }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; rougeCleabs?: readonly string[]; afficherFutur?: boolean }) {
+  // L14 — la légende liste TOUS les polygones (le futur bâti n'est jamais retiré → le compte reste cohérent : 16 = 16).
   if (schema.polygones.length === 0) return <div style={styleAide}>Aucun polygone dans la parcelle du permis.</div>;
   const deborde = schema.polygones.some((p) => p.horsEmpreinte); // au moins un bâtiment déborde de la parcelle du permis
   const estRouge = (cleabs: string | null) => cleabs != null && !!rougeCleabs?.includes(cleabs);
   const yAduRouge = schema.polygones.some((p) => estRouge(p.cleabs));
-  const nbFutur = schema.polygones.filter((p) => estFuturBati(p.attributs?.etatDeLObjet)).length; // L12 — futur bâti (en projet/construction)
+  // L12/L14 — la clé du croisillon n'a de sens que si la MARQUE est affichée (`afficherFutur`) ET qu'il y a du futur bâti.
+  const nbFutur = afficherFutur ? schema.polygones.filter((p) => estFuturBati(p.attributs?.etatDeLObjet)).length : 0;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
       {/* L10 — chaque repère ASSOCIÉ à son cleabs (la clé de lecture dessin ↔ identité). cleabs LONG → jamais dans le polygone,
@@ -772,17 +791,20 @@ export function DialoguePleinEcran({ titre, onFermer, children }: { titre: strin
  * `LegendeRepetesComplete` et surtout `CorpsEtChoix` (mêmes règles d'affectation — AUCUNE duplication).
  * Mobile-first : le schéma prime (en tête), la légende puis les sélecteurs suivent en défilement, sans masquer le dessin.
  */
-export function SchemaPleinEcran({ titre, mention, affectation, persiste, enAttenteBati = false, onAffecter, onFermer, rougeCleabs, afficherReperes = true, onAfficherReperes, sourceLibelle = '' }: {
+export function SchemaPleinEcran({ titre, mention, affectation, persiste, enAttenteBati = false, onAffecter, onFermer, rougeCleabs, afficherReperes = true, onAfficherReperes, sourceLibelle = '', afficherFutur = true, onAfficherFutur }: {
   titre: string; mention?: string; affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean;
-  onAffecter?: (corpsId: number, cleabs: string | null) => void; onFermer: () => void; rougeCleabs?: readonly string[]; afficherReperes?: boolean; onAfficherReperes?: (v: boolean) => void; sourceLibelle?: string;
+  onAffecter?: (corpsId: number, cleabs: string | null) => void; onFermer: () => void; rougeCleabs?: readonly string[]; afficherReperes?: boolean; onAfficherReperes?: (v: boolean) => void; sourceLibelle?: string; afficherFutur?: boolean; onAfficherFutur?: (v: boolean) => void;
 }) {
   return (
     <DialoguePleinEcran titre={titre} onFermer={onFermer}>
-      {/* L11 — l'interrupteur est AUSSI en plein écran (même réglage que la vue réduite, piloté par la Vue). */}
-      {onAfficherReperes && <InterrupteurReperes afficherReperes={afficherReperes} onAfficherReperes={onAfficherReperes} />}
+      {/* L11/L13 — les DEUX interrupteurs (repères, futur bâti) sont AUSSI en plein écran, même réglage que la vue réduite. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.75rem' }}>
+        {onAfficherReperes && <InterrupteurReperes afficherReperes={afficherReperes} onAfficherReperes={onAfficherReperes} />}
+        {onAfficherFutur && <InterrupteurFuturBati afficherFutur={afficherFutur} onAfficherFutur={onAfficherFutur} />}
+      </div>
       {/* Le schéma PRIME (grand, en tête) — le nom + la mention sont écrits DANS le visuel via la figure. */}
-      <SchemaFigure schema={affectation.schema} corps={affectation.corps} titre={titre} mention={mention} agrandi rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} />
-      <LegendeRepetesComplete schema={affectation.schema} corps={affectation.corps} rougeCleabs={rougeCleabs} />
+      <SchemaFigure schema={affectation.schema} corps={affectation.corps} titre={titre} mention={mention} agrandi rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} afficherFutur={afficherFutur} />
+      <LegendeRepetesComplete schema={affectation.schema} corps={affectation.corps} rougeCleabs={rougeCleabs} afficherFutur={afficherFutur} />
       {/* La FONCTION de rattachement, à l'identique (mêmes règles) — c'est là qu'on arbitre. */}
       {affectation.colonneManquante && <div role="alert" style={{ color: 'var(--color-svv-red)' }}>Affectation indisponible : migration 117 non appliquée.</div>}
       <CorpsEtChoix affectation={affectation} persiste={persiste} enAttenteBati={enAttenteBati} onAffecter={onAffecter} />
@@ -796,23 +818,26 @@ export function SchemaPleinEcran({ titre, mention, affectation, persiste, enAtte
  * étroit, `flex-wrap` EMPILE (origine au-dessus, nouvelle en dessous) — jamais un côte-à-côte illisible. Vue de COMPARAISON : les deux
  * schémas + leurs légendes (l'arbitrage reste accessible dans chaque bloc et dans chaque plein écran simple, via le même `CorpsEtChoix`).
  */
-export function ComparaisonPleinEcran({ origine, nouvelle, rougeCleabs, nomOrigine, nomNouvelle, mentionOrigine, mentionNouvelle, onFermer, afficherReperes = true, onAfficherReperes, sourceOrigine = '', sourceNouvelle = '' }: {
+export function ComparaisonPleinEcran({ origine, nouvelle, rougeCleabs, nomOrigine, nomNouvelle, mentionOrigine, mentionNouvelle, onFermer, afficherReperes = true, onAfficherReperes, sourceOrigine = '', sourceNouvelle = '', afficherFutur = true, onAfficherFutur }: {
   origine: AffectationEtat; nouvelle: AffectationEtat; rougeCleabs?: readonly string[];
-  nomOrigine: string; nomNouvelle: string; mentionOrigine?: string; mentionNouvelle?: string; onFermer: () => void; afficherReperes?: boolean; onAfficherReperes?: (v: boolean) => void; sourceOrigine?: string; sourceNouvelle?: string;
+  nomOrigine: string; nomNouvelle: string; mentionOrigine?: string; mentionNouvelle?: string; onFermer: () => void; afficherReperes?: boolean; onAfficherReperes?: (v: boolean) => void; sourceOrigine?: string; sourceNouvelle?: string; afficherFutur?: boolean; onAfficherFutur?: (v: boolean) => void;
 }) {
   const colonne: CSSProperties = { flex: '1 1 320px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.4rem' };
   return (
     <DialoguePleinEcran titre="Comparer les schémas" onFermer={onFermer}>
-      {/* L11 — l'interrupteur UNE fois pour les deux schémas (même réglage). */}
-      {onAfficherReperes && <InterrupteurReperes afficherReperes={afficherReperes} onAfficherReperes={onAfficherReperes} />}
+      {/* L11/L13 — les deux interrupteurs UNE fois pour les deux schémas (même réglage). */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.75rem' }}>
+        {onAfficherReperes && <InterrupteurReperes afficherReperes={afficherReperes} onAfficherReperes={onAfficherReperes} />}
+        {onAfficherFutur && <InterrupteurFuturBati afficherFutur={afficherFutur} onAfficherFutur={onAfficherFutur} />}
+      </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-start' }}>
         <section aria-label={nomOrigine} style={colonne}>
-          <SchemaFigure schema={origine.schema} corps={origine.corps} titre={nomOrigine} mention={mentionOrigine} agrandi afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} />
-          <LegendeRepetesComplete schema={origine.schema} corps={origine.corps} />
+          <SchemaFigure schema={origine.schema} corps={origine.corps} titre={nomOrigine} mention={mentionOrigine} agrandi afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} afficherFutur={afficherFutur} />
+          <LegendeRepetesComplete schema={origine.schema} corps={origine.corps} afficherFutur={afficherFutur} />
         </section>
         <section aria-label={nomNouvelle} style={colonne}>
-          <SchemaFigure schema={nouvelle.schema} corps={nouvelle.corps} titre={nomNouvelle} mention={mentionNouvelle} agrandi rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceNouvelle} />
-          <LegendeRepetesComplete schema={nouvelle.schema} corps={nouvelle.corps} rougeCleabs={rougeCleabs} />
+          <SchemaFigure schema={nouvelle.schema} corps={nouvelle.corps} titre={nomNouvelle} mention={mentionNouvelle} agrandi rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceNouvelle} afficherFutur={afficherFutur} />
+          <LegendeRepetesComplete schema={nouvelle.schema} corps={nouvelle.corps} rougeCleabs={rougeCleabs} afficherFutur={afficherFutur} />
         </section>
       </div>
     </DialoguePleinEcran>
@@ -823,7 +848,7 @@ export function ComparaisonPleinEcran({ origine, nouvelle, rougeCleabs, nomOrigi
  * Bloc d'affectation (vue RÉDUITE) : le SCHÉMA nommé + cliquable (→ plein écran) + sa LÉGENDE compacte, puis les CHOIX (`CorpsEtChoix`,
  * mêmes règles que le plein écran). Le schéma reste consultable même sans dossier persisté (on DIT pourquoi l'arbitrage est fermé).
  */
-export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs, afficherReperes = true, sourceLibelle = '' }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string }) {
+export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean }) {
   const { corps, schema, motif, colonneManquante } = affectation;
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -837,7 +862,7 @@ export function AffectationBloc({ affectation, persiste, enAttenteBati = false, 
         : (
           <>
             {/* Schéma nommé + cliquable (→ plein écran) + légende compacte : TOUJOURS rendus (informatifs), quel que soit l'état. */}
-            <SchemaFigure schema={schema} corps={corps} titre={titre} mention={mention} onAgrandir={onAgrandir} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} />
+            <SchemaFigure schema={schema} corps={corps} titre={titre} mention={mention} onAgrandir={onAgrandir} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} afficherFutur={afficherFutur} />
             <LegendeAffectation avecRouge={(rougeCleabs?.length ?? 0) > 0} />
             <CorpsEtChoix affectation={affectation} persiste={persiste} enAttenteBati={enAttenteBati} onAffecter={onAffecter} />
           </>
