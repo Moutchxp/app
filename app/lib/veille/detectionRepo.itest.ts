@@ -6,18 +6,30 @@
  * requête SIMULÉE ne peut pas reproduire ce refus de typage ; seule une vraie connexion l'attrape. AVANT le fix : RED (0 ligne).
  * LECTURE + écriture d'UNE ligne de test isolée (source synthétique), nettoyée après. Aucune migration, aucun DDL.
  */
-import { describe, it, expect, afterAll, beforeEach } from 'vitest';
-import { enregistrerDetection } from './detectionRepo';
+import { describe, it, expect, afterAll, beforeAll, beforeEach } from 'vitest';
+import { enregistrerDetection, basculerDetectionSource } from './detectionRepo';
 import { query, closePool } from '../db/client';
 
 const SOURCE_TEST = '__h2_itest_detection__'; // clé synthétique : ne collisionne avec aucune vraie source
+const SOURCE_BASCULE = 'dila'; // vraie source sondée (SOURCES_PROBEES) pour tester basculerDetectionSource — son `actif` est RESTAURÉ
+
+let origBasculeActif: boolean | null = null; // actif d'origine de `dila` (null si la ligne n'existait pas)
 
 async function nettoyer(): Promise<void> {
   await query(`DELETE FROM source_detection WHERE source = $1`, [SOURCE_TEST]);
 }
 
+beforeAll(async () => {
+  const { rows } = await query<{ actif: boolean }>(`SELECT actif FROM source_detection WHERE source = $1`, [SOURCE_BASCULE]);
+  origBasculeActif = rows[0]?.actif ?? null;
+});
 beforeEach(nettoyer);
-afterAll(async () => { await nettoyer(); await closePool(); });
+afterAll(async () => {
+  await nettoyer();
+  // RESTAURE l'actif d'origine de `dila` (requête directe).
+  if (origBasculeActif !== null) await query(`UPDATE source_detection SET actif = $1 WHERE source = $2`, [origBasculeActif, SOURCE_BASCULE]);
+  await closePool();
+});
 
 describe('enregistrerDetection — écriture réelle en base', () => {
   it('un succès de détection est RÉELLEMENT persisté (source, édition, verifie_le)', async () => {
@@ -42,5 +54,17 @@ describe('enregistrerDetection — écriture réelle en base', () => {
     expect(rows[0].edition).toBe('2026-09-15'); // édition du succès PRÉSERVÉE malgré l'échec
     expect(rows[0].succes).toBe(false);
     expect(rows[0].motif).toBe('HTTP 500');
+  });
+});
+
+describe('basculerDetectionSource — écriture réelle de l’interrupteur (restauré en fin)', () => {
+  it('bascule RÉELLEMENT source_detection.actif (false puis true), et renvoie la valeur écrite', async () => {
+    expect(await basculerDetectionSource(SOURCE_BASCULE, false)).toBe(false);
+    let { rows } = await query<{ actif: boolean }>(`SELECT actif FROM source_detection WHERE source = $1`, [SOURCE_BASCULE]);
+    expect(rows[0].actif).toBe(false);
+
+    expect(await basculerDetectionSource(SOURCE_BASCULE, true)).toBe(true);
+    ({ rows } = await query<{ actif: boolean }>(`SELECT actif FROM source_detection WHERE source = $1`, [SOURCE_BASCULE]));
+    expect(rows[0].actif).toBe(true);
   });
 });

@@ -42,7 +42,7 @@ async function empreintePrecedente(req: Requete = q): Promise<string | null> {
   }
 }
 
-async function majEmpreinte(empreinte: string, req: Requete = q): Promise<void> {
+export async function majEmpreinte(empreinte: string, req: Requete = q): Promise<void> {
   await req(`UPDATE config_veille SET alerte_maj_empreinte = $1 WHERE id = 1`, [empreinte]);
 }
 
@@ -55,7 +55,7 @@ async function journalExiste(req: Requete = q): Promise<boolean> {
   }
 }
 
-async function journaliser(empreinte: string, destinataire: string, sujet: string, resultat: 'envoyee' | 'erreur', erreur: string | null, req: Requete = q): Promise<void> {
+export async function journaliser(empreinte: string, destinataire: string, sujet: string, resultat: 'envoyee' | 'erreur', erreur: string | null, req: Requete = q): Promise<void> {
   if (!(await journalExiste(req))) return;
   try {
     await req(

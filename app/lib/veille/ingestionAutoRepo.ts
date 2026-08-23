@@ -114,7 +114,7 @@ export async function disqueLibre(): Promise<number | null> {
   }
 }
 
-async function journaliserRefus(source: string, nuit: string, motif: string, detail: string, req: Requete = q): Promise<void> {
+export async function journaliserRefus(source: string, nuit: string, motif: string, detail: string, req: Requete = q): Promise<void> {
   try {
     await req(
       `INSERT INTO ingestion_auto_journal (source, nuit_du, fini_le, resultat, motif, erreur) VALUES ($1, $2, now(), 'refus', $3, $4)`,
@@ -123,7 +123,7 @@ async function journaliserRefus(source: string, nuit: string, motif: string, det
   } catch (e) { console.error('[ingestion-auto] journal refus impossible', e); }
 }
 
-async function journaliserDebut(source: string, nuit: string, debut: Date, req: Requete = q): Promise<number | null> {
+export async function journaliserDebut(source: string, nuit: string, debut: Date, req: Requete = q): Promise<number | null> {
   try {
     const { rows } = await req<{ id: number }>(
       // Insertion PESSIMISTE ('echec') : un plantage laisse la tentative tracée → pas de reprise en boucle la même nuit.
@@ -134,7 +134,7 @@ async function journaliserDebut(source: string, nuit: string, debut: Date, req: 
   } catch (e) { console.error('[ingestion-auto] journal début impossible', e); return null; }
 }
 
-async function journaliserFin(id: number | null, fin: Date, resultat: 'succes' | 'echec', erreur: string | null, req: Requete = q): Promise<void> {
+export async function journaliserFin(id: number | null, fin: Date, resultat: 'succes' | 'echec', erreur: string | null, req: Requete = q): Promise<void> {
   if (id === null) return;
   try {
     await req(
