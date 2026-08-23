@@ -28,6 +28,17 @@ describe('PASTILLES — PastilleActions', () => {
     expect(m).toContain('99+');
     expect(m).toContain('aria-label="150 actions en attente"');
   });
+  it('ariaLabel OMIS → libellé HISTORIQUE inchangé (non-régression des appelants Permis)', () => {
+    // Rendu STRICTEMENT identique à l'ancien composant : le chiffre + « N actions en attente », rien d'autre.
+    expect(h(createElement(PastilleActions, { n: 2 }))).toBe(h(createElement(PastilleActions, { n: 2, ariaLabel: undefined })));
+    expect(h(createElement(PastilleActions, { n: 2 }))).toContain('aria-label="2 actions en attente"');
+  });
+  it('ariaLabel fourni (F7) → libellé sur mesure, chiffre inchangé', () => {
+    const m = h(createElement(PastilleActions, { n: 2, ariaLabel: '2 mises à jour de base de données disponibles' }));
+    expect(m).toContain('aria-label="2 mises à jour de base de données disponibles"');
+    expect(m).toContain('>2<');
+    expect(m).not.toContain('en attente');
+  });
 });
 
 describe('PASTILLES — onglets : pastille à gauche du titre des 3 onglets concernés', () => {

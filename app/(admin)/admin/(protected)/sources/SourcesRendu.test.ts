@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionMorphologie, SectionProtocoles } from './SourcesRendu';
+import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles } from './SourcesRendu';
 import { construireEtatSources, type LectureSource, type LectureDetection } from '../../../../lib/admin/sourcesFraicheur';
 import { construireMorphologie, MORPHOLOGIE_INDISPONIBLE, type LigneTable } from '../../../../lib/admin/morphologieDisque';
 import { construireAffichageProtocoles } from '../../../../lib/admin/protocolesReingestion';
+import type { AffichageProtocoles } from '../../../../lib/admin/protocolesReingestion';
 
 /**
  * FRAÎCHEUR DES DONNÉES — rendu PUR. Vérifie que l'écran AFFICHE fidèlement les règles d'honnêteté du modèle :
@@ -236,5 +237,33 @@ describe('SectionProtocoles (F5) — mode d’emploi, lecture seule', () => {
   it('fichier absent → sentinelle globale distincte', () => {
     const h = renderToStaticMarkup(createElement(SectionProtocoles, { protocoles: construireAffichageProtocoles(null) }));
     expect(h).toContain('Protocoles non documentés');
+  });
+});
+
+describe('SectionPerimeesSansProcedure (F7) — regroupement dédié', () => {
+  const PROTOS = [
+    '<!-- SOURCE: dila -->', '## DILA', 'CAS (a).', '```bash', 'npm run dila:ingest', '```',
+    '<!-- SOURCE: bdtopo_adresse -->', '## BD TOPO adresse', 'CAS (c) aucune procédure connue.',
+  ].join('\n');
+  const ORDRE = [{ cle: 'dila', nom: 'DILA' }, { cle: 'bdtopo_adresse', nom: 'BD TOPO adresse / BAN' }];
+  const proto = (): AffichageProtocoles => construireAffichageProtocoles(PROTOS, ORDRE);
+
+  // adresse (c) périmée + dila (a) périmée : seule l'adresse doit apparaître dans le regroupement.
+  const detAdresse = D({ source: 'bdtopo_adresse', editionDistante: '2026-06-15', dateDistante: '2026-06-15' });
+  const detDila = D({ source: 'dila', editionDistante: '2026-08-21', dateDistante: '2026-08-21' });
+
+  it('source (c) périmée → listée, avec la phrase qui explique POURQUOI le bloc existe', () => {
+    const l = lignes({}, [detAdresse, detDila]);
+    const h = renderToStaticMarkup(createElement(SectionPerimeesSansProcedure, { lignes: l, protocoles: proto() }));
+    expect(h).toContain('Périmées sans procédure connue');
+    expect(h).toContain('aucun geste n’est documenté'); // le POURQUOI, pas juste un titre
+    expect(h).toContain('BD TOPO® adresse'); // le nom réel de la source (catalogue)
+    expect(h).toContain('2026-06-15'); // l'édition disponible
+    expect(h).not.toContain('DILA'); // la (a) n'est PAS dans ce regroupement
+  });
+
+  it('aucune source périmée-sans-procédure → composant vide (pas de bloc au rebut)', () => {
+    const h = renderToStaticMarkup(createElement(SectionPerimeesSansProcedure, { lignes: lignes(), protocoles: proto() }));
+    expect(h).toBe('');
   });
 });

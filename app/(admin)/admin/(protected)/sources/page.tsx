@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EnTetePage } from '../_composants/EnTetePage';
-import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionMorphologie, SectionProtocoles } from './SourcesRendu';
+import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles } from './SourcesRendu';
 import type { LigneSource } from '../../../../lib/admin/sourcesFraicheur';
 import type { MorphologieDisque } from '../../../../lib/admin/morphologieDisque';
 import type { AffichageProtocoles } from '../../../../lib/admin/protocolesReingestion';
@@ -94,6 +94,9 @@ export default function PageSources() {
               La tuile n’exécute rien : elle prépare une commande à copier dans un terminal. À vous de la lancer et d’en suivre la progression.
             </p>
             <SectionReingestion lignes={etat.lignes} cheminDepot={etat.cheminDepot} />
+            <div style={{ marginTop: 8 }}>
+              <SectionPerimeesSansProcedure lignes={etat.lignes} protocoles={etat.protocoles} />
+            </div>
           </div>
           <div>
             <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-svv-ink)', margin: '0 0 4px' }}>

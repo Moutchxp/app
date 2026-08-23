@@ -24,13 +24,17 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import type { LienMenu } from './menuAdmin';
 import { TuilePermisActions } from './TuilePermisActions';
+import { TuileSourcesActions } from './TuileSourcesActions';
 
-/** Slug de la tuile « Permis de construire » (menuAdmin) — la seule à porter le cumul d'actions en attente. */
+/** Slug de la tuile « Permis de construire » (menuAdmin) — porte le cumul d'actions en attente. */
 const SLUG_PERMIS = '/admin/permis';
+/** Slug de la tuile « Sources de données » (F7) — porte le nombre de mises à jour de base disponibles. */
+const SLUG_SOURCES = '/admin/sources';
 
-/** Sous-titre d'une tuile : pour « Permis », le sous-titre + le cumul d'actions (client) ; sinon le sous-titre simple. */
+/** Sous-titre d'une tuile : Permis → cumul d'actions ; Sources → mises à jour disponibles ; sinon le sous-titre simple. */
 function DescriptionTuile({ tuile }: { tuile: LienMenu }) {
   if (tuile.slug === SLUG_PERMIS) return <TuilePermisActions desc={tuile.desc} />;
+  if (tuile.slug === SLUG_SOURCES) return <TuileSourcesActions desc={tuile.desc} />;
   return <span className="svv-grille-desc">{tuile.desc}</span>;
 }
 

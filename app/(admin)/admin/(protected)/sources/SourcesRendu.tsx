@@ -11,6 +11,7 @@ import {
 import { preparerCommande, aUneProcedure, TERMINAL_RAPPEL } from '../../../../lib/admin/commandeReingestion';
 import { formaterOctets, formaterPct, type MorphologieDisque, type PosteMorphologie } from '../../../../lib/admin/morphologieDisque';
 import type { AffichageProtocoles, SectionProtocole } from '../../../../lib/admin/protocolesReingestion';
+import { misesAJourSansProcedure } from '../../../../lib/admin/pastilleSources';
 import { BoutonCopier } from '../permis/BoutonCopier';
 
 /**
@@ -248,6 +249,38 @@ export function SectionReingestion({ lignes, cheminDepot }: { lignes: LigneSourc
       {lignes.map((l) => (
         <LigneReingestion key={l.cle} ligne={l} cheminDepot={cheminDepot} />
       ))}
+    </div>
+  );
+}
+
+/**
+ * Regroupement « PÉRIMÉES SANS PROCÉDURE CONNUE » (F7) — les sources dont une publication plus récente a été détectée, mais
+ * pour lesquelles AUCUN geste n'est documenté (cas c au sens du parseur de protocoles). Elles ne disparaissent pas de l'écran :
+ * elles changent de statut. Rien à afficher (aucune dans ce cas) → composant vide. La phrase explicite POURQUOI ce bloc existe,
+ * pour qu'il ne ressemble pas à une mise au rebut.
+ */
+export function SectionPerimeesSansProcedure({ lignes, protocoles }: { lignes: LigneSource[]; protocoles: AffichageProtocoles }) {
+  const perimees = misesAJourSansProcedure(lignes, protocoles);
+  if (perimees.length === 0) return null;
+  return (
+    <div className="svv-card" style={{ padding: '.7rem .85rem', borderColor: 'var(--color-svv-red)' }}>
+      <div style={{ fontWeight: 700, color: 'var(--color-svv-ink)', fontSize: 13 }}>Périmées sans procédure connue</div>
+      <p style={{ margin: '4px 0 8px', fontSize: 12, lineHeight: 1.5, color: 'var(--color-svv-muted)' }}>
+        Ces sources ont bien une publication plus récente que ce qu’on détient, mais aucun geste n’est documenté pour les
+        recharger. Elles ne comptent donc pas parmi les mises à jour disponibles.
+      </p>
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 4 }}>
+        {perimees.map((l) => (
+          <li key={l.cle} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12.5 }}>
+            <span style={{ fontWeight: 600, color: 'var(--color-svv-ink)' }}>{l.nom}</span>
+            {l.detection?.statut === 'mise_a_jour' && (
+              <span style={{ color: 'var(--color-svv-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                édition disponible : {l.detection.editionDistante}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
