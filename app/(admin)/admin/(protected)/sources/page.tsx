@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { EnTetePage } from '../_composants/EnTetePage';
 import { TableauSources, GrilleCouverture, LigneContexte } from './SourcesRendu';
 import type { LigneSource } from '../../../../lib/admin/sourcesFraicheur';
@@ -25,19 +25,35 @@ type Etat =
 export default function PageSources() {
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
 
+  // Ref d'indirection : rompt l'auto-référence effet↔setState (même idiome que TuilePermisActions, lint-clean).
+  const chargerRef = useRef<() => Promise<void>>(async () => {});
+
+  const charger = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/sources', { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = (await res.json()) as { lignes: LigneSource[] };
+      setEtat({ statut: 'ok', lignes: d.lignes });
+    } catch {
+      setEtat({ statut: 'erreur' });
+    }
+  }, []);
+
   useEffect(() => {
-    let vivant = true;
-    (async () => {
-      try {
-        const res = await fetch('/api/admin/sources', { cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const d = (await res.json()) as { lignes: LigneSource[] };
-        if (vivant) setEtat({ statut: 'ok', lignes: d.lignes });
-      } catch {
-        if (vivant) setEtat({ statut: 'erreur' });
-      }
-    })();
-    return () => { vivant = false; };
+    chargerRef.current = charger;
+    void (async () => { await chargerRef.current(); })(); // chargement à l'ouverture (via la ref → pas de setState direct en effet)
+  }, [charger]);
+
+  // Réglage par source : bascule la surveillance puis relit l'état (aucune ingestion, aucun téléchargement).
+  const basculer = useCallback(async (source: string, actif: boolean) => {
+    try {
+      const res = await fetch('/api/admin/sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reglage_detection', source, actif }),
+      });
+      if (res.ok) await chargerRef.current();
+    } catch { /* réglage indisponible : l'état affiché reste inchangé */ }
   }, []);
 
   return (
@@ -60,7 +76,7 @@ export default function PageSources() {
       )}
       {etat.statut === 'ok' && (
         <div style={{ display: 'grid', gap: 18 }}>
-          <TableauSources lignes={etat.lignes} />
+          <TableauSources lignes={etat.lignes} onToggle={basculer} />
           <LigneContexte lignes={etat.lignes} />
           <div>
             <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-svv-ink)', margin: '0 0 8px' }}>

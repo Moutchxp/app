@@ -38,6 +38,10 @@ export interface MetaSource {
   reingestion: Reingestion;
   /** Source géométrique → on affiche sa couverture par département. */
   spatial: boolean;
+  /** Existe-t-il un moyen technique de détecter une édition plus récente SANS télécharger la donnée ? (lot 2) */
+  detectable: boolean;
+  /** Si `detectable` est false : pourquoi, en une ligne (affiché tel quel). */
+  motifNonDetectable?: string;
 }
 
 /** Relevé BRUT d'une source, produit par le repo (aucune mise en forme, aucun calcul d'âge). */
@@ -71,6 +75,69 @@ export interface LigneSource extends MetaSource {
   indisponible: boolean;
   /** Couverture par département (uniquement si `spatial`). */
   couverture?: Record<Departement, Couverture>;
+  /** État de détection d'une édition plus récente (lot 2) — présent dès qu'on fournit les relevés de détection. */
+  detection?: EtatDetection;
+}
+
+/**
+ * Relevé BRUT de la DERNIÈRE détection d'une source (lot 2), produit par le repo depuis `source_detection` (ou, pour
+ * Sitadel, depuis `veille_run`). `verifieLe`/`dernierSuccesLe` sont des dates ISO ; null = jamais.
+ */
+export interface LectureDetection {
+  source: string;
+  /** La surveillance de cette source est-elle activée ? (réglage par source) */
+  actif: boolean;
+  /** Dernière TENTATIVE de vérification (ISO), ou null si jamais. */
+  verifieLe: string | null;
+  /** La dernière tentative a-t-elle réussi ? null si jamais tentée. */
+  succes: boolean | null;
+  /** Dernière tentative RÉUSSIE (ISO) — sert au « échec depuis N jours ». */
+  dernierSuccesLe: string | null;
+  /** Édition/millésime trouvé à distance (ex. « 2026-06-15 »). */
+  editionDistante: string | null;
+  /** Date de cette édition (ISO) — comparée à ce qu'on détient. */
+  dateDistante: string | null;
+  /** Message d'échec de la dernière tentative. */
+  motif: string | null;
+}
+
+/**
+ * État de détection AFFICHABLE. Règle d'honnêteté du lot 1 appliquée à la détection : un échec n'est JAMAIS « à jour »,
+ * c'est un aveu d'ignorance daté ; une source non détectable le dit avec son motif.
+ */
+export type EtatDetection =
+  | { statut: 'a_jour' }
+  | { statut: 'mise_a_jour'; editionDistante: string }
+  | { statut: 'non_verifiable'; motif: string }
+  | { statut: 'echec'; depuisJours: number | null }
+  | { statut: 'jamais_verifie' }
+  | { statut: 'desactive' };
+
+/** Normalise une date « YYYY-MM » ou « YYYY-MM-DD » en millisecondes UTC, ou null si illisible. */
+function dateEnMs(d: string | null): number | null {
+  if (!d) return null;
+  const iso = /^\d{4}-\d{2}$/.test(d) ? `${d}-01` : d.slice(0, 10);
+  const t = Date.parse(`${iso}T00:00:00Z`);
+  return Number.isNaN(t) ? null : t;
+}
+
+/**
+ * Calcule l'état de détection d'une source à partir de : ses métadonnées (détectable ou non), la date locale de ce
+ * qu'on détient, le dernier relevé de détection, et « maintenant ». PUR.
+ */
+export function etatDetection(meta: MetaSource, dateLocale: string | null, det: LectureDetection | undefined, maintenant: Date): EtatDetection {
+  if (!meta.detectable) return { statut: 'non_verifiable', motif: meta.motifNonDetectable ?? 'aucun mécanisme de détection' };
+  if (det && det.actif === false) return { statut: 'desactive' };
+  if (!det || det.verifieLe === null) return { statut: 'jamais_verifie' };
+  if (det.succes === false) {
+    // Échec : JAMAIS « à jour ». On date l'ignorance depuis le dernier succès (ou depuis la 1re tentative si aucun succès).
+    const base = det.dernierSuccesLe ?? det.verifieLe;
+    return { statut: 'echec', depuisJours: ageEnJours(base ? base.slice(0, 10) : null, maintenant) };
+  }
+  const dd = dateEnMs(det.dateDistante);
+  const dl = dateEnMs(dateLocale);
+  if (dd !== null && dl !== null && dd > dl) return { statut: 'mise_a_jour', editionDistante: det.editionDistante ?? '(édition inconnue)' };
+  return { statut: 'a_jour' };
 }
 
 /**
@@ -85,6 +152,8 @@ export const CATALOGUE: readonly MetaSource[] = [
     surveillance: false,
     reingestion: { mode: 'inexistante' },
     spatial: true,
+    detectable: false,
+    motifNonDetectable: 'aucun millésime gravé, et l’IGN diffuse le LiDAR HD par blocs à passage unique (pas d’éditions datées) — rien à comparer.',
   },
   {
     cle: 'bdtopo_bati',
@@ -93,6 +162,7 @@ export const CATALOGUE: readonly MetaSource[] = [
     surveillance: false,
     reingestion: { mode: 'manuelle', commande: 'npm run bdtopo:import' },
     spatial: true,
+    detectable: true,
   },
   {
     cle: 'bdtopo_adresse',
@@ -101,6 +171,7 @@ export const CATALOGUE: readonly MetaSource[] = [
     surveillance: false,
     reingestion: { mode: 'inexistante' },
     spatial: true,
+    detectable: true,
   },
   {
     cle: 'cadastre',
@@ -109,6 +180,7 @@ export const CATALOGUE: readonly MetaSource[] = [
     surveillance: false,
     reingestion: { mode: 'manuelle', commande: 'npm run cadastre:ingest' },
     spatial: true,
+    detectable: true,
   },
   {
     cle: 'sitadel',
@@ -117,6 +189,7 @@ export const CATALOGUE: readonly MetaSource[] = [
     surveillance: true,
     reingestion: { mode: 'automatique', commande: 'npm run veille:run' },
     spatial: true,
+    detectable: true,
   },
   {
     cle: 'dila',
@@ -125,6 +198,7 @@ export const CATALOGUE: readonly MetaSource[] = [
     surveillance: false,
     reingestion: { mode: 'manuelle', commande: 'npm run dila:ingest' },
     spatial: false,
+    detectable: true,
   },
   {
     cle: 'prada',
@@ -133,6 +207,7 @@ export const CATALOGUE: readonly MetaSource[] = [
     surveillance: false,
     reingestion: { mode: 'manuelle', commande: 'npm run prada:ingest' },
     spatial: false,
+    detectable: true,
   },
   {
     cle: 'bdnb',
@@ -141,6 +216,8 @@ export const CATALOGUE: readonly MetaSource[] = [
     surveillance: false,
     reingestion: { mode: 'inexistante' },
     spatial: false,
+    detectable: false,
+    motifNonDetectable: 'aucun millésime importé en base (seule l’année de construction l’a été) — rien à comparer.',
   },
 ] as const;
 
@@ -178,8 +255,9 @@ function classerCouverture(lu: LectureSource | undefined): Record<Departement, C
  * Construit les lignes affichables dans l'ORDRE du catalogue. PUR : aucune I/O.
  * `maintenant` est injecté (l'âge est calculé, jamais codé en dur).
  */
-export function construireEtatSources(lectures: LectureSource[], maintenant: Date): LigneSource[] {
+export function construireEtatSources(lectures: LectureSource[], maintenant: Date, detections: LectureDetection[] = []): LigneSource[] {
   const parCle = new Map(lectures.map((l) => [l.cle, l]));
+  const detParCle = new Map(detections.map((d) => [d.source, d]));
   return CATALOGUE.map((meta) => {
     const lu = parCle.get(meta.cle);
     const indisponible = lu?.indisponible === true;
@@ -209,6 +287,7 @@ export function construireEtatSources(lectures: LectureSource[], maintenant: Dat
       vide,
       indisponible,
       couverture: meta.spatial ? classerCouverture(indisponible ? undefined : lu) : undefined,
+      detection: etatDetection(meta, lu?.dateReference ?? null, detParCle.get(meta.cle), maintenant),
     };
   });
 }

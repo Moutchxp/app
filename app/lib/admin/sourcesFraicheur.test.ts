@@ -4,10 +4,16 @@ import {
   resumeCouverture,
   ageEnJours,
   texteReingestion,
+  etatDetection,
   CATALOGUE,
   DEPARTEMENTS,
   type LectureSource,
+  type LectureDetection,
 } from './sourcesFraicheur';
+
+const meta = (cle: string) => CATALOGUE.find((m) => m.cle === cle)!;
+const det = (o: Partial<LectureDetection> = {}): LectureDetection =>
+  ({ source: 'x', actif: true, verifieLe: '2026-08-22T09:00:00Z', succes: true, dernierSuccesLe: '2026-08-22T09:00:00Z', editionDistante: null, dateDistante: null, motif: null, ...o });
 
 /**
  * FRAÎCHEUR DES DONNÉES — modèle PUR. Vérifie les RÈGLES D'HONNÊTETÉ : ordre imposé (LiDAR en tête), millésime inconnu +
@@ -118,6 +124,42 @@ describe('resumeCouverture — pour la ligne de contexte', () => {
     const r = resumeCouverture(construireEtatSources(lecturesReference(), MAINTENANT));
     expect(r.departementsLidar).toEqual(['92']);
     expect(r.departementsBati).toEqual(['75', '77', '78', '92', '93', '94']);
+  });
+});
+
+describe('etatDetection (lot 2) — états et règle d’honnêteté', () => {
+  it('source NON détectable (LiDAR) → non_verifiable + motif explicite', () => {
+    const e = etatDetection(meta('lidar'), null, undefined, MAINTENANT);
+    expect(e.statut).toBe('non_verifiable');
+    if (e.statut === 'non_verifiable') expect(e.motif).toMatch(/passage unique|rien à comparer/i);
+  });
+  it('détectable mais jamais vérifiée → jamais_verifie', () => {
+    expect(etatDetection(meta('cadastre'), '2026-06-01', undefined, MAINTENANT).statut).toBe('jamais_verifie');
+  });
+  it('réglage désactivé → desactive', () => {
+    expect(etatDetection(meta('cadastre'), '2026-06-01', det({ actif: false }), MAINTENANT).statut).toBe('desactive');
+  });
+  it('ÉCHEC → « échec depuis N j », JAMAIS « à jour » (règle d’honnêteté)', () => {
+    const e = etatDetection(meta('cadastre'), '2026-06-01', det({ succes: false, verifieLe: '2026-08-23T09:00:00Z', dernierSuccesLe: '2026-08-13T09:00:00Z', motif: 'HTTP 500' }), MAINTENANT);
+    expect(e.statut).toBe('echec');
+    expect(e.statut).not.toBe('a_jour');
+    if (e.statut === 'echec') expect(e.depuisJours).toBe(10); // depuis le dernier succès (13/08 → 23/08)
+  });
+  it('édition distante = édition locale → a_jour', () => {
+    expect(etatDetection(meta('cadastre'), '2026-06-01', det({ editionDistante: '2026-06-01', dateDistante: '2026-06-01' }), MAINTENANT).statut).toBe('a_jour');
+  });
+  it('édition distante PLUS RÉCENTE que le local → mise_a_jour avec le millésime distant', () => {
+    const e = etatDetection(meta('bdtopo_adresse'), '2026-03-20', det({ editionDistante: '2026-06-15', dateDistante: '2026-06-15' }), MAINTENANT);
+    expect(e.statut).toBe('mise_a_jour');
+    if (e.statut === 'mise_a_jour') expect(e.editionDistante).toBe('2026-06-15');
+  });
+  it('construireEtatSources fusionne la détection par source', () => {
+    const detections: LectureDetection[] = [det({ source: 'cadastre', editionDistante: '2026-06-01', dateDistante: '2026-06-01' })];
+    const cad = construireEtatSources(lecturesReference(), MAINTENANT, detections).find((l) => l.cle === 'cadastre')!;
+    expect(cad.detection?.statut).toBe('a_jour');
+    // Sans relevé fourni pour le LiDAR → non_verifiable (non détectable par nature).
+    const lidar = construireEtatSources(lecturesReference(), MAINTENANT, detections).find((l) => l.cle === 'lidar')!;
+    expect(lidar.detection?.statut).toBe('non_verifiable');
   });
 });
 

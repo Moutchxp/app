@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { TableauSources, GrilleCouverture, LigneContexte } from './SourcesRendu';
-import { construireEtatSources, type LectureSource } from '../../../../lib/admin/sourcesFraicheur';
+import { construireEtatSources, type LectureSource, type LectureDetection } from '../../../../lib/admin/sourcesFraicheur';
 
 /**
  * FRAÎCHEUR DES DONNÉES — rendu PUR. Vérifie que l'écran AFFICHE fidèlement les règles d'honnêteté du modèle :
@@ -12,7 +12,7 @@ import { construireEtatSources, type LectureSource } from '../../../../lib/admin
 
 const MAINTENANT = new Date('2026-08-23T09:00:00Z');
 
-function lignes(over: Partial<Record<string, Partial<LectureSource>>> = {}) {
+function lignes(over: Partial<Record<string, Partial<LectureSource>>> = {}, detections: LectureDetection[] = []) {
   const base: LectureSource[] = [
     { cle: 'lidar', millesime: null, substitut: 'millésime inconnu — 64 dalles MNT + 64 MNS', dateReference: null, vide: false, partielsParDept: ['92'] },
     { cle: 'bdtopo_bati', millesime: '2026-06-15', substitut: null, dateReference: '2026-06-15', vide: false, comptesParDept: { '75': 1, '77': 1, '92': 1 } },
@@ -24,8 +24,11 @@ function lignes(over: Partial<Record<string, Partial<LectureSource>>> = {}) {
     { cle: 'bdnb', millesime: null, substitut: 'aucun millésime en base — 191262 lignes (année de construction)', dateReference: null, vide: false },
   ];
   const lectures = base.map((l) => (over[l.cle] ? { ...l, ...over[l.cle] } : l));
-  return construireEtatSources(lectures, MAINTENANT);
+  return construireEtatSources(lectures, MAINTENANT, detections);
 }
+
+const D = (o: Partial<LectureDetection>): LectureDetection =>
+  ({ source: 'x', actif: true, verifieLe: '2026-08-22T09:00:00Z', succes: true, dernierSuccesLe: '2026-08-22T09:00:00Z', editionDistante: null, dateDistante: null, motif: null, ...o });
 
 describe('TableauSources — une ligne par source, dans l’ordre', () => {
   it('affiche les 8 sources, LiDAR en tête', () => {
@@ -88,5 +91,35 @@ describe('LigneContexte — le verdict ne vit que là où le LiDAR existe', () =
     const h = renderToStaticMarkup(createElement(LigneContexte, { lignes: lignes() }));
     expect(h).toContain('Seul le LiDAR entre dans le verdict');
     expect(h).toContain('92');
+  });
+});
+
+describe('TableauSources — colonne « édition distante » (lot 2)', () => {
+  it('mise à jour disponible → affiche le millésime distant', () => {
+    const det = [D({ source: 'bdtopo_adresse', editionDistante: '2026-06-15', dateDistante: '2026-06-15' })];
+    const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes({}, det) }));
+    expect(h).toContain('mise à jour disponible');
+    expect(h).toContain('2026-06-15');
+  });
+
+  it('ÉCHEC → « non vérifié depuis N j », JAMAIS « à jour »', () => {
+    const det = [D({ source: 'cadastre', succes: false, verifieLe: '2026-08-23T09:00:00Z', dernierSuccesLe: '2026-08-16T09:00:00Z', motif: 'HTTP 500' })];
+    const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes({}, det) }));
+    expect(h).toContain('non vérifié depuis 7 j');
+    // La cellule cadastre ne doit pas dire « à jour » sur un échec. (Le mot « jour » du texte « depuis 7 j » est admis ;
+    // on interdit la locution « à jour ».)
+    expect(h).not.toContain('à jour');
+  });
+
+  it('source non détectable (LiDAR) → « non vérifiable » avec motif', () => {
+    const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes() }));
+    expect(h).toContain('non vérifiable');
+    expect(h).toContain('passage unique');
+  });
+
+  it('sources détectables portent un interrupteur « surveiller » ; les non détectables non', () => {
+    const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes() }));
+    expect(h).toContain('Surveiller BD TOPO® bâtiment');
+    expect(h).not.toContain('Surveiller LiDAR HD'); // non détectable → aucun interrupteur
   });
 });

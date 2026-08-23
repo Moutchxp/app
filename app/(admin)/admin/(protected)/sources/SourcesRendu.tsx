@@ -1,10 +1,11 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import {
   DEPARTEMENTS,
   resumeCouverture,
   texteReingestion,
   type Couverture,
   type Departement,
+  type EtatDetection,
   type LigneSource,
 } from '../../../../lib/admin/sourcesFraicheur';
 
@@ -41,17 +42,55 @@ function CelluleAge({ ligne }: { ligne: LigneSource }) {
   return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{ligne.ageJours} j</span>;
 }
 
+/** Édition distante détectée (lot 2). Règle d'honnêteté : un échec dit « non vérifié depuis N j », JAMAIS « à jour ». */
+function CelluleDetection({ ligne, onToggle }: { ligne: LigneSource; onToggle?: (source: string, actif: boolean) => void }) {
+  const d: EtatDetection | undefined = ligne.detection;
+  if (!d) return <span style={{ color: 'var(--color-svv-muted)' }}>—</span>;
+
+  let corps: ReactNode;
+  if (d.statut === 'a_jour') {
+    corps = <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>à jour</span>;
+  } else if (d.statut === 'mise_a_jour') {
+    corps = <span style={{ color: 'var(--color-svv-red)', fontWeight: 700 }}>⚠ mise à jour disponible — {d.editionDistante}</span>;
+  } else if (d.statut === 'non_verifiable') {
+    corps = <span style={{ color: 'var(--color-svv-muted)' }} title={d.motif}>non vérifiable <span style={{ fontSize: 11, fontStyle: 'italic' }}>({d.motif})</span></span>;
+  } else if (d.statut === 'echec') {
+    const n = d.depuisJours;
+    corps = <span style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}>non vérifié{n !== null ? ` depuis ${n} j` : ''}</span>;
+  } else if (d.statut === 'desactive') {
+    corps = <span style={{ color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>surveillance désactivée</span>;
+  } else {
+    corps = <span style={{ color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>jamais vérifié</span>;
+  }
+
+  // Réglage par source : seules les sources DÉTECTABLES portent l'interrupteur (une non détectable n'a rien à surveiller).
+  const bascule = ligne.detectable ? (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--color-svv-muted)', cursor: 'pointer', marginTop: 4 }}>
+      <input
+        type="checkbox"
+        checked={d.statut !== 'desactive'}
+        onChange={(e) => onToggle?.(ligne.cle, e.target.checked)}
+        aria-label={`Surveiller ${ligne.nom}`}
+      />
+      surveiller
+    </label>
+  ) : null;
+
+  return <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 0 }}>{corps}{bascule}</span>;
+}
+
 /** Le tableau : une ligne par source, dans l'ordre du modèle (LiDAR en tête). Défile dans son conteneur sur mobile. */
-export function TableauSources({ lignes }: { lignes: LigneSource[] }) {
+export function TableauSources({ lignes, onToggle }: { lignes: LigneSource[]; onToggle?: (source: string, actif: boolean) => void }) {
   return (
     <div style={{ overflowX: 'auto', border: '1px solid var(--color-svv-line)', borderRadius: 12 }}>
-      <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 720 }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 860 }}>
         <thead>
           <tr>
             <th style={enTete}>Source</th>
             <th style={enTete}>Ce qu’elle sert</th>
             <th style={enTete}>Millésime en base</th>
             <th style={enTete}>Âge</th>
+            <th style={enTete}>Édition distante</th>
             <th style={enTete}>Surveillance</th>
             <th style={enTete}>Réingestion</th>
           </tr>
@@ -60,9 +99,10 @@ export function TableauSources({ lignes }: { lignes: LigneSource[] }) {
           {lignes.map((l) => (
             <tr key={l.cle}>
               <td style={{ ...cellule, fontWeight: 700, color: 'var(--color-svv-ink)', whiteSpace: 'nowrap' }}>{l.nom}</td>
-              <td style={{ ...cellule, color: 'var(--color-svv-muted)', minWidth: 200 }}>{l.sert}</td>
+              <td style={{ ...cellule, color: 'var(--color-svv-muted)', minWidth: 180 }}>{l.sert}</td>
               <td style={cellule}><CelluleMillesime ligne={l} /></td>
               <td style={cellule}><CelluleAge ligne={l} /></td>
+              <td style={{ ...cellule, minWidth: 190 }}><CelluleDetection ligne={l} onToggle={onToggle} /></td>
               <td style={cellule}>
                 {l.surveillance
                   ? <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>oui</span>

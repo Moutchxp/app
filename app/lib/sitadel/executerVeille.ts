@@ -32,6 +32,8 @@ import { executerAlerteGedAuto, depsReellesAlerteGed } from '../veille/alerteGed
 import { executerAlerteActionAuto, depsReellesAlerteAction } from '../veille/alerteActionAuto';
 import { executerPreCochageAuto, depsReellesPreCochage } from '../veille/preCochageReponduAuto';
 import { executerEnvoiAuto, depsReellesEnvoiAuto } from '../veille/envoiAuto';
+import { executerDetection } from '../veille/detectionSources';
+import { depsReellesDetection } from '../veille/detectionRepo';
 import { ingererMillesime, millesimeDistantDido, DOSSIER_LOCAL, type CompteursIngestion } from './ingestionMillesime';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger,
@@ -100,6 +102,10 @@ export interface DepsVeille {
   //   saisine_cada_auto_active, défauts false). Désactivés → rien ne part à un tiers. APPELLE envoyerRelances/envoyerSaisinesCada
   //   (gardes intactes) ; compte rendu interne à alerte_email. Un échec ne touche jamais la veille ni la relève.
   envoiAuto?(): Promise<unknown>;
+  // FRAÎCHEUR lot 2 — DÉTECTION des nouvelles publications (métadonnées seules, JAMAIS de donnée), après l'envoi auto
+  //   (§1undecies). OPTIONNELLE et ISOLÉE : un échec de détection ne touche jamais la veille ni la relève. Respecte son
+  //   propre interrupteur global + sa cadence + l'activation par source, à l'intérieur (executerDetection).
+  detecterEditions?(): Promise<unknown>;
 }
 
 export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = depsReelles()): Promise<ResultatVeille> {
@@ -180,6 +186,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   de l'autre (dans executerEnvoiAuto). Un compte rendu INTERNE (alerte_email) récapitule tout envoi effectué.
     if (deps.envoiAuto) {
       try { await deps.envoiAuto(); } catch { /* envoi auto isolé : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1undecies) DÉTECTION des nouvelles publications (FRAÎCHEUR lot 2) — DERNIÈRE étape auto : interroge les MÉTADONNÉES
+    //   (index de diffusion IGN, listing cadastre, en-tête DILA, page annuaire PRADA), quelques Ko chacune, JAMAIS de
+    //   téléchargement de donnée (lot 3). MÊME ISOLATION à double filet : un échec de détection n'impacte jamais la veille
+    //   ni la relève. Interrupteur global + cadence + activation par source sont gérés DANS executerDetection.
+    if (deps.detecterEditions) {
+      try { await deps.detecterEditions(); } catch { /* détection isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     const config = await deps.chargerConfig();
@@ -322,6 +336,8 @@ function depsReelles(): DepsVeille {
     preCochageRepondu: () => executerPreCochageAuto(depsReellesPreCochage()),
     // RELANCE lot 6 — envoi automatique réel : DEUX interrupteurs + plafond auto + appels envoyerRelances/envoyerSaisinesCada (gardes intactes) + compte rendu interne, dans envoiAuto.ts.
     envoiAuto: () => executerEnvoiAuto(depsReellesEnvoiAuto()),
+    // FRAÎCHEUR lot 2 — détection des nouvelles publications (métadonnées seules), interrupteur + cadence + activation par source dans executerDetection.
+    detecterEditions: () => executerDetection(depsReellesDetection()),
   };
 }
 
