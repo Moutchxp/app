@@ -71,7 +71,7 @@ export function geomDepuisGeoJSON(gj: unknown): GeomPoly {
  * `hauteurM` = élévation depuis le sol (m) ; `altitudeToitNgf` = cote ABSOLUE en NGF. Jamais fusionnées. `surfaceM2` = ST_Area de
  * la géométrie (Lambert-93), calculée à la lecture. Tous nullables → « non renseigné » à l'affichage, jamais un zéro inventé.
  */
-export interface AttributsPolygone { nombreEtages: number | null; hauteurM: number | null; altitudeToitNgf: number | null; surfaceM2: number | null }
+export interface AttributsPolygone { nombreEtages: number | null; hauteurM: number | null; altitudeToitNgf: number | null; surfaceM2: number | null; etatDeLObjet: string | null }
 
 export interface PolygoneEntreeSchema { repere: string; cleabs: string | null; geom: GeomPoly; horsEmpreinte: boolean; attributs?: AttributsPolygone }
 export interface PolygoneSchema { repere: string; cleabs: string | null; path: string; cx: number; cy: number; horsEmpreinte: boolean; attributs?: AttributsPolygone }

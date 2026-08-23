@@ -6,7 +6,8 @@ import type { LigneSuivi, DetailSuivi } from '../../../../lib/permis/rattachemen
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
 import { couleurRepere, repereDepuisIndex, PALETTE_REPERE, type SchemaEmpreinte } from '../../../../lib/permis/affectationSchema';
-import { lignesBulle, InterrupteurReperes } from './SuiviRattachementRendu';
+import { lignesBulle, InterrupteurReperes, estFuturBati, libelleEtatBati } from './SuiviRattachementRendu';
+import type { AttributsPolygone } from '../../../../lib/permis/affectationSchema';
 
 /**
  * FUS-3b — rendu PUR du suivi (renderToStaticMarkup, aucun DOM). Couvre : compteurs + groupes par état, tri par urgence,
@@ -781,13 +782,13 @@ describe('L11 — bulles au survol + interrupteur en plein écran', () => {
   const schemaAttr = (): SchemaEmpreinte => ({
     largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null,
     polygones: [
-      { repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false, attributs: { nombreEtages: 7, hauteurM: 21, altitudeToitNgf: 89.4, surfaceM2: 73.87 } },
-      { repere: 'B', cleabs: 'BAT_B', path: 'M60,60 L80,60 L80,80 Z', cx: 70, cy: 70, horsEmpreinte: false, attributs: { nombreEtages: null, hauteurM: 5, altitudeToitNgf: null, surfaceM2: 77.5 } },
+      { repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false, attributs: { nombreEtages: 7, hauteurM: 21, altitudeToitNgf: 89.4, surfaceM2: 73.87, etatDeLObjet: 'En service' } },
+      { repere: 'B', cleabs: 'BAT_B', path: 'M60,60 L80,60 L80,80 Z', cx: 70, cy: 70, horsEmpreinte: false, attributs: { nombreEtages: null, hauteurM: 5, altitudeToitNgf: null, surfaceM2: 77.5, etatDeLObjet: null } },
     ],
   });
 
   it('lignesBulle (pur) : source en tête, cleabs, valeurs présentes affichées, absentes « non renseigné », hauteur ≠ altitude', () => {
-    const l = lignesBulle('BAT_A', { nombreEtages: 7, hauteurM: 21, altitudeToitNgf: 89.4, surfaceM2: 73.87 }, 'au moment du gel');
+    const l = lignesBulle('BAT_A', { nombreEtages: 7, hauteurM: 21, altitudeToitNgf: 89.4, surfaceM2: 73.87, etatDeLObjet: 'En service' }, 'au moment du gel');
     expect(l[0]).toBe('Source : au moment du gel');
     expect(l).toContain('cleabs : BAT_A');
     expect(l).toContain('étages : 7');
@@ -795,7 +796,7 @@ describe('L11 — bulles au survol + interrupteur en plein écran', () => {
     expect(l).toContain('hauteur (depuis le sol) : 21 m');    // hauteur nommée
     expect(l).toContain('altitude de toit (NGF) : 89.4 m NGF'); // altitude nommée SÉPARÉMENT
     // tout absent → « non renseigné » partout (jamais un zéro inventé)
-    const vide = lignesBulle(null, { nombreEtages: null, hauteurM: null, altitudeToitNgf: null, surfaceM2: null }, 'x');
+    const vide = lignesBulle(null, { nombreEtages: null, hauteurM: null, altitudeToitNgf: null, surfaceM2: null, etatDeLObjet: null }, 'x');
     expect(vide).toContain('cleabs : non renseigné'); expect(vide).toContain('surface : non renseigné');
     expect(vide).toContain('hauteur (depuis le sol) : non renseigné'); expect(vide).toContain('altitude de toit (NGF) : non renseigné');
   });
@@ -847,5 +848,66 @@ describe('L11 — bulles au survol + interrupteur en plein écran', () => {
     expect(hOn).toContain('checked'); expect(hOn).toContain('aria-label="Afficher les repères');
     const hOff = renderToStaticMarkup(createElement(InterrupteurReperes, { afficherReperes: false, onAfficherReperes: noop }));
     expect(hOff).not.toContain('checked');
+  });
+});
+
+describe('L12 — distinguer le futur bâti (En projet) sur le schéma', () => {
+  const attr = (etat: string | null, o: Partial<AttributsPolygone> = {}): AttributsPolygone => ({ nombreEtages: null, hauteurM: null, altitudeToitNgf: null, surfaceM2: null, etatDeLObjet: etat, ...o });
+  const schemaEtats = (): SchemaEmpreinte => ({
+    largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null,
+    polygones: [
+      { repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false, attributs: attr('En projet') },
+      { repere: 'B', cleabs: 'BAT_B', path: 'M60,60 L80,60 L80,80 Z', cx: 70, cy: 70, horsEmpreinte: false, attributs: attr('En service') },
+      { repere: 'C', cleabs: 'BAT_C', path: 'M85,85 L95,85 L95,95 Z', cx: 90, cy: 90, horsEmpreinte: false, attributs: attr(null) },
+    ],
+  });
+
+  it('estFuturBati : projet/construction → true ; service/ruine/null → false (NULL jamais confondu)', () => {
+    expect(estFuturBati('En projet')).toBe(true);
+    expect(estFuturBati('En construction')).toBe(true);
+    expect(estFuturBati('En service')).toBe(false);
+    expect(estFuturBati('En ruine')).toBe(false);
+    expect(estFuturBati(null)).toBe(false);
+    expect(estFuturBati(undefined)).toBe(false);
+  });
+
+  it('libelleEtatBati : futur bâti nommé ; existant en valeur IGN ; NULL → « non renseigné »', () => {
+    expect(libelleEtatBati('En projet')).toBe('en projet (futur bâti)');
+    expect(libelleEtatBati('En construction')).toBe('en construction (futur bâti)');
+    expect(libelleEtatBati('En service')).toBe('en service');
+    expect(libelleEtatBati(null)).toBe('non renseigné');
+  });
+
+  it('la bulle affiche l’état (futur bâti / existant / non renseigné) — sans le confondre', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaEtats(), corps: [], sourceLibelle: 'au moment du gel' }));
+    expect(h).toContain('état : en projet (futur bâti)'); // A
+    expect(h).toContain('état : en service');             // B (existant, jamais confondu avec NULL)
+    expect(h).toContain('état : non renseigné');          // C (NULL, jamais confondu avec « en service »)
+  });
+
+  it('« En projet » → croisillon (marque non colorée) ; « En service » et NULL → pas de marque', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaEtats(), corps: [] }));
+    expect(h).toContain('<pattern id="hachure-');   // le motif croisillon est défini
+    expect((h.match(/data-futur-bati="true"/g) ?? []).length).toBe(1); // UN seul polygone hachuré (A « En projet »)
+    // la couleur de REMPLISSAGE reste celle du repère dans TOUS les cas (A inclus), aucun rouge introduit
+    expect(h).toContain(`fill="${couleurRepere(0)}"`); // A garde sa couleur de palette (le croisillon est une surimpression)
+    expect(h).toContain(`fill="${couleurRepere(1)}"`); // B
+    expect(h).not.toContain('var(--color-svv-red)');   // aucun rouge introduit par le futur bâti
+  });
+
+  it('la marque du futur bâti n’est PAS gouvernée par l’interrupteur des repères (elle reste même repères masqués)', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaEtats(), corps: [], afficherReperes: false }));
+    expect(h).not.toContain('<text');                 // repères masqués
+    expect(h).toContain('data-futur-bati="true"');     // mais le croisillon du futur bâti reste (propriété du polygone)
+  });
+
+  it('la LÉGENDE explique la distinction + donne le COMPTE ; absente s’il n’y a aucun futur bâti', () => {
+    const h = renderToStaticMarkup(createElement(LegendeRepetesComplete, { schema: schemaEtats(), corps: [] }));
+    expect(h).toContain('futur bâti (en projet)');
+    expect(h).toContain('1 polygone que le permis va faire sortir de terre'); // le compte (1 « En projet »)
+    // aucun futur bâti → pas de clé
+    const sansFutur: SchemaEmpreinte = { ...schemaEtats(), polygones: [{ repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false, attributs: attr('En service') }] };
+    const hSans = renderToStaticMarkup(createElement(LegendeRepetesComplete, { schema: sansFutur, corps: [] }));
+    expect(hSans).not.toContain('futur bâti');
   });
 });

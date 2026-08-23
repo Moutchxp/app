@@ -49,12 +49,29 @@ const styleTrameDetail: CSSProperties = {
  * Donnée absente → « non renseigné » (jamais un blanc ni un zéro inventé). La surface est arrondie à 0,1 m² pour l'AFFICHAGE seul
  * (valeur brute Lambert-93 non altérée, ne sert à aucun calcul).
  */
+/**
+ * L12 — un polygone est-il du FUTUR BÂTI ? (état IGN « En projet » ou « En construction ») : ce que le permis va faire sortir de
+ * terre, par opposition à l'existant. Attribut DÉJÀ figé (L9). NULL (capture < migration 145) → false, jamais confondu avec futur.
+ */
+export function estFuturBati(etat: string | null | undefined): boolean {
+  return etat === 'En projet' || etat === 'En construction';
+}
+
+/** L12 — libellé d'état pour la BULLE. Futur bâti nommé « futur bâti » (règle Arno) ; sinon valeur IGN brute ; NULL → « non renseigné ». */
+export function libelleEtatBati(etat: string | null | undefined): string {
+  if (etat == null) return 'non renseigné';
+  if (etat === 'En projet') return 'en projet (futur bâti)';
+  if (etat === 'En construction') return 'en construction (futur bâti)';
+  return etat.toLowerCase(); // « en service », « en ruine » : valeur IGN brute
+}
+
 export function lignesBulle(cleabs: string | null, a: AttributsPolygone | undefined, sourceLibelle: string): string[] {
   const nr = 'non renseigné';
   const surf = a?.surfaceM2 != null ? `${Math.round(a.surfaceM2 * 10) / 10} m²` : nr;
   return [
     `Source : ${sourceLibelle}`,
     `cleabs : ${cleabs ?? nr}`,
+    `état : ${libelleEtatBati(a?.etatDeLObjet)}`, // L12 — l'état IGN (futur bâti vs existant vs non renseigné)
     `étages : ${a?.nombreEtages != null ? a.nombreEtages : nr}`,
     `surface : ${surf}`,
     `hauteur (depuis le sol) : ${a?.hauteurM != null ? `${a.hauteurM} m` : nr}`,
@@ -422,6 +439,7 @@ export function ActionsRattachement({ avertissement, motifRefus, motifConfirmati
 export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs, afficherReperes = true, sourceLibelle = '' }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; agrandi?: boolean; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string }) {
   const uid = useId();
   const trameId = `trame-${uid.replace(/:/g, '')}`; // id unique (deux schémas côte à côte en L5 ne partageront pas le motif)
+  const hachureId = `hachure-${uid.replace(/:/g, '')}`; // L12 — croisillon du FUTUR BÂTI (id unique par schéma)
   const [actif, setActif] = useState<string | null>(null); // L11 — repère du polygone survolé/focalisé/tapé (bulle visuelle)
   if (schema.motif) return <div style={{ ...styleAide, fontStyle: 'italic' }}>{schema.motif}</div>;
   // L3 — `agrandi` : en plein écran, le schéma remplit la largeur disponible (le viewBox conserve le ratio) et monte jusqu'à 72vh
@@ -441,6 +459,11 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
           <pattern id={trameId} width={6} height={6} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <rect width={6} height={6} fill="#f4f4f5" />
             <line x1={0} y1={0} x2={0} y2={6} stroke="#c9ccd1" strokeWidth={1.2} />
+          </pattern>
+          {/* L12 — CROISILLON du futur bâti (« En projet »/« En construction ») : marque NON colorée, en surimpression sur le
+              polygone. Un « X » par tuile → croisillon au pavage. Distinct de la trame grise 45° du hors-parcelle. */}
+          <pattern id={hachureId} width={6} height={6} patternUnits="userSpaceOnUse">
+            <path d="M0 0 L6 6 M6 0 L0 6" stroke="var(--color-svv-ink)" strokeWidth={0.7} strokeOpacity={0.55} fill="none" />
           </pattern>
         </defs>
         <rect x={0} y={0} width={schema.largeur} height={schema.hauteur} fill={`url(#${trameId})`} />
@@ -465,6 +488,11 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
               <path d={p.path} fill={estRouge ? 'var(--color-svv-red)' : couleurRepere(indexDepuisRepere(p.repere))} fillOpacity={0.85}
                 stroke={affecte ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'} strokeWidth={affecte ? 2.5 : 1}
                 strokeDasharray={p.horsEmpreinte ? '3 2' : undefined} />
+              {/* L12 — FUTUR BÂTI (« En projet »/« En construction ») : croisillon en surimpression, NON coloré (le remplissage
+                  reste la couleur du repère, aucun rouge). TOUJOURS visible (propriété du polygone, pas un repère → l'interrupteur ne le masque pas). */}
+              {estFuturBati(p.attributs?.etatDeLObjet) && (
+                <path d={p.path} fill={`url(#${hachureId})`} stroke="none" pointerEvents="none" data-futur-bati="true" />
+              )}
               {/* L10 — repère + HALO masquables. Le path ci-dessus (forme + couleur) ne change jamais. */}
               {afficherReperes && (
                 <text x={p.cx} y={p.cy} textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight={700}
@@ -639,6 +667,7 @@ export function LegendeRepetesComplete({ schema, corps, rougeCleabs }: { schema:
   const deborde = schema.polygones.some((p) => p.horsEmpreinte); // au moins un bâtiment déborde de la parcelle du permis
   const estRouge = (cleabs: string | null) => cleabs != null && !!rougeCleabs?.includes(cleabs);
   const yAduRouge = schema.polygones.some((p) => estRouge(p.cleabs));
+  const nbFutur = schema.polygones.filter((p) => estFuturBati(p.attributs?.etatDeLObjet)).length; // L12 — futur bâti (en projet/construction)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
       {/* L10 — chaque repère ASSOCIÉ à son cleabs (la clé de lecture dessin ↔ identité). cleabs LONG → jamais dans le polygone,
@@ -659,6 +688,13 @@ export function LegendeRepetesComplete({ schema, corps, rougeCleabs }: { schema:
           );
         })}
       </ul>
+      {/* L12 — clé du FUTUR BÂTI : la puce HACHURÉE (croisillon) + ce qu'elle signifie + le COMPTE (utile hors du dessin). Non colorée. */}
+      {nbFutur > 0 && (
+        <div role="note" style={{ ...styleAide, display: 'flex', alignItems: 'baseline', gap: '.3rem' }}>
+          <span aria-hidden="true" style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, flexShrink: 0, background: '#fff', backgroundImage: 'repeating-linear-gradient(45deg, var(--color-svv-ink) 0 .7px, transparent .7px 4px), repeating-linear-gradient(-45deg, var(--color-svv-ink) 0 .7px, transparent .7px 4px)', border: '1px solid var(--color-svv-line)' }} />
+          <span><strong>Hachuré = futur bâti (en projet)</strong> — {nbFutur} polygone{nbFutur > 1 ? 's' : ''} que le permis va faire sortir de terre (pas l’existant déjà construit).</span>
+        </div>
+      )}
       {/* L5 — clé du ROUGE : la puce rouge + ce qu'elle signifie (le rouge n'est jamais seul porteur). */}
       {yAduRouge && (
         <div role="note" style={{ ...styleAide, display: 'flex', alignItems: 'baseline', gap: '.3rem' }}>
