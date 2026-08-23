@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EnTetePage } from '../_composants/EnTetePage';
-import { TableauSources, GrilleCouverture, LigneContexte } from './SourcesRendu';
+import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion } from './SourcesRendu';
 import type { LigneSource } from '../../../../lib/admin/sourcesFraicheur';
 
 /**
@@ -20,7 +20,7 @@ const CSS_SOURCES = `
 type Etat =
   | { statut: 'chargement' }
   | { statut: 'erreur' }
-  | { statut: 'ok'; lignes: LigneSource[] };
+  | { statut: 'ok'; lignes: LigneSource[]; cheminDepot: string };
 
 export default function PageSources() {
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
@@ -32,8 +32,8 @@ export default function PageSources() {
     try {
       const res = await fetch('/api/admin/sources', { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = (await res.json()) as { lignes: LigneSource[] };
-      setEtat({ statut: 'ok', lignes: d.lignes });
+      const d = (await res.json()) as { lignes: LigneSource[]; cheminDepot: string };
+      setEtat({ statut: 'ok', lignes: d.lignes, cheminDepot: d.cheminDepot });
     } catch {
       setEtat({ statut: 'erreur' });
     }
@@ -83,6 +83,15 @@ export default function PageSources() {
               Couverture par département
             </h2>
             <GrilleCouverture lignes={etat.lignes} />
+          </div>
+          <div>
+            <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-svv-ink)', margin: '0 0 4px' }}>
+              Réingestion
+            </h2>
+            <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+              La tuile n’exécute rien : elle prépare une commande à copier dans un terminal. À vous de la lancer et d’en suivre la progression.
+            </p>
+            <SectionReingestion lignes={etat.lignes} cheminDepot={etat.cheminDepot} />
           </div>
         </div>
       )}

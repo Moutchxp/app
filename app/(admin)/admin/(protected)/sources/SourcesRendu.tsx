@@ -8,6 +8,8 @@ import {
   type EtatDetection,
   type LigneSource,
 } from '../../../../lib/admin/sourcesFraicheur';
+import { preparerCommande, aUneProcedure, TERMINAL_RAPPEL } from '../../../../lib/admin/commandeReingestion';
+import { BoutonCopier } from '../permis/BoutonCopier';
 
 /**
  * FRAÎCHEUR DES DONNÉES — rendu PUR (lot 1/3). Aucun état, aucun effet, aucune I/O → testable en Node via
@@ -178,5 +180,72 @@ export function LigneContexte({ lignes }: { lignes: LigneSource[] }) {
       {departementsBati.length} département{departementsBati.length > 1 ? 's' : ''} et servent à éclairer et à détecter
       les changements, mais aucune n’entre dans le verdict.
     </p>
+  );
+}
+
+/** Motif d'ABSENCE de commande pour une source (le pendant honnête du bouton : on dit toujours POURQUOI il n'y est pas). */
+function motifSansCommande(ligne: LigneSource): string {
+  const d = ligne.detection;
+  if (ligne.reingestion.mode === 'automatique') return 'réingestion automatique — rien à préparer';
+  if (ligne.reingestion.mode === 'inexistante') {
+    return d?.statut === 'mise_a_jour'
+      ? 'mise à jour disponible, mais AUCUNE procédure de réingestion — manque à combler'
+      : 'aucune procédure de réingestion';
+  }
+  // Procédure manuelle existante, mais pas de mise à jour confirmée :
+  if (!d || d.statut === 'a_jour') return 'déjà à jour — rien à préparer';
+  if (d.statut === 'non_verifiable') return 'non vérifiable — aucune comparaison possible';
+  if (d.statut === 'echec') return 'vérification en échec — mise à jour non confirmée';
+  if (d.statut === 'desactive') return 'surveillance désactivée';
+  return 'jamais vérifié — mise à jour non confirmée';
+}
+
+/** Une ligne de la section réingestion : soit le bloc « Préparer la commande », soit le motif de son absence. */
+function LigneReingestion({ ligne, cheminDepot }: { ligne: LigneSource; cheminDepot: string }) {
+  const actionnable = ligne.detection?.statut === 'mise_a_jour' && aUneProcedure(ligne.cle);
+  const edition = ligne.detection?.statut === 'mise_a_jour' ? ligne.detection.editionDistante : null;
+  const prep = actionnable ? preparerCommande(ligne.cle, edition, cheminDepot) : null;
+
+  return (
+    <div className="svv-card" style={{ padding: '.7rem .85rem' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'baseline', justifyContent: 'space-between' }}>
+        <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)', fontSize: 13 }}>{ligne.nom}</span>
+        {!prep && <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{motifSansCommande(ligne)}</span>}
+      </div>
+      {prep && (
+        <details style={{ marginTop: 6 }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--color-svv-red)', fontSize: 13 }}>
+            Préparer la commande{ligne.detection?.statut === 'mise_a_jour' ? ` — mise à jour ${ligne.detection.editionDistante}` : ''}
+          </summary>
+          {prep.avertissement && (
+            <p role="note" style={{ margin: '8px 0 4px', fontSize: 12, lineHeight: 1.45, color: 'var(--color-svv-red)', fontWeight: 600 }}>
+              ⚠ {prep.avertissement}
+            </p>
+          )}
+          <p style={{ margin: '4px 0', fontSize: 11.5, color: 'var(--color-svv-muted)' }}>{TERMINAL_RAPPEL}</p>
+          <pre style={{
+            margin: '4px 0 8px', padding: '.6rem .7rem', overflowX: 'auto', fontSize: 12.5, lineHeight: 1.5,
+            background: 'var(--color-svv-field)', border: '1px solid var(--color-svv-line)', borderRadius: 8,
+            whiteSpace: 'pre', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          }}>{prep.commande}</pre>
+          <BoutonCopier valeur={prep.commande} libelle="Copier la commande" />
+        </details>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Section RÉINGESTION (lot 3) — pour chaque source, soit le bloc copiable « Préparer la commande » (quand une mise à jour
+ * est disponible ET qu'une procédure existe), soit le motif de son absence. La tuile n'exécute RIEN : elle prépare, l'humain
+ * colle dans un terminal. `cheminDepot` = chemin ABSOLU du dépôt (fourni par le serveur).
+ */
+export function SectionReingestion({ lignes, cheminDepot }: { lignes: LigneSource[]; cheminDepot: string }) {
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      {lignes.map((l) => (
+        <LigneReingestion key={l.cle} ligne={l} cheminDepot={cheminDepot} />
+      ))}
+    </div>
   );
 }

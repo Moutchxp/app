@@ -22,7 +22,9 @@ export async function GET(request: Request): Promise<Response> {
 
     const [lectures, detections] = await Promise.all([lireSourcesFraicheur(), lireDetections()]);
     const lignes = construireEtatSources(lectures, new Date(), detections);
-    return Response.json({ lignes, departements: DEPARTEMENTS });
+    // Chemin ABSOLU du dépôt (répertoire de lancement de Next = racine du projet) — sert à composer le `cd` du bloc à coller
+    // dans le terminal (lot 3). AUCUNE exécution ici : c'est une chaîne pour l'humain.
+    return Response.json({ lignes, departements: DEPARTEMENTS, cheminDepot: process.cwd() });
   } catch (e) {
     console.error('[admin/sources] GET indisponible', e);
     return Response.json({ erreur: 'sources indisponibles' }, { status: 503 });

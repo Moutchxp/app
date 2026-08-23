@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableauSources, GrilleCouverture, LigneContexte } from './SourcesRendu';
+import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion } from './SourcesRendu';
 import { construireEtatSources, type LectureSource, type LectureDetection } from '../../../../lib/admin/sourcesFraicheur';
 
 /**
@@ -121,5 +121,47 @@ describe('TableauSources — colonne « édition distante » (lot 2)', () => {
     const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes() }));
     expect(h).toContain('Surveiller BD TOPO® bâtiment');
     expect(h).not.toContain('Surveiller LiDAR HD'); // non détectable → aucun interrupteur
+  });
+});
+
+describe('SectionReingestion (lot 3) — préparer la commande, jamais l’exécuter', () => {
+  const REPO = '/Users/x/sansvisavis/app';
+  const section = (cle: string, detections: LectureDetection[] = []) => {
+    const l = lignes({}, detections).filter((x) => x.cle === cle);
+    return renderToStaticMarkup(createElement(SectionReingestion, { lignes: l, cheminDepot: REPO }));
+  };
+
+  it('mise à jour disponible + procédure (DILA) → bloc avec cd absolu, env et commande', () => {
+    const h = section('dila', [D({ source: 'dila', editionDistante: '2026-08-21', dateDistante: '2026-08-21' })]);
+    expect(h).toContain('Préparer la commande');
+    expect(h).toContain(`cd ${REPO}`);
+    expect(h).toContain('set -a &amp;&amp; source .env &amp;&amp; set +a'); // « && » échappé dans le HTML
+    expect(h).toContain('npm run dila:ingest');
+    expect(h).toContain('360'); // avertissement de poids
+  });
+
+  it('mise à jour disponible MAIS pas de procédure (adresse orpheline) → pas de bouton, motif du manque', () => {
+    const h = section('bdtopo_adresse', [D({ source: 'bdtopo_adresse', editionDistante: '2026-06-15', dateDistante: '2026-06-15' })]);
+    expect(h).toContain('manque à combler');
+    expect(h).not.toContain('Préparer la commande');
+    expect(h).not.toContain('npm run');
+  });
+
+  it('non détectable (LiDAR) → pas de bouton, « aucune procédure de réingestion »', () => {
+    const h = section('lidar');
+    expect(h).toContain('aucune procédure de réingestion');
+    expect(h).not.toContain('Préparer la commande');
+  });
+
+  it('déjà à jour (cadastre) → pas de bouton, « déjà à jour »', () => {
+    const h = section('cadastre', [D({ source: 'cadastre', editionDistante: '2026-06-01', dateDistante: '2026-06-01' })]);
+    expect(h).toContain('déjà à jour');
+    expect(h).not.toContain('Préparer la commande');
+  });
+
+  it('Sitadel (réingestion automatique) → pas de bouton, dit que c’est automatique', () => {
+    const h = section('sitadel', [D({ source: 'sitadel', editionDistante: '2026-07', dateDistante: '2026-07-01' })]);
+    expect(h).toContain('automatique');
+    expect(h).not.toContain('Préparer la commande');
   });
 });
