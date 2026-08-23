@@ -5,6 +5,8 @@ import { construireEtatSources, DEPARTEMENTS } from '../../../../lib/admin/sourc
 import { lireDetections, basculerDetectionSource } from '../../../../lib/veille/detectionRepo';
 import { mesurerMorphologie } from '../../../../lib/admin/morphologieRepo';
 import { construireMorphologie, MORPHOLOGIE_INDISPONIBLE } from '../../../../lib/admin/morphologieDisque';
+import { lireFichierProtocoles } from '../../../../lib/admin/protocolesRepo';
+import { construireAffichageProtocoles } from '../../../../lib/admin/protocolesReingestion';
 
 /**
  * /api/admin/sources — FRAÎCHEUR DES DONNÉES.
@@ -22,13 +24,18 @@ export async function GET(request: Request): Promise<Response> {
     const garde = await exigerAdministrateur(request);
     if ('refus' in garde) return garde.refus; // 403 générique
 
-    const [lectures, detections, mesure] = await Promise.all([lireSourcesFraicheur(), lireDetections(), mesurerMorphologie()]);
+    const [lectures, detections, mesure, texteProtocoles] = await Promise.all([
+      lireSourcesFraicheur(), lireDetections(), mesurerMorphologie(), lireFichierProtocoles(),
+    ]);
     const lignes = construireEtatSources(lectures, new Date(), detections);
     // F4 « Morphologie » : répartition disque par source. Mesure en échec → sentinelle « indisponible » (jamais des zéros).
     const morphologie = mesure ? construireMorphologie(mesure.tables, mesure.dbTotal) : MORPHOLOGIE_INDISPONIBLE;
+    // F5 « Protocoles » : mode d'emploi de réingestion par source, lu depuis docs/PROTOCOLES_REINGESTION.md (fichier absent
+    // → sentinelle « protocole non documenté »). AUCUNE exécution : ce sont des blocs à copier dans un terminal.
+    const protocoles = construireAffichageProtocoles(texteProtocoles);
     // Chemin ABSOLU du dépôt (répertoire de lancement de Next = racine du projet) — sert à composer le `cd` du bloc à coller
     // dans le terminal (lot 3). AUCUNE exécution ici : c'est une chaîne pour l'humain.
-    return Response.json({ lignes, departements: DEPARTEMENTS, cheminDepot: process.cwd(), morphologie });
+    return Response.json({ lignes, departements: DEPARTEMENTS, cheminDepot: process.cwd(), morphologie, protocoles });
   } catch (e) {
     console.error('[admin/sources] GET indisponible', e);
     return Response.json({ erreur: 'sources indisponibles' }, { status: 503 });

@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EnTetePage } from '../_composants/EnTetePage';
-import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionMorphologie } from './SourcesRendu';
+import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionMorphologie, SectionProtocoles } from './SourcesRendu';
 import type { LigneSource } from '../../../../lib/admin/sourcesFraicheur';
 import type { MorphologieDisque } from '../../../../lib/admin/morphologieDisque';
+import type { AffichageProtocoles } from '../../../../lib/admin/protocolesReingestion';
 
 /**
  * FRAÎCHEUR DES DONNÉES — écran (lot 1/3). Client PUR : consomme `GET /api/admin/sources` (gardé côté serveur) et
@@ -21,7 +22,7 @@ const CSS_SOURCES = `
 type Etat =
   | { statut: 'chargement' }
   | { statut: 'erreur' }
-  | { statut: 'ok'; lignes: LigneSource[]; cheminDepot: string; morphologie: MorphologieDisque };
+  | { statut: 'ok'; lignes: LigneSource[]; cheminDepot: string; morphologie: MorphologieDisque; protocoles: AffichageProtocoles };
 
 export default function PageSources() {
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
@@ -33,8 +34,8 @@ export default function PageSources() {
     try {
       const res = await fetch('/api/admin/sources', { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = (await res.json()) as { lignes: LigneSource[]; cheminDepot: string; morphologie: MorphologieDisque };
-      setEtat({ statut: 'ok', lignes: d.lignes, cheminDepot: d.cheminDepot, morphologie: d.morphologie });
+      const d = (await res.json()) as { lignes: LigneSource[]; cheminDepot: string; morphologie: MorphologieDisque; protocoles: AffichageProtocoles };
+      setEtat({ statut: 'ok', lignes: d.lignes, cheminDepot: d.cheminDepot, morphologie: d.morphologie, protocoles: d.protocoles });
     } catch {
       setEtat({ statut: 'erreur' });
     }
@@ -102,6 +103,15 @@ export default function PageSources() {
               Répartition réelle du disque occupé. Vue d’ensemble seulement — aucune suppression proposée.
             </p>
             <SectionMorphologie morphologie={etat.morphologie} />
+          </div>
+          <div>
+            <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-svv-ink)', margin: '0 0 4px' }}>
+              Protocoles de réingestion
+            </h2>
+            <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+              Le mode d’emploi complet pour remettre à jour chaque source à la main. L’écran n’exécute rien : on copie, on colle dans un terminal.
+            </p>
+            <SectionProtocoles protocoles={etat.protocoles} />
           </div>
         </div>
       )}

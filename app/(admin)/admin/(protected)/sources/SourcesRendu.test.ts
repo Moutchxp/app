@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionMorphologie } from './SourcesRendu';
+import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionMorphologie, SectionProtocoles } from './SourcesRendu';
 import { construireEtatSources, type LectureSource, type LectureDetection } from '../../../../lib/admin/sourcesFraicheur';
 import { construireMorphologie, MORPHOLOGIE_INDISPONIBLE, type LigneTable } from '../../../../lib/admin/morphologieDisque';
+import { construireAffichageProtocoles } from '../../../../lib/admin/protocolesReingestion';
 
 /**
  * FRAÎCHEUR DES DONNÉES — rendu PUR. Vérifie que l'écran AFFICHE fidèlement les règles d'honnêteté du modèle :
@@ -192,5 +193,48 @@ describe('SectionMorphologie (F4) — répartition disque', () => {
     const h = renderToStaticMarkup(createElement(SectionMorphologie, { morphologie: MORPHOLOGIE_INDISPONIBLE }));
     expect(h).toContain('indisponible');
     expect(h).not.toContain('0 o');
+  });
+});
+
+describe('SectionProtocoles (F5) — mode d’emploi, lecture seule', () => {
+  const TXT = [
+    'Note d’ouverture : sûr → risqué.',
+    '<!-- SOURCE: cadastre -->',
+    '## Cadastre — parcelles',
+    'CAS : (a) complet et outillé.',
+    '```bash',
+    'cd /Users/x/app',
+    'npm run cadastre:ingest -- --dep 75,78,92,93',
+    '```',
+    '<!-- SOURCE: lidar -->',
+    '## LiDAR HD',
+    'CAS : (c) aucune procédure connue.',
+  ].join('\n');
+  const ORDRE = [{ cle: 'cadastre', nom: 'Cadastre' }, { cle: 'lidar', nom: 'LiDAR HD' }, { cle: 'dila', nom: 'DILA' }];
+
+  it('section (a) → titre, commande et bouton de copie', () => {
+    const h = renderToStaticMarkup(createElement(SectionProtocoles, { protocoles: construireAffichageProtocoles(TXT, ORDRE) }));
+    expect(h).toContain('Cadastre — parcelles');
+    expect(h).toContain('npm run cadastre:ingest');
+    expect(h).toContain('Copier la commande'); // BoutonCopier réutilisé
+    expect(h).toContain('Note d’ouverture'); // intro affichée
+  });
+
+  it('section (c) SEULE → « aucune procédure connue », AUCUN bouton de copie', () => {
+    const h = renderToStaticMarkup(createElement(SectionProtocoles, {
+      protocoles: construireAffichageProtocoles(TXT, [{ cle: 'lidar', nom: 'LiDAR HD' }]),
+    }));
+    expect(h).toContain('aucune procédure connue');
+    expect(h).not.toContain('Copier la commande');
+  });
+
+  it('section manquante (dila absente du texte) → sentinelle par source', () => {
+    const h = renderToStaticMarkup(createElement(SectionProtocoles, { protocoles: construireAffichageProtocoles(TXT, ORDRE) }));
+    expect(h).toContain('Protocole non documenté pour cette source');
+  });
+
+  it('fichier absent → sentinelle globale distincte', () => {
+    const h = renderToStaticMarkup(createElement(SectionProtocoles, { protocoles: construireAffichageProtocoles(null) }));
+    expect(h).toContain('Protocoles non documentés');
   });
 });

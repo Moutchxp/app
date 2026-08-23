@@ -10,6 +10,7 @@ import {
 } from '../../../../lib/admin/sourcesFraicheur';
 import { preparerCommande, aUneProcedure, TERMINAL_RAPPEL } from '../../../../lib/admin/commandeReingestion';
 import { formaterOctets, formaterPct, type MorphologieDisque, type PosteMorphologie } from '../../../../lib/admin/morphologieDisque';
+import type { AffichageProtocoles, SectionProtocole } from '../../../../lib/admin/protocolesReingestion';
 import { BoutonCopier } from '../permis/BoutonCopier';
 
 /**
@@ -321,6 +322,73 @@ export function SectionMorphologie({ morphologie }: { morphologie: MorphologieDi
       {morphologie.postes.map((p) => (
         <CartePoste key={p.cle} poste={p} />
       ))}
+    </div>
+  );
+}
+
+/** Corps d'une section de protocole : prose (paragraphes) + blocs de commande copiables (BoutonCopier réutilisé). */
+function CorpsProtocole({ section }: { section: SectionProtocole }) {
+  return (
+    <div style={{ display: 'grid', gap: 8, marginTop: 6 }}>
+      {section.elements.map((el, i) =>
+        el.type === 'prose' ? (
+          <p key={i} style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--color-svv-ink)', whiteSpace: 'pre-wrap' }}>
+            {el.texte}
+          </p>
+        ) : (
+          <div key={i}>
+            <pre style={{
+              margin: '0 0 6px', padding: '.6rem .7rem', overflowX: 'auto', fontSize: 12.5, lineHeight: 1.5,
+              background: 'var(--color-svv-field)', border: '1px solid var(--color-svv-line)', borderRadius: 8,
+              whiteSpace: 'pre', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            }}>{el.commande}</pre>
+            <BoutonCopier valeur={el.commande} libelle="Copier la commande" />
+          </div>
+        ),
+      )}
+    </div>
+  );
+}
+
+/**
+ * Section PROTOCOLES (F5) — mode d'emploi de réingestion par source, lu depuis docs/PROTOCOLES_REINGESTION.md et affiché en
+ * blocs dépliables avec bouton de copie sur chaque commande. L'écran n'EXÉCUTE RIEN. Deux sentinelles DISTINCTES : fichier
+ * absent (global) vs section manquante (par source), jamais confondues avec un protocole vide. Une source sans procedure
+ * (cas c) n'a aucun bloc copiable — sa prose dit « aucune procédure connue » et le motif.
+ */
+export function SectionProtocoles({ protocoles }: { protocoles: AffichageProtocoles }) {
+  if (protocoles.fichierAbsent) {
+    return (
+      <div className="svv-card" style={{ padding: '16px', textAlign: 'center' }}>
+        <div style={{ fontWeight: 700, color: 'var(--color-svv-red)', fontSize: 13 }}>Protocoles non documentés</div>
+        <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+          Le fichier docs/PROTOCOLES_REINGESTION.md est absent ou illisible (voir les journaux serveur).
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      {protocoles.intro && (
+        <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: 'var(--color-svv-muted)', whiteSpace: 'pre-wrap' }}>
+          {protocoles.intro}
+        </p>
+      )}
+      {protocoles.sections.map((s) =>
+        s.present ? (
+          <details key={s.cle} className="svv-card" style={{ padding: '.7rem .85rem' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--color-svv-ink)', fontSize: 13 }}>{s.titre}</summary>
+            <CorpsProtocole section={s} />
+          </details>
+        ) : (
+          <div key={s.cle} className="svv-card" style={{ padding: '.7rem .85rem' }}>
+            <div style={{ fontWeight: 700, color: 'var(--color-svv-ink)', fontSize: 13 }}>{s.nom}</div>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>
+              Protocole non documenté pour cette source.
+            </p>
+          </div>
+        ),
+      )}
     </div>
   );
 }
