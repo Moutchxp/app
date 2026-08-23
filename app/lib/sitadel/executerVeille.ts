@@ -34,6 +34,8 @@ import { executerPreCochageAuto, depsReellesPreCochage } from '../veille/preCoch
 import { executerEnvoiAuto, depsReellesEnvoiAuto } from '../veille/envoiAuto';
 import { executerDetection } from '../veille/detectionSources';
 import { depsReellesDetection } from '../veille/detectionRepo';
+import { executerIngestionAuto } from '../veille/ingestionAuto';
+import { depsReellesIngestionAuto } from '../veille/ingestionAutoRepo';
 import { ingererMillesime, millesimeDistantDido, DOSSIER_LOCAL, type CompteursIngestion } from './ingestionMillesime';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger,
@@ -106,6 +108,10 @@ export interface DepsVeille {
   //   (§1undecies). OPTIONNELLE et ISOLÉE : un échec de détection ne touche jamais la veille ni la relève. Respecte son
   //   propre interrupteur global + sa cadence + l'activation par source, à l'intérieur (executerDetection).
   detecterEditions?(): Promise<unknown>;
+  // FRAÎCHEUR lot 6 — INGESTION AUTOMATIQUE nocturne (métadonnées → téléchargement → ingestion), après la détection (§1duodecies).
+  //   OPTIONNELLE et ISOLÉE. ⚠️ Le SEUL point qui EXÉCUTE une ingestion, et UNIQUEMENT sous interrupteur par source (défaut false),
+  //   en fenêtre nocturne, avec garde-fou disque. Un échec ne touche jamais la veille ni la relève.
+  ingestionAuto?(): Promise<unknown>;
 }
 
 export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = depsReelles()): Promise<ResultatVeille> {
@@ -194,6 +200,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   ni la relève. Interrupteur global + cadence + activation par source sont gérés DANS executerDetection.
     if (deps.detecterEditions) {
       try { await deps.detecterEditions(); } catch { /* détection isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1duodecies) INGESTION AUTOMATIQUE nocturne (FRAÎCHEUR lot 6) — APRÈS la détection (qui vient de rafraîchir « mise à jour
+    //   disponible ») : si un interrupteur de source est activé ET qu'on est dans la fenêtre nocturne ET que le disque a la marge,
+    //   UNE ingestion part (une par tick, une tentative par source et par nuit). Défauts tout-false → rien. MÊME ISOLATION à
+    //   double filet : un échec d'ingestion n'impacte jamais la veille ni la relève.
+    if (deps.ingestionAuto) {
+      try { await deps.ingestionAuto(); } catch { /* ingestion auto isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     const config = await deps.chargerConfig();
@@ -338,6 +352,8 @@ function depsReelles(): DepsVeille {
     envoiAuto: () => executerEnvoiAuto(depsReellesEnvoiAuto()),
     // FRAÎCHEUR lot 2 — détection des nouvelles publications (métadonnées seules), interrupteur + cadence + activation par source dans executerDetection.
     detecterEditions: () => executerDetection(depsReellesDetection()),
+    // FRAÎCHEUR lot 6 — ingestion automatique nocturne : interrupteurs par source (défaut false), fenêtre nocturne, garde-fou disque, une par tick/nuit.
+    ingestionAuto: () => executerIngestionAuto(depsReellesIngestionAuto()),
   };
 }
 

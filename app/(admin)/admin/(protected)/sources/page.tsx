@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EnTetePage } from '../_composants/EnTetePage';
-import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles } from './SourcesRendu';
+import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles, SectionAutomatisation } from './SourcesRendu';
 import type { LigneSource } from '../../../../lib/admin/sourcesFraicheur';
 import type { MorphologieDisque } from '../../../../lib/admin/morphologieDisque';
 import type { AffichageProtocoles } from '../../../../lib/admin/protocolesReingestion';
+import type { EtatAutomatisation } from '../../../../lib/veille/ingestionAuto';
 
 /**
  * FRAÎCHEUR DES DONNÉES — écran (lot 1/3). Client PUR : consomme `GET /api/admin/sources` (gardé côté serveur) et
@@ -22,7 +23,7 @@ const CSS_SOURCES = `
 type Etat =
   | { statut: 'chargement' }
   | { statut: 'erreur' }
-  | { statut: 'ok'; lignes: LigneSource[]; cheminDepot: string; morphologie: MorphologieDisque; protocoles: AffichageProtocoles };
+  | { statut: 'ok'; lignes: LigneSource[]; cheminDepot: string; morphologie: MorphologieDisque; protocoles: AffichageProtocoles; automatisation: EtatAutomatisation };
 
 export default function PageSources() {
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
@@ -34,8 +35,8 @@ export default function PageSources() {
     try {
       const res = await fetch('/api/admin/sources', { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = (await res.json()) as { lignes: LigneSource[]; cheminDepot: string; morphologie: MorphologieDisque; protocoles: AffichageProtocoles };
-      setEtat({ statut: 'ok', lignes: d.lignes, cheminDepot: d.cheminDepot, morphologie: d.morphologie, protocoles: d.protocoles });
+      const d = (await res.json()) as { lignes: LigneSource[]; cheminDepot: string; morphologie: MorphologieDisque; protocoles: AffichageProtocoles; automatisation: EtatAutomatisation };
+      setEtat({ statut: 'ok', lignes: d.lignes, cheminDepot: d.cheminDepot, morphologie: d.morphologie, protocoles: d.protocoles, automatisation: d.automatisation });
     } catch {
       setEtat({ statut: 'erreur' });
     }
@@ -57,6 +58,18 @@ export default function PageSources() {
       if (res.ok) await chargerRef.current();
     } catch { /* réglage indisponible : l'état affiché reste inchangé */ }
   }, []);
+
+  // F6 — poser un réglage d'automatisation puis relire l'état. La route NE LANCE RIEN (l'ingestion part la nuit, dans la veille).
+  const reglerAuto = useCallback(async (corps: Record<string, unknown>) => {
+    try {
+      const res = await fetch('/api/admin/sources', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
+      });
+      if (res.ok) await chargerRef.current();
+    } catch { /* réglage indisponible : l'état affiché reste inchangé */ }
+  }, []);
+  const basculerAuto = useCallback((source: string, actif: boolean) => reglerAuto({ action: 'reglage_ingestion_auto', source, actif }), [reglerAuto]);
+  const reglerFenetre = useCallback((debut: number, fin: number) => reglerAuto({ action: 'reglage_fenetre_nocturne', debut, fin }), [reglerAuto]);
 
   return (
     <section className="svv-sources">
@@ -97,6 +110,15 @@ export default function PageSources() {
             <div style={{ marginTop: 8 }}>
               <SectionPerimeesSansProcedure lignes={etat.lignes} protocoles={etat.protocoles} />
             </div>
+          </div>
+          <div>
+            <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-svv-ink)', margin: '0 0 4px' }}>
+              Automatisation nocturne
+            </h2>
+            <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+              Pour les sources entièrement outillées, la mise à jour peut se faire seule, la nuit. Désactivé par défaut. L’écran pose le réglage ; l’ingestion part dans la veille, pas d’ici.
+            </p>
+            <SectionAutomatisation automatisation={etat.automatisation} onToggleAuto={basculerAuto} onFenetre={reglerFenetre} />
           </div>
           <div>
             <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-svv-ink)', margin: '0 0 4px' }}>

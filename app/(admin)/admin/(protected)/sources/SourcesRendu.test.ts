@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles } from './SourcesRendu';
+import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles, SectionAutomatisation } from './SourcesRendu';
+import { construireEtatAutomatisation } from '../../../../lib/veille/ingestionAuto';
 import { construireEtatSources, type LectureSource, type LectureDetection } from '../../../../lib/admin/sourcesFraicheur';
 import { construireMorphologie, MORPHOLOGIE_INDISPONIBLE, type LigneTable } from '../../../../lib/admin/morphologieDisque';
 import { construireAffichageProtocoles } from '../../../../lib/admin/protocolesReingestion';
@@ -265,5 +266,31 @@ describe('SectionPerimeesSansProcedure (F7) — regroupement dédié', () => {
   it('aucune source périmée-sans-procédure → composant vide (pas de bloc au rebut)', () => {
     const h = renderToStaticMarkup(createElement(SectionPerimeesSansProcedure, { lignes: lignes(), protocoles: proto() }));
     expect(h).toBe('');
+  });
+});
+
+describe('SectionAutomatisation (F6) — interrupteurs et fenêtre', () => {
+  const modele = construireEtatAutomatisation({
+    sources: [{ cle: 'dila', nom: 'DILA' }, { cle: 'lidar', nom: 'LiDAR HD' }],
+    actionnables: new Set(['dila']),
+    avecCommande: new Set(['dila']),
+    fenetre: { debut: 3, fin: 6 },
+    actifs: { dila: true },
+    dernierParSource: {},
+    nuit: '2026-08-23',
+  });
+
+  it('source (a) → interrupteur + « se fera cette nuit » ; source (c) → « manuelle uniquement », AUCUN interrupteur', () => {
+    const h = renderToStaticMarkup(createElement(SectionAutomatisation, { automatisation: modele }));
+    expect(h).toContain('Automatiser la mise à jour de DILA la nuit'); // interrupteur (aria-label) pour la (a)
+    expect(h).toContain('se fera cette nuit');
+    expect(h).toContain('mise à jour manuelle uniquement — aucune procédure connue'); // LiDAR (c)
+    expect(h).not.toContain('Automatiser la mise à jour de LiDAR'); // pas d'interrupteur pour la (c)
+  });
+
+  it('fenêtre nocturne éditable (sélecteurs d’heures, accessibles)', () => {
+    const h = renderToStaticMarkup(createElement(SectionAutomatisation, { automatisation: modele }));
+    expect(h).toContain('Heure de début de la fenêtre nocturne');
+    expect(h).toContain('Heure de fin de la fenêtre nocturne');
   });
 });

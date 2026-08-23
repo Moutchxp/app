@@ -42,3 +42,9 @@ export function misesAJourSansProcedure(lignes: LigneSource[], protocoles: Affic
   const avecProcedure = sourcesAvecProcedure(protocoles);
   return lignes.filter((l) => l.detection?.statut === 'mise_a_jour' && !avecProcedure.has(l.cle));
 }
+
+/** Les sources ACTIONNABLES : mise à jour détectée ET procédure réelle (le pendant « objet » de compterMisesAJourActionnables). */
+export function misesAJourActionnables(lignes: LigneSource[], protocoles: AffichageProtocoles): LigneSource[] {
+  const avecProcedure = sourcesAvecProcedure(protocoles);
+  return lignes.filter((l) => l.detection?.statut === 'mise_a_jour' && avecProcedure.has(l.cle));
+}

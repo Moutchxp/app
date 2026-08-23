@@ -12,6 +12,7 @@ import { preparerCommande, aUneProcedure, TERMINAL_RAPPEL } from '../../../../li
 import { formaterOctets, formaterPct, type MorphologieDisque, type PosteMorphologie } from '../../../../lib/admin/morphologieDisque';
 import type { AffichageProtocoles, SectionProtocole } from '../../../../lib/admin/protocolesReingestion';
 import { misesAJourSansProcedure } from '../../../../lib/admin/pastilleSources';
+import type { EtatAutomatisation, StatutSourceAuto } from '../../../../lib/veille/ingestionAuto';
 import { BoutonCopier } from '../permis/BoutonCopier';
 
 /**
@@ -248,6 +249,84 @@ export function SectionReingestion({ lignes, cheminDepot }: { lignes: LigneSourc
     <div style={{ display: 'grid', gap: 8 }}>
       {lignes.map((l) => (
         <LigneReingestion key={l.cle} ligne={l} cheminDepot={cheminDepot} />
+      ))}
+    </div>
+  );
+}
+
+/** Texte d'état d'une source automatisable (F6) : en attente cette nuit, dernier résultat, activée sans rien à faire, ou éteinte. */
+function texteStatutAuto(s: StatutSourceAuto, fenetre: { debut: number; fin: number }): { texte: string; couleur: string } {
+  const ink = 'var(--color-svv-ink)', muted = 'var(--color-svv-muted)', red = 'var(--color-svv-red)', green = 'var(--color-svv-green-ink)';
+  if (s.enAttenteCetteNuit) {
+    return { texte: `En attente — la mise à jour se fera cette nuit, entre ${fenetre.debut}h et ${fenetre.fin}h.`, couleur: ink };
+  }
+  if (s.dernier) {
+    const mot = s.dernier.resultat === 'succes' ? 'réussie' : s.dernier.resultat === 'refus' ? 'refusée (disque insuffisant)' : 'échouée';
+    const quand = s.dernier.finiLe ? ` le ${s.dernier.finiLe.slice(0, 10)}` : '';
+    return { texte: `Dernière tentative : ${mot}${quand}.`, couleur: s.dernier.resultat === 'succes' ? green : red };
+  }
+  return s.actif
+    ? { texte: 'Activée — rien à mettre à jour pour l’instant.', couleur: muted }
+    : { texte: 'Désactivée.', couleur: muted };
+}
+
+/** Une source dans la section automatisation : interrupteur (cas a) ou « manuelle uniquement » + raison (cas b/c). */
+function LigneAutomatisation({ s, fenetre, onToggleAuto }: {
+  s: StatutSourceAuto; fenetre: { debut: number; fin: number }; onToggleAuto?: (source: string, actif: boolean) => void;
+}) {
+  const st = s.automatisable ? texteStatutAuto(s, fenetre) : null;
+  return (
+    <div className="svv-card" style={{ padding: '.7rem .85rem' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'baseline', justifyContent: 'space-between' }}>
+        <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-svv-ink)' }}>{s.nom}</span>
+        {s.automatisable ? (
+          <label style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', minHeight: 28 }}>
+            <input type="checkbox" checked={s.actif} onChange={(e) => onToggleAuto?.(s.cle, e.target.checked)} aria-label={`Automatiser la mise à jour de ${s.nom} la nuit`} />
+            Automatiser (nuit)
+          </label>
+        ) : (
+          <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>mise à jour manuelle uniquement — {s.raisonManuelle}</span>
+        )}
+      </div>
+      {st && <p style={{ margin: '4px 0 0', fontSize: 11.5, color: st.couleur }}>{st.texte}</p>}
+    </div>
+  );
+}
+
+/**
+ * Section AUTOMATISATION NOCTURNE (F6) — fenêtre nocturne éditable + interrupteur par source AUTOMATISABLE (cas a). Les sources
+ * (b)/(c) affichent « mise à jour manuelle uniquement » + la raison. L'écran POSE des réglages ; il n'EXÉCUTE RIEN (l'ingestion
+ * part la nuit, dans la veille). Défauts : tout désactivé.
+ */
+export function SectionAutomatisation({ automatisation, onToggleAuto, onFenetre }: {
+  automatisation: EtatAutomatisation;
+  onToggleAuto?: (source: string, actif: boolean) => void;
+  onFenetre?: (debut: number, fin: number) => void;
+}) {
+  const { fenetre, sources } = automatisation;
+  const heures = Array.from({ length: 24 }, (_, i) => i);
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      <div className="svv-card" style={{ padding: '.7rem .85rem' }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-svv-ink)' }}>Fenêtre nocturne</div>
+        <p style={{ margin: '2px 0 8px', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+          Les mises à jour automatiques ne partent qu’entre ces heures. Hors fenêtre, elles attendent la nuit ; une nuit manquée est reportée à la suivante (jamais de rattrapage en journée).
+        </p>
+        <label style={{ fontSize: 12.5, marginRight: 10 }}>
+          de{' '}
+          <select value={fenetre.debut} onChange={(e) => onFenetre?.(Number(e.target.value), fenetre.fin)} aria-label="Heure de début de la fenêtre nocturne" style={{ minHeight: 32 }}>
+            {heures.map((h) => <option key={h} value={h}>{h}h</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 12.5 }}>
+          à{' '}
+          <select value={fenetre.fin} onChange={(e) => onFenetre?.(fenetre.debut, Number(e.target.value))} aria-label="Heure de fin de la fenêtre nocturne" style={{ minHeight: 32 }}>
+            {heures.map((h) => <option key={h} value={h}>{h}h</option>)}
+          </select>
+        </label>
+      </div>
+      {sources.map((s) => (
+        <LigneAutomatisation key={s.cle} s={s} fenetre={fenetre} onToggleAuto={onToggleAuto} />
       ))}
     </div>
   );
