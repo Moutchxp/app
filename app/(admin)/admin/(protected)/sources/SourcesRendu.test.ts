@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles, SectionAutomatisation } from './SourcesRendu';
+import { TableauSources, GrilleCouverture, LigneContexte, LigneDepliable, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles, SectionAutomatisation } from './SourcesRendu';
 import { construireEtatAutomatisation } from '../../../../lib/veille/ingestionAuto';
 import { construireEtatSources, type LectureSource, type LectureDetection } from '../../../../lib/admin/sourcesFraicheur';
 import { construireMorphologie, MORPHOLOGIE_INDISPONIBLE, type LigneTable } from '../../../../lib/admin/morphologieDisque';
@@ -55,11 +55,12 @@ describe('TableauSources — une ligne par source, dans l’ordre', () => {
     expect(h).toContain('substitut, pas un millésime');
   });
 
-  it('Sitadel surveillée (oui), les autres non ; réingestion automatique visible', () => {
+  it('réingestion visible par source ; plus d’ancienne colonne oui/non', () => {
     const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes() }));
-    expect(h).toContain('oui');
     expect(h).toContain('npm run veille:run');
     expect(h).toContain('npm run bdtopo:import');
+    expect(h).not.toContain('>oui<'); // l'ancienne colonne « Surveillance » oui/non a disparu
+    expect(h).not.toContain('>non<');
   });
 
   it('source vide → « aucune donnée en base », âge « — »', () => {
@@ -98,33 +99,46 @@ describe('LigneContexte — le verdict ne vit que là où le LiDAR existe', () =
   });
 });
 
-describe('TableauSources — colonne « édition distante » (lot 2)', () => {
-  it('mise à jour disponible → affiche le millésime distant', () => {
-    const det = [D({ source: 'bdtopo_adresse', editionDistante: '2026-06-15', dateDistante: '2026-06-15' })];
+describe('TableauSources — colonne UNIQUE « Surveillance » (G1, fusion : les 5 états)', () => {
+  it('① surveillée, jamais encore vérifiée (case cochée, aucune passe)', () => {
+    const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes() })); // aucune détection fournie
+    expect(h).toContain('Surveillée — jamais encore vérifiée');
+    expect(h).toContain('Surveiller BD TOPO® bâtiment'); // la case existe (source sondée)
+  });
+  it('② surveillée, vérifiée le <date>, à jour', () => {
+    const det = [D({ source: 'dila', editionDistante: '2026-08-03', dateDistante: '2026-08-03', dernierSuccesLe: '2026-08-22T09:00:00Z' })];
     const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes({}, det) }));
-    expect(h).toContain('mise à jour disponible');
-    expect(h).toContain('2026-06-15');
+    expect(h).toContain('Surveillée — vérifiée le 2026-08-22, à jour');
+    expect(h).toContain('Surveiller DILA');
+  });
+  it('③ surveillée, vérifiée le <date>, mise à jour disponible (édition)', () => {
+    const det = [D({ source: 'bdtopo_adresse', editionDistante: '2026-06-15', dateDistante: '2026-06-15', dernierSuccesLe: '2026-08-22T09:00:00Z' })];
+    const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes({}, det) }));
+    expect(h).toContain('vérifiée le 2026-08-22, mise à jour disponible (2026-06-15)');
+  });
+  it('④ non surveillée (case décochée)', () => {
+    const det = [D({ source: 'dila', actif: false })];
+    const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes({}, det) }));
+    expect(h).toContain('Non surveillée');
+  });
+  it('⑤ non surveillable, avec le motif en PHRASE (LiDAR) ; aucune case', () => {
+    const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes() }));
+    expect(h).toContain('Non surveillable');
+    expect(h).toContain('passage unique'); // le motif est une phrase, pas un mot-clé
+    expect(h).not.toContain('Surveiller LiDAR HD');
   });
 
-  it('ÉCHEC → « non vérifié depuis N j », JAMAIS « à jour »', () => {
+  it('échec → « vérification en échec depuis N j », JAMAIS « à jour »', () => {
     const det = [D({ source: 'cadastre', succes: false, verifieLe: '2026-08-23T09:00:00Z', dernierSuccesLe: '2026-08-16T09:00:00Z', motif: 'HTTP 500' })];
     const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes({}, det) }));
-    expect(h).toContain('non vérifié depuis 7 j');
-    // La cellule cadastre ne doit pas dire « à jour » sur un échec. (Le mot « jour » du texte « depuis 7 j » est admis ;
-    // on interdit la locution « à jour ».)
+    expect(h).toContain('vérification en échec depuis 7 j');
     expect(h).not.toContain('à jour');
   });
 
-  it('source non détectable (LiDAR) → « non vérifiable » avec motif', () => {
+  it('Sitadel : mécanisme propre, SANS case (le contrôle qui échouerait ne s’affiche pas)', () => {
     const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes() }));
-    expect(h).toContain('non vérifiable');
-    expect(h).toContain('passage unique');
-  });
-
-  it('sources détectables portent un interrupteur « surveiller » ; les non détectables non', () => {
-    const h = renderToStaticMarkup(createElement(TableauSources, { lignes: lignes() }));
-    expect(h).toContain('Surveiller BD TOPO® bâtiment');
-    expect(h).not.toContain('Surveiller LiDAR HD'); // non détectable → aucun interrupteur
+    expect(h).toContain('Surveillée par son propre mécanisme de veille');
+    expect(h).not.toContain('Surveiller Sitadel'); // basculerDetectionSource rejette Sitadel → pas de case
   });
 });
 
@@ -292,5 +306,16 @@ describe('SectionAutomatisation (F6) — interrupteurs et fenêtre', () => {
     const h = renderToStaticMarkup(createElement(SectionAutomatisation, { automatisation: modele }));
     expect(h).toContain('Heure de début de la fenêtre nocturne');
     expect(h).toContain('Heure de fin de la fenêtre nocturne');
+  });
+});
+
+describe('LigneDepliable (G1) — compaction', () => {
+  it('rend un <details> FERMÉ par défaut (aucune section ouverte), titre + synthèse à droite', () => {
+    const h = renderToStaticMarkup(createElement(LigneDepliable, { titre: 'Espace occupé par base', synthese: '3.34 Go' }, createElement('p', {}, 'détail')));
+    expect(h).toContain('<details'); // vrai contrôle natif (clavier + état annoncé)
+    expect(h).not.toMatch(/<details[^>]*\sopen/); // FERMÉ par défaut
+    expect(h).toContain('Espace occupé par base');
+    expect(h).toContain('3.34 Go');
+    expect(h).toContain('détail'); // le contenu est présent (masqué), déplié en un clic
   });
 });

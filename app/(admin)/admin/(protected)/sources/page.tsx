@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EnTetePage } from '../_composants/EnTetePage';
-import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles, SectionAutomatisation } from './SourcesRendu';
-import type { LigneSource } from '../../../../lib/admin/sourcesFraicheur';
-import type { MorphologieDisque } from '../../../../lib/admin/morphologieDisque';
+import { TableauSources, GrilleCouverture, LigneContexte, LigneDepliable, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles, SectionAutomatisation } from './SourcesRendu';
+import { resumeCouverture, type LigneSource } from '../../../../lib/admin/sourcesFraicheur';
+import { formaterOctets, type MorphologieDisque } from '../../../../lib/admin/morphologieDisque';
+import { sourcesAvecProcedure } from '../../../../lib/admin/pastilleSources';
 import type { AffichageProtocoles } from '../../../../lib/admin/protocolesReingestion';
 import type { EtatAutomatisation } from '../../../../lib/veille/ingestionAuto';
 
@@ -16,7 +17,12 @@ import type { EtatAutomatisation } from '../../../../lib/veille/ingestionAuto';
  */
 
 const CSS_SOURCES = `
-.svv-sources :is(a,button):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.svv-sources :is(a,button,summary):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* Lignes dépliables : on masque le marqueur natif (un chevron unicode le remplace) ; rotation INSTANTANÉE (aucune transition). */
+.svv-sources .svv-depliable summary{list-style:none}
+.svv-sources .svv-depliable summary::-webkit-details-marker{display:none}
+.svv-sources .svv-depliable-chevron{display:inline-block;transition:none}
+.svv-sources .svv-depliable[open] .svv-depliable-chevron{transform:rotate(90deg)}
 @media (prefers-reduced-motion: reduce){ .svv-sources *{transition:none!important;animation:none!important} }
 `;
 
@@ -89,57 +95,57 @@ export default function PageSources() {
           </p>
         </div>
       )}
-      {etat.statut === 'ok' && (
-        <div style={{ display: 'grid', gap: 18 }}>
-          <TableauSources lignes={etat.lignes} onToggle={basculer} />
-          <LigneContexte lignes={etat.lignes} />
-          <div>
-            <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-svv-ink)', margin: '0 0 8px' }}>
-              Couverture par département
-            </h2>
-            <GrilleCouverture lignes={etat.lignes} />
+      {etat.statut === 'ok' && (() => {
+        const { lignes, morphologie, protocoles, automatisation } = etat;
+        // Chiffres de synthèse (calculés depuis des modules PURS) affichés à droite de chaque ligne repliée.
+        const rc = resumeCouverture(lignes);
+        const presentes = protocoles.sections.filter((s) => s.present);
+        const outillees = sourcesAvecProcedure(protocoles).size;
+        const auto = automatisation.sources.filter((s) => s.automatisable);
+        const actives = auto.filter((s) => s.actif).length;
+        const f = automatisation.fenetre;
+        const synthEspace = morphologie.indisponible ? 'indisponible' : formaterOctets(morphologie.totalBase ?? 0);
+        const synthCouv = `bâti ${rc.departementsBati.length} dépts · verdict ${rc.departementsLidar.join('/') || '—'}`;
+        const synthReing = `${outillees} outillées · ${presentes.length - outillees} sans procédure`;
+        const synthAuto = `${actives}/${auto.length} actives · ${f.debut}h–${f.fin}h`;
+        const synthProto = protocoles.fichierAbsent ? 'non documenté' : `${presentes.length} sources documentées`;
+        return (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <TableauSources lignes={lignes} onToggle={basculer} />
+            {/* Le fait le plus important de la page : TOUJOURS visible, jamais replié. */}
+            <LigneContexte lignes={lignes} />
+
+            <LigneDepliable titre="Espace occupé par base" synthese={synthEspace}>
+              <SectionMorphologie morphologie={morphologie} />
+            </LigneDepliable>
+
+            <LigneDepliable titre="Couverture par département" synthese={synthCouv}>
+              <GrilleCouverture lignes={lignes} />
+            </LigneDepliable>
+
+            <LigneDepliable titre="Réingestion" synthese={synthReing}>
+              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+                L’écran n’exécute rien : il prépare une commande à copier dans un terminal.
+              </p>
+              <SectionReingestion lignes={lignes} cheminDepot={etat.cheminDepot} />
+              <div style={{ marginTop: 8 }}>
+                <SectionPerimeesSansProcedure lignes={lignes} protocoles={protocoles} />
+              </div>
+            </LigneDepliable>
+
+            <LigneDepliable titre="Automatisation nocturne" synthese={synthAuto}>
+              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+                Pour les sources entièrement outillées, la mise à jour peut se faire seule, la nuit. Désactivé par défaut. L’ingestion part dans la veille, pas d’ici.
+              </p>
+              <SectionAutomatisation automatisation={automatisation} onToggleAuto={basculerAuto} onFenetre={reglerFenetre} />
+            </LigneDepliable>
+
+            <LigneDepliable titre="Protocoles de réingestion" synthese={synthProto}>
+              <SectionProtocoles protocoles={protocoles} />
+            </LigneDepliable>
           </div>
-          <div>
-            <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-svv-ink)', margin: '0 0 4px' }}>
-              Réingestion
-            </h2>
-            <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--color-svv-muted)' }}>
-              La tuile n’exécute rien : elle prépare une commande à copier dans un terminal. À vous de la lancer et d’en suivre la progression.
-            </p>
-            <SectionReingestion lignes={etat.lignes} cheminDepot={etat.cheminDepot} />
-            <div style={{ marginTop: 8 }}>
-              <SectionPerimeesSansProcedure lignes={etat.lignes} protocoles={etat.protocoles} />
-            </div>
-          </div>
-          <div>
-            <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-svv-ink)', margin: '0 0 4px' }}>
-              Automatisation nocturne
-            </h2>
-            <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--color-svv-muted)' }}>
-              Pour les sources entièrement outillées, la mise à jour peut se faire seule, la nuit. Désactivé par défaut. L’écran pose le réglage ; l’ingestion part dans la veille, pas d’ici.
-            </p>
-            <SectionAutomatisation automatisation={etat.automatisation} onToggleAuto={basculerAuto} onFenetre={reglerFenetre} />
-          </div>
-          <div>
-            <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-svv-ink)', margin: '0 0 4px' }}>
-              Espace disque par source
-            </h2>
-            <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--color-svv-muted)' }}>
-              Répartition réelle du disque occupé. Vue d’ensemble seulement — aucune suppression proposée.
-            </p>
-            <SectionMorphologie morphologie={etat.morphologie} />
-          </div>
-          <div>
-            <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-svv-ink)', margin: '0 0 4px' }}>
-              Protocoles de réingestion
-            </h2>
-            <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--color-svv-muted)' }}>
-              Le mode d’emploi complet pour remettre à jour chaque source à la main. L’écran n’exécute rien : on copie, on colle dans un terminal.
-            </p>
-            <SectionProtocoles protocoles={etat.protocoles} />
-          </div>
-        </div>
-      )}
+        );
+      })()}
     </section>
   );
 }

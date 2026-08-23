@@ -48,55 +48,75 @@ function CelluleAge({ ligne }: { ligne: LigneSource }) {
   return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{ligne.ageJours} j</span>;
 }
 
-/** Édition distante détectée (lot 2). Règle d'honnêteté : un échec dit « non vérifié depuis N j », JAMAIS « à jour ». */
-function CelluleDetection({ ligne, onToggle }: { ligne: LigneSource; onToggle?: (source: string, actif: boolean) => void }) {
-  const d: EtatDetection | undefined = ligne.detection;
-  if (!d) return <span style={{ color: 'var(--color-svv-muted)' }}>—</span>;
+/** Date de vérification « le AAAA-MM-JJ », ou chaîne vide si inconnue. */
+const leJour = (iso: string | null): string => (iso ? ` le ${iso.slice(0, 10)}` : '');
 
-  let corps: ReactNode;
-  if (d.statut === 'a_jour') {
-    corps = <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>à jour</span>;
-  } else if (d.statut === 'mise_a_jour') {
-    corps = <span style={{ color: 'var(--color-svv-red)', fontWeight: 700 }}>⚠ mise à jour disponible — {d.editionDistante}</span>;
-  } else if (d.statut === 'non_verifiable') {
-    corps = <span style={{ color: 'var(--color-svv-muted)' }} title={d.motif}>non vérifiable <span style={{ fontSize: 11, fontStyle: 'italic' }}>({d.motif})</span></span>;
-  } else if (d.statut === 'echec') {
-    const n = d.depuisJours;
-    corps = <span style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}>non vérifié{n !== null ? ` depuis ${n} j` : ''}</span>;
-  } else if (d.statut === 'desactive') {
-    corps = <span style={{ color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>surveillance désactivée</span>;
-  } else {
-    corps = <span style={{ color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>jamais vérifié</span>;
+/** Texte d'état de détection (source SONDÉE ou Sitadel) — jamais « oui/non » ambigu. Un échec dit son échec, jamais « à jour ». */
+function texteEtatDetection(d: EtatDetection | undefined): { texte: string; couleur: string } {
+  const ink = 'var(--color-svv-ink)', muted = 'var(--color-svv-muted)', red = 'var(--color-svv-red)', green = 'var(--color-svv-green-ink)';
+  if (!d || d.statut === 'jamais_verifie') return { texte: 'jamais encore vérifiée', couleur: muted };
+  if (d.statut === 'a_jour') return { texte: `vérifiée${leJour(d.verifieLe)}, à jour`, couleur: green };
+  if (d.statut === 'mise_a_jour') return { texte: `vérifiée${leJour(d.verifieLe)}, mise à jour disponible (${d.editionDistante})`, couleur: red };
+  if (d.statut === 'echec') return { texte: `vérification en échec${d.depuisJours !== null ? ` depuis ${d.depuisJours} j` : ''}`, couleur: red };
+  return { texte: '—', couleur: ink }; // 'desactive' est traité en amont (pas de case cochée)
+}
+
+/**
+ * Colonne UNIQUE « Surveillance » (G1) — fusionne l'ancienne case « surveiller » et l'ancienne colonne oui/non, une seule vérité.
+ * Trois régimes : (1) NON surveillable (LiDAR/BDNB) → phrase-motif, aucune case ; (2) surveillance NATIVE (Sitadel) → « par son
+ * propre mécanisme de veille, sans interrupteur » + état ; (3) SONDÉE (les 5 sources à détection) → case + état en toutes lettres.
+ * Le contrôle ne s'affiche QUE là où il fonctionne (pas de case sur Sitadel, que basculerDetectionSource rejette).
+ */
+function CelluleSurveillance({ ligne, onToggle }: { ligne: LigneSource; onToggle?: (source: string, actif: boolean) => void }) {
+  const d = ligne.detection;
+
+  // (1) Non surveillable : l'IGN/BDNB ne permettent pas de comparer → phrase-motif, aucune case.
+  if (!ligne.detectable) {
+    return (
+      <span style={{ color: 'var(--color-svv-muted)', fontSize: 12 }}>
+        <strong style={{ color: 'var(--color-svv-ink)', fontWeight: 600 }}>Non surveillable</strong> — {ligne.motifNonDetectable}
+      </span>
+    );
   }
 
-  // Réglage par source : seules les sources DÉTECTABLES portent l'interrupteur (une non détectable n'a rien à surveiller).
-  const bascule = ligne.detectable ? (
-    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--color-svv-muted)', cursor: 'pointer', marginTop: 4 }}>
-      <input
-        type="checkbox"
-        checked={d.statut !== 'desactive'}
-        onChange={(e) => onToggle?.(ligne.cle, e.target.checked)}
-        aria-label={`Surveiller ${ligne.nom}`}
-      />
-      surveiller
-    </label>
-  ) : null;
+  // (2) Surveillance NATIVE (Sitadel) : pas d'interrupteur (basculerDetectionSource la rejette), on décrit son mécanisme propre.
+  if (ligne.surveillance) {
+    const e = texteEtatDetection(d);
+    return (
+      <span style={{ fontSize: 12, color: 'var(--color-svv-ink)' }}>
+        <strong style={{ fontWeight: 600 }}>Surveillée par son propre mécanisme de veille</strong>, sans interrupteur à régler
+        {d && d.statut !== 'jamais_verifie' ? <> — <span style={{ color: e.couleur }}>{e.texte}</span></> : null}
+      </span>
+    );
+  }
 
-  return <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 0 }}>{corps}{bascule}</span>;
+  // (3) Source SONDÉE : la case porte l'intention (activer/désactiver la détection), l'état est écrit en toutes lettres.
+  const cochee = d?.statut !== 'desactive';
+  const e = texteEtatDetection(d);
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 3, fontSize: 12 }}>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', minHeight: 24 }}>
+        <input type="checkbox" checked={cochee} onChange={(ev) => onToggle?.(ligne.cle, ev.target.checked)} aria-label={`Surveiller ${ligne.nom}`} />
+        Surveiller
+      </label>
+      {cochee
+        ? <span style={{ color: e.couleur }}>Surveillée — {e.texte}</span>
+        : <span style={{ color: 'var(--color-svv-muted)' }}>Non surveillée</span>}
+    </span>
+  );
 }
 
 /** Le tableau : une ligne par source, dans l'ordre du modèle (LiDAR en tête). Défile dans son conteneur sur mobile. */
 export function TableauSources({ lignes, onToggle }: { lignes: LigneSource[]; onToggle?: (source: string, actif: boolean) => void }) {
   return (
     <div style={{ overflowX: 'auto', border: '1px solid var(--color-svv-line)', borderRadius: 12 }}>
-      <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 860 }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 820 }}>
         <thead>
           <tr>
             <th style={enTete}>Source</th>
             <th style={enTete}>Ce qu’elle sert</th>
             <th style={enTete}>Millésime en base</th>
             <th style={enTete}>Âge</th>
-            <th style={enTete}>Édition distante</th>
             <th style={enTete}>Surveillance</th>
             <th style={enTete}>Réingestion</th>
           </tr>
@@ -108,12 +128,7 @@ export function TableauSources({ lignes, onToggle }: { lignes: LigneSource[]; on
               <td style={{ ...cellule, color: 'var(--color-svv-muted)', minWidth: 180 }}>{l.sert}</td>
               <td style={cellule}><CelluleMillesime ligne={l} /></td>
               <td style={cellule}><CelluleAge ligne={l} /></td>
-              <td style={{ ...cellule, minWidth: 190 }}><CelluleDetection ligne={l} onToggle={onToggle} /></td>
-              <td style={cellule}>
-                {l.surveillance
-                  ? <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>oui</span>
-                  : <span style={{ color: 'var(--color-svv-muted)' }}>non</span>}
-              </td>
+              <td style={{ ...cellule, minWidth: 220 }}><CelluleSurveillance ligne={l} onToggle={onToggle} /></td>
               <td style={{ ...cellule, whiteSpace: 'nowrap' }}>
                 <span style={l.reingestion.mode === 'inexistante' ? { color: 'var(--color-svv-red)', fontWeight: 600 } : { color: 'var(--color-svv-ink)' }}>
                   {texteReingestion(l.reingestion)}
@@ -124,6 +139,26 @@ export function TableauSources({ lignes, onToggle }: { lignes: LigneSource[]; on
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * Ligne DÉPLIABLE (G1) — `<details>` natif : vrai contrôle au clavier, état ouvert/fermé annoncé par le navigateur, aucune lib.
+ * FERMÉE par défaut. Le résumé porte le titre à gauche et le CHIFFRE DE SYNTHÈSE à droite : le titre se tronque sur écran étroit,
+ * le chiffre reste intact (ne casse jamais la ligne). Le `<details>` natif ne s'anime pas → prefers-reduced-motion respecté.
+ */
+export function LigneDepliable({ titre, synthese, children }: { titre: string; synthese: ReactNode; children: ReactNode }) {
+  return (
+    <details className="svv-card svv-depliable" style={{ padding: 0 }}>
+      <summary style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, padding: '.7rem .85rem', cursor: 'pointer', minHeight: 44, boxSizing: 'border-box' }}>
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, flex: '1 1 auto', minWidth: 0 }}>
+          <span className="svv-depliable-chevron" aria-hidden="true" style={{ color: 'var(--color-svv-muted)', fontSize: 11 }}>▸</span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--color-svv-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{titre}</span>
+        </span>
+        <span style={{ flexShrink: 0, fontSize: 12.5, color: 'var(--color-svv-muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{synthese}</span>
+      </summary>
+      <div style={{ padding: '0 .85rem .85rem' }}>{children}</div>
+    </details>
   );
 }
 

@@ -106,8 +106,8 @@ export interface LectureDetection {
  * c'est un aveu d'ignorance daté ; une source non détectable le dit avec son motif.
  */
 export type EtatDetection =
-  | { statut: 'a_jour' }
-  | { statut: 'mise_a_jour'; editionDistante: string }
+  | { statut: 'a_jour'; verifieLe: string | null }
+  | { statut: 'mise_a_jour'; editionDistante: string; verifieLe: string | null }
   | { statut: 'non_verifiable'; motif: string }
   | { statut: 'echec'; depuisJours: number | null }
   | { statut: 'jamais_verifie' }
@@ -136,8 +136,10 @@ export function etatDetection(meta: MetaSource, dateLocale: string | null, det: 
   }
   const dd = dateEnMs(det.dateDistante);
   const dl = dateEnMs(dateLocale);
-  if (dd !== null && dl !== null && dd > dl) return { statut: 'mise_a_jour', editionDistante: det.editionDistante ?? '(édition inconnue)' };
-  return { statut: 'a_jour' };
+  // Date de la dernière vérification RÉUSSIE (pour l'afficher : « vérifiée le … »). Repli sur la dernière tentative.
+  const verifieLe = det.dernierSuccesLe ?? det.verifieLe ?? null;
+  if (dd !== null && dl !== null && dd > dl) return { statut: 'mise_a_jour', editionDistante: det.editionDistante ?? '(édition inconnue)', verifieLe };
+  return { statut: 'a_jour', verifieLe };
 }
 
 /**
