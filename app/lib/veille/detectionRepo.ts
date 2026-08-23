@@ -52,11 +52,14 @@ async function lireEtatsSources(): Promise<Map<string, { actif: boolean; verifie
 }
 
 /** Persiste le résultat d'une tentative. Sur ÉCHEC, on PRÉSERVE le dernier succès et l'édition connue (jamais écrasés). */
-async function enregistrerDetection(source: string, r: ResultatDetection, maintenant: Date): Promise<void> {
+export async function enregistrerDetection(source: string, r: ResultatDetection, maintenant: Date): Promise<void> {
   try {
+    // ⚠️ $2 (verifie_le, timestamptz) est RÉUTILISÉ dans le CASE de dernier_succes_le. Sans cast, le CASE (branches $2/NULL
+    // non typées) se résout en TEXT côté PostgreSQL → « inconsistent types deduced for parameter $2 » (42P08) au PARSE → l'INSERT
+    // jette et RIEN n'est persisté. On FIXE le type du paramètre par un cast EXPLICITE aux DEUX usages. (Aucun changement de schéma.)
     await query(
       `INSERT INTO source_detection (source, verifie_le, succes, dernier_succes_le, edition_distante, date_distante, motif)
-       VALUES ($1, $2, $3, CASE WHEN $3 THEN $2 ELSE NULL END, $4, $5, $6)
+       VALUES ($1, $2::timestamptz, $3, CASE WHEN $3 THEN $2::timestamptz ELSE NULL END, $4, $5, $6)
        ON CONFLICT (source) DO UPDATE SET
          verifie_le = EXCLUDED.verifie_le,
          succes = EXCLUDED.succes,
@@ -67,7 +70,14 @@ async function enregistrerDetection(source: string, r: ResultatDetection, mainte
       [source, maintenant, r.succes, r.editionDistante, r.dateDistante, r.motif],
     );
   } catch (e) {
-    console.error(`[detection] persistance ${source} impossible (142 appliquée ?)`, e);
+    // On DIT ce que PostgreSQL a dit, jamais une hypothèse. Deux situations DISTINCTES : table absente (42P01, migration 142 pas
+    // appliquée) vs erreur d'écriture réelle (tout le reste). L'objet `e` porte le code/detail complets dans les deux cas.
+    const code = (e as { code?: string })?.code;
+    if (code === '42P01') {
+      console.error(`[detection] table source_detection absente — migration 142 non appliquée (source ${source})`, e);
+    } else {
+      console.error(`[detection] échec d'écriture de la détection pour ${source}`, e);
+    }
   }
 }
 
