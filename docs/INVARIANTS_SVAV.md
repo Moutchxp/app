@@ -151,6 +151,59 @@ Les deux fichiers d'analyse IA photo (Gemini), à **maintenir hors staging** :
   une dépendance npm ; la doc mentionne PostgreSQL 17 + PostGIS mais ce n'est pas prouvable dans le code —
   la route `app/api/sante` la reporte à l'exécution seulement).
 
+## 11. INJECTION D'ALTITUDE DE PERMIS — règles d'écriture dans `permis_polygone_altitude`
+> Contexte : une altitude issue d'un permis peut être écrite dans `permis_polygone_altitude`
+> (origine `'permis'`) par `validerRattachement` (`app/lib/permis/actionsRattachement.ts:74`). ⚠️ **Le
+> verdict ne lit PAS encore cette table** (`actionsRattachement.ts:5` : « celui-ci ne lit toujours PAS
+> `permis_polygone_altitude` — injecter ne change pas encore le verdict »). Les règles ci-dessous sont
+> les garde-fous à respecter **avant** de brancher cette lecture. Vocabulaire : **bâtiment** = ce que le
+> permis déclare ; **polygone** = emprise IGN identifiée par son `cleabs`. (La table s'appelle
+> `permis_corps_batiment` : « corps » est un nom de colonne historique, pas le vocabulaire de travail.)
+
+- **R1 — « En projet » n'est JAMAIS un critère d'injection.** `etat_de_l_objet` (En projet / En
+  construction / En service / En ruine) est un **signal d'achèvement** (« quelque chose a bougé, va
+  regarder » — c'est ce qui déclenche la veille de rattachement, `app/lib/permis/etatSuiviRattachement.ts`),
+  pas une autorisation d'écrire une altitude. Un polygone « en projet » lié à la parcelle ne reçoit
+  **rien** de ce seul fait — ni seul, ni combiné à l'appartenance à la parcelle.
+
+- **R2 — on n'injecte QUE dans les polygones explicitement AFFECTÉS.** La seule autorité est la colonne
+  `permis_corps_batiment.cleabs_affecte`, renseignée par **arbitrage humain** (migration 117 ; affectation
+  via `affecterPolygone`, `app/lib/permis/affectationRepo.ts:227`). `validerRattachement` n'injecte que
+  pour un bâtiment déclaré **dont `cleabs_affecte` est renseigné ET l'altitude de sommet connue**
+  (`actionsRattachement.ts:86-87`). Corollaire **vérifiable** : tant que l'affectation est vide, **aucune**
+  injection n'a lieu — état actuel des deux dossiers réels, et c'est voulu.
+
+- **R3 — un bâtiment du permis peut correspondre à PLUSIEURS polygones.** Le découpage IGN (un polygone =
+  une emprise `cleabs`) ne coïncide pas avec le nombre de bâtiments déclarés : l'écran de rattachement peut
+  montrer N polygones pour **un seul** bâtiment déclaré, et c'est **normal** (ne jamais chercher à faire
+  coïncider le nombre de polygones avec le nombre de bâtiments). L'injection doit traiter « une altitude de
+  permis → N polygones affectés » comme le cas **nominal**, pas comme une exception. ⚠️ **Cible non
+  atteinte** : `cleabs_affecte` est aujourd'hui **mono-valué** (un bâtiment ↔ au plus un polygone) ; passer
+  à N polygones affectés est une évolution à mener sans casser R1/R2/R4.
+
+- **R4 — l'injection uniforme sur N polygones est un PIÈGE.** Écrire la **même** altitude de sommet dans
+  tous les polygones affectés surestime le toit d'un socle bas et, **le jour où le verdict lira
+  `permis_polygone_altitude`**, fabriquerait un **faux obstacle** (le verdict retient le premier bâti dont
+  le sommet ≥ altitude de la fenêtre, §2). L'injection doit permettre, **pour CHAQUE polygone affecté**, de
+  fixer la cote qu'il reçoit ; jamais une valeur unique propagée en silence.
+
+- **R5 — garde-fous DÉJÀ en vigueur (rappel, à ne pas redéfinir).**
+  - **Préséance des altitudes : LiDAR (fait foi) > saisie > extraction**, inversion **VOULUE** : une
+    nouvelle mesure LiDAR **écrase** l'altitude de permis (ne pas « corriger »). Module dédié
+    `app/lib/permis/preseanceAltitude.ts` ; un test « GARDE anti-inversion » casse si quelqu'un inverse la
+    règle (`preseanceAltitude.ts:14`). À l'injection, la LiDAR courante est **refigée** avant écrasement pour
+    un retour arrière fiable (`actionsRattachement.ts:99-101`, restauration `retourLidar` `:160`).
+  - **Journal d'altitudes append-only** (registre, migration 118 ; `app/lib/permis/journalAltitude.ts`) :
+    toute injection laisse une trace (ligne de départ `'lidar'` préservée puis ligne `'permis'`,
+    `actionsRattachement.ts:108-126`) — **rien n'est écrasé sans historique**.
+
+- **Cas fondateur — dossier 11430.** Le permis ne déclare **qu'un seul** bâtiment, mais l'emprise IGN le
+  dessine en plusieurs polygones, dont **quatre « En projet »** : **C** (`BATIMENT0000002493678245`), **F**,
+  **G**, **I**. L'emprise au sol de **C** ne peut manifestement pas porter la hauteur du bâtiment principal :
+  injecter la même altitude de sommet dans C au motif « polygone en projet lié au permis » écrirait une
+  altitude absurde (illustration directe de R1 et R4). Sur ce dossier, `cleabs_affecte` est vide → **aucune
+  injection** aujourd'hui (R2).
+
 ---
 
 ### Notes de traçabilité
