@@ -36,6 +36,8 @@ import { executerDetection } from '../veille/detectionSources';
 import { depsReellesDetection } from '../veille/detectionRepo';
 import { executerIngestionAuto } from '../veille/ingestionAuto';
 import { depsReellesIngestionAuto } from '../veille/ingestionAutoRepo';
+import { executerAlerteMisesAJour } from '../veille/alerteMisesAJour';
+import { depsReellesAlerteMisesAJour } from '../veille/alerteMisesAJourRepo';
 import { ingererMillesime, millesimeDistantDido, DOSSIER_LOCAL, type CompteursIngestion } from './ingestionMillesime';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger,
@@ -112,6 +114,11 @@ export interface DepsVeille {
   //   OPTIONNELLE et ISOLÉE. ⚠️ Le SEUL point qui EXÉCUTE une ingestion, et UNIQUEMENT sous interrupteur par source (défaut false),
   //   en fenêtre nocturne, avec garde-fou disque. Un échec ne touche jamais la veille ni la relève.
   ingestionAuto?(): Promise<unknown>;
+  // FRAÎCHEUR lot 4 (G4) — ALERTE e-mail « bases prêtes à être mises à jour », APRÈS la détection ET l'ingestion (§1terdecies) :
+  //   sinon elle alerterait sur un état périmé du tick. OPTIONNELLE et ISOLÉE. ⚠️ Envoie réellement, mais UNIQUEMENT sous
+  //   interrupteur dédié (alerte_maj_active, défaut false) et seulement quand une NOUVELLE source apparaît (anti-spam par
+  //   empreinte). Un échec d'envoi ne touche jamais la veille ni la relève.
+  alerteMisesAJour?(): Promise<unknown>;
 }
 
 export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = depsReelles()): Promise<ResultatVeille> {
@@ -208,6 +215,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   double filet : un échec d'ingestion n'impacte jamais la veille ni la relève.
     if (deps.ingestionAuto) {
       try { await deps.ingestionAuto(); } catch { /* ingestion auto isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1terdecies) ALERTE e-mail « bases prêtes à être mises à jour » (FRAÎCHEUR lot 4 / G4) — DERNIÈRE étape auto, APRÈS la
+    //   détection (§1undecies) et l'ingestion nocturne (§1duodecies) : le jeu en attente est ainsi le plus frais du tick. Envoie
+    //   un e-mail SEULEMENT si une nouvelle source apparaît (anti-spam par empreinte) ET sous l'interrupteur dédié (défaut off).
+    //   MÊME ISOLATION à double filet : un échec d'envoi n'impacte jamais la veille ni la relève.
+    if (deps.alerteMisesAJour) {
+      try { await deps.alerteMisesAJour(); } catch { /* alerte isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     const config = await deps.chargerConfig();
@@ -354,6 +369,8 @@ function depsReelles(): DepsVeille {
     detecterEditions: () => executerDetection(depsReellesDetection()),
     // FRAÎCHEUR lot 6 — ingestion automatique nocturne : interrupteurs par source (défaut false), fenêtre nocturne, garde-fou disque, une par tick/nuit.
     ingestionAuto: () => executerIngestionAuto(depsReellesIngestionAuto()),
+    // FRAÎCHEUR lot 4 (G4) — alerte e-mail « bases prêtes à mettre à jour » : interrupteur dédié (défaut false), anti-spam par empreinte, isolée.
+    alerteMisesAJour: () => executerAlerteMisesAJour(depsReellesAlerteMisesAJour()),
   };
 }
 

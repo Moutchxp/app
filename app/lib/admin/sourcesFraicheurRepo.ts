@@ -1,4 +1,7 @@
-import 'server-only';
+// PAS de `server-only` : ce module (lectures SEULES) est désormais atteint par le CLI `veille:run` (executerVeille → alerte G4,
+// qui réutilise misesAJourActionnables sur ces mêmes relevés). Comme detectionRepo / protocolesRepo / ingestionAutoRepo, il vit
+// côté serveur ET côté script — le garde F2 interdit qu'un CLI touche un module `server-only` (incident du 09/08). L'accès HTTP
+// reste protégé par `exigerAdministrateur` sur la route /api/admin/sources.
 import { query } from '../db/client';
 import { DEPARTEMENTS, type Departement, type LectureSource } from './sourcesFraicheur';
 
