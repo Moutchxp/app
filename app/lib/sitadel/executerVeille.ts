@@ -47,7 +47,27 @@ import {
 /** Clé du verrou consultatif dédié à la veille Sitadel (constante fixe : un seul run à la fois, tous déclencheurs confondus). */
 const CLE_VERROU = 776_920_011;
 
-export interface OptionsVeille { declencheur: Declencheur; forcer?: boolean }
+/**
+ * FAMILLE de veille (H1) — deux métiers dans le même moteur : « mairies » (permis / relances / saisines / relève / échéances +
+ * cœur Sitadel) et « donnees » (détection d'éditions, ingestion auto, alerte e-mail des sources). `famille` filtre les étapes.
+ * OMISE → TOUT (comportement historique, strictement inchangé). La classification de CHAQUE étape est portée EXPLICITEMENT au
+ * point d'appel (garde `faitMairies` / `faitDonnees`), jamais déduite de sa position — une insertion future ne change pas de camp.
+ */
+export type FamilleVeille = 'mairies' | 'donnees';
+export interface OptionsVeille { declencheur: Declencheur; forcer?: boolean; famille?: FamilleVeille }
+
+/**
+ * Lit `--famille=<valeur>` dans les arguments CLI. Absent → undefined (TOUT, comportement historique). Valeur inconnue (ou vide)
+ * → LÈVE : JAMAIS un repli silencieux sur « tout » — un repli ferait croire à une passe « donnees » alors qu'elle enverrait du
+ * courrier mairie. PUR (testable sans exécuter le CLI).
+ */
+export function parserFamille(args: string[]): FamilleVeille | undefined {
+  const arg = args.find((a) => a.startsWith('--famille'));
+  if (arg === undefined) return undefined;
+  const valeur = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : '';
+  if (valeur === 'mairies' || valeur === 'donnees') return valeur;
+  throw new Error(`--famille invalide : « ${valeur || '(vide)'} ». Valeurs acceptées : mairies | donnees. (Omettre --famille lance TOUT.)`);
+}
 export interface ResultatVeille { statut: StatutRun; raison: string; runId: number | null; compteurs?: CompteursIngestion }
 
 interface MajRun {
@@ -131,12 +151,17 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
 
   let runId: number | null = null;
   try {
+    // H1 — GARDE PAR FAMILLE. `famille` omise → les deux true (comportement historique). Chaque étape ci-dessous porte SA famille
+    //   explicitement dans son `if` (jamais déduite d'un numéro d'ordre) : (A) mairies = faitMairies, (B) données = faitDonnees.
+    const faitMairies = opts.famille === undefined || opts.famille === 'mairies';
+    const faitDonnees = opts.famille === undefined || opts.famille === 'donnees';
+
     // 1bis) RELÈVE AUTOMATIQUE des réponses CRPA (R7) — sous le MÊME verrou, à CHAQUE tick, AVANT la garde d'intervalle
     //   Sitadel (§2) et le contrôle de millésime (§4) : la relève doit tourner même quand la veille Sitadel n'a « rien à
     //   faire ». ISOLÉE À DOUBLE FILET : un échec de relève ne DOIT JAMAIS faire échouer la veille → try/catch qui avale
     //   ici (executerReleveAuto journalise déjà son propre « erreur » sans relancer). N'affecte ni le verrou, ni le run
     //   Sitadel, ni son statut ; la séquence Sitadel continue exactement comme si de rien n'était.
-    if (deps.releveAuto) {
+    if (faitMairies && deps.releveAuto) {
       try { await deps.releveAuto(); } catch { /* relève isolée : n'impacte jamais la veille Sitadel */ }
     }
 
@@ -144,20 +169,20 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   pour les demandes dont l'échéance d'un mois est proche/dépassée, on regarde dans TOUS les dossiers (indésirables
     //   compris) « pour être sûr de ne pas avoir loupé le mail ». Garde 1/jour/demande à l'intérieur. MÊME ISOLATION à
     //   double filet que §1bis : un échec n'impacte jamais la veille Sitadel.
-    if (deps.echeanceApprofondie) {
+    if (faitMairies && deps.echeanceApprofondie) {
       try { await deps.echeanceApprofondie(); } catch { /* approfondie isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     // 1quater) BROUILLONS DE RELANCE (R6b) — APRÈS l'approfondie (qui vient de regarder au mieux) : pour les demandes dont
     //   l'échéance d'un mois est DÉPASSÉE et sans relance vivante, on PRÉPARE un texte de relance (aucun envoi). MÊME
     //   ISOLATION que §1bis/§1ter : un échec n'impacte jamais la veille Sitadel.
-    if (deps.relanceEcheance) {
+    if (faitMairies && deps.relanceEcheance) {
       try { await deps.relanceEcheance(); } catch { /* relance isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     // 1quinquies) ALERTE e-mail quotidienne (R8) — APRÈS les relances : un seul récapitulatif par jour, uniquement s'il y a
     //   quelque chose à dire. MÊME ISOLATION : un échec d'envoi n'impacte jamais la veille ni la relève.
-    if (deps.alerteQuotidienne) {
+    if (faitMairies && deps.alerteQuotidienne) {
       try { await deps.alerteQuotidienne(); } catch { /* alerte isolée : n'impacte jamais la veille Sitadel */ }
     }
 
@@ -165,14 +190,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   saisissable et jamais encore proposée, un e-mail interne (à l'adresse d'alerte) avec le détail + un lien de
     //   confirmation. MÊME ISOLATION à double filet : un échec d'envoi n'impacte jamais la veille ni la relève. AUCUN envoi
     //   vers une mairie ou la CADA (invariant executerVeille).
-    if (deps.propositionCada) {
+    if (faitMairies && deps.propositionCada) {
       try { await deps.propositionCada(); } catch { /* proposition isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     // 1septies) ALERTES « contenu à classer/télécharger en GED » (G1) — DERNIÈRE étape auto : pour chaque réponse porteuse de
     //   pièces et/ou d'un lien dont le contenu n'est pas encore en GED, un compte à rebours (J-3 puis 24 h) envoie le mail de
     //   mairie forwardé à l'exploitant. Idempotence par (réponse × permis × type). MÊME ISOLATION : un échec n'impacte rien.
-    if (deps.alerteGed) {
+    if (faitMairies && deps.alerteGed) {
       try { await deps.alerteGed(); } catch { /* alerte GED isolée : n'impacte jamais la veille Sitadel */ }
     }
 
@@ -180,14 +205,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   de nature `autre` ANCRÉ (nature_classee_le IS NOT NULL, jamais un rétro-classé) et jamais encore alerté, on forwarde le
     //   mail de mairie à l'exploitant pour qu'il y réponde. Idempotence par message (alerte_action_le). MÊME ISOLATION : un
     //   échec n'impacte rien. On ne suit JAMAIS un lien ; aucune bascule statut/satisfait_le/Archives.
-    if (deps.alerteAction) {
+    if (faitMairies && deps.alerteAction) {
       try { await deps.alerteAction(); } catch { /* alerte action isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     // 1nonies) PRÉ-COCHAGE automatique de « répondu » (T7-C) — APRÈS l'alerte action : on lit le dossier ENVOYÉS (en-têtes seuls,
     //   lecture stricte) pour cocher les messages `autre` auxquels le fondateur a déjà répondu. Ancre anti-résurrection
     //   (repondu_auto_le). MÊME ISOLATION : un échec n'impacte rien. Ne remplace jamais le bouton manuel ; jamais demande.statut.
-    if (deps.preCochageRepondu) {
+    if (faitMairies && deps.preCochageRepondu) {
       try { await deps.preCochageRepondu(); } catch { /* pré-cochage isolé : n'impacte jamais la veille Sitadel */ }
     }
 
@@ -197,7 +222,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   (ou va en file de dépôt si cada_email est vide). Interrupteurs à false (défaut) → rien ne part à un tiers. MÊME
     //   ISOLATION à double filet : un échec d'envoi n'impacte jamais la veille ni la relève ; les deux étapes sont isolées l'une
     //   de l'autre (dans executerEnvoiAuto). Un compte rendu INTERNE (alerte_email) récapitule tout envoi effectué.
-    if (deps.envoiAuto) {
+    if (faitMairies && deps.envoiAuto) {
       try { await deps.envoiAuto(); } catch { /* envoi auto isolé : n'impacte jamais la veille Sitadel */ }
     }
 
@@ -205,7 +230,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   (index de diffusion IGN, listing cadastre, en-tête DILA, page annuaire PRADA), quelques Ko chacune, JAMAIS de
     //   téléchargement de donnée (lot 3). MÊME ISOLATION à double filet : un échec de détection n'impacte jamais la veille
     //   ni la relève. Interrupteur global + cadence + activation par source sont gérés DANS executerDetection.
-    if (deps.detecterEditions) {
+    if (faitDonnees && deps.detecterEditions) {
       try { await deps.detecterEditions(); } catch { /* détection isolée : n'impacte jamais la veille Sitadel */ }
     }
 
@@ -213,7 +238,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   disponible ») : si un interrupteur de source est activé ET qu'on est dans la fenêtre nocturne ET que le disque a la marge,
     //   UNE ingestion part (une par tick, une tentative par source et par nuit). Défauts tout-false → rien. MÊME ISOLATION à
     //   double filet : un échec d'ingestion n'impacte jamais la veille ni la relève.
-    if (deps.ingestionAuto) {
+    if (faitDonnees && deps.ingestionAuto) {
       try { await deps.ingestionAuto(); } catch { /* ingestion auto isolée : n'impacte jamais la veille Sitadel */ }
     }
 
@@ -221,8 +246,15 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   détection (§1undecies) et l'ingestion nocturne (§1duodecies) : le jeu en attente est ainsi le plus frais du tick. Envoie
     //   un e-mail SEULEMENT si une nouvelle source apparaît (anti-spam par empreinte) ET sous l'interrupteur dédié (défaut off).
     //   MÊME ISOLATION à double filet : un échec d'envoi n'impacte jamais la veille ni la relève.
-    if (deps.alerteMisesAJour) {
+    if (faitDonnees && deps.alerteMisesAJour) {
       try { await deps.alerteMisesAJour(); } catch { /* alerte isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // Le CŒUR SITADEL (§2-7 : garde d'intervalle, run journal, millésime distant, ingestion, purge) appartient à la famille
+    // MAIRIES/PERMIS (classé C→A en H0 : Sitadel = la donnée des permis qui nourrit la veille mairies). Famille « donnees » →
+    // on s'arrête ici, cœur non exécuté (aucun contact DiDo, aucun run journalisé). Le verrou est libéré par le `finally`.
+    if (!faitMairies) {
+      return { statut: 'rien_a_faire', raison: 'famille « donnees » : étapes sources exécutées, cœur Sitadel (mairies) non exécuté', runId: null };
     }
 
     const config = await deps.chargerConfig();

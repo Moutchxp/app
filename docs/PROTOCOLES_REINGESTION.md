@@ -14,6 +14,23 @@ une ligne échoue.
 
 Les sources sont classées de la PLUS SÛRE à la PLUS RISQUÉE.
 
+LANCER UNE PASSE DE DÉTECTION À LA MAIN, SANS AUCUN RISQUE D'ENVOI AUX MAIRIES :
+
+La veille fait deux métiers dans le même moteur : les MAIRIES / PERMIS (relances, saisines, courriers)
+et les SOURCES DE DONNÉES (détection des nouvelles éditions, ingestion, alerte). La commande ci-dessous
+n'exécute QUE la famille « donnees » : détection + ingestion nocturne + alerte des sources. Elle
+n'envoie JAMAIS un courrier à une mairie, quoi qu'il arrive. À coller dans l'application « Terminal » de
+macOS, dans une FENÊTRE NEUVE :
+
+```bash
+cd /Users/macbookprom4arnaud/sansvisavis/app
+set -a && source .env && set +a
+npm run veille:run -- --famille=donnees
+```
+
+Pour ne relancer QUE le métier mairies/permis : « npm run veille:run -- --famille=mairies ». Sans
+« --famille », la commande lance TOUT (comportement habituel de l'ordonnanceur).
+
 Se relancent sans danger : le Cadastre est idempotent (un département déjà chargé pour un millésime est
 ignoré, ni téléchargement ni doublon) ; Sitadel et PRADA remplacent proprement par mise à jour (rien
 n'est supprimé de travers).

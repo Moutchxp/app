@@ -476,3 +476,60 @@ describe('RELANCE lot 6 — executerVeille : envoi automatique branché (§1deci
     expect(envoiAuto).not.toHaveBeenCalled();
   });
 });
+
+describe('H1 — GARDE PAR FAMILLE (sûreté : une passe « donnees » n’envoie JAMAIS de courrier mairie)', () => {
+  // Étapes (A) mairies/permis — dont envoiAuto (§1decies), le SEUL envoi vers des tiers.
+  const A = ['releveAuto', 'echeanceApprofondie', 'relanceEcheance', 'alerteQuotidienne', 'propositionCada', 'alerteGed', 'alerteAction', 'preCochageRepondu', 'envoiAuto'] as const;
+  // Étapes (B) sources de données.
+  const B = ['detecterEditions', 'ingestionAuto', 'alerteMisesAJour'] as const;
+
+  function depsAvecEspions(over: Partial<DepsVeille> = {}) {
+    const espions: Record<string, ReturnType<typeof vi.fn>> = {};
+    for (const k of [...A, ...B]) espions[k] = vi.fn(async () => {});
+    const deps = makeDeps({ ...(espions as Partial<DepsVeille>), ...over });
+    return { deps, espions };
+  }
+
+  it('--famille=donnees → AUCUNE étape (A) (notamment envoiAuto) ; (B) OUI ; cœur Sitadel NON exécuté', async () => {
+    const { deps, espions } = depsAvecEspions();
+    await executerVeille({ declencheur: 'manuel', famille: 'donnees' }, deps);
+    for (const k of A) expect(espions[k], `${k} (A) ne doit PAS être appelée`).not.toHaveBeenCalled();
+    for (const k of B) expect(espions[k], `${k} (B) doit être appelée`).toHaveBeenCalled();
+    expect(deps.millesimeDistant).not.toHaveBeenCalled(); // cœur Sitadel (C→A) sauté
+    expect(deps.ingerer).not.toHaveBeenCalled();
+    expect(deps.insererRun).not.toHaveBeenCalled();
+  });
+
+  it('--famille=mairies → AUCUNE étape (B) ; (A) OUI ; cœur Sitadel exécuté', async () => {
+    const { deps, espions } = depsAvecEspions();
+    await executerVeille({ declencheur: 'manuel', famille: 'mairies' }, deps);
+    for (const k of B) expect(espions[k], `${k} (B) ne doit PAS être appelée`).not.toHaveBeenCalled();
+    for (const k of A) expect(espions[k], `${k} (A) doit être appelée`).toHaveBeenCalled();
+    expect(deps.millesimeDistant).toHaveBeenCalled(); // cœur Sitadel exécuté
+  });
+
+  it('sans famille → comportement STRICTEMENT inchangé : toutes les étapes (A) ET (B) appelées + cœur Sitadel', async () => {
+    const { deps, espions } = depsAvecEspions();
+    await executerVeille({ declencheur: 'manuel' }, deps);
+    for (const k of [...A, ...B]) expect(espions[k], `${k} doit être appelée`).toHaveBeenCalled();
+    expect(deps.millesimeDistant).toHaveBeenCalled();
+  });
+});
+
+describe('H1 — parserFamille : valeur inconnue REFUSÉE (jamais un repli silencieux sur « tout »)', () => {
+  it('absent → undefined (TOUT, inchangé)', async () => {
+    const { parserFamille } = await import('./executerVeille');
+    expect(parserFamille([])).toBeUndefined();
+    expect(parserFamille(['--forcer'])).toBeUndefined();
+  });
+  it('valeurs acceptées', async () => {
+    const { parserFamille } = await import('./executerVeille');
+    expect(parserFamille(['--famille=mairies'])).toBe('mairies');
+    expect(parserFamille(['--famille=donnees'])).toBe('donnees');
+  });
+  it('valeur inconnue → LÈVE (pas de repli sur « tout »)', async () => {
+    const { parserFamille } = await import('./executerVeille');
+    expect(() => parserFamille(['--famille=nimportequoi'])).toThrow(/invalide/);
+    expect(() => parserFamille(['--famille'])).toThrow(/invalide/); // sans valeur → refus aussi
+  });
+});
