@@ -68,7 +68,8 @@ export async function actionnablesAuto(req: Requete = q): Promise<Set<string>> {
     if (det.rows.length === 0) return out;
     const base: Record<string, string | null> = {
       dila: (await req<{ d: string | null }>(`SELECT to_char(max(date_fichier), 'YYYY-MM-DD') AS d FROM dila_millesime`)).rows[0]?.d ?? null,
-      cadastre: (await req<{ d: string | null }>(`SELECT to_char(max(millesime), 'YYYY-MM-DD') AS d FROM cadastre_millesime`)).rows[0]?.d ?? null,
+      // `cadastre_millesime.millesime` est TEXT déjà au format « YYYY-MM-DD » → lecture DIRECTE (to_char(text) n'existe pas en SQL).
+      cadastre: (await req<{ d: string | null }>(`SELECT max(millesime) AS d FROM cadastre_millesime`)).rows[0]?.d ?? null,
       prada: moisEnDate((await req<{ code: string }>(`SELECT code FROM prada_millesime ORDER BY importe_le DESC NULLS LAST LIMIT 1`)).rows[0]?.code),
       sitadel: moisEnDate((await req<{ code: string }>(`SELECT code FROM sitadel_millesime ORDER BY telecharge_a DESC NULLS LAST LIMIT 1`)).rows[0]?.code),
     };

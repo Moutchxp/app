@@ -147,7 +147,7 @@ export function TableauSources({ lignes, onToggle }: { lignes: LigneSource[]; on
  * FERMÉE par défaut. Le résumé porte le titre à gauche et le CHIFFRE DE SYNTHÈSE à droite : le titre se tronque sur écran étroit,
  * le chiffre reste intact (ne casse jamais la ligne). Le `<details>` natif ne s'anime pas → prefers-reduced-motion respecté.
  */
-export function LigneDepliable({ titre, synthese, children }: { titre: string; synthese: ReactNode; children: ReactNode }) {
+export function LigneDepliable({ titre, synthese, children }: { titre: string; synthese: ReactNode; children?: ReactNode }) {
   return (
     <details className="svv-card svv-depliable" style={{ padding: 0 }}>
       <summary style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, padding: '.7rem .85rem', cursor: 'pointer', minHeight: 44, boxSizing: 'border-box' }}>

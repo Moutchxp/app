@@ -29,8 +29,12 @@ function comptesParDept(rows: { dep: string | null; n: number }[]): Partial<Reco
   return out;
 }
 
+/** Requête injectable (défaut = pool réel) — permet de tester le mapping ET la sentinelle d'échec sans base réelle. */
+export type Requete = <R>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>;
+const requeteDefaut: Requete = <R>(text: string, params?: unknown[]) => query(text, params) as unknown as Promise<{ rows: R[] }>;
+
 /** Exécute une lecture de source en l'isolant : toute erreur → relevé « indisponible » (jamais un throw qui casse l'écran). */
-async function isoler(cle: string, fn: () => Promise<LectureSource>): Promise<LectureSource> {
+export async function isoler(cle: string, fn: () => Promise<LectureSource>): Promise<LectureSource> {
   try {
     return await fn();
   } catch (e) {
@@ -101,13 +105,16 @@ async function lireBdtopoAdresse(): Promise<LectureSource> {
 }
 
 /** Cadastre — millésime le plus récent de `cadastre_millesime` ; couverture = départements réellement dans `parcelle`. */
-async function lireCadastre(): Promise<LectureSource> {
-  const deps = await query<{ dep: string | null; n: number }>(
+export async function lireCadastre(req: Requete = requeteDefaut): Promise<LectureSource> {
+  const deps = await req<{ dep: string | null; n: number }>(
     `SELECT left(commune, 2) AS dep, count(*)::int AS n FROM parcelle GROUP BY 1`,
   );
   const vide = deps.rows.length === 0 || deps.rows.every((x) => Number(x.n) === 0);
-  const m = await query<{ m: string | null; c: string | null }>(
-    `SELECT to_char(max(millesime), 'YYYY-MM-DD') AS m, to_char(max(charge_le), 'YYYY-MM-DD') AS c FROM cadastre_millesime`,
+  // `cadastre_millesime.millesime` est une colonne TEXT déjà au format « YYYY-MM-DD » (ex. « 2026-06-01 ») : on la lit
+  // DIRECTEMENT. ⚠️ Ne jamais l'envelopper dans to_char() — to_char(text, …) n'existe pas côté PostgreSQL (la lecture
+  // jetterait et l'écran afficherait « indisponible » alors que la donnée est là). `charge_le` (timestamptz) garde son to_char.
+  const m = await req<{ m: string | null; c: string | null }>(
+    `SELECT max(millesime) AS m, to_char(max(charge_le), 'YYYY-MM-DD') AS c FROM cadastre_millesime`,
   );
   const mil = m.rows[0]?.m ?? null;
   return {
