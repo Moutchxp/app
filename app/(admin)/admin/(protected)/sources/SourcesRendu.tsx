@@ -14,6 +14,7 @@ import type { AffichageProtocoles, SectionProtocole } from '../../../../lib/admi
 import { misesAJourSansProcedure } from '../../../../lib/admin/pastilleSources';
 import type { EtatAutomatisation, StatutSourceAuto } from '../../../../lib/veille/ingestionAuto';
 import { BoutonCopier } from '../permis/BoutonCopier';
+import { PastilleActions } from '../permis/PastilleActions';
 
 /**
  * FRAÎCHEUR DES DONNÉES — rendu PUR (lot 1/3). Aucun état, aucun effet, aucune I/O → testable en Node via
@@ -162,6 +163,39 @@ export function LigneDepliable({ titre, synthese, children }: { titre: string; s
   );
 }
 
+/**
+ * Résumé « mises à jour disponibles » en HAUT de page (G3), toujours visible. `total` vient de la MÊME fonction que la tuile
+ * home (`compterMisesAJourActionnables`) → un seul calcul, jamais deux comptes qui divergent. TROIS états VISUELLEMENT distincts :
+ *  - total>0  : pastille rouge + phrase (il y a du travail) ;
+ *  - total===0 : VERT « tout est à jour » (bonne nouvelle), aucune pastille ;
+ *  - total===null : ROUGE d'ALERTE « mesure indisponible » (panne à ne pas confondre avec « tout va bien »), aucune pastille.
+ */
+export function ResumeMisesAJour({ total }: { total: number | null }) {
+  if (total === null) {
+    return (
+      <div className="svv-card" role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '.7rem .85rem', background: 'var(--color-svv-red-soft)', borderColor: 'var(--color-svv-red)' }}>
+        <span aria-hidden="true" style={{ color: 'var(--color-svv-red)', fontWeight: 800 }}>⚠</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-svv-red-dark)' }}>État des mises à jour indisponible — la mesure n’a pas pu être établie.</span>
+      </div>
+    );
+  }
+  if (total <= 0) {
+    return (
+      <div className="svv-card" role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '.7rem .85rem', background: 'var(--color-svv-green-soft)', borderColor: 'var(--color-svv-green)' }}>
+        <span aria-hidden="true" style={{ color: 'var(--color-svv-green-ink)', fontWeight: 800 }}>✓</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-svv-green-ink)' }}>Aucune base à mettre à jour — tout est à jour.</span>
+      </div>
+    );
+  }
+  const s = total > 1 ? 's' : '';
+  return (
+    <div className="svv-card" role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '.7rem .85rem' }}>
+      <PastilleActions n={total} ariaLabel={`${total} base${s} de données prête${s} à être mise${s} à jour`} />
+      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-svv-ink)' }}>{total} base{s} prête{s} à être mise{s} à jour</span>
+    </div>
+  );
+}
+
 const STYLE_COUV: Record<Couverture, CSSProperties> = {
   present: { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)', borderColor: 'var(--color-svv-green)' },
   partiel: { background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', borderColor: 'var(--color-svv-red)', borderStyle: 'dashed' },
@@ -239,8 +273,13 @@ function motifSansCommande(ligne: LigneSource): string {
   return 'jamais vérifié — mise à jour non confirmée';
 }
 
-/** Une ligne de la section réingestion : soit le bloc « Préparer la commande », soit le motif de son absence. */
-function LigneReingestion({ ligne, cheminDepot }: { ligne: LigneSource; cheminDepot: string }) {
+/**
+ * Une ligne de la section réingestion : soit le bloc « Préparer la commande », soit le motif de son absence.
+ * `enAttente` = cette source est dans le jeu de mises à jour ACTIONNABLES (F7 : détectée périmée ET procédure au sens F5). ⚠️ Il
+ * vient du MÊME calcul que le cumul (`misesAJourActionnables`, passé par la page) — jamais de l'ancien `aUneProcedure` de F3, qui
+ * divergerait du cumul et du haut de page. Ne PAS rebrancher `aUneProcedure` ici : trois affichages, une seule fonction.
+ */
+function LigneReingestion({ ligne, cheminDepot, enAttente = false }: { ligne: LigneSource; cheminDepot: string; enAttente?: boolean }) {
   const actionnable = ligne.detection?.statut === 'mise_a_jour' && aUneProcedure(ligne.cle);
   const edition = ligne.detection?.statut === 'mise_a_jour' ? ligne.detection.editionDistante : null;
   const prep = actionnable ? preparerCommande(ligne.cle, edition, cheminDepot) : null;
@@ -248,7 +287,11 @@ function LigneReingestion({ ligne, cheminDepot }: { ligne: LigneSource; cheminDe
   return (
     <div className="svv-card" style={{ padding: '.7rem .85rem' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'baseline', justifyContent: 'space-between' }}>
-        <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)', fontSize: 13 }}>{ligne.nom}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)', fontSize: 13 }}>{ligne.nom}</span>
+          {/* Capsule par ligne : n=1, un libellé lecteur d'écran qui DIT de quelle source il s'agit. */}
+          {enAttente && <PastilleActions n={1} ariaLabel={`${ligne.nom} : mise à jour disponible`} />}
+        </span>
         {!prep && <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{motifSansCommande(ligne)}</span>}
       </div>
       {prep && (
@@ -279,11 +322,11 @@ function LigneReingestion({ ligne, cheminDepot }: { ligne: LigneSource; cheminDe
  * est disponible ET qu'une procédure existe), soit le motif de son absence. La tuile n'exécute RIEN : elle prépare, l'humain
  * colle dans un terminal. `cheminDepot` = chemin ABSOLU du dépôt (fourni par le serveur).
  */
-export function SectionReingestion({ lignes, cheminDepot }: { lignes: LigneSource[]; cheminDepot: string }) {
+export function SectionReingestion({ lignes, cheminDepot, actionnables }: { lignes: LigneSource[]; cheminDepot: string; actionnables?: ReadonlySet<string> }) {
   return (
     <div style={{ display: 'grid', gap: 8 }}>
       {lignes.map((l) => (
-        <LigneReingestion key={l.cle} ligne={l} cheminDepot={cheminDepot} />
+        <LigneReingestion key={l.cle} ligne={l} cheminDepot={cheminDepot} enAttente={actionnables?.has(l.cle) ?? false} />
       ))}
     </div>
   );

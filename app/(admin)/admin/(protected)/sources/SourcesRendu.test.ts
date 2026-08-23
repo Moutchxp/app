@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableauSources, GrilleCouverture, LigneContexte, LigneDepliable, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles, SectionAutomatisation } from './SourcesRendu';
+import { TableauSources, GrilleCouverture, LigneContexte, LigneDepliable, ResumeMisesAJour, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles, SectionAutomatisation } from './SourcesRendu';
+import { ContenuTuileSources } from '../TuileSourcesActions';
 import { construireEtatAutomatisation } from '../../../../lib/veille/ingestionAuto';
 import { construireEtatSources, type LectureSource, type LectureDetection } from '../../../../lib/admin/sourcesFraicheur';
 import { construireMorphologie, MORPHOLOGIE_INDISPONIBLE, type LigneTable } from '../../../../lib/admin/morphologieDisque';
+import { compterMisesAJourActionnables, misesAJourActionnables } from '../../../../lib/admin/pastilleSources';
 import { construireAffichageProtocoles } from '../../../../lib/admin/protocolesReingestion';
 import type { AffichageProtocoles } from '../../../../lib/admin/protocolesReingestion';
 
@@ -317,5 +319,67 @@ describe('LigneDepliable (G1) — compaction', () => {
     expect(h).toContain('Espace occupé par base');
     expect(h).toContain('3.34 Go');
     expect(h).toContain('détail'); // le contenu est présent (masqué), déplié en un clic
+  });
+});
+
+describe('G3 — pastille de mises à jour propagée aux 3 niveaux, un seul compte', () => {
+  const PROTOS = [
+    '<!-- SOURCE: dila -->', '## DILA', '```bash', 'npm run dila:ingest', '```',
+    '<!-- SOURCE: prada -->', '## PRADA', '```bash', 'npm run prada:ingest', '```',
+    '<!-- SOURCE: bdtopo_adresse -->', '## BD TOPO adresse', 'CAS (c) aucune procédure connue.',
+  ].join('\n');
+  const ORDRE = [{ cle: 'dila', nom: 'DILA' }, { cle: 'prada', nom: 'PRADA' }, { cle: 'bdtopo_adresse', nom: 'BD TOPO adresse / BAN' }];
+  const proto = () => construireAffichageProtocoles(PROTOS, ORDRE);
+  // dila + prada périmées (cas a) → comptées ; adresse périmée (cas c) → exclue.
+  const dets = [
+    D({ source: 'dila', editionDistante: '2026-08-21', dateDistante: '2026-08-21' }),
+    D({ source: 'prada', editionDistante: '2026-08', dateDistante: '2026-08-01' }),
+    D({ source: 'bdtopo_adresse', editionDistante: '2026-06-15', dateDistante: '2026-06-15' }),
+  ];
+  const L = () => lignes({}, dets);
+
+  it('compte nominal : cumul = nombre de capsules = 2 (adresse cas c EXCLUE)', () => {
+    expect(compterMisesAJourActionnables(L(), proto())).toBe(2);
+    expect(misesAJourActionnables(L(), proto()).map((l) => l.cle).sort()).toEqual(['dila', 'prada']);
+  });
+
+  it('haut de page total>0 → pastille + phrase (aria-label explicite)', () => {
+    const h = renderToStaticMarkup(createElement(ResumeMisesAJour, { total: 2 }));
+    expect(h).toContain('2 base');
+    expect(h).toContain('aria-label="2 base');
+  });
+
+  it('haut de page : total 0 (bonne nouvelle, VERT) vs total null (panne, ROUGE) — distincts à l’œil, AUCUNE pastille', () => {
+    const zero = renderToStaticMarkup(createElement(ResumeMisesAJour, { total: 0 }));
+    const nul = renderToStaticMarkup(createElement(ResumeMisesAJour, { total: null }));
+    expect(zero).not.toContain('aria-label'); // 0 → pas de pastille (jamais « 0 »)
+    expect(nul).not.toContain('aria-label'); // null → pas de pastille non plus
+    expect(zero).toContain('tout est à jour');
+    expect(nul).toContain('indisponible');
+    expect(zero).toContain('var(--color-svv-green'); // vert = bonne nouvelle
+    expect(zero).not.toContain('var(--color-svv-red'); // le 0 n'emprunte JAMAIS la couleur d'alerte
+    expect(nul).toContain('var(--color-svv-red'); // rouge = panne à ne pas confondre
+  });
+
+  it('ligne Réingestion dépliée : capsule sur les sources en attente (aria nommant la source), pas sur les autres', () => {
+    const h = renderToStaticMarkup(createElement(SectionReingestion, { lignes: L(), cheminDepot: '/x', actionnables: new Set(['dila', 'prada']) }));
+    expect(h).toContain('DILA : mise à jour disponible'); // la capsule NOMME la source
+    expect(h).not.toContain('BDNB : mise à jour disponible');
+  });
+
+  it('source cas (c) détectée périmée (adresse) → PAS de capsule (hors du jeu, reste dans son regroupement)', () => {
+    const setMaj = new Set(misesAJourActionnables(L(), proto()).map((l) => l.cle));
+    const h = renderToStaticMarkup(createElement(SectionReingestion, { lignes: L(), cheminDepot: '/x', actionnables: setMaj }));
+    expect(h).not.toContain('BD TOPO® adresse : mise à jour disponible');
+  });
+
+  it('COHÉRENCE tuile home ↔ haut de page : MÊME nombre pour un même état de base (même fonction)', () => {
+    const total = compterMisesAJourActionnables(L(), proto()); // la fonction UNIQUE (tuile via route, page directement)
+    expect(total).toBe(2);
+    const tuile = renderToStaticMarkup(createElement(ContenuTuileSources, { desc: 'x', total: total ?? 0 }));
+    const haut = renderToStaticMarkup(createElement(ResumeMisesAJour, { total }));
+    expect(tuile).toContain('>2<'); // « 2 » dans la pastille de la tuile
+    expect(haut).toContain('>2<'); // « 2 » dans la pastille du haut de page
+    expect(tuile).toContain('2 mises à jour de base de données disponibles');
   });
 });

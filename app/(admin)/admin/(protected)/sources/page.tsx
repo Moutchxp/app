@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EnTetePage } from '../_composants/EnTetePage';
-import { TableauSources, GrilleCouverture, LigneContexte, LigneDepliable, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles, SectionAutomatisation } from './SourcesRendu';
+import { TableauSources, GrilleCouverture, LigneContexte, LigneDepliable, ResumeMisesAJour, SectionReingestion, SectionPerimeesSansProcedure, SectionMorphologie, SectionProtocoles, SectionAutomatisation } from './SourcesRendu';
+import { PastilleActions } from '../permis/PastilleActions';
 import { resumeCouverture, type LigneSource } from '../../../../lib/admin/sourcesFraicheur';
 import { formaterOctets, type MorphologieDisque } from '../../../../lib/admin/morphologieDisque';
-import { sourcesAvecProcedure } from '../../../../lib/admin/pastilleSources';
+import { sourcesAvecProcedure, compterMisesAJourActionnables, misesAJourActionnables } from '../../../../lib/admin/pastilleSources';
 import type { AffichageProtocoles } from '../../../../lib/admin/protocolesReingestion';
 import type { EtatAutomatisation } from '../../../../lib/veille/ingestionAuto';
 
@@ -104,13 +105,26 @@ export default function PageSources() {
         const auto = automatisation.sources.filter((s) => s.automatisable);
         const actives = auto.filter((s) => s.actif).length;
         const f = automatisation.fenetre;
+        // MISES À JOUR — une SEULE source de vérité, la même que la tuile home (route /pastille) : compterMisesAJourActionnables.
+        // `total===null` = mesure indisponible (protocoles illisibles) ; `setMaj` (le jeu de sources) n'est calculé QUE si le
+        // compte est établi, pour que cumul, capsules et haut de page portent exactement le même nombre.
+        const total = compterMisesAJourActionnables(lignes, protocoles);
+        const setMaj = total === null ? new Set<string>() : new Set(misesAJourActionnables(lignes, protocoles).map((l) => l.cle));
         const synthEspace = morphologie.indisponible ? 'indisponible' : formaterOctets(morphologie.totalBase ?? 0);
         const synthCouv = `bâti ${rc.departementsBati.length} dépts · verdict ${rc.departementsLidar.join('/') || '—'}`;
-        const synthReing = `${outillees} outillées · ${presentes.length - outillees} sans procédure`;
+        const synthReingTexte = `${outillees} outillées · ${presentes.length - outillees} sans procédure`;
+        const synthReing = (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {total !== null && total > 0 && <PastilleActions n={total} ariaLabel={`${total} mise${total > 1 ? 's' : ''} à jour de base de données disponible${total > 1 ? 's' : ''}`} />}
+            {synthReingTexte}
+          </span>
+        );
         const synthAuto = `${actives}/${auto.length} actives · ${f.debut}h–${f.fin}h`;
         const synthProto = protocoles.fichierAbsent ? 'non documenté' : `${presentes.length} sources documentées`;
         return (
           <div style={{ display: 'grid', gap: 12 }}>
+            {/* Niveau 2 (G3) — visible immédiatement, sans dérouler : combien de bases sont prêtes à être mises à jour. */}
+            <ResumeMisesAJour total={total} />
             <TableauSources lignes={lignes} onToggle={basculer} />
             {/* Le fait le plus important de la page : TOUJOURS visible, jamais replié. */}
             <LigneContexte lignes={lignes} />
@@ -127,7 +141,7 @@ export default function PageSources() {
               <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--color-svv-muted)' }}>
                 L’écran n’exécute rien : il prépare une commande à copier dans un terminal.
               </p>
-              <SectionReingestion lignes={lignes} cheminDepot={etat.cheminDepot} />
+              <SectionReingestion lignes={lignes} cheminDepot={etat.cheminDepot} actionnables={setMaj} />
               <div style={{ marginTop: 8 }}>
                 <SectionPerimeesSansProcedure lignes={lignes} protocoles={protocoles} />
               </div>
