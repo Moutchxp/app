@@ -29,6 +29,12 @@ const AUDIT: LienMenu = { slug: '/admin/audit', libelle: 'Audit', desc: 'Sécuri
  *  par son défaut fail-closed. Veille des autorisations d'urbanisme (Sitadel), en LECTURE SEULE. */
 const PERMIS: LienMenu = { slug: '/admin/permis', libelle: 'Permis de construire', desc: 'Veille des autorisations d’urbanisme (Sitadel).' };
 
+/** Tuile « Sources de données » (fraîcheur lot 1) — réservée au rôle administrateur, comme « Audit »/« Permis ».
+ *  État de fraîcheur des données qui font fonctionner l'outil (millésime, âge, surveillance, couverture), en LECTURE
+ *  SEULE. AUCUNE pastille d'actions : une source périmée ne se répare pas d'un clic. Le proxy fail-closed réserve déjà
+ *  /admin/sources et /api/admin/sources à l'administrateur. */
+const SOURCES: LienMenu = { slug: '/admin/sources', libelle: 'Sources de données', desc: 'Fraîcheur des données qui font fonctionner l’outil.' };
+
 /**
  * Liens visibles (M3-4 Lot C/D) — SOURCE UNIQUE du menu latéral (`Sidebar`) ET de la grille du tableau de bord.
  * **RÔLE D'ABORD** : un administrateur voit TOUS les modules (jamais un lien masqué par erreur, même si des
@@ -41,7 +47,7 @@ const PERMIS: LienMenu = { slug: '/admin/permis', libelle: 'Permis de construire
 export function liensVisibles(role: RoleAdmin, perms: Perms): LienMenu[] {
   const admin = role === 'administrateur';
   const liens: LienMenu[] = MODULES.filter((m) => admin || perms[m.perm]).map(({ slug, libelle, desc }) => ({ slug, libelle, desc }));
-  if (admin) liens.push(ADMINISTRATIF, AUDIT, PERMIS);
+  if (admin) liens.push(ADMINISTRATIF, AUDIT, PERMIS, SOURCES);
   return liens;
 }
 
@@ -77,7 +83,7 @@ export function ordonner(liens: LienMenu[], ordreStocke: unknown): LienMenu[] {
 
 /** Ensemble des slugs de modules CONNUS (les 6 modules + Administratif + Audit) — source unique pour valider un
  *  ordre reçu. NB : c'est l'univers des slugs EXISTANTS, pas ceux visibles par un rôle donné (cf. `validerOrdreModules`). */
-export const SLUGS_MODULES: ReadonlySet<string> = new Set([...MODULES.map((m) => m.slug), ADMINISTRATIF.slug, AUDIT.slug, PERMIS.slug]);
+export const SLUGS_MODULES: ReadonlySet<string> = new Set([...MODULES.map((m) => m.slug), ADMINISTRATIF.slug, AUDIT.slug, PERMIS.slug, SOURCES.slug]);
 
 /** Borne anti-DoS du tableau d'ordre reçu (très au-dessus des 8 modules réels) — évite un payload géant. */
 const MAX_ENTREES_ORDRE = 64;
