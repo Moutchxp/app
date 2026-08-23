@@ -58,11 +58,17 @@ async function lireEmpreinte(dossierId: number): Promise<{ gj: unknown; empreint
   return { gj: emp?.gj ?? null, empreinteFigee, motif };
 }
 
-type LigneGeom = { cleabs: string | null; gj: unknown; hors: boolean };
+// L11 — la lecture porte aussi les attributs de la bulle (étages, hauteur, altitude toit) + la surface ST_Area (Lambert-93, calculée
+// à la lecture : le client n'a que le path projeté, jamais les coordonnées réelles).
+type LigneGeom = { cleabs: string | null; gj: unknown; hors: boolean; etages: number | null; hauteur: string | number | null; alt_toit: string | number | null; surface_m2: string | number | null };
+const nbOuNull = (v: string | number | null): number | null => (v === null || v === undefined ? null : Number(v));
 
-/** Lignes {cleabs, gj, hors} DÉJÀ ORDONNÉES → entrées de schéma (l'ordre fixe les repères A/B/C…). */
+/** Lignes {cleabs, gj, hors, attributs} DÉJÀ ORDONNÉES → entrées de schéma (l'ordre fixe les repères A/B/C…). */
 function rowsToEntrees(rows: LigneGeom[]): PolygoneEntreeSchema[] {
-  return rows.map((r, i) => ({ repere: repereDepuisIndex(i), cleabs: r.cleabs, geom: geomDepuisGeoJSON(r.gj), horsEmpreinte: r.hors === true }));
+  return rows.map((r, i) => ({
+    repere: repereDepuisIndex(i), cleabs: r.cleabs, geom: geomDepuisGeoJSON(r.gj), horsEmpreinte: r.hors === true,
+    attributs: { nombreEtages: r.etages, hauteurM: nbOuNull(r.hauteur), altitudeToitNgf: nbOuNull(r.alt_toit), surfaceM2: nbOuNull(r.surface_m2) },
+  }));
 }
 
 /** Entrées → {polygones, schéma}. `cadre` (L5) FORCE la bbox de projection (échelle/cadrage COMMUNS entre deux schémas). */
@@ -83,7 +89,8 @@ async function lireLiveRows(dossierId: number): Promise<LigneGeom[]> {
   const { rows } = await query<LigneGeom>(
     `WITH emp AS (SELECT geom FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL)
      SELECT b.cleabs, ST_AsGeoJSON(ST_Force2D(b.geom))::json AS gj,
-            NOT ST_Covers(emp.geom, ST_Force2D(b.geom)) AS hors
+            NOT ST_Covers(emp.geom, ST_Force2D(b.geom)) AS hors,
+            b.nombre_d_etages AS etages, b.hauteur, b.altitude_maximale_toit AS alt_toit, ST_Area(b.geom) AS surface_m2
        FROM batiment b, emp
       WHERE b.geom && emp.geom AND ST_Intersects(b.geom, emp.geom)
       ORDER BY ST_Y(ST_Centroid(b.geom)) DESC, ST_X(ST_Centroid(b.geom)), b.cleabs`, [dossierId]);
@@ -95,7 +102,8 @@ async function lireSnapshotRows(dossierId: number): Promise<LigneGeom[]> {
   const { rows } = await query<LigneGeom>(
     `WITH emp AS (SELECT geom FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL)
      SELECT s.cleabs, ST_AsGeoJSON(ST_Force2D(s.geom))::json AS gj,
-            NOT ST_Covers(emp.geom, ST_Force2D(s.geom)) AS hors
+            NOT ST_Covers(emp.geom, ST_Force2D(s.geom)) AS hors,
+            s.nombre_d_etages AS etages, s.hauteur, s.altitude_max_toit AS alt_toit, ST_Area(s.geom) AS surface_m2
        FROM permis_bati_snapshot s, emp
       WHERE s.dossier_id = $1
       ORDER BY ST_Y(ST_Centroid(s.geom)) DESC, ST_X(ST_Centroid(s.geom)), s.cleabs`, [dossierId]);

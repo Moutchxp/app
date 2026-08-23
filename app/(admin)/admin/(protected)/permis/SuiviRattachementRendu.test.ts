@@ -6,6 +6,7 @@ import type { LigneSuivi, DetailSuivi } from '../../../../lib/permis/rattachemen
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
 import { couleurRepere, repereDepuisIndex, PALETTE_REPERE, type SchemaEmpreinte } from '../../../../lib/permis/affectationSchema';
+import { lignesBulle, InterrupteurReperes } from './SuiviRattachementRendu';
 
 /**
  * FUS-3b — rendu PUR du suivi (renderToStaticMarkup, aucun DOM). Couvre : compteurs + groupes par état, tri par urgence,
@@ -715,5 +716,136 @@ describe('L7 — le détail s’insère DANS LE FLUX, sous sa ligne (trame grise
     expect(iPanneau).toBeGreaterThan(iG2);  // le panneau du dossier ouvert est DANS le groupe 2, pas entre les groupes
     // le dossier d'arbitrage (groupe 1) n'a pas de panneau : la coupure n'est pas traversée
     expect(h).toContain('ARB'); expect(h).not.toContain('DETAIL_5');
+  });
+});
+
+describe('L10 — cleabs dans la légende + interrupteur des repères', () => {
+  const schemaAB = (o: Partial<SchemaEmpreinte> = {}): SchemaEmpreinte => ({
+    largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null,
+    polygones: [
+      { repere: 'A', cleabs: 'BATIMENT0000000240764949', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false },
+      { repere: 'B', cleabs: 'BATIMENT0000002493678245', path: 'M60,60 L80,60 L80,80 Z', cx: 70, cy: 70, horsEmpreinte: false },
+    ], ...o,
+  });
+  const noop = () => {};
+
+  it('② repères ACTIFS (défaut) → les lettres + leur halo sont dans le markup', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaAB(), corps: [] }));
+    expect(h).toContain('<text'); expect(h).toContain('>A<'); expect(h).toContain('>B<');
+    expect(h).toContain('paint-order="stroke"'); // le halo
+  });
+
+  it('② repères MASQUÉS → AUCUNE lettre ni halo, mais parcelle + polygones (formes + couleurs) TOUJOURS là', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaAB(), corps: [], afficherReperes: false }));
+    expect(h).not.toContain('<text');            // aucune lettre
+    expect(h).not.toContain('paint-order');       // aucun halo
+    expect(h).toContain('d="M10,10 L100,10 L100,100 Z" fill="#fff"'); // la parcelle blanche reste
+    expect(h).toContain(`fill="${couleurRepere(0)}"`); // A garde sa couleur
+    expect(h).toContain(`fill="${couleurRepere(1)}"`); // B garde sa couleur
+    expect(h).toContain('d="M20,20 L40,20 L40,40 Z"'); // les formes des polygones restent
+  });
+
+  it('① la légende associe chaque repère à son cleabs (chasse fixe, sélectionnable d’un clic)', () => {
+    const h = renderToStaticMarkup(createElement(LegendeRepetesComplete, { schema: schemaAB(), corps: [] }));
+    expect(h).toContain('>A</strong>'); expect(h).toContain('BATIMENT0000000240764949'); // repère A → son cleabs
+    expect(h).toContain('>B</strong>'); expect(h).toContain('BATIMENT0000002493678245');
+    expect(h).toContain('user-select:all'); // sélectionnable d'un clic pour copier
+    expect(h).toMatch(/font-family:var\(--font-svv-mono/); // chasse fixe
+    // le cleabs n'est jamais DESSINÉ comme étiquette dans le polygone : le <text> ne porte que la lettre (L11 : il est dans la bulle <title>).
+    const hSvg = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaAB(), corps: [] }));
+    expect(hSvg).toMatch(/>A<\/text>/);
+    expect(hSvg).not.toMatch(/>[^<]*BATIMENT[^<]*<\/text>/);
+  });
+
+  it('un polygone SANS cleabs (cas théorique) ne casse pas le rendu (légende + schéma)', () => {
+    const s = schemaAB({ polygones: [{ repere: 'A', cleabs: null, path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false }] });
+    const hLeg = renderToStaticMarkup(createElement(LegendeRepetesComplete, { schema: s, corps: [] }));
+    expect(hLeg).toContain('(sans cleabs)'); expect(hLeg).toContain('>A</strong>');
+    const hSvg = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: s, corps: [], afficherReperes: false }));
+    expect(hSvg).not.toContain('<text'); // masquage OK même sans cleabs
+  });
+
+  it('l’interrupteur vaut pour les DEUX schémas (comparatif) : masqué → aucune lettre dans l’un NI l’autre', () => {
+    const orig: AffectationEtat = { empreinteFigee: true, motif: null, colonneManquante: false, schema: schemaAB(), polygones: [], corps: [] };
+    const props = { origine: orig, nouvelle: orig, nomOrigine: NOM_SCHEMA_ORIGINE, nomNouvelle: NOM_SCHEMA_NOUVELLE, onFermer: noop };
+    const hOn = renderToStaticMarkup(createElement(ComparaisonPleinEcran, { ...props, afficherReperes: true }));
+    expect((hOn.match(/<text/g) ?? []).length).toBe(4); // 2 repères × 2 schémas
+    const hOff = renderToStaticMarkup(createElement(ComparaisonPleinEcran, { ...props, afficherReperes: false }));
+    expect(hOff).not.toContain('<text'); // aucun repère dessiné, dans aucun des deux schémas
+  });
+});
+
+describe('L11 — bulles au survol + interrupteur en plein écran', () => {
+  const noop = () => {};
+  // schéma avec attributs : A complet, B avec hauteur mais SANS altitude toit (cas réel 11430)
+  const schemaAttr = (): SchemaEmpreinte => ({
+    largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null,
+    polygones: [
+      { repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false, attributs: { nombreEtages: 7, hauteurM: 21, altitudeToitNgf: 89.4, surfaceM2: 73.87 } },
+      { repere: 'B', cleabs: 'BAT_B', path: 'M60,60 L80,60 L80,80 Z', cx: 70, cy: 70, horsEmpreinte: false, attributs: { nombreEtages: null, hauteurM: 5, altitudeToitNgf: null, surfaceM2: 77.5 } },
+    ],
+  });
+
+  it('lignesBulle (pur) : source en tête, cleabs, valeurs présentes affichées, absentes « non renseigné », hauteur ≠ altitude', () => {
+    const l = lignesBulle('BAT_A', { nombreEtages: 7, hauteurM: 21, altitudeToitNgf: 89.4, surfaceM2: 73.87 }, 'au moment du gel');
+    expect(l[0]).toBe('Source : au moment du gel');
+    expect(l).toContain('cleabs : BAT_A');
+    expect(l).toContain('étages : 7');
+    expect(l).toContain('surface : 73.9 m²');                 // arrondi d'affichage seul (0,1 m²)
+    expect(l).toContain('hauteur (depuis le sol) : 21 m');    // hauteur nommée
+    expect(l).toContain('altitude de toit (NGF) : 89.4 m NGF'); // altitude nommée SÉPARÉMENT
+    // tout absent → « non renseigné » partout (jamais un zéro inventé)
+    const vide = lignesBulle(null, { nombreEtages: null, hauteurM: null, altitudeToitNgf: null, surfaceM2: null }, 'x');
+    expect(vide).toContain('cleabs : non renseigné'); expect(vide).toContain('surface : non renseigné');
+    expect(vide).toContain('hauteur (depuis le sol) : non renseigné'); expect(vide).toContain('altitude de toit (NGF) : non renseigné');
+  });
+
+  it('coché → bulle (title) avec cleabs + étages + surface + hauteur + altitude de toit ; polygone focalisable au clavier', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaAttr(), corps: [], sourceLibelle: 'au moment du gel' }));
+    expect(h).toContain('<title>');
+    expect(h).toContain('cleabs : BAT_A'); expect(h).toContain('étages : 7'); expect(h).toContain('surface : 73.9 m²');
+    expect(h).toContain('hauteur (depuis le sol) : 21 m'); expect(h).toContain('altitude de toit (NGF) : 89.4 m NGF');
+    expect(h).toContain('Source : au moment du gel'); // source nommée sans ambiguïté
+    expect(h).toContain('tabindex="0"');               // atteignable au clavier
+    expect(h).toContain('aria-label="Source : au moment du gel'); // info aussi dans le nom accessible
+  });
+
+  it('hauteur PRÉSENTE mais altitude ABSENTE (cas 11430) → l’une affichée, l’autre « non renseigné »', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaAttr(), corps: [], sourceLibelle: 'gel' }));
+    expect(h).toContain('hauteur (depuis le sol) : 5 m');      // B : hauteur présente
+    expect(h).toContain('altitude de toit (NGF) : non renseigné'); // B : altitude absente
+  });
+
+  it('décoché → aucune lettre, aucun halo, AUCUNE bulle (ni title, ni interactivité)', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaAttr(), corps: [], afficherReperes: false }));
+    expect(h).not.toContain('<text');       // aucune lettre
+    expect(h).not.toContain('paint-order');  // aucun halo
+    expect(h).not.toContain('<title');       // aucune bulle
+    expect(h).not.toContain('tabindex');     // plus interactif
+    expect(h).not.toContain('cleabs :');     // pas d'info de bulle
+    expect(h).toContain('d="M20,20 L40,20 L40,40 Z"'); // les polygones (formes) restent
+  });
+
+  it('l’interrupteur est présent en PLEIN ÉCRAN (schéma seul) et pilote le réglage', () => {
+    const aff: AffectationEtat = { empreinteFigee: true, motif: null, colonneManquante: false, schema: schemaAttr(), polygones: [], corps: [] };
+    const h = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: NOM_SCHEMA_ORIGINE, affectation: aff, persiste: true, onAffecter: noop, onFermer: noop, afficherReperes: true, onAfficherReperes: noop, sourceLibelle: 'gel' }));
+    expect(h).toContain('type="checkbox"'); expect(h).toContain('Afficher les repères');
+    // sans onAfficherReperes (ex. si non fourni) → pas d'interrupteur
+    const hSans = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: NOM_SCHEMA_ORIGINE, affectation: aff, persiste: true, onAffecter: noop, onFermer: noop }));
+    expect(hSans).not.toContain('type="checkbox"');
+  });
+
+  it('l’interrupteur est présent en plein écran COMPARATIF, une seule fois, et vaut pour les deux schémas', () => {
+    const aff: AffectationEtat = { empreinteFigee: true, motif: null, colonneManquante: false, schema: schemaAttr(), polygones: [], corps: [] };
+    const h = renderToStaticMarkup(createElement(ComparaisonPleinEcran, { origine: aff, nouvelle: aff, nomOrigine: NOM_SCHEMA_ORIGINE, nomNouvelle: NOM_SCHEMA_NOUVELLE, onFermer: noop, afficherReperes: true, onAfficherReperes: noop, sourceOrigine: 'au moment du gel', sourceNouvelle: 'état actuel' }));
+    expect((h.match(/type="checkbox"/g) ?? []).length).toBe(1); // UN seul interrupteur
+    expect(h).toContain('Source : au moment du gel'); expect(h).toContain('Source : état actuel'); // chaque schéma nomme SA source
+  });
+
+  it('InterrupteurReperes (pur) : reflète l’état et l’annonce aux lecteurs d’écran', () => {
+    const hOn = renderToStaticMarkup(createElement(InterrupteurReperes, { afficherReperes: true, onAfficherReperes: noop }));
+    expect(hOn).toContain('checked'); expect(hOn).toContain('aria-label="Afficher les repères');
+    const hOff = renderToStaticMarkup(createElement(InterrupteurReperes, { afficherReperes: false, onAfficherReperes: noop }));
+    expect(hOff).not.toContain('checked');
   });
 });

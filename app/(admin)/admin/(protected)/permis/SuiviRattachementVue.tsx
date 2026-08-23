@@ -4,7 +4,11 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 // ⚠️ Bundle client : uniquement des TYPES depuis les modules serveur.
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SchemaPleinEcran, ComparaisonPleinEcran, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE } from './SuiviRattachementRendu';
+
+// L11 — libellés de SOURCE des bulles (constat AVANT travaux). L'origine figée lit le SNAPSHOT ; sinon (et la nouvelle) la couche vivante.
+const SOURCE_GEL = 'au moment du gel (état des lieux figé)';
+const SOURCE_VIVANTE = 'état actuel (couche BD TOPO)';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { CellulePieces } from './ArchivesRendu';
 import { recompterSiSucces } from './comptesActions';
@@ -25,6 +29,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [detail, setDetail] = useState<DetailSuivi | null>(null);
   const [comparaison, setComparaison] = useState<ComparaisonRattachement | null>(null); // L5 : origine (figée) + nouvelle (vivante) + rouge
   const [pleinEcran, setPleinEcran] = useState<'origine' | 'nouvelle' | 'comparer' | null>(null); // L3/L5 — quel plein écran est ouvert
+  const [afficherReperes, setAfficherReperes] = useState(true); // L10 — réglage de LECTURE partagé par les deux schémas + plein écran + comparatif (persiste entre dossiers)
   const [detailErreur, setDetailErreur] = useState(false);
   const [affErreur, setAffErreur] = useState('');
   const [permisOuvert, setPermisOuvert] = useState(false); // détail complet du permis (caractéristiques + pièces), replié par défaut
@@ -140,15 +145,19 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
           const affecterCb = (corpsId: number, cleabs: string | null) => void affecter(corpsId, cleabs);
           const descO = descriptionSchemaOrigine(origine);
           const mentionN = descriptionSchemaNouvelle(nouvelle.polygones.length, polygonesModifies.length);
+          const sourceOrigine = origine.figee ? SOURCE_GEL : SOURCE_VIVANTE; // l'origine non figée lit en réalité le vivant
           return (
             <>
+              {/* L10/L11 — interrupteur de LECTURE UNIQUE (mêmes deux schémas + plein écran + comparatif). Coché = repères + bulles ;
+                  décoché = ni lettre, ni halo, ni bulle. Le MÊME composant est monté ici et en plein écran (état dans la Vue). */}
+              <InterrupteurReperes afficherReperes={afficherReperes} onAfficherReperes={setAfficherReperes} />
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.75rem', alignItems: 'flex-start' }}>
                 <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                  <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} />
+                  <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} />
                 </div>
                 {aChange && (
                   <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                    <AffectationBloc affectation={nouvelle} titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('nouvelle')} />
+                    <AffectationBloc affectation={nouvelle} titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('nouvelle')} afficherReperes={afficherReperes} sourceLibelle={SOURCE_VIVANTE} />
                   </div>
                 )}
               </div>
@@ -163,15 +172,15 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
                 </div>
               )}
               {pleinEcran === 'origine' && (
-                <SchemaPleinEcran titre={descO.nom} mention={descO.mention} affectation={origine} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onFermer={() => setPleinEcran(null)} />
+                <SchemaPleinEcran titre={descO.nom} mention={descO.mention} affectation={origine} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onFermer={() => setPleinEcran(null)} afficherReperes={afficherReperes} onAfficherReperes={setAfficherReperes} sourceLibelle={sourceOrigine} />
               )}
               {pleinEcran === 'nouvelle' && (
-                <SchemaPleinEcran titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} affectation={nouvelle} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onFermer={() => setPleinEcran(null)} />
+                <SchemaPleinEcran titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} affectation={nouvelle} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onFermer={() => setPleinEcran(null)} afficherReperes={afficherReperes} onAfficherReperes={setAfficherReperes} sourceLibelle={SOURCE_VIVANTE} />
               )}
               {pleinEcran === 'comparer' && aChange && (
                 <ComparaisonPleinEcran origine={origine} nouvelle={nouvelle} rougeCleabs={polygonesModifies}
                   nomOrigine={descO.nom} nomNouvelle={NOM_SCHEMA_NOUVELLE} mentionOrigine={descO.mention} mentionNouvelle={mentionN}
-                  onFermer={() => setPleinEcran(null)} />
+                  onFermer={() => setPleinEcran(null)} afficherReperes={afficherReperes} onAfficherReperes={setAfficherReperes} sourceOrigine={sourceOrigine} sourceNouvelle={SOURCE_VIVANTE} />
               )}
             </>
           );

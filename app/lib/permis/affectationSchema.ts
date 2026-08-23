@@ -66,8 +66,15 @@ export function geomDepuisGeoJSON(gj: unknown): GeomPoly {
   return { anneaux: [] };
 }
 
-export interface PolygoneEntreeSchema { repere: string; cleabs: string | null; geom: GeomPoly; horsEmpreinte: boolean }
-export interface PolygoneSchema { repere: string; cleabs: string | null; path: string; cx: number; cy: number; horsEmpreinte: boolean }
+/**
+ * L11 — attributs d'un polygone, affichés dans la bulle au survol. HAUTEUR et ALTITUDE DE TOIT sont DEUX grandeurs DISTINCTES :
+ * `hauteurM` = élévation depuis le sol (m) ; `altitudeToitNgf` = cote ABSOLUE en NGF. Jamais fusionnées. `surfaceM2` = ST_Area de
+ * la géométrie (Lambert-93), calculée à la lecture. Tous nullables → « non renseigné » à l'affichage, jamais un zéro inventé.
+ */
+export interface AttributsPolygone { nombreEtages: number | null; hauteurM: number | null; altitudeToitNgf: number | null; surfaceM2: number | null }
+
+export interface PolygoneEntreeSchema { repere: string; cleabs: string | null; geom: GeomPoly; horsEmpreinte: boolean; attributs?: AttributsPolygone }
+export interface PolygoneSchema { repere: string; cleabs: string | null; path: string; cx: number; cy: number; horsEmpreinte: boolean; attributs?: AttributsPolygone }
 export interface SchemaEmpreinte { largeur: number; hauteur: number; empreintePath: string | null; polygones: PolygoneSchema[]; motif: string | null }
 
 const arrondi = (x: number): number => Math.round(x * 10) / 10;
@@ -118,7 +125,7 @@ export function construireSchema(empreinte: GeomPoly | null, polygones: Polygone
   return {
     largeur, hauteur, motif: null,
     empreintePath: geomVersPath(empreinte),
-    polygones: polygones.map((p) => { const [cx, cy] = centroide(p.geom); return { repere: p.repere, cleabs: p.cleabs, path: geomVersPath(p.geom), cx, cy, horsEmpreinte: p.horsEmpreinte }; }),
+    polygones: polygones.map((p) => { const [cx, cy] = centroide(p.geom); return { repere: p.repere, cleabs: p.cleabs, path: geomVersPath(p.geom), cx, cy, horsEmpreinte: p.horsEmpreinte, attributs: p.attributs }; }),
   };
 }
 

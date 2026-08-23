@@ -31,7 +31,9 @@ describe('L4 — lireAffectationOrigine lit le snapshot figé (lecture seule)', 
     const o = await lireAffectationOrigine(DOSSIER_SNAPSHOT);
     expect(o.figee).toBe(true);
     expect(o.captureVide).toBe(false);
-    expect(o.millesimeGel).toBe('2026-06-18');
+    // millesimeGel = le source_millesime RÉELLEMENT figé (lu en base, pas codé en dur : une re-capture le fait varier — L8/L9).
+    const { rows: cap } = await query<{ m: string | null }>(`SELECT source_millesime AS m FROM permis_bati_capture WHERE dossier_id = $1`, [DOSSIER_SNAPSHOT]);
+    expect(o.millesimeGel).toBe(cap[0].m);
     expect(o.polygones.length).toBe(16);
     expect(o.schema.polygones.length).toBe(16);
   });
@@ -49,7 +51,9 @@ describe('L4 — lireAffectationOrigine lit le snapshot figé (lecture seule)', 
     expect(o.figee).toBe(true);
     expect(o.captureVide).toBe(true);
     expect(o.polygones.length).toBe(0);
-    expect(o.millesimeGel).toBe('2026-06-18');
+    const { rows: cap } = await query<{ m: string | null }>(`SELECT source_millesime AS m FROM permis_bati_capture WHERE dossier_id = $1`, [DOSSIER_TERRAIN_NU]);
+    expect(o.millesimeGel).toBe(cap[0].m); // présent (≠ null), lu en base, pas codé en dur
+    expect(o.millesimeGel).not.toBeNull();
   });
 
   it('L5 — 11430 : snapshot == live aujourd’hui → aChange=false, AUCUN polygone rouge (comportement CORRECT, pas un bug)', async () => {

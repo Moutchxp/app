@@ -181,7 +181,8 @@ export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles
                           return (
                             <li key={b.cleabs ?? `b-${i}`} style={{ overflowWrap: 'anywhere' }}>
                               <span style={{ color: 'var(--color-svv-muted)' }}>· </span>
-                              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{b.cleabs ?? '(cleabs inconnu)'}</span>
+                              {/* L10 — cleabs en chasse fixe + sélectionnable d'un clic (copie). Aucune nouvelle liste : ce tableau du bâti figé affichait DÉJÀ le cleabs. */}
+                              <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', userSelect: 'all', wordBreak: 'break-all' }}>{b.cleabs ?? '(cleabs inconnu)'}</span>
                               {det
                                 ? <span style={{ color: 'var(--color-svv-muted)' }}> — {det}</span>
                                 : <span style={{ ...styleAide }}> — étages/altitude non renseignés</span>}

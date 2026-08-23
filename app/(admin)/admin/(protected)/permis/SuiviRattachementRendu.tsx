@@ -6,7 +6,7 @@ import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/
 import type { CritereSurface, CritereBordure, CritereBati } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo'; // TYPE seul (module serveur)
 // affectationSchema est PUR (aucun import serveur) → on peut importer ses fonctions dans le bundle client.
-import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere, indexDepuisRepere, PALETTE_REPERE, type SchemaEmpreinte, type CorpsAffectation } from '../../../../lib/permis/affectationSchema';
+import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere, indexDepuisRepere, PALETTE_REPERE, type SchemaEmpreinte, type CorpsAffectation, type AttributsPolygone } from '../../../../lib/permis/affectationSchema';
 // rattachementGroupes est PUR (import de TYPE seul depuis le repo, erasé) → client-safe. Source UNIQUE de la coupure en deux (L6).
 import { estAFaire, GROUPE1_TITRE, GROUPE2_TITRE } from '../../../../lib/permis/rattachementGroupes';
 
@@ -42,6 +42,39 @@ const styleTrameDetail: CSSProperties = {
   listStyle: 'none', padding: '.5rem', marginTop: '.1rem', borderRadius: '.4rem', border: '1px solid var(--color-svv-line)',
   backgroundColor: '#f4f4f5', backgroundImage: 'repeating-linear-gradient(45deg, rgba(0,0,0,.05) 0 1px, transparent 1px 7px)',
 };
+
+/**
+ * L11 — lignes de la BULLE d'un polygone (constat AVANT travaux). PUR → testable. La SOURCE est nommée sans ambiguïté (figé au gel
+ * vs actuel). HAUTEUR (élévation depuis le sol, m) et ALTITUDE DE TOIT (cote NGF absolue) sont NOMMÉES SÉPARÉMENT — jamais fusionnées.
+ * Donnée absente → « non renseigné » (jamais un blanc ni un zéro inventé). La surface est arrondie à 0,1 m² pour l'AFFICHAGE seul
+ * (valeur brute Lambert-93 non altérée, ne sert à aucun calcul).
+ */
+export function lignesBulle(cleabs: string | null, a: AttributsPolygone | undefined, sourceLibelle: string): string[] {
+  const nr = 'non renseigné';
+  const surf = a?.surfaceM2 != null ? `${Math.round(a.surfaceM2 * 10) / 10} m²` : nr;
+  return [
+    `Source : ${sourceLibelle}`,
+    `cleabs : ${cleabs ?? nr}`,
+    `étages : ${a?.nombreEtages != null ? a.nombreEtages : nr}`,
+    `surface : ${surf}`,
+    `hauteur (depuis le sol) : ${a?.hauteurM != null ? `${a.hauteurM} m` : nr}`,
+    `altitude de toit (NGF) : ${a?.altitudeToitNgf != null ? `${a.altitudeToitNgf} m NGF` : nr}`,
+  ];
+}
+
+/**
+ * L11 — l'interrupteur UNIQUE « Afficher les repères ». Le MÊME composant est monté en vue réduite ET en plein écran : un seul
+ * réglage de lecture (piloté par la Vue), deux endroits qui le basculent. Coché → lettres + bulles ; décoché → ni lettre, ni halo, ni bulle.
+ */
+export function InterrupteurReperes({ afficherReperes, onAfficherReperes }: { afficherReperes: boolean; onAfficherReperes: (v: boolean) => void }) {
+  return (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: 12, width: 'auto' }}>
+      <input type="checkbox" checked={afficherReperes} onChange={(e) => onAfficherReperes(e.target.checked)}
+        aria-label="Afficher les repères et les bulles d’information sur les schémas" />
+      <span>Afficher les repères (A, B, C…) et les infos au survol</span>
+    </label>
+  );
+}
 
 /** L1 — formate une date ISO 'YYYY-MM-DD' en 'JJ/MM/AAAA'. Découpage de chaîne (jamais `new Date`) : déterministe et sans piège de fuseau. */
 export function formatDateFr(iso: string | null): string {
@@ -386,9 +419,10 @@ export function ActionsRattachement({ avertissement, motifRefus, motifConfirmati
  *     (halo blanc sous le glyphe → lisible sur n'importe quelle teinte). Affecté → contour VERT ; hors empreinte → contour TIRETÉ
  *     (canaux NON colorés : l'information ne dépend jamais de la seule couleur).
  */
-export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; agrandi?: boolean; rougeCleabs?: readonly string[] }) {
+export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs, afficherReperes = true, sourceLibelle = '' }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; agrandi?: boolean; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string }) {
   const uid = useId();
   const trameId = `trame-${uid.replace(/:/g, '')}`; // id unique (deux schémas côte à côte en L5 ne partageront pas le motif)
+  const [actif, setActif] = useState<string | null>(null); // L11 — repère du polygone survolé/focalisé/tapé (bulle visuelle)
   if (schema.motif) return <div style={{ ...styleAide, fontStyle: 'italic' }}>{schema.motif}</div>;
   // L3 — `agrandi` : en plein écran, le schéma remplit la largeur disponible (le viewBox conserve le ratio) et monte jusqu'à 72vh
   // pour que les repères chevauchés en vue réduite redeviennent lisibles. En vue réduite : dimensions intrinsèques + maxWidth.
@@ -396,37 +430,58 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
   const styleSvg: CSSProperties = agrandi
     ? { width: '100%', height: 'auto', maxHeight: '72vh', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' }
     : { maxWidth: '100%', height: 'auto', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' };
+  // L11 — polygone actif pour la bulle VISUELLE (état-dépendante). Neutralisée si repères masqués.
+  const actifPoly = afficherReperes ? schema.polygones.find((p) => p.repere === actif) ?? null : null;
   return (
-    <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} {...dims} role="img"
-      aria-label="Schéma des polygones de la parcelle du permis, étiquetés par repère" style={styleSvg}>
-      <defs>
-        {/* ① trame grise du fond HORS parcelle : hachures à 45°, franches en niveaux de gris (impression N&B OK) */}
-        <pattern id={trameId} width={6} height={6} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-          <rect width={6} height={6} fill="#f4f4f5" />
-          <line x1={0} y1={0} x2={0} y2={6} stroke="#c9ccd1" strokeWidth={1.2} />
-        </pattern>
-      </defs>
-      <rect x={0} y={0} width={schema.largeur} height={schema.hauteur} fill={`url(#${trameId})`} />
-      {/* ② parcelle : blanc plein par-dessus la trame → son contour se détache */}
-      {schema.empreintePath && <path d={schema.empreintePath} fill="#fff" stroke="var(--color-svv-ink)" strokeWidth={1.5} />}
-      {/* ③ polygones : couleur franche par repère (identité stable) ; affecté = contour vert ; hors empreinte = contour tireté */}
-      {schema.polygones.map((p) => {
-        const affecte = !!corpsDuPolygone(corps, p.cleabs);
-        // L5 — polygone NOUVEAU/MODIFIÉ depuis l'origine → surface ROUGE (le rouge est hors palette depuis L2). Le repère écrit
-        // reste la référence (le rouge n'est jamais seul porteur : la légende dit ce qu'il signifie).
-        const estRouge = p.cleabs != null && !!rougeCleabs?.includes(p.cleabs);
-        return (
-          <g key={p.repere}>
-            <path d={p.path} fill={estRouge ? 'var(--color-svv-red)' : couleurRepere(indexDepuisRepere(p.repere))} fillOpacity={0.85}
-              stroke={affecte ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'} strokeWidth={affecte ? 2.5 : 1}
-              strokeDasharray={p.horsEmpreinte ? '3 2' : undefined} />
-            {/* repère avec HALO blanc (paint-order) → contraste suffisant sur n'importe quelle couleur de remplissage */}
-            <text x={p.cx} y={p.cy} textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight={700}
-              fill="var(--color-svv-ink)" stroke="#fff" strokeWidth={3} paintOrder="stroke">{p.repere}</text>
-          </g>
-        );
-      })}
-    </svg>
+    <div style={{ position: 'relative', display: agrandi ? 'block' : 'inline-block', maxWidth: '100%', width: agrandi ? '100%' : undefined }}>
+      <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} {...dims} role="img"
+        aria-label="Schéma des polygones de la parcelle du permis, étiquetés par repère" style={styleSvg}>
+        <defs>
+          {/* ① trame grise du fond HORS parcelle : hachures à 45°, franches en niveaux de gris (impression N&B OK) */}
+          <pattern id={trameId} width={6} height={6} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width={6} height={6} fill="#f4f4f5" />
+            <line x1={0} y1={0} x2={0} y2={6} stroke="#c9ccd1" strokeWidth={1.2} />
+          </pattern>
+        </defs>
+        <rect x={0} y={0} width={schema.largeur} height={schema.hauteur} fill={`url(#${trameId})`} />
+        {/* ② parcelle : blanc plein par-dessus la trame → son contour se détache */}
+        {schema.empreintePath && <path d={schema.empreintePath} fill="#fff" stroke="var(--color-svv-ink)" strokeWidth={1.5} />}
+        {/* ③ polygones : couleur franche par repère (identité stable) ; affecté = contour vert ; hors empreinte = contour tireté */}
+        {schema.polygones.map((p) => {
+          const affecte = !!corpsDuPolygone(corps, p.cleabs);
+          const estRouge = p.cleabs != null && !!rougeCleabs?.includes(p.cleabs); // L5 — nouveau/modifié → rouge (jamais seul porteur)
+          // L11 — quand les repères sont affichés : le polygone porte sa BULLE (<title> = survol natif + nom accessible au clavier) et
+          // devient focalisable/tapable (équivalent tactile). Décoché → ni <title>, ni lettre, ni interactivité, ni bulle.
+          const info = afficherReperes ? lignesBulle(p.cleabs, p.attributs, sourceLibelle) : null;
+          const interactif = afficherReperes
+            ? { tabIndex: 0, role: 'img' as const, 'aria-label': info!.join(' ; '), style: { cursor: 'pointer' },
+                onMouseEnter: () => setActif(p.repere), onMouseLeave: () => setActif(null),
+                onFocus: () => setActif(p.repere), onBlur: () => setActif(null),
+                onClick: () => setActif((a) => (a === p.repere ? null : p.repere)) } // tap : 1er appui affiche, 2e masque
+            : {};
+          return (
+            <g key={p.repere} {...interactif}>
+              {info && <title>{info.join('\n')}</title>}
+              <path d={p.path} fill={estRouge ? 'var(--color-svv-red)' : couleurRepere(indexDepuisRepere(p.repere))} fillOpacity={0.85}
+                stroke={affecte ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'} strokeWidth={affecte ? 2.5 : 1}
+                strokeDasharray={p.horsEmpreinte ? '3 2' : undefined} />
+              {/* L10 — repère + HALO masquables. Le path ci-dessus (forme + couleur) ne change jamais. */}
+              {afficherReperes && (
+                <text x={p.cx} y={p.cy} textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight={700}
+                  fill="var(--color-svv-ink)" stroke="#fff" strokeWidth={3} paintOrder="stroke">{p.repere}</text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+      {/* L11 — bulle VISUELLE : épinglée EN BAS du schéma (jamais au-dessus du nom en haut, jamais hors cadre : left/right/bottom bornés).
+          pointer-events:none → n'intercepte pas le survol du polygone dessous. Le <title> reste le canal natif/clavier/testable. */}
+      {actifPoly && (
+        <div role="status" aria-live="polite" style={{ position: 'absolute', left: 4, right: 4, bottom: 4, pointerEvents: 'none', background: 'rgba(255,255,255,.96)', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.3rem .45rem', fontSize: 11, lineHeight: 1.35, color: 'var(--color-svv-ink)', overflowWrap: 'anywhere', boxShadow: '0 1px 4px rgba(0,0,0,.18)' }}>
+          {lignesBulle(actifPoly.cleabs, actifPoly.attributs, sourceLibelle).map((l, i) => <div key={i} style={i === 0 ? { fontWeight: 700 } : undefined}>{l}</div>)}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -548,14 +603,14 @@ export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onA
  * FIGURE du schéma : le SVG + son NOM écrit DANS le visuel (figcaption en surimpression, pas seulement au-dessus). Quand `onAgrandir`
  * est fourni, la figure devient une cible cliquable ET focalisable au clavier (role=button, Entrée/Espace) → ouvre le plein écran.
  */
-export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, onAgrandir, rougeCleabs }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; mention?: string; agrandi?: boolean; onAgrandir?: () => void; rougeCleabs?: readonly string[] }) {
+export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, onAgrandir, rougeCleabs, afficherReperes = true, sourceLibelle = '' }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; mention?: string; agrandi?: boolean; onAgrandir?: () => void; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string }) {
   const contenu = (
     <>
       <figure style={{ position: 'relative', margin: 0 }}>
         {titre && (
           <figcaption style={{ position: 'absolute', top: 6, left: 6, zIndex: 1, fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,.85)', color: 'var(--color-svv-ink)', padding: '.1rem .45rem', borderRadius: '.3rem', border: '1px solid var(--color-svv-line)' }}>{titre}</figcaption>
         )}
-        <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} rougeCleabs={rougeCleabs} />
+        <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} />
       </figure>
       {/* L4 — mention (provenance + millésime du gel) écrite DANS le visuel, juste sous le nom du schéma. */}
       {mention && <div style={{ ...styleAide }}>{mention}</div>}
@@ -586,18 +641,24 @@ export function LegendeRepetesComplete({ schema, corps, rougeCleabs }: { schema:
   const yAduRouge = schema.polygones.some((p) => estRouge(p.cleabs));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-      <div role="note" aria-label="Légende : repères présents dans la parcelle du permis" style={{ ...styleAide, display: 'flex', flexWrap: 'wrap', gap: '.35rem .8rem' }}>
+      {/* L10 — chaque repère ASSOCIÉ à son cleabs (la clé de lecture dessin ↔ identité). cleabs LONG → jamais dans le polygone,
+          seulement ici : chasse fixe, sélectionnable d'un clic (copie). Liste verticale (une entrée par ligne) pour le lire en entier. */}
+      <ul role="note" aria-label="Légende : chaque repère et son cleabs" style={{ ...styleAide, margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
         {schema.polygones.map((p) => {
           const corpsAff = corpsDuPolygone(corps, p.cleabs);
           const rouge = estRouge(p.cleabs);
+          const note = corpsAff ? ` → ${corpsAff.repere ?? `corps ${corpsAff.id}`}` : p.horsEmpreinte ? ' (déborde de la parcelle)' : '';
           return (
-            <span key={p.repere} style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
-              <span aria-hidden="true" style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: rouge ? 'var(--color-svv-red)' : couleurRepere(indexDepuisRepere(p.repere)), opacity: 0.85, border: p.horsEmpreinte ? '1px dashed var(--color-svv-ink)' : `1px solid ${corpsAff ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'}` }} />
-              <strong>{p.repere}</strong>{corpsAff ? ` → ${corpsAff.repere ?? `corps ${corpsAff.id}`}` : p.horsEmpreinte ? ' (déborde de la parcelle)' : ''}{rouge ? ' (nouveau/modifié)' : ''}
-            </span>
+            <li key={p.repere} style={{ display: 'flex', alignItems: 'baseline', gap: '.35rem', overflowWrap: 'anywhere' }}>
+              <span aria-hidden="true" style={{ alignSelf: 'center', flexShrink: 0, display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: rouge ? 'var(--color-svv-red)' : couleurRepere(indexDepuisRepere(p.repere)), opacity: 0.85, border: p.horsEmpreinte ? '1px dashed var(--color-svv-ink)' : `1px solid ${corpsAff ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'}` }} />
+              <strong style={{ flexShrink: 0 }}>{p.repere}</strong>
+              <span aria-hidden="true" style={{ flexShrink: 0, color: 'var(--color-svv-muted)' }}>→</span>
+              <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', userSelect: 'all', wordBreak: 'break-all' }}>{p.cleabs ?? '(sans cleabs)'}</span>
+              {(note || rouge) && <span style={{ flexShrink: 0, color: 'var(--color-svv-muted)' }}>{note}{rouge ? ' (nouveau/modifié)' : ''}</span>}
+            </li>
           );
         })}
-      </div>
+      </ul>
       {/* L5 — clé du ROUGE : la puce rouge + ce qu'elle signifie (le rouge n'est jamais seul porteur). */}
       {yAduRouge && (
         <div role="note" style={{ ...styleAide, display: 'flex', alignItems: 'baseline', gap: '.3rem' }}>
@@ -675,14 +736,16 @@ export function DialoguePleinEcran({ titre, onFermer, children }: { titre: strin
  * `LegendeRepetesComplete` et surtout `CorpsEtChoix` (mêmes règles d'affectation — AUCUNE duplication).
  * Mobile-first : le schéma prime (en tête), la légende puis les sélecteurs suivent en défilement, sans masquer le dessin.
  */
-export function SchemaPleinEcran({ titre, mention, affectation, persiste, enAttenteBati = false, onAffecter, onFermer, rougeCleabs }: {
+export function SchemaPleinEcran({ titre, mention, affectation, persiste, enAttenteBati = false, onAffecter, onFermer, rougeCleabs, afficherReperes = true, onAfficherReperes, sourceLibelle = '' }: {
   titre: string; mention?: string; affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean;
-  onAffecter?: (corpsId: number, cleabs: string | null) => void; onFermer: () => void; rougeCleabs?: readonly string[];
+  onAffecter?: (corpsId: number, cleabs: string | null) => void; onFermer: () => void; rougeCleabs?: readonly string[]; afficherReperes?: boolean; onAfficherReperes?: (v: boolean) => void; sourceLibelle?: string;
 }) {
   return (
     <DialoguePleinEcran titre={titre} onFermer={onFermer}>
+      {/* L11 — l'interrupteur est AUSSI en plein écran (même réglage que la vue réduite, piloté par la Vue). */}
+      {onAfficherReperes && <InterrupteurReperes afficherReperes={afficherReperes} onAfficherReperes={onAfficherReperes} />}
       {/* Le schéma PRIME (grand, en tête) — le nom + la mention sont écrits DANS le visuel via la figure. */}
-      <SchemaFigure schema={affectation.schema} corps={affectation.corps} titre={titre} mention={mention} agrandi rougeCleabs={rougeCleabs} />
+      <SchemaFigure schema={affectation.schema} corps={affectation.corps} titre={titre} mention={mention} agrandi rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} />
       <LegendeRepetesComplete schema={affectation.schema} corps={affectation.corps} rougeCleabs={rougeCleabs} />
       {/* La FONCTION de rattachement, à l'identique (mêmes règles) — c'est là qu'on arbitre. */}
       {affectation.colonneManquante && <div role="alert" style={{ color: 'var(--color-svv-red)' }}>Affectation indisponible : migration 117 non appliquée.</div>}
@@ -697,20 +760,22 @@ export function SchemaPleinEcran({ titre, mention, affectation, persiste, enAtte
  * étroit, `flex-wrap` EMPILE (origine au-dessus, nouvelle en dessous) — jamais un côte-à-côte illisible. Vue de COMPARAISON : les deux
  * schémas + leurs légendes (l'arbitrage reste accessible dans chaque bloc et dans chaque plein écran simple, via le même `CorpsEtChoix`).
  */
-export function ComparaisonPleinEcran({ origine, nouvelle, rougeCleabs, nomOrigine, nomNouvelle, mentionOrigine, mentionNouvelle, onFermer }: {
+export function ComparaisonPleinEcran({ origine, nouvelle, rougeCleabs, nomOrigine, nomNouvelle, mentionOrigine, mentionNouvelle, onFermer, afficherReperes = true, onAfficherReperes, sourceOrigine = '', sourceNouvelle = '' }: {
   origine: AffectationEtat; nouvelle: AffectationEtat; rougeCleabs?: readonly string[];
-  nomOrigine: string; nomNouvelle: string; mentionOrigine?: string; mentionNouvelle?: string; onFermer: () => void;
+  nomOrigine: string; nomNouvelle: string; mentionOrigine?: string; mentionNouvelle?: string; onFermer: () => void; afficherReperes?: boolean; onAfficherReperes?: (v: boolean) => void; sourceOrigine?: string; sourceNouvelle?: string;
 }) {
   const colonne: CSSProperties = { flex: '1 1 320px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.4rem' };
   return (
     <DialoguePleinEcran titre="Comparer les schémas" onFermer={onFermer}>
+      {/* L11 — l'interrupteur UNE fois pour les deux schémas (même réglage). */}
+      {onAfficherReperes && <InterrupteurReperes afficherReperes={afficherReperes} onAfficherReperes={onAfficherReperes} />}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-start' }}>
         <section aria-label={nomOrigine} style={colonne}>
-          <SchemaFigure schema={origine.schema} corps={origine.corps} titre={nomOrigine} mention={mentionOrigine} agrandi />
+          <SchemaFigure schema={origine.schema} corps={origine.corps} titre={nomOrigine} mention={mentionOrigine} agrandi afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} />
           <LegendeRepetesComplete schema={origine.schema} corps={origine.corps} />
         </section>
         <section aria-label={nomNouvelle} style={colonne}>
-          <SchemaFigure schema={nouvelle.schema} corps={nouvelle.corps} titre={nomNouvelle} mention={mentionNouvelle} agrandi rougeCleabs={rougeCleabs} />
+          <SchemaFigure schema={nouvelle.schema} corps={nouvelle.corps} titre={nomNouvelle} mention={mentionNouvelle} agrandi rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceNouvelle} />
           <LegendeRepetesComplete schema={nouvelle.schema} corps={nouvelle.corps} rougeCleabs={rougeCleabs} />
         </section>
       </div>
@@ -722,7 +787,7 @@ export function ComparaisonPleinEcran({ origine, nouvelle, rougeCleabs, nomOrigi
  * Bloc d'affectation (vue RÉDUITE) : le SCHÉMA nommé + cliquable (→ plein écran) + sa LÉGENDE compacte, puis les CHOIX (`CorpsEtChoix`,
  * mêmes règles que le plein écran). Le schéma reste consultable même sans dossier persisté (on DIT pourquoi l'arbitrage est fermé).
  */
-export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[] }) {
+export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs, afficherReperes = true, sourceLibelle = '' }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string }) {
   const { corps, schema, motif, colonneManquante } = affectation;
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -736,7 +801,7 @@ export function AffectationBloc({ affectation, persiste, enAttenteBati = false, 
         : (
           <>
             {/* Schéma nommé + cliquable (→ plein écran) + légende compacte : TOUJOURS rendus (informatifs), quel que soit l'état. */}
-            <SchemaFigure schema={schema} corps={corps} titre={titre} mention={mention} onAgrandir={onAgrandir} rougeCleabs={rougeCleabs} />
+            <SchemaFigure schema={schema} corps={corps} titre={titre} mention={mention} onAgrandir={onAgrandir} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} />
             <LegendeAffectation avecRouge={(rougeCleabs?.length ?? 0) > 0} />
             <CorpsEtChoix affectation={affectation} persiste={persiste} enAttenteBati={enAttenteBati} onAffecter={onAffecter} />
           </>

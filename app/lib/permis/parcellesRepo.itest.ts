@@ -32,14 +32,16 @@ describe('L9 — permis_bati_snapshot fige etat_de_l_objet / usage', () => {
     for (const r of rows) { expect(r.data_type).toBe('text'); expect(r.is_nullable).toBe('YES'); }
   });
 
-  it('② les captures DÉJÀ écrites ne sont pas modifiées : NULL sur les 3 colonnes (aucun backfill)', async () => {
+  it('② la migration est additive (aucune contrainte NOT NULL) et les valeurs captées sont valides : etat_de_l_objet ∈ nomenclature IGN ou NULL', async () => {
     if (!colonnesOk) { expect(colonnesOk).toBe(false); return; } // migration absente → test neutralisé
-    const { rows } = await query<{ lignes: number; avec: number }>(
+    // NB : « aucun backfill » n'est plus observable une fois qu'une re-capture (L9) a rempli les colonnes — assertion durable ci-dessous.
+    const { rows } = await query<{ lignes: number; hors_nomenclature: number }>(
       `SELECT count(*)::int AS lignes,
-              count(etat_de_l_objet)::int + count(usage_1)::int + count(usage_2)::int AS avec
+              count(*) FILTER (WHERE etat_de_l_objet IS NOT NULL
+                AND etat_de_l_objet NOT IN ('En service','En construction','En projet','En ruine'))::int AS hors_nomenclature
          FROM permis_bati_snapshot`);
-    expect(rows[0].lignes).toBeGreaterThan(0); // il y a bien des captures existantes
-    expect(rows[0].avec).toBe(0);              // toutes NULL sur les 3 nouvelles colonnes (pas de backfill)
+    expect(rows[0].lignes).toBeGreaterThan(0);      // il y a bien des captures
+    expect(rows[0].hors_nomenclature).toBe(0);      // capture BRUTE : toute valeur non nulle est une valeur IGN valide (jamais inventée)
   });
 
   it('③ la source PORTE le signal : les bâtis de l’empreinte de 11430 ont un etat_de_l_objet (donc capturable au prochain gel)', async () => {
