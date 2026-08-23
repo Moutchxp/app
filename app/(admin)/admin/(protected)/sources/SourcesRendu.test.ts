@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion } from './SourcesRendu';
+import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionMorphologie } from './SourcesRendu';
 import { construireEtatSources, type LectureSource, type LectureDetection } from '../../../../lib/admin/sourcesFraicheur';
+import { construireMorphologie, MORPHOLOGIE_INDISPONIBLE, type LigneTable } from '../../../../lib/admin/morphologieDisque';
 
 /**
  * FRAÎCHEUR DES DONNÉES — rendu PUR. Vérifie que l'écran AFFICHE fidèlement les règles d'honnêteté du modèle :
@@ -163,5 +164,33 @@ describe('SectionReingestion (lot 3) — préparer la commande, jamais l’exéc
     const h = section('sitadel', [D({ source: 'sitadel', editionDistante: '2026-07', dateDistante: '2026-07-01' })]);
     expect(h).toContain('automatique');
     expect(h).not.toContain('Préparer la commande');
+  });
+});
+
+describe('SectionMorphologie (F4) — répartition disque', () => {
+  const T = (table: string, total: number, donnees: number, index: number, lignes: number): LigneTable => ({ table, total, donnees, index, lignes });
+  const morpho = () => construireMorphologie([
+    T('batiment', 1000, 800, 200, 3_000_000),
+    T('bdtopo_edition', 10, 5, 5, 7),
+    T('import_log', 10, 5, 5, 8),
+    T('batiment_2026_03_15', 400, 350, 50, 697_886),
+    T('adresse_ban', 200, 160, 40, 557_710),
+    T('spatial_ref_sys', 7, 6, 1, 8_500),
+    T('deno_affichage', 3, 0, 3, -1),
+  ], 1700);
+
+  it('affiche les postes, le total base et les sous-lignes vive/copies du bâti', () => {
+    const h = renderToStaticMarkup(createElement(SectionMorphologie, { morphologie: morpho() }));
+    expect(h).toContain('Total base');
+    expect(h).toContain('BD TOPO bâtiment');
+    expect(h).toContain('Édition courante');
+    expect(h).toContain('Copies et staging');
+    expect(h).toContain('Non rattaché'); // deno_affichage y tombe, affiché
+  });
+
+  it('sentinelle : mesure indisponible → « indisponible », JAMAIS « 0 o »', () => {
+    const h = renderToStaticMarkup(createElement(SectionMorphologie, { morphologie: MORPHOLOGIE_INDISPONIBLE }));
+    expect(h).toContain('indisponible');
+    expect(h).not.toContain('0 o');
   });
 });

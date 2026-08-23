@@ -9,6 +9,7 @@ import {
   type LigneSource,
 } from '../../../../lib/admin/sourcesFraicheur';
 import { preparerCommande, aUneProcedure, TERMINAL_RAPPEL } from '../../../../lib/admin/commandeReingestion';
+import { formaterOctets, formaterPct, type MorphologieDisque, type PosteMorphologie } from '../../../../lib/admin/morphologieDisque';
 import { BoutonCopier } from '../permis/BoutonCopier';
 
 /**
@@ -245,6 +246,80 @@ export function SectionReingestion({ lignes, cheminDepot }: { lignes: LigneSourc
     <div style={{ display: 'grid', gap: 8 }}>
       {lignes.map((l) => (
         <LigneReingestion key={l.cle} ligne={l} cheminDepot={cheminDepot} />
+      ))}
+    </div>
+  );
+}
+
+/** Barre de proportion (div plein, pas de lib de graphes) — décorative, aria-hidden ; le % chiffré est lu à côté. */
+function BarreProportion({ pct }: { pct: number }) {
+  const p = Math.max(0, Math.min(100, pct));
+  return (
+    <div aria-hidden="true" style={{ height: 6, borderRadius: 3, background: 'var(--color-svv-line)', overflow: 'hidden' }}>
+      <div style={{ width: `${p}%`, height: '100%', background: 'var(--color-svv-red)' }} />
+    </div>
+  );
+}
+
+/** Une carte de poste : nom, poids + %, barre, détail données/index/lignes, et sous-lignes (vive vs copies) le cas échéant. */
+function CartePoste({ poste }: { poste: PosteMorphologie }) {
+  return (
+    <div className="svv-card" style={{ padding: '.7rem .85rem' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'baseline', justifyContent: 'space-between' }}>
+        <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)', fontSize: 13 }}>{poste.nom}</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
+          <strong>{formaterOctets(poste.total)}</strong>
+          <span style={{ color: 'var(--color-svv-muted)' }}> · {formaterPct(poste.pct)}</span>
+        </span>
+      </div>
+      <div style={{ margin: '6px 0' }}><BarreProportion pct={poste.pct} /></div>
+      <div style={{ fontSize: 11.5, color: 'var(--color-svv-muted)', fontVariantNumeric: 'tabular-nums' }}>
+        données {formaterOctets(poste.donnees)} · index {formaterOctets(poste.index)} · {poste.lignes.toLocaleString('fr-FR')} lignes
+        {poste.residuel !== undefined && poste.residuel > 0 ? ` · dont ${formaterOctets(poste.residuel)} de catalogues système` : ''}
+      </div>
+      {poste.sousLignes && poste.sousLignes.length > 0 && (
+        <ul style={{ listStyle: 'none', margin: '6px 0 0', padding: 0, display: 'grid', gap: 3 }}>
+          {poste.sousLignes.map((s) => (
+            <li key={s.nom} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--color-svv-ink)' }}>
+              <span style={{ color: 'var(--color-svv-muted)' }}>↳ {s.nom}</span>
+              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formaterOctets(s.total)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Section MORPHOLOGIE (F4) — répartition de l'espace disque par source. Un poste par source (trié par poids), une barre de
+ * proportion, le détail données/index/lignes, et pour BD TOPO bâtiment la distinction donnée vive / copies. AFFICHAGE PUR :
+ * aucune suppression, aucune commande. Mesure en échec → sentinelle « indisponible » (jamais des zéros).
+ */
+export function SectionMorphologie({ morphologie }: { morphologie: MorphologieDisque }) {
+  if (morphologie.indisponible) {
+    return (
+      <div className="svv-card" style={{ padding: '16px', textAlign: 'center' }}>
+        <div style={{ fontWeight: 700, color: 'var(--color-svv-red)', fontSize: 13 }}>Mesure disque indisponible</div>
+        <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+          La répartition n’a pas pu être lue (voir les journaux serveur). Ce n’est pas une base vide.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline', fontSize: 13 }}>
+        <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)' }}>Total base</span>
+        <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{formaterOctets(morphologie.totalBase ?? 0)}</strong>
+      </div>
+      {!morphologie.reconcilie && (
+        <p role="note" style={{ margin: 0, fontSize: 11.5, color: 'var(--color-svv-red)', fontWeight: 600 }}>
+          ⚠ Écart de réconciliation détecté — la somme des postes ne retombe pas exactement sur la taille de la base.
+        </p>
+      )}
+      {morphologie.postes.map((p) => (
+        <CartePoste key={p.cle} poste={p} />
       ))}
     </div>
   );

@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EnTetePage } from '../_composants/EnTetePage';
-import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion } from './SourcesRendu';
+import { TableauSources, GrilleCouverture, LigneContexte, SectionReingestion, SectionMorphologie } from './SourcesRendu';
 import type { LigneSource } from '../../../../lib/admin/sourcesFraicheur';
+import type { MorphologieDisque } from '../../../../lib/admin/morphologieDisque';
 
 /**
  * FRAÎCHEUR DES DONNÉES — écran (lot 1/3). Client PUR : consomme `GET /api/admin/sources` (gardé côté serveur) et
@@ -20,7 +21,7 @@ const CSS_SOURCES = `
 type Etat =
   | { statut: 'chargement' }
   | { statut: 'erreur' }
-  | { statut: 'ok'; lignes: LigneSource[]; cheminDepot: string };
+  | { statut: 'ok'; lignes: LigneSource[]; cheminDepot: string; morphologie: MorphologieDisque };
 
 export default function PageSources() {
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
@@ -32,8 +33,8 @@ export default function PageSources() {
     try {
       const res = await fetch('/api/admin/sources', { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = (await res.json()) as { lignes: LigneSource[]; cheminDepot: string };
-      setEtat({ statut: 'ok', lignes: d.lignes, cheminDepot: d.cheminDepot });
+      const d = (await res.json()) as { lignes: LigneSource[]; cheminDepot: string; morphologie: MorphologieDisque };
+      setEtat({ statut: 'ok', lignes: d.lignes, cheminDepot: d.cheminDepot, morphologie: d.morphologie });
     } catch {
       setEtat({ statut: 'erreur' });
     }
@@ -92,6 +93,15 @@ export default function PageSources() {
               La tuile n’exécute rien : elle prépare une commande à copier dans un terminal. À vous de la lancer et d’en suivre la progression.
             </p>
             <SectionReingestion lignes={etat.lignes} cheminDepot={etat.cheminDepot} />
+          </div>
+          <div>
+            <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-svv-ink)', margin: '0 0 4px' }}>
+              Espace disque par source
+            </h2>
+            <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+              Répartition réelle du disque occupé. Vue d’ensemble seulement — aucune suppression proposée.
+            </p>
+            <SectionMorphologie morphologie={etat.morphologie} />
           </div>
         </div>
       )}
