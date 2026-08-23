@@ -670,3 +670,40 @@ describe('L5 — second schéma, rouge, comparatif côte à côte', () => {
     expect(new Set(ids).size).toBe(2);          // et ils sont DISTINCTS (pas de collision d'id)
   });
 });
+
+describe('L7 — le détail s’insère DANS LE FLUX, sous sa ligne (trame grise), pas en fin de section', () => {
+  const marqueur = (id: number) => createElement('div', null, `DETAIL_${id}`); // contenu factice du détail
+  const deuxG2 = () => [
+    ligne({ dossierId: 9, numDau: 'AAA', etat: 'suivi_aucun_signal', dateAutorisationIso: '2026-02-01' }),
+    ligne({ dossierId: 8, numDau: 'BBB', etat: 'suivi_aucun_signal', dateAutorisationIso: '2026-01-01' }),
+  ]; // triées : 9 (2026-02) avant 8 (2026-01), même groupe 2
+
+  it('le panneau de la ligne A apparaît APRÈS A et AVANT B (jamais en fin de section)', () => {
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: deuxG2(), ouvert: 9, renderDetail: marqueur }));
+    const iA = h.indexOf('AAA'), iPanneau = h.indexOf('DETAIL_9'), iB = h.indexOf('BBB');
+    expect(iA).toBeGreaterThanOrEqual(0); expect(iPanneau).toBeGreaterThan(iA); expect(iB).toBeGreaterThan(iPanneau);
+    expect(h).toContain('id="detail-suivi-9"');            // le panneau porte l'id référencé par aria-controls
+    expect(h).toContain('aria-controls="detail-suivi-9"'); // le bouton le référence
+    expect(h).not.toContain('DETAIL_8');                   // seule la ligne OUVERTE a un panneau
+  });
+
+  it('détail FERMÉ (ouvert=null) → aucun panneau rendu', () => {
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: deuxG2(), ouvert: null, renderDetail: marqueur }));
+    expect(h).not.toContain('DETAIL_');
+    expect(h).not.toContain('id="detail-suivi-');
+    expect(h).toContain('aria-controls="detail-suivi-9"'); // l'id est toujours référencé, même replié (a11y)
+  });
+
+  it('détail ouvert dans le GROUPE 2 → le GROUPE 1 n’est pas traversé (le panneau reste APRÈS l’en-tête du groupe 2)', () => {
+    const lignes = [
+      ligne({ dossierId: 5, numDau: 'ARB', etat: 'arbitrage_demande', dateDeclenchementIso: '2026-08-20' }), // groupe 1
+      ligne({ dossierId: 9, numDau: 'AAA', etat: 'suivi_aucun_signal', dateAutorisationIso: '2026-02-01' }), // groupe 2 (ouvert)
+    ];
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, ouvert: 9, renderDetail: marqueur }));
+    const iG1 = h.indexOf('Rattachement à faire'), iG2 = h.indexOf('En attente d’une mise à jour'), iPanneau = h.indexOf('DETAIL_9');
+    expect(iG1).toBeLessThan(iG2);          // groupe 1 au-dessus du groupe 2 (coupure L6 intacte)
+    expect(iPanneau).toBeGreaterThan(iG2);  // le panneau du dossier ouvert est DANS le groupe 2, pas entre les groupes
+    // le dossier d'arbitrage (groupe 1) n'a pas de panneau : la coupure n'est pas traversée
+    expect(h).toContain('ARB'); expect(h).not.toContain('DETAIL_5');
+  });
+});

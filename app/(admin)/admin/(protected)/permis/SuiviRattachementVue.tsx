@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 // ⚠️ Bundle client : uniquement des TYPES depuis les modules serveur.
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
@@ -126,6 +126,87 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   if (erreur) return <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>Suivi indisponible.</div>;
   if (!liste) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>;
 
+  // L7 — CONTENU du détail (identique à avant : comparatif, schémas, décisions, détail complet). Rendu INLINE par TableSuivi sous la
+  // ligne ouverte ; il n'est appelé QUE pour le dossier ouvert (ouvert === dossierId), donc les états `detail`/`comparaison` visent bien ce dossier.
+  const renderDetail = (): ReactNode => {
+    if (detailErreur) return <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>Détail indisponible.</div>;
+    if (!detail) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement du détail…</div>;
+    return (
+      <div className="flex flex-col gap-2">
+        <DetailSuiviRendu detail={detail} />
+        {comparaison && (() => {
+          const { origine, nouvelle, polygonesModifies, aChange } = comparaison;
+          const persiste = detail.persiste, enAtt = detail.etat === 'en_attente_bati';
+          const affecterCb = (corpsId: number, cleabs: string | null) => void affecter(corpsId, cleabs);
+          const descO = descriptionSchemaOrigine(origine);
+          const mentionN = descriptionSchemaNouvelle(nouvelle.polygones.length, polygonesModifies.length);
+          return (
+            <>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.75rem', alignItems: 'flex-start' }}>
+                <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                  <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} />
+                </div>
+                {aChange && (
+                  <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                    <AffectationBloc affectation={nouvelle} titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('nouvelle')} />
+                  </div>
+                )}
+              </div>
+              {origine.figee && !aChange && (
+                <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>
+                  La configuration actuelle est identique à l’origine : aucun changement détecté depuis le gel — pas de second schéma à comparer.
+                </div>
+              )}
+              {aChange && (
+                <div>
+                  <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={() => setPleinEcran('comparer')}>Comparer les schémas ⤢</button>
+                </div>
+              )}
+              {pleinEcran === 'origine' && (
+                <SchemaPleinEcran titre={descO.nom} mention={descO.mention} affectation={origine} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onFermer={() => setPleinEcran(null)} />
+              )}
+              {pleinEcran === 'nouvelle' && (
+                <SchemaPleinEcran titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} affectation={nouvelle} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onFermer={() => setPleinEcran(null)} />
+              )}
+              {pleinEcran === 'comparer' && aChange && (
+                <ComparaisonPleinEcran origine={origine} nouvelle={nouvelle} rougeCleabs={polygonesModifies}
+                  nomOrigine={descO.nom} nomNouvelle={NOM_SCHEMA_NOUVELLE} mentionOrigine={descO.mention} mentionNouvelle={mentionN}
+                  onFermer={() => setPleinEcran(null)} />
+              )}
+            </>
+          );
+        })()}
+        {affErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{affErreur}</div>}
+        {detail.persiste && (
+          <>
+            <ActionsRattachement avertissement={avertissement} motifRefus={motifRefus} motifConfirmation={motifConfirmation}
+              onMotifRefus={setMotifRefus} onMotifConfirmation={setMotifConfirmation} enCours={enCours}
+              onValider={() => void agir('valider', { motifConfirmation: motifConfirmation || undefined })}
+              onRefuser={() => void agir('refuser', { motif: motifRefus })}
+              onRetour={() => void agir('retour_lidar')} />
+            {actionErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{actionErreur}</div>}
+          </>
+        )}
+        {/* Détail complet du permis rapatrié d'Archives — replié par défaut. */}
+        <div>
+          <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .4rem' }}
+            aria-expanded={permisOuvert} onClick={() => setPermisOuvert((v) => !v)}>
+            {permisOuvert ? 'masquer' : 'afficher'} le détail complet du permis et ses pièces jointes {permisOuvert ? '▲' : '▼'}
+          </button>
+        </div>
+        {permisOuvert && (
+          <div className="flex flex-col gap-2">
+            <CaracteristiquesBloc dossierId={detail.dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />
+            <div className="svv-card" style={{ fontSize: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: '.3rem' }}>Pièces jointes</div>
+              <CellulePieces pieces={detail.pieces} onTelecharger={(id, source) => void telecharger(id, source)} />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-3">
       <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>
@@ -143,91 +224,8 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
           </span>
         </label>
       )}
-      <TableSuivi lignes={liste.lignes} compteurs={liste.compteurs} ouvert={ouvert} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} />
-      {ouvert !== null && (
-        detailErreur
-          ? <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>Détail indisponible.</div>
-          : detail
-            ? <div className="flex flex-col gap-2">
-                <DetailSuiviRendu detail={detail} />
-                {/* L4/L5 — deux schémas. « Configuration d'origine » (snapshot figé) TOUJOURS ; « Nouvelle configuration » (vivante,
-                    rouge = nouveau/modifié) SEULEMENT s'il y a de quoi comparer (comparaison.aChange). Côte à côte sur grand écran,
-                    EMPILÉ sur mobile (flex-wrap). Zéro règle réécrite : mêmes AffectationBloc / CorpsEtChoix / affecterPolygone. */}
-                {comparaison && (() => {
-                  const { origine, nouvelle, polygonesModifies, aChange } = comparaison;
-                  const persiste = detail.persiste, enAtt = detail.etat === 'en_attente_bati';
-                  const affecterCb = (corpsId: number, cleabs: string | null) => void affecter(corpsId, cleabs);
-                  const descO = descriptionSchemaOrigine(origine);
-                  const mentionN = descriptionSchemaNouvelle(nouvelle.polygones.length, polygonesModifies.length);
-                  return (
-                    <>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.75rem', alignItems: 'flex-start' }}>
-                        <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                          <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} />
-                        </div>
-                        {aChange && (
-                          <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                            <AffectationBloc affectation={nouvelle} titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('nouvelle')} />
-                          </div>
-                        )}
-                      </div>
-                      {/* Origine figée MAIS rien à comparer → on le DIT (pas de second schéma jumeau) ; Comparer seulement à deux schémas. */}
-                      {origine.figee && !aChange && (
-                        <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>
-                          La configuration actuelle est identique à l’origine : aucun changement détecté depuis le gel — pas de second schéma à comparer.
-                        </div>
-                      )}
-                      {aChange && (
-                        <div>
-                          <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={() => setPleinEcran('comparer')}>Comparer les schémas ⤢</button>
-                        </div>
-                      )}
-                      {/* Plein écran : d'UN schéma (L3, + rouge L5) ou COMPARATIF (L5), toujours au-dessus des mêmes lecture/affecterPolygone. */}
-                      {pleinEcran === 'origine' && (
-                        <SchemaPleinEcran titre={descO.nom} mention={descO.mention} affectation={origine} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onFermer={() => setPleinEcran(null)} />
-                      )}
-                      {pleinEcran === 'nouvelle' && (
-                        <SchemaPleinEcran titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} affectation={nouvelle} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onFermer={() => setPleinEcran(null)} />
-                      )}
-                      {pleinEcran === 'comparer' && aChange && (
-                        <ComparaisonPleinEcran origine={origine} nouvelle={nouvelle} rougeCleabs={polygonesModifies}
-                          nomOrigine={descO.nom} nomNouvelle={NOM_SCHEMA_NOUVELLE} mentionOrigine={descO.mention} mentionNouvelle={mentionN}
-                          onFermer={() => setPleinEcran(null)} />
-                      )}
-                    </>
-                  );
-                })()}
-                {affErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{affErreur}</div>}
-                {/* FUS-3e — décisions : uniquement pour un dossier RÉEL (persisté). « aucun signal » (dérivé) n'a rien à décider. */}
-                {detail.persiste && (
-                  <>
-                    <ActionsRattachement avertissement={avertissement} motifRefus={motifRefus} motifConfirmation={motifConfirmation}
-                      onMotifRefus={setMotifRefus} onMotifConfirmation={setMotifConfirmation} enCours={enCours}
-                      onValider={() => void agir('valider', { motifConfirmation: motifConfirmation || undefined })}
-                      onRefuser={() => void agir('refuser', { motif: motifRefus })}
-                      onRetour={() => void agir('retour_lidar')} />
-                    {actionErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{actionErreur}</div>}
-                  </>
-                )}
-                {/* Détail complet du permis rapatrié d'Archives — replié par défaut. */}
-                <div>
-                  <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .4rem' }}
-                    aria-expanded={permisOuvert} onClick={() => setPermisOuvert((v) => !v)}>
-                    {permisOuvert ? 'masquer' : 'afficher'} le détail complet du permis et ses pièces jointes {permisOuvert ? '▲' : '▼'}
-                  </button>
-                </div>
-                {permisOuvert && (
-                  <div className="flex flex-col gap-2">
-                    <CaracteristiquesBloc dossierId={detail.dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />
-                    <div className="svv-card" style={{ fontSize: 12 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: '.3rem' }}>Pièces jointes</div>
-                      <CellulePieces pieces={detail.pieces} onTelecharger={(id, source) => void telecharger(id, source)} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            : <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement du détail…</div>
-      )}
+      {/* L7 — le détail est rendu par TableSuivi DANS LE FLUX, juste sous la ligne ouverte (trame grise), plus en bas de page. */}
+      <TableSuivi lignes={liste.lignes} compteurs={liste.compteurs} ouvert={ouvert} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} renderDetail={renderDetail} />
     </div>
   );
 }

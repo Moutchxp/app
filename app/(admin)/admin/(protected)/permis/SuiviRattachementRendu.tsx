@@ -1,6 +1,6 @@
 'use client'; // FUS-3c-quater — ce module porte désormais des disclosures interactives (« i »), donc composants clients.
 
-import { useState, useId, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { useState, useId, useEffect, useRef, Fragment, type CSSProperties, type ReactNode } from 'react';
 // ⚠️ Piège du bundle client : on n'importe d'un module serveur que des TYPES (jamais un runtime — rattachementSuiviRepo importe db/client).
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure, CritereBati } from '../../../../lib/permis/detectionRattachement';
@@ -33,6 +33,16 @@ export const ORDRE_AFFICHAGE_ETATS: readonly EtatSuivi[] = ['arbitrage_demande',
 
 const styleAide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)', lineHeight: 1.4 };
 
+/**
+ * L7 — panneau de détail inséré dans le flux de la liste : TRAME GRISE (fond gris clair + hachures 45° discrètes) pour contraster
+ * nettement avec les lignes de permis (blanches). Les cartes internes du détail (`svv-card`) restent blanches → la trame encadre et
+ * délimite visiblement où commence/finit le détail. Thème clair, aucune icône, rien d'animé.
+ */
+const styleTrameDetail: CSSProperties = {
+  listStyle: 'none', padding: '.5rem', marginTop: '.1rem', borderRadius: '.4rem', border: '1px solid var(--color-svv-line)',
+  backgroundColor: '#f4f4f5', backgroundImage: 'repeating-linear-gradient(45deg, rgba(0,0,0,.05) 0 1px, transparent 1px 7px)',
+};
+
 /** L1 — formate une date ISO 'YYYY-MM-DD' en 'JJ/MM/AAAA'. Découpage de chaîne (jamais `new Date`) : déterministe et sans piège de fuseau. */
 export function formatDateFr(iso: string | null): string {
   if (!iso) return '';
@@ -64,6 +74,9 @@ function ancienneteTexte(l: LigneSuivi): string {
   return `depuis ${suffixe}`;
 }
 
+/** L7 — id stable du panneau de détail d'un dossier (relie le bouton `aria-controls` et le panneau `id`). */
+const idDetailSuivi = (dossierId: number): string => `detail-suivi-${dossierId}`;
+
 /** Une ligne de suivi. La DATE affichée dépend du groupe : « déclenché le… » (à faire, trié par déclenchement) vs « permis autorisé le… » (en attente, trié par permis). */
 function LigneSuiviLi({ l, groupe, onOuvrir, ouvert }: { l: LigneSuivi; groupe: 'a_faire' | 'en_attente'; onOuvrir?: (dossierId: number) => void; ouvert?: number | null }) {
   const dateTexte = groupe === 'a_faire'
@@ -83,7 +96,7 @@ function LigneSuiviLi({ l, groupe, onOuvrir, ouvert }: { l: LigneSuivi; groupe: 
         {l.derniereEvalIso ? `évalué le ${l.derniereEvalIso} · ` : ''}{ancienneteTexte(l)}
       </span>
       <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.2rem .6rem', fontSize: 12 }}
-        aria-expanded={ouvert === l.dossierId} onClick={() => onOuvrir?.(l.dossierId)}>
+        aria-expanded={ouvert === l.dossierId} aria-controls={idDetailSuivi(l.dossierId)} onClick={() => onOuvrir?.(l.dossierId)}>
         {ouvert === l.dossierId ? 'Fermer le détail' : 'Ouvrir le détail'}
       </button>
     </li>
@@ -96,15 +109,25 @@ function LigneSuiviLi({ l, groupe, onOuvrir, ouvert }: { l: LigneSuivi; groupe: 
  * décroissante). Les `lignes` arrivent DÉJÀ triées (groupe 1 en tête) par `listerSuivi` ; le filtre préserve l'ordre. Le groupe 1
  * VIDE (cas actuel : aucun déclencheur n'a jamais tourné) est DIT explicitement, jamais laissé croire à un écran incomplet.
  */
-export function TableSuivi({ lignes, onOuvrir, ouvert }: {
+export function TableSuivi({ lignes, onOuvrir, ouvert, renderDetail }: {
   lignes: LigneSuivi[]; compteurs?: Record<EtatSuivi, number>; onOuvrir?: (dossierId: number) => void; ouvert?: number | null;
+  renderDetail?: (dossierId: number) => ReactNode; // L7 — contenu du détail, inséré DANS LE FLUX sous la ligne ouverte (fourni par la Vue)
 }) {
   if (lignes.length === 0) return <div className="svv-card" style={styleAide}>Aucun permis suivi (aucune parcelle analysée pour l’instant).</div>;
   const aFaire = lignes.filter((l) => estAFaire(l.etat));
   const enAttente = lignes.filter((l) => !estAFaire(l.etat));
   const ul = (items: LigneSuivi[], groupe: 'a_faire' | 'en_attente') => (
     <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
-      {items.map((l) => <LigneSuiviLi key={l.dossierId} l={l} groupe={groupe} onOuvrir={onOuvrir} ouvert={ouvert} />)}
+      {items.map((l) => (
+        <Fragment key={l.dossierId}>
+          <LigneSuiviLi l={l} groupe={groupe} onOuvrir={onOuvrir} ouvert={ouvert} />
+          {/* L7 — le détail s'insère ICI, juste APRÈS sa ligne et AVANT la suivante (reste dans son GROUPE, jamais en fin de section).
+              TRAME GRISE de fond → contraste net avec les lignes de permis (blanches) : on voit où commence/finit le détail. */}
+          {ouvert === l.dossierId && renderDetail && (
+            <li id={idDetailSuivi(l.dossierId)} style={styleTrameDetail}>{renderDetail(l.dossierId)}</li>
+          )}
+        </Fragment>
+      ))}
     </ul>
   );
   const titreGroupe = (t: string, n: number): ReactNode => (
