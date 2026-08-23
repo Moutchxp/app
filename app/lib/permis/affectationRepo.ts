@@ -49,8 +49,8 @@ export async function lireAffectation(dossierId: number): Promise<AffectationEta
 
   if (!empreinteFigee) {
     const motif = !emp
-      ? 'empreinte non figée : affectation impossible (lancer d’abord l’empreinte)'
-      : 'empreinte incomplète (au moins une parcelle d’origine non rattachée) : affectation impossible';
+      ? 'parcelle du permis non figée : affectation impossible (lancer d’abord la parcelle du permis)'
+      : 'parcelle du permis incomplète (au moins une parcelle d’origine non rattachée) : affectation impossible';
     return { empreinteFigee: false, motif, colonneManquante, schema: construireSchema(null, []), polygones: [], corps };
   }
 

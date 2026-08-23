@@ -130,7 +130,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     <div className="flex flex-col gap-3">
       <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>
         Suivi du rattachement des permis à leur parcelle et à leurs bâtiments futurs. Univers = permis dont les parcelles ont été
-        analysées (une empreinte existe). Lecture seule.
+        analysées (la parcelle du permis est constituée). Lecture seule.
       </p>
       {/* Réglage : la DAACT (attestation d'achèvement) comme déclencheur. Ouvre un dossier « en attente du bâti » — jamais d'injection. */}
       {daactActif !== null && (

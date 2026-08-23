@@ -26,7 +26,7 @@ const detail = (o: Partial<DetailSuivi> = {}): DetailSuivi => ({
   millesimeCadastre: '2026-06-01', millesimeBati: '2026-03-20',
   comparatif: [
     { intitule: 'Surface de parcelle', enBase: { texte: '2631.5 m² déclarés', presente: true }, cadastre: { texte: '2885 m²', presente: true }, bdTopo: { texte: 'sans objet pour cette source', presente: false } },
-    { intitule: 'Nombre de bâtiments', enBase: { texte: '2 corps déclarés', presente: true }, cadastre: { texte: 'sans objet pour cette source', presente: false }, bdTopo: { texte: 'aucun bâtiment dans l’empreinte', presente: true } },
+    { intitule: 'Nombre de bâtiments', enBase: { texte: '2 corps déclarés', presente: true }, cadastre: { texte: 'sans objet pour cette source', presente: false }, bdTopo: { texte: 'aucun bâtiment dans la parcelle du permis', presente: true } },
   ],
   nbParcellesOrigine: 2, nbContoursEmpreinte: 1, streetView: { lat: 48.87, lng: 2.35 }, streetViewMotif: null, pieces: [],
   ...o,
@@ -100,7 +100,7 @@ describe('FUS-3b — DetailSuiviRendu (comparatif trois sources + provenance)', 
     expect(h).toContain('En base (permis)');
     expect(h).toContain('Cadastre');
     expect(h).toContain('BD TOPO');
-    expect(h).toContain('aucun bâtiment dans l’empreinte');
+    expect(h).toContain('aucun bâtiment dans la parcelle du permis');
     expect(h).toContain('sans objet pour cette source');
     expect(h).toContain('repli sur défaut'); // provenance defaut
     expect(h).toContain('cadastre 2026-06-01');
@@ -157,8 +157,8 @@ describe('FUS-3b — DetailSuiviRendu (comparatif trois sources + provenance)', 
 describe('FUS-3c-bis — libellés de critères (attente + pourcentages)', () => {
   it('surface non applicable → attente ; applicable franchi → % mesuré + seuil ; non franchi → mention seuil non atteint', () => {
     expect(libelleCritereSurface(critSurface({ applicable: false }), 2)).toBe(EN_ATTENTE_MAJ);
-    expect(libelleCritereSurface(critSurface(), 2)).toBe('95 % de l’empreinte (2 parcelles d’origine) — seuil 80 % (seuil atteint)');
-    expect(libelleCritereSurface(critSurface({ ratio: 0.62, franchi: false }), 1)).toBe('62 % de l’empreinte (1 parcelle d’origine) — seuil 80 % (seuil non atteint)');
+    expect(libelleCritereSurface(critSurface(), 2)).toBe('95 % de la parcelle du permis (2 parcelles d’origine) — seuil 80 % (seuil atteint)');
+    expect(libelleCritereSurface(critSurface({ ratio: 0.62, franchi: false }), 1)).toBe('62 % de la parcelle du permis (1 parcelle d’origine) — seuil 80 % (seuil non atteint)');
   });
 
   it('bordure : % de contour commun + seuil (atteint ou non) ; attente si non applicable', () => {
@@ -189,7 +189,7 @@ describe('FUS-3c/3c-ter — régime (n’affirme que le certain), verdict, Stree
     expect(libelleRegimeExpose('sans_fusion', 2)).toBe('fusion de parcelles : indéterminée — en attente de la mise à jour du cadastre');
     expect(libelleRegimeExpose('sans_fusion', 2)).not.toMatch(/sans fusion/); // ne conclut pas
     expect(libelleRegimeExpose('avec_fusion', 3)).toBe('fusion de parcelles constatée');
-    expect(libelleRegimeExpose('indetermine', 2)).toMatch(/indéterminée — empreinte incomplète/);
+    expect(libelleRegimeExpose('indetermine', 2)).toMatch(/indéterminée — parcelle du permis incomplète/);
   });
 
   it('libelleVerdict : RIEN → attente ; les vrais verdicts gardent un libellé lisible', () => {
@@ -218,9 +218,9 @@ describe('FUS-3c/3c-ter — régime (n’affirme que le certain), verdict, Stree
   });
 
   it('DetailSuiviRendu : empreinte absente → pas de lien Street View mais le motif', () => {
-    const h = renderToStaticMarkup(createElement(DetailSuiviRendu, { detail: detail({ streetView: null, streetViewMotif: 'empreinte incomplète ou non figée' }) }));
+    const h = renderToStaticMarkup(createElement(DetailSuiviRendu, { detail: detail({ streetView: null, streetViewMotif: 'parcelle du permis incomplète ou non figée' }) }));
     expect(h).not.toContain('map_action=pano');
-    expect(h).toMatch(/Pas de lien Street View : empreinte incomplète ou non figée/);
+    expect(h).toMatch(/Pas de lien Street View : parcelle du permis incomplète ou non figée/);
   });
 });
 
@@ -246,22 +246,22 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
     expect(h).toContain('<svg');
     expect(h).toContain('M10,10'); // empreinte
     expect(h).toContain('>A<'); expect(h).toContain('>B<'); // repères
-    const hMotif = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schema({ motif: 'empreinte incomplète ou absente', empreintePath: null, polygones: [] }), corps: [] }));
+    const hMotif = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schema({ motif: 'parcelle du permis incomplète ou absente', empreintePath: null, polygones: [] }), corps: [] }));
     expect(hMotif).not.toContain('<svg');
-    expect(hMotif).toContain('empreinte incomplète ou absente');
+    expect(hMotif).toContain('parcelle du permis incomplète ou absente');
   });
 
   it('DOSSIER PERSISTÉ — 2 corps / 2 polygones : chaque corps voit A et B ; polygones non affectés signalés', () => {
     const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff(), persiste: true }));
     expect(h).toContain('polygone A'); expect(h).toContain('polygone B');
-    expect(h).toMatch(/Polygones non affectés — dans l’empreinte : A, B/); // rien affecté → A et B signalés (tous deux DANS l'empreinte)
+    expect(h).toMatch(/Polygones non affectés — dans la parcelle : A, B/); // rien affecté → A et B signalés (tous deux DANS l'empreinte)
   });
 
   it('EXCLUSIVITÉ : A affecté au corps 1 → n’est plus proposé au corps 2 (réversible côté corps 1)', () => {
     const a = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffecte: 'BAT_A' }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffecte: null }] });
     const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a, persiste: true }));
     expect(h).toContain('value="BAT_A"'); // sélection du corps 1
-    expect(h).toMatch(/Polygones non affectés — dans l’empreinte : B/); // B reste non affecté → signalé
+    expect(h).toMatch(/Polygones non affectés — dans la parcelle : B/); // B reste non affecté → signalé
   });
 
   it('distinction HORS empreinte : le décompte sépare « dans l’empreinte » et « hors empreinte » (cohérent avec le schéma)', () => {
@@ -273,7 +273,7 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
       polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: true }],
     });
     const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a, persiste: true }));
-    expect(h).toMatch(/dans l’empreinte : A ; hors empreinte : B/); // ← ne fond PLUS les 2 catégories en « A, B »
+    expect(h).toMatch(/dans la parcelle : A ; débordant de la parcelle : B/); // ← ne fond PLUS les 2 catégories en « A, B »
   });
 
   it('2 corps / 1 polygone (cardinalités inégales) : un corps peut rester « aucun »', () => {
@@ -308,14 +308,14 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
     const h = renderToStaticMarkup(createElement(LegendeAffectation, {}));
     expect(h).toContain('couleur = repère du polygone'); // la couleur = identité ; le repère écrit reste la référence
     expect(h).toContain('affecté à un corps (contour vert)');
-    expect(h).toContain('hors empreinte (contour tireté)');
+    expect(h).toContain('déborde de la parcelle (contour tireté)');
     expect(h).toContain('hors parcelle (trame grise)');
     expect(h).toContain('dashed');          // le hors-empreinte est matérialisé par un contour tireté sur la puce
   });
 
   it('empreinte non figée → motif, pas de schéma ; migration 117 absente → avertissement + sélecteurs désactivés', () => {
-    const hMotif = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff({ empreinteFigee: false, motif: 'empreinte non figée : affectation impossible', schema: { largeur: 320, hauteur: 240, empreintePath: null, polygones: [], motif: 'empreinte non figée : affectation impossible' }, polygones: [] }), persiste: true }));
-    expect(hMotif).toContain('empreinte non figée : affectation impossible');
+    const hMotif = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff({ empreinteFigee: false, motif: 'parcelle du permis non figée : affectation impossible', schema: { largeur: 320, hauteur: 240, empreintePath: null, polygones: [], motif: 'parcelle du permis non figée : affectation impossible' }, polygones: [] }), persiste: true }));
+    expect(hMotif).toContain('parcelle du permis non figée : affectation impossible');
     const hCol = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff({ colonneManquante: true }), persiste: true }));
     expect(hCol).toContain('migration 117 non appliquée');
     expect(hCol).toContain('disabled');
@@ -466,7 +466,7 @@ describe('L3 — plein écran, nom dans le visuel, légende complète, rattachem
     expect(h).toContain(`background:${couleurRepere(1)}`);        // couleur de B
     // légende directe : empreinte vide → message, jamais une pastille creuse
     const vide = renderToStaticMarkup(createElement(LegendeRepetesComplete, { schema: { largeur: 320, hauteur: 240, empreintePath: null, polygones: [], motif: null }, corps: [] }));
-    expect(vide).toContain('Aucun polygone dans l’empreinte');
+    expect(vide).toContain('Aucun polygone dans la parcelle du permis');
   });
 
   it('④ RATTACHEMENT en plein écran : les sélecteurs par corps sont là (c’est là qu’on arbitre)', () => {
@@ -480,7 +480,7 @@ describe('L3 — plein écran, nom dans le visuel, légende complète, rattachem
     const a = affL3({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: 'BAT_A' }, { id: 2, repere: '2D2', altitudeSommetNgf: 87, nbEtages: 7, cleabsAffecte: null }] });
     const h = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: NOM_SCHEMA_ORIGINE, affectation: a, persiste: true, onAffecter: noop, onFermer: noop }));
     expect(h).toContain('value="BAT_A"');                                   // sélection du corps 1 (réversible)
-    expect(h).toMatch(/Polygones non affectés — dans l’empreinte : B/);      // MÊME sortie que polygonesNonAffectes/texteNonAffectes
+    expect(h).toMatch(/Polygones non affectés — dans la parcelle : B/);      // MÊME sortie que polygonesNonAffectes/texteNonAffectes
   });
 
   it('mobile / garde d’affichage : « aucun signal » (persiste=false) → pas de sélecteur, mais le schéma et le dialogue restent', () => {
@@ -489,5 +489,54 @@ describe('L3 — plein écran, nom dans le visuel, légende complète, rattachem
     expect(h).toContain('<svg');                       // schéma consultable
     expect(h).toContain('Aucun signal de mise à jour'); // on DIT pourquoi (jamais de disparition muette)
     expect(h).not.toContain('<select');                // pas d'arbitrage sans dossier
+  });
+});
+
+describe('L3b — vocabulaire parcelle : « empreinte » disparaît de l’interface visible', () => {
+  // Un polygone débordant (B) pour éprouver le libellé du débordement.
+  const affDeborde = (): AffectationEtat => ({
+    empreinteFigee: true, motif: null, colonneManquante: false,
+    schema: {
+      largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null,
+      polygones: [
+        { repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false },
+        { repere: 'B', cleabs: 'BAT_B', path: 'M60,60 L80,60 L80,80 Z', cx: 70, cy: 70, horsEmpreinte: true },
+      ],
+    },
+    polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: true }],
+    corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: null }],
+  });
+  const noop = () => {};
+
+  it('① le plein écran ne dit PLUS « hors empreinte » ni « empreinte » ; il dit « déborde de la parcelle »', () => {
+    const h = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: NOM_SCHEMA_ORIGINE, affectation: affDeborde(), persiste: true, onAffecter: noop, onFermer: noop }));
+    expect(h).not.toMatch(/hors empreinte/i);   // l'ancien terme interne a disparu
+    expect(h).not.toMatch(/empreinte/i);         // plus aucun « empreinte » visible sur cet écran
+    expect(h).toContain('déborde de la parcelle'); // nouvelle formulation métier
+  });
+
+  it('② POURQUOI ça compte, dit une fois à côté de la légende plein écran (mitoyen/voisin → à vérifier)', () => {
+    const h = renderToStaticMarkup(createElement(LegendeRepetesComplete, { schema: affDeborde().schema, corps: [] }));
+    expect(h).toContain('Contour tireté = déborde de la parcelle');
+    expect(h).toContain('probablement mitoyen ou voisin');
+    expect(h).toContain('à vérifier avant de l’affecter au permis');
+    // sans polygone débordant : pas de « pourquoi » (message montré seulement là où il s'applique)
+    const sansDeborde = renderToStaticMarkup(createElement(LegendeRepetesComplete, {
+      schema: { largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null, polygones: [{ repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false }] }, corps: [],
+    }));
+    expect(sansDeborde).not.toContain('Contour tireté = déborde de la parcelle');
+  });
+
+  it('④ la puce de légende porte le CONTOUR TIRETÉ (pas seulement le mot) sur un polygone débordant', () => {
+    const h = renderToStaticMarkup(createElement(LegendeRepetesComplete, { schema: affDeborde().schema, corps: [] }));
+    expect(h).toContain('1px dashed var(--color-svv-ink)'); // puce tiretée = matérialise le débordement dans le dessin
+    expect(h).toContain('>B</strong>'); expect(h).toContain('déborde de la parcelle');
+  });
+
+  it('la légende COMPACTE dit aussi « déborde de la parcelle » (plus « hors empreinte »)', () => {
+    const h = renderToStaticMarkup(createElement(LegendeAffectation, {}));
+    expect(h).not.toMatch(/hors empreinte/i);
+    expect(h).toContain('déborde de la parcelle (contour tireté)');
+    expect(h).toContain('dashed');
   });
 });

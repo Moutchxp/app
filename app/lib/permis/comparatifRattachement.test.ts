@@ -25,7 +25,7 @@ describe('construireComparatif', () => {
 
   it('terrain nu (empreinte figée, 0 bâtiment) : BD TOPO « aucun bâtiment » mesuré, listes bâti « sans objet »', () => {
     const rows = construireComparatif(base());
-    expect(ligne(rows, 'Nombre de bâtiments').bdTopo).toEqual({ texte: 'aucun bâtiment dans l’empreinte', presente: true });
+    expect(ligne(rows, 'Nombre de bâtiments').bdTopo).toEqual({ texte: 'aucun bâtiment dans la parcelle du permis', presente: true });
     expect(ligne(rows, 'Étages').bdTopo.presente).toBe(false);
     expect(ligne(rows, 'Altitudes (sommet permis / toit BD TOPO, NGF)').bdTopo.texte).toBe('sans objet pour cette source');
   });

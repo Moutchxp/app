@@ -51,7 +51,7 @@ function listeNombres(vals: (number | null)[], unite: string): CelluleComparativ
 /** Construit les lignes du tableau comparatif à partir des données déjà lues. PUR. */
 export function construireComparatif(d: DonneesComparatif): LigneComparative[] {
   const bdTopoAbsent = !d.empreinteFigee;
-  const nbBatCell: CelluleComparative = bdTopoAbsent ? sansObjet : val(d.nbBatimentsBdTopo === 0 ? 'aucun bâtiment dans l’empreinte' : `${d.nbBatimentsBdTopo}`);
+  const nbBatCell: CelluleComparative = bdTopoAbsent ? sansObjet : val(d.nbBatimentsBdTopo === 0 ? 'aucun bâtiment dans la parcelle du permis' : `${d.nbBatimentsBdTopo}`);
   // Pour les listes BD TOPO : si empreinte non figée OU aucun bâtiment → « sans objet » ; sinon liste (ou « non renseigné »).
   const bdTopoListe = (vals: (number | null)[], unite: string): CelluleComparative =>
     bdTopoAbsent || d.nbBatimentsBdTopo === 0 ? sansObjet : (listeNombres(vals, unite) ?? sansObjet);

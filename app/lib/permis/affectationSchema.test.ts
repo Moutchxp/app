@@ -66,7 +66,7 @@ describe('construireSchema', () => {
   it('empreinte absente → motif explicite, rien dessiné (jamais au hasard)', () => {
     const s = construireSchema(null, []);
     expect(s.empreintePath).toBeNull();
-    expect(s.motif).toMatch(/empreinte incomplète ou absente/);
+    expect(s.motif).toMatch(/parcelle du permis incomplète ou absente/);
   });
 
   it('2 polygones dans l’empreinte → 2 chemins projetés, étiquetés, dans la boîte', () => {

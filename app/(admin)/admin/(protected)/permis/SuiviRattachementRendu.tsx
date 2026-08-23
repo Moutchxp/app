@@ -129,7 +129,7 @@ const pct = (x: number): string => `${(x * 100).toFixed(1).replace(/\.0$/, '')} 
  */
 export function libelleRegimeExpose(regime: string, nbParcellesOrigine: number): string {
   if (regime === 'avec_fusion') return 'fusion de parcelles constatée';
-  if (regime === 'indetermine') return 'fusion de parcelles : indéterminée — empreinte incomplète';
+  if (regime === 'indetermine') return 'fusion de parcelles : indéterminée — parcelle du permis incomplète';
   // sans_fusion (les parcelles d'origine sont encore au cadastre) : ce n'est PAS une preuve d'absence de fusion à venir.
   if (nbParcellesOrigine <= 1) return 'sans fusion de parcelles possible (une seule parcelle)';
   return 'fusion de parcelles : indéterminée — en attente de la mise à jour du cadastre';
@@ -162,7 +162,7 @@ export function critereBatiDeclenche(bati: CritereBati): boolean { return bati.n
 export function libelleCritereSurface(s: CritereSurface, nbParcellesOrigine: number): string {
   if (!s.applicable) return EN_ATTENTE_MAJ;
   if (s.ratio === null) return `mesure indisponible — seuil ${pct(s.seuil)}`;
-  const base = `${pct(s.ratio)} de l’empreinte (${nbParcellesOrigine} parcelle${nbParcellesOrigine > 1 ? 's' : ''} d’origine) — seuil ${pct(s.seuil)}`;
+  const base = `${pct(s.ratio)} de la parcelle du permis (${nbParcellesOrigine} parcelle${nbParcellesOrigine > 1 ? 's' : ''} d’origine) — seuil ${pct(s.seuil)}`;
   return s.franchi ? `${base} (seuil atteint)` : `${base} (seuil non atteint)`;
 }
 
@@ -220,7 +220,7 @@ export function DetailSuiviRendu({ detail }: { detail: DetailSuivi }) {
       <div>
         {detail.streetView
           ? <>
-              <a href={lienStreetView(detail.streetView.lat, detail.streetView.lng)} target="_blank" rel="noopener noreferrer" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }}>ouvrir Google Street View au droit de l’empreinte ↗</a>
+              <a href={lienStreetView(detail.streetView.lat, detail.streetView.lng)} target="_blank" rel="noopener noreferrer" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }}>ouvrir Google Street View au droit de la parcelle ↗</a>
               {/* FUS-3c-quater — la consigne courte reste visible ; l'explication longue passe derrière un « i ». */}
               <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}> ⚠ Vérifier la date de la prise de vue</span>
               <InfoDepliable label="pourquoi vérifier la date de la prise de vue">La date est affichée par Google dans sa propre interface. Une image ANTÉRIEURE aux travaux ferait conclure à tort qu’ils n’ont pas eu lieu — la vue doit être postérieure au permis.</InfoDepliable>
@@ -255,7 +255,7 @@ export function DetailSuiviRendu({ detail }: { detail: DetailSuivi }) {
             bordure : {libelleCritereBordure(c.bordure)}
             {/* FUS-3c-quater — l'explication (limites extérieures) + l'éventuelle note « contours disjoints » passent derrière un « i ». */}
             <InfoDepliable label="détails sur la mesure de bordure">
-              La bordure ne compare que les limites EXTÉRIEURES des parcelles réunies (l’empreinte est leur union — la frontière mitoyenne est effacée), jamais les limites qui les séparent entre elles.
+              La bordure ne compare que les limites EXTÉRIEURES des parcelles réunies (la parcelle du permis est leur union — la frontière mitoyenne est effacée), jamais les limites qui les séparent entre elles.
               {detail.nbContoursEmpreinte > 1 && (
                 <div style={{ marginTop: '.3rem', color: 'var(--color-svv-red)' }}>⚠ Empreinte en {detail.nbContoursEmpreinte} contours disjoints (parcelles qui ne se touchent pas) : la bordure est mesurée contre chaque contour extérieur, et le point Street View (centroïde) peut tomber ENTRE les parcelles — à interpréter avec prudence.</div>
               )}
@@ -352,7 +352,7 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false }: { schema:
     : { maxWidth: '100%', height: 'auto', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' };
   return (
     <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} {...dims} role="img"
-      aria-label="Schéma des polygones de l’empreinte, étiquetés par repère" style={styleSvg}>
+      aria-label="Schéma des polygones de la parcelle du permis, étiquetés par repère" style={styleSvg}>
       <defs>
         {/* ① trame grise du fond HORS parcelle : hachures à 45°, franches en niveaux de gris (impression N&B OK) */}
         <pattern id={trameId} width={6} height={6} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -381,13 +381,13 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false }: { schema:
   );
 }
 
-/** Texte des polygones non affectés, DISTINGUANT « dans l'empreinte » (gris) et « hors empreinte » (rouge tireté) — cohérent avec le schéma. */
+/** Texte des polygones non affectés, DISTINGUANT ceux DANS la parcelle (gris) et ceux qui DÉBORDENT de la parcelle (rouge tireté) — cohérent avec le schéma. */
 export function texteNonAffectes(nonAffectes: { repere: string; horsEmpreinte: boolean }[]): string {
   const dans = nonAffectes.filter((p) => !p.horsEmpreinte).map((p) => p.repere);
   const hors = nonAffectes.filter((p) => p.horsEmpreinte).map((p) => p.repere);
   const parts: string[] = [];
-  if (dans.length > 0) parts.push(`dans l’empreinte : ${dans.join(', ')}`);
-  if (hors.length > 0) parts.push(`hors empreinte : ${hors.join(', ')}`);
+  if (dans.length > 0) parts.push(`dans la parcelle : ${dans.join(', ')}`);
+  if (hors.length > 0) parts.push(`débordant de la parcelle : ${hors.join(', ')}`);
   return parts.join(' ; ');
 }
 
@@ -410,7 +410,7 @@ export function LegendeAffectation() {
         couleur = repère du polygone (A, B, C…)
       </span>
       <span style={item}><span aria-hidden="true" style={chip('#fff', '2.5px solid var(--color-svv-green-ink)')} />affecté à un corps (contour vert)</span>
-      <span style={item}><span aria-hidden="true" style={chip('#fff', '1px dashed var(--color-svv-ink)')} />hors empreinte (contour tireté)</span>
+      <span style={item}><span aria-hidden="true" style={chip('#fff', '1px dashed var(--color-svv-ink)')} />déborde de la parcelle (contour tireté)</span>
       <span style={item}><span aria-hidden="true" style={{ ...puceBase, backgroundImage: 'repeating-linear-gradient(45deg, #c9ccd1 0 1.2px, #f4f4f5 1.2px 6px)', border: '1px solid var(--color-svv-line)' }} />hors parcelle (trame grise)</span>
     </div>
   );
@@ -437,7 +437,7 @@ export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onA
   if (enAttenteBati) {
     return (
       <div role="note" style={{ ...styleAide }}>
-        En attente du bâti : les travaux sont déclarés terminés, mais BD TOPO n’a pas encore de bâtiment mesuré dans l’empreinte. L’affectation s’ouvrira quand le bâtiment apparaîtra — on n’affecte pas un polygone préexistant à un bâtiment qui n’est pas encore construit.
+        En attente du bâti : les travaux sont déclarés terminés, mais BD TOPO n’a pas encore de bâtiment mesuré dans la parcelle du permis. L’affectation s’ouvrira quand le bâtiment apparaîtra — on n’affecte pas un polygone préexistant à un bâtiment qui n’est pas encore construit.
       </div>
     );
   }
@@ -458,7 +458,7 @@ export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onA
                   onChange={(e) => onAffecter?.(c.id, e.target.value || null)}
                   style={{ padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' }}>
                   <option value="">— aucun (bâtiment sans polygone) —</option>
-                  {options.map((o) => <option key={o.cleabs ?? o.repere} value={o.cleabs ?? ''}>polygone {o.repere}{o.horsEmpreinte ? ' (hors empreinte)' : ''}</option>)}
+                  {options.map((o) => <option key={o.cleabs ?? o.repere} value={o.cleabs ?? ''}>polygone {o.repere}{o.horsEmpreinte ? ' (déborde de la parcelle)' : ''}</option>)}
                 </select>
               </label>
             </li>
@@ -506,18 +506,28 @@ export function SchemaFigure({ schema, corps, titre, agrandi = false, onAgrandir
  * signalé (contour tireté). La couleur n'est qu'une aide : le repère écrit reste la référence.
  */
 export function LegendeRepetesComplete({ schema, corps }: { schema: SchemaEmpreinte; corps: CorpsAffectation[] }) {
-  if (schema.polygones.length === 0) return <div style={styleAide}>Aucun polygone dans l’empreinte.</div>;
+  if (schema.polygones.length === 0) return <div style={styleAide}>Aucun polygone dans la parcelle du permis.</div>;
+  const deborde = schema.polygones.some((p) => p.horsEmpreinte); // au moins un bâtiment déborde de la parcelle du permis
   return (
-    <div role="note" aria-label="Légende : repères présents dans l’empreinte" style={{ ...styleAide, display: 'flex', flexWrap: 'wrap', gap: '.35rem .8rem' }}>
-      {schema.polygones.map((p) => {
-        const corpsAff = corpsDuPolygone(corps, p.cleabs);
-        return (
-          <span key={p.repere} style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
-            <span aria-hidden="true" style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: couleurRepere(indexDepuisRepere(p.repere)), opacity: 0.85, border: p.horsEmpreinte ? '1px dashed var(--color-svv-ink)' : `1px solid ${corpsAff ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'}` }} />
-            <strong>{p.repere}</strong>{corpsAff ? ` → ${corpsAff.repere ?? `corps ${corpsAff.id}`}` : p.horsEmpreinte ? ' (hors empreinte)' : ''}
-          </span>
-        );
-      })}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+      <div role="note" aria-label="Légende : repères présents dans la parcelle du permis" style={{ ...styleAide, display: 'flex', flexWrap: 'wrap', gap: '.35rem .8rem' }}>
+        {schema.polygones.map((p) => {
+          const corpsAff = corpsDuPolygone(corps, p.cleabs);
+          return (
+            <span key={p.repere} style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
+              <span aria-hidden="true" style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: couleurRepere(indexDepuisRepere(p.repere)), opacity: 0.85, border: p.horsEmpreinte ? '1px dashed var(--color-svv-ink)' : `1px solid ${corpsAff ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'}` }} />
+              <strong>{p.repere}</strong>{corpsAff ? ` → ${corpsAff.repere ?? `corps ${corpsAff.id}`}` : p.horsEmpreinte ? ' (déborde de la parcelle)' : ''}
+            </span>
+          );
+        })}
+      </div>
+      {/* ②/④ — clé du débordement : la puce AVEC son contour tireté (pas seulement le mot) + POURQUOI ça compte, dit UNE fois. */}
+      {deborde && (
+        <div role="note" style={{ ...styleAide, display: 'flex', alignItems: 'baseline', gap: '.3rem' }}>
+          <span aria-hidden="true" style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, flexShrink: 0, background: '#fff', border: '1px dashed var(--color-svv-ink)' }} />
+          <span><strong>Contour tireté = déborde de la parcelle</strong> — bâtiment probablement mitoyen ou voisin : à vérifier avant de l’affecter au permis.</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -596,7 +606,7 @@ export function AffectationBloc({ affectation, persiste, enAttenteBati = false, 
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
       <div style={{ fontWeight: 700 }}>
         Affectation des polygones aux bâtiments
-        <InfoDepliable label="comment lire le schéma d’affectation">BD TOPO ne nomme pas ses polygones (seulement un cleabs illisible). Chaque polygone de l’empreinte reçoit un repère STABLE (A, B, C…) et une couleur sur le schéma. Repérez-le sur vos plans de la GED et sur Street View, puis affectez-le au bon corps. Un polygone affecté disparaît des choix des autres corps ; une affectation reste modifiable ; un corps peut rester sans polygone.</InfoDepliable>
+        <InfoDepliable label="comment lire le schéma d’affectation">BD TOPO ne nomme pas ses polygones (seulement un cleabs illisible). Chaque polygone de la parcelle du permis reçoit un repère STABLE (A, B, C…) et une couleur sur le schéma. Repérez-le sur vos plans de la GED et sur Street View, puis affectez-le au bon corps. Un polygone affecté disparaît des choix des autres corps ; une affectation reste modifiable ; un corps peut rester sans polygone.</InfoDepliable>
       </div>
       {colonneManquante && <div role="alert" style={{ color: 'var(--color-svv-red)' }}>Affectation indisponible : migration 117 non appliquée.</div>}
       {motif

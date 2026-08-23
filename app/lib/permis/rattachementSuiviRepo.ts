@@ -226,9 +226,9 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
               ST_NumGeometries(geom) AS ncontours
          FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL`, [dossierId]);
     if (rows[0]) { streetView = { lat: Number(rows[0].lat), lng: Number(rows[0].lng) }; nbContoursEmpreinte = Number(rows[0].ncontours) || 0; }
-    else streetViewMotif = 'empreinte figée sans géométrie exploitable';
+    else streetViewMotif = 'parcelle du permis figée sans géométrie exploitable';
   } else {
-    streetViewMotif = 'empreinte incomplète ou non figée (au moins une parcelle d’origine non rattachée) : aucun centroïde fiable';
+    streetViewMotif = 'parcelle du permis incomplète ou non figée (au moins une parcelle d’origine non rattachée) : aucun centroïde fiable';
   }
   const pieces = await listerPiecesDossier(dossierId);
   const sumOuNull = (xs: (number | null)[]): number | null => (xs.some((x) => x !== null) ? xs.reduce<number>((a, x) => a + (x ?? 0), 0) : null);

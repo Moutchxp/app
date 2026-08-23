@@ -78,7 +78,7 @@ const arrondi = (x: number): number => Math.round(x * 10) / 10;
  */
 export function construireSchema(empreinte: GeomPoly | null, polygones: PolygoneEntreeSchema[], largeur = 320, hauteur = 240, marge = 12): SchemaEmpreinte {
   if (!empreinte || empreinte.anneaux.length === 0) {
-    return { largeur, hauteur, empreintePath: null, polygones: [], motif: 'empreinte incomplète ou absente : schéma non dessiné (aucun point fiable)' };
+    return { largeur, hauteur, empreintePath: null, polygones: [], motif: 'parcelle du permis incomplète ou absente : schéma non dessiné (aucun point fiable)' };
   }
   const pts: [number, number][] = [...empreinte.anneaux.flat(), ...polygones.flatMap((p) => p.geom.anneaux.flat())];
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
