@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { listerSuivi, lireDetailSuivi } from '../../../../../lib/permis/rattachementSuiviRepo';
-import { lireAffectation, affecterPolygone } from '../../../../../lib/permis/affectationRepo';
+import { lireAffectationOrigine, affecterPolygone } from '../../../../../lib/permis/affectationRepo';
 import { validerRattachement, refuserRattachement, retourLidar } from '../../../../../lib/permis/actionsRattachement';
 import { lireDaactDeclencheurActif, ecrireDaactDeclencheurActif } from '../../../../../lib/permis/rattachementConfig';
 
@@ -24,7 +24,7 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const dossierId = new URL(request.url).searchParams.get('dossierId');
     if (dossierId) {
-      const [detail, affectation] = await Promise.all([lireDetailSuivi(Number(dossierId)), lireAffectation(Number(dossierId)).catch(() => null)]);
+      const [detail, affectation] = await Promise.all([lireDetailSuivi(Number(dossierId)), lireAffectationOrigine(Number(dossierId)).catch(() => null)]);
       if (!detail) return Response.json({ erreur: 'dossier inconnu' }, { status: 404 });
       return Response.json({ detail, affectation });
     }
@@ -56,7 +56,7 @@ export async function POST(request: Request): Promise<Response> {
       if (typeof body.corpsId !== 'number') return Response.json({ erreur: 'requête invalide' }, { status: 400 });
       const res = await affecterPolygone(dossierId, body.corpsId, body.cleabs ?? null, 'admin:affectation');
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: 409 });
-      return Response.json({ ok: true, affectation: await lireAffectation(dossierId) });
+      return Response.json({ ok: true, affectation: await lireAffectationOrigine(dossierId) });
     }
 
     // FUS-3e — décisions (aucun autre bouton : ni Street View, ni e-mail).
@@ -69,7 +69,7 @@ export async function POST(request: Request): Promise<Response> {
         return Response.json({ erreur: res.motif ?? 'action impossible' }, { status: 409 });
       }
       // Rafraîchit détail + affectation (état du dossier / altitudes à jour).
-      const [detail, affectation] = await Promise.all([lireDetailSuivi(dossierId), lireAffectation(dossierId).catch(() => null)]);
+      const [detail, affectation] = await Promise.all([lireDetailSuivi(dossierId), lireAffectationOrigine(dossierId).catch(() => null)]);
       return Response.json({ ok: true, nbInjectes: res.nbInjectes, nbRestaures: res.nbRestaures, detail, affectation });
     }
 

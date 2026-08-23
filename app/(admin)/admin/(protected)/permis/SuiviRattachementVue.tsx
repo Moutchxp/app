@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 // ⚠️ Bundle client : uniquement des TYPES depuis les modules serveur.
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
-import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SchemaPleinEcran, NOM_SCHEMA_ORIGINE } from './SuiviRattachementRendu';
+import type { AffectationOrigineEtat } from '../../../../lib/permis/affectationRepo';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SchemaPleinEcran, descriptionSchemaOrigine } from './SuiviRattachementRendu';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { CellulePieces } from './ArchivesRendu';
 import { recompterSiSucces } from './comptesActions';
@@ -23,7 +23,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [erreur, setErreur] = useState(false);
   const [ouvert, setOuvert] = useState<number | null>(null);
   const [detail, setDetail] = useState<DetailSuivi | null>(null);
-  const [affectation, setAffectation] = useState<AffectationEtat | null>(null); // FUS-3d
+  const [affectation, setAffectation] = useState<AffectationOrigineEtat | null>(null); // FUS-3d ; L4 : schéma d'origine (snapshot figé)
   const [pleinEcran, setPleinEcran] = useState(false); // L3 — schéma en plein écran (arbitrage lisible)
   const [detailErreur, setDetailErreur] = useState(false);
   const [affErreur, setAffErreur] = useState('');
@@ -57,7 +57,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
         if (annule) return;
-        if (res.ok) { const d = (await res.json()) as { detail: DetailSuivi; affectation: AffectationEtat | null }; setDetail(d.detail); setAffectation(d.affectation); }
+        if (res.ok) { const d = (await res.json()) as { detail: DetailSuivi; affectation: AffectationOrigineEtat | null }; setDetail(d.detail); setAffectation(d.affectation); }
         else setDetailErreur(true);
       } catch { if (!annule) setDetailErreur(true); }
     })();
@@ -70,7 +70,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     setAffErreur('');
     try {
       const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'affecter', dossierId: ouvert, corpsId, cleabs }) });
-      const d = (await res.json().catch(() => ({}))) as { affectation?: AffectationEtat; erreur?: string };
+      const d = (await res.json().catch(() => ({}))) as { affectation: AffectationOrigineEtat; erreur?: string };
       if (res.ok && d.affectation) setAffectation(d.affectation);
       else setAffErreur(d.erreur ?? 'Affectation impossible.');
     } catch { setAffErreur('Affectation impossible.'); }
@@ -82,7 +82,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     setEnCours(true); setActionErreur('');
     try {
       const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, dossierId: ouvert, ...extra }) });
-      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; besoinConfirmation?: boolean; avertissement?: string; erreur?: string; detail?: DetailSuivi; affectation?: AffectationEtat | null };
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; besoinConfirmation?: boolean; avertissement?: string; erreur?: string; detail?: DetailSuivi; affectation: AffectationOrigineEtat | null };
       if (res.ok && d.ok) {
         if (d.detail) setDetail(d.detail);
         if (d.affectation !== undefined) setAffectation(d.affectation ?? null);
@@ -150,14 +150,22 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
           : detail
             ? <div className="flex flex-col gap-2">
                 <DetailSuiviRendu detail={detail} />
-                {/* FUS-3d — affectation des polygones BD TOPO aux corps (schéma + sélecteurs). */}
-                {affectation && <AffectationBloc affectation={affectation} persiste={detail.persiste} enAttenteBati={detail.etat === 'en_attente_bati'} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)} onAgrandir={() => setPleinEcran(true)} />}
-                {/* L3 — plein écran : HABILLAGE au-dessus des mêmes lireAffectation/affecterPolygone (aucune règle réécrite). */}
-                {pleinEcran && affectation && (
-                  <SchemaPleinEcran titre={NOM_SCHEMA_ORIGINE} affectation={affectation} persiste={detail.persiste}
-                    enAttenteBati={detail.etat === 'en_attente_bati'} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)}
-                    onFermer={() => setPleinEcran(false)} />
-                )}
+                {/* FUS-3d — affectation des polygones BD TOPO aux corps (schéma + sélecteurs). L4 : le schéma « Configuration
+                    d'origine » vient du snapshot figé ; son nom + mention (provenance / millésime du gel) sont dérivés ici. */}
+                {affectation && (() => {
+                  const desc = descriptionSchemaOrigine(affectation);
+                  return (
+                    <>
+                      <AffectationBloc affectation={affectation} titre={desc.nom} mention={desc.mention} persiste={detail.persiste} enAttenteBati={detail.etat === 'en_attente_bati'} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)} onAgrandir={() => setPleinEcran(true)} />
+                      {/* L3 — plein écran : HABILLAGE au-dessus des mêmes lecture/affecterPolygone (aucune règle réécrite). */}
+                      {pleinEcran && (
+                        <SchemaPleinEcran titre={desc.nom} mention={desc.mention} affectation={affectation} persiste={detail.persiste}
+                          enAttenteBati={detail.etat === 'en_attente_bati'} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)}
+                          onFermer={() => setPleinEcran(false)} />
+                      )}
+                    </>
+                  );
+                })()}
                 {affErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{affErreur}</div>}
                 {/* FUS-3e — décisions : uniquement pour un dossier RÉEL (persisté). « aucun signal » (dérivé) n'a rien à décider. */}
                 {detail.persiste && (

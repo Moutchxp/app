@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
@@ -538,5 +538,50 @@ describe('L3b — vocabulaire parcelle : « empreinte » disparaît de l’inter
     expect(h).not.toMatch(/hors empreinte/i);
     expect(h).toContain('déborde de la parcelle (contour tireté)');
     expect(h).toContain('dashed');
+  });
+});
+
+describe('L4 — nom + mention du schéma d’origine selon sa provenance (descriptionSchemaOrigine)', () => {
+  it('figée + millésime → « Configuration d’origine » + « État figé (millésime X) »', () => {
+    expect(descriptionSchemaOrigine({ figee: true, captureVide: false, millesimeGel: '2026-06-18' }))
+      .toEqual({ nom: NOM_SCHEMA_ORIGINE, mention: 'État figé (millésime 2026-06-18).' });
+  });
+
+  it('figée mais millésime inconnu → « millésime inconnu » (jamais un blanc)', () => {
+    expect(descriptionSchemaOrigine({ figee: true, captureVide: false, millesimeGel: null }).mention).toBe('État figé (millésime inconnu).');
+  });
+
+  it('capture VIDE (terrain nu au gel, cas 07512025V0035) → message DISTINCT, garde le nom d’origine', () => {
+    const d = descriptionSchemaOrigine({ figee: true, captureVide: true, millesimeGel: '2026-06-18' });
+    expect(d.nom).toBe(NOM_SCHEMA_ORIGINE);
+    expect(d.mention).toBe('Terrain nu au moment du gel — aucun bâtiment (millésime 2026-06-18).');
+  });
+
+  it('AUCUNE capture → nom HONNÊTE « État courant (non figé) » + mention explicite (jamais un repli muet sous « origine »)', () => {
+    const d = descriptionSchemaOrigine({ figee: false, captureVide: false, millesimeGel: null });
+    expect(d.nom).toBe('État courant (non figé)');
+    expect(d.nom).not.toBe(NOM_SCHEMA_ORIGINE);
+    expect(d.mention).toMatch(/Aucun état d’origine n’a été capturé/);
+  });
+
+  it('les DEUX situations « pas de snapshot exploitable » ne produisent PAS le même message', () => {
+    const terrainNu = descriptionSchemaOrigine({ figee: true, captureVide: true, millesimeGel: '2026-06-18' }).mention;
+    const aucuneCapture = descriptionSchemaOrigine({ figee: false, captureVide: false, millesimeGel: null }).mention;
+    expect(terrainNu).not.toBe(aucuneCapture);
+  });
+
+  it('la mention (provenance + millésime) est écrite DANS le visuel du schéma (vue réduite ET plein écran)', () => {
+    const aff: AffectationEtat = {
+      empreinteFigee: true, motif: null, colonneManquante: false,
+      schema: { largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null, polygones: [{ repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false }] },
+      polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }],
+      corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: null }],
+    };
+    const desc = descriptionSchemaOrigine({ figee: true, captureVide: false, millesimeGel: '2026-06-18' });
+    const hReduit = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff, persiste: true, titre: desc.nom, mention: desc.mention }));
+    expect(hReduit).toContain('Configuration'); expect(hReduit).toContain('État figé (millésime 2026-06-18).');
+    const hPlein = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: 'État courant (non figé)', mention: 'Aucun état d’origine n’a été capturé pour ce permis : polygones lus dans la couche bâti actuelle.', affectation: aff, persiste: true, onAffecter: () => {}, onFermer: () => {} }));
+    expect(hPlein).toContain('État courant (non figé)');          // nom honnête annoncé (titre du dialogue)
+    expect(hPlein).toContain('Aucun état d’origine n’a été capturé'); // mention dans le visuel
   });
 });

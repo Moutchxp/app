@@ -420,6 +420,18 @@ export function LegendeAffectation() {
 export const NOM_SCHEMA_ORIGINE = 'Configuration d’origine';
 
 /**
+ * L4 — nom + mention du schéma d'origine selon sa PROVENANCE (snapshot figé vs couche vivante). Pur (testable). JAMAIS un repli
+ * muet sur le vivant sous le nom « origine » : sans capture, le schéma est nommé honnêtement « État courant (non figé) ». Le
+ * millésime du gel est écrit dans la mention (ou « inconnu »). Trois cas distincts, dont « terrain nu au gel » ≠ « aucune capture ».
+ */
+export function descriptionSchemaOrigine(o: { figee: boolean; captureVide: boolean; millesimeGel: string | null }): { nom: string; mention: string } {
+  const millTxt = o.millesimeGel ? `millésime ${o.millesimeGel}` : 'millésime inconnu';
+  if (!o.figee) return { nom: 'État courant (non figé)', mention: 'Aucun état d’origine n’a été capturé pour ce permis : polygones lus dans la couche bâti actuelle.' };
+  if (o.captureVide) return { nom: NOM_SCHEMA_ORIGINE, mention: `Terrain nu au moment du gel — aucun bâtiment (${millTxt}).` };
+  return { nom: NOM_SCHEMA_ORIGINE, mention: `État figé (${millTxt}).` };
+}
+
+/**
  * CORPS + CHOIX D'AFFECTATION — la SEULE source de vérité des sélecteurs (exclusivité `optionsPourCorps`, réversibilité,
  * polygones non affectés `polygonesNonAffectes`). Rendue À L'IDENTIQUE en vue réduite ET en plein écran (L3) : la vue agrandie
  * n'est qu'un HABILLAGE, elle NE redéfinit AUCUNE règle — elle réutilise ce composant. `persiste=false`/`enAttenteBati` disent
@@ -478,23 +490,27 @@ export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onA
  * FIGURE du schéma : le SVG + son NOM écrit DANS le visuel (figcaption en surimpression, pas seulement au-dessus). Quand `onAgrandir`
  * est fourni, la figure devient une cible cliquable ET focalisable au clavier (role=button, Entrée/Espace) → ouvre le plein écran.
  */
-export function SchemaFigure({ schema, corps, titre, agrandi = false, onAgrandir }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; agrandi?: boolean; onAgrandir?: () => void }) {
-  const figure = (
-    <figure style={{ position: 'relative', margin: 0 }}>
-      {titre && (
-        <figcaption style={{ position: 'absolute', top: 6, left: 6, zIndex: 1, fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,.85)', color: 'var(--color-svv-ink)', padding: '.1rem .45rem', borderRadius: '.3rem', border: '1px solid var(--color-svv-line)' }}>{titre}</figcaption>
-      )}
-      <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} />
-    </figure>
+export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, onAgrandir }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; mention?: string; agrandi?: boolean; onAgrandir?: () => void }) {
+  const contenu = (
+    <>
+      <figure style={{ position: 'relative', margin: 0 }}>
+        {titre && (
+          <figcaption style={{ position: 'absolute', top: 6, left: 6, zIndex: 1, fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,.85)', color: 'var(--color-svv-ink)', padding: '.1rem .45rem', borderRadius: '.3rem', border: '1px solid var(--color-svv-line)' }}>{titre}</figcaption>
+        )}
+        <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} />
+      </figure>
+      {/* L4 — mention (provenance + millésime du gel) écrite DANS le visuel, juste sous le nom du schéma. */}
+      {mention && <div style={{ ...styleAide }}>{mention}</div>}
+    </>
   );
-  if (!onAgrandir) return figure;
+  if (!onAgrandir) return contenu;
   const ouvrir = () => onAgrandir();
   return (
     <div role="button" tabIndex={0} aria-label={`Agrandir le schéma en plein écran${titre ? ` : ${titre}` : ''}`}
       onClick={ouvrir}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ouvrir(); } }}
       style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
-      {figure}
+      {contenu}
       <span style={{ ...styleAide }}>⤢ Agrandir — repères lisibles (les lanières étroites se chevauchent en petit)</span>
     </div>
   );
@@ -550,8 +566,8 @@ export function restaurerFocus(element: { focus: () => void } | null | undefined
  * `CorpsEtChoix` (mêmes règles d'affectation — AUCUNE duplication). Aucune animation (prefers-reduced-motion respecté d'office).
  * Mobile-first : le schéma prime (en tête), la légende puis les sélecteurs suivent en défilement, sans masquer le dessin.
  */
-export function SchemaPleinEcran({ titre, affectation, persiste, enAttenteBati = false, onAffecter, onFermer }: {
-  titre: string; affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean;
+export function SchemaPleinEcran({ titre, mention, affectation, persiste, enAttenteBati = false, onAffecter, onFermer }: {
+  titre: string; mention?: string; affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean;
   onAffecter?: (corpsId: number, cleabs: string | null) => void; onFermer: () => void;
 }) {
   const dialogueRef = useRef<HTMLDivElement>(null);
@@ -586,8 +602,8 @@ export function SchemaPleinEcran({ titre, affectation, persiste, enAttenteBati =
         <h2 id={titreId} style={{ fontSize: 14, fontWeight: 800, margin: 0 }}>{titre}</h2>
         <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', marginLeft: 'auto' }} onClick={onFermer}>Fermer ✕</button>
       </div>
-      {/* Le schéma PRIME (grand, en tête) — le nom est aussi écrit DANS le visuel via la figure. */}
-      <SchemaFigure schema={affectation.schema} corps={affectation.corps} titre={titre} agrandi />
+      {/* Le schéma PRIME (grand, en tête) — le nom + la mention (provenance/millésime) sont écrits DANS le visuel via la figure. */}
+      <SchemaFigure schema={affectation.schema} corps={affectation.corps} titre={titre} mention={mention} agrandi />
       <LegendeRepetesComplete schema={affectation.schema} corps={affectation.corps} />
       {/* La FONCTION de rattachement, à l'identique (mêmes règles) — c'est là qu'on arbitre. */}
       {affectation.colonneManquante && <div role="alert" style={{ color: 'var(--color-svv-red)' }}>Affectation indisponible : migration 117 non appliquée.</div>}
@@ -600,7 +616,7 @@ export function SchemaPleinEcran({ titre, affectation, persiste, enAttenteBati =
  * Bloc d'affectation (vue RÉDUITE) : le SCHÉMA nommé + cliquable (→ plein écran) + sa LÉGENDE compacte, puis les CHOIX (`CorpsEtChoix`,
  * mêmes règles que le plein écran). Le schéma reste consultable même sans dossier persisté (on DIT pourquoi l'arbitrage est fermé).
  */
-export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void; onAgrandir?: () => void }) {
+export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void; onAgrandir?: () => void; titre?: string; mention?: string }) {
   const { corps, schema, motif, colonneManquante } = affectation;
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -614,7 +630,7 @@ export function AffectationBloc({ affectation, persiste, enAttenteBati = false, 
         : (
           <>
             {/* Schéma nommé + cliquable (→ plein écran) + légende compacte : TOUJOURS rendus (informatifs), quel que soit l'état. */}
-            <SchemaFigure schema={schema} corps={corps} titre={NOM_SCHEMA_ORIGINE} onAgrandir={onAgrandir} />
+            <SchemaFigure schema={schema} corps={corps} titre={titre} mention={mention} onAgrandir={onAgrandir} />
             <LegendeAffectation />
             <CorpsEtChoix affectation={affectation} persiste={persiste} enAttenteBati={enAttenteBati} onAffecter={onAffecter} />
           </>
