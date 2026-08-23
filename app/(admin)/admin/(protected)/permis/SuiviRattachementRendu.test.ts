@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
-import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
+import type { LigneSuivi, DetailSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
 import { couleurRepere, repereDepuisIndex, PALETTE_REPERE, type SchemaEmpreinte } from '../../../../lib/permis/affectationSchema';
@@ -11,7 +11,7 @@ import { couleurRepere, repereDepuisIndex, PALETTE_REPERE, type SchemaEmpreinte 
  * FUS-3b — rendu PUR du suivi (renderToStaticMarkup, aucun DOM). Couvre : compteurs + groupes par état, tri par urgence,
  * ancienneté ; le tableau comparatif « trois sources » (dont « aucun bâtiment » et « sans objet »), critères et provenance.
  */
-const ligne = (o: Partial<LigneSuivi>): LigneSuivi => ({ dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', verdict: null, joursAnciennete: 3, derniereEvalIso: null, dateAutorisationIso: '2026-03-13', ...o });
+const ligne = (o: Partial<LigneSuivi>): LigneSuivi => ({ dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', verdict: null, joursAnciennete: 3, derniereEvalIso: null, dateAutorisationIso: '2026-03-13', dateDeclenchementIso: null, ...o });
 
 const detail = (o: Partial<DetailSuivi> = {}): DetailSuivi => ({
   dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', persiste: false,
@@ -42,13 +42,10 @@ describe('FUS-3b — libellés d’état', () => {
   });
 });
 
-describe('FUS-3b — TableSuivi (compteurs, groupes, ancienneté)', () => {
-  const compteurs = (o: Partial<Record<EtatSuivi, number>>): Record<EtatSuivi, number> =>
-    ({ arbitrage_demande: 0, en_attente_bati: 0, annule_par_lidar: 0, valide: 0, refuse: 0, suivi_aucun_signal: 0, ...o });
-
-  it('groupe par état, compte, et affiche l’ancienneté', () => {
+describe('FUS-3b / L6 — TableSuivi (deux groupes, ancienneté)', () => {
+  it('chaque ligne porte son badge d’état + l’ancienneté', () => {
     const lignes = [ligne({ dossierId: 2, etat: 'arbitrage_demande', joursAnciennete: 5, derniereEvalIso: '2026-08-11' }), ligne({ dossierId: 1, etat: 'suivi_aucun_signal', joursAnciennete: 3 })];
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, compteurs: { arbitrage_demande: 1, en_attente_bati: 0, annule_par_lidar: 0, valide: 0, refuse: 0, suivi_aucun_signal: 1 } }));
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes }));
     expect(h).toContain('arbitrage demandé');
     expect(h).toContain('suivi, aucun signal');
     expect(h).toContain('en attente depuis 5 jours');
@@ -58,30 +55,45 @@ describe('FUS-3b — TableSuivi (compteurs, groupes, ancienneté)', () => {
 
   it('FUS-3c-ter — ligne repliée : n° + type + nature + adresse, et un BOUTON explicite (pas un clic sur la ligne)', () => {
     const lignes = [ligne({ dossierId: 1, etat: 'suivi_aucun_signal', type: 'PC', natureTravaux: 'construction neuve', adresse: '5 rue de la Paix' })];
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, ouvert: null, compteurs: { arbitrage_demande: 0, en_attente_bati: 0, annule_par_lidar: 0, valide: 0, refuse: 0, suivi_aucun_signal: 1 } }));
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, ouvert: null }));
     expect(h).toContain('PC — construction neuve');
     expect(h).toContain('5 rue de la Paix');
     expect(h).toContain('Ouvrir le détail');
-    const hOuvert = renderToStaticMarkup(createElement(TableSuivi, { lignes, ouvert: 1, compteurs: { arbitrage_demande: 0, en_attente_bati: 0, annule_par_lidar: 0, valide: 0, refuse: 0, suivi_aucun_signal: 1 } }));
+    const hOuvert = renderToStaticMarkup(createElement(TableSuivi, { lignes, ouvert: 1 }));
     expect(hOuvert).toContain('Fermer le détail');
     expect(hOuvert).toContain('aria-expanded="true"');
   });
 
   it('univers vide → message explicite', () => {
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [], compteurs: compteurs({}) }));
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [] }));
     expect(h).toMatch(/Aucun permis suivi/);
   });
 
-  it('L1 — la date d’autorisation du permis est affichée (libellée), et une date absente le DIT (jamais un blanc)', () => {
+  it('L6 — DEUX groupes distincts, groupe 1 en tête ; le GROUPE 1 vide est DIT explicitement (pas d’écran incomplet)', () => {
+    // Aucun « à faire » aujourd'hui → groupe 1 vide + mention ; le reste va dans le groupe 2.
+    const hVide = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 1, etat: 'suivi_aucun_signal' })] }));
+    expect(hVide).toContain('Rattachement à faire');
+    expect(hVide).toContain('Aucun rattachement à faire pour l’instant');
+    expect(hVide).toContain('En attente d’une mise à jour');
+    // Un dossier à arbitrer → il apparaît dans le groupe 1, EN TÊTE du groupe 2.
+    const lignes = [ligne({ dossierId: 9, etat: 'arbitrage_demande', dateDeclenchementIso: '2026-08-20' }), ligne({ dossierId: 1, etat: 'suivi_aucun_signal', dateAutorisationIso: '2026-01-01' })];
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes }));
+    expect(h.indexOf('Rattachement à faire')).toBeLessThan(h.indexOf('En attente d’une mise à jour')); // groupe 1 au-dessus
+    expect(h).not.toContain('Aucun rattachement à faire pour l’instant'); // groupe 1 non vide → pas la mention
+    expect(h).toContain('déclenché le 20/08/2026'); // ligne du groupe 1 : date de DÉCLENCHEMENT
+  });
+
+  it('L6/L1 — groupe 2 : date d’AUTORISATION du permis (libellée) ; absence DITE ; date de déclenchement inconnue dans le groupe 1', () => {
     const lignes = [
       ligne({ dossierId: 1, etat: 'suivi_aucun_signal', dateAutorisationIso: '2025-08-27' }),
       ligne({ dossierId: 2, etat: 'suivi_aucun_signal', dateAutorisationIso: null }),
+      ligne({ dossierId: 3, etat: 'arbitrage_demande', dateDeclenchementIso: null }),
     ];
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, compteurs: compteurs({ suivi_aucun_signal: 2 }) }));
-    expect(h).toContain('permis autorisé le 27/08/2025'); // format FR + libellé explicite
-    expect(h).toContain('date d’autorisation inconnue');  // absence DITE, pas un blanc
-    // la date d'arrivée NE doit PAS se confondre avec l'ancienneté (« suivi depuis… ») : les deux libellés coexistent, distincts.
-    expect(h).toContain('suivi depuis');
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes }));
+    expect(h).toContain('permis autorisé le 27/08/2025'); // groupe 2 : date de permis
+    expect(h).toContain('date d’autorisation inconnue');   // absence DITE, pas un blanc
+    expect(h).toContain('date de déclenchement inconnue'); // groupe 1 sans detecte_le → dit inconnu, jamais un blanc
+    expect(h).toContain('suivi depuis'); // l'ancienneté coexiste, distincte de la date de critère
   });
 });
 

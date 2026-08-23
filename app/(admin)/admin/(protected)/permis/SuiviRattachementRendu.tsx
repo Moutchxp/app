@@ -7,6 +7,8 @@ import type { CritereSurface, CritereBordure, CritereBati } from '../../../../li
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo'; // TYPE seul (module serveur)
 // affectationSchema est PUR (aucun import serveur) → on peut importer ses fonctions dans le bundle client.
 import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere, indexDepuisRepere, PALETTE_REPERE, type SchemaEmpreinte, type CorpsAffectation } from '../../../../lib/permis/affectationSchema';
+// rattachementGroupes est PUR (import de TYPE seul depuis le repo, erasé) → client-safe. Source UNIQUE de la coupure en deux (L6).
+import { estAFaire, GROUPE1_TITRE, GROUPE2_TITRE } from '../../../../lib/permis/rattachementGroupes';
 
 /**
  * FUS-3b — rendu PUR (testable via renderToStaticMarkup) du SUIVI de rattachement : le tableau récapitulatif groupé par état
@@ -62,48 +64,68 @@ function ancienneteTexte(l: LigneSuivi): string {
   return `depuis ${suffixe}`;
 }
 
-/** Tableau récapitulatif groupé par état, avec compteurs en tête et tri par urgence (les `lignes` arrivent déjà triées). */
-export function TableSuivi({ lignes, compteurs, onOuvrir, ouvert }: {
-  lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number>; onOuvrir?: (dossierId: number) => void; ouvert?: number | null;
+/** Une ligne de suivi. La DATE affichée dépend du groupe : « déclenché le… » (à faire, trié par déclenchement) vs « permis autorisé le… » (en attente, trié par permis). */
+function LigneSuiviLi({ l, groupe, onOuvrir, ouvert }: { l: LigneSuivi; groupe: 'a_faire' | 'en_attente'; onOuvrir?: (dossierId: number) => void; ouvert?: number | null }) {
+  const dateTexte = groupe === 'a_faire'
+    ? (l.dateDeclenchementIso ? `déclenché le ${formatDateFr(l.dateDeclenchementIso)}` : <em style={{ color: 'var(--color-svv-muted)' }}>date de déclenchement inconnue</em>)
+    : (l.dateAutorisationIso ? `permis autorisé le ${formatDateFr(l.dateAutorisationIso)}` : <em style={{ color: 'var(--color-svv-muted)' }}>date d’autorisation inconnue</em>);
+  return (
+    <li style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap', paddingBottom: '.2rem', borderBottom: '1px solid var(--color-svv-line)' }}>
+      {/* Le BADGE d'état reste sur chaque ligne (l'info d'état n'est plus portée par la carte, mais par la ligne). */}
+      <BadgeEtatSuivi etat={l.etat} />
+      {/* FUS-3c-ter — n° + type/nature + adresse ; l'ouverture passe par un BOUTON EXPLICITE, pas un clic sur la ligne. */}
+      <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', fontWeight: 700 }}>{l.numDau}</span>
+      <span>{l.type}{l.natureTravaux ? ` — ${l.natureTravaux}` : ''}</span>
+      <span style={{ color: 'var(--color-svv-muted)' }}>{l.adresse ?? l.commune ?? `INSEE ${l.codeInsee}`}</span>
+      {/* Date du critère de tri du groupe (déclenchement OU autorisation), libellée sans ambiguïté ; absence DITE, jamais un blanc. */}
+      <span style={{ fontSize: 12, color: 'var(--color-svv-ink)', whiteSpace: 'nowrap' }}>{dateTexte}</span>
+      <span style={{ ...styleAide, marginLeft: 'auto' }}>
+        {l.derniereEvalIso ? `évalué le ${l.derniereEvalIso} · ` : ''}{ancienneteTexte(l)}
+      </span>
+      <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.2rem .6rem', fontSize: 12 }}
+        aria-expanded={ouvert === l.dossierId} onClick={() => onOuvrir?.(l.dossierId)}>
+        {ouvert === l.dossierId ? 'Fermer le détail' : 'Ouvrir le détail'}
+      </button>
+    </li>
+  );
+}
+
+/**
+ * L6 — récapitulatif en DEUX GROUPES visiblement distincts (règle Arno) : ① « Rattachement à faire » (arbitrage ouvert, PRIORITÉ
+ * absolue, trié par date de déclenchement décroissante) ; ② « En attente d'une mise à jour » (le reste, trié par date de permis
+ * décroissante). Les `lignes` arrivent DÉJÀ triées (groupe 1 en tête) par `listerSuivi` ; le filtre préserve l'ordre. Le groupe 1
+ * VIDE (cas actuel : aucun déclencheur n'a jamais tourné) est DIT explicitement, jamais laissé croire à un écran incomplet.
+ */
+export function TableSuivi({ lignes, onOuvrir, ouvert }: {
+  lignes: LigneSuivi[]; compteurs?: Record<EtatSuivi, number>; onOuvrir?: (dossierId: number) => void; ouvert?: number | null;
 }) {
   if (lignes.length === 0) return <div className="svv-card" style={styleAide}>Aucun permis suivi (aucune parcelle analysée pour l’instant).</div>;
+  const aFaire = lignes.filter((l) => estAFaire(l.etat));
+  const enAttente = lignes.filter((l) => !estAFaire(l.etat));
+  const ul = (items: LigneSuivi[], groupe: 'a_faire' | 'en_attente') => (
+    <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+      {items.map((l) => <LigneSuiviLi key={l.dossierId} l={l} groupe={groupe} onOuvrir={onOuvrir} ouvert={ouvert} />)}
+    </ul>
+  );
+  const titreGroupe = (t: string, n: number): ReactNode => (
+    <div style={{ fontSize: 13, fontWeight: 800, marginBottom: '.3rem' }}>{t} <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>({n})</span></div>
+  );
   return (
     <div className="flex flex-col gap-3">
-      {/* Compteurs par état */}
-      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-        {ORDRE_AFFICHAGE_ETATS.filter((e) => compteurs[e] > 0).map((e) => (
-          <span key={e} style={{ display: 'inline-flex', gap: '.35rem', alignItems: 'baseline', fontSize: 12, padding: '.15rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }}>
-            <BadgeEtatSuivi etat={e} /><strong>{compteurs[e]}</strong>
-          </span>
-        ))}
-      </div>
-      {/* Groupes par état */}
-      {ORDRE_AFFICHAGE_ETATS.filter((e) => compteurs[e] > 0).map((e) => (
-        <div key={e} className="svv-card" role="group" aria-label={LIBELLE_ETAT_SUIVI[e]} style={{ padding: '.5rem' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: '.3rem' }}>{LIBELLE_ETAT_SUIVI[e]} <span style={{ color: 'var(--color-svv-muted)' }}>({compteurs[e]})</span></div>
-          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
-            {lignes.filter((l) => l.etat === e).map((l) => (
-              <li key={l.dossierId} style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap', paddingBottom: '.2rem', borderBottom: '1px solid var(--color-svv-line)' }}>
-                {/* FUS-3c-ter — n° + type/nature + adresse ; l'ouverture passe par un BOUTON EXPLICITE, pas un clic sur la ligne. */}
-                <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', fontWeight: 700 }}>{l.numDau}</span>
-                <span>{l.type}{l.natureTravaux ? ` — ${l.natureTravaux}` : ''}</span>
-                <span style={{ color: 'var(--color-svv-muted)' }}>{l.adresse ?? l.commune ?? `INSEE ${l.codeInsee}`}</span>
-                {/* L1 — date d'ARRIVÉE du permis (autorisation), libellée pour ne pas se confondre avec « suivi depuis… » (date d'entrée en suivi). */}
-                <span style={{ fontSize: 12, color: 'var(--color-svv-ink)', whiteSpace: 'nowrap' }}>
-                  {l.dateAutorisationIso ? `permis autorisé le ${formatDateFr(l.dateAutorisationIso)}` : <em style={{ color: 'var(--color-svv-muted)' }}>date d’autorisation inconnue</em>}
-                </span>
-                <span style={{ ...styleAide, marginLeft: 'auto' }}>
-                  {l.derniereEvalIso ? `évalué le ${l.derniereEvalIso} · ` : ''}{ancienneteTexte(l)}
-                </span>
-                <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.2rem .6rem', fontSize: 12 }}
-                  aria-expanded={ouvert === l.dossierId} onClick={() => onOuvrir?.(l.dossierId)}>
-                  {ouvert === l.dossierId ? 'Fermer le détail' : 'Ouvrir le détail'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+      {/* ① GROUPE 1 — priorité absolue. Toujours affiché (même vide) pour que la coupure soit visible. */}
+      <section className="svv-card" role="group" aria-label={GROUPE1_TITRE} style={{ padding: '.5rem' }}>
+        {titreGroupe(GROUPE1_TITRE, aFaire.length)}
+        {aFaire.length === 0
+          ? <div style={styleAide}>Aucun rattachement à faire pour l’instant : aucun déclencheur n’a encore signalé de changement à arbitrer.</div>
+          : ul(aFaire, 'a_faire')}
+      </section>
+      {/* ② GROUPE 2 — en attente d'une mise à jour. */}
+      {enAttente.length > 0 && (
+        <section className="svv-card" role="group" aria-label={GROUPE2_TITRE} style={{ padding: '.5rem' }}>
+          {titreGroupe(GROUPE2_TITRE, enAttente.length)}
+          {ul(enAttente, 'en_attente')}
+        </section>
+      )}
     </div>
   );
 }
@@ -399,7 +421,7 @@ export function texteNonAffectes(nonAffectes: { repere: string; horsEmpreinte: b
  * contour vert, contour tireté, trame). Présentation minimale, tenue à jour avec l'encodage L2 — sa mise en forme définitive
  * (nom du schéma, plein écran) reste le lot L3.
  */
-export function LegendeAffectation({ avecRouge = false }: { avecRouge?: boolean } = {}) {
+export function LegendeAffectation({ avecRouge = false }: { avecRouge?: boolean }) {
   const item: CSSProperties = { display: 'inline-flex', alignItems: 'center' };
   const puceBase: CSSProperties = { display: 'inline-block', width: 14, height: 14, borderRadius: 3, marginRight: '.35rem', verticalAlign: 'middle' };
   const chip = (fill: string, border: string): CSSProperties => ({ ...puceBase, background: fill, opacity: 0.85, border });

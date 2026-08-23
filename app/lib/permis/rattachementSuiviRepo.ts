@@ -19,10 +19,12 @@ import type { ResultatRattachement } from './detectionRattachement';
 import { listerPiecesDossier } from '../sitadel/demandeRepo';
 import type { PieceArchive } from '../sitadel/demandeRepo';
 import { libelleNatureProjet } from '../sitadel/priorite';
+import { estAFaire } from './rattachementGroupes'; // L6 — coupure en deux (source unique) ; le tri ci-dessous s'appuie dessus
 
 export type EtatSuivi = 'suivi_aucun_signal' | 'en_attente_bati' | 'arbitrage_demande' | 'valide' | 'refuse' | 'annule_par_lidar';
 
-// Ordre d'URGENCE (croissant = plus urgent) : arbitrage d'abord, puis en attente, puis le reste, puis « aucun signal ».
+// Énumération des états (jadis « ordre d'urgence » du tri L1 ; L6 trie par deux groupes — cf. `trierLignesSuivi`). Sert encore à
+// initialiser les compteurs par état et l'export `ETATS_SUIVI_ORDONNES`.
 const ORDRE_URGENCE: Record<EtatSuivi, number> = {
   arbitrage_demande: 0, en_attente_bati: 1, annule_par_lidar: 2, valide: 3, refuse: 4, suivi_aucun_signal: 5,
 };
@@ -121,38 +123,49 @@ export interface LigneSuivi {
   type: string; adresse: string | null; natureTravaux: string | null;    // FUS-3c-ter — ligne repliée : adresse + type + nature
   etat: EtatSuivi; verdict: string | null; joursAnciennete: number; derniereEvalIso: string | null;
   dateAutorisationIso: string | null;   // L1 — date_reelle_autorisation du permis (ISO 'YYYY-MM-DD') ; null = inconnue. À NE PAS confondre avec joursAnciennete (date d'ENTRÉE en suivi).
+  dateDeclenchementIso: string | null;  // L6 — permis_rattachement.detecte_le (date où le déclencheur a ouvert le dossier) ; null = pas de dossier / pas de déclencheur.
+}
+
+/** Tri décroissant d'une date ISO 'YYYY-MM-DD' (comparable lexicographiquement) ; une date ABSENTE va en FIN (jamais en tête). */
+function parDateDesc(a: string | null, b: string | null): number {
+  if (a === b) return 0;          // égales, ou toutes deux absentes
+  if (a === null) return 1;       // a sans date → après b
+  if (b === null) return -1;      // b sans date → après a
+  return a < b ? 1 : -1;          // plus récent en haut
 }
 
 /**
- * L1 (décision Arno, 21/08/2026) — tri du suivi : URGENCE d'abord, RÉCENCE ensuite.
- *   ① `ORDRE_URGENCE` reste le PREMIER critère (un dossier à arbitrer reste en tête, même ancien) ;
- *   ② à urgence égale, `date_reelle_autorisation` DÉCROISSANTE (permis le plus récent en haut) ;
- *   ③ une date ABSENTE est reléguée en FIN de groupe — jamais confondue avec une date récente.
- * ⚠️ NE PAS réinverser en « ancienneté croissante » en croyant bien faire : urgence prime la récence, c'est voulu.
- * Pur (aucune I/O) → testable sans base. Ne mute pas l'entrée.
+ * L6 (règle Arno, 23/08/2026) — tri du suivi en DEUX GROUPES (remplace l'échelle d'urgence multi-états de L1) :
+ *   ① COUPURE : le GROUPE 1 « rattachement à faire » (arbitrage OUVERT, cf. `estAFaire` → `arbitrage_demande`) passe AVANT le
+ *      GROUPE 2 « en attente d'une mise à jour » (tout le reste), QUELLE QUE SOIT la date du permis ;
+ *   ② tri INTERNE : groupe 1 → DATE DE DÉCLENCHEMENT (`detecte_le`) DÉCROISSANTE (le plus récemment déclenché en haut) ;
+ *                   groupe 2 → DATE D'AUTORISATION du permis DÉCROISSANTE (le permis le plus récent en haut, comme en L1) ;
+ *   ③ dans chaque groupe, une date ABSENTE va en FIN ; tiebreaker STABLE sur `dossierId`.
+ * ⚠️ NE PAS réinverser : priorité absolue au rattachement À FAIRE, date de déclenchement en haut / date de permis en bas.
+ * Pur (aucune I/O) → testable sans base. Ne mute pas l'entrée. La composition du groupe 1 vit dans `rattachementGroupes` (source unique).
  */
 export function trierLignesSuivi(lignes: LigneSuivi[]): LigneSuivi[] {
   return [...lignes].sort((a, b) => {
-    const parUrgence = ORDRE_URGENCE[a.etat] - ORDRE_URGENCE[b.etat];
-    if (parUrgence !== 0) return parUrgence;                       // ① urgence conservée en 1er critère
-    if (a.dateAutorisationIso !== b.dateAutorisationIso) {         // ② récence (ISO comparable lexicographiquement)
-      if (a.dateAutorisationIso === null) return 1;                // ③ date absente → fin de groupe
-      if (b.dateAutorisationIso === null) return -1;
-      return a.dateAutorisationIso < b.dateAutorisationIso ? 1 : -1; // décroissant : plus récent en haut
-    }
-    return a.dossierId - b.dossierId;                              // tiebreaker STABLE (dates égales / toutes deux absentes)
+    const gA = estAFaire(a.etat), gB = estAFaire(b.etat);
+    if (gA !== gB) return gA ? -1 : 1;                             // ① groupe 1 (à faire) toujours au-dessus du groupe 2
+    const parDate = gA                                            // ② tri interne selon le groupe
+      ? parDateDesc(a.dateDeclenchementIso, b.dateDeclenchementIso)  // groupe 1 : date de DÉCLENCHEMENT
+      : parDateDesc(a.dateAutorisationIso, b.dateAutorisationIso);   // groupe 2 : date de PERMIS
+    if (parDate !== 0) return parDate;
+    return a.dossierId - b.dossierId;                              // ③ tiebreaker STABLE
   });
 }
 
 /** Liste l'UNIVERS des permis suivis (ceux qui ont une empreinte) LEFT JOIN leur dossier ; « aucun signal » si pas de dossier. */
 export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> }> {
-  const { rows } = await query<{ dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; jours: number; reevalue: string | null; date_autorisation: string | null }>(
+  const { rows } = await query<{ dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; jours: number; reevalue: string | null; date_autorisation: string | null; date_declenchement: string | null }>(
     `SELECT e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s.type,
             nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
             s.nature_projet_completee AS nature, r.etat AS ratt_etat, r.verdict,
             GREATEST(0, floor(EXTRACT(EPOCH FROM (now() - COALESCE(r.detecte_le, e.maj_le))) / 86400))::int AS jours,
             to_char(r.reevalue_le, 'YYYY-MM-DD') AS reevalue,
-            to_char(s.date_reelle_autorisation, 'YYYY-MM-DD') AS date_autorisation
+            to_char(s.date_reelle_autorisation, 'YYYY-MM-DD') AS date_autorisation,
+            to_char(r.detecte_le, 'YYYY-MM-DD') AS date_declenchement
        FROM permis_empreinte e
        JOIN sitadel_dossier s ON s.id = e.dossier_id
        LEFT JOIN commune c ON c.code_insee = s.code_insee
@@ -161,7 +174,7 @@ export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: 
     dossierId: r.dossier_id, numDau: r.num_dau, commune: r.commune, codeInsee: r.code_insee,
     type: r.type, adresse: r.adresse, natureTravaux: r.nature ? libelleNatureProjet(r.nature) : null,
     etat: r.ratt_etat ?? 'suivi_aucun_signal', verdict: r.verdict, joursAnciennete: r.jours, derniereEvalIso: r.reevalue,
-    dateAutorisationIso: r.date_autorisation,
+    dateAutorisationIso: r.date_autorisation, dateDeclenchementIso: r.date_declenchement,
   })));
   const compteurs = Object.fromEntries((Object.keys(ORDRE_URGENCE) as EtatSuivi[]).map((e) => [e, 0])) as Record<EtatSuivi, number>;
   for (const l of lignes) compteurs[l.etat] += 1;

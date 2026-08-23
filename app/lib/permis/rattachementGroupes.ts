@@ -1,0 +1,25 @@
+import type { EtatSuivi } from './rattachementSuiviRepo';
+
+/**
+ * L6 (règle Arno, 23/08/2026) — COUPURE EN DEUX du suivi de rattachement. SOURCE DE VÉRITÉ UNIQUE, partagée par le TRI (repo,
+ * `trierLignesSuivi`) ET l'AFFICHAGE (front, `TableSuivi`) — jamais deux listes d'états à maintenir.
+ *
+ * GROUPE 1 « rattachement à faire » = l'arbitrage est OUVERT et une décision humaine est ATTENDUE. Un SEUL état aujourd'hui :
+ *   `arbitrage_demande` (le moteur a détecté un changement mais ne sait pas trancher seul). Les autres états « déclenchés » n'en
+ *   sont PAS : `valide` = rattachement automatique déjà conclu ; `refuse` / `annule_par_lidar` = terminaux ; `en_attente_bati` =
+ *   affectation fermée, en attente du bâti dans BD TOPO ; `suivi_aucun_signal` = aucun déclencheur.
+ * GROUPE 2 « en attente d'une mise à jour » = tout le reste.
+ *
+ * ⚠️ NE PAS réinverser : priorité ABSOLUE au groupe 1, trié par date de DÉCLENCHEMENT décroissante ; le groupe 2 par date de
+ * PERMIS décroissante. (Remplace l'échelle d'urgence multi-états de L1.) Import de type UNIQUEMENT depuis le repo (erasé au build) :
+ * ce module reste pur et client-safe (aucune dépendance runtime vers db/client).
+ */
+export const ETATS_A_FAIRE: readonly EtatSuivi[] = ['arbitrage_demande'];
+
+/** Le dossier est-il dans le GROUPE 1 (« rattachement à faire », arbitrage ouvert) ? */
+export function estAFaire(etat: EtatSuivi): boolean {
+  return ETATS_A_FAIRE.includes(etat);
+}
+
+export const GROUPE1_TITRE = 'Rattachement à faire';
+export const GROUPE2_TITRE = 'En attente d’une mise à jour';
