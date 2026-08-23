@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 // ⚠️ Bundle client : uniquement des TYPES depuis les modules serveur.
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SchemaPleinEcran, NOM_SCHEMA_ORIGINE } from './SuiviRattachementRendu';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { CellulePieces } from './ArchivesRendu';
 import { recompterSiSucces } from './comptesActions';
@@ -24,6 +24,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [ouvert, setOuvert] = useState<number | null>(null);
   const [detail, setDetail] = useState<DetailSuivi | null>(null);
   const [affectation, setAffectation] = useState<AffectationEtat | null>(null); // FUS-3d
+  const [pleinEcran, setPleinEcran] = useState(false); // L3 — schéma en plein écran (arbitrage lisible)
   const [detailErreur, setDetailErreur] = useState(false);
   const [affErreur, setAffErreur] = useState('');
   const [permisOuvert, setPermisOuvert] = useState(false); // détail complet du permis (caractéristiques + pièces), replié par défaut
@@ -51,7 +52,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     if (ouvert === null) return; // détail masqué au rendu quand ouvert === null (pas de setState synchrone ici)
     let annule = false;
     void (async () => {
-      setDetail(null); setAffectation(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false);
+      setDetail(null); setAffectation(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); setPleinEcran(false);
       setMotifRefus(''); setMotifConfirmation(''); setAvertissement(null); setActionErreur(''); // reset décisions (DANS l'async)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
@@ -150,7 +151,13 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
             ? <div className="flex flex-col gap-2">
                 <DetailSuiviRendu detail={detail} />
                 {/* FUS-3d — affectation des polygones BD TOPO aux corps (schéma + sélecteurs). */}
-                {affectation && <AffectationBloc affectation={affectation} persiste={detail.persiste} enAttenteBati={detail.etat === 'en_attente_bati'} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)} />}
+                {affectation && <AffectationBloc affectation={affectation} persiste={detail.persiste} enAttenteBati={detail.etat === 'en_attente_bati'} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)} onAgrandir={() => setPleinEcran(true)} />}
+                {/* L3 — plein écran : HABILLAGE au-dessus des mêmes lireAffectation/affecterPolygone (aucune règle réécrite). */}
+                {pleinEcran && affectation && (
+                  <SchemaPleinEcran titre={NOM_SCHEMA_ORIGINE} affectation={affectation} persiste={detail.persiste}
+                    enAttenteBati={detail.etat === 'en_attente_bati'} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)}
+                    onFermer={() => setPleinEcran(false)} />
+                )}
                 {affErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{affErreur}</div>}
                 {/* FUS-3e — décisions : uniquement pour un dossier RÉEL (persisté). « aucun signal » (dérivé) n'a rien à décider. */}
                 {detail.persiste && (

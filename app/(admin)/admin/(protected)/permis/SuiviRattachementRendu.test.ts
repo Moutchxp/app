@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
@@ -399,5 +399,95 @@ describe('L2 — lisibilité du schéma (trame hors parcelle, parcelle blanche, 
     expect(h).toContain('stroke="var(--color-svv-green-ink)"'); // A affecté → contour vert
     expect(h).toContain('stroke-dasharray="3 2"');              // B hors empreinte → contour tireté
     expect(h).toContain(`fill="${couleurRepere(0)}"`);          // A garde SA couleur d'identité (le vert n'est qu'un contour)
+  });
+});
+
+describe('L3 — plein écran, nom dans le visuel, légende complète, rattachement disponible', () => {
+  const schemaAB = (): SchemaEmpreinte => ({
+    largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null,
+    polygones: [
+      { repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false },
+      { repere: 'B', cleabs: 'BAT_B', path: 'M60,60 L80,60 L80,80 Z', cx: 70, cy: 70, horsEmpreinte: false },
+    ],
+  });
+  const affL3 = (o: Partial<AffectationEtat> = {}): AffectationEtat => ({
+    empreinteFigee: true, motif: null, colonneManquante: false, schema: schemaAB(),
+    polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: false }],
+    corps: [
+      { id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: null },
+      { id: 2, repere: '2D2', altitudeSommetNgf: 87, nbEtages: 7, cleabsAffecte: null },
+    ], ...o,
+  });
+  const noop = () => {};
+
+  it('helpers PURS : Échap ferme (en supplément du bouton) ; piège de focus circulaire ; focus rendu au déclencheur', () => {
+    expect(estToucheFermeture('Escape')).toBe(true);
+    expect(estToucheFermeture('Esc')).toBe(true);
+    expect(estToucheFermeture('Tab')).toBe(false);
+    // Tab → avant (enroulé), Shift+Tab → arrière (enroulé), index -1 (rien de focalisé) → premier/dernier
+    expect([indexFocusSuivant(0, 3, false), indexFocusSuivant(2, 3, false), indexFocusSuivant(0, 3, true), indexFocusSuivant(-1, 3, false), indexFocusSuivant(-1, 3, true)]).toEqual([1, 0, 2, 0, 2]);
+    expect(indexFocusSuivant(5, 0, false)).toBe(0);
+    // focus RENDU au déclencheur (via un faux élément injecté — testable sans DOM) ; sûr si absent
+    let rendu = false;
+    restaurerFocus({ focus: () => { rendu = true; } });
+    expect(rendu).toBe(true);
+    expect(() => restaurerFocus(null)).not.toThrow();
+  });
+
+  it('② OUVERTURE : la vue réduite expose un déclencheur cliquable ET focalisable au clavier (role=button), avec le NOM dans le visuel', () => {
+    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: affL3(), persiste: true, onAgrandir: noop }));
+    expect(h).toContain('role="button"');                        // cible ouvrable
+    expect(h).toContain('tabindex="0"');                          // …au clavier, pas seulement à la souris
+    expect(h).toContain('Agrandir le schéma en plein écran');     // aria-label explicite
+    expect(h).toContain('⤢ Agrandir');                            // indice visible
+    expect(h).toContain(NOM_SCHEMA_ORIGINE);                      // nom écrit DANS le visuel (figcaption)
+    // sans onAgrandir : pas de déclencheur, mais le schéma reste présent (informatif)
+    const hSans = renderToStaticMarkup(createElement(AffectationBloc, { affectation: affL3(), persiste: true }));
+    expect(hSans).not.toContain('role="button"');
+    expect(hSans).toContain('<svg');
+  });
+
+  it('① DIALOGUE : role=dialog + aria-modal + titre annoncé (aria-labelledby ↔ h2) + bouton Fermer explicite', () => {
+    const h = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: NOM_SCHEMA_ORIGINE, affectation: affL3(), persiste: true, onAffecter: noop, onFermer: noop }));
+    expect(h).toContain('role="dialog"');
+    expect(h).toContain('aria-modal="true"');
+    const m = /aria-labelledby="([^"]+)"/.exec(h);
+    expect(m).not.toBeNull();
+    expect(h).toContain(`id="${m![1]}"`);                         // le titre annoncé existe réellement
+    expect(h).toContain(NOM_SCHEMA_ORIGINE);                      // « Configuration d’origine »
+    expect(h).toContain('Fermer');                                // bouton Fermer explicite (Échap est EN SUPPLÉMENT, testé plus haut)
+    expect(h).toContain('<svg');                                  // le schéma agrandi prime
+  });
+
+  it('③ LÉGENDE COMPLÈTE en plein écran : liste les repères RÉELS (A, B…) avec leur couleur — pas une pastille générique', () => {
+    const h = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: NOM_SCHEMA_ORIGINE, affectation: affL3(), persiste: true, onAffecter: noop, onFermer: noop }));
+    expect(h).toContain('>A</strong>'); expect(h).toContain('>B</strong>'); // repères réellement présents
+    expect(h).toContain(`background:${couleurRepere(0)}`);        // couleur de A
+    expect(h).toContain(`background:${couleurRepere(1)}`);        // couleur de B
+    // légende directe : empreinte vide → message, jamais une pastille creuse
+    const vide = renderToStaticMarkup(createElement(LegendeRepetesComplete, { schema: { largeur: 320, hauteur: 240, empreintePath: null, polygones: [], motif: null }, corps: [] }));
+    expect(vide).toContain('Aucun polygone dans l’empreinte');
+  });
+
+  it('④ RATTACHEMENT en plein écran : les sélecteurs par corps sont là (c’est là qu’on arbitre)', () => {
+    const h = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: NOM_SCHEMA_ORIGINE, affectation: affL3(), persiste: true, onAffecter: noop, onFermer: noop }));
+    expect(h).toContain('<select');
+    expect(h).toContain('polygone A'); expect(h).toContain('polygone B');
+  });
+
+  it('ZÉRO duplication : le plein écran CONSOMME les mêmes règles (exclusivité + non-affectés) — il ne les réécrit pas', () => {
+    // A affecté au corps 1 → règle d'exclusivité : A n'est plus une option ailleurs, et B est signalé non affecté.
+    const a = affL3({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: 'BAT_A' }, { id: 2, repere: '2D2', altitudeSommetNgf: 87, nbEtages: 7, cleabsAffecte: null }] });
+    const h = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: NOM_SCHEMA_ORIGINE, affectation: a, persiste: true, onAffecter: noop, onFermer: noop }));
+    expect(h).toContain('value="BAT_A"');                                   // sélection du corps 1 (réversible)
+    expect(h).toMatch(/Polygones non affectés — dans l’empreinte : B/);      // MÊME sortie que polygonesNonAffectes/texteNonAffectes
+  });
+
+  it('mobile / garde d’affichage : « aucun signal » (persiste=false) → pas de sélecteur, mais le schéma et le dialogue restent', () => {
+    const h = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: NOM_SCHEMA_ORIGINE, affectation: affL3(), persiste: false, onAffecter: noop, onFermer: noop }));
+    expect(h).toContain('role="dialog"');
+    expect(h).toContain('<svg');                       // schéma consultable
+    expect(h).toContain('Aucun signal de mise à jour'); // on DIT pourquoi (jamais de disparition muette)
+    expect(h).not.toContain('<select');                // pas d'arbitrage sans dossier
   });
 });

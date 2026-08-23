@@ -1,6 +1,6 @@
 'use client'; // FUS-3c-quater — ce module porte désormais des disclosures interactives (« i »), donc composants clients.
 
-import { useState, useId, type CSSProperties, type ReactNode } from 'react';
+import { useState, useId, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 // ⚠️ Piège du bundle client : on n'importe d'un module serveur que des TYPES (jamais un runtime — rattachementSuiviRepo importe db/client).
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure, CritereBati } from '../../../../lib/permis/detectionRattachement';
@@ -340,14 +340,19 @@ export function ActionsRattachement({ avertissement, motifRefus, motifConfirmati
  *     (halo blanc sous le glyphe → lisible sur n'importe quelle teinte). Affecté → contour VERT ; hors empreinte → contour TIRETÉ
  *     (canaux NON colorés : l'information ne dépend jamais de la seule couleur).
  */
-export function SchemaEmpreinteSvg({ schema, corps }: { schema: SchemaEmpreinte; corps: CorpsAffectation[] }) {
+export function SchemaEmpreinteSvg({ schema, corps, agrandi = false }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; agrandi?: boolean }) {
   const uid = useId();
-  const trameId = `trame-${uid.replace(/:/g, '')}`; // id unique (deux schémas côte à côte en L3 ne partageront pas le motif)
+  const trameId = `trame-${uid.replace(/:/g, '')}`; // id unique (deux schémas côte à côte en L5 ne partageront pas le motif)
   if (schema.motif) return <div style={{ ...styleAide, fontStyle: 'italic' }}>{schema.motif}</div>;
+  // L3 — `agrandi` : en plein écran, le schéma remplit la largeur disponible (le viewBox conserve le ratio) et monte jusqu'à 72vh
+  // pour que les repères chevauchés en vue réduite redeviennent lisibles. En vue réduite : dimensions intrinsèques + maxWidth.
+  const dims = agrandi ? { width: '100%' as const } : { width: schema.largeur, height: schema.hauteur };
+  const styleSvg: CSSProperties = agrandi
+    ? { width: '100%', height: 'auto', maxHeight: '72vh', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' }
+    : { maxWidth: '100%', height: 'auto', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' };
   return (
-    <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} width={schema.largeur} height={schema.hauteur} role="img"
-      aria-label="Schéma des polygones de l’empreinte, étiquetés par repère"
-      style={{ maxWidth: '100%', height: 'auto', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' }}>
+    <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} {...dims} role="img"
+      aria-label="Schéma des polygones de l’empreinte, étiquetés par repère" style={styleSvg}>
       <defs>
         {/* ① trame grise du fond HORS parcelle : hachures à 45°, franches en niveaux de gris (impression N&B OK) */}
         <pattern id={trameId} width={6} height={6} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -411,14 +416,182 @@ export function LegendeAffectation() {
   );
 }
 
+// L3 — nom par défaut du (seul) schéma actuel. Un SECOND nom (« Nouvelle configuration ») viendra en L5 ; la place est prête ici.
+export const NOM_SCHEMA_ORIGINE = 'Configuration d’origine';
+
 /**
- * Bloc d'affectation : le SCHÉMA + sa LÉGENDE (toujours, informatif), puis — SI le dossier est PERSISTÉ — un sélecteur par corps
- * (EXCLUSIVITÉ) et les polygones non affectés. `persiste=false` (« aucun signal ») → on n'ouvre PAS les sélecteurs mais on DIT
- * pourquoi (on ne cache pas sans dire) ; le schéma reste consultable. RÉVERSIBLE. ⚠️ AUCUN valider/refuser, AUCUNE injection (FUS-3e).
+ * CORPS + CHOIX D'AFFECTATION — la SEULE source de vérité des sélecteurs (exclusivité `optionsPourCorps`, réversibilité,
+ * polygones non affectés `polygonesNonAffectes`). Rendue À L'IDENTIQUE en vue réduite ET en plein écran (L3) : la vue agrandie
+ * n'est qu'un HABILLAGE, elle NE redéfinit AUCUNE règle — elle réutilise ce composant. `persiste=false`/`enAttenteBati` disent
+ * pourquoi l'arbitrage est fermé (jamais de disparition muette). ⚠️ AUCUN valider/refuser, AUCUNE injection (FUS-3e).
  */
-export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void }) {
-  const { corps, polygones, schema, motif, colonneManquante } = affectation;
+export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onAffecter }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void }) {
+  const { corps, polygones, colonneManquante } = affectation;
+  if (!persiste) {
+    return (
+      <div role="note" style={{ ...styleAide }}>
+        Aucun signal de mise à jour n’a encore été détecté pour ce permis : il n’y a rien à arbitrer pour l’instant. L’affectation des polygones aux bâtiments s’ouvrira dès qu’un changement (parcelle ou bâti) sera détecté. Le schéma reste consultable pour comprendre le site.
+      </div>
+    );
+  }
+  if (enAttenteBati) {
+    return (
+      <div role="note" style={{ ...styleAide }}>
+        En attente du bâti : les travaux sont déclarés terminés, mais BD TOPO n’a pas encore de bâtiment mesuré dans l’empreinte. L’affectation s’ouvrira quand le bâtiment apparaîtra — on n’affecte pas un polygone préexistant à un bâtiment qui n’est pas encore construit.
+      </div>
+    );
+  }
   const nonAffectes = polygonesNonAffectes(corps, polygones);
+  return (
+    <>
+      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+        {corps.length === 0 && <li style={styleAide}>Aucun corps de bâtiment déclaré au permis.</li>}
+        {corps.map((c) => {
+          const options = optionsPourCorps(corps, polygones, c.id);
+          return (
+            <li key={c.id} style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 600, minWidth: 90 }}>{c.repere ?? `corps ${c.id}`}</span>
+              <span style={styleAide}>{c.altitudeSommetNgf !== null ? `sommet ${c.altitudeSommetNgf} m NGF` : 'altitude —'}{c.nbEtages !== null ? ` · ${c.nbEtages} ét.` : ''}</span>
+              <label style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'baseline' }}>
+                <span style={styleAide}>polygone :</span>
+                <select value={c.cleabsAffecte ?? ''} disabled={colonneManquante} aria-label={`polygone affecté au corps ${c.repere ?? c.id}`}
+                  onChange={(e) => onAffecter?.(c.id, e.target.value || null)}
+                  style={{ padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' }}>
+                  <option value="">— aucun (bâtiment sans polygone) —</option>
+                  {options.map((o) => <option key={o.cleabs ?? o.repere} value={o.cleabs ?? ''}>polygone {o.repere}{o.horsEmpreinte ? ' (hors empreinte)' : ''}</option>)}
+                </select>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+      {nonAffectes.length > 0 && (
+        <div role="note" style={{ ...styleAide, color: 'var(--color-svv-red)' }}>
+          Polygones non affectés — {texteNonAffectes(nonAffectes)}. À affecter au bon corps, ou à laisser si aucun corps ne correspond (bâtiments accolés / débords).
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * FIGURE du schéma : le SVG + son NOM écrit DANS le visuel (figcaption en surimpression, pas seulement au-dessus). Quand `onAgrandir`
+ * est fourni, la figure devient une cible cliquable ET focalisable au clavier (role=button, Entrée/Espace) → ouvre le plein écran.
+ */
+export function SchemaFigure({ schema, corps, titre, agrandi = false, onAgrandir }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; agrandi?: boolean; onAgrandir?: () => void }) {
+  const figure = (
+    <figure style={{ position: 'relative', margin: 0 }}>
+      {titre && (
+        <figcaption style={{ position: 'absolute', top: 6, left: 6, zIndex: 1, fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,.85)', color: 'var(--color-svv-ink)', padding: '.1rem .45rem', borderRadius: '.3rem', border: '1px solid var(--color-svv-line)' }}>{titre}</figcaption>
+      )}
+      <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} />
+    </figure>
+  );
+  if (!onAgrandir) return figure;
+  const ouvrir = () => onAgrandir();
+  return (
+    <div role="button" tabIndex={0} aria-label={`Agrandir le schéma en plein écran${titre ? ` : ${titre}` : ''}`}
+      onClick={ouvrir}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ouvrir(); } }}
+      style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+      {figure}
+      <span style={{ ...styleAide }}>⤢ Agrandir — repères lisibles (les lanières étroites se chevauchent en petit)</span>
+    </div>
+  );
+}
+
+/**
+ * LÉGENDE COMPLÈTE (plein écran) : liste les repères RÉELLEMENT PRÉSENTS (A, B, C… jusqu'au dernier) avec leur couleur, pour
+ * retrouver un polygone précis — une pastille générique n'identifie pas un bâtiment. Affecté → mention du corps ; hors empreinte
+ * signalé (contour tireté). La couleur n'est qu'une aide : le repère écrit reste la référence.
+ */
+export function LegendeRepetesComplete({ schema, corps }: { schema: SchemaEmpreinte; corps: CorpsAffectation[] }) {
+  if (schema.polygones.length === 0) return <div style={styleAide}>Aucun polygone dans l’empreinte.</div>;
+  return (
+    <div role="note" aria-label="Légende : repères présents dans l’empreinte" style={{ ...styleAide, display: 'flex', flexWrap: 'wrap', gap: '.35rem .8rem' }}>
+      {schema.polygones.map((p) => {
+        const corpsAff = corpsDuPolygone(corps, p.cleabs);
+        return (
+          <span key={p.repere} style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
+            <span aria-hidden="true" style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: couleurRepere(indexDepuisRepere(p.repere)), opacity: 0.85, border: p.horsEmpreinte ? '1px dashed var(--color-svv-ink)' : `1px solid ${corpsAff ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'}` }} />
+            <strong>{p.repere}</strong>{corpsAff ? ` → ${corpsAff.repere ?? `corps ${corpsAff.id}`}` : p.horsEmpreinte ? ' (hors empreinte)' : ''}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── L3 — helpers PURS du dialogue plein écran (testables en environnement node, sans DOM) ─────────────────────────────────────
+/** Une touche ferme-t-elle le dialogue ? (Échap, EN SUPPLÉMENT du bouton Fermer, jamais à sa place.) */
+export function estToucheFermeture(key: string): boolean { return key === 'Escape' || key === 'Esc'; }
+/** Index focusable suivant dans un piège de focus circulaire (Tab → avant, Shift+Tab → arrière ; enroulement aux bords). */
+export function indexFocusSuivant(index: number, total: number, shift: boolean): number {
+  if (total <= 0) return 0;
+  if (index < 0) return shift ? total - 1 : 0;
+  return shift ? (index - 1 + total) % total : (index + 1) % total;
+}
+/** Rend le focus à l'élément déclencheur (à la fermeture). Sûr si l'élément est absent. */
+export function restaurerFocus(element: { focus: () => void } | null | undefined): void { element?.focus(); }
+
+/**
+ * PLEIN ÉCRAN (L3) — vrai DIALOGUE (role=dialog, aria-modal, titre annoncé, focus piégé à l'ouverture et RENDU au déclencheur à la
+ * fermeture, Échap en supplément du bouton Fermer). HABILLAGE PUR : réutilise `SchemaFigure`, `LegendeRepetesComplete` et surtout
+ * `CorpsEtChoix` (mêmes règles d'affectation — AUCUNE duplication). Aucune animation (prefers-reduced-motion respecté d'office).
+ * Mobile-first : le schéma prime (en tête), la légende puis les sélecteurs suivent en défilement, sans masquer le dessin.
+ */
+export function SchemaPleinEcran({ titre, affectation, persiste, enAttenteBati = false, onAffecter, onFermer }: {
+  titre: string; affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean;
+  onAffecter?: (corpsId: number, cleabs: string | null) => void; onFermer: () => void;
+}) {
+  const dialogueRef = useRef<HTMLDivElement>(null);
+  const titreId = useId();
+  // Ref-indirection : le piège de focus s'installe UNE fois (mount) et le focus est RENDU une seule fois (unmount → fermeture).
+  // Sans elle, un `onFermer` inline (nouvelle identité à chaque rendu parent) relancerait l'effet et ferait sauter le focus.
+  const onFermerRef = useRef(onFermer);
+  useEffect(() => { onFermerRef.current = onFermer; }, [onFermer]); // maj hors rendu (règle react-hooks/refs)
+  useEffect(() => {
+    const dlg = dialogueRef.current;
+    if (!dlg) return;
+    const declencheur = (typeof document !== 'undefined' ? document.activeElement : null) as HTMLElement | null; // élément focalisé AVANT ouverture
+    const focusables = (): HTMLElement[] => Array.from(dlg.querySelectorAll<HTMLElement>('button, a[href], select, input, textarea, [tabindex]:not([tabindex="-1"])')).filter((el) => !el.hasAttribute('disabled'));
+    focusables()[0]?.focus(); // focus piégé à l'ouverture (le bouton Fermer est en tête)
+    const onKey = (e: KeyboardEvent) => {
+      if (estToucheFermeture(e.key)) { e.preventDefault(); onFermerRef.current(); return; }
+      if (e.key === 'Tab') {
+        const f = focusables();
+        if (f.length === 0) return;
+        const suivant = indexFocusSuivant(f.indexOf(document.activeElement as HTMLElement), f.length, e.shiftKey);
+        e.preventDefault(); f[suivant]?.focus();
+      }
+    };
+    dlg.addEventListener('keydown', onKey);
+    return () => { dlg.removeEventListener('keydown', onKey); restaurerFocus(declencheur); }; // focus RENDU au déclencheur
+  }, []);
+
+  return (
+    <div ref={dialogueRef} role="dialog" aria-modal="true" aria-labelledby={titreId}
+      style={{ position: 'fixed', inset: 0, zIndex: 50, background: '#fff', display: 'flex', flexDirection: 'column', gap: '.5rem', padding: '.75rem', overflow: 'auto' }}>
+      <div style={{ position: 'sticky', top: 0, background: '#fff', display: 'flex', alignItems: 'center', gap: '.5rem', paddingBottom: '.25rem', borderBottom: '1px solid var(--color-svv-line)' }}>
+        <h2 id={titreId} style={{ fontSize: 14, fontWeight: 800, margin: 0 }}>{titre}</h2>
+        <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', marginLeft: 'auto' }} onClick={onFermer}>Fermer ✕</button>
+      </div>
+      {/* Le schéma PRIME (grand, en tête) — le nom est aussi écrit DANS le visuel via la figure. */}
+      <SchemaFigure schema={affectation.schema} corps={affectation.corps} titre={titre} agrandi />
+      <LegendeRepetesComplete schema={affectation.schema} corps={affectation.corps} />
+      {/* La FONCTION de rattachement, à l'identique (mêmes règles) — c'est là qu'on arbitre. */}
+      {affectation.colonneManquante && <div role="alert" style={{ color: 'var(--color-svv-red)' }}>Affectation indisponible : migration 117 non appliquée.</div>}
+      <CorpsEtChoix affectation={affectation} persiste={persiste} enAttenteBati={enAttenteBati} onAffecter={onAffecter} />
+    </div>
+  );
+}
+
+/**
+ * Bloc d'affectation (vue RÉDUITE) : le SCHÉMA nommé + cliquable (→ plein écran) + sa LÉGENDE compacte, puis les CHOIX (`CorpsEtChoix`,
+ * mêmes règles que le plein écran). Le schéma reste consultable même sans dossier persisté (on DIT pourquoi l'arbitrage est fermé).
+ */
+export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void; onAgrandir?: () => void }) {
+  const { corps, schema, motif, colonneManquante } = affectation;
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
       <div style={{ fontWeight: 700 }}>
@@ -430,49 +603,10 @@ export function AffectationBloc({ affectation, persiste, enAttenteBati = false, 
         ? <div style={{ ...styleAide, fontStyle: 'italic' }}>{motif}</div>
         : (
           <>
-            {/* Schéma + légende : TOUJOURS rendus (informatifs — comprendre le site), quel que soit l'état du dossier. */}
-            <SchemaEmpreinteSvg schema={schema} corps={corps} />
+            {/* Schéma nommé + cliquable (→ plein écran) + légende compacte : TOUJOURS rendus (informatifs), quel que soit l'état. */}
+            <SchemaFigure schema={schema} corps={corps} titre={NOM_SCHEMA_ORIGINE} onAgrandir={onAgrandir} />
             <LegendeAffectation />
-            {!persiste ? (
-              // « Aucun signal » (dossier non persisté) : on n'ouvre pas l'arbitrage, mais on DIT pourquoi (jamais de disparition muette).
-              <div role="note" style={{ ...styleAide }}>
-                Aucun signal de mise à jour n’a encore été détecté pour ce permis : il n’y a rien à arbitrer pour l’instant. L’affectation des polygones aux bâtiments s’ouvrira dès qu’un changement (parcelle ou bâti) sera détecté. Le schéma ci-dessus reste consultable pour comprendre le site.
-              </div>
-            ) : enAttenteBati ? (
-              // DAACT / fusion sans bâti : dossier ouvert, mais le bâtiment n'est pas encore mesuré → affectation FERMÉE (on n'invente pas un polygone).
-              <div role="note" style={{ ...styleAide }}>
-                En attente du bâti : les travaux sont déclarés terminés, mais BD TOPO n’a pas encore de bâtiment mesuré dans l’empreinte. L’affectation s’ouvrira quand le bâtiment apparaîtra — on n’affecte pas un polygone préexistant à un bâtiment qui n’est pas encore construit.
-              </div>
-            ) : (
-              <>
-                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-                  {corps.length === 0 && <li style={styleAide}>Aucun corps de bâtiment déclaré au permis.</li>}
-                  {corps.map((c) => {
-                    const options = optionsPourCorps(corps, polygones, c.id);
-                    return (
-                      <li key={c.id} style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
-                        <span style={{ fontWeight: 600, minWidth: 90 }}>{c.repere ?? `corps ${c.id}`}</span>
-                        <span style={styleAide}>{c.altitudeSommetNgf !== null ? `sommet ${c.altitudeSommetNgf} m NGF` : 'altitude —'}{c.nbEtages !== null ? ` · ${c.nbEtages} ét.` : ''}</span>
-                        <label style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'baseline' }}>
-                          <span style={styleAide}>polygone :</span>
-                          <select value={c.cleabsAffecte ?? ''} disabled={colonneManquante} aria-label={`polygone affecté au corps ${c.repere ?? c.id}`}
-                            onChange={(e) => onAffecter?.(c.id, e.target.value || null)}
-                            style={{ padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' }}>
-                            <option value="">— aucun (bâtiment sans polygone) —</option>
-                            {options.map((o) => <option key={o.cleabs ?? o.repere} value={o.cleabs ?? ''}>polygone {o.repere}{o.horsEmpreinte ? ' (hors empreinte)' : ''}</option>)}
-                          </select>
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
-                {nonAffectes.length > 0 && (
-                  <div role="note" style={{ ...styleAide, color: 'var(--color-svv-red)' }}>
-                    Polygones non affectés — {texteNonAffectes(nonAffectes)}. À affecter au bon corps, ou à laisser si aucun corps ne correspond (bâtiments accolés / débords).
-                  </div>
-                )}
-              </>
-            )}
+            <CorpsEtChoix affectation={affectation} persiste={persiste} enAttenteBati={enAttenteBati} onAffecter={onAffecter} />
           </>
         )}
     </div>
