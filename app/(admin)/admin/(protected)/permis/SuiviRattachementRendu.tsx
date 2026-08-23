@@ -1,12 +1,12 @@
 'use client'; // FUS-3c-quater — ce module porte désormais des disclosures interactives (« i »), donc composants clients.
 
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useState, useId, type CSSProperties, type ReactNode } from 'react';
 // ⚠️ Piège du bundle client : on n'importe d'un module serveur que des TYPES (jamais un runtime — rattachementSuiviRepo importe db/client).
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure, CritereBati } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo'; // TYPE seul (module serveur)
 // affectationSchema est PUR (aucun import serveur) → on peut importer ses fonctions dans le bundle client.
-import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, type SchemaEmpreinte, type CorpsAffectation } from '../../../../lib/permis/affectationSchema';
+import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere, indexDepuisRepere, PALETTE_REPERE, type SchemaEmpreinte, type CorpsAffectation } from '../../../../lib/permis/affectationSchema';
 
 /**
  * FUS-3b — rendu PUR (testable via renderToStaticMarkup) du SUIVI de rattachement : le tableau récapitulatif groupé par état
@@ -327,26 +327,51 @@ export function ActionsRattachement({ avertissement, motifRefus, motifConfirmati
   );
 }
 
-// ── FUS-3d — affectation polygone ↔ corps ────────────────────────────────────
-const couleurPolygone = (affecte: boolean, hors: boolean): string =>
-  affecte ? 'var(--color-svv-green-soft)' : hors ? '#fde2e1' : 'var(--color-svv-field)';
-
-/** Schéma SVG PUR : empreinte en fond, chaque polygone rempli + étiqueté par son repère. Aucune tuile — projection dans une boîte
- *  (module `affectationSchema`). `motif` (empreinte incomplète/absente) → on l'écrit, on ne dessine pas au hasard. */
+// ── FUS-3d / L2 — schéma : lisibilité (trame hors parcelle, parcelle blanche, palette par repère) ─────────────────────────────
+/**
+ * Schéma SVG PUR : empreinte en fond, chaque polygone rempli + étiqueté par son repère. Aucune tuile — projection dans une boîte
+ * (module `affectationSchema`). `motif` (empreinte incomplète/absente) → on l'écrit, on ne dessine pas au hasard.
+ *
+ * L2 — lisibilité (thème clair unique, rien d'animé) :
+ *  ① FOND HORS PARCELLE : une TRAME grise (hachures à 45°) pour que le contour de la parcelle se détache — lisible même imprimé N&B ;
+ *  ② PARCELLE : blanc plein PAR-DESSUS la trame ;
+ *  ③ POLYGONES : couleur FRANCHE de la palette FIXE, indexée par le repère stable (A, B, C…) → tous distincts, aucun blanc.
+ *     Le rouge est ABSENT de la palette (réservé au lot L5). La couleur n'est qu'une aide : le repère écrit reste la référence
+ *     (halo blanc sous le glyphe → lisible sur n'importe quelle teinte). Affecté → contour VERT ; hors empreinte → contour TIRETÉ
+ *     (canaux NON colorés : l'information ne dépend jamais de la seule couleur).
+ */
 export function SchemaEmpreinteSvg({ schema, corps }: { schema: SchemaEmpreinte; corps: CorpsAffectation[] }) {
+  const uid = useId();
+  const trameId = `trame-${uid.replace(/:/g, '')}`; // id unique (deux schémas côte à côte en L3 ne partageront pas le motif)
   if (schema.motif) return <div style={{ ...styleAide, fontStyle: 'italic' }}>{schema.motif}</div>;
   return (
     <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} width={schema.largeur} height={schema.hauteur} role="img"
       aria-label="Schéma des polygones de l’empreinte, étiquetés par repère"
       style={{ maxWidth: '100%', height: 'auto', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' }}>
-      {schema.empreintePath && <path d={schema.empreintePath} fill="#fff" stroke="var(--color-svv-line)" strokeWidth={1.5} />}
-      {schema.polygones.map((p) => (
-        <g key={p.repere}>
-          <path d={p.path} fill={couleurPolygone(!!corpsDuPolygone(corps, p.cleabs), p.horsEmpreinte)} fillOpacity={0.7}
-            stroke="var(--color-svv-ink)" strokeWidth={1} strokeDasharray={p.horsEmpreinte ? '3 2' : undefined} />
-          <text x={p.cx} y={p.cy} textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight={700} fill="var(--color-svv-ink)">{p.repere}</text>
-        </g>
-      ))}
+      <defs>
+        {/* ① trame grise du fond HORS parcelle : hachures à 45°, franches en niveaux de gris (impression N&B OK) */}
+        <pattern id={trameId} width={6} height={6} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width={6} height={6} fill="#f4f4f5" />
+          <line x1={0} y1={0} x2={0} y2={6} stroke="#c9ccd1" strokeWidth={1.2} />
+        </pattern>
+      </defs>
+      <rect x={0} y={0} width={schema.largeur} height={schema.hauteur} fill={`url(#${trameId})`} />
+      {/* ② parcelle : blanc plein par-dessus la trame → son contour se détache */}
+      {schema.empreintePath && <path d={schema.empreintePath} fill="#fff" stroke="var(--color-svv-ink)" strokeWidth={1.5} />}
+      {/* ③ polygones : couleur franche par repère (identité stable) ; affecté = contour vert ; hors empreinte = contour tireté */}
+      {schema.polygones.map((p) => {
+        const affecte = !!corpsDuPolygone(corps, p.cleabs);
+        return (
+          <g key={p.repere}>
+            <path d={p.path} fill={couleurRepere(indexDepuisRepere(p.repere))} fillOpacity={0.85}
+              stroke={affecte ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'} strokeWidth={affecte ? 2.5 : 1}
+              strokeDasharray={p.horsEmpreinte ? '3 2' : undefined} />
+            {/* repère avec HALO blanc (paint-order) → contraste suffisant sur n'importe quelle couleur de remplissage */}
+            <text x={p.cx} y={p.cy} textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight={700}
+              fill="var(--color-svv-ink)" stroke="#fff" strokeWidth={3} paintOrder="stroke">{p.repere}</text>
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -361,18 +386,27 @@ export function texteNonAffectes(nonAffectes: { repere: string; horsEmpreinte: b
   return parts.join(' ; ');
 }
 
-/** Légende du schéma : les TROIS styles. La couleur n'est jamais seule — le LIBELLÉ et le contour TIRETÉ (hors empreinte) portent l'information. */
+/**
+ * Légende du schéma (L2). La couleur n'est JAMAIS seule porteuse : chaque item nomme aussi son cue non coloré (repère écrit,
+ * contour vert, contour tireté, trame). Présentation minimale, tenue à jour avec l'encodage L2 — sa mise en forme définitive
+ * (nom du schéma, plein écran) reste le lot L3.
+ */
 export function LegendeAffectation() {
-  const puce = (fill: string, tirete: boolean): CSSProperties => ({
-    display: 'inline-block', width: 14, height: 14, borderRadius: 3, marginRight: '.35rem', verticalAlign: 'middle',
-    background: fill, opacity: 0.85, border: `1px ${tirete ? 'dashed' : 'solid'} var(--color-svv-ink)`,
-  });
   const item: CSSProperties = { display: 'inline-flex', alignItems: 'center' };
+  const puceBase: CSSProperties = { display: 'inline-block', width: 14, height: 14, borderRadius: 3, marginRight: '.35rem', verticalAlign: 'middle' };
+  const chip = (fill: string, border: string): CSSProperties => ({ ...puceBase, background: fill, opacity: 0.85, border });
   return (
     <div role="note" aria-label="Légende du schéma d’affectation" style={{ ...styleAide, display: 'flex', flexWrap: 'wrap', gap: '.75rem' }}>
-      <span style={item}><span aria-hidden="true" style={puce('var(--color-svv-green-soft)', false)} />affecté à un corps</span>
-      <span style={item}><span aria-hidden="true" style={puce('#fde2e1', true)} />hors empreinte (déborde de l’emprise), contour tireté</span>
-      <span style={item}><span aria-hidden="true" style={puce('var(--color-svv-field)', false)} />dans l’empreinte, non affecté</span>
+      {/* ③ la couleur = identité du polygone (repère). On montre quelques teintes de la palette ; le repère écrit reste la référence. */}
+      <span style={item}>
+        <span aria-hidden="true" style={{ display: 'inline-flex', marginRight: '.35rem' }}>
+          {[0, 1, 2].map((i) => <span key={i} style={{ ...puceBase, width: 10, marginRight: 2, background: PALETTE_REPERE[i], opacity: 0.85, border: '1px solid var(--color-svv-ink)' }} />)}
+        </span>
+        couleur = repère du polygone (A, B, C…)
+      </span>
+      <span style={item}><span aria-hidden="true" style={chip('#fff', '2.5px solid var(--color-svv-green-ink)')} />affecté à un corps (contour vert)</span>
+      <span style={item}><span aria-hidden="true" style={chip('#fff', '1px dashed var(--color-svv-ink)')} />hors empreinte (contour tireté)</span>
+      <span style={item}><span aria-hidden="true" style={{ ...puceBase, backgroundImage: 'repeating-linear-gradient(45deg, #c9ccd1 0 1.2px, #f4f4f5 1.2px 6px)', border: '1px solid var(--color-svv-line)' }} />hors parcelle (trame grise)</span>
     </div>
   );
 }

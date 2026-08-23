@@ -5,7 +5,7 @@ import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, Lege
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
-import type { SchemaEmpreinte } from '../../../../lib/permis/affectationSchema';
+import { couleurRepere, repereDepuisIndex, PALETTE_REPERE, type SchemaEmpreinte } from '../../../../lib/permis/affectationSchema';
 
 /**
  * FUS-3b — rendu PUR du suivi (renderToStaticMarkup, aucun DOM). Couvre : compteurs + groupes par état, tri par urgence,
@@ -304,13 +304,13 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
     expect(h).not.toContain('<select');              // affectation FERMÉE (on n'invente pas un polygone)
   });
 
-  it('LÉGENDE : les trois styles nommés — l’information ne dépend PAS de la seule couleur (libellés + contour tireté)', () => {
+  it('L2 — LÉGENDE : l’information ne dépend PAS de la seule couleur (repère écrit, contours vert/tireté, trame nommés)', () => {
     const h = renderToStaticMarkup(createElement(LegendeAffectation, {}));
-    expect(h).toContain('affecté à un corps');
-    expect(h).toContain('hors empreinte');
-    expect(h).toContain('dans l’empreinte, non affecté');
-    expect(h).toContain('contour tireté'); // le style hors-empreinte est décrit par le TEXTE, pas que par la couleur
-    expect(h).toContain('dashed');          // et matérialisé par un contour tireté sur la puce
+    expect(h).toContain('couleur = repère du polygone'); // la couleur = identité ; le repère écrit reste la référence
+    expect(h).toContain('affecté à un corps (contour vert)');
+    expect(h).toContain('hors empreinte (contour tireté)');
+    expect(h).toContain('hors parcelle (trame grise)');
+    expect(h).toContain('dashed');          // le hors-empreinte est matérialisé par un contour tireté sur la puce
   });
 
   it('empreinte non figée → motif, pas de schéma ; migration 117 absente → avertissement + sélecteurs désactivés', () => {
@@ -351,5 +351,53 @@ describe('FUS-3e — ActionsRattachement (les trois boutons)', () => {
   it('refuser ACTIVÉ dès qu’un motif est saisi', () => {
     const h = renderToStaticMarkup(createElement(ActionsRattachement, props({ motifRefus: 'parcelle erronée' })));
     expect(h).not.toMatch(/disabled[^>]*>[\s\S]{0,40}Refuser le rattachement/);
+  });
+});
+
+describe('L2 — lisibilité du schéma (trame hors parcelle, parcelle blanche, palette par repère)', () => {
+  const schema16 = (): SchemaEmpreinte => ({
+    largeur: 320, hauteur: 240, empreintePath: 'M10,10 L300,10 L300,230 L10,230 Z', motif: null,
+    polygones: Array.from({ length: 16 }, (_, i) => ({
+      repere: repereDepuisIndex(i), cleabs: `BAT_${i}`,
+      path: `M${20 + i},${20 + i} L${30 + i},${20 + i} L${30 + i},${30 + i} Z`, cx: 25 + i, cy: 25 + i, horsEmpreinte: false,
+    })),
+  });
+
+  it('① trame grise DERRIÈRE (motif hachuré à 45°) + ② parcelle blanche PAR-DESSUS', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schema16(), corps: [] }));
+    expect(h).toContain('<pattern');                       // motif de trame défini
+    expect(h).toContain('patternTransform="rotate(45)"');  // hachures à 45°
+    expect(h).toMatch(/fill="url\(#trame-[^"]+\)"/);        // fond hors parcelle rempli par la trame
+    expect(h).toContain('d="M10,10 L300,10 L300,230 L10,230 Z" fill="#fff"'); // parcelle blanche par-dessus
+  });
+
+  it('③ les 16 polygones (cas 07512024V0037) reçoivent 16 couleurs de palette DISTINCTES, aucune blanche', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schema16(), corps: [] }));
+    const attendues = Array.from({ length: 16 }, (_, i) => couleurRepere(i));
+    for (const c of attendues) expect(h).toContain(`fill="${c}"`); // chaque repère A..P a SA couleur
+    expect(new Set(attendues).size).toBe(16);                       // et elles sont toutes distinctes
+    expect(h).not.toContain('fill="#ffffff"');                     // aucun polygone blanc (la parcelle utilise #fff, pas #ffffff)
+    for (const c of PALETTE_REPERE) { const hex = c.toLowerCase(); expect(hex).not.toBe('#fff'); expect(hex).not.toBe('#ffffff'); }
+  });
+
+  it('le repère reste lisible : HALO blanc (paint-order) sous le glyphe, sur n’importe quelle couleur', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schema16(), corps: [] }));
+    expect(h).toContain('paint-order="stroke"'); // halo dessiné derrière le glyphe
+    expect(h).toContain('>A<'); expect(h).toContain('>P<'); // 16e repère présent et étiqueté
+  });
+
+  it('affecté → contour VERT (canal non coloré, distinct de la teinte d’identité) ; hors empreinte → contour tireté', () => {
+    const s: SchemaEmpreinte = {
+      largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null,
+      polygones: [
+        { repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false },
+        { repere: 'B', cleabs: 'BAT_B', path: 'M60,60 L80,60 L80,80 Z', cx: 70, cy: 70, horsEmpreinte: true },
+      ],
+    };
+    const corps = [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: 'BAT_A' }];
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: s, corps }));
+    expect(h).toContain('stroke="var(--color-svv-green-ink)"'); // A affecté → contour vert
+    expect(h).toContain('stroke-dasharray="3 2"');              // B hors empreinte → contour tireté
+    expect(h).toContain(`fill="${couleurRepere(0)}"`);          // A garde SA couleur d'identité (le vert n'est qu'un contour)
   });
 });

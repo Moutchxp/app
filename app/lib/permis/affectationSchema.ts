@@ -16,6 +16,47 @@ export function repereDepuisIndex(i: number): string {
   return s;
 }
 
+/** Inverse de repereDepuisIndex : 'A'→0 … 'Z'→25, 'AA'→26 … (base-26 bijective). -1 si la chaîne n'est pas un repère valide. */
+export function indexDepuisRepere(repere: string): number {
+  if (!/^[A-Z]+$/.test(repere)) return -1;
+  let n = 0;
+  for (let k = 0; k < repere.length; k++) n = n * 26 + (repere.charCodeAt(k) - 64); // 'A' vaut 1 en base bijective
+  return n - 1;
+}
+
+/**
+ * L2 — palette FIXE et ORDONNÉE des polygones, indexée par le repère stable (A=0, B=1, …). Franc, distincte sur ≥ 16 entrées
+ * (cas réel : 07512024V0037 a 16 polygones), répétée proprement au-delà (modulo). Déterministe : le polygone A a TOUJOURS la même
+ * couleur — jamais un tirage au hasard ni dépendant de l'ordre d'une requête. AUCUNE n'est blanche (les polygones se détachent de
+ * la parcelle blanche) ; AUCUNE n'est un rouge franc — le rouge est RÉSERVÉ au lot L5 (polygones nouveaux/modifiés). La couleur
+ * n'est qu'une AIDE : le repère écrit (A, B, C…) reste la référence.
+ */
+export const PALETTE_REPERE = [
+  '#1f77b4', // A bleu
+  '#ff7f0e', // B orange
+  '#2ca02c', // C vert
+  '#9467bd', // D violet
+  '#17becf', // E cyan
+  '#bcbd22', // F jaune-vert
+  '#e377c2', // G rose
+  '#8c564b', // H brun
+  '#008080', // I sarcelle
+  '#d4a017', // J or
+  '#3b3b8f', // K indigo
+  '#556b2f', // L olive
+  '#b5179e', // M magenta
+  '#4fa3e0', // N ciel
+  '#5c6b73', // O ardoise
+  '#7fb800', // P chartreuse
+] as const;
+
+/** Couleur d'un polygone d'après l'index de son repère. Modulo → répétition PROPRE au-delà de la palette ; un index invalide
+ *  (repère non reconnu, -1) retombe sur la dernière teinte (jamais blanc). */
+export function couleurRepere(index: number): string {
+  const n = PALETTE_REPERE.length;
+  return PALETTE_REPERE[((index % n) + n) % n];
+}
+
 /** Extrait les anneaux EXTÉRIEURS d'une géométrie GeoJSON (Polygon | MultiPolygon). {anneaux:[]} sinon (jamais une exception). */
 export function geomDepuisGeoJSON(gj: unknown): GeomPoly {
   const g = gj as { type?: string; coordinates?: unknown };

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  repereDepuisIndex, geomDepuisGeoJSON, construireSchema, optionsPourCorps, polygonesNonAffectes, corpsDuPolygone,
+  repereDepuisIndex, indexDepuisRepere, couleurRepere, PALETTE_REPERE,
+  geomDepuisGeoJSON, construireSchema, optionsPourCorps, polygonesNonAffectes, corpsDuPolygone,
   type CorpsAffectation, type PolygoneAffectable, type PolygoneEntreeSchema,
 } from './affectationSchema';
 
@@ -9,6 +10,44 @@ import {
 describe('repereDepuisIndex', () => {
   it('A, B, … Z puis AA', () => {
     expect([0, 1, 25, 26, 27].map(repereDepuisIndex)).toEqual(['A', 'B', 'Z', 'AA', 'AB']);
+  });
+});
+
+describe('L2 — palette des repères (couleurRepere / indexDepuisRepere)', () => {
+  it('indexDepuisRepere est l’inverse exact de repereDepuisIndex ; entrée invalide → -1', () => {
+    for (let i = 0; i < 40; i++) expect(indexDepuisRepere(repereDepuisIndex(i))).toBe(i);
+    expect(indexDepuisRepere('')).toBe(-1);
+    expect(indexDepuisRepere('a1')).toBe(-1);
+  });
+
+  it('DÉTERMINISME : même repère → même couleur (jamais tirée au hasard ni dépendante d’une requête)', () => {
+    expect(couleurRepere(indexDepuisRepere('A'))).toBe(couleurRepere(indexDepuisRepere('A')));
+    expect(couleurRepere(0)).toBe(PALETTE_REPERE[0]);   // A stable d'une session à l'autre
+    expect(couleurRepere(2)).toBe(PALETTE_REPERE[2]);   // C stable
+  });
+
+  it('AUCUNE couleur n’est blanche, ni un rouge franc (rouge RÉSERVÉ au lot L5)', () => {
+    for (const c of PALETTE_REPERE) {
+      const hex = c.toLowerCase();
+      expect(hex).toMatch(/^#[0-9a-f]{6}$/);
+      const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+      expect(r > 240 && g > 240 && b > 240).toBe(false); // pas de blanc / quasi-blanc
+      expect(r > 200 && g < 80 && b < 80).toBe(false);   // pas de rouge franc (réservé L5)
+    }
+  });
+
+  it('cas RÉEL 16 polygones (07512024V0037) → 16 couleurs distinctes, voisins jamais identiques', () => {
+    const couleurs = Array.from({ length: 16 }, (_, i) => couleurRepere(i));
+    expect(new Set(couleurs).size).toBe(16);                 // toutes distinctes
+    for (let i = 1; i < couleurs.length; i++) expect(couleurs[i]).not.toBe(couleurs[i - 1]); // voisins ≠
+  });
+
+  it('au-delà de la palette : répétition PROPRE (modulo), jamais une couleur hors palette ; index invalide → teinte non blanche', () => {
+    const n = PALETTE_REPERE.length;
+    expect(couleurRepere(n)).toBe(PALETTE_REPERE[0]);
+    expect(couleurRepere(n + 1)).toBe(PALETTE_REPERE[1]);
+    expect(couleurRepere(-1)).toBe(PALETTE_REPERE[n - 1]); // repère non reconnu → dernière teinte (jamais blanc)
+    expect(PALETTE_REPERE).toContain(couleurRepere(999));
   });
 });
 
