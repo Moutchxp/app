@@ -31,6 +31,13 @@ export const ORDRE_AFFICHAGE_ETATS: readonly EtatSuivi[] = ['arbitrage_demande',
 
 const styleAide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)', lineHeight: 1.4 };
 
+/** L1 — formate une date ISO 'YYYY-MM-DD' en 'JJ/MM/AAAA'. Découpage de chaîne (jamais `new Date`) : déterministe et sans piège de fuseau. */
+export function formatDateFr(iso: string | null): string {
+  if (!iso) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+}
+
 function fondEtat(etat: EtatSuivi): CSSProperties {
   if (etat === 'arbitrage_demande') return { background: 'var(--color-svv-red)', color: '#fff' };
   if (etat === 'en_attente_bati') return { background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' };
@@ -81,6 +88,10 @@ export function TableSuivi({ lignes, compteurs, onOuvrir, ouvert }: {
                 <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', fontWeight: 700 }}>{l.numDau}</span>
                 <span>{l.type}{l.natureTravaux ? ` — ${l.natureTravaux}` : ''}</span>
                 <span style={{ color: 'var(--color-svv-muted)' }}>{l.adresse ?? l.commune ?? `INSEE ${l.codeInsee}`}</span>
+                {/* L1 — date d'ARRIVÉE du permis (autorisation), libellée pour ne pas se confondre avec « suivi depuis… » (date d'entrée en suivi). */}
+                <span style={{ fontSize: 12, color: 'var(--color-svv-ink)', whiteSpace: 'nowrap' }}>
+                  {l.dateAutorisationIso ? `permis autorisé le ${formatDateFr(l.dateAutorisationIso)}` : <em style={{ color: 'var(--color-svv-muted)' }}>date d’autorisation inconnue</em>}
+                </span>
                 <span style={{ ...styleAide, marginLeft: 'auto' }}>
                   {l.derniereEvalIso ? `évalué le ${l.derniereEvalIso} · ` : ''}{ancienneteTexte(l)}
                 </span>

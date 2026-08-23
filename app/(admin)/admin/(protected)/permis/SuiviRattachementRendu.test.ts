@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
@@ -11,7 +11,7 @@ import type { SchemaEmpreinte } from '../../../../lib/permis/affectationSchema';
  * FUS-3b — rendu PUR du suivi (renderToStaticMarkup, aucun DOM). Couvre : compteurs + groupes par état, tri par urgence,
  * ancienneté ; le tableau comparatif « trois sources » (dont « aucun bâtiment » et « sans objet »), critères et provenance.
  */
-const ligne = (o: Partial<LigneSuivi>): LigneSuivi => ({ dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', verdict: null, joursAnciennete: 3, derniereEvalIso: null, ...o });
+const ligne = (o: Partial<LigneSuivi>): LigneSuivi => ({ dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', verdict: null, joursAnciennete: 3, derniereEvalIso: null, dateAutorisationIso: '2026-03-13', ...o });
 
 const detail = (o: Partial<DetailSuivi> = {}): DetailSuivi => ({
   dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', persiste: false,
@@ -70,6 +70,27 @@ describe('FUS-3b — TableSuivi (compteurs, groupes, ancienneté)', () => {
   it('univers vide → message explicite', () => {
     const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [], compteurs: compteurs({}) }));
     expect(h).toMatch(/Aucun permis suivi/);
+  });
+
+  it('L1 — la date d’autorisation du permis est affichée (libellée), et une date absente le DIT (jamais un blanc)', () => {
+    const lignes = [
+      ligne({ dossierId: 1, etat: 'suivi_aucun_signal', dateAutorisationIso: '2025-08-27' }),
+      ligne({ dossierId: 2, etat: 'suivi_aucun_signal', dateAutorisationIso: null }),
+    ];
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, compteurs: compteurs({ suivi_aucun_signal: 2 }) }));
+    expect(h).toContain('permis autorisé le 27/08/2025'); // format FR + libellé explicite
+    expect(h).toContain('date d’autorisation inconnue');  // absence DITE, pas un blanc
+    // la date d'arrivée NE doit PAS se confondre avec l'ancienneté (« suivi depuis… ») : les deux libellés coexistent, distincts.
+    expect(h).toContain('suivi depuis');
+  });
+});
+
+describe('L1 — formatDateFr (ISO → JJ/MM/AAAA, sans piège de fuseau)', () => {
+  it('formate une date ISO ; null → vide ; entrée non ISO → renvoyée telle quelle', () => {
+    expect(formatDateFr('2025-08-27')).toBe('27/08/2025');
+    expect(formatDateFr('2026-03-13')).toBe('13/03/2026');
+    expect(formatDateFr(null)).toBe('');
+    expect(formatDateFr('pas une date')).toBe('pas une date');
   });
 });
 

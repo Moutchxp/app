@@ -120,26 +120,49 @@ export interface LigneSuivi {
   dossierId: number; numDau: string; commune: string | null; codeInsee: string;
   type: string; adresse: string | null; natureTravaux: string | null;    // FUS-3c-ter — ligne repliée : adresse + type + nature
   etat: EtatSuivi; verdict: string | null; joursAnciennete: number; derniereEvalIso: string | null;
+  dateAutorisationIso: string | null;   // L1 — date_reelle_autorisation du permis (ISO 'YYYY-MM-DD') ; null = inconnue. À NE PAS confondre avec joursAnciennete (date d'ENTRÉE en suivi).
+}
+
+/**
+ * L1 (décision Arno, 21/08/2026) — tri du suivi : URGENCE d'abord, RÉCENCE ensuite.
+ *   ① `ORDRE_URGENCE` reste le PREMIER critère (un dossier à arbitrer reste en tête, même ancien) ;
+ *   ② à urgence égale, `date_reelle_autorisation` DÉCROISSANTE (permis le plus récent en haut) ;
+ *   ③ une date ABSENTE est reléguée en FIN de groupe — jamais confondue avec une date récente.
+ * ⚠️ NE PAS réinverser en « ancienneté croissante » en croyant bien faire : urgence prime la récence, c'est voulu.
+ * Pur (aucune I/O) → testable sans base. Ne mute pas l'entrée.
+ */
+export function trierLignesSuivi(lignes: LigneSuivi[]): LigneSuivi[] {
+  return [...lignes].sort((a, b) => {
+    const parUrgence = ORDRE_URGENCE[a.etat] - ORDRE_URGENCE[b.etat];
+    if (parUrgence !== 0) return parUrgence;                       // ① urgence conservée en 1er critère
+    if (a.dateAutorisationIso !== b.dateAutorisationIso) {         // ② récence (ISO comparable lexicographiquement)
+      if (a.dateAutorisationIso === null) return 1;                // ③ date absente → fin de groupe
+      if (b.dateAutorisationIso === null) return -1;
+      return a.dateAutorisationIso < b.dateAutorisationIso ? 1 : -1; // décroissant : plus récent en haut
+    }
+    return a.dossierId - b.dossierId;                              // tiebreaker STABLE (dates égales / toutes deux absentes)
+  });
 }
 
 /** Liste l'UNIVERS des permis suivis (ceux qui ont une empreinte) LEFT JOIN leur dossier ; « aucun signal » si pas de dossier. */
 export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> }> {
-  const { rows } = await query<{ dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; jours: number; reevalue: string | null }>(
+  const { rows } = await query<{ dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; jours: number; reevalue: string | null; date_autorisation: string | null }>(
     `SELECT e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s.type,
             nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
             s.nature_projet_completee AS nature, r.etat AS ratt_etat, r.verdict,
             GREATEST(0, floor(EXTRACT(EPOCH FROM (now() - COALESCE(r.detecte_le, e.maj_le))) / 86400))::int AS jours,
-            to_char(r.reevalue_le, 'YYYY-MM-DD') AS reevalue
+            to_char(r.reevalue_le, 'YYYY-MM-DD') AS reevalue,
+            to_char(s.date_reelle_autorisation, 'YYYY-MM-DD') AS date_autorisation
        FROM permis_empreinte e
        JOIN sitadel_dossier s ON s.id = e.dossier_id
        LEFT JOIN commune c ON c.code_insee = s.code_insee
        LEFT JOIN permis_rattachement r ON r.dossier_id = e.dossier_id`);
-  const lignes: LigneSuivi[] = rows.map((r) => ({
+  const lignes: LigneSuivi[] = trierLignesSuivi(rows.map((r) => ({
     dossierId: r.dossier_id, numDau: r.num_dau, commune: r.commune, codeInsee: r.code_insee,
     type: r.type, adresse: r.adresse, natureTravaux: r.nature ? libelleNatureProjet(r.nature) : null,
     etat: r.ratt_etat ?? 'suivi_aucun_signal', verdict: r.verdict, joursAnciennete: r.jours, derniereEvalIso: r.reevalue,
-  }));
-  lignes.sort((a, b) => ORDRE_URGENCE[a.etat] - ORDRE_URGENCE[b.etat] || b.joursAnciennete - a.joursAnciennete);
+    dateAutorisationIso: r.date_autorisation,
+  })));
   const compteurs = Object.fromEntries((Object.keys(ORDRE_URGENCE) as EtatSuivi[]).map((e) => [e, 0])) as Record<EtatSuivi, number>;
   for (const l of lignes) compteurs[l.etat] += 1;
   return { lignes, compteurs };
