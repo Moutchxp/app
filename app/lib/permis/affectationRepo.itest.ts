@@ -7,7 +7,7 @@
  * ordre déterministe). Seule une vraie base, sur le même jeu de 16 polygones, le démontre.
  */
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
-import { lireAffectation, lireAffectationOrigine } from './affectationRepo';
+import { lireAffectation, lireAffectationOrigine, lireComparaison } from './affectationRepo';
 import { query, closePool } from '../db/client';
 
 const DOSSIER_SNAPSHOT = 11430; // 07512024V0037 : 16 polygones gelés ET 16 en live (mêmes cleabs) — cf. R0
@@ -50,5 +50,17 @@ describe('L4 — lireAffectationOrigine lit le snapshot figé (lecture seule)', 
     expect(o.captureVide).toBe(true);
     expect(o.polygones.length).toBe(0);
     expect(o.millesimeGel).toBe('2026-06-18');
+  });
+
+  it('L5 — 11430 : snapshot == live aujourd’hui → aChange=false, AUCUN polygone rouge (comportement CORRECT, pas un bug)', async () => {
+    if (!dispo) { expect(dispo).toBe(false); return; }
+    const c = await lireComparaison(DOSSIER_SNAPSHOT);
+    expect(c.origine.figee).toBe(true);
+    expect(c.origine.polygones.length).toBe(16);
+    expect(c.nouvelle.polygones.length).toBe(16);
+    expect(c.polygonesModifies).toEqual([]); // rien n'a bougé depuis le gel → rien en rouge
+    expect(c.aChange).toBe(false);            // pas de second schéma jumeau
+    // Cadre COMMUN : les deux schémas projettent l'empreinte à l'identique (même échelle/cadrage).
+    expect(c.origine.schema.empreintePath).toBe(c.nouvelle.schema.empreintePath);
   });
 });

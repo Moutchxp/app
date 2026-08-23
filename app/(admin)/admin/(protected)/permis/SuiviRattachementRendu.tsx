@@ -340,7 +340,7 @@ export function ActionsRattachement({ avertissement, motifRefus, motifConfirmati
  *     (halo blanc sous le glyphe → lisible sur n'importe quelle teinte). Affecté → contour VERT ; hors empreinte → contour TIRETÉ
  *     (canaux NON colorés : l'information ne dépend jamais de la seule couleur).
  */
-export function SchemaEmpreinteSvg({ schema, corps, agrandi = false }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; agrandi?: boolean }) {
+export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; agrandi?: boolean; rougeCleabs?: readonly string[] }) {
   const uid = useId();
   const trameId = `trame-${uid.replace(/:/g, '')}`; // id unique (deux schémas côte à côte en L5 ne partageront pas le motif)
   if (schema.motif) return <div style={{ ...styleAide, fontStyle: 'italic' }}>{schema.motif}</div>;
@@ -366,9 +366,12 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false }: { schema:
       {/* ③ polygones : couleur franche par repère (identité stable) ; affecté = contour vert ; hors empreinte = contour tireté */}
       {schema.polygones.map((p) => {
         const affecte = !!corpsDuPolygone(corps, p.cleabs);
+        // L5 — polygone NOUVEAU/MODIFIÉ depuis l'origine → surface ROUGE (le rouge est hors palette depuis L2). Le repère écrit
+        // reste la référence (le rouge n'est jamais seul porteur : la légende dit ce qu'il signifie).
+        const estRouge = p.cleabs != null && !!rougeCleabs?.includes(p.cleabs);
         return (
           <g key={p.repere}>
-            <path d={p.path} fill={couleurRepere(indexDepuisRepere(p.repere))} fillOpacity={0.85}
+            <path d={p.path} fill={estRouge ? 'var(--color-svv-red)' : couleurRepere(indexDepuisRepere(p.repere))} fillOpacity={0.85}
               stroke={affecte ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'} strokeWidth={affecte ? 2.5 : 1}
               strokeDasharray={p.horsEmpreinte ? '3 2' : undefined} />
             {/* repère avec HALO blanc (paint-order) → contraste suffisant sur n'importe quelle couleur de remplissage */}
@@ -396,7 +399,7 @@ export function texteNonAffectes(nonAffectes: { repere: string; horsEmpreinte: b
  * contour vert, contour tireté, trame). Présentation minimale, tenue à jour avec l'encodage L2 — sa mise en forme définitive
  * (nom du schéma, plein écran) reste le lot L3.
  */
-export function LegendeAffectation() {
+export function LegendeAffectation({ avecRouge = false }: { avecRouge?: boolean } = {}) {
   const item: CSSProperties = { display: 'inline-flex', alignItems: 'center' };
   const puceBase: CSSProperties = { display: 'inline-block', width: 14, height: 14, borderRadius: 3, marginRight: '.35rem', verticalAlign: 'middle' };
   const chip = (fill: string, border: string): CSSProperties => ({ ...puceBase, background: fill, opacity: 0.85, border });
@@ -409,6 +412,8 @@ export function LegendeAffectation() {
         </span>
         couleur = repère du polygone (A, B, C…)
       </span>
+      {/* L5 — clé du rouge (uniquement sur « Nouvelle configuration ») : le rouge n'est jamais seul porteur, la légende le dit. */}
+      {avecRouge && <span style={item}><span aria-hidden="true" style={chip('var(--color-svv-red)', '1px solid var(--color-svv-ink)')} />nouveau ou modifié depuis l’origine (rouge)</span>}
       <span style={item}><span aria-hidden="true" style={chip('#fff', '2.5px solid var(--color-svv-green-ink)')} />affecté à un corps (contour vert)</span>
       <span style={item}><span aria-hidden="true" style={chip('#fff', '1px dashed var(--color-svv-ink)')} />déborde de la parcelle (contour tireté)</span>
       <span style={item}><span aria-hidden="true" style={{ ...puceBase, backgroundImage: 'repeating-linear-gradient(45deg, #c9ccd1 0 1.2px, #f4f4f5 1.2px 6px)', border: '1px solid var(--color-svv-line)' }} />hors parcelle (trame grise)</span>
@@ -416,8 +421,15 @@ export function LegendeAffectation() {
   );
 }
 
-// L3 — nom par défaut du (seul) schéma actuel. Un SECOND nom (« Nouvelle configuration ») viendra en L5 ; la place est prête ici.
+// L3/L5 — noms des DEUX schémas (même nomenclature d'affichage : mêmes repères, palette, trame, parcelle blanche).
 export const NOM_SCHEMA_ORIGINE = 'Configuration d’origine';
+export const NOM_SCHEMA_NOUVELLE = 'Nouvelle configuration';
+
+/** L5 — mention de « Nouvelle configuration » : combien de polygones, dont combien en rouge (nouveaux/modifiés). */
+export function descriptionSchemaNouvelle(nbPolys: number, nbRouge: number): string {
+  const base = `Couche bâti actuelle — ${nbPolys} polygone${nbPolys > 1 ? 's' : ''}`;
+  return nbRouge > 0 ? `${base}, dont ${nbRouge} nouveau${nbRouge > 1 ? 'x' : ''}/modifié${nbRouge > 1 ? 's' : ''} (en rouge).` : `${base}.`;
+}
 
 /**
  * L4 — nom + mention du schéma d'origine selon sa PROVENANCE (snapshot figé vs couche vivante). Pur (testable). JAMAIS un repli
@@ -490,14 +502,14 @@ export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onA
  * FIGURE du schéma : le SVG + son NOM écrit DANS le visuel (figcaption en surimpression, pas seulement au-dessus). Quand `onAgrandir`
  * est fourni, la figure devient une cible cliquable ET focalisable au clavier (role=button, Entrée/Espace) → ouvre le plein écran.
  */
-export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, onAgrandir }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; mention?: string; agrandi?: boolean; onAgrandir?: () => void }) {
+export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, onAgrandir, rougeCleabs }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; mention?: string; agrandi?: boolean; onAgrandir?: () => void; rougeCleabs?: readonly string[] }) {
   const contenu = (
     <>
       <figure style={{ position: 'relative', margin: 0 }}>
         {titre && (
           <figcaption style={{ position: 'absolute', top: 6, left: 6, zIndex: 1, fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,.85)', color: 'var(--color-svv-ink)', padding: '.1rem .45rem', borderRadius: '.3rem', border: '1px solid var(--color-svv-line)' }}>{titre}</figcaption>
         )}
-        <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} />
+        <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} rougeCleabs={rougeCleabs} />
       </figure>
       {/* L4 — mention (provenance + millésime du gel) écrite DANS le visuel, juste sous le nom du schéma. */}
       {mention && <div style={{ ...styleAide }}>{mention}</div>}
@@ -521,22 +533,32 @@ export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, o
  * retrouver un polygone précis — une pastille générique n'identifie pas un bâtiment. Affecté → mention du corps ; hors empreinte
  * signalé (contour tireté). La couleur n'est qu'une aide : le repère écrit reste la référence.
  */
-export function LegendeRepetesComplete({ schema, corps }: { schema: SchemaEmpreinte; corps: CorpsAffectation[] }) {
+export function LegendeRepetesComplete({ schema, corps, rougeCleabs }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; rougeCleabs?: readonly string[] }) {
   if (schema.polygones.length === 0) return <div style={styleAide}>Aucun polygone dans la parcelle du permis.</div>;
   const deborde = schema.polygones.some((p) => p.horsEmpreinte); // au moins un bâtiment déborde de la parcelle du permis
+  const estRouge = (cleabs: string | null) => cleabs != null && !!rougeCleabs?.includes(cleabs);
+  const yAduRouge = schema.polygones.some((p) => estRouge(p.cleabs));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
       <div role="note" aria-label="Légende : repères présents dans la parcelle du permis" style={{ ...styleAide, display: 'flex', flexWrap: 'wrap', gap: '.35rem .8rem' }}>
         {schema.polygones.map((p) => {
           const corpsAff = corpsDuPolygone(corps, p.cleabs);
+          const rouge = estRouge(p.cleabs);
           return (
             <span key={p.repere} style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
-              <span aria-hidden="true" style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: couleurRepere(indexDepuisRepere(p.repere)), opacity: 0.85, border: p.horsEmpreinte ? '1px dashed var(--color-svv-ink)' : `1px solid ${corpsAff ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'}` }} />
-              <strong>{p.repere}</strong>{corpsAff ? ` → ${corpsAff.repere ?? `corps ${corpsAff.id}`}` : p.horsEmpreinte ? ' (déborde de la parcelle)' : ''}
+              <span aria-hidden="true" style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: rouge ? 'var(--color-svv-red)' : couleurRepere(indexDepuisRepere(p.repere)), opacity: 0.85, border: p.horsEmpreinte ? '1px dashed var(--color-svv-ink)' : `1px solid ${corpsAff ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'}` }} />
+              <strong>{p.repere}</strong>{corpsAff ? ` → ${corpsAff.repere ?? `corps ${corpsAff.id}`}` : p.horsEmpreinte ? ' (déborde de la parcelle)' : ''}{rouge ? ' (nouveau/modifié)' : ''}
             </span>
           );
         })}
       </div>
+      {/* L5 — clé du ROUGE : la puce rouge + ce qu'elle signifie (le rouge n'est jamais seul porteur). */}
+      {yAduRouge && (
+        <div role="note" style={{ ...styleAide, display: 'flex', alignItems: 'baseline', gap: '.3rem' }}>
+          <span aria-hidden="true" style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, flexShrink: 0, background: 'var(--color-svv-red)', opacity: 0.85, border: '1px solid var(--color-svv-ink)' }} />
+          <span><strong>Rouge = nouveau ou modifié depuis l’origine</strong> — ce qui a bougé par rapport à l’état figé.</span>
+        </div>
+      )}
       {/* ②/④ — clé du débordement : la puce AVEC son contour tireté (pas seulement le mot) + POURQUOI ça compte, dit UNE fois. */}
       {deborde && (
         <div role="note" style={{ ...styleAide, display: 'flex', alignItems: 'baseline', gap: '.3rem' }}>
@@ -561,19 +583,14 @@ export function indexFocusSuivant(index: number, total: number, shift: boolean):
 export function restaurerFocus(element: { focus: () => void } | null | undefined): void { element?.focus(); }
 
 /**
- * PLEIN ÉCRAN (L3) — vrai DIALOGUE (role=dialog, aria-modal, titre annoncé, focus piégé à l'ouverture et RENDU au déclencheur à la
- * fermeture, Échap en supplément du bouton Fermer). HABILLAGE PUR : réutilise `SchemaFigure`, `LegendeRepetesComplete` et surtout
- * `CorpsEtChoix` (mêmes règles d'affectation — AUCUNE duplication). Aucune animation (prefers-reduced-motion respecté d'office).
- * Mobile-first : le schéma prime (en tête), la légende puis les sélecteurs suivent en défilement, sans masquer le dessin.
+ * COQUILLE de dialogue plein écran (L3, extraite en L5 pour être partagée par le plein écran simple ET le comparatif — ZÉRO
+ * duplication de la logique de focus). Vrai DIALOGUE : role=dialog, aria-modal, titre annoncé, focus piégé à l'ouverture et RENDU
+ * au déclencheur à la fermeture, Échap EN SUPPLÉMENT du bouton Fermer. Aucune animation (prefers-reduced-motion d'office).
  */
-export function SchemaPleinEcran({ titre, mention, affectation, persiste, enAttenteBati = false, onAffecter, onFermer }: {
-  titre: string; mention?: string; affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean;
-  onAffecter?: (corpsId: number, cleabs: string | null) => void; onFermer: () => void;
-}) {
+export function DialoguePleinEcran({ titre, onFermer, children }: { titre: string; onFermer: () => void; children: ReactNode }) {
   const dialogueRef = useRef<HTMLDivElement>(null);
   const titreId = useId();
   // Ref-indirection : le piège de focus s'installe UNE fois (mount) et le focus est RENDU une seule fois (unmount → fermeture).
-  // Sans elle, un `onFermer` inline (nouvelle identité à chaque rendu parent) relancerait l'effet et ferait sauter le focus.
   const onFermerRef = useRef(onFermer);
   useEffect(() => { onFermerRef.current = onFermer; }, [onFermer]); // maj hors rendu (règle react-hooks/refs)
   useEffect(() => {
@@ -598,17 +615,60 @@ export function SchemaPleinEcran({ titre, mention, affectation, persiste, enAtte
   return (
     <div ref={dialogueRef} role="dialog" aria-modal="true" aria-labelledby={titreId}
       style={{ position: 'fixed', inset: 0, zIndex: 50, background: '#fff', display: 'flex', flexDirection: 'column', gap: '.5rem', padding: '.75rem', overflow: 'auto' }}>
-      <div style={{ position: 'sticky', top: 0, background: '#fff', display: 'flex', alignItems: 'center', gap: '.5rem', paddingBottom: '.25rem', borderBottom: '1px solid var(--color-svv-line)' }}>
+      <div style={{ position: 'sticky', top: 0, background: '#fff', display: 'flex', alignItems: 'center', gap: '.5rem', paddingBottom: '.25rem', borderBottom: '1px solid var(--color-svv-line)', zIndex: 2 }}>
         <h2 id={titreId} style={{ fontSize: 14, fontWeight: 800, margin: 0 }}>{titre}</h2>
         <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', marginLeft: 'auto' }} onClick={onFermer}>Fermer ✕</button>
       </div>
-      {/* Le schéma PRIME (grand, en tête) — le nom + la mention (provenance/millésime) sont écrits DANS le visuel via la figure. */}
-      <SchemaFigure schema={affectation.schema} corps={affectation.corps} titre={titre} mention={mention} agrandi />
-      <LegendeRepetesComplete schema={affectation.schema} corps={affectation.corps} />
+      {children}
+    </div>
+  );
+}
+
+/**
+ * PLEIN ÉCRAN d'UN schéma (L3, + rouge L5). HABILLAGE PUR sur `DialoguePleinEcran` : réutilise `SchemaFigure`,
+ * `LegendeRepetesComplete` et surtout `CorpsEtChoix` (mêmes règles d'affectation — AUCUNE duplication).
+ * Mobile-first : le schéma prime (en tête), la légende puis les sélecteurs suivent en défilement, sans masquer le dessin.
+ */
+export function SchemaPleinEcran({ titre, mention, affectation, persiste, enAttenteBati = false, onAffecter, onFermer, rougeCleabs }: {
+  titre: string; mention?: string; affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean;
+  onAffecter?: (corpsId: number, cleabs: string | null) => void; onFermer: () => void; rougeCleabs?: readonly string[];
+}) {
+  return (
+    <DialoguePleinEcran titre={titre} onFermer={onFermer}>
+      {/* Le schéma PRIME (grand, en tête) — le nom + la mention sont écrits DANS le visuel via la figure. */}
+      <SchemaFigure schema={affectation.schema} corps={affectation.corps} titre={titre} mention={mention} agrandi rougeCleabs={rougeCleabs} />
+      <LegendeRepetesComplete schema={affectation.schema} corps={affectation.corps} rougeCleabs={rougeCleabs} />
       {/* La FONCTION de rattachement, à l'identique (mêmes règles) — c'est là qu'on arbitre. */}
       {affectation.colonneManquante && <div role="alert" style={{ color: 'var(--color-svv-red)' }}>Affectation indisponible : migration 117 non appliquée.</div>}
       <CorpsEtChoix affectation={affectation} persiste={persiste} enAttenteBati={enAttenteBati} onAffecter={onAffecter} />
-    </div>
+    </DialoguePleinEcran>
+  );
+}
+
+/**
+ * COMPARATIF plein écran (L5) : ORIGINE à gauche, NOUVELLE (rouge) à droite, MÊME cadrage (calculé côté données). Chaque schéma est
+ * une `<section>` avec son `aria-label` (distinguable par un lecteur d'écran, pas seulement par la couleur). Mobile-first : sur écran
+ * étroit, `flex-wrap` EMPILE (origine au-dessus, nouvelle en dessous) — jamais un côte-à-côte illisible. Vue de COMPARAISON : les deux
+ * schémas + leurs légendes (l'arbitrage reste accessible dans chaque bloc et dans chaque plein écran simple, via le même `CorpsEtChoix`).
+ */
+export function ComparaisonPleinEcran({ origine, nouvelle, rougeCleabs, nomOrigine, nomNouvelle, mentionOrigine, mentionNouvelle, onFermer }: {
+  origine: AffectationEtat; nouvelle: AffectationEtat; rougeCleabs?: readonly string[];
+  nomOrigine: string; nomNouvelle: string; mentionOrigine?: string; mentionNouvelle?: string; onFermer: () => void;
+}) {
+  const colonne: CSSProperties = { flex: '1 1 320px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.4rem' };
+  return (
+    <DialoguePleinEcran titre="Comparer les schémas" onFermer={onFermer}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-start' }}>
+        <section aria-label={nomOrigine} style={colonne}>
+          <SchemaFigure schema={origine.schema} corps={origine.corps} titre={nomOrigine} mention={mentionOrigine} agrandi />
+          <LegendeRepetesComplete schema={origine.schema} corps={origine.corps} />
+        </section>
+        <section aria-label={nomNouvelle} style={colonne}>
+          <SchemaFigure schema={nouvelle.schema} corps={nouvelle.corps} titre={nomNouvelle} mention={mentionNouvelle} agrandi rougeCleabs={rougeCleabs} />
+          <LegendeRepetesComplete schema={nouvelle.schema} corps={nouvelle.corps} rougeCleabs={rougeCleabs} />
+        </section>
+      </div>
+    </DialoguePleinEcran>
   );
 }
 
@@ -616,7 +676,7 @@ export function SchemaPleinEcran({ titre, mention, affectation, persiste, enAtte
  * Bloc d'affectation (vue RÉDUITE) : le SCHÉMA nommé + cliquable (→ plein écran) + sa LÉGENDE compacte, puis les CHOIX (`CorpsEtChoix`,
  * mêmes règles que le plein écran). Le schéma reste consultable même sans dossier persisté (on DIT pourquoi l'arbitrage est fermé).
  */
-export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void; onAgrandir?: () => void; titre?: string; mention?: string }) {
+export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[] }) {
   const { corps, schema, motif, colonneManquante } = affectation;
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -630,8 +690,8 @@ export function AffectationBloc({ affectation, persiste, enAttenteBati = false, 
         : (
           <>
             {/* Schéma nommé + cliquable (→ plein écran) + légende compacte : TOUJOURS rendus (informatifs), quel que soit l'état. */}
-            <SchemaFigure schema={schema} corps={corps} titre={titre} mention={mention} onAgrandir={onAgrandir} />
-            <LegendeAffectation />
+            <SchemaFigure schema={schema} corps={corps} titre={titre} mention={mention} onAgrandir={onAgrandir} rougeCleabs={rougeCleabs} />
+            <LegendeAffectation avecRouge={(rougeCleabs?.length ?? 0) > 0} />
             <CorpsEtChoix affectation={affectation} persiste={persiste} enAttenteBati={enAttenteBati} onAffecter={onAffecter} />
           </>
         )}

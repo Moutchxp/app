@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
@@ -570,6 +570,12 @@ describe('L4 — nom + mention du schéma d’origine selon sa provenance (descr
     expect(terrainNu).not.toBe(aucuneCapture);
   });
 
+  it('L5 — mention de « Nouvelle configuration » : compte de polygones + mention du rouge', () => {
+    expect(descriptionSchemaNouvelle(3, 0)).toBe('Couche bâti actuelle — 3 polygones.');
+    expect(descriptionSchemaNouvelle(3, 1)).toBe('Couche bâti actuelle — 3 polygones, dont 1 nouveau/modifié (en rouge).');
+    expect(descriptionSchemaNouvelle(2, 2)).toBe('Couche bâti actuelle — 2 polygones, dont 2 nouveaux/modifiés (en rouge).');
+  });
+
   it('la mention (provenance + millésime) est écrite DANS le visuel du schéma (vue réduite ET plein écran)', () => {
     const aff: AffectationEtat = {
       empreinteFigee: true, motif: null, colonneManquante: false,
@@ -583,5 +589,72 @@ describe('L4 — nom + mention du schéma d’origine selon sa provenance (descr
     const hPlein = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: 'État courant (non figé)', mention: 'Aucun état d’origine n’a été capturé pour ce permis : polygones lus dans la couche bâti actuelle.', affectation: aff, persiste: true, onAffecter: () => {}, onFermer: () => {} }));
     expect(hPlein).toContain('État courant (non figé)');          // nom honnête annoncé (titre du dialogue)
     expect(hPlein).toContain('Aucun état d’origine n’a été capturé'); // mention dans le visuel
+  });
+});
+
+describe('L5 — second schéma, rouge, comparatif côte à côte', () => {
+  const schema2 = (): SchemaEmpreinte => ({
+    largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null,
+    polygones: [
+      { repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false },
+      { repere: 'B', cleabs: 'BAT_B', path: 'M60,60 L80,60 L80,80 Z', cx: 70, cy: 70, horsEmpreinte: false },
+    ],
+  });
+  const affAB = (): AffectationEtat => ({
+    empreinteFigee: true, motif: null, colonneManquante: false, schema: schema2(),
+    polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: false }],
+    corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: null }],
+  });
+  const noop = () => {};
+  const compte = (h: string, re: RegExp) => (h.match(re) ?? []).length;
+
+  it('② le rouge s’applique aux SEULS polygones nouveaux/modifiés (B rouge, A garde sa palette) ; sans liste, aucun rouge', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schema2(), corps: [], rougeCleabs: ['BAT_B'] }));
+    expect(h).toContain('fill="var(--color-svv-red)"');       // B nouveau/modifié → rouge
+    expect(h).toContain(`fill="${couleurRepere(0)}"`);         // A garde SA couleur de palette (identité)
+    expect(compte(h, /fill="var\(--color-svv-red\)"/g)).toBe(1); // un SEUL polygone rouge (pas A)
+    const h0 = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schema2(), corps: [] }));
+    expect(h0).not.toContain('var(--color-svv-red)');          // cas identique à l'origine → AUCUN rouge (comportement correct)
+  });
+
+  it('le rouge n’est jamais seul porteur : la légende dit ce qu’il signifie ET le repère écrit reste', () => {
+    const h = renderToStaticMarkup(createElement(LegendeRepetesComplete, { schema: schema2(), corps: [], rougeCleabs: ['BAT_B'] }));
+    expect(h).toContain('Rouge = nouveau ou modifié depuis l’origine');
+    expect(h).toContain('>B</strong>'); expect(h).toContain('(nouveau/modifié)');
+    // la légende COMPACTE porte aussi la clé du rouge quand il y a du rouge
+    const hc = renderToStaticMarkup(createElement(LegendeAffectation, { avecRouge: true }));
+    expect(hc).toContain('nouveau ou modifié depuis l’origine (rouge)');
+    expect(renderToStaticMarkup(createElement(LegendeAffectation, {}))).not.toContain('(rouge)'); // pas de clé rouge sur l'origine
+  });
+
+  it('⑥ le bloc « Nouvelle configuration » porte le rouge ET la même fonction de rattachement (sélecteurs)', () => {
+    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: affAB(), persiste: true, titre: NOM_SCHEMA_NOUVELLE, mention: descriptionSchemaNouvelle(2, 1), rougeCleabs: ['BAT_B'], onAffecter: noop }));
+    expect(h).toContain(NOM_SCHEMA_NOUVELLE);                  // nom dans le visuel
+    expect(h).toContain('fill="var(--color-svv-red)"');        // rouge
+    expect(h).toContain('<select');                            // MÊME fonction de rattachement (CorpsEtChoix réutilisé)
+    expect(h).toContain('nouveau/modifié (en rouge)');         // mention
+  });
+
+  it('⑤ comparatif : vrai dialogue, deux <section> aria-label (distinguables au lecteur d’écran), ORIGINE à gauche, rouge sur la NOUVELLE seule', () => {
+    const h = renderToStaticMarkup(createElement(ComparaisonPleinEcran, {
+      origine: affAB(), nouvelle: affAB(), rougeCleabs: ['BAT_B'],
+      nomOrigine: NOM_SCHEMA_ORIGINE, nomNouvelle: NOM_SCHEMA_NOUVELLE, mentionOrigine: 'orig', mentionNouvelle: 'nouv', onFermer: noop,
+    }));
+    expect(h).toContain('role="dialog"'); expect(h).toContain('aria-modal="true"'); expect(h).toContain('Comparer les schémas');
+    expect(h).toContain(`aria-label="${NOM_SCHEMA_ORIGINE}"`); expect(h).toContain(`aria-label="${NOM_SCHEMA_NOUVELLE}"`);
+    // ORIGINE avant NOUVELLE dans le DOM → à gauche (côte à côte) / au-dessus (empilé mobile)
+    expect(h.indexOf(`aria-label="${NOM_SCHEMA_ORIGINE}"`)).toBeLessThan(h.indexOf(`aria-label="${NOM_SCHEMA_NOUVELLE}"`));
+    // le rouge n'apparaît QUE dans la nouvelle (une seule surface rouge, alors que les deux schémas contiennent B)
+    expect(compte(h, /fill="var\(--color-svv-red\)"/g)).toBe(1);
+  });
+
+  it('les DEUX schémas coexistent sans se marcher dessus : identifiants de trame UNIQUES (L2)', () => {
+    const h = renderToStaticMarkup(createElement(ComparaisonPleinEcran, {
+      origine: affAB(), nouvelle: affAB(), rougeCleabs: ['BAT_B'],
+      nomOrigine: NOM_SCHEMA_ORIGINE, nomNouvelle: NOM_SCHEMA_NOUVELLE, onFermer: noop,
+    }));
+    const ids = [...h.matchAll(/id="(trame-[^"]+)"/g)].map((m) => m[1]);
+    expect(ids.length).toBe(2);                 // un motif de trame par SVG
+    expect(new Set(ids).size).toBe(2);          // et ils sont DISTINCTS (pas de collision d'id)
   });
 });

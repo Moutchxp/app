@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   repereDepuisIndex, indexDepuisRepere, couleurRepere, PALETTE_REPERE,
-  geomDepuisGeoJSON, construireSchema, optionsPourCorps, polygonesNonAffectes, corpsDuPolygone,
+  geomDepuisGeoJSON, construireSchema, cadreDe, unionCadre, optionsPourCorps, polygonesNonAffectes, corpsDuPolygone,
   type CorpsAffectation, type PolygoneAffectable, type PolygoneEntreeSchema,
 } from './affectationSchema';
 
@@ -88,6 +88,34 @@ describe('construireSchema', () => {
   it('polygone hors empreinte → dessiné mais signalé', () => {
     const s = construireSchema(carre(0, 0, 100), [{ repere: 'A', cleabs: 'X', geom: carre(200, 200, 20), horsEmpreinte: true }]);
     expect(s.polygones[0].horsEmpreinte).toBe(true);
+  });
+});
+
+describe('L5 — cadrage COMMUN (cadreDe / unionCadre / construireSchema avec cadre)', () => {
+  const empEntree = (geom: PolygoneEntreeSchema['geom'], hors = false): PolygoneEntreeSchema => ({ repere: 'A', cleabs: 'X', geom, horsEmpreinte: hors });
+
+  it('cadreDe = bbox des points ; unionCadre = enveloppe des deux ; null-safe', () => {
+    const emp = carre(0, 0, 100);
+    const c1 = cadreDe(emp, []);
+    expect(c1).toEqual({ minX: 0, maxX: 100, minY: 0, maxY: 100 });
+    const c2 = cadreDe(emp, [empEntree(carre(150, 150, 20), true)]);
+    expect(c2).toEqual({ minX: 0, maxX: 170, minY: 0, maxY: 170 });
+    expect(unionCadre(c1, c2)).toEqual({ minX: 0, maxX: 170, minY: 0, maxY: 170 });
+    expect(unionCadre(null, c1)).toEqual(c1);
+    expect(unionCadre(c1, null)).toEqual(c1);
+    expect(cadreDe(null, [])).toBeNull();
+  });
+
+  it('MÊME cadre → MÊME échelle/cadrage : l’empreinte COMMUNE se projette à l’identique dans les deux schémas', () => {
+    const emp = carre(0, 0, 100);                       // empreinte partagée (frozen)
+    const polyDeborde = [empEntree(carre(120, 120, 40), true)]; // un polygone neuf qui DÉBORDE → bbox plus grande sans cadre commun
+    const cadre = unionCadre(cadreDe(emp, []), cadreDe(emp, polyDeborde));
+    const sOrigine = construireSchema(emp, [], 320, 240, 12, cadre);
+    const sNouvelle = construireSchema(emp, polyDeborde, 320, 240, 12, cadre);
+    expect(sOrigine.empreintePath).toBe(sNouvelle.empreintePath); // comparaison HONNÊTE : mêmes formes, même échelle
+    // sans cadre commun, l'empreinte se projetterait différemment (l'œil comparerait des formes qui ne se correspondent pas)
+    const sLibre = construireSchema(emp, [], 320, 240, 12);
+    expect(sLibre.empreintePath).not.toBe(sNouvelle.empreintePath);
   });
 });
 

@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 // ⚠️ Bundle client : uniquement des TYPES depuis les modules serveur.
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
-import type { AffectationOrigineEtat } from '../../../../lib/permis/affectationRepo';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SchemaPleinEcran, descriptionSchemaOrigine } from './SuiviRattachementRendu';
+import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SchemaPleinEcran, ComparaisonPleinEcran, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE } from './SuiviRattachementRendu';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { CellulePieces } from './ArchivesRendu';
 import { recompterSiSucces } from './comptesActions';
@@ -23,8 +23,8 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [erreur, setErreur] = useState(false);
   const [ouvert, setOuvert] = useState<number | null>(null);
   const [detail, setDetail] = useState<DetailSuivi | null>(null);
-  const [affectation, setAffectation] = useState<AffectationOrigineEtat | null>(null); // FUS-3d ; L4 : schéma d'origine (snapshot figé)
-  const [pleinEcran, setPleinEcran] = useState(false); // L3 — schéma en plein écran (arbitrage lisible)
+  const [comparaison, setComparaison] = useState<ComparaisonRattachement | null>(null); // L5 : origine (figée) + nouvelle (vivante) + rouge
+  const [pleinEcran, setPleinEcran] = useState<'origine' | 'nouvelle' | 'comparer' | null>(null); // L3/L5 — quel plein écran est ouvert
   const [detailErreur, setDetailErreur] = useState(false);
   const [affErreur, setAffErreur] = useState('');
   const [permisOuvert, setPermisOuvert] = useState(false); // détail complet du permis (caractéristiques + pièces), replié par défaut
@@ -52,12 +52,12 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     if (ouvert === null) return; // détail masqué au rendu quand ouvert === null (pas de setState synchrone ici)
     let annule = false;
     void (async () => {
-      setDetail(null); setAffectation(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); setPleinEcran(false);
+      setDetail(null); setComparaison(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); setPleinEcran(null);
       setMotifRefus(''); setMotifConfirmation(''); setAvertissement(null); setActionErreur(''); // reset décisions (DANS l'async)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
         if (annule) return;
-        if (res.ok) { const d = (await res.json()) as { detail: DetailSuivi; affectation: AffectationOrigineEtat | null }; setDetail(d.detail); setAffectation(d.affectation); }
+        if (res.ok) { const d = (await res.json()) as { detail: DetailSuivi; comparaison: ComparaisonRattachement | null }; setDetail(d.detail); setComparaison(d.comparaison); }
         else setDetailErreur(true);
       } catch { if (!annule) setDetailErreur(true); }
     })();
@@ -70,8 +70,8 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     setAffErreur('');
     try {
       const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'affecter', dossierId: ouvert, corpsId, cleabs }) });
-      const d = (await res.json().catch(() => ({}))) as { affectation: AffectationOrigineEtat; erreur?: string };
-      if (res.ok && d.affectation) setAffectation(d.affectation);
+      const d = (await res.json().catch(() => ({}))) as { comparaison?: ComparaisonRattachement; erreur?: string };
+      if (res.ok && d.comparaison) setComparaison(d.comparaison);
       else setAffErreur(d.erreur ?? 'Affectation impossible.');
     } catch { setAffErreur('Affectation impossible.'); }
   }, [ouvert]);
@@ -82,10 +82,10 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     setEnCours(true); setActionErreur('');
     try {
       const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, dossierId: ouvert, ...extra }) });
-      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; besoinConfirmation?: boolean; avertissement?: string; erreur?: string; detail?: DetailSuivi; affectation: AffectationOrigineEtat | null };
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; besoinConfirmation?: boolean; avertissement?: string; erreur?: string; detail?: DetailSuivi; comparaison?: ComparaisonRattachement | null };
       if (res.ok && d.ok) {
         if (d.detail) setDetail(d.detail);
-        if (d.affectation !== undefined) setAffectation(d.affectation ?? null);
+        if (d.comparaison !== undefined) setComparaison(d.comparaison ?? null);
         setAvertissement(null); setMotifRefus(''); setMotifConfirmation('');
         recompterSiSucces(true, onRecompter); // pastille : la décision (valider/refuser/retour) a changé l'état « arbitrage »
       } else if (d.besoinConfirmation) {
@@ -150,18 +150,49 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
           : detail
             ? <div className="flex flex-col gap-2">
                 <DetailSuiviRendu detail={detail} />
-                {/* FUS-3d — affectation des polygones BD TOPO aux corps (schéma + sélecteurs). L4 : le schéma « Configuration
-                    d'origine » vient du snapshot figé ; son nom + mention (provenance / millésime du gel) sont dérivés ici. */}
-                {affectation && (() => {
-                  const desc = descriptionSchemaOrigine(affectation);
+                {/* L4/L5 — deux schémas. « Configuration d'origine » (snapshot figé) TOUJOURS ; « Nouvelle configuration » (vivante,
+                    rouge = nouveau/modifié) SEULEMENT s'il y a de quoi comparer (comparaison.aChange). Côte à côte sur grand écran,
+                    EMPILÉ sur mobile (flex-wrap). Zéro règle réécrite : mêmes AffectationBloc / CorpsEtChoix / affecterPolygone. */}
+                {comparaison && (() => {
+                  const { origine, nouvelle, polygonesModifies, aChange } = comparaison;
+                  const persiste = detail.persiste, enAtt = detail.etat === 'en_attente_bati';
+                  const affecterCb = (corpsId: number, cleabs: string | null) => void affecter(corpsId, cleabs);
+                  const descO = descriptionSchemaOrigine(origine);
+                  const mentionN = descriptionSchemaNouvelle(nouvelle.polygones.length, polygonesModifies.length);
                   return (
                     <>
-                      <AffectationBloc affectation={affectation} titre={desc.nom} mention={desc.mention} persiste={detail.persiste} enAttenteBati={detail.etat === 'en_attente_bati'} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)} onAgrandir={() => setPleinEcran(true)} />
-                      {/* L3 — plein écran : HABILLAGE au-dessus des mêmes lecture/affecterPolygone (aucune règle réécrite). */}
-                      {pleinEcran && (
-                        <SchemaPleinEcran titre={desc.nom} mention={desc.mention} affectation={affectation} persiste={detail.persiste}
-                          enAttenteBati={detail.etat === 'en_attente_bati'} onAffecter={(corpsId, cleabs) => void affecter(corpsId, cleabs)}
-                          onFermer={() => setPleinEcran(false)} />
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.75rem', alignItems: 'flex-start' }}>
+                        <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                          <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} />
+                        </div>
+                        {aChange && (
+                          <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                            <AffectationBloc affectation={nouvelle} titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('nouvelle')} />
+                          </div>
+                        )}
+                      </div>
+                      {/* Origine figée MAIS rien à comparer → on le DIT (pas de second schéma jumeau) ; Comparer seulement à deux schémas. */}
+                      {origine.figee && !aChange && (
+                        <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>
+                          La configuration actuelle est identique à l’origine : aucun changement détecté depuis le gel — pas de second schéma à comparer.
+                        </div>
+                      )}
+                      {aChange && (
+                        <div>
+                          <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={() => setPleinEcran('comparer')}>Comparer les schémas ⤢</button>
+                        </div>
+                      )}
+                      {/* Plein écran : d'UN schéma (L3, + rouge L5) ou COMPARATIF (L5), toujours au-dessus des mêmes lecture/affecterPolygone. */}
+                      {pleinEcran === 'origine' && (
+                        <SchemaPleinEcran titre={descO.nom} mention={descO.mention} affectation={origine} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onFermer={() => setPleinEcran(null)} />
+                      )}
+                      {pleinEcran === 'nouvelle' && (
+                        <SchemaPleinEcran titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} affectation={nouvelle} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onFermer={() => setPleinEcran(null)} />
+                      )}
+                      {pleinEcran === 'comparer' && aChange && (
+                        <ComparaisonPleinEcran origine={origine} nouvelle={nouvelle} rougeCleabs={polygonesModifies}
+                          nomOrigine={descO.nom} nomNouvelle={NOM_SCHEMA_NOUVELLE} mentionOrigine={descO.mention} mentionNouvelle={mentionN}
+                          onFermer={() => setPleinEcran(null)} />
                       )}
                     </>
                   );

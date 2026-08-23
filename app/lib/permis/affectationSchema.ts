@@ -72,17 +72,36 @@ export interface SchemaEmpreinte { largeur: number; hauteur: number; empreintePa
 
 const arrondi = (x: number): number => Math.round(x * 10) / 10;
 
+// L5 — cadrage (bbox Lambert-93). Deux schémas comparés doivent partager le MÊME cadre, sinon les formes ne se correspondent pas.
+export interface Cadre { minX: number; maxX: number; minY: number; maxY: number }
+
+/** Bbox des points (empreinte + polygones) d'un schéma, en Lambert-93. null si aucun point (rien à cadrer). */
+export function cadreDe(empreinte: GeomPoly | null, polygones: PolygoneEntreeSchema[]): Cadre | null {
+  const pts: [number, number][] = [...(empreinte?.anneaux.flat() ?? []), ...polygones.flatMap((p) => p.geom.anneaux.flat())];
+  if (pts.length === 0) return null;
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+}
+
+/** Cadre COMMUN = enveloppe des deux cadres (échelle + cadrage identiques pour les deux schémas). null-safe. */
+export function unionCadre(a: Cadre | null, b: Cadre | null): Cadre | null {
+  if (!a) return b;
+  if (!b) return a;
+  return { minX: Math.min(a.minX, b.minX), maxX: Math.max(a.maxX, b.maxX), minY: Math.min(a.minY, b.minY), maxY: Math.max(a.maxY, b.maxY) };
+}
+
 /**
  * Projette l'empreinte + les polygones (Lambert-93) dans une boîte SVG (Y inversé). Empreinte absente/vide → `motif` explicite,
  * on NE dessine PAS au hasard. Un polygone hors empreinte est projeté quand même mais porte `horsEmpreinte` (signalé à l'écran).
+ * `cadre` (L5, optionnel) FORCE la bbox de projection : passer le MÊME cadre à deux schémas garantit une échelle/cadrage communs.
+ * Sans `cadre`, la bbox est calculée sur les points du schéma (comportement historique inchangé).
  */
-export function construireSchema(empreinte: GeomPoly | null, polygones: PolygoneEntreeSchema[], largeur = 320, hauteur = 240, marge = 12): SchemaEmpreinte {
+export function construireSchema(empreinte: GeomPoly | null, polygones: PolygoneEntreeSchema[], largeur = 320, hauteur = 240, marge = 12, cadre?: Cadre | null): SchemaEmpreinte {
   if (!empreinte || empreinte.anneaux.length === 0) {
     return { largeur, hauteur, empreintePath: null, polygones: [], motif: 'parcelle du permis incomplète ou absente : schéma non dessiné (aucun point fiable)' };
   }
-  const pts: [number, number][] = [...empreinte.anneaux.flat(), ...polygones.flatMap((p) => p.geom.anneaux.flat())];
-  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
-  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const boite = cadre ?? cadreDe(empreinte, polygones)!; // empreinte non vide ⇒ cadreDe ≠ null
+  const { minX, maxX, minY, maxY } = boite;
   const bw = maxX - minX, bh = maxY - minY;
   if (bw <= 0 || bh <= 0) return { largeur, hauteur, empreintePath: null, polygones: [], motif: 'géométrie dégénérée : schéma non dessiné' };
   const scale = Math.min((largeur - 2 * marge) / bw, (hauteur - 2 * marge) / bh);
