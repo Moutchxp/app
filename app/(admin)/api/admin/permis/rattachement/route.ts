@@ -41,7 +41,7 @@ export async function POST(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number; corpsId?: number; cleabs?: string; operation?: 'ajout' | 'retrait'; cotes?: Record<string, number | null>; motif?: string; motifConfirmation?: string; actif?: boolean };
+    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number | string; corpsId?: number; cleabs?: string; operation?: 'ajout' | 'retrait'; cotes?: Record<string, number | null>; motif?: string; motifConfirmation?: string; actif?: boolean };
 
     // RATTACHEMENT — réglage GLOBAL (pas un dossier) : la DAACT comme déclencheur. Traité AVANT la garde `dossierId`.
     if (body.action === 'reglage_daact') {
@@ -49,8 +49,11 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: true, daactActif: await ecrireDaactDeclencheurActif(body.actif) });
     }
 
-    const dossierId = body.dossierId;
-    if (typeof dossierId !== 'number') return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+    // dossierId : ACCEPTE un nombre OU une chaîne numérique. Les identifiants viennent d'un `bigint` PostgreSQL, que le pilote `pg`
+    // renvoie en CHAÎNE — le front les relaie tels quels. Le GET coerce déjà via Number(...) ; on aligne le POST (même tolérance),
+    // sinon toute action à dossier (affecter, valider, refuser, retour_lidar, ouvrir_manuel) est rejetée « requête invalide ».
+    const dossierId = typeof body.dossierId === 'number' ? body.dossierId : Number(body.dossierId);
+    if (!Number.isInteger(dossierId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
 
     // M5 — OUVRIR l'arbitrage À LA MAIN (aucun delta BD TOPO requis). Motif obligatoire ; dossier tracé 'manuelle'.
     if (body.action === 'ouvrir_manuel') {

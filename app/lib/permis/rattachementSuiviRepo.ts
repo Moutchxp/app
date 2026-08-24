@@ -205,7 +205,9 @@ export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: 
        LEFT JOIN commune c ON c.code_insee = s.code_insee
        LEFT JOIN permis_rattachement r ON r.dossier_id = e.dossier_id`);
   const lignes: LigneSuivi[] = trierLignesSuivi(rows.map((r) => ({
-    dossierId: r.dossier_id, numDau: r.num_dau, commune: r.commune, codeInsee: r.code_insee,
+    // `dossier_id` est un bigint → le pilote `pg` le renvoie en CHAÎNE. On honore le type `number` de LigneSuivi (sinon le POST,
+    // qui reçoit ce dossierId via le front, le rejette). Number() est sûr que la valeur soit déjà un nombre ou une chaîne numérique.
+    dossierId: Number(r.dossier_id), numDau: r.num_dau, commune: r.commune, codeInsee: r.code_insee,
     type: r.type, adresse: r.adresse, natureTravaux: r.nature ? libelleNatureProjet(r.nature) : null,
     etat: r.ratt_etat ?? 'suivi_aucun_signal', verdict: r.verdict, joursAnciennete: r.jours, derniereEvalIso: r.reevalue,
     dateAutorisationIso: r.date_autorisation, dateDeclenchementIso: r.date_declenchement,
