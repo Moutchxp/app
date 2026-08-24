@@ -405,8 +405,8 @@ export function SaisieCotesInjection({ affectation, cotes, onCote, onRecopier }:
   if (batiments.length === 0) return null;
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
-      <div style={{ fontWeight: 600 }}>Altitude à injecter — une cote par polygone</div>
-      <div style={styleAide}>Chaque polygone reçoit SA cote (m NGF), pré-remplie avec l’altitude de sommet du bâtiment. Corrigez un socle bas si besoin. Un champ laissé vide n’est pas injecté pour ce polygone.</div>
+      <div style={{ fontWeight: 600 }}>Polygones sélectionnés — altitude à injecter</div>
+      <div style={styleAide}>Les polygones cochés, avec leur repère, leur couleur et leur cleabs. Chaque polygone reçoit SA cote (m NGF), pré-remplie avec l’altitude de sommet du bâtiment ; corrigez un socle bas si besoin. Un champ laissé vide n’est pas injecté pour ce polygone.</div>
       {batiments.map((c) => (
         <fieldset key={c.id} style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', margin: 0, padding: '.5rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
           <legend style={{ ...styleAide, padding: '0 .3rem' }}>{c.repere ?? `bâtiment ${c.id}`}</legend>
@@ -414,9 +414,14 @@ export function SaisieCotesInjection({ affectation, cotes, onCote, onRecopier }:
             const val = cotes[cleabs] ?? '';
             const vide = val.trim() === '';
             const champId = `cote-${c.id}-${cleabs}`;
+            const repere = repereDe(cleabs);
             return (
               <div key={cleabs} style={{ display: 'flex', gap: '.4rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
-                <label htmlFor={champId} style={{ fontSize: 12, minWidth: 130 }}>polygone {repereDe(cleabs)} <span style={styleAide}>· {cleabs}</span></label>
+                <label htmlFor={champId} style={{ display: 'inline-flex', alignItems: 'baseline', gap: '.3rem', fontSize: 12, minWidth: 130 }}>
+                  {/* pastille = MÊME couleur de repère que le remplissage du schéma (aide à la reconnaissance visuelle ; jamais seule porteuse). */}
+                  <span aria-hidden="true" style={{ alignSelf: 'center', display: 'inline-block', width: 11, height: 11, borderRadius: 2, background: couleurRepere(indexDepuisRepere(repere)), border: '1px solid var(--color-svv-line)', flexShrink: 0 }} />
+                  <span>polygone {repere} <span style={styleAide}>· {cleabs}</span></span>
+                </label>
                 <input id={champId} type="number" inputMode="decimal" step="0.01" value={val}
                   onChange={(e) => onCote(cleabs, e.target.value)}
                   aria-label={`altitude de sommet du polygone ${repereDe(cleabs)}, en mètres NGF`}
@@ -583,7 +588,8 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
           // devient focalisable/tapable (équivalent tactile). Décoché → ni <title>, ni lettre, ni interactivité, ni bulle.
           const info = afficherReperes ? lignesBulle(p.cleabs, p.attributs, sourceLibelle) : null;
           const interactif = afficherReperes
-            ? { tabIndex: 0, role: 'img' as const, 'aria-label': info!.join(' ; '), style: { cursor: 'pointer' },
+            ? { tabIndex: 0, role: 'img' as const, 'aria-label': info!.join(' ; '), style: { cursor: 'pointer', outline: 'none' }, // outline:none → PAS d'anneau de focus bbox du navigateur (rectangle qui déborde) ; le halo ci-dessous épouse la forme
+
                 onMouseEnter: () => setActif(p.repere), onMouseLeave: () => setActif(null),
                 onFocus: () => setActif(p.repere), onBlur: () => setActif(null),
                 onClick: () => setActif((a) => (a === p.repere ? null : p.repere)) } // tap : 1er appui affiche, 2e masque
@@ -591,6 +597,14 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
           return (
             <g key={p.repere} {...interactif}>
               {info && <title>{info.join('\n')}</title>}
+              {/* M6 — SURLIGNEMENT qui ÉPOUSE la forme : un halo ENCRE re-stroke le PROPRE `path` du polygone (jamais sa bbox), rendu
+                  DERRIÈRE le remplissage. Largeur FIXE et modeste (n'enfle pas avec la forme) → serré sur une lanière inclinée, ne mord
+                  pas les voisins. Sélection (coché = affecté) OU survol/focus/tap (actif). Le contour vert/tireté et le croisillon restent
+                  dessus, distincts. Jamais rouge, jamais une teinte de la palette de remplissage. */}
+              {(affecte || actif === p.repere) && (
+                <path d={p.path} fill="none" stroke="var(--color-svv-ink)" strokeWidth={3.5} strokeOpacity={0.42}
+                  strokeLinejoin="round" pointerEvents="none" data-surlignement="true" />
+              )}
               <path d={p.path} fill={estRouge ? 'var(--color-svv-red)' : couleurRepere(indexDepuisRepere(p.repere))} fillOpacity={0.85}
                 stroke={affecte ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'} strokeWidth={affecte ? 2.5 : 1}
                 strokeDasharray={p.horsEmpreinte ? '3 2' : undefined} />

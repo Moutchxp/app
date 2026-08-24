@@ -204,6 +204,13 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
                 {yaDuFutur && <InterrupteurFuturBati afficherFutur={afficherFutur} onAfficherFutur={setAfficherFutur} />}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.75rem', alignItems: 'flex-start' }}>
+                {/* M6 — PANNEAU des polygones sélectionnés + leur cote, à GAUCHE du schéma (1er enfant → au-dessus quand la ligne passe
+                    en colonne sur mobile). SEUL emplacement de la saisie (le bloc du bas est supprimé) : aucun champ en double. */}
+                {persiste && nouvelle.corps.some((c) => c.cleabsAffectes.length > 0) && (
+                  <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+                    <SaisieCotesInjection affectation={nouvelle} cotes={cotesEffectives} onCote={majCote} onRecopier={recopierPourBatiment} />
+                  </div>
+                )}
                 <div style={{ flex: '1 1 320px', minWidth: 0 }}>
                   <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} afficherFutur={afficherFutur} />
                 </div>
@@ -244,9 +251,6 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
             <OuvertureManuelle motif={motifOuverture} onMotif={setMotifOuverture} onOuvrir={() => void ouvrirManuel()} enCours={enCours} />
             {actionErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{actionErreur}</div>}
           </>
-        )}
-        {detail.persiste && comparaison && (
-          <SaisieCotesInjection affectation={comparaison.nouvelle} cotes={cotesEffectives} onCote={majCote} onRecopier={recopierPourBatiment} />
         )}
         {detail.persiste && (
           <>

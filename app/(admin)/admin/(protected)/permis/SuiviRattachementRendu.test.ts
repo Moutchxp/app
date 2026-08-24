@@ -612,6 +612,46 @@ describe('M5 — ouverture manuelle : bloc d’ouverture + bandeau d’honnêtet
   });
 });
 
+describe('M6 — surlignement qui épouse la forme + panneau (pastilles)', () => {
+  const noop = () => {};
+  const schemaA = (horsEmpreinte = false): SchemaEmpreinte => ({
+    largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null,
+    polygones: [{ repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte }],
+  });
+  const corpsA = [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: ['BAT_A'] }];
+  const affPanneau: AffectationEtat = {
+    empreinteFigee: true, motif: null, colonneManquante: false, schema: { largeur: 320, hauteur: 240, empreintePath: null, polygones: [], motif: null },
+    polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }],
+    corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: ['BAT_A'] }],
+  };
+
+  it('polygone coché (affecté) → halo qui reprend le PATH du polygone (jamais un rect/bbox), teinte encre, derrière', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaA(), corps: corpsA }));
+    expect(h).toMatch(/<path[^>]*d="M20,20 L40,20 L40,40 Z"[^>]*data-surlignement="true"/); // ÉPOUSE la géométrie
+    expect(h).not.toMatch(/<rect[^>]*data-surlignement/);                                    // jamais un rectangle englobant
+    expect(h).toContain('stroke="var(--color-svv-ink)"');                                     // encre
+  });
+
+  it('PAS d’anneau de focus bbox : outline:none sur le polygone interactif', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaA(), corps: [] }));
+    expect(h).toContain('outline:none');
+    expect(h).not.toContain('data-surlignement'); // non affecté + non actif → aucun halo par défaut
+  });
+
+  it('trois signaux DISTINCTS sur une même lanière : halo (sélection) + contour vert (affecté) + tireté (déborde)', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaA(true), corps: corpsA }));
+    expect(h).toContain('data-surlignement="true"');            // sélection (halo)
+    expect(h).toContain('stroke="var(--color-svv-green-ink)"');  // affecté (contour vert)
+    expect(h).toContain('stroke-dasharray="3 2"');               // déborde (tireté)
+  });
+
+  it('panneau : chaque polygone sélectionné porte une pastille de SA couleur de repère, sous l’intitulé « Polygones sélectionnés »', () => {
+    const h = renderToStaticMarkup(createElement(SaisieCotesInjection, { affectation: affPanneau, cotes: { BAT_A: '88' }, onCote: noop, onRecopier: noop }));
+    expect(h).toContain('Polygones sélectionnés');
+    expect(h).toContain(couleurRepere(0)); // A → couleurRepere(0), MÊME teinte que le remplissage du schéma
+  });
+});
+
 describe('L3b — vocabulaire parcelle : « empreinte » disparaît de l’interface visible', () => {
   // Un polygone débordant (B) pour éprouver le libellé du débordement.
   const affDeborde = (): AffectationEtat => ({
