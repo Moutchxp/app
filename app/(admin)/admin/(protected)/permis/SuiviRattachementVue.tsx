@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 // ⚠️ Bundle client : uniquement des TYPES depuis les modules serveur.
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
+import type { ActionAffectation } from '../../../../lib/permis/affectationSchema';
 import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE } from './SuiviRattachementRendu';
 
 // L11 — libellés de SOURCE des bulles (constat AVANT travaux). L'origine figée lit le SNAPSHOT ; sinon (et la nouvelle) la couche vivante.
@@ -70,12 +71,12 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     return () => { annule = true; };
   }, [ouvert]);
 
-  // FUS-3d — affecter/désaffecter un polygone à un corps. L'exclusivité est garantie CÔTÉ BASE (index) ; un refus affiche son motif.
-  const affecter = useCallback(async (corpsId: number, cleabs: string | null): Promise<void> => {
+  // FUS-3d / M2 — ajouter/retirer UN polygone d'un bâtiment (additif). L'exclusivité est garantie CÔTÉ BASE (index) ; un refus affiche son motif.
+  const affecter = useCallback(async (corpsId: number, cleabs: string, operation: ActionAffectation): Promise<void> => {
     if (ouvert === null) return;
     setAffErreur('');
     try {
-      const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'affecter', dossierId: ouvert, corpsId, cleabs }) });
+      const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'affecter', dossierId: ouvert, corpsId, cleabs, operation }) });
       const d = (await res.json().catch(() => ({}))) as { comparaison?: ComparaisonRattachement; erreur?: string };
       if (res.ok && d.comparaison) setComparaison(d.comparaison);
       else setAffErreur(d.erreur ?? 'Affectation impossible.');
@@ -143,7 +144,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
         {comparaison && (() => {
           const { origine, nouvelle, polygonesModifies, aChange } = comparaison;
           const persiste = detail.persiste, enAtt = detail.etat === 'en_attente_bati';
-          const affecterCb = (corpsId: number, cleabs: string | null) => void affecter(corpsId, cleabs);
+          const affecterCb = (corpsId: number, cleabs: string, operation: ActionAffectation) => void affecter(corpsId, cleabs, operation);
           const descO = descriptionSchemaOrigine(origine);
           const sourceOrigine = origine.figee ? SOURCE_GEL : SOURCE_VIVANTE; // l'origine non figée lit en réalité le vivant
           // L13/L14 — interrupteur du futur bâti : n'a de sens que s'il y a du projet à SIGNALER (sinon on ne le monte pas). Il ne

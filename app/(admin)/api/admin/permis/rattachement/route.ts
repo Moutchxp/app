@@ -10,7 +10,7 @@ import { lireDaactDeclencheurActif, ecrireDaactDeclencheurActif } from '../../..
  * GET (sans param) → la LISTE (univers = permis avec empreinte) + compteurs par état.
  * GET ?dossierId=N → le DÉTAIL d'un dossier + l'AFFECTATION des polygones BD TOPO aux corps (FUS-3d).
  * POST { action, dossierId, … } :
- *   'affecter' {corpsId, cleabs|null} → pose/change/retire l'affectation (FUS-3d) ;
+ *   'affecter' {corpsId, cleabs, operation:'ajout'|'retrait'} → ajoute/retire UN polygone d'un bâtiment (FUS-3d / M2, additif) ;
  *   'valider' {motifConfirmation?}    → injecte les altitudes (origine 'permis') + dossier 'valide' (FUS-3e) ;
  *   'refuser' {motif}                 → dossier 'refuse' (motif obligatoire) ;
  *   'retour_lidar'                    → restaure les altitudes LiDAR refigées (origine 'lidar').
@@ -40,7 +40,7 @@ export async function POST(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number; corpsId?: number; cleabs?: string | null; motif?: string; motifConfirmation?: string; actif?: boolean };
+    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number; corpsId?: number; cleabs?: string; operation?: 'ajout' | 'retrait'; motif?: string; motifConfirmation?: string; actif?: boolean };
 
     // RATTACHEMENT — réglage GLOBAL (pas un dossier) : la DAACT comme déclencheur. Traité AVANT la garde `dossierId`.
     if (body.action === 'reglage_daact') {
@@ -51,10 +51,12 @@ export async function POST(request: Request): Promise<Response> {
     const dossierId = body.dossierId;
     if (typeof dossierId !== 'number') return Response.json({ erreur: 'requête invalide' }, { status: 400 });
 
-    // FUS-3d — affectation d'un polygone à un corps.
+    // FUS-3d / M2 — affectation INCRÉMENTALE d'un polygone à un bâtiment : 'ajout' ou 'retrait' d'UN polygone précis.
     if (body.action === 'affecter') {
-      if (typeof body.corpsId !== 'number') return Response.json({ erreur: 'requête invalide' }, { status: 400 });
-      const res = await affecterPolygone(dossierId, body.corpsId, body.cleabs ?? null, 'admin:affectation');
+      if (typeof body.corpsId !== 'number' || typeof body.cleabs !== 'string' || (body.operation !== 'ajout' && body.operation !== 'retrait')) {
+        return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      }
+      const res = await affecterPolygone(dossierId, body.corpsId, body.cleabs, body.operation, 'admin:affectation');
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: 409 });
       return Response.json({ ok: true, comparaison: await lireComparaison(dossierId) });
     }

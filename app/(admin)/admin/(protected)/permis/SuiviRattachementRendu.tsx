@@ -6,7 +6,7 @@ import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/
 import type { CritereSurface, CritereBordure, CritereBati } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo'; // TYPE seul (module serveur)
 // affectationSchema est PUR (aucun import serveur) → on peut importer ses fonctions dans le bundle client.
-import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere, indexDepuisRepere, PALETTE_REPERE, type SchemaEmpreinte, type CorpsAffectation, type AttributsPolygone } from '../../../../lib/permis/affectationSchema';
+import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere, indexDepuisRepere, PALETTE_REPERE, type SchemaEmpreinte, type CorpsAffectation, type AttributsPolygone, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
 // rattachementGroupes est PUR (import de TYPE seul depuis le repo, erasé) → client-safe. Source UNIQUE de la coupure en deux (L6).
 import { estAFaire, GROUPE1_TITRE, GROUPE2_TITRE } from '../../../../lib/permis/rattachementGroupes';
 
@@ -595,7 +595,7 @@ export function descriptionSchemaOrigine(o: { figee: boolean; captureVide: boole
  * n'est qu'un HABILLAGE, elle NE redéfinit AUCUNE règle — elle réutilise ce composant. `persiste=false`/`enAttenteBati` disent
  * pourquoi l'arbitrage est fermé (jamais de disparition muette). ⚠️ AUCUN valider/refuser, AUCUNE injection (FUS-3e).
  */
-export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onAffecter }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void }) {
+export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onAffecter }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string, action: ActionAffectation) => void }) {
   const { corps, polygones, colonneManquante } = affectation;
   if (!persiste) {
     return (
@@ -614,30 +614,47 @@ export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onA
   const nonAffectes = polygonesNonAffectes(corps, polygones);
   return (
     <>
-      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-        {corps.length === 0 && <li style={styleAide}>Aucun corps de bâtiment déclaré au permis.</li>}
+      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+        {corps.length === 0 && <li style={styleAide}>Aucun bâtiment déclaré au permis.</li>}
         {corps.map((c) => {
+          // M2 — options = polygones proposables à CE bâtiment : `optionsPourCorps` exclut ceux pris par un AUTRE bâtiment
+          // (exclusivité (a) côté écran) mais GARDE les siens (ils s'afficheront cochés). On coche via cleabsAffectes.includes.
           const options = optionsPourCorps(corps, polygones, c.id);
+          const nbAffectes = c.cleabsAffectes.length;
           return (
-            <li key={c.id} style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 600, minWidth: 90 }}>{c.repere ?? `corps ${c.id}`}</span>
-              <span style={styleAide}>{c.altitudeSommetNgf !== null ? `sommet ${c.altitudeSommetNgf} m NGF` : 'altitude —'}{c.nbEtages !== null ? ` · ${c.nbEtages} ét.` : ''}</span>
-              <label style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'baseline' }}>
-                <span style={styleAide}>polygone :</span>
-                <select value={c.cleabsAffectes[0] ?? ''} disabled={colonneManquante} aria-label={`polygone affecté au corps ${c.repere ?? c.id}`}
-                  onChange={(e) => onAffecter?.(c.id, e.target.value || null)}
-                  style={{ padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' }}>
-                  <option value="">— aucun (bâtiment sans polygone) —</option>
-                  {options.map((o) => <option key={o.cleabs ?? o.repere} value={o.cleabs ?? ''}>polygone {o.repere}{o.horsEmpreinte ? ' (déborde de la parcelle)' : ''}</option>)}
-                </select>
-              </label>
+            <li key={c.id} style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+              <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 600, minWidth: 90 }}>{c.repere ?? `bâtiment ${c.id}`}</span>
+                <span style={styleAide}>{c.altitudeSommetNgf !== null ? `sommet ${c.altitudeSommetNgf} m NGF` : 'altitude —'}{c.nbEtages !== null ? ` · ${c.nbEtages} ét.` : ''}</span>
+              </div>
+              <fieldset disabled={colonneManquante} style={{ border: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+                <legend style={{ ...styleAide, padding: 0 }}>polygones (cochez tous ceux qui composent ce bâtiment) :</legend>
+                {options.length === 0 && <span style={styleAide}>aucun polygone disponible pour ce bâtiment.</span>}
+                {options.map((o) => {
+                  const cle = o.cleabs;
+                  if (cle === null) return null; // optionsPourCorps ne renvoie que des cleabs non nuls ; garde de typage
+                  const coche = c.cleabsAffectes.includes(cle);
+                  return (
+                    <label key={cle} style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'baseline', fontSize: 12, minHeight: 28 }}>
+                      <input type="checkbox" value={cle} checked={coche} disabled={colonneManquante}
+                        onChange={(e) => onAffecter?.(c.id, cle, e.target.checked ? 'ajout' : 'retrait')} />
+                      <span>polygone {o.repere}{o.horsEmpreinte ? ' (déborde de la parcelle)' : ''} <span style={styleAide}>· {cle}</span></span>
+                    </label>
+                  );
+                })}
+                {nbAffectes > 1 && (
+                  <div role="note" style={{ ...styleAide, color: 'var(--color-svv-red)' }}>
+                    Ce bâtiment porte {nbAffectes} polygones. La validation refusera d’injecter l’altitude tant qu’on ne peut pas saisir une altitude par polygone (fonction à venir) : sinon la même altitude de sommet serait écrite sur tous les polygones, ce qui créerait un faux obstacle. Réduisez à un seul polygone, ou attendez la saisie d’une altitude par polygone.
+                  </div>
+                )}
+              </fieldset>
             </li>
           );
         })}
       </ul>
       {nonAffectes.length > 0 && (
         <div role="note" style={{ ...styleAide, color: 'var(--color-svv-red)' }}>
-          Polygones non affectés — {texteNonAffectes(nonAffectes)}. À affecter au bon corps, ou à laisser si aucun corps ne correspond (bâtiments accolés / débords).
+          Polygones non affectés — {texteNonAffectes(nonAffectes)}. À affecter au bon bâtiment, ou à laisser si aucun ne correspond (bâtiments accolés / débords).
         </div>
       )}
     </>
@@ -793,7 +810,7 @@ export function DialoguePleinEcran({ titre, onFermer, children }: { titre: strin
  */
 export function SchemaPleinEcran({ titre, mention, affectation, persiste, enAttenteBati = false, onAffecter, onFermer, rougeCleabs, afficherReperes = true, onAfficherReperes, sourceLibelle = '', afficherFutur = true, onAfficherFutur }: {
   titre: string; mention?: string; affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean;
-  onAffecter?: (corpsId: number, cleabs: string | null) => void; onFermer: () => void; rougeCleabs?: readonly string[]; afficherReperes?: boolean; onAfficherReperes?: (v: boolean) => void; sourceLibelle?: string; afficherFutur?: boolean; onAfficherFutur?: (v: boolean) => void;
+  onAffecter?: (corpsId: number, cleabs: string, action: ActionAffectation) => void; onFermer: () => void; rougeCleabs?: readonly string[]; afficherReperes?: boolean; onAfficherReperes?: (v: boolean) => void; sourceLibelle?: string; afficherFutur?: boolean; onAfficherFutur?: (v: boolean) => void;
 }) {
   return (
     <DialoguePleinEcran titre={titre} onFermer={onFermer}>
@@ -848,7 +865,7 @@ export function ComparaisonPleinEcran({ origine, nouvelle, rougeCleabs, nomOrigi
  * Bloc d'affectation (vue RÉDUITE) : le SCHÉMA nommé + cliquable (→ plein écran) + sa LÉGENDE compacte, puis les CHOIX (`CorpsEtChoix`,
  * mêmes règles que le plein écran). Le schéma reste consultable même sans dossier persisté (on DIT pourquoi l'arbitrage est fermé).
  */
-export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string | null) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean }) {
+export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string, action: ActionAffectation) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean }) {
   const { corps, schema, motif, colonneManquante } = affectation;
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>

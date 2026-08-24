@@ -307,7 +307,7 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
       corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A'] }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffectes: [] }],
     });
     const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a, persiste: true }));
-    expect(h).toContain('aucun (bâtiment sans polygone)'); // le corps 2 peut rester sans polygone
+    expect(h).toContain('aucun polygone disponible'); // corps 2 : son seul candidat (A) est pris par le corps 1 → rien à cocher
     expect(h).not.toContain('Polygones non affectés'); // A est affecté → aucun polygone orphelin
   });
 
@@ -316,7 +316,7 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
     expect(h).toContain('<svg');                              // le schéma reste affiché (informatif)
     expect(h).toContain('Légende du schéma');                // la légende reste
     expect(h).toContain('Aucun signal de mise à jour');       // on DIT pourquoi (jamais de disparition muette)
-    expect(h).not.toContain('<select');                       // aucun sélecteur d’affectation
+    expect(h).not.toContain('type="checkbox"');               // aucune case d’affectation
     expect(h).not.toContain('Polygones non affectés');
   });
 
@@ -325,7 +325,7 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
     expect(h).toContain('<svg');                    // schéma toujours consultable
     expect(h).toContain('En attente du bâti');       // libellé explicite (SPEC B)
     expect(h).toContain('travaux sont déclarés terminés');
-    expect(h).not.toContain('<select');              // affectation FERMÉE (on n'invente pas un polygone)
+    expect(h).not.toContain('type="checkbox"');      // affectation FERMÉE (on n'invente pas un polygone)
   });
 
   it('L2 — LÉGENDE : l’information ne dépend PAS de la seule couleur (repère écrit, contours vert/tireté, trame nommés)', () => {
@@ -493,9 +493,9 @@ describe('L3 — plein écran, nom dans le visuel, légende complète, rattachem
     expect(vide).toContain('Aucun polygone dans la parcelle du permis');
   });
 
-  it('④ RATTACHEMENT en plein écran : les sélecteurs par corps sont là (c’est là qu’on arbitre)', () => {
+  it('④ RATTACHEMENT en plein écran : les cases à cocher par bâtiment sont là (c’est là qu’on arbitre)', () => {
     const h = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: NOM_SCHEMA_ORIGINE, affectation: affL3(), persiste: true, onAffecter: noop, onFermer: noop }));
-    expect(h).toContain('<select');
+    expect(h).toContain('type="checkbox"');
     expect(h).toContain('polygone A'); expect(h).toContain('polygone B');
   });
 
@@ -503,7 +503,7 @@ describe('L3 — plein écran, nom dans le visuel, légende complète, rattachem
     // A affecté au corps 1 → règle d'exclusivité : A n'est plus une option ailleurs, et B est signalé non affecté.
     const a = affL3({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: ['BAT_A'] }, { id: 2, repere: '2D2', altitudeSommetNgf: 87, nbEtages: 7, cleabsAffectes: [] }] });
     const h = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: NOM_SCHEMA_ORIGINE, affectation: a, persiste: true, onAffecter: noop, onFermer: noop }));
-    expect(h).toContain('value="BAT_A"');                                   // sélection du corps 1 (réversible)
+    expect(h).toContain('value="BAT_A"'); expect(h).toContain('checked');    // A coché pour le corps 1 (réversible)
     expect(h).toMatch(/Polygones non affectés — dans la parcelle : B/);      // MÊME sortie que polygonesNonAffectes/texteNonAffectes
   });
 
@@ -512,7 +512,41 @@ describe('L3 — plein écran, nom dans le visuel, légende complète, rattachem
     expect(h).toContain('role="dialog"');
     expect(h).toContain('<svg');                       // schéma consultable
     expect(h).toContain('Aucun signal de mise à jour'); // on DIT pourquoi (jamais de disparition muette)
-    expect(h).not.toContain('<select');                // pas d'arbitrage sans dossier
+    expect(h).not.toContain('type="checkbox"');        // pas d'arbitrage sans dossier
+  });
+});
+
+describe('M2 — cases à cocher : multi-affectation ouverte + garde R4 annoncée à l’écran', () => {
+  const noop = () => {};
+  const base = (corps: AffectationEtat['corps']): AffectationEtat => ({
+    empreinteFigee: true, motif: null, colonneManquante: false,
+    schema: {
+      largeur: 320, hauteur: 240, empreintePath: 'M0,0 L10,0 L10,10 Z', motif: null,
+      polygones: [
+        { repere: 'A', cleabs: 'BAT_A', path: 'M1,1 L2,1 L2,2 Z', cx: 1, cy: 1, horsEmpreinte: false },
+        { repere: 'B', cleabs: 'BAT_B', path: 'M3,3 L4,3 L4,4 Z', cx: 3, cy: 3, horsEmpreinte: false },
+      ],
+    },
+    polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: false }],
+    corps,
+  });
+  const nbCoches = (h: string) => (h.match(/checked/g) ?? []).length;
+
+  it('un polygone déjà affecté à CE bâtiment s’affiche COCHÉ ; l’autre proposable reste décoché (exactement 1 coché)', () => {
+    const a = base([{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: ['BAT_A'] }]);
+    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a, persiste: true, onAffecter: noop }));
+    expect(h).toContain('value="BAT_A"'); expect(h).toContain('value="BAT_B"'); // les deux proposables
+    expect(nbCoches(h)).toBe(1);                                                 // un SEUL coché → c'est A (le seul affecté)
+    expect(h).not.toContain('porte 2 polygones');                               // un seul polygone → pas de note R4
+  });
+
+  it('deux polygones cochés pour un même bâtiment (multi ouvert) → la garde R4 est ANNONCÉE, au moment où ça dépasse un polygone', () => {
+    const a = base([{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: ['BAT_A', 'BAT_B'] }]);
+    const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a, persiste: true, onAffecter: noop }));
+    expect(nbCoches(h)).toBe(2);                          // les DEUX cochés : la multi-affectation est bien ouverte
+    expect(h).toContain('Ce bâtiment porte 2 polygones'); // R4 dite ICI, pas découverte au moment du refus
+    expect(h).toMatch(/faux obstacle/);
+    expect(h).toMatch(/une altitude par polygone/);
   });
 });
 
@@ -655,7 +689,7 @@ describe('L5 — second schéma, rouge, comparatif côte à côte', () => {
     const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: affAB(), persiste: true, titre: NOM_SCHEMA_NOUVELLE, mention: descriptionSchemaNouvelle(2, 1), rougeCleabs: ['BAT_B'], onAffecter: noop }));
     expect(h).toContain(NOM_SCHEMA_NOUVELLE);                  // nom dans le visuel
     expect(h).toContain('fill="var(--color-svv-red)"');        // rouge
-    expect(h).toContain('<select');                            // MÊME fonction de rattachement (CorpsEtChoix réutilisé)
+    expect(h).toContain('type="checkbox"');                    // MÊME fonction de rattachement (CorpsEtChoix réutilisé)
     expect(h).toContain('nouveau/modifié (en rouge)');         // mention
   });
 

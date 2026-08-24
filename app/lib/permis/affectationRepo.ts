@@ -9,7 +9,7 @@
 import { query, withTransaction } from '../db/client';
 import {
   construireSchema, geomDepuisGeoJSON, repereDepuisIndex, cadreDe, unionCadre,
-  type SchemaEmpreinte, type CorpsAffectation, type PolygoneAffectable, type PolygoneEntreeSchema, type GeomPoly, type Cadre,
+  type SchemaEmpreinte, type CorpsAffectation, type PolygoneAffectable, type PolygoneEntreeSchema, type GeomPoly, type Cadre, type ActionAffectation,
 } from './affectationSchema';
 import { rejouerRattachement } from './rattachementRepo'; // L5 — ensemble NOUVEAU/MODIFIÉ (moteur pur, à froid) ; pas de cycle (rattachementRepo n'importe pas affectationRepo)
 
@@ -231,13 +231,13 @@ export async function lireComparaison(dossierId: number): Promise<ComparaisonRat
 export type ResultatAffecter = { ok: true } | { ok: false; motif: string };
 
 /**
- * Affecte (ou désaffecte si `cleabs` = null) un polygone à un bâtiment, dans la TABLE DE LIAISON `permis_corps_polygone`.
- * EXCLUSIVITÉ (a) garantie EN BASE par l'index unique (dossier_id, cleabs) : si le polygone est déjà pris par un AUTRE bâtiment du
- * permis, l'INSERT lève 23505 → refus explicite. M1 — COMPORTEMENT MONO CONSERVÉ : affecter un polygone à un bâtiment qui en a
- * déjà un REMPLACE l'ancien (on retire d'abord les liens de CE bâtiment, puis on pose le nouveau) ; DÉSAFFECTER = retirer ses liens.
- * Retrait + pose sont ATOMIQUES (withTransaction). RÉVERSIBLE. NE FAIT AUCUNE injection d'altitude (FUS-3e).
+ * Affecte ('ajout') ou désaffecte ('retrait') UN polygone d'un bâtiment, dans la TABLE DE LIAISON `permis_corps_polygone`.
+ * M2 — ADDITIF : 'ajout' AJOUTE le polygone SANS toucher aux autres polygones du bâtiment (un bâtiment peut en porter plusieurs) ;
+ * 'retrait' retire CE seul polygone. Une seule instruction (INSERT ou DELETE), exécutée en transaction (ATOMIQUE, cohérent avec la
+ * garde de persistance). EXCLUSIVITÉ (a) garantie EN BASE par l'index unique (dossier_id, cleabs) : un 'ajout' d'un polygone déjà
+ * pris par un AUTRE bâtiment du permis lève 23505 → refus explicite (l'écran l'empêche déjà en amont). NE FAIT AUCUNE injection (FUS-3e).
  */
-export async function affecterPolygone(dossierId: number, corpsId: number, cleabs: string | null, majPar: string): Promise<ResultatAffecter> {
+export async function affecterPolygone(dossierId: number, corpsId: number, cleabs: string, action: ActionAffectation, majPar: string): Promise<ResultatAffecter> {
   // GARDE DE PERSISTANCE : tant qu'aucun dossier de rattachement n'existe pour ce permis (« aucun signal » = rien de mesuré à
   // arbitrer), on n'écrit AUCUN appariement — sinon on stockerait une donnée morte, relue plus tard sans être revérifiée. Message
   // EXPLICATIF (jamais technique) : l'affectation s'ouvrira quand un changement sera détecté. Même intention que validerRattachement.
@@ -249,9 +249,11 @@ export async function affecterPolygone(dossierId: number, corpsId: number, cleab
   if (rows.length === 0) return { ok: false, motif: 'corps inconnu pour ce permis' };
   try {
     return await withTransaction(async (q) => {
-      // MONO (M1) : on remplace l'affectation de CE bâtiment → on retire ses liens actuels, puis on pose le nouveau polygone.
-      await q(`DELETE FROM permis_corps_polygone WHERE dossier_id = $1 AND corps_id = $2`, [dossierId, corpsId]);
-      if (cleabs !== null) {
+      if (action === 'retrait') {
+        // RETRAIT : on enlève CE seul polygone de CE bâtiment (les autres restent affectés).
+        await q(`DELETE FROM permis_corps_polygone WHERE dossier_id = $1 AND corps_id = $2 AND cleabs = $3`, [dossierId, corpsId, cleabs]);
+      } else {
+        // AJOUT : on ajoute CE polygone SANS retirer les autres → un bâtiment peut en porter plusieurs (M2).
         await q(`INSERT INTO permis_corps_polygone (dossier_id, corps_id, cleabs, maj_le, maj_par) VALUES ($1, $2, $3, now(), $4)`,
           [dossierId, corpsId, cleabs, majPar]);
       }

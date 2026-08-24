@@ -136,6 +136,9 @@ export function construireSchema(empreinte: GeomPoly | null, polygones: Polygone
 export interface CorpsAffectation { id: number; repere: string | null; altitudeSommetNgf: number | null; nbEtages: number | null; cleabsAffectes: string[] }
 export interface PolygoneAffectable { repere: string; cleabs: string | null; horsEmpreinte: boolean }
 
+// M2 — l'affectation est INCRÉMENTALE : cocher = 'ajout' d'un polygone, décocher = 'retrait' de ce seul polygone (jamais un remplacement).
+export type ActionAffectation = 'ajout' | 'retrait';
+
 /** Polygones PROPOSABLES à un corps : ceux qui ne sont PAS affectés à un AUTRE corps (les siens restent proposés → réversibilité). */
 export function optionsPourCorps(corps: CorpsAffectation[], polygones: PolygoneAffectable[], corpsId: number): PolygoneAffectable[] {
   const prisAilleurs = new Set(corps.filter((c) => c.id !== corpsId).flatMap((c) => c.cleabsAffectes));
