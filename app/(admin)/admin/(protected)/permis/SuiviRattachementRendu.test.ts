@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, badgeSuivi, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
@@ -13,7 +13,7 @@ import type { AttributsPolygone } from '../../../../lib/permis/affectationSchema
  * FUS-3b — rendu PUR du suivi (renderToStaticMarkup, aucun DOM). Couvre : compteurs + groupes par état, tri par urgence,
  * ancienneté ; le tableau comparatif « trois sources » (dont « aucun bâtiment » et « sans objet »), critères et provenance.
  */
-const ligne = (o: Partial<LigneSuivi>): LigneSuivi => ({ dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', verdict: null, joursAnciennete: 3, derniereEvalIso: null, dateAutorisationIso: '2026-03-13', dateDeclenchementIso: null, ...o });
+const ligne = (o: Partial<LigneSuivi>): LigneSuivi => ({ dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', verdict: null, joursAnciennete: 3, derniereEvalIso: null, dateAutorisationIso: '2026-03-13', dateDeclenchementIso: null, origineOuverture: 'detection', ...o });
 
 const detail = (o: Partial<DetailSuivi> = {}): DetailSuivi => ({
   dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', persiste: false,
@@ -728,6 +728,32 @@ describe('M7-bis — schéma agrandi pendant la saisie + atténuation des autres
     expect(h).not.toContain('opacity="0.22"');
     expect(h).not.toContain('width="100%"'); // le SVG n'est PAS agrandi (pas de remplissage de largeur)
     expect(h).not.toContain('min-height');   // pas de réservation hors saisie
+  });
+});
+
+describe('M7-ter — dossier ouvert à la main : badge honnête, jamais « arbitrage demandé »', () => {
+  it('badgeSuivi (pur) : manuelle → « ouvert à la main » / ton NEUTRE ; detection → état + urgence ; origine absente (< 147) → repli detection', () => {
+    expect(badgeSuivi({ origineOuverture: 'manuelle', etat: 'arbitrage_demande', verdict: 'OUVERTURE_MANUELLE' })).toEqual({ libelle: 'ouvert à la main', ton: 'manuel' });
+    expect(badgeSuivi({ origineOuverture: 'detection', etat: 'arbitrage_demande', verdict: 'ARBITRAGE_DEMANDE' })).toEqual({ libelle: 'arbitrage demandé', ton: 'urgence' });
+    expect(badgeSuivi({ origineOuverture: null, etat: 'arbitrage_demande', verdict: null })).toEqual({ libelle: 'arbitrage demandé', ton: 'urgence' }); // < migration 147 : ne plante pas
+  });
+
+  it('liste : une ligne OUVERTE À LA MAIN dit « ouvert à la main » (jamais « arbitrage demandé »), « ouvert à la main le … », et RESTE dans la liste à traiter', () => {
+    const manuel = ligne({ dossierId: 5, numDau: '07512024V0037', etat: 'arbitrage_demande', origineOuverture: 'manuelle', dateDeclenchementIso: '2026-08-24' });
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [manuel] }));
+    expect(h).toContain('ouvert à la main');
+    expect(h).not.toContain('arbitrage demandé');
+    expect(h).toContain('ouvert à la main le 24/08/2026');
+    expect(h).not.toContain('déclenché le');
+    expect(h).toContain('07512024V0037'); // reste bien listé (état inchangé → même groupe/compteur)
+  });
+
+  it('liste : une ligne de DÉTECTION garde l’affichage actuel (arbitrage demandé, urgence rouge, « déclenché le »)', () => {
+    const detecte = ligne({ dossierId: 6, etat: 'arbitrage_demande', origineOuverture: 'detection', dateDeclenchementIso: '2026-08-20' });
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [detecte] }));
+    expect(h).toContain('arbitrage demandé');
+    expect(h).toContain('var(--color-svv-red)'); // ton d'urgence conservé (aucune régression)
+    expect(h).toContain('déclenché le 20/08/2026');
   });
 });
 

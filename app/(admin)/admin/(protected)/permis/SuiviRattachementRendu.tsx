@@ -115,17 +115,42 @@ export function formatDateFr(iso: string | null): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
 }
 
-function fondEtat(etat: EtatSuivi): CSSProperties {
-  if (etat === 'arbitrage_demande') return { background: 'var(--color-svv-red)', color: '#fff' };
-  if (etat === 'en_attente_bati') return { background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' };
-  if (etat === 'valide') return { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)' };
-  return { background: 'transparent', color: 'var(--color-svv-muted)' };
+export type TonBadge = 'urgence' | 'attente' | 'valide' | 'neutre' | 'manuel';
+export interface BadgeSuivi { libelle: string; ton: TonBadge }
+
+function tonEtat(etat: EtatSuivi): TonBadge {
+  if (etat === 'arbitrage_demande') return 'urgence';
+  if (etat === 'en_attente_bati') return 'attente';
+  if (etat === 'valide') return 'valide';
+  return 'neutre';
 }
 
-export function BadgeEtatSuivi({ etat }: { etat: EtatSuivi }) {
+/**
+ * M7-ter — DÉRIVE le badge d'un dossier. Un dossier OUVERT À LA MAIN (origine_ouverture='manuelle', M5) ne se fait PAS passer pour une
+ * détection : libellé « ouvert à la main », ton NEUTRE (jamais l'urgence rouge du moteur — ce n'est pas une alerte, c'est Arno qui a
+ * ouvert). Sinon (detection, OU origine absente = données < migration 147 → on ne plante pas) : comportement ACTUEL (libellé = état,
+ * ton dérivé de l'état). PUR. La couleur n'est jamais seule porteuse : le libellé suffit.
+ */
+export function badgeSuivi(e: { origineOuverture: 'detection' | 'manuelle' | null; etat: EtatSuivi; verdict: string | null }): BadgeSuivi {
+  if (e.origineOuverture === 'manuelle') return { libelle: 'ouvert à la main', ton: 'manuel' };
+  return { libelle: LIBELLE_ETAT_SUIVI[e.etat], ton: tonEtat(e.etat) };
+}
+
+function fondTon(ton: TonBadge): CSSProperties {
+  switch (ton) {
+    case 'urgence': return { background: 'var(--color-svv-red)', color: '#fff' };
+    case 'attente': return { background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' };
+    case 'valide': return { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)' };
+    case 'manuel': return { background: '#fff', color: 'var(--color-svv-ink)', border: '1px solid var(--color-svv-line)' }; // neutre encadré, jamais l'urgence rouge
+    default: return { background: 'transparent', color: 'var(--color-svv-muted)' };
+  }
+}
+
+export function BadgeEtatSuivi({ etat, origineOuverture = null, verdict = null }: { etat: EtatSuivi; origineOuverture?: 'detection' | 'manuelle' | null; verdict?: string | null }) {
+  const { libelle, ton } = badgeSuivi({ origineOuverture, etat, verdict });
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, padding: '.1rem .45rem', borderRadius: '.35rem', whiteSpace: 'nowrap', ...fondEtat(etat) }}>
-      {LIBELLE_ETAT_SUIVI[etat]}
+    <span style={{ fontSize: 11, fontWeight: 700, padding: '.1rem .45rem', borderRadius: '.35rem', whiteSpace: 'nowrap', ...fondTon(ton) }}>
+      {libelle}
     </span>
   );
 }
@@ -144,13 +169,15 @@ const idDetailSuivi = (dossierId: number): string => `detail-suivi-${dossierId}`
 
 /** Une ligne de suivi. La DATE affichée dépend du groupe : « déclenché le… » (à faire, trié par déclenchement) vs « permis autorisé le… » (en attente, trié par permis). */
 function LigneSuiviLi({ l, groupe, onOuvrir, ouvert }: { l: LigneSuivi; groupe: 'a_faire' | 'en_attente'; onOuvrir?: (dossierId: number) => void; ouvert?: number | null }) {
+  // M7-ter — un dossier ouvert À LA MAIN n'a été « déclenché » par rien : la date est celle de l'ouverture manuelle.
+  const prefixeDeclenchement = l.origineOuverture === 'manuelle' ? 'ouvert à la main le' : 'déclenché le';
   const dateTexte = groupe === 'a_faire'
-    ? (l.dateDeclenchementIso ? `déclenché le ${formatDateFr(l.dateDeclenchementIso)}` : <em style={{ color: 'var(--color-svv-muted)' }}>date de déclenchement inconnue</em>)
+    ? (l.dateDeclenchementIso ? `${prefixeDeclenchement} ${formatDateFr(l.dateDeclenchementIso)}` : <em style={{ color: 'var(--color-svv-muted)' }}>date de déclenchement inconnue</em>)
     : (l.dateAutorisationIso ? `permis autorisé le ${formatDateFr(l.dateAutorisationIso)}` : <em style={{ color: 'var(--color-svv-muted)' }}>date d’autorisation inconnue</em>);
   return (
     <li style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap', paddingBottom: '.2rem', borderBottom: '1px solid var(--color-svv-line)' }}>
-      {/* Le BADGE d'état reste sur chaque ligne (l'info d'état n'est plus portée par la carte, mais par la ligne). */}
-      <BadgeEtatSuivi etat={l.etat} />
+      {/* Le BADGE d'état reste sur chaque ligne (l'info d'état n'est plus portée par la carte, mais par la ligne). M7-ter : dérivé de l'origine. */}
+      <BadgeEtatSuivi etat={l.etat} origineOuverture={l.origineOuverture} verdict={l.verdict} />
       {/* FUS-3c-ter — n° + type/nature + adresse ; l'ouverture passe par un BOUTON EXPLICITE, pas un clic sur la ligne. */}
       <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', fontWeight: 700 }}>{l.numDau}</span>
       <span>{l.type}{l.natureTravaux ? ` — ${l.natureTravaux}` : ''}</span>
@@ -315,7 +342,7 @@ export function DetailSuiviRendu({ detail }: { detail: DetailSuivi }) {
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
         <strong style={{ fontFamily: 'var(--font-svv-mono, monospace)' }}>{detail.numDau}</strong>
         <span>{detail.type}{detail.natureTravaux ? ` — ${detail.natureTravaux}` : ''}</span>
-        <BadgeEtatSuivi etat={detail.etat} />
+        <BadgeEtatSuivi etat={detail.etat} origineOuverture={detail.origineOuverture} verdict={detail.verdict} />
         <span style={{ color: 'var(--color-svv-muted)' }}>{detail.adresse ?? detail.commune ?? `INSEE ${detail.codeInsee}`}</span>
       </div>
 

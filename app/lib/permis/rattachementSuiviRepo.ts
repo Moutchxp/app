@@ -158,6 +158,7 @@ export interface LigneSuivi {
   etat: EtatSuivi; verdict: string | null; joursAnciennete: number; derniereEvalIso: string | null;
   dateAutorisationIso: string | null;   // L1 — date_reelle_autorisation du permis (ISO 'YYYY-MM-DD') ; null = inconnue. À NE PAS confondre avec joursAnciennete (date d'ENTRÉE en suivi).
   dateDeclenchementIso: string | null;  // L6 — permis_rattachement.detecte_le (date où le déclencheur a ouvert le dossier) ; null = pas de dossier / pas de déclencheur.
+  origineOuverture: 'detection' | 'manuelle' | null; // M7-ter — 'manuelle' = ouvert à la main (M5) ; null = pas de dossier / données < migration 147 → affichage 'detection'
 }
 
 /** Tri décroissant d'une date ISO 'YYYY-MM-DD' (comparable lexicographiquement) ; une date ABSENTE va en FIN (jamais en tête). */
@@ -192,10 +193,10 @@ export function trierLignesSuivi(lignes: LigneSuivi[]): LigneSuivi[] {
 
 /** Liste l'UNIVERS des permis suivis (ceux qui ont une empreinte) LEFT JOIN leur dossier ; « aucun signal » si pas de dossier. */
 export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> }> {
-  const { rows } = await query<{ dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; jours: number; reevalue: string | null; date_autorisation: string | null; date_declenchement: string | null }>(
+  const { rows } = await query<{ dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; origine_ouverture: 'detection' | 'manuelle' | null; jours: number; reevalue: string | null; date_autorisation: string | null; date_declenchement: string | null }>(
     `SELECT e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s.type,
             nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
-            s.nature_projet_completee AS nature, r.etat AS ratt_etat, r.verdict,
+            s.nature_projet_completee AS nature, r.etat AS ratt_etat, r.verdict, r.origine_ouverture,
             GREATEST(0, floor(EXTRACT(EPOCH FROM (now() - COALESCE(r.detecte_le, e.maj_le))) / 86400))::int AS jours,
             to_char(r.reevalue_le, 'YYYY-MM-DD') AS reevalue,
             to_char(s.date_reelle_autorisation, 'YYYY-MM-DD') AS date_autorisation,
@@ -211,6 +212,7 @@ export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: 
     type: r.type, adresse: r.adresse, natureTravaux: r.nature ? libelleNatureProjet(r.nature) : null,
     etat: r.ratt_etat ?? 'suivi_aucun_signal', verdict: r.verdict, joursAnciennete: r.jours, derniereEvalIso: r.reevalue,
     dateAutorisationIso: r.date_autorisation, dateDeclenchementIso: r.date_declenchement,
+    origineOuverture: r.origine_ouverture ?? null,
   })));
   const compteurs = Object.fromEntries((Object.keys(ORDRE_URGENCE) as EtatSuivi[]).map((e) => [e, 0])) as Record<EtatSuivi, number>;
   for (const l of lignes) compteurs[l.etat] += 1;
