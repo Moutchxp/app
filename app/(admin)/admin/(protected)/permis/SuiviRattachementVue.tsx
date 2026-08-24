@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
 import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData } from './SuiviRattachementRendu';
 
 // L11 — libellés de SOURCE des bulles (constat AVANT travaux). L'origine figée lit le SNAPSHOT ; sinon (et la nouvelle) la couche vivante.
 const SOURCE_GEL = 'au moment du gel (état des lieux figé)';
@@ -37,8 +37,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [permisOuvert, setPermisOuvert] = useState(false); // détail complet du permis (caractéristiques + pièces), replié par défaut
   // FUS-3e — décisions
   const [motifRefus, setMotifRefus] = useState('');
-  const [motifConfirmation, setMotifConfirmation] = useState('');
-  const [avertissement, setAvertissement] = useState<string | null>(null);
+  const [accuse, setAccuse] = useState<AccuseValidationData | null>(null); // M8 — accusé de prise en compte (persistant), construit depuis la réponse serveur
   const [actionErreur, setActionErreur] = useState('');
   const [enCours, setEnCours] = useState(false);
   const [cotes, setCotes] = useState<Record<string, string>>({}); // M3 — cote saisie par polygone (cleabs → chaîne ; '' = non injecté)
@@ -63,7 +62,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     let annule = false;
     void (async () => {
       setDetail(null); setComparaison(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); setPleinEcran(null);
-      setMotifRefus(''); setMotifConfirmation(''); setAvertissement(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); // reset décisions (DANS l'async)
+      setMotifRefus(''); setAccuse(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); // reset décisions (DANS l'async)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
         if (annule) return;
@@ -110,25 +109,43 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   }, [ouvert]);
 
   // FUS-3e — décisions (valider / refuser / retour_lidar). La validation d'une cardinalité incohérente exige un motif (besoinConfirmation).
-  const agir = useCallback(async (action: 'valider' | 'refuser' | 'retour_lidar', extra: { motif?: string; motifConfirmation?: string; cotes?: Record<string, number | null> } = {}): Promise<void> => {
+  // FUS-3e — refuser / retour LiDAR (le motif de refus reste obligatoire). 401 = session expirée, JAMAIS « panne » ni « échec ».
+  const agir = useCallback(async (action: 'refuser' | 'retour_lidar', extra: { motif?: string } = {}): Promise<void> => {
     if (ouvert === null) return;
-    setEnCours(true); setActionErreur('');
+    setEnCours(true); setActionErreur(''); setAccuse(null);
     try {
       const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, dossierId: ouvert, ...extra }) });
-      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; besoinConfirmation?: boolean; avertissement?: string; erreur?: string; detail?: DetailSuivi; comparaison?: ComparaisonRattachement | null };
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; detail?: DetailSuivi; comparaison?: ComparaisonRattachement | null };
       if (res.ok && d.ok) {
         if (d.detail) setDetail(d.detail);
         if (d.comparaison !== undefined) setComparaison(d.comparaison ?? null);
-        setAvertissement(null); setMotifRefus(''); setMotifConfirmation('');
-        recompterSiSucces(true, onRecompter); // pastille : la décision (valider/refuser/retour) a changé l'état « arbitrage »
-      } else if (d.besoinConfirmation) {
-        setAvertissement(d.avertissement ?? 'Cardinalité incohérente : confirmez avec un motif.');
+        setMotifRefus('');
+        recompterSiSucces(true, onRecompter);
       } else {
-        setActionErreur(d.erreur ?? 'Action impossible.');
+        setActionErreur(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'Action impossible.'));
       }
     } catch { setActionErreur('Action impossible.'); }
     finally { setEnCours(false); }
   }, [ouvert, onRecompter]);
+
+  // M8 — VALIDER : plus de motif ; construit l'ACCUSÉ (persistant) à partir de ce que le SERVEUR retourne (injections réelles, état).
+  const valider = useCallback(async (): Promise<void> => {
+    if (ouvert === null) return;
+    setEnCours(true); setActionErreur(''); setAccuse(null);
+    try {
+      const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'valider', dossierId: ouvert, cotes: cotesEnNombres(cotesEffectives) }) });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; nbInjectes?: number; injections?: { repere: string | null; cleabs: string; cote: number }[]; detail?: DetailSuivi; comparaison?: ComparaisonRattachement | null };
+      if (res.ok && d.ok) {
+        if (d.detail) setDetail(d.detail);
+        if (d.comparaison !== undefined) setComparaison(d.comparaison ?? null);
+        setAccuse(composerAccuse({ ok: true, nbInjectes: d.nbInjectes ?? 0, injections: d.injections ?? [] }));
+        recompterSiSucces(true, onRecompter);
+      } else {
+        setAccuse(composerAccuse({ ok: false, statut: res.status, erreur: d.erreur ?? '' }));
+      }
+    } catch { setAccuse(composerAccuse({ ok: false, statut: 0, erreur: 'Réseau indisponible : la validation n’a pas pu être envoyée.' })); }
+    finally { setEnCours(false); }
+  }, [ouvert, cotesEffectives, onRecompter]);
 
   // M5 — OUVRIR l'arbitrage À LA MAIN (aucun delta BD TOPO requis). Motif obligatoire (le bouton est inactif sans motif). Rafraîchit détail + comparaison.
   const ouvrirManuel = useCallback(async (): Promise<void> => {
@@ -255,11 +272,14 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
         )}
         {detail.persiste && (
           <>
-            <ActionsRattachement avertissement={avertissement} motifRefus={motifRefus} motifConfirmation={motifConfirmation}
-              onMotifRefus={setMotifRefus} onMotifConfirmation={setMotifConfirmation} enCours={enCours}
-              onValider={() => void agir('valider', { motifConfirmation: motifConfirmation || undefined, cotes: cotesEnNombres(cotesEffectives) })}
+            <ActionsRattachement
+              resume={comparaison ? resumeValidation({ corps: comparaison.nouvelle.corps, polygones: comparaison.nouvelle.polygones }, cotesEnNombres(cotesEffectives)) : { nbAffectes: 0, nbAvecCote: 0, nbVides: 0, nbNonAffectes: 0 }}
+              motifRefus={motifRefus} onMotifRefus={setMotifRefus} enCours={enCours}
+              onValider={() => void valider()}
               onRefuser={() => void agir('refuser', { motif: motifRefus })}
               onRetour={() => void agir('retour_lidar')} />
+            {/* M8 — accusé de prise en compte PERSISTANT (aria-live), construit depuis la réponse serveur. */}
+            {accuse && <AccuseValidation accuse={accuse} />}
             {actionErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{actionErreur}</div>}
           </>
         )}

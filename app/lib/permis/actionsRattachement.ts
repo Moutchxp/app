@@ -16,10 +16,9 @@ import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo';
 
 export interface ResultatAction {
   ok: boolean;
-  besoinConfirmation?: boolean;   // validation d'une cardinalité incohérente → un motif de confirmation est requis
-  avertissement?: string;
-  motif?: string;                 // motif d'échec, ou motif de confirmation retenu
+  motif?: string;                 // motif d'échec
   nbInjectes?: number;
+  injections?: { cleabs: string; repere: string | null; cote: number }[]; // M8 — détail RÉELLEMENT écrit à la validation (pour l'accusé)
   nbRestaures?: number;
   nbTraites?: number;             // import BD TOPO : nb de cleabs suivis parcourus
   nbEcrases?: number;             // import/mesure LiDAR : nb d'altitudes 'permis' écrasées → dossiers annulés par LiDAR
@@ -73,19 +72,18 @@ export type CotesParPolygone = Record<string, number | null>;
  * VALIDER : injecte UNE COTE PAR POLYGONE AFFECTÉ dans permis_polygone_altitude (origine 'permis'), après avoir REFIGÉ la LiDAR
  * courante (retour arrière fiable), puis passe le dossier à « valide ». La cote de chaque polygone vient de la SAISIE (`cotes`,
  * clé = cleabs) — JAMAIS dérivée d'une valeur unique du bâtiment (M3, ce qui LÈVE la garde R4) : un polygone sans cote saisie n'est
- * PAS injecté. GARDE cardinalité : s'il reste des polygones non affectés ou des bâtiments sans polygone, exige un `confirmationMotif`.
+ * PAS injecté. M8 — PLUS de motif de validation ni de garde de cardinalité : sur un permis dont la parcelle porte du bâti ÉTRANGER au
+ * projet (cas 11430), des polygones non affectés sont NORMAUX → la garde se déclenchait toujours pour rien. On informe AVANT le clic,
+ * on n'exige rien. L'événement de validation continue de TRACER nbInjectes, polygonesNonAffectes et corpsSansPolygone (on perd une
+ * saisie, pas une trace). Retourne le détail de ce qui a été RÉELLEMENT écrit (`injections`) pour l'accusé de prise en compte.
  */
-export async function validerRattachement(dossierId: number, valPar: string, cotes: CotesParPolygone, confirmationMotif?: string): Promise<ResultatAction> {
+export async function validerRattachement(dossierId: number, valPar: string, cotes: CotesParPolygone): Promise<ResultatAction> {
   const aff = await lireAffectation(dossierId);
   if (aff.colonneManquante) return { ok: false, motif: 'affectation indisponible : migration 146 (table de liaison) non appliquée' };
 
   const nonAffectes = aff.polygones.filter((p) => p.cleabs && !aff.corps.some((c) => c.cleabsAffectes.includes(p.cleabs as string)));
   const corpsSansPoly = aff.corps.filter((c) => c.cleabsAffectes.length === 0);
-  const incoherent = nonAffectes.length > 0 || corpsSansPoly.length > 0;
-  const motifConf = confirmationMotif?.trim() || '';
-  if (incoherent && !motifConf) {
-    return { ok: false, besoinConfirmation: true, avertissement: `${nonAffectes.length} polygone(s) non affecté(s), ${corpsSansPoly.length} corps sans polygone : confirmez la validation avec un motif.` };
-  }
+  const repereDe = (cleabs: string): string | null => aff.polygones.find((p) => p.cleabs === cleabs)?.repere ?? null;
 
   // M3 — UNE COTE PAR POLYGONE : la valeur injectée est STRICTEMENT `cotes[cleabs]` (saisie explicite pour CE polygone), jamais
   // recopiée d'un polygone à l'autre PAR LE SERVEUR. Un cleabs sans cote (absent, null ou non fini) n'est PAS injecté. C'est ce qui
@@ -103,11 +101,13 @@ export async function validerRattachement(dossierId: number, valPar: string, cot
     const milEdition = jActif ? await millesimeEditionCourante(q) : MILLESIME_INCONNU;
 
     let nbInjectes = 0;
+    const injections: NonNullable<ResultatAction['injections']> = []; // M8 — détail RÉELLEMENT écrit, pour l'accusé (repère + cote depuis le serveur)
     for (const inj of aInjecter) {
       const avant = await etatAltitude(q, inj.cleabs);
       const lidar = await lidarCourant(q, inj.cleabs); // 🔴 relire la LiDAR COURANTE, pas le snapshot
       const res = appliquerPreseanceAltitude(avant, { type: 'injection_permis', altitudePermis: inj.altitudePermis, altitudeLidarActuelle: lidar });
       await upsertAltitude(q, inj.cleabs, res.etat, dossierId, valPar);
+      injections.push({ cleabs: inj.cleabs, repere: repereDe(inj.cleabs), cote: res.etat.altitudeNgf as number });
       await evenement(q, rid, 'ecrasement_altitude', null, null, {
         cleabs: inj.cleabs, corpsId: inj.corpsId,
         avant: { altitude: avant.altitudeNgf, origine: avant.origine },
@@ -140,10 +140,10 @@ export async function validerRattachement(dossierId: number, valPar: string, cot
     const { rows: before } = await q<{ etat: string }>(`SELECT etat FROM permis_rattachement WHERE id = $1`, [rid]);
     await q(`UPDATE permis_rattachement SET etat = 'valide', valide_par = $2, valide_le = now(), reevalue_le = now() WHERE id = $1`, [rid, valPar]);
     await evenement(q, rid, 'validation', before[0]?.etat ?? null, 'valide', {
-      nbInjectes, confirmationMotif: motifConf || null,
+      nbInjectes, confirmationMotif: null, // M8 — plus de motif de validation ; la trace de cardinalité reste (ci-dessous)
       polygonesNonAffectes: nonAffectes.map((p) => p.repere), corpsSansPolygone: corpsSansPoly.map((c) => c.repere ?? String(c.id)),
     }, valPar);
-    return { ok: true, nbInjectes, motif: motifConf || undefined };
+    return { ok: true, nbInjectes, injections };
   });
 }
 

@@ -61,6 +61,11 @@ describe('validerRattachement (M3 — une cote par polygone)', () => {
     expect(u[1].params).toEqual(expect.arrayContaining([87.1, 'permis', 42])); // BAT_B → sa cote
     expect(majDossier()).toHaveLength(1);
     expect(events().some((e) => /'validation'/i.test(e.sql) || (e.params).includes('validation'))).toBe(true);
+    // M8 — retourne le DÉTAIL réellement écrit (pour l'accusé) : repère + cote depuis le serveur
+    expect(r.injections).toEqual([
+      { cleabs: 'BAT_A', repere: 'A', cote: 88.9 },
+      { cleabs: 'BAT_B', repere: 'B', cote: 87.1 },
+    ]);
   });
 
   it('DEUX cotes DIFFÉRENTES sur les deux polygones d’un MÊME bâtiment → écrites DISTINCTEMENT (R4 levée, aucun refus)', async () => {
@@ -73,16 +78,18 @@ describe('validerRattachement (M3 — une cote par polygone)', () => {
     expect(u[1].params).toEqual(expect.arrayContaining([80, 'permis'])); // socle bas — cote DISTINCTE, jamais recopiée
   });
 
-  it('GARDE cardinalité : un bâtiment sans polygone → besoinConfirmation SANS rien écrire ; avec motif → valide + motif tracé', async () => {
+  it('M8 — PLUS de garde de cardinalité : valide DIRECTEMENT (aucun motif) même avec polygone non affecté / bâtiment sans polygone, et TRACE la cardinalité', async () => {
     H.state.aff = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A'] }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffectes: [] }] });
-    const sansMotif = await validerRattachement(11434, 'admin:decision', { BAT_A: 88.9 });
-    expect(sansMotif).toMatchObject({ ok: false, besoinConfirmation: true });
-    expect(upserts()).toHaveLength(0); // rien écrit tant que non confirmé
-    H.calls.length = 0;
-    const avecMotif = await validerRattachement(11434, 'admin:decision', { BAT_A: 88.9 }, 'bâtiments accolés : 2D2 sans polygone propre');
-    expect(avecMotif.ok).toBe(true);
+    const r = await validerRattachement(11434, 'admin:decision', { BAT_A: 88.9 });
+    expect(r.ok).toBe(true);              // aucune demande de confirmation
+    expect(r.nbInjectes).toBe(1);
+    expect(upserts()).toHaveLength(1);    // BAT_A injecté ; B non affecté et 2D2 sans polygone n'empêchent RIEN
+    // l'événement de validation TRACE toujours la cardinalité (on perd une saisie, pas une trace)
     const valEvt = events().find((e) => (e.params).includes('validation'));
-    expect(JSON.stringify(valEvt?.params)).toContain('bâtiments accolés'); // motif écrit au dossier (événement)
+    const details = JSON.parse(String(valEvt!.params[4])) as { corpsSansPolygone: string[]; polygonesNonAffectes: string[]; confirmationMotif: unknown };
+    expect(details.corpsSansPolygone).toContain('2D2');  // bâtiment sans polygone tracé
+    expect(details.polygonesNonAffectes).toContain('B'); // polygone non affecté tracé
+    expect(details.confirmationMotif).toBeNull();        // M8 — plus de motif de validation
   });
 
   it('un polygone SANS cote saisie (champ vide → absent des cotes) n’est PAS injecté, la validation aboutit', async () => {

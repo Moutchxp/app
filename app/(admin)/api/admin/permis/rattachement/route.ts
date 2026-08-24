@@ -12,7 +12,7 @@ import { lireDaactDeclencheurActif, ecrireDaactDeclencheurActif } from '../../..
  * POST { action, dossierId, … } :
  *   'ouvrir_manuel' {motif}           → ouvre l'arbitrage À LA MAIN (aucun delta BD TOPO), dossier tracé 'manuelle' (M5) ;
  *   'affecter' {corpsId, cleabs, operation:'ajout'|'retrait'} → ajoute/retire UN polygone d'un bâtiment (FUS-3d / M2, additif) ;
- *   'valider' {cotes, motifConfirmation?} → injecte UNE COTE PAR POLYGONE (cotes[cleabs], origine 'permis') + dossier 'valide' (FUS-3e / M3) ;
+ *   'valider' {cotes}                 → injecte UNE COTE PAR POLYGONE (cotes[cleabs], origine 'permis') + dossier 'valide' ; retourne `injections` (M3/M8, sans motif) ;
  *   'refuser' {motif}                 → dossier 'refuse' (motif obligatoire) ;
  *   'retour_lidar'                    → restaure les altitudes LiDAR refigées (origine 'lidar').
  * RÉSERVÉ ADMINISTRATEUR. Runtime Node.
@@ -41,7 +41,7 @@ export async function POST(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number | string; corpsId?: number; cleabs?: string; operation?: 'ajout' | 'retrait'; cotes?: Record<string, number | null>; motif?: string; motifConfirmation?: string; actif?: boolean };
+    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number | string; corpsId?: number; cleabs?: string; operation?: 'ajout' | 'retrait'; cotes?: Record<string, number | null>; motif?: string; actif?: boolean };
 
     // RATTACHEMENT — réglage GLOBAL (pas un dossier) : la DAACT comme déclencheur. Traité AVANT la garde `dossierId`.
     if (body.action === 'reglage_daact') {
@@ -77,16 +77,13 @@ export async function POST(request: Request): Promise<Response> {
     if (body.action === 'valider' || body.action === 'refuser' || body.action === 'retour_lidar') {
       // M3 — cotes saisies par polygone (clé cleabs). Objet sûr uniquement ; validerRattachement ignore toute valeur non finie.
       const cotes = (body.cotes && typeof body.cotes === 'object' && !Array.isArray(body.cotes)) ? body.cotes : {};
-      const res = body.action === 'valider' ? await validerRattachement(dossierId, 'admin:decision', cotes, body.motifConfirmation)
+      const res = body.action === 'valider' ? await validerRattachement(dossierId, 'admin:decision', cotes) // M8 — plus de motif de validation
         : body.action === 'refuser' ? await refuserRattachement(dossierId, 'admin:decision', body.motif ?? '')
           : await retourLidar(dossierId, 'admin:decision');
-      if (!res.ok) {
-        if (res.besoinConfirmation) return Response.json({ besoinConfirmation: true, avertissement: res.avertissement }, { status: 409 });
-        return Response.json({ erreur: res.motif ?? 'action impossible' }, { status: 409 });
-      }
-      // Rafraîchit détail + affectation (état du dossier / altitudes à jour).
+      if (!res.ok) return Response.json({ erreur: res.motif ?? 'action impossible' }, { status: 409 });
+      // Rafraîchit détail + affectation (état du dossier / altitudes à jour). M8 — `injections` : détail RÉELLEMENT écrit, pour l'accusé.
       const [detail, comparaison] = await Promise.all([lireDetailSuivi(dossierId), lireComparaison(dossierId).catch(() => null)]);
-      return Response.json({ ok: true, nbInjectes: res.nbInjectes, nbRestaures: res.nbRestaures, detail, comparaison });
+      return Response.json({ ok: true, nbInjectes: res.nbInjectes, injections: res.injections, nbRestaures: res.nbRestaures, detail, comparaison });
     }
 
     return Response.json({ erreur: 'action inconnue' }, { status: 400 });

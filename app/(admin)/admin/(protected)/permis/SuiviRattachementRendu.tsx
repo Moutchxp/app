@@ -519,6 +519,57 @@ export function BandeauOuvertureManuelle({ motif }: { motif: string | null }) {
   );
 }
 
+// ── M8 — accusé de prise en compte + résumé avant validation ──────────────────
+export interface ReponseValidationOk { ok: true; nbInjectes: number; injections: { repere: string | null; cleabs: string; cote: number }[] }
+export interface ReponseValidationEchec { ok: false; statut: number; erreur: string }
+export type ReponseValidation = ReponseValidationOk | ReponseValidationEchec;
+export interface AccuseValidationData { ton: 'succes' | 'echec'; titre: string; lignes: string[] }
+
+/**
+ * M8 — compose l'ACCUSÉ de prise en compte À PARTIR DE LA RÉPONSE SERVEUR (jamais de ce que le front croyait envoyer). PUR.
+ * 🔴 GARDE D'HONNÊTETÉ : l'accusé énumère ce qui a RÉELLEMENT eu lieu (altitudes écrites, dossier « validé », journal alimenté, retour
+ * LiDAR dispo) et PRÉCISE que le verdict SVAV / la carte / les certificats ne sont PAS modifiés (le moteur ne lit pas encore
+ * permis_polygone_altitude). Un échec dit ce qui N'A PAS été écrit ; un 401 dit « session expirée », jamais « échec de l'injection ».
+ */
+export function composerAccuse(r: ReponseValidation): AccuseValidationData {
+  if (!r.ok) {
+    if (r.statut === 401) return { ton: 'echec', titre: 'Session expirée', lignes: ['Reconnectez-vous : votre session administrateur a expiré. Aucune altitude n’a été écrite, la validation n’a pas eu lieu.'] };
+    return { ton: 'echec', titre: 'Validation impossible', lignes: [r.erreur || 'La validation a échoué.', 'Aucune altitude n’a été écrite ; le dossier n’a pas changé d’état.'] };
+  }
+  const lignes: string[] = [];
+  if (r.nbInjectes === 0) lignes.push('Aucune altitude injectée (aucun champ de cote renseigné).');
+  else {
+    lignes.push(`${r.nbInjectes} altitude${r.nbInjectes > 1 ? 's' : ''} écrite${r.nbInjectes > 1 ? 's' : ''} (origine « permis ») :`);
+    for (const inj of r.injections) lignes.push(`• polygone ${inj.repere ?? '?'} → ${inj.cote} m NGF`);
+  }
+  lignes.push('Le dossier est passé à « validé ».');
+  lignes.push('Le journal d’altitudes (append-only) a été alimenté ; le retour LiDAR reste disponible.');
+  lignes.push('Le verdict Sans Vis-à-Vis, la carte et les certificats ne sont PAS modifiés : l’injection alimente le registre d’altitudes, pas le calcul du verdict.');
+  return { ton: 'succes', titre: 'Validation prise en compte', lignes };
+}
+
+export interface ResumeValidation { nbAffectes: number; nbAvecCote: number; nbVides: number; nbNonAffectes: number }
+
+/** M8 — décompte AVANT le clic : ce qui va être écrit (polygones affectés avec cote) vs laissé de côté (champs vides ; polygones non affectés). PUR. */
+export function resumeValidation(affectation: { corps: CorpsAffectation[]; polygones: AffectationEtat['polygones'] }, cotes: Record<string, number | null>): ResumeValidation {
+  const affectes = affectation.corps.flatMap((c) => c.cleabsAffectes);
+  const nbAvecCote = affectes.filter((cl) => { const v = cotes[cl]; return typeof v === 'number' && Number.isFinite(v); }).length;
+  const nbNonAffectes = polygonesNonAffectes(affectation.corps, affectation.polygones).filter((p) => p.cleabs !== null).length;
+  return { nbAffectes: affectes.length, nbAvecCote, nbVides: affectes.length - nbAvecCote, nbNonAffectes };
+}
+
+/** M8 — accusé rendu (persistant, annoncé aria-live ; couleur JAMAIS seule porteuse : titre + lignes en toutes lettres). */
+export function AccuseValidation({ accuse }: { accuse: AccuseValidationData }) {
+  const succes = accuse.ton === 'succes';
+  return (
+    <div role="status" aria-live="polite" className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.25rem',
+      borderColor: succes ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)', background: succes ? 'var(--color-svv-green-soft)' : 'var(--color-svv-red-soft)' }}>
+      <div style={{ fontWeight: 700, color: succes ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red-dark)' }}><span aria-hidden="true">{succes ? '✓ ' : '✕ '}</span>{accuse.titre}</div>
+      {accuse.lignes.map((l, i) => <div key={i} style={{ color: 'var(--color-svv-ink)' }}>{l}</div>)}
+    </div>
+  );
+}
+
 /**
  * Boutons de décision, PURS et contrôlés (l'état des champs vit dans la Vue). Trois actions distinctes, libellés explicites :
  *  · Valider → injecte les altitudes (origine 'permis'). Si la cardinalité est incohérente, `avertissement` s'affiche et un
@@ -527,28 +578,25 @@ export function BandeauOuvertureManuelle({ motif }: { motif: string | null }) {
  *  · Retour LiDAR → restaure l'altitude LiDAR d'origine (filet, reste possible après validation).
  * ⚠️ Aucune de ces actions ne change le verdict SVAV (le moteur ne lit pas encore permis_polygone_altitude).
  */
-export function ActionsRattachement({ avertissement, motifRefus, motifConfirmation, onMotifRefus, onMotifConfirmation, onValider, onRefuser, onRetour, enCours }: {
-  avertissement: string | null;
-  motifRefus: string; motifConfirmation: string;
-  onMotifRefus: (v: string) => void; onMotifConfirmation: (v: string) => void;
+export function ActionsRattachement({ resume, motifRefus, onMotifRefus, onValider, onRefuser, onRetour, enCours }: {
+  resume: ResumeValidation;
+  motifRefus: string;
+  onMotifRefus: (v: string) => void;
   onValider: () => void; onRefuser: () => void; onRetour: () => void; enCours: boolean;
 }) {
   const styleTA: CSSProperties = { width: '100%', boxSizing: 'border-box', minHeight: '2.2rem', padding: '.3rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' };
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
       <div style={{ fontWeight: 700 }}>Décision</div>
-      {/* Valider (avec confirmation si cardinalité incohérente) */}
+      {/* Valider (M8 : plus de motif ; on INFORME avant le clic de ce qui sera écrit / laissé de côté). */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-        {avertissement && (
-          <div role="alert" style={{ color: 'var(--color-svv-red)' }}>
-            {avertissement}
-            <textarea value={motifConfirmation} onChange={(e) => onMotifConfirmation(e.target.value)} disabled={enCours}
-              aria-label="motif de validation malgré l’incohérence" placeholder="motif de validation malgré l’incohérence (obligatoire)…" style={{ ...styleTA, marginTop: '.2rem' }} />
-          </div>
-        )}
-        <button type="button" className="svv-btn" style={{ width: 'auto' }} onClick={onValider}
-          disabled={enCours || (!!avertissement && !motifConfirmation.trim())}>
-          {avertissement ? 'Confirmer la validation (avec motif)' : 'Valider le rattachement'}
+        <div style={styleAide}>
+          À la validation : <strong>{resume.nbAvecCote} polygone{resume.nbAvecCote > 1 ? 's' : ''} affecté{resume.nbAvecCote > 1 ? 's' : ''}</strong> recevr{resume.nbAvecCote > 1 ? 'ont' : 'a'} {resume.nbAvecCote > 1 ? 'leur' : 'sa'} cote.
+          {resume.nbVides > 0 ? ` ${resume.nbVides} champ${resume.nbVides > 1 ? 's' : ''} laissé${resume.nbVides > 1 ? 's' : ''} vide${resume.nbVides > 1 ? 's' : ''} : non injecté${resume.nbVides > 1 ? 's' : ''}.` : ''}
+          {resume.nbNonAffectes > 0 ? ` ${resume.nbNonAffectes} polygone${resume.nbNonAffectes > 1 ? 's' : ''} non affecté${resume.nbNonAffectes > 1 ? 's' : ''} (bâti hors permis, c’est normal) : laissé de côté.` : ''}
+        </div>
+        <button type="button" className="svv-btn" style={{ width: 'auto' }} onClick={onValider} disabled={enCours}>
+          Valider le rattachement
         </button>
       </div>
       {/* Refuser (motif obligatoire) */}

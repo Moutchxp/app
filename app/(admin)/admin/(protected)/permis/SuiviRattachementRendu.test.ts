@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, badgeSuivi, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, badgeSuivi, composerAccuse, resumeValidation, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
@@ -347,30 +347,27 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
   });
 });
 
-describe('FUS-3e — ActionsRattachement (les trois boutons)', () => {
+describe('FUS-3e / M8 — ActionsRattachement (validation sans motif, résumé avant clic)', () => {
   const noop = () => {};
-  const props = (o: Record<string, unknown> = {}) => ({ avertissement: null, motifRefus: '', motifConfirmation: '', onMotifRefus: noop, onMotifConfirmation: noop, onValider: noop, onRefuser: noop, onRetour: noop, enCours: false, ...o });
+  const resume0 = { nbAffectes: 0, nbAvecCote: 0, nbVides: 0, nbNonAffectes: 0 };
+  const props = (o: Record<string, unknown> = {}) => ({ resume: resume0, motifRefus: '', onMotifRefus: noop, onValider: noop, onRefuser: noop, onRetour: noop, enCours: false, ...o });
 
-  it('trois boutons distincts, libellés explicites ; refuser désactivé sans motif', () => {
+  it('trois boutons ; « Valider » toujours actif (plus de motif de validation) ; refuser désactivé sans motif', () => {
     const h = renderToStaticMarkup(createElement(ActionsRattachement, props()));
     expect(h).toContain('Valider le rattachement');
     expect(h).toContain('Refuser le rattachement');
     expect(h).toContain('Retour aux caractéristiques LiDAR d’origine');
-    expect(h).toMatch(/Refuser le rattachement<\/button>/); // présent
-    // refuser désactivé quand motif vide
-    expect(h).toMatch(/disabled[\s\S]*Refuser le rattachement/);
+    expect(h).not.toContain('motif de validation'); // M8 : le champ de motif de validation a disparu
+    expect(h).not.toContain('Confirmer la validation');
+    expect(h).toMatch(/disabled[\s\S]*Refuser le rattachement/); // refuser désactivé sans motif (inchangé)
   });
 
-  it('avertissement de cardinalité → champ de motif de confirmation + bouton « Confirmer » désactivé sans motif', () => {
-    const h = renderToStaticMarkup(createElement(ActionsRattachement, props({ avertissement: '1 corps sans polygone : confirmez avec un motif.' })));
-    expect(h).toContain('1 corps sans polygone');
-    expect(h).toContain('Confirmer la validation (avec motif)');
-    expect(h).toContain('aria-label="motif de validation malgré l’incohérence"');
-    // confirmer désactivé tant que motifConfirmation vide
-    expect(h).toMatch(/disabled[\s\S]*Confirmer la validation/);
-    // avec motif de confirmation → activé
-    const h2 = renderToStaticMarkup(createElement(ActionsRattachement, props({ avertissement: 'x', motifConfirmation: 'bâtiments accolés' })));
-    expect(h2).not.toMatch(/disabled[^>]*>[\s\S]{0,40}Confirmer la validation/);
+  it('résumé AVANT le clic : ce qui sera écrit / laissé de côté, sans rien exiger ni rien affirmer de faux', () => {
+    const h = renderToStaticMarkup(createElement(ActionsRattachement, props({ resume: { nbAffectes: 3, nbAvecCote: 2, nbVides: 1, nbNonAffectes: 13 } })));
+    expect(h).toContain('2 polygones affectés'); // recevront leur cote
+    expect(h).toContain('1 champ laissé vide');   // non injecté
+    expect(h).toContain('13 polygones non affectés');
+    expect(h).toContain('bâti hors permis');       // un polygone non affecté n'est pas une anomalie
   });
 
   it('refuser ACTIVÉ dès qu’un motif est saisi', () => {
@@ -754,6 +751,54 @@ describe('M7-ter — dossier ouvert à la main : badge honnête, jamais « arbit
     expect(h).toContain('arbitrage demandé');
     expect(h).toContain('var(--color-svv-red)'); // ton d'urgence conservé (aucune régression)
     expect(h).toContain('déclenché le 20/08/2026');
+  });
+});
+
+describe('M8 — accusé de prise en compte (composerAccuse) + résumé (resumeValidation), purs', () => {
+  it('N injections → énumère les altitudes écrites (repère + cote), « validé », journal, retour LiDAR', () => {
+    const a = composerAccuse({ ok: true, nbInjectes: 2, injections: [{ repere: 'A', cleabs: 'BAT_A', cote: 88.9 }, { repere: 'C', cleabs: 'BAT_C', cote: 80 }] });
+    expect(a.ton).toBe('succes');
+    expect(a.titre).toContain('prise en compte');
+    const t = a.lignes.join(' ');
+    expect(t).toContain('2 altitudes écrites');
+    expect(t).toContain('polygone A → 88.9 m NGF');
+    expect(t).toContain('polygone C → 80 m NGF');
+    expect(t).toContain('validé');
+    expect(t).toContain('journal');
+    expect(t).toMatch(/retour LiDAR/i);
+  });
+
+  it('champs vides → 0 injection dit clairement « aucune altitude injectée »', () => {
+    const a = composerAccuse({ ok: true, nbInjectes: 0, injections: [] });
+    expect(a.ton).toBe('succes');
+    expect(a.lignes.join(' ')).toContain('Aucune altitude injectée');
+  });
+
+  it('🔴 GARDE D’HONNÊTETÉ : le succès dit que verdict/carte/certificats ne sont PAS modifiés, et n’affirme JAMAIS l’inverse', () => {
+    const t = composerAccuse({ ok: true, nbInjectes: 1, injections: [{ repere: 'A', cleabs: 'BAT_A', cote: 88.9 }] }).lignes.join(' ');
+    expect(t).toContain('ne sont PAS modifiés');
+    expect(t).toMatch(/verdict[\s\S]*carte[\s\S]*certificat/i);
+    expect(t).not.toMatch(/certificat (généré|émis|prêt)/i);
+    expect(t).not.toMatch(/carte (mise à jour|actualisée)/i);
+    expect(t).not.toMatch(/verdict (mis à jour|recalculé|changé)/i);
+  });
+
+  it('échec → dit ce qui n’a PAS été écrit ; un 401 dit « session expirée », jamais « échec de l’injection »', () => {
+    const echec = composerAccuse({ ok: false, statut: 409, erreur: 'aucun dossier de rattachement' });
+    expect(echec.ton).toBe('echec');
+    expect(echec.lignes.join(' ')).toContain('Aucune altitude n’a été écrite');
+    const s401 = composerAccuse({ ok: false, statut: 401, erreur: 'INTERDIT' });
+    expect(s401.titre).toContain('Session expirée');
+    expect(s401.lignes.join(' ')).toMatch(/reconnectez-vous/i);
+    expect(s401.lignes.join(' ')).not.toMatch(/injection/i); // ne parle pas d'échec d'injection sur un 401
+  });
+
+  it('resumeValidation (pur) : affectés-avec-cote / vides / non affectés', () => {
+    const affectation = {
+      corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: ['BAT_A', 'BAT_B'] }],
+      polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: false }, { repere: 'C', cleabs: 'BAT_C', horsEmpreinte: false }],
+    };
+    expect(resumeValidation(affectation, { BAT_A: 88, BAT_B: null })).toEqual({ nbAffectes: 2, nbAvecCote: 1, nbVides: 1, nbNonAffectes: 1 });
   });
 });
 
