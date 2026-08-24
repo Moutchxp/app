@@ -1,11 +1,12 @@
 /**
- * FUS-3d — ADAPTATEUR IMPUR de l'affectation polygone ↔ corps. Lit l'empreinte + les polygones BD TOPO (PostGIS) et les corps
- * déclarés, dérive les repères (ordre DÉTERMINISTE), et construit le schéma SVG (module pur). L'écriture pose le lien avec
- * EXCLUSIVITÉ garantie par l'index unique partiel (migration 117). RÉSILIENT : tant que 117 n'est pas appliquée, la colonne
- * `cleabs_affecte` n'existe pas → lecture repliée (aucune affectation) + `colonneManquante`, écriture refusée avec motif clair.
- * Module PROPRE : n'importe que db/client et le module pur. NE TOUCHE PAS au moteur de verdict SVAV.
+ * FUS-3d / M1 — ADAPTATEUR IMPUR de l'affectation polygone ↔ bâtiment déclaré. Lit l'empreinte + les polygones BD TOPO (PostGIS) et
+ * les bâtiments déclarés, dérive les repères (ordre DÉTERMINISTE), et construit le schéma SVG (module pur). L'affectation vit dans la
+ * TABLE DE LIAISON `permis_corps_polygone` (M1, structure 1:N) ; l'écriture pose le lien avec EXCLUSIVITÉ (a) garantie par l'index
+ * unique (dossier_id, cleabs). RÉSILIENT : tant que la migration 146 n'est pas appliquée, la table n'existe pas → lecture repliée
+ * (aucune affectation) + `colonneManquante`, écriture refusée avec motif clair. L'ancienne colonne `permis_corps_batiment.cleabs_affecte`
+ * (117) est DÉPRÉCIÉE : plus jamais lue ni écrite ici. Module PROPRE : n'importe que db/client et le module pur. NE TOUCHE PAS au moteur SVAV.
  */
-import { query } from '../db/client';
+import { query, withTransaction } from '../db/client';
 import {
   construireSchema, geomDepuisGeoJSON, repereDepuisIndex, cadreDe, unionCadre,
   type SchemaEmpreinte, type CorpsAffectation, type PolygoneAffectable, type PolygoneEntreeSchema, type GeomPoly, type Cadre,
@@ -15,10 +16,10 @@ import { rejouerRattachement } from './rattachementRepo'; // L5 — ensemble NOU
 export interface AffectationEtat {
   empreinteFigee: boolean;
   motif: string | null;               // pourquoi l'affectation n'est pas possible (empreinte incomplète / non figée)
-  colonneManquante: boolean;          // migration 117 non appliquée → écriture impossible (l'écran le dit)
+  colonneManquante: boolean;          // table de liaison (migration 146) absente → écriture impossible (l'écran le dit)
   schema: SchemaEmpreinte;
   polygones: PolygoneAffectable[];    // repère + cleabs + hors-empreinte
-  corps: CorpsAffectation[];          // corps déclarés + leur cleabs affecté (null si aucun)
+  corps: CorpsAffectation[];          // bâtiments déclarés + leurs polygones affectés (0..N ; 0..1 tant que la saisie multi n'est pas ouverte)
 }
 
 /** L4 — état du schéma « Configuration d'origine » : AffectationEtat + la PROVENANCE du dessin (snapshot figé vs couche vivante). */
@@ -28,21 +29,31 @@ export interface AffectationOrigineEtat extends AffectationEtat {
   millesimeGel: string | null; // édition de la couche bâti au moment du gel (null = inconnu)
 }
 
-/** Corps déclarés du permis + leur cleabs affecté. Repli SANS `cleabs_affecte` si la migration 117 n'est pas appliquée. */
+/**
+ * Corps déclarés du permis + leurs polygones affectés (PLURIEL, M1). Les affectations sont lues dans la TABLE DE LIAISON
+ * `permis_corps_polygone` (agrégées par corps). Repli si la table n'existe pas (migration 146 non appliquée) → aucun lien +
+ * `colonneManquante` (l'écran le dit, écriture impossible). L'ancienne colonne `cleabs_affecte` n'est PLUS lue.
+ */
 async function lireCorps(dossierId: number): Promise<{ corps: CorpsAffectation[]; colonneManquante: boolean }> {
-  const map = (r: { id: number; repere: string | null; alt: string | number | null; etages: number | null; cleabs?: string | null }): CorpsAffectation => ({
-    id: Number(r.id), repere: r.repere, altitudeSommetNgf: r.alt == null ? null : Number(r.alt), nbEtages: r.etages, cleabsAffecte: r.cleabs ?? null,
+  const map = (r: { id: number; repere: string | null; alt: string | number | null; etages: number | null; cleabs?: (string | null)[] | null }): CorpsAffectation => ({
+    id: Number(r.id), repere: r.repere, altitudeSommetNgf: r.alt == null ? null : Number(r.alt), nbEtages: r.etages,
+    cleabsAffectes: Array.isArray(r.cleabs) ? r.cleabs.filter((x): x is string => x != null) : [],
   });
   try {
-    const { rows } = await query<{ id: number; repere: string | null; alt: string | number | null; etages: number | null; cleabs: string | null }>(
-      `SELECT id, repere, altitude_sommet_ngf AS alt, nb_etages AS etages, cleabs_affecte AS cleabs
-         FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]);
+    const { rows } = await query<{ id: number; repere: string | null; alt: string | number | null; etages: number | null; cleabs: (string | null)[] | null }>(
+      `SELECT c.id, c.repere, c.altitude_sommet_ngf AS alt, c.nb_etages AS etages,
+              COALESCE(array_agg(l.cleabs) FILTER (WHERE l.cleabs IS NOT NULL), '{}') AS cleabs
+         FROM permis_corps_batiment c
+         LEFT JOIN permis_corps_polygone l ON l.corps_id = c.id AND l.dossier_id = c.dossier_id
+        WHERE c.dossier_id = $1
+        GROUP BY c.id, c.repere, c.altitude_sommet_ngf, c.nb_etages
+        ORDER BY c.repere, c.id`, [dossierId]);
     return { corps: rows.map(map), colonneManquante: false };
   } catch {
     const { rows } = await query<{ id: number; repere: string | null; alt: string | number | null; etages: number | null }>(
       `SELECT id, repere, altitude_sommet_ngf AS alt, nb_etages AS etages
          FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]);
-    return { corps: rows.map(map), colonneManquante: true }; // 117 non appliquée → aucun lien, écriture impossible
+    return { corps: rows.map(map), colonneManquante: true }; // table de liaison (146) absente → aucun lien, écriture impossible
   }
 }
 
@@ -220,9 +231,11 @@ export async function lireComparaison(dossierId: number): Promise<ComparaisonRat
 export type ResultatAffecter = { ok: true } | { ok: false; motif: string };
 
 /**
- * Affecte (ou désaffecte si `cleabs` = null) un polygone à un corps. EXCLUSIVITÉ garantie par l'index unique partiel : si le
- * cleabs est déjà pris par un AUTRE corps du permis, l'UPDATE lève 23505 → refus explicite (l'UI ne le proposait déjà pas).
- * RÉVERSIBLE (aucun verrouillage). NE FAIT AUCUNE injection d'altitude (FUS-3e).
+ * Affecte (ou désaffecte si `cleabs` = null) un polygone à un bâtiment, dans la TABLE DE LIAISON `permis_corps_polygone`.
+ * EXCLUSIVITÉ (a) garantie EN BASE par l'index unique (dossier_id, cleabs) : si le polygone est déjà pris par un AUTRE bâtiment du
+ * permis, l'INSERT lève 23505 → refus explicite. M1 — COMPORTEMENT MONO CONSERVÉ : affecter un polygone à un bâtiment qui en a
+ * déjà un REMPLACE l'ancien (on retire d'abord les liens de CE bâtiment, puis on pose le nouveau) ; DÉSAFFECTER = retirer ses liens.
+ * Retrait + pose sont ATOMIQUES (withTransaction). RÉVERSIBLE. NE FAIT AUCUNE injection d'altitude (FUS-3e).
  */
 export async function affecterPolygone(dossierId: number, corpsId: number, cleabs: string | null, majPar: string): Promise<ResultatAffecter> {
   // GARDE DE PERSISTANCE : tant qu'aucun dossier de rattachement n'existe pour ce permis (« aucun signal » = rien de mesuré à
@@ -235,13 +248,19 @@ export async function affecterPolygone(dossierId: number, corpsId: number, cleab
   const { rows } = await query(`SELECT 1 FROM permis_corps_batiment WHERE id = $1 AND dossier_id = $2`, [corpsId, dossierId]);
   if (rows.length === 0) return { ok: false, motif: 'corps inconnu pour ce permis' };
   try {
-    await query(`UPDATE permis_corps_batiment SET cleabs_affecte = $3, maj_le = now(), maj_par = $4 WHERE id = $1 AND dossier_id = $2`,
-      [corpsId, dossierId, cleabs, majPar]);
-    return { ok: true };
+    return await withTransaction(async (q) => {
+      // MONO (M1) : on remplace l'affectation de CE bâtiment → on retire ses liens actuels, puis on pose le nouveau polygone.
+      await q(`DELETE FROM permis_corps_polygone WHERE dossier_id = $1 AND corps_id = $2`, [dossierId, corpsId]);
+      if (cleabs !== null) {
+        await q(`INSERT INTO permis_corps_polygone (dossier_id, corps_id, cleabs, maj_le, maj_par) VALUES ($1, $2, $3, now(), $4)`,
+          [dossierId, corpsId, cleabs, majPar]);
+      }
+      return { ok: true } as ResultatAffecter;
+    });
   } catch (e) {
     const code = (e as { code?: string }).code;
-    if (code === '23505') return { ok: false, motif: 'ce polygone est déjà affecté à un autre corps — désaffectez-le d’abord' };
-    if (code === '42703') return { ok: false, motif: 'affectation indisponible : migration 117 non appliquée' };
+    if (code === '23505') return { ok: false, motif: 'ce polygone est déjà affecté à un autre bâtiment — désaffectez-le d’abord' };
+    if (code === '42P01') return { ok: false, motif: 'affectation indisponible : migration 146 (table de liaison) non appliquée' };
     throw e;
   }
 }

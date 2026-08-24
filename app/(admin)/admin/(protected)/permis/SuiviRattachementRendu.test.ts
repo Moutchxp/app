@@ -260,8 +260,8 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
     empreinteFigee: true, motif: null, colonneManquante: false, schema: schema(),
     polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: false }],
     corps: [
-      { id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffecte: null },
-      { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffecte: null },
+      { id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: [] },
+      { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffectes: [] },
     ], ...o,
   });
 
@@ -282,7 +282,7 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
   });
 
   it('EXCLUSIVITÉ : A affecté au corps 1 → n’est plus proposé au corps 2 (réversible côté corps 1)', () => {
-    const a = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffecte: 'BAT_A' }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffecte: null }] });
+    const a = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A'] }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffectes: [] }] });
     const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a, persiste: true }));
     expect(h).toContain('value="BAT_A"'); // sélection du corps 1
     expect(h).toMatch(/Polygones non affectés — dans la parcelle : B/); // B reste non affecté → signalé
@@ -304,7 +304,7 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
     const a = aff({
       schema: schema({ polygones: [{ repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false }] }),
       polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }],
-      corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffecte: 'BAT_A' }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffecte: null }],
+      corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A'] }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffectes: [] }],
     });
     const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a, persiste: true }));
     expect(h).toContain('aucun (bâtiment sans polygone)'); // le corps 2 peut rester sans polygone
@@ -418,7 +418,7 @@ describe('L2 — lisibilité du schéma (trame hors parcelle, parcelle blanche, 
         { repere: 'B', cleabs: 'BAT_B', path: 'M60,60 L80,60 L80,80 Z', cx: 70, cy: 70, horsEmpreinte: true },
       ],
     };
-    const corps = [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: 'BAT_A' }];
+    const corps = [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: ['BAT_A'] }];
     const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: s, corps }));
     expect(h).toContain('stroke="var(--color-svv-green-ink)"'); // A affecté → contour vert
     expect(h).toContain('stroke-dasharray="3 2"');              // B hors empreinte → contour tireté
@@ -438,8 +438,8 @@ describe('L3 — plein écran, nom dans le visuel, légende complète, rattachem
     empreinteFigee: true, motif: null, colonneManquante: false, schema: schemaAB(),
     polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: false }],
     corps: [
-      { id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: null },
-      { id: 2, repere: '2D2', altitudeSommetNgf: 87, nbEtages: 7, cleabsAffecte: null },
+      { id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: [] },
+      { id: 2, repere: '2D2', altitudeSommetNgf: 87, nbEtages: 7, cleabsAffectes: [] },
     ], ...o,
   });
   const noop = () => {};
@@ -501,7 +501,7 @@ describe('L3 — plein écran, nom dans le visuel, légende complète, rattachem
 
   it('ZÉRO duplication : le plein écran CONSOMME les mêmes règles (exclusivité + non-affectés) — il ne les réécrit pas', () => {
     // A affecté au corps 1 → règle d'exclusivité : A n'est plus une option ailleurs, et B est signalé non affecté.
-    const a = affL3({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: 'BAT_A' }, { id: 2, repere: '2D2', altitudeSommetNgf: 87, nbEtages: 7, cleabsAffecte: null }] });
+    const a = affL3({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: ['BAT_A'] }, { id: 2, repere: '2D2', altitudeSommetNgf: 87, nbEtages: 7, cleabsAffectes: [] }] });
     const h = renderToStaticMarkup(createElement(SchemaPleinEcran, { titre: NOM_SCHEMA_ORIGINE, affectation: a, persiste: true, onAffecter: noop, onFermer: noop }));
     expect(h).toContain('value="BAT_A"');                                   // sélection du corps 1 (réversible)
     expect(h).toMatch(/Polygones non affectés — dans la parcelle : B/);      // MÊME sortie que polygonesNonAffectes/texteNonAffectes
@@ -528,7 +528,7 @@ describe('L3b — vocabulaire parcelle : « empreinte » disparaît de l’inter
       ],
     },
     polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: true }],
-    corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: null }],
+    corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: [] }],
   });
   const noop = () => {};
 
@@ -605,7 +605,7 @@ describe('L4 — nom + mention du schéma d’origine selon sa provenance (descr
       empreinteFigee: true, motif: null, colonneManquante: false,
       schema: { largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null, polygones: [{ repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false }] },
       polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }],
-      corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: null }],
+      corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: [] }],
     };
     const desc = descriptionSchemaOrigine({ figee: true, captureVide: false, millesimeGel: '2026-06-18' });
     const hReduit = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff, persiste: true, titre: desc.nom, mention: desc.mention }));
@@ -627,7 +627,7 @@ describe('L5 — second schéma, rouge, comparatif côte à côte', () => {
   const affAB = (): AffectationEtat => ({
     empreinteFigee: true, motif: null, colonneManquante: false, schema: schema2(),
     polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: false }],
-    corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: null }],
+    corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: [] }],
   });
   const noop = () => {};
   const compte = (h: string, re: RegExp) => (h.match(re) ?? []).length;

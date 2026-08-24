@@ -119,7 +119,7 @@ describe('L5 — cadrage COMMUN (cadreDe / unionCadre / construireSchema avec ca
   });
 });
 
-const corps = (over: Partial<CorpsAffectation>): CorpsAffectation => ({ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffecte: null, ...over });
+const corps = (over: Partial<CorpsAffectation>): CorpsAffectation => ({ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: [], ...over });
 const polys: PolygoneAffectable[] = [
   { repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false },
   { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: false },
@@ -127,13 +127,13 @@ const polys: PolygoneAffectable[] = [
 
 describe('exclusivité / cardinalités', () => {
   it('un polygone affecté à un AUTRE corps disparaît des choix ; le sien reste proposé (réversibilité)', () => {
-    const c = [corps({ id: 1, cleabsAffecte: 'BAT_A' }), corps({ id: 2, cleabsAffecte: null })];
+    const c = [corps({ id: 1, cleabsAffectes: ['BAT_A'] }), corps({ id: 2, cleabsAffectes: [] })];
     expect(optionsPourCorps(c, polys, 2).map((p) => p.repere)).toEqual(['B']);        // A pris par le corps 1
     expect(optionsPourCorps(c, polys, 1).map((p) => p.repere)).toEqual(['A', 'B']);    // le corps 1 garde A (modifiable)
   });
 
   it('polygones NON affectés signalés (cardinalités inégales : 2 corps, 1 polygone)', () => {
-    const c = [corps({ id: 1, cleabsAffecte: 'BAT_A' }), corps({ id: 2, cleabsAffecte: null })];
+    const c = [corps({ id: 1, cleabsAffectes: ['BAT_A'] }), corps({ id: 2, cleabsAffectes: [] })];
     expect(polygonesNonAffectes(c, polys).map((p) => p.repere)).toEqual(['B']);        // B reste libre
     expect(corpsDuPolygone(c, 'BAT_A')?.id).toBe(1);
     expect(corpsDuPolygone(c, 'BAT_B')).toBeNull();

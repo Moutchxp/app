@@ -73,18 +73,29 @@ const upsertAltitude = (q: RequeteTx, cleabs: string, e: EtatAltitudePolygone, d
  */
 export async function validerRattachement(dossierId: number, valPar: string, confirmationMotif?: string): Promise<ResultatAction> {
   const aff = await lireAffectation(dossierId);
-  if (aff.colonneManquante) return { ok: false, motif: 'affectation indisponible : migration 117 non appliquée' };
+  if (aff.colonneManquante) return { ok: false, motif: 'affectation indisponible : migration 146 (table de liaison) non appliquée' };
 
-  const nonAffectes = aff.polygones.filter((p) => p.cleabs && !aff.corps.some((c) => c.cleabsAffecte === p.cleabs));
-  const corpsSansPoly = aff.corps.filter((c) => !c.cleabsAffecte);
+  // ⚠️ GARDE R4 (§11 docs/INVARIANTS_SVAV.md) — TANT QUE LA SAISIE MULTI-COTES N'EXISTE PAS. Un bâtiment portant PLUS D'UN polygone
+  // ferait propager mécaniquement son unique `altitude_sommet_ngf` sur tous ses polygones → FAUX OBSTACLE au verdict SVAV (un socle
+  // bas recevrait la cote du sommet). On REFUSE NET, avec un message explicite : un refus visible vaut mieux qu'une cote fausse
+  // écrite en silence. Cette garde sera LEVÉE par le lot qui livre la saisie multi-cotes (pas avant).
+  const multiPolygone = aff.corps.filter((c) => c.cleabsAffectes.length > 1);
+  if (multiPolygone.length > 0) {
+    const reperes = multiPolygone.map((c) => c.repere ?? `bâtiment ${c.id}`).join(', ');
+    return { ok: false, motif: `injection impossible : ${reperes} porte(nt) plusieurs polygones, mais on ne sait pas encore saisir une altitude par polygone. Tant que la saisie d’une cote par polygone n’est pas ouverte, injecter écrirait la même altitude de sommet sur tous les polygones — ce qui créerait un faux obstacle. Réduisez à un seul polygone par bâtiment, ou attendez la saisie multi-cotes.` };
+  }
+
+  const nonAffectes = aff.polygones.filter((p) => p.cleabs && !aff.corps.some((c) => c.cleabsAffectes.includes(p.cleabs as string)));
+  const corpsSansPoly = aff.corps.filter((c) => c.cleabsAffectes.length === 0);
   const incoherent = nonAffectes.length > 0 || corpsSansPoly.length > 0;
   const motifConf = confirmationMotif?.trim() || '';
   if (incoherent && !motifConf) {
     return { ok: false, besoinConfirmation: true, avertissement: `${nonAffectes.length} polygone(s) non affecté(s), ${corpsSansPoly.length} corps sans polygone : confirmez la validation avec un motif.` };
   }
 
-  const aInjecter = aff.corps.filter((c) => c.cleabsAffecte && c.altitudeSommetNgf !== null)
-    .map((c) => ({ corpsId: c.id, cleabs: c.cleabsAffecte as string, altitudePermis: c.altitudeSommetNgf as number }));
+  // Après la garde R4, chaque bâtiment porte au plus UN polygone → flatMap produit au plus une cote par bâtiment (jamais de valeur répétée).
+  const aInjecter = aff.corps.filter((c) => c.altitudeSommetNgf !== null)
+    .flatMap((c) => c.cleabsAffectes.map((cleabs) => ({ corpsId: c.id, cleabs, altitudePermis: c.altitudeSommetNgf as number })));
 
   return withTransaction(async (q) => {
     const rid = await rattId(q, dossierId);
@@ -166,7 +177,7 @@ export async function retourLidar(dossierId: number, par: string): Promise<Resul
     const { rows } = await q<{ cleabs: string }>(
       `SELECT ppa.cleabs FROM permis_polygone_altitude ppa
         WHERE ppa.altitude_origine = 'permis'
-          AND ppa.cleabs IN (SELECT cleabs_affecte FROM permis_corps_batiment WHERE dossier_id = $1 AND cleabs_affecte IS NOT NULL)`,
+          AND ppa.cleabs IN (SELECT cleabs FROM permis_corps_polygone WHERE dossier_id = $1)`,
       [dossierId]);
     let nbRestaures = 0;
     for (const { cleabs } of rows) {

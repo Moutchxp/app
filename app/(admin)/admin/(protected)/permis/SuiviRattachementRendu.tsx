@@ -624,7 +624,7 @@ export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onA
               <span style={styleAide}>{c.altitudeSommetNgf !== null ? `sommet ${c.altitudeSommetNgf} m NGF` : 'altitude —'}{c.nbEtages !== null ? ` · ${c.nbEtages} ét.` : ''}</span>
               <label style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'baseline' }}>
                 <span style={styleAide}>polygone :</span>
-                <select value={c.cleabsAffecte ?? ''} disabled={colonneManquante} aria-label={`polygone affecté au corps ${c.repere ?? c.id}`}
+                <select value={c.cleabsAffectes[0] ?? ''} disabled={colonneManquante} aria-label={`polygone affecté au corps ${c.repere ?? c.id}`}
                   onChange={(e) => onAffecter?.(c.id, e.target.value || null)}
                   style={{ padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' }}>
                   <option value="">— aucun (bâtiment sans polygone) —</option>

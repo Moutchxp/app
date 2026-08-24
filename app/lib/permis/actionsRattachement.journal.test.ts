@@ -46,7 +46,7 @@ const aff = (over: Partial<AffectationEtat> = {}): AffectationEtat => ({
   empreinteFigee: true, motif: null, colonneManquante: false,
   schema: { largeur: 320, hauteur: 240, empreintePath: null, polygones: [], motif: null },
   polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }],
-  corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffecte: 'BAT_A' }], ...over,
+  corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A'] }], ...over,
 });
 
 const journal = () => H.calls.filter((c) => /INSERT INTO permis_altitude_journal/i.test(c.sql));

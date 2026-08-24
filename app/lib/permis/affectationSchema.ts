@@ -130,23 +130,26 @@ export function construireSchema(empreinte: GeomPoly | null, polygones: Polygone
 }
 
 // ── Exclusivité / cardinalités (pur) ─────────────────────────────────────────
-export interface CorpsAffectation { id: number; repere: string | null; altitudeSommetNgf: number | null; nbEtages: number | null; cleabsAffecte: string | null }
+// M1 — `cleabsAffectes` est PLURIEL : un bâtiment peut être dessiné par N polygones (la structure 1:N vit dans la table de liaison
+// permis_corps_polygone). Après M1 la saisie reste mono (0 ou 1 élément), mais le TYPE est déjà pluriel — les tests d'appartenance
+// ci-dessous (`.includes`, `flatMap`) remplacent les anciennes égalités scalaires.
+export interface CorpsAffectation { id: number; repere: string | null; altitudeSommetNgf: number | null; nbEtages: number | null; cleabsAffectes: string[] }
 export interface PolygoneAffectable { repere: string; cleabs: string | null; horsEmpreinte: boolean }
 
-/** Polygones PROPOSABLES à un corps : ceux qui ne sont PAS affectés à un AUTRE corps (le sien reste proposé → réversibilité). */
+/** Polygones PROPOSABLES à un corps : ceux qui ne sont PAS affectés à un AUTRE corps (les siens restent proposés → réversibilité). */
 export function optionsPourCorps(corps: CorpsAffectation[], polygones: PolygoneAffectable[], corpsId: number): PolygoneAffectable[] {
-  const prisAilleurs = new Set(corps.filter((c) => c.id !== corpsId && c.cleabsAffecte).map((c) => c.cleabsAffecte));
+  const prisAilleurs = new Set(corps.filter((c) => c.id !== corpsId).flatMap((c) => c.cleabsAffectes));
   return polygones.filter((p) => p.cleabs !== null && !prisAilleurs.has(p.cleabs));
 }
 
 /** Polygones NON affectés à AUCUN corps → à signaler (jamais ignorés). */
 export function polygonesNonAffectes(corps: CorpsAffectation[], polygones: PolygoneAffectable[]): PolygoneAffectable[] {
-  const affectes = new Set(corps.map((c) => c.cleabsAffecte).filter((x): x is string => !!x));
+  const affectes = new Set(corps.flatMap((c) => c.cleabsAffectes));
   return polygones.filter((p) => p.cleabs === null || !affectes.has(p.cleabs));
 }
 
-/** Repère du corps auquel un polygone est affecté (pour l'étiquette du schéma / la liste), ou null. */
+/** Corps auquel un polygone est affecté (pour l'étiquette du schéma / la liste), ou null. */
 export function corpsDuPolygone(corps: CorpsAffectation[], cleabs: string | null): CorpsAffectation | null {
   if (!cleabs) return null;
-  return corps.find((c) => c.cleabsAffecte === cleabs) ?? null;
+  return corps.find((c) => c.cleabsAffectes.includes(cleabs)) ?? null;
 }

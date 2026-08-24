@@ -36,8 +36,8 @@ const aff = (over: Partial<AffectationEtat> = {}): AffectationEtat => ({
   schema: { largeur: 320, hauteur: 240, empreintePath: null, polygones: [], motif: null },
   polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: false }],
   corps: [
-    { id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffecte: 'BAT_A' },
-    { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffecte: 'BAT_B' },
+    { id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A'] },
+    { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffectes: ['BAT_B'] },
   ], ...over,
 });
 
@@ -65,7 +65,7 @@ describe('validerRattachement', () => {
   });
 
   it('GARDE cardinalité : un corps sans polygone → besoinConfirmation SANS rien écrire ; avec motif → valide + motif tracé', async () => {
-    H.state.aff = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffecte: 'BAT_A' }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffecte: null }] });
+    H.state.aff = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A'] }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffectes: [] }] });
     const sansMotif = await validerRattachement(11434, 'admin:decision');
     expect(sansMotif).toMatchObject({ ok: false, besoinConfirmation: true });
     expect(upserts()).toHaveLength(0); // rien écrit tant que non confirmé
@@ -77,10 +77,20 @@ describe('validerRattachement', () => {
   });
 
   it('un corps sans altitude n’injecte rien mais la validation aboutit', async () => {
-    H.state.aff = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: null, nbEtages: 7, cleabsAffecte: 'BAT_A' }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffecte: 'BAT_B' }] });
+    H.state.aff = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: null, nbEtages: 7, cleabsAffectes: ['BAT_A'] }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffectes: ['BAT_B'] }] });
     const r = await validerRattachement(11434, 'admin:decision');
     expect(r.ok).toBe(true);
     expect(r.nbInjectes).toBe(1); // seul 2D2 (altitude connue) est injecté
+  });
+
+  it('GARDE R4 : un bâtiment portant PLUS D’UN polygone → REFUS NET, message explicite, AUCUNE injection', async () => {
+    H.state.aff = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A', 'BAT_B'] }] });
+    const r = await validerRattachement(11434, 'admin:decision');
+    expect(r.ok).toBe(false);
+    expect((r as { motif: string }).motif).toContain('plusieurs polygones'); // message métier
+    expect((r as { motif: string }).motif).toMatch(/faux obstacle|une altitude par polygone/i);
+    expect(upserts()).toHaveLength(0);   // rien injecté
+    expect(majDossier()).toHaveLength(0); // dossier NON validé
   });
 });
 
