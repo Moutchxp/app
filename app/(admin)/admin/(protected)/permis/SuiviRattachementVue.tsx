@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
 import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE } from './SuiviRattachementRendu';
 
 // L11 — libellés de SOURCE des bulles (constat AVANT travaux). L'origine figée lit le SNAPSHOT ; sinon (et la nouvelle) la couche vivante.
 const SOURCE_GEL = 'au moment du gel (état des lieux figé)';
@@ -42,6 +42,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [actionErreur, setActionErreur] = useState('');
   const [enCours, setEnCours] = useState(false);
   const [cotes, setCotes] = useState<Record<string, string>>({}); // M3 — cote saisie par polygone (cleabs → chaîne ; '' = non injecté)
+  const [motifOuverture, setMotifOuverture] = useState(''); // M5 — motif d'une ouverture manuelle de l'arbitrage
 
   useEffect(() => {
     let annule = false;
@@ -61,7 +62,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     let annule = false;
     void (async () => {
       setDetail(null); setComparaison(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); setPleinEcran(null);
-      setMotifRefus(''); setMotifConfirmation(''); setAvertissement(null); setActionErreur(''); // reset décisions (DANS l'async)
+      setMotifRefus(''); setMotifConfirmation(''); setAvertissement(null); setActionErreur(''); setMotifOuverture(''); // reset décisions (DANS l'async)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
         if (annule) return;
@@ -128,6 +129,23 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     finally { setEnCours(false); }
   }, [ouvert, onRecompter]);
 
+  // M5 — OUVRIR l'arbitrage À LA MAIN (aucun delta BD TOPO requis). Motif obligatoire (le bouton est inactif sans motif). Rafraîchit détail + comparaison.
+  const ouvrirManuel = useCallback(async (): Promise<void> => {
+    if (ouvert === null) return;
+    setEnCours(true); setActionErreur('');
+    try {
+      const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'ouvrir_manuel', dossierId: ouvert, motif: motifOuverture }) });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; detail?: DetailSuivi; comparaison?: ComparaisonRattachement | null };
+      if (res.ok && d.ok) {
+        if (d.detail) setDetail(d.detail);
+        if (d.comparaison !== undefined) setComparaison(d.comparaison ?? null);
+        setMotifOuverture('');
+        recompterSiSucces(true, onRecompter); // pastille : un dossier arbitrable est apparu
+      } else setActionErreur(d.erreur ?? 'Ouverture impossible.');
+    } catch { setActionErreur('Ouverture impossible.'); }
+    finally { setEnCours(false); }
+  }, [ouvert, motifOuverture, onRecompter]);
+
   // Téléchargement d'une pièce — MÊME signeur unique qu'Archives (action url_piece de /reponses ; la clé ne transite jamais).
   // Réglage GLOBAL : la DAACT (achèvement déclaré) déclenche-t-elle l'ouverture d'un dossier de rattachement ?
   const basculerDaact = useCallback(async (actif: boolean): Promise<void> => {
@@ -165,6 +183,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     return (
       <div className="flex flex-col gap-2">
         <DetailSuiviRendu detail={detail} />
+        {detail.origineOuverture === 'manuelle' && <BandeauOuvertureManuelle motif={detail.motifOuverture} />}
         {comparaison && (() => {
           const { origine, nouvelle, polygonesModifies, aChange } = comparaison;
           const persiste = detail.persiste, enAtt = detail.etat === 'en_attente_bati';
@@ -219,6 +238,13 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
           );
         })()}
         {affErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{affErreur}</div>}
+        {/* M5 — aucun dossier (aucun signal détecté) : proposer l'ouverture manuelle de l'arbitrage. */}
+        {!detail.persiste && (
+          <>
+            <OuvertureManuelle motif={motifOuverture} onMotif={setMotifOuverture} onOuvrir={() => void ouvrirManuel()} enCours={enCours} />
+            {actionErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{actionErreur}</div>}
+          </>
+        )}
         {detail.persiste && comparaison && (
           <SaisieCotesInjection affectation={comparaison.nouvelle} cotes={cotesEffectives} onCote={majCote} onRecopier={recopierPourBatiment} />
         )}

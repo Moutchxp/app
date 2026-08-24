@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
@@ -17,6 +17,7 @@ const ligne = (o: Partial<LigneSuivi>): LigneSuivi => ({ dossierId: 1, numDau: '
 
 const detail = (o: Partial<DetailSuivi> = {}): DetailSuivi => ({
   dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', persiste: false,
+  origineOuverture: 'detection', motifOuverture: null,
   verdict: 'RIEN', regime: 'sans_fusion', motif: 'aucun signal (en attente)',
   criteres: {
     surface: { applicable: false, ratio: null, seuil: 0.8, franchi: false },
@@ -581,6 +582,33 @@ describe('M3 — SaisieCotesInjection : une cote par polygone (bloc d’injectio
   it('aucun polygone affecté → le bloc ne s’affiche pas', () => {
     const h = renderToStaticMarkup(createElement(SaisieCotesInjection, { affectation: affN([]), cotes: {}, onCote: noop, onRecopier: noop }));
     expect(h).toBe('');
+  });
+});
+
+describe('M5 — ouverture manuelle : bloc d’ouverture + bandeau d’honnêteté', () => {
+  const noop = () => {};
+
+  it('OuvertureManuelle : dit franchement « pas une détection / manuelle », motif obligatoire (bouton inactif si vide)', () => {
+    const vide = renderToStaticMarkup(createElement(OuvertureManuelle, { motif: '', onMotif: noop, onOuvrir: noop, enCours: false }));
+    expect(vide).toMatch(/pas une détection/i);
+    expect(vide).toMatch(/manuelle/i);
+    expect(vide).toContain('disabled');           // motif vide → bouton inactif
+    const rempli = renderToStaticMarkup(createElement(OuvertureManuelle, { motif: 'vérif', onMotif: noop, onOuvrir: noop, enCours: false }));
+    expect(rempli).not.toContain('disabled');      // motif saisi → bouton actif
+    expect(rempli).toContain('value="vérif"');     // le motif saisi est bien reflété
+  });
+
+  it('OuvertureManuelle : bouton inactif pendant une action en cours', () => {
+    const h = renderToStaticMarkup(createElement(OuvertureManuelle, { motif: 'vérif', onMotif: noop, onOuvrir: noop, enCours: true }));
+    expect(h).toContain('disabled');
+  });
+
+  it('BandeauOuvertureManuelle : distingue visiblement une ouverture manuelle et rappelle « Refuser » pour refermer', () => {
+    const h = renderToStaticMarkup(createElement(BandeauOuvertureManuelle, { motif: 'vérification affectation' }));
+    expect(h).toContain('ouvert manuellement');
+    expect(h).toMatch(/aucun changement BD ?TOPO/i);
+    expect(h).toContain('vérification affectation'); // le motif est rappelé
+    expect(h).toMatch(/Refuser/);                     // comment refermer
   });
 });
 

@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerSuivi, lireDetailSuivi } from '../../../../../lib/permis/rattachementSuiviRepo';
+import { listerSuivi, lireDetailSuivi, ouvrirRattachementManuel } from '../../../../../lib/permis/rattachementSuiviRepo';
 import { lireComparaison, affecterPolygone } from '../../../../../lib/permis/affectationRepo';
 import { validerRattachement, refuserRattachement, retourLidar } from '../../../../../lib/permis/actionsRattachement';
 import { lireDaactDeclencheurActif, ecrireDaactDeclencheurActif } from '../../../../../lib/permis/rattachementConfig';
@@ -10,6 +10,7 @@ import { lireDaactDeclencheurActif, ecrireDaactDeclencheurActif } from '../../..
  * GET (sans param) → la LISTE (univers = permis avec empreinte) + compteurs par état.
  * GET ?dossierId=N → le DÉTAIL d'un dossier + l'AFFECTATION des polygones BD TOPO aux corps (FUS-3d).
  * POST { action, dossierId, … } :
+ *   'ouvrir_manuel' {motif}           → ouvre l'arbitrage À LA MAIN (aucun delta BD TOPO), dossier tracé 'manuelle' (M5) ;
  *   'affecter' {corpsId, cleabs, operation:'ajout'|'retrait'} → ajoute/retire UN polygone d'un bâtiment (FUS-3d / M2, additif) ;
  *   'valider' {cotes, motifConfirmation?} → injecte UNE COTE PAR POLYGONE (cotes[cleabs], origine 'permis') + dossier 'valide' (FUS-3e / M3) ;
  *   'refuser' {motif}                 → dossier 'refuse' (motif obligatoire) ;
@@ -50,6 +51,14 @@ export async function POST(request: Request): Promise<Response> {
 
     const dossierId = body.dossierId;
     if (typeof dossierId !== 'number') return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+
+    // M5 — OUVRIR l'arbitrage À LA MAIN (aucun delta BD TOPO requis). Motif obligatoire ; dossier tracé 'manuelle'.
+    if (body.action === 'ouvrir_manuel') {
+      const res = await ouvrirRattachementManuel(dossierId, body.motif ?? '', 'admin:ouverture-manuelle');
+      if (!res.ok) return Response.json({ erreur: res.motif }, { status: 409 });
+      const [detail, comparaison] = await Promise.all([lireDetailSuivi(dossierId), lireComparaison(dossierId).catch(() => null)]);
+      return Response.json({ ok: true, detail, comparaison });
+    }
 
     // FUS-3d / M2 — affectation INCRÉMENTALE d'un polygone à un bâtiment : 'ajout' ou 'retrait' d'UN polygone précis.
     if (body.action === 'affecter') {

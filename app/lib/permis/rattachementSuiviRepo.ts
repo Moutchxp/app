@@ -7,7 +7,7 @@
  * (cohérent avec FUS-3a). L'UNIVERS des permis SUIVIS = ceux qui ont une ligne dans `permis_empreinte` (parcelles analysées) —
  * PAS tout Sitadel. La page DÉRIVE « aucun signal » par différence entre cet univers et les dossiers existants.
  */
-import { query } from '../db/client';
+import { query, withTransaction } from '../db/client';
 import { rejouerRattachement } from './rattachementRepo';
 import { etatInitialDepuisResultat } from './preseanceAltitude';
 import { resoudreEtatSuivi, MOTIF_DAACT } from './etatSuiviRattachement';
@@ -119,6 +119,39 @@ export async function suivreRattachement(dossierId: number, majPar: string): Pro
   return { dossierId, persiste: true, action, verdict: resultat.verdict, etat: nouvelEtat };
 }
 
+export type ResultatOuvertureManuelle = { ok: true; rattId: number } | { ok: false; motif: string };
+
+/**
+ * M5 — OUVRE l'arbitrage À LA MAIN (sans attendre un delta BD TOPO). HONNÊTE : le dossier porte `origine_ouverture='manuelle'` et
+ * `verdict='OUVERTURE_MANUELLE'` (pas un verdict de détection), et un événement append-only `ouverture_manuelle` trace le motif +
+ * l'auteur. NE TOUCHE NI le snapshot, NI la capture, NI l'empreinte (lecture seule) ; NE modifie PAS le moteur de détection.
+ * Refuse si un dossier existe déjà (on n'écrase pas une détection ni un terminal), si le permis n'a pas d'empreinte, ou sans motif.
+ * Réversibilité : refermer = `refuserRattachement` (état terminal + trace, rien d'effacé).
+ */
+export async function ouvrirRattachementManuel(dossierId: number, motif: string, par: string): Promise<ResultatOuvertureManuelle> {
+  const m = (motif ?? '').trim();
+  if (!m) return { ok: false, motif: 'un motif d’ouverture manuelle est obligatoire' };
+  const { rows: existant } = await query<{ etat: EtatSuivi }>(`SELECT etat FROM permis_rattachement WHERE dossier_id = $1`, [dossierId]);
+  if (existant.length > 0) return { ok: false, motif: `un dossier de rattachement existe déjà pour ce permis (état : ${existant[0].etat}) — rien à ouvrir` };
+  const { rows: emp } = await query(`SELECT 1 FROM permis_empreinte WHERE dossier_id = $1`, [dossierId]);
+  if (emp.length === 0) return { ok: false, motif: 'ce permis n’a pas de parcelle figée (empreinte) : il n’y a rien à arbitrer' };
+
+  return withTransaction(async (q) => {
+    // Dossier ouvert MANUELLEMENT : régime/verdict SENTINELLES (jamais un verdict de détection), état arbitrable, motif conservé.
+    const { rows } = await q<{ id: number }>(
+      `INSERT INTO permis_rattachement (dossier_id, regime, verdict, etat, motif, origine_ouverture, detecte_le, reevalue_le)
+         VALUES ($1, 'indetermine', 'OUVERTURE_MANUELLE', 'arbitrage_demande', $2, 'manuelle', now(), now())
+       RETURNING id`, [dossierId, m]);
+    const rattId = rows[0].id;
+    // Journal d'événements append-only : trace l'ouverture manuelle (distincte d'une 'detection'), avec le motif et l'auteur.
+    await q(
+      `INSERT INTO permis_rattachement_evenement (rattachement_id, type, ancien_etat, nouvel_etat, details, par)
+         VALUES ($1, 'ouverture_manuelle', NULL, 'arbitrage_demande', $2::jsonb, $3)`,
+      [rattId, JSON.stringify({ origine: 'manuelle', motif: m }), par]);
+    return { ok: true, rattId };
+  });
+}
+
 export interface LigneSuivi {
   dossierId: number; numDau: string; commune: string | null; codeInsee: string;
   type: string; adresse: string | null; natureTravaux: string | null;    // FUS-3c-ter — ligne repliée : adresse + type + nature
@@ -186,6 +219,8 @@ export interface DetailSuivi {
   dossierId: number; numDau: string; commune: string | null; codeInsee: string;
   type: string; adresse: string | null; natureTravaux: string | null;    // FUS-3c-ter — en-tête : adresse + type + nature
   etat: EtatSuivi; persiste: boolean;
+  origineOuverture: 'detection' | 'manuelle'; // M5 — 'manuelle' = arbitrage ouvert à la main (aucune détection) ; l'écran le DIT
+  motifOuverture: string | null;              // M5 — motif saisi à l'ouverture manuelle (null en détection)
   verdict: string; regime: string; motif: string;
   criteres: ResultatRattachement['criteres']; // { surface, bordure, bati } (forme du moteur FUS-2)
   seuils: { seuilSurface: number; seuilBordure: number; margeAltitudeM: number };
@@ -222,8 +257,11 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
   if (!b) return null;
 
   const { entrees, contexte, resultat } = await rejouerRattachement(dossierId);
-  const { rows: rr } = await query<{ etat: EtatSuivi }>(`SELECT etat FROM permis_rattachement WHERE dossier_id = $1`, [dossierId]);
+  const { rows: rr } = await query<{ etat: EtatSuivi; origine_ouverture: 'detection' | 'manuelle'; motif: string | null }>(
+    `SELECT etat, origine_ouverture, motif FROM permis_rattachement WHERE dossier_id = $1`, [dossierId]);
   const etat: EtatSuivi = rr[0]?.etat ?? 'suivi_aucun_signal';
+  const origineOuverture = rr[0]?.origine_ouverture ?? 'detection';
+  const motifOuverture = origineOuverture === 'manuelle' ? (rr[0]?.motif ?? null) : null;
 
   // Données du comparatif : EN BASE (permis) + CADASTRE (parcelles rattachées) + BD TOPO (bâtiments de l'empreinte).
   const carac = await lirePermisCaracteristiques(dossierId);
@@ -271,7 +309,7 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
   return {
     dossierId, numDau: b.num_dau, commune: b.commune, codeInsee: b.code_insee,
     type: b.type, adresse: b.adresse, natureTravaux: b.nature ? libelleNatureProjet(b.nature) : null,
-    etat, persiste: rr.length > 0,
+    etat, persiste: rr.length > 0, origineOuverture, motifOuverture,
     verdict: resultat.verdict, regime: resultat.regime, motif: resultat.motif,
     criteres: resultat.criteres, seuils: entrees.seuils, seuilsProvenance: contexte.seuilsProvenance, seuilsBrut: contexte.seuilsBrut,
     millesimeCadastre: contexte.empreinteMillesime, millesimeBati: mEditionBati === MILLESIME_INCONNU ? null : mEditionBati,

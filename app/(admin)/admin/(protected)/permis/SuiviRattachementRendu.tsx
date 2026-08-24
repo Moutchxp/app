@@ -436,6 +436,48 @@ export function SaisieCotesInjection({ affectation, cotes, onCote, onRecopier }:
 }
 
 /**
+ * M5 — BLOC d'OUVERTURE MANUELLE : n'apparaît QUE quand aucun dossier n'existe (aucun signal détecté). Dit franchement qu'aucun
+ * changement BD TOPO n'a été détecté et que l'ouverture sera tracée comme MANUELLE. Motif OBLIGATOIRE (bouton inactif tant qu'il est
+ * vide). Contrôlé : le motif vit dans la Vue.
+ */
+export function OuvertureManuelle({ motif, onMotif, onOuvrir, enCours }: {
+  motif: string; onMotif: (v: string) => void; onOuvrir: () => void; enCours: boolean;
+}) {
+  const champId = 'motif-ouverture-manuelle';
+  return (
+    <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+      <div style={{ fontWeight: 600 }}>Ouvrir l’arbitrage manuellement</div>
+      <div style={styleAide}>
+        Aucun changement BD TOPO n’a été détecté pour ce permis : le déclencheur automatique n’ouvre donc rien. Vous pouvez ouvrir
+        l’arbitrage à la main (pour vérifier ou affecter des polygones). <strong>Ce n’est pas une détection</strong> — l’ouverture
+        sera tracée comme <strong>manuelle</strong>, en base et au journal.
+      </div>
+      <label htmlFor={champId} style={{ ...styleAide, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+        Motif de l’ouverture manuelle (obligatoire)
+        <input id={champId} type="text" value={motif} onChange={(e) => onMotif(e.target.value)}
+          placeholder="ex. vérification d’une affectation"
+          style={{ padding: '.3rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' }} />
+      </label>
+      <button type="button" className="svv-btn" style={{ width: 'auto', alignSelf: 'flex-start' }}
+        disabled={enCours || motif.trim() === ''} onClick={onOuvrir}>Ouvrir l’arbitrage manuellement</button>
+    </div>
+  );
+}
+
+/**
+ * M5 — BANDEAU d'honnêteté : affiché quand le dossier ouvert l'a été À LA MAIN. Empêche Arno de croire qu'un changement BD TOPO a été
+ * détecté. Rappelle comment refermer (Refuser).
+ */
+export function BandeauOuvertureManuelle({ motif }: { motif: string | null }) {
+  return (
+    <div role="note" style={{ ...styleAide, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .5rem' }}>
+      <strong>Dossier ouvert manuellement</strong> — aucun changement BD TOPO n’a été détecté ; l’arbitrage a été ouvert à la main.
+      {motif ? ` Motif : ${motif}.` : ''} Pour le refermer, utilisez « Refuser » (avec un motif) : la trace au journal est conservée.
+    </div>
+  );
+}
+
+/**
  * Boutons de décision, PURS et contrôlés (l'état des champs vit dans la Vue). Trois actions distinctes, libellés explicites :
  *  · Valider → injecte les altitudes (origine 'permis'). Si la cardinalité est incohérente, `avertissement` s'affiche et un
  *    MOTIF de confirmation devient obligatoire (le bouton exige alors ce motif).
