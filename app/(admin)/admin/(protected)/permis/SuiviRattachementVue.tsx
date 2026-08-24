@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 // ⚠️ Bundle client : uniquement des TYPES depuis les modules serveur.
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
-import type { ActionAffectation } from '../../../../lib/permis/affectationSchema';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE } from './SuiviRattachementRendu';
+import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE } from './SuiviRattachementRendu';
 
 // L11 — libellés de SOURCE des bulles (constat AVANT travaux). L'origine figée lit le SNAPSHOT ; sinon (et la nouvelle) la couche vivante.
 const SOURCE_GEL = 'au moment du gel (état des lieux figé)';
@@ -41,6 +41,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [avertissement, setAvertissement] = useState<string | null>(null);
   const [actionErreur, setActionErreur] = useState('');
   const [enCours, setEnCours] = useState(false);
+  const [cotes, setCotes] = useState<Record<string, string>>({}); // M3 — cote saisie par polygone (cleabs → chaîne ; '' = non injecté)
 
   useEffect(() => {
     let annule = false;
@@ -71,6 +72,29 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     return () => { annule = true; };
   }, [ouvert]);
 
+  // M3 — cotes EFFECTIVES affichées : la saisie d'Arno (`cotes`) si présente pour ce cleabs, sinon le DÉFAUT = altitude de sommet du
+  //   bâtiment. DÉRIVÉ (useMemo), pas un effet : aucun état propagé, et le défaut n'est jamais FIGÉ dans l'état — donc jamais « recopié
+  //   en douce ». `cotes` ne contient QUE des saisies explicites d'Arno.
+  const cotesEffectives = useMemo(() => {
+    const aff = comparaison?.nouvelle;
+    const out: Record<string, string> = {};
+    if (aff) for (const c of aff.corps) for (const cleabs of c.cleabsAffectes) {
+      out[cleabs] = cleabs in cotes ? cotes[cleabs] : (c.altitudeSommetNgf != null ? String(c.altitudeSommetNgf) : '');
+    }
+    return out;
+  }, [comparaison, cotes]);
+
+  // M3 — saisie d'une cote : on ne touche QUE ce polygone (jamais de propagation implicite).
+  const majCote = useCallback((cleabs: string, valeur: string) => { setCotes((prev) => ({ ...prev, [cleabs]: valeur })); }, []);
+  // M3 — « recopier partout » : geste EXPLICITE d'Arno ; pousse la cote effective du 1er polygone du bâtiment sur ses autres polygones (helper pur).
+  const recopierPourBatiment = useCallback((corpsId: number) => {
+    const c = comparaison?.nouvelle.corps.find((x) => x.id === corpsId);
+    if (!c || c.cleabsAffectes.length === 0) return;
+    const first = c.cleabsAffectes[0];
+    const source = first in cotes ? cotes[first] : (c.altitudeSommetNgf != null ? String(c.altitudeSommetNgf) : '');
+    setCotes((prev) => recopierCote(prev, c.cleabsAffectes, source));
+  }, [comparaison, cotes]);
+
   // FUS-3d / M2 — ajouter/retirer UN polygone d'un bâtiment (additif). L'exclusivité est garantie CÔTÉ BASE (index) ; un refus affiche son motif.
   const affecter = useCallback(async (corpsId: number, cleabs: string, operation: ActionAffectation): Promise<void> => {
     if (ouvert === null) return;
@@ -84,7 +108,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   }, [ouvert]);
 
   // FUS-3e — décisions (valider / refuser / retour_lidar). La validation d'une cardinalité incohérente exige un motif (besoinConfirmation).
-  const agir = useCallback(async (action: 'valider' | 'refuser' | 'retour_lidar', extra: { motif?: string; motifConfirmation?: string } = {}): Promise<void> => {
+  const agir = useCallback(async (action: 'valider' | 'refuser' | 'retour_lidar', extra: { motif?: string; motifConfirmation?: string; cotes?: Record<string, number | null> } = {}): Promise<void> => {
     if (ouvert === null) return;
     setEnCours(true); setActionErreur('');
     try {
@@ -195,11 +219,14 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
           );
         })()}
         {affErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{affErreur}</div>}
+        {detail.persiste && comparaison && (
+          <SaisieCotesInjection affectation={comparaison.nouvelle} cotes={cotesEffectives} onCote={majCote} onRecopier={recopierPourBatiment} />
+        )}
         {detail.persiste && (
           <>
             <ActionsRattachement avertissement={avertissement} motifRefus={motifRefus} motifConfirmation={motifConfirmation}
               onMotifRefus={setMotifRefus} onMotifConfirmation={setMotifConfirmation} enCours={enCours}
-              onValider={() => void agir('valider', { motifConfirmation: motifConfirmation || undefined })}
+              onValider={() => void agir('valider', { motifConfirmation: motifConfirmation || undefined, cotes: cotesEnNombres(cotesEffectives) })}
               onRefuser={() => void agir('refuser', { motif: motifRefus })}
               onRetour={() => void agir('retour_lidar')} />
             {actionErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{actionErreur}</div>}

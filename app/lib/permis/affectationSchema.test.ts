@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   repereDepuisIndex, indexDepuisRepere, couleurRepere, PALETTE_REPERE,
   geomDepuisGeoJSON, construireSchema, cadreDe, unionCadre, optionsPourCorps, polygonesNonAffectes, corpsDuPolygone,
+  recopierCote, cotesEnNombres,
   type CorpsAffectation, type PolygoneAffectable, type PolygoneEntreeSchema,
 } from './affectationSchema';
 
@@ -137,5 +138,21 @@ describe('exclusivité / cardinalités', () => {
     expect(polygonesNonAffectes(c, polys).map((p) => p.repere)).toEqual(['B']);        // B reste libre
     expect(corpsDuPolygone(c, 'BAT_A')?.id).toBe(1);
     expect(corpsDuPolygone(c, 'BAT_B')).toBeNull();
+  });
+});
+
+describe('M3 — cotes par polygone (recopierCote / cotesEnNombres, purs)', () => {
+  it('recopierCote pousse la valeur sur les cibles UNIQUEMENT, sans toucher aux autres cleabs', () => {
+    const avant = { BAT_A: '90', BAT_B: '80', BAT_X: '10' };
+    const apres = recopierCote(avant, ['BAT_A', 'BAT_B'], '90');
+    expect(apres).toEqual({ BAT_A: '90', BAT_B: '90', BAT_X: '10' }); // BAT_X (hors cibles) intact
+    expect(avant.BAT_B).toBe('80'); // immuable : l'entrée n'est pas mutée
+  });
+
+  it('cotesEnNombres : vide/blanc → null (non injecté) ; sinon Number ; jamais de propagation', () => {
+    expect(cotesEnNombres({ BAT_A: '88.9', BAT_B: '', BAT_C: '  ', BAT_D: '80' }))
+      .toEqual({ BAT_A: 88.9, BAT_B: null, BAT_C: null, BAT_D: 80 });
+    // pas d'arrondi : la valeur brute est conservée
+    expect(cotesEnNombres({ BAT_A: '88.907' }).BAT_A).toBe(88.907);
   });
 });

@@ -176,16 +176,22 @@ Les deux fichiers d'analyse IA photo (Gemini), à **maintenir hors staging** :
 - **R3 — un bâtiment du permis peut correspondre à PLUSIEURS polygones.** Le découpage IGN (un polygone =
   une emprise `cleabs`) ne coïncide pas avec le nombre de bâtiments déclarés : l'écran de rattachement peut
   montrer N polygones pour **un seul** bâtiment déclaré, et c'est **normal** (ne jamais chercher à faire
-  coïncider le nombre de polygones avec le nombre de bâtiments). L'injection doit traiter « une altitude de
-  permis → N polygones affectés » comme le cas **nominal**, pas comme une exception. ⚠️ **Cible non
-  atteinte** : `cleabs_affecte` est aujourd'hui **mono-valué** (un bâtiment ↔ au plus un polygone) ; passer
-  à N polygones affectés est une évolution à mener sans casser R1/R2/R4.
+  coïncider le nombre de polygones avec le nombre de bâtiments). L'injection traite « une altitude de permis
+  → N polygones affectés » comme le cas **nominal**. ✅ **Cible atteinte (M1/M2)** : l'affectation vit dans
+  la **table de liaison `permis_corps_polygone`** (une ligne par couple bâtiment↔polygone), plus dans la
+  colonne scalaire `cleabs_affecte` (dépréciée). L'écran affecte par **cases à cocher** (N polygones par
+  bâtiment). Exclusivité (a) préservée en base : `UNIQUE (dossier_id, cleabs)`.
 
-- **R4 — l'injection uniforme sur N polygones est un PIÈGE.** Écrire la **même** altitude de sommet dans
-  tous les polygones affectés surestime le toit d'un socle bas et, **le jour où le verdict lira
-  `permis_polygone_altitude`**, fabriquerait un **faux obstacle** (le verdict retient le premier bâti dont
-  le sommet ≥ altitude de la fenêtre, §2). L'injection doit permettre, **pour CHAQUE polygone affecté**, de
-  fixer la cote qu'il reçoit ; jamais une valeur unique propagée en silence.
+- **R4 — chaque polygone reçoit SA propre cote ; la propagation uniforme n'est possible que par un geste
+  EXPLICITE.** Écrire la **même** altitude de sommet sur tous les polygones surestimerait le toit d'un socle
+  bas et, **le jour où le verdict lira `permis_polygone_altitude`**, fabriquerait un **faux obstacle** (le
+  verdict retient le premier bâti dont le sommet ≥ altitude de la fenêtre, §2). ✅ **Livré (M3)** : la
+  validation prend **une cote saisie PAR POLYGONE** (`validerRattachement(..., cotes)`, clé = cleabs) ; la
+  valeur injectée est **strictement** `cotes[cleabs]`, jamais recopiée d'un polygone à l'autre par le
+  serveur. Un polygone sans cote (champ vide) **n'est pas injecté**. La même valeur sur plusieurs polygones
+  n'existe **que** par le bouton « recopier partout » de l'écran (choix explicite d'Arno) — **aucune
+  propagation silencieuse**. La garde historique (refus au-delà d'un polygone), posée en M1 et rendue visible
+  en M2, est donc **levée** en M3 : elle n'a plus d'objet une fois la cote saisissable par polygone.
 
 - **R5 — garde-fous DÉJÀ en vigueur (rappel, à ne pas redéfinir).**
   - **Préséance des altitudes : LiDAR (fait foi) > saisie > extraction**, inversion **VOULUE** : une

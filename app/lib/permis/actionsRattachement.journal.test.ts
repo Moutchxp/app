@@ -59,7 +59,7 @@ beforeEach(() => {
 
 describe('injection → registre', () => {
   it('registre vide pour le cleabs : écrit une ligne de DÉPART lidar (millésime « inconnu ») PUIS la ligne d’injection permis', async () => {
-    const r = await validerRattachement(11434, 'admin:decision');
+    const r = await validerRattachement(11434, 'admin:decision', { BAT_A: 88.9 });
     expect(r.ok).toBe(true);
     const j = journal();
     expect(j).toHaveLength(2);
@@ -73,7 +73,7 @@ describe('injection → registre', () => {
 
   it('registre déjà amorcé (une dernière ligne existe) : PAS de doublon de départ, seulement la ligne d’injection', async () => {
     H.state.derniere = { origine: 'lidar', altitude_ngf: 42 };
-    await validerRattachement(11434, 'admin:decision');
+    await validerRattachement(11434, 'admin:decision', { BAT_A: 88.9 });
     const j = journal();
     expect(j).toHaveLength(1);
     expect(j[0].params[3]).toBe('injection');
@@ -81,11 +81,22 @@ describe('injection → registre', () => {
 
   it('BDT-2 : édition BD TOPO courante stampée → la ligne de départ porte le millésime (fini « inconnu »)', async () => {
     H.state.editionMillesime = '2026-03-15';
-    await validerRattachement(11434, 'admin:decision');
+    await validerRattachement(11434, 'admin:decision', { BAT_A: 88.9 });
     const j = journal();
     expect(j[0].params.slice(0, 4)).toEqual(['BAT_A', 42, 'lidar', 'import']); // toujours la ligne de départ lidar
     expect(j[0].params).toContain('2026-03-15'); // millésime réel injecté
     expect(j[0].params).not.toContain('inconnu'); // plus de littéral supposé
+  });
+
+  it('M3 — N polygones injectés → N traces d’injection dans le registre (une ligne « injection » par polygone)', async () => {
+    // un bâtiment, DEUX polygones, DEUX cotes distinctes (registre vide → chacun ouvre aussi sa ligne de départ lidar).
+    H.state.aff = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A', 'BAT_B'] }] });
+    const r = await validerRattachement(11434, 'admin:decision', { BAT_A: 90, BAT_B: 80 });
+    expect(r.ok).toBe(true);
+    expect(r.nbInjectes).toBe(2);
+    const injections = journal().filter((j) => j.params[3] === 'injection');
+    expect(injections).toHaveLength(2); // N injections → N traces
+    expect(injections.map((j) => j.params[1]).sort()).toEqual([80, 90]); // les DEUX cotes tracées, distinctes
   });
 });
 

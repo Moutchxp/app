@@ -388,6 +388,54 @@ export function DetailSuiviRendu({ detail }: { detail: DetailSuivi }) {
 
 // ── FUS-3e — les trois décisions (valider / refuser / retour LiDAR) ──────────
 /**
+ * M3 — SAISIE d'une COTE PAR POLYGONE affecté, au moment de l'injection. Chaque polygone affecté a son champ (repère + cleabs pour
+ * croiser le schéma), pré-rempli avec l'altitude de sommet du bâtiment. « Recopier partout » (≥ 2 polygones) pousse la 1re cote sur
+ * les autres — le SEUL moyen d'attribuer la même valeur, et c'est un geste EXPLICITE. Un champ VIDE n'est pas injecté (dit à l'écran).
+ * Contrôlé : l'état `cotes` (cleabs → chaîne saisie) vit dans la Vue.
+ */
+export function SaisieCotesInjection({ affectation, cotes, onCote, onRecopier }: {
+  affectation: AffectationEtat;
+  cotes: Record<string, string>;
+  onCote: (cleabs: string, valeur: string) => void;
+  onRecopier: (corpsId: number) => void;
+}) {
+  const { corps, polygones } = affectation;
+  const repereDe = (cleabs: string) => polygones.find((p) => p.cleabs === cleabs)?.repere ?? '?';
+  const batiments = corps.filter((c) => c.cleabsAffectes.length > 0);
+  if (batiments.length === 0) return null;
+  return (
+    <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+      <div style={{ fontWeight: 600 }}>Altitude à injecter — une cote par polygone</div>
+      <div style={styleAide}>Chaque polygone reçoit SA cote (m NGF), pré-remplie avec l’altitude de sommet du bâtiment. Corrigez un socle bas si besoin. Un champ laissé vide n’est pas injecté pour ce polygone.</div>
+      {batiments.map((c) => (
+        <fieldset key={c.id} style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', margin: 0, padding: '.5rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+          <legend style={{ ...styleAide, padding: '0 .3rem' }}>{c.repere ?? `bâtiment ${c.id}`}</legend>
+          {c.cleabsAffectes.map((cleabs) => {
+            const val = cotes[cleabs] ?? '';
+            const vide = val.trim() === '';
+            const champId = `cote-${c.id}-${cleabs}`;
+            return (
+              <div key={cleabs} style={{ display: 'flex', gap: '.4rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                <label htmlFor={champId} style={{ fontSize: 12, minWidth: 130 }}>polygone {repereDe(cleabs)} <span style={styleAide}>· {cleabs}</span></label>
+                <input id={champId} type="number" inputMode="decimal" step="0.01" value={val}
+                  onChange={(e) => onCote(cleabs, e.target.value)}
+                  aria-label={`altitude de sommet du polygone ${repereDe(cleabs)}, en mètres NGF`}
+                  style={{ width: 110, padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' }} />
+                <span style={styleAide}>m NGF{vide ? ' — non injecté' : ''}</span>
+              </div>
+            );
+          })}
+          {c.cleabsAffectes.length > 1 && (
+            <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', alignSelf: 'flex-start' }}
+              onClick={() => onRecopier(c.id)}>Recopier la cote du polygone {repereDe(c.cleabsAffectes[0])} sur tous les polygones</button>
+          )}
+        </fieldset>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Boutons de décision, PURS et contrôlés (l'état des champs vit dans la Vue). Trois actions distinctes, libellés explicites :
  *  · Valider → injecte les altitudes (origine 'permis'). Si la cardinalité est incohérente, `avertissement` s'affiche et un
  *    MOTIF de confirmation devient obligatoire (le bouton exige alors ce motif).
@@ -643,8 +691,8 @@ export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onA
                   );
                 })}
                 {nbAffectes > 1 && (
-                  <div role="note" style={{ ...styleAide, color: 'var(--color-svv-red)' }}>
-                    Ce bâtiment porte {nbAffectes} polygones. La validation refusera d’injecter l’altitude tant qu’on ne peut pas saisir une altitude par polygone (fonction à venir) : sinon la même altitude de sommet serait écrite sur tous les polygones, ce qui créerait un faux obstacle. Réduisez à un seul polygone, ou attendez la saisie d’une altitude par polygone.
+                  <div role="note" style={styleAide}>
+                    Ce bâtiment porte {nbAffectes} polygones : chacun reçoit sa propre altitude au moment de la validation (bloc « Altitude à injecter »).
                   </div>
                 )}
               </fieldset>

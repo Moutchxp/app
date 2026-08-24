@@ -139,6 +139,30 @@ export interface PolygoneAffectable { repere: string; cleabs: string | null; hor
 // M2 — l'affectation est INCRÉMENTALE : cocher = 'ajout' d'un polygone, décocher = 'retrait' de ce seul polygone (jamais un remplacement).
 export type ActionAffectation = 'ajout' | 'retrait';
 
+/**
+ * M3 — « recopier partout » : pose `valeur` sur tous les cleabs de `cibles`, en repartant de `cotes`. PUR. C'est le geste EXPLICITE
+ * par lequel Arno décide d'attribuer la MÊME cote à plusieurs polygones (jamais une propagation silencieuse : rien ici ne s'exécute
+ * sans le clic). Ne touche pas aux cleabs hors `cibles`.
+ */
+export function recopierCote(cotes: Record<string, string>, cibles: string[], valeur: string): Record<string, string> {
+  const next = { ...cotes };
+  for (const cleabs of cibles) next[cleabs] = valeur;
+  return next;
+}
+
+/**
+ * M3 — convertit les cotes SAISIES (chaînes) en nombres pour l'injection : une chaîne vide (ou blanche) devient `null` = polygone
+ * NON injecté ; sinon `Number(...)` (le backend écarte ensuite toute valeur non finie). PUR. Ne fabrique jamais une cote absente.
+ */
+export function cotesEnNombres(cotes: Record<string, string>): Record<string, number | null> {
+  const out: Record<string, number | null> = {};
+  for (const [cleabs, s] of Object.entries(cotes)) {
+    const t = s.trim();
+    out[cleabs] = t === '' ? null : Number(t);
+  }
+  return out;
+}
+
 /** Polygones PROPOSABLES à un corps : ceux qui ne sont PAS affectés à un AUTRE corps (les siens restent proposés → réversibilité). */
 export function optionsPourCorps(corps: CorpsAffectation[], polygones: PolygoneAffectable[], corpsId: number): PolygoneAffectable[] {
   const prisAilleurs = new Set(corps.filter((c) => c.id !== corpsId).flatMap((c) => c.cleabsAffectes));

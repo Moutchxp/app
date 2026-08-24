@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
@@ -516,7 +516,7 @@ describe('L3 — plein écran, nom dans le visuel, légende complète, rattachem
   });
 });
 
-describe('M2 — cases à cocher : multi-affectation ouverte + garde R4 annoncée à l’écran', () => {
+describe('M2/M3 — cases à cocher : multi-affectation ouverte (garde R4 levée en M3)', () => {
   const noop = () => {};
   const base = (corps: AffectationEtat['corps']): AffectationEtat => ({
     empreinteFigee: true, motif: null, colonneManquante: false,
@@ -540,13 +540,47 @@ describe('M2 — cases à cocher : multi-affectation ouverte + garde R4 annoncé
     expect(h).not.toContain('porte 2 polygones');                               // un seul polygone → pas de note R4
   });
 
-  it('deux polygones cochés pour un même bâtiment (multi ouvert) → la garde R4 est ANNONCÉE, au moment où ça dépasse un polygone', () => {
+  it('deux polygones cochés pour un même bâtiment → multi ouvert, et la note d’avertissement R4 (« faux obstacle ») a DISPARU', () => {
     const a = base([{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: ['BAT_A', 'BAT_B'] }]);
     const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a, persiste: true, onAffecter: noop }));
-    expect(nbCoches(h)).toBe(2);                          // les DEUX cochés : la multi-affectation est bien ouverte
-    expect(h).toContain('Ce bâtiment porte 2 polygones'); // R4 dite ICI, pas découverte au moment du refus
-    expect(h).toMatch(/faux obstacle/);
-    expect(h).toMatch(/une altitude par polygone/);
+    expect(nbCoches(h)).toBe(2);                       // les DEUX cochés : multi bien ouverte
+    expect(h).not.toMatch(/faux obstacle/);            // la note d'avertissement M2 a disparu (R4 levée)
+    expect(h).not.toMatch(/refusera d’injecter/);      // plus d'annonce de refus
+    expect(h).toContain('chacun reçoit sa propre altitude'); // note informative M3 (renvoi au bloc de saisie)
+  });
+});
+
+describe('M3 — SaisieCotesInjection : une cote par polygone (bloc d’injection)', () => {
+  const noop = () => {};
+  const affN = (cleabsAffectes: string[]): AffectationEtat => ({
+    empreinteFigee: true, motif: null, colonneManquante: false,
+    schema: { largeur: 320, hauteur: 240, empreintePath: 'M0,0 L1,0 L1,1 Z', motif: null, polygones: [] },
+    polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }, { repere: 'B', cleabs: 'BAT_B', horsEmpreinte: false }],
+    corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes }],
+  });
+
+  it('N polygones affectés → N champs numériques, étiquetés repère + cleabs, aux valeurs des cotes (distinctes)', () => {
+    const h = renderToStaticMarkup(createElement(SaisieCotesInjection, { affectation: affN(['BAT_A', 'BAT_B']), cotes: { BAT_A: '88', BAT_B: '82' }, onCote: noop, onRecopier: noop }));
+    expect((h.match(/type="number"/g) ?? []).length).toBe(2);   // un champ par polygone
+    expect(h).toContain('polygone A'); expect(h).toContain('· BAT_A');
+    expect(h).toContain('value="88"'); expect(h).toContain('value="82"'); // cotes distinctes affichées
+  });
+
+  it('un champ vide est signalé « non injecté » (non ambigu)', () => {
+    const h = renderToStaticMarkup(createElement(SaisieCotesInjection, { affectation: affN(['BAT_A', 'BAT_B']), cotes: { BAT_A: '88', BAT_B: '' }, onCote: noop, onRecopier: noop }));
+    expect(h).toContain('non injecté');
+  });
+
+  it('« recopier partout » n’apparaît qu’à partir de 2 polygones (geste explicite)', () => {
+    const un = renderToStaticMarkup(createElement(SaisieCotesInjection, { affectation: affN(['BAT_A']), cotes: { BAT_A: '88' }, onCote: noop, onRecopier: noop }));
+    expect(un).not.toContain('Recopier');
+    const deux = renderToStaticMarkup(createElement(SaisieCotesInjection, { affectation: affN(['BAT_A', 'BAT_B']), cotes: { BAT_A: '88', BAT_B: '88' }, onCote: noop, onRecopier: noop }));
+    expect(deux).toContain('Recopier la cote du polygone A');
+  });
+
+  it('aucun polygone affecté → le bloc ne s’affiche pas', () => {
+    const h = renderToStaticMarkup(createElement(SaisieCotesInjection, { affectation: affN([]), cotes: {}, onCote: noop, onRecopier: noop }));
+    expect(h).toBe('');
   });
 });
 

@@ -11,7 +11,7 @@ import { lireDaactDeclencheurActif, ecrireDaactDeclencheurActif } from '../../..
  * GET ?dossierId=N → le DÉTAIL d'un dossier + l'AFFECTATION des polygones BD TOPO aux corps (FUS-3d).
  * POST { action, dossierId, … } :
  *   'affecter' {corpsId, cleabs, operation:'ajout'|'retrait'} → ajoute/retire UN polygone d'un bâtiment (FUS-3d / M2, additif) ;
- *   'valider' {motifConfirmation?}    → injecte les altitudes (origine 'permis') + dossier 'valide' (FUS-3e) ;
+ *   'valider' {cotes, motifConfirmation?} → injecte UNE COTE PAR POLYGONE (cotes[cleabs], origine 'permis') + dossier 'valide' (FUS-3e / M3) ;
  *   'refuser' {motif}                 → dossier 'refuse' (motif obligatoire) ;
  *   'retour_lidar'                    → restaure les altitudes LiDAR refigées (origine 'lidar').
  * RÉSERVÉ ADMINISTRATEUR. Runtime Node.
@@ -40,7 +40,7 @@ export async function POST(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number; corpsId?: number; cleabs?: string; operation?: 'ajout' | 'retrait'; motif?: string; motifConfirmation?: string; actif?: boolean };
+    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number; corpsId?: number; cleabs?: string; operation?: 'ajout' | 'retrait'; cotes?: Record<string, number | null>; motif?: string; motifConfirmation?: string; actif?: boolean };
 
     // RATTACHEMENT — réglage GLOBAL (pas un dossier) : la DAACT comme déclencheur. Traité AVANT la garde `dossierId`.
     if (body.action === 'reglage_daact') {
@@ -63,7 +63,9 @@ export async function POST(request: Request): Promise<Response> {
 
     // FUS-3e — décisions (aucun autre bouton : ni Street View, ni e-mail).
     if (body.action === 'valider' || body.action === 'refuser' || body.action === 'retour_lidar') {
-      const res = body.action === 'valider' ? await validerRattachement(dossierId, 'admin:decision', body.motifConfirmation)
+      // M3 — cotes saisies par polygone (clé cleabs). Objet sûr uniquement ; validerRattachement ignore toute valeur non finie.
+      const cotes = (body.cotes && typeof body.cotes === 'object' && !Array.isArray(body.cotes)) ? body.cotes : {};
+      const res = body.action === 'valider' ? await validerRattachement(dossierId, 'admin:decision', cotes, body.motifConfirmation)
         : body.action === 'refuser' ? await refuserRattachement(dossierId, 'admin:decision', body.motif ?? '')
           : await retourLidar(dossierId, 'admin:decision');
       if (!res.ok) {

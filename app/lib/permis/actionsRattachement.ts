@@ -66,24 +66,18 @@ const upsertAltitude = (q: RequeteTx, cleabs: string, e: EtatAltitudePolygone, d
          dossier_id = EXCLUDED.dossier_id, maj_le = now(), maj_par = EXCLUDED.maj_par`,
     [cleabs, e.altitudeNgf, e.origine, e.altitudeLidarRefige, dossierId, par]);
 
+/** M3 — cotes saisies à l'injection, une par polygone : clé = cleabs, valeur = altitude NGF (null/absent = polygone NON injecté). */
+export type CotesParPolygone = Record<string, number | null>;
+
 /**
- * VALIDER : injecte l'altitude de sommet de chaque corps affecté dans permis_polygone_altitude (origine 'permis'), après avoir
- * REFIGÉ la LiDAR courante (retour arrière fiable), puis passe le dossier à « valide ». GARDE cardinalité : s'il reste des
- * polygones non affectés ou des corps sans polygone, exige un `confirmationMotif` (écrit au dossier via l'événement).
+ * VALIDER : injecte UNE COTE PAR POLYGONE AFFECTÉ dans permis_polygone_altitude (origine 'permis'), après avoir REFIGÉ la LiDAR
+ * courante (retour arrière fiable), puis passe le dossier à « valide ». La cote de chaque polygone vient de la SAISIE (`cotes`,
+ * clé = cleabs) — JAMAIS dérivée d'une valeur unique du bâtiment (M3, ce qui LÈVE la garde R4) : un polygone sans cote saisie n'est
+ * PAS injecté. GARDE cardinalité : s'il reste des polygones non affectés ou des bâtiments sans polygone, exige un `confirmationMotif`.
  */
-export async function validerRattachement(dossierId: number, valPar: string, confirmationMotif?: string): Promise<ResultatAction> {
+export async function validerRattachement(dossierId: number, valPar: string, cotes: CotesParPolygone, confirmationMotif?: string): Promise<ResultatAction> {
   const aff = await lireAffectation(dossierId);
   if (aff.colonneManquante) return { ok: false, motif: 'affectation indisponible : migration 146 (table de liaison) non appliquée' };
-
-  // ⚠️ GARDE R4 (§11 docs/INVARIANTS_SVAV.md) — TANT QUE LA SAISIE MULTI-COTES N'EXISTE PAS. Un bâtiment portant PLUS D'UN polygone
-  // ferait propager mécaniquement son unique `altitude_sommet_ngf` sur tous ses polygones → FAUX OBSTACLE au verdict SVAV (un socle
-  // bas recevrait la cote du sommet). On REFUSE NET, avec un message explicite : un refus visible vaut mieux qu'une cote fausse
-  // écrite en silence. Cette garde sera LEVÉE par le lot qui livre la saisie multi-cotes (pas avant).
-  const multiPolygone = aff.corps.filter((c) => c.cleabsAffectes.length > 1);
-  if (multiPolygone.length > 0) {
-    const reperes = multiPolygone.map((c) => c.repere ?? `bâtiment ${c.id}`).join(', ');
-    return { ok: false, motif: `injection impossible : ${reperes} porte(nt) plusieurs polygones, mais on ne sait pas encore saisir une altitude par polygone. Tant que la saisie d’une cote par polygone n’est pas ouverte, injecter écrirait la même altitude de sommet sur tous les polygones — ce qui créerait un faux obstacle. Réduisez à un seul polygone par bâtiment, ou attendez la saisie multi-cotes.` };
-  }
 
   const nonAffectes = aff.polygones.filter((p) => p.cleabs && !aff.corps.some((c) => c.cleabsAffectes.includes(p.cleabs as string)));
   const corpsSansPoly = aff.corps.filter((c) => c.cleabsAffectes.length === 0);
@@ -93,9 +87,13 @@ export async function validerRattachement(dossierId: number, valPar: string, con
     return { ok: false, besoinConfirmation: true, avertissement: `${nonAffectes.length} polygone(s) non affecté(s), ${corpsSansPoly.length} corps sans polygone : confirmez la validation avec un motif.` };
   }
 
-  // Après la garde R4, chaque bâtiment porte au plus UN polygone → flatMap produit au plus une cote par bâtiment (jamais de valeur répétée).
-  const aInjecter = aff.corps.filter((c) => c.altitudeSommetNgf !== null)
-    .flatMap((c) => c.cleabsAffectes.map((cleabs) => ({ corpsId: c.id, cleabs, altitudePermis: c.altitudeSommetNgf as number })));
+  // M3 — UNE COTE PAR POLYGONE : la valeur injectée est STRICTEMENT `cotes[cleabs]` (saisie explicite pour CE polygone), jamais
+  // recopiée d'un polygone à l'autre PAR LE SERVEUR. Un cleabs sans cote (absent, null ou non fini) n'est PAS injecté. C'est ce qui
+  // interdit toute propagation SILENCIEUSE : la propagation uniforme n'existe qu'en amont, par le geste explicite « recopier partout »
+  // de l'écran. La garde R4 (refus au-delà d'un polygone) n'a donc plus lieu d'être et est retirée.
+  const aInjecter = aff.corps
+    .flatMap((c) => c.cleabsAffectes.map((cleabs) => ({ corpsId: c.id, cleabs, altitudePermis: cotes[cleabs] })))
+    .filter((x): x is { corpsId: number; cleabs: string; altitudePermis: number } => typeof x.altitudePermis === 'number' && Number.isFinite(x.altitudePermis));
 
   return withTransaction(async (q) => {
     const rid = await rattId(q, dossierId);

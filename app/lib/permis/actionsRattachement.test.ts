@@ -47,50 +47,50 @@ const majDossier = () => H.calls.filter((c) => /UPDATE permis_rattachement SET e
 
 beforeEach(() => { H.calls.length = 0; H.state.aff = aff(); H.state.lidar = 42; H.state.altRow = null; H.state.retourCleabs = []; H.state.etatDossier = 'arbitrage_demande'; });
 
-describe('validerRattachement', () => {
-  it('injecte l’altitude de sommet (origine permis) pour chaque corps affecté, en REFIGEANT la LiDAR COURANTE relue', async () => {
-    const r = await validerRattachement(11434, 'admin:decision');
+describe('validerRattachement (M3 — une cote par polygone)', () => {
+  it('injecte LA COTE SAISIE de chaque polygone (origine permis), en REFIGEANT la LiDAR COURANTE relue', async () => {
+    const r = await validerRattachement(11434, 'admin:decision', { BAT_A: 88.9, BAT_B: 87.1 });
     expect(r.ok).toBe(true);
     expect(r.nbInjectes).toBe(2);
     // la LiDAR courante a bien été RELUE en base (pas le snapshot)
     expect(H.calls.some((c) => /altitude_maximale_toit AS alt FROM batiment/i.test(c.sql))).toBe(true);
-    // upsert : altitude = sommet permis, origine 'permis', refige = LiDAR courante (42)
+    // upsert : altitude = cote SAISIE du polygone, origine 'permis', refige = LiDAR courante (42)
     const u = upserts();
     expect(u).toHaveLength(2);
-    expect(u[0].params).toEqual(expect.arrayContaining([88.9, 'permis', 42])); // corps 2D1 → BAT_A
-    expect(u[1].params).toEqual(expect.arrayContaining([87.1, 'permis', 42]));
-    // dossier → valide + événement de validation
+    expect(u[0].params).toEqual(expect.arrayContaining([88.9, 'permis', 42])); // BAT_A → sa cote
+    expect(u[1].params).toEqual(expect.arrayContaining([87.1, 'permis', 42])); // BAT_B → sa cote
     expect(majDossier()).toHaveLength(1);
     expect(events().some((e) => /'validation'/i.test(e.sql) || (e.params).includes('validation'))).toBe(true);
   });
 
-  it('GARDE cardinalité : un corps sans polygone → besoinConfirmation SANS rien écrire ; avec motif → valide + motif tracé', async () => {
+  it('DEUX cotes DIFFÉRENTES sur les deux polygones d’un MÊME bâtiment → écrites DISTINCTEMENT (R4 levée, aucun refus)', async () => {
+    H.state.aff = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A', 'BAT_B'] }] });
+    const r = await validerRattachement(11434, 'admin:decision', { BAT_A: 90, BAT_B: 80 });
+    expect(r.ok).toBe(true);           // plus de refus R4
+    expect(r.nbInjectes).toBe(2);
+    const u = upserts();
+    expect(u[0].params).toEqual(expect.arrayContaining([90, 'permis'])); // socle haut
+    expect(u[1].params).toEqual(expect.arrayContaining([80, 'permis'])); // socle bas — cote DISTINCTE, jamais recopiée
+  });
+
+  it('GARDE cardinalité : un bâtiment sans polygone → besoinConfirmation SANS rien écrire ; avec motif → valide + motif tracé', async () => {
     H.state.aff = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A'] }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffectes: [] }] });
-    const sansMotif = await validerRattachement(11434, 'admin:decision');
+    const sansMotif = await validerRattachement(11434, 'admin:decision', { BAT_A: 88.9 });
     expect(sansMotif).toMatchObject({ ok: false, besoinConfirmation: true });
     expect(upserts()).toHaveLength(0); // rien écrit tant que non confirmé
     H.calls.length = 0;
-    const avecMotif = await validerRattachement(11434, 'admin:decision', 'bâtiments accolés : 2D2 sans polygone propre');
+    const avecMotif = await validerRattachement(11434, 'admin:decision', { BAT_A: 88.9 }, 'bâtiments accolés : 2D2 sans polygone propre');
     expect(avecMotif.ok).toBe(true);
     const valEvt = events().find((e) => (e.params).includes('validation'));
     expect(JSON.stringify(valEvt?.params)).toContain('bâtiments accolés'); // motif écrit au dossier (événement)
   });
 
-  it('un corps sans altitude n’injecte rien mais la validation aboutit', async () => {
-    H.state.aff = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: null, nbEtages: 7, cleabsAffectes: ['BAT_A'] }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffectes: ['BAT_B'] }] });
-    const r = await validerRattachement(11434, 'admin:decision');
+  it('un polygone SANS cote saisie (champ vide → absent des cotes) n’est PAS injecté, la validation aboutit', async () => {
+    H.state.aff = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A'] }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffectes: ['BAT_B'] }] });
+    const r = await validerRattachement(11434, 'admin:decision', { BAT_B: 87.1 }); // BAT_A absent = non injecté
     expect(r.ok).toBe(true);
-    expect(r.nbInjectes).toBe(1); // seul 2D2 (altitude connue) est injecté
-  });
-
-  it('GARDE R4 : un bâtiment portant PLUS D’UN polygone → REFUS NET, message explicite, AUCUNE injection', async () => {
-    H.state.aff = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A', 'BAT_B'] }] });
-    const r = await validerRattachement(11434, 'admin:decision');
-    expect(r.ok).toBe(false);
-    expect((r as { motif: string }).motif).toContain('plusieurs polygones'); // message métier
-    expect((r as { motif: string }).motif).toMatch(/faux obstacle|une altitude par polygone/i);
-    expect(upserts()).toHaveLength(0);   // rien injecté
-    expect(majDossier()).toHaveLength(0); // dossier NON validé
+    expect(r.nbInjectes).toBe(1);
+    expect(upserts()[0].params).toEqual(expect.arrayContaining([87.1, 'permis'])); // seul BAT_B
   });
 });
 
