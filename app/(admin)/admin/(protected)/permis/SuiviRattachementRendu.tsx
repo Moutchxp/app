@@ -6,7 +6,7 @@ import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/
 import type { CritereSurface, CritereBordure, CritereBati } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo'; // TYPE seul (module serveur)
 // affectationSchema est PUR (aucun import serveur) → on peut importer ses fonctions dans le bundle client.
-import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere, indexDepuisRepere, PALETTE_REPERE, type SchemaEmpreinte, type CorpsAffectation, type AttributsPolygone, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
+import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere, indexDepuisRepere, niveauSurlignement, PALETTE_REPERE, type SchemaEmpreinte, type CorpsAffectation, type AttributsPolygone, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
 // rattachementGroupes est PUR (import de TYPE seul depuis le repo, erasé) → client-safe. Source UNIQUE de la coupure en deux (L6).
 import { estAFaire, GROUPE1_TITRE, GROUPE2_TITRE } from '../../../../lib/permis/rattachementGroupes';
 
@@ -393,11 +393,13 @@ export function DetailSuiviRendu({ detail }: { detail: DetailSuivi }) {
  * les autres — le SEUL moyen d'attribuer la même valeur, et c'est un geste EXPLICITE. Un champ VIDE n'est pas injecté (dit à l'écran).
  * Contrôlé : l'état `cotes` (cleabs → chaîne saisie) vit dans la Vue.
  */
-export function SaisieCotesInjection({ affectation, cotes, onCote, onRecopier }: {
+export function SaisieCotesInjection({ affectation, cotes, onCote, onRecopier, misEnAvant = null, onMiseEnAvant }: {
   affectation: AffectationEtat;
   cotes: Record<string, string>;
   onCote: (cleabs: string, valeur: string) => void;
   onRecopier: (corpsId: number) => void;
+  misEnAvant?: string | null;                       // M7 — cleabs actuellement mis en avant dans le schéma (réciprocité)
+  onMiseEnAvant?: (cleabs: string) => void;         // M7 — le focus d'un champ met en avant CE polygone dans le schéma
 }) {
   const { corps, polygones } = affectation;
   const repereDe = (cleabs: string) => polygones.find((p) => p.cleabs === cleabs)?.repere ?? '?';
@@ -407,6 +409,10 @@ export function SaisieCotesInjection({ affectation, cotes, onCote, onRecopier }:
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
       <div style={{ fontWeight: 600 }}>Polygones sélectionnés — altitude à injecter</div>
       <div style={styleAide}>Les polygones cochés, avec leur repère, leur couleur et leur cleabs. Chaque polygone reçoit SA cote (m NGF), pré-remplie avec l’altitude de sommet du bâtiment ; corrigez un socle bas si besoin. Un champ laissé vide n’est pas injecté pour ce polygone.</div>
+      {/* M7 — canal ACCESSIBLE : dit à voix haute quel polygone le champ courant met en avant dans le schéma (la couleur n'est jamais seule porteuse). */}
+      <div role="status" aria-live="polite" style={{ ...styleAide, minHeight: '1.2em' }}>
+        {misEnAvant ? `Polygone ${repereDe(misEnAvant)} mis en avant dans le schéma.` : ''}
+      </div>
       {batiments.map((c) => (
         <fieldset key={c.id} style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', margin: 0, padding: '.5rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
           <legend style={{ ...styleAide, padding: '0 .3rem' }}>{c.repere ?? `bâtiment ${c.id}`}</legend>
@@ -415,8 +421,11 @@ export function SaisieCotesInjection({ affectation, cotes, onCote, onRecopier }:
             const vide = val.trim() === '';
             const champId = `cote-${c.id}-${cleabs}`;
             const repere = repereDe(cleabs);
+            const enAvant = cleabs === misEnAvant; // M7 — cette ligne est-elle celle mise en avant dans le schéma ?
             return (
-              <div key={cleabs} style={{ display: 'flex', gap: '.4rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+              <div key={cleabs} data-mis-en-avant={enAvant ? 'true' : undefined}
+                style={{ display: 'flex', gap: '.4rem', alignItems: 'baseline', flexWrap: 'wrap', padding: '.15rem .25rem', borderRadius: '.3rem',
+                  background: enAvant ? 'var(--color-svv-field)' : undefined, boxShadow: enAvant ? 'inset 3px 0 0 var(--color-svv-ink)' : undefined }}>
                 <label htmlFor={champId} style={{ display: 'inline-flex', alignItems: 'baseline', gap: '.3rem', fontSize: 12, minWidth: 130 }}>
                   {/* pastille = MÊME couleur de repère que le remplissage du schéma (aide à la reconnaissance visuelle ; jamais seule porteuse). */}
                   <span aria-hidden="true" style={{ alignSelf: 'center', display: 'inline-block', width: 11, height: 11, borderRadius: 2, background: couleurRepere(indexDepuisRepere(repere)), border: '1px solid var(--color-svv-line)', flexShrink: 0 }} />
@@ -424,9 +433,10 @@ export function SaisieCotesInjection({ affectation, cotes, onCote, onRecopier }:
                 </label>
                 <input id={champId} type="number" inputMode="decimal" step="0.01" value={val}
                   onChange={(e) => onCote(cleabs, e.target.value)}
+                  onFocus={() => onMiseEnAvant?.(cleabs)}
                   aria-label={`altitude de sommet du polygone ${repereDe(cleabs)}, en mètres NGF`}
                   style={{ width: 110, padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' }} />
-                <span style={styleAide}>m NGF{vide ? ' — non injecté' : ''}</span>
+                <span style={styleAide}>m NGF{vide ? ' — non injecté' : ''}{enAvant ? ' — mis en avant' : ''}</span>
               </div>
             );
           })}
@@ -546,7 +556,7 @@ export function ActionsRattachement({ avertissement, motifRefus, motifConfirmati
  *     (halo blanc sous le glyphe → lisible sur n'importe quelle teinte). Affecté → contour VERT ; hors empreinte → contour TIRETÉ
  *     (canaux NON colorés : l'information ne dépend jamais de la seule couleur).
  */
-export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; agrandi?: boolean; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean }) {
+export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; agrandi?: boolean; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null }) {
   const uid = useId();
   const trameId = `trame-${uid.replace(/:/g, '')}`; // id unique (deux schémas côte à côte en L5 ne partageront pas le motif)
   const hachureId = `hachure-${uid.replace(/:/g, '')}`; // L12 — croisillon du FUTUR BÂTI (id unique par schéma)
@@ -597,13 +607,20 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
           return (
             <g key={p.repere} {...interactif}>
               {info && <title>{info.join('\n')}</title>}
-              {/* M6 — SURLIGNEMENT qui ÉPOUSE la forme : un halo ENCRE re-stroke le PROPRE `path` du polygone (jamais sa bbox), rendu
-                  DERRIÈRE le remplissage. Largeur FIXE et modeste (n'enfle pas avec la forme) → serré sur une lanière inclinée, ne mord
-                  pas les voisins. Sélection (coché = affecté) OU survol/focus/tap (actif). Le contour vert/tireté et le croisillon restent
-                  dessus, distincts. Jamais rouge, jamais une teinte de la palette de remplissage. */}
-              {(affecte || actif === p.repere) && (
+              {/* M6/M7 — SURLIGNEMENT qui ÉPOUSE la forme : on re-stroke le PROPRE `path` du polygone (jamais sa bbox), DERRIÈRE le
+                  remplissage. Deux niveaux (fonction pure `niveauSurlignement`) : « halo » (coché/affecté OU survol/focus) = fin trait
+                  encre semi-transparent ; « mis en avant » (le champ de cote de ce polygone a le focus — M7) = double liseré blanc+encre,
+                  OPAQUE et plus large → nettement plus fort, mais toujours DERRIÈRE : le contour vert/tireté et le croisillon restent
+                  dessus, distincts. Largeur FIXE → serré sur une lanière, ne mord pas les voisins. Jamais rouge, jamais une teinte de la palette. */}
+              {niveauSurlignement({ estMisEnAvant: p.cleabs != null && p.cleabs === cleabsMisEnAvant, affecte, actif: actif === p.repere }) === 'halo' && (
                 <path d={p.path} fill="none" stroke="var(--color-svv-ink)" strokeWidth={3.5} strokeOpacity={0.42}
                   strokeLinejoin="round" pointerEvents="none" data-surlignement="true" />
+              )}
+              {niveauSurlignement({ estMisEnAvant: p.cleabs != null && p.cleabs === cleabsMisEnAvant, affecte, actif: actif === p.repere }) === 'mis-en-avant' && (
+                <>
+                  <path d={p.path} fill="none" stroke="#fff" strokeWidth={6.5} strokeOpacity={0.95} strokeLinejoin="round" pointerEvents="none" />
+                  <path d={p.path} fill="none" stroke="var(--color-svv-ink)" strokeWidth={4} strokeLinejoin="round" pointerEvents="none" data-mis-en-avant="true" />
+                </>
               )}
               <path d={p.path} fill={estRouge ? 'var(--color-svv-red)' : couleurRepere(indexDepuisRepere(p.repere))} fillOpacity={0.85}
                 stroke={affecte ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'} strokeWidth={affecte ? 2.5 : 1}
@@ -769,14 +786,14 @@ export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onA
  * FIGURE du schéma : le SVG + son NOM écrit DANS le visuel (figcaption en surimpression, pas seulement au-dessus). Quand `onAgrandir`
  * est fourni, la figure devient une cible cliquable ET focalisable au clavier (role=button, Entrée/Espace) → ouvre le plein écran.
  */
-export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, onAgrandir, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; mention?: string; agrandi?: boolean; onAgrandir?: () => void; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean }) {
+export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, onAgrandir, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; mention?: string; agrandi?: boolean; onAgrandir?: () => void; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null }) {
   const contenu = (
     <>
       <figure style={{ position: 'relative', margin: 0 }}>
         {titre && (
           <figcaption style={{ position: 'absolute', top: 6, left: 6, zIndex: 1, fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,.85)', color: 'var(--color-svv-ink)', padding: '.1rem .45rem', borderRadius: '.3rem', border: '1px solid var(--color-svv-line)' }}>{titre}</figcaption>
         )}
-        <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} afficherFutur={afficherFutur} />
+        <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} />
       </figure>
       {/* L4 — mention (provenance + millésime du gel) écrite DANS le visuel, juste sous le nom du schéma. */}
       {mention && <div style={{ ...styleAide }}>{mention}</div>}
@@ -969,7 +986,7 @@ export function ComparaisonPleinEcran({ origine, nouvelle, rougeCleabs, nomOrigi
  * Bloc d'affectation (vue RÉDUITE) : le SCHÉMA nommé + cliquable (→ plein écran) + sa LÉGENDE compacte, puis les CHOIX (`CorpsEtChoix`,
  * mêmes règles que le plein écran). Le schéma reste consultable même sans dossier persisté (on DIT pourquoi l'arbitrage est fermé).
  */
-export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string, action: ActionAffectation) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean }) {
+export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string, action: ActionAffectation) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null }) {
   const { corps, schema, motif, colonneManquante } = affectation;
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -983,7 +1000,7 @@ export function AffectationBloc({ affectation, persiste, enAttenteBati = false, 
         : (
           <>
             {/* Schéma nommé + cliquable (→ plein écran) + légende compacte : TOUJOURS rendus (informatifs), quel que soit l'état. */}
-            <SchemaFigure schema={schema} corps={corps} titre={titre} mention={mention} onAgrandir={onAgrandir} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} afficherFutur={afficherFutur} />
+            <SchemaFigure schema={schema} corps={corps} titre={titre} mention={mention} onAgrandir={onAgrandir} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} />
             <LegendeAffectation avecRouge={(rougeCleabs?.length ?? 0) > 0} />
             <CorpsEtChoix affectation={affectation} persiste={persiste} enAttenteBati={enAttenteBati} onAffecter={onAffecter} />
           </>

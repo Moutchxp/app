@@ -180,3 +180,15 @@ export function corpsDuPolygone(corps: CorpsAffectation[], cleabs: string | null
   if (!cleabs) return null;
   return corps.find((c) => c.cleabsAffectes.includes(cleabs)) ?? null;
 }
+
+export type NiveauSurlignement = 'mis-en-avant' | 'halo' | 'aucun';
+
+/**
+ * M7 — niveau de surlignement d'un polygone dans le schéma. « mis en avant » (le champ de cote de CE polygone a le focus) PRIME sur
+ * le halo (coché/affecté OU survol/focus). PUR : la décision est testable sans DOM (le rendu se contente d'appliquer le niveau).
+ */
+export function niveauSurlignement(e: { estMisEnAvant: boolean; affecte: boolean; actif: boolean }): NiveauSurlignement {
+  if (e.estMisEnAvant) return 'mis-en-avant';
+  if (e.affecte || e.actif) return 'halo';
+  return 'aucun';
+}

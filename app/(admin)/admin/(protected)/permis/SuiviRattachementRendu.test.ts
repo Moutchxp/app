@@ -652,6 +652,51 @@ describe('M6 — surlignement qui épouse la forme + panneau (pastilles)', () =>
   });
 });
 
+describe('M7 — le champ de cote pilote la mise en avant du polygone', () => {
+  const noop = () => {};
+  const schemaAB: SchemaEmpreinte = {
+    largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null,
+    polygones: [
+      { repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false },
+      { repere: 'B', cleabs: 'BAT_B', path: 'M60,60 L80,60 L80,80 Z', cx: 70, cy: 70, horsEmpreinte: false },
+    ],
+  };
+  const corpsAB = [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: ['BAT_A', 'BAT_B'] }];
+  const affPanneau: AffectationEtat = {
+    empreinteFigee: true, motif: null, colonneManquante: false, schema: { largeur: 320, hauteur: 240, empreintePath: null, polygones: [], motif: null },
+    polygones: [{ repere: 'A', cleabs: 'BAT_A', horsEmpreinte: false }],
+    corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: ['BAT_A'] }],
+  };
+
+  it('schéma : le polygone mis en avant reçoit un surlignement fort (data-mis-en-avant, double liseré) qui ÉPOUSE son path ; les autres gardent le halo', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaAB, corps: corpsAB, cleabsMisEnAvant: 'BAT_A' }));
+    // A (mis en avant) : liseré ENCRE sur SON path + double liseré (anneau blanc), PLUS FORT que le halo
+    expect(h).toMatch(/d="M20,20 L40,20 L40,40 Z"[^>]*data-mis-en-avant="true"/);
+    expect(h).toContain('stroke-width="6.5"');                              // anneau blanc du double liseré
+    expect(h).not.toMatch(/d="M20,20 L40,20 L40,40 Z"[^>]*data-surlignement/); // A n'a PAS le halo (mis-en-avant le remplace)
+    // B (affecté, non mis en avant) : garde le halo M6
+    expect(h).toMatch(/d="M60,60 L80,60 L80,80 Z"[^>]*data-surlignement="true"/);
+    expect(h).not.toMatch(/d="M60,60 L80,60 L80,80 Z"[^>]*data-mis-en-avant/);
+  });
+
+  it('schéma : sans cleabsMisEnAvant → aucun data-mis-en-avant (comportement M6 inchangé)', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaAB, corps: corpsAB }));
+    expect(h).not.toContain('data-mis-en-avant');
+  });
+
+  it('panneau : la ligne mise en avant est marquée (réciprocité) ET un texte accessible dit lequel', () => {
+    const h = renderToStaticMarkup(createElement(SaisieCotesInjection, { affectation: affPanneau, cotes: { BAT_A: '88' }, onCote: noop, onRecopier: noop, misEnAvant: 'BAT_A', onMiseEnAvant: noop }));
+    expect(h).toContain('data-mis-en-avant="true"');                        // ligne réciproque marquée
+    expect(h).toContain('Polygone A mis en avant dans le schéma');           // canal accessible (aria-live), couleur jamais seule porteuse
+  });
+
+  it('panneau : sans misEnAvant → aucune ligne marquée, message vide', () => {
+    const h = renderToStaticMarkup(createElement(SaisieCotesInjection, { affectation: affPanneau, cotes: { BAT_A: '88' }, onCote: noop, onRecopier: noop, misEnAvant: null, onMiseEnAvant: noop }));
+    expect(h).not.toContain('data-mis-en-avant="true"');
+    expect(h).not.toContain('mis en avant dans le schéma');
+  });
+});
+
 describe('L3b — vocabulaire parcelle : « empreinte » disparaît de l’interface visible', () => {
   // Un polygone débordant (B) pour éprouver le libellé du débordement.
   const affDeborde = (): AffectationEtat => ({

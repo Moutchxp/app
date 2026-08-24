@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   repereDepuisIndex, indexDepuisRepere, couleurRepere, PALETTE_REPERE,
   geomDepuisGeoJSON, construireSchema, cadreDe, unionCadre, optionsPourCorps, polygonesNonAffectes, corpsDuPolygone,
-  recopierCote, cotesEnNombres,
+  recopierCote, cotesEnNombres, niveauSurlignement,
   type CorpsAffectation, type PolygoneAffectable, type PolygoneEntreeSchema,
 } from './affectationSchema';
 
@@ -154,5 +154,19 @@ describe('M3 — cotes par polygone (recopierCote / cotesEnNombres, purs)', () =
       .toEqual({ BAT_A: 88.9, BAT_B: null, BAT_C: null, BAT_D: 80 });
     // pas d'arrondi : la valeur brute est conservée
     expect(cotesEnNombres({ BAT_A: '88.907' }).BAT_A).toBe(88.907);
+  });
+});
+
+describe('M7 — niveauSurlignement (pur)', () => {
+  it('« mis en avant » PRIME sur le halo (coché/affecté ou survol/focus)', () => {
+    expect(niveauSurlignement({ estMisEnAvant: true, affecte: true, actif: true })).toBe('mis-en-avant');
+    expect(niveauSurlignement({ estMisEnAvant: true, affecte: false, actif: false })).toBe('mis-en-avant');
+  });
+  it('halo si affecté OU actif (et pas mis en avant)', () => {
+    expect(niveauSurlignement({ estMisEnAvant: false, affecte: true, actif: false })).toBe('halo');
+    expect(niveauSurlignement({ estMisEnAvant: false, affecte: false, actif: true })).toBe('halo');
+  });
+  it('aucun surlignement sinon', () => {
+    expect(niveauSurlignement({ estMisEnAvant: false, affecte: false, actif: false })).toBe('aucun');
   });
 });

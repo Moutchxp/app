@@ -43,6 +43,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [enCours, setEnCours] = useState(false);
   const [cotes, setCotes] = useState<Record<string, string>>({}); // M3 — cote saisie par polygone (cleabs → chaîne ; '' = non injecté)
   const [motifOuverture, setMotifOuverture] = useState(''); // M5 — motif d'une ouverture manuelle de l'arbitrage
+  const [cleabsMisEnAvant, setCleabsMisEnAvant] = useState<string | null>(null); // M7 — polygone mis en avant dans le schéma (piloté par le focus d'un champ de cote ; PERSISTE après le blur)
 
   useEffect(() => {
     let annule = false;
@@ -62,7 +63,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     let annule = false;
     void (async () => {
       setDetail(null); setComparaison(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); setPleinEcran(null);
-      setMotifRefus(''); setMotifConfirmation(''); setAvertissement(null); setActionErreur(''); setMotifOuverture(''); // reset décisions (DANS l'async)
+      setMotifRefus(''); setMotifConfirmation(''); setAvertissement(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); // reset décisions (DANS l'async)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
         if (annule) return;
@@ -208,15 +209,15 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
                     en colonne sur mobile). SEUL emplacement de la saisie (le bloc du bas est supprimé) : aucun champ en double. */}
                 {persiste && nouvelle.corps.some((c) => c.cleabsAffectes.length > 0) && (
                   <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-                    <SaisieCotesInjection affectation={nouvelle} cotes={cotesEffectives} onCote={majCote} onRecopier={recopierPourBatiment} />
+                    <SaisieCotesInjection affectation={nouvelle} cotes={cotesEffectives} onCote={majCote} onRecopier={recopierPourBatiment} misEnAvant={cleabsMisEnAvant} onMiseEnAvant={setCleabsMisEnAvant} />
                   </div>
                 )}
                 <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                  <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} afficherFutur={afficherFutur} />
+                  <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} />
                 </div>
                 {aChange && (
                   <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                    <AffectationBloc affectation={nouvelle} titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('nouvelle')} afficherReperes={afficherReperes} sourceLibelle={SOURCE_VIVANTE} afficherFutur={afficherFutur} />
+                    <AffectationBloc affectation={nouvelle} titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('nouvelle')} afficherReperes={afficherReperes} sourceLibelle={SOURCE_VIVANTE} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} />
                   </div>
                 )}
               </div>
