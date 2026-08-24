@@ -6,7 +6,7 @@ import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/
 import type { CritereSurface, CritereBordure, CritereBati } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo'; // TYPE seul (module serveur)
 // affectationSchema est PUR (aucun import serveur) → on peut importer ses fonctions dans le bundle client.
-import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere, indexDepuisRepere, niveauSurlignement, PALETTE_REPERE, type SchemaEmpreinte, type CorpsAffectation, type AttributsPolygone, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
+import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere, indexDepuisRepere, etatSurlignement, PALETTE_REPERE, type SchemaEmpreinte, type CorpsAffectation, type AttributsPolygone, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
 // rattachementGroupes est PUR (import de TYPE seul depuis le repo, erasé) → client-safe. Source UNIQUE de la coupure en deux (L6).
 import { estAFaire, GROUPE1_TITRE, GROUPE2_TITRE } from '../../../../lib/permis/rattachementGroupes';
 
@@ -562,17 +562,26 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
   const hachureId = `hachure-${uid.replace(/:/g, '')}`; // L12 — croisillon du FUTUR BÂTI (id unique par schéma)
   const [actif, setActif] = useState<string | null>(null); // L11 — repère du polygone survolé/focalisé/tapé (bulle visuelle)
   if (schema.motif) return <div style={{ ...styleAide, fontStyle: 'italic' }}>{schema.motif}</div>;
-  // L3 — `agrandi` : en plein écran, le schéma remplit la largeur disponible (le viewBox conserve le ratio) et monte jusqu'à 72vh
-  // pour que les repères chevauchés en vue réduite redeviennent lisibles. En vue réduite : dimensions intrinsèques + maxWidth.
-  const dims = agrandi ? { width: '100%' as const } : { width: schema.largeur, height: schema.hauteur };
-  const styleSvg: CSSProperties = agrandi
-    ? { width: '100%', height: 'auto', maxHeight: '72vh', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' }
+  // L3 — `agrandi` (plein écran L13) : le schéma remplit la largeur et monte jusqu'à 72vh. M7-bis — `grand` (DÉRIVÉ : un champ de cote a
+  //   le focus → cleabsMisEnAvant ≠ null) fait de MÊME EN VUE RÉDUITE, INLINE (SANS réutiliser le plein écran L13) : le schéma occupe
+  //   toute sa colonne et grandit en hauteur pendant la saisie ; il retombe quand la mise en avant est remise à zéro (changement de dossier).
+  const grand = !agrandi && cleabsMisEnAvant != null;
+  const remplirLargeur = agrandi || grand;
+  const dims = remplirLargeur ? { width: '100%' as const } : { width: schema.largeur, height: schema.hauteur };
+  const styleSvg: CSSProperties = remplirLargeur
+    ? { width: '100%', height: 'auto', maxHeight: agrandi ? '72vh' : '68vh', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' }
     : { maxWidth: '100%', height: 'auto', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' };
+  // 🔴 M7-bis — ANTI-SAUT : dès qu'un champ a le focus, la HAUTEUR du conteneur du schéma est RÉSERVÉE (minHeight) → le grossissement
+  //   ne réagence pas la page. La colonne des champs (à GAUCHE en desktop, colonnes indépendantes top-alignées ; AU-DESSUS en mobile,
+  //   le schéma grandissant vers le BAS) ne bouge donc pas entre deux clics.
+  const styleConteneur: CSSProperties = { position: 'relative', display: remplirLargeur ? 'block' : 'inline-block', maxWidth: '100%', width: remplirLargeur ? '100%' : undefined, minHeight: grand ? 'min(68vh, 520px)' : undefined };
+  // M7-bis — dès qu'UN polygone est mis en avant, les AUTRES passent en retrait (atténués). Ne vaut que si le mis-en-avant est DANS ce schéma.
+  const ilYaMiseEnAvant = cleabsMisEnAvant != null && schema.polygones.some((p) => p.cleabs === cleabsMisEnAvant);
   // L14 — l'interrupteur du futur bâti ne RETIRE JAMAIS un polygone (ne pas faire disparaître du bâti). TOUS les polygones sont
   //   toujours dessinés ; l'interrupteur ne bascule QUE la MARQUE (croisillon L12) — cf. plus bas `afficherFutur && estFuturBati(...)`.
   const actifPoly = afficherReperes ? schema.polygones.find((p) => p.repere === actif) ?? null : null;
   return (
-    <div style={{ position: 'relative', display: agrandi ? 'block' : 'inline-block', maxWidth: '100%', width: agrandi ? '100%' : undefined }}>
+    <div style={styleConteneur}>
       <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} {...dims} role="img"
         aria-label="Schéma des polygones de la parcelle du permis, étiquetés par repère" style={styleSvg}>
         <defs>
@@ -594,6 +603,8 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
         {schema.polygones.map((p) => {
           const affecte = !!corpsDuPolygone(corps, p.cleabs);
           const estRouge = p.cleabs != null && !!rougeCleabs?.includes(p.cleabs); // L5 — nouveau/modifié → rouge (jamais seul porteur)
+          // M7/M7-bis — niveau de surlignement + « en retrait » (atténuation des AUTRES pendant qu'un polygone est mis en avant).
+          const { niveau, enRetrait } = etatSurlignement({ estMisEnAvant: p.cleabs != null && p.cleabs === cleabsMisEnAvant, ilYaMiseEnAvant, affecte, actif: actif === p.repere });
           // L11 — quand les repères sont affichés : le polygone porte sa BULLE (<title> = survol natif + nom accessible au clavier) et
           // devient focalisable/tapable (équivalent tactile). Décoché → ni <title>, ni lettre, ni interactivité, ni bulle.
           const info = afficherReperes ? lignesBulle(p.cleabs, p.attributs, sourceLibelle) : null;
@@ -605,18 +616,19 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
                 onClick: () => setActif((a) => (a === p.repere ? null : p.repere)) } // tap : 1er appui affiche, 2e masque
             : {};
           return (
-            <g key={p.repere} {...interactif}>
+            // M7-bis — ATTÉNUATION : un polygone « en retrait » (un AUTRE est mis en avant) passe à opacité réduite EN BLOC (remplissage,
+            //   contour, croisillon, lettre) ; le mis-en-avant garde son opacité pleine. L'empreinte et la trame (hors de ces <g>) restent lisibles.
+            <g key={p.repere} opacity={enRetrait ? 0.22 : 1} {...interactif}>
               {info && <title>{info.join('\n')}</title>}
               {/* M6/M7 — SURLIGNEMENT qui ÉPOUSE la forme : on re-stroke le PROPRE `path` du polygone (jamais sa bbox), DERRIÈRE le
-                  remplissage. Deux niveaux (fonction pure `niveauSurlignement`) : « halo » (coché/affecté OU survol/focus) = fin trait
-                  encre semi-transparent ; « mis en avant » (le champ de cote de ce polygone a le focus — M7) = double liseré blanc+encre,
-                  OPAQUE et plus large → nettement plus fort, mais toujours DERRIÈRE : le contour vert/tireté et le croisillon restent
-                  dessus, distincts. Largeur FIXE → serré sur une lanière, ne mord pas les voisins. Jamais rouge, jamais une teinte de la palette. */}
-              {niveauSurlignement({ estMisEnAvant: p.cleabs != null && p.cleabs === cleabsMisEnAvant, affecte, actif: actif === p.repere }) === 'halo' && (
+                  remplissage. « halo » (coché/affecté OU survol/focus) = fin trait encre semi-transparent ; « mis en avant » (le champ de
+                  cote de ce polygone a le focus) = double liseré blanc+encre, OPAQUE et un peu plus large — mais c'est surtout l'ATTÉNUATION
+                  des autres (ci-dessus) qui le fait ressortir sur une lanière étroite. Toujours DERRIÈRE : contour vert/tireté et croisillon restent dessus, distincts. */}
+              {niveau === 'halo' && (
                 <path d={p.path} fill="none" stroke="var(--color-svv-ink)" strokeWidth={3.5} strokeOpacity={0.42}
                   strokeLinejoin="round" pointerEvents="none" data-surlignement="true" />
               )}
-              {niveauSurlignement({ estMisEnAvant: p.cleabs != null && p.cleabs === cleabsMisEnAvant, affecte, actif: actif === p.repere }) === 'mis-en-avant' && (
+              {niveau === 'mis-en-avant' && (
                 <>
                   <path d={p.path} fill="none" stroke="#fff" strokeWidth={6.5} strokeOpacity={0.95} strokeLinejoin="round" pointerEvents="none" />
                   <path d={p.path} fill="none" stroke="var(--color-svv-ink)" strokeWidth={4} strokeLinejoin="round" pointerEvents="none" data-mis-en-avant="true" />
@@ -624,7 +636,7 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
               )}
               <path d={p.path} fill={estRouge ? 'var(--color-svv-red)' : couleurRepere(indexDepuisRepere(p.repere))} fillOpacity={0.85}
                 stroke={affecte ? 'var(--color-svv-green-ink)' : 'var(--color-svv-ink)'} strokeWidth={affecte ? 2.5 : 1}
-                strokeDasharray={p.horsEmpreinte ? '3 2' : undefined} />
+                strokeDasharray={p.horsEmpreinte ? '3 2' : undefined} data-en-retrait={enRetrait ? 'true' : undefined} />
               {/* L12/L14 — FUTUR BÂTI (« En projet »/« En construction ») : croisillon en surimpression, NON coloré (le remplissage
                   reste la couleur du repère, aucun rouge). C'est la MARQUE de la projection : l'interrupteur `afficherFutur` la montre
                   (coché) ou la masque (décoché) — SANS jamais retirer le polygone, qui reste toujours dessiné à sa position. */}

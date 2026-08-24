@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   repereDepuisIndex, indexDepuisRepere, couleurRepere, PALETTE_REPERE,
   geomDepuisGeoJSON, construireSchema, cadreDe, unionCadre, optionsPourCorps, polygonesNonAffectes, corpsDuPolygone,
-  recopierCote, cotesEnNombres, niveauSurlignement,
+  recopierCote, cotesEnNombres, niveauSurlignement, etatSurlignement,
   type CorpsAffectation, type PolygoneAffectable, type PolygoneEntreeSchema,
 } from './affectationSchema';
 
@@ -168,5 +168,22 @@ describe('M7 — niveauSurlignement (pur)', () => {
   });
   it('aucun surlignement sinon', () => {
     expect(niveauSurlignement({ estMisEnAvant: false, affecte: false, actif: false })).toBe('aucun');
+  });
+});
+
+describe('M7-bis — etatSurlignement (pur : atténuation des autres)', () => {
+  it('le mis-en-avant N’EST PAS en retrait (opacité pleine) et garde son niveau', () => {
+    expect(etatSurlignement({ estMisEnAvant: true, ilYaMiseEnAvant: true, affecte: true, actif: false }))
+      .toEqual({ niveau: 'mis-en-avant', enRetrait: false });
+  });
+  it('quand un AUTRE est mis en avant, ce polygone passe EN RETRAIT (même affecté)', () => {
+    expect(etatSurlignement({ estMisEnAvant: false, ilYaMiseEnAvant: true, affecte: true, actif: false }))
+      .toEqual({ niveau: 'halo', enRetrait: true });
+  });
+  it('aucun champ focalisé (pas de mise en avant) → PERSONNE en retrait (rendu M6/M7 inchangé)', () => {
+    expect(etatSurlignement({ estMisEnAvant: false, ilYaMiseEnAvant: false, affecte: true, actif: false }))
+      .toEqual({ niveau: 'halo', enRetrait: false });
+    expect(etatSurlignement({ estMisEnAvant: false, ilYaMiseEnAvant: false, affecte: false, actif: false }))
+      .toEqual({ niveau: 'aucun', enRetrait: false });
   });
 });

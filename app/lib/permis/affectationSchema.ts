@@ -192,3 +192,18 @@ export function niveauSurlignement(e: { estMisEnAvant: boolean; affecte: boolean
   if (e.affecte || e.actif) return 'halo';
   return 'aucun';
 }
+
+export interface EtatSurlignement { niveau: NiveauSurlignement; enRetrait: boolean }
+
+/**
+ * M7-bis — état complet d'un polygone : son `niveau` de surlignement + s'il est « en retrait ». Le levier de lisibilité principal est
+ * l'ATTÉNUATION DES AUTRES : dès qu'UN polygone est mis en avant (`ilYaMiseEnAvant`), tous les AUTRES passent en retrait (opacité
+ * réduite), le mis-en-avant gardant son opacité pleine. PUR (testable sans DOM). L'empreinte et la trame ne sont pas des polygones →
+ * jamais atténuées (gérées hors de cette fonction).
+ */
+export function etatSurlignement(e: { estMisEnAvant: boolean; ilYaMiseEnAvant: boolean; affecte: boolean; actif: boolean }): EtatSurlignement {
+  return {
+    niveau: niveauSurlignement({ estMisEnAvant: e.estMisEnAvant, affecte: e.affecte, actif: e.actif }),
+    enRetrait: e.ilYaMiseEnAvant && !e.estMisEnAvant,
+  };
+}

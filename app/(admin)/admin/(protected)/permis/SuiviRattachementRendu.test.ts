@@ -697,6 +697,40 @@ describe('M7 — le champ de cote pilote la mise en avant du polygone', () => {
   });
 });
 
+describe('M7-bis — schéma agrandi pendant la saisie + atténuation des autres', () => {
+  const schemaAB: SchemaEmpreinte = {
+    largeur: 320, hauteur: 240, empreintePath: 'M10,10 L100,10 L100,100 Z', motif: null,
+    polygones: [
+      { repere: 'A', cleabs: 'BAT_A', path: 'M20,20 L40,20 L40,40 Z', cx: 30, cy: 30, horsEmpreinte: false },
+      { repere: 'B', cleabs: 'BAT_B', path: 'M60,60 L80,60 L80,80 Z', cx: 70, cy: 70, horsEmpreinte: false },
+    ],
+  };
+  const corpsAB = [{ id: 1, repere: '2D1', altitudeSommetNgf: 88, nbEtages: 7, cleabsAffectes: ['BAT_A', 'BAT_B'] }];
+
+  it('un champ focalisé (cleabsMisEnAvant) → les AUTRES polygones passent en retrait ; le mis-en-avant reste opaque', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaAB, corps: corpsAB, cleabsMisEnAvant: 'BAT_A' }));
+    // B (l'autre) atténué : data-en-retrait sur son path + son <g> à opacité réduite
+    expect(h).toMatch(/d="M60,60 L80,60 L80,80 Z"[^>]*data-en-retrait="true"/);
+    expect(h).toContain('opacity="0.22"');
+    // A (mis en avant) : PAS en retrait (opacité pleine, pas de data-en-retrait sur son path)
+    expect(h).not.toMatch(/d="M20,20 L40,20 L40,40 Z"[^>]*data-en-retrait/);
+  });
+
+  it('schéma AGRANDI pendant la saisie (width 100%) + hauteur réservée (anti-saut), SANS réutiliser le plein écran', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaAB, corps: corpsAB, cleabsMisEnAvant: 'BAT_A' }));
+    expect(h).toContain('width="100%"');     // le SVG remplit sa colonne
+    expect(h).toContain('min-height');       // hauteur réservée sur le conteneur → pas de réagencement
+  });
+
+  it('aucun champ focalisé → PERSONNE en retrait, taille INTRINSÈQUE (rendu M6/M7 inchangé)', () => {
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaAB, corps: corpsAB }));
+    expect(h).not.toContain('data-en-retrait');
+    expect(h).not.toContain('opacity="0.22"');
+    expect(h).not.toContain('width="100%"'); // le SVG n'est PAS agrandi (pas de remplissage de largeur)
+    expect(h).not.toContain('min-height');   // pas de réservation hors saisie
+  });
+});
+
 describe('L3b — vocabulaire parcelle : « empreinte » disparaît de l’interface visible', () => {
   // Un polygone débordant (B) pour éprouver le libellé du débordement.
   const affDeborde = (): AffectationEtat => ({
