@@ -84,3 +84,6 @@ sandbox/
 
 # fichier d'état jetable du state-manager de /svav-build
 docs/.svav-build-state.md
+
+# dumps de sauvegarde locaux (jamais committes)
+sauvegardes/
