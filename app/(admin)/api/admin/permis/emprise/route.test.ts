@@ -8,8 +8,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 vi.mock('../../../../../lib/admin/garde', () => ({ exigerAdministrateur: async () => ({ admin: { id: 1 } }) }));
 vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
-  listerEmprises: async () => [{ id: 1, dossierId: 11434, libelle: '2D1', anneau: [], surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0, creeLe: null }],
+  listerEmprises: async () => [{ id: 1, dossierId: 11434, corpsId: 3, libelle: '2D1', anneau: [], surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0, creeLe: null }],
+  listerIgnorees: async () => [{ corpsId: 4, motif: 'déjà bâti' }],
   enregistrerEmprise: vi.fn(async () => ({ ok: true, id: 42 })),
+  ignorerProjection: vi.fn(async () => ({ ok: true })),
+  retablirProjection: vi.fn(async () => ({ ok: true })),
   supprimerEmprise: vi.fn(async () => 1),
   lireContexteEmprise: async () => ({ empreinteAnneaux: [], surfaceTerrainM2: 2886.5, surfacePlancherM2: 900, nbEtages: 3 }),
 }));
@@ -23,7 +26,7 @@ vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({ lireCleTelechargeable
 vi.mock('../../../../../lib/stockage', () => ({ urlSignee: async (cle: string) => `https://signed.example/${cle}` }));
 
 import { GET, POST } from './route';
-import { enregistrerEmprise, supprimerEmprise } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { enregistrerEmprise, supprimerEmprise, ignorerProjection, retablirProjection } from '../../../../../lib/permis/empriseReconstruiteRepo';
 
 const get = (q: string) => GET(new Request(`http://test.local/api/admin/permis/emprise${q}`));
 const post = (body: unknown) => POST(new Request('http://test.local/api/admin/permis/emprise', {
@@ -39,6 +42,8 @@ describe('PROJ-2 — GET', () => {
     const j = await res.json();
     expect(j.pieces).toEqual([{ id: 55, nomFichier: 'PC2.pdf', typeMime: 'application/pdf' }]); // JPG écartée, cleStockage absente
     expect(j.emprises).toHaveLength(1);
+    expect(j.emprises[0].corpsId).toBe(3);                 // PROJ-2b — emprise liée à son bâtiment
+    expect(j.ignores).toEqual([{ corpsId: 4, motif: 'déjà bâti' }]); // projections ignorées exposées
     expect(j.contexte.surfaceTerrainM2).toBe(2886.5);
   });
   it('dossierId absent/invalide → 400', async () => {
@@ -50,7 +55,7 @@ describe('PROJ-2 — GET', () => {
 describe('PROJ-2 — POST enregistrer : géométrie recalculée SERVEUR (plan → Lambert)', () => {
   it('similitude ×2 : tracé plan 5×5 → anneau Lambert 10×10 (aire 100 m²), enregistré en Lambert', async () => {
     const body = {
-      action: 'enregistrer', dossierId: '11434', libelle: '2D1', pieceId: 55, page: 2,
+      action: 'enregistrer', dossierId: '11434', corpsId: 3, libelle: '2D1', pieceId: 55, page: 2,
       // calage : (0,0)→(0,0) et (1,0)→(2,0) ⇒ échelle ×2, sans rotation
       paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }],
       anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }, { x: 0, y: 5 }],
@@ -64,13 +69,20 @@ describe('PROJ-2 — POST enregistrer : géométrie recalculée SERVEUR (plan �
     expect(j.surfaceM2).toBeCloseTo(100, 6); // 5×5 pt × échelle² (4) = 100 m²
     expect(j.vraisemblance.empriseVsPlancher).toBe('petite'); // attendu ~300 m² (900/3), tolérance ±40 % → [180;420] ; 100 < 180
     // l'anneau PASSÉ au repo est en LAMBERT (×2), pas le tracé plan
-    const arg = (enregistrerEmprise as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0] as { anneau: { x: number; y: number }[]; dossierId: number };
+    const arg = (enregistrerEmprise as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0] as { anneau: { x: number; y: number }[]; dossierId: number; corpsId: number };
     expect(arg.dossierId).toBe(11434);              // chaîne bigint acceptée et coercée
+    expect(arg.corpsId).toBe(3);                    // PROJ-2b — l'emprise est liée au bâtiment
     expect(arg.anneau[1]).toEqual({ x: 10, y: 0 }); // 5 pt × 2 = 10 m
   });
 
   it('contour < 3 sommets → 400, aucun enregistrement', async () => {
-    const res = await post({ action: 'enregistrer', dossierId: 11434, libelle: 'X', anneauPlan: [{ x: 0, y: 0 }, { x: 1, y: 1 }], paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 1, y: 0 } }] });
+    const res = await post({ action: 'enregistrer', dossierId: 11434, corpsId: 3, libelle: 'X', anneauPlan: [{ x: 0, y: 0 }, { x: 1, y: 1 }], paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 1, y: 0 } }] });
+    expect(res.status).toBe(400);
+    expect(enregistrerEmprise).not.toHaveBeenCalled();
+  });
+
+  it('sans corpsId → 400 (une emprise par bâtiment est obligatoire)', async () => {
+    const res = await post({ action: 'enregistrer', dossierId: 11434, libelle: 'X', anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }], paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }] });
     expect(res.status).toBe(400);
     expect(enregistrerEmprise).not.toHaveBeenCalled();
   });
@@ -91,5 +103,23 @@ describe('PROJ-2 — POST signer_piece / supprimer', () => {
     const res = await post({ action: 'supprimer', dossierId: 11434, id: 42 });
     expect(res.status).toBe(200);
     expect(supprimerEmprise).toHaveBeenCalledWith(42, 11434);
+  });
+});
+
+describe('PROJ-2b — POST ignorer / retablir la projection', () => {
+  it('ignorer → passe corpsId + motif ; renvoie emprises + ignores', async () => {
+    const res = await post({ action: 'ignorer', dossierId: '11434', corpsId: 4, motif: 'déjà bâti' });
+    expect(res.status).toBe(200);
+    expect(ignorerProjection).toHaveBeenCalledWith(11434, 4, 'déjà bâti', 'admin:projection');
+    const j = await res.json();
+    expect(j.ignores).toEqual([{ corpsId: 4, motif: 'déjà bâti' }]);
+  });
+  it('retablir → passe corpsId', async () => {
+    const res = await post({ action: 'retablir', dossierId: 11434, corpsId: 4 });
+    expect(res.status).toBe(200);
+    expect(retablirProjection).toHaveBeenCalledWith(11434, 4, 'admin:projection');
+  });
+  it('ignorer sans corpsId → 400', async () => {
+    expect((await post({ action: 'ignorer', dossierId: 11434, motif: 'x' })).status).toBe(400);
   });
 });

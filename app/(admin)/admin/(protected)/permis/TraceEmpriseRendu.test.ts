@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, fmtM2 } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2 } from './TraceEmpriseRendu';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
+import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
 
 const emprise = (over: Partial<EmpriseReconstruite> = {}): EmpriseReconstruite => ({
-  id: 1, dossierId: 11434, libelle: '2D1', anneau: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
+  id: 1, dossierId: 11434, corpsId: 1, libelle: '2D1', anneau: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
   surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0.3, creeLe: null, ...over,
 });
 
@@ -36,6 +37,24 @@ describe('PROJ-2 — rendu pur', () => {
     expect(html).toContain('reconstitution');   // 🔴 jamais présentée comme une mesure
     expect(html).toContain('100 m²');
     expect(html).toContain('résidu');
+  });
+
+  it('statutBatiment : tracée prime sur ignorée, sinon en attente', () => {
+    const emprises = [emprise({ corpsId: 1 })];
+    expect(statutBatiment(1, emprises, [])).toBe('tracee');
+    expect(statutBatiment(2, emprises, [{ corpsId: 2, motif: 'x' }])).toBe('ignoree');
+    expect(statutBatiment(3, emprises, [])).toBe('attente');
+    expect(statutBatiment(1, emprises, [{ corpsId: 1, motif: 'x' }])).toBe('tracee'); // tracée l'emporte
+  });
+
+  it('BandeauProjection : bloquant nomme le manquant ; passant en vert', () => {
+    const bloque = verdictProjectionBatiments([{ corpsId: 1, repere: '2D1' }, { corpsId: 2, repere: '2D2' }], [1], []);
+    const hb = renderToStaticMarkup(h(BandeauProjection, { verdict: bloque }));
+    expect(hb).toContain('data-peut-valider="false"');
+    expect(hb).toContain('1 emprise tracée · 1 en attente');
+    expect(hb).toContain('2D2'); // le manquant nommé
+    const passe = verdictProjectionBatiments([{ corpsId: 1, repere: '2D1' }], [1], []);
+    expect(renderToStaticMarkup(h(BandeauProjection, { verdict: passe }))).toContain('data-peut-valider="true"');
   });
 
   it('SchemaParcelleTrace : parcelle + emprise dessinées ; parcelle absente → motif', () => {

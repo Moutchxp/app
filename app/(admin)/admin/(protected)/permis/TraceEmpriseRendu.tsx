@@ -2,7 +2,8 @@ import type { CSSProperties } from 'react';
 import {
   projeterDansBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance,
 } from '../../../../lib/permis/calageEmprise';
-import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
+import type { EmpriseReconstruite, ProjectionIgnoree } from '../../../../lib/permis/empriseReconstruiteRepo';
+import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 
 /**
  * PROJ-2 — RENDU PUR (aucun état, aucun effet → testable en Node via renderToStaticMarkup) de l'écran de tracé d'emprise.
@@ -16,6 +17,30 @@ const carte: CSSProperties = { border: '1px solid var(--color-svv-line)', border
 /** Nombre en français, sans arrondi trompeur d'un calcul (arrondi d'AFFICHAGE seulement). */
 export function fmtM2(x: number): string { return `${Math.round(x).toLocaleString('fr-FR')} m²`; }
 export function fmtM(x: number): string { return `${x.toFixed(2).replace('.', ',')} m`; }
+
+export type StatutBatiment = 'tracee' | 'ignoree' | 'attente';
+/** PROJ-2b — statut de projection d'UN bâtiment : emprise tracée (prioritaire), sinon ignorée, sinon en attente. PUR. */
+export function statutBatiment(corpsId: number, emprises: EmpriseReconstruite[], ignores: ProjectionIgnoree[]): StatutBatiment {
+  if (emprises.some((e) => e.corpsId === corpsId)) return 'tracee';
+  if (ignores.some((i) => i.corpsId === corpsId)) return 'ignoree';
+  return 'attente';
+}
+const MOT_STATUT: Record<StatutBatiment, string> = { tracee: '✓ emprise tracée', ignoree: '⚠ projection ignorée', attente: '… en attente' };
+export function motStatutBatiment(s: StatutBatiment): string { return MOT_STATUT[s]; }
+
+/**
+ * PROJ-2b — BANDEAU de projection : dit AVANT le clic ce qui manque (« 2 bâtiments · 1 emprise tracée · 1 en attente »), et
+ * NOMME les bâtiments en attente. Vert si passant, rouge sinon. Le mot porte l'info (la couleur n'est jamais seule).
+ */
+export function BandeauProjection({ verdict }: { verdict: VerdictProjection }) {
+  const ok = verdict.peutValider;
+  return (
+    <div className="svv-card" data-peut-valider={ok} style={{ fontSize: 12, borderColor: ok ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)', background: ok ? 'var(--color-svv-green-soft)' : 'var(--color-svv-red-soft)' }}>
+      <div style={{ fontWeight: 700 }}>{ok ? '✓ ' : '✕ '}Projection des emprises — {verdict.libelle}</div>
+      {!ok && <div style={{ color: 'var(--color-svv-ink)' }}>En attente : {verdict.manquants.map((m) => m.repere ?? `bâtiment ${m.corpsId}`).join(', ')}. Tracez une emprise ou ignorez explicitement la projection pour chacun avant de valider.</div>}
+    </div>
+  );
+}
 
 /**
  * Bandeau de CALAGE : résidu de fit, échelle implicite (« 1:R ») vs déclarée, résidu d'échelle, et le verdict « douteux »

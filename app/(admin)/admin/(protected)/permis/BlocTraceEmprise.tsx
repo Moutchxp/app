@@ -1,0 +1,259 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type CSSProperties } from 'react';
+import {
+  calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, cadreDeAnneaux,
+  inverseDepuisBoite, type Boite, type PaireCalage, type PointPlan, type PointLambert, type VerdictCalage, type VerdictVraisemblance,
+} from '../../../../lib/permis/calageEmprise';
+import type { EmpriseReconstruite, ProjectionIgnoree } from '../../../../lib/permis/empriseReconstruiteRepo';
+import { verdictProjectionBatiments, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment } from './TraceEmpriseRendu';
+
+/**
+ * PROJ-2b — BLOC de tracé d'emprise INTÉGRÉ au détail d'un dossier de Rattachement, BÂTIMENT PAR BÂTIMENT. Le dossier vient de la
+ * ligne (aucune saisie), les bâtiments viennent du permis (`batiments`). Pour chaque bâtiment : tracer une emprise OU ignorer la
+ * projection (motif obligatoire, réversible). Le verdict (peut-on valider ?) remonte au parent via `onVerdict`, qui désactive le
+ * bouton Valider. 🔴 Géométrie du module PUR `calageEmprise` (les handlers ne font que POSER l'état) ; enregistrement recalculé serveur.
+ */
+
+interface Piece { id: number; nomFichier: string; typeMime: string | null }
+interface Contexte { empreinteAnneaux: [number, number][][] | PointLambert[][]; surfaceTerrainM2: number | null; surfacePlancherM2: number | null; nbEtages: number | null }
+type Mode = 'calage' | 'trace';
+type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convertToViewportPoint(x: number, y: number): number[] }; ratio: number };
+
+const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
+
+export function BlocTraceEmprise({ dossierId, batiments, onVerdict }: {
+  dossierId: number;
+  batiments: BatimentProjection[];
+  onVerdict?: (v: VerdictProjection) => void;
+}) {
+  const [pieces, setPieces] = useState<Piece[]>([]);
+  const [emprises, setEmprises] = useState<EmpriseReconstruite[]>([]);
+  const [ignores, setIgnores] = useState<ProjectionIgnoree[]>([]);
+  const [contexte, setContexte] = useState<Contexte | null>(null);
+  const [corpsSel, setCorpsSel] = useState<number | null>(null);
+  const [pieceId, setPieceId] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [ratioDeclareSaisi, setRatioDeclareSaisi] = useState('');
+  const [mode, setMode] = useState<Mode>('calage');
+  const [paires, setPaires] = useState<PaireCalage[]>([]);
+  const [planEnAttente, setPlanEnAttente] = useState<PointPlan | null>(null);
+  const [sommets, setSommets] = useState<PointPlan[]>([]);
+  const [motifIgnore, setMotifIgnore] = useState('');
+  const [apercu, setApercu] = useState<Apercu | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [occupe, setOccupe] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Chargement (pièces PDF + emprises + ignorées + contexte) au changement de dossier.
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      setMessage(null);
+      try {
+        const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`, { cache: 'no-store' });
+        if (annule) return;
+        if (!res.ok) { setMessage('emprises indisponibles'); return; }
+        const j = await res.json() as { pieces: Piece[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; contexte: Contexte };
+        setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setContexte(j.contexte);
+        setPieceId(j.pieces[0]?.id ?? null);
+      } catch { if (!annule) setMessage('erreur de chargement'); }
+    })();
+    return () => { annule = true; };
+  }, [dossierId]);
+
+  // Bâtiment EFFECTIF (dérivé, PAS un effet) : la sélection d'Arno si elle vise un bâtiment réel, sinon le PREMIER en attente,
+  // sinon le premier. Évite un setState-dans-effet (cascade de rendus) : la valeur se recalcule quand les entrées changent.
+  const corpsEffectif = useMemo(() => {
+    if (corpsSel !== null && batiments.some((b) => b.corpsId === corpsSel)) return corpsSel;
+    const attente = batiments.find((b) => statutBatiment(b.corpsId, emprises, ignores) === 'attente');
+    return (attente ?? batiments[0])?.corpsId ?? null;
+  }, [corpsSel, batiments, emprises, ignores]);
+
+  // Verdict de projection → remonte au parent (bouton Valider). Mémoïsé : ne rejoue l'effet que si les entrées changent.
+  const verdict = useMemo(() => verdictProjectionBatiments(batiments, emprises.map((e) => e.corpsId).filter((c): c is number => c !== null), ignores.map((i) => i.corpsId)), [batiments, emprises, ignores]);
+  useEffect(() => { onVerdict?.(verdict); }, [verdict, onVerdict]);
+
+  const parcelle: PointLambert[][] = useMemo(() => (contexte?.empreinteAnneaux ?? []).map((a) =>
+    (a as unknown[]).map((p) => Array.isArray(p) ? { x: p[0] as number, y: p[1] as number } : (p as PointLambert))), [contexte]);
+  const boite: Boite | null = useMemo(() => { const c = cadreDeAnneaux(parcelle); return c ? { largeur: BOITE_L, hauteur: BOITE_H, marge: BOITE_MARGE, cadre: c } : null; }, [parcelle]);
+
+  const ratioDeclare = (() => { const n = Number(ratioDeclareSaisi.replace(',', '.')); return ratioDeclareSaisi.trim() !== '' && Number.isFinite(n) && n > 0 ? n : null; })();
+  const sim = calculerSimilitude(paires);
+  const anneauLambert = sim && sommets.length >= 3 ? anneauVersLambert(sim, sommets) : null;
+  const aire = anneauLambert ? aireM2(anneauLambert) : null;
+  const vc: VerdictCalage | null = sim ? verdictCalage(sim, paires, ratioDeclare) : null;
+  const vv: VerdictVraisemblance | null = aire !== null ? verdictVraisemblance({ aireM2: aire, surfacePlancherM2: contexte?.surfacePlancherM2 ?? null, nbEtages: contexte?.nbEtages ?? null, surfaceTerrainM2: contexte?.surfaceTerrainM2 ?? null }) : null;
+
+  const batSel = batiments.find((b) => b.corpsId === corpsEffectif) ?? null;
+  const empriseDuBat = emprises.filter((e) => e.corpsId === corpsEffectif);
+  const ignoreDuBat = ignores.find((i) => i.corpsId === corpsEffectif) ?? null;
+
+  const afficherPage = useCallback(async () => {
+    if (pieceId === null) return;
+    setOccupe(true); setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'signer_piece', pieceId }) });
+      if (!res.ok) { setMessage('pièce indisponible'); return; }
+      const { url } = await res.json() as { url: string };
+      const pdfjs = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as typeof import('pdfjs-dist');
+      pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+      const pdf = await pdfjs.getDocument(url).promise;
+      const p = Math.min(Math.max(1, page), pdf.numPages);
+      const pageObj = await pdf.getPage(p);
+      const canvas = canvasRef.current; if (!canvas) return;
+      const largeurCss = canvas.parentElement?.clientWidth || 560;
+      const base = pageObj.getViewport({ scale: 1 });
+      const dpr = window.devicePixelRatio || 1;
+      const viewport = pageObj.getViewport({ scale: (largeurCss / base.width) * dpr });
+      canvas.width = Math.floor(viewport.width); canvas.height = Math.floor(viewport.height);
+      canvas.style.width = '100%'; canvas.style.height = 'auto';
+      const ctx = canvas.getContext('2d'); if (!ctx) return;
+      await pageObj.render({ canvasContext: ctx, viewport }).promise;
+      setApercu({ vp: viewport as unknown as Apercu['vp'], ratio: canvas.width / (canvas.getBoundingClientRect().width || largeurCss) });
+      setPage(p);
+    } catch { setMessage('impossible d’afficher la page (PDF illisible)'); } finally { setOccupe(false); }
+  }, [pieceId, page]);
+
+  const cliquerPdf = useCallback((ev: ReactMouseEvent<HTMLDivElement>) => {
+    const canvas = canvasRef.current; if (!canvas || !apercu) return;
+    const r = canvas.getBoundingClientRect();
+    const [px, py] = apercu.vp.convertToPdfPoint((ev.clientX - r.left) * apercu.ratio, (ev.clientY - r.top) * apercu.ratio);
+    if (mode === 'trace') setSommets((s) => [...s, { x: px, y: py }]);
+    else setPlanEnAttente({ x: px, y: py });
+  }, [mode, apercu]);
+
+  const cliquerSchema = useCallback((pxBoite: { x: number; y: number }) => {
+    if (mode !== 'calage' || !boite || !planEnAttente) return;
+    setPaires((ps) => [...ps, { plan: planEnAttente, lambert: inverseDepuisBoite(boite, pxBoite) }]);
+    setPlanEnAttente(null);
+  }, [mode, boite, planEnAttente]);
+
+  const enregistrer = useCallback(async () => {
+    if (!sim || sommets.length < 3 || corpsEffectif === null || !batSel) { setMessage('sélectionnez un bâtiment, calez (2 points) et tracez un contour ≥ 3 sommets'); return; }
+    setOccupe(true); setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'enregistrer', dossierId, corpsId: corpsEffectif, libelle: batSel.repere ?? `bâtiment ${corpsEffectif}`, pieceId, page, anneauPlan: sommets, paires, ratioDeclare }) });
+      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; ignores?: ProjectionIgnoree[] };
+      if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'enregistrement refusé'); return; }
+      setEmprises(j.emprises ?? []); if (j.ignores) setIgnores(j.ignores);
+      setSommets([]); setMessage('emprise reconstituée enregistrée');
+    } catch { setMessage('erreur d’enregistrement'); } finally { setOccupe(false); }
+  }, [sim, sommets, corpsEffectif, batSel, dossierId, pieceId, page, paires, ratioDeclare]);
+
+  const posterProjection = useCallback(async (action: 'ignorer' | 'retablir' | 'supprimer', corps: number, extra: Record<string, unknown> = {}) => {
+    setOccupe(true); setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, dossierId, corpsId: corps, ...extra }) });
+      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; ignores?: ProjectionIgnoree[] };
+      if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'action refusée'); return; }
+      if (j.emprises) setEmprises(j.emprises); if (j.ignores) setIgnores(j.ignores);
+      if (action === 'ignorer') setMotifIgnore('');
+    } catch { setMessage('action impossible'); } finally { setOccupe(false); }
+  }, [dossierId]);
+
+  // Overlay : positions CSS des points plan / sommets (lit `apercu` en state).
+  const versCss = (p: PointPlan): { x: number; y: number } | null => {
+    if (!apercu) return null;
+    const [vx, vy] = apercu.vp.convertToViewportPoint(p.x, p.y);
+    return { x: vx / apercu.ratio, y: vy / apercu.ratio };
+  };
+  const cssSommets = sommets.map(versCss).filter((q): q is { x: number; y: number } => q !== null);
+  const cssPaires = paires.map((pr) => versCss(pr.plan)).filter((q): q is { x: number; y: number } => q !== null);
+  const cssAttente = planEnAttente ? versCss(planEnAttente) : null;
+
+  const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.25rem .6rem', fontSize: 12 };
+  const styleAide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
+
+  if (batiments.length === 0) {
+    return <div className="svv-card" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Aucun bâtiment déclaré au permis : rien à projeter (la validation n’est pas bloquée par la projection).</div>;
+  }
+
+  return (
+    <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>Projection des emprises — reconstitution par bâtiment <span style={styleAide}>(jamais une mesure ; n’alimente ni le verdict ni l’altitude)</span></div>
+      <BandeauProjection verdict={verdict} />
+
+      {/* Sélecteur de bâtiment : statut par bâtiment (mot + couleur d'appui). */}
+      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        {batiments.map((b) => {
+          const st = statutBatiment(b.corpsId, emprises, ignores);
+          const actif = b.corpsId === corpsEffectif;
+          return (
+            <button key={b.corpsId} type="button" onClick={() => setCorpsSel(b.corpsId)}
+              style={{ ...btn, fontWeight: actif ? 700 : 400, borderColor: actif ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }}>
+              {b.repere ?? `bâtiment ${b.corpsId}`} — {motStatutBatiment(st)}
+            </button>
+          );
+        })}
+      </div>
+
+      {batSel && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
+          {/* Colonne PDF */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', minWidth: 0 }}>
+            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <select value={pieceId ?? ''} onChange={(e) => setPieceId(Number(e.target.value) || null)} style={{ maxWidth: 220, fontSize: 12 }}>
+                {pieces.length === 0 && <option value="">aucune pièce PDF</option>}
+                {pieces.map((p) => <option key={p.id} value={p.id}>{p.nomFichier}</option>)}
+              </select>
+              <label style={styleAide}>page <input type="number" min={1} value={page} onChange={(e) => setPage(Math.max(1, Number(e.target.value) || 1))} style={{ width: 54 }} /></label>
+              <button type="button" style={btn} disabled={occupe || pieceId === null} onClick={() => void afficherPage()}>Afficher</button>
+            </div>
+            <div style={{ position: 'relative', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden' }} onClick={cliquerPdf}>
+              <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: 'auto' }} />
+              <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                {cssSommets.length >= 2 && <polyline points={cssSommets.map((q) => `${q.x},${q.y}`).join(' ')} fill="rgba(163,4,2,.12)" stroke="var(--color-svv-red)" strokeWidth={2} />}
+                {cssSommets.map((q, i) => <circle key={`s${i}`} cx={q.x} cy={q.y} r={3.5} fill="var(--color-svv-red)" />)}
+                {cssPaires.map((q, i) => <g key={`c${i}`}><rect x={q.x - 5} y={q.y - 5} width={10} height={10} fill="none" stroke="#1f77b4" strokeWidth={2} /><text x={q.x + 7} y={q.y - 7} fontSize={12} fill="#1f77b4">{i + 1}</text></g>)}
+                {cssAttente && <circle cx={cssAttente.x} cy={cssAttente.y} r={5} fill="none" stroke="#1f77b4" strokeWidth={2} strokeDasharray="3 2" />}
+              </svg>
+            </div>
+            <p style={{ ...styleAide, margin: 0 }}>
+              {mode === 'calage'
+                ? (planEnAttente ? 'Point plan posé : cliquez son correspondant sur le schéma de la parcelle →' : 'Calage : cliquez un point connu sur le plan (angle de parcelle…), puis son correspondant sur le schéma.')
+                : 'Tracé : cliquez les sommets de l’emprise, puis « Enregistrer ».'}
+            </p>
+          </div>
+
+          {/* Colonne contrôles + mesures + schéma */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+            <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
+              <button type="button" style={{ ...btn, fontWeight: mode === 'calage' ? 700 : 400 }} onClick={() => setMode('calage')}>Calage ({paires.length}/2)</button>
+              <button type="button" style={{ ...btn, fontWeight: mode === 'trace' ? 700 : 400 }} onClick={() => setMode('trace')}>Tracé ({sommets.length})</button>
+              <button type="button" style={btn} onClick={() => mode === 'trace' ? setSommets((s) => s.slice(0, -1)) : (planEnAttente ? setPlanEnAttente(null) : setPaires((p) => p.slice(0, -1)))}>Annuler dernier</button>
+              <button type="button" style={btn} onClick={() => { setSommets([]); setPaires([]); setPlanEnAttente(null); }}>Reprendre</button>
+              <label style={styleAide}>échelle 1: <input inputMode="numeric" value={ratioDeclareSaisi} onChange={(e) => setRatioDeclareSaisi(e.target.value)} placeholder="200" style={{ width: 60 }} /></label>
+            </div>
+            <BandeauCalage calage={vc} nbPaires={paires.length} />
+            <BandeauVraisemblance aireM2={aire} v={vv} />
+            <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe || !sim || sommets.length < 3} onClick={() => void enregistrer()}>
+              Enregistrer l’emprise de {batSel.repere ?? `bâtiment ${batSel.corpsId}`}
+            </button>
+
+            {/* Emprises déjà tracées pour CE bâtiment (effaçables). */}
+            <ListeEmprises emprises={empriseDuBat} onSupprimer={(id) => void posterProjection('supprimer', corpsEffectif!, { id })} />
+
+            {/* Ignorer / rétablir la projection de CE bâtiment (motif obligatoire ; réversible). */}
+            {ignoreDuBat ? (
+              <div className="svv-card" style={{ fontSize: 12, borderColor: 'var(--color-svv-line)' }}>
+                <div>Projection <strong>ignorée</strong> — motif : {ignoreDuBat.motif}</div>
+                <button type="button" style={{ ...btn, marginTop: '.3rem' }} disabled={occupe} onClick={() => void posterProjection('retablir', corpsEffectif!)}>Rétablir (tracer finalement)</button>
+              </div>
+            ) : empriseDuBat.length === 0 && (
+              <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <input value={motifIgnore} onChange={(e) => setMotifIgnore(e.target.value)} placeholder="motif court (obligatoire)…" style={{ flex: '1 1 140px', minWidth: 0, padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12 }} />
+                <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} disabled={occupe || motifIgnore.trim() === ''} onClick={() => void posterProjection('ignorer', corpsEffectif!, { motif: motifIgnore })}>Ignorer la projection</button>
+              </div>
+            )}
+
+            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} calageLambert={paires.map((p) => p.lambert)} onCliquer={mode === 'calage' && planEnAttente ? cliquerSchema : undefined} />
+          </div>
+        </div>
+      )}
+      {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
+    </div>
+  );
+}

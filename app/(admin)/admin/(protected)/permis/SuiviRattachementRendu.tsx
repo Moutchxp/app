@@ -9,6 +9,10 @@ import type { AffectationEtat } from '../../../../lib/permis/affectationRepo'; /
 import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere, indexDepuisRepere, etatSurlignement, PALETTE_REPERE, type SchemaEmpreinte, type CorpsAffectation, type AttributsPolygone, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
 // rattachementGroupes est PUR (import de TYPE seul depuis le repo, erasé) → client-safe. Source UNIQUE de la coupure en deux (L6).
 import { estAFaire, GROUPE1_TITRE, GROUPE2_TITRE } from '../../../../lib/permis/rattachementGroupes';
+import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // PUR — PROJ-2b : blocage de la validation par projection
+
+/** PROJ-2b — forme minimale du verdict de projection consommée par le bouton Valider (peut-on valider + libellé « X en attente »). */
+export type BlocageProjection = Pick<VerdictProjection, 'peutValider' | 'libelle'>;
 
 /**
  * FUS-3b — rendu PUR (testable via renderToStaticMarkup) du SUIVI de rattachement : le tableau récapitulatif groupé par état
@@ -578,12 +582,15 @@ export function AccuseValidation({ accuse }: { accuse: AccuseValidationData }) {
  *  · Retour LiDAR → restaure l'altitude LiDAR d'origine (filet, reste possible après validation).
  * ⚠️ Aucune de ces actions ne change le verdict SVAV (le moteur ne lit pas encore permis_polygone_altitude).
  */
-export function ActionsRattachement({ resume, motifRefus, onMotifRefus, onValider, onRefuser, onRetour, enCours }: {
+export function ActionsRattachement({ resume, motifRefus, onMotifRefus, onValider, onRefuser, onRetour, enCours, blocageProjection = null }: {
   resume: ResumeValidation;
   motifRefus: string;
   onMotifRefus: (v: string) => void;
   onValider: () => void; onRefuser: () => void; onRetour: () => void; enCours: boolean;
+  blocageProjection?: BlocageProjection | null; // PROJ-2b — tant que peutValider = false, la validation est INACTIVE (bâtiment sans emprise ni projection ignorée)
 }) {
+  // PROJ-2b — Valider est bloqué si un bâtiment n'a NI emprise tracée NI projection ignorée. `null` = pas encore renseigné (chargement) → non bloquant.
+  const bloque = blocageProjection !== null && !blocageProjection.peutValider;
   const styleTA: CSSProperties = { width: '100%', boxSizing: 'border-box', minHeight: '2.2rem', padding: '.3rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' };
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -595,7 +602,12 @@ export function ActionsRattachement({ resume, motifRefus, onMotifRefus, onValide
           {resume.nbVides > 0 ? ` ${resume.nbVides} champ${resume.nbVides > 1 ? 's' : ''} laissé${resume.nbVides > 1 ? 's' : ''} vide${resume.nbVides > 1 ? 's' : ''} : non injecté${resume.nbVides > 1 ? 's' : ''}.` : ''}
           {resume.nbNonAffectes > 0 ? ` ${resume.nbNonAffectes} polygone${resume.nbNonAffectes > 1 ? 's' : ''} non affecté${resume.nbNonAffectes > 1 ? 's' : ''} (bâti hors permis, c’est normal) : laissé de côté.` : ''}
         </div>
-        <button type="button" className="svv-btn" style={{ width: 'auto' }} onClick={onValider} disabled={enCours}>
+        {bloque && (
+          <div role="note" style={{ ...styleAide, color: 'var(--color-svv-red)', fontWeight: 600 }}>
+            Validation bloquée — projection incomplète : {blocageProjection!.libelle}. Tracez une emprise ou ignorez explicitement la projection pour chaque bâtiment en attente.
+          </div>
+        )}
+        <button type="button" className="svv-btn" style={{ width: 'auto' }} onClick={onValider} disabled={enCours || bloque}>
           Valider le rattachement
         </button>
       </div>

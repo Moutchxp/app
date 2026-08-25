@@ -13,6 +13,8 @@ const SOURCE_VIVANTE = 'état actuel (couche BD TOPO)';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { CellulePieces } from './ArchivesRendu';
 import { recompterSiSucces } from './comptesActions';
+import { BlocTraceEmprise } from './BlocTraceEmprise';
+import type { BatimentProjection, VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 
 /**
  * FUS-3c — onglet SUIVI DU RATTACHEMENT : au clic sur un permis, TOUT le contenu de décision est sur la même page — détail
@@ -43,6 +45,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [cotes, setCotes] = useState<Record<string, string>>({}); // M3 — cote saisie par polygone (cleabs → chaîne ; '' = non injecté)
   const [motifOuverture, setMotifOuverture] = useState(''); // M5 — motif d'une ouverture manuelle de l'arbitrage
   const [cleabsMisEnAvant, setCleabsMisEnAvant] = useState<string | null>(null); // M7 — polygone mis en avant dans le schéma (piloté par le focus d'un champ de cote ; PERSISTE après le blur)
+  const [verdictProjection, setVerdictProjection] = useState<VerdictProjection | null>(null); // PROJ-2b — peut-on valider ? (chaque bâtiment tracé ou projection ignorée)
 
   useEffect(() => {
     let annule = false;
@@ -62,7 +65,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     let annule = false;
     void (async () => {
       setDetail(null); setComparaison(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); setPleinEcran(null);
-      setMotifRefus(''); setAccuse(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); // reset décisions (DANS l'async)
+      setMotifRefus(''); setAccuse(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); setVerdictProjection(null); // reset décisions (DANS l'async)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
         if (annule) return;
@@ -95,6 +98,10 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     const source = first in cotes ? cotes[first] : (c.altitudeSommetNgf != null ? String(c.altitudeSommetNgf) : '');
     setCotes((prev) => recopierCote(prev, c.cleabsAffectes, source));
   }, [comparaison, cotes]);
+
+  // PROJ-2b — bâtiments du permis (TOUS les corps déclarés, même sans polygone) = univers du blocage de projection. Mémoïsé (deps stables).
+  const batimentsProjection = useMemo<BatimentProjection[]>(() => (comparaison?.nouvelle.corps ?? []).map((c) => ({ corpsId: c.id, repere: c.repere })), [comparaison]);
+  const majVerdictProjection = useCallback((v: VerdictProjection) => setVerdictProjection(v), []);
 
   // FUS-3d / M2 — ajouter/retirer UN polygone d'un bâtiment (additif). L'exclusivité est garantie CÔTÉ BASE (index) ; un refus affiche son motif.
   const affecter = useCallback(async (corpsId: number, cleabs: string, operation: ActionAffectation): Promise<void> => {
@@ -272,8 +279,11 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
         )}
         {detail.persiste && (
           <>
+            {/* PROJ-2b — tracé d'emprise PAR BÂTIMENT, préalable à la validation. Le verdict remonte ici et désactive Valider. */}
+            <BlocTraceEmprise dossierId={detail.dossierId} batiments={batimentsProjection} onVerdict={majVerdictProjection} />
             <ActionsRattachement
               resume={comparaison ? resumeValidation({ corps: comparaison.nouvelle.corps, polygones: comparaison.nouvelle.polygones }, cotesEnNombres(cotesEffectives)) : { nbAffectes: 0, nbAvecCote: 0, nbVides: 0, nbNonAffectes: 0 }}
+              blocageProjection={verdictProjection}
               motifRefus={motifRefus} onMotifRefus={setMotifRefus} enCours={enCours}
               onValider={() => void valider()}
               onRefuser={() => void agir('refuser', { motif: motifRefus })}

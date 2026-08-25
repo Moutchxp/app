@@ -9,7 +9,7 @@
  * RÉSILIENT : tant que la migration 149 n'est pas appliquée, la table n'existe pas → lecture repliée `[]` + `tableAbsente`,
  * écriture refusée avec motif clair (aucune exception qui remonte). Module PROPRE : n'importe que db/client et le module pur.
  */
-import { query } from '../db/client';
+import { query, withTransaction, type RequeteTx } from '../db/client';
 import { aireM2, type PointLambert } from './calageEmprise';
 
 /** Journal de calage stocké tel quel (jsonb) — auditable, jamais lissé. */
@@ -26,6 +26,7 @@ export interface CalageTrace {
 export interface EmpriseReconstruite {
   id: number;
   dossierId: number;
+  corpsId: number | null;        // PROJ-2b — bâtiment (permis_corps_batiment) reconstitué ; null = ligne PROJ-2 antérieure
   libelle: string;
   anneau: PointLambert[];        // contour EPSG:2154 (reconstitution)
   surfaceM2: number | null;
@@ -38,6 +39,7 @@ export interface EmpriseReconstruite {
 
 export interface EntreeEnregistrement {
   dossierId: number;
+  corpsId: number | null;        // PROJ-2b — bâtiment du permis auquel l'emprise se rattache
   libelle: string;
   anneau: PointLambert[];        // ≥ 3 sommets, en Lambert-93
   pieceId: number | null;
@@ -76,10 +78,10 @@ export async function enregistrerEmprise(e: EntreeEnregistrement): Promise<Resul
   const wkt = anneauVersWkt(e.anneau);
   try {
     const { rows } = await query<{ id: number }>(
-      `INSERT INTO permis_emprise_reconstruite (dossier_id, libelle, geom, surface_m2, piece_id, page, calage, residu_m, cree_par)
-       VALUES ($1, $2, ST_GeomFromText($3, 2154), ST_Area(ST_GeomFromText($3, 2154)), $4, $5, $6::jsonb, $7, $8)
+      `INSERT INTO permis_emprise_reconstruite (dossier_id, corps_id, libelle, geom, surface_m2, piece_id, page, calage, residu_m, cree_par)
+       VALUES ($1, $9, $2, ST_GeomFromText($3, 2154), ST_Area(ST_GeomFromText($3, 2154)), $4, $5, $6::jsonb, $7, $8)
        RETURNING id::int AS id`,
-      [e.dossierId, e.libelle.trim(), wkt, e.pieceId, e.page, JSON.stringify(e.calage), e.residuM, e.creePar],
+      [e.dossierId, e.libelle.trim(), wkt, e.pieceId, e.page, JSON.stringify(e.calage), e.residuM, e.creePar, e.corpsId],
     );
     return { ok: true, id: rows[0].id };
   } catch (err) {
@@ -92,16 +94,16 @@ export async function enregistrerEmprise(e: EntreeEnregistrement): Promise<Resul
 export async function listerEmprises(dossierId: number): Promise<EmpriseReconstruite[]> {
   try {
     const { rows } = await query<{
-      id: number; libelle: string; gj: { coordinates: number[][][] } | null; surface_m2: number | null;
+      id: number; corps_id: number | null; libelle: string; gj: { coordinates: number[][][] } | null; surface_m2: number | null;
       piece_id: number | null; page: number | null; calage: CalageTrace | null; residu_m: number | null; cree_le: Date | null;
     }>(
-      `SELECT id::int AS id, libelle, ST_AsGeoJSON(geom)::json AS gj, surface_m2, piece_id::int AS piece_id, page,
+      `SELECT id::int AS id, corps_id::int AS corps_id, libelle, ST_AsGeoJSON(geom)::json AS gj, surface_m2, piece_id::int AS piece_id, page,
               calage, residu_m, cree_le
          FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`,
       [dossierId],
     );
     return rows.map((r) => ({
-      id: r.id, dossierId, libelle: r.libelle,
+      id: r.id, dossierId, corpsId: r.corps_id, libelle: r.libelle,
       anneau: (r.gj?.coordinates?.[0] ?? []).map(([x, y]) => ({ x, y })),
       surfaceM2: r.surface_m2 !== null ? Number(r.surface_m2) : null,
       pieceId: r.piece_id, page: r.page, calage: r.calage,
@@ -159,6 +161,67 @@ async function lireEmpreinteParcelle(dossierId: number): Promise<{ anneaux: Poin
     return { anneaux, surfaceM2: r.surface_m2 !== null ? Number(r.surface_m2) : null };
   } catch (err) {
     if (estTableAbsente(err)) return { anneaux: [], surfaceM2: null };
+    throw err;
+  }
+}
+
+// ── Projections IGNORÉES par bâtiment (PROJ-2b) ──────────────────────────────
+// État COURANT dans permis_projection_ignoree (réversible = suppression) ; AUDIT au journal append-only permis_rattachement_evenement
+// (types 'projection_ignoree' / 'projection_retablie'), MÊME mécanique que les autres actions d'actionsRattachement. 🔴 N'écrit NI
+// dans batiment, NI dans permis_polygone_altitude, NI dans permis_corps* : rien du moteur.
+export interface ProjectionIgnoree { corpsId: number; motif: string }
+export type ResultatIgnorance = { ok: true } | { ok: false; motif: string; tableAbsente?: boolean };
+
+async function rattId(q: RequeteTx, dossierId: number): Promise<number | null> {
+  const { rows } = await q<{ id: number }>(`SELECT id FROM permis_rattachement WHERE dossier_id = $1`, [dossierId]);
+  return rows[0]?.id ?? null;
+}
+
+/** IGNORER la projection d'un bâtiment : motif OBLIGATOIRE. Upsert l'état courant + trace un événement 'projection_ignoree'. */
+export async function ignorerProjection(dossierId: number, corpsId: number, motif: string, par: string | null): Promise<ResultatIgnorance> {
+  const m = (motif ?? '').trim();
+  if (!m) return { ok: false, motif: 'un motif court est obligatoire pour ignorer la projection' };
+  if (!Number.isInteger(corpsId) || corpsId <= 0) return { ok: false, motif: 'bâtiment invalide' };
+  try {
+    return await withTransaction(async (q) => {
+      await q(`INSERT INTO permis_projection_ignoree (dossier_id, corps_id, motif, par) VALUES ($1, $2, $3, $4)
+               ON CONFLICT (corps_id) DO UPDATE SET motif = EXCLUDED.motif, par = EXCLUDED.par, le = now()`, [dossierId, corpsId, m, par]);
+      const rid = await rattId(q, dossierId);
+      if (rid !== null) await q(`INSERT INTO permis_rattachement_evenement (rattachement_id, type, ancien_etat, nouvel_etat, details, par)
+                                 VALUES ($1, 'projection_ignoree', NULL, NULL, $2::jsonb, $3)`, [rid, JSON.stringify({ corpsId, motif: m }), par]);
+      return { ok: true } as const;
+    });
+  } catch (err) {
+    if (estTableAbsente(err)) return { ok: false, motif: 'table des projections ignorées absente (migration 150 non appliquée)', tableAbsente: true };
+    throw err;
+  }
+}
+
+/** RÉTABLIR (annuler l'ignorance) d'un bâtiment : supprime l'état courant + trace un événement 'projection_retablie'. Réversible. */
+export async function retablirProjection(dossierId: number, corpsId: number, par: string | null): Promise<ResultatIgnorance> {
+  if (!Number.isInteger(corpsId) || corpsId <= 0) return { ok: false, motif: 'bâtiment invalide' };
+  try {
+    return await withTransaction(async (q) => {
+      await q(`DELETE FROM permis_projection_ignoree WHERE corps_id = $1 AND dossier_id = $2`, [corpsId, dossierId]);
+      const rid = await rattId(q, dossierId);
+      if (rid !== null) await q(`INSERT INTO permis_rattachement_evenement (rattachement_id, type, ancien_etat, nouvel_etat, details, par)
+                                 VALUES ($1, 'projection_retablie', NULL, NULL, $2::jsonb, $3)`, [rid, JSON.stringify({ corpsId }), par]);
+      return { ok: true } as const;
+    });
+  } catch (err) {
+    if (estTableAbsente(err)) return { ok: false, motif: 'table des projections ignorées absente (migration 150 non appliquée)', tableAbsente: true };
+    throw err;
+  }
+}
+
+/** Projections IGNORÉES d'un dossier (état courant). `[]` si la table n'existe pas encore. */
+export async function listerIgnorees(dossierId: number): Promise<ProjectionIgnoree[]> {
+  try {
+    const { rows } = await query<{ corps_id: number; motif: string }>(
+      `SELECT corps_id::int AS corps_id, motif FROM permis_projection_ignoree WHERE dossier_id = $1 ORDER BY corps_id`, [dossierId]);
+    return rows.map((r) => ({ corpsId: r.corps_id, motif: r.motif }));
+  } catch (err) {
+    if (estTableAbsente(err)) return [];
     throw err;
   }
 }
