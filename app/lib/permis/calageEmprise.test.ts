@@ -181,16 +181,64 @@ describe('PROJ-2 — aire & vraisemblance', () => {
     expect(aireM2(anneau)).toBeCloseTo(100, 6); // carré 5×5 pt × échelle² (2²) = 100 m²
   });
 
-  it('vraisemblance : cohérente (plancher/étages), et 🔴 dépassement du terrain signalé sans bloquer', () => {
-    const ok = verdictVraisemblance({ aireM2: 300, surfacePlancherM2: 900, nbEtages: 3, surfaceTerrainM2: 2886.5 });
+  // ── PROJ (correctif plausibilité) : les 3 situations + niveaux inconnu. Le nombre de niveaux est TOUJOURS celui du bâtiment. ──
+  it('(a) PERMIS MONO-BÂTIMENT, niveaux du bâtiment connus → contrôle chiffré (plancher ÷ niveaux DU bâtiment)', () => {
+    const bats = [{ corpsId: 1, nbEtages: 3, empriseM2: null }];
+    const ok = verdictVraisemblance({ aireM2: 300, corpsId: 1, surfacePlancherM2: 900, surfaceTerrainM2: 2886.5, batiments: bats });
     expect(ok.empriseVsPlancher).toBe('coherent');
-    expect(ok.empriseAttendueM2).toBeCloseTo(300, 6);
+    expect(ok.empriseAttendueM2).toBeCloseTo(300, 6);           // 900 / 3, jamais un max du permis
     expect(ok.depasseTerrain).toBe(false);
-    const trop = verdictVraisemblance({ aireM2: 3000, surfacePlancherM2: 900, nbEtages: 3, surfaceTerrainM2: 2886.5 });
+    expect(ok.messages.join(' ')).toMatch(/niveaux du bâtiment/); // le texte explicite la déduction
+    const petite = verdictVraisemblance({ aireM2: 120, corpsId: 1, surfacePlancherM2: 900, surfaceTerrainM2: 2886.5, batiments: bats });
+    expect(petite.empriseVsPlancher).toBe('petite');
+    expect(petite.messages.join(' ')).toMatch(/écart à vérifier/); // formulé comme un écart, pas une faute
+    expect(petite.messages.join(' ')).not.toMatch(/faute|erreur|invalide/i);
+  });
+
+  it('🔴 dépassement du terrain signalé, jamais bloquant, quel que soit le nombre de bâtiments', () => {
+    const trop = verdictVraisemblance({ aireM2: 3000, corpsId: 1, surfacePlancherM2: 900, surfaceTerrainM2: 2886.5, batiments: [{ corpsId: 1, nbEtages: 3, empriseM2: null }] });
     expect(trop.depasseTerrain).toBe(true);
     expect(trop.messages.join(' ')).toMatch(/SUPÉRIEURE au terrain/);
-    // données manquantes → 'inconnu', aucun message inventé
-    expect(verdictVraisemblance({ aireM2: 300, surfacePlancherM2: null, nbEtages: null, surfaceTerrainM2: null }).empriseVsPlancher).toBe('inconnu');
+  });
+
+  it('(b) PERMIS MULTI-BÂTIMENTS non tous tracés → AUCUN verdict par bâtiment, repère NEUTRE (plancher global)', () => {
+    // cas mesuré 11434 : plancher 13032 du permis entier ÷ étages → l'ancien code criait « PETITE » à tort sur 2D2 (709 m²)
+    const v = verdictVraisemblance({ aireM2: 709, corpsId: 2, surfacePlancherM2: 13032, surfaceTerrainM2: 2885, batiments: [
+      { corpsId: 1, nbEtages: 7, empriseM2: null }, // 2D1 pas encore tracé
+      { corpsId: 2, nbEtages: 7, empriseM2: null }, // 2D2 (courant)
+    ] });
+    expect(v.empriseVsPlancher).toBe('inconnu');                 // pas de petit/grand par bâtiment
+    expect(v.empriseAttendueM2).toBeNull();
+    expect(v.messages.join(' ')).toMatch(/ensemble du permis \(2 bâtiments\)/);
+    expect(v.messages.join(' ')).not.toMatch(/PETITE|INFÉRIEURE|SUPÉRIEURE à l'attendu/); // aucun verdict de surface par bâtiment
+  });
+
+  it('(c) PERMIS MULTI-BÂTIMENTS TOUS tracés, niveaux communs → contrôle chiffré à l’ÉCHELLE DU PERMIS (somme des emprises)', () => {
+    // 2D2 courant (aire en cours 900) + 2D1 déjà enregistré 900 → Σ=1800 ; attendu 12600/7=1800 → cohérent
+    const v = verdictVraisemblance({ aireM2: 900, corpsId: 2, surfacePlancherM2: 12600, surfaceTerrainM2: 5000, batiments: [
+      { corpsId: 1, nbEtages: 7, empriseM2: 900 },
+      { corpsId: 2, nbEtages: 7, empriseM2: null }, // le courant : son aire vient de aireM2 (900), pas de empriseM2
+    ] });
+    expect(v.empriseVsPlancher).toBe('coherent');
+    expect(v.empriseAttendueM2).toBeCloseTo(1800, 6);            // 12600 / 7
+    expect(v.messages.join(' ')).toMatch(/à l'échelle du permis \(2 bâtiments\)/);
+    expect(v.messages.join(' ')).toMatch(/somme des emprises/);
+  });
+
+  it('niveaux inconnus ou nuls → AUCUN contrôle chiffré (mono : repère neutre ; multi : repère neutre)', () => {
+    // mono-bâtiment sans niveaux → pas de chiffre, repère neutre
+    const mono = verdictVraisemblance({ aireM2: 300, corpsId: 1, surfacePlancherM2: 900, surfaceTerrainM2: null, batiments: [{ corpsId: 1, nbEtages: null, empriseM2: null }] });
+    expect(mono.empriseVsPlancher).toBe('inconnu');
+    expect(mono.empriseAttendueM2).toBeNull();
+    expect(mono.messages.join(' ')).toMatch(/niveaux du bâtiment inconnu/);
+    // multi tous tracés MAIS niveaux hétérogènes → pas de niveaux communs → repère neutre, pas de chiffre
+    const multi = verdictVraisemblance({ aireM2: 900, corpsId: 2, surfacePlancherM2: 12600, surfaceTerrainM2: null, batiments: [
+      { corpsId: 1, nbEtages: 5, empriseM2: 900 }, { corpsId: 2, nbEtages: 8, empriseM2: null },
+    ] });
+    expect(multi.empriseVsPlancher).toBe('inconnu');
+    expect(multi.messages.join(' ')).toMatch(/ensemble du permis/);
+    // plancher absent → 'inconnu', aucun message plancher inventé
+    expect(verdictVraisemblance({ aireM2: 300, corpsId: 1, surfacePlancherM2: null, surfaceTerrainM2: null, batiments: [{ corpsId: 1, nbEtages: 3, empriseM2: null }] }).empriseVsPlancher).toBe('inconnu');
   });
 });
 

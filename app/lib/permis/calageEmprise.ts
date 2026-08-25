@@ -257,40 +257,80 @@ export function estClic(dx: number, dy: number, seuil = 5): boolean {
 }
 
 // ── Vraisemblance (affichée, JAMAIS bloquante) ───────────────────────────────
+// PROJ (correctif du contrôle de plausibilité) — le nombre de niveaux est TOUJOURS celui DU bâtiment (permis_corps_batiment.nb_etages),
+//   jamais un max sur le permis. Le plancher déclaré, lui, est au niveau du PERMIS ENTIER (permis_caracteristique). On n'affirme donc
+//   un chiffre QUE lorsque c'est démontrable (cf. les 3 situations de verdictVraisemblance).
+export interface BatimentVraisemblance {
+  corpsId: number;
+  nbEtages: number | null;  // niveaux DE CE bâtiment (permis_corps_batiment.nb_etages) — jamais un agrégat du permis
+  empriseM2: number | null; // aire de l'emprise reconstituée ENREGISTRÉE de ce bâtiment (null si pas encore tracée)
+}
 export interface EntreeVraisemblance {
-  aireM2: number;
-  surfacePlancherM2: number | null; // surface de plancher déclarée au permis (base)
-  nbEtages: number | null;          // nombre d'étages déclaré (base)
-  surfaceTerrainM2: number | null;  // surface de la parcelle/terrain (base)
+  aireM2: number;                     // emprise du bâtiment COURANT (tracé en cours OU enregistré)
+  corpsId: number | null;             // bâtiment courant (pour le retrouver dans `batiments`)
+  surfacePlancherM2: number | null;   // surface de plancher déclarée — au niveau du PERMIS ENTIER (base)
+  surfaceTerrainM2: number | null;    // surface de la parcelle/terrain (base)
+  batiments: BatimentVraisemblance[]; // TOUS les bâtiments du permis (niveaux + emprise éventuelle)
 }
 export type EmpriseVsPlancher = 'coherent' | 'grande' | 'petite' | 'inconnu';
 export interface VerdictVraisemblance {
   depasseTerrain: boolean;          // 🔴 impossible : une emprise ne peut pas dépasser le terrain
   empriseVsPlancher: EmpriseVsPlancher;
-  empriseAttendueM2: number | null; // surfacePlancher / nbEtages (indication)
-  messages: string[];               // constats LISIBLES (n'empêchent pas d'enregistrer)
+  empriseAttendueM2: number | null; // attendu chiffré quand démontrable (a : plancher/niveaux ; c : plancher total/niveaux) ; sinon null
+  messages: string[];               // REPÈRES INDICATIFS lisibles (n'empêchent JAMAIS d'enregistrer)
 }
 
 /**
- * Vraisemblance de l'emprise reconstituée face à ce qu'on SAIT du permis. NE BLOQUE RIEN : renvoie des constats affichables.
- *  · terrain : une emprise > surface du terrain est IMPOSSIBLE (signalé fort) ;
- *  · plancher : emprise ≈ surfacePlancher / nbEtages (± 40 %) = cohérent ; très au-delà/en-deçà = signalé.
- * Tolérance NOMMÉE, marge large (le bâti réel varie : décrochés, combles, sous-sols hors emprise) — on alerte sur l'ABSURDE.
+ * Vraisemblance de l'emprise reconstituée face à ce qu'on SAIT du permis. 🔴 NE BLOQUE RIEN, NE MESURE RIEN : uniquement des REPÈRES
+ * INDICATIFS (une emprise reconstituée n'est jamais une mesure — garde PROJ). On n'affirme QUE le démontrable :
+ *  · terrain : une emprise > surface du terrain est IMPOSSIBLE (signalé fort), quel que soit le nombre de bâtiments ;
+ *  · (a) permis à UN SEUL bâtiment, niveaux connus (>0) : aire ≈ plancher déclaré ÷ niveaux DU bâtiment (±TOLERANCE) ;
+ *  · (b) permis à PLUSIEURS bâtiments : contrôle par bâtiment IMPOSSIBLE (le plancher est global) → repère NEUTRE, aucun verdict ;
+ *  · (c) permis à PLUSIEURS bâtiments TOUS tracés et à niveaux COMMUNS : Σ emprises ≈ plancher total ÷ niveaux (±TOLERANCE), à
+ *        l'échelle du permis.
+ * Niveaux inconnus/nuls, ou multi-bâtiments non tous tracés / à niveaux hétérogènes → aucun chiffre, seulement le repère neutre.
+ * Un écart hors tolérance se dit « à vérifier », jamais une faute. Tolérance NOMMÉE, marge large (le bâti réel varie).
  */
 export const TOLERANCE_EMPRISE_PLANCHER_RELATIVE = 0.4; // ± 40 % autour de l'emprise attendue
 export function verdictVraisemblance(e: EntreeVraisemblance): VerdictVraisemblance {
   const messages: string[] = [];
   const depasseTerrain = e.surfaceTerrainM2 !== null && e.surfaceTerrainM2 > 0 && e.aireM2 > e.surfaceTerrainM2;
   if (depasseTerrain) messages.push(`🔴 emprise ${Math.round(e.aireM2)} m² SUPÉRIEURE au terrain ${Math.round(e.surfaceTerrainM2!)} m² : impossible, à revoir`);
+
   let empriseAttendueM2: number | null = null;
   let empriseVsPlancher: EmpriseVsPlancher = 'inconnu';
-  if (e.surfacePlancherM2 !== null && e.surfacePlancherM2 > 0 && e.nbEtages !== null && e.nbEtages > 0) {
-    empriseAttendueM2 = e.surfacePlancherM2 / e.nbEtages;
-    const bas = empriseAttendueM2 * (1 - TOLERANCE_EMPRISE_PLANCHER_RELATIVE);
-    const haut = empriseAttendueM2 * (1 + TOLERANCE_EMPRISE_PLANCHER_RELATIVE);
-    if (e.aireM2 < bas) { empriseVsPlancher = 'petite'; messages.push(`emprise ${Math.round(e.aireM2)} m² plus PETITE qu'attendu (~${Math.round(empriseAttendueM2)} m² = ${Math.round(e.surfacePlancherM2)} m² plancher / ${e.nbEtages} niveaux)`); }
-    else if (e.aireM2 > haut) { empriseVsPlancher = 'grande'; messages.push(`emprise ${Math.round(e.aireM2)} m² plus GRANDE qu'attendu (~${Math.round(empriseAttendueM2)} m²)`); }
-    else { empriseVsPlancher = 'coherent'; messages.push(`emprise ${Math.round(e.aireM2)} m² cohérente avec ~${Math.round(empriseAttendueM2)} m² attendus`); }
+  const plancher = e.surfacePlancherM2 !== null && e.surfacePlancherM2 > 0 ? e.surfacePlancherM2 : null;
+  const nbBat = e.batiments.length;
+  // Aire à considérer pour un bâtiment : le COURANT prend l'aire en cours (`aireM2`), les autres leur emprise enregistrée.
+  const aireDe = (b: BatimentVraisemblance): number | null => (b.corpsId === e.corpsId ? e.aireM2 : b.empriseM2);
+  // Classe un écart en REPÈRE indicatif (jamais un verdict de faute) : sous tolérance / au-dessus → « à vérifier ».
+  const classer = (aire: number, attendu: number, prefixe: string, detail: string): void => {
+    empriseAttendueM2 = attendu;
+    const bas = attendu * (1 - TOLERANCE_EMPRISE_PLANCHER_RELATIVE);
+    const haut = attendu * (1 + TOLERANCE_EMPRISE_PLANCHER_RELATIVE);
+    if (aire < bas) { empriseVsPlancher = 'petite'; messages.push(`${prefixe} ${Math.round(aire)} m² INFÉRIEURE à l'attendu ~${Math.round(attendu)} m² (${detail}) — écart à vérifier (repère indicatif, pas une mesure).`); }
+    else if (aire > haut) { empriseVsPlancher = 'grande'; messages.push(`${prefixe} ${Math.round(aire)} m² SUPÉRIEURE à l'attendu ~${Math.round(attendu)} m² (${detail}) — écart à vérifier (repère indicatif, pas une mesure).`); }
+    else { empriseVsPlancher = 'coherent'; messages.push(`${prefixe} ${Math.round(aire)} m² cohérente avec ~${Math.round(attendu)} m² attendus (${detail}, repère indicatif).`); }
+  };
+
+  if (plancher !== null && nbBat <= 1) {
+    // (a) PERMIS À UN SEUL BÂTIMENT : niveaux DU bâtiment courant (à défaut, l'unique bâtiment déclaré).
+    const niv = (e.corpsId !== null ? e.batiments.find((b) => b.corpsId === e.corpsId)?.nbEtages : undefined) ?? (nbBat === 1 ? e.batiments[0].nbEtages : null);
+    if (niv !== null && niv > 0) classer(e.aireM2, plancher / niv, 'aire', `plancher déclaré ${Math.round(plancher)} m² ÷ ${niv} niveaux du bâtiment`);
+    else messages.push(`plancher déclaré ${Math.round(plancher)} m² : nombre de niveaux du bâtiment inconnu, aire non recoupée (repère indicatif).`);
+  } else if (plancher !== null && nbBat > 1) {
+    // (b/c) PERMIS À PLUSIEURS BÂTIMENTS.
+    const tousTraces = e.batiments.every((b) => (aireDe(b) ?? 0) > 0);
+    const niveaux = e.batiments.map((b) => b.nbEtages);
+    const commun = niveaux.every((n) => n !== null && n > 0) && new Set(niveaux).size === 1 ? (niveaux[0] as number) : null;
+    if (tousTraces && commun !== null) {
+      // (c) tous tracés, niveaux communs → contrôle à l'échelle du PERMIS : somme des emprises vs plancher total ÷ niveaux.
+      const somme = e.batiments.reduce((s, b) => s + (aireDe(b) ?? 0), 0);
+      classer(somme, plancher / commun, `à l'échelle du permis (${nbBat} bâtiments), somme des emprises`, `plancher total ${Math.round(plancher)} m² ÷ ${commun} niveaux, ensemble des bâtiments`);
+    } else {
+      // (b) repère NEUTRE : jamais de verdict petit/grand par bâtiment (le plancher est global).
+      messages.push(`plancher déclaré ${Math.round(plancher)} m² : il porte sur l'ensemble du permis (${nbBat} bâtiments) et ne permet pas de recouper l'aire d'un bâtiment isolément (repère indicatif).`);
+    }
   }
   return { depasseTerrain, empriseVsPlancher, empriseAttendueM2, messages };
 }

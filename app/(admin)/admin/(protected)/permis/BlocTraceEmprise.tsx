@@ -20,7 +20,7 @@ import { estFuturBati } from '../../../../lib/permis/etatBati';
 
 // PROJ-3d/3f — la pièce porte la PROPOSITION « plan de masse » (score par nom) + ses PLANCHES (pages hors cartouche, confirmées serveur).
 interface Piece { id: number; nomFichier: string; typeMime: string | null; propose?: boolean; famille?: FamillePlan | null; planches?: { page: number; echelle: string | null; tracable?: boolean; famille?: FamillePlan; ambigu?: boolean }[]; confirme?: boolean }
-interface Contexte { empreinteAnneaux: [number, number][][] | PointLambert[][]; surfaceTerrainM2: number | null; surfacePlancherM2: number | null; nbEtages: number | null }
+interface Contexte { empreinteAnneaux: [number, number][][] | PointLambert[][]; surfaceTerrainM2: number | null; surfacePlancherM2: number | null; batiments: { corpsId: number; nbEtages: number | null; empriseM2: number | null }[] }
 type Mode = 'calage' | 'trace';
 type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convertToViewportPoint(x: number, y: number): number[] }; ratio: number };
 
@@ -143,7 +143,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   const anneauLambert = sim && sommets.length >= 3 ? anneauVersLambert(sim, sommets) : null;
   const aire = anneauLambert ? aireM2(anneauLambert) : null;
   const vc: VerdictCalage | null = sim ? verdictCalage(sim, paires, ratioDeclare) : null;
-  const vv: VerdictVraisemblance | null = aire !== null ? verdictVraisemblance({ aireM2: aire, surfacePlancherM2: contexte?.surfacePlancherM2 ?? null, nbEtages: contexte?.nbEtages ?? null, surfaceTerrainM2: contexte?.surfaceTerrainM2 ?? null }) : null;
+  const vv: VerdictVraisemblance | null = aire !== null ? verdictVraisemblance({ aireM2: aire, corpsId: corpsEffectif, surfacePlancherM2: contexte?.surfacePlancherM2 ?? null, surfaceTerrainM2: contexte?.surfaceTerrainM2 ?? null, batiments: contexte?.batiments ?? [] }) : null;
 
   const batSel = batiments.find((b) => b.corpsId === corpsEffectif) ?? null;
   const empriseDuBat = emprises.filter((e) => e.corpsId === corpsEffectif);

@@ -50,7 +50,7 @@ export async function GET(request: Request): Promise<Response> {
       repli('emprises', listerEmprises(dossierId), []),
       repli('ignores', listerIgnorees(dossierId), []),
       repli('batiments', listerBatiments(dossierId), []),
-      repli('contexte', lireContexteEmprise(dossierId), { empreinteAnneaux: [], surfaceTerrainM2: null, surfacePlancherM2: null, nbEtages: null }),
+      repli('contexte', lireContexteEmprise(dossierId), { empreinteAnneaux: [], surfaceTerrainM2: null, surfacePlancherM2: null, batiments: [] }),
       repli('polygones', lirePolygonesEmpreinte(dossierId), []), // PROJ-3h — polygones BD TOPO (∩ empreinte) + état, pour l'affichage
       repli('ecartes', listerPolygonesProjetEcartes(dossierId), []), // PROJ-3i — cleabs des polygones « en projet » écartés (décochés)
     ]);
@@ -169,7 +169,7 @@ export async function POST(request: Request): Promise<Response> {
       const res = await enregistrerEmprise({ dossierId, corpsId: body.corpsId as number, libelle, anneau: anneauLambert, pieceId: body.pieceId ?? null, page: body.page ?? null, calage, residuM: vc.residuFitM, creePar: 'admin:trace' });
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
       const contexte = await lireContexteEmprise(dossierId);
-      const vraisemblance = verdictVraisemblance({ aireM2: aireM2(anneauLambert), surfacePlancherM2: contexte.surfacePlancherM2, nbEtages: contexte.nbEtages, surfaceTerrainM2: contexte.surfaceTerrainM2 });
+      const vraisemblance = verdictVraisemblance({ aireM2: aireM2(anneauLambert), corpsId: body.corpsId as number, surfacePlancherM2: contexte.surfacePlancherM2, surfaceTerrainM2: contexte.surfaceTerrainM2, batiments: contexte.batiments });
       const [emprises, ignores] = await Promise.all([listerEmprises(dossierId), listerIgnorees(dossierId)]);
       return Response.json({ ok: true, id: res.id, surfaceM2: aireM2(anneauLambert), calage: vc, vraisemblance, emprises, ignores });
     }

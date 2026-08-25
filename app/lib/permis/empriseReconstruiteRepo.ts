@@ -137,16 +137,26 @@ export function surfaceApplicative(e: EmpriseReconstruite): number {
  * et repères de VRAISEMBLANCE (terrain / plancher / étages) lus en base. LECTURE SEULE, chaque source ISOLÉE (résiliente à
  * l'ordre d'application des migrations) : une source absente vaut `null`/`[]`, jamais une exception qui casse l'écran.
  */
+export interface BatimentContexte { corpsId: number; nbEtages: number | null; empriseM2: number | null }
 export interface ContexteEmprise {
   empreinteAnneaux: PointLambert[][]; // parcelle en Lambert-93 (anneaux extérieurs)
   surfaceTerrainM2: number | null;
-  surfacePlancherM2: number | null;
-  nbEtages: number | null;
+  surfacePlancherM2: number | null;   // au niveau du PERMIS ENTIER (permis_caracteristique)
+  batiments: BatimentContexte[];      // chaque bâtiment du permis : ses niveaux + son emprise reconstituée (ou null) — pour la vraisemblance PAR bâtiment
 }
 export async function lireContexteEmprise(dossierId: number): Promise<ContexteEmprise> {
-  const empreinte = await lireEmpreinteParcelle(dossierId);
-  const [surfacePlancherM2, nbEtages] = await lireCaracteristiques(dossierId);
-  return { empreinteAnneaux: empreinte.anneaux, surfaceTerrainM2: empreinte.surfaceM2, surfacePlancherM2, nbEtages };
+  // Chaque source ISOLÉE (résiliente à l'ordre des migrations). Le NOMBRE D'ÉTAGES vit PAR BÂTIMENT (jamais un max du permis) ;
+  //   l'emprise de chaque bâtiment vient de `listerEmprises` (déjà résilient). On les recoupe par corpsId.
+  const [empreinte, surfacePlancherM2, niveaux, emprises] = await Promise.all([
+    lireEmpreinteParcelle(dossierId),
+    lireSurfacePlancher(dossierId),
+    lireBatimentsNiveaux(dossierId),
+    listerEmprises(dossierId),
+  ]);
+  const aireParCorps = new Map<number, number>();
+  for (const e of emprises) if (e.corpsId !== null && e.surfaceM2 !== null) aireParCorps.set(e.corpsId, e.surfaceM2);
+  const batiments: BatimentContexte[] = niveaux.map((b) => ({ corpsId: b.corpsId, nbEtages: b.nbEtages, empriseM2: aireParCorps.get(b.corpsId) ?? null }));
+  return { empreinteAnneaux: empreinte.anneaux, surfaceTerrainM2: empreinte.surfaceM2, surfacePlancherM2, batiments };
 }
 
 /**
@@ -305,24 +315,33 @@ export async function listerIgnorees(dossierId: number): Promise<ProjectionIgnor
 }
 
 /**
- * `surface_plancher_m2` est au niveau PERMIS (`permis_caracteristique`). Le NOMBRE D'ÉTAGES, lui, vit PAR BÂTIMENT
- * (`permis_corps_batiment.nb_etages`) : il n'existe PAS « un nombre d'étages du permis » — un permis peut porter plusieurs
- * bâtiments de hauteurs différentes (arc N9/N10). `permis_caracteristique` n'a donc AUCUNE colonne `nb_etages` (cause du 503 :
- * l'ancienne requête la lisait là où elle n'existe pas). Le contexte d'emprise ne s'en sert que pour une INDICATION de
- * vraisemblance (emprise ≈ plancher / étages, ±40 %, jamais un certificat ni le verdict). On remonte un agrégat EXPLICITE : le
- * MAX des étages déclarés parmi les bâtiments du permis (borne haute → emprise attendue basse, la plus prudente). `null` si aucun.
+ * `surface_plancher_m2` est au niveau PERMIS (`permis_caracteristique`) : c'est le plancher de TOUT le permis (tous bâtiments).
+ * On ne le divise JAMAIS par un « nombre d'étages du permis » (qui n'existe pas) — le nombre de niveaux se lit PAR BÂTIMENT
+ * (`lireBatimentsNiveaux`). `null` si non renseigné / table absente.
  */
-async function lireCaracteristiques(dossierId: number): Promise<[number | null, number | null]> {
+async function lireSurfacePlancher(dossierId: number): Promise<number | null> {
   try {
-    const { rows } = await query<{ surface_plancher_m2: number | null; nb_etages_max: number | null }>(
-      `SELECT c.surface_plancher_m2,
-              (SELECT max(b.nb_etages) FROM permis_corps_batiment b WHERE b.dossier_id = c.dossier_id) AS nb_etages_max
-         FROM permis_caracteristique c WHERE c.dossier_id = $1`, [dossierId]);
+    const { rows } = await query<{ surface_plancher_m2: number | null }>(
+      `SELECT c.surface_plancher_m2 FROM permis_caracteristique c WHERE c.dossier_id = $1`, [dossierId]);
     const r = rows[0];
-    if (!r) return [null, null];
-    return [r.surface_plancher_m2 !== null ? Number(r.surface_plancher_m2) : null, r.nb_etages_max !== null ? Number(r.nb_etages_max) : null];
+    return r && r.surface_plancher_m2 !== null ? Number(r.surface_plancher_m2) : null;
   } catch (err) {
-    if (estTableAbsente(err)) return [null, null];
+    if (estTableAbsente(err)) return null;
+    throw err;
+  }
+}
+
+/**
+ * Niveaux déclarés PAR BÂTIMENT (`permis_corps_batiment.nb_etages`) — jamais un agrégat du permis. Le contrôle de vraisemblance
+ * choisit lui-même quoi en faire (niveaux du bâtiment courant, ou niveaux communs au permis). `[]` si la table manque.
+ */
+async function lireBatimentsNiveaux(dossierId: number): Promise<{ corpsId: number; nbEtages: number | null }[]> {
+  try {
+    const { rows } = await query<{ id: number; nb_etages: number | null }>(
+      `SELECT id::int AS id, nb_etages FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY id`, [dossierId]);
+    return rows.map((r) => ({ corpsId: r.id, nbEtages: r.nb_etages !== null ? Number(r.nb_etages) : null }));
+  } catch (err) {
+    if (estTableAbsente(err)) return [];
     throw err;
   }
 }

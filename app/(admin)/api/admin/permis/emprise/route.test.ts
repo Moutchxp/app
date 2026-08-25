@@ -15,7 +15,7 @@ vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
   ignorerProjection: vi.fn(async () => ({ ok: true })),
   retablirProjection: vi.fn(async () => ({ ok: true })),
   supprimerEmprise: vi.fn(async () => 1),
-  lireContexteEmprise: async () => ({ empreinteAnneaux: [], surfaceTerrainM2: 2886.5, surfacePlancherM2: 900, nbEtages: 3 }),
+  lireContexteEmprise: async () => ({ empreinteAnneaux: [], surfaceTerrainM2: 2886.5, surfacePlancherM2: 900, batiments: [{ corpsId: 3, nbEtages: 3, empriseM2: null }] }),
   lirePolygonesEmpreinte: async () => [
     { cleabs: 'BATIMENT0001', anneau: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], etat: 'En projet' },
     { cleabs: 'BATIMENT0002', anneau: [{ x: 20, y: 20 }, { x: 30, y: 20 }, { x: 30, y: 30 }], etat: 'En service' },
