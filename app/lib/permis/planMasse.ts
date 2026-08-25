@@ -65,9 +65,19 @@ export function familleDeNom(nomFichier: string): FamillePlan | null {
  */
 export function estTracable(f: FamillePlan | null): boolean { return f === 'masse' || f === 'etage'; }
 
-// PROJ-3m ① — une pièce PC3 (famille 'coupe' par son NOM) peut MÊLER des coupes ET des plans de niveau (mesuré sur PC3_2D_PDM :
-//   pages 5-9 = plans de niveau, le reste = coupes/façades). Le nom de pièce ne suffit plus → on classe PAR PAGE d'après son TITRE.
-const NIVEAU = /plan\s+(du\s+|de\s+)?(niveau|rez|rdc|sous[\s-]*sol|etage|r\s*[-+.]?\s*\d{1,2})/;
+// PROJ-3m ① / PROJ-3n — une pièce PC3 (famille 'coupe' par son NOM) MÊLE des coupes ET des plans de niveau ; on classe PAR PAGE
+//   d'après son TITRE de cartouche. ⚠️ PROJ-3n — mesuré sur PC3_2D_PDM (18 planches, dossier 11434) : le titre réglementaire est
+//   NOYÉ en fin d'un texte dont le bloc adresse est CHIFFRÉ par une police sous-ensemble (« UXH GX » = « rue du »), et surtout les
+//   plans de niveau apparaissent sous PLUSIEURS graphies réelles — pas seulement « plan du R+n » (p5-9) mais aussi « Plan de
+//   repérage » (p10), « Rez-de-chaussée / 6e étage » et « R01 à R05 » (p14-17, cartouche « Accord du gestionnaire … »). Le motif
+//   étroit d'origine les verrouillait à tort en élévation. NIVEAU couvre donc ces graphies, SANS matcher un « R01 » nu (présent dans
+//   les tables d'altitudes des coupes : « R01 +61.09 m NGF »). Vérifié sur les DEUX dossiers : 0 coupe/façade réelle débloquée.
+const NIVEAU = new RegExp([
+  'plan\\s+(du\\s+|des?\\s+)?(niveau|rez|rdc|sous[\\s-]*sol|etage|reperage|r\\s*[-+.]?\\s*\\d{1,2})', // « plan du RDC / R02 / niveau / étage / repérage »
+  'rez\\s*de\\s*chaussee',                     // « Rez-de-chaussée » (hors tournure « plan du »)
+  '\\br\\s*0?\\d\\s+(a|au)\\s+r\\s*0?\\d\\b',   // plage de niveaux « R01 à R05 » (une table d'altitudes de coupe n'a jamais « R.. à R.. »)
+  '\\b\\d\\s*(?:er|eme|nd|e)\\s*etage\\b',      // « 6e étage », « 1er étage »
+].join('|'));
 const ELEVATION = /\bcoupes?\b|\bfacades?\b|\belevations?\b/;
 
 /** Famille d'une PAGE d'après son texte (titre de cartouche) : 'etage' (vue en plan) / 'coupe' (élévation) / null (indéterminé). PUR. */

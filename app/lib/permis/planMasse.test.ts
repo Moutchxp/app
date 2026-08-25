@@ -79,19 +79,39 @@ describe('PROJ-3g — familles décidées au NOM (noms réels mesurés sur 11430
     for (const n of ['PC4_Notice_architecturale.pdf', 'CERFA_13409_15.pdf', 'AVIS ABF.pdf', 'PC1_Plan_de_situation.pdf', 'PC5.1_Plan_de_toitures.pdf', 'PC33_1_2D_PDM.pdf'])
       expect(familleDeNom(n), n).toBeNull();
   });
-  it('PROJ-3m ① familleDePage : titre « plan du R/niveau » → étage ; « coupe/façade » → coupe ; sinon null', () => {
-    for (const t of ['PC3.3.2 Plan du R01 éch 1:200', 'plan du niveau R+1', 'plan du RDC', 'plan du sous-sol'])
-      expect(familleDePage(t), t).toBe('etage');
-    for (const t of ['COUPE AA sur le terrain', 'coupe BB', 'façade Est'])
-      expect(familleDePage(t), t).toBe('coupe');
+  it('PROJ-3m ① / PROJ-3n familleDePage : plan de niveau → étage ; coupe/façade → coupe ; sinon null (graphies RÉELLES mesurées)', () => {
+    // Plans de niveau — TOUTES les graphies réelles des cartouches PC3_2D_PDM (dossier 11434), pas seulement « plan du R+n » :
+    for (const t of [
+      'PC3.3.2 Plan du R01 éch 1:200', 'plan du niveau R+1', 'plan du RDC', 'plan du sous-sol', // p5-9 : « Plan du Rdc/R01/… »
+      'Plan de repérage des coupes 1/200E _ 2D1 PLN R00',                                        // p10 : repérage (vue en plan)
+      'Accord du gestionnaire Rez-de-chaussée 1/200E _ 2D2 PLN R00 PC3.3.10',                    // p14 : RDC
+      'Accord du gestionnaire R01 à R05 1/200E _ 2D2 PLN R02 PC3.3.11',                          // p15 : plage de niveaux
+      'Accord du gestionnaire 6e étage 1/200E _ 2D2 PLN R06 PC3.3.12',                           // p16 : « 6e étage »
+      'Accord du gestionnaire 7e étage 1/200E _ 2D2 PLN R07 PC3.3.13',                           // p17 : « 7e étage »
+    ]) expect(familleDePage(t), t).toBe('etage');
+    // Coupes / façades — contre-exemples RÉELS des DEUX dossiers ; aucun ne doit passer traçable (§③) :
+    for (const t of [
+      'PC3 PLAN DE COUPE DU TERRAIN ET DE LA CONSTRUCTION', // 11434 p1
+      'Coupes transversales lot 2D COUPE AA COUPE BB',       // 11434 p2
+      'Coupe longitudinale lot 2D COUPE CC',                 // 11434 p3
+      'COUPES PC10 COUPE EE bas + haut COUPE FF',            // 11434 p13
+      'PC3.1 Coupe AA', 'PC5.5 Façade Sud', 'façade Est', 'élévation nord', // 11430 (pièces nommées)
+    ]) expect(familleDePage(t), t).toBe('coupe');
+    // Un « R01 » NU (table d'altitudes d'une coupe) ne doit PAS être lu comme un niveau :
+    expect(familleDePage('R01 +61.09 m NGF R02 +64.67 m NGF')).toBeNull();                             // altitudes seules → indéterminé, pas étage
+    expect(familleDePage('Coupe longitudinale R01 +61.09 m NGF R02 +64.67 m NGF')).toBe('coupe');      // 11434 p2/p3 : le token « coupe » tranche
     expect(familleDePage('nomenclature des surfaces')).toBeNull();
   });
-  it('PROJ-3m ① tracabilitePlanche : une planche « plan du R » d’une pièce PC3 (coupe) redevient TRAÇABLE', () => {
+  it('PROJ-3m ① / PROJ-3n tracabilitePlanche : tout plan de niveau d’une pièce PC3 (coupe) est TRAÇABLE, quelle que soit la graphie', () => {
     // masse/étage : toujours traçable
     expect(tracabilitePlanche('masse', '')).toMatchObject({ tracable: true, famille: 'masse', ambigu: false });
     expect(tracabilitePlanche('etage', '')).toMatchObject({ tracable: true, famille: 'etage' });
-    // pièce coupe : le TEXTE de la page décide
-    expect(tracabilitePlanche('coupe', 'PC3.3.2 Plan du R01')).toMatchObject({ tracable: true, famille: 'etage', ambigu: false }); // ① le défaut corrigé
+    // pièce coupe : le TEXTE de la page décide — les défauts PROJ-3n corrigés (graphies « gestionnaire … étage » / « R01 à R05 ») :
+    expect(tracabilitePlanche('coupe', 'PC3.3.3 Plan du R02')).toMatchObject({ tracable: true, famille: 'etage', ambigu: false });
+    expect(tracabilitePlanche('coupe', 'Accord du gestionnaire R01 à R05 PLN R02')).toMatchObject({ tracable: true, famille: 'etage', ambigu: false });
+    expect(tracabilitePlanche('coupe', 'Accord du gestionnaire 6e étage PLN R06')).toMatchObject({ tracable: true, famille: 'etage', ambigu: false });
+    // coupes/façades RÉELLES : restent verrouillées (§③)
+    expect(tracabilitePlanche('coupe', 'PLAN DE COUPE DU TERRAIN ET DE LA CONSTRUCTION')).toMatchObject({ tracable: false, famille: 'coupe', ambigu: false });
     expect(tracabilitePlanche('coupe', 'COUPE AA')).toMatchObject({ tracable: false, famille: 'coupe', ambigu: false });
     expect(tracabilitePlanche('coupe', 'façade Ouest')).toMatchObject({ tracable: false, famille: 'coupe' });
     // indéterminé → traçable AVEC mention (jamais verrouillé à tort)

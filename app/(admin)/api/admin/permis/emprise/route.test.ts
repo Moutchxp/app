@@ -158,6 +158,16 @@ describe('PROJ-2 — POST enregistrer : géométrie recalculée SERVEUR (plan �
     expect(enregistrerEmprise).toHaveBeenCalled();
   });
 
+  it('PROJ-3n — une planche de niveau à graphie « Accord du gestionnaire … étage » (pièce PC3) est TRAÇABLE côté serveur', async () => {
+    vi.mocked(lireCleTelechargeable).mockResolvedValueOnce({ cle: 'ged/dossier/z.pdf', nomFichier: 'PC3_2D_PDM.pdf' } as Awaited<ReturnType<typeof lireCleTelechargeable>>);
+    HG.extraire.mockResolvedValueOnce({ ok: true, pages: ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'Accord du gestionnaire 6e étage 1/200E _ 2D2 PLN R06 PC3.3.12'] }); // page 15 = plan de niveau (graphie réelle 11434)
+    const res = await post({ action: 'enregistrer', dossierId: 11434, corpsId: 3, libelle: '2D1', pieceId: 77, page: 15,
+      paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }],
+      anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] });
+    expect(res.status).toBe(200);
+    expect(enregistrerEmprise).toHaveBeenCalled();
+  });
+
   it('PROJ-3j — un PLAN D’ÉTAGE (nom explicite) est traçable sans ouvrir la page', async () => {
     vi.mocked(lireCleTelechargeable).mockResolvedValueOnce({ cle: 'ged/dossier/e.pdf', nomFichier: 'ANNEXE_6_Plan_du_R_1.pdf' } as Awaited<ReturnType<typeof lireCleTelechargeable>>);
     const res = await post({ action: 'enregistrer', dossierId: 11434, corpsId: 3, libelle: '2D1', pieceId: 42, page: 2,
