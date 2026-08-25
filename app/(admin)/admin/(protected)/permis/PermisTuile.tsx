@@ -11,6 +11,7 @@ import { ReglagesVue } from './ReglagesVue';
 import { AutomatisationVue } from './AutomatisationVue';
 import { CollaborateursVue } from './CollaborateursVue';
 import { SuiviRattachementVue } from './SuiviRattachementVue';
+import { TraceEmpriseVue } from './TraceEmpriseVue';
 import { OngletsPermis, type CleOnglet } from './PermisOnglets';
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
 
@@ -64,6 +65,7 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
         compteurs={comptes ? { reponses: comptes.reponses, saisines: comptes.saisines, rattachement: comptes.rattachement } : undefined} />
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} />}
       {onglet === 'rattachement' && <SuiviRattachementVue onRecompter={() => void recompter()} />}
+      {onglet === 'trace_emprise' && <TraceEmpriseVue />}
       {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} onAllerReglages={() => setOnglet('reglages')} />}
       {onglet === 'en_cours' && <EnCoursVue categories={categories} />}
       {onglet === 'reponses' && <ReponsesVue onRecompter={() => void recompter()} />}
