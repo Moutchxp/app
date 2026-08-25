@@ -24,8 +24,9 @@ vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
   ecarterPolygoneProjet: vi.fn(async () => ({ ok: true })),
   retablirPolygoneProjet: vi.fn(async () => ({ ok: true })),
   mesurerDebordement: vi.fn(async () => ({ aireM2: 100, parcelleRattachee: true, aireHorsM2: 7, pctHors: 7, decalageLateralM: 0.5 })),
-  apercuAdoptionEnProjet: vi.fn(async () => ({ groupes: [{ cleabs: ['B1', 'B2'], surfaceM2: 320 }, { cleabs: ['B3'], surfaceM2: 90 }] })),
-  adopterPolygonesEnProjet: vi.fn(async () => ({ ok: true, nbCreees: 2, debordement: { aireM2: 410, parcelleRattachee: true, aireHorsM2: 0, pctHors: 0, decalageLateralM: 0 }, emprises: [{ id: 9, dossierId: 11434, corpsId: 3, libelle: '2D1', anneau: [], anneaux: [], surfaceM2: 320, pieceId: null, page: null, calage: null, residuM: null, provenance: 'ign_adopte', creeLe: null }] })),
+  apercuAdoptionEnProjet: vi.fn(async () => ({ groupes: [{ cleabs: ['B1', 'B2'], surfaceM2: 320, polygones: [{ cleabs: 'B1', surfaceM2: 200 }, { cleabs: 'B2', surfaceM2: 120 }] }, { cleabs: ['B3'], surfaceM2: 90, polygones: [{ cleabs: 'B3', surfaceM2: 90 }] }] })),
+  apercuAffectations: vi.fn(async () => ({ batiments: [{ corpsId: 3, repere: '2D1', emprises: [{ surfaceM2: 320 }] }, { corpsId: 5, repere: '2D2', emprises: [{ surfaceM2: 90 }] }] })),
+  adopterAffectations: vi.fn(async () => ({ ok: true, nbCreees: 2, debordement: { aireM2: 410, parcelleRattachee: true, aireHorsM2: 0, pctHors: 0, decalageLateralM: 0 }, emprises: [{ id: 9, dossierId: 11434, corpsId: 3, libelle: '2D1', anneau: [], anneaux: [], surfaceM2: 320, pieceId: null, page: null, calage: null, residuM: null, provenance: 'ign_adopte', creeLe: null }] })),
   supprimerEmprisesAdoptees: vi.fn(async () => 0),
 }));
 const HG = vi.hoisted(() => ({
@@ -251,25 +252,33 @@ describe('PROJ — action apercu_debordement : Lambert recalculé SERVEUR, lectu
   });
 });
 
-describe('PROJ-3q — adoption des polygones « en projet » via la route', () => {
-  it('apercu_adoption → renvoie le nombre d’emprises et leurs aires (lecture seule)', async () => {
+describe('PROJ-3q/3r — adoption des polygones « en projet » via la route', () => {
+  it('apercu_adoption → groupes automatiques + aires (lecture seule)', async () => {
     const res = await post({ action: 'apercu_adoption', dossierId: 11434 });
     expect(res.status).toBe(200);
     const j = await res.json();
     expect(j.apercu.groupes).toHaveLength(2);
     expect(j.apercu.groupes[0].surfaceM2).toBe(320);
   });
-  it('adopter → ok, nbCreees, emprises (provenance ign_adopte) et débordement joints', async () => {
-    const res = await post({ action: 'adopter', dossierId: 11434, corpsId: 3, libelle: '2D1' });
+  it('apercu_affectations → aperçu PAR BÂTIMENT (nombre d’emprises + aires) pour l’affectation donnée', async () => {
+    const { apercuAffectations } = await import('../../../../../lib/permis/empriseReconstruiteRepo');
+    const res = await post({ action: 'apercu_affectations', dossierId: 11434, affectations: [{ cleabs: 'B1', corpsId: 3 }, { cleabs: 'B3', corpsId: 5 }] });
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(j.apercu.batiments.map((b: { corpsId: number }) => b.corpsId)).toEqual([3, 5]);
+    expect(apercuAffectations).toHaveBeenCalledWith(11434, [{ cleabs: 'B1', corpsId: 3 }, { cleabs: 'B3', corpsId: 5 }]);
+  });
+  it('adopter → passe les AFFECTATIONS au repo ; ok, nbCreees, emprises IGN et débordement joints', async () => {
+    const { adopterAffectations } = await import('../../../../../lib/permis/empriseReconstruiteRepo');
+    const aff = [{ cleabs: 'B1', corpsId: 3 }, { cleabs: 'B2', corpsId: 3 }, { cleabs: 'B3', corpsId: 5 }];
+    const res = await post({ action: 'adopter', dossierId: 11434, affectations: aff });
     expect(res.status).toBe(200);
     const j = await res.json();
     expect(j.ok).toBe(true);
     expect(j.nbCreees).toBe(2);
     expect(j.emprises[0].provenance).toBe('ign_adopte');
     expect(j.debordement).toMatchObject({ parcelleRattachee: true });
-  });
-  it('adopter sans bâtiment (corpsId) → 400', async () => {
-    expect((await post({ action: 'adopter', dossierId: 11434, libelle: '2D1' })).status).toBe(400);
+    expect(adopterAffectations).toHaveBeenCalledWith(11434, aff, 'admin:adoption');
   });
   it('EXCLUSIVITÉ : enregistrer un tracé manuel retire les emprises adoptées du bâtiment', async () => {
     const { supprimerEmprisesAdoptees } = await import('../../../../../lib/permis/empriseReconstruiteRepo');

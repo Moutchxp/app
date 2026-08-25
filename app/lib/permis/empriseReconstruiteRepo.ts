@@ -11,7 +11,7 @@
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { aireM2, deriverDebordement, type PointLambert, type Debordement } from './calageEmprise';
-import { grouperPolygonesConnexes, type PolygoneAdoptable } from './adoptionEmprise';
+import { grouperPolygonesConnexes, grouperParBatiment } from './adoptionEmprise';
 
 /** Journal de calage stocké tel quel (jsonb) — auditable, jamais lissé. */
 export interface CalageTrace {
@@ -281,19 +281,21 @@ export async function retablirPolygoneProjet(dossierId: number, cleabs: string):
 //   pur/testé) à partir des géométries lues en base ; l'union de chaque groupe est calculée par PostGIS (autoritaire, Lambert-93,
 //   ST_Force2D conservé). Un groupe = une emprise (provenance 'ign_adopte'). Aucune géométrie n'est reçue du client.
 
-/** Polygones « En projet » COCHÉS d'un dossier (∩ empreinte, hors écartés) : cleabs + anneau extérieur (Lambert-93). `[]` si absent. */
-async function lireCochesEnProjet(dossierId: number): Promise<PolygoneAdoptable[]> {
+export interface PolygoneCoche { cleabs: string; anneau: PointLambert[]; surfaceM2: number }
+
+/** Polygones « En projet » COCHÉS d'un dossier (∩ empreinte, hors écartés) : cleabs + anneau extérieur (Lambert-93) + aire. `[]` si absent. */
+async function lireCochesEnProjet(dossierId: number): Promise<PolygoneCoche[]> {
   try {
-    const { rows } = await query<{ cleabs: string | null; gj: { type: string; coordinates: number[][][] | number[][][][] } | null }>(
+    const { rows } = await query<{ cleabs: string | null; gj: { type: string; coordinates: number[][][] | number[][][][] } | null; aire: number | null }>(
       `WITH emp AS (SELECT geom FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL)
-       SELECT b.cleabs, ST_AsGeoJSON(ST_Force2D(b.geom))::json AS gj
+       SELECT b.cleabs, ST_AsGeoJSON(ST_Force2D(b.geom))::json AS gj, ST_Area(ST_Force2D(b.geom)) AS aire
          FROM batiment b, emp
         WHERE b.geom && emp.geom AND ST_Intersects(b.geom, emp.geom)
           AND b.etat_de_l_objet = 'En projet'
           AND b.cleabs IS NOT NULL
           AND b.cleabs NOT IN (SELECT cleabs FROM permis_polygone_projet_ecarte WHERE dossier_id = $1)
         ORDER BY ST_YMax(b.geom) DESC, ST_XMin(b.geom), b.cleabs`, [dossierId]);
-    const out: PolygoneAdoptable[] = [];
+    const out: PolygoneCoche[] = [];
     for (const r of rows) {
       if (!r.gj || r.cleabs === null) continue;
       const anneau = r.gj.type === 'Polygon'
@@ -301,7 +303,7 @@ async function lireCochesEnProjet(dossierId: number): Promise<PolygoneAdoptable[
         : r.gj.type === 'MultiPolygon'
           ? ((r.gj.coordinates as number[][][][])[0]?.[0] ?? [])
           : [];
-      if (anneau.length >= 3) out.push({ cleabs: r.cleabs, anneau: anneau.map(([x, y]) => ({ x, y })) });
+      if (anneau.length >= 3) out.push({ cleabs: r.cleabs, anneau: anneau.map(([x, y]) => ({ x, y })), surfaceM2: r.aire !== null ? Number(r.aire) : 0 });
     }
     return out;
   } catch (err) {
@@ -321,21 +323,68 @@ async function unionEtAireGroupe(cleabs: string[]): Promise<{ wkt: string; aireM
   return { wkt: r.wkt, aireM2: Number(r.aire) };
 }
 
-export interface GroupeAdoption { cleabs: string[]; surfaceM2: number }
+/** Repère de chaque bâtiment déclaré du permis (permis_corps_batiment) : Map corpsId → repère (ou null). `Map()` vide si absent. */
+async function lireReperesBatiments(dossierId: number): Promise<Map<number, string | null>> {
+  try {
+    const { rows } = await query<{ id: number; repere: string | null }>(
+      `SELECT id::int AS id, repere FROM permis_corps_batiment WHERE dossier_id = $1`, [dossierId]);
+    return new Map(rows.map((r) => [r.id, r.repere]));
+  } catch (err) {
+    if (estTableAbsente(err)) return new Map();
+    throw err;
+  }
+}
+
+export interface GroupeAdoption { cleabs: string[]; surfaceM2: number; polygones: { cleabs: string; surfaceM2: number }[] }
 export interface ApercuAdoption { groupes: GroupeAdoption[] }
 
 /**
- * APERÇU (lecture seule) de ce qu'une adoption produirait : combien d'emprises seront créées et l'aire de chacune, POUR QUE
- * l'internaute voie ce qu'il valide AVANT d'enregistrer. Aucune écriture. `groupes: []` si aucun polygone « en projet » coché.
+ * APERÇU AUTOMATIQUE (lecture seule) : les polygones « en projet » cochés, REGROUPÉS par connexité (proposition par défaut), avec
+ * l'aire de chaque groupe ET de chaque polygone (pour l'affichage « scindé »). Aucune écriture. `groupes: []` si aucun coché.
  */
 export async function apercuAdoptionEnProjet(dossierId: number): Promise<ApercuAdoption> {
   const groupes = grouperPolygonesConnexes(await lireCochesEnProjet(dossierId));
   const out: GroupeAdoption[] = [];
   for (const g of groupes) {
     const u = await unionEtAireGroupe(g.map((p) => p.cleabs));
-    if (u) out.push({ cleabs: g.map((p) => p.cleabs), surfaceM2: u.aireM2 });
+    if (u) out.push({ cleabs: g.map((p) => p.cleabs), surfaceM2: u.aireM2, polygones: g.map((p) => ({ cleabs: p.cleabs, surfaceM2: p.surfaceM2 })) });
   }
   return { groupes: out };
+}
+
+// Filtre + dédoublonne des affectations reçues (cleabs → corpsId), en ne gardant QUE les cleabs cochés et les bâtiments déclarés.
+//   Exclusivité polygone → un seul bâtiment (Map : dernière affectation gagne, mais le client garantit l'unicité).
+function affectationsValides(affectations: AffectationEntree[], coches: PolygoneCoche[], reperes: Map<number, string | null>): AffectationEntree[] {
+  const cleabsCoches = new Set(coches.map((c) => c.cleabs));
+  const parCleabs = new Map<string, number>();
+  for (const a of affectations) if (cleabsCoches.has(a.cleabs) && reperes.has(a.corpsId)) parCleabs.set(a.cleabs, a.corpsId);
+  return [...parCleabs].map(([cleabs, corpsId]) => ({ cleabs, corpsId }));
+}
+
+export interface AffectationEntree { cleabs: string; corpsId: number }
+export interface EmpriseApercu { surfaceM2: number }
+export interface BatimentAdoption { corpsId: number; repere: string | null; emprises: EmpriseApercu[] }
+export interface ApercuAffectations { batiments: BatimentAdoption[] }
+
+/**
+ * APERÇU PAR BÂTIMENT (lecture seule) d'une affectation donnée : pour chaque bâtiment, combien d'emprises seront créées et leur
+ * aire. Regroupement PAR BÂTIMENT en composantes connexes CÔTÉ SERVEUR (grouperParBatiment) ; union/aire par PostGIS. Aucune écriture.
+ */
+export async function apercuAffectations(dossierId: number, affectations: AffectationEntree[]): Promise<ApercuAffectations> {
+  const coches = await lireCochesEnProjet(dossierId);
+  const reperes = await lireReperesBatiments(dossierId);
+  const valides = affectationsValides(affectations, coches, reperes);
+  const parBat = grouperParBatiment(coches, valides);
+  const out: BatimentAdoption[] = [];
+  for (const b of parBat) {
+    const emprises: EmpriseApercu[] = [];
+    for (const comp of b.composantes) {
+      const u = await unionEtAireGroupe(comp.map((p) => p.cleabs));
+      if (u) emprises.push({ surfaceM2: u.aireM2 });
+    }
+    out.push({ corpsId: b.corpsId, repere: reperes.get(b.corpsId) ?? null, emprises });
+  }
+  return { batiments: out };
 }
 
 export type ResultatAdoption =
@@ -343,32 +392,40 @@ export type ResultatAdoption =
   | { ok: false; motif: string; tableAbsente?: boolean };
 
 /**
- * ADOPTE les polygones « en projet » cochés comme emprise(s) du BÂTIMENT courant. Un groupe connexe = une emprise (provenance
- * 'ign_adopte'). EXCLUSIVITÉ : remplace TOUTE emprise existante du bâtiment (tracée ou adoptée) — l'écran ne laisse jamais coexister
- * adoptée et tracée. Transactionnel. 🔴 Aucune géométrie reçue du client ; union calculée par PostGIS ; garde moteur intacte
- * (reconstitution=true). Le débordement de l'ensemble adopté vs parcelle est renvoyé (repère indicatif).
+ * ADOPTE les polygones « en projet » selon une AFFECTATION cleabs → bâtiment (PROJ-3r). Chaque bâtiment reçoit UNE emprise par
+ * composante connexe de SES polygones ; deux groupes disjoints d'un même bâtiment restent DEUX emprises (jamais unis). Provenance
+ * 'ign_adopte'. EXCLUSIVITÉ (PROJ-3q) : chaque bâtiment CIBLÉ voit ses emprises existantes remplacées ; les bâtiments non ciblés
+ * sont intacts. Transactionnel. 🔴 Aucune géométrie reçue du client (seulement des identifiants cleabs/corpsId) ; union par PostGIS ;
+ * garde moteur intacte. Le débordement de l'ensemble adopté vs parcelle est renvoyé (repère indicatif).
  */
-export async function adopterPolygonesEnProjet(dossierId: number, corpsId: number, libelle: string, par: string | null): Promise<ResultatAdoption> {
-  if (!Number.isInteger(dossierId) || dossierId <= 0 || !Number.isInteger(corpsId)) return { ok: false, motif: 'requête invalide' };
-  const lib = (libelle ?? '').trim();
-  if (lib === '') return { ok: false, motif: 'libellé du bâtiment requis' };
-  const groupes = grouperPolygonesConnexes(await lireCochesEnProjet(dossierId));
-  if (groupes.length === 0) return { ok: false, motif: 'aucun polygone « en projet » coché à adopter' };
-  const unions: { cleabs: string[]; wkt: string }[] = [];
-  for (const g of groupes) {
-    const u = await unionEtAireGroupe(g.map((p) => p.cleabs));
-    if (u) unions.push({ cleabs: g.map((p) => p.cleabs), wkt: u.wkt });
+export async function adopterAffectations(dossierId: number, affectations: AffectationEntree[], par: string | null): Promise<ResultatAdoption> {
+  if (!Number.isInteger(dossierId) || dossierId <= 0) return { ok: false, motif: 'requête invalide' };
+  const coches = await lireCochesEnProjet(dossierId);
+  const reperes = await lireReperesBatiments(dossierId);
+  const valides = affectationsValides(affectations, coches, reperes);
+  if (valides.length === 0) return { ok: false, motif: 'aucun polygone « en projet » coché à adopter' };
+  const parBat = grouperParBatiment(coches, valides);
+  // Union PostGIS de chaque composante (autoritaire) AVANT la transaction (pas de géométrie client).
+  const aInserer: { corpsId: number; libelle: string; wkt: string; cleabs: string[] }[] = [];
+  for (const b of parBat) {
+    const lib = reperes.get(b.corpsId) ?? `bâtiment ${b.corpsId}`;
+    for (const comp of b.composantes) {
+      const cleabs = comp.map((p) => p.cleabs);
+      const u = await unionEtAireGroupe(cleabs);
+      if (u) aInserer.push({ corpsId: b.corpsId, libelle: lib ?? `bâtiment ${b.corpsId}`, wkt: u.wkt, cleabs });
+    }
   }
-  if (unions.length === 0) return { ok: false, motif: 'union des polygones impossible' };
+  if (aInserer.length === 0) return { ok: false, motif: 'union des polygones impossible' };
+  const corpsCibles = [...new Set(parBat.map((b) => b.corpsId))];
   try {
     await withTransaction(async (tx) => {
-      await tx(`DELETE FROM permis_emprise_reconstruite WHERE dossier_id = $1 AND corps_id = $2`, [dossierId, corpsId]); // EXCLUSIVITÉ
-      for (const u of unions) {
-        const calage = JSON.stringify({ adoptionIgn: true, cleabs: u.cleabs }); // pas de calage/échelle pour une adoption : on trace la SOURCE
+      for (const corpsId of corpsCibles) await tx(`DELETE FROM permis_emprise_reconstruite WHERE dossier_id = $1 AND corps_id = $2`, [dossierId, corpsId]); // EXCLUSIVITÉ par bâtiment ciblé
+      for (const e of aInserer) {
+        const calage = JSON.stringify({ adoptionIgn: true, cleabs: e.cleabs }); // trace la SOURCE (mémorise le regroupement) ; pas de calage/échelle
         await tx(
           `INSERT INTO permis_emprise_reconstruite (dossier_id, corps_id, libelle, geom, surface_m2, calage, provenance, cree_par)
            VALUES ($1, $2, $3, ST_GeomFromText($4, 2154), ST_Area(ST_GeomFromText($4, 2154)), $5::jsonb, 'ign_adopte', $6)`,
-          [dossierId, corpsId, lib, u.wkt, calage, par]);
+          [dossierId, e.corpsId, e.libelle, e.wkt, calage, par]);
       }
     });
   } catch (err) {
@@ -376,10 +433,9 @@ export async function adopterPolygonesEnProjet(dossierId: number, corpsId: numbe
     throw err;
   }
   const emprises = await listerEmprises(dossierId);
-  // Débordement de l'ENSEMBLE adopté vs parcelle : union de tous les polygones adoptés (Polygon/MultiPolygon propre, pas une collection).
-  const toutAdopte = await unionEtAireGroupe(unions.flatMap((u) => u.cleabs));
+  const toutAdopte = await unionEtAireGroupe(aInserer.flatMap((e) => e.cleabs));
   const debordement = toutAdopte ? await mesurerDebordementWkt(dossierId, toutAdopte.wkt) : null;
-  return { ok: true, nbCreees: unions.length, emprises, debordement };
+  return { ok: true, nbCreees: aInserer.length, emprises, debordement };
 }
 
 /** EXCLUSIVITÉ inverse : retire les emprises ADOPTÉES d'un bâtiment (quand on enregistre un tracé manuel à la place). Renvoie le nb retiré. */

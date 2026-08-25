@@ -7,9 +7,9 @@ import {
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, ApercuAdoption, FILTRES_SCHEMA_DEFAUT, type FiltresSchema } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
-import { estFuturBati, estEnProjet } from '../../../../lib/permis/etatBati';
+import { estFuturBati } from '../../../../lib/permis/etatBati';
 
 /**
  * PROJ-2b — BLOC de tracé d'emprise INTÉGRÉ au détail d'un dossier de Rattachement, BÂTIMENT PAR BÂTIMENT. Le dossier vient de la
@@ -51,7 +51,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   const [planEnAttente, setPlanEnAttente] = useState<PointPlan | null>(null);
   const [sommets, setSommets] = useState<PointPlan[]>([]);
   const [debordement, setDebordement] = useState<Debordement | null>(null); // repère « débordement hors parcelle » (serveur), live + après enregistrement
-  const [adoptionApercu, setAdoptionApercu] = useState<{ groupes: { surfaceM2: number }[] } | null>(null); // PROJ-3q — aperçu avant adoption
+  // PROJ-3r — adoption : groupes automatiques (serveur), affectation cleabs→bâtiment (transient), groupes scindés, confirmation par bâtiment.
+  const [groupesAdoption, setGroupesAdoption] = useState<GroupeAdoptionVue[]>([]);
+  const [affectation, setAffectation] = useState<Record<string, number>>({});
+  const [scindes, setScindes] = useState<number[]>([]);
+  const [confirmationAdoption, setConfirmationAdoption] = useState<{ batiments: BatimentAdoptionVue[] } | null>(null);
   const [motifIgnore, setMotifIgnore] = useState('');
   const [apercu, setApercu] = useState<Apercu | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -120,7 +124,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   }, [corpsSel, batiments, emprises, ignores]);
 
   // Verdict de projection → remonte au parent (bouton Valider). Mémoïsé : ne rejoue l'effet que si les entrées changent.
-  const verdict = useMemo(() => verdictProjectionBatiments(batiments, emprises.map((e) => e.corpsId).filter((c): c is number => c !== null), ignores.map((i) => i.corpsId)), [batiments, emprises, ignores]);
+  const verdict = useMemo(() => verdictProjectionBatiments(batiments, emprises.map((e) => ({ corpsId: e.corpsId, provenance: e.provenance })), ignores.map((i) => i.corpsId)), [batiments, emprises, ignores]);
   // PROJ-3b-fix ② — on ne remonte le verdict (donc le compteur « 0 bâtiment · 0 emprise ») QU'au succès du chargement :
   //   sur un échec, le parent ne doit pas afficher un « 0 » calculé sur une liste jamais chargée.
   useEffect(() => { if (etat === 'ok') onVerdict?.(verdict); }, [verdict, onVerdict, etat]);
@@ -160,6 +164,33 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
     return () => { clearTimeout(t); ctrl.abort(); };
   }, [sommets, paires, corpsEffectif, dossierId, etat]);
 
+  // PROJ-3r — réinitialiser l'affectation au groupement AUTOMATIQUE : tous les polygones cochés → bâtiment courant, aucun groupe scindé.
+  const reinitialiserAdoption = useCallback((groupes: GroupeAdoptionVue[], corpsId: number | null) => {
+    const aff: Record<string, number> = {};
+    if (corpsId !== null) for (const g of groupes) for (const p of g.polygones) aff[p.cleabs] = corpsId;
+    setAffectation(aff); setScindes([]);
+  }, []);
+
+  // PROJ-3r — charge les GROUPES AUTOMATIQUES (connexité, serveur) des polygones cochés, et (ré)initialise l'affectation vers le
+  //   bâtiment courant. setState uniquement dans le callback async (jamais synchrone dans l'effet). Recharge si le dossier / la
+  //   sélection écartée / le bâtiment courant changent (le défaut d'affectation suit le bâtiment courant).
+  useEffect(() => {
+    if (etat !== 'ok') return;
+    const ctrl = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
+          body: JSON.stringify({ action: 'apercu_adoption', dossierId }) });
+        if (!res.ok) return;
+        const j = await res.json() as { apercu?: { groupes: GroupeAdoptionVue[] } };
+        const groupes = j.apercu?.groupes ?? [];
+        setGroupesAdoption(groupes);
+        reinitialiserAdoption(groupes, corpsEffectif);
+      } catch { /* aborté / réseau : on n'invente rien */ }
+    })();
+    return () => ctrl.abort();
+  }, [dossierId, ecartes, corpsEffectif, etat, reinitialiserAdoption]);
+
   const ratioDeclare = (() => { const n = Number(ratioDeclareSaisi.replace(',', '.')); return ratioDeclareSaisi.trim() !== '' && Number.isFinite(n) && n > 0 ? n : null; })();
   const sim = calculerSimilitude(paires);
   const anneauLambert = sim && sommets.length >= 3 ? anneauVersLambert(sim, sommets) : null;
@@ -170,11 +201,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   const batSel = batiments.find((b) => b.corpsId === corpsEffectif) ?? null;
   const empriseDuBat = emprises.filter((e) => e.corpsId === corpsEffectif);
   const ignoreDuBat = ignores.find((i) => i.corpsId === corpsEffectif) ?? null;
-  // PROJ-3q — polygones « en projet » COCHÉS (non écartés) du dossier : l'adoption est disponible dès qu'il y en a au moins un.
-  const nbEnProjetCoches = useMemo(() => polygonesReperes.filter((p) => estEnProjet(p.etat) && p.cleabs && !ecartes.includes(p.cleabs)).length, [polygonesReperes, ecartes]);
-  // Origine de l'emprise COURANTE : si adoptée (IGN), les repères de calage/échelle ne s'appliquent pas. L'existant à remplacer :
+  // Origine de l'emprise COURANTE : si adoptée (IGN), les repères de calage/échelle ne s'appliquent pas (PROJ-3r).
   const origineIgnCourant = empriseDuBat.some((e) => e.provenance === 'ign_adopte' || e.provenance === 'ign_retouche');
-  const provenanceExistante = empriseDuBat[0]?.provenance ?? null;
 
   const afficherPage = useCallback(async () => {
     if (pieceId === null) return;
@@ -305,31 +333,40 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
     } catch { setMessage('action impossible'); } finally { setOccupe(false); }
   }, [dossierId]);
 
-  // PROJ-3q — ADOPTION des polygones « en projet » : ① aperçu (combien d'emprises + aires) ② confirmation ③ enregistrement serveur.
-  const ouvrirAdoption = useCallback(async () => {
+  // PROJ-3r — construit la liste d'affectations {cleabs→bâtiment} pour tous les polygones des groupes courants.
+  const affectationsCourantes = useCallback((): { cleabs: string; corpsId: number }[] => {
+    const out: { cleabs: string; corpsId: number }[] = [];
+    for (const g of groupesAdoption) for (const p of g.polygones) { const c = affectation[p.cleabs]; if (c !== undefined) out.push({ cleabs: p.cleabs, corpsId: c }); }
+    return out;
+  }, [groupesAdoption, affectation]);
+
+
+  // ② Ouvrir la confirmation : aperçu PAR BÂTIMENT (serveur) de l'affectation courante.
+  const ouvrirConfirmationAdoption = useCallback(async () => {
     setMessage(null); setOccupe(true);
     try {
-      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'apercu_adoption', dossierId }) });
-      const j = await res.json() as { apercu?: { groupes: { surfaceM2: number }[] }; erreur?: string };
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'apercu_affectations', dossierId, affectations: affectationsCourantes() }) });
+      const j = await res.json() as { apercu?: { batiments: BatimentAdoptionVue[] }; erreur?: string };
       if (!res.ok || !j.apercu) { setMessage(j.erreur ?? 'aperçu indisponible'); return; }
-      setAdoptionApercu(j.apercu);
+      setConfirmationAdoption(j.apercu);
     } catch { setMessage('aperçu indisponible'); } finally { setOccupe(false); }
-  }, [dossierId]);
+  }, [dossierId, affectationsCourantes]);
 
+  // ③ Confirmer l'adoption : enregistrement serveur par affectation (regroupement PAR bâtiment, plusieurs bâtiments possibles).
   const confirmerAdoption = useCallback(async () => {
-    if (corpsEffectif === null || !batSel) return;
     setOccupe(true); setMessage(null);
     try {
       const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'adopter', dossierId, corpsId: corpsEffectif, libelle: batSel.repere ?? `bâtiment ${corpsEffectif}` }) });
+        body: JSON.stringify({ action: 'adopter', dossierId, affectations: affectationsCourantes() }) });
       const j = await res.json() as { ok?: boolean; erreur?: string; nbCreees?: number; emprises?: EmpriseReconstruite[]; ignores?: ProjectionIgnoree[]; debordement?: Debordement | null };
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'adoption refusée'); return; }
       setEmprises(j.emprises ?? []); if (j.ignores) setIgnores(j.ignores);
       setSommets([]); setPaires([]); setPlanEnAttente(null); // une adoption remplace tout tracé en cours
-      setDebordement(j.debordement ?? null); setAdoptionApercu(null);
+      setDebordement(j.debordement ?? null); setConfirmationAdoption(null);
       setMessage(`${j.nbCreees ?? 0} emprise(s) adoptée(s) depuis l’IGN`);
     } catch { setMessage('adoption impossible'); } finally { setOccupe(false); }
-  }, [dossierId, corpsEffectif, batSel]);
+  }, [dossierId, affectationsCourantes]);
 
   // PROJ-3i — ÉCARTER / RÉTABLIR un polygone « en projet » (décision persistée). Optimiste : la réponse serveur fait foi.
   const basculerEcart = useCallback(async (cleabs: string, ecarter: boolean) => {
@@ -455,6 +492,17 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
             <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
 
+            {/* PROJ-3r — TROISIÈME issue, DANS l'encart « en projet » : affecter chaque groupe à un bâtiment déclaré + adopter (scinder/fusionner). */}
+            <AdoptionGroupes groupes={groupesAdoption} batiments={batiments} affectation={affectation} scindes={scindes} occupe={occupe}
+              onAffecter={(cleabs, corpsId) => setAffectation((prev) => { const n = { ...prev }; for (const c of cleabs) n[c] = corpsId; return n; })}
+              onScinder={(i) => setScindes((prev) => (prev.includes(i) ? prev : [...prev, i]))}
+              onRegrouper={(i) => setScindes((prev) => prev.filter((x) => x !== i))}
+              onReinitialiser={() => reinitialiserAdoption(groupesAdoption, corpsEffectif)}
+              onAdopter={() => void ouvrirConfirmationAdoption()} />
+            <ConfirmationAdoption apercu={confirmationAdoption}
+              remplaceExistant={emprises.some((e) => e.corpsId !== null && new Set(Object.values(affectation)).has(e.corpsId))}
+              occupe={occupe} onConfirmer={() => void confirmerAdoption()} onAnnuler={() => setConfirmationAdoption(null)} />
+
             {/* PROJ-3g/3j/3m — VERROU (COUPES/FAÇADES seulement) ; RAPPEL « étage » ; MENTION si le classement de la page est incertain. */}
             {verrou && <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{verrou}</div>}
             {tracable && ambiguCourant && <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Type de vue incertain : proposé traçable — vérifiez qu’il s’agit bien d’une vue en plan (pas d’une coupe/façade) avant de tracer.</div>}
@@ -476,17 +524,6 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe || !tracable || !sim || sommets.length < 3} onClick={() => void enregistrer()}>
               Enregistrer l’emprise de {batSel.repere ?? `bâtiment ${batSel.corpsId}`}
             </button>
-
-            {/* PROJ-3q — TROISIÈME issue : ADOPTER les polygones « en projet » IGN cochés (aucun tracé manuel). Dispo dès qu'il y en a ≥ 1. */}
-            {nbEnProjetCoches > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-                <button type="button" style={{ ...btn, width: 'auto', fontWeight: 700 }} disabled={occupe} onClick={() => void ouvrirAdoption()}>
-                  Adopter les {nbEnProjetCoches} polygone{nbEnProjetCoches > 1 ? 's' : ''} « en projet » de l’IGN
-                </button>
-                <ApercuAdoption apercu={adoptionApercu} remplace={empriseDuBat.length > 0 ? provenanceExistante : null} occupe={occupe}
-                  onConfirmer={() => void confirmerAdoption()} onAnnuler={() => setAdoptionApercu(null)} />
-              </div>
-            )}
 
             {/* Emprises déjà tracées pour CE bâtiment (effaçables). */}
             <ListeEmprises emprises={empriseDuBat} onSupprimer={(id) => void posterProjection('supprimer', corpsEffectif!, { id })} />

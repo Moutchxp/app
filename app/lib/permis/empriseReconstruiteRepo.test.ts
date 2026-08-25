@@ -14,12 +14,14 @@ const H = vi.hoisted(() => {
     calls.push({ sql, params: params ?? [] });
     if (/INSERT INTO permis_emprise_reconstruite/i.test(sql)) return { rows: [{ id: 7 }], rowCount: 1 };
     if (/SELECT id FROM permis_rattachement WHERE dossier_id/i.test(sql)) return { rows: [{ id: 99 }], rowCount: 1 };
-    // PROJ-3q — polygones « En projet » cochés : B1+B2 jointifs (bord x=10), B3 disjoint → 2 groupes.
+    // PROJ-3q/3r — polygones « En projet » cochés : B1+B2 jointifs (bord x=10), B3 disjoint → 2 groupes.
     if (/FROM batiment[\s\S]*En projet/i.test(sql)) return { rows: [
-      { cleabs: 'B1', gj: { type: 'Polygon', coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]] } },
-      { cleabs: 'B2', gj: { type: 'Polygon', coordinates: [[[10, 0], [20, 0], [20, 10], [10, 10], [10, 0]]] } },
-      { cleabs: 'B3', gj: { type: 'Polygon', coordinates: [[[100, 100], [110, 100], [110, 110], [100, 110], [100, 100]]] } },
+      { cleabs: 'B1', gj: { type: 'Polygon', coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]] }, aire: 100 },
+      { cleabs: 'B2', gj: { type: 'Polygon', coordinates: [[[10, 0], [20, 0], [20, 10], [10, 10], [10, 0]]] }, aire: 100 },
+      { cleabs: 'B3', gj: { type: 'Polygon', coordinates: [[[100, 100], [110, 100], [110, 110], [100, 110], [100, 100]]] }, aire: 100 },
     ], rowCount: 3 };
+    // PROJ-3r — bâtiments déclarés du permis (repères) : 3 et 5.
+    if (/SELECT id::int AS id, repere FROM permis_corps_batiment/i.test(sql)) return { rows: [{ id: 3, repere: '2D1' }, { id: 5, repere: '2D2' }], rowCount: 2 };
     if (/ST_UnaryUnion/i.test(sql)) return { rows: [{ wkt: 'POLYGON((0 0,20 0,20 10,0 10,0 0))', aire: 200 }], rowCount: 1 };
     if (/ST_Difference/i.test(sql)) return { rows: [{ aire: 200, a_parcelle: true, aire_hors: 0, perim_hors: 0 }], rowCount: 1 };
     return { rows: [], rowCount: 1 };
@@ -28,7 +30,7 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock, withTransaction: async (fn: (q: unknown) => unknown) => fn(H.queryMock) }));
 
-import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, adopterPolygonesEnProjet, supprimerEmprisesAdoptees } from './empriseReconstruiteRepo';
+import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees } from './empriseReconstruiteRepo';
 import type { CalageTrace } from './empriseReconstruiteRepo';
 
 const calage: CalageTrace = { paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 10, y: 0 }, lambert: { x: 20, y: 0 } }], ratioDeclare: null, ratioImplicite: 200, residuFitM: 0, residuEchelleM: null, douteux: false, raisons: [] };
@@ -129,25 +131,46 @@ describe('PROJ-3q — adoption des polygones « en projet » : un groupe = une e
     });
   });
 
-  it('adopterPolygonesEnProjet : DELETE (exclusivité) puis 1 INSERT par groupe, provenance ign_adopte', async () => {
-    const r = await adopterPolygonesEnProjet(11434, 3, '2D1', 'admin:adoption');
+  it('adopterAffectations (AUTOMATIQUE, tout au bâtiment 3) : DELETE (exclusivité) puis 1 INSERT par composante, provenance ign_adopte', async () => {
+    const aff = [{ cleabs: 'B1', corpsId: 3 }, { cleabs: 'B2', corpsId: 3 }, { cleabs: 'B3', corpsId: 3 }];
+    const r = await adopterAffectations(11434, aff, 'admin:adoption');
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.nbCreees).toBe(2);
+    expect(r.nbCreees).toBe(2);                                     // {B1,B2} jointifs = 1 emprise ; B3 = 1 emprise
     const del = H.calls.find((c) => /DELETE FROM permis_emprise_reconstruite WHERE dossier_id = \$1 AND corps_id = \$2/i.test(c.sql));
-    expect(del).toBeTruthy();                                       // remplace l'existant du bâtiment
     expect(del!.params).toEqual([11434, 3]);
     const inserts = H.calls.filter((c) => /INSERT INTO permis_emprise_reconstruite/i.test(c.sql));
-    expect(inserts).toHaveLength(2);                                // un par groupe
-    expect(inserts.every((c) => /'ign_adopte'/.test(c.sql))).toBe(true); // provenance IGN, jamais « reconstitution »
-    // le DELETE précède les INSERT (exclusivité avant écriture)
+    expect(inserts).toHaveLength(2);
+    expect(inserts.every((c) => /'ign_adopte'/.test(c.sql))).toBe(true);
+    expect(inserts.every((c) => c.params[1] === 3)).toBe(true);     // toutes au bâtiment 3
+    // le DELETE précède les INSERT
     expect(H.calls.findIndex((c) => /DELETE FROM permis_emprise_reconstruite/i.test(c.sql)))
       .toBeLessThan(H.calls.findIndex((c) => /INSERT INTO permis_emprise_reconstruite/i.test(c.sql)));
   });
 
-  it('adopterPolygonesEnProjet : libellé vide → refus, aucune écriture', async () => {
-    const r = await adopterPolygonesEnProjet(11434, 3, '  ', null);
+  it('adopterAffectations (DEUX BÂTIMENTS) : DELETE de CHAQUE bâtiment ciblé, une emprise par bâtiment', async () => {
+    const aff = [{ cleabs: 'B1', corpsId: 3 }, { cleabs: 'B2', corpsId: 3 }, { cleabs: 'B3', corpsId: 5 }];
+    const r = await adopterAffectations(11434, aff, 'admin:adoption');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.nbCreees).toBe(2);
+    const dels = H.calls.filter((c) => /DELETE FROM permis_emprise_reconstruite WHERE dossier_id = \$1 AND corps_id = \$2/i.test(c.sql));
+    expect(dels.map((d) => d.params[1]).sort()).toEqual([3, 5]);    // exclusivité sur les DEUX bâtiments ciblés
+    const inserts = H.calls.filter((c) => /INSERT INTO permis_emprise_reconstruite/i.test(c.sql));
+    expect(inserts.map((c) => c.params[1]).sort()).toEqual([3, 5]); // une emprise chez 3, une chez 5
+  });
+
+  it('adopterAffectations : aucune affectation valide → refus, aucune écriture', async () => {
+    const r = await adopterAffectations(11434, [], null);
     expect(r.ok).toBe(false);
+    expect(H.calls.some((c) => /INSERT|DELETE/i.test(c.sql))).toBe(false);
+  });
+
+  it('apercuAffectations : aperçu PAR BÂTIMENT (nombre d’emprises + aires), aucune écriture', async () => {
+    const ap = await apercuAffectations(11434, [{ cleabs: 'B1', corpsId: 3 }, { cleabs: 'B2', corpsId: 3 }, { cleabs: 'B3', corpsId: 5 }]);
+    expect(ap.batiments.map((b) => b.corpsId).sort()).toEqual([3, 5]);
+    expect(ap.batiments.find((b) => b.corpsId === 3)!.emprises).toHaveLength(1);
+    expect(ap.batiments.find((b) => b.corpsId === 5)!.emprises).toHaveLength(1);
     expect(H.calls.some((c) => /INSERT|DELETE/i.test(c.sql))).toBe(false);
   });
 

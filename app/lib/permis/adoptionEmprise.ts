@@ -69,13 +69,41 @@ export function polygonesSeTouchent(a: PointLambert[], b: PointLambert[]): boole
  * petit index d'origine) ; à l'intérieur d'un groupe, ordre d'origine conservé. Un polygone isolé forme un groupe d'un seul élément.
  * PUR — aucune géométrie fusionnée ici (l'union est faite par PostGIS ensuite).
  */
-export function grouperPolygonesConnexes(polys: PolygoneAdoptable[]): PolygoneAdoptable[][] {
+export function grouperPolygonesConnexes<T extends { cleabs: string; anneau: PointLambert[] }>(polys: T[]): T[][] {
   const n = polys.length;
   const parent = Array.from({ length: n }, (_, i) => i);
   const trouver = (x: number): number => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
   const unir = (x: number, y: number): void => { const rx = trouver(x), ry = trouver(y); if (rx !== ry) parent[Math.max(rx, ry)] = Math.min(rx, ry); };
   for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (polygonesSeTouchent(polys[i].anneau, polys[j].anneau)) unir(i, j);
-  const groupes = new Map<number, PolygoneAdoptable[]>();
+  const groupes = new Map<number, T[]>();
   for (let i = 0; i < n; i++) { const r = trouver(i); (groupes.get(r) ?? groupes.set(r, []).get(r)!).push(polys[i]); }
   return [...groupes.keys()].sort((a, b) => a - b).map((k) => groupes.get(k)!);
+}
+
+// ─── PROJ-3r — AFFECTATION des polygones aux bâtiments déclarés + regroupement PAR BÂTIMENT ───────────────────────────────────
+export interface Affectation { cleabs: string; corpsId: number }
+
+/**
+ * Regroupe les polygones cochés PAR BÂTIMENT affecté, puis en composantes connexes À L'INTÉRIEUR de chaque bâtiment. PUR.
+ * Conséquences directes de la règle métier :
+ *  · SCINDER = affecter des polygones jointifs à des bâtiments DIFFÉRENTS → ils tombent dans des composantes séparées (chacun son
+ *    bâtiment) et ne sont jamais unis ;
+ *  · FUSIONNER = affecter des polygones DISJOINTS au MÊME bâtiment → ils restent des composantes DISTINCTES (une emprise chacune) :
+ *    « même bâtiment » n'est jamais « même géométrie ».
+ * Un cleabs sans affectation n'est PAS adopté (ignoré). Ordre des bâtiments STABLE (1re apparition). L'union géométrique de chaque
+ * composante reste faite par PostGIS ensuite (autoritaire).
+ */
+export function grouperParBatiment<T extends { cleabs: string; anneau: PointLambert[] }>(
+  coches: T[], affectations: Affectation[],
+): { corpsId: number; composantes: T[][] }[] {
+  const parCleabs = new Map(affectations.map((a) => [a.cleabs, a.corpsId]));
+  const ordre: number[] = [];
+  const parCorps = new Map<number, T[]>();
+  for (const p of coches) {
+    const corpsId = parCleabs.get(p.cleabs);
+    if (corpsId === undefined) continue; // non affecté → non adopté
+    if (!parCorps.has(corpsId)) { parCorps.set(corpsId, []); ordre.push(corpsId); }
+    parCorps.get(corpsId)!.push(p);
+  }
+  return ordre.map((corpsId) => ({ corpsId, composantes: grouperPolygonesConnexes(parCorps.get(corpsId)!) }));
 }

@@ -2,44 +2,61 @@ import { describe, it, expect } from 'vitest';
 import { verdictProjectionBatiments, libelleBatiment, eligibleProjection, effetValidationProjection } from './projectionBatiments';
 
 const B = [{ corpsId: 1, repere: '2D1' }, { corpsId: 2, repere: '2D2' }];
+// emprise « de couverture » : corpsId + provenance (trace par défaut).
+const emp = (corpsId: number, provenance = 'trace_manuel') => ({ corpsId, provenance });
 
 describe('PROJ-2b — blocage de validation par bâtiment (pur)', () => {
   it('0 tracé sur 2 → BLOQUÉ, les deux en attente', () => {
     const v = verdictProjectionBatiments(B, [], []);
     expect(v.peutValider).toBe(false);
     expect(v.manquants.map((m) => m.repere)).toEqual(['2D1', '2D2']);
-    expect(v.libelle).toBe('2 bâtiments · 0 emprise tracée · 2 en attente');
+    expect(v.libelle).toBe('2 bâtiments · 0 emprise · 2 en attente');
   });
 
   it('1 tracé sur 2 → BLOQUÉ en NOMMANT le manquant', () => {
-    const v = verdictProjectionBatiments(B, [1], []);
+    const v = verdictProjectionBatiments(B, [emp(1)], []);
     expect(v.peutValider).toBe(false);
     expect(v.manquants.map(libelleBatiment)).toEqual(['2D2']);
-    expect(v.libelle).toBe('2 bâtiments · 1 emprise tracée · 1 en attente');
+    expect(v.libelle).toBe('2 bâtiments · 1 emprise (1 tracée à la main) · 1 en attente');
   });
 
   it('2 tracés sur 2 → PASSANT', () => {
-    const v = verdictProjectionBatiments(B, [1, 2], []);
+    const v = verdictProjectionBatiments(B, [emp(1), emp(2)], []);
     expect(v.peutValider).toBe(true);
     expect(v.manquants).toEqual([]);
-    expect(v.libelle).toBe('2 bâtiments · 2 emprises tracées · 0 en attente');
+    expect(v.libelle).toBe('2 bâtiments · 2 emprises (2 tracées à la main) · 0 en attente');
   });
 
   it('1 tracé + 1 ignoré → PASSANT (l’ignoré compte comme couvert)', () => {
-    const v = verdictProjectionBatiments(B, [1], [2]);
+    const v = verdictProjectionBatiments(B, [emp(1)], [2]);
     expect(v.peutValider).toBe(true);
-    expect(v.nbTraces).toBe(1);
+    expect(v.nbCouverts).toBe(1);
     expect(v.nbIgnores).toBe(1);
-    expect(v.libelle).toBe('2 bâtiments · 1 emprise tracée · 1 ignorée · 0 en attente');
+    expect(v.libelle).toBe('2 bâtiments · 1 emprise (1 tracée à la main) · 1 ignorée · 0 en attente');
   });
 
   it('ignoré PUIS retracé → PASSANT, et l’emprise PRIME (jamais compté deux fois)', () => {
-    // le bâtiment 2 est à la fois ignoré ET tracé → compté comme tracé, pas comme ignoré
-    const v = verdictProjectionBatiments(B, [1, 2], [2]);
+    // le bâtiment 2 est à la fois ignoré ET tracé → compté comme couvert, pas comme ignoré
+    const v = verdictProjectionBatiments(B, [emp(1), emp(2)], [2]);
     expect(v.peutValider).toBe(true);
-    expect(v.nbTraces).toBe(2);
+    expect(v.nbCouverts).toBe(2);
     expect(v.nbIgnores).toBe(0);
-    expect(v.libelle).toBe('2 bâtiments · 2 emprises tracées · 0 en attente');
+    expect(v.libelle).toBe('2 bâtiments · 2 emprises (2 tracées à la main) · 0 en attente');
+  });
+
+  // PROJ-3r — le pied de page compte TOUTES les emprises (peut être > nb de bâtiments) et dit l'ORIGINE (IGN vs tracé).
+  it('un bâtiment avec PLUSIEURS emprises adoptées IGN → compte 3 emprises, origine IGN, jamais « tracées »', () => {
+    const v = verdictProjectionBatiments([{ corpsId: 1, repere: '2D1' }], [emp(1, 'ign_adopte'), emp(1, 'ign_adopte'), emp(1, 'ign_adopte')], []);
+    expect(v.peutValider).toBe(true);        // 1 bâtiment couvert (3 emprises)
+    expect(v.nbCouverts).toBe(1);
+    expect(v.nbEmprises).toBe(3);
+    expect(v.nbEmprisesIgn).toBe(3);
+    expect(v.libelle).toBe('1 bâtiment · 3 emprises (3 issues de l’IGN) · 0 en attente');
+    expect(v.libelle).not.toMatch(/tracée/);
+  });
+  it('origines MIXTES (IGN + tracé) → les deux comptes affichés', () => {
+    const v = verdictProjectionBatiments(B, [emp(1, 'ign_adopte'), emp(1, 'ign_adopte'), emp(2, 'trace_manuel')], []);
+    expect(v.libelle).toBe('2 bâtiments · 3 emprises (2 issues de l’IGN, 1 tracée à la main) · 0 en attente');
   });
 
   it('aucun bâtiment déclaré → BLOQUÉ (PROJ-3b : déclarer au moins un bâtiment avant de valider)', () => {
@@ -57,7 +74,7 @@ describe('PROJ-3b — la validation exige au moins un bâtiment déclaré (pur)'
     expect(v.aucunBatiment).toBe(true);
   });
   it('1 bâtiment tracé → accepté', () => {
-    const v = verdictProjectionBatiments(un, [1], []);
+    const v = verdictProjectionBatiments(un, [emp(1)], []);
     expect(v.peutValider).toBe(true);
     expect(v.aucunBatiment).toBe(false);
   });
@@ -67,7 +84,7 @@ describe('PROJ-3b — la validation exige au moins un bâtiment déclaré (pur)'
     expect(v.aucunBatiment).toBe(false);
   });
   it('2 bâtiments dont 1 ni tracé ni ignoré → refusé', () => {
-    const v = verdictProjectionBatiments(B, [1], []);
+    const v = verdictProjectionBatiments(B, [emp(1)], []);
     expect(v.peutValider).toBe(false);
     expect(v.aucunBatiment).toBe(false);
     expect(v.manquants.map((m) => m.repere)).toEqual(['2D2']);

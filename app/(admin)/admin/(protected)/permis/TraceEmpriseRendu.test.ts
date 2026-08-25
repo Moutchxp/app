@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, ApercuAdoption, libelleProvenance, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
@@ -56,12 +56,12 @@ describe('PROJ-2 — rendu pur', () => {
   });
 
   it('BandeauProjection : bloquant nomme le manquant ; passant en vert', () => {
-    const bloque = verdictProjectionBatiments([{ corpsId: 1, repere: '2D1' }, { corpsId: 2, repere: '2D2' }], [1], []);
+    const bloque = verdictProjectionBatiments([{ corpsId: 1, repere: '2D1' }, { corpsId: 2, repere: '2D2' }], [{ corpsId: 1, provenance: 'trace_manuel' }], []);
     const hb = renderToStaticMarkup(h(BandeauProjection, { verdict: bloque }));
     expect(hb).toContain('data-peut-valider="false"');
-    expect(hb).toContain('1 emprise tracée · 1 en attente');
+    expect(hb).toContain('1 emprise (1 tracée à la main) · 1 en attente');
     expect(hb).toContain('2D2'); // le manquant nommé
-    const passe = verdictProjectionBatiments([{ corpsId: 1, repere: '2D1' }], [1], []);
+    const passe = verdictProjectionBatiments([{ corpsId: 1, repere: '2D1' }], [{ corpsId: 1, provenance: 'trace_manuel' }], []);
     expect(renderToStaticMarkup(h(BandeauProjection, { verdict: passe }))).toContain('data-peut-valider="true"');
   });
 
@@ -425,20 +425,37 @@ describe('PROJ-3q — adoption IGN : aperçu, provenance, repère « qualité »
     expect(libelleProvenance('ign_retouche')).toBe('IGN retouchée à la main');
     expect(libelleProvenance('trace_manuel')).toBe('tracé à la main');
   });
-  it('ApercuAdoption : null → rien ; 0 groupe → « aucun polygone » ; N groupes → nombre + aires', () => {
-    expect(renderToStaticMarkup(h(ApercuAdoption, { apercu: null, remplace: null, onConfirmer: () => {}, onAnnuler: () => {} }))).toBe('');
-    const vide = renderToStaticMarkup(h(ApercuAdoption, { apercu: { groupes: [] }, remplace: null, onConfirmer: () => {}, onAnnuler: () => {} }));
-    expect(vide).toMatch(/Aucun polygone/);
-    const deux = renderToStaticMarkup(h(ApercuAdoption, { apercu: { groupes: [{ surfaceM2: 320 }, { surfaceM2: 90 }] }, remplace: null, onConfirmer: () => {}, onAnnuler: () => {} }));
-    expect(deux).toContain('2');
-    expect(deux).toContain('320 m²');
-    expect(deux).toContain('90 m²');
+  const BATS = [{ corpsId: 3, repere: '2D1' }, { corpsId: 5, repere: '2D2' }];
+  const G = [
+    { cleabs: ['B1', 'B2'], surfaceM2: 320, polygones: [{ cleabs: 'B1', surfaceM2: 200 }, { cleabs: 'B2', surfaceM2: 120 }] },
+    { cleabs: ['B3'], surfaceM2: 90, polygones: [{ cleabs: 'B3', surfaceM2: 90 }] },
+  ];
+  it('AdoptionGroupes : 0 groupe → rien ; sinon un sélecteur de bâtiment par groupe + « Scinder » si plusieurs polygones', () => {
+    expect(renderToStaticMarkup(h(AdoptionGroupes, { groupes: [], batiments: BATS, affectation: {}, scindes: [], onAffecter: () => {}, onScinder: () => {}, onRegrouper: () => {}, onAdopter: () => {}, onReinitialiser: () => {} }))).toBe('');
+    const html = renderToStaticMarkup(h(AdoptionGroupes, { groupes: G, batiments: BATS, affectation: { B1: 3, B2: 3, B3: 3 }, scindes: [], onAffecter: () => {}, onScinder: () => {}, onRegrouper: () => {}, onAdopter: () => {}, onReinitialiser: () => {} }));
+    expect((html.match(/<select/g) ?? []).length).toBe(2);          // un sélecteur par groupe
+    expect(html).toContain('320 m²');
+    expect(html).toContain('Scinder');                              // groupe multi-polygones scindable
+    expect(html).toContain('2D1'); expect(html).toContain('2D2');   // liste des bâtiments déclarés
+    expect(html).toMatch(/Revenir au groupement automatique/);
   });
-  it('ApercuAdoption : REMPLACEMENT d’un existant → avertit de ce qui sera perdu', () => {
-    const html = renderToStaticMarkup(h(ApercuAdoption, { apercu: { groupes: [{ surfaceM2: 100 }] }, remplace: 'trace_manuel', onConfirmer: () => {}, onAnnuler: () => {} }));
-    expect(html).toMatch(/REMPLACERA/);
-    expect(html).toContain('tracé à la main');   // dit l’origine perdue
-    expect(html).toMatch(/Remplacer et adopter/);
+  it('AdoptionGroupes : groupe SCINDÉ → un sélecteur par polygone + « regrouper »', () => {
+    const html = renderToStaticMarkup(h(AdoptionGroupes, { groupes: G, batiments: BATS, affectation: { B1: 3, B2: 5, B3: 3 }, scindes: [0], onAffecter: () => {}, onScinder: () => {}, onRegrouper: () => {}, onAdopter: () => {}, onReinitialiser: () => {} }));
+    expect(html).toContain('data-scinde="true"');
+    expect(html).toContain('data-cleabs="B1"'); expect(html).toContain('data-cleabs="B2"'); // polygones individuels
+    expect(html).toContain('regrouper');
+    // groupe 0 scindé (2 polygones) + groupe 1 (1) → 3 sélecteurs
+    expect((html.match(/<select/g) ?? []).length).toBe(3);
+  });
+  it('ConfirmationAdoption : null → rien ; répartition PAR BÂTIMENT (nombre + aires) + avertissement de remplacement', () => {
+    expect(renderToStaticMarkup(h(ConfirmationAdoption, { apercu: null, remplaceExistant: false, onConfirmer: () => {}, onAnnuler: () => {} }))).toBe('');
+    const ap = { batiments: [{ corpsId: 3, repere: '2D1', emprises: [{ surfaceM2: 2647 }, { surfaceM2: 721 }] }, { corpsId: 5, repere: '2D2', emprises: [{ surfaceM2: 115 }] }] };
+    const html = renderToStaticMarkup(h(ConfirmationAdoption, { apercu: ap, remplaceExistant: true, onConfirmer: () => {}, onAnnuler: () => {} }));
+    expect(html).toContain('2D1'); expect(html).toContain('2 emprises');
+    expect(html).toContain(fmtM2(2647)); expect(html).toContain(fmtM2(115));
+    expect(html).toMatch(/3 emprises issues de l’IGN/);          // total
+    expect(html).toMatch(/remplacées/);                          // exclusivité
+    expect(html).not.toContain('reconstitution');
   });
   it('RepereQualiteCalage origineIgn : calage/échelle « sans objet » ; débordement conservé', () => {
     const deb = { aireM2: 410, parcelleRattachee: true, aireHorsM2: 20, pctHors: 4.9, decalageLateralM: 0.3 };

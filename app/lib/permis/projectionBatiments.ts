@@ -13,14 +13,20 @@
 
 export interface BatimentProjection { corpsId: number; repere: string | null }
 
+// PROJ-3r — pour compter TOUTES les emprises et dire leur ORIGINE au pied de page (une emprise IGN n'est pas « tracée »).
+export interface EmpriseCouverture { corpsId: number | null; provenance: string }
+
 export interface VerdictProjection {
   peutValider: boolean;
   aucunBatiment: boolean;                              // PROJ-3b — aucun bâtiment déclaré → NON validable (l'écran invite à en déclarer un)
   nbBatiments: number;
-  nbTraces: number;                                    // bâtiments avec ≥ 1 emprise
-  nbIgnores: number;                                   // bâtiments dont la projection est ignorée (et non tracés)
-  manquants: BatimentProjection[];                     // bâtiments ni tracés ni ignorés (ce qui reste à faire)
-  libelle: string;                                     // « 2 bâtiments · 1 emprise tracée · 1 en attente »
+  nbCouverts: number;                                  // bâtiments couverts par ≥ 1 emprise
+  nbEmprises: number;                                  // PROJ-3r — TOUTES les emprises du dossier (peut être > nb de bâtiments)
+  nbEmprisesIgn: number;                               // dont issues de l'IGN ('ign_*')
+  nbEmprisesTrace: number;                             // dont tracées à la main ('trace_manuel')
+  nbIgnores: number;                                   // bâtiments dont la projection est ignorée (et non couverts)
+  manquants: BatimentProjection[];                     // bâtiments ni couverts ni ignorés (ce qui reste à faire)
+  libelle: string;                                     // « 2 bâtiments · 3 emprises (2 issues de l'IGN, 1 tracée à la main) · 0 en attente »
 }
 
 /** Libellé d'un bâtiment pour l'affichage (repère si présent, sinon « bâtiment <id> »). */
@@ -62,20 +68,27 @@ export function effetValidationProjection(peutValider: boolean): EffetValidation
  * bâtiment qui a AUSSI une emprise (une trace prime, jamais compté deux fois).
  */
 export function verdictProjectionBatiments(
-  batiments: BatimentProjection[], corpsAvecEmprise: number[], corpsIgnores: number[],
+  batiments: BatimentProjection[], emprises: EmpriseCouverture[], corpsIgnores: number[],
 ): VerdictProjection {
-  const traces = new Set(corpsAvecEmprise);
+  const couverts = new Set(emprises.map((e) => e.corpsId).filter((c): c is number => c !== null)); // bâtiments couverts par ≥ 1 emprise
   const ignores = new Set(corpsIgnores);
-  const manquants = batiments.filter((b) => !traces.has(b.corpsId) && !ignores.has(b.corpsId));
-  const nbTraces = batiments.filter((b) => traces.has(b.corpsId)).length;
-  const nbIgnores = batiments.filter((b) => !traces.has(b.corpsId) && ignores.has(b.corpsId)).length; // ignoré ET non tracé
+  const manquants = batiments.filter((b) => !couverts.has(b.corpsId) && !ignores.has(b.corpsId));
+  const nbCouverts = batiments.filter((b) => couverts.has(b.corpsId)).length;
+  const nbIgnores = batiments.filter((b) => !couverts.has(b.corpsId) && ignores.has(b.corpsId)).length; // ignoré ET non couvert
   const nbBatiments = batiments.length;
-  const parts = [
-    `${nbBatiments} bâtiment${nbBatiments > 1 ? 's' : ''}`,
-    `${nbTraces} emprise${nbTraces > 1 ? 's' : ''} tracée${nbTraces > 1 ? 's' : ''}`,
-  ];
+  // PROJ-3r — compter TOUTES les emprises et dire leur ORIGINE (jamais « tracée » pour une donnée IGN).
+  const nbEmprises = emprises.length;
+  const nbEmprisesIgn = emprises.filter((e) => (e.provenance ?? '').startsWith('ign_')).length;
+  const nbEmprisesTrace = emprises.filter((e) => (e.provenance ?? 'trace_manuel') === 'trace_manuel').length;
+  const parts = [`${nbBatiments} bâtiment${nbBatiments > 1 ? 's' : ''}`];
+  if (nbEmprises > 0) {
+    const org: string[] = [];
+    if (nbEmprisesIgn > 0) org.push(`${nbEmprisesIgn} issue${nbEmprisesIgn > 1 ? 's' : ''} de l’IGN`);
+    if (nbEmprisesTrace > 0) org.push(`${nbEmprisesTrace} tracée${nbEmprisesTrace > 1 ? 's' : ''} à la main`);
+    parts.push(`${nbEmprises} emprise${nbEmprises > 1 ? 's' : ''}${org.length ? ` (${org.join(', ')})` : ''}`);
+  } else parts.push('0 emprise');
   if (nbIgnores > 0) parts.push(`${nbIgnores} ignorée${nbIgnores > 1 ? 's' : ''}`);
   parts.push(`${manquants.length} en attente`);
   const aucunBatiment = nbBatiments === 0;
-  return { peutValider: !aucunBatiment && manquants.length === 0, aucunBatiment, nbBatiments, nbTraces, nbIgnores, manquants, libelle: parts.join(' · ') };
+  return { peutValider: !aucunBatiment && manquants.length === 0, aucunBatiment, nbBatiments, nbCouverts, nbEmprises, nbEmprisesIgn, nbEmprisesTrace, nbIgnores, manquants, libelle: parts.join(' · ') };
 }

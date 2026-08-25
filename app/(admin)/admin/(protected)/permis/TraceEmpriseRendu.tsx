@@ -293,34 +293,92 @@ export function RepereQualiteCalage({ ecartEchelleRelatif, ratioImplicite, ratio
   );
 }
 
+// PROJ-3r — types partagés de l'adoption (miroir des exports du repo, pour des composants PURS testables sans I/O).
+export interface GroupeAdoptionVue { cleabs: string[]; surfaceM2: number; polygones: { cleabs: string; surfaceM2: number }[] }
+export interface BatimentChoix { corpsId: number; repere: string | null }
+export interface BatimentAdoptionVue { corpsId: number; repere: string | null; emprises: { surfaceM2: number }[] }
+const nomBatiment = (b: BatimentChoix | undefined, corpsId: number): string => (b ? (b.repere ?? `bâtiment ${b.corpsId}`) : `bâtiment ${corpsId}`);
+
 /**
- * PROJ-3q — APERÇU d'une adoption AVANT enregistrement : combien d'emprises seront créées et leur aire, pour que l'internaute voie
- * ce qu'il valide. Confirmation explicite de REMPLACEMENT si une emprise existe déjà pour le bâtiment (dit ce qui sera perdu).
- * PUR (les boutons ne font que remonter l'intention). Jamais bloquant : l'annulation laisse tout en l'état.
+ * PROJ-3r — ENCART D'AFFECTATION : les polygones « en projet » cochés, REGROUPÉS par connexité (proposition automatique par défaut),
+ * chaque groupe avec son aire et un SÉLECTEUR de bâtiment (liste des bâtiments DÉCLARÉS). SCINDER décompose un groupe en ses
+ * polygones (chacun réaffectable) ; « regrouper » revient à la vue groupée ; « groupement automatique » réinitialise tout. PUR (les
+ * gestes ne font que remonter l'intention). Le geste d'adoption PART D'ICI. Mobile-first (empilé).
  */
-export function ApercuAdoption({ apercu, remplace, occupe = false, onConfirmer, onAnnuler }: {
-  apercu: { groupes: { surfaceM2: number }[] } | null;
-  remplace: ProvenanceEmprise | null; // provenance de l'emprise existante qui sera écrasée, ou null
-  occupe?: boolean; onConfirmer: () => void; onAnnuler: () => void;
+export function AdoptionGroupes({ groupes, batiments, affectation, scindes, occupe = false, onAffecter, onScinder, onRegrouper, onAdopter, onReinitialiser }: {
+  groupes: GroupeAdoptionVue[]; batiments: BatimentChoix[]; affectation: Record<string, number>; scindes: number[]; occupe?: boolean;
+  onAffecter: (cleabs: string[], corpsId: number) => void; onScinder: (i: number) => void; onRegrouper: (i: number) => void;
+  onAdopter: () => void; onReinitialiser: () => void;
+}) {
+  if (groupes.length === 0) return null;
+  const b: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.15rem .5rem', fontSize: 12 };
+  const corpsCommun = (cleabs: string[]): number | '' => { const s = new Set(cleabs.map((c) => affectation[c])); return s.size === 1 && !s.has(undefined as unknown as number) ? [...s][0] : ''; };
+  const selecteur = (valeur: number | '', onCh: (c: number) => void) => (
+    <select value={valeur} onChange={(e) => onCh(Number(e.target.value))} disabled={occupe} aria-label="bâtiment affecté" style={{ maxWidth: '60%', fontSize: 12 }}>
+      {valeur === '' && <option value="">— plusieurs bâtiments —</option>}
+      {batiments.map((bt) => <option key={bt.corpsId} value={bt.corpsId}>{nomBatiment(bt, bt.corpsId)}</option>)}
+    </select>
+  );
+  return (
+    <div style={carte} role="group" aria-label="affectation des polygones en projet aux bâtiments">
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Adopter les polygones « en projet » — un groupe = une emprise</div>
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+        {groupes.map((g, i) => scindes.includes(i)
+          ? (
+            <li key={i} data-groupe={i} data-scinde="true" style={{ borderLeft: '2px solid var(--color-svv-line)', paddingLeft: '.4rem' }}>
+              <div style={{ ...muted, display: 'flex', justifyContent: 'space-between', gap: '.4rem' }}>
+                <span>Groupe {i + 1} — scindé</span>
+                <button type="button" style={b} disabled={occupe} onClick={() => onRegrouper(i)}>regrouper</button>
+              </div>
+              <ul style={{ listStyle: 'none', margin: '.2rem 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+                {g.polygones.map((p) => (
+                  <li key={p.cleabs} data-cleabs={p.cleabs} style={{ display: 'flex', justifyContent: 'space-between', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span>{fmtM2(p.surfaceM2)}</span>{selecteur(affectation[p.cleabs] ?? '', (c) => onAffecter([p.cleabs], c))}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ) : (
+            <li key={i} data-groupe={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span><strong>Groupe {i + 1}</strong> — {fmtM2(g.surfaceM2)}{g.polygones.length > 1 ? ` (${g.polygones.length} polygones)` : ''}</span>
+              <span style={{ display: 'flex', gap: '.3rem', alignItems: 'center' }}>
+                {selecteur(corpsCommun(g.cleabs), (c) => onAffecter(g.cleabs, c))}
+                {g.polygones.length > 1 && <button type="button" style={b} disabled={occupe} onClick={() => onScinder(i)}>Scinder</button>}
+              </span>
+            </li>
+          ))}
+      </ul>
+      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+        <button type="button" style={{ ...b, fontWeight: 700 }} disabled={occupe} onClick={onAdopter}>Adopter</button>
+        <button type="button" style={b} disabled={occupe} onClick={onReinitialiser}>Revenir au groupement automatique</button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * PROJ-3r — CONFIRMATION AVANT ENREGISTREMENT : la répartition PAR BÂTIMENT (combien d'emprises et leurs aires), calculée serveur,
+ * pour qu'Arno voie ce qu'il valide. Avertit du remplacement des emprises existantes des bâtiments ciblés. PUR.
+ */
+export function ConfirmationAdoption({ apercu, remplaceExistant, occupe = false, onConfirmer, onAnnuler }: {
+  apercu: { batiments: BatimentAdoptionVue[] } | null; remplaceExistant: boolean; occupe?: boolean; onConfirmer: () => void; onAnnuler: () => void;
 }) {
   if (apercu === null) return null;
-  const n = apercu.groupes.length;
+  const total = apercu.batiments.reduce((s, x) => s + x.emprises.length, 0);
   const b: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.2rem .6rem', fontSize: 13 };
   return (
-    <div style={{ ...carte, borderColor: 'var(--color-svv-ink)' }} role="group" aria-label="aperçu de l’adoption des polygones en projet">
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>Adopter les polygones « en projet » de l’IGN</div>
-      {n === 0
-        ? <p style={{ ...muted, margin: 0 }}>Aucun polygone « en projet » coché à adopter.</p>
-        : <>
-            <p style={{ margin: '0 0 .3rem' }}><strong>{n}</strong> emprise{n > 1 ? 's' : ''} ser{n > 1 ? 'ont' : 'a'} créée{n > 1 ? 's' : ''} (un groupe de polygones jointifs = une emprise) :</p>
-            <ul style={{ ...muted, margin: 0, paddingLeft: '1.1rem' }}>
-              {apercu.groupes.map((g, i) => <li key={i}>emprise {i + 1} — <strong>{fmtM2(g.surfaceM2)}</strong></li>)}
-            </ul>
-            <p style={{ ...muted, marginTop: '.3rem', fontStyle: 'italic' }}>données IGN adoptées telles quelles (plus fiables qu’un tracé à la main) — rattachées au bâtiment.</p>
-          </>}
-      {remplace !== null && <p role="alert" style={{ color: 'var(--color-svv-red)', margin: '.3rem 0 0' }}>⚠ Cela REMPLACERA l’emprise existante de ce bâtiment ({libelleProvenance(remplace)}) : elle sera perdue.</p>}
+    <div style={{ ...carte, borderColor: 'var(--color-svv-ink)' }} role="group" aria-label="confirmation de l’adoption par bâtiment">
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Confirmer : {total} emprise{total > 1 ? 's' : ''} issue{total > 1 ? 's' : ''} de l’IGN</div>
+      {total === 0
+        ? <p style={{ ...muted, margin: 0 }}>Aucun polygone affecté à un bâtiment.</p>
+        : <ul style={{ ...muted, margin: 0, paddingLeft: '1.1rem' }}>
+            {apercu.batiments.map((bt) => (
+              <li key={bt.corpsId}><strong>{nomBatiment(bt, bt.corpsId)}</strong> : {bt.emprises.length} emprise{bt.emprises.length > 1 ? 's' : ''} ({bt.emprises.map((e) => fmtM2(e.surfaceM2)).join(', ')})</li>
+            ))}
+          </ul>}
+      {remplaceExistant && <p role="alert" style={{ color: 'var(--color-svv-red)', margin: '.3rem 0 0' }}>⚠ Les emprises existantes des bâtiments ciblés seront remplacées (adoption et tracé ne coexistent jamais).</p>}
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
-        {n > 0 && <button type="button" style={{ ...b, fontWeight: 700 }} disabled={occupe} onClick={onConfirmer}>{remplace !== null ? 'Remplacer et adopter' : 'Adopter'}</button>}
+        {total > 0 && <button type="button" style={{ ...b, fontWeight: 700 }} disabled={occupe} onClick={onConfirmer}>Adopter</button>}
         <button type="button" style={b} disabled={occupe} onClick={onAnnuler}>Annuler</button>
       </div>
     </div>

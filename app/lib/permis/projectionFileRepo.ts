@@ -86,7 +86,7 @@ export async function validerProjection(dossierId: number, par: string | null): 
   ]);
   const verdict = verdictProjectionBatiments(
     bats.map((b) => ({ corpsId: b.id, repere: b.repere })),
-    emprises.map((e) => e.corpsId).filter((c): c is number => c !== null),
+    emprises.map((e) => ({ corpsId: e.corpsId, provenance: e.provenance })),
     ignores.map((i) => i.corpsId),
   );
   if (!verdict.peutValider) {

@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, adopterPolygonesEnProjet, supprimerEmprisesAdoptees, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
@@ -93,6 +93,7 @@ export async function POST(request: Request): Promise<Response> {
     const body = (await request.json().catch(() => ({}))) as {
       action?: string; dossierId?: number | string; corpsId?: number; pieceId?: number; page?: number; libelle?: string;
       anneauPlan?: PointPlan[]; paires?: PaireCalage[]; ratioDeclare?: number | null; id?: number; motif?: string; cleabs?: string;
+      affectations?: { cleabs: string; corpsId: number }[];
     };
 
     if (body.action === 'signer_piece') {
@@ -118,9 +119,15 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ debordement: await mesurerDebordement(dossierId, anneauVersLambert(sim, anneauPlan)) });
     }
 
-    // PROJ-3q — APERÇU (lecture seule) de l'adoption : combien d'emprises seront créées + leur aire, pour valider en connaissance de cause.
+    // PROJ-3q/3r — APERÇU AUTOMATIQUE (lecture seule) : les polygones cochés regroupés par connexité + aires (proposition par défaut).
     if (body.action === 'apercu_adoption') {
       return Response.json({ apercu: await apercuAdoptionEnProjet(dossierId) });
+    }
+
+    // PROJ-3r — APERÇU PAR BÂTIMENT (lecture seule) d'une affectation donnée : combien d'emprises par bâtiment + leurs aires.
+    if (body.action === 'apercu_affectations') {
+      const affectations = Array.isArray(body.affectations) ? (body.affectations as AffectationEntree[]) : [];
+      return Response.json({ apercu: await apercuAffectations(dossierId, affectations) });
     }
 
     if (body.action === 'supprimer') {
@@ -152,12 +159,11 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: true, emprises, ignores });
     }
 
-    // PROJ-3q — ADOPTER les polygones « en projet » cochés comme emprise(s) du bâtiment. 🔴 Union CÔTÉ SERVEUR (aucune géométrie
-    //   client). EXCLUSIVITÉ : remplace toute emprise existante du bâtiment. Ne bloque jamais la validation du Rattachement.
+    // PROJ-3r — ADOPTER selon une AFFECTATION cleabs → bâtiment (regroupement par bâtiment, plusieurs bâtiments possibles). 🔴 Union
+    //   CÔTÉ SERVEUR (aucune géométrie client, seulement des identifiants). EXCLUSIVITÉ par bâtiment ciblé. Ne bloque jamais la validation.
     if (body.action === 'adopter') {
-      if (!Number.isInteger(body.corpsId)) return Response.json({ erreur: 'bâtiment requis' }, { status: 400 });
-      const libelle = (body.libelle ?? '').trim();
-      const res = await adopterPolygonesEnProjet(dossierId, body.corpsId as number, libelle, 'admin:adoption');
+      const affectations = Array.isArray(body.affectations) ? (body.affectations as AffectationEntree[]) : [];
+      const res = await adopterAffectations(dossierId, affectations, 'admin:adoption');
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
       const ignores = await listerIgnorees(dossierId);
       return Response.json({ ok: true, nbCreees: res.nbCreees, emprises: res.emprises, ignores, debordement: res.debordement });
