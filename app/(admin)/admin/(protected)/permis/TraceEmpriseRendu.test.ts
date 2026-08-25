@@ -1,14 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, ApercuAdoption, libelleProvenance, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
 
+const RING = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
 const emprise = (over: Partial<EmpriseReconstruite> = {}): EmpriseReconstruite => ({
-  id: 1, dossierId: 11434, corpsId: 1, libelle: '2D1', anneau: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
-  surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0.3, creeLe: null, ...over,
+  id: 1, dossierId: 11434, corpsId: 1, libelle: '2D1', anneau: RING, anneaux: [RING],
+  surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0.3, provenance: 'trace_manuel', creeLe: null, ...over,
 });
 
 describe('PROJ-2 — rendu pur', () => {
@@ -30,13 +31,20 @@ describe('PROJ-2 — rendu pur', () => {
     expect(html).toContain('SUPÉRIEURE au terrain');
   });
 
-  it('ListeEmprises : étiquette « reconstitution » + surface + résidu ; vide → message', () => {
-    expect(renderToStaticMarkup(h(ListeEmprises, { emprises: [] }))).toContain('Aucune emprise reconstituée');
-    const html = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise()] }));
-    expect(html).toContain('2D1');
-    expect(html).toContain('reconstitution');   // 🔴 jamais présentée comme une mesure
-    expect(html).toContain('100 m²');
-    expect(html).toContain('résidu');
+  it('ListeEmprises : ORIGINE lisible (tracé à la main vs IGN), surface, résidu (tracé seulement) ; vide → message', () => {
+    expect(renderToStaticMarkup(h(ListeEmprises, { emprises: [] }))).toContain('Aucune emprise pour ce bâtiment');
+    // tracé manuel : « tracé à la main » + résidu
+    const manuel = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise()] }));
+    expect(manuel).toContain('2D1');
+    expect(manuel).toContain('tracé à la main');
+    expect(manuel).toContain('100 m²');
+    expect(manuel).toContain('résidu');
+    // PROJ-3q — adoptée IGN : « issue de l’IGN », JAMAIS « reconstitution », pas de résidu
+    const ign = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ provenance: 'ign_adopte' })] }));
+    expect(ign).toContain('issue de l’IGN');
+    expect(ign).toContain('donnée source IGN');
+    expect(ign).not.toContain('reconstitution');
+    expect(ign).not.toContain('résidu');
   });
 
   it('statutBatiment : tracée prime sur ignorée, sinon en attente', () => {
@@ -408,5 +416,36 @@ describe('PROJ — RepereQualiteCalage : écart d’échelle (réutilisé) + dé
     expect(html).toMatch(/légitime/);           // porte-à-faux / balcon / une des parcelles
     expect(html).toMatch(/reconstitution/);     // jamais « mesure »
     expect(html).not.toMatch(/erroné|erreur|incorrect/i); // jamais un verdict de faute (« porte-à-faux » reste un terme légitime)
+  });
+});
+
+describe('PROJ-3q — adoption IGN : aperçu, provenance, repère « qualité » adapté', () => {
+  it('libelleProvenance : IGN vs tracé (jamais « reconstitution » pour une donnée IGN)', () => {
+    expect(libelleProvenance('ign_adopte')).toBe('issue de l’IGN');
+    expect(libelleProvenance('ign_retouche')).toBe('IGN retouchée à la main');
+    expect(libelleProvenance('trace_manuel')).toBe('tracé à la main');
+  });
+  it('ApercuAdoption : null → rien ; 0 groupe → « aucun polygone » ; N groupes → nombre + aires', () => {
+    expect(renderToStaticMarkup(h(ApercuAdoption, { apercu: null, remplace: null, onConfirmer: () => {}, onAnnuler: () => {} }))).toBe('');
+    const vide = renderToStaticMarkup(h(ApercuAdoption, { apercu: { groupes: [] }, remplace: null, onConfirmer: () => {}, onAnnuler: () => {} }));
+    expect(vide).toMatch(/Aucun polygone/);
+    const deux = renderToStaticMarkup(h(ApercuAdoption, { apercu: { groupes: [{ surfaceM2: 320 }, { surfaceM2: 90 }] }, remplace: null, onConfirmer: () => {}, onAnnuler: () => {} }));
+    expect(deux).toContain('2');
+    expect(deux).toContain('320 m²');
+    expect(deux).toContain('90 m²');
+  });
+  it('ApercuAdoption : REMPLACEMENT d’un existant → avertit de ce qui sera perdu', () => {
+    const html = renderToStaticMarkup(h(ApercuAdoption, { apercu: { groupes: [{ surfaceM2: 100 }] }, remplace: 'trace_manuel', onConfirmer: () => {}, onAnnuler: () => {} }));
+    expect(html).toMatch(/REMPLACERA/);
+    expect(html).toContain('tracé à la main');   // dit l’origine perdue
+    expect(html).toMatch(/Remplacer et adopter/);
+  });
+  it('RepereQualiteCalage origineIgn : calage/échelle « sans objet » ; débordement conservé', () => {
+    const deb = { aireM2: 410, parcelleRattachee: true, aireHorsM2: 20, pctHors: 4.9, decalageLateralM: 0.3 };
+    const html = renderToStaticMarkup(h(RepereQualiteCalage, { ecartEchelleRelatif: null, ratioImplicite: null, ratioDeclare: null, debordement: deb, contourFerme: true, parcelleRattachee: true, origineIgn: true }));
+    expect(html).toMatch(/sans objet pour une emprise issue de l’IGN/);
+    expect(html).toMatch(/hors parcelle/);        // le débordement reste pertinent
+    expect(html).toMatch(/issue de l’IGN/);        // jamais « reconstitution »
+    expect(html).not.toContain('reconstitution');
   });
 });

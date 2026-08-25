@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, adopterPolygonesEnProjet, supprimerEmprisesAdoptees, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
@@ -118,6 +118,11 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ debordement: await mesurerDebordement(dossierId, anneauVersLambert(sim, anneauPlan)) });
     }
 
+    // PROJ-3q — APERÇU (lecture seule) de l'adoption : combien d'emprises seront créées + leur aire, pour valider en connaissance de cause.
+    if (body.action === 'apercu_adoption') {
+      return Response.json({ apercu: await apercuAdoptionEnProjet(dossierId) });
+    }
+
     if (body.action === 'supprimer') {
       if (!Number.isInteger(body.id)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
       const nb = await supprimerEmprise(body.id as number, dossierId);
@@ -145,6 +150,17 @@ export async function POST(request: Request): Promise<Response> {
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
       const [emprises, ignores] = await Promise.all([listerEmprises(dossierId), listerIgnorees(dossierId)]);
       return Response.json({ ok: true, emprises, ignores });
+    }
+
+    // PROJ-3q — ADOPTER les polygones « en projet » cochés comme emprise(s) du bâtiment. 🔴 Union CÔTÉ SERVEUR (aucune géométrie
+    //   client). EXCLUSIVITÉ : remplace toute emprise existante du bâtiment. Ne bloque jamais la validation du Rattachement.
+    if (body.action === 'adopter') {
+      if (!Number.isInteger(body.corpsId)) return Response.json({ erreur: 'bâtiment requis' }, { status: 400 });
+      const libelle = (body.libelle ?? '').trim();
+      const res = await adopterPolygonesEnProjet(dossierId, body.corpsId as number, libelle, 'admin:adoption');
+      if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
+      const ignores = await listerIgnorees(dossierId);
+      return Response.json({ ok: true, nbCreees: res.nbCreees, emprises: res.emprises, ignores, debordement: res.debordement });
     }
 
     if (body.action === 'enregistrer') {
@@ -180,6 +196,7 @@ export async function POST(request: Request): Promise<Response> {
       };
       const res = await enregistrerEmprise({ dossierId, corpsId: body.corpsId as number, libelle, anneau: anneauLambert, pieceId: body.pieceId ?? null, page: body.page ?? null, calage, residuM: vc.residuFitM, creePar: 'admin:trace' });
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
+      await supprimerEmprisesAdoptees(dossierId, body.corpsId as number); // PROJ-3q EXCLUSIVITÉ : un tracé manuel remplace une adoption IGN du même bâtiment
       const contexte = await lireContexteEmprise(dossierId);
       const vraisemblance = verdictVraisemblance({ aireM2: aireM2(anneauLambert), corpsId: body.corpsId as number, surfacePlancherM2: contexte.surfacePlancherM2, surfaceTerrainM2: contexte.surfaceTerrainM2, batiments: contexte.batiments });
       const debordement = await mesurerDebordement(dossierId, anneauLambert); // repère indicatif, même géométrie Lambert serveur ; jamais bloquant

@@ -11,6 +11,7 @@
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { aireM2, deriverDebordement, type PointLambert, type Debordement } from './calageEmprise';
+import { grouperPolygonesConnexes, type PolygoneAdoptable } from './adoptionEmprise';
 
 /** Journal de calage stocké tel quel (jsonb) — auditable, jamais lissé. */
 export interface CalageTrace {
@@ -23,17 +24,22 @@ export interface CalageTrace {
   raisons: string[];
 }
 
+// PROJ-3q — provenance RÉELLE de l'emprise (liste fermée, alignée sur le CHECK en base). 'ign_retouche' pré-provisionné (chantier suivant).
+export type ProvenanceEmprise = 'trace_manuel' | 'ign_adopte' | 'ign_retouche';
+
 export interface EmpriseReconstruite {
   id: number;
   dossierId: number;
   corpsId: number | null;        // PROJ-2b — bâtiment (permis_corps_batiment) reconstitué ; null = ligne PROJ-2 antérieure
   libelle: string;
-  anneau: PointLambert[];        // contour EPSG:2154 (reconstitution)
+  anneau: PointLambert[];        // contour extérieur PRINCIPAL EPSG:2154 (1re partie) — compat historique
+  anneaux: PointLambert[][];     // PROJ-3q — TOUS les contours extérieurs (MultiPolygon d'un groupe adopté à contact par sommet)
   surfaceM2: number | null;
   pieceId: number | null;
   page: number | null;
   calage: CalageTrace | null;
   residuM: number | null;
+  provenance: ProvenanceEmprise; // PROJ-3q — 'trace_manuel' (tracé) | 'ign_adopte' (IGN) | 'ign_retouche'
   creeLe: string | null;
 }
 
@@ -101,7 +107,11 @@ export async function enregistrerEmprise(e: EntreeEnregistrement): Promise<Resul
  */
 export async function mesurerDebordement(dossierId: number, anneau: PointLambert[]): Promise<Debordement | null> {
   if (anneau.length < 3 || !anneau.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))) return null;
-  const wkt = anneauVersWkt(anneau);
+  return mesurerDebordementWkt(dossierId, anneauVersWkt(anneau));
+}
+
+/** Débordement d'une géométrie WKT (Lambert-93) déjà bâtie CÔTÉ SERVEUR (tracé recalculé OU union IGN adoptée). Voir mesurerDebordement. */
+async function mesurerDebordementWkt(dossierId: number, wkt: string): Promise<Debordement | null> {
   try {
     const { rows } = await query<{ aire: number; a_parcelle: boolean; aire_hors: number | null; perim_hors: number | null }>(
       `WITH par AS (SELECT ST_Force2D(ST_Union(geom)) AS g FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL),
@@ -126,22 +136,31 @@ export async function mesurerDebordement(dossierId: number, anneau: PointLambert
 export async function listerEmprises(dossierId: number): Promise<EmpriseReconstruite[]> {
   try {
     const { rows } = await query<{
-      id: number; corps_id: number | null; libelle: string; gj: { coordinates: number[][][] } | null; surface_m2: number | null;
-      piece_id: number | null; page: number | null; calage: CalageTrace | null; residu_m: number | null; cree_le: Date | null;
+      id: number; corps_id: number | null; libelle: string; gj: { type: string; coordinates: number[][][] | number[][][][] } | null; surface_m2: number | null;
+      piece_id: number | null; page: number | null; calage: CalageTrace | null; residu_m: number | null; provenance: ProvenanceEmprise | null; cree_le: Date | null;
     }>(
       `SELECT id::int AS id, corps_id::int AS corps_id, libelle, ST_AsGeoJSON(geom)::json AS gj, surface_m2, piece_id::int AS piece_id, page,
-              calage, residu_m, cree_le
+              calage, residu_m, provenance, cree_le
          FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`,
       [dossierId],
     );
-    return rows.map((r) => ({
-      id: r.id, dossierId, corpsId: r.corps_id, libelle: r.libelle,
-      anneau: (r.gj?.coordinates?.[0] ?? []).map(([x, y]) => ({ x, y })),
-      surfaceM2: r.surface_m2 !== null ? Number(r.surface_m2) : null,
-      pieceId: r.piece_id, page: r.page, calage: r.calage,
-      residuM: r.residu_m !== null ? Number(r.residu_m) : null,
-      creeLe: r.cree_le ? r.cree_le.toISOString() : null,
-    }));
+    return rows.map((r) => {
+      // PROJ-3q — Polygon → un anneau extérieur ; MultiPolygon → un anneau extérieur PAR partie (groupe adopté à contact par sommet).
+      const anneaux: PointLambert[][] = r.gj?.type === 'MultiPolygon'
+        ? (r.gj.coordinates as number[][][][]).map((poly) => (poly[0] ?? []).map(([x, y]) => ({ x, y })))
+        : r.gj?.type === 'Polygon'
+          ? [((r.gj.coordinates as number[][][])[0] ?? []).map(([x, y]) => ({ x, y }))]
+          : [];
+      return {
+        id: r.id, dossierId, corpsId: r.corps_id, libelle: r.libelle,
+        anneau: anneaux[0] ?? [], anneaux,
+        surfaceM2: r.surface_m2 !== null ? Number(r.surface_m2) : null,
+        pieceId: r.piece_id, page: r.page, calage: r.calage,
+        residuM: r.residu_m !== null ? Number(r.residu_m) : null,
+        provenance: r.provenance ?? 'trace_manuel',
+        creeLe: r.cree_le ? r.cree_le.toISOString() : null,
+      };
+    });
   } catch (err) {
     if (estTableAbsente(err)) return [];
     throw err;
@@ -255,6 +274,125 @@ export async function retablirPolygoneProjet(dossierId: number, cleabs: string):
     await query(`DELETE FROM permis_polygone_projet_ecarte WHERE dossier_id = $1 AND cleabs = $2`, [dossierId, cleabs]);
     return { ok: true };
   } catch (err) { if (estTableAbsente(err)) return { ok: false, motif: 'sélection indisponible (migration 152 non appliquée)', tableAbsente: true }; throw err; }
+}
+
+// ─── PROJ-3q — ADOPTION des polygones « en projet » IGN comme emprise (aucun tracé manuel) ────────────────────────────────────
+// Les polygones cochés (« En projet », ∩ empreinte, NON écartés) sont GROUPÉS en composantes connexes CÔTÉ SERVEUR (adoptionEmprise,
+//   pur/testé) à partir des géométries lues en base ; l'union de chaque groupe est calculée par PostGIS (autoritaire, Lambert-93,
+//   ST_Force2D conservé). Un groupe = une emprise (provenance 'ign_adopte'). Aucune géométrie n'est reçue du client.
+
+/** Polygones « En projet » COCHÉS d'un dossier (∩ empreinte, hors écartés) : cleabs + anneau extérieur (Lambert-93). `[]` si absent. */
+async function lireCochesEnProjet(dossierId: number): Promise<PolygoneAdoptable[]> {
+  try {
+    const { rows } = await query<{ cleabs: string | null; gj: { type: string; coordinates: number[][][] | number[][][][] } | null }>(
+      `WITH emp AS (SELECT geom FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL)
+       SELECT b.cleabs, ST_AsGeoJSON(ST_Force2D(b.geom))::json AS gj
+         FROM batiment b, emp
+        WHERE b.geom && emp.geom AND ST_Intersects(b.geom, emp.geom)
+          AND b.etat_de_l_objet = 'En projet'
+          AND b.cleabs IS NOT NULL
+          AND b.cleabs NOT IN (SELECT cleabs FROM permis_polygone_projet_ecarte WHERE dossier_id = $1)
+        ORDER BY ST_YMax(b.geom) DESC, ST_XMin(b.geom), b.cleabs`, [dossierId]);
+    const out: PolygoneAdoptable[] = [];
+    for (const r of rows) {
+      if (!r.gj || r.cleabs === null) continue;
+      const anneau = r.gj.type === 'Polygon'
+        ? ((r.gj.coordinates as number[][][])[0] ?? [])
+        : r.gj.type === 'MultiPolygon'
+          ? ((r.gj.coordinates as number[][][][])[0]?.[0] ?? [])
+          : [];
+      if (anneau.length >= 3) out.push({ cleabs: r.cleabs, anneau: anneau.map(([x, y]) => ({ x, y })) });
+    }
+    return out;
+  } catch (err) {
+    if (estTableAbsente(err)) return [];
+    throw err;
+  }
+}
+
+/** Union PostGIS d'un groupe de polygones IGN (par cleabs) → WKT (Multi si contact par sommet) + aire brute (ST_Area). Null si vide. */
+async function unionEtAireGroupe(cleabs: string[]): Promise<{ wkt: string; aireM2: number } | null> {
+  if (cleabs.length === 0) return null;
+  const { rows } = await query<{ wkt: string | null; aire: number | null }>(
+    `WITH u AS (SELECT ST_UnaryUnion(ST_Force2D(ST_Collect(geom))) AS g FROM batiment WHERE cleabs = ANY($1))
+     SELECT ST_AsText(g) AS wkt, ST_Area(g) AS aire FROM u`, [cleabs]);
+  const r = rows[0];
+  if (!r || !r.wkt || r.aire === null) return null;
+  return { wkt: r.wkt, aireM2: Number(r.aire) };
+}
+
+export interface GroupeAdoption { cleabs: string[]; surfaceM2: number }
+export interface ApercuAdoption { groupes: GroupeAdoption[] }
+
+/**
+ * APERÇU (lecture seule) de ce qu'une adoption produirait : combien d'emprises seront créées et l'aire de chacune, POUR QUE
+ * l'internaute voie ce qu'il valide AVANT d'enregistrer. Aucune écriture. `groupes: []` si aucun polygone « en projet » coché.
+ */
+export async function apercuAdoptionEnProjet(dossierId: number): Promise<ApercuAdoption> {
+  const groupes = grouperPolygonesConnexes(await lireCochesEnProjet(dossierId));
+  const out: GroupeAdoption[] = [];
+  for (const g of groupes) {
+    const u = await unionEtAireGroupe(g.map((p) => p.cleabs));
+    if (u) out.push({ cleabs: g.map((p) => p.cleabs), surfaceM2: u.aireM2 });
+  }
+  return { groupes: out };
+}
+
+export type ResultatAdoption =
+  | { ok: true; nbCreees: number; emprises: EmpriseReconstruite[]; debordement: Debordement | null }
+  | { ok: false; motif: string; tableAbsente?: boolean };
+
+/**
+ * ADOPTE les polygones « en projet » cochés comme emprise(s) du BÂTIMENT courant. Un groupe connexe = une emprise (provenance
+ * 'ign_adopte'). EXCLUSIVITÉ : remplace TOUTE emprise existante du bâtiment (tracée ou adoptée) — l'écran ne laisse jamais coexister
+ * adoptée et tracée. Transactionnel. 🔴 Aucune géométrie reçue du client ; union calculée par PostGIS ; garde moteur intacte
+ * (reconstitution=true). Le débordement de l'ensemble adopté vs parcelle est renvoyé (repère indicatif).
+ */
+export async function adopterPolygonesEnProjet(dossierId: number, corpsId: number, libelle: string, par: string | null): Promise<ResultatAdoption> {
+  if (!Number.isInteger(dossierId) || dossierId <= 0 || !Number.isInteger(corpsId)) return { ok: false, motif: 'requête invalide' };
+  const lib = (libelle ?? '').trim();
+  if (lib === '') return { ok: false, motif: 'libellé du bâtiment requis' };
+  const groupes = grouperPolygonesConnexes(await lireCochesEnProjet(dossierId));
+  if (groupes.length === 0) return { ok: false, motif: 'aucun polygone « en projet » coché à adopter' };
+  const unions: { cleabs: string[]; wkt: string }[] = [];
+  for (const g of groupes) {
+    const u = await unionEtAireGroupe(g.map((p) => p.cleabs));
+    if (u) unions.push({ cleabs: g.map((p) => p.cleabs), wkt: u.wkt });
+  }
+  if (unions.length === 0) return { ok: false, motif: 'union des polygones impossible' };
+  try {
+    await withTransaction(async (tx) => {
+      await tx(`DELETE FROM permis_emprise_reconstruite WHERE dossier_id = $1 AND corps_id = $2`, [dossierId, corpsId]); // EXCLUSIVITÉ
+      for (const u of unions) {
+        const calage = JSON.stringify({ adoptionIgn: true, cleabs: u.cleabs }); // pas de calage/échelle pour une adoption : on trace la SOURCE
+        await tx(
+          `INSERT INTO permis_emprise_reconstruite (dossier_id, corps_id, libelle, geom, surface_m2, calage, provenance, cree_par)
+           VALUES ($1, $2, $3, ST_GeomFromText($4, 2154), ST_Area(ST_GeomFromText($4, 2154)), $5::jsonb, 'ign_adopte', $6)`,
+          [dossierId, corpsId, lib, u.wkt, calage, par]);
+      }
+    });
+  } catch (err) {
+    if (estTableAbsente(err)) return { ok: false, motif: 'table des emprises absente (migration 149/153 non appliquée)', tableAbsente: true };
+    throw err;
+  }
+  const emprises = await listerEmprises(dossierId);
+  // Débordement de l'ENSEMBLE adopté vs parcelle : union de tous les polygones adoptés (Polygon/MultiPolygon propre, pas une collection).
+  const toutAdopte = await unionEtAireGroupe(unions.flatMap((u) => u.cleabs));
+  const debordement = toutAdopte ? await mesurerDebordementWkt(dossierId, toutAdopte.wkt) : null;
+  return { ok: true, nbCreees: unions.length, emprises, debordement };
+}
+
+/** EXCLUSIVITÉ inverse : retire les emprises ADOPTÉES d'un bâtiment (quand on enregistre un tracé manuel à la place). Renvoie le nb retiré. */
+export async function supprimerEmprisesAdoptees(dossierId: number, corpsId: number): Promise<number> {
+  try {
+    const { rowCount } = await query(
+      `DELETE FROM permis_emprise_reconstruite WHERE dossier_id = $1 AND corps_id = $2 AND provenance IN ('ign_adopte', 'ign_retouche')`,
+      [dossierId, corpsId]);
+    return rowCount ?? 0;
+  } catch (err) {
+    if (estTableAbsente(err)) return 0;
+    throw err;
+  }
 }
 
 async function lireEmpreinteParcelle(dossierId: number): Promise<{ anneaux: PointLambert[][]; surfaceM2: number | null }> {

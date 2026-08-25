@@ -7,9 +7,9 @@ import {
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, FILTRES_SCHEMA_DEFAUT, type FiltresSchema } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, ApercuAdoption, FILTRES_SCHEMA_DEFAUT, type FiltresSchema } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
-import { estFuturBati } from '../../../../lib/permis/etatBati';
+import { estFuturBati, estEnProjet } from '../../../../lib/permis/etatBati';
 
 /**
  * PROJ-2b — BLOC de tracé d'emprise INTÉGRÉ au détail d'un dossier de Rattachement, BÂTIMENT PAR BÂTIMENT. Le dossier vient de la
@@ -51,6 +51,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   const [planEnAttente, setPlanEnAttente] = useState<PointPlan | null>(null);
   const [sommets, setSommets] = useState<PointPlan[]>([]);
   const [debordement, setDebordement] = useState<Debordement | null>(null); // repère « débordement hors parcelle » (serveur), live + après enregistrement
+  const [adoptionApercu, setAdoptionApercu] = useState<{ groupes: { surfaceM2: number }[] } | null>(null); // PROJ-3q — aperçu avant adoption
   const [motifIgnore, setMotifIgnore] = useState('');
   const [apercu, setApercu] = useState<Apercu | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -169,6 +170,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   const batSel = batiments.find((b) => b.corpsId === corpsEffectif) ?? null;
   const empriseDuBat = emprises.filter((e) => e.corpsId === corpsEffectif);
   const ignoreDuBat = ignores.find((i) => i.corpsId === corpsEffectif) ?? null;
+  // PROJ-3q — polygones « en projet » COCHÉS (non écartés) du dossier : l'adoption est disponible dès qu'il y en a au moins un.
+  const nbEnProjetCoches = useMemo(() => polygonesReperes.filter((p) => estEnProjet(p.etat) && p.cleabs && !ecartes.includes(p.cleabs)).length, [polygonesReperes, ecartes]);
+  // Origine de l'emprise COURANTE : si adoptée (IGN), les repères de calage/échelle ne s'appliquent pas. L'existant à remplacer :
+  const origineIgnCourant = empriseDuBat.some((e) => e.provenance === 'ign_adopte' || e.provenance === 'ign_retouche');
+  const provenanceExistante = empriseDuBat[0]?.provenance ?? null;
 
   const afficherPage = useCallback(async () => {
     if (pieceId === null) return;
@@ -298,6 +304,32 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
       if (action === 'ignorer') setMotifIgnore('');
     } catch { setMessage('action impossible'); } finally { setOccupe(false); }
   }, [dossierId]);
+
+  // PROJ-3q — ADOPTION des polygones « en projet » : ① aperçu (combien d'emprises + aires) ② confirmation ③ enregistrement serveur.
+  const ouvrirAdoption = useCallback(async () => {
+    setMessage(null); setOccupe(true);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'apercu_adoption', dossierId }) });
+      const j = await res.json() as { apercu?: { groupes: { surfaceM2: number }[] }; erreur?: string };
+      if (!res.ok || !j.apercu) { setMessage(j.erreur ?? 'aperçu indisponible'); return; }
+      setAdoptionApercu(j.apercu);
+    } catch { setMessage('aperçu indisponible'); } finally { setOccupe(false); }
+  }, [dossierId]);
+
+  const confirmerAdoption = useCallback(async () => {
+    if (corpsEffectif === null || !batSel) return;
+    setOccupe(true); setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'adopter', dossierId, corpsId: corpsEffectif, libelle: batSel.repere ?? `bâtiment ${corpsEffectif}` }) });
+      const j = await res.json() as { ok?: boolean; erreur?: string; nbCreees?: number; emprises?: EmpriseReconstruite[]; ignores?: ProjectionIgnoree[]; debordement?: Debordement | null };
+      if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'adoption refusée'); return; }
+      setEmprises(j.emprises ?? []); if (j.ignores) setIgnores(j.ignores);
+      setSommets([]); setPaires([]); setPlanEnAttente(null); // une adoption remplace tout tracé en cours
+      setDebordement(j.debordement ?? null); setAdoptionApercu(null);
+      setMessage(`${j.nbCreees ?? 0} emprise(s) adoptée(s) depuis l’IGN`);
+    } catch { setMessage('adoption impossible'); } finally { setOccupe(false); }
+  }, [dossierId, corpsEffectif, batSel]);
 
   // PROJ-3i — ÉCARTER / RÉTABLIR un polygone « en projet » (décision persistée). Optimiste : la réponse serveur fait foi.
   const basculerEcart = useCallback(async (cleabs: string, ecarter: boolean) => {
@@ -440,10 +472,21 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             <BandeauVraisemblance aireM2={aire} v={vv} />
             {/* PROJ — repère « qualité du calage » : écart d'échelle (réutilisé du pavé de calage) + débordement hors parcelle (serveur). Jamais bloquant. */}
             <RepereQualiteCalage ecartEchelleRelatif={vc?.ecartEchelleRelatif ?? null} ratioImplicite={vc?.ratioImplicite ?? null} ratioDeclare={vc?.ratioDeclare ?? null}
-              debordement={sommets.length >= 3 || sommets.length === 0 ? debordement : null} contourFerme={sommets.length >= 3} parcelleRattachee={parcelle.length > 0} />
+              debordement={sommets.length >= 3 || sommets.length === 0 ? debordement : null} contourFerme={sommets.length >= 3} parcelleRattachee={parcelle.length > 0} origineIgn={origineIgnCourant && sommets.length < 3} />
             <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe || !tracable || !sim || sommets.length < 3} onClick={() => void enregistrer()}>
               Enregistrer l’emprise de {batSel.repere ?? `bâtiment ${batSel.corpsId}`}
             </button>
+
+            {/* PROJ-3q — TROISIÈME issue : ADOPTER les polygones « en projet » IGN cochés (aucun tracé manuel). Dispo dès qu'il y en a ≥ 1. */}
+            {nbEnProjetCoches > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+                <button type="button" style={{ ...btn, width: 'auto', fontWeight: 700 }} disabled={occupe} onClick={() => void ouvrirAdoption()}>
+                  Adopter les {nbEnProjetCoches} polygone{nbEnProjetCoches > 1 ? 's' : ''} « en projet » de l’IGN
+                </button>
+                <ApercuAdoption apercu={adoptionApercu} remplace={empriseDuBat.length > 0 ? provenanceExistante : null} occupe={occupe}
+                  onConfirmer={() => void confirmerAdoption()} onAnnuler={() => setAdoptionApercu(null)} />
+              </div>
+            )}
 
             {/* Emprises déjà tracées pour CE bâtiment (effaçables). */}
             <ListeEmprises emprises={empriseDuBat} onSupprimer={(id) => void posterProjection('supprimer', corpsEffectif!, { id })} />

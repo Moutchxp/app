@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import {
   projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
 } from '../../../../lib/permis/calageEmprise';
-import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
+import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
@@ -256,29 +256,32 @@ export function BandeauVraisemblance({ aireM2, v }: { aireM2: number | null; v: 
  * Un débordement peut être LÉGITIME (porte-à-faux, balcon, ou parcelle rattachée = une seule des parcelles du permis). On le dit,
  * on ne qualifie jamais le tracé de faux. « bâtiment », pas « corps » ; une emprise est une reconstitution, jamais une mesure.
  */
-export function RepereQualiteCalage({ ecartEchelleRelatif, ratioImplicite, ratioDeclare, debordement, contourFerme, parcelleRattachee }: {
+export function RepereQualiteCalage({ ecartEchelleRelatif, ratioImplicite, ratioDeclare, debordement, contourFerme, parcelleRattachee, origineIgn = false }: {
   ecartEchelleRelatif: number | null; ratioImplicite: number | null; ratioDeclare: number | null;
-  debordement: Debordement | null; contourFerme: boolean; parcelleRattachee: boolean;
+  debordement: Debordement | null; contourFerme: boolean; parcelleRattachee: boolean; origineIgn?: boolean;
 }) {
   const pct1 = (x: number): string => `${(Math.round(x * 10) / 10).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+  const nomOrigine = origineIgn ? 'issue de l’IGN' : 'reconstituée'; // vocabulaire d'origine : IGN adopté vs tracé manuel
   return (
     <div style={carte}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>Qualité du calage <span style={muted}>(repères indicatifs, jamais bloquants)</span></div>
       <ul style={{ ...muted, margin: 0, paddingLeft: '1.1rem' }}>
-        {/* Écart d'échelle — réutilise ce que le pavé de calage a déjà calculé. */}
-        {ratioDeclare !== null && ratioImplicite !== null && ecartEchelleRelatif !== null
-          ? <li>écart d’échelle : <strong>{pct1(ecartEchelleRelatif * 100)}</strong> (implicite 1:{Math.round(ratioImplicite)} vs déclarée 1:{Math.round(ratioDeclare)})</li>
-          : <li>écart d’échelle : échelle déclarée de la planche non saisie — indicateur indisponible.</li>}
+        {/* Écart d'échelle — réutilise ce que le pavé de calage a déjà calculé. Sans objet pour une emprise IGN (ni calage ni échelle). */}
+        {origineIgn
+          ? <li>calage / écart d’échelle : sans objet pour une emprise issue de l’IGN (aucun calage, aucune échelle de planche).</li>
+          : ratioDeclare !== null && ratioImplicite !== null && ecartEchelleRelatif !== null
+            ? <li>écart d’échelle : <strong>{pct1(ecartEchelleRelatif * 100)}</strong> (implicite 1:{Math.round(ratioImplicite)} vs déclarée 1:{Math.round(ratioDeclare)})</li>
+            : <li>écart d’échelle : échelle déclarée de la planche non saisie — indicateur indisponible.</li>}
         {/* Débordement — géométrie Lambert recalculée côté serveur. Un chiffre présent s'affiche (tracé en cours OU après
             enregistrement) ; sinon on explique pourquoi il est indisponible (pas de parcelle, contour non fermé, calcul en cours). */}
         {debordement !== null
           ? (!debordement.parcelleRattachee
               ? <li>débordement : aucune parcelle rattachée — disponible une fois la parcelle rattachée.</li>
               : (debordement.aireHorsM2 ?? 0) <= 0
-                ? <li>hors parcelle : <strong>0 %</strong> — l’emprise reconstituée est entièrement dans la parcelle rattachée.</li>
+                ? <li>hors parcelle : <strong>0 %</strong> — l’emprise {nomOrigine} est entièrement dans la parcelle rattachée.</li>
                 : <>
                     <li>hors parcelle : <strong>{pct1(debordement.pctHors ?? 0)}</strong> ({fmtM2(debordement.aireHorsM2 ?? 0)}){debordement.decalageLateralM !== null ? <> · décalage latéral moyen ~<strong>{fmtM(debordement.decalageLateralM)}</strong></> : null}</li>
-                    <li style={{ fontStyle: 'italic' }}>un débordement peut être légitime (porte-à-faux, balcon, ou parcelle rattachée = une seule des parcelles du permis) — repère indicatif, l’emprise est une reconstitution, pas une mesure.</li>
+                    <li style={{ fontStyle: 'italic' }}>un débordement peut être légitime (porte-à-faux, balcon, ou parcelle rattachée = une seule des parcelles du permis) — repère indicatif{origineIgn ? ', emprise issue de l’IGN' : ', l’emprise est une reconstitution, pas une mesure'}.</li>
                   </>)
           : (!parcelleRattachee
               ? <li>débordement : aucune parcelle rattachée — disponible une fois la parcelle rattachée.</li>
@@ -290,22 +293,64 @@ export function RepereQualiteCalage({ ecartEchelleRelatif, ratioImplicite, ratio
   );
 }
 
-/** Liste des emprises DÉJÀ tracées : libellé, surface, 🔴 étiquette « reconstitution », résidu de calage, effacement. */
+/**
+ * PROJ-3q — APERÇU d'une adoption AVANT enregistrement : combien d'emprises seront créées et leur aire, pour que l'internaute voie
+ * ce qu'il valide. Confirmation explicite de REMPLACEMENT si une emprise existe déjà pour le bâtiment (dit ce qui sera perdu).
+ * PUR (les boutons ne font que remonter l'intention). Jamais bloquant : l'annulation laisse tout en l'état.
+ */
+export function ApercuAdoption({ apercu, remplace, occupe = false, onConfirmer, onAnnuler }: {
+  apercu: { groupes: { surfaceM2: number }[] } | null;
+  remplace: ProvenanceEmprise | null; // provenance de l'emprise existante qui sera écrasée, ou null
+  occupe?: boolean; onConfirmer: () => void; onAnnuler: () => void;
+}) {
+  if (apercu === null) return null;
+  const n = apercu.groupes.length;
+  const b: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.2rem .6rem', fontSize: 13 };
+  return (
+    <div style={{ ...carte, borderColor: 'var(--color-svv-ink)' }} role="group" aria-label="aperçu de l’adoption des polygones en projet">
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Adopter les polygones « en projet » de l’IGN</div>
+      {n === 0
+        ? <p style={{ ...muted, margin: 0 }}>Aucun polygone « en projet » coché à adopter.</p>
+        : <>
+            <p style={{ margin: '0 0 .3rem' }}><strong>{n}</strong> emprise{n > 1 ? 's' : ''} ser{n > 1 ? 'ont' : 'a'} créée{n > 1 ? 's' : ''} (un groupe de polygones jointifs = une emprise) :</p>
+            <ul style={{ ...muted, margin: 0, paddingLeft: '1.1rem' }}>
+              {apercu.groupes.map((g, i) => <li key={i}>emprise {i + 1} — <strong>{fmtM2(g.surfaceM2)}</strong></li>)}
+            </ul>
+            <p style={{ ...muted, marginTop: '.3rem', fontStyle: 'italic' }}>données IGN adoptées telles quelles (plus fiables qu’un tracé à la main) — rattachées au bâtiment.</p>
+          </>}
+      {remplace !== null && <p role="alert" style={{ color: 'var(--color-svv-red)', margin: '.3rem 0 0' }}>⚠ Cela REMPLACERA l’emprise existante de ce bâtiment ({libelleProvenance(remplace)}) : elle sera perdue.</p>}
+      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+        {n > 0 && <button type="button" style={{ ...b, fontWeight: 700 }} disabled={occupe} onClick={onConfirmer}>{remplace !== null ? 'Remplacer et adopter' : 'Adopter'}</button>}
+        <button type="button" style={b} disabled={occupe} onClick={onAnnuler}>Annuler</button>
+      </div>
+    </div>
+  );
+}
+
+/** PROJ-3q — étiquette d'ORIGINE lisible d'une emprise (jamais « reconstitution » pour une donnée IGN). PUR. */
+export function libelleProvenance(p: ProvenanceEmprise): string {
+  return p === 'ign_adopte' ? 'issue de l’IGN' : p === 'ign_retouche' ? 'IGN retouchée à la main' : 'tracé à la main';
+}
+
+/** Liste des emprises d'un bâtiment : libellé, ORIGINE (IGN / tracé à la main), surface, résidu de calage (tracé seulement), effacement. */
 export function ListeEmprises({ emprises, onSupprimer }: { emprises: EmpriseReconstruite[]; onSupprimer?: (id: number) => void }) {
-  if (emprises.length === 0) return <p style={muted}>Aucune emprise reconstituée pour ce dossier.</p>;
+  if (emprises.length === 0) return <p style={muted}>Aucune emprise pour ce bâtiment.</p>;
   return (
     <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-      {emprises.map((e) => (
-        <li key={e.id} style={{ ...carte, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem' }}>
-          <span>
-            <strong>{e.libelle}</strong>{' '}
-            <span style={{ ...muted, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', padding: '0 .3rem' }}>reconstitution</span>{' '}
-            {e.surfaceM2 !== null ? fmtM2(e.surfaceM2) : ''}{' '}
-            <span style={muted}>· résidu {e.residuM !== null ? fmtM(e.residuM) : '—'}{e.page !== null ? ` · page ${e.page}` : ''}</span>
-          </span>
-          {onSupprimer && <button type="button" onClick={() => onSupprimer(e.id)} style={{ ...muted, cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', padding: '.15rem .5rem' }}>effacer</button>}
-        </li>
-      ))}
+      {emprises.map((e) => {
+        const ign = e.provenance === 'ign_adopte' || e.provenance === 'ign_retouche';
+        return (
+          <li key={e.id} style={{ ...carte, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem' }}>
+            <span>
+              <strong>{e.libelle}</strong>{' '}
+              <span data-provenance={e.provenance} style={{ ...muted, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', padding: '0 .3rem' }}>{libelleProvenance(e.provenance)}</span>{' '}
+              {e.surfaceM2 !== null ? fmtM2(e.surfaceM2) : ''}{' '}
+              <span style={muted}>{ign ? '· donnée source IGN' : `· résidu ${e.residuM !== null ? fmtM(e.residuM) : '—'}${e.page !== null ? ` · page ${e.page}` : ''}`}</span>
+            </span>
+            {onSupprimer && <button type="button" onClick={() => onSupprimer(e.id)} style={{ ...muted, cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', padding: '.15rem .5rem' }}>effacer</button>}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -357,7 +402,7 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
   const pts: { x: number; y: number }[] = [];
   for (const a of parcelle) for (const p of a) pts.push(proj(p));
   for (const poly of visibles) if (poly.anneau.length >= 3) for (const p of poly.anneau) pts.push(proj(p));
-  if (filtres.emprises) for (const e of emprises) if (e.anneau.length >= 3) for (const p of e.anneau) pts.push(proj(p));
+  if (filtres.emprises) for (const e of emprises) for (const ring of (e.anneaux?.length ? e.anneaux : [e.anneau])) if (ring.length >= 3) for (const p of ring) pts.push(proj(p));
   for (const p of calageLambert) pts.push(proj(p));
   const vb = boiteEnglobanteRotee(pts, centre, angle);
   return (
@@ -375,7 +420,9 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
             stroke={off ? '#bbb' : futur ? '#1f77b4' : '#888'} strokeWidth={1.2} strokeDasharray={futur ? '4 2' : undefined} strokeOpacity={off ? 0.6 : 1} />;
         })}
         {/* (c) emprises TRACÉES = reconstitution (rouge), si « Afficher la projection » est actif. */}
-        {filtres.emprises && emprises.map((e) => e.anneau.length >= 3 && <path key={`e${e.id}`} d={path(e.anneau)} fill="rgba(163,4,2,.18)" stroke="var(--color-svv-red)" strokeWidth={1.4} data-emprise={e.id} />)}
+        {filtres.emprises && emprises.flatMap((e) => (e.anneaux?.length ? e.anneaux : [e.anneau]).map((ring, ri) => ring.length >= 3
+          ? <path key={`e${e.id}-${ri}`} d={path(ring)} fill="rgba(163,4,2,.18)" stroke="var(--color-svv-red)" strokeWidth={1.4} data-emprise={e.id} data-provenance={e.provenance} />
+          : null))}
         {/* PROJ-3i ① — repères alphabétiques (mêmes lettres que le Rattachement), au centre de chaque polygone visible. */}
         {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3) return null; const q = projeterDansBoite(boite, centreAnneau(poly.anneau)); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={11} fontWeight={700} textAnchor="middle" fill="var(--color-svv-ink)" data-repere={poly.repere}>{poly.repere}</text>; })}
         {calageLambert.map((p, i) => { const q = projeterDansBoite(boite, p); return <g key={`c${i}`}><circle cx={q.x} cy={q.y} r={4} fill="var(--color-svv-red)" /><text x={q.x + 6} y={q.y - 6} fontSize={11} fill="var(--color-svv-red)">{i + 1}</text></g>; })}

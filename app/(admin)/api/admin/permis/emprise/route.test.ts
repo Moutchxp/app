@@ -24,6 +24,9 @@ vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
   ecarterPolygoneProjet: vi.fn(async () => ({ ok: true })),
   retablirPolygoneProjet: vi.fn(async () => ({ ok: true })),
   mesurerDebordement: vi.fn(async () => ({ aireM2: 100, parcelleRattachee: true, aireHorsM2: 7, pctHors: 7, decalageLateralM: 0.5 })),
+  apercuAdoptionEnProjet: vi.fn(async () => ({ groupes: [{ cleabs: ['B1', 'B2'], surfaceM2: 320 }, { cleabs: ['B3'], surfaceM2: 90 }] })),
+  adopterPolygonesEnProjet: vi.fn(async () => ({ ok: true, nbCreees: 2, debordement: { aireM2: 410, parcelleRattachee: true, aireHorsM2: 0, pctHors: 0, decalageLateralM: 0 }, emprises: [{ id: 9, dossierId: 11434, corpsId: 3, libelle: '2D1', anneau: [], anneaux: [], surfaceM2: 320, pieceId: null, page: null, calage: null, residuM: null, provenance: 'ign_adopte', creeLe: null }] })),
+  supprimerEmprisesAdoptees: vi.fn(async () => 0),
 }));
 const HG = vi.hoisted(() => ({
   // PROJ-3f/3m — texte simulé d'une pièce MULTI-PAGES : p1 = cartouche titré (exclu), p2-p3 = planches. vi.fn → surchargeable par test.
@@ -245,5 +248,34 @@ describe('PROJ — action apercu_debordement : Lambert recalculé SERVEUR, lectu
     const res = await post({ action: 'apercu_debordement', dossierId: 11434, corpsId: 3, paires: [], anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] });
     expect(res.status).toBe(200);
     expect((await res.json()).debordement).toBeNull();
+  });
+});
+
+describe('PROJ-3q — adoption des polygones « en projet » via la route', () => {
+  it('apercu_adoption → renvoie le nombre d’emprises et leurs aires (lecture seule)', async () => {
+    const res = await post({ action: 'apercu_adoption', dossierId: 11434 });
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(j.apercu.groupes).toHaveLength(2);
+    expect(j.apercu.groupes[0].surfaceM2).toBe(320);
+  });
+  it('adopter → ok, nbCreees, emprises (provenance ign_adopte) et débordement joints', async () => {
+    const res = await post({ action: 'adopter', dossierId: 11434, corpsId: 3, libelle: '2D1' });
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(j.ok).toBe(true);
+    expect(j.nbCreees).toBe(2);
+    expect(j.emprises[0].provenance).toBe('ign_adopte');
+    expect(j.debordement).toMatchObject({ parcelleRattachee: true });
+  });
+  it('adopter sans bâtiment (corpsId) → 400', async () => {
+    expect((await post({ action: 'adopter', dossierId: 11434, libelle: '2D1' })).status).toBe(400);
+  });
+  it('EXCLUSIVITÉ : enregistrer un tracé manuel retire les emprises adoptées du bâtiment', async () => {
+    const { supprimerEmprisesAdoptees } = await import('../../../../../lib/permis/empriseReconstruiteRepo');
+    await post({ action: 'enregistrer', dossierId: 11434, corpsId: 3, libelle: '2D1', pieceId: 55, page: 2,
+      paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }],
+      anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] });
+    expect(supprimerEmprisesAdoptees).toHaveBeenCalledWith(11434, 3);
   });
 });

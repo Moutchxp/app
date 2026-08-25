@@ -14,13 +14,21 @@ const H = vi.hoisted(() => {
     calls.push({ sql, params: params ?? [] });
     if (/INSERT INTO permis_emprise_reconstruite/i.test(sql)) return { rows: [{ id: 7 }], rowCount: 1 };
     if (/SELECT id FROM permis_rattachement WHERE dossier_id/i.test(sql)) return { rows: [{ id: 99 }], rowCount: 1 };
+    // PROJ-3q — polygones « En projet » cochés : B1+B2 jointifs (bord x=10), B3 disjoint → 2 groupes.
+    if (/FROM batiment[\s\S]*En projet/i.test(sql)) return { rows: [
+      { cleabs: 'B1', gj: { type: 'Polygon', coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]] } },
+      { cleabs: 'B2', gj: { type: 'Polygon', coordinates: [[[10, 0], [20, 0], [20, 10], [10, 10], [10, 0]]] } },
+      { cleabs: 'B3', gj: { type: 'Polygon', coordinates: [[[100, 100], [110, 100], [110, 110], [100, 110], [100, 100]]] } },
+    ], rowCount: 3 };
+    if (/ST_UnaryUnion/i.test(sql)) return { rows: [{ wkt: 'POLYGON((0 0,20 0,20 10,0 10,0 0))', aire: 200 }], rowCount: 1 };
+    if (/ST_Difference/i.test(sql)) return { rows: [{ aire: 200, a_parcelle: true, aire_hors: 0, perim_hors: 0 }], rowCount: 1 };
     return { rows: [], rowCount: 1 };
   };
   return { calls, queryMock };
 });
 vi.mock('../db/client', () => ({ query: H.queryMock, withTransaction: async (fn: (q: unknown) => unknown) => fn(H.queryMock) }));
 
-import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection } from './empriseReconstruiteRepo';
+import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, adopterPolygonesEnProjet, supprimerEmprisesAdoptees } from './empriseReconstruiteRepo';
 import type { CalageTrace } from './empriseReconstruiteRepo';
 
 const calage: CalageTrace = { paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 10, y: 0 }, lambert: { x: 20, y: 0 } }], ratioDeclare: null, ratioImplicite: 200, residuFitM: 0, residuEchelleM: null, douteux: false, raisons: [] };
@@ -107,5 +115,46 @@ describe('PROJ-2 — 🔴 GARDE MOTEUR : la reconstitution n’entre JAMAIS dans
       const src = readFileSync(f, 'utf8');
       expect(src, `${f} ne doit PAS connaître la reconstitution`).not.toMatch(/emprise_reconstruite|empriseReconstruite|calageEmprise/i);
     }
+  });
+});
+
+describe('PROJ-3q — adoption des polygones « en projet » : un groupe = une emprise, provenance IGN, exclusivité', () => {
+  it('apercuAdoptionEnProjet : 2 groupes (B1+B2 jointifs, B3 disjoint), aire par groupe, aucune écriture', () => {
+    return apercuAdoptionEnProjet(11434).then((ap) => {
+      expect(ap.groupes).toHaveLength(2);
+      expect(ap.groupes[0].cleabs.sort()).toEqual(['B1', 'B2']);   // jointifs → même groupe
+      expect(ap.groupes[1].cleabs).toEqual(['B3']);                 // disjoint → groupe séparé
+      expect(ap.groupes.every((g) => g.surfaceM2 === 200)).toBe(true);
+      expect(H.calls.some((c) => /INSERT|DELETE/i.test(c.sql))).toBe(false); // lecture seule
+    });
+  });
+
+  it('adopterPolygonesEnProjet : DELETE (exclusivité) puis 1 INSERT par groupe, provenance ign_adopte', async () => {
+    const r = await adopterPolygonesEnProjet(11434, 3, '2D1', 'admin:adoption');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.nbCreees).toBe(2);
+    const del = H.calls.find((c) => /DELETE FROM permis_emprise_reconstruite WHERE dossier_id = \$1 AND corps_id = \$2/i.test(c.sql));
+    expect(del).toBeTruthy();                                       // remplace l'existant du bâtiment
+    expect(del!.params).toEqual([11434, 3]);
+    const inserts = H.calls.filter((c) => /INSERT INTO permis_emprise_reconstruite/i.test(c.sql));
+    expect(inserts).toHaveLength(2);                                // un par groupe
+    expect(inserts.every((c) => /'ign_adopte'/.test(c.sql))).toBe(true); // provenance IGN, jamais « reconstitution »
+    // le DELETE précède les INSERT (exclusivité avant écriture)
+    expect(H.calls.findIndex((c) => /DELETE FROM permis_emprise_reconstruite/i.test(c.sql)))
+      .toBeLessThan(H.calls.findIndex((c) => /INSERT INTO permis_emprise_reconstruite/i.test(c.sql)));
+  });
+
+  it('adopterPolygonesEnProjet : libellé vide → refus, aucune écriture', async () => {
+    const r = await adopterPolygonesEnProjet(11434, 3, '  ', null);
+    expect(r.ok).toBe(false);
+    expect(H.calls.some((c) => /INSERT|DELETE/i.test(c.sql))).toBe(false);
+  });
+
+  it('supprimerEmprisesAdoptees : ne retire QUE les provenances IGN (exclusivité inverse au tracé manuel)', async () => {
+    await supprimerEmprisesAdoptees(11434, 3);
+    const del = H.calls.find((c) => /DELETE FROM permis_emprise_reconstruite/i.test(c.sql))!;
+    expect(del.sql).toMatch(/provenance IN \('ign_adopte', 'ign_retouche'\)/);
+    expect(del.params).toEqual([11434, 3]);
   });
 });
