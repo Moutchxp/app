@@ -79,10 +79,10 @@ describe('PROJ-3g — familles décidées au NOM (noms réels mesurés sur 11430
     for (const n of ['PC4_Notice_architecturale.pdf', 'CERFA_13409_15.pdf', 'AVIS ABF.pdf', 'PC1_Plan_de_situation.pdf', 'PC5.1_Plan_de_toitures.pdf', 'PC33_1_2D_PDM.pdf'])
       expect(familleDeNom(n), n).toBeNull();
   });
-  it('VERROU : seul « masse » est traçable', () => {
+  it('VERROU (PROJ-3j) : vue EN PLAN traçable (masse OU étage) ; seules coupes/façades verrouillées', () => {
     expect(estTracable('masse')).toBe(true);
-    expect(estTracable('etage')).toBe(false);
-    expect(estTracable('coupe')).toBe(false);
+    expect(estTracable('etage')).toBe(true);  // ① corrigé : un plan d'étage est une vue en plan
+    expect(estTracable('coupe')).toBe(false); // coupes + façades = élévations
     expect(estTracable(null)).toBe(false);
   });
   it('classerPiecesParFamille : ordre masse → étage → coupe ; repli garanti', () => {

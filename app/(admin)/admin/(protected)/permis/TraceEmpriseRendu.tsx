@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import {
-  projeterDansBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance,
+  projeterDansBoite, rotePoint, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
@@ -13,11 +13,17 @@ export function libelleFamille(f: FamillePlan): string {
   return f === 'masse' ? 'plan de masse' : f === 'etage' ? 'plan d’étage' : 'coupe / élévation';
 }
 
-/** PROJ-3g — message du VERROU métier : pourquoi on ne peut pas tracer ici (jamais un bouton grisé muet). null si traçable. PUR. */
+/** PROJ-3g/3j — message du VERROU métier : pourquoi on ne peut pas tracer ici (jamais un bouton grisé muet). null si traçable. Seules
+ *  les COUPES/FAÇADES (élévations) verrouillent ; un plan d'étage est traçable. PUR. */
 export function messageVerrou(f: FamillePlan | null): string | null {
   if (estTracable(f)) return null;
-  const quoi = f === 'coupe' ? 'une coupe / élévation' : f === 'etage' ? 'un plan d’étage' : 'une vue qui n’est pas un plan de masse';
-  return `Cette vue est ${quoi} : on ne peut y tracer une emprise, qui se trace sur une vue du dessus (le plan de masse).`;
+  const quoi = f === 'coupe' ? 'une coupe ou une façade (vue en élévation)' : 'une vue qui n’est pas un plan';
+  return `Cette vue est ${quoi} : on ne peut y tracer une emprise, qui se trace sur une vue en plan (plan de masse ou d’étage).`;
+}
+
+/** PROJ-3j — RAPPEL informatif (jamais un avertissement, jamais un blocage) porté par une entrée de famille « étage ». null sinon. PUR. */
+export function noteFamille(f: FamillePlan | null): string | null {
+  return f === 'etage' ? 'Plan d’étage : l’emprise peut différer du rez-de-chaussée (retraits, porte-à-faux).' : null;
 }
 
 /**
@@ -286,32 +292,54 @@ function centreAnneau(anneau: PointLambert[]): PointLambert {
  * EXISTANT (gris), (b) FUTUR BÂTI « en projet » (bleu tireté = DONNÉE IGN ; ÉCARTÉ → grisé barré), (c) emprise TRACÉE (rouge =
  * RECONSTITUTION, jamais une mesure — garde PROJ). PROJ-3i : repères A/B/C… si `reperes` ; `ecartes` (cleabs décochés) grisés.
  */
-export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, onCliquer }: {
-  boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[]; onCliquer?: (px: { x: number; y: number }) => void;
+export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, angle = 0, onCliquer }: {
+  boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[]; angle?: number; onCliquer?: (px: { x: number; y: number }) => void;
 }) {
   if (!boite || parcelle.length === 0) return <p style={muted}>Parcelle du permis absente : schéma non dessiné (aucun point fiable).</p>;
   const path = (anneau: PointLambert[]) => anneau.map((p, i) => { const q = projeterDansBoite(boite, p); return `${i === 0 ? 'M' : 'L'}${q.x.toFixed(1)},${q.y.toFixed(1)}`; }).join(' ') + ' Z';
   const visibles = polygonesVisibles(polygones, filtres);
   const ecarte = (p: PolygoneRepere) => p.cleabs !== null && ecartes.includes(p.cleabs);
+  // PROJ-3j — la ROTATION est un affichage : le contenu est tourné via <g transform="rotate(...)">, mais un CLIC est ramené dans le
+  //   repère NON tourné (angle opposé autour du centre de la boîte) AVANT d'appeler onCliquer → même géométrie quel que soit l'angle.
+  const centre = { x: boite.largeur / 2, y: boite.hauteur / 2 };
   return (
     <svg width={boite.largeur} height={boite.hauteur} viewBox={`0 0 ${boite.largeur} ${boite.hauteur}`} role="img" aria-label="schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées"
       style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', cursor: onCliquer ? 'crosshair' : 'default' }}
-      onClick={onCliquer ? (ev) => { const r = (ev.target as SVGElement).ownerSVGElement?.getBoundingClientRect() ?? (ev.currentTarget as SVGSVGElement).getBoundingClientRect(); onCliquer({ x: ev.clientX - r.left, y: ev.clientY - r.top }); } : undefined}>
-      {parcelle.map((a, i) => <path key={`p${i}`} d={path(a)} fill="none" stroke="var(--color-svv-ink)" strokeWidth={1.2} />)}
-      {/* (a) existant gris / (b) futur bâti bleu tireté (donnée IGN) ; un futur bâti ÉCARTÉ est grisé (décision d'Arno). Distinct par le TRAIT. */}
-      {visibles.map((poly, i) => {
-        if (poly.anneau.length < 3) return null;
-        const futur = estFuturBati(poly.etat), off = futur && ecarte(poly);
-        return <path key={`b${i}`} d={path(poly.anneau)} data-etat={poly.etat ?? ''} data-futur={futur} data-ecarte={off || undefined}
-          fill={off ? 'rgba(0,0,0,.04)' : futur ? 'rgba(31,119,180,.14)' : 'rgba(0,0,0,.06)'}
-          stroke={off ? '#bbb' : futur ? '#1f77b4' : '#888'} strokeWidth={1.2} strokeDasharray={futur ? '4 2' : undefined} strokeOpacity={off ? 0.6 : 1} />;
-      })}
-      {/* (c) emprises TRACÉES = reconstitution (rouge), si « Afficher la projection » est actif. */}
-      {filtres.emprises && emprises.map((e) => e.anneau.length >= 3 && <path key={`e${e.id}`} d={path(e.anneau)} fill="rgba(163,4,2,.18)" stroke="var(--color-svv-red)" strokeWidth={1.4} data-emprise={e.id} />)}
-      {/* PROJ-3i ① — repères alphabétiques (mêmes lettres que le Rattachement), au centre de chaque polygone visible. */}
-      {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3) return null; const q = projeterDansBoite(boite, centreAnneau(poly.anneau)); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={11} fontWeight={700} textAnchor="middle" fill="var(--color-svv-ink)" data-repere={poly.repere}>{poly.repere}</text>; })}
-      {calageLambert.map((p, i) => { const q = projeterDansBoite(boite, p); return <g key={`c${i}`}><circle cx={q.x} cy={q.y} r={4} fill="var(--color-svv-red)" /><text x={q.x + 6} y={q.y - 6} fontSize={11} fill="var(--color-svv-red)">{i + 1}</text></g>; })}
+      onClick={onCliquer ? (ev) => { const r = (ev.target as SVGElement).ownerSVGElement?.getBoundingClientRect() ?? (ev.currentTarget as SVGSVGElement).getBoundingClientRect(); onCliquer(rotePoint({ x: ev.clientX - r.left, y: ev.clientY - r.top }, centre, -angle)); } : undefined}>
+      <g transform={angle ? `rotate(${angle} ${centre.x} ${centre.y})` : undefined}>
+        {parcelle.map((a, i) => <path key={`p${i}`} d={path(a)} fill="none" stroke="var(--color-svv-ink)" strokeWidth={1.2} />)}
+        {/* (a) existant gris / (b) futur bâti bleu tireté (donnée IGN) ; un futur bâti ÉCARTÉ est grisé (décision d'Arno). Distinct par le TRAIT. */}
+        {visibles.map((poly, i) => {
+          if (poly.anneau.length < 3) return null;
+          const futur = estFuturBati(poly.etat), off = futur && ecarte(poly);
+          return <path key={`b${i}`} d={path(poly.anneau)} data-etat={poly.etat ?? ''} data-futur={futur} data-ecarte={off || undefined}
+            fill={off ? 'rgba(0,0,0,.04)' : futur ? 'rgba(31,119,180,.14)' : 'rgba(0,0,0,.06)'}
+            stroke={off ? '#bbb' : futur ? '#1f77b4' : '#888'} strokeWidth={1.2} strokeDasharray={futur ? '4 2' : undefined} strokeOpacity={off ? 0.6 : 1} />;
+        })}
+        {/* (c) emprises TRACÉES = reconstitution (rouge), si « Afficher la projection » est actif. */}
+        {filtres.emprises && emprises.map((e) => e.anneau.length >= 3 && <path key={`e${e.id}`} d={path(e.anneau)} fill="rgba(163,4,2,.18)" stroke="var(--color-svv-red)" strokeWidth={1.4} data-emprise={e.id} />)}
+        {/* PROJ-3i ① — repères alphabétiques (mêmes lettres que le Rattachement), au centre de chaque polygone visible. */}
+        {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3) return null; const q = projeterDansBoite(boite, centreAnneau(poly.anneau)); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={11} fontWeight={700} textAnchor="middle" fill="var(--color-svv-ink)" data-repere={poly.repere}>{poly.repere}</text>; })}
+        {calageLambert.map((p, i) => { const q = projeterDansBoite(boite, p); return <g key={`c${i}`}><circle cx={q.x} cy={q.y} r={4} fill="var(--color-svv-red)" /><text x={q.x + 6} y={q.y - 6} fontSize={11} fill="var(--color-svv-red)">{i + 1}</text></g>; })}
+      </g>
     </svg>
+  );
+}
+
+/**
+ * PROJ-3j — commande de ROTATION du schéma (0 à 360°, LIBRE, pas par paliers) : curseur + valeur d'angle visible + retour à 0 en un
+ * geste. AFFICHAGE seulement (aucune géométrie réécrite). PUR (le curseur ne fait que remonter l'angle).
+ */
+export function RotationSchema({ angle, onAngle }: { angle: number; onAngle: (a: number) => void }) {
+  return (
+    <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+      <label style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+        Rotation
+        <input type="range" min={0} max={360} step={1} value={angle} onChange={(e) => onAngle(Number(e.target.value))} aria-label="Rotation du schéma en degrés" style={{ width: 120 }} />
+      </label>
+      <span style={{ fontVariantNumeric: 'tabular-nums', minWidth: 34 }}>{Math.round(angle)}°</span>
+      <button type="button" onClick={() => onAngle(0)} disabled={angle === 0} style={{ cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.15rem .5rem', fontSize: 12, opacity: angle === 0 ? 0.4 : 1 }}>Remettre à 0</button>
+    </div>
   );
 }
 

@@ -59,10 +59,11 @@ export function familleDeNom(nomFichier: string): FamillePlan | null {
 }
 
 /**
- * 🔴 VERROU MÉTIER (pur, testé, ET revérifié côté serveur) : une emprise ne se trace QUE sur un plan de masse (vue du dessus).
- * Une coupe/façade est une ÉLÉVATION, un plan d'étage une autre vue : y caler une emprise n'a aucun sens géométrique.
+ * 🔴 VERROU MÉTIER (pur, testé, ET revérifié côté serveur) : une emprise se trace sur une VUE EN PLAN (vue du dessus) — plan de
+ * masse OU plan d'étage (PROJ-3j : un étage est un plan complet, souvent plus net qu'un plan de masse au 1:1000). SEULES les COUPES
+ * et FAÇADES (famille 'coupe') sont des ÉLÉVATIONS et restent verrouillées : y caler une emprise n'a aucun sens géométrique.
  */
-export function estTracable(f: FamillePlan | null): boolean { return f === 'masse'; }
+export function estTracable(f: FamillePlan | null): boolean { return f === 'masse' || f === 'etage'; }
 
 const RANG_FAMILLE: Record<FamillePlan, number> = { masse: 0, etage: 1, coupe: 2 };
 

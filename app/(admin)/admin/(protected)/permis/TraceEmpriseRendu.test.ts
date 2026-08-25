@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
@@ -229,6 +229,26 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
   });
 });
 
+describe('PROJ-3j — rotation du schéma (affichage seulement)', () => {
+  it('RotationSchema : curseur, valeur d’angle visible, retour à 0', () => {
+    const html = renderToStaticMarkup(h(RotationSchema, { angle: 37, onAngle: () => {} }));
+    expect(html).toContain('type="range"');
+    expect(html).toContain('37°');
+    expect(html).toContain('Remettre à 0');
+  });
+  it('RotationSchema : « Remettre à 0 » désactivé à 0°', () => {
+    const html = renderToStaticMarkup(h(RotationSchema, { angle: 0, onAngle: () => {} }));
+    expect(html).toContain('0°');
+    expect(html).toMatch(/disabled/);
+  });
+  it('SchemaParcelleTrace : un angle produit un transform rotate autour du centre ; 0° = pas de rotation', () => {
+    const boite: Boite = { largeur: 300, hauteur: 230, marge: 12, cadre: { minX: 0, maxX: 100, minY: 0, maxY: 80 } };
+    const parcelle = [[{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }]];
+    expect(renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle, emprises: [], polygones: [], calageLambert: [], angle: 37 }))).toContain('rotate(37 150 115)');
+    expect(renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle, emprises: [], polygones: [], calageLambert: [], angle: 0 }))).not.toContain('rotate(');
+  });
+});
+
 describe('PROJ-3g — trois familles dans la bande + verrou de traçage', () => {
   it('construireBandePlans porte la FAMILLE de chaque entrée (masse / étage / coupe)', () => {
     const b = construireBandePlans([
@@ -248,11 +268,16 @@ describe('PROJ-3g — trois familles dans la bande + verrou de traçage', () => 
     expect(libelleFamille('etage')).toBe('plan d’étage');
     expect(libelleFamille('coupe')).toBe('coupe / élévation');
   });
-  it('messageVerrou : null sur masse (traçable), message EXPLICITE sinon', () => {
+  it('messageVerrou (PROJ-3j) : null si traçable (masse OU étage) ; message seulement pour coupe/façade', () => {
     expect(messageVerrou('masse')).toBeNull();
-    expect(messageVerrou('coupe')).toMatch(/coupe.*on ne peut y tracer|vue du dessus/);
-    expect(messageVerrou('etage')).toMatch(/plan d’étage|vue du dessus/);
-    expect(messageVerrou(null)).toMatch(/vue du dessus/);
+    expect(messageVerrou('etage')).toBeNull();                 // ① étage traçable → aucun verrou
+    expect(messageVerrou('coupe')).toMatch(/coupe ou une façade|vue en plan/);
+    expect(messageVerrou(null)).toMatch(/vue en plan/);
+  });
+  it('noteFamille (PROJ-3j) : rappel informatif sur « étage » (jamais un blocage), null ailleurs', () => {
+    expect(noteFamille('etage')).toMatch(/rez-de-chaussée|retraits|porte-à-faux/);
+    expect(noteFamille('masse')).toBeNull();
+    expect(noteFamille('coupe')).toBeNull();
   });
 });
 

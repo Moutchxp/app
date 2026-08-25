@@ -140,6 +140,15 @@ describe('PROJ-2 — POST enregistrer : géométrie recalculée SERVEUR (plan �
     expect(enregistrerEmprise).not.toHaveBeenCalled();
   });
 
+  it('PROJ-3j — un PLAN D’ÉTAGE est traçable (le verrou serveur ne le rejette plus)', async () => {
+    vi.mocked(lireCleTelechargeable).mockResolvedValueOnce({ cle: 'ged/dossier/e.pdf', nomFichier: 'ANNEXE_6_Plan_du_R_1.pdf' } as Awaited<ReturnType<typeof lireCleTelechargeable>>);
+    const res = await post({ action: 'enregistrer', dossierId: 11434, corpsId: 3, libelle: '2D1', pieceId: 42, page: 2,
+      paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }],
+      anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] });
+    expect(res.status).toBe(200);
+    expect(enregistrerEmprise).toHaveBeenCalled();
+  });
+
   it('contour < 3 sommets → 400, aucun enregistrement', async () => {
     const res = await post({ action: 'enregistrer', dossierId: 11434, corpsId: 3, libelle: 'X', anneauPlan: [{ x: 0, y: 0 }, { x: 1, y: 1 }], paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 1, y: 0 } }] });
     expect(res.status).toBe(400);

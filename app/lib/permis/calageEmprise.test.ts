@@ -3,10 +3,44 @@ import {
   calculerSimilitude, appliquerSimilitude, echelleImpliciteMParPt, ratioEchelleImplicite,
   echelleDeclareeMParPt, residuFitM, residuEchelleDeclareeM, verdictCalage, aireM2, anneauVersLambert,
   verdictVraisemblance, SEUIL_RESIDU_CALAGE_M, type PaireCalage,
-  cadreDeAnneaux, projeterDansBoite, inverseDepuisBoite, type Boite,
+  cadreDeAnneaux, projeterDansBoite, inverseDepuisBoite, rotePoint, type Boite,
 } from './calageEmprise';
 
 const paire = (px: number, py: number, lx: number, ly: number): PaireCalage => ({ plan: { x: px, y: py }, lambert: { x: lx, y: ly } });
+
+describe('PROJ-3j — rotation du schéma : PARAMÈTRE D’AFFICHAGE, géométrie invariante', () => {
+  const C = { x: 150, y: 115 }; // centre de la boîte
+  const proche = (a: { x: number; y: number }, b: { x: number; y: number }) => { expect(a.x).toBeCloseTo(b.x, 9); expect(a.y).toBeCloseTo(b.y, 9); };
+
+  it('0° = identité (à la précision flottante)', () => {
+    proche(rotePoint({ x: 40, y: 200 }, C, 0), { x: 40, y: 200 });
+  });
+  it('90° / 180° : valeurs attendues (sens SVG horaire, y-bas)', () => {
+    // 180° = symétrie centrale
+    proche(rotePoint({ x: 200, y: 100 }, C, 180), { x: 2 * C.x - 200, y: 2 * C.y - 100 });
+    // 90° : (dx,dy) -> (-dy, dx)
+    const p = { x: 200, y: 100 }, dx = p.x - C.x, dy = p.y - C.y;
+    proche(rotePoint(p, C, 90), { x: C.x - dy, y: C.y + dx });
+  });
+  it('🔴 INVERSE EXACT : dé-tourner (−θ) un clic tourné (+θ) rend le point d’origine, pour 0/90/180/37°', () => {
+    for (const theta of [0, 90, 180, 37, 213.5]) {
+      for (const q of [{ x: 40, y: 200 }, { x: 260, y: 30 }, { x: 12.7, y: 199.3 }]) {
+        // q = point NON tourné ; le clic sur le schéma tourné est rotePoint(q, C, θ) ; on le dé-tourne :
+        proche(rotePoint(rotePoint(q, C, theta), C, -theta), q);
+      }
+    }
+  });
+  it('🔴 MÊME EMPRISE quel que soit l’angle : le box-point dé-tourné est IDENTIQUE à 0° et à 37°', () => {
+    const boite: Boite = { largeur: 300, hauteur: 230, marge: 12, cadre: { minX: 0, maxX: 100, minY: 0, maxY: 80 } };
+    const centre = { x: boite.largeur / 2, y: boite.hauteur / 2 };
+    // Un même sommet géométrique cliqué : à 0° l'utilisateur clique Q ; à 37° il clique là où Q est affiché = rotePoint(Q, C, 37).
+    const Q = { x: 90, y: 150 };
+    const boxA0 = rotePoint(Q, centre, -0);                         // dé-rotation à 0°
+    const boxA37 = rotePoint(rotePoint(Q, centre, 37), centre, -37); // dé-rotation à 37°
+    proche(boxA0, boxA37);                                          // même box-point
+    proche(inverseDepuisBoite(boite, boxA0), inverseDepuisBoite(boite, boxA37)); // ⇒ même Lambert ⇒ même emprise
+  });
+});
 
 describe('PROJ-2 — similitude plan→Lambert (moindres carrés complexes)', () => {
   it('TRANSLATION seule : c = 1, décalage (10, 20)', () => {

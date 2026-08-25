@@ -139,11 +139,11 @@ export async function POST(request: Request): Promise<Response> {
       if (!Number.isInteger(body.corpsId)) return Response.json({ erreur: 'bâtiment requis' }, { status: 400 }); // PROJ-2b : une emprise par bâtiment
       if (libelle === '') return Response.json({ erreur: 'libellé du bâtiment requis' }, { status: 400 });
       if (anneauPlan.length < 3) return Response.json({ erreur: 'un contour exige au moins 3 sommets' }, { status: 400 });
-      // 🔴 PROJ-3g — VERROU MÉTIER revérifié SERVEUR (la garde d'UI ne suffit pas) : une emprise ne se trace QUE sur un PLAN DE MASSE
-      //   (vue du dessus), jamais sur une coupe/élévation ou un plan d'étage. Contrôle par le NOM de la pièce (familleDeNom) — 0 ouverture PDF.
-      if (!Number.isInteger(body.pieceId)) return Response.json({ erreur: 'un plan de masse (pièce) est requis pour tracer une emprise' }, { status: 400 });
+      // 🔴 PROJ-3g/3j — VERROU MÉTIER revérifié SERVEUR (la garde d'UI ne suffit pas) : une emprise se trace sur une VUE EN PLAN
+      //   (plan de masse OU d'étage), jamais sur une coupe/façade (élévation). Contrôle par le NOM de la pièce (familleDeNom) — 0 ouverture PDF.
+      if (!Number.isInteger(body.pieceId)) return Response.json({ erreur: 'une pièce (vue en plan) est requise pour tracer une emprise' }, { status: 400 });
       const pieceTrace = await lireCleTelechargeable(body.pieceId as number, 'dossier');
-      if (!pieceTrace || !estTracable(familleDeNom(pieceTrace.nomFichier))) return Response.json({ erreur: 'une emprise ne se trace que sur un plan de masse (vue du dessus), jamais sur une coupe/élévation ou un plan d’étage' }, { status: 400 });
+      if (!pieceTrace || !estTracable(familleDeNom(pieceTrace.nomFichier))) return Response.json({ erreur: 'une emprise se trace sur une vue en plan (plan de masse ou d’étage), jamais sur une coupe ou une façade (vue en élévation)' }, { status: 400 });
       // 🔴 GÉOMÉTRIE AUTORITATIVE SERVEUR : la similitude est recalculée ici sur les paires de calage, jamais reçue du client.
       const sim = calculerSimilitude(paires);
       if (sim === null) return Response.json({ erreur: 'calage insuffisant (2 points distincts requis)' }, { status: 400 });

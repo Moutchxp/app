@@ -7,7 +7,7 @@ import {
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, OptionsVisibiliteSchema, SelectionPolygonesProjet, attribuerReperes, FILTRES_SCHEMA_DEFAUT, type FiltresSchema } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, attribuerReperes, RotationSchema, FILTRES_SCHEMA_DEFAUT, type FiltresSchema } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
 
@@ -41,6 +41,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   const [filtres, setFiltres] = useState<FiltresSchema>(FILTRES_SCHEMA_DEFAUT); // options de visibilité du schéma
   const [ecartes, setEcartes] = useState<string[]>([]); // PROJ-3i — cleabs des polygones « en projet » écartés (persistés)
   const [pleinEcran, setPleinEcran] = useState(false); // PROJ-3i — agrandissement du schéma
+  const [angle, setAngle] = useState(0); // PROJ-3j — rotation du schéma (0-360°), AFFICHAGE seulement, éphémère (non persistée)
   const [corpsSel, setCorpsSel] = useState<number | null>(null);
   const [pieceId, setPieceId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
@@ -86,7 +87,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
         // Résilience serveur : « indisponible » ≠ « vide ». Si la lecture des BÂTIMENTS a échoué, on n'affiche JAMAIS « 0 bâtiment »
         //   (panne déguisée en donnée) → état d'échec explicite invitant à recharger.
         if (j.indisponibles?.includes('batiments')) { setEtat('erreur'); setMessage('Bâtiments indisponibles : rechargez.'); return; }
-        setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []);
+        setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setAngle(0);
         // PROJ-3e — on ouvre DIRECTEMENT sur le 1er plan de la bande (le mieux classé) ; à défaut de plan proposé, la 1re pièce.
         const b = construireBandePlans(j.pieces);
         setNav('bestof'); setPlanIndex(0);
@@ -350,10 +351,22 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             </p>
           </div>
 
-          {/* Colonne contrôles + mesures + schéma */}
+          {/* Colonne de droite — PROJ-3j ③ : le SCHÉMA en PREMIER (aligné avec le document à gauche), les outils en dessous. */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
-            {/* PROJ-3g — VERROU métier : on ne trace QUE sur un plan de masse ; sur une coupe/étage, on DIT pourquoi (jamais un bouton grisé muet). */}
+            {/* PROJ-3j ② — rotation d'affichage + schéma (clics dé-tournés côté schéma) + agrandir. */}
+            <RotationSchema angle={angle} onAngle={setAngle} />
+            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} onCliquer={mode === 'calage' && planEnAttente ? cliquerSchema : undefined} />
+            <div><button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button></div>
+
+            {/* Options de visibilité + sélection des polygones « en projet ». */}
+            <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
+            <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
+
+            {/* PROJ-3g/3j — VERROU (COUPES/FAÇADES seulement) ; RAPPEL informatif « étage » (jamais un blocage). */}
             {verrou && <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{verrou}</div>}
+            {noteFamille(familleCourante) && <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{noteFamille(familleCourante)}</div>}
+
+            {/* Outils de calage / tracé. */}
             <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
               <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'calage' ? 700 : 400 }} onClick={() => setMode('calage')}>Calage ({paires.length}/2)</button>
               <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'trace' ? 700 : 400 }} onClick={() => setMode('trace')}>Tracé ({sommets.length})</button>
@@ -382,12 +395,6 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
                 <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} disabled={occupe || motifIgnore.trim() === ''} onClick={() => void posterProjection('ignorer', corpsEffectif!, { motif: motifIgnore })}>Ignorer la projection</button>
               </div>
             )}
-
-            {/* PROJ-3h/3i — OPTIONS DE VISIBILITÉ + SÉLECTION des polygones « en projet », sous « Ignorer la projection », à droite du schéma. */}
-            <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
-            <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
-            <div><button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button></div>
-            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} calageLambert={paires.map((p) => p.lambert)} onCliquer={mode === 'calage' && planEnAttente ? cliquerSchema : undefined} />
           </div>
         </div>
       )}
@@ -404,8 +411,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
               <strong style={{ fontSize: 13 }}>Schéma de la parcelle et du bâti</strong>
               <button type="button" style={btn} onClick={() => setPleinEcran(false)} aria-label="Fermer l’agrandissement">✕ Fermer</button>
             </div>
+            <RotationSchema angle={angle} onAngle={setAngle} />
             <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-              <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} calageLambert={[]} />
+              <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} calageLambert={[]} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 240 }}>
                 <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
                 <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />

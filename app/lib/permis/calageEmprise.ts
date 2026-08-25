@@ -200,6 +200,17 @@ export function inverseDepuisBoite(b: Boite, px: { x: number; y: number }): Poin
   return { x: (px.x - padX) / scale + b.cadre.minX, y: (b.hauteur - px.y - padY) / scale + b.cadre.minY };
 }
 
+/**
+ * PROJ-3j — ROTATION PURE d'un point autour d'un centre (angle en DEGRÉS, sens SVG horaire en repère y-bas — même convention que
+ * `transform="rotate(a cx cy)"`). AUCUN arrondi : la précision est préservée. 🔴 La rotation est un PARAMÈTRE D'AFFICHAGE seulement :
+ * pour ramener un clic sur le schéma TOURNÉ dans le repère NON tourné, on applique l'angle OPPOSÉ (inverse exact) avant tout calcul.
+ */
+export function rotePoint(p: { x: number; y: number }, centre: { x: number; y: number }, angleDeg: number): { x: number; y: number } {
+  const a = (angleDeg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+  const dx = p.x - centre.x, dy = p.y - centre.y;
+  return { x: centre.x + dx * c - dy * s, y: centre.y + dx * s + dy * c };
+}
+
 // ── Vraisemblance (affichée, JAMAIS bloquante) ───────────────────────────────
 export interface EntreeVraisemblance {
   aireM2: number;
