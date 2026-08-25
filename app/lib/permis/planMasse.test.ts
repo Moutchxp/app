@@ -1,0 +1,82 @@
+import { describe, it, expect } from 'vitest';
+import { scoreNomPlanMasse, classerPiecesPlanMasse, texteEstPlanMasse, pagePlanMasse, lireEchelleTexte, type PieceScorable } from './planMasse';
+
+// Noms RÉELS mesurés sur le dossier 11430 (cf. recon PROJ-3d).
+const PLANS = [
+  'PC2.1_Plan_de_masse_projet__20250402100339.pdf',
+  'PC2.2_Plan_de_masse_existant__20250402100415.pdf',
+  'PC39.2_Plan_de_masse__20250328160714.pdf',
+  'PC40.2.1_Plan_de_masse__20250328161325.pdf',
+  'ANNEXE_12_Plan_masse_paysage__20250402100504.pdf',
+];
+const CONTRE = [
+  'PC1_Plan_de_situation__20250328155250.pdf',
+  'PC3.1_Coupe_AA___20250328155505.pdf',
+  'PC5.1_Plan_de_toitures__20250328155706.pdf',
+  'PC4_Notice_architecturale_et_paysagere__20250402100536.pdf',
+  'CERFA_13409_15_VF_signe___20250331171427.pdf',
+];
+
+describe('PROJ-3d — score par nom (0 faux positif / 0 faux négatif sur le dossier mesuré)', () => {
+  it('tous les vrais plans de masse ont un score > 0', () => {
+    for (const nom of PLANS) expect(scoreNomPlanMasse(nom), nom).toBeGreaterThan(0);
+  });
+  it('aucun contre-exemple n’est proposé (score 0)', () => {
+    for (const nom of CONTRE) expect(scoreNomPlanMasse(nom), nom).toBe(0);
+  });
+  it('« projet » passe AVANT « existant » (on projette le futur)', () => {
+    expect(scoreNomPlanMasse('PC2.1_Plan_de_masse_projet.pdf')).toBeGreaterThan(scoreNomPlanMasse('PC2.2_Plan_de_masse_existant.pdf'));
+  });
+  it('le code PC2 (R.431-9) compte, mais PC20 / PC39 / PC40 ne sont PAS des PC2', () => {
+    expect(scoreNomPlanMasse('PC2_quelconque.pdf')).toBeGreaterThan(0);          // PC2 = plan de masse
+    expect(scoreNomPlanMasse('PC20_autre_chose.pdf')).toBe(0);                   // PC20 ≠ PC2
+    expect(scoreNomPlanMasse('PC39_Notice_accessibilite.pdf')).toBe(0);         // PC39 sans « plan de masse » → 0
+  });
+});
+
+describe('PROJ-3d — classement : proposées triées, repli garanti', () => {
+  const pieces: PieceScorable[] = [
+    { id: 1, nomFichier: 'PC1_Plan_de_situation.pdf', typeMime: 'application/pdf' },
+    { id: 2, nomFichier: 'PC2.2_Plan_de_masse_existant.pdf', typeMime: 'application/pdf' },
+    { id: 3, nomFichier: 'PC3.1_Coupe_AA.pdf', typeMime: 'application/pdf' },
+    { id: 4, nomFichier: 'PC2.1_Plan_de_masse_projet.pdf', typeMime: 'application/pdf' },
+    { id: 5, nomFichier: 'ANNEXE_12_Plan_masse_paysage.pdf', typeMime: 'application/pdf' },
+  ];
+  it('proposées = les 3 plans, PROJET en tête ; autres = le reste dans l’ordre', () => {
+    const { proposees, autres } = classerPiecesPlanMasse(pieces);
+    expect(proposees.map((p) => p.id)).toEqual([4, 2, 5]); // projet(195) > existant(175) > paysage(100)
+    expect(autres.map((p) => p.id)).toEqual([1, 3]);       // situation + coupe, ordre d'origine
+    // REPLI : aucune pièce perdue
+    expect(proposees.length + autres.length).toBe(pieces.length);
+  });
+});
+
+describe('PROJ-3d — confirmation par texte + numéro de page', () => {
+  it('texteEstPlanMasse : « plan de masse » dans le texte', () => {
+    expect(texteEstPlanMasse('… PC2.1 PLAN DE MASSE projet éch. 1:1000 …')).toBe(true);
+    expect(texteEstPlanMasse('Coupe AA sur le terrain naturel')).toBe(false);
+  });
+  it('pagePlanMasse : première page plan de masse (1-based), sinon null', () => {
+    expect(pagePlanMasse(['garde', 'PLAN DE MASSE', 'coupe'])).toBe(2);
+    expect(pagePlanMasse(['texte', 'texte'])).toBeNull();
+  });
+});
+
+describe('PROJ-3d — lecture d’échelle : gardes anti-faux-positifs mesurés', () => {
+  it('accepte « 1:1000 » et « 1:200 » (deux-points, dans la plage)', () => {
+    expect(lireEchelleTexte('PLAN DE MASSE  éch 1:1000')).toBe('1:1000');
+    expect(lireEchelleTexte('coupe 1:200')).toBe('1:200');
+  });
+  it('REJETTE « 1:46 » (hors plage — légende mesurée sur ANNEXE_12)', () => {
+    expect(lireEchelleTexte('repère 1:46 en légende')).toBeNull();
+  });
+  it('REJETTE « 1/15 » isolé (numéro de page mesuré sur PC4) — pas de contexte « éch »', () => {
+    expect(lireEchelleTexte('Notice architecturale page 1/15')).toBeNull();
+  });
+  it('accepte « 1/500 » SEULEMENT avec le contexte « échelle »', () => {
+    expect(lireEchelleTexte('échelle 1/500')).toBe('1:500');
+  });
+  it('rien de plausible → null (jamais inventé)', () => {
+    expect(lireEchelleTexte('aucune échelle ici')).toBeNull();
+  });
+});

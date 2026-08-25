@@ -4,6 +4,11 @@ import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmpri
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
+import { classerPiecesPlanMasse, scoreNomPlanMasse, pagePlanMasse, lireEchelleTexte } from '../../../../../lib/permis/planMasse';
+
+// PROJ-3d — confirmation page-level PARESSEUSE : plafond DUR de pièces ouvertes côté serveur (mesuré ~98 ms/pièce → ~0,7 s pour 7).
+//   Ne JAMAIS ouvrir les 81 pièces (~8 s). Les proposées au-delà du plafond restent proposées PAR LEUR NOM, sans confirmation.
+const PLAFOND_SHORTLIST = 8;
 
 /**
  * PROJ-2 / PROJ-2b — /api/admin/permis/emprise : tracé manuel assisté d'une emprise RECONSTITUÉE, calée sur la parcelle, PAR BÂTIMENT.
@@ -39,17 +44,34 @@ export async function GET(request: Request): Promise<Response> {
       try { return await p; }
       catch (e) { indisponibles.push(source); console.error(`[permis/emprise] source indisponible: ${source}`, { dossierId, message: e instanceof Error ? e.message : String(e) }); return valeur; }
     };
+    const deps = depsReellesLectureGed();
     const [piecesBrutes, emprises, ignores, batiments, contexte] = await Promise.all([
-      repli('pieces', depsReellesLectureGed().listerPieces(dossierId), []),
+      repli('pieces', deps.listerPieces(dossierId), []),
       repli('emprises', listerEmprises(dossierId), []),
       repli('ignores', listerIgnorees(dossierId), []),
       repli('batiments', listerBatiments(dossierId), []),
       repli('contexte', lireContexteEmprise(dossierId), { empreinteAnneaux: [], surfaceTerrainM2: null, surfacePlancherM2: null, nbEtages: null }),
     ]);
-    // Seules les pièces PDF sont traçables ; la clé de stockage ne sort JAMAIS (uniquement id/nom/type).
-    const pieces = piecesBrutes
-      .filter((p) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf'))
-      .map((p) => ({ id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime }));
+    // Seules les pièces PDF sont traçables (filtre inchangé) ; la clé de stockage ne sort JAMAIS.
+    const piecesPdf = piecesBrutes.filter((p) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf'));
+    // PROJ-3d ① — TRI PAR NOM (instantané, 0 I/O) : plans de masse proposés d'abord (score R.431-9), tout le reste conservé (repli).
+    const { proposees, autres } = classerPiecesPlanMasse(piecesPdf);
+    // PROJ-3d ② — CONFIRMATION PARESSEUSE, uniquement sur la shortlist plafonnée : ouvre chaque candidat, cherche la page « plan de
+    //   masse » (n° proposé) + une échelle indicative. Dégradation propre : une pièce illisible reste proposée par son NOM (confirme=false).
+    const confirmations = new Map<number, { pagePlan: number | null; echelle: string | null }>();
+    await Promise.all(proposees.slice(0, PLAFOND_SHORTLIST).map(async (p) => {
+      try {
+        const ex = await deps.extraire(await deps.lireObjet(p.cleStockage), p.typeMime);
+        if (!ex.ok) { indisponibles.push(`texte:${p.id}`); console.error(`[permis/emprise] texte pièce ${p.id} illisible`, { motif: ex.motif }); return; }
+        const page = pagePlanMasse(ex.pages);
+        confirmations.set(p.id, { pagePlan: page, echelle: page ? lireEchelleTexte(ex.pages[page - 1]) : null });
+      } catch (e) { indisponibles.push(`texte:${p.id}`); console.error(`[permis/emprise] confirmation pièce ${p.id} indisponible`, { message: e instanceof Error ? e.message : String(e) }); }
+    }));
+    const enrichir = (p: { id: number; nomFichier: string; typeMime: string | null }, propose: boolean) => {
+      const c = confirmations.get(p.id);
+      return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, pagePlan: c?.pagePlan ?? null, echelle: c?.echelle ?? null, confirme: (c?.pagePlan ?? null) !== null };
+    };
+    const pieces = [...proposees.map((p) => enrichir(p, true)), ...autres.map((p) => enrichir(p, false))];
     return Response.json({ pieces, emprises, ignores, batiments, contexte, indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);

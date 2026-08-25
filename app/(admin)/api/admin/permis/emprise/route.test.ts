@@ -18,10 +18,16 @@ vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
   lireContexteEmprise: async () => ({ empreinteAnneaux: [], surfaceTerrainM2: 2886.5, surfacePlancherM2: 900, nbEtages: 3 }),
 }));
 vi.mock('../../../../../lib/permis/lectureGed', () => ({
-  depsReellesLectureGed: () => ({ listerPieces: async () => [
-    { id: 55, nomFichier: 'PC2.pdf', typeMime: 'application/pdf', cleStockage: 'k1', tailleOctets: 1 },
-    { id: 56, nomFichier: 'photo.jpg', typeMime: 'image/jpeg', cleStockage: 'k2', tailleOctets: 1 },
-  ] }),
+  depsReellesLectureGed: () => ({
+    listerPieces: async () => [
+      { id: 55, nomFichier: 'PC2.1_Plan_de_masse_projet.pdf', typeMime: 'application/pdf', cleStockage: 'k1', tailleOctets: 1 },
+      { id: 56, nomFichier: 'photo.jpg', typeMime: 'image/jpeg', cleStockage: 'k2', tailleOctets: 1 },
+      { id: 57, nomFichier: 'PC4_Notice_architecturale.pdf', typeMime: 'application/pdf', cleStockage: 'k3', tailleOctets: 1 },
+    ],
+    lireObjet: async () => Buffer.from('%PDF'),
+    // PROJ-3d — texte simulé d'une page de plan de masse (avec une échelle lisible).
+    extraire: async () => ({ ok: true, pages: ['PC2.1 PLAN DE MASSE projet éch. 1:500'] }),
+  }),
 }));
 vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({ lireCleTelechargeable: async () => ({ cle: 'ged/dossier/55.pdf', nomFichier: 'PC2.pdf' }) }));
 vi.mock('../../../../../lib/stockage', () => ({ urlSignee: async (cle: string) => `https://signed.example/${cle}` }));
@@ -37,11 +43,18 @@ const post = (body: unknown) => POST(new Request('http://test.local/api/admin/pe
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe('PROJ-2 — GET', () => {
-  it('ne renvoie que les pièces PDF, plus les emprises et le contexte (jamais la clé de stockage)', async () => {
+  it('PROJ-3d — propose les plans de masse (tri par nom + confirmation page/échelle), JPG écartée, clé jamais exposée', async () => {
     const res = await get('?dossierId=11434');
     expect(res.status).toBe(200);
     const j = await res.json();
-    expect(j.pieces).toEqual([{ id: 55, nomFichier: 'PC2.pdf', typeMime: 'application/pdf' }]); // JPG écartée, cleStockage absente
+    // JPG (56) écartée car non-PDF ; clé de stockage jamais exposée
+    expect(j.pieces.map((p: { id: number }) => p.id)).toEqual([55, 57]); // proposé (PC2 plan de masse) d'abord, autre (notice) ensuite
+    expect(j.pieces.every((p: object) => !('cleStockage' in p))).toBe(true);
+    // ① tri par nom + ② confirmation page-level : PC2.1 plan de masse projet → proposé, page 1, échelle 1:500
+    expect(j.pieces[0]).toMatchObject({ id: 55, propose: true, pagePlan: 1, echelle: '1:500', confirme: true });
+    expect(j.pieces[0].score).toBeGreaterThan(0);
+    // la notice n'est PAS proposée, mais reste ATTEIGNABLE (repli garanti)
+    expect(j.pieces[1]).toMatchObject({ id: 57, propose: false, pagePlan: null, confirme: false });
     expect(j.emprises).toHaveLength(1);
     expect(j.emprises[0].corpsId).toBe(3);                 // PROJ-2b — emprise liée à son bâtiment
     expect(j.ignores).toEqual([{ corpsId: 4, motif: 'déjà bâti' }]); // projections ignorées exposées

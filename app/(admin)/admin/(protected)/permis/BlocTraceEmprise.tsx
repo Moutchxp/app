@@ -7,7 +7,7 @@ import {
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours } from './TraceEmpriseRendu';
 
 /**
  * PROJ-2b — BLOC de tracé d'emprise INTÉGRÉ au détail d'un dossier de Rattachement, BÂTIMENT PAR BÂTIMENT. Le dossier vient de la
@@ -16,7 +16,8 @@ import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace
  * bouton Valider. 🔴 Géométrie du module PUR `calageEmprise` (les handlers ne font que POSER l'état) ; enregistrement recalculé serveur.
  */
 
-interface Piece { id: number; nomFichier: string; typeMime: string | null }
+// PROJ-3d — la pièce porte désormais la PROPOSITION « plan de masse » (score par nom + confirmation page/échelle côté serveur).
+interface Piece { id: number; nomFichier: string; typeMime: string | null; propose?: boolean; pagePlan?: number | null; echelle?: string | null; confirme?: boolean }
 interface Contexte { empreinteAnneaux: [number, number][][] | PointLambert[][]; surfaceTerrainM2: number | null; surfacePlancherM2: number | null; nbEtages: number | null }
 type Mode = 'calage' | 'trace';
 type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convertToViewportPoint(x: number, y: number): number[] }; ratio: number };
@@ -49,7 +50,12 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   // PROJ-3b-fix ② — TROIS états de chargement distincts : une panne ne doit JAMAIS s'afficher comme « 0 bâtiment ».
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
   const [rechargeLocal, setRechargeLocal] = useState(0); // bouton « Recharger » de la carte d'échec (taille de deps constante)
+  // PROJ-3e — l'unité manipulée est LE PLAN : on feuillette une bande ordonnée (ordre de pertinence PROJ-3d), sans changer de fichier ni de page.
+  const [planIndex, setPlanIndex] = useState(0);
+  const [avertissement, setAvertissement] = useState<{ faire: () => void } | null>(null); // action différée quand un tracé/calage est en cours
+  const [pleinListe, setPleinListe] = useState(false); // repli « voir toutes les pièces du dossier » (escape hatch, jamais un cul-de-sac)
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const bande = useMemo(() => construireBandePlans(pieces), [pieces]);
 
   // Chargement (pièces PDF + emprises + ignorées + contexte) au changement de dossier.
   useEffect(() => {
@@ -65,7 +71,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
         //   (panne déguisée en donnée) → état d'échec explicite invitant à recharger.
         if (j.indisponibles?.includes('batiments')) { setEtat('erreur'); setMessage('Bâtiments indisponibles : rechargez.'); return; }
         setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte);
-        setPieceId(j.pieces[0]?.id ?? null);
+        // PROJ-3e — on ouvre DIRECTEMENT sur le 1er plan de la bande (le mieux classé) ; à défaut de plan proposé, la 1re pièce.
+        const b0 = construireBandePlans(j.pieces)[0];
+        setPlanIndex(0);
+        setPieceId(b0?.pieceId ?? j.pieces[0]?.id ?? null);
+        setPage(b0?.page ?? 1);
         setEtat('ok');
       } catch { if (!annule) { setEtat('erreur'); setMessage('Bâtiments indisponibles (erreur de chargement).'); } }
     })();
@@ -126,6 +136,32 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
       setPage(p);
     } catch { setMessage('impossible d’afficher la page (PDF illisible)'); } finally { setOccupe(false); }
   }, [pieceId, page]);
+
+  // PROJ-3e — AUTO-AFFICHAGE du plan courant : au chargement (etat→ok) et à chaque changement de plan (planIndex). On passe par une
+  //   ref stable pour NE PAS déclencher un rendu à chaque frappe dans le champ page du repli (le rendu suit le PLAN, pas la page brute).
+  const afficherPageRef = useRef(afficherPage);
+  useEffect(() => { afficherPageRef.current = afficherPage; }, [afficherPage]);
+  useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [planIndex, etat]);
+
+  // PROJ-3e — CHANGER DE PLAN sans perdre le travail en silence : si un calage/tracé est en cours, on diffère l'action (confirmation
+  //   inline) ; sinon on l'exécute. Un calage/tracé n'a de sens que sur SON plan (points en espace-page) → on l'abandonne à l'échange.
+  const demanderChangement = useCallback((faire: () => void) => {
+    if (travailEnCours(paires.length, sommets.length)) setAvertissement({ faire });
+    else faire();
+  }, [paires.length, sommets.length]);
+
+  const appliquerPlan = useCallback((cible: number) => {
+    if (bande.length === 0) return;
+    const i = bornerIndex(cible, bande.length);
+    setPlanIndex(i); setPieceId(bande[i].pieceId); setPage(bande[i].page);
+    setPaires([]); setSommets([]); setPlanEnAttente(null); setMode('calage'); // le travail était attaché au plan quitté
+  }, [bande]);
+
+  // Repli : afficher une pièce/page QUELCONQUE (staging via le sélecteur + champ page ci-dessous), rendu explicite. Réinitialise le travail.
+  const afficherLibre = useCallback(() => {
+    setPaires([]); setSommets([]); setPlanEnAttente(null); setMode('calage');
+    void afficherPage();
+  }, [afficherPage]);
 
   const cliquerPdf = useCallback((ev: ReactMouseEvent<HTMLDivElement>) => {
     const canvas = canvasRef.current; if (!canvas || !apercu) return;
@@ -218,13 +254,30 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
           {/* Colonne PDF */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', minWidth: 0 }}>
-            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <select value={pieceId ?? ''} onChange={(e) => setPieceId(Number(e.target.value) || null)} style={{ maxWidth: 220, fontSize: 12 }}>
-                {pieces.length === 0 && <option value="">aucune pièce PDF</option>}
-                {pieces.map((p) => <option key={p.id} value={p.id}>{p.nomFichier}</option>)}
-              </select>
-              <label style={styleAide}>page <input type="number" min={1} value={page} onChange={(e) => setPage(Math.max(1, Number(e.target.value) || 1))} style={{ width: 54 }} /></label>
-              <button type="button" style={btn} disabled={occupe || pieceId === null} onClick={() => void afficherPage()}>Afficher</button>
+            {/* PROJ-3e — BANDE DE PLANS : on feuillette les plans proposés (ordre PROJ-3d) sans changer de fichier ni saisir de page. */}
+            <BandePlans bande={bande} index={planIndex}
+              onPrecedent={() => demanderChangement(() => appliquerPlan(indexPrecedent(planIndex, bande.length)))}
+              onSuivant={() => demanderChangement(() => appliquerPlan(indexSuivant(planIndex, bande.length)))} />
+            {avertissement && (
+              <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span>Un calage ou un tracé est en cours sur ce plan — changer de plan l’abandonnera.</span>
+                <button type="button" style={btn} onClick={() => { avertissement.faire(); setAvertissement(null); }}>Changer quand même</button>
+                <button type="button" style={btn} onClick={() => setAvertissement(null)}>Rester</button>
+              </div>
+            )}
+            {/* Repli : atteindre N'IMPORTE QUELLE pièce et N'IMPORTE QUELLE page (le tri PROPOSE, il n'enferme jamais). */}
+            <div>
+              <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', fontSize: 12 }} aria-expanded={pleinListe} onClick={() => setPleinListe((v) => !v)}>
+                {pleinListe ? 'masquer les autres pièces' : 'voir toutes les pièces du dossier'} {pleinListe ? '▲' : '▾'}
+              </button>
+              {pleinListe && (
+                <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.3rem' }}>
+                  <SelecteurPiecePlan pieces={pieces} pieceId={pieceId}
+                    onChoisir={(id) => { setPieceId(id || null); const p = pieces.find((x) => x.id === id); if (p?.pagePlan) setPage(p.pagePlan); }} />
+                  <label style={styleAide}>page <input type="number" min={1} value={page} onChange={(e) => setPage(Math.max(1, Number(e.target.value) || 1))} style={{ width: 54 }} /></label>
+                  <button type="button" style={btn} disabled={occupe || pieceId === null} onClick={() => demanderChangement(afficherLibre)}>Afficher</button>
+                </div>
+              )}
             </div>
             <div style={{ position: 'relative', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden' }} onClick={cliquerPdf}>
               <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: 'auto' }} />

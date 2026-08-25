@@ -31,6 +31,92 @@ export function affichageTrace(etat: EtatChargementTrace, nbBatiments: number): 
   return nbBatiments === 0 ? 'aucun-batiment' : 'pret';
 }
 
+export interface PiecePlan { id: number; nomFichier: string; propose?: boolean; pagePlan?: number | null; echelle?: string | null; confirme?: boolean }
+
+/** PROJ-3d — sépare les pièces en « proposées » (plan de masse) / « autres », en conservant l'ordre reçu (le serveur classe déjà). PUR. */
+export function grouperPieces<T extends { propose?: boolean }>(pieces: T[]): { proposees: T[]; autres: T[] } {
+  return { proposees: pieces.filter((p) => p.propose), autres: pieces.filter((p) => !p.propose) };
+}
+
+/** Libellé d'une option de plan proposé : nom + page/échelle confirmées si présentes. PUR. */
+export function etiquettePiecePlan(p: PiecePlan): string {
+  const bits: string[] = [];
+  if (p.pagePlan) bits.push(`p.${p.pagePlan}`);
+  if (p.echelle) bits.push(p.echelle);
+  return bits.length ? `${p.nomFichier} — ${bits.join(' · ')}` : p.nomFichier;
+}
+
+/**
+ * PROJ-3d — SÉLECTEUR de pièce du tracé : les « Plans de masse proposés » d'abord (déjà triés serveur), puis TOUTES les autres
+ * pièces (repli garanti — jamais masquées ni inaccessibles). Un plan proposé confirmé montre sa page + son échelle dans le libellé.
+ * PUR (renderToStaticMarkup) : le choix ne fait que remonter l'id ; l'auto-remplissage de la page vit dans la Vue.
+ */
+export function SelecteurPiecePlan({ pieces, pieceId, onChoisir }: { pieces: PiecePlan[]; pieceId: number | null; onChoisir: (id: number) => void }) {
+  const { proposees, autres } = grouperPieces(pieces);
+  return (
+    <select value={pieceId ?? ''} onChange={(e) => onChoisir(Number(e.target.value) || 0)} aria-label="Pièce à tracer (plans de masse proposés en tête)" style={{ maxWidth: 320, fontSize: 12 }}>
+      {pieces.length === 0 && <option value="">aucune pièce PDF</option>}
+      {proposees.length > 0 && (
+        <optgroup label="Plans de masse proposés">
+          {proposees.map((p) => <option key={p.id} value={p.id}>{etiquettePiecePlan(p)}</option>)}
+        </optgroup>
+      )}
+      {autres.length > 0 && (
+        <optgroup label="Toutes les autres pièces">
+          {autres.map((p) => <option key={p.id} value={p.id}>{p.nomFichier}</option>)}
+        </optgroup>
+      )}
+    </select>
+  );
+}
+
+// ── PROJ-3e — BANDE DE PLANS : l'unité manipulée est LE PLAN (une page précise d'une pièce), plus « pièce » + « n° de page ». ──
+export interface Plan { pieceId: number; page: number; nomFichier: string; echelle: string | null; confirme: boolean }
+
+/**
+ * Construit la bande à feuilleter à partir des pièces déjà CLASSÉES par PROJ-3d (ordre de pertinence conservé, PAS recalculé). Un
+ * plan = une page : faute de savoir isoler plusieurs pages de plan dans une pièce, chaque pièce PROPOSÉE entre UNE fois, à sa page
+ * proposée (`pagePlan`, sinon page 1). Les pièces non proposées ne sont pas dans la bande (elles restent dans le repli). PUR.
+ */
+export function construireBandePlans(pieces: PiecePlan[]): Plan[] {
+  return pieces.filter((p) => p.propose).map((p) => ({ pieceId: p.id, page: p.pagePlan ?? 1, nomFichier: p.nomFichier, echelle: p.echelle ?? null, confirme: !!p.confirme }));
+}
+
+/** Borne un index dans [0 ; n-1] (0 si liste vide). PUR. */
+export function bornerIndex(i: number, n: number): number { return n <= 0 ? 0 : Math.min(Math.max(0, i), n - 1); }
+export function indexSuivant(i: number, n: number): number { return bornerIndex(i + 1, n); }
+export function indexPrecedent(i: number, n: number): number { return bornerIndex(i - 1, n); }
+
+/** Libellé lisible d'un plan (nom + échelle si elle a été lue de façon fiable). PUR. */
+export function libellePlan(p: Plan): string { return p.echelle ? `${p.nomFichier} · échelle ${p.echelle}` : p.nomFichier; }
+
+/**
+ * PROJ-3e — changer de plan doit-il DEMANDER CONFIRMATION ? OUI dès qu'un calage ou un tracé est commencé (le travail est attaché
+ * à UN plan ; on ne le perd jamais en silence). Sinon la navigation est libre. PUR (testable sans DOM).
+ */
+export function travailEnCours(nbPaires: number, nbSommets: number): boolean { return nbPaires > 0 || nbSommets > 0; }
+
+/**
+ * PROJ-3e — barre de navigation « ‹ précédent / suivant › » d'une bande de plans, avec l'indicateur « plan i sur n » et le libellé
+ * lisible du plan courant. Bande vide → renvoie vers le repli (jamais un cul-de-sac). PUR (renderToStaticMarkup).
+ */
+export function BandePlans({ bande, index, onPrecedent, onSuivant }: { bande: Plan[]; index: number; onPrecedent: () => void; onSuivant: () => void }) {
+  if (bande.length === 0) {
+    return <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>Aucun plan de masse proposé — ouvrez « voir toutes les pièces du dossier » ci-dessous pour en choisir un.</p>;
+  }
+  const i = bornerIndex(index, bande.length);
+  const p = bande[i];
+  const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.25rem .6rem', fontSize: 12 };
+  return (
+    <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+      <button type="button" style={{ ...btn, opacity: i <= 0 ? 0.4 : 1 }} disabled={i <= 0} onClick={onPrecedent} aria-label="Plan précédent">‹ précédent</button>
+      <span style={{ fontSize: 12, fontWeight: 700 }}>plan {i + 1} sur {bande.length}</span>
+      <button type="button" style={{ ...btn, opacity: i >= bande.length - 1 ? 0.4 : 1 }} disabled={i >= bande.length - 1} onClick={onSuivant} aria-label="Plan suivant">suivant ›</button>
+      <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{libellePlan(p)}{p.confirme ? '' : ' (page à confirmer)'}</span>
+    </div>
+  );
+}
+
 export type StatutBatiment = 'tracee' | 'ignoree' | 'attente';
 /** PROJ-2b — statut de projection d'UN bâtiment : emprise tracée (prioritaire), sinon ignorée, sinon en attente. PUR. */
 export function statutBatiment(corpsId: number, emprises: EmpriseReconstruite[], ignores: ProjectionIgnoree[]): StatutBatiment {
