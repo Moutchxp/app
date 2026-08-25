@@ -7,7 +7,8 @@ import {
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou } from './TraceEmpriseRendu';
+import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 
 /**
  * PROJ-2b — BLOC de tracé d'emprise INTÉGRÉ au détail d'un dossier de Rattachement, BÂTIMENT PAR BÂTIMENT. Le dossier vient de la
@@ -59,6 +60,13 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   const [nbPagesPiece, setNbPagesPiece] = useState(1); // nb de pages de la pièce courante (borne la nav pièce) — connu au rendu pdfjs, à la demande
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bande = useMemo(() => construireBandePlans(pieces), [pieces]);
+  // PROJ-3g — FAMILLE de la page courante (best-of : entrée de bande ; pièce libre : nom de la pièce ouverte). Le VERROU métier :
+  //   on ne trace QUE sur un plan de masse. `verrou` = pourquoi c'est bloqué (jamais un bouton grisé muet). Aussi revérifié serveur.
+  const familleCourante: FamillePlan | null = nav === 'bestof'
+    ? (bande.length > 0 ? bande[bornerIndex(planIndex, bande.length)].famille : null)
+    : familleDeNom(pieces.find((p) => p.id === pieceId)?.nomFichier ?? '');
+  const tracable = estTracable(familleCourante);
+  const verrou = messageVerrou(familleCourante);
 
   // Chargement (pièces PDF + emprises + ignorées + contexte) au changement de dossier.
   useEffect(() => {
@@ -299,7 +307,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
                 </div>
               )}
             </div>
-            <div style={{ position: 'relative', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden' }} onClick={cliquerPdf}>
+            <div style={{ position: 'relative', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden' }} onClick={tracable ? cliquerPdf : undefined}>
               <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: 'auto' }} />
               <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
                 {cssSommets.length >= 2 && <polyline points={cssSommets.map((q) => `${q.x},${q.y}`).join(' ')} fill="rgba(163,4,2,.12)" stroke="var(--color-svv-red)" strokeWidth={2} />}
@@ -317,16 +325,18 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
 
           {/* Colonne contrôles + mesures + schéma */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+            {/* PROJ-3g — VERROU métier : on ne trace QUE sur un plan de masse ; sur une coupe/étage, on DIT pourquoi (jamais un bouton grisé muet). */}
+            {verrou && <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{verrou}</div>}
             <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
-              <button type="button" style={{ ...btn, fontWeight: mode === 'calage' ? 700 : 400 }} onClick={() => setMode('calage')}>Calage ({paires.length}/2)</button>
-              <button type="button" style={{ ...btn, fontWeight: mode === 'trace' ? 700 : 400 }} onClick={() => setMode('trace')}>Tracé ({sommets.length})</button>
+              <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'calage' ? 700 : 400 }} onClick={() => setMode('calage')}>Calage ({paires.length}/2)</button>
+              <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'trace' ? 700 : 400 }} onClick={() => setMode('trace')}>Tracé ({sommets.length})</button>
               <button type="button" style={btn} onClick={() => mode === 'trace' ? setSommets((s) => s.slice(0, -1)) : (planEnAttente ? setPlanEnAttente(null) : setPaires((p) => p.slice(0, -1)))}>Annuler dernier</button>
               <button type="button" style={btn} onClick={() => { setSommets([]); setPaires([]); setPlanEnAttente(null); }}>Reprendre</button>
               <label style={styleAide}>échelle 1: <input inputMode="numeric" value={ratioDeclareSaisi} onChange={(e) => setRatioDeclareSaisi(e.target.value)} placeholder="200" style={{ width: 60 }} /></label>
             </div>
             <BandeauCalage calage={vc} nbPaires={paires.length} />
             <BandeauVraisemblance aireM2={aire} v={vv} />
-            <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe || !sim || sommets.length < 3} onClick={() => void enregistrer()}>
+            <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe || !tracable || !sim || sommets.length < 3} onClick={() => void enregistrer()}>
               Enregistrer l’emprise de {batSel.repere ?? `bâtiment ${batSel.corpsId}`}
             </button>
 

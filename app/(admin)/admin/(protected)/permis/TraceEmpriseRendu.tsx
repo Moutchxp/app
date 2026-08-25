@@ -4,6 +4,19 @@ import {
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
+import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
+
+/** PROJ-3g — libellé lisible d'une famille (le MOT porte l'info, jamais la couleur seule). PUR. */
+export function libelleFamille(f: FamillePlan): string {
+  return f === 'masse' ? 'plan de masse' : f === 'etage' ? 'plan d’étage' : 'coupe / élévation';
+}
+
+/** PROJ-3g — message du VERROU métier : pourquoi on ne peut pas tracer ici (jamais un bouton grisé muet). null si traçable. PUR. */
+export function messageVerrou(f: FamillePlan | null): string | null {
+  if (estTracable(f)) return null;
+  const quoi = f === 'coupe' ? 'une coupe / élévation' : f === 'etage' ? 'un plan d’étage' : 'une vue qui n’est pas un plan de masse';
+  return `Cette vue est ${quoi} : on ne peut y tracer une emprise, qui se trace sur une vue du dessus (le plan de masse).`;
+}
 
 /**
  * PROJ-2 — RENDU PUR (aucun état, aucun effet → testable en Node via renderToStaticMarkup) de l'écran de tracé d'emprise.
@@ -33,7 +46,7 @@ export function affichageTrace(etat: EtatChargementTrace, nbBatiments: number): 
 
 // PROJ-3f — une pièce candidate porte ses PLANCHES (pages hors cartouche) calculées côté serveur, chacune avec une échelle indicative.
 export interface Planche { page: number; echelle: string | null }
-export interface PiecePlan { id: number; nomFichier: string; propose?: boolean; planches?: Planche[]; confirme?: boolean }
+export interface PiecePlan { id: number; nomFichier: string; propose?: boolean; famille?: FamillePlan | null; planches?: Planche[]; confirme?: boolean }
 
 /** PROJ-3d — sépare les pièces en « proposées » (plan de masse) / « autres », en conservant l'ordre reçu (le serveur classe déjà). PUR. */
 export function grouperPieces<T extends { propose?: boolean }>(pieces: T[]): { proposees: T[]; autres: T[] } {
@@ -71,21 +84,21 @@ export function SelecteurPiecePlan({ pieces, pieceId, onChoisir }: { pieces: Pie
 }
 
 // ── PROJ-3e — BANDE DE PLANS : l'unité manipulée est LE PLAN (une page précise d'une pièce), plus « pièce » + « n° de page ». ──
-export interface Plan { pieceId: number; page: number; nomFichier: string; echelle: string | null; confirme: boolean }
+export interface Plan { pieceId: number; page: number; nomFichier: string; echelle: string | null; confirme: boolean; famille: FamillePlan }
 
 /**
- * Construit la bande à feuilleter à partir des pièces déjà CLASSÉES par PROJ-3d (ordre de pertinence conservé, PAS recalculé).
- * PROJ-3f : un plan = une PAGE. Une pièce proposée est ÉCLATÉE en une entrée par PLANCHE (ses pages hors cartouche, calculées serveur).
- * Faute de planches (pièce illisible / non confirmée), on REPLIE sur une entrée à la page 1 (jamais de bande vide pour un candidat).
- * Les pièces non proposées ne sont pas dans la bande (elles restent dans le repli). PUR.
+ * Construit la bande à feuilleter à partir des pièces déjà CLASSÉES (ordre masse → étage → coupe, PAS recalculé). PROJ-3f : un
+ * plan = une PAGE ; une pièce proposée est ÉCLATÉE en une entrée par PLANCHE (pages hors cartouche, calculées serveur), sinon REPLI
+ * page 1. PROJ-3g : chaque entrée porte sa FAMILLE (le mot est affiché). Les pièces non proposées restent au repli. PUR.
  */
 export function construireBandePlans(pieces: PiecePlan[]): Plan[] {
   const out: Plan[] = [];
   for (const p of pieces) {
     if (!p.propose) continue;
+    const famille: FamillePlan = p.famille ?? 'masse';
     const confirme = !!(p.planches && p.planches.length > 0);
     const planches = confirme ? p.planches! : [{ page: 1, echelle: null }];
-    for (const pl of planches) out.push({ pieceId: p.id, page: pl.page, nomFichier: p.nomFichier, echelle: pl.echelle, confirme });
+    for (const pl of planches) out.push({ pieceId: p.id, page: pl.page, nomFichier: p.nomFichier, echelle: pl.echelle, confirme, famille });
   }
   return out;
 }
@@ -123,6 +136,8 @@ export function BandePlans({ bande, index, onPrecedent, onSuivant }: { bande: Pl
         <button type="button" style={{ ...btn, opacity: i <= 0 ? 0.4 : 1 }} disabled={i <= 0} onClick={onPrecedent} aria-label="Plan précédent">‹ précédent</button>
         <span style={{ fontSize: 12, fontWeight: 700 }}>plan {i + 1} sur {bande.length}</span>
         <button type="button" style={{ ...btn, opacity: i >= bande.length - 1 ? 0.4 : 1 }} disabled={i >= bande.length - 1} onClick={onSuivant} aria-label="Plan suivant">suivant ›</button>
+        {/* PROJ-3g — la FAMILLE est écrite (le mot porte l'info, jamais la couleur seule). */}
+        <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.05rem .35rem' }}>{libelleFamille(p.famille)}</span>
         <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{libellePlan(p)}{p.confirme ? '' : ' (page à confirmer)'}</span>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, type PiecePlan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, type PiecePlan } from './TraceEmpriseRendu';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
@@ -124,8 +124,8 @@ describe('PROJ-3e — bande de plans : feuilleter (fonctions pures)', () => {
     expect(bornerIndex(0, 0)).toBe(0);                      // liste vide
   });
   it('libellePlan : nom + n° de page + échelle si présente', () => {
-    expect(libellePlan({ pieceId: 1, page: 4, nomFichier: 'PC2.pdf', echelle: '1:500', confirme: true })).toBe('PC2.pdf — page 4 · échelle 1:500');
-    expect(libellePlan({ pieceId: 1, page: 2, nomFichier: 'PC2.pdf', echelle: null, confirme: true })).toBe('PC2.pdf — page 2');
+    expect(libellePlan({ pieceId: 1, page: 4, nomFichier: 'PC2.pdf', echelle: '1:500', confirme: true, famille: 'masse' })).toBe('PC2.pdf — page 4 · échelle 1:500');
+    expect(libellePlan({ pieceId: 1, page: 2, nomFichier: 'PC2.pdf', echelle: null, confirme: true, famille: 'masse' })).toBe('PC2.pdf — page 2');
   });
   it('travailEnCours : un calage OU un tracé commencé ⇒ confirmation requise', () => {
     expect(travailEnCours(0, 0)).toBe(false);
@@ -163,6 +163,33 @@ describe('PROJ-3f ① — navigation PIÈCE LIBRE (feuilleter les pages d’une 
     // dernière page → « suivante » désactivée
     const hN = renderToStaticMarkup(h(NavPieceLibre, { nomFichier: 'X.pdf', page: 18, nbPages: 18, onPagePrecedente: () => {}, onPageSuivante: () => {}, onRetourBestOf: () => {} }));
     expect(hN).toMatch(/disabled[^>]*aria-label="Page suivante"|aria-label="Page suivante"[^>]*disabled/);
+  });
+});
+
+describe('PROJ-3g — trois familles dans la bande + verrou de traçage', () => {
+  it('construireBandePlans porte la FAMILLE de chaque entrée (masse / étage / coupe)', () => {
+    const b = construireBandePlans([
+      { id: 1, nomFichier: 'PC2.pdf', propose: true, famille: 'masse', planches: [{ page: 1, echelle: null }], confirme: true },
+      { id: 2, nomFichier: 'ANNEXE_6_Plan_du_R_1.pdf', propose: true, famille: 'etage', planches: [{ page: 1, echelle: null }], confirme: true },
+      { id: 3, nomFichier: 'PC3.1_Coupe_AA.pdf', propose: true, famille: 'coupe', planches: [{ page: 1, echelle: null }], confirme: true },
+    ]);
+    expect(b.map((p) => p.famille)).toEqual(['masse', 'etage', 'coupe']);
+  });
+  it('BandePlans affiche le MOT de la famille (pas la couleur seule)', () => {
+    const b = construireBandePlans([{ id: 3, nomFichier: 'PC3.1_Coupe_AA.pdf', propose: true, famille: 'coupe', planches: [{ page: 1, echelle: null }], confirme: true }]);
+    const html = renderToStaticMarkup(h(BandePlans, { bande: b, index: 0, onPrecedent: () => {}, onSuivant: () => {} }));
+    expect(html.toLowerCase()).toContain('coupe / élévation');
+  });
+  it('libelleFamille : le mot de chaque famille', () => {
+    expect(libelleFamille('masse')).toBe('plan de masse');
+    expect(libelleFamille('etage')).toBe('plan d’étage');
+    expect(libelleFamille('coupe')).toBe('coupe / élévation');
+  });
+  it('messageVerrou : null sur masse (traçable), message EXPLICITE sinon', () => {
+    expect(messageVerrou('masse')).toBeNull();
+    expect(messageVerrou('coupe')).toMatch(/coupe.*on ne peut y tracer|vue du dessus/);
+    expect(messageVerrou('etage')).toMatch(/plan d’étage|vue du dessus/);
+    expect(messageVerrou(null)).toMatch(/vue du dessus/);
   });
 });
 

@@ -38,6 +38,47 @@ export function scoreNomPlanMasse(nomFichier: string): number {
 
 export interface PieceScorable { id: number; nomFichier: string; typeMime: string | null }
 
+// ── PROJ-3g — TROIS FAMILLES de plans, décidées au NOM DE PIÈCE (mesuré : le titre PAR PAGE est trop bruité — sur une pièce
+//   multi-pages de dessin, « coupe »/« façade »/« étage » apparaissent sur presque toutes les planches (tableaux de niveaux, cotes).
+//   Le nom, lui, sépare proprement quand les plans sont des pièces nommées ; à défaut, seuls les codes réglementaires R.431-9 jouent).
+export type FamillePlan = 'masse' | 'etage' | 'coupe';
+const ETAGE = /plan\s+(du\s+|de\s+)?(niveau|rez|rdc|sous\s*sol|etage|r\s*\+?\s*\d)/; // « plan du R+n / RDC / niveau / étage »
+const COUPE = /\bcoupes?\b|\bfacades?\b|\belevations?\b/;                            // coupe(s) OU façade(s) (vues en ÉLÉVATION), pluriel toléré
+const PC3 = /\bpc\s*3(\.\d+)*\b/;                                                    // R.431-9 : PC3 = plan en coupe
+
+/**
+ * Famille d'une pièce d'après son NOM, ou null (hors bande). Priorité : masse > étage > coupe (le plan de masse — seul TRAÇABLE —
+ * l'emporte). PC5 « toitures » (vue de dessus non demandée) ne matche aucune famille → null. PUR.
+ */
+export function familleDeNom(nomFichier: string): FamillePlan | null {
+  const n = norm(nomFichier);
+  if (MASSE.test(n) || PC2.test(n)) return 'masse';
+  if (ETAGE.test(n)) return 'etage';
+  if (COUPE.test(n) || PC3.test(n)) return 'coupe';
+  return null;
+}
+
+/**
+ * 🔴 VERROU MÉTIER (pur, testé, ET revérifié côté serveur) : une emprise ne se trace QUE sur un plan de masse (vue du dessus).
+ * Une coupe/façade est une ÉLÉVATION, un plan d'étage une autre vue : y caler une emprise n'a aucun sens géométrique.
+ */
+export function estTracable(f: FamillePlan | null): boolean { return f === 'masse'; }
+
+const RANG_FAMILLE: Record<FamillePlan, number> = { masse: 0, etage: 1, coupe: 2 };
+
+/**
+ * Classe les pièces en familles pour la BANDE : proposées = pièces d'une famille, ordonnées masse (par score PROJ-3d) → étage →
+ * coupe ; autres = le reste (repli). REPLI GARANTI : aucune pièce perdue. PUR.
+ */
+export function classerPiecesParFamille<T extends PieceScorable>(pieces: T[]): { proposees: (T & { famille: FamillePlan })[]; autres: T[] } {
+  const avec = pieces.map((p, i) => ({ p, i, f: familleDeNom(p.nomFichier), s: scoreNomPlanMasse(p.nomFichier) }));
+  const proposees = avec.filter((x): x is typeof x & { f: FamillePlan } => x.f !== null)
+    .sort((a, b) => RANG_FAMILLE[a.f] - RANG_FAMILLE[b.f] || b.s - a.s || a.i - b.i)
+    .map((x) => ({ ...x.p, famille: x.f }));
+  const autres = avec.filter((x) => x.f === null).map((x) => x.p);
+  return { proposees, autres };
+}
+
 /**
  * Sépare les pièces en « proposées » (score > 0, triées par score DÉCROISSANT puis ordre d'origine) et « autres » (ordre d'origine
  * conservé). REPLI GARANTI : aucune pièce n'est retirée — « autres » contient tout le reste, toujours atteignable. PUR.

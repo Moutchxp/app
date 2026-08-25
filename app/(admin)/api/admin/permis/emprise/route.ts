@@ -4,7 +4,7 @@ import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmpri
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
-import { classerPiecesPlanMasse, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte } from '../../../../../lib/permis/planMasse';
+import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte, familleDeNom, estTracable } from '../../../../../lib/permis/planMasse';
 
 // PROJ-3d — confirmation page-level PARESSEUSE : plafond DUR de pièces ouvertes côté serveur (mesuré ~98 ms/pièce → ~0,7 s pour 7).
 //   Ne JAMAIS ouvrir les 81 pièces (~8 s). Les proposées au-delà du plafond restent proposées PAR LEUR NOM, sans confirmation.
@@ -54,8 +54,8 @@ export async function GET(request: Request): Promise<Response> {
     ]);
     // Seules les pièces PDF sont traçables (filtre inchangé) ; la clé de stockage ne sort JAMAIS.
     const piecesPdf = piecesBrutes.filter((p) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf'));
-    // PROJ-3d ① — TRI PAR NOM (instantané, 0 I/O) : plans de masse proposés d'abord (score R.431-9), tout le reste conservé (repli).
-    const { proposees, autres } = classerPiecesPlanMasse(piecesPdf);
+    // PROJ-3d/3g ① — TRI PAR NOM (instantané, 0 I/O) : familles masse → étage → coupe (ordre), le reste conservé (repli).
+    const { proposees, autres } = classerPiecesParFamille(piecesPdf);
     // PROJ-3d/3f — CONFIRMATION PARESSEUSE, uniquement sur la shortlist plafonnée : ouvre chaque candidat et l'ÉCLATE EN PLANCHES
     //   (ses pages hors cartouche, cf. pagesPlanches) + une échelle indicative par page. Texte SEUL (jamais getOperatorList, trop cher).
     //   Dégradation propre : une pièce illisible reste proposée par son NOM, sans planche (confirme=false → l'UI repliera sur la page 1).
@@ -68,11 +68,11 @@ export async function GET(request: Request): Promise<Response> {
         confirmations.set(p.id, { planches });
       } catch (e) { indisponibles.push(`texte:${p.id}`); console.error(`[permis/emprise] confirmation pièce ${p.id} indisponible`, { message: e instanceof Error ? e.message : String(e) }); }
     }));
-    const enrichir = (p: { id: number; nomFichier: string; typeMime: string | null }, propose: boolean) => {
+    const enrichir = (p: { id: number; nomFichier: string; typeMime: string | null }, propose: boolean, famille: 'masse' | 'etage' | 'coupe' | null) => {
       const planches = confirmations.get(p.id)?.planches ?? [];
-      return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0 };
+      return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, famille, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0 };
     };
-    const pieces = [...proposees.map((p) => enrichir(p, true)), ...autres.map((p) => enrichir(p, false))];
+    const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
     return Response.json({ pieces, emprises, ignores, batiments, contexte, indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
@@ -126,6 +126,11 @@ export async function POST(request: Request): Promise<Response> {
       if (!Number.isInteger(body.corpsId)) return Response.json({ erreur: 'bâtiment requis' }, { status: 400 }); // PROJ-2b : une emprise par bâtiment
       if (libelle === '') return Response.json({ erreur: 'libellé du bâtiment requis' }, { status: 400 });
       if (anneauPlan.length < 3) return Response.json({ erreur: 'un contour exige au moins 3 sommets' }, { status: 400 });
+      // 🔴 PROJ-3g — VERROU MÉTIER revérifié SERVEUR (la garde d'UI ne suffit pas) : une emprise ne se trace QUE sur un PLAN DE MASSE
+      //   (vue du dessus), jamais sur une coupe/élévation ou un plan d'étage. Contrôle par le NOM de la pièce (familleDeNom) — 0 ouverture PDF.
+      if (!Number.isInteger(body.pieceId)) return Response.json({ erreur: 'un plan de masse (pièce) est requis pour tracer une emprise' }, { status: 400 });
+      const pieceTrace = await lireCleTelechargeable(body.pieceId as number, 'dossier');
+      if (!pieceTrace || !estTracable(familleDeNom(pieceTrace.nomFichier))) return Response.json({ erreur: 'une emprise ne se trace que sur un plan de masse (vue du dessus), jamais sur une coupe/élévation ou un plan d’étage' }, { status: 400 });
       // 🔴 GÉOMÉTRIE AUTORITATIVE SERVEUR : la similitude est recalculée ici sur les paires de calage, jamais reçue du client.
       const sim = calculerSimilitude(paires);
       if (sim === null) return Response.json({ erreur: 'calage insuffisant (2 points distincts requis)' }, { status: 400 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scoreNomPlanMasse, classerPiecesPlanMasse, texteEstPlanMasse, pagePlanMasse, lireEchelleTexte, estPageCartouche, pagesPlanches, type PieceScorable } from './planMasse';
+import { scoreNomPlanMasse, classerPiecesPlanMasse, texteEstPlanMasse, pagePlanMasse, lireEchelleTexte, estPageCartouche, pagesPlanches, familleDeNom, estTracable, classerPiecesParFamille, type PieceScorable } from './planMasse';
 
 // Noms RÉELS mesurés sur le dossier 11430 (cf. recon PROJ-3d).
 const PLANS = [
@@ -59,6 +59,42 @@ describe('PROJ-3d — confirmation par texte + numéro de page', () => {
   it('pagePlanMasse : première page plan de masse (1-based), sinon null', () => {
     expect(pagePlanMasse(['garde', 'PLAN DE MASSE', 'coupe'])).toBe(2);
     expect(pagePlanMasse(['texte', 'texte'])).toBeNull();
+  });
+});
+
+describe('PROJ-3g — familles décidées au NOM (noms réels mesurés sur 11430 et 11434)', () => {
+  it('MASSE (inchangé, prioritaire)', () => {
+    for (const n of ['PC2.1_Plan_de_masse_projet.pdf', 'ANNEXE_12_Plan_masse_paysage.pdf', 'PC2_2D_PDM.pdf'])
+      expect(familleDeNom(n), n).toBe('masse');
+  });
+  it('ÉTAGE : « plan du R+n / RDC / niveau »', () => {
+    for (const n of ['ANNEXE_5_Plan_du_RDC.pdf', 'ANNEXE_6_Plan_du_R_1.pdf', 'PC40.4.7_Plan_R_5___SSI.pdf', 'PC39.9_Plan_du_R_5.pdf'])
+      expect(familleDeNom(n), n).toBe('etage');
+  });
+  it('COUPE / façade (élévations) : « coupe », « façade », code PC3', () => {
+    for (const n of ['PC3.1_Coupe_AA.pdf', 'PC5.2_Facade_Est.pdf', 'PC3_2D_PDM.pdf', 'PYTHON_EMS_PC40.5_Coupes.pdf'])
+      expect(familleDeNom(n), n).toBe('coupe');
+  });
+  it('CONTRE-EXEMPLES : notice / cerfa / avis / situation / toitures → hors bande (null)', () => {
+    for (const n of ['PC4_Notice_architecturale.pdf', 'CERFA_13409_15.pdf', 'AVIS ABF.pdf', 'PC1_Plan_de_situation.pdf', 'PC5.1_Plan_de_toitures.pdf', 'PC33_1_2D_PDM.pdf'])
+      expect(familleDeNom(n), n).toBeNull();
+  });
+  it('VERROU : seul « masse » est traçable', () => {
+    expect(estTracable('masse')).toBe(true);
+    expect(estTracable('etage')).toBe(false);
+    expect(estTracable('coupe')).toBe(false);
+    expect(estTracable(null)).toBe(false);
+  });
+  it('classerPiecesParFamille : ordre masse → étage → coupe ; repli garanti', () => {
+    const pieces: PieceScorable[] = [
+      { id: 1, nomFichier: 'PC3.1_Coupe_AA.pdf', typeMime: 'application/pdf' },
+      { id: 2, nomFichier: 'ANNEXE_6_Plan_du_R_1.pdf', typeMime: 'application/pdf' },
+      { id: 3, nomFichier: 'PC2.1_Plan_de_masse_projet.pdf', typeMime: 'application/pdf' },
+      { id: 4, nomFichier: 'PC4_Notice.pdf', typeMime: 'application/pdf' },
+    ];
+    const { proposees, autres } = classerPiecesParFamille(pieces);
+    expect(proposees.map((p) => `${p.id}:${p.famille}`)).toEqual(['3:masse', '2:etage', '1:coupe']);
+    expect(autres.map((p) => p.id)).toEqual([4]); // la notice reste atteignable au repli
   });
 });
 

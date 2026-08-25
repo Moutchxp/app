@@ -33,11 +33,12 @@ vi.mock('../../../../../lib/permis/lectureGed', () => ({
     ] }),
   }),
 }));
-vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({ lireCleTelechargeable: async () => ({ cle: 'ged/dossier/55.pdf', nomFichier: 'PC2.pdf' }) }));
+vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({ lireCleTelechargeable: vi.fn(async () => ({ cle: 'ged/dossier/55.pdf', nomFichier: 'PC2.pdf' })) }));
 vi.mock('../../../../../lib/stockage', () => ({ urlSignee: async (cle: string) => `https://signed.example/${cle}` }));
 
 import { GET, POST } from './route';
 import { enregistrerEmprise, supprimerEmprise, ignorerProjection, retablirProjection, listerBatiments } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
 
 const get = (q: string) => GET(new Request(`http://test.local/api/admin/permis/emprise${q}`));
 const post = (body: unknown) => POST(new Request('http://test.local/api/admin/permis/emprise', {
@@ -54,12 +55,12 @@ describe('PROJ-2 — GET', () => {
     // JPG (56) écartée car non-PDF ; clé de stockage jamais exposée
     expect(j.pieces.map((p: { id: number }) => p.id)).toEqual([55, 57]); // proposé (PC2 plan de masse) d'abord, autre (notice) ensuite
     expect(j.pieces.every((p: object) => !('cleStockage' in p))).toBe(true);
-    // ① tri par nom + ② confirmation page-level : PC2 → proposé, ÉCLATÉ en planches (cartouche p1 EXCLU, p2-p3 gardées)
-    expect(j.pieces[0]).toMatchObject({ id: 55, propose: true, confirme: true });
+    // ① tri par nom + ② confirmation page-level : PC2 → proposé famille « masse », ÉCLATÉ en planches (cartouche p1 EXCLU, p2-p3 gardées)
+    expect(j.pieces[0]).toMatchObject({ id: 55, propose: true, famille: 'masse', confirme: true });
     expect(j.pieces[0].planches).toEqual([{ page: 2, echelle: '1:500' }, { page: 3, echelle: null }]);
     expect(j.pieces[0].score).toBeGreaterThan(0);
-    // la notice n'est PAS proposée, mais reste ATTEIGNABLE (repli garanti)
-    expect(j.pieces[1]).toMatchObject({ id: 57, propose: false, confirme: false });
+    // la notice n'est d'AUCUNE famille (null), non proposée, mais reste ATTEIGNABLE (repli garanti)
+    expect(j.pieces[1]).toMatchObject({ id: 57, propose: false, famille: null, confirme: false });
     expect(j.pieces[1].planches).toEqual([]);
     expect(j.emprises).toHaveLength(1);
     expect(j.emprises[0].corpsId).toBe(3);                 // PROJ-2b — emprise liée à son bâtiment
@@ -104,6 +105,16 @@ describe('PROJ-2 — POST enregistrer : géométrie recalculée SERVEUR (plan �
     expect(arg.dossierId).toBe(11434);              // chaîne bigint acceptée et coercée
     expect(arg.corpsId).toBe(3);                    // PROJ-2b — l'emprise est liée au bâtiment
     expect(arg.anneau[1]).toEqual({ x: 10, y: 0 }); // 5 pt × 2 = 10 m
+  });
+
+  it('PROJ-3g — VERROU serveur : enregistrer une emprise depuis une COUPE est refusé (jamais sur une élévation)', async () => {
+    vi.mocked(lireCleTelechargeable).mockResolvedValueOnce({ cle: 'ged/dossier/x.pdf', nomFichier: 'PC3.1_Coupe_AA.pdf' } as Awaited<ReturnType<typeof lireCleTelechargeable>>);
+    const res = await post({ action: 'enregistrer', dossierId: 11434, corpsId: 3, libelle: '2D1', pieceId: 99, page: 2,
+      paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }],
+      anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] });
+    expect(res.status).toBe(400);
+    expect((await res.json()).erreur).toMatch(/plan de masse/);
+    expect(enregistrerEmprise).not.toHaveBeenCalled();
   });
 
   it('contour < 3 sommets → 400, aucun enregistrement', async () => {
