@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2 } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace } from './TraceEmpriseRendu';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
@@ -64,5 +64,22 @@ describe('PROJ-2 — rendu pur', () => {
     expect(html).toContain('<svg');
     expect(html).toContain('data-emprise="1"'); // l'emprise reconstituée est tracée
     expect((html.match(/<path/g) ?? []).length).toBeGreaterThanOrEqual(2); // parcelle + emprise
+  });
+});
+
+describe('PROJ-3b-fix — affichageTrace : « aucun bâtiment » n’est PAS un échec de chargement (pur)', () => {
+  it('chargement en cours → jamais « 0 bâtiment »', () => {
+    expect(affichageTrace('chargement', 0)).toBe('chargement');
+    expect(affichageTrace('chargement', 3)).toBe('chargement');
+  });
+  it('échec → « indisponible », quel que soit le compte (jamais « aucun-batiment »)', () => {
+    expect(affichageTrace('erreur', 0)).toBe('indisponible');
+    expect(affichageTrace('erreur', 2)).toBe('indisponible');
+  });
+  it('succès + liste vide → « aucun-batiment » (le SEUL cas légitime)', () => {
+    expect(affichageTrace('ok', 0)).toBe('aucun-batiment');
+  });
+  it('succès + liste non vide → « pret »', () => {
+    expect(affichageTrace('ok', 2)).toBe('pret');
   });
 });

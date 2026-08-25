@@ -10,7 +10,7 @@ vi.mock('../../../../../lib/admin/garde', () => ({ exigerAdministrateur: async (
 vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
   listerEmprises: async () => [{ id: 1, dossierId: 11434, corpsId: 3, libelle: '2D1', anneau: [], surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0, creeLe: null }],
   listerIgnorees: async () => [{ corpsId: 4, motif: 'déjà bâti' }],
-  listerBatiments: async () => [{ corpsId: 3, repere: '2D1' }, { corpsId: 4, repere: '2D2' }],
+  listerBatiments: vi.fn(async () => [{ corpsId: 3, repere: '2D1' }, { corpsId: 4, repere: '2D2' }]),
   enregistrerEmprise: vi.fn(async () => ({ ok: true, id: 42 })),
   ignorerProjection: vi.fn(async () => ({ ok: true })),
   retablirProjection: vi.fn(async () => ({ ok: true })),
@@ -27,7 +27,7 @@ vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({ lireCleTelechargeable
 vi.mock('../../../../../lib/stockage', () => ({ urlSignee: async (cle: string) => `https://signed.example/${cle}` }));
 
 import { GET, POST } from './route';
-import { enregistrerEmprise, supprimerEmprise, ignorerProjection, retablirProjection } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { enregistrerEmprise, supprimerEmprise, ignorerProjection, retablirProjection, listerBatiments } from '../../../../../lib/permis/empriseReconstruiteRepo';
 
 const get = (q: string) => GET(new Request(`http://test.local/api/admin/permis/emprise${q}`));
 const post = (body: unknown) => POST(new Request('http://test.local/api/admin/permis/emprise', {
@@ -51,6 +51,16 @@ describe('PROJ-2 — GET', () => {
   it('dossierId absent/invalide → 400', async () => {
     expect((await get('')).status).toBe(400);
     expect((await get('?dossierId=abc')).status).toBe(400);
+  });
+
+  it('PROJ-3b-fix — une source défaillante ne fait PAS tomber la réponse : batiments [] MAIS flag « batiments » (indisponible ≠ vide)', async () => {
+    vi.mocked(listerBatiments).mockRejectedValueOnce(new Error('column "nb_etages" does not exist'));
+    const res = await get('?dossierId=11434');
+    expect(res.status).toBe(200);          // plus de 503
+    const j = await res.json();
+    expect(j.batiments).toEqual([]);       // repli sûr
+    expect(j.indisponibles).toContain('batiments'); // distinguable d'une vraie liste vide
+    expect(j.emprises).toHaveLength(1);    // les autres sources tiennent
   });
 });
 

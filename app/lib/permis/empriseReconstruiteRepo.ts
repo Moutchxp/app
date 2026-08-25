@@ -238,13 +238,23 @@ export async function listerIgnorees(dossierId: number): Promise<ProjectionIgnor
   }
 }
 
+/**
+ * `surface_plancher_m2` est au niveau PERMIS (`permis_caracteristique`). Le NOMBRE D'ÉTAGES, lui, vit PAR BÂTIMENT
+ * (`permis_corps_batiment.nb_etages`) : il n'existe PAS « un nombre d'étages du permis » — un permis peut porter plusieurs
+ * bâtiments de hauteurs différentes (arc N9/N10). `permis_caracteristique` n'a donc AUCUNE colonne `nb_etages` (cause du 503 :
+ * l'ancienne requête la lisait là où elle n'existe pas). Le contexte d'emprise ne s'en sert que pour une INDICATION de
+ * vraisemblance (emprise ≈ plancher / étages, ±40 %, jamais un certificat ni le verdict). On remonte un agrégat EXPLICITE : le
+ * MAX des étages déclarés parmi les bâtiments du permis (borne haute → emprise attendue basse, la plus prudente). `null` si aucun.
+ */
 async function lireCaracteristiques(dossierId: number): Promise<[number | null, number | null]> {
   try {
-    const { rows } = await query<{ surface_plancher_m2: number | null; nb_etages: number | null }>(
-      `SELECT surface_plancher_m2, nb_etages FROM permis_caracteristique WHERE dossier_id = $1`, [dossierId]);
+    const { rows } = await query<{ surface_plancher_m2: number | null; nb_etages_max: number | null }>(
+      `SELECT c.surface_plancher_m2,
+              (SELECT max(b.nb_etages) FROM permis_corps_batiment b WHERE b.dossier_id = c.dossier_id) AS nb_etages_max
+         FROM permis_caracteristique c WHERE c.dossier_id = $1`, [dossierId]);
     const r = rows[0];
     if (!r) return [null, null];
-    return [r.surface_plancher_m2 !== null ? Number(r.surface_plancher_m2) : null, r.nb_etages !== null ? Number(r.nb_etages) : null];
+    return [r.surface_plancher_m2 !== null ? Number(r.surface_plancher_m2) : null, r.nb_etages_max !== null ? Number(r.nb_etages_max) : null];
   } catch (err) {
     if (estTableAbsente(err)) return [null, null];
     throw err;

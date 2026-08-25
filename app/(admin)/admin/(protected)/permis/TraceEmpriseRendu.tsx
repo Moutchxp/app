@@ -18,6 +18,19 @@ const carte: CSSProperties = { border: '1px solid var(--color-svv-line)', border
 export function fmtM2(x: number): string { return `${Math.round(x).toLocaleString('fr-FR')} m²`; }
 export function fmtM(x: number): string { return `${x.toFixed(2).replace('.', ',')} m`; }
 
+export type EtatChargementTrace = 'chargement' | 'erreur' | 'ok';
+export type AffichageTrace = 'chargement' | 'indisponible' | 'aucun-batiment' | 'pret';
+/**
+ * PROJ-3b-fix — DÉCIDE ce que le bloc de tracé doit montrer, en séparant TROIS états de chargement. Règle : « aucun bâtiment »
+ * n'est légitime QUE si le chargement a RÉUSSI (`etat === 'ok'`) et que la liste est vraiment vide. Un chargement en cours →
+ * 'chargement' ; un échec → 'indisponible' (JAMAIS « 0 bâtiment » : une panne ne doit pas s'afficher comme une donnée). PUR.
+ */
+export function affichageTrace(etat: EtatChargementTrace, nbBatiments: number): AffichageTrace {
+  if (etat === 'chargement') return 'chargement';
+  if (etat === 'erreur') return 'indisponible';
+  return nbBatiments === 0 ? 'aucun-batiment' : 'pret';
+}
+
 export type StatutBatiment = 'tracee' | 'ignoree' | 'attente';
 /** PROJ-2b — statut de projection d'UN bâtiment : emprise tracée (prioritaire), sinon ignorée, sinon en attente. PUR. */
 export function statutBatiment(corpsId: number, emprises: EmpriseReconstruite[], ignores: ProjectionIgnoree[]): StatutBatiment {

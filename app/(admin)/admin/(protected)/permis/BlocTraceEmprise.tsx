@@ -7,7 +7,7 @@ import {
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace } from './TraceEmpriseRendu';
 
 /**
  * PROJ-2b — BLOC de tracé d'emprise INTÉGRÉ au détail d'un dossier de Rattachement, BÂTIMENT PAR BÂTIMENT. Le dossier vient de la
@@ -23,10 +23,11 @@ type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convert
 
 const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
 
-export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir }: {
+export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   dossierId: number;
   onVerdict?: (v: VerdictProjection) => void;
   rafraichir?: number; // PROJ-3b — signal du parent : incrémenté quand l'instruction change (ajout de bâtiment) → recharge la liste
+                       //   DÉFAUT 0 (jamais undefined) : le tableau de dépendances de l'effet garde une TAILLE CONSTANTE (PROJ-3b-fix ③).
 }) {
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [batiments, setBatiments] = useState<BatimentProjection[]>([]);
@@ -45,24 +46,31 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir }: {
   const [apercu, setApercu] = useState<Apercu | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [occupe, setOccupe] = useState(false);
+  // PROJ-3b-fix ② — TROIS états de chargement distincts : une panne ne doit JAMAIS s'afficher comme « 0 bâtiment ».
+  const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
+  const [rechargeLocal, setRechargeLocal] = useState(0); // bouton « Recharger » de la carte d'échec (taille de deps constante)
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   // Chargement (pièces PDF + emprises + ignorées + contexte) au changement de dossier.
   useEffect(() => {
     let annule = false;
     void (async () => {
-      setMessage(null);
+      setEtat('chargement'); setMessage(null);
       try {
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`, { cache: 'no-store' });
         if (annule) return;
-        if (!res.ok) { setMessage('emprises indisponibles'); return; }
-        const j = await res.json() as { pieces: Piece[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte };
+        if (!res.ok) { setEtat('erreur'); setMessage('Bâtiments indisponibles (le serveur n’a pas répondu).'); return; }
+        const j = await res.json() as { pieces: Piece[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; indisponibles?: string[] };
+        // Résilience serveur : « indisponible » ≠ « vide ». Si la lecture des BÂTIMENTS a échoué, on n'affiche JAMAIS « 0 bâtiment »
+        //   (panne déguisée en donnée) → état d'échec explicite invitant à recharger.
+        if (j.indisponibles?.includes('batiments')) { setEtat('erreur'); setMessage('Bâtiments indisponibles : rechargez.'); return; }
         setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte);
         setPieceId(j.pieces[0]?.id ?? null);
-      } catch { if (!annule) setMessage('erreur de chargement'); }
+        setEtat('ok');
+      } catch { if (!annule) { setEtat('erreur'); setMessage('Bâtiments indisponibles (erreur de chargement).'); } }
     })();
     return () => { annule = true; };
-  }, [dossierId, rafraichir]);
+  }, [dossierId, rafraichir, rechargeLocal]);
 
   // Bâtiment EFFECTIF (dérivé, PAS un effet) : la sélection d'Arno si elle vise un bâtiment réel, sinon le PREMIER en attente,
   // sinon le premier. Évite un setState-dans-effet (cascade de rendus) : la valeur se recalcule quand les entrées changent.
@@ -74,7 +82,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir }: {
 
   // Verdict de projection → remonte au parent (bouton Valider). Mémoïsé : ne rejoue l'effet que si les entrées changent.
   const verdict = useMemo(() => verdictProjectionBatiments(batiments, emprises.map((e) => e.corpsId).filter((c): c is number => c !== null), ignores.map((i) => i.corpsId)), [batiments, emprises, ignores]);
-  useEffect(() => { onVerdict?.(verdict); }, [verdict, onVerdict]);
+  // PROJ-3b-fix ② — on ne remonte le verdict (donc le compteur « 0 bâtiment · 0 emprise ») QU'au succès du chargement :
+  //   sur un échec, le parent ne doit pas afficher un « 0 » calculé sur une liste jamais chargée.
+  useEffect(() => { if (etat === 'ok') onVerdict?.(verdict); }, [verdict, onVerdict, etat]);
 
   const parcelle: PointLambert[][] = useMemo(() => (contexte?.empreinteAnneaux ?? []).map((a) =>
     (a as unknown[]).map((p) => Array.isArray(p) ? { x: p[0] as number, y: p[1] as number } : (p as PointLambert))), [contexte]);
@@ -168,7 +178,20 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir }: {
   const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.25rem .6rem', fontSize: 12 };
   const styleAide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
 
-  if (batiments.length === 0) {
+  // PROJ-3b-fix ② — décision PURE (testée) : chargement · échec · succès-vide · prêt. « Aucun bâtiment » n'apparaît QU'au succès réel.
+  const vue = affichageTrace(etat, batiments.length);
+  if (vue === 'chargement') {
+    return <div className="svv-card" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }} aria-live="polite">Chargement des bâtiments…</div>;
+  }
+  if (vue === 'indisponible') {
+    return (
+      <div className="svv-card" role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+        <span>{message ?? 'Bâtiments indisponibles.'}</span>
+        <button type="button" style={{ ...btn, alignSelf: 'flex-start' }} onClick={() => setRechargeLocal((n) => n + 1)}>Recharger</button>
+      </div>
+    );
+  }
+  if (vue === 'aucun-batiment') {
     return <div className="svv-card" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Aucun bâtiment déclaré au permis : rien à tracer pour l’instant. Déclarez au moins un bâtiment ci-dessus (« + ajouter un bâtiment ») pour pouvoir tracer une emprise et valider la projection.</div>;
   }
 

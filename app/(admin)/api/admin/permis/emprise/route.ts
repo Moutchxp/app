@@ -31,18 +31,26 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const dossierId = coercerDossierId(new URL(request.url).searchParams.get('dossierId'));
     if (dossierId === null) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+    // RÉSILIENCE : chaque source est ISOLÉE — une lecture défaillante ne fait plus tomber toute la réponse (précédent : nb_etages
+    //   inexistant → 503 → écran « 0 bâtiment » mensonger). Pas de catch muet : la source fautive est TOUJOURS journalisée et
+    //   listée dans `indisponibles`, pour que le client distingue « indisponible » (panne) de « vide » (0 réel). Repli sûr par source.
+    const indisponibles: string[] = [];
+    const repli = async <T,>(source: string, p: Promise<T>, valeur: T): Promise<T> => {
+      try { return await p; }
+      catch (e) { indisponibles.push(source); console.error(`[permis/emprise] source indisponible: ${source}`, { dossierId, message: e instanceof Error ? e.message : String(e) }); return valeur; }
+    };
     const [piecesBrutes, emprises, ignores, batiments, contexte] = await Promise.all([
-      depsReellesLectureGed().listerPieces(dossierId).catch(() => []),
-      listerEmprises(dossierId),
-      listerIgnorees(dossierId),
-      listerBatiments(dossierId),
-      lireContexteEmprise(dossierId),
+      repli('pieces', depsReellesLectureGed().listerPieces(dossierId), []),
+      repli('emprises', listerEmprises(dossierId), []),
+      repli('ignores', listerIgnorees(dossierId), []),
+      repli('batiments', listerBatiments(dossierId), []),
+      repli('contexte', lireContexteEmprise(dossierId), { empreinteAnneaux: [], surfaceTerrainM2: null, surfacePlancherM2: null, nbEtages: null }),
     ]);
     // Seules les pièces PDF sont traçables ; la clé de stockage ne sort JAMAIS (uniquement id/nom/type).
     const pieces = piecesBrutes
       .filter((p) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf'))
       .map((p) => ({ id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime }));
-    return Response.json({ pieces, emprises, ignores, batiments, contexte });
+    return Response.json({ pieces, emprises, ignores, batiments, contexte, indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
     return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });
