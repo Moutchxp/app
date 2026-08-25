@@ -10,8 +10,12 @@ import { readFileSync } from 'node:fs';
  */
 const H = vi.hoisted(() => {
   const calls: { sql: string; params: unknown[] }[] = [];
+  const flags = { geomValide: true as boolean, updRows: [{ provenance: 'ign_retouche' }] as { provenance: string }[] }; // PROJ-3s — pilotables par test
   const queryMock = async (sql: string, params?: unknown[]) => {
     calls.push({ sql, params: params ?? [] });
+    // PROJ-3s — retouche : validité géométrique (ST_IsValid) puis UPDATE … RETURNING provenance (pilotés par flags).
+    if (/ST_IsValid/i.test(sql)) return { rows: [{ ok: flags.geomValide }], rowCount: 1 };
+    if (/UPDATE permis_emprise_reconstruite[\s\S]*RETURNING provenance/i.test(sql)) return { rows: flags.updRows, rowCount: flags.updRows.length };
     if (/INSERT INTO permis_emprise_reconstruite/i.test(sql)) return { rows: [{ id: 7 }], rowCount: 1 };
     if (/SELECT id FROM permis_rattachement WHERE dossier_id/i.test(sql)) return { rows: [{ id: 99 }], rowCount: 1 };
     // PROJ-3q/3r — polygones « En projet » cochés : B1+B2 jointifs (bord x=10), B3 disjoint → 2 groupes.
@@ -26,17 +30,17 @@ const H = vi.hoisted(() => {
     if (/ST_Difference/i.test(sql)) return { rows: [{ aire: 200, a_parcelle: true, aire_hors: 0, perim_hors: 0 }], rowCount: 1 };
     return { rows: [], rowCount: 1 };
   };
-  return { calls, queryMock };
+  return { calls, queryMock, flags };
 });
 vi.mock('../db/client', () => ({ query: H.queryMock, withTransaction: async (fn: (q: unknown) => unknown) => fn(H.queryMock) }));
 
-import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees } from './empriseReconstruiteRepo';
+import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise } from './empriseReconstruiteRepo';
 import type { CalageTrace } from './empriseReconstruiteRepo';
 
 const calage: CalageTrace = { paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 10, y: 0 }, lambert: { x: 20, y: 0 } }], ratioDeclare: null, ratioImplicite: 200, residuFitM: 0, residuEchelleM: null, douteux: false, raisons: [] };
 const anneau = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
 
-beforeEach(() => { H.calls.length = 0; });
+beforeEach(() => { H.calls.length = 0; H.flags.geomValide = true; H.flags.updRows = [{ provenance: 'ign_retouche' }]; });
 
 describe('PROJ-2 — enregistrerEmprise : n’écrit QUE la table des reconstitutions', () => {
   it('INSERT dans permis_emprise_reconstruite, géométrie ST_GeomFromText(…, 2154), calage en jsonb, corps_id lié', async () => {
@@ -179,5 +183,38 @@ describe('PROJ-3q — adoption des polygones « en projet » : un groupe = une e
     const del = H.calls.find((c) => /DELETE FROM permis_emprise_reconstruite/i.test(c.sql))!;
     expect(del.sql).toMatch(/provenance IN \('ign_adopte', 'ign_retouche'\)/);
     expect(del.params).toEqual([11434, 3]);
+  });
+});
+
+describe('PROJ-3s — retoucherEmprise : géométrie recalculée + validée serveur, provenance mise à jour, débordement recalculé', () => {
+  const anneauR = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+  it('refuse < 3 sommets et des coordonnées non finies, AVANT toute requête', async () => {
+    expect((await retoucherEmprise(11434, 9, [{ x: 0, y: 0 }, { x: 1, y: 1 }], null)).ok).toBe(false);
+    expect((await retoucherEmprise(11434, 9, [{ x: 0, y: 0 }, { x: NaN, y: 0 }, { x: 1, y: 1 }], null)).ok).toBe(false);
+    expect(H.calls.some((c) => /UPDATE|ST_IsValid/i.test(c.sql))).toBe(false);
+  });
+  it('géométrie AUTO-INTERSECTANTE (ST_IsValid = false) → REFUS avec message clair, aucun UPDATE', async () => {
+    H.flags.geomValide = false;
+    const r = await retoucherEmprise(11434, 9, anneauR, 'admin:retouche');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.motif).toMatch(/bords se croisent/);
+    expect(H.calls.some((c) => /UPDATE permis_emprise_reconstruite/i.test(c.sql))).toBe(false);
+  });
+  it('succès → UPDATE ciblé par (id, dossier), renvoie la provenance (RETURNING) + un débordement RECALCULÉ', async () => {
+    const r = await retoucherEmprise(11434, 9, anneauR, 'admin:retouche');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.provenance).toBe('ign_retouche');                 // provenance renvoyée par la base (règle appliquée dans le CASE)
+    expect(r.debordement).not.toBeNull();                       // recalculé après retouche
+    const upd = H.calls.find((c) => /UPDATE permis_emprise_reconstruite[\s\S]*RETURNING provenance/i.test(c.sql))!;
+    expect(upd.params[0]).toBe(9); expect(upd.params[1]).toBe(11434); // WHERE id=$1 AND dossier_id=$2
+  });
+  it('emprise INTROUVABLE (UPDATE 0 ligne) → refus explicite', async () => {
+    H.flags.updRows = [];
+    const r = await retoucherEmprise(11434, 999, anneauR, null);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.motif).toMatch(/introuvable/);
   });
 });

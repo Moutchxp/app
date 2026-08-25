@@ -132,6 +132,45 @@ async function mesurerDebordementWkt(dossierId: number, wkt: string): Promise<De
   }
 }
 
+export type ResultatRetoucheEmprise =
+  | { ok: true; emprises: EmpriseReconstruite[]; debordement: Debordement | null; provenance: ProvenanceEmprise }
+  | { ok: false; motif: string; tableAbsente?: boolean };
+
+/**
+ * PROJ-3s — RETOUCHE d'une emprise EXISTANTE : remplace sa géométrie par le contour Lambert-93 fourni (positions de sommets), et
+ * met à jour sa PROVENANCE dans le MÊME UPDATE (atomique) : 'ign_adopte' → 'ign_retouche' ; 'trace_manuel'/'ign_retouche' inchangées.
+ * 🔴 Le serveur RECALCULE et VALIDE la géométrie (ST_IsValid → refus d'une auto-intersection, message clair) et l'aire (ST_Area) ;
+ * ST_Force2D conservé. Ne change NI le bâtiment de rattachement, NI la provenance-vers-mesure (garde moteur : reconstitution reste
+ * true). Renvoie les emprises à jour + le débordement RECALCULÉ (l'indicateur qui dit si la correction a servi).
+ */
+export async function retoucherEmprise(dossierId: number, id: number, anneau: PointLambert[], par: string | null): Promise<ResultatRetoucheEmprise> {
+  if (!Number.isInteger(id) || !Number.isInteger(dossierId)) return { ok: false, motif: 'requête invalide' };
+  if (anneau.length < 3) return { ok: false, motif: 'un contour exige au moins 3 sommets' };
+  if (!anneau.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))) return { ok: false, motif: 'coordonnées invalides' };
+  const wkt = anneauVersWkt(anneau);
+  try {
+    const { rows: v } = await query<{ ok: boolean | null }>(
+      `SELECT ST_IsValid(ST_Force2D(ST_GeomFromText($1, 2154))) AS ok`, [wkt]);
+    if (!v[0]?.ok) return { ok: false, motif: 'contour invalide : des bords se croisent — ajustez les sommets avant de valider' };
+    const { rows: upd } = await query<{ provenance: ProvenanceEmprise }>(
+      `UPDATE permis_emprise_reconstruite
+          SET geom = ST_Force2D(ST_GeomFromText($3, 2154)),
+              surface_m2 = ST_Area(ST_Force2D(ST_GeomFromText($3, 2154))),
+              provenance = CASE WHEN provenance = 'ign_adopte' THEN 'ign_retouche' ELSE provenance END,
+              cree_par = COALESCE($4, cree_par)
+        WHERE id = $1 AND dossier_id = $2
+        RETURNING provenance`,
+      [id, dossierId, wkt, par]);
+    if (upd.length === 0) return { ok: false, motif: 'emprise introuvable' };
+    const emprises = await listerEmprises(dossierId);
+    const debordement = await mesurerDebordementWkt(dossierId, wkt);
+    return { ok: true, emprises, debordement, provenance: upd[0].provenance };
+  } catch (err) {
+    if (estTableAbsente(err)) return { ok: false, motif: 'table des emprises absente (migration 149/153 non appliquée)', tableAbsente: true };
+    throw err;
+  }
+}
+
 /** Liste les emprises reconstituées d'un dossier (contour EPSG:2154 → anneau). `[]` si la table n'existe pas encore. */
 export async function listerEmprises(dossierId: number): Promise<EmpriseReconstruite[]> {
   try {

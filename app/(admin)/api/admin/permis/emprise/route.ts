@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
@@ -94,6 +94,7 @@ export async function POST(request: Request): Promise<Response> {
       action?: string; dossierId?: number | string; corpsId?: number; pieceId?: number; page?: number; libelle?: string;
       anneauPlan?: PointPlan[]; paires?: PaireCalage[]; ratioDeclare?: number | null; id?: number; motif?: string; cleabs?: string;
       affectations?: { cleabs: string; corpsId: number }[];
+      anneau?: { x: number; y: number }[]; // PROJ-3s — sommets Lambert d'une retouche (positions ; jamais une géométrie autoritative)
     };
 
     if (body.action === 'signer_piece') {
@@ -167,6 +168,17 @@ export async function POST(request: Request): Promise<Response> {
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
       const ignores = await listerIgnorees(dossierId);
       return Response.json({ ok: true, nbCreees: res.nbCreees, emprises: res.emprises, ignores, debordement: res.debordement });
+    }
+
+    // PROJ-3s — RETOUCHER une emprise existante : positions de sommets Lambert → géométrie RECALCULÉE + VALIDÉE serveur ; provenance
+    //   mise à jour selon la règle (ign_adopte → ign_retouche). Ne change ni le bâtiment, ni le nombre d'emprises. Jamais bloquant.
+    if (body.action === 'retoucher') {
+      if (!Number.isInteger(body.id)) return Response.json({ erreur: 'emprise à retoucher requise' }, { status: 400 });
+      const anneau = Array.isArray(body.anneau) ? body.anneau : [];
+      const res = await retoucherEmprise(dossierId, body.id as number, anneau, 'admin:retouche');
+      if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
+      const ignores = await listerIgnorees(dossierId);
+      return Response.json({ ok: true, emprises: res.emprises, ignores, debordement: res.debordement, provenance: res.provenance });
     }
 
     if (body.action === 'enregistrer') {

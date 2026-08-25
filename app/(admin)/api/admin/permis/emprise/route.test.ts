@@ -28,6 +28,7 @@ vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
   apercuAffectations: vi.fn(async () => ({ batiments: [{ corpsId: 3, repere: '2D1', emprises: [{ surfaceM2: 320 }] }, { corpsId: 5, repere: '2D2', emprises: [{ surfaceM2: 90 }] }] })),
   adopterAffectations: vi.fn(async () => ({ ok: true, nbCreees: 2, debordement: { aireM2: 410, parcelleRattachee: true, aireHorsM2: 0, pctHors: 0, decalageLateralM: 0 }, emprises: [{ id: 9, dossierId: 11434, corpsId: 3, libelle: '2D1', anneau: [], anneaux: [], surfaceM2: 320, pieceId: null, page: null, calage: null, residuM: null, provenance: 'ign_adopte', creeLe: null }] })),
   supprimerEmprisesAdoptees: vi.fn(async () => 0),
+  retoucherEmprise: vi.fn(async () => ({ ok: true, provenance: 'ign_retouche', debordement: { aireM2: 300, parcelleRattachee: true, aireHorsM2: 0, pctHors: 0, decalageLateralM: 0 }, emprises: [{ id: 9, dossierId: 11434, corpsId: 3, libelle: '2D1', anneau: [], anneaux: [], surfaceM2: 300, pieceId: null, page: null, calage: null, residuM: null, provenance: 'ign_retouche', creeLe: null }] })),
 }));
 const HG = vi.hoisted(() => ({
   // PROJ-3f/3m — texte simulé d'une pièce MULTI-PAGES : p1 = cartouche titré (exclu), p2-p3 = planches. vi.fn → surchargeable par test.
@@ -286,5 +287,29 @@ describe('PROJ-3q/3r — adoption des polygones « en projet » via la route', (
       paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }],
       anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] });
     expect(supprimerEmprisesAdoptees).toHaveBeenCalledWith(11434, 3);
+  });
+});
+
+describe('PROJ-3s — retoucher une emprise via la route', () => {
+  const anneau = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+  it('retoucher → passe (id, sommets) au repo ; renvoie emprises, débordement recalculé et provenance', async () => {
+    const { retoucherEmprise } = await import('../../../../../lib/permis/empriseReconstruiteRepo');
+    const res = await post({ action: 'retoucher', dossierId: 11434, id: 9, anneau });
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(j.ok).toBe(true);
+    expect(j.provenance).toBe('ign_retouche');
+    expect(j.debordement).toMatchObject({ parcelleRattachee: true });
+    expect(retoucherEmprise).toHaveBeenCalledWith(11434, 9, anneau, 'admin:retouche');
+  });
+  it('retoucher sans emprise (id) → 400', async () => {
+    expect((await post({ action: 'retoucher', dossierId: 11434, anneau })).status).toBe(400);
+  });
+  it('géométrie refusée par le repo (auto-intersection) → 400 avec le message serveur', async () => {
+    const { retoucherEmprise } = await import('../../../../../lib/permis/empriseReconstruiteRepo');
+    vi.mocked(retoucherEmprise).mockResolvedValueOnce({ ok: false, motif: 'contour invalide : des bords se croisent — ajustez les sommets avant de valider' });
+    const res = await post({ action: 'retoucher', dossierId: 11434, id: 9, anneau });
+    expect(res.status).toBe(400);
+    expect((await res.json()).erreur).toMatch(/bords se croisent/);
   });
 });

@@ -402,22 +402,37 @@ export function libelleProvenance(p: ProvenanceEmprise): string {
   return p === 'ign_adopte' ? 'issue de l’IGN' : p === 'ign_retouche' ? 'IGN retouchée à la main' : 'tracé à la main';
 }
 
-/** Liste des emprises d'un bâtiment : libellé, ORIGINE (IGN / tracé à la main), surface, résidu de calage (tracé seulement), effacement. */
-export function ListeEmprises({ emprises, onSupprimer }: { emprises: EmpriseReconstruite[]; onSupprimer?: (id: number) => void }) {
+/** Une emprise est-elle retouchable ? PROJ-3s : ce chantier ne retouche QUE le mono-polygone (un seul contour extérieur). PUR. */
+export function empriseRetouchable(e: EmpriseReconstruite): boolean {
+  return (e.anneaux?.length ?? (e.anneau.length >= 3 ? 1 : 0)) <= 1;
+}
+
+/** Liste des emprises d'un bâtiment : libellé, ORIGINE (IGN / tracé à la main), surface, résidu ; RETOUCHER (mono-polygone) ; effacer. */
+export function ListeEmprises({ emprises, onSupprimer, onRetoucher, empriseEnRetouche = null }: {
+  emprises: EmpriseReconstruite[]; onSupprimer?: (id: number) => void; onRetoucher?: (id: number) => void; empriseEnRetouche?: number | null;
+}) {
   if (emprises.length === 0) return <p style={muted}>Aucune emprise pour ce bâtiment.</p>;
+  const b: CSSProperties = { ...muted, cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', padding: '.15rem .5rem' };
   return (
     <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
       {emprises.map((e) => {
         const ign = e.provenance === 'ign_adopte' || e.provenance === 'ign_retouche';
+        const retouchable = empriseRetouchable(e);
+        const enRetouche = empriseEnRetouche === e.id;
         return (
-          <li key={e.id} style={{ ...carte, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem' }}>
+          <li key={e.id} data-emprise={e.id} data-en-retouche={enRetouche || undefined} style={{ ...carte, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', borderColor: enRetouche ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }}>
             <span>
               <strong>{e.libelle}</strong>{' '}
               <span data-provenance={e.provenance} style={{ ...muted, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', padding: '0 .3rem' }}>{libelleProvenance(e.provenance)}</span>{' '}
               {e.surfaceM2 !== null ? fmtM2(e.surfaceM2) : ''}{' '}
               <span style={muted}>{ign ? '· donnée source IGN' : `· résidu ${e.residuM !== null ? fmtM(e.residuM) : '—'}${e.page !== null ? ` · page ${e.page}` : ''}`}</span>
+              {enRetouche && <span style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}> · en cours de retouche</span>}
+              {!retouchable && <span style={muted}> · retouche indisponible (emprise multi-parties)</span>}
             </span>
-            {onSupprimer && <button type="button" onClick={() => onSupprimer(e.id)} style={{ ...muted, cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', padding: '.15rem .5rem' }}>effacer</button>}
+            <span style={{ display: 'flex', gap: '.3rem' }}>
+              {onRetoucher && retouchable && !enRetouche && <button type="button" onClick={() => onRetoucher(e.id)} style={b}>retoucher</button>}
+              {onSupprimer && <button type="button" onClick={() => onSupprimer(e.id)} style={b}>effacer</button>}
+            </span>
           </li>
         );
       })}
@@ -457,8 +472,9 @@ function centreAnneau(anneau: PointLambert[]): PointLambert {
  * EXISTANT (gris), (b) FUTUR BÂTI « en projet » (bleu tireté = DONNÉE IGN ; ÉCARTÉ → grisé barré), (c) emprise TRACÉE (rouge =
  * RECONSTITUTION, jamais une mesure — garde PROJ). PROJ-3i : repères A/B/C… si `reperes` ; `ecartes` (cleabs décochés) grisés.
  */
-export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, angle = 0, hauteurMax = '62vh', onCliquer }: {
+export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, sommetSelectionne = null }: {
   boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[]; angle?: number; hauteurMax?: string; onCliquer?: (px: { x: number; y: number }) => void;
+  retoucheAnneau?: PointLambert[] | null; sommetSelectionne?: number | null; // PROJ-3s — contour en RETOUCHE (poignées éditables) + sommet sélectionné
 }) {
   if (!boite || parcelle.length === 0) return <p style={muted}>Parcelle du permis absente : schéma non dessiné (aucun point fiable).</p>;
   const proj = (p: PointLambert) => projeterDansBoite(boite, p);
@@ -474,6 +490,7 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
   for (const poly of visibles) if (poly.anneau.length >= 3) for (const p of poly.anneau) pts.push(proj(p));
   if (filtres.emprises) for (const e of emprises) for (const ring of (e.anneaux?.length ? e.anneaux : [e.anneau])) if (ring.length >= 3) for (const p of ring) pts.push(proj(p));
   for (const p of calageLambert) pts.push(proj(p));
+  if (retoucheAnneau) for (const p of retoucheAnneau) pts.push(proj(p)); // PROJ-3s — garder le contour retouché dans le cadre
   const vb = boiteEnglobanteRotee(pts, centre, angle);
   return (
     <svg viewBox={`${vb.minX} ${vb.minY} ${vb.w} ${vb.h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées"
@@ -496,6 +513,12 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
         {/* PROJ-3i ① — repères alphabétiques (mêmes lettres que le Rattachement), au centre de chaque polygone visible. */}
         {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3) return null; const q = projeterDansBoite(boite, centreAnneau(poly.anneau)); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={11} fontWeight={700} textAnchor="middle" fill="var(--color-svv-ink)" data-repere={poly.repere}>{poly.repere}</text>; })}
         {calageLambert.map((p, i) => { const q = projeterDansBoite(boite, p); return <g key={`c${i}`}><circle cx={q.x} cy={q.y} r={4} fill="var(--color-svv-red)" /><text x={q.x + 6} y={q.y - 6} fontSize={11} fill="var(--color-svv-red)">{i + 1}</text></g>; })}
+        {/* PROJ-3s — RETOUCHE : contour éditable + poignées de sommet (cibles tactiles) + points milieux de bord (insertion). */}
+        {retoucheAnneau && retoucheAnneau.length >= 2 && <>
+          <path d={path(retoucheAnneau)} fill="rgba(163,4,2,.10)" stroke="var(--color-svv-red)" strokeWidth={1.6} strokeDasharray="5 3" data-retouche="true" />
+          {retoucheAnneau.map((p, i) => { const a = proj(p), b = proj(retoucheAnneau[(i + 1) % retoucheAnneau.length]); return <circle key={`m${i}`} cx={(a.x + b.x) / 2} cy={(a.y + b.y) / 2} r={3} fill="#fff" stroke="var(--color-svv-red)" strokeWidth={1} data-bord={i} />; })}
+          {retoucheAnneau.map((p, i) => { const q = proj(p); const sel = i === sommetSelectionne; return <circle key={`s${i}`} cx={q.x} cy={q.y} r={sel ? 7 : 5} fill={sel ? 'var(--color-svv-ink)' : 'var(--color-svv-red)'} stroke="#fff" strokeWidth={1.5} data-sommet={i} data-selectionne={sel || undefined} />; })}
+        </>}
       </g>
     </svg>
   );

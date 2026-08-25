@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
@@ -475,5 +475,34 @@ describe('PROJ-3q — adoption IGN : aperçu, provenance, repère « qualité »
     expect(html).toMatch(/hors parcelle/);        // le débordement reste pertinent
     expect(html).toMatch(/issue de l’IGN/);        // jamais « reconstitution »
     expect(html).not.toContain('reconstitution');
+  });
+});
+
+describe('PROJ-3s — retouche : liste (retoucher / multi-parties) + poignées sur le schéma', () => {
+  const RING2 = [{ x: 20, y: 20 }, { x: 30, y: 20 }, { x: 25, y: 30 }];
+  it('empriseRetouchable : mono-polygone → true ; multi-parties → false', () => {
+    expect(empriseRetouchable(emprise())).toBe(true);
+    expect(empriseRetouchable(emprise({ anneaux: [RING, RING2] }))).toBe(false);
+  });
+  it('ListeEmprises : mono-polygone → bouton « retoucher » ; multi-parties → « retouche indisponible », pas de bouton', () => {
+    const mono = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise()], onRetoucher: () => {}, onSupprimer: () => {} }));
+    expect(mono).toContain('retoucher');
+    const multi = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ anneaux: [RING, RING2] })], onRetoucher: () => {}, onSupprimer: () => {} }));
+    expect(multi).toMatch(/retouche indisponible/);
+    expect(multi).not.toContain('>retoucher<');
+  });
+  it('ListeEmprises : l’emprise EN RETOUCHE est marquée « en cours de retouche » et n’offre plus « retoucher »', () => {
+    const html = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise()], onRetoucher: () => {}, empriseEnRetouche: 1 }));
+    expect(html).toContain('data-en-retouche="true"');
+    expect(html).toMatch(/en cours de retouche/);
+    expect(html).not.toContain('>retoucher<');
+  });
+  it('SchemaParcelleTrace : en retouche → contour éditable + une poignée par sommet + points de bord ; sommet sélectionné marqué', () => {
+    const boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 20, minY: 0, maxY: 20 } };
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x: 0, y: 20 }]], emprises: [], calageLambert: [], retoucheAnneau: RING, sommetSelectionne: 1 }));
+    expect(html).toContain('data-retouche="true"');
+    expect((html.match(/data-sommet="/g) ?? []).length).toBe(RING.length);   // une poignée par sommet
+    expect(html).toContain('data-bord="0"');                                  // point milieu de bord (insertion)
+    expect(html).toContain('data-selectionne="true"');                        // sommet 1 sélectionné
   });
 });

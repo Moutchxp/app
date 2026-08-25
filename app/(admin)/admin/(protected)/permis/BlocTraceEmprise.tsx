@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type CSSProperties } from 'react';
 import {
   calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, cadreDeAnneaux,
-  inverseDepuisBoite, ecranVersCanvas, estClic, type Boite, type PaireCalage, type PointPlan, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
+  inverseDepuisBoite, projeterDansBoite, ecranVersCanvas, estClic, type Boite, type PaireCalage, type PointPlan, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
 } from '../../../../lib/permis/calageEmprise';
+import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue } from './TraceEmpriseRendu';
@@ -25,6 +26,8 @@ type Mode = 'calage' | 'trace';
 type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convertToViewportPoint(x: number, y: number): number[] }; ratio: number };
 
 const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
+const SEUIL_SOMMET_BOITE = 12; // PROJ-3s — rayon de capture d'un sommet au clic (unités de la boîte du schéma) : cible TACTILE, pas un seuil métier.
+type ModeRetouche = 'deplacer' | 'inserer' | 'supprimer';
 
 export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   dossierId: number;
@@ -56,6 +59,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   const [affectation, setAffectation] = useState<Record<string, number>>({});
   const [scindes, setScindes] = useState<number[]>([]);
   const [confirmationAdoption, setConfirmationAdoption] = useState<{ batiments: BatimentAdoptionVue[] } | null>(null);
+  // PROJ-3s — RETOUCHE d'une emprise existante : id + contour Lambert en cours + historique (annuler) ; mode + sommet sélectionné.
+  const [retouche, setRetouche] = useState<{ id: number; anneau: PointLambert[]; hist: PointLambert[][] } | null>(null);
+  const [modeRetouche, setModeRetouche] = useState<ModeRetouche>('deplacer');
+  const [sommetSel, setSommetSel] = useState<number | null>(null);
   const [motifIgnore, setMotifIgnore] = useState('');
   const [apercu, setApercu] = useState<Apercu | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -370,6 +377,50 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
     } catch { setMessage('adoption impossible'); } finally { setOccupe(false); }
   }, [dossierId, affectationsCourantes]);
 
+  // PROJ-3s — RETOUCHE d'une emprise existante (mono-polygone) sur le SCHÉMA, en Lambert. Rien n'est écrit tant que non validé.
+  const demarrerRetouche = useCallback((id: number) => {
+    const e = emprises.find((x) => x.id === id);
+    const anneau = e ? (e.anneaux?.length ? e.anneaux[0] : e.anneau) : null;
+    if (!anneau || anneau.length < 3) { setMessage('emprise non retouchable'); return; }
+    setRetouche({ id, anneau: anneau.map((p) => ({ x: p.x, y: p.y })), hist: [] });
+    setModeRetouche('deplacer'); setSommetSel(null);
+    setMessage('retouche en cours : déplacez, insérez ou supprimez un sommet, puis validez.');
+  }, [emprises]);
+
+  const appliquerRetouche = useCallback((res: ResultatRetouche) => {
+    if (!res.ok) { setMessage(res.motif); return; }
+    setMessage(null);
+    setRetouche((r) => (r ? { id: r.id, anneau: res.anneau, hist: [...r.hist, r.anneau] } : r));
+  }, []);
+
+  // Clic sur le schéma en mode retouche : sélectionne/déplace, insère sur un bord, ou supprime — selon le sous-mode. Coords BOÎTE.
+  const cliquerRetouche = useCallback((pxBoite: { x: number; y: number }) => {
+    if (!retouche || !boite) return;
+    const box = retouche.anneau.map((p) => projeterDansBoite(boite, p));
+    const lambert = inverseDepuisBoite(boite, pxBoite);
+    if (modeRetouche === 'supprimer') { const i = sommetProche(box, pxBoite, SEUIL_SOMMET_BOITE); if (i >= 0) appliquerRetouche(supprimerSommet(retouche.anneau, i)); return; }
+    if (modeRetouche === 'inserer') { const i = bordProche(box, pxBoite); if (i >= 0) appliquerRetouche(insererSommet(retouche.anneau, i, lambert)); return; }
+    if (sommetSel === null) { const i = sommetProche(box, pxBoite, SEUIL_SOMMET_BOITE); if (i >= 0) setSommetSel(i); return; } // 1er clic : choisir le sommet
+    appliquerRetouche(deplacerSommet(retouche.anneau, sommetSel, lambert)); setSommetSel(null);                          // 2e clic : nouvelle position
+  }, [retouche, boite, modeRetouche, sommetSel, appliquerRetouche]);
+
+  const annulerRetouche = useCallback(() => { setSommetSel(null); setRetouche((r) => (r && r.hist.length > 0 ? { id: r.id, anneau: r.hist[r.hist.length - 1], hist: r.hist.slice(0, -1) } : r)); }, []);
+  const abandonnerRetouche = useCallback(() => { setRetouche(null); setSommetSel(null); setMessage('retouche abandonnée : l’emprise en base n’a pas changé.'); }, []);
+
+  const validerRetouche = useCallback(async () => {
+    if (!retouche) return;
+    setOccupe(true); setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'retoucher', dossierId, id: retouche.id, anneau: retouche.anneau }) });
+      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; ignores?: ProjectionIgnoree[]; debordement?: Debordement | null };
+      if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'retouche refusée'); return; } // ex. auto-intersection : message serveur, l'emprise en base reste intacte
+      setEmprises(j.emprises ?? []); if (j.ignores) setIgnores(j.ignores);
+      setDebordement(j.debordement ?? null); setRetouche(null); setSommetSel(null);
+      setMessage('emprise retouchée.');
+    } catch { setMessage('retouche impossible'); } finally { setOccupe(false); }
+  }, [retouche, dossierId]);
+
   // PROJ-3i — ÉCARTER / RÉTABLIR un polygone « en projet » (décision persistée). Optimiste : la réponse serveur fait foi.
   const basculerEcart = useCallback(async (cleabs: string, ecarter: boolean) => {
     setMessage(null);
@@ -487,7 +538,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             <RotationSchema angle={angle} onAngle={setAngle} />
             {/* PROJ-3m ② — quand le prochain clic va sur le SCHÉMA (correspondant du point plan), le guidage s'affiche ICI, au-dessus. */}
             {tracable && guidage.sur === 'schema' && <GuidageTraceBox g={guidage} />}
-            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} onCliquer={mode === 'calage' && planEnAttente ? cliquerSchema : undefined} />
+            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)}
+              onCliquer={retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined)} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
             <div><button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button></div>
 
             {/* Options de visibilité + sélection des polygones « en projet ». */}
@@ -527,8 +579,34 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
               Enregistrer l’emprise de {batSel.repere ?? `bâtiment ${batSel.corpsId}`}
             </button>
 
-            {/* Emprises déjà tracées pour CE bâtiment (effaçables). */}
-            <ListeEmprises emprises={empriseDuBat} onSupprimer={(id) => void posterProjection('supprimer', corpsEffectif!, { id })} />
+            {/* Emprises de CE bâtiment : retoucher (mono-polygone) ou effacer. */}
+            <ListeEmprises emprises={empriseDuBat} empriseEnRetouche={retouche?.id ?? null}
+              onSupprimer={(id) => void posterProjection('supprimer', corpsEffectif!, { id })}
+              onRetoucher={(id) => demarrerRetouche(id)} />
+
+            {/* PROJ-3s — PANNEAU DE RETOUCHE (visible seulement en retouche) : sous-mode + annuler / abandonner / valider. Mobile-first. */}
+            {retouche && (
+              <div style={{ border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.6rem', background: '#fff' }} role="group" aria-label="retouche de l’emprise">
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Retouche de l’emprise <span style={styleAide}>— rien n’est modifié en base tant que vous ne validez pas</span></div>
+                <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', marginBottom: '.3rem' }}>
+                  {(['deplacer', 'inserer', 'supprimer'] as ModeRetouche[]).map((m) => (
+                    <button key={m} type="button" style={{ ...btn, fontWeight: modeRetouche === m ? 700 : 400 }} disabled={occupe} onClick={() => { setModeRetouche(m); setSommetSel(null); }}>
+                      {m === 'deplacer' ? 'Déplacer un sommet' : m === 'inserer' ? 'Insérer sur un bord' : 'Supprimer un sommet'}
+                    </button>
+                  ))}
+                </div>
+                <p style={{ ...styleAide, margin: '0 0 .3rem' }}>
+                  {modeRetouche === 'deplacer' ? (sommetSel === null ? 'Touchez un sommet à déplacer, puis touchez sa nouvelle position.' : 'Touchez la nouvelle position du sommet sélectionné.')
+                    : modeRetouche === 'inserer' ? 'Touchez un bord pour y insérer un sommet.'
+                      : 'Touchez un sommet pour le supprimer (un contour garde au moins 3 sommets).'}
+                </p>
+                <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
+                  <button type="button" style={btn} disabled={occupe || retouche.hist.length === 0} onClick={annulerRetouche}>Annuler la dernière action</button>
+                  <button type="button" style={btn} disabled={occupe} onClick={abandonnerRetouche}>Abandonner</button>
+                  <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe} onClick={() => void validerRetouche()}>Valider la retouche</button>
+                </div>
+              </div>
+            )}
 
             {/* Ignorer / rétablir la projection de CE bâtiment (motif obligatoire ; réversible). */}
             {ignoreDuBat ? (
@@ -561,7 +639,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             <RotationSchema angle={angle} onAngle={setAngle} />
             <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
               <div style={{ flex: '1 1 420px', minWidth: 0 }}>
-                <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} hauteurMax="82vh" calageLambert={[]} />
+                <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} hauteurMax="82vh" calageLambert={[]}
+                  retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 240 }}>
                 <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
