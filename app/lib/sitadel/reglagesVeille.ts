@@ -296,6 +296,12 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Quand c’est activé, la phrase ci-dessous est ajoutée près de la fin du courrier. Elle rappelle que sans réponse sous un mois, le silence vaut refus. Le délai s’applique de toute façon par la loi ; cette phrase ne fait que le rappeler.' },
   { colonne: 'mention_delai_texte', cle: 'mentionDelaiTexte', libelle: 'Texte du rappel de délai', unite: '', type: 'texte_libre',
     aide: 'Le texte exact du rappel de délai (ex. « À défaut de réponse dans le délai d’un mois, votre silence vaudra décision de refus. »). Rédigez-le vous-même. Vide = rien n’est ajouté.' },
+  // S-DWG — 3e tiret OPTIONNEL de la liste des pièces (après PC3) : les fichiers sources (DWG, DXF). Défaut ACTIF (opt-out) et
+  //   texte pré-rédigé (arbitré par le porteur), là où les mentions ci-dessus sont opt-in/vides.
+  { colonne: 'mention_sources_active', cle: 'mentionSourcesActive', libelle: 'Demander aussi les fichiers sources (DWG, DXF)', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, un dernier point est ajouté à la liste des pièces demandées : les fichiers sources des plans (DWG, DXF), s’ils existent. La phrase précise que leur absence ne doit pas retarder l’envoi des autres pièces — elle n’oblige donc la mairie à rien. Uniquement dans les demandes ; jamais dans les relances ni les saisines CADA.' },
+  { colonne: 'mention_sources_texte', cle: 'mentionSourcesTexte', libelle: 'Texte de la demande des fichiers sources', unite: '', type: 'texte_libre',
+    aide: 'Le texte exact du point « fichiers sources » ajouté en fin de liste des pièces. Commencez-le par un tiret « — » pour rester aligné avec les autres pièces. S’il est vide, rien n’est ajouté même si l’option est activée.' },
 ];
 
 /**
@@ -359,6 +365,7 @@ export const COLONNES_PARAMS_SOURCES: readonly string[] = ['dila_url'];
 // S40 — 4e sous-bloc : MENTIONS ajoutées au corps (phrases de pratique, activables + éditables).
 export const COLONNES_PARAMS_MENTIONS: readonly string[] = [
   'mention_service_active', 'mention_service_texte', 'mention_delai_active', 'mention_delai_texte',
+  'mention_sources_active', 'mention_sources_texte', // S-DWG — 3e tiret optionnel « fichiers sources (DWG/DXF) »
 ];
 /** E1 — liste ORDONNÉE de ParamVeille d'un thème (ordre = la constante, PAS celui de PARAMS_VEILLE). Lève si une colonne est
  *  inconnue de PARAMS_VEILLE → un thème mal saisi casse le build plutôt que d'oublier silencieusement un paramètre. */

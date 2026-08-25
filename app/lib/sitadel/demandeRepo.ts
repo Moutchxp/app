@@ -687,7 +687,8 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
         const q = asQ(tx);
         const reference = await attribuerReference(q, annee);
         const { objet, corps } = genererTexte(lot, cfgSignataire, reference, pieces, profilLot, cfg.adresseReponse,
-          { serviceActive: cfg.mentionServiceActive, serviceTexte: cfg.mentionServiceTexte, delaiActive: cfg.mentionDelaiActive, delaiTexte: cfg.mentionDelaiTexte }); // S39/S40 : réponse + mentions figées
+          { serviceActive: cfg.mentionServiceActive, serviceTexte: cfg.mentionServiceTexte, delaiActive: cfg.mentionDelaiActive, delaiTexte: cfg.mentionDelaiTexte,
+            sourcesActive: cfg.mentionSourcesActive, sourcesTexte: cfg.mentionSourcesTexte }); // S39/S40/S-DWG : réponse + mentions figées
         // S14d — destinataire FIGÉ via la MÊME fonction que la sélection amont (resoudreDestination) : lecture de
         // mairie_contact ÉTENDUE à mairie_prada, puis précédence PRADA/contact. Le texte du courrier ne dépend pas du
         // destinataire (genererTexte ne le reçoit pas) → figer un autre e-mail laisse le corps strictement inchangé.
@@ -1219,7 +1220,8 @@ export async function changerProfilLot(ids: number[], profil: ProfilDemandeur, a
       if (!d) throw new TransitionInterditeError(`demande ${id} introuvable`);
       if (d.statut !== 'brouillon') throw new TransitionInterditeError(`la demande ${d.reference} n'est pas en brouillon (statut : ${d.statut}) — bascule de profil impossible`);
       const { objet, corps } = genererTexte(d.lot, cfgProfil, d.reference, pieces, profil, cfgVeille.adresseReponse,
-        { serviceActive: cfgVeille.mentionServiceActive, serviceTexte: cfgVeille.mentionServiceTexte, delaiActive: cfgVeille.mentionDelaiActive, delaiTexte: cfgVeille.mentionDelaiTexte }); // S39/S40 : réponse + mentions figées
+        { serviceActive: cfgVeille.mentionServiceActive, serviceTexte: cfgVeille.mentionServiceTexte, delaiActive: cfgVeille.mentionDelaiActive, delaiTexte: cfgVeille.mentionDelaiTexte,
+          sourcesActive: cfgVeille.mentionSourcesActive, sourcesTexte: cfgVeille.mentionSourcesTexte }); // S39/S40/S-DWG : réponse + mentions figées
       await q(`UPDATE demande SET objet = $2, corps = $3, profil_demandeur = $4, maj_le = now() WHERE id = $1`, [id, objet, corps, profil]);
       await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, $2, $3, $4)`, [id, d.statut, `profil ${d.profilAvant} → ${profil}`, auteur]);
     }

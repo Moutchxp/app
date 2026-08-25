@@ -157,9 +157,9 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       ...PARAMS_THEME_PREPARATION, ...PARAMS_THEME_ENVOI, ...PARAMS_THEME_REPONSES, ...PARAMS_THEME_ALERTES, ...PARAMS_THEME_CADA,
       ...PARAMS_MENTIONS, ...PARAMS_SOURCES,
     ].map((p) => p.colonne);
-    // Snapshot : l'écran Réglages rend 34 + 4 + 1 = 39 clés distinctes (ENVOI OUVRÉ a ajouté 2 heures au thème Envoi).
-    expect(CLES_RENDUES_REGLAGES).toHaveLength(39);
-    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(39);
+    // Snapshot : l'écran Réglages rend 34 + 6 + 1 = 41 clés distinctes (S-DWG a ajouté 2 réglages « fichiers sources » aux mentions).
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(41);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(41);
     // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
     const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
     expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));
@@ -172,6 +172,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(PARAMS_SOURCES.map((p) => p.colonne)).toEqual(['dila_url']);
     expect(PARAMS_MENTIONS.map((p) => p.colonne)).toEqual([
       'mention_service_active', 'mention_service_texte', 'mention_delai_active', 'mention_delai_texte',
+      'mention_sources_active', 'mention_sources_texte', // S-DWG — 3e tiret optionnel « fichiers sources (DWG/DXF) »
     ]);
   });
 

@@ -9,6 +9,7 @@ import {
   estCandidatEligible, raisonInexploitable, bornerAncienneteMois,
 } from './demande';
 import { resoudreDestination } from './destinataire';
+import { MENTION_SOURCES_TEXTE_DEFAUT } from './veilleConfig';
 
 let seq = 0;
 function cand(over: Partial<CandidatDossier> = {}): CandidatDossier {
@@ -208,6 +209,38 @@ describe('Sitadel S7 — texte de la demande', () => {
     // active mais texte VIDE → rien ajouté (garde-fou de cohérence)
     const videActif = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000303', pieces, 'entreprise', 'r@svav.fr', { serviceActive: true, serviceTexte: '', delaiActive: true, delaiTexte: '   ' });
     expect(videActif.corps).not.toContain('service de l’urbanisme');
+  });
+
+  it('S-DWG — tiret « fichiers sources » : INACTIF ⇒ corps byte-identique ; ACTIF ⇒ 3e tiret après PC3, dans la liste, ponctuation cohérente', () => {
+    // INACTIF (sourcesActive:false) : STRICTEMENT identique au corps sans aucune mention (byte-identique), et rien de « sources »
+    const sansMention = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000400', pieces, 'entreprise', 'r@svav.fr').corps;
+    const inactif = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000400', pieces, 'entreprise', 'r@svav.fr',
+      { sourcesActive: false, sourcesTexte: MENTION_SOURCES_TEXTE_DEFAUT }).corps;
+    expect(inactif).toBe(sansMention);                         // byte-identique (ponctuation comprise)
+    expect(sansMention).not.toContain('fichiers sources');
+
+    // ACTIF : le tiret sources est un 3e item de la LISTE des pièces, APRÈS PC3, AVANT « Dossiers concernés »
+    const actif = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000401', pieces, 'entreprise', 'r@svav.fr',
+      { sourcesActive: true, sourcesTexte: MENTION_SOURCES_TEXTE_DEFAUT }).corps;
+    expect(actif).toContain('les fichiers sources des pièces graphiques (DWG, DXF)');
+    expect(actif.indexOf('fichiers sources')).toBeGreaterThan(actif.indexOf('la pièce PC3'));
+    expect(actif.indexOf('fichiers sources')).toBeLessThan(actif.indexOf('Dossiers concernés'));
+    // ponctuation : PC3 reste un item NON terminal (« ; »), le tiret sources est le DERNIER (point final)
+    expect(actif).toContain('plan en coupe du terrain et de la construction ;');
+    expect(actif).toContain('ne doit en rien retarder l’envoi des pièces ci-dessus.');
+    // profil « personne » : le tiret entre AUSSI dans sa liste de pièces (même point d'insertion)
+    const per = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000402', pieces, 'personne', 'r@svav.fr',
+      { sourcesActive: true, sourcesTexte: MENTION_SOURCES_TEXTE_DEFAUT }).corps;
+    expect(per.indexOf('fichiers sources')).toBeGreaterThan(per.indexOf('la pièce PC3'));
+    expect(per.indexOf('fichiers sources')).toBeLessThan(per.indexOf('Dossiers concernés'));
+
+    // ACTIF mais texte VIDE → rien ajouté (même garde-fou que S40)
+    const videActif = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000403', pieces, 'entreprise', 'r@svav.fr',
+      { sourcesActive: true, sourcesTexte: '   ' }).corps;
+    expect(videActif).not.toContain('fichiers sources');
+
+    // ne réintroduit AUCUN motif / justification prohibé (même garde que le corps nu)
+    expect(actif).not.toMatch(/\b(motif|parce que|afin de|en vue de|justif|intérêt|usage|raison de la demande)\b/i);
   });
 
   it('S40 (point 4) — la référence est présente dans le CORPS du profil Personne, en forme DISCRÈTE (sans marque)', () => {

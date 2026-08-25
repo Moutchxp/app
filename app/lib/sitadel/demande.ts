@@ -475,6 +475,9 @@ export interface TexteDemande { objet: string; corps: string }
 export interface MentionsCorps {
   serviceActive?: boolean; serviceTexte?: string; // « À l'attention du service… » — en tête du corps
   delaiActive?: boolean; delaiTexte?: string;      // « À défaut de réponse dans un délai d'un mois… » — près de la clôture
+  // S-DWG — 3e tiret OPTIONNEL de la LISTE des pièces (après PC3) : les fichiers sources (DWG, DXF). Phrase qui N'OBLIGE À
+  // RIEN (les sources ne sont pas une pièce Cerfa). DEMANDES seules — jamais dans une relance ni une saisine CADA.
+  sourcesActive?: boolean; sourcesTexte?: string;
 }
 /** Une mention retenue (active ET non vide, trimée) ou `null` — pour insertion conditionnelle propre. */
 function mentionRetenue(active: boolean | undefined, texte: string | undefined): string | null {
@@ -553,8 +556,16 @@ export function genererTexte(
   // S40 — mentions de pratique (éditables) ; null si désactivées/vides. Insérées à leur place naturelle dans les 2 gabarits.
   const ligneService = mentionRetenue(mentions.serviceActive, mentions.serviceTexte);
   const ligneDelai = mentionRetenue(mentions.delaiActive, mentions.delaiTexte);
+  // S-DWG — 3e tiret OPTIONNEL des pièces (fichiers sources DWG/DXF), APRÈS PC3. `ligneSources` porte déjà son propre tiret
+  // cadratin et sa ponctuation finale (point = dernier item de la liste). Chaque ligne PC finit par « ; » (item non
+  // terminal) → la liste reste cohérente. ⚠️ INACTIVE (null) : `lignesPieces` est byte-identique à l'existant (un test le
+  // verrouille). Absente du canal 'formulaire' (branche précoce ci-dessus), des relances et des saisines CADA (autres modules).
+  const ligneSources = mentionRetenue(mentions.sourcesActive, mentions.sourcesTexte);
 
-  const lignesPieces = pieces.map((p) => `— la pièce ${p.code}${p.description ? `, ${p.description}` : ''} ;`).join('\n');
+  const lignesPieces = [
+    ...pieces.map((p) => `— la pièce ${p.code}${p.description ? `, ${p.description}` : ''} ;`),
+    ...(ligneSources ? [ligneSources] : []),
+  ].join('\n');
   const lignesDossiers = lot.dossiers.map((d) => {
     // Commune + code postal, en plus de l'adresse. ⚠️ l'adresse (libellé de voie tronqué à 26 c par Sitadel) est
     // transmise TELLE QUELLE — on ajoute seulement les autres éléments d'identification autour.
