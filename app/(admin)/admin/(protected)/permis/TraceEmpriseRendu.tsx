@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import {
   projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
 } from '../../../../lib/permis/calageEmprise';
@@ -299,58 +299,70 @@ export interface BatimentChoix { corpsId: number; repere: string | null }
 export interface BatimentAdoptionVue { corpsId: number; repere: string | null; emprises: { surfaceM2: number }[] }
 const nomBatiment = (b: BatimentChoix | undefined, corpsId: number): string => (b ? (b.repere ?? `bâtiment ${b.corpsId}`) : `bâtiment ${corpsId}`);
 
+/** PROJ-3r-fix — libellé d'une ligne par les NOMS des polygones qu'elle contient (mêmes repères que la liste et le schéma). PUR. */
+export function libellePolygones(cleabs: string[], repereDe: (c: string) => string): string {
+  return cleabs.length === 1 ? `Polygone ${repereDe(cleabs[0])}` : `Polygones ${cleabs.map(repereDe).join(' + ')}`;
+}
+
 /**
- * PROJ-3r — ENCART D'AFFECTATION : les polygones « en projet » cochés, REGROUPÉS par connexité (proposition automatique par défaut),
- * chaque groupe avec son aire et un SÉLECTEUR de bâtiment (liste des bâtiments DÉCLARÉS). SCINDER décompose un groupe en ses
- * polygones (chacun réaffectable) ; « regrouper » revient à la vue groupée ; « groupement automatique » réinitialise tout. PUR (les
- * gestes ne font que remonter l'intention). Le geste d'adoption PART D'ICI. Mobile-first (empilé).
+ * PROJ-3r — ENCART D'AFFECTATION : les polygones « en projet » cochés, réunis quand ils se touchent, chacun rattachable à un bâtiment
+ * DÉCLARÉ. PROJ-3r-fix (affichage seul) : chaque ligne est nommée par SES polygones (repères C, D, I… comme la liste et le schéma —
+ * plus de « Groupe 1/2/3 ») ; un groupe multi-polygones le DIT (« réunis en une seule emprise ») ; le sélecteur de bâtiment est
+ * EMPILÉ sous le nom, en toutes lettres, jamais tronqué (mobile-first). PUR (les gestes ne font que remonter l'intention).
  */
-export function AdoptionGroupes({ groupes, batiments, affectation, scindes, occupe = false, onAffecter, onScinder, onRegrouper, onAdopter, onReinitialiser }: {
-  groupes: GroupeAdoptionVue[]; batiments: BatimentChoix[]; affectation: Record<string, number>; scindes: number[]; occupe?: boolean;
+export function AdoptionGroupes({ groupes, batiments, reperes, affectation, scindes, occupe = false, onAffecter, onScinder, onRegrouper, onAdopter, onReinitialiser }: {
+  groupes: GroupeAdoptionVue[]; batiments: BatimentChoix[]; reperes: Record<string, string>; affectation: Record<string, number>; scindes: number[]; occupe?: boolean;
   onAffecter: (cleabs: string[], corpsId: number) => void; onScinder: (i: number) => void; onRegrouper: (i: number) => void;
   onAdopter: () => void; onReinitialiser: () => void;
 }) {
   if (groupes.length === 0) return null;
   const b: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.15rem .5rem', fontSize: 12 };
+  const repereDe = (c: string) => reperes[c] ?? c;
   const corpsCommun = (cleabs: string[]): number | '' => { const s = new Set(cleabs.map((c) => affectation[c])); return s.size === 1 && !s.has(undefined as unknown as number) ? [...s][0] : ''; };
-  const selecteur = (valeur: number | '', onCh: (c: number) => void) => (
-    <select value={valeur} onChange={(e) => onCh(Number(e.target.value))} disabled={occupe} aria-label="bâtiment affecté" style={{ maxWidth: '60%', fontSize: 12 }}>
-      {valeur === '' && <option value="">— plusieurs bâtiments —</option>}
-      {batiments.map((bt) => <option key={bt.corpsId} value={bt.corpsId}>{nomBatiment(bt, bt.corpsId)}</option>)}
-    </select>
+  // Ligne d'affectation EMPILÉE (pleine largeur) : « rattaché au bâtiment : [sélecteur] » + boutons éventuels — jamais serré/tronqué.
+  const ligneBatiment = (valeur: number | '', onCh: (c: number) => void, boutons?: ReactNode) => (
+    <div style={{ display: 'flex', gap: '.3rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.2rem' }}>
+      <span style={muted}>rattaché au bâtiment :</span>
+      <select value={valeur} onChange={(e) => onCh(Number(e.target.value))} disabled={occupe} aria-label="bâtiment affecté" style={{ fontSize: 12, maxWidth: '100%' }}>
+        {valeur === '' && <option value="">— plusieurs bâtiments —</option>}
+        {batiments.map((bt) => <option key={bt.corpsId} value={bt.corpsId}>{nomBatiment(bt, bt.corpsId)}</option>)}
+      </select>
+      {boutons}
+    </div>
   );
   return (
     <div style={carte} role="group" aria-label="affectation des polygones en projet aux bâtiments">
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>Adopter les polygones « en projet » — un groupe = une emprise</div>
-      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+      <div style={{ fontWeight: 600, marginBottom: 2 }}>Adopter les polygones « en projet » de l’IGN</div>
+      <p style={{ ...muted, margin: '0 0 .4rem' }}>Les polygones qui se touchent forment une seule emprise ; les polygones séparés forment des emprises séparées. Chaque emprise est rattachée au bâtiment que vous choisissez.</p>
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.45rem' }}>
         {groupes.map((g, i) => scindes.includes(i)
           ? (
             <li key={i} data-groupe={i} data-scinde="true" style={{ borderLeft: '2px solid var(--color-svv-line)', paddingLeft: '.4rem' }}>
-              <div style={{ ...muted, display: 'flex', justifyContent: 'space-between', gap: '.4rem' }}>
-                <span>Groupe {i + 1} — scindé</span>
+              <div style={{ ...muted, display: 'flex', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap' }}>
+                <span>{libellePolygones(g.cleabs, repereDe)} — séparés (une emprise par polygone)</span>
                 <button type="button" style={b} disabled={occupe} onClick={() => onRegrouper(i)}>regrouper</button>
               </div>
-              <ul style={{ listStyle: 'none', margin: '.2rem 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+              <ul style={{ listStyle: 'none', margin: '.2rem 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
                 {g.polygones.map((p) => (
-                  <li key={p.cleabs} data-cleabs={p.cleabs} style={{ display: 'flex', justifyContent: 'space-between', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span>{fmtM2(p.surfaceM2)}</span>{selecteur(affectation[p.cleabs] ?? '', (c) => onAffecter([p.cleabs], c))}
+                  <li key={p.cleabs} data-cleabs={p.cleabs}>
+                    <div><strong>Polygone {repereDe(p.cleabs)}</strong> — {fmtM2(p.surfaceM2)}</div>
+                    {ligneBatiment(affectation[p.cleabs] ?? '', (c) => onAffecter([p.cleabs], c))}
                   </li>
                 ))}
               </ul>
             </li>
           ) : (
-            <li key={i} data-groupe={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <span><strong>Groupe {i + 1}</strong> — {fmtM2(g.surfaceM2)}{g.polygones.length > 1 ? ` (${g.polygones.length} polygones)` : ''}</span>
-              <span style={{ display: 'flex', gap: '.3rem', alignItems: 'center' }}>
-                {selecteur(corpsCommun(g.cleabs), (c) => onAffecter(g.cleabs, c))}
-                {g.polygones.length > 1 && <button type="button" style={b} disabled={occupe} onClick={() => onScinder(i)}>Scinder</button>}
-              </span>
+            <li key={i} data-groupe={i}>
+              <div><strong>{libellePolygones(g.cleabs, repereDe)}</strong> — {fmtM2(g.surfaceM2)}{g.polygones.length > 1 ? ' · réunis en une seule emprise' : ''}</div>
+              {ligneBatiment(corpsCommun(g.cleabs), (c) => onAffecter(g.cleabs, c), g.polygones.length > 1
+                ? <button type="button" style={b} disabled={occupe} onClick={() => onScinder(i)}>Séparer les polygones</button>
+                : undefined)}
             </li>
           ))}
       </ul>
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
         <button type="button" style={{ ...b, fontWeight: 700 }} disabled={occupe} onClick={onAdopter}>Adopter</button>
-        <button type="button" style={b} disabled={occupe} onClick={onReinitialiser}>Revenir au groupement automatique</button>
+        <button type="button" style={b} disabled={occupe} onClick={onReinitialiser}>Revenir à la proposition automatique</button>
       </div>
     </div>
   );

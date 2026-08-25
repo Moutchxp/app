@@ -134,6 +134,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   const boite: Boite | null = useMemo(() => { const c = cadreDeAnneaux(parcelle); return c ? { largeur: BOITE_L, hauteur: BOITE_H, marge: BOITE_MARGE, cadre: c } : null; }, [parcelle]);
   // PROJ-3i — repères A/B/C… (déterministes, ordre serveur) partagés par le schéma et le panneau de sélection ; boîte plus grande pour le plein écran.
   const polygonesReperes = useMemo(() => attribuerReperes(polygones), [polygones]);
+  // PROJ-3r-fix — cleabs → repère (mêmes noms que la liste des polygones et le schéma) pour nommer les lignes de l'encart d'adoption.
+  const reperesParCleabs = useMemo(() => Object.fromEntries(polygonesReperes.filter((p) => p.cleabs).map((p) => [p.cleabs as string, p.repere])), [polygonesReperes]);
   const boiteGrande: Boite | null = useMemo(() => { const c = cadreDeAnneaux(parcelle); return c ? { largeur: 680, hauteur: 520, marge: 18, cadre: c } : null; }, [parcelle]);
   const nbFutur = useMemo(() => polygones.filter((p) => estFuturBati(p.etat)).length, [polygones]);
   // PROJ-3i — fermeture du plein écran à la touche Échap (le clic hors zone est géré par le fond).
@@ -493,7 +495,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
 
             {/* PROJ-3r — TROISIÈME issue, DANS l'encart « en projet » : affecter chaque groupe à un bâtiment déclaré + adopter (scinder/fusionner). */}
-            <AdoptionGroupes groupes={groupesAdoption} batiments={batiments} affectation={affectation} scindes={scindes} occupe={occupe}
+            <AdoptionGroupes groupes={groupesAdoption} batiments={batiments} reperes={reperesParCleabs} affectation={affectation} scindes={scindes} occupe={occupe}
               onAffecter={(cleabs, corpsId) => setAffectation((prev) => { const n = { ...prev }; for (const c of cleabs) n[c] = corpsId; return n; })}
               onScinder={(i) => setScindes((prev) => (prev.includes(i) ? prev : [...prev, i]))}
               onRegrouper={(i) => setScindes((prev) => prev.filter((x) => x !== i))}

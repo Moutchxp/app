@@ -426,26 +426,37 @@ describe('PROJ-3q — adoption IGN : aperçu, provenance, repère « qualité »
     expect(libelleProvenance('trace_manuel')).toBe('tracé à la main');
   });
   const BATS = [{ corpsId: 3, repere: '2D1' }, { corpsId: 5, repere: '2D2' }];
+  // repères = mêmes noms que la liste des polygones et le schéma (C, D, I) ; jamais « Groupe 1/2/3 ».
+  const REP = { B1: 'C', B2: 'D', B3: 'I' };
   const G = [
-    { cleabs: ['B1', 'B2'], surfaceM2: 320, polygones: [{ cleabs: 'B1', surfaceM2: 200 }, { cleabs: 'B2', surfaceM2: 120 }] },
-    { cleabs: ['B3'], surfaceM2: 90, polygones: [{ cleabs: 'B3', surfaceM2: 90 }] },
+    { cleabs: ['B1', 'B2'], surfaceM2: 320, polygones: [{ cleabs: 'B1', surfaceM2: 200 }, { cleabs: 'B2', surfaceM2: 120 }] }, // groupe MULTI-polygones (C + D)
+    { cleabs: ['B3'], surfaceM2: 90, polygones: [{ cleabs: 'B3', surfaceM2: 90 }] },                                          // groupe d'un seul (I)
   ];
-  it('AdoptionGroupes : 0 groupe → rien ; sinon un sélecteur de bâtiment par groupe + « Scinder » si plusieurs polygones', () => {
-    expect(renderToStaticMarkup(h(AdoptionGroupes, { groupes: [], batiments: BATS, affectation: {}, scindes: [], onAffecter: () => {}, onScinder: () => {}, onRegrouper: () => {}, onAdopter: () => {}, onReinitialiser: () => {} }))).toBe('');
-    const html = renderToStaticMarkup(h(AdoptionGroupes, { groupes: G, batiments: BATS, affectation: { B1: 3, B2: 3, B3: 3 }, scindes: [], onAffecter: () => {}, onScinder: () => {}, onRegrouper: () => {}, onAdopter: () => {}, onReinitialiser: () => {} }));
-    expect((html.match(/<select/g) ?? []).length).toBe(2);          // un sélecteur par groupe
+  const props = (over: Record<string, unknown>) => ({ groupes: G, batiments: BATS, reperes: REP, affectation: { B1: 3, B2: 3, B3: 3 }, scindes: [] as number[], onAffecter: () => {}, onScinder: () => {}, onRegrouper: () => {}, onAdopter: () => {}, onReinitialiser: () => {}, ...over });
+
+  it('AdoptionGroupes : 0 groupe → rien ; lignes NOMMÉES par les polygones (jamais « Groupe 1/2/3 »)', () => {
+    expect(renderToStaticMarkup(h(AdoptionGroupes, props({ groupes: [] })))).toBe('');
+    const html = renderToStaticMarkup(h(AdoptionGroupes, props({})));
     expect(html).toContain('320 m²');
-    expect(html).toContain('Scinder');                              // groupe multi-polygones scindable
-    expect(html).toContain('2D1'); expect(html).toContain('2D2');   // liste des bâtiments déclarés
-    expect(html).toMatch(/Revenir au groupement automatique/);
+    expect(html).not.toMatch(/Groupe\s*\d/);                        // plus de numérotation
+    expect(html).toContain('Polygone I');                          // groupe d'un seul → « Polygone I »
+    expect(html).toContain('2D1'); expect(html).toContain('2D2');   // sélecteur : bâtiments déclarés, en toutes lettres
+    expect(html).toMatch(/Revenir à la proposition automatique/);
   });
-  it('AdoptionGroupes : groupe SCINDÉ → un sélecteur par polygone + « regrouper »', () => {
-    const html = renderToStaticMarkup(h(AdoptionGroupes, { groupes: G, batiments: BATS, affectation: { B1: 3, B2: 5, B3: 3 }, scindes: [0], onAffecter: () => {}, onScinder: () => {}, onRegrouper: () => {}, onAdopter: () => {}, onReinitialiser: () => {} }));
+  // PROJ-3r-fix — cas NON exercé par le dossier courant : un groupe qui contient PLUSIEURS polygones doit rester lisible.
+  it('AdoptionGroupes : un groupe de PLUSIEURS polygones → « Polygones C + D » + « réunis en une seule emprise »', () => {
+    const html = renderToStaticMarkup(h(AdoptionGroupes, props({})));
+    expect(html).toContain('Polygones C + D');                     // agrégation montrée avec les vrais noms
+    expect(html).toMatch(/réunis en une seule emprise/);
+    expect(html).toContain('Séparer les polygones');               // action de scission, seulement sur un groupe multi
+  });
+  it('AdoptionGroupes : groupe SÉPARÉ → un sélecteur par polygone (« Polygone C », « Polygone D ») + « regrouper »', () => {
+    const html = renderToStaticMarkup(h(AdoptionGroupes, props({ affectation: { B1: 3, B2: 5, B3: 3 }, scindes: [0] })));
     expect(html).toContain('data-scinde="true"');
-    expect(html).toContain('data-cleabs="B1"'); expect(html).toContain('data-cleabs="B2"'); // polygones individuels
+    expect(html).toContain('data-cleabs="B1"'); expect(html).toContain('data-cleabs="B2"');
+    expect(html).toContain('Polygone C'); expect(html).toContain('Polygone D');
     expect(html).toContain('regrouper');
-    // groupe 0 scindé (2 polygones) + groupe 1 (1) → 3 sélecteurs
-    expect((html.match(/<select/g) ?? []).length).toBe(3);
+    expect((html.match(/<select/g) ?? []).length).toBe(3);         // 2 polygones séparés + 1 groupe → 3 sélecteurs
   });
   it('ConfirmationAdoption : null → rien ; répartition PAR BÂTIMENT (nombre + aires) + avertissement de remplacement', () => {
     expect(renderToStaticMarkup(h(ConfirmationAdoption, { apercu: null, remplaceExistant: false, onConfirmer: () => {}, onAnnuler: () => {} }))).toBe('');
