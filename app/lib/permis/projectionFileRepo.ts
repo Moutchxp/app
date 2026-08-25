@@ -89,7 +89,13 @@ export async function validerProjection(dossierId: number, par: string | null): 
     emprises.map((e) => e.corpsId).filter((c): c is number => c !== null),
     ignores.map((i) => i.corpsId),
   );
-  if (!verdict.peutValider) return { ok: false, motif: `projection incomplète — ${verdict.libelle}` };
+  if (!verdict.peutValider) {
+    // PROJ-3b — revérification SERVEUR (jamais la confiance au client) : 0 bâtiment déclaré ⇒ refus explicite (aucun passage par vacuité).
+    const motif = verdict.aucunBatiment
+      ? 'aucun bâtiment déclaré : déclarez au moins un bâtiment avant de valider la projection'
+      : `projection incomplète — ${verdict.libelle}`;
+    return { ok: false, motif };
+  }
 
   try {
     return await withTransaction(async (q) => {

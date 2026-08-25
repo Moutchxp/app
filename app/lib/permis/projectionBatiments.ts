@@ -4,13 +4,18 @@
  * JAMAIS global. AUCUNE I/O — entrée = listes, sortie = verdict + libellé lisible affiché AVANT le clic.
  *
  * ⚠️ Ce n'est PAS la garde de reconstitution (celle-ci vit en base + repo). C'est un GARDE-FOU DE PARCOURS : « obliger à projeter
- * (ou à ignorer explicitement) avant de valider ». Un permis SANS bâtiment déclaré est passant (rien à exiger — jamais un faux blocage).
+ * (ou à ignorer explicitement) avant de valider ».
+ *
+ * 🔒 PROJ-3b — un permis SANS AUCUN bâtiment déclaré est désormais NON validable : « chaque bâtiment couvert » serait vrai par
+ * vacuité (liste vide), ce qui laissait un permis quitter la file sans qu'aucune emprise n'existe. On EXIGE au moins un bâtiment
+ * déclaré (geste « + ajouter un bâtiment » de l'instruction) avant de pouvoir valider la projection. `aucunBatiment` porte le fait.
  */
 
 export interface BatimentProjection { corpsId: number; repere: string | null }
 
 export interface VerdictProjection {
   peutValider: boolean;
+  aucunBatiment: boolean;                              // PROJ-3b — aucun bâtiment déclaré → NON validable (l'écran invite à en déclarer un)
   nbBatiments: number;
   nbTraces: number;                                    // bâtiments avec ≥ 1 emprise
   nbIgnores: number;                                   // bâtiments dont la projection est ignorée (et non tracés)
@@ -52,8 +57,9 @@ export function effetValidationProjection(peutValider: boolean): EffetValidation
 
 /**
  * Verdict de projection. `corpsAvecEmprise` = corpsId ayant au moins une emprise tracée ; `corpsIgnores` = corpsId dont la
- * projection est ignorée. Un bâtiment est COUVERT s'il est dans l'un OU l'autre. `peutValider` = tous couverts. `manquants`
- * NOMME ce qui reste. Le comptage « ignoré » n'inclut PAS un bâtiment qui a AUSSI une emprise (une trace prime, jamais compté deux fois).
+ * projection est ignorée. Un bâtiment est COUVERT s'il est dans l'un OU l'autre. `peutValider` = AU MOINS un bâtiment déclaré ET
+ * tous couverts (PROJ-3b : zéro bâtiment ⇒ non validable). `manquants` NOMME ce qui reste. Le comptage « ignoré » n'inclut PAS un
+ * bâtiment qui a AUSSI une emprise (une trace prime, jamais compté deux fois).
  */
 export function verdictProjectionBatiments(
   batiments: BatimentProjection[], corpsAvecEmprise: number[], corpsIgnores: number[],
@@ -70,5 +76,6 @@ export function verdictProjectionBatiments(
   ];
   if (nbIgnores > 0) parts.push(`${nbIgnores} ignorée${nbIgnores > 1 ? 's' : ''}`);
   parts.push(`${manquants.length} en attente`);
-  return { peutValider: manquants.length === 0, nbBatiments, nbTraces, nbIgnores, manquants, libelle: parts.join(' · ') };
+  const aucunBatiment = nbBatiments === 0;
+  return { peutValider: !aucunBatiment && manquants.length === 0, aucunBatiment, nbBatiments, nbTraces, nbIgnores, manquants, libelle: parts.join(' · ') };
 }

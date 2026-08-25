@@ -42,8 +42,35 @@ describe('PROJ-2b — blocage de validation par bâtiment (pur)', () => {
     expect(v.libelle).toBe('2 bâtiments · 2 emprises tracées · 0 en attente');
   });
 
-  it('aucun bâtiment déclaré → PASSANT (rien à exiger, jamais un faux blocage)', () => {
-    expect(verdictProjectionBatiments([], [], []).peutValider).toBe(true);
+  it('aucun bâtiment déclaré → BLOQUÉ (PROJ-3b : déclarer au moins un bâtiment avant de valider)', () => {
+    const v = verdictProjectionBatiments([], [], []);
+    expect(v.peutValider).toBe(false);
+    expect(v.aucunBatiment).toBe(true);
+  });
+});
+
+describe('PROJ-3b — la validation exige au moins un bâtiment déclaré (pur)', () => {
+  const un = [{ corpsId: 1, repere: 'A' }];
+  it('0 bâtiment déclaré → refusé', () => {
+    const v = verdictProjectionBatiments([], [], []);
+    expect(v.peutValider).toBe(false);
+    expect(v.aucunBatiment).toBe(true);
+  });
+  it('1 bâtiment tracé → accepté', () => {
+    const v = verdictProjectionBatiments(un, [1], []);
+    expect(v.peutValider).toBe(true);
+    expect(v.aucunBatiment).toBe(false);
+  });
+  it('1 bâtiment ignoré (avec motif, capté en amont) → accepté', () => {
+    const v = verdictProjectionBatiments(un, [], [1]);
+    expect(v.peutValider).toBe(true);
+    expect(v.aucunBatiment).toBe(false);
+  });
+  it('2 bâtiments dont 1 ni tracé ni ignoré → refusé', () => {
+    const v = verdictProjectionBatiments(B, [1], []);
+    expect(v.peutValider).toBe(false);
+    expect(v.aucunBatiment).toBe(false);
+    expect(v.manquants.map((m) => m.repere)).toEqual(['2D2']);
   });
 });
 

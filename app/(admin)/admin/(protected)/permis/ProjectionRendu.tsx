@@ -18,7 +18,7 @@ const cell: CSSProperties = { padding: '.35rem .5rem', borderBottom: '1px solid 
 const muted: CSSProperties = { color: 'var(--color-svv-muted)', fontSize: 12 };
 
 /** Phrase d'aide : la file « Projection » et son rôle (intervalle entre réception des pièces et apparition du bâti). */
-export const AIDE_PROJECTION = 'Onglet « Analyse et projection » : à la réception des pièces, on reconstitue l’emprise au sol des futurs bâtiments (neuve / extension) avant que BD TOPO ne les voie. Une reconstitution, jamais une mesure ; elle n’alimente ni le verdict ni l’altitude.';
+export const AIDE_PROJECTION = 'Onglet « Analyse et projection » : à la réception des pièces, on INSTRUIT le permis (caractéristiques, bâtiments déclarés) PUIS on reconstitue l’emprise au sol des futurs bâtiments (neuve / extension) avant que BD TOPO ne les voie. Une reconstitution, jamais une mesure ; elle n’alimente ni le verdict ni l’altitude.';
 
 export function TableProjection({ file, ouvert, onOuvrir, renderDetail }: {
   file: LigneProjectionAffichee[];
@@ -66,9 +66,10 @@ export function TableProjection({ file, ouvert, onOuvrir, renderDetail }: {
   );
 }
 
-/** Bouton « Valider la projection » : ne bloque pas, il FAIT AVANCER (le permis quitte la file, passe en suivi). Actif ssi peutValider. */
-export function BoutonValiderProjection({ peutValider, libelle, enCours, onValider }: {
-  peutValider: boolean; libelle: string; enCours: boolean; onValider: () => void;
+/** Bouton « Valider la projection » : ne bloque pas, il FAIT AVANCER (le permis quitte la file, passe en suivi). Actif ssi peutValider.
+ *  PROJ-3b : `aucunBatiment` (aucun corps déclaré) → message qui renvoie à l'instruction (« + ajouter un bâtiment » ci-dessus). */
+export function BoutonValiderProjection({ peutValider, libelle, enCours, onValider, aucunBatiment = false }: {
+  peutValider: boolean; libelle: string; enCours: boolean; onValider: () => void; aucunBatiment?: boolean;
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
@@ -76,7 +77,11 @@ export function BoutonValiderProjection({ peutValider, libelle, enCours, onValid
       <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={enCours || !peutValider} onClick={onValider}>
         Valider la projection
       </button>
-      {!peutValider && <div style={{ ...muted, color: 'var(--color-svv-red)' }}>Chaque bâtiment doit avoir une emprise tracée ou une projection ignorée avant de valider.</div>}
+      {!peutValider && <div style={{ ...muted, color: 'var(--color-svv-red)' }}>
+        {aucunBatiment
+          ? 'Déclarez au moins un bâtiment (« + ajouter un bâtiment » ci-dessus) avant de valider la projection.'
+          : 'Chaque bâtiment doit avoir une emprise tracée ou une projection ignorée avant de valider.'}
+      </div>}
     </div>
   );
 }

@@ -30,4 +30,11 @@ describe('PROJ-2c — rendu de la file Projection', () => {
     expect(bloque).toContain('disabled');
     expect(bloque).toContain('emprise tracée ou une projection ignorée');
   });
+
+  it('BoutonValiderProjection : aucun bâtiment déclaré → message qui renvoie à l’instruction (PROJ-3b)', () => {
+    const h0 = renderToStaticMarkup(h(BoutonValiderProjection, { peutValider: false, aucunBatiment: true, libelle: '0 bâtiment · 0 emprise tracée · 0 en attente', enCours: false, onValider: () => {} }));
+    expect(h0).toContain('disabled');
+    expect(h0).toContain('Déclarez au moins un bâtiment');
+    expect(h0).not.toContain('emprise tracée ou une projection ignorée');
+  });
 });

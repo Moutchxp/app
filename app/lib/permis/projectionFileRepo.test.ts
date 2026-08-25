@@ -48,6 +48,15 @@ describe('PROJ-2c — validerProjection', () => {
     expect(H.calls.map((c) => c.sql).join('\n')).not.toMatch(/INSERT INTO batiment|permis_polygone_altitude/i);
   });
 
+  it('AUCUN bâtiment déclaré → refus explicite, aucun jalon (PROJ-3b, revérifié serveur)', async () => {
+    H.state.bats = [];
+    const r = await validerProjection(11434, 'admin');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motif).toMatch(/aucun bâtiment déclaré/);
+    expect(ins(/INSERT INTO permis_projection/i)).toHaveLength(0);
+    expect(ins(/INSERT INTO permis_rattachement\b/i)).toHaveLength(0);
+  });
+
   it('COMPLÈTE via ignorance (1 tracé + 1 ignoré) → validée', async () => {
     H.state.emprises = [{ corpsId: 1 }];
     H.state.ignores = [{ corpsId: 2 }];

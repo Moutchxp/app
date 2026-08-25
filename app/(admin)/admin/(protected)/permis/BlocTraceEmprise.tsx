@@ -23,9 +23,10 @@ type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convert
 
 const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
 
-export function BlocTraceEmprise({ dossierId, onVerdict }: {
+export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir }: {
   dossierId: number;
   onVerdict?: (v: VerdictProjection) => void;
+  rafraichir?: number; // PROJ-3b — signal du parent : incrémenté quand l'instruction change (ajout de bâtiment) → recharge la liste
 }) {
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [batiments, setBatiments] = useState<BatimentProjection[]>([]);
@@ -61,7 +62,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict }: {
       } catch { if (!annule) setMessage('erreur de chargement'); }
     })();
     return () => { annule = true; };
-  }, [dossierId]);
+  }, [dossierId, rafraichir]);
 
   // Bâtiment EFFECTIF (dérivé, PAS un effet) : la sélection d'Arno si elle vise un bâtiment réel, sinon le PREMIER en attente,
   // sinon le premier. Évite un setState-dans-effet (cascade de rendus) : la valeur se recalcule quand les entrées changent.
@@ -168,7 +169,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict }: {
   const styleAide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
 
   if (batiments.length === 0) {
-    return <div className="svv-card" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Aucun bâtiment déclaré au permis : rien à projeter (la validation n’est pas bloquée par la projection).</div>;
+    return <div className="svv-card" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Aucun bâtiment déclaré au permis : rien à tracer pour l’instant. Déclarez au moins un bâtiment ci-dessus (« + ajouter un bâtiment ») pour pouvoir tracer une emprise et valider la projection.</div>;
   }
 
   return (

@@ -50,7 +50,7 @@ const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '
  * BÂTIMENT (mesurés : repère, altitudes, étages, adresse par corps). Toute écriture est en 'saisie'. Confiance/réserve/motif
  * lus du journal (parCorps + permis). Bornes et liste de nature LUES de la base.
  */
-export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void }) {
+export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void }) {
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
   const [data, setData] = useState<EtatCharge | null>(null);
   const [edGlobal, setEdGlobal] = useState<EditionGlobal>({ parking: '', commentaire: '' });
@@ -77,8 +77,11 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir }: { dossierId: numbe
       const res = await fetch(`/api/admin/permis/caracteristiques?dossierId=${dossierId}`, { cache: 'no-store' });
       if (!res.ok) { setEtat('erreur'); return; }
       appliquer((await res.json()) as EtatCharge);
+      // PROJ-3b — `rafraichir` n'est appelé qu'APRÈS une écriture réussie (ajout/suppression d'un corps, enregistrement…) : on
+      //   signale au parent qu'une instruction a changé, pour qu'un bloc voisin (tracé de projection) recharge ses bâtiments.
+      onChange?.();
     } catch { setEtat('erreur'); }
-  }, [dossierId, appliquer]);
+  }, [dossierId, appliquer, onChange]);
 
   useEffect(() => {
     let annule = false;
