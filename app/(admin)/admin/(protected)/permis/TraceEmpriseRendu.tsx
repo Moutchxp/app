@@ -31,19 +31,19 @@ export function affichageTrace(etat: EtatChargementTrace, nbBatiments: number): 
   return nbBatiments === 0 ? 'aucun-batiment' : 'pret';
 }
 
-export interface PiecePlan { id: number; nomFichier: string; propose?: boolean; pagePlan?: number | null; echelle?: string | null; confirme?: boolean }
+// PROJ-3f — une pièce candidate porte ses PLANCHES (pages hors cartouche) calculées côté serveur, chacune avec une échelle indicative.
+export interface Planche { page: number; echelle: string | null }
+export interface PiecePlan { id: number; nomFichier: string; propose?: boolean; planches?: Planche[]; confirme?: boolean }
 
 /** PROJ-3d — sépare les pièces en « proposées » (plan de masse) / « autres », en conservant l'ordre reçu (le serveur classe déjà). PUR. */
 export function grouperPieces<T extends { propose?: boolean }>(pieces: T[]): { proposees: T[]; autres: T[] } {
   return { proposees: pieces.filter((p) => p.propose), autres: pieces.filter((p) => !p.propose) };
 }
 
-/** Libellé d'une option de plan proposé : nom + page/échelle confirmées si présentes. PUR. */
+/** Libellé d'une option de pièce proposée : nom + nombre de planches détectées. PUR. */
 export function etiquettePiecePlan(p: PiecePlan): string {
-  const bits: string[] = [];
-  if (p.pagePlan) bits.push(`p.${p.pagePlan}`);
-  if (p.echelle) bits.push(p.echelle);
-  return bits.length ? `${p.nomFichier} — ${bits.join(' · ')}` : p.nomFichier;
+  const n = p.planches?.length ?? 0;
+  return n > 0 ? `${p.nomFichier} — ${n} planche${n > 1 ? 's' : ''}` : p.nomFichier;
 }
 
 /**
@@ -74,12 +74,20 @@ export function SelecteurPiecePlan({ pieces, pieceId, onChoisir }: { pieces: Pie
 export interface Plan { pieceId: number; page: number; nomFichier: string; echelle: string | null; confirme: boolean }
 
 /**
- * Construit la bande à feuilleter à partir des pièces déjà CLASSÉES par PROJ-3d (ordre de pertinence conservé, PAS recalculé). Un
- * plan = une page : faute de savoir isoler plusieurs pages de plan dans une pièce, chaque pièce PROPOSÉE entre UNE fois, à sa page
- * proposée (`pagePlan`, sinon page 1). Les pièces non proposées ne sont pas dans la bande (elles restent dans le repli). PUR.
+ * Construit la bande à feuilleter à partir des pièces déjà CLASSÉES par PROJ-3d (ordre de pertinence conservé, PAS recalculé).
+ * PROJ-3f : un plan = une PAGE. Une pièce proposée est ÉCLATÉE en une entrée par PLANCHE (ses pages hors cartouche, calculées serveur).
+ * Faute de planches (pièce illisible / non confirmée), on REPLIE sur une entrée à la page 1 (jamais de bande vide pour un candidat).
+ * Les pièces non proposées ne sont pas dans la bande (elles restent dans le repli). PUR.
  */
 export function construireBandePlans(pieces: PiecePlan[]): Plan[] {
-  return pieces.filter((p) => p.propose).map((p) => ({ pieceId: p.id, page: p.pagePlan ?? 1, nomFichier: p.nomFichier, echelle: p.echelle ?? null, confirme: !!p.confirme }));
+  const out: Plan[] = [];
+  for (const p of pieces) {
+    if (!p.propose) continue;
+    const confirme = !!(p.planches && p.planches.length > 0);
+    const planches = confirme ? p.planches! : [{ page: 1, echelle: null }];
+    for (const pl of planches) out.push({ pieceId: p.id, page: pl.page, nomFichier: p.nomFichier, echelle: pl.echelle, confirme });
+  }
+  return out;
 }
 
 /** Borne un index dans [0 ; n-1] (0 si liste vide). PUR. */
@@ -87,8 +95,8 @@ export function bornerIndex(i: number, n: number): number { return n <= 0 ? 0 : 
 export function indexSuivant(i: number, n: number): number { return bornerIndex(i + 1, n); }
 export function indexPrecedent(i: number, n: number): number { return bornerIndex(i - 1, n); }
 
-/** Libellé lisible d'un plan (nom + échelle si elle a été lue de façon fiable). PUR. */
-export function libellePlan(p: Plan): string { return p.echelle ? `${p.nomFichier} · échelle ${p.echelle}` : p.nomFichier; }
+/** Libellé lisible d'un plan (nom + n° de page dans la pièce + échelle si lue de façon fiable). PUR. */
+export function libellePlan(p: Plan): string { return `${p.nomFichier} — page ${p.page}${p.echelle ? ` · échelle ${p.echelle}` : ''}`; }
 
 /**
  * PROJ-3e — changer de plan doit-il DEMANDER CONFIRMATION ? OUI dès qu'un calage ou un tracé est commencé (le travail est attaché
@@ -108,11 +116,45 @@ export function BandePlans({ bande, index, onPrecedent, onSuivant }: { bande: Pl
   const p = bande[i];
   const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.25rem .6rem', fontSize: 12 };
   return (
-    <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-      <button type="button" style={{ ...btn, opacity: i <= 0 ? 0.4 : 1 }} disabled={i <= 0} onClick={onPrecedent} aria-label="Plan précédent">‹ précédent</button>
-      <span style={{ fontSize: 12, fontWeight: 700 }}>plan {i + 1} sur {bande.length}</span>
-      <button type="button" style={{ ...btn, opacity: i >= bande.length - 1 ? 0.4 : 1 }} disabled={i >= bande.length - 1} onClick={onSuivant} aria-label="Plan suivant">suivant ›</button>
-      <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{libellePlan(p)}{p.confirme ? '' : ' (page à confirmer)'}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+      {/* Le MODE est porté par les MOTS (« Best-of des plans »), jamais par la seule couleur. */}
+      <div style={{ fontSize: 12, fontWeight: 700 }}>Best-of des plans proposés</div>
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <button type="button" style={{ ...btn, opacity: i <= 0 ? 0.4 : 1 }} disabled={i <= 0} onClick={onPrecedent} aria-label="Plan précédent">‹ précédent</button>
+        <span style={{ fontSize: 12, fontWeight: 700 }}>plan {i + 1} sur {bande.length}</span>
+        <button type="button" style={{ ...btn, opacity: i >= bande.length - 1 ? 0.4 : 1 }} disabled={i >= bande.length - 1} onClick={onSuivant} aria-label="Plan suivant">suivant ›</button>
+        <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{libellePlan(p)}{p.confirme ? '' : ' (page à confirmer)'}</span>
+      </div>
+    </div>
+  );
+}
+
+/** PROJ-3f ① — borne un n° de page (1-based) dans [1 ; nbPages] (nbPages ramené à ≥ 1). PUR. */
+export function bornerPage(page: number, nbPages: number): number {
+  const n = Math.max(1, nbPages);
+  return Math.min(Math.max(1, page), n);
+}
+
+/**
+ * PROJ-3f ① — NAVIGATION « PIÈCE LIBRE » : feuillette LES PAGES d'une pièce ouverte depuis le repli (indépendante de la bande
+ * best-of). En-tête « Pièce : <nom> » + « page i sur n » (mode porté par les MOTS), bornes désactivées, et un retour EXPLICITE au
+ * best-of. PUR (renderToStaticMarkup) : les boutons ne font que remonter l'intention ; l'état vit dans la Vue.
+ */
+export function NavPieceLibre({ nomFichier, page, nbPages, onPagePrecedente, onPageSuivante, onRetourBestOf }: {
+  nomFichier: string; page: number; nbPages: number; onPagePrecedente: () => void; onPageSuivante: () => void; onRetourBestOf: () => void;
+}) {
+  const p = bornerPage(page, nbPages);
+  const n = Math.max(1, nbPages);
+  const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.25rem .6rem', fontSize: 12 };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+      <div style={{ fontSize: 12, fontWeight: 700 }}>Pièce : {nomFichier}</div>
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <button type="button" style={btn} onClick={onRetourBestOf} aria-label="Revenir au best-of des plans">◂ revenir au best-of</button>
+        <button type="button" style={{ ...btn, opacity: p <= 1 ? 0.4 : 1 }} disabled={p <= 1} onClick={onPagePrecedente} aria-label="Page précédente">‹ page précédente</button>
+        <span style={{ fontSize: 12, fontWeight: 700 }}>page {p} sur {n}</span>
+        <button type="button" style={{ ...btn, opacity: p >= n ? 0.4 : 1 }} disabled={p >= n} onClick={onPageSuivante} aria-label="Page suivante">page suivante ›</button>
+      </div>
     </div>
   );
 }

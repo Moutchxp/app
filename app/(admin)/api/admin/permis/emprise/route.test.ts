@@ -25,8 +25,12 @@ vi.mock('../../../../../lib/permis/lectureGed', () => ({
       { id: 57, nomFichier: 'PC4_Notice_architecturale.pdf', typeMime: 'application/pdf', cleStockage: 'k3', tailleOctets: 1 },
     ],
     lireObjet: async () => Buffer.from('%PDF'),
-    // PROJ-3d — texte simulé d'une page de plan de masse (avec une échelle lisible).
-    extraire: async () => ({ ok: true, pages: ['PC2.1 PLAN DE MASSE projet éch. 1:500'] }),
+    // PROJ-3f — texte simulé d'une pièce MULTI-PAGES : p1 = cartouche titré (exclu), p2-p3 = planches.
+    extraire: async () => ({ ok: true, pages: [
+      'PC2 PLAN DE MASSE DES CONSTRUCTIONS À ÉDIFIER OU MODIFIER — bureaux d’études',
+      'planche implantation éch. 1:500',
+      'planche niveaux',
+    ] }),
   }),
 }));
 vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({ lireCleTelechargeable: async () => ({ cle: 'ged/dossier/55.pdf', nomFichier: 'PC2.pdf' }) }));
@@ -50,11 +54,13 @@ describe('PROJ-2 — GET', () => {
     // JPG (56) écartée car non-PDF ; clé de stockage jamais exposée
     expect(j.pieces.map((p: { id: number }) => p.id)).toEqual([55, 57]); // proposé (PC2 plan de masse) d'abord, autre (notice) ensuite
     expect(j.pieces.every((p: object) => !('cleStockage' in p))).toBe(true);
-    // ① tri par nom + ② confirmation page-level : PC2.1 plan de masse projet → proposé, page 1, échelle 1:500
-    expect(j.pieces[0]).toMatchObject({ id: 55, propose: true, pagePlan: 1, echelle: '1:500', confirme: true });
+    // ① tri par nom + ② confirmation page-level : PC2 → proposé, ÉCLATÉ en planches (cartouche p1 EXCLU, p2-p3 gardées)
+    expect(j.pieces[0]).toMatchObject({ id: 55, propose: true, confirme: true });
+    expect(j.pieces[0].planches).toEqual([{ page: 2, echelle: '1:500' }, { page: 3, echelle: null }]);
     expect(j.pieces[0].score).toBeGreaterThan(0);
     // la notice n'est PAS proposée, mais reste ATTEIGNABLE (repli garanti)
-    expect(j.pieces[1]).toMatchObject({ id: 57, propose: false, pagePlan: null, confirme: false });
+    expect(j.pieces[1]).toMatchObject({ id: 57, propose: false, confirme: false });
+    expect(j.pieces[1].planches).toEqual([]);
     expect(j.emprises).toHaveLength(1);
     expect(j.emprises[0].corpsId).toBe(3);                 // PROJ-2b — emprise liée à son bâtiment
     expect(j.ignores).toEqual([{ corpsId: 4, motif: 'déjà bâti' }]); // projections ignorées exposées

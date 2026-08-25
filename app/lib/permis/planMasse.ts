@@ -19,6 +19,11 @@ const PC2 = /\bpc\s*2(\.\d+)*\b/;       // code PC2 (R.431-9 = plan de masse). P
 /**
  * Score « plan de masse » d'un nom de fichier (0 = pas un plan de masse). +100 si la forme « plan de masse », +80 si le code PC2 ;
  * puis, seulement si l'un des deux a matché : +15 « projet » (le futur bâtiment) OU −5 « existant ». PUR.
+ *
+ * ⚠️ PROJ-3f — la métrique « 0 erreur » de PROJ-3d a été établie sur UN SEUL dossier (11430) où chaque plan était une pièce d'UNE
+ * page nommée « …plan_de_masse… ». Elle NE GÉNÉRALISE PAS : mesuré sur 07512025V0035, les 45 pièces portent un tag de lot « _2D_PDM »
+ * (abréviation) que la forme « plan de masse » NE matche PAS — seul le code réglementaire PC2 sauve la détection ; et la pièce est
+ * MULTI-PAGES (cartouche + planches). Le NOM reste un signal FAIBLE : la vérité se joue au niveau des PAGES (cf. `pagesPlanches`).
  */
 export function scoreNomPlanMasse(nomFichier: string): number {
   const n = norm(nomFichier);
@@ -49,10 +54,36 @@ export function texteEstPlanMasse(texte: string): boolean {
   return MASSE.test(norm(texte));
 }
 
-/** Première page (1-based) dont le texte est un plan de masse, sinon null. PUR. */
+/** Première page (1-based) dont le texte est un plan de masse, sinon null. PUR. (Historique PROJ-3d : désigne en fait le CARTOUCHE.) */
 export function pagePlanMasse(pagesTexte: string[]): number | null {
   const i = pagesTexte.findIndex((t) => texteEstPlanMasse(t));
   return i === -1 ? null : i + 1;
+}
+
+// PROJ-3f — le TITRE réglementaire du cartouche PC2 (« PLAN DE MASSE DES CONSTRUCTIONS À ÉDIFIER OU MODIFIER » et formes voisines)
+//   devient un signal d'EXCLUSION (l'INVERSE de PROJ-3d, qui en faisait un signal de sélection). Mesuré : 0 faux positif sur les deux
+//   dossiers quand la couche texte existe (le titre ne figure que sur la page de garde, jamais sur les planches).
+const CARTOUCHE = /construction[s]?\s+a\s+(edifier|modifier)/;
+
+/** Le texte d'une page est-il celui d'une page de GARDE / CARTOUCHE (porte le titre réglementaire) ? PUR. */
+export function estPageCartouche(texte: string): boolean {
+  return CARTOUCHE.test(norm(texte));
+}
+
+/**
+ * PROJ-3f — PAGES à feuilleter d'une pièce candidate (1-based), dans l'ordre. Une pièce MULTI-PAGES est éclatée par page, en
+ * EXCLUANT les pages de cartouche (titre réglementaire). Une pièce MONO-PAGE garde sa page (titre et dessin y coexistent — cas
+ * 11430, non-régression). N'utilise QUE le texte (jamais getOperatorList, mesuré trop cher). Dégradations sûres :
+ *  · aucune page (pièce illisible) → `[]` (l'appelant repliera sur la page 1) ;
+ *  · pièce scannée sans couche texte → aucune page n'est reconnue « cartouche » → TOUTES les pages entrent (jamais une erreur bloquante) ;
+ *  · toutes les pages titrées (improbable) → on dégrade à toutes les pages plutôt qu'une bande vide.
+ * Conséquence ASSUMÉE : quelques pages de texte (sans titre de cartouche) restent dans la bande — Arno feuillette et tombe sur les planches.
+ */
+export function pagesPlanches(pagesTexte: string[]): number[] {
+  if (pagesTexte.length === 0) return [];
+  if (pagesTexte.length === 1) return [1];
+  const gardees = pagesTexte.map((t, i) => ({ n: i + 1, t })).filter((x) => !estPageCartouche(x.t)).map((x) => x.n);
+  return gardees.length > 0 ? gardees : pagesTexte.map((_, i) => i + 1);
 }
 
 /**

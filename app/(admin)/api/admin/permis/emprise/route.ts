@@ -4,7 +4,7 @@ import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmpri
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
-import { classerPiecesPlanMasse, scoreNomPlanMasse, pagePlanMasse, lireEchelleTexte } from '../../../../../lib/permis/planMasse';
+import { classerPiecesPlanMasse, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte } from '../../../../../lib/permis/planMasse';
 
 // PROJ-3d — confirmation page-level PARESSEUSE : plafond DUR de pièces ouvertes côté serveur (mesuré ~98 ms/pièce → ~0,7 s pour 7).
 //   Ne JAMAIS ouvrir les 81 pièces (~8 s). Les proposées au-delà du plafond restent proposées PAR LEUR NOM, sans confirmation.
@@ -56,20 +56,21 @@ export async function GET(request: Request): Promise<Response> {
     const piecesPdf = piecesBrutes.filter((p) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf'));
     // PROJ-3d ① — TRI PAR NOM (instantané, 0 I/O) : plans de masse proposés d'abord (score R.431-9), tout le reste conservé (repli).
     const { proposees, autres } = classerPiecesPlanMasse(piecesPdf);
-    // PROJ-3d ② — CONFIRMATION PARESSEUSE, uniquement sur la shortlist plafonnée : ouvre chaque candidat, cherche la page « plan de
-    //   masse » (n° proposé) + une échelle indicative. Dégradation propre : une pièce illisible reste proposée par son NOM (confirme=false).
-    const confirmations = new Map<number, { pagePlan: number | null; echelle: string | null }>();
+    // PROJ-3d/3f — CONFIRMATION PARESSEUSE, uniquement sur la shortlist plafonnée : ouvre chaque candidat et l'ÉCLATE EN PLANCHES
+    //   (ses pages hors cartouche, cf. pagesPlanches) + une échelle indicative par page. Texte SEUL (jamais getOperatorList, trop cher).
+    //   Dégradation propre : une pièce illisible reste proposée par son NOM, sans planche (confirme=false → l'UI repliera sur la page 1).
+    const confirmations = new Map<number, { planches: { page: number; echelle: string | null }[] }>();
     await Promise.all(proposees.slice(0, PLAFOND_SHORTLIST).map(async (p) => {
       try {
         const ex = await deps.extraire(await deps.lireObjet(p.cleStockage), p.typeMime);
         if (!ex.ok) { indisponibles.push(`texte:${p.id}`); console.error(`[permis/emprise] texte pièce ${p.id} illisible`, { motif: ex.motif }); return; }
-        const page = pagePlanMasse(ex.pages);
-        confirmations.set(p.id, { pagePlan: page, echelle: page ? lireEchelleTexte(ex.pages[page - 1]) : null });
+        const planches = pagesPlanches(ex.pages).map((pg) => ({ page: pg, echelle: lireEchelleTexte(ex.pages[pg - 1]) }));
+        confirmations.set(p.id, { planches });
       } catch (e) { indisponibles.push(`texte:${p.id}`); console.error(`[permis/emprise] confirmation pièce ${p.id} indisponible`, { message: e instanceof Error ? e.message : String(e) }); }
     }));
     const enrichir = (p: { id: number; nomFichier: string; typeMime: string | null }, propose: boolean) => {
-      const c = confirmations.get(p.id);
-      return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, pagePlan: c?.pagePlan ?? null, echelle: c?.echelle ?? null, confirme: (c?.pagePlan ?? null) !== null };
+      const planches = confirmations.get(p.id)?.planches ?? [];
+      return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0 };
     };
     const pieces = [...proposees.map((p) => enrichir(p, true)), ...autres.map((p) => enrichir(p, false))];
     return Response.json({ pieces, emprises, ignores, batiments, contexte, indisponibles });

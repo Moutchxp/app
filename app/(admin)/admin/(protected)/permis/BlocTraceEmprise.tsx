@@ -7,7 +7,7 @@ import {
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage } from './TraceEmpriseRendu';
 
 /**
  * PROJ-2b — BLOC de tracé d'emprise INTÉGRÉ au détail d'un dossier de Rattachement, BÂTIMENT PAR BÂTIMENT. Le dossier vient de la
@@ -16,8 +16,8 @@ import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace
  * bouton Valider. 🔴 Géométrie du module PUR `calageEmprise` (les handlers ne font que POSER l'état) ; enregistrement recalculé serveur.
  */
 
-// PROJ-3d — la pièce porte désormais la PROPOSITION « plan de masse » (score par nom + confirmation page/échelle côté serveur).
-interface Piece { id: number; nomFichier: string; typeMime: string | null; propose?: boolean; pagePlan?: number | null; echelle?: string | null; confirme?: boolean }
+// PROJ-3d/3f — la pièce porte la PROPOSITION « plan de masse » (score par nom) + ses PLANCHES (pages hors cartouche, confirmées serveur).
+interface Piece { id: number; nomFichier: string; typeMime: string | null; propose?: boolean; planches?: { page: number; echelle: string | null }[]; confirme?: boolean }
 interface Contexte { empreinteAnneaux: [number, number][][] | PointLambert[][]; surfaceTerrainM2: number | null; surfacePlancherM2: number | null; nbEtages: number | null }
 type Mode = 'calage' | 'trace';
 type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convertToViewportPoint(x: number, y: number): number[] }; ratio: number };
@@ -54,6 +54,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   const [planIndex, setPlanIndex] = useState(0);
   const [avertissement, setAvertissement] = useState<{ faire: () => void } | null>(null); // action différée quand un tracé/calage est en cours
   const [pleinListe, setPleinListe] = useState(false); // repli « voir toutes les pièces du dossier » (escape hatch, jamais un cul-de-sac)
+  // PROJ-3f ① — DEUX navigations DISTINCTES : 'bestof' (bande des plans proposés) et 'piece' (feuilleter les pages d'une pièce ouverte au repli).
+  const [nav, setNav] = useState<'bestof' | 'piece'>('bestof');
+  const [nbPagesPiece, setNbPagesPiece] = useState(1); // nb de pages de la pièce courante (borne la nav pièce) — connu au rendu pdfjs, à la demande
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bande = useMemo(() => construireBandePlans(pieces), [pieces]);
 
@@ -72,10 +75,12 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
         if (j.indisponibles?.includes('batiments')) { setEtat('erreur'); setMessage('Bâtiments indisponibles : rechargez.'); return; }
         setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte);
         // PROJ-3e — on ouvre DIRECTEMENT sur le 1er plan de la bande (le mieux classé) ; à défaut de plan proposé, la 1re pièce.
-        const b0 = construireBandePlans(j.pieces)[0];
-        setPlanIndex(0);
-        setPieceId(b0?.pieceId ?? j.pieces[0]?.id ?? null);
-        setPage(b0?.page ?? 1);
+        const b = construireBandePlans(j.pieces);
+        setNav('bestof'); setPlanIndex(0);
+        setPieceId(b[0]?.pieceId ?? j.pieces[0]?.id ?? null);
+        setPage(b[0]?.page ?? 1);
+        // PROJ-3f (correction D) — bande PAUVRE (0 ou 1 planche) → on pré-déplie le repli pour offrir tout de suite l'accès à toute pièce/page.
+        setPleinListe(b.length <= 1);
         setEtat('ok');
       } catch { if (!annule) { setEtat('erreur'); setMessage('Bâtiments indisponibles (erreur de chargement).'); } }
     })();
@@ -121,6 +126,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
       const pdfjs = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as typeof import('pdfjs-dist');
       pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
       const pdf = await pdfjs.getDocument(url).promise;
+      setNbPagesPiece(pdf.numPages); // PROJ-3f ① — borne la nav pièce (connu à la demande, jamais un chargement en masse)
       const p = Math.min(Math.max(1, page), pdf.numPages);
       const pageObj = await pdf.getPage(p);
       const canvas = canvasRef.current; if (!canvas) return;
@@ -137,31 +143,42 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
     } catch { setMessage('impossible d’afficher la page (PDF illisible)'); } finally { setOccupe(false); }
   }, [pieceId, page]);
 
-  // PROJ-3e — AUTO-AFFICHAGE du plan courant : au chargement (etat→ok) et à chaque changement de plan (planIndex). On passe par une
-  //   ref stable pour NE PAS déclencher un rendu à chaque frappe dans le champ page du repli (le rendu suit le PLAN, pas la page brute).
+  // PROJ-3e/3f — AUTO-AFFICHAGE de la page courante : au chargement (etat→ok) et à chaque changement de (pièce, page). Toute navigation
+  //   (bande best-of OU pièce libre) ne fait que poser pieceId/page → cet effet rend. Ref stable pour ne pas se lier à afficherPage.
   const afficherPageRef = useRef(afficherPage);
   useEffect(() => { afficherPageRef.current = afficherPage; }, [afficherPage]);
-  useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [planIndex, etat]);
+  useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [pieceId, page, etat]);
 
-  // PROJ-3e — CHANGER DE PLAN sans perdre le travail en silence : si un calage/tracé est en cours, on diffère l'action (confirmation
-  //   inline) ; sinon on l'exécute. Un calage/tracé n'a de sens que sur SON plan (points en espace-page) → on l'abandonne à l'échange.
+  // PROJ-3e — CHANGER DE PAGE/PLAN sans perdre le travail en silence : un calage/tracé en cours → on diffère (confirmation inline) ;
+  //   sinon on exécute. Le travail n'a de sens que sur SA page (points en espace-page) → on l'abandonne à l'échange (même règle qu'avant).
   const demanderChangement = useCallback((faire: () => void) => {
     if (travailEnCours(paires.length, sommets.length)) setAvertissement({ faire });
     else faire();
   }, [paires.length, sommets.length]);
 
+  // Nav BEST-OF : va au plan `cible` de la bande (et repasse en mode best-of).
   const appliquerPlan = useCallback((cible: number) => {
     if (bande.length === 0) return;
     const i = bornerIndex(cible, bande.length);
-    setPlanIndex(i); setPieceId(bande[i].pieceId); setPage(bande[i].page);
+    setNav('bestof'); setPlanIndex(i); setPieceId(bande[i].pieceId); setPage(bande[i].page);
     setPaires([]); setSommets([]); setPlanEnAttente(null); setMode('calage'); // le travail était attaché au plan quitté
   }, [bande]);
 
-  // Repli : afficher une pièce/page QUELCONQUE (staging via le sélecteur + champ page ci-dessous), rendu explicite. Réinitialise le travail.
-  const afficherLibre = useCallback(() => {
+  // PROJ-3f ① — Nav PIÈCE LIBRE : ouvrir une pièce quelconque (depuis le repli) en mode 'piece', à la page 1.
+  const ouvrirPieceLibre = useCallback((id: number) => demanderChangement(() => {
+    if (id <= 0) return;
+    setNav('piece'); setPieceId(id); setPage(1);
     setPaires([]); setSommets([]); setPlanEnAttente(null); setMode('calage');
-    void afficherPage();
-  }, [afficherPage]);
+  }), [demanderChangement]);
+
+  // PROJ-3f ① — feuilleter les pages de la pièce courante, borné [1 ; nbPagesPiece].
+  const changerPage = useCallback((delta: number) => demanderChangement(() => {
+    setPage((p) => bornerPage(p + delta, nbPagesPiece));
+    setPaires([]); setSommets([]); setPlanEnAttente(null); setMode('calage');
+  }), [demanderChangement, nbPagesPiece]);
+
+  // PROJ-3f ① — revenir au best-of : restaure le plan courant de la bande (repasse en mode best-of).
+  const retourBestOf = useCallback(() => demanderChangement(() => appliquerPlan(planIndex)), [demanderChangement, appliquerPlan, planIndex]);
 
   const cliquerPdf = useCallback((ev: ReactMouseEvent<HTMLDivElement>) => {
     const canvas = canvasRef.current; if (!canvas || !apercu) return;
@@ -254,28 +271,31 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
           {/* Colonne PDF */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', minWidth: 0 }}>
-            {/* PROJ-3e — BANDE DE PLANS : on feuillette les plans proposés (ordre PROJ-3d) sans changer de fichier ni saisir de page. */}
-            <BandePlans bande={bande} index={planIndex}
-              onPrecedent={() => demanderChangement(() => appliquerPlan(indexPrecedent(planIndex, bande.length)))}
-              onSuivant={() => demanderChangement(() => appliquerPlan(indexSuivant(planIndex, bande.length)))} />
+            {/* PROJ-3f ① — DEUX navigations DISTINCTES, une seule visible à la fois, identifiée par son EN-TÊTE (les MOTS, pas la couleur). */}
+            {nav === 'bestof' ? (
+              <BandePlans bande={bande} index={planIndex}
+                onPrecedent={() => demanderChangement(() => appliquerPlan(indexPrecedent(planIndex, bande.length)))}
+                onSuivant={() => demanderChangement(() => appliquerPlan(indexSuivant(planIndex, bande.length)))} />
+            ) : (
+              <NavPieceLibre nomFichier={pieces.find((p) => p.id === pieceId)?.nomFichier ?? 'pièce'} page={page} nbPages={nbPagesPiece}
+                onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} onRetourBestOf={retourBestOf} />
+            )}
             {avertissement && (
               <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span>Un calage ou un tracé est en cours sur ce plan — changer de plan l’abandonnera.</span>
+                <span>Un calage ou un tracé est en cours — changer de page l’abandonnera.</span>
                 <button type="button" style={btn} onClick={() => { avertissement.faire(); setAvertissement(null); }}>Changer quand même</button>
                 <button type="button" style={btn} onClick={() => setAvertissement(null)}>Rester</button>
               </div>
             )}
-            {/* Repli : atteindre N'IMPORTE QUELLE pièce et N'IMPORTE QUELLE page (le tri PROPOSE, il n'enferme jamais). */}
+            {/* Repli : atteindre N'IMPORTE QUELLE pièce (le tri PROPOSE, il n'enferme jamais) ; l'ouvrir passe en nav « pièce libre » (page par page). */}
             <div>
               <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', fontSize: 12 }} aria-expanded={pleinListe} onClick={() => setPleinListe((v) => !v)}>
                 {pleinListe ? 'masquer les autres pièces' : 'voir toutes les pièces du dossier'} {pleinListe ? '▲' : '▾'}
               </button>
               {pleinListe && (
                 <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.3rem' }}>
-                  <SelecteurPiecePlan pieces={pieces} pieceId={pieceId}
-                    onChoisir={(id) => { setPieceId(id || null); const p = pieces.find((x) => x.id === id); if (p?.pagePlan) setPage(p.pagePlan); }} />
-                  <label style={styleAide}>page <input type="number" min={1} value={page} onChange={(e) => setPage(Math.max(1, Number(e.target.value) || 1))} style={{ width: 54 }} /></label>
-                  <button type="button" style={btn} disabled={occupe || pieceId === null} onClick={() => demanderChangement(afficherLibre)}>Afficher</button>
+                  <SelecteurPiecePlan pieces={pieces} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} />
+                  <span style={styleAide}>Ouvre la pièce et la feuillette page par page (‹ / › ci-dessus).</span>
                 </div>
               )}
             </div>

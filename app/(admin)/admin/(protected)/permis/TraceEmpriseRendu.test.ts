@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, type PiecePlan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, type PiecePlan } from './TraceEmpriseRendu';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
@@ -69,8 +69,8 @@ describe('PROJ-2 — rendu pur', () => {
 
 describe('PROJ-3d — sélecteur de pièce : plans de masse proposés en tête, repli garanti', () => {
   const pieces: PiecePlan[] = [
-    { id: 55, nomFichier: 'PC2.1_Plan_de_masse_projet.pdf', propose: true, pagePlan: 1, echelle: '1:1000', confirme: true },
-    { id: 60, nomFichier: 'PC2.2_Plan_de_masse_existant.pdf', propose: true, pagePlan: 1, echelle: null, confirme: true },
+    { id: 55, nomFichier: 'PC2.1_Plan_de_masse_projet.pdf', propose: true, planches: [{ page: 1, echelle: '1:1000' }], confirme: true },
+    { id: 60, nomFichier: 'PC2.2_Plan_de_masse_existant.pdf', propose: true, planches: [{ page: 1, echelle: null }], confirme: true },
     { id: 70, nomFichier: 'PC4_Notice.pdf', propose: false },
     { id: 71, nomFichier: 'CERFA.pdf', propose: false },
   ];
@@ -79,17 +79,16 @@ describe('PROJ-3d — sélecteur de pièce : plans de masse proposés en tête, 
     expect(proposees.map((p) => p.id)).toEqual([55, 60]);
     expect(autres.map((p) => p.id)).toEqual([70, 71]);
   });
-  it('etiquettePiecePlan ajoute page + échelle si confirmées', () => {
-    expect(etiquettePiecePlan(pieces[0])).toContain('p.1');
-    expect(etiquettePiecePlan(pieces[0])).toContain('1:1000');
-    expect(etiquettePiecePlan(pieces[2])).toBe('PC4_Notice.pdf'); // pas de page → nom seul
+  it('etiquettePiecePlan : nom + nombre de planches détectées', () => {
+    expect(etiquettePiecePlan(pieces[0])).toBe('PC2.1_Plan_de_masse_projet.pdf — 1 planche');
+    expect(etiquettePiecePlan(pieces[2])).toBe('PC4_Notice.pdf'); // pas de planche → nom seul
   });
   it('rend DEUX optgroups ; TOUTES les pièces restent présentes (repli)', () => {
     const html = renderToStaticMarkup(h(SelecteurPiecePlan, { pieces, pieceId: 55, onChoisir: () => {} }));
     expect(html).toContain('Plans de masse proposés');
     expect(html).toContain('Toutes les autres pièces');
-    // la page proposée figure dans le libellé du plan
-    expect(html).toContain('p.1');
+    // le nombre de planches figure dans le libellé de la pièce proposée
+    expect(html).toContain('1 planche');
     // aucune pièce n'est masquée : les 4 ids sont là
     for (const id of [55, 60, 70, 71]) expect(html).toContain(`value="${id}"`);
     // le plan de masse est bien AVANT la notice dans le markup (proposées en tête)
@@ -103,16 +102,18 @@ describe('PROJ-3d — sélecteur de pièce : plans de masse proposés en tête, 
 
 describe('PROJ-3e — bande de plans : feuilleter (fonctions pures)', () => {
   const pieces: PiecePlan[] = [
-    { id: 55, nomFichier: 'PC2.1_Plan_de_masse_projet.pdf', propose: true, pagePlan: 1, echelle: '1:1000', confirme: true },
-    { id: 60, nomFichier: 'PC2.2_Plan_de_masse_existant.pdf', propose: true, pagePlan: null, echelle: null, confirme: false },
+    // pièce MULTI-PAGES (forme mesurée sur 07512025V0035) : cartouche exclu → 2 planches (pages 4 et 6)
+    { id: 55, nomFichier: 'PC2_2D_PDM.pdf', propose: true, planches: [{ page: 4, echelle: '1:200' }, { page: 6, echelle: null }], confirme: true },
+    // pièce proposée NON confirmée (texte illisible) → repli sur la page 1
+    { id: 60, nomFichier: 'PC2.2_Plan_de_masse.pdf', propose: true, planches: [], confirme: false },
     { id: 70, nomFichier: 'PC4_Notice.pdf', propose: false },
   ];
-  it('construireBandePlans : uniquement les proposées, ordre conservé, page = pagePlan ?? 1', () => {
+  it('construireBandePlans : une entrée PAR PLANCHE (pièce multi-pages éclatée), repli page 1 si non confirmée', () => {
     const b = construireBandePlans(pieces);
-    expect(b.map((p) => p.pieceId)).toEqual([55, 60]);     // la notice (non proposée) n'est PAS dans la bande
-    expect(b[0].page).toBe(1);
-    expect(b[1].page).toBe(1);                              // pagePlan null → page 1 (n'invente rien)
-    expect(b[1].confirme).toBe(false);
+    expect(b.map((p) => `${p.pieceId}:${p.page}`)).toEqual(['55:4', '55:6', '60:1']); // 2 planches de PC2 + repli page 1
+    expect(b[0].confirme).toBe(true);
+    expect(b[2].confirme).toBe(false);                     // pièce non confirmée → page 1
+    expect(b.some((p) => p.pieceId === 70)).toBe(false);   // la notice (non proposée) n'est PAS dans la bande
   });
   it('navigation bornée : premier, suivant, précédent, un seul plan, liste vide', () => {
     expect(indexSuivant(0, 7)).toBe(1);
@@ -122,9 +123,9 @@ describe('PROJ-3e — bande de plans : feuilleter (fonctions pures)', () => {
     expect(bornerIndex(5, 1)).toBe(0);                      // un seul plan
     expect(bornerIndex(0, 0)).toBe(0);                      // liste vide
   });
-  it('libellePlan : nom + échelle si présente', () => {
-    expect(libellePlan({ pieceId: 1, page: 1, nomFichier: 'PC2.pdf', echelle: '1:500', confirme: true })).toBe('PC2.pdf · échelle 1:500');
-    expect(libellePlan({ pieceId: 1, page: 1, nomFichier: 'PC2.pdf', echelle: null, confirme: true })).toBe('PC2.pdf');
+  it('libellePlan : nom + n° de page + échelle si présente', () => {
+    expect(libellePlan({ pieceId: 1, page: 4, nomFichier: 'PC2.pdf', echelle: '1:500', confirme: true })).toBe('PC2.pdf — page 4 · échelle 1:500');
+    expect(libellePlan({ pieceId: 1, page: 2, nomFichier: 'PC2.pdf', echelle: null, confirme: true })).toBe('PC2.pdf — page 2');
   });
   it('travailEnCours : un calage OU un tracé commencé ⇒ confirmation requise', () => {
     expect(travailEnCours(0, 0)).toBe(false);
@@ -134,12 +135,42 @@ describe('PROJ-3e — bande de plans : feuilleter (fonctions pures)', () => {
   it('BandePlans : indicateur « plan i sur n », bornes désactivées, bande vide → repli', () => {
     const bande = construireBandePlans(pieces);
     const h0 = renderToStaticMarkup(h(BandePlans, { bande, index: 0, onPrecedent: () => {}, onSuivant: () => {} }));
-    expect(h0).toContain('plan 1 sur 2');
+    expect(h0).toContain('plan 1 sur 3'); // 2 planches de PC2 (multi-pages) + 1 repli
     expect(h0).toMatch(/‹ précédent<\/button>/);           // rendu
     // au premier plan, « précédent » est désactivé
     expect(h0).toMatch(/disabled[^>]*aria-label="Plan précédent"|aria-label="Plan précédent"[^>]*disabled/);
     const vide = renderToStaticMarkup(h(BandePlans, { bande: [], index: 0, onPrecedent: () => {}, onSuivant: () => {} }));
     expect(vide).toContain('voir toutes les pièces du dossier');
+  });
+});
+
+describe('PROJ-3f ① — navigation PIÈCE LIBRE (feuilleter les pages d’une pièce, distincte du best-of)', () => {
+  it('bornerPage : bornes [1 ; nbPages], nbPages ramené à ≥ 1', () => {
+    expect(bornerPage(0, 8)).toBe(1);   // borne basse
+    expect(bornerPage(9, 8)).toBe(8);   // borne haute
+    expect(bornerPage(4, 8)).toBe(4);
+    expect(bornerPage(1, 1)).toBe(1);   // une seule page
+    expect(bornerPage(3, 0)).toBe(1);   // nbPages inconnu → 1
+  });
+  it('NavPieceLibre : « Pièce : <nom> », « page i sur n », retour best-of, bornes désactivées', () => {
+    const h1 = renderToStaticMarkup(h(NavPieceLibre, { nomFichier: 'PC3_2D_PDM.pdf', page: 1, nbPages: 18, onPagePrecedente: () => {}, onPageSuivante: () => {}, onRetourBestOf: () => {} }));
+    expect(h1).toContain('Pièce : PC3_2D_PDM.pdf');
+    expect(h1).toContain('page 1 sur 18');
+    expect(h1).toContain('revenir au best-of');
+    // page 1 → « page précédente » désactivée, « suivante » active
+    expect(h1).toMatch(/disabled[^>]*aria-label="Page précédente"|aria-label="Page précédente"[^>]*disabled/);
+    expect(h1).not.toMatch(/disabled[^>]*aria-label="Page suivante"|aria-label="Page suivante"[^>]*disabled/);
+    // dernière page → « suivante » désactivée
+    const hN = renderToStaticMarkup(h(NavPieceLibre, { nomFichier: 'X.pdf', page: 18, nbPages: 18, onPagePrecedente: () => {}, onPageSuivante: () => {}, onRetourBestOf: () => {} }));
+    expect(hN).toMatch(/disabled[^>]*aria-label="Page suivante"|aria-label="Page suivante"[^>]*disabled/);
+  });
+});
+
+describe('PROJ-3f ① — le best-of est un MODE nommé par les mots (pas la couleur)', () => {
+  it('BandePlans affiche l’en-tête « Best-of des plans proposés »', () => {
+    const bande = construireBandePlans([{ id: 1, nomFichier: 'PC2.pdf', propose: true, planches: [{ page: 1, echelle: null }], confirme: true }]);
+    const html = renderToStaticMarkup(h(BandePlans, { bande, index: 0, onPrecedent: () => {}, onSuivant: () => {} }));
+    expect(html).toContain('Best-of des plans proposés');
   });
 });
 

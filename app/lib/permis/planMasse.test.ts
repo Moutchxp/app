@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scoreNomPlanMasse, classerPiecesPlanMasse, texteEstPlanMasse, pagePlanMasse, lireEchelleTexte, type PieceScorable } from './planMasse';
+import { scoreNomPlanMasse, classerPiecesPlanMasse, texteEstPlanMasse, pagePlanMasse, lireEchelleTexte, estPageCartouche, pagesPlanches, type PieceScorable } from './planMasse';
 
 // Noms RÉELS mesurés sur le dossier 11430 (cf. recon PROJ-3d).
 const PLANS = [
@@ -59,6 +59,35 @@ describe('PROJ-3d — confirmation par texte + numéro de page', () => {
   it('pagePlanMasse : première page plan de masse (1-based), sinon null', () => {
     expect(pagePlanMasse(['garde', 'PLAN DE MASSE', 'coupe'])).toBe(2);
     expect(pagePlanMasse(['texte', 'texte'])).toBeNull();
+  });
+});
+
+describe('PROJ-3f — cartouche exclu, pièce multi-pages éclatée en planches (pur)', () => {
+  it('estPageCartouche : le TITRE réglementaire est un signal d’EXCLUSION (inverse de PROJ-3d)', () => {
+    // page de garde PC2 mesurée sur 07512025V0035
+    expect(estPageCartouche('PC2 PLAN DE MASSE DES CONSTRUCTIONS À ÉDIFIER OU MODIFIER — bureaux d’études')).toBe(true);
+    expect(estPageCartouche('constructions à modifier')).toBe(true);
+    // une planche NE porte PAS ce titre
+    expect(estPageCartouche('cotes 128.40 NGF, limite de parcelle, R+5')).toBe(false);
+  });
+  it('pièce MULTI-PAGES (forme mesurée sur PC2_2D_PDM) : cartouche exclu, texte + planches gardés', () => {
+    // p1 = cartouche titré, p2-3 = texte, p4-8 = planches (sans le titre)
+    const pages = [
+      'PC2 PLAN DE MASSE DES CONSTRUCTIONS À ÉDIFIER OU MODIFIER',
+      'nomenclature des surfaces …',
+      'plan de situation 1/10000',
+      'planche : implantation R+5', 'planche : niveaux', 'planche A0', 'planche A0', 'planche A0',
+    ];
+    expect(pagesPlanches(pages)).toEqual([2, 3, 4, 5, 6, 7, 8]); // page 1 (cartouche) EXCLUE, le reste feuilletable
+  });
+  it('pièce MONO-PAGE (cas 11430) : la page est gardée même si elle porte le titre (titre + dessin coexistent) — non-régression', () => {
+    expect(pagesPlanches(['PC2.1 PLAN DE MASSE DES CONSTRUCTIONS À ÉDIFIER — le dessin est ici'])).toEqual([1]);
+  });
+  it('pièce SCANNÉE (aucune couche texte) : rien n’est reconnu cartouche → TOUTES les pages entrent (jamais bloquant)', () => {
+    expect(pagesPlanches(['', '', ''])).toEqual([1, 2, 3]);
+  });
+  it('pièce illisible (0 page) → [] (l’appelant repliera sur la page 1)', () => {
+    expect(pagesPlanches([])).toEqual([]);
   });
 });
 
