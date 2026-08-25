@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
@@ -106,6 +106,18 @@ export async function POST(request: Request): Promise<Response> {
     const dossierId = coercerDossierId(body.dossierId);
     if (dossierId === null) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
 
+    // APERÇU DÉBORDEMENT (lecture seule, jamais bloquant) — recalcule le Lambert CÔTÉ SERVEUR (garde PROJ) depuis le calage + le tracé
+    //   en cours, puis mesure la part hors parcelle. Réutilise le chemin d'enregistrement (mêmes paires/anneauPlan/corpsId), sans écrire.
+    //   Contour non fermé (< 3 sommets) ou calage insuffisant → { debordement: null } (aucune valeur inventée).
+    if (body.action === 'apercu_debordement') {
+      const paires = Array.isArray(body.paires) ? body.paires : [];
+      const anneauPlan = Array.isArray(body.anneauPlan) ? body.anneauPlan : [];
+      if (anneauPlan.length < 3) return Response.json({ debordement: null });
+      const sim = calculerSimilitude(paires);
+      if (sim === null) return Response.json({ debordement: null });
+      return Response.json({ debordement: await mesurerDebordement(dossierId, anneauVersLambert(sim, anneauPlan)) });
+    }
+
     if (body.action === 'supprimer') {
       if (!Number.isInteger(body.id)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
       const nb = await supprimerEmprise(body.id as number, dossierId);
@@ -170,8 +182,9 @@ export async function POST(request: Request): Promise<Response> {
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
       const contexte = await lireContexteEmprise(dossierId);
       const vraisemblance = verdictVraisemblance({ aireM2: aireM2(anneauLambert), corpsId: body.corpsId as number, surfacePlancherM2: contexte.surfacePlancherM2, surfaceTerrainM2: contexte.surfaceTerrainM2, batiments: contexte.batiments });
+      const debordement = await mesurerDebordement(dossierId, anneauLambert); // repère indicatif, même géométrie Lambert serveur ; jamais bloquant
       const [emprises, ignores] = await Promise.all([listerEmprises(dossierId), listerIgnorees(dossierId)]);
-      return Response.json({ ok: true, id: res.id, surfaceM2: aireM2(anneauLambert), calage: vc, vraisemblance, emprises, ignores });
+      return Response.json({ ok: true, id: res.id, surfaceM2: aireM2(anneauLambert), calage: vc, vraisemblance, debordement, emprises, ignores });
     }
 
     return Response.json({ erreur: 'action inconnue' }, { status: 400 });

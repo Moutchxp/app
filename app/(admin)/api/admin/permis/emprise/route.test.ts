@@ -23,6 +23,7 @@ vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
   listerPolygonesProjetEcartes: async () => ['BATIMENT0009'],
   ecarterPolygoneProjet: vi.fn(async () => ({ ok: true })),
   retablirPolygoneProjet: vi.fn(async () => ({ ok: true })),
+  mesurerDebordement: vi.fn(async () => ({ aireM2: 100, parcelleRattachee: true, aireHorsM2: 7, pctHors: 7, decalageLateralM: 0.5 })),
 }));
 const HG = vi.hoisted(() => ({
   // PROJ-3f/3m — texte simulé d'une pièce MULTI-PAGES : p1 = cartouche titré (exclu), p2-p3 = planches. vi.fn → surchargeable par test.
@@ -130,6 +131,7 @@ describe('PROJ-2 — POST enregistrer : géométrie recalculée SERVEUR (plan �
     expect(j.id).toBe(42);
     expect(j.surfaceM2).toBeCloseTo(100, 6); // 5×5 pt × échelle² (4) = 100 m²
     expect(j.vraisemblance.empriseVsPlancher).toBe('petite'); // attendu ~300 m² (900/3), tolérance ±40 % → [180;420] ; 100 < 180
+    expect(j.debordement).toMatchObject({ parcelleRattachee: true, pctHors: 7 }); // repère de débordement joint à la réponse
     // l'anneau PASSÉ au repo est en LAMBERT (×2), pas le tracé plan
     const arg = (enregistrerEmprise as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0] as { anneau: { x: number; y: number }[]; dossierId: number; corpsId: number };
     expect(arg.dossierId).toBe(11434);              // chaîne bigint acceptée et coercée
@@ -223,5 +225,25 @@ describe('PROJ-2b — POST ignorer / retablir la projection', () => {
   });
   it('ignorer sans corpsId → 400', async () => {
     expect((await post({ action: 'ignorer', dossierId: 11434, motif: 'x' })).status).toBe(400);
+  });
+});
+
+describe('PROJ — action apercu_debordement : Lambert recalculé SERVEUR, lecture seule, jamais bloquant', () => {
+  const paires = [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }];
+  it('contour fermé (≥3) + calage valide → renvoie le repère de débordement (via mesurerDebordement)', async () => {
+    const res = await post({ action: 'apercu_debordement', dossierId: 11434, corpsId: 3, paires, anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] });
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(j.debordement).toMatchObject({ parcelleRattachee: true, pctHors: 7 });
+  });
+  it('contour NON fermé (<3 sommets) → { debordement: null } sans toucher la base', async () => {
+    const res = await post({ action: 'apercu_debordement', dossierId: 11434, corpsId: 3, paires, anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }] });
+    expect(res.status).toBe(200);
+    expect((await res.json()).debordement).toBeNull();
+  });
+  it('calage insuffisant (0 paire) → { debordement: null }', async () => {
+    const res = await post({ action: 'apercu_debordement', dossierId: 11434, corpsId: 3, paires: [], anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] });
+    expect(res.status).toBe(200);
+    expect((await res.json()).debordement).toBeNull();
   });
 });

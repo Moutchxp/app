@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type CSSProperties } from 'react';
 import {
   calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, cadreDeAnneaux,
-  inverseDepuisBoite, ecranVersCanvas, estClic, type Boite, type PaireCalage, type PointPlan, type PointLambert, type VerdictCalage, type VerdictVraisemblance,
+  inverseDepuisBoite, ecranVersCanvas, estClic, type Boite, type PaireCalage, type PointPlan, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, FILTRES_SCHEMA_DEFAUT, type FiltresSchema } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, FILTRES_SCHEMA_DEFAUT, type FiltresSchema } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
 
@@ -50,6 +50,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   const [paires, setPaires] = useState<PaireCalage[]>([]);
   const [planEnAttente, setPlanEnAttente] = useState<PointPlan | null>(null);
   const [sommets, setSommets] = useState<PointPlan[]>([]);
+  const [debordement, setDebordement] = useState<Debordement | null>(null); // repère « débordement hors parcelle » (serveur), live + après enregistrement
   const [motifIgnore, setMotifIgnore] = useState('');
   const [apercu, setApercu] = useState<Apercu | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -95,7 +96,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
         // Résilience serveur : « indisponible » ≠ « vide ». Si la lecture des BÂTIMENTS a échoué, on n'affiche JAMAIS « 0 bâtiment »
         //   (panne déguisée en donnée) → état d'échec explicite invitant à recharger.
         if (j.indisponibles?.includes('batiments')) { setEtat('erreur'); setMessage('Bâtiments indisponibles : rechargez.'); return; }
-        setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setAngle(0);
+        setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setAngle(0); setDebordement(null);
         // PROJ-3e — on ouvre DIRECTEMENT sur le 1er plan de la bande (le mieux classé) ; à défaut de plan proposé, la 1re pièce.
         const b = construireBandePlans(j.pieces);
         setNav('bestof'); setPlanIndex(0);
@@ -137,6 +138,26 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [pleinEcran]);
+
+  // PROJ — APERÇU LIVE du débordement (débonce 400 ms) : la géométrie Lambert est recalculée CÔTÉ SERVEUR (garde PROJ) ; on ne fait
+  //   qu'AFFICHER. On ne met à jour l'état QUE depuis le callback ASYNC (jamais un setState synchrone dans l'effet). Un contour non
+  //   fermé (< 3 sommets) n'interroge pas et n'efface rien : le rendu masque de toute façon un débordement tant que < 3 sommets.
+  useEffect(() => {
+    if (etat !== 'ok' || sommets.length < 3 || corpsEffectif === null || calculerSimilitude(paires) === null) return;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
+            body: JSON.stringify({ action: 'apercu_debordement', dossierId, corpsId: corpsEffectif, paires, anneauPlan: sommets }) });
+          if (!res.ok) return;
+          const j = await res.json() as { debordement: Debordement | null };
+          setDebordement(j.debordement ?? null);
+        } catch { /* aborté / réseau : on n'invente aucune valeur */ }
+      })();
+    }, 400);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [sommets, paires, corpsEffectif, dossierId, etat]);
 
   const ratioDeclare = (() => { const n = Number(ratioDeclareSaisi.replace(',', '.')); return ratioDeclareSaisi.trim() !== '' && Number.isFinite(n) && n > 0 ? n : null; })();
   const sim = calculerSimilitude(paires);
@@ -260,10 +281,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
     try {
       const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'enregistrer', dossierId, corpsId: corpsEffectif, libelle: batSel.repere ?? `bâtiment ${corpsEffectif}`, pieceId, page, anneauPlan: sommets, paires, ratioDeclare }) });
-      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; ignores?: ProjectionIgnoree[] };
+      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; ignores?: ProjectionIgnoree[]; debordement?: Debordement | null };
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'enregistrement refusé'); return; }
       setEmprises(j.emprises ?? []); if (j.ignores) setIgnores(j.ignores);
-      setSommets([]); setMessage('emprise reconstituée enregistrée');
+      setSommets([]); setDebordement(j.debordement ?? null); setMessage('emprise reconstituée enregistrée'); // repère conservé « après enregistrement »
     } catch { setMessage('erreur d’enregistrement'); } finally { setOccupe(false); }
   }, [sim, sommets, corpsEffectif, batSel, dossierId, pieceId, page, paires, ratioDeclare]);
 
@@ -412,11 +433,14 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
               <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'calage' ? 700 : 400 }} onClick={() => setMode('calage')}>Calage ({paires.length}/2)</button>
               <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'trace' ? 700 : 400 }} onClick={() => setMode('trace')}>Tracé ({sommets.length})</button>
               <button type="button" style={btn} onClick={() => mode === 'trace' ? setSommets((s) => s.slice(0, -1)) : (planEnAttente ? setPlanEnAttente(null) : setPaires((p) => p.slice(0, -1)))}>Annuler dernier</button>
-              <button type="button" style={btn} onClick={() => { setSommets([]); setPaires([]); setPlanEnAttente(null); }}>Reprendre</button>
+              <button type="button" style={btn} onClick={() => { setSommets([]); setPaires([]); setPlanEnAttente(null); setDebordement(null); }}>Reprendre</button>
               <label style={styleAide}>échelle 1: <input inputMode="numeric" value={ratioDeclareSaisi} onChange={(e) => setRatioDeclareSaisi(e.target.value)} placeholder="200" style={{ width: 60 }} /></label>
             </div>
             <BandeauCalage calage={vc} nbPaires={paires.length} />
             <BandeauVraisemblance aireM2={aire} v={vv} />
+            {/* PROJ — repère « qualité du calage » : écart d'échelle (réutilisé du pavé de calage) + débordement hors parcelle (serveur). Jamais bloquant. */}
+            <RepereQualiteCalage ecartEchelleRelatif={vc?.ecartEchelleRelatif ?? null} ratioImplicite={vc?.ratioImplicite ?? null} ratioDeclare={vc?.ratioDeclare ?? null}
+              debordement={sommets.length >= 3 || sommets.length === 0 ? debordement : null} contourFerme={sommets.length >= 3} parcelleRattachee={parcelle.length > 0} />
             <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe || !tracable || !sim || sommets.length < 3} onClick={() => void enregistrer()}>
               Enregistrer l’emprise de {batSel.repere ?? `bâtiment ${batSel.corpsId}`}
             </button>

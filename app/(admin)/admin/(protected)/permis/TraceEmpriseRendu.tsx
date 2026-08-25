@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import {
-  projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance,
+  projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
@@ -242,6 +242,50 @@ export function BandeauVraisemblance({ aireM2, v }: { aireM2: number | null; v: 
           {v.messages.length === 0 && <li>aucun repère de vraisemblance en base (plancher / étages / terrain non renseignés).</li>}
         </ul>
       )}
+    </div>
+  );
+}
+
+/**
+ * REPÈRE « qualité du calage » (PUR) — visible pendant le tracé et après enregistrement. Deux indicateurs INDICATIFS, jamais des
+ * verdicts, jamais bloquants :
+ *  · ÉCART D'ÉCHELLE : échelle implicite mesurée vs déclarée, en % — réutilise `ecartEchelleRelatif` DÉJÀ calculé dans le pavé de
+ *    calage (aucun second calcul) ;
+ *  · DÉBORDEMENT : part de l'emprise hors parcelle rattachée (% + m²) + largeur latérale moyenne équivalente. Le chiffre vient du
+ *    SERVEUR (géométrie Lambert recalculée) ; ici on ne fait qu'AFFICHER (arrondi d'affichage seulement).
+ * Un débordement peut être LÉGITIME (porte-à-faux, balcon, ou parcelle rattachée = une seule des parcelles du permis). On le dit,
+ * on ne qualifie jamais le tracé de faux. « bâtiment », pas « corps » ; une emprise est une reconstitution, jamais une mesure.
+ */
+export function RepereQualiteCalage({ ecartEchelleRelatif, ratioImplicite, ratioDeclare, debordement, contourFerme, parcelleRattachee }: {
+  ecartEchelleRelatif: number | null; ratioImplicite: number | null; ratioDeclare: number | null;
+  debordement: Debordement | null; contourFerme: boolean; parcelleRattachee: boolean;
+}) {
+  const pct1 = (x: number): string => `${(Math.round(x * 10) / 10).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+  return (
+    <div style={carte}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Qualité du calage <span style={muted}>(repères indicatifs, jamais bloquants)</span></div>
+      <ul style={{ ...muted, margin: 0, paddingLeft: '1.1rem' }}>
+        {/* Écart d'échelle — réutilise ce que le pavé de calage a déjà calculé. */}
+        {ratioDeclare !== null && ratioImplicite !== null && ecartEchelleRelatif !== null
+          ? <li>écart d’échelle : <strong>{pct1(ecartEchelleRelatif * 100)}</strong> (implicite 1:{Math.round(ratioImplicite)} vs déclarée 1:{Math.round(ratioDeclare)})</li>
+          : <li>écart d’échelle : échelle déclarée de la planche non saisie — indicateur indisponible.</li>}
+        {/* Débordement — géométrie Lambert recalculée côté serveur. Un chiffre présent s'affiche (tracé en cours OU après
+            enregistrement) ; sinon on explique pourquoi il est indisponible (pas de parcelle, contour non fermé, calcul en cours). */}
+        {debordement !== null
+          ? (!debordement.parcelleRattachee
+              ? <li>débordement : aucune parcelle rattachée — disponible une fois la parcelle rattachée.</li>
+              : (debordement.aireHorsM2 ?? 0) <= 0
+                ? <li>hors parcelle : <strong>0 %</strong> — l’emprise reconstituée est entièrement dans la parcelle rattachée.</li>
+                : <>
+                    <li>hors parcelle : <strong>{pct1(debordement.pctHors ?? 0)}</strong> ({fmtM2(debordement.aireHorsM2 ?? 0)}){debordement.decalageLateralM !== null ? <> · décalage latéral moyen ~<strong>{fmtM(debordement.decalageLateralM)}</strong></> : null}</li>
+                    <li style={{ fontStyle: 'italic' }}>un débordement peut être légitime (porte-à-faux, balcon, ou parcelle rattachée = une seule des parcelles du permis) — repère indicatif, l’emprise est une reconstitution, pas une mesure.</li>
+                  </>)
+          : (!parcelleRattachee
+              ? <li>débordement : aucune parcelle rattachée — disponible une fois la parcelle rattachée.</li>
+              : !contourFerme
+                ? <li>débordement : disponible une fois le contour fermé (≥ 3 sommets).</li>
+                : <li>débordement : calcul en cours…</li>)}
+      </ul>
     </div>
   );
 }

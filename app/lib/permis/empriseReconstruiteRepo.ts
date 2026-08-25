@@ -10,7 +10,7 @@
  * écriture refusée avec motif clair (aucune exception qui remonte). Module PROPRE : n'importe que db/client et le module pur.
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { aireM2, type PointLambert } from './calageEmprise';
+import { aireM2, deriverDebordement, type PointLambert, type Debordement } from './calageEmprise';
 
 /** Journal de calage stocké tel quel (jsonb) — auditable, jamais lissé. */
 export interface CalageTrace {
@@ -87,6 +87,38 @@ export async function enregistrerEmprise(e: EntreeEnregistrement): Promise<Resul
   } catch (err) {
     if (estTableAbsente(err)) return { ok: false, motif: 'table des emprises absente (migration 149 non appliquée)', tableAbsente: true };
     throw err;
+  }
+}
+
+/**
+ * Mesure le DÉBORDEMENT d'une emprise (anneau Lambert-93) hors de la parcelle rattachée (`permis_empreinte`) — REPÈRE indicatif.
+ * 🔴 L'anneau est déjà la géométrie RECALCULÉE CÔTÉ SERVEUR (similitude autoritative dans la route), jamais des coordonnées client.
+ * `ST_Force2D` conservé sur les deux géométries (invariant : jamais retiré des opérations de distance/aire). Aucun arrondi (PostGIS
+ * rend les valeurs brutes ; `deriverDebordement` ne fait que des rapports). Dégradations SÛRES, jamais une valeur inventée :
+ *  · contour < 3 sommets ou coordonnées non finies → `null` ;
+ *  · aucune parcelle rattachée (0 ligne / union NULL) → `parcelleRattachee:false` (part hors indisponible) ;
+ *  · table absente ou exception topologique (contour en cours d'auto-intersection) → `null`.
+ */
+export async function mesurerDebordement(dossierId: number, anneau: PointLambert[]): Promise<Debordement | null> {
+  if (anneau.length < 3 || !anneau.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))) return null;
+  const wkt = anneauVersWkt(anneau);
+  try {
+    const { rows } = await query<{ aire: number; a_parcelle: boolean; aire_hors: number | null; perim_hors: number | null }>(
+      `WITH par AS (SELECT ST_Force2D(ST_Union(geom)) AS g FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL),
+            emp AS (SELECT ST_Force2D(ST_GeomFromText($2, 2154)) AS g)
+       SELECT ST_Area(emp.g)                                                            AS aire,
+              (par.g IS NOT NULL)                                                        AS a_parcelle,
+              CASE WHEN par.g IS NULL THEN NULL ELSE ST_Area(ST_Difference(emp.g, par.g))      END AS aire_hors,
+              CASE WHEN par.g IS NULL THEN NULL ELSE ST_Perimeter(ST_Difference(emp.g, par.g)) END AS perim_hors
+         FROM emp CROSS JOIN par`,
+      [dossierId, wkt]);
+    const r = rows[0];
+    if (!r) return null;
+    return deriverDebordement(Number(r.aire), r.a_parcelle === true, r.aire_hors !== null ? Number(r.aire_hors) : null, r.perim_hors !== null ? Number(r.perim_hors) : null);
+  } catch (err) {
+    if (estTableAbsente(err)) return null;
+    console.error('[permis/emprise] mesurerDebordement indisponible', { dossierId, message: err instanceof Error ? err.message : String(err) });
+    return null;
   }
 }
 

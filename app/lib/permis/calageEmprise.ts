@@ -334,3 +334,28 @@ export function verdictVraisemblance(e: EntreeVraisemblance): VerdictVraisemblan
   }
   return { depasseTerrain, empriseVsPlancher, empriseAttendueM2, messages };
 }
+
+// ── Débordement de l'emprise hors de la parcelle rattachée (REPÈRE indicatif, jamais un verdict) ──────────────────────────────
+export interface Debordement {
+  aireM2: number;                   // aire de l'emprise (base, ST_Area)
+  parcelleRattachee: boolean;       // false = aucune parcelle rattachée → part hors indisponible (jamais une valeur inventée)
+  aireHorsM2: number | null;        // aire de la part hors parcelle (ST_Difference), null si pas de parcelle
+  pctHors: number | null;           // aireHors / aire × 100
+  decalageLateralM: number | null;  // largeur moyenne d'un bandeau équivalent (voir formule ci-dessous), null si pas de parcelle
+}
+/**
+ * Dérive les repères de débordement (PUR) à partir des mesures géométriques brutes venues de PostGIS (aire, aire hors parcelle,
+ * périmètre de la zone hors parcelle). 🔴 Ces mesures sont faites sur la géométrie Lambert-93 RECALCULÉE CÔTÉ SERVEUR (garde PROJ).
+ * AUCUN arrondi ici (l'arrondi n'existe qu'à l'affichage).
+ *
+ * `decalageLateralM` = largeur moyenne du bandeau de débordement : un bandeau mince de longueur L et de largeur w a une aire A ≈ L·w
+ * et un périmètre P ≈ 2·L, donc w ≈ 2·A / P. On prend donc `decalageLateralM = 2 × aireHors / périmètre(zone hors parcelle)` — une
+ * APPROXIMATION clairement nommée « largeur moyenne équivalente », pas une distance mesurée point à point.
+ */
+export function deriverDebordement(aireM2: number, parcelleRattachee: boolean, aireHorsM2: number | null, perimetreHorsM: number | null): Debordement {
+  if (!parcelleRattachee) return { aireM2, parcelleRattachee: false, aireHorsM2: null, pctHors: null, decalageLateralM: null };
+  const hors = aireHorsM2 ?? 0;
+  const pctHors = aireM2 > 0 ? (hors / aireM2) * 100 : 0;
+  const decalageLateralM = perimetreHorsM !== null && perimetreHorsM > 0 ? (2 * hors) / perimetreHorsM : (hors === 0 ? 0 : null);
+  return { aireM2, parcelleRattachee: true, aireHorsM2: hors, pctHors, decalageLateralM };
+}

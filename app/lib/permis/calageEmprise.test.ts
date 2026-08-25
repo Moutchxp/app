@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   calculerSimilitude, appliquerSimilitude, echelleImpliciteMParPt, ratioEchelleImplicite,
   echelleDeclareeMParPt, residuFitM, residuEchelleDeclareeM, verdictCalage, aireM2, anneauVersLambert,
-  verdictVraisemblance, SEUIL_RESIDU_CALAGE_M, type PaireCalage,
+  verdictVraisemblance, deriverDebordement, SEUIL_RESIDU_CALAGE_M, type PaireCalage,
   cadreDeAnneaux, projeterDansBoite, inverseDepuisBoite, rotePoint, boiteEnglobanteRotee, clicVersBoite, ecranVersCanvas, estClic, type Boite,
 } from './calageEmprise';
 
@@ -258,5 +258,34 @@ describe('PROJ-2 — projection parcelle ↔ boîte (dessin ↔ clic), aller-ret
     const bas = projeterDansBoite(b, { x: 1025, y: 2000 });
     const haut = projeterDansBoite(b, { x: 1025, y: 2040 });
     expect(haut.y).toBeLessThan(bas.y);
+  });
+});
+
+describe('PROJ — deriverDebordement : repère indicatif, aucun arrondi, jamais une valeur inventée', () => {
+  it('emprise ENTIÈREMENT dans la parcelle → 0 % hors, décalage 0', () => {
+    const d = deriverDebordement(709.46, true, 0, 0);
+    expect(d.parcelleRattachee).toBe(true);
+    expect(d.aireHorsM2).toBe(0);
+    expect(d.pctHors).toBe(0);
+    expect(d.decalageLateralM).toBe(0);
+  });
+  it('emprise DÉBORDANTE → % et m² hors bruts, décalage latéral = 2·aireHors/périmètre (cas mesuré 2D2)', () => {
+    // 49,63 m² hors sur un bandeau ~60,3 m (périmètre ≈ 120,6) → largeur ≈ 2×49,63/120,6 ≈ 0,82 m
+    const d = deriverDebordement(709.457904947168, true, 49.62504953238064, 120.6);
+    expect(d.pctHors).toBeCloseTo(6.994784212895069, 9);   // aucun arrondi dans le calcul
+    expect(d.aireHorsM2).toBeCloseTo(49.62504953238064, 9);
+    expect(d.decalageLateralM).toBeCloseTo(0.8229, 3);
+  });
+  it('AUCUNE parcelle rattachée → part hors INDISPONIBLE (null), jamais 0 inventé', () => {
+    const d = deriverDebordement(709.46, false, null, null);
+    expect(d.parcelleRattachee).toBe(false);
+    expect(d.aireHorsM2).toBeNull();
+    expect(d.pctHors).toBeNull();
+    expect(d.decalageLateralM).toBeNull();
+  });
+  it('périmètre nul avec une aire hors > 0 (dégénéré) → décalage null, jamais une division par zéro', () => {
+    const d = deriverDebordement(100, true, 5, 0);
+    expect(d.pctHors).toBeCloseTo(5, 9);
+    expect(d.decalageLateralM).toBeNull();
   });
 });

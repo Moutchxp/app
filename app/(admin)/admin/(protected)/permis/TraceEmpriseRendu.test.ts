@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
@@ -370,5 +370,43 @@ describe('PROJ-3m ② — guidage du geste de tracé (pur) : étape, quoi clique
     const html = renderToStaticMarkup(h(GuidageTraceBox, { g: guidageTrace('calage', 0, false, 0, true) }));
     expect(html).toContain('Étape 1');
     expect(html).toMatch(/PLAN/);
+  });
+});
+
+describe('PROJ — RepereQualiteCalage : écart d’échelle (réutilisé) + débordement (serveur), repères jamais bloquants', () => {
+  const base = { ecartEchelleRelatif: 0.015, ratioImplicite: 197, ratioDeclare: 200 };
+  it('écart d’échelle affiché en % (implicite vs déclarée) — réutilise ecartEchelleRelatif du pavé de calage', () => {
+    const html = renderToStaticMarkup(h(RepereQualiteCalage, { ...base, debordement: null, contourFerme: false, parcelleRattachee: true }));
+    expect(html).toContain('1,5 %');
+    expect(html).toContain('1:197');
+    expect(html).toContain('1:200');
+  });
+  it('échelle déclarée ABSENTE → indicateur d’écart indisponible (aucune valeur inventée)', () => {
+    const html = renderToStaticMarkup(h(RepereQualiteCalage, { ecartEchelleRelatif: null, ratioImplicite: 197, ratioDeclare: null, debordement: null, contourFerme: true, parcelleRattachee: true }));
+    expect(html).toMatch(/non saisie|indisponible/);
+  });
+  it('CONTOUR NON FERMÉ → débordement annoncé comme disponible une fois le contour fermé', () => {
+    const html = renderToStaticMarkup(h(RepereQualiteCalage, { ...base, debordement: null, contourFerme: false, parcelleRattachee: true }));
+    expect(html).toMatch(/contour fermé/);
+  });
+  it('PAS DE PARCELLE rattachée → débordement indisponible, disponible une fois la parcelle rattachée', () => {
+    const html = renderToStaticMarkup(h(RepereQualiteCalage, { ...base, debordement: null, contourFerme: true, parcelleRattachee: false }));
+    expect(html).toMatch(/aucune parcelle rattachée/);
+  });
+  it('emprise ENTIÈREMENT dans la parcelle → « hors parcelle 0 % »', () => {
+    const deb = { aireM2: 700, parcelleRattachee: true, aireHorsM2: 0, pctHors: 0, decalageLateralM: 0 };
+    const html = renderToStaticMarkup(h(RepereQualiteCalage, { ...base, debordement: deb, contourFerme: true, parcelleRattachee: true }));
+    expect(html).toMatch(/0\s*%/);
+    expect(html).toMatch(/entièrement dans la parcelle/);
+  });
+  it('emprise DÉBORDANTE → % + m² + décalage, AVEC la mention « débordement peut être légitime » (jamais « faux »)', () => {
+    const deb = { aireM2: 709, parcelleRattachee: true, aireHorsM2: 49.6, pctHors: 6.99, decalageLateralM: 0.82 };
+    const html = renderToStaticMarkup(h(RepereQualiteCalage, { ...base, debordement: deb, contourFerme: true, parcelleRattachee: true }));
+    expect(html).toContain('7,0 %');            // arrondi d'affichage seulement
+    expect(html).toMatch(/m²/);
+    expect(html).toMatch(/décalage latéral/);
+    expect(html).toMatch(/légitime/);           // porte-à-faux / balcon / une des parcelles
+    expect(html).toMatch(/reconstitution/);     // jamais « mesure »
+    expect(html).not.toMatch(/erroné|erreur|incorrect/i); // jamais un verdict de faute (« porte-à-faux » reste un terme légitime)
   });
 });
