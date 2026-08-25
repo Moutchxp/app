@@ -23,10 +23,10 @@ describe('S13 — barre d’onglets Permis (deux groupes nommés)', () => {
     expect(GROUPES_ONGLETS.map((g) => g.titre)).toEqual(['Mise à jour des dossiers', 'Demandes aux mairies']);
     expect(GROUPES_ONGLETS[0].onglets.map((o) => o.cle)).toEqual(['dossiers', 'automatisation', 'rattachement']);
     expect(GROUPES_ONGLETS[1].onglets.map((o) => o.cle)).toEqual(['a_demander', 'en_cours', 'reponses', 'projection', 'archives', 'saisines', 'collaborateurs', 'reglages']);
-    // ordre RÉEL dans le markup : Dossiers, Automatisation, Rattachement, puis À demander, En cours, Réponses, Projection, Archives, Saisines CADA, Collaborateurs, Réglages
+    // ordre RÉEL dans le markup : Dossiers, Automatisation, Rattachement, puis À demander, En cours, Réponses, Analyse et projection, Archives, Saisines CADA, Collaborateurs, Réglages
     const h = rendu('dossiers');
     let pos = -1;
-    for (const lib of ['Dossiers', 'Automatisation', 'Rattachement', 'À demander', 'En cours', 'Réponses', 'Projection', 'Archives', 'Saisines CADA', 'Collaborateurs', 'Réglages']) {
+    for (const lib of ['Dossiers', 'Automatisation', 'Rattachement', 'À demander', 'En cours', 'Réponses', 'Analyse et projection', 'Archives', 'Saisines CADA', 'Collaborateurs', 'Réglages']) {
       const i = h.indexOf(`>${lib}<`);
       expect(i).toBeGreaterThan(pos);
       pos = i;

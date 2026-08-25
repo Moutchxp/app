@@ -18,7 +18,7 @@ const cell: CSSProperties = { padding: '.35rem .5rem', borderBottom: '1px solid 
 const muted: CSSProperties = { color: 'var(--color-svv-muted)', fontSize: 12 };
 
 /** Phrase d'aide : la file « Projection » et son rôle (intervalle entre réception des pièces et apparition du bâti). */
-export const AIDE_PROJECTION = 'File « Projection » : à la réception des pièces, on reconstitue l’emprise au sol des futurs bâtiments (neuve / extension) avant que BD TOPO ne les voie. Une reconstitution, jamais une mesure ; elle n’alimente ni le verdict ni l’altitude.';
+export const AIDE_PROJECTION = 'Onglet « Analyse et projection » : à la réception des pièces, on reconstitue l’emprise au sol des futurs bâtiments (neuve / extension) avant que BD TOPO ne les voie. Une reconstitution, jamais une mesure ; elle n’alimente ni le verdict ni l’altitude.';
 
 export function TableProjection({ file, ouvert, onOuvrir, renderDetail }: {
   file: LigneProjectionAffichee[];

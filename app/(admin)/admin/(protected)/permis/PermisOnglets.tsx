@@ -16,7 +16,7 @@ export const GROUPES_ONGLETS: { titre: string; onglets: { cle: CleOnglet; libell
   { titre: 'Mise à jour des dossiers', onglets: [{ cle: 'dossiers', libelle: 'Dossiers' }, { cle: 'automatisation', libelle: 'Automatisation' }, { cle: 'rattachement', libelle: 'Rattachement' }] },
   // Q5 — l'ex-onglet « Demandes » est SCINDÉ en « À demander » (préparation) puis « En cours » (suivi), en tête du groupe.
   // PROJ-2c — « Projection » S'INSÈRE entre « Réponses » et « Archives » : à la réception des pièces, on reconstitue l'emprise des futurs bâtiments.
-  { titre: 'Demandes aux mairies', onglets: [{ cle: 'a_demander', libelle: 'À demander' }, { cle: 'en_cours', libelle: 'En cours' }, { cle: 'reponses', libelle: 'Réponses' }, { cle: 'projection', libelle: 'Projection' }, { cle: 'archives', libelle: 'Archives' }, { cle: 'saisines', libelle: 'Saisines CADA' }, { cle: 'collaborateurs', libelle: 'Collaborateurs' }, { cle: 'reglages', libelle: 'Réglages' }] },
+  { titre: 'Demandes aux mairies', onglets: [{ cle: 'a_demander', libelle: 'À demander' }, { cle: 'en_cours', libelle: 'En cours' }, { cle: 'reponses', libelle: 'Réponses' }, { cle: 'projection', libelle: 'Analyse et projection' }, { cle: 'archives', libelle: 'Archives' }, { cle: 'saisines', libelle: 'Saisines CADA' }, { cle: 'collaborateurs', libelle: 'Collaborateurs' }, { cle: 'reglages', libelle: 'Réglages' }] },
 ];
 
 const styleTitreGroupe: CSSProperties = { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--color-svv-muted)' };
