@@ -59,6 +59,15 @@ export interface Classement {
   rang: number;
 }
 
+// PROJ-2c — un permis CONCERNE la projection d'emprise au sol ssi il CRÉE ou ÉTEND une emprise : construction neuve (dont
+// immeuble neuf) OU extension. Les SURÉLÉVATIONS et démolitions sont EXCLUES (elles ne changent pas l'emprise au sol). On
+// RÉUTILISE les prédicats `qualifie` existants (pas de nouveau classifieur) ; indépendant du RANG (une extension qui serait
+// aussi une surélévation reste concernée — c'est son emprise nouvelle qui compte). PUR.
+const CLES_CONCERNE_PROJECTION: readonly CleCategorie[] = ['immeuble_neuf', 'construction_neuve', 'extension'];
+export function concerneProjectionEmprise(d: DossierClassable, c: ConfigVeille): boolean {
+  return CATEGORIES.some((cat) => CLES_CONCERNE_PROJECTION.includes(cat.cle) && cat.qualifie(d, c));
+}
+
 /** Toutes les catégories connues (clé + libellé + rang courant) — pour peupler un filtre et étiqueter les compteurs. */
 export function categoriesConnues(c: ConfigVeille): { cle: CleCategorie; libelle: string; rang: number }[] {
   return CATEGORIES.map((cat) => ({ cle: cat.cle, libelle: cat.libelle, rang: cat.rang(c) }));

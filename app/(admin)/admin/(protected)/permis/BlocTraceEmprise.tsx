@@ -23,12 +23,12 @@ type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convert
 
 const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
 
-export function BlocTraceEmprise({ dossierId, batiments, onVerdict }: {
+export function BlocTraceEmprise({ dossierId, onVerdict }: {
   dossierId: number;
-  batiments: BatimentProjection[];
   onVerdict?: (v: VerdictProjection) => void;
 }) {
   const [pieces, setPieces] = useState<Piece[]>([]);
+  const [batiments, setBatiments] = useState<BatimentProjection[]>([]);
   const [emprises, setEmprises] = useState<EmpriseReconstruite[]>([]);
   const [ignores, setIgnores] = useState<ProjectionIgnoree[]>([]);
   const [contexte, setContexte] = useState<Contexte | null>(null);
@@ -55,8 +55,8 @@ export function BlocTraceEmprise({ dossierId, batiments, onVerdict }: {
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`, { cache: 'no-store' });
         if (annule) return;
         if (!res.ok) { setMessage('emprises indisponibles'); return; }
-        const j = await res.json() as { pieces: Piece[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; contexte: Contexte };
-        setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setContexte(j.contexte);
+        const j = await res.json() as { pieces: Piece[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte };
+        setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte);
         setPieceId(j.pieces[0]?.id ?? null);
       } catch { if (!annule) setMessage('erreur de chargement'); }
     })();

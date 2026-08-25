@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { verdictProjectionBatiments, libelleBatiment } from './projectionBatiments';
+import { verdictProjectionBatiments, libelleBatiment, eligibleProjection, effetValidationProjection } from './projectionBatiments';
 
 const B = [{ corpsId: 1, repere: '2D1' }, { corpsId: 2, repere: '2D2' }];
 
@@ -44,5 +44,25 @@ describe('PROJ-2b — blocage de validation par bâtiment (pur)', () => {
 
   it('aucun bâtiment déclaré → PASSANT (rien à exiger, jamais un faux blocage)', () => {
     expect(verdictProjectionBatiments([], [], []).peutValider).toBe(true);
+  });
+});
+
+describe('PROJ-2c — éligibilité à la file Projection (pure)', () => {
+  it('neuve/extension + documents obtenus + non validée → éligible ; sinon non', () => {
+    expect(eligibleProjection(true, true, false)).toBe(true);   // documents obtenus, concerne, pas encore validée
+    expect(eligibleProjection(false, true, false)).toBe(false); // pas de documents (pas satisfait)
+    expect(eligibleProjection(true, false, false)).toBe(false); // surélévation / hors emprise
+    expect(eligibleProjection(true, true, true)).toBe(false);   // déjà validée → a quitté la file
+  });
+});
+
+describe('PROJ-2c — effet de « Valider la projection » (pure)', () => {
+  it('peutValider → quitte la file + marqué suivi en_attente_bati', () => {
+    const e = effetValidationProjection(true);
+    expect(e).toMatchObject({ valide: true, etatSuiviCible: 'en_attente_bati', retireDeFile: true });
+  });
+  it('!peutValider → aucun avancement (ne fait rien)', () => {
+    const e = effetValidationProjection(false);
+    expect(e).toMatchObject({ valide: false, etatSuiviCible: null, retireDeFile: false });
   });
 });

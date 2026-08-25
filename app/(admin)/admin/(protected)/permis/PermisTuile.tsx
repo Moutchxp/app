@@ -11,6 +11,7 @@ import { ReglagesVue } from './ReglagesVue';
 import { AutomatisationVue } from './AutomatisationVue';
 import { CollaborateursVue } from './CollaborateursVue';
 import { SuiviRattachementVue } from './SuiviRattachementVue';
+import { ProjectionVue } from './ProjectionVue';
 import { OngletsPermis, type CleOnglet } from './PermisOnglets';
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
 
@@ -22,7 +23,7 @@ import type { CleCategorie } from '../../../../lib/sitadel/priorite';
  */
 interface Props { depuisParDefaut: string; categories: { cle: CleCategorie; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string }
 
-interface Comptes { reponses: number; saisines: number; rattachement: number }
+interface Comptes { reponses: number; saisines: number; rattachement: number; projection: number }
 
 /** Millisecondes jusqu'à la PROCHAINE occurrence de l'heure locale `h` (0..23). Sert au SEUL recomptage quotidien (pas un sondage). */
 function msJusquaProchaineHeure(h: number): number {
@@ -46,7 +47,7 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
       const res = await fetch('/api/admin/permis/actions', { cache: 'no-store' });
       if (!res.ok) return;
       const d = (await res.json()) as Comptes & { total: number; recomptageHeure: number };
-      setComptes({ reponses: d.reponses, saisines: d.saisines, rattachement: d.rattachement });
+      setComptes({ reponses: d.reponses, saisines: d.saisines, rattachement: d.rattachement, projection: d.projection });
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => { void recompterRef.current(); }, msJusquaProchaineHeure(d.recomptageHeure)); // recomptage quotidien
     } catch { /* compteurs indisponibles : sans pastille, les onglets restent pleinement utilisables */ }
@@ -61,12 +62,13 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
   return (
     <div className="flex flex-col gap-3">
       <OngletsPermis actif={onglet} onChoisir={setOnglet}
-        compteurs={comptes ? { reponses: comptes.reponses, saisines: comptes.saisines, rattachement: comptes.rattachement } : undefined} />
+        compteurs={comptes ? { reponses: comptes.reponses, saisines: comptes.saisines, rattachement: comptes.rattachement, projection: comptes.projection } : undefined} />
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} />}
       {onglet === 'rattachement' && <SuiviRattachementVue onRecompter={() => void recompter()} />}
       {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} onAllerReglages={() => setOnglet('reglages')} />}
       {onglet === 'en_cours' && <EnCoursVue categories={categories} />}
       {onglet === 'reponses' && <ReponsesVue onRecompter={() => void recompter()} />}
+      {onglet === 'projection' && <ProjectionVue onRecompter={() => void recompter()} />}
       {onglet === 'archives' && <ArchivesVue />}
       {onglet === 'saisines' && <SaisinesVue onRecompter={() => void recompter()} />}
       {onglet === 'reglages' && <ReglagesVue />}

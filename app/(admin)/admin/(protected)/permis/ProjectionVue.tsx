@@ -1,0 +1,70 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { BlocTraceEmprise } from './BlocTraceEmprise';
+import { TableProjection, BoutonValiderProjection, AIDE_PROJECTION, type LigneProjectionAffichee } from './ProjectionRendu';
+import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
+import { recompterSiSucces } from './comptesActions';
+
+/**
+ * PROJ-2c — onglet « Projection » (entre Réponses et Archives). File de travail qui se vide : à la réception des pièces, on
+ * reconstitue l'emprise des futurs bâtiments (neuve/extension). Valider FAIT AVANCER (le permis quitte la file + est marqué suivi).
+ * Le tracé lui-même est délégué à `BlocTraceEmprise` (réutilisé de PROJ-2b, sorti du Rattachement). LECTURE + validation seulement.
+ */
+export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}) {
+  const [file, setFile] = useState<LigneProjectionAffichee[] | null>(null);
+  const [erreur, setErreur] = useState(false);
+  const [ouvert, setOuvert] = useState<number | null>(null);
+  const [verdict, setVerdict] = useState<VerdictProjection | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/permis/projection', { cache: 'no-store' });
+        if (annule) return;
+        if (res.ok) setFile(((await res.json()) as { file: LigneProjectionAffichee[] }).file);
+        else setErreur(true);
+      } catch { if (!annule) setErreur(true); }
+    })();
+    return () => { annule = true; };
+  }, []);
+
+  const valider = useCallback(async (dossierId: number) => {
+    setEnCours(true); setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/projection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'valider', dossierId }) });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; file?: LigneProjectionAffichee[] };
+      if (res.ok && d.ok) {
+        setFile(d.file ?? []); setOuvert(null); setVerdict(null); setMessage('projection validée : le permis passe en suivi et quitte la file');
+        recompterSiSucces(true, onRecompter);
+      } else setMessage(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'validation impossible'));
+    } catch { setMessage('validation impossible'); } finally { setEnCours(false); }
+  }, [onRecompter]);
+
+  if (erreur) return <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>File de projection indisponible.</div>;
+  if (file === null) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>;
+
+  const ouvrir = (dossierId: number) => { setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setMessage(null); };
+
+  const renderDetail = () => (
+    <div className="flex flex-col gap-2">
+      {ouvert !== null && <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} />}
+      <BoutonValiderProjection
+        peutValider={verdict?.peutValider ?? false}
+        libelle={verdict?.libelle ?? 'chargement des bâtiments…'}
+        enCours={enCours}
+        onValider={() => { if (ouvert !== null) void valider(ouvert); }} />
+      {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>{AIDE_PROJECTION}</p>
+      <TableProjection file={file} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} />
+    </div>
+  );
+}

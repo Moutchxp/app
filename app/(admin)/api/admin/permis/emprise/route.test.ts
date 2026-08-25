@@ -10,6 +10,7 @@ vi.mock('../../../../../lib/admin/garde', () => ({ exigerAdministrateur: async (
 vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
   listerEmprises: async () => [{ id: 1, dossierId: 11434, corpsId: 3, libelle: '2D1', anneau: [], surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0, creeLe: null }],
   listerIgnorees: async () => [{ corpsId: 4, motif: 'déjà bâti' }],
+  listerBatiments: async () => [{ corpsId: 3, repere: '2D1' }, { corpsId: 4, repere: '2D2' }],
   enregistrerEmprise: vi.fn(async () => ({ ok: true, id: 42 })),
   ignorerProjection: vi.fn(async () => ({ ok: true })),
   retablirProjection: vi.fn(async () => ({ ok: true })),
@@ -44,6 +45,7 @@ describe('PROJ-2 — GET', () => {
     expect(j.emprises).toHaveLength(1);
     expect(j.emprises[0].corpsId).toBe(3);                 // PROJ-2b — emprise liée à son bâtiment
     expect(j.ignores).toEqual([{ corpsId: 4, motif: 'déjà bâti' }]); // projections ignorées exposées
+    expect(j.batiments).toEqual([{ corpsId: 3, repere: '2D1' }, { corpsId: 4, repere: '2D2' }]); // bâtiments du permis (self-contained)
     expect(j.contexte.surfaceTerrainM2).toBe(2886.5);
   });
   it('dossierId absent/invalide → 400', async () => {

@@ -214,6 +214,18 @@ export async function retablirProjection(dossierId: number, corpsId: number, par
   }
 }
 
+/** Bâtiments déclarés du permis (permis_corps_batiment) — l'univers du tracé/ignorance. `[]` si la table manque. */
+export async function listerBatiments(dossierId: number): Promise<{ corpsId: number; repere: string | null }[]> {
+  try {
+    const { rows } = await query<{ id: number; repere: string | null }>(
+      `SELECT id::int AS id, repere FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]);
+    return rows.map((r) => ({ corpsId: r.id, repere: r.repere }));
+  } catch (err) {
+    if (estTableAbsente(err)) return [];
+    throw err;
+  }
+}
+
 /** Projections IGNORÉES d'un dossier (état courant). `[]` si la table n'existe pas encore. */
 export async function listerIgnorees(dossierId: number): Promise<ProjectionIgnoree[]> {
   try {

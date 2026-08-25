@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   repereDepuisIndex, indexDepuisRepere, couleurRepere, PALETTE_REPERE,
   geomDepuisGeoJSON, construireSchema, cadreDe, unionCadre, optionsPourCorps, polygonesNonAffectes, corpsDuPolygone,
-  recopierCote, cotesEnNombres, niveauSurlignement, etatSurlignement,
+  recopierCote, cotesEnNombres, niveauSurlignement, etatSurlignement, cheminAnneauLambert,
   type CorpsAffectation, type PolygoneAffectable, type PolygoneEntreeSchema,
 } from './affectationSchema';
 
@@ -89,6 +89,21 @@ describe('construireSchema', () => {
   it('polygone hors empreinte → dessiné mais signalé', () => {
     const s = construireSchema(carre(0, 0, 100), [{ repere: 'A', cleabs: 'X', geom: carre(200, 200, 20), horsEmpreinte: true }]);
     expect(s.polygones[0].horsEmpreinte).toBe(true);
+  });
+});
+
+describe('PROJ-2c — transform exposée + cheminAnneauLambert (overlay projection ALIGNÉ)', () => {
+  const carre = (x: number, y: number, c: number): { anneaux: [number, number][][] } => ({ anneaux: [[[x, y], [x + c, y], [x + c, y + c], [x, y]]] });
+  it('construireSchema expose transform ; projeter le MÊME anneau via cheminAnneauLambert redonne empreintePath (alignement garanti)', () => {
+    const s = construireSchema(carre(0, 0, 100), []);
+    expect(s.transform).not.toBeNull();
+    // Le contour de l'empreinte projeté par le helper d'overlay == le chemin d'empreinte du schéma → une emprise se superpose EXACTEMENT.
+    expect(cheminAnneauLambert(s.transform!, carre(0, 0, 100).anneaux[0])).toBe(s.empreintePath);
+  });
+  it('transform null quand le schéma n’est pas dessiné (motif) ; cheminAnneauLambert refuse < 2 points', () => {
+    expect(construireSchema(null, []).transform).toBeNull();
+    const t = { minX: 0, minY: 0, scale: 1, padX: 0, padY: 0, hauteur: 100 };
+    expect(cheminAnneauLambert(t, [[0, 0]])).toBe('');
   });
 });
 

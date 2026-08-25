@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
@@ -31,17 +31,18 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const dossierId = coercerDossierId(new URL(request.url).searchParams.get('dossierId'));
     if (dossierId === null) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
-    const [piecesBrutes, emprises, ignores, contexte] = await Promise.all([
+    const [piecesBrutes, emprises, ignores, batiments, contexte] = await Promise.all([
       depsReellesLectureGed().listerPieces(dossierId).catch(() => []),
       listerEmprises(dossierId),
       listerIgnorees(dossierId),
+      listerBatiments(dossierId),
       lireContexteEmprise(dossierId),
     ]);
     // Seules les pièces PDF sont traçables ; la clé de stockage ne sort JAMAIS (uniquement id/nom/type).
     const pieces = piecesBrutes
       .filter((p) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf'))
       .map((p) => ({ id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime }));
-    return Response.json({ pieces, emprises, ignores, contexte });
+    return Response.json({ pieces, emprises, ignores, batiments, contexte });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
     return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });

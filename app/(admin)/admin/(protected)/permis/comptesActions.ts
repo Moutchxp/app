@@ -44,11 +44,11 @@ export function compterRattachement(compteurs: Record<string, number>): number {
   return compteurs['arbitrage_demande'] ?? 0;
 }
 
-export interface ComptesActions { reponses: number; saisines: number; rattachement: number; total: number }
+export interface ComptesActions { reponses: number; saisines: number; rattachement: number; projection: number; total: number }
 
-/** Assemble les trois compteurs + le cumul (calculé ICI, source unique → tuile et onglets ne divergent jamais). */
-export function assemblerComptes(reponses: number, saisines: number, rattachement: number): ComptesActions {
-  return { reponses, saisines, rattachement, total: reponses + saisines + rattachement };
+/** Assemble les compteurs + le cumul (calculé ICI, source unique → tuile et onglets ne divergent jamais). PROJ-2c ajoute « Projection ». */
+export function assemblerComptes(reponses: number, saisines: number, rattachement: number, projection: number): ComptesActions {
+  return { reponses, saisines, rattachement, projection, total: reponses + saisines + rattachement + projection };
 }
 
 /** Câblage : recompter APRÈS une action seulement si elle a RÉUSSI (une action en échec ne recompte pas). PUR. */

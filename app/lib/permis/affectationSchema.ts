@@ -75,7 +75,20 @@ export interface AttributsPolygone { nombreEtages: number | null; hauteurM: numb
 
 export interface PolygoneEntreeSchema { repere: string; cleabs: string | null; geom: GeomPoly; horsEmpreinte: boolean; attributs?: AttributsPolygone }
 export interface PolygoneSchema { repere: string; cleabs: string | null; path: string; cx: number; cy: number; horsEmpreinte: boolean; attributs?: AttributsPolygone }
-export interface SchemaEmpreinte { largeur: number; hauteur: number; empreintePath: string | null; polygones: PolygoneSchema[]; motif: string | null }
+// PROJ-2c — paramètres EXACTS de la projection Lambert→boîte utilisée pour CE schéma. Exposés pour projeter une géométrie
+// SUPPLÉMENTAIRE (les emprises reconstituées du filtre) AVEC LE MÊME cadre → alignement garanti (pas une seconde projection).
+export interface TransformSchema { minX: number; minY: number; scale: number; padX: number; padY: number; hauteur: number }
+export interface SchemaEmpreinte { largeur: number; hauteur: number; empreintePath: string | null; polygones: PolygoneSchema[]; motif: string | null; transform?: TransformSchema | null }
+
+/** Projette un point Lambert-93 dans la boîte du schéma (MÊME formule + MÊME arrondi que construireSchema). PUR. */
+export function projeterLambertDansSchema(t: TransformSchema, x: number, y: number): [number, number] {
+  return [arrondi((x - t.minX) * t.scale + t.padX), arrondi(t.hauteur - ((y - t.minY) * t.scale + t.padY))];
+}
+/** Chemin SVG (`M…L…Z`) d'un anneau Lambert-93 projeté dans le schéma. PUR. `''` si moins de 2 points. */
+export function cheminAnneauLambert(t: TransformSchema, anneau: [number, number][]): string {
+  if (anneau.length < 2) return '';
+  return anneau.map((pt, i) => `${i === 0 ? 'M' : 'L'}${projeterLambertDansSchema(t, pt[0], pt[1]).join(',')}`).join(' ') + ' Z';
+}
 
 const arrondi = (x: number): number => Math.round(x * 10) / 10;
 
@@ -105,15 +118,16 @@ export function unionCadre(a: Cadre | null, b: Cadre | null): Cadre | null {
  */
 export function construireSchema(empreinte: GeomPoly | null, polygones: PolygoneEntreeSchema[], largeur = 320, hauteur = 240, marge = 12, cadre?: Cadre | null): SchemaEmpreinte {
   if (!empreinte || empreinte.anneaux.length === 0) {
-    return { largeur, hauteur, empreintePath: null, polygones: [], motif: 'parcelle du permis incomplète ou absente : schéma non dessiné (aucun point fiable)' };
+    return { largeur, hauteur, empreintePath: null, polygones: [], motif: 'parcelle du permis incomplète ou absente : schéma non dessiné (aucun point fiable)', transform: null };
   }
   const boite = cadre ?? cadreDe(empreinte, polygones)!; // empreinte non vide ⇒ cadreDe ≠ null
   const { minX, maxX, minY, maxY } = boite;
   const bw = maxX - minX, bh = maxY - minY;
-  if (bw <= 0 || bh <= 0) return { largeur, hauteur, empreintePath: null, polygones: [], motif: 'géométrie dégénérée : schéma non dessiné' };
+  if (bw <= 0 || bh <= 0) return { largeur, hauteur, empreintePath: null, polygones: [], motif: 'géométrie dégénérée : schéma non dessiné', transform: null };
   const scale = Math.min((largeur - 2 * marge) / bw, (hauteur - 2 * marge) / bh);
   const padX = (largeur - bw * scale) / 2, padY = (hauteur - bh * scale) / 2;
-  const proj = (x: number, y: number): [number, number] => [arrondi((x - minX) * scale + padX), arrondi(hauteur - ((y - minY) * scale + padY))]; // Y inversé
+  const transform: TransformSchema = { minX, minY, scale, padX, padY, hauteur };
+  const proj = (x: number, y: number): [number, number] => projeterLambertDansSchema(transform, x, y); // Y inversé — MÊME helper que l'overlay du filtre
   const anneauVersPath = (a: Anneau): string => a.map((pt, i) => `${i === 0 ? 'M' : 'L'}${proj(pt[0], pt[1]).join(',')}`).join(' ') + ' Z';
   const geomVersPath = (g: GeomPoly): string => g.anneaux.map(anneauVersPath).join(' ');
   const centroide = (g: GeomPoly): [number, number] => {
@@ -123,7 +137,7 @@ export function construireSchema(empreinte: GeomPoly | null, polygones: Polygone
     return proj(sx, sy);
   };
   return {
-    largeur, hauteur, motif: null,
+    largeur, hauteur, motif: null, transform,
     empreintePath: geomVersPath(empreinte),
     polygones: polygones.map((p) => { const [cx, cy] = centroide(p.geom); return { repere: p.repere, cleabs: p.cleabs, path: geomVersPath(p.geom), cx, cy, horsEmpreinte: p.horsEmpreinte, attributs: p.attributs }; }),
   };

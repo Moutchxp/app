@@ -24,6 +24,33 @@ export function libelleBatiment(b: BatimentProjection): string {
 }
 
 /**
+ * PROJ-2c — ÉLIGIBILITÉ d'un permis à la FILE « Projection ». Trois conditions CUMULÉES :
+ *  · `documentsObtenus` = ses pièces ont été reçues (même critère que l'entrée en Archives : demande_dossier.satisfait_le) ;
+ *  · `concerneEmprise` = neuve/extension (surélévation exclue — cf. `concerneProjectionEmprise`) ;
+ *  · `dejaValidee` = false : une fois la projection validée, le permis QUITTE la file.
+ * PUR (les faits DB sont passés en booléens ; le SQL du repo miroite exactement ces trois conditions).
+ */
+export function eligibleProjection(documentsObtenus: boolean, concerneEmprise: boolean, dejaValidee: boolean): boolean {
+  return documentsObtenus && concerneEmprise && !dejaValidee;
+}
+
+export interface EffetValidationProjection {
+  valide: boolean;
+  etatSuiviCible: 'en_attente_bati' | null; // marquage suivi : le permis attend une mise à jour BD TOPO
+  retireDeFile: boolean;                     // quitte la file « Projection »
+  motif: string;
+}
+/**
+ * PROJ-2c — EFFET de « Valider la projection ». Le bouton NE BLOQUE PAS, il FAIT AVANCER : si la condition PROJ-2b est
+ * remplie (`peutValider` — chaque bâtiment tracé ou ignoré), le permis QUITTE la file et est MARQUÉ SUIVI (en_attente_bati) —
+ * il ne peut aller plus loin tant que BD TOPO n'a pas bougé (le détecteur de delta l'ouvrira). Sinon, rien ne se passe. PUR.
+ */
+export function effetValidationProjection(peutValider: boolean): EffetValidationProjection {
+  if (!peutValider) return { valide: false, etatSuiviCible: null, retireDeFile: false, motif: 'chaque bâtiment doit avoir une emprise tracée ou une projection explicitement ignorée' };
+  return { valide: true, etatSuiviCible: 'en_attente_bati', retireDeFile: true, motif: 'projection validée : le permis passe en suivi (en attente d’une mise à jour) et sort de la file' };
+}
+
+/**
  * Verdict de projection. `corpsAvecEmprise` = corpsId ayant au moins une emprise tracée ; `corpsIgnores` = corpsId dont la
  * projection est ignorée. Un bâtiment est COUVERT s'il est dans l'un OU l'autre. `peutValider` = tous couverts. `manquants`
  * NOMME ce qui reste. Le comptage « ignoré » n'inclut PAS un bâtiment qui a AUSSI une emprise (une trace prime, jamais compté deux fois).

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
 import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee } from './SuiviRattachementRendu';
 
 // L11 — libellés de SOURCE des bulles (constat AVANT travaux). L'origine figée lit le SNAPSHOT ; sinon (et la nouvelle) la couche vivante.
 const SOURCE_GEL = 'au moment du gel (état des lieux figé)';
@@ -13,8 +13,6 @@ const SOURCE_VIVANTE = 'état actuel (couche BD TOPO)';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { CellulePieces } from './ArchivesRendu';
 import { recompterSiSucces } from './comptesActions';
-import { BlocTraceEmprise } from './BlocTraceEmprise';
-import type { BatimentProjection, VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 
 /**
  * FUS-3c — onglet SUIVI DU RATTACHEMENT : au clic sur un permis, TOUT le contenu de décision est sur la même page — détail
@@ -45,7 +43,8 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [cotes, setCotes] = useState<Record<string, string>>({}); // M3 — cote saisie par polygone (cleabs → chaîne ; '' = non injecté)
   const [motifOuverture, setMotifOuverture] = useState(''); // M5 — motif d'une ouverture manuelle de l'arbitrage
   const [cleabsMisEnAvant, setCleabsMisEnAvant] = useState<string | null>(null); // M7 — polygone mis en avant dans le schéma (piloté par le focus d'un champ de cote ; PERSISTE après le blur)
-  const [verdictProjection, setVerdictProjection] = useState<VerdictProjection | null>(null); // PROJ-2b — peut-on valider ? (chaque bâtiment tracé ou projection ignorée)
+  const [afficherProjection, setAfficherProjection] = useState(false); // PROJ-2c — filtre : superposer les emprises reconstituées au schéma d'origine
+  const [emprisesProjetees, setEmprisesProjetees] = useState<EmpriseProjetee[]>([]); // PROJ-2c — emprises du dossier ouvert (Lambert), chargées à l'ouverture
 
   useEffect(() => {
     let annule = false;
@@ -65,12 +64,21 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     let annule = false;
     void (async () => {
       setDetail(null); setComparaison(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); setPleinEcran(null);
-      setMotifRefus(''); setAccuse(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); setVerdictProjection(null); // reset décisions (DANS l'async)
+      setMotifRefus(''); setAccuse(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); setAfficherProjection(false); setEmprisesProjetees([]); // reset décisions (DANS l'async)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
         if (annule) return;
         if (res.ok) { const d = (await res.json()) as { detail: DetailSuivi; comparaison: ComparaisonRattachement | null }; setDetail(d.detail); setComparaison(d.comparaison); }
         else setDetailErreur(true);
+        // PROJ-2c — emprises reconstituées du dossier (pour le filtre « Afficher la projection »). Best-effort, silencieux : leur
+        //   absence ne dégrade JAMAIS le détail (l'interrupteur ne s'affiche alors pas). Lambert → [x,y] pour le schéma.
+        try {
+          const re = await fetch(`/api/admin/permis/emprise?dossierId=${ouvert}`, { cache: 'no-store' });
+          if (!annule && re.ok) {
+            const je = (await re.json()) as { emprises: { id: number; libelle: string; anneau: { x: number; y: number }[] }[] };
+            setEmprisesProjetees(je.emprises.filter((e) => e.anneau.length >= 3).map((e) => ({ id: e.id, libelle: e.libelle, anneau: e.anneau.map((p) => [p.x, p.y] as [number, number]) })));
+          }
+        } catch { /* emprises indisponibles : le filtre reste simplement absent */ }
       } catch { if (!annule) setDetailErreur(true); }
     })();
     return () => { annule = true; };
@@ -98,10 +106,6 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     const source = first in cotes ? cotes[first] : (c.altitudeSommetNgf != null ? String(c.altitudeSommetNgf) : '');
     setCotes((prev) => recopierCote(prev, c.cleabsAffectes, source));
   }, [comparaison, cotes]);
-
-  // PROJ-2b — bâtiments du permis (TOUS les corps déclarés, même sans polygone) = univers du blocage de projection. Mémoïsé (deps stables).
-  const batimentsProjection = useMemo<BatimentProjection[]>(() => (comparaison?.nouvelle.corps ?? []).map((c) => ({ corpsId: c.id, repere: c.repere })), [comparaison]);
-  const majVerdictProjection = useCallback((v: VerdictProjection) => setVerdictProjection(v), []);
 
   // FUS-3d / M2 — ajouter/retirer UN polygone d'un bâtiment (additif). L'exclusivité est garantie CÔTÉ BASE (index) ; un refus affiche son motif.
   const affecter = useCallback(async (corpsId: number, cleabs: string, operation: ActionAffectation): Promise<void> => {
@@ -227,6 +231,8 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.75rem' }}>
                 <InterrupteurReperes afficherReperes={afficherReperes} onAfficherReperes={setAfficherReperes} />
                 {yaDuFutur && <InterrupteurFuturBati afficherFutur={afficherFutur} onAfficherFutur={setAfficherFutur} />}
+                {/* PROJ-2c — 3e interrupteur : superposer les emprises reconstituées au schéma d'origine (n'apparaît que s'il y en a). */}
+                {emprisesProjetees.length > 0 && <InterrupteurProjection afficherProjection={afficherProjection} onAfficherProjection={setAfficherProjection} />}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.75rem', alignItems: 'flex-start' }}>
                 {/* M6 — PANNEAU des polygones sélectionnés + leur cote, à GAUCHE du schéma (1er enfant → au-dessus quand la ligne passe
@@ -237,7 +243,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
                   </div>
                 )}
                 <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                  <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} />
+                  <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} emprisesProjetees={afficherProjection ? emprisesProjetees : []} />
                 </div>
                 {aChange && (
                   <div style={{ flex: '1 1 320px', minWidth: 0 }}>
@@ -279,11 +285,8 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
         )}
         {detail.persiste && (
           <>
-            {/* PROJ-2b — tracé d'emprise PAR BÂTIMENT, préalable à la validation. Le verdict remonte ici et désactive Valider. */}
-            <BlocTraceEmprise dossierId={detail.dossierId} batiments={batimentsProjection} onVerdict={majVerdictProjection} />
             <ActionsRattachement
               resume={comparaison ? resumeValidation({ corps: comparaison.nouvelle.corps, polygones: comparaison.nouvelle.polygones }, cotesEnNombres(cotesEffectives)) : { nbAffectes: 0, nbAvecCote: 0, nbVides: 0, nbNonAffectes: 0 }}
-              blocageProjection={verdictProjection}
               motifRefus={motifRefus} onMotifRefus={setMotifRefus} enCours={enCours}
               onValider={() => void valider()}
               onRefuser={() => void agir('refuser', { motif: motifRefus })}

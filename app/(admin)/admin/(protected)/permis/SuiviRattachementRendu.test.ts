@@ -276,6 +276,23 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
     expect(hMotif).toContain('parcelle du permis incomplète ou absente');
   });
 
+  it('PROJ-2c — filtre projection : emprise superposée en style DISTINCT (reconstitution), JAMAIS comme un polygone réel', () => {
+    const transform = { minX: 0, minY: 0, scale: 1, padX: 0, padY: 0, hauteur: 240 };
+    const emprisesProjetees = [{ id: 7, libelle: '2D1', anneau: [[20, 20], [40, 20], [40, 40], [20, 40]] as [number, number][] }];
+    const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schema({ transform }), corps: [], emprisesProjetees }));
+    // superposée, identifiée, étiquetée « reconstitution »
+    expect(h).toContain('data-projection="7"');
+    expect(h).toContain('reconstitution');
+    // 🔴 style DISTINCT d'un polygone réel : contour tireté + trame pointillée dédiée (jamais un remplissage plein de repère)
+    expect(h).toContain('stroke-dasharray="5 3"');
+    expect(h).toMatch(/fill="url\(#proj-/);
+    // GARDE : le groupe de projection n'est PAS rendu comme un polygone réel (ni contour vert d'affecté, ni marqueur d'atténuation).
+    const grpProj = h.slice(h.indexOf('data-projection'));
+    expect(grpProj).not.toContain('data-en-retrait');
+    // sans le filtre (emprisesProjetees vide) : aucune projection dessinée
+    expect(renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schema({ transform }), corps: [] }))).not.toContain('data-projection');
+  });
+
   it('DOSSIER PERSISTÉ — 2 corps / 2 polygones : chaque corps voit A et B ; polygones non affectés signalés', () => {
     const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff(), persiste: true }));
     expect(h).toContain('polygone A'); expect(h).toContain('polygone B');

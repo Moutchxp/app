@@ -68,9 +68,9 @@ describe('PASTILLES — compteurs Saisines & Rattachement', () => {
 });
 
 describe('PASTILLES — cumul (source unique serveur)', () => {
-  it('total = somme exacte des trois', () => {
-    expect(assemblerComptes(2, 3, 4)).toEqual({ reponses: 2, saisines: 3, rattachement: 4, total: 9 });
-    expect(assemblerComptes(0, 0, 0)).toEqual({ reponses: 0, saisines: 0, rattachement: 0, total: 0 });
+  it('total = somme exacte des quatre (PROJ-2c : + projection)', () => {
+    expect(assemblerComptes(2, 3, 4, 5)).toEqual({ reponses: 2, saisines: 3, rattachement: 4, projection: 5, total: 14 });
+    expect(assemblerComptes(0, 0, 0, 0)).toEqual({ reponses: 0, saisines: 0, rattachement: 0, projection: 0, total: 0 });
   });
 });
 

@@ -6,13 +6,12 @@ import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/
 import type { CritereSurface, CritereBordure, CritereBati } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo'; // TYPE seul (module serveur)
 // affectationSchema est PUR (aucun import serveur) → on peut importer ses fonctions dans le bundle client.
-import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere, indexDepuisRepere, etatSurlignement, PALETTE_REPERE, type SchemaEmpreinte, type CorpsAffectation, type AttributsPolygone, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
+import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere, indexDepuisRepere, etatSurlignement, cheminAnneauLambert, projeterLambertDansSchema, PALETTE_REPERE, type SchemaEmpreinte, type CorpsAffectation, type AttributsPolygone, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
+
+/** PROJ-2c — une emprise RECONSTITUÉE à superposer au schéma (filtre « Afficher la projection »). Anneau en Lambert-93. */
+export interface EmpriseProjetee { id: number; libelle: string; anneau: [number, number][] }
 // rattachementGroupes est PUR (import de TYPE seul depuis le repo, erasé) → client-safe. Source UNIQUE de la coupure en deux (L6).
 import { estAFaire, GROUPE1_TITRE, GROUPE2_TITRE } from '../../../../lib/permis/rattachementGroupes';
-import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // PUR — PROJ-2b : blocage de la validation par projection
-
-/** PROJ-2b — forme minimale du verdict de projection consommée par le bouton Valider (peut-on valider + libellé « X en attente »). */
-export type BlocageProjection = Pick<VerdictProjection, 'peutValider' | 'libelle'>;
 
 /**
  * FUS-3b — rendu PUR (testable via renderToStaticMarkup) du SUIVI de rattachement : le tableau récapitulatif groupé par état
@@ -108,6 +107,21 @@ export function InterrupteurFuturBati({ afficherFutur, onAfficherFutur }: { affi
       <input type="checkbox" checked={afficherFutur} onChange={(e) => onAfficherFutur(e.target.checked)}
         aria-label="Signaler le futur bâti (en projet) par un croisillon sur les schémas" />
       <span>Signaler le futur bâti (en projet)</span>
+    </label>
+  );
+}
+
+/**
+ * PROJ-2c — 3e interrupteur (à côté des repères et du futur bâti) : superpose les EMPRISES RECONSTITUÉES du permis au schéma
+ * d'origine, à leur place géographique — pour reconnaître quel polygone BD TOPO correspond à quel bâtiment. La Vue ne le monte
+ * que s'il y a au moins une emprise à montrer.
+ */
+export function InterrupteurProjection({ afficherProjection, onAfficherProjection }: { afficherProjection: boolean; onAfficherProjection: (v: boolean) => void }) {
+  return (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: 12, width: 'auto' }}>
+      <input type="checkbox" checked={afficherProjection} onChange={(e) => onAfficherProjection(e.target.checked)}
+        aria-label="Afficher la projection (emprises reconstituées) sur le schéma d’origine" />
+      <span>Afficher la projection</span>
     </label>
   );
 }
@@ -582,15 +596,12 @@ export function AccuseValidation({ accuse }: { accuse: AccuseValidationData }) {
  *  · Retour LiDAR → restaure l'altitude LiDAR d'origine (filet, reste possible après validation).
  * ⚠️ Aucune de ces actions ne change le verdict SVAV (le moteur ne lit pas encore permis_polygone_altitude).
  */
-export function ActionsRattachement({ resume, motifRefus, onMotifRefus, onValider, onRefuser, onRetour, enCours, blocageProjection = null }: {
+export function ActionsRattachement({ resume, motifRefus, onMotifRefus, onValider, onRefuser, onRetour, enCours }: {
   resume: ResumeValidation;
   motifRefus: string;
   onMotifRefus: (v: string) => void;
   onValider: () => void; onRefuser: () => void; onRetour: () => void; enCours: boolean;
-  blocageProjection?: BlocageProjection | null; // PROJ-2b — tant que peutValider = false, la validation est INACTIVE (bâtiment sans emprise ni projection ignorée)
 }) {
-  // PROJ-2b — Valider est bloqué si un bâtiment n'a NI emprise tracée NI projection ignorée. `null` = pas encore renseigné (chargement) → non bloquant.
-  const bloque = blocageProjection !== null && !blocageProjection.peutValider;
   const styleTA: CSSProperties = { width: '100%', boxSizing: 'border-box', minHeight: '2.2rem', padding: '.3rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' };
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -602,12 +613,7 @@ export function ActionsRattachement({ resume, motifRefus, onMotifRefus, onValide
           {resume.nbVides > 0 ? ` ${resume.nbVides} champ${resume.nbVides > 1 ? 's' : ''} laissé${resume.nbVides > 1 ? 's' : ''} vide${resume.nbVides > 1 ? 's' : ''} : non injecté${resume.nbVides > 1 ? 's' : ''}.` : ''}
           {resume.nbNonAffectes > 0 ? ` ${resume.nbNonAffectes} polygone${resume.nbNonAffectes > 1 ? 's' : ''} non affecté${resume.nbNonAffectes > 1 ? 's' : ''} (bâti hors permis, c’est normal) : laissé de côté.` : ''}
         </div>
-        {bloque && (
-          <div role="note" style={{ ...styleAide, color: 'var(--color-svv-red)', fontWeight: 600 }}>
-            Validation bloquée — projection incomplète : {blocageProjection!.libelle}. Tracez une emprise ou ignorez explicitement la projection pour chaque bâtiment en attente.
-          </div>
-        )}
-        <button type="button" className="svv-btn" style={{ width: 'auto' }} onClick={onValider} disabled={enCours || bloque}>
+        <button type="button" className="svv-btn" style={{ width: 'auto' }} onClick={onValider} disabled={enCours}>
           Valider le rattachement
         </button>
       </div>
@@ -643,10 +649,11 @@ export function ActionsRattachement({ resume, motifRefus, onMotifRefus, onValide
  *     (halo blanc sous le glyphe → lisible sur n'importe quelle teinte). Affecté → contour VERT ; hors empreinte → contour TIRETÉ
  *     (canaux NON colorés : l'information ne dépend jamais de la seule couleur).
  */
-export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; agrandi?: boolean; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null }) {
+export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null, emprisesProjetees = [] }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; agrandi?: boolean; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null; emprisesProjetees?: EmpriseProjetee[] }) {
   const uid = useId();
   const trameId = `trame-${uid.replace(/:/g, '')}`; // id unique (deux schémas côte à côte en L5 ne partageront pas le motif)
   const hachureId = `hachure-${uid.replace(/:/g, '')}`; // L12 — croisillon du FUTUR BÂTI (id unique par schéma)
+  const projId = `proj-${uid.replace(/:/g, '')}`; // PROJ-2c — trame POINTILLÉE des emprises reconstituées (distincte de la trame grise et du croisillon)
   const [actif, setActif] = useState<string | null>(null); // L11 — repère du polygone survolé/focalisé/tapé (bulle visuelle)
   if (schema.motif) return <div style={{ ...styleAide, fontStyle: 'italic' }}>{schema.motif}</div>;
   // L3 — `agrandi` (plein écran L13) : le schéma remplit la largeur et monte jusqu'à 72vh. M7-bis — `grand` (DÉRIVÉ : un champ de cote a
@@ -681,6 +688,11 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
               polygone. Un « X » par tuile → croisillon au pavage. Distinct de la trame grise 45° du hors-parcelle. */}
           <pattern id={hachureId} width={6} height={6} patternUnits="userSpaceOnUse">
             <path d="M0 0 L6 6 M6 0 L0 6" stroke="var(--color-svv-ink)" strokeWidth={0.7} strokeOpacity={0.55} fill="none" />
+          </pattern>
+          {/* PROJ-2c — trame POINTILLÉE magenta de la RECONSTITUTION : ni la couleur d'un repère, ni le rouge (nouveau/modifié),
+              ni la trame grise (hors parcelle), ni le croisillon (futur bâti) → jamais confondable avec un polygone réel. */}
+          <pattern id={projId} width={5} height={5} patternUnits="userSpaceOnUse">
+            <circle cx={1} cy={1} r={0.8} fill="#b5179e" fillOpacity={0.5} />
           </pattern>
         </defs>
         <rect x={0} y={0} width={schema.largeur} height={schema.hauteur} fill={`url(#${trameId})`} />
@@ -735,6 +747,24 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
                 <text x={p.cx} y={p.cy} textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight={700}
                   fill="var(--color-svv-ink)" stroke="#fff" strokeWidth={3} paintOrder="stroke">{p.repere}</text>
               )}
+            </g>
+          );
+        })}
+        {/* PROJ-2c — FILTRE « projection » : emprises RECONSTITUÉES superposées, projetées avec la MÊME transformation que le schéma
+            (cheminAnneauLambert(schema.transform, …)). Style DÉLIBÉRÉMENT distinct de tout polygone réel : trame pointillée magenta +
+            contour tireté, étiqueté « reconstitution ». `pointer-events:none` (n'intercepte pas le survol des polygones réels).
+            `data-projection` (jamais `data-en-retrait`/fill plein) → un test casse si une projection était rendue comme un polygone réel. */}
+        {schema.transform && emprisesProjetees.map((e) => {
+          const d = cheminAnneauLambert(schema.transform!, e.anneau);
+          if (!d) return null;
+          const cx = e.anneau.reduce((s, p) => s + p[0], 0) / e.anneau.length;
+          const cy = e.anneau.reduce((s, p) => s + p[1], 0) / e.anneau.length;
+          const [tx, ty] = projeterLambertDansSchema(schema.transform!, cx, cy);
+          return (
+            <g key={`proj-${e.id}`} pointerEvents="none" data-projection={e.id}>
+              <path d={d} fill={`url(#${projId})`} stroke="#b5179e" strokeWidth={1.6} strokeDasharray="5 3" strokeLinejoin="round" />
+              <text x={tx} y={ty} textAnchor="middle" dominantBaseline="central" fontSize={9} fontWeight={700}
+                fill="#b5179e" stroke="#fff" strokeWidth={2.4} paintOrder="stroke">{e.libelle} · reconstitution</text>
             </g>
           );
         })}
@@ -885,14 +915,14 @@ export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onA
  * FIGURE du schéma : le SVG + son NOM écrit DANS le visuel (figcaption en surimpression, pas seulement au-dessus). Quand `onAgrandir`
  * est fourni, la figure devient une cible cliquable ET focalisable au clavier (role=button, Entrée/Espace) → ouvre le plein écran.
  */
-export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, onAgrandir, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; mention?: string; agrandi?: boolean; onAgrandir?: () => void; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null }) {
+export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, onAgrandir, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null, emprisesProjetees = [] }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; mention?: string; agrandi?: boolean; onAgrandir?: () => void; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null; emprisesProjetees?: EmpriseProjetee[] }) {
   const contenu = (
     <>
       <figure style={{ position: 'relative', margin: 0 }}>
         {titre && (
           <figcaption style={{ position: 'absolute', top: 6, left: 6, zIndex: 1, fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,.85)', color: 'var(--color-svv-ink)', padding: '.1rem .45rem', borderRadius: '.3rem', border: '1px solid var(--color-svv-line)' }}>{titre}</figcaption>
         )}
-        <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} />
+        <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} emprisesProjetees={emprisesProjetees} />
       </figure>
       {/* L4 — mention (provenance + millésime du gel) écrite DANS le visuel, juste sous le nom du schéma. */}
       {mention && <div style={{ ...styleAide }}>{mention}</div>}
@@ -1085,7 +1115,7 @@ export function ComparaisonPleinEcran({ origine, nouvelle, rougeCleabs, nomOrigi
  * Bloc d'affectation (vue RÉDUITE) : le SCHÉMA nommé + cliquable (→ plein écran) + sa LÉGENDE compacte, puis les CHOIX (`CorpsEtChoix`,
  * mêmes règles que le plein écran). Le schéma reste consultable même sans dossier persisté (on DIT pourquoi l'arbitrage est fermé).
  */
-export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string, action: ActionAffectation) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null }) {
+export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null, emprisesProjetees = [] }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string, action: ActionAffectation) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null; emprisesProjetees?: EmpriseProjetee[] }) {
   const { corps, schema, motif, colonneManquante } = affectation;
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -1099,7 +1129,7 @@ export function AffectationBloc({ affectation, persiste, enAttenteBati = false, 
         : (
           <>
             {/* Schéma nommé + cliquable (→ plein écran) + légende compacte : TOUJOURS rendus (informatifs), quel que soit l'état. */}
-            <SchemaFigure schema={schema} corps={corps} titre={titre} mention={mention} onAgrandir={onAgrandir} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} />
+            <SchemaFigure schema={schema} corps={corps} titre={titre} mention={mention} onAgrandir={onAgrandir} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} emprisesProjetees={emprisesProjetees} />
             <LegendeAffectation avecRouge={(rougeCleabs?.length ?? 0) > 0} />
             <CorpsEtChoix affectation={affectation} persiste={persiste} enAttenteBati={enAttenteBati} onAffecter={onAffecter} />
           </>
