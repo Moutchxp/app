@@ -16,6 +16,10 @@ vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
   retablirProjection: vi.fn(async () => ({ ok: true })),
   supprimerEmprise: vi.fn(async () => 1),
   lireContexteEmprise: async () => ({ empreinteAnneaux: [], surfaceTerrainM2: 2886.5, surfacePlancherM2: 900, nbEtages: 3 }),
+  lirePolygonesEmpreinte: async () => [
+    { anneau: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], etat: 'En projet' },
+    { anneau: [{ x: 20, y: 20 }, { x: 30, y: 20 }, { x: 30, y: 30 }], etat: 'En service' },
+  ],
 }));
 vi.mock('../../../../../lib/permis/lectureGed', () => ({
   depsReellesLectureGed: () => ({
@@ -67,6 +71,10 @@ describe('PROJ-2 — GET', () => {
     expect(j.ignores).toEqual([{ corpsId: 4, motif: 'déjà bâti' }]); // projections ignorées exposées
     expect(j.batiments).toEqual([{ corpsId: 3, repere: '2D1' }, { corpsId: 4, repere: '2D2' }]); // bâtiments du permis (self-contained)
     expect(j.contexte.surfaceTerrainM2).toBe(2886.5);
+    // PROJ-3h — polygones BD TOPO (∩ empreinte) exposés avec leur état IGN, pour l'affichage
+    expect(j.polygones).toHaveLength(2);
+    expect(j.polygones[0].etat).toBe('En projet');
+    expect(j.polygones[1].etat).toBe('En service');
   });
   it('dossierId absent/invalide → 400', async () => {
     expect((await get('')).status).toBe(400);

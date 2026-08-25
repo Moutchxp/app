@@ -149,6 +149,38 @@ export async function lireContexteEmprise(dossierId: number): Promise<ContexteEm
   return { empreinteAnneaux: empreinte.anneaux, surfaceTerrainM2: empreinte.surfaceM2, surfacePlancherM2, nbEtages };
 }
 
+/**
+ * PROJ-3h — polygones BD TOPO (couche VIVANTE `batiment`) qui intersectent l'empreinte du permis, avec leur ÉTAT IGN
+ * (`etat_de_l_objet` : En service / En construction / En projet / En ruine). LECTURE SEULE, pour un pur AFFICHAGE (options de
+ * visibilité du schéma de projection). Géométrie en Lambert-93 (comme la parcelle), `ST_Force2D` conservé (jamais retiré des
+ * opérations géométriques). 🔴 Ce sont des DONNÉES IGN, jamais une reconstitution : aucune écriture, aucun couplage moteur. `[]`
+ * si `permis_empreinte`/`batiment` absentes (résilient).
+ */
+export interface PolygoneBdTopo { anneau: PointLambert[]; etat: string | null }
+export async function lirePolygonesEmpreinte(dossierId: number): Promise<PolygoneBdTopo[]> {
+  try {
+    const { rows } = await query<{ gj: { type: string; coordinates: number[][][] | number[][][][] } | null; etat: string | null }>(
+      `WITH emp AS (SELECT geom FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL)
+       SELECT ST_AsGeoJSON(ST_Force2D(b.geom))::json AS gj, b.etat_de_l_objet AS etat
+         FROM batiment b, emp
+        WHERE b.geom && emp.geom AND ST_Intersects(b.geom, emp.geom)`, [dossierId]);
+    const out: PolygoneBdTopo[] = [];
+    for (const r of rows) {
+      if (!r.gj) continue;
+      const anneaux: number[][][] = r.gj.type === 'Polygon'
+        ? [(r.gj.coordinates as number[][][])[0]].filter(Boolean)
+        : r.gj.type === 'MultiPolygon'
+          ? (r.gj.coordinates as number[][][][]).map((poly) => poly[0]).filter(Boolean)
+          : [];
+      for (const a of anneaux) out.push({ anneau: a.map(([x, y]) => ({ x, y })), etat: r.etat ?? null });
+    }
+    return out;
+  } catch (err) {
+    if (estTableAbsente(err)) return [];
+    throw err;
+  }
+}
+
 async function lireEmpreinteParcelle(dossierId: number): Promise<{ anneaux: PointLambert[][]; surfaceM2: number | null }> {
   try {
     const { rows } = await query<{ gj: { type: string; coordinates: number[][][] | number[][][][] } | null; surface_m2: number | null }>(

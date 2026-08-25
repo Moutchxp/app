@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, type PiecePlan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
@@ -163,6 +163,50 @@ describe('PROJ-3f ① — navigation PIÈCE LIBRE (feuilleter les pages d’une 
     // dernière page → « suivante » désactivée
     const hN = renderToStaticMarkup(h(NavPieceLibre, { nomFichier: 'X.pdf', page: 18, nbPages: 18, onPagePrecedente: () => {}, onPageSuivante: () => {}, onRetourBestOf: () => {} }));
     expect(hN).toMatch(/disabled[^>]*aria-label="Page suivante"|aria-label="Page suivante"[^>]*disabled/);
+  });
+});
+
+describe('PROJ-3h — options de visibilité du schéma de projection (BD TOPO + en projet)', () => {
+  const polys = [
+    { anneau: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], etat: 'En projet' },
+    { anneau: [{ x: 20, y: 20 }, { x: 30, y: 20 }, { x: 30, y: 30 }], etat: 'En service' },
+    { anneau: [{ x: 5, y: 5 }, { x: 8, y: 5 }, { x: 8, y: 8 }], etat: 'En construction' },
+  ];
+  it('polygonesVisibles : toutes les combinaisons (y compris tout éteint)', () => {
+    expect(polygonesVisibles(polys, { existant: true, enProjet: true }).length).toBe(3);
+    expect(polygonesVisibles(polys, { existant: false, enProjet: true }).map((p) => p.etat)).toEqual(['En projet']); // seul « En projet »
+    expect(polygonesVisibles(polys, { existant: true, enProjet: false }).map((p) => p.etat)).toEqual(['En service', 'En construction']); // « En construction » compte comme existant côté visibilité
+    expect(polygonesVisibles(polys, { existant: false, enProjet: false }).length).toBe(0); // tout éteint → rien
+  });
+  it('SchemaParcelleTrace : dessine « en projet » (distinct) + existant + emprise, croisillon si futurBati', () => {
+    const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
+    const filtres: FiltresSchema = { existant: true, enProjet: true, futurBati: true, emprises: true };
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }, { x: 0, y: 30 }]], emprises: [emprise()], polygones: polys, filtres, calageLambert: [] }));
+    expect(html).toContain('data-en-projet="true"');       // le polygone « en projet » est distinct (attribut)
+    expect(html).toContain('data-emprise="1"');             // l'emprise reconstituée reste dessinée
+    expect(html).toContain('url(#hachure-projection)');     // croisillon « futur bâti » présent (futurBati=true)
+  });
+  it('SchemaParcelleTrace : filtres éteints masquent les catégories concernées', () => {
+    const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
+    const filtres: FiltresSchema = { existant: false, enProjet: false, futurBati: false, emprises: false };
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }]], emprises: [emprise()], polygones: polys, filtres, calageLambert: [] }));
+    expect(html).not.toContain('data-en-projet');           // en projet masqué
+    expect(html).not.toContain('data-emprise');             // emprise masquée
+    expect(html).not.toContain('url(#hachure-projection)'); // croisillon masqué
+  });
+  it('OptionsVisibiliteSchema : les 4 interrupteurs (libellés d’origine) + le filtre dédié « en projet »', () => {
+    const html = renderToStaticMarkup(h(OptionsVisibiliteSchema, { filtres: FILTRES_SCHEMA_DEFAUT, onFiltres: () => {}, nbEnProjet: 4, nbExistant: 12 }));
+    expect(html).toContain('Afficher le bâti existant (BD TOPO)');
+    expect(html).toContain('Afficher les polygones en projet');
+    expect(html).toContain('Signaler le futur bâti (en projet)'); // libellé REPRODUIT du schéma d’origine
+    expect(html).toContain('Afficher la projection');             // libellé REPRODUIT du schéma d’origine
+    expect(html).toContain('(4)');                                 // compteur « en projet »
+  });
+  it('LegendeSchemaProjection : nomme les TROIS catégories (reconstitution jamais une mesure)', () => {
+    const html = renderToStaticMarkup(h(LegendeSchemaProjection, {}));
+    expect(html).toContain('Bâti existant (BD TOPO)');
+    expect(html).toContain('En projet (donnée IGN)');
+    expect(html).toContain('reconstitution — jamais une mesure');
   });
 });
 
