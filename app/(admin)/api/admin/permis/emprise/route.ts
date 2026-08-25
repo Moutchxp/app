@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
@@ -45,13 +45,14 @@ export async function GET(request: Request): Promise<Response> {
       catch (e) { indisponibles.push(source); console.error(`[permis/emprise] source indisponible: ${source}`, { dossierId, message: e instanceof Error ? e.message : String(e) }); return valeur; }
     };
     const deps = depsReellesLectureGed();
-    const [piecesBrutes, emprises, ignores, batiments, contexte, polygones] = await Promise.all([
+    const [piecesBrutes, emprises, ignores, batiments, contexte, polygones, polygonesEcartes] = await Promise.all([
       repli('pieces', deps.listerPieces(dossierId), []),
       repli('emprises', listerEmprises(dossierId), []),
       repli('ignores', listerIgnorees(dossierId), []),
       repli('batiments', listerBatiments(dossierId), []),
       repli('contexte', lireContexteEmprise(dossierId), { empreinteAnneaux: [], surfaceTerrainM2: null, surfacePlancherM2: null, nbEtages: null }),
       repli('polygones', lirePolygonesEmpreinte(dossierId), []), // PROJ-3h — polygones BD TOPO (∩ empreinte) + état, pour l'affichage
+      repli('ecartes', listerPolygonesProjetEcartes(dossierId), []), // PROJ-3i — cleabs des polygones « en projet » écartés (décochés)
     ]);
     // Seules les pièces PDF sont traçables (filtre inchangé) ; la clé de stockage ne sort JAMAIS.
     const piecesPdf = piecesBrutes.filter((p) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf'));
@@ -74,7 +75,7 @@ export async function GET(request: Request): Promise<Response> {
       return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, famille, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0 };
     };
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
-    return Response.json({ pieces, emprises, ignores, batiments, contexte, polygones, indisponibles });
+    return Response.json({ pieces, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
     return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });
@@ -87,7 +88,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const body = (await request.json().catch(() => ({}))) as {
       action?: string; dossierId?: number | string; corpsId?: number; pieceId?: number; page?: number; libelle?: string;
-      anneauPlan?: PointPlan[]; paires?: PaireCalage[]; ratioDeclare?: number | null; id?: number; motif?: string;
+      anneauPlan?: PointPlan[]; paires?: PaireCalage[]; ratioDeclare?: number | null; id?: number; motif?: string; cleabs?: string;
     };
 
     if (body.action === 'signer_piece') {
@@ -106,6 +107,17 @@ export async function POST(request: Request): Promise<Response> {
       const nb = await supprimerEmprise(body.id as number, dossierId);
       const [emprises, ignores] = await Promise.all([listerEmprises(dossierId), listerIgnorees(dossierId)]);
       return Response.json({ ok: true, nb, emprises, ignores });
+    }
+
+    // PROJ-3i — ÉCARTER / RÉTABLIR un polygone « en projet » (décision d'affichage d'Arno, tracée). 🔴 Aucun couplage moteur.
+    if (body.action === 'ecarter_polygone' || body.action === 'retablir_polygone') {
+      const cleabs = typeof body.cleabs === 'string' ? body.cleabs : '';
+      if (cleabs.trim() === '') return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      const res = body.action === 'ecarter_polygone'
+        ? await ecarterPolygoneProjet(dossierId, cleabs, 'admin:projection')
+        : await retablirPolygoneProjet(dossierId, cleabs);
+      if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
+      return Response.json({ ok: true, polygonesEcartes: await listerPolygonesProjetEcartes(dossierId) });
     }
 
     // PROJ-2b — ignorer / rétablir la projection d'UN bâtiment (débloque la validation sans tracer ; réversible ; tracé au journal).

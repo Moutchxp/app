@@ -17,9 +17,12 @@ vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
   supprimerEmprise: vi.fn(async () => 1),
   lireContexteEmprise: async () => ({ empreinteAnneaux: [], surfaceTerrainM2: 2886.5, surfacePlancherM2: 900, nbEtages: 3 }),
   lirePolygonesEmpreinte: async () => [
-    { anneau: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], etat: 'En projet' },
-    { anneau: [{ x: 20, y: 20 }, { x: 30, y: 20 }, { x: 30, y: 30 }], etat: 'En service' },
+    { cleabs: 'BATIMENT0001', anneau: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], etat: 'En projet' },
+    { cleabs: 'BATIMENT0002', anneau: [{ x: 20, y: 20 }, { x: 30, y: 20 }, { x: 30, y: 30 }], etat: 'En service' },
   ],
+  listerPolygonesProjetEcartes: async () => ['BATIMENT0009'],
+  ecarterPolygoneProjet: vi.fn(async () => ({ ok: true })),
+  retablirPolygoneProjet: vi.fn(async () => ({ ok: true })),
 }));
 vi.mock('../../../../../lib/permis/lectureGed', () => ({
   depsReellesLectureGed: () => ({
@@ -71,10 +74,22 @@ describe('PROJ-2 — GET', () => {
     expect(j.ignores).toEqual([{ corpsId: 4, motif: 'déjà bâti' }]); // projections ignorées exposées
     expect(j.batiments).toEqual([{ corpsId: 3, repere: '2D1' }, { corpsId: 4, repere: '2D2' }]); // bâtiments du permis (self-contained)
     expect(j.contexte.surfaceTerrainM2).toBe(2886.5);
-    // PROJ-3h — polygones BD TOPO (∩ empreinte) exposés avec leur état IGN, pour l'affichage
+    // PROJ-3h — polygones BD TOPO (∩ empreinte) exposés avec leur état IGN + cleabs (PROJ-3i), pour l'affichage
     expect(j.polygones).toHaveLength(2);
-    expect(j.polygones[0].etat).toBe('En projet');
+    expect(j.polygones[0]).toMatchObject({ cleabs: 'BATIMENT0001', etat: 'En projet' });
     expect(j.polygones[1].etat).toBe('En service');
+    // PROJ-3i — sélection persistée : cleabs des polygones « en projet » écartés
+    expect(j.polygonesEcartes).toEqual(['BATIMENT0009']);
+  });
+
+  it('PROJ-3i — écarter / rétablir un polygone « en projet » (persisté, tracé), renvoie la liste à jour', async () => {
+    const res = await post({ action: 'ecarter_polygone', dossierId: 11434, cleabs: 'BATIMENT0001' });
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(j.ok).toBe(true);
+    expect(j.polygonesEcartes).toEqual(['BATIMENT0009']); // renvoie la liste (mockée)
+    // cleabs manquant → 400
+    expect((await post({ action: 'ecarter_polygone', dossierId: 11434 })).status).toBe(400);
   });
   it('dossierId absent/invalide → 400', async () => {
     expect((await get('')).status).toBe(400);

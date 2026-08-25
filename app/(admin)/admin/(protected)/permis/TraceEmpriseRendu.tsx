@@ -5,7 +5,8 @@ import {
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
-import { estFuturBati, estEnProjet } from '../../../../lib/permis/etatBati';
+import { estFuturBati } from '../../../../lib/permis/etatBati';
+import { repereDepuisIndex } from '../../../../lib/permis/affectationSchema';
 
 /** PROJ-3g — libellé lisible d'une famille (le MOT porte l'info, jamais la couleur seule). PUR. */
 export function libelleFamille(f: FamillePlan): string {
@@ -253,65 +254,74 @@ export function ListeEmprises({ emprises, onSupprimer }: { emprises: EmpriseReco
   );
 }
 
-// PROJ-3h — état des OPTIONS DE VISIBILITÉ du schéma de projection. Chaque interrupteur agit IMMÉDIATEMENT, sans recharger la ligne.
-export interface FiltresSchema { existant: boolean; enProjet: boolean; futurBati: boolean; emprises: boolean }
-export const FILTRES_SCHEMA_DEFAUT: FiltresSchema = { existant: true, enProjet: true, futurBati: true, emprises: true };
+// PROJ-3h/3i — état des OPTIONS DE VISIBILITÉ du schéma de projection. Chaque interrupteur agit IMMÉDIATEMENT, sans recharger la ligne.
+//   ⓪ PROJ-3i : les deux filtres de PROJ-3h (« en projet » visibilité + « futur bâti » croisillon) visaient LE MÊME jeu de polygones
+//   (En projet ⊂ futur bâti ; sur le périmètre réel 0 « En construction ») → doublon d'interface, le croisillon faisant redondance
+//   avec le style bleu-tireté. On FUSIONNE en UN seul interrupteur « futur bâti (en projet) » et on AJOUTE l'interrupteur « repères ».
+export interface FiltresSchema { existant: boolean; futur: boolean; reperes: boolean; emprises: boolean }
+export const FILTRES_SCHEMA_DEFAUT: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: true };
 
 /**
- * PROJ-3h — quels polygones BD TOPO sont VISIBLES selon les filtres : « en projet » (état IGN « En projet ») pilotés par `enProjet`,
- * le reste (existant) par `existant`. PUR (testable pour toute combinaison, y compris tout éteint → liste vide).
+ * Quels polygones BD TOPO sont VISIBLES : le FUTUR BÂTI (En projet OU En construction) piloté par `futur`, le reste (existant :
+ * En service / En ruine) par `existant`. PUR (testable pour toute combinaison, y compris tout éteint → liste vide).
  */
-export function polygonesVisibles<T extends { etat: string | null }>(polygones: T[], f: { existant: boolean; enProjet: boolean }): T[] {
-  return polygones.filter((p) => (estEnProjet(p.etat) ? f.enProjet : f.existant));
+export function polygonesVisibles<T extends { etat: string | null }>(polygones: T[], f: { existant: boolean; futur: boolean }): T[] {
+  return polygones.filter((p) => (estFuturBati(p.etat) ? f.futur : f.existant));
+}
+
+/** PROJ-3i ① — attribue un REPÈRE alphabétique (A, B, C…) à chaque polygone, dans l'ordre reçu (déterministe côté serveur). PUR. */
+export type PolygoneRepere = PolygoneBdTopo & { repere: string };
+export function attribuerReperes(polygones: PolygoneBdTopo[]): PolygoneRepere[] {
+  return polygones.map((p, i) => ({ ...p, repere: repereDepuisIndex(i) }));
+}
+
+/** Centre approximatif d'un anneau (moyenne des sommets) — pour poser la lettre du repère. PUR. */
+function centreAnneau(anneau: PointLambert[]): PointLambert {
+  const n = anneau.length || 1;
+  return { x: anneau.reduce((s, p) => s + p.x, 0) / n, y: anneau.reduce((s, p) => s + p.y, 0) / n };
 }
 
 /**
- * SCHÉMA de la PARCELLE (pur, SVG). PROJ-3h : montre TROIS choses VISUELLEMENT DISTINCTES et étiquetées (jamais la couleur seule) —
- * (a) bâti BD TOPO EXISTANT (gris), (b) polygones BD TOPO « EN PROJET » (bleu tireté, croisillon si `futurBati`) = DONNÉE IGN,
- * (c) emprises TRACÉES (rouge) = RECONSTITUTION (jamais une mesure — garde PROJ). Filtres appliqués ici. `motif` si parcelle absente.
+ * SCHÉMA de la PARCELLE (pur, SVG). Montre TROIS choses VISUELLEMENT DISTINCTES + étiquetées (jamais la couleur seule) : (a) bâti
+ * EXISTANT (gris), (b) FUTUR BÂTI « en projet » (bleu tireté = DONNÉE IGN ; ÉCARTÉ → grisé barré), (c) emprise TRACÉE (rouge =
+ * RECONSTITUTION, jamais une mesure — garde PROJ). PROJ-3i : repères A/B/C… si `reperes` ; `ecartes` (cleabs décochés) grisés.
  */
-export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, calageLambert, onCliquer }: {
-  boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneBdTopo[]; filtres?: FiltresSchema; calageLambert: PointLambert[]; onCliquer?: (px: { x: number; y: number }) => void;
+export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, onCliquer }: {
+  boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[]; onCliquer?: (px: { x: number; y: number }) => void;
 }) {
   if (!boite || parcelle.length === 0) return <p style={muted}>Parcelle du permis absente : schéma non dessiné (aucun point fiable).</p>;
   const path = (anneau: PointLambert[]) => anneau.map((p, i) => { const q = projeterDansBoite(boite, p); return `${i === 0 ? 'M' : 'L'}${q.x.toFixed(1)},${q.y.toFixed(1)}`; }).join(' ') + ' Z';
   const visibles = polygonesVisibles(polygones, filtres);
+  const ecarte = (p: PolygoneRepere) => p.cleabs !== null && ecartes.includes(p.cleabs);
   return (
     <svg width={boite.largeur} height={boite.hauteur} viewBox={`0 0 ${boite.largeur} ${boite.hauteur}`} role="img" aria-label="schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées"
       style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', cursor: onCliquer ? 'crosshair' : 'default' }}
       onClick={onCliquer ? (ev) => { const r = (ev.target as SVGElement).ownerSVGElement?.getBoundingClientRect() ?? (ev.currentTarget as SVGSVGElement).getBoundingClientRect(); onCliquer({ x: ev.clientX - r.left, y: ev.clientY - r.top }); } : undefined}>
-      <defs>
-        {/* Croisillon « futur bâti » — MÊME marque que le schéma d'origine (X non coloré en surimpression). */}
-        <pattern id="hachure-projection" width={6} height={6} patternUnits="userSpaceOnUse">
-          <path d="M0 0 L6 6 M6 0 L0 6" stroke="var(--color-svv-ink)" strokeWidth={0.7} strokeOpacity={0.55} />
-        </pattern>
-      </defs>
       {parcelle.map((a, i) => <path key={`p${i}`} d={path(a)} fill="none" stroke="var(--color-svv-ink)" strokeWidth={1.2} />)}
-      {/* (a) existant gris / (b) en projet bleu tireté (donnée IGN) — distincts par le TRAIT, pas la seule couleur. */}
+      {/* (a) existant gris / (b) futur bâti bleu tireté (donnée IGN) ; un futur bâti ÉCARTÉ est grisé (décision d'Arno). Distinct par le TRAIT. */}
       {visibles.map((poly, i) => {
         if (poly.anneau.length < 3) return null;
-        const enProjet = estEnProjet(poly.etat);
-        return <path key={`b${i}`} d={path(poly.anneau)} data-etat={poly.etat ?? ''} data-en-projet={enProjet}
-          fill={enProjet ? 'rgba(31,119,180,.14)' : 'rgba(0,0,0,.06)'} stroke={enProjet ? '#1f77b4' : '#888'} strokeWidth={1.2} strokeDasharray={enProjet ? '4 2' : undefined} />;
+        const futur = estFuturBati(poly.etat), off = futur && ecarte(poly);
+        return <path key={`b${i}`} d={path(poly.anneau)} data-etat={poly.etat ?? ''} data-futur={futur} data-ecarte={off || undefined}
+          fill={off ? 'rgba(0,0,0,.04)' : futur ? 'rgba(31,119,180,.14)' : 'rgba(0,0,0,.06)'}
+          stroke={off ? '#bbb' : futur ? '#1f77b4' : '#888'} strokeWidth={1.2} strokeDasharray={futur ? '4 2' : undefined} strokeOpacity={off ? 0.6 : 1} />;
       })}
-      {/* Croisillon « futur bâti » (En projet + En construction) en surimpression, si l'interrupteur est actif. */}
-      {filtres.futurBati && visibles.map((poly, i) => (poly.anneau.length >= 3 && estFuturBati(poly.etat)
-        ? <path key={`h${i}`} d={path(poly.anneau)} fill="url(#hachure-projection)" stroke="none" data-futur-bati="true" />
-        : null))}
-      {/* (c) emprises TRACÉES = reconstitution (rouge), si l'interrupteur « Afficher la projection » est actif. */}
+      {/* (c) emprises TRACÉES = reconstitution (rouge), si « Afficher la projection » est actif. */}
       {filtres.emprises && emprises.map((e) => e.anneau.length >= 3 && <path key={`e${e.id}`} d={path(e.anneau)} fill="rgba(163,4,2,.18)" stroke="var(--color-svv-red)" strokeWidth={1.4} data-emprise={e.id} />)}
+      {/* PROJ-3i ① — repères alphabétiques (mêmes lettres que le Rattachement), au centre de chaque polygone visible. */}
+      {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3) return null; const q = projeterDansBoite(boite, centreAnneau(poly.anneau)); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={11} fontWeight={700} textAnchor="middle" fill="var(--color-svv-ink)" data-repere={poly.repere}>{poly.repere}</text>; })}
       {calageLambert.map((p, i) => { const q = projeterDansBoite(boite, p); return <g key={`c${i}`}><circle cx={q.x} cy={q.y} r={4} fill="var(--color-svv-red)" /><text x={q.x + 6} y={q.y - 6} fontSize={11} fill="var(--color-svv-red)">{i + 1}</text></g>; })}
     </svg>
   );
 }
 
 /**
- * PROJ-3h — PANNEAU d'options de visibilité (à droite du schéma, sous « Ignorer la projection »). Reproduit le vocabulaire du schéma
- * d'origine (« Signaler le futur bâti (en projet) », « Afficher la projection ») + un interrupteur DÉDIÉ « polygones en projet ».
- * Chaque case agit immédiatement. PUR (renderToStaticMarkup) : elle ne fait que remonter le nouvel état.
+ * PROJ-3h/3i — PANNEAU d'options de visibilité (à droite du schéma, sous « Ignorer la projection »). Vocabulaire du schéma d'origine :
+ * « Afficher les repères (A, B, C…) », « Afficher la projection ». UN seul interrupteur « futur bâti (en projet) » (⓪ fusion). Chaque
+ * case agit immédiatement. PUR.
  */
-export function OptionsVisibiliteSchema({ filtres, onFiltres, nbEnProjet, nbExistant }: {
-  filtres: FiltresSchema; onFiltres: (f: FiltresSchema) => void; nbEnProjet: number; nbExistant: number;
+export function OptionsVisibiliteSchema({ filtres, onFiltres, nbFutur, nbExistant }: {
+  filtres: FiltresSchema; onFiltres: (f: FiltresSchema) => void; nbFutur: number; nbExistant: number;
 }) {
   const ligne = (cle: keyof FiltresSchema, label: string) => (
     <label style={{ display: 'flex', gap: '.4rem', alignItems: 'center', fontSize: 12, cursor: 'pointer' }}>
@@ -323,15 +333,45 @@ export function OptionsVisibiliteSchema({ filtres, onFiltres, nbEnProjet, nbExis
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .5rem' }}>
       <div style={{ fontSize: 12, fontWeight: 700 }}>Options de visibilité</div>
       {ligne('existant', `Afficher le bâti existant (BD TOPO)${nbExistant > 0 ? ` (${nbExistant})` : ''}`)}
-      {ligne('enProjet', `Afficher les polygones en projet${nbEnProjet > 0 ? ` (${nbEnProjet})` : ''}`)}
-      {ligne('futurBati', 'Signaler le futur bâti (en projet)')}
+      {ligne('futur', `Afficher les polygones en projet (futur bâti)${nbFutur > 0 ? ` (${nbFutur})` : ''}`)}
+      {ligne('reperes', 'Afficher les repères (A, B, C…)')}
       {ligne('emprises', 'Afficher la projection')}
       <LegendeSchemaProjection />
     </div>
   );
 }
 
-/** PROJ-3h — LÉGENDE : nomme les TROIS catégories pour savoir ce qu'on regarde sans deviner (le mot porte l'info). PUR. */
+/**
+ * PROJ-3i ③ — SÉLECTION individuelle des polygones « en projet » (futur bâti) par leur repère. Par DÉFAUT tout est RETENU (coché) ;
+ * décocher ÉCARTE un polygone qui ne fait pas partie du projet (erreur possible dans le dossier IGN). PUR (le clic ne fait que
+ * remonter cleabs + intention). AUCUN calcul, aucun rattachement, aucune injection — décision d'affichage tracée (serveur).
+ */
+export function SelectionPolygonesProjet({ polygones, ecartes, onToggle }: {
+  polygones: PolygoneRepere[]; ecartes: string[]; onToggle: (cleabs: string, ecarter: boolean) => void;
+}) {
+  const futurs = polygones.filter((p) => estFuturBati(p.etat) && p.cleabs);
+  if (futurs.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .5rem' }}>
+      <div style={{ fontSize: 12, fontWeight: 700 }}>Polygones « en projet » du dossier</div>
+      <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Tous retenus par défaut — décochez ceux qui ne font pas partie du projet (erreur possible dans le dossier).</div>
+      {futurs.map((p) => {
+        const retenu = !ecartes.includes(p.cleabs!);
+        return (
+          <label key={p.cleabs} style={{ display: 'flex', gap: '.4rem', alignItems: 'center', fontSize: 12, cursor: 'pointer' }}>
+            <input type="checkbox" checked={retenu} onChange={(e) => onToggle(p.cleabs!, !e.target.checked)} />
+            <span>Polygone <strong>{p.repere}</strong>{retenu ? '' : ' — écarté'}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * PROJ-3h/3i ④ — LÉGENDE : nomme les TROIS catégories (le mot porte l'info) + un picto « ⓘ » (natif `<details>`, sans JS) qui ouvre
+ * une explication courte en français simple : d'où vient chaque catégorie. PUR.
+ */
 export function LegendeSchemaProjection() {
   const item = (bord: CSSProperties, texte: string) => (
     <span style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center', fontSize: 11 }}>
@@ -339,10 +379,20 @@ export function LegendeSchemaProjection() {
     </span>
   );
   return (
-    <div role="note" style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', marginTop: '.15rem' }}>
-      {item({ background: 'rgba(0,0,0,.06)', border: '1px solid #888' }, 'Bâti existant (BD TOPO)')}
-      {item({ background: 'rgba(31,119,180,.14)', border: '1px dashed #1f77b4' }, 'En projet (donnée IGN)')}
-      {item({ background: 'rgba(163,4,2,.18)', border: '1px solid var(--color-svv-red)' }, 'Emprise tracée (reconstitution — jamais une mesure)')}
+    <div role="note" style={{ display: 'flex', flexDirection: 'column', gap: '.25rem', marginTop: '.15rem' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
+        {item({ background: 'rgba(0,0,0,.06)', border: '1px solid #888' }, 'Bâti existant (BD TOPO)')}
+        {item({ background: 'rgba(31,119,180,.14)', border: '1px dashed #1f77b4' }, 'En projet (donnée IGN)')}
+        {item({ background: 'rgba(163,4,2,.18)', border: '1px solid var(--color-svv-red)' }, 'Emprise tracée (reconstitution — jamais une mesure)')}
+      </div>
+      <details style={{ fontSize: 11 }}>
+        <summary style={{ cursor: 'pointer', color: 'var(--color-svv-red)' }} aria-label="Explication des catégories du schéma">ⓘ Que veut dire chaque catégorie ?</summary>
+        <div style={{ color: 'var(--color-svv-muted)', marginTop: '.2rem', lineHeight: 1.35 }}>
+          <div><strong>Bâti existant</strong> : donnée officielle IGN — des bâtiments déjà construits sur le terrain.</div>
+          <div><strong>En projet</strong> : donnée officielle IGN — des bâtiments dessinés dans les données mais pas encore construits.</div>
+          <div><strong>Emprise tracée</strong> : un contour que vous avez dessiné à la main (une reconstitution, jamais une mesure). Il ne sert qu’à visualiser : il n’alimente ni le verdict, ni l’altitude, ni un certificat.</div>
+        </div>
+      </details>
     </div>
   );
 }

@@ -156,14 +156,16 @@ export async function lireContexteEmprise(dossierId: number): Promise<ContexteEm
  * opérations géométriques). 🔴 Ce sont des DONNÉES IGN, jamais une reconstitution : aucune écriture, aucun couplage moteur. `[]`
  * si `permis_empreinte`/`batiment` absentes (résilient).
  */
-export interface PolygoneBdTopo { anneau: PointLambert[]; etat: string | null }
+export interface PolygoneBdTopo { cleabs: string | null; anneau: PointLambert[]; etat: string | null }
 export async function lirePolygonesEmpreinte(dossierId: number): Promise<PolygoneBdTopo[]> {
   try {
-    const { rows } = await query<{ gj: { type: string; coordinates: number[][][] | number[][][][] } | null; etat: string | null }>(
+    // ORDER BY spatial STABLE (haut→bas, gauche→droite, cleabs) : fixe les repères A/B/C… de façon déterministe (comme le Rattachement).
+    const { rows } = await query<{ cleabs: string | null; gj: { type: string; coordinates: number[][][] | number[][][][] } | null; etat: string | null }>(
       `WITH emp AS (SELECT geom FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL)
-       SELECT ST_AsGeoJSON(ST_Force2D(b.geom))::json AS gj, b.etat_de_l_objet AS etat
+       SELECT b.cleabs, ST_AsGeoJSON(ST_Force2D(b.geom))::json AS gj, b.etat_de_l_objet AS etat
          FROM batiment b, emp
-        WHERE b.geom && emp.geom AND ST_Intersects(b.geom, emp.geom)`, [dossierId]);
+        WHERE b.geom && emp.geom AND ST_Intersects(b.geom, emp.geom)
+        ORDER BY ST_YMax(b.geom) DESC, ST_XMin(b.geom), b.cleabs`, [dossierId]);
     const out: PolygoneBdTopo[] = [];
     for (const r of rows) {
       if (!r.gj) continue;
@@ -172,13 +174,45 @@ export async function lirePolygonesEmpreinte(dossierId: number): Promise<Polygon
         : r.gj.type === 'MultiPolygon'
           ? (r.gj.coordinates as number[][][][]).map((poly) => poly[0]).filter(Boolean)
           : [];
-      for (const a of anneaux) out.push({ anneau: a.map(([x, y]) => ({ x, y })), etat: r.etat ?? null });
+      for (const a of anneaux) out.push({ cleabs: r.cleabs ?? null, anneau: a.map(([x, y]) => ({ x, y })), etat: r.etat ?? null });
     }
     return out;
   } catch (err) {
     if (estTableAbsente(err)) return [];
     throw err;
   }
+}
+
+// PROJ-3i — SÉLECTION des polygones « en projet » (permis_polygone_projet_ecarte, migration 152). Par DÉFAUT tout est RETENU ;
+//   une ligne = un cleabs ÉCARTÉ (décoché) par Arno, tracé (qui/quand). 🔴 AFFICHAGE/décision seulement : n'alimente NI verdict,
+//   NI altitude, NI rattachement ; aucune écriture moteur. Résilient : table absente (152 non appliquée) → liste vide / refus clair.
+export type ResultatEcartPolygone = { ok: true } | { ok: false; motif: string; tableAbsente?: boolean };
+
+/** cleabs des polygones « en projet » ÉCARTÉS d'un dossier (décochés). `[]` si la table n'existe pas encore. */
+export async function listerPolygonesProjetEcartes(dossierId: number): Promise<string[]> {
+  try {
+    const { rows } = await query<{ cleabs: string }>(`SELECT cleabs FROM permis_polygone_projet_ecarte WHERE dossier_id = $1`, [dossierId]);
+    return rows.map((r) => r.cleabs);
+  } catch (err) { if (estTableAbsente(err)) return []; throw err; }
+}
+
+/** ÉCARTER un polygone « en projet » (décoché) : upsert idempotent, tracé (par). */
+export async function ecarterPolygoneProjet(dossierId: number, cleabs: string, par: string | null): Promise<ResultatEcartPolygone> {
+  if (!cleabs || cleabs.trim() === '') return { ok: false, motif: 'polygone invalide' };
+  try {
+    await query(`INSERT INTO permis_polygone_projet_ecarte (dossier_id, cleabs, ecarte_par) VALUES ($1, $2, $3)
+                 ON CONFLICT (dossier_id, cleabs) DO NOTHING`, [dossierId, cleabs, par]);
+    return { ok: true };
+  } catch (err) { if (estTableAbsente(err)) return { ok: false, motif: 'sélection indisponible (migration 152 non appliquée)', tableAbsente: true }; throw err; }
+}
+
+/** RÉTABLIR un polygone « en projet » (re-coché) : supprime son écartement (réversible). */
+export async function retablirPolygoneProjet(dossierId: number, cleabs: string): Promise<ResultatEcartPolygone> {
+  if (!cleabs || cleabs.trim() === '') return { ok: false, motif: 'polygone invalide' };
+  try {
+    await query(`DELETE FROM permis_polygone_projet_ecarte WHERE dossier_id = $1 AND cleabs = $2`, [dossierId, cleabs]);
+    return { ok: true };
+  } catch (err) { if (estTableAbsente(err)) return { ok: false, motif: 'sélection indisponible (migration 152 non appliquée)', tableAbsente: true }; throw err; }
 }
 
 async function lireEmpreinteParcelle(dossierId: number): Promise<{ anneaux: PointLambert[][]; surfaceM2: number | null }> {
