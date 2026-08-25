@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import {
-  projeterDansBoite, rotePoint, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance,
+  projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
@@ -53,7 +53,8 @@ export function affichageTrace(etat: EtatChargementTrace, nbBatiments: number): 
 }
 
 // PROJ-3f — une pièce candidate porte ses PLANCHES (pages hors cartouche) calculées côté serveur, chacune avec une échelle indicative.
-export interface Planche { page: number; echelle: string | null }
+// PROJ-3m — chaque PLANCHE porte sa traçabilité PAR PAGE (une pièce PC3 « coupe » peut mêler coupes et plans de niveau).
+export interface Planche { page: number; echelle: string | null; tracable?: boolean; famille?: FamillePlan; ambigu?: boolean }
 export interface PiecePlan { id: number; nomFichier: string; propose?: boolean; famille?: FamillePlan | null; planches?: Planche[]; confirme?: boolean }
 
 /** PROJ-3d — sépare les pièces en « proposées » (plan de masse) / « autres », en conservant l'ordre reçu (le serveur classe déjà). PUR. */
@@ -92,21 +93,26 @@ export function SelecteurPiecePlan({ pieces, pieceId, onChoisir }: { pieces: Pie
 }
 
 // ── PROJ-3e — BANDE DE PLANS : l'unité manipulée est LE PLAN (une page précise d'une pièce), plus « pièce » + « n° de page ». ──
-export interface Plan { pieceId: number; page: number; nomFichier: string; echelle: string | null; confirme: boolean; famille: FamillePlan }
+export interface Plan { pieceId: number; page: number; nomFichier: string; echelle: string | null; confirme: boolean; famille: FamillePlan; tracable: boolean; ambigu: boolean }
 
 /**
  * Construit la bande à feuilleter à partir des pièces déjà CLASSÉES (ordre masse → étage → coupe, PAS recalculé). PROJ-3f : un
  * plan = une PAGE ; une pièce proposée est ÉCLATÉE en une entrée par PLANCHE (pages hors cartouche, calculées serveur), sinon REPLI
- * page 1. PROJ-3g : chaque entrée porte sa FAMILLE (le mot est affiché). Les pièces non proposées restent au repli. PUR.
+ * page 1. PROJ-3g/3m : chaque entrée porte sa FAMILLE et sa TRAÇABILITÉ PAR PAGE (une planche de niveau d'une pièce PC3 est traçable).
+ * Repli (non confirmée) : traçabilité au niveau de la PIÈCE. PUR.
  */
 export function construireBandePlans(pieces: PiecePlan[]): Plan[] {
   const out: Plan[] = [];
   for (const p of pieces) {
     if (!p.propose) continue;
-    const famille: FamillePlan = p.famille ?? 'masse';
+    const famillePiece: FamillePlan = p.famille ?? 'masse';
     const confirme = !!(p.planches && p.planches.length > 0);
-    const planches = confirme ? p.planches! : [{ page: 1, echelle: null }];
-    for (const pl of planches) out.push({ pieceId: p.id, page: pl.page, nomFichier: p.nomFichier, echelle: pl.echelle, confirme, famille });
+    const planches: Planche[] = confirme ? p.planches! : [{ page: 1, echelle: null }];
+    for (const pl of planches) {
+      const famille = pl.famille ?? famillePiece;
+      const tracable = pl.tracable ?? estTracable(famillePiece);
+      out.push({ pieceId: p.id, page: pl.page, nomFichier: p.nomFichier, echelle: pl.echelle, confirme, famille, tracable, ambigu: pl.ambigu ?? false });
+    }
   }
   return out;
 }
@@ -117,7 +123,7 @@ export function indexSuivant(i: number, n: number): number { return bornerIndex(
 export function indexPrecedent(i: number, n: number): number { return bornerIndex(i - 1, n); }
 
 /** Libellé lisible d'un plan (nom + n° de page dans la pièce + échelle si lue de façon fiable). PUR. */
-export function libellePlan(p: Plan): string { return `${p.nomFichier} — page ${p.page}${p.echelle ? ` · échelle ${p.echelle}` : ''}`; }
+export function libellePlan(p: Pick<Plan, 'nomFichier' | 'page' | 'echelle'>): string { return `${p.nomFichier} — page ${p.page}${p.echelle ? ` · échelle ${p.echelle}` : ''}`; }
 
 /**
  * PROJ-3e — changer de plan doit-il DEMANDER CONFIRMATION ? OUI dès qu'un calage ou un tracé est commencé (le travail est attaché
@@ -292,20 +298,28 @@ function centreAnneau(anneau: PointLambert[]): PointLambert {
  * EXISTANT (gris), (b) FUTUR BÂTI « en projet » (bleu tireté = DONNÉE IGN ; ÉCARTÉ → grisé barré), (c) emprise TRACÉE (rouge =
  * RECONSTITUTION, jamais une mesure — garde PROJ). PROJ-3i : repères A/B/C… si `reperes` ; `ecartes` (cleabs décochés) grisés.
  */
-export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, angle = 0, onCliquer }: {
-  boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[]; angle?: number; onCliquer?: (px: { x: number; y: number }) => void;
+export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, angle = 0, hauteurMax = '62vh', onCliquer }: {
+  boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[]; angle?: number; hauteurMax?: string; onCliquer?: (px: { x: number; y: number }) => void;
 }) {
   if (!boite || parcelle.length === 0) return <p style={muted}>Parcelle du permis absente : schéma non dessiné (aucun point fiable).</p>;
-  const path = (anneau: PointLambert[]) => anneau.map((p, i) => { const q = projeterDansBoite(boite, p); return `${i === 0 ? 'M' : 'L'}${q.x.toFixed(1)},${q.y.toFixed(1)}`; }).join(' ') + ' Z';
+  const proj = (p: PointLambert) => projeterDansBoite(boite, p);
+  const path = (anneau: PointLambert[]) => anneau.map((p, i) => { const q = proj(p); return `${i === 0 ? 'M' : 'L'}${q.x.toFixed(1)},${q.y.toFixed(1)}`; }).join(' ') + ' Z';
   const visibles = polygonesVisibles(polygones, filtres);
   const ecarte = (p: PolygoneRepere) => p.cleabs !== null && ecartes.includes(p.cleabs);
-  // PROJ-3j — la ROTATION est un affichage : le contenu est tourné via <g transform="rotate(...)">, mais un CLIC est ramené dans le
-  //   repère NON tourné (angle opposé autour du centre de la boîte) AVANT d'appeler onCliquer → même géométrie quel que soit l'angle.
+  // PROJ-3j/3k — la ROTATION est un affichage : le contenu est tourné via <g rotate>, un CLIC est ramené dans le repère NON tourné.
+  //   PROJ-3k : le viewBox = boîte englobante du contenu APRÈS rotation → le contenu REMPLIT le cadre (largeur 100 %), se réadapte à
+  //   l'angle, sans déformation. Le clic tient compte de l'échelle de rendu ET de l'angle (clicVersBoite) → calage exact à toute taille.
   const centre = { x: boite.largeur / 2, y: boite.hauteur / 2 };
+  const pts: { x: number; y: number }[] = [];
+  for (const a of parcelle) for (const p of a) pts.push(proj(p));
+  for (const poly of visibles) if (poly.anneau.length >= 3) for (const p of poly.anneau) pts.push(proj(p));
+  if (filtres.emprises) for (const e of emprises) if (e.anneau.length >= 3) for (const p of e.anneau) pts.push(proj(p));
+  for (const p of calageLambert) pts.push(proj(p));
+  const vb = boiteEnglobanteRotee(pts, centre, angle);
   return (
-    <svg width={boite.largeur} height={boite.hauteur} viewBox={`0 0 ${boite.largeur} ${boite.hauteur}`} role="img" aria-label="schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées"
-      style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', cursor: onCliquer ? 'crosshair' : 'default' }}
-      onClick={onCliquer ? (ev) => { const r = (ev.target as SVGElement).ownerSVGElement?.getBoundingClientRect() ?? (ev.currentTarget as SVGSVGElement).getBoundingClientRect(); onCliquer(rotePoint({ x: ev.clientX - r.left, y: ev.clientY - r.top }, centre, -angle)); } : undefined}>
+    <svg viewBox={`${vb.minX} ${vb.minY} ${vb.w} ${vb.h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées"
+      style={{ display: 'block', width: '100%', height: 'auto', maxHeight: hauteurMax, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', cursor: onCliquer ? 'crosshair' : 'default' }}
+      onClick={onCliquer ? (ev) => { const r = (ev.currentTarget as SVGSVGElement).getBoundingClientRect(); onCliquer(clicVersBoite(ev.clientX - r.left, ev.clientY - r.top, r.width, r.height, vb, centre, angle)); } : undefined}>
       <g transform={angle ? `rotate(${angle} ${centre.x} ${centre.y})` : undefined}>
         {parcelle.map((a, i) => <path key={`p${i}`} d={path(a)} fill="none" stroke="var(--color-svv-ink)" strokeWidth={1.2} />)}
         {/* (a) existant gris / (b) futur bâti bleu tireté (donnée IGN) ; un futur bâti ÉCARTÉ est grisé (décision d'Arno). Distinct par le TRAIT. */}
@@ -339,6 +353,50 @@ export function RotationSchema({ angle, onAngle }: { angle: number; onAngle: (a:
       </label>
       <span style={{ fontVariantNumeric: 'tabular-nums', minWidth: 34 }}>{Math.round(angle)}°</span>
       <button type="button" onClick={() => onAngle(0)} disabled={angle === 0} style={{ cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.15rem .5rem', fontSize: 12, opacity: angle === 0 ? 0.4 : 1 }}>Remettre à 0</button>
+    </div>
+  );
+}
+
+/**
+ * PROJ-3l — commande de ZOOM du DOCUMENT PDF (à gauche) : « − » / « + », niveau de zoom visible, et « Ajuster » (retour à
+ * l'ajustement initial) en un clic. Une fois zoomé, on déplace le document en le GLISSANT. AFFICHAGE seulement. PUR.
+ */
+export function ZoomPdf({ zoom, onDezoom, onZoom, onAjuster }: { zoom: number; onDezoom: () => void; onZoom: () => void; onAjuster: () => void }) {
+  const b: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.1rem .55rem', fontSize: 13, lineHeight: 1.2 };
+  return (
+    <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+      <span>Zoom</span>
+      <button type="button" aria-label="Dézoomer" onClick={onDezoom} disabled={zoom <= 1} style={{ ...b, opacity: zoom <= 1 ? 0.4 : 1 }}>−</button>
+      <span style={{ fontVariantNumeric: 'tabular-nums', minWidth: 44, textAlign: 'center' }}>{Math.round(zoom * 100)} %</span>
+      <button type="button" aria-label="Zoomer" onClick={onZoom} style={b}>+</button>
+      <button type="button" onClick={onAjuster} disabled={zoom === 1} style={{ ...b, fontSize: 12, opacity: zoom === 1 ? 0.4 : 1 }}>Ajuster</button>
+    </div>
+  );
+}
+
+/**
+ * PROJ-3m ② — GUIDAGE du geste de tracé (pur) : où en est-on (étape 1 calage / étape 2 tracé), QUOI cliquer MAINTENANT, combien de
+ * points restent, comment terminer/revenir en arrière, et OÙ cliquer (`sur` : 'plan' à gauche / 'schema' à droite). AUCUNE mécanique,
+ * juste de l'explicitation. PUR (testable pour chaque état).
+ */
+export interface Guidage { titre: string; instruction: string; sur: 'plan' | 'schema' }
+export function guidageTrace(mode: 'calage' | 'trace', nbPaires: number, planEnAttente: boolean, nbSommets: number, tracable: boolean): Guidage {
+  if (!tracable) return { titre: 'Traçage indisponible', instruction: 'Cette vue n’est pas une vue en plan : on ne peut pas y tracer une emprise.', sur: 'plan' };
+  if (mode === 'calage') {
+    if (planEnAttente) return { titre: `Étape 1 — caler la vue (${nbPaires}/2)`, instruction: 'Point posé sur le plan. Cliquez maintenant le MÊME point sur le schéma de la parcelle, à droite →', sur: 'schema' };
+    if (nbPaires >= 2) return { titre: 'Étape 1 — caler la vue : ✓ 2 points', instruction: 'Calage suffisant. Passez au bouton « Tracé » ci-dessous (ou posez un 3ᵉ point pour affiner l’échelle).', sur: 'plan' };
+    return { titre: `Étape 1 — caler la vue (${nbPaires}/2)`, instruction: `Cliquez un point reconnaissable du PLAN (un angle de la parcelle), puis son correspondant sur le schéma. Encore ${2 - nbPaires} point(s) à poser.`, sur: 'plan' };
+  }
+  if (nbSommets < 3) return { titre: `Étape 2 — tracer l’emprise (${nbSommets} sommet${nbSommets > 1 ? 's' : ''})`, instruction: `Cliquez les sommets du contour du bâtiment sur le PLAN — au moins 3 pour fermer (encore ${3 - nbSommets}).`, sur: 'plan' };
+  return { titre: `Étape 2 — tracer l’emprise (${nbSommets} sommets)`, instruction: 'Contour fermé. Cliquez « Enregistrer l’emprise ». « Annuler dernier » retire un point ; « Reprendre » recommence.', sur: 'plan' };
+}
+
+/** PROJ-3m ② — encart de guidage AFFICHÉ À CÔTÉ du geste (jamais un texte lointain). PUR. */
+export function GuidageTraceBox({ g }: { g: Guidage }) {
+  return (
+    <div role="note" style={{ fontSize: 12, border: '1px solid var(--color-svv-red)', background: 'var(--color-svv-red-soft, #fff5f4)', borderRadius: '.4rem', padding: '.3rem .5rem' }}>
+      <div style={{ fontWeight: 700 }}>{g.titre}</div>
+      <div style={{ color: 'var(--color-svv-ink)' }}>{g.instruction}</div>
     </div>
   );
 }

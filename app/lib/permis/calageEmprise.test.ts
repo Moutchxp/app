@@ -3,7 +3,7 @@ import {
   calculerSimilitude, appliquerSimilitude, echelleImpliciteMParPt, ratioEchelleImplicite,
   echelleDeclareeMParPt, residuFitM, residuEchelleDeclareeM, verdictCalage, aireM2, anneauVersLambert,
   verdictVraisemblance, SEUIL_RESIDU_CALAGE_M, type PaireCalage,
-  cadreDeAnneaux, projeterDansBoite, inverseDepuisBoite, rotePoint, type Boite,
+  cadreDeAnneaux, projeterDansBoite, inverseDepuisBoite, rotePoint, boiteEnglobanteRotee, clicVersBoite, ecranVersCanvas, estClic, type Boite,
 } from './calageEmprise';
 
 const paire = (px: number, py: number, lx: number, ly: number): PaireCalage => ({ plan: { x: px, y: py }, lambert: { x: lx, y: ly } });
@@ -39,6 +39,65 @@ describe('PROJ-3j — rotation du schéma : PARAMÈTRE D’AFFICHAGE, géométri
     const boxA37 = rotePoint(rotePoint(Q, centre, 37), centre, -37); // dé-rotation à 37°
     proche(boxA0, boxA37);                                          // même box-point
     proche(inverseDepuisBoite(boite, boxA0), inverseDepuisBoite(boite, boxA37)); // ⇒ même Lambert ⇒ même emprise
+  });
+});
+
+describe('PROJ-3k — le schéma remplit la largeur : ajustement (viewBox) et clic à toute échelle', () => {
+  const proche = (a: { x: number; y: number }, b: { x: number; y: number }) => { expect(a.x).toBeCloseTo(b.x, 6); expect(a.y).toBeCloseTo(b.y, 6); };
+  const boite: Boite = { largeur: 300, hauteur: 230, marge: 12, cadre: { minX: 0, maxX: 100, minY: 0, maxY: 80 } };
+  const centre = { x: boite.largeur / 2, y: boite.hauteur / 2 };
+  const pointsBox = [{ x: 20, y: 20 }, { x: 260, y: 30 }, { x: 250, y: 200 }, { x: 40, y: 190 }];
+
+  it('boiteEnglobanteRotee : cadre serré + marge uniforme (proportions préservées) ; se réadapte à l’angle', () => {
+    const vb0 = boiteEnglobanteRotee(pointsBox, centre, 0, 0);
+    expect(vb0).toMatchObject({ minX: 20, minY: 20 });
+    expect(vb0.w).toBeCloseTo(240); expect(vb0.h).toBeCloseTo(180); // bbox serrée (sans marge)
+    const vb90 = boiteEnglobanteRotee(pointsBox, centre, 90, 0);
+    // à 90° la bbox échange (à peu près) largeur/hauteur → aspect différent (réadaptation)
+    expect(vb90.w).not.toBeCloseTo(vb0.w);
+    // marge uniforme : le côté le plus grand porte la même marge des deux côtés
+    const m = boiteEnglobanteRotee(pointsBox, centre, 0, 0.04);
+    expect(m.w).toBeCloseTo(240 + 2 * 240 * 0.04);
+  });
+
+  it('forme TRÈS ALLONGÉE : bbox finie, non dégénérée, à 0° et à 45°', () => {
+    const long = [{ x: 10, y: 100 }, { x: 290, y: 102 }, { x: 290, y: 108 }, { x: 10, y: 106 }];
+    for (const a of [0, 45]) { const vb = boiteEnglobanteRotee(long, centre, a); expect(vb.w).toBeGreaterThan(0); expect(vb.h).toBeGreaterThan(0); expect(Number.isFinite(vb.w + vb.h)).toBe(true); }
+  });
+
+  it('🔴 MÊME box-point (donc même emprise) quels que soient l’ANGLE et la TAILLE DE RENDU', () => {
+    const Q = { x: 130, y: 90 }; // sommet cliqué (coord de boîte non tournée)
+    const clicPour = (angle: number, ew: number, eh: number) => {
+      const vb = boiteEnglobanteRotee(pointsBox, centre, angle);
+      const R = rotePoint(Q, centre, angle);                 // position AFFICHÉE (tournée)
+      const ex = ((R.x - vb.minX) / vb.w) * ew, ey = ((R.y - vb.minY) / vb.h) * eh; // px écran
+      return clicVersBoite(ex, ey, ew, eh, vb, centre, angle);
+    };
+    const ref = clicPour(0, 300, 230);
+    proche(ref, Q); // à 0° et taille native, on retombe sur Q
+    for (const [angle, ew, eh] of [[0, 600, 460], [37, 300, 230], [37, 640, 300], [213.5, 412, 500]] as [number, number, number][]) {
+      const box = clicPour(angle, ew, eh);
+      proche(box, Q);                                        // même box-point quel que soit l'angle/l'échelle
+      proche(inverseDepuisBoite(boite, box), inverseDepuisBoite(boite, ref)); // ⇒ même Lambert ⇒ même emprise
+    }
+  });
+});
+
+describe('PROJ-3l — zoom/déplacement du document (PDF de gauche) : le calage reste exact', () => {
+  const proche = (a: { x: number; y: number }, b: { x: number; y: number }) => { expect(a.x).toBeCloseTo(b.x, 6); expect(a.y).toBeCloseTo(b.y, 6); };
+  it('🔴 ecranVersCanvas : annule zoom + pan → MÊME point du document quels que soient le zoom ET le déplacement', () => {
+    const rectLeft = 40, rectTop = 15;
+    const U = { x: 123.4, y: 88.2 }; // point naturel du canvas (zoom 1, pan 0)
+    for (const [zoom, pan] of [[1, { x: 0, y: 0 }], [2, { x: 30, y: -10 }], [3.75, { x: -120, y: 200 }]] as [number, { x: number; y: number }][]) {
+      const clientX = rectLeft + pan.x + zoom * U.x, clientY = rectTop + pan.y + zoom * U.y; // U s'affiche là à l'écran
+      proche(ecranVersCanvas(clientX, clientY, rectLeft, rectTop, pan, zoom), U);            // on retombe TOUJOURS sur U → même PDF point
+    }
+  });
+  it('estClic : petit tremblement → clic (point posé) ; vrai glissement → déplacement (pas de point)', () => {
+    expect(estClic(0, 0)).toBe(true);
+    expect(estClic(3, 3)).toBe(true);   // ~4,24 px < 5 → clic
+    expect(estClic(4, 4)).toBe(false);  // ~5,66 px ≥ 5 → glissement
+    expect(estClic(20, 0)).toBe(false); // glissement franc
   });
 });
 

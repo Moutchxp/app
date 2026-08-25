@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scoreNomPlanMasse, classerPiecesPlanMasse, texteEstPlanMasse, pagePlanMasse, lireEchelleTexte, estPageCartouche, pagesPlanches, familleDeNom, estTracable, classerPiecesParFamille, type PieceScorable } from './planMasse';
+import { scoreNomPlanMasse, classerPiecesPlanMasse, texteEstPlanMasse, pagePlanMasse, lireEchelleTexte, estPageCartouche, pagesPlanches, familleDeNom, estTracable, classerPiecesParFamille, familleDePage, tracabilitePlanche, type PieceScorable } from './planMasse';
 
 // Noms RÉELS mesurés sur le dossier 11430 (cf. recon PROJ-3d).
 const PLANS = [
@@ -78,6 +78,24 @@ describe('PROJ-3g — familles décidées au NOM (noms réels mesurés sur 11430
   it('CONTRE-EXEMPLES : notice / cerfa / avis / situation / toitures → hors bande (null)', () => {
     for (const n of ['PC4_Notice_architecturale.pdf', 'CERFA_13409_15.pdf', 'AVIS ABF.pdf', 'PC1_Plan_de_situation.pdf', 'PC5.1_Plan_de_toitures.pdf', 'PC33_1_2D_PDM.pdf'])
       expect(familleDeNom(n), n).toBeNull();
+  });
+  it('PROJ-3m ① familleDePage : titre « plan du R/niveau » → étage ; « coupe/façade » → coupe ; sinon null', () => {
+    for (const t of ['PC3.3.2 Plan du R01 éch 1:200', 'plan du niveau R+1', 'plan du RDC', 'plan du sous-sol'])
+      expect(familleDePage(t), t).toBe('etage');
+    for (const t of ['COUPE AA sur le terrain', 'coupe BB', 'façade Est'])
+      expect(familleDePage(t), t).toBe('coupe');
+    expect(familleDePage('nomenclature des surfaces')).toBeNull();
+  });
+  it('PROJ-3m ① tracabilitePlanche : une planche « plan du R » d’une pièce PC3 (coupe) redevient TRAÇABLE', () => {
+    // masse/étage : toujours traçable
+    expect(tracabilitePlanche('masse', '')).toMatchObject({ tracable: true, famille: 'masse', ambigu: false });
+    expect(tracabilitePlanche('etage', '')).toMatchObject({ tracable: true, famille: 'etage' });
+    // pièce coupe : le TEXTE de la page décide
+    expect(tracabilitePlanche('coupe', 'PC3.3.2 Plan du R01')).toMatchObject({ tracable: true, famille: 'etage', ambigu: false }); // ① le défaut corrigé
+    expect(tracabilitePlanche('coupe', 'COUPE AA')).toMatchObject({ tracable: false, famille: 'coupe', ambigu: false });
+    expect(tracabilitePlanche('coupe', 'façade Ouest')).toMatchObject({ tracable: false, famille: 'coupe' });
+    // indéterminé → traçable AVEC mention (jamais verrouillé à tort)
+    expect(tracabilitePlanche('coupe', 'tableau des surfaces')).toMatchObject({ tracable: true, ambigu: true });
   });
   it('VERROU (PROJ-3j) : vue EN PLAN traçable (masse OU étage) ; seules coupes/façades verrouillées', () => {
     expect(estTracable('masse')).toBe(true);

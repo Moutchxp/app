@@ -1,13 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type CSSProperties } from 'react';
 import {
   calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, cadreDeAnneaux,
-  inverseDepuisBoite, type Boite, type PaireCalage, type PointPlan, type PointLambert, type VerdictCalage, type VerdictVraisemblance,
+  inverseDepuisBoite, ecranVersCanvas, estClic, type Boite, type PaireCalage, type PointPlan, type PointLambert, type VerdictCalage, type VerdictVraisemblance,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, attribuerReperes, RotationSchema, FILTRES_SCHEMA_DEFAUT, type FiltresSchema } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, FILTRES_SCHEMA_DEFAUT, type FiltresSchema } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
 
@@ -19,7 +19,7 @@ import { estFuturBati } from '../../../../lib/permis/etatBati';
  */
 
 // PROJ-3d/3f — la pièce porte la PROPOSITION « plan de masse » (score par nom) + ses PLANCHES (pages hors cartouche, confirmées serveur).
-interface Piece { id: number; nomFichier: string; typeMime: string | null; propose?: boolean; planches?: { page: number; echelle: string | null }[]; confirme?: boolean }
+interface Piece { id: number; nomFichier: string; typeMime: string | null; propose?: boolean; famille?: FamillePlan | null; planches?: { page: number; echelle: string | null; tracable?: boolean; famille?: FamillePlan; ambigu?: boolean }[]; confirme?: boolean }
 interface Contexte { empreinteAnneaux: [number, number][][] | PointLambert[][]; surfaceTerrainM2: number | null; surfacePlancherM2: number | null; nbEtages: number | null }
 type Mode = 'calage' | 'trace';
 type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convertToViewportPoint(x: number, y: number): number[] }; ratio: number };
@@ -64,15 +64,23 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   // PROJ-3f ① — DEUX navigations DISTINCTES : 'bestof' (bande des plans proposés) et 'piece' (feuilleter les pages d'une pièce ouverte au repli).
   const [nav, setNav] = useState<'bestof' | 'piece'>('bestof');
   const [nbPagesPiece, setNbPagesPiece] = useState(1); // nb de pages de la pièce courante (borne la nav pièce) — connu au rendu pdfjs, à la demande
+  // PROJ-3l — ZOOM (1 = ajusté) + DÉPLACEMENT (pan, px) du PDF de gauche. AFFICHAGE seulement ; réinitialisés au changement de plan.
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pdfContainerRef = useRef<HTMLDivElement>(null); // conteneur NON transformé (repère du clic)
+  const dragRef = useRef<{ x0: number; y0: number; panX: number; panY: number; bouge: boolean } | null>(null);
   const bande = useMemo(() => construireBandePlans(pieces), [pieces]);
-  // PROJ-3g — FAMILLE de la page courante (best-of : entrée de bande ; pièce libre : nom de la pièce ouverte). Le VERROU métier :
-  //   on ne trace QUE sur un plan de masse. `verrou` = pourquoi c'est bloqué (jamais un bouton grisé muet). Aussi revérifié serveur.
-  const familleCourante: FamillePlan | null = nav === 'bestof'
-    ? (bande.length > 0 ? bande[bornerIndex(planIndex, bande.length)].famille : null)
-    : familleDeNom(pieces.find((p) => p.id === pieceId)?.nomFichier ?? '');
-  const tracable = estTracable(familleCourante);
-  const verrou = messageVerrou(familleCourante);
+  // PROJ-3g/3m — FAMILLE + TRAÇABILITÉ de la page courante. En best-of, la traçabilité est calculée PAR PAGE côté serveur (une planche
+  //   de niveau d'une pièce PC3 est traçable) ; en pièce libre, on retombe sur la famille du NOM. `verrou` = pourquoi c'est bloqué ;
+  //   `ambiguCourant` = classement incertain (traçable par défaut, mais on le DIT). Verrou revérifié serveur PAR PAGE à l'enregistrement.
+  const entreeCourante = nav === 'bestof' && bande.length > 0 ? bande[bornerIndex(planIndex, bande.length)] : null;
+  const familleCourante: FamillePlan | null = entreeCourante ? entreeCourante.famille : familleDeNom(pieces.find((p) => p.id === pieceId)?.nomFichier ?? '');
+  const tracable = entreeCourante ? entreeCourante.tracable : estTracable(familleCourante);
+  const verrou = tracable ? null : messageVerrou(familleCourante);
+  const ambiguCourant = entreeCourante?.ambigu ?? false;
+  // PROJ-3m ② — GUIDAGE du geste (pur) : étape courante, quoi cliquer, combien de points restent, où (plan/schéma). Explicitation seule.
+  const guidage = guidageTrace(mode, paires.length, planEnAttente !== null, sommets.length, tracable);
 
   // Chargement (pièces PDF + emprises + ignorées + contexte) au changement de dossier.
   useEffect(() => {
@@ -143,7 +151,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
 
   const afficherPage = useCallback(async () => {
     if (pieceId === null) return;
-    setOccupe(true); setMessage(null);
+    setOccupe(true); setMessage(null); setZoom(1); setPan({ x: 0, y: 0 }); // PROJ-3l — zoom/déplacement réinitialisés au changement de plan
     try {
       const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'signer_piece', pieceId }) });
       if (!res.ok) { setMessage('pièce indisponible'); return; }
@@ -205,13 +213,40 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   // PROJ-3f ① — revenir au best-of : restaure le plan courant de la bande (repasse en mode best-of).
   const retourBestOf = useCallback(() => demanderChangement(() => appliquerPlan(planIndex)), [demanderChangement, appliquerPlan, planIndex]);
 
-  const cliquerPdf = useCallback((ev: ReactMouseEvent<HTMLDivElement>) => {
-    const canvas = canvasRef.current; if (!canvas || !apercu) return;
-    const r = canvas.getBoundingClientRect();
-    const [px, py] = apercu.vp.convertToPdfPoint((ev.clientX - r.left) * apercu.ratio, (ev.clientY - r.top) * apercu.ratio);
+  // PROJ-3l — pose un point : le clic (écran) est ramené dans le canvas NON transformé (annule zoom + pan via ecranVersCanvas), puis
+  //   converti en point PDF. Le repère est le CONTENEUR non transformé. Résultat identique quel que soit le zoom/déplacement (calage exact).
+  const cliquerPdf = useCallback((clientX: number, clientY: number) => {
+    if (!apercu || !pdfContainerRef.current) return;
+    const r = pdfContainerRef.current.getBoundingClientRect();
+    const u = ecranVersCanvas(clientX, clientY, r.left, r.top, pan, zoom);
+    const [px, py] = apercu.vp.convertToPdfPoint(u.x * apercu.ratio, u.y * apercu.ratio);
     if (mode === 'trace') setSommets((s) => [...s, { x: px, y: py }]);
     else setPlanEnAttente({ x: px, y: py });
-  }, [mode, apercu]);
+  }, [mode, apercu, pan, zoom]);
+
+  // PROJ-3l — ZOOM (facteur 1,25 ; bornes [1 ; 8]) et retour à l'AJUSTEMENT (zoom 1, pan 0). AFFICHAGE seulement.
+  const zoomer = useCallback(() => setZoom((z) => Math.min(8, z * 1.25)), []);
+  const dezoomer = useCallback(() => setZoom((z) => { const nz = Math.max(1, z / 1.25); if (nz === 1) setPan({ x: 0, y: 0 }); return nz; }), []);
+  const ajusterPdf = useCallback(() => { setZoom(1); setPan({ x: 0, y: 0 }); }, []);
+
+  // PROJ-3l — GLISSER pour déplacer (quand zoomé) vs CLIQUER pour poser un point : un mouvement ≥ seuil = glissement (jamais de point).
+  const onPdfPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    pdfContainerRef.current?.setPointerCapture?.(e.pointerId);
+    dragRef.current = { x0: e.clientX, y0: e.clientY, panX: pan.x, panY: pan.y, bouge: false };
+  }, [pan]);
+  const onPdfPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current; if (!d) return;
+    const dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+    if (!d.bouge && !estClic(dx, dy)) d.bouge = true;
+    if (zoom > 1 && d.bouge) setPan({ x: d.panX + dx, y: d.panY + dy });
+  }, [zoom]);
+  const onPdfPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current; dragRef.current = null;
+    pdfContainerRef.current?.releasePointerCapture?.(e.pointerId);
+    if (!d) return;
+    // Clic (petit mouvement) → poser un point (si traçable) ; vrai glissement → déplacement déjà fait, aucun point.
+    if (tracable && estClic(e.clientX - d.x0, e.clientY - d.y0)) cliquerPdf(e.clientX, e.clientY);
+  }, [tracable, cliquerPdf]);
 
   const cliquerSchema = useCallback((pxBoite: { x: number; y: number }) => {
     if (mode !== 'calage' || !boite || !planEnAttente) return;
@@ -335,26 +370,31 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
                 </div>
               )}
             </div>
-            <div style={{ position: 'relative', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden' }} onClick={tracable ? cliquerPdf : undefined}>
-              <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: 'auto' }} />
-              <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-                {cssSommets.length >= 2 && <polyline points={cssSommets.map((q) => `${q.x},${q.y}`).join(' ')} fill="rgba(163,4,2,.12)" stroke="var(--color-svv-red)" strokeWidth={2} />}
-                {cssSommets.map((q, i) => <circle key={`s${i}`} cx={q.x} cy={q.y} r={3.5} fill="var(--color-svv-red)" />)}
-                {cssPaires.map((q, i) => <g key={`c${i}`}><rect x={q.x - 5} y={q.y - 5} width={10} height={10} fill="none" stroke="#1f77b4" strokeWidth={2} /><text x={q.x + 7} y={q.y - 7} fontSize={12} fill="#1f77b4">{i + 1}</text></g>)}
-                {cssAttente && <circle cx={cssAttente.x} cy={cssAttente.y} r={5} fill="none" stroke="#1f77b4" strokeWidth={2} strokeDasharray="3 2" />}
-              </svg>
+            {/* PROJ-3l — commande de zoom du document. */}
+            <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
+            {/* Conteneur NON transformé (repère du clic) ; le PDF + l'overlay sont dans un wrapper zoomé/déplacé. Glisser = déplacer (si zoomé), cliquer = poser un point. */}
+            <div ref={pdfContainerRef} style={{ position: 'relative', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', touchAction: 'none', cursor: zoom > 1 ? 'grab' : (tracable ? 'crosshair' : 'default') }}
+              onPointerDown={onPdfPointerDown} onPointerMove={onPdfPointerMove} onPointerUp={onPdfPointerUp}>
+              <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
+                <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: 'auto' }} />
+                <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                  {cssSommets.length >= 2 && <polyline points={cssSommets.map((q) => `${q.x},${q.y}`).join(' ')} fill="rgba(163,4,2,.12)" stroke="var(--color-svv-red)" strokeWidth={2} />}
+                  {cssSommets.map((q, i) => <circle key={`s${i}`} cx={q.x} cy={q.y} r={3.5} fill="var(--color-svv-red)" />)}
+                  {cssPaires.map((q, i) => <g key={`c${i}`}><rect x={q.x - 5} y={q.y - 5} width={10} height={10} fill="none" stroke="#1f77b4" strokeWidth={2} /><text x={q.x + 7} y={q.y - 7} fontSize={12} fill="#1f77b4">{i + 1}</text></g>)}
+                  {cssAttente && <circle cx={cssAttente.x} cy={cssAttente.y} r={5} fill="none" stroke="#1f77b4" strokeWidth={2} strokeDasharray="3 2" />}
+                </svg>
+              </div>
             </div>
-            <p style={{ ...styleAide, margin: 0 }}>
-              {mode === 'calage'
-                ? (planEnAttente ? 'Point plan posé : cliquez son correspondant sur le schéma de la parcelle →' : 'Calage : cliquez un point connu sur le plan (angle de parcelle…), puis son correspondant sur le schéma.')
-                : 'Tracé : cliquez les sommets de l’emprise, puis « Enregistrer ».'}
-            </p>
+            {/* PROJ-3m ② — le guidage s'affiche À CÔTÉ du geste : ici sous le PLAN quand c'est là qu'il faut cliquer. */}
+            {tracable && guidage.sur === 'plan' && <GuidageTraceBox g={guidage} />}
           </div>
 
           {/* Colonne de droite — PROJ-3j ③ : le SCHÉMA en PREMIER (aligné avec le document à gauche), les outils en dessous. */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
             {/* PROJ-3j ② — rotation d'affichage + schéma (clics dé-tournés côté schéma) + agrandir. */}
             <RotationSchema angle={angle} onAngle={setAngle} />
+            {/* PROJ-3m ② — quand le prochain clic va sur le SCHÉMA (correspondant du point plan), le guidage s'affiche ICI, au-dessus. */}
+            {tracable && guidage.sur === 'schema' && <GuidageTraceBox g={guidage} />}
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} onCliquer={mode === 'calage' && planEnAttente ? cliquerSchema : undefined} />
             <div><button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button></div>
 
@@ -362,9 +402,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
             <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
 
-            {/* PROJ-3g/3j — VERROU (COUPES/FAÇADES seulement) ; RAPPEL informatif « étage » (jamais un blocage). */}
+            {/* PROJ-3g/3j/3m — VERROU (COUPES/FAÇADES seulement) ; RAPPEL « étage » ; MENTION si le classement de la page est incertain. */}
             {verrou && <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{verrou}</div>}
-            {noteFamille(familleCourante) && <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{noteFamille(familleCourante)}</div>}
+            {tracable && ambiguCourant && <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Type de vue incertain : proposé traçable — vérifiez qu’il s’agit bien d’une vue en plan (pas d’une coupe/façade) avant de tracer.</div>}
+            {tracable && noteFamille(familleCourante) && <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{noteFamille(familleCourante)}</div>}
 
             {/* Outils de calage / tracé. */}
             <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
@@ -413,7 +454,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             </div>
             <RotationSchema angle={angle} onAngle={setAngle} />
             <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-              <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} calageLambert={[]} />
+              <div style={{ flex: '1 1 420px', minWidth: 0 }}>
+                <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} hauteurMax="82vh" calageLambert={[]} />
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 240 }}>
                 <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
                 <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />

@@ -65,6 +65,33 @@ export function familleDeNom(nomFichier: string): FamillePlan | null {
  */
 export function estTracable(f: FamillePlan | null): boolean { return f === 'masse' || f === 'etage'; }
 
+// PROJ-3m ① — une pièce PC3 (famille 'coupe' par son NOM) peut MÊLER des coupes ET des plans de niveau (mesuré sur PC3_2D_PDM :
+//   pages 5-9 = plans de niveau, le reste = coupes/façades). Le nom de pièce ne suffit plus → on classe PAR PAGE d'après son TITRE.
+const NIVEAU = /plan\s+(du\s+|de\s+)?(niveau|rez|rdc|sous[\s-]*sol|etage|r\s*[-+.]?\s*\d{1,2})/;
+const ELEVATION = /\bcoupes?\b|\bfacades?\b|\belevations?\b/;
+
+/** Famille d'une PAGE d'après son texte (titre de cartouche) : 'etage' (vue en plan) / 'coupe' (élévation) / null (indéterminé). PUR. */
+export function familleDePage(textePage: string): FamillePlan | null {
+  const t = norm(textePage);
+  if (NIVEAU.test(t)) return 'etage';   // « plan du R/niveau » PRIME (une planche de niveau peut aussi référencer une façade)
+  if (ELEVATION.test(t)) return 'coupe';
+  return null;
+}
+
+export interface TracabilitePlanche { tracable: boolean; famille: FamillePlan; ambigu: boolean }
+/**
+ * PROJ-3m ① — traçabilité d'UNE PLANCHE. Une vue en plan (masse OU étage) est traçable ; une coupe/façade non. Pour une pièce de
+ * famille 'coupe' (par le nom), on REGARDE LE TEXTE de la page : titre « plan du R/niveau » → traçable (étage) ; « coupe/façade » →
+ * verrou ; INDÉTERMINÉ → traçable AVEC MENTION (mieux vaut proposer traçable que verrouiller à tort — décision d'Arno, mesurée). PUR.
+ */
+export function tracabilitePlanche(famillePiece: FamillePlan, textePage: string): TracabilitePlanche {
+  if (famillePiece !== 'coupe') return { tracable: true, famille: famillePiece, ambigu: false };
+  const fp = familleDePage(textePage);
+  if (fp === 'coupe') return { tracable: false, famille: 'coupe', ambigu: false };
+  if (fp === 'etage') return { tracable: true, famille: 'etage', ambigu: false };
+  return { tracable: true, famille: 'coupe', ambigu: true }; // indéterminé → traçable + mention
+}
+
 const RANG_FAMILLE: Record<FamillePlan, number> = { masse: 0, etage: 1, coupe: 2 };
 
 /**

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
@@ -124,8 +124,8 @@ describe('PROJ-3e — bande de plans : feuilleter (fonctions pures)', () => {
     expect(bornerIndex(0, 0)).toBe(0);                      // liste vide
   });
   it('libellePlan : nom + n° de page + échelle si présente', () => {
-    expect(libellePlan({ pieceId: 1, page: 4, nomFichier: 'PC2.pdf', echelle: '1:500', confirme: true, famille: 'masse' })).toBe('PC2.pdf — page 4 · échelle 1:500');
-    expect(libellePlan({ pieceId: 1, page: 2, nomFichier: 'PC2.pdf', echelle: null, confirme: true, famille: 'masse' })).toBe('PC2.pdf — page 2');
+    expect(libellePlan({ page: 4, nomFichier: 'PC2.pdf', echelle: '1:500' })).toBe('PC2.pdf — page 4 · échelle 1:500');
+    expect(libellePlan({ page: 2, nomFichier: 'PC2.pdf', echelle: null })).toBe('PC2.pdf — page 2');
   });
   it('travailEnCours : un calage OU un tracé commencé ⇒ confirmation requise', () => {
     expect(travailEnCours(0, 0)).toBe(false);
@@ -241,6 +241,15 @@ describe('PROJ-3j — rotation du schéma (affichage seulement)', () => {
     expect(html).toContain('0°');
     expect(html).toMatch(/disabled/);
   });
+  it('ZoomPdf : niveau visible, « − » désactivé à 100 %, « Ajuster » désactivé à 100 %', () => {
+    const h100 = renderToStaticMarkup(h(ZoomPdf, { zoom: 1, onDezoom: () => {}, onZoom: () => {}, onAjuster: () => {} }));
+    expect(h100).toContain('100 %');
+    expect(h100).toMatch(/disabled[^>]*aria-label="Dézoomer"|aria-label="Dézoomer"[^>]*disabled/);
+    const h200 = renderToStaticMarkup(h(ZoomPdf, { zoom: 2, onDezoom: () => {}, onZoom: () => {}, onAjuster: () => {} }));
+    expect(h200).toContain('200 %');
+    expect(h200).toContain('Ajuster');
+    expect(h200).not.toMatch(/disabled[^>]*aria-label="Dézoomer"/); // dézoom actif à 200 %
+  });
   it('SchemaParcelleTrace : un angle produit un transform rotate autour du centre ; 0° = pas de rotation', () => {
     const boite: Boite = { largeur: 300, hauteur: 230, marge: 12, cadre: { minX: 0, maxX: 100, minY: 0, maxY: 80 } };
     const parcelle = [[{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }]];
@@ -279,6 +288,23 @@ describe('PROJ-3g — trois familles dans la bande + verrou de traçage', () => 
     expect(noteFamille('masse')).toBeNull();
     expect(noteFamille('coupe')).toBeNull();
   });
+  // PROJ-3m ① — une pièce PC3 (famille « coupe ») contient À LA FOIS des coupes et des plans de niveau : la traçabilité est PAR PAGE.
+  //   La planche « plan du R01 » devient traçable (famille etage) SANS déverrouiller les vraies élévations (coupe/façade restent bloquées).
+  it('construireBandePlans : traçabilité PAR PAGE d’une pièce PC3 (planche de niveau traçable, coupe verrouillée)', () => {
+    const b = construireBandePlans([{
+      id: 7, nomFichier: 'PC3_2D_PDM.pdf', propose: true, famille: 'coupe', confirme: true,
+      planches: [
+        { page: 1, echelle: '1:200', tracable: false, famille: 'coupe', ambigu: false },   // coupe → verrouillée
+        { page: 5, echelle: '1:200', tracable: true, famille: 'etage', ambigu: false },     // « Plan du R01 » → traçable
+        { page: 14, echelle: null, tracable: true, famille: 'coupe', ambigu: true },        // classement incertain → traçable + mention
+      ],
+    }]);
+    expect(b.map((p) => ({ page: p.page, tracable: p.tracable, famille: p.famille, ambigu: p.ambigu }))).toEqual([
+      { page: 1, tracable: false, famille: 'coupe', ambigu: false },
+      { page: 5, tracable: true, famille: 'etage', ambigu: false },
+      { page: 14, tracable: true, famille: 'coupe', ambigu: true },
+    ]);
+  });
 });
 
 describe('PROJ-3f ① — le best-of est un MODE nommé par les mots (pas la couleur)', () => {
@@ -303,5 +329,46 @@ describe('PROJ-3b-fix — affichageTrace : « aucun bâtiment » n’est PAS un 
   });
   it('succès + liste non vide → « pret »', () => {
     expect(affichageTrace('ok', 2)).toBe('pret');
+  });
+});
+
+describe('PROJ-3m ② — guidage du geste de tracé (pur) : étape, quoi cliquer, combien restent, où', () => {
+  it('calage, 0 point : dit de cliquer sur le PLAN et combien restent', () => {
+    const g = guidageTrace('calage', 0, false, 0, true);
+    expect(g.sur).toBe('plan');
+    expect(g.titre).toContain('Étape 1');
+    expect(g.titre).toContain('0/2');
+    expect(g.instruction).toMatch(/PLAN/);
+    expect(g.instruction).toMatch(/2 point/);
+  });
+  it('calage, point plan posé : bascule le guidage SUR LE SCHÉMA (le prochain clic va à droite)', () => {
+    const g = guidageTrace('calage', 0, true, 0, true);
+    expect(g.sur).toBe('schema');
+    expect(g.instruction).toMatch(/schéma/);
+  });
+  it('calage, 2 paires : invite à passer au tracé (calage suffisant)', () => {
+    const g = guidageTrace('calage', 2, false, 0, true);
+    expect(g.sur).toBe('plan');
+    expect(g.titre).toContain('✓');
+    expect(g.instruction).toMatch(/Tracé/);
+  });
+  it('tracé, < 3 sommets : compte les sommets restants pour fermer', () => {
+    const g = guidageTrace('trace', 2, false, 1, true);
+    expect(g.titre).toContain('Étape 2');
+    expect(g.instruction).toMatch(/encore 2/);
+  });
+  it('tracé, ≥ 3 sommets : contour fermé, dit comment enregistrer / revenir en arrière', () => {
+    const g = guidageTrace('trace', 2, false, 4, true);
+    expect(g.instruction).toMatch(/Enregistrer/);
+    expect(g.instruction).toMatch(/Annuler dernier|Reprendre/);
+  });
+  it('vue non traçable : le guidage le DIT (pas de geste possible)', () => {
+    const g = guidageTrace('trace', 0, false, 0, false);
+    expect(g.instruction).toMatch(/pas une vue en plan|indisponible/i);
+  });
+  it('GuidageTraceBox rend le titre et l’instruction', () => {
+    const html = renderToStaticMarkup(h(GuidageTraceBox, { g: guidageTrace('calage', 0, false, 0, true) }));
+    expect(html).toContain('Étape 1');
+    expect(html).toMatch(/PLAN/);
   });
 });

@@ -24,6 +24,14 @@ vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
   ecarterPolygoneProjet: vi.fn(async () => ({ ok: true })),
   retablirPolygoneProjet: vi.fn(async () => ({ ok: true })),
 }));
+const HG = vi.hoisted(() => ({
+  // PROJ-3f/3m — texte simulé d'une pièce MULTI-PAGES : p1 = cartouche titré (exclu), p2-p3 = planches. vi.fn → surchargeable par test.
+  extraire: vi.fn(async () => ({ ok: true, pages: [
+    'PC2 PLAN DE MASSE DES CONSTRUCTIONS À ÉDIFIER OU MODIFIER — bureaux d’études',
+    'planche implantation éch. 1:500',
+    'planche niveaux',
+  ] })),
+}));
 vi.mock('../../../../../lib/permis/lectureGed', () => ({
   depsReellesLectureGed: () => ({
     listerPieces: async () => [
@@ -32,12 +40,7 @@ vi.mock('../../../../../lib/permis/lectureGed', () => ({
       { id: 57, nomFichier: 'PC4_Notice_architecturale.pdf', typeMime: 'application/pdf', cleStockage: 'k3', tailleOctets: 1 },
     ],
     lireObjet: async () => Buffer.from('%PDF'),
-    // PROJ-3f — texte simulé d'une pièce MULTI-PAGES : p1 = cartouche titré (exclu), p2-p3 = planches.
-    extraire: async () => ({ ok: true, pages: [
-      'PC2 PLAN DE MASSE DES CONSTRUCTIONS À ÉDIFIER OU MODIFIER — bureaux d’études',
-      'planche implantation éch. 1:500',
-      'planche niveaux',
-    ] }),
+    extraire: HG.extraire,
   }),
 }));
 vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({ lireCleTelechargeable: vi.fn(async () => ({ cle: 'ged/dossier/55.pdf', nomFichier: 'PC2.pdf' })) }));
@@ -64,7 +67,11 @@ describe('PROJ-2 — GET', () => {
     expect(j.pieces.every((p: object) => !('cleStockage' in p))).toBe(true);
     // ① tri par nom + ② confirmation page-level : PC2 → proposé famille « masse », ÉCLATÉ en planches (cartouche p1 EXCLU, p2-p3 gardées)
     expect(j.pieces[0]).toMatchObject({ id: 55, propose: true, famille: 'masse', confirme: true });
-    expect(j.pieces[0].planches).toEqual([{ page: 2, echelle: '1:500' }, { page: 3, echelle: null }]);
+    // PROJ-3m — chaque planche porte sa traçabilité PAR PAGE (PC2 = masse → toutes traçables)
+    expect(j.pieces[0].planches).toEqual([
+      { page: 2, echelle: '1:500', tracable: true, famille: 'masse', ambigu: false },
+      { page: 3, echelle: null, tracable: true, famille: 'masse', ambigu: false },
+    ]);
     expect(j.pieces[0].score).toBeGreaterThan(0);
     // la notice n'est d'AUCUNE famille (null), non proposée, mais reste ATTEIGNABLE (repli garanti)
     expect(j.pieces[1]).toMatchObject({ id: 57, propose: false, famille: null, confirme: false });
@@ -130,17 +137,28 @@ describe('PROJ-2 — POST enregistrer : géométrie recalculée SERVEUR (plan �
     expect(arg.anneau[1]).toEqual({ x: 10, y: 0 }); // 5 pt × 2 = 10 m
   });
 
-  it('PROJ-3g — VERROU serveur : enregistrer une emprise depuis une COUPE est refusé (jamais sur une élévation)', async () => {
-    vi.mocked(lireCleTelechargeable).mockResolvedValueOnce({ cle: 'ged/dossier/x.pdf', nomFichier: 'PC3.1_Coupe_AA.pdf' } as Awaited<ReturnType<typeof lireCleTelechargeable>>);
-    const res = await post({ action: 'enregistrer', dossierId: 11434, corpsId: 3, libelle: '2D1', pieceId: 99, page: 2,
+  it('PROJ-3g/3m — VERROU serveur PAR PAGE : une planche classée COUPE est refusée', async () => {
+    vi.mocked(lireCleTelechargeable).mockResolvedValueOnce({ cle: 'ged/dossier/x.pdf', nomFichier: 'PC3_2D_PDM.pdf' } as Awaited<ReturnType<typeof lireCleTelechargeable>>);
+    HG.extraire.mockResolvedValueOnce({ ok: true, pages: ['COUPE AA sur le terrain naturel'] }); // la page 1 est une coupe
+    const res = await post({ action: 'enregistrer', dossierId: 11434, corpsId: 3, libelle: '2D1', pieceId: 99, page: 1,
       paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }],
       anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] });
     expect(res.status).toBe(400);
-    expect((await res.json()).erreur).toMatch(/plan de masse/);
+    expect((await res.json()).erreur).toMatch(/vue en plan/);
     expect(enregistrerEmprise).not.toHaveBeenCalled();
   });
 
-  it('PROJ-3j — un PLAN D’ÉTAGE est traçable (le verrou serveur ne le rejette plus)', async () => {
+  it('PROJ-3m ① — une planche « plan du R » d’une pièce PC3 (coupe) est TRAÇABLE (défaut corrigé)', async () => {
+    vi.mocked(lireCleTelechargeable).mockResolvedValueOnce({ cle: 'ged/dossier/y.pdf', nomFichier: 'PC3_2D_PDM.pdf' } as Awaited<ReturnType<typeof lireCleTelechargeable>>);
+    HG.extraire.mockResolvedValueOnce({ ok: true, pages: ['a', 'b', 'c', 'd', 'PC3.3.2 Plan du R01 éch 1:200'] }); // page 5 = plan de niveau
+    const res = await post({ action: 'enregistrer', dossierId: 11434, corpsId: 3, libelle: '2D1', pieceId: 88, page: 5,
+      paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }],
+      anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] });
+    expect(res.status).toBe(200);
+    expect(enregistrerEmprise).toHaveBeenCalled();
+  });
+
+  it('PROJ-3j — un PLAN D’ÉTAGE (nom explicite) est traçable sans ouvrir la page', async () => {
     vi.mocked(lireCleTelechargeable).mockResolvedValueOnce({ cle: 'ged/dossier/e.pdf', nomFichier: 'ANNEXE_6_Plan_du_R_1.pdf' } as Awaited<ReturnType<typeof lireCleTelechargeable>>);
     const res = await post({ action: 'enregistrer', dossierId: 11434, corpsId: 3, libelle: '2D1', pieceId: 42, page: 2,
       paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }],

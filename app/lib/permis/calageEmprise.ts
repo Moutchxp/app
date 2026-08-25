@@ -211,6 +211,51 @@ export function rotePoint(p: { x: number; y: number }, centre: { x: number; y: n
   return { x: centre.x + dx * c - dy * s, y: centre.y + dx * s + dy * c };
 }
 
+export interface CadreVue { minX: number; minY: number; w: number; h: number }
+
+/**
+ * PROJ-3k — BOÎTE ENGLOBANTE du contenu APRÈS ROTATION (en coordonnées de boîte), + une marge proportionnelle uniforme. Sert de
+ * `viewBox` SVG : le contenu tourné remplit alors le cadre (aucune marge inutile), et le cadre se réADAPTE à chaque angle. AUCUN
+ * arrondi (précision préservée). PUR. `pad` = fraction du plus grand côté (marge uniforme → ne déforme pas les proportions).
+ */
+export function boiteEnglobanteRotee(pointsBox: { x: number; y: number }[], centre: { x: number; y: number }, angleDeg: number, pad = 0.04): CadreVue {
+  if (pointsBox.length === 0) return { minX: 0, minY: 0, w: 1, h: 1 };
+  const r = pointsBox.map((p) => rotePoint(p, centre, angleDeg));
+  const xs = r.map((p) => p.x), ys = r.map((p) => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const w = maxX - minX, h = maxY - minY, m = Math.max(w, h, 1) * pad;
+  return { minX: minX - m, minY: minY - m, w: w + 2 * m, h: h + 2 * m };
+}
+
+/**
+ * PROJ-3k — CLIC → coordonnée de BOÎTE (non tournée), en tenant compte de : (1) la mise à l'échelle du RENDU (le SVG occupe `ew×eh`
+ * pixels écran pour un `viewBox` `vb`), puis (2) la ROTATION (angle opposé). Résultat IDENTIQUE quel que soit l'angle ET la taille de
+ * rendu → le calage reste exact. AUCUN arrondi. PUR.
+ */
+export function clicVersBoite(ex: number, ey: number, ew: number, eh: number, vb: CadreVue, centre: { x: number; y: number }, angleDeg: number): { x: number; y: number } {
+  const vbx = vb.minX + (ew > 0 ? (ex * vb.w) / ew : 0);
+  const vby = vb.minY + (eh > 0 ? (ey * vb.h) / eh : 0);
+  return rotePoint({ x: vbx, y: vby }, centre, -angleDeg);
+}
+
+/**
+ * PROJ-3l — CLIC écran → coordonnée du DOCUMENT (canvas non transformé), en annulant le ZOOM et le DÉPLACEMENT (pan) appliqués au
+ * PDF de gauche (transform `translate(pan) scale(zoom)`, origine haut-gauche). Résultat IDENTIQUE à zoom 1 / pan 0 → le calage reste
+ * exact. AUCUN arrondi. PUR.
+ */
+export function ecranVersCanvas(clientX: number, clientY: number, rectLeft: number, rectTop: number, pan: { x: number; y: number }, zoom: number): { x: number; y: number } {
+  const z = zoom > 0 ? zoom : 1;
+  return { x: (clientX - rectLeft - pan.x) / z, y: (clientY - rectTop - pan.y) / z };
+}
+
+/**
+ * PROJ-3l — un geste est-il un CLIC (poser un point) plutôt qu'un GLISSEMENT (déplacer) ? Vrai si le pointeur a bougé de MOINS que
+ * `seuil` px depuis l'appui. Un petit tremblement pendant un clic pose quand même un point ; un vrai glissement déplace sans poser. PUR.
+ */
+export function estClic(dx: number, dy: number, seuil = 5): boolean {
+  return dx * dx + dy * dy < seuil * seuil;
+}
+
 // ── Vraisemblance (affichée, JAMAIS bloquante) ───────────────────────────────
 export interface EntreeVraisemblance {
   aireM2: number;
