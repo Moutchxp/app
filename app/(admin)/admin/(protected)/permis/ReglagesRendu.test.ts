@@ -120,7 +120,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'depot_adresses_connues', // N1-A — versement automatique en GED
       'nature_accuse_motifs',   // FUS-4 — motifs d'objet « accusé de réception »
     ]);
-    expect(PARAMS_THEME_ALERTES.map((p) => p.colonne)).toEqual(['alerte_active', 'alerte_email', 'alerte_heure_locale']);
+    expect(PARAMS_THEME_ALERTES.map((p) => p.colonne)).toEqual(['alerte_active', 'alerte_email', 'alerte_heure_locale', 'obstacle_disparu_alerte_active']);
     expect(PARAMS_THEME_CADA.map((p) => p.colonne)).toEqual(['proposition_cada_active', 'cada_email', 'cada_url_formulaire', 'saisine_cada_auto_active']);
   });
 
@@ -129,14 +129,15 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
   it('les 5 thèmes partitionnent les clés « demandes » (disjoints, couvrants, sans perte ni doublon)', () => {
     const themes = [PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA];
     const clesThemes = themes.flatMap((t) => t.map((p) => p.colonne));
-    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length).toBe(34);
-    expect(new Set(clesThemes).size).toBe(34); // disjoints (aucun doublon)
-    // liste LITTÉRALE figée des 32 clés « demandes » — comparée en ENSEMBLE à la concaténation des thèmes ET à COLONNES_PARAMS_DEMANDES.
+    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length).toBe(35);
+    expect(new Set(clesThemes).size).toBe(35); // disjoints (aucun doublon)
+    // liste LITTÉRALE figée des clés « demandes » — comparée en ENSEMBLE à la concaténation des thèmes ET à COLONNES_PARAMS_DEMANDES.
     const CLES_DEMANDES = [
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
       'nb_candidats_examines', 'tri_candidats', 'envois_max_par_run', 'envois_max_par_jour', 'adresse_reponse',
       'cada_email', 'cada_url_formulaire', 'releve_active', 'releve_intervalle_minutes', 'releve_profil',
       'echeance_alerte_jours', 'releve_fraicheur_heures', 'alerte_active', 'alerte_email', 'alerte_heure_locale',
+      'obstacle_disparu_alerte_active', // ALERTE obstacle disparu — thème « Alertes par e-mail »
       'proposition_cada_active', 'piece_taille_max_mo', 'recherche_references_max', 'pieces_demandees', 'profil_demandeur_defaut',
       'depot_adresses_connues', // N1-A
       'nature_accuse_motifs',   // FUS-4
@@ -158,9 +159,9 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       ...PARAMS_THEME_RATTACHEMENT, // 6e thème « Rattachement au bâti » : RATT-AUTO (1) + ATT-BATI (2) = 3 réglages
       ...PARAMS_MENTIONS, ...PARAMS_SOURCES,
     ].map((p) => p.colonne);
-    // Snapshot : l'écran Réglages rend 34 + 3 + 6 + 1 = 44 clés distinctes (ATT-BATI a ajouté 2 réglages au thème « Rattachement au bâti »).
-    expect(CLES_RENDUES_REGLAGES).toHaveLength(44);
-    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(44);
+    // Snapshot : 44 + 1 = 45 clés distinctes (ALERTE « obstacle disparu » a ajouté 1 réglage au thème « Alertes par e-mail »).
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(45);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(45);
     // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
     const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
     expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));

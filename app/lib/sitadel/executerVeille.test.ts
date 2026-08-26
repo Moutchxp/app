@@ -582,6 +582,27 @@ describe('ATT-BATI — executerVeille : rappel « attente de bâti » branché, 
   });
 });
 
+describe('ALERTE obstacle disparu — executerVeille : brique branchée, ISOLÉE (données)', () => {
+  it('une alerte qui ÉCHOUE (throw) n’empêche PAS la veille de finaliser en « succes »', async () => {
+    const alerteObstacleDisparu = vi.fn(async () => { throw new Error('SMTP KO'); });
+    const finaliserRun = vi.fn(async () => {});
+    const libererVerrou = vi.fn(async () => {});
+    const deps = makeDeps({ alerteObstacleDisparu, finaliserRun, libererVerrou });
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+    expect(alerteObstacleDisparu).toHaveBeenCalledTimes(1);
+    expect(r.statut).toBe('succes');
+    expect(libererVerrou).toHaveBeenCalledTimes(1);
+  });
+
+  it('verrou déjà pris → l’alerte n’est PAS tentée', async () => {
+    const alerteObstacleDisparu = vi.fn(async () => {});
+    const deps = makeDeps({ acquerirVerrou: vi.fn(async () => false), alerteObstacleDisparu });
+    const r = await executerVeille({ declencheur: 'planifie' }, deps);
+    expect(r.statut).toBe('rien_a_faire');
+    expect(alerteObstacleDisparu).not.toHaveBeenCalled();
+  });
+});
+
 describe('RATT-AUTO — executerVeille : rejeu automatique du suivi branché, ISOLÉ, après l’ingestion nocturne', () => {
   it('un rejeu qui ÉCHOUE (throw) n’empêche PAS la veille de finaliser en « succes »', async () => {
     const suiviRattachementAuto = vi.fn(async () => { throw new Error('suivi KO'); });
@@ -622,7 +643,7 @@ describe('H1 — GARDE PAR FAMILLE (sûreté : une passe « donnees » n’envoi
   // Étapes (A) mairies/permis — dont envoiAuto (§1decies), le SEUL envoi vers des tiers.
   const A = ['releveAuto', 'echeanceApprofondie', 'relanceEcheance', 'alerteQuotidienne', 'propositionCada', 'alerteGed', 'alerteAttenteBati', 'alerteAction', 'preCochageRepondu', 'envoiAuto'] as const;
   // Étapes (B) sources de données — dont RATT-AUTO (rejeu du suivi APRÈS l'ingestion, famille « donnees »).
-  const B = ['detecterEditions', 'ingestionAuto', 'suiviRattachementAuto', 'alerteMisesAJour'] as const;
+  const B = ['detecterEditions', 'ingestionAuto', 'suiviRattachementAuto', 'alerteMisesAJour', 'alerteObstacleDisparu'] as const;
 
   function depsAvecEspions(over: Partial<DepsVeille> = {}) {
     const espions: Record<string, ReturnType<typeof vi.fn>> = {};

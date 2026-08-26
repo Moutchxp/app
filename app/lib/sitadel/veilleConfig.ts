@@ -71,6 +71,7 @@ export interface ConfigVeille {
   rattachementSuiviAutoActive: boolean; // RATT-AUTO : rejouer automatiquement le suivi des permis « en attente de bâti » à chaque tick ? (opt-in, défaut false)
   attenteBatiAlerteActive: boolean;     // ATT-BATI : envoyer un rappel e-mail quand un permis attend le bâti au-delà du seuil ? (opt-in, défaut false)
   attenteBatiAlerteJours: number;       // ATT-BATI : ancienneté (jours) au-delà de laquelle le rappel se déclenche — défaut 365, plage 30..1095
+  obstacleDisparuAlerteActive: boolean; // ALERTE : prévenir quand un bâtiment qui fondait un certificat a disparu de BD TOPO ? (opt-in, défaut false)
 }
 
 /**
@@ -125,6 +126,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   relanceRappelJoursAvant: 10, relanceAvisJoursAvant: 3, relanceSaisineDelaiJours: 4, saisineCadaAutoActive: false, // = DEFAULT de la migration 136 (cascade lot 2)
   rattachementSuiviAutoActive: false, // = DEFAULT de la migration 154 (RATT-AUTO : opt-in, comme tous les interrupteurs d'automatisation)
   attenteBatiAlerteActive: false, attenteBatiAlerteJours: 365, // = DEFAULT de la migration 155 (ATT-BATI : opt-in ; seuil 1 an, bas de la fenêtre IGN 1-3 ans)
+  obstacleDisparuAlerteActive: false, // = DEFAULT de la migration 157 (ALERTE obstacle disparu : opt-in)
 };
 
 interface LigneConfigVeille {
@@ -456,6 +458,15 @@ async function lireAttenteBatiAlerte(): Promise<Pick<ConfigVeille, 'attenteBatiA
   } catch { return def; } // 155 pas encore appliquée → OFF, seuil défaut
 }
 
+// ALERTE obstacle disparu — lecture ISOLÉE de l'interrupteur (résiliente à l'ordre d'application de la 157, livrée NON APPLIQUÉE) :
+//   tant que la colonne n'existe pas, cette lecture échoue SEULE et retombe sur false (OFF), SANS dégrader le reste de la config.
+async function lireObstacleDisparuAlerte(): Promise<Pick<ConfigVeille, 'obstacleDisparuAlerteActive'>> {
+  try {
+    const { rows } = await query<{ obstacle_disparu_alerte_active: boolean }>(`SELECT obstacle_disparu_alerte_active FROM config_veille WHERE id = 1`);
+    return { obstacleDisparuAlerteActive: rows[0]?.obstacle_disparu_alerte_active === true };
+  } catch { return { obstacleDisparuAlerteActive: false }; } // 157 pas encore appliquée → OFF
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -509,6 +520,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireRelanceCascadeReglages()),          // Cascade lot 2 : 3 délais + auto-saisine CADA, lecture isolée (résiliente à la 136)
       ...(await lireRattachementSuiviAuto()),           // RATT-AUTO : interrupteur du rejeu automatique du suivi, lecture isolée (résiliente à la 154)
       ...(await lireAttenteBatiAlerte()),               // ATT-BATI : interrupteur + seuil du rappel « en attente de bâti », lecture isolée (résiliente à la 155)
+      ...(await lireObstacleDisparuAlerte()),           // ALERTE obstacle disparu : interrupteur, lecture isolée (résiliente à la 157)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

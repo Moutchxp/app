@@ -38,6 +38,7 @@ import { executerIngestionAuto } from '../veille/ingestionAuto';
 import { depsReellesIngestionAuto } from '../veille/ingestionAutoRepo';
 import { executerSuiviRattachementAuto, depsReellesSuiviRattachementAuto } from '../veille/suiviRattachementAuto';
 import { executerAlerteAttenteBati, depsReellesAlerteAttenteBati } from '../veille/alerteAttenteBatiAuto';
+import { executerAlerteObstacleDisparu, depsReellesAlerteObstacleDisparu } from '../veille/alerteObstacleDisparuAuto';
 import { executerAlerteMisesAJour } from '../veille/alerteMisesAJour';
 import { depsReellesAlerteMisesAJour } from '../veille/alerteMisesAJourRepo';
 import { ingererMillesime, millesimeDistantDido, DiDoIndisponibleError, DOSSIER_LOCAL, type CompteursIngestion, type MillesimeDistant } from './ingestionMillesime';
@@ -150,6 +151,10 @@ export interface DepsVeille {
   //   déclenche INDÉPENDAMMENT de RATT-AUTO (elle est justement le filet quand celui-ci tourne à vide ou tombe). Interrupteur
   //   dédié `attente_bati_alerte_active` (défaut false) + seuil. Un rappel par dossier (marqueur). Lit l'état/ancienneté SEULEMENT.
   alerteAttenteBati?(): Promise<unknown>;
+  // ALERTE obstacle disparu — RAPPEL e-mail « un bâtiment qui fondait un certificat a disparu de BD TOPO » (§1quaterdecies).
+  //   OPTIONNELLE et ISOLÉE. Croise les certificats émis (cleabs d'obstacle capturé) avec le bâti COURANT. NE recertifie JAMAIS,
+  //   n'écrit sur aucun certificat, ne touche NI le moteur NI le verdict. Interrupteur `obstacle_disparu_alerte_active` (défaut false).
+  alerteObstacleDisparu?(): Promise<unknown>;
 }
 
 /** Date de publication en français lisible (Europe/Paris), ex. « 28 août 2026 » — pour les messages « publié le … ». */
@@ -281,6 +286,13 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   MÊME ISOLATION à double filet : un échec d'envoi n'impacte jamais la veille ni la relève.
     if (faitDonnees && deps.alerteMisesAJour) {
       try { await deps.alerteMisesAJour(); } catch { /* alerte isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1quaterdecies) ALERTE « un bâtiment qui fondait un certificat a disparu » (à revérifier) — APRÈS la détection/ingestion des
+    //   éditions BD TOPO : on croise les certificats émis (cleabs d'obstacle capturé) avec le bâti COURANT. SIGNAL seulement (jamais
+    //   de recertification, aucune écriture de certificat). Un rappel par certificat (marqueur anti-doublon). MÊME ISOLATION.
+    if (faitDonnees && deps.alerteObstacleDisparu) {
+      try { await deps.alerteObstacleDisparu(); } catch { /* alerte obstacle disparu isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     // Le CŒUR SITADEL (§2-7 : garde d'intervalle, run journal, millésime distant, ingestion, purge) appartient à la famille
@@ -457,6 +469,8 @@ function depsReelles(): DepsVeille {
     suiviRattachementAuto: () => executerSuiviRattachementAuto(depsReellesSuiviRattachementAuto()),
     // ATT-BATI — rappel e-mail « attente de bâti trop longue » : interrupteur + seuil (défaut false / 365 j), un rappel par dossier, isolé.
     alerteAttenteBati: () => executerAlerteAttenteBati(depsReellesAlerteAttenteBati()),
+    // ALERTE obstacle disparu — rappel « à revérifier » : croise certificats × bâti courant, interrupteur (défaut false), un rappel par certificat, isolé.
+    alerteObstacleDisparu: () => executerAlerteObstacleDisparu(depsReellesAlerteObstacleDisparu()),
   };
 }
 

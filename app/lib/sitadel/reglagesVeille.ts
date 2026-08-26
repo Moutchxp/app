@@ -247,6 +247,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Adresse e-mail qui reçoit le récapitulatif quotidien. Tant qu’elle est vide, aucune alerte n’est envoyée, même si les alertes sont activées.' },
   { colonne: 'alerte_heure_locale', cle: 'alerteHeureLocale', libelle: 'Heure d’envoi du récapitulatif', unite: 'heure locale', type: 'entier',
     aide: 'Heure locale (0 à 23) à partir de laquelle le récapitulatif du jour peut partir. Ex. 8 = pas avant 8 h du matin. Il n’y a qu’un envoi par jour.' },
+  // ALERTE obstacle disparu — rappel e-mail quand un bâtiment qui fondait un certificat a disparu de BD TOPO. Opt-in, à l'adresse d'alerte.
+  { colonne: 'obstacle_disparu_alerte_active', cle: 'obstacleDisparuAlerteActive', libelle: 'M’alerter si un bâtiment d’un certificat disparaît', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, vous recevez un e-mail (à l’adresse d’alerte ci-dessus) dès qu’un bâtiment qui faisait obstacle pour un certificat disparaît des données BD TOPO et que son emplacement n’est plus construit. C’est un simple signal « à revérifier » : aucun certificat n’est recalculé ni modifié. Un seul rappel par certificat. ⚠️ Le décocher retire seulement le SIGNAL, pas le problème : si un bâtiment disparaît, un nouveau calcul pourrait certifier une vue dégagée à tort — vous n’en seriez simplement pas prévenu.' },
   // X5 — PROPOSITION de saisine CADA par e-mail. Opt-in. Le destinataire est l'adresse d'alerte ci-dessus (pas un second champ).
   { colonne: 'proposition_cada_active', cle: 'propositionCadaActive', libelle: 'Proposer la saisine CADA par e-mail', unite: '', type: 'booleen',
     aide: 'Quand c’est activé, dès qu’une demande devient saisissable devant la CADA (silence d’un mois vérifié, délai non forclos), vous recevez UN e-mail — à l’adresse d’alerte ci-dessus — détaillant le dossier, avec un lien pour lancer la saisine. Une seule proposition par demande, jamais de rappel. Rien n’est jamais envoyé à une mairie ni à la CADA sans votre clic.' },
@@ -360,6 +363,7 @@ export const COLONNES_THEME_REPONSES: readonly string[] = [
 ];
 export const COLONNES_THEME_ALERTES: readonly string[] = [
   'alerte_active', 'alerte_email', 'alerte_heure_locale',
+  'obstacle_disparu_alerte_active', // ALERTE « obstacle disparu » — signal à revérifier (opt-in, même adresse d'alerte)
 ];
 export const COLONNES_THEME_CADA: readonly string[] = [
   'proposition_cada_active', 'cada_email', 'cada_url_formulaire',
