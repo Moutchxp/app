@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, badgeSuivi, composerAccuse, resumeValidation, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, badgeSuivi, composerAccuse, resumeValidation, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
@@ -38,10 +38,29 @@ const critSurface = (o: Partial<CritereSurface> = {}): CritereSurface => ({ appl
 const critBordure = (o: Partial<CritereBordure> = {}): CritereBordure => ({ applicable: true, part: 0.88, seuil: 0.6, franchi: true, ...o });
 
 describe('FUS-3b — libellés d’état', () => {
-  it('libellés exacts (dont « suivi, aucun signal »)', () => {
+  it('libellés exacts (dont « suivi, aucun signal » et ÉTAGE 1)', () => {
     expect(LIBELLE_ETAT_SUIVI.suivi_aucun_signal).toBe('suivi, aucun signal');
     expect(LIBELLE_ETAT_SUIVI.arbitrage_demande).toBe('arbitrage demandé');
     expect(LIBELLE_ETAT_SUIVI.valide).toBe('rattaché');
+    expect(LIBELLE_ETAT_SUIVI.acheve_sans_bati).toBe('achevé, à confirmer');
+    expect(LIBELLE_ETAT_SUIVI.clos_sans_bati).toBe('clôturé (sans bâti)');
+  });
+});
+
+describe('ÉTAGE 1 — ClotureAcheveSansBati (surface honnête, une seule action)', () => {
+  it('à confirmer : dit qu’il n’y a rien à attendre + bouton « Confirmer l’achèvement et clore » ; jamais « rattaché »/injection', () => {
+    let clique = false;
+    const h = renderToStaticMarkup(createElement(ClotureAcheveSansBati, { clos: false, onClore: () => { clique = true; }, enCours: false }));
+    expect(h).toMatch(/Confirmer l’achèvement et clore/);
+    expect(h).toMatch(/rien à attendre géométriquement/);
+    expect(h).toMatch(/Aucune altitude n’est écrite/);
+    expect(h).not.toMatch(/Valider/); // pas la surface d'arbitrage (injection)
+    expect(clique).toBe(false); // le rendu pur ne clique pas
+  });
+  it('déjà clôturé : note en lecture seule, AUCUN bouton', () => {
+    const h = renderToStaticMarkup(createElement(ClotureAcheveSansBati, { clos: true, onClore: () => {}, enCours: false }));
+    expect(h).toMatch(/Dossier clôturé/);
+    expect(h).not.toMatch(/<button/);
   });
 });
 

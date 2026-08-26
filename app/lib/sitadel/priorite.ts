@@ -68,6 +68,28 @@ export function concerneProjectionEmprise(d: DossierClassable, c: ConfigVeille):
   return CATEGORIES.some((cat) => CLES_CONCERNE_PROJECTION.includes(cat.cle) && cat.qualifie(d, c));
 }
 
+/**
+ * ÉTAGE 1 (surélévations) — un permis ne PEUT produire AUCUN signal géométrique de rattachement (pas de polygone nouveau ni
+ * modifié attendu) ssi il NE crée/n'étend PAS d'emprise au sol ET qu'il est POSITIVEMENT une surélévation OU une transformation
+ * à surface constante/en diminution. Sinon (crée/étend une emprise, OU type INCONNU) → un signal reste possible → false, et le
+ * comportement actuel (`en_attente_bati`) prime.
+ *
+ * Miroir EXACT des prédicats `qualifie` (immeuble neuf / construction neuve / extension = nature '1', ou i_extension, ou nature
+ * '3'/'5' — « extension OU surélévation », traité comme extension par prudence : le doute garde le comportement actuel). PUR et
+ * SANS config : le seuil immeuble ne distingue que immeuble_neuf de construction_neuve, tous deux « concernés » (nature '1') → il
+ * ne change jamais ce verdict. Un dossier surélévation ET extension (411 en base) est donc « concerné » → false (comportement actuel).
+ */
+export function aucunSignalGeometriquePossible(
+  d: Pick<DossierClassable, 'natureProjetCompletee' | 'iExtension' | 'iSurelevation'>,
+): boolean {
+  const concerne = d.natureProjetCompletee === '1' || d.iExtension === true
+    || d.natureProjetCompletee === '3' || d.natureProjetCompletee === '5';
+  if (concerne) return false; // crée/étend une emprise (ou surélévation AUSSI extension) → un signal est possible
+  // Positivement sans emprise nouvelle : surélévation pure OU transformation à surface constante ('2'/'4'/'6'). Type inconnu → false.
+  return d.iSurelevation === true
+    || d.natureProjetCompletee === '2' || d.natureProjetCompletee === '4' || d.natureProjetCompletee === '6';
+}
+
 /** Toutes les catégories connues (clé + libellé + rang courant) — pour peupler un filtre et étiqueter les compteurs. */
 export function categoriesConnues(c: ConfigVeille): { cle: CleCategorie; libelle: string; rang: number }[] {
   return CATEGORIES.map((cat) => ({ cle: cat.cle, libelle: cat.libelle, rang: cat.rang(c) }));

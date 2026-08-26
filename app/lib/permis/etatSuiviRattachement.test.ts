@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resoudreEtatSuivi, MOTIF_DAACT, type EntreeEtatSuivi } from './etatSuiviRattachement';
+import { resoudreEtatSuivi, MOTIF_DAACT, MOTIF_ACHEVE_SANS_BATI, type EntreeEtatSuivi } from './etatSuiviRattachement';
 import type { EtatInitialDossier } from './preseanceAltitude';
 
 /**
@@ -9,7 +9,7 @@ import type { EtatInitialDossier } from './preseanceAltitude';
  */
 const GEOM = (etat: EtatInitialDossier['etat'], auto = false): EtatInitialDossier => ({ etat, auto });
 const e = (o: Partial<EntreeEtatSuivi> = {}): EntreeEtatSuivi =>
-  ({ initialGeom: null, daactActif: true, acheveDaact: false, existant: null, ...o });
+  ({ initialGeom: null, daactActif: true, acheveDaact: false, sansSignalGeometrique: false, existant: null, ...o });
 
 describe('resoudreEtatSuivi — géométrie prioritaire', () => {
   it('DAACT + polygone nouveau (géométrie = ARBITRAGE) → dossier en arbitrage ; la géométrie tranche, pas la DAACT', () => {
@@ -35,6 +35,33 @@ describe('resoudreEtatSuivi — DAACT en repli (géométrie RIEN)', () => {
   it('le motif de création DAACT est un texte dédié, traçable', () => {
     expect(MOTIF_DAACT).toMatch(/DAACT/);
     expect(MOTIF_DAACT).toMatch(/attente du bâti/i);
+  });
+});
+
+describe('ÉTAGE 1 — DAACT sur un permis SANS signal géométrique (surélévation / surface constante)', () => {
+  it('DAACT + géométrie RIEN + sansSignalGeometrique → « acheve_sans_bati » (jamais en_attente_bati, jamais valide)', () => {
+    const d = resoudreEtatSuivi(e({ initialGeom: null, daactActif: true, acheveDaact: true, sansSignalGeometrique: true }));
+    expect(d).toMatchObject({ persister: true, etat: 'acheve_sans_bati', auto: false });
+    expect(d.etat).not.toBe('en_attente_bati'); // le motif « en attente du bâti » serait mensonger
+    expect(d.etat).not.toBe('valide');           // jamais d'injection
+  });
+  it('MÊME cas mais AVEC signal géométrique possible (extension) → comportement ACTUEL « en_attente_bati »', () => {
+    const d = resoudreEtatSuivi(e({ initialGeom: null, daactActif: true, acheveDaact: true, sansSignalGeometrique: false }));
+    expect(d).toMatchObject({ persister: true, etat: 'en_attente_bati' });
+  });
+  it('la géométrie PRIME : un polygone détecté (arbitrage) l’emporte sur « sans signal » (le type ne bloque pas un vrai signal)', () => {
+    const d = resoudreEtatSuivi(e({ initialGeom: GEOM('arbitrage_demande'), acheveDaact: true, sansSignalGeometrique: true }));
+    expect(d.etat).toBe('arbitrage_demande');
+  });
+  it('un dossier CLÔTURÉ (clos_sans_bati) n’est PAS rouvert par une DAACT (terminal préservé)', () => {
+    const d = resoudreEtatSuivi(e({ initialGeom: null, daactActif: true, acheveDaact: true, sansSignalGeometrique: true, existant: { etat: 'clos_sans_bati', valideParHumain: false } }));
+    expect(d).toMatchObject({ persister: true, etat: 'clos_sans_bati', preserve: true });
+  });
+  it('le motif dédié dit la vérité : rien à attendre, emprise au sol inchangée, hauteur = futur LiDAR', () => {
+    expect(MOTIF_ACHEVE_SANS_BATI).toMatch(/achevés/i);
+    expect(MOTIF_ACHEVE_SANS_BATI).toMatch(/emprise au sol/i);
+    expect(MOTIF_ACHEVE_SANS_BATI).toMatch(/LiDAR/);
+    expect(MOTIF_ACHEVE_SANS_BATI).not.toMatch(/\bcorps\b/); // vocabulaire « bâtiment », jamais « corps »
   });
 });
 

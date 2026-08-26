@@ -10,7 +10,7 @@
 import { query, withTransaction } from '../db/client';
 import { rejouerRattachement } from './rattachementRepo';
 import { etatInitialDepuisResultat } from './preseanceAltitude';
-import { resoudreEtatSuivi, MOTIF_DAACT } from './etatSuiviRattachement';
+import { resoudreEtatSuivi, MOTIF_DAACT, MOTIF_ACHEVE_SANS_BATI } from './etatSuiviRattachement';
 import { lireDaactDeclencheurActif } from './rattachementConfig';
 import { lirePermisCaracteristiques } from './caracteristiquesRepo';
 import { lireParcellesPermis } from './parcellesRepo';
@@ -18,16 +18,18 @@ import { construireComparatif, type LigneComparative } from './comparatifRattach
 import type { ResultatRattachement } from './detectionRattachement';
 import { listerPiecesDossier } from '../sitadel/demandeRepo';
 import type { PieceArchive } from '../sitadel/demandeRepo';
-import { libelleNatureProjet } from '../sitadel/priorite';
+import { libelleNatureProjet, aucunSignalGeometriquePossible } from '../sitadel/priorite';
 import { estAFaire } from './rattachementGroupes'; // L6 — coupure en deux (source unique) ; le tri ci-dessous s'appuie dessus
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti AFFICHÉ = registre (autorité), plus le proxy
 
-export type EtatSuivi = 'suivi_aucun_signal' | 'en_attente_bati' | 'arbitrage_demande' | 'valide' | 'refuse' | 'annule_par_lidar';
+// ÉTAGE 1 — deux états ajoutés : `acheve_sans_bati` (achèvement déclaré sur un permis SANS signal géométrique possible → décision
+//   humaine « confirmer et clore » attendue) et `clos_sans_bati` (terminal, après confirmation). Cf. resoudreEtatSuivi / migration 156.
+export type EtatSuivi = 'suivi_aucun_signal' | 'en_attente_bati' | 'arbitrage_demande' | 'acheve_sans_bati' | 'clos_sans_bati' | 'valide' | 'refuse' | 'annule_par_lidar';
 
 // Énumération des états (jadis « ordre d'urgence » du tri L1 ; L6 trie par deux groupes — cf. `trierLignesSuivi`). Sert encore à
-// initialiser les compteurs par état et l'export `ETATS_SUIVI_ORDONNES`.
+// initialiser les compteurs par état et l'export `ETATS_SUIVI_ORDONNES`. `acheve_sans_bati` = à faire (avec arbitrage) ; `clos_sans_bati` terminal.
 const ORDRE_URGENCE: Record<EtatSuivi, number> = {
-  arbitrage_demande: 0, en_attente_bati: 1, annule_par_lidar: 2, valide: 3, refuse: 4, suivi_aucun_signal: 5,
+  arbitrage_demande: 0, acheve_sans_bati: 1, en_attente_bati: 2, annule_par_lidar: 3, valide: 4, refuse: 5, clos_sans_bati: 6, suivi_aucun_signal: 7,
 };
 export const ETATS_SUIVI_ORDONNES: EtatSuivi[] = (Object.keys(ORDRE_URGENCE) as EtatSuivi[]).sort((a, b) => ORDRE_URGENCE[a] - ORDRE_URGENCE[b]);
 
@@ -53,16 +55,21 @@ export async function suivreRattachement(dossierId: number, majPar: string): Pro
   // DAACT — déclencheur DISTINCT (repli quand la géométrie = RIEN) : achèvement déclaré (etat_dau='6') + réglage d'activation.
   // + dossier existant (pour la préservation d'un terminal). Trois lectures indépendantes.
   const [{ rows: etatRows }, daactActif, { rows: before }] = await Promise.all([
-    query<{ e: string | null }>(`SELECT etat_dau AS e FROM sitadel_dossier WHERE id = $1`, [dossierId]),
+    query<{ e: string | null; i_surelevation: boolean | null; i_extension: boolean | null; nature: string | null }>(
+      `SELECT etat_dau AS e, i_surelevation, i_extension, nature_projet_completee AS nature FROM sitadel_dossier WHERE id = $1`, [dossierId]),
     lireDaactDeclencheurActif(),
     query<{ id: number; etat: EtatSuivi; valide_par: string | null }>(
       `SELECT id, etat, valide_par FROM permis_rattachement WHERE dossier_id = $1`, [dossierId]),
   ]);
   const existing = before[0];
   const existant = existing ? { etat: existing.etat, valideParHumain: !!existing.valide_par && existing.valide_par !== 'moteur:auto' } : null;
+  // ÉTAGE 1 — aucun signal géométrique POSSIBLE (surélévation pure / surface constante, hors extension) ? Type inconnu → false (comportement actuel).
+  const d0 = etatRows[0];
+  const sansSignalGeometrique = aucunSignalGeometriquePossible({ natureProjetCompletee: d0?.nature ?? null, iExtension: d0?.i_extension ?? null, iSurelevation: d0?.i_surelevation ?? null });
 
-  // DÉCISION PURE : géométrie → DAACT (en_attente_bati, jamais d'injection) → préservation d'un terminal. Cf. etatSuiviRattachement.
-  const decision = resoudreEtatSuivi({ initialGeom: initial, daactActif, acheveDaact: etatRows[0]?.e === '6', existant });
+  // DÉCISION PURE : géométrie → DAACT → préservation d'un terminal. ÉTAGE 1 : un achèvement sans signal géométrique ouvre
+  //   « acheve_sans_bati » (à confirmer/clore) au lieu de « en_attente_bati ». Jamais d'injection. Cf. etatSuiviRattachement.
+  const decision = resoudreEtatSuivi({ initialGeom: initial, daactActif, acheveDaact: d0?.e === '6', sansSignalGeometrique, existant });
   if (!decision.persister) {
     // Ni géométrie, ni DAACT active/achevée → aucun dossier (les permis sans signal sont DÉRIVÉS à l'affichage). On n'écrit rien.
     return { dossierId, persiste: false, action: 'aucun_signal', verdict: resultat.verdict, etat: null };
@@ -76,8 +83,9 @@ export async function suivreRattachement(dossierId: number, majPar: string): Pro
 
   const nouvelEtat: EtatSuivi = decision.etat;
   const valPar = decision.auto ? 'moteur:auto' : (existing?.valide_par ?? null);
-  // MOTIF : la DAACT porte son propre motif (traçabilité) ; sinon le motif géométrique du moteur.
-  const motif = decision.origineDaact ? MOTIF_DAACT : resultat.motif;
+  // MOTIF : ÉTAGE 1 (achèvement sans signal géométrique) → motif VRAI dédié ; sinon la DAACT porte son motif ; sinon le motif géométrique.
+  const motif = decision.etat === 'acheve_sans_bati' ? MOTIF_ACHEVE_SANS_BATI
+    : decision.origineDaact ? MOTIF_DAACT : resultat.motif;
 
   let rattId: number; let action: ResultatSuivi['action'];
   if (!existing) {
@@ -149,6 +157,30 @@ export async function ouvrirRattachementManuel(dossierId: number, motif: string,
          VALUES ($1, 'ouverture_manuelle', NULL, 'arbitrage_demande', $2::jsonb, $3)`,
       [rattId, JSON.stringify({ origine: 'manuelle', motif: m }), par]);
     return { ok: true, rattId };
+  });
+}
+
+export type ResultatCloture = { ok: true } | { ok: false; motif: string };
+
+/**
+ * ÉTAGE 1 — CLÔTURE d'un dossier `acheve_sans_bati` : l'exploitant CONFIRME l'achèvement (surélévation / surface constante) et
+ * clôt. Passe le dossier au terminal `clos_sans_bati` (préservé au rejeu). 🔴 AUCUNE injection d'altitude, AUCUN contact moteur/
+ * verdict/certificat — c'est un constat de workflow. Refuse si le dossier n'existe pas ou n'est pas `acheve_sans_bati` (une
+ * pastille ne doit fermer que ce qui est réellement fermable). Trace un événement append-only (qui / quand).
+ */
+export async function cloreRattachementAcheve(dossierId: number, par: string): Promise<ResultatCloture> {
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ id: number; etat: EtatSuivi }>(
+      `SELECT id, etat FROM permis_rattachement WHERE dossier_id = $1`, [dossierId]);
+    const r = rows[0];
+    if (!r) return { ok: false, motif: 'aucun dossier de rattachement pour ce permis' };
+    if (r.etat !== 'acheve_sans_bati') return { ok: false, motif: `ce dossier n’est pas en attente de confirmation d’achèvement (état : ${r.etat})` };
+    await q(`UPDATE permis_rattachement SET etat = 'clos_sans_bati', reevalue_le = now() WHERE id = $1`, [r.id]);
+    await q(
+      `INSERT INTO permis_rattachement_evenement (rattachement_id, type, ancien_etat, nouvel_etat, details, par)
+         VALUES ($1, 'cloture', 'acheve_sans_bati', 'clos_sans_bati', $2::jsonb, $3)`,
+      [r.id, JSON.stringify({ origine: 'cloture_manuelle' }), par]);
+    return { ok: true };
   });
 }
 

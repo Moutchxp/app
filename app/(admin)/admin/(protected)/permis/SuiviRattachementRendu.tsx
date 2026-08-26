@@ -26,13 +26,15 @@ import { estAFaire, GROUPE1_TITRE, GROUPE2_TITRE } from '../../../../lib/permis/
 // Libellés + ordre d'affichage (= urgence). DÉCLARÉS ICI (client-safe), jamais importés du repo serveur.
 export const LIBELLE_ETAT_SUIVI: Record<EtatSuivi, string> = {
   arbitrage_demande: 'arbitrage demandé',
+  acheve_sans_bati: 'achevé, à confirmer',
   en_attente_bati: 'en attente de bâti',
   annule_par_lidar: 'annulé par LiDAR',
   valide: 'rattaché',
   refuse: 'refusé',
+  clos_sans_bati: 'clôturé (sans bâti)',
   suivi_aucun_signal: 'suivi, aucun signal',
 };
-export const ORDRE_AFFICHAGE_ETATS: readonly EtatSuivi[] = ['arbitrage_demande', 'en_attente_bati', 'annule_par_lidar', 'valide', 'refuse', 'suivi_aucun_signal'];
+export const ORDRE_AFFICHAGE_ETATS: readonly EtatSuivi[] = ['arbitrage_demande', 'acheve_sans_bati', 'en_attente_bati', 'annule_par_lidar', 'valide', 'refuse', 'clos_sans_bati', 'suivi_aucun_signal'];
 
 const styleAide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)', lineHeight: 1.4 };
 
@@ -137,9 +139,9 @@ export type TonBadge = 'urgence' | 'attente' | 'valide' | 'neutre' | 'manuel';
 export interface BadgeSuivi { libelle: string; ton: TonBadge }
 
 function tonEtat(etat: EtatSuivi): TonBadge {
-  if (etat === 'arbitrage_demande') return 'urgence';
+  if (etat === 'arbitrage_demande' || etat === 'acheve_sans_bati') return 'urgence'; // à faire → visible (le libellé porte le sens, jamais la couleur seule)
   if (etat === 'en_attente_bati') return 'attente';
-  if (etat === 'valide') return 'valide';
+  if (etat === 'valide' || etat === 'clos_sans_bati') return 'valide'; // clôturé = terminé (positif)
   return 'neutre';
 }
 
@@ -178,6 +180,7 @@ function ancienneteTexte(l: LigneSuivi): string {
   const j = l.joursAnciennete;
   const suffixe = j <= 1 ? "moins d'un jour" : `${j} jours`;
   if (l.etat === 'suivi_aucun_signal') return `suivi depuis ${suffixe}`;
+  if (l.etat === 'acheve_sans_bati') return `à confirmer depuis ${suffixe}`;
   if (l.etat === 'arbitrage_demande' || l.etat === 'en_attente_bati') return `en attente depuis ${suffixe}`;
   return `depuis ${suffixe}`;
 }
@@ -533,6 +536,36 @@ export function BandeauOuvertureManuelle({ motif }: { motif: string | null }) {
     <div role="note" style={{ ...styleAide, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .5rem' }}>
       <strong>Dossier ouvert manuellement</strong> — aucun changement BD TOPO n’a été détecté ; l’arbitrage a été ouvert à la main.
       {motif ? ` Motif : ${motif}.` : ''} Pour le refermer, utilisez « Refuser » (avec un motif) : la trace au journal est conservée.
+    </div>
+  );
+}
+
+/**
+ * ÉTAGE 1 — bloc de CLÔTURE d'un dossier « achevé, à confirmer » (surélévation / surface constante). Dit FRANCHEMENT qu'il n'y a
+ * rien à rattacher géométriquement, et n'offre QU'UNE action HONNÊTE : « Confirmer l'achèvement et clore ». AUCUNE injection,
+ * aucune affectation (contrairement à l'arbitrage). Mobile-first. `clos` = déjà clôturé → note en lecture seule, aucun bouton.
+ */
+export function ClotureAcheveSansBati({ clos, onClore, enCours }: { clos: boolean; onClore: () => void; enCours: boolean }) {
+  if (clos) {
+    return (
+      <div role="note" className="svv-card" style={{ fontSize: 12, borderColor: 'var(--color-svv-green-ink)', background: 'var(--color-svv-green-soft)' }}>
+        <strong>Dossier clôturé</strong> — achèvement confirmé. Une surélévation (ou une transformation à surface constante) ne fait pas apparaître de nouveau bâtiment dans BD TOPO : il n’y avait rien à rattacher géométriquement.
+      </div>
+    );
+  }
+  return (
+    <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', borderColor: 'var(--color-svv-red)' }}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>Achèvement déclaré — à confirmer</div>
+      <p style={{ ...styleAide, margin: 0 }}>
+        Les travaux sont déclarés achevés (DAACT), mais <strong>il n’y a rien à attendre géométriquement</strong> : une surélévation
+        (ou une transformation à surface constante) ne modifie pas l’emprise au sol du bâtiment — aucun bâtiment nouveau n’apparaîtra
+        dans BD TOPO. Aucune altitude n’est écrite. Confirmez que ce dossier est achevé pour le clore et le retirer des actions à faire.
+      </p>
+      <div>
+        <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={enCours} onClick={onClore}>
+          Confirmer l’achèvement et clore
+        </button>
+      </div>
     </div>
   );
 }

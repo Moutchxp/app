@@ -61,8 +61,10 @@ describe('PASTILLES — compteurs Saisines & Rattachement', () => {
     expect(compterSaisines({ saisissables: [1, 2], fileADeposer: [3] })).toBe(3);
     expect(compterSaisines({ saisissables: [], fileADeposer: [] })).toBe(0);
   });
-  it('Rattachement : permis en arbitrage_demande (les autres états ne comptent pas)', () => {
-    expect(compterRattachement({ arbitrage_demande: 4, en_attente_bati: 7, valide: 99, suivi_aucun_signal: 3 })).toBe(4);
+  it('Rattachement : états « à faire » = arbitrage_demande + acheve_sans_bati (ÉTAGE 1) ; les autres ne comptent pas', () => {
+    // 4 en arbitrage + 2 achevés-à-confirmer = 6 ; en_attente_bati / clos_sans_bati / valide / suivi ne comptent pas.
+    expect(compterRattachement({ arbitrage_demande: 4, acheve_sans_bati: 2, en_attente_bati: 7, clos_sans_bati: 5, valide: 99, suivi_aucun_signal: 3 })).toBe(6);
+    expect(compterRattachement({ acheve_sans_bati: 3 })).toBe(3); // le nouvel état seul compte aussi
     expect(compterRattachement({ valide: 10 })).toBe(0); // clé absente → 0
   });
 });

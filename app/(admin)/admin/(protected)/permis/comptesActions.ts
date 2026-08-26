@@ -9,6 +9,7 @@
  * - Rattachement  : permis en « arbitrage demandé » (valider / refuser / retour LiDAR).
  */
 import { demandeADuRetour } from './ReponsesRendu';
+import { ETATS_A_FAIRE } from '../../../../lib/permis/rattachementGroupes'; // SOURCE UNIQUE des états « à faire » comptés par la pastille Rattachement
 
 /** Un dossier DÛ non encore tranché = en attente de la décision d'Arno (marquer reçu / non fourni / refus). PUR. */
 export function dossierATrancher(d: { satisfait: boolean; triage: string | null }): boolean {
@@ -39,9 +40,10 @@ export function compterSaisines(data: { saisissables: unknown[]; fileADeposer: u
   return data.saisissables.length + data.fileADeposer.length;
 }
 
-/** Compteur « Rattachement » : permis en état `arbitrage_demande` (seule décision attendue d'Arno dans cet onglet). */
+/** Compteur « Rattachement » : permis dans un état « à faire » (décision attendue d'Arno) — SOURCE UNIQUE `ETATS_A_FAIRE`
+ *  (`arbitrage_demande` + ÉTAGE 1 `acheve_sans_bati`). Même pastille, aucun nouveau compteur : on somme les états à faire. */
 export function compterRattachement(compteurs: Record<string, number>): number {
-  return compteurs['arbitrage_demande'] ?? 0;
+  return ETATS_A_FAIRE.reduce((s, etat) => s + (compteurs[etat] ?? 0), 0);
 }
 
 export interface ComptesActions { reponses: number; saisines: number; rattachement: number; projection: number; total: number }

@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerSuivi, lireDetailSuivi, ouvrirRattachementManuel } from '../../../../../lib/permis/rattachementSuiviRepo';
+import { listerSuivi, lireDetailSuivi, ouvrirRattachementManuel, cloreRattachementAcheve } from '../../../../../lib/permis/rattachementSuiviRepo';
 import { lireComparaison, affecterPolygone } from '../../../../../lib/permis/affectationRepo';
 import { validerRattachement, refuserRattachement, retourLidar } from '../../../../../lib/permis/actionsRattachement';
 import { lireDaactDeclencheurActif, ecrireDaactDeclencheurActif } from '../../../../../lib/permis/rattachementConfig';
@@ -58,6 +58,14 @@ export async function POST(request: Request): Promise<Response> {
     // M5 — OUVRIR l'arbitrage À LA MAIN (aucun delta BD TOPO requis). Motif obligatoire ; dossier tracé 'manuelle'.
     if (body.action === 'ouvrir_manuel') {
       const res = await ouvrirRattachementManuel(dossierId, body.motif ?? '', 'admin:ouverture-manuelle');
+      if (!res.ok) return Response.json({ erreur: res.motif }, { status: 409 });
+      const [detail, comparaison] = await Promise.all([lireDetailSuivi(dossierId), lireComparaison(dossierId).catch(() => null)]);
+      return Response.json({ ok: true, detail, comparaison });
+    }
+
+    // ÉTAGE 1 — CLÔTURER un dossier « achevé, à confirmer » (surélévation / surface constante). Aucune injection : constat de workflow.
+    if (body.action === 'clore') {
+      const res = await cloreRattachementAcheve(dossierId, 'admin:cloture');
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: 409 });
       const [detail, comparaison] = await Promise.all([lireDetailSuivi(dossierId), lireComparaison(dossierId).catch(() => null)]);
       return Response.json({ ok: true, detail, comparaison });

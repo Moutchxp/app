@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
 import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee } from './SuiviRattachementRendu';
 import { RecapProjectionRattachement } from './ProjectionRecapRattachement';
 // TYPES seuls (modules serveur / purs) — pour le récap de projection (PROJ-4a), affichage pur.
 import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -167,6 +167,22 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     finally { setEnCours(false); }
   }, [ouvert, cotesEffectives, onRecompter]);
 
+  // ÉTAGE 1 — CLÔTURER un dossier « achevé, à confirmer » (surélévation / surface constante). Aucune injection : constat de workflow.
+  const clore = useCallback(async (): Promise<void> => {
+    if (ouvert === null) return;
+    setEnCours(true); setActionErreur('');
+    try {
+      const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'clore', dossierId: ouvert }) });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; detail?: DetailSuivi; comparaison?: ComparaisonRattachement | null };
+      if (res.ok && d.ok) {
+        if (d.detail) setDetail(d.detail);
+        if (d.comparaison !== undefined) setComparaison(d.comparaison ?? null);
+        recompterSiSucces(true, onRecompter); // pastille : un dossier « à faire » de moins
+      } else setActionErreur(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'Clôture impossible.'));
+    } catch { setActionErreur('Clôture impossible.'); }
+    finally { setEnCours(false); }
+  }, [ouvert, onRecompter]);
+
   // M5 — OUVRIR l'arbitrage À LA MAIN (aucun delta BD TOPO requis). Motif obligatoire (le bouton est inactif sans motif). Rafraîchit détail + comparaison.
   const ouvrirManuel = useCallback(async (): Promise<void> => {
     if (ouvert === null) return;
@@ -218,6 +234,10 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const renderDetail = (): ReactNode => {
     if (detailErreur) return <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>Détail indisponible.</div>;
     if (!detail) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement du détail…</div>;
+    // ÉTAGE 1 — un dossier « achevé, à confirmer » / « clôturé » N'entre PAS dans l'arbitrage (pas d'affectation, pas d'injection) :
+    //   seule la clôture est proposée. On coupe donc la surface d'arbitrage (comparaison + ActionsRattachement) pour ces états.
+    const estAcheveSansBati = detail.etat === 'acheve_sans_bati';
+    const estClos = detail.etat === 'clos_sans_bati';
     return (
       <div className="flex flex-col gap-2">
         <DetailSuiviRendu detail={detail} />
@@ -225,7 +245,10 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
         {/* PROJ-4a — RÉCAP (lecture seule) de l'emprise projetée : ne s'affiche QUE pour un permis « en attente de bâti ». Le composant
             gère lui-même l'absence d'emprise (message explicite, jamais un schéma vide) et l'état hors « en attente » (rien). */}
         {recapProjection && <RecapProjectionRattachement etat={detail.etat} emprises={recapProjection.emprises} parcelle={recapProjection.parcelle} polygones={recapProjection.polygones} batiments={recapProjection.batiments} />}
-        {comparaison && (() => {
+        {/* ÉTAGE 1 — dossier « achevé, à confirmer » (surélévation / surface constante) : on N'affiche PAS l'arbitrage (affectation +
+            valider = injection), mais la CLÔTURE honnête. `clos_sans_bati` → note en lecture seule. */}
+        {(estAcheveSansBati || estClos) && <ClotureAcheveSansBati clos={estClos} onClore={() => void clore()} enCours={enCours} />}
+        {!estAcheveSansBati && !estClos && comparaison && (() => {
           const { origine, nouvelle, polygonesModifies, aChange } = comparaison;
           const persiste = detail.persiste, enAtt = detail.etat === 'en_attente_bati';
           const affecterCb = (corpsId: number, cleabs: string, operation: ActionAffectation) => void affecter(corpsId, cleabs, operation);
@@ -295,7 +318,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
             {actionErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{actionErreur}</div>}
           </>
         )}
-        {detail.persiste && (
+        {detail.persiste && !estAcheveSansBati && !estClos && (
           <>
             <ActionsRattachement
               resume={comparaison ? resumeValidation({ corps: comparaison.nouvelle.corps, polygones: comparaison.nouvelle.polygones }, cotesEnNombres(cotesEffectives)) : { nbAffectes: 0, nbAvecCote: 0, nbVides: 0, nbNonAffectes: 0 }}

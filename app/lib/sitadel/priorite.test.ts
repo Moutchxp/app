@@ -4,7 +4,7 @@ import {
   type DossierClassable, type FiltresPermis,
   classer, construireRequeteListe, construireRequeteTotal, construireRequeteComptes, lireFiltres,
   formaterDateJour, libelleCommune, libelleEtat, libelleNatureProjet, compteursEtatDepuisRow,
-  expressionRattachementSql, construireRequeteComptesRattachement,
+  expressionRattachementSql, construireRequeteComptesRattachement, aucunSignalGeometriquePossible,
 } from './priorite';
 
 const C = CONFIG_VEILLE_DEFAUT; // seuils 10 / 1500 ; rangs 1..5
@@ -46,6 +46,30 @@ describe('Sitadel S3 — classement (un cas par rang)', () => {
   it('ordre STABLE : deux appels identiques donnent le même classement', () => {
     const d = pc({ natureProjetCompletee: '1', nbLgtTotCrees: 30, surfCreee: 5000 });
     expect(classer(d, C)).toEqual(classer(d, C));
+  });
+});
+
+describe('ÉTAGE 1 — aucunSignalGeometriquePossible (surélévations)', () => {
+  it('surélévation PURE (i_surelevation, sans extension, nature ≠ 1/3/5) → TRUE (aucun signal possible)', () => {
+    expect(aucunSignalGeometriquePossible(pc({ iSurelevation: true, natureProjetCompletee: null }))).toBe(true);
+    expect(aucunSignalGeometriquePossible(pc({ iSurelevation: true, natureProjetCompletee: '2' }))).toBe(true);
+  });
+  it('transformation à SURFACE CONSTANTE (nature 2/4/6, pas d’extension) → TRUE', () => {
+    for (const n of ['2', '4', '6']) expect(aucunSignalGeometriquePossible(pc({ natureProjetCompletee: n }))).toBe(true);
+  });
+  it('surélévation AUSSI extension → FALSE (l’emprise change ⇒ comportement actuel conservé)', () => {
+    expect(aucunSignalGeometriquePossible(pc({ iSurelevation: true, iExtension: true }))).toBe(false);
+    expect(aucunSignalGeometriquePossible(pc({ iSurelevation: true, natureProjetCompletee: '3' }))).toBe(false); // nature 3/5 ambiguë → traité extension
+  });
+  it('construction neuve (nature 1) → FALSE (un signal est possible)', () => {
+    expect(aucunSignalGeometriquePossible(pc({ natureProjetCompletee: '1' }))).toBe(false);
+  });
+  it('extension (i_extension ou nature 3/5) → FALSE', () => {
+    expect(aucunSignalGeometriquePossible(pc({ iExtension: true }))).toBe(false);
+    expect(aucunSignalGeometriquePossible(pc({ natureProjetCompletee: '5' }))).toBe(false);
+  });
+  it('type INCONNU (tous les indices absents) → FALSE : on ne présume RIEN, le comportement actuel prime', () => {
+    expect(aucunSignalGeometriquePossible(pc({ iSurelevation: null, iExtension: null, natureProjetCompletee: null }))).toBe(false);
   });
 });
 
