@@ -36,6 +36,7 @@ import { executerDetection } from '../veille/detectionSources';
 import { depsReellesDetection } from '../veille/detectionRepo';
 import { executerIngestionAuto } from '../veille/ingestionAuto';
 import { depsReellesIngestionAuto } from '../veille/ingestionAutoRepo';
+import { executerSuiviRattachementAuto, depsReellesSuiviRattachementAuto } from '../veille/suiviRattachementAuto';
 import { executerAlerteMisesAJour } from '../veille/alerteMisesAJour';
 import { depsReellesAlerteMisesAJour } from '../veille/alerteMisesAJourRepo';
 import { ingererMillesime, millesimeDistantDido, DiDoIndisponibleError, DOSSIER_LOCAL, type CompteursIngestion, type MillesimeDistant } from './ingestionMillesime';
@@ -139,6 +140,11 @@ export interface DepsVeille {
   //   interrupteur dédié (alerte_maj_active, défaut false) et seulement quand une NOUVELLE source apparaît (anti-spam par
   //   empreinte). Un échec d'envoi ne touche jamais la veille ni la relève.
   alerteMisesAJour?(): Promise<unknown>;
+  // RATT-AUTO — REJEU AUTOMATIQUE du suivi de rattachement (§1duodecies-bis), JUSTE APRÈS l'ingestion nocturne : une nouvelle
+  //   édition BD TOPO est aussitôt suivie d'une re-détection, dans le même passage. SCOPÉ aux `en_attente_bati`. OPTIONNELLE et
+  //   ISOLÉE : un échec ne touche jamais la veille ni la relève. Interrupteur `rattachement_suivi_auto_active` (défaut false)
+  //   lu DANS la brique. N'injecte aucune altitude ; l'emprise reconstituée n'entre jamais dans la détection.
+  suiviRattachementAuto?(): Promise<unknown>;
 }
 
 /** Date de publication en français lisible (Europe/Paris), ex. « 28 août 2026 » — pour les messages « publié le … ». */
@@ -246,6 +252,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   double filet : un échec d'ingestion n'impacte jamais la veille ni la relève.
     if (faitDonnees && deps.ingestionAuto) {
       try { await deps.ingestionAuto(); } catch { /* ingestion auto isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1duodecies-bis) REJEU AUTOMATIQUE du suivi de rattachement (RATT-AUTO) — JUSTE APRÈS l'ingestion nocturne : si une édition
+    //   BD TOPO vient d'être ingérée, on rejoue AUSSITÔT le suivi des permis `en_attente_bati` pour que le bâti neuf éventuel les
+    //   fasse basculer en `arbitrage_demande` dans le MÊME passage. SCOPÉ à ces dossiers (jamais tout l'univers). Interrupteur
+    //   `rattachement_suivi_auto_active` (défaut false) lu dans la brique. MÊME ISOLATION : un échec n'impacte jamais la veille.
+    if (faitDonnees && deps.suiviRattachementAuto) {
+      try { await deps.suiviRattachementAuto(); } catch { /* rejeu suivi isolé : n'impacte jamais la veille Sitadel */ }
     }
 
     // 1terdecies) ALERTE e-mail « bases prêtes à être mises à jour » (FRAÎCHEUR lot 4 / G4) — DERNIÈRE étape auto, APRÈS la
@@ -426,6 +440,8 @@ function depsReelles(): DepsVeille {
     ingestionAuto: () => executerIngestionAuto(depsReellesIngestionAuto()),
     // FRAÎCHEUR lot 4 (G4) — alerte e-mail « bases prêtes à mettre à jour » : interrupteur dédié (défaut false), anti-spam par empreinte, isolée.
     alerteMisesAJour: () => executerAlerteMisesAJour(depsReellesAlerteMisesAJour()),
+    // RATT-AUTO — rejeu automatique du suivi de rattachement sur les `en_attente_bati` : interrupteur (défaut false), scopé, journalisé, isolé.
+    suiviRattachementAuto: () => executerSuiviRattachementAuto(depsReellesSuiviRattachementAuto()),
   };
 }
 

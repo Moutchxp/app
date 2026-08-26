@@ -4,10 +4,10 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import type { ConfigVeille } from '../../../../lib/sitadel/veilleConfig';
 import { ETIQUETTE_PROFIL, type ConfigDemandeur, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import {
-  champsPourProfil, PARAMS_VEILLE, PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA,
+  champsPourProfil, PARAMS_VEILLE, PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA, PARAMS_THEME_RATTACHEMENT,
   PARAMS_SOURCES, PARAMS_MENTIONS, type ParamVeille, type BornesParColonne, type ErreurReglage,
 } from '../../../../lib/sitadel/reglagesVeille';
-import { BandeauIdentite, PlageParam, CarteParamVestigial, CarteSection, TITRE_THEME_PREPARATION, TITRE_THEME_ENVOI, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
+import { BandeauIdentite, PlageParam, CarteParamVestigial, CarteSection, TITRE_THEME_PREPARATION, TITRE_THEME_ENVOI, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA, TITRE_THEME_RATTACHEMENT, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
 
 /**
  * Écran « Réglages » de la tuile Permis (chantier S7d / S7e). Édite les DEUX identités de demandeur (Société / Personne
@@ -247,6 +247,7 @@ export function ReglagesVue() {
         { titre: TITRE_THEME_REPONSES, icone: '📥', params: PARAMS_THEME_REPONSES },
         { titre: TITRE_THEME_ALERTES, icone: '🔔', params: PARAMS_THEME_ALERTES },
         { titre: TITRE_THEME_CADA, icone: '⚖️', params: PARAMS_THEME_CADA },
+        { titre: TITRE_THEME_RATTACHEMENT, icone: '🏗', params: PARAMS_THEME_RATTACHEMENT },
       ].map(({ titre, icone, params }) => (
         <CarteSection key={titre} titre={titre} icone={icone}>
           {/* R1 — ACTION « Relever la boîte maintenant » : en tête de la carte « Réponses et échéances », car c'est là qu'on

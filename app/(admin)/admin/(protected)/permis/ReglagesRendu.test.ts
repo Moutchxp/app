@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { BandeauIdentite, PlageParam, CarteReglageEntier, CarteParamVestigial, CarteSection, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS, TITRE_THEME_PREPARATION, TITRE_THEME_ENVOI, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA } from './ReglagesRendu';
-import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES, PARAMS_MENTIONS, PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA } from '../../../../lib/sitadel/reglagesVeille';
+import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES, PARAMS_MENTIONS, PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA, PARAMS_THEME_RATTACHEMENT } from '../../../../lib/sitadel/reglagesVeille';
 import { problemesIdentite } from '../../../../lib/sitadel/demande';
 
 /**
@@ -155,11 +155,12 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     // Ordre EXACT des sections rendues par ReglagesVue (cf. ReglagesVue.tsx, Section B puis Mentions puis Sources).
     const CLES_RENDUES_REGLAGES = [
       ...PARAMS_THEME_PREPARATION, ...PARAMS_THEME_ENVOI, ...PARAMS_THEME_REPONSES, ...PARAMS_THEME_ALERTES, ...PARAMS_THEME_CADA,
+      ...PARAMS_THEME_RATTACHEMENT, // RATT-AUTO — 6e thème (1 réglage : re-détection automatique du bâti)
       ...PARAMS_MENTIONS, ...PARAMS_SOURCES,
     ].map((p) => p.colonne);
-    // Snapshot : l'écran Réglages rend 34 + 6 + 1 = 41 clés distinctes (S-DWG a ajouté 2 réglages « fichiers sources » aux mentions).
-    expect(CLES_RENDUES_REGLAGES).toHaveLength(41);
-    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(41);
+    // Snapshot : l'écran Réglages rend 34 + 1 + 6 + 1 = 42 clés distinctes (RATT-AUTO a ajouté 1 réglage « rattachement au bâti »).
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(42);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(42);
     // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
     const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
     expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));

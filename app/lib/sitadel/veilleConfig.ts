@@ -68,6 +68,7 @@ export interface ConfigVeille {
   relanceAvisJoursAvant: number;     // Cascade lot 2 : jours avant l'échéance où l'AVIS (J-3, possibilité CADA) est préparé — borné 1..30, défaut 3
   relanceSaisineDelaiJours: number;  // Cascade lot 2 : délai (jours) après l'échéance au terme duquel la SAISINE CADA sera déposée — borné 1..30, défaut 4
   saisineCadaAutoActive: boolean;    // Cascade lot 2 : envoyer la saisine CADA SANS relecture ? Sans effet tant que cadaEmail est vide — défaut false
+  rattachementSuiviAutoActive: boolean; // RATT-AUTO : rejouer automatiquement le suivi des permis « en attente de bâti » à chaque tick ? (opt-in, défaut false)
 }
 
 /**
@@ -120,6 +121,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   natureAccuseMotifs: '',       // FUS-4 : repli ultime = aucun motif → comportement d'AVANT ce lot (la 125 pose 'accusé de réception')
   relanceAutoActive: false, relanceJoursAvantEcheance: 10, // = DEFAULT de la migration 128 (LOT B : opt-out d'envoi auto, préparation à J-10)
   relanceRappelJoursAvant: 10, relanceAvisJoursAvant: 3, relanceSaisineDelaiJours: 4, saisineCadaAutoActive: false, // = DEFAULT de la migration 136 (cascade lot 2)
+  rattachementSuiviAutoActive: false, // = DEFAULT de la migration 154 (RATT-AUTO : opt-in, comme tous les interrupteurs d'automatisation)
 };
 
 interface LigneConfigVeille {
@@ -429,6 +431,15 @@ async function lireRelanceCascadeReglages(): Promise<Pick<ConfigVeille, 'relance
   } catch { return def; } // 136 pas encore appliquée → défauts
 }
 
+// RATT-AUTO — lecture ISOLÉE de l'interrupteur du rejeu automatique du suivi (résiliente à l'ordre d'application de la 154, livrée
+//   NON APPLIQUÉE) : tant que la colonne n'existe pas, cette lecture échoue SEULE et retombe sur false (OFF), SANS dégrader le reste.
+async function lireRattachementSuiviAuto(): Promise<Pick<ConfigVeille, 'rattachementSuiviAutoActive'>> {
+  try {
+    const { rows } = await query<{ rattachement_suivi_auto_active: boolean }>(`SELECT rattachement_suivi_auto_active FROM config_veille WHERE id = 1`);
+    return { rattachementSuiviAutoActive: rows[0]?.rattachement_suivi_auto_active === true };
+  } catch { return { rattachementSuiviAutoActive: false }; } // 154 pas encore appliquée → OFF
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -480,6 +491,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireNatureAccuseMotifs()),             // FUS-4 : motifs d'objet « accusé », lecture isolée (résiliente à la 125)
       ...(await lireRelanceReglages()),                // LOT B : réglages de relance, lecture isolée (résiliente à la 128)
       ...(await lireRelanceCascadeReglages()),          // Cascade lot 2 : 3 délais + auto-saisine CADA, lecture isolée (résiliente à la 136)
+      ...(await lireRattachementSuiviAuto()),           // RATT-AUTO : interrupteur du rejeu automatique du suivi, lecture isolée (résiliente à la 154)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

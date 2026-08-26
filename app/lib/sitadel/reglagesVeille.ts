@@ -302,6 +302,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Quand c’est activé, un dernier point est ajouté à la liste des pièces demandées : les fichiers sources des plans (DWG, DXF), s’ils existent. La phrase précise que leur absence ne doit pas retarder l’envoi des autres pièces — elle n’oblige donc la mairie à rien. Uniquement dans les demandes ; jamais dans les relances ni les saisines CADA.' },
   { colonne: 'mention_sources_texte', cle: 'mentionSourcesTexte', libelle: 'Texte de la demande des fichiers sources', unite: '', type: 'texte_libre',
     aide: 'Le texte exact du point « fichiers sources » ajouté en fin de liste des pièces. Commencez-le par un tiret « — » pour rester aligné avec les autres pièces. S’il est vide, rien n’est ajouté même si l’option est activée.' },
+  // RATT-AUTO — interrupteur du rejeu automatique du suivi de rattachement (thème « Rattachement au bâti »). Modèle relance_auto_active.
+  { colonne: 'rattachement_suivi_auto_active', cle: 'rattachementSuiviAutoActive', libelle: 'Re-détecter le bâti automatiquement', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, la veille rejoue seule, à chaque passage, le suivi des permis « en attente de bâti » : dès qu’une mise à jour BD TOPO fait apparaître le bâtiment attendu, le permis passe tout seul en « arbitrage demandé » (une décision de rattachement vous est alors demandée). Aucune altitude n’est jamais écrite automatiquement — la décision reste la vôtre. Tant que c’est décoché, il faut relancer le suivi à la main. Sans effet visible tant qu’aucune édition BD TOPO plus récente n’a été ingérée : il n’y a alors rien de neuf à détecter.' },
 ];
 
 /**
@@ -357,6 +360,10 @@ export const COLONNES_THEME_CADA: readonly string[] = [
   'proposition_cada_active', 'cada_email', 'cada_url_formulaire',
   'saisine_cada_auto_active', // Cascade lot 2 — auto-saisine (sans effet tant que cada_email vide)
 ];
+// RATT-AUTO — thème PROPRE (ni demande, ni envoi) : automatisation du rattachement des permis à leur futur bâti. Un seul réglage.
+export const COLONNES_THEME_RATTACHEMENT: readonly string[] = [
+  'rattachement_suivi_auto_active',
+];
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
   ...COLONNES_THEME_PREPARATION, ...COLONNES_THEME_ENVOI, ...COLONNES_THEME_REPONSES, ...COLONNES_THEME_ALERTES, ...COLONNES_THEME_CADA,
 ];
@@ -382,12 +389,14 @@ export const PARAMS_THEME_ENVOI: ParamVeille[] = paramsDuTheme(COLONNES_THEME_EN
 export const PARAMS_THEME_REPONSES: ParamVeille[] = paramsDuTheme(COLONNES_THEME_REPONSES);
 export const PARAMS_THEME_ALERTES: ParamVeille[] = paramsDuTheme(COLONNES_THEME_ALERTES);
 export const PARAMS_THEME_CADA: ParamVeille[] = paramsDuTheme(COLONNES_THEME_CADA);
+export const PARAMS_THEME_RATTACHEMENT: ParamVeille[] = paramsDuTheme(COLONNES_THEME_RATTACHEMENT);
 // Conservé (même ENSEMBLE qu'avant E1, ordre = concaténation des thèmes). Sert au complément PARAMS_DOSSIERS et à la compat.
 export const PARAMS_DEMANDES: ParamVeille[] = paramsDuTheme(COLONNES_PARAMS_DEMANDES);
 export const PARAMS_SOURCES: ParamVeille[] = PARAMS_VEILLE.filter((p) => COLONNES_PARAMS_SOURCES.includes(p.colonne));
 export const PARAMS_MENTIONS: ParamVeille[] = PARAMS_VEILLE.filter((p) => COLONNES_PARAMS_MENTIONS.includes(p.colonne));
 export const PARAMS_DOSSIERS: ParamVeille[] = PARAMS_VEILLE.filter(
-  (p) => !COLONNES_PARAMS_DEMANDES.includes(p.colonne) && !COLONNES_PARAMS_SOURCES.includes(p.colonne) && !COLONNES_PARAMS_MENTIONS.includes(p.colonne),
+  (p) => !COLONNES_PARAMS_DEMANDES.includes(p.colonne) && !COLONNES_PARAMS_SOURCES.includes(p.colonne)
+    && !COLONNES_PARAMS_MENTIONS.includes(p.colonne) && !COLONNES_THEME_RATTACHEMENT.includes(p.colonne), // RATT-AUTO : rendu par SON thème (Réglages), jamais dans « classification des dossiers »
 );
 
 // ── Validation server-side (identique à l'écran) ─────────────────────────────

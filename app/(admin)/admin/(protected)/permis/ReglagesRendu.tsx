@@ -46,6 +46,7 @@ export const TITRE_THEME_ENVOI = 'Envoi aux mairies';
 export const TITRE_THEME_REPONSES = 'Réponses et échéances';
 export const TITRE_THEME_ALERTES = 'Alertes par e-mail';
 export const TITRE_THEME_CADA = 'Saisine CADA';
+export const TITRE_THEME_RATTACHEMENT = 'Rattachement au bâti';
 export const TITRE_PARAMS_DOSSIERS = 'Classification et affichage des dossiers';
 /** S40 — 4e sous-bloc : mentions ajoutées au courrier (phrases de pratique). */
 export const TITRE_PARAMS_MENTIONS = 'Mentions ajoutées au courrier';
