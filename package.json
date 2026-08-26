@@ -51,6 +51,7 @@
     "permis:ecrire-niveaux": "tsx app/scripts/ecrire-niveaux.ts",
     "permis:alerter-superstructures": "tsx app/scripts/alerter-superstructures.ts",
     "permis:ecrire-parcelles": "tsx app/scripts/ecrire-parcelles.ts",
+    "permis:rapprocher-parcelles": "tsx app/scripts/rapprocher-parcelles.ts",
     "permis:rejouer-rattachement": "tsx app/scripts/rejouer-rattachement.ts",
     "permis:rattachement-suivre": "tsx app/scripts/rattachement-suivre.ts",
     "permis:altitude-lidar": "tsx app/scripts/altitude-lidar.ts",
