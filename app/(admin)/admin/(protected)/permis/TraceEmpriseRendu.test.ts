@@ -434,6 +434,11 @@ describe('PROJ-3q — adoption IGN : aperçu, provenance, repère « qualité »
   ];
   const props = (over: Record<string, unknown>) => ({ groupes: G, batiments: BATS, reperes: REP, affectation: { B1: 3, B2: 3, B3: 3 }, scindes: [] as number[], onAffecter: () => {}, onScinder: () => {}, onRegrouper: () => {}, onAdopter: () => {}, onReinitialiser: () => {}, ...over });
 
+  // groupes tout DISJOINTS (cas courant) : deux lignes d'un seul polygone chacune → pour tester regroupement/feedback.
+  const GSEP = [
+    { cleabs: ['B1'], surfaceM2: 100, polygones: [{ cleabs: 'B1', surfaceM2: 100 }] }, // Polygone C
+    { cleabs: ['B3'], surfaceM2: 90, polygones: [{ cleabs: 'B3', surfaceM2: 90 }] },   // Polygone I
+  ];
   it('AdoptionGroupes : 0 groupe → rien ; lignes NOMMÉES par les polygones (jamais « Groupe 1/2/3 »)', () => {
     expect(renderToStaticMarkup(h(AdoptionGroupes, props({ groupes: [] })))).toBe('');
     const html = renderToStaticMarkup(h(AdoptionGroupes, props({})));
@@ -442,6 +447,25 @@ describe('PROJ-3q — adoption IGN : aperçu, provenance, repère « qualité »
     expect(html).toContain('Polygone I');                          // groupe d'un seul → « Polygone I »
     expect(html).toContain('2D1'); expect(html).toContain('2D2');   // sélecteur : bâtiments déclarés, en toutes lettres
     expect(html).toMatch(/Revenir à la proposition automatique/);
+  });
+  // PROJ-3t (A) — l'intro NOMME les deux gestes manuels, en français simple (pas de jargon).
+  it('AdoptionGroupes : l’intro nomme « rattacher ensemble » et « Séparer » (aucun jargon)', () => {
+    const html = renderToStaticMarkup(h(AdoptionGroupes, props({})));
+    expect(html).toMatch(/même bâtiment à plusieurs polygones pour les rattacher ensemble/);
+    expect(html).toMatch(/« Séparer » les détache/);
+    expect(html).not.toMatch(/composante connexe|groupement/i);
+  });
+  // PROJ-3t (C) — feedback contextuel : ≥ 2 polygones sur le MÊME bâtiment → retour affiché ; un seul par bâtiment → rien.
+  it('AdoptionGroupes : deux polygones sur le MÊME bâtiment → « Rattaché au bâtiment … avec Polygone … »', () => {
+    const html = renderToStaticMarkup(h(AdoptionGroupes, props({ groupes: GSEP, affectation: { B1: 3, B3: 3 } })));
+    expect(html).toContain('data-regroupe="true"');
+    expect(html).toMatch(/Rattaché au 2D1 avec Polygone I/);   // ligne C : rattachée avec I
+    expect(html).toMatch(/Rattaché au 2D1 avec Polygone C/);   // ligne I : rattachée avec C
+  });
+  it('AdoptionGroupes : un seul polygone par bâtiment → AUCUN feedback de regroupement', () => {
+    const html = renderToStaticMarkup(h(AdoptionGroupes, props({ groupes: GSEP, affectation: { B1: 3, B3: 5 } })));
+    expect(html).not.toContain('data-regroupe');
+    expect(html).not.toMatch(/Rattaché au .* avec Polygone/);
   });
   // PROJ-3r-fix — cas NON exercé par le dossier courant : un groupe qui contient PLUSIEURS polygones doit rester lisible.
   it('AdoptionGroupes : un groupe de PLUSIEURS polygones → « Polygones C + D » + « réunis en une seule emprise »', () => {

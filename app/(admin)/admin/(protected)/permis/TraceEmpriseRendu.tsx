@@ -319,21 +319,33 @@ export function AdoptionGroupes({ groupes, batiments, reperes, affectation, scin
   const b: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.15rem .5rem', fontSize: 12 };
   const repereDe = (c: string) => reperes[c] ?? c;
   const corpsCommun = (cleabs: string[]): number | '' => { const s = new Set(cleabs.map((c) => affectation[c])); return s.size === 1 && !s.has(undefined as unknown as number) ? [...s][0] : ''; };
-  // Ligne d'affectation EMPILÉE (pleine largeur) : « rattaché au bâtiment : [sélecteur] » + boutons éventuels — jamais serré/tronqué.
-  const ligneBatiment = (valeur: number | '', onCh: (c: number) => void, boutons?: ReactNode) => (
-    <div style={{ display: 'flex', gap: '.3rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.2rem' }}>
-      <span style={muted}>rattaché au bâtiment :</span>
-      <select value={valeur} onChange={(e) => onCh(Number(e.target.value))} disabled={occupe} aria-label="bâtiment affecté" style={{ fontSize: 12, maxWidth: '100%' }}>
-        {valeur === '' && <option value="">— plusieurs bâtiments —</option>}
-        {batiments.map((bt) => <option key={bt.corpsId} value={bt.corpsId}>{nomBatiment(bt, bt.corpsId)}</option>)}
-      </select>
-      {boutons}
-    </div>
+  // PROJ-3t (C) — FEEDBACK de regroupement : si le bâtiment de cette ligne porte AUSSI d'autres polygones, on le DIT (« Rattaché au
+  //   bâtiment X avec Polygone D »). N'apparaît que lorsqu'un même bâtiment reçoit ≥ 2 polygones (regroupement réel), sinon null.
+  const tousLesCleabs = groupes.flatMap((g) => g.polygones.map((p) => p.cleabs));
+  const feedbackRegroupement = (cleabsLigne: string[], corpsId: number | ''): string | null => {
+    if (corpsId === '') return null;
+    const autres = tousLesCleabs.filter((x) => !cleabsLigne.includes(x) && affectation[x] === corpsId);
+    if (autres.length === 0) return null;
+    return `Rattaché au ${nomBatiment(batiments.find((bt) => bt.corpsId === corpsId), corpsId)} avec ${libellePolygones(autres, repereDe)}`;
+  };
+  // Ligne d'affectation EMPILÉE (pleine largeur) : « rattaché au bâtiment : [sélecteur] » + boutons + FEEDBACK éventuel — jamais serré/tronqué.
+  const ligneBatiment = (valeur: number | '', onCh: (c: number) => void, boutons?: ReactNode, feedback?: string | null) => (
+    <>
+      <div style={{ display: 'flex', gap: '.3rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.2rem' }}>
+        <span style={muted}>rattaché au bâtiment :</span>
+        <select value={valeur} onChange={(e) => onCh(Number(e.target.value))} disabled={occupe} aria-label="bâtiment affecté" style={{ fontSize: 12, maxWidth: '100%' }}>
+          {valeur === '' && <option value="">— plusieurs bâtiments —</option>}
+          {batiments.map((bt) => <option key={bt.corpsId} value={bt.corpsId}>{nomBatiment(bt, bt.corpsId)}</option>)}
+        </select>
+        {boutons}
+      </div>
+      {feedback && <div data-regroupe="true" style={{ ...muted, fontStyle: 'italic', marginTop: '.1rem' }}>{feedback}</div>}
+    </>
   );
   return (
     <div style={carte} role="group" aria-label="affectation des polygones en projet aux bâtiments">
       <div style={{ fontWeight: 600, marginBottom: 2 }}>Adopter les polygones « en projet » de l’IGN</div>
-      <p style={{ ...muted, margin: '0 0 .4rem' }}>Les polygones qui se touchent forment une seule emprise ; les polygones séparés forment des emprises séparées. Chaque emprise est rattachée au bâtiment que vous choisissez.</p>
+      <p style={{ ...muted, margin: '0 0 .4rem' }}>Chaque polygone part vers le bâtiment choisi ci-dessous. Donnez le même bâtiment à plusieurs polygones pour les rattacher ensemble ; quand des polygones sont réunis, « Séparer » les détache.</p>
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.45rem' }}>
         {groupes.map((g, i) => scindes.includes(i)
           ? (
@@ -346,7 +358,7 @@ export function AdoptionGroupes({ groupes, batiments, reperes, affectation, scin
                 {g.polygones.map((p) => (
                   <li key={p.cleabs} data-cleabs={p.cleabs}>
                     <div><strong>Polygone {repereDe(p.cleabs)}</strong> — {fmtM2(p.surfaceM2)}</div>
-                    {ligneBatiment(affectation[p.cleabs] ?? '', (c) => onAffecter([p.cleabs], c))}
+                    {ligneBatiment(affectation[p.cleabs] ?? '', (c) => onAffecter([p.cleabs], c), undefined, feedbackRegroupement([p.cleabs], affectation[p.cleabs] ?? ''))}
                   </li>
                 ))}
               </ul>
@@ -356,7 +368,7 @@ export function AdoptionGroupes({ groupes, batiments, reperes, affectation, scin
               <div><strong>{libellePolygones(g.cleabs, repereDe)}</strong> — {fmtM2(g.surfaceM2)}{g.polygones.length > 1 ? ' · réunis en une seule emprise' : ''}</div>
               {ligneBatiment(corpsCommun(g.cleabs), (c) => onAffecter(g.cleabs, c), g.polygones.length > 1
                 ? <button type="button" style={b} disabled={occupe} onClick={() => onScinder(i)}>Séparer les polygones</button>
-                : undefined)}
+                : undefined, feedbackRegroupement(g.cleabs, corpsCommun(g.cleabs)))}
             </li>
           ))}
       </ul>
