@@ -6,6 +6,10 @@ import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
 import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
 import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee } from './SuiviRattachementRendu';
+import { RecapProjectionRattachement } from './ProjectionRecapRattachement';
+// TYPES seuls (modules serveur / purs) — pour le récap de projection (PROJ-4a), affichage pur.
+import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
+import type { PointLambert } from '../../../../lib/permis/calageEmprise';
 
 // L11 — libellés de SOURCE des bulles (constat AVANT travaux). L'origine figée lit le SNAPSHOT ; sinon (et la nouvelle) la couche vivante.
 const SOURCE_GEL = 'au moment du gel (état des lieux figé)';
@@ -45,6 +49,8 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [cleabsMisEnAvant, setCleabsMisEnAvant] = useState<string | null>(null); // M7 — polygone mis en avant dans le schéma (piloté par le focus d'un champ de cote ; PERSISTE après le blur)
   const [afficherProjection, setAfficherProjection] = useState(false); // PROJ-2c — filtre : superposer les emprises reconstituées au schéma d'origine
   const [emprisesProjetees, setEmprisesProjetees] = useState<EmpriseProjetee[]>([]); // PROJ-2c — emprises du dossier ouvert (Lambert), chargées à l'ouverture
+  // PROJ-4a — DONNÉES du récap de projection (lecture seule) : emprises complètes + parcelle + bâti BD TOPO, pour l'état « en attente de bâti ».
+  const [recapProjection, setRecapProjection] = useState<{ emprises: EmpriseReconstruite[]; parcelle: PointLambert[][]; polygones: PolygoneBdTopo[]; batiments: { corpsId: number; repere: string | null }[] } | null>(null);
 
   useEffect(() => {
     let annule = false;
@@ -64,7 +70,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     let annule = false;
     void (async () => {
       setDetail(null); setComparaison(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); setPleinEcran(null);
-      setMotifRefus(''); setAccuse(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); setAfficherProjection(false); setEmprisesProjetees([]); // reset décisions (DANS l'async)
+      setMotifRefus(''); setAccuse(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); setAfficherProjection(false); setEmprisesProjetees([]); setRecapProjection(null); // reset décisions (DANS l'async)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
         if (annule) return;
@@ -75,10 +81,13 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
         try {
           const re = await fetch(`/api/admin/permis/emprise?dossierId=${ouvert}`, { cache: 'no-store' });
           if (!annule && re.ok) {
-            const je = (await re.json()) as { emprises: { id: number; libelle: string; anneau: { x: number; y: number }[] }[] };
-            setEmprisesProjetees(je.emprises.filter((e) => e.anneau.length >= 3).map((e) => ({ id: e.id, libelle: e.libelle, anneau: e.anneau.map((p) => [p.x, p.y] as [number, number]) })));
+            const je = (await re.json()) as { emprises: EmpriseReconstruite[]; batiments?: { corpsId: number; repere: string | null }[]; contexte?: { empreinteAnneaux?: PointLambert[][] }; polygones?: PolygoneBdTopo[] };
+            const emprises = je.emprises ?? [];
+            setEmprisesProjetees(emprises.filter((e) => e.anneau.length >= 3).map((e) => ({ id: e.id, libelle: e.libelle, anneau: e.anneau.map((p) => [p.x, p.y] as [number, number]) })));
+            // PROJ-4a — récap lecture seule : emprises complètes (provenance + multi-parties) + parcelle + bâti BD TOPO. Best-effort.
+            setRecapProjection({ emprises, parcelle: je.contexte?.empreinteAnneaux ?? [], polygones: je.polygones ?? [], batiments: je.batiments ?? [] });
           }
-        } catch { /* emprises indisponibles : le filtre reste simplement absent */ }
+        } catch { /* emprises indisponibles : le récap reste simplement absent */ }
       } catch { if (!annule) setDetailErreur(true); }
     })();
     return () => { annule = true; };
@@ -213,6 +222,9 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
       <div className="flex flex-col gap-2">
         <DetailSuiviRendu detail={detail} />
         {detail.origineOuverture === 'manuelle' && <BandeauOuvertureManuelle motif={detail.motifOuverture} />}
+        {/* PROJ-4a — RÉCAP (lecture seule) de l'emprise projetée : ne s'affiche QUE pour un permis « en attente de bâti ». Le composant
+            gère lui-même l'absence d'emprise (message explicite, jamais un schéma vide) et l'état hors « en attente » (rien). */}
+        {recapProjection && <RecapProjectionRattachement etat={detail.etat} emprises={recapProjection.emprises} parcelle={recapProjection.parcelle} polygones={recapProjection.polygones} batiments={recapProjection.batiments} />}
         {comparaison && (() => {
           const { origine, nouvelle, polygonesModifies, aChange } = comparaison;
           const persiste = detail.persiste, enAtt = detail.etat === 'en_attente_bati';
