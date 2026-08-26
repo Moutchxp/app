@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { estCarteModifiee, modeFooter } from './curationEdition';
-import { contenuBulleBatiment, doitCreerAuDoubleClic } from './bulleBatiment';
+import { contenuBulleBatiment, doitCreerAuDoubleClic, htmlDetailDossiers, type DossierParcelle } from './bulleBatiment';
 import { EnTetePage } from '../_composants/EnTetePage';
 import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, libelleSession, libelleAuteur, nomAffiche, type LigneJournal } from './journalRendu';
 
@@ -72,6 +72,10 @@ interface Emprise {
   // Nombre d'étages (bdtopo_batiment.nombre_d_etages) — aide UI (bulle). `null` si non renseigné ;
   // `0` = vraie valeur (« 0 étage »), jamais réinterprétée. La carte ne fait aucun calcul avec.
   etages?: number | null;
+  // PARC-2 — compteur agrégé des dossiers Sitadel de la PARCELLE du bâtiment (aide UI, bulle). `dossiers` = total,
+  // `demolir` = sous-total PD. `null` = parcelle non chargée (94/77) ; `0` = parcelle connue, aucun dossier. Aucun calcul.
+  dossiers?: number | null;
+  demolir?: number | null;
 }
 
 /** Tag manuel = 1 étoile persistante (centroïde 4326 de son 1er polygone). */
@@ -409,6 +413,7 @@ export default function CurationCarte() {
   const coucheEmprisesRef = useRef<L.LayerGroup | null>(null);
   const coucheFondRef = useRef<L.LayerGroup | null>(null); // bâtiments bbox (sous les couches bleu/vert)
   const coucheEtoilesRef = useRef<L.LayerGroup | null>(null); // étoiles + vert des entités MANUELLES (persistant, bbox)
+  const bulleEpingleeRef = useRef<string | null>(null); // PARC-2 : cleabs de la bulle ÉPINGLÉE (ouverte au clic) — la garde du survol
   const formulaireRef = useRef<HTMLDivElement | null>(null); // conteneur du formulaire « Nouveau tag » (scroll auto)
   const alerteRef = useRef<HTMLDivElement | null>(null); // alerte anti-doublon (editionProposee) — cible de scroll (au-dessus du formulaire)
   const fitEnAttenteRef = useRef<number | null>(null); // entité sans-point à recadrer dès l'arrivée de ses emprises
@@ -515,6 +520,60 @@ export default function CurationCarte() {
     setEmprisesFond(liste);
   }, []);
 
+  // ── PARC-2 — GED : ouvre une pièce d'un dossier via l'action `url_piece` de /reponses (le serveur signe l'URL ; la clé de
+  //    stockage ne transite jamais). `source:'dossier'` = document déposé sur le permis ; `inline:true` = visionneur. Jamais
+  //    déclenché pour un dossier sans pièce (le bouton n'existe alors pas → aucun lien mort). ─
+  const ouvrirGed = useCallback(async (pieceId: number): Promise<void> => {
+    try {
+      const res = await fetch('/api/admin/permis/reponses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'url_piece', pieceId, source: 'dossier', inline: true }),
+      });
+      const data = await res.json();
+      if (res.ok && typeof data?.url === 'string') window.open(data.url, '_blank', 'noopener');
+      else signaler('Pièce indisponible.', 'erreur');
+    } catch {
+      signaler('Pièce indisponible.', 'erreur');
+    }
+  }, [signaler]);
+
+  // ── PARC-2 — DÉTAIL « à l'ouverture seulement » : au CLIC sur un bâtiment (bulle épinglée), charge la liste des dossiers de
+  //    SA PARCELLE (route dédiée) et l'injecte dans la bulle sous le compteur déjà affiché. Câble les raccourcis GED. Best-effort
+  //    (jamais de throw ; message discret en cas d'échec). La garde `bulleEpingleeRef===cleabs` évite d'injecter dans une bulle
+  //    déjà remplacée par un autre bâtiment. ─
+  const chargerDetailParcelle = useCallback(
+    async (cleabs: string, layer: L.Layer, emp: Emprise): Promise<void> => {
+      const popup = layer.getPopup?.();
+      if (!popup) return;
+      const base = contenuBulleBatiment(emp.annee, emp.etages, emp.dossiers, emp.demolir);
+      popup.setContent(base + '<span class="svv-cur-bulle-detail svv-cur-bulle-chargt" role="status">Chargement des dossiers…</span>');
+      try {
+        const res = await fetch(`/api/admin/curation/parcelle-dossiers?cleabs=${encodeURIComponent(cleabs)}`);
+        const data = await res.json();
+        if (bulleEpingleeRef.current !== cleabs) return; // bulle changée entre-temps → on n'écrase pas
+        const dossiers: DossierParcelle[] = Array.isArray(data?.dossiers) ? data.dossiers : [];
+        const nbBatiments: number | null = typeof data?.parcelle?.nbBatiments === 'number' ? data.parcelle.nbBatiments : null;
+        popup.setContent(base + htmlDetailDossiers(dossiers, nbBatiments));
+        // Raccourcis GED : listeners DIRECTS sur les boutons (fiables ; le contenu vient d'être posé, l'élément est frais).
+        const el = popup.getElement();
+        el?.querySelectorAll<HTMLButtonElement>('.svv-cur-ged').forEach((btn) => {
+          btn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const id = Number(btn.dataset.pieceId);
+            if (Number.isInteger(id)) void ouvrirGed(id);
+          });
+        });
+      } catch {
+        if (bulleEpingleeRef.current === cleabs) {
+          popup.setContent(base + '<span class="svv-cur-bulle-detail" role="status">Détail des dossiers indisponible</span>');
+        }
+      }
+    },
+    [ouvrirGed],
+  );
+
   // ── Double-clic sur un bâtiment : ouvre « Nouveau tag » ciblé, SAUF si ce cleabs appartient déjà à un
   //    tag MANUEL (liaison active) → propose l'édition de ce tag (anti-doublon manuel ; le multi-entités
   //    NATIF reste permis). Lit `entitesRef` (identité stable pour la couche de fond). ─
@@ -568,6 +627,13 @@ export default function CurationCarte() {
     map.on('moveend', () => {
       void chargerEmprisesFond();
       if (selectionIdRef.current !== null) void chargerEmprises();
+    });
+
+    // PARC-2 : toute fermeture de bulle DÉSÉPINGLE (le survol d'autres bâtiments peut de nouveau prévisualiser). Fermer épingle
+    // AVANT d'ouvrir une nouvelle bulle (openPopup ferme l'ancienne d'abord) : dans le flux « clic B alors que A épinglé », ce
+    // handler remet à null, puis le handler de clic repose l'épingle sur B — d'où l'ordre « openPopup() PUIS pose de l'épingle ».
+    map.on('popupclose', () => {
+      bulleEpingleeRef.current = null;
     });
 
     const surResize = () => map.invalidateSize();
@@ -1063,19 +1129,35 @@ export default function CurationCarte() {
         if (doitCreerAuDoubleClic(modeBulle)) ouvrirCreationCiblee(cleabs);
       });
       if (modeBulle) {
-        // bindPopup ouvre la bulle au CLIC/TAP (mobile). `closeButton:false` + `autoPan:false` = bulle
-        // sobre qui ne déplace pas la carte ; se ferme au clic ailleurs (closeOnClick par défaut).
-        layer.bindPopup(contenuBulleBatiment(emp.annee, emp.etages), {
+        // PARC-2 — bulle = année + étages + COMPTEUR de dossiers de la parcelle (déjà chargé avec l'emprise, ZÉRO requête au
+        // survol). `closeButton:true` : la bulle épinglée (clic) doit pouvoir se refermer sur mobile sans dépendre d'un clic
+        // ailleurs. `autoPan:false` = ne déplace pas la carte. `maxWidth` borné → lisible sur smartphone (mobile-first).
+        layer.bindPopup(contenuBulleBatiment(emp.annee, emp.etages, emp.dossiers, emp.demolir), {
           className: 'svv-cur-bulle-popup',
-          closeButton: false,
+          closeButton: true,
           autoPan: false,
+          maxWidth: 260,
         });
-        layer.on('mouseover', () => layer.openPopup()); // desktop : survol → bulle
-        layer.on('mouseout', () => layer.closePopup()); // se ferme au mouseout
+        // SURVOL (desktop) = PRÉVISUALISATION du compteur, uniquement si AUCUNE bulle épinglée (sinon on ne vole pas la bulle
+        // ouverte au clic). Le survol N'ÉPINGLE PAS et NE charge PAS le détail (Part 3 : détail « à l'ouverture SEULEMENT »).
+        layer.on('mouseover', () => {
+          if (bulleEpingleeRef.current === null) layer.openPopup();
+        });
+        layer.on('mouseout', () => {
+          if (bulleEpingleeRef.current !== cleabs) layer.closePopup();
+        });
+        // CLIC / TAP = ÉPINGLE la bulle + charge le DÉTAIL (liste des dossiers de la parcelle + mise en garde « partagée » + GED).
+        // `openPopup()` d'abord (ferme l'éventuelle bulle précédente → son `popupclose` remet l'épingle à null), PUIS on pose
+        // l'épingle sur CE cleabs → le détail s'injecte dans la bonne bulle. Le détail n'est chargé que si la parcelle est connue.
+        layer.on('click', () => {
+          layer.openPopup();
+          bulleEpingleeRef.current = cleabs;
+          if (typeof emp.dossiers === 'number') void chargerDetailParcelle(cleabs, layer, emp);
+        });
       }
       layer.addTo(couche);
     }
-  }, [emprisesFond, ouvrirCreationCiblee, modeBulle, cleabsCible]);
+  }, [emprisesFond, ouvrirCreationCiblee, modeBulle, cleabsCible, chargerDetailParcelle]);
 
   // ── Mode bulle désactivé : referme toute bulle encore ouverte (le rebuild ci-dessus retire déjà les
   //    popups liés, ce close est un filet de sécurité au basculement). ─
@@ -2057,6 +2139,20 @@ const CSS = `
 .svv-cur-bulle{font-size:.82rem;font-weight:600;color:var(--color-svv-ink)}
 .svv-cur-bulle-l{display:block}
 .svv-cur-bulle-l+.svv-cur-bulle-l{margin-top:.1rem;font-weight:500;color:var(--color-svv-muted)}
+/* PARC-2 — ligne de rattachement à la PARCELLE (compteur), puis bloc de DÉTAIL injecté au clic. Mobile-first : la bulle est
+   bornée en largeur (maxWidth Leaflet) et le détail scrolle au-delà d'une hauteur raisonnable (jamais de débordement illisible). */
+.svv-cur-bulle-parc{margin-top:.25rem;font-weight:700;color:var(--color-svv-ink)}
+.svv-cur-bulle-detail{display:block;margin-top:.4rem;padding-top:.35rem;border-top:1px solid var(--color-svv-line);max-height:40vh;overflow:auto}
+.svv-cur-bulle-caveat{display:block;font-size:.74rem;font-weight:600;color:var(--color-svv-red-dark);line-height:1.35;margin-bottom:.35rem}
+.svv-cur-bulle-vide,.svv-cur-bulle-chargt{display:block;font-size:.76rem;font-style:italic;color:var(--color-svv-muted)}
+.svv-cur-dossiers-liste{display:flex;flex-direction:column;gap:.35rem}
+.svv-cur-dossier{display:flex;flex-direction:column;gap:.05rem;padding-bottom:.3rem;border-bottom:1px solid var(--color-svv-line)}
+.svv-cur-dossier:last-child{border-bottom:none;padding-bottom:0}
+.svv-cur-dossier-t{font-size:.78rem;font-weight:700;color:var(--color-svv-ink)}
+.svv-cur-dossier-m{font-size:.72rem;font-weight:500;color:var(--color-svv-muted);display:flex;align-items:center;flex-wrap:wrap;gap:.25rem}
+/* Raccourci GED : cible tactile confortable, aucun survol requis (mobile-first), glyphe unicode aria-hidden (pas d'icône). */
+.svv-cur-ged{appearance:none;display:inline-flex;align-items:center;gap:.2rem;min-height:28px;padding:.1rem .4rem;border:1px solid var(--color-svv-line);border-radius:.4rem;background:var(--color-svv-field);color:var(--color-svv-red-dark);font:inherit;font-size:.72rem;font-weight:700;cursor:pointer}
+.svv-cur-ged:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
 @media (prefers-reduced-motion:reduce){.leaflet-fade-anim .svv-cur-bulle-popup.leaflet-popup{transition:none}}
 
 .svv-cur-compteurs{display:flex;flex-wrap:wrap;gap:.4rem}

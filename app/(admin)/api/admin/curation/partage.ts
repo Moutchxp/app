@@ -64,6 +64,16 @@ export interface LigneEmpriseDB {
    * AUCUN calcul (le moteur lit cette colonne ailleurs, pour le score — pas via cette route).
    */
   etages?: number | null;
+  /**
+   * PARC-2 — COMPTEUR AGRÉGÉ des dossiers Sitadel rattachés à la PARCELLE du bâtiment (parcelle sous
+   * `ST_PointOnSurface` du bâtiment ; `permis_parcelle.idu = parcelle.id`). `dossiers` = nombre total,
+   * `demolir` = sous-total des permis de démolir (type='PD'). `null` = parcelle du bâtiment ABSENTE du
+   * cadastre chargé (94/77 non couverts) OU colonnes non sélectionnées (route emprises rattachées) —
+   * distinct de `0` (parcelle connue, aucun dossier rattaché). LECTURE SEULE, aide UI (bulle) ; n'entre
+   * dans AUCUN calcul de verdict/score. Compteur SEUL (pas la liste, pas les dates : cf. route de détail).
+   */
+  dossiers?: number | null;
+  demolir?: number | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -177,5 +187,8 @@ export function versEmprise(r: LigneEmpriseDB) {
     // `undefined` → `null`. ⚠️ `?? null` ne touche PAS un `0` (seulement null/undefined) → le 0 étage survit.
     annee: r.annee ?? null,
     etages: r.etages ?? null,
+    // PARC-2 : compteurs de dossiers de la parcelle (0 = parcelle connue sans dossier ; null = parcelle non chargée / non sélectionnée).
+    dossiers: r.dossiers ?? null,
+    demolir: r.demolir ?? null,
   };
 }

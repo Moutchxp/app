@@ -23,6 +23,7 @@ import { GET as GET_ENTITE_JOURNAL } from './entites/[id]/journal/route';
 import { versEntite, versEmprise, type LigneEntiteDB, type LigneEmpriseDB } from './partage';
 import { GET as GET_TAGS } from './tags-manuels/route';
 import { GET as GET_EMPRISES } from './emprises/route';
+import { GET as GET_PARCELLE_DOSSIERS } from './parcelle-dossiers/route';
 import { PATCH as PATCH_POINT, DELETE as DELETE_POINT } from './entites/[id]/point/route';
 import { POST as POST_LIAISON, DELETE as DELETE_LIAISON, PATCH as PATCH_LIAISON } from './entites/[id]/liaisons/route';
 
@@ -98,14 +99,47 @@ describe('GET /api/admin/curation/emprises (bbox + année de construction)', () 
     // LEFT JOIN (n'exclut aucun bâtiment sans année) + colonne année, patron `obstacles.ts`.
     expect(/LEFT JOIN bdnb_annee_batiment ba ON ba\.cleabs = b\.cleabs/.test(sql)).toBe(true);
     expect(/ba\.annee_construction AS annee/.test(sql)).toBe(true);
-    // Étages : colonne de bdtopo_batiment lue avec geom → AUCUN LEFT JOIN nouveau (un SEUL dans la requête).
+    // Étages : colonne de bdtopo_batiment lue avec geom → AUCUN LEFT JOIN nouveau pour l'année (le join bdnb reste UNIQUE).
     expect(/b\.nombre_d_etages AS etages/.test(sql)).toBe(true);
-    expect((sql.match(/LEFT JOIN/g) ?? []).length).toBe(1);
+    expect((sql.match(/LEFT JOIN bdnb_annee_batiment/g) ?? []).length).toBe(1);
     // JAMAIS un INNER JOIN (exclurait les bâtiments sans année).
     expect(/INNER JOIN bdnb_annee_batiment/.test(sql)).toBe(false);
     // ST_Force2D conservé (invariant), lecture seule (aucune écriture).
     expect(/ST_Force2D/.test(sql)).toBe(true);
     expect(ecritureEmise()).toBe(false);
+  });
+
+  it('PARC-2 : compteur agrégé de dossiers par parcelle (fragments sémantiques), TOUJOURS une seule requête', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await GET_EMPRISES(reqEmprises(BBOX));
+    expect(sqlsEmis().length).toBe(1); // le compteur voyage AVEC les emprises → aucune requête au survol
+    const sql = sqlsEmis()[0].replace(/\s+/g, ' ');
+    // Chemin bâtiment → parcelle (point intérieur) → permis_parcelle → sitadel_dossier.
+    expect(sql).toContain('ST_PointOnSurface');
+    expect(sql).toContain('permis_parcelle');
+    expect(sql).toContain('pp.idu = p.id');
+    // Sous-total démolir = type='PD', total dédoublonné par dossier.
+    expect(sql).toContain("FILTER (WHERE sd.type = 'PD')");
+    expect(sql).toContain('count(DISTINCT sd.id)');
+    expect(ecritureEmise()).toBe(false);
+  });
+
+  it('PARC-2 : dossiers/demolir transitent (nombres) ; null = parcelle non chargée, 0 = parcelle connue sans dossier', async () => {
+    queryMock.mockResolvedValue({
+      rows: [
+        { cleabs: 'BAT_A', geom: '{"type":"Point","coordinates":[2.27,48.91]}', annee: null, etages: null, dossiers: 3, demolir: 1 },
+        { cleabs: 'BAT_B', geom: '{"type":"Point","coordinates":[2.28,48.91]}', annee: null, etages: null, dossiers: 0, demolir: 0 },
+        { cleabs: 'BAT_C', geom: '{"type":"Point","coordinates":[2.29,48.91]}', annee: null, etages: null, dossiers: null, demolir: null },
+      ],
+    });
+    const body = await (await GET_EMPRISES(reqEmprises(BBOX))).json();
+    expect(body.emprises[0]).toMatchObject({ cleabs: 'BAT_A', dossiers: 3, demolir: 1 });
+    // 0 = parcelle connue, aucun dossier (survit, jamais transformé en null).
+    expect(body.emprises[1].dossiers).toBe(0);
+    expect(body.emprises[1].demolir).toBe(0);
+    // null = parcelle non chargée (94/77) — distinct de 0.
+    expect(body.emprises[2].dossiers).toBeNull();
+    expect(body.emprises[2].demolir).toBeNull();
   });
 
   it('renvoie annee (number) quand renseignée, et null quand absente — sans exclure la ligne', async () => {
@@ -172,6 +206,70 @@ describe('versEmprise (mapping année + étages)', () => {
   it('⚠️ etages = 0 → 0 (le `?? null` ne touche PAS le 0)', () => {
     const r: LigneEmpriseDB = { cleabs: 'C1', geom: null, etages: 0 };
     expect(versEmprise(r).etages).toBe(0);
+  });
+  it('PARC-2 : dossiers/demolir mappés ; 0 survit ; absents → null', () => {
+    expect(versEmprise({ cleabs: 'C1', geom: null, dossiers: 4, demolir: 2 })).toMatchObject({ dossiers: 4, demolir: 2 });
+    // 0 = parcelle connue sans dossier (le `?? null` ne touche pas le 0).
+    expect(versEmprise({ cleabs: 'C1', geom: null, dossiers: 0, demolir: 0 })).toMatchObject({ dossiers: 0, demolir: 0 });
+    // Colonnes absentes (route emprises rattachées) → null.
+    const r = versEmprise({ cleabs: 'C1', geom: null });
+    expect(r.dossiers).toBeNull();
+    expect(r.demolir).toBeNull();
+  });
+});
+
+describe('PARC-2 — GET /api/admin/curation/parcelle-dossiers (détail à l’ouverture)', () => {
+  const req = (qs: string) => new Request(`http://localhost/api/admin/curation/parcelle-dossiers${qs}`, { method: 'GET' });
+
+  it('cleabs manquant → 422, AUCUNE requête', async () => {
+    const res = await GET_PARCELLE_DOSSIERS(req(''));
+    expect(res.status).toBe(422);
+    expect(sqlsEmis().length).toBe(0);
+  });
+
+  it('parcelle introuvable (bâtiment hors cadastre chargé) → { parcelle:null, dossiers:[] }, aucune 2e requête', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ parcelle_id: null, nb_batiments: 0 }] });
+    const body = await (await GET_PARCELLE_DOSSIERS(req('?cleabs=BAT_X'))).json();
+    expect(body).toEqual({ parcelle: null, dossiers: [] });
+    // La 2e requête (liste des dossiers) N'EST PAS émise si aucune parcelle.
+    expect(sqlsEmis().length).toBe(1);
+  });
+
+  it('parcelle trouvée → liste des dossiers mappée (numDau/type/date/etat/gedPieces) + nbBatiments', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ parcelle_id: '78498000BH0442', nb_batiments: 3 }] })
+      .mockResolvedValueOnce({
+        rows: [
+          { num_dau: '07849823Y0120', type: 'PC', date_autorisation: '2023-09-11', etat_dau: '2', ged_pieces: [{ id: 7, nom: 'arrêté.pdf' }] },
+          { num_dau: '07849810Z0007', type: 'PD', date_autorisation: '2019-01-05', etat_dau: '6', ged_pieces: [] },
+        ],
+      });
+    const body = await (await GET_PARCELLE_DOSSIERS(req('?cleabs=BAT_OK'))).json();
+    expect(body.parcelle).toEqual({ id: '78498000BH0442', nbBatiments: 3 });
+    expect(body.dossiers).toHaveLength(2);
+    expect(body.dossiers[0]).toEqual({ numDau: '07849823Y0120', type: 'PC', dateAutorisation: '2023-09-11', etat: '2', gedPieces: [{ id: 7, nom: 'arrêté.pdf' }] });
+    expect(body.dossiers[1].gedPieces).toEqual([]);
+  });
+
+  it('la requête lie cleabs + le marqueur de fiche générée (exclusion GED) et passe par ST_PointOnSurface', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ parcelle_id: '78498000BH0442', nb_batiments: 1 }] })
+      .mockResolvedValueOnce({ rows: [] });
+    await GET_PARCELLE_DOSSIERS(req('?cleabs=BAT_OK'));
+    const calls = queryMock.mock.calls;
+    // 1re requête : résolution parcelle par point intérieur, cleabs LIÉ (jamais interpolé).
+    expect(String(calls[0][0])).toContain('ST_PointOnSurface');
+    expect(calls[0][1]).toEqual(['BAT_OK']);
+    // 2e requête : liste des dossiers, fiche GÉNÉRÉE exclue via son marqueur, dossiers dédoublonnés.
+    const sql2 = String(calls[1][0]).replace(/\s+/g, ' ');
+    expect(sql2).toContain('note IS DISTINCT FROM');
+    expect(sql2).toContain('SELECT DISTINCT dossier_id FROM permis_parcelle WHERE idu =');
+    expect(calls[1][1]).toEqual(['78498000BH0442', '__fiche_synthese_generee__']);
+  });
+
+  it('query rejette → 503', async () => {
+    queryMock.mockRejectedValue(new Error('db down'));
+    expect((await GET_PARCELLE_DOSSIERS(req('?cleabs=BAT_OK'))).status).toBe(503);
   });
 });
 

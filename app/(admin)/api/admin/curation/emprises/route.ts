@@ -21,6 +21,15 @@ const LIMITE_EMPRISES = 500;
  *
  * Filtre spatial via l'index (`geom && enveloppe`) en 2154. `LIMIT 500`. Bbox invalide → 422. Sous
  * garde `proxy.ts`.
+ *
+ * PARC-2 — COMPTEUR AGRÉGÉ de dossiers Sitadel par bâtiment (`dossiers`, `demolir`), chargé AVEC les emprises pour que la bulle
+ * l'affiche SANS requête au survol. Chemin : bâtiment → parcelle sous son POINT INTÉRIEUR (`ST_PointOnSurface`, une parcelle
+ * DÉTERMINISTE par bâtiment, robuste aux débordements de façade contrairement à `ST_Contains(parcelle, bâtiment)` et sans le
+ * double-comptage d'un `ST_Intersects` sur les parcelles mitoyennes) → `permis_parcelle.idu = parcelle.id` → `sitadel_dossier`.
+ * `ST_Force2D` conservé (bâti 3D). Coût MESURÉ par `EXPLAIN (ANALYZE, BUFFERS)` sur une bbox dense (Paris 4e, 500 bâtiments) :
+ * ~58 ms (index gist `parcelle_geom_geom_idx` pour la containment ponctuelle + `permis_parcelle_idu_idx` + Memoize par parcelle),
+ * soit +~50 ms sur la requête de base — jugé acceptable pour une aide UI. AUCUNE migration (tables/index préexistants). Compteur
+ * SEUL (pas la liste, pas les dates : cf. route `parcelle-dossiers`). LECTURE SEULE, n'entre dans AUCUN calcul de verdict/score.
  */
 export async function GET(request: Request) {
   const bbox = lireBbox(new URL(request.url).searchParams);
@@ -31,9 +40,22 @@ export async function GET(request: Request) {
   try {
     const { rows } = await query<LigneEmpriseDB>(
       `SELECT b.cleabs, ST_AsGeoJSON(ST_Transform(ST_Force2D(b.geom), 4326)) AS geom,
-              ba.annee_construction AS annee, b.nombre_d_etages AS etages
+              ba.annee_construction AS annee, b.nombre_d_etages AS etages,
+              dc.dossiers, dc.demolir
          FROM bdtopo_batiment b
          LEFT JOIN bdnb_annee_batiment ba ON ba.cleabs = b.cleabs
+         LEFT JOIN LATERAL (
+           SELECT pa.id FROM parcelle pa
+            WHERE ST_Contains(pa.geom, ST_PointOnSurface(ST_Force2D(b.geom)))
+            LIMIT 1
+         ) p ON true
+         LEFT JOIN LATERAL (
+           SELECT count(DISTINCT sd.id)::int AS dossiers,
+                  count(DISTINCT sd.id) FILTER (WHERE sd.type = 'PD')::int AS demolir
+             FROM permis_parcelle pp
+             JOIN sitadel_dossier sd ON sd.id = pp.dossier_id
+            WHERE pp.idu = p.id
+         ) dc ON p.id IS NOT NULL
         WHERE b.geom && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 2154)
         LIMIT ${LIMITE_EMPRISES}`,
       [bbox.minlon, bbox.minlat, bbox.maxlon, bbox.maxlat],
