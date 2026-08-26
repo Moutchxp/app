@@ -9,7 +9,7 @@ import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetai
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
 import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, demandeADuRetour, formaterDate, type RetourCible } from './ReponsesRendu';
 import { etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
-import { statutCascade, prochaineEtape } from '../../../../lib/veille/statutCascade';
+import { statutCascade, prochaineEtape, type EnvoiAutoInfos } from '../../../../lib/veille/statutCascade';
 import { RefMairieCellule } from './RefMairieCellule';
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 import type { ReglagesCascade } from '../../../../lib/veille/cascadeRelance';
@@ -76,7 +76,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
   //   rebours (etatEcheance INTOUCHÉ), la colonne « Retour mairie » et les 7 actions du détail. `retourReponse` (cle-based) est le
   //   retour des actions /reponses, DISTINCT de `retour` (zone-based) des actions /demandes. RIEN de ceci n'existe pour « À demander ».
   const enCours = perimetre === 'en_cours';
-  const [suivi, setSuivi] = useState<{ parId: Map<number, DemandeSuivi>; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade } | null>(null);
+  const [suivi, setSuivi] = useState<{ parId: Map<number, DemandeSuivi>; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos } | null>(null);
   const [maintenant, setMaintenant] = useState<Date>(() => new Date());
   const [versionSuivi, setVersionSuivi] = useState(0);
   const [retourReponse, setRetourReponse] = useState<RetourCible>(null);
@@ -109,8 +109,8 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
       try {
         const res = await fetch('/api/admin/permis/en-cours', { cache: 'no-store' });
         if (!annule && res.ok) {
-          const d = (await res.json()) as { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade };
-          setSuivi({ parId: new Map(d.demandes.map((x) => [x.demandeId, x])), derniereOkLe: d.derniereOkLe, reglages: d.reglages, cascade: d.cascade });
+          const d = (await res.json()) as { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos };
+          setSuivi({ parId: new Map(d.demandes.map((x) => [x.demandeId, x])), derniereOkLe: d.derniereOkLe, reglages: d.reglages, cascade: d.cascade, envoi: d.envoi });
           setMaintenant(new Date());
         }
       } catch { /* suivi indisponible : le tableau reste, sans compte à rebours (jamais un écran vide) */ }
@@ -141,7 +141,7 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
         dossiersDus: d.dossiersActifs - d.dossiersSatisfaits,
         dernierEnvoiRelance: d.dernierEnvoiRelance, relancePreparee: d.relancePreparee, saisineCadaEnvoyeeLe: d.saisineCadaEnvoyeeLe,
       };
-      m.set(d.demandeId, { libelle: statutCascade(entree, maintenant, suivi.cascade), prochaine: prochaineEtape(entree, maintenant, suivi.cascade) });
+      m.set(d.demandeId, { libelle: statutCascade(entree, maintenant, suivi.cascade, suivi.envoi), prochaine: prochaineEtape(entree, maintenant, suivi.cascade) });
     }
     return m;
   }, [suivi, maintenant]);

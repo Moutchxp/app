@@ -3,6 +3,7 @@ import type { EtatEcheance } from '../../../../lib/veille/echeance';
 import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche, AlerteGedAffiche, MessageAutreAffiche, ReponsePieces } from '../../../../lib/veille/reponsesSuivi';
 import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import { MessageRetour, BlocRepliable, type RetourAction } from './DemandesRendu';
+import { mentionEnvoiAutoRelance, type EnvoiAutoInfos } from '../../../../lib/veille/statutCascade'; // « dire quand ça part » : mention d'envoi auto (réglages)
 import type { NatureReclassable } from '../../../../lib/veille/demandeReponseRepo'; // FUS-4 : type SEUL (erasé) — 3 cibles du reclassement
 
 /**
@@ -1014,9 +1015,9 @@ export function BlocPropositions({ propositions, aujourdhui, retour, dateOuverte
  * fournis ET la carte dépliée, l'objet et le corps deviennent ÉDITABLES (le texte STOCKÉ est la vérité — rien ne le régénère
  * dans le dos de l'utilisateur), avec Enregistrer / Régénérer / Abandonner. Sans callback → lecture seule (compat R5a).
  */
-export function RelanceCarte({ relance, ouvert, id, objet, corps, retour, onChangeObjet, onChangeCorps, onEnregistrer, onRegenerer, onAbandonner }: {
+export function RelanceCarte({ relance, ouvert, id, objet, corps, retour, envoi, onChangeObjet, onChangeCorps, onEnregistrer, onRegenerer, onAbandonner }: {
   relance: RelancePreparee; ouvert: boolean; id?: string;
-  objet?: string; corps?: string; retour?: RetourCible;
+  objet?: string; corps?: string; retour?: RetourCible; envoi?: EnvoiAutoInfos; // « dire quand ça part » : interrupteur + fenêtre (réglages)
   onChangeObjet?: (relanceId: number, v: string) => void;
   onChangeCorps?: (relanceId: number, v: string) => void;
   onEnregistrer?: (relanceId: number) => void;
@@ -1033,6 +1034,7 @@ export function RelanceCarte({ relance, ouvert, id, objet, corps, retour, onChan
         <strong style={{ fontSize: 13 }}>{relance.communeNom ?? relance.reference ?? `demande ${relance.demandeId}`}</strong>
         <span style={styleMuted}>{relance.reference ?? `demande ${relance.demandeId}`} · générée le {formaterDateHeure(relance.genereeLe)}</span>
       </div>
+      {envoi && <p role="note" data-envoi-auto={envoi.relanceAutoActive} style={{ ...styleMuted, margin: 0, lineHeight: 1.4 }}>{mentionEnvoiAutoRelance(envoi)}</p>}
       {ouvert && editable
         ? <input aria-label={`Objet de la relance ${relance.id}`} value={valObjet} onChange={(e) => onChangeObjet?.(relance.id, e.target.value)} style={champ} />
         : <div style={{ fontSize: 13 }}>{relance.objet}</div>}

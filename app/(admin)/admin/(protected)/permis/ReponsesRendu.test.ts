@@ -440,6 +440,21 @@ describe('R5a — RelanceCarte : lecture seule, corps consultable', () => {
     expect(h).not.toContain('<textarea');
     expect(h).not.toContain('<button');
   });
+
+  // « dire quand ça part » — la carte annonce en une ligne que le courrier part tout seul (ou pas, si l'envoi auto est OFF).
+  it('sans info d’envoi → aucune mention ; envoi auto ON → « part tout seul » + fenêtre (réglages)', () => {
+    expect(renderToStaticMarkup(createElement(RelanceCarte, { relance, ouvert: false }))).not.toContain('part tout seul');
+    const on = renderToStaticMarkup(createElement(RelanceCarte, { relance, ouvert: false, envoi: { relanceAutoActive: true, envoiHeureDebut: 9, envoiHeureFin: 11 } }));
+    expect(on).toContain('part tout seul');
+    expect(on).toContain('de 9 h à 11 h');
+    expect(on).toContain('data-envoi-auto="true"');
+  });
+  it('envoi auto OFF → dit qu’il ne partira PAS seul (à modifier / annuler)', () => {
+    const off = renderToStaticMarkup(createElement(RelanceCarte, { relance, ouvert: false, envoi: { relanceAutoActive: false, envoiHeureDebut: 9, envoiHeureFin: 11 } }));
+    expect(off).toMatch(/désactivé/);
+    expect(off).not.toContain('part tout seul');
+    expect(off).toContain('data-envoi-auto="false"');
+  });
 });
 
 // ── R5b — actions de l'écran Réponses (rendu pur : les boutons/callbacks sont là, aux bons endroits) ──────────────────────

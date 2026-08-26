@@ -20,8 +20,26 @@ describe('lot 4 — statutCascade : un libellé par état', () => {
   it('défaut : aucune relance, avant la fenêtre de saisine → « Envoyée le … à … » (Europe/Paris)', () => {
     expect(statutCascade(e(), j('2026-04-10T10:00:00Z'), REG)).toBe('Envoyée le 14 mars 2026 à 11:00'); // 14 mars = CET (+1, avant l'heure d'été)
   });
-  it('brouillon PRÉPARÉ non envoyé → « Rappel prêt, non envoyé » (jamais « envoyé »)', () => {
+  it('brouillon PRÉPARÉ non envoyé, SANS info d’envoi → « Rappel prêt, non envoyé » (compat, jamais « envoyé »)', () => {
     expect(statutCascade(e({ relancePreparee: { variante: 'rappel' } }), j('2026-04-06T10:00:00Z'), REG)).toBe('Rappel prêt, non envoyé');
+  });
+  // « dire quand ça part » — deux états de l'interrupteur + horaires venus des RÉGLAGES (jamais en dur).
+  it('brouillon préparé + envoi auto ON → dit qu’il PART TOUT SEUL et la fenêtre (heures des réglages)', () => {
+    const s = statutCascade(e({ relancePreparee: { variante: 'rappel' } }), j('2026-04-06T10:00:00Z'), REG, { relanceAutoActive: true, envoiHeureDebut: 9, envoiHeureFin: 11 });
+    expect(s).toMatch(/partira tout seul/);
+    expect(s).toMatch(/de 9 h à 11 h/);      // horaires = réglages
+    expect(s).not.toMatch(/non envoyé/);
+  });
+  it('brouillon préparé + envoi auto OFF → dit qu’il ne partira PAS seul (à envoyer à la main)', () => {
+    const s = statutCascade(e({ relancePreparee: { variante: 'rappel' } }), j('2026-04-06T10:00:00Z'), REG, { relanceAutoActive: false, envoiHeureDebut: 9, envoiHeureFin: 11 });
+    expect(s).toMatch(/désactivé/);
+    expect(s).toMatch(/à la main/);
+    expect(s).not.toMatch(/partira tout seul/);
+  });
+  it('brouillon préparé + fenêtre mal réglée (début ≥ fin) → dit que rien ne partira', () => {
+    const s = statutCascade(e({ relancePreparee: { variante: 'rappel' } }), j('2026-04-06T10:00:00Z'), REG, { relanceAutoActive: true, envoiHeureDebut: 11, envoiHeureFin: 9 });
+    expect(s).toMatch(/mal réglée/);
+    expect(s).toMatch(/rien ne partira/);
   });
   it('rappel RÉELLEMENT envoyé → « Rappel envoyé le … à … »', () => {
     expect(statutCascade(e({ dernierEnvoiRelance: { variante: 'rappel', envoyeLe: '2026-04-04T10:00:00Z' } }), j('2026-04-04T12:00:00Z'), REG))

@@ -28,6 +28,27 @@ function dateSeule(iso: string): string {
 }
 
 /** Données de LECTURE d'une demande pour dériver son statut de cascade (toutes issues de la source unique `chargerDemandesSuivi`). */
+/**
+ * Infos d'ENVOI AUTOMATIQUE (réglages existants, jamais recopiés en dur) : l'interrupteur `relance_auto_active` + la fenêtre horaire
+ * `envoi_heure_debut`/`envoi_heure_fin`. Servent à DIRE, sur une relance préparée, qu'elle partira seule et QUAND (ou pas, si OFF).
+ */
+export interface EnvoiAutoInfos { relanceAutoActive: boolean; envoiHeureDebut: number; envoiHeureFin: number }
+
+/** Fenêtre horaire cohérente (début < fin, dans 0..23) ? Sinon rien ne part (fenetreEnvoiOuverte l'exige), on le dit à l'écran. */
+function fenetreCoherente(e: EnvoiAutoInfos): boolean {
+  return Number.isInteger(e.envoiHeureDebut) && Number.isInteger(e.envoiHeureFin) && e.envoiHeureDebut >= 0 && e.envoiHeureFin <= 23 && e.envoiHeureDebut < e.envoiHeureFin;
+}
+
+/**
+ * MENTION affichée SUR LA CARTE d'une relance préparée : dit en une phrase que le courrier PART TOUT SEUL (ou pas, si l'envoi auto
+ * est OFF ou mal réglé) et que les boutons ne servent qu'à le modifier/annuler avant. Horaires issus des RÉGLAGES (jamais en dur). PUR.
+ */
+export function mentionEnvoiAutoRelance(envoi: EnvoiAutoInfos): string {
+  if (!envoi.relanceAutoActive) return 'L’envoi automatique est désactivé : ce courrier ne partira pas seul. Les boutons ci-dessous servent à le modifier ou l’annuler.';
+  if (!fenetreCoherente(envoi)) return 'Envoi automatique actif mais fenêtre d’envoi mal réglée : rien ne partira tant qu’elle n’est pas corrigée (Réglages).';
+  return `Ce courrier part tout seul à la prochaine fenêtre d’envoi (jours ouvrés, de ${envoi.envoiHeureDebut} h à ${envoi.envoiHeureFin} h). Les boutons ci-dessous servent seulement à le modifier ou l’annuler avant.`;
+}
+
 export interface EntreeStatutCascade {
   statut: string;                 // 'envoyee' | 'close'
   envoyeLe: string | null;        // ISO — envoi initial (ancre d'échéance)
@@ -46,7 +67,7 @@ const LIBELLE_RELANCE: Record<string, string> = { rappel: 'Rappel', avis: 'Avis 
  *   PRÉPARÉ non envoyé → à défaut, le statut actuel (« Envoyée le … » / « Clôturée »). Le DERNIER ENVOI RÉEL fait foi : un
  *   brouillon préparé sans être parti n'affiche JAMAIS « envoyé ».
  */
-export function statutCascade(e: EntreeStatutCascade, maintenant: Date, reglages: ReglagesCascade): string {
+export function statutCascade(e: EntreeStatutCascade, maintenant: Date, reglages: ReglagesCascade, envoi?: EnvoiAutoInfos): string {
   if (e.saisineCadaEnvoyeeLe) return `Saisine CADA envoyée le ${dateSeule(e.saisineCadaEnvoyeeLe)}`;
   // Saisine CADA À LANCER : échéance + délai atteinte, saisine pas encore partie, et il reste des dossiers dus.
   if (e.dossiersDus > 0 && e.envoyeLe !== null && e.statutAcheminement === 'envoye') {
@@ -62,7 +83,11 @@ export function statutCascade(e: EntreeStatutCascade, maintenant: Date, reglages
     }
   }
   if (e.relancePreparee) {
-    return `${LIBELLE_RELANCE[e.relancePreparee.variante] ?? 'Relance'} prêt, non envoyé`;
+    const nom = LIBELLE_RELANCE[e.relancePreparee.variante] ?? 'Relance';
+    if (!envoi) return `${nom} prêt, non envoyé`;                                          // appelant sans info d'envoi (compat)
+    if (!envoi.relanceAutoActive) return `${nom} prêt — l’envoi automatique est désactivé : à envoyer à la main`;
+    if (!fenetreCoherente(envoi)) return `${nom} prêt — envoi automatique actif mais fenêtre d’envoi mal réglée : rien ne partira tant qu’elle n’est pas corrigée (Réglages)`;
+    return `${nom} prêt — partira tout seul à la prochaine fenêtre d’envoi (jours ouvrés, de ${envoi.envoiHeureDebut} h à ${envoi.envoiHeureFin} h)`;
   }
   if (e.statut === 'close') return 'Clôturée';
   return e.envoyeLe !== null ? `Envoyée le ${dateHeure(e.envoyeLe)}` : 'Envoyée';

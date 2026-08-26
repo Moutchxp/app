@@ -334,7 +334,7 @@ export function ReponsesVue({ onRecompter }: { onRecompter?: () => void } = {}) 
             <div className="flex flex-col gap-2">
               {relVisibles.map((r) => (
                 <div key={r.id} className="flex flex-col gap-1">
-                  <RelanceCarte relance={r} ouvert={relOuvertes.has(r.id)}
+                  <RelanceCarte relance={r} ouvert={relOuvertes.has(r.id)} envoi={data.envoi}
                     objet={brouillons[r.id]?.objet} corps={brouillons[r.id]?.corps} retour={retour}
                     onChangeObjet={(id, v) => setBrouillons((s) => ({ ...s, [id]: { objet: v, corps: s[id]?.corps ?? r.corps } }))}
                     onChangeCorps={(id, v) => setBrouillons((s) => ({ ...s, [id]: { objet: s[id]?.objet ?? r.objet, corps: v } }))}

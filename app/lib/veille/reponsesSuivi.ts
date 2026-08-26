@@ -9,6 +9,7 @@ import { bornesFenetres, type FenetreCumul } from './fenetresCumul';
 import { apparierPropositions, chiffresDossier, type CibleDepot } from './propositionDepot';
 import { fenetreDepuis } from './releveReponses'; // P1 : MÊME source que la relève pour « on relève depuis le … » (jamais une 2e vérité)
 import type { ReglagesCascade } from './cascadeRelance'; // cascade lot 4 : seuils exposés à l'affichage (type-only → erasé côté client)
+import type { EnvoiAutoInfos } from './statutCascade'; // lot « dire quand ça part » : interrupteur + fenêtre d'envoi (réglages existants)
 
 /** Réglages de relève/échéance en vigueur (lecture seule ; édités dans l'onglet Réglages). */
 export interface ReglagesReleve {
@@ -196,6 +197,7 @@ export interface ReponsesData {
   aRattacher: ReponseARattacher[];
   propositions: PropositionDepotAffichee[]; // T4 : « Dépôts à confirmer » (messages citant le permis d'une demande en attente)
   relances: RelancePreparee[];
+  envoi: EnvoiAutoInfos; // dit, sur une relance préparée, si/quand elle partira seule (réglages existants)
 }
 
 /** T4 — une proposition « cette demande a-t-elle été déposée ? » : un message + ses demandes candidates (1 = actionnable, ≥ 2 = ambiguë). */
@@ -264,7 +266,7 @@ export async function chargerCumulsRuns(maintenant: Date): Promise<CumulsRuns> {
  * ici, sinon les demandes sans message disparaîtraient AUSSI d'« En cours ». Un SEUL chargeur → un seul calcul d'échéance
  * (via etatEcheance, en aval), jamais deux (défaut B2). LECTURE SEULE.
  */
-export interface SuiviDemandesData { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade }
+export interface SuiviDemandesData { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos }
 export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   const cfg = await chargerConfigVeille();
   const reglages: ReglagesReleve = {
@@ -273,6 +275,8 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   };
   // Cascade lot 4 — seuils de la cascade (config_veille, lot 2) : pilotent le libellé « à lancer » et la prochaine étape à l'affichage.
   const cascade: ReglagesCascade = { rappelJoursAvant: cfg.relanceRappelJoursAvant, avisJoursAvant: cfg.relanceAvisJoursAvant, saisineDelaiJours: cfg.relanceSaisineDelaiJours };
+  // Infos d'envoi automatique (réglages existants) : disent, à l'affichage, si/quand une relance préparée partira seule.
+  const envoi: EnvoiAutoInfos = { relanceAutoActive: cfg.relanceAutoActive, envoiHeureDebut: cfg.envoiHeureDebut, envoiHeureFin: cfg.envoiHeureFin };
 
   const derniere = await query<{ t: string | null }>(`SELECT max(termine_le)::text AS t FROM releve_run WHERE resultat = 'ok'`);
   const derniereOkLe = derniere.rows[0]?.t ?? null;
@@ -474,13 +478,13 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     piecesReponses: parPiecesReponses.get(r.id) ?? [],
     provenancesContenu: parProvenances.get(r.id) ?? [],
   }));
-  return { demandes, derniereOkLe, reglages, cascade };
+  return { demandes, derniereOkLe, reglages, cascade, envoi };
 }
 
 /** Charge tout le nécessaire de l'écran « Réponses » en une passe. LECTURE SEULE. */
 export async function chargerSuiviReponses(): Promise<ReponsesData> {
   // T6-A — la donnée par demande (échéance + retour + dossiers) vient de la SOURCE UNIQUE, partagée avec « En cours » (non filtrée ici).
-  const { demandes, derniereOkLe, reglages } = await chargerDemandesSuivi();
+  const { demandes, derniereOkLe, reglages, envoi } = await chargerDemandesSuivi();
 
   // P1 — « on relève depuis le … » : début de la PROCHAINE fenêtre (curseur − 3 j, ou backfill), depuis la MÊME source que la relève.
   //   LOT 2 — la fenêtre ne dépend plus du profil (boîte unique, backfill tous profils).
@@ -575,6 +579,6 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
       piecesDeposees: r.pieces_deposees, piecesNonDeposees: r.pieces_non_deposees, erreur: r.erreur,
     })),
     cumuls,
-    demandes, aRattacher, propositions, relances,
+    demandes, aRattacher, propositions, relances, envoi,
   };
 }
