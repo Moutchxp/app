@@ -69,6 +69,8 @@ export interface ConfigVeille {
   relanceSaisineDelaiJours: number;  // Cascade lot 2 : délai (jours) après l'échéance au terme duquel la SAISINE CADA sera déposée — borné 1..30, défaut 4
   saisineCadaAutoActive: boolean;    // Cascade lot 2 : envoyer la saisine CADA SANS relecture ? Sans effet tant que cadaEmail est vide — défaut false
   rattachementSuiviAutoActive: boolean; // RATT-AUTO : rejouer automatiquement le suivi des permis « en attente de bâti » à chaque tick ? (opt-in, défaut false)
+  attenteBatiAlerteActive: boolean;     // ATT-BATI : envoyer un rappel e-mail quand un permis attend le bâti au-delà du seuil ? (opt-in, défaut false)
+  attenteBatiAlerteJours: number;       // ATT-BATI : ancienneté (jours) au-delà de laquelle le rappel se déclenche — défaut 365, plage 30..1095
 }
 
 /**
@@ -122,6 +124,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   relanceAutoActive: false, relanceJoursAvantEcheance: 10, // = DEFAULT de la migration 128 (LOT B : opt-out d'envoi auto, préparation à J-10)
   relanceRappelJoursAvant: 10, relanceAvisJoursAvant: 3, relanceSaisineDelaiJours: 4, saisineCadaAutoActive: false, // = DEFAULT de la migration 136 (cascade lot 2)
   rattachementSuiviAutoActive: false, // = DEFAULT de la migration 154 (RATT-AUTO : opt-in, comme tous les interrupteurs d'automatisation)
+  attenteBatiAlerteActive: false, attenteBatiAlerteJours: 365, // = DEFAULT de la migration 155 (ATT-BATI : opt-in ; seuil 1 an, bas de la fenêtre IGN 1-3 ans)
 };
 
 interface LigneConfigVeille {
@@ -440,6 +443,19 @@ async function lireRattachementSuiviAuto(): Promise<Pick<ConfigVeille, 'rattache
   } catch { return { rattachementSuiviAutoActive: false }; } // 154 pas encore appliquée → OFF
 }
 
+// ATT-BATI — lecture ISOLÉE de l'interrupteur + du seuil du rappel « en attente de bâti » (résiliente à l'ordre d'application de la
+//   155, livrée NON APPLIQUÉE) : tant que les colonnes n'existent pas, cette lecture échoue SEULE et retombe sur (false, 365), OFF.
+async function lireAttenteBatiAlerte(): Promise<Pick<ConfigVeille, 'attenteBatiAlerteActive' | 'attenteBatiAlerteJours'>> {
+  const def = { attenteBatiAlerteActive: false, attenteBatiAlerteJours: 365 };
+  try {
+    const { rows } = await query<{ attente_bati_alerte_active: boolean; attente_bati_alerte_jours: number }>(
+      `SELECT attente_bati_alerte_active, attente_bati_alerte_jours FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return def;
+    return { attenteBatiAlerteActive: r.attente_bati_alerte_active === true, attenteBatiAlerteJours: r.attente_bati_alerte_jours };
+  } catch { return def; } // 155 pas encore appliquée → OFF, seuil défaut
+}
+
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */
 export async function chargerConfigVeille(): Promise<ConfigVeille> {
   try {
@@ -492,6 +508,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireRelanceReglages()),                // LOT B : réglages de relance, lecture isolée (résiliente à la 128)
       ...(await lireRelanceCascadeReglages()),          // Cascade lot 2 : 3 délais + auto-saisine CADA, lecture isolée (résiliente à la 136)
       ...(await lireRattachementSuiviAuto()),           // RATT-AUTO : interrupteur du rejeu automatique du suivi, lecture isolée (résiliente à la 154)
+      ...(await lireAttenteBatiAlerte()),               // ATT-BATI : interrupteur + seuil du rappel « en attente de bâti », lecture isolée (résiliente à la 155)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

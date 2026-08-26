@@ -155,12 +155,12 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     // Ordre EXACT des sections rendues par ReglagesVue (cf. ReglagesVue.tsx, Section B puis Mentions puis Sources).
     const CLES_RENDUES_REGLAGES = [
       ...PARAMS_THEME_PREPARATION, ...PARAMS_THEME_ENVOI, ...PARAMS_THEME_REPONSES, ...PARAMS_THEME_ALERTES, ...PARAMS_THEME_CADA,
-      ...PARAMS_THEME_RATTACHEMENT, // RATT-AUTO — 6e thème (1 réglage : re-détection automatique du bâti)
+      ...PARAMS_THEME_RATTACHEMENT, // 6e thème « Rattachement au bâti » : RATT-AUTO (1) + ATT-BATI (2) = 3 réglages
       ...PARAMS_MENTIONS, ...PARAMS_SOURCES,
     ].map((p) => p.colonne);
-    // Snapshot : l'écran Réglages rend 34 + 1 + 6 + 1 = 42 clés distinctes (RATT-AUTO a ajouté 1 réglage « rattachement au bâti »).
-    expect(CLES_RENDUES_REGLAGES).toHaveLength(42);
-    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(42);
+    // Snapshot : l'écran Réglages rend 34 + 3 + 6 + 1 = 44 clés distinctes (ATT-BATI a ajouté 2 réglages au thème « Rattachement au bâti »).
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(44);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(44);
     // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
     const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
     expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));

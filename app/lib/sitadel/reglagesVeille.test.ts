@@ -76,6 +76,8 @@ const DEFS_BASE = [
   // RELANCE — fenêtre horaire d'envoi automatique (migration 140) : BETWEEN 0 AND 23 → forme `>= AND <=`
   'CHECK (((envoi_heure_debut >= 0) AND (envoi_heure_debut <= 23)))',
   'CHECK (((envoi_heure_fin >= 0) AND (envoi_heure_fin <= 23)))',
+  // ATT-BATI — seuil du rappel « en attente de bâti » (migration 155) : BETWEEN 30 AND 1095 → forme `>= AND <=`
+  'CHECK (((attente_bati_alerte_jours >= 30) AND (attente_bati_alerte_jours <= 1095)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 

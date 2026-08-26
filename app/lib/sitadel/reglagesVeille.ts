@@ -305,6 +305,11 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   // RATT-AUTO — interrupteur du rejeu automatique du suivi de rattachement (thème « Rattachement au bâti »). Modèle relance_auto_active.
   { colonne: 'rattachement_suivi_auto_active', cle: 'rattachementSuiviAutoActive', libelle: 'Re-détecter le bâti automatiquement', unite: '', type: 'booleen',
     aide: 'Quand c’est activé, la veille rejoue seule, à chaque passage, le suivi des permis « en attente de bâti » : dès qu’une mise à jour BD TOPO fait apparaître le bâtiment attendu, le permis passe tout seul en « arbitrage demandé » (une décision de rattachement vous est alors demandée). Aucune altitude n’est jamais écrite automatiquement — la décision reste la vôtre. Tant que c’est décoché, il faut relancer le suivi à la main. Sans effet visible tant qu’aucune édition BD TOPO plus récente n’a été ingérée : il n’y a alors rien de neuf à détecter.' },
+  // ATT-BATI — rappel e-mail quand un permis attend le bâti depuis trop longtemps (même thème). Interrupteur + seuil éditable.
+  { colonne: 'attente_bati_alerte_active', cle: 'attenteBatiAlerteActive', libelle: 'M’alerter si un permis attend trop longtemps', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, vous recevez un e-mail de RAPPEL (à l’adresse d’alerte configurée plus haut) dès qu’un permis reste « en attente de bâti » au-delà du seuil ci-dessous. C’est un simple rappel pour qu’un dossier ne soit pas oublié — JAMAIS une détection : il ne dit pas que le bâtiment est arrivé et n’appelle aucune action. Un seul rappel par dossier. Décoché, aucun rappel n’est envoyé.' },
+  { colonne: 'attente_bati_alerte_jours', cle: 'attenteBatiAlerteJours', libelle: 'Seuil d’alerte « en attente de bâti »', unite: 'jours', type: 'entier',
+    aide: 'Nombre de jours d’attente au-delà duquel le rappel ci-dessus se déclenche pour un dossier. Un bâtiment neuf met en général 1 à 3 ans à apparaître dans BD TOPO : un seuil court vous noierait sous des rappels alors que l’attente est normale. Défaut : 365 jours (1 an).' },
 ];
 
 /**
@@ -360,9 +365,10 @@ export const COLONNES_THEME_CADA: readonly string[] = [
   'proposition_cada_active', 'cada_email', 'cada_url_formulaire',
   'saisine_cada_auto_active', // Cascade lot 2 — auto-saisine (sans effet tant que cada_email vide)
 ];
-// RATT-AUTO — thème PROPRE (ni demande, ni envoi) : automatisation du rattachement des permis à leur futur bâti. Un seul réglage.
+// RATT-AUTO + ATT-BATI — thème PROPRE (ni demande, ni envoi) : automatisation du rattachement des permis à leur futur bâti.
 export const COLONNES_THEME_RATTACHEMENT: readonly string[] = [
-  'rattachement_suivi_auto_active',
+  'rattachement_suivi_auto_active',   // RATT-AUTO — re-détection automatique du bâti
+  'attente_bati_alerte_active', 'attente_bati_alerte_jours', // ATT-BATI — rappel si l'attente dure trop (interrupteur + seuil)
 ];
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
   ...COLONNES_THEME_PREPARATION, ...COLONNES_THEME_ENVOI, ...COLONNES_THEME_REPONSES, ...COLONNES_THEME_ALERTES, ...COLONNES_THEME_CADA,

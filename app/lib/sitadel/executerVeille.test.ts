@@ -545,6 +545,43 @@ describe('RELANCE lot 6 — executerVeille : envoi automatique branché (§1deci
   });
 });
 
+describe('ATT-BATI — executerVeille : rappel « attente de bâti » branché, ISOLÉ, indépendant de RATT-AUTO', () => {
+  it('un rappel qui ÉCHOUE (throw) n’empêche PAS la veille de finaliser en « succes »', async () => {
+    const alerteAttenteBati = vi.fn(async () => { throw new Error('SMTP KO'); });
+    const finaliserRun = vi.fn(async () => {});
+    const libererVerrou = vi.fn(async () => {});
+    const deps = makeDeps({ alerteAttenteBati, finaliserRun, libererVerrou });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(alerteAttenteBati).toHaveBeenCalledTimes(1);
+    expect(r.statut).toBe('succes');
+    expect(libererVerrou).toHaveBeenCalledTimes(1);
+  });
+
+  it('le rappel part MÊME quand RATT-AUTO échoue (indépendance : familles distinctes, isolation propre)', async () => {
+    const alerteAttenteBati = vi.fn(async () => {});
+    const suiviRattachementAuto = vi.fn(async () => { throw new Error('rejeu KO'); });
+    const deps = makeDeps({ alerteAttenteBati, suiviRattachementAuto });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(suiviRattachementAuto).toHaveBeenCalledTimes(1); // RATT-AUTO a tenté puis échoué (isolé)
+    expect(alerteAttenteBati).toHaveBeenCalledTimes(1);      // le rappel part quand même
+    expect(r.statut).toBe('succes');
+  });
+
+  it('verrou déjà pris → le rappel n’est PAS tenté (sortie avant le corps)', async () => {
+    const alerteAttenteBati = vi.fn(async () => {});
+    const deps = makeDeps({ acquerirVerrou: vi.fn(async () => false), alerteAttenteBati });
+
+    const r = await executerVeille({ declencheur: 'planifie' }, deps);
+
+    expect(r.statut).toBe('rien_a_faire');
+    expect(alerteAttenteBati).not.toHaveBeenCalled();
+  });
+});
+
 describe('RATT-AUTO — executerVeille : rejeu automatique du suivi branché, ISOLÉ, après l’ingestion nocturne', () => {
   it('un rejeu qui ÉCHOUE (throw) n’empêche PAS la veille de finaliser en « succes »', async () => {
     const suiviRattachementAuto = vi.fn(async () => { throw new Error('suivi KO'); });
@@ -583,7 +620,7 @@ describe('RATT-AUTO — executerVeille : rejeu automatique du suivi branché, IS
 
 describe('H1 — GARDE PAR FAMILLE (sûreté : une passe « donnees » n’envoie JAMAIS de courrier mairie)', () => {
   // Étapes (A) mairies/permis — dont envoiAuto (§1decies), le SEUL envoi vers des tiers.
-  const A = ['releveAuto', 'echeanceApprofondie', 'relanceEcheance', 'alerteQuotidienne', 'propositionCada', 'alerteGed', 'alerteAction', 'preCochageRepondu', 'envoiAuto'] as const;
+  const A = ['releveAuto', 'echeanceApprofondie', 'relanceEcheance', 'alerteQuotidienne', 'propositionCada', 'alerteGed', 'alerteAttenteBati', 'alerteAction', 'preCochageRepondu', 'envoiAuto'] as const;
   // Étapes (B) sources de données — dont RATT-AUTO (rejeu du suivi APRÈS l'ingestion, famille « donnees »).
   const B = ['detecterEditions', 'ingestionAuto', 'suiviRattachementAuto', 'alerteMisesAJour'] as const;
 

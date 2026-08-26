@@ -37,6 +37,7 @@ import { depsReellesDetection } from '../veille/detectionRepo';
 import { executerIngestionAuto } from '../veille/ingestionAuto';
 import { depsReellesIngestionAuto } from '../veille/ingestionAutoRepo';
 import { executerSuiviRattachementAuto, depsReellesSuiviRattachementAuto } from '../veille/suiviRattachementAuto';
+import { executerAlerteAttenteBati, depsReellesAlerteAttenteBati } from '../veille/alerteAttenteBatiAuto';
 import { executerAlerteMisesAJour } from '../veille/alerteMisesAJour';
 import { depsReellesAlerteMisesAJour } from '../veille/alerteMisesAJourRepo';
 import { ingererMillesime, millesimeDistantDido, DiDoIndisponibleError, DOSSIER_LOCAL, type CompteursIngestion, type MillesimeDistant } from './ingestionMillesime';
@@ -145,6 +146,10 @@ export interface DepsVeille {
   //   ISOLÉE : un échec ne touche jamais la veille ni la relève. Interrupteur `rattachement_suivi_auto_active` (défaut false)
   //   lu DANS la brique. N'injecte aucune altitude ; l'emprise reconstituée n'entre jamais dans la détection.
   suiviRattachementAuto?(): Promise<unknown>;
+  // ATT-BATI — RAPPEL e-mail « un permis attend le bâti depuis trop longtemps » (§1septies-bis). OPTIONNELLE et ISOLÉE. Se
+  //   déclenche INDÉPENDAMMENT de RATT-AUTO (elle est justement le filet quand celui-ci tourne à vide ou tombe). Interrupteur
+  //   dédié `attente_bati_alerte_active` (défaut false) + seuil. Un rappel par dossier (marqueur). Lit l'état/ancienneté SEULEMENT.
+  alerteAttenteBati?(): Promise<unknown>;
 }
 
 /** Date de publication en français lisible (Europe/Paris), ex. « 28 août 2026 » — pour les messages « publié le … ». */
@@ -211,6 +216,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   mairie forwardé à l'exploitant. Idempotence par (réponse × permis × type). MÊME ISOLATION : un échec n'impacte rien.
     if (faitMairies && deps.alerteGed) {
       try { await deps.alerteGed(); } catch { /* alerte GED isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1septies-bis) RAPPEL « un permis attend le bâti depuis trop longtemps » (ATT-BATI) — un simple FILET, INDÉPENDANT de
+    //   RATT-AUTO : il alerte même quand le rejeu automatique tourne (son rôle est de couvrir le cas où celui-ci tourne à vide
+    //   trop longtemps ou tombe). Un rappel par dossier au-delà du seuil (marqueur anti-doublon). Ne lit QUE l'état/l'ancienneté.
+    //   MÊME ISOLATION : un échec n'impacte jamais la veille ni la relève.
+    if (faitMairies && deps.alerteAttenteBati) {
+      try { await deps.alerteAttenteBati(); } catch { /* rappel « attente bâti » isolé : n'impacte jamais la veille Sitadel */ }
     }
 
     // 1octies) ALERTES « ce message de mairie appelle une réponse » (T7-B, cas ③) — APRÈS les alertes GED : pour chaque message
@@ -442,6 +455,8 @@ function depsReelles(): DepsVeille {
     alerteMisesAJour: () => executerAlerteMisesAJour(depsReellesAlerteMisesAJour()),
     // RATT-AUTO — rejeu automatique du suivi de rattachement sur les `en_attente_bati` : interrupteur (défaut false), scopé, journalisé, isolé.
     suiviRattachementAuto: () => executerSuiviRattachementAuto(depsReellesSuiviRattachementAuto()),
+    // ATT-BATI — rappel e-mail « attente de bâti trop longue » : interrupteur + seuil (défaut false / 365 j), un rappel par dossier, isolé.
+    alerteAttenteBati: () => executerAlerteAttenteBati(depsReellesAlerteAttenteBati()),
   };
 }
 
