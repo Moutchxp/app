@@ -5,6 +5,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { estCarteModifiee, modeFooter } from './curationEdition';
 import { contenuBulleBatiment, doitCreerAuDoubleClic, htmlDetailDossiers, type DossierParcelle } from './bulleBatiment';
+import { LegendeParcelles } from './LegendeParcelles';
 import { EnTetePage } from '../_composants/EnTetePage';
 import { libelleAction, cleabsCourt, formaterHorodatage, horodatageTitle, libelleSession, libelleAuteur, nomAffiche, type LigneJournal } from './journalRendu';
 
@@ -76,6 +77,16 @@ interface Emprise {
   // `demolir` = sous-total PD. `null` = parcelle non chargée (94/77) ; `0` = parcelle connue, aucun dossier. Aucun calcul.
   dossiers?: number | null;
   demolir?: number | null;
+}
+
+/**
+ * PARC-3 — contour d'une parcelle pour le CALQUE de repérage (aide UI). `geom` est SIMPLIFIÉ POUR L'AFFICHAGE (jamais réutilisé
+ * dans un calcul). `citee` = la parcelle est citée par ≥ 1 dossier Sitadel. Aucune donnée nouvelle : même info que la bulle (PARC-2).
+ */
+interface ParcelleContour {
+  id: string;
+  geom: GeoJSON.Geometry | null;
+  citee: boolean;
 }
 
 /** Tag manuel = 1 étoile persistante (centroïde 4326 de son 1er polygone). */
@@ -214,6 +225,26 @@ async function fetchEmprises(bbox: Bbox): Promise<Emprise[]> {
     return [];
   } catch {
     return [];
+  }
+}
+
+/** PARC-3 — contours de parcelles d'une bbox (calque). Jamais appelé calque éteint. `[]`+`tronque:false` en cas d'erreur (best-effort). */
+async function fetchParcelles(bbox: Bbox): Promise<{ parcelles: ParcelleContour[]; tronque: boolean }> {
+  const params = new URLSearchParams({
+    minlon: String(bbox.minlon),
+    minlat: String(bbox.minlat),
+    maxlon: String(bbox.maxlon),
+    maxlat: String(bbox.maxlat),
+  });
+  try {
+    const res = await fetch(`/api/admin/curation/parcelles?${params.toString()}`);
+    const data = await res.json();
+    if (res.ok && Array.isArray(data?.parcelles)) {
+      return { parcelles: data.parcelles as ParcelleContour[], tronque: data.tronque === true };
+    }
+    return { parcelles: [], tronque: false };
+  } catch {
+    return { parcelles: [], tronque: false };
   }
 }
 
@@ -367,6 +398,11 @@ export default function CurationCarte() {
   // Mode « Infos bâtiment » : bulle d'info (année + étages) au survol (desktop) / tap (mobile) sur un
   // bâtiment de fond. INACTIF par défaut ; actif → SUSPEND la création par double-clic (cf. doitCreerAuDoubleClic).
   const [modeBulle, setModeBulle] = useState(false);
+  // PARC-3 — CALQUE parcelle : interrupteur ÉTEINT par défaut (aucune requête tant qu'éteint). Ne persiste PAS entre sessions
+  // (aucun stockage dans ce lot). `parcelles` = contours de la bbox courante ; `parcellesTronque` = plafond LIMIT atteint.
+  const [parcellesVisibles, setParcellesVisibles] = useState(false);
+  const [parcelles, setParcelles] = useState<ParcelleContour[]>([]);
+  const [parcellesTronque, setParcellesTronque] = useState(false);
   const [tagsManuels, setTagsManuels] = useState<TagManuel[]>([]); // étoiles persistantes (centroïdes)
   const [enEcriture, setEnEcriture] = useState(false);
   const [flashId, setFlashId] = useState<number | null>(null);
@@ -414,6 +450,8 @@ export default function CurationCarte() {
   const coucheFondRef = useRef<L.LayerGroup | null>(null); // bâtiments bbox (sous les couches bleu/vert)
   const coucheEtoilesRef = useRef<L.LayerGroup | null>(null); // étoiles + vert des entités MANUELLES (persistant, bbox)
   const bulleEpingleeRef = useRef<string | null>(null); // PARC-2 : cleabs de la bulle ÉPINGLÉE (ouverte au clic) — la garde du survol
+  const coucheParcellesRef = useRef<L.LayerGroup | null>(null); // PARC-3 : calque parcelle (pane BAS, non interactif)
+  const parcellesVisiblesRef = useRef(false); // PARC-3 : miroir pour le handler `moveend` (attaché une seule fois)
   const formulaireRef = useRef<HTMLDivElement | null>(null); // conteneur du formulaire « Nouveau tag » (scroll auto)
   const alerteRef = useRef<HTMLDivElement | null>(null); // alerte anti-doublon (editionProposee) — cible de scroll (au-dessus du formulaire)
   const fitEnAttenteRef = useRef<number | null>(null); // entité sans-point à recadrer dès l'arrivée de ses emprises
@@ -574,6 +612,33 @@ export default function CurationCarte() {
     [ouvrirGed],
   );
 
+  // ── PARC-3 — Calque parcelle : recharge les contours de la bbox visible. Appelé UNIQUEMENT quand l'interrupteur est allumé
+  //    (garde `parcellesVisiblesRef`), donc calque ÉTEINT ⇒ ZÉRO requête. Event-driven (allumage + `moveend`). ─
+  const chargerParcelles = useCallback(async (): Promise<void> => {
+    const map = mapRef.current;
+    if (!map || !parcellesVisiblesRef.current) return;
+    const { parcelles: liste, tronque } = await fetchParcelles(bboxDe(map));
+    if (!parcellesVisiblesRef.current) return; // éteint entre-temps → on n'affiche rien
+    setParcelles(liste);
+    setParcellesTronque(tronque);
+  }, []);
+
+  // ── PARC-3 — Interrupteur du calque (event-driven, jamais en effet) : ALLUMÉ → charge la bbox courante ; ÉTEINT → vide l'état
+  //    ET la couche, AUCUNE requête. Le ref miroir (lu par `moveend`) est posé SYNCHRONE ici → c'est LA garde « éteint ⇒ zéro
+  //    requête » (moveend et chargerParcelles lisent ce ref). Pas de persistance entre sessions dans ce lot. ─
+  const basculerParcelles = useCallback((): void => {
+    const next = !parcellesVisiblesRef.current;
+    parcellesVisiblesRef.current = next;
+    setParcellesVisibles(next);
+    if (next) {
+      void chargerParcelles();
+    } else {
+      setParcelles([]);
+      setParcellesTronque(false);
+      coucheParcellesRef.current?.clearLayers();
+    }
+  }, [chargerParcelles]);
+
   // ── Double-clic sur un bâtiment : ouvre « Nouveau tag » ciblé, SAUF si ce cleabs appartient déjà à un
   //    tag MANUEL (liaison active) → propose l'édition de ce tag (anti-doublon manuel ; le multi-entités
   //    NATIF reste permis). Lit `entitesRef` (identité stable pour la couche de fond). ─
@@ -618,6 +683,15 @@ export default function CurationCarte() {
     map.createPane('svv-cur-fond');
     const paneFond = map.getPane('svv-cur-fond');
     if (paneFond) paneFond.style.zIndex = '350';
+    // PARC-3 — pane du CALQUE parcelle, SOUS le fond bâti (zIndex 340 < 350) : le contour de parcelle ne masque ni n'intercepte
+    // jamais le bâtiment (objet cliquable principal). `pointerEvents:'none'` → totalement transparent aux clics/survols.
+    map.createPane('svv-cur-parcelles');
+    const paneParc = map.getPane('svv-cur-parcelles');
+    if (paneParc) {
+      paneParc.style.zIndex = '340';
+      paneParc.style.pointerEvents = 'none';
+    }
+    coucheParcellesRef.current = L.layerGroup().addTo(map);
     coucheFondRef.current = L.layerGroup().addTo(map);
     coucheEtoilesRef.current = L.layerGroup().addTo(map);
     coucheMarqueursRef.current = L.layerGroup().addTo(map);
@@ -627,6 +701,7 @@ export default function CurationCarte() {
     map.on('moveend', () => {
       void chargerEmprisesFond();
       if (selectionIdRef.current !== null) void chargerEmprises();
+      if (parcellesVisiblesRef.current) void chargerParcelles(); // PARC-3 : recharge le calque SI allumé (éteint ⇒ rien)
     });
 
     // PARC-2 : toute fermeture de bulle DÉSÉPINGLE (le survol d'autres bâtiments peut de nouveau prévisualiser). Fermer épingle
@@ -651,8 +726,9 @@ export default function CurationCarte() {
       coucheEmprisesRef.current = null;
       coucheFondRef.current = null;
       coucheEtoilesRef.current = null;
+      coucheParcellesRef.current = null;
     };
-  }, [chargerEmprises, chargerEmprisesFond]);
+  }, [chargerEmprises, chargerEmprisesFond, chargerParcelles]);
 
   // ── Split carte/journal : après ouverture/fermeture, la carte a changé de taille → invalidateSize.
   //    APRÈS le re-render (double rAF pour laisser le layout se poser). N'apparaît QUE dans cet effet
@@ -1165,6 +1241,25 @@ export default function CurationCarte() {
     if (!modeBulle) mapRef.current?.closePopup();
   }, [modeBulle]);
 
+  // ── PARC-3 — (Re)dessin du calque parcelle : contour fin, parcelles CITÉES distinguées (couleur + remplissage léger ; le libellé
+  //    porte l'information, cf. légende). Pane BAS non interactif → ne vole jamais le clic d'un bâtiment. ─
+  useEffect(() => {
+    const couche = coucheParcellesRef.current;
+    if (!couche) return;
+    couche.clearLayers();
+    if (!parcellesVisibles) return;
+    for (const p of parcelles) {
+      if (!p.geom) continue;
+      L.geoJSON(p.geom, {
+        pane: 'svv-cur-parcelles',
+        interactive: false,
+        style: p.citee
+          ? { stroke: true, color: '#7a1fa2', weight: 1.2, fill: true, fillColor: '#a44bd0', fillOpacity: 0.18 } // citée : violet
+          : { stroke: true, color: '#6b7280', weight: 0.7, fill: false, fillOpacity: 0 }, // non citée : simple contour gris fin
+      }).addTo(couche);
+    }
+  }, [parcelles, parcellesVisibles]);
+
   // ── Overlay TAGS MANUELS : ÉTOILES depuis `tagsManuels` (centroïdes, PERSISTANTES à tout zoom,
   //    indépendantes de la bbox — corrige la disparition au dézoom). Le vert des liaisons n'est plus
   //    tracé ici : seul le vert INTERACTIF de la carte OUVERTE (coucheEmprisesRef) subsiste.
@@ -1472,6 +1567,18 @@ export default function CurationCarte() {
                 </p>
               </div>
             )}
+
+            {/* ── 2 bis) AFFICHER LES PARCELLES ── (PARC-3 : calque de repérage, éteint par défaut ; légende avec mise en garde) */}
+            <button
+              type="button"
+              className={`svv-cur-action${parcellesVisibles ? ' svv-cur-action--on' : ''}`}
+              aria-pressed={parcellesVisibles}
+              aria-expanded={parcellesVisibles}
+              onClick={basculerParcelles}
+            >
+              Afficher les parcelles
+            </button>
+            {parcellesVisibles && <LegendeParcelles tronque={parcellesTronque} />}
 
             {/* ── 3) NOUVEAU TAG ── (bouton d'ouverture ; le panneau ci-dessous montre composition auto OU formulaire) */}
             <button
@@ -2133,6 +2240,15 @@ const CSS = `
    panneau .svv-cur-panneau. L'état (activé/masqué) est porté par aria-pressed + le contour rouge + l'apparition du
    panneau — comme Filtres / Nouveau tag. */
 .svv-cur-bulle-aide-txt{margin:0;font-size:.72rem;line-height:1.35;color:var(--color-svv-muted)}
+/* PARC-3 — Légende du calque parcelle. La couleur NE porte PAS l'info seule : chaque pastille est suivie d'un libellé. La mise
+   en garde (absence de marque ≠ absence de permis) est en trait plein sous les items. Mobile-first (pleine largeur, cibles ≥). */
+.svv-cur-legende{list-style:none;margin:0 0 .35rem;padding:0;display:flex;flex-direction:column;gap:.3rem}
+.svv-cur-legende-item{display:flex;align-items:center;gap:.45rem;font-size:.76rem;font-weight:600;color:var(--color-svv-ink)}
+.svv-cur-legende-pastille{flex:0 0 auto;width:16px;height:12px;border-radius:.2rem;box-sizing:border-box}
+.svv-cur-legende-pastille--citee{background:#a44bd0;border:1.2px solid #7a1fa2}
+.svv-cur-legende-pastille--vide{background:transparent;border:1px solid #6b7280}
+.svv-cur-legende-avert{margin:.15rem 0 0;font-size:.72rem;line-height:1.35;color:var(--color-svv-red-dark);font-weight:600}
+.svv-cur-legende-tronque{margin:.3rem 0 0;font-size:.72rem;line-height:1.35;color:var(--color-svv-muted);font-style:italic}
 /* Bulle Leaflet (popup) : sobre, sans fade sous prefers-reduced-motion. Sélecteur à 3 classes
    (.leaflet-fade-anim .svv-cur-bulle-popup.leaflet-popup) → bat le défaut Leaflet indépendamment de
    l'ordre d'import des feuilles de style. */

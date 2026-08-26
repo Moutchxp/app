@@ -24,6 +24,7 @@ import { versEntite, versEmprise, type LigneEntiteDB, type LigneEmpriseDB } from
 import { GET as GET_TAGS } from './tags-manuels/route';
 import { GET as GET_EMPRISES } from './emprises/route';
 import { GET as GET_PARCELLE_DOSSIERS } from './parcelle-dossiers/route';
+import { GET as GET_PARCELLES } from './parcelles/route';
 import { PATCH as PATCH_POINT, DELETE as DELETE_POINT } from './entites/[id]/point/route';
 import { POST as POST_LIAISON, DELETE as DELETE_LIAISON, PATCH as PATCH_LIAISON } from './entites/[id]/liaisons/route';
 
@@ -270,6 +271,55 @@ describe('PARC-2 — GET /api/admin/curation/parcelle-dossiers (détail à l’o
   it('query rejette → 503', async () => {
     queryMock.mockRejectedValue(new Error('db down'));
     expect((await GET_PARCELLE_DOSSIERS(req('?cleabs=BAT_OK'))).status).toBe(503);
+  });
+});
+
+describe('PARC-3 — GET /api/admin/curation/parcelles (calque)', () => {
+  const req = (qs: string) => new Request(`http://localhost/api/admin/curation/parcelles${qs}`, { method: 'GET' });
+  const BBOX = '?minlon=2.348&minlat=48.852&maxlon=2.360&maxlat=48.860';
+
+  it('bbox invalide → 422, AUCUNE requête', async () => {
+    const res = await GET_PARCELLES(req('?minlon=nope'));
+    expect(res.status).toBe(422);
+    expect(sqlsEmis().length).toBe(0);
+  });
+
+  it('SQL : contour SIMPLIFIÉ (affichage), drapeau citée (EXISTS permis_parcelle), ST_Force2D conservé, borné, UNE requête', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await GET_PARCELLES(req(BBOX));
+    expect(sqlsEmis().length).toBe(1);
+    const sql = sqlsEmis()[0].replace(/\s+/g, ' ');
+    expect(sql).toContain('ST_SimplifyPreserveTopology'); // simplification POUR AFFICHAGE
+    expect(sql).toContain('ST_Force2D'); // invariant conservé
+    expect(sql).toContain('EXISTS (SELECT 1 FROM permis_parcelle pp WHERE pp.idu = pa.id)');
+    expect(sql).toContain('LIMIT 1500'); // borne CHOISIE sur mesure
+    expect(ecritureEmise()).toBe(false);
+  });
+
+  it('mappe id/geom/citee ; tronque=false quand sous le plafond', async () => {
+    queryMock.mockResolvedValue({
+      rows: [
+        { id: '75056000AB0001', geom: '{"type":"Polygon","coordinates":[]}', citee: true },
+        { id: '75056000AB0002', geom: '{"type":"Polygon","coordinates":[]}', citee: false },
+      ],
+    });
+    const body = await (await GET_PARCELLES(req(BBOX))).json();
+    expect(body.parcelles).toHaveLength(2);
+    expect(body.parcelles[0]).toMatchObject({ id: '75056000AB0001', citee: true });
+    expect(body.parcelles[0].geom).toEqual({ type: 'Polygon', coordinates: [] });
+    expect(body.parcelles[1].citee).toBe(false);
+    expect(body.tronque).toBe(false);
+  });
+
+  it('tronque=true quand le plafond (1500) est atteint — jamais une troncature silencieuse', async () => {
+    queryMock.mockResolvedValue({ rows: Array.from({ length: 1500 }, (_, i) => ({ id: `P${i}`, geom: null, citee: false })) });
+    const body = await (await GET_PARCELLES(req(BBOX))).json();
+    expect(body.tronque).toBe(true);
+  });
+
+  it('query rejette → 503', async () => {
+    queryMock.mockRejectedValue(new Error('db down'));
+    expect((await GET_PARCELLES(req(BBOX))).status).toBe(503);
   });
 });
 
