@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executerVeille, type DepsVeille } from './executerVeille';
-import type { CompteursIngestion } from './ingestionMillesime';
+import { DiDoIndisponibleError, type CompteursIngestion } from './ingestionMillesime';
 
 const COMPTEURS: CompteursIngestion = {
   millesime: '2026-07', millesimeId: 2, lignesLues: 100, dossiersRetenus: 10,
@@ -18,7 +18,7 @@ function makeDeps(over: Partial<DepsVeille> = {}): DepsVeille {
     libererVerrou: vi.fn(async () => {}),
     insererRun: vi.fn(async () => 1),
     finaliserRun: vi.fn(async () => {}),
-    millesimeDistant: vi.fn(async () => '2026-07'),
+    millesimeDistant: vi.fn(async () => ({ millesime: '2026-07', publieLe: null })),
     ingerer: vi.fn(async () => COMPTEURS),
     // un CSV du millésime COURANT (2026-07, protégé) + un ANTÉRIEUR (2026-06, purgeable).
     listerCsv: vi.fn(async () => [
@@ -32,7 +32,7 @@ function makeDeps(over: Partial<DepsVeille> = {}): DepsVeille {
 
 describe('S11a-FIX — executerVeille : verrou concurrent', () => {
   it('verrou déjà pris → « rien_a_faire » SANS aucun appel réseau ni ingestion', async () => {
-    const millesimeDistant = vi.fn(async () => '2026-07');
+    const millesimeDistant = vi.fn(async () => ({ millesime: '2026-07', publieLe: null }));
     const ingerer = vi.fn(async () => COMPTEURS);
     const insererRun = vi.fn(async () => 1);
     const deps = makeDeps({ acquerirVerrou: vi.fn(async () => false), millesimeDistant, ingerer, insererRun });
@@ -70,7 +70,7 @@ describe('S11a-FIX — executerVeille : millésime inchangé (LE test qui manqua
     const supprimerFichiers = vi.fn(async () => {});
     const listerCsv = vi.fn(async () => []);
     const finaliserRun = vi.fn(async () => {});
-    const deps = makeDeps({ millesimeDistant: vi.fn(async () => '2026-06'), ingerer, supprimerFichiers, listerCsv, finaliserRun });
+    const deps = makeDeps({ millesimeDistant: vi.fn(async () => ({ millesime: '2026-06', publieLe: null })), ingerer, supprimerFichiers, listerCsv, finaliserRun });
 
     const r = await executerVeille({ declencheur: 'manuel' }, deps);
 
@@ -84,7 +84,7 @@ describe('S11a-FIX — executerVeille : millésime inchangé (LE test qui manqua
   it('--forcer ré-ingère même à millésime égal, purge les antérieurs', async () => {
     const ingerer = vi.fn(async () => ({ ...COMPTEURS, millesime: '2026-06' }));
     const supprimerFichiers = vi.fn(async () => {});
-    const deps = makeDeps({ millesimeDistant: vi.fn(async () => '2026-06'), ingerer, supprimerFichiers });
+    const deps = makeDeps({ millesimeDistant: vi.fn(async () => ({ millesime: '2026-06', publieLe: null })), ingerer, supprimerFichiers });
 
     const r = await executerVeille({ declencheur: 'manuel', forcer: true }, deps);
 
@@ -113,6 +113,74 @@ describe('S11a-FIX — executerVeille : appel DiDo en erreur', () => {
     expect(ingerer).not.toHaveBeenCalled();           // PAS de repli vers le travail lourd « au cas où »
     expect(supprimerFichiers).not.toHaveBeenCalled();
     expect(libererVerrou).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('DiDo — millésime annoncé mais PAS ENCORE PUBLIÉ n’est PAS une panne (rien_a_faire, pas echec)', () => {
+  it('publication dans le FUTUR → « rien_a_faire » AVEC la date, AUCUNE ingestion, AUCUNE purge', async () => {
+    const ingerer = vi.fn(async () => COMPTEURS);
+    const supprimerFichiers = vi.fn(async () => {});
+    const finaliserRun = vi.fn(async () => {});
+    // maintenant() = 2026-07-28 ; distant = 2026-08 (nouveau vs base 2026-06) mais publié le 28/08 → rien à télécharger.
+    const deps = makeDeps({
+      millesimeDistant: vi.fn(async () => ({ millesime: '2026-08', publieLe: new Date('2026-08-28T06:45:00Z') })),
+      ingerer, supprimerFichiers, finaliserRun,
+    });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(r.statut).toBe('rien_a_faire');
+    expect(r.raison).toMatch(/28 août 2026/);          // date RÉELLE des métadonnées, en français
+    expect(r.raison).toMatch(/rien à faire/);
+    expect(ingerer).not.toHaveBeenCalled();            // on ne télécharge PAS
+    expect(supprimerFichiers).not.toHaveBeenCalled();  // le cache survit
+    expect(finaliserRun).toHaveBeenCalledWith(1, expect.objectContaining({ statut: 'rien_a_faire', millesimeDetecte: '2026-08' }));
+  });
+
+  it('publication DÉJÀ intervenue (date passée) → comportement NORMAL inchangé (ingère, succes)', async () => {
+    const ingerer = vi.fn(async () => COMPTEURS);
+    const deps = makeDeps({
+      millesimeDistant: vi.fn(async () => ({ millesime: '2026-07', publieLe: new Date('2026-07-01T06:45:00Z') })),
+      ingerer,
+    });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(r.statut).toBe('succes');
+    expect(ingerer).toHaveBeenCalledWith('2026-07');
+  });
+
+  it('date de publication ABSENTE (publieLe null) → comportement NORMAL (on tente, ici succes)', async () => {
+    const ingerer = vi.fn(async () => COMPTEURS);
+    const deps = makeDeps({
+      millesimeDistant: vi.fn(async () => ({ millesime: '2026-07', publieLe: null })),
+      ingerer,
+    });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(r.statut).toBe('succes');
+    expect(ingerer).toHaveBeenCalledWith('2026-07');
+  });
+
+  it('CEINTURE : le téléchargement lève DiDoIndisponibleError (400 daté) → « rien_a_faire », JAMAIS « echec »', async () => {
+    const finaliserRun = vi.fn(async () => {});
+    const supprimerFichiers = vi.fn(async () => {});
+    const libererVerrou = vi.fn(async () => {});
+    const deps = makeDeps({
+      // publieLe null (métadonnées muettes) → on passe la pré-vérif, on tente, et c'est le 400 daté qui rattrape.
+      ingerer: vi.fn(async () => { throw new DiDoIndisponibleError('rid-x', new Date('2026-08-28T06:45:00Z')); }),
+      finaliserRun, supprimerFichiers, libererVerrou,
+    });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(r.statut).toBe('rien_a_faire');            // pas une panne
+    expect(r.raison).toMatch(/28 août 2026/);
+    expect(finaliserRun).toHaveBeenCalledWith(1, expect.objectContaining({ statut: 'rien_a_faire' }));
+    expect(finaliserRun).not.toHaveBeenCalledWith(1, expect.objectContaining({ statut: 'echec' }));
+    expect(supprimerFichiers).not.toHaveBeenCalled();
+    expect(libererVerrou).toHaveBeenCalledTimes(1);   // verrou toujours libéré
   });
 });
 
@@ -184,7 +252,7 @@ describe('R7 — executerVeille : relève automatique branchée, ISOLÉE, sous l
   it('la relève tourne AUSSI quand la veille Sitadel n’a « rien à faire » (millésime inchangé)', async () => {
     const releveAuto = vi.fn(async () => {});
     // distant == base → la veille sort en « rien_a_faire », mais la relève (placée avant §2/§4) a déjà tourné.
-    const deps = makeDeps({ releveAuto, millesimeDistant: vi.fn(async () => '2026-06') });
+    const deps = makeDeps({ releveAuto, millesimeDistant: vi.fn(async () => ({ millesime: '2026-06', publieLe: null })) });
 
     const r = await executerVeille({ declencheur: 'manuel' }, deps);
 
@@ -355,7 +423,7 @@ describe('X5 — executerVeille : propositions CADA branchées, ISOLÉES, après
 describe('S11a-FIX — executerVeille : garde d’intervalle (planifie)', () => {
   it('auto éteinte + planifie → « rien_a_faire » sans insérer de run ni toucher le réseau', async () => {
     const insererRun = vi.fn(async () => 1);
-    const millesimeDistant = vi.fn(async () => '2026-07');
+    const millesimeDistant = vi.fn(async () => ({ millesime: '2026-07', publieLe: null }));
     const deps = makeDeps({
       chargerConfig: vi.fn(async () => ({ autoActive: false, autoIntervalleHeures: 24, csvRetentionJours: 0, runDemandeLe: null })),
       insererRun, millesimeDistant,

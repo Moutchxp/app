@@ -38,7 +38,7 @@ import { executerIngestionAuto } from '../veille/ingestionAuto';
 import { depsReellesIngestionAuto } from '../veille/ingestionAutoRepo';
 import { executerAlerteMisesAJour } from '../veille/alerteMisesAJour';
 import { depsReellesAlerteMisesAJour } from '../veille/alerteMisesAJourRepo';
-import { ingererMillesime, millesimeDistantDido, DOSSIER_LOCAL, type CompteursIngestion } from './ingestionMillesime';
+import { ingererMillesime, millesimeDistantDido, DiDoIndisponibleError, DOSSIER_LOCAL, type CompteursIngestion, type MillesimeDistant } from './ingestionMillesime';
 import {
   doitSExecuter, millesimeEstNouveau, fichiersCsvAPurger,
   type Declencheur, type StatutRun, type ConfigAuto, type RunVeille, type FichierCsv,
@@ -92,7 +92,7 @@ export interface DepsVeille {
   libererVerrou(): Promise<void>;
   insererRun(declencheur: Declencheur, demarreLe: Date): Promise<number>;
   finaliserRun(id: number, maj: MajRun): Promise<void>;
-  millesimeDistant(): Promise<string>;
+  millesimeDistant(): Promise<MillesimeDistant>;
   ingerer(millesime: string): Promise<CompteursIngestion>;
   listerCsv(): Promise<FichierCsv[]>;
   supprimerFichiers(chemins: string[]): Promise<void>;
@@ -141,6 +141,11 @@ export interface DepsVeille {
   alerteMisesAJour?(): Promise<unknown>;
 }
 
+/** Date de publication en français lisible (Europe/Paris), ex. « 28 août 2026 » — pour les messages « publié le … ». */
+function publicationLisible(d: Date): string {
+  return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Paris' }).format(d);
+}
+
 export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = depsReelles()): Promise<ResultatVeille> {
   const forcer = opts.forcer ?? false;
 
@@ -150,6 +155,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
   }
 
   let runId: number | null = null;
+  let detecte: string | null = null; // millésime distant détecté (pour le message si la ceinture d'indisponibilité se déclenche)
   try {
     // H1 — GARDE PAR FAMILLE. `famille` omise → les deux true (comportement historique). Chaque étape ci-dessous porte SA famille
     //   explicitement dans son `if` (jamais déduite d'un numéro d'ordre) : (A) mairies = faitMairies, (B) données = faitDonnees.
@@ -276,14 +282,24 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //    remonte au catch → statut 'echec' : SURTOUT PAS de repli vers l'ingestion complète « au cas où ». Un moteur qui,
     //    en panne réseau, lance le travail lourd (880 Mo + UPSERT) serait dangereux (re-téléchargements en boucle).
     const distant = await deps.millesimeDistant();
-    const nouveau = millesimeEstNouveau(await deps.millesimeEnBase(), distant);
+    detecte = distant.millesime;
+    const nouveau = millesimeEstNouveau(await deps.millesimeEnBase(), distant.millesime);
     if (!nouveau.nouveau && !forcer) {
-      await deps.finaliserRun(runId, { statut: 'rien_a_faire', finiLe: deps.maintenant(), millesimeDetecte: distant, message: nouveau.raison });
+      await deps.finaliserRun(runId, { statut: 'rien_a_faire', finiLe: deps.maintenant(), millesimeDetecte: distant.millesime, message: nouveau.raison });
       return { statut: 'rien_a_faire', raison: nouveau.raison, runId };
     }
 
+    // 4bis) MILLÉSIME ANNONCÉ MAIS PAS ENCORE PUBLIÉ : DiDo publie ses métadonnées AVANT les CSV. Si la date de publication
+    //   (`published`) est dans le FUTUR, il n'y a rien à télécharger → « rien_a_faire », pas une panne. (Si `publieLe` est absent,
+    //   on ne sait pas : on tente comme avant, la ceinture du téléchargement rattrapera un 400 daté.)
+    if (distant.publieLe !== null && distant.publieLe.getTime() > deps.maintenant().getTime()) {
+      const message = `millésime ${distant.millesime} annoncé, publié le ${publicationLisible(distant.publieLe)} — rien à faire d'ici là`;
+      await deps.finaliserRun(runId, { statut: 'rien_a_faire', finiLe: deps.maintenant(), millesimeDetecte: distant.millesime, message });
+      return { statut: 'rien_a_faire', raison: message, runId };
+    }
+
     // 5) Ingestion du millésime DÉTECTÉ (non plus une constante figée) → compteurs réels ; base = distant après succès.
-    const c = await deps.ingerer(distant);
+    const c = await deps.ingerer(distant.millesime);
 
     // 6) Purge des CSV — UNIQUEMENT ici (chemin de succès) et JAMAIS le millésime qu'on vient d'ingérer (= le cache
     //    courant, ce qui rend le prochain re-run gratuit). Ne vise que les millésimes ANTÉRIEURS au-delà de la rétention.
@@ -293,11 +309,18 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     const message = `millésime ${c.millesime} ingéré : ${c.lignesLues} lues, ${c.dossiersRetenus} retenus, ${c.dossiersNouveaux} nouveaux`
       + (aPurger.length > 0 ? ` · ${aPurger.length} CSV purgé(s)` : ` · CSV conservés (rétention ${config.csvRetentionJours} j)`);
     await deps.finaliserRun(runId, {
-      statut: 'succes', finiLe: deps.maintenant(), millesimeDetecte: distant, millesimeIngere: c.millesime,
+      statut: 'succes', finiLe: deps.maintenant(), millesimeDetecte: distant.millesime, millesimeIngere: c.millesime,
       lignesLues: c.lignesLues, dossiersRetenus: c.dossiersRetenus, dossiersNouveaux: c.dossiersNouveaux, message,
     });
     return { statut: 'succes', raison: message, runId, compteurs: c };
   } catch (e) {
+    // CEINTURE : un « pas encore publié » remonté du téléchargement (DiDoIndisponibleError) est classé « rien_a_faire », JAMAIS
+    //   « echec » — toute AUTRE erreur (400 pour une autre raison, troncature, base, parsing, réseau) RESTE un echec.
+    if (e instanceof DiDoIndisponibleError && runId !== null) {
+      const message = `millésime ${detecte ?? 'à venir'} annoncé, publié le ${publicationLisible(e.disponibleLe)} — rien à faire d'ici là`;
+      await deps.finaliserRun(runId, { statut: 'rien_a_faire', finiLe: deps.maintenant(), millesimeDetecte: detecte, message });
+      return { statut: 'rien_a_faire', raison: message, runId };
+    }
     // Trace lisible AVANT de relancer ; les CSV ne sont PAS purgés (on n'atteint pas l'étape 6).
     const motif = e instanceof Error ? e.message : String(e);
     if (runId !== null) await deps.finaliserRun(runId, { statut: 'echec', finiLe: deps.maintenant(), erreur: motif });

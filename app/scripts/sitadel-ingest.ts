@@ -13,6 +13,6 @@ import { ingererMillesime, millesimeDistantDido } from '../lib/sitadel/ingestion
 // Ingère le millésime COURANT (détecté à distance via les métadonnées DiDo), et non plus une constante figée — sinon
 // on re-télécharge/ré-ingère éternellement l'ancien millésime tandis qu'un nouveau est publié (cf. S11a-FIX).
 void millesimeDistantDido()
-  .then((millesime) => ingererMillesime(millesime))
+  .then(({ millesime }) => ingererMillesime(millesime))
   .catch((e) => { console.error('[sitadel:ingest] échec', e); process.exitCode = 1; })
   .finally(() => closePool());

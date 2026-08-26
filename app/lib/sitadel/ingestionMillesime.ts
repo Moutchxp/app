@@ -64,14 +64,49 @@ interface StatCommune { lu: number; retenu: number; nouveau: number; dejaConnu: 
 const q: Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]): Promise<{ rows: R[] }> =>
   query(text, params) as unknown as Promise<{ rows: R[] }>;
 
-/** Millésime distant, LU par les métadonnées DiDo (bon marché). Lit le rid « logements » (millésime commun aux 3 fichiers). */
-export async function millesimeDistantDido(): Promise<string> {
+/**
+ * Millésime DISTANT + sa DATE DE PUBLICATION, LUS par les métadonnées DiDo (bon marché). `publieLe` = champ `published` (date à
+ * laquelle les CSV deviennent téléchargeables — DiDo annonce le millésime AVANT de publier les fichiers) ; `null` si absent/illisible
+ * (on retombe alors sur le comportement historique : on tente et on échoue si indisponible).
+ */
+export interface MillesimeDistant { millesime: string; publieLe: Date | null }
+export async function millesimeDistantDido(): Promise<MillesimeDistant> {
   const res = await fetch(urlMetadonneesDido(RIDS.logements), { headers: { 'User-Agent': 'sansvisavis-sitadel-ingest' } });
   if (!res.ok) throw new Error(`DiDo métadonnées HTTP ${res.status} pour rid ${RIDS.logements}`);
-  const meta = (await res.json()) as { millesime?: unknown };
+  const meta = (await res.json()) as { millesime?: unknown; published?: unknown };
   const mil = typeof meta.millesime === 'string' ? meta.millesime.trim() : '';
   if (mil === '') throw new Error('DiDo métadonnées : champ « millesime » absent ou vide');
-  return mil;
+  const publieLe = typeof meta.published === 'string' ? dateValide(meta.published) : null;
+  return { millesime: mil, publieLe };
+}
+
+/** Parse une date ISO en Date, ou `null` si absente/illisible (jamais une exception : une métadonnée douteuse ne casse rien). PUR. */
+export function dateValide(iso: string): Date | null {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Erreur DÉDIÉE : le millésime est ANNONCÉ mais ses CSV ne sont pas encore publiés (le serveur DiDo répond 400 avec une date de
+ * disponibilité). Distincte d'une vraie panne → `executerVeille` la classe en `rien_a_faire`, pas en `echec`.
+ */
+export class DiDoIndisponibleError extends Error {
+  constructor(public readonly rid: string, public readonly disponibleLe: Date) {
+    super(`DiDo : données du millésime pas encore publiées (disponibles le ${disponibleLe.toISOString()}) pour rid ${rid}`);
+    this.name = 'DiDoIndisponibleError';
+  }
+}
+
+/**
+ * Extrait la date de disponibilité d'un corps de réponse 400 DiDo (« … ne seront pas disponible avant 2026-08-28T06:45:00.000Z »).
+ * Renvoie la Date si le corps est une indisponibilité DATÉE, sinon `null` (un 400 pour toute AUTRE raison reste une vraie panne). PUR.
+ */
+export function extraireDateIndisponibilite(corps: string): Date | null {
+  let message = corps;
+  try { const j = JSON.parse(corps) as { message?: unknown }; if (typeof j.message === 'string') message = j.message; } catch { /* pas du JSON : on cherche dans le texte brut */ }
+  if (!/pas encore publi|pas disponible|ne seront pas disponible|not.*available/i.test(message)) return null; // 400 pour une autre raison
+  const m = message.match(/(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/);
+  return m ? dateValide(m[1]) : null;
 }
 
 /** Nombre de champs d'une ligne CSV (via le VRAI tokenizer → guillemets/`;` internes corrects). */
@@ -122,7 +157,11 @@ async function telecharger(rid: string, chemin: string): Promise<void> {
   for (let essai = 1; essai <= MAX_ESSAIS; essai++) {
     console.log(`  ↓ téléchargement ${chemin} (essai ${essai}/${MAX_ESSAIS}) …`);
     const res = await fetch(urlDido(rid), { headers: { 'User-Agent': 'sansvisavis-sitadel-ingest' } });
-    if (!res.ok || res.body === null) throw new Error(`DiDo HTTP ${res.status} pour rid ${rid}`);
+    if (!res.ok || res.body === null) {
+      // CEINTURE : un 400 dont le corps annonce une indisponibilité DATÉE = millésime pas encore publié (pas une panne).
+      if (res.status === 400) { const dispo = extraireDateIndisponibilite(await res.text().catch(() => '')); if (dispo) throw new DiDoIndisponibleError(rid, dispo); }
+      throw new Error(`DiDo HTTP ${res.status} pour rid ${rid}`);
+    }
     await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(part));
     if (await telechargementComplet(part)) {
       await rename(part, chemin);

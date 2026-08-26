@@ -176,7 +176,7 @@ async function executerRunner(source: SourceAuto): Promise<{ ok: boolean; erreur
   try {
     if (source === 'dila') { await importerAnnuaireDila({}); return { ok: true, erreur: null }; }
     if (source === 'prada') { await importerAnnuaireCada({}); return { ok: true, erreur: null }; }
-    if (source === 'sitadel') { const m = await millesimeDistantDido(); await ingererMillesime(m); return { ok: true, erreur: null }; }
+    if (source === 'sitadel') { const { millesime } = await millesimeDistantDido(); await ingererMillesime(millesime); return { ok: true, erreur: null }; }
     return await spawnCadastre();
   } catch (e) {
     return { ok: false, erreur: e instanceof Error ? e.message : String(e) };
