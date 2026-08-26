@@ -56,14 +56,16 @@ function installer(opts: {
   refCollisions?: number; // nombre de collisions de référence (23505 reference_unique) AVANT succès
   villeCommune?: string; // nom_commune renvoyé par adresse_ban (résolution ville) ; absent → aucune ligne (ville=null)
   villeThrow?: boolean; // la requête adresse_ban lève → resoudreVille doit retomber sur null sans faire échouer l'émission
+  obstacleCleabs?: string; // AUDIT démolitions : cleabs renvoyé par la requête bdtopo_batiment (absent → aucune ligne → null)
 }) {
-  const { projet = projetOK, certAvant = [], certRelit, acheminement, txThrow, refCollisions, villeCommune, villeThrow } = opts;
+  const { projet = projetOK, certAvant = [], certRelit, acheminement, txThrow, refCollisions, villeCommune, villeThrow, obstacleCleabs } = opts;
   let certCalls = 0;
   query.mockImplementation(async (sql: string) => {
     if (/FROM adresse_ban/.test(sql)) {
       if (villeThrow) throw new Error('adresse_ban indisponible');
       return { rows: villeCommune ? [{ nom_commune: villeCommune }] : [] };
     }
+    if (/FROM bdtopo_batiment/.test(sql)) return { rows: obstacleCleabs ? [{ cleabs: obstacleCleabs }] : [] };
     if (/FROM internaute_projet/.test(sql)) return { rows: projet ? [projet] : [] };
     if (/FROM certificat_acheminement/.test(sql)) return { rows: acheminement ? [acheminement] : [] };
     if (/FROM certificat WHERE projet_id/.test(sql)) {
@@ -243,6 +245,43 @@ describe('emettreCertificat — re-jeu & recopie', () => {
     expect(p[27]).toBe('internautes/a/photos/x.jpg'); // photo_cle recopiée
     expect(p[28]).toMatch(REGEXP_JETON_VERIFICATION); // $29 — jeton frappé, conforme au CHECK 038 par construction
     expect(p[29]).toMatch(REGEXP_REFERENCE); // $30 — référence publique frappée, conforme au CHECK 039 par construction
+  });
+
+  // ── AUDIT démolitions : capture du cleabs de l'obstacle du verdict, dans le snapshot figé (jsonb) ──
+  const avecObstacle = (distanceM: number) => ({
+    ...analyseOK,
+    resultat: {
+      ...analyseOK.resultat,
+      verdict: { verdict: 'SANS_VIS_A_VIS', distanceM, obstacle: { distanceM, altitudeSommetM: 50, source: 'LIDAR_HD' }, raison: '', analyseDegradee: false, messageDegrade: null },
+    },
+  });
+  const snapshotDe = (qTx: ReturnType<typeof vi.fn>) =>
+    JSON.parse((qTx.mock.calls.find((c) => /INSERT INTO certificat\b/.test(c[0] as string))![1] as unknown[])[26] as string);
+
+  it('AUDIT : verdict AVEC obstacle → cleabs capturé dans le snapshot ; verdict/distance INCHANGÉS', async () => {
+    const { qTx } = installer({ obstacleCleabs: 'BATIMENT0000000240276596' });
+    analyserAdresse.mockResolvedValue(avecObstacle(42.1));
+    await emettreCertificat(42);
+    const snap = snapshotDe(qTx);
+    expect(snap.resultat.verdict.obstacle.cleabs).toBe('BATIMENT0000000240276596');
+    const p = qTx.mock.calls.find((c) => /INSERT INTO certificat\b/.test(c[0] as string))![1] as unknown[];
+    expect(p[16]).toBe('SANS_VIS_A_VIS'); // verdict inchangé
+    expect(p[18]).toBe(42.1);             // distance_obstacle_m inchangée
+  });
+
+  it('AUDIT : obstacle SANS cleabs identifiable (0 ligne) → null explicite, émission non bloquée', async () => {
+    const { qTx } = installer({}); // pas d'obstacleCleabs → bdtopo_batiment renvoie []
+    analyserAdresse.mockResolvedValue(avecObstacle(55));
+    const r = await emettreCertificat(42);
+    expect(r.statut).toBe('emis');
+    expect(snapshotDe(qTx).resultat.verdict.obstacle.cleabs).toBeNull();
+  });
+
+  it('AUDIT : verdict SANS obstacle (obstacle null) → aucun lookup bdtopo_batiment, obstacle reste null', async () => {
+    const { qTx } = installer({}); // analyseOK par défaut : obstacle null
+    await emettreCertificat(42);
+    expect(query.mock.calls.some((c) => /FROM bdtopo_batiment/.test(c[0] as string))).toBe(false);
+    expect(snapshotDe(qTx).resultat.verdict.obstacle).toBeNull();
   });
 
   it('nominal → ouvre l’acheminement DANS la même transaction : certificat_id renvoyé, statut en_attente', async () => {

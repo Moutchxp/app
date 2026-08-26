@@ -30,6 +30,7 @@
 import { query, withTransaction, type RequeteTx } from './client';
 import { deriverExterieur } from '../certificat/descriptif';
 import { analyserAdresse } from './pipeline';
+import { cleabsObstacleAxe } from './obstacleIdentite';
 import { attribuerNumeroCertificat } from './certificatNumero';
 import { genererJetonVerification } from './certificatJeton';
 import { genererReference } from './certificatReference';
@@ -197,6 +198,16 @@ export async function emettreCertificat(projetId: number): Promise<ResultatEmiss
   //   périmètre de ce que ce document certifie. Le document dit une seule chose, et il la dit ou il n'existe pas.
   //   (La colonne `verdict` garde ses 3 valeurs : c'est l'instantané de l'analyse, pas la liste de ce qu'on émet.)
   if (resultat.verdict.verdict === 'VIS_A_VIS') return { statut: 'refus_vis_a_vis' };
+
+  // 4-quater) AUDIT (démolitions) — CAPTURE de l'identité (cleabs) du bâtiment qui fonde l'obstacle du verdict, À CÔTÉ du résultat,
+  //   dans le snapshot figé (jsonb `resultat`). STRICTEMENT ADDITIF : ne change NI le verdict, NI la distance, NI l'altitude
+  //   (déjà tranchés ci-dessus). BEST-EFFORT : `null` si aucun bâti identifiable (obstacle absent, ou source non-emprise, ou
+  //   erreur) — jamais une valeur inventée, jamais un blocage d'émission. Le moteur n'est pas touché : lookup a posteriori sur la
+  //   distance retenue, sur le bâti BD TOPO RÉEL (jamais l'emprise projetée). Permet, plus tard, de retrouver quels certificats
+  //   reposent sur un bâtiment donné (si ce cleabs disparaît d'une édition BD TOPO, le certificat concerné est identifiable).
+  if (resultat.verdict.obstacle && resultat.verdict.distanceM !== null && resultat.verdict.distanceM > 0) {
+    resultat.verdict.obstacle.cleabs = await cleabsObstacleAxe({ point: { lat, lon }, azimutDeg: azimut }, resultat.verdict.distanceM);
+  }
 
   // 5) PROVENANCE (POOL, hors transaction) : cadastre (parcelle contenant le point, 92 seulement → NULL ailleurs),
   //    année de construction (BDNB via cleabs du bâtiment d'origine), empreinte + génération de barème.
