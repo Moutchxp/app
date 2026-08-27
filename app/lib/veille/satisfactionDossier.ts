@@ -23,8 +23,15 @@ export interface DossierPourSatisfaction {
 /** Plancher de sûreté : un vrai numéro Sitadel est long. En-dessous, on refuse de marquer (jamais un rapprochement douteux). */
 const LONGUEUR_MIN_NUM = 6;
 
-/** Supprime espaces et séparateurs usuels et met en majuscules — normalisation EXACTE, pas de rapprochement flou. */
-function normaliser(s: string): string {
+/**
+ * Supprime espaces et séparateurs usuels et met en MAJUSCULES — normalisation EXACTE, pas de rapprochement flou.
+ * SOURCE UNIQUE de la normalisation d'un numéro de dossier Sitadel : elle GARDE les lettres — préfixe de type (« PC »)
+ * ET lettre INTERNE du format Paris (« …V0006 ») — seuls les séparateurs tombent. Le rattachement (rattachementReponse),
+ * la relève (releveReponses) et l'appariement des dépôts (propositionDepot) l'appliquent des DEUX côtés (candidat ET texte)
+ * pour que la comparaison soit symétrique : un « chiffres seuls » côté candidat contre un « garde-lettres » côté texte
+ * manquait TOUT numéro à lettre interne (l'accusé Paris « PC07512025V0006 » ne rattachait rien alors qu'il cite le permis).
+ */
+export function normaliserNumeroDossier(s: string): string {
   return s.toUpperCase().replace(/[\s.\-/_]/g, '');
 }
 
@@ -48,7 +55,7 @@ function texteDepuisHtml(html: string | null | undefined): string {
  * distincts → on ne verse rien ») qui l'absorbe, jamais ce module.
  */
 export function dossiersSatisfaits(reponse: ReponsePourSatisfaction, dossiers: DossierPourSatisfaction[]): number[] {
-  const foin = normaliser([
+  const foin = normaliserNumeroDossier([
     ...reponse.piecesNoms,
     reponse.corpsTexte ?? '',
     reponse.objet ?? '',                       // additif : absent chez les appelants historiques → chaîne vide, foin inchangé
@@ -56,7 +63,7 @@ export function dossiersSatisfaits(reponse: ReponsePourSatisfaction, dossiers: D
   ].join('\n'));
   const satisfaits: number[] = [];
   for (const d of dossiers) {
-    const num = normaliser(d.numDau);
+    const num = normaliserNumeroDossier(d.numDau);
     if (num.length < LONGUEUR_MIN_NUM) continue; // trop court pour être un rapprochement sûr → on ne marque pas
     if (foin.includes(num)) satisfaits.push(d.dossierId);
   }

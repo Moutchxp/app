@@ -11,6 +11,7 @@
 import type { RattachementMethode } from './demandeReponseRepo';
 import { referenceDiscrete } from '../sitadel/demande';
 import { normaliserReference } from '../sitadel/demandesListe';
+import { normaliserNumeroDossier } from './satisfactionDossier'; // source UNIQUE de la normalisation d'un n° Sitadel (module PUR)
 
 export interface MessageEntrant {
   messageId: string;
@@ -29,7 +30,7 @@ export interface DemandeCandidate {
   profilBoite: 'entreprise' | 'personne';
   statut: string;
   messageIdsEmis: string[];                // Message-ID des envois sortants de CETTE demande (avec ou sans chevrons)
-  numerosDossier: string[];                // R3e : n° de dossier Sitadel (chiffres) des dossiers de la demande — ancre de rattachement
+  numerosDossier: string[];                // R3e : n° de dossier Sitadel des dossiers de la demande (normalisé au rattachement via normaliserNumeroDossier — lettres conservées) — ancre de rattachement
   referencesExternes?: string[];           // R3f : références MAIRIE (P1, demande_reference_externe) — ancre de rattachement
 }
 
@@ -73,17 +74,21 @@ function uniqueParId(list: DemandeCandidate[]): DemandeCandidate[] {
   return out;
 }
 
-/** R3e — plancher : un vrai n° de dossier Sitadel fait ~13 chiffres ; en-dessous on refuse (jamais un rapprochement flou). */
+/** R3e — plancher : un vrai n° de dossier Sitadel fait ~13 caractères ; en-dessous on refuse (jamais un rapprochement flou). */
 const LONGUEUR_MIN_NUM = 10;
-/** Supprime espaces/séparateurs (garde lettres+chiffres) pour une comparaison LITTÉRALE tolérant la mise en forme du n°. */
-function normaliserTexte(s: string): string { return s.replace(/[\s.\-/_]/gu, ''); }
 /**
- * Candidates dont un numéro de dossier COMPLET apparaît LITTÉRALEMENT (après normalisation) dans le texte. Correspondance
- * exacte du numéro entier — aucun rapprochement approximatif (même exigence que satisfactionDossier).
+ * Candidates dont un numéro de dossier COMPLET apparaît LITTÉRALEMENT dans le texte. Correspondance EXACTE du numéro entier —
+ * aucun rapprochement approximatif. Candidat ET texte sont passés par `normaliserNumeroDossier` (MÊME règle que satisfactionDossier,
+ * source unique) : la normalisation est SYMÉTRIQUE et GARDE les lettres — donc un n° à lettre interne (format Paris « …V0006 »)
+ * cité dans un accusé (« PC07512025V0006 ») matche bien le candidat « 07512025V0006 » (sous-chaîne), là où un « chiffres seuls »
+ * côté candidat n'aurait jamais matché un foin gardant le « V ». Le plancher s'applique au numéro NORMALISÉ.
  */
 function parNumeroDossier(candidates: DemandeCandidate[], texte: string): DemandeCandidate[] {
-  const foin = normaliserTexte(texte);
-  return uniqueParId(candidates.filter((c) => c.numerosDossier.some((n) => n.length >= LONGUEUR_MIN_NUM && foin.includes(n))));
+  const foin = normaliserNumeroDossier(texte);
+  return uniqueParId(candidates.filter((c) => c.numerosDossier.some((brut) => {
+    const n = normaliserNumeroDossier(brut);
+    return n.length >= LONGUEUR_MIN_NUM && foin.includes(n);
+  })));
 }
 
 /** R3f — plancher d'une référence MAIRIE : assez longue pour être discriminante (évite qu'un code court fasse un faux positif

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { apparierPropositions, chiffresDossier, type CibleDepot, type MessageCandidat } from './propositionDepot';
+import { apparierPropositions, type CibleDepot, type MessageCandidat } from './propositionDepot';
+import { normaliserNumeroDossier } from './satisfactionDossier';
 
 /**
  * T4 (commit B) — appariement PUR message ↔ demande EN ATTENTE. Deux files séparées, garde d'ambiguïté, ignoré = ne réapparaît pas.
@@ -48,8 +49,8 @@ describe('T4 — apparierPropositions', () => {
     expect(idsCitants.has(10)).toBe(true);     // …mais ne retombe pas dans « À rattacher »
   });
 
-  it('chiffresDossier : retire tout sauf les chiffres', () => {
-    expect(chiffresDossier('PC 093 001 25 00081')).toBe('0930012500081');
-    expect(chiffresDossier('07511524V0006')).toBe('075115240006');
+  it('normaliserNumeroDossier : retire les séparateurs, met en MAJUSCULES, GARDE les lettres (préfixe ET lettre interne)', () => {
+    expect(normaliserNumeroDossier('PC 093 001 25 00081')).toBe('PC0930012500081');
+    expect(normaliserNumeroDossier('07511524V0006')).toBe('07511524V0006'); // le « V » interne (format Paris) est conservé
   });
 });

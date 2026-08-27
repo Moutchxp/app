@@ -17,6 +17,7 @@ import { query, withTransaction } from '../db/client';
 import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, classerNature, parseMotifsAccuse, reclamperEnvoyeLe, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { rattacherReponse, estRebondNonRemise, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
+import { normaliserNumeroDossier } from './satisfactionDossier'; // source UNIQUE de la normalisation d'un n° Sitadel (garde les lettres)
 import { analyserLiensReponse } from './extractionLiens';
 import type { BrancheDepot } from '../sitadel/depotManuel'; // N1-A : type SEUL (le runtime est injecté via opts.depot)
 import { analyserRapportRejet, normaliserMessageId, type PartieRapport, type ResultatRapportRejet } from './rapportRejet';
@@ -157,8 +158,6 @@ function citeMotifReference(mb: MessageBoite): boolean {
 function objetPertinent(objet: string | undefined): boolean {
   return objet ? normaliserObjet(objet).includes(FRAGMENT_OBJET) : false;
 }
-/** R3e — numéro de dossier Sitadel réduit à ses seuls chiffres (ex. « PC 093 001 25 00081 » → « 0930012500081 »). */
-function numeroDossier(numDau: string): string { return numDau.replace(/\D/g, ''); }
 
 /** Une demande envoyée du profil : identité + destinataire + Message-ID émis + n° de dossier + réf. mairie (pour rattacher réponses ET rebonds). */
 interface DemandeEnvoyee { id: number; reference: string; destEmail: string; messageIdsEmis: string[]; numerosDossier: string[]; referencesExternes: string[] }
@@ -184,7 +183,7 @@ async function lireEnvoyees(): Promise<DemandeEnvoyee[]> {
   );
   return rows.map((r) => ({
     id: r.id, reference: r.reference, destEmail: r.dest_email, messageIdsEmis: r.message_ids,
-    numerosDossier: r.num_daus.map(numeroDossier).filter((n) => n !== ''),
+    numerosDossier: r.num_daus.map(normaliserNumeroDossier).filter((n) => n !== ''),
     referencesExternes: (r.refs_externes ?? []).map((x) => x.trim()).filter((x) => x !== ''),
   }));
 }
@@ -222,7 +221,7 @@ async function lireReferencesRecherche(max: number): Promise<{ references: strin
   const vus = new Set<string>();
   // Réf. mairie d'abord (jamais évincées par un afflux de n° de dossier), puis n° de dossier (non satisfaits en tête).
   for (const r of rm) { const ref = r.reference.trim(); const k = `m:${ref.toUpperCase()}`; if (ref !== '' && !vus.has(k)) { vus.add(k); toutes.push(ref); } }
-  for (const r of rd) { const n = numeroDossier(r.num_dau); const k = `d:${n}`; if (n.length >= 10 && !vus.has(k)) { vus.add(k); toutes.push(n); } }
+  for (const r of rd) { const n = normaliserNumeroDossier(r.num_dau); const k = `d:${n}`; if (n.length >= 10 && !vus.has(k)) { vus.add(k); toutes.push(n); } }
   const plafondAtteint = toutes.length > max;
   return { references: toutes.slice(0, max), plafondAtteint };
 }
@@ -414,7 +413,8 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   };
   // R3e — un n° de dossier d'une demande candidate apparaît LITTÉRALEMENT (objet/corps/nom de pièce) ? Critère de pertinence.
   const contientNumeroDossier = (mb: MessageBoite): boolean => {
-    const foin = `${mb.message.objet ?? ''}\n${mb.message.corpsTexte ?? ''}\n${mb.pieces.map((p) => p.nomFichier).join('\n')}`.replace(/[\s.\-/_]/gu, '');
+    // Symétrie : foin ET candidats (déjà normalisés au build) passent par normaliserNumeroDossier → un n° à lettre interne matche.
+    const foin = normaliserNumeroDossier(`${mb.message.objet ?? ''}\n${mb.message.corpsTexte ?? ''}\n${mb.pieces.map((p) => p.nomFichier).join('\n')}`);
     return candidates.some((c) => c.numerosDossier.some((n) => n.length >= 10 && foin.includes(n)));
   };
   // R3f — une RÉFÉRENCE MAIRIE connue (P1) apparaît LITTÉRALEMENT (objet/corps) ? Critère de pertinence, QUEL QUE SOIT le
@@ -428,10 +428,14 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   //   mais il n'est RATTACHÉ à rien (rattacherReponse ne voit que les envoyées). Sur-ensemble des deux prédicats ci-dessus pour
   //   les envoyées (aucune régression), + la part en attente. num_dau = suite de chiffres ; réf. mairie = normaliserReference.
   const contientReferenceCherchee = (mb: MessageBoite): boolean => {
-    const foinNum = `${mb.message.objet ?? ''}\n${mb.message.corpsTexte ?? ''}\n${mb.pieces.map((p) => p.nomFichier).join('\n')}`.replace(/[\s.\-/_]/gu, '');
+    const foinNum = normaliserNumeroDossier(`${mb.message.objet ?? ''}\n${mb.message.corpsTexte ?? ''}\n${mb.pieces.map((p) => p.nomFichier).join('\n')}`);
     const foinRef = normaliserReference(`${mb.message.objet ?? ''}\n${mb.message.corpsTexte ?? ''}`);
+    // Chaque référence cherchée est éprouvée DES DEUX FAÇONS : comme n° de dossier (normaliserNumeroDossier, lettres conservées —
+    //   le discriminateur « chiffres seuls » d'avant écartait un n° Paris à lettre interne) OU comme référence mairie. Prédicat de
+    //   PERTINENCE (rétention) : l'inclusion est sans risque — la précision du RATTACHEMENT reste portée par la cascade en aval.
     return references.some((ref) => {
-      if (/^\d{10,}$/.test(ref)) return foinNum.includes(ref);                       // n° de dossier (chiffres)
+      const nd = normaliserNumeroDossier(ref);
+      if (nd.length >= 10 && foinNum.includes(nd)) return true;                        // n° de dossier (lettre interne comprise)
       const rn = normaliserReference(ref); return rn.length >= 6 && foinRef.includes(rn); // référence mairie
     });
   };

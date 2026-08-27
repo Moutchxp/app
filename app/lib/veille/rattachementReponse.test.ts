@@ -94,6 +94,29 @@ describe('R3e — numéro de dossier Sitadel (après référence complète, avan
     const r = rattacherReponse(msg({ corpsTexte: 'SVAV-DEM-2026-000154 — voir aussi dossier 0930012500082' }), [A, P]);
     expect(r).toMatchObject({ demandeId: 1, methode: 'reference_corps' });
   });
+
+  // AUTO-1 (téléservice Paris) — un n° de dossier à LETTRE INTERNE (« …V0006 »). Le candidat stocké est « 07512025V0006 » (sans
+  //   préfixe) ; l'accusé Paris cite le permis COMPLET « PC07512025V0006 ». La normalisation SYMÉTRIQUE (normaliserNumeroDossier,
+  //   lettres conservées) doit rattacher — là où l'ancien « chiffres seuls » côté candidat manquait tout numéro à lettre interne.
+  const PARIS: DemandeCandidate = { id: 3, reference: 'SVAV-DEM-2026-000160', profilBoite: 'personne', statut: 'envoyee', messageIdsEmis: [], numerosDossier: ['07512025V0006'] };
+
+  it('n° à lettre interne cité AVEC préfixe (accusé Paris « PC07512025V0006 ») → rattaché par numero_dossier', () => {
+    const r = rattacherReponse(msg({
+      objet: 'Accusé de réception (référence SLC260828893279)',
+      corpsTexte: 'Rappel de votre message : Permis concerné : PC07512025V0006 — autorisé le 28 octobre 2025 — 7 RUE ALPHONSE PENAUD PARIS 20.',
+    }), [PARIS]);
+    expect(r).toMatchObject({ demandeId: 3, methode: 'numero_dossier' });
+  });
+
+  it('n° à lettre interne cité SANS préfixe → rattaché aussi (candidat = sous-chaîne, « V » conservé)', () => {
+    const r = rattacherReponse(msg({ corpsTexte: 'dossier 07512025V0006 en cours d’instruction.' }), [PARIS]);
+    expect(r).toMatchObject({ demandeId: 3, methode: 'numero_dossier' });
+  });
+
+  it('les CHIFFRES SEULS (« V » retiré) ne matchent PAS un n° à lettre interne → pas de faux positif (Option C exacte)', () => {
+    const r = rattacherReponse(msg({ corpsTexte: 'numéro 075120250006 (chiffres seuls, sans le V).' }), [PARIS]);
+    expect(r).toMatchObject({ demandeId: null, methode: 'aucun' });
+  });
 });
 
 describe('R3f — référence mairie (après numéro de dossier, avant discrète)', () => {

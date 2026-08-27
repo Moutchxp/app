@@ -781,3 +781,44 @@ describe('CORRECTIF boucle d’auto-alerte — la relève ignore ses PROPRES env
     }
   });
 });
+
+describe('AUTO-1 — un accusé TÉLÉSERVICE (formulaire, domaine dérivé Paris) est RATTACHÉ via le n° de permis cité', () => {
+  it('accusé Paris citant « PC07512025V0006 » → rattaché à la demande formulaire par numero_dossier (n° stocké « 07512025V0006 »)', async () => {
+    // Reproduit la demande 000160 : formulaire, PAS de dest_email, PAS de fil (message_id vide), PAS de référence mairie
+    //   enregistrée — le SEUL identifiant certain est le n° de permis, cité DANS l'accusé, avec sa lettre interne « V ».
+    etat.candidates = [{ id: 866, reference: 'SVAV-DEM-2026-000160', dest_email: '', message_ids: [], num_daus: ['07512025V0006'], refs_externes: [] }];
+    etat.domaines = []; // aucune adresse de service directe (canal formulaire)
+    etat.domainesDerivesRows = [{ url_formulaire: 'https://sollicitations.paris.fr/ticketing/jsp/site/Portal.jsp?page=ticket', prada: null, dila: null }];
+    const accuse = boite({
+      messageId: '<accuse-000160@paris.fr>',
+      deAdresse: 'no-reply@paris.fr',
+      objet: 'Accusé de réception (référence SLC260828893279) | Urbanisme',
+      corpsTexte: 'Nous avons bien reçu votre message (référence SLC260828893279).\nRappel de votre message : … Permis concerné : PC07512025V0006 — autorisé le 28 octobre 2025 — 7 RUE ALPHONSE PENAUD PARIS 20.',
+      entetes: { 'Auto-Submitted': 'auto-replied' },
+    });
+    const { client } = fauxClient([accuse]); // trouvé par la sonde du domaine DÉRIVÉ « paris.fr » (sous-chaîne de no-reply@paris.fr)
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.retenus).toBe(1);
+    expect(r.rattaches).toBe(1);
+    expect(r.nonRattaches).toBe(0);
+    expect(r.lignes[0]).toMatchObject({ demandeId: 866, methode: 'numero_dossier', nature: 'accuse' });
+  });
+
+  it('GARDE : le même accusé citant les CHIFFRES SEULS (« 075120250006 », sans le V) reste NON rattaché (jamais au jugé)', async () => {
+    etat.candidates = [{ id: 866, reference: 'SVAV-DEM-2026-000160', dest_email: '', message_ids: [], num_daus: ['07512025V0006'], refs_externes: [] }];
+    etat.domaines = [];
+    etat.domainesDerivesRows = [{ url_formulaire: 'https://sollicitations.paris.fr/ticketing', prada: null, dila: null }];
+    const accuse = boite({
+      messageId: '<accuse-faux@paris.fr>',
+      deAdresse: 'no-reply@paris.fr',
+      objet: 'Accusé de réception (référence SLC260828893279)', // signal de rétention (motif de référence) ≠ n° de dossier
+      corpsTexte: 'Votre référence interne : 075120250006 (chiffres seuls, le V a été retiré).',
+      entetes: { 'Auto-Submitted': 'auto-replied' },
+    });
+    const { client } = fauxClient([accuse]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.retenus).toBe(1);         // retenu (domaine dérivé + motif de référence SLC dans l'objet)
+    expect(r.rattaches).toBe(0);       // mais PAS rattaché : le n° exact (avec V) n'est pas cité
+    expect(r.lignes[0]).toMatchObject({ demandeId: null, methode: 'aucun' });
+  });
+});

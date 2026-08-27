@@ -6,7 +6,8 @@
 import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { bornesFenetres, type FenetreCumul } from './fenetresCumul';
-import { apparierPropositions, chiffresDossier, type CibleDepot } from './propositionDepot';
+import { apparierPropositions, type CibleDepot } from './propositionDepot';
+import { normaliserNumeroDossier } from './satisfactionDossier'; // source UNIQUE de la normalisation d'un n° Sitadel (garde les lettres)
 import { fenetreDepuis } from './releveReponses'; // P1 : MÊME source que la relève pour « on relève depuis le … » (jamais une 2e vérité)
 import type { ReglagesCascade } from './cascadeRelance'; // cascade lot 4 : seuils exposés à l'affichage (type-only → erasé côté client)
 import type { EnvoiAutoInfos } from './statutCascade'; // lot « dire quand ça part » : interrupteur + fenêtre d'envoi (réglages existants)
@@ -540,7 +541,7 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
   );
   const cibles: CibleDepot[] = cibleRows.rows.map((r) => ({
     demandeId: r.demande_id, reference: r.reference, communeNom: r.commune_nom,
-    numerosDossier: (r.num_daus ?? []).map(chiffresDossier).filter((n) => n.length >= 10),
+    numerosDossier: (r.num_daus ?? []).map(normaliserNumeroDossier).filter((n) => n.length >= 10),
     referencesMairie: (r.refs_mairie ?? []).map((x) => x.trim()).filter((x) => x !== ''),
   }));
   const messagesNonRattaches = rat.rows.map((r) => ({ id: r.id, objet: r.objet, corpsTexte: r.corps_texte, nomsPieces: (piecesParReponse.get(r.id) ?? []).map((p) => p.nomFichier), traiteLe: r.traite_le }));
