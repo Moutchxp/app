@@ -318,6 +318,35 @@ export function validerIdsLot(brut: unknown): { ok: true; ids: number[] } | { ok
   return { ok: true, ids };
 }
 
+// ── D1 : annulation des demandes NON ENVOYÉES (rendre les permis au réservoir) ────────────────────────
+/**
+ * D1 — VERDICT PUR d'annulation d'une demande, à partir de son statut. SOURCE DE VÉRITÉ unique, partagée par le serveur
+ * (`annulerLot`, garde de `changerStatutLot`) et l'écran. 🔴 RÈGLES VERROUILLÉES PAR TEST :
+ *  · `envoyee`/`close` → JAMAIS annulable (`envoyee_interdite`) : une démarche engagée ne se défait pas (preuve juridique).
+ *  · `prete` → EXCLUE du geste de MASSE par défaut (`prete_exclue`) : elle part au prochain envoi, jamais emportée en silence.
+ *    Le geste DÉDIÉ (autoriserPrete=true) la rend annulable explicitement.
+ *  · `brouillon` → annulable. `annulee` → déjà annulée. Statut inconnu → refus PRUDENT (jamais annuler à l'aveugle).
+ */
+export type VerdictAnnulation = 'annulable' | 'prete_exclue' | 'envoyee_interdite' | 'deja_annulee' | 'introuvable';
+
+export function verdictAnnulation(statut: string | null | undefined, autoriserPrete: boolean): VerdictAnnulation {
+  if (statut == null) return 'introuvable';
+  if (statut === 'envoyee' || statut === 'close') return 'envoyee_interdite';
+  if (statut === 'annulee') return 'deja_annulee';
+  if (statut === 'prete') return autoriserPrete ? 'annulable' : 'prete_exclue';
+  if (statut === 'brouillon') return 'annulable';
+  return 'envoyee_interdite'; // statut inattendu : refus prudent (ne jamais annuler un statut non prévu)
+}
+
+/** Raison LISIBLE d'un refus d'annulation (compte rendu chiffré). PURE. `annulable` n'a pas de raison (chaîne vide). */
+export const RAISON_REFUS_ANNULATION: Record<VerdictAnnulation, string> = {
+  annulable: '',
+  prete_exclue: 'demande prête (sur le point de partir) — à annuler par le geste dédié',
+  envoyee_interdite: 'demande déjà envoyée ou close — jamais annulable',
+  deja_annulee: 'demande déjà annulée',
+  introuvable: 'demande introuvable',
+};
+
 // ── V3 : sélection lot-par-lot avant création ─────────────────────────────────
 /**
  * CLÉ STABLE d'un lot proposé : un lot n'a pas d'id (proposerLots regroupe par commune en tranches de `dossiersParDemande`).

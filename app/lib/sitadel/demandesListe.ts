@@ -173,6 +173,19 @@ export function statutsMorts(p: Perimetre): readonly string[] {
   return statutsDuPerimetre(p).filter((s) => !vivants.has(s));
 }
 
+/**
+ * D1 — PARTITION d'annulation en masse d'une vue de demandes. `brouillons` = cibles du « Tout annuler » (masse) ; `pretes` =
+ * EXCLUES du geste de masse par défaut (elles partent au prochain envoi → geste dédié). Tout autre statut (envoyee/close/annulee)
+ * n'est NI dans l'un NI dans l'autre — le geste de masse ne les touche jamais. 🔴 Verrou : une `prete` n'entre JAMAIS dans
+ * `brouillons`. Opère sur la vue DÉJÀ filtrée que l'opérateur a sous les yeux (jamais plus large). PURE.
+ */
+export function partitionnerAnnulationMasse<T extends { statut: string }>(demandes: readonly T[]): { brouillons: T[]; pretes: T[] } {
+  return {
+    brouillons: demandes.filter((d) => d.statut === 'brouillon'),
+    pretes: demandes.filter((d) => d.statut === 'prete'),
+  };
+}
+
 /** Q6b — choix du sélecteur Statut : 'vivants' (DÉFAUT, statuts à traiter), 'tous' (tout le périmètre, morts compris), ou un
  *  statut précis du périmètre. Le défaut n'est plus « Tous ». */
 export const CHOIX_STATUT_DEFAUT = 'vivants';

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
-import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, CHOIX_STATUT_DEFAUT } from '../../../../lib/sitadel/demandesListe';
+import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, partitionnerAnnulationMasse, CHOIX_STATUT_DEFAUT } from '../../../../lib/sitadel/demandesListe';
 import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, RetourMairie, etatRetourMairie, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
@@ -71,6 +71,11 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
   const [tri, setTri] = useState<Tri>({ colonne: 'date', sens: 'desc' });
   const [page, setPage] = useState(1);
   const [confBascule, setConfBascule] = useState<Bascule | null>(null);
+  // D1 — annulation en masse (brouillons de la VUE filtrée, prêtes exclues) : confirmation EN DEUX TEMPS + compte rendu chiffré.
+  type PreteVue = { id: number; reference: string; communeNom: string | null };
+  const [confMasse, setConfMasse] = useState<{ etape: 1 | 2; ids: number[]; nbPermis: number; pretes: PreteVue[] } | null>(null);
+  const [confPrete, setConfPrete] = useState<PreteVue | null>(null); // geste DÉDIÉ à une demande prête (nommée)
+  const [rapportMasse, setRapportMasse] = useState<{ annulees: number; permisLiberes: number; refusees: { reference: string | null; statut: string | null; raison: string }[] } | null>(null);
 
   // T6-A — « En cours » UNIQUEMENT : donnée riche partagée (source unique `chargerDemandesSuivi` via /en-cours) pour le compte à
   //   rebours (etatEcheance INTOUCHÉ), la colonne « Retour mairie » et les 7 actions du détail. `retourReponse` (cle-based) est le
@@ -172,6 +177,9 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     () => trierDemandes(filtrerDemandes(dansVueAffiche, { statut: '', profil: fProfil, commune: fCommune, types: [...fTypes], reference: fReference }), tri),
     [dansVueAffiche, fCommune, fProfil, fTypes, fReference, tri],
   );
+
+  // D1 — partition d'annulation en masse de la VUE FILTRÉE (brouillons = cibles du « Tout annuler » ; prêtes = geste dédié).
+  const masse = useMemo(() => partitionnerAnnulationMasse(filtrees), [filtrees]);
 
   // Q6b — compteurs de CE QUI EST AFFICHÉ (statuts vus), décompte par statut. Le PÉRIMÈTRE ne bouge pas.
   const compteursVus = statutsDuPerimetre(perimetre).map((s) => ({ s, n: dansVueAffiche.filter((d) => d.statut === s).length })).filter((x) => x.n > 0);
@@ -278,6 +286,47 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
     else annoncer(await erreurServeur(res, 'Bascule impossible.'), false);
   }
 
+  // D1 — « Tout annuler » : cible les BROUILLONS de la VUE FILTRÉE (jamais plus large que ce que le porteur voit), PRÊTES EXCLUES.
+  //   nbPermis = somme des dossiers des brouillons (chaque dossier actif n'appartient qu'à UNE demande → décompte exact). Étape 1.
+  function demarrerToutAnnuler(): void {
+    const { brouillons, pretes } = partitionnerAnnulationMasse(filtrees);
+    setRapportMasse(null);
+    if (brouillons.length === 0) {
+      annoncer(pretes.length > 0 ? 'Aucun brouillon à annuler dans la vue (seules des prêtes y figurent — geste dédié).' : 'Aucune demande à annuler dans la vue actuelle.', false);
+      return;
+    }
+    const nbPermis = brouillons.reduce((n, d) => n + d.nbDossiers, 0);
+    setConfMasse({ etape: 1, ids: brouillons.map((d) => d.id), nbPermis, pretes: pretes.map((d) => ({ id: d.id, reference: d.reference, communeNom: d.communeNom })) });
+  }
+
+  // D1 — appel réel de l'annulation en masse (après confirmation en 2 temps). Compte rendu CHIFFRÉ + détail des refus.
+  async function confirmerToutAnnuler(): Promise<void> {
+    if (!confMasse) return;
+    const ids = confMasse.ids;
+    setConfMasse(null);
+    const res = await fetch('/api/admin/permis/demandes/annuler-lot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+    if (res.ok) {
+      const r = (await res.json()) as { annulees: number; permisLiberes: number; refusees: { reference: string | null; statut: string | null; raison: string }[] };
+      setRapportMasse(r);
+      annoncer(`${r.annulees} demande(s) annulée(s) · ${r.permisLiberes} permis rendu(s) au réservoir${r.refusees.length ? ` · ${r.refusees.length} refusée(s)` : ''}.`, r.refusees.length === 0);
+      setSel(new Set()); rafraichir();
+    } else annoncer(await erreurServeur(res, 'Annulation impossible.'), false);
+  }
+
+  // D1 — GESTE DÉDIÉ à une demande PRÊTE (autoriserPrete=true) : nommée, distincte du geste de masse (elle partait au prochain envoi).
+  async function confirmerAnnulerPrete(): Promise<void> {
+    if (!confPrete) return;
+    const { id, reference } = confPrete;
+    setConfPrete(null);
+    const res = await fetch('/api/admin/permis/demandes/annuler-lot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [id], autoriserPrete: true }) });
+    if (res.ok) {
+      const r = (await res.json()) as { annulees: number; permisLiberes: number; refusees: { raison: string }[] };
+      if (r.annulees > 0) annoncer(`Demande prête ${reference} annulée · ${r.permisLiberes} permis rendu(s) au réservoir.`, true);
+      else annoncer(`Annulation refusée : ${r.refusees[0]?.raison ?? 'refusée'}.`, false);
+      setSel(new Set()); rafraichir();
+    } else annoncer(await erreurServeur(res, 'Annulation impossible.'), false);
+  }
+
   // T6-A — actions du détail « En cours » (7 gestes des dossiers/clôture) : MÊME route POST /reponses que « Réponses » (aucune 2e
   //   implémentation). Retour cle-based (`retourReponse`) ; succès → recharge la liste, la donnée riche ET le détail ouvert (statut/clôture à jour).
   async function agirReponse(corps: Record<string, unknown>, cle: string, texteOk: string): Promise<void> {
@@ -378,6 +427,70 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
         </div>
       )}
 
+      {/* D1 — « Tout annuler » : confirmation EN DEUX TEMPS. Étape 1 = annonce chiffrée (N demandes, M permis) + prêtes EXCLUES
+          nommées ; Étape 2 = confirmation finale. Aucune 'prete' n'est jamais dans le lot (partitionnerAnnulationMasse). */}
+      {confMasse && (
+        <div className="svv-card" style={{ borderColor: 'var(--color-svv-red)', fontSize: 13 }}>
+          {confMasse.etape === 1 ? (
+            <>
+              <strong>Annuler {confMasse.ids.length} demande(s) brouillon de la vue ?</strong>
+              <div style={{ color: 'var(--color-svv-muted)', margin: '.3rem 0 .5rem' }}>
+                <strong>{confMasse.nbPermis} permis</strong> redeviendront demandables (rendus au réservoir). L’annulation est réversible (réouverture possible). Aucun envoi.
+              </div>
+              {confMasse.pretes.length > 0 && (
+                <div style={{ color: 'var(--color-svv-red)', margin: '0 0 .5rem' }}>
+                  {confMasse.pretes.length === 1
+                    ? <>La demande <strong>prête</strong> {confMasse.pretes[0].reference}{confMasse.pretes[0].communeNom ? ` (${confMasse.pretes[0].communeNom})` : ''} n’est <strong>pas</strong> incluse : elle part au prochain envoi. Pour l’annuler, utilisez le geste dédié ci-dessous.</>
+                    : <>{confMasse.pretes.length} demandes <strong>prêtes</strong> ne sont <strong>pas</strong> incluses (elles partent au prochain envoi) : geste dédié ci-dessous.</>}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+                <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .8rem' }} onClick={() => setConfMasse({ ...confMasse, etape: 2 })}>Poursuivre</button>
+                <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .8rem' }} onClick={() => setConfMasse(null)}>Renoncer</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <strong>Confirmer l’annulation de {confMasse.ids.length} demande(s) ? {confMasse.nbPermis} permis reviendront au réservoir.</strong>
+              <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginTop: '.5rem' }}>
+                <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .8rem', background: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }} onClick={() => void confirmerToutAnnuler()}>Oui, annuler {confMasse.ids.length} demande(s)</button>
+                <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .8rem' }} onClick={() => setConfMasse({ ...confMasse, etape: 1 })}>Revenir</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* D1 — geste DÉDIÉ à une demande PRÊTE : nommée + rappel qu’elle était sur le point de partir (jamais un geste de masse). */}
+      {confPrete && (
+        <div className="svv-card" style={{ borderColor: 'var(--color-svv-red)', fontSize: 13 }}>
+          <strong>Annuler la demande PRÊTE {confPrete.reference}{confPrete.communeNom ? ` (${confPrete.communeNom})` : ''} ?</strong>
+          <div style={{ color: 'var(--color-svv-red)', margin: '.3rem 0 .5rem' }}>Cette demande était <strong>sur le point de partir</strong> au prochain envoi. L’annuler la retire de la file d’envoi et rend ses permis au réservoir.</div>
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .8rem', background: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }} onClick={() => void confirmerAnnulerPrete()}>Oui, annuler cette prête</button>
+            <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .8rem' }} onClick={() => setConfPrete(null)}>Renoncer</button>
+          </div>
+        </div>
+      )}
+
+      {/* D1 — COMPTE RENDU chiffré de la dernière annulation en masse : N annulées, M permis rendus, détail des refusées. */}
+      {rapportMasse && (
+        <div className="svv-card" style={{ fontSize: 13 }} role="status">
+          <strong>{rapportMasse.annulees} demande(s) annulée(s)</strong> · {rapportMasse.permisLiberes} permis redevenu(s) demandable(s).
+          {rapportMasse.refusees.length > 0 && (
+            <div style={{ color: 'var(--color-svv-red)', marginTop: '.35rem' }}>
+              {rapportMasse.refusees.length} refusée(s) :
+              <ul style={{ margin: '.2rem 0 0 1rem' }}>
+                {rapportMasse.refusees.map((r, i) => (
+                  <li key={i}>{r.reference ?? `demande ${i + 1}`} — {r.raison}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.2rem .6rem', marginTop: '.4rem' }} onClick={() => setRapportMasse(null)}>Fermer</button>
+        </div>
+      )}
+
       {/* U7 — le détail ne s'affiche PLUS ici (en haut) : il est rendu SOUS sa ligne, dans TableDemandes (slot `panneau`). */}
 
       {/* Filtres + tri (+ actions groupées si le périmètre en a) */}
@@ -422,6 +535,21 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
                 {PROFILS.map((p) => <option key={p} value={p}>{ETIQUETTE_PROFIL[p]}</option>)}
               </select>
             </label>
+            {/* D1 — geste de MASSE : annule TOUS les brouillons de la vue filtrée (prêtes exclues). Séparé de la sélection ci-dessus. */}
+            <span aria-hidden="true" style={{ width: 1, alignSelf: 'stretch', background: 'var(--color-svv-line)', margin: '0 .2rem' }} />
+            <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem', color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)', opacity: masse.brouillons.length ? 1 : 0.5 }}
+              disabled={masse.brouillons.length === 0} onClick={demarrerToutAnnuler}
+              title="Annuler tous les brouillons de la vue filtrée actuelle (les prêtes sont exclues)">
+              Tout annuler ({masse.brouillons.length} brouillon{masse.brouillons.length > 1 ? 's' : ''})
+            </button>
+            {/* D1 — geste DÉDIÉ par demande PRÊTE présente dans la vue : nommée, distincte du geste de masse. */}
+            {masse.pretes.map((d) => (
+              <button key={d.id} type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem', color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }}
+                onClick={() => setConfPrete({ id: d.id, reference: d.reference, communeNom: d.communeNom })}
+                title={`Annuler la demande prête ${d.reference} (sur le point de partir)`}>
+                Annuler la prête {d.reference}
+              </button>
+            ))}
           </>
         )}
       </div>

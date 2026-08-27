@@ -96,6 +96,8 @@ export async function PATCH(request: Request): Promise<Response> {
       conflitsReactivation = await changerStatutLot(ids, corps.statut, auteur);
     } catch (e) {
       if (e instanceof IdentiteIncompleteError) return Response.json({ erreur: 'identité du demandeur incomplète', champs: e.champs }, { status: 409 });
+      // D1 — garde d'annulation (envoyee/close jamais annulable) : refus métier explicite, jamais un 503 muet.
+      if (e instanceof TransitionInterditeError) return Response.json({ erreur: e.raison }, { status: 409 });
       throw e;
     }
     // B1 — compte rendu de réouverture : dossiers NON réactivés car déjà actifs sur une autre demande (jamais silencieux).

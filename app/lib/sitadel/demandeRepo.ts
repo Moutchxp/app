@@ -12,6 +12,7 @@ import {
   type ProfilDemandeur,
   proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande, problemesIdentite, profilValide, ETIQUETTE_PROFIL,
   configAvecSignataire, apparierSelection, profilEffectifLot, raisonInexploitable,
+  verdictAnnulation, RAISON_REFUS_ANNULATION,
 } from './demande';
 import { type Collaborateur, choisirCollaborateur } from './collaborateur';
 import { resoudreDestination, type ContactCommune } from './destinataire';
@@ -923,6 +924,17 @@ export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'annule
     }
     if (manque.length > 0) throw new IdentiteIncompleteError(manque);
   }
+  // D1 — 🔴 VERROU : une demande 'envoyee' ou 'close' n'est JAMAIS annulable (démarche engagée = preuve juridique), quel que
+  //   soit l'appelant (cette garde protège AUSSI le chemin unitaire existant : PATCH /demandes {statut:'annulee'}). Tout-ou-rien :
+  //   un seul id interdit fait échouer le lot AVANT toute écriture (aucune annulation partielle). Verdict = source pure partagée.
+  if (nouveau === 'annulee') {
+    const { rows } = await query<{ id: number; reference: string; statut: string }>(
+      `SELECT id, reference, statut FROM demande WHERE id = ANY($1::bigint[])`, [ids]);
+    const interdits = rows.filter((r) => verdictAnnulation(r.statut, true) === 'envoyee_interdite');
+    if (interdits.length > 0) {
+      throw new TransitionInterditeError(`annulation impossible : ${interdits.map((r) => `${r.reference} (${r.statut})`).join(', ')} — une demande envoyée ou close n'est jamais annulable`);
+    }
+  }
   const motif = ids.length > 1 ? 'transition (lot)' : 'transition';
   const conflits: ConflitReactivation[] = [];
   await withTransaction(async (tx) => {
@@ -963,6 +975,50 @@ export async function changerStatutLot(ids: number[], nouveau: 'prete' | 'annule
     }
   });
   return conflits;
+}
+
+/** D1 — refus détaillé d'une annulation en masse (compte rendu chiffré). */
+export interface RefusAnnulation { id: number; reference: string | null; statut: string | null; raison: string }
+/** D1 — compte rendu d'une annulation en masse : N annulées, M permis rendus au réservoir, détail des refusées. */
+export interface RapportAnnulation { annulees: number; permisLiberes: number; refusees: RefusAnnulation[] }
+
+/**
+ * D1 — ANNULATION EN MASSE des demandes NON ENVOYÉES, PER-ITEM RÉSILIENTE (jamais tout-ou-rien : chaque demande éligible est
+ * annulée, chaque refus est RAPPORTÉ avec sa raison). Passe par le MÊME chemin d'annulation que `changerStatutLot`
+ * (`UPDATE demande SET statut='annulee'` + `demande_dossier.actif=false` sur les non satisfaits + présomption téléservice levée +
+ * journal auteur) — AUCUN DELETE. Rend les permis au réservoir : `permisLiberes` = dossiers DISTINCTS effectivement désactivés
+ * (RETURNING), ceux qui redeviennent proposables (la logique « déjà demandé » lit `dd.actif`, cf. SQL_DOSSIERS_DEJA_DEMANDES).
+ *
+ * `autoriserPrete` : le geste de MASSE par défaut le laisse à `false` → une 'prete' est REFUSÉE ('prete_exclue'), jamais emportée
+ * en silence. Le geste DÉDIÉ à une prête le passe à `true`. 🔴 'envoyee'/'close' sont TOUJOURS refusées (verdictAnnulation).
+ */
+export async function annulerLot(ids: number[], auteur: string | null, autoriserPrete: boolean): Promise<RapportAnnulation> {
+  const refusees: RefusAnnulation[] = [];
+  const dossiersLiberes = new Set<number>();
+  let annulees = 0;
+  if (ids.length === 0) return { annulees: 0, permisLiberes: 0, refusees };
+  const motif = ids.length > 1 ? 'annulation (lot)' : 'annulation';
+  await withTransaction(async (tx) => {
+    const q = asQ(tx);
+    for (const id of ids) {
+      const { rows } = await q<{ statut: string; dest_canal: string | null; reference: string }>(`SELECT statut, dest_canal, reference FROM demande WHERE id = $1`, [id]);
+      const row = rows[0] ?? null;
+      const statut = row?.statut ?? null;
+      const verdict = verdictAnnulation(statut, autoriserPrete);
+      if (verdict !== 'annulable') {
+        refusees.push({ id, reference: row?.reference ?? null, statut, raison: RAISON_REFUS_ANNULATION[verdict] });
+        continue;
+      }
+      // MÊME séquence que la branche 'annulee' de changerStatutLot (:934-942, :974) — garder les deux en phase.
+      await q(`UPDATE demande SET statut = 'annulee', maj_le = now() WHERE id = $1`, [id]);
+      const libs = await q<{ dossier_id: number }>(`UPDATE demande_dossier SET actif = false WHERE demande_id = $1 AND satisfait_le IS NULL AND actif RETURNING dossier_id`, [id]);
+      for (const l of libs.rows) dossiersLiberes.add(l.dossier_id);
+      if (row?.dest_canal === 'formulaire') await resoudreDepotPresume(q, id, 'renoncee', auteur);
+      await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, 'annulee', $3, $4)`, [id, statut, motif, auteur]);
+      annulees += 1;
+    }
+  });
+  return { annulees, permisLiberes: dossiersLiberes.size, refusees };
 }
 
 /**
