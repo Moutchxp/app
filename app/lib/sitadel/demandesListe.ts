@@ -3,6 +3,7 @@
  * listerDemandes ; ces fonctions opèrent sur l'ENSEMBLE filtré (jamais sur une page), et la Vue paginera APRÈS. Le tri et
  * les en-têtes cliquables pilotent le MÊME état `Tri` (une seule vérité).
  */
+import { processDeCanal } from './process';
 
 /** Colonnes triables. `date` = date de création (Plus récentes / Plus ancien). */
 export type TriColonne = 'date' | 'reference' | 'commune' | 'dossiers' | 'statut';
@@ -184,6 +185,47 @@ export function partitionnerAnnulationMasse<T extends { statut: string }>(demand
     brouillons: demandes.filter((d) => d.statut === 'brouillon'),
     pretes: demandes.filter((d) => d.statut === 'prete'),
   };
+}
+
+/**
+ * FOYER UNIQUE du critère « la mairie a un RETOUR » (⇒ la demande vit dans l'onglet Réponses, pas En cours). DÉPLACÉ ici depuis
+ * ReponsesRendu (re-exporté là-bas pour compat) afin d'être appelable AUSSI côté serveur (route de comptage du commutateur) —
+ * même règle des DEUX côtés, jamais recopiée. Réutilisé par SuiviDemandes, comptesActions et le compteur du commutateur.
+ */
+export function demandeADuRetour(d: { nbReponsesReelles: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[] }): boolean {
+  return d.nbReponsesReelles > 0 || d.dossiersSatisfaits > 0 || d.dossiers.some((x) => x.triage !== null);
+}
+
+/** Champs (rich `DemandeSuivi`) nécessaires pour trancher l'appartenance à « En cours ». */
+export interface DemandeEnCoursAffichable {
+  statut: string;
+  canal?: string | null;
+  dossiersActifs: number;
+  dossiersSatisfaits: number;
+  nbReponsesReelles: number;
+  dossiers: { triage: string | null }[];
+}
+
+/**
+ * D2-fix — PRÉDICAT UNIQUE « la demande est AFFICHÉE dans l'onglet En cours » (par défaut). MÊME règle que la Vue : statut
+ * 'envoyee', VIVANTE (dossiers dus > 0 → ni soldée ni sans-dossier, cf. `partitionnerParDus`), et SANS retour (`demandeADuRetour`
+ * → sinon elle vit dans Réponses). C'est ce prédicat, et LUI SEUL, que le compteur du commutateur doit appliquer — le décompte
+ * d'en-tête doit suivre le MÊME périmètre que le tableau (leçon du 18/08 : `dansVue` ≠ `dansVueAffiche`).
+ */
+export function estEnCoursAffichee(d: DemandeEnCoursAffichable): boolean {
+  const dus = d.dossiersActifs - d.dossiersSatisfaits;
+  return d.statut === 'envoyee' && dus > 0 && !demandeADuRetour(d);
+}
+
+/** D2-fix — compte les demandes RÉELLEMENT en cours (estEnCoursAffichee) PAR PROCESS. Foyer unique du compteur du commutateur. */
+export function compterEnCoursParProcess(demandes: readonly DemandeEnCoursAffichable[]): { email: number; formulaire: number } {
+  const r = { email: 0, formulaire: 0 };
+  for (const d of demandes) {
+    if (!estEnCoursAffichee(d)) continue;
+    const p = processDeCanal(d.canal);
+    if (p) r[p] += 1;
+  }
+  return r;
 }
 
 /** Q6b — choix du sélecteur Statut : 'vivants' (DÉFAUT, statuts à traiter), 'tous' (tout le périmètre, morts compris), ou un

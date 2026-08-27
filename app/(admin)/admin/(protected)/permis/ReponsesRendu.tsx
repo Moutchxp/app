@@ -3,6 +3,7 @@ import type { EtatEcheance } from '../../../../lib/veille/echeance';
 import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche, AlerteGedAffiche, MessageAutreAffiche, ReponsePieces } from '../../../../lib/veille/reponsesSuivi';
 import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import { MessageRetour, BlocRepliable, type RetourAction } from './DemandesRendu';
+import { demandeADuRetour } from '../../../../lib/sitadel/demandesListe'; // D2-fix : FOYER UNIQUE (partagé serveur/client)
 import { mentionEnvoiAutoRelance, type EnvoiAutoInfos } from '../../../../lib/veille/statutCascade'; // « dire quand ça part » : mention d'envoi auto (réglages)
 import type { NatureReclassable } from '../../../../lib/veille/demandeReponseRepo'; // FUS-4 : type SEUL (erasé) — 3 cibles du reclassement
 
@@ -396,9 +397,9 @@ export function partitionnerDemandes<T extends { dossiersActifs: number; dossier
  * l'un ni l'autre). Appliqué LOCALEMENT à la vue Réponses (jamais dans `chargerDemandesSuivi`, sinon ces demandes quitteraient
  * aussi « En cours »). PUR, client-safe (aucune I/O). Param LÂCHE (ne lit que ces 3 champs) pour rester réutilisable.
  */
-export function demandeADuRetour(d: { nbReponsesReelles: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[] }): boolean {
-  return d.nbReponsesReelles > 0 || d.dossiersSatisfaits > 0 || d.dossiers.some((x) => x.triage !== null);
-}
+// D2-fix — FOYER UNIQUE déplacé dans `demandesListe` (appelable serveur ET client) ; ré-exporté ici pour les importateurs existants
+//   (SuiviDemandes, comptesActions, tests). Le compteur du commutateur applique EXACTEMENT le même critère (via estEnCoursAffichee).
+export { demandeADuRetour }; // ré-exporté pour les importateurs existants (SuiviDemandes, comptesActions, tests)
 
 /**
  * T6-A/2 — ce que « Réponses » AFFICHE + les décomptes des motifs écartés. `demandeADuRetour` est une EXCLUSION (foyer = « En
