@@ -5,6 +5,7 @@ import { formaterReferencePermis, resoudreAdresseAvecReplis } from '../../../../
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
 import { PERIODES_STOCK, type LigneStock } from '../../../../lib/sitadel/stock';
 import { EditeurReferenceMairie } from './RefMairieCellule'; // FUS — éditeur PARTAGÉ de la référence mairie (cellule tableau ET détail : un seul comportement)
+import { BoutonCopier } from './BoutonCopier'; // DEPOT-1 — pastille de copie PARTAGÉE (texte + numéro de permis), même apparence
 import type { PermisDetail, DemandeDetail } from '../../../../lib/sitadel/demandeRepo';
 
 /**
@@ -230,9 +231,9 @@ export function BlocInjoignables({ injoignables, ouvert, onToggle, retour, child
  * dossiers, et le TEXTE COMPLET de la demande (celui de genererTexte, figé en base) prêt à copier. Boutons fournis en
  * `children`. Mobile-first (carte, texte en zone scrollable).
  */
-export function CarteDepot({ d, children, onCopierRef, retourRef }: {
+export function CarteDepot({ d, children, onCopieTexte, onCopieRef }: {
   d: DepotAffiche; children?: ReactNode;
-  onCopierRef?: (valeur: string) => void; retourRef?: string;
+  onCopieTexte?: () => void; onCopieRef?: () => void; // DEPOT-1 — traces best-effort (« a copié le texte / le numéro »), passées par BlocDepot
 }) {
   // U2 — téléservice = UN dossier par dépôt (P3). La référence « Numéro de dossier instruit » et l'arrondissement dérivent du
   //   dossier attaché via la SOURCE UNIQUE (formaterReferencePermis / formaterArrondissement). Type inconnu → on DIT pourquoi.
@@ -246,6 +247,7 @@ export function CarteDepot({ d, children, onCopierRef, retourRef }: {
   const adr = resolution?.adresse ?? null;
   const prov = resolution?.provenance;
   const adresseAffichee = adr !== null && (prov?.origine === 'propre' || prov?.origine === 'repli');
+  const corps = d.corps ?? '';
   return (
     <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -257,41 +259,41 @@ export function CarteDepot({ d, children, onCopierRef, retourRef }: {
         ? <a href={d.url} target="_blank" rel="noopener noreferrer" className="svv-link" style={{ width: 'auto', fontSize: 13 }}>Ouvrir le téléservice ↗</a>
         : <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>URL de téléservice manquante — à compléter dans l’éditeur de contact (canal formulaire).</span>}
 
-      {/* U3 (A) — CARTOUCHE : le champ « Numéro de dossier instruit » et SON bouton « Copier » forment un ensemble encadré, pour
-          qu'on ne puisse pas croire que ce bouton copie le texte du message. Le bouton « Copier le texte » (children) reste
-          DEHORS et inchangé. La copie ne concerne QUE cette référence (formaterReferencePermis, source unique). */}
-      <div role="group" aria-label="Numéro de dossier instruit à copier"
-        style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.5rem', padding: '.5rem', background: 'var(--color-svv-field)', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', fontSize: 12, color: 'var(--color-svv-muted)' }}>
-          Numéro de dossier instruit (téléservice)
-          {ref.ok ? (
-            <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <input readOnly value={ref.reference} aria-label="Numéro de dossier instruit"
-                style={{ flex: '1 1 12rem', minWidth: 0, padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
-              {onCopierRef && <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => onCopierRef(ref.reference)}>Copier</button>}
-            </span>
-          ) : (
-            <span role="note" style={{ color: 'var(--color-svv-red)' }}>impossible de pré-remplir : {ref.raison}.</span>
-          )}
-        </label>
-        {retourRef && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourRef}</span>}
-      </div>
+      {/* DEPOT-1 — ORDRE DES BLOCS calqué sur le geste réel : (1) ADRESSE + arrondissement (identifier le dossier), (2) TEXTE +
+          « Copier le texte », (3) NUMÉRO DE PERMIS + « Copier le numéro de permis ». Chaque retour de copie est la MÊME pastille,
+          attachée à SON bouton (BoutonCopier). */}
 
-      {/* U4/U5 — adresse du permis (source unique). Propre OU repli cross-type VÉRIFIÉ → affichée ; sinon avertissement + éventuel
-          signal (une sœur adressée non vérifiable, ou ambiguïté). TRANSPARENCE STRICTEMENT OPÉRATEUR : la provenance ne va JAMAIS
-          au corps envoyé à la mairie. Le silence est acceptable vers la mairie, jamais vers l'opérateur avant un dépôt. */}
+      {/* (1) ADRESSE + ARRONDISSEMENT — U4/U5 : source unique, provenance STRICTEMENT opérateur (jamais dans le corps mairie). */}
       {adresseAffichee
         ? <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Adresse : {[adr!.voie, adr!.villeCP].filter((x) => x !== '').join(', ')}</span>
         : <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>Aucune adresse de voie n’est renseignée pour ce permis (base Sitadel) — à vérifier avant de déposer.</span>}
       {prov?.origine === 'repli' && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>Adresse issue de la ligne {prov.soeurType} du même numéro de permis (parcelle {prov.parcelleCommune} commune vérifiée).</span>}
       {prov?.origine === 'non_verifiable' && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Une ligne {prov.soeurTypes.join('/')} du même numéro de permis porte une adresse, mais le lien n’a pas pu être vérifié (parcelles cadastrales absentes) — à vérifier avant de l’utiliser.</span>}
       {prov?.origine === 'ambigu' && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Plusieurs lignes sœurs portent des adresses différentes — ambiguïté à trancher manuellement, aucun choix automatique.</span>}
-
-      {/* U2 — arrondissement : simple MENTION (aide à choisir la bonne entrée de la liste déroulante Paris), SANS bouton de copie. */}
       <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Arrondissement : {adr?.arrondissement ?? 'indéterminé'}</span>
 
-      <textarea readOnly value={d.corps ?? ''} rows={10} aria-label={`Texte de la demande pour ${d.communeNom ?? d.reference}`}
+      {/* (2) TEXTE de la demande + « Copier le texte » (corps FIGÉ à la création — rendu tel quel, jamais régénéré). */}
+      <textarea readOnly value={corps} rows={10} aria-label={`Texte de la demande pour ${d.communeNom ?? d.reference}`}
         style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }} />
+      <BoutonCopier valeur={corps} libelle="Copier le texte" libelleMarque="Texte copié" disabled={corps.trim() === ''} onCopie={onCopieTexte} />
+
+      {/* (3) NUMÉRO DE PERMIS + « Copier le numéro de permis » — cartouche encadré (source unique formaterReferencePermis). */}
+      <div role="group" aria-label="Numéro de permis à copier"
+        style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.5rem', padding: '.5rem', background: 'var(--color-svv-field)', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+          Numéro de permis (dossier instruit — téléservice)
+          {ref.ok ? (
+            <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input readOnly value={ref.reference} aria-label="Numéro de permis"
+                style={{ flex: '1 1 12rem', minWidth: 0, padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
+              <BoutonCopier valeur={ref.reference} libelle="Copier le numéro de permis" libelleMarque="Numéro copié" onCopie={onCopieRef} />
+            </span>
+          ) : (
+            <span role="note" style={{ color: 'var(--color-svv-red)' }}>impossible de pré-remplir : {ref.raison}.</span>
+          )}
+        </label>
+      </div>
+
       {children}
     </div>
   );

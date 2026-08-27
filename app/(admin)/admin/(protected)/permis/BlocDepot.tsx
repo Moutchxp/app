@@ -2,12 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { CarteDepot, BoutonAnnulerDepot, type DepotAffiche } from './DemandesRendu';
-import { BoutonCopier } from './BoutonCopier';
 
 /**
- * File « À déposer à la main » de l'onglet Demandes (S16) : les demandes en canal 'formulaire' (téléservice). Deux clics
- * par commune — « Copier le texte » puis « Marquer comme déposée » (→ statut 'envoyee'). Retour DANS la carte, retrait
- * optimiste. Mobile-first (cartes). AUCUN envoi automatique.
+ * File « À déposer à la main » de l'onglet Demandes (S16) : les demandes en canal 'formulaire' (téléservice). Trois gestes par
+ * carte — « Copier le texte » / « Copier le numéro de permis » (dans la carte) puis « Marquer comme déposée » (→ 'envoyee').
+ * Mobile-first (cartes). AUCUN envoi automatique.
+ *
+ * DEPOT-1 — RAFRAÎCHISSEMENT : la file se recharge sur `signalRafraichir` (incrémenté par le parent APRÈS une création dans
+ * « À demander »), donc une demande téléservice fraîchement préparée apparaît SANS rechargement de page. Symétriquement, un dépôt
+ * ou une annulation appelle `onChangement()` → le parent réincrémente le signal → les vues sœurs (compteurs, « À demander »)
+ * se remettent à jour. Le retrait OPTIMISTE fait disparaître la carte immédiatement ; le rechargement confirme.
  */
 
 // LOT A — trace BEST-EFFORT du clic « copier » (signal d'intention de dépôt téléservice). Détachée À DESSEIN : jamais
@@ -18,14 +22,12 @@ function signalerDepot(demandeId: number, bouton: 'texte' | 'ref'): void {
   }).catch(() => undefined);
 }
 
-export function BlocDepot() {
+export function BlocDepot({ signalRafraichir, onChangement }: { signalRafraichir: number; onChangement: () => void }) {
   const [demandes, setDemandes] = useState<DepotAffiche[]>([]);
   const [msg, setMsg] = useState<Record<number, string>>({});  // retour (ok/échec) par carte
-  const [msgRef, setMsgRef] = useState<Record<number, string>>({}); // U2 — retour du bouton « Copier » du numéro de dossier (distinct du « Copier le texte »)
   const [refs, setRefs] = useState<Record<number, string>>({}); // P1 — référence mairie saisie par carte (facultative)
   const [annulerOuverts, setAnnulerOuverts] = useState<Set<number>>(new Set()); // U3 — confirmations « Annuler cette demande » ouvertes
   const [retourAnnul, setRetourAnnul] = useState('');                            // U3 — retour de niveau SECTION (la carte annulée disparaît → retour visible ailleurs)
-  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     let annule = false;
@@ -36,20 +38,9 @@ export function BlocDepot() {
       } catch { /* file de dépôt indisponible : le reste de l'écran reste utilisable */ }
     })();
     return () => { annule = true; };
-  }, [version]);
+  }, [signalRafraichir]); // DEPOT-1 — se recharge à chaque signal du parent (création, dépôt, annulation)
 
   const poser = (id: number, texte: string): void => setMsg((s) => ({ ...s, [id]: texte }));
-
-  // U2 — copie du SEUL numéro de dossier instruit (référence formatée), retour distinct de « Copier le texte ».
-  async function copierRef(id: number, valeur: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(valeur);
-      setMsgRef((s) => ({ ...s, [id]: 'Numéro copié.' }));
-      signalerDepot(id, 'ref'); // trace bonus, non bloquante (idem « Copier le texte »)
-    } catch {
-      setMsgRef((s) => ({ ...s, [id]: 'Copie impossible — sélectionnez le numéro manuellement.' }));
-    }
-  }
 
   async function marquerDeposee(id: number): Promise<void> {
     poser(id, '');
@@ -59,7 +50,7 @@ export function BlocDepot() {
       const res = await fetch('/api/admin/permis/demandes/depot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reference === '' ? { id } : { id, reference }) });
       if (res.ok) {
         setDemandes((prev) => prev.filter((x) => x.id !== id)); // retrait optimiste (la carte disparaît, compteur à jour)
-        setVersion((v) => v + 1);
+        onChangement();                                         // DEPOT-1 — recharge la file + les vues sœurs (pas de page à rafraîchir)
       } else {
         const e = (await res.json().catch(() => ({}))) as { erreur?: string };
         poser(id, e.erreur ? `Refusé : ${e.erreur}.` : 'Action refusée.');
@@ -80,7 +71,7 @@ export function BlocDepot() {
         fermerAnnul(id);
         setDemandes((prev) => prev.filter((x) => x.id !== id)); // retrait optimiste (la carte disparaît, compteur à jour)
         setRetourAnnul('Demande annulée — ses dossiers redeviennent demandables (onglet « À demander »).');
-        setVersion((v) => v + 1);
+        onChangement();                                         // DEPOT-1 — recharge la file + les vues sœurs
       } else {
         const e = (await res.json().catch(() => ({}))) as { erreur?: string };
         poser(id, e.erreur ? `Annulation refusée : ${e.erreur}.` : 'Annulation refusée.'); // carte conservée, motif visible
@@ -99,7 +90,8 @@ export function BlocDepot() {
       {retourAnnul && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourAnnul}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '.6rem' }}>
         {demandes.map((d) => (
-          <CarteDepot key={d.id} d={d} onCopierRef={(valeur) => void copierRef(d.id, valeur)} retourRef={msgRef[d.id]}>
+          <CarteDepot key={d.id} d={d}
+            onCopieTexte={() => signalerDepot(d.id, 'texte')} onCopieRef={() => signalerDepot(d.id, 'ref')}>
             {/* P1 — référence renvoyée par la mairie (accusé de réception). Facultative : ne bloque jamais le dépôt. */}
             <label style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', fontSize: 12, color: 'var(--color-svv-muted)' }}>
               Référence mairie (accusé de réception) — facultatif
@@ -108,8 +100,6 @@ export function BlocDepot() {
                 style={{ padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
             </label>
             <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-              {/* CADA lot A — bouton copier PARTAGÉ (même composant que la carte CADA) ; la trace de dépôt présumé reste bonus. */}
-              <BoutonCopier valeur={d.corps ?? ''} libelle="Copier le texte" onCopie={() => signalerDepot(d.id, 'texte')} />
               <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .7rem' }} onClick={() => void marquerDeposee(d.id)}>Marquer comme déposée</button>
             </div>
             {msg[d.id] && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{msg[d.id]}</span>}

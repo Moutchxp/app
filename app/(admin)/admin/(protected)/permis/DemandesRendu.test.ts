@@ -213,14 +213,25 @@ describe('S16 — CarteDepot (file à déposer à la main)', () => {
     }
   });
 
-  it('U2 — champ « Numéro de dossier instruit » + Copier dédié + mention arrondissement (sans copie) ; « Copier le texte » inchangé', () => {
+  it('DEPOT-1 — deux boutons de copie dédiés + numéro pré-rempli + mention arrondissement (sans copie)', () => {
     const d: DepotAffiche = { id: 1, reference: 'R', communeNom: 'Paris', url: 'u', corps: 'x', nbDossiers: 1, statut: 'brouillon', dossiers: [{ type: 'PC', numDau: '07510124V0034' }] };
-    const h = renderToStaticMarkup(createElement(CarteDepot, { d, onCopierRef: () => {} }, createElement('button', { type: 'button' }, 'Copier le texte')));
-    expect(h).toContain('Numéro de dossier instruit');
-    expect(h).toContain('value="PC07510124V0034"'); // pré-rempli par la source unique
-    expect(h).toContain('>Copier<');                 // bouton Copier DÉDIÉ au numéro (distinct de « Copier le texte »)
-    expect(h).toContain('Arrondissement : 1er');     // mention, sans bouton de copie
-    expect(h).toContain('Copier le texte');          // le bouton existant (children) reste
+    const h = renderToStaticMarkup(createElement(CarteDepot, { d, onCopieTexte: () => {}, onCopieRef: () => {} }));
+    expect(h).toContain('Numéro de permis');                 // libellé du bloc numéro (dossier instruit)
+    expect(h).toContain('value="PC07510124V0034"');          // pré-rempli par la source unique
+    expect(h).toContain('Copier le texte');                  // bouton texte (rendu par CarteDepot, plus par les children)
+    expect(h).toContain('Copier le numéro de permis');       // bouton numéro dédié, libellé explicite
+    expect(h).toContain('Arrondissement : 1er');             // mention, sans bouton de copie
+  });
+
+  it('DEPOT-1 — ORDRE des blocs : adresse/arrondissement, PUIS texte + « Copier le texte », PUIS numéro + « Copier le numéro de permis »', () => {
+    const d: DepotAffiche = { id: 1, reference: 'R', communeNom: 'Paris', url: 'u', corps: 'x', nbDossiers: 1, statut: 'brouillon', dossiers: [{ type: 'PC', numDau: '07510124V0034' }] };
+    const h = renderToStaticMarkup(createElement(CarteDepot, { d }));
+    const iArr = h.indexOf('Arrondissement');
+    const iTexte = h.indexOf('Copier le texte');
+    const iNum = h.indexOf('Copier le numéro de permis');
+    expect(iArr).toBeGreaterThan(-1);
+    expect(iArr).toBeLessThan(iTexte);   // adresse/arrondissement AVANT le texte
+    expect(iTexte).toBeLessThan(iNum);   // texte AVANT le numéro de permis
   });
 
   it('U2 — type indéterminable (aucun dossier) → champ NON pré-rempli + raison ; jamais « PC » inventé ; arrondissement indéterminé', () => {
@@ -231,17 +242,16 @@ describe('S16 — CarteDepot (file à déposer à la main)', () => {
     expect(h).toContain('Arrondissement : indéterminé');
   });
 
-  it('U3 (A) — le champ et SON bouton « Copier » sont dans le MÊME cartouche ; « Copier le texte » est DEHORS (valeurs inchangées)', () => {
+  it('DEPOT-1 — le NUMÉRO et « Copier le numéro de permis » sont dans le MÊME cartouche ; « Copier le texte » est AILLEURS (au-dessus)', () => {
     const d: DepotAffiche = { id: 1, reference: 'R', communeNom: 'Paris', url: 'u', corps: 'MESSAGE', nbDossiers: 1, statut: 'brouillon', dossiers: [{ type: 'PC', numDau: '07510124V0034' }] };
-    const h = renderToStaticMarkup(createElement(CarteDepot, { d, onCopierRef: () => {} }, createElement('button', { type: 'button' }, 'Copier le texte')));
+    const h = renderToStaticMarkup(createElement(CarteDepot, { d, onCopieTexte: () => {}, onCopieRef: () => {} }));
     expect(h).toContain('role="group"');
-    expect(h).toContain('aria-label="Numéro de dossier instruit à copier"'); // le cartouche encadre le champ + son bouton
-    // Le contenu du cartouche (du groupe jusqu'à la mention Arrondissement, hors cartouche) : le champ ET son bouton Copier.
-    const cartouche = h.slice(h.indexOf('aria-label="Numéro de dossier instruit à copier"'), h.indexOf('Arrondissement :'));
-    expect(cartouche).toContain('value="PC07510124V0034"'); // valeur inchangée
-    expect(cartouche).toContain('>Copier<');                 // le bouton dédié est DANS le cartouche
-    expect(cartouche).not.toContain('Copier le texte');      // …mais pas « Copier le texte »
-    expect(h).toContain('Copier le texte');                  // qui reste rendu, DEHORS (children)
+    expect(h).toContain('aria-label="Numéro de permis à copier"'); // le cartouche encadre le champ + son bouton
+    const cartouche = h.slice(h.indexOf('aria-label="Numéro de permis à copier"'));
+    expect(cartouche).toContain('value="PC07510124V0034"');         // valeur inchangée
+    expect(cartouche).toContain('Copier le numéro de permis');      // le bouton dédié est DANS le cartouche
+    expect(cartouche).not.toContain('Copier le texte');             // …« Copier le texte » n'y est PAS (il est au-dessus, bloc texte)
+    expect(h).toContain('Copier le texte');                         // mais bien rendu ailleurs dans la carte
   });
 
   it('U4 — adresse PRÉSENTE → affichée sur la carte (source unique, comme le corps) ; aucun avertissement', () => {
