@@ -329,7 +329,7 @@ export function ReglagesVue() {
     ...PARAMS_THEME_ENVOI.filter((p) => p.colonne === 'relance_jours_avant_echeance'),            // ancien délai unique (remplacé par la cascade)
   ];
   const onglets: { id: EspaceOnglet; libelle: string; aide: string }[] = [
-    { id: 'email', libelle: '✉️ Envoi e-mail', aide: 'Le process AUTOMATIQUE d’envoi par e-mail aux mairies. Les réglages « Partagé » sont communs au téléservice — une seule valeur enregistrée.' },
+    { id: 'email', libelle: '✉️ Envoi e-mail auto', aide: 'Le process AUTOMATIQUE d’envoi par e-mail aux mairies. Les réglages « Partagé » sont communs au téléservice — une seule valeur enregistrée.' },
     { id: 'teleservice', libelle: '📮 Téléservice', aide: 'Le process SEMI-MANUEL (dépôt sur le téléservice de la commune). Les « Partagé » sont communs à l’e-mail ; une surcharge, collée sous sa base, ne vaut QUE pour le téléservice.' },
     { id: 'transverse', libelle: '⚙️ Transverse', aide: 'Réglages communs aux deux process (ni e-mail seul, ni téléservice seul) : identités, réponses, alertes, CADA, rattachement, courrier, annuaire.' },
   ];
