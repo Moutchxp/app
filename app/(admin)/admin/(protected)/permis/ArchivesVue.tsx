@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react';
 import type { LigneArchive } from '../../../../lib/sitadel/demandeRepo';
 import { TableArchives } from './ArchivesRendu';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
-import { dansProcess, type Process } from '../../../../lib/sitadel/process';
 
 /**
  * A1a/A1b — onglet ARCHIVES : les permis renseignés par les mairies + leurs pièces (reçues par e-mail OU ajoutées à la main).
@@ -17,7 +16,9 @@ import { dansProcess, type Process } from '../../../../lib/sitadel/process';
  */
 const PAGE_SIZE = 20;
 
-export function ArchivesVue({ process }: { process: Process }) {
+// D3-fix — Archives est GLOBAL : une fois les documents obtenus, le process d'origine ne détermine plus aucun geste → aucun
+//   filtrage par process ici (et pas de commutateur sur cet onglet, cf. PermisTuile). `archivesGlobal.test.ts` garde l'invariant.
+export function ArchivesVue() {
   const [archives, setArchives] = useState<LigneArchive[] | null>(null);
   const [erreur, setErreur] = useState(false);
   const [page, setPage] = useState(1);
@@ -89,17 +90,16 @@ export function ArchivesVue({ process }: { process: Process }) {
   if (erreur) return <p role="alert" style={{ color: 'var(--color-svv-red)' }}>Archives indisponibles.</p>;
   if (archives === null) return <p style={{ color: 'var(--color-svv-muted)' }} aria-live="polite">Chargement des archives…</p>;
 
-  // D2 — SCOPE PROCESS des archives (filtre d'affichage sur le canal figé de la demande d'origine).
-  const archivesP = archives.filter((a) => dansProcess(a.canal, process));
-  const nbPages = Math.max(1, Math.ceil(archivesP.length / PAGE_SIZE));
+  // D3-fix — GLOBAL : tous les permis obtenus, quel que soit le rail d'origine. Aucun filtre de process.
+  const nbPages = Math.max(1, Math.ceil(archives.length / PAGE_SIZE));
   const pageCourante = Math.min(page, nbPages);
-  const visibles = archivesP.slice((pageCourante - 1) * PAGE_SIZE, pageCourante * PAGE_SIZE);
+  const visibles = archives.slice((pageCourante - 1) * PAGE_SIZE, pageCourante * PAGE_SIZE);
 
   return (
     <div className="flex flex-col gap-3">
-      {archivesP.length > 0 && (
+      {archives.length > 0 && (
         <div className="svv-card" style={{ fontSize: 13, color: 'var(--color-svv-muted)' }}>
-          <strong style={{ color: 'var(--color-svv-ink)' }}>{archivesP.length} permis renseigné{archivesP.length > 1 ? 's' : ''}</strong> par les mairies, du plus récemment satisfait au plus ancien. Vous pouvez ajouter vos propres documents à un permis (les pièces reçues par e-mail, elles, ne sont pas supprimables).
+          <strong style={{ color: 'var(--color-svv-ink)' }}>{archives.length} permis renseigné{archives.length > 1 ? 's' : ''}</strong> par les mairies, du plus récemment satisfait au plus ancien. Vous pouvez ajouter vos propres documents à un permis (les pièces reçues par e-mail, elles, ne sont pas supprimables).
         </div>
       )}
       {message && <p role="alert" style={{ fontSize: 13, color: 'var(--color-svv-red)', fontWeight: 600, margin: 0 }}>{message}</p>}
@@ -115,7 +115,7 @@ export function ArchivesVue({ process }: { process: Process }) {
       {nbPages > 1 && (
         <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem' }} disabled={pageCourante <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Précédent</button>
-          <span>Page {pageCourante} / {nbPages} ({archivesP.length} permis)</span>
+          <span>Page {pageCourante} / {nbPages} ({archives.length} permis)</span>
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem' }} disabled={pageCourante >= nbPages} onClick={() => setPage((p) => Math.min(nbPages, p + 1))}>Suivant</button>
         </div>
       )}

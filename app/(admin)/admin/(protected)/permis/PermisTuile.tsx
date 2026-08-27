@@ -17,8 +17,12 @@ import { CommutateurProcess, type CompteursProcess } from './CommutateurProcess'
 import { PROCESS_DEFAUT, type Process } from '../../../../lib/sitadel/process';
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
 
-/** D2 — onglets du groupe « Demandes aux mairies » scopés par le commutateur de process (À demander, En cours, Réponses, Archives). */
-const ONGLETS_DEMANDES: readonly CleOnglet[] = ['a_demander', 'en_cours', 'reponses', 'archives'];
+/**
+ * Onglets scopés par le commutateur de process (À demander, En cours, Réponses). D3-fix — Archives en est RETIRÉ : une fois les
+ * documents obtenus, le process d'origine ne détermine plus aucun geste → Archives reste GLOBAL et n'affiche PAS le commutateur
+ * (un commutateur qui ne filtre rien serait un mensonge d'interface).
+ */
+const ONGLETS_DEMANDES: readonly CleOnglet[] = ['a_demander', 'en_cours', 'reponses'];
 
 /**
  * Onglets « Permis de construire », répartis en 2 groupes nommés (S13) — « Mise à jour des dossiers » (Dossiers,
@@ -94,7 +98,7 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
       {onglet === 'en_cours' && <EnCoursVue categories={categories} process={processActif} />}
       {onglet === 'reponses' && <ReponsesVue process={processActif} onRecompter={() => void recompter()} />}
       {onglet === 'projection' && <ProjectionVue onRecompter={() => void recompter()} />}
-      {onglet === 'archives' && <ArchivesVue process={processActif} />}
+      {onglet === 'archives' && <ArchivesVue />}
       {onglet === 'saisines' && <SaisinesVue onRecompter={() => void recompter()} />}
       {onglet === 'reglages' && <ReglagesVue />}
       {onglet === 'automatisation' && <AutomatisationVue />}
