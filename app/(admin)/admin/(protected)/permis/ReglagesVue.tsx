@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import type { ConfigVeille } from '../../../../lib/sitadel/veilleConfig';
 import { ETIQUETTE_PROFIL, type ConfigDemandeur, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import {
@@ -62,6 +62,9 @@ export function ReglagesVue() {
   const [releveMsg, setReleveMsg] = useState<{ ton: 'ok' | 'info' | 'erreur'; texte: string } | null>(null);
   // D4-ter (R2) — onglet actif parmi les trois espaces. Événement utilisateur (clic), jamais un setState d'effet.
   const [espace, setEspace] = useState<EspaceOnglet>('email');
+  // D4-ter (R2-fix) — mode d'affichage d'une SURCHARGE (radio « suit le commun » / « remplacer ») indépendant de la valeur du
+  //   brouillon, pour laisser choisir « remplacer » avant d'avoir saisi. Vidé à chaque hydratation → re-dérivé de la valeur réelle.
+  const [surchargeMode, setSurchargeMode] = useState<Record<string, 'suit' | 'propre'>>({});
 
   function hydrater(r: Reglages) {
     setData(r);
@@ -69,6 +72,7 @@ export function ReglagesVue() {
     for (const p of PROFILS) for (const c of champsPourProfil(p)) id[p][c.cle] = String(r.demandeur[p][c.cle] ?? '');
     setIdDraft(id);
     setVeDraft(Object.fromEntries(PARAMS_VEILLE.map((param) => [param.colonne, String(r.veille[param.cle] ?? '')])));
+    setSurchargeMode({}); // R2-fix : re-dériver le mode de chaque surcharge depuis la valeur fraîche
   }
 
   useEffect(() => {
@@ -193,7 +197,9 @@ export function ReglagesVue() {
     </span>
   );
 
-  const carteParam = (p: ParamVeille) => {
+  // `extra` (R2-fix) : contenu additionnel rendu sous l'aide (ex. note « différenciation à venir » du profil). Appeler
+  //   TOUJOURS via `(p) => carteParam(p, …)` — jamais en `.map(carteParam)` nu, sinon l'index du map arriverait comme `extra`.
+  const carteParam = (p: ParamVeille, extra?: ReactNode) => {
     const b = bornes[p.colonne];
     // Q1 — paramètre VESTIGIAL : lecture seule (pas d'input éditable, pas de bouton « Enregistrer »). La valeur affichée est
     // la valeur RÉELLE en base (pas le brouillon). L'API refuse aussi toute écriture (validerReglages).
@@ -209,6 +215,7 @@ export function ReglagesVue() {
           </label>
           <span style={styleAide}>{p.aide}</span>
           {notePartage(p)}
+          {extra}
           {veMsg[p.colonne] && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{veMsg[p.colonne]}</span>}
           {veErreurs[p.colonne] && <span role="alert" style={styleErreur}>{veErreurs[p.colonne]}</span>}
         </article>
@@ -219,6 +226,7 @@ export function ReglagesVue() {
         {libelleAvecRail(p)}
         <span style={styleAide}>{p.aide}</span>
         {notePartage(p)}
+        {extra}
         <label className="flex flex-col gap-1" style={{ marginTop: '.2rem' }}>
           {p.type === 'enum'
             ? <select value={veDraft[p.colonne] ?? ''} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle}>
@@ -249,6 +257,65 @@ export function ReglagesVue() {
     );
   };
 
+  // D4-ter (R2-fix) — carte d'un partagé QUI A UNE SURCHARGE téléservice (dossiers, permis) : UNE seule carte (fini les cartes
+  //   sœurs qui se lisaient comme un doublon). En haut la valeur COMMUNE (même colonne/route que l'onglet e-mail) ; en dessous,
+  //   subordonné par un liseré, le bloc « exception téléservice » = deux choix radio (Suivre le commun (X) / Remplacer pour le
+  //   téléservice : [ ]). Radio « Suivre » ⇒ champ vidé ⇒ NULL en base. Le libellé ne répète JAMAIS « … (téléservice) ».
+  const carteSurchargeable = (base: ParamVeille, sur: ParamVeille) => {
+    const bb = bornes[base.colonne];
+    const sb = bornes[sur.colonne];
+    const communVal = data.veille[base.cle]; // valeur commune RÉELLE, pour l'afficher entre parenthèses (« Suivre le commun (5) »)
+    const valSur = veDraft[sur.colonne] ?? '';
+    const mode = surchargeMode[sur.colonne] ?? (valSur.trim() === '' ? 'suit' : 'propre'); // par défaut : NULL → « suit », valeur → « propre »
+    const choisirSuit = () => { setSurchargeMode((m) => ({ ...m, [sur.colonne]: 'suit' })); setVeDraft((d) => ({ ...d, [sur.colonne]: '' })); };
+    return (
+      <article key={base.colonne} className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
+        {libelleAvecRail(base)}
+        <span style={styleAide}>{base.aide}</span>
+        {notePartage(base)}
+        <label className="flex flex-col gap-1" style={{ marginTop: '.2rem' }}>
+          <input type="number" value={veDraft[base.colonne] ?? ''} min={bb?.min} max={bb?.max} step={1}
+            onChange={(e) => setVeDraft((d) => ({ ...d, [base.colonne]: e.target.value }))} style={styleInput} aria-label={base.libelle} />
+          <PlageParam param={base} bornes={bb} />
+        </label>
+        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => void enregistrerParam(base.colonne, base.type)}>Enregistrer</button>
+          {veMsg[base.colonne] && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{veMsg[base.colonne]}</span>}
+        </div>
+        {veErreurs[base.colonne] && <span role="alert" style={styleErreur}>{veErreurs[base.colonne]}</span>}
+        {/* Bloc EXCEPTION — subordonné visuellement (liseré gauche + retrait). N'existe QUE pour le téléservice. */}
+        <div style={{ borderLeft: '3px solid var(--color-svv-red)', paddingLeft: '.6rem', marginTop: '.5rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', color: 'var(--color-svv-muted)' }}>Exception téléservice</span>
+          <label style={{ display: 'flex', gap: '.4rem', alignItems: 'baseline' }}>
+            <input type="radio" name={`sur-${sur.colonne}`} checked={mode === 'suit'} onChange={choisirSuit} />
+            <span style={styleAide}>Suivre le commun{communVal != null ? ` (${communVal})` : ''}</span>
+          </label>
+          <label style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input type="radio" name={`sur-${sur.colonne}`} checked={mode === 'propre'} onChange={() => setSurchargeMode((m) => ({ ...m, [sur.colonne]: 'propre' }))} />
+            <span style={styleAide}>Remplacer pour le téléservice :</span>
+            <input type="number" value={valSur} min={sb?.min} max={sb?.max} step={1} disabled={mode !== 'propre'}
+              onChange={(e) => setVeDraft((d) => ({ ...d, [sur.colonne]: e.target.value }))}
+              style={{ ...styleInput, width: '6rem', opacity: mode === 'propre' ? 1 : 0.5 }} aria-label={`${base.libelle} — valeur propre au téléservice`} />
+            {sur.unite ? <span style={styleAide}>{sur.unite}</span> : null}
+          </label>
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} onClick={() => void enregistrerParam(sur.colonne, sur.type)}>Enregistrer l’exception</button>
+            {veMsg[sur.colonne] && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{veMsg[sur.colonne]}</span>}
+          </div>
+          <PlageParam param={sur} bornes={sb} />
+          {veErreurs[sur.colonne] && <span role="alert" style={styleErreur}>{veErreurs[sur.colonne]}</span>}
+        </div>
+      </article>
+    );
+  };
+  // D4-ter (Partie 3) — en attendant le lot P, le profil n'est pas encore surchargeable par rail : on le DIT, sans le masquer.
+  const noteFuturProfil = (
+    <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)', display: 'flex', gap: '.3rem' }}>
+      <span aria-hidden="true">ℹ️</span>
+      <span>Différenciation par rail à venir (lot P) : le téléservice pourra imposer « personne physique » (FranceConnect).</span>
+    </span>
+  );
+
   // ── D4-ter (R2) — répartition des cartes par onglet, dérivée du MODÈLE DE RAIL (R1). Une valeur partagée = le MÊME `carteParam`
   //   rendu dans deux onglets (même route, même brouillon `veDraft`) → jamais deux vérités. ────────────────────────────────────
   const grille: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' };
@@ -256,7 +323,6 @@ export function ReglagesVue() {
   const envoiEmail = PARAMS_THEME_ENVOI.filter((p) => espaceReglage(p) === 'email');             // 8 e-mail seul (caps, relance auto, heures, 3 délais)
   const teleAlertes = PARAMS_THEME_TELESERVICE.filter((p) => !p.surchargeDe);                     // 2 alertes « préparée non déposée »
   const surchargePour = (colonne: string) => PARAMS_THEME_TELESERVICE.find((s) => s.surchargeDe === colonne);
-  const prepTeleservice = prepPartages.flatMap((p) => { const s = surchargePour(p.colonne); return s ? [p, s] : [p]; }); // surcharge COLLÉE sous sa base
   const adresseReponse = PARAMS_THEME_ENVOI.filter((p) => p.colonne === 'adresse_reponse');       // transverse : imprimée au corps + boîte relevée
   const herites = [
     ...PARAMS_THEME_PREPARATION.filter((p) => p.vestigial),                                       // « Demandes par commune et par mois » (remplacé)
@@ -290,10 +356,10 @@ export function ReglagesVue() {
       {espace === 'email' && (
         <div role="tabpanel" id="panneau-email" aria-labelledby="onglet-email" className="flex flex-col gap-4">
           <CarteSection titre={TITRE_THEME_PREPARATION} icone="🗂">
-            <div style={grille}>{prepPartages.map(carteParam)}</div>
+            <div style={grille}>{prepPartages.map((p) => carteParam(p))}</div>
           </CarteSection>
           <CarteSection titre={TITRE_ESPACE_EMAIL} icone="✉️">
-            <div style={grille}>{envoiEmail.map(carteParam)}</div>
+            <div style={grille}>{envoiEmail.map((p) => carteParam(p))}</div>
           </CarteSection>
         </div>
       )}
@@ -302,10 +368,16 @@ export function ReglagesVue() {
       {espace === 'teleservice' && (
         <div role="tabpanel" id="panneau-teleservice" aria-labelledby="onglet-teleservice" className="flex flex-col gap-4">
           <CarteSection titre={TITRE_THEME_PREPARATION} icone="🗂">
-            <div style={grille}>{prepTeleservice.map(carteParam)}</div>
+            {/* R2-fix : un partagé AVEC surcharge → carte fusionnée (base + exception radio) ; profil → note « à venir P » ; sinon carte simple. */}
+            <div style={grille}>{prepPartages.map((p) => {
+              const s = surchargePour(p.colonne);
+              if (s) return carteSurchargeable(p, s);
+              if (p.colonne === 'profil_demandeur_defaut') return carteParam(p, noteFuturProfil);
+              return carteParam(p);
+            })}</div>
           </CarteSection>
           <CarteSection titre={TITRE_ESPACE_DEPOT} icone="📮">
-            <div style={grille}>{teleAlertes.map(carteParam)}</div>
+            <div style={grille}>{teleAlertes.map((p) => carteParam(p))}</div>
           </CarteSection>
         </div>
       )}
@@ -371,26 +443,26 @@ export function ReglagesVue() {
                 </span>
               )}
             </div>
-            <div style={grille}>{[...adresseReponse, ...PARAMS_THEME_REPONSES].map(carteParam)}</div>
+            <div style={grille}>{[...adresseReponse, ...PARAMS_THEME_REPONSES].map((p) => carteParam(p))}</div>
           </CarteSection>
 
-          <CarteSection titre={TITRE_THEME_ALERTES} icone="🔔"><div style={grille}>{PARAMS_THEME_ALERTES.map(carteParam)}</div></CarteSection>
-          <CarteSection titre={TITRE_THEME_CADA} icone="⚖️"><div style={grille}>{PARAMS_THEME_CADA.map(carteParam)}</div></CarteSection>
-          <CarteSection titre={TITRE_THEME_RATTACHEMENT} icone="🏗"><div style={grille}>{PARAMS_THEME_RATTACHEMENT.map(carteParam)}</div></CarteSection>
+          <CarteSection titre={TITRE_THEME_ALERTES} icone="🔔"><div style={grille}>{PARAMS_THEME_ALERTES.map((p) => carteParam(p))}</div></CarteSection>
+          <CarteSection titre={TITRE_THEME_CADA} icone="⚖️"><div style={grille}>{PARAMS_THEME_CADA.map((p) => carteParam(p))}</div></CarteSection>
+          <CarteSection titre={TITRE_THEME_RATTACHEMENT} icone="🏗"><div style={grille}>{PARAMS_THEME_RATTACHEMENT.map((p) => carteParam(p))}</div></CarteSection>
 
           <CarteSection titre={TITRE_PARAMS_MENTIONS} icone="✍️">
             <p style={styleAide}>{AIDE_PARAMS_MENTIONS}</p>
-            <div style={grille}>{PARAMS_MENTIONS.map(carteParam)}</div>
+            <div style={grille}>{PARAMS_MENTIONS.map((p) => carteParam(p))}</div>
           </CarteSection>
           <CarteSection titre={TITRE_PARAMS_SOURCES} icone="📇">
             <p style={styleAide}>{AIDE_PARAMS_SOURCES}</p>
-            <div style={grille}>{PARAMS_SOURCES.map(carteParam)}</div>
+            <div style={grille}>{PARAMS_SOURCES.map((p) => carteParam(p))}</div>
           </CarteSection>
 
           {/* Réglages HÉRITÉS : remplacés par un successeur, conservés en lecture seule pour l'historique (jamais masqués). */}
           <CarteSection titre={TITRE_REGLAGES_HERITES} icone="🗄">
             <p style={styleAide}>Ces réglages ont été remplacés par un successeur. Conservés pour l’historique : celui marqué « n’agit plus » est en lecture seule ; l’autre reste éditable en attendant son retrait complet.</p>
-            <div style={grille}>{herites.map(carteParam)}</div>
+            <div style={grille}>{herites.map((p) => carteParam(p))}</div>
           </CarteSection>
         </div>
       )}
