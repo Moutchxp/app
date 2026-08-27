@@ -703,7 +703,10 @@ const RAISON_LOT_INVALIDE = 'lot plus disponible : dossiers déjà rattachés, p
  * dossier rattaché entre proposition() et l'INSERT → lot ignoré (ignoresConflit). Compte rendu CHIFFRÉ. AUCUN ENVOI.
  */
 export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: string | null, profilDemande: ProfilDemandeur | undefined, selection: { cle: string; communeNom: string | null }[], ancienneteMois?: number): Promise<CompteRenduCreation> {
-  const profil = profilDemande ?? profilValide(cfg.profilDemandeurDefaut);
+  // D4-ter (étanche) — profil par défaut PROPRE au rail : e-mail → profil_demandeur_defaut ; téléservice → teleservice_profil_demandeur_defaut.
+  //   Un profil explicitement demandé (`profilDemande`) prime pour les deux. Byte-identique tant que le profil téléservice = le commun.
+  const profilEmail = profilDemande ?? profilValide(cfg.profilDemandeurDefaut);
+  const profilTeleservice = profilDemande ?? profilValide(cfg.teleserviceProfilDemandeurDefaut);
   const { lots } = await proposition(cfg, ancienneteMois); // Q4 : re-dérive avec la MÊME fenêtre que l'aperçu (sinon lots ≠ affichés)
   const { aCreer, invalides } = apparierSelection(lots, selection.map((s) => s.cle));
   const communeParCle = new Map(selection.map((s) => [s.cle, s.communeNom]));
@@ -711,7 +714,7 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
   const pieces = piecesDepuisConfig(cfg.piecesDemandees);
   // P3 — profil EFFECTIF par lot : celui IMPOSÉ par le téléservice de la commune (`lot.profilImpose`, issu de la proposition
   // re-jouée ici), sinon le profil du batch. La config d'identité est lue par profil réellement utilisé (au plus 2 lectures).
-  const profilDe = (lot: Lot): ProfilDemandeur => profilEffectifLot(lot, profil);
+  const profilDe = (lot: Lot): ProfilDemandeur => profilEffectifLot(lot, lot.canal === 'formulaire' ? profilTeleservice : profilEmail);
   const profilsUtilises = new Set(aCreer.map(profilDe));
   const cfgParProfil = new Map<ProfilDemandeur, ConfigDemandeur>();
   for (const p of profilsUtilises) cfgParProfil.set(p, await lireConfigDemandeur(p));
@@ -788,6 +791,9 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
       ignoresConflit += 1; // conflit d'unicité (dossier déjà rattaché entre-temps) → lot ignoré, pas d'écriture partielle
     }
   }
+  // D4-ter (étanche) — profil du compte rendu : celui RÉELLEMENT appliqué aux lots créés (la préparation est scopée à un process,
+  //   donc homogène) ; à défaut de lot créé, le profil e-mail par défaut.
+  const profil = aCreer.length > 0 ? profilDe(aCreer[0]) : profilEmail;
   return { crees, demandesCreees: crees.length, lotsSelectionnes: selection.length, dossiersCrees, ignoresConflit, lotsInvalides, profil };
 }
 

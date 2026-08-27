@@ -129,8 +129,8 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
   it('les thèmes « demandes » partitionnent les clés (disjoints, couvrants, sans perte ni doublon) — D4 : + thème Téléservice', () => {
     const themes = [PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA, PARAMS_THEME_TELESERVICE];
     const clesThemes = themes.flatMap((t) => t.map((p) => p.colonne));
-    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length + PARAMS_THEME_TELESERVICE.length).toBe(39);
-    expect(new Set(clesThemes).size).toBe(39); // disjoints (aucun doublon)
+    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length + PARAMS_THEME_TELESERVICE.length).toBe(40);
+    expect(new Set(clesThemes).size).toBe(40); // disjoints (aucun doublon)
     // liste LITTÉRALE figée des clés « demandes » — comparée en ENSEMBLE à la concaténation des thèmes ET à COLONNES_PARAMS_DEMANDES.
     const CLES_DEMANDES = [
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
@@ -145,7 +145,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours', // cascade lot 2 — 3 délais (Envoi)
       'envoi_heure_debut', 'envoi_heure_fin', // ENVOI OUVRÉ — fenêtre horaire (Envoi)
       'saisine_cada_auto_active', // cascade lot 2 — auto-saisine (CADA)
-      'teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', // D4/D4-bis — surcharges de PRÉPARATION par process (téléservice)
+      'teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', 'teleservice_profil_demandeur_defaut', // D4-ter (étanche) — préparation PROPRE au téléservice
       'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours', // D4 — thème Téléservice
     ];
     expect(new Set(clesThemes)).toEqual(new Set(CLES_DEMANDES));
@@ -158,13 +158,13 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     // Ordre EXACT des sections rendues par ReglagesVue (cf. ReglagesVue.tsx, Section B puis Mentions puis Sources).
     const CLES_RENDUES_REGLAGES = [
       ...PARAMS_THEME_PREPARATION, ...PARAMS_THEME_ENVOI, ...PARAMS_THEME_REPONSES, ...PARAMS_THEME_ALERTES, ...PARAMS_THEME_CADA,
-      ...PARAMS_THEME_TELESERVICE, // D4/D4-bis — thème « Téléservice (dépôt manuel) » : dossiers/dépôt + permis/commune/mois (surcharges préparation) + alerte non déposée (2) = 4 réglages
+      ...PARAMS_THEME_TELESERVICE, // D4-ter (étanche) — thème « Téléservice » : dossiers + permis + profil (préparation propre) + alerte non déposée (2) = 5 réglages
       ...PARAMS_THEME_RATTACHEMENT, // 6e thème « Rattachement au bâti » : RATT-AUTO (1) + ATT-BATI (2) = 3 réglages
       ...PARAMS_MENTIONS, ...PARAMS_SOURCES,
     ].map((p) => p.colonne);
-    // Snapshot : 45 + 4 (D4 téléservice + D4-bis surcharge permis/commune/mois) = 49 clés distinctes.
-    expect(CLES_RENDUES_REGLAGES).toHaveLength(49);
-    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(49);
+    // Snapshot : 45 + 5 (D4-ter téléservice : dossiers + permis + profil + 2 alertes) = 50 clés distinctes.
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(50);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(50);
     // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
     const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
     expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));

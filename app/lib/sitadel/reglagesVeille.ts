@@ -159,25 +159,12 @@ export interface ParamVeille {
   vestigial?: boolean;
   remplacePar?: string;
   /**
-   * D4 — RAIL du réglage : `'email'` = ne concerne QUE le process automatique (auto-émission d'e-mails), `'teleservice'` = ne
-   * concerne QUE le dépôt manuel. ABSENT = COMMUN aux deux (principe D3-fix : ne pas dupliquer le commun). Purement un LIBELLÉ
-   * d'affichage (« E-mail seulement » / « Téléservice seulement ») — n'affecte NI la lecture NI l'écriture d'un réglage.
+   * D4-ter (ÉTANCHE) — RAIL du réglage, qui détermine son SEUL espace d'affichage : `'email'` = uniquement l'onglet « Envoi
+   * e-mail auto » ; `'teleservice'` = uniquement l'onglet « Téléservice ». ABSENT = TRANSVERSE (uniquement l'onglet « Transverse »,
+   * valeur commune aux deux process). Trois périmètres ÉTANCHES : un réglage n'appartient qu'à UN espace, aucune valeur partagée
+   * rendue des deux côtés. Purement un classement d'AFFICHAGE : n'affecte NI la lecture NI l'écriture. Voir `espaceReglage`.
    */
   rail?: 'email' | 'teleservice';
-  /**
-   * D4-bis — SURCHARGE NULLABLE : ce paramètre (entier) surcharge le réglage COMMUN dont la colonne est `surchargeDe`. `null`
-   * (champ vide à l'écran) = suivre le commun (byte-identique) ; une valeur = surcharger. Rendu avec un champ effaçable + l'aide
-   * « laisser vide pour suivre le réglage commun ». La VALIDATION accepte `null` pour un tel paramètre.
-   */
-  surchargeDe?: string;
-  /**
-   * R1 (D4-ter) — RÉGLAGE PARTAGÉ : gouverne LES DEUX rails (e-mail ET téléservice) et sera rendu dans les DEUX futurs espaces
-   * (R2), MAIS reste UNE seule colonne en base (une seule vérité) — le modifier depuis un espace agit sur l'autre. Distinct de
-   * `rail` (qui restreint à UN seul espace) et de `surchargeDe` (surcharge propre à un rail). ABSENT + sans `rail` = TRANSVERSE
-   * (hors des deux espaces : relève, alertes générales, CADA, rattachement, mentions, sources, identités…). Purement un
-   * classement d'AFFICHAGE : n'affecte NI la lecture NI l'écriture. Voir `espaceReglage`.
-   */
-  partage?: boolean;
 }
 
 /** Forme minimale d'une URL http(s) — MIROIR APPLICATIF du CHECK `config_veille_dila_url_check` (migration 069). */
@@ -190,23 +177,23 @@ export const FORME_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * de la base (`parserBornesCheck`). Chaque aide dit ce que le paramètre change concrètement.
  */
 export const PARAMS_VEILLE: ParamVeille[] = [
-  { colonne: 'anciennete_max_demande_annees', cle: 'ancienneteMaxDemandeAnnees', libelle: 'Ancienneté maximale des demandes', unite: 'années', type: 'entier', partage: true,
+  { colonne: 'anciennete_max_demande_annees', cle: 'ancienneteMaxDemandeAnnees', libelle: 'Ancienneté maximale des demandes', unite: 'années', type: 'entier',
     aide: 'Au-delà de cet âge, le bâtiment est déjà mesuré par le LiDAR (MNS) : la demande de pièces devient inutile et n’est plus proposée.' },
-  { colonne: 'dossiers_par_demande', cle: 'dossiersParDemande', libelle: 'Dossiers par demande', unite: 'dossiers', type: 'entier', partage: true,
-    aide: 'Nombre maximum de dossiers regroupés dans une même demande adressée à une mairie. Borne le volume par courrier.' },
+  { colonne: 'dossiers_par_demande', cle: 'dossiersParDemande', libelle: 'Dossiers par demande', unite: 'dossiers', type: 'entier', rail: 'email',
+    aide: 'Nombre maximum de dossiers regroupés dans une même demande adressée à une mairie PAR E-MAIL. Borne le volume par courrier. (Le téléservice a sa propre valeur.)' },
   // Q1 — NOUVEAU paramètre VIVANT : le plafond mensuel se compte désormais en PERMIS (dossiers), indépendamment du regroupement.
-  { colonne: 'permis_par_commune_par_mois', cle: 'permisParCommuneParMois', libelle: 'Permis par commune et par mois', unite: 'permis / mois', type: 'entier', partage: true,
-    aide: 'Nombre maximum de PERMIS (dossiers) demandés à une même commune par mois — quel que soit le nombre de courriers ou de dépôts que cela représente (une commune à un ticket par dossier n’en consomme pas plus qu’une commune à courrier groupé).' },
+  { colonne: 'permis_par_commune_par_mois', cle: 'permisParCommuneParMois', libelle: 'Permis par commune et par mois', unite: 'permis / mois', type: 'entier', rail: 'email',
+    aide: 'Nombre maximum de PERMIS (dossiers) demandés PAR E-MAIL à une même commune par mois — quel que soit le nombre de courriers que cela représente. (Le téléservice a sa propre valeur.)' },
   // Q1 — VESTIGIAL : ce paramètre comptait des DEMANDES (courriers) ; il n'agit plus (remplacé par « Permis par commune et par
   // mois »). Conservé en base (lu par l'historique), rendu en lecture seule + refusé par la route (validerReglages).
   { colonne: 'demandes_par_commune_par_mois', cle: 'demandesParCommuneParMois', libelle: 'Demandes par commune et par mois', unite: 'demandes / mois', type: 'entier',
     vestigial: true, remplacePar: 'Permis par commune et par mois',
     aide: 'Comptait le nombre de demandes (courriers) envoyées à une même commune par mois.' },
   // V2 — profondeur d'examen des candidats (ex-const NB_CANDIDATS) : pilotable au runtime, invariant « pilotage sans code ».
-  { colonne: 'nb_candidats_examines', cle: 'nbCandidatsExamines', libelle: 'Profondeur d’examen des dossiers', unite: 'dossiers', type: 'entier', partage: true,
+  { colonne: 'nb_candidats_examines', cle: 'nbCandidatsExamines', libelle: 'Profondeur d’examen des dossiers', unite: 'dossiers', type: 'entier',
     aide: 'Combien de dossiers, tout en haut du classement, sont examinés pour préparer les demandes. Trop bas, des dossiers récents mais moins « gros » ne sont jamais atteints ; plus haut = davantage de dossiers proposés. Au-delà de la taille du fichier des permis, la préparation devient un peu plus lente.' },
   // V2 — ordre secondaire de tri des candidats (ex-const ORDRE_SECONDAIRE) : GARDE (liste fermée), libellés FR.
-  { colonne: 'tri_candidats', cle: 'triCandidats', libelle: 'Ordre d’examen des dossiers', unite: '', type: 'enum', partage: true,
+  { colonne: 'tri_candidats', cle: 'triCandidats', libelle: 'Ordre d’examen des dossiers', unite: '', type: 'enum',
     optionsEnum: ['surface_puis_date', 'date_puis_surface', 'date_ancienne_puis_surface'],
     optionsEnumLabels: { surface_puis_date: 'Plus grands d’abord (surface, puis date)', date_puis_surface: 'Plus récents d’abord (date, puis surface)', date_ancienne_puis_surface: 'Plus anciens d’abord (date, puis surface)' },
     aide: 'Dans quel ordre les dossiers sont départagés à catégorie égale : « plus grands d’abord » remonte les gros projets (mais peut enterrer des dossiers récents plus petits) ; « plus récents d’abord » privilégie les permis récents ; « plus anciens d’abord » traite d’abord les permis les plus vieux de la fenêtre (rattraper le retard). ⚠️ Ce choix change AUSSI l’ordre de la liste affichée dans l’onglet « Dossiers ».' },
@@ -311,11 +298,11 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Ordre d’affichage de la catégorie (plus petit = affiché en premier). Réordonnable.' },
   { colonne: 'rang_demolition', cle: 'rangDemolition', libelle: 'Rang — démolition', unite: 'rang', type: 'entier',
     aide: 'Ordre d’affichage de la catégorie (plus petit = affiché en premier). Réordonnable.' },
-  { colonne: 'pieces_demandees', cle: 'piecesDemandees', libelle: 'Pièces demandées', unite: 'codes', type: 'texte', partage: true,
+  { colonne: 'pieces_demandees', cle: 'piecesDemandees', libelle: 'Pièces demandées', unite: 'codes', type: 'texte',
     formatHint: 'codes de pièces séparés par des virgules (ex. PC2, PC3).',
     aide: 'Codes des pièces sollicitées dans le courrier (ex. PC2, PC3), séparés par des virgules.' },
-  { colonne: 'profil_demandeur_defaut', cle: 'profilDemandeurDefaut', libelle: 'Profil de demandeur par défaut', unite: '', type: 'enum', optionsEnum: ['entreprise', 'personne'], partage: true,
-    aide: 'Profil (société / personne physique) appliqué par défaut à la création de nouvelles demandes.' },
+  { colonne: 'profil_demandeur_defaut', cle: 'profilDemandeurDefaut', libelle: 'Profil de demandeur par défaut', unite: '', type: 'enum', optionsEnum: ['entreprise', 'personne'], rail: 'email',
+    aide: 'Profil (société / personne physique) appliqué par défaut à la création des demandes PAR E-MAIL. (Le téléservice a sa propre valeur — « personne physique » pour FranceConnect.)' },
   // S30 — source de l'annuaire des mairies (téléphones/adresses des mairies importés par `dila:ingest`).
   { colonne: 'dila_url', cle: 'dilaUrl', libelle: 'Adresse de l’annuaire des mairies (DILA)', unite: '', type: 'url',
     aide: 'Adresse web où l’application télécharge l’annuaire officiel des mairies (service-public.gouv.fr). Elle sert à mettre à jour les téléphones et adresses des mairies. À ne changer que si l’adresse officielle change : une adresse erronée fera échouer la prochaine mise à jour de l’annuaire (les données déjà en place ne sont pas perdues).' },
@@ -344,10 +331,13 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Nombre de jours d’attente au-delà duquel le rappel ci-dessus se déclenche pour un dossier. Un bâtiment neuf met en général 1 à 3 ans à apparaître dans BD TOPO : un seuil court vous noierait sous des rappels alors que l’attente est normale. Défaut : 365 jours (1 an).' },
   // D4/D4-bis — RÉGLAGES TÉLÉSERVICE (rail 'teleservice' seul). Thème PROPRE « Téléservice (dépôt manuel) ». Les deux surcharges de
   //   PRÉPARATION sont NULLABLE (vide = suivre le commun). Bornes lues des CHECK (migrations 159/160).
-  { colonne: 'teleservice_dossiers_par_depot', cle: 'teleserviceDossiersParDepot', libelle: 'Dossiers par demande (téléservice)', unite: 'dossiers', type: 'entier', rail: 'teleservice', surchargeDe: 'dossiers_par_demande',
-    aide: 'Sur un téléservice, chaque dossier se dépose à la main : une demande à plusieurs dossiers exige autant de dépôts. Ce réglage SURCHARGE, pour les communes à téléservice, le nombre commun de « dossiers par demande ». Laissez vide pour suivre le réglage commun. Si une commune impose sa propre limite (Paris n’accepte qu’un dossier par dépôt), c’est SA limite qui s’applique. Ne concerne QUE le rail téléservice.' },
-  { colonne: 'teleservice_permis_par_commune_par_mois', cle: 'teleservicePermisParCommuneParMois', libelle: 'Permis par commune et par mois (téléservice)', unite: 'permis / mois', type: 'entier', rail: 'teleservice', surchargeDe: 'permis_par_commune_par_mois',
-    aide: 'Plafond mensuel de permis demandés par commune, PROPRE au rail téléservice. Côté e-mail, ce plafond évite de saturer une mairie ; côté téléservice (peu de communes, dépôt manuel), le frein est votre temps, pas la mairie. Laissez vide pour suivre le réglage commun. Ne concerne QUE le rail téléservice.' },
+  { colonne: 'teleservice_dossiers_par_depot', cle: 'teleserviceDossiersParDepot', libelle: 'Dossiers par demande', unite: 'dossiers', type: 'entier', rail: 'teleservice',
+    aide: 'Sur un téléservice, chaque dossier se dépose à la main : une demande à plusieurs dossiers exige autant de dépôts. Valeur PROPRE au téléservice (indépendante de l’e-mail). Si une commune impose sa propre limite (Paris n’accepte qu’un dossier par dépôt), c’est SA limite qui s’applique.' },
+  { colonne: 'teleservice_permis_par_commune_par_mois', cle: 'teleservicePermisParCommuneParMois', libelle: 'Permis par commune et par mois', unite: 'permis / mois', type: 'entier', rail: 'teleservice',
+    aide: 'Plafond mensuel de permis demandés par commune, PROPRE au rail téléservice (indépendant de l’e-mail). Côté téléservice — peu de communes, dépôt manuel — le frein est votre temps, pas la saturation de la mairie.' },
+  // D4-ter (étanche, absorbe P) — profil de demandeur PROPRE au téléservice. Prévu pour « personne physique » (FranceConnect) ; livré à 'entreprise'.
+  { colonne: 'teleservice_profil_demandeur_defaut', cle: 'teleserviceProfilDemandeurDefaut', libelle: 'Profil de demandeur par défaut', unite: '', type: 'enum', optionsEnum: ['entreprise', 'personne'], rail: 'teleservice',
+    aide: 'Profil (société / personne physique) appliqué par défaut aux demandes déposées par téléservice. Les téléservices exigent souvent une identification FranceConnect (personne physique) : c’est ici qu’on le règle, indépendamment de l’e-mail.' },
   { colonne: 'teleservice_alerte_non_depose_active', cle: 'teleserviceAlerteNonDeposeActive', libelle: 'M’alerter si une demande préparée n’est pas déposée', unite: '', type: 'booleen', rail: 'teleservice',
     aide: 'Côté téléservice, rien ne part tout seul : une demande préparée attend que vous la déposiez à la main. Quand c’est activé, vous recevez un rappel (à l’adresse d’alerte configurée plus haut) dès qu’une demande téléservice reste préparée sans être déposée au-delà du seuil ci-dessous. Décoché, aucun rappel. Ne concerne QUE le rail téléservice.' },
   { colonne: 'teleservice_alerte_non_depose_jours', cle: 'teleserviceAlerteNonDeposeJours', libelle: 'Seuil « préparée non déposée » (jours)', unite: 'jours', type: 'entier', rail: 'teleservice',
@@ -415,7 +405,7 @@ export const COLONNES_THEME_RATTACHEMENT: readonly string[] = [
 ];
 // D4 — thème PROPRE au process TÉLÉSERVICE (dépôt manuel). Groupe ses réglages 'teleservice' sans casser les 5 thèmes existants.
 export const COLONNES_THEME_TELESERVICE: readonly string[] = [
-  'teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', // D4-bis — surcharges de préparation (nullable = suivre le commun)
+  'teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', 'teleservice_profil_demandeur_defaut', // D4-ter (étanche) — valeurs de préparation PROPRES au téléservice
   'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours', // alerte « non déposée » : interrupteur + seuil
 ];
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
@@ -447,38 +437,30 @@ export const PARAMS_THEME_CADA: ParamVeille[] = paramsDuTheme(COLONNES_THEME_CAD
 export const PARAMS_THEME_TELESERVICE: ParamVeille[] = paramsDuTheme(COLONNES_THEME_TELESERVICE); // D4 — process téléservice (dépôt manuel)
 export const PARAMS_THEME_RATTACHEMENT: ParamVeille[] = paramsDuTheme(COLONNES_THEME_RATTACHEMENT);
 
-// ── R1 (D4-ter) — APPARTENANCE DE RAIL : le MODÈLE des deux futurs « espaces » Réglages (E-mail / Téléservice), livré SEUL et
-//   PROUVÉ PAR TESTS avant que R2 ne déplace le moindre pixel. AUCUN changement visuel ici : ReglagesVue reste rangé par thème ;
-//   ces dérivations ne sont encore consommées par aucun rendu. Quatre classes EXCLUSIVES, cf. `EspaceRail`. ────────────────────
-export type EspaceRail = 'email' | 'teleservice' | 'partage' | 'transverse';
+// ── D4-ter (ÉTANCHE) — APPARTENANCE DE RAIL : trois espaces ÉTANCHES. Un réglage n'appartient qu'à UN espace ; aucune valeur
+//   « partagée » rendue des deux côtés. `espaceReglage` classe chaque réglage dans EXACTEMENT une des trois classes. ───────────
+export type EspaceRail = 'email' | 'teleservice' | 'transverse';
 /**
- * Classe UN réglage dans exactement UNE des quatre catégories de rail (fonction PURE, totale sur ParamVeille) :
- *  · 'partage'    → gouverne les DEUX rails, rendu dans les deux espaces (R2), MAIS une seule colonne = une seule vérité.
- *  · 'email'      → ne gouverne que le rail e-mail (caps d'envoi, relance auto, heures d'envoi).
- *  · 'teleservice'→ ne gouverne que le rail téléservice (surcharges de préparation `surchargeDe` + alertes « non déposée »).
- *  · 'transverse' → hors des deux espaces (relève, alertes générales, CADA, rattachement, mentions, sources, identités, vestigial).
- * PRÉCÉDENCE : `partage` l'emporte sur `rail` (un partagé n'est jamais « rail seul »). Un réglage NE PEUT PAS être à la fois
- * `partage: true` ET porter un `rail` (garde vérifiée par test) — sinon la classe serait ambiguë.
+ * Classe UN réglage dans exactement UNE des trois catégories de rail (fonction PURE, totale sur ParamVeille) :
+ *  · 'email'      → uniquement l'onglet « Envoi e-mail auto » (rail:'email' : caps d'envoi, relance auto, heures, ET les valeurs
+ *                   de préparation propres à l'e-mail — dossiers/demande, permis/commune·mois, profil).
+ *  · 'teleservice'→ uniquement l'onglet « Téléservice » (rail:'teleservice' : valeurs de préparation propres au téléservice +
+ *                   alertes « non déposée »).
+ *  · 'transverse' → uniquement l'onglet « Transverse » (aucun rail : valeur commune aux deux process — ancienneté, profondeur/
+ *                   ordre d'examen, pièces, relève, alertes, CADA, rattachement, mentions, sources, identités, vestigiaux).
  */
 export function espaceReglage(p: ParamVeille): EspaceRail {
-  if (p.partage) return 'partage';
   if (p.rail === 'email') return 'email';
   if (p.rail === 'teleservice') return 'teleservice';
   return 'transverse';
 }
-/** Un réglage appartient-il à l'espace d'un rail donné ? Un `partage` appartient aux DEUX ; un `rail` au sien ; un transverse à aucun. */
+/** Un réglage appartient-il à l'espace d'un rail donné ? ÉTANCHE : seulement celui de son propre rail (jamais les deux). */
 export function reglageDansEspace(p: ParamVeille, rail: 'email' | 'teleservice'): boolean {
-  const e = espaceReglage(p);
-  return e === 'partage' || e === rail;
+  return espaceReglage(p) === rail;
 }
-/**
- * Réglages de l'espace « Envoi e-mail » (R2) = e-mail seul + partagés. Réglages de l'espace « Téléservice » = téléservice seul
- * (surcharges + alertes) + partagés. Les DEUX listes contiennent les MÊMES objets partagés (même `colonne`) → « rendu dans les
- * deux, une seule vérité » est vrai par construction. Ordre = celui de PARAMS_VEILLE ; R2 fixera l'ordre d'AFFICHAGE définitif.
- */
-export const PARAMS_ESPACE_EMAIL: ParamVeille[] = PARAMS_VEILLE.filter((p) => reglageDansEspace(p, 'email'));
-export const PARAMS_ESPACE_TELESERVICE: ParamVeille[] = PARAMS_VEILLE.filter((p) => reglageDansEspace(p, 'teleservice'));
-/** Réglages TRANSVERSES (hors des deux espaces de rail) — rendus par leurs sections propres (Réponses, Alertes, CADA, etc.). */
+/** Les trois espaces ÉTANCHES, dérivés de l'appartenance de rail (ordre = celui de PARAMS_VEILLE). Disjoints et couvrants. */
+export const PARAMS_ESPACE_EMAIL: ParamVeille[] = PARAMS_VEILLE.filter((p) => espaceReglage(p) === 'email');
+export const PARAMS_ESPACE_TELESERVICE: ParamVeille[] = PARAMS_VEILLE.filter((p) => espaceReglage(p) === 'teleservice');
 export const PARAMS_TRANSVERSE: ParamVeille[] = PARAMS_VEILLE.filter((p) => espaceReglage(p) === 'transverse');
 // Conservé (même ENSEMBLE qu'avant E1, ordre = concaténation des thèmes). Sert au complément PARAMS_DOSSIERS et à la compat.
 export const PARAMS_DEMANDES: ParamVeille[] = paramsDuTheme(COLONNES_PARAMS_DEMANDES);
@@ -579,8 +561,6 @@ export function validerReglages(
         veille[cle] = valeur.trim();
         continue;
       }
-      // D4-bis — SURCHARGE NULLABLE : `null` (champ vidé) = « suivre le commun » → valeur VALIDE, écrite telle quelle (NULL).
-      if (param.surchargeDe && valeur === null) { veille[cle] = null; continue; }
       if (typeof valeur !== 'number' || !Number.isFinite(valeur) || !Number.isInteger(valeur)) {
         erreurs.push({ colonne: cle, message: `${param.libelle} : valeur entière attendue` }); continue;
       }
