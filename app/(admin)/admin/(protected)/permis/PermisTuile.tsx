@@ -81,6 +81,11 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
       if (res.ok) setCompteursProcess((await res.json()) as CompteursProcess);
     } catch { /* compteurs indisponibles : commutateur utilisable sans chiffres */ }
   }, []);
+  // DEPOT-2 — UN SEUL FOYER de rafraîchissement des compteurs. Toute action réussie de l'écran Demandes (préparation, dépôt,
+  //   annulation, bascule de rail, réponse/clôture, saisine, projection, rattachement) rafraîchit À LA FOIS les pastilles
+  //   d'onglets (`recompter`) ET les compteurs du commutateur (`rechargerCompteursProcess`) → aucun compteur ne reste périmé,
+  //   sans rechargement de page. Précédents du même mode de panne : DEPOT-1 (BlocDepot), puis DEPOT-2 (commutateur).
+  const apresAction = useCallback((): void => { void recompter(); void rechargerCompteursProcess(); }, [recompter, rechargerCompteursProcess]);
   useEffect(() => {
     let annule = false;
     void (async () => {
@@ -101,17 +106,18 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
         <>
           <CommutateurProcess actif={processActif} onChoisir={setProcessActif} compteurs={compteursProcess} />
           {/* D5 — basculer une commune de rail, atteignable depuis le commutateur. Réutilise annuler-lot (D1) + PATCH /contact. */}
-          <BasculeRail onBascule={() => void rechargerCompteursProcess()} />
+          <BasculeRail onBascule={apresAction} />
         </>
       )}
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} />}
-      {onglet === 'rattachement' && <SuiviRattachementVue onRecompter={() => void recompter()} />}
-      {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} process={processActif} onBasculerProcess={setProcessActif} onAllerReglages={() => setOnglet('reglages')} />}
+      {onglet === 'rattachement' && <SuiviRattachementVue onRecompter={apresAction} />}
+      {/* DEPOT-2 — ADemanderVue (préparation + dépôt/annulation via BlocDepot) notifie le foyer unique → compteurs du commutateur à jour. */}
+      {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} process={processActif} onBasculerProcess={setProcessActif} onChangement={apresAction} onAllerReglages={() => setOnglet('reglages')} />}
       {onglet === 'en_cours' && <EnCoursVue categories={categories} process={processActif} />}
-      {onglet === 'reponses' && <ReponsesVue process={processActif} onRecompter={() => void recompter()} />}
-      {onglet === 'projection' && <ProjectionVue onRecompter={() => void recompter()} />}
+      {onglet === 'reponses' && <ReponsesVue process={processActif} onRecompter={apresAction} />}
+      {onglet === 'projection' && <ProjectionVue onRecompter={apresAction} />}
       {onglet === 'archives' && <ArchivesVue />}
-      {onglet === 'saisines' && <SaisinesVue onRecompter={() => void recompter()} />}
+      {onglet === 'saisines' && <SaisinesVue onRecompter={apresAction} />}
       {onglet === 'reglages' && <ReglagesVue />}
       {onglet === 'automatisation' && <AutomatisationVue />}
       {onglet === 'collaborateurs' && <CollaborateursVue />}

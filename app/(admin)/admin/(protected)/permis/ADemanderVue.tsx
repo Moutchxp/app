@@ -22,7 +22,9 @@ const PROFILS: ProfilDemandeur[] = ['entreprise', 'personne'];
 const PAGE_SIZE = 20;
 const styleChamp: CSSProperties = { padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 };
 
-interface Props { categories: { cle: string; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; process: Process; onBasculerProcess: (p: Process) => void; onAllerReglages: () => void }
+interface Props { categories: { cle: string; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; process: Process; onBasculerProcess: (p: Process) => void; onAllerReglages: () => void;
+  /** DEPOT-2 — notifie le parent (PermisTuile) qu'une action a changé les compteurs (préparation / dépôt / annulation) → rafraîchit le commutateur. */
+  onChangement?: () => void }
 
 /** Message d'échec = la RAISON réelle renvoyée par le serveur ({erreur}), jamais un libellé figé à deux mots. */
 async function erreurServeur(res: Response, repli: string): Promise<string> {
@@ -30,7 +32,7 @@ async function erreurServeur(res: Response, repli: string): Promise<string> {
   catch { return repli; }
 }
 
-export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, process, onBasculerProcess, onAllerReglages }: Props) {
+export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, process, onBasculerProcess, onAllerReglages, onChangement }: Props) {
   const [prop, setProp] = useState<{ lots: Lot[]; diagnostic: DiagnosticProposition; profil: ProfilDemandeur } | null>(null);
   const [profilPrep, setProfilPrep] = useState<ProfilDemandeur>('entreprise');
   const [retour, setRetour] = useState<RetourAction>(null);
@@ -54,6 +56,9 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
   const ancienneteMois = bornerAncienneteMois(moisSaisie, ancienneteMaxAnnees);
   const prepSeq = useRef(0); // Q4-fix : compteur de séquence des préparations (anti-race)
   const [signalSuivi, setSignalSuivi] = useState(0); // Q6 : incrémenté après une création → rafraîchit le tableau des non-envoyées
+  // DEPOT-2 — FOYER UNIQUE local : toute action réussie (création, dépôt, annulation) rafraîchit les vues locales
+  //   (SuiviDemandes + BlocDepot via signalSuivi) ET notifie le parent (compteurs du commutateur) — jamais l'un sans l'autre.
+  const signalerChangement = useCallback((): void => { setSignalSuivi((s) => s + 1); onChangement?.(); }, [onChangement]);
 
   const annoncer = useCallback((texte: string, ok: boolean) => setRetour(texte === '' ? null : { texte, ok, zone: 'haut' }), []);
 
@@ -125,7 +130,7 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
       if (r.ignoresConflit) bouts.push(`${r.ignoresConflit} conflit(s)`);
       // Q6 — les demandes créées sont des BROUILLONS (non parties) : elles restent DANS CET ONGLET, dans le tableau ci-dessous.
       annoncer(`${bouts.join(' · ')}. Retrouvez-les dans le tableau des demandes ci-dessous.`, true);
-      setProp(null); setSelLots(new Set()); setPageLots(1); setSignalSuivi((s) => s + 1);
+      setProp(null); setSelLots(new Set()); setPageLots(1); signalerChangement();
     } else annoncer(await erreurServeur(res, 'Création impossible.'), false);
   }
 
@@ -240,7 +245,7 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
       {/* P3 — « à déposer à la main » (téléservice) : file du process TÉLÉSERVICE seul (un dépôt non effectué EST un envoi non effectué).
           DEPOT-1 — reçoit le MÊME signal que SuiviDemandes : une demande fraîchement préparée apparaît sans rafraîchir la page ; un
           dépôt/annulation réincrémente le signal → toutes les vues de l'onglet se remettent à jour. */}
-      {process === 'formulaire' && <BlocDepot signalRafraichir={signalSuivi} onChangement={() => setSignalSuivi((s) => s + 1)} />}
+      {process === 'formulaire' && <BlocDepot signalRafraichir={signalSuivi} onChangement={signalerChangement} />}
 
       {/* Q6 — tableau des demandes NON ENVOYÉES du process actif + actions groupées (« prête » / annulation D1). */}
       <SuiviDemandes categories={categories} perimetre="a_demander" process={process} signalRafraichir={signalSuivi} />
