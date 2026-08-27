@@ -81,6 +81,8 @@ const DEFS_BASE = [
   // D4 — réglages téléservice (migration 159) : BETWEEN rendus par pg_get_constraintdef en `>= AND <=`
   'CHECK (((teleservice_dossiers_par_depot >= 1) AND (teleservice_dossiers_par_depot <= 20)))',
   'CHECK (((teleservice_alerte_non_depose_jours >= 1) AND (teleservice_alerte_non_depose_jours <= 90)))',
+  // D4-bis — surcharge NULLABLE « permis par commune et par mois (téléservice) » (migration 160) : BETWEEN 1 AND 50
+  'CHECK (((teleservice_permis_par_commune_par_mois >= 1) AND (teleservice_permis_par_commune_par_mois <= 50)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 
@@ -97,13 +99,18 @@ describe('D4 — classement par rail (A e-mail / B téléservice / C commun)', (
       expect(par(c).rail, c).toBe('email');
     }
   });
-  it('B — téléservice seulement : les 3 réglages du thème Téléservice', () => {
-    for (const c of ['teleservice_dossiers_par_depot', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours']) {
+  it('B — téléservice seulement : les 4 réglages du thème Téléservice', () => {
+    for (const c of ['teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours']) {
       expect(par(c).rail, c).toBe('teleservice');
     }
     expect(PARAMS_THEME_TELESERVICE.map((p) => p.colonne)).toEqual([
-      'teleservice_dossiers_par_depot', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours',
+      'teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours',
     ]);
+  });
+  // D4-bis — les 2 surcharges de PRÉPARATION par process pointent leur réglage COMMUN d'origine (surchargeDe).
+  it('B-bis — les surcharges de préparation portent surchargeDe = leur réglage commun', () => {
+    expect(par('teleservice_dossiers_par_depot').surchargeDe).toBe('dossiers_par_demande');
+    expect(par('teleservice_permis_par_commune_par_mois').surchargeDe).toBe('permis_par_commune_par_mois');
   });
   // 🔴 GARDE du principe D3-fix : un réglage COMMUN reste commun (aucun rail) — jamais dupliqué ni étiqueté « e-mail ».
   it('C — commun : adresse de réponse, délais de relance, mentions, éligibilité, CADA N’ONT PAS de rail', () => {
@@ -114,7 +121,7 @@ describe('D4 — classement par rail (A e-mail / B téléservice / C commun)', (
     }
   });
   it('les nouveaux réglages téléservice sont éditables (dans COLONNES_PARAMS_DEMANDES) et validés', () => {
-    for (const c of ['teleservice_dossiers_par_depot', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours']) {
+    for (const c of ['teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours']) {
       expect(COLONNES_PARAMS_DEMANDES).toContain(c);
     }
     // valide : 3 dossiers/dépôt (dans 1..20) ; hors bornes : 0 et 21 refusés.
@@ -122,6 +129,18 @@ describe('D4 — classement par rail (A e-mail / B téléservice / C commun)', (
     expect(validerReglages({ veille: { teleservice_dossiers_par_depot: 0 } }, BORNES).ok).toBe(false);
     expect(validerReglages({ veille: { teleservice_dossiers_par_depot: 21 } }, BORNES).ok).toBe(false);
     expect(validerReglages({ veille: { teleservice_alerte_non_depose_active: true } }, BORNES).ok).toBe(true);
+  });
+  // D4-bis — SURCHARGE NULLABLE : `null` (= « suivre le commun ») est une valeur VALIDE, écrite telle quelle ; une valeur
+  //   dans les bornes passe ; hors bornes refusée. C'est le cœur du modèle (a) : rien surchargé ⇒ NULL ⇒ byte-identique.
+  it('D4-bis — surcharge NULLABLE : null accepté (→ suit le commun), valeur bornée validée, hors bornes refusée', () => {
+    const nul = validerReglages({ veille: { teleservice_permis_par_commune_par_mois: null } }, BORNES);
+    expect(nul.ok).toBe(true);
+    expect(nul.ok && nul.veille.teleservice_permis_par_commune_par_mois).toBeNull(); // écrit NULL, pas 0
+    expect(validerReglages({ veille: { teleservice_permis_par_commune_par_mois: 25 } }, BORNES).ok).toBe(true);
+    expect(validerReglages({ veille: { teleservice_permis_par_commune_par_mois: 0 } }, BORNES).ok).toBe(false);
+    expect(validerReglages({ veille: { teleservice_permis_par_commune_par_mois: 51 } }, BORNES).ok).toBe(false);
+    // le dossiers/dépôt téléservice devient AUSSI nullable (D4-bis) : null accepté.
+    expect(validerReglages({ veille: { teleservice_dossiers_par_depot: null } }, BORNES).ok).toBe(true);
   });
 });
 

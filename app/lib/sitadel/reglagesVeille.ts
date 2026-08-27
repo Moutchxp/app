@@ -164,6 +164,12 @@ export interface ParamVeille {
    * d'affichage (« E-mail seulement » / « Téléservice seulement ») — n'affecte NI la lecture NI l'écriture d'un réglage.
    */
   rail?: 'email' | 'teleservice';
+  /**
+   * D4-bis — SURCHARGE NULLABLE : ce paramètre (entier) surcharge le réglage COMMUN dont la colonne est `surchargeDe`. `null`
+   * (champ vide à l'écran) = suivre le commun (byte-identique) ; une valeur = surcharger. Rendu avec un champ effaçable + l'aide
+   * « laisser vide pour suivre le réglage commun ». La VALIDATION accepte `null` pour un tel paramètre.
+   */
+  surchargeDe?: string;
 }
 
 /** Forme minimale d'une URL http(s) — MIROIR APPLICATIF du CHECK `config_veille_dila_url_check` (migration 069). */
@@ -319,9 +325,12 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Quand c’est activé, vous recevez un e-mail de RAPPEL (à l’adresse d’alerte configurée plus haut) dès qu’un permis reste « en attente de bâti » au-delà du seuil ci-dessous. C’est un simple rappel pour qu’un dossier ne soit pas oublié — JAMAIS une détection : il ne dit pas que le bâtiment est arrivé et n’appelle aucune action. Un seul rappel par dossier. Décoché, aucun rappel n’est envoyé.' },
   { colonne: 'attente_bati_alerte_jours', cle: 'attenteBatiAlerteJours', libelle: 'Seuil d’alerte « en attente de bâti »', unite: 'jours', type: 'entier',
     aide: 'Nombre de jours d’attente au-delà duquel le rappel ci-dessus se déclenche pour un dossier. Un bâtiment neuf met en général 1 à 3 ans à apparaître dans BD TOPO : un seuil court vous noierait sous des rappels alors que l’attente est normale. Défaut : 365 jours (1 an).' },
-  // D4 — RÉGLAGES TÉLÉSERVICE (rail 'teleservice' seul). Thème PROPRE « Téléservice (dépôt manuel) ». Bornes lues des CHECK (migration 159).
-  { colonne: 'teleservice_dossiers_par_depot', cle: 'teleserviceDossiersParDepot', libelle: 'Dossiers par dépôt (téléservice)', unite: 'dossiers', type: 'entier', rail: 'teleservice',
-    aide: 'Sur un téléservice, chaque dossier se dépose à la main : une demande à plusieurs dossiers exige autant de dépôts. Ce réglage est le nombre de dossiers regroupés par défaut pour les communes à téléservice. Si une commune impose sa propre limite (par exemple Paris n’accepte qu’un seul dossier par dépôt), c’est SA limite qui s’applique — ce défaut ne vaut que pour les communes sans limite propre. Ne concerne QUE le rail téléservice.' },
+  // D4/D4-bis — RÉGLAGES TÉLÉSERVICE (rail 'teleservice' seul). Thème PROPRE « Téléservice (dépôt manuel) ». Les deux surcharges de
+  //   PRÉPARATION sont NULLABLE (vide = suivre le commun). Bornes lues des CHECK (migrations 159/160).
+  { colonne: 'teleservice_dossiers_par_depot', cle: 'teleserviceDossiersParDepot', libelle: 'Dossiers par demande (téléservice)', unite: 'dossiers', type: 'entier', rail: 'teleservice', surchargeDe: 'dossiers_par_demande',
+    aide: 'Sur un téléservice, chaque dossier se dépose à la main : une demande à plusieurs dossiers exige autant de dépôts. Ce réglage SURCHARGE, pour les communes à téléservice, le nombre commun de « dossiers par demande ». Laissez vide pour suivre le réglage commun. Si une commune impose sa propre limite (Paris n’accepte qu’un dossier par dépôt), c’est SA limite qui s’applique. Ne concerne QUE le rail téléservice.' },
+  { colonne: 'teleservice_permis_par_commune_par_mois', cle: 'teleservicePermisParCommuneParMois', libelle: 'Permis par commune et par mois (téléservice)', unite: 'permis / mois', type: 'entier', rail: 'teleservice', surchargeDe: 'permis_par_commune_par_mois',
+    aide: 'Plafond mensuel de permis demandés par commune, PROPRE au rail téléservice. Côté e-mail, ce plafond évite de saturer une mairie ; côté téléservice (peu de communes, dépôt manuel), le frein est votre temps, pas la mairie. Laissez vide pour suivre le réglage commun. Ne concerne QUE le rail téléservice.' },
   { colonne: 'teleservice_alerte_non_depose_active', cle: 'teleserviceAlerteNonDeposeActive', libelle: 'M’alerter si une demande préparée n’est pas déposée', unite: '', type: 'booleen', rail: 'teleservice',
     aide: 'Côté téléservice, rien ne part tout seul : une demande préparée attend que vous la déposiez à la main. Quand c’est activé, vous recevez un rappel (à l’adresse d’alerte configurée plus haut) dès qu’une demande téléservice reste préparée sans être déposée au-delà du seuil ci-dessous. Décoché, aucun rappel. Ne concerne QUE le rail téléservice.' },
   { colonne: 'teleservice_alerte_non_depose_jours', cle: 'teleserviceAlerteNonDeposeJours', libelle: 'Seuil « préparée non déposée » (jours)', unite: 'jours', type: 'entier', rail: 'teleservice',
@@ -389,7 +398,7 @@ export const COLONNES_THEME_RATTACHEMENT: readonly string[] = [
 ];
 // D4 — thème PROPRE au process TÉLÉSERVICE (dépôt manuel). Groupe ses réglages 'teleservice' sans casser les 5 thèmes existants.
 export const COLONNES_THEME_TELESERVICE: readonly string[] = [
-  'teleservice_dossiers_par_depot',
+  'teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', // D4-bis — surcharges de préparation (nullable = suivre le commun)
   'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours', // alerte « non déposée » : interrupteur + seuil
 ];
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
@@ -432,7 +441,7 @@ export const PARAMS_DOSSIERS: ParamVeille[] = PARAMS_VEILLE.filter(
 // ── Validation server-side (identique à l'écran) ─────────────────────────────
 export interface ErreurReglage { colonne: string; message: string }
 export type ResultatReglages =
-  | { ok: true; demandeur: Record<string, string>; veille: Record<string, number | string | boolean> }
+  | { ok: true; demandeur: Record<string, string>; veille: Record<string, number | string | boolean | null> } // D4-bis : null = surcharge « suivre le commun »
   | { ok: false; erreurs: ErreurReglage[] };
 
 /**
@@ -447,7 +456,7 @@ export function validerReglages(
 ): ResultatReglages {
   const erreurs: ErreurReglage[] = [];
   const demandeur: Record<string, string> = {};
-  const veille: Record<string, number | string | boolean> = {};
+  const veille: Record<string, number | string | boolean | null> = {}; // D4-bis : null = surcharge NULLABLE « suivre le commun »
 
   if (patch.demandeur === undefined && patch.veille === undefined) {
     return { ok: false, erreurs: [{ colonne: '', message: 'aucun réglage à modifier' }] };
@@ -519,6 +528,8 @@ export function validerReglages(
         veille[cle] = valeur.trim();
         continue;
       }
+      // D4-bis — SURCHARGE NULLABLE : `null` (champ vidé) = « suivre le commun » → valeur VALIDE, écrite telle quelle (NULL).
+      if (param.surchargeDe && valeur === null) { veille[cle] = null; continue; }
       if (typeof valeur !== 'number' || !Number.isFinite(valeur) || !Number.isInteger(valeur)) {
         erreurs.push({ colonne: cle, message: `${param.libelle} : valeur entière attendue` }); continue;
       }

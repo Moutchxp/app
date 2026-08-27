@@ -12,7 +12,7 @@ import {
   type ProfilDemandeur,
   proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande, problemesIdentite, profilValide, ETIQUETTE_PROFIL,
   configAvecSignataire, apparierSelection, profilEffectifLot, raisonInexploitable, estCandidatEligible,
-  verdictAnnulation, RAISON_REFUS_ANNULATION,
+  verdictAnnulation, RAISON_REFUS_ANNULATION, valeurRail,
 } from './demande';
 import type { PermisVivier } from './rechercheVivier'; // D3 : type SEUL (le module de recherche est PUR)
 import { type Collaborateur, choisirCollaborateur } from './collaborateur';
@@ -78,7 +78,11 @@ export function paramsLot(cfg: ConfigVeille, ancienneteMois?: number): ParamsLot
   const maxMois = 12 * cfg.ancienneteMaxDemandeAnnees;
   const mois = ancienneteMois ?? maxMois;
   const dateMin = mois >= maxMois ? dateMinDepuis(cfg.ancienneteMaxDemandeAnnees) : dateMinMois(mois);
-  return { dossiersParDemande: cfg.dossiersParDemande, permisParCommuneParMois: cfg.permisParCommuneParMois, dateMin };
+  return {
+    dossiersParDemande: cfg.dossiersParDemande, permisParCommuneParMois: cfg.permisParCommuneParMois, dateMin,
+    // D4-bis — surcharges NULLABLE du rail téléservice (null = suivre le commun → byte-identique).
+    teleserviceDossiersParDemande: cfg.teleserviceDossiersParDepot, teleservicePermisParCommuneParMois: cfg.teleservicePermisParCommuneParMois,
+  };
 }
 
 /** Identité d'un profil (défaut 'entreprise'). Ligne absente → champs vides (jamais d'exception). */
@@ -165,9 +169,11 @@ export function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDema
   const communesAuPlafond: { codeInsee: string; nom: string | null; consomme: number; plafond: number; canal: string | null }[] = [];
   for (const code of parCommune.keys()) {
     const consomme = hist.permisCeMoisParCommune.get(code) ?? 0;
-    if (params.permisParCommuneParMois - consomme <= 0) {
-      const meta = nomParCommune.get(code);
-      communesAuPlafond.push({ codeInsee: code, nom: meta?.nom ?? null, consomme, plafond: params.permisParCommuneParMois, canal: meta?.canal ?? null });
+    const meta = nomParCommune.get(code);
+    // D4-bis — plafond EFFECTIF selon le rail (téléservice → surcharge si posée, sinon commun) : le décompte nommé reflète la surcharge.
+    const plafond = valeurRail(params.permisParCommuneParMois, params.teleservicePermisParCommuneParMois, meta?.canal ?? null);
+    if (plafond - consomme <= 0) {
+      communesAuPlafond.push({ codeInsee: code, nom: meta?.nom ?? null, consomme, plafond, canal: meta?.canal ?? null });
     }
   }
   communesAuPlafond.sort((a, b) => (a.nom ?? a.codeInsee).localeCompare(b.nom ?? b.codeInsee));

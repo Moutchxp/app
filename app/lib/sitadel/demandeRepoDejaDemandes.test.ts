@@ -69,6 +69,44 @@ describe('D2/Part 5 — diagnostiquer NOMME les communes au plafond (fin du déc
   });
 });
 
+describe('D4-bis — surcharges de préparation PAR RAIL (byte-identique quand rien surchargé)', () => {
+  const teleC = (over: Partial<CandidatDossier> = {}) => cand({ codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire', ...over }); // téléservice
+  const emailC = (over: Partial<CandidatDossier> = {}) => cand({ codeInsee: '92050', communeNom: 'Nanterre', canal: 'email', ...over });   // e-mail
+  const histVide = { dejaRattaches: new Set<number>(), permisCeMoisParCommune: new Map<string, number>() };
+
+  // 🔴 BYTE-IDENTIQUE (invariant V2/ORDRE_HISTORIQUE) : surcharges NULL/absentes ⇒ MÊMES lots qu'avec les seuls réglages communs.
+  it('surcharges null/absentes ⇒ proposerLots byte-identique', () => {
+    const cands = [emailC({ dossierId: 1 }), emailC({ dossierId: 2 }), teleC({ dossierId: 3 }), teleC({ dossierId: 4 })];
+    const attendu = proposerLots(cands, P, histVide);
+    expect(proposerLots(cands, { ...P, teleserviceDossiersParDemande: null, teleservicePermisParCommuneParMois: null }, histVide)).toEqual(attendu);
+    expect(proposerLots(cands, { ...P, teleserviceDossiersParDemande: undefined, teleservicePermisParCommuneParMois: undefined }, histVide)).toEqual(attendu);
+  });
+  it('surcharge téléservice ÉGALE à la valeur commune ⇒ byte-identique', () => {
+    const cands = [teleC({ dossierId: 3 })];
+    expect(proposerLots(cands, { ...P, teleserviceDossiersParDemande: P.dossiersParDemande, teleservicePermisParCommuneParMois: P.permisParCommuneParMois }, histVide))
+      .toEqual(proposerLots(cands, P, histVide));
+  });
+
+  it('la surcharge PLAFOND n’agit QUE sur le rail téléservice (formulaire), jamais e-mail', () => {
+    const P2 = { ...P, teleservicePermisParCommuneParMois: 1 }; // téléservice plafonné à 1 ; commun = 10
+    // Paris (formulaire) : 1 permis déjà ce mois → plafond téléservice 1 − 1 = quota 0 → aucun lot.
+    expect(proposerLots([teleC({ dossierId: 3 })], P2, { dejaRattaches: new Set<number>(), permisCeMoisParCommune: new Map([['75056', 1]]) })).toHaveLength(0);
+    // Nanterre (e-mail) : la surcharge téléservice est IGNORÉE → plafond commun 10 → lot produit.
+    expect(proposerLots([emailC({ dossierId: 5 })], P2, histVide).length).toBeGreaterThan(0);
+  });
+
+  it('la surcharge DOSSIERS change le découpage sur formulaire seulement', () => {
+    const cands = [teleC({ dossierId: 1 }), teleC({ dossierId: 2 }), teleC({ dossierId: 3 })]; // 3 dossiers Paris
+    expect(proposerLots(cands, P, histVide)).toHaveLength(1);                                   // commun dossiersParDemande=5 → 1 lot de 3
+    expect(proposerLots(cands, { ...P, teleserviceDossiersParDemande: 1 }, histVide)).toHaveLength(3); // surcharge 1 → 3 lots de 1
+  });
+
+  it('diagnostiquer — le plafond NOMMÉ reflète la surcharge téléservice', () => {
+    const d = diagnostiquer([teleC({ dossierId: 3 })], { dejaRattaches: new Set<number>(), permisCeMoisParCommune: new Map([['75056', 1]]) }, { ...P, teleservicePermisParCommuneParMois: 1 });
+    expect(d.communesAuPlafond).toEqual([{ codeInsee: '75056', nom: 'Paris', consomme: 1, plafond: 1, canal: 'formulaire' }]);
+  });
+});
+
 describe('D2/Part 5 — dateLiberationQuota = 1er du mois suivant', () => {
   it('JJ/MM/AAAA du 1er du mois d’après', () => {
     expect(dateLiberationQuota(new Date(2026, 7, 15))).toBe('01/09/2026'); // 15 août → 1er sept

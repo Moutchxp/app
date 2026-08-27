@@ -72,7 +72,8 @@ export interface ConfigVeille {
   attenteBatiAlerteActive: boolean;     // ATT-BATI : envoyer un rappel e-mail quand un permis attend le bâti au-delà du seuil ? (opt-in, défaut false)
   attenteBatiAlerteJours: number;       // ATT-BATI : ancienneté (jours) au-delà de laquelle le rappel se déclenche — défaut 365, plage 30..1095
   obstacleDisparuAlerteActive: boolean; // ALERTE : prévenir quand un bâtiment qui fondait un certificat a disparu de BD TOPO ? (opt-in, défaut false)
-  teleserviceDossiersParDepot: number;        // D4 (B) : défaut téléservice du nb de dossiers/dépôt manuel (surchargé par mairie_contact.max_dossiers_par_demande) — défaut 1, plage 1..20
+  teleserviceDossiersParDepot: number | null;        // D4/D4-bis (B) : SURCHARGE téléservice de dossiers_par_demande. NULL = suivre le commun (byte-identique) ; valeur = surcharge. Plage 1..20.
+  teleservicePermisParCommuneParMois: number | null; // D4-bis (B) : SURCHARGE téléservice de permis_par_commune_par_mois. NULL = suivre le commun ; valeur = surcharge. Plage 1..50.
   teleserviceAlerteNonDeposeActive: boolean;  // D4 (B) : alerte « demande téléservice préparée non déposée depuis N jours » (opt-in, défaut false)
   teleserviceAlerteNonDeposeJours: number;    // D4 (B) : seuil (jours) de l'alerte « non déposée » du rail téléservice — défaut 7, plage 1..90
 }
@@ -130,7 +131,8 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   rattachementSuiviAutoActive: false, // = DEFAULT de la migration 154 (RATT-AUTO : opt-in, comme tous les interrupteurs d'automatisation)
   attenteBatiAlerteActive: false, attenteBatiAlerteJours: 365, // = DEFAULT de la migration 155 (ATT-BATI : opt-in ; seuil 1 an, bas de la fenêtre IGN 1-3 ans)
   obstacleDisparuAlerteActive: false, // = DEFAULT de la migration 157 (ALERTE obstacle disparu : opt-in)
-  teleserviceDossiersParDepot: 1, teleserviceAlerteNonDeposeActive: false, teleserviceAlerteNonDeposeJours: 7, // = DEFAULT de la migration 159 (D4 : réglages téléservice)
+  teleserviceDossiersParDepot: null, teleservicePermisParCommuneParMois: null, // D4-bis : surcharges NULLABLE (repli NULL = suivre le commun → byte-identique)
+  teleserviceAlerteNonDeposeActive: false, teleserviceAlerteNonDeposeJours: 7, // = DEFAULT de la migration 159 (D4 : réglages téléservice)
 };
 
 interface LigneConfigVeille {
@@ -476,23 +478,26 @@ async function lireObstacleDisparuAlerte(): Promise<Pick<ConfigVeille, 'obstacle
  * tant que la migration 159 n'est pas passée, les colonnes n'existent pas → cette lecture échoue SEULE et retombe sur les défauts
  * (1 dossier/dépôt, alerte OFF, seuil 7 j) SANS dégrader le reste de la config. Après 159 : renvoie les valeurs en base (font foi).
  */
-async function lireTeleservice(): Promise<Pick<ConfigVeille, 'teleserviceDossiersParDepot' | 'teleserviceAlerteNonDeposeActive' | 'teleserviceAlerteNonDeposeJours'>> {
+async function lireTeleservice(): Promise<Pick<ConfigVeille, 'teleserviceDossiersParDepot' | 'teleservicePermisParCommuneParMois' | 'teleserviceAlerteNonDeposeActive' | 'teleserviceAlerteNonDeposeJours'>> {
   const def = {
     teleserviceDossiersParDepot: CONFIG_VEILLE_DEFAUT.teleserviceDossiersParDepot,
+    teleservicePermisParCommuneParMois: CONFIG_VEILLE_DEFAUT.teleservicePermisParCommuneParMois,
     teleserviceAlerteNonDeposeActive: CONFIG_VEILLE_DEFAUT.teleserviceAlerteNonDeposeActive,
     teleserviceAlerteNonDeposeJours: CONFIG_VEILLE_DEFAUT.teleserviceAlerteNonDeposeJours,
   };
   try {
-    const { rows } = await query<{ teleservice_dossiers_par_depot: number; teleservice_alerte_non_depose_active: boolean; teleservice_alerte_non_depose_jours: number }>(
-      `SELECT teleservice_dossiers_par_depot, teleservice_alerte_non_depose_active, teleservice_alerte_non_depose_jours FROM config_veille WHERE id = 1`);
+    const { rows } = await query<{ teleservice_dossiers_par_depot: number | null; teleservice_permis_par_commune_par_mois: number | null; teleservice_alerte_non_depose_active: boolean; teleservice_alerte_non_depose_jours: number }>(
+      `SELECT teleservice_dossiers_par_depot, teleservice_permis_par_commune_par_mois, teleservice_alerte_non_depose_active, teleservice_alerte_non_depose_jours FROM config_veille WHERE id = 1`);
     const r = rows[0];
     if (!r) return def;
     return {
-      teleserviceDossiersParDepot: r.teleservice_dossiers_par_depot ?? def.teleserviceDossiersParDepot,
+      // D4-bis — surcharges NULLABLE : on préserve `null` (= suivre le commun), on ne le remplace PAS par un défaut.
+      teleserviceDossiersParDepot: r.teleservice_dossiers_par_depot ?? null,
+      teleservicePermisParCommuneParMois: r.teleservice_permis_par_commune_par_mois ?? null,
       teleserviceAlerteNonDeposeActive: r.teleservice_alerte_non_depose_active === true,
       teleserviceAlerteNonDeposeJours: r.teleservice_alerte_non_depose_jours ?? def.teleserviceAlerteNonDeposeJours,
     };
-  } catch { return def; } // 159 pas encore appliquée → défauts (téléservice : 1/dépôt, alerte OFF, 7 j)
+  } catch { return def; } // 159/160 pas encore appliquées → défauts (surcharges NULL = suivre le commun ; alerte OFF, 7 j)
 }
 
 /** Lit le singleton `config_veille`. Ligne absente / table absente / erreur → `CONFIG_VEILLE_DEFAUT` (jamais d'exception propagée). */

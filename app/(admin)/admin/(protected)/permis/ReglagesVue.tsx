@@ -90,7 +90,7 @@ export function ReglagesVue() {
     setIdMsg((m) => ({ ...m, [profil]: `Aucune modification : ${(globales.length ? globales : erreurs.map((e) => e.message)).join(' ; ')}.` }));
   }
 
-  async function patchVeille(colonne: string, valeur: number | string | boolean, msgOk: string) {
+  async function patchVeille(colonne: string, valeur: number | string | boolean | null, msgOk: string) {
     const res = await fetch('/api/admin/permis/reglages', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ veille: { [colonne]: valeur } }),
     });
@@ -104,6 +104,10 @@ export function ReglagesVue() {
   async function enregistrerParam(colonne: string, type: 'entier' | 'texte' | 'enum' | 'url' | 'email' | 'booleen' | 'texte_libre') {
     setVeMsg((m) => ({ ...m, [colonne]: '' })); setVeErreurs((m) => ({ ...m, [colonne]: '' }));
     const brut = veDraft[colonne] ?? '';
+    const param = PARAMS_VEILLE.find((p) => p.colonne === colonne);
+    // D4-bis — SURCHARGE NULLABLE : sur un réglage « par process » (surchargeDe), un champ VIDÉ = « suivre le réglage commun »
+    //   → on écrit NULL. C'est une valeur VALIDE (pas une erreur « valeur requise »), et byte-identique tant que rien n'est posé.
+    if (param?.surchargeDe && brut.trim() === '') { await patchVeille(colonne, null, 'Suit le réglage commun.'); return; }
     if ((type === 'entier' || type === 'url') && brut.trim() === '') { setVeErreurs((m) => ({ ...m, [colonne]: 'Valeur requise.' })); return; }
     await patchVeille(colonne, type === 'entier' ? Number(brut) : brut, 'Enregistré.');
   }
@@ -154,6 +158,14 @@ export function ReglagesVue() {
       {p.rail === 'email' ? 'E-mail seulement' : 'Téléservice seulement'}
     </span>
   ) : null;
+  // D4-bis — sur un réglage « par process » (surchargeDe) laissé vide, on affiche la valeur COMMUNE effectivement héritée,
+  //   pour que le porteur voie ce que « suivre le commun » vaut concrètement sans aller lire l'autre carte. Réglage normal → pas de placeholder.
+  const placeholderSurcharge = (p: ParamVeille): string | undefined => {
+    if (!p.surchargeDe) return undefined;
+    const commun = PARAMS_VEILLE.find((x) => x.colonne === p.surchargeDe);
+    const val = commun ? data.veille[commun.cle] : undefined;
+    return val == null ? 'Suit le réglage commun' : `Commun : ${val}`;
+  };
   const libelleAvecRail = (p: ParamVeille) => (
     <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
       <span style={styleLabel}>{p.libelle}</span>{badgeRail(p)}
@@ -191,6 +203,8 @@ export function ReglagesVue() {
               </select>
             : p.type === 'entier'
               ? <input type="number" value={veDraft[p.colonne] ?? ''} min={b?.min} max={b?.max} step={1}
+                  // D4-bis — surcharge NULLABLE : le placeholder RÉVÈLE la valeur commune héritée quand le champ est vide (= « suit le commun »).
+                  placeholder={placeholderSurcharge(p)}
                   onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle} />
               : p.type === 'url'
                 ? <input type="url" inputMode="url" placeholder="https://…" value={veDraft[p.colonne] ?? ''}

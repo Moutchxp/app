@@ -189,6 +189,18 @@ export interface ParamsLot {
   permisParCommuneParMois: number;
   /** Date d'autorisation minimale ('AAAA-MM-JJ', = aujourd'hui − anciennete_max). `null` = pas de borne (jamais en prod). */
   dateMin: string | null;
+  /**
+   * D4-bis — SURCHARGES du rail TÉLÉSERVICE (canal 'formulaire'), modèle (a) nullable : `null`/absent = suivre la valeur commune
+   * (byte-identique), une valeur = surcharger POUR LES COMMUNES TÉLÉSERVICE seulement. Le rail e-mail utilise toujours les valeurs
+   * communes ci-dessus. Appliqué per-commune dans `proposerLots`/`diagnostiquer` (APRÈS la requête candidats → SQL inchangé).
+   */
+  teleserviceDossiersParDemande?: number | null;
+  teleservicePermisParCommuneParMois?: number | null;
+}
+
+/** D4-bis — résout la valeur EFFECTIVE d'un réglage per-commune selon le canal : téléservice → surcharge si posée, sinon commun. PURE. */
+export function valeurRail(commun: number, surchargeTeleservice: number | null | undefined, canal: string | null): number {
+  return canal === 'formulaire' && surchargeTeleservice != null ? surchargeTeleservice : commun;
 }
 export interface Lot {
   codeInsee: string; communeNom: string; canal: CanalContact; dossiers: CandidatDossier[];
@@ -258,19 +270,22 @@ export function proposerLots(candidats: CandidatDossier[], params: ParamsLot, hi
   }
   const lots: Lot[] = [];
   for (const [code, dossiers] of parCommune) {
-    // Q1 — le plafond mensuel se compte en PERMIS (dossiers), pas en demandes/courriers : `quota` = permis restants du mois.
-    const quota = Math.max(0, params.permisParCommuneParMois - (hist.permisCeMoisParCommune.get(code) ?? 0));
+    const canal = dossiers[0].canal!;
+    // Q1 — le plafond mensuel se compte en PERMIS (dossiers). D4-bis — valeur EFFECTIVE selon le rail (téléservice → surcharge si
+    //   posée, sinon commun ; e-mail → toujours commun). Surcharge null/absente ⇒ commun ⇒ byte-identique.
+    const plafondMensuel = valeurRail(params.permisParCommuneParMois, params.teleservicePermisParCommuneParMois, canal);
+    const quota = Math.max(0, plafondMensuel - (hist.permisCeMoisParCommune.get(code) ?? 0));
     if (quota <= 0) continue;
     const commune = dossiers[0].communeNom!;
-    const canal = dossiers[0].canal!;
     const destOrigine = dossiers[0].destOrigine;   // S14e : origine résolue de la commune (identique pour tous ses dossiers)
     const destNom = dossiers[0].destNom;
     const profilImpose = dossiers[0].profilImpose ?? null; // P3 : contrainte téléservice identique pour tous les dossiers de la commune
-    // P3 — taille de tranche = limite globale, OU la limite PROPRE à la commune si plus petite (ex. téléservice Paris = 1).
-    // ⚠️ SEULE la taille de tranche et le PLAFOND (en permis) agissent ici : le FILTRE d'éligibilité (ci-dessus) et l'ORDRE des
-    // candidats (amont) sont inchangés → la SÉLECTION reste BYTE-IDENTIQUE, seul le DÉCOUPAGE diffère.
+    // P3 — taille de tranche = limite du rail (D4-bis : dossiers_par_demande, surchargeable téléservice), OU la limite PROPRE à la
+    //   commune si plus petite (ex. téléservice Paris = 1). ⚠️ SEULE la taille de tranche et le PLAFOND agissent ici : le FILTRE
+    //   d'éligibilité (ci-dessus) et l'ORDRE des candidats (amont) sont INCHANGÉS → la SÉLECTION reste BYTE-IDENTIQUE, seul le DÉCOUPAGE diffère.
+    const dossiersRail = valeurRail(params.dossiersParDemande, params.teleserviceDossiersParDemande, canal);
     const maxCommune = dossiers[0].maxDossiersParDemande;
-    const taille = typeof maxCommune === 'number' && maxCommune > 0 ? Math.min(params.dossiersParDemande, maxCommune) : params.dossiersParDemande;
+    const taille = typeof maxCommune === 'number' && maxCommune > 0 ? Math.min(dossiersRail, maxCommune) : dossiersRail;
     // `i` = permis déjà placés ce mois. On découpe en lots de `taille`, sans jamais dépasser `quota` PERMIS (dernière tranche
     // écrêtée à `quota`). Défaut (taille = dossiersParDemande, quota multiple) → mêmes lots qu'avant Q1 (byte-identique).
     for (let i = 0; i < dossiers.length && i < quota; i += taille) {
