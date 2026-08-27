@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { BandeauIdentite, PlageParam, CarteReglageEntier, CarteParamVestigial, CarteSection, TITRE_PARAMS_DEMANDES, TITRE_PARAMS_DOSSIERS, AIDE_PARAMS_DOSSIERS, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS, TITRE_THEME_PREPARATION, TITRE_THEME_ENVOI, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA } from './ReglagesRendu';
-import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES, PARAMS_MENTIONS, PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA, PARAMS_THEME_RATTACHEMENT } from '../../../../lib/sitadel/reglagesVeille';
+import { parserBornesCheck, PARAMS_VEILLE, PARAMS_DEMANDES, PARAMS_DOSSIERS, PARAMS_SOURCES, PARAMS_MENTIONS, PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA, PARAMS_THEME_TELESERVICE, PARAMS_THEME_RATTACHEMENT } from '../../../../lib/sitadel/reglagesVeille';
 import { problemesIdentite } from '../../../../lib/sitadel/demande';
 
 /**
@@ -126,11 +126,11 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
 
   // E1/N1-A — PREUVE « aucun paramètre perdu » : les 5 thèmes sont DISJOINTS et couvrent EXACTEMENT les clés « demandes »
   //   (liste littérale figée, comparée en ENSEMBLE — pas en ordre). N1-A a ajouté `depot_adresses_connues` au thème Réponses.
-  it('les 5 thèmes partitionnent les clés « demandes » (disjoints, couvrants, sans perte ni doublon)', () => {
-    const themes = [PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA];
+  it('les thèmes « demandes » partitionnent les clés (disjoints, couvrants, sans perte ni doublon) — D4 : + thème Téléservice', () => {
+    const themes = [PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA, PARAMS_THEME_TELESERVICE];
     const clesThemes = themes.flatMap((t) => t.map((p) => p.colonne));
-    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length).toBe(35);
-    expect(new Set(clesThemes).size).toBe(35); // disjoints (aucun doublon)
+    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length + PARAMS_THEME_TELESERVICE.length).toBe(38);
+    expect(new Set(clesThemes).size).toBe(38); // disjoints (aucun doublon)
     // liste LITTÉRALE figée des clés « demandes » — comparée en ENSEMBLE à la concaténation des thèmes ET à COLONNES_PARAMS_DEMANDES.
     const CLES_DEMANDES = [
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
@@ -145,6 +145,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours', // cascade lot 2 — 3 délais (Envoi)
       'envoi_heure_debut', 'envoi_heure_fin', // ENVOI OUVRÉ — fenêtre horaire (Envoi)
       'saisine_cada_auto_active', // cascade lot 2 — auto-saisine (CADA)
+      'teleservice_dossiers_par_depot', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours', // D4 — thème Téléservice
     ];
     expect(new Set(clesThemes)).toEqual(new Set(CLES_DEMANDES));
     expect(new Set(PARAMS_DEMANDES.map((p) => p.colonne))).toEqual(new Set(CLES_DEMANDES)); // COLONNES_PARAMS_DEMANDES = concat des thèmes, même ENSEMBLE
@@ -156,12 +157,13 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     // Ordre EXACT des sections rendues par ReglagesVue (cf. ReglagesVue.tsx, Section B puis Mentions puis Sources).
     const CLES_RENDUES_REGLAGES = [
       ...PARAMS_THEME_PREPARATION, ...PARAMS_THEME_ENVOI, ...PARAMS_THEME_REPONSES, ...PARAMS_THEME_ALERTES, ...PARAMS_THEME_CADA,
+      ...PARAMS_THEME_TELESERVICE, // D4 — thème « Téléservice (dépôt manuel) » : dossiers/dépôt (1) + alerte non déposée (2) = 3 réglages
       ...PARAMS_THEME_RATTACHEMENT, // 6e thème « Rattachement au bâti » : RATT-AUTO (1) + ATT-BATI (2) = 3 réglages
       ...PARAMS_MENTIONS, ...PARAMS_SOURCES,
     ].map((p) => p.colonne);
-    // Snapshot : 44 + 1 = 45 clés distinctes (ALERTE « obstacle disparu » a ajouté 1 réglage au thème « Alertes par e-mail »).
-    expect(CLES_RENDUES_REGLAGES).toHaveLength(45);
-    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(45);
+    // Snapshot : 45 + 3 (D4 téléservice) = 48 clés distinctes.
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(48);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(48);
     // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
     const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
     expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));

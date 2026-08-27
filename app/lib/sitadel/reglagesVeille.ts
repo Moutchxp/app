@@ -158,6 +158,12 @@ export interface ParamVeille {
    */
   vestigial?: boolean;
   remplacePar?: string;
+  /**
+   * D4 — RAIL du réglage : `'email'` = ne concerne QUE le process automatique (auto-émission d'e-mails), `'teleservice'` = ne
+   * concerne QUE le dépôt manuel. ABSENT = COMMUN aux deux (principe D3-fix : ne pas dupliquer le commun). Purement un LIBELLÉ
+   * d'affichage (« E-mail seulement » / « Téléservice seulement ») — n'affecte NI la lecture NI l'écriture d'un réglage.
+   */
+  rail?: 'email' | 'teleservice';
 }
 
 /** Forme minimale d'une URL http(s) — MIROIR APPLICATIF du CHECK `config_veille_dila_url_check` (migration 069). */
@@ -191,9 +197,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     optionsEnumLabels: { surface_puis_date: 'Plus grands d’abord (surface, puis date)', date_puis_surface: 'Plus récents d’abord (date, puis surface)', date_ancienne_puis_surface: 'Plus anciens d’abord (date, puis surface)' },
     aide: 'Dans quel ordre les dossiers sont départagés à catégorie égale : « plus grands d’abord » remonte les gros projets (mais peut enterrer des dossiers récents plus petits) ; « plus récents d’abord » privilégie les permis récents ; « plus anciens d’abord » traite d’abord les permis les plus vieux de la fenêtre (rattraper le retard). ⚠️ Ce choix change AUSSI l’ordre de la liste affichée dans l’onglet « Dossiers ».' },
   // S37 — CAPS D'ENVOI : le rempart contre un envoi accidentel en masse. À monter avec prudence.
-  { colonne: 'envois_max_par_run', cle: 'envoisMaxParRun', libelle: 'Envois maximum par action', unite: 'e-mails', type: 'entier',
+  { colonne: 'envois_max_par_run', cle: 'envoisMaxParRun', libelle: 'Envois maximum par action', unite: 'e-mails', type: 'entier', rail: 'email',
     aide: 'Nombre maximum d’e-mails envoyés aux mairies en UNE seule action d’envoi. C’est le rempart de sécurité : même en cas d’erreur, jamais plus que ce nombre ne part d’un coup. L’augmenter accélère la campagne mais accroît le risque qu’un envoi accidentel touche beaucoup de mairies à la fois.' },
-  { colonne: 'envois_max_par_jour', cle: 'envoisMaxParJour', libelle: 'Envois maximum par jour', unite: 'e-mails / jour', type: 'entier',
+  { colonne: 'envois_max_par_jour', cle: 'envoisMaxParJour', libelle: 'Envois maximum par jour', unite: 'e-mails / jour', type: 'entier', rail: 'email',
     aide: 'Nombre maximum d’e-mails envoyés aux mairies sur une journée entière (toutes actions cumulées). L’augmenter raccourcit la durée de la campagne ; le garder bas protège contre un envoi de masse involontaire et évite d’être classé indésirable par la messagerie.' },
   // S38 — adresse de réponse (reply-to). Sans valeur par défaut : tant qu'elle est vide, l'envoi refuse de s'exécuter.
   { colonne: 'adresse_reponse', cle: 'adresseReponse', libelle: 'Adresse de réponse des mairies', unite: '', type: 'email',
@@ -205,7 +211,7 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   //   reportée dans le successeur). Laissé ÉDITABLE ici : marquer le descripteur vestigial (écran lecture seule) relève de l’affichage (lot 4).
   { colonne: 'relance_jours_avant_echeance', cle: 'relanceJoursAvantEcheance', libelle: 'Nombre de jours avant l’échéance', unite: 'jours', type: 'entier',
     aide: 'À partir de ce nombre de jours avant l’échéance, un rappel est préparé pour les demandes restées sans réponse. La préparation a toujours lieu et n’envoie rien.' },
-  { colonne: 'relance_auto_active', cle: 'relanceAutoActive', libelle: 'Envoyer les relances automatiquement', unite: '', type: 'booleen',
+  { colonne: 'relance_auto_active', cle: 'relanceAutoActive', libelle: 'Envoyer les relances automatiquement', unite: '', type: 'booleen', rail: 'email',
     aide: 'Si cette case est cochée, les relances partiront vers les mairies sans relecture. Tant qu’elle est décochée, rien ne part sans un clic.' },
   // Cascade lot 2 — les 3 délais de la cascade, dans l’ordre chronologique (rappel J-10, avis J-3, saisine J+délai). Bornes 1..30
   //   lues au runtime depuis les CHECK (migration 136). Aides en conséquences concrètes : ce qui part, quand.
@@ -216,9 +222,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   { colonne: 'relance_saisine_delai_jours', cle: 'relanceSaisineDelaiJours', libelle: 'Saisine CADA — délai après l’échéance', unite: 'jours', type: 'entier',
     aide: 'Combien de jours APRÈS l’échéance la saisine de la CADA sera déposée. Le jour de l’échéance, un message l’annonce à la mairie ; ce délai lui laisse une dernière chance de transmettre les pièces avant le dépôt.' },
   // RELANCE — fenêtre HORAIRE d'envoi automatique (matin, jours ouvrés). Un rappel expédié un dimanche soir « fait robot » ; en semaine le matin, il « fait une personne ».
-  { colonne: 'envoi_heure_debut', cle: 'envoiHeureDebut', libelle: 'Envoi automatique — heure de début', unite: 'heure locale', type: 'entier',
+  { colonne: 'envoi_heure_debut', cle: 'envoiHeureDebut', libelle: 'Envoi automatique — heure de début', unite: 'heure locale', type: 'entier', rail: 'email',
     aide: 'Les relances automatiques ne partent qu’entre cette heure et l’heure de fin ci-dessous, du lundi au vendredi. Les jours fériés ne sont pas pris en compte. Un brouillon préparé un week-end attend le lundi matin. (L’envoi que VOUS déclenchez à la main n’est jamais bridé.)' },
-  { colonne: 'envoi_heure_fin', cle: 'envoiHeureFin', libelle: 'Envoi automatique — heure de fin', unite: 'heure locale', type: 'entier',
+  { colonne: 'envoi_heure_fin', cle: 'envoiHeureFin', libelle: 'Envoi automatique — heure de fin', unite: 'heure locale', type: 'entier', rail: 'email',
     aide: 'Fin (exclue) de la fenêtre d’envoi automatique. Doit être PLUS GRANDE que l’heure de début ; sinon, par sécurité, rien ne part automatiquement (et le compte rendu le signale). La veille passe toutes les 15 min : une fenêtre de deux heures suffit largement à ce qu’un envoi tombe dedans.' },
   // X1 — CANAL CADA (saisine quand une mairie reste silencieuse plus d’un mois). L’adresse VIDE n’est PAS une erreur : c’est le mode « formulaire en ligne ».
   { colonne: 'cada_email', cle: 'cadaEmail', libelle: 'Adresse e-mail de la CADA', unite: '', type: 'email',
@@ -313,6 +319,13 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Quand c’est activé, vous recevez un e-mail de RAPPEL (à l’adresse d’alerte configurée plus haut) dès qu’un permis reste « en attente de bâti » au-delà du seuil ci-dessous. C’est un simple rappel pour qu’un dossier ne soit pas oublié — JAMAIS une détection : il ne dit pas que le bâtiment est arrivé et n’appelle aucune action. Un seul rappel par dossier. Décoché, aucun rappel n’est envoyé.' },
   { colonne: 'attente_bati_alerte_jours', cle: 'attenteBatiAlerteJours', libelle: 'Seuil d’alerte « en attente de bâti »', unite: 'jours', type: 'entier',
     aide: 'Nombre de jours d’attente au-delà duquel le rappel ci-dessus se déclenche pour un dossier. Un bâtiment neuf met en général 1 à 3 ans à apparaître dans BD TOPO : un seuil court vous noierait sous des rappels alors que l’attente est normale. Défaut : 365 jours (1 an).' },
+  // D4 — RÉGLAGES TÉLÉSERVICE (rail 'teleservice' seul). Thème PROPRE « Téléservice (dépôt manuel) ». Bornes lues des CHECK (migration 159).
+  { colonne: 'teleservice_dossiers_par_depot', cle: 'teleserviceDossiersParDepot', libelle: 'Dossiers par dépôt (téléservice)', unite: 'dossiers', type: 'entier', rail: 'teleservice',
+    aide: 'Sur un téléservice, chaque dossier se dépose à la main : une demande à plusieurs dossiers exige autant de dépôts. Ce réglage est le nombre de dossiers regroupés par défaut pour les communes à téléservice. Si une commune impose sa propre limite (par exemple Paris n’accepte qu’un seul dossier par dépôt), c’est SA limite qui s’applique — ce défaut ne vaut que pour les communes sans limite propre. Ne concerne QUE le rail téléservice.' },
+  { colonne: 'teleservice_alerte_non_depose_active', cle: 'teleserviceAlerteNonDeposeActive', libelle: 'M’alerter si une demande préparée n’est pas déposée', unite: '', type: 'booleen', rail: 'teleservice',
+    aide: 'Côté téléservice, rien ne part tout seul : une demande préparée attend que vous la déposiez à la main. Quand c’est activé, vous recevez un rappel (à l’adresse d’alerte configurée plus haut) dès qu’une demande téléservice reste préparée sans être déposée au-delà du seuil ci-dessous. Décoché, aucun rappel. Ne concerne QUE le rail téléservice.' },
+  { colonne: 'teleservice_alerte_non_depose_jours', cle: 'teleserviceAlerteNonDeposeJours', libelle: 'Seuil « préparée non déposée » (jours)', unite: 'jours', type: 'entier', rail: 'teleservice',
+    aide: 'Nombre de jours au-delà duquel une demande téléservice préparée mais non déposée déclenche le rappel ci-dessus. Défaut : 7 jours.' },
 ];
 
 /**
@@ -374,8 +387,14 @@ export const COLONNES_THEME_RATTACHEMENT: readonly string[] = [
   'rattachement_suivi_auto_active',   // RATT-AUTO — re-détection automatique du bâti
   'attente_bati_alerte_active', 'attente_bati_alerte_jours', // ATT-BATI — rappel si l'attente dure trop (interrupteur + seuil)
 ];
+// D4 — thème PROPRE au process TÉLÉSERVICE (dépôt manuel). Groupe ses réglages 'teleservice' sans casser les 5 thèmes existants.
+export const COLONNES_THEME_TELESERVICE: readonly string[] = [
+  'teleservice_dossiers_par_depot',
+  'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours', // alerte « non déposée » : interrupteur + seuil
+];
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
   ...COLONNES_THEME_PREPARATION, ...COLONNES_THEME_ENVOI, ...COLONNES_THEME_REPONSES, ...COLONNES_THEME_ALERTES, ...COLONNES_THEME_CADA,
+  ...COLONNES_THEME_TELESERVICE,
 ];
 // S30 — 3e sous-bloc : SOURCES de données (annuaire DILA). Distinct des demandes et de la classification des dossiers.
 export const COLONNES_PARAMS_SOURCES: readonly string[] = ['dila_url'];
@@ -399,6 +418,7 @@ export const PARAMS_THEME_ENVOI: ParamVeille[] = paramsDuTheme(COLONNES_THEME_EN
 export const PARAMS_THEME_REPONSES: ParamVeille[] = paramsDuTheme(COLONNES_THEME_REPONSES);
 export const PARAMS_THEME_ALERTES: ParamVeille[] = paramsDuTheme(COLONNES_THEME_ALERTES);
 export const PARAMS_THEME_CADA: ParamVeille[] = paramsDuTheme(COLONNES_THEME_CADA);
+export const PARAMS_THEME_TELESERVICE: ParamVeille[] = paramsDuTheme(COLONNES_THEME_TELESERVICE); // D4 — process téléservice (dépôt manuel)
 export const PARAMS_THEME_RATTACHEMENT: ParamVeille[] = paramsDuTheme(COLONNES_THEME_RATTACHEMENT);
 // Conservé (même ENSEMBLE qu'avant E1, ordre = concaténation des thèmes). Sert au complément PARAMS_DOSSIERS et à la compat.
 export const PARAMS_DEMANDES: ParamVeille[] = paramsDuTheme(COLONNES_PARAMS_DEMANDES);

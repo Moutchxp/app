@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parserBornesCheck, parserListeCheck, parserListeArrayCheck, validerReglages, bandeauIdentite, colonneDepuisProbleme,
   PARAMS_VEILLE, PARAMS_DEMANDES, COLONNES_PARAMS_DEMANDES, CHAMPS_IDENTITE,
-  COLONNES_THEME_PREPARATION, COLONNES_THEME_CADA,
+  COLONNES_THEME_PREPARATION, COLONNES_THEME_CADA, PARAMS_THEME_TELESERVICE,
 } from './reglagesVeille';
 
 describe('N7-E — parserListeCheck : liste fermée depuis le CHECK', () => {
@@ -78,6 +78,9 @@ const DEFS_BASE = [
   'CHECK (((envoi_heure_fin >= 0) AND (envoi_heure_fin <= 23)))',
   // ATT-BATI — seuil du rappel « en attente de bâti » (migration 155) : BETWEEN 30 AND 1095 → forme `>= AND <=`
   'CHECK (((attente_bati_alerte_jours >= 30) AND (attente_bati_alerte_jours <= 1095)))',
+  // D4 — réglages téléservice (migration 159) : BETWEEN rendus par pg_get_constraintdef en `>= AND <=`
+  'CHECK (((teleservice_dossiers_par_depot >= 1) AND (teleservice_dossiers_par_depot <= 20)))',
+  'CHECK (((teleservice_alerte_non_depose_jours >= 1) AND (teleservice_alerte_non_depose_jours <= 90)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 
@@ -85,6 +88,42 @@ const CONF_OK: ConfigDemandeur = {
   raisonSociale: 'Criterimmo', formeJuridique: 'SARL', siegeAdresse: '191 av. Charles de Gaulle, 92200 Neuilly',
   representantNom: 'A. Jorel', representantQualite: 'gérant', emailContact: 'contact@sansvisavis.com', telephone: '',
 };
+
+describe('D4 — classement par rail (A e-mail / B téléservice / C commun)', () => {
+  const par = (col: string) => PARAMS_VEILLE.find((p) => p.colonne === col)!;
+
+  it('A — e-mail seulement : caps d’envoi, heures d’envoi auto, relance auto', () => {
+    for (const c of ['envois_max_par_run', 'envois_max_par_jour', 'relance_auto_active', 'envoi_heure_debut', 'envoi_heure_fin']) {
+      expect(par(c).rail, c).toBe('email');
+    }
+  });
+  it('B — téléservice seulement : les 3 réglages du thème Téléservice', () => {
+    for (const c of ['teleservice_dossiers_par_depot', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours']) {
+      expect(par(c).rail, c).toBe('teleservice');
+    }
+    expect(PARAMS_THEME_TELESERVICE.map((p) => p.colonne)).toEqual([
+      'teleservice_dossiers_par_depot', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours',
+    ]);
+  });
+  // 🔴 GARDE du principe D3-fix : un réglage COMMUN reste commun (aucun rail) — jamais dupliqué ni étiqueté « e-mail ».
+  it('C — commun : adresse de réponse, délais de relance, mentions, éligibilité, CADA N’ONT PAS de rail', () => {
+    for (const c of ['adresse_reponse', 'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours',
+      'pieces_demandees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'anciennete_max_demande_annees',
+      'proposition_cada_active', 'cada_email', 'releve_active', 'echeance_alerte_jours', 'alerte_email']) {
+      expect(par(c).rail, c).toBeUndefined();
+    }
+  });
+  it('les nouveaux réglages téléservice sont éditables (dans COLONNES_PARAMS_DEMANDES) et validés', () => {
+    for (const c of ['teleservice_dossiers_par_depot', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours']) {
+      expect(COLONNES_PARAMS_DEMANDES).toContain(c);
+    }
+    // valide : 3 dossiers/dépôt (dans 1..20) ; hors bornes : 0 et 21 refusés.
+    expect(validerReglages({ veille: { teleservice_dossiers_par_depot: 3 } }, BORNES).ok).toBe(true);
+    expect(validerReglages({ veille: { teleservice_dossiers_par_depot: 0 } }, BORNES).ok).toBe(false);
+    expect(validerReglages({ veille: { teleservice_dossiers_par_depot: 21 } }, BORNES).ok).toBe(false);
+    expect(validerReglages({ veille: { teleservice_alerte_non_depose_active: true } }, BORNES).ok).toBe(true);
+  });
+});
 
 describe('S7d — bornes issues des CHECK de la base', () => {
   it('parse min/max depuis pg_get_constraintdef, ignore la contrainte non bornée (id = 1)', () => {

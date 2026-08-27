@@ -4,10 +4,10 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import type { ConfigVeille } from '../../../../lib/sitadel/veilleConfig';
 import { ETIQUETTE_PROFIL, type ConfigDemandeur, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import {
-  champsPourProfil, PARAMS_VEILLE, PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA, PARAMS_THEME_RATTACHEMENT,
+  champsPourProfil, PARAMS_VEILLE, PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA, PARAMS_THEME_TELESERVICE, PARAMS_THEME_RATTACHEMENT,
   PARAMS_SOURCES, PARAMS_MENTIONS, type ParamVeille, type BornesParColonne, type ErreurReglage,
 } from '../../../../lib/sitadel/reglagesVeille';
-import { BandeauIdentite, PlageParam, CarteParamVestigial, CarteSection, TITRE_THEME_PREPARATION, TITRE_THEME_ENVOI, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA, TITRE_THEME_RATTACHEMENT, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
+import { BandeauIdentite, PlageParam, CarteParamVestigial, CarteSection, TITRE_THEME_PREPARATION, TITRE_THEME_ENVOI, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA, TITRE_THEME_TELESERVICE, TITRE_THEME_RATTACHEMENT, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
 
 /**
  * Écran « Réglages » de la tuile Permis (chantier S7d / S7e). Édite les DEUX identités de demandeur (Société / Personne
@@ -147,6 +147,19 @@ export function ReglagesVue() {
 
   // Carte d'UN paramètre (S13) — rendu identique à avant, factorisé pour alimenter les deux sous-blocs sans duplication.
   const bornes = data.bornes;
+  // D4 — badge de RAIL : un réglage « e-mail seulement » / « téléservice seulement » le DIT à l'écran (sinon on recrée la
+  //   confusion des deux process mélangés). Absent = commun aux deux → aucun badge. La couleur ne porte pas l'info (texte).
+  const badgeRail = (p: ParamVeille) => p.rail ? (
+    <span style={{ fontSize: 10, fontWeight: 700, padding: '.05rem .4rem', borderRadius: '.35rem', border: '1px solid var(--color-svv-line)', color: 'var(--color-svv-muted)', whiteSpace: 'nowrap' }}>
+      {p.rail === 'email' ? 'E-mail seulement' : 'Téléservice seulement'}
+    </span>
+  ) : null;
+  const libelleAvecRail = (p: ParamVeille) => (
+    <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+      <span style={styleLabel}>{p.libelle}</span>{badgeRail(p)}
+    </span>
+  );
+
   const carteParam = (p: ParamVeille) => {
     const b = bornes[p.colonne];
     // Q1 — paramètre VESTIGIAL : lecture seule (pas d'input éditable, pas de bouton « Enregistrer »). La valeur affichée est
@@ -157,9 +170,9 @@ export function ReglagesVue() {
       const actif = Boolean(data.veille[p.cle]);
       return (
         <article key={p.colonne} className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
-          <label style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+          <label style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <input type="checkbox" checked={actif} onChange={(e) => void basculerBooleen(p.colonne, e.target.checked)} aria-label={p.libelle} />
-            <span style={styleLabel}>{p.libelle}</span>
+            <span style={styleLabel}>{p.libelle}</span>{badgeRail(p)}
           </label>
           <span style={styleAide}>{p.aide}</span>
           {veMsg[p.colonne] && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{veMsg[p.colonne]}</span>}
@@ -169,7 +182,7 @@ export function ReglagesVue() {
     }
     return (
       <article key={p.colonne} className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
-        <span style={styleLabel}>{p.libelle}</span>
+        {libelleAvecRail(p)}
         <span style={styleAide}>{p.aide}</span>
         <label className="flex flex-col gap-1" style={{ marginTop: '.2rem' }}>
           {p.type === 'enum'
@@ -247,6 +260,7 @@ export function ReglagesVue() {
         { titre: TITRE_THEME_REPONSES, icone: '📥', params: PARAMS_THEME_REPONSES },
         { titre: TITRE_THEME_ALERTES, icone: '🔔', params: PARAMS_THEME_ALERTES },
         { titre: TITRE_THEME_CADA, icone: '⚖️', params: PARAMS_THEME_CADA },
+        { titre: TITRE_THEME_TELESERVICE, icone: '📮', params: PARAMS_THEME_TELESERVICE },
         { titre: TITRE_THEME_RATTACHEMENT, icone: '🏗', params: PARAMS_THEME_RATTACHEMENT },
       ].map(({ titre, icone, params }) => (
         <CarteSection key={titre} titre={titre} icone={icone}>
