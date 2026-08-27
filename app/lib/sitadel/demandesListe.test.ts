@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   basculerTri, filtrerDemandes, trierDemandes, OPTIONS_TRI, cleTri, triDepuisCle, SENS_DEFAUT, typeDemande, normaliserReference,
+  correspondReference,
   dansPerimetre, statutsDuPerimetre, STATUTS_A_DEMANDER, STATUTS_EN_COURS,
   statutsVivants, statutsMorts, statutsAffiches, CHOIX_STATUT_DEFAUT, partitionnerParDus, visiblesEnCours,
   type Tri, type LigneDemande,
@@ -275,6 +276,22 @@ describe('Q6 — périmètres des onglets (« À demander » / « En cours ») :
     const enCours = dansPerimetre([...envoyees, ...bruit], 'en_cours');
     expect(enCours).toHaveLength(25);                                   // tout le périmètre (pas une page de 20)
     expect(trierDemandes(enCours, { colonne: 'dossiers', sens: 'desc' })).toHaveLength(25);
+  });
+});
+
+describe('D3 — correspondReference cherche AUSSI par n° de permis (num_dau)', () => {
+  const d = (over: Partial<Parameters<typeof correspondReference>[0]> = {}) => ({
+    id: 1, reference: 'SVAV-DEM-2026-000119', communeNom: 'Paris', codeInsee: '75056', nbDossiers: 1, statut: 'envoyee', profil: 'entreprise', creeLe: '2026-08-01',
+    referencesExternes: ['SLC260810440700'], numeros: ['07510124V0034'], ...over,
+  });
+  it('trouve par SVAV, par référence mairie ET par num_dau', () => {
+    expect(correspondReference(d(), 'SVAV-DEM-2026-000119')).toBe(true);
+    expect(correspondReference(d(), 'SLC2608')).toBe(true);
+    expect(correspondReference(d(), '07510124V0034')).toBe(true); // n° de permis
+    expect(correspondReference(d(), 'v0034')).toBe(true);         // sous-chaîne, casse/tirets ignorés
+  });
+  it('num_dau absent → pas de faux positif', () => {
+    expect(correspondReference(d({ numeros: [] }), '07510124V0034')).toBe(false);
   });
 });
 

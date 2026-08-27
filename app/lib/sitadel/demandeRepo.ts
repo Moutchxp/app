@@ -11,9 +11,10 @@ import {
   type CandidatDossier, type ConfigDemandeur, type Lot, type HistoriqueDemandes, type DiagnosticProposition, type ParamsLot,
   type ProfilDemandeur,
   proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande, problemesIdentite, profilValide, ETIQUETTE_PROFIL,
-  configAvecSignataire, apparierSelection, profilEffectifLot, raisonInexploitable,
+  configAvecSignataire, apparierSelection, profilEffectifLot, raisonInexploitable, estCandidatEligible,
   verdictAnnulation, RAISON_REFUS_ANNULATION,
 } from './demande';
+import type { PermisVivier } from './rechercheVivier'; // D3 : type SEUL (le module de recherche est PUR)
 import { type Collaborateur, choisirCollaborateur } from './collaborateur';
 import { resoudreDestination, type ContactCommune } from './destinataire';
 import { expressionRangSql, classer, libelleNatureProjet, type CleCategorie } from './priorite'; // D2 : expressionRangSql réutilisé (pur) ; Q2b : classer = source unique de catégorie ; N1-B : libelleNatureProjet traduit le code nature
@@ -210,6 +211,30 @@ export async function stockPermisParCommune(cfg: ConfigVeille, fenetreMois: numb
   const stock = agregerStock(dossiers, dateMin, hist.dejaRattaches, dateMinFenetre);
   if (tronque) console.warn('[permis/stock] plafond de chargement atteint — stock possiblement incomplet (réduire la fenêtre ou passer à un agrégat SQL)');
   return { lignes: stock, tronque, genereEnMs: Date.now() - t0, fenetreMois };
+}
+
+/**
+ * D3 — VIVIER PLAT : tous les permis ENCORE DEMANDABLES (éligibles + non déjà demandés), tous canaux, pour la RECHERCHE
+ * (`rechercheVivier`). MÊME définition d'éligibilité que le stock et la proposition (`estCandidatEligible` + `dejaRattaches`,
+ * source unique Q2a) — jamais redéfinie. Fenêtre = éligibilité complète (`anciennete_max`), pas la fenêtre d'affichage 6 mois du
+ * stock : on cherche dans TOUT le vivier. Bornée par le plafond de chargement de `lireDossiersDepuis` (`tronque` signalé).
+ * LECTURE SEULE ; n'écrit rien, ne touche NI le moteur NI une requête de surveillance.
+ */
+export async function chargerVivier(cfg: ConfigVeille): Promise<{ vivier: PermisVivier[]; tronque: boolean }> {
+  const dateMin = dateMinDepuis(cfg.ancienneteMaxDemandeAnnees); // borne d'ÉLIGIBILITÉ complète
+  const [{ lignes, tronque }, hist] = await Promise.all([lireDossiersDepuis(cfg, dateMin), lireHistorique()]);
+  const vivier: PermisVivier[] = [];
+  for (const d of lignes) {
+    const c = versCandidat(d);
+    if (!estCandidatEligible(c, dateMin, hist.dejaRattaches)) continue; // MÊME éligibilité que stock/proposition
+    if (d.categorie === 'autre') continue;                              // pas de catégorie « autre » (cf. CATEGORIES_STOCK)
+    vivier.push({
+      dossierId: d.id, numDau: c.numDau, type: c.type ?? d.type ?? null,
+      codeInsee: c.codeInsee, communeNom: c.communeNom, canal: c.canal ?? null,
+      categorie: d.categorie, dateAutorisation: c.dateReelleAutorisation,
+    });
+  }
+  return { vivier, tronque };
 }
 
 /** Q2b — un permis délivré (panneau de détail) : identité + type + s'il est DÉJÀ demandé (réf. de la demande active), sinon à demander. */

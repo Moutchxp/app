@@ -90,7 +90,7 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
       )}
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} />}
       {onglet === 'rattachement' && <SuiviRattachementVue onRecompter={() => void recompter()} />}
-      {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} process={processActif} onAllerReglages={() => setOnglet('reglages')} />}
+      {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} process={processActif} onBasculerProcess={setProcessActif} onAllerReglages={() => setOnglet('reglages')} />}
       {onglet === 'en_cours' && <EnCoursVue categories={categories} process={processActif} />}
       {onglet === 'reponses' && <ReponsesVue process={processActif} onRecompter={() => void recompter()} />}
       {onglet === 'projection' && <ProjectionVue onRecompter={() => void recompter()} />}

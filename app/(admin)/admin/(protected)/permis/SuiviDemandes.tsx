@@ -528,8 +528,8 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
           <input value={fCommune} onChange={(e) => majFiltre(() => setFCommune(e.target.value))} placeholder="nom ou code" style={styleChamp} />
         </label>
         <label className="flex flex-col gap-1">Référence
-          <input value={fReference} onChange={(e) => majFiltre(() => setFReference(e.target.value))} placeholder="mairie ou SVAV" style={styleChamp}
-            aria-label="Rechercher par référence (mairie ou SVAV)" />
+          <input value={fReference} onChange={(e) => majFiltre(() => setFReference(e.target.value))} placeholder="mairie, SVAV ou n° permis" style={styleChamp}
+            aria-label="Rechercher par référence (mairie, SVAV ou n° de permis)" />
         </label>
         <label className="flex flex-col gap-1">Tri
           <select value={cleTri(tri)} onChange={(e) => setTri(triDepuisCle(e.target.value))} style={styleChamp}>
@@ -581,7 +581,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
         categories={categories} tri={tri} sel={sel} avecSelection={avecActionsGroupees}
         toutCoche={visibles.length > 0 && visibles.every((d) => sel.has(d.id))}
         messageVide={!liste ? 'Chargement…' : (fReference.trim() !== ''
-          ? `Aucune demande ne correspond à la référence « ${fReference.trim()} » (mairie ou SVAV ; casse, espaces et tirets ignorés).`
+          ? `Aucune demande ne correspond à « ${fReference.trim()} » (mairie, SVAV ou n° de permis ; casse, espaces et tirets ignorés).`
           : TEXTES[perimetre].vide)}
         // U7 — accordéon À UN SEUL VOLET : `detail` est UN objet (jamais un Set) → au plus une ligne dépliée ; le panneau se rend SOUS sa ligne.
         demandeOuverte={detail?.id ?? null}

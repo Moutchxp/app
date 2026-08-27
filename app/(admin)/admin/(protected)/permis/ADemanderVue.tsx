@@ -8,6 +8,7 @@ import { MessageRetour, CartePropositions, BlocStock, TableStock, PanneauDetailS
 import { BlocPrada } from './BlocPrada';
 import { BlocDepot } from './BlocDepot';
 import { SuiviDemandes } from './SuiviDemandes';
+import { RechercheVivier } from './RechercheVivier';
 import { dansProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 
 /**
@@ -21,7 +22,7 @@ const PROFILS: ProfilDemandeur[] = ['entreprise', 'personne'];
 const PAGE_SIZE = 20;
 const styleChamp: CSSProperties = { padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 };
 
-interface Props { categories: { cle: string; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; process: Process; onAllerReglages: () => void }
+interface Props { categories: { cle: string; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; process: Process; onBasculerProcess: (p: Process) => void; onAllerReglages: () => void }
 
 /** Message d'échec = la RAISON réelle renvoyée par le serveur ({erreur}), jamais un libellé figé à deux mots. */
 async function erreurServeur(res: Response, repli: string): Promise<string> {
@@ -29,7 +30,7 @@ async function erreurServeur(res: Response, repli: string): Promise<string> {
   catch { return repli; }
 }
 
-export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, process, onAllerReglages }: Props) {
+export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, process, onBasculerProcess, onAllerReglages }: Props) {
   const [prop, setProp] = useState<{ lots: Lot[]; diagnostic: DiagnosticProposition; profil: ProfilDemandeur } | null>(null);
   const [profilPrep, setProfilPrep] = useState<ProfilDemandeur>('entreprise');
   const [retour, setRetour] = useState<RetourAction>(null);
@@ -154,6 +155,9 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
         ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle}
         moisSaisie={moisSaisie} maxMois={maxMois} onMois={changerMois} onAllerReglages={onAllerReglages}
       />
+
+      {/* D3 — recherche du VIVIER (permis demandables) par n° de permis / ville, scopée au process, mention non silencieuse de l'autre. */}
+      <RechercheVivier process={process} categories={categories} onBasculer={onBasculerProcess} />
 
       {/* Q2b/U6 — STOCK par commune : REPLIÉ par défaut (une seule ligne à l'arrivée) ; l'ouverture manuelle charge et déplie. */}
       <BlocStock

@@ -45,6 +45,7 @@ export interface LigneDemande {
   nbDossiers: number; statut: string; profil: string; creeLe: string; rangs?: number[];
   dossiersDus?: number;          // T2-C : dossiers encore dûs (actif ET non satisfaits) — pour le masquage « En cours »
   referencesExternes?: string[]; // P1 — références de la mairie, pour la recherche par référence
+  numeros?: string[];            // T6-B / D3 — num_dau des dossiers ACTIFS, pour la recherche par n° de permis
 }
 
 /**
@@ -105,7 +106,10 @@ export function correspondReference(d: LigneDemande, q: string): boolean {
   const qn = normaliserReference(q.trim());
   if (qn === '') return true;
   if (normaliserReference(d.reference).includes(qn)) return true;
-  return (d.referencesExternes ?? []).some((r) => normaliserReference(r).includes(qn));
+  if ((d.referencesExternes ?? []).some((r) => normaliserReference(r).includes(qn))) return true;
+  // D3 — recherche AUSSI par n° de permis (num_dau des dossiers ACTIFS de la demande) : un numéro de permis trouve la demande
+  //   qui le porte (et, côté vivier, le permis encore demandable — cf. rechercheVivier).
+  return (d.numeros ?? []).some((n) => normaliserReference(n).includes(qn));
 }
 
 /**
