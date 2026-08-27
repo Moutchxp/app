@@ -94,8 +94,10 @@ const CONF_OK: ConfigDemandeur = {
 describe('D4 — classement par rail (A e-mail / B téléservice / C commun)', () => {
   const par = (col: string) => PARAMS_VEILLE.find((p) => p.colonne === col)!;
 
-  it('A — e-mail seulement : caps d’envoi, heures d’envoi auto, relance auto', () => {
-    for (const c of ['envois_max_par_run', 'envois_max_par_jour', 'relance_auto_active', 'envoi_heure_debut', 'envoi_heure_fin']) {
+  it('A — e-mail seulement : caps d’envoi, heures d’envoi auto, relance auto + les 3 délais de cascade (D4-ter)', () => {
+    // D4-ter — les 3 délais de cascade déterminent une relance AUTOMATIQUE, qui n'existe qu'en e-mail (envoiRelance.ts:170).
+    for (const c of ['envois_max_par_run', 'envois_max_par_jour', 'relance_auto_active', 'envoi_heure_debut', 'envoi_heure_fin',
+      'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours']) {
       expect(par(c).rail, c).toBe('email');
     }
   });
@@ -112,9 +114,10 @@ describe('D4 — classement par rail (A e-mail / B téléservice / C commun)', (
     expect(par('teleservice_dossiers_par_depot').surchargeDe).toBe('dossiers_par_demande');
     expect(par('teleservice_permis_par_commune_par_mois').surchargeDe).toBe('permis_par_commune_par_mois');
   });
-  // 🔴 GARDE du principe D3-fix : un réglage COMMUN reste commun (aucun rail) — jamais dupliqué ni étiqueté « e-mail ».
-  it('C — commun : adresse de réponse, délais de relance, mentions, éligibilité, CADA N’ONT PAS de rail', () => {
-    for (const c of ['adresse_reponse', 'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours',
+  // 🔴 GARDE du principe D3-fix : un réglage COMMUN/transverse reste sans rail — jamais dupliqué ni étiqueté « e-mail ».
+  //   (D4-ter : les délais de cascade rappel/avis/saisine ne sont PLUS ici — promus rail e-mail car ils déterminent une relance auto.)
+  it('C — commun : adresse de réponse, éligibilité, CADA, relève N’ONT PAS de rail', () => {
+    for (const c of ['adresse_reponse',
       'pieces_demandees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'anciennete_max_demande_annees',
       'proposition_cada_active', 'cada_email', 'releve_active', 'echeance_alerte_jours', 'alerte_email']) {
       expect(par(c).rail, c).toBeUndefined();

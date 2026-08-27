@@ -170,6 +170,14 @@ export interface ParamVeille {
    * « laisser vide pour suivre le réglage commun ». La VALIDATION accepte `null` pour un tel paramètre.
    */
   surchargeDe?: string;
+  /**
+   * R1 (D4-ter) — RÉGLAGE PARTAGÉ : gouverne LES DEUX rails (e-mail ET téléservice) et sera rendu dans les DEUX futurs espaces
+   * (R2), MAIS reste UNE seule colonne en base (une seule vérité) — le modifier depuis un espace agit sur l'autre. Distinct de
+   * `rail` (qui restreint à UN seul espace) et de `surchargeDe` (surcharge propre à un rail). ABSENT + sans `rail` = TRANSVERSE
+   * (hors des deux espaces : relève, alertes générales, CADA, rattachement, mentions, sources, identités…). Purement un
+   * classement d'AFFICHAGE : n'affecte NI la lecture NI l'écriture. Voir `espaceReglage`.
+   */
+  partage?: boolean;
 }
 
 /** Forme minimale d'une URL http(s) — MIROIR APPLICATIF du CHECK `config_veille_dila_url_check` (migration 069). */
@@ -182,12 +190,12 @@ export const FORME_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * de la base (`parserBornesCheck`). Chaque aide dit ce que le paramètre change concrètement.
  */
 export const PARAMS_VEILLE: ParamVeille[] = [
-  { colonne: 'anciennete_max_demande_annees', cle: 'ancienneteMaxDemandeAnnees', libelle: 'Ancienneté maximale des demandes', unite: 'années', type: 'entier',
+  { colonne: 'anciennete_max_demande_annees', cle: 'ancienneteMaxDemandeAnnees', libelle: 'Ancienneté maximale des demandes', unite: 'années', type: 'entier', partage: true,
     aide: 'Au-delà de cet âge, le bâtiment est déjà mesuré par le LiDAR (MNS) : la demande de pièces devient inutile et n’est plus proposée.' },
-  { colonne: 'dossiers_par_demande', cle: 'dossiersParDemande', libelle: 'Dossiers par demande', unite: 'dossiers', type: 'entier',
+  { colonne: 'dossiers_par_demande', cle: 'dossiersParDemande', libelle: 'Dossiers par demande', unite: 'dossiers', type: 'entier', partage: true,
     aide: 'Nombre maximum de dossiers regroupés dans une même demande adressée à une mairie. Borne le volume par courrier.' },
   // Q1 — NOUVEAU paramètre VIVANT : le plafond mensuel se compte désormais en PERMIS (dossiers), indépendamment du regroupement.
-  { colonne: 'permis_par_commune_par_mois', cle: 'permisParCommuneParMois', libelle: 'Permis par commune et par mois', unite: 'permis / mois', type: 'entier',
+  { colonne: 'permis_par_commune_par_mois', cle: 'permisParCommuneParMois', libelle: 'Permis par commune et par mois', unite: 'permis / mois', type: 'entier', partage: true,
     aide: 'Nombre maximum de PERMIS (dossiers) demandés à une même commune par mois — quel que soit le nombre de courriers ou de dépôts que cela représente (une commune à un ticket par dossier n’en consomme pas plus qu’une commune à courrier groupé).' },
   // Q1 — VESTIGIAL : ce paramètre comptait des DEMANDES (courriers) ; il n'agit plus (remplacé par « Permis par commune et par
   // mois »). Conservé en base (lu par l'historique), rendu en lecture seule + refusé par la route (validerReglages).
@@ -195,10 +203,10 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     vestigial: true, remplacePar: 'Permis par commune et par mois',
     aide: 'Comptait le nombre de demandes (courriers) envoyées à une même commune par mois.' },
   // V2 — profondeur d'examen des candidats (ex-const NB_CANDIDATS) : pilotable au runtime, invariant « pilotage sans code ».
-  { colonne: 'nb_candidats_examines', cle: 'nbCandidatsExamines', libelle: 'Profondeur d’examen des dossiers', unite: 'dossiers', type: 'entier',
+  { colonne: 'nb_candidats_examines', cle: 'nbCandidatsExamines', libelle: 'Profondeur d’examen des dossiers', unite: 'dossiers', type: 'entier', partage: true,
     aide: 'Combien de dossiers, tout en haut du classement, sont examinés pour préparer les demandes. Trop bas, des dossiers récents mais moins « gros » ne sont jamais atteints ; plus haut = davantage de dossiers proposés. Au-delà de la taille du fichier des permis, la préparation devient un peu plus lente.' },
   // V2 — ordre secondaire de tri des candidats (ex-const ORDRE_SECONDAIRE) : GARDE (liste fermée), libellés FR.
-  { colonne: 'tri_candidats', cle: 'triCandidats', libelle: 'Ordre d’examen des dossiers', unite: '', type: 'enum',
+  { colonne: 'tri_candidats', cle: 'triCandidats', libelle: 'Ordre d’examen des dossiers', unite: '', type: 'enum', partage: true,
     optionsEnum: ['surface_puis_date', 'date_puis_surface', 'date_ancienne_puis_surface'],
     optionsEnumLabels: { surface_puis_date: 'Plus grands d’abord (surface, puis date)', date_puis_surface: 'Plus récents d’abord (date, puis surface)', date_ancienne_puis_surface: 'Plus anciens d’abord (date, puis surface)' },
     aide: 'Dans quel ordre les dossiers sont départagés à catégorie égale : « plus grands d’abord » remonte les gros projets (mais peut enterrer des dossiers récents plus petits) ; « plus récents d’abord » privilégie les permis récents ; « plus anciens d’abord » traite d’abord les permis les plus vieux de la fenêtre (rattraper le retard). ⚠️ Ce choix change AUSSI l’ordre de la liste affichée dans l’onglet « Dossiers ».' },
@@ -208,8 +216,13 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   { colonne: 'envois_max_par_jour', cle: 'envoisMaxParJour', libelle: 'Envois maximum par jour', unite: 'e-mails / jour', type: 'entier', rail: 'email',
     aide: 'Nombre maximum d’e-mails envoyés aux mairies sur une journée entière (toutes actions cumulées). L’augmenter raccourcit la durée de la campagne ; le garder bas protège contre un envoi de masse involontaire et évite d’être classé indésirable par la messagerie.' },
   // S38 — adresse de réponse (reply-to). Sans valeur par défaut : tant qu'elle est vide, l'envoi refuse de s'exécuter.
-  { colonne: 'adresse_reponse', cle: 'adresseReponse', libelle: 'Adresse de réponse des mairies', unite: '', type: 'email',
-    aide: 'Adresse e-mail à laquelle les mairies répondront à vos demandes — c’est là qu’arrive la réponse contenant la hauteur du bâtiment. Ce doit être une boîte réellement relevée. Tant qu’elle est vide, aucun envoi n’est possible : une demande partie sans adresse de réponse serait une demande à laquelle la mairie ne peut pas répondre.' },
+  // D4-ter (R2) — TRANSVERSE (ni rail, ni partagé). ⚠️ Ce N'EST PAS le Reply-To technique : depuis S43, le from/reply-to réel est
+  //   l'e-mail du PROFIL de la demande (config_demandeur.email_contact, société/personne — envoiDemande.ts:84,187). Ce réglage-ci
+  //   pilote seulement (i) la ligne « Adresse de réponse » IMPRIMÉE dans le corps (demande.ts:700) et (ii) la boîte RELEVÉE
+  //   (reponsesSuivi.ts:275). Libellé honnête pour ne pas laisser croire qu'il est « le retour » (le retour dépend du profil).
+  //   [DETTE connue : corps et Reply-To peuvent diverger — lot dédié après la série R, cf. mémoire.]
+  { colonne: 'adresse_reponse', cle: 'adresseReponse', libelle: 'Adresse de réponse (corps du courrier + boîte relevée)', unite: '', type: 'email',
+    aide: 'Cette adresse sert à DEUX choses : (1) elle est imprimée dans le corps de chaque demande comme « Adresse de réponse » ; (2) c’est la boîte que la relève interroge pour lire les réponses des mairies. ⚠️ Ce n’est PAS le « Reply-To » technique de l’e-mail : celui-ci est l’e-mail du PROFIL de la demande (Société / Personne physique), défini dans « Identités du demandeur ». Gardez les deux cohérents. Tant qu’elle est vide, aucun envoi n’est possible.' },
   // LOT B — RELANCES : le duo « à partir de quand un rappel est préparé » + « les relances partent-elles toutes seules ». Rangés
   //   dans « Envoi aux mairies » (thème ENVOI). ⚠️ relance_auto_active est STOCKÉ et AFFICHÉ, mais LU PAR AUCUN CODE D'ENVOI dans
   //   ce lot (l'envoi automatique est un lot ultérieur) — l'aide le dit sans détour puisque le thème s'appelle « Envoi aux mairies ».
@@ -221,12 +234,16 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Si cette case est cochée, les relances partiront vers les mairies sans relecture. Tant qu’elle est décochée, rien ne part sans un clic.' },
   // Cascade lot 2 — les 3 délais de la cascade, dans l’ordre chronologique (rappel J-10, avis J-3, saisine J+délai). Bornes 1..30
   //   lues au runtime depuis les CHECK (migration 136). Aides en conséquences concrètes : ce qui part, quand.
-  { colonne: 'relance_rappel_jours_avant', cle: 'relanceRappelJoursAvant', libelle: 'Rappel — jours avant l’échéance', unite: 'jours', type: 'entier',
-    aide: 'Combien de jours AVANT la fin du délai d’un mois le premier RAPPEL est préparé. Ce rappel est courtois : il ne parle NI de refus tacite NI de la CADA, car la mairie est encore dans son délai.' },
-  { colonne: 'relance_avis_jours_avant', cle: 'relanceAvisJoursAvant', libelle: 'Avis d’échéance — jours avant l’échéance', unite: 'jours', type: 'entier',
-    aide: 'Combien de jours AVANT l’échéance l’AVIS est préparé. Il prévient la mairie que l’échéance approche et qu’à défaut de réponse vous pourrez saisir la CADA — sans encore la saisir. Une réponse de sa part rend la démarche sans objet.' },
-  { colonne: 'relance_saisine_delai_jours', cle: 'relanceSaisineDelaiJours', libelle: 'Saisine CADA — délai après l’échéance', unite: 'jours', type: 'entier',
-    aide: 'Combien de jours APRÈS l’échéance la saisine de la CADA sera déposée. Le jour de l’échéance, un message l’annonce à la mairie ; ce délai lui laisse une dernière chance de transmettre les pièces avant le dépôt.' },
+  // D4-ter (R1) — RAIL E-MAIL : ces 3 délais DÉTERMINENT quand une relance/saisine part TOUTE SEULE, ce qui n'existe QU'en e-mail
+  //   (le sélecteur de relance est borné `dest_canal='email'`, envoiRelance.ts:170). Critère « un réglage vit là où il détermine
+  //   un geste » → espace E-mail. ⚠️ À REDEVENIR `partage` (commun aux deux rails) le jour où le téléservice aura sa propre relance
+  //   (déposée à la main) : ce sont des délais LÉGAUX CRPA, pas des préférences d'envoi — l'aide le dit à l'écran.
+  { colonne: 'relance_rappel_jours_avant', cle: 'relanceRappelJoursAvant', libelle: 'Rappel — jours avant l’échéance', unite: 'jours', type: 'entier', rail: 'email',
+    aide: 'Combien de jours AVANT la fin du délai d’un mois le premier RAPPEL est préparé. Ce rappel est courtois : il ne parle NI de refus tacite NI de la CADA, car la mairie est encore dans son délai. C’est un délai LÉGAL (CRPA), pas une préférence d’envoi ; il n’agit aujourd’hui que sur le rail e-mail, seul à envoyer des relances automatiquement.' },
+  { colonne: 'relance_avis_jours_avant', cle: 'relanceAvisJoursAvant', libelle: 'Avis d’échéance — jours avant l’échéance', unite: 'jours', type: 'entier', rail: 'email',
+    aide: 'Combien de jours AVANT l’échéance l’AVIS est préparé. Il prévient la mairie que l’échéance approche et qu’à défaut de réponse vous pourrez saisir la CADA — sans encore la saisir. Une réponse de sa part rend la démarche sans objet. C’est un délai LÉGAL (CRPA), pas une préférence d’envoi ; il n’agit aujourd’hui que sur le rail e-mail, seul à envoyer des relances automatiquement.' },
+  { colonne: 'relance_saisine_delai_jours', cle: 'relanceSaisineDelaiJours', libelle: 'Saisine CADA — délai après l’échéance', unite: 'jours', type: 'entier', rail: 'email',
+    aide: 'Combien de jours APRÈS l’échéance la saisine de la CADA sera déposée. Le jour de l’échéance, un message l’annonce à la mairie ; ce délai lui laisse une dernière chance de transmettre les pièces avant le dépôt. C’est un délai LÉGAL (CRPA), pas une préférence d’envoi ; il n’agit aujourd’hui que sur le rail e-mail, seul à envoyer des relances automatiquement.' },
   // RELANCE — fenêtre HORAIRE d'envoi automatique (matin, jours ouvrés). Un rappel expédié un dimanche soir « fait robot » ; en semaine le matin, il « fait une personne ».
   { colonne: 'envoi_heure_debut', cle: 'envoiHeureDebut', libelle: 'Envoi automatique — heure de début', unite: 'heure locale', type: 'entier', rail: 'email',
     aide: 'Les relances automatiques ne partent qu’entre cette heure et l’heure de fin ci-dessous, du lundi au vendredi. Les jours fériés ne sont pas pris en compte. Un brouillon préparé un week-end attend le lundi matin. (L’envoi que VOUS déclenchez à la main n’est jamais bridé.)' },
@@ -294,10 +311,10 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Ordre d’affichage de la catégorie (plus petit = affiché en premier). Réordonnable.' },
   { colonne: 'rang_demolition', cle: 'rangDemolition', libelle: 'Rang — démolition', unite: 'rang', type: 'entier',
     aide: 'Ordre d’affichage de la catégorie (plus petit = affiché en premier). Réordonnable.' },
-  { colonne: 'pieces_demandees', cle: 'piecesDemandees', libelle: 'Pièces demandées', unite: 'codes', type: 'texte',
+  { colonne: 'pieces_demandees', cle: 'piecesDemandees', libelle: 'Pièces demandées', unite: 'codes', type: 'texte', partage: true,
     formatHint: 'codes de pièces séparés par des virgules (ex. PC2, PC3).',
     aide: 'Codes des pièces sollicitées dans le courrier (ex. PC2, PC3), séparés par des virgules.' },
-  { colonne: 'profil_demandeur_defaut', cle: 'profilDemandeurDefaut', libelle: 'Profil de demandeur par défaut', unite: '', type: 'enum', optionsEnum: ['entreprise', 'personne'],
+  { colonne: 'profil_demandeur_defaut', cle: 'profilDemandeurDefaut', libelle: 'Profil de demandeur par défaut', unite: '', type: 'enum', optionsEnum: ['entreprise', 'personne'], partage: true,
     aide: 'Profil (société / personne physique) appliqué par défaut à la création de nouvelles demandes.' },
   // S30 — source de l'annuaire des mairies (téléphones/adresses des mairies importés par `dila:ingest`).
   { colonne: 'dila_url', cle: 'dilaUrl', libelle: 'Adresse de l’annuaire des mairies (DILA)', unite: '', type: 'url',
@@ -429,6 +446,40 @@ export const PARAMS_THEME_ALERTES: ParamVeille[] = paramsDuTheme(COLONNES_THEME_
 export const PARAMS_THEME_CADA: ParamVeille[] = paramsDuTheme(COLONNES_THEME_CADA);
 export const PARAMS_THEME_TELESERVICE: ParamVeille[] = paramsDuTheme(COLONNES_THEME_TELESERVICE); // D4 — process téléservice (dépôt manuel)
 export const PARAMS_THEME_RATTACHEMENT: ParamVeille[] = paramsDuTheme(COLONNES_THEME_RATTACHEMENT);
+
+// ── R1 (D4-ter) — APPARTENANCE DE RAIL : le MODÈLE des deux futurs « espaces » Réglages (E-mail / Téléservice), livré SEUL et
+//   PROUVÉ PAR TESTS avant que R2 ne déplace le moindre pixel. AUCUN changement visuel ici : ReglagesVue reste rangé par thème ;
+//   ces dérivations ne sont encore consommées par aucun rendu. Quatre classes EXCLUSIVES, cf. `EspaceRail`. ────────────────────
+export type EspaceRail = 'email' | 'teleservice' | 'partage' | 'transverse';
+/**
+ * Classe UN réglage dans exactement UNE des quatre catégories de rail (fonction PURE, totale sur ParamVeille) :
+ *  · 'partage'    → gouverne les DEUX rails, rendu dans les deux espaces (R2), MAIS une seule colonne = une seule vérité.
+ *  · 'email'      → ne gouverne que le rail e-mail (caps d'envoi, relance auto, heures d'envoi).
+ *  · 'teleservice'→ ne gouverne que le rail téléservice (surcharges de préparation `surchargeDe` + alertes « non déposée »).
+ *  · 'transverse' → hors des deux espaces (relève, alertes générales, CADA, rattachement, mentions, sources, identités, vestigial).
+ * PRÉCÉDENCE : `partage` l'emporte sur `rail` (un partagé n'est jamais « rail seul »). Un réglage NE PEUT PAS être à la fois
+ * `partage: true` ET porter un `rail` (garde vérifiée par test) — sinon la classe serait ambiguë.
+ */
+export function espaceReglage(p: ParamVeille): EspaceRail {
+  if (p.partage) return 'partage';
+  if (p.rail === 'email') return 'email';
+  if (p.rail === 'teleservice') return 'teleservice';
+  return 'transverse';
+}
+/** Un réglage appartient-il à l'espace d'un rail donné ? Un `partage` appartient aux DEUX ; un `rail` au sien ; un transverse à aucun. */
+export function reglageDansEspace(p: ParamVeille, rail: 'email' | 'teleservice'): boolean {
+  const e = espaceReglage(p);
+  return e === 'partage' || e === rail;
+}
+/**
+ * Réglages de l'espace « Envoi e-mail » (R2) = e-mail seul + partagés. Réglages de l'espace « Téléservice » = téléservice seul
+ * (surcharges + alertes) + partagés. Les DEUX listes contiennent les MÊMES objets partagés (même `colonne`) → « rendu dans les
+ * deux, une seule vérité » est vrai par construction. Ordre = celui de PARAMS_VEILLE ; R2 fixera l'ordre d'AFFICHAGE définitif.
+ */
+export const PARAMS_ESPACE_EMAIL: ParamVeille[] = PARAMS_VEILLE.filter((p) => reglageDansEspace(p, 'email'));
+export const PARAMS_ESPACE_TELESERVICE: ParamVeille[] = PARAMS_VEILLE.filter((p) => reglageDansEspace(p, 'teleservice'));
+/** Réglages TRANSVERSES (hors des deux espaces de rail) — rendus par leurs sections propres (Réponses, Alertes, CADA, etc.). */
+export const PARAMS_TRANSVERSE: ParamVeille[] = PARAMS_VEILLE.filter((p) => espaceReglage(p) === 'transverse');
 // Conservé (même ENSEMBLE qu'avant E1, ordre = concaténation des thèmes). Sert au complément PARAMS_DOSSIERS et à la compat.
 export const PARAMS_DEMANDES: ParamVeille[] = paramsDuTheme(COLONNES_PARAMS_DEMANDES);
 export const PARAMS_SOURCES: ParamVeille[] = PARAMS_VEILLE.filter((p) => COLONNES_PARAMS_SOURCES.includes(p.colonne));
