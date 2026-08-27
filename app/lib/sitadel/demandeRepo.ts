@@ -104,7 +104,11 @@ export async function lireConfigDemandeur(profil: ProfilDemandeur = 'entreprise'
  * ⚠️ Q1 — le plafond `permis_par_commune_par_mois` borne la SOLLICITATION RÉELLE d'une mairie EN NOMBRE DE PERMIS, quel que
  * soit le nombre de courriers/dépôts que cela représente : on compte donc les DOSSIERS (via demande_dossier), pas les
  * demandes. Seules les demandes RÉELLEMENT PARTIES le consomment → `statut IN ('envoyee','close')` (une 'brouillon'/'prete'/
- * 'annulee' ne sollicite PAS la commune). AUCUN ENVOI n'existe encore : ce comptage est donc nul aujourd'hui — c'est voulu.
+ * 'annulee' ne sollicite PAS la commune).
+ * R2-fix2 — le comptage ne retient QUE les rattachements ACTIFS (`dd.actif`) et compte les dossiers DISTINCTS : un dossier
+ * DÉTACHÉ (`actif=false`, ex. réorganisé vers une autre demande) ne sollicite plus la commune, et un dossier déplacé d'une
+ * demande à l'autre ne doit compter qu'UNE fois. Sans ce filtre, un permis détaché OU déplacé gonflait le plafond (Paris
+ * bloquée 5/5 alors que 2 permis actifs seulement) — incohérent avec `SQL_DOSSIERS_DEJA_DEMANDES` qui, lui, filtre déjà `dd.actif`.
  */
 /**
  * Q3-B — dossiers qui comptent comme « déjà demandés » (alimente `dejaRattaches`). Le stock reflète le TRAVAIL RESTANT : un
@@ -123,15 +127,22 @@ export const SQL_DOSSIERS_DEJA_DEMANDES =
        OR (d.statut <> 'close' AND dd.triage IS DISTINCT FROM 'refus_mairie')
     )`;
 
+/**
+ * R2-fix2 — PERMIS (dossiers) qui consomment le plafond mensuel, par commune. `dd.actif` (le détaché ne sollicite plus) +
+ * `count(DISTINCT dd.dossier_id)` (un dossier déplacé d'une demande à l'autre ne compte qu'une fois) + statut RÉELLEMENT PARTI +
+ * mois calendaire de `cree_le`. Exporté pour être joué À L'IDENTIQUE par le test d'intégration (aucune dérive code/preuve).
+ */
+export const SQL_PERMIS_CE_MOIS_PAR_COMMUNE =
+  `SELECT d.code_insee, count(DISTINCT dd.dossier_id)::int AS n
+     FROM demande d JOIN demande_dossier dd ON dd.demande_id = d.id
+    WHERE dd.actif AND d.statut IN ('envoyee', 'close')
+      AND date_trunc('month', d.cree_le) = date_trunc('month', now())
+    GROUP BY d.code_insee`;
+
 async function lireHistorique(): Promise<HistoriqueDemandes> {
   const [att, mois] = await Promise.all([
     query<{ dossier_id: number }>(SQL_DOSSIERS_DEJA_DEMANDES),
-    query<{ code_insee: string; n: number }>(
-      `SELECT d.code_insee, count(dd.dossier_id)::int AS n
-         FROM demande d JOIN demande_dossier dd ON dd.demande_id = d.id
-        WHERE d.statut IN ('envoyee', 'close') AND date_trunc('month', d.cree_le) = date_trunc('month', now())
-        GROUP BY d.code_insee`,
-    ),
+    query<{ code_insee: string; n: number }>(SQL_PERMIS_CE_MOIS_PAR_COMMUNE),
   ]);
   return {
     dejaRattaches: new Set(att.rows.map((r) => r.dossier_id)),

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 // On n'importe QUE la constante SQL ; db/client est neutralisé (aucune connexion).
 vi.mock('../db/client', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
-import { SQL_DOSSIERS_DEJA_DEMANDES, diagnostiquer } from './demandeRepo';
+import { SQL_DOSSIERS_DEJA_DEMANDES, SQL_PERMIS_CE_MOIS_PAR_COMMUNE, diagnostiquer } from './demandeRepo';
 import { proposerLots, dateLiberationQuota, type CandidatDossier, type ParamsLot } from './demande';
 
 /**
@@ -26,6 +26,20 @@ describe('Q3-B — SQL_DOSSIERS_DEJA_DEMANDES : la règle est encodée', () => {
   it('soldé sans documents : demande close OU triage refus_mairie ne comptent plus (sauf obtenu)', () => {
     expect(n).toContain("d.statut <> 'close'");
     expect(n).toContain("dd.triage IS DISTINCT FROM 'refus_mairie'");
+  });
+});
+
+// R2-fix2 — le plafond mensuel ne compte QUE les permis ACTIFS distincts. On prouve la RÈGLE par fragments (jamais la forme
+//   exacte) ; la conséquence en base (détaché exclu, déplacé compté une fois) est prouvée par demandeRepoDejaDemandes.itest.ts.
+const m = SQL_PERMIS_CE_MOIS_PAR_COMMUNE.replace(/\s+/g, ' ');
+describe('R2-fix2 — SQL_PERMIS_CE_MOIS_PAR_COMMUNE : le comptage du plafond est corrigé', () => {
+  it('ne compte que les rattachements ACTIFS et des dossiers DISTINCTS', () => {
+    expect(m).toContain('dd.actif');
+    expect(m).toContain('count(DISTINCT dd.dossier_id)');
+  });
+  it('ne retient que les demandes RÉELLEMENT PARTIES, sur le mois calendaire de création', () => {
+    expect(m).toContain("d.statut IN ('envoyee', 'close')");
+    expect(m).toContain("date_trunc('month', d.cree_le) = date_trunc('month', now())");
   });
 });
 

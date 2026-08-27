@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, afterAll } from 'vitest';
 import { pool, closePool } from '../db/client';
-import { SQL_DOSSIERS_DEJA_DEMANDES } from './demandeRepo';
+import { SQL_DOSSIERS_DEJA_DEMANDES, SQL_PERMIS_CE_MOIS_PAR_COMMUNE } from './demandeRepo';
 
 afterAll(async () => { await closePool(); });
 
@@ -108,6 +108,47 @@ describe('Q3-B (intégration) — soldé sans documents → revient ; obtenu ne 
       expect(set.has(dDu)).toBe(false);         // revient au stock
     } finally {
       await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
+  // R2-fix2 — REPRODUIT le défaut Paris (5/5 au lieu de 2/5) : le plafond mensuel ne compte QUE les permis ACTIFS distincts.
+  //   Un dossier DÉTACHÉ (actif=false) ne consomme plus ; un dossier DÉPLACÉ d'une demande à l'autre ne compte qu'UNE fois.
+  it('R2-fix2 — plafond mensuel : détaché exclu, déplacé compté une seule fois (permis actifs distincts)', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const mk = async (num: string): Promise<number> => {
+        const r = await client.query<{ id: number }>(
+          `INSERT INTO sitadel_dossier (type, num_dau, code_insee, departement, vu_le_premier_millesime, vu_le_dernier_millesime)
+           VALUES ('PC', $1, '75056', '75', '2024', '2024') RETURNING id`, [num]);
+        return r.rows[0].id;
+      };
+      // Consommé AVANT le seed (données réelles éventuelles) : on isole notre scénario par le DELTA, en transaction ROLLBACKée.
+      const nPour = async (code: string): Promise<number> => {
+        const r = await client.query<{ code_insee: string; n: number }>(SQL_PERMIS_CE_MOIS_PAR_COMMUNE);
+        return r.rows.find((x) => x.code_insee === code)?.n ?? 0;
+      };
+      const base = await nPour('75056');
+      const dObtenu = await mk('R2F2OBTENU'); // actif + obtenu sur D1
+      const dDeplace = await mk('R2F2DEPLACE'); // détaché de D1, actif sur D2
+      const dOrphelin = await mk('R2F2ORPHELIN'); // détaché de D1, nulle part ailleurs
+      const mkDem = async (ref: string): Promise<number> => {
+        const r = await client.query<{ id: number }>(
+          `INSERT INTO demande (reference, code_insee, statut) VALUES ($1, '75056', 'envoyee') RETURNING id`, [ref]);
+        return r.rows[0].id;
+      };
+      const d1 = await mkDem('SVAV-DEM-9999-200001');
+      const d2 = await mkDem('SVAV-DEM-9999-200002');
+      await client.query(`INSERT INTO demande_dossier (demande_id, dossier_id, actif, satisfait_le) VALUES ($1, $2, true, now())`, [d1, dObtenu]);
+      await client.query(`INSERT INTO demande_dossier (demande_id, dossier_id, actif) VALUES ($1, $2, false)`, [d1, dDeplace]);  // détaché
+      await client.query(`INSERT INTO demande_dossier (demande_id, dossier_id, actif) VALUES ($1, $2, false)`, [d1, dOrphelin]); // détaché
+      await client.query(`INSERT INTO demande_dossier (demande_id, dossier_id, actif) VALUES ($1, $2, true)`, [d2, dDeplace]);   // ré-attaché ailleurs
+
+      // 3 dossiers, 4 liens dont 3 détachés — l'ANCIEN comptage (count sans dd.actif) aurait ajouté 4 ; le corrigé ajoute 2.
+      expect(await nPour('75056') - base).toBe(2); // dObtenu + dDeplace (distincts, actifs) ; dOrphelin exclu ; dDeplace jamais doublé
+    } finally {
+      await client.query('ROLLBACK'); // AUCUNE trace
       client.release();
     }
   });

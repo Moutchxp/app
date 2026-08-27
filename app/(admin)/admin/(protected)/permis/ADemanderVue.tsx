@@ -222,7 +222,7 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
             <ul style={{ margin: '.3rem 0 0 1.1rem' }}>
               {plafond.map((c) => (
                 <li key={c.codeInsee}>
-                  <strong>{c.nom ?? c.codeInsee}</strong> <span style={{ color: 'var(--color-svv-muted)' }}>({c.codeInsee})</span> — {c.consomme}/{c.plafond} permis demandés ce mois-ci, quota libéré le <strong>{libere}</strong>.
+                  <strong>{c.nom ?? c.codeInsee}</strong> <span style={{ color: 'var(--color-svv-muted)' }}>({c.codeInsee})</span> — {c.consomme}/{c.plafond} <strong>permis</strong> déjà sollicités ce mois-ci (le plafond se compte en permis, pas en courriers), quota libéré le <strong>{libere}</strong>.
                 </li>
               ))}
               {sansCanal.map((c) => (
