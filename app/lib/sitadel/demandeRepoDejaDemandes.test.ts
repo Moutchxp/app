@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 // On n'importe QUE la constante SQL ; db/client est neutralisé (aucune connexion).
 vi.mock('../db/client', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
 import { SQL_DOSSIERS_DEJA_DEMANDES, diagnostiquer } from './demandeRepo';
-import { proposerLots, type CandidatDossier, type ParamsLot } from './demande';
+import { proposerLots, dateLiberationQuota, type CandidatDossier, type ParamsLot } from './demande';
 
 /**
  * Q3-B — la requête qui alimente `dejaRattaches` encode la règle « soldé sans documents → revient au stock », SANS jamais
@@ -50,5 +50,28 @@ describe('Q3-B — conséquence : un permis revenu (absent de dejaRattaches) red
     // encore rattaché (présent) → exclu, bucket « déjà rattaché »
     expect(proposerLots([c], P, rattache)).toHaveLength(0);
     expect(diagnostiquer([c], rattache, P).dossiersDejaRattaches).toBe(1);
+  });
+});
+
+describe('D2/Part 5 — diagnostiquer NOMME les communes au plafond (fin du décompte anonyme « soirée Paris »)', () => {
+  it('commune au plafond → NOMMÉE avec consommé/plafond + canal (scope process)', () => {
+    const c = cand({ dossierId: 7, codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire' });
+    const hist = { dejaRattaches: new Set<number>(), permisCeMoisParCommune: new Map<string, number>([['75056', 10]]) };
+    expect(proposerLots([c], P, hist)).toHaveLength(0); // 10/10 → aucun lot
+    const d = diagnostiquer([c], hist, P);
+    expect(d.communesPlafondMensuel).toBe(1);
+    expect(d.communesAuPlafond).toEqual([{ codeInsee: '75056', nom: 'Paris', consomme: 10, plafond: 10, canal: 'formulaire' }]);
+  });
+  it('sous le plafond → non listée (aucun faux positif)', () => {
+    const c = cand({ dossierId: 8, codeInsee: '75056' });
+    const hist = { dejaRattaches: new Set<number>(), permisCeMoisParCommune: new Map<string, number>([['75056', 3]]) };
+    expect(diagnostiquer([c], hist, P).communesAuPlafond).toEqual([]);
+  });
+});
+
+describe('D2/Part 5 — dateLiberationQuota = 1er du mois suivant', () => {
+  it('JJ/MM/AAAA du 1er du mois d’après', () => {
+    expect(dateLiberationQuota(new Date(2026, 7, 15))).toBe('01/09/2026'); // 15 août → 1er sept
+    expect(dateLiberationQuota(new Date(2026, 11, 20))).toBe('01/01/2027'); // décembre → janvier suivant
   });
 });

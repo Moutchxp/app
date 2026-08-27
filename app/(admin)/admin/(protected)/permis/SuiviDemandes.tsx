@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
 import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, partitionnerAnnulationMasse, CHOIX_STATUT_DEFAUT } from '../../../../lib/sitadel/demandesListe';
+import { dansProcess, horsProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, RetourMairie, etatRetourMairie, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
@@ -44,6 +45,7 @@ type Bascule = { ids: number[]; profil: ProfilDemandeur };
 interface Props {
   categories: { cle: string; libelle: string; rang: number }[];
   perimetre: Perimetre;
+  process: Process; // D2 : process actif du commutateur — SCOPE D'AFFICHAGE (filtre client sur le canal), jamais un WHERE serveur.
   signalRafraichir?: number; // Q6 : incrémenté par le parent (ex. après une création) → force un rechargement de la liste
 }
 
@@ -52,7 +54,7 @@ async function erreurServeur(res: Response, repli: string): Promise<string> {
   catch { return repli; }
 }
 
-export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: Props) {
+export function SuiviDemandes({ categories, perimetre, process, signalRafraichir = 0 }: Props) {
   const avecActionsGroupees = perimetre === 'a_demander';
   const statutsFiltre = statutsDuPerimetre(perimetre);
   const avecAlertes = statutsFiltre.includes('brouillon'); // alertes d'identité = brouillons → uniquement « à demander »
@@ -153,7 +155,12 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
 
   // Q6 — PRÉ-FILTRE DUR par périmètre (hermeticité). Q6b — puis restreint aux statuts AFFICHÉS selon le choix du sélecteur
   // (défaut = VIVANTS). `filtrerDemandes` ne refiltre PAS le statut (déjà fait ici) : profil / commune / type / référence seulement.
-  const dansP = useMemo(() => dansPerimetre(liste?.demandes ?? [], perimetre), [liste, perimetre]);
+  const dansPTous = useMemo(() => dansPerimetre(liste?.demandes ?? [], perimetre), [liste, perimetre]);
+  // D2 — SCOPE PROCESS (filtre d'affichage sur le canal figé de la demande). Tout l'aval (statuts, morts, masse) est ainsi
+  //   automatiquement scopé. Les demandes HORS process (canal 'courrier'/inconnu) sont écartées de la vue mais COMPTÉES (mention
+  //   non silencieuse ci-dessous) — jamais masquées en silence.
+  const dansP = useMemo(() => dansPTous.filter((d) => dansProcess(d.canal, process)), [dansPTous, process]);
+  const horsProcessN = useMemo(() => dansPTous.filter((d) => horsProcess(d.canal)).length, [dansPTous]);
   const statutsVus = useMemo(() => new Set(statutsAffiches(perimetre, choixStatut)), [perimetre, choixStatut]);
   const dansVueStatut = useMemo(() => dansP.filter((d) => statutsVus.has(d.statut)), [dansP, statutsVus]);
   // T2-C — « En cours » applique la règle du commit A de Réponses : une demande sans AUCUN dossier dû (actif ET non satisfait)
@@ -404,7 +411,15 @@ export function SuiviDemandes({ categories, perimetre, signalRafraichir = 0 }: P
         <div className="svv-card" style={{ fontSize: 13 }}>
           <strong>{dansVueAffiche.length} demande(s)</strong> · {dossiersVus} dossier(s) couvert(s) — {compteursVus.map((x) => `${x.n} ${STATUT_LIBELLE[x.s]}`).join(' · ') || 'aucune'}.
           <MentionMasquage morts={morts} onAfficherTout={() => majFiltre(() => setChoixStatut('tous'))} exclus={exclus} />
-          <div style={{ color: 'var(--color-svv-muted)', marginTop: '.3rem' }}>{TEXTES[perimetre].intro}</div>
+          <div style={{ color: 'var(--color-svv-muted)', marginTop: '.3rem' }}>
+            Process <strong>{PROCESS_META[process].court}</strong> — {TEXTES[perimetre].intro}
+          </div>
+          {/* D2 — jamais de masquage silencieux : les demandes hors des deux process (canal courrier/inconnu) sont comptées ici. */}
+          {horsProcessN > 0 && (
+            <div style={{ color: 'var(--color-svv-red)', marginTop: '.3rem', fontSize: 12 }}>
+              {horsProcessN} demande(s) au canal « courrier »/inconnu, hors des deux process (voir le bloc hors process du commutateur).
+            </div>
+          )}
         </div>
       )}
 

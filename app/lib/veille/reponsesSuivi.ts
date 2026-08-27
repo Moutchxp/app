@@ -139,6 +139,7 @@ export interface DemandeSuivi {
   codeInsee: string;
   communeNom: string | null;
   statut: string;         // R5b : statut de la demande (garde-fou : pas de marquage si 'close')
+  canal?: string | null;  // D2 : dest_canal (process d'affichage : email / formulaire / autre). LECTURE seule, jamais un filtre serveur. Optionnel (fixtures de test).
   envoyeLe: string | null;
   statutAcheminement: string;
   dossiersActifs: number;
@@ -284,7 +285,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   // Demandes ENVOYÉES + CLOSES (tous profils) : R5c — une demande close reste VISIBLE (identifiée comme telle, avec Rouvrir),
   // elle ne disparaît pas de l'écran. Acheminement agrégé + compteurs de dossiers + nombre de réponses rattachées.
   const dem = await query<{
-    id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string;
+    id: number; reference: string; code_insee: string; commune_nom: string | null; statut: string; canal: string | null;
     envoye_le: string | null; statut_acheminement: string; dossiers_actifs: number; dossiers_satisfaits: number; dossiers_en_ged: number; nb_reponses: number; nb_reponses_reelles: number; derniere_reponse_le: string | null;
     refs_mairie: string[]; a_accuse: boolean; // FUS-4 : réf. mairie (colonne éditable) + « accusé » DÉRIVÉ (message nature 'accuse')
     dernier_relance_variante: string | null; dernier_relance_envoye_le: string | null; // cascade lot 4 : dernier envoi RÉEL de relance
@@ -294,6 +295,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     //   « la mairie a RÉPONDU » (nb_reponses_reelles, hors accusé ET hors rebond → pilote l'entrée dans « Réponses »). Un rebond
     //   rattaché reste enregistré (preuve) mais N'EST NI l'un NI l'autre. derniere_reponse_le suit « a écrit » (accusé compris).
     `SELECT d.id::int AS id, d.reference, d.code_insee, c.nom AS commune_nom, d.statut,
+            d.dest_canal AS canal, -- D2 : LECTURE seule (process d'affichage) ; JAMAIS un WHERE ici (garde axe-F).
             min(a.envoye_le)::text AS envoye_le,
             (SELECT max(r.recu_le)::text FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature <> 'rebond') AS derniere_reponse_le, -- T1 : pré-remplissage « refus le »
             CASE WHEN bool_or(a.statut = 'envoye') THEN 'envoye'
@@ -323,7 +325,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
        --   canal='formulaire' (pas 'email'). Filtrer canal='email' ici serait le défaut symétrique de l'écriture corrigée.
        LEFT JOIN demande_acheminement a ON a.demande_id = d.id
       WHERE d.statut IN ('envoyee', 'close')
-      GROUP BY d.id, d.reference, d.code_insee, c.nom, d.statut`,
+      GROUP BY d.id, d.reference, d.code_insee, c.nom, d.statut, d.dest_canal`,
   );
 
   // Détail des dossiers de ces demandes (groupés ensuite par demande_id) — évite un N+1.
@@ -460,7 +462,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   }
 
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
-    demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut,
+    demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut, canal: r.canal,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
     dossiersActifs: r.dossiers_actifs, dossiersSatisfaits: r.dossiers_satisfaits, dossiersEnGed: r.dossiers_en_ged, nbReponses: r.nb_reponses, nbReponsesReelles: r.nb_reponses_reelles,
     derniereReponseLe: r.derniere_reponse_le,

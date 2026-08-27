@@ -412,6 +412,11 @@ export interface DiagnosticProposition {
   dossiersDejaRattaches: number;
   communesSansCanal: number;
   communesPlafondMensuel: number;
+  /** D2/Part 5 — communes au PLAFOND mensuel, NOMMÉES (fin du décompte anonyme « N communes au plafond » — la douleur « soirée
+   *  Paris »). `consomme`/`plafond` en permis ; la date de libération du quota (1er du mois suivant) est calculée au rendu. */
+  communesAuPlafond?: { codeInsee: string; nom: string | null; consomme: number; plafond: number; canal: string | null }[];
+  /** D2/Part 5 — communes sans canal de contact connu, NOMMÉES (jamais un décompte anonyme). `nom` peut être null (inconnu). */
+  communesSansCanalNoms?: { codeInsee: string; nom: string | null }[];
   /** S16 : communes en canal 'formulaire' — ADRESSABLES mais dépôt MANUEL sur téléservice. Elles PRODUISENT des lots (file
    *  « à déposer à la main »). Nommées. Optionnel : absent = aucune (compat des littéraux). */
   communesFormulaire?: string[];
@@ -420,6 +425,16 @@ export interface DiagnosticProposition {
   /** S14d : communes où une PRADA au courriel non vide existe mais le contact 'confirme' est conservé → arbitrage à
    *  rendre (jamais de bascule silencieuse). Optionnel : absent = aucun arbitrage (compat des littéraux existants). */
   arbitragesPrada?: string[];
+}
+
+/**
+ * D2/Part 5 — date de LIBÉRATION du quota mensuel = 1er jour du mois SUIVANT `maintenant`, en JJ/MM/AAAA. PURE (prend l'instant
+ * en paramètre, jamais `new Date()` implicite). Le plafond mensuel se remet à zéro au changement de mois.
+ */
+export function dateLiberationQuota(maintenant: Date): string {
+  const prochain = new Date(maintenant.getFullYear(), maintenant.getMonth() + 1, 1);
+  const mm = String(prochain.getMonth() + 1).padStart(2, '0');
+  return `01/${mm}/${prochain.getFullYear()}`;
 }
 
 /**

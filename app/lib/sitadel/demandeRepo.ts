@@ -136,7 +136,8 @@ async function lireHistorique(): Promise<HistoriqueDemandes> {
 
 /** Compteurs expliquant l'absence de lots — MÊME logique d'exclusion que proposerLots (sans le toucher). */
 export function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDemandes, params: ParamsLot): DiagnosticProposition {
-  const sansCanal = new Set<string>();
+  const sansCanal = new Map<string, string | null>(); // D2/Part 5 : code_insee → Nom (nommé, jamais un décompte anonyme). Nom possiblement null (canal inconnu).
+  const nomParCommune = new Map<string, { nom: string | null; canal: string | null }>(); // D2/Part 5 : nom+canal des communes éligibles (pour nommer/scoper celles au plafond)
   const formulaire = new Map<string, string>(); // S16 : code_insee → Nom (à déposer à la main — PRODUIT des lots)
   const courrier = new Map<string, string>();    // S16 : code_insee → Nom (écartée faute d'adresse e-mail)
   const parCommune = new Map<string, number>();
@@ -153,18 +154,27 @@ export function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDema
     if (raison === 'absent') { absents += 1; continue; }
     if (raison === 'hors_fenetre') { horsFenetre += 1; continue; }
     if (raison === 'deja_rattache') { rattaches += 1; continue; }
-    if (raison === 'sans_canal') { sansCanal.add(d.codeInsee); continue; }
+    if (raison === 'sans_canal') { sansCanal.set(d.codeInsee, d.communeNom); continue; }
     if (raison === 'courrier') { courrier.set(d.codeInsee, d.communeNom!); continue; }         // S16 : écartée (pas de lot)
     if (d.canal === 'formulaire') formulaire.set(d.codeInsee, d.communeNom!);                    // S16 : à déposer — MAIS produit un lot
+    nomParCommune.set(d.codeInsee, { nom: d.communeNom, canal: d.canal ?? null });
     parCommune.set(d.codeInsee, (parCommune.get(d.codeInsee) ?? 0) + 1);
   }
-  let plafond = 0;
+  // D2/Part 5 — communes au plafond, NOMMÉES + consommé/plafond + canal (scope process). Date de libération = 1er du mois suivant (au rendu).
+  const communesAuPlafond: { codeInsee: string; nom: string | null; consomme: number; plafond: number; canal: string | null }[] = [];
   for (const code of parCommune.keys()) {
-    if (params.permisParCommuneParMois - (hist.permisCeMoisParCommune.get(code) ?? 0) <= 0) plafond += 1;
+    const consomme = hist.permisCeMoisParCommune.get(code) ?? 0;
+    if (params.permisParCommuneParMois - consomme <= 0) {
+      const meta = nomParCommune.get(code);
+      communesAuPlafond.push({ codeInsee: code, nom: meta?.nom ?? null, consomme, plafond: params.permisParCommuneParMois, canal: meta?.canal ?? null });
+    }
   }
+  communesAuPlafond.sort((a, b) => (a.nom ?? a.codeInsee).localeCompare(b.nom ?? b.codeInsee));
   return {
     candidatsExamines: candidats.length, dossiersAnnules: annules, dossiersAbsents: absents, dossiersHorsFenetre: horsFenetre,
-    dossiersDejaRattaches: rattaches, communesSansCanal: sansCanal.size, communesPlafondMensuel: plafond,
+    dossiersDejaRattaches: rattaches, communesSansCanal: sansCanal.size, communesPlafondMensuel: communesAuPlafond.length,
+    communesAuPlafond,
+    communesSansCanalNoms: [...sansCanal.entries()].map(([codeInsee, nom]) => ({ codeInsee, nom })).sort((a, b) => (a.nom ?? a.codeInsee).localeCompare(b.nom ?? b.codeInsee)),
     communesFormulaire: [...formulaire.values()].sort(),
     communesCourrier: [...courrier.values()].sort(),
     arbitragesPrada: [...arbitrages].sort(),
@@ -287,6 +297,7 @@ export interface LigneArchive {
   satisfaitLe: string | null;    // G2 : ancre des « 2 mois » (arrivée en Archives). ⚠️ se remet à jour si le dossier est démarqué puis re-satisfait → l'horloge des 2 mois redémarre (accepté, pas de 2e date).
   satisfaitPar: string | null;   // 'automatique' | 'manuel' (origine du marquage)
   demandeReference: string;
+  canal?: string | null;         // D2 : dest_canal de la demande (process d'affichage : email / formulaire / autre). Lecture seule ; optionnel (fixtures).
   recuLe: string | null;         // G2 : date de la réponse qui a satisfait (dd.reponse_id) ; NULL = satisfait à la main sans réponse → aucun délai G1
   expireLeCapte: string | null;  // G2 : expiration L1 la plus proche des liens forts de cette réponse (NULL → délai G1 = recuLe + 7 j)
   aLienFort: boolean;            // G2 : la réponse porte un lien fort (contenu périssable non classé) — signal de contenu au même titre qu'une pièce e-mail
@@ -311,7 +322,7 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
     dossier_id: number; num_dau: string; code_insee: string; commune_nom: string | null;
     type: 'PC' | 'PD'; nature_projet_completee: string | null; i_extension: boolean | null; i_surelevation: boolean | null;
     nb_lgt_tot_crees: number | null; surf_creee: string | number | null;
-    date_autorisation: string | null; satisfait_le: string | null; satisfait_par: string | null; demande_reference: string;
+    date_autorisation: string | null; satisfait_le: string | null; satisfait_par: string | null; demande_reference: string; canal: string | null;
     recu_le: string | null; expire_le_capte: string | null; a_lien_fort: boolean;
     pieces: PieceArchive[] | null;
   }>(
@@ -321,7 +332,7 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
     `SELECT s.id::int AS dossier_id, s.num_dau, s.code_insee, c.nom AS commune_nom,
             s.type, s.nature_projet_completee, s.i_extension, s.i_surelevation, s.nb_lgt_tot_crees, s.surf_creee,
             s.date_reelle_autorisation::text AS date_autorisation,
-            dd.satisfait_le::date::text AS satisfait_le, dd.satisfait_par, dm.reference AS demande_reference,
+            dd.satisfait_le::date::text AS satisfait_le, dd.satisfait_par, dm.reference AS demande_reference, dm.dest_canal AS canal, -- D2 : process d'affichage (lecture)
             dr.recu_le::text AS recu_le,
             (SELECT min(l.expire_le)::text FROM demande_reponse_lien l WHERE l.reponse_id = dd.reponse_id AND l.fort) AS expire_le_capte,
             EXISTS (SELECT 1 FROM demande_reponse_lien l WHERE l.reponse_id = dd.reponse_id AND l.fort) AS a_lien_fort,
@@ -361,7 +372,7 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
       dossierId: r.dossier_id, numDau: r.num_dau, codeInsee: r.code_insee, communeNom: r.commune_nom,
       categorie: cl.cle, libelleCategorie: cl.libelle,
       dateAutorisation: r.date_autorisation, satisfaitLe: r.satisfait_le, satisfaitPar: r.satisfait_par,
-      demandeReference: r.demande_reference,
+      demandeReference: r.demande_reference, canal: r.canal,
       recuLe: r.recu_le ?? null, expireLeCapte: r.expire_le_capte ?? null, aLienFort: r.a_lien_fort === true,
       // E-MAIL d'abord (origine 'email'), puis les documents manuels de CE dossier ('manuel'). Fusion par dossier_id ::int (nombre) → pas de piège chaîne.
       // N10-J : chaque pièce porte `estSource`/`nbChampsSource` (source résolue sans ambiguïté) ; les sources non résolues sont remontées à part.

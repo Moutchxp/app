@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagnostic, ETIQUETTE_PROFIL, type ProfilDemandeur, cleLot, compterSelection, bornerAncienneteMois } from '../../../../lib/sitadel/demande';
+import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagnostic, dateLiberationQuota, ETIQUETTE_PROFIL, type ProfilDemandeur, cleLot, compterSelection, bornerAncienneteMois } from '../../../../lib/sitadel/demande';
 import type { StockResultat, PermisDetail, CompteRenduCreation } from '../../../../lib/sitadel/demandeRepo';
 import { PERIODE_STOCK_DEFAUT } from '../../../../lib/sitadel/stock';
 import { MessageRetour, CartePropositions, BlocStock, TableStock, PanneauDetailStock, BandeauReglages, type RetourAction } from './DemandesRendu';
 import { BlocPrada } from './BlocPrada';
 import { BlocDepot } from './BlocDepot';
 import { SuiviDemandes } from './SuiviDemandes';
+import { dansProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 
 /**
  * Q5 — onglet « À DEMANDER » : tout ce qui PRÉCÈDE la création d'une demande. Extrait sans changement de logique de l'ex-onglet
@@ -20,7 +21,7 @@ const PROFILS: ProfilDemandeur[] = ['entreprise', 'personne'];
 const PAGE_SIZE = 20;
 const styleChamp: CSSProperties = { padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 };
 
-interface Props { categories: { cle: string; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; onAllerReglages: () => void }
+interface Props { categories: { cle: string; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; process: Process; onAllerReglages: () => void }
 
 /** Message d'échec = la RAISON réelle renvoyée par le serveur ({erreur}), jamais un libellé figé à deux mots. */
 async function erreurServeur(res: Response, repli: string): Promise<string> {
@@ -28,7 +29,7 @@ async function erreurServeur(res: Response, repli: string): Promise<string> {
   catch { return repli; }
 }
 
-export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, onAllerReglages }: Props) {
+export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, process, onAllerReglages }: Props) {
   const [prop, setProp] = useState<{ lots: Lot[]; diagnostic: DiagnosticProposition; profil: ProfilDemandeur } | null>(null);
   const [profilPrep, setProfilPrep] = useState<ProfilDemandeur>('entreprise');
   const [retour, setRetour] = useState<RetourAction>(null);
@@ -130,13 +131,17 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, onAl
   const explication = prop ? expliquerProposition(prop.lots.length, prop.diagnostic) : '';
   const selProfil = (id: string) => id as ProfilDemandeur;
 
-  // V3 — pagination + décompte des lots (sur l'ENSEMBLE, jamais la page).
-  const lotsProp = prop?.lots ?? [];
+  // V3 — pagination + décompte des lots (sur l'ENSEMBLE, jamais la page). D2 — SCOPE PROCESS : on n'affiche que les lots du
+  //   process actif (email / formulaire). Filtre d'AFFICHAGE (le canal du lot vient de mairie_contact) ; la création reste
+  //   re-dérivée serveur (jamais un lot forgé).
+  const lotsProp = (prop?.lots ?? []).filter((l) => dansProcess(l.canal, process));
   const nbPagesLots = Math.max(1, Math.ceil(lotsProp.length / PAGE_SIZE));
   const pLots = Math.min(pageLots, nbPagesLots);
   const lotsVisibles = lotsProp.slice((pLots - 1) * PAGE_SIZE, pLots * PAGE_SIZE).map((l) => ({
     cle: cleLot(l), codeInsee: l.codeInsee, communeNom: l.communeNom, canal: l.canal, nbDossiers: l.dossiers.length, destOrigine: l.destOrigine, destNom: l.destNom, profilImpose: l.profilImpose,
   }));
+  // D2 — SCOPE PROCESS du stock (canal de la commune). Le stock et les lots partagent ainsi le même vivier (cohérence Part 6).
+  const stockLignes = (stock?.lignes ?? []).filter((l) => dansProcess(l.canal, process));
   const selCompte = compterSelection(lotsProp, selLots);
   const toutCocheLots = lotsProp.length > 0 && selCompte.nbLots === lotsProp.length;
   const basculerLot = (cle: string): void => setSelLots((s) => { const n = new Set(s); if (n.has(cle)) n.delete(cle); else n.add(cle); return n; });
@@ -153,13 +158,13 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, onAl
       {/* Q2b/U6 — STOCK par commune : REPLIÉ par défaut (une seule ligne à l'arrivée) ; l'ouverture manuelle charge et déplie. */}
       <BlocStock
         ouvert={stockOuvert} onToggle={toggleStock} chargement={stockChargement}
-        stock={stock?.lignes ?? null} tronque={stock?.tronque} genereEnMs={stock?.genereEnMs} fenetreMois={stock?.fenetreMois ?? ancienneteMois}
+        stock={stock ? stockLignes : null} tronque={stock?.tronque} genereEnMs={stock?.genereEnMs} fenetreMois={stock?.fenetreMois ?? ancienneteMois}
         table={stock ? (
           <TableStock
-            lignes={stock.lignes} categories={categories} communeOuverte={communeStock} onDetail={ouvrirDetailStock}
+            lignes={stockLignes} categories={categories} communeOuverte={communeStock} onDetail={ouvrirDetailStock}
             panneau={communeStock !== null ? (
               <PanneauDetailStock
-                communeNom={stock.lignes.find((l) => l.codeInsee === communeStock)?.communeNom ?? communeStock}
+                communeNom={stockLignes.find((l) => l.codeInsee === communeStock)?.communeNom ?? communeStock}
                 categories={categories}
                 periode={periodeStock} onPeriode={setPeriodeStock} typeFiltre={typeStock} onType={setTypeStock}
                 permis={permisStock} chargement={permisChargement} onRefermer={() => setCommuneStock(null)}
@@ -168,6 +173,15 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, onAl
           />
         ) : null}
       />
+
+      {/* D2/Part 6 — COHÉRENCE stock ↔ lots : un permis peut être visible ici SANS être proposable en lot. La raison se lit. */}
+      {stockOuvert && stockLignes.length > 0 && (
+        <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>
+          Un permis listé ici n’est pas toujours proposable en lot : sa commune peut être <strong>au plafond mensuel</strong> ou
+          le permis <strong>déjà demandé</strong>. Lancez « Préparer les demandes » : le détail nommé s’affiche sous l’aperçu
+          (« Pourquoi peu ou pas de lots »).
+        </p>
+      )}
 
       {/* Préparation : lance la proposition, choisit le profil, affiche le retour d'action. */}
       <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -190,14 +204,40 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, onAl
         />
       )}
 
-      {/* C2/C3 — arbitrages PRADA (info) + communes sans adresse (saisie) : ils conditionnent la création, ils suivent. */}
-      <BlocPrada />
+      {/* D2/Part 5 — POURQUOI peu ou pas de lots : communes NOMMÉES (fin du décompte anonyme). Scopé au process actif (canal).
+          Fin de la « soirée Paris » : Paris apparaît ici, au plafond, avec son quota et sa date de libération. */}
+      {prop && (() => {
+        const plafond = (prop.diagnostic.communesAuPlafond ?? []).filter((c) => dansProcess(c.canal, process));
+        const sansCanal = process === 'email' ? (prop.diagnostic.communesSansCanalNoms ?? []) : []; // « sans canal » ne concerne que la voie e-mail
+        const dejaN = prop.diagnostic.dossiersDejaRattaches;
+        if (plafond.length === 0 && sansCanal.length === 0 && dejaN === 0) return null;
+        const libere = dateLiberationQuota(new Date());
+        return (
+          <div className="svv-card" style={{ fontSize: 13 }}>
+            <strong>Pourquoi peu ou pas de lots proposés (process {PROCESS_META[process].court})</strong>
+            <ul style={{ margin: '.3rem 0 0 1.1rem' }}>
+              {plafond.map((c) => (
+                <li key={c.codeInsee}>
+                  <strong>{c.nom ?? c.codeInsee}</strong> <span style={{ color: 'var(--color-svv-muted)' }}>({c.codeInsee})</span> — {c.consomme}/{c.plafond} permis demandés ce mois-ci, quota libéré le <strong>{libere}</strong>.
+                </li>
+              ))}
+              {sansCanal.map((c) => (
+                <li key={c.codeInsee}>{c.nom ?? '—'} <span style={{ color: 'var(--color-svv-muted)' }}>({c.codeInsee})</span> — aucun canal de contact connu (à renseigner en Réglages).</li>
+              ))}
+              {dejaN > 0 && <li>{dejaN} dossier(s) déjà rattaché(s) à une demande.</li>}
+            </ul>
+          </div>
+        );
+      })()}
 
-      {/* P3 — « à déposer à la main » (téléservice) : un dépôt non effectué EST un envoi non effectué → il vit ici. */}
-      <BlocDepot />
+      {/* C2/C3 — arbitrages PRADA + communes injoignables : machinerie du RAIL A (rendre joignable par e-mail) → process E-MAIL seul. */}
+      {process === 'email' && <BlocPrada />}
 
-      {/* Q6 — tableau des demandes NON ENVOYÉES (brouillon/prête ; abandonnée via le filtre) + actions groupées « prête »/« abandonner ». */}
-      <SuiviDemandes categories={categories} perimetre="a_demander" signalRafraichir={signalSuivi} />
+      {/* P3 — « à déposer à la main » (téléservice) : file du process TÉLÉSERVICE seul (un dépôt non effectué EST un envoi non effectué). */}
+      {process === 'formulaire' && <BlocDepot />}
+
+      {/* Q6 — tableau des demandes NON ENVOYÉES du process actif + actions groupées (« prête » / annulation D1). */}
+      <SuiviDemandes categories={categories} perimetre="a_demander" process={process} signalRafraichir={signalSuivi} />
     </div>
   );
 }

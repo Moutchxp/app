@@ -13,7 +13,12 @@ import { CollaborateursVue } from './CollaborateursVue';
 import { SuiviRattachementVue } from './SuiviRattachementVue';
 import { ProjectionVue } from './ProjectionVue';
 import { OngletsPermis, type CleOnglet } from './PermisOnglets';
+import { CommutateurProcess, type CompteursProcess } from './CommutateurProcess';
+import { PROCESS_DEFAUT, type Process } from '../../../../lib/sitadel/process';
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
+
+/** D2 — onglets du groupe « Demandes aux mairies » scopés par le commutateur de process (À demander, En cours, Réponses, Archives). */
+const ONGLETS_DEMANDES: readonly CleOnglet[] = ['a_demander', 'en_cours', 'reponses', 'archives'];
 
 /**
  * Onglets « Permis de construire », répartis en 2 groupes nommés (S13) — « Mise à jour des dossiers » (Dossiers,
@@ -37,6 +42,9 @@ function msJusquaProchaineHeure(h: number): number {
 export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, triLibelle }: Props) {
   const [onglet, setOnglet] = useState<CleOnglet>('dossiers');
   const [comptes, setComptes] = useState<Comptes | null>(null);
+  // D2 — process actif du commutateur (défaut e-mail ; NE persiste PAS entre sessions) + compteurs des viviers.
+  const [processActif, setProcessActif] = useState<Process>(PROCESS_DEFAUT);
+  const [compteursProcess, setCompteursProcess] = useState<CompteursProcess | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recompterRef = useRef<() => Promise<void>>(async () => {}); // rompt l'auto-référence (planification quotidienne)
 
@@ -59,17 +67,34 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
     return () => { if (timer.current) clearTimeout(timer.current); };
   }, [recompter]);
 
+  // D2 — compteurs du commutateur (communes + demandes en cours par process, 3e groupe). Chargés à l'ouverture ; best-effort
+  //   (un échec laisse le commutateur sans chiffres, jamais un écran cassé). Lecture seule, aucune requête de surveillance.
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/permis/process-compteurs', { cache: 'no-store' });
+        if (!annule && res.ok) setCompteursProcess((await res.json()) as CompteursProcess);
+      } catch { /* compteurs indisponibles : commutateur utilisable sans chiffres */ }
+    })();
+    return () => { annule = true; };
+  }, []);
+
   return (
     <div className="flex flex-col gap-3">
       <OngletsPermis actif={onglet} onChoisir={setOnglet}
         compteurs={comptes ? { reponses: comptes.reponses, saisines: comptes.saisines, rattachement: comptes.rattachement, projection: comptes.projection } : undefined} />
+      {/* D2 — le commutateur de process coiffe les 4 onglets « Demandes » et les scope (email / téléservice) + 3e groupe. */}
+      {ONGLETS_DEMANDES.includes(onglet) && (
+        <CommutateurProcess actif={processActif} onChoisir={setProcessActif} compteurs={compteursProcess} />
+      )}
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} />}
       {onglet === 'rattachement' && <SuiviRattachementVue onRecompter={() => void recompter()} />}
-      {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} onAllerReglages={() => setOnglet('reglages')} />}
-      {onglet === 'en_cours' && <EnCoursVue categories={categories} />}
-      {onglet === 'reponses' && <ReponsesVue onRecompter={() => void recompter()} />}
+      {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} process={processActif} onAllerReglages={() => setOnglet('reglages')} />}
+      {onglet === 'en_cours' && <EnCoursVue categories={categories} process={processActif} />}
+      {onglet === 'reponses' && <ReponsesVue process={processActif} onRecompter={() => void recompter()} />}
       {onglet === 'projection' && <ProjectionVue onRecompter={() => void recompter()} />}
-      {onglet === 'archives' && <ArchivesVue />}
+      {onglet === 'archives' && <ArchivesVue process={processActif} />}
       {onglet === 'saisines' && <SaisinesVue onRecompter={() => void recompter()} />}
       {onglet === 'reglages' && <ReglagesVue />}
       {onglet === 'automatisation' && <AutomatisationVue />}

@@ -8,8 +8,8 @@ import { SuiviDemandes } from './SuiviDemandes';
  * ne sont pas partis. Aucune action groupée ici (elles portent sur des brouillons → onglet « À demander »). Le panneau détail
  * reste ouvrable. AUCUN envoi.
  */
-interface Props { categories: { cle: string; libelle: string; rang: number }[] }
+interface Props { categories: { cle: string; libelle: string; rang: number }[]; process: import('../../../../lib/sitadel/process').Process }
 
-export function EnCoursVue({ categories }: Props) {
-  return <SuiviDemandes categories={categories} perimetre="en_cours" />;
+export function EnCoursVue({ categories, process }: Props) {
+  return <SuiviDemandes categories={categories} perimetre="en_cours" process={process} />;
 }

@@ -38,6 +38,7 @@ export interface LigneStock {
   communeNom: string | null;
   parType: Partial<Record<Exclude<CleCategorie, 'autre'>, number>>; // 0 absent = 0 (le rendu lit `?? 0`)
   total: number;
+  canal?: string | null; // D2 : canal de la commune (mairie_contact) — SCOPE process d'affichage. Optionnel (compat des littéraux/fixtures).
 }
 
 /**
@@ -58,7 +59,7 @@ export function agregerStock(
     if (d === null || d < dateMin6mois) continue;                          // borne d'AFFICHAGE 6 mois (sous-ensemble)
     if (categorie === 'autre') continue;                                   // pas de colonne « autre » (voir CATEGORIES_STOCK)
     const l = parCommune.get(candidat.codeInsee)
-      ?? { codeInsee: candidat.codeInsee, communeNom: candidat.communeNom, parType: {}, total: 0 };
+      ?? { codeInsee: candidat.codeInsee, communeNom: candidat.communeNom, parType: {}, total: 0, canal: candidat.canal ?? null };
     l.parType[categorie] = (l.parType[categorie] ?? 0) + 1;
     l.total += 1;
     parCommune.set(candidat.codeInsee, l);
