@@ -23,7 +23,9 @@ export async function PATCH(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const c = (await request.json()) as { codeInsee?: unknown; canal?: unknown; email?: unknown; urlFormulaire?: unknown; adressePostale?: unknown; note?: unknown; telephone?: unknown; responsableNom?: unknown; telephoneStandard?: unknown; emailType?: unknown };
+    const c = (await request.json()) as { codeInsee?: unknown; canal?: unknown; email?: unknown; urlFormulaire?: unknown; adressePostale?: unknown; note?: unknown; telephone?: unknown; responsableNom?: unknown; telephoneStandard?: unknown; emailType?: unknown; motif?: unknown };
+    // D5 — MOTIF libre (journalisé), pour relire dans six mois POURQUOI une commune a changé de rail. Absent → défaut historique.
+    const motif = typeof c.motif === 'string' && c.motif.trim() !== '' ? c.motif.trim() : 'correction manuelle (admin)';
     const codeInsee = typeof c.codeInsee === 'string' ? c.codeInsee.trim() : '';
     const canal = (typeof c.canal === 'string' ? c.canal : '') as CanalContact;
     const email = typeof c.email === 'string' ? c.email.trim() : '';
@@ -55,7 +57,7 @@ export async function PATCH(request: Request): Promise<Response> {
         canal, source: 'saisie_manuelle', statut: 'confirme',
         telephone, responsableNom, // S18 : protocole (protocole_verifie_le mis à CURRENT_DATE par ecrireContact)
         telephoneStandard, emailType, // S19 : standard + nature de l'adresse
-        motif: 'correction manuelle (admin)', auteur: garde.auteurId === null ? null : String(garde.auteurId), note,
+        motif, auteur: garde.auteurId === null ? null : String(garde.auteurId), note,
       });
     });
     return Response.json({ ok: true, codeInsee, canal, statut: 'confirme' });

@@ -14,6 +14,7 @@ import { SuiviRattachementVue } from './SuiviRattachementVue';
 import { ProjectionVue } from './ProjectionVue';
 import { OngletsPermis, type CleOnglet } from './PermisOnglets';
 import { CommutateurProcess, type CompteursProcess } from './CommutateurProcess';
+import { BasculeRail } from './BasculeRail';
 import { PROCESS_DEFAUT, type Process } from '../../../../lib/sitadel/process';
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
 
@@ -71,15 +72,22 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
     return () => { if (timer.current) clearTimeout(timer.current); };
   }, [recompter]);
 
-  // D2 — compteurs du commutateur (communes + demandes en cours par process, 3e groupe). Chargés à l'ouverture ; best-effort
-  //   (un échec laisse le commutateur sans chiffres, jamais un écran cassé). Lecture seule, aucune requête de surveillance.
+  // D2 — compteurs du commutateur (communes + demandes en cours par process, 3e groupe). Best-effort (un échec laisse le
+  //   commutateur sans chiffres). Lecture seule, aucune requête de surveillance. `rechargerCompteursProcess` (event-driven) sert
+  //   au rechargement APRÈS une bascule de rail (D5) ; l'effet de montage inline son propre fetch (setState après await, jamais synchrone).
+  const rechargerCompteursProcess = useCallback(async (): Promise<void> => {
+    try {
+      const res = await fetch('/api/admin/permis/process-compteurs', { cache: 'no-store' });
+      if (res.ok) setCompteursProcess((await res.json()) as CompteursProcess);
+    } catch { /* compteurs indisponibles : commutateur utilisable sans chiffres */ }
+  }, []);
   useEffect(() => {
     let annule = false;
     void (async () => {
       try {
         const res = await fetch('/api/admin/permis/process-compteurs', { cache: 'no-store' });
         if (!annule && res.ok) setCompteursProcess((await res.json()) as CompteursProcess);
-      } catch { /* compteurs indisponibles : commutateur utilisable sans chiffres */ }
+      } catch { /* compteurs indisponibles */ }
     })();
     return () => { annule = true; };
   }, []);
@@ -90,7 +98,11 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
         compteurs={comptes ? { reponses: comptes.reponses, saisines: comptes.saisines, rattachement: comptes.rattachement, projection: comptes.projection } : undefined} />
       {/* D2 — le commutateur de process coiffe les 4 onglets « Demandes » et les scope (email / téléservice) + 3e groupe. */}
       {ONGLETS_DEMANDES.includes(onglet) && (
-        <CommutateurProcess actif={processActif} onChoisir={setProcessActif} compteurs={compteursProcess} />
+        <>
+          <CommutateurProcess actif={processActif} onChoisir={setProcessActif} compteurs={compteursProcess} />
+          {/* D5 — basculer une commune de rail, atteignable depuis le commutateur. Réutilise annuler-lot (D1) + PATCH /contact. */}
+          <BasculeRail onBascule={() => void rechargerCompteursProcess()} />
+        </>
       )}
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} />}
       {onglet === 'rattachement' && <SuiviRattachementVue onRecompter={() => void recompter()} />}
