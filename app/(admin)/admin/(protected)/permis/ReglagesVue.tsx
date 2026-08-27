@@ -5,9 +5,16 @@ import type { ConfigVeille } from '../../../../lib/sitadel/veilleConfig';
 import { ETIQUETTE_PROFIL, type ConfigDemandeur, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import {
   champsPourProfil, PARAMS_VEILLE, PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA, PARAMS_THEME_TELESERVICE, PARAMS_THEME_RATTACHEMENT,
-  PARAMS_SOURCES, PARAMS_MENTIONS, type ParamVeille, type BornesParColonne, type ErreurReglage,
+  PARAMS_SOURCES, PARAMS_MENTIONS, espaceReglage, type ParamVeille, type BornesParColonne, type ErreurReglage,
 } from '../../../../lib/sitadel/reglagesVeille';
-import { BandeauIdentite, PlageParam, CarteParamVestigial, CarteSection, TITRE_THEME_PREPARATION, TITRE_THEME_ENVOI, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA, TITRE_THEME_TELESERVICE, TITRE_THEME_RATTACHEMENT, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
+import { BandeauIdentite, PlageParam, CarteParamVestigial, CarteSection, TITRE_THEME_PREPARATION, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA, TITRE_THEME_RATTACHEMENT, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
+
+// D4-ter (R2) — l'onglet Réglages est découpé en TROIS espaces (onglets internes) : les deux RAILS (envoi e-mail / téléservice,
+//   chacun autonome, un réglage « Partagé » y apparaît des deux côtés mais reste UNE valeur en base) + le TRANSVERSE (hors rail).
+type EspaceOnglet = 'email' | 'teleservice' | 'transverse';
+const TITRE_ESPACE_EMAIL = 'Envoi & relances';
+const TITRE_ESPACE_DEPOT = 'Dépôt & suivi';
+const TITRE_REGLAGES_HERITES = 'Réglages hérités';
 
 /**
  * Écran « Réglages » de la tuile Permis (chantier S7d / S7e). Édite les DEUX identités de demandeur (Société / Personne
@@ -53,6 +60,8 @@ export function ReglagesVue() {
   // R1 — relève manuelle de la boîte (ACTION, pas un réglage) : verrou anti-double-clic + résultat affiché en clair.
   const [releveEnCours, setReleveEnCours] = useState(false);
   const [releveMsg, setReleveMsg] = useState<{ ton: 'ok' | 'info' | 'erreur'; texte: string } | null>(null);
+  // D4-ter (R2) — onglet actif parmi les trois espaces. Événement utilisateur (clic), jamais un setState d'effet.
+  const [espace, setEspace] = useState<EspaceOnglet>('email');
 
   function hydrater(r: Reglages) {
     setData(r);
@@ -158,6 +167,18 @@ export function ReglagesVue() {
       {p.rail === 'email' ? 'E-mail seulement' : 'Téléservice seulement'}
     </span>
   ) : null;
+  // D4-ter (R2) — badge « Partagé » : ce réglage apparaît DANS LES DEUX onglets de rail mais reste UNE seule valeur en base.
+  const badgePartage = (p: ParamVeille) => p.partage ? (
+    <span style={{ fontSize: 10, fontWeight: 700, padding: '.05rem .4rem', borderRadius: '.35rem', background: 'var(--color-svv-field)', border: '1px solid var(--color-svv-line)', color: 'var(--color-svv-ink)', whiteSpace: 'nowrap' }}>
+      Partagé
+    </span>
+  ) : null;
+  // La phrase qui DIT qu'un partagé agit sur les deux process (sinon l'internaute croit régler un seul rail — cf. constat porteur).
+  const notePartage = (p: ParamVeille) => p.partage ? (
+    <span role="note" style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--color-svv-muted)' }}>
+      Commun aux deux process : le modifier ici agit AUSSI sur l’autre (une seule valeur enregistrée).
+    </span>
+  ) : null;
   // D4-bis — sur un réglage « par process » (surchargeDe) laissé vide, on affiche la valeur COMMUNE effectivement héritée,
   //   pour que le porteur voie ce que « suivre le commun » vaut concrètement sans aller lire l'autre carte. Réglage normal → pas de placeholder.
   const placeholderSurcharge = (p: ParamVeille): string | undefined => {
@@ -168,7 +189,7 @@ export function ReglagesVue() {
   };
   const libelleAvecRail = (p: ParamVeille) => (
     <span style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-      <span style={styleLabel}>{p.libelle}</span>{badgeRail(p)}
+      <span style={styleLabel}>{p.libelle}</span>{badgeRail(p)}{badgePartage(p)}
     </span>
   );
 
@@ -184,9 +205,10 @@ export function ReglagesVue() {
         <article key={p.colonne} className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
           <label style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <input type="checkbox" checked={actif} onChange={(e) => void basculerBooleen(p.colonne, e.target.checked)} aria-label={p.libelle} />
-            <span style={styleLabel}>{p.libelle}</span>{badgeRail(p)}
+            <span style={styleLabel}>{p.libelle}</span>{badgeRail(p)}{badgePartage(p)}
           </label>
           <span style={styleAide}>{p.aide}</span>
+          {notePartage(p)}
           {veMsg[p.colonne] && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{veMsg[p.colonne]}</span>}
           {veErreurs[p.colonne] && <span role="alert" style={styleErreur}>{veErreurs[p.colonne]}</span>}
         </article>
@@ -196,6 +218,7 @@ export function ReglagesVue() {
       <article key={p.colonne} className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
         {libelleAvecRail(p)}
         <span style={styleAide}>{p.aide}</span>
+        {notePartage(p)}
         <label className="flex flex-col gap-1" style={{ marginTop: '.2rem' }}>
           {p.type === 'enum'
             ? <select value={veDraft[p.colonne] ?? ''} onChange={(e) => setVeDraft((d) => ({ ...d, [p.colonne]: e.target.value }))} style={styleInput} aria-label={p.libelle}>
@@ -226,61 +249,108 @@ export function ReglagesVue() {
     );
   };
 
+  // ── D4-ter (R2) — répartition des cartes par onglet, dérivée du MODÈLE DE RAIL (R1). Une valeur partagée = le MÊME `carteParam`
+  //   rendu dans deux onglets (même route, même brouillon `veDraft`) → jamais deux vérités. ────────────────────────────────────
+  const grille: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' };
+  const prepPartages = PARAMS_THEME_PREPARATION.filter((p) => p.partage);                        // 7 partagés (préparation)
+  const envoiEmail = PARAMS_THEME_ENVOI.filter((p) => espaceReglage(p) === 'email');             // 8 e-mail seul (caps, relance auto, heures, 3 délais)
+  const teleAlertes = PARAMS_THEME_TELESERVICE.filter((p) => !p.surchargeDe);                     // 2 alertes « préparée non déposée »
+  const surchargePour = (colonne: string) => PARAMS_THEME_TELESERVICE.find((s) => s.surchargeDe === colonne);
+  const prepTeleservice = prepPartages.flatMap((p) => { const s = surchargePour(p.colonne); return s ? [p, s] : [p]; }); // surcharge COLLÉE sous sa base
+  const adresseReponse = PARAMS_THEME_ENVOI.filter((p) => p.colonne === 'adresse_reponse');       // transverse : imprimée au corps + boîte relevée
+  const herites = [
+    ...PARAMS_THEME_PREPARATION.filter((p) => p.vestigial),                                       // « Demandes par commune et par mois » (remplacé)
+    ...PARAMS_THEME_ENVOI.filter((p) => p.colonne === 'relance_jours_avant_echeance'),            // ancien délai unique (remplacé par la cascade)
+  ];
+  const onglets: { id: EspaceOnglet; libelle: string; aide: string }[] = [
+    { id: 'email', libelle: '✉️ Envoi e-mail', aide: 'Le process AUTOMATIQUE d’envoi par e-mail aux mairies. Les réglages « Partagé » sont communs au téléservice — une seule valeur enregistrée.' },
+    { id: 'teleservice', libelle: '📮 Téléservice', aide: 'Le process SEMI-MANUEL (dépôt sur le téléservice de la commune). Les « Partagé » sont communs à l’e-mail ; une surcharge, collée sous sa base, ne vaut QUE pour le téléservice.' },
+    { id: 'transverse', libelle: '⚙️ Transverse', aide: 'Réglages communs aux deux process (ni e-mail seul, ni téléservice seul) : identités, réponses, alertes, CADA, rattachement, courrier, annuaire.' },
+  ];
+  const styleOnglet = (actif: boolean): CSSProperties => ({
+    padding: '.4rem .8rem', borderRadius: '.5rem', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+    border: '1px solid var(--color-svv-line)', whiteSpace: 'nowrap',
+    background: actif ? 'var(--color-svv-ink)' : '#fff', color: actif ? '#fff' : 'var(--color-svv-ink)',
+  });
+
   return (
     <div className="flex flex-col gap-4">
-      {/* ── Section A : identités (accordéon, un bloc par profil) — E2 : carte à en-tête collant ── */}
-      <CarteSection titre="Identités du demandeur" icone="👤">
-        <p style={styleAide}>Deux profils pour exercer le droit d’accès : « Société » (identité complète) ou « Personne physique » (nom, adresse, e-mail — sans exposer la société). Chaque demande porte l’un des deux ; l’identité correspondante doit être complète pour passer « prête ».</p>
-        {PROFILS.map((profil) => {
-          const complet = data.problemesIdentite[profil].length === 0;
-          return (
-            <details key={profil} open={!complet} style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.6rem', background: 'var(--color-svv-field)' }}>
-              <summary style={{ cursor: 'pointer', padding: '.6rem .8rem', fontWeight: 700, display: 'flex', gap: '.5rem', alignItems: 'center' }}>
-                {ETIQUETTE_PROFIL[profil]}
-                <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: complet ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)' }}>
-                  {complet ? '● complète' : '● incomplète'}
-                </span>
-              </summary>
-              <div className="flex flex-col gap-3" style={{ padding: '.2rem .8rem .8rem' }}>
-                <BandeauIdentite problemes={data.problemesIdentite[profil]} />
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.75rem' }}>
-                  {champsPourProfil(profil).map((c) => (
-                    <label key={c.cle} className="flex flex-col gap-1" style={{ minWidth: 0 }}>
-                      <span style={styleLabel}>{cap(c.libelle)}{c.cle === 'telephone' ? ' (facultatif)' : ''}</span>
-                      {c.multiligne
-                        ? <textarea value={idDraft[profil][c.cle] ?? ''} onChange={(e) => setIdDraft((d) => ({ ...d, [profil]: { ...d[profil], [c.cle]: e.target.value } }))} rows={2} style={styleInput} />
-                        : <input value={idDraft[profil][c.cle] ?? ''} onChange={(e) => setIdDraft((d) => ({ ...d, [profil]: { ...d[profil], [c.cle]: e.target.value } }))} style={styleInput} />}
-                      <span style={styleAide}>{c.aide}</span>
-                      {idErreurs[profil][c.colonne] && <span role="alert" style={styleErreur}>{idErreurs[profil][c.colonne]}</span>}
-                    </label>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.4rem .9rem' }} onClick={() => void enregistrerIdentite(profil)}>Enregistrer {ETIQUETTE_PROFIL[profil].toLowerCase()}</button>
-                  {idMsg[profil] && <span role="status" style={{ fontSize: 13 }}>{idMsg[profil]}</span>}
-                </div>
-              </div>
-            </details>
-          );
-        })}
-      </CarteSection>
+      {/* ── Onglets internes (R2) : trois espaces, un seul visible. tablist accessible ; cibles tactiles ≥ 40px (mobile-first). ── */}
+      <div role="tablist" aria-label="Espaces de réglages" style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        {onglets.map((o) => (
+          <button key={o.id} type="button" role="tab" aria-selected={espace === o.id} id={`onglet-${o.id}`}
+            aria-controls={`panneau-${o.id}`} onClick={() => setEspace(o.id)} style={styleOnglet(espace === o.id)}>
+            {o.libelle}
+          </button>
+        ))}
+      </div>
+      <p style={styleAide} aria-live="polite">{onglets.find((o) => o.id === espace)!.aide} Chaque réglage est appliqué immédiatement ; les plages proviennent des contraintes de la base.</p>
 
-      {/* ── Section B : paramètres des demandes, rangés par THÈME (E1) — 5 cartes (E2). Chantier VISUEL : mêmes paramètres,
-          même route, mêmes valeurs ; seuls le regroupement (E1) et l'encadrement (E2) changent. ── */}
-      <p style={styleAide}>Chaque paramètre est appliqué immédiatement. Les plages autorisées proviennent des contraintes de la base de données.</p>
-      {[
-        { titre: TITRE_THEME_PREPARATION, icone: '🗂', params: PARAMS_THEME_PREPARATION },
-        { titre: TITRE_THEME_ENVOI, icone: '✉️', params: PARAMS_THEME_ENVOI },
-        { titre: TITRE_THEME_REPONSES, icone: '📥', params: PARAMS_THEME_REPONSES },
-        { titre: TITRE_THEME_ALERTES, icone: '🔔', params: PARAMS_THEME_ALERTES },
-        { titre: TITRE_THEME_CADA, icone: '⚖️', params: PARAMS_THEME_CADA },
-        { titre: TITRE_THEME_TELESERVICE, icone: '📮', params: PARAMS_THEME_TELESERVICE },
-        { titre: TITRE_THEME_RATTACHEMENT, icone: '🏗', params: PARAMS_THEME_RATTACHEMENT },
-      ].map(({ titre, icone, params }) => (
-        <CarteSection key={titre} titre={titre} icone={icone}>
-          {/* R1 — ACTION « Relever la boîte maintenant » : en tête de la carte « Réponses et échéances », car c'est là qu'on
-              attend les retours de mairie. Aucune animation → prefers-reduced-motion sans objet. */}
-          {titre === TITRE_THEME_REPONSES && (
+      {/* ── Onglet ENVOI E-MAIL : préparation (partagés) + envoi & relances (e-mail seul) ── */}
+      {espace === 'email' && (
+        <div role="tabpanel" id="panneau-email" aria-labelledby="onglet-email" className="flex flex-col gap-4">
+          <CarteSection titre={TITRE_THEME_PREPARATION} icone="🗂">
+            <div style={grille}>{prepPartages.map(carteParam)}</div>
+          </CarteSection>
+          <CarteSection titre={TITRE_ESPACE_EMAIL} icone="✉️">
+            <div style={grille}>{envoiEmail.map(carteParam)}</div>
+          </CarteSection>
+        </div>
+      )}
+
+      {/* ── Onglet TÉLÉSERVICE : préparation (partagés + surcharges collées) + dépôt & suivi (téléservice seul) ── */}
+      {espace === 'teleservice' && (
+        <div role="tabpanel" id="panneau-teleservice" aria-labelledby="onglet-teleservice" className="flex flex-col gap-4">
+          <CarteSection titre={TITRE_THEME_PREPARATION} icone="🗂">
+            <div style={grille}>{prepTeleservice.map(carteParam)}</div>
+          </CarteSection>
+          <CarteSection titre={TITRE_ESPACE_DEPOT} icone="📮">
+            <div style={grille}>{teleAlertes.map(carteParam)}</div>
+          </CarteSection>
+        </div>
+      )}
+
+      {/* ── Onglet TRANSVERSE : identités + réponses (avec adresse de réponse + relève) + alertes + CADA + rattachement + courrier + annuaire + hérités ── */}
+      {espace === 'transverse' && (
+        <div role="tabpanel" id="panneau-transverse" aria-labelledby="onglet-transverse" className="flex flex-col gap-4">
+          <CarteSection titre="Identités du demandeur" icone="👤">
+            <p style={styleAide}>Deux profils pour exercer le droit d’accès : « Société » (identité complète) ou « Personne physique » (nom, adresse, e-mail — sans exposer la société). Chaque demande porte l’un des deux ; l’identité correspondante doit être complète pour passer « prête ». C’est cette identité qui fournit le Reply-To réel de l’e-mail (par profil).</p>
+            {PROFILS.map((profil) => {
+              const complet = data.problemesIdentite[profil].length === 0;
+              return (
+                <details key={profil} open={!complet} style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.6rem', background: 'var(--color-svv-field)' }}>
+                  <summary style={{ cursor: 'pointer', padding: '.6rem .8rem', fontWeight: 700, display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+                    {ETIQUETTE_PROFIL[profil]}
+                    <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: complet ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)' }}>
+                      {complet ? '● complète' : '● incomplète'}
+                    </span>
+                  </summary>
+                  <div className="flex flex-col gap-3" style={{ padding: '.2rem .8rem .8rem' }}>
+                    <BandeauIdentite problemes={data.problemesIdentite[profil]} />
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.75rem' }}>
+                      {champsPourProfil(profil).map((c) => (
+                        <label key={c.cle} className="flex flex-col gap-1" style={{ minWidth: 0 }}>
+                          <span style={styleLabel}>{cap(c.libelle)}{c.cle === 'telephone' ? ' (facultatif)' : ''}</span>
+                          {c.multiligne
+                            ? <textarea value={idDraft[profil][c.cle] ?? ''} onChange={(e) => setIdDraft((d) => ({ ...d, [profil]: { ...d[profil], [c.cle]: e.target.value } }))} rows={2} style={styleInput} />
+                            : <input value={idDraft[profil][c.cle] ?? ''} onChange={(e) => setIdDraft((d) => ({ ...d, [profil]: { ...d[profil], [c.cle]: e.target.value } }))} style={styleInput} />}
+                          <span style={styleAide}>{c.aide}</span>
+                          {idErreurs[profil][c.colonne] && <span role="alert" style={styleErreur}>{idErreurs[profil][c.colonne]}</span>}
+                        </label>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.4rem .9rem' }} onClick={() => void enregistrerIdentite(profil)}>Enregistrer {ETIQUETTE_PROFIL[profil].toLowerCase()}</button>
+                      {idMsg[profil] && <span role="status" style={{ fontSize: 13 }}>{idMsg[profil]}</span>}
+                    </div>
+                  </div>
+                </details>
+              );
+            })}
+          </CarteSection>
+
+          <CarteSection titre={TITRE_THEME_REPONSES} icone="📥">
+            {/* ACTION « Relever la boîte maintenant » — là où l'on attend les retours de mairie. Aucun envoi. */}
             <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
               <span style={styleLabel}>Relève de la boîte</span>
               <span style={styleAide}>
@@ -301,32 +371,32 @@ export function ReglagesVue() {
                 </span>
               )}
             </div>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
-            {params.map(carteParam)}
-          </div>
-        </CarteSection>
-      ))}
+            <div style={grille}>{[...adresseReponse, ...PARAMS_THEME_REPONSES].map(carteParam)}</div>
+          </CarteSection>
 
-      {/* S33 — le sous-bloc « Classification et affichage des dossiers » a QUITTÉ cet onglet (groupe « Demandes aux
-          mairies ») pour l'onglet Automatisation (groupe « Mise à jour des dossiers »), où il relève conceptuellement.
-          Propriétaire inchangé : ces 8 réglages restent édités par la route /reglages (cf. ClassificationDossiers). */}
+          <CarteSection titre={TITRE_THEME_ALERTES} icone="🔔"><div style={grille}>{PARAMS_THEME_ALERTES.map(carteParam)}</div></CarteSection>
+          <CarteSection titre={TITRE_THEME_CADA} icone="⚖️"><div style={grille}>{PARAMS_THEME_CADA.map(carteParam)}</div></CarteSection>
+          <CarteSection titre={TITRE_THEME_RATTACHEMENT} icone="🏗"><div style={grille}>{PARAMS_THEME_RATTACHEMENT.map(carteParam)}</div></CarteSection>
 
-      {/* ── Section C : mentions ajoutées au courrier (phrases de pratique) — S40 ── */}
-      <CarteSection titre={TITRE_PARAMS_MENTIONS} icone="✍️">
-        <p style={styleAide}>{AIDE_PARAMS_MENTIONS}</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
-          {PARAMS_MENTIONS.map(carteParam)}
+          <CarteSection titre={TITRE_PARAMS_MENTIONS} icone="✍️">
+            <p style={styleAide}>{AIDE_PARAMS_MENTIONS}</p>
+            <div style={grille}>{PARAMS_MENTIONS.map(carteParam)}</div>
+          </CarteSection>
+          <CarteSection titre={TITRE_PARAMS_SOURCES} icone="📇">
+            <p style={styleAide}>{AIDE_PARAMS_SOURCES}</p>
+            <div style={grille}>{PARAMS_SOURCES.map(carteParam)}</div>
+          </CarteSection>
+
+          {/* Réglages HÉRITÉS : remplacés par un successeur, conservés en lecture seule pour l'historique (jamais masqués). */}
+          <CarteSection titre={TITRE_REGLAGES_HERITES} icone="🗄">
+            <p style={styleAide}>Ces réglages ont été remplacés par un successeur. Conservés pour l’historique : celui marqué « n’agit plus » est en lecture seule ; l’autre reste éditable en attendant son retrait complet.</p>
+            <div style={grille}>{herites.map(carteParam)}</div>
+          </CarteSection>
         </div>
-      </CarteSection>
+      )}
 
-      {/* ── Section D : sources de données (annuaire DILA) — S30 ── */}
-      <CarteSection titre={TITRE_PARAMS_SOURCES} icone="📇">
-        <p style={styleAide}>{AIDE_PARAMS_SOURCES}</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
-          {PARAMS_SOURCES.map(carteParam)}
-        </div>
-      </CarteSection>
+      {/* S33 — « Classification et affichage des dossiers » vit dans l'onglet Automatisation (groupe « Mise à jour des dossiers »),
+          jamais ici. Propriétaire inchangé : ces 8 réglages restent édités par la route /reglages (cf. ClassificationDossiers). */}
     </div>
   );
 }
