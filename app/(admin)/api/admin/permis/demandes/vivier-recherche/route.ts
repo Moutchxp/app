@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../../lib/sitadel/veilleConfig';
-import { chargerVivier } from '../../../../../../lib/sitadel/demandeRepo';
+import { chargerVivier, communesBloqueesTeleservice } from '../../../../../../lib/sitadel/demandeRepo';
 import { rechercherDansVivier } from '../../../../../../lib/sitadel/rechercheVivier';
 
 /**
@@ -29,8 +29,11 @@ export async function GET(request: Request): Promise<Response> {
     const cfg = await chargerConfigVeille();
     const { vivier, tronque } = await chargerVivier(cfg);
     const r = rechercherDansVivier(vivier, q, process, CAP);
+    // Lot C (point 3) — le blocage « en attente d'accusé » est TÉLÉSERVICE uniquement : on ne le calcule que pour le process
+    //   'formulaire' (aucun blocage côté e-mail). Une commune bloquée → ses permis s'affichent « bloqué », jamais « demandable ».
+    const bloquees = process === 'formulaire' ? await communesBloqueesTeleservice() : {};
     // `tronque` = plafond de chargement du vivier atteint OU plus de CAP correspondances (dans les deux cas l'affichage est incomplet).
-    return Response.json({ ...r, tronque: tronque || r.total > CAP });
+    return Response.json({ ...r, bloquees, tronque: tronque || r.total > CAP });
   } catch {
     return Response.json({ erreur: 'recherche indisponible' }, { status: 503 });
   }
