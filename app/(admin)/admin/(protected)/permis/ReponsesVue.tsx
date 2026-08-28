@@ -9,7 +9,7 @@ import { dansProcess } from '../../../../lib/sitadel/process';
 import {
   BlocEtatReleve, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
   partitionnerReponses, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
-  BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, formaterDate, trierOptionsDemandes, type RetourCible, type OptionDemande,
+  BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, BlocLiens, BlocLiensATelecharger, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, formaterDate, trierOptionsDemandes, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
 import { MessageRetour, MentionMasquage } from './DemandesRendu';
 import { partitionnerParDus } from '../../../../lib/sitadel/demandesListe'; // T4 : définition unique de « soldée » (réutilisée telle quelle)
@@ -194,6 +194,10 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
         runs={data.runs} cumul={data.cumuls[periode]}
         periode={periode} maintenant={maintenant} ouvert={releveOuvert} onToggle={() => setReleveOuvert((o) => !o)} onPeriode={setPeriode}
       />
+
+      {/* ── GED-1 : liens de téléchargement disponibles (lien fort + GED vide) — EN TÊTE, visibles dès l'ouverture, sans déplier ni
+           afficher les soldées. NON filtrés par process : un lien qui expire ne se cache pas derrière le commutateur. ── */}
+      <BlocLiensATelecharger liens={data.liensATelecharger} maintenant={maintenant} />
 
       {/* ── Bloc 2 : suivi des demandes envoyées ── */}
       <section className="flex flex-col gap-2">

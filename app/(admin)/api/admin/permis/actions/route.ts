@@ -26,6 +26,7 @@ export async function GET(request: Request): Promise<Response> {
     const reponses = compterReponses({
       demandes: reponsesData.demandes as unknown as DemandeComptable[],
       aRattacher: reponsesData.aRattacher, propositions: reponsesData.propositions,
+      liensATelecharger: reponsesData.liensATelecharger, // GED-1 : les liens à télécharger comptent dans la pastille Réponses
     });
     const saisines = compterSaisines({ saisissables: saisinesData.saisissables, fileADeposer: saisinesData.fileADeposer });
     const rattachement = compterRattachement(suivi.compteurs);

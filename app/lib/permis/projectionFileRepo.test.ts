@@ -18,7 +18,7 @@ const H = vi.hoisted(() => {
 vi.mock('../db/client', () => ({ query: H.queryMock, withTransaction: async (fn: (q: unknown) => unknown) => fn(H.queryMock) }));
 vi.mock('./empriseReconstruiteRepo', () => ({ listerEmprises: async () => H.state.emprises, listerIgnorees: async () => H.state.ignores }));
 
-import { validerProjection } from './projectionFileRepo';
+import { validerProjection, listerFileProjection } from './projectionFileRepo';
 
 const ins = (re: RegExp) => H.calls.filter((c) => re.test(c.sql));
 beforeEach(() => { H.calls.length = 0; H.state.bats = [{ id: 1, repere: '2D1' }, { id: 2, repere: '2D2' }]; H.state.emprises = []; H.state.ignores = []; H.state.rattInsere = [{ id: 50 }]; });
@@ -69,5 +69,16 @@ describe('PROJ-2c — validerProjection', () => {
     const r = await validerProjection(11434, 'admin');
     expect(r).toEqual({ ok: true, marqueSuivi: false });
     expect(ins(/INSERT INTO permis_rattachement_evenement/i)).toHaveLength(0);
+  });
+});
+
+describe('GED-1 — listerFileProjection : entrée en Analyse sur la GED (dossier_document), PLUS sur satisfait_le', () => {
+  it('le prédicat d’éligibilité teste EXISTS dossier_document et n’utilise PLUS satisfait_le IS NOT NULL comme filtre', async () => {
+    await listerFileProjection({} as unknown as Parameters<typeof listerFileProjection>[0]); // rows vides (mock) → cfg jamais lue au mapping
+    const q = ins(/FROM demande_dossier dd/i)[0];
+    expect(q, 'la requête de la file de projection doit être émise').toBeDefined();
+    const sql = q.sql.replace(/\s+/g, ' ');
+    expect(sql).toContain('EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = s.id)'); // « documents en GED »
+    expect(sql).not.toContain('dd.satisfait_le IS NOT NULL'); // le « marqué reçu » n’est plus le déclencheur d’entrée
   });
 });

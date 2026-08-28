@@ -28,11 +28,12 @@ export interface DemandeComptable {
 }
 
 /** Compteur « Réponses » : actions attendues DANS l'onglet Réponses. */
-export function compterReponses(data: { demandes: DemandeComptable[]; aRattacher: unknown[]; propositions: unknown[] }): number {
+export function compterReponses(data: { demandes: DemandeComptable[]; aRattacher: unknown[]; propositions: unknown[]; liensATelecharger?: unknown[] }): number {
   const avecRetour = data.demandes.filter(demandeADuRetour); // même critère d'inclusion que l'onglet
   const aTrancher = avecRetour.reduce((s, d) => s + d.dossiers.filter(dossierATrancher).length, 0);
   const aQualifier = avecRetour.reduce((s, d) => s + d.messagesAutre.filter(messageAQualifier).length, 0);
-  return aTrancher + aQualifier + data.aRattacher.length + data.propositions.length;
+  // GED-1 — chaque « lien de téléchargement disponible » (lien fort + GED vide) est une action en attente : il compte dans la pastille.
+  return aTrancher + aQualifier + data.aRattacher.length + data.propositions.length + (data.liensATelecharger?.length ?? 0);
 }
 
 /** Compteur « Saisines CADA » : saisissables non lancées + file d'envois à finaliser. */

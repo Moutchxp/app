@@ -45,6 +45,13 @@ describe('PASTILLES — compteur Réponses', () => {
     const data = { demandes: [dem({ nbReponsesReelles: 0, dossiers: [duNonTranche, duNonTranche] })], aRattacher: [], propositions: [] };
     expect(compterReponses(data)).toBe(0);
   });
+  it('GED-1 — chaque « lien de téléchargement disponible » compte dans la pastille Réponses', () => {
+    const data = { demandes: [], aRattacher: [], propositions: [], liensATelecharger: [{ dossierId: 531 }, { dossierId: 12 }] };
+    expect(compterReponses(data)).toBe(2);
+  });
+  it('GED-1 — rétrocompat : liensATelecharger absent → compte inchangé (0)', () => {
+    expect(compterReponses({ demandes: [], aRattacher: [], propositions: [] })).toBe(0);
+  });
 });
 
 describe('PASTILLES — le comptage suit les définitions existantes (demandeADuRetour)', () => {

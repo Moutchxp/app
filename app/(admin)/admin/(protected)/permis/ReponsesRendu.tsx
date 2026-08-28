@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche, AlerteGedAffiche, MessageAutreAffiche, ReponsePieces } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche, LienATelecharger, AlerteGedAffiche, MessageAutreAffiche, ReponsePieces } from '../../../../lib/veille/reponsesSuivi';
 import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import { MessageRetour, BlocRepliable, type RetourAction } from './DemandesRendu';
 import { demandeADuRetour } from '../../../../lib/sitadel/demandesListe'; // D2-fix : FOYER UNIQUE (partagé serveur/client)
@@ -714,6 +714,50 @@ function LigneLien({ lien, maintenant }: { lien: LienAffiche; maintenant?: Date 
       {/* FUS — expéditeur du message porteur (adresse COMPLÈTE, non tronquée) : clé de recherche « retrouver ce mail dans Gmail ». */}
       <div style={{ ...styleMuted, fontSize: 11, wordBreak: 'break-all' }}>de {lien.deAdresse}</div>
     </div>
+  );
+}
+
+/**
+ * GED-1 — permis à « lien de téléchargement disponible » : un lien FORT a été reçu ET la GED du permis est encore VIDE. Affiché EN
+ * TÊTE de « Réponses », VISIBLE dès l'ouverture (sans déplier, sans afficher les soldées). RÈGLE CONSERVÉE : le lien n'est jamais
+ * suivi automatiquement — le bouton OUVRE la page, rien d'autre. L'expiration (déjà en base) est montrée ; un délai dépassé est
+ * signalé. PUR, mobile-first (le mot porte l'info, jamais la couleur seule ; cibles ≥ 40 px, pas de hover-only).
+ */
+export function BlocLiensATelecharger({ liens, maintenant }: { liens: LienATelecharger[]; maintenant?: Date }) {
+  if (liens.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2" aria-label="Liens de téléchargement disponibles">
+      <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>Liens de téléchargement disponibles ({liens.length})</h3>
+      <p style={{ ...styleMuted, margin: 0 }}>
+        Ouvrez la page, téléchargez les pièces, puis renvoyez-les-vous par e-mail (objet « permis ») : elles seront versées en GED
+        et le permis passera en « Analyse ». Le lien n’est jamais suivi automatiquement.
+      </p>
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+        {liens.map((l) => {
+          const depasse = l.expireLe !== null && maintenant !== undefined && new Date(l.expireLe).getTime() < maintenant.getTime();
+          return (
+            <li key={l.dossierId} className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+              <div>
+                <strong style={{ fontSize: 13 }}>{l.type ?? ''} {l.numDau}</strong>
+                <span style={styleMuted}> · {l.communeNom ?? ''} · {l.natureLibelle}{l.adresse ? ` · ${l.adresse}` : ''}</span>
+              </div>
+              <div style={styleMuted}>
+                reçu le {jjmm(l.recuLe)} — <strong style={{ color: 'var(--color-svv-red)' }}>lien de téléchargement disponible</strong>
+                {l.expireLe
+                  ? ` — ${depasse ? '⚠ EXPIRÉ le' : 'expire le'} ${jjmm(l.expireLe)}${l.expirationIndice ? ` (${l.expirationIndice})` : ''}`
+                  : ' — durée de validité non précisée'}
+              </div>
+              <div>
+                <a href={l.url} target="_blank" rel="noopener noreferrer nofollow" className="svv-btn svv-btn-primary"
+                  style={{ display: 'inline-flex', minHeight: 40, alignItems: 'center', padding: '.4rem .8rem' }}>
+                  Ouvrir la page de téléchargement
+                </a>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

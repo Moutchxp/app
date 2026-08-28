@@ -24,7 +24,7 @@ const { appels, etat, queryMock } = vi.hoisted(() => {
 
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: vi.fn(), pool: {}, closePool: async () => undefined }));
 
-import { chargerCumulsRuns, chargerSuiviReponses, chargerDemandesSuivi } from './reponsesSuivi';
+import { chargerCumulsRuns, chargerSuiviReponses, chargerDemandesSuivi, listerLiensATelecharger } from './reponsesSuivi';
 import { bornesFenetres } from './fenetresCumul';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -357,5 +357,27 @@ describe('P1 — chargerSuiviReponses : « on relève depuis le … » et plafon
     const data = await chargerSuiviReponses();
     expect(data.releveDepuisLe).toBeNull();
     expect(data.relevePlafondAtteint).toBe(false);
+  });
+});
+
+describe('GED-1 — listerLiensATelecharger : lien fort + GED encore vide', () => {
+  it('mappe (n° permis, nature en clair, url, expiration) ; SQL exige lien fort + GED vide, sans filtre de process (garde axe-F)', async () => {
+    etat.dispatch = [{ re: /demande_reponse_lien l ON/i, rows: [
+      { dossier_id: 531, num_dau: '07512025V0006', type: 'PC', commune_nom: 'Paris', nature: '1', adresse: '7 RUE ALPHONSE PENAUD', recu_le: '2026-08-28T11:45:00Z', url: 'https://ged-pcpr.apps.paris.fr/share/s/TOKEN/folder', expire_le: '2026-09-04T11:45:00Z', expiration_indice: '7 jours' },
+    ] }];
+    const liens = await listerLiensATelecharger();
+    expect(liens).toHaveLength(1);
+    expect(liens[0]).toMatchObject({ dossierId: 531, numDau: '07512025V0006', type: 'PC', communeNom: 'Paris', url: 'https://ged-pcpr.apps.paris.fr/share/s/TOKEN/folder', expireLe: '2026-09-04T11:45:00Z' });
+    expect(liens[0].natureLibelle.length).toBeGreaterThan(1); // nature TRADUITE (jamais le code nu « 1 »)
+    const q = appels.find((a) => /demande_reponse_lien l ON/i.test(a.sql))!;
+    const sql = norm(q.sql);
+    expect(sql).toContain('AND l.fort');                                                            // uniquement les liens FORTS
+    expect(sql).toContain('NOT EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = s.id)'); // GED encore VIDE
+    expect(sql).not.toMatch(/dest_canal/i);                                                         // garde axe-F : aucun filtre de process
+  });
+
+  it('aucune ligne → liste vide', async () => {
+    etat.dispatch = [{ re: /demande_reponse_lien l ON/i, rows: [] }];
+    expect(await listerLiensATelecharger()).toEqual([]);
   });
 });

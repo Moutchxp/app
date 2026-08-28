@@ -5,7 +5,7 @@ import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns, BlocEtatReleve,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
   EtatDemande, RappelObtenusArchives, partitionnerDemandes, partitionnerReponses, demandeADuRetour, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
-  BlocLiens, mentionExpiration, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, tronquerObjet,
+  BlocLiens, BlocLiensATelecharger, mentionExpiration, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, tronquerObjet,
   trierOptionsDemandes, marqueurOption,
   type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
@@ -1168,5 +1168,32 @@ describe('T5 — BlocPiecesReponses : pièces rattachées, consultables/téléch
   it('SÉCURITÉ : la clé de stockage n’apparaît jamais dans le rendu', () => {
     const h = renderToStaticMarkup(createElement(BlocPiecesReponses, { groupes: [G()], onTelecharger: () => {} }));
     expect(h).not.toMatch(/cle_stockage|entrantes\/|\.s3\./i);
+  });
+});
+
+describe('GED-1 — BlocLiensATelecharger : lien à télécharger visible, sans déplier', () => {
+  const LIEN = {
+    dossierId: 531, numDau: '07512025V0006', type: 'PC' as const, communeNom: 'Paris',
+    natureLibelle: 'Construction neuve', adresse: '7 RUE ALPHONSE PENAUD PARIS 20',
+    recuLe: '2026-08-28T11:45:00Z', url: 'https://ged-pcpr.apps.paris.fr/share/s/TOKEN/folder',
+    expireLe: '2026-09-04T11:45:00Z', expirationIndice: '7 jours',
+  };
+  it('affiche le permis (n°, commune, nature, adresse), le statut, l’expiration et un BOUTON vers la page (href = url)', () => {
+    const h = renderToStaticMarkup(createElement(BlocLiensATelecharger, { liens: [LIEN], maintenant: new Date('2026-08-28T12:00:00Z') }));
+    expect(h).toContain('07512025V0006');
+    expect(h).toContain('Paris');
+    expect(h).toContain('Construction neuve');
+    expect(h).toContain('ALPHONSE PENAUD');
+    expect(h).toContain('lien de téléchargement disponible');
+    expect(h).toContain('expire le 04/09');
+    expect(h).toContain('href="https://ged-pcpr.apps.paris.fr/share/s/TOKEN/folder"'); // bouton vers la page (le clic OUVRE, jamais suivi auto)
+    expect(h).toContain('Ouvrir la page de téléchargement');
+  });
+  it('expiration DÉPASSÉE → signalée « EXPIRÉ »', () => {
+    const h = renderToStaticMarkup(createElement(BlocLiensATelecharger, { liens: [LIEN], maintenant: new Date('2026-09-10T00:00:00Z') }));
+    expect(h).toContain('EXPIRÉ le 04/09');
+  });
+  it('liste vide → ne rend RIEN (aucune section)', () => {
+    expect(renderToStaticMarkup(createElement(BlocLiensATelecharger, { liens: [] }))).toBe('');
   });
 });

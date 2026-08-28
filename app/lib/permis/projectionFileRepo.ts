@@ -1,7 +1,12 @@
 /**
- * PROJ-2c — FILE « Projection » (adaptateur impur). Univers = permis dont les DOCUMENTS sont obtenus (demande_dossier.satisfait_le,
- * MÊME critère que l'entrée en Archives) ET dont la nature CRÉE/ÉTEND une emprise (neuve/extension ; surélévation exclue), et qui
- * n'ont PAS encore de projection validée (permis_projection). VALIDER = quitte la file + marque suivi (permis_rattachement en_attente_bati).
+ * PROJ-2c / GED-1 — FILE « Projection » (adaptateur impur). Univers = permis dont les DOCUMENTS sont RÉELLEMENT en GED
+ * (`EXISTS dossier_document` — le seul signal « obtenu », posé par le versement N1 par e-mail, cf. depotManuel), ET dont la nature
+ * CRÉE/ÉTEND une emprise (neuve/extension ; surélévation exclue), et qui n'ont PAS encore de projection validée (permis_projection).
+ * 🔴 GED-1 (décision porteur) : le déclencheur d'entrée n'est PLUS `demande_dossier.satisfait_le` (« marqué reçu » — posé aussi par
+ *   l'auto-satisfaction de la relève, SANS document réel : un permis y entrait à tort « la mairie a répondu »). C'est désormais
+ *   « les documents sont dans la GED ». EXCLUSIVITÉ des onglets : tant que la GED est vide, le permis reste dans « Réponses »
+ *   (lien à télécharger) et N'EST PAS dans « Analyse » ; il y entre dès que le versement e-mail (N1) y dépose les pièces.
+ * VALIDER = quitte la file + marque suivi (permis_rattachement en_attente_bati).
  *
  * 🔴 GARDE INCHANGÉE : une emprise reste une RECONSTITUTION. Ce module ne touche NI batiment, NI permis_polygone_altitude, NI le
  * verdict. Il lit permis_corps_batiment / permis_emprise_reconstruite / permis_projection_ignoree, écrit permis_projection et — pour
@@ -45,7 +50,7 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean): Promise<Ligne
        FROM demande_dossier dd
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
        LEFT JOIN commune c ON c.code_insee = s.code_insee
-      WHERE dd.satisfait_le IS NOT NULL AND ${CONCERNE_SQL} ${jalon}
+      WHERE EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = s.id) AND ${CONCERNE_SQL} ${jalon}
       GROUP BY s.id, s.num_dau, c.nom, s.type, s.nature_projet_completee, s.i_extension, s.i_surelevation, s.nb_lgt_tot_crees, s.surf_creee
       ORDER BY max(dd.satisfait_le) DESC, s.num_dau`,
   );

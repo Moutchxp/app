@@ -8,6 +8,7 @@ import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { bornesFenetres, type FenetreCumul } from './fenetresCumul';
 import { apparierPropositions, type CibleDepot } from './propositionDepot';
 import { normaliserNumeroDossier } from './satisfactionDossier'; // source UNIQUE de la normalisation d'un n° Sitadel (garde les lettres)
+import { libelleNatureProjet } from '../sitadel/priorite'; // GED-1 : nature des travaux en clair (jamais le code nu)
 import { fenetreDepuis } from './releveReponses'; // P1 : MÊME source que la relève pour « on relève depuis le … » (jamais une 2e vérité)
 import type { ReglagesCascade } from './cascadeRelance'; // cascade lot 4 : seuils exposés à l'affichage (type-only → erasé côté client)
 import type { EnvoiAutoInfos } from './statutCascade'; // lot « dire quand ça part » : interrupteur + fenêtre d'envoi (réglages existants)
@@ -202,6 +203,25 @@ export interface ReponsesData {
   propositions: PropositionDepotAffichee[]; // T4 : « Dépôts à confirmer » (messages citant le permis d'une demande en attente)
   relances: RelancePreparee[];
   envoi: EnvoiAutoInfos; // dit, sur une relance préparée, si/quand elle partira seule (réglages existants)
+  liensATelecharger: LienATelecharger[]; // GED-1 : permis avec un lien fort ET une GED encore VIDE (à télécharger puis verser par e-mail)
+}
+
+/**
+ * GED-1 — un permis dont la mairie a livré un LIEN de téléchargement (lien fort) mais dont la GED est encore VIDE
+ * (`NOT EXISTS dossier_document`) : le porteur doit ouvrir la page, télécharger, puis se renvoyer les pièces par e-mail (N1 les
+ * versera en GED → le permis basculera alors en « Analyse »). Visible EN TÊTE de « Réponses », sans déplier ni afficher les soldées.
+ */
+export interface LienATelecharger {
+  dossierId: number;
+  numDau: string;
+  type: 'PC' | 'PD' | null;
+  communeNom: string | null;
+  natureLibelle: string;       // nature des travaux en clair (libelleNatureProjet)
+  adresse: string | null;
+  recuLe: string;              // date de réception du message porteur du lien (ISO)
+  url: string;                 // page de téléchargement — le clic OUVRE, on ne SUIT JAMAIS le lien automatiquement
+  expireLe: string | null;
+  expirationIndice: string | null;
 }
 
 /** T4 — une proposition « cette demande a-t-elle été déposée ? » : un message + ses demandes candidates (1 = actionnable, ≥ 2 = ambiguë). */
@@ -487,6 +507,42 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
 }
 
 /** Charge tout le nécessaire de l'écran « Réponses » en une passe. LECTURE SEULE. */
+/**
+ * GED-1 — permis à « lien de téléchargement disponible » : un lien FORT existe sur une réponse rattachée, et la GED du permis est
+ * encore VIDE (`NOT EXISTS dossier_document`). Une ligne par DOSSIER (le lien le plus récent), triée par URGENCE (expiration la plus
+ * proche d'abord). LECTURE SEULE. Aucun filtre de process (garde axe-F). On ne SUIT JAMAIS le lien : on n'expose que son URL.
+ */
+export async function listerLiensATelecharger(): Promise<LienATelecharger[]> {
+  const { rows } = await query<{ dossier_id: number; num_dau: string; type: 'PC' | 'PD' | null; commune_nom: string | null; nature: string | null; adresse: string | null; recu_le: string; url: string; expire_le: string | null; expiration_indice: string | null }>(
+    `SELECT DISTINCT ON (s.id)
+            s.id::int AS dossier_id, s.num_dau, s.type, c.nom AS commune_nom,
+            s.nature_projet_completee AS nature,
+            nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
+            r.recu_le::text AS recu_le, l.url, l.expire_le::text AS expire_le, l.expiration_indice
+       FROM demande_dossier dd
+       JOIN demande d ON d.id = dd.demande_id
+       JOIN sitadel_dossier s ON s.id = dd.dossier_id
+       JOIN demande_reponse r ON r.demande_id = d.id
+       JOIN demande_reponse_lien l ON l.reponse_id = r.id AND l.fort
+       LEFT JOIN commune c ON c.code_insee = s.code_insee
+      WHERE d.statut IN ('envoyee', 'close') AND dd.actif
+        AND NOT EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = s.id)
+      ORDER BY s.id, r.recu_le DESC, l.expire_le NULLS LAST`);
+  return rows
+    .map((r) => ({
+      dossierId: r.dossier_id, numDau: r.num_dau, type: r.type, communeNom: r.commune_nom,
+      natureLibelle: libelleNatureProjet(r.nature), adresse: r.adresse, recuLe: r.recu_le,
+      url: r.url, expireLe: r.expire_le, expirationIndice: r.expiration_indice,
+    }))
+    // URGENCE d'affichage : expiration la plus PROCHE d'abord (les nulles en dernier) ; à défaut, réception la plus récente.
+    .sort((a, b) => {
+      if (a.expireLe && b.expireLe) return a.expireLe < b.expireLe ? -1 : a.expireLe > b.expireLe ? 1 : 0;
+      if (a.expireLe) return -1;
+      if (b.expireLe) return 1;
+      return a.recuLe < b.recuLe ? 1 : -1;
+    });
+}
+
 export async function chargerSuiviReponses(): Promise<ReponsesData> {
   // T6-A — la donnée par demande (échéance + retour + dossiers) vient de la SOURCE UNIQUE, partagée avec « En cours » (non filtrée ici).
   const { demandes, derniereOkLe, reglages, envoi } = await chargerDemandesSuivi();
@@ -587,9 +643,11 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
 
   // T2 — cumuls des six fenêtres glissantes (lecture dédiée, séparée du bloc `runs` ci-dessus qui reste inchangé).
   const cumuls = await chargerCumulsRuns(new Date());
+  // GED-1 — permis à « lien de téléchargement disponible » (lien fort + GED vide) : en tête de « Réponses », visibles sans déplier.
+  const liensATelecharger = await listerLiensATelecharger();
 
   return {
-    reglages, derniereOkLe, releveDepuisLe, relevePlafondAtteint,
+    reglages, derniereOkLe, releveDepuisLe, relevePlafondAtteint, liensATelecharger,
     runs: runs.rows.map((r) => ({
       demarreLe: r.demarre_le, termineLe: r.termine_le, declencheur: r.declencheur, resultat: r.resultat,
       vus: r.vus, dejaConnus: r.deja_connus, horsPerimetre: r.hors_perimetre, horsPerimetreSonde: r.hors_perimetre_sonde, horsPerimetreSansAncre: r.hors_perimetre_sans_ancre, emisParNous: r.emis_par_nous, retenus: r.retenus, rattaches: r.rattaches,
