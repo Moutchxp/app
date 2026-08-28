@@ -57,7 +57,7 @@ function imprimerInspection(r: RapportReleve, log: (s: string) => void): void {
   log(`  références interrogées / UID : ${r.referencesInterrogees} / ${r.uidsReferences}${r.plafondReferencesAtteint ? '  ⚠ PLAFOND RÉFÉRENCES ATTEINT' : ''}`);
   log(`  messages téléchargés (vus)  : ${r.vus}`);
   log(`  déjà connus (ignorés)       : ${r.dejaConnus}`);
-  log(`  hors périmètre (ignorés)    : ${r.horsPerimetre}`);
+  log(`  hors périmètre (ignorés)    : ${r.horsPerimetre}  (aucune ancre ${r.horsPerimetreSansAncre} · sonde rebond ${r.horsPerimetreSonde})`);
   log(`  émis par nous (ignorés)     : ${r.emisParNous}`);
   log(`  RETENUS                     : ${r.retenus}`);
   log(`    · rattachés / non rattachés : ${r.rattaches} / ${r.nonRattaches}`);

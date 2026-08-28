@@ -31,6 +31,8 @@ export interface LigneRun {
   vus: number | null;
   dejaConnus: number | null;
   horsPerimetre: number | null;
+  horsPerimetreSonde: number | null;     // J1 : hors-périmètre venu d'une SONDE rebond sans être un DSN (bruit) — NULL avant migration 162
+  horsPerimetreSansAncre: number | null; // J1 : hors-périmètre téléchargé mais SANS ancre de rétention — NULL avant migration 162
   emisParNous: number | null;       // correctif boucle : messages émis PAR NOUS ignorés en amont (jamais retenus)
   retenus: number | null;
   rattaches: number | null;
@@ -497,18 +499,32 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
     `SELECT plafond_atteint AS p FROM releve_run WHERE declencheur = 'planifie' AND resultat = 'ok' ORDER BY termine_le DESC LIMIT 1`);
   const relevePlafondAtteint = plaf.rows[0]?.p === true;
 
-  const runs = await query<{
+  type RunRow = {
     demarre_le: string; termine_le: string | null; declencheur: string; resultat: string;
     vus: number | null; deja_connus: number | null; hors_perimetre: number | null; emis_par_nous: number | null; retenus: number | null; rattaches: number | null;
     rebonds_detectes: number | null; rebonds_rattaches: number | null; rebonds_etrangers: number | null; rebonds_appliques: number | null; accuses: number | null;
     enregistrees: number | null; pieces_deposees: number | null; pieces_non_deposees: number | null; erreur: string | null;
-  }>(
-    `SELECT demarre_le::text AS demarre_le, termine_le::text AS termine_le, declencheur, resultat,
-            vus, deja_connus, hors_perimetre, emis_par_nous, retenus, rattaches,
-            rebonds_detectes, rebonds_rattaches, rebonds_etrangers, rebonds_appliques, accuses, enregistrees,
-            pieces_deposees, pieces_non_deposees, erreur
-       FROM releve_run ORDER BY demarre_le DESC LIMIT 10`,
-  );
+    hors_perimetre_sonde: number | null; hors_perimetre_sans_ancre: number | null; // J1
+  };
+  const RUN_COLONNES_BASE =
+    `demarre_le::text AS demarre_le, termine_le::text AS termine_le, declencheur, resultat,
+     vus, deja_connus, hors_perimetre, emis_par_nous, retenus, rattaches,
+     rebonds_detectes, rebonds_rattaches, rebonds_etrangers, rebonds_appliques, accuses, enregistrees,
+     pieces_deposees, pieces_non_deposees, erreur`;
+  // J1 — le décompte hors-périmètre (sonde vs sans ancre) vit sur deux colonnes ajoutées par la migration 162. Lecture DÉFENSIVE :
+  //   si la migration n'est pas encore appliquée (colonne absente → 42703), on relit SANS le décompte (NULL) → l'écran Réponses,
+  //   utilisé en continu pour surveiller les échéances, ne casse JAMAIS quel que soit l'ordre commit/migration.
+  let runs: { rows: RunRow[] };
+  try {
+    runs = await query<RunRow>(
+      `SELECT ${RUN_COLONNES_BASE}, hors_perimetre_sonde, hors_perimetre_sans_ancre
+         FROM releve_run ORDER BY demarre_le DESC LIMIT 10`);
+  } catch (e) {
+    if ((e as { code?: string }).code !== '42703') throw e; // toute AUTRE erreur remonte (jamais de swallow muet, leçon P2)
+    runs = await query<RunRow>(
+      `SELECT ${RUN_COLONNES_BASE}, NULL::int AS hors_perimetre_sonde, NULL::int AS hors_perimetre_sans_ancre
+         FROM releve_run ORDER BY demarre_le DESC LIMIT 10`);
+  }
 
   const rat = await query<{ id: number; recu_le: string; de_adresse: string; de_nom: string | null; objet: string | null; corps_texte: string | null; traite_le: string | null; rattachement_methode: string; nb_pieces: number }>(
     `SELECT r.id::int AS id, r.recu_le::text AS recu_le, r.de_adresse, r.de_nom, r.objet, r.corps_texte, r.traite_le::text AS traite_le, r.rattachement_methode,
@@ -576,7 +592,7 @@ export async function chargerSuiviReponses(): Promise<ReponsesData> {
     reglages, derniereOkLe, releveDepuisLe, relevePlafondAtteint,
     runs: runs.rows.map((r) => ({
       demarreLe: r.demarre_le, termineLe: r.termine_le, declencheur: r.declencheur, resultat: r.resultat,
-      vus: r.vus, dejaConnus: r.deja_connus, horsPerimetre: r.hors_perimetre, emisParNous: r.emis_par_nous, retenus: r.retenus, rattaches: r.rattaches,
+      vus: r.vus, dejaConnus: r.deja_connus, horsPerimetre: r.hors_perimetre, horsPerimetreSonde: r.hors_perimetre_sonde, horsPerimetreSansAncre: r.hors_perimetre_sans_ancre, emisParNous: r.emis_par_nous, retenus: r.retenus, rattaches: r.rattaches,
       rebondsDetectes: r.rebonds_detectes, rebondsRattaches: r.rebonds_rattaches, rebondsEtrangers: r.rebonds_etrangers,
       rebondsAppliques: r.rebonds_appliques, accuses: r.accuses, enregistrees: r.enregistrees,
       piecesDeposees: r.pieces_deposees, piecesNonDeposees: r.pieces_non_deposees, erreur: r.erreur,

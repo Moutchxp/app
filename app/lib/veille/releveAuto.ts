@@ -163,6 +163,16 @@ export function depsReellesReleveAuto(): DepsReleveAuto {
           r?.rebondsDetectes ?? null, r?.rebondsRattaches ?? null, r?.rebondsEtrangers ?? null, r?.rebondsAppliques ?? null,
           r?.accuses ?? null, r?.ecrites ?? null, r?.plafondAtteint ?? null, r?.piecesDeposees ?? null, r?.piecesNonDeposees ?? null, m.erreur ?? null,
           r?.emisParNous ?? null]);
+      // J1 — décompte du hors-périmètre (sonde rebond vs aucune ancre) : UPDATE SÉPARÉ best-effort, pour que la finalisation
+      //   ci-dessus (chemin critique) reste INTOUCHÉE et n'échoue JAMAIS si la migration 162 n'est pas encore appliquée
+      //   (colonne absente → code 42703 IGNORÉ ; le décompte n'est simplement pas persisté tant que la colonne n'existe pas).
+      try {
+        await query(
+          `UPDATE releve_run SET hors_perimetre_sonde = $2, hors_perimetre_sans_ancre = $3 WHERE id = $1`,
+          [id, r?.horsPerimetreSonde ?? null, r?.horsPerimetreSansAncre ?? null]);
+      } catch (e) {
+        if ((e as { code?: string }).code !== '42703') throw e; // toute AUTRE erreur remonte (jamais de swallow muet, leçon P2)
+      }
     },
   };
 }

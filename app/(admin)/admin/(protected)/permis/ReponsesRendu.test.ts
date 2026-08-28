@@ -60,7 +60,7 @@ describe('U8 — BlocEtatReleve : encart « État de la relève » repliable (re
   const REGLAGES: ReglagesReleve = { active: true, intervalleMinutes: 30, profil: 'entreprise', fraicheurHeures: 48, alerteJours: 7, adresseReleve: 'permis@sansvisavis.fr' };
   const RUN = (over: Partial<LigneRun> = {}): LigneRun => ({
     demarreLe: '2026-04-20T11:00:00Z', termineLe: '2026-04-20T11:00:05Z', declencheur: 'planifie', resultat: 'ok',
-    vus: 4, dejaConnus: 0, horsPerimetre: 0, emisParNous: 0, retenus: 1, rattaches: 0,
+    vus: 4, dejaConnus: 0, horsPerimetre: 0, horsPerimetreSonde: null, horsPerimetreSansAncre: null, emisParNous: 0, retenus: 1, rattaches: 0,
     rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, enregistrees: 1,
     piecesDeposees: 0, piecesNonDeposees: 0, erreur: null, ...over,
   });
@@ -328,7 +328,7 @@ describe('R5a — TableRuns : une erreur est affichée en clair', () => {
   it('résultat « erreur » → message d’erreur avec role="alert"', () => {
     const runs: LigneRun[] = [{
       demarreLe: '2026-04-20T11:00:00Z', termineLe: '2026-04-20T11:00:05Z', declencheur: 'planifie', resultat: 'erreur',
-      vus: null, dejaConnus: null, horsPerimetre: null, emisParNous: null, retenus: null, rattaches: null,
+      vus: null, dejaConnus: null, horsPerimetre: null, horsPerimetreSonde: null, horsPerimetreSansAncre: null, emisParNous: null, retenus: null, rattaches: null,
       rebondsDetectes: null, rebondsRattaches: null, rebondsEtrangers: null, rebondsAppliques: null, accuses: null, enregistrees: null,
       piecesDeposees: null, piecesNonDeposees: null, erreur: 'IMAP timeout',
     }];
@@ -342,7 +342,7 @@ describe('T1 — TableRuns : ne montrer en clair que les passes qui apportent qu
   // Un run 'ok' terminé, tous compteurs à 0 par défaut ; chaque cas ne surcharge que ce qui l'intéresse.
   const runOk = (patch: Partial<LigneRun>): LigneRun => ({
     demarreLe: '2026-04-20T09:00:00Z', termineLe: '2026-04-20T09:00:04Z', declencheur: 'planifie', resultat: 'ok',
-    vus: 0, dejaConnus: 0, horsPerimetre: 0, emisParNous: 0, retenus: 0, rattaches: 0,
+    vus: 0, dejaConnus: 0, horsPerimetre: 0, horsPerimetreSonde: null, horsPerimetreSansAncre: null, emisParNous: 0, retenus: 0, rattaches: 0,
     rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, enregistrees: 0,
     piecesDeposees: 0, piecesNonDeposees: 0, erreur: null, ...patch,
   });
@@ -358,6 +358,20 @@ describe('T1 — TableRuns : ne montrer en clair que les passes qui apportent qu
     expect(apporteUneNouveaute(runOk({ vus: 3, dejaConnus: 5, horsPerimetre: 2, rebondsDetectes: 3, rebondsEtrangers: 3, piecesNonDeposees: 4 }))).toBe(false);
     // NULL traité comme 0
     expect(apporteUneNouveaute(runOk({ vus: null, retenus: null, enregistrees: null }))).toBe(false);
+  });
+
+  it('J1 — le décompte hors-périmètre (aucune ancre / sonde) s’affiche quand il est connu', () => {
+    const runs: LigneRun[] = [runOk({ retenus: 1, horsPerimetre: 4, horsPerimetreSansAncre: 3, horsPerimetreSonde: 1 })];
+    const h = renderToStaticMarkup(createElement(TableRuns, { runs }));
+    expect(h).toContain('ancre 3');
+    expect(h).toContain('sonde 1');
+  });
+
+  it('J1 — décompte ABSENT (migration 162 pas appliquée : null) → aucun sous-détail affiché, la cellule reste le total', () => {
+    const runs: LigneRun[] = [runOk({ retenus: 1, horsPerimetre: 4, horsPerimetreSansAncre: null, horsPerimetreSonde: null })];
+    const h = renderToStaticMarkup(createElement(TableRuns, { runs }));
+    expect(h).not.toContain('ancre');
+    expect(h).not.toContain('sonde');
   });
 
   it('3 rebonds étrangers, rien d’autre → ligne repliée avec « Rien de nouveau »', () => {
@@ -945,7 +959,7 @@ describe('T2 — TableRuns : ligne de total en <tfoot> + sélecteur de période'
   const noop = () => {};
   const run = (): LigneRun => ({
     demarreLe: '2026-08-09T09:00:00Z', termineLe: '2026-08-09T09:00:04Z', declencheur: 'planifie', resultat: 'ok',
-    vus: 1, dejaConnus: 0, horsPerimetre: 0, emisParNous: 0, retenus: 1, rattaches: 0,
+    vus: 1, dejaConnus: 0, horsPerimetre: 0, horsPerimetreSonde: null, horsPerimetreSansAncre: null, emisParNous: 0, retenus: 1, rattaches: 0,
     rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, enregistrees: 1,
     piecesDeposees: 0, piecesNonDeposees: 0, erreur: null,
   });

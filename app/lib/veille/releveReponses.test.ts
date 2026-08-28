@@ -353,8 +353,23 @@ describe('R3 — réponses normales & garde-fous', () => {
     const { client } = fauxClient([boite({ deAdresse: 'postmaster-news@promo.fr', objet: 'Promo' })]);
     const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
     expect(r.horsPerimetre).toBe(1);
+    expect(r.horsPerimetreSonde).toBe(1);       // J1 : écarté par la SONDE rebond (bruit)
+    expect(r.horsPerimetreSansAncre).toBe(0);
     expect(r.retenus).toBe(0);
     expect(trouver(/RETURNING id/i)).toBeUndefined();
+  });
+
+  it('J1 — message téléchargé (recherche par référence) mais SANS ancre → horsPerimetreSansAncre, total = somme', async () => {
+    // Le message est ramené côté serveur par la recherche de référence (simulée), mais ne cite aucune ancre → écarté « sans ancre »
+    //   (distinct du bruit de sonde). C'est le « pourquoi rien n'a été retenu » que le porteur ne pouvait pas lire jusqu'ici.
+    etat.references = ['0930012500081'];
+    const tiers = boite({ deAdresse: 'agent@tiers.fr', objet: 'Bonjour', corpsTexte: 'aucune référence ici' });
+    const { client } = fauxClient([tiers], () => [], (refs) => (refs.includes('0930012500081') ? [tiers.uid] : []));
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.horsPerimetreSansAncre).toBe(1);
+    expect(r.horsPerimetreSonde).toBe(0);
+    expect(r.horsPerimetre).toBe(1);            // TOTAL rétrocompat = sonde + sans ancre
+    expect(r.retenus).toBe(0);
   });
 
   it('--sans-filtre → un message de sonde non-rebond est tout de même retenu', async () => {

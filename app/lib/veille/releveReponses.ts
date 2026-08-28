@@ -76,7 +76,9 @@ export interface RapportReleve {
   plafondAtteint: boolean;
   vus: number;
   dejaConnus: number;
-  horsPerimetre: number;
+  horsPerimetre: number;            // J1 : TOTAL des écartés « hors périmètre » = horsPerimetreSonde + horsPerimetreSansAncre (conservé pour rétrocompat)
+  horsPerimetreSonde: number;       // J1 : écarté car venu d'une SONDE rebond (mailer-daemon/postmaster) sans être un DSN — bruit, pas un message de mairie
+  horsPerimetreSansAncre: number;   // J1 : téléchargé (domaine/référence) mais AUCUNE ancre de rétention ne matchait — le vrai « pourquoi 0 remonté »
   emisParNous: number;          // CORRECTIF boucle : messages émis PAR NOUS (en-tête d'auto-émission OU expéditeur = MAIL_FROM) ignorés en amont — jamais retenus/rattachés/classés/enregistrés
   retenus: number;              // = lignes.length
   rattaches: number;
@@ -388,7 +390,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const vide = (connecte: boolean): RapportReleve => ({
     mode, profil: opts.profil, connecte, depuis: depuis ? depuis.toISOString() : null, domainesInterroges,
     uidsServeur: 0, referencesInterrogees: 0, uidsReferences: 0, plafondReferencesAtteint: false, plafondAtteint: false,
-    vus: 0, dejaConnus: 0, horsPerimetre: 0, emisParNous: 0, retenus: 0, rattaches: 0, nonRattaches: 0,
+    vus: 0, dejaConnus: 0, horsPerimetre: 0, horsPerimetreSonde: 0, horsPerimetreSansAncre: 0, emisParNous: 0, retenus: 0, rattaches: 0, nonRattaches: 0,
     rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, liensCaptes: 0, ecrites: 0, piecesDeposees: 0, piecesNonDeposees: 0, parMethode: {}, lignes: [],
   });
 
@@ -402,7 +404,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const { references, plafondAtteint: plafondReferencesAtteint } = await lireReferencesRecherche(cfg.rechercheReferencesMax); // LOT 2 : tous profils
   const adressesNous = opts.adressesNous ?? adressesNousDefaut(); // CORRECTIF boucle : NOS adresses (repli du signal en-tête)
   const lignes: LigneReleve[] = [];
-  let vus = 0, dejaConnus = 0, horsPerimetre = 0, emisParNous = 0, rebondsDetectes = 0, rebondsRattaches = 0, rebondsEtrangers = 0, rebondsAppliques = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0, liensCaptes = 0;
+  let vus = 0, dejaConnus = 0, horsPerimetreSonde = 0, horsPerimetreSansAncre = 0, emisParNous = 0, rebondsDetectes = 0, rebondsRattaches = 0, rebondsEtrangers = 0, rebondsAppliques = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0, liensCaptes = 0;
   let uidsServeur = 0, uidsReferences = 0, plafondAtteint = false;
 
   // R4 — dépose les pièces d'une réponse déjà enregistrée (contenu tiers, jamais ouvert) et met à jour les compteurs.
@@ -517,7 +519,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
 
       // ── MESSAGE : accusé automatique OU réponse ordinaire (depuis un domaine destinataire) ──
       const duDomaine = !genSet.has(uid);
-      if (!opts.sansFiltre && !duDomaine) { horsPerimetre += 1; continue; } // sonde rebond mais pas un rebond → ignoré
+      if (!opts.sansFiltre && !duDomaine) { horsPerimetreSonde += 1; continue; } // J1 : sonde rebond mais pas un DSN → bruit (jamais un message de mairie)
       const r = rattacherReponse(mb.message, candidates);
       // L1 — liens candidats du corps (texte + HTML), analyse PURE (aucun appel réseau, on ne SUIT JAMAIS un lien). Calculés en
       //   AMONT du filtre de pertinence : ils servent à la NATURE du message (lien fort → documents), à l'enregistrement des
@@ -532,7 +534,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
       //   précises — restent INCHANGÉS : `pertinentBase` ≡ le filtre d'avant ce lot (domaines = dest_email) → aucune régression.
       const estDomaineDerive = domainesDerives.size > 0 && domainesDerives.has(domaineRacine(domaineDe(mb.message.deAdresse)));
       const pertinent = pertinentBase || (estDomaineDerive && (citeMotifReference(mb) || mb.pieces.length > 0 || liens.some((l) => l.fort)));
-      if (!pertinent) { horsPerimetre += 1; continue; }
+      if (!pertinent) { horsPerimetreSansAncre += 1; continue; } // J1 : téléchargé mais aucune ancre de rétention → « pourquoi rien n'a été retenu »
       // T3/T7-A — NATURE : un accusé automatique (Auto-Submitted, PAS un DSN) est ENREGISTRÉ et rattaché comme un message (« a
       //   écrit »), mais nature='accuse' le tient HORS de « Réponses » (« a répondu ») et INTERDIT la satisfaction auto d'un
       //   dossier (un accusé ne livre aucun document). Sinon, T7-A déduit documents/autre du CONTENU CAPTÉ (pièces OU lien fort),
@@ -578,7 +580,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   return {
     mode, profil: opts.profil, connecte: true, depuis: depuis.toISOString(), domainesInterroges, uidsServeur,
     referencesInterrogees: references.length, uidsReferences, plafondReferencesAtteint, plafondAtteint,
-    vus, dejaConnus, horsPerimetre, emisParNous, retenus: lignes.length, rattaches, nonRattaches: lignes.length - rattaches,
+    vus, dejaConnus, horsPerimetre: horsPerimetreSonde + horsPerimetreSansAncre, horsPerimetreSonde, horsPerimetreSansAncre, emisParNous, retenus: lignes.length, rattaches, nonRattaches: lignes.length - rattaches,
     rebondsDetectes, rebondsRattaches, rebondsEtrangers, rebondsAppliques, accuses, liensCaptes, ecrites, piecesDeposees, piecesNonDeposees, parMethode, lignes,
   };
 }

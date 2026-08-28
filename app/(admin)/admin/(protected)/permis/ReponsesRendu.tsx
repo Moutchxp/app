@@ -119,6 +119,12 @@ export function RappelReglages({ reglages }: { reglages: ReglagesReleve }) {
 
 /** Libellés des 13 colonnes de compteurs, dans l'ORDRE de `compteursDe` (T3 : « accusés » après les rebonds). */
 const COLS_RUN = ['vus', 'déjà connus', 'hors périm.', 'émis par nous', 'retenus', 'rattachés', 'reb. détectés', 'reb. rattachés', 'reb. étrangers', 'reb. appliqués', 'accusés', 'enregistrées', 'pièces dép.', 'pièces non dép.'];
+/** J1 — index de la colonne « hors périm. » : sa cellule affiche le DÉCOMPTE (aucune ancre / sonde rebond) quand il est connu. */
+const IDX_HORS_PERIM = COLS_RUN.indexOf('hors périm.');
+/** J1 — sous-décompte « hors périmètre » d'un run, ou null si non persisté (migration 162 pas encore appliquée → pas de détail). */
+function decompteHorsPerimetre(r: LigneRun): string | null {
+  return r.horsPerimetreSansAncre != null ? `ancre ${r.horsPerimetreSansAncre} · sonde ${r.horsPerimetreSonde ?? 0}` : null;
+}
 /** Les 13 compteurs d'une ligne dans l'ordre de `COLS_RUN` (NULL rendu tel quel — décidé à l'affichage). */
 function compteursDe(r: LigneRun): (number | null)[] {
   return [r.vus, r.dejaConnus, r.horsPerimetre, r.emisParNous, r.retenus, r.rattaches, r.rebondsDetectes, r.rebondsRattaches, r.rebondsEtrangers, r.rebondsAppliques, r.accuses, r.enregistrees, r.piecesDeposees, r.piecesNonDeposees];
@@ -207,7 +213,15 @@ export function TableRuns({ runs, cumul, periode, onPeriode }: {
                 return (
                   <tr key={`${r.demarreLe}-${i}`} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
                     {cellulesFixes(r)}
-                    {vals.map((v, j) => <td key={j} style={{ ...styleTd, textAlign: 'right' }}>{v ?? '·'}</td>)}
+                    {vals.map((v, j) => {
+                      const detail = j === IDX_HORS_PERIM ? decompteHorsPerimetre(r) : null;
+                      return (
+                        <td key={j} style={{ ...styleTd, textAlign: 'right' }}>
+                          {v ?? '·'}
+                          {detail ? <span style={{ ...styleMuted, fontSize: 10, display: 'block', whiteSpace: 'nowrap' }}>{detail}</span> : null}
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               }
@@ -219,7 +233,10 @@ export function TableRuns({ runs, cumul, periode, onPeriode }: {
                     {/* Dépliant natif : les compteurs de bruit ne disparaissent pas de l'application. */}
                     <details style={{ marginTop: '.15rem' }}>
                       <summary style={{ cursor: 'pointer', color: 'var(--color-svv-muted)' }}>voir les compteurs</summary>
-                      <span style={styleMuted}>{COLS_RUN.map((label, j) => `${label} ${vals[j] ?? 0}`).join(' · ')}</span>
+                      <span style={styleMuted}>{COLS_RUN.map((label, j) => {
+                        const detail = j === IDX_HORS_PERIM ? decompteHorsPerimetre(r) : null;
+                        return `${label} ${vals[j] ?? 0}${detail ? ` (${detail})` : ''}`;
+                      }).join(' · ')}</span>
                     </details>
                   </td>
                 </tr>
