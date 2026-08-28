@@ -16,6 +16,7 @@ import { decisionParcelles, type ParcelleSitadel } from './decisionParcelles';
 import { ecrireParcelles, figerEmpreinte, figerBatiSnapshot } from './parcellesRepo';
 import { lireCerfaScan, lecteurMistral } from './lireCerfaScan';
 import { ecrireCerfaScan } from './ecritureCerfaScan';
+import { trouverCerfaPc } from './identifierCerfa'; // LECT-1 (A) : Cerfa identifié par CONTENU (13409), jamais par nom de fichier
 
 /**
  * EXT-1 (étape 2) — POINT D'ENTRÉE UNIFIÉ de l'extraction des caractéristiques d'UN permis. Rejoue, dans le bon ordre, le pipeline
@@ -69,8 +70,9 @@ export async function executerExtractionPermis(dossierId: number, opts: { avecVi
   await ecrireChamps(dossierId, decisionChamps(candidats), opts.majPar);
 
   // 2) Cerfa AcroForm → colonnes déclarées (source Cerfa)
+  const metas = await deps.listerPieces(dossierId); // réutilisé pour la vision (identification du Cerfa par contenu)
   const champsCerfa: ChampCerfa[] = [];
-  for (const p of await deps.listerPieces(dossierId)) {
+  for (const p of metas) {
     let buf: Buffer;
     try { buf = await deps.lireObjet(p.cleStockage); } catch { continue; } // pièce illisible → ignorée, jamais un échec
     for (const c of await lireChampsFormulaire(buf)) champsCerfa.push({ nom: c.nom, valeur: c.valeur, page: c.page, pieceNom: p.nomFichier });
@@ -100,15 +102,15 @@ export async function executerExtractionPermis(dossierId: number, opts: { avecVi
   // 6) VISION Mistral (Cerfa 13409 SCANNÉ) — seulement si demandé ; appel EXTERNE isolé.
   let visionTournee = false, visionPieces = 0, motifVision: string | null = opts.avecVision ? null : 'vision non demandée';
   if (opts.avecVision) {
-    const cerfa = await query<{ nom_fichier: string; cle_stockage: string }>(
-      `SELECT nom_fichier, cle_stockage FROM dossier_document WHERE dossier_id = $1 AND nom_fichier ~* 'cerfa[_ ]?13409' ORDER BY length(nom_fichier) LIMIT 1`, [dossierId]);
-    const piece = cerfa.rows[0];
-    if (!piece) motifVision = 'aucun Cerfa 13409 scanné en GED';
+    // LECT-1 (A) — Cerfa identifié par son CONTENU (n° 13409 en tête), jamais par son nom de fichier (noms opaques côté mairie).
+    //   Réutilise le texte déjà lu (ged) + les métadonnées (metas) → aucune lecture supplémentaire.
+    const piece = trouverCerfaPc(ged, metas);
+    if (!piece) motifVision = 'aucun Cerfa 13409 identifié dans les pièces';
     else {
       try {
-        const pdf = await deps.lireObjet(piece.cle_stockage);
+        const pdf = await deps.lireObjet(piece.cleStockage);
         const lectures = await lireCerfaScan(pdf, lecteurMistral());
-        await ecrireCerfaScan(dossierId, piece.nom_fichier, lectures, opts.majPar, false);
+        await ecrireCerfaScan(dossierId, piece.nomFichier, lectures, opts.majPar, false);
         visionTournee = true; visionPieces = 1; // ciblée sur LE Cerfa (les pages du triage sont envoyées à l'API)
       } catch (e) { motifVision = `vision indisponible : ${(e as Error)?.message ?? 'erreur'}`; }
     }

@@ -6,9 +6,10 @@
  */
 import '../lib/chargerEnv';
 import { query, closePool } from '../lib/db/client';
-import { resoudreDossier, depsReellesLectureGed } from '../lib/permis/lectureGed';
+import { resoudreDossier, depsReellesLectureGed, lireGedPermis } from '../lib/permis/lectureGed';
 import { lireCerfaScan, lecteurMistral } from '../lib/permis/lireCerfaScan';
 import { ecrireCerfaScan } from '../lib/permis/ecritureCerfaScan';
+import { trouverCerfaPc } from '../lib/permis/identifierCerfa'; // LECT-1 (A) : Cerfa par CONTENU (13409), pas par nom
 
 const MAJ_PAR = 'extraction:cerfa-scan';
 const arg = (n: string): string | undefined => { const i = process.argv.indexOf(n); return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : undefined; };
@@ -22,14 +23,13 @@ async function main(): Promise<void> {
   const { dossierId, numDau: dau } = resolu.dossier;
   const dryRun = flag('--dry-run');
 
-  // Le Cerfa 13409 (demande de PC) — le scan sans AcroForm.
-  const { rows } = await query<{ nom_fichier: string; cle_stockage: string }>(
-    `SELECT nom_fichier, cle_stockage FROM dossier_document WHERE dossier_id = $1 AND nom_fichier ~* 'cerfa[_ ]?13409' ORDER BY length(nom_fichier) LIMIT 1`, [dossierId]);
-  if (!rows.length) { console.error(`[cerfa-scan] aucun Cerfa 13409 trouvé pour ${dau}`); process.exitCode = 2; return; }
-  const piece = rows[0].nom_fichier;
-
+  // LECT-1 (A) — le Cerfa PC identifié par son CONTENU (n° 13409 en tête), jamais par son nom de fichier (noms opaques côté mairie).
   const deps = depsReellesLectureGed();
-  const pdf = await deps.lireObjet(rows[0].cle_stockage);
+  const ged = await lireGedPermis(dossierId, deps);
+  const cerfa = trouverCerfaPc(ged, await deps.listerPieces(dossierId));
+  if (!cerfa) { console.error(`[cerfa-scan] aucun Cerfa 13409 identifié dans les pièces de ${dau}`); process.exitCode = 2; return; }
+  const piece = cerfa.nomFichier;
+  const pdf = await deps.lireObjet(cerfa.cleStockage);
 
   console.log(`\n══════ CERFA SCANNÉ — ${dau} · pièce « ${piece} »${dryRun ? ' · DRY-RUN (rien écrit)' : ''} ══════`);
   const lectures = await lireCerfaScan(pdf, lecteurMistral());
