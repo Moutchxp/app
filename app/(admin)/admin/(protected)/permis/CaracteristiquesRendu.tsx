@@ -528,10 +528,26 @@ export function ChampDeclareEditeur({ champ, bornes, valeur, origine, erreur, jo
  * provenance / motif que les autres champs (via `LigneLabel` + `AnnotationsExtraction`). Le libellé COMPOSÉ (« Bureau, artisanat et
  * commerce de détail, et restauration ») est GÉNÉRÉ ici, jamais stocké. Aucune valeur cochée → « non renseignée » (jamais « mixte »).
  */
+/** LOT PROV-3 (3) — sous-destinations CANDIDATES détectées dans les pièces (journal 'ecartee', extrait = un libellé de la liste fermée),
+ *  encore NON cochées. Chacune porte sa pièce/page. Dédoublonnée. PUR (testable). Sert à PROPOSER sans cocher d'office. */
+export function candidatsDestination(journal: JournalChamp | undefined, possibles: readonly string[], dejaCochees: readonly string[]): { sousDestination: string; piece: string | null; page: number | null }[] {
+  const out: { sousDestination: string; piece: string | null; page: number | null }[] = [];
+  const vues = new Set<string>();
+  for (const e of journal?.ecartes ?? []) {
+    const d = (e.extrait ?? '').trim();
+    if ((e.piece === null && e.page === null) || !possibles.includes(d) || dejaCochees.includes(d) || vues.has(d)) continue;
+    vues.add(d);
+    out.push({ sousDestination: d, piece: e.piece, page: e.page });
+  }
+  return out;
+}
+
 export function ChampDestinationsEditeur({ possibles, valeurs, origine, erreur, journal, lienPiece, onToggle }: {
   possibles: readonly string[]; valeurs: readonly string[]; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece; onToggle: (destination: string, coche: boolean) => void;
 }) {
   const compose = composerLibelleDestinations(valeurs);
+  // LOT PROV-3 (3) — CANDIDATES détectées dans les pièces (le Cerfa), proposées SOUS les cases, cliquables, JAMAIS cochées d'office (revocables).
+  const candidats = candidatsDestination(journal, possibles, valeurs);
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0, gridColumn: '1 / -1' }}>
       <LigneLabel libelle="Destinations" origine={origine} journal={journal} />
@@ -545,7 +561,24 @@ export function ChampDestinationsEditeur({ possibles, valeurs, origine, erreur, 
         ))}
       </div>
       {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
-      <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} />
+      {/* LOT PROV-3 (3) — candidates détectées : un clic COCHE la case (revocable en décochant) ; sous chaque candidate, le lien vers la pièce. */}
+      {candidats.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', marginTop: '.15rem' }}>
+          <span style={styleAide}>Détecté dans les pièces — à confirmer (un clic coche la case ; toujours révocable) :</span>
+          <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+            {candidats.map((c) => (
+              <div key={c.sousDestination} style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', minWidth: 0, maxWidth: '100%' }}>
+                <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem', textAlign: 'left', overflowWrap: 'anywhere', maxWidth: '100%' }}
+                  onClick={() => onToggle(c.sousDestination, true)} aria-label={`Ajouter la destination « ${c.sousDestination} »`}>+ {c.sousDestination}</button>
+                <span style={{ ...styleAide, overflowWrap: 'anywhere' }}>
+                  <EntreeProvenance txt={`source — ${texteProvenance({ piece: c.piece, page: c.page })}`} piece={c.piece} page={c.page} lienPiece={lienPiece} />
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} masquerSources={candidats.length > 0} />
     </div>
   );
 }

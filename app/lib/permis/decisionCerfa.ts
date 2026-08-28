@@ -23,7 +23,7 @@
  */
 import type { Confiance } from './decisionSommet';
 import type { ChampGlobalDeclare } from './caracteristiquesRepo';
-import { nbLogementsTexte, surfacePlancherTexte } from './cerfaTexte'; // LECT-1 (C) : repli TEXTE quand l'AcroForm est vide
+import { nbLogementsTexte, surfacePlancherTexte, destinationsTexte } from './cerfaTexte'; // LECT-1 (C) / PROV-3 (3) : repli TEXTE quand l'AcroForm est vide
 
 /** Un champ AcroForm lu (avec la pièce d'origine — le Cerfa). */
 export interface ChampCerfa { nom: string; valeur: string; page: number | null; pieceNom: string }
@@ -49,6 +49,7 @@ export interface DecisionDestinations {
   reserve?: string | null;
   provenance?: ProvenanceCerfa;
   motif?: string;                  // présent si 'non_ecrit'
+  candidats?: { sousDestination: string; provenance: ProvenanceCerfa }[]; // PROV-3 (3) : sous-destinations DÉTECTÉES au texte, PROPOSÉES sans cocher (revocables), avec leur source
 }
 export interface DecisionCerfa { champs: DecisionCerfaChamp[]; destinations: DecisionDestinations }
 
@@ -134,7 +135,7 @@ export function decisionCerfa(
   champs: ChampCerfa[],
   surfCreee: number | null,
   adresseSitadel: AdresseTerrainSitadel | null = null,
-  cerfaTexte: { texte: string; pieceNom: string; page: number | null } | null = null,
+  cerfaTexte: { texte: string; pieceNom: string; page: number | null; pages?: { page: number; texte: string }[] } | null = null,
 ): DecisionCerfa {
   const idx = new Map<string, ChampCerfa>();
   for (const c of champs) if (!idx.has(c.nom)) idx.set(c.nom, c); // 1re occurrence
@@ -180,7 +181,20 @@ export function decisionCerfa(
   const dests = destinationsPresentes(champs);
   let destinations: DecisionDestinations;
   if (dests.length === 0) {
-    destinations = { statut: 'non_ecrit', motif: 'aucune surface par sous-destination (W2·F1) renseignée' };
+    // PROV-3 (3) — AcroForm sans surface par destination. REPLI TEXTE : proposer des sous-destinations CANDIDATES (JAMAIS cochées),
+    //   détectées dans les PAGES du Cerfa (source la plus fiable, page-aware). Dédoublonnées par sous-destination (1re page trouvée).
+    // Par sous-destination, garder la page la plus FIABLE : un signal FORT prime sur un faible (sinon la 1re page vue).
+    const parDest = new Map<string, { sousDestination: string; page: number; extrait: string; fort: boolean }>();
+    for (const pg of repliTexte?.pages ?? []) {
+      for (const d of destinationsTexte(pg.texte)) {
+        const prev = parDest.get(d.sousDestination);
+        if (!prev || (d.fort && !prev.fort)) parDest.set(d.sousDestination, { sousDestination: d.sousDestination, page: pg.page, extrait: d.extrait, fort: d.fort });
+      }
+    }
+    const candidats = [...parDest.values()].map((c) => ({ sousDestination: c.sousDestination, provenance: { pieceNom: repliTexte!.pieceNom, page: c.page, champNom: 'texte (repli AcroForm vide)', extrait: c.extrait } }));
+    destinations = candidats.length > 0
+      ? { statut: 'non_ecrit', motif: 'sous-destination(s) détectée(s) dans le Cerfa — à confirmer (proposées, non cochées)', candidats }
+      : { statut: 'non_ecrit', motif: repliTexte ? 'AcroForm sans surface par destination et aucun signal de destination dans le Cerfa' : 'aucune surface par sous-destination (W2·F1) renseignée' };
   } else {
     const labels = dests.map((d) => SOUS_DESTINATION_PAR_LETTRE[d.lettre]).filter((v): v is string => Boolean(v));
     const inconnues = dests.filter((d) => !SOUS_DESTINATION_PAR_LETTRE[d.lettre]).map((d) => `W2${d.lettre}`);

@@ -40,3 +40,31 @@ export function surfacePlancherTexte(texte: string): { valeur: number; extrait: 
   }
   return null;
 }
+
+/**
+ * PROV-3 (3) — SOUS-DESTINATIONS détectées dans un texte (CANDIDATES, jamais cochées d'office). Signaux FORTS et non ambigus, mappés
+ * vers la liste FERMÉE du CHECK (libellés EXACTS). Aujourd'hui : « Logement » (habitation) — le cas de 531 (« résidence sociale de 21
+ * logements », « logement locatif social », « habitation », « APPT 101 »). Rend l'extrait déclencheur pour la traçabilité.
+ * ⚠️ Extensible : d'autres sous-destinations (Bureau, Artisanat et commerce de détail…) à ajouter au fil des dossiers, avec leurs
+ *   signaux propres. Aujourd'hui volontairement CONSERVATEUR : ne propose que ce qui est franc.
+ */
+//   Deux niveaux de signal : FORT (résidence sociale, logement locatif social, « N logements » : sans ambiguïté) et FAIBLE (bare
+//   « logement » / « habitation » / « APPT » : peut apparaître dans un contexte annexe, ex. « part logement de la redevance »). Le
+//   niveau FORT prime pour choisir la SOURCE (la page la plus fiable) ; `fort` est remonté pour le classement dans decisionCerfa.
+const SIGNAUX_SOUS_DESTINATION: { sousDestination: string; fort: RegExp; faible: RegExp }[] = [
+  { sousDestination: 'Logement',
+    fort: /r[ée]sidence\s+(?:sociale|[ée]tudiante|senior|autonomie|jeunes|pour\s+personnes)|logement\s+locatif\s+social|\bLLS\b|\d+\s+logements?/i,
+    faible: /\blogements?\b|\bhabitation\b|\bappartements?\b|\bappt\b/i },
+];
+export function destinationsTexte(texte: string): { sousDestination: string; extrait: string; fort: boolean }[] {
+  const out: { sousDestination: string; extrait: string; fort: boolean }[] = [];
+  for (const s of SIGNAUX_SOUS_DESTINATION) {
+    const mf = s.fort.exec(texte);
+    const m = mf ?? s.faible.exec(texte);
+    if (!m) continue;
+    const i = m.index;
+    const extrait = texte.slice(Math.max(0, i - 30), i + m[0].length + 30).replace(/\s+/g, ' ').trim();
+    out.push({ sousDestination: s.sousDestination, extrait, fort: mf !== null });
+  }
+  return out;
+}

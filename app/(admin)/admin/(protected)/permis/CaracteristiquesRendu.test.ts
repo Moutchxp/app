@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps } from './CaracteristiquesRendu';
+import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps } from './CaracteristiquesRendu';
 import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
 
@@ -211,6 +211,40 @@ describe('LOT PROV-3 (2) — candidatsDivergents + boutons « trancher en un cli
   it('ChampDeclareEditeur : une valeur SAISIE (origine saisie) → aucun bouton candidat', () => {
     const h = rendre({ champ: nbLog, valeur: '21', origine: 'saisie', journal: journalDivergent, lienPiece: lien, onValeur: () => {}, onUtiliserCandidat: () => {} });
     expect(h).not.toContain('Valider «');
+  });
+});
+
+describe('LOT PROV-3 (3) — destinations candidates (proposées, jamais cochées d’office)', () => {
+  const possibles = ['Logement', 'Bureau', 'Restauration'];
+  const journalCand = (extrait: string, page: number | null = 7): JournalChamp => ({
+    confiance: null, reserve: null, provenances: [], motif: 'sous-destination détectée — à confirmer',
+    ecartes: [{ valeur: null, piece: 'PC_scan.pdf', page, motif: null, methode: 'cerfa', extrait }],
+  });
+
+  it('candidatsDestination : un candidat valide (extrait ∈ possibles) NON déjà coché, avec sa pièce/page', () => {
+    expect(candidatsDestination(journalCand('Logement'), possibles, [])).toEqual([{ sousDestination: 'Logement', piece: 'PC_scan.pdf', page: 7 }]);
+  });
+  it('candidatsDestination : un candidat DÉJÀ coché n’est pas re-proposé', () => {
+    expect(candidatsDestination(journalCand('Logement'), possibles, ['Logement'])).toEqual([]);
+  });
+  it('candidatsDestination : un extrait HORS liste fermée est ignoré', () => {
+    expect(candidatsDestination(journalCand('Truc'), possibles, [])).toEqual([]);
+  });
+
+  const rendre = (props: Parameters<typeof ChampDestinationsEditeur>[0]) => renderToStaticMarkup(createElement(ChampDestinationsEditeur, props));
+  const lien = (nom: string) => (nom === 'PC_scan.pdf' ? () => {} : undefined);
+
+  it('ChampDestinationsEditeur : la candidate est PROPOSÉE (bouton + lien source), les cases NON cochées d’office', () => {
+    const h = rendre({ possibles, valeurs: [], origine: null, journal: journalCand('Logement'), lienPiece: lien, onToggle: () => {} });
+    expect(h).toContain('Ajouter la destination « Logement »'); // bouton candidat
+    expect(h).toContain('source — PC_scan.pdf p.7');            // lien vers la pièce, SOUS les cases
+    expect(h).toContain('↗');                                   // ouvrable
+    expect(h).toContain('non renseignée');                      // aucune case cochée d’office (revocable = rester non coché)
+    expect(h).not.toContain('sources lues');                   // liens bruts masqués (le candidat porte le lien)
+  });
+  it('ChampDestinationsEditeur : sans candidat → aucune proposition', () => {
+    const h = rendre({ possibles, valeurs: [], origine: null, journal: undefined, onToggle: () => {} });
+    expect(h).not.toContain('Ajouter la destination');
   });
 });
 

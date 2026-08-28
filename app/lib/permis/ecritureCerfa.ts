@@ -70,8 +70,19 @@ export async function ecrireCerfa(dossierId: number, decision: DecisionCerfa, ma
   // N13 — DESTINATIONS (tableau) : écrites via `ecrireDestinations` (invariant réutilisé), journalisées comme les autres champs Cerfa
   //   (valeur numérique NULL ; les libellés vivent dans l'extrait). `nature_projet` scalaire n'est plus alimentée (vestigiale).
   const dd = decision.destinations;
-  if (dd.statut === 'non_ecrit') { lignes.push(ligneEcartee('destinations', dd.motif ?? 'non écrit')); champsNonEcrits.push('destinations'); }
-  else {
+  if (dd.statut === 'non_ecrit') {
+    // PROV-3 (3) — CANDIDATS détectés au texte : journalisés en 'ecartee' AVEC pièce/page + extrait = le LIBELLÉ EXACT de la
+    //   sous-destination (l'UI le propose sous les cases, cliquable — jamais coché d'office). En l'absence de candidat : ligne motif simple.
+    if (dd.candidats && dd.candidats.length > 0) {
+      for (const c of dd.candidats) {
+        lignes.push({ champ: 'destinations', valeur: null, role: 'ecartee', confiance: null, reserve: null, motif: dd.motif ?? 'à confirmer',
+          piece: c.provenance.pieceNom, page: c.provenance.page, extrait: c.sousDestination });
+      }
+    } else {
+      lignes.push(ligneEcartee('destinations', dd.motif ?? 'non écrit'));
+    }
+    champsNonEcrits.push('destinations');
+  } else {
     const r = await ecrireDestinations(dossierId, dd.valeurs ?? null, 'extraite', majPar);
     if (r.ecrit) {
       lignes.push({ champ: 'destinations', valeur: null, role: 'retenue', confiance: dd.confiance ?? null, reserve: dd.reserve ?? null, motif: null,

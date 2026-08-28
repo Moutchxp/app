@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { nbLogementsTexte, surfacePlancherTexte } from './cerfaTexte';
+import { nbLogementsTexte, surfacePlancherTexte, destinationsTexte } from './cerfaTexte';
+
+describe('PROV-3 (3) — destinationsTexte : sous-destinations candidates (Logement)', () => {
+  it('signal FORT « résidence sociale de 21 logements » → Logement (fort)', () => {
+    expect(destinationsTexte('construction d’une résidence sociale de 21 logements')).toEqual([{ sousDestination: 'Logement', extrait: expect.stringContaining('résidence sociale'), fort: true }]);
+  });
+  it('signal FORT « Logement Locatif Social »', () => {
+    expect(destinationsTexte('répartis par type de financement : Logement Locatif Social')[0]).toMatchObject({ sousDestination: 'Logement', fort: true });
+  });
+  it('signal FAIBLE bare « logement » (contexte annexe) → Logement (faible)', () => {
+    expect(destinationsTexte('recouvrement de la part « logement » de la redevance')[0]).toMatchObject({ sousDestination: 'Logement', fort: false });
+  });
+  it('« APPT 101 » → Logement (faible)', () => {
+    expect(destinationsTexte('plan du niveau APPT 101 APPT 102')[0]).toMatchObject({ sousDestination: 'Logement', fort: false });
+  });
+  it('aucun signal de destination → []', () => {
+    expect(destinationsTexte('coupe AA cotes de nivellement faîtage égout')).toEqual([]);
+  });
+});
 
 describe('LECT-1 (C) — nbLogementsTexte : MODE corroboré', () => {
   it('« 21 logements » répété → 21 (majoritaire), malgré l’artefact « 2 1 logements » minoritaire', () => {

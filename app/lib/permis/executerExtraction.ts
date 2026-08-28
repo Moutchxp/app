@@ -83,7 +83,9 @@ export async function executerExtractionPermis(dossierId: number, opts: { avecVi
   //   provenance reste le Cerfa identifié par contenu (l'origine déclarative). Gate : uniquement si `champsCerfa` est vide.
   const cerfaPiece = champsCerfa.length === 0 ? trouverCerfaPc(ged, metas) : null;
   const texteDossier = ged.pieces.flatMap((p) => p.pages.filter((y) => y.aTexte).map((y) => y.texte)).join('\n');
-  const cerfaTexte = cerfaPiece ? { texte: texteDossier, pieceNom: cerfaPiece.nomFichier, page: null } : null;
+  // PROV-3 (3) — pages du Cerfa (page-aware) pour attribuer une SOURCE PRÉCISE (pièce + page) aux sous-destinations candidates.
+  const pagesCerfa = cerfaPiece ? (ged.pieces.find((x) => x.id === cerfaPiece.id)?.pages.filter((y) => y.aTexte).map((y) => ({ page: y.page, texte: y.texte })) ?? []) : [];
+  const cerfaTexte = cerfaPiece ? { texte: texteDossier, pieceNom: cerfaPiece.nomFichier, page: null, pages: pagesCerfa } : null;
   await ecrireCerfa(dossierId, decisionCerfa(champsCerfa, await lireSurfCreee(dossierId), await lireAdresseTerrainSitadel(dossierId), cerfaTexte), opts.majPar);
 
   // 3) désignation de l'opération (énoncé, niveau permis)

@@ -125,6 +125,18 @@ describe('LECT-1 (C) — repli TEXTE (AcroForm vide)', () => {
     const d = col(decisionCerfa([champ('W2SF1', '999')], 999, null, texte('Construction de 21 logements. 21 logements.')), 'nb_logements');
     expect(d.statut).toBe('non_ecrit'); // AcroForm présent → pas de repli, nb_logements reste non écrit
   });
+
+  it('PROV-3 (3) — destinations : sous-destination CANDIDATE (non cochée) tirée des pages du Cerfa, page la plus FIABLE', () => {
+    const cerfa = { texte: '', pieceNom: 'PC_scan.pdf', page: null, pages: [
+      { page: 23, texte: 'recouvrement de la part logement de la redevance' },       // signal FAIBLE
+      { page: 7, texte: 'financement : Logement Locatif Social · 21 logements' },     // signal FORT
+    ] };
+    const d = decisionCerfa([], 586, null, cerfa).destinations;
+    expect(d.statut).toBe('non_ecrit');                       // JAMAIS coché d'office
+    expect(d.candidats).toHaveLength(1);
+    expect(d.candidats![0].sousDestination).toBe('Logement');
+    expect(d.candidats![0].provenance.page).toBe(7);          // la page FORTE l’emporte (pas la p.23 faible)
+  });
 });
 
 describe('decisionCerfa — jamais écrits', () => {
