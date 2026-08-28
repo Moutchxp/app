@@ -36,6 +36,11 @@ const MOTIFS = {
   //   min 5 / max 7 ; « immeuble R+7 » → min=max=7. Le « à » tolère « a », « au », « - », « jusqu'à ». Restreindre le contexte
   //   n'est PAS deviner : c'est écarter un motif qui n'est pas un gabarit.
   gabarit: /immeubles?\b[^.\n]{0,60}?R\s?\+\s?(\d{1,2})(?:\s*(?:à|a|au|-|jusqu['’]?à)\s*R\s?\+\s?(\d{1,2}))?/gi,
+  // LECT-1 (D) — gabarit DÉTAILLÉ « R+n+attique(+combles/…) » : forme où l'architecte AJOUTE des niveaux hors décompte R+n simple.
+  //   N'exige PAS « immeuble » (les désignations disent « résidence … R+3+attique+combles ») mais EXIGE ≥1 suffixe de niveau
+  //   (attique/combles/surcombles/duplex/niveau/étage) — sinon ce serait un R+n ordinaire. Sert à CONFRONTER nb_etages, jamais à
+  //   l'écrire (attique/combles rendent le décompte ambigu ; on marque le conflit, on ne tranche pas).
+  gabaritDetaille: /R\s?\+\s?(\d{1,2})((?:\s?\+\s?(?:attiques?|surcombles?|combles?|duplex|niveaux?|[eé]tages?))+)/gi,
   // Sous-sols : « 1 niveau de sous-sol », « 2 niveaux de sous-sol » (chiffre ou nombre écrit simple).
   sousSol: /(\d{1,2}|un|deux|trois)\s+niveaux?\s+de\s+sous[- ]?sol/gi,
   // Repère de corps de bâtiment (cartouche) : « corps A1 », « bâtiment 2D1 », « cage 2D2 ». SIGNAL FAIBLE (cf. rapport).
@@ -81,6 +86,8 @@ export interface Provenance { pieceId: number; pieceNom: string; page: number }
 /** Une cote NGF. `qualificatifSommet` (N5-B) = ce qu'elle représente si un mot-clé de sommet est à proximité, sinon `null`. */
 export interface CandidatCote { texteBrut: string; valeur: number; niveau: string | null; qualificatifSommet: string | null; provenance: Provenance }
 export interface CandidatGabarit { texteBrut: string; rMin: number | null; rMax: number | null; provenance: Provenance }
+/** LECT-1 (D) — gabarit DÉTAILLÉ (« R+3+attique+combles ») : base R+n + mentions ajoutées. Sert à CONFRONTER nb_etages, jamais à l'écrire. */
+export interface CandidatGabaritDetaille { texteBrut: string; base: number; mentions: string[]; provenance: Provenance }
 export interface CandidatSousSol { texteBrut: string; niveaux: number; provenance: Provenance }
 export interface CandidatRepere { texteBrut: string; repere: string; provenance: Provenance }
 /** N5-B — hauteur ANNONCÉE au-dessus du plancher (mètres). ⚠️ PAS une altitude NGF : `valeurM` est une hauteur relative. */
@@ -173,6 +180,61 @@ export function niveauDeTexte(texte: string): string | null {
   return isoles.size === 1 ? [...isoles][0] : null; // un seul label isolé → OK ; 0 ou plusieurs → null
 }
 
+/**
+ * LECT-1 (B) — TABLE DE NIVELLEMENT en DEUX LISTES PARALLÈLES. Sur les coupes, l'extraction PDF aplatit une table de cotes en
+ * « une SUITE de N cotes » suivie de « une SUITE de N étiquettes », p. ex. :
+ *   `98.95 102.37 105.09 107.81 110.53 113.97 116.91 RDC R+1 R+2 R+3 R+4 Egout Faîtage`
+ * → 98.95↔RDC … 113.97↔Égout 116.91↔Faîtage. Les cotes n'ont PAS « NGF » écrit → `coteNgf` les rate toutes. On les CAPTE ici et on
+ * les APPARIE par POSITION, sous TROIS GARDES qui rendent le motif sûr sans le caler sur un seul dossier :
+ *   ① comptes ÉGAUX (N cotes ⇔ N étiquettes) — sinon on ne devine PAS l'appariement (abstention) ;
+ *   ② toutes les cotes dans la plage NGF plausible [NGF_MIN, NGF_MAX] — écarte pentes/épaisseurs/quantités ;
+ *   ③ cotes STRICTEMENT CROISSANTES — une trame de planchers monte ; un intrus (une pente « 3.26 » au milieu) casse la
+ *      monotonie et fait ABSTENIR tout le bloc, plutôt que de décaler l'appariement.
+ * Le label devient `qualificatifSommet` (faîtage/acrotère/égout) OU `niveau` (RDC/R+n/SS) OU la marque terrain naturel (niveau 'TN').
+ *
+ * ⚠️ Fragilités assumées (à redire au porteur) : (a) une table listée DÉCROISSANTE (toit→sol) est ratée par la garde ③ — choix
+ *   conservateur ; (b) si étiquettes et cotes ne sont pas dans le MÊME ordre (cotes croissantes, labels décroissants), l'appariement
+ *   positionnel serait faux — non détecté ici (cas rare, non observé) ; (c) une table entrelacée (label cote label cote) n'est pas
+ *   captée. Dans tous ces cas : AUCUNE capture (jamais un faux), l'échec est silencieux mais sûr.
+ */
+const LABEL_NIVELLEMENT = String.raw`RDC|R\s?\+?\s?\d{1,2}|SS\s?\d?|[ÉE]gout|Fa[iî]tage|Acrot[eè]re|TN|Terrain\s+naturel`;
+const RE_LABEL_NIVELLEMENT = new RegExp(LABEL_NIVELLEMENT, 'gi');
+const RE_COTE_NIVELLEMENT = /[+\-]?\d{1,3}[.,]\d{1,2}/g;
+const RE_TABLE_NIVELLEMENT = new RegExp(
+  `((?:[+\\-]?\\d{1,3}[.,]\\d{1,2}[ \\t]+){2,})((?:(?:${LABEL_NIVELLEMENT})[ \\t]*){2,})`,
+  'gi',
+);
+
+/** LECT-1 (B) — classe une étiquette de table : sommet (faîtage>acrotère>égout) → qualificatif ; niveau (RDC/R+n/SS) ; terrain naturel → niveau 'TN'. */
+function classerLabelNivellement(brut: string): { niveau: string | null; qualificatifSommet: string | null } {
+  const s = brut.toLowerCase();
+  if (/fa[iî]tage/.test(s)) return { niveau: null, qualificatifSommet: 'faîtage' };
+  if (/acrot[eè]re/.test(s)) return { niveau: null, qualificatifSommet: 'acrotère' };
+  if (/[ée]gout/.test(s)) return { niveau: null, qualificatifSommet: 'égout' };
+  if (/terrain\s+naturel|^tn$/.test(s)) return { niveau: 'TN', qualificatifSommet: null };
+  return { niveau: normaliserNiveau(brut), qualificatifSommet: null }; // RDC / R+n / SS
+}
+
+/** LECT-1 (B) — cotes NUES d'une table de nivellement (listes parallèles), appariées à leur étiquette. Voir le bloc doc ci-dessus (3 gardes). */
+export function cotesTableNivellement(texte: string): { texteBrut: string; valeur: number; niveau: string | null; qualificatifSommet: string | null; index: number }[] {
+  const out: { texteBrut: string; valeur: number; niveau: string | null; qualificatifSommet: string | null; index: number }[] = [];
+  for (const m of texte.matchAll(RE_TABLE_NIVELLEMENT)) {
+    const cotes = [...m[1].matchAll(RE_COTE_NIVELLEMENT)].map((x) => nombre(x[0]));
+    const labels = [...m[2].matchAll(RE_LABEL_NIVELLEMENT)].map((x) => x[0].trim());
+    if (cotes.length !== labels.length || cotes.length < 2) continue;                                    // ① comptes égaux
+    if (cotes.some((v) => !Number.isFinite(v) || v < NGF_MIN || v > NGF_MAX)) continue;                  // ② plage NGF
+    let croissant = true;
+    for (let i = 1; i < cotes.length; i++) if (cotes[i] <= cotes[i - 1]) { croissant = false; break; }   // ③ strictement croissant
+    if (!croissant) continue;
+    const base = m.index ?? 0;
+    for (let i = 0; i < cotes.length; i++) {
+      const cl = classerLabelNivellement(labels[i]);
+      out.push({ texteBrut: `${labels[i]} ${cotes[i]}`, valeur: cotes[i], niveau: cl.niveau, qualificatifSommet: cl.qualificatifSommet, index: base });
+    }
+  }
+  return out;
+}
+
 /** GABARITS R+n d'un texte, dans un contexte « immeuble » (plage « R+5 à R+7 » → min/max ; « R+7 » seul → min=max). Aucune
  *  attribution à un corps de bâtiment (le prompt) : on rapporte le gabarit et sa provenance, rien de plus. */
 export function gabaritsDansTexte(texte: string): { texteBrut: string; rMin: number | null; rMax: number | null }[] {
@@ -181,6 +243,18 @@ export function gabaritsDansTexte(texte: string): { texteBrut: string; rMin: num
     const rMin = Number(m[1]);
     const rMax = m[2] !== undefined ? Number(m[2]) : rMin; // pas de « à R+m » → min = max
     out.push({ texteBrut: m[0].trim(), rMin, rMax });
+  }
+  return out;
+}
+
+/** LECT-1 (D) — gabarits DÉTAILLÉS « R+n+attique(+combles/…) » d'un texte. `mentions` = suffixes normalisés (['attique','combles']). */
+export function gabaritsDetaillesDansTexte(texte: string): { texteBrut: string; base: number; mentions: string[] }[] {
+  const out: { texteBrut: string; base: number; mentions: string[] }[] = [];
+  for (const m of texte.matchAll(MOTIFS.gabaritDetaille)) {
+    const base = Number(m[1]);
+    const mentions = [...m[2].matchAll(/attiques?|surcombles?|combles?|duplex|niveaux?|[eé]tages?/gi)]
+      .map((x) => x[0].toLowerCase().replace(/s$/, '').normalize('NFD').replace(/\p{Diacritic}/gu, ''));
+    if (Number.isFinite(base) && mentions.length) out.push({ texteBrut: m[0].replace(/\s+/g, ' ').trim(), base, mentions });
   }
   return out;
 }
@@ -208,6 +282,7 @@ export interface PieceSansCandidat { pieceId: number; pieceNom: string; motif: '
 export interface RapportExtraction {
   cotes: CandidatCote[];
   gabarits: CandidatGabarit[];
+  gabaritsDetailles?: CandidatGabaritDetaille[];   // LECT-1 (D) — formes « R+n+attique+combles » pour CONFRONTER nb_etages (optionnel : absent = [])
   sousSols: CandidatSousSol[];
   reperes: CandidatRepere[];
   hsp: CandidatHsp[];                              // N5-B — hauteurs sous plafond annoncées (mètres) — [] si aucune
@@ -233,6 +308,7 @@ export interface RapportExtraction {
 export function extraireCandidats(res: ResultatLectureGed): RapportExtraction {
   const cotes: CandidatCote[] = [];
   const gabarits: CandidatGabarit[] = [];
+  const gabaritsDetailles: CandidatGabaritDetaille[] = [];
   const sousSols: CandidatSousSol[] = [];
   const reperes: CandidatRepere[] = [];
   const hsp: CandidatHsp[] = [];
@@ -253,7 +329,15 @@ export function extraireCandidats(res: ResultatLectureGed): RapportExtraction {
         cotes.push({ texteBrut: c.texteBrut, valeur: c.valeur, niveau, qualificatifSommet, provenance: prov(pg.page) });
         pagesAvecCote.add(`${p.id}:${pg.page}`); piecesAvecCote.add(p.id); candidatsPiece += 1;
       }
+      // LECT-1 (B) — cotes NUES d'une table de nivellement (sans « NGF »), appariées à leur étiquette (faîtage/égout/R+n/TN).
+      //   `c.niveau` fait foi (l'appariement l'a déjà déterminé) : un plancher porte son R+n ; une cote de toiture (faîtage/égout)
+      //   a niveau NULL — on NE la rattache PAS au niveau de page (une ligne de toit n'est pas un plancher).
+      for (const c of cotesTableNivellement(pg.texte)) {
+        cotes.push({ texteBrut: c.texteBrut, valeur: c.valeur, niveau: c.niveau, qualificatifSommet: c.qualificatifSommet, provenance: prov(pg.page) });
+        pagesAvecCote.add(`${p.id}:${pg.page}`); piecesAvecCote.add(p.id); candidatsPiece += 1;
+      }
       for (const g of gabaritsDansTexte(pg.texte)) { gabarits.push({ ...g, provenance: prov(pg.page) }); candidatsPiece += 1; }
+      for (const g of gabaritsDetaillesDansTexte(pg.texte)) { gabaritsDetailles.push({ ...g, provenance: prov(pg.page) }); } // LECT-1 (D) — confrontation seule, pas un candidat écrit
       for (const s of sousSolsDansTexte(pg.texte)) { sousSols.push({ ...s, provenance: prov(pg.page) }); candidatsPiece += 1; }
       for (const r of reperesDansTexte(pg.texte)) { reperes.push({ ...r, provenance: prov(pg.page) }); candidatsPiece += 1; }
       for (const h of hspDansTexte(pg.texte)) { hsp.push({ ...h, provenance: prov(pg.page) }); candidatsPiece += 1; }
@@ -278,7 +362,7 @@ export function extraireCandidats(res: ResultatLectureGed): RapportExtraction {
   }
 
   return {
-    cotes, gabarits, sousSols, reperes, hsp, dalles,
+    cotes, gabarits, gabaritsDetailles, sousSols, reperes, hsp, dalles,
     bilan: {
       nbPieces: res.pieces.length,
       piecesAvecCote: piecesAvecCote.size,

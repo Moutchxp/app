@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   cotesNgfDansTexte, niveauDeTexte, gabaritsDansTexte, sousSolsDansTexte, reperesDansTexte, normaliserNiveau, extraireCandidats,
   qualificatifsDansTexte, qualificatifLePlusProche, hspDansTexte, dallesDansTexte, distributionCotesQualifiees,
+  cotesTableNivellement, gabaritsDetaillesDansTexte,
 } from './extractionCaracteristiques';
 import type { ResultatLectureGed, PieceLue, PageTexte } from './lectureGed';
 
@@ -239,5 +240,60 @@ describe('N5-B — non-régression + bilan enrichi', () => {
     expect(r.bilan.cotesQualifiees).toBe(1);
     expect(r.bilan.qualificatifsVus).toEqual([{ qualificatif: 'acrotère', nb: 1 }]);
     expect(r.bilan.coteMax).toMatchObject({ valeur: 89.46, qualificatifSommet: 'acrotère' });
+  });
+});
+
+describe('LECT-1 (B) — cotesTableNivellement : deux listes parallèles (cotes puis étiquettes)', () => {
+  // Ligne RÉELLE d'une coupe de 531 (extraction PDF aplatie) : 7 cotes puis 7 étiquettes.
+  const LIGNE_531 = 'h : 98.95 102.37 105.09 107.81 110.53 113.97 116.91 RDC R+1 R+2 R+3 R+4 Egout Faîtage';
+
+  it('apparie chaque cote à son étiquette par POSITION ; le SOMMET = faîtage 116.91 (PAS l’égout 113.97)', () => {
+    const r = cotesTableNivellement(LIGNE_531);
+    expect(r).toHaveLength(7);
+    const faitage = r.find((c) => c.qualificatifSommet === 'faîtage');
+    const egout = r.find((c) => c.qualificatifSommet === 'égout');
+    expect(faitage?.valeur).toBe(116.91); // sommet = point le plus haut
+    expect(egout?.valeur).toBe(113.97);   // égout = bas de toiture, ≠ sommet
+    // les planchers reçoivent leur niveau : RDC↔98.95 … R+4↔110.53 (dernier plancher).
+    expect(r.find((c) => c.niveau === 'RDC')?.valeur).toBe(98.95);
+    expect(r.find((c) => c.niveau === 'R04')?.valeur).toBe(110.53);
+  });
+
+  it('GARDE ① comptes DIFFÉRENTS (3 cotes, 5 étiquettes) → aucune capture (on ne devine pas l’appariement)', () => {
+    expect(cotesTableNivellement('113,97 116,91 113,97 R+4 R+2 R+2 R+2 R+5')).toHaveLength(0);
+  });
+
+  it('GARDE ② une cote HORS plage NGF (612.50 = une quantité) → bloc écarté', () => {
+    expect(cotesTableNivellement('98.95 612.50 RDC R+1')).toHaveLength(0);
+  });
+
+  it('GARDE ③ cotes NON strictement croissantes (un intrus casse la monotonie) → bloc écarté', () => {
+    expect(cotesTableNivellement('98.95 3.26 105.09 RDC R+1 R+2')).toHaveLength(0);
+  });
+
+  it('capte « TN / terrain naturel » comme niveau TN (pour l’altitude du terrain naturel)', () => {
+    const r = cotesTableNivellement('95.10 98.95 102.37 TN RDC R+1');
+    expect(r.find((c) => c.niveau === 'TN')?.valeur).toBe(95.10);
+  });
+
+  it('ne capte RIEN dans un texte courant sans table (aucun faux positif)', () => {
+    expect(cotesTableNivellement('La surface de plancher créée est de 586,0 m² sur 21 logements.')).toHaveLength(0);
+  });
+});
+
+describe('LECT-1 (D) — gabaritsDetaillesDansTexte : formes « R+n+attique+combles »', () => {
+  it('capte « R+3+attique+combles » → base 3, mentions [attique, combles]', () => {
+    const r = gabaritsDetaillesDansTexte('résidence sociale de 21 logements R+3+attique+combles projeté');
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ base: 3, mentions: ['attique', 'comble'] }); // mentions normalisées (singulier) ; l'affichage utilise texteBrut
+  });
+  it('un R+n SIMPLE (sans suffixe de niveau) n’est PAS capté (ce n’est pas une forme détaillée)', () => {
+    expect(gabaritsDetaillesDansTexte('immeuble de R+4 sur 1 niveau de sous-sol')).toHaveLength(0);
+  });
+  it('« R+4+C » (nivellement) n’est pas une forme détaillée (C ≠ combles/attique)', () => {
+    expect(gabaritsDetaillesDansTexte('R+4+C R+2+C cotes de coupe')).toHaveLength(0);
+  });
+  it('normalise accents/pluriel des mentions (« R+2+étages+duplex »)', () => {
+    expect(gabaritsDetaillesDansTexte('bâtiment R+2+étages+duplex')[0].mentions).toEqual(['etage', 'duplex']);
   });
 });

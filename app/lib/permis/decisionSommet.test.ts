@@ -39,15 +39,36 @@ describe('decisionSommet — sélection du sommet', () => {
     expect(d.valeurNgf).toBe(89.46);
   });
 
-  it('ignore une cote NON « acrotère » même si elle est plus haute (seul l’acrotère est un sommet)', () => {
-    const d = decisionSommet(rapport([cote(89.46, 'acrotère', 1), cote(120, 'faîtage', 1), cote(150, null, 1)]));
-    expect(d.valeurNgf).toBe(89.46);
+  it('ignore une cote SANS qualificatif de sommet, même plus haute (150 nu n’est jamais un sommet)', () => {
+    // LECT-1 (B) : le faîtage 116.91 prime ; la cote NUE 150 (qualificatif null) reste ignorée (jamais un sommet).
+    const d = decisionSommet(rapport([cote(116.91, 'faîtage', 1), cote(150, null, 1)]));
+    expect(d.valeurNgf).toBe(116.91);
+    expect(d.qualificatif).toBe('faîtage');
   });
 
-  it('aucune cote acrotère → pas de valeur, raison explicite', () => {
+  it('LECT-1 (B) — PRIORITÉ faîtage > acrotère : le faîtage l’emporte même s’il est PLUS BAS que l’acrotère', () => {
+    // 531 : faîtage 116.91 (sommet réel) et égout 113.97 ; ne PAS confondre. Ici on prouve la priorité pure : faîtage choisi.
+    const d = decisionSommet(rapport([cote(113.97, 'égout', 1), cote(120, 'acrotère', 1), cote(116.91, 'faîtage', 1)]));
+    expect(d.valeurNgf).toBe(116.91); // faîtage prioritaire, même si l’acrotère 120 est plus haut
+    expect(d.qualificatif).toBe('faîtage');
+  });
+
+  it('LECT-1 (B) — acrotère > égout : sans faîtage, l’acrotère prime sur l’égout (bas de toiture)', () => {
+    const d = decisionSommet(rapport([cote(113.97, 'égout', 1), cote(115.2, 'acrotère', 1)]));
+    expect(d.valeurNgf).toBe(115.2);
+    expect(d.qualificatif).toBe('acrotère');
+  });
+
+  it('LECT-1 (B) — égout en DERNIER recours : seul l’égout étiqueté → retenu comme sommet (sous-estimé, avec réserve)', () => {
+    const d = decisionSommet(rapport([cote(113.97, 'égout', 1), cote(110.53, 'égout', 1)]));
+    expect(d.valeurNgf).toBe(113.97);
+    expect(d.qualificatif).toBe('égout');
+  });
+
+  it('aucune cote de sommet (faîtage/acrotère/égout) → pas de valeur, raison explicite', () => {
     const d = decisionSommet(rapport([cote(66.92, 'niveau fini', 1), cote(70, null, 1)]));
     expect(d.valeurNgf).toBeNull();
-    expect(d.raisonAbsence).toBe('aucune_cote_acrotere');
+    expect(d.raisonAbsence).toBe('aucune_cote_sommet');
   });
 });
 

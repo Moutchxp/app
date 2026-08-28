@@ -11,6 +11,7 @@
  */
 import type { ResultatLectureGed } from './lectureGed';
 import type { RapportExtraction } from './extractionCaracteristiques';
+import { cotesSommetPrioritaires } from './decisionSommet'; // LECT-1 (B) : priorité sommet faîtage>acrotère>égout (source unique)
 
 export interface SourceFait { piece: string; page: number; extrait: string }
 export interface FaitCorrobore { valeur: number; confiance: 'confirmee' | 'a_verifier'; sources: SourceFait[]; note?: string }
@@ -57,9 +58,9 @@ export function decisionLots(ged: ResultatLectureGed, rapport: RapportExtraction
   for (const n of rapport.bilan.niveaux) { const g = /^R0?(\d{1,2})$/.exec(n.niveau); if (!g) continue; const d = new Set(n.cotes.map((c) => c.valeur)); if (d.size === 1) { const c = n.cotes[0]; niveauCote.set(Number(g[1]), { valeur: c.valeur, source: { piece: c.provenance.pieceNom, page: c.provenance.page, extrait: `${n.niveau} = ${c.valeur}` } }); } }
   const lotHaut = [...etages.entries()].sort((a, b) => b[1].m - a[1].m)[0]; // lot au R+n max
 
-  // 3) sommet permis = max acrotère.
-  const acro = rapport.cotes.filter((c) => c.qualificatifSommet === 'acrotère');
-  const sommetCote = acro.reduce<typeof acro[number] | null>((mx, c) => (mx === null || c.valeur > mx.valeur ? c : mx), null);
+  // 3) sommet permis = MAX du qualificatif prioritaire présent (faîtage > acrotère > égout — LECT-1 (B), source unique decisionSommet).
+  const sommetSel = cotesSommetPrioritaires(rapport.cotes)?.cotes ?? [];
+  const sommetCote = sommetSel.reduce<typeof sommetSel[number] | null>((mx, c) => (mx === null || c.valeur > mx.valeur ? c : mx), null);
 
   const repos = [...new Set([...etages.keys(), ...sousSol.keys()])].sort();
   const lots: DecisionLot[] = repos.map((repere) => {

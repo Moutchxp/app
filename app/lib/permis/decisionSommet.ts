@@ -18,8 +18,26 @@
  */
 import type { Provenance, RapportExtraction } from './extractionCaracteristiques';
 
-/** Seul qualificatif retenu pour le SOMMET (décision porteur). Centralisé : ne pas disperser la liste ni l'élargir sans arbitrage. */
+/** Qualificatif « par défaut » (étiquette d'affichage quand aucun sommet n'est capté). Le vrai choix se fait par PRIORITE_SOMMET. */
 export const QUALIFICATIF_SOMMET = 'acrotère';
+
+/**
+ * LECT-1 (B) — PRIORITÉ du sommet (décision porteur) : **faîtage > acrotère > égout**. Le sommet écrit est le point le PLUS HAUT :
+ * le faîtage (ligne de crête) prime ; à défaut l'acrotère (haut d'un toit-terrasse) ; en DERNIER recours l'égout — qui est la ligne
+ * BASSE de la toiture, donc un sommet SOUS-ESTIMÉ : on ne le retient QUE si ni faîtage ni acrotère ne sont étiquetés (la réserve
+ * accompagne toujours la valeur). On ne MÉLANGE jamais deux qualificatifs : on prend le MAX du qualificatif prioritaire PRÉSENT.
+ * Centralisé ici (source unique) ; réutilisé par `decisionLots` pour le sommet par corps.
+ */
+export const PRIORITE_SOMMET = ['faîtage', 'acrotère', 'égout'] as const;
+
+/** Cotes du qualificatif de sommet le PLUS PRIORITAIRE présent (faîtage>acrotère>égout), ou `null` si aucune. PUR — pas de MAX ici. */
+export function cotesSommetPrioritaires(cotes: RapportExtraction['cotes']): { qualificatif: string; cotes: RapportExtraction['cotes'] } | null {
+  for (const q of PRIORITE_SOMMET) {
+    const sel = cotes.filter((c) => c.qualificatifSommet === q);
+    if (sel.length > 0) return { qualificatif: q, cotes: sel };
+  }
+  return null;
+}
 
 /** RÉSERVE explicite portée AVEC toute valeur de sommet extraite. À afficher EN TOUTES LETTRES partout où la valeur apparaît
  *  (pas seulement dans une colonne technique) : c'est la garantie honnête que la mesure peut inclure du bâti voisin. */
@@ -44,7 +62,7 @@ export interface DecisionSommet {
   nbPiecesDistinctes: number;               // nb de pièces DISTINCTES portant la valeur retenue (condition 1)
   coherentTrame: boolean;                   // condition 2 (trame sûre + épaisseur de toiture plausible)
   candidatsNiveauFini: CandidatNiveauFiniJournal[]; // JOURNALISÉS, jamais promus
-  raisonAbsence: 'aucune_cote_acrotere' | null;     // pourquoi valeurNgf est null (sinon null)
+  raisonAbsence: 'aucune_cote_sommet' | null;       // pourquoi valeurNgf est null (aucune cote faîtage/acrotère/égout) — sinon null
 }
 
 /** Rang d'un plancher au-dessus du sol : RDC/R00 → 0, R01→1 … R99→99. Sous-sols, toiture, combles, accès toiture → `null`
@@ -113,16 +131,18 @@ export function decisionSommet(rapport: RapportExtraction): DecisionSommet {
   // dans six mois, pour une mesure. Le jour où il faudra vraiment séparer PROJET et VOISIN (écrire des paliers intermédiaires ou
   // des altitudes PAR CORPS), il faudra un VRAI discriminateur : LiDAR terrain à l'emprise, ou attribution géométrique — JAMAIS
   // une valeur modale. C'est ici, et nulle part ailleurs, qu'on serait tenté d'ajouter le filtre : ne le fais pas sans ça.
-  const acroteres = rapport.cotes.filter((c) => c.qualificatifSommet === QUALIFICATIF_SOMMET);
-  if (acroteres.length === 0) {
+  // LECT-1 (B) — sommet = MAX du qualificatif PRIORITAIRE présent (faîtage > acrotère > égout), jamais un mélange des trois.
+  const prioritaire = cotesSommetPrioritaires(rapport.cotes);
+  if (!prioritaire) {
     return {
       valeurNgf: null, qualificatif: QUALIFICATIF_SOMMET, confiance: 'a_verifier', reserve: RESERVE_SOMMET,
-      observations: [], nbPiecesDistinctes: 0, coherentTrame: false, candidatsNiveauFini, raisonAbsence: 'aucune_cote_acrotere',
+      observations: [], nbPiecesDistinctes: 0, coherentTrame: false, candidatsNiveauFini, raisonAbsence: 'aucune_cote_sommet',
     };
   }
+  const sommetCotes = prioritaire.cotes;
 
-  const valeurNgf = acroteres.reduce((max, c) => (c.valeur > max ? c.valeur : max), acroteres[0].valeur);
-  const observations: Observation[] = acroteres
+  const valeurNgf = sommetCotes.reduce((max, c) => (c.valeur > max ? c.valeur : max), sommetCotes[0].valeur);
+  const observations: Observation[] = sommetCotes
     .filter((c) => c.valeur === valeurNgf)
     .map((c) => ({ provenance: c.provenance, texteBrut: c.texteBrut }));
   const nbPiecesDistinctes = new Set(observations.map((o) => o.provenance.pieceId)).size;
@@ -130,7 +150,7 @@ export function decisionSommet(rapport: RapportExtraction): DecisionSommet {
   const confiance: Confiance = nbPiecesDistinctes >= 2 && coherentTrame ? 'confirmee' : 'a_verifier';
 
   return {
-    valeurNgf, qualificatif: QUALIFICATIF_SOMMET, confiance, reserve: RESERVE_SOMMET,
+    valeurNgf, qualificatif: prioritaire.qualificatif, confiance, reserve: RESERVE_SOMMET,
     observations, nbPiecesDistinctes, coherentTrame, candidatsNiveauFini, raisonAbsence: null,
   };
 }
