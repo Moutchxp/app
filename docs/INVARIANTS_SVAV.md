@@ -212,6 +212,24 @@ Les deux fichiers d'analyse IA photo (Gemini), à **maintenir hors staging** :
 
 ---
 
+## 12. ÉTANCHÉITÉ VERDICT RÉEL ↔ PROJETÉ/DÉCIDÉ
+
+Le verdict se calcule sur le bâti **réel mesuré** (LiDAR + BD TOPO). Un polygone **projeté** est une
+reconstitution ; un statut **« détruit »** est une prévision humaine : **ni l'un ni l'autre ne peut entrer
+dans un verdict, un score ou une altitude**. Prouvé par recon (le geste « détruit » n'écrit que
+`permis_polygone_statut`, table séparée ; le moteur lit la vue `bdtopo_batiment = SELECT … FROM batiment`
+sans filtre). Rendu **opposable** par trois gardes de test (`app/lib/permis/etancheiteVerdict.test.ts`) —
+elles rougissent au CI si l'étanchéité se rompt :
+- **Garde 1** — la vue `bdtopo_batiment` (lue par le moteur, dernière déf. `db/migrations/`) reste une
+  **projection pure** : ni `WHERE`, ni `JOIN`, ni référence à `permis_polygone_statut` /
+  `permis_emprise_reconstruite` / `permis_empreinte`.
+- **Garde 2** — le **moteur** (`app/lib/db/**`, `app/lib/svv/**`) ne référence **aucune** de ces trois
+  tables de décision.
+- **Garde 3** — **aucune écriture** dans `batiment` (INSERT/UPDATE/DELETE/ALTER/TRUNCATE) depuis
+  `app/lib/permis/**` ni `app/scripts/**` : la donnée source BD TOPO n'est jamais écrasée par l'interface.
+
+---
+
 ### Notes de traçabilité
 - Chemin absolu des fichiers TS = `…/sansvisavis/app/app/lib/…` (dossier `app/` imbriqué) ; les chemins
   ci-dessus sont **relatifs à la racine du dépôt** (`app/lib/…`, `app/page.tsx`).
