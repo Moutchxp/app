@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
@@ -171,6 +171,23 @@ describe('PROJ-3f ① — navigation PIÈCE LIBRE (feuilleter les pages d’une 
     // dernière page → « suivante » désactivée
     const hN = renderToStaticMarkup(h(NavPieceLibre, { nomFichier: 'X.pdf', page: 18, nbPages: 18, onPagePrecedente: () => {}, onPageSuivante: () => {}, onRetourBestOf: () => {} }));
     expect(hN).toMatch(/disabled[^>]*aria-label="Page suivante"|aria-label="Page suivante"[^>]*disabled/);
+  });
+});
+
+describe('LOT PROV-1 (point 1) — cibleBestOf : « revenir au best-of » n’est jamais un bouton mort', () => {
+  const plan = (pieceId: number, page: number): Plan => ({ pieceId, page, nomFichier: `p${pieceId}.pdf`, echelle: null, confirme: true, famille: 'masse', tracable: true, ambigu: false });
+
+  it('bande VIDE (aucun plan proposé, ex. 531) → repasse quand même en best-of, sans plan (bouton VIVANT)', () => {
+    expect(cibleBestOf([], 0)).toEqual({ nav: 'bestof', plan: null });
+    // 🔑 le régression : avant, l’appelant sortait tôt sur bande vide → nav restait 'piece' → on restait sur la pièce courante.
+  });
+  it('bande NON vide → repasse en best-of ET restaure le plan `cible` (pièce + page)', () => {
+    const bande = [plan(10, 1), plan(20, 3)];
+    expect(cibleBestOf(bande, 1)).toEqual({ nav: 'bestof', plan: { index: 1, pieceId: 20, page: 3 } });
+  });
+  it('index hors bornes → borné dans la bande (jamais un accès undefined)', () => {
+    const bande = [plan(10, 1)];
+    expect(cibleBestOf(bande, 9)).toEqual({ nav: 'bestof', plan: { index: 0, pieceId: 10, page: 1 } });
   });
 });
 

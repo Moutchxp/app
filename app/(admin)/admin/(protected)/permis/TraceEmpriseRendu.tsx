@@ -122,6 +122,18 @@ export function bornerIndex(i: number, n: number): number { return n <= 0 ? 0 : 
 export function indexSuivant(i: number, n: number): number { return bornerIndex(i + 1, n); }
 export function indexPrecedent(i: number, n: number): number { return bornerIndex(i - 1, n); }
 
+/**
+ * LOT PROV-1 (point 1) — CIBLE de la navigation best-of. TOUJOURS `nav:'bestof'` — même quand la bande est VIDE (aucun plan classé,
+ * ex. dossier 531). Le plan n'est restauré (`plan`) que s'il en existe un ; bande vide → `plan:null` (la vue best-of montre alors
+ * « aucun plan proposé »). C'est CE point qui rend « revenir au best-of » VIVANT : avant, l'appelant sortait tôt sur bande vide et
+ * le bouton restait mort (on restait bloqué sur la pièce libre). PUR (testable sans DOM).
+ */
+export function cibleBestOf(bande: Plan[], cibleIndex: number): { nav: 'bestof'; plan: { index: number; pieceId: number; page: number } | null } {
+  if (bande.length === 0) return { nav: 'bestof', plan: null };
+  const i = bornerIndex(cibleIndex, bande.length);
+  return { nav: 'bestof', plan: { index: i, pieceId: bande[i].pieceId, page: bande[i].page } };
+}
+
 /** Libellé lisible d'un plan (nom + n° de page dans la pièce + échelle si lue de façon fiable). PUR. */
 export function libellePlan(p: Pick<Plan, 'nomFichier' | 'page' | 'echelle'>): string { return `${p.nomFichier} — page ${p.page}${p.echelle ? ` · échelle ${p.echelle}` : ''}`; }
 
