@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
@@ -555,5 +556,41 @@ describe('PROJ-3s — retouche : liste (retoucher / multi-parties) + poignées s
     expect((html.match(/data-sommet="/g) ?? []).length).toBe(RING.length);   // une poignée par sommet
     expect(html).toContain('data-bord="0"');                                  // point milieu de bord (insertion)
     expect(html).toContain('data-selectionne="true"');                        // sommet 1 sélectionné
+  });
+});
+
+describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décision côte à côte', () => {
+  const poly = (cleabs: string, etat: string | null, repere: string) => ({ cleabs, anneau: [], etat, repere });
+  const ligne = (cleabs: string, statut: LigneStatutPolygone['statut'], etat: string | null): LigneStatutPolygone => ({ cleabs, statut, etatBdtopoAuMoment: etat, decidePar: 'admin', decideLe: '2026-08-01T10:00:00Z' });
+
+  it('liste les EXISTANTS (exclut « en projet » et recouverts) ; affiche BD TOPO ET ma décision ; source conservée si préservé prime', () => {
+    const polygones = [poly('A', 'En service', 'A'), poly('B', 'En projet', 'B'), poly('C', 'En service', 'C')];
+    const statuts = statutCourantParCleabs([ligne('A', 'preserve', 'En projet')]); // BD TOPO disait « En projet », j'ai décidé préservé
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: ['C'], statuts, onStatuer: () => {} }));
+    expect(html).toContain('Polygone A');
+    expect(html).not.toContain('Polygone B'); // « en projet » exclu (relève de l'adoption)
+    expect(html).not.toContain('Polygone C'); // recouvert par l'emprise projetée exclu
+    expect(html).toContain('BD TOPO');
+    expect(html).toContain('bâtiment préservé');
+    expect(html).toContain('BD TOPO disait « En projet »'); // 🔴 la source reste lisible ; ma décision prime sans l'écraser
+  });
+
+  it('« détruit » est signalé comme une PRÉVISION à confirmer à la mise à jour cadastrale', () => {
+    const statuts = statutCourantParCleabs([ligne('A', 'detruit', 'En service')]);
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('A', 'En service', 'A')], recouverts: [], statuts, onStatuer: () => {} }));
+    expect(html).toMatch(/Prévision/);
+    expect(html).toContain('mise à jour de la planche cadastrale');
+    expect(html).toContain('annuler ma décision'); // révocable
+  });
+
+  it('l’HISTORIQUE de mes décisions est repliable (audit qui/quand)', () => {
+    const statuts = statutCourantParCleabs([ligne('A', 'preserve', 'En service'), { cleabs: 'A', statut: 'detruit', etatBdtopoAuMoment: 'En service', decidePar: 'admin', decideLe: '2026-08-02T10:00:00Z' }]);
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('A', 'En service', 'A')], recouverts: [], statuts, onStatuer: () => {} }));
+    expect(html).toContain('historique de mes décisions (2)');
+  });
+
+  it('aucun polygone statuable → rien affiché', () => {
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('B', 'En projet', 'B')], recouverts: [], statuts: new Map(), onStatuer: () => {} }));
+    expect(html).toBe('');
   });
 });

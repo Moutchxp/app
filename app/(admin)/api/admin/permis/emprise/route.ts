@@ -6,6 +6,7 @@ import { depsReellesLectureGed, lireGedPermis } from '../../../../../lib/permis/
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
 import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte, familleDeNom, tracabilitePlanche, type FamillePlan } from '../../../../../lib/permis/planMasse';
 import { familleDeContenu, niveauxDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV : famille + niveaux par le CONTENU
+import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2)
 
 // PROJ-3d — confirmation page-level PARESSEUSE : plafond DUR de pièces ouvertes côté serveur (mesuré ~98 ms/pièce → ~0,7 s pour 7).
 //   Ne JAMAIS ouvrir les 81 pièces (~8 s). Les proposées au-delà du plafond restent proposées PAR LEUR NOM, sans confirmation.
@@ -46,7 +47,7 @@ export async function GET(request: Request): Promise<Response> {
       catch (e) { indisponibles.push(source); console.error(`[permis/emprise] source indisponible: ${source}`, { dossierId, message: e instanceof Error ? e.message : String(e) }); return valeur; }
     };
     const deps = depsReellesLectureGed();
-    const [piecesBrutes, emprises, ignores, batiments, contexte, polygones, polygonesEcartes] = await Promise.all([
+    const [piecesBrutes, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts] = await Promise.all([
       repli('pieces', deps.listerPieces(dossierId), []),
       repli('emprises', listerEmprises(dossierId), []),
       repli('ignores', listerIgnorees(dossierId), []),
@@ -54,6 +55,8 @@ export async function GET(request: Request): Promise<Response> {
       repli('contexte', lireContexteEmprise(dossierId), { empreinteAnneaux: [], surfaceTerrainM2: null, surfacePlancherM2: null, batiments: [] }),
       repli('polygones', lirePolygonesEmpreinte(dossierId), []), // PROJ-3h — polygones BD TOPO (∩ empreinte) + état, pour l'affichage
       repli('ecartes', listerPolygonesProjetEcartes(dossierId), []), // PROJ-3i — cleabs des polygones « en projet » écartés (décochés)
+      repli('statuts', lireStatutsPolygones(dossierId), []),         // RATT-1 (2) — registre append-only des statuts décidés (préservé/détruit)
+      repli('recouverts', polygonesRecouvertsParEmprise(dossierId), []), // RATT-1 (2) — cleabs recouverts par une emprise projetée (hors statut)
     ]);
     // Seules les pièces PDF sont traçables (filtre inchangé) ; la clé de stockage ne sort JAMAIS.
     const piecesPdf = piecesBrutes.filter((p) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf'));
@@ -96,7 +99,7 @@ export async function GET(request: Request): Promise<Response> {
       return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, famille, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0, niveaux: niveauxParId.get(p.id) };
     };
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
-    return Response.json({ pieces, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, indisponibles });
+    return Response.json({ pieces, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
     return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });
@@ -110,6 +113,7 @@ export async function POST(request: Request): Promise<Response> {
     const body = (await request.json().catch(() => ({}))) as {
       action?: string; dossierId?: number | string; corpsId?: number; pieceId?: number; page?: number; libelle?: string;
       anneauPlan?: PointPlan[]; paires?: PaireCalage[]; ratioDeclare?: number | null; id?: number; motif?: string; cleabs?: string;
+      statut?: string; // RATT-1 (2) — preserve | detruit | revoque
       affectations?: { cleabs: string; corpsId: number }[];
       anneau?: { x: number; y: number }[]; // PROJ-3s — sommets Lambert d'une retouche (positions ; jamais une géométrie autoritative)
     };
@@ -164,6 +168,18 @@ export async function POST(request: Request): Promise<Response> {
         : await retablirPolygoneProjet(dossierId, cleabs);
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
       return Response.json({ ok: true, polygonesEcartes: await listerPolygonesProjetEcartes(dossierId) });
+    }
+
+    // RATT-1 (2) — STATUER un polygone EXISTANT (préservé / détruit / révoquer). Append-only : chaque décision = une nouvelle ligne.
+    //   La source IGN batiment.etat_de_l_objet n'est JAMAIS touchée (snapshot lu côté repo). Disponible même « en attente du bâti »
+    //   (ces statuts portent sur des polygones existants, pas sur le futur bâtiment). Renvoie le registre à jour pour l'affichage.
+    if (body.action === 'statuer_polygone') {
+      const cleabs = typeof body.cleabs === 'string' ? body.cleabs : '';
+      const statut = body.statut === 'preserve' || body.statut === 'detruit' || body.statut === 'revoque' ? body.statut : null;
+      if (cleabs.trim() === '' || statut === null) return Response.json({ erreur: 'requête invalide (cleabs + statut preserve|detruit|revoque)' }, { status: 400 });
+      const res = await poserStatutPolygone(dossierId, cleabs, statut, 'admin:projection');
+      if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
+      return Response.json({ ok: true, statutsPolygones: await lireStatutsPolygones(dossierId), polygonesRecouverts: await polygonesRecouvertsParEmprise(dossierId) });
     }
 
     // PROJ-2b — ignorer / rétablir la projection d'UN bâtiment (débloque la validation sans tracer ; réversible ; tracé au journal).

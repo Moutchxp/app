@@ -8,9 +8,10 @@ import {
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, StatutPolygonesExistants, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
+import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2)
 
 /**
  * PROJ-2b — BLOC de tracé d'emprise INTÉGRÉ au détail d'un dossier de Rattachement, BÂTIMENT PAR BÂTIMENT. Le dossier vient de la
@@ -43,6 +44,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
   const [polygones, setPolygones] = useState<PolygoneBdTopo[]>([]); // PROJ-3h — polygones BD TOPO (∩ empreinte) + état, pour l'affichage
   const [filtres, setFiltres] = useState<FiltresSchema>(FILTRES_SCHEMA_DEFAUT); // options de visibilité du schéma
   const [ecartes, setEcartes] = useState<string[]>([]); // PROJ-3i — cleabs des polygones « en projet » écartés (persistés)
+  const [statutsLignes, setStatutsLignes] = useState<LigneStatutPolygone[]>([]); // RATT-1 (2) — registre append-only des statuts décidés
+  const [recouverts, setRecouverts] = useState<string[]>([]); // RATT-1 (2) — cleabs recouverts par une emprise projetée (hors statut)
   const [pleinEcran, setPleinEcran] = useState(false); // PROJ-3i — agrandissement du schéma
   const [angle, setAngle] = useState(0); // PROJ-3j — rotation du schéma (0-360°), AFFICHAGE seulement, éphémère (non persistée)
   const [corpsSel, setCorpsSel] = useState<number | null>(null);
@@ -104,11 +107,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`, { cache: 'no-store' });
         if (annule) return;
         if (!res.ok) { setEtat('erreur'); setMessage('Bâtiments indisponibles (le serveur n’a pas répondu).'); return; }
-        const j = await res.json() as { pieces: Piece[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; indisponibles?: string[] };
+        const j = await res.json() as { pieces: Piece[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: string[]; indisponibles?: string[] };
         // Résilience serveur : « indisponible » ≠ « vide ». Si la lecture des BÂTIMENTS a échoué, on n'affiche JAMAIS « 0 bâtiment »
         //   (panne déguisée en donnée) → état d'échec explicite invitant à recharger.
         if (j.indisponibles?.includes('batiments')) { setEtat('erreur'); setMessage('Bâtiments indisponibles : rechargez.'); return; }
-        setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setAngle(0); setDebordement(null);
+        setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setStatutsLignes(j.statutsPolygones ?? []); setRecouverts(j.polygonesRecouverts ?? []); setAngle(0); setDebordement(null);
         // PROJ-3e — on ouvre DIRECTEMENT sur le 1er plan de la bande (le mieux classé) ; à défaut de plan proposé, la 1re pièce.
         const b = construireBandePlans(j.pieces);
         setNav('bestof'); setPlanIndex(0);
@@ -433,6 +436,20 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
     } catch { setMessage('sélection impossible'); }
   }, [dossierId]);
 
+  // RATT-1 (2) — statut COURANT par cleabs (dérivé du registre append-only). Pur, dérivé de l'état.
+  const statutParCleabs = useMemo(() => statutCourantParCleabs(statutsLignes), [statutsLignes]);
+  // RATT-1 (2) — STATUER un polygone existant (préservé / détruit / révoquer). La réponse serveur (registre à jour) fait foi.
+  const statuerPolygone = useCallback(async (cleabs: string, statut: 'preserve' | 'detruit' | 'revoque') => {
+    setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'statuer_polygone', dossierId, cleabs, statut }) });
+      const j = await res.json() as { ok?: boolean; erreur?: string; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: string[] };
+      if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'statut impossible'); return; }
+      if (j.statutsPolygones) setStatutsLignes(j.statutsPolygones);
+      if (j.polygonesRecouverts) setRecouverts(j.polygonesRecouverts);
+    } catch { setMessage('statut impossible'); }
+  }, [dossierId]);
+
   // Overlay : positions CSS des points plan / sommets (lit `apercu` en state).
   const versCss = (p: PointPlan): { x: number; y: number } | null => {
     if (!apercu) return null;
@@ -546,6 +563,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             {/* Options de visibilité + sélection des polygones « en projet ». */}
             <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
             <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
+            <StatutPolygonesExistants polygones={polygonesReperes} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
 
             {/* PROJ-3r — TROISIÈME issue, DANS l'encart « en projet » : affecter chaque groupe à un bâtiment déclaré + adopter (scinder/fusionner). */}
             <AdoptionGroupes groupes={groupesAdoption} batiments={batiments} reperes={reperesParCleabs} affectation={affectation} scindes={scindes} occupe={occupe}
@@ -648,6 +666,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 240 }}>
                 <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
                 <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
+            <StatutPolygonesExistants polygones={polygonesReperes} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
               </div>
             </div>
           </div>

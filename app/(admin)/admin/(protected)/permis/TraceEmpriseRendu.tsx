@@ -6,6 +6,7 @@ import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, Provenance
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
+import { estStatuable, type EtatStatutPolygone } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) : statut décidé d'un polygone existant
 import { repereDepuisIndex } from '../../../../lib/permis/affectationSchema';
 
 /** PROJ-3g — libellé lisible d'une famille (le MOT porte l'info, jamais la couleur seule). PUR. */
@@ -660,6 +661,66 @@ export function SelectionPolygonesProjet({ polygones, ecartes, onToggle }: {
             <input type="checkbox" checked={retenu} onChange={(e) => onToggle(p.cleabs!, !e.target.checked)} />
             <span>Polygone <strong>{p.repere}</strong>{retenu ? '' : ' — écarté'}</span>
           </label>
+        );
+      })}
+    </div>
+  );
+}
+
+/** RATT-1 (2) — libellé lisible d'un statut décidé. */
+function libelleStatut(s: 'preserve' | 'detruit'): string { return s === 'preserve' ? 'bâtiment préservé' : 'bâtiment détruit (prévision)'; }
+/** RATT-1 (2) — « JJ/MM/AAAA » depuis un ISO (trace de décision). */
+function jjmmaaaaStatut(iso: string): string { const d = iso.slice(0, 10); return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`; }
+
+/**
+ * RATT-1 (2) — STATUER les polygones EXISTANTS du site (ni « en projet », ni recouverts par l'emprise projetée). Pour chacun :
+ * l'état BD TOPO (SOURCE, jamais réécrite) ET ma décision (préservé/détruit) affichés CÔTE À CÔTE ; boutons pour poser/changer/
+ * révoquer (append-only) ; « détruit » est signalé comme une PRÉVISION à confirmer à la mise à jour cadastrale ; l'historique de mes
+ * décisions est repliable (qui/quand). Disponible même « en attente du bâti » (ces statuts portent sur l'existant). PUR (l'état vit
+ * dans la Vue). Mobile-first, pas de hover.
+ */
+export function StatutPolygonesExistants({ polygones, recouverts, statuts, onStatuer }: {
+  polygones: PolygoneRepere[]; recouverts: readonly string[]; statuts: Map<string, EtatStatutPolygone>;
+  onStatuer: (cleabs: string, statut: 'preserve' | 'detruit' | 'revoque') => void;
+}) {
+  const statuables = polygones.filter((p) => estStatuable(p, recouverts));
+  if (statuables.length === 0) return null;
+  const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.2rem .55rem', fontSize: 12 };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .5rem' }}>
+      <div style={{ fontSize: 12, fontWeight: 700 }}>Bâtiments existants du site</div>
+      <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Ni « en projet », ni recouverts par le futur bâtiment. Statuez chacun : la source BD TOPO reste affichée à côté de votre décision (jamais écrasée). « Détruit » est une PRÉVISION, à confirmer le jour de la mise à jour cadastrale.</div>
+      {statuables.map((p) => {
+        const st = statuts.get(p.cleabs!);
+        const decide = st?.statut ?? null;
+        return (
+          <div key={p.cleabs} style={{ ...carte, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+            <div style={{ fontSize: 12 }}>
+              <strong>Polygone {p.repere}</strong> <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', userSelect: 'all', fontSize: 11, color: 'var(--color-svv-muted)', wordBreak: 'break-all' }}>{p.cleabs}</span>
+            </div>
+            {/* SOURCE et DÉCISION côte à côte — jamais l'une à la place de l'autre. */}
+            <div style={{ fontSize: 12, display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+              <span><span style={{ color: 'var(--color-svv-muted)' }}>BD TOPO :</span> <strong>{p.etat ?? 'inconnu'}</strong></span>
+              <span><span style={{ color: 'var(--color-svv-muted)' }}>votre décision :</span> <strong>{decide ? libelleStatut(decide) : <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>aucune</span>}</strong></span>
+            </div>
+            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+              <button type="button" style={{ ...btn, fontWeight: decide === 'preserve' ? 700 : 400, borderColor: decide === 'preserve' ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }} aria-pressed={decide === 'preserve'} onClick={() => onStatuer(p.cleabs!, 'preserve')}>bâtiment préservé</button>
+              <button type="button" style={{ ...btn, fontWeight: decide === 'detruit' ? 700 : 400, borderColor: decide === 'detruit' ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }} aria-pressed={decide === 'detruit'} onClick={() => onStatuer(p.cleabs!, 'detruit')}>bâtiment détruit</button>
+              {decide && <button type="button" style={btn} onClick={() => onStatuer(p.cleabs!, 'revoque')}>annuler ma décision</button>}
+            </div>
+            {decide === 'detruit' && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-ink)', background: '#fff8f8', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.2rem .4rem' }}>Prévision : effacé de la PROJECTION de la future parcelle (jamais de BD TOPO). Sera confirmé ou infirmé à la mise à jour de la planche cadastrale.</span>}
+            {decide === 'preserve' && st?.etatBdtopoAuMoment && st.etatBdtopoAuMoment !== p.etat && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>BD TOPO disait « {st.etatBdtopoAuMoment} » au moment de votre décision — votre « préservé » prime, la source reste lisible.</span>}
+            {st && st.historique.length > 0 && (
+              <details style={{ fontSize: 11 }}>
+                <summary style={{ cursor: 'pointer', color: 'var(--color-svv-muted)' }}>historique de mes décisions ({st.historique.length})</summary>
+                <ul style={{ margin: '.15rem 0 0', paddingLeft: '1rem', color: 'var(--color-svv-muted)' }}>
+                  {st.historique.map((h, i) => (
+                    <li key={`${h.decideLe}-${i}`}>{h.statut === 'revoque' ? 'annulation' : libelleStatut(h.statut)}{h.decidePar ? ` · ${h.decidePar}` : ''} · {jjmmaaaaStatut(h.decideLe)}{h.etatBdtopoAuMoment ? ` (BD TOPO : ${h.etatBdtopoAuMoment})` : ''}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
         );
       })}
     </div>

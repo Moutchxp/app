@@ -49,11 +49,17 @@ vi.mock('../../../../../lib/permis/lectureGed', () => ({
     extraire: HG.extraire,
   }),
 }));
+vi.mock('../../../../../lib/permis/polygoneStatutRepo', () => ({
+  lireStatutsPolygones: vi.fn(async () => [{ cleabs: 'BAT_A', statut: 'preserve', etatBdtopoAuMoment: 'En projet', decidePar: 'admin:projection', decideLe: '2026-08-01T10:00:00Z' }]),
+  polygonesRecouvertsParEmprise: vi.fn(async () => []),
+  poserStatutPolygone: vi.fn(async () => ({ ok: true })),
+}));
 vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({ lireCleTelechargeable: vi.fn(async () => ({ cle: 'ged/dossier/55.pdf', nomFichier: 'PC2.pdf' })) }));
 vi.mock('../../../../../lib/stockage', () => ({ urlSignee: async (cle: string) => `https://signed.example/${cle}` }));
 
 import { GET, POST } from './route';
 import { enregistrerEmprise, supprimerEmprise, ignorerProjection, retablirProjection, listerBatiments } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { poserStatutPolygone } from '../../../../../lib/permis/polygoneStatutRepo';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
 
 const get = (q: string) => GET(new Request(`http://test.local/api/admin/permis/emprise${q}`));
@@ -342,5 +348,28 @@ describe('PROJ-3s — retoucher une emprise via la route', () => {
     const res = await post({ action: 'retoucher', dossierId: 11434, id: 9, anneau });
     expect(res.status).toBe(400);
     expect((await res.json()).erreur).toMatch(/bords se croisent/);
+  });
+});
+
+describe('RATT-1 (2) — POST statuer_polygone (préservé / détruit / révoquer)', () => {
+  it('cleabs + statut valide → 200, poserStatutPolygone appelé, registre renvoyé', async () => {
+    const res = await post({ action: 'statuer_polygone', dossierId: 531, cleabs: 'BAT_A', statut: 'preserve' });
+    expect(res.status).toBe(200);
+    expect(poserStatutPolygone).toHaveBeenCalledWith(531, 'BAT_A', 'preserve', 'admin:projection');
+    const j = await res.json();
+    expect(j.statutsPolygones[0]).toMatchObject({ cleabs: 'BAT_A', statut: 'preserve', etatBdtopoAuMoment: 'En projet' }); // source conservée à côté
+  });
+  it('révoquer est un statut valide', async () => {
+    const res = await post({ action: 'statuer_polygone', dossierId: 531, cleabs: 'BAT_A', statut: 'revoque' });
+    expect(res.status).toBe(200);
+    expect(poserStatutPolygone).toHaveBeenCalledWith(531, 'BAT_A', 'revoque', 'admin:projection');
+  });
+  it('statut hors liste → 400, aucune écriture', async () => {
+    const res = await post({ action: 'statuer_polygone', dossierId: 531, cleabs: 'BAT_A', statut: 'demoli' });
+    expect(res.status).toBe(400);
+    expect(poserStatutPolygone).not.toHaveBeenCalled();
+  });
+  it('cleabs vide → 400', async () => {
+    expect((await post({ action: 'statuer_polygone', dossierId: 531, cleabs: '', statut: 'preserve' })).status).toBe(400);
   });
 });
