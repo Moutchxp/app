@@ -579,6 +579,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe || !tracable || !sim || sommets.length < 3} onClick={() => void enregistrer()}>
               Enregistrer l’emprise de {batSel.repere ?? `bâtiment ${batSel.corpsId}`}
             </button>
+            {/* BUG PROV — le RÉSULTAT de l'enregistrement (succès OU erreur serveur) s'affiche ICI, au point d'action : un bouton MUET
+                (message rendu hors de vue) était le pire cas. Toute erreur est désormais dite en clair, à côté du bouton. */}
+            {message && <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-svv-red)' }}>{message}</div>}
 
             {/* Emprises de CE bâtiment : retoucher (mono-polygone) ou effacer. */}
             <ListeEmprises emprises={empriseDuBat} empriseEnRetouche={retouche?.id ?? null}
@@ -624,7 +627,6 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
           </div>
         </div>
       )}
-      {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
 
       {/* PROJ-3i ② — PLEIN ÉCRAN : schéma agrandi + TOUS les filtres + la sélection + la légende, cliquables. Fermeture : clic hors zone,
           bouton ×, ou touche Échap. Pas de transition → rien à neutraliser pour prefers-reduced-motion. */}

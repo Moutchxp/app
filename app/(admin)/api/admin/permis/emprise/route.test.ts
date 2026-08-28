@@ -184,6 +184,27 @@ describe('PROJ-2 — POST enregistrer : géométrie recalculée SERVEUR (plan �
     expect(enregistrerEmprise).toHaveBeenCalled();
   });
 
+  it('BUG PROV — un PLAN DE MASSE à NOM OPAQUE (familleDeNom null) est TRAÇABLE par son CONTENU (fix : la garde suivait le NOM et rejetait à tort)', async () => {
+    vi.mocked(lireCleTelechargeable).mockResolvedValueOnce({ cle: 'ged/dossier/o.pdf', nomFichier: 'PC 075 120 25 V0006_202508010945120206.pdf' } as Awaited<ReturnType<typeof lireCleTelechargeable>>);
+    HG.extraire.mockResolvedValueOnce({ ok: true, pages: ['1/100 N PROJET Cour commune S = 123.40m² 98.95 102.37'] }); // titre graphique, mais vocabulaire de site → masse
+    const res = await post({ action: 'enregistrer', dossierId: 531, corpsId: 4, libelle: 'bâtiment 4', pieceId: 120, page: 1,
+      paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }],
+      anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] });
+    expect(res.status).toBe(200);
+    expect(enregistrerEmprise).toHaveBeenCalled();
+  });
+
+  it('BUG PROV — un nom OPAQUE dont le CONTENU n’est PAS un plan (notice) reste refusé 400', async () => {
+    vi.mocked(lireCleTelechargeable).mockResolvedValueOnce({ cle: 'ged/dossier/n.pdf', nomFichier: 'PC 075 120 25 V0006_202508010945999999.pdf' } as Awaited<ReturnType<typeof lireCleTelechargeable>>);
+    HG.extraire.mockResolvedValueOnce({ ok: true, pages: ['Notice de sécurité — article 5 circulations intérieures'] }); // aucun signal de plan
+    const res = await post({ action: 'enregistrer', dossierId: 531, corpsId: 4, libelle: 'bâtiment 4', pieceId: 121, page: 1,
+      paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }],
+      anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] });
+    expect(res.status).toBe(400);
+    expect((await res.json()).erreur).toMatch(/vue en plan/);
+    expect(enregistrerEmprise).not.toHaveBeenCalled();
+  });
+
   it('contour < 3 sommets → 400, aucun enregistrement', async () => {
     const res = await post({ action: 'enregistrer', dossierId: 11434, corpsId: 3, libelle: 'X', anneauPlan: [{ x: 0, y: 0 }, { x: 1, y: 1 }], paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 1, y: 0 } }] });
     expect(res.status).toBe(400);

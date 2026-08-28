@@ -209,12 +209,24 @@ export async function POST(request: Request): Promise<Response> {
       if (!Number.isInteger(body.pieceId)) return Response.json({ erreur: 'une pièce (vue en plan) est requise pour tracer une emprise' }, { status: 400 });
       const pieceTrace = await lireCleTelechargeable(body.pieceId as number, 'dossier');
       if (!pieceTrace) return Response.json({ erreur: 'pièce introuvable' }, { status: 400 });
-      const famPiece = familleDeNom(pieceTrace.nomFichier);
-      let tracablePage = famPiece === 'masse' || famPiece === 'etage';
-      if (famPiece === 'coupe') {
-        const page = Number.isInteger(body.page) && (body.page as number) > 0 ? (body.page as number) : 1;
-        try { const ex = await depsReellesLectureGed().extraire(await depsReellesLectureGed().lireObjet(pieceTrace.cle), 'application/pdf'); tracablePage = ex.ok && tracabilitePlanche('coupe', ex.pages[page - 1] ?? '').tracable; }
-        catch { tracablePage = false; }
+      // 🔴 BUG PROV — la garde re-classait la pièce par son NOM (familleDeNom). Sur les versements à NOMS OPAQUES (ex. 531),
+      //   familleDeNom rend null → un PLAN DE MASSE (reconnu par le best-of via son CONTENU, PROV-2 a / PROV-3.1) était REJETÉ 400.
+      //   La garde doit donc suivre la MÊME reconnaissance que le best-of : nom d'abord, sinon CONTENU (page-aware pour la coupe).
+      const famNom = familleDeNom(pieceTrace.nomFichier);
+      const page = Number.isInteger(body.page) && (body.page as number) > 0 ? (body.page as number) : 1;
+      let tracablePage: boolean;
+      if (famNom === 'masse' || famNom === 'etage') tracablePage = true;
+      else {
+        // coupe (par le nom) OU nom opaque (famNom null) → on OUVRE la pièce : classement par CONTENU, puis traçabilité par page.
+        try {
+          const ex = await depsReellesLectureGed().extraire(await depsReellesLectureGed().lireObjet(pieceTrace.cle), 'application/pdf');
+          if (!ex.ok) tracablePage = false;
+          else if (famNom === 'coupe') tracablePage = tracabilitePlanche('coupe', ex.pages[page - 1] ?? '').tracable;
+          else {
+            const fc = familleDeContenu(ex.pages); // nom opaque → famille par le CONTENU (masse/étage traçables ; coupe → par page ; cerfa → non)
+            tracablePage = fc === 'masse' || fc === 'etage' || (fc === 'coupe' && tracabilitePlanche('coupe', ex.pages[page - 1] ?? '').tracable);
+          }
+        } catch { tracablePage = false; }
       }
       if (!tracablePage) return Response.json({ erreur: 'une emprise se trace sur une vue en plan (plan de masse, plan d’étage), jamais sur une coupe ou une façade (vue en élévation)' }, { status: 400 });
       // 🔴 GÉOMÉTRIE AUTORITATIVE SERVEUR : la similitude est recalculée ici sur les paires de calage, jamais reçue du client.
