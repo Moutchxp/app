@@ -49,12 +49,16 @@ describe('ETAN-1 — étanchéité verdict réel ↔ projeté/décidé (les 3 zo
     expect(corps, msg).not.toMatch(/permis_polygone_statut|permis_emprise_reconstruite|permis_empreinte/); // aucune table de décision
   });
 
-  it('GARDE 2 — le MOTEUR (app/lib/db, app/lib/svv) ne référence AUCUNE table de décision permis', () => {
+  it('GARDE 2 — le MOTEUR (app/lib/db, app/lib/svv) ne référence AUCUNE table de décision ni d’altitude injectée', () => {
     const sources = [...sourcesProduction(path.join(RACINE, 'app/lib/db')), ...sourcesProduction(path.join(RACINE, 'app/lib/svv'))];
     expect(sources.length, 'aucune source moteur trouvée (chemin ?)').toBeGreaterThan(0);
-    const interdit = /permis_polygone_statut|permis_emprise_reconstruite|permis_empreinte/;
-    const fautifs = sources.filter((s) => interdit.test(s.contenu)).map((s) => s.chemin);
-    expect(fautifs, `🔴 le verdict se calcule sur le bâti RÉEL mesuré, jamais sur une reconstitution ou une décision — référence trouvée dans : ${fautifs.join(', ')}`).toEqual([]);
+    const refs = (re: RegExp) => sources.filter((s) => re.test(s.contenu)).map((s) => s.chemin);
+    // (a) tables de DÉCISION (projeté/décidé).
+    const decision = refs(/permis_polygone_statut|permis_emprise_reconstruite|permis_empreinte/);
+    expect(decision, `🔴 le verdict se calcule sur le bâti RÉEL mesuré, jamais sur une reconstitution ou une décision — référence trouvée dans : ${decision.join(', ')}`).toEqual([]);
+    // (b) ETAN-2 — tables d'ALTITUDE INJECTÉE : le moteur ne les lit pas ; ce n'était vrai que par convention, ici c'est figé.
+    const altitude = refs(/permis_polygone_altitude|permis_altitude_journal/);
+    expect(altitude, `🔴 le verdict certifié se calcule sur le LiDAR d'origine et le bâti réellement mesuré ; une altitude injectée depuis un permis n'y entre pas tant que le branchement conditionnel n'a pas été conçu et gardé — référence trouvée dans : ${altitude.join(', ')}`).toEqual([]);
   });
 
   it('GARDE 3 — AUCUNE écriture dans batiment (BD TOPO) depuis le module permis (app/lib/permis, app/scripts)', () => {

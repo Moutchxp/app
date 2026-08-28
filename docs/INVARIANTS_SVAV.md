@@ -224,9 +224,18 @@ elles rougissent au CI si l'étanchéité se rompt :
   **projection pure** : ni `WHERE`, ni `JOIN`, ni référence à `permis_polygone_statut` /
   `permis_emprise_reconstruite` / `permis_empreinte`.
 - **Garde 2** — le **moteur** (`app/lib/db/**`, `app/lib/svv/**`) ne référence **aucune** de ces trois
-  tables de décision.
+  tables de décision, **ni** les deux tables d'**altitude injectée** `permis_polygone_altitude` /
+  `permis_altitude_journal` (ETAN-2) : l'altitude qu'on injecte depuis un permis n'entre pas dans le
+  verdict.
 - **Garde 3** — **aucune écriture** dans `batiment` (INSERT/UPDATE/DELETE/ALTER/TRUNCATE) depuis
   `app/lib/permis/**` ni `app/scripts/**` : la donnée source BD TOPO n'est jamais écrasée par l'interface.
+
+⚠️ **Le branchement injection→verdict reste À CONCEVOIR.** Aujourd'hui une altitude injectée est écrite
+(`permis_polygone_altitude` + registre `permis_altitude_journal`) mais **sans aucun effet sur le verdict**
+(le moteur lit le LiDAR d'origine et l'altitude BD TOPO, jamais l'injectée). Le jour où on le branchera, il
+devra porter ses **propres conditions** : le polygone doit être **publié par BD TOPO** (et non seulement
+projeté) **ET** le rattachement **validé** — conditions à coder et à garder, faute de quoi la Garde 2 devra
+être desserrée en connaissance de cause.
 
 ---
 
