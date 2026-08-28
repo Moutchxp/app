@@ -701,13 +701,13 @@ export function StatutPolygonesExistants({ polygones, recouverts, statuts, onSta
             <div style={{ fontSize: 12 }}>
               <strong>Polygone {p.repere}</strong> <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', userSelect: 'all', fontSize: 11, color: 'var(--color-svv-muted)', wordBreak: 'break-all' }}>{p.cleabs}</span>
             </div>
-            {/* RATT-2 — bâtiment recouvert par l'emprise projetée : « détruit » posé d'office, basculable. Mention explicite. */}
-            {recouvert && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-ink)', background: '#fff8f8', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.2rem .4rem' }}>recouvert par l’emprise projetée — statut détruit par défaut</span>}
             {/* SOURCE et DÉCISION côte à côte — jamais l'une à la place de l'autre. */}
             <div style={{ fontSize: 12, display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
               <span><span style={{ color: 'var(--color-svv-muted)' }}>BD TOPO :</span> <strong>{p.etat ?? 'inconnu'}</strong></span>
               <span><span style={{ color: 'var(--color-svv-muted)' }}>votre décision :</span> <strong>{decide ? libelleStatut(decide) : <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>aucune</span>}</strong></span>
             </div>
+            {/* RATT-2 — bâtiment recouvert par l'emprise projetée : « détruit » posé d'office, basculable. Mention en ROUGE, gras, juste sous BD TOPO/décision : c'est l'information qui explique un statut posé sans clic. */}
+            {recouvert && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 700 }}>recouvert par l’emprise projetée — statut détruit par défaut</span>}
             <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
               <button type="button" style={{ ...btn, fontWeight: decide === 'preserve' ? 700 : 400, borderColor: decide === 'preserve' ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }} aria-pressed={decide === 'preserve'} onClick={() => onStatuer(p.cleabs!, 'preserve')}>bâtiment préservé</button>
               <button type="button" style={{ ...btn, fontWeight: decide === 'detruit' ? 700 : 400, borderColor: decide === 'detruit' ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }} aria-pressed={decide === 'detruit'} onClick={() => onStatuer(p.cleabs!, 'detruit')}>bâtiment détruit</button>
