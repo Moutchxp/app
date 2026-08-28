@@ -10,6 +10,7 @@ function entree(over: Partial<EntreeAlerte> = {}): EntreeAlerte {
     releveFraiche: true,
     releveDetail: 'dernière relève réussie il y a 10 minutes',
     reponsesRattachees: [],
+    accusesRecus: [],
     nbAReattacher: 0,
     rebondsAppliques: [],
     demandesEcheance: [],
@@ -50,6 +51,28 @@ describe('R8 — composerAlerte', () => {
     expect(r!.corps).toContain('SVAV-DEM-2026-000003');
     expect(r!.corps).toContain('PC0920442500011');
     expect(r!.corps).toContain('2 pièce');
+  });
+
+  it('J1 DEFAUT 2 — un ACCUSÉ est annoncé « accusé de réception », JAMAIS « réponse », et compté À PART dans le sujet', () => {
+    const r = composerAlerte(entree({ accusesRecus: [{ reference: 'SVAV-DEM-2026-000160', communeNom: 'Paris' }] }));
+    expect(r).not.toBeNull();
+    expect(r!.corps).toContain('Accusés de réception reçus');
+    expect(r!.corps).toContain('SVAV-DEM-2026-000160');
+    expect(r!.corps).toContain('la mairie a écrit, pas encore répondu');
+    expect(r!.corps).not.toContain('Réponses reçues et rattachées'); // jamais présenté comme une réponse (T3)
+    expect(r!.sujet).toContain('1 accusé(s)');
+    expect(r!.sujet).not.toContain('réponse(s)'); // le sujet ne fond JAMAIS un accusé dans « réponse(s) »
+  });
+
+  it('J1 DEFAUT 2 — une réponse RÉELLE et un accusé coexistent : chacun dans SA rubrique et son décompte', () => {
+    const r = composerAlerte(entree({
+      reponsesRattachees: [{ reference: 'SVAV-DEM-2026-000003', communeNom: 'Levallois', nbPieces: 1, dossiersSatisfaits: [] }],
+      accusesRecus: [{ reference: 'SVAV-DEM-2026-000160', communeNom: 'Paris' }],
+    }));
+    expect(r!.corps).toContain('Réponses reçues et rattachées depuis la dernière alerte (1)');
+    expect(r!.corps).toContain('Accusés de réception reçus depuis la dernière alerte (1)');
+    expect(r!.sujet).toContain('1 réponse(s)');
+    expect(r!.sujet).toContain('1 accusé(s)');
   });
 
   it('relève INDÉTERMINÉE → le corps ne DÉCLARE jamais un silence non vérifié', () => {

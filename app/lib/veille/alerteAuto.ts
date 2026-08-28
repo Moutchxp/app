@@ -95,8 +95,8 @@ export async function chargerEntreeAlerte(maintenant: Date = new Date()): Promis
     ? 'aucune relève réussie à ce jour'
     : `dernière relève réussie il y a ${dureeRelative(maintenant.getTime() - derniereReleveOk.getTime())}`;
 
-  const rep = await query<{ reference: string; commune_nom: string | null; nb_pieces: number; dossiers: string[] }>(
-    `SELECT d.reference, c.nom AS commune_nom,
+  const rep = await query<{ reference: string; commune_nom: string | null; nb_pieces: number; dossiers: string[]; nature: string }>(
+    `SELECT d.reference, c.nom AS commune_nom, r.nature,
             (SELECT count(*)::int FROM demande_reponse_piece p WHERE p.reponse_id = r.id) AS nb_pieces,
             coalesce(array_agg(s.num_dau) FILTER (WHERE s.num_dau IS NOT NULL), '{}') AS dossiers
        FROM demande_reponse r
@@ -105,10 +105,18 @@ export async function chargerEntreeAlerte(maintenant: Date = new Date()): Promis
        LEFT JOIN demande_dossier dd ON dd.reponse_id = r.id
        LEFT JOIN sitadel_dossier s ON s.id = dd.dossier_id
       WHERE r.demande_id IS NOT NULL AND r.cree_le > $1
-      GROUP BY r.id, d.reference, c.nom
+      GROUP BY r.id, d.reference, c.nom, r.nature
       ORDER BY d.reference`,
     [depuis]);
-  const reponsesRattachees = rep.rows.map((r) => ({ reference: r.reference, communeNom: r.commune_nom, nbPieces: r.nb_pieces, dossiersSatisfaits: r.dossiers }));
+  // J1 DEFAUT 2 — T3 : « la mairie a RÉPONDU » ≠ « la mairie a ÉCRIT ». On réutilise la MÊME définition que l'écran
+  //   (nb_reponses_reelles = nature NOT IN ('accuse','rebond')) : un ACCUSÉ est listé À PART (il n'entre pas dans « Réponses »),
+  //   un rebond (nature 'rebond') n'est pas une réponse (déjà signalé via rebondsAppliques). AUCUN filtre de process (garde axe-F).
+  const reponsesRattachees = rep.rows
+    .filter((r) => r.nature !== 'accuse' && r.nature !== 'rebond')
+    .map((r) => ({ reference: r.reference, communeNom: r.commune_nom, nbPieces: r.nb_pieces, dossiersSatisfaits: r.dossiers }));
+  const accusesRecus = rep.rows
+    .filter((r) => r.nature === 'accuse')
+    .map((r) => ({ reference: r.reference, communeNom: r.commune_nom }));
 
   const ar = await query<{ n: number }>(`SELECT count(*)::int AS n FROM demande_reponse WHERE demande_id IS NULL AND cree_le > $1`, [depuis]);
   const nbAReattacher = ar.rows[0]?.n ?? 0;
@@ -159,7 +167,7 @@ export async function chargerEntreeAlerte(maintenant: Date = new Date()): Promis
       ORDER BY rl.generee_le DESC`, [depuis]);
   const relancesPreparees = rel.rows.map((r) => ({ reference: r.reference, communeNom: r.commune_nom }));
 
-  return { releveFraiche, releveDetail, reponsesRattachees, nbAReattacher, rebondsAppliques, demandesEcheance, relancesPreparees };
+  return { releveFraiche, releveDetail, reponsesRattachees, accusesRecus, nbAReattacher, rebondsAppliques, demandesEcheance, relancesPreparees };
 }
 
 /** Envoi RÉEL du récapitulatif via le compte SMTP par défaut (from = MAIL_FROM). Import dynamique : garde nodemailer hors du graphe statique. */

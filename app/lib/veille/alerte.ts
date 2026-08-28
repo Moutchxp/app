@@ -18,6 +18,11 @@ export interface RebondAlerteInfo {
   communeNom: string | null;
   motif: string | null;
 }
+/** J1 DEFAUT 2 — T3 : un ACCUSÉ (« la mairie a écrit ») n'est PAS une réponse (« la mairie a répondu ») → annoncé À PART, jamais compté « réponse ». */
+export interface AccuseAlerteInfo {
+  reference: string;
+  communeNom: string | null;
+}
 export interface DemandeEcheanceAlerte {
   reference: string;
   communeNom: string | null;
@@ -32,7 +37,8 @@ export interface RelanceAlerteInfo {
 export interface EntreeAlerte {
   releveFraiche: boolean;
   releveDetail: string;                       // ex. « dernière relève réussie il y a 12 minutes » / « aucune relève réussie à ce jour »
-  reponsesRattachees: ReponseRattacheeAlerte[]; // depuis la borne (dernière alerte envoyée)
+  reponsesRattachees: ReponseRattacheeAlerte[]; // depuis la borne — RÉELLES seulement (nature NOT IN accuse/rebond), T3
+  accusesRecus: AccuseAlerteInfo[];           // J1 DEFAUT 2 : accusés de réception rattachés depuis la borne (« a écrit », pas « a répondu »)
   nbAReattacher: number;                      // nouvelles réponses non rattachées depuis la borne
   rebondsAppliques: RebondAlerteInfo[];       // demandes non parvenues (rebond) depuis la borne
   demandesEcheance: DemandeEcheanceAlerte[];  // passées à proche/dépassée depuis la borne
@@ -48,7 +54,7 @@ function commune(nom: string | null): string {
  * rattachées → réponses à rattacher → rebonds appliqués (problème d'acheminement, pas un silence) → échéances → relances.
  */
 export function composerAlerte(e: EntreeAlerte): { sujet: string; corps: string } | null {
-  const duNouveau = e.reponsesRattachees.length > 0 || e.nbAReattacher > 0 || e.rebondsAppliques.length > 0
+  const duNouveau = e.reponsesRattachees.length > 0 || e.accusesRecus.length > 0 || e.nbAReattacher > 0 || e.rebondsAppliques.length > 0
     || e.demandesEcheance.length > 0 || e.relancesPreparees.length > 0;
   // Rien à dire = relève fraîche ET aucun changement. Une relève NON fraîche est en soi quelque chose à signaler.
   if (e.releveFraiche && !duNouveau) return null;
@@ -69,6 +75,14 @@ export function composerAlerte(e: EntreeAlerte): { sujet: string; corps: string 
       const dos = r.dossiersSatisfaits.length > 0 ? `dossiers obtenus : ${r.dossiersSatisfaits.join(', ')}` : 'aucun dossier reconnu automatiquement';
       lignes.push(`  · ${r.reference}${commune(r.communeNom)} — ${r.nbPieces} pièce(s) jointe(s) — ${dos}`);
     }
+    lignes.push('');
+  }
+
+  // 2bis) J1 DEFAUT 2 — ACCUSÉS de réception (T3 : « la mairie a écrit », PAS « a répondu »). Distincts des réponses : un accusé
+  //   ne fait pas entrer la demande dans « Réponses » et ne livre aucun document. On le DIT, sans jamais l'appeler « réponse ».
+  if (e.accusesRecus.length > 0) {
+    lignes.push(`Accusés de réception reçus depuis la dernière alerte (${e.accusesRecus.length}) — la mairie a écrit, pas encore répondu :`);
+    for (const a of e.accusesRecus) lignes.push(`  · ${a.reference}${commune(a.communeNom)}`);
     lignes.push('');
   }
 
@@ -106,6 +120,7 @@ export function composerAlerte(e: EntreeAlerte): { sujet: string; corps: string 
   const resume: string[] = [];
   if (e.rebondsAppliques.length > 0) resume.push(`${e.rebondsAppliques.length} rebond(s)`);
   if (e.reponsesRattachees.length > 0) resume.push(`${e.reponsesRattachees.length} réponse(s)`);
+  if (e.accusesRecus.length > 0) resume.push(`${e.accusesRecus.length} accusé(s)`); // J1 DEFAUT 2 : jamais fondu dans « réponse(s) »
   if (e.demandesEcheance.length > 0) resume.push(`${e.demandesEcheance.length} échéance(s)`);
   if (!e.releveFraiche) resume.push('relève à vérifier');
   const sujet = `Suivi des demandes CRPA — Sans Vis-à-Vis®${resume.length > 0 ? ` : ${resume.join(', ')}` : ''}`;
