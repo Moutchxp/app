@@ -10,7 +10,7 @@ import { estAccuseAutomatique, referenceCiteeDans, type MessageEntrant } from '.
 import { normaliserReference } from '../sitadel/demandesListe'; // FUS-4 ② : forme normalisée des références (alignée sur la cascade)
 
 export type ProfilBoite = 'entreprise' | 'personne';
-export type RattachementMethode = 'message_id' | 'reference_objet' | 'reference_corps' | 'numero_dossier' | 'reference_mairie' | 'manuel' | 'aucun';
+export type RattachementMethode = 'message_id' | 'reference_objet' | 'reference_corps' | 'numero_dossier' | 'reference_mairie' | 'reference_differee' | 'manuel' | 'aucun';
 /**
  * T3 — NATURE d'un message entrant (liste fermée, cf. migration 096). 'accuse' = accusé de réception automatique (« a écrit »,
  * jamais « a répondu ») ; 'rebond' = non-remise rattachée (preuve, NI « a écrit » NI « a répondu ») ; 'indetermine' (défaut du
@@ -381,6 +381,47 @@ export async function retenterRattachementParReference(demandeId: number, refere
     //   accusé. No-op si aucun message rattaché (ou aucun accusé). MÊME transaction que le rattachement.
     if (rattaches > 0) await reclamperEnvoyeLe(q, demandeId, auteur);
     return rattaches;
+  });
+}
+
+/**
+ * Lot C — ATTRIBUE une référence mairie extraite d'un accusé NON rattaché à UNE demande téléservice « en attente d'accusé », à
+ * HAUTE PRÉCISION et par ABSTENTION. Le verrou de commune (demande_depot_presume, resolu_le IS NULL) MATÉRIALISE l'ensemble des
+ * demandes en attente d'accusé (une seule VIVANTE par commune — index partiel) : les candidates sont ces présomptions vivantes
+ * DONT la commune (code_insee) figure dans `codesInsee` (les communes du domaine dérivé de l'expéditeur, calculées par la relève).
+ *   · référence DÉJÀ enregistrée quelque part → on ne fait RIEN (la cascade rung 2ter la rattacherait déjà) ;
+ *   · EXACTEMENT UNE candidate → on écrit la référence (source='accuse_reception') ; le TRIGGER (migration 163) lève le verrou ;
+ *   · 0 ou ≥ 2 candidates → on n'écrit RIEN (jamais au jugé) → le message reste « À rattacher », arbitrage humain.
+ * Le rattachement DIFFÉRÉ de l'accusé lui-même est fait PAR L'APPELANT (`retenterRattachementParReference`), APRÈS.
+ * ⚠️ Ne lit NI ne filtre AUCUN process (le canal 'formulaire' est un fait du téléservice, pas un filtre de surveillance).
+ */
+export async function attribuerReferenceAccuse(opts: { reference: string; codesInsee: string[]; auteur: string }): Promise<{ demandeId: number | null; motif: string }> {
+  const refN = normaliserReference(opts.reference);
+  if (refN.length < 6 || opts.codesInsee.length === 0) return { demandeId: null, motif: 'référence trop courte ou aucune commune sous ce domaine' };
+  return withTransaction(async (q) => {
+    // 1) Référence DÉJÀ connue quelque part (comparée en NORMALISÉ) → ne rien faire (la cascade la rattacherait via rung 2ter).
+    const deja = await q<{ reference: string }>(`SELECT reference FROM demande_reference_externe`);
+    if (deja.rows.some((r) => normaliserReference(r.reference) === refN)) return { demandeId: null, motif: 'référence déjà enregistrée' };
+    // 2) Candidates = présomptions VIVANTES (en attente d'accusé) des communes du domaine expéditeur, demande envoyée/formulaire SANS référence.
+    const cand = await q<{ demande_id: number }>(
+      `SELECT dp.demande_id::int AS demande_id
+         FROM demande_depot_presume dp
+         JOIN demande d ON d.id = dp.demande_id
+        WHERE dp.resolu_le IS NULL
+          AND d.statut = 'envoyee' AND d.dest_canal = 'formulaire'
+          AND dp.code_insee::text = ANY($1::text[])
+          AND NOT EXISTS (SELECT 1 FROM demande_reference_externe re WHERE re.demande_id = d.id)`,
+      [opts.codesInsee]);
+    if (cand.rows.length !== 1) {
+      return { demandeId: null, motif: cand.rows.length === 0 ? 'aucune demande en attente d’accusé sous ce domaine' : `ambigu : ${cand.rows.length} demandes en attente sous ce domaine` };
+    }
+    const cible = cand.rows[0].demande_id;
+    // 3) Écrire la référence (le TRIGGER de la migration 163 résout la présomption → verrou de commune levé). Idempotent.
+    await q(
+      `INSERT INTO demande_reference_externe (demande_id, reference, source, recu_le) VALUES ($1, $2, 'accuse_reception', now())
+       ON CONFLICT (demande_id, reference) DO NOTHING`,
+      [cible, opts.reference.trim()]);
+    return { demandeId: cible, motif: `référence attribuée à la demande ${cible} (unique en attente sous le domaine)` };
   });
 }
 

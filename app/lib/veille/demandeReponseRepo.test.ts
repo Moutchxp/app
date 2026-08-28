@@ -10,6 +10,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
   // T1 : `tous` pilote le bool_and de synchroniserTraiteeDemande ; `conflitActif` pilote la sonde de conflit du ré-attachement.
   const etat = { rows: [] as unknown[], rowCount: 1, conflit: false, tous: undefined as boolean | undefined, conflitActif: false, statutCible: undefined as string | undefined,
     refsExternes: [] as { demande_id: number; reference: string }[], candidats: [] as { id: number; objet: string | null; corps_texte: string | null }[], // FUS-4 ②
+    refsToutes: [] as { reference: string }[], presomptionCandidates: [] as { demande_id: number }[], // Lot C — attribuerReferenceAccuse (réfs connues + candidates)
     reclasseDemandeId: null as number | null }; // FUS : demande_id renvoyé par le RETURNING de reclasserNatureReponse (pilote le foyer)
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
@@ -29,6 +30,9 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
       // FUS-4 ② — retenterRattachementParReference : garde d'ambiguïté (réfs des demandes envoyées/closes) + candidats non rattachés.
       if (/FROM demande_reference_externe re JOIN demande/i.test(sql)) return { rows: etat.refsExternes, rowCount: etat.refsExternes.length };
       if (/objet, corps_texte FROM demande_reponse WHERE demande_id IS NULL/i.test(sql)) return { rows: etat.candidats, rowCount: etat.candidats.length };
+      // Lot C — attribuerReferenceAccuse : références DÉJÀ connues (dédoublonnage) + candidates (présomptions vivantes sous le domaine).
+      if (/SELECT reference FROM demande_reference_externe/i.test(sql)) return { rows: etat.refsToutes, rowCount: etat.refsToutes.length };
+      if (/FROM demande_depot_presume dp/i.test(sql)) return { rows: etat.presomptionCandidates, rowCount: etat.presomptionCandidates.length };
       // FUS — reclasserNatureReponse : UPDATE demande_reponse … RETURNING demande_id. rowCount pilote ok (comme avant) ; la ligne
       //   porte le demande_id (null par défaut = message non rattaché → le foyer n'est pas appelé).
       if (/UPDATE demande_reponse[\s\S]*RETURNING demande_id/i.test(sql)) return etat.rowCount > 0 ? { rows: [{ demande_id: etat.reclasseDemandeId }], rowCount: 1 } : { rows: [], rowCount: 0 };
@@ -52,7 +56,7 @@ import {
   marquerDossierSatisfait, marquerDossiersSatisfaitsAuto, demarquerDossier, statutDemande, lireClePiece,
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
   lireRecuLeReponse, RattachementNonEnvoyeeError,
-  classerNatureContenu, classerNature, parseMotifsAccuse, retenterRattachementParReference, estNatureReclassable, reclasserNatureReponse, reclasserNaturesPerimees, reclamperEnvoyeLe, marquerRepondu, annulerRepondu, marquerReponduAuto,
+  classerNatureContenu, classerNature, parseMotifsAccuse, retenterRattachementParReference, attribuerReferenceAccuse, estNatureReclassable, reclasserNatureReponse, reclasserNaturesPerimees, reclamperEnvoyeLe, marquerRepondu, annulerRepondu, marquerReponduAuto,
   type ReponseEntrante, type PieceAvecContenu,
 } from './demandeReponseRepo';
 import { estAccuseAutomatique, type MessageEntrant } from './rattachementReponse';
@@ -62,7 +66,7 @@ import type { ResultatDepotEntrant } from '../stockage';
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 const trouver = (fragment: RegExp) => appels.find((a) => fragment.test(a.sql));
 
-beforeEach(() => { appels.length = 0; etat.rows = []; etat.rowCount = 1; etat.conflit = false; etat.tous = undefined; etat.conflitActif = false; etat.statutCible = undefined; etat.refsExternes = []; etat.candidats = []; etat.reclasseDemandeId = null; });
+beforeEach(() => { appels.length = 0; etat.rows = []; etat.rowCount = 1; etat.conflit = false; etat.tous = undefined; etat.conflitActif = false; etat.statutCible = undefined; etat.refsExternes = []; etat.candidats = []; etat.refsToutes = []; etat.presomptionCandidates = []; etat.reclasseDemandeId = null; });
 
 describe('T1 — statuer un dossier ligne par ligne', () => {
   it('« non fourni » : triage=non_fourni, garde actif/non reçu/non trié, journalisé, reste dû (aucun satisfait_le posé)', async () => {
@@ -863,5 +867,49 @@ describe('FUS — le foyer est branché sur les 5 chemins qui attachent/reclasse
       const code = readFileSync(f, 'utf8');
       expect(code, `${f} doit appeler reclamperEnvoyeLe`).toContain('reclamperEnvoyeLe(');
     }
+  });
+});
+
+describe('Lot C — attribuerReferenceAccuse (attribution par ABSTENTION, jamais au jugé)', () => {
+  const OPT = { reference: 'SLC260828893279', codesInsee: ['75056'], auteur: 'systeme' };
+
+  it('EXACTEMENT UNE candidate en attente → écrit la référence (source=accuse_reception) et renvoie la cible', async () => {
+    etat.refsToutes = [];                                   // référence inconnue
+    etat.presomptionCandidates = [{ demande_id: 866 }];     // une seule présomption vivante sous le domaine
+    const r = await attribuerReferenceAccuse(OPT);
+    expect(r.demandeId).toBe(866);
+    const ins = appels.find((a) => /INSERT INTO demande_reference_externe/i.test(a.sql))!;
+    expect(ins, 'la référence doit être écrite').toBeDefined();
+    expect(ins.sql).toMatch(/'accuse_reception'/);
+    expect(ins.params).toEqual([866, 'SLC260828893279']);
+  });
+
+  it('DEUX candidates (ambigu) → n’écrit RIEN, renvoie null (motif « ambigu »)', async () => {
+    etat.presomptionCandidates = [{ demande_id: 866 }, { demande_id: 867 }];
+    const r = await attribuerReferenceAccuse(OPT);
+    expect(r.demandeId).toBeNull();
+    expect(r.motif).toMatch(/ambigu/i);
+    expect(appels.some((a) => /INSERT INTO demande_reference_externe/i.test(a.sql))).toBe(false);
+  });
+
+  it('AUCUNE candidate → n’écrit RIEN, renvoie null', async () => {
+    etat.presomptionCandidates = [];
+    const r = await attribuerReferenceAccuse(OPT);
+    expect(r.demandeId).toBeNull();
+    expect(appels.some((a) => /INSERT INTO demande_reference_externe/i.test(a.sql))).toBe(false);
+  });
+
+  it('référence DÉJÀ enregistrée ailleurs (comparée normalisée) → n’écrit RIEN (la cascade la rattacherait)', async () => {
+    etat.refsToutes = [{ reference: 'slc 260828893279' }];  // même réf en forme différente → normalisée = identique
+    etat.presomptionCandidates = [{ demande_id: 866 }];     // même s’il y a une candidate
+    const r = await attribuerReferenceAccuse(OPT);
+    expect(r.demandeId).toBeNull();
+    expect(r.motif).toMatch(/déjà enregistrée/i);
+    expect(appels.some((a) => /INSERT INTO demande_reference_externe/i.test(a.sql))).toBe(false);
+  });
+
+  it('référence trop courte OU aucune commune → abstention immédiate, aucune requête', async () => {
+    expect((await attribuerReferenceAccuse({ reference: 'AB1', codesInsee: ['75056'], auteur: 'systeme' })).demandeId).toBeNull();
+    expect((await attribuerReferenceAccuse({ reference: 'SLC260828893279', codesInsee: [], auteur: 'systeme' })).demandeId).toBeNull();
   });
 });

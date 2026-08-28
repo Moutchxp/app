@@ -14,7 +14,7 @@
  * ⚠️ N'écrit JAMAIS demande.statut ('close' reste sans écrivain, chantier R5). Boîte en LECTURE STRICTE (voir imap.ts).
  */
 import { query, withTransaction } from '../db/client';
-import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, classerNature, parseMotifsAccuse, reclamperEnvoyeLe, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
+import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsAuto, deposerEtLierPieces, classerNature, parseMotifsAccuse, reclamperEnvoyeLe, retenterRattachementParReference, attribuerReferenceAccuse, type ProfilBoite, type RattachementMethode, type NatureReponse, type ReponseEntrante } from './demandeReponseRepo';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { rattacherReponse, estRebondNonRemise, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
 import { normaliserNumeroDossier } from './satisfactionDossier'; // source UNIQUE de la normalisation d'un n° Sitadel (garde les lettres)
@@ -88,6 +88,7 @@ export interface RapportReleve {
   rebondsEtrangers: number;     // rebonds SANS rapport avec nos demandes → NON enregistrés
   rebondsAppliques: number;     // lignes d'acheminement passées à 'rebond' (0 en simulation)
   accuses: number;              // T3 : accusés de réception (nature 'accuse') RETENUS → « a écrit », jamais « a répondu »
+  referencesCaptees: number;    // Lot C : références mairie extraites d'un accusé et attribuées à UNE demande (0 en simulation)
   liensCaptes: number;          // L1 : liens candidats extraits et enregistrés (0 en simulation) — jamais suivis
   ecrites: number;
   piecesDeposees: number;       // R4 : pièces jointes réellement déposées sur l'object storage
@@ -156,6 +157,18 @@ export function domaineRacine(hote: string): string {
 const MOTIF_REFERENCE = /[A-Z]{2,6}\d{8,}/;
 function citeMotifReference(mb: MessageBoite): boolean {
   return MOTIF_REFERENCE.test(normaliserReference(`${mb.message.objet ?? ''}\n${mb.message.corpsTexte ?? ''}`));
+}
+/**
+ * Lot C — EXTRAIT la référence mairie (SLC…) d'un accusé, sur le TEXTE BRUT (casse et espaces conservés) : le motif est un TOKEN
+ * borné par des espaces/ponctuation, donc on ne veut PAS pré-normaliser (qui, en collant « référence » et « SLC », ferait déborder
+ * le préfixe alpha). OBJET D'ABORD (la référence y figure — cas réels ids 3 et 15), corps en repli. `null` si aucun motif. PUR.
+ * ⚠️ Générique (aucun préfixe codé en dur) : `MOTIF_REFERENCE` capte n'importe quelle mairie à téléservice, pas seulement Paris.
+ */
+export function extraireReferenceMairie(objet: string | null | undefined, corps: string | null | undefined): string | null {
+  const dansObjet = MOTIF_REFERENCE.exec(objet ?? '');
+  if (dansObjet) return dansObjet[0];
+  const dansCorps = MOTIF_REFERENCE.exec(corps ?? '');
+  return dansCorps ? dansCorps[0] : null;
 }
 function objetPertinent(objet: string | undefined): boolean {
   return objet ? normaliserObjet(objet).includes(FRAGMENT_OBJET) : false;
@@ -308,8 +321,11 @@ async function lireDomainesDestinataires(): Promise<Set<string>> {
  */
 // LOT 2 — sondes domaine DÉRIVÉ (communes sans dest_email : Paris…) : TOUS PROFILS, même règle. Le garde-fou de rétention
 //   (signal requis en plus du domaine) reste inchangé plus bas ; seul le périmètre profil est levé.
-async function lireDomainesDerives(): Promise<Set<string>> {
-  const { rows } = await query<{ url_formulaire: string | null; prada: string | null; dila: string | null }>(
+// Lot C — retourne la MAP domaine racine → code_insee des communes (les domaines dérivés SONT les clés). Sert à la RÉTENTION
+//   (l'ensemble des domaines = les clés) ET à l'ATTRIBUTION Lot C (retrouver le/les code_insee d'un domaine expéditeur). Une seule
+//   requête (aucune duplication) ; la dérivation lexicale (hoteDepuisSource/domaineRacine) reste EN UN SEUL endroit.
+async function lireCommunesDerivees(): Promise<Map<string, Set<string>>> {
+  const { rows } = await query<{ code_insee: string; url_formulaire: string | null; prada: string | null; dila: string | null }>(
     `SELECT DISTINCT d.code_insee,
             (SELECT mc.url_formulaire FROM mairie_contact mc
               WHERE mc.code_insee = d.code_insee AND mc.url_formulaire LIKE '%.%' LIMIT 1)                        AS url_formulaire,
@@ -322,15 +338,16 @@ async function lireDomainesDerives(): Promise<Set<string>> {
       WHERE d.statut = 'envoyee'
         AND (d.dest_email IS NULL OR d.dest_email NOT LIKE '%@%')`,
   );
-  const out = new Set<string>();
+  const parDomaine = new Map<string, Set<string>>();
   for (const r of rows) {
     // Priorité url_formulaire → prada → dila (première source non vide) ; réduction au domaine racine.
     const source = [r.url_formulaire, r.prada, r.dila].map((x) => (x ?? '').trim()).find((x) => x !== '');
     if (source === undefined) continue;
     const dom = domaineRacine(hoteDepuisSource(source));
-    if (dom.includes('.')) out.add(dom);
+    if (!dom.includes('.')) continue;
+    (parDomaine.get(dom) ?? parDomaine.set(dom, new Set<string>()).get(dom)!).add(r.code_insee);
   }
-  return out;
+  return parDomaine;
 }
 
 async function marquerRebond(demandeId: number, motif: string): Promise<number> {
@@ -384,14 +401,15 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const candidates: DemandeCandidate[] = envoyees.map((e) => ({ id: e.id, reference: e.reference, profilBoite: opts.profil, statut: 'envoyee', messageIdsEmis: e.messageIdsEmis, numerosDossier: e.numerosDossier, referencesExternes: e.referencesExternes }));
   const depuis = opts.depuis ?? (await fenetreDepuis()); // P1 : fenêtre = curseur − 3 j (repli backfill si aucun curseur) — LOT 2 : tous profils
   const domaines = await lireDomainesDestinataires();
-  const domainesDerives = await lireDomainesDerives(); // LOT 2 — communes sans dest_email (formulaire) ; porte GARDÉE
+  const communesDerivees = await lireCommunesDerivees(); // LOT 2 — communes sans dest_email (formulaire) ; porte GARDÉE. Lot C : + code_insee par domaine (attribution).
+  const domainesDerives = new Set(communesDerivees.keys());
   const domainesInterroges = [...new Set([...domaines, ...domainesDerives])];
 
   const vide = (connecte: boolean): RapportReleve => ({
     mode, profil: opts.profil, connecte, depuis: depuis ? depuis.toISOString() : null, domainesInterroges,
     uidsServeur: 0, referencesInterrogees: 0, uidsReferences: 0, plafondReferencesAtteint: false, plafondAtteint: false,
     vus: 0, dejaConnus: 0, horsPerimetre: 0, horsPerimetreSonde: 0, horsPerimetreSansAncre: 0, emisParNous: 0, retenus: 0, rattaches: 0, nonRattaches: 0,
-    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, liensCaptes: 0, ecrites: 0, piecesDeposees: 0, piecesNonDeposees: 0, parMethode: {}, lignes: [],
+    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, referencesCaptees: 0, liensCaptes: 0, ecrites: 0, piecesDeposees: 0, piecesNonDeposees: 0, parMethode: {}, lignes: [],
   });
 
   if (depuis === null) return vide(false); // T4 : ni demande envoyée ni demande en attente (brouillon/prête) → pas de connexion
@@ -404,7 +422,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const { references, plafondAtteint: plafondReferencesAtteint } = await lireReferencesRecherche(cfg.rechercheReferencesMax); // LOT 2 : tous profils
   const adressesNous = opts.adressesNous ?? adressesNousDefaut(); // CORRECTIF boucle : NOS adresses (repli du signal en-tête)
   const lignes: LigneReleve[] = [];
-  let vus = 0, dejaConnus = 0, horsPerimetreSonde = 0, horsPerimetreSansAncre = 0, emisParNous = 0, rebondsDetectes = 0, rebondsRattaches = 0, rebondsEtrangers = 0, rebondsAppliques = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0, liensCaptes = 0;
+  let vus = 0, dejaConnus = 0, horsPerimetreSonde = 0, horsPerimetreSansAncre = 0, emisParNous = 0, rebondsDetectes = 0, rebondsRattaches = 0, rebondsEtrangers = 0, rebondsAppliques = 0, ecrites = 0, piecesDeposees = 0, piecesNonDeposees = 0, liensCaptes = 0, referencesCaptees = 0;
   let uidsServeur = 0, uidsReferences = 0, plafondAtteint = false;
 
   // R4 — dépose les pièces d'une réponse déjà enregistrée (contenu tiers, jamais ouvert) et met à jour les compteurs.
@@ -541,7 +559,8 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
       //   jamais du texte. Le contenu est connu AVANT l'insertion (pièces = mb.pieces ; liens = analyse pure) → nature définitive
       //   posée dès l'insert, sans second passage.
       const nature: NatureReponse = classerNature(mb.message, { nbPieces: mb.pieces.length, aLienFort: liens.some((l) => l.fort) }, motifsAccuse); // FUS-4 : foyer unique + motif d'objet
-      lignes.push({ messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, nature, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length });
+      const ligneCourante: LigneReleve = { messageId: mid, demandeId: r.demandeId, methode: r.methode, rebond: false, nature, motif: r.motif, deAdresse: mb.message.deAdresse, objet: mb.message.objet ?? null, nbPieces: mb.pieces.length };
+      lignes.push(ligneCourante);
       if (appliquer) {
         const id = await enregistrerReponse(construireLigne(opts.profil, mb, mid, r.demandeId, r.methode, r.motif, nature));
         if (id !== null) {
@@ -559,6 +578,24 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
           if (r.demandeId !== null && nature === 'accuse') {
             const demandeId = r.demandeId;
             await withTransaction((q) => reclamperEnvoyeLe(q, demandeId, 'systeme'));
+          }
+          // Lot C — CAPTURE AUTO de la référence mairie : un accusé NON rattaché porte souvent la SEULE ancre exploitable (SLC…).
+          //   On l'extrait, et si — SOUS le domaine dérivé de l'expéditeur — EXACTEMENT UNE demande téléservice est en attente
+          //   d'accusé (présomption VIVANTE, sans référence), on l'attribue (idempotent ; jamais au jugé : 0 ou ≥2 → RIEN, le
+          //   message reste « À rattacher »). Le TRIGGER (migration 163) lève alors le verrou de commune ;
+          //   retenterRattachementParReference rattache l'accusé (différé) et re-plafonne envoye_le. Compté `referencesCaptees`.
+          if (r.demandeId === null && nature === 'accuse') {
+            const reference = extraireReferenceMairie(mb.message.objet, mb.message.corpsTexte);
+            const codes = reference !== null ? communesDerivees.get(domaineRacine(domaineDe(mb.message.deAdresse))) : undefined;
+            if (reference !== null && codes !== undefined && codes.size > 0) {
+              const attr = await attribuerReferenceAccuse({ reference, codesInsee: [...codes], auteur: 'systeme' });
+              if (attr.demandeId !== null) {
+                referencesCaptees += 1;
+                await retenterRattachementParReference(attr.demandeId, reference, 'systeme');
+                ligneCourante.demandeId = attr.demandeId;      // le rapport reflète le rattachement effectif (DB déjà à jour)
+                ligneCourante.methode = 'reference_differee';
+              }
+            }
           }
           // L1 — enregistrer les liens captés. PUR : on ne SUIT JAMAIS un lien. L'expiration n'est captée que si écrite
           //   explicitement. Ne fait NI archivage NI satisfait_le.
@@ -581,6 +618,6 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
     mode, profil: opts.profil, connecte: true, depuis: depuis.toISOString(), domainesInterroges, uidsServeur,
     referencesInterrogees: references.length, uidsReferences, plafondReferencesAtteint, plafondAtteint,
     vus, dejaConnus, horsPerimetre: horsPerimetreSonde + horsPerimetreSansAncre, horsPerimetreSonde, horsPerimetreSansAncre, emisParNous, retenus: lignes.length, rattaches, nonRattaches: lignes.length - rattaches,
-    rebondsDetectes, rebondsRattaches, rebondsEtrangers, rebondsAppliques, accuses, liensCaptes, ecrites, piecesDeposees, piecesNonDeposees, parMethode, lignes,
+    rebondsDetectes, rebondsRattaches, rebondsEtrangers, rebondsAppliques, accuses, referencesCaptees, liensCaptes, ecrites, piecesDeposees, piecesNonDeposees, parMethode, lignes,
   };
 }

@@ -1257,17 +1257,59 @@ export async function marquerDeposee(id: number, auteur: string | null, referenc
     await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, 'envoyee', 'dépôt manuel (téléservice)', $3)`, [id, row.statut, auteur]);
     const ref = (reference ?? '').trim();
     if (ref !== '') {
+      // Lot C — la référence renseignée au dépôt LÈVE le verrou de commune : le TRIGGER (migration 163) sur cet INSERT résout la
+      //   présomption en 'reference_captee', dans la MÊME transaction. Rien à faire ici de plus.
       await q(
         `INSERT INTO demande_reference_externe (demande_id, reference, source, recu_le) VALUES ($1, $2, 'accuse_reception', now())
          ON CONFLICT (demande_id, reference) DO NOTHING`,
         [id, ref],
       );
     }
-    // LOT B1 — le dépôt téléservice RÉSOUT la présomption (signal « copier ») → 'deposee', dans la MÊME transaction (atomicité :
-    //   aucune fenêtre « déposée mais verrou de commune encore tenu »). marquerDeposee est déjà formulaire-only (garde ci-dessus).
-    //   Idempotent (0 ligne = no-op si jamais « copié ») ; ne peut pas faire échouer le dépôt.
-    await resoudreDepotPresume(q, id, 'deposee', auteur);
+    // Lot C — DÉCISION PORTEUR : le DÉPÔT ne lève PLUS le verrou de commune (« marquer déposée » est déclaratif). Le verrou reste
+    //   VIVANT jusqu'à la CAPTURE DE LA RÉFÉRENCE mairie (trigger ci-dessus, ou capture auto par la relève) ou l'issue de secours
+    //   « pas d'accusé attendu » ('sans_accuse'). Sans référence renseignée ici → la commune reste bloquée en attente de l'accusé.
   });
+}
+
+/**
+ * Lot C — ISSUE DE SECOURS : lève le verrou de commune d'une demande téléservice « pas d'accusé attendu » (la mairie ne renvoie
+ * jamais d'accusé, ou l'accusé ne porte aucune référence exploitable). Geste HUMAIN EXPLICITE (jamais automatique) : résout la
+ * présomption VIVANTE en 'sans_accuse' + journalise (audit). N'écrit AUCUNE référence (il n'y en a pas), ne touche PAS
+ * demande.statut : la demande reste déposée, seule la commune est débloquée. Idempotent : `false` si aucune présomption vivante
+ * (déjà résolue, ou demande jamais « copiée ») — aucune erreur. Renvoie `true` si le verrou a été effectivement levé.
+ */
+export async function debloquerDepotPresumeSansAccuse(demandeId: number, auteur: string | null): Promise<boolean> {
+  return withTransaction(async (tx) => {
+    const q = asQ(tx);
+    const av = await q<{ statut: string | null }>(`SELECT statut FROM demande WHERE id = $1`, [demandeId]);
+    const statut = av.rows[0]?.statut ?? null;
+    const res = await q<{ id: number }>(
+      `UPDATE demande_depot_presume SET resolu_le = now(), resolution = 'sans_accuse', resolu_par = $2, maj_le = now()
+        WHERE demande_id = $1 AND resolu_le IS NULL RETURNING id::int AS id`,
+      [demandeId, auteur]);
+    const leve = res.rows.length > 0;
+    if (leve) {
+      await q(
+        `INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, $2, $2, 'déblocage commune (pas d''accusé attendu)', $3)`,
+        [demandeId, statut, auteur]);
+    }
+    return leve;
+  });
+}
+
+/**
+ * Lot C (point 3) — communes TÉLÉSERVICE actuellement BLOQUÉES (présomption de dépôt VIVANTE, en attente d'accusé). L'index
+ * partiel `demande_depot_presume_verrou_commune` garantit AU PLUS UNE présomption vivante par commune → une entrée par code_insee,
+ * avec la demande qui bloque (sa référence SVAV, pour le libellé du vivier). LECTURE SEULE. Sert à afficher « bloqué » au vivier.
+ */
+export async function communesBloqueesTeleservice(): Promise<Record<string, { reference: string | null; demandeId: number }>> {
+  const { rows } = await query<{ code_insee: string; reference: string | null; demande_id: number }>(
+    `SELECT dp.code_insee, d.reference, d.id::int AS demande_id
+       FROM demande_depot_presume dp JOIN demande d ON d.id = dp.demande_id
+      WHERE dp.resolu_le IS NULL`);
+  const out: Record<string, { reference: string | null; demandeId: number }> = {};
+  for (const r of rows) out[r.code_insee.trim()] = { reference: r.reference, demandeId: r.demande_id };
+  return out;
 }
 
 // ── Bascule de profil (régénère le corps depuis l'identité COURANTE du profil cible) ─────────────────────────────────

@@ -14,7 +14,8 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
     domaines: [] as string[],
     references: [] as string[], // R3e — num_dau renvoyés par lireReferencesRecherche
     curseur: null as Date | null, // P1 — max(termine_le) du dernier scan courant complet réussi
-    domainesDerivesRows: [] as { url_formulaire: string | null; prada: string | null; dila: string | null }[], // LOT 2 — sources domaine dérivé
+    domainesDerivesRows: [] as { code_insee?: string; url_formulaire: string | null; prada: string | null; dila: string | null }[], // LOT 2 — sources domaine dérivé (Lot C : + code_insee)
+    presomptionCible: null as number | null, // Lot C — demande_id renvoyée par la requête de candidates (attribuerReferenceAccuse)
     rebondRowCount: 1,
     conflit: false,
     nextId: 4242,
@@ -37,6 +38,8 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
     const q = async (sql: string, params?: unknown[]) => {
       appels.push({ sql, params: params ?? [] });
       if (/RETURNING id/i.test(sql)) return etat.conflit ? { rows: [], rowCount: 0 } : { rows: [{ id: etat.nextId }], rowCount: 1 };
+      // Lot C — attribuerReferenceAccuse : candidates = présomptions vivantes sous le domaine. `presomptionCible` = l'unique cible (ou aucune).
+      if (/FROM demande_depot_presume dp/i.test(sql)) return etat.presomptionCible !== null ? { rows: [{ demande_id: etat.presomptionCible }], rowCount: 1 } : { rows: [], rowCount: 0 };
       return { rows: [], rowCount: 1 };
     };
     return fn(q);
@@ -46,7 +49,7 @@ const { appels, etat, queryMock, withTransactionMock } = vi.hoisted(() => {
 
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: withTransactionMock, pool: {}, closePool: async () => undefined }));
 
-import { releverBoite, fenetreDepuis, domaineRacine, hoteDepuisSource, type ClientBoite, type MessageBoite, type PieceMeta, type CritereRecherche } from './releveReponses';
+import { releverBoite, fenetreDepuis, domaineRacine, hoteDepuisSource, extraireReferenceMairie, type ClientBoite, type MessageBoite, type PieceMeta, type CritereRecherche } from './releveReponses';
 import type { MessageEntrant } from './rattachementReponse';
 import type { PartieRapport } from './rapportRejet';
 
@@ -93,7 +96,7 @@ function fauxClient(messages: MessageBoite[], rechercheImpl?: (c: CritereRecherc
 
 beforeEach(() => {
   appels.length = 0; uidSeq = 0;
-  etat.candidates = [CAND_A]; etat.depuis = DEPUIS; etat.knownIds = []; etat.domaines = ['mairie-aubervilliers.fr']; etat.references = []; etat.curseur = null; etat.domainesDerivesRows = []; etat.rebondRowCount = 1; etat.conflit = false; etat.nextId = 4242;
+  etat.candidates = [CAND_A]; etat.depuis = DEPUIS; etat.knownIds = []; etat.domaines = ['mairie-aubervilliers.fr']; etat.references = []; etat.curseur = null; etat.domainesDerivesRows = []; etat.presomptionCible = null; etat.rebondRowCount = 1; etat.conflit = false; etat.nextId = 4242;
 });
 
 describe('R3c/R3d — recherches serveur', () => {
@@ -835,5 +838,72 @@ describe('AUTO-1 — un accusé TÉLÉSERVICE (formulaire, domaine dérivé Pari
     expect(r.retenus).toBe(1);         // retenu (domaine dérivé + motif de référence SLC dans l'objet)
     expect(r.rattaches).toBe(0);       // mais PAS rattaché : le n° exact (avec V) n'est pas cité
     expect(r.lignes[0]).toMatchObject({ demandeId: null, methode: 'aucun' });
+  });
+});
+
+describe('Lot C — extraireReferenceMairie (extraction PURE de la référence mairie)', () => {
+  it('objet « Accusé de réception (référence SLC260828893279) » → « SLC260828893279 » (token propre, préfixe non débordé)', () => {
+    expect(extraireReferenceMairie('Accusé de réception (référence SLC260828893279) | Urbanisme', 'Bonjour.')).toBe('SLC260828893279');
+  });
+  it('référence dans le CORPS seulement (objet sans motif) → captée', () => {
+    expect(extraireReferenceMairie('Votre demande', 'Nous avons bien reçu votre message (référence SLC260818242370).')).toBe('SLC260818242370');
+  });
+  it('objet PRIORITAIRE sur le corps (la SLC de l’objet, pas le permis du corps)', () => {
+    expect(extraireReferenceMairie('réf SLC260828893279', 'Permis concerné : PC07512025V0006')).toBe('SLC260828893279');
+  });
+  it('aucun motif → null (jamais de faux token)', () => {
+    expect(extraireReferenceMairie('Bonjour', 'Merci de votre message, à bientôt.')).toBeNull();
+  });
+});
+
+describe('Lot C — capture AUTO de la référence d’un accusé téléservice non rattaché', () => {
+  it('accusé Paris (SLC en objet, sans permis) + domaine dérivé + UNE demande en attente → référence captée (referencesCaptees=1)', async () => {
+    etat.candidates = [{ id: 866, reference: 'SVAV-DEM-2026-000160', dest_email: '', message_ids: [], num_daus: [], refs_externes: [] }];
+    etat.domaines = [];
+    etat.domainesDerivesRows = [{ code_insee: '75056', url_formulaire: 'https://sollicitations.paris.fr/ticketing', prada: null, dila: null }];
+    etat.presomptionCible = 866; // l'unique présomption vivante sous paris.fr → attribution certaine
+    const accuse = boite({
+      messageId: '<accuse-slc@paris.fr>',
+      deAdresse: 'no-reply@paris.fr',
+      objet: 'Accusé de réception (référence SLC260828893279)',
+      corpsTexte: 'Nous avons bien reçu votre message (référence SLC260828893279). La Ville de Paris.',
+      entetes: { 'Auto-Submitted': 'auto-replied' },
+    });
+    const { client } = fauxClient([accuse]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.retenus).toBe(1);
+    expect(r.referencesCaptees).toBe(1);
+    // le rapport reflète le rattachement effectif (méthode différée)
+    expect(r.lignes[0]).toMatchObject({ demandeId: 866, methode: 'reference_differee', nature: 'accuse' });
+  });
+
+  it('AUCUNE demande en attente sous le domaine (presomptionCible=null) → rien capté, message reste non rattaché', async () => {
+    etat.candidates = [{ id: 866, reference: 'SVAV-DEM-2026-000160', dest_email: '', message_ids: [], num_daus: [], refs_externes: [] }];
+    etat.domaines = [];
+    etat.domainesDerivesRows = [{ code_insee: '75056', url_formulaire: 'https://sollicitations.paris.fr/ticketing', prada: null, dila: null }];
+    etat.presomptionCible = null; // 0 candidate → abstention
+    const accuse = boite({
+      messageId: '<accuse-slc2@paris.fr>', deAdresse: 'no-reply@paris.fr',
+      objet: 'Accusé de réception (référence SLC260828893279)', corpsTexte: 'Reçu.', entetes: { 'Auto-Submitted': 'auto-replied' },
+    });
+    const { client } = fauxClient([accuse]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS, appliquer: true });
+    expect(r.retenus).toBe(1);
+    expect(r.referencesCaptees).toBe(0);
+    expect(r.lignes[0]).toMatchObject({ demandeId: null, methode: 'aucun' });
+  });
+
+  it('en SIMULATION (appliquer=false) → aucune capture (referencesCaptees=0)', async () => {
+    etat.candidates = [{ id: 866, reference: 'SVAV-DEM-2026-000160', dest_email: '', message_ids: [], num_daus: [], refs_externes: [] }];
+    etat.domaines = [];
+    etat.domainesDerivesRows = [{ code_insee: '75056', url_formulaire: 'https://sollicitations.paris.fr/ticketing', prada: null, dila: null }];
+    etat.presomptionCible = 866;
+    const accuse = boite({
+      messageId: '<accuse-slc3@paris.fr>', deAdresse: 'no-reply@paris.fr',
+      objet: 'Accusé de réception (référence SLC260828893279)', corpsTexte: 'Reçu.', entetes: { 'Auto-Submitted': 'auto-replied' },
+    });
+    const { client } = fauxClient([accuse]);
+    const r = await releverBoite({ client, profil: 'entreprise', depuis: DEPUIS });
+    expect(r.referencesCaptees).toBe(0);
   });
 });

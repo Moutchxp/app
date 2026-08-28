@@ -66,6 +66,7 @@ function imprimerInspection(r: RapportReleve, log: (s: string) => void): void {
   log(`    · rebonds détectés : ${r.rebondsDetectes} (rattachés ${r.rebondsRattaches}, étrangers ${r.rebondsEtrangers}, acheminements ${r.rebondsAppliques})`);
   log(`  SERAIT enregistré           : ${r.ecrites}`);
   log(`  accusés (a écrit, pas répondu) : ${r.accuses}`);
+  log(`  références mairie captées (auto) : ${r.referencesCaptees}`);
   log(`  liens captés (jamais suivis) : ${r.liensCaptes}`);
   log(`  pièces déposables / non     : ${r.piecesDeposees} / ${r.piecesNonDeposees}`);
   if (r.lignes.length > 0) {

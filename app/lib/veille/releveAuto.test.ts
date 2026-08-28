@@ -14,7 +14,7 @@ function rapport(over: Partial<RapportReleve> = {}): RapportReleve {
     mode: 'applique', profil: 'entreprise', connecte: true, depuis: null, domainesInterroges: [],
     uidsServeur: 0, referencesInterrogees: 0, uidsReferences: 0, plafondReferencesAtteint: false, plafondAtteint: false,
     vus: 0, dejaConnus: 0, horsPerimetre: 0, horsPerimetreSonde: 0, horsPerimetreSansAncre: 0, emisParNous: 0, retenus: 0, rattaches: 0, nonRattaches: 0,
-    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, liensCaptes: 0, ecrites: 0, piecesDeposees: 0, piecesNonDeposees: 0, parMethode: {}, lignes: [],
+    rebondsDetectes: 0, rebondsRattaches: 0, rebondsEtrangers: 0, rebondsAppliques: 0, accuses: 0, referencesCaptees: 0, liensCaptes: 0, ecrites: 0, piecesDeposees: 0, piecesNonDeposees: 0, parMethode: {}, lignes: [],
     ...over,
   };
 }

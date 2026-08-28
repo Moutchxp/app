@@ -120,20 +120,19 @@ describe('B2 — marquerDeposee horodate l’envoi dans le registre d’achemine
   });
 });
 
-describe('LOT B1 — marquerDeposee résout la présomption de dépôt en « deposee » (lève le verrou de commune)', () => {
-  it('le dépôt émet UPDATE demande_depot_presume … resolution = deposee, params liés [id, deposee, auteur], dans la MÊME transaction', async () => {
+describe('Lot C — marquerDeposee ne LÈVE PLUS le verrou au dépôt (déblocage à la CAPTURE DE RÉFÉRENCE, migration 163)', () => {
+  it('dépôt SANS référence → AUCUN UPDATE demande_depot_presume : le verrou reste vivant, la commune reste en attente de l’accusé', async () => {
     await marquerDeposee(119, 'admin');
-    const res = trouver(/UPDATE demande_depot_presume/i)!;
-    expect(res, 'le dépôt téléservice doit résoudre la présomption').toBeDefined();
-    const sql = norm(res.sql);
-    expect(sql).toContain('SET resolu_le = now()');
-    expect(sql).toContain('WHERE demande_id = $1 AND resolu_le IS NULL'); // présomption VIVANTE seule (idempotent)
-    expect(res.params).toEqual([119, 'deposee', 'admin']);
+    expect(trouver(/UPDATE demande_depot_presume/i), 'le dépôt (déclaratif) ne résout plus la présomption').toBeUndefined();
   });
 
-  it('geste sans erreur : la résolution n’ajoute aucune condition d’échec au dépôt (UPDATE émis, no-op côté DB si aucune présomption)', async () => {
-    await expect(marquerDeposee(119, 'admin')).resolves.toBeUndefined();
-    expect(trouver(/UPDATE demande_depot_presume/i)).toBeDefined();
+  it('dépôt AVEC référence → INSERT demande_reference_externe (source accuse_reception) ; le TRIGGER (migration 163) lève le verrou côté DB', async () => {
+    await marquerDeposee(119, 'admin', 'SLC260828893279');
+    const ins = trouver(/INSERT INTO demande_reference_externe/i);
+    expect(ins, 'la référence renseignée au dépôt est greffée (le trigger résout alors la présomption)').toBeDefined();
+    expect(norm(ins!.sql)).toContain("'accuse_reception'");
+    expect(ins!.params).toEqual([119, 'SLC260828893279']);
+    expect(trouver(/UPDATE demande_depot_presume/i), 'plus AUCUNE résolution applicative au dépôt (le trigger s’en charge)').toBeUndefined();
   });
 
   it('canal e-mail JAMAIS concerné : marquerDeposee refuse un non-formulaire AVANT toute résolution', async () => {

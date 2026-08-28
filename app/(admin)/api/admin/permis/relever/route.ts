@@ -25,6 +25,7 @@ function reponse(issue: IssueReleveManuelle): Response {
         messagesLus: r.vus,
         retenus: r.retenus,
         rattaches: r.rattaches,
+        referencesCaptees: r.referencesCaptees,
         enregistrees: r.ecrites,
         depotsGed: r.piecesDeposees,
         echecsDepot: r.piecesNonDeposees,

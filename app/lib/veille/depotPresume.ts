@@ -52,8 +52,15 @@ export async function signalerDepotPresume(demandeId: number, bouton: BoutonCopi
   }
 }
 
-/** LOT B1 — issues explicites de résolution (liste fermée du CHECK, migration 124). */
-export type ResolutionDepot = 'deposee' | 'renoncee';
+/**
+ * Issues explicites de résolution du verrou (liste fermée du CHECK, migrations 124 + 163) :
+ *   · 'renoncee'         → annulation (libère la mairie, aucune échéance) ;
+ *   · 'reference_captee' → une référence mairie a été enregistrée (POSÉE PAR LE TRIGGER en base, Lot C) : la mairie a bien reçu ;
+ *   · 'sans_accuse'      → issue de secours : geste humain « pas d'accusé attendu » (déblocage sans référence) ;
+ *   · 'deposee'          → LEGACY (avant Lot C, le dépôt levait le verrou) : plus jamais écrite par le code, conservée pour les
+ *                          lignes historiques et la complétude du type.
+ */
+export type ResolutionDepot = 'deposee' | 'renoncee' | 'reference_captee' | 'sans_accuse';
 
 /** Exécuteur SQL minimal : compatible AUSSI BIEN `query` (pool) que l'exécuteur d'une `withTransaction` — on n'a besoin que
  *  d'ÉMETTRE l'UPDATE, jamais de son résultat. Permet d'appeler la résolution DANS la transaction du geste sans coupler les types. */
