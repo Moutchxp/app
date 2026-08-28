@@ -174,6 +174,15 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossie
     setEnCours(false);
   }, [poster, rafraichir]);
 
+  // LOT PROV-3 (2) — TRANCHER UNE DIVERGENCE EN UN CLIC : écrit LE champ déclaré choisi en 'saisie' (action 'declare_champ', une SEULE
+  //   clé) puis rafraîchit → le champ prend la valeur, origine 'saisie', et n'est plus réécrasé par une relance (invariant 103).
+  const utiliserCandidatPermis = useCallback(async (cle: string, valeur: string) => {
+    setEnCours(true);
+    const r = await poster({ action: 'declare_champ', dossierId, cle, valeur });
+    if (r.ok) { await rafraichir(); setMessage('Valeur validée.'); } else setMessage(r.erreur ?? 'échec');
+    setEnCours(false);
+  }, [poster, dossierId, rafraichir]);
+
   if (etat === 'chargement') return <p style={styleAide} aria-live="polite">Chargement des caractéristiques…</p>;
   if (etat === 'erreur' || !data) return <p role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>Caractéristiques indisponibles.</p>;
 
@@ -221,7 +230,8 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossie
             return (
               <ChampDeclareEditeur key={champ.cle} champ={champ} bornes={data.bornes[champ.colonne]} valeur={edPermis[champ.cle]} origine={origineDe(data.global, champ.cle)}
                 erreur={erreursPermis[champ.cle]} journal={journal} lienPiece={lienPiece} naturesPossibles={data.naturesPossibles} divergence={divergence}
-                onValeur={(v) => setEdPermis((p) => ({ ...p, [champ.cle]: v }))} />
+                onValeur={(v) => setEdPermis((p) => ({ ...p, [champ.cle]: v }))}
+                onUtiliserCandidat={(v) => void utiliserCandidatPermis(champ.cle, v)} />
             );
           })}
           {/* N14/N13 — DESTINATIONS juste sous la 1re ligne (à la place qu'occupait le sommet), pleine largeur : 23 cases sur 4 colonnes. */}

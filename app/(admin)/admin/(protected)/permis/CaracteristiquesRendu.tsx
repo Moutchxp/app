@@ -236,7 +236,29 @@ function EntreeProvenance({ txt, piece, page, lienPiece }: { txt: string; piece:
   return <span>{txt}{echecResolution ? ' (document introuvable)' : ''}</span>;
 }
 
-export function AnnotationsExtraction({ origine, journal, lienPiece, masquerEcartes }: { origine: OrigineValeur | null; journal?: JournalChamp; lienPiece?: LienPiece; masquerEcartes?: boolean }) {
+/**
+ * LOT PROV-3 (2) — CANDIDATS d'un champ divergent : chaque lecture écartée (role='ecartee') PORTANT une pièce ET une valeur LISIBLE
+ * — soit `valeur` numérique, soit entre « … » dans l'extrait (« lecture OCR: « 2 » ») — devient un candidat cliquable
+ * {valeur, pièce, page}. Dédoublonné par VALEUR (OCR et vision d'accord → un seul bouton). Une lecture « vide » (aucune valeur) n'est
+ * pas un candidat. PUR (testable).
+ */
+export interface CandidatChamp { valeur: string; source: string; piece: string | null; page: number | null }
+export function candidatsDivergents(journal?: JournalChamp): CandidatChamp[] {
+  const out: CandidatChamp[] = [];
+  const vues = new Set<string>();
+  for (const e of journal?.ecartes ?? []) {
+    if (e.piece === null && e.page === null) continue; // sans source ouvrable → pas un bouton
+    const valeur = e.valeur !== null ? String(e.valeur) : (/[«"]\s*(.+?)\s*[»"]/.exec(e.extrait ?? '')?.[1]?.trim() ?? null);
+    if (valeur === null || valeur === '' || vues.has(valeur)) continue;
+    vues.add(valeur);
+    // libellé de source = le texte AVANT la valeur (« lecture OCR: » / « lecture vision: »), à défaut la méthode.
+    const source = (e.extrait ?? '').split(/[«"]/)[0].replace(/[:\s]+$/, '').trim() || (e.methode === 'ia' ? 'lecture' : e.methode ?? 'source');
+    out.push({ valeur, source, piece: e.piece, page: e.page });
+  }
+  return out;
+}
+
+export function AnnotationsExtraction({ origine, journal, lienPiece, masquerEcartes, masquerSources }: { origine: OrigineValeur | null; journal?: JournalChamp; lienPiece?: LienPiece; masquerEcartes?: boolean; masquerSources?: boolean }) {
   const j = origine === 'extraite' ? journal : undefined;
   const motif = origine === null ? journal?.motif ?? null : null;
   // N10-D — DÉDOUBLONNAGE des entrées identiques (le journal peut répéter une même pièce/page). Le COMPTE annoncé est celui des
@@ -253,7 +275,7 @@ export function AnnotationsExtraction({ origine, journal, lienPiece, masquerEcar
   //   CHACUNE est une entrée cliquable → on va voir la pièce pour trancher. Dédoublonnées par pièce#page#extrait. Même mécanisme que
   //   la provenance retenue (EntreeProvenance + lienPiece) — aucun second dispositif. Restreint à origine===null (une saisie a déjà tranché).
   //   Le gabarit PLU (`masquerEcartes`) montre ses candidats via son propre bloc dédié → on n'y ajoute pas « sources lues ».
-  const sources = origine === null && !masquerEcartes
+  const sources = origine === null && !masquerEcartes && !masquerSources
     ? [...new Map((journal?.ecartes ?? []).filter((e) => e.piece !== null || e.page !== null).map((e) => [`${e.piece ?? ''}#${e.page ?? ''}#${e.extrait ?? e.valeur ?? ''}`, e])).values()]
     : [];
   return (
@@ -450,10 +472,14 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
 
 /** N7-E — éditeur d'UN champ DÉCLARÉ (niveau permis) : « nature » = sélecteur (options venant du CHECK), sinon nombre (≥0) / texte.
  *  Même traitement d'annotations que les mesures (confiance/réserve/provenance/motif). Tri-état préservé (vide = non renseigné). */
-export function ChampDeclareEditeur({ champ, bornes, valeur, origine, erreur, journal, lienPiece, naturesPossibles, divergence, onValeur }: {
+export function ChampDeclareEditeur({ champ, bornes, valeur, origine, erreur, journal, lienPiece, naturesPossibles, divergence, onValeur, onUtiliserCandidat }: {
   champ: ChampDeclare; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece; naturesPossibles?: readonly string[]; divergence?: string | null; onValeur: (v: string) => void;
+  onUtiliserCandidat?: (valeur: string) => void; // LOT PROV-3 (2) : un clic sur un candidat l'ÉCRIT en 'saisie' (comme « utiliser N » du gabarit PLU)
 }) {
   const libelle = `${champ.libelle}${champ.unite ? ` (${champ.unite})` : ''}`;
+  // LOT PROV-3 (2) — CANDIDATS divergents : un BOUTON par valeur candidate, le lien vers sa pièce SOUS le bouton. Seulement quand le
+  //   champ est VIDE (origine null) et que le parent câble l'écriture. Un clic valide la valeur (origine 'saisie', protégée par l'invariant 103).
+  const candidats = origine === null && onUtiliserCandidat ? candidatsDivergents(journal) : [];
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
       <LigneLabel libelle={libelle} origine={origine} journal={journal} />
@@ -471,7 +497,26 @@ export function ChampDeclareEditeur({ champ, bornes, valeur, origine, erreur, jo
       {bornes && <span style={styleAide}>valeur attendue entre {bornes.min} et {bornes.max}{champ.unite ? ` ${champ.unite}` : ''}</span>}
       {champ.aide && <span style={{ ...styleAide, color: 'var(--color-svv-red)' }}>{champ.aide}</span>}
       {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
-      <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} />
+      {/* LOT PROV-3 (2) — TRANCHER EN UN CLIC : autant de boutons que de valeurs candidates ; sous chaque bouton, le lien vers la pièce
+          qui l'a produite. Un clic VALIDE la valeur (origine 'saisie'). La saisie manuelle (le champ ci-dessus) reste toujours possible. */}
+      {candidats.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', marginTop: '.15rem' }}>
+          <span style={styleAide}>{candidats.length > 1 ? 'Lectures divergentes — choisissez la bonne (un clic la valide et la protège) :' : 'Valeur lue — un clic la valide (origine saisie) :'}</span>
+          <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+            {candidats.map((c) => (
+              <div key={c.valeur} style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', minWidth: 0, maxWidth: '100%' }}>
+                <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem', textAlign: 'left', overflowWrap: 'anywhere', maxWidth: '100%' }}
+                  onClick={() => onUtiliserCandidat!(c.valeur)} aria-label={`Valider « ${c.valeur} » pour ${champ.libelle}`}>{c.valeur}</button>
+                <span style={{ ...styleAide, overflowWrap: 'anywhere' }}>
+                  <EntreeProvenance txt={`${c.source} — ${texteProvenance({ piece: c.piece, page: c.page })}`} piece={c.piece} page={c.page} lienPiece={lienPiece} />
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {/* les liens de provenance bruts (« sources lues ») sont MASQUÉS ici quand des boutons candidats les portent déjà. */}
+      <AnnotationsExtraction origine={origine} journal={journal} lienPiece={lienPiece} masquerSources={candidats.length > 0} />
       {/* N7-F — divergence signalée (ex. parking vestigial vs nombre de places) : information, jamais masquée. */}
       {divergence && <span role="note" style={{ ...styleNote, color: 'var(--color-svv-red)', fontWeight: 600 }}>⚠ divergence : {divergence}</span>}
     </div>

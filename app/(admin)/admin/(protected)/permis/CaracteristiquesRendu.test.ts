@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps } from './CaracteristiquesRendu';
+import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps } from './CaracteristiquesRendu';
 import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
 
@@ -156,6 +156,61 @@ describe('LOT PROV-1 (point 2) — AnnotationsExtraction : liens de provenance s
   it('champ vide SANS écarté porteur de pièce → aucune section « sources lues »', () => {
     const j: JournalChamp = { confiance: null, reserve: null, provenances: [], motif: 'champ absent', ecartes: [{ valeur: null, piece: null, page: null, motif: 'x', methode: 'cerfa', extrait: '' }] };
     expect(rendre({ origine: null, journal: j })).not.toContain('sources lues');
+  });
+});
+
+describe('LOT PROV-3 (2) — candidatsDivergents + boutons « trancher en un clic »', () => {
+  const journalDivergent: JournalChamp = {
+    confiance: null, reserve: null, provenances: [], motif: 'lectures divergentes (OCR « 2 » vs vision « 21 »)',
+    ecartes: [
+      { valeur: null, piece: 'PC_scan.pdf', page: 7, motif: 'div', methode: 'ia', extrait: 'lecture OCR: « 2 »' },
+      { valeur: null, piece: 'PC_scan.pdf', page: 7, motif: 'div', methode: 'ia', extrait: 'lecture vision: « 21 »' },
+      { valeur: null, piece: null, page: null, motif: 'x', methode: 'cerfa', extrait: '' },
+    ],
+  };
+
+  it('candidatsDivergents : une valeur PAR lecture (parsée de « … »), avec sa source et sa pièce', () => {
+    const c = candidatsDivergents(journalDivergent);
+    expect(c.map((x) => x.valeur)).toEqual(['2', '21']);
+    expect(c[0]).toMatchObject({ valeur: '2', source: 'lecture OCR', piece: 'PC_scan.pdf', page: 7 });
+    expect(c[1].source).toBe('lecture vision');
+  });
+  it('candidatsDivergents : dédoublonne par valeur (OCR et vision d’accord → un seul candidat)', () => {
+    const j: JournalChamp = { confiance: null, reserve: null, provenances: [], motif: null, ecartes: [
+      { valeur: null, piece: 'A.pdf', page: 1, motif: null, methode: 'ia', extrait: 'lecture OCR: « 21 »' },
+      { valeur: null, piece: 'A.pdf', page: 1, motif: null, methode: 'ia', extrait: 'lecture vision: « 21 »' },
+    ] };
+    expect(candidatsDivergents(j).map((x) => x.valeur)).toEqual(['21']);
+  });
+  it('candidatsDivergents : une lecture « vide » (sans valeur lisible) n’est pas un candidat', () => {
+    const j: JournalChamp = { confiance: null, reserve: null, provenances: [], motif: null, ecartes: [
+      { valeur: null, piece: 'A.pdf', page: 10, motif: null, methode: 'ia', extrait: 'OCR: vide · vision: vide' },
+    ] };
+    expect(candidatsDivergents(j)).toEqual([]);
+  });
+
+  const nbLog = CHAMPS_PERMIS.find((c) => c.cle === 'nbLogements')!;
+  const rendre = (props: Parameters<typeof ChampDeclareEditeur>[0]) => renderToStaticMarkup(createElement(ChampDeclareEditeur, props));
+  const lien = (nom: string) => (nom === 'PC_scan.pdf' ? () => {} : undefined);
+
+  it('ChampDeclareEditeur : un BOUTON par valeur candidate + lien vers la pièce SOUS chaque bouton ; saisie manuelle conservée', () => {
+    const h = rendre({ champ: nbLog, valeur: '', origine: null, journal: journalDivergent, lienPiece: lien, onValeur: () => {}, onUtiliserCandidat: () => {} });
+    expect(h).toContain('Valider « 2 »');   // bouton « 2 »
+    expect(h).toContain('Valider « 21 »');  // bouton « 21 »
+    expect(h).toContain('lecture OCR — PC_scan.pdf p.7');
+    expect(h).toContain('lecture vision — PC_scan.pdf p.7');
+    expect((h.match(/↗/g) ?? []).length).toBe(2);            // chaque source ouvrable
+    expect(h).toContain('vide = non renseigné');             // la saisie manuelle reste possible
+    expect(h).not.toContain('sources lues');                 // liens bruts masqués (les boutons les portent)
+  });
+  it('ChampDeclareEditeur : SANS onUtiliserCandidat → pas de boutons (repli sur « sources lues »)', () => {
+    const h = rendre({ champ: nbLog, valeur: '', origine: null, journal: journalDivergent, lienPiece: lien, onValeur: () => {} });
+    expect(h).toContain('sources lues');
+    expect(h).not.toContain('Valider «');
+  });
+  it('ChampDeclareEditeur : une valeur SAISIE (origine saisie) → aucun bouton candidat', () => {
+    const h = rendre({ champ: nbLog, valeur: '21', origine: 'saisie', journal: journalDivergent, lienPiece: lien, onValeur: () => {}, onUtiliserCandidat: () => {} });
+    expect(h).not.toContain('Valider «');
   });
 });
 

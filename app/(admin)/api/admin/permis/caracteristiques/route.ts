@@ -184,6 +184,23 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: true, ...r });
     }
 
+    // LOT PROV-3 (2) — TRANCHER UNE DIVERGENCE EN UN CLIC : écrit UN SEUL champ déclaré en 'saisie' (comme « utiliser N » du gabarit
+    //   PLU côté corps). On construit une édition avec ce SEUL champ, on la VALIDE (bornes), puis on écrit UNIQUEMENT sa clé (les
+    //   autres champs ne sont pas touchés). Invariant 103 réutilisé (repartirEcriture) — une saisie ne sera jamais réécrasée.
+    if (action === 'declare_champ') {
+      if (!estEntier(body.dossierId)) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
+      const CLES = ['surfacePlancherM2', 'nbLogements', 'nbPlacesStationnement', 'adresseTerrain'] as const;
+      const cle = CLES.find((k) => k === body.cle);
+      const valeur = typeof body.valeur === 'string' ? body.valeur : '';
+      if (!cle) return Response.json({ erreur: 'champ non éditable en un clic' }, { status: 400 });
+      const [natures, bornes] = await Promise.all([lireNaturesPossibles(), lireBornes()]);
+      const edUn: EditionPermis = { natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '', designation: '', altitudeSommetNgf: '', [cle]: valeur };
+      const { valeurs, erreurs, valide } = construirePermis(edUn, natures, bornes);
+      if (!valide) return Response.json({ erreur: 'valeur invalide', erreurs }, { status: 422 });
+      const r = await ecrireCaracteristiquesGlobales(body.dossierId, { [cle]: valeurs[cle] }, 'saisie', auteur);
+      return Response.json({ ok: true, ...r });
+    }
+
     // N13 — édition du TABLEAU des destinations (cases à cocher), TOUJOURS en 'saisie'. Chaque valeur DOIT appartenir à la liste
     //   fermée LUE du CHECK (défense en profondeur avant le CHECK de la base) ; sinon 422 avec la valeur fautive.
     if (action === 'destinations') {
