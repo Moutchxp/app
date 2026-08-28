@@ -248,10 +248,34 @@ export function AnnotationsExtraction({ origine, journal, lienPiece, masquerEcar
   // N10-B — les ÉCARTÉS avec provenance (superstructures au-dessus de la toiture…) : montrés SUR une valeur extraite (contexte de la réserve),
   //   chacun avec sa cote + pièce/page CLIQUABLE. Dédoublonnés par cote#pièce#page.
   const ecartes = j ? [...new Map((j.ecartes ?? []).map((e) => [`${e.valeur ?? ''}#${e.piece ?? ''}#${e.page ?? ''}`, e])).values()] : [];
+  // LOT PROV-1 (point 2) — SOURCES d'un champ VIDE/DIVERGENT (origine null) : les lectures écartées QUI PORTENT une pièce, chacune
+  //   ouvrable à SA page. Le journal les porte déjà (role='ecartee', extrait = « lecture OCR/vision … »). Quand deux lectures divergent,
+  //   CHACUNE est une entrée cliquable → on va voir la pièce pour trancher. Dédoublonnées par pièce#page#extrait. Même mécanisme que
+  //   la provenance retenue (EntreeProvenance + lienPiece) — aucun second dispositif. Restreint à origine===null (une saisie a déjà tranché).
+  //   Le gabarit PLU (`masquerEcartes`) montre ses candidats via son propre bloc dédié → on n'y ajoute pas « sources lues ».
+  const sources = origine === null && !masquerEcartes
+    ? [...new Map((journal?.ecartes ?? []).filter((e) => e.piece !== null || e.page !== null).map((e) => [`${e.piece ?? ''}#${e.page ?? ''}#${e.extrait ?? e.valeur ?? ''}`, e])).values()]
+    : [];
   return (
     <>
       {j?.reserve && <span role="note" style={styleNote}>⚠ {j.reserve}</span>}
       {motif && <span role="note" style={{ ...styleNote, color: 'var(--color-svv-muted)' }}>vide : {motif}</span>}
+      {sources.length > 0 && (
+        <details style={{ fontSize: 11 }} open>
+          <summary style={{ ...styleAide, cursor: 'pointer' }}>sources lues ({sources.length}) — ouvrir la pièce pour trancher</summary>
+          <span style={{ ...styleAide, display: 'block', marginTop: '.15rem', overflowWrap: 'anywhere' }}>
+            {sources.map((e, i) => {
+              const label = e.extrait?.trim() ? e.extrait.trim() : (e.valeur !== null ? `valeur ${e.valeur}` : 'source');
+              return (
+                <Fragment key={`${e.piece ?? ''}#${e.page ?? ''}#${e.extrait ?? e.valeur ?? ''}`}>
+                  {i > 0 ? ' · ' : null}
+                  <EntreeProvenance txt={`${label} — ${texteProvenance(e)}`} piece={e.piece} page={e.page} lienPiece={lienPiece} />
+                </Fragment>
+              );
+            })}
+          </span>
+        </details>
+      )}
       {provenances.length > 0 && (
         <details style={{ fontSize: 11 }}>
           <summary style={{ ...styleAide, cursor: 'pointer' }}>provenance ({compte})</summary>

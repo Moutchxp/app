@@ -121,6 +121,44 @@ describe('N5-E — motif de non-écriture sous un champ vide', () => {
   });
 });
 
+describe('LOT PROV-1 (point 2) — AnnotationsExtraction : liens de provenance sous un champ VIDE/DIVERGENT', () => {
+  const rendre = (props: Parameters<typeof AnnotationsExtraction>[0]) => renderToStaticMarkup(createElement(AnnotationsExtraction, props));
+  // journal d'un champ DIVERGENT (nb_logements) : origine null, deux lectures écartées (OCR/vision) MÊME pièce/page, + 1 ligne cerfa sans pièce.
+  const journalDivergent: JournalChamp = {
+    confiance: null, reserve: null, provenances: [], motif: 'lectures divergentes (OCR « 2 » vs vision « 21 »)',
+    ecartes: [
+      { valeur: null, piece: 'PC_scan.pdf', page: 7, motif: 'lectures divergentes', methode: 'ia', extrait: 'lecture OCR: « 2 »' },
+      { valeur: null, piece: 'PC_scan.pdf', page: 7, motif: 'lectures divergentes', methode: 'ia', extrait: 'lecture vision: « 21 »' },
+      { valeur: null, piece: null, page: null, motif: 'aucun champ logement', methode: 'cerfa', extrait: '' },
+    ],
+  };
+  const lienPiece = (nom: string, page?: number | null) => (nom === 'PC_scan.pdf' ? () => { void page; } : undefined);
+
+  it('champ divergent (origine null) → « sources lues (2) » + CHAQUE lecture ouvrable à sa page', () => {
+    const h = rendre({ origine: null, journal: journalDivergent, lienPiece });
+    expect(h).toContain('sources lues (2)');           // 2 lectures liables (la ligne cerfa sans pièce est exclue)
+    expect(h).toContain('lecture OCR: « 2 »');          // la 1re lecture
+    expect(h).toContain('lecture vision: « 21 »');      // la 2de lecture
+    expect(h).toContain('PC_scan.pdf p.7');             // la pièce ET la page
+    expect((h.match(/↗/g) ?? []).length).toBe(2);       // DEUX liens cliquables (une source par lecture)
+  });
+
+  it('sans lienPiece câblé → les sources restent en texte (jamais un lien mort)', () => {
+    const h = rendre({ origine: null, journal: journalDivergent });
+    expect(h).toContain('sources lues (2)');
+    expect(h).not.toContain('↗');
+  });
+
+  it('une valeur SAISIE (origine « saisie ») → aucune source affichée (la main a tranché)', () => {
+    expect(rendre({ origine: 'saisie', journal: journalDivergent, lienPiece })).not.toContain('sources lues');
+  });
+
+  it('champ vide SANS écarté porteur de pièce → aucune section « sources lues »', () => {
+    const j: JournalChamp = { confiance: null, reserve: null, provenances: [], motif: 'champ absent', ecartes: [{ valeur: null, piece: null, page: null, motif: 'x', methode: 'cerfa', extrait: '' }] };
+    expect(rendre({ origine: null, journal: j })).not.toContain('sources lues');
+  });
+});
+
 describe('N3-C — EditeurParking : trois états dont « non renseigné »', () => {
   it('select à trois options', () => {
     const h = renderToStaticMarkup(createElement(EditeurParking, { valeur: '', origine: null, onValeur: noop }));
