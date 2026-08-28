@@ -10,14 +10,16 @@ import { repereDepuisIndex } from '../../../../lib/permis/affectationSchema';
 
 /** PROJ-3g — libellé lisible d'une famille (le MOT porte l'info, jamais la couleur seule). PUR. */
 export function libelleFamille(f: FamillePlan): string {
-  return f === 'masse' ? 'plan de masse' : f === 'etage' ? 'plan d’étage' : 'coupe / élévation';
+  return f === 'masse' ? 'plan de masse' : f === 'etage' ? 'plan d’étage' : f === 'cerfa' ? 'Cerfa (formulaire)' : 'coupe / élévation';
 }
 
 /** PROJ-3g/3j — message du VERROU métier : pourquoi on ne peut pas tracer ici (jamais un bouton grisé muet). null si traçable. Seules
- *  les COUPES/FAÇADES (élévations) verrouillent ; un plan d'étage est traçable. PUR. */
+ *  les COUPES/FAÇADES (élévations) et le CERFA (formulaire, PROV-2 a) verrouillent ; un plan d'étage est traçable. PUR. */
 export function messageVerrou(f: FamillePlan | null): string | null {
   if (estTracable(f)) return null;
-  const quoi = f === 'coupe' ? 'une coupe ou une façade (vue en élévation)' : 'une vue qui n’est pas un plan';
+  const quoi = f === 'coupe' ? 'une coupe ou une façade (vue en élévation)'
+    : f === 'cerfa' ? 'le formulaire Cerfa (à consulter, pas à tracer)'
+    : 'une vue qui n’est pas un plan';
   return `Cette vue est ${quoi} : on ne peut y tracer une emprise, qui se trace sur une vue en plan (plan de masse ou d’étage).`;
 }
 

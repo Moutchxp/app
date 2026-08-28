@@ -134,6 +134,26 @@ describe('PROJ-3g — familles décidées au NOM (noms réels mesurés sur 11430
     expect(proposees.map((p) => `${p.id}:${p.famille}`)).toEqual(['3:masse', '2:etage', '1:coupe']);
     expect(autres.map((p) => p.id)).toEqual([4]); // la notice reste atteignable au repli
   });
+
+  it('PROV-2 (a) — REPLI PAR CONTENU : noms opaques → le résolveur classe, le nom reste PRIORITAIRE', () => {
+    const pieces: PieceScorable[] = [
+      { id: 10, nomFichier: 'PC2_Plan_de_masse.pdf', typeMime: 'application/pdf' }, // classé par le NOM (masse)
+      { id: 11, nomFichier: 'opaque_A.pdf', typeMime: 'application/pdf' },           // nom null → contenu : cerfa
+      { id: 12, nomFichier: 'opaque_B.pdf', typeMime: 'application/pdf' },           // nom null → contenu : coupe
+      { id: 13, nomFichier: 'opaque_C.pdf', typeMime: 'application/pdf' },           // nom null → contenu : null (muette)
+    ];
+    const contenu = (p: PieceScorable) => (p.id === 11 ? 'cerfa' as const : p.id === 12 ? 'coupe' as const : null);
+    const { proposees, autres } = classerPiecesParFamille(pieces, contenu);
+    // ordre masse(0) > coupe(2) > cerfa(3) ; l'opaque non classé tombe en « autres ».
+    expect(proposees.map((p) => `${p.id}:${p.famille}`)).toEqual(['10:masse', '12:coupe', '11:cerfa']);
+    expect(autres.map((p) => p.id)).toEqual([13]);
+  });
+
+  it('PROV-2 (a) — le NOM prime sur le CONTENU (un plan de masse nommé n’est pas reclassé cerfa)', () => {
+    const pieces: PieceScorable[] = [{ id: 20, nomFichier: 'PC2_masse.pdf', typeMime: 'application/pdf' }];
+    const { proposees } = classerPiecesParFamille(pieces, () => 'cerfa');
+    expect(proposees[0].famille).toBe('masse'); // le nom (masse) l’emporte, le résolveur n’est même pas consulté
+  });
 });
 
 describe('PROJ-3f — cartouche exclu, pièce multi-pages éclatée en planches (pur)', () => {

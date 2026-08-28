@@ -297,15 +297,17 @@ describe('PROJ-3g — trois familles dans la bande + verrou de traçage', () => 
     const html = renderToStaticMarkup(h(BandePlans, { bande: b, index: 0, onPrecedent: () => {}, onSuivant: () => {} }));
     expect(html.toLowerCase()).toContain('coupe / élévation');
   });
-  it('libelleFamille : le mot de chaque famille', () => {
+  it('libelleFamille : le mot de chaque famille (dont Cerfa, PROV-2 a)', () => {
     expect(libelleFamille('masse')).toBe('plan de masse');
     expect(libelleFamille('etage')).toBe('plan d’étage');
     expect(libelleFamille('coupe')).toBe('coupe / élévation');
+    expect(libelleFamille('cerfa')).toBe('Cerfa (formulaire)');
   });
-  it('messageVerrou (PROJ-3j) : null si traçable (masse OU étage) ; message seulement pour coupe/façade', () => {
+  it('messageVerrou (PROJ-3j / PROV-2 a) : null si traçable (masse OU étage) ; message pour coupe/façade ET Cerfa', () => {
     expect(messageVerrou('masse')).toBeNull();
     expect(messageVerrou('etage')).toBeNull();                 // ① étage traçable → aucun verrou
     expect(messageVerrou('coupe')).toMatch(/coupe ou une façade|vue en plan/);
+    expect(messageVerrou('cerfa')).toMatch(/formulaire Cerfa|consulter/); // PROV-2 (a) : formulaire, jamais traçable
     expect(messageVerrou(null)).toMatch(/vue en plan/);
   });
   it('noteFamille (PROJ-3j) : rappel informatif sur « étage » (jamais un blocage), null ailleurs', () => {

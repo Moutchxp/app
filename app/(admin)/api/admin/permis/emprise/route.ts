@@ -2,9 +2,10 @@ import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
-import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
+import { depsReellesLectureGed, lireGedPermis } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
-import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte, familleDeNom, tracabilitePlanche } from '../../../../../lib/permis/planMasse';
+import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte, familleDeNom, tracabilitePlanche, type FamillePlan } from '../../../../../lib/permis/planMasse';
+import { familleDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV-2 (a) : repli par le CONTENU pour les noms opaques
 
 // PROJ-3d — confirmation page-level PARESSEUSE : plafond DUR de pièces ouvertes côté serveur (mesuré ~98 ms/pièce → ~0,7 s pour 7).
 //   Ne JAMAIS ouvrir les 81 pièces (~8 s). Les proposées au-delà du plafond restent proposées PAR LEUR NOM, sans confirmation.
@@ -57,12 +58,25 @@ export async function GET(request: Request): Promise<Response> {
     // Seules les pièces PDF sont traçables (filtre inchangé) ; la clé de stockage ne sort JAMAIS.
     const piecesPdf = piecesBrutes.filter((p) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf'));
     // PROJ-3d/3g ① — TRI PAR NOM (instantané, 0 I/O) : familles masse → étage → coupe (ordre), le reste conservé (repli).
-    const { proposees, autres } = classerPiecesParFamille(piecesPdf);
+    const nomSeul = classerPiecesParFamille(piecesPdf);
+    let proposees = nomSeul.proposees;
+    let autres = nomSeul.autres;
+    // PROV-2 (a) — NOMS OPAQUES : le nom n'a RIEN proposé (ex. 531 : 42 pièces → 0 famille) → REPLI par le CONTENU. On lit le texte
+    //   (lireGedPermis ~1,8 s) UNIQUEMENT dans ce cas (un dossier bien nommé ne déclenche aucune lecture) et on reconnaît cerfa /
+    //   coupe / masse par les signaux PRÉCIS de LECT-1 A/B (0 faux positif mesuré). Isolé en `repli` : un échec de lecture laisse la
+    //   bande vide plutôt que de faire tomber la réponse.
+    if (proposees.length === 0) {
+      const ged = await repli('contenu', lireGedPermis(dossierId, deps), { pieces: [] } as unknown as Awaited<ReturnType<typeof lireGedPermis>>);
+      const texteParId = new Map(ged.pieces.map((p) => [p.id, p.pages.filter((x) => x.aTexte).map((x) => x.texte)] as const));
+      const parContenu = classerPiecesParFamille(piecesPdf, (p) => familleDeContenu(texteParId.get(p.id) ?? []));
+      proposees = parContenu.proposees;
+      autres = parContenu.autres;
+    }
     // PROJ-3d/3f — CONFIRMATION PARESSEUSE, uniquement sur la shortlist plafonnée : ouvre chaque candidat et l'ÉCLATE EN PLANCHES
     //   (ses pages hors cartouche, cf. pagesPlanches) + une échelle indicative par page. Texte SEUL (jamais getOperatorList, trop cher).
     //   Dégradation propre : une pièce illisible reste proposée par son NOM, sans planche (confirme=false → l'UI repliera sur la page 1).
     // PROJ-3m ① — chaque PLANCHE porte sa traçabilité PAR PAGE (une pièce PC3 « coupe » peut mêler coupes et plans de niveau).
-    const confirmations = new Map<number, { planches: { page: number; echelle: string | null; tracable: boolean; famille: 'masse' | 'etage' | 'coupe'; ambigu: boolean }[] }>();
+    const confirmations = new Map<number, { planches: { page: number; echelle: string | null; tracable: boolean; famille: FamillePlan; ambigu: boolean }[] }>();
     await Promise.all(proposees.slice(0, PLAFOND_SHORTLIST).map(async (p) => {
       try {
         const ex = await deps.extraire(await deps.lireObjet(p.cleStockage), p.typeMime);
@@ -74,7 +88,7 @@ export async function GET(request: Request): Promise<Response> {
         confirmations.set(p.id, { planches });
       } catch (e) { indisponibles.push(`texte:${p.id}`); console.error(`[permis/emprise] confirmation pièce ${p.id} indisponible`, { message: e instanceof Error ? e.message : String(e) }); }
     }));
-    const enrichir = (p: { id: number; nomFichier: string; typeMime: string | null }, propose: boolean, famille: 'masse' | 'etage' | 'coupe' | null) => {
+    const enrichir = (p: { id: number; nomFichier: string; typeMime: string | null }, propose: boolean, famille: FamillePlan | null) => {
       const planches = confirmations.get(p.id)?.planches ?? [];
       return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, famille, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0 };
     };

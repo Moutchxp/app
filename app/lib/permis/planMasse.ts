@@ -41,7 +41,9 @@ export interface PieceScorable { id: number; nomFichier: string; typeMime: strin
 // ── PROJ-3g — TROIS FAMILLES de plans, décidées au NOM DE PIÈCE (mesuré : le titre PAR PAGE est trop bruité — sur une pièce
 //   multi-pages de dessin, « coupe »/« façade »/« étage » apparaissent sur presque toutes les planches (tableaux de niveaux, cotes).
 //   Le nom, lui, sépare proprement quand les plans sont des pièces nommées ; à défaut, seuls les codes réglementaires R.431-9 jouent).
-export type FamillePlan = 'masse' | 'etage' | 'coupe';
+// PROV-2 (a) — la famille 'cerfa' n'entre PAS par le nom (familleDeNom) mais par le CONTENU (familleDeContenu, planMasseContenu.ts) :
+//   c'est un gisement de LECTURE prioritaire (doctrine), consultable dans la bande, mais NON traçable (un formulaire n'est pas un plan).
+export type FamillePlan = 'masse' | 'etage' | 'coupe' | 'cerfa';
 const ETAGE = /plan\s+(du\s+|de\s+)?(niveau|rez|rdc|sous\s*sol|etage|r\s*\+?\s*\d)/; // « plan du R+n / RDC / niveau / étage »
 const COUPE = /\bcoupes?\b|\bfacades?\b|\belevations?\b/;                            // coupe(s) OU façade(s) (vues en ÉLÉVATION), pluriel toléré
 const PC3 = /\bpc\s*3(\.\d+)*\b/;                                                    // R.431-9 : PC3 = plan en coupe
@@ -95,6 +97,7 @@ export interface TracabilitePlanche { tracable: boolean; famille: FamillePlan; a
  * verrou ; INDÉTERMINÉ → traçable AVEC MENTION (mieux vaut proposer traçable que verrouiller à tort — décision d'Arno, mesurée). PUR.
  */
 export function tracabilitePlanche(famillePiece: FamillePlan, textePage: string): TracabilitePlanche {
+  if (famillePiece === 'cerfa') return { tracable: false, famille: 'cerfa', ambigu: false }; // PROV-2 (a) : formulaire, jamais traçable
   if (famillePiece !== 'coupe') return { tracable: true, famille: famillePiece, ambigu: false };
   const fp = familleDePage(textePage);
   if (fp === 'coupe') return { tracable: false, famille: 'coupe', ambigu: false };
@@ -102,14 +105,28 @@ export function tracabilitePlanche(famillePiece: FamillePlan, textePage: string)
   return { tracable: true, famille: 'coupe', ambigu: true }; // indéterminé → traçable + mention
 }
 
-const RANG_FAMILLE: Record<FamillePlan, number> = { masse: 0, etage: 1, coupe: 2 };
+// Ordre de la bande, gouverné par la FINALITÉ ACTUELLE (tracé d'emprise) : les vues traçables d'abord (masse > étage), puis les
+// gisements de LECTURE non traçables (coupe > cerfa). ⚠️ La doctrine « coupe + Cerfa prioritaires » relève de la LECTURE des
+// caractéristiques (finalité distincte) → traitée par le lot dédié « séparer pour tracer / pour lire » (orientation b), pas ici.
+const RANG_FAMILLE: Record<FamillePlan, number> = { masse: 0, etage: 1, coupe: 2, cerfa: 3 };
 
 /**
  * Classe les pièces en familles pour la BANDE : proposées = pièces d'une famille, ordonnées masse (par score PROJ-3d) → étage →
- * coupe ; autres = le reste (repli). REPLI GARANTI : aucune pièce perdue. PUR.
+ * coupe → cerfa ; autres = le reste (repli). REPLI GARANTI : aucune pièce perdue. PUR.
+ *
+ * PROV-2 (a) — `familleContenu` (optionnel) : REPLI PAR LE CONTENU quand le NOM ne classe rien (`familleDeNom` = null). C'est ce
+ * qui sauve les versements à noms OPAQUES (ex. 531 : 42 noms → 0 famille par le nom). Fourni par l'appelant serveur (le texte des
+ * pièces vit côté serveur → cf. `planMasseContenu.familleDeContenu`). Le NOM reste PRIORITAIRE (signal explicite de l'architecte) ;
+ * le contenu ne parle que là où le nom se tait. PUR (le résolveur est injecté).
  */
-export function classerPiecesParFamille<T extends PieceScorable>(pieces: T[]): { proposees: (T & { famille: FamillePlan })[]; autres: T[] } {
-  const avec = pieces.map((p, i) => ({ p, i, f: familleDeNom(p.nomFichier), s: scoreNomPlanMasse(p.nomFichier) }));
+export function classerPiecesParFamille<T extends PieceScorable>(
+  pieces: T[],
+  familleContenu?: (piece: T) => FamillePlan | null,
+): { proposees: (T & { famille: FamillePlan })[]; autres: T[] } {
+  const avec = pieces.map((p, i) => {
+    const f = familleDeNom(p.nomFichier) ?? (familleContenu ? familleContenu(p) : null);
+    return { p, i, f, s: scoreNomPlanMasse(p.nomFichier) };
+  });
   const proposees = avec.filter((x): x is typeof x & { f: FamillePlan } => x.f !== null)
     .sort((a, b) => RANG_FAMILLE[a.f] - RANG_FAMILLE[b.f] || b.s - a.s || a.i - b.i)
     .map((x) => ({ ...x.p, famille: x.f }));
