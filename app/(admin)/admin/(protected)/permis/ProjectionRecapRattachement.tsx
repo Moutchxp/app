@@ -3,6 +3,7 @@ import { cadreDeAnneaux, type Boite, type PointLambert } from '../../../../lib/p
 import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import { SchemaParcelleTrace, LegendeSchemaProjection, ListeEmprises, attribuerReperes, FILTRES_SCHEMA_DEFAUT } from './TraceEmpriseRendu';
+import type { EtatStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 
 /**
  * PROJ-4a — RÉCAP (LECTURE SEULE) de l'emprise projetée, affiché dans le détail du Suivi Rattachement pour un permis « en attente de
@@ -27,6 +28,7 @@ export interface RecapProjectionProps {
   parcelle: PointLambert[][];                                 // empreinte parcellaire (Lambert-93), pour caler le schéma
   polygones: PolygoneBdTopo[];                                // bâti BD TOPO (∩ empreinte) — existant + futur « en projet »
   batiments: { corpsId: number; repere: string | null }[];   // bâtiments déclarés au permis (pour grouper la liste de provenance)
+  statuts?: Map<string, EtatStatutPolygone>;                  // RATT-3 — statut décidé par cleabs : colore l'existant (préservé/détruit) sur le schéma
 }
 
 /**
@@ -35,7 +37,7 @@ export interface RecapProjectionProps {
  *  · aucune emprise → on le DIT explicitement (jamais un schéma vide) : pas passé par la projection, ou rien tracé ;
  *  · emprises présentes → schéma 3 couches (parcelle · bâti BD TOPO · emprise projetée) + légende + provenance par bâtiment.
  */
-export function RecapProjectionRattachement({ etat, emprises, parcelle, polygones, batiments }: RecapProjectionProps) {
+export function RecapProjectionRattachement({ etat, emprises, parcelle, polygones, batiments, statuts }: RecapProjectionProps) {
   if (etat !== 'en_attente_bati') return null;
 
   if (emprises.length === 0) {
@@ -70,7 +72,7 @@ export function RecapProjectionRattachement({ etat, emprises, parcelle, polygone
       <p style={{ ...muted, margin: 0 }}>
         Ce que l’on attend de BD TOPO : l’emprise au sol des futurs bâtiments, superposée à la parcelle et au bâti existant.
       </p>
-      <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={FILTRES_SCHEMA_DEFAUT} calageLambert={[]} />
+      <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={FILTRES_SCHEMA_DEFAUT} calageLambert={[]} statuts={statuts} />
       <LegendeSchemaProjection />
       {parBatiment.map(({ b, emp }) => (
         <div key={b.corpsId}>

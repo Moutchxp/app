@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -260,6 +260,82 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     expect(html).toContain('reconstitution — jamais une mesure');
     expect(html).toContain('Que veut dire chaque catégorie');
     expect(html).toContain('pas encore construits');
+    // RATT-3 — deux entrées de DÉCISION (jamais des faits) : préservé (vert) / détruit (orange).
+    expect(html).toContain('Décidé « préservé » (prévision)');
+    expect(html).toContain('Décidé « détruit » (prévision)');
+    expect(html).toContain('sans décision reste gris');
+  });
+});
+
+describe('RATT-3 — couleur de statut sur le schéma + configuration projetée', () => {
+  // Une couleur ne traduit QUE l'existence d'une décision en base ; une prévision non enregistrée reste grise.
+  it('couleurStatutPolygone : preserve → vert, detruit → orange, revoque/absent → aucune couleur', () => {
+    expect(couleurStatutPolygone('preserve')?.stroke).toBe('var(--color-svv-green-ink)');
+    expect(couleurStatutPolygone('detruit')?.stroke).toBe('#c26a00');
+    expect(couleurStatutPolygone(null)).toBeNull();       // 'revoque' → statut courant null → gris
+    expect(couleurStatutPolygone(undefined)).toBeNull();  // aucune ligne de statut → gris
+  });
+
+  // Registre append-only → statut COURANT par cleabs (même chemin que la Vue).
+  const statuts = statutCourantParCleabs([
+    { cleabs: 'B2', statut: 'detruit', etatBdtopoAuMoment: 'En service', decidePar: 'a', decideLe: '2026-08-01T10:00:00.000Z', origine: 'saisie' },
+    { cleabs: 'D4', statut: 'preserve', etatBdtopoAuMoment: 'En service', decidePar: 'a', decideLe: '2026-08-01T10:00:00.000Z', origine: 'saisie' },
+    { cleabs: 'E5', statut: 'detruit', etatBdtopoAuMoment: 'En service', decidePar: 'a', decideLe: '2026-08-01T10:00:00.000Z', origine: 'auto_recouvrement' },
+    { cleabs: 'E5', statut: 'revoque', etatBdtopoAuMoment: 'En service', decidePar: 'a', decideLe: '2026-08-02T10:00:00.000Z', origine: 'auto_revocation' },
+  ] as LigneStatutPolygone[]);
+
+  it('polygonesConfigProjetee : les « détruit » sont exclus ; préservé, révoqué, sans statut et futur bâti restent', () => {
+    const polys = attribuerReperes([
+      { cleabs: 'A1', anneau: [{ x: 0, y: 0 }], etat: 'En projet' },    // futur bâti → reste
+      { cleabs: 'B2', anneau: [{ x: 0, y: 0 }], etat: 'En service' },   // détruit → RETIRÉ
+      { cleabs: 'D4', anneau: [{ x: 0, y: 0 }], etat: 'En service' },   // préservé → reste
+      { cleabs: 'E5', anneau: [{ x: 0, y: 0 }], etat: 'En service' },   // détruit puis révoqué → reste
+      { cleabs: 'F6', anneau: [{ x: 0, y: 0 }], etat: 'En service' },   // sans statut → reste
+    ]);
+    expect(polygonesConfigProjetee(polys, statuts).map((p) => p.cleabs)).toEqual(['A1', 'D4', 'E5', 'F6']);
+  });
+
+  it('SchemaParcelleTrace : colore l’existant selon la décision (preserve vert / detruit orange) ; futur bâti jamais coloré', () => {
+    const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
+    const polys = attribuerReperes([
+      { cleabs: 'A1', anneau: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], etat: 'En projet' },   // recouvrable mais FUTUR → jamais coloré
+      { cleabs: 'B2', anneau: [{ x: 20, y: 20 }, { x: 30, y: 20 }, { x: 30, y: 30 }], etat: 'En service' },
+      { cleabs: 'D4', anneau: [{ x: 2, y: 2 }, { x: 8, y: 2 }, { x: 8, y: 8 }], etat: 'En service' },
+    ]);
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }]], emprises: [], polygones: polys, calageLambert: [], statuts }));
+    expect(html).toContain('data-statut="detruit"');                 // B2 décidé détruit → orange
+    expect(html).toContain('data-statut="preserve"');                // D4 décidé préservé → vert
+    expect(html).toContain('#c26a00');                               // trait orange présent
+    expect(html).not.toContain('data-futur="true" data-statut');     // le futur bâti (A1) n'est jamais coloré par un statut
+  });
+
+  it('SchemaParcelleTrace : sans map de statuts, l’existant reste gris (aucune data-statut)', () => {
+    const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
+    const polys = attribuerReperes([{ cleabs: 'B2', anneau: [{ x: 20, y: 20 }, { x: 30, y: 20 }, { x: 30, y: 30 }], etat: 'En service' }]);
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }]], emprises: [], polygones: polys, calageLambert: [] }));
+    expect(html).not.toContain('data-statut');
+  });
+
+  it('MiniConfigProjetee : titre, bâtiment détruit ABSENT du dessin, aucune couleur verte/orange (statut non transmis au schéma)', () => {
+    const polys = attribuerReperes([
+      { cleabs: 'B2', anneau: [{ x: 20, y: 20 }, { x: 30, y: 20 }, { x: 30, y: 30 }], etat: 'En service' }, // détruit → absent
+      { cleabs: 'D4', anneau: [{ x: 2, y: 2 }, { x: 8, y: 2 }, { x: 8, y: 8 }], etat: 'En service' },       // préservé → présent, GRIS
+    ]);
+    const html = renderToStaticMarkup(h(MiniConfigProjetee, { parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }]], polygones: polys, emprises: [], statuts }));
+    expect(html).toContain('Configuration projetée');
+    expect(html).toContain('data-repere="B"');        // D4 (préservé) garde son repère B, toujours dessiné
+    expect(html).not.toContain('data-repere="A"');    // B2 (détruit, repère A) n'est plus dessiné
+    expect(html).not.toContain('#c26a00');            // aucune couleur orange
+    expect(html).not.toContain('data-statut');        // statut non transmis → aucune coloration verte/orange
+  });
+
+  it('CaseConfigOfficielle : grisée, non cliquable, mention d’attente + millésime (ou « non renseigné »)', () => {
+    const avec = renderToStaticMarkup(h(CaseConfigOfficielle, { millesime: '2024' }));
+    expect(avec).toContain('Configuration officielle');
+    expect(avec).toContain('en attente de la mise à jour par l’administration');
+    expect(avec).toContain('BD TOPO courant : 2024');
+    expect(avec).toContain('aria-disabled="true"');
+    expect(renderToStaticMarkup(h(CaseConfigOfficielle, { millesime: null }))).toContain('non renseigné');
   });
 });
 

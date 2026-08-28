@@ -556,7 +556,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             <RotationSchema angle={angle} onAngle={setAngle} />
             {/* PROJ-3m ② — quand le prochain clic va sur le SCHÉMA (correspondant du point plan), le guidage s'affiche ICI, au-dessus. */}
             {tracable && guidage.sur === 'schema' && <GuidageTraceBox g={guidage} />}
-            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)}
+            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} statuts={statutParCleabs}
               onCliquer={retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined)} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
             <div><button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button></div>
 
@@ -660,7 +660,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             <RotationSchema angle={angle} onAngle={setAngle} />
             <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
               <div style={{ flex: '1 1 420px', minWidth: 0 }}>
-                <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} hauteurMax="82vh" calageLambert={[]}
+                <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} hauteurMax="82vh" calageLambert={[]} statuts={statutParCleabs}
                   retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 240 }}>

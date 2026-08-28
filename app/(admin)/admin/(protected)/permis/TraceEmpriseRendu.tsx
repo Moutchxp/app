@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import {
-  projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
+  projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, cadreDeAnneaux, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
@@ -496,14 +496,39 @@ function centreAnneau(anneau: PointLambert[]): PointLambert {
   return { x: anneau.reduce((s, p) => s + p.x, 0) / n, y: anneau.reduce((s, p) => s + p.y, 0) / n };
 }
 
+/** RATT-3 — PALETTE de statut (constantes de DESSIN, jamais des variables métier) : vert = préservé décidé, orange = détruit décidé. */
+const STATUT_COULEUR = {
+  preserve: { fill: 'rgba(46,158,91,.22)', stroke: 'var(--color-svv-green-ink)' },
+  detruit: { fill: 'rgba(217,119,6,.22)', stroke: '#c26a00' },
+} as const;
+
+/**
+ * RATT-3 — couleur d'un polygone EXISTANT d'après la SEULE existence d'une décision ENREGISTRÉE (préservé → vert, détruit → orange).
+ * `null` = aucune décision (ou 'revoque', dont le statut courant vaut null) → gris d'origine INCHANGÉ. Une prévision NON enregistrée
+ * (p. ex. un recouvrement sans ligne de statut) ne colore JAMAIS : on ne colore que d'après une décision en base. PUR.
+ */
+export function couleurStatutPolygone(statut: 'preserve' | 'detruit' | null | undefined): { fill: string; stroke: string } | null {
+  return statut === 'preserve' ? STATUT_COULEUR.preserve : statut === 'detruit' ? STATUT_COULEUR.detruit : null;
+}
+
+/**
+ * RATT-3 — polygones à DESSINER dans la miniature « Configuration projetée » (la parcelle telle qu'elle sera après travaux) : on RETIRE
+ * les bâtiments dont la décision COURANTE est « détruit » (effacés du dessin) ; tous les autres restent — préservés, sans décision,
+ * révoqués, futur bâti. Le statut ne sert ici QU'À masquer les détruits (aucune couleur verte/orange dans cette miniature). PUR.
+ */
+export function polygonesConfigProjetee<T extends { cleabs: string | null }>(polygones: readonly T[], statuts: Map<string, EtatStatutPolygone>): T[] {
+  return polygones.filter((p) => !(p.cleabs !== null && statuts.get(p.cleabs)?.statut === 'detruit'));
+}
+
 /**
  * SCHÉMA de la PARCELLE (pur, SVG). Montre TROIS choses VISUELLEMENT DISTINCTES + étiquetées (jamais la couleur seule) : (a) bâti
  * EXISTANT (gris), (b) FUTUR BÂTI « en projet » (bleu tireté = DONNÉE IGN ; ÉCARTÉ → grisé barré), (c) emprise TRACÉE (rouge =
  * RECONSTITUTION, jamais une mesure — garde PROJ). PROJ-3i : repères A/B/C… si `reperes` ; `ecartes` (cleabs décochés) grisés.
  */
-export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, sommetSelectionne = null }: {
+export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, sommetSelectionne = null, statuts }: {
   boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[]; angle?: number; hauteurMax?: string; onCliquer?: (px: { x: number; y: number }) => void;
   retoucheAnneau?: PointLambert[] | null; sommetSelectionne?: number | null; // PROJ-3s — contour en RETOUCHE (poignées éditables) + sommet sélectionné
+  statuts?: Map<string, EtatStatutPolygone>; // RATT-3 — statut décidé par cleabs : colore l'existant (préservé vert / détruit orange). Absent → gris d'origine.
 }) {
   if (!boite || parcelle.length === 0) return <p style={muted}>Parcelle du permis absente : schéma non dessiné (aucun point fiable).</p>;
   const proj = (p: PointLambert) => projeterDansBoite(boite, p);
@@ -531,9 +556,14 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
         {visibles.map((poly, i) => {
           if (poly.anneau.length < 3) return null;
           const futur = estFuturBati(poly.etat), off = futur && ecarte(poly);
-          return <path key={`b${i}`} d={path(poly.anneau)} data-etat={poly.etat ?? ''} data-futur={futur} data-ecarte={off || undefined}
-            fill={off ? 'rgba(0,0,0,.04)' : futur ? 'rgba(31,119,180,.14)' : 'rgba(0,0,0,.06)'}
-            stroke={off ? '#bbb' : futur ? '#1f77b4' : '#888'} strokeWidth={1.2} strokeDasharray={futur ? '4 2' : undefined} strokeOpacity={off ? 0.6 : 1} />;
+          // RATT-3 — un bâtiment EXISTANT prend la couleur de la SEULE décision ENREGISTRÉE (préservé → vert, détruit → orange). Sans
+          //   décision (ou révoqué), ou pour du futur bâti, la couleur d'origine reste INCHANGÉE. Un recouvrement sans ligne de statut
+          //   demeure GRIS : on ne colore jamais d'après une prévision non enregistrée.
+          const statut = !futur ? statuts?.get(poly.cleabs ?? '')?.statut : null;
+          const coul = couleurStatutPolygone(statut);
+          return <path key={`b${i}`} d={path(poly.anneau)} data-etat={poly.etat ?? ''} data-futur={futur} data-ecarte={off || undefined} data-statut={coul ? statut : undefined}
+            fill={off ? 'rgba(0,0,0,.04)' : futur ? 'rgba(31,119,180,.14)' : coul ? coul.fill : 'rgba(0,0,0,.06)'}
+            stroke={off ? '#bbb' : futur ? '#1f77b4' : coul ? coul.stroke : '#888'} strokeWidth={1.2} strokeDasharray={futur ? '4 2' : undefined} strokeOpacity={off ? 0.6 : 1} />;
         })}
         {/* (c) emprises TRACÉES = reconstitution (rouge), si « Afficher la projection » est actif. */}
         {filtres.emprises && emprises.flatMap((e) => (e.anneaux?.length ? e.anneaux : [e.anneau]).map((ring, ri) => ring.length >= 3
@@ -748,6 +778,9 @@ export function LegendeSchemaProjection() {
         {item({ background: 'rgba(0,0,0,.06)', border: '1px solid #888' }, 'Bâti existant (BD TOPO)')}
         {item({ background: 'rgba(31,119,180,.14)', border: '1px dashed #1f77b4' }, 'En projet (donnée IGN)')}
         {item({ background: 'rgba(163,4,2,.18)', border: '1px solid var(--color-svv-red)' }, 'Emprise tracée (reconstitution — jamais une mesure)')}
+        {/* RATT-3 — DÉCISIONS enregistrées sur l'existant (jamais des faits) : une couleur ne traduit qu'une décision en base. */}
+        {item({ background: 'rgba(46,158,91,.22)', border: '1px solid var(--color-svv-green-ink)' }, 'Décidé « préservé » (prévision)')}
+        {item({ background: 'rgba(217,119,6,.22)', border: '1px solid #c26a00' }, 'Décidé « détruit » (prévision)')}
       </div>
       <details style={{ fontSize: 11 }}>
         <summary style={{ cursor: 'pointer', color: 'var(--color-svv-red)' }} aria-label="Explication des catégories du schéma">ⓘ Que veut dire chaque catégorie ?</summary>
@@ -755,8 +788,50 @@ export function LegendeSchemaProjection() {
           <div><strong>Bâti existant</strong> : donnée officielle IGN — des bâtiments déjà construits sur le terrain.</div>
           <div><strong>En projet</strong> : donnée officielle IGN — des bâtiments dessinés dans les données mais pas encore construits.</div>
           <div><strong>Emprise tracée</strong> : un contour que vous avez dessiné à la main (une reconstitution, jamais une mesure). Il ne sert qu’à visualiser : il n’alimente ni le verdict, ni l’altitude, ni un certificat.</div>
+          <div><strong>Décidé « préservé » / « détruit »</strong> : votre décision ENREGISTRÉE sur un bâtiment existant (vert = préservé, orange = détruit). C’est une PRÉVISION, à confronter à la mise à jour cadastrale — jamais un fait. Un bâtiment sans décision reste gris, même recouvert par l’emprise projetée.</div>
         </div>
       </details>
+    </div>
+  );
+}
+
+/** RATT-3 — dimensions de DESSIN des miniatures de configuration (tailles SVG d'affichage, jamais des variables métier/scoring). */
+const BOITE_MINI = { largeur: 300, hauteur: 220, marge: 12 };
+
+/**
+ * RATT-3 — miniature « Configuration projetée » : REPRODUIT le grand schéma « Projection des emprises », mais ÉPURÉE. Les bâtiments
+ * dont la décision COURANTE est « détruit » sont ABSENTS (retirés du dessin, cf. polygonesConfigProjetee) ; les autres — préservés,
+ * sans décision — restent en GRIS d'origine (AUCUN vert/orange ici : `statuts` n'est PAS transmis au schéma, il ne sert qu'à masquer les
+ * détruits) ; l'emprise projetée reste en ROUGE. But : une vue lisible, comparable telle quelle à la future configuration officielle.
+ * 🔴 AFFICHAGE PUR (aucune écriture, aucun couplage moteur ; l'emprise reste une reconstitution, jamais une mesure).
+ */
+export function MiniConfigProjetee({ parcelle, polygones, emprises, statuts }: {
+  parcelle: PointLambert[][]; polygones: PolygoneRepere[]; emprises: EmpriseReconstruite[]; statuts: Map<string, EtatStatutPolygone>;
+}) {
+  const cadre = cadreDeAnneaux(parcelle);
+  const boite: Boite | null = cadre ? { largeur: BOITE_MINI.largeur, hauteur: BOITE_MINI.hauteur, marge: BOITE_MINI.marge, cadre } : null;
+  const restants = polygonesConfigProjetee(polygones, statuts); // les « détruits » ne sont PAS dessinés
+  return (
+    <figure style={{ position: 'relative', margin: 0, display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+      <figcaption style={{ position: 'absolute', top: 6, left: 6, zIndex: 1, fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,.85)', color: 'var(--color-svv-ink)', padding: '.1rem .45rem', borderRadius: '.3rem', border: '1px solid var(--color-svv-line)' }}>Configuration projetée</figcaption>
+      {/* statuts NON transmis à SchemaParcelleTrace → aucune couleur verte/orange ; les « détruits » sont déjà retirés de `restants`. */}
+      <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={restants} filtres={FILTRES_SCHEMA_DEFAUT} calageLambert={[]} hauteurMax="230px" />
+      <div style={{ fontSize: 11, color: 'var(--color-svv-muted)', lineHeight: 1.35 }}>La parcelle telle qu’elle sera après travaux : bâtiments décidés « détruits » retirés, emprise projetée en rouge. Prévision, à confronter à la configuration officielle.</div>
+    </figure>
+  );
+}
+
+/**
+ * RATT-3 — 3e emplacement « Configuration officielle » : case GRISÉE, non cliquable, en attente de la mise à jour cadastrale par
+ * l'administration. Matérialise que le projeté est PROVISOIRE par construction. AUCUNE donnée à charger — le millésime BD TOPO courant
+ * affiché est CELUI déjà montré sous la miniature d'origine (null → « non renseigné »). PUR.
+ */
+export function CaseConfigOfficielle({ millesime }: { millesime: string | null }) {
+  return (
+    <div aria-disabled="true" style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', minHeight: 160, border: '1px dashed var(--color-svv-line)', borderRadius: '.4rem', background: 'rgba(0,0,0,.03)', padding: '.6rem .7rem', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)', opacity: 0.55 }}>Configuration officielle</div>
+      <div style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>en attente de la mise à jour par l’administration</div>
+      <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>BD TOPO courant : {millesime ?? 'non renseigné'}</div>
     </div>
   );
 }

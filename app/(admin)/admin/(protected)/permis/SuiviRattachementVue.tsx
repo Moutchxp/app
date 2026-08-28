@@ -8,7 +8,7 @@ import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../.
 import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee } from './SuiviRattachementRendu';
 import { RecapProjectionRattachement } from './ProjectionRecapRattachement';
 // RATT-1 bis — le geste « statuer les polygones existants » réutilise le composant PUR d'Analyse + ses helpers (jamais dupliqué).
-import { StatutPolygonesExistants, attribuerReperes } from './TraceEmpriseRendu';
+import { StatutPolygonesExistants, attribuerReperes, MiniConfigProjetee, CaseConfigOfficielle } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 // TYPES seuls (modules serveur / purs) — pour le récap de projection (PROJ-4a), affichage pur.
 import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -272,7 +272,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
         {detail.origineOuverture === 'manuelle' && <BandeauOuvertureManuelle motif={detail.motifOuverture} />}
         {/* PROJ-4a — RÉCAP (lecture seule) de l'emprise projetée : ne s'affiche QUE pour un permis « en attente de bâti ». Le composant
             gère lui-même l'absence d'emprise (message explicite, jamais un schéma vide) et l'état hors « en attente » (rien). */}
-        {recapProjection && <RecapProjectionRattachement etat={detail.etat} emprises={recapProjection.emprises} parcelle={recapProjection.parcelle} polygones={recapProjection.polygones} batiments={recapProjection.batiments} />}
+        {recapProjection && <RecapProjectionRattachement etat={detail.etat} emprises={recapProjection.emprises} parcelle={recapProjection.parcelle} polygones={recapProjection.polygones} batiments={recapProjection.batiments} statuts={statutParCleabs} />}
         {/* ÉTAGE 1 — dossier « achevé, à confirmer » (surélévation / surface constante) : on N'affiche PAS l'arbitrage (affectation +
             valider = injection), mais la CLÔTURE honnête. `clos_sans_bati` → note en lecture seule. */}
         {(estAcheveSansBati || estClos) && <ClotureAcheveSansBati clos={estClos} onClore={() => void clore()} enCours={enCours} />}
@@ -307,6 +307,17 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
                 )}
                 <div style={{ flex: '1 1 320px', minWidth: 0 }}>
                   <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} emprisesProjetees={afficherProjection ? emprisesProjetees : []} />
+                </div>
+                {/* RATT-3 — à droite de « Configuration d'origine » : la configuration PROJETÉE (parcelle après travaux, détruits retirés,
+                    emprise en rouge, aucun vert/orange) puis l'emplacement « Configuration officielle » (grisé, en attente de l'administration).
+                    Données déjà en mémoire (recapProjection + statutParCleabs, GET emprise) — aucune requête supplémentaire. */}
+                <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                  <div className="svv-card" style={{ fontSize: 12 }}>
+                    <MiniConfigProjetee parcelle={recapProjection?.parcelle ?? []} polygones={polygonesReperes} emprises={recapProjection?.emprises ?? []} statuts={statutParCleabs} />
+                  </div>
+                </div>
+                <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                  <CaseConfigOfficielle millesime={origine.millesimeGel} />
                 </div>
                 {aChange && (
                   <div style={{ flex: '1 1 320px', minWidth: 0 }}>
