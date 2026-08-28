@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { statutCourantParCleabs, estStatuable, type LigneStatutPolygone } from './polygoneStatut';
+import { statutCourantParCleabs, estStatuable, actionsAutoStatut, type LigneStatutPolygone, type EtatStatutPolygone, type OrigineStatut } from './polygoneStatut';
 
-const l = (cleabs: string, statut: LigneStatutPolygone['statut'], le: string, etat: string | null = 'En service', par = 'admin'): LigneStatutPolygone =>
-  ({ cleabs, statut, etatBdtopoAuMoment: etat, decidePar: par, decideLe: le });
+const l = (cleabs: string, statut: LigneStatutPolygone['statut'], le: string, etat: string | null = 'En service', par = 'admin', origine: OrigineStatut | null = 'saisie'): LigneStatutPolygone =>
+  ({ cleabs, statut, etatBdtopoAuMoment: etat, decidePar: par, decideLe: le, origine });
 
 describe('RATT-1 (2) — statutCourantParCleabs (append-only : dernière décision = courant)', () => {
-  it('une seule décision → statut courant + snapshot source', () => {
+  it('une seule décision → statut courant + snapshot source + origine', () => {
     const m = statutCourantParCleabs([l('A', 'preserve', '2026-08-01T10:00:00Z', 'En projet')]);
-    expect(m.get('A')).toMatchObject({ statut: 'preserve', etatBdtopoAuMoment: 'En projet' });
+    expect(m.get('A')).toMatchObject({ statut: 'preserve', etatBdtopoAuMoment: 'En projet', origine: 'saisie' });
   });
   it('la DERNIÈRE ligne (decide_le max) fait foi ; l’historique est du plus récent au plus ancien', () => {
     const m = statutCourantParCleabs([
@@ -26,23 +26,79 @@ describe('RATT-1 (2) — statutCourantParCleabs (append-only : dernière décisi
     expect(m.get('A')!.statut).toBeNull();
     expect(m.get('A')!.historique).toHaveLength(2);             // la décision « détruit » reste lisible
   });
+  it('origine de la ligne COURANTE = celle de la dernière décision (auto vs saisie)', () => {
+    const m = statutCourantParCleabs([
+      l('A', 'detruit', '2026-08-01T10:00:00Z', 'En service', 'auto:emprise', 'auto_recouvrement'),
+      l('A', 'preserve', '2026-08-02T10:00:00Z', 'En service', 'admin', 'saisie'),
+    ]);
+    expect(m.get('A')).toMatchObject({ statut: 'preserve', origine: 'saisie' }); // une saisie humaine a repris la main
+  });
   it('aucune ligne pour un cleabs → absent de la Map (aucun statut décidé)', () => {
     expect(statutCourantParCleabs([]).get('X')).toBeUndefined();
   });
 });
 
-describe('RATT-1 (2) — estStatuable', () => {
-  it('polygone En service, non recouvert → statuable', () => {
-    expect(estStatuable({ cleabs: 'A', etat: 'En service' }, [])).toBe(true);
+describe('RATT-2 — estStatuable (TOUS les existants, recouverts compris ; seul le futur bâti est exclu)', () => {
+  it('polygone En service → statuable', () => {
+    expect(estStatuable({ cleabs: 'A', etat: 'En service' })).toBe(true);
   });
-  it('polygone « En projet » (futur bâti) → NON statuable (relève de l’adoption)', () => {
-    expect(estStatuable({ cleabs: 'A', etat: 'En projet' }, [])).toBe(false);
-    expect(estStatuable({ cleabs: 'A', etat: 'En construction' }, [])).toBe(false);
+  it('polygone « En projet » / « En construction » (futur bâti) → NON statuable (relève de l’adoption)', () => {
+    expect(estStatuable({ cleabs: 'A', etat: 'En projet' })).toBe(false);
+    expect(estStatuable({ cleabs: 'A', etat: 'En construction' })).toBe(false);
   });
-  it('polygone recouvert par une emprise projetée → NON statuable', () => {
-    expect(estStatuable({ cleabs: 'A', etat: 'En service' }, ['A'])).toBe(false);
+  it('RATT-2 — polygone recouvert par une emprise projetée → DÉSORMAIS statuable (détruit par défaut, basculable)', () => {
+    // (avant RATT-2 : NON statuable) — il entre maintenant dans la liste, quel que soit le recouvrement.
+    expect(estStatuable({ cleabs: 'A', etat: 'En service' })).toBe(true);
   });
   it('sans cleabs → non statuable', () => {
-    expect(estStatuable({ cleabs: null, etat: 'En service' }, [])).toBe(false);
+    expect(estStatuable({ cleabs: null, etat: 'En service' })).toBe(false);
+  });
+});
+
+describe('RATT-2 — actionsAutoStatut (écriture/révocation auto ; ne touche JAMAIS une décision humaine)', () => {
+  // Fabrique un état COURANT minimal (seuls statut + origine importent à la décision).
+  const etat = (statut: EtatStatutPolygone['statut'], origine: OrigineStatut | null): EtatStatutPolygone =>
+    ({ statut, origine, etatBdtopoAuMoment: null, decidePar: null, decideLe: null, historique: [] });
+
+  it('recouvert + JAMAIS statué → écrit « detruit » d’origine « auto_recouvrement »', () => {
+    const actions = actionsAutoStatut(['A'], new Map());
+    expect(actions).toEqual([{ cleabs: 'A', statut: 'detruit', origine: 'auto_recouvrement' }]);
+  });
+
+  it('recouvert + DÉJÀ statué par une SAISIE humaine → n’écrit RIEN (jamais par-dessus une décision d’Arno)', () => {
+    const statuts = new Map<string, EtatStatutPolygone>([['A', etat('preserve', 'saisie')]]);
+    expect(actionsAutoStatut(['A'], statuts)).toEqual([]);
+  });
+
+  it('recouvert + DÉJÀ « detruit » auto → n’écrit RIEN (pas de doublon)', () => {
+    const statuts = new Map<string, EtatStatutPolygone>([['A', etat('detruit', 'auto_recouvrement')]]);
+    expect(actionsAutoStatut(['A'], statuts)).toEqual([]);
+  });
+
+  it('PLUS recouvert + statut auto « detruit » → RÉVOQUE (origine « auto_revocation »)', () => {
+    const statuts = new Map<string, EtatStatutPolygone>([['A', etat('detruit', 'auto_recouvrement')]]);
+    expect(actionsAutoStatut([], statuts)).toEqual([{ cleabs: 'A', statut: 'revoque', origine: 'auto_revocation' }]);
+  });
+
+  it('PLUS recouvert + statut « detruit » d’une SAISIE humaine → n’écrit RIEN (la décision d’Arno prime)', () => {
+    const statuts = new Map<string, EtatStatutPolygone>([['A', etat('detruit', 'saisie')]]);
+    expect(actionsAutoStatut([], statuts)).toEqual([]);
+  });
+
+  it('PLUS recouvert + origine INCONNUE (migration 165 absente, origine=null) → n’écrit RIEN (jamais révoquer ce qu’on ne sait pas auto)', () => {
+    const statuts = new Map<string, EtatStatutPolygone>([['A', etat('detruit', null)]]);
+    expect(actionsAutoStatut([], statuts)).toEqual([]);
+  });
+
+  it('cas mixte : un nouveau recouvert à poser + un ancien auto à révoquer, une saisie intouchée', () => {
+    const statuts = new Map<string, EtatStatutPolygone>([
+      ['ANCIEN_AUTO', etat('detruit', 'auto_recouvrement')], // n’est plus recouvert → révocation
+      ['SAISIE', etat('detruit', 'saisie')],                  // n’est plus recouvert MAIS humain → intouché
+    ]);
+    const actions = actionsAutoStatut(['NOUVEAU'], statuts);
+    expect(actions).toContainEqual({ cleabs: 'NOUVEAU', statut: 'detruit', origine: 'auto_recouvrement' });
+    expect(actions).toContainEqual({ cleabs: 'ANCIEN_AUTO', statut: 'revoque', origine: 'auto_revocation' });
+    expect(actions.find((a) => a.cleabs === 'SAISIE')).toBeUndefined();
+    expect(actions).toHaveLength(2);
   });
 });

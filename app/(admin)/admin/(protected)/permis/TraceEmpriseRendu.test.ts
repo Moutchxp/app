@@ -561,15 +561,16 @@ describe('PROJ-3s — retouche : liste (retoucher / multi-parties) + poignées s
 
 describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décision côte à côte', () => {
   const poly = (cleabs: string, etat: string | null, repere: string) => ({ cleabs, anneau: [], etat, repere });
-  const ligne = (cleabs: string, statut: LigneStatutPolygone['statut'], etat: string | null): LigneStatutPolygone => ({ cleabs, statut, etatBdtopoAuMoment: etat, decidePar: 'admin', decideLe: '2026-08-01T10:00:00Z' });
+  const ligne = (cleabs: string, statut: LigneStatutPolygone['statut'], etat: string | null): LigneStatutPolygone => ({ cleabs, statut, etatBdtopoAuMoment: etat, decidePar: 'admin', decideLe: '2026-08-01T10:00:00Z', origine: 'saisie' });
 
-  it('liste les EXISTANTS (exclut « en projet » et recouverts) ; affiche BD TOPO ET ma décision ; source conservée si préservé prime', () => {
+  it('RATT-2 — liste TOUS les existants (recouverts COMPRIS ; seul « en projet » exclu) ; affiche BD TOPO ET ma décision ; source conservée si préservé prime', () => {
     const polygones = [poly('A', 'En service', 'A'), poly('B', 'En projet', 'B'), poly('C', 'En service', 'C')];
     const statuts = statutCourantParCleabs([ligne('A', 'preserve', 'En projet')]); // BD TOPO disait « En projet », j'ai décidé préservé
     const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: ['C'], statuts, onStatuer: () => {} }));
     expect(html).toContain('Polygone A');
-    expect(html).not.toContain('Polygone B'); // « en projet » exclu (relève de l'adoption)
-    expect(html).not.toContain('Polygone C'); // recouvert par l'emprise projetée exclu
+    expect(html).not.toContain('Polygone B'); // « en projet » (futur bâti) exclu (relève de l'adoption)
+    expect(html).toContain('Polygone C'); // RATT-2 — recouvert par l'emprise projetée : DÉSORMAIS listé (détruit par défaut, basculable)
+    expect(html).toContain('recouvert par l’emprise projetée — statut détruit par défaut'); // mention exacte sur le recouvert
     expect(html).toContain('BD TOPO');
     expect(html).toContain('bâtiment préservé');
     expect(html).toContain('BD TOPO disait « En projet »'); // 🔴 la source reste lisible ; ma décision prime sans l'écraser
@@ -584,7 +585,7 @@ describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décisio
   });
 
   it('l’HISTORIQUE de mes décisions est repliable (audit qui/quand)', () => {
-    const statuts = statutCourantParCleabs([ligne('A', 'preserve', 'En service'), { cleabs: 'A', statut: 'detruit', etatBdtopoAuMoment: 'En service', decidePar: 'admin', decideLe: '2026-08-02T10:00:00Z' }]);
+    const statuts = statutCourantParCleabs([ligne('A', 'preserve', 'En service'), { cleabs: 'A', statut: 'detruit', etatBdtopoAuMoment: 'En service', decidePar: 'admin', decideLe: '2026-08-02T10:00:00Z', origine: 'saisie' }]);
     const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('A', 'En service', 'A')], recouverts: [], statuts, onStatuer: () => {} }));
     expect(html).toContain('historique de mes décisions (2)');
   });

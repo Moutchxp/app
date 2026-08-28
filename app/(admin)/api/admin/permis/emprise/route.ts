@@ -6,7 +6,7 @@ import { depsReellesLectureGed, lireGedPermis } from '../../../../../lib/permis/
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
 import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte, familleDeNom, tracabilitePlanche, type FamillePlan } from '../../../../../lib/permis/planMasse';
 import { familleDeContenu, niveauxDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV : famille + niveaux par le CONTENU
-import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2)
+import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone, appliquerAutoStatut } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2) / RATT-2
 
 // PROJ-3d — confirmation page-level PARESSEUSE : plafond DUR de pièces ouvertes côté serveur (mesuré ~98 ms/pièce → ~0,7 s pour 7).
 //   Ne JAMAIS ouvrir les 81 pièces (~8 s). Les proposées au-delà du plafond restent proposées PAR LEUR NOM, sans confirmation.
@@ -155,8 +155,9 @@ export async function POST(request: Request): Promise<Response> {
     if (body.action === 'supprimer') {
       if (!Number.isInteger(body.id)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
       const nb = await supprimerEmprise(body.id as number, dossierId);
-      const [emprises, ignores] = await Promise.all([listerEmprises(dossierId), listerIgnorees(dossierId)]);
-      return Response.json({ ok: true, nb, emprises, ignores });
+      await appliquerAutoStatut(dossierId, 'auto:emprise'); // RATT-2 — l'emprise a rétréci : révoquer les 'detruit' auto désormais hors couverture
+      const [emprises, ignores, statutsPolygones, polygonesRecouverts] = await Promise.all([listerEmprises(dossierId), listerIgnorees(dossierId), lireStatutsPolygones(dossierId), polygonesRecouvertsParEmprise(dossierId)]);
+      return Response.json({ ok: true, nb, emprises, ignores, statutsPolygones, polygonesRecouverts });
     }
 
     // PROJ-3i — ÉCARTER / RÉTABLIR un polygone « en projet » (décision d'affichage d'Arno, tracée). 🔴 Aucun couplage moteur.
@@ -177,7 +178,7 @@ export async function POST(request: Request): Promise<Response> {
       const cleabs = typeof body.cleabs === 'string' ? body.cleabs : '';
       const statut = body.statut === 'preserve' || body.statut === 'detruit' || body.statut === 'revoque' ? body.statut : null;
       if (cleabs.trim() === '' || statut === null) return Response.json({ erreur: 'requête invalide (cleabs + statut preserve|detruit|revoque)' }, { status: 400 });
-      const res = await poserStatutPolygone(dossierId, cleabs, statut, 'admin:projection');
+      const res = await poserStatutPolygone(dossierId, cleabs, statut, 'admin:projection', 'saisie'); // RATT-2 — décision HUMAINE (jamais révoquée par l'auto)
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
       return Response.json({ ok: true, statutsPolygones: await lireStatutsPolygones(dossierId), polygonesRecouverts: await polygonesRecouvertsParEmprise(dossierId) });
     }
@@ -199,8 +200,9 @@ export async function POST(request: Request): Promise<Response> {
       const affectations = Array.isArray(body.affectations) ? (body.affectations as AffectationEntree[]) : [];
       const res = await adopterAffectations(dossierId, affectations, 'admin:adoption');
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
-      const ignores = await listerIgnorees(dossierId);
-      return Response.json({ ok: true, nbCreees: res.nbCreees, emprises: res.emprises, ignores, debordement: res.debordement });
+      await appliquerAutoStatut(dossierId, 'auto:emprise'); // RATT-2 — l'emprise projetée couvre du bâti : poser 'detruit' d'office (et révoquer l'auto désormais hors couverture)
+      const [ignores, statutsPolygones, polygonesRecouverts] = await Promise.all([listerIgnorees(dossierId), lireStatutsPolygones(dossierId), polygonesRecouvertsParEmprise(dossierId)]);
+      return Response.json({ ok: true, nbCreees: res.nbCreees, emprises: res.emprises, ignores, debordement: res.debordement, statutsPolygones, polygonesRecouverts });
     }
 
     // PROJ-3s — RETOUCHER une emprise existante : positions de sommets Lambert → géométrie RECALCULÉE + VALIDÉE serveur ; provenance
@@ -210,8 +212,9 @@ export async function POST(request: Request): Promise<Response> {
       const anneau = Array.isArray(body.anneau) ? body.anneau : [];
       const res = await retoucherEmprise(dossierId, body.id as number, anneau, 'admin:retouche');
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
-      const ignores = await listerIgnorees(dossierId);
-      return Response.json({ ok: true, emprises: res.emprises, ignores, debordement: res.debordement, provenance: res.provenance });
+      await appliquerAutoStatut(dossierId, 'auto:emprise'); // RATT-2 — la retouche change la couverture : poser/révoquer les 'detruit' auto en conséquence
+      const [ignores, statutsPolygones, polygonesRecouverts] = await Promise.all([listerIgnorees(dossierId), lireStatutsPolygones(dossierId), polygonesRecouvertsParEmprise(dossierId)]);
+      return Response.json({ ok: true, emprises: res.emprises, ignores, debordement: res.debordement, provenance: res.provenance, statutsPolygones, polygonesRecouverts });
     }
 
     if (body.action === 'enregistrer') {
@@ -263,8 +266,9 @@ export async function POST(request: Request): Promise<Response> {
       const contexte = await lireContexteEmprise(dossierId);
       const vraisemblance = verdictVraisemblance({ aireM2: aireM2(anneauLambert), corpsId: body.corpsId as number, surfacePlancherM2: contexte.surfacePlancherM2, surfaceTerrainM2: contexte.surfaceTerrainM2, batiments: contexte.batiments });
       const debordement = await mesurerDebordement(dossierId, anneauLambert); // repère indicatif, même géométrie Lambert serveur ; jamais bloquant
-      const [emprises, ignores] = await Promise.all([listerEmprises(dossierId), listerIgnorees(dossierId)]);
-      return Response.json({ ok: true, id: res.id, surfaceM2: aireM2(anneauLambert), calage: vc, vraisemblance, debordement, emprises, ignores });
+      await appliquerAutoStatut(dossierId, 'auto:emprise'); // RATT-2 — l'emprise projetée couvre du bâti : poser 'detruit' d'office (jamais par-dessus une décision humaine)
+      const [emprises, ignores, statutsPolygones, polygonesRecouverts] = await Promise.all([listerEmprises(dossierId), listerIgnorees(dossierId), lireStatutsPolygones(dossierId), polygonesRecouvertsParEmprise(dossierId)]);
+      return Response.json({ ok: true, id: res.id, surfaceM2: aireM2(anneauLambert), calage: vc, vraisemblance, debordement, emprises, ignores, statutsPolygones, polygonesRecouverts });
     }
 
     return Response.json({ erreur: 'action inconnue' }, { status: 400 });

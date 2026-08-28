@@ -50,9 +50,10 @@ vi.mock('../../../../../lib/permis/lectureGed', () => ({
   }),
 }));
 vi.mock('../../../../../lib/permis/polygoneStatutRepo', () => ({
-  lireStatutsPolygones: vi.fn(async () => [{ cleabs: 'BAT_A', statut: 'preserve', etatBdtopoAuMoment: 'En projet', decidePar: 'admin:projection', decideLe: '2026-08-01T10:00:00Z' }]),
+  lireStatutsPolygones: vi.fn(async () => [{ cleabs: 'BAT_A', statut: 'preserve', etatBdtopoAuMoment: 'En projet', decidePar: 'admin:projection', decideLe: '2026-08-01T10:00:00Z', origine: 'saisie' }]),
   polygonesRecouvertsParEmprise: vi.fn(async () => []),
   poserStatutPolygone: vi.fn(async () => ({ ok: true })),
+  appliquerAutoStatut: vi.fn(async () => {}), // RATT-2 — orchestration auto (best-effort) branchée sur les mutations d'emprise
 }));
 vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({ lireCleTelechargeable: vi.fn(async () => ({ cle: 'ged/dossier/55.pdf', nomFichier: 'PC2.pdf' })) }));
 vi.mock('../../../../../lib/stockage', () => ({ urlSignee: async (cle: string) => `https://signed.example/${cle}` }));
@@ -355,14 +356,14 @@ describe('RATT-1 (2) — POST statuer_polygone (préservé / détruit / révoque
   it('cleabs + statut valide → 200, poserStatutPolygone appelé, registre renvoyé', async () => {
     const res = await post({ action: 'statuer_polygone', dossierId: 531, cleabs: 'BAT_A', statut: 'preserve' });
     expect(res.status).toBe(200);
-    expect(poserStatutPolygone).toHaveBeenCalledWith(531, 'BAT_A', 'preserve', 'admin:projection');
+    expect(poserStatutPolygone).toHaveBeenCalledWith(531, 'BAT_A', 'preserve', 'admin:projection', 'saisie'); // RATT-2 — décision humaine
     const j = await res.json();
     expect(j.statutsPolygones[0]).toMatchObject({ cleabs: 'BAT_A', statut: 'preserve', etatBdtopoAuMoment: 'En projet' }); // source conservée à côté
   });
   it('révoquer est un statut valide', async () => {
     const res = await post({ action: 'statuer_polygone', dossierId: 531, cleabs: 'BAT_A', statut: 'revoque' });
     expect(res.status).toBe(200);
-    expect(poserStatutPolygone).toHaveBeenCalledWith(531, 'BAT_A', 'revoque', 'admin:projection');
+    expect(poserStatutPolygone).toHaveBeenCalledWith(531, 'BAT_A', 'revoque', 'admin:projection', 'saisie'); // RATT-2 — décision humaine
   });
   it('statut hors liste → 400, aucune écriture', async () => {
     const res = await post({ action: 'statuer_polygone', dossierId: 531, cleabs: 'BAT_A', statut: 'demoli' });

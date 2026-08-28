@@ -673,31 +673,36 @@ function libelleStatut(s: 'preserve' | 'detruit'): string { return s === 'preser
 function jjmmaaaaStatut(iso: string): string { const d = iso.slice(0, 10); return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`; }
 
 /**
- * RATT-1 (2) — STATUER les polygones EXISTANTS du site (ni « en projet », ni recouverts par l'emprise projetée). Pour chacun :
- * l'état BD TOPO (SOURCE, jamais réécrite) ET ma décision (préservé/détruit) affichés CÔTE À CÔTE ; boutons pour poser/changer/
- * révoquer (append-only) ; « détruit » est signalé comme une PRÉVISION à confirmer à la mise à jour cadastrale ; l'historique de mes
- * décisions est repliable (qui/quand). Disponible même « en attente du bâti » (ces statuts portent sur l'existant). PUR (l'état vit
- * dans la Vue). Mobile-first, pas de hover.
+ * RATT-1 (2) / RATT-2 — STATUER TOUS les bâtiments EXISTANTS du site (y compris ceux RECOUVERTS par l'emprise projetée ; seul le
+ * « futur bâti » — en projet / en construction — reste hors liste). Pour chacun : l'état BD TOPO (SOURCE, jamais réécrite) ET ma
+ * décision (préservé/détruit) affichés CÔTE À CÔTE ; boutons pour poser/changer/révoquer (append-only). RATT-2 : un bâtiment recouvert
+ * porte « détruit » d'office (automatisme) mais reste basculable en « préservé » — cas d'une surélévation, où l'existant est conservé
+ * sous le futur volume ; la mention le signale explicitement. « Détruit » est une PRÉVISION à confirmer à la mise à jour cadastrale ;
+ * l'historique est repliable (qui/quand). Disponible même « en attente du bâti ». PUR (l'état vit dans la Vue). Mobile-first, pas de hover.
  */
 export function StatutPolygonesExistants({ polygones, recouverts, statuts, onStatuer }: {
   polygones: PolygoneRepere[]; recouverts: readonly string[]; statuts: Map<string, EtatStatutPolygone>;
   onStatuer: (cleabs: string, statut: 'preserve' | 'detruit' | 'revoque') => void;
 }) {
-  const statuables = polygones.filter((p) => estStatuable(p, recouverts));
+  const statuables = polygones.filter((p) => estStatuable(p)); // RATT-2 — tous les existants, recouverts compris
   if (statuables.length === 0) return null;
+  const recouvertsSet = new Set(recouverts);
   const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.2rem .55rem', fontSize: 12 };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .5rem' }}>
       <div style={{ fontSize: 12, fontWeight: 700 }}>Bâtiments existants du site</div>
-      <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Ni « en projet », ni recouverts par le futur bâtiment. Statuez chacun : la source BD TOPO reste affichée à côté de votre décision (jamais écrasée). « Détruit » est une PRÉVISION, à confirmer le jour de la mise à jour cadastrale.</div>
+      <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Tous les bâtiments existants du site (seul le « futur bâti » en est exclu). Statuez chacun : la source BD TOPO reste affichée à côté de votre décision (jamais écrasée). Un bâtiment recouvert par la future emprise est « détruit » par défaut, mais vous pouvez le repasser en « préservé » (cas d’une surélévation). « Détruit » est une PRÉVISION, à confirmer le jour de la mise à jour cadastrale.</div>
       {statuables.map((p) => {
         const st = statuts.get(p.cleabs!);
         const decide = st?.statut ?? null;
+        const recouvert = recouvertsSet.has(p.cleabs!);
         return (
           <div key={p.cleabs} style={{ ...carte, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
             <div style={{ fontSize: 12 }}>
               <strong>Polygone {p.repere}</strong> <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', userSelect: 'all', fontSize: 11, color: 'var(--color-svv-muted)', wordBreak: 'break-all' }}>{p.cleabs}</span>
             </div>
+            {/* RATT-2 — bâtiment recouvert par l'emprise projetée : « détruit » posé d'office, basculable. Mention explicite. */}
+            {recouvert && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-ink)', background: '#fff8f8', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.2rem .4rem' }}>recouvert par l’emprise projetée — statut détruit par défaut</span>}
             {/* SOURCE et DÉCISION côte à côte — jamais l'une à la place de l'autre. */}
             <div style={{ fontSize: 12, display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
               <span><span style={{ color: 'var(--color-svv-muted)' }}>BD TOPO :</span> <strong>{p.etat ?? 'inconnu'}</strong></span>
