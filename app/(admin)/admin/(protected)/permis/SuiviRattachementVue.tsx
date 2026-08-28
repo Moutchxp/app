@@ -7,6 +7,9 @@ import type { ComparaisonRattachement } from '../../../../lib/permis/affectation
 import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
 import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee } from './SuiviRattachementRendu';
 import { RecapProjectionRattachement } from './ProjectionRecapRattachement';
+// RATT-1 bis — le geste « statuer les polygones existants » réutilise le composant PUR d'Analyse + ses helpers (jamais dupliqué).
+import { StatutPolygonesExistants, attribuerReperes } from './TraceEmpriseRendu';
+import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 // TYPES seuls (modules serveur / purs) — pour le récap de projection (PROJ-4a), affichage pur.
 import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { PointLambert } from '../../../../lib/permis/calageEmprise';
@@ -51,6 +54,10 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [emprisesProjetees, setEmprisesProjetees] = useState<EmpriseProjetee[]>([]); // PROJ-2c — emprises du dossier ouvert (Lambert), chargées à l'ouverture
   // PROJ-4a — DONNÉES du récap de projection (lecture seule) : emprises complètes + parcelle + bâti BD TOPO, pour l'état « en attente de bâti ».
   const [recapProjection, setRecapProjection] = useState<{ emprises: EmpriseReconstruite[]; parcelle: PointLambert[][]; polygones: PolygoneBdTopo[]; batiments: { corpsId: number; repere: string | null }[] } | null>(null);
+  // RATT-1 bis — registre append-only des statuts décidés + cleabs recouverts par une emprise projetée, LUS de la MÊME réponse GET emprise (:82). + message d'erreur du geste.
+  const [statutsLignes, setStatutsLignes] = useState<LigneStatutPolygone[]>([]);
+  const [recouverts, setRecouverts] = useState<string[]>([]);
+  const [statutErreur, setStatutErreur] = useState('');
 
   useEffect(() => {
     let annule = false;
@@ -65,12 +72,23 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     return () => { annule = true; };
   }, []);
 
+  // RATT-1 bis — APPLIQUE une réponse du GET emprise à l'état (SOURCE UNIQUE : emprises projetées + récap + statuts + recouverts).
+  //   Partagé par le chargement du dossier ET le rafraîchissement après un statut posé (pas d'état local divergent). PROJ-2c/4a inchangés.
+  type ReponseEmprise = { emprises?: EmpriseReconstruite[]; batiments?: { corpsId: number; repere: string | null }[]; contexte?: { empreinteAnneaux?: PointLambert[][] }; polygones?: PolygoneBdTopo[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: string[] };
+  const appliquerEmprise = useCallback((je: ReponseEmprise) => {
+    const emprises = je.emprises ?? [];
+    setEmprisesProjetees(emprises.filter((e) => e.anneau.length >= 3).map((e) => ({ id: e.id, libelle: e.libelle, anneau: e.anneau.map((p) => [p.x, p.y] as [number, number]) })));
+    setRecapProjection({ emprises, parcelle: je.contexte?.empreinteAnneaux ?? [], polygones: je.polygones ?? [], batiments: je.batiments ?? [] });
+    setStatutsLignes(je.statutsPolygones ?? []); // RATT-1 bis — champs auparavant IGNORÉS de la même réponse
+    setRecouverts(je.polygonesRecouverts ?? []);
+  }, []);
+
   useEffect(() => {
     if (ouvert === null) return; // détail masqué au rendu quand ouvert === null (pas de setState synchrone ici)
     let annule = false;
     void (async () => {
       setDetail(null); setComparaison(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); setPleinEcran(null);
-      setMotifRefus(''); setAccuse(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); setAfficherProjection(false); setEmprisesProjetees([]); setRecapProjection(null); // reset décisions (DANS l'async)
+      setMotifRefus(''); setAccuse(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); setAfficherProjection(false); setEmprisesProjetees([]); setRecapProjection(null); setStatutsLignes([]); setRecouverts([]); setStatutErreur(''); // reset décisions (DANS l'async)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
         if (annule) return;
@@ -80,18 +98,28 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
         //   absence ne dégrade JAMAIS le détail (l'interrupteur ne s'affiche alors pas). Lambert → [x,y] pour le schéma.
         try {
           const re = await fetch(`/api/admin/permis/emprise?dossierId=${ouvert}`, { cache: 'no-store' });
-          if (!annule && re.ok) {
-            const je = (await re.json()) as { emprises: EmpriseReconstruite[]; batiments?: { corpsId: number; repere: string | null }[]; contexte?: { empreinteAnneaux?: PointLambert[][] }; polygones?: PolygoneBdTopo[] };
-            const emprises = je.emprises ?? [];
-            setEmprisesProjetees(emprises.filter((e) => e.anneau.length >= 3).map((e) => ({ id: e.id, libelle: e.libelle, anneau: e.anneau.map((p) => [p.x, p.y] as [number, number]) })));
-            // PROJ-4a — récap lecture seule : emprises complètes (provenance + multi-parties) + parcelle + bâti BD TOPO. Best-effort.
-            setRecapProjection({ emprises, parcelle: je.contexte?.empreinteAnneaux ?? [], polygones: je.polygones ?? [], batiments: je.batiments ?? [] });
-          }
+          if (!annule && re.ok) appliquerEmprise((await re.json()) as ReponseEmprise);
         } catch { /* emprises indisponibles : le récap reste simplement absent */ }
       } catch { if (!annule) setDetailErreur(true); }
     })();
     return () => { annule = true; };
-  }, [ouvert]);
+  }, [ouvert, appliquerEmprise]);
+
+  // RATT-1 bis — dérivés IDENTIQUES à BlocTraceEmprise (:146 / :440), mêmes helpers importés (jamais réécrits).
+  const polygonesReperes = useMemo(() => attribuerReperes(recapProjection?.polygones ?? []), [recapProjection]);
+  const statutParCleabs = useMemo(() => statutCourantParCleabs(statutsLignes), [statutsLignes]);
+  // RATT-1 bis — STATUER un polygone existant (mêmes paramètres qu'en Analyse). Après succès, REJOUE le GET emprise (source unique).
+  const statuerPolygone = useCallback(async (cleabs: string, statut: 'preserve' | 'detruit' | 'revoque') => {
+    if (ouvert === null) return;
+    setStatutErreur('');
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'statuer_polygone', dossierId: ouvert, cleabs, statut }) });
+      const j = (await res.json()) as { ok?: boolean; erreur?: string };
+      if (!res.ok || !j.ok) { setStatutErreur(j.erreur ?? 'statut impossible'); return; } // jamais un bouton muet (règle c4503da)
+      const re = await fetch(`/api/admin/permis/emprise?dossierId=${ouvert}`, { cache: 'no-store' });
+      if (re.ok) appliquerEmprise((await re.json()) as ReponseEmprise);
+    } catch { setStatutErreur('statut impossible'); }
+  }, [ouvert, appliquerEmprise]);
 
   // M3 — cotes EFFECTIVES affichées : la saisie d'Arno (`cotes`) si présente pour ce cleabs, sinon le DÉFAUT = altitude de sommet du
   //   bâtiment. DÉRIVÉ (useMemo), pas un effet : aucun état propagé, et le défaut n'est jamais FIGÉ dans l'état — donc jamais « recopié
@@ -311,6 +339,11 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
           );
         })()}
         {affErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{affErreur}</div>}
+        {/* RATT-1 bis — STATUER les polygones EXISTANTS (préservé/détruit) : MÊME composant pur qu'en Analyse (jamais dupliqué). Ses
+            données viennent de la même réponse GET emprise (:82). S'AUTO-MASQUE si rien n'est statuable (dossier sans empreinte figée,
+            ou tous les polygones « en projet »/recouverts). Disponible même « en attente du bâti » (statuts sur l'existant). */}
+        <StatutPolygonesExistants polygones={polygonesReperes} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
+        {statutErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{statutErreur}</div>}
         {/* M5 — aucun dossier (aucun signal détecté) : proposer l'ouverture manuelle de l'arbitrage. */}
         {!detail.persiste && (
           <>
