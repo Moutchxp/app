@@ -107,6 +107,26 @@ describe('decisionCerfa — adresse_terrain recoupée CHAMP PAR CHAMP avec Sitad
   });
 });
 
+describe('LECT-1 (C) — repli TEXTE (AcroForm vide)', () => {
+  const texte = (t: string) => ({ texte: t, pieceNom: 'PC_scanne.pdf', page: 1 });
+  it('nb_logements ← MODE corroboré du texte quand AUCUN champ AcroForm', () => {
+    const d = col(decisionCerfa([], 586, null, texte('Construction de 21 logements. Résidence sociale de 21 logements. De 2 1 logements.')), 'nb_logements');
+    expect(d).toMatchObject({ statut: 'ecrit', valeur: 21, cle: 'nbLogements', confiance: 'a_verifier' });
+  });
+  it('surface_plancher — PIÈGE 531 : « surface créée : 586 » (sous-sol) NON captée → non écrit (jamais un faux)', () => {
+    const d = col(decisionCerfa([], 586, null, texte('niveau de sous-sol (surface créée : 586.0 m²) ; 21 logements')), 'surface_plancher_m2');
+    expect(d.statut).toBe('non_ecrit');
+  });
+  it('surface_plancher ← texte « surface de plancher créée : 1240 m² », confirmee si == Sitadel', () => {
+    const d = col(decisionCerfa([], 1240, null, texte('surface de plancher créée : 1240 m²')), 'surface_plancher_m2');
+    expect(d).toMatchObject({ statut: 'ecrit', valeur: 1240, confiance: 'confirmee' });
+  });
+  it('le repli NE s’active PAS si l’AcroForm a des champs (l’AcroForm fait foi)', () => {
+    const d = col(decisionCerfa([champ('W2SF1', '999')], 999, null, texte('Construction de 21 logements. 21 logements.')), 'nb_logements');
+    expect(d.statut).toBe('non_ecrit'); // AcroForm présent → pas de repli, nb_logements reste non écrit
+  });
+});
+
 describe('decisionCerfa — jamais écrits', () => {
   it('nb_logements → non écrit, motif « absence ≠ zéro »', () => {
     const d = col(decisionCerfa([], null), 'nb_logements');

@@ -77,7 +77,14 @@ export async function executerExtractionPermis(dossierId: number, opts: { avecVi
     try { buf = await deps.lireObjet(p.cleStockage); } catch { continue; } // pièce illisible → ignorée, jamais un échec
     for (const c of await lireChampsFormulaire(buf)) champsCerfa.push({ nom: c.nom, valeur: c.valeur, page: c.page, pieceNom: p.nomFichier });
   }
-  await ecrireCerfa(dossierId, decisionCerfa(champsCerfa, await lireSurfCreee(dossierId), await lireAdresseTerrainSitadel(dossierId)), opts.majPar);
+  // LECT-1 (C) — repli TEXTE si l'AcroForm est vide (Cerfa scanné). On lit le texte du DOSSIER ENTIER, pas le seul PDF Cerfa : le
+  //   scan mange les chiffres (« 2 1 logements »), mais la valeur du projet est CORROBORÉE des dizaines de fois dans les pièces
+  //   (désignation, notices, titres) → le MODE corroboré la retrouve, là où le Cerfa scanné seul échouerait. La pièce citée en
+  //   provenance reste le Cerfa identifié par contenu (l'origine déclarative). Gate : uniquement si `champsCerfa` est vide.
+  const cerfaPiece = champsCerfa.length === 0 ? trouverCerfaPc(ged, metas) : null;
+  const texteDossier = ged.pieces.flatMap((p) => p.pages.filter((y) => y.aTexte).map((y) => y.texte)).join('\n');
+  const cerfaTexte = cerfaPiece ? { texte: texteDossier, pieceNom: cerfaPiece.nomFichier, page: null } : null;
+  await ecrireCerfa(dossierId, decisionCerfa(champsCerfa, await lireSurfCreee(dossierId), await lireAdresseTerrainSitadel(dossierId), cerfaTexte), opts.majPar);
 
   // 3) désignation de l'opération (énoncé, niveau permis)
   const pages: PagePermis[] = ged.pieces.flatMap((p) => p.pages.filter((pg) => pg.aTexte).map((pg) => ({ piece: p.nomFichier, page: pg.page, texte: pg.texte })));

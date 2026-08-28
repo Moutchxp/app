@@ -23,6 +23,7 @@
  */
 import type { Confiance } from './decisionSommet';
 import type { ChampGlobalDeclare } from './caracteristiquesRepo';
+import { nbLogementsTexte, surfacePlancherTexte } from './cerfaTexte'; // LECT-1 (C) : repli TEXTE quand l'AcroForm est vide
 
 /** Un champ AcroForm lu (avec la pièce d'origine — le Cerfa). */
 export interface ChampCerfa { nom: string; valeur: string; page: number | null; pieceNom: string }
@@ -124,11 +125,21 @@ function destinationsPresentes(champs: ChampCerfa[]): { lettre: string; valeur: 
   return [...parLettre.values()].sort((a, b) => a.lettre.localeCompare(b.lettre));
 }
 
-/** Applique les règles de mapping. `surfCreee` = surf_creee de Sitadel (m²) ; `adresseSitadel` = adresse terrain Sitadel (3 colonnes) — pour recouper. */
-export function decisionCerfa(champs: ChampCerfa[], surfCreee: number | null, adresseSitadel: AdresseTerrainSitadel | null = null): DecisionCerfa {
+/**
+ * Applique les règles de mapping. `surfCreee` = surf_creee de Sitadel (m²) ; `adresseSitadel` = adresse terrain Sitadel (3 colonnes).
+ * LECT-1 (C) : `cerfaTexte` = texte du Cerfa (concaténé) + sa pièce/page, pour le REPLI TEXTE **si et seulement si l'AcroForm est
+ * VIDE** (`champs.length === 0`). Le repli ne s'active JAMAIS quand l'AcroForm a des champs (l'AcroForm fait foi).
+ */
+export function decisionCerfa(
+  champs: ChampCerfa[],
+  surfCreee: number | null,
+  adresseSitadel: AdresseTerrainSitadel | null = null,
+  cerfaTexte: { texte: string; pieceNom: string; page: number | null } | null = null,
+): DecisionCerfa {
   const idx = new Map<string, ChampCerfa>();
   for (const c of champs) if (!idx.has(c.nom)) idx.set(c.nom, c); // 1re occurrence
   const out: DecisionCerfaChamp[] = [];
+  const repliTexte = champs.length === 0 ? cerfaTexte : null; // repli SEULEMENT si aucun champ AcroForm
 
   // 1) nb_places_stationnement ← S1M_stationnementapres (écrit même à 0)
   const stat = idx.get('S1M_stationnementapres');
@@ -150,7 +161,19 @@ export function decisionCerfa(champs: ChampCerfa[], surfCreee: number | null, ad
     }
     out.push({ colonne: 'surface_plancher_m2', cle: 'surfacePlancherM2', portee: 'permis', statut: 'ecrit', valeur: v, confiance, reserve, provenance: prov(surf, surf.nom, `${surf.nom} = ${surf.valeur}`) });
   } else {
-    out.push({ colonne: 'surface_plancher_m2', portee: 'permis', statut: 'non_ecrit', motif: 'champ W2SF1 absent du Cerfa' });
+    // LECT-1 (C) — repli TEXTE (AcroForm vide) : surface de plancher ÉNONCÉE, hors phrases de seuil. Recoupée avec Sitadel comme W2SF1.
+    const st = repliTexte ? surfacePlancherTexte(repliTexte.texte) : null;
+    if (st) {
+      let confiance: Confiance = 'a_verifier';
+      let reserve: string | null = null;
+      if (surfCreee !== null) {
+        if (nombre(String(surfCreee)) === st.valeur) confiance = 'confirmee';
+        else reserve = `texte « ${st.extrait} » vs Sitadel surf_creee=${nombre(String(surfCreee))} m²`;
+      }
+      out.push({ colonne: 'surface_plancher_m2', cle: 'surfacePlancherM2', portee: 'permis', statut: 'ecrit', valeur: st.valeur, confiance, reserve, provenance: { pieceNom: repliTexte!.pieceNom, page: repliTexte!.page, champNom: 'texte (repli AcroForm vide)', extrait: st.extrait } });
+    } else {
+      out.push({ colonne: 'surface_plancher_m2', portee: 'permis', statut: 'non_ecrit', motif: repliTexte ? 'W2SF1 absent (Cerfa scanné) et aucune « surface de plancher » énoncée hors seuil dans le texte' : 'champ W2SF1 absent du Cerfa' });
+    }
   }
 
   // 3) destinations ← sous-destinations à surface > 0 (W2<lettre>F1). `nature_projet` scalaire devient VESTIGIALE : plus alimentée.
@@ -203,8 +226,14 @@ export function decisionCerfa(champs: ChampCerfa[], surfCreee: number | null, ad
     out.push({ colonne: 'adresse_terrain', cle: 'adresseTerrain', portee: 'permis', statut: 'ecrit', valeur: adresse, confiance, reserve, provenance: { pieceNom: sources[0].pieceNom, page: sources[0].page, champNom: 'T2Q_numero + T2V_voie + T2L_localite', extrait } });
   }
 
-  // 5) nb_logements → NON écrit (l'absence de champ ne vaut pas zéro)
-  out.push({ colonne: 'nb_logements', portee: 'permis', statut: 'non_ecrit', motif: 'aucun champ logement renseigné dans le Cerfa ; l’absence de champ ne vaut pas zéro logement' });
+  // 5) nb_logements → l'AcroForm 13409 n'a AUCUN champ logement (l'absence ne vaut pas zéro). LECT-1 (C) : repli TEXTE (AcroForm
+  //    vide) — MODE corroboré de « N logements » (≥ 2 occurrences, strictement majoritaire), robuste à l'aplatissement PDF.
+  const nlt = repliTexte ? nbLogementsTexte(repliTexte.texte) : null;
+  if (nlt) {
+    out.push({ colonne: 'nb_logements', cle: 'nbLogements', portee: 'permis', statut: 'ecrit', valeur: nlt.valeur, confiance: 'a_verifier', reserve: null, provenance: { pieceNom: repliTexte!.pieceNom, page: repliTexte!.page, champNom: 'texte (repli AcroForm vide)', extrait: `« ${nlt.valeur} logements » (×${nlt.occurrences})` } });
+  } else {
+    out.push({ colonne: 'nb_logements', portee: 'permis', statut: 'non_ecrit', motif: repliTexte ? 'AcroForm sans champ logement et aucun « N logements » corroboré dans le texte' : 'aucun champ logement renseigné dans le Cerfa ; l’absence de champ ne vaut pas zéro logement' });
+  }
 
   // 6) permis_corps_batiment.adresse → JAMAIS écrite
   out.push({ colonne: 'adresse', portee: 'corps', statut: 'non_ecrit', motif: 'attribution par bâtiment non résolue (N5-F) ; colonne en attente' });
