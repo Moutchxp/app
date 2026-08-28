@@ -123,6 +123,14 @@ describe('PROJ-3e — bande de plans : feuilleter (fonctions pures)', () => {
     expect(b[2].confirme).toBe(false);                     // pièce non confirmée → page 1
     expect(b.some((p) => p.pieceId === 70)).toBe(false);   // la notice (non proposée) n'est PAS dans la bande
   });
+
+  it('SUITE — construireBandePlans porte les NIVEAUX d’une planche d’étage ; BandePlans les affiche', () => {
+    const b = construireBandePlans([{ id: 80, nomFichier: 'plan_etage.pdf', propose: true, famille: 'etage', planches: [{ page: 1, echelle: '1:100', famille: 'etage', tracable: true }], confirme: true, niveaux: ['R+1', 'R+2', 'R+3', 'R+4'] }]);
+    expect(b[0].niveaux).toEqual(['R+1', 'R+2', 'R+3', 'R+4']);
+    const html = renderToStaticMarkup(h(BandePlans, { bande: b, index: 0, onPrecedent: () => {}, onSuivant: () => {} }));
+    expect(html).toContain('plan d’étage');
+    expect(html).toContain('niveaux : R+1, R+2, R+3, R+4'); // une planche multi-niveaux entre UNE fois, mais on SAIT ses niveaux
+  });
   it('navigation bornée : premier, suivant, précédent, un seul plan, liste vide', () => {
     expect(indexSuivant(0, 7)).toBe(1);
     expect(indexSuivant(6, 7)).toBe(6);                     // borne haute

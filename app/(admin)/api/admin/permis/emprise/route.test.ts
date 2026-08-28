@@ -194,6 +194,16 @@ describe('PROJ-2 — POST enregistrer : géométrie recalculée SERVEUR (plan �
     expect(enregistrerEmprise).toHaveBeenCalled();
   });
 
+  it('SUITE — un PLAN D’ÉTAGE à NOM OPAQUE est TRAÇABLE par son CONTENU (la garde serveur accepte etage — pas de régression du bug)', async () => {
+    vi.mocked(lireCleTelechargeable).mockResolvedValueOnce({ cle: 'ged/dossier/e.pdf', nomFichier: 'PC 075 120 25 V0006_202508010945119787.pdf' } as Awaited<ReturnType<typeof lireCleTelechargeable>>);
+    HG.extraire.mockResolvedValueOnce({ ok: true, pages: ['PLAN ÉTAGE COURANT - R+4 1/100 APPT 105 APPT 102'] }); // cartouche de niveau → etage
+    const res = await post({ action: 'enregistrer', dossierId: 531, corpsId: 4, libelle: 'bâtiment 4', pieceId: 119, page: 1,
+      paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 1, y: 0 }, lambert: { x: 2, y: 0 } }],
+      anneauPlan: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 5 }] });
+    expect(res.status).toBe(200);
+    expect(enregistrerEmprise).toHaveBeenCalled();
+  });
+
   it('BUG PROV — un nom OPAQUE dont le CONTENU n’est PAS un plan (notice) reste refusé 400', async () => {
     vi.mocked(lireCleTelechargeable).mockResolvedValueOnce({ cle: 'ged/dossier/n.pdf', nomFichier: 'PC 075 120 25 V0006_202508010945999999.pdf' } as Awaited<ReturnType<typeof lireCleTelechargeable>>);
     HG.extraire.mockResolvedValueOnce({ ok: true, pages: ['Notice de sécurité — article 5 circulations intérieures'] }); // aucun signal de plan

@@ -5,7 +5,7 @@ import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVr
 import { depsReellesLectureGed, lireGedPermis } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
 import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte, familleDeNom, tracabilitePlanche, type FamillePlan } from '../../../../../lib/permis/planMasse';
-import { familleDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV-2 (a) : repli par le CONTENU pour les noms opaques
+import { familleDeContenu, niveauxDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV : famille + niveaux par le CONTENU
 
 // PROJ-3d — confirmation page-level PARESSEUSE : plafond DUR de pièces ouvertes côté serveur (mesuré ~98 ms/pièce → ~0,7 s pour 7).
 //   Ne JAMAIS ouvrir les 81 pièces (~8 s). Les proposées au-delà du plafond restent proposées PAR LEUR NOM, sans confirmation.
@@ -61,6 +61,7 @@ export async function GET(request: Request): Promise<Response> {
     const nomSeul = classerPiecesParFamille(piecesPdf);
     let proposees = nomSeul.proposees;
     let autres = nomSeul.autres;
+    const niveauxParId = new Map<number, string[]>(); // PROV : niveaux portés par une planche d'ÉTAGE (RDC/SSOL/R+n), quand connus par le CONTENU
     // PROV-2 (a) — NOMS OPAQUES : le nom n'a RIEN proposé (ex. 531 : 42 pièces → 0 famille) → REPLI par le CONTENU. On lit le texte
     //   (lireGedPermis ~1,8 s) UNIQUEMENT dans ce cas (un dossier bien nommé ne déclenche aucune lecture) et on reconnaît cerfa /
     //   coupe / masse par les signaux PRÉCIS de LECT-1 A/B (0 faux positif mesuré). Isolé en `repli` : un échec de lecture laisse la
@@ -71,6 +72,8 @@ export async function GET(request: Request): Promise<Response> {
       const parContenu = classerPiecesParFamille(piecesPdf, (p) => familleDeContenu(texteParId.get(p.id) ?? []));
       proposees = parContenu.proposees;
       autres = parContenu.autres;
+      // PROV (suite) — pour chaque planche d'ÉTAGE, les niveaux qu'elle porte (RDC/SSOL/R+n), pour que l'internaute SACHE ce qu'il ouvre.
+      for (const p of proposees) if (p.famille === 'etage') { const niv = niveauxDeContenu(texteParId.get(p.id) ?? []); if (niv.length) niveauxParId.set(p.id, niv); }
     }
     // PROJ-3d/3f — CONFIRMATION PARESSEUSE, uniquement sur la shortlist plafonnée : ouvre chaque candidat et l'ÉCLATE EN PLANCHES
     //   (ses pages hors cartouche, cf. pagesPlanches) + une échelle indicative par page. Texte SEUL (jamais getOperatorList, trop cher).
@@ -90,7 +93,7 @@ export async function GET(request: Request): Promise<Response> {
     }));
     const enrichir = (p: { id: number; nomFichier: string; typeMime: string | null }, propose: boolean, famille: FamillePlan | null) => {
       const planches = confirmations.get(p.id)?.planches ?? [];
-      return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, famille, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0 };
+      return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, famille, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0, niveaux: niveauxParId.get(p.id) };
     };
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
     return Response.json({ pieces, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, indisponibles });

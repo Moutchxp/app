@@ -1,5 +1,39 @@
 import { describe, it, expect } from 'vitest';
-import { familleDeContenu } from './planMasseContenu';
+import { familleDeContenu, niveauxDeContenu } from './planMasseContenu';
+
+describe('SUITE — familleDeContenu : plan d’ÉTAGE (vue en plan traçable)', () => {
+  it('cartouche « PLANS RDC - SSOL » (planche courte) → etage', () => {
+    expect(familleDeContenu(['Ech : PLANS RDC - SSOL PLAN SSOL PLAN RDC 1/100 JARDIN L. vélo 12.46 m²'])).toBe('etage');
+  });
+  it('cartouche « PLAN ÉTAGE COURANT - R+4 » → etage', () => {
+    expect(familleDeContenu(['PLAN ÉTAGE COURANT - R+4 1/100 APPT 105 APPT 102'])).toBe('etage');
+  });
+  it('titre ESPACÉ « P L A N  R + 1 / R + 2 » (dé-espacement) → etage', () => {
+    expect(familleDeContenu(['P L A N   R + 1 / R + 2 / R + 3   APPT 101'])).toBe('etage');
+  });
+  it('NOTICE longue qui écrit « plan du RDC » en prose → PAS etage (seuil de planche)', () => {
+    const notice = 'La notice de sécurité décrit le plan du RDC et les circulations. '.repeat(80); // > seuil planche
+    expect(familleDeContenu([notice])).toBeNull();
+  });
+  it('une coupe (table de nivellement, sans cartouche de niveau) reste coupe', () => {
+    expect(familleDeContenu(['coupe AA 98.95 102.37 105.09 107.81 110.53 113.97 116.91 RDC R+1 R+2 R+3 R+4 Egout Faîtage'])).toBe('coupe');
+  });
+});
+
+describe('SUITE — niveauxDeContenu : quels niveaux porte une planche', () => {
+  it('« PLANS RDC - SSOL » → [sous-sol, RDC] (dans l’ordre)', () => {
+    expect(niveauxDeContenu(['Ech : PLANS RDC - SSOL PLAN SSOL PLAN RDC'])).toEqual(['sous-sol', 'RDC']);
+  });
+  it('« PLAN R+4 » + « PLAN R+1/R+2/R+3 » → [R+1, R+2, R+3, R+4] (liste développée, triée)', () => {
+    expect(niveauxDeContenu(['PLAN R+4 PLAN R+1/R+2/R+3'])).toEqual(['R+1', 'R+2', 'R+3', 'R+4']);
+  });
+  it('titre ESPACÉ « P L A N R + 1 » (« PLANR+1 » après dé-espacement) → R+1 capté', () => {
+    expect(niveauxDeContenu(['P L A N R + 1'])).toEqual(['R+1']);
+  });
+  it('un « R+4 » hors contexte PLAN (mention isolée) n’est PAS listé', () => {
+    expect(niveauxDeContenu(['PLAN RDC ... gabarit voisin R+4 en limite'])).toEqual(['RDC']);
+  });
+});
 
 /**
  * PROV-2 (a) — reconnaissance de famille par le CONTENU (repli des noms opaques). On éprouve les signaux PRÉCIS ET, surtout, l'ABSENCE
