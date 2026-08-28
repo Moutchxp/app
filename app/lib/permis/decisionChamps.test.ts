@@ -3,7 +3,7 @@ import {
   decisionChamps, MOTIF_AUCUN_CANDIDAT, MOTIF_GABARIT_PLAGE, MOTIF_SOUSSOL_MULTIPLE, MOTIF_PLANCHER_AMBIGU,
   MOTIF_SOMMET_AUCUN, MOTIF_PARKING, MOTIF_REPERE, type ChampEcrit, type DecisionChamp,
 } from './decisionChamps';
-import type { CandidatCote, CandidatGabarit, CandidatSousSol, Provenance, RapportExtraction } from './extractionCaracteristiques';
+import type { CandidatCote, CandidatGabarit, CandidatGabaritDetaille, CandidatSousSol, Provenance, RapportExtraction } from './extractionCaracteristiques';
 
 /**
  * N5-E — décision PAR CHAMP. Pour chaque champ : le cas « écrit » ET le cas « non écrit avec motif ». Aucune valeur déduite par
@@ -14,12 +14,14 @@ const cote = (valeur: number, niveau: string | null, qualif: string | null, piec
 const gab = (rMin: number, rMax: number, pieceId: number): CandidatGabarit => ({ texteBrut: `R+${rMin}${rMin === rMax ? '' : ` à R+${rMax}`}`, rMin, rMax, provenance: prov(pieceId) });
 const ss = (niveaux: number, pieceId: number): CandidatSousSol => ({ texteBrut: `${niveaux} niveau de sous-sol`, niveaux, provenance: prov(pieceId) });
 
-function rapport(parts: { cotes?: CandidatCote[]; gabarits?: CandidatGabarit[]; sousSols?: CandidatSousSol[] } = {}): RapportExtraction {
+const gabD = (base: number, mentions: string[], pieceId: number): CandidatGabaritDetaille => ({ texteBrut: `R+${base}+${mentions.join('+')}`, base, mentions, provenance: prov(pieceId) });
+
+function rapport(parts: { cotes?: CandidatCote[]; gabarits?: CandidatGabarit[]; gabaritsDetailles?: CandidatGabaritDetaille[]; sousSols?: CandidatSousSol[] } = {}): RapportExtraction {
   const cotes = parts.cotes ?? [];
   const parNiveau = new Map<string, { valeur: number; provenance: Provenance }[]>();
   for (const c of cotes) { if (c.niveau === null) continue; (parNiveau.get(c.niveau) ?? parNiveau.set(c.niveau, []).get(c.niveau)!).push({ valeur: c.valeur, provenance: c.provenance }); }
   return {
-    cotes, gabarits: parts.gabarits ?? [], sousSols: parts.sousSols ?? [], reperes: [], hsp: [], dalles: [],
+    cotes, gabarits: parts.gabarits ?? [], gabaritsDetailles: parts.gabaritsDetailles ?? [], sousSols: parts.sousSols ?? [], reperes: [], hsp: [], dalles: [],
     bilan: { nbPieces: 0, piecesAvecCote: 0, pagesAvecCote: 0, nbCotes: cotes.length, coteMax: null, cotesQualifiees: 0, qualificatifsVus: [], piecesSansCandidat: [], niveaux: [...parNiveau.entries()].map(([niveau, cts]) => ({ niveau, cotes: cts })) },
   };
 }
@@ -55,6 +57,16 @@ describe('decisionChamps — nb_etages (gabarit R+n)', () => {
   });
   it('non écrit si aucun gabarit', () => {
     expect((champ(rapport(), 'nb_etages') as { motif?: string }).motif).toBe(MOTIF_AUCUN_CANDIDAT);
+  });
+  it('LECT-1 (D) — écrit R+4 SANS réserve quand aucune forme détaillée ne le confronte', () => {
+    const d = ecrit(champ(rapport({ gabarits: [gab(4, 4, 1)] }), 'nb_etages'));
+    expect(d.valeur).toBe(4); expect(d.reserve).toBeNull();
+  });
+  it('LECT-1 (D) — CONFRONTE R+4 (gabarit) à « R+3+attique+combles » (désignation) : écrit 4 MAIS marque le conflit', () => {
+    const d = ecrit(champ(rapport({ gabarits: [gab(4, 4, 1)], gabaritsDetailles: [gabD(3, ['attique', 'combles'], 2)] }), 'nb_etages'));
+    expect(d.valeur).toBe(4);                                   // la valeur corroborée/officielle est conservée
+    expect(d.reserve).toContain('R+3+attique+combles');        // …mais le conflit est NOMMÉ (jamais un choix en silence)
+    expect(d.reserve).toMatch(/non tranché|Conflit/i);
   });
 });
 

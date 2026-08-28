@@ -62,7 +62,16 @@ function champEtages(r: RapportExtraction): DecisionChamp {
   if (distinctSingles.size === 1) {
     const valeur = [...distinctSingles][0];
     const observations = singles.filter((g) => g.rMin === valeur).map((g) => ({ provenance: g.provenance, texteBrut: g.texteBrut }));
-    return { ...base, statut: 'ecrit', cle: 'nbEtages', valeur, unite: null, confiance: confianceDe(observations), reserve: null, observations };
+    // LECT-1 (D) — CONFRONTATION : une désignation détaille-t-elle le gabarit autrement (« R+3+attique+combles ») ? Si oui, on écrit
+    //   la valeur du gabarit simple (corroborée, officielle) MAIS on MARQUE le conflit dans la réserve — jamais un choix en silence.
+    //   Dédup par texte brut ; on cite la forme détaillée la plus riche (le plus de mentions).
+    const detailles = [...new Map((r.gabaritsDetailles ?? []).map((d) => [d.texteBrut, d])).values()]
+      .sort((a, b) => b.mentions.length - a.mentions.length);
+    const conflit = detailles[0] ?? null;
+    const reserve = conflit
+      ? `gabarit R+${valeur} (${observations[0]?.texteBrut ?? 'source'}) confronté à « ${conflit.texteBrut} » : formulations divergentes — l'attique/les combles peuvent ajouter des niveaux NON décomptés dans « R+${valeur} ». Conflit SIGNALÉ, non tranché (à confirmer manuellement).`
+      : null;
+    return { ...base, statut: 'ecrit', cle: 'nbEtages', valeur, unite: null, confiance: confianceDe(observations), reserve, observations };
   }
   if (r.gabarits.some((g) => g.rMin !== g.rMax)) return { ...base, statut: 'non_ecrit', motif: MOTIF_GABARIT_PLAGE };
   if (distinctSingles.size > 1) return { ...base, statut: 'non_ecrit', motif: MOTIF_GABARIT_MULTIPLE };
