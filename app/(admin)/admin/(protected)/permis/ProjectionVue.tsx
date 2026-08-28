@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BlocTraceEmprise } from './BlocTraceEmprise';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
+import { BlocPiecesPermis } from './BlocPiecesPermis';
+import { BoutonRelancerAnalyse } from './BoutonRelancerAnalyse';
 import { TableProjection, BoutonValiderProjection, AIDE_PROJECTION, type LigneProjectionAffichee } from './ProjectionRendu';
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { recompterSiSucces } from './comptesActions';
@@ -21,6 +23,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   const [enCours, setEnCours] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [vInstruction, setVInstruction] = useState(0); // PROJ-3b — compteur incrémenté à chaque écriture d'instruction → recharge le tracé (bâtiments)
+  const [vAnalyse, setVAnalyse] = useState(0); // EXT-1 — bump après « Relancer l'analyse » → remonte CaracteristiquesBloc (refetch des champs extraits)
 
   useEffect(() => {
     let annule = false;
@@ -62,8 +65,11 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
 
   const renderDetail = () => (
     <div className="flex flex-col gap-2">
+      {/* EXT-1 (étape 2) — RELANCER L'ANALYSE (vision incluse) : relit les pièces et remplit les champs VIDES (jamais une saisie). En
+          tête du détail, mais ce n'est PAS le point d'entrée nominal (l'extraction part seule au versement) — un rattrapage manuel. */}
+      {ouvert !== null && <BoutonRelancerAnalyse dossierId={ouvert} onFini={() => { setVAnalyse((v) => v + 1); setVInstruction((v) => v + 1); }} />}
       {/* PROJ-3b — INSTRUCTION d'abord (caractéristiques + « + ajouter un bâtiment » = ce qui fait naître les corps), TRACÉ ensuite. */}
-      {ouvert !== null && <CaracteristiquesBloc dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
+      {ouvert !== null && <CaracteristiquesBloc key={`${ouvert}-${vAnalyse}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
       {ouvert !== null && <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} rafraichir={vInstruction} />}
       <BoutonValiderProjection
         peutValider={verdict?.peutValider ?? false}
@@ -72,6 +78,9 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         enCours={enCours}
         onValider={() => { if (ouvert !== null) void valider(ouvert); }} />
       {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
+      {/* EXT-1 (point 5) — PIÈCES DU PERMIS en DERNIÈRE POSITION (après caractéristiques, bâtiments, projection) : référence en regard
+          de la saisie, jamais un point d'entrée. Ouverture par le signeur serveur déjà branché (ouvrirPiece → url_piece). */}
+      {ouvert !== null && <BlocPiecesPermis key={ouvert} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />}
     </div>
   );
 

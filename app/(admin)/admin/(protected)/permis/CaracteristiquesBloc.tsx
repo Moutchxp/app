@@ -11,12 +11,10 @@ import {
   type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
 import { FaitsPermisBloc, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, type LienPiece } from './CaracteristiquesRendu';
-import { CellulePieces } from './ArchivesRendu'; // EXT-1 (point 5) : MÊME composant de pièces qu'Archives, réutilisé tel quel
-import type { PieceArchive } from '../../../../lib/sitadel/demandeRepo'; // type SEUL (bundle client)
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
 // N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; pieces?: PieceArchive[] }
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null }
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '', adresse: c.adresse ?? '',
@@ -196,14 +194,6 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossie
       <FaitsPermisBloc faits={data.faits} nbBatiments={data.corps.length} parcelles={data.parcelles} empreinte={data.empreinte} bati={data.bati}
         onExportGeojson={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=1`, '_blank', 'noopener,noreferrer')}
         onExportEmpreinte={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=empreinte`, '_blank', 'noopener,noreferrer')} />
-
-      {/* ═══ EXT-1 (point 5) — PIÈCES DU PERMIS : mêmes documents qu'Archives (CellulePieces réutilisé tel quel), OUVRABLES en regard
-           de la saisie. Le téléchargement passe par le signeur SERVEUR déjà branché dans Projection (onOuvrir → url_piece) : la clé de
-           stockage ne transite JAMAIS. On ne reconstruit rien — c'est le composant d'Archives, ici pour saisir/valider en face des pièces. ═══ */}
-      <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
-        <h4 style={styleTitre}>Pièces du permis <span style={{ ...styleAide, fontWeight: 400 }}>— à ouvrir en regard de la saisie</span></h4>
-        <CellulePieces pieces={data.pieces ?? []} onTelecharger={onOuvrir ? (id, source) => onOuvrir(id, source) : undefined} />
-      </div>
 
       {/* ═══ SECTION 1 — LE PERMIS (déclaré) : vaut pour tout le permis, ne se répète pas ═══ */}
       <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { LigneArchive } from '../../../../lib/sitadel/demandeRepo';
 import { TableArchives } from './ArchivesRendu';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
+import { BoutonRelancerAnalyse } from './BoutonRelancerAnalyse';
 
 /**
  * A1a/A1b — onglet ARCHIVES : les permis renseignés par les mairies + leurs pièces (reçues par e-mail OU ajoutées à la main).
@@ -110,7 +111,13 @@ export function ArchivesVue() {
         onTelecharger={(id, source) => void telecharger(id, source)}
         onSupprimer={(id) => void supprimer(id)}
         onFichier={(dossierId, fichier) => void televerser(dossierId, fichier)}
-        slotCaracteristiques={(dossierId) => <CaracteristiquesBloc dossierId={dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />} />
+        slotCaracteristiques={(dossierId) => (
+          <div className="flex flex-col gap-2">
+            {/* EXT-1 (étape 2) — Archives : le SEUL endroit où tout permis reste retrouvable après traitement → « Relancer l'analyse » y est disponible. */}
+            <BoutonRelancerAnalyse dossierId={dossierId} onFini={() => setVersion((v) => v + 1)} />
+            <CaracteristiquesBloc key={`${dossierId}-${version}`} dossierId={dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />
+          </div>
+        )} />
 
       {nbPages > 1 && (
         <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>
