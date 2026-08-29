@@ -10,7 +10,7 @@
  * La traçabilité « quelle pièce, quelle page » n'est PAS ici (propositions N5). Module PROPRE : n'importe que `db/client`.
  */
 import { query } from '../db/client';
-import { codeRepli } from './nomCorps'; // NOM-1 — code de repli maison (BP{rang}) attribué aux corps anonymes
+import { actionsNomsRepli } from './nomCorps'; // NOM-1/NOM-2 — décision pure des codes de repli maison (BP{rang}) des corps anonymes
 
 export type OrigineValeur = 'saisie' | 'extraite';
 
@@ -192,13 +192,9 @@ export async function attribuerNomsRepli(dossierId: number): Promise<void> {
   try {
     const { rows } = await query<{ id: number; repere: string | null; nom_repli: string | null }>(
       `SELECT id::int AS id, repere, nom_repli FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY id`, [dossierId]);
-    const total = rows.length;
-    for (let i = 0; i < rows.length; i++) {
-      const c = rows[i];
-      if (c.repere !== null && c.repere.trim() !== '') continue; // nom du document → pas de repli
-      if (c.nom_repli !== null) continue;                        // déjà attribué → stabilité, ne pas recalculer
-      const code = codeRepli(i + 1, total);                      // rang 1-based (ordre id), total = nombre de corps
-      await query(`UPDATE permis_corps_batiment SET nom_repli = $2 WHERE id = $1 AND nom_repli IS NULL`, [c.id, code]);
+    // NOM-2 — décision PURE partagée avec l'aperçu du rattrapage (mêmes garanties : jamais dans repere, jamais un nom déjà posé).
+    for (const a of actionsNomsRepli(rows.map((r) => ({ id: r.id, repere: r.repere, nomRepli: r.nom_repli })))) {
+      await query(`UPDATE permis_corps_batiment SET nom_repli = $2 WHERE id = $1 AND nom_repli IS NULL`, [a.corpsId, a.code]);
     }
   } catch { /* colonne/table absente ou indisponible : best-effort, l'affichage retombe sur « bâtiment {id} ». */ }
 }

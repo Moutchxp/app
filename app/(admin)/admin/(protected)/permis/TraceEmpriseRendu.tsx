@@ -8,6 +8,7 @@ import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 �
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
 import { estStatuable, TOLERANCE_RECOUVREMENT_TOTAL_PCT, type EtatStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) : statut décidé ; RATT-5 : recouvert + taux ; RATT-6 : mixte
+import { rattrapageVide, type ApercuRattrapage } from '../../../../lib/permis/rattrapage'; // NOM-2 — aperçu du rattrapage (noms + statuts)
 import { repereDepuisIndex, projeterLambertDansSchema, type SchemaEmpreinte } from '../../../../lib/permis/affectationSchema'; // AFF-2 : projetée au MÊME cadre que l'origine
 
 /** PROJ-3g — libellé lisible d'une famille (le MOT porte l'info, jamais la couleur seule). PUR. */
@@ -985,5 +986,55 @@ export function CaseConfigOfficielle({ millesime }: { millesime: string | null }
         <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>BD TOPO courant : {millesime ?? 'non renseigné'}</div>
       </div>
     </figure>
+  );
+}
+
+/** NOM-2 — libellé lisible d'un statut proposé au rattrapage. */
+function libelleStatutRattrapage(s: 'detruit' | 'mixte' | 'revoque'): string {
+  return s === 'detruit' ? 'détruit' : s === 'mixte' ? 'partiellement détruit' : 'révocation (plus recouvert)';
+}
+
+/**
+ * NOM-2 — PANNEAU de RATTRAPAGE du dossier courant. FERMÉ : un bouton qui dit combien d'écritures sont en attente. OUVERT : l'APERÇU
+ * exact de ce qui sera écrit (noms de bâtiment manquants + statuts de recouvrement, avec taux) AVANT toute écriture — rien ne part en
+ * base sans qu'Arno ait vu la liste et confirmé. Append-only : une écriture non voulue ne se corrige pas, elle s'ajoute (dit à l'écran).
+ * S'auto-masque s'il n'y a rien à rattraper. PUR (l'état vit dans la Vue ; les gestes ne font que remonter l'intention).
+ */
+export function PanneauRattrapage({ apercu, ouvert, occupe = false, onOuvrir, onAppliquer, onAnnuler }: {
+  apercu: ApercuRattrapage; ouvert: boolean; occupe?: boolean; onOuvrir: () => void; onAppliquer: () => void; onAnnuler: () => void;
+}) {
+  if (rattrapageVide(apercu)) return null; // rien à rattraper → pas de bouton
+  const n = apercu.noms.length + apercu.statuts.length;
+  const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.25rem .7rem', fontSize: 12 };
+  if (!ouvert) {
+    return (
+      <button type="button" style={{ ...btn, fontWeight: 700 }} onClick={onOuvrir}>Rattraper les noms et statuts manquants <span style={{ fontWeight: 400, color: 'var(--color-svv-muted)' }}>({n} en attente)</span></button>
+    );
+  }
+  return (
+    <div style={{ ...carte }} role="group" aria-label="rattrapage : ce qui sera écrit">
+      <div style={{ fontSize: 12, fontWeight: 700 }}>Rattrapage — ce qui sera écrit</div>
+      <div style={{ fontSize: 11, color: 'var(--color-svv-muted)', marginBottom: '.3rem' }}>Registre append-only : une écriture non voulue ne se corrige pas, elle s’ajoute. Vérifiez avant d’appliquer. Une décision prise à la main (« préservé »/« détruit » saisi) n’est jamais proposée ici.</div>
+      {apercu.noms.length > 0 && (
+        <div style={{ marginBottom: '.4rem' }}>
+          <div style={{ fontSize: 12, fontWeight: 600 }}>Noms de bâtiment</div>
+          <ul style={{ margin: '.1rem 0 0', paddingLeft: '1.1rem', fontSize: 12 }}>
+            {apercu.noms.map((nm) => <li key={nm.corpsId} data-nom={nm.corpsId}>{nm.nomActuel} → <strong>{nm.nomFutur}</strong></li>)}
+          </ul>
+        </div>
+      )}
+      {apercu.statuts.length > 0 && (
+        <div style={{ marginBottom: '.4rem' }}>
+          <div style={{ fontSize: 12, fontWeight: 600 }}>Statuts de recouvrement</div>
+          <ul style={{ margin: '.1rem 0 0', paddingLeft: '1.1rem', fontSize: 12 }}>
+            {apercu.statuts.map((s) => <li key={s.cleabs} data-statut={s.cleabs}>Polygone {s.repere} → <strong>{libelleStatutRattrapage(s.statut)}</strong>{s.tauxPct !== null ? ` (recouvert à ${Math.round(s.tauxPct)} %)` : ''}</li>)}
+          </ul>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        <button type="button" style={{ ...btn, fontWeight: 700 }} disabled={occupe} onClick={onAppliquer}>Appliquer</button>
+        <button type="button" style={btn} disabled={occupe} onClick={onAnnuler}>Annuler</button>
+      </div>
+    </div>
   );
 }

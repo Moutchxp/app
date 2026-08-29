@@ -8,7 +8,8 @@ import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../.
 import { TableSuivi, DetailSuiviRendu, AffectationBloc, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee } from './SuiviRattachementRendu';
 import { RecapProjectionRattachement } from './ProjectionRecapRattachement';
 // RATT-1 bis — le geste « statuer les polygones existants » réutilise le composant PUR d'Analyse + ses helpers (jamais dupliqué).
-import { BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, MiniConfigProjetee, CaseConfigOfficielle } from './TraceEmpriseRendu';
+import { BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, attribuerReperes, MiniConfigProjetee, CaseConfigOfficielle } from './TraceEmpriseRendu';
+import { apercuRattrapage } from '../../../../lib/permis/rattrapage'; // NOM-2 — aperçu PUR du rattrapage (client, aucune requête)
 import { statutCourantParCleabs, type LigneStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut';
 // TYPES seuls (modules serveur / purs) — pour le récap de projection (PROJ-4a), affichage pur.
 import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -58,6 +59,8 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [statutsLignes, setStatutsLignes] = useState<LigneStatutPolygone[]>([]);
   const [recouverts, setRecouverts] = useState<PolygoneRecouvert[]>([]); // RATT-5 — recouverts (au-dessus du seuil) + leur taux (%)
   const [statutErreur, setStatutErreur] = useState('');
+  const [rattrapageOuvert, setRattrapageOuvert] = useState(false); // NOM-2 — aperçu du rattrapage déplié ?
+  const [rattrapageEnCours, setRattrapageEnCours] = useState(false);
 
   useEffect(() => {
     let annule = false;
@@ -119,6 +122,27 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
       const re = await fetch(`/api/admin/permis/emprise?dossierId=${ouvert}`, { cache: 'no-store' });
       if (re.ok) appliquerEmprise((await re.json()) as ReponseEmprise);
     } catch { setStatutErreur('statut impossible'); }
+  }, [ouvert, appliquerEmprise]);
+
+  // NOM-2 — APERÇU du rattrapage, calculé CÔTÉ CLIENT (PUR, aucune requête) à partir des données déjà en portée : batiments (nom/repli),
+  //   statut courant, recouverts (déjà filtrés au seuil serveur). Dit ce qui SERAIT écrit ; l'écriture n'a lieu qu'après confirmation.
+  const apercuRattrap = useMemo(() => {
+    const reperesParCleabs = new Map(polygonesReperes.filter((p) => p.cleabs).map((p) => [p.cleabs as string, p.repere]));
+    return apercuRattrapage(recapProjection?.batiments ?? [], reperesParCleabs, statutParCleabs, recouverts);
+  }, [recapProjection, polygonesReperes, statutParCleabs, recouverts]);
+  // NOM-2 — APPLIQUER le rattrapage (après confirmation) : POST 'rattraper' (writers existants, mêmes garanties), puis REJOUE le GET emprise (source unique).
+  const appliquerRattrapage = useCallback(async () => {
+    if (ouvert === null) return;
+    setStatutErreur(''); setRattrapageEnCours(true);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'rattraper', dossierId: ouvert }) });
+      const j = (await res.json()) as { ok?: boolean; erreur?: string };
+      if (!res.ok || !j.ok) { setStatutErreur(j.erreur ?? 'rattrapage impossible'); return; }
+      const re = await fetch(`/api/admin/permis/emprise?dossierId=${ouvert}`, { cache: 'no-store' });
+      if (re.ok) appliquerEmprise((await re.json()) as ReponseEmprise);
+      setRattrapageOuvert(false);
+    } catch { setStatutErreur('rattrapage impossible'); }
+    finally { setRattrapageEnCours(false); }
   }, [ouvert, appliquerEmprise]);
 
   // M3 — cotes EFFECTIVES affichées : la saisie d'Arno (`cotes`) si présente pour ce cleabs, sinon le DÉFAUT = altitude de sommet du
@@ -276,6 +300,8 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
         {/* AFF-1 — sous le grand schéma, les DEUX blocs REPLIÉS (identiques à l'onglet Analyse) : polygones « projet » affectés, puis bâtiments existants. */}
         <BlocProjetRepliable emprises={recapProjection?.emprises ?? []} polygones={polygonesReperes} batiments={recapProjection?.batiments ?? []} />
         <BlocExistantsRepliable polygones={polygonesReperes} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
+        {/* NOM-2 — RATTRAPAGE du dossier courant : nomme les corps anonymes + pose les statuts auto, APRÈS aperçu + confirmation. S'auto-masque si rien à rattraper. */}
+        <PanneauRattrapage apercu={apercuRattrap} ouvert={rattrapageOuvert} occupe={rattrapageEnCours} onOuvrir={() => setRattrapageOuvert(true)} onAppliquer={() => void appliquerRattrapage()} onAnnuler={() => setRattrapageOuvert(false)} />
         {statutErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{statutErreur}</div>}
         {/* ÉTAGE 1 — dossier « achevé, à confirmer » (surélévation / surface constante) : on N'affiche PAS l'arbitrage (affectation +
             valider = injection), mais la CLÔTURE honnête. `clos_sans_bati` → note en lecture seule. */}

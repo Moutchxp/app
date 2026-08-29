@@ -27,6 +27,21 @@ export function codeRepli(rang: number, nombreCorps: number): string {
   return nombreCorps <= 1 ? 'BP' : `BP${rang}`;
 }
 
+/** NOM-1 / NOM-2 — DÉCISION PURE des codes de repli à poser : un corps SANS `repere` (document) ET SANS `nom_repli` déjà attribué reçoit
+ *  'BP{rang}' (rang = position par ordre `id`, tous corps confondus). Un nom déjà attribué N'est PAS recalculé (stabilité) ; on n'écrit
+ *  JAMAIS dans `repere`. `corps` DOIT être ordonné par `id` (le rang en dépend). PUR (aucune I/O) — partagé par l'attribution auto et le rattrapage. */
+export interface ActionNomRepli { corpsId: number; code: string }
+export function actionsNomsRepli(corps: readonly { id: number; repere: string | null; nomRepli: string | null }[]): ActionNomRepli[] {
+  const total = corps.length;
+  const out: ActionNomRepli[] = [];
+  corps.forEach((c, i) => {
+    if (c.repere !== null && c.repere.trim() !== '') return; // nom du document → pas de repli
+    if (c.nomRepli !== null) return;                          // déjà attribué → stabilité
+    out.push({ corpsId: c.id, code: codeRepli(i + 1, total) });
+  });
+  return out;
+}
+
 /**
  * NOM-1 — NOM D'AFFICHAGE d'un corps : `repere` (document) → `nomRepli` (repli maison) → `bâtiment ${corpsId}` (dernier recours). PUR.
  */

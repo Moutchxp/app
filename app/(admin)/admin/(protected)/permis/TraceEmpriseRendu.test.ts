@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, aireAnneauM2, polygonesProjetParBatiment, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -836,5 +836,36 @@ describe('AFF-1 — encart réorganisé en blocs repliés', () => {
 
   it('BlocExistantsRepliable : aucun statuable → rien', () => {
     expect(renderToStaticMarkup(h(BlocExistantsRepliable, { polygones: [], recouverts: [], statuts: new Map(), onStatuer: () => {} }))).toBe('');
+  });
+});
+
+describe('NOM-2 — PanneauRattrapage (aperçu avant écriture)', () => {
+  const apercu = {
+    noms: [{ corpsId: 3, nomActuel: 'bâtiment 3', nomFutur: 'bâtiment en projet' }],
+    statuts: [{ cleabs: 'C1', repere: 'C', statut: 'detruit' as const, tauxPct: 100 }, { cleabs: 'C2', repere: 'D', statut: 'mixte' as const, tauxPct: 80 }],
+  };
+  it('rien à rattraper → rien affiché', () => {
+    expect(renderToStaticMarkup(h(PanneauRattrapage, { apercu: { noms: [], statuts: [] }, ouvert: false, onOuvrir: () => {}, onAppliquer: () => {}, onAnnuler: () => {} }))).toBe('');
+  });
+  it('FERMÉ : un bouton qui dit combien d’écritures sont en attente', () => {
+    const html = renderToStaticMarkup(h(PanneauRattrapage, { apercu, ouvert: false, onOuvrir: () => {}, onAppliquer: () => {}, onAnnuler: () => {} }));
+    expect(html).toContain('Rattraper les noms et statuts manquants');
+    expect(html).toContain('(3 en attente)');            // 1 nom + 2 statuts
+    expect(html).not.toContain('Appliquer');             // pas encore la confirmation
+  });
+  it('OUVERT : l’aperçu EXACT de ce qui sera écrit (noms + statuts + taux) + Appliquer/Annuler', () => {
+    const html = renderToStaticMarkup(h(PanneauRattrapage, { apercu, ouvert: true, onOuvrir: () => {}, onAppliquer: () => {}, onAnnuler: () => {} }));
+    expect(html).toContain('ce qui sera écrit');
+    expect(html).toContain('append-only');               // avertissement : non réversible
+    expect(html).toContain('bâtiment 3 → ');             // renommage montré
+    expect(html).toContain('bâtiment en projet');
+    expect(html).toContain('Polygone C → ');             // statut par polygone
+    expect(html).toContain('détruit');
+    expect(html).toContain('recouvert à 100 %');
+    expect(html).toContain('Polygone D → ');
+    expect(html).toContain('partiellement détruit');
+    expect(html).toContain('recouvert à 80 %');
+    expect(html).toContain('Appliquer');
+    expect(html).toContain('Annuler');
   });
 });

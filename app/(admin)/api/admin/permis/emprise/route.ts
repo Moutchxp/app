@@ -184,6 +184,16 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: true, statutsPolygones: await lireStatutsPolygones(dossierId), polygonesRecouverts: await polygonesRecouvertsParEmprise(dossierId) });
     }
 
+    // NOM-2 — RATTRAPAGE du dossier COURANT (après confirmation d'Arno, qui a vu l'aperçu) : attribue les noms de repli manquants +
+    //   pose les statuts auto de recouvrement. Réutilise les writers EXISTANTS (mêmes garanties : jamais dans repere, jamais un nom déjà
+    //   posé, jamais par-dessus une 'saisie', mêmes seuil/tolérance). Append-only. Renvoie l'état à jour (noms + statuts + recouverts).
+    if (body.action === 'rattraper') {
+      await attribuerNomsRepli(dossierId);                 // NOM-1 — noms de repli manquants
+      await appliquerAutoStatut(dossierId, 'admin:rattrapage'); // RATT-2/6 — statuts auto de recouvrement (detruit/mixte)
+      const [batiments, statutsPolygones, polygonesRecouverts] = await Promise.all([listerBatiments(dossierId), lireStatutsPolygones(dossierId), polygonesRecouvertsParEmprise(dossierId)]);
+      return Response.json({ ok: true, batiments, statutsPolygones, polygonesRecouverts });
+    }
+
     // PROJ-2b — ignorer / rétablir la projection d'UN bâtiment (débloque la validation sans tracer ; réversible ; tracé au journal).
     if (body.action === 'ignorer' || body.action === 'retablir') {
       if (!Number.isInteger(body.corpsId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
