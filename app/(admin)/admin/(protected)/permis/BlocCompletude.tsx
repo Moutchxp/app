@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { BlocDemandePieces } from './BlocDemandePieces';
 
 /**
  * PART-2 — DIAGNOSTIC DE COMPLÉTUDE des pièces, en tête de la ligne dépliée d'« Analyse et projection ». Lit le diagnostic MÉMORISÉ
@@ -47,12 +48,13 @@ export function BlocCompletude({ dossierId }: { dossierId: number }) {
       {etat.statut === 'ok' && etat.completude === null && (
         <span style={muted}>Diagnostic non calculé pour ce permis — cliquez « Relancer l’analyse » ci-dessus pour l’établir.</span>
       )}
-      {etat.statut === 'ok' && etat.completude !== null && <Contenu c={etat.completude} />}
+      {etat.statut === 'ok' && etat.completude !== null && <Contenu c={etat.completude} dossierId={dossierId} />}
     </div>
   );
 }
 
-function Contenu({ c }: { c: Completude }) {
+function Contenu({ c, dossierId }: { c: Completude; dossierId: number }) {
+  const manquantes = c.diagnostic.lignes.filter((l) => !l.presente).map((l) => l.famille);
   return (
     <div className="flex flex-col gap-1" style={{ fontSize: 13 }}>
       {c.perime && (
@@ -86,6 +88,8 @@ function Contenu({ c }: { c: Completude }) {
         <span style={muted}>{c.diagnostic.nonClassees.length} pièce{c.diagnostic.nonClassees.length > 1 ? 's' : ''} non classée{c.diagnostic.nonClassees.length > 1 ? 's' : ''} (contenu illisible ou nom sans indice) : {c.diagnostic.nonClassees.join(', ')}</span>
       )}
       <span style={{ ...muted, fontSize: 11 }}>Diagnostic établi le {c.calculeLe.slice(0, 10)}.</span>
+      {/* PART-3a — demander à la mairie les familles MANQUANTES (envoi manuel, dans le fil). Rien à demander si tout est présent. */}
+      {manquantes.length > 0 && <BlocDemandePieces dossierId={dossierId} famillesManquantes={manquantes} />}
     </div>
   );
 }

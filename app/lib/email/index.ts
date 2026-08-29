@@ -256,3 +256,33 @@ export async function envoyerDemande(transporteur: Transporter, from: string, m:
   const retour = (info.response ?? '').toString().trim();
   return { messageId, retourFournisseur: retour === '' ? '(simulation — aucune connexion SMTP)' : retour };
 }
+
+// ── PART-3a — Envoi d'un COMPLÉMENT DE PIÈCES à une mairie, DANS LE FIL de son dernier message ────────────────────────────
+export interface MailComplement {
+  to: string;         // adresse du DERNIER message reçu de la mairie (répondable) — jamais un no-reply (refusé en amont)
+  replyTo: string;    // boîte RELUE (config_veille.adresse_reponse) : c'est là que la mairie répondra
+  objet: string;
+  corps: string;      // texte brut (générateur composerComplementPieces)
+  inReplyTo: string;  // Message-ID du dernier message reçu (avec chevrons) → rattachement au fil
+  references: string; // chaîne de Message-ID (references_brut du reçu + son message_id) → arbre du fil
+}
+
+/**
+ * Envoie un complément de pièces DANS LE FIL du message de la mairie : pose les en-têtes `inReplyTo` et `references` (que nodemailer
+ * supporte nativement — c'était le code applicatif qui manquait). MÊME capture obligatoire du messageId qu'`envoyerDemande`.
+ *
+ * ⚠️ ENTETES_AUTO POSÉ (décision) : c'est un envoi ÉMIS PAR NOTRE SYSTÈME. La relève écarte nos propres envois d'abord par l'adresse
+ * expéditrice, MAIS le poser en plus garantit qu'un tel message ne puisse JAMAIS se rattacher à lui-même (même filet que demande/
+ * relance). Cela n'empêche pas la mairie de RÉPONDRE (sa réponse vient de SON adresse, sans cet en-tête) : le fil reste vivant.
+ */
+export async function envoyerComplementPieces(transporteur: Transporter, from: string, m: MailComplement): Promise<EmissionDemande> {
+  const message: Parameters<Transporter['sendMail']>[0] = {
+    from, to: m.to, replyTo: m.replyTo, subject: m.objet, text: m.corps,
+    headers: { ...ENTETES_AUTO }, inReplyTo: m.inReplyTo, references: m.references,
+  };
+  const info = await transporteur.sendMail(message);
+  const messageId = (info.messageId ?? '').toString().trim();
+  if (messageId === '') throw new Error('émission sans messageId — capture impossible, échec (pas de succès silencieux)');
+  const retour = (info.response ?? '').toString().trim();
+  return { messageId, retourFournisseur: retour === '' ? '(simulation — aucune connexion SMTP)' : retour };
+}
