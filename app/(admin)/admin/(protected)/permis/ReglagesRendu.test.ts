@@ -159,12 +159,12 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     const CLES_RENDUES_REGLAGES = [
       ...PARAMS_THEME_PREPARATION, ...PARAMS_THEME_ENVOI, ...PARAMS_THEME_REPONSES, ...PARAMS_THEME_ALERTES, ...PARAMS_THEME_CADA,
       ...PARAMS_THEME_TELESERVICE, // D4-ter (étanche) — thème « Téléservice » : dossiers + permis + profil (préparation propre) + alerte non déposée (2) = 5 réglages
-      ...PARAMS_THEME_RATTACHEMENT, // 6e thème « Rattachement au bâti » : RATT-AUTO (1) + ATT-BATI (2) + PHASE-1 délais (2) + SURV-1 surveillance (2) = 7 réglages
+      ...PARAMS_THEME_RATTACHEMENT, // 6e thème « Rattachement au bâti » : RATT-AUTO (1) + ATT-BATI (2) + PHASE-1 délais (2) + SURV-1 (2) + SURV-2 interrupteur (1) = 8 réglages
       ...PARAMS_MENTIONS, ...PARAMS_SOURCES,
     ].map((p) => p.colonne);
-    // Snapshot : 50 + PHASE-1 (2 délais) + SURV-1 (2 réglages : fenêtre + tolérance) = 54 clés distinctes.
-    expect(CLES_RENDUES_REGLAGES).toHaveLength(54);
-    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(54);
+    // Snapshot : 50 + PHASE-1 (2 délais) + SURV-1 (2 réglages) + SURV-2 (1 interrupteur) = 55 clés distinctes.
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(55);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(55);
     // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
     const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
     expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));

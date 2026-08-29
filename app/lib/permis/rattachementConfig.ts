@@ -25,6 +25,7 @@ export const DUREE_MESSAGE_JOURS_DEFAUT = 548;  // ≈ 1,5 an, comptée depuis L
 // SURV-1 — réglages de la surveillance des polygones après validation. = DEFAULT de la migration 171 (aucune constante dispersée).
 export const SURVEILLANCE_TOLERANCE_CONTOUR_PCT_DEFAUT = 0;  // % d'écart de contour au-delà duquel on alerte (0 = tout écart)
 export const SURVEILLANCE_FENETRE_JOURS_DEFAUT = 730;       // ≈ 2 ans, comptée depuis la date de validation du rattachement
+export const SURVEILLANCE_ACTIVE_DEFAUT = true;            // SURV-2 : interrupteur opt-OUT (défaut true = comportement SURV-1)
 
 export interface SeuilsRattachementSource {
   seuils: SeuilsRattachement;                    // unités-métier (ratio, mètres) pour le moteur PUR
@@ -110,20 +111,27 @@ export async function lireDelaisPhases(): Promise<DelaisPhasesSource> {
  * `lireDelaisPhases`. Rend la PROVENANCE ('base' vs 'defaut') pour que la brique de surveillance sache toujours avec quels réglages
  * une alerte serait décidée. Jamais d'exception propagée. ⚠️ Lit SEULEMENT les réglages : ne décide NI alerte, NI invalidation.
  */
-export interface SurveillanceConfigSource { toleranceContourPct: number; fenetreJours: number; provenance: 'base' | 'defaut' }
+export interface SurveillanceConfigSource { toleranceContourPct: number; fenetreJours: number; active: boolean; provenance: 'base' | 'defaut' }
 export async function lireSurveillanceConfig(): Promise<SurveillanceConfigSource> {
-  const defaut: SurveillanceConfigSource = {
-    toleranceContourPct: SURVEILLANCE_TOLERANCE_CONTOUR_PCT_DEFAUT, fenetreJours: SURVEILLANCE_FENETRE_JOURS_DEFAUT, provenance: 'defaut',
+  const defaut = {
+    toleranceContourPct: SURVEILLANCE_TOLERANCE_CONTOUR_PCT_DEFAUT, fenetreJours: SURVEILLANCE_FENETRE_JOURS_DEFAUT,
   };
+  let toleranceContourPct = defaut.toleranceContourPct;
+  let fenetreJours = defaut.fenetreJours;
+  let provenance: 'base' | 'defaut' = 'defaut';
   try {
     const { rows } = await query<{ t: number | null; f: number | null }>(
       `SELECT surveillance_tolerance_contour_pct AS t, surveillance_fenetre_jours AS f FROM config_veille WHERE id = 1`);
     const r = rows[0];
-    if (!r || r.t == null || r.f == null) return defaut; // ligne absente / colonnes NULL → défauts
-    return { toleranceContourPct: Number(r.t), fenetreJours: Number(r.f), provenance: 'base' };
-  } catch {
-    return defaut; // 171 pas encore appliquée (colonnes absentes) → défauts, sans casser l'appelant
-  }
+    if (r && r.t != null && r.f != null) { toleranceContourPct = Number(r.t); fenetreJours = Number(r.f); provenance = 'base'; }
+  } catch { /* 171 pas encore appliquée (colonnes absentes) → défauts tolérance/fenêtre */ }
+  // SURV-2 — interrupteur, lecture ISOLÉE (172) : découplée du couple 171 ; colonne absente → repli true (comportement SURV-1 préservé).
+  let active = SURVEILLANCE_ACTIVE_DEFAUT;
+  try {
+    const { rows } = await query<{ a: boolean | null }>(`SELECT surveillance_active AS a FROM config_veille WHERE id = 1`);
+    active = rows[0]?.a ?? SURVEILLANCE_ACTIVE_DEFAUT;
+  } catch { /* 172 pas encore appliquée → repli true */ }
+  return { toleranceContourPct, fenetreJours, active, provenance };
 }
 
 /**

@@ -20,8 +20,8 @@ import {
 export interface DepsSurveillancePolygones {
   /** Le marqueur anti-doublon existe-t-il ? (migration 171 appliquée). Absent → brique NO-OP propre. */
   disponible(): Promise<boolean>;
-  /** Réglages + destinataire : tolérance (%), fenêtre (jours), adresse d'alerte partagée, base d'URL pour le lien fiche. */
-  lireReglages(): Promise<{ toleranceContourPct: number; fenetreJours: number; email: string; siteUrl: string | null }>;
+  /** Réglages + destinataire : interrupteur (SURV-2), tolérance (%), fenêtre (jours), adresse d'alerte partagée, base d'URL du lien fiche. */
+  lireReglages(): Promise<{ active: boolean; toleranceContourPct: number; fenetreJours: number; email: string; siteUrl: string | null }>;
   /** Les dossiers VALIDÉS encore DANS la fenêtre (scoping serveur : jamais tout l'univers). */
   chargerDossiersEnFenetre(fenetreJours: number): Promise<{ dossierId: number; numDau: string; valideLe: string | null }[]>;
   /** Pour un dossier : footprints figés à la validation (référence) + footprints courants avec écart de contour DÉJÀ mesuré. */
@@ -44,6 +44,7 @@ export interface BilanSurveillancePolygones { dossiers: number; aAlerter: number
  */
 export async function executerSurveillancePolygones(deps: DepsSurveillancePolygones): Promise<BilanSurveillancePolygones> {
   const reglages = await deps.lireReglages();
+  if (!reglages.active) return { dossiers: 0, aAlerter: 0, envoye: false };             // SURV-2 : interrupteur éteint → on ne calcule/écrit/envoie RIEN
   if (reglages.email.trim() === '') return { dossiers: 0, aAlerter: 0, envoye: false }; // pas de destinataire → surveillance au repos
   if (!(await deps.disponible())) return { dossiers: 0, aAlerter: 0, envoye: false };   // 171 non appliquée → NO-OP propre
 
@@ -105,6 +106,7 @@ export function depsReellesSurveillancePolygones(): DepsSurveillancePolygones {
       const c = await chargerConfigVeille();
       const siteUrl = (process.env.SITE_URL ?? '').trim();
       return {
+        active: c.surveillanceActive,                          // SURV-2 : interrupteur dédié (opt-OUT, défaut true) — EN AND avec l'adresse
         toleranceContourPct: c.surveillanceToleranceContourPct,
         fenetreJours: c.surveillanceFenetreJours,
         email: c.alerteEmail,                                  // adresse d'alerte PARTAGÉE (comme obstacle disparu / superstructures)

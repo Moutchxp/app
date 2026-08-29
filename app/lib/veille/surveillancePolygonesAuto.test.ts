@@ -9,7 +9,7 @@ import type { ChangementSurveille } from '../permis/surveillancePolygones';
 function makeDeps(over: Partial<DepsSurveillancePolygones> = {}): DepsSurveillancePolygones {
   return {
     disponible: vi.fn(async () => true),
-    lireReglages: vi.fn(async () => ({ toleranceContourPct: 0, fenetreJours: 730, email: 'arno@exemple.fr', siteUrl: 'https://app.exemple.fr' })),
+    lireReglages: vi.fn(async () => ({ active: true, toleranceContourPct: 0, fenetreJours: 730, email: 'arno@exemple.fr', siteUrl: 'https://app.exemple.fr' })),
     chargerDossiersEnFenetre: vi.fn(async () => [{ dossierId: 531, numDau: 'PC531', valideLe: '2026-06-01' }]),
     chargerFootprints: vi.fn(async () => ({ valides: [{ cleabs: 'A' }], courants: [{ cleabs: 'A', changementRelatif: 0 }, { cleabs: 'B', changementRelatif: null }] })), // B nouveau
     dejaAlertes: vi.fn(async (): Promise<ChangementSurveille[]> => []),
@@ -30,10 +30,36 @@ describe('SURV-1 — executerSurveillancePolygones', () => {
     expect(envoyer).not.toHaveBeenCalled();
   });
 
+  it('SURV-2 — interrupteur ÉTEINT → RIEN, même avec des changements détectables (rien chargé, rien envoyé, rien marqué)', async () => {
+    const disponible = vi.fn(async () => true);
+    const chargerDossiersEnFenetre = vi.fn(async () => [{ dossierId: 531, numDau: 'PC531', valideLe: '2026-06-01' }]);
+    const envoyer = vi.fn(async () => {});
+    const marquer = vi.fn(async () => {});
+    const deps = makeDeps({
+      lireReglages: vi.fn(async () => ({ active: false, toleranceContourPct: 0, fenetreJours: 730, email: 'arno@exemple.fr', siteUrl: null })),
+      disponible, chargerDossiersEnFenetre, envoyer, marquer,
+    });
+    expect(await executerSurveillancePolygones(deps)).toEqual({ dossiers: 0, aAlerter: 0, envoye: false });
+    expect(disponible).not.toHaveBeenCalled();
+    expect(chargerDossiersEnFenetre).not.toHaveBeenCalled();
+    expect(envoyer).not.toHaveBeenCalled();
+    expect(marquer).not.toHaveBeenCalled();
+  });
+
+  it('SURV-2 — éteint puis rallumé → reprise normale (aucun effet de bord entre-temps : rien n’a été marqué)', async () => {
+    const marquer = vi.fn(async () => {});
+    const eteint = makeDeps({ marquer, lireReglages: vi.fn(async () => ({ active: false, toleranceContourPct: 0, fenetreJours: 730, email: 'arno@exemple.fr', siteUrl: null })) });
+    expect((await executerSurveillancePolygones(eteint)).envoye).toBe(false);
+    expect(marquer).not.toHaveBeenCalled(); // rien n’a pollué la table marqueur pendant l’extinction
+    const rallume = makeDeps({ marquer }); // active:true par défaut → comportement SURV-1
+    expect((await executerSurveillancePolygones(rallume)).envoye).toBe(true);
+    expect(marquer).toHaveBeenCalledTimes(1);
+  });
+
   it('adresse d’alerte vide → RIEN (même pas la disponibilité)', async () => {
     const disponible = vi.fn(async () => true);
     const envoyer = vi.fn(async () => {});
-    const deps = makeDeps({ lireReglages: vi.fn(async () => ({ toleranceContourPct: 0, fenetreJours: 730, email: '  ', siteUrl: null })), disponible, envoyer });
+    const deps = makeDeps({ lireReglages: vi.fn(async () => ({ active: true, toleranceContourPct: 0, fenetreJours: 730, email: '  ', siteUrl: null })), disponible, envoyer });
     expect((await executerSurveillancePolygones(deps)).envoye).toBe(false);
     expect(disponible).not.toHaveBeenCalled();
     expect(envoyer).not.toHaveBeenCalled();

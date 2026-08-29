@@ -334,6 +334,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Après l’accord d’un permis dans l’axe de la vue, le certificat continue pendant ce délai de décrire la vue TELLE QU’ELLE EST aujourd’hui (l’ancienne parcelle), et un verdict « projeté » — qui tient compte de la future construction — reste proposé en option. Une fois ce délai écoulé ET les nouveaux contours publiés au cadastre ET le rattachement validé, le certificat bascule sur la configuration officielle. Défaut : 548 jours (environ 1 an et demi).' },
   { colonne: 'duree_message_jours', cle: 'dureeMessageJours', libelle: 'Durée du message « construction récente »', unite: 'jours', type: 'entier',
     aide: 'Après la bascule, le certificat affiche pendant cette durée un message prévenant que le verdict tient compte d’une construction récente dans l’axe de la vue. Le décompte part du JOUR DE LA BASCULE (pas de l’accord du permis). Passé ce délai, le message disparaît et le bâtiment est considéré comme définitivement en place. Défaut : 548 jours (environ 1 an et demi).' },
+  // SURV-2 — interrupteur dédié de la surveillance des polygones (même thème « Rattachement au bâti »). Opt-OUT : défaut activé.
+  { colonne: 'surveillance_active', cle: 'surveillanceActive', libelle: 'Surveiller les polygones après validation', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, après la validation d’un rattachement les polygones du permis sont surveillés : l’apparition, la disparition ou la modification d’un contour déclenche une alerte à vérifier (sans jamais remettre en cause la validation). Décoché, plus aucune alerte de surveillance des polygones n’est envoyée ni calculée. N’affecte NI la validation des rattachements, NI l’alerte « obstacle disparu ». Activé par défaut.' },
   // SURV-1 — surveillance des polygones APRÈS validation (même thème « Rattachement au bâti »). Bornes lues du CHECK (migration 171).
   { colonne: 'surveillance_fenetre_jours', cle: 'surveillanceFenetreJours', libelle: 'Durée de surveillance des polygones après validation', unite: 'jours', type: 'entier',
     aide: 'Après la validation d’un rattachement, la géométrie des polygones peut continuer de bouger : un bâtiment neuf apparaît à côté, un polygone validé disparaît d’une édition, un contour est redessiné. Pendant cette durée, comptée depuis le JOUR DE LA VALIDATION, ces changements déclenchent une alerte à vérifier. Passé ce délai, plus aucune alerte. L’alerte n’annule jamais la validation : elle demande seulement un contrôle. Défaut : 730 jours (environ 2 ans).' },
@@ -413,6 +416,7 @@ export const COLONNES_THEME_RATTACHEMENT: readonly string[] = [
   'rattachement_suivi_auto_active',   // RATT-AUTO — re-détection automatique du bâti
   'attente_bati_alerte_active', 'attente_bati_alerte_jours', // ATT-BATI — rappel si l'attente dure trop (interrupteur + seuil)
   'delai_bascule_jours', 'duree_message_jours', // PHASE-1 — les deux délais du verdict à trois phases
+  'surveillance_active', // SURV-2 — interrupteur (opt-OUT) en tête du groupe surveillance
   'surveillance_fenetre_jours', 'surveillance_tolerance_contour_pct', // SURV-1 — surveillance des polygones après validation (fenêtre + tolérance)
 ];
 // D4 — thème PROPRE au process TÉLÉSERVICE (dépôt manuel). Groupe ses réglages 'teleservice' sans casser les 5 thèmes existants.

@@ -81,6 +81,7 @@ export interface ConfigVeille {
   dureeMessageJours: number;                  // PHASE-1 : durée (jours) du message « construction récente », comptée depuis la bascule — défaut 548 (≈1,5 an), plage 30..1825
   surveillanceToleranceContourPct: number;    // SURV-1 : écart de contour (% diff. sym. relative) au-delà duquel un polygone validé est signalé — défaut 0, plage 0..100
   surveillanceFenetreJours: number;           // SURV-1 : fenêtre (jours) de surveillance des polygones depuis la validation — défaut 730 (≈2 ans), plage 30..3650
+  surveillanceActive: boolean;                // SURV-2 : interrupteur de la surveillance des polygones (opt-OUT, défaut true = comportement SURV-1)
 }
 
 /**
@@ -142,6 +143,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   teleserviceAlerteNonDeposeActive: false, teleserviceAlerteNonDeposeJours: 7, // = DEFAULT de la migration 159 (D4 : réglages téléservice)
   delaiBasculeJours: 548, dureeMessageJours: 548, // = DEFAULT de la migration 170 (PHASE-1 : délais du verdict à trois phases, ≈ 1,5 an chacun)
   surveillanceToleranceContourPct: 0, surveillanceFenetreJours: 730, // = DEFAULT de la migration 171 (SURV-1 : surveillance des polygones après validation)
+  surveillanceActive: true, // = DEFAULT de la migration 172 (SURV-2 : interrupteur opt-OUT ; repli true = comportement SURV-1 préservé)
 };
 
 interface LigneConfigVeille {
@@ -500,18 +502,31 @@ async function lireDelaisPhasesConfig(): Promise<Pick<ConfigVeille, 'delaiBascul
 
 // SURV-1 — lecture ISOLÉE des deux réglages de surveillance des polygones (résiliente à l'ordre d'application de la 171, livrée NON
 //   APPLIQUÉE) : tant que les colonnes n'existent pas, cette lecture échoue SEULE et retombe sur (0, 730), sans dégrader le reste.
-async function lireSurveillanceConfig(): Promise<Pick<ConfigVeille, 'surveillanceToleranceContourPct' | 'surveillanceFenetreJours'>> {
-  const def = { surveillanceToleranceContourPct: CONFIG_VEILLE_DEFAUT.surveillanceToleranceContourPct, surveillanceFenetreJours: CONFIG_VEILLE_DEFAUT.surveillanceFenetreJours };
+async function lireSurveillanceConfig(): Promise<Pick<ConfigVeille, 'surveillanceToleranceContourPct' | 'surveillanceFenetreJours' | 'surveillanceActive'>> {
+  const def = {
+    surveillanceToleranceContourPct: CONFIG_VEILLE_DEFAUT.surveillanceToleranceContourPct,
+    surveillanceFenetreJours: CONFIG_VEILLE_DEFAUT.surveillanceFenetreJours,
+    surveillanceActive: CONFIG_VEILLE_DEFAUT.surveillanceActive,
+  };
+  let toleranceContourPct = def.surveillanceToleranceContourPct;
+  let fenetreJours = def.surveillanceFenetreJours;
   try {
     const { rows } = await query<{ surveillance_tolerance_contour_pct: number | null; surveillance_fenetre_jours: number | null }>(
       `SELECT surveillance_tolerance_contour_pct, surveillance_fenetre_jours FROM config_veille WHERE id = 1`);
     const r = rows[0];
-    if (!r) return def;
-    return {
-      surveillanceToleranceContourPct: r.surveillance_tolerance_contour_pct ?? def.surveillanceToleranceContourPct,
-      surveillanceFenetreJours: r.surveillance_fenetre_jours ?? def.surveillanceFenetreJours,
-    };
-  } catch { return def; } // 171 pas encore appliquée → défauts
+    if (r) {
+      toleranceContourPct = r.surveillance_tolerance_contour_pct ?? def.surveillanceToleranceContourPct;
+      fenetreJours = r.surveillance_fenetre_jours ?? def.surveillanceFenetreJours;
+    }
+  } catch { /* 171 pas encore appliquée → défauts tolérance/fenêtre */ }
+  // SURV-2 — lecture ISOLÉE de l'interrupteur (172) : découplée du couple 171, pour qu'une 172 non appliquée ne fasse PAS retomber
+  //   tolérance/fenêtre au défaut. Colonne absente → repli true (comportement SURV-1 strictement préservé).
+  let active = def.surveillanceActive;
+  try {
+    const { rows } = await query<{ surveillance_active: boolean | null }>(`SELECT surveillance_active FROM config_veille WHERE id = 1`);
+    active = rows[0]?.surveillance_active ?? def.surveillanceActive;
+  } catch { /* 172 pas encore appliquée → repli true */ }
+  return { surveillanceToleranceContourPct: toleranceContourPct, surveillanceFenetreJours: fenetreJours, surveillanceActive: active };
 }
 
 /**
