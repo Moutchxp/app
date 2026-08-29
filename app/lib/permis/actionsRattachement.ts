@@ -13,7 +13,7 @@ import { appliquerPreseanceAltitude, type EtatAltitudePolygone } from './presean
 import { lireAffectation } from './affectationRepo';
 import { journalActif, colonneGelJournal, enregistrerLigneJournal, derniereLigne, dateModifBatiment } from './journalAltitude';
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo';
-import { versionGelCourante } from './gelRepo';
+import { versionGelCourante, figerVersionValidation } from './gelRepo';
 
 export interface ResultatAction {
   ok: boolean;
@@ -94,7 +94,7 @@ export async function validerRattachement(dossierId: number, valPar: string, cot
     .flatMap((c) => c.cleabsAffectes.map((cleabs) => ({ corpsId: c.id, cleabs, altitudePermis: cotes[cleabs] })))
     .filter((x): x is { corpsId: number; cleabs: string; altitudePermis: number } => typeof x.altitudePermis === 'number' && Number.isFinite(x.altitudePermis));
 
-  return withTransaction(async (q) => {
+  const resultat = await withTransaction(async (q) => {
     const rid = await rattId(q, dossierId);
     if (rid === null) return { ok: false, motif: 'aucun dossier de rattachement — lancez d’abord le suivi' };
     const jActif = await journalActif(q); // registre disponible ? (migration 118 appliquée)
@@ -150,6 +150,14 @@ export async function validerRattachement(dossierId: number, valPar: string, cot
     }, valPar);
     return { ok: true, nbInjectes, injections };
   });
+
+  // SURV-1 — après une validation RÉUSSIE, figer la RÉFÉRENCE de surveillance : une version de gel « validation » qui photographie le
+  //   bâti COURANT ∩ empreinte (l'état validé). Best-effort, HORS de la transaction de validation, no-op résilient si le registre de gel
+  //   est absent (migration 169). N'altère JAMAIS le résultat de la validation : une erreur ici reste isolée, la validation est acquise.
+  if (resultat.ok) {
+    try { await figerVersionValidation(dossierId, valPar); } catch { /* isolé : la surveillance n'a pas de référence, la validation reste valide */ }
+  }
+  return resultat;
 }
 
 /** REFUSER : passe le dossier à « refuse » avec qui/quand et un MOTIF OBLIGATOIRE. Aucune altitude n'est touchée. */

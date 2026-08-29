@@ -86,6 +86,9 @@ const DEFS_BASE = [
   // PHASE-1 — les deux délais du verdict à trois phases (migration 170) : BETWEEN 30 AND 1825 → forme `>= AND <=`
   'CHECK (((delai_bascule_jours >= 30) AND (delai_bascule_jours <= 1825)))',
   'CHECK (((duree_message_jours >= 30) AND (duree_message_jours <= 1825)))',
+  // SURV-1 — surveillance des polygones après validation (migration 171) : tolérance [0;100] %, fenêtre [30;3650] jours
+  'CHECK (((surveillance_tolerance_contour_pct >= 0) AND (surveillance_tolerance_contour_pct <= 100)))',
+  'CHECK (((surveillance_fenetre_jours >= 30) AND (surveillance_fenetre_jours <= 3650)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 

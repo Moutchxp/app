@@ -16,7 +16,7 @@ import { SelecteurCanal, ChampsProtocole, SelecteurEmailType, BoutonOuvrirLien, 
  */
 
 interface Categorie { cle: CleCategorie; libelle: string; rang: number }
-interface Props { depuisParDefaut: string; categories: Categorie[] }
+interface Props { depuisParDefaut: string; categories: Categorie[]; qInitial?: string }
 
 interface Filtres {
   departement: string; type: '' | 'PC' | 'PD'; rang: string;
@@ -39,10 +39,12 @@ const styleChamp: CSSProperties = { padding: '.4rem .5rem', border: '1px solid v
 const fmtNb = (n: number | null): string => (n === null ? '—' : n.toLocaleString('fr-FR'));
 const fmtSurf = (n: number | null): string => (n === null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} m²`);
 
-export function PermisVue({ depuisParDefaut, categories }: Props) {
+export function PermisVue({ depuisParDefaut, categories, qInitial }: Props) {
   const [filtres, setFiltres] = useState<Filtres>({
     departement: '', type: '', rang: '',
-    depuis: depuisParDefaut, jusqua: '', surfaceMin: '', logementsMin: '', q: '', sansDestinataire: '', etat: '', rattachement: '',
+    // SURV-1 — `q` pré-rempli depuis l'URL (?q=<num_dau>) pour un lien direct depuis un e-mail d'alerte ; vide sinon. Aussi : quand
+    //   `q` est pré-rempli, on efface le plancher de date par défaut, pour que le permis visé remonte quelle que soit son ancienneté.
+    depuis: qInitial ? '' : depuisParDefaut, jusqua: '', surfaceMin: '', logementsMin: '', q: qInitial ?? '', sansDestinataire: '', etat: '', rattachement: '',
   });
   const [communesSel, setCommunesSel] = useState<string[]>([]); // codes INSEE sélectionnés (multi) — état PARTAGÉ carte ↔ champ
   const [ref, setRef] = useState<{ communes: CommuneRef[]; fusions: FusionRef[] } | null>(null);

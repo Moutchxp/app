@@ -21,6 +21,7 @@ import type { PieceArchive } from '../sitadel/demandeRepo';
 import { libelleNatureProjet, aucunSignalGeometriquePossible } from '../sitadel/priorite';
 import { estAFaire } from './rattachementGroupes'; // L6 — coupure en deux (source unique) ; le tri ci-dessous s'appuie dessus
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti AFFICHÉ = registre (autorité), plus le proxy
+import { figerVersionValidation } from './gelRepo'; // SURV-1 — geler la référence de surveillance à la validation AUTO
 
 // ÉTAGE 1 — deux états ajoutés : `acheve_sans_bati` (achèvement déclaré sur un permis SANS signal géométrique possible → décision
 //   humaine « confirmer et clore » attendue) et `clos_sans_bati` (terminal, après confirmation). Cf. resoudreEtatSuivi / migration 156.
@@ -124,6 +125,14 @@ export async function suivreRattachement(dossierId: number, majPar: string): Pro
        VALUES ($1,$2,$3,$4,$5::jsonb,$6)`,
     [rattId, action === 'cree' ? 'detection' : 'reevaluation', existing?.etat ?? null, nouvelEtat, details, majPar]);
 
+  // SURV-1 — à la TRANSITION vers une validation AUTO (moteur:auto), figer la RÉFÉRENCE de surveillance des polygones, exactement
+  //   comme pour la validation manuelle. UNIQUEMENT au passage (existing.etat ≠ 'valide') : une réévaluation d'un dossier déjà validé
+  //   ne re-fige pas, sinon la référence suivrait le courant et rien ne serait jamais détecté. Best-effort, no-op résilient si le
+  //   registre de gel est absent (migration 169) ; isolé (une erreur ici n'altère jamais le suivi).
+  if (decision.auto && nouvelEtat === 'valide' && existing?.etat !== 'valide') {
+    try { await figerVersionValidation(dossierId, 'moteur:auto'); } catch { /* isolé : la surveillance n'a pas de référence, le suivi reste acquis */ }
+  }
+
   return { dossierId, persiste: true, action, verdict: resultat.verdict, etat: nouvelEtat };
 }
 
@@ -191,6 +200,7 @@ export interface LigneSuivi {
   dateAutorisationIso: string | null;   // L1 — date_reelle_autorisation du permis (ISO 'YYYY-MM-DD') ; null = inconnue. À NE PAS confondre avec joursAnciennete (date d'ENTRÉE en suivi).
   dateDeclenchementIso: string | null;  // L6 — permis_rattachement.detecte_le (date où le déclencheur a ouvert le dossier) ; null = pas de dossier / pas de déclencheur.
   origineOuverture: 'detection' | 'manuelle' | null; // M7-ter — 'manuelle' = ouvert à la main (M5) ; null = pas de dossier / données < migration 147 → affichage 'detection'
+  alertesSurveillance: number; // SURV-1 — nb d'alertes de surveillance des polygones en attente pour ce dossier (0 = aucune ; pastille rouge si > 0)
 }
 
 /** Tri décroissant d'une date ISO 'YYYY-MM-DD' (comparable lexicographiquement) ; une date ABSENTE va en FIN (jamais en tête). */
@@ -223,8 +233,27 @@ export function trierLignesSuivi(lignes: LigneSuivi[]): LigneSuivi[] {
   });
 }
 
+/**
+ * SURV-1 — nb d'alertes de surveillance des polygones PAR dossier. Lecture ISOLÉE et RÉSILIENTE : tant que la migration 171 n'est pas
+ * appliquée (table absente), retombe sur une map vide sans casser le suivi. Une entrée seulement pour les dossiers ayant ≥ 1 alerte.
+ */
+async function lireAlertesSurveillanceParDossier(): Promise<Map<number, number>> {
+  try {
+    const { rows } = await query<{ dossier_id: number | string; n: number | string }>(
+      `SELECT dossier_id, count(*) AS n FROM permis_surveillance_alerte GROUP BY dossier_id`);
+    const m = new Map<number, number>();
+    for (const r of rows) {
+      const id = Number(r.dossier_id);
+      const n = Number(r.n);
+      if (Number.isFinite(id) && Number.isFinite(n) && n > 0) m.set(id, n);
+    }
+    return m;
+  } catch { return new Map(); } // 171 non appliquée → aucune pastille de surveillance
+}
+
 /** Liste l'UNIVERS des permis suivis (ceux qui ont une empreinte) LEFT JOIN leur dossier ; « aucun signal » si pas de dossier. */
 export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> }> {
+  const alertesSurv = await lireAlertesSurveillanceParDossier();
   const { rows } = await query<{ dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; origine_ouverture: 'detection' | 'manuelle' | null; jours: number; reevalue: string | null; date_autorisation: string | null; date_declenchement: string | null }>(
     `SELECT e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s.type,
             nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
@@ -245,6 +274,7 @@ export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: 
     etat: r.ratt_etat ?? 'suivi_aucun_signal', verdict: r.verdict, joursAnciennete: r.jours, derniereEvalIso: r.reevalue,
     dateAutorisationIso: r.date_autorisation, dateDeclenchementIso: r.date_declenchement,
     origineOuverture: r.origine_ouverture ?? null,
+    alertesSurveillance: alertesSurv.get(Number(r.dossier_id)) ?? 0, // SURV-1 — pastille par-ligne (0 = aucune)
   })));
   const compteurs = Object.fromEntries((Object.keys(ORDRE_URGENCE) as EtatSuivi[]).map((e) => [e, 0])) as Record<EtatSuivi, number>;
   for (const l of lignes) compteurs[l.etat] += 1;

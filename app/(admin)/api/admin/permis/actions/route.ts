@@ -4,6 +4,7 @@ import { chargerSuiviReponses } from '../../../../../lib/veille/reponsesSuivi';
 import { chargerSuiviSaisines } from '../../../../../lib/veille/saisinesSuivi';
 import { listerSuivi } from '../../../../../lib/permis/rattachementSuiviRepo';
 import { compterFileProjection } from '../../../../../lib/permis/projectionFileRepo';
+import { compterSurveillanceDossiers } from '../../../../../lib/veille/surveillancePolygonesAuto';
 import { chargerConfigVeille } from '../../../../../lib/sitadel/veilleConfig';
 import { compterReponses, compterSaisines, compterRattachement, assemblerComptes, type DemandeComptable } from '../../../../admin/(protected)/permis/comptesActions';
 
@@ -20,8 +21,8 @@ export async function GET(request: Request): Promise<Response> {
   if ('refus' in garde) return garde.refus;
   try {
     const config = await chargerConfigVeille();
-    const [reponsesData, saisinesData, suivi, projection] = await Promise.all([
-      chargerSuiviReponses(), chargerSuiviSaisines(), listerSuivi(), compterFileProjection(config),
+    const [reponsesData, saisinesData, suivi, projection, surveillance] = await Promise.all([
+      chargerSuiviReponses(), chargerSuiviSaisines(), listerSuivi(), compterFileProjection(config), compterSurveillanceDossiers(),
     ]);
     const reponses = compterReponses({
       demandes: reponsesData.demandes as unknown as DemandeComptable[],
@@ -30,7 +31,7 @@ export async function GET(request: Request): Promise<Response> {
     });
     const saisines = compterSaisines({ saisissables: saisinesData.saisissables, fileADeposer: saisinesData.fileADeposer });
     const rattachement = compterRattachement(suivi.compteurs);
-    return Response.json({ ...assemblerComptes(reponses, saisines, rattachement, projection), recomptageHeure: config.recomptageHeureLocale });
+    return Response.json({ ...assemblerComptes(reponses, saisines, rattachement, projection, surveillance), recomptageHeure: config.recomptageHeureLocale });
   } catch (e) {
     console.error('[permis/actions] GET impossible (503)', { message: (e as Error)?.message });
     return Response.json({ erreur: 'comptage indisponible' }, { status: 503 });

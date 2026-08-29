@@ -14,11 +14,17 @@ import { PermisTuile } from './PermisTuile';
  * l'administrateur par son défaut FAIL-CLOSED (les collaborateurs sont refusés) ; ce gate serveur aligne la PAGE sur
  * l'API : un non-administrateur voit un avis « réservé », jamais de données. LECTURE SEULE (lit `sitadel_dossier`).
  */
-export default async function PermisPage() {
+type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
+
+export default async function PermisPage({ searchParams }: { searchParams: SearchParams }) {
   const jeton = (await cookies()).get(NOM_COOKIE)?.value;
   const payload = jeton ? await verifierJeton(jeton) : null;
   const estAdmin = payload ? sessionDepuisPayload(payload).role === 'administrateur' : false;
   const config = await chargerConfigVeille();
+
+  // SURV-1 — lien direct depuis un e-mail d'alerte : `?q=<num_dau>` pré-filtre la liste des dossiers (onglet « Dossiers »).
+  const sp = await searchParams;
+  const qInitial = typeof sp.q === 'string' ? sp.q : '';
 
   // Date « depuis » par défaut = aujourd'hui − `annees_par_defaut` ans, calculée CÔTÉ SERVEUR (valeur stable → aucun
   // écart d'hydratation). La vue peut l'effacer (« depuis toujours ») pour remonter tout l'historique.
@@ -33,7 +39,7 @@ export default async function PermisPage() {
       />
       {estAdmin ? (
         <PermisTuile depuisParDefaut={depuisParDefaut} categories={categoriesConnues(config)}
-          ancienneteMaxAnnees={config.ancienneteMaxDemandeAnnees} triLibelle={libelleTriCandidats(config.triCandidats)} />
+          ancienneteMaxAnnees={config.ancienneteMaxDemandeAnnees} triLibelle={libelleTriCandidats(config.triCandidats)} qInitial={qInitial} />
       ) : (
         <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>
           Cet espace est réservé aux administrateurs.

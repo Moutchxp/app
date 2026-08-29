@@ -106,6 +106,78 @@ export async function figerVersionGel(dossierId: number, gelePar: string): Promi
   });
 }
 
+/** SURV-1 — préfixe de provenance d'une version figée AU MOMENT DE LA VALIDATION d'un rattachement (par opposition aux versions
+ *  d'origine posées à l'extraction). Sert de marqueur : la surveillance retrouve sa RÉFÉRENCE par `gele_par LIKE 'validation:%'`. */
+export const PREFIXE_GEL_VALIDATION = 'validation:';
+
+/** SURV-1 — version de VALIDATION la plus récente d'un dossier (gele_par préfixé 'validation:') : { id, version } ; null si aucune ou
+ *  registre absent. C'est la RÉFÉRENCE géométrique de la surveillance des polygones (permis_gel_bati de cette version). */
+export async function versionValidationCourante(q: RequeteTx, dossierId: number): Promise<VersionGel | null> {
+  if (!(await gelActif(q))) return null;
+  const { rows } = await q<{ id: string | number; version: string | number }>(
+    `SELECT id, version FROM permis_gel WHERE dossier_id = $1 AND gele_par LIKE $2 ORDER BY version DESC LIMIT 1`,
+    [dossierId, `${PREFIXE_GEL_VALIDATION}%`]);
+  const r = rows[0];
+  return r ? { id: Number(r.id), version: Number(r.version) } : null;
+}
+
+/**
+ * SURV-1 — FIGE une nouvelle VERSION de gel AU MOMENT DE LA VALIDATION d'un rattachement, pour servir de RÉFÉRENCE à la surveillance
+ * des polygones. RÉEMPLOI des tables FIG-1 (permis_gel / permis_gel_bati), mais — contrairement à `figerVersionGel` — le détail bâti est
+ * copié du BÂTI COURANT ∩ empreinte (l'état validé, où le bâtiment neuf est APPARU), JAMAIS du snapshot d'ORIGINE : la référence doit
+ * refléter ce qui a été validé, pas l'état d'avant-travaux. Ne MUTE PAS `permis_bati_snapshot` (baseline de la détection pré-validation).
+ *
+ * `gele_par` est préfixé `PREFIXE_GEL_VALIDATION` (ex. 'validation:admin:decision', 'validation:moteur:auto') → repérable par la
+ * surveillance. Atomique (withTransaction). NO-OP propre si le registre est absent (migration 169 non appliquée). L'UNIQUE (dossier_id,
+ * version) EN BASE protège contre deux appends concurrents.
+ */
+export async function figerVersionValidation(dossierId: number, valPar: string): Promise<ResultatFigerGel> {
+  return withTransaction(async (q) => {
+    if (!(await gelActif(q))) return { enregistre: false, raison: 'registre de gel indisponible (migration 169 non appliquée)' };
+
+    const { rows: v } = await q<{ prochaine: string | number }>(
+      `SELECT COALESCE(max(version), 0) + 1 AS prochaine FROM permis_gel WHERE dossier_id = $1`, [dossierId]);
+    const version = Number(v[0]?.prochaine ?? 1);
+    const gelePar = `${PREFIXE_GEL_VALIDATION}${valPar}`;
+
+    // EN-TÊTE : copie de l'empreinte COURANTE ; le résumé bâti est recompté sur le BÂTI COURANT ∩ empreinte (pas la capture d'origine).
+    const { rows: h } = await q<{ id: string | number }>(
+      `INSERT INTO permis_gel (dossier_id, version, gele_par,
+                               empreinte_geom, empreinte_surface_m2, empreinte_nb_parcelles, empreinte_complete, empreinte_motif, empreinte_millesime,
+                               bati_capture, bati_nb_batiments, bati_motif, bati_source_millesime)
+         SELECT $1, $2, $3,
+                pe.geom, pe.surface_m2, pe.nb_parcelles, pe.complete, pe.motif, pe.millesime,
+                (pe.geom IS NOT NULL AND pe.complete IS TRUE),
+                CASE WHEN pe.geom IS NOT NULL
+                     THEN (SELECT count(*) FROM batiment b WHERE b.geom && pe.geom AND ST_Intersects(b.geom, pe.geom))
+                     ELSE NULL END,
+                'SURV-1 — gel de référence à la validation (bâti courant ∩ empreinte)', NULL
+           FROM (SELECT $1::bigint AS dossier_id) d
+           LEFT JOIN permis_empreinte pe ON pe.dossier_id = d.dossier_id
+         RETURNING id`,
+      [dossierId, version, gelePar]);
+    const gelId = Number(h[0].id);
+
+    // DÉTAIL parcelles d'origine (copie du geom_snapshot cadastral figé — identique à figerVersionGel).
+    const rp = await q(
+      `INSERT INTO permis_gel_parcelle (gel_id, prefixe, section, numero, idu, geom_snapshot, snapshot_millesime)
+         SELECT $2, pp.prefixe, pp.section, pp.numero, pp.idu, pp.geom_snapshot, pp.snapshot_millesime
+           FROM permis_parcelle pp WHERE pp.dossier_id = $1 AND pp.role = 'origine'`,
+      [dossierId, gelId]);
+
+    // DÉTAIL bâti = BÂTI COURANT ∩ empreinte (footprint 2D figé). Même primitive que figerBatiSnapshot, mais SANS toucher le snapshot.
+    const rb = await q(
+      `INSERT INTO permis_gel_bati (gel_id, cleabs, geom, nombre_d_etages, altitude_max_toit, hauteur, date_modification, etat_de_l_objet, usage_1, usage_2)
+         SELECT $2, b.cleabs, ST_Multi(ST_Force2D(b.geom)), b.nombre_d_etages, b.altitude_maximale_toit, b.hauteur, b.date_modification, b.etat_de_l_objet, b.usage_1, b.usage_2
+           FROM batiment b
+           JOIN permis_empreinte pe ON pe.dossier_id = $1
+          WHERE pe.geom IS NOT NULL AND b.geom && pe.geom AND ST_Intersects(b.geom, pe.geom)`,
+      [dossierId, gelId]);
+
+    return { enregistre: true, version, gelId, nbParcelles: rp.rowCount ?? 0, nbBati: rb.rowCount ?? 0 };
+  });
+}
+
 /** HISTORIQUE complet des versions figées d'un dossier (ordre croissant). `[]` si aucune version ou registre absent (42P01). */
 export async function historiqueGel(dossierId: number): Promise<LigneHistoriqueGel[]> {
   try {

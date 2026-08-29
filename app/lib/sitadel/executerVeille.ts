@@ -39,6 +39,7 @@ import { depsReellesIngestionAuto } from '../veille/ingestionAutoRepo';
 import { executerSuiviRattachementAuto, depsReellesSuiviRattachementAuto } from '../veille/suiviRattachementAuto';
 import { executerAlerteAttenteBati, depsReellesAlerteAttenteBati } from '../veille/alerteAttenteBatiAuto';
 import { executerAlerteObstacleDisparu, depsReellesAlerteObstacleDisparu } from '../veille/alerteObstacleDisparuAuto';
+import { executerSurveillancePolygones, depsReellesSurveillancePolygones } from '../veille/surveillancePolygonesAuto';
 import { executerAlerteMisesAJour } from '../veille/alerteMisesAJour';
 import { depsReellesAlerteMisesAJour } from '../veille/alerteMisesAJourRepo';
 import { ingererMillesime, millesimeDistantDido, DiDoIndisponibleError, DOSSIER_LOCAL, type CompteursIngestion, type MillesimeDistant } from './ingestionMillesime';
@@ -155,6 +156,10 @@ export interface DepsVeille {
   //   OPTIONNELLE et ISOLÉE. Croise les certificats émis (cleabs d'obstacle capturé) avec le bâti COURANT. NE recertifie JAMAIS,
   //   n'écrit sur aucun certificat, ne touche NI le moteur NI le verdict. Interrupteur `obstacle_disparu_alerte_active` (défaut false).
   alerteObstacleDisparu?(): Promise<unknown>;
+  // SURVEILLANCE des polygones après validation (SURV-1) — RAPPEL e-mail « les polygones d'un permis validé ont bougé » (§1quindecies).
+  //   OPTIONNELLE et ISOLÉE. Compare le bâti courant à la référence figée à la validation (permis_gel « validation »). N'invalide RIEN
+  //   (la validation reste active), n'écrit sur aucun certificat, ne touche NI le moteur NI le verdict. Latente tant qu'aucun validé.
+  surveillancePolygones?(): Promise<unknown>;
 }
 
 /** Date de publication en français lisible (Europe/Paris), ex. « 28 août 2026 » — pour les messages « publié le … ». */
@@ -293,6 +298,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   de recertification, aucune écriture de certificat). Un rappel par certificat (marqueur anti-doublon). MÊME ISOLATION.
     if (faitDonnees && deps.alerteObstacleDisparu) {
       try { await deps.alerteObstacleDisparu(); } catch { /* alerte obstacle disparu isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1quindecies) SURVEILLANCE des polygones APRÈS validation (SURV-1) — APRÈS l'ingestion d'une nouvelle édition BD TOPO : pour les
+    //   rattachements VALIDÉS encore en fenêtre, on compare le bâti courant à la référence figée à la validation et on ALERTE si un
+    //   polygone apparaît / disparaît / change de contour. SIGNAL seulement (n'invalide RIEN). Latente tant qu'aucun dossier n'est
+    //   validé (0 aujourd'hui) → coût nul. MÊME ISOLATION à double filet : un échec n'impacte jamais la veille.
+    if (faitDonnees && deps.surveillancePolygones) {
+      try { await deps.surveillancePolygones(); } catch { /* surveillance isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     // Le CŒUR SITADEL (§2-7 : garde d'intervalle, run journal, millésime distant, ingestion, purge) appartient à la famille
@@ -471,6 +484,7 @@ function depsReelles(): DepsVeille {
     alerteAttenteBati: () => executerAlerteAttenteBati(depsReellesAlerteAttenteBati()),
     // ALERTE obstacle disparu — rappel « à revérifier » : croise certificats × bâti courant, interrupteur (défaut false), un rappel par certificat, isolé.
     alerteObstacleDisparu: () => executerAlerteObstacleDisparu(depsReellesAlerteObstacleDisparu()),
+    surveillancePolygones: () => executerSurveillancePolygones(depsReellesSurveillancePolygones()),
   };
 }
 

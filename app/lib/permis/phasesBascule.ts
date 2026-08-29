@@ -38,8 +38,9 @@ export function dateBasculeTheorique(dateAccord: Date | string | null | undefine
   return d.toISOString().slice(0, 10);
 }
 
-/** Normalise une date (chaîne 'YYYY-MM-DD' ou Date) en ISO 'YYYY-MM-DD' — comparable lexicographiquement — ou null si illisible. */
-function versISODate(v: Date | string | null | undefined): string | null {
+/** Normalise une date (chaîne 'YYYY-MM-DD' ou Date) en ISO 'YYYY-MM-DD' — comparable lexicographiquement — ou null si illisible.
+ *  Exporté : réutilisé par le moteur de surveillance des polygones (SURV-1) pour situer la fenêtre post-validation. */
+export function versISODate(v: Date | string | null | undefined): string | null {
   if (v == null) return null;
   const c = composantsJour(v);
   return c ? new Date(Date.UTC(c.y, c.m, c.d)).toISOString().slice(0, 10) : null;

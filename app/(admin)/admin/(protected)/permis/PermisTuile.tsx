@@ -31,9 +31,9 @@ const ONGLETS_DEMANDES: readonly CleOnglet[] = ['a_demander', 'en_cours', 'repon
  * Réglages). La barre est PURE (`OngletsPermis`) ; ici on ne gère que l'onglet actif et le montage du corps correspondant.
  * Q5 — l'ex-« Demandes » est scindé : « À demander » (préparation) et « En cours » (suivi), montés indépendamment.
  */
-interface Props { depuisParDefaut: string; categories: { cle: CleCategorie; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string }
+interface Props { depuisParDefaut: string; categories: { cle: CleCategorie; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; qInitial?: string }
 
-interface Comptes { reponses: number; saisines: number; rattachement: number; projection: number }
+interface Comptes { reponses: number; saisines: number; rattachement: number; projection: number; surveillance: number }
 
 /** Millisecondes jusqu'à la PROCHAINE occurrence de l'heure locale `h` (0..23). Sert au SEUL recomptage quotidien (pas un sondage). */
 function msJusquaProchaineHeure(h: number): number {
@@ -44,7 +44,7 @@ function msJusquaProchaineHeure(h: number): number {
   return cible.getTime() - now.getTime();
 }
 
-export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, triLibelle }: Props) {
+export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, triLibelle, qInitial }: Props) {
   const [onglet, setOnglet] = useState<CleOnglet>('dossiers');
   const [comptes, setComptes] = useState<Comptes | null>(null);
   // D2 — process actif du commutateur (défaut e-mail ; NE persiste PAS entre sessions) + compteurs des viviers.
@@ -60,7 +60,7 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
       const res = await fetch('/api/admin/permis/actions', { cache: 'no-store' });
       if (!res.ok) return;
       const d = (await res.json()) as Comptes & { total: number; recomptageHeure: number };
-      setComptes({ reponses: d.reponses, saisines: d.saisines, rattachement: d.rattachement, projection: d.projection });
+      setComptes({ reponses: d.reponses, saisines: d.saisines, rattachement: d.rattachement, projection: d.projection, surveillance: d.surveillance });
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => { void recompterRef.current(); }, msJusquaProchaineHeure(d.recomptageHeure)); // recomptage quotidien
     } catch { /* compteurs indisponibles : sans pastille, les onglets restent pleinement utilisables */ }
@@ -100,7 +100,11 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
   return (
     <div className="flex flex-col gap-3">
       <OngletsPermis actif={onglet} onChoisir={setOnglet}
-        compteurs={comptes ? { reponses: comptes.reponses, saisines: comptes.saisines, rattachement: comptes.rattachement, projection: comptes.projection } : undefined} />
+        compteurs={comptes ? {
+          reponses: comptes.reponses, saisines: comptes.saisines,
+          rattachement: comptes.rattachement + comptes.surveillance, // SURV-1 — la surveillance à vérifier remonte sur l'onglet Rattachement
+          projection: comptes.projection,
+        } : undefined} />
       {/* D2 — le commutateur de process coiffe les 4 onglets « Demandes » et les scope (email / téléservice) + 3e groupe. */}
       {ONGLETS_DEMANDES.includes(onglet) && (
         <>
@@ -109,7 +113,7 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
           <BasculeRail onBascule={apresAction} />
         </>
       )}
-      {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} />}
+      {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} qInitial={qInitial} />}
       {onglet === 'rattachement' && <SuiviRattachementVue onRecompter={apresAction} />}
       {/* DEPOT-2 — ADemanderVue (préparation + dépôt/annulation via BlocDepot) notifie le foyer unique → compteurs du commutateur à jour. */}
       {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} process={processActif} onBasculerProcess={setProcessActif} onChangement={apresAction} onAllerReglages={() => setOnglet('reglages')} />}

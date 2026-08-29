@@ -334,6 +334,11 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Après l’accord d’un permis dans l’axe de la vue, le certificat continue pendant ce délai de décrire la vue TELLE QU’ELLE EST aujourd’hui (l’ancienne parcelle), et un verdict « projeté » — qui tient compte de la future construction — reste proposé en option. Une fois ce délai écoulé ET les nouveaux contours publiés au cadastre ET le rattachement validé, le certificat bascule sur la configuration officielle. Défaut : 548 jours (environ 1 an et demi).' },
   { colonne: 'duree_message_jours', cle: 'dureeMessageJours', libelle: 'Durée du message « construction récente »', unite: 'jours', type: 'entier',
     aide: 'Après la bascule, le certificat affiche pendant cette durée un message prévenant que le verdict tient compte d’une construction récente dans l’axe de la vue. Le décompte part du JOUR DE LA BASCULE (pas de l’accord du permis). Passé ce délai, le message disparaît et le bâtiment est considéré comme définitivement en place. Défaut : 548 jours (environ 1 an et demi).' },
+  // SURV-1 — surveillance des polygones APRÈS validation (même thème « Rattachement au bâti »). Bornes lues du CHECK (migration 171).
+  { colonne: 'surveillance_fenetre_jours', cle: 'surveillanceFenetreJours', libelle: 'Durée de surveillance des polygones après validation', unite: 'jours', type: 'entier',
+    aide: 'Après la validation d’un rattachement, la géométrie des polygones peut continuer de bouger : un bâtiment neuf apparaît à côté, un polygone validé disparaît d’une édition, un contour est redessiné. Pendant cette durée, comptée depuis le JOUR DE LA VALIDATION, ces changements déclenchent une alerte à vérifier. Passé ce délai, plus aucune alerte. L’alerte n’annule jamais la validation : elle demande seulement un contrôle. Défaut : 730 jours (environ 2 ans).' },
+  { colonne: 'surveillance_tolerance_contour_pct', cle: 'surveillanceToleranceContourPct', libelle: 'Tolérance avant alerte « contour modifié »', unite: '%', type: 'entier',
+    aide: 'Part de la surface d’un polygone validé qui peut changer sans déclencher d’alerte. En dessous de ce pourcentage, un contour redessiné est considéré comme du simple bruit de re-numérisation et ignoré ; au-delà, il est signalé. Un réglage à 0 signale le moindre écart (beaucoup d’alertes, surtout au premier import) ; l’augmenter ne garde que les changements francs. Ne concerne QUE la modification de contour, pas l’apparition ni la disparition d’un polygone. Défaut : 0 %.' },
   // D4/D4-bis — RÉGLAGES TÉLÉSERVICE (rail 'teleservice' seul). Thème PROPRE « Téléservice (dépôt manuel) ». Les deux surcharges de
   //   PRÉPARATION sont NULLABLE (vide = suivre le commun). Bornes lues des CHECK (migrations 159/160).
   { colonne: 'teleservice_dossiers_par_depot', cle: 'teleserviceDossiersParDepot', libelle: 'Dossiers par demande', unite: 'dossiers', type: 'entier', rail: 'teleservice',
@@ -408,6 +413,7 @@ export const COLONNES_THEME_RATTACHEMENT: readonly string[] = [
   'rattachement_suivi_auto_active',   // RATT-AUTO — re-détection automatique du bâti
   'attente_bati_alerte_active', 'attente_bati_alerte_jours', // ATT-BATI — rappel si l'attente dure trop (interrupteur + seuil)
   'delai_bascule_jours', 'duree_message_jours', // PHASE-1 — les deux délais du verdict à trois phases
+  'surveillance_fenetre_jours', 'surveillance_tolerance_contour_pct', // SURV-1 — surveillance des polygones après validation (fenêtre + tolérance)
 ];
 // D4 — thème PROPRE au process TÉLÉSERVICE (dépôt manuel). Groupe ses réglages 'teleservice' sans casser les 5 thèmes existants.
 export const COLONNES_THEME_TELESERVICE: readonly string[] = [

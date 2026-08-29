@@ -12,6 +12,7 @@ import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere,
 export interface EmpriseProjetee { id: number; libelle: string; anneau: [number, number][] }
 // rattachementGroupes est PUR (import de TYPE seul depuis le repo, erasé) → client-safe. Source UNIQUE de la coupure en deux (L6).
 import { estAFaire, GROUPE1_TITRE, GROUPE2_TITRE } from '../../../../lib/permis/rattachementGroupes';
+import { PastilleActions } from './PastilleActions'; // SURV-1 — pastille rouge « polygones à vérifier » par-ligne (composant pur, client-safe)
 import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
 
 /**
@@ -200,6 +201,12 @@ function LigneSuiviLi({ l, groupe, onOuvrir, ouvert }: { l: LigneSuivi; groupe: 
     <li style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap', paddingBottom: '.2rem', borderBottom: '1px solid var(--color-svv-line)' }}>
       {/* Le BADGE d'état reste sur chaque ligne (l'info d'état n'est plus portée par la carte, mais par la ligne). M7-ter : dérivé de l'origine. */}
       <BadgeEtatSuivi etat={l.etat} origineOuverture={l.origineOuverture} verdict={l.verdict} />
+      {/* SURV-1 — pastille rouge « polygones à vérifier depuis la validation ». N'invalide rien : signale un contrôle humain à faire. */}
+      {l.alertesSurveillance > 0 && (
+        <span title="Polygones à vérifier depuis la validation (surveillance) — la validation reste active" style={{ display: 'inline-flex' }}>
+          <PastilleActions n={l.alertesSurveillance} ariaLabel={`${l.alertesSurveillance} changement${l.alertesSurveillance > 1 ? 's' : ''} de polygone à vérifier`} />
+        </span>
+      )}
       {/* FUS-3c-ter — n° + type/nature + adresse ; l'ouverture passe par un BOUTON EXPLICITE, pas un clic sur la ligne. */}
       <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', fontWeight: 700 }}>{l.numDau}</span>
       <span>{l.type}{l.natureTravaux ? ` — ${l.natureTravaux}` : ''}</span>

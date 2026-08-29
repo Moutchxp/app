@@ -22,6 +22,9 @@ export const SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT = 3;
 // PHASE-1 — délais du verdict à trois phases (JOURS). = DEFAULT de la migration 170. Défauts CENTRALISÉS (aucune constante dispersée).
 export const DELAI_BASCULE_JOURS_DEFAUT = 548;  // ≈ 1,5 an, compté depuis la date d'accord (date_reelle_autorisation)
 export const DUREE_MESSAGE_JOURS_DEFAUT = 548;  // ≈ 1,5 an, comptée depuis LA BASCULE elle-même
+// SURV-1 — réglages de la surveillance des polygones après validation. = DEFAULT de la migration 171 (aucune constante dispersée).
+export const SURVEILLANCE_TOLERANCE_CONTOUR_PCT_DEFAUT = 0;  // % d'écart de contour au-delà duquel on alerte (0 = tout écart)
+export const SURVEILLANCE_FENETRE_JOURS_DEFAUT = 730;       // ≈ 2 ans, comptée depuis la date de validation du rattachement
 
 export interface SeuilsRattachementSource {
   seuils: SeuilsRattachement;                    // unités-métier (ratio, mètres) pour le moteur PUR
@@ -98,6 +101,28 @@ export async function lireDelaisPhases(): Promise<DelaisPhasesSource> {
     return { delaiBasculeJours: Number(r.b), dureeMessageJours: Number(r.m), provenance: 'base' };
   } catch {
     return defaut; // 170 pas encore appliquée (colonnes absentes) → défauts, sans casser l'appelant
+  }
+}
+
+/**
+ * SURV-1 — les DEUX réglages de la surveillance des polygones (tolérance de contour + fenêtre), lus au runtime depuis `config_veille`
+ * (migration 171), avec REPLI SÛR sur les défauts si les colonnes sont absentes (171 non appliquée) — même patron résilient que
+ * `lireDelaisPhases`. Rend la PROVENANCE ('base' vs 'defaut') pour que la brique de surveillance sache toujours avec quels réglages
+ * une alerte serait décidée. Jamais d'exception propagée. ⚠️ Lit SEULEMENT les réglages : ne décide NI alerte, NI invalidation.
+ */
+export interface SurveillanceConfigSource { toleranceContourPct: number; fenetreJours: number; provenance: 'base' | 'defaut' }
+export async function lireSurveillanceConfig(): Promise<SurveillanceConfigSource> {
+  const defaut: SurveillanceConfigSource = {
+    toleranceContourPct: SURVEILLANCE_TOLERANCE_CONTOUR_PCT_DEFAUT, fenetreJours: SURVEILLANCE_FENETRE_JOURS_DEFAUT, provenance: 'defaut',
+  };
+  try {
+    const { rows } = await query<{ t: number | null; f: number | null }>(
+      `SELECT surveillance_tolerance_contour_pct AS t, surveillance_fenetre_jours AS f FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r || r.t == null || r.f == null) return defaut; // ligne absente / colonnes NULL → défauts
+    return { toleranceContourPct: Number(r.t), fenetreJours: Number(r.f), provenance: 'base' };
+  } catch {
+    return defaut; // 171 pas encore appliquée (colonnes absentes) → défauts, sans casser l'appelant
   }
 }
 
