@@ -952,9 +952,10 @@ export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onA
 export function SchemaFigure({ schema, corps, titre, mention, agrandi = false, onAgrandir, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null, emprisesProjetees = [] }: { schema: SchemaEmpreinte; corps: CorpsAffectation[]; titre?: string; mention?: string; agrandi?: boolean; onAgrandir?: () => void; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null; emprisesProjetees?: EmpriseProjetee[] }) {
   const contenu = (
     <>
-      <figure style={{ position: 'relative', margin: 0 }}>
+      {/* AFF-2 (3a) — le titre passe AU-DESSUS du cadre (plus de surimpression qui masque le bâti). */}
+      <figure style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
         {titre && (
-          <figcaption style={{ position: 'absolute', top: 6, left: 6, zIndex: 1, fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,.85)', color: 'var(--color-svv-ink)', padding: '.1rem .45rem', borderRadius: '.3rem', border: '1px solid var(--color-svv-line)' }}>{titre}</figcaption>
+          <figcaption style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' }}>{titre}</figcaption>
         )}
         <SchemaEmpreinteSvg schema={schema} corps={corps} agrandi={agrandi} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} emprisesProjetees={emprisesProjetees} />
       </figure>

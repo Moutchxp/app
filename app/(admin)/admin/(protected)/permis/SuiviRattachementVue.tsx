@@ -315,10 +315,9 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
                 {/* RATT-3 — à droite de « Configuration d'origine » : la configuration PROJETÉE (parcelle après travaux, détruits retirés,
                     emprise en rouge, aucun vert/orange) puis l'emplacement « Configuration officielle » (grisé, en attente de l'administration).
                     Données déjà en mémoire (recapProjection + statutParCleabs, GET emprise) — aucune requête supplémentaire. */}
+                {/* AFF-2 (3b/3c) — projetée dessinée au MÊME cadre/échelle que « Configuration d'origine » (même origine.schema). */}
                 <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                  <div className="svv-card" style={{ fontSize: 12 }}>
-                    <MiniConfigProjetee parcelle={recapProjection?.parcelle ?? []} polygones={polygonesReperes} emprises={recapProjection?.emprises ?? []} statuts={statutParCleabs} />
-                  </div>
+                  <MiniConfigProjetee schema={origine.schema} statuts={statutParCleabs} emprises={emprisesProjetees} />
                 </div>
                 <div style={{ flex: '1 1 320px', minWidth: 0 }}>
                   <CaseConfigOfficielle millesime={origine.millesimeGel} />

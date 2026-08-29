@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import {
-  projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, cadreDeAnneaux, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
+  projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { libelleBatiment, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
@@ -8,7 +8,7 @@ import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 �
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
 import { estStatuable, TOLERANCE_RECOUVREMENT_TOTAL_PCT, type EtatStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) : statut décidé ; RATT-5 : recouvert + taux ; RATT-6 : mixte
-import { repereDepuisIndex } from '../../../../lib/permis/affectationSchema';
+import { repereDepuisIndex, projeterLambertDansSchema, type SchemaEmpreinte } from '../../../../lib/permis/affectationSchema'; // AFF-2 : projetée au MÊME cadre que l'origine
 
 /** PROJ-3g — libellé lisible d'une famille (le MOT porte l'info, jamais la couleur seule). PUR. */
 export function libelleFamille(f: FamillePlan): string {
@@ -870,7 +870,7 @@ export function BlocExistantsRepliable({ polygones, recouverts, statuts, onStatu
   if (n === 0) return null;
   return (
     <details style={{ ...carte }} data-bloc="existants">
-      <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Bâtiments existants de la ou des parcelles du permis <span style={{ fontWeight: 400, color: 'var(--color-svv-muted)' }}>— {n} bâtiment{n > 1 ? 's' : ''}</span></summary>
+      <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Affectation (préservé/détruit) des bâtiments existants de la ou des parcelles du permis <span style={{ fontWeight: 400, color: 'var(--color-svv-muted)' }}>— {n} bâtiment{n > 1 ? 's' : ''}</span></summary>
       <div style={{ marginTop: '.4rem' }}>
         <StatutPolygonesExistants polygones={polygones} recouverts={recouverts} statuts={statuts} onStatuer={onStatuer} sansEntete />
       </div>
@@ -911,43 +911,58 @@ export function LegendeSchemaProjection() {
   );
 }
 
-/** RATT-3 — dimensions de DESSIN des miniatures de configuration (tailles SVG d'affichage, jamais des variables métier/scoring). */
-const BOITE_MINI = { largeur: 300, hauteur: 220, marge: 12 };
+/** AFF-2 — dimensions de la ZONE DE DESSIN des miniatures : identiques à l'origine (SchemaEmpreinteSvg = 320×240) pour un cadrage/échelle
+ *  strictement partagés (3b/3c). Ce sont des tailles d'affichage, jamais des variables métier. */
+const MINI_L = 320, MINI_H = 240;
+const miniTitre: CSSProperties = { fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' }; // AFF-2 (3a) — titre AU-DESSUS, jamais en surimpression
+const miniSvgStyle: CSSProperties = { width: MINI_L, maxWidth: '100%', height: 'auto', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', display: 'block' };
 
 /**
- * RATT-3 — miniature « Configuration projetée » : REPRODUIT le grand schéma « Projection des emprises », mais ÉPURÉE. Les bâtiments
- * dont la décision COURANTE est « détruit » sont ABSENTS (retirés du dessin, cf. polygonesConfigProjetee) ; les autres — préservés,
- * sans décision — restent en GRIS d'origine (AUCUN vert/orange ici : `statuts` n'est PAS transmis au schéma, il ne sert qu'à masquer les
- * détruits) ; l'emprise projetée reste en ROUGE. But : une vue lisible, comparable telle quelle à la future configuration officielle.
- * 🔴 AFFICHAGE PUR (aucune écriture, aucun couplage moteur ; l'emprise reste une reconstitution, jamais une mesure).
+ * RATT-3 / AFF-2 — miniature « Configuration projetée ». ÉCHELLE IDENTIQUE À L'ORIGINE : on dessine dans le MÊME schéma (`origine.schema`),
+ * donc le MÊME viewBox (0 0 largeur hauteur) et la MÊME projection Lambert→boîte (`transform`) — un bâtiment occupe EXACTEMENT la même
+ * place que dans « Configuration d'origine ». On réutilise les tracés DÉJÀ projetés (`schema.polygones[].path`), on RETIRE les bâtiments
+ * décidés « détruit », on dessine le reste en GRIS (aucun vert/orange), et l'emprise projetée en ROUGE (projetée au MÊME cadre). PUR.
  */
-export function MiniConfigProjetee({ parcelle, polygones, emprises, statuts }: {
-  parcelle: PointLambert[][]; polygones: PolygoneRepere[]; emprises: EmpriseReconstruite[]; statuts: Map<string, EtatStatutPolygone>;
+export function MiniConfigProjetee({ schema, statuts, emprises = [] }: {
+  schema: SchemaEmpreinte; statuts: Map<string, EtatStatutPolygone>; emprises?: { anneau: [number, number][] }[];
 }) {
-  const cadre = cadreDeAnneaux(parcelle);
-  const boite: Boite | null = cadre ? { largeur: BOITE_MINI.largeur, hauteur: BOITE_MINI.hauteur, marge: BOITE_MINI.marge, cadre } : null;
-  const restants = polygonesConfigProjetee(polygones, statuts); // les « détruits » ne sont PAS dessinés
+  if (schema.motif || !schema.transform) {
+    return (
+      <figure style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+        <figcaption style={miniTitre}>Configuration projetée</figcaption>
+        <div style={{ ...miniSvgStyle, width: MINI_L, aspectRatio: `${MINI_L} / ${MINI_H}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-svv-muted)', fontSize: 11, textAlign: 'center', padding: '.4rem' }}>{schema.motif ?? 'schéma indisponible'}</div>
+      </figure>
+    );
+  }
+  const t = schema.transform;
+  const restants = schema.polygones.filter((p) => !(p.cleabs !== null && statuts.get(p.cleabs)?.statut === 'detruit')); // « détruits » retirés
+  const cheminEmprise = (anneau: [number, number][]) => anneau.map((pt, i) => `${i === 0 ? 'M' : 'L'}${projeterLambertDansSchema(t, pt[0], pt[1]).join(',')}`).join(' ') + ' Z';
   return (
-    <figure style={{ position: 'relative', margin: 0, display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-      <figcaption style={{ position: 'absolute', top: 6, left: 6, zIndex: 1, fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,.85)', color: 'var(--color-svv-ink)', padding: '.1rem .45rem', borderRadius: '.3rem', border: '1px solid var(--color-svv-line)' }}>Configuration projetée</figcaption>
-      {/* statuts NON transmis à SchemaParcelleTrace → aucune couleur verte/orange ; les « détruits » sont déjà retirés de `restants`. */}
-      <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={restants} filtres={FILTRES_SCHEMA_DEFAUT} calageLambert={[]} hauteurMax="230px" />
+    <figure style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+      <figcaption style={miniTitre}>Configuration projetée</figcaption>
+      <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} style={miniSvgStyle} role="img" aria-label="Configuration projetée : la parcelle après travaux, bâtiments détruits retirés, emprise projetée en rouge">
+        {schema.empreintePath && <path d={schema.empreintePath} fill="none" stroke="var(--color-svv-ink)" strokeWidth={1.2} />}
+        {restants.map((p) => <path key={p.cleabs ?? p.repere} d={p.path} data-repere={p.repere} fill="rgba(0,0,0,.06)" stroke="#888" strokeWidth={1} />)}
+        {emprises.map((e, i) => (e.anneau.length >= 3 ? <path key={i} d={cheminEmprise(e.anneau)} fill="rgba(163,4,2,.18)" stroke="var(--color-svv-red)" strokeWidth={1.4} data-emprise-projetee={i} /> : null))}
+      </svg>
       <div style={{ fontSize: 11, color: 'var(--color-svv-muted)', lineHeight: 1.35 }}>La parcelle telle qu’elle sera après travaux : bâtiments décidés « détruits » retirés, emprise projetée en rouge. Prévision, à confronter à la configuration officielle.</div>
     </figure>
   );
 }
 
 /**
- * RATT-3 — 3e emplacement « Configuration officielle » : case GRISÉE, non cliquable, en attente de la mise à jour cadastrale par
- * l'administration. Matérialise que le projeté est PROVISOIRE par construction. AUCUNE donnée à charger — le millésime BD TOPO courant
- * affiché est CELUI déjà montré sous la miniature d'origine (null → « non renseigné »). PUR.
+ * RATT-3 / AFF-2 — 3e emplacement « Configuration officielle » : case GRISÉE, non cliquable, en attente de la mise à jour cadastrale.
+ * AFF-2 (3b) : même structure que les deux miniatures — titre AU-DESSUS + zone de MÊME taille (320×240) — pour un alignement propre.
+ * AUCUNE donnée à charger. PUR.
  */
 export function CaseConfigOfficielle({ millesime }: { millesime: string | null }) {
   return (
-    <div aria-disabled="true" style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', minHeight: 160, border: '1px dashed var(--color-svv-line)', borderRadius: '.4rem', background: 'rgba(0,0,0,.03)', padding: '.6rem .7rem', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)', opacity: 0.55 }}>Configuration officielle</div>
-      <div style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>en attente de la mise à jour par l’administration</div>
-      <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>BD TOPO courant : {millesime ?? 'non renseigné'}</div>
-    </div>
+    <figure style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+      <figcaption style={{ ...miniTitre, opacity: 0.55 }}>Configuration officielle</figcaption>
+      <div aria-disabled="true" style={{ width: MINI_L, maxWidth: '100%', aspectRatio: `${MINI_L} / ${MINI_H}`, border: '1px dashed var(--color-svv-line)', borderRadius: '.4rem', background: 'rgba(0,0,0,.03)', display: 'flex', flexDirection: 'column', gap: '.35rem', justifyContent: 'center', alignItems: 'center', textAlign: 'center', padding: '.6rem .7rem', boxSizing: 'border-box' }}>
+        <div style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>en attente de la mise à jour par l’administration</div>
+        <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>BD TOPO courant : {millesime ?? 'non renseigné'}</div>
+      </div>
+    </figure>
   );
 }

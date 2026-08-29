@@ -347,17 +347,31 @@ describe('RATT-3 — couleur de statut sur le schéma + configuration projetée'
     expect(html).not.toContain('data-statut');
   });
 
-  it('MiniConfigProjetee : titre, bâtiment détruit ABSENT du dessin, aucune couleur verte/orange (statut non transmis au schéma)', () => {
-    const polys = attribuerReperes([
-      { cleabs: 'B2', anneau: [{ x: 20, y: 20 }, { x: 30, y: 20 }, { x: 30, y: 30 }], etat: 'En service' }, // détruit → absent
-      { cleabs: 'D4', anneau: [{ x: 2, y: 2 }, { x: 8, y: 2 }, { x: 8, y: 8 }], etat: 'En service' },       // préservé → présent, GRIS
-    ]);
-    const html = renderToStaticMarkup(h(MiniConfigProjetee, { parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }]], polygones: polys, emprises: [], statuts }));
+  it('MiniConfigProjetee : MÊME viewBox que l’origine, détruit ABSENT, gris (aucun vert/orange), emprise en rouge', () => {
+    // AFF-2 — la projetée est dessinée dans le MÊME schéma (transform de l'origine) → même viewBox « 0 0 largeur hauteur ».
+    const schema = {
+      largeur: 320, hauteur: 240, empreintePath: 'M0,0 L30,0 L30,30 Z', motif: null,
+      transform: { minX: 0, minY: 0, scale: 1, padX: 0, padY: 0, hauteur: 240 },
+      polygones: [
+        { repere: 'A', cleabs: 'B2', path: 'M20,20 L30,20 L30,30 Z', cx: 25, cy: 25, horsEmpreinte: false }, // détruit → retiré
+        { repere: 'B', cleabs: 'D4', path: 'M2,2 L8,2 L8,8 Z', cx: 5, cy: 5, horsEmpreinte: false },          // reste, GRIS
+      ],
+    };
+    const html = renderToStaticMarkup(h(MiniConfigProjetee, { schema, statuts, emprises: [{ anneau: [[0, 0], [5, 0], [5, 5]] as [number, number][] }] }));
     expect(html).toContain('Configuration projetée');
-    expect(html).toContain('data-repere="B"');        // D4 (préservé) garde son repère B, toujours dessiné
-    expect(html).not.toContain('data-repere="A"');    // B2 (détruit, repère A) n'est plus dessiné
-    expect(html).not.toContain('#c26a00');            // aucune couleur orange
-    expect(html).not.toContain('data-statut');        // statut non transmis → aucune coloration verte/orange
+    expect(html).toContain('viewBox="0 0 320 240"');  // MÊME cadrage que « Configuration d'origine » (SchemaEmpreinteSvg)
+    expect(html).toContain('data-repere="B"');        // D4 dessiné
+    expect(html).not.toContain('data-repere="A"');    // B2 (détruit) retiré
+    expect(html).not.toContain('#c26a00');            // pas d'orange
+    expect(html).not.toContain('var(--color-svv-green-ink)'); // pas de vert
+    expect(html).toContain('data-emprise-projetee="0"'); // emprise projetée dessinée (rouge)
+  });
+
+  it('MiniConfigProjetee : schéma dégénéré (motif / pas de transform) → message, jamais un crash', () => {
+    const schema = { largeur: 320, hauteur: 240, empreintePath: null, polygones: [], motif: 'parcelle absente', transform: null };
+    const html = renderToStaticMarkup(h(MiniConfigProjetee, { schema, statuts: new Map(), emprises: [] }));
+    expect(html).toContain('Configuration projetée');
+    expect(html).toContain('parcelle absente');
   });
 
   it('CaseConfigOfficielle : grisée, non cliquable, mention d’attente + millésime (ou « non renseigné »)', () => {
@@ -801,7 +815,7 @@ describe('AFF-1 — encart réorganisé en blocs repliés', () => {
     const html = renderToStaticMarkup(h(BlocExistantsRepliable, { polygones, recouverts: [], statuts: new Map(), onStatuer: () => {} }));
     expect(html).toMatch(/<details/);
     expect(html).not.toMatch(/<details[^>]*\sopen/);
-    expect(html).toContain('Bâtiments existants de la ou des parcelles du permis');
+    expect(html).toContain('Affectation (préservé/détruit) des bâtiments existants de la ou des parcelles du permis');
     expect(html).toContain('— 1 bâtiment');
     expect(html).toContain('bâtiment préservé');               // contenu StatutPolygonesExistants présent
     expect(html).not.toContain('Bâtiments existants du site'); // titre interne masqué (porté par le résumé)
