@@ -9,7 +9,7 @@ import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, Sai
 import { RecapProjectionRattachement } from './ProjectionRecapRattachement';
 // RATT-1 bis — le geste « statuer les polygones existants » réutilise le composant PUR d'Analyse + ses helpers (jamais dupliqué).
 import { StatutPolygonesExistants, attribuerReperes, MiniConfigProjetee, CaseConfigOfficielle } from './TraceEmpriseRendu';
-import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
+import { statutCourantParCleabs, type LigneStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut';
 // TYPES seuls (modules serveur / purs) — pour le récap de projection (PROJ-4a), affichage pur.
 import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { PointLambert } from '../../../../lib/permis/calageEmprise';
@@ -56,7 +56,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [recapProjection, setRecapProjection] = useState<{ emprises: EmpriseReconstruite[]; parcelle: PointLambert[][]; polygones: PolygoneBdTopo[]; batiments: { corpsId: number; repere: string | null }[] } | null>(null);
   // RATT-1 bis — registre append-only des statuts décidés + cleabs recouverts par une emprise projetée, LUS de la MÊME réponse GET emprise (:82). + message d'erreur du geste.
   const [statutsLignes, setStatutsLignes] = useState<LigneStatutPolygone[]>([]);
-  const [recouverts, setRecouverts] = useState<string[]>([]);
+  const [recouverts, setRecouverts] = useState<PolygoneRecouvert[]>([]); // RATT-5 — recouverts (au-dessus du seuil) + leur taux (%)
   const [statutErreur, setStatutErreur] = useState('');
 
   useEffect(() => {
@@ -74,7 +74,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
 
   // RATT-1 bis — APPLIQUE une réponse du GET emprise à l'état (SOURCE UNIQUE : emprises projetées + récap + statuts + recouverts).
   //   Partagé par le chargement du dossier ET le rafraîchissement après un statut posé (pas d'état local divergent). PROJ-2c/4a inchangés.
-  type ReponseEmprise = { emprises?: EmpriseReconstruite[]; batiments?: { corpsId: number; repere: string | null }[]; contexte?: { empreinteAnneaux?: PointLambert[][] }; polygones?: PolygoneBdTopo[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: string[] };
+  type ReponseEmprise = { emprises?: EmpriseReconstruite[]; batiments?: { corpsId: number; repere: string | null }[]; contexte?: { empreinteAnneaux?: PointLambert[][] }; polygones?: PolygoneBdTopo[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[] };
   const appliquerEmprise = useCallback((je: ReponseEmprise) => {
     const emprises = je.emprises ?? [];
     setEmprisesProjetees(emprises.filter((e) => e.anneau.length >= 3).map((e) => ({ id: e.id, libelle: e.libelle, anneau: e.anneau.map((p) => [p.x, p.y] as [number, number]) })));

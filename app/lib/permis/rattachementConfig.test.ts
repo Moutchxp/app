@@ -67,3 +67,23 @@ describe('RATTACHEMENT — déclencheur DAACT (réglage)', () => {
     expect(await ecrireDaactDeclencheurActif(false)).toBe(false);
   });
 });
+
+import { lireSeuilRecouvrementEmprisePct, SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT } from './rattachementConfig';
+
+describe('RATT-5 — lireSeuilRecouvrementEmprisePct (seuil LU depuis la config, jamais codé en dur)', () => {
+  const rowS = (s: number) => { H.state.row = { s } as unknown as { s: number; b: number; m: number }; };
+  it('valeur en base (75) → seuilPct 75 + provenance « base » (≠ défaut : preuve que la config est lue)', async () => {
+    H.state.mode = 'ok'; rowS(75);
+    const r = await lireSeuilRecouvrementEmprisePct();
+    expect(r).toEqual({ seuilPct: 75, provenance: 'base' });
+    expect(r.seuilPct).not.toBe(SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT); // ≠ 50 → ce n'est PAS le défaut en dur
+  });
+  it('colonne non migrée (erreur SQL) → défaut 50 + provenance « defaut »', async () => {
+    H.state.mode = 'throw';
+    expect(await lireSeuilRecouvrementEmprisePct()).toEqual({ seuilPct: SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT, provenance: 'defaut' });
+  });
+  it('ligne config absente → défaut 50 + provenance « defaut »', async () => {
+    H.state.mode = 'vide';
+    expect(await lireSeuilRecouvrementEmprisePct()).toEqual({ seuilPct: 50, provenance: 'defaut' });
+  });
+});

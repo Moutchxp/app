@@ -15,6 +15,9 @@ import type { SeuilsRattachement } from './detectionRattachement';
 export const SEUIL_SURFACE_PCT_DEFAUT = 80;   // % de l'empreinte recouverte (jamais une égalité : voies/trottoirs prélevés)
 export const SEUIL_BORDURE_PCT_DEFAUT = 60;   // % du périmètre candidat coïncidant avec le contour de l'empreinte
 export const MARGE_ALTITUDE_CM_DEFAUT = 10;   // cm — marge d'égalité d'altitude des corps (0,10 m)
+// RATT-5 — seuil (% de la surface du polygone sous l'emprise) au-delà duquel un polygone est « recouvert » (→ détruit d'office). Frère
+//   des trois seuils ci-dessus (même table config_veille, migration 166). = DEFAULT de la migration 166 (aucune constante dispersée).
+export const SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT = 50;
 
 export interface SeuilsRattachementSource {
   seuils: SeuilsRattachement;                    // unités-métier (ratio, mètres) pour le moteur PUR
@@ -50,6 +53,25 @@ export async function lireSeuilsRattachement(): Promise<SeuilsRattachementSource
     };
   } catch {
     return defaut; // 115 pas encore appliquée (colonnes absentes) → défauts, sans casser le moteur
+  }
+}
+
+/**
+ * RATT-5 — SEUIL de recouvrement d'un polygone par l'emprise projetée (% de sa surface), lu au runtime depuis `config_veille`
+ * (migration 166), avec REPLI SÛR sur le défaut si la colonne est absente (166 non appliquée) — même patron résilient que
+ * `lireSeuilsRattachement`. Rend la PROVENANCE ('base' vs 'defaut') pour que l'écran sache toujours avec quel seuil une décision de
+ * recouvrement est prise. Jamais d'exception propagée : le geste de statut tourne toujours, avec un seuil connu et tracé.
+ */
+export interface SeuilRecouvrementSource { seuilPct: number; provenance: 'base' | 'defaut' }
+export async function lireSeuilRecouvrementEmprisePct(): Promise<SeuilRecouvrementSource> {
+  try {
+    const { rows } = await query<{ s: number | null }>(
+      `SELECT rattachement_seuil_recouvrement_pct AS s FROM config_veille WHERE id = 1`);
+    const s = rows[0]?.s;
+    if (s === null || s === undefined) return { seuilPct: SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT, provenance: 'defaut' };
+    return { seuilPct: s, provenance: 'base' };
+  } catch {
+    return { seuilPct: SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT, provenance: 'defaut' }; // 166 pas appliquée (colonne absente) → défaut
   }
 }
 

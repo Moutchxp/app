@@ -642,11 +642,11 @@ describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décisio
   it('RATT-2 — liste TOUS les existants (recouverts COMPRIS ; seul « en projet » exclu) ; affiche BD TOPO ET ma décision ; source conservée si préservé prime', () => {
     const polygones = [poly('A', 'En service', 'A'), poly('B', 'En projet', 'B'), poly('C', 'En service', 'C')];
     const statuts = statutCourantParCleabs([ligne('A', 'preserve', 'En projet')]); // BD TOPO disait « En projet », j'ai décidé préservé
-    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: ['C'], statuts, onStatuer: () => {} }));
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: [{ cleabs: 'C', tauxPct: 96.3 }], statuts, onStatuer: () => {} }));
     expect(html).toContain('Polygone A');
     expect(html).not.toContain('Polygone B'); // « en projet » (futur bâti) exclu (relève de l'adoption)
     expect(html).toContain('Polygone C'); // RATT-2 — recouvert par l'emprise projetée : DÉSORMAIS listé (détruit par défaut, basculable)
-    expect(html).toContain('recouvert par l’emprise projetée — statut détruit par défaut'); // mention exacte sur le recouvert
+    expect(html).toContain('recouvert à 96 % par l’emprise projetée — statut détruit par défaut'); // RATT-5 — mention avec le TAUX (96,3 % arrondi affichage)
     expect(html).toContain('BD TOPO');
     expect(html).toContain('bâtiment préservé');
     expect(html).toContain('BD TOPO disait « En projet »'); // 🔴 la source reste lisible ; ma décision prime sans l'écraser
@@ -654,12 +654,23 @@ describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décisio
 
   it('RATT-4 — un « en projet » RECOUVERT entre dans la liste (mention rouge + 2 boutons) ; un « en projet » NON recouvert reste exclu', () => {
     const polygones = [poly('B', 'En projet', 'B'), poly('D', 'En projet', 'D')];
-    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: ['D'], statuts: new Map(), onStatuer: () => {} }));
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: [{ cleabs: 'D', tauxPct: 80 }], statuts: new Map(), onStatuer: () => {} }));
     expect(html).toContain('Polygone D');                     // « en projet » RECOUVERT → listé
     expect(html).not.toContain('Polygone B');                 // « en projet » NON recouvert → hors liste
-    expect(html).toContain('recouvert par l’emprise projetée — statut détruit par défaut'); // mention rouge (même formulation que l'existant)
+    expect(html).toContain('recouvert à 80 % par l’emprise projetée — statut détruit par défaut'); // RATT-5 — mention avec le taux
     expect(html).toContain('bâtiment préservé');              // bouton actif (basculable)
     expect(html).toContain('bâtiment détruit');               // bouton actif
+  });
+
+  it('RATT-5 — un « En service » SOUS le seuil (absent de recouverts) reste listé SANS mention ; au-dessus, mention avec son taux', () => {
+    const polygones = [poly('A', 'En service', 'A'), poly('B', 'En service', 'B')];
+    // A est au-dessus du seuil (présent avec 55 %), B est sous le seuil (absent de recouverts, comme le renvoie le repo filtré).
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: [{ cleabs: 'A', tauxPct: 55 }], statuts: new Map(), onStatuer: () => {} }));
+    expect(html).toContain('Polygone A');
+    expect(html).toContain('Polygone B');                     // existant sous le seuil → TOUJOURS listé (statuable à la main)
+    expect(html).toContain('recouvert à 55 % par l’emprise projetée'); // A : mention avec son taux
+    // B (sous le seuil) : une seule mention en tout, donc pas de seconde occurrence pour B.
+    expect(html.match(/recouvert à/g) ?? []).toHaveLength(1);
   });
 
   it('« détruit » est signalé comme une PRÉVISION à confirmer à la mise à jour cadastrale', () => {

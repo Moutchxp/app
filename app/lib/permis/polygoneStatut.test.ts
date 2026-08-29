@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { statutCourantParCleabs, estStatuable, actionsAutoStatut, type LigneStatutPolygone, type EtatStatutPolygone, type OrigineStatut } from './polygoneStatut';
+import { statutCourantParCleabs, estStatuable, actionsAutoStatut, estRecouvertParEmprise, type LigneStatutPolygone, type EtatStatutPolygone, type OrigineStatut } from './polygoneStatut';
 
 const l = (cleabs: string, statut: LigneStatutPolygone['statut'], le: string, etat: string | null = 'En service', par = 'admin', origine: OrigineStatut | null = 'saisie'): LigneStatutPolygone =>
   ({ cleabs, statut, etatBdtopoAuMoment: etat, decidePar: par, decideLe: le, origine });
@@ -73,6 +73,23 @@ describe('RATT-4 — estStatuable ouvre la liste aux « en projet » RECOUVERTS 
   });
   it('sans cleabs, même recouvert → non statuable', () => {
     expect(estStatuable({ cleabs: null, etat: 'En projet' }, true)).toBe(false);
+  });
+});
+
+describe('RATT-5 — estRecouvertParEmprise (seuil de recouvrement, borne incluse)', () => {
+  const SEUIL = 50; // seuil par défaut
+  it('au seuil par défaut (50 %) : 100 %, 96,3 % et 50 % → recouverts ; 49,9 %, 2 %, 0 % → non', () => {
+    expect(estRecouvertParEmprise(100, SEUIL)).toBe(true);
+    expect(estRecouvertParEmprise(96.3, SEUIL)).toBe(true);
+    expect(estRecouvertParEmprise(50, SEUIL)).toBe(true);   // borne INCLUSE
+    expect(estRecouvertParEmprise(49.9, SEUIL)).toBe(false);
+    expect(estRecouvertParEmprise(2, SEUIL)).toBe(false);
+    expect(estRecouvertParEmprise(0, SEUIL)).toBe(false);
+  });
+  it('le SEUIL est un PARAMÈTRE, pas une constante en dur : 49,9 % bascule selon le seuil fourni', () => {
+    expect(estRecouvertParEmprise(49.9, 50)).toBe(false); // sous 50
+    expect(estRecouvertParEmprise(49.9, 40)).toBe(true);  // au-dessus de 40 → la décision suit le seuil, pas un chiffre figé
+    expect(estRecouvertParEmprise(80, 90)).toBe(false);   // même 80 % ne suffit pas si le seuil est 90
   });
 });
 

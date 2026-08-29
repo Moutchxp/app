@@ -57,6 +57,18 @@ export function estStatuable(polygone: { cleabs: string | null; etat: string | n
   return polygone.cleabs !== null && (!estFuturBati(polygone.etat) || recouvert);
 }
 
+/** RATT-5 — un cleabs « recouvert » par l'emprise projetée + son TAUX de recouvrement (part de la surface du polygone sous l'emprise, en %). */
+export interface PolygoneRecouvert { cleabs: string; tauxPct: number }
+
+/**
+ * RATT-5 — un polygone est-il « recouvert » (→ statut « détruit » d'office + mention rouge) au vu de son TAUX de recouvrement ? OUI
+ * SSI le taux atteint le SEUIL, **borne incluse** (`tauxPct >= seuilPct`). Un chevauchement marginal (sous le seuil) ne vaut PAS
+ * « détruit ». Le `seuilPct` est fourni par l'appelant (lu en config, jamais codé en dur ici). PUR.
+ */
+export function estRecouvertParEmprise(tauxPct: number, seuilPct: number): boolean {
+  return tauxPct >= seuilPct;
+}
+
 /**
  * RATT-2 — DÉCISION PURE des écritures AUTOMATIQUES de statut à appliquer après un changement d'emprise (enregistrement / adoption /
  * retouche / suppression). Deux règles, jamais au détriment d'une décision humaine :

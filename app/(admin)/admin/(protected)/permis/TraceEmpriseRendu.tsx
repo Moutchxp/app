@@ -6,7 +6,7 @@ import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, Provenance
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
-import { estStatuable, type EtatStatutPolygone } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) : statut décidé d'un polygone existant
+import { estStatuable, type EtatStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) : statut décidé d'un polygone existant ; RATT-5 : recouvert + taux
 import { repereDepuisIndex } from '../../../../lib/permis/affectationSchema';
 
 /** PROJ-3g — libellé lisible d'une famille (le MOT porte l'info, jamais la couleur seule). PUR. */
@@ -711,12 +711,13 @@ function jjmmaaaaStatut(iso: string): string { const d = iso.slice(0, 10); retur
  * l'historique est repliable (qui/quand). Disponible même « en attente du bâti ». PUR (l'état vit dans la Vue). Mobile-first, pas de hover.
  */
 export function StatutPolygonesExistants({ polygones, recouverts, statuts, onStatuer }: {
-  polygones: PolygoneRepere[]; recouverts: readonly string[]; statuts: Map<string, EtatStatutPolygone>;
+  polygones: PolygoneRepere[]; recouverts: readonly PolygoneRecouvert[]; statuts: Map<string, EtatStatutPolygone>;
   onStatuer: (cleabs: string, statut: 'preserve' | 'detruit' | 'revoque') => void;
 }) {
-  const recouvertsSet = new Set(recouverts);
+  // RATT-5 — `recouverts` ne contient QUE les polygones au-dessus du seuil (part sous l'emprise ≥ seuil config) ; chacun porte son taux (%).
+  const tauxRecouvrement = new Map(recouverts.map((r) => [r.cleabs, r.tauxPct]));
   // RATT-2 — tous les existants (recouverts compris) ; RATT-4 — + les « en projet » RECOUVERTS par l'emprise (un futur bâti non recouvert reste hors liste).
-  const statuables = polygones.filter((p) => estStatuable(p, p.cleabs !== null && recouvertsSet.has(p.cleabs)));
+  const statuables = polygones.filter((p) => estStatuable(p, p.cleabs !== null && tauxRecouvrement.has(p.cleabs)));
   if (statuables.length === 0) return null;
   const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.2rem .55rem', fontSize: 12 };
   return (
@@ -726,7 +727,8 @@ export function StatutPolygonesExistants({ polygones, recouverts, statuts, onSta
       {statuables.map((p) => {
         const st = statuts.get(p.cleabs!);
         const decide = st?.statut ?? null;
-        const recouvert = recouvertsSet.has(p.cleabs!);
+        const tauxRecouvert = tauxRecouvrement.get(p.cleabs!); // RATT-5 — % de la surface sous l'emprise (défini SSI au-dessus du seuil)
+        const recouvert = tauxRecouvert !== undefined;
         return (
           <div key={p.cleabs} style={{ ...carte, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
             <div style={{ fontSize: 12 }}>
@@ -737,8 +739,9 @@ export function StatutPolygonesExistants({ polygones, recouverts, statuts, onSta
               <span><span style={{ color: 'var(--color-svv-muted)' }}>BD TOPO :</span> <strong>{p.etat ?? 'inconnu'}</strong></span>
               <span><span style={{ color: 'var(--color-svv-muted)' }}>votre décision :</span> <strong>{decide ? libelleStatut(decide) : <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>aucune</span>}</strong></span>
             </div>
-            {/* RATT-2 — bâtiment recouvert par l'emprise projetée : « détruit » posé d'office, basculable. Mention en ROUGE, gras, juste sous BD TOPO/décision : c'est l'information qui explique un statut posé sans clic. */}
-            {recouvert && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 700 }}>recouvert par l’emprise projetée — statut détruit par défaut</span>}
+            {/* RATT-2/RATT-5 — polygone recouvert au-dessus du seuil : « détruit » posé d'office, basculable. Mention ROUGE/gras avec le TAUX
+                réel (RATT-5), juste sous BD TOPO/décision : Arno voit DE COMBIEN il s'agit, pas seulement qu'il y a recouvrement. */}
+            {recouvert && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 700 }}>recouvert à {Math.round(tauxRecouvert!)} % par l’emprise projetée — statut détruit par défaut</span>}
             <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
               <button type="button" style={{ ...btn, fontWeight: decide === 'preserve' ? 700 : 400, borderColor: decide === 'preserve' ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }} aria-pressed={decide === 'preserve'} onClick={() => onStatuer(p.cleabs!, 'preserve')}>bâtiment préservé</button>
               <button type="button" style={{ ...btn, fontWeight: decide === 'detruit' ? 700 : 400, borderColor: decide === 'detruit' ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }} aria-pressed={decide === 'detruit'} onClick={() => onStatuer(p.cleabs!, 'detruit')}>bâtiment détruit</button>

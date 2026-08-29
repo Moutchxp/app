@@ -1,5 +1,6 @@
 import { query } from '../db/client';
-import { statutCourantParCleabs, actionsAutoStatut, type LigneStatutPolygone, type StatutDecide, type OrigineStatut } from './polygoneStatut';
+import { statutCourantParCleabs, actionsAutoStatut, estRecouvertParEmprise, type LigneStatutPolygone, type StatutDecide, type OrigineStatut, type PolygoneRecouvert } from './polygoneStatut';
+import { lireSeuilRecouvrementEmprisePct } from './rattachementConfig'; // RATT-5 — seuil de recouvrement lu au runtime (config_veille), jamais en dur
 
 /**
  * RATT-1 (2) — ADAPTATEUR IMPUR du statut décidé d'un polygone existant (préservé/détruit). Table APPEND-ONLY `permis_polygone_statut`
@@ -38,16 +39,28 @@ export async function lireStatutsPolygones(dossierId: number): Promise<LigneStat
   }
 }
 
-/** cleabs des polygones BD TOPO RECOUVERTS par une emprise PROJETÉE (tracée) du dossier — ceux que le futur bâtiment remplace, donc
- *  HORS statut préservé/détruit. `[]` si aucune emprise ou table absente. Intersection PostGIS autoritaire (Lambert-93, ST_Force2D). */
-export async function polygonesRecouvertsParEmprise(dossierId: number): Promise<string[]> {
+/**
+ * RATT-5 — polygones BD TOPO « recouverts » par l'emprise PROJETÉE (union des emprises tracées du dossier) AVEC leur TAUX de
+ * recouvrement (part de la surface du polygone sous l'emprise, en %). Un polygone n'est retenu que si son taux ATTEINT LE SEUIL lu
+ * en config (`lireSeuilRecouvrementEmprisePct`, défaut 50 %) : un chevauchement marginal ne vaut plus « détruit » (avant RATT-5, tout
+ * `ST_Intersects` non vide comptait). `[]` si aucune emprise ou table absente.
+ *
+ * 🔴 INDEX PRÉSERVÉ : le filtre grossier reste `b.geom && emp.g` sur la géométrie BRUTE (jamais ST_Force2D autour du prédicat indexé) —
+ *   EXPLAIN confirme l'Index Scan GiST `batiment_geom_geom_idx`. ST_Force2D reste dans le prédicat exact (ST_Intersects) et dans les
+ *   calculs d'AIRE (Lambert-93, la 3D fausserait l'aire) — jamais retiré. Emprises UNIONnées (couverture totale, jamais par-emprise).
+ */
+export async function polygonesRecouvertsParEmprise(dossierId: number): Promise<PolygoneRecouvert[]> {
   try {
-    const { rows } = await query<{ cleabs: string }>(
-      `WITH emp AS (SELECT geom FROM permis_emprise_reconstruite WHERE dossier_id = $1 AND geom IS NOT NULL)
-       SELECT DISTINCT b.cleabs
+    const { rows } = await query<{ cleabs: string; taux: number | string }>(
+      `WITH emp AS (SELECT ST_Union(ST_Force2D(geom)) AS g FROM permis_emprise_reconstruite WHERE dossier_id = $1 AND geom IS NOT NULL)
+       SELECT b.cleabs,
+              100 * ST_Area(ST_Intersection(ST_Force2D(b.geom), emp.g)) / NULLIF(ST_Area(ST_Force2D(b.geom)), 0) AS taux
          FROM batiment b, emp
-        WHERE b.cleabs IS NOT NULL AND b.geom && emp.geom AND ST_Intersects(ST_Force2D(b.geom), ST_Force2D(emp.geom))`, [dossierId]);
-    return rows.map((r) => r.cleabs);
+        WHERE emp.g IS NOT NULL AND b.cleabs IS NOT NULL AND b.geom && emp.g AND ST_Intersects(ST_Force2D(b.geom), emp.g)`, [dossierId]);
+    const { seuilPct } = await lireSeuilRecouvrementEmprisePct(); // seuil au runtime (config_veille) — jamais codé en dur
+    return rows
+      .map((r) => ({ cleabs: r.cleabs, tauxPct: Number(r.taux) }))
+      .filter((r) => Number.isFinite(r.tauxPct) && estRecouvertParEmprise(r.tauxPct, seuilPct));
   } catch (e) { if (estTableAbsente(e)) return []; throw e; }
 }
 
@@ -88,7 +101,8 @@ export async function appliquerAutoStatut(dossierId: number, par: string | null)
   try {
     const [recouverts, lignes] = await Promise.all([polygonesRecouvertsParEmprise(dossierId), lireStatutsPolygones(dossierId)]);
     const statuts = statutCourantParCleabs(lignes);
-    for (const a of actionsAutoStatut(recouverts, statuts)) {
+    // RATT-5 — l'auto-statut ne raisonne que sur le JEU de cleabs recouverts (au-dessus du seuil) ; le taux ne sert qu'à l'affichage.
+    for (const a of actionsAutoStatut(recouverts.map((r) => r.cleabs), statuts)) {
       await poserStatutPolygone(dossierId, a.cleabs, a.statut, par, a.origine);
     }
   } catch { /* best-effort : l'automatisme de statut ne doit jamais faire échouer la mutation d'emprise appelante. */ }
