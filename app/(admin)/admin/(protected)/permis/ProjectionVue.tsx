@@ -5,6 +5,7 @@ import { BlocTraceEmprise } from './BlocTraceEmprise';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { BlocPiecesPermis } from './BlocPiecesPermis';
 import { BoutonRelancerAnalyse } from './BoutonRelancerAnalyse';
+import { BlocCompletude } from './BlocCompletude';
 import { TableProjection, BoutonValiderProjection, AIDE_PROJECTION, type LigneProjectionAffichee } from './ProjectionRendu';
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { recompterSiSucces } from './comptesActions';
@@ -68,6 +69,9 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
       {/* EXT-1 (étape 2) — RELANCER L'ANALYSE (vision incluse) : relit les pièces et remplit les champs VIDES (jamais une saisie). En
           tête du détail, mais ce n'est PAS le point d'entrée nominal (l'extraction part seule au versement) — un rattrapage manuel. */}
       {ouvert !== null && <BoutonRelancerAnalyse dossierId={ouvert} onFini={() => { setVAnalyse((v) => v + 1); setVInstruction((v) => v + 1); }} />}
+      {/* PART-2 — DIAGNOSTIC DE COMPLÉTUDE (présent/manquant par famille, par contenu). Lit la mémoire (aucune relecture PDF au rendu) ;
+          se remonte après « Relancer l'analyse » (key liée à vAnalyse) pour relire le diagnostic fraîchement recalculé. */}
+      {ouvert !== null && <BlocCompletude key={`${ouvert}-${vAnalyse}`} dossierId={ouvert} />}
       {/* PROJ-3b — INSTRUCTION d'abord (caractéristiques + « + ajouter un bâtiment » = ce qui fait naître les corps), TRACÉ ensuite. */}
       {ouvert !== null && <CaracteristiquesBloc key={`${ouvert}-${vAnalyse}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
       {ouvert !== null && <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} rafraichir={vInstruction} />}

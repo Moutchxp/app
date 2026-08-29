@@ -289,6 +289,15 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   { colonne: 'pieces_hachages_exclus', cle: 'piecesHachagesExclus', libelle: 'Empreintes de pièces à ne jamais verser en GED', unite: 'sha256', type: 'texte',
     formatHint: 'empreintes sha256 (64 caractères) séparées par des virgules.',
     aide: 'Empreintes sha256 (séparées par des virgules) d’images qui vous appartiennent — typiquement le logo de votre signature — et qui reviennent citées dans les réponses des mairies. Une pièce dont l’empreinte figure ici n’est jamais versée en GED comme document du permis. Le critère porte sur le CONTENU du fichier, pas sur son nom. Si votre logo de signature change, ajoutez sa nouvelle empreinte. Vide = aucune pièce écartée.' },
+  // PART-2 — les 4 familles ATTENDUES du diagnostic de complétude des pièces d'un permis (cochables). Décocher → jamais signalé manquant.
+  { colonne: 'famille_attendue_masse', cle: 'familleAttendueMasse', libelle: 'Attendre un plan de masse (PC2)', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, le diagnostic de complétude d’un permis (onglet « Analyse et projection ») signale le plan de masse comme MANQUANT s’il n’en trouve aucun. Le plan est reconnu par son CONTENU, pas seulement par son nom. Décoché, le plan de masse n’est jamais réclamé. Activé par défaut.' },
+  { colonne: 'famille_attendue_coupe', cle: 'familleAttendueCoupe', libelle: 'Attendre un plan de coupe (PC3)', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, le diagnostic de complétude signale le plan de coupe comme MANQUANT s’il n’en trouve aucun (reconnu par son contenu). Décoché, il n’est jamais réclamé. Activé par défaut.' },
+  { colonne: 'famille_attendue_etage', cle: 'familleAttendueEtage', libelle: 'Attendre des plans d’étages', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, le diagnostic de complétude signale les plans d’étages comme MANQUANTS s’il n’en trouve aucun (reconnus par leur contenu). Décoché, ils ne sont jamais réclamés. Activé par défaut.' },
+  { colonne: 'famille_attendue_cerfa', cle: 'familleAttendueCerfa', libelle: 'Attendre le formulaire Cerfa', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, le diagnostic de complétude signale le formulaire Cerfa comme MANQUANT s’il n’en trouve aucun. Le Cerfa est reconnu par son CONTENU (formulaire 13409), jamais par son nom. Décoché, il n’est jamais réclamé. Activé par défaut.' },
   { colonne: 'seuil_logements_immeuble', cle: 'seuilLogementsImmeuble', libelle: 'Seuil de logements « immeuble »', unite: 'logements', type: 'entier',
     aide: 'À partir de ce nombre de logements, un projet est classé « immeuble ». Joue en OU avec la surface (pas en ET).' },
   { colonne: 'seuil_surface_immeuble_m2', cle: 'seuilSurfaceImmeubleM2', libelle: 'Seuil de surface « immeuble »', unite: 'm²', type: 'entier',
@@ -410,6 +419,7 @@ export const COLONNES_THEME_REPONSES: readonly string[] = [
   'depot_adresses_connues', // N1-A — versement automatique en GED (adresses reconnues)
   'nature_accuse_motifs',   // FUS-4 — motifs d'objet reconnaissant un accusé de réception
   'liens_hotes_non_fort', 'pieces_hachages_exclus', // PART-1 — exclusions (liens jamais fort / signatures non versées)
+  'famille_attendue_masse', 'famille_attendue_coupe', 'famille_attendue_etage', 'famille_attendue_cerfa', // PART-2 — familles attendues (complétude)
 ];
 export const COLONNES_THEME_ALERTES: readonly string[] = [
   'alerte_active', 'alerte_email', 'alerte_heure_locale',

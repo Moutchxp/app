@@ -18,6 +18,7 @@ import { figerVersionGel } from './gelRepo';
 import { lireCerfaScan, lecteurMistral } from './lireCerfaScan';
 import { ecrireCerfaScan } from './ecritureCerfaScan';
 import { trouverCerfaPc } from './identifierCerfa'; // LECT-1 (A) : Cerfa identifié par CONTENU (13409), jamais par nom de fichier
+import { enregistrerCompletude } from './completudeRepo'; // PART-2 : mémorise le diagnostic de complétude (par contenu) à la relance
 
 /**
  * EXT-1 (étape 2) — POINT D'ENTRÉE UNIFIÉ de l'extraction des caractéristiques d'UN permis. Rejoue, dans le bon ordre, le pipeline
@@ -109,6 +110,9 @@ export async function executerExtractionPermis(dossierId: number, opts: { avecVi
   await figerEmpreinte(dossierId, opts.majPar).catch(() => undefined);      // géométrie : best-effort, jamais bloquant
   await figerBatiSnapshot(dossierId, opts.majPar).catch(() => undefined);
   await figerVersionGel(dossierId, opts.majPar).catch(() => undefined);     // FIG-1 — version d'état figé opposable (NO-OP si migration 169 absente)
+  // PART-2 — DIAGNOSTIC DE COMPLÉTUDE : classe les pièces PAR CONTENU (à partir du `ged` DÉJÀ lu, aucune relecture) et mémorise le
+  //   résultat. Best-effort, NO-OP si migration 174 absente ; n'impacte jamais l'extraction (les pièces sont déjà écrites).
+  await enregistrerCompletude(dossierId, ged, opts.majPar).catch(() => undefined);
 
   // 6) VISION Mistral (Cerfa 13409 SCANNÉ) — seulement si demandé ; appel EXTERNE isolé.
   let visionTournee = false, visionPieces = 0, motifVision: string | null = opts.avecVision ? null : 'vision non demandée';
