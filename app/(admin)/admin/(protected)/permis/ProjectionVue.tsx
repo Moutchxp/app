@@ -71,9 +71,11 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
       {ouvert !== null && <BoutonRelancerAnalyse dossierId={ouvert} onFini={() => { setVAnalyse((v) => v + 1); setVInstruction((v) => v + 1); }} />}
       {/* PART-2 — DIAGNOSTIC DE COMPLÉTUDE (présent/manquant par famille, par contenu). Lit la mémoire (aucune relecture PDF au rendu) ;
           se remonte après « Relancer l'analyse » (key liée à vAnalyse) pour relire le diagnostic fraîchement recalculé. */}
-      {ouvert !== null && <BlocCompletude key={`${ouvert}-${vAnalyse}`} dossierId={ouvert} />}
+      {ouvert !== null && <BlocCompletude key={`completude-${ouvert}-${vAnalyse}`} dossierId={ouvert} />}
       {/* PROJ-3b — INSTRUCTION d'abord (caractéristiques + « + ajouter un bâtiment » = ce qui fait naître les corps), TRACÉ ensuite. */}
-      {ouvert !== null && <CaracteristiquesBloc key={`${ouvert}-${vAnalyse}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
+      {/* Clés PRÉFIXÉES PAR RÔLE : deux frères remontés sur le même (ouvert, vAnalyse) ne doivent PAS partager la même clé (sinon
+          React en duplique/omet un — cf. correctif PART-2b). Le suffixe vAnalyse est conservé : chacun se remonte après « Relancer l'analyse ». */}
+      {ouvert !== null && <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
       {ouvert !== null && <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} rafraichir={vInstruction} />}
       <BoutonValiderProjection
         peutValider={verdict?.peutValider ?? false}
@@ -84,7 +86,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
       {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
       {/* EXT-1 (point 5) — PIÈCES DU PERMIS en DERNIÈRE POSITION (après caractéristiques, bâtiments, projection) : référence en regard
           de la saisie, jamais un point d'entrée. Ouverture par le signeur serveur déjà branché (ouvrirPiece → url_piece). */}
-      {ouvert !== null && <BlocPiecesPermis key={ouvert} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />}
+      {ouvert !== null && <BlocPiecesPermis key={`pieces-${ouvert}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />}
     </div>
   );
 
