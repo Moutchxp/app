@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { analyserLiensReponse, extraireExpiration } from './extractionLiens';
+import { analyserLiensReponse, extraireExpiration, hoteExclu, parserHotesNonFort } from './extractionLiens';
 
 /**
  * L1 — extraction PURE des liens + expiration. Fondé sur le message RÉEL de la mairie de Paris, mais le jeton d'accès est
@@ -160,6 +160,39 @@ describe('L1 — filtrage des parasites + garde d’ambiguïté', () => {
     const b = 'https://ged.paris.fr/share/s/Xy12Wv34Ut56Rs78Qp/folder';
     const { liens } = analyserLiensReponse({ corpsTexte: `${a}\n${b}`, recuLe: RECU });
     expect(liens.filter((l) => l.fort).map((l) => l.url).sort()).toEqual([a, b].sort());
+  });
+});
+
+describe('PART-1 — un hôte à nous (ou hébergeur de nos actifs) n’est JAMAIS « fort »', () => {
+  // URL réelle d'une signature Gmail citée par la mairie d'Aubervilliers (chemin à jeton → « fort » sans garde-fou).
+  const LIEN_SIGNATURE = 'https://lh5.googleusercontent.com/zNSXg6CXm2pRhJxXw_i24RLy5PaBcDeFgHiJk';
+  const LIEN_MAIRIE = 'https://ged.paris.fr/share/s/Zk91Ab34Cd56Ef78Gh/folder';
+
+  it('parserHotesNonFort : virgules/espaces, minuscules, sans vide', () => {
+    expect(parserHotesNonFort('googleusercontent.com, sansvisavis.com')).toEqual(['googleusercontent.com', 'sansvisavis.com']);
+    expect(parserHotesNonFort('')).toEqual([]);
+    expect(parserHotesNonFort(null)).toEqual([]);
+  });
+
+  it('hoteExclu : correspondance par SUFFIXE de domaine (sous-domaine inclus), pas ailleurs', () => {
+    expect(hoteExclu('lh5.googleusercontent.com', ['googleusercontent.com'])).toBe(true);
+    expect(hoteExclu('googleusercontent.com', ['googleusercontent.com'])).toBe(true);
+    expect(hoteExclu('ged.paris.fr', ['googleusercontent.com', 'sansvisavis.com'])).toBe(false);
+    expect(hoteExclu('notgoogleusercontent.com', ['googleusercontent.com'])).toBe(false); // pas un vrai suffixe de domaine
+  });
+
+  it('lien vers NOTRE hôte → jamais fort ; lien de mairie → toujours fort (non-régression Paris)', () => {
+    const hotes = ['googleusercontent.com', 'sansvisavis.com'];
+    const { liens } = analyserLiensReponse({ corpsTexte: `${LIEN_SIGNATURE}\n${LIEN_MAIRIE}`, recuLe: RECU }, hotes);
+    const sig = liens.find((l) => l.url === LIEN_SIGNATURE)!;
+    const mairie = liens.find((l) => l.url === LIEN_MAIRIE)!;
+    expect(sig.fort).toBe(false); // notre signature citée
+    expect(mairie.fort).toBe(true); // vrai lien de téléchargement de mairie
+  });
+
+  it('sans liste d’exclusion (défaut []) → comportement inchangé (la signature resterait « forte »)', () => {
+    const { liens } = analyserLiensReponse({ corpsTexte: LIEN_SIGNATURE, recuLe: RECU });
+    expect(liens[0].fort).toBe(true); // non-régression : aucun hôte écarté par défaut
   });
 });
 

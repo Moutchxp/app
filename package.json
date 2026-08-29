@@ -55,6 +55,7 @@
     "permis:rejouer-rattachement": "tsx app/scripts/rejouer-rattachement.ts",
     "permis:rattachement-suivre": "tsx app/scripts/rattachement-suivre.ts",
     "permis:altitude-lidar": "tsx app/scripts/altitude-lidar.ts",
+    "permis:verser-rattachees": "tsx app/scripts/verser-pieces-rattachees.ts",
     "permis:exporter-altitudes": "tsx app/scripts/exporter-altitudes.ts",
     "bdtopo:import": "tsx app/scripts/bdtopo-import.ts",
     "drive:autoriser": "tsx app/scripts/drive-autoriser.ts",

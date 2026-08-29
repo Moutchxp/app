@@ -1149,7 +1149,8 @@ describe('T5 — BlocPiecesReponses : pièces rattachées, consultables/téléch
 
   it('pièce stockée → bouton de téléchargement ; étiquette « reçues le JJ/MM — objet · de expéditeur »', () => {
     const h = renderToStaticMarkup(createElement(BlocPiecesReponses, { groupes: [G({ deAdresse: 'urba@paris.fr' })], onTelecharger: () => {} }));
-    expect(h).toContain('Pièces reçues de la mairie');
+    expect(h).toContain('Pièces reçues par e-mail'); // PART-1 — titre clarifié (jointes d'e-mail, pas des documents en GED)
+    expect(h).toContain('pas encore versées comme documents en GED'); // PART-1 — distinction e-mail vs GED (par le texte)
     expect(h).toContain('reçues le 12/08 — Envoi des pièces');
     expect(h).toContain('de urba@paris.fr'); // FUS — expéditeur (adresse complète) à côté du groupe de pièces
     expect(h).toContain('plan.pdf');

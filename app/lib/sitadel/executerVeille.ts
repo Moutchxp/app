@@ -40,6 +40,7 @@ import { executerSuiviRattachementAuto, depsReellesSuiviRattachementAuto } from 
 import { executerAlerteAttenteBati, depsReellesAlerteAttenteBati } from '../veille/alerteAttenteBatiAuto';
 import { executerAlerteObstacleDisparu, depsReellesAlerteObstacleDisparu } from '../veille/alerteObstacleDisparuAuto';
 import { executerSurveillancePolygones, depsReellesSurveillancePolygones } from '../veille/surveillancePolygonesAuto';
+import { executerVersementRattache, depsReellesVersementRattache } from './versementRattacheRepo';
 import { executerAlerteMisesAJour } from '../veille/alerteMisesAJour';
 import { depsReellesAlerteMisesAJour } from '../veille/alerteMisesAJourRepo';
 import { ingererMillesime, millesimeDistantDido, DiDoIndisponibleError, DOSSIER_LOCAL, type CompteursIngestion, type MillesimeDistant } from './ingestionMillesime';
@@ -160,6 +161,9 @@ export interface DepsVeille {
   //   OPTIONNELLE et ISOLÉE. Compare le bâti courant à la référence figée à la validation (permis_gel « validation »). N'invalide RIEN
   //   (la validation reste active), n'écrit sur aucun certificat, ne touche NI le moteur NI le verdict. Latente tant qu'aucun validé.
   surveillancePolygones?(): Promise<unknown>;
+  // VERSEMENT rattaché (PART-1) — verse en GED les pièces des réponses « documents » rattachées (2e voie d'admission), hors signature
+  //   citée et sans doublon. OPTIONNELLE et ISOLÉE. Idempotent. N'écrit sur aucun certificat, ne touche NI le moteur NI le verdict.
+  versementRattache?(): Promise<unknown>;
 }
 
 /** Date de publication en français lisible (Europe/Paris), ex. « 28 août 2026 » — pour les messages « publié le … ». */
@@ -306,6 +310,13 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   validé (0 aujourd'hui) → coût nul. MÊME ISOLATION à double filet : un échec n'impacte jamais la veille.
     if (faitDonnees && deps.surveillancePolygones) {
       try { await deps.surveillancePolygones(); } catch { /* surveillance isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1sexdecies) VERSEMENT en GED des pièces d'une réponse RATTACHÉE (PART-1) — 2e voie d'admission (le rattachement, pas
+    //   l'expéditeur). Passe ISOLÉE et IDEMPOTENTE : verse les pièces des réponses « documents » rattachées, hors signature citée
+    //   et sans doublon. MÊME ISOLATION : un échec n'impacte jamais la veille. Latente quand tout est déjà versé.
+    if (faitDonnees && deps.versementRattache) {
+      try { await deps.versementRattache(); } catch { /* versement isolé : n'impacte jamais la veille Sitadel */ }
     }
 
     // Le CŒUR SITADEL (§2-7 : garde d'intervalle, run journal, millésime distant, ingestion, purge) appartient à la famille
@@ -485,6 +496,7 @@ function depsReelles(): DepsVeille {
     // ALERTE obstacle disparu — rappel « à revérifier » : croise certificats × bâti courant, interrupteur (défaut false), un rappel par certificat, isolé.
     alerteObstacleDisparu: () => executerAlerteObstacleDisparu(depsReellesAlerteObstacleDisparu()),
     surveillancePolygones: () => executerSurveillancePolygones(depsReellesSurveillancePolygones()),
+    versementRattache: () => executerVersementRattache(depsReellesVersementRattache(), { appliquer: true }),
   };
 }
 

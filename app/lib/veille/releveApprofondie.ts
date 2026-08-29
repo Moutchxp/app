@@ -15,7 +15,7 @@ import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { enregistrerReponse, enregistrerLiensReponse, deposerEtLierPieces, classerNature, parseMotifsAccuse, reclamperEnvoyeLe, type ProfilBoite, type NatureReponse } from './demandeReponseRepo';
 import { rattacherReponse, estRebondNonRemise, type DemandeCandidate } from './rattachementReponse';
 import { analyserRapportRejet, normaliserMessageId } from './rapportRejet';
-import { analyserLiensReponse } from './extractionLiens';
+import { analyserLiensReponse, parserHotesNonFort } from './extractionLiens';
 import { construireLigne, type CritereRecherche, type LigneReleve, type MessageBoite, type PieceMeta } from './releveReponses';
 import type { BrancheDepot } from '../sitadel/depotManuel'; // N1-A : type SEUL (runtime injecté via opts.depot)
 import { etatEcheance, type ReglagesEcheance } from './echeance';
@@ -98,6 +98,7 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
   const cfg = await chargerConfigVeille();
   const tailleMaxOctets = appliquer ? cfg.pieceTailleMaxMo * 1024 * 1024 : 0;
   const motifsAccuse = parseMotifsAccuse(cfg.natureAccuseMotifs);
+  const hotesNonFort = parserHotesNonFort(cfg.liensHotesNonFort); // PART-1 : hôtes qui ne portent jamais un « lien fort » (config)
   const deposerPieces = async (reponseId: number, demandeId: number | null, pieces: PieceMeta[]): Promise<void> => {
     const bilan = await deposerEtLierPieces(reponseId, demandeId,
       pieces.map((p) => ({ nomFichier: p.nomFichier, typeMime: p.typeMime, contenu: p.contenu })), tailleMaxOctets);
@@ -154,7 +155,7 @@ export async function releverApprofondie(opts: OptionsReleveApprofondie): Promis
         // (le message part alors dans la file « à rattacher » pour décision humaine — on ne force pas un lien incertain).
         // L1 — liens candidats (analyse PURE, aucun appel réseau). B2 : la relève approfondie les capte DÉSORMAIS aussi (le
         //   chemin courant les captait déjà) → `documents` ne dépend plus du chemin de relève emprunté.
-        const { liens } = analyserLiensReponse({ corpsTexte: mb.message.corpsTexte ?? null, corpsHtml: mb.message.corpsHtml ?? null, recuLe: mb.recuLe });
+        const { liens } = analyserLiensReponse({ corpsTexte: mb.message.corpsTexte ?? null, corpsHtml: mb.message.corpsHtml ?? null, recuLe: mb.recuLe }, hotesNonFort);
         // T3/T7-A — accusé auto (Auto-Submitted, pas un DSN) → nature='accuse' (« a écrit », pas « a répondu ») ; sinon
         //   documents/autre déduit du CONTENU CAPTÉ (pièces OU lien fort), jamais du texte.
         const nature: NatureReponse = classerNature(mb.message, { nbPieces: mb.pieces.length, aLienFort: liens.some((l) => l.fort) }, motifsAccuse); // FUS-4 : foyer unique + motif d'objet (identique à releverBoite)

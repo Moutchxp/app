@@ -67,6 +67,17 @@ function cheminAJeton(u: URL): boolean {
   return u.pathname.split('/').filter(Boolean).some(segmentEstJeton);
 }
 
+// ── PART-1 — hôtes qui ne peuvent JAMAIS porter un « lien fort » (les nôtres / hébergeurs de nos actifs) ──────────────────────────
+/** Parse une liste d'hôtes (virgules/point-virgules/espaces) en minuscules, sans entrée vide. PURE. */
+export function parserHotesNonFort(brut: string | null | undefined): string[] {
+  return (brut ?? '').split(/[,;\s]+/).map((h) => h.trim().toLowerCase()).filter((h) => h !== '');
+}
+/** Un hôte est exclu si l'un des hôtes listés en est un SUFFIXE de domaine (host === h OU host se termine par « .h »). PURE. */
+export function hoteExclu(hostname: string, hotes: readonly string[]): boolean {
+  const host = hostname.trim().toLowerCase();
+  return hotes.some((h) => host === h || host.endsWith(`.${h}`));
+}
+
 // ── Expiration EXPLICITE (jamais devinée) ────────────────────────────────────
 const RE_JJMMAAAA = /(\d{1,2})[/.](\d{1,2})[/.](\d{4})/;
 const RE_ISO = /(\d{4})-(\d{2})-(\d{2})/;
@@ -129,7 +140,7 @@ export function extraireExpiration(corps: string, recuLe: Date): Expiration {
  * les FORTES (chemin à jeton), et rattache l'expiration EXPLICITE du message aux liens FORTS (le « lien valable N jours »
  * désigne le lien de téléchargement). Les liens faibles portent une expiration NULLE. Ordre : forts d'abord, puis par apparition.
  */
-export function analyserLiensReponse(entree: { corpsTexte?: string | null; corpsHtml?: string | null; recuLe: Date }): { liens: LienCandidat[]; expiration: Expiration } {
+export function analyserLiensReponse(entree: { corpsTexte?: string | null; corpsHtml?: string | null; recuLe: Date }, hotesJamaisFort: readonly string[] = []): { liens: LienCandidat[]; expiration: Expiration } {
   const texte = entree.corpsTexte ?? '';
   const html = entree.corpsHtml ?? '';
   const brutes = [...hrefsBruts(html), ...urlsDuTexte(texte), ...urlsDuTexte(html)];
@@ -150,7 +161,9 @@ export function analyserLiensReponse(entree: { corpsTexte?: string | null; corps
 
   const expiration = extraireExpiration(`${texte}\n${html}`, entree.recuLe);
   const liens: LienCandidat[] = retenues.map(({ url, brut }) => {
-    const fort = cheminAJeton(url);
+    // PART-1 — un lien porté par un hôte à nous (ou un hébergeur de nos actifs, ex. googleusercontent d'une signature citée) n'est
+    //   JAMAIS fort : ce n'est pas un lien de téléchargement de mairie, même si son chemin ressemble à un jeton.
+    const fort = cheminAJeton(url) && !hoteExclu(url.hostname, hotesJamaisFort);
     return {
       url: brut,
       fort,

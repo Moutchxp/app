@@ -282,6 +282,13 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   { colonne: 'nature_accuse_motifs', cle: 'natureAccuseMotifs', libelle: 'Motifs d’objet « accusé de réception »', unite: 'motifs', type: 'texte',
     formatHint: 'formules séparées par des virgules ou des retours à la ligne.',
     aide: 'Formules (séparées par des virgules ou des retours à la ligne) qui, trouvées dans l’OBJET d’un message, le classent comme accusé de réception — SEULEMENT s’il ne porte ni pièce jointe ni lien de téléchargement (un vrai envoi de documents n’est jamais requalifié). Insensible aux accents et à la casse. Chaque téléservice a sa formule : Paris écrit « Accusé de réception ». Vide = seul l’en-tête technique Auto-Submitted déclenche l’accusé.' },
+  // PART-1 — deux listes d'exclusion pour ne plus prendre notre propre signature citée pour du contenu de mairie.
+  { colonne: 'liens_hotes_non_fort', cle: 'liensHotesNonFort', libelle: 'Hôtes de liens jamais considérés comme téléchargement', unite: 'hôtes', type: 'texte',
+    formatHint: 'noms d’hôtes séparés par des virgules (ex. googleusercontent.com).',
+    aide: 'Noms d’hôtes (séparés par des virgules) qui ne peuvent JAMAIS être pris pour un lien de téléchargement de mairie : les nôtres et les hébergeurs de nos propres images (une signature Gmail citée dans la réponse d’une mairie renvoie souvent une URL googleusercontent). La comparaison se fait par fin de domaine. Sans effet sur les vrais liens de mairie. Vide = aucun hôte écarté.' },
+  { colonne: 'pieces_hachages_exclus', cle: 'piecesHachagesExclus', libelle: 'Empreintes de pièces à ne jamais verser en GED', unite: 'sha256', type: 'texte',
+    formatHint: 'empreintes sha256 (64 caractères) séparées par des virgules.',
+    aide: 'Empreintes sha256 (séparées par des virgules) d’images qui vous appartiennent — typiquement le logo de votre signature — et qui reviennent citées dans les réponses des mairies. Une pièce dont l’empreinte figure ici n’est jamais versée en GED comme document du permis. Le critère porte sur le CONTENU du fichier, pas sur son nom. Si votre logo de signature change, ajoutez sa nouvelle empreinte. Vide = aucune pièce écartée.' },
   { colonne: 'seuil_logements_immeuble', cle: 'seuilLogementsImmeuble', libelle: 'Seuil de logements « immeuble »', unite: 'logements', type: 'entier',
     aide: 'À partir de ce nombre de logements, un projet est classé « immeuble ». Joue en OU avec la surface (pas en ET).' },
   { colonne: 'seuil_surface_immeuble_m2', cle: 'seuilSurfaceImmeubleM2', libelle: 'Seuil de surface « immeuble »', unite: 'm²', type: 'entier',
@@ -402,6 +409,7 @@ export const COLONNES_THEME_REPONSES: readonly string[] = [
   'recherche_references_max', 'piece_taille_max_mo', 'echeance_alerte_jours',
   'depot_adresses_connues', // N1-A — versement automatique en GED (adresses reconnues)
   'nature_accuse_motifs',   // FUS-4 — motifs d'objet reconnaissant un accusé de réception
+  'liens_hotes_non_fort', 'pieces_hachages_exclus', // PART-1 — exclusions (liens jamais fort / signatures non versées)
 ];
 export const COLONNES_THEME_ALERTES: readonly string[] = [
   'alerte_active', 'alerte_email', 'alerte_heure_locale',

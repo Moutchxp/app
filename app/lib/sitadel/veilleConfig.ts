@@ -61,6 +61,8 @@ export interface ConfigVeille {
   cadaUrlFormulaire: string;        // X1 : URL du formulaire de saisine en ligne de la CADA (dépôt manuel quand cadaEmail vide)
   propositionCadaActive: boolean;   // X5 : proposer par e-mail (à alerteEmail) la saisine CADA d'une demande devenue saisissable (opt-in, défaut false)
   depotAdressesConnues: string;     // N1-A : adresses reconnues pour le versement auto en GED (virgules ; union avec les collaborateurs)
+  liensHotesNonFort: string;        // PART-1 : hôtes (virgules) qui ne peuvent jamais porter un « lien fort » (nôtres / hébergeurs de nos actifs)
+  piecesHachagesExclus: string;     // PART-1 : hachages sha256 (virgules) d'actifs propres (signature) à ne jamais verser en GED
   natureAccuseMotifs: string;       // FUS-4 : motifs d'objet reconnaissant un accusé (liste virgules/retours) — pilotage sans code
   relanceAutoActive: boolean;       // LOT B : envoyer les relances automatiquement ? STOCKÉ/AFFICHÉ, LU PAR AUCUN CODE D'ENVOI dans ce lot
   relanceJoursAvantEcheance: number; // LOT B (VESTIGIAL, cascade lot 2) : remplacé par relanceRappelJoursAvant — conservé, non éditable
@@ -131,6 +133,8 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   cadaEmail: '', cadaUrlFormulaire: 'https://www.cada.fr/formulaire-de-saisine', // = DEFAULT de la migration 083
   propositionCadaActive: false, // = DEFAULT de la migration 084 (opt-in)
   depotAdressesConnues: '',     // = DEFAULT de la migration 102 (aucune adresse connue en propre → seuls les collaborateurs)
+  liensHotesNonFort: 'googleusercontent.com,sansvisavis.com', // = DEFAULT de la migration 173 (PART-1 : hôtes jamais « fort »)
+  piecesHachagesExclus: 'e03ddb3adb387cd05867a7bf35fc731acc9a5a31075b3bf5cef1e9f5719b88e9', // = DEFAULT 173 (logo de signature Auber-Rouge.png)
   natureAccuseMotifs: '',       // FUS-4 : repli ultime = aucun motif → comportement d'AVANT ce lot (la 125 pose 'accusé de réception')
   relanceAutoActive: false, relanceJoursAvantEcheance: 10, // = DEFAULT de la migration 128 (LOT B : opt-out d'envoi auto, préparation à J-10)
   relanceRappelJoursAvant: 10, relanceAvisJoursAvant: 3, relanceSaisineDelaiJours: 4, saisineCadaAutoActive: false, // = DEFAULT de la migration 136 (cascade lot 2)
@@ -411,6 +415,22 @@ async function lireDepotAdresses(): Promise<Pick<ConfigVeille, 'depotAdressesCon
   }
 }
 
+// PART-1 — deux listes d'exclusion (liens jamais « fort » / hachages de signature écartés du versement GED). Lecture ISOLÉE et
+//   résiliente à l'ordre d'application de la 173 : colonnes absentes → défauts (les mêmes qu'en base), sans dégrader le reste.
+async function lireExclusionsSignature(): Promise<Pick<ConfigVeille, 'liensHotesNonFort' | 'piecesHachagesExclus'>> {
+  const def = { liensHotesNonFort: CONFIG_VEILLE_DEFAUT.liensHotesNonFort, piecesHachagesExclus: CONFIG_VEILLE_DEFAUT.piecesHachagesExclus };
+  try {
+    const { rows } = await query<{ liens_hotes_non_fort: string | null; pieces_hachages_exclus: string | null }>(
+      `SELECT liens_hotes_non_fort, pieces_hachages_exclus FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return def;
+    return {
+      liensHotesNonFort: r.liens_hotes_non_fort ?? def.liensHotesNonFort,
+      piecesHachagesExclus: r.pieces_hachages_exclus ?? def.piecesHachagesExclus,
+    };
+  } catch { return def; } // 173 pas encore appliquée → défauts
+}
+
 // FUS-4 — motifs d'objet « accusé de réception ». Lecture ISOLÉE (résiliente à l'ordre d'application de la 125) : '' si la
 //   colonne n'existe pas encore → aucun motif → nature inchangée (comme avant ce lot).
 async function lireNatureAccuseMotifs(): Promise<Pick<ConfigVeille, 'natureAccuseMotifs'>> {
@@ -627,6 +647,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireCada()),                           // X1 : canal CADA (e-mail + formulaire), lecture isolée (résiliente à la 083)
       ...(await lireProposition()),                    // X5 : interrupteur des propositions CADA, lecture isolée (résiliente à la 084)
       ...(await lireDepotAdresses()),                  // N1-A : adresses connues du versement auto, lecture isolée (résiliente à la 102)
+      ...(await lireExclusionsSignature()),            // PART-1 : liens jamais fort + hachages de signature exclus, lecture isolée (résiliente à la 173)
       ...(await lireNatureAccuseMotifs()),             // FUS-4 : motifs d'objet « accusé », lecture isolée (résiliente à la 125)
       ...(await lireRelanceReglages()),                // LOT B : réglages de relance, lecture isolée (résiliente à la 128)
       ...(await lireRelanceCascadeReglages()),          // Cascade lot 2 : 3 délais + auto-saisine CADA, lecture isolée (résiliente à la 136)

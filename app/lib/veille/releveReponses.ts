@@ -18,7 +18,7 @@ import { enregistrerReponse, enregistrerLiensReponse, marquerDossiersSatisfaitsA
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { rattacherReponse, estRebondNonRemise, type MessageEntrant, type DemandeCandidate } from './rattachementReponse';
 import { normaliserNumeroDossier } from './satisfactionDossier'; // source UNIQUE de la normalisation d'un n° Sitadel (garde les lettres)
-import { analyserLiensReponse } from './extractionLiens';
+import { analyserLiensReponse, parserHotesNonFort } from './extractionLiens';
 import type { BrancheDepot } from '../sitadel/depotManuel'; // N1-A : type SEUL (le runtime est injecté via opts.depot)
 import { analyserRapportRejet, normaliserMessageId, type PartieRapport, type ResultatRapportRejet } from './rapportRejet';
 import { normaliserReference } from '../sitadel/demandesListe';
@@ -419,6 +419,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
   const cfg = await chargerConfigVeille();
   const tailleMaxOctets = cfg.pieceTailleMaxMo * 1024 * 1024; // utilisé seulement en mode APPLIQUÉ (dépôt)
   const motifsAccuse = parseMotifsAccuse(cfg.natureAccuseMotifs); // FUS-4 : motifs d'objet « accusé » (config, pilotage sans code)
+  const hotesNonFort = parserHotesNonFort(cfg.liensHotesNonFort); // PART-1 : hôtes qui ne portent jamais un « lien fort » (config)
   const { references, plafondAtteint: plafondReferencesAtteint } = await lireReferencesRecherche(cfg.rechercheReferencesMax); // LOT 2 : tous profils
   const adressesNous = opts.adressesNous ?? adressesNousDefaut(); // CORRECTIF boucle : NOS adresses (repli du signal en-tête)
   const lignes: LigneReleve[] = [];
@@ -543,7 +544,7 @@ export async function releverBoite(opts: OptionsReleve): Promise<RapportReleve> 
       //   AMONT du filtre de pertinence : ils servent à la NATURE du message (lien fort → documents), à l'enregistrement des
       //   liens plus bas, ET au garde-fou LOT 2 (lien fort = signal). L'analyse étant pure, l'avancer ne change AUCUN
       //   comportement observable pour un message retenu.
-      const { liens } = analyserLiensReponse({ corpsTexte: mb.message.corpsTexte ?? null, corpsHtml: mb.message.corpsHtml ?? null, recuLe: mb.recuLe });
+      const { liens } = analyserLiensReponse({ corpsTexte: mb.message.corpsTexte ?? null, corpsHtml: mb.message.corpsHtml ?? null, recuLe: mb.recuLe }, hotesNonFort);
       // R3e — critère : un n° de dossier d'une demande candidate apparaît littéralement (objet/corps/nom de pièce).
       const pertinentBase = opts.sansFiltre === true || r.methode !== 'aucun' || domaines.has(domaineDe(mb.message.deAdresse)) || objetPertinent(mb.message.objet) || contientNumeroDossier(mb) || contientReferenceMairie(mb) || contientReferenceCherchee(mb);
       // LOT 2 — GARDE-FOU : un domaine DÉRIVÉ (mairie sans dest_email : Paris…) n'ouvre la porte QUE si le message porte un

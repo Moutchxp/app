@@ -914,7 +914,11 @@ export function BlocPiecesReponses({ groupes, onTelecharger }: {
   if (groupes.length === 0) return null;
   return (
     <div className="svv-card" style={{ marginTop: '.5rem', display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-      <strong style={{ fontSize: 13 }}>Pièces reçues de la mairie</strong>
+      <strong style={{ fontSize: 13 }}>Pièces reçues par e-mail</strong>
+      {/* PART-1 — DISTINCTION EXPLICITE (texte, jamais la couleur seule) : ces pièces sont des jointes d'e-mail (registre des
+          échanges), consultables ici ; ce ne sont PAS des documents versés dans la GED du permis tant qu'elles n'y ont pas été
+          versées (onglet Archives, pastille « versée automatiquement » / « ajoutée à la main »). */}
+      <span style={{ ...styleMuted, fontSize: 11 }}>Jointes d’e-mail (registre des échanges) — pas encore versées comme documents en GED du permis.</span>
       {groupes.map((g) => (
         <div key={g.reponseId} style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
           <span style={{ ...styleMuted, fontSize: 12, wordBreak: 'break-word' }}>reçues le {jjmm(g.recuLe)} — {tronquerObjet(g.objet)} · de {g.deAdresse}</span>
