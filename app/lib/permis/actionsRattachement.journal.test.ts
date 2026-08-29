@@ -18,10 +18,15 @@ const H = vi.hoisted(() => {
     etatDossier: 'valide',
     importRows: [] as { cleabs: string; alt: number | null }[],
     editionMillesime: null as string | null, // BDT-2 : null = table bdtopo_edition absente (→ 'inconnu')
+    gelColonne: false as boolean,            // FIG-1 : la colonne gel_id existe-t-elle (migration 169) ?
+    gelVersion: null as null | { id: number; version: number }, // FIG-1 : version d'état figé courante du dossier
   };
   const queryMock = async (sql: string, params?: unknown[]) => {
     calls.push({ sql, params: params ?? [] });
     if (/to_regclass\('public\.permis_altitude_journal'\)/i.test(sql)) return { rows: [{ t: 'permis_altitude_journal' }] };
+    if (/information_schema\.columns[\s\S]*permis_altitude_journal[\s\S]*gel_id/i.test(sql)) return { rows: [{ n: state.gelColonne ? 1 : 0 }] };
+    if (/to_regclass\('public\.permis_gel'\)/i.test(sql)) return { rows: [{ t: state.gelVersion ? 'permis_gel' : null }] };
+    if (/SELECT id, version FROM permis_gel WHERE dossier_id/i.test(sql)) return { rows: state.gelVersion ? [state.gelVersion] : [] };
     if (/to_regclass\('public\.bdtopo_edition'\)/i.test(sql)) return { rows: [{ t: state.editionMillesime != null ? 'bdtopo_edition' : null }] };
     if (/SELECT millesime FROM bdtopo_edition WHERE courante/i.test(sql)) return { rows: state.editionMillesime != null ? [{ millesime: state.editionMillesime }] : [] };
     if (/SELECT id FROM permis_rattachement WHERE dossier_id/i.test(sql)) return { rows: [{ id: 99 }] };
@@ -54,7 +59,7 @@ const events = () => H.calls.filter((c) => /INSERT INTO permis_rattachement_even
 
 beforeEach(() => {
   H.calls.length = 0;
-  Object.assign(H.state, { aff: aff(), lidar: 42, altRow: null, derniere: null, retourCleabs: [], dossierAlt: 11434, etatDossier: 'valide', importRows: [], editionMillesime: null });
+  Object.assign(H.state, { aff: aff(), lidar: 42, altRow: null, derniere: null, retourCleabs: [], dossierAlt: 11434, etatDossier: 'valide', importRows: [], editionMillesime: null, gelColonne: false, gelVersion: null });
 });
 
 describe('injection → registre', () => {
@@ -86,6 +91,29 @@ describe('injection → registre', () => {
     expect(j[0].params.slice(0, 4)).toEqual(['BAT_A', 42, 'lidar', 'import']); // toujours la ligne de départ lidar
     expect(j[0].params).toContain('2026-03-15'); // millésime réel injecté
     expect(j[0].params).not.toContain('inconnu'); // plus de littéral supposé
+  });
+
+  it('FIG-1 — colonne gel_id présente + version courante → chaque ligne de journal DÉSIGNE la version d’état figé', async () => {
+    H.state.gelColonne = true;
+    H.state.gelVersion = { id: 55, version: 2 }; // version d'état figé courante du dossier
+    const r = await validerRattachement(11434, 'admin:decision', { BAT_A: 88.9 });
+    expect(r.ok).toBe(true);
+    const j = journal();
+    expect(j).toHaveLength(2);              // départ lidar + injection
+    // les DEUX lignes portent gel_id = 55 (INSERT 13 colonnes → 13 paramètres, gel_id en dernier)
+    for (const l of j) {
+      expect(l.params).toHaveLength(13);
+      expect(l.params[12]).toBe(55);
+    }
+  });
+
+  it('FIG-1 — colonne gel_id absente (migration 169 non appliquée) → INSERT historique 12 colonnes, aucun gel_id', async () => {
+    H.state.gelColonne = false; // défaut, explicite ici
+    await validerRattachement(11434, 'admin:decision', { BAT_A: 88.9 });
+    for (const l of journal()) {
+      expect(l.params).toHaveLength(12);
+      expect(l.sql.replace(/\s+/g, ' ')).not.toContain('gel_id');
+    }
   });
 
   it('M3 — N polygones injectés → N traces d’injection dans le registre (une ligne « injection » par polygone)', async () => {

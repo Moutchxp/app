@@ -23,6 +23,7 @@ import { ecrireDesignation } from '../lib/permis/ecritureDesignation';
 import { extrairePlanchesDossier, ecrireGabaritPlu, abstentionsGabarit } from '../lib/permis/ecritureGabaritPlu';
 import { decisionParcelles, type ParcelleSitadel } from '../lib/permis/decisionParcelles';
 import { ecrireParcelles, figerEmpreinte, figerBatiSnapshot } from '../lib/permis/parcellesRepo';
+import { figerVersionGel } from '../lib/permis/gelRepo';
 import { lireCerfaScan, lecteurMistral, coutUsd, type UsageMistral } from '../lib/permis/lireCerfaScan';
 import { ecrireCerfaScan } from '../lib/permis/ecritureCerfaScan';
 import { lirePermisCaracteristiques } from '../lib/permis/caracteristiquesRepo';
@@ -85,7 +86,7 @@ async function main(): Promise<void> {
     } },
     { nom: 'parcelles', executer: async () => {
       const d = decisionParcelles(champsCerfa, sitadelParcelles, dau, codeInsee);
-      if (!dry) { await ecrireParcelles(dossierId, d.parcelles, MAJ); await figerEmpreinte(dossierId, MAJ); await figerBatiSnapshot(dossierId, MAJ); }
+      if (!dry) { await ecrireParcelles(dossierId, d.parcelles, MAJ); await figerEmpreinte(dossierId, MAJ); await figerBatiSnapshot(dossierId, MAJ); await figerVersionGel(dossierId, MAJ); }
       return { resume: `${d.parcelles.length} parcelle(s)${d.ecarts.length ? ` · ${d.ecarts.length} écart(s)` : ''}` };
     } },
     { nom: 'cerfa-scan', executer: async () => {

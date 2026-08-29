@@ -14,6 +14,7 @@ import { decisionNiveaux } from './decisionNiveaux';
 import { ecrireNiveaux } from './ecritureNiveaux';
 import { decisionParcelles, type ParcelleSitadel } from './decisionParcelles';
 import { ecrireParcelles, figerEmpreinte, figerBatiSnapshot } from './parcellesRepo';
+import { figerVersionGel } from './gelRepo';
 import { lireCerfaScan, lecteurMistral } from './lireCerfaScan';
 import { ecrireCerfaScan } from './ecritureCerfaScan';
 import { trouverCerfaPc } from './identifierCerfa'; // LECT-1 (A) : Cerfa identifié par CONTENU (13409), jamais par nom de fichier
@@ -107,6 +108,7 @@ export async function executerExtractionPermis(dossierId: number, opts: { avecVi
   await ecrireParcelles(dossierId, decisionParcelles(champsCerfa, sitadelP, m.num_dau, m.code_insee).parcelles, opts.majPar);
   await figerEmpreinte(dossierId, opts.majPar).catch(() => undefined);      // géométrie : best-effort, jamais bloquant
   await figerBatiSnapshot(dossierId, opts.majPar).catch(() => undefined);
+  await figerVersionGel(dossierId, opts.majPar).catch(() => undefined);     // FIG-1 — version d'état figé opposable (NO-OP si migration 169 absente)
 
   // 6) VISION Mistral (Cerfa 13409 SCANNÉ) — seulement si demandé ; appel EXTERNE isolé.
   let visionTournee = false, visionPieces = 0, motifVision: string | null = opts.avecVision ? null : 'vision non demandée';

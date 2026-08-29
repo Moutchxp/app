@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { QueryResult, QueryResultRow } from 'pg';
-import { journalActif, enregistrerLigneJournal, derniereLigne, dateModifBatiment, type LigneJournal } from './journalAltitude';
+import { journalActif, colonneGelJournal, enregistrerLigneJournal, derniereLigne, dateModifBatiment, type LigneJournal } from './journalAltitude';
 
 /**
  * FUS-3f — REGISTRE d'altitudes : helpers bas niveau + GARDE append-only (défense secondaire). `q` est une fausse RequeteTx qui
@@ -33,17 +33,47 @@ describe('journalActif', () => {
 });
 
 describe('enregistrerLigneJournal', () => {
-  it('émet un INSERT (jamais UPDATE/DELETE) avec les 12 paramètres liés dans l’ordre', async () => {
+  it('sans gelId → INSERT HISTORIQUE 12 paramètres liés dans l’ordre (byte-identique à avant FIG-1)', async () => {
     const { q, calls } = faussReq(() => []);
     await enregistrerLigneJournal(q, ligne({ cleabs: 'BAT_X', altitudeNgf: 87.1, sourceMillesime: 'inconnu' }));
     expect(calls).toHaveLength(1);
     const norm = calls[0].sql.replace(/\s+/g, ' ');
     expect(norm).toContain('INSERT INTO permis_altitude_journal');
     expect(norm).not.toMatch(/UPDATE|DELETE/i);
+    expect(norm).not.toContain('gel_id');         // colonne absente du chemin historique
+    expect(calls[0].params).toHaveLength(12);
     // paramètres liés : cleabs, altitude, origine, cause en tête ; dossier, altitude_precedente, origine_precedente, par au bon rang
     expect(calls[0].params.slice(0, 4)).toEqual(['BAT_X', 87.1, 'permis', 'injection']);
     expect(calls[0].params).toContain('inconnu');
     expect(calls[0].params).toContain(11434);
+  });
+
+  it('FIG-1 — avec gelId (colonne présente) → INSERT 13 colonnes portant gel_id en dernier paramètre lié', async () => {
+    const { q, calls } = faussReq(() => []);
+    await enregistrerLigneJournal(q, ligne({ cleabs: 'BAT_X', altitudeNgf: 88.9 }), 42);
+    const norm = calls[0].sql.replace(/\s+/g, ' ');
+    expect(norm).toContain('INSERT INTO permis_altitude_journal');
+    expect(norm).toContain('gel_id');
+    expect(norm).not.toMatch(/UPDATE|DELETE/i);
+    expect(calls[0].params).toHaveLength(13);
+    expect(calls[0].params[12]).toBe(42);         // la décision DÉSIGNE la version d'état figé
+  });
+
+  it('FIG-1 — gelId null (version courante inconnue) → INSERT 13 colonnes, gel_id lié à null (honnête)', async () => {
+    const { q, calls } = faussReq(() => []);
+    await enregistrerLigneJournal(q, ligne(), null);
+    expect(calls[0].params).toHaveLength(13);
+    expect(calls[0].params[12]).toBeNull();
+  });
+});
+
+describe('colonneGelJournal', () => {
+  it('vrai si information_schema compte la colonne, faux sinon — c’est un SELECT (ne poisonne pas la transaction)', async () => {
+    const present = faussReq(() => [{ n: 1 }]);
+    expect(await colonneGelJournal(present.q)).toBe(true);
+    expect(present.calls[0].sql).toMatch(/information_schema\.columns/i);
+    const absent = faussReq(() => [{ n: 0 }]);
+    expect(await colonneGelJournal(absent.q)).toBe(false);
   });
 });
 

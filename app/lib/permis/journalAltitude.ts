@@ -36,15 +36,43 @@ export async function journalActif(q: RequeteTx): Promise<boolean> {
   return rows[0]?.t != null;
 }
 
-/** INSERT (le SEUL mode d'écriture autorisé) d'une ligne de registre. À n'appeler qu'après `journalActif() === true`. */
-export async function enregistrerLigneJournal(q: RequeteTx, l: LigneJournal): Promise<void> {
+/**
+ * FIG-1 — la colonne `gel_id` existe-t-elle sur le registre ? (migration 169 appliquée). SELECT information_schema → ne poisonne PAS
+ * la transaction (contrairement à un INSERT référençant une colonne absente, qui l'avorterait). Permet de stamper la VERSION d'état
+ * figé sur laquelle une décision a été prise UNIQUEMENT quand la colonne est là — sinon on retombe sur l'INSERT historique, intact.
+ */
+export async function colonneGelJournal(q: RequeteTx): Promise<boolean> {
+  const { rows } = await q<{ n: number }>(
+    `SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'permis_altitude_journal' AND column_name = 'gel_id'`);
+  return (rows[0]?.n ?? 0) > 0;
+}
+
+/**
+ * INSERT (le SEUL mode d'écriture autorisé) d'une ligne de registre. À n'appeler qu'après `journalActif() === true`.
+ *
+ * FIG-1 — `gelId` désigne la VERSION d'état figé (permis_gel.id) sur laquelle la décision a été prise :
+ *   · `undefined` → colonne absente (migration 169 non appliquée) ou non pertinent : INSERT HISTORIQUE 12 colonnes, byte-identique.
+ *   · `number | null` → colonne présente : INSERT 13 colonnes portant gel_id (null = version courante inconnue, honnête).
+ */
+export async function enregistrerLigneJournal(q: RequeteTx, l: LigneJournal, gelId?: number | null): Promise<void> {
+  if (gelId === undefined) {
+    await q(
+      `INSERT INTO permis_altitude_journal
+         (cleabs, altitude_ngf, origine, cause, source_type, source_millesime, source_date,
+          dossier_id, altitude_precedente, origine_precedente, enregistre_par, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [l.cleabs, l.altitudeNgf, l.origine, l.cause, l.sourceType, l.sourceMillesime, l.sourceDate ?? null,
+       l.dossierId, l.altitudePrecedente, l.originePrecedente, l.par, l.note],
+    );
+    return;
+  }
   await q(
     `INSERT INTO permis_altitude_journal
        (cleabs, altitude_ngf, origine, cause, source_type, source_millesime, source_date,
-        dossier_id, altitude_precedente, origine_precedente, enregistre_par, note)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        dossier_id, altitude_precedente, origine_precedente, enregistre_par, note, gel_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
     [l.cleabs, l.altitudeNgf, l.origine, l.cause, l.sourceType, l.sourceMillesime, l.sourceDate ?? null,
-     l.dossierId, l.altitudePrecedente, l.originePrecedente, l.par, l.note],
+     l.dossierId, l.altitudePrecedente, l.originePrecedente, l.par, l.note, gelId],
   );
 }
 

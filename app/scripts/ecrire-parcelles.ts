@@ -10,6 +10,7 @@ import { resoudreDossier, depsReellesLectureGed } from '../lib/permis/lectureGed
 import { lireChampsFormulaire } from '../lib/permis/champsFormulaire';
 import { decisionParcelles, type ParcelleSitadel } from '../lib/permis/decisionParcelles';
 import { ecrireParcelles, figerEmpreinte, figerBatiSnapshot } from '../lib/permis/parcellesRepo';
+import { figerVersionGel } from '../lib/permis/gelRepo';
 import type { ChampCerfa } from '../lib/permis/decisionCerfa';
 
 const MAJ_PAR = 'cerfa:parcelles';
@@ -69,6 +70,11 @@ async function main(): Promise<void> {
       console.log(`  · ${b.cleabs ?? '(cleabs inconnu)'}${det ? ` — ${det}` : ' — étages/altitude non renseignés'}`);
     }
   }
+
+  // FIG-1 — APPEND une version d'état figé OPPOSABLE (jamais un écrasement) après la photo. NO-OP propre si migration 169 non appliquée.
+  const gel = await figerVersionGel(dossierId, MAJ_PAR);
+  if (gel.enregistre) console.log(`État figé opposable : version ${gel.version} (${gel.nbParcelles} parcelle(s), ${gel.nbBati} bâtiment(s)).`);
+  else console.log(`État figé opposable : non enregistré — ${gel.raison}`);
   console.log('');
 }
 

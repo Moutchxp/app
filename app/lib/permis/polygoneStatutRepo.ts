@@ -1,6 +1,7 @@
 import { query } from '../db/client';
 import { statutCourantParCleabs, actionsAutoStatut, estRecouvertParEmprise, type LigneStatutPolygone, type LigneStatut, type OrigineStatut, type PolygoneRecouvert } from './polygoneStatut';
 import { lireSeuilRecouvrementEmprisePct } from './rattachementConfig'; // RATT-5 — seuil de recouvrement lu au runtime (config_veille), jamais en dur
+import { versionGelCourante } from './gelRepo'; // FIG-1 — VERSION d'état figé désignée par la décision de statut
 
 /**
  * RATT-1 (2) — ADAPTATEUR IMPUR du statut décidé d'un polygone existant (préservé/détruit). Table APPEND-ONLY `permis_polygone_statut`
@@ -21,6 +22,16 @@ function estColonneAbsente(e: unknown): boolean {
 /** PostgreSQL 23514 = check_violation (migration 167 non appliquée : 'mixte'/'auto_mixte' pas encore admis par le CHECK). */
 function estContrainteViolee(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { code?: string }).code === '23514';
+}
+
+/** FIG-1 — la colonne `gel_id` existe-t-elle sur permis_polygone_statut ? (migration 169). SELECT information_schema, jamais un INSERT
+ *  spéculatif → ne poisonne rien ; table/permission absente → false (repli propre, on insère alors sans gel_id, comme avant FIG-1). */
+async function colonneGelStatut(): Promise<boolean> {
+  try {
+    const { rows } = await query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'permis_polygone_statut' AND column_name = 'gel_id'`);
+    return (rows[0]?.n ?? 0) > 0;
+  } catch { return false; }
 }
 
 /** RATT-6 — statut COURANT (dernière ligne) d'un cleabs dans un dossier ; `null` si aucune ligne ou table absente. Sert au refus serveur
@@ -96,9 +107,14 @@ export async function poserStatutPolygone(dossierId: number, cleabs: string, sta
   // SNAPSHOT de la source IGN au moment (lecture SEULE de batiment) — la source n'est jamais modifiée.
   const src = await query<{ etat: string | null }>(`SELECT etat_de_l_objet AS etat FROM batiment WHERE cleabs = $1 LIMIT 1`, [cleabs]);
   const etatMoment = src.rows[0]?.etat ?? null;
-  const inserer = async (st: LigneStatut, orig: OrigineStatut) =>
-    query(`INSERT INTO permis_polygone_statut (dossier_id, cleabs, statut, etat_bdtopo_au_moment, decide_par, origine)
-           VALUES ($1, $2, $3, $4, $5, $6)`, [dossierId, cleabs, st, etatMoment, par, orig]);
+  // FIG-1 — désigne la VERSION d'état figé courante du dossier (« sur quel état la décision a été prise »). Colonne absente → sans gel_id.
+  const avecGel = await colonneGelStatut();
+  const gelId = avecGel ? ((await versionGelCourante(query, dossierId))?.id ?? null) : null;
+  const inserer = async (st: LigneStatut, orig: OrigineStatut) => avecGel
+    ? query(`INSERT INTO permis_polygone_statut (dossier_id, cleabs, statut, etat_bdtopo_au_moment, decide_par, origine, gel_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`, [dossierId, cleabs, st, etatMoment, par, orig, gelId])
+    : query(`INSERT INTO permis_polygone_statut (dossier_id, cleabs, statut, etat_bdtopo_au_moment, decide_par, origine)
+             VALUES ($1, $2, $3, $4, $5, $6)`, [dossierId, cleabs, st, etatMoment, par, orig]);
   try {
     await inserer(statut, origine);
     return { ok: true };

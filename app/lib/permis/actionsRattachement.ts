@@ -11,8 +11,9 @@
 import { withTransaction, type RequeteTx } from '../db/client';
 import { appliquerPreseanceAltitude, type EtatAltitudePolygone } from './preseanceAltitude';
 import { lireAffectation } from './affectationRepo';
-import { journalActif, enregistrerLigneJournal, derniereLigne, dateModifBatiment } from './journalAltitude';
+import { journalActif, colonneGelJournal, enregistrerLigneJournal, derniereLigne, dateModifBatiment } from './journalAltitude';
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo';
+import { versionGelCourante } from './gelRepo';
 
 export interface ResultatAction {
   ok: boolean;
@@ -99,6 +100,10 @@ export async function validerRattachement(dossierId: number, valPar: string, cot
     const jActif = await journalActif(q); // registre disponible ? (migration 118 appliquée)
     // BDT-2 : millésime de l'édition BD TOPO courante pour la ligne de départ 'lidar' ; 'inconnu' tant que la 120 n'est pas stampée.
     const milEdition = jActif ? await millesimeEditionCourante(q) : MILLESIME_INCONNU;
+    // FIG-1 — VERSION d'état figé courante du dossier, à désigner par chaque ligne de journal de CETTE décision (« sur quel état exact
+    //   l'injection a-t-elle été décidée »). `undefined` = colonne gel_id absente (migration 169 non appliquée) → INSERT historique intact.
+    const gelCol = jActif ? await colonneGelJournal(q) : false;
+    const gelId: number | null | undefined = gelCol ? ((await versionGelCourante(q, dossierId))?.id ?? null) : undefined;
 
     let nbInjectes = 0;
     const injections: NonNullable<ResultatAction['injections']> = []; // M8 — détail RÉELLEMENT écrit, pour l'accusé (repère + cote depuis le serveur)
@@ -126,13 +131,13 @@ export async function validerRattachement(dossierId: number, valPar: string, cot
             note: milEdition === MILLESIME_INCONNU
               ? `ligne de départ : LiDAR capturée à la 1re injection (édition BD TOPO non étiquetée → millésime inconnu${dmod ? ` ; date_modification objet ${dmod}` : ` ; aucune date_modification objet`})`
               : `ligne de départ : LiDAR capturée à la 1re injection (édition BD TOPO ${milEdition}${dmod ? ` ; date_modification objet ${dmod}` : ``})`,
-          });
+          }, gelId);
         }
         await enregistrerLigneJournal(q, {
           cleabs: inj.cleabs, altitudeNgf: res.etat.altitudeNgf, origine: 'permis', cause: 'injection',
           sourceType: 'permis', sourceMillesime: null, sourceDate: null, dossierId,
           altitudePrecedente: avant.altitudeNgf, originePrecedente: avant.origine, par: valPar, note: res.trace,
-        });
+        }, gelId);
       }
       nbInjectes++;
     }
