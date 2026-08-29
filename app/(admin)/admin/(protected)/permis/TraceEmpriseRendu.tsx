@@ -703,8 +703,8 @@ function libelleStatut(s: 'preserve' | 'detruit'): string { return s === 'preser
 function jjmmaaaaStatut(iso: string): string { const d = iso.slice(0, 10); return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`; }
 
 /**
- * RATT-1 (2) / RATT-2 — STATUER TOUS les bâtiments EXISTANTS du site (y compris ceux RECOUVERTS par l'emprise projetée ; seul le
- * « futur bâti » — en projet / en construction — reste hors liste). Pour chacun : l'état BD TOPO (SOURCE, jamais réécrite) ET ma
+ * RATT-1 (2) / RATT-2 / RATT-4 — STATUER les bâtiments EXISTANTS du site (recouverts compris) ET les polygones « en projet » RECOUVERTS
+ * par l'emprise projetée (RATT-4 : un futur bâti non recouvert reste hors liste). Pour chacun : l'état BD TOPO (SOURCE, jamais réécrite) ET ma
  * décision (préservé/détruit) affichés CÔTE À CÔTE ; boutons pour poser/changer/révoquer (append-only). RATT-2 : un bâtiment recouvert
  * porte « détruit » d'office (automatisme) mais reste basculable en « préservé » — cas d'une surélévation, où l'existant est conservé
  * sous le futur volume ; la mention le signale explicitement. « Détruit » est une PRÉVISION à confirmer à la mise à jour cadastrale ;
@@ -714,14 +714,15 @@ export function StatutPolygonesExistants({ polygones, recouverts, statuts, onSta
   polygones: PolygoneRepere[]; recouverts: readonly string[]; statuts: Map<string, EtatStatutPolygone>;
   onStatuer: (cleabs: string, statut: 'preserve' | 'detruit' | 'revoque') => void;
 }) {
-  const statuables = polygones.filter((p) => estStatuable(p)); // RATT-2 — tous les existants, recouverts compris
-  if (statuables.length === 0) return null;
   const recouvertsSet = new Set(recouverts);
+  // RATT-2 — tous les existants (recouverts compris) ; RATT-4 — + les « en projet » RECOUVERTS par l'emprise (un futur bâti non recouvert reste hors liste).
+  const statuables = polygones.filter((p) => estStatuable(p, p.cleabs !== null && recouvertsSet.has(p.cleabs)));
+  if (statuables.length === 0) return null;
   const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.2rem .55rem', fontSize: 12 };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .5rem' }}>
       <div style={{ fontSize: 12, fontWeight: 700 }}>Bâtiments existants du site</div>
-      <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Tous les bâtiments existants du site (seul le « futur bâti » en est exclu). Statuez chacun : la source BD TOPO reste affichée à côté de votre décision (jamais écrasée). Un bâtiment recouvert par la future emprise est « détruit » par défaut, mais vous pouvez le repasser en « préservé » (cas d’une surélévation). « Détruit » est une PRÉVISION, à confirmer le jour de la mise à jour cadastrale.</div>
+      <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Les bâtiments existants du site, plus les polygones « en projet » recouverts par la future emprise (un « en projet » non recouvert reste hors liste). Statuez chacun : la source BD TOPO reste affichée à côté de votre décision (jamais écrasée). Un polygone recouvert par la future emprise est « détruit » par défaut, mais vous pouvez le repasser en « préservé » (cas d’une surélévation). « Détruit » est une PRÉVISION, à confirmer le jour de la mise à jour cadastrale.</div>
       {statuables.map((p) => {
         const st = statuts.get(p.cleabs!);
         const decide = st?.statut ?? null;

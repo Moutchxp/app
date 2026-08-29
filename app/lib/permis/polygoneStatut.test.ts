@@ -55,6 +55,27 @@ describe('RATT-2 — estStatuable (TOUS les existants, recouverts compris ; seul
   });
 });
 
+describe('RATT-4 — estStatuable ouvre la liste aux « en projet » RECOUVERTS (le param recouvert)', () => {
+  it('« En projet » + RECOUVERT → statuable', () => {
+    expect(estStatuable({ cleabs: 'C', etat: 'En projet' }, true)).toBe(true);
+  });
+  it('« En projet » + NON recouvert → NON statuable (inchangé)', () => {
+    expect(estStatuable({ cleabs: 'C', etat: 'En projet' }, false)).toBe(false);
+    expect(estStatuable({ cleabs: 'C', etat: 'En projet' })).toBe(false); // défaut = non recouvert
+  });
+  it('« En construction » (futur bâti) + recouvert → statuable ; non recouvert → non', () => {
+    expect(estStatuable({ cleabs: 'C', etat: 'En construction' }, true)).toBe(true);
+    expect(estStatuable({ cleabs: 'C', etat: 'En construction' }, false)).toBe(false);
+  });
+  it('« En service » (existant) → statuable dans les DEUX cas (le recouvrement ne change rien pour l’existant)', () => {
+    expect(estStatuable({ cleabs: 'A', etat: 'En service' }, true)).toBe(true);
+    expect(estStatuable({ cleabs: 'A', etat: 'En service' }, false)).toBe(true);
+  });
+  it('sans cleabs, même recouvert → non statuable', () => {
+    expect(estStatuable({ cleabs: null, etat: 'En projet' }, true)).toBe(false);
+  });
+});
+
 describe('RATT-2 — actionsAutoStatut (écriture/révocation auto ; ne touche JAMAIS une décision humaine)', () => {
   // Fabrique un état COURANT minimal (seuls statut + origine importent à la décision).
   const etat = (statut: EtatStatutPolygone['statut'], origine: OrigineStatut | null): EtatStatutPolygone =>
@@ -100,5 +121,17 @@ describe('RATT-2 — actionsAutoStatut (écriture/révocation auto ; ne touche J
     expect(actions).toContainEqual({ cleabs: 'ANCIEN_AUTO', statut: 'revoque', origine: 'auto_revocation' });
     expect(actions.find((a) => a.cleabs === 'SAISIE')).toBeUndefined();
     expect(actions).toHaveLength(2);
+  });
+
+  // RATT-4 — l'auto-statut est ÉTAT-AGNOSTIQUE (il ne lit que le jeu de cleabs recouverts) : un « en projet » recouvert est traité
+  //   EXACTEMENT comme un existant recouvert. Ces deux cas documentent l'intention RATT-4 sur un cleabs « en projet » (C/D/I du 11430).
+  it('RATT-4 — « en projet » recouvert JAMAIS statué → écrit « detruit » / « auto_recouvrement » (comme un existant)', () => {
+    expect(actionsAutoStatut(['BATIMENT_EN_PROJET_C'], new Map())).toEqual([
+      { cleabs: 'BATIMENT_EN_PROJET_C', statut: 'detruit', origine: 'auto_recouvrement' },
+    ]);
+  });
+  it('RATT-4 — « en projet » recouvert DÉJÀ statué à la main (préservé) → n’écrit RIEN', () => {
+    const statuts = new Map<string, EtatStatutPolygone>([['BATIMENT_EN_PROJET_C', etat('preserve', 'saisie')]]);
+    expect(actionsAutoStatut(['BATIMENT_EN_PROJET_C'], statuts)).toEqual([]);
   });
 });

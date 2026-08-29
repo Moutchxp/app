@@ -49,11 +49,12 @@ export function statutCourantParCleabs(lignes: readonly LigneStatutPolygone[]): 
   return out;
 }
 
-/** RATT-2 — un polygone est-il STATUABLE (candidat à préservé/détruit) ? TOUS les bâtiments EXISTANTS de la parcelle le sont, y compris
- *  ceux RECOUVERTS par l'emprise projetée (statués « détruit » d'office, mais basculables — cas d'une surélévation). Seul le « futur
- *  bâti » (En projet / En construction — pas encore construit) reste HORS liste. Il faut un cleabs. PUR. */
-export function estStatuable(polygone: { cleabs: string | null; etat: string | null }): boolean {
-  return polygone.cleabs !== null && !estFuturBati(polygone.etat);
+/** RATT-2 / RATT-4 — un polygone est-il STATUABLE (candidat à préservé/détruit) ? TOUS les bâtiments EXISTANTS de la parcelle le sont, y
+ *  compris ceux RECOUVERTS par l'emprise projetée (statués « détruit » d'office, mais basculables — cas d'une surélévation). RATT-4 : un
+ *  « futur bâti » (En projet / En construction) devient statuable SI ET SEULEMENT S'IL est RECOUVERT par l'emprise projetée (il sera
+ *  effacé/remplacé) ; un futur bâti NON recouvert reste HORS liste. Il faut un cleabs. PUR (le `recouvert` est fourni par l'appelant). */
+export function estStatuable(polygone: { cleabs: string | null; etat: string | null }, recouvert = false): boolean {
+  return polygone.cleabs !== null && (!estFuturBati(polygone.etat) || recouvert);
 }
 
 /**

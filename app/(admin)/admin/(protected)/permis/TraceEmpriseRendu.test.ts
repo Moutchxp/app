@@ -652,6 +652,16 @@ describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décisio
     expect(html).toContain('BD TOPO disait « En projet »'); // 🔴 la source reste lisible ; ma décision prime sans l'écraser
   });
 
+  it('RATT-4 — un « en projet » RECOUVERT entre dans la liste (mention rouge + 2 boutons) ; un « en projet » NON recouvert reste exclu', () => {
+    const polygones = [poly('B', 'En projet', 'B'), poly('D', 'En projet', 'D')];
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: ['D'], statuts: new Map(), onStatuer: () => {} }));
+    expect(html).toContain('Polygone D');                     // « en projet » RECOUVERT → listé
+    expect(html).not.toContain('Polygone B');                 // « en projet » NON recouvert → hors liste
+    expect(html).toContain('recouvert par l’emprise projetée — statut détruit par défaut'); // mention rouge (même formulation que l'existant)
+    expect(html).toContain('bâtiment préservé');              // bouton actif (basculable)
+    expect(html).toContain('bâtiment détruit');               // bouton actif
+  });
+
   it('« détruit » est signalé comme une PRÉVISION à confirmer à la mise à jour cadastrale', () => {
     const statuts = statutCourantParCleabs([ligne('A', 'detruit', 'En service')]);
     const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('A', 'En service', 'A')], recouverts: [], statuts, onStatuer: () => {} }));
