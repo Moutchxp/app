@@ -329,6 +329,11 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Quand c’est activé, vous recevez un e-mail de RAPPEL (à l’adresse d’alerte configurée plus haut) dès qu’un permis reste « en attente de bâti » au-delà du seuil ci-dessous. C’est un simple rappel pour qu’un dossier ne soit pas oublié — JAMAIS une détection : il ne dit pas que le bâtiment est arrivé et n’appelle aucune action. Un seul rappel par dossier. Décoché, aucun rappel n’est envoyé.' },
   { colonne: 'attente_bati_alerte_jours', cle: 'attenteBatiAlerteJours', libelle: 'Seuil d’alerte « en attente de bâti »', unite: 'jours', type: 'entier',
     aide: 'Nombre de jours d’attente au-delà duquel le rappel ci-dessus se déclenche pour un dossier. Un bâtiment neuf met en général 1 à 3 ans à apparaître dans BD TOPO : un seuil court vous noierait sous des rappels alors que l’attente est normale. Défaut : 365 jours (1 an).' },
+  // PHASE-1 — les deux délais du verdict à trois phases (même thème « Rattachement au bâti »). Bornes lues du CHECK (migration 170).
+  { colonne: 'delai_bascule_jours', cle: 'delaiBasculeJours', libelle: 'Délai avant bascule sur le cadastre officiel', unite: 'jours', type: 'entier',
+    aide: 'Après l’accord d’un permis dans l’axe de la vue, le certificat continue pendant ce délai de décrire la vue TELLE QU’ELLE EST aujourd’hui (l’ancienne parcelle), et un verdict « projeté » — qui tient compte de la future construction — reste proposé en option. Une fois ce délai écoulé ET les nouveaux contours publiés au cadastre ET le rattachement validé, le certificat bascule sur la configuration officielle. Défaut : 548 jours (environ 1 an et demi).' },
+  { colonne: 'duree_message_jours', cle: 'dureeMessageJours', libelle: 'Durée du message « construction récente »', unite: 'jours', type: 'entier',
+    aide: 'Après la bascule, le certificat affiche pendant cette durée un message prévenant que le verdict tient compte d’une construction récente dans l’axe de la vue. Le décompte part du JOUR DE LA BASCULE (pas de l’accord du permis). Passé ce délai, le message disparaît et le bâtiment est considéré comme définitivement en place. Défaut : 548 jours (environ 1 an et demi).' },
   // D4/D4-bis — RÉGLAGES TÉLÉSERVICE (rail 'teleservice' seul). Thème PROPRE « Téléservice (dépôt manuel) ». Les deux surcharges de
   //   PRÉPARATION sont NULLABLE (vide = suivre le commun). Bornes lues des CHECK (migrations 159/160).
   { colonne: 'teleservice_dossiers_par_depot', cle: 'teleserviceDossiersParDepot', libelle: 'Dossiers par demande', unite: 'dossiers', type: 'entier', rail: 'teleservice',
@@ -402,6 +407,7 @@ export const COLONNES_THEME_CADA: readonly string[] = [
 export const COLONNES_THEME_RATTACHEMENT: readonly string[] = [
   'rattachement_suivi_auto_active',   // RATT-AUTO — re-détection automatique du bâti
   'attente_bati_alerte_active', 'attente_bati_alerte_jours', // ATT-BATI — rappel si l'attente dure trop (interrupteur + seuil)
+  'delai_bascule_jours', 'duree_message_jours', // PHASE-1 — les deux délais du verdict à trois phases
 ];
 // D4 — thème PROPRE au process TÉLÉSERVICE (dépôt manuel). Groupe ses réglages 'teleservice' sans casser les 5 thèmes existants.
 export const COLONNES_THEME_TELESERVICE: readonly string[] = [

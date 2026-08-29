@@ -19,6 +19,9 @@ export const MARGE_ALTITUDE_CM_DEFAUT = 10;   // cm — marge d'égalité d'alti
 //   au-dessus → statut géométrique (detruit total / mixte partiel). Frère des trois seuils ci-dessus (config_veille). = DEFAULT de la
 //   migration 166 (défaut 3 depuis RATT-6 ; aucune constante dispersée).
 export const SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT = 3;
+// PHASE-1 — délais du verdict à trois phases (JOURS). = DEFAULT de la migration 170. Défauts CENTRALISÉS (aucune constante dispersée).
+export const DELAI_BASCULE_JOURS_DEFAUT = 548;  // ≈ 1,5 an, compté depuis la date d'accord (date_reelle_autorisation)
+export const DUREE_MESSAGE_JOURS_DEFAUT = 548;  // ≈ 1,5 an, comptée depuis LA BASCULE elle-même
 
 export interface SeuilsRattachementSource {
   seuils: SeuilsRattachement;                    // unités-métier (ratio, mètres) pour le moteur PUR
@@ -73,6 +76,28 @@ export async function lireSeuilRecouvrementEmprisePct(): Promise<SeuilRecouvreme
     return { seuilPct: s, provenance: 'base' };
   } catch {
     return { seuilPct: SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT, provenance: 'defaut' }; // 166 pas appliquée (colonne absente) → défaut
+  }
+}
+
+/**
+ * PHASE-1 — les DEUX délais du verdict à trois phases (délai de bascule + durée du message), lus au runtime depuis `config_veille`
+ * (migration 170), avec REPLI SÛR sur les défauts si les colonnes sont absentes (170 non appliquée) — même patron résilient que
+ * `lireSeuilRecouvrementEmprisePct`. Rend la PROVENANCE ('base' vs 'defaut') pour que le futur moteur de phases sache toujours avec
+ * quels délais une bascule est décidée. Jamais d'exception propagée. ⚠️ Lit SEULEMENT les délais : ne décide NI phase, NI verdict.
+ */
+export interface DelaisPhasesSource { delaiBasculeJours: number; dureeMessageJours: number; provenance: 'base' | 'defaut' }
+export async function lireDelaisPhases(): Promise<DelaisPhasesSource> {
+  const defaut: DelaisPhasesSource = {
+    delaiBasculeJours: DELAI_BASCULE_JOURS_DEFAUT, dureeMessageJours: DUREE_MESSAGE_JOURS_DEFAUT, provenance: 'defaut',
+  };
+  try {
+    const { rows } = await query<{ b: number | null; m: number | null }>(
+      `SELECT delai_bascule_jours AS b, duree_message_jours AS m FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r || r.b == null || r.m == null) return defaut; // ligne absente / colonnes NULL → défauts
+    return { delaiBasculeJours: Number(r.b), dureeMessageJours: Number(r.m), provenance: 'base' };
+  } catch {
+    return defaut; // 170 pas encore appliquée (colonnes absentes) → défauts, sans casser l'appelant
   }
 }
 

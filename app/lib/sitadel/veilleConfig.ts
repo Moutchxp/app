@@ -77,6 +77,8 @@ export interface ConfigVeille {
   teleserviceProfilDemandeurDefaut: string;   // D4-ter (étanche, absorbe P) : profil de demandeur par défaut PROPRE au téléservice (entreprise/personne). FranceConnect → 'personne'.
   teleserviceAlerteNonDeposeActive: boolean;  // D4 (B) : alerte « demande téléservice préparée non déposée depuis N jours » (opt-in, défaut false)
   teleserviceAlerteNonDeposeJours: number;    // D4 (B) : seuil (jours) de l'alerte « non déposée » du rail téléservice — défaut 7, plage 1..90
+  delaiBasculeJours: number;                  // PHASE-1 : délai (jours) après l'accord avant bascule possible sur les polygones officiels — défaut 548 (≈1,5 an), plage 30..1825
+  dureeMessageJours: number;                  // PHASE-1 : durée (jours) du message « construction récente », comptée depuis la bascule — défaut 548 (≈1,5 an), plage 30..1825
 }
 
 /**
@@ -136,6 +138,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   //   en marche normale, lireTeleservice COALESCE sur la valeur commune (= comportement identique jour J).
   teleserviceDossiersParDepot: 5, teleservicePermisParCommuneParMois: 5, teleserviceProfilDemandeurDefaut: 'entreprise',
   teleserviceAlerteNonDeposeActive: false, teleserviceAlerteNonDeposeJours: 7, // = DEFAULT de la migration 159 (D4 : réglages téléservice)
+  delaiBasculeJours: 548, dureeMessageJours: 548, // = DEFAULT de la migration 170 (PHASE-1 : délais du verdict à trois phases, ≈ 1,5 an chacun)
 };
 
 interface LigneConfigVeille {
@@ -476,6 +479,22 @@ async function lireObstacleDisparuAlerte(): Promise<Pick<ConfigVeille, 'obstacle
   } catch { return { obstacleDisparuAlerteActive: false }; } // 157 pas encore appliquée → OFF
 }
 
+// PHASE-1 — lecture ISOLÉE des deux délais du verdict à trois phases (résiliente à l'ordre d'application de la 170, livrée NON
+//   APPLIQUÉE) : tant que les colonnes n'existent pas, cette lecture échoue SEULE et retombe sur (548, 548), sans dégrader le reste.
+async function lireDelaisPhasesConfig(): Promise<Pick<ConfigVeille, 'delaiBasculeJours' | 'dureeMessageJours'>> {
+  const def = { delaiBasculeJours: CONFIG_VEILLE_DEFAUT.delaiBasculeJours, dureeMessageJours: CONFIG_VEILLE_DEFAUT.dureeMessageJours };
+  try {
+    const { rows } = await query<{ delai_bascule_jours: number | null; duree_message_jours: number | null }>(
+      `SELECT delai_bascule_jours, duree_message_jours FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return def;
+    return {
+      delaiBasculeJours: r.delai_bascule_jours ?? def.delaiBasculeJours,
+      dureeMessageJours: r.duree_message_jours ?? def.dureeMessageJours,
+    };
+  } catch { return def; } // 170 pas encore appliquée → défauts
+}
+
 /**
  * D4 — Lecture BEST-EFFORT des RÉGLAGES TÉLÉSERVICE, ISOLÉE (même motif de résilience que `lireCapsEnvoi` / `lireEnvoiAutoPlafond`) :
  * tant que la migration 159 n'est pas passée, les colonnes n'existent pas → cette lecture échoue SEULE et retombe sur les défauts
@@ -581,6 +600,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireAttenteBatiAlerte()),               // ATT-BATI : interrupteur + seuil du rappel « en attente de bâti », lecture isolée (résiliente à la 155)
       ...(await lireObstacleDisparuAlerte()),           // ALERTE obstacle disparu : interrupteur, lecture isolée (résiliente à la 157)
       ...(await lireTeleservice()),                     // D4 : réglages téléservice, lecture isolée (résiliente à la 159)
+      ...(await lireDelaisPhasesConfig()),              // PHASE-1 : délais bascule + message, lecture isolée (résiliente à la 170)
     };
   } catch {
     return CONFIG_VEILLE_DEFAUT;

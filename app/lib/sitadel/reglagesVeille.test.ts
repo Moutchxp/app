@@ -83,6 +83,9 @@ const DEFS_BASE = [
   'CHECK (((teleservice_alerte_non_depose_jours >= 1) AND (teleservice_alerte_non_depose_jours <= 90)))',
   // D4-bis — surcharge NULLABLE « permis par commune et par mois (téléservice) » (migration 160) : BETWEEN 1 AND 50
   'CHECK (((teleservice_permis_par_commune_par_mois >= 1) AND (teleservice_permis_par_commune_par_mois <= 50)))',
+  // PHASE-1 — les deux délais du verdict à trois phases (migration 170) : BETWEEN 30 AND 1825 → forme `>= AND <=`
+  'CHECK (((delai_bascule_jours >= 30) AND (delai_bascule_jours <= 1825)))',
+  'CHECK (((duree_message_jours >= 30) AND (duree_message_jours <= 1825)))',
 ];
 const BORNES = parserBornesCheck(DEFS_BASE);
 

@@ -87,3 +87,26 @@ describe('RATT-5 — lireSeuilRecouvrementEmprisePct (seuil LU depuis la config,
     expect(await lireSeuilRecouvrementEmprisePct()).toEqual({ seuilPct: 3, provenance: 'defaut' });
   });
 });
+
+import { lireDelaisPhases, DELAI_BASCULE_JOURS_DEFAUT, DUREE_MESSAGE_JOURS_DEFAUT } from './rattachementConfig';
+
+describe('PHASE-1 — lireDelaisPhases (délais LUS depuis la config, jamais codés en dur)', () => {
+  it('valeurs en base (400 / 700) → lues + provenance « base » (≠ défauts : preuve que la config est lue)', async () => {
+    H.state.mode = 'ok'; H.state.row = { b: 400, m: 700 } as unknown as { s: number; b: number; m: number };
+    const r = await lireDelaisPhases();
+    expect(r).toEqual({ delaiBasculeJours: 400, dureeMessageJours: 700, provenance: 'base' });
+    expect(r.delaiBasculeJours).not.toBe(DELAI_BASCULE_JOURS_DEFAUT); // ≠ 548 → ce n'est PAS le défaut en dur
+  });
+  it('colonnes non migrées (erreur SQL) → défauts 548/548 + provenance « defaut »', async () => {
+    H.state.mode = 'throw';
+    expect(await lireDelaisPhases()).toEqual({ delaiBasculeJours: DELAI_BASCULE_JOURS_DEFAUT, dureeMessageJours: DUREE_MESSAGE_JOURS_DEFAUT, provenance: 'defaut' });
+  });
+  it('ligne config absente → défauts + provenance « defaut »', async () => {
+    H.state.mode = 'vide';
+    expect(await lireDelaisPhases()).toEqual({ delaiBasculeJours: 548, dureeMessageJours: 548, provenance: 'defaut' });
+  });
+  it('colonnes présentes mais NULL → défauts + provenance « defaut » (jamais une valeur inventée)', async () => {
+    H.state.mode = 'ok'; H.state.row = { b: null, m: null } as unknown as { s: number; b: number; m: number };
+    expect(await lireDelaisPhases()).toEqual({ delaiBasculeJours: 548, dureeMessageJours: 548, provenance: 'defaut' });
+  });
+});
