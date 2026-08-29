@@ -39,8 +39,11 @@ export function BoutonRelancerAnalyse({ dossierId, onFini }: { dossierId: number
       {erreur && <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{erreur}</span>}
       {rapport && (
         <span role="status" aria-live="polite" style={{ fontSize: 12, color: 'var(--color-svv-ink)' }}>
-          {rapport.champsRetenus > 0 ? `${rapport.champsRetenus} champ(s) retenu(s)` : 'aucun champ rempli (résultat légitime)'}
-          {' · '}{rapport.piecesSansCandidat}/{rapport.nbPieces} pièce(s) sans candidat
+          {/* PART-3b — LIBELLÉ EXPLICITE de l'AXE : ceci est le rendement de l'EXTRACTION DES CARACTÉRISTIQUES CHIFFRÉES (cotes,
+              gabarits, niveaux…), à ne PAS confondre avec la « Complétude des pièces » ci-dessous (typologie : masse/coupe/étages/Cerfa).
+              Une pièce « sans donnée chiffrée » peut être un plan parfaitement classé en famille. Libellé seul — aucune valeur changée. */}
+          <strong>Extraction des caractéristiques</strong> — {rapport.champsRetenus > 0 ? `${rapport.champsRetenus} champ(s) retenu(s)` : 'aucun champ rempli (résultat légitime)'}
+          {' · '}{rapport.piecesSansCandidat}/{rapport.nbPieces} pièce(s) sans donnée chiffrée exploitée (ne présume pas d’une pièce manquante)
           {' · '}vision : {rapport.visionTournee
             ? `oui (${rapport.visionPieces} pièce${rapport.visionPieces > 1 ? 's' : ''})`
             : `non${rapport.motifVision ? ` — ${rapport.motifVision}` : ''}`}

@@ -75,4 +75,18 @@ describe('composerComplementPieces', () => {
   it('aucune famille → null (filet ; l’appelant refuse l’envoi en amont)', () => {
     expect(composerComplementPieces('X', [])).toBeNull();
   });
+
+  it('AUCUNE entité HTML échappée ni espace insécable dans le corps (le mail part en TEXTE brut)', () => {
+    // Toutes les combinaisons de familles : le corps ne doit contenir ni « &nbsp; » « &amp; » « &lt; »… ni U+00A0.
+    const combos: Parameters<typeof composerComplementPieces>[1][] = [
+      ['masse'], ['coupe'], ['etage'], ['cerfa'], ['masse', 'coupe', 'etage', 'cerfa'],
+    ];
+    for (const fam of combos) {
+      const r = composerComplementPieces('0930012500081', fam)!;
+      const texte = `${r.objet}\n${r.corps}`;
+      expect(texte).not.toMatch(/&(?:[a-z]+|#\d+);/i); // aucune entité HTML (&nbsp; &amp; &lt; &#160; …)
+      expect(texte).not.toContain('\u00A0');     // aucun espace insécable littéral (U+00A0)
+      expect(texte.includes('&nbsp;')).toBe(false);
+    }
+  });
 });
