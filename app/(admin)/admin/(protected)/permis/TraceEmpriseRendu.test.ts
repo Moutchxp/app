@@ -783,30 +783,43 @@ describe('AFF-1 — encart réorganisé en blocs repliés', () => {
     expect(aireAnneauM2(carre(10))).toBe(100);
   });
 
-  it('BlocProjetRepliable : FERMÉ par défaut ; résumé = titre + décompte ; ouvert = bâtiment + repères distincts (jamais le nom répété)', () => {
+  it('AFF-3 — BlocProjetRepliable : UNE liste, nom UNE fois, une ligne par polygone (repère distinct) + richesse emprise ; « bâtiment 3 » absent', () => {
     const polygones = attribuerReperes([
       { cleabs: 'P1', anneau: carre(10), etat: 'En projet' },
       { cleabs: 'P2', anneau: carre(20), etat: 'En projet' },
       { cleabs: 'P3', anneau: carre(30), etat: 'En projet' },
     ]);
+    // Chaque emprise adoptée porte, dans son libellé stocké, le vieux « bâtiment 3 » (vestigial) — il ne doit JAMAIS s'afficher.
     const emprises = [
-      emprise({ id: 1, corpsId: 3, provenance: 'ign_adopte', calage: cal(['P1']) }),
-      emprise({ id: 2, corpsId: 3, provenance: 'ign_adopte', calage: cal(['P2']) }),
-      emprise({ id: 3, corpsId: 3, provenance: 'ign_adopte', calage: cal(['P3']) }),
+      emprise({ id: 1, corpsId: 3, libelle: 'bâtiment 3', surfaceM2: 2647, provenance: 'ign_adopte', calage: cal(['P1']) }),
+      emprise({ id: 2, corpsId: 3, libelle: 'bâtiment 3', surfaceM2: 721, provenance: 'ign_adopte', calage: cal(['P2']) }),
+      emprise({ id: 3, corpsId: 3, libelle: 'bâtiment 3', surfaceM2: 115, provenance: 'ign_adopte', calage: cal(['P3']) }),
     ];
     const html = renderToStaticMarkup(h(BlocProjetRepliable, { emprises, polygones, batiments: [{ corpsId: 3, repere: null, nomRepli: 'BP' }] }));
-    expect(html).toMatch(/<details/);
     expect(html).not.toMatch(/<details[^>]*\sopen/);           // FERMÉ par défaut
     expect(html).toContain('Bâtiment(s) au statut « projet » en base BD TOPO affecté(s) au projet de bâtiment');
-    expect(html).toContain('— 3 polygones');                   // décompte sur la ligne fermée
-    expect(html).toContain('bâtiment en projet');              // nom du bâtiment (une fois, en tête de groupe)
+    expect(html).toContain('— 3 emprises');                    // décompte sur la ligne fermée
+    expect((html.match(/bâtiment en projet/g) ?? []).length).toBe(1); // nom du bâtiment UNE SEULE fois (en tête)
     expect(html).toContain('Polygone A');                      // repères DISTINCTS par ligne
     expect(html).toContain('Polygone B');
     expect(html).toContain('Polygone C');
-    expect(html).toContain('100 m²');                          // aire du polygone A (10×10)
+    expect(html).toContain('issue de l’IGN');                  // provenance conservée sur chaque ligne
+    expect(html).toContain('115 m²');                          // surface de l'emprise (richesse conservée)
+    expect(html).not.toContain('bâtiment 3');                  // le libellé vestigial n'apparaît JAMAIS
   });
 
-  it('BlocProjetRepliable : aucun polygone affecté → rien', () => {
+  it('AFF-3 — BlocProjetRepliable : emprises ORPHELINES (corpsId null) listées à part, jamais mélangées', () => {
+    const html = renderToStaticMarkup(h(BlocProjetRepliable, {
+      emprises: [emprise({ id: 9, corpsId: null, libelle: 'bâtiment 3', provenance: 'trace_manuel' })],
+      polygones: [], batiments: [],
+    }));
+    expect(html).toContain('Emprises non rattachées à un bâtiment');
+    expect(html).toContain('+ 1 non rattachée');               // signalé dans le décompte
+    expect(html).toContain('Emprise reconstituée');            // tracé sans polygone source → jamais « bâtiment 3 »
+    expect(html).not.toContain('bâtiment 3');
+  });
+
+  it('BlocProjetRepliable : aucune emprise → rien', () => {
     expect(renderToStaticMarkup(h(BlocProjetRepliable, { emprises: [], polygones: [], batiments: [] }))).toBe('');
   });
 

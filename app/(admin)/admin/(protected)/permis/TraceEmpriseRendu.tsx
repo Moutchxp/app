@@ -439,9 +439,10 @@ export function empriseRetouchable(e: EmpriseReconstruite): boolean {
 }
 
 /** Liste des emprises d'un bâtiment : libellé, ORIGINE (IGN / tracé à la main), surface, résidu ; RETOUCHER (mono-polygone) ; effacer. */
-export function ListeEmprises({ emprises, onSupprimer, onRetoucher, empriseEnRetouche = null, nomCorps }: {
+export function ListeEmprises({ emprises, onSupprimer, onRetoucher, empriseEnRetouche = null, nomCorps, repereSource }: {
   emprises: EmpriseReconstruite[]; onSupprimer?: (id: number) => void; onRetoucher?: (id: number) => void; empriseEnRetouche?: number | null;
   nomCorps?: string; // NOM-1 — nom RÉSOLU du corps (repere document / repli maison) : PRIME sur e.libelle stocké (« bâtiment 3 », vestigial).
+  repereSource?: (e: EmpriseReconstruite) => string | null; // AFF-3 — label de la ligne = repère(s) du/des POLYGONE(s) BD TOPO source(s) de l'emprise (via calage.cleabs).
 }) {
   if (emprises.length === 0) return <p style={muted}>Aucune emprise pour ce bâtiment.</p>;
   const b: CSSProperties = { ...muted, cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', padding: '.15rem .5rem' };
@@ -454,7 +455,7 @@ export function ListeEmprises({ emprises, onSupprimer, onRetoucher, empriseEnRet
         return (
           <li key={e.id} data-emprise={e.id} data-en-retouche={enRetouche || undefined} style={{ ...carte, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', borderColor: enRetouche ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }}>
             <span>
-              <strong>{nomCorps ?? e.libelle}</strong>{' '}
+              <strong>{repereSource?.(e) ?? nomCorps ?? e.libelle}</strong>{' '}
               <span data-provenance={e.provenance} style={{ ...muted, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', padding: '0 .3rem' }}>{libelleProvenance(e.provenance)}</span>{' '}
               {e.surfaceM2 !== null ? fmtM2(e.surfaceM2) : ''}{' '}
               <span style={muted}>{ign ? '· donnée source IGN' : `· résidu ${e.residuM !== null ? fmtM(e.residuM) : '—'}${e.page !== null ? ` · page ${e.page}` : ''}`}</span>
@@ -829,29 +830,49 @@ export function polygonesProjetParBatiment(
 }
 
 /**
- * AFF-1 — BLOC REPLIÉ (fermé par défaut) « Bâtiment(s) au statut projet… affecté(s) ». Résumé = titre + décompte (N polygones). Ouvert :
- * par bâtiment (nom résolu), la liste des polygones « en projet » affectés, chacun avec SON repère et SA surface — plus jamais le nom du
- * bâtiment répété par ligne. `<details>` natif (clavier, sans hover, sans animation). Rien si aucun polygone affecté. PUR.
+ * AFF-3 — label de la ligne d'une emprise : le(s) repère(s) du/des POLYGONE(S) BD TOPO source(s) (« Polygone C », « Polygones C + D »),
+ * relié(s) via la CLÉ `calage.cleabs` (cleabs mémorisés à l'adoption). Une emprise SANS source repérée (tracé manuel) → « Emprise
+ * reconstituée » — JAMAIS le libellé stocké « bâtiment 3 ». On ne FUSIONNE pas deux objets : la ligne EST l'emprise (provenance, surface,
+ * résidu, page), seulement ÉTIQUETÉE par le polygone dont elle a été reconstituée. PUR.
+ */
+function labelEmpriseParPolygone(e: EmpriseReconstruite, reperesParCleabs: Map<string, string>): string {
+  const cleabsRec = cleabsSourceEmprise(e).filter((c) => reperesParCleabs.has(c));
+  return cleabsRec.length ? libellePolygones(cleabsRec, (c) => reperesParCleabs.get(c)!) : 'Emprise reconstituée';
+}
+
+/**
+ * AFF-1 / AFF-3 — BLOC REPLIÉ (fermé par défaut) « Bâtiment(s) au statut projet… affecté(s) ». Résumé = titre + décompte. UNE SEULE
+ * liste : par bâtiment (nom résolu UNE fois), les EMPRISES rattachées, chaque ligne ÉTIQUETÉE par le repère de son polygone source
+ * (Polygone C/D/I…) et portant TOUTE la richesse (provenance, surface, résidu, page — via ListeEmprises). Les emprises NON rattachées
+ * (orphelines) sont listées à part (nature distincte, jamais mélangée). `<details>` natif. Rien si aucune emprise. PUR.
  */
 export function BlocProjetRepliable({ emprises, polygones, batiments }: {
   emprises: EmpriseReconstruite[]; polygones: PolygoneRepere[]; batiments: { corpsId: number; repere: string | null; nomRepli?: string | null }[];
 }) {
-  const { groupes, total } = polygonesProjetParBatiment(emprises, polygones, batiments);
-  if (total === 0) return null;
+  const reperesParCleabs = new Map(polygones.filter((p) => p.cleabs).map((p) => [p.cleabs as string, p.repere]));
+  const repereSource = (e: EmpriseReconstruite) => labelEmpriseParPolygone(e, reperesParCleabs);
+  const parBatiment = batiments
+    .map((b) => ({ b, emp: emprises.filter((e) => e.corpsId === b.corpsId) }))
+    .filter((x) => x.emp.length > 0);
+  const orphelines = emprises.filter((e) => e.corpsId === null || !batiments.some((b) => b.corpsId === e.corpsId));
+  const total = parBatiment.reduce((s, x) => s + x.emp.length, 0);
+  if (total === 0 && orphelines.length === 0) return null;
   return (
     <details style={{ ...carte }} data-bloc="projet">
-      <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Bâtiment(s) au statut « projet » en base BD TOPO affecté(s) au projet de bâtiment <span style={{ fontWeight: 400, color: 'var(--color-svv-muted)' }}>— {total} polygone{total > 1 ? 's' : ''}</span></summary>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', marginTop: '.4rem' }}>
-        {groupes.map((g) => (
-          <div key={g.corpsId} data-corps={g.corpsId}>
-            <div style={{ fontSize: 12, fontWeight: 600 }}>{g.nom}</div>
-            <ul style={{ listStyle: 'none', margin: '.15rem 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-              {g.polygones.map((p) => (
-                <li key={p.cleabs} data-cleabs={p.cleabs} style={{ fontSize: 12 }}><strong>Polygone {p.repere}</strong> — {fmtM2(p.aireM2)}</li>
-              ))}
-            </ul>
+      <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Bâtiment(s) au statut « projet » en base BD TOPO affecté(s) au projet de bâtiment <span style={{ fontWeight: 400, color: 'var(--color-svv-muted)' }}>— {total} emprise{total > 1 ? 's' : ''}{orphelines.length > 0 ? ` + ${orphelines.length} non rattachée${orphelines.length > 1 ? 's' : ''}` : ''}</span></summary>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', marginTop: '.4rem' }}>
+        {parBatiment.map(({ b, emp }) => (
+          <div key={b.corpsId} data-corps={b.corpsId}>
+            <div style={{ fontSize: 12, fontWeight: 600 }}>{nomAffichageCorps({ repere: b.repere, nomRepli: b.nomRepli, corpsId: b.corpsId })}</div>
+            <ListeEmprises emprises={emp} repereSource={repereSource} />
           </div>
         ))}
+        {orphelines.length > 0 && (
+          <div data-orphelines="true">
+            <div style={{ fontSize: 12, fontWeight: 600 }}>Emprises non rattachées à un bâtiment</div>
+            <ListeEmprises emprises={orphelines} repereSource={repereSource} />
+          </div>
+        )}
       </div>
     </details>
   );

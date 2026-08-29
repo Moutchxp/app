@@ -64,20 +64,22 @@ describe('PROJ-4a — récap (lecture seule) de l’emprise projetée dans le Ra
     expect(nb(html, 'data-emprise="7" data-provenance')).toBe(2); // deux contours pour la même emprise
   });
 
-  // AFF-2 — la liste des EMPRISES (provenance, orphelines) est REVENUE dans ce récap (perdue par AFF-1, restaurée à sa place).
-  it('AFF-2 — la PROVENANCE des emprises est de nouveau affichée (les trois valeurs)', () => {
+  // AFF-3 — UNE SEULE liste : la liste des emprises (provenance, orphelines) a migré dans le bloc replié `BlocProjetRepliable`, sous ce
+  //   récap. Ce composant ne garde que le grand schéma + sa légende ; les emprises restent DESSINÉES (data-emprise), plus listées ici.
+  it('AFF-3 — les emprises sont DESSINÉES ; la liste (provenance) a migré vers le bloc unique', () => {
     const trois: ProvenanceEmprise[] = ['trace_manuel', 'ign_adopte', 'ign_retouche'];
     const html = renderToStaticMarkup(h(RecapProjectionRattachement, props('en_attente_bati',
       trois.map((p, i) => emp({ id: i + 1, libelle: `bâtiment ${i}`, provenance: p })))));
-    expect(html).toContain('tracé à la main');
-    expect(html).toContain('issue de l’IGN');
-    expect(html).toContain('IGN retouchée à la main');
+    expect(html).toContain('data-emprise="1"');
+    expect(html).toContain('data-emprise="2"');
+    expect(html).toContain('data-emprise="3"');
+    expect(html).not.toContain('tracé à la main'); // provenance plus listée dans ce récap
   });
 
-  it('AFF-2 — les emprises orphelines (corpsId null) sont de nouveau listées à part, jamais perdues', () => {
+  it('AFF-3 — plus de liste « non rattachées » dans le récap (elle vit dans le bloc unique)', () => {
     const html = renderToStaticMarkup(h(RecapProjectionRattachement, props('en_attente_bati', [emp({ id: 3, corpsId: null, libelle: 'ancienne emprise' })])));
-    expect(html).toContain('Emprises non rattachées à un bâtiment');
-    expect(html).toContain('ancienne emprise');
     expect(html).toContain('data-emprise="3"');
+    expect(html).not.toContain('Emprises non rattachées à un bâtiment');
+    expect(html).not.toContain('ancienne emprise');
   });
 });

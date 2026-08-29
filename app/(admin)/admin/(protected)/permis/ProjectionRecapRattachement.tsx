@@ -2,9 +2,8 @@ import type { CSSProperties } from 'react';
 import { cadreDeAnneaux, type Boite, type PointLambert } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
-import { SchemaParcelleTrace, LegendeSchemaProjection, ListeEmprises, attribuerReperes, FILTRES_SCHEMA_DEFAUT } from './TraceEmpriseRendu';
+import { SchemaParcelleTrace, LegendeSchemaProjection, attribuerReperes, FILTRES_SCHEMA_DEFAUT } from './TraceEmpriseRendu';
 import type { EtatStatutPolygone } from '../../../../lib/permis/polygoneStatut';
-import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
 
 /**
  * PROJ-4a — RÉCAP (LECTURE SEULE) de l'emprise projetée, affiché dans le détail du Suivi Rattachement pour un permis « en attente de
@@ -21,7 +20,6 @@ import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 �
 const BOITE = { largeur: 300, hauteur: 230, marge: 12 };
 
 const muted: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)', lineHeight: 1.4 };
-const titreBat: CSSProperties = { fontSize: 12, fontWeight: 600, marginTop: '.2rem' };
 
 export interface RecapProjectionProps {
   etat: EtatSuivi;                                            // GATE : seul « en_attente_bati » affiche ce récap (cf. ci-dessous)
@@ -38,7 +36,7 @@ export interface RecapProjectionProps {
  *  · aucune emprise → on le DIT explicitement (jamais un schéma vide) : pas passé par la projection, ou rien tracé ;
  *  · emprises présentes → schéma 3 couches (parcelle · bâti BD TOPO · emprise projetée) + légende + provenance par bâtiment.
  */
-export function RecapProjectionRattachement({ etat, emprises, parcelle, polygones, batiments, statuts }: RecapProjectionProps) {
+export function RecapProjectionRattachement({ etat, emprises, parcelle, polygones, statuts }: RecapProjectionProps) {
   if (etat !== 'en_attente_bati') return null;
 
   if (emprises.length === 0) {
@@ -56,14 +54,9 @@ export function RecapProjectionRattachement({ etat, emprises, parcelle, polygone
   const cadre = cadreDeAnneaux(parcelle);
   const boite: Boite | null = cadre ? { largeur: BOITE.largeur, hauteur: BOITE.hauteur, marge: BOITE.marge, cadre } : null;
   const polygonesReperes = attribuerReperes(polygones);
-  // AFF-1 — les POLYGONES « en projet » par bâtiment (nature « polygone BD TOPO ») vivent dans le bloc REPLIÉ `BlocProjetRepliable`, sous
-  //   ce récap. AFF-2 — mais la liste des EMPRISES (nature « reconstitution » : provenance, résidu, orphelines) revient ICI, à sa place
-  //   d'avant AFF-1 : deux natures d'objet DISTINCTES, jamais mélangées.
-  const parBatiment = batiments
-    .map((b) => ({ b, emp: emprises.filter((e) => e.corpsId === b.corpsId) }))
-    .filter((x) => x.emp.length > 0);
-  // Emprises antérieures au rattachement par bâtiment (corpsId null) ou dont le bâtiment n'est plus déclaré : listées à part, jamais perdues.
-  const orphelines = emprises.filter((e) => e.corpsId === null || !batiments.some((b) => b.corpsId === e.corpsId));
+  // AFF-3 — UNE SEULE liste : la liste des emprises (provenance, surface, résidu, page) + les orphelines vit désormais dans le bloc REPLIÉ
+  //   `BlocProjetRepliable` (rendu sous ce récap, identique dans les deux onglets), groupée par bâtiment et étiquetée par polygone source.
+  //   Ce composant ne garde que le grand schéma + sa légende — plus de seconde liste répétitive « bâtiment 3 ».
 
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -76,22 +69,6 @@ export function RecapProjectionRattachement({ etat, emprises, parcelle, polygone
       </p>
       <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={FILTRES_SCHEMA_DEFAUT} calageLambert={[]} statuts={statuts} />
       <LegendeSchemaProjection />
-      {/* AFF-2 — la liste des EMPRISES (reconstitutions) par bâtiment : provenance, surface, résidu — restaurée. */}
-      {parBatiment.map(({ b, emp }) => {
-        const nom = nomAffichageCorps({ repere: b.repere, nomRepli: b.nomRepli, corpsId: b.corpsId });
-        return (
-          <div key={b.corpsId}>
-            <div style={titreBat}>{nom}</div>
-            <ListeEmprises emprises={emp} nomCorps={nom} />
-          </div>
-        );
-      })}
-      {orphelines.length > 0 && (
-        <div>
-          <div style={titreBat}>Emprises non rattachées à un bâtiment</div>
-          <ListeEmprises emprises={orphelines} />
-        </div>
-      )}
     </div>
   );
 }
