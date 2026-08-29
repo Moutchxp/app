@@ -1150,7 +1150,7 @@ export function ComparaisonPleinEcran({ origine, nouvelle, rougeCleabs, nomOrigi
  * Bloc d'affectation (vue RÉDUITE) : le SCHÉMA nommé + cliquable (→ plein écran) + sa LÉGENDE compacte, puis les CHOIX (`CorpsEtChoix`,
  * mêmes règles que le plein écran). Le schéma reste consultable même sans dossier persisté (on DIT pourquoi l'arbitrage est fermé).
  */
-export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null, emprisesProjetees = [] }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string, action: ActionAffectation) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null; emprisesProjetees?: EmpriseProjetee[] }) {
+export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null, emprisesProjetees = [], sansLegende = false }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string, action: ActionAffectation) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null; emprisesProjetees?: EmpriseProjetee[]; sansLegende?: boolean }) {
   const { corps, schema, motif, colonneManquante } = affectation;
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -1165,7 +1165,8 @@ export function AffectationBloc({ affectation, persiste, enAttenteBati = false, 
           <>
             {/* Schéma nommé + cliquable (→ plein écran) + légende compacte : TOUJOURS rendus (informatifs), quel que soit l'état. */}
             <SchemaFigure schema={schema} corps={corps} titre={titre} mention={mention} onAgrandir={onAgrandir} rougeCleabs={rougeCleabs} afficherReperes={afficherReperes} sourceLibelle={sourceLibelle} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} emprisesProjetees={emprisesProjetees} />
-            <LegendeAffectation avecRouge={(rougeCleabs?.length ?? 0) > 0} />
+            {/* AFF-4 — la légende (volumineuse, elle documente TOUS les schémas de la rangée) est sortie sous la rangée pour ne plus déséquilibrer la case de gauche. */}
+            {!sansLegende && <LegendeAffectation avecRouge={(rougeCleabs?.length ?? 0) > 0} />}
             <CorpsEtChoix affectation={affectation} persiste={persiste} enAttenteBati={enAttenteBati} onAffecter={onAffecter} />
           </>
         )}

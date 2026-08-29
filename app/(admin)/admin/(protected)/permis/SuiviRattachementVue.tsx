@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
 import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee } from './SuiviRattachementRendu';
 import { RecapProjectionRattachement } from './ProjectionRecapRattachement';
 // RATT-1 bis — le geste « statuer les polygones existants » réutilise le composant PUR d'Analyse + ses helpers (jamais dupliqué).
 import { BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, MiniConfigProjetee, CaseConfigOfficielle } from './TraceEmpriseRendu';
@@ -301,7 +301,8 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
                 {/* PROJ-2c — 3e interrupteur : superposer les emprises reconstituées au schéma d'origine (n'apparaît que s'il y en a). */}
                 {emprisesProjetees.length > 0 && <InterrupteurProjection afficherProjection={afficherProjection} onAfficherProjection={setAfficherProjection} />}
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.75rem', alignItems: 'flex-start' }}>
+              {/* AFF-4 — `stretch` : les cases de la rangée partagent la MÊME hauteur (aucune ne flotte plus haut que ses voisines) ; en colonne (mobile), sans effet. */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.75rem', alignItems: 'stretch' }}>
                 {/* M6 — PANNEAU des polygones sélectionnés + leur cote, à GAUCHE du schéma (1er enfant → au-dessus quand la ligne passe
                     en colonne sur mobile). SEUL emplacement de la saisie (le bloc du bas est supprimé) : aucun champ en double. */}
                 {persiste && nouvelle.corps.some((c) => c.cleabsAffectes.length > 0) && (
@@ -310,7 +311,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
                   </div>
                 )}
                 <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                  <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} emprisesProjetees={afficherProjection ? emprisesProjetees : []} />
+                  <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} emprisesProjetees={afficherProjection ? emprisesProjetees : []} sansLegende />
                 </div>
                 {/* RATT-3 — à droite de « Configuration d'origine » : la configuration PROJETÉE (parcelle après travaux, détruits retirés,
                     emprise en rouge, aucun vert/orange) puis l'emplacement « Configuration officielle » (grisé, en attente de l'administration).
@@ -324,10 +325,12 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
                 </div>
                 {aChange && (
                   <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                    <AffectationBloc affectation={nouvelle} titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('nouvelle')} afficherReperes={afficherReperes} sourceLibelle={SOURCE_VIVANTE} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} />
+                    <AffectationBloc affectation={nouvelle} titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('nouvelle')} afficherReperes={afficherReperes} sourceLibelle={SOURCE_VIVANTE} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} sansLegende />
                   </div>
                 )}
               </div>
+              {/* AFF-4 — la légende des schémas, sortie de la case de gauche, sous la rangée ENTIÈRE (elle documente les trois schémas). */}
+              <LegendeAffectation avecRouge={aChange && polygonesModifies.length > 0} />
               {origine.figee && !aChange && (
                 <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>
                   La configuration actuelle est identique à l’origine : aucun changement détecté depuis le gel — pas de second schéma à comparer.

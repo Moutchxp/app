@@ -318,6 +318,11 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
     expect(h).toMatch(/Polygones non affectés — dans la parcelle : A, B/); // rien affecté → A et B signalés (tous deux DANS l'empreinte)
   });
 
+  it('AFF-4 — sansLegende : la légende (volumineuse) n’est PLUS dans la case (sortie sous la rangée) ; présente par défaut', () => {
+    expect(renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff(), persiste: true }))).toContain('couleur = repère du polygone'); // défaut : présente
+    expect(renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff(), persiste: true, sansLegende: true }))).not.toContain('couleur = repère du polygone'); // sansLegende : retirée
+  });
+
   it('EXCLUSIVITÉ : A affecté au corps 1 → n’est plus proposé au corps 2 (réversible côté corps 1)', () => {
     const a = aff({ corps: [{ id: 1, repere: '2D1', altitudeSommetNgf: 88.9, nbEtages: 7, cleabsAffectes: ['BAT_A'] }, { id: 2, repere: '2D2', altitudeSommetNgf: 87.1, nbEtages: 7, cleabsAffectes: [] }] });
     const h = renderToStaticMarkup(createElement(AffectationBloc, { affectation: a, persiste: true }));
