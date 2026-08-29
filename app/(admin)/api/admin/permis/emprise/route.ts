@@ -7,6 +7,7 @@ import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
 import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte, familleDeNom, tracabilitePlanche, type FamillePlan } from '../../../../../lib/permis/planMasse';
 import { familleDeContenu, niveauxDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV : famille + niveaux par le CONTENU
 import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone, appliquerAutoStatut } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2) / RATT-2
+import { attribuerNomsRepli } from '../../../../../lib/permis/caracteristiquesRepo'; // NOM-1 — attribue « bâtiment en projet N » aux corps anonymes (best-effort)
 
 // PROJ-3d — confirmation page-level PARESSEUSE : plafond DUR de pièces ouvertes côté serveur (mesuré ~98 ms/pièce → ~0,7 s pour 7).
 //   Ne JAMAIS ouvrir les 81 pièces (~8 s). Les proposées au-delà du plafond restent proposées PAR LEUR NOM, sans confirmation.
@@ -201,6 +202,7 @@ export async function POST(request: Request): Promise<Response> {
       const res = await adopterAffectations(dossierId, affectations, 'admin:adoption');
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
       await appliquerAutoStatut(dossierId, 'auto:emprise'); // RATT-2 — l'emprise projetée couvre du bâti : poser 'detruit' d'office (et révoquer l'auto désormais hors couverture)
+      await attribuerNomsRepli(dossierId); // NOM-1 — adoption : nommer les corps anonymes (best-effort, ne bloque jamais)
       const [ignores, statutsPolygones, polygonesRecouverts] = await Promise.all([listerIgnorees(dossierId), lireStatutsPolygones(dossierId), polygonesRecouvertsParEmprise(dossierId)]);
       return Response.json({ ok: true, nbCreees: res.nbCreees, emprises: res.emprises, ignores, debordement: res.debordement, statutsPolygones, polygonesRecouverts });
     }
@@ -267,6 +269,7 @@ export async function POST(request: Request): Promise<Response> {
       const vraisemblance = verdictVraisemblance({ aireM2: aireM2(anneauLambert), corpsId: body.corpsId as number, surfacePlancherM2: contexte.surfacePlancherM2, surfaceTerrainM2: contexte.surfaceTerrainM2, batiments: contexte.batiments });
       const debordement = await mesurerDebordement(dossierId, anneauLambert); // repère indicatif, même géométrie Lambert serveur ; jamais bloquant
       await appliquerAutoStatut(dossierId, 'auto:emprise'); // RATT-2 — l'emprise projetée couvre du bâti : poser 'detruit' d'office (jamais par-dessus une décision humaine)
+      await attribuerNomsRepli(dossierId); // NOM-1 — tracé enregistré : nommer les corps anonymes (best-effort)
       const [emprises, ignores, statutsPolygones, polygonesRecouverts] = await Promise.all([listerEmprises(dossierId), listerIgnorees(dossierId), lireStatutsPolygones(dossierId), polygonesRecouvertsParEmprise(dossierId)]);
       return Response.json({ ok: true, id: res.id, surfaceM2: aireM2(anneauLambert), calage: vc, vraisemblance, debordement, emprises, ignores, statutsPolygones, polygonesRecouverts });
     }

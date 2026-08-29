@@ -7,7 +7,7 @@ import {
 } from '../../../../lib/permis/calageEmprise';
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
-import { verdictProjectionBatiments, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
+import { verdictProjectionBatiments, libelleBatiment, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment
 import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, StatutPolygonesExistants, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
@@ -327,7 +327,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
     setOccupe(true); setMessage(null);
     try {
       const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'enregistrer', dossierId, corpsId: corpsEffectif, libelle: batSel.repere ?? `bâtiment ${corpsEffectif}`, pieceId, page, anneauPlan: sommets, paires, ratioDeclare }) });
+        body: JSON.stringify({ action: 'enregistrer', dossierId, corpsId: corpsEffectif, libelle: libelleBatiment(batSel), pieceId, page, anneauPlan: sommets, paires, ratioDeclare }) });
       const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; ignores?: ProjectionIgnoree[]; debordement?: Debordement | null };
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'enregistrement refusé'); return; }
       setEmprises(j.emprises ?? []); if (j.ignores) setIgnores(j.ignores);
@@ -493,7 +493,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
           return (
             <button key={b.corpsId} type="button" onClick={() => setCorpsSel(b.corpsId)}
               style={{ ...btn, fontWeight: actif ? 700 : 400, borderColor: actif ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }}>
-              {b.repere ?? `bâtiment ${b.corpsId}`} — {motStatutBatiment(st)}
+              {libelleBatiment(b)} — {motStatutBatiment(st)}
             </button>
           );
         })}
@@ -595,14 +595,14 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             <RepereQualiteCalage ecartEchelleRelatif={vc?.ecartEchelleRelatif ?? null} ratioImplicite={vc?.ratioImplicite ?? null} ratioDeclare={vc?.ratioDeclare ?? null}
               debordement={sommets.length >= 3 || sommets.length === 0 ? debordement : null} contourFerme={sommets.length >= 3} parcelleRattachee={parcelle.length > 0} origineIgn={origineIgnCourant && sommets.length < 3} />
             <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe || !tracable || !sim || sommets.length < 3} onClick={() => void enregistrer()}>
-              Enregistrer l’emprise de {batSel.repere ?? `bâtiment ${batSel.corpsId}`}
+              Enregistrer l’emprise de {libelleBatiment(batSel)}
             </button>
             {/* BUG PROV — le RÉSULTAT de l'enregistrement (succès OU erreur serveur) s'affiche ICI, au point d'action : un bouton MUET
                 (message rendu hors de vue) était le pire cas. Toute erreur est désormais dite en clair, à côté du bouton. */}
             {message && <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-svv-red)' }}>{message}</div>}
 
             {/* Emprises de CE bâtiment : retoucher (mono-polygone) ou effacer. */}
-            <ListeEmprises emprises={empriseDuBat} empriseEnRetouche={retouche?.id ?? null}
+            <ListeEmprises emprises={empriseDuBat} empriseEnRetouche={retouche?.id ?? null} nomCorps={libelleBatiment(batSel)}
               onSupprimer={(id) => void posterProjection('supprimer', corpsEffectif!, { id })}
               onRetoucher={(id) => demarrerRetouche(id)} />
 

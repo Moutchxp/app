@@ -147,7 +147,7 @@ export function construireSchema(empreinte: GeomPoly | null, polygones: Polygone
 // M1 — `cleabsAffectes` est PLURIEL : un bâtiment peut être dessiné par N polygones (la structure 1:N vit dans la table de liaison
 // permis_corps_polygone). Après M1 la saisie reste mono (0 ou 1 élément), mais le TYPE est déjà pluriel — les tests d'appartenance
 // ci-dessous (`.includes`, `flatMap`) remplacent les anciennes égalités scalaires.
-export interface CorpsAffectation { id: number; repere: string | null; altitudeSommetNgf: number | null; nbEtages: number | null; cleabsAffectes: string[] }
+export interface CorpsAffectation { id: number; repere: string | null; nomRepli?: string | null; altitudeSommetNgf: number | null; nbEtages: number | null; cleabsAffectes: string[] }
 export interface PolygoneAffectable { repere: string; cleabs: string | null; horsEmpreinte: boolean }
 
 // M2 — l'affectation est INCRÉMENTALE : cocher = 'ajout' d'un polygone, décocher = 'retrait' de ce seul polygone (jamais un remplacement).

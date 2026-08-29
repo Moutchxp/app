@@ -48,13 +48,28 @@ async function lireCorps(dossierId: number): Promise<{ corps: CorpsAffectation[]
         WHERE c.dossier_id = $1
         GROUP BY c.id, c.repere, c.altitude_sommet_ngf, c.nb_etages
         ORDER BY c.repere, c.id`, [dossierId]);
-    return { corps: rows.map(map), colonneManquante: false };
+    const corps = rows.map(map);
+    await enrichirNomsRepli(dossierId, corps);
+    return { corps, colonneManquante: false };
   } catch {
     const { rows } = await query<{ id: number; repere: string | null; alt: string | number | null; etages: number | null }>(
       `SELECT id, repere, altitude_sommet_ngf AS alt, nb_etages AS etages
          FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]);
-    return { corps: rows.map(map), colonneManquante: true }; // table de liaison (146) absente → aucun lien, écriture impossible
+    const corps = rows.map(map);
+    await enrichirNomsRepli(dossierId, corps);
+    return { corps, colonneManquante: true }; // table de liaison (146) absente → aucun lien, écriture impossible
   }
+}
+
+/** NOM-1 — attache `nomRepli` à chaque corps depuis une requête SÉPARÉE et RÉSILIENTE (jamais couplée à la migration 146 ci-dessus).
+ *  Colonne/table absente (migration 168 non appliquée) → `nomRepli` reste undefined (l'affichage retombe sur « bâtiment {id} »). PUR d'effet de bord. */
+async function enrichirNomsRepli(dossierId: number, corps: CorpsAffectation[]): Promise<void> {
+  try {
+    const { rows } = await query<{ id: number; nom_repli: string | null }>(
+      `SELECT id::int AS id, nom_repli FROM permis_corps_batiment WHERE dossier_id = $1`, [dossierId]);
+    const parId = new Map(rows.map((r) => [r.id, r.nom_repli]));
+    for (const c of corps) c.nomRepli = parId.get(c.id) ?? null;
+  } catch { /* 168 non appliquée / indisponible : nomRepli laissé tel quel (undefined). */ }
 }
 
 /** Empreinte (parcelle du permis) : sa géométrie + si elle est figée+complète ; sinon le motif à afficher. Lecture seule. */

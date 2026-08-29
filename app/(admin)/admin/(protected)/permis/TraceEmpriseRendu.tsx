@@ -3,7 +3,8 @@ import {
   projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, cadreDeAnneaux, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise } from '../../../../lib/permis/empriseReconstruiteRepo';
-import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
+import { libelleBatiment, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
+import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
 import { estStatuable, TOLERANCE_RECOUVREMENT_TOTAL_PCT, type EtatStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) : statut décidé ; RATT-5 : recouvert + taux ; RATT-6 : mixte
@@ -224,7 +225,7 @@ export function BandeauProjection({ verdict }: { verdict: VerdictProjection }) {
   return (
     <div className="svv-card" data-peut-valider={ok} style={{ fontSize: 12, borderColor: ok ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)', background: ok ? 'var(--color-svv-green-soft)' : 'var(--color-svv-red-soft)' }}>
       <div style={{ fontWeight: 700 }}>{ok ? '✓ ' : '✕ '}Projection des emprises — {verdict.libelle}</div>
-      {!ok && <div style={{ color: 'var(--color-svv-ink)' }}>En attente : {verdict.manquants.map((m) => m.repere ?? `bâtiment ${m.corpsId}`).join(', ')}. Tracez une emprise ou ignorez explicitement la projection pour chacun avant de valider.</div>}
+      {!ok && <div style={{ color: 'var(--color-svv-ink)' }}>En attente : {verdict.manquants.map((m) => libelleBatiment(m)).join(', ')}. Tracez une emprise ou ignorez explicitement la projection pour chacun avant de valider.</div>}
     </div>
   );
 }
@@ -312,9 +313,10 @@ export function RepereQualiteCalage({ ecartEchelleRelatif, ratioImplicite, ratio
 
 // PROJ-3r — types partagés de l'adoption (miroir des exports du repo, pour des composants PURS testables sans I/O).
 export interface GroupeAdoptionVue { cleabs: string[]; surfaceM2: number; polygones: { cleabs: string; surfaceM2: number }[] }
-export interface BatimentChoix { corpsId: number; repere: string | null }
-export interface BatimentAdoptionVue { corpsId: number; repere: string | null; emprises: { surfaceM2: number }[] }
-const nomBatiment = (b: BatimentChoix | undefined, corpsId: number): string => (b ? (b.repere ?? `bâtiment ${b.corpsId}`) : `bâtiment ${corpsId}`);
+export interface BatimentChoix { corpsId: number; repere: string | null; nomRepli?: string | null }
+export interface BatimentAdoptionVue { corpsId: number; repere: string | null; nomRepli?: string | null; emprises: { surfaceM2: number }[] }
+// NOM-1 — nom d'un bâtiment via le SEUL décideur (repere document → repli maison → « bâtiment {id} »). `b` absent → dernier recours sur corpsId.
+const nomBatiment = (b: BatimentChoix | undefined, corpsId: number): string => nomAffichageCorps(b ? { repere: b.repere, nomRepli: b.nomRepli, corpsId: b.corpsId } : { repere: null, corpsId });
 
 /** PROJ-3r-fix — libellé d'une ligne par les NOMS des polygones qu'elle contient (mêmes repères que la liste et le schéma). PUR. */
 export function libellePolygones(cleabs: string[], repereDe: (c: string) => string): string {
@@ -437,8 +439,9 @@ export function empriseRetouchable(e: EmpriseReconstruite): boolean {
 }
 
 /** Liste des emprises d'un bâtiment : libellé, ORIGINE (IGN / tracé à la main), surface, résidu ; RETOUCHER (mono-polygone) ; effacer. */
-export function ListeEmprises({ emprises, onSupprimer, onRetoucher, empriseEnRetouche = null }: {
+export function ListeEmprises({ emprises, onSupprimer, onRetoucher, empriseEnRetouche = null, nomCorps }: {
   emprises: EmpriseReconstruite[]; onSupprimer?: (id: number) => void; onRetoucher?: (id: number) => void; empriseEnRetouche?: number | null;
+  nomCorps?: string; // NOM-1 — nom RÉSOLU du corps (repere document / repli maison) : PRIME sur e.libelle stocké (« bâtiment 3 », vestigial).
 }) {
   if (emprises.length === 0) return <p style={muted}>Aucune emprise pour ce bâtiment.</p>;
   const b: CSSProperties = { ...muted, cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', padding: '.15rem .5rem' };
@@ -451,7 +454,7 @@ export function ListeEmprises({ emprises, onSupprimer, onRetoucher, empriseEnRet
         return (
           <li key={e.id} data-emprise={e.id} data-en-retouche={enRetouche || undefined} style={{ ...carte, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', borderColor: enRetouche ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }}>
             <span>
-              <strong>{e.libelle}</strong>{' '}
+              <strong>{nomCorps ?? e.libelle}</strong>{' '}
               <span data-provenance={e.provenance} style={{ ...muted, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', padding: '0 .3rem' }}>{libelleProvenance(e.provenance)}</span>{' '}
               {e.surfaceM2 !== null ? fmtM2(e.surfaceM2) : ''}{' '}
               <span style={muted}>{ign ? '· donnée source IGN' : `· résidu ${e.residuM !== null ? fmtM(e.residuM) : '—'}${e.page !== null ? ` · page ${e.page}` : ''}`}</span>

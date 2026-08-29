@@ -48,9 +48,10 @@ describe('PROJ-4a — récap (lecture seule) de l’emprise projetée dans le Ra
     const html = renderToStaticMarkup(h(RecapProjectionRattachement, props('en_attente_bati', [
       emp({ id: 1, libelle: 'bâtiment A (1)' }), emp({ id: 2, libelle: 'bâtiment A (2)', anneau: carre(70, 70), anneaux: [carre(70, 70)] }),
     ])));
-    expect(html).toContain('bâtiment A (1)');
-    expect(html).toContain('bâtiment A (2)');
-    expect(html).toContain('data-emprise="1"');
+    // NOM-1 — ListeEmprises affiche le nom RÉSOLU du corps (repere « A »), qui PRIME sur le libellé stocké par emprise (vestigial).
+    expect(html).not.toContain('bâtiment A (1)');
+    expect(html).not.toContain('bâtiment A (2)');
+    expect(html).toContain('data-emprise="1"'); // les deux emprises restent listées ET dessinées
     expect(html).toContain('data-emprise="2"');
   });
 

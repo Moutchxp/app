@@ -4,6 +4,7 @@ import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis
 import type { EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import { SchemaParcelleTrace, LegendeSchemaProjection, ListeEmprises, attribuerReperes, FILTRES_SCHEMA_DEFAUT } from './TraceEmpriseRendu';
 import type { EtatStatutPolygone } from '../../../../lib/permis/polygoneStatut';
+import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
 
 /**
  * PROJ-4a — RÉCAP (LECTURE SEULE) de l'emprise projetée, affiché dans le détail du Suivi Rattachement pour un permis « en attente de
@@ -27,7 +28,7 @@ export interface RecapProjectionProps {
   emprises: EmpriseReconstruite[];                            // emprises reconstituées / adoptées du dossier (avec provenance + multi-parties)
   parcelle: PointLambert[][];                                 // empreinte parcellaire (Lambert-93), pour caler le schéma
   polygones: PolygoneBdTopo[];                                // bâti BD TOPO (∩ empreinte) — existant + futur « en projet »
-  batiments: { corpsId: number; repere: string | null }[];   // bâtiments déclarés au permis (pour grouper la liste de provenance)
+  batiments: { corpsId: number; repere: string | null; nomRepli?: string | null }[]; // bâtiments déclarés au permis (+ nom de repli NOM-1)
   statuts?: Map<string, EtatStatutPolygone>;                  // RATT-3 — statut décidé par cleabs : colore l'existant (préservé/détruit) sur le schéma
 }
 
@@ -74,12 +75,14 @@ export function RecapProjectionRattachement({ etat, emprises, parcelle, polygone
       </p>
       <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={FILTRES_SCHEMA_DEFAUT} calageLambert={[]} statuts={statuts} />
       <LegendeSchemaProjection />
-      {parBatiment.map(({ b, emp }) => (
+      {parBatiment.map(({ b, emp }) => {
+        const nom = nomAffichageCorps({ repere: b.repere, nomRepli: b.nomRepli, corpsId: b.corpsId }); // NOM-1
+        return (
         <div key={b.corpsId}>
-          <div style={titreBat}>{b.repere ?? `bâtiment ${b.corpsId}`}</div>
-          <ListeEmprises emprises={emp} />
+          <div style={titreBat}>{nom}</div>
+          <ListeEmprises emprises={emp} nomCorps={nom} />
         </div>
-      ))}
+      );})}
       {orphelines.length > 0 && (
         <div>
           <div style={titreBat}>Emprises non rattachées à un bâtiment</div>

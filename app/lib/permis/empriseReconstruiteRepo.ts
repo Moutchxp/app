@@ -59,6 +59,10 @@ export interface EntreeEnregistrement {
 function estTableAbsente(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { code?: string }).code === '42P01';
 }
+/** Colonne absente (ex. NOM-1 : `nom_repli`, migration 168 non appliquée) ? Code Postgres 42703 (undefined_column). */
+function estColonneAbsente(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703';
+}
 
 /** WKT `POLYGON((x y, …, x y))` d'un anneau Lambert, FERMÉ explicitement. Nombres uniquement (aucune chaîne externe → pas d'injection). */
 function anneauVersWkt(anneau: PointLambert[]): string {
@@ -402,7 +406,7 @@ function affectationsValides(affectations: AffectationEntree[], coches: Polygone
 
 export interface AffectationEntree { cleabs: string; corpsId: number }
 export interface EmpriseApercu { surfaceM2: number }
-export interface BatimentAdoption { corpsId: number; repere: string | null; emprises: EmpriseApercu[] }
+export interface BatimentAdoption { corpsId: number; repere: string | null; nomRepli?: string | null; emprises: EmpriseApercu[] } // NOM-1 — + nom de repli
 export interface ApercuAffectations { batiments: BatimentAdoption[] }
 
 /**
@@ -412,6 +416,7 @@ export interface ApercuAffectations { batiments: BatimentAdoption[] }
 export async function apercuAffectations(dossierId: number, affectations: AffectationEntree[]): Promise<ApercuAffectations> {
   const coches = await lireCochesEnProjet(dossierId);
   const reperes = await lireReperesBatiments(dossierId);
+  const nomsRepli = new Map((await listerBatiments(dossierId)).map((b) => [b.corpsId, b.nomRepli])); // NOM-1 — nom de repli par corps (résilient)
   const valides = affectationsValides(affectations, coches, reperes);
   const parBat = grouperParBatiment(coches, valides);
   const out: BatimentAdoption[] = [];
@@ -421,7 +426,7 @@ export async function apercuAffectations(dossierId: number, affectations: Affect
       const u = await unionEtAireGroupe(comp.map((p) => p.cleabs));
       if (u) emprises.push({ surfaceM2: u.aireM2 });
     }
-    out.push({ corpsId: b.corpsId, repere: reperes.get(b.corpsId) ?? null, emprises });
+    out.push({ corpsId: b.corpsId, repere: reperes.get(b.corpsId) ?? null, nomRepli: nomsRepli.get(b.corpsId) ?? null, emprises });
   }
   return { batiments: out };
 }
@@ -556,13 +561,18 @@ export async function retablirProjection(dossierId: number, corpsId: number, par
 }
 
 /** Bâtiments déclarés du permis (permis_corps_batiment) — l'univers du tracé/ignorance. `[]` si la table manque. */
-export async function listerBatiments(dossierId: number): Promise<{ corpsId: number; repere: string | null }[]> {
+export async function listerBatiments(dossierId: number): Promise<{ corpsId: number; repere: string | null; nomRepli: string | null }[]> {
   try {
-    const { rows } = await query<{ id: number; repere: string | null }>(
-      `SELECT id::int AS id, repere FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]);
-    return rows.map((r) => ({ corpsId: r.id, repere: r.repere }));
+    const { rows } = await query<{ id: number; repere: string | null; nom_repli: string | null }>(
+      `SELECT id::int AS id, repere, nom_repli FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]); // NOM-1 — + nom_repli
+    return rows.map((r) => ({ corpsId: r.id, repere: r.repere, nomRepli: r.nom_repli }));
   } catch (err) {
     if (estTableAbsente(err)) return [];
+    if (estColonneAbsente(err)) { // NOM-1 — migration 168 non appliquée : on relit SANS nom_repli (→ null, l'affichage retombe sur « bâtiment {id} »).
+      const { rows } = await query<{ id: number; repere: string | null }>(
+        `SELECT id::int AS id, repere FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]);
+      return rows.map((r) => ({ corpsId: r.id, repere: r.repere, nomRepli: null }));
+    }
     throw err;
   }
 }

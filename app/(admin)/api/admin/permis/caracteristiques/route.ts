@@ -3,7 +3,7 @@ import { query } from '../../../../../lib/db/client';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { parserBornesCheck, parserListeCheck, parserListeArrayCheck, type BornesParColonne } from '../../../../../lib/sitadel/reglagesVeille';
 import { libelleNatureProjet } from '../../../../../lib/sitadel/priorite';
-import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, validerSommetCorps, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
+import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, validerSommetCorps, attribuerNomsRepli, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
 import { lireJournalChamps, type JournalPermis } from '../../../../../lib/permis/journalLecture';
 import { lireParcellesPermis, geojsonParcellesPermis, lireEmpreintePermis, geojsonEmpreintePermis, lireBatiSnapshotPermis, type ParcelleLigne, type EmpreinteLigne, type BatiSnapshotResume } from '../../../../../lib/permis/parcellesRepo';
 import { MESURES, construireGlobal, construirePermis, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
@@ -218,6 +218,7 @@ export async function POST(request: Request): Promise<Response> {
       if (!estEntier(body.dossierId)) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
       const repere = typeof body.repere === 'string' && body.repere.trim() !== '' ? body.repere.trim() : null;
       const id = await creerCorps(body.dossierId, repere, auteur);
+      await attribuerNomsRepli(body.dossierId); // NOM-1 — un corps créé sans nom reçoit son « bâtiment en projet N » (best-effort)
       return Response.json({ ok: true, id });
     }
 

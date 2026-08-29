@@ -12,6 +12,7 @@ import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere,
 export interface EmpriseProjetee { id: number; libelle: string; anneau: [number, number][] }
 // rattachementGroupes est PUR (import de TYPE seul depuis le repo, erasé) → client-safe. Source UNIQUE de la coupure en deux (L6).
 import { estAFaire, GROUPE1_TITRE, GROUPE2_TITRE } from '../../../../lib/permis/rattachementGroupes';
+import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
 
 /**
  * FUS-3b — rendu PUR (testable via renderToStaticMarkup) du SUIVI de rattachement : le tableau récapitulatif groupé par état
@@ -463,7 +464,7 @@ export function SaisieCotesInjection({ affectation, cotes, onCote, onRecopier, m
       </div>
       {batiments.map((c) => (
         <fieldset key={c.id} style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', margin: 0, padding: '.5rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-          <legend style={{ ...styleAide, padding: '0 .3rem' }}>{c.repere ?? `bâtiment ${c.id}`}</legend>
+          <legend style={{ ...styleAide, padding: '0 .3rem' }}>{nomAffichageCorps({ repere: c.repere, nomRepli: c.nomRepli, corpsId: c.id })}</legend>
           {c.cleabsAffectes.map((cleabs) => {
             const val = cotes[cleabs] ?? '';
             const vide = val.trim() === '';
@@ -907,7 +908,7 @@ export function CorpsEtChoix({ affectation, persiste, enAttenteBati = false, onA
           return (
             <li key={c.id} style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
               <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 600, minWidth: 90 }}>{c.repere ?? `bâtiment ${c.id}`}</span>
+                <span style={{ fontWeight: 600, minWidth: 90 }}>{nomAffichageCorps({ repere: c.repere, nomRepli: c.nomRepli, corpsId: c.id })}</span>
                 <span style={styleAide}>{c.altitudeSommetNgf !== null ? `sommet ${c.altitudeSommetNgf} m NGF` : 'altitude —'}{c.nbEtages !== null ? ` · ${c.nbEtages} ét.` : ''}</span>
               </div>
               <fieldset disabled={colonneManquante} style={{ border: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.15rem' }}>

@@ -10,6 +10,7 @@
  * La traçabilité « quelle pièce, quelle page » n'est PAS ici (propositions N5). Module PROPRE : n'importe que `db/client`.
  */
 import { query } from '../db/client';
+import { codeRepli } from './nomCorps'; // NOM-1 — code de repli maison (BP{rang}) attribué aux corps anonymes
 
 export type OrigineValeur = 'saisie' | 'extraite';
 
@@ -177,6 +178,29 @@ export async function creerCorps(dossierId: number, repere: string | null, majPa
     `INSERT INTO permis_corps_batiment (dossier_id, repere, maj_le, maj_par) VALUES ($1, $2, now(), $3) RETURNING id::int AS id`,
     [dossierId, repere, majPar]);
   return rows[0].id;
+}
+
+/**
+ * NOM-1 — ATTRIBUE le nom de REPLI MAISON (`nom_repli` = 'BP{rang}' / 'BP') aux corps du dossier qui n'ont NI `repere` (nom lu dans les
+ * documents) NI `nom_repli` déjà posé. À appeler au moment où un corps est CRÉÉ ou ADOPTÉ. Règles : le rang suit la POSITION du corps
+ * dans le permis (ordre `id`, tous corps confondus) ; un permis à UN SEUL corps → 'BP' (sans numéro). 🔴 STABILITÉ : on n'écrit QUE les
+ * `nom_repli` NULL (WHERE nom_repli IS NULL) — un nom déjà attribué n'est JAMAIS recalculé. 🔴 On n'écrit JAMAIS dans `repere`.
+ * BEST-EFFORT & RÉSILIENT : colonne absente (migration 168 non appliquée, 42703) ou table absente → no-op silencieux (l'affichage
+ * retombe sur « bâtiment {id} »). Ne relève jamais au caller (une attribution ratée ne doit pas faire échouer la création/adoption).
+ */
+export async function attribuerNomsRepli(dossierId: number): Promise<void> {
+  try {
+    const { rows } = await query<{ id: number; repere: string | null; nom_repli: string | null }>(
+      `SELECT id::int AS id, repere, nom_repli FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY id`, [dossierId]);
+    const total = rows.length;
+    for (let i = 0; i < rows.length; i++) {
+      const c = rows[i];
+      if (c.repere !== null && c.repere.trim() !== '') continue; // nom du document → pas de repli
+      if (c.nom_repli !== null) continue;                        // déjà attribué → stabilité, ne pas recalculer
+      const code = codeRepli(i + 1, total);                      // rang 1-based (ordre id), total = nombre de corps
+      await query(`UPDATE permis_corps_batiment SET nom_repli = $2 WHERE id = $1 AND nom_repli IS NULL`, [c.id, code]);
+    }
+  } catch { /* colonne/table absente ou indisponible : best-effort, l'affichage retombe sur « bâtiment {id} ». */ }
 }
 
 /** Supprime un corps par son id. `false` si l'id est inconnu. */

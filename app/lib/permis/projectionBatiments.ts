@@ -11,7 +11,9 @@
  * déclaré (geste « + ajouter un bâtiment » de l'instruction) avant de pouvoir valider la projection. `aucunBatiment` porte le fait.
  */
 
-export interface BatimentProjection { corpsId: number; repere: string | null }
+import { nomAffichageCorps } from './nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
+
+export interface BatimentProjection { corpsId: number; repere: string | null; nomRepli?: string | null } // NOM-1 — nom de repli maison (BP{rang}) si aucun repere document
 
 // PROJ-3r — pour compter TOUTES les emprises et dire leur ORIGINE au pied de page (une emprise IGN n'est pas « tracée »).
 export interface EmpriseCouverture { corpsId: number | null; provenance: string }
@@ -29,9 +31,9 @@ export interface VerdictProjection {
   libelle: string;                                     // « 2 bâtiments · 3 emprises (2 issues de l'IGN, 1 tracée à la main) · 0 en attente »
 }
 
-/** Libellé d'un bâtiment pour l'affichage (repère si présent, sinon « bâtiment <id> »). */
+/** NOM-1 — libellé d'un bâtiment pour l'affichage : nom du document (repere) → repli maison (BP{rang}) → « bâtiment <id> ». Délègue au SEUL décideur. */
 export function libelleBatiment(b: BatimentProjection): string {
-  return b.repere ?? `bâtiment ${b.corpsId}`;
+  return nomAffichageCorps({ repere: b.repere, nomRepli: b.nomRepli, corpsId: b.corpsId });
 }
 
 /**
