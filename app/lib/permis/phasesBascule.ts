@@ -37,3 +37,76 @@ export function dateBasculeTheorique(dateAccord: Date | string | null | undefine
   d.setUTCDate(d.getUTCDate() + delaiJours);
   return d.toISOString().slice(0, 10);
 }
+
+/** Normalise une date (chaîne 'YYYY-MM-DD' ou Date) en ISO 'YYYY-MM-DD' — comparable lexicographiquement — ou null si illisible. */
+function versISODate(v: Date | string | null | undefined): string | null {
+  if (v == null) return null;
+  const c = composantsJour(v);
+  return c ? new Date(Date.UTC(c.y, c.m, c.d)).toISOString().slice(0, 10) : null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// PHASE-2 — MOTEUR de décision de phase du verdict CERTIFIÉ. PUR : ne lit rien, ne décide d'AUCUN verdict, ne touche NI le moteur SVAV
+// NI le rattachement. Il prend des FAITS déjà collectés et rend la phase + les conséquences d'affichage/écriture.
+//
+// RÈGLE MÉTIER (Arno) — trois conditions CUMULATIVES déclenchent la bascule :
+//   (a) délai écoulé : aujourd'hui − date d'accord ≥ delai_bascule_jours ;
+//   (b) nouveaux polygones officiels arrivés ;  (c) rattachement validé.
+// Décision d'Arno (feu vert PHASE-2) : (b) est SUBSUMÉE par (c) — le moteur ne ré-infère PAS la présence de polygones par un diff
+//   géométrique (« deuxième vérité fragile ») ; il consomme `rattachementValide`, qui certifie que le bâti est apparu ET confirmé.
+//   Une validation AUTOMATIQUE ('moteur:auto') vaut validation (son label/alerte distincts = chantier séparé, hors de ce module).
+//
+// 🔴 INVARIANT ANTI-RÉGRESSION : dès que `basculeLe` est renseignée, elle FAIT FOI. La phase se calcule alors par arithmétique de
+//   dates (bascule + duree_message), JAMAIS phase 1, quelles que soient les conditions vivantes (un rattachement redevenu invalide,
+//   un bâti disparu…). Interdits (portés par le caller) : recalculer `basculeLe` si déjà posée, l'effacer. Ici : on ne la relit jamais.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+export type PhaseVerdict = 1 | 2 | 3;
+
+export interface EntreePhase {
+  dateAccord: Date | string | null | undefined;   // sitadel_dossier.date_reelle_autorisation
+  delaiBasculeJours: number;                        // config_veille.delai_bascule_jours (≥ 0)
+  dureeMessageJours: number;                        // config_veille.duree_message_jours (≥ 0)
+  rattachementValide: boolean;                      // (c), subsume (b) : etat='valide' (humain OU moteur:auto)
+  basculeLe: Date | string | null | undefined;      // permis_rattachement.bascule_le — si présente, FAIT FOI (anti-régression)
+  aujourdhui: Date | string;                        // injecté (pureté) — normalement current_date
+}
+
+export interface DecisionPhase {
+  phase: PhaseVerdict;
+  doitEcrireBascule: boolean;   // true UNIQUEMENT à l'instant où la bascule survient (conditions réunies ET basculeLe encore vide)
+  dateBascule: string | null;   // 'YYYY-MM-DD' à écrire si doitEcrireBascule (= aujourd'hui, l'instant d'observation) ; sinon null
+  afficherMessage: boolean;     // message « construction récente » (phase 2 seulement)
+  verdictProjetePropose: boolean; // le verdict projeté est proposé (phase 1 seulement)
+}
+
+/**
+ * Décide la phase d'un dossier à partir de faits déjà collectés. Ne lit rien, n'écrit rien : l'écriture write-once de `basculeLe`
+ * est faite par le CALLER (`UPDATE … WHERE dossier_id=$1 AND bascule_le IS NULL`) quand `doitEcrireBascule` est vrai.
+ */
+export function deciderPhase(e: EntreePhase): DecisionPhase {
+  const aujourdhui = versISODate(e.aujourdhui);
+
+  // 1) `basculeLe` FAIT FOI (anti-régression) : dossier déjà basculé → phase 2 ou 3 par arithmétique, JAMAIS phase 1. On NE relit ni
+  //    le délai ni la validation : une condition vivante qui flanche ne peut pas rétrograder un dossier basculé.
+  const bascule = versISODate(e.basculeLe);
+  if (bascule !== null) {
+    const finMessage = dateBasculeTheorique(bascule, e.dureeMessageJours); // bascule + duree_message
+    // Message actif tant qu'aujourd'hui < fin de fenêtre. Fenêtre incalculable (durée invalide) → conservateur : on continue d'informer.
+    const messageActif = finMessage !== null && aujourdhui !== null ? aujourdhui < finMessage : true;
+    return { phase: messageActif ? 2 : 3, doitEcrireBascule: false, dateBascule: null, afficherMessage: messageActif, verdictProjetePropose: false };
+  }
+
+  // 2) Pas encore basculé → conditions vivantes. (a) délai écoulé + (c) rattachement validé (qui subsume b).
+  const dateBasculeTh = dateBasculeTheorique(e.dateAccord, e.delaiBasculeJours);
+  const delaiEcoule = dateBasculeTh !== null && aujourdhui !== null && aujourdhui >= dateBasculeTh;
+  if (delaiEcoule && e.rattachementValide === true) {
+    // LA BASCULE SURVIENT MAINTENANT : on enregistre la date d'OBSERVATION (aujourd'hui), pas la date théorique — les conditions
+    //   b/c peuvent n'être réunies que bien après le délai. Phase 2 démarre, message actif. `aujourdhui` est ici forcément lisible
+    //   (delaiEcoule l'exige).
+    return { phase: 2, doitEcrireBascule: true, dateBascule: aujourdhui, afficherMessage: true, verdictProjetePropose: false };
+  }
+
+  // Phase 1 : ancienne configuration, verdict projeté proposé (y compris si la date d'accord est absente → bascule non calculable).
+  return { phase: 1, doitEcrireBascule: false, dateBascule: null, afficherMessage: false, verdictProjetePropose: true };
+}

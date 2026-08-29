@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dateBasculeTheorique } from './phasesBascule';
+import { dateBasculeTheorique, deciderPhase, type EntreePhase } from './phasesBascule';
 
 /**
  * PHASE-1 — fonction PURE `dateBasculeTheorique` : date d'accord + délai (jours) → date de bascule THÉORIQUE. Aucune base, aucune
@@ -37,5 +37,66 @@ describe('dateBasculeTheorique', () => {
     expect(dateBasculeTheorique('2025-10-28', -1)).toBeNull();
     expect(dateBasculeTheorique('2025-10-28', 1.5)).toBeNull();
     expect(dateBasculeTheorique('2025-10-28', Number.NaN)).toBeNull();
+  });
+});
+
+// ── PHASE-2 — moteur de décision de phase (faits synthétiques : aucun dossier réel n'est en phase 2/3) ────────────────────────
+const entree = (over: Partial<EntreePhase> = {}): EntreePhase => ({
+  dateAccord: '2025-10-28', delaiBasculeJours: 548, dureeMessageJours: 548,
+  rattachementValide: false, basculeLe: null, aujourdhui: '2026-08-29', ...over,
+});
+
+describe('deciderPhase', () => {
+  it('délai NON écoulé → phase 1 (verdict projeté proposé), même rattachement validé', () => {
+    const d = deciderPhase(entree({ dateAccord: '2026-01-01', rattachementValide: true, aujourdhui: '2026-08-29' })); // 240 j < 548
+    expect(d).toEqual({ phase: 1, doitEcrireBascule: false, dateBascule: null, afficherMessage: false, verdictProjetePropose: true });
+  });
+
+  it('délai écoulé mais rattachement NON validé → phase 1 (même dépassé de plusieurs années)', () => {
+    const d = deciderPhase(entree({ dateAccord: '2020-01-01', rattachementValide: false, aujourdhui: '2026-08-29' }));
+    expect(d.phase).toBe(1);
+    expect(d.doitEcrireBascule).toBe(false);
+    expect(d.verdictProjetePropose).toBe(true);
+  });
+
+  it('les DEUX réunies (délai écoulé + rattachement validé) et basculeLe vide → phase 2 + doitEcrireBascule (date = aujourd’hui)', () => {
+    const d = deciderPhase(entree({ dateAccord: '2020-01-01', rattachementValide: true, basculeLe: null, aujourdhui: '2026-08-29' }));
+    expect(d).toEqual({ phase: 2, doitEcrireBascule: true, dateBascule: '2026-08-29', afficherMessage: true, verdictProjetePropose: false });
+  });
+
+  it('validation AUTOMATIQUE non écartée : rattachementValide=true (quelle que soit son origine) suffit à basculer', () => {
+    // le module ne connaît que le booléen ; qu'il vienne d'une validation humaine ou 'moteur:auto' ne change rien ici.
+    const d = deciderPhase(entree({ dateAccord: '2020-01-01', rattachementValide: true, aujourdhui: '2026-08-29' }));
+    expect(d.phase).toBe(2);
+    expect(d.doitEcrireBascule).toBe(true);
+  });
+
+  it('basculeLe posée, message NON expiré → phase 2 AVEC message, jamais réécrire la bascule', () => {
+    const d = deciderPhase(entree({ basculeLe: '2026-06-01', dureeMessageJours: 548, rattachementValide: true, aujourdhui: '2026-08-29' }));
+    expect(d).toEqual({ phase: 2, doitEcrireBascule: false, dateBascule: null, afficherMessage: true, verdictProjetePropose: false });
+  });
+
+  it('basculeLe posée, message EXPIRÉ → phase 3 SANS message', () => {
+    const d = deciderPhase(entree({ basculeLe: '2024-01-01', dureeMessageJours: 548, aujourdhui: '2026-08-29' })); // fin ≈ 2025-07 < aujourd’hui
+    expect(d).toEqual({ phase: 3, doitEcrireBascule: false, dateBascule: null, afficherMessage: false, verdictProjetePropose: false });
+  });
+
+  it('fin de fenêtre du message : le jour exact bascule+durée → phase 3 (message éteint), la veille → phase 2', () => {
+    expect(deciderPhase(entree({ basculeLe: '2025-01-01', dureeMessageJours: 365, aujourdhui: '2026-01-01' })).phase).toBe(3); // borne exclue
+    expect(deciderPhase(entree({ basculeLe: '2025-01-01', dureeMessageJours: 365, aujourdhui: '2025-12-31' })).phase).toBe(2);
+  });
+
+  it('ANTI-RÉGRESSION : basculeLe posée mais rattachement redevenu INVALIDE → reste phase 2/3, JAMAIS phase 1', () => {
+    const enCours = deciderPhase(entree({ basculeLe: '2026-06-01', dureeMessageJours: 548, rattachementValide: false, aujourdhui: '2026-08-29' }));
+    expect(enCours.phase).toBe(2); // message encore actif
+    const apres = deciderPhase(entree({ basculeLe: '2024-01-01', dureeMessageJours: 548, rattachementValide: false, aujourdhui: '2026-08-29' }));
+    expect(apres.phase).toBe(3); // message expiré, mais jamais phase 1
+    expect(enCours.doitEcrireBascule).toBe(false);
+    expect(apres.doitEcrireBascule).toBe(false);
+  });
+
+  it('date d’accord ABSENTE et pas encore basculé → phase 1 explicite (bascule non calculable, jamais déclenchée)', () => {
+    const d = deciderPhase(entree({ dateAccord: null, rattachementValide: true, basculeLe: null, aujourdhui: '2026-08-29' }));
+    expect(d).toEqual({ phase: 1, doitEcrireBascule: false, dateBascule: null, afficherMessage: false, verdictProjetePropose: true });
   });
 });
