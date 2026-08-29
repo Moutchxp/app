@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, badgeSuivi, composerAccuse, resumeValidation, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
+import { MiniConfigProjetee, CaseConfigOfficielle } from './TraceEmpriseRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, EnteteAffectation, SchemaEmpreinteSvg, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, badgeSuivi, composerAccuse, resumeValidation, LIBELLE_ETAT_SUIVI, libelleRegimeExpose, libelleVerdict, lienStreetView, libelleCritereSurface, libelleCritereBordure, libelleCritereBati, critereSurfaceDeclenche, critereBordureDeclenche, critereBatiDeclenche, EN_ATTENTE_MAJ, formatDateFr, SchemaPleinEcran, LegendeRepetesComplete, NOM_SCHEMA_ORIGINE, estToucheFermeture, indexFocusSuivant, restaurerFocus, descriptionSchemaOrigine, ComparaisonPleinEcran, NOM_SCHEMA_NOUVELLE, descriptionSchemaNouvelle } from './SuiviRattachementRendu';
 import type { LigneSuivi, DetailSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { CritereSurface, CritereBordure } from '../../../../lib/permis/detectionRattachement';
 import type { AffectationEtat } from '../../../../lib/permis/affectationRepo';
@@ -321,6 +322,18 @@ describe('FUS-3d — schéma SVG + affectation polygone ↔ corps', () => {
   it('AFF-4 — sansLegende : la légende (volumineuse) n’est PLUS dans la case (sortie sous la rangée) ; présente par défaut', () => {
     expect(renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff(), persiste: true }))).toContain('couleur = repère du polygone'); // défaut : présente
     expect(renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff(), persiste: true, sansLegende: true }))).not.toContain('couleur = repère du polygone'); // sansLegende : retirée
+  });
+
+  it('AFF-5 — départ des schémas aligné : la SECTION est hors de la case de gauche ; les 3 tuiles ont UN SEUL en-tête (figcaption)', () => {
+    const gauche = renderToStaticMarkup(createElement(AffectationBloc, { affectation: aff(), persiste: true, sansEntete: true, sansLegende: true }));
+    expect(gauche).not.toContain('Affectation des polygones aux bâtiments'); // en-tête de section SORTI de la tuile
+    expect((gauche.match(/<figcaption/g) ?? []).length).toBe(1);             // un SEUL titre (« Configuration d'origine ») avant le schéma
+    const schema = { largeur: 320, hauteur: 240, empreintePath: 'M0,0 L30,0 L30,30 Z', motif: null, transform: { minX: 0, minY: 0, scale: 1, padX: 0, padY: 0, hauteur: 240 }, polygones: [] };
+    expect((renderToStaticMarkup(createElement(MiniConfigProjetee, { schema, statuts: new Map(), emprises: [] })).match(/<figcaption/g) ?? []).length).toBe(1); // projetée : un seul titre
+    expect((renderToStaticMarkup(createElement(CaseConfigOfficielle, { millesime: null })).match(/<figcaption/g) ?? []).length).toBe(1); // officielle : un seul titre
+    // EnteteAffectation (le titre de section) rend un bloc SANS figcaption : il titre la rangée, pas une tuile.
+    expect(renderToStaticMarkup(createElement(EnteteAffectation, {}))).toContain('Affectation des polygones aux bâtiments');
+    expect((renderToStaticMarkup(createElement(EnteteAffectation, {})).match(/<figcaption/g) ?? []).length).toBe(0);
   });
 
   it('EXCLUSIVITÉ : A affecté au corps 1 → n’est plus proposé au corps 2 (réversible côté corps 1)', () => {

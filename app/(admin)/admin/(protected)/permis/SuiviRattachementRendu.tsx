@@ -1150,14 +1150,24 @@ export function ComparaisonPleinEcran({ origine, nouvelle, rougeCleabs, nomOrigi
  * Bloc d'affectation (vue RÉDUITE) : le SCHÉMA nommé + cliquable (→ plein écran) + sa LÉGENDE compacte, puis les CHOIX (`CorpsEtChoix`,
  * mêmes règles que le plein écran). Le schéma reste consultable même sans dossier persisté (on DIT pourquoi l'arbitrage est fermé).
  */
-export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null, emprisesProjetees = [], sansLegende = false }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string, action: ActionAffectation) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null; emprisesProjetees?: EmpriseProjetee[]; sansLegende?: boolean }) {
+/** AFF-5 — en-tête de SECTION « Affectation des polygones aux bâtiments » (+ aide). Il titre la RANGÉE entière, pas la première tuile :
+ *  sorti de la case de gauche et posé AU-DESSUS de la rangée (comme la légende sous la rangée en AFF-4) pour que les trois schémas
+ *  démarrent à la même hauteur. PUR. */
+export function EnteteAffectation() {
+  return (
+    <div style={{ fontWeight: 700, fontSize: 12 }}>
+      Affectation des polygones aux bâtiments
+      <InfoDepliable label="comment lire le schéma d’affectation">BD TOPO ne nomme pas ses polygones (seulement un cleabs illisible). Chaque polygone de la parcelle du permis reçoit un repère STABLE (A, B, C…) et une couleur sur le schéma. Repérez-le sur vos plans de la GED et sur Street View, puis affectez-le au bon corps. Un polygone affecté disparaît des choix des autres corps ; une affectation reste modifiable ; un corps peut rester sans polygone.</InfoDepliable>
+    </div>
+  );
+}
+
+export function AffectationBloc({ affectation, persiste, enAttenteBati = false, onAffecter, onAgrandir, titre = NOM_SCHEMA_ORIGINE, mention, rougeCleabs, afficherReperes = true, sourceLibelle = '', afficherFutur = true, cleabsMisEnAvant = null, emprisesProjetees = [], sansLegende = false, sansEntete = false }: { affectation: AffectationEtat; persiste: boolean; enAttenteBati?: boolean; onAffecter?: (corpsId: number, cleabs: string, action: ActionAffectation) => void; onAgrandir?: () => void; titre?: string; mention?: string; rougeCleabs?: readonly string[]; afficherReperes?: boolean; sourceLibelle?: string; afficherFutur?: boolean; cleabsMisEnAvant?: string | null; emprisesProjetees?: EmpriseProjetee[]; sansLegende?: boolean; sansEntete?: boolean }) {
   const { corps, schema, motif, colonneManquante } = affectation;
   return (
     <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
-      <div style={{ fontWeight: 700 }}>
-        Affectation des polygones aux bâtiments
-        <InfoDepliable label="comment lire le schéma d’affectation">BD TOPO ne nomme pas ses polygones (seulement un cleabs illisible). Chaque polygone de la parcelle du permis reçoit un repère STABLE (A, B, C…) et une couleur sur le schéma. Repérez-le sur vos plans de la GED et sur Street View, puis affectez-le au bon corps. Un polygone affecté disparaît des choix des autres corps ; une affectation reste modifiable ; un corps peut rester sans polygone.</InfoDepliable>
-      </div>
+      {/* AFF-5 — l'en-tête de SECTION est sorti au-dessus de la rangée (sansEntete) : la tuile ne garde qu'UN titre (« Configuration … »), à la même hauteur que les deux autres. */}
+      {!sansEntete && <EnteteAffectation />}
       {colonneManquante && <div role="alert" style={{ color: 'var(--color-svv-red)' }}>Affectation indisponible : migration 117 non appliquée.</div>}
       {motif
         ? <div style={{ ...styleAide, fontStyle: 'italic' }}>{motif}</div>

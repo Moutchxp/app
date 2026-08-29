@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
 import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee } from './SuiviRattachementRendu';
+import { TableSuivi, DetailSuiviRendu, AffectationBloc, EnteteAffectation, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee } from './SuiviRattachementRendu';
 import { RecapProjectionRattachement } from './ProjectionRecapRattachement';
 // RATT-1 bis — le geste « statuer les polygones existants » réutilise le composant PUR d'Analyse + ses helpers (jamais dupliqué).
 import { BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, attribuerReperes, MiniConfigProjetee, CaseConfigOfficielle } from './TraceEmpriseRendu';
@@ -327,6 +327,8 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
                 {/* PROJ-2c — 3e interrupteur : superposer les emprises reconstituées au schéma d'origine (n'apparaît que s'il y en a). */}
                 {emprisesProjetees.length > 0 && <InterrupteurProjection afficherProjection={afficherProjection} onAfficherProjection={setAfficherProjection} />}
               </div>
+              {/* AFF-5 — l'en-tête de SECTION titre la RANGÉE entière (sorti de la case de gauche) → les trois schémas démarrent à la même hauteur. */}
+              <EnteteAffectation />
               {/* AFF-4 — `stretch` : les cases de la rangée partagent la MÊME hauteur (aucune ne flotte plus haut que ses voisines) ; en colonne (mobile), sans effet. */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.75rem', alignItems: 'stretch' }}>
                 {/* M6 — PANNEAU des polygones sélectionnés + leur cote, à GAUCHE du schéma (1er enfant → au-dessus quand la ligne passe
@@ -337,21 +339,26 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
                   </div>
                 )}
                 <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                  <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} emprisesProjetees={afficherProjection ? emprisesProjetees : []} sansLegende />
+                  <AffectationBloc affectation={origine} titre={descO.nom} mention={descO.mention} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('origine')} afficherReperes={afficherReperes} sourceLibelle={sourceOrigine} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} emprisesProjetees={afficherProjection ? emprisesProjetees : []} sansLegende sansEntete />
                 </div>
                 {/* RATT-3 — à droite de « Configuration d'origine » : la configuration PROJETÉE (parcelle après travaux, détruits retirés,
                     emprise en rouge, aucun vert/orange) puis l'emplacement « Configuration officielle » (grisé, en attente de l'administration).
                     Données déjà en mémoire (recapProjection + statutParCleabs, GET emprise) — aucune requête supplémentaire. */}
                 {/* AFF-2 (3b/3c) — projetée dessinée au MÊME cadre/échelle que « Configuration d'origine » (même origine.schema). */}
+                {/* AFF-5 — même conteneur (svv-card) que la case de gauche → même ordonnée de départ du schéma dans les trois. */}
                 <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                  <MiniConfigProjetee schema={origine.schema} statuts={statutParCleabs} emprises={emprisesProjetees} />
+                  <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+                    <MiniConfigProjetee schema={origine.schema} statuts={statutParCleabs} emprises={emprisesProjetees} />
+                  </div>
                 </div>
                 <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                  <CaseConfigOfficielle millesime={origine.millesimeGel} />
+                  <div className="svv-card" style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+                    <CaseConfigOfficielle millesime={origine.millesimeGel} />
+                  </div>
                 </div>
                 {aChange && (
                   <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                    <AffectationBloc affectation={nouvelle} titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('nouvelle')} afficherReperes={afficherReperes} sourceLibelle={SOURCE_VIVANTE} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} sansLegende />
+                    <AffectationBloc affectation={nouvelle} titre={NOM_SCHEMA_NOUVELLE} mention={mentionN} rougeCleabs={polygonesModifies} persiste={persiste} enAttenteBati={enAtt} onAffecter={affecterCb} onAgrandir={() => setPleinEcran('nouvelle')} afficherReperes={afficherReperes} sourceLibelle={SOURCE_VIVANTE} afficherFutur={afficherFutur} cleabsMisEnAvant={cleabsMisEnAvant} sansLegende sansEntete />
                   </div>
                 )}
               </div>
