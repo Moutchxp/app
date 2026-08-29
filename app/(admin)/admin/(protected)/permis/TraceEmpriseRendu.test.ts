@@ -276,6 +276,13 @@ describe('RATT-3 — couleur de statut sur le schéma + configuration projetée'
     expect(couleurStatutPolygone(undefined)).toBeNull();  // aucune ligne de statut → gris
   });
 
+  it('RATT-6 — couleurStatutPolygone(« mixte ») : gris (survit, visible) + tireté, JAMAIS l’orange du détruit', () => {
+    const m = couleurStatutPolygone('mixte');
+    expect(m?.fill).toBe('rgba(0,0,0,.06)');       // gris d'origine → le bâtiment reste visible
+    expect(m?.dash).toBe('3 2');                    // trait tireté distinctif
+    expect(m?.stroke).not.toBe('#c26a00');          // pas l'orange du détruit
+  });
+
   // Registre append-only → statut COURANT par cleabs (même chemin que la Vue).
   const statuts = statutCourantParCleabs([
     { cleabs: 'B2', statut: 'detruit', etatBdtopoAuMoment: 'En service', decidePar: 'a', decideLe: '2026-08-01T10:00:00.000Z', origine: 'saisie' },
@@ -293,6 +300,30 @@ describe('RATT-3 — couleur de statut sur le schéma + configuration projetée'
       { cleabs: 'F6', anneau: [{ x: 0, y: 0 }], etat: 'En service' },   // sans statut → reste
     ]);
     expect(polygonesConfigProjetee(polys, statuts).map((p) => p.cleabs)).toEqual(['A1', 'D4', 'E5', 'F6']);
+  });
+
+  it('RATT-6 — polygonesConfigProjetee GARDE un « mixte » (il survit en partie) ; seul « detruit » est retiré', () => {
+    const st = statutCourantParCleabs([
+      { cleabs: 'M', statut: 'mixte', etatBdtopoAuMoment: 'En service', decidePar: 'auto', decideLe: '2026-08-01T10:00:00.000Z', origine: 'auto_mixte' },
+      { cleabs: 'X', statut: 'detruit', etatBdtopoAuMoment: 'En service', decidePar: 'auto', decideLe: '2026-08-01T10:00:00.000Z', origine: 'auto_recouvrement' },
+    ] as LigneStatutPolygone[]);
+    const polys = attribuerReperes([
+      { cleabs: 'M', anneau: [{ x: 0, y: 0 }], etat: 'En service' },
+      { cleabs: 'X', anneau: [{ x: 0, y: 0 }], etat: 'En service' },
+    ]);
+    expect(polygonesConfigProjetee(polys, st).map((p) => p.cleabs)).toEqual(['M']); // M (mixte) reste, X (detruit) part
+  });
+
+  it('RATT-6 — SchemaParcelleTrace : un existant « mixte » est tireté (strokeDasharray) et non orange', () => {
+    const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
+    const st = statutCourantParCleabs([
+      { cleabs: 'M', statut: 'mixte', etatBdtopoAuMoment: 'En service', decidePar: 'auto', decideLe: '2026-08-01T10:00:00.000Z', origine: 'auto_mixte' },
+    ] as LigneStatutPolygone[]);
+    const polys = attribuerReperes([{ cleabs: 'M', anneau: [{ x: 2, y: 2 }, { x: 8, y: 2 }, { x: 8, y: 8 }], etat: 'En service' }]);
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }]], emprises: [], polygones: polys, calageLambert: [], statuts: st }));
+    expect(html).toContain('data-statut="mixte"');
+    expect(html).toContain('stroke-dasharray="3 2"'); // tireté distinctif
+    expect(html).not.toContain('#c26a00');             // jamais l'orange du détruit
   });
 
   it('SchemaParcelleTrace : colore l’existant selon la décision (preserve vert / detruit orange) ; futur bâti jamais coloré', () => {
@@ -642,11 +673,11 @@ describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décisio
   it('RATT-2 — liste TOUS les existants (recouverts COMPRIS ; seul « en projet » exclu) ; affiche BD TOPO ET ma décision ; source conservée si préservé prime', () => {
     const polygones = [poly('A', 'En service', 'A'), poly('B', 'En projet', 'B'), poly('C', 'En service', 'C')];
     const statuts = statutCourantParCleabs([ligne('A', 'preserve', 'En projet')]); // BD TOPO disait « En projet », j'ai décidé préservé
-    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: [{ cleabs: 'C', tauxPct: 96.3 }], statuts, onStatuer: () => {} }));
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: [{ cleabs: 'C', tauxPct: 100 }], statuts, onStatuer: () => {} }));
     expect(html).toContain('Polygone A');
     expect(html).not.toContain('Polygone B'); // « en projet » (futur bâti) exclu (relève de l'adoption)
     expect(html).toContain('Polygone C'); // RATT-2 — recouvert par l'emprise projetée : DÉSORMAIS listé (détruit par défaut, basculable)
-    expect(html).toContain('recouvert à 96 % par l’emprise projetée — statut détruit par défaut'); // RATT-5 — mention avec le TAUX (96,3 % arrondi affichage)
+    expect(html).toContain('recouvert à 100 % par l’emprise projetée — statut détruit par défaut'); // recouvrement TOTAL → détruit par défaut (RATT-5/6)
     expect(html).toContain('BD TOPO');
     expect(html).toContain('bâtiment préservé');
     expect(html).toContain('BD TOPO disait « En projet »'); // 🔴 la source reste lisible ; ma décision prime sans l'écraser
@@ -654,10 +685,10 @@ describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décisio
 
   it('RATT-4 — un « en projet » RECOUVERT entre dans la liste (mention rouge + 2 boutons) ; un « en projet » NON recouvert reste exclu', () => {
     const polygones = [poly('B', 'En projet', 'B'), poly('D', 'En projet', 'D')];
-    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: [{ cleabs: 'D', tauxPct: 80 }], statuts: new Map(), onStatuer: () => {} }));
-    expect(html).toContain('Polygone D');                     // « en projet » RECOUVERT → listé
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: [{ cleabs: 'D', tauxPct: 100 }], statuts: new Map(), onStatuer: () => {} }));
+    expect(html).toContain('Polygone D');                     // « en projet » RECOUVERT (total) → listé
     expect(html).not.toContain('Polygone B');                 // « en projet » NON recouvert → hors liste
-    expect(html).toContain('recouvert à 80 % par l’emprise projetée — statut détruit par défaut'); // RATT-5 — mention avec le taux
+    expect(html).toContain('recouvert à 100 % par l’emprise projetée — statut détruit par défaut'); // recouvrement total → détruit
     expect(html).toContain('bâtiment préservé');              // bouton actif (basculable)
     expect(html).toContain('bâtiment détruit');               // bouton actif
   });
@@ -671,6 +702,29 @@ describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décisio
     expect(html).toContain('recouvert à 55 % par l’emprise projetée'); // A : mention avec son taux
     // B (sous le seuil) : une seule mention en tout, donc pas de seconde occurrence pour B.
     expect(html.match(/recouvert à/g) ?? []).toHaveLength(1);
+  });
+
+  it('RATT-6 — recouvert PARTIEL (80 %) → mention « partiellement détruit » + les deux boutons DÉSACTIVÉS (aria-disabled)', () => {
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('A', 'En service', 'A')], recouverts: [{ cleabs: 'A', tauxPct: 80 }], statuts: new Map(), onStatuer: () => {} }));
+    expect(html).toContain('partiellement détruit — recouvert à 80 % par l’emprise projetée');
+    expect(html).not.toContain('statut détruit par défaut');       // pas la mention du détruit total
+    expect(html).toContain('non modifiable à la main');            // POURQUOI c'est grisé (accessibilité/compréhension)
+    expect((html.match(/aria-disabled="true"/g) ?? []).length).toBe(2); // préservé + détruit désactivés
+    expect(html).not.toContain('annuler ma décision');            // pas de révocation d'un fait géométrique
+  });
+
+  it('RATT-6 — recouvert TOTAL (100 %) → mention « détruit par défaut », boutons ACTIFS (pas de mixte)', () => {
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('A', 'En service', 'A')], recouverts: [{ cleabs: 'A', tauxPct: 100 }], statuts: new Map(), onStatuer: () => {} }));
+    expect(html).toContain('recouvert à 100 % par l’emprise projetée — statut détruit par défaut');
+    expect(html).not.toContain('partiellement détruit');
+    expect(html).not.toContain('aria-disabled="true"'); // boutons actifs (détruit total est basculable)
+  });
+
+  it('RATT-6 — statut « mixte » STOCKÉ (auto) → boutons désactivés même sans info de recouvrement passée', () => {
+    const statuts = statutCourantParCleabs([{ cleabs: 'A', statut: 'mixte', etatBdtopoAuMoment: 'En service', decidePar: 'auto', decideLe: '2026-08-01T10:00:00Z', origine: 'auto_mixte' }] as LigneStatutPolygone[]);
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('A', 'En service', 'A')], recouverts: [], statuts, onStatuer: () => {} }));
+    expect(html).toContain('partiellement détruit (fait géométrique)'); // libellé de la décision courante
+    expect((html.match(/aria-disabled="true"/g) ?? []).length).toBe(2);
   });
 
   it('« détruit » est signalé comme une PRÉVISION à confirmer à la mise à jour cadastrale', () => {

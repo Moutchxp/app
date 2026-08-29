@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { statutCourantParCleabs, estStatuable, actionsAutoStatut, estRecouvertParEmprise, type LigneStatutPolygone, type EtatStatutPolygone, type OrigineStatut } from './polygoneStatut';
+import { statutCourantParCleabs, estStatuable, actionsAutoStatut, estRecouvertParEmprise, statutDepuisRecouvrement, type LigneStatutPolygone, type EtatStatutPolygone, type OrigineStatut } from './polygoneStatut';
 
 const l = (cleabs: string, statut: LigneStatutPolygone['statut'], le: string, etat: string | null = 'En service', par = 'admin', origine: OrigineStatut | null = 'saisie'): LigneStatutPolygone =>
   ({ cleabs, statut, etatBdtopoAuMoment: etat, decidePar: par, decideLe: le, origine });
@@ -77,8 +77,8 @@ describe('RATT-4 — estStatuable ouvre la liste aux « en projet » RECOUVERTS 
 });
 
 describe('RATT-5 — estRecouvertParEmprise (seuil de recouvrement, borne incluse)', () => {
-  const SEUIL = 50; // seuil par défaut
-  it('au seuil par défaut (50 %) : 100 %, 96,3 % et 50 % → recouverts ; 49,9 %, 2 %, 0 % → non', () => {
+  const SEUIL = 50; // un seuil de test (le défaut config est 3 depuis RATT-6, mais estRecouvertParEmprise prend le seuil en paramètre)
+  it('à un seuil de 50 % : 100 %, 96,3 % et 50 % → recouverts ; 49,9 %, 2 %, 0 % → non', () => {
     expect(estRecouvertParEmprise(100, SEUIL)).toBe(true);
     expect(estRecouvertParEmprise(96.3, SEUIL)).toBe(true);
     expect(estRecouvertParEmprise(50, SEUIL)).toBe(true);   // borne INCLUSE
@@ -93,62 +93,84 @@ describe('RATT-5 — estRecouvertParEmprise (seuil de recouvrement, borne inclus
   });
 });
 
-describe('RATT-2 — actionsAutoStatut (écriture/révocation auto ; ne touche JAMAIS une décision humaine)', () => {
-  // Fabrique un état COURANT minimal (seuls statut + origine importent à la décision).
+describe('RATT-6 — statutDepuisRecouvrement (fait géométrique à trois branches ; seuil = anti-bruit)', () => {
+  const SEUIL = 3; // défaut RATT-6 (anti-bruit de tracé)
+  it('100 % → detruit ; 99,9 % → mixte ; 50 % → mixte ; 3 % → mixte (borne incluse) ; 2,9 % → aucun ; 0 % → aucun', () => {
+    expect(statutDepuisRecouvrement(100, SEUIL)).toBe('detruit');
+    expect(statutDepuisRecouvrement(99.9, SEUIL)).toBe('mixte'); // sous la tolérance de « total » → partiellement détruit
+    expect(statutDepuisRecouvrement(50, SEUIL)).toBe('mixte');
+    expect(statutDepuisRecouvrement(3, SEUIL)).toBe('mixte');    // borne du seuil INCLUSE
+    expect(statutDepuisRecouvrement(2.9, SEUIL)).toBeNull();     // sous le seuil (bruit de tracé) → aucun statut
+    expect(statutDepuisRecouvrement(0, SEUIL)).toBeNull();
+  });
+  it('la tolérance de « total » n’absorbe QUE l’epsilon (≈ 100 %) : 100,001 % et 99,97 % → detruit, 99,9 % → mixte', () => {
+    expect(statutDepuisRecouvrement(100.001, SEUIL)).toBe('detruit');
+    expect(statutDepuisRecouvrement(99.97, SEUIL)).toBe('detruit'); // ≥ 99,95 → total à l’epsilon près
+    expect(statutDepuisRecouvrement(99.9, SEUIL)).toBe('mixte');    // < 99,95 → un survivant réel
+  });
+});
+
+describe('RATT-2/RATT-6 — actionsAutoStatut (statut géométrique detruit|mixte ; ne touche JAMAIS une décision humaine)', () => {
   const etat = (statut: EtatStatutPolygone['statut'], origine: OrigineStatut | null): EtatStatutPolygone =>
     ({ statut, origine, etatBdtopoAuMoment: null, decidePar: null, decideLe: null, historique: [] });
+  const rec = (cleabs: string, tauxPct: number) => ({ cleabs, tauxPct }); // un recouvert au-dessus du seuil, avec son taux
+  const SEUIL = 3;
 
-  it('recouvert + JAMAIS statué → écrit « detruit » d’origine « auto_recouvrement »', () => {
-    const actions = actionsAutoStatut(['A'], new Map());
-    expect(actions).toEqual([{ cleabs: 'A', statut: 'detruit', origine: 'auto_recouvrement' }]);
+  it('recouvert TOTAL (100 %) + JAMAIS statué → « detruit » / « auto_recouvrement »', () => {
+    expect(actionsAutoStatut([rec('A', 100)], SEUIL, new Map())).toEqual([{ cleabs: 'A', statut: 'detruit', origine: 'auto_recouvrement' }]);
+  });
+  it('recouvert PARTIEL (80 %) + JAMAIS statué → « mixte » / « auto_mixte »', () => {
+    expect(actionsAutoStatut([rec('A', 80)], SEUIL, new Map())).toEqual([{ cleabs: 'A', statut: 'mixte', origine: 'auto_mixte' }]);
   });
 
-  it('recouvert + DÉJÀ statué par une SAISIE humaine → n’écrit RIEN (jamais par-dessus une décision d’Arno)', () => {
+  it('recouvert + DÉJÀ statué par une SAISIE humaine → n’écrit RIEN (jamais par-dessus Arno)', () => {
     const statuts = new Map<string, EtatStatutPolygone>([['A', etat('preserve', 'saisie')]]);
-    expect(actionsAutoStatut(['A'], statuts)).toEqual([]);
+    expect(actionsAutoStatut([rec('A', 100)], SEUIL, statuts)).toEqual([]);
+    expect(actionsAutoStatut([rec('A', 80)], SEUIL, statuts)).toEqual([]); // même en zone mixte : la saisie prime
   });
 
-  it('recouvert + DÉJÀ « detruit » auto → n’écrit RIEN (pas de doublon)', () => {
-    const statuts = new Map<string, EtatStatutPolygone>([['A', etat('detruit', 'auto_recouvrement')]]);
-    expect(actionsAutoStatut(['A'], statuts)).toEqual([]);
+  it('recouvert + statut AUTO déjà à la bonne branche → n’écrit RIEN (pas de doublon)', () => {
+    expect(actionsAutoStatut([rec('A', 100)], SEUIL, new Map([['A', etat('detruit', 'auto_recouvrement')]]))).toEqual([]);
+    expect(actionsAutoStatut([rec('A', 80)], SEUIL, new Map([['A', etat('mixte', 'auto_mixte')]]))).toEqual([]);
   });
 
-  it('PLUS recouvert + statut auto « detruit » → RÉVOQUE (origine « auto_revocation »)', () => {
-    const statuts = new Map<string, EtatStatutPolygone>([['A', etat('detruit', 'auto_recouvrement')]]);
-    expect(actionsAutoStatut([], statuts)).toEqual([{ cleabs: 'A', statut: 'revoque', origine: 'auto_revocation' }]);
+  it('RATT-6 — le recouvrement a changé de branche → RÉALIGNE le statut AUTO', () => {
+    // total → partiel : detruit auto devient mixte auto.
+    expect(actionsAutoStatut([rec('A', 80)], SEUIL, new Map([['A', etat('detruit', 'auto_recouvrement')]])))
+      .toEqual([{ cleabs: 'A', statut: 'mixte', origine: 'auto_mixte' }]);
+    // partiel → total : mixte auto devient detruit auto.
+    expect(actionsAutoStatut([rec('A', 100)], SEUIL, new Map([['A', etat('mixte', 'auto_mixte')]])))
+      .toEqual([{ cleabs: 'A', statut: 'detruit', origine: 'auto_recouvrement' }]);
   });
 
-  it('PLUS recouvert + statut « detruit » d’une SAISIE humaine → n’écrit RIEN (la décision d’Arno prime)', () => {
-    const statuts = new Map<string, EtatStatutPolygone>([['A', etat('detruit', 'saisie')]]);
-    expect(actionsAutoStatut([], statuts)).toEqual([]);
+  it('PLUS recouvert + statut AUTO (detruit OU mixte) → RÉVOQUE (auto_revocation)', () => {
+    expect(actionsAutoStatut([], SEUIL, new Map([['A', etat('detruit', 'auto_recouvrement')]]))).toEqual([{ cleabs: 'A', statut: 'revoque', origine: 'auto_revocation' }]);
+    expect(actionsAutoStatut([], SEUIL, new Map([['A', etat('mixte', 'auto_mixte')]]))).toEqual([{ cleabs: 'A', statut: 'revoque', origine: 'auto_revocation' }]);
   });
 
-  it('PLUS recouvert + origine INCONNUE (migration 165 absente, origine=null) → n’écrit RIEN (jamais révoquer ce qu’on ne sait pas auto)', () => {
-    const statuts = new Map<string, EtatStatutPolygone>([['A', etat('detruit', null)]]);
-    expect(actionsAutoStatut([], statuts)).toEqual([]);
+  it('PLUS recouvert + statut d’une SAISIE humaine → n’écrit RIEN (la décision d’Arno prime)', () => {
+    expect(actionsAutoStatut([], SEUIL, new Map([['A', etat('detruit', 'saisie')]]))).toEqual([]);
+  });
+  it('PLUS recouvert + origine INCONNUE (null) → n’écrit RIEN', () => {
+    expect(actionsAutoStatut([], SEUIL, new Map([['A', etat('detruit', null)]]))).toEqual([]);
   });
 
-  it('cas mixte : un nouveau recouvert à poser + un ancien auto à révoquer, une saisie intouchée', () => {
+  it('cas composite : un total à poser + un ancien auto à révoquer, une saisie intouchée', () => {
     const statuts = new Map<string, EtatStatutPolygone>([
-      ['ANCIEN_AUTO', etat('detruit', 'auto_recouvrement')], // n’est plus recouvert → révocation
-      ['SAISIE', etat('detruit', 'saisie')],                  // n’est plus recouvert MAIS humain → intouché
+      ['ANCIEN_AUTO', etat('mixte', 'auto_mixte')], // n’est plus recouvert → révocation
+      ['SAISIE', etat('detruit', 'saisie')],         // plus recouvert MAIS humain → intouché
     ]);
-    const actions = actionsAutoStatut(['NOUVEAU'], statuts);
+    const actions = actionsAutoStatut([rec('NOUVEAU', 100)], SEUIL, statuts);
     expect(actions).toContainEqual({ cleabs: 'NOUVEAU', statut: 'detruit', origine: 'auto_recouvrement' });
     expect(actions).toContainEqual({ cleabs: 'ANCIEN_AUTO', statut: 'revoque', origine: 'auto_revocation' });
     expect(actions.find((a) => a.cleabs === 'SAISIE')).toBeUndefined();
     expect(actions).toHaveLength(2);
   });
 
-  // RATT-4 — l'auto-statut est ÉTAT-AGNOSTIQUE (il ne lit que le jeu de cleabs recouverts) : un « en projet » recouvert est traité
-  //   EXACTEMENT comme un existant recouvert. Ces deux cas documentent l'intention RATT-4 sur un cleabs « en projet » (C/D/I du 11430).
-  it('RATT-4 — « en projet » recouvert JAMAIS statué → écrit « detruit » / « auto_recouvrement » (comme un existant)', () => {
-    expect(actionsAutoStatut(['BATIMENT_EN_PROJET_C'], new Map())).toEqual([
-      { cleabs: 'BATIMENT_EN_PROJET_C', statut: 'detruit', origine: 'auto_recouvrement' },
-    ]);
-  });
-  it('RATT-4 — « en projet » recouvert DÉJÀ statué à la main (préservé) → n’écrit RIEN', () => {
+  // RATT-4 — un « en projet » recouvert est traité comme un existant (l'auto ne lit que taux + seuil).
+  it('RATT-4/RATT-6 — « en projet » recouvert partiel → « mixte » ; jamais statué à la main', () => {
+    expect(actionsAutoStatut([rec('BATIMENT_EN_PROJET_C', 60)], SEUIL, new Map())).toEqual([{ cleabs: 'BATIMENT_EN_PROJET_C', statut: 'mixte', origine: 'auto_mixte' }]);
     const statuts = new Map<string, EtatStatutPolygone>([['BATIMENT_EN_PROJET_C', etat('preserve', 'saisie')]]);
-    expect(actionsAutoStatut(['BATIMENT_EN_PROJET_C'], statuts)).toEqual([]);
+    expect(actionsAutoStatut([rec('BATIMENT_EN_PROJET_C', 60)], SEUIL, statuts)).toEqual([]);
   });
 });

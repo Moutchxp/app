@@ -82,8 +82,8 @@ describe('RATT-5 — lireSeuilRecouvrementEmprisePct (seuil LU depuis la config,
     H.state.mode = 'throw';
     expect(await lireSeuilRecouvrementEmprisePct()).toEqual({ seuilPct: SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT, provenance: 'defaut' });
   });
-  it('ligne config absente → défaut 50 + provenance « defaut »', async () => {
+  it('ligne config absente → défaut 3 (RATT-6) + provenance « defaut »', async () => {
     H.state.mode = 'vide';
-    expect(await lireSeuilRecouvrementEmprisePct()).toEqual({ seuilPct: 50, provenance: 'defaut' });
+    expect(await lireSeuilRecouvrementEmprisePct()).toEqual({ seuilPct: 3, provenance: 'defaut' });
   });
 });

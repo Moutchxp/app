@@ -15,9 +15,10 @@ import type { SeuilsRattachement } from './detectionRattachement';
 export const SEUIL_SURFACE_PCT_DEFAUT = 80;   // % de l'empreinte recouverte (jamais une égalité : voies/trottoirs prélevés)
 export const SEUIL_BORDURE_PCT_DEFAUT = 60;   // % du périmètre candidat coïncidant avec le contour de l'empreinte
 export const MARGE_ALTITUDE_CM_DEFAUT = 10;   // cm — marge d'égalité d'altitude des corps (0,10 m)
-// RATT-5 — seuil (% de la surface du polygone sous l'emprise) au-delà duquel un polygone est « recouvert » (→ détruit d'office). Frère
-//   des trois seuils ci-dessus (même table config_veille, migration 166). = DEFAULT de la migration 166 (aucune constante dispersée).
-export const SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT = 50;
+// RATT-5/RATT-6 — seuil (% de la surface du polygone sous l'emprise) : ANTI-BRUIT DE TRACÉ (RATT-6). En dessous → aucun statut auto ;
+//   au-dessus → statut géométrique (detruit total / mixte partiel). Frère des trois seuils ci-dessus (config_veille). = DEFAULT de la
+//   migration 166 (défaut 3 depuis RATT-6 ; aucune constante dispersée).
+export const SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT = 3;
 
 export interface SeuilsRattachementSource {
   seuils: SeuilsRattachement;                    // unités-métier (ratio, mètres) pour le moteur PUR

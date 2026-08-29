@@ -6,7 +6,7 @@ import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, Provenance
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
-import { estStatuable, type EtatStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) : statut décidé d'un polygone existant ; RATT-5 : recouvert + taux
+import { estStatuable, TOLERANCE_RECOUVREMENT_TOTAL_PCT, type EtatStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) : statut décidé ; RATT-5 : recouvert + taux ; RATT-6 : mixte
 import { repereDepuisIndex } from '../../../../lib/permis/affectationSchema';
 
 /** PROJ-3g — libellé lisible d'une famille (le MOT porte l'info, jamais la couleur seule). PUR. */
@@ -496,19 +496,22 @@ function centreAnneau(anneau: PointLambert[]): PointLambert {
   return { x: anneau.reduce((s, p) => s + p.x, 0) / n, y: anneau.reduce((s, p) => s + p.y, 0) / n };
 }
 
-/** RATT-3 — PALETTE de statut (constantes de DESSIN, jamais des variables métier) : vert = préservé décidé, orange = détruit décidé. */
-const STATUT_COULEUR = {
+/** RATT-3/RATT-6 — PALETTE de statut (constantes de DESSIN, jamais des variables métier) : vert = préservé, orange = détruit total,
+ *  MIXTE (partiellement détruit) = gris d'origine (le bâtiment SURVIT, il reste visible) + trait TIRETÉ ardoise — JAMAIS l'orange du
+ *  détruit, aucune couleur criarde : le mixte ne se lit pas comme un détruit. */
+const STATUT_COULEUR: Record<'preserve' | 'detruit' | 'mixte', { fill: string; stroke: string; dash?: string }> = {
   preserve: { fill: 'rgba(46,158,91,.22)', stroke: 'var(--color-svv-green-ink)' },
   detruit: { fill: 'rgba(217,119,6,.22)', stroke: '#c26a00' },
-} as const;
+  mixte: { fill: 'rgba(0,0,0,.06)', stroke: '#556', dash: '3 2' },
+};
 
 /**
- * RATT-3 — couleur d'un polygone EXISTANT d'après la SEULE existence d'une décision ENREGISTRÉE (préservé → vert, détruit → orange).
- * `null` = aucune décision (ou 'revoque', dont le statut courant vaut null) → gris d'origine INCHANGÉ. Une prévision NON enregistrée
- * (p. ex. un recouvrement sans ligne de statut) ne colore JAMAIS : on ne colore que d'après une décision en base. PUR.
+ * RATT-3/RATT-6 — traitement visuel d'un polygone EXISTANT d'après son statut COURANT : préservé → vert ; détruit total → orange ;
+ * MIXTE → gris (survit, visible) + tireté ardoise (distinct, jamais orange). `null` = aucun statut (ou révoqué) → gris d'origine
+ * INCHANGÉ. Une prévision NON enregistrée ne colore JAMAIS. PUR.
  */
-export function couleurStatutPolygone(statut: 'preserve' | 'detruit' | null | undefined): { fill: string; stroke: string } | null {
-  return statut === 'preserve' ? STATUT_COULEUR.preserve : statut === 'detruit' ? STATUT_COULEUR.detruit : null;
+export function couleurStatutPolygone(statut: 'preserve' | 'detruit' | 'mixte' | null | undefined): { fill: string; stroke: string; dash?: string } | null {
+  return statut === 'preserve' ? STATUT_COULEUR.preserve : statut === 'detruit' ? STATUT_COULEUR.detruit : statut === 'mixte' ? STATUT_COULEUR.mixte : null;
 }
 
 /**
@@ -556,14 +559,14 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
         {visibles.map((poly, i) => {
           if (poly.anneau.length < 3) return null;
           const futur = estFuturBati(poly.etat), off = futur && ecarte(poly);
-          // RATT-3 — un bâtiment EXISTANT prend la couleur de la SEULE décision ENREGISTRÉE (préservé → vert, détruit → orange). Sans
-          //   décision (ou révoqué), ou pour du futur bâti, la couleur d'origine reste INCHANGÉE. Un recouvrement sans ligne de statut
-          //   demeure GRIS : on ne colore jamais d'après une prévision non enregistrée.
+          // RATT-3/RATT-6 — un bâtiment EXISTANT prend le traitement de son statut ENREGISTRÉ : préservé → vert, détruit total → orange,
+          //   MIXTE (partiellement détruit) → gris + tireté ardoise (il survit, il reste visible ; JAMAIS l'orange du détruit). Sans statut
+          //   (ou révoqué), ou pour du futur bâti, la couleur d'origine reste INCHANGÉE — on ne colore jamais d'après une prévision non enregistrée.
           const statut = !futur ? statuts?.get(poly.cleabs ?? '')?.statut : null;
           const coul = couleurStatutPolygone(statut);
           return <path key={`b${i}`} d={path(poly.anneau)} data-etat={poly.etat ?? ''} data-futur={futur} data-ecarte={off || undefined} data-statut={coul ? statut : undefined}
             fill={off ? 'rgba(0,0,0,.04)' : futur ? 'rgba(31,119,180,.14)' : coul ? coul.fill : 'rgba(0,0,0,.06)'}
-            stroke={off ? '#bbb' : futur ? '#1f77b4' : coul ? coul.stroke : '#888'} strokeWidth={1.2} strokeDasharray={futur ? '4 2' : undefined} strokeOpacity={off ? 0.6 : 1} />;
+            stroke={off ? '#bbb' : futur ? '#1f77b4' : coul ? coul.stroke : '#888'} strokeWidth={1.2} strokeDasharray={futur ? '4 2' : coul?.dash} strokeOpacity={off ? 0.6 : 1} />;
         })}
         {/* (c) emprises TRACÉES = reconstitution (rouge), si « Afficher la projection » est actif. */}
         {filtres.emprises && emprises.flatMap((e) => (e.anneaux?.length ? e.anneaux : [e.anneau]).map((ring, ri) => ring.length >= 3
@@ -698,7 +701,7 @@ export function SelectionPolygonesProjet({ polygones, ecartes, onToggle }: {
 }
 
 /** RATT-1 (2) — libellé lisible d'un statut décidé. */
-function libelleStatut(s: 'preserve' | 'detruit'): string { return s === 'preserve' ? 'bâtiment préservé' : 'bâtiment détruit (prévision)'; }
+function libelleStatut(s: 'preserve' | 'detruit' | 'mixte'): string { return s === 'preserve' ? 'bâtiment préservé' : s === 'mixte' ? 'partiellement détruit (fait géométrique)' : 'bâtiment détruit (prévision)'; }
 /** RATT-1 (2) — « JJ/MM/AAAA » depuis un ISO (trace de décision). */
 function jjmmaaaaStatut(iso: string): string { const d = iso.slice(0, 10); return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`; }
 
@@ -729,6 +732,10 @@ export function StatutPolygonesExistants({ polygones, recouverts, statuts, onSta
         const decide = st?.statut ?? null;
         const tauxRecouvert = tauxRecouvrement.get(p.cleabs!); // RATT-5 — % de la surface sous l'emprise (défini SSI au-dessus du seuil)
         const recouvert = tauxRecouvert !== undefined;
+        // RATT-6 — MIXTE = fait géométrique : recouvert PARTIELLEMENT (au-dessus du seuil mais sous le recouvrement total, à la tolérance
+        //   près) OU statut 'mixte' déjà enregistré. Non modifiable → les deux boutons sont DÉSACTIVÉS (jamais masqués : Arno voit pourquoi).
+        const estMixteGeo = recouvert && tauxRecouvert! < 100 - TOLERANCE_RECOUVREMENT_TOTAL_PCT;
+        const estMixte = decide === 'mixte' || estMixteGeo;
         return (
           <div key={p.cleabs} style={{ ...carte, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
             <div style={{ fontSize: 12 }}>
@@ -739,14 +746,19 @@ export function StatutPolygonesExistants({ polygones, recouverts, statuts, onSta
               <span><span style={{ color: 'var(--color-svv-muted)' }}>BD TOPO :</span> <strong>{p.etat ?? 'inconnu'}</strong></span>
               <span><span style={{ color: 'var(--color-svv-muted)' }}>votre décision :</span> <strong>{decide ? libelleStatut(decide) : <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>aucune</span>}</strong></span>
             </div>
-            {/* RATT-2/RATT-5 — polygone recouvert au-dessus du seuil : « détruit » posé d'office, basculable. Mention ROUGE/gras avec le TAUX
-                réel (RATT-5), juste sous BD TOPO/décision : Arno voit DE COMBIEN il s'agit, pas seulement qu'il y a recouvrement. */}
-            {recouvert && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 700 }}>recouvert à {Math.round(tauxRecouvert!)} % par l’emprise projetée — statut détruit par défaut</span>}
+            {/* RATT-6 — MIXTE : mention ROUGE dédiée « partiellement détruit — recouvert à XX % » (le bâtiment survit en partie). Sinon RATT-2/RATT-5 :
+                recouvert total → « recouvert à XX % … statut détruit par défaut ». Le TAUX est toujours affiché : Arno voit DE COMBIEN il s'agit. */}
+            {estMixte
+              ? <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 700 }}>partiellement détruit — recouvert à {Math.round(tauxRecouvert ?? 0)} % par l’emprise projetée</span>
+              : recouvert && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 700 }}>recouvert à {Math.round(tauxRecouvert!)} % par l’emprise projetée — statut détruit par défaut</span>}
             <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-              <button type="button" style={{ ...btn, fontWeight: decide === 'preserve' ? 700 : 400, borderColor: decide === 'preserve' ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }} aria-pressed={decide === 'preserve'} onClick={() => onStatuer(p.cleabs!, 'preserve')}>bâtiment préservé</button>
-              <button type="button" style={{ ...btn, fontWeight: decide === 'detruit' ? 700 : 400, borderColor: decide === 'detruit' ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }} aria-pressed={decide === 'detruit'} onClick={() => onStatuer(p.cleabs!, 'detruit')}>bâtiment détruit</button>
-              {decide && <button type="button" style={btn} onClick={() => onStatuer(p.cleabs!, 'revoque')}>annuler ma décision</button>}
+              {/* RATT-6 — sur un 'mixte' (fait géométrique), les deux boutons sont DÉSACTIVÉS (disabled + aria-disabled), jamais masqués : la mention rouge dit POURQUOI. */}
+              <button type="button" disabled={estMixte} aria-disabled={estMixte} style={{ ...btn, cursor: estMixte ? 'not-allowed' : 'pointer', opacity: estMixte ? 0.5 : 1, fontWeight: decide === 'preserve' ? 700 : 400, borderColor: decide === 'preserve' ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }} aria-pressed={decide === 'preserve'} onClick={() => { if (!estMixte) onStatuer(p.cleabs!, 'preserve'); }}>bâtiment préservé</button>
+              <button type="button" disabled={estMixte} aria-disabled={estMixte} style={{ ...btn, cursor: estMixte ? 'not-allowed' : 'pointer', opacity: estMixte ? 0.5 : 1, fontWeight: decide === 'detruit' ? 700 : 400, borderColor: decide === 'detruit' ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }} aria-pressed={decide === 'detruit'} onClick={() => { if (!estMixte) onStatuer(p.cleabs!, 'detruit'); }}>bâtiment détruit</button>
+              {decide && !estMixte && <button type="button" style={btn} onClick={() => onStatuer(p.cleabs!, 'revoque')}>annuler ma décision</button>}
             </div>
+            {/* RATT-6 — POURQUOI les boutons sont grisés : le mixte est un fait géométrique déduit, pas une décision d'Arno. */}
+            {estMixte && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Une partie du bâtiment tombe sous l’emprise, l’autre survit : statut déduit de la géométrie — non modifiable à la main. (Le découpage précis et l’altitude par partie relèvent d’un chantier ultérieur.)</span>}
             {decide === 'detruit' && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-ink)', background: '#fff8f8', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.2rem .4rem' }}>Prévision : effacé de la PROJECTION de la future parcelle (jamais de BD TOPO). Sera confirmé ou infirmé à la mise à jour de la planche cadastrale.</span>}
             {decide === 'preserve' && st?.etatBdtopoAuMoment && st.etatBdtopoAuMoment !== p.etat && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>BD TOPO disait « {st.etatBdtopoAuMoment} » au moment de votre décision — votre « préservé » prime, la source reste lisible.</span>}
             {st && st.historique.length > 0 && (

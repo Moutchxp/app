@@ -1,5 +1,5 @@
 import { query } from '../db/client';
-import { statutCourantParCleabs, actionsAutoStatut, estRecouvertParEmprise, type LigneStatutPolygone, type StatutDecide, type OrigineStatut, type PolygoneRecouvert } from './polygoneStatut';
+import { statutCourantParCleabs, actionsAutoStatut, estRecouvertParEmprise, type LigneStatutPolygone, type LigneStatut, type OrigineStatut, type PolygoneRecouvert } from './polygoneStatut';
 import { lireSeuilRecouvrementEmprisePct } from './rattachementConfig'; // RATT-5 — seuil de recouvrement lu au runtime (config_veille), jamais en dur
 
 /**
@@ -17,6 +17,20 @@ function estTableAbsente(e: unknown): boolean {
 /** PostgreSQL 42703 = undefined_column (migration 165 non appliquée : colonne `origine` absente). */
 function estColonneAbsente(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703';
+}
+/** PostgreSQL 23514 = check_violation (migration 167 non appliquée : 'mixte'/'auto_mixte' pas encore admis par le CHECK). */
+function estContrainteViolee(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { code?: string }).code === '23514';
+}
+
+/** RATT-6 — statut COURANT (dernière ligne) d'un cleabs dans un dossier ; `null` si aucune ligne ou table absente. Sert au refus serveur
+ *  d'une saisie manuelle sur un polygone 'mixte' (fait géométrique non modifiable). Lecture SEULE de NOTRE table de décision. */
+async function statutCourantDe(dossierId: number, cleabs: string): Promise<LigneStatut | null> {
+  try {
+    const { rows } = await query<{ statut: LigneStatut }>(
+      `SELECT statut FROM permis_polygone_statut WHERE dossier_id = $1 AND cleabs = $2 ORDER BY decide_le DESC LIMIT 1`, [dossierId, cleabs]);
+    return rows[0]?.statut ?? null;
+  } catch (e) { if (estTableAbsente(e)) return null; throw e; }
 }
 
 /** Toutes les lignes du registre pour un dossier (ordre quelconque ; la logique de « courant » est PURE, cf. polygoneStatut). `[]` si table absente.
@@ -65,26 +79,41 @@ export async function polygonesRecouvertsParEmprise(dossierId: number): Promise<
 }
 
 /**
- * POSER une décision de statut (append-only : une nouvelle LIGNE). `statut` = 'preserve' | 'detruit' | 'revoque'. On lit le SNAPSHOT de
- * la source IGN (`batiment.etat_de_l_objet`) au moment — jamais on ne la réécrit. Idempotence non requise (l'historique est le but).
- * RATT-2 — `origine` distingue une saisie humaine d'une écriture d'automatisme ; écrit si la colonne existe (165), repli SANS sinon.
+ * POSER une décision de statut (append-only : une nouvelle LIGNE). `statut` ∈ 'preserve' | 'detruit' | 'mixte' | 'revoque'. On lit le
+ * SNAPSHOT de la source IGN (`batiment.etat_de_l_objet`) au moment — jamais réécrit. RATT-2 : `origine` distingue saisie humaine d'un
+ * automatisme. RATT-6 :
+ *  · GARDE SERVEUR — une SAISIE manuelle sur un polygone dont le statut COURANT est 'mixte' est REFUSÉE (fait géométrique non
+ *    modifiable), pas seulement grisée côté UI ;
+ *  · RÉSILIENCE migration 167 — si 'mixte'/'auto_mixte' n'est pas encore admis par le CHECK (23514), on REPLIE proprement sur l'ancien
+ *    comportement ('detruit'/'auto_recouvrement' = détruit ENTIER), sans crash ni erreur remontée. La ligne existe, l'app tourne.
  */
-export async function poserStatutPolygone(dossierId: number, cleabs: string, statut: StatutDecide | 'revoque', par: string | null, origine: OrigineStatut = 'saisie'): Promise<ResultatStatut> {
+export async function poserStatutPolygone(dossierId: number, cleabs: string, statut: LigneStatut, par: string | null, origine: OrigineStatut = 'saisie'): Promise<ResultatStatut> {
   if (!cleabs || cleabs.trim() === '') return { ok: false, motif: 'polygone invalide' };
+  // RATT-6 — refus SERVEUR d'une saisie manuelle sur un 'mixte' (le fait géométrique prime ; l'automatisme, lui, réaligne son propre statut).
+  if (origine === 'saisie' && (await statutCourantDe(dossierId, cleabs)) === 'mixte') {
+    return { ok: false, motif: 'statut « partiellement détruit » non modifiable : c’est un fait géométrique (déduit du recouvrement), pas une décision' };
+  }
   // SNAPSHOT de la source IGN au moment (lecture SEULE de batiment) — la source n'est jamais modifiée.
   const src = await query<{ etat: string | null }>(`SELECT etat_de_l_objet AS etat FROM batiment WHERE cleabs = $1 LIMIT 1`, [cleabs]);
   const etatMoment = src.rows[0]?.etat ?? null;
+  const inserer = async (st: LigneStatut, orig: OrigineStatut) =>
+    query(`INSERT INTO permis_polygone_statut (dossier_id, cleabs, statut, etat_bdtopo_au_moment, decide_par, origine)
+           VALUES ($1, $2, $3, $4, $5, $6)`, [dossierId, cleabs, st, etatMoment, par, orig]);
   try {
-    await query(
-      `INSERT INTO permis_polygone_statut (dossier_id, cleabs, statut, etat_bdtopo_au_moment, decide_par, origine)
-       VALUES ($1, $2, $3, $4, $5, $6)`, [dossierId, cleabs, statut, etatMoment, par, origine]);
+    await inserer(statut, origine);
     return { ok: true };
   } catch (e) {
     if (estTableAbsente(e)) return { ok: false, motif: 'statut indisponible (migration 164 non appliquée)', tableAbsente: true };
-    if (estColonneAbsente(e)) { // migration 165 non appliquée : on insère SANS origine (la ligne reste, l'origine sera 'saisie' par défaut futur).
+    if (estColonneAbsente(e)) { // migration 165 non appliquée : on insère SANS origine.
       await query(
         `INSERT INTO permis_polygone_statut (dossier_id, cleabs, statut, etat_bdtopo_au_moment, decide_par)
-         VALUES ($1, $2, $3, $4, $5)`, [dossierId, cleabs, statut, etatMoment, par]);
+         VALUES ($1, $2, $3, $4, $5)`, [dossierId, cleabs, statut === 'mixte' ? 'detruit' : statut, etatMoment, par]);
+      return { ok: true };
+    }
+    if (estContrainteViolee(e) && (statut === 'mixte' || origine === 'auto_mixte')) {
+      // migration 167 non appliquée : 'mixte'/'auto_mixte' hors CHECK → REPLI sur l'ancien comportement (détruit entier), sans crash.
+      console.warn('[polygoneStatut] migration 167 absente : « mixte » replié en « detruit » entier', { dossierId, cleabs });
+      await inserer(statut === 'mixte' ? 'detruit' : statut, origine === 'auto_mixte' ? 'auto_recouvrement' : origine);
       return { ok: true };
     }
     throw e;
@@ -99,10 +128,12 @@ export async function poserStatutPolygone(dossierId: number, cleabs: string, sta
  */
 export async function appliquerAutoStatut(dossierId: number, par: string | null): Promise<void> {
   try {
-    const [recouverts, lignes] = await Promise.all([polygonesRecouvertsParEmprise(dossierId), lireStatutsPolygones(dossierId)]);
+    const [recouverts, lignes, { seuilPct }] = await Promise.all([
+      polygonesRecouvertsParEmprise(dossierId), lireStatutsPolygones(dossierId), lireSeuilRecouvrementEmprisePct(),
+    ]);
     const statuts = statutCourantParCleabs(lignes);
-    // RATT-5 — l'auto-statut ne raisonne que sur le JEU de cleabs recouverts (au-dessus du seuil) ; le taux ne sert qu'à l'affichage.
-    for (const a of actionsAutoStatut(recouverts.map((r) => r.cleabs), statuts)) {
+    // RATT-6 — le statut auto est GÉOMÉTRIQUE : 'detruit' (total) ou 'mixte' (partiel) selon le taux vs le seuil ; révocation si plus recouvert.
+    for (const a of actionsAutoStatut(recouverts, seuilPct, statuts)) {
       await poserStatutPolygone(dossierId, a.cleabs, a.statut, par, a.origine);
     }
   } catch { /* best-effort : l'automatisme de statut ne doit jamais faire échouer la mutation d'emprise appelante. */ }
