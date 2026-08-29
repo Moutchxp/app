@@ -8,7 +8,7 @@ import {
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, StatutPolygonesExistants, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
 import { statutCourantParCleabs, type LigneStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) ; RATT-5 : recouvert + taux
@@ -563,7 +563,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
             {/* Options de visibilité + sélection des polygones « en projet ». */}
             <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
             <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
-            <StatutPolygonesExistants polygones={polygonesReperes} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
+            {/* AFF-1 — deux blocs REPLIÉS (identiques dans les deux onglets), sous le schéma : polygones « projet » affectés, puis bâtiments existants. */}
+            <BlocProjetRepliable emprises={emprises} polygones={polygonesReperes} batiments={batiments} />
+            <BlocExistantsRepliable polygones={polygonesReperes} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
 
             {/* PROJ-3r — TROISIÈME issue, DANS l'encart « en projet » : affecter chaque groupe à un bâtiment déclaré + adopter (scinder/fusionner). */}
             <AdoptionGroupes groupes={groupesAdoption} batiments={batiments} reperes={reperesParCleabs} affectation={affectation} scindes={scindes} occupe={occupe}
@@ -666,7 +668,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 240 }}>
                 <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
                 <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
-            <StatutPolygonesExistants polygones={polygonesReperes} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
+            {/* AFF-1 — deux blocs REPLIÉS (identiques dans les deux onglets), sous le schéma : polygones « projet » affectés, puis bâtiments existants. */}
+            <BlocProjetRepliable emprises={emprises} polygones={polygonesReperes} batiments={batiments} />
+            <BlocExistantsRepliable polygones={polygonesReperes} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
               </div>
             </div>
           </div>

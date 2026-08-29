@@ -64,19 +64,22 @@ describe('PROJ-4a — récap (lecture seule) de l’emprise projetée dans le Ra
     expect(nb(html, 'data-emprise="7" data-provenance')).toBe(2); // deux contours pour la même emprise
   });
 
-  it('la PROVENANCE est affichée correctement pour les trois valeurs', () => {
+  // AFF-1 — la LISTE des emprises par bâtiment (provenance, orphelines, libellés) a migré vers le bloc REPLIÉ `BlocProjetRepliable`.
+  //   Ce récap ne garde que le grand schéma + sa légende : les emprises restent DESSINÉES (data-emprise), plus listées ici.
+  it('AFF-1 — les emprises sont DESSINÉES dans le schéma ; la liste (provenance) a migré vers le bloc replié', () => {
     const trois: ProvenanceEmprise[] = ['trace_manuel', 'ign_adopte', 'ign_retouche'];
     const html = renderToStaticMarkup(h(RecapProjectionRattachement, props('en_attente_bati',
       trois.map((p, i) => emp({ id: i + 1, libelle: `bâtiment ${i}`, provenance: p })))));
-    expect(html).toContain('tracé à la main');
-    expect(html).toContain('issue de l’IGN');
-    expect(html).toContain('IGN retouchée à la main');
+    expect(html).toContain('data-emprise="1"'); // dessinées
+    expect(html).toContain('data-emprise="2"');
+    expect(html).toContain('data-emprise="3"');
+    expect(html).not.toContain('tracé à la main'); // les étiquettes de provenance ne sont plus dans ce récap
   });
 
-  it('emprises orphelines (corpsId null / bâtiment non déclaré) → listées à part, jamais perdues', () => {
+  it('AFF-1 — une emprise orpheline (corpsId null) reste DESSINÉE ; plus de liste « non rattachées » ici', () => {
     const html = renderToStaticMarkup(h(RecapProjectionRattachement, props('en_attente_bati', [emp({ id: 3, corpsId: null, libelle: 'ancienne emprise' })])));
-    expect(html).toContain('Emprises non rattachées à un bâtiment');
-    expect(html).toContain('ancienne emprise');
     expect(html).toContain('data-emprise="3"');
+    expect(html).not.toContain('Emprises non rattachées à un bâtiment');
+    expect(html).not.toContain('ancienne emprise');
   });
 });

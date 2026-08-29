@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, aireAnneauM2, polygonesProjetParBatiment, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -744,5 +744,70 @@ describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décisio
   it('aucun polygone statuable → rien affiché', () => {
     const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('B', 'En projet', 'B')], recouverts: [], statuts: new Map(), onStatuer: () => {} }));
     expect(html).toBe('');
+  });
+});
+
+describe('AFF-1 — encart réorganisé en blocs repliés', () => {
+  const carre = (d: number) => [{ x: 0, y: 0 }, { x: d, y: 0 }, { x: d, y: d }, { x: 0, y: d }]; // aire = d²
+  const cal = (cleabs: string[]) => ({ adoptionIgn: true, cleabs }) as unknown as EmpriseReconstruite['calage'];
+
+  it('polygonesProjetParBatiment : regroupe les « en projet » affectés par bâtiment, repère + aire par polygone', () => {
+    const polygones = attribuerReperes([
+      { cleabs: 'P1', anneau: carre(10), etat: 'En projet' },   // A, 100 m²
+      { cleabs: 'P2', anneau: carre(20), etat: 'En projet' },   // B, 400 m²
+      { cleabs: 'Q', anneau: carre(5), etat: 'En service' },    // existant → ignoré
+    ]);
+    const emprises = [
+      emprise({ id: 1, corpsId: 3, provenance: 'ign_adopte', calage: cal(['P1']) }),
+      emprise({ id: 2, corpsId: 3, provenance: 'ign_adopte', calage: cal(['P2']) }),
+    ];
+    const { groupes, total } = polygonesProjetParBatiment(emprises, polygones, [{ corpsId: 3, repere: null, nomRepli: 'BP' }]);
+    expect(total).toBe(2);
+    expect(groupes).toHaveLength(1);
+    expect(groupes[0].nom).toBe('bâtiment en projet');
+    expect(groupes[0].polygones.map((p) => p.repere)).toEqual(['A', 'B']); // repères DISTINCTS
+    expect(aireAnneauM2(carre(10))).toBe(100);
+  });
+
+  it('BlocProjetRepliable : FERMÉ par défaut ; résumé = titre + décompte ; ouvert = bâtiment + repères distincts (jamais le nom répété)', () => {
+    const polygones = attribuerReperes([
+      { cleabs: 'P1', anneau: carre(10), etat: 'En projet' },
+      { cleabs: 'P2', anneau: carre(20), etat: 'En projet' },
+      { cleabs: 'P3', anneau: carre(30), etat: 'En projet' },
+    ]);
+    const emprises = [
+      emprise({ id: 1, corpsId: 3, provenance: 'ign_adopte', calage: cal(['P1']) }),
+      emprise({ id: 2, corpsId: 3, provenance: 'ign_adopte', calage: cal(['P2']) }),
+      emprise({ id: 3, corpsId: 3, provenance: 'ign_adopte', calage: cal(['P3']) }),
+    ];
+    const html = renderToStaticMarkup(h(BlocProjetRepliable, { emprises, polygones, batiments: [{ corpsId: 3, repere: null, nomRepli: 'BP' }] }));
+    expect(html).toMatch(/<details/);
+    expect(html).not.toMatch(/<details[^>]*\sopen/);           // FERMÉ par défaut
+    expect(html).toContain('Bâtiment(s) au statut « projet » en base BD TOPO affecté(s) au projet de bâtiment');
+    expect(html).toContain('— 3 polygones');                   // décompte sur la ligne fermée
+    expect(html).toContain('bâtiment en projet');              // nom du bâtiment (une fois, en tête de groupe)
+    expect(html).toContain('Polygone A');                      // repères DISTINCTS par ligne
+    expect(html).toContain('Polygone B');
+    expect(html).toContain('Polygone C');
+    expect(html).toContain('100 m²');                          // aire du polygone A (10×10)
+  });
+
+  it('BlocProjetRepliable : aucun polygone affecté → rien', () => {
+    expect(renderToStaticMarkup(h(BlocProjetRepliable, { emprises: [], polygones: [], batiments: [] }))).toBe('');
+  });
+
+  it('BlocExistantsRepliable : FERMÉ par défaut ; résumé = titre + décompte ; ouvert = StatutPolygonesExistants', () => {
+    const polygones = attribuerReperes([{ cleabs: 'X', anneau: carre(10), etat: 'En service' }]);
+    const html = renderToStaticMarkup(h(BlocExistantsRepliable, { polygones, recouverts: [], statuts: new Map(), onStatuer: () => {} }));
+    expect(html).toMatch(/<details/);
+    expect(html).not.toMatch(/<details[^>]*\sopen/);
+    expect(html).toContain('Bâtiments existants de la ou des parcelles du permis');
+    expect(html).toContain('— 1 bâtiment');
+    expect(html).toContain('bâtiment préservé');               // contenu StatutPolygonesExistants présent
+    expect(html).not.toContain('Bâtiments existants du site'); // titre interne masqué (porté par le résumé)
+  });
+
+  it('BlocExistantsRepliable : aucun statuable → rien', () => {
+    expect(renderToStaticMarkup(h(BlocExistantsRepliable, { polygones: [], recouverts: [], statuts: new Map(), onStatuer: () => {} }))).toBe('');
   });
 });

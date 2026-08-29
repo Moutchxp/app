@@ -8,7 +8,7 @@ import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../.
 import { TableSuivi, DetailSuiviRendu, AffectationBloc, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee } from './SuiviRattachementRendu';
 import { RecapProjectionRattachement } from './ProjectionRecapRattachement';
 // RATT-1 bis — le geste « statuer les polygones existants » réutilise le composant PUR d'Analyse + ses helpers (jamais dupliqué).
-import { StatutPolygonesExistants, attribuerReperes, MiniConfigProjetee, CaseConfigOfficielle } from './TraceEmpriseRendu';
+import { BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, MiniConfigProjetee, CaseConfigOfficielle } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut';
 // TYPES seuls (modules serveur / purs) — pour le récap de projection (PROJ-4a), affichage pur.
 import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -273,6 +273,10 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
         {/* PROJ-4a — RÉCAP (lecture seule) de l'emprise projetée : ne s'affiche QUE pour un permis « en attente de bâti ». Le composant
             gère lui-même l'absence d'emprise (message explicite, jamais un schéma vide) et l'état hors « en attente » (rien). */}
         {recapProjection && <RecapProjectionRattachement etat={detail.etat} emprises={recapProjection.emprises} parcelle={recapProjection.parcelle} polygones={recapProjection.polygones} batiments={recapProjection.batiments} statuts={statutParCleabs} />}
+        {/* AFF-1 — sous le grand schéma, les DEUX blocs REPLIÉS (identiques à l'onglet Analyse) : polygones « projet » affectés, puis bâtiments existants. */}
+        <BlocProjetRepliable emprises={recapProjection?.emprises ?? []} polygones={polygonesReperes} batiments={recapProjection?.batiments ?? []} />
+        <BlocExistantsRepliable polygones={polygonesReperes} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
+        {statutErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{statutErreur}</div>}
         {/* ÉTAGE 1 — dossier « achevé, à confirmer » (surélévation / surface constante) : on N'affiche PAS l'arbitrage (affectation +
             valider = injection), mais la CLÔTURE honnête. `clos_sans_bati` → note en lecture seule. */}
         {(estAcheveSansBati || estClos) && <ClotureAcheveSansBati clos={estClos} onClore={() => void clore()} enCours={enCours} />}
@@ -350,11 +354,6 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
           );
         })()}
         {affErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{affErreur}</div>}
-        {/* RATT-1 bis — STATUER les polygones EXISTANTS (préservé/détruit) : MÊME composant pur qu'en Analyse (jamais dupliqué). Ses
-            données viennent de la même réponse GET emprise (:82). S'AUTO-MASQUE si rien n'est statuable (dossier sans empreinte figée,
-            ou tous les polygones « en projet »/recouverts). Disponible même « en attente du bâti » (statuts sur l'existant). */}
-        <StatutPolygonesExistants polygones={polygonesReperes} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
-        {statutErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{statutErreur}</div>}
         {/* M5 — aucun dossier (aucun signal détecté) : proposer l'ouverture manuelle de l'arbitrage. */}
         {!detail.persiste && (
           <>

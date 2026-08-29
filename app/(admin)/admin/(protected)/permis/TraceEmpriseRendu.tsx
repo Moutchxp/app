@@ -716,9 +716,16 @@ function jjmmaaaaStatut(iso: string): string { const d = iso.slice(0, 10); retur
  * sous le futur volume ; la mention le signale explicitement. « Détruit » est une PRÉVISION à confirmer à la mise à jour cadastrale ;
  * l'historique est repliable (qui/quand). Disponible même « en attente du bâti ». PUR (l'état vit dans la Vue). Mobile-first, pas de hover.
  */
-export function StatutPolygonesExistants({ polygones, recouverts, statuts, onStatuer }: {
+/** AFF-1 — nombre de bâtiments STATUABLES (existants + « en projet » recouverts au-dessus du seuil). PUR — sert au décompte du bloc replié. */
+export function nbBatimentsStatuables(polygones: PolygoneRepere[], recouverts: readonly PolygoneRecouvert[]): number {
+  const rec = new Set(recouverts.map((r) => r.cleabs));
+  return polygones.filter((p) => estStatuable(p, p.cleabs !== null && rec.has(p.cleabs))).length;
+}
+
+export function StatutPolygonesExistants({ polygones, recouverts, statuts, onStatuer, sansEntete = false }: {
   polygones: PolygoneRepere[]; recouverts: readonly PolygoneRecouvert[]; statuts: Map<string, EtatStatutPolygone>;
   onStatuer: (cleabs: string, statut: 'preserve' | 'detruit' | 'revoque') => void;
+  sansEntete?: boolean; // AFF-1 — masque le titre interne quand le bloc est porté par le résumé d'un <details> replié (le titre est sur le summary).
 }) {
   // RATT-5 — `recouverts` ne contient QUE les polygones au-dessus du seuil (part sous l'emprise ≥ seuil config) ; chacun porte son taux (%).
   const tauxRecouvrement = new Map(recouverts.map((r) => [r.cleabs, r.tauxPct]));
@@ -727,8 +734,8 @@ export function StatutPolygonesExistants({ polygones, recouverts, statuts, onSta
   if (statuables.length === 0) return null;
   const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.2rem .55rem', fontSize: 12 };
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .5rem' }}>
-      <div style={{ fontSize: 12, fontWeight: 700 }}>Bâtiments existants du site</div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', border: sansEntete ? 'none' : '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: sansEntete ? 0 : '.4rem .5rem' }}>
+      {!sansEntete && <div style={{ fontSize: 12, fontWeight: 700 }}>Bâtiments existants du site</div>}
       <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Les bâtiments existants du site, plus les polygones « en projet » recouverts par la future emprise (un « en projet » non recouvert reste hors liste). Statuez chacun : la source BD TOPO reste affichée à côté de votre décision (jamais écrasée). Un polygone recouvert par la future emprise est « détruit » par défaut, mais vous pouvez le repasser en « préservé » (cas d’une surélévation). « Détruit » est une PRÉVISION, à confirmer le jour de la mise à jour cadastrale.</div>
       {statuables.map((p) => {
         const st = statuts.get(p.cleabs!);
@@ -778,6 +785,96 @@ export function StatutPolygonesExistants({ polygones, recouverts, statuts, onSta
         );
       })}
     </div>
+  );
+}
+
+/** AFF-1 — aire (m²) d'un anneau Lambert-93 par la formule du lacet (shoelace). Sert au décompte par polygone du bloc « projet ». PUR. */
+export function aireAnneauM2(anneau: PointLambert[]): number {
+  let s = 0;
+  for (let i = 0; i < anneau.length; i++) { const a = anneau[i], b = anneau[(i + 1) % anneau.length]; s += a.x * b.y - b.x * a.y; }
+  return Math.abs(s) / 2;
+}
+
+/** AFF-1 — cleabs SOURCES d'une emprise ADOPTÉE (mémorisées dans son calage : {adoptionIgn, cleabs}). `[]` pour un tracé manuel. PUR. */
+function cleabsSourceEmprise(e: EmpriseReconstruite): string[] {
+  const c = (e.calage as unknown as { cleabs?: unknown } | null)?.cleabs;
+  return Array.isArray(c) ? c.filter((x): x is string => typeof x === 'string') : [];
+}
+
+export interface LignePolygoneProjet { cleabs: string; repere: string; aireM2: number }
+export interface GroupeProjet { corpsId: number; nom: string; polygones: LignePolygoneProjet[] }
+/**
+ * AFF-1 — regroupe les polygones « en projet » de BD TOPO AFFECTÉS à un bâtiment du permis, PAR bâtiment (nom résolu). L'affectation
+ * vient des emprises ADOPTÉES (calage.cleabs → corps). Chaque polygone porte SON repère (D/C/I…) et SA surface (aire de son anneau).
+ * Un « en projet » non affecté à un bâtiment reste hors de ce bloc. PUR (aucune I/O).
+ */
+export function polygonesProjetParBatiment(
+  emprises: EmpriseReconstruite[], polygones: PolygoneRepere[],
+  batiments: { corpsId: number; repere: string | null; nomRepli?: string | null }[],
+): { groupes: GroupeProjet[]; total: number } {
+  const corpsDeCleabs = new Map<string, number>();
+  for (const e of emprises) { if (e.corpsId === null) continue; for (const c of cleabsSourceEmprise(e)) if (!corpsDeCleabs.has(c)) corpsDeCleabs.set(c, e.corpsId); }
+  const nomDe = new Map(batiments.map((b) => [b.corpsId, nomAffichageCorps({ repere: b.repere, nomRepli: b.nomRepli, corpsId: b.corpsId })]));
+  const parCorps = new Map<number, LignePolygoneProjet[]>();
+  for (const p of polygones) {
+    if (p.cleabs === null || !estFuturBati(p.etat)) continue;
+    const corpsId = corpsDeCleabs.get(p.cleabs);
+    if (corpsId === undefined) continue; // « en projet » non affecté → hors de ce bloc
+    (parCorps.get(corpsId) ?? parCorps.set(corpsId, []).get(corpsId)!).push({ cleabs: p.cleabs, repere: p.repere, aireM2: aireAnneauM2(p.anneau) });
+  }
+  const groupes: GroupeProjet[] = [];
+  let total = 0;
+  for (const [corpsId, polys] of parCorps) { groupes.push({ corpsId, nom: nomDe.get(corpsId) ?? nomAffichageCorps({ repere: null, corpsId }), polygones: polys }); total += polys.length; }
+  return { groupes, total };
+}
+
+/**
+ * AFF-1 — BLOC REPLIÉ (fermé par défaut) « Bâtiment(s) au statut projet… affecté(s) ». Résumé = titre + décompte (N polygones). Ouvert :
+ * par bâtiment (nom résolu), la liste des polygones « en projet » affectés, chacun avec SON repère et SA surface — plus jamais le nom du
+ * bâtiment répété par ligne. `<details>` natif (clavier, sans hover, sans animation). Rien si aucun polygone affecté. PUR.
+ */
+export function BlocProjetRepliable({ emprises, polygones, batiments }: {
+  emprises: EmpriseReconstruite[]; polygones: PolygoneRepere[]; batiments: { corpsId: number; repere: string | null; nomRepli?: string | null }[];
+}) {
+  const { groupes, total } = polygonesProjetParBatiment(emprises, polygones, batiments);
+  if (total === 0) return null;
+  return (
+    <details style={{ ...carte }} data-bloc="projet">
+      <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Bâtiment(s) au statut « projet » en base BD TOPO affecté(s) au projet de bâtiment <span style={{ fontWeight: 400, color: 'var(--color-svv-muted)' }}>— {total} polygone{total > 1 ? 's' : ''}</span></summary>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', marginTop: '.4rem' }}>
+        {groupes.map((g) => (
+          <div key={g.corpsId} data-corps={g.corpsId}>
+            <div style={{ fontSize: 12, fontWeight: 600 }}>{g.nom}</div>
+            <ul style={{ listStyle: 'none', margin: '.15rem 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+              {g.polygones.map((p) => (
+                <li key={p.cleabs} data-cleabs={p.cleabs} style={{ fontSize: 12 }}><strong>Polygone {p.repere}</strong> — {fmtM2(p.aireM2)}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+/**
+ * AFF-1 — BLOC REPLIÉ (fermé par défaut) « Bâtiments existants de la ou des parcelles du permis ». Résumé = titre + décompte (N
+ * bâtiments). Ouvert : EXACTEMENT le contenu de StatutPolygonesExistants (mention rouge, taux, mixte, boutons, historique), sans son
+ * titre interne (porté par le résumé). `<details>` natif. Rien si aucun bâtiment statuable. PUR.
+ */
+export function BlocExistantsRepliable({ polygones, recouverts, statuts, onStatuer }: {
+  polygones: PolygoneRepere[]; recouverts: readonly PolygoneRecouvert[]; statuts: Map<string, EtatStatutPolygone>;
+  onStatuer: (cleabs: string, statut: 'preserve' | 'detruit' | 'revoque') => void;
+}) {
+  const n = nbBatimentsStatuables(polygones, recouverts);
+  if (n === 0) return null;
+  return (
+    <details style={{ ...carte }} data-bloc="existants">
+      <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Bâtiments existants de la ou des parcelles du permis <span style={{ fontWeight: 400, color: 'var(--color-svv-muted)' }}>— {n} bâtiment{n > 1 ? 's' : ''}</span></summary>
+      <div style={{ marginTop: '.4rem' }}>
+        <StatutPolygonesExistants polygones={polygones} recouverts={recouverts} statuts={statuts} onStatuer={onStatuer} sansEntete />
+      </div>
+    </details>
   );
 }
 
