@@ -13,7 +13,8 @@ import type { FamillePlan } from '../../../../lib/permis/planMasse';
  */
 const LIBELLE: Record<FamillePlan, string> = { masse: 'Plan de masse', coupe: 'Plan de coupe', etage: 'Plans d’étages', cerfa: 'Formulaire Cerfa' };
 
-interface Etat { numDau: string | null; destinataire: string | null; repliable: boolean; motif: string | null; historique: { le: string; objet: string; corps: string }[] }
+interface LigneHisto { id: number; le: string; mode: 'envoye' | 'declare'; dateRelance: string | null; objet: string | null; familles: string[] }
+interface Etat { numDau: string | null; destinataire: string | null; repliable: boolean; motif: string | null; historique: LigneHisto[] }
 const muted: React.CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
 const styleChamp: React.CSSProperties = { width: '100%', padding: '.4rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, boxSizing: 'border-box' };
 
@@ -26,6 +27,11 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
   const [genere, setGenere] = useState<{ objet: string; corps: string }>({ objet: '', corps: '' });
   const [envoi, setEnvoi] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // PART-3e — DÉCLARATION d'une relance faite hors outil (aucun envoi) : sélection + date propres au constat.
+  const [cochesDecl, setCochesDecl] = useState<Set<FamillePlan>>(() => new Set(famillesManquantes));
+  const [dateDecl, setDateDecl] = useState('');
+  const [enCoursDecl, setEnCoursDecl] = useState(false);
+  const [messageDecl, setMessageDecl] = useState<string | null>(null);
 
   useEffect(() => {
     let annule = false;
@@ -83,6 +89,35 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
 
   const peutEnvoyer = repliable && objet.trim() !== '' && corps.trim() !== '' && !envoi;
 
+  const basculerCaseDecl = (f: FamillePlan) => setCochesDecl((s) => { const n = new Set(s); if (n.has(f)) n.delete(f); else n.add(f); return n; });
+
+  // DÉCLARER une relance faite hors outil : AUCUN envoi (action 'declarer'). On pose date + familles ; le serveur valide les bornes.
+  const declarer = useCallback(async () => {
+    setEnCoursDecl(true); setMessageDecl(null);
+    try {
+      const res = await fetch('/api/admin/permis/demander-pieces', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'declarer', dossierId, familles: [...cochesDecl], dateRelance: dateDecl }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
+      if (res.ok && d.ok) { setMessageDecl('Relance déclarée (aucun e-mail envoyé).'); await chargerEtat(); }
+      else setMessageDecl(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'déclaration impossible'));
+    } catch { setMessageDecl('déclaration impossible'); } finally { setEnCoursDecl(false); }
+  }, [dossierId, cochesDecl, dateDecl, chargerEtat]);
+
+  // ANNULER une relance déclarée (réversibilité).
+  const annulerDecl = useCallback(async (journalId: number) => {
+    if (!window.confirm('Annuler cette relance déclarée ?')) return;
+    try {
+      const res = await fetch('/api/admin/permis/demander-pieces', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'annuler', journalId }),
+      });
+      if (res.ok) await chargerEtat(); else setMessageDecl('annulation impossible');
+    } catch { setMessageDecl('annulation impossible'); }
+  }, [chargerEtat]);
+
+  const peutDeclarer = dateDecl.trim() !== '' && cochesDecl.size > 0 && !enCoursDecl;
+
   return (
     <div className="flex flex-col gap-2" style={{ minWidth: 0, marginTop: '.4rem', paddingTop: '.4rem', borderTop: '1px solid var(--color-svv-line)' }}>
       <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>Demander les pièces manquantes à la mairie</h4>
@@ -134,11 +169,42 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
 
             {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-ink)' }}>{message}</div>}
 
+            {/* PART-3e — DÉCLARER une relance faite HORS de l'outil : visuellement DISTINCT (fond neutre encadré), et sans envoi. */}
+            <div style={{ marginTop: '.5rem', padding: '.5rem', border: '1px dashed var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)' }}>
+              <strong style={{ fontSize: 12 }}>Déclarer une relance déjà envoyée (hors outil)</strong>
+              <p style={{ ...muted, margin: '.15rem 0' }}>Constat, pas un envoi : aucun e-mail ne part. Enregistre une relance que vous avez faite vous-même depuis votre boîte.</p>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', fontSize: 12, maxWidth: 220 }}>
+                <span style={muted}>Date de la relance</span>
+                <input type="date" value={dateDecl} onChange={(e) => setDateDecl(e.target.value)} style={styleChamp} aria-label="Date de la relance déjà envoyée" />
+              </label>
+              <fieldset style={{ border: 0, margin: '.3rem 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                <legend style={{ ...muted, padding: 0 }}>Pièces alors demandées :</legend>
+                {famillesManquantes.map((f) => (
+                  <label key={f} style={{ display: 'flex', gap: '.4rem', alignItems: 'center', fontSize: 13 }}>
+                    <input type="checkbox" checked={cochesDecl.has(f)} onChange={() => basculerCaseDecl(f)} />
+                    {LIBELLE[f]}
+                  </label>
+                ))}
+              </fieldset>
+              <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem', marginTop: '.3rem' }}
+                disabled={!peutDeclarer} onClick={() => void declarer()}>{enCoursDecl ? 'Enregistrement…' : 'Déclarer cette relance'}</button>
+              {dateDecl.trim() === '' && <span style={{ ...muted, display: 'block', marginTop: '.2rem' }}>Indiquez la date de la relance.</span>}
+              {messageDecl && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-ink)', marginTop: '.2rem' }}>{messageDecl}</div>}
+            </div>
+
             {etat.historique.length > 0 && (
               <div style={{ ...muted, marginTop: '.2rem' }}>
-                Demandes déjà envoyées :
+                Relances déjà tracées :
                 <ul style={{ margin: '.1rem 0 0', paddingLeft: '1.1rem' }}>
-                  {etat.historique.map((h, i) => <li key={i}>{h.le.slice(0, 16).replace('T', ' ')} — {h.objet}</li>)}
+                  {etat.historique.map((h) => (
+                    <li key={h.id}>
+                      {(h.dateRelance ?? h.le.slice(0, 10))} —{' '}
+                      {h.mode === 'declare'
+                        ? <><strong>déclarée</strong> (contenu non connu du système){h.familles.length > 0 ? ` — ${h.familles.join(', ')}` : ''}{' '}
+                            <button type="button" className="svv-link" style={{ width: 'auto', padding: '0 .3rem', color: 'var(--color-svv-red)' }} onClick={() => void annulerDecl(h.id)}>annuler</button></>
+                        : <><strong>envoyée par l’outil</strong>{h.objet ? ` — ${h.objet}` : ''}</>}
+                    </li>
+                  ))}
                 </ul>
               </div>
             )}

@@ -1,5 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { composerComplementPieces, estNoReply, entetesFil, problemeTexteComplement } from './complementPieces';
+import { composerComplementPieces, estNoReply, entetesFil, problemeTexteComplement, problemeDateDeclaration } from './complementPieces';
+
+describe('problemeDateDeclaration — bornes d’une relance déclarée', () => {
+  it('date valide (après le dernier message, pas future) → null', () => {
+    expect(problemeDateDeclaration('2026-08-29', '2026-08-30', '2026-08-28T14:39:59+02:00')).toBeNull();
+  });
+  it('date dans le FUTUR → refus', () => {
+    expect(problemeDateDeclaration('2026-09-01', '2026-08-30', '2026-08-28T00:00:00+02:00')).toMatch(/futur/);
+  });
+  it('date ANTÉRIEURE au dernier message reçu → refus', () => {
+    expect(problemeDateDeclaration('2026-08-27', '2026-08-30', '2026-08-28T14:39:59+02:00')).toMatch(/précéder le dernier message/);
+  });
+  it('date absente / mal formée → refus', () => {
+    expect(problemeDateDeclaration('', '2026-08-30', null)).toMatch(/manquante/);
+    expect(problemeDateDeclaration('30/08/2026', '2026-08-30', null)).toMatch(/invalide|manquante/);
+  });
+  it('même jour que le dernier message → accepté (borne basse inclusive)', () => {
+    expect(problemeDateDeclaration('2026-08-28', '2026-08-30', '2026-08-28T14:39:59+02:00')).toBeNull();
+  });
+});
 
 describe('problemeTexteComplement — validation du texte (y compris modifié à la main)', () => {
   it('texte valable → null', () => {

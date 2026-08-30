@@ -52,6 +52,22 @@ export function problemeTexteComplement(objet: string, corps: string): string | 
   return null;
 }
 
+/**
+ * PART-3e — valide la DATE d'une relance DÉJÀ EFFECTUÉE hors de l'outil (déclaration, aucun envoi). PURE. Refuse : date absente/mal
+ * formée, dans le FUTUR, ou ANTÉRIEURE au dernier message reçu de la mairie (une relance ne peut précéder ce qu'elle relance).
+ * Comparaison au grain JOUR (10 premiers caractères ISO 'YYYY-MM-DD'). `dernierMessageLe` null → borne basse ignorée.
+ */
+export function problemeDateDeclaration(dateRelance: string, aujourdhui: string, dernierMessageLe: string | null): string | null {
+  const d = (dateRelance ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return 'date de relance manquante ou invalide';
+  if (d > (aujourdhui ?? '').slice(0, 10)) return 'la date de relance ne peut pas être dans le futur';
+  if (dernierMessageLe) {
+    const m = dernierMessageLe.slice(0, 10);
+    if (d < m) return `la relance ne peut pas précéder le dernier message reçu de la mairie (${m})`;
+  }
+  return null;
+}
+
 export interface ComplementPieces { objet: string; corps: string }
 
 /**

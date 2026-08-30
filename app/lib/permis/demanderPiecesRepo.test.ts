@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { executerDemandePieces, type DepsDemandePieces, type CibleComplement, type TraceEnvoi } from './demanderPiecesRepo';
+import { executerDemandePieces, declarerRelanceComplement, type DepsDemandePieces, type DepsDeclaration, type CibleComplement, type TraceEnvoi, type TraceDeclaration } from './demanderPiecesRepo';
 
 /**
  * PART-3a/3c — orchestrateur du geste « demander les pièces manquantes » (par INJECTION : aucun SMTP, aucune base, aucun e-mail réel).
@@ -8,7 +8,7 @@ import { executerDemandePieces, type DepsDemandePieces, type CibleComplement, ty
 const cible = (over: Partial<CibleComplement> = {}): CibleComplement => ({
   demandeId: 154, numDau: '0930012500081', destinataire: 'lauriane.pangui@mairie-aubervilliers.fr', deNom: 'Lauriane Pangui',
   messageId: '<abc@mairie-aubervilliers.fr>', referencesBrut: '<x@svav.com>', from: 'contact@sansvisavis.com', profil: 'entreprise',
-  motifIndisponible: null, ...over,
+  recuLe: '2026-08-28T14:39:59+02:00', motifIndisponible: null, ...over,
 });
 
 const OBJET = 'Permis n° X — complément';
@@ -91,5 +91,54 @@ describe('executerDemandePieces', () => {
     expect(r.ok).toBe(true);
     expect(ordre).toEqual(['envoyer', 'journal']);
     expect(cibleEnvoyee!.messageId).toBe('<abc@mairie-aubervilliers.fr>');
+  });
+});
+
+// ── PART-3e — DÉCLARER une relance faite hors outil (AUCUN envoi) ─────────────────────────────────────────────────────────────
+const ctx = { demandeId: 154, destinataire: 'lauriane.pangui@mairie-aubervilliers.fr', dernierMessageLe: '2026-08-28T14:39:59+02:00' };
+function makeDepsDecl(over: Partial<DepsDeclaration> = {}): DepsDeclaration {
+  return {
+    lireContexte: vi.fn(async () => ctx),
+    journaliserDeclaration: vi.fn(async (_d: number, _t: TraceDeclaration, _a: string) => { void _d; void _t; void _a; }),
+    aujourdhui: () => '2026-08-30',
+    ...over,
+  };
+}
+const argD = (over: Partial<{ dossierId: number; familles: ('cerfa'|'masse'|'coupe'|'etage')[]; dateRelance: string; auteur: string }> = {}) =>
+  ({ dossierId: 7424, familles: ['cerfa'] as ('cerfa'|'masse'|'coupe'|'etage')[], dateRelance: '2026-08-29', auteur: 'admin:decision', ...over });
+
+describe('declarerRelanceComplement — constat sans envoi', () => {
+  it('AUCUN chemin d’envoi : les dépendances de déclaration ne comportent PAS de fonction envoyer', () => {
+    const deps = makeDepsDecl();
+    expect('envoyer' in deps).toBe(false); // structurellement, ce chemin ne peut pas envoyer d'e-mail
+  });
+
+  it('date valide → journalise (même état : dateRelance + familles), aucun envoi possible', async () => {
+    let trace: TraceDeclaration | null = null;
+    const deps = makeDepsDecl({ journaliserDeclaration: async (_d, t) => { trace = t; } });
+    const r = await declarerRelanceComplement(deps, argD({ familles: ['cerfa', 'etage'] }));
+    expect(r.ok).toBe(true);
+    expect(trace!.dateRelance).toBe('2026-08-29');
+    expect(trace!.familles).toEqual(['cerfa', 'etage']);
+    expect(trace!.destinataire).toBe('lauriane.pangui@mairie-aubervilliers.fr');
+  });
+
+  it('date dans le FUTUR → refus, rien journalisé', async () => {
+    const journaliserDeclaration = vi.fn(async () => {});
+    const r = await declarerRelanceComplement(makeDepsDecl({ journaliserDeclaration }), argD({ dateRelance: '2026-09-15' }));
+    expect(r.ok).toBe(false);
+    expect(journaliserDeclaration).not.toHaveBeenCalled();
+  });
+
+  it('date ANTÉRIEURE au dernier message reçu → refus, rien journalisé', async () => {
+    const journaliserDeclaration = vi.fn(async () => {});
+    const r = await declarerRelanceComplement(makeDepsDecl({ journaliserDeclaration }), argD({ dateRelance: '2026-08-01' }));
+    expect(r.ok).toBe(false);
+    expect(journaliserDeclaration).not.toHaveBeenCalled();
+  });
+
+  it('aucune famille → refus ; aucun message de mairie → refus', async () => {
+    expect((await declarerRelanceComplement(makeDepsDecl(), argD({ familles: [] }))).ok).toBe(false);
+    expect((await declarerRelanceComplement(makeDepsDecl({ lireContexte: vi.fn(async () => null) }), argD())).ok).toBe(false);
   });
 });
