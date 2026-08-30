@@ -231,10 +231,12 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Combien de jours AVANT l’échéance l’AVIS est préparé. Il prévient la mairie que l’échéance approche et qu’à défaut de réponse vous pourrez saisir la CADA — sans encore la saisir. Une réponse de sa part rend la démarche sans objet. C’est un délai LÉGAL (CRPA), pas une préférence d’envoi ; il n’agit aujourd’hui que sur le rail e-mail, seul à envoyer des relances automatiquement.' },
   { colonne: 'relance_saisine_delai_jours', cle: 'relanceSaisineDelaiJours', libelle: 'Saisine CADA — délai après l’échéance', unite: 'jours', type: 'entier', rail: 'email',
     aide: 'Combien de jours APRÈS l’échéance la saisine de la CADA sera déposée. Le jour de l’échéance, un message l’annonce à la mairie ; ce délai lui laisse une dernière chance de transmettre les pièces avant le dépôt. C’est un délai LÉGAL (CRPA), pas une préférence d’envoi ; il n’agit aujourd’hui que sur le rail e-mail, seul à envoyer des relances automatiquement.' },
-  // CASC-2 — le délai avant saisine CADA sur DOSSIER PARTIEL (cada_partiel_delai_mois/jours, migration 178) sera exposé ICI (thème CADA)
-  //   EN MÊME TEMPS que l'application de la 178 : l'invariant Réglages exige un CHECK EN BASE pour chaque paramètre entier (bornes tirées
-  //   des contraintes live), impossible tant que les colonnes n'existent pas. D'ici là, le délai reste piloté par config_veille + repli
-  //   runtime (1 mois + 4 j). Voir dossierPartiel.dateButoirPartiel et veilleConfig.lireCadaPartielDelai.
+  // CASC-2 — délai avant saisine CADA sur DOSSIER PARTIEL (mairie a répondu, pièces manquantes) : compté depuis la 1re réclamation.
+  //   Bornes tirées des CHECK de la base (migration 178), jamais écrites en dur — comme tous les autres paramètres entiers.
+  { colonne: 'cada_partiel_delai_mois', cle: 'cadaPartielDelaiMois', libelle: 'Saisine CADA (dossier partiel) — mois avant qu’elle redevienne possible', unite: 'mois', type: 'entier',
+    aide: 'Quand une mairie a répondu mais qu’il MANQUE des pièces et que vous les avez réclamées, vous gardez le droit de saisir la CADA — mais on repousse la date à partir de laquelle la saisine redevient proposable. Ce nombre de MOIS (plus les jours ci-dessous) est ajouté à la date de la PREMIÈRE réclamation de pièces (jamais la dernière). Ne concerne QUE les dossiers partiels ; la relance des demandes restées sans réponse est inchangée.' },
+  { colonne: 'cada_partiel_delai_jours', cle: 'cadaPartielDelaiJours', libelle: 'Saisine CADA (dossier partiel) — jours ajoutés en plus des mois', unite: 'jours', type: 'entier',
+    aide: 'Jours ajoutés APRÈS les mois ci-dessus pour fixer la date à partir de laquelle la saisine CADA redevient proposable sur un dossier partiel. Défaut : 1 mois + 4 jours. Compté depuis la première réclamation de pièces.' },
   // RELANCE — fenêtre HORAIRE d'envoi automatique (matin, jours ouvrés). Un rappel expédié un dimanche soir « fait robot » ; en semaine le matin, il « fait une personne ».
   { colonne: 'envoi_heure_debut', cle: 'envoiHeureDebut', libelle: 'Envoi automatique — heure de début', unite: 'heure locale', type: 'entier', rail: 'email',
     aide: 'Les relances automatiques ne partent qu’entre cette heure et l’heure de fin ci-dessous, du lundi au vendredi. Les jours fériés ne sont pas pris en compte. Un brouillon préparé un week-end attend le lundi matin. (L’envoi que VOUS déclenchez à la main n’est jamais bridé.)' },
@@ -432,7 +434,7 @@ export const COLONNES_THEME_ALERTES: readonly string[] = [
 export const COLONNES_THEME_CADA: readonly string[] = [
   'proposition_cada_active', 'cada_email', 'cada_url_formulaire',
   'saisine_cada_auto_active', // Cascade lot 2 — auto-saisine (sans effet tant que cada_email vide)
-  // CASC-2 : 'cada_partiel_delai_mois'/'cada_partiel_delai_jours' à ajouter ICI EN MÊME TEMPS que la migration 178 (bornes = CHECK live).
+  'cada_partiel_delai_mois', 'cada_partiel_delai_jours', // CASC-2 — délai prolongé avant saisine sur dossier partiel (migration 178, bornes = CHECK live)
 ];
 // RATT-AUTO + ATT-BATI — thème PROPRE (ni demande, ni envoi) : automatisation du rattachement des permis à leur futur bâti.
 export const COLONNES_THEME_RATTACHEMENT: readonly string[] = [

@@ -74,6 +74,9 @@ const DEFS_BASE = [
   'CHECK (((relance_rappel_jours_avant >= 1) AND (relance_rappel_jours_avant <= 30)))',
   'CHECK (((relance_avis_jours_avant >= 1) AND (relance_avis_jours_avant <= 30)))',
   'CHECK (((relance_saisine_delai_jours >= 1) AND (relance_saisine_delai_jours <= 30)))',
+  // CASC-2 — délai avant saisine CADA sur dossier partiel (migration 178) : mois [0;12], jours [0;90]
+  'CHECK (((cada_partiel_delai_mois >= 0) AND (cada_partiel_delai_mois <= 12)))',
+  'CHECK (((cada_partiel_delai_jours >= 0) AND (cada_partiel_delai_jours <= 90)))',
   // RELANCE — fenêtre horaire d'envoi automatique (migration 140) : BETWEEN 0 AND 23 → forme `>= AND <=`
   'CHECK (((envoi_heure_debut >= 0) AND (envoi_heure_debut <= 23)))',
   'CHECK (((envoi_heure_fin >= 0) AND (envoi_heure_fin <= 23)))',
@@ -430,11 +433,11 @@ describe('CASC-2b — GARDE-FOU : toute colonne d’un thème a un ParamVeille (
     });
   }
 
-  it('CASC-2 : cada_partiel_delai_* NE sont PAS exposées tant que la migration 178 n’est pas appliquée (état cohérent : commentées des DEUX côtés)', () => {
-    // Cohérence stricte : ni dans le thème CADA, ni comme ParamVeille. À décommenter EN MÊME TEMPS que la 178 (bornes = CHECK live).
-    expect(COLONNES_THEME_CADA).not.toContain('cada_partiel_delai_mois');
-    expect(COLONNES_THEME_CADA).not.toContain('cada_partiel_delai_jours');
-    expect(NOMS_PARAMS.has('cada_partiel_delai_mois')).toBe(false);
-    expect(NOMS_PARAMS.has('cada_partiel_delai_jours')).toBe(false);
+  it('CASC-2c : cada_partiel_delai_* sont câblées des DEUX côtés (thème CADA + ParamVeille), migration 178 appliquée', () => {
+    // Cohérence stricte : présentes dans le thème CADA ET définies comme ParamVeille (bornes = CHECK live 178). Câblage complet.
+    expect(COLONNES_THEME_CADA).toContain('cada_partiel_delai_mois');
+    expect(COLONNES_THEME_CADA).toContain('cada_partiel_delai_jours');
+    expect(NOMS_PARAMS.has('cada_partiel_delai_mois')).toBe(true);
+    expect(NOMS_PARAMS.has('cada_partiel_delai_jours')).toBe(true);
   });
 });
