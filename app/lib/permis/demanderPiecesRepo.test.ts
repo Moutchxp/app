@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { executerDemandePieces, declarerRelanceComplement, type DepsDemandePieces, type DepsDeclaration, type CibleComplement, type TraceEnvoi, type TraceDeclaration } from './demanderPiecesRepo';
+import { executerDemandePieces, declarerRelanceComplement, executerReponseLibre, type DepsDemandePieces, type DepsDeclaration, type DepsReponse, type CibleComplement, type CibleReponse, type TraceEnvoi, type TraceDeclaration } from './demanderPiecesRepo';
 
 /**
  * PART-3a/3c — orchestrateur du geste « demander les pièces manquantes » (par INJECTION : aucun SMTP, aucune base, aucun e-mail réel).
@@ -140,5 +140,70 @@ describe('declarerRelanceComplement — constat sans envoi', () => {
   it('aucune famille → refus ; aucun message de mairie → refus', async () => {
     expect((await declarerRelanceComplement(makeDepsDecl(), argD({ familles: [] }))).ok).toBe(false);
     expect((await declarerRelanceComplement(makeDepsDecl({ lireContexte: vi.fn(async () => null) }), argD())).ok).toBe(false);
+  });
+});
+
+// ── FIL-B — RÉPONSE LIBRE à un message choisi ────────────────────────────────────────────────────────────────────────────────
+const cibleRep = (over: Partial<CibleReponse> = {}): CibleReponse => ({
+  demandeId: 154, destinataire: 'lauriane.pangui@mairie-aubervilliers.fr', messageId: '<msg-17@mairie-aubervilliers.fr>',
+  referencesBrut: '<x@svav.com>', objetOrigine: 'Nouvelle demande', from: 'contact@sansvisavis.com', profil: 'entreprise', motifIndisponible: null, ...over,
+});
+function makeDepsRep(over: Partial<DepsReponse> = {}): DepsReponse {
+  return {
+    lireCible: vi.fn(async () => cibleRep()),
+    envoyer: vi.fn(async (_c: CibleReponse, _o: string, _co: string) => { void _c; void _o; void _co; return { messageId: '<envoye@svav.com>' }; }),
+    journaliser: vi.fn(async () => {}),
+    ...over,
+  };
+}
+const argR = (over: Partial<{ reponseId: number; objet: string; corps: string; auteur: string }> = {}) =>
+  ({ reponseId: 17, objet: 'Re: Nouvelle demande', corps: 'Bonjour, merci.', auteur: 'admin:decision', ...over });
+
+describe('executerReponseLibre', () => {
+  it('répond dans le fil DU message choisi (ses en-têtes à lui) + envoi VERBATIM', async () => {
+    let cibleEnvoyee: CibleReponse | null = null; let corpsEnvoye = '';
+    const custom = 'Texte tapé à la main par Arno.';
+    // Message 17 : messageId distinct des autres → on prouve que ce sont SES en-têtes qui partent.
+    const deps = makeDepsRep({ lireCible: vi.fn(async () => cibleRep({ messageId: '<msg-17@mairie-aubervilliers.fr>' })), envoyer: async (c, _o, co) => { cibleEnvoyee = c; corpsEnvoye = co; return { messageId: '<m@svav.com>' }; } });
+    const r = await executerReponseLibre(deps, argR({ corps: custom }));
+    expect(r.ok).toBe(true);
+    expect(cibleEnvoyee!.messageId).toBe('<msg-17@mairie-aubervilliers.fr>'); // pas le dernier, CE message
+    expect(corpsEnvoye).toBe(custom); // verbatim
+  });
+
+  it('corps vide → refus, aucun envoi', async () => {
+    const deps = makeDepsRep();
+    expect((await executerReponseLibre(deps, argR({ corps: '  ' }))).ok).toBe(false);
+    expect(deps.envoyer).not.toHaveBeenCalled();
+  });
+
+  it('objet vide → refus ; entité HTML → refus', async () => {
+    const deps = makeDepsRep();
+    expect((await executerReponseLibre(deps, argR({ objet: '' }))).ok).toBe(false);
+    expect((await executerReponseLibre(deps, argR({ corps: 'x&nbsp;y' }))).ok).toBe(false);
+    expect(deps.envoyer).not.toHaveBeenCalled();
+  });
+
+  it('expéditeur no-reply / demande multi-dossiers (motifIndisponible) → refus, aucun envoi', async () => {
+    const deps = makeDepsRep({ lireCible: vi.fn(async () => cibleRep({ motifIndisponible: 'cette demande couvre plusieurs permis' })) });
+    const r = await executerReponseLibre(deps, argR());
+    expect(r).toEqual({ ok: false, motif: 'cette demande couvre plusieurs permis' });
+    expect(deps.envoyer).not.toHaveBeenCalled();
+  });
+
+  it('message introuvable (cible null) → refus', async () => {
+    expect((await executerReponseLibre(makeDepsRep({ lireCible: vi.fn(async () => null) }), argR())).ok).toBe(false);
+  });
+
+  it('envoi AVANT journal ; le journal reçoit objet + corps + le message d’origine', async () => {
+    const ordre: string[] = []; let journalObjet = ''; let enReponseA = '';
+    const deps = makeDepsRep({
+      envoyer: async () => { ordre.push('envoyer'); return { messageId: '<m@svav.com>' }; },
+      journaliser: async (_d, t) => { ordre.push('journal'); journalObjet = t.objet; enReponseA = t.enReponseA; },
+    });
+    await executerReponseLibre(deps, argR({ objet: 'Re: X', corps: 'Y' }));
+    expect(ordre).toEqual(['envoyer', 'journal']);
+    expect(journalObjet).toBe('Re: X');
+    expect(enReponseA).toBe('<msg-17@mairie-aubervilliers.fr>');
   });
 });

@@ -68,6 +68,13 @@ export function problemeDateDeclaration(dateRelance: string, aujourdhui: string,
   return null;
 }
 
+/** FIL-B — objet d'une RÉPONSE à un message : préfixe « Re: » de l'objet d'origine, sauf s'il en porte déjà un. PURE. */
+export function objetReponse(objetOrigine: string | null | undefined): string {
+  const o = (objetOrigine ?? '').trim();
+  if (o === '') return 'Re:';
+  return /^re\s*:/i.test(o) ? o : `Re: ${o}`;
+}
+
 export interface ComplementPieces { objet: string; corps: string }
 
 /**

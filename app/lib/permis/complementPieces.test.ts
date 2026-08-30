@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { composerComplementPieces, estNoReply, entetesFil, problemeTexteComplement, problemeDateDeclaration } from './complementPieces';
+import { composerComplementPieces, estNoReply, entetesFil, problemeTexteComplement, problemeDateDeclaration, objetReponse } from './complementPieces';
 
 describe('problemeDateDeclaration — bornes d’une relance déclarée', () => {
   it('date valide (après le dernier message, pas future) → null', () => {
@@ -46,6 +46,16 @@ describe('entetesFil — répondre dans le fil du dernier message', () => {
   });
   it('sans References préalables → References = juste le Message-ID', () => {
     expect(entetesFil('<abc@mairie.fr>', null).references).toBe('<abc@mairie.fr>');
+  });
+});
+
+describe('objetReponse — préfixe Re:', () => {
+  it('ajoute « Re: » si absent, ne le double pas', () => {
+    expect(objetReponse('Nouvelle demande')).toBe('Re: Nouvelle demande');
+    expect(objetReponse('Re: Nouvelle demande')).toBe('Re: Nouvelle demande');
+    expect(objetReponse('RE : truc')).toBe('RE : truc'); // déjà une réponse (casse/espace tolérés)
+    expect(objetReponse('')).toBe('Re:');
+    expect(objetReponse(null)).toBe('Re:');
   });
 });
 

@@ -222,6 +222,104 @@ export async function annulerDeclaration(journalId: number): Promise<boolean> {
   return (r.rowCount ?? 0) > 0;
 }
 
+// ── FIL-B — RÉPONDRE à un message CHOISI dans le fil (réponse libre) ──────────────────────────────────────────────────────────────
+/** Préfixe des lignes de journal d'une RÉPONSE LIBRE (distincte du complément et de la déclaration). */
+export const MOTIF_REPONSE_LIBRE_PREFIXE = 'réponse libre envoyée';
+
+/** La cible d'une réponse à UN message choisi : ses PROPRES en-têtes de fil + son expéditeur. */
+export interface CibleReponse {
+  demandeId: number;
+  destinataire: string;        // de_adresse du message choisi
+  messageId: string;           // Message-ID du message choisi (In-Reply-To de notre réponse)
+  referencesBrut: string | null;
+  objetOrigine: string | null;
+  from: string;
+  profil: string;
+  motifIndisponible: string | null; // no-reply, expédition indisponible, demande multi-dossiers…
+}
+
+/** Lit la cible d'une réponse à partir de l'id du message reçu (ses en-têtes À LUI, pas ceux du dernier message). */
+export async function lireCibleReponseReel(reponseId: number): Promise<CibleReponse | null> {
+  const { rows } = await query<{ demande_id: number | null; message_id: string; references_brut: string | null; de_adresse: string; objet: string | null; profil: string; nb: number }>(
+    `SELECT r.demande_id, r.message_id, r.references_brut, r.de_adresse, r.objet, d.profil_demandeur AS profil,
+            (SELECT count(*) FROM demande_dossier x WHERE x.demande_id = r.demande_id AND x.actif)::int AS nb
+       FROM demande_reponse r JOIN demande d ON d.id = r.demande_id
+      WHERE r.id = $1`, [reponseId]);
+  const r = rows[0];
+  if (!r || r.demande_id === null) return null; // message inconnu ou non rattaché → pas de fil où répondre
+
+  const { lireAdressesExpedition, INFIXE_SMTP } = await import('../sitadel/envoiDemande');
+  const { lireCompteSmtp } = await import('../email');
+  const from = ((await lireAdressesExpedition())[r.profil] ?? '').trim();
+  const compteOk = lireCompteSmtp(INFIXE_SMTP[r.profil as 'entreprise' | 'personne'] ?? '') !== null;
+
+  const motifIndisponible = r.nb > 1
+    ? 'cette demande couvre plusieurs permis : la réponse ne peut pas être attribuée à ce permis'
+    : estNoReply(r.de_adresse)
+      ? `l’expéditeur de ce message n’est pas répondable (${r.de_adresse || 'adresse absente'})`
+      : from === ''
+        ? 'aucune adresse d’expédition configurée pour ce profil (Réglages)'
+        : !compteOk
+          ? 'compte SMTP d’envoi non configuré pour ce profil'
+          : null;
+
+  return {
+    demandeId: r.demande_id, destinataire: r.de_adresse, messageId: r.message_id, referencesBrut: r.references_brut,
+    objetOrigine: r.objet, from, profil: r.profil, motifIndisponible,
+  };
+}
+
+export interface DepsReponse {
+  lireCible(reponseId: number): Promise<CibleReponse | null>;
+  envoyer(cible: CibleReponse, objet: string, corps: string): Promise<{ messageId: string }>;
+  journaliser(demandeId: number, trace: { objet: string; corps: string; destinataire: string; messageId: string; enReponseA: string }, auteur: string): Promise<void>;
+}
+
+/**
+ * Répond à UN message choisi (réponse libre). Le texte (objet + corps) est FOURNI et envoyé VERBATIM (comme PART-3c) DANS LE FIL DE
+ * CE message (ses en-têtes à lui). Refuse : objet/corps vide, entité HTML, message inconnu, expéditeur non répondable, demande
+ * multi-dossiers. L'ENVOI précède le JOURNAL. PUR par injection.
+ */
+export async function executerReponseLibre(deps: DepsReponse, arg: { reponseId: number; objet: string; corps: string; auteur: string }): Promise<ResultatDemandePieces> {
+  const problemeTexte = problemeTexteComplement(arg.objet, arg.corps);
+  if (problemeTexte !== null) return { ok: false, motif: problemeTexte };
+  const cible = await deps.lireCible(arg.reponseId);
+  if (cible === null) return { ok: false, motif: 'message introuvable' };
+  if (cible.motifIndisponible !== null) return { ok: false, motif: cible.motifIndisponible };
+
+  const { messageId } = await deps.envoyer(cible, arg.objet, arg.corps); // AVANT le journal ; en-têtes = ceux du message choisi
+  await deps.journaliser(cible.demandeId, { objet: arg.objet, corps: arg.corps, destinataire: cible.destinataire, messageId, enReponseA: cible.messageId }, arg.auteur);
+  return { ok: true, destinataire: cible.destinataire, messageId };
+}
+
+export function depsReellesReponse(): DepsReponse {
+  return {
+    lireCible: lireCibleReponseReel,
+    envoyer: async (cible, objet, corps) => {
+      const { obtenirTransporteur, lireCompteSmtp, envoyerComplementPieces } = await import('../email');
+      const { INFIXE_SMTP } = await import('../sitadel/envoiDemande');
+      const compte = lireCompteSmtp(INFIXE_SMTP[cible.profil as 'entreprise' | 'personne'] ?? '');
+      if (compte === null) throw new Error('compte SMTP non configuré');
+      const { inReplyTo, references } = entetesFil(cible.messageId, cible.referencesBrut); // fil DU message choisi
+      const emission = await envoyerComplementPieces(obtenirTransporteur(compte), cible.from, {
+        to: cible.destinataire, replyTo: cible.from, objet, corps, inReplyTo, references,
+      });
+      return { messageId: emission.messageId };
+    },
+    journaliser: async (demandeId, trace, auteur) => {
+      const motif = `${MOTIF_REPONSE_LIBRE_PREFIXE} à ${trace.destinataire} (en réponse à ${trace.enReponseA} ; messageId ${trace.messageId})`;
+      const details = JSON.stringify({ type: 'reponse_libre', mode: 'envoye', dateRelance: new Date().toISOString().slice(0, 10), objet: trace.objet, corps: trace.corps, destinataire: trace.destinataire, messageId: trace.messageId, enReponseA: trace.enReponseA });
+      try {
+        await query(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur, details) VALUES ($1, NULL, NULL, $2, $3, $4::jsonb)`, [demandeId, motif, auteur, details]);
+      } catch (e) {
+        if (typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703') {
+          await query(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, $3)`, [demandeId, `${motif}\n--- objet ---\n${trace.objet}\n--- corps ---\n${trace.corps}`, auteur]);
+        } else throw e;
+      }
+    },
+  };
+}
+
 /** Une ligne d'historique unifiée : un complément ENVOYÉ par l'outil OU une relance DÉCLARÉE. `id` = ligne de journal (pour annuler). */
 export interface LigneHistoriqueComplement {
   id: number;
