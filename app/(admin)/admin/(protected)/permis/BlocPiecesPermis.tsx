@@ -34,7 +34,7 @@ export function BlocPiecesPermis({ dossierId, onOuvrir }: {
 
   return (
     <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
-      <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>Pièces du permis <span style={{ fontWeight: 400, color: 'var(--color-svv-muted)' }}>— à ouvrir en regard de la saisie</span></h4>
+      {/* PERF-1 : le titre « Pièces du permis » est porté par l'en-tête dépliable (BlocRepliable) — pas de doublon ici. */}
       {erreur
         ? <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Pièces indisponibles.</span>
         : pieces === null

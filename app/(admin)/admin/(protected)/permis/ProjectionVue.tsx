@@ -7,8 +7,10 @@ import { BlocPiecesPermis } from './BlocPiecesPermis';
 import { BoutonRelancerAnalyse } from './BoutonRelancerAnalyse';
 import { BlocCompletude } from './BlocCompletude';
 import { BlocFilEchanges } from './BlocFilEchanges';
+import { BlocRepliable } from './BlocRepliable';
 import { TableProjection, BoutonValiderProjection, AIDE_PROJECTION, type LigneProjectionAffichee } from './ProjectionRendu';
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
+import { etatValidationProjection } from '../../../../lib/permis/etatValidationProjection';
 import { recompterSiSucces } from './comptesActions';
 
 /**
@@ -26,6 +28,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   const [message, setMessage] = useState<string | null>(null);
   const [vInstruction, setVInstruction] = useState(0); // PROJ-3b — compteur incrémenté à chaque écriture d'instruction → recharge le tracé (bâtiments)
   const [vAnalyse, setVAnalyse] = useState(0); // EXT-1 — bump après « Relancer l'analyse » → remonte CaracteristiquesBloc (refetch des champs extraits)
+  const [batimentsOuvert, setBatimentsOuvert] = useState(false); // PERF-1 — le bloc bâtiments (verdict) est déplié à la demande ; jauge le bouton « Valider »
 
   useEffect(() => {
     let annule = false;
@@ -63,35 +66,49 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   if (erreur) return <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>File de projection indisponible.</div>;
   if (file === null) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>;
 
-  const ouvrir = (dossierId: number) => { setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setMessage(null); };
+  const ouvrir = (dossierId: number) => { setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setMessage(null); setBatimentsOuvert(false); }; // PERF-1 : chaque permis s'ouvre tout replié
 
-  const renderDetail = () => (
-    <div className="flex flex-col gap-2">
-      {/* EXT-1 (étape 2) — RELANCER L'ANALYSE (vision incluse) : relit les pièces et remplit les champs VIDES (jamais une saisie). En
-          tête du détail, mais ce n'est PAS le point d'entrée nominal (l'extraction part seule au versement) — un rattrapage manuel. */}
-      {ouvert !== null && <BoutonRelancerAnalyse dossierId={ouvert} onFini={() => { setVAnalyse((v) => v + 1); setVInstruction((v) => v + 1); }} />}
-      {/* PART-2 — DIAGNOSTIC DE COMPLÉTUDE (présent/manquant par famille, par contenu). Lit la mémoire (aucune relecture PDF au rendu) ;
-          se remonte après « Relancer l'analyse » (key liée à vAnalyse) pour relire le diagnostic fraîchement recalculé. */}
-      {ouvert !== null && <BlocCompletude key={`completude-${ouvert}-${vAnalyse}`} dossierId={ouvert} />}
-      {/* FIL-A — historique des échanges e-mail du permis, en lecture seule (replié par défaut). */}
-      {ouvert !== null && <BlocFilEchanges key={`fil-${ouvert}-${vAnalyse}`} dossierId={ouvert} />}
-      {/* PROJ-3b — INSTRUCTION d'abord (caractéristiques + « + ajouter un bâtiment » = ce qui fait naître les corps), TRACÉ ensuite. */}
-      {/* Clés PRÉFIXÉES PAR RÔLE : deux frères remontés sur le même (ouvert, vAnalyse) ne doivent PAS partager la même clé (sinon
-          React en duplique/omet un — cf. correctif PART-2b). Le suffixe vAnalyse est conservé : chacun se remonte après « Relancer l'analyse ». */}
-      {ouvert !== null && <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
-      {ouvert !== null && <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} rafraichir={vInstruction} />}
-      <BoutonValiderProjection
-        peutValider={verdict?.peutValider ?? false}
-        aucunBatiment={verdict?.aucunBatiment ?? false}
-        libelle={verdict?.libelle ?? 'chargement des bâtiments…'}
-        enCours={enCours}
-        onValider={() => { if (ouvert !== null) void valider(ouvert); }} />
-      {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
-      {/* EXT-1 (point 5) — PIÈCES DU PERMIS en DERNIÈRE POSITION (après caractéristiques, bâtiments, projection) : référence en regard
-          de la saisie, jamais un point d'entrée. Ouverture par le signeur serveur déjà branché (ouvrirPiece → url_piece). */}
-      {ouvert !== null && <BlocPiecesPermis key={`pieces-${ouvert}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />}
-    </div>
-  );
+  // PERF-1 — TOUS les blocs sont REPLIÉS par défaut et ne chargent leurs données QU'AU DÉPLIAGE (BlocRepliable, render-prop). Un bloc
+  //   jamais ouvert ne déclenche AUCUNE requête. Seul le bilan de complétude fait UNE lecture légère (mémoire) au rendu, pour la
+  //   ligne de titre visible sans déplier. renderDetail n'est rendu que pour une ligne ouverte → `ouvert` est non nul ici.
+  const renderDetail = () => {
+    if (ouvert === null) return null; // sécurité de type (narrowing) : renderDetail n'est appelé que sur une ligne ouverte
+    const ev = etatValidationProjection(batimentsOuvert, verdict); // bouton « Valider » : invite à déplier les bâtiments tant qu'ils n'ont pas été ouverts
+    return (
+      <div className="flex flex-col gap-2">
+        {/* EXT-1 (étape 2) — RELANCER L'ANALYSE : SEUL moyen de forcer un recalcul (inchangé). Toujours visible, en tête du détail. */}
+        <BoutonRelancerAnalyse dossierId={ouvert} onFini={() => { setVAnalyse((v) => v + 1); setVInstruction((v) => v + 1); }} />
+        {/* PART-2 / PERF-1 — COMPLÉTUDE + relances : bilan (lecture mémoire) dans la ligne de titre ; détail au dépliage. Se remonte
+            après « Relancer l'analyse » (key liée à vAnalyse) pour relire le diagnostic fraîchement recalculé. */}
+        <BlocCompletude key={`completude-${ouvert}-${vAnalyse}`} dossierId={ouvert} />
+        {/* FIL — historique des échanges : chargé UNIQUEMENT au dépliage (la requête du fil est complète ; pas d'aperçu léger — cf. rapport). */}
+        <BlocRepliable key={`w-fil-${ouvert}`} titre="Historique des échanges">
+          {() => <BlocFilEchanges key={`fil-${ouvert}-${vAnalyse}`} dossierId={ouvert} />}
+        </BlocRepliable>
+        {/* PROJ-3b — INSTRUCTION (caractéristiques + « + ajouter un bâtiment ») puis TRACÉ. Clés PRÉFIXÉES PAR RÔLE (unicité, cf. PART-2b),
+            suffixe vAnalyse conservé : chaque enfant monté se remonte après « Relancer l'analyse ». Montés au dépliage (PERF-1). */}
+        <BlocRepliable key={`w-carac-${ouvert}`} titre="Caractéristiques du permis (saisie)">
+          {() => <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
+        </BlocRepliable>
+        {/* PERF-1 — BÂTIMENTS/PROJECTION (verdict) : la requête la PLUS coûteuse (≈ 9 s sur 7424). Différée au dépliage ; onOuvertChange
+            débloque le bouton « Valider ». */}
+        <BlocRepliable key={`w-bat-${ouvert}`} titre="Bâtiments et projection (emprise)" onOuvertChange={setBatimentsOuvert}>
+          {() => <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} rafraichir={vInstruction} />}
+        </BlocRepliable>
+        <BoutonValiderProjection
+          peutValider={ev.peutValider}
+          aucunBatiment={ev.aucunBatiment}
+          libelle={ev.libelle}
+          enCours={enCours}
+          onValider={() => { void valider(ouvert); }} />
+        {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
+        {/* EXT-1 (point 5) — PIÈCES DU PERMIS en DERNIÈRE POSITION : référence en regard de la saisie. Chargées au dépliage (PERF-1). */}
+        <BlocRepliable key={`w-pieces-${ouvert}`} titre="Pièces du permis">
+          {() => <BlocPiecesPermis key={`pieces-${ouvert}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />}
+        </BlocRepliable>
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col gap-3">

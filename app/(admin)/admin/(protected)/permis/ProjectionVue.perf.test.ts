@@ -1,0 +1,56 @@
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * PERF-1 — GARDE-FOU du CHARGEMENT PARESSEUX de la fiche « Analyse et projection ».
+ *
+ * ⚠️ HONNÊTETÉ : ce dépôt n'a AUCUNE infra de rendu DOM (env node) — on ne peut pas monter les composants pour observer les requêtes
+ * réseau. Ce test fait ce qui est vérifiable en node pur : il SCANNE LE SOURCE et prouve la STRUCTURE qui garantit la paresse —
+ *   (1) les blocs coûteux (fil, caractéristiques, bâtiments, pièces) sont montés via une RENDER-PROP `() => <…>` de BlocRepliable
+ *       → leur enfant (donc leur requête) n'existe pas tant que le bloc n'est pas déplié ;
+ *   (2) BlocRepliable ne rend l'enfant qu'après la 1re ouverture (`dejaOuvert`) et le garde monté caché (`hidden`) → pas de refetch ;
+ *   (3) BlocCompletude est monté DIRECTEMENT (pas derrière une render-prop) : il fait la lecture légère du bilan pour la ligne de titre.
+ * La preuve du zéro-requête effectif est fournie par la MESURE navigateur/HTTP du rapport ; ce test empêche une régression de structure.
+ */
+const lire = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+const PROJ = lire('./ProjectionVue.tsx');
+const REPLIABLE = lire('./BlocRepliable.tsx');
+const COMPLETUDE = lire('./BlocCompletude.tsx');
+
+describe('PERF-1 — blocs coûteux montés au dépliage (render-prop)', () => {
+  for (const bloc of ['BlocFilEchanges', 'CaracteristiquesBloc', 'BlocTraceEmprise', 'BlocPiecesPermis']) {
+    it(`${bloc} est monté via une render-prop () => <…> (chargé au dépliage, pas au rendu de la fiche)`, () => {
+      expect(PROJ).toContain(`() => <${bloc}`);
+    });
+  }
+
+  it('les 4 blocs coûteux sont enveloppés dans BlocRepliable (4 wrappers)', () => {
+    expect((PROJ.match(/<BlocRepliable/g) ?? []).length).toBe(4);
+  });
+
+  it('BlocCompletude est monté DIRECTEMENT (bilan léger visible sans déplier), jamais derrière une render-prop', () => {
+    expect(PROJ).toContain('<BlocCompletude ');
+    expect(PROJ.includes('() => <BlocCompletude')).toBe(false);
+  });
+});
+
+describe('PERF-1 — BlocRepliable : montage paresseux + pas de refetch', () => {
+  it('n’évalue la render-prop qu’après la 1re ouverture (dejaOuvert) et appelle children()', () => {
+    expect(REPLIABLE).toContain('dejaOuvert');
+    expect(REPLIABLE).toContain('children()');
+  });
+  it('garde l’enfant monté et le cache en CSS quand replié (hidden) → aucune requête à la refermeture/réouverture', () => {
+    expect(REPLIABLE).toContain('hidden={!ouvert}');
+  });
+});
+
+describe('PERF-1 — BlocCompletude : titre renommé + bilan + détail au dépliage', () => {
+  it('titre renommé « Complétude des pièces et relances semi-automatiques »', () => {
+    expect(COMPLETUDE).toContain('Complétude des pièces et relances semi-automatiques');
+  });
+  it('bilan dérivé du diagnostic mémorisé (resumeCompletude) et détail derrière une render-prop', () => {
+    expect(COMPLETUDE).toContain('resumeCompletude');
+    expect(COMPLETUDE).toContain('() => <CorpsCompletude');
+  });
+});

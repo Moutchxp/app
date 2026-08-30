@@ -2,17 +2,21 @@
 
 import { useEffect, useState } from 'react';
 import { BlocDemandePieces } from './BlocDemandePieces';
+import { BlocRepliable } from './BlocRepliable';
+import { resumeCompletude } from '../../../../lib/permis/completudeResume';
 
 /**
- * PART-2 — DIAGNOSTIC DE COMPLÉTUDE des pièces, en tête de la ligne dépliée d'« Analyse et projection ». Lit le diagnostic MÉMORISÉ
- * (GET /api/admin/permis/completude), recomposé selon les familles attendues vives — AUCUNE relecture de PDF au rendu. Le calcul
- * (coûteux) se fait au geste « Relancer l'analyse » ; ce bloc se remonte ensuite (key liée à vAnalyse) et relit la mémoire.
+ * PART-2 / PERF-1 — DIAGNOSTIC DE COMPLÉTUDE des pièces (+ demande de pièces + déclaration de relance), en tête de la ligne dépliée
+ * d'« Analyse et projection ». Lit le diagnostic MÉMORISÉ (GET /api/admin/permis/completude), recomposé selon les familles attendues
+ * vives — AUCUNE relecture de PDF ni IA au rendu. Le calcul (coûteux) se fait au geste « Relancer l'analyse ».
  *
- * Information portée par le TEXTE (jamais la couleur seule) : « Présent »/« Manquant » + nombre de pièces par famille, désaccords
- * nom/contenu, pièces non classées, et péremption (une pièce ajoutée depuis le calcul). Mobile-first (colonne, pas de tableau large).
+ * PERF-1 : ce bloc fait UNE lecture légère (la mémoire) au montage pour afficher le BILAN dans la ligne de titre (visible sans
+ * déplier). Le DÉTAIL — dont `BlocDemandePieces`, qui interroge le réseau — n'est monté qu'au DÉPLIAGE (render-prop de BlocRepliable).
+ * Information portée par le TEXTE (jamais la couleur seule).
  */
 type Famille = 'masse' | 'coupe' | 'etage' | 'cerfa';
 const LIBELLE: Record<Famille, string> = { masse: 'Plan de masse', coupe: 'Plan de coupe', etage: 'Plans d’étages', cerfa: 'Formulaire Cerfa' };
+const TITRE = 'Complétude des pièces et relances semi-automatiques';
 
 interface LigneCompletude { famille: Famille; presente: boolean; pieces: string[] }
 interface Desaccord { nomFichier: string; parContenu: Famille | null; parNom: Famille | null }
@@ -21,17 +25,18 @@ interface Completude {
   calculeLe: string;
   perime: boolean;
 }
+type Etat = { statut: 'chargement' } | { statut: 'erreur' } | { statut: 'ok'; completude: Completude | null };
 
 const muted: React.CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
 
 export function BlocCompletude({ dossierId }: { dossierId: number }) {
-  const [etat, setEtat] = useState<{ statut: 'chargement' } | { statut: 'erreur' } | { statut: 'ok'; completude: Completude | null }>({ statut: 'chargement' });
+  const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
 
   useEffect(() => {
     let annule = false;
     (async () => {
       try {
-        const res = await fetch(`/api/admin/permis/completude?dossierId=${dossierId}`, { cache: 'no-store' });
+        const res = await fetch(`/api/admin/permis/completude?dossierId=${dossierId}`, { cache: 'no-store' }); // lecture mémoire : bilan du titre
         if (annule) return;
         if (res.ok) setEtat({ statut: 'ok', completude: ((await res.json()) as { completude: Completude | null }).completude });
         else setEtat({ statut: 'erreur' });
@@ -41,8 +46,30 @@ export function BlocCompletude({ dossierId }: { dossierId: number }) {
   }, [dossierId]);
 
   return (
+    <BlocRepliable titre={<TitreBilan etat={etat} />}>
+      {() => <CorpsCompletude etat={etat} dossierId={dossierId} />}
+    </BlocRepliable>
+  );
+}
+
+/** Ligne de titre : nom du bloc + BILAN léger (incomplet + nombre / complet / jamais calculé), texte porteur, couleur en appui. */
+function TitreBilan({ etat }: { etat: Etat }) {
+  let bilan: React.ReactNode;
+  if (etat.statut === 'chargement') bilan = <span style={{ fontWeight: 400, ...muted }}> — analyse en cours…</span>;
+  else if (etat.statut === 'erreur') bilan = <span style={{ fontWeight: 400, ...muted }}> — bilan indisponible</span>;
+  else {
+    const r = resumeCompletude(etat.completude);
+    if (r.statut === 'jamais') bilan = <span style={{ fontWeight: 400, ...muted }}> — diagnostic non calculé (lancez l’analyse)</span>;
+    else if (r.statut === 'incomplet') bilan = <span style={{ fontWeight: 700, color: 'var(--color-svv-red)' }}> — dossier incomplet ({r.manquantes} famille{r.manquantes > 1 ? 's' : ''} manquante{r.manquantes > 1 ? 's' : ''})</span>;
+    else bilan = <span style={{ fontWeight: 700, color: 'var(--color-svv-green-ink)' }}> — dossier complet</span>;
+  }
+  return <span>{TITRE}{bilan}</span>;
+}
+
+/** Corps DÉTAILLÉ (monté seulement au dépliage) : lignes par famille, désaccords, non classées, et la demande de pièces manquantes. */
+function CorpsCompletude({ etat, dossierId }: { etat: Etat; dossierId: number }) {
+  return (
     <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
-      <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>Complétude des pièces <span style={{ fontWeight: 400, ...muted }}>— par contenu</span></h4>
       {etat.statut === 'chargement' && <span style={muted} aria-live="polite">Analyse des pièces…</span>}
       {etat.statut === 'erreur' && <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Diagnostic indisponible.</span>}
       {etat.statut === 'ok' && etat.completude === null && (

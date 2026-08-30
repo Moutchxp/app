@@ -69,7 +69,7 @@ export function BlocFilEchanges({ dossierId }: { dossierId: number }) {
 
   return (
     <div className="svv-card flex flex-col gap-1" style={{ minWidth: 0 }}>
-      <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>Historique des échanges</h4>
+      {/* PERF-1 : le titre « Historique des échanges » est porté par l'en-tête dépliable (BlocRepliable) — pas de doublon ici. */}
       {erreur && <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Historique indisponible.</span>}
       {fil === null && !erreur && <span style={muted} aria-live="polite">Chargement…</span>}
       {fil?.statut === 'multi' && (
