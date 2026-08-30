@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { TableProjection, BoutonValiderProjection, type LigneProjectionAffichee } from './ProjectionRendu';
+import { TableProjection, BoutonValiderProjection, TitreFamilleEtat, type LigneProjectionAffichee } from './ProjectionRendu';
+import { etatProjectionTitre, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection';
 
 const ligne = (over: Partial<LigneProjectionAffichee> = {}): LigneProjectionAffichee => ({
-  dossierId: 11434, numDau: 'PC07512025V0035', communeNom: 'Paris 15e', natureLibelle: 'Construction neuve', nbBatiments: 2, satisfaitLe: '2026-07-01', ...over,
+  dossierId: 11434, numDau: 'PC07512025V0035', communeNom: 'Paris 15e', natureLibelle: 'Construction neuve', nbBatiments: 2, satisfaitLe: '2026-07-01', nbCorpsSansAltitude: 0, projectionValidee: false, ...over,
 });
 
 describe('PROJ-2c — rendu de la file Projection', () => {
@@ -36,5 +37,26 @@ describe('PROJ-2c — rendu de la file Projection', () => {
     expect(h0).toContain('disabled');
     expect(h0).toContain('Déclarez au moins un bâtiment');
     expect(h0).not.toContain('emprise tracée ou une projection ignorée');
+  });
+});
+
+describe('RATT-1 — état sur la ligne de titre des familles (Analyse et projection)', () => {
+  it('TitreFamilleEtat : base + état en continuité, texte porteur (jamais la couleur seule)', () => {
+    const html = renderToStaticMarkup(h(TitreFamilleEtat, { base: 'Bâtiments et projection (emprise)', etat: etatProjectionTitre(false) }));
+    expect(html).toContain('Bâtiments et projection (emprise)');
+    expect(html).toContain('projection non validée'); // le texte porte le sens
+    expect(html).toContain('var(--color-svv-red)');   // couleur EXISTANTE, en appui
+  });
+
+  it('projection : non validée → rouge ; validée → vert (couleurs existantes)', () => {
+    expect(etatProjectionTitre(false)).toEqual({ texte: 'projection non validée', ton: 'rouge' });
+    expect(etatProjectionTitre(true)).toEqual({ texte: 'projection validée', ton: 'vert' });
+  });
+
+  it('altitudes : 0 bâtiment → NEUTRE (jamais mentir) ; manquante(s) → rouge ; toutes → vert', () => {
+    expect(etatAltitudesTitre(0, 0)).toEqual({ texte: 'aucun bâtiment déclaré', ton: 'neutre' });
+    expect(etatAltitudesTitre(2, 0)).toEqual({ texte: 'altitudes renseignées (2 bâtiments)', ton: 'vert' });
+    expect(etatAltitudesTitre(2, 1)).toEqual({ texte: 'altitude manquante (1/2)', ton: 'rouge' });
+    expect(etatAltitudesTitre(3, 2)).toEqual({ texte: 'altitudes manquantes (2/3)', ton: 'rouge' });
   });
 });

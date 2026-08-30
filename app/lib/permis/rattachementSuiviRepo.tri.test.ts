@@ -10,7 +10,7 @@ import { trierLignesSuivi, type LigneSuivi, type EtatSuivi } from './rattachemen
 const l = (o: Partial<LigneSuivi>): LigneSuivi => ({
   dossierId: 1, numDau: 'X', commune: 'Paris', codeInsee: '75120', type: 'PC', adresse: null, natureTravaux: null,
   etat: 'suivi_aucun_signal', verdict: null, joursAnciennete: 0, derniereEvalIso: null,
-  dateAutorisationIso: null, dateDeclenchementIso: null, origineOuverture: 'detection', alertesSurveillance: 0, ...o,
+  dateAutorisationIso: null, dateDeclenchementIso: null, origineOuverture: 'detection', alertesSurveillance: 0, completudeIncomplete: false, ...o,
 });
 
 const ordre = (lignes: LigneSuivi[]): number[] => trierLignesSuivi(lignes).map((x) => x.dossierId);

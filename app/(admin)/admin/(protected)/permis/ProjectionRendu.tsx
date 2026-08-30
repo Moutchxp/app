@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
+import type { EtatTitreFamille } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état porté par la ligne de titre d'une famille
 
 /**
  * PROJ-2c — RENDU PUR (renderToStaticMarkup) de la file « Projection » : le tableau des permis éligibles (documents obtenus,
@@ -12,6 +13,20 @@ export interface LigneProjectionAffichee {
   natureLibelle: string;
   nbBatiments: number;
   satisfaitLe: string | null;
+  nbCorpsSansAltitude: number;  // RATT-1 — bâtiments déclarés sans altitude de sommet (titre « Caractéristiques du permis »)
+  projectionValidee: boolean;   // RATT-1 — projection validée ? (titre « Bâtiments et projection ») — false par construction dans cette file
+}
+
+/**
+ * RATT-1 — TITRE d'une famille de l'onglet « Analyse et projection » avec son ÉTAT en continuité (comme « Complétude des pièces — dossier
+ * incomplet »). PUR. L'ÉTAT est porté par le TEXTE ; la couleur (rouge/vert existants, ou muted en neutre) n'est qu'un appui. Aucune
+ * teinte nouvelle. Visible SANS déplier la famille (posé sur la ligne de titre du bloc repliable).
+ */
+export function TitreFamilleEtat({ base, etat }: { base: string; etat: EtatTitreFamille }) {
+  const style: CSSProperties = etat.ton === 'rouge' ? { color: 'var(--color-svv-red)', fontWeight: 700 }
+    : etat.ton === 'vert' ? { color: 'var(--color-svv-green-ink)', fontWeight: 700 }
+    : { color: 'var(--color-svv-muted)', fontWeight: 400 };
+  return <span>{base}<span style={style}> — {etat.texte}</span></span>;
 }
 
 const cell: CSSProperties = { padding: '.35rem .5rem', borderBottom: '1px solid var(--color-svv-line)', fontSize: 13, textAlign: 'left', verticalAlign: 'top' };

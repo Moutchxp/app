@@ -14,7 +14,7 @@ import type { AttributsPolygone } from '../../../../lib/permis/affectationSchema
  * FUS-3b — rendu PUR du suivi (renderToStaticMarkup, aucun DOM). Couvre : compteurs + groupes par état, tri par urgence,
  * ancienneté ; le tableau comparatif « trois sources » (dont « aucun bâtiment » et « sans objet »), critères et provenance.
  */
-const ligne = (o: Partial<LigneSuivi>): LigneSuivi => ({ dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', verdict: null, joursAnciennete: 3, derniereEvalIso: null, dateAutorisationIso: '2026-03-13', dateDeclenchementIso: null, origineOuverture: 'detection', alertesSurveillance: 0, ...o });
+const ligne = (o: Partial<LigneSuivi>): LigneSuivi => ({ dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', verdict: null, joursAnciennete: 3, derniereEvalIso: null, dateAutorisationIso: '2026-03-13', dateDeclenchementIso: null, origineOuverture: 'detection', alertesSurveillance: 0, completudeIncomplete: false, ...o });
 
 const detail = (o: Partial<DetailSuivi> = {}): DetailSuivi => ({
   dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', persiste: false,
@@ -117,6 +117,28 @@ describe('FUS-3b / L6 — TableSuivi (deux groupes, ancienneté)', () => {
     expect(h).toContain('date d’autorisation inconnue');   // absence DITE, pas un blanc
     expect(h).toContain('date de déclenchement inconnue'); // groupe 1 sans detecte_le → dit inconnu, jamais un blanc
     expect(h).toContain('suivi depuis'); // l'ancienneté coexiste, distincte de la date de critère
+  });
+
+  it('RATT-1 — 3e groupe « Permis avec dossier incomplet », REPLIÉ par défaut ; un permis incomplet en sort de « En attente »', () => {
+    const lignes = [
+      ligne({ dossierId: 1, etat: 'suivi_aucun_signal', completudeIncomplete: false, numDau: 'COMPLET1' }),
+      ligne({ dossierId: 2, etat: 'suivi_aucun_signal', completudeIncomplete: true, numDau: 'INCOMPLET2' }),
+    ];
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes }));
+    // Le 3e groupe existe, avec son compteur (1), et son bouton est REPLIÉ (aria-expanded=false).
+    expect(h).toContain('Permis avec dossier incomplet');
+    expect(h).toMatch(/Permis avec dossier incomplet[\s\S]*?\(1\)/);
+    expect(h).toMatch(/aria-expanded="false"[\s\S]*Permis avec dossier incomplet|Permis avec dossier incomplet[\s\S]*aria-expanded="false"/);
+    // Replié → la ligne du permis incomplet n'est PAS rendue ; le permis complet reste visible dans « En attente ».
+    expect(h).toContain('COMPLET1');
+    expect(h).not.toContain('INCOMPLET2');
+  });
+
+  it('RATT-1 — un permis « à faire » incomplet reste dans le GROUPE 1 (priorité absolue), pas dans « incomplet »', () => {
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 7, etat: 'arbitrage_demande', completudeIncomplete: true, numDau: 'AFAIRE7' })] }));
+    expect(h).toContain('Rattachement à faire');
+    expect(h).toContain('AFAIRE7');           // visible dans le groupe 1 (jamais masqué par l'incomplétude)
+    expect(h).not.toContain('Permis avec dossier incomplet'); // aucun permis n'alimente le 3e groupe
   });
 });
 

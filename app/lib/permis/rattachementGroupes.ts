@@ -24,3 +24,28 @@ export function estAFaire(etat: EtatSuivi): boolean {
 
 export const GROUPE1_TITRE = 'Rattachement à faire';
 export const GROUPE2_TITRE = 'En attente d’une mise à jour';
+// RATT-1 (décision Arno, 30/08/2026) — 3e groupe, REPLIÉ par défaut à l'affichage : les permis surveillés dont le DOSSIER est
+//   diagnostiqué « incomplet » (au moins une pièce attendue manque). Ils se noyaient dans « En attente d'une mise à jour » et faisaient
+//   croire à une progression (cas Aubervilliers). « Jamais diagnostiqué » ≠ « incomplet » → hors de ce groupe.
+export const GROUPE_INCOMPLET_TITRE = 'Permis avec dossier incomplet';
+
+/** Forme minimale groupable : l'état de suivi + le signal dérivé « dossier incomplet ». */
+export interface LigneGroupable { etat: EtatSuivi; completudeIncomplete: boolean }
+
+/**
+ * RATT-1 — PARTITION du suivi en TROIS groupes, EXCLUSIVE et EXHAUSTIVE (chaque ligne dans un seul groupe ; la somme des trois vaut
+ * toujours le total — précédent 18/08 d'un décompte qui ment). SOURCE UNIQUE, comme la coupure en deux (L6), partagée par le tri et
+ * l'affichage. PRIORITÉ ABSOLUE INCHANGÉE au groupe 1 « à faire » (`estAFaire`) : un arbitrage ouvert reste visible même si le dossier
+ * est incomplet — l'action prime. Le groupe « incomplet » ne PUISE donc QUE dans ce qui serait sinon « en attente ». Quand le dossier
+ * redevient complet, le permis QUITTE « incomplet » et retombe en « en attente » (ou reste « à faire » selon son état réel) — bascule
+ * DÉRIVÉE, jamais un état stocké. Préserve l'ordre d'entrée dans chaque groupe (les lignes arrivent déjà triées). PUR (aucune I/O).
+ */
+export function partitionnerSuivi<T extends LigneGroupable>(lignes: readonly T[]): { aFaire: T[]; incomplets: T[]; enAttente: T[] } {
+  const aFaire: T[] = [], incomplets: T[] = [], enAttente: T[] = [];
+  for (const l of lignes) {
+    if (estAFaire(l.etat)) aFaire.push(l);            // ① priorité absolue : arbitrage ouvert (jamais masqué par l'incomplétude)
+    else if (l.completudeIncomplete) incomplets.push(l); // ② dossier incomplet (parking séparé, replié par défaut)
+    else enAttente.push(l);                            // ③ le reste : veille passive « en attente d'une mise à jour »
+  }
+  return { aFaire, incomplets, enAttente };
+}

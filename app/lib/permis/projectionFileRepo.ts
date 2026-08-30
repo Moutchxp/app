@@ -25,6 +25,8 @@ export interface LigneProjection {
   natureLibelle: string;   // classer(...).libelle (neuve / extension / immeuble neuf)
   nbBatiments: number;     // permis_corps_batiment du permis (à tracer ou ignorer)
   satisfaitLe: string | null;
+  nbCorpsSansAltitude: number;  // RATT-1 — bâtiments déclarés sans altitude de sommet (permis_corps_batiment.altitude_sommet_ngf NULL) → titre « Caractéristiques »
+  projectionValidee: boolean;   // RATT-1 — la file EXCLUT par construction les projections validées (jalon NOT EXISTS permis_projection) → TOUJOURS false ici ; champ exposé pour un titre de famille générique et honnête
 }
 
 // Prédicat SQL de nature CONCERNÉE (miroir EXACT de concerneProjectionEmprise : immeuble neuf/construction neuve = nature '1',
@@ -42,10 +44,12 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean): Promise<Ligne
     dossier_id: number; num_dau: string; commune_nom: string | null; type: 'PC' | 'PD';
     nature_projet_completee: string | null; i_extension: boolean | null; i_surelevation: boolean | null;
     nb_lgt_tot_crees: number | null; surf_creee: string | number | null; nb_batiments: number; satisfait_le: string | null;
+    nb_corps_sans_altitude: number;
   }>(
     `SELECT s.id::int AS dossier_id, s.num_dau, c.nom AS commune_nom, s.type,
             s.nature_projet_completee, s.i_extension, s.i_surelevation, s.nb_lgt_tot_crees, s.surf_creee,
             (SELECT count(*) FROM permis_corps_batiment b WHERE b.dossier_id = s.id)::int AS nb_batiments,
+            (SELECT count(*) FROM permis_corps_batiment b WHERE b.dossier_id = s.id AND b.altitude_sommet_ngf IS NULL)::int AS nb_corps_sans_altitude,
             max(dd.satisfait_le)::date::text AS satisfait_le
        FROM demande_dossier dd
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
@@ -56,7 +60,8 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean): Promise<Ligne
   );
   return rows.map((r) => {
     const d: DossierClassable = { type: r.type, natureProjetCompletee: r.nature_projet_completee, iExtension: r.i_extension, iSurelevation: r.i_surelevation, nbLgtTotCrees: r.nb_lgt_tot_crees, surfCreee: r.surf_creee === null ? null : Number(r.surf_creee) };
-    return { dossierId: r.dossier_id, numDau: r.num_dau, communeNom: r.commune_nom, natureLibelle: classer(d, cfg).libelle, nbBatiments: r.nb_batiments, satisfaitLe: r.satisfait_le };
+    return { dossierId: r.dossier_id, numDau: r.num_dau, communeNom: r.commune_nom, natureLibelle: classer(d, cfg).libelle, nbBatiments: r.nb_batiments, satisfaitLe: r.satisfait_le,
+      nbCorpsSansAltitude: Number(r.nb_corps_sans_altitude ?? 0), projectionValidee: false }; // RATT-1 — false par construction (jalon d'exclusion des validées)
   });
 }
 

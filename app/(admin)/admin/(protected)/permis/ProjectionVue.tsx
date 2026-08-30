@@ -8,9 +8,10 @@ import { BoutonRelancerAnalyse } from './BoutonRelancerAnalyse';
 import { BlocCompletude } from './BlocCompletude';
 import { BlocFilEchanges } from './BlocFilEchanges';
 import { BlocRepliable } from './BlocRepliable';
-import { TableProjection, BoutonValiderProjection, AIDE_PROJECTION, type LigneProjectionAffichee } from './ProjectionRendu';
+import { TableProjection, BoutonValiderProjection, AIDE_PROJECTION, TitreFamilleEtat, type LigneProjectionAffichee } from './ProjectionRendu';
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { etatValidationProjection } from '../../../../lib/permis/etatValidationProjection';
+import { etatProjectionTitre, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles
 import { recompterSiSucces } from './comptesActions';
 
 /**
@@ -74,6 +75,10 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   const renderDetail = () => {
     if (ouvert === null) return null; // sécurité de type (narrowing) : renderDetail n'est appelé que sur une ligne ouverte
     const ev = etatValidationProjection(batimentsOuvert, verdict); // bouton « Valider » : invite à déplier les bâtiments tant qu'ils n'ont pas été ouverts
+    // RATT-1 — état des familles calculé depuis la ligne DÉJÀ chargée (`file`), visible sans déplier ni tirer de contenu lourd (PERF-1 préservée).
+    const row = file?.find((f) => f.dossierId === ouvert) ?? null;
+    const etatAlt = etatAltitudesTitre(row?.nbBatiments ?? 0, row?.nbCorpsSansAltitude ?? 0);
+    const etatProj = etatProjectionTitre(row?.projectionValidee ?? false);
     return (
       <div className="flex flex-col gap-2">
         {/* EXT-1 (étape 2) — RELANCER L'ANALYSE : SEUL moyen de forcer un recalcul (inchangé). Toujours visible, en tête du détail. */}
@@ -87,13 +92,13 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         </BlocRepliable>
         {/* PROJ-3b — INSTRUCTION (caractéristiques + « + ajouter un bâtiment ») puis TRACÉ. Clés PRÉFIXÉES PAR RÔLE (unicité, cf. PART-2b),
             suffixe vAnalyse conservé : chaque enfant monté se remonte après « Relancer l'analyse ». Montés au dépliage (PERF-1). */}
-        <BlocRepliable key={`w-carac-${ouvert}`} titre="Caractéristiques du permis (saisie)">
+        <BlocRepliable key={`w-carac-${ouvert}`} titre={<TitreFamilleEtat base="Caractéristiques du permis (saisie)" etat={etatAlt} />}>
           {() => <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
         </BlocRepliable>
         {/* PERF-1 — BÂTIMENTS/PROJECTION (verdict) : la requête la PLUS coûteuse (≈ 9 s sur 7424). Différée au dépliage ; onOuvertChange
             débloque le bouton « Valider ». POLISH-1 — le bouton « Valider la projection » et ses phrases sont ENFERMÉS dans ce bloc :
             ils n'apparaissent qu'une fois DÉPLIÉ (cohérence avec les autres blocs repliés) ; repli → cachés, aucun /emprise relancé. */}
-        <BlocRepliable key={`w-bat-${ouvert}`} titre="Bâtiments et projection (emprise)" onOuvertChange={setBatimentsOuvert}>
+        <BlocRepliable key={`w-bat-${ouvert}`} titre={<TitreFamilleEtat base="Bâtiments et projection (emprise)" etat={etatProj} />} onOuvertChange={setBatimentsOuvert}>
           {() => (
             <div className="flex flex-col gap-2">
               <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} rafraichir={vInstruction} />

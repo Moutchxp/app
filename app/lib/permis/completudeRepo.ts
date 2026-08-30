@@ -9,6 +9,7 @@
 import { query } from '../db/client';
 import { MARQUEUR_FICHE_SYNTHESE } from './gedConstantes';
 import { classerPiece, lignesDepuisClassements, famillesAttenduesDepuisConfig, type ClassementPiece, type DiagnosticCompletude } from './diagnosticCompletude';
+import { resumeCompletude } from './completudeResume'; // RATT-1 — MÊME règle « incomplet » que le bilan de titre (source unique)
 import type { ResultatLectureGed } from './lectureGed';
 
 /** Calcule le classement PAR CONTENU des pièces déjà lues (ged) et le mémorise. NO-OP résilient si la table est absente (174). */
@@ -73,4 +74,32 @@ export async function recalculerCompletude(dossierId: number, calculePar: string
   const ged = await lireGedPermis(dossierId, depsReellesLectureGed()); // parse PDF LOCAL, aucune IA
   await enregistrerCompletude(dossierId, ged, calculePar);
   return lireCompletude(dossierId);
+}
+
+/**
+ * RATT-1 — signal LÉGER « dossier incomplet » pour un LOT de permis (le 3e groupe du suivi de rattachement, cf. `partitionnerSuivi`).
+ * Relit UNIQUEMENT la MÉMOIRE (`permis_completude`, une seule requête, AUCUNE relecture de PDF, AUCUNE IA) et recompose présent/
+ * manquant selon les familles attendues VIVES — MÊME règle que `lireCompletude`, mais en lot et sans la péremption (le groupe n'a
+ * besoin que du statut « incomplet »). Réutilise `resumeCompletude` (source unique de la règle). Un permis SANS diagnostic mémorisé
+ * N'EST PAS « incomplet » (« jamais diagnostiqué » ≠ « incomplet » — décision Arno). NO-OP résilient : 174 absente / lecture
+ * impossible → set vide (le suivi reste acquis, aucun permis n'est faussement classé incomplet).
+ */
+export async function dossiersIncompletsParmi(dossierIds: readonly number[]): Promise<Set<number>> {
+  if (dossierIds.length === 0) return new Set();
+  try {
+    const { rows } = await query<{ dossier_id: number | string; classements: ClassementPiece[] }>(
+      `SELECT dossier_id, classements FROM permis_completude WHERE dossier_id = ANY($1::int[])`, [dossierIds]);
+    if (rows.length === 0) return new Set();
+    const { chargerConfigVeille } = await import('../sitadel/veilleConfig');
+    const cfg = await chargerConfigVeille();
+    const familles = famillesAttenduesDepuisConfig({
+      cerfa: cfg.familleAttendueCerfa, masse: cfg.familleAttendueMasse, coupe: cfg.familleAttendueCoupe, etage: cfg.familleAttendueEtage,
+    });
+    const incomplets = new Set<number>();
+    for (const r of rows) {
+      const diagnostic = lignesDepuisClassements(r.classements ?? [], familles);
+      if (resumeCompletude({ diagnostic }).statut === 'incomplet') incomplets.add(Number(r.dossier_id));
+    }
+    return incomplets;
+  } catch { return new Set(); } // 174 absente / config illisible → aucun signal (jamais un faux « incomplet »)
 }

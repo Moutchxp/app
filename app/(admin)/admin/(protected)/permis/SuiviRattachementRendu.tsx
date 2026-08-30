@@ -11,7 +11,7 @@ import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere,
 /** PROJ-2c — une emprise RECONSTITUÉE à superposer au schéma (filtre « Afficher la projection »). Anneau en Lambert-93. */
 export interface EmpriseProjetee { id: number; libelle: string; anneau: [number, number][] }
 // rattachementGroupes est PUR (import de TYPE seul depuis le repo, erasé) → client-safe. Source UNIQUE de la coupure en deux (L6).
-import { estAFaire, GROUPE1_TITRE, GROUPE2_TITRE } from '../../../../lib/permis/rattachementGroupes';
+import { partitionnerSuivi, GROUPE1_TITRE, GROUPE2_TITRE, GROUPE_INCOMPLET_TITRE } from '../../../../lib/permis/rattachementGroupes';
 import { PastilleActions } from './PastilleActions'; // SURV-1 — pastille rouge « polygones à vérifier » par-ligne (composant pur, client-safe)
 import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
 
@@ -230,14 +230,12 @@ function LigneSuiviLi({ l, groupe, onOuvrir, ouvert }: { l: LigneSuivi; groupe: 
  * décroissante). Les `lignes` arrivent DÉJÀ triées (groupe 1 en tête) par `listerSuivi` ; le filtre préserve l'ordre. Le groupe 1
  * VIDE (cas actuel : aucun déclencheur n'a jamais tourné) est DIT explicitement, jamais laissé croire à un écran incomplet.
  */
-export function TableSuivi({ lignes, onOuvrir, ouvert, renderDetail }: {
-  lignes: LigneSuivi[]; compteurs?: Record<EtatSuivi, number>; onOuvrir?: (dossierId: number) => void; ouvert?: number | null;
-  renderDetail?: (dossierId: number) => ReactNode; // L7 — contenu du détail, inséré DANS LE FLUX sous la ligne ouverte (fourni par la Vue)
+/** Liste de lignes de suivi + insertion du détail sous la ligne ouverte. Réutilisée par les TROIS groupes (RATT-1). */
+function ListeLignesSuivi({ items, groupe, onOuvrir, ouvert, renderDetail }: {
+  items: LigneSuivi[]; groupe: 'a_faire' | 'en_attente';
+  onOuvrir?: (dossierId: number) => void; ouvert?: number | null; renderDetail?: (dossierId: number) => ReactNode;
 }) {
-  if (lignes.length === 0) return <div className="svv-card" style={styleAide}>Aucun permis suivi (aucune parcelle analysée pour l’instant).</div>;
-  const aFaire = lignes.filter((l) => estAFaire(l.etat));
-  const enAttente = lignes.filter((l) => !estAFaire(l.etat));
-  const ul = (items: LigneSuivi[], groupe: 'a_faire' | 'en_attente') => (
+  return (
     <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
       {items.map((l) => (
         <Fragment key={l.dossierId}>
@@ -251,6 +249,47 @@ export function TableSuivi({ lignes, onOuvrir, ouvert, renderDetail }: {
       ))}
     </ul>
   );
+}
+
+/**
+ * RATT-1 — 3e groupe « Permis avec dossier incomplet », REPLIÉ PAR DÉFAUT (décision Arno). Le titre + le compteur sont visibles sans
+ * déplier ; la liste ne se rend qu'au clic. L'information est portée par le TEXTE (le sous-titre explique la règle), cible tactile
+ * pleine largeur, aucun survol requis (§15). Le signal `completudeIncomplete` est calculé au chargement de la liste : déplier ne tire
+ * aucun contenu lourd (les lignes sont déjà en main).
+ */
+function GroupeIncomplet({ items, onOuvrir, ouvert, renderDetail }: {
+  items: LigneSuivi[]; onOuvrir?: (dossierId: number) => void; ouvert?: number | null; renderDetail?: (dossierId: number) => ReactNode;
+}) {
+  const [ouvertGroupe, setOuvertGroupe] = useState(false); // replié par défaut
+  return (
+    <section className="svv-card" role="group" aria-label={GROUPE_INCOMPLET_TITRE} style={{ padding: '.5rem' }}>
+      <button type="button" aria-expanded={ouvertGroupe} onClick={() => setOuvertGroupe((v) => !v)}
+        style={{ display: 'flex', alignItems: 'center', gap: '.4rem', width: '100%', textAlign: 'left', cursor: 'pointer',
+          background: 'transparent', border: 'none', padding: 0, fontSize: 13, fontWeight: 800, color: 'var(--color-svv-ink)' }}>
+        <span aria-hidden style={{ color: 'var(--color-svv-muted)', flexShrink: 0 }}>{ouvertGroupe ? '▾' : '▸'}</span>
+        <span style={{ flex: 1, minWidth: 0 }}>{GROUPE_INCOMPLET_TITRE} <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>({items.length})</span></span>
+      </button>
+      <div style={{ ...styleAide, marginTop: '.25rem' }}>
+        Dossiers surveillés dont le diagnostic de complétude vaut « incomplet » : au moins une pièce attendue manque. Ils sont mis à
+        part pour ne pas se confondre avec une progression. Dès que le dossier est complet, le permis rejoint « {GROUPE2_TITRE} » (ou
+        « {GROUPE1_TITRE} » selon son état).
+      </div>
+      {ouvertGroupe && (
+        <div style={{ marginTop: '.4rem' }}>
+          <ListeLignesSuivi items={items} groupe="en_attente" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function TableSuivi({ lignes, onOuvrir, ouvert, renderDetail }: {
+  lignes: LigneSuivi[]; compteurs?: Record<EtatSuivi, number>; onOuvrir?: (dossierId: number) => void; ouvert?: number | null;
+  renderDetail?: (dossierId: number) => ReactNode; // L7 — contenu du détail, inséré DANS LE FLUX sous la ligne ouverte (fourni par la Vue)
+}) {
+  if (lignes.length === 0) return <div className="svv-card" style={styleAide}>Aucun permis suivi (aucune parcelle analysée pour l’instant).</div>;
+  // RATT-1 — partition EXCLUSIVE & EXHAUSTIVE en trois groupes (source unique pure). aFaire + incomplets + enAttente = lignes.length.
+  const { aFaire, incomplets, enAttente } = partitionnerSuivi(lignes);
   const titreGroupe = (t: string, n: number): ReactNode => (
     <div style={{ fontSize: 13, fontWeight: 800, marginBottom: '.3rem' }}>{t} <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>({n})</span></div>
   );
@@ -261,14 +300,18 @@ export function TableSuivi({ lignes, onOuvrir, ouvert, renderDetail }: {
         {titreGroupe(GROUPE1_TITRE, aFaire.length)}
         {aFaire.length === 0
           ? <div style={styleAide}>Aucun rattachement à faire pour l’instant : aucun déclencheur n’a encore signalé de changement à arbitrer.</div>
-          : ul(aFaire, 'a_faire')}
+          : <ListeLignesSuivi items={aFaire} groupe="a_faire" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />}
       </section>
       {/* ② GROUPE 2 — en attente d'une mise à jour. */}
       {enAttente.length > 0 && (
         <section className="svv-card" role="group" aria-label={GROUPE2_TITRE} style={{ padding: '.5rem' }}>
           {titreGroupe(GROUPE2_TITRE, enAttente.length)}
-          {ul(enAttente, 'en_attente')}
+          <ListeLignesSuivi items={enAttente} groupe="en_attente" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />
         </section>
+      )}
+      {/* ③ GROUPE 3 (RATT-1) — dossiers incomplets, replié par défaut. Rendu seulement s'il y en a. */}
+      {incomplets.length > 0 && (
+        <GroupeIncomplet items={incomplets} onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />
       )}
     </div>
   );

@@ -18,6 +18,7 @@ import { construireComparatif, type LigneComparative } from './comparatifRattach
 import type { ResultatRattachement } from './detectionRattachement';
 import { listerPiecesDossier } from '../sitadel/demandeRepo';
 import type { PieceArchive } from '../sitadel/demandeRepo';
+import { dossiersIncompletsParmi } from './completudeRepo'; // RATT-1 — signal « dossier incomplet » en lot (mémoire, sans IA)
 import { libelleNatureProjet, aucunSignalGeometriquePossible } from '../sitadel/priorite';
 import { estAFaire } from './rattachementGroupes'; // L6 — coupure en deux (source unique) ; le tri ci-dessous s'appuie dessus
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti AFFICHÉ = registre (autorité), plus le proxy
@@ -201,6 +202,7 @@ export interface LigneSuivi {
   dateDeclenchementIso: string | null;  // L6 — permis_rattachement.detecte_le (date où le déclencheur a ouvert le dossier) ; null = pas de dossier / pas de déclencheur.
   origineOuverture: 'detection' | 'manuelle' | null; // M7-ter — 'manuelle' = ouvert à la main (M5) ; null = pas de dossier / données < migration 147 → affichage 'detection'
   alertesSurveillance: number; // SURV-1 — nb d'alertes de surveillance des polygones en attente pour ce dossier (0 = aucune ; pastille rouge si > 0)
+  completudeIncomplete: boolean; // RATT-1 — signal DÉRIVÉ (jamais stocké) : le diagnostic de complétude des pièces vaut « incomplet ». « Jamais diagnostiqué » → false.
 }
 
 /** Tri décroissant d'une date ISO 'YYYY-MM-DD' (comparable lexicographiquement) ; une date ABSENTE va en FIN (jamais en tête). */
@@ -266,6 +268,8 @@ export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: 
        JOIN sitadel_dossier s ON s.id = e.dossier_id
        LEFT JOIN commune c ON c.code_insee = s.code_insee
        LEFT JOIN permis_rattachement r ON r.dossier_id = e.dossier_id`);
+  // RATT-1 — signal LÉGER « dossier incomplet » (lecture mémoire, une requête, aucune IA) pour le 3e groupe. Résilient (set vide si 174 absente).
+  const incomplets = await dossiersIncompletsParmi(rows.map((r) => Number(r.dossier_id)));
   const lignes: LigneSuivi[] = trierLignesSuivi(rows.map((r) => ({
     // `dossier_id` est un bigint → le pilote `pg` le renvoie en CHAÎNE. On honore le type `number` de LigneSuivi (sinon le POST,
     // qui reçoit ce dossierId via le front, le rejette). Number() est sûr que la valeur soit déjà un nombre ou une chaîne numérique.
@@ -275,6 +279,7 @@ export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: 
     dateAutorisationIso: r.date_autorisation, dateDeclenchementIso: r.date_declenchement,
     origineOuverture: r.origine_ouverture ?? null,
     alertesSurveillance: alertesSurv.get(Number(r.dossier_id)) ?? 0, // SURV-1 — pastille par-ligne (0 = aucune)
+    completudeIncomplete: incomplets.has(Number(r.dossier_id)), // RATT-1 — dérivé (jamais stocké) : décide le 3e groupe
   })));
   const compteurs = Object.fromEntries((Object.keys(ORDRE_URGENCE) as EtatSuivi[]).map((e) => [e, 0])) as Record<EtatSuivi, number>;
   for (const l of lignes) compteurs[l.etat] += 1;
