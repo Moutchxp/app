@@ -8,7 +8,7 @@
  * injectent un `envoyer` factice → AUCUN e-mail réel. Journalise dans `demande_journal` (foyer unique, pas de 2e journal).
  */
 import { query } from '../db/client';
-import { composerComplementPieces, estNoReply, entetesFil } from './complementPieces';
+import { problemeTexteComplement, estNoReply, entetesFil } from './complementPieces';
 import type { FamillePlan } from './planMasse';
 
 /** La cible du geste : le dernier message répondable de la mairie + de quoi répondre dans le fil. */
@@ -32,33 +32,33 @@ export interface ResultatDemandePieces {
   messageId?: string;
 }
 
+/** Ce que le journal doit conserver (trace opposable) : l'objet + le corps RÉELLEMENT ENVOYÉS, + le contexte. */
+export interface TraceEnvoi { objet: string; corps: string; familles: FamillePlan[]; destinataire: string; messageId: string }
+
 export interface DepsDemandePieces {
   lireCible(dossierId: number): Promise<CibleComplement | null>;
   envoyer(cible: CibleComplement, objet: string, corps: string): Promise<{ messageId: string }>;
-  journaliser(demandeId: number, motif: string, auteur: string): Promise<void>;
+  journaliser(demandeId: number, trace: TraceEnvoi, auteur: string): Promise<void>;
 }
 
 /**
- * Orchestre le geste. Refuse (sans envoyer) si : aucun message de mairie, adresse non répondable / expédition indisponible, ou
- * aucune famille demandée. L'ENVOI précède le JOURNAL (un envoi échoué ne laisse pas de trace « envoyé »). PUR par injection.
+ * Orchestre l'ENVOI du complément (PART-3c : le texte est fourni par l'appelant — objet + corps ÉVENTUELLEMENT MODIFIÉS À LA MAIN —
+ * et envoyé VERBATIM, jamais recomposé ici). Refuse (sans envoyer) si : aucune famille, objet/corps vide, entité HTML dans le texte,
+ * aucun message de mairie, adresse non répondable / expédition indisponible. L'ENVOI précède le JOURNAL. PUR par injection.
  */
-export async function executerDemandePieces(deps: DepsDemandePieces, arg: { dossierId: number; familles: readonly FamillePlan[]; auteur: string }): Promise<ResultatDemandePieces> {
+export async function executerDemandePieces(deps: DepsDemandePieces, arg: { dossierId: number; familles: readonly FamillePlan[]; objet: string; corps: string; auteur: string }): Promise<ResultatDemandePieces> {
   const familles = [...new Set(arg.familles)];
   if (familles.length === 0) return { ok: false, motif: 'aucune famille sélectionnée' };
+  const problemeTexte = problemeTexteComplement(arg.objet, arg.corps);
+  if (problemeTexte !== null) return { ok: false, motif: problemeTexte };
 
   const cible = await deps.lireCible(arg.dossierId);
   if (cible === null) return { ok: false, motif: 'aucun message de mairie auquel répondre pour ce permis' };
   if (cible.motifIndisponible !== null) return { ok: false, motif: cible.motifIndisponible };
 
-  const mail = composerComplementPieces(cible.numDau, familles);
-  if (mail === null) return { ok: false, motif: 'aucune famille sélectionnée' }; // filet
-
-  const { messageId } = await deps.envoyer(cible, mail.objet, mail.corps); // AVANT le journal
-  await deps.journaliser(
-    cible.demandeId,
-    `complément de pièces demandé à ${cible.destinataire} (familles : ${familles.join(', ')} ; dans le fil, messageId ${messageId})`,
-    arg.auteur,
-  );
+  // ENVOI VERBATIM : exactement l'objet et le corps reçus (ce qui est affiché est ce qui part).
+  const { messageId } = await deps.envoyer(cible, arg.objet, arg.corps); // AVANT le journal
+  await deps.journaliser(cible.demandeId, { objet: arg.objet, corps: arg.corps, familles, destinataire: cible.destinataire, messageId }, arg.auteur);
   return { ok: true, destinataire: cible.destinataire, familles, messageId };
 }
 
@@ -122,10 +122,20 @@ export function depsReellesDemandePieces(): DepsDemandePieces {
       });
       return { messageId: emission.messageId };
     },
-    journaliser: async (demandeId, motif, auteur) => {
-      await query(
-        `INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, $3)`,
-        [demandeId, motif, auteur]);
+    journaliser: async (demandeId, trace, auteur) => {
+      const motif = `${MOTIF_COMPLEMENT_PREFIXE} à ${trace.destinataire} (familles : ${trace.familles.join(', ')} ; messageId ${trace.messageId})`;
+      const details = JSON.stringify({ objet: trace.objet, corps: trace.corps, familles: trace.familles, destinataire: trace.destinataire, messageId: trace.messageId });
+      try {
+        await query(
+          `INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur, details) VALUES ($1, NULL, NULL, $2, $3, $4::jsonb)`,
+          [demandeId, motif, auteur, details]);
+      } catch (e) {
+        if (typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703') {
+          // migration 175 absente (colonne details inexistante) → on garde la trace OPPOSABLE dans `motif` (objet + corps inclus).
+          const motifComplet = `${motif}\n--- objet ---\n${trace.objet}\n--- corps ---\n${trace.corps}`;
+          await query(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, $3)`, [demandeId, motifComplet, auteur]);
+        } else throw e;
+      }
     },
   };
 }
@@ -133,27 +143,45 @@ export function depsReellesDemandePieces(): DepsDemandePieces {
 /** Préfixe des lignes de journal de ce geste (écriture ET lecture d'historique — source unique). */
 export const MOTIF_COMPLEMENT_PREFIXE = 'complément de pièces demandé';
 
-/** État pour l'écran : cible (destinataire, répondable, motif) + historique des envois de complément (depuis demande_journal). */
+/** État pour l'écran : cible (numDau, destinataire, répondable, motif) + historique (objet/corps envoyés) des compléments. */
 export interface EtatDemandePieces {
+  numDau: string | null;
   destinataire: string | null;
   repliable: boolean;
   motif: string | null;
-  historique: { le: string; motif: string }[];
+  historique: { le: string; objet: string; corps: string }[];
+}
+
+/** Historique des compléments d'une demande (objet/corps depuis `details` si présent ; sinon le `motif` — résilient à la 175 absente). */
+async function lireHistoriqueComplement(demandeId: number): Promise<{ le: string; objet: string; corps: string }[]> {
+  try {
+    const { rows } = await query<{ le: string; motif: string; details: { objet?: string; corps?: string } | null }>(
+      `SELECT horodatage::text AS le, motif, details FROM demande_journal
+        WHERE demande_id = $1 AND motif LIKE $2 || '%' ORDER BY horodatage DESC LIMIT 10`,
+      [demandeId, MOTIF_COMPLEMENT_PREFIXE]);
+    return rows.map((r) => ({ le: r.le, objet: r.details?.objet ?? r.motif, corps: r.details?.corps ?? '' }));
+  } catch (e) {
+    if (typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703') {
+      const { rows } = await query<{ le: string; motif: string }>(
+        `SELECT horodatage::text AS le, motif FROM demande_journal
+          WHERE demande_id = $1 AND motif LIKE $2 || '%' ORDER BY horodatage DESC LIMIT 10`,
+        [demandeId, MOTIF_COMPLEMENT_PREFIXE]);
+      return rows.map((r) => ({ le: r.le, objet: r.motif, corps: '' }));
+    }
+    throw e;
+  }
 }
 
 export async function lireEtatDemandePieces(dossierId: number): Promise<EtatDemandePieces> {
   const cible = await lireCibleComplementReel(dossierId);
   if (cible === null) {
-    return { destinataire: null, repliable: false, motif: 'aucun message de mairie auquel répondre pour ce permis', historique: [] };
+    return { numDau: null, destinataire: null, repliable: false, motif: 'aucun message de mairie auquel répondre pour ce permis', historique: [] };
   }
-  const { rows } = await query<{ le: string; motif: string }>(
-    `SELECT horodatage::text AS le, motif FROM demande_journal
-      WHERE demande_id = $1 AND motif LIKE $2 || '%' ORDER BY horodatage DESC LIMIT 10`,
-    [cible.demandeId, MOTIF_COMPLEMENT_PREFIXE]);
   return {
+    numDau: cible.numDau,
     destinataire: cible.destinataire,
     repliable: cible.motifIndisponible === null,
     motif: cible.motifIndisponible,
-    historique: rows.map((r) => ({ le: r.le, motif: r.motif })),
+    historique: await lireHistoriqueComplement(cible.demandeId),
   };
 }

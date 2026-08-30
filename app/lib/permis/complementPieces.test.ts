@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { composerComplementPieces, estNoReply, entetesFil } from './complementPieces';
+import { composerComplementPieces, estNoReply, entetesFil, problemeTexteComplement } from './complementPieces';
+
+describe('problemeTexteComplement — validation du texte (y compris modifié à la main)', () => {
+  it('texte valable → null', () => {
+    expect(problemeTexteComplement('Objet', 'Bonjour, merci.')).toBeNull();
+  });
+  it('objet vide → refus ; corps vide → refus', () => {
+    expect(problemeTexteComplement('   ', 'corps')).toBe('objet vide');
+    expect(problemeTexteComplement('objet', '   ')).toBe('corps vide');
+  });
+  it('entité HTML échappée (objet ou corps) → refus', () => {
+    expect(problemeTexteComplement('objet', 'Bonjour&nbsp;&nbsp;merci')).toMatch(/entité HTML/);
+    expect(problemeTexteComplement('Titre &amp; suite', 'corps')).toMatch(/entité HTML/);
+    expect(problemeTexteComplement('objet', 'a &#160; b')).toMatch(/entité HTML/);
+  });
+  it('apostrophe, esperluette NUE, « < » isolé → acceptés (ce ne sont pas des entités)', () => {
+    expect(problemeTexteComplement('Objet', 'Dupont & Fils, coût < 5 jours, l’étage')).toBeNull();
+  });
+});
 
 describe('entetesFil — répondre dans le fil du dernier message', () => {
   it('In-Reply-To = Message-ID reçu ; References = chaîne existante + Message-ID', () => {

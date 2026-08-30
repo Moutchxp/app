@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { executerDemandePieces, type DepsDemandePieces, type CibleComplement } from './demanderPiecesRepo';
+import { executerDemandePieces, type DepsDemandePieces, type CibleComplement, type TraceEnvoi } from './demanderPiecesRepo';
 
 /**
- * PART-3a — orchestrateur du geste « demander les pièces manquantes » (par INJECTION : aucun SMTP, aucune base, aucun e-mail réel).
+ * PART-3a/3c — orchestrateur du geste « demander les pièces manquantes » (par INJECTION : aucun SMTP, aucune base, aucun e-mail réel).
+ * PART-3c : l'objet + le corps sont FOURNIS (éventuellement modifiés à la main) et envoyés VERBATIM ; le journal les conserve.
  */
 const cible = (over: Partial<CibleComplement> = {}): CibleComplement => ({
   demandeId: 154, numDau: '0930012500081', destinataire: 'lauriane.pangui@mairie-aubervilliers.fr', deNom: 'Lauriane Pangui',
@@ -10,51 +11,85 @@ const cible = (over: Partial<CibleComplement> = {}): CibleComplement => ({
   motifIndisponible: null, ...over,
 });
 
+const OBJET = 'Permis n° X — complément';
+const CORPS = 'Madame, Monsieur,\n\nMerci de me communiquer le Cerfa.\n\nCordialement,';
+
 function makeDeps(over: Partial<DepsDemandePieces> = {}): DepsDemandePieces {
   return {
     lireCible: vi.fn(async () => cible()),
     envoyer: vi.fn(async (_c: CibleComplement, _o: string, _co: string) => { void _c; void _o; void _co; return { messageId: '<envoye@svav.com>' }; }),
-    journaliser: vi.fn(async (_d: number, _m: string, _a: string) => { void _d; void _m; void _a; }),
+    journaliser: vi.fn(async (_d: number, _t: TraceEnvoi, _a: string) => { void _d; void _t; void _a; }),
     ...over,
   };
 }
+const arg = (over: Partial<{ dossierId: number; familles: ('cerfa'|'masse'|'coupe'|'etage')[]; objet: string; corps: string; auteur: string }> = {}) =>
+  ({ dossierId: 7424, familles: ['cerfa'] as ('cerfa'|'masse'|'coupe'|'etage')[], objet: OBJET, corps: CORPS, auteur: 'admin:decision', ...over });
 
 describe('executerDemandePieces', () => {
-  it('aucune famille cochée → refusé, aucun envoi', async () => {
+  it('texte MODIFIÉ à la main → envoyé BYTE-IDENTIQUE à la brique d’envoi', async () => {
+    let corpsEnvoye = ''; let objetEnvoye = '';
+    const custom = 'Bonjour,\n\nJ’ai édité ce texte à la main — merci pour le plan de coupe.\n\n— A.J.';
+    const deps = makeDeps({ envoyer: async (_c, o, co) => { objetEnvoye = o; corpsEnvoye = co; return { messageId: '<m@svav.com>' }; } });
+    const r = await executerDemandePieces(deps, arg({ objet: 'Objet édité', corps: custom }));
+    expect(r.ok).toBe(true);
+    expect(objetEnvoye).toBe('Objet édité');
+    expect(corpsEnvoye).toBe(custom); // exactement, sans retraitement
+  });
+
+  it('le JOURNAL conserve l’objet ET le corps réellement envoyés + les familles', async () => {
+    let trace: TraceEnvoi | null = null;
+    const deps = makeDeps({ journaliser: async (_d, t) => { trace = t; } });
+    await executerDemandePieces(deps, arg({ familles: ['cerfa', 'etage'], objet: 'O', corps: 'C' }));
+    expect(trace!.objet).toBe('O');
+    expect(trace!.corps).toBe('C');
+    expect(trace!.familles).toEqual(['cerfa', 'etage']);
+    expect(trace!.destinataire).toBe('lauriane.pangui@mairie-aubervilliers.fr');
+  });
+
+  it('corps VIDE → refus, aucun envoi', async () => {
     const deps = makeDeps();
-    const r = await executerDemandePieces(deps, { dossierId: 7424, familles: [], auteur: 'admin:decision' });
+    const r = await executerDemandePieces(deps, arg({ corps: '   ' }));
     expect(r.ok).toBe(false);
     expect(deps.envoyer).not.toHaveBeenCalled();
   });
 
-  it('adresse no-reply (motif indisponible) → refusé avec motif, aucun envoi', async () => {
+  it('objet VIDE → refus, aucun envoi', async () => {
+    const deps = makeDeps();
+    const r = await executerDemandePieces(deps, arg({ objet: '' }));
+    expect(r.ok).toBe(false);
+    expect(deps.envoyer).not.toHaveBeenCalled();
+  });
+
+  it('entité HTML saisie à la main → refus, aucun envoi', async () => {
+    const deps = makeDeps();
+    const r = await executerDemandePieces(deps, arg({ corps: 'Bonjour&nbsp;&nbsp;merci' }));
+    expect(r.ok).toBe(false);
+    expect(deps.envoyer).not.toHaveBeenCalled();
+  });
+
+  it('aucune famille → refus', async () => {
+    const deps = makeDeps();
+    expect((await executerDemandePieces(deps, arg({ familles: [] }))).ok).toBe(false);
+    expect(deps.envoyer).not.toHaveBeenCalled();
+  });
+
+  it('no-reply (motif indisponible) → refus avec motif inchangé, aucun envoi', async () => {
     const deps = makeDeps({ lireCible: vi.fn(async () => cible({ motifIndisponible: 'adresse non répondable' })) });
-    const r = await executerDemandePieces(deps, { dossierId: 7424, familles: ['cerfa'], auteur: 'admin:decision' });
+    const r = await executerDemandePieces(deps, arg());
     expect(r).toEqual({ ok: false, motif: 'adresse non répondable' });
     expect(deps.envoyer).not.toHaveBeenCalled();
   });
 
-  it('aucun message de mairie (cible null) → refusé', async () => {
-    const deps = makeDeps({ lireCible: vi.fn(async () => null) });
-    expect((await executerDemandePieces(deps, { dossierId: 7424, familles: ['cerfa'], auteur: 'a' })).ok).toBe(false);
-  });
-
-  it('OK : envoie le corps ne citant QUE les familles cochées, PUIS journalise (envoi avant journal)', async () => {
+  it('OK : envoi AVANT journal, sur le fil du dernier message reçu', async () => {
     const ordre: string[] = [];
     let cibleEnvoyee: CibleComplement | null = null;
-    let corpsEnvoye = '';
-    let demandeJournalisee = 0;
     const deps = makeDeps({
-      envoyer: async (c, _o, corps) => { ordre.push('envoyer'); cibleEnvoyee = c; corpsEnvoye = corps; return { messageId: '<m@svav.com>' }; },
-      journaliser: async (d) => { ordre.push('journal'); demandeJournalisee = d; },
+      envoyer: async (c) => { ordre.push('envoyer'); cibleEnvoyee = c; return { messageId: '<m@svav.com>' }; },
+      journaliser: async () => { ordre.push('journal'); },
     });
-    const r = await executerDemandePieces(deps, { dossierId: 7424, familles: ['cerfa'], auteur: 'admin:decision' });
+    const r = await executerDemandePieces(deps, arg());
     expect(r.ok).toBe(true);
-    expect(r.destinataire).toBe('lauriane.pangui@mairie-aubervilliers.fr');
-    expect(ordre).toEqual(['envoyer', 'journal']); // envoi AVANT journal
-    expect(corpsEnvoye).toContain('formulaire Cerfa');
-    expect(corpsEnvoye).not.toContain('plan de masse');
-    expect(cibleEnvoyee!.messageId).toBe('<abc@mairie-aubervilliers.fr>'); // fil = dernier message reçu
-    expect(demandeJournalisee).toBe(154);
+    expect(ordre).toEqual(['envoyer', 'journal']);
+    expect(cibleEnvoyee!.messageId).toBe('<abc@mairie-aubervilliers.fr>');
   });
 });

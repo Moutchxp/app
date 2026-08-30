@@ -38,6 +38,20 @@ export function entetesFil(messageId: string, referencesBrut: string | null | un
   return { inReplyTo: mid, references: `${refs ? `${refs} ` : ''}${mid}`.trim() };
 }
 
+/** Entité HTML échappée (&nbsp; &amp; &lt; &#160; …) — INTERDITE : le mail part en texte brut, une entité s'y afficherait littéralement. */
+const RE_ENTITE_HTML = /&(?:[a-z]+|#\d+);/i;
+
+/**
+ * Valide un objet + corps de complément AVANT envoi (y compris quand ils ont été MODIFIÉS À LA MAIN — PART-3c). Renvoie le motif de
+ * refus, ou `null` si le texte est envoyable. PURE. Refuse : objet vide, corps vide, ou toute entité HTML échappée (texte brut).
+ */
+export function problemeTexteComplement(objet: string, corps: string): string | null {
+  if (objet.trim() === '') return 'objet vide';
+  if (corps.trim() === '') return 'corps vide';
+  if (RE_ENTITE_HTML.test(objet) || RE_ENTITE_HTML.test(corps)) return 'le texte contient une entité HTML échappée (le mail part en texte brut)';
+  return null;
+}
+
 export interface ComplementPieces { objet: string; corps: string }
 
 /**
