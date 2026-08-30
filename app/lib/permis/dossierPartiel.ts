@@ -8,6 +8,15 @@ export type OriginePartiel = 'outil' | 'declaree'; // réclamation ENVOYÉE par 
 export interface EtatPartiel { le: string; familles: string[]; origine: OriginePartiel }
 
 /**
+ * PART-B — DATE au format JJ/MM/AAAA en heure locale (Europe/Paris), convention d'affichage du projet (comme `statutCascade`).
+ * Accepte un ISO string (timestamptz sérialisé) ou un Date. Europe/Paris (et non UTC) : un marqueur posé à 00:30 à Paris
+ * (22:30 UTC la veille) doit afficher le JOUR parisien, pas la date UTC de la veille.
+ */
+function jourFrParis(d: string | Date): string {
+  return new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Paris' }).format(new Date(d));
+}
+
+/**
  * Faut-il LEVER automatiquement le marqueur ? OUI seulement si le diagnostic de complétude est « complet » pour TOUS les permis
  * (dossiers actifs) de la demande. Un dossier jamais analysé (`null`) ou incomplet l'empêche. Une demande sans dossier → NON (rien à
  * conclure). C'est le SEUL critère de levée automatique ; la levée manuelle (Arno) est un geste distinct.
@@ -36,14 +45,13 @@ export function dateButoirPartiel(premiereReclamation: Date, delaiMois: number, 
 
 /** CASC-2 — mention « délai prolongé au JJ/MM/AAAA » (EN PLUS de la suspension, jamais à sa place). Information portée par le texte. */
 export function libelleDelaiProlonge(butoir: Date): string {
-  const jj = String(butoir.getUTCDate()).padStart(2, '0');
-  const mm = String(butoir.getUTCMonth() + 1).padStart(2, '0');
-  return `Délai avant saisine CADA prolongé au ${jj}/${mm}/${butoir.getUTCFullYear()} (dossier partiel).`;
+  return `Délai avant saisine CADA prolongé au ${jourFrParis(butoir)} (dossier partiel).`; // PART-B : JJ/MM/AAAA Europe/Paris (formateur unique)
 }
 
 /** Phrase de suspension affichée à l'écran (raison + date + origine) — jamais un silence inexpliqué. */
 export function libelleSuspension(etat: EtatPartiel): string {
   const origine = etat.origine === 'outil' ? 'réclamation envoyée' : 'relance déclarée';
   const familles = etat.familles.length > 0 ? ` (pièces : ${etat.familles.join(', ')})` : '';
-  return `Relance ordinaire suspendue depuis le ${etat.le.slice(0, 10)} — ${origine}${familles}. La réclamation ciblée reste possible ; le cycle ordinaire reprendra quand le dossier sera complet.`;
+  // PART-B — date en JJ/MM/AAAA Europe/Paris (comme le reste de l'interface), plus l'ISO d'avant.
+  return `Relance ordinaire suspendue depuis le ${jourFrParis(etat.le)} — ${origine}${familles}. La réclamation ciblée reste possible ; le cycle ordinaire reprendra quand le dossier sera complet.`;
 }

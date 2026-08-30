@@ -26,6 +26,10 @@ describe('CASC-2 — libelleDelaiProlonge (texte porteur)', () => {
   it('affiche « prolongé au JJ/MM/AAAA »', () => {
     expect(libelleDelaiProlonge(new Date('2026-06-14T00:00:00Z'))).toContain('prolongé au 14/06/2026');
   });
+  it('PART-B — date en heure Europe/Paris (bascule de jour), jamais UTC', () => {
+    // 23:30 UTC le 14/06 = 01:30 le 15/06 à Paris (été) → jour parisien affiché.
+    expect(libelleDelaiProlonge(new Date('2026-06-14T23:30:00Z'))).toContain('prolongé au 15/06/2026');
+  });
 });
 
 describe('CASC-1 — doitLeverAuto (levée auto = tous les permis complets, pur)', () => {
@@ -48,9 +52,10 @@ describe('CASC-1 — doitLeverAuto (levée auto = tous les permis complets, pur)
 
 describe('CASC-1 — libelleSuspension (raison + date, jamais un silence, pur)', () => {
   const etat = (over: Partial<EtatPartiel> = {}): EtatPartiel => ({ le: '2026-08-30T10:00:00Z', familles: ['cerfa', 'etage'], origine: 'outil', ...over });
-  it('porte la DATE, l’origine « réclamation envoyée » et les familles', () => {
+  it('porte la DATE (JJ/MM/AAAA Europe/Paris, PART-B), l’origine « réclamation envoyée » et les familles', () => {
     const s = libelleSuspension(etat());
-    expect(s).toContain('2026-08-30');
+    expect(s).toContain('30/08/2026'); // PART-B : format JJ/MM/AAAA Europe/Paris (le '2026-08-30T10:00:00Z' → 30/08/2026 à Paris), plus l'ISO
+    expect(s).not.toContain('2026-08-30'); // l'ancien format ISO a disparu
     expect(s).toContain('réclamation envoyée');
     expect(s).toContain('cerfa, etage');
     expect(s.toLowerCase()).toContain('suspendue');
@@ -62,5 +67,11 @@ describe('CASC-1 — libelleSuspension (raison + date, jamais un silence, pur)',
     const s = libelleSuspension(etat({ familles: [] }));
     expect(s).toContain('réclamation envoyée');
     expect(s).not.toContain('pièces :');
+  });
+  it('PART-B — la date est en heure Europe/Paris (bascule de jour), jamais en UTC', () => {
+    // 22:30 UTC le 30/08 = 00:30 le 31/08 à Paris (été, UTC+2) → on affiche le JOUR parisien.
+    const s = libelleSuspension(etat({ le: '2026-08-30T22:30:00Z' }));
+    expect(s).toContain('31/08/2026');
+    expect(s).not.toContain('30/08/2026');
   });
 });

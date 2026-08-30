@@ -208,6 +208,26 @@ export function demandeADuRetour(d: { nbReponsesReelles: number; dossiersSatisfa
   return d.nbReponsesReelles > 0 || d.dossiersSatisfaits > 0 || d.dossiers.some((x) => x.triage !== null);
 }
 
+// ── PART-B : deux CATÉGORIES d'affichage dans « En cours » ────────────────────
+/** Catégorie d'un permis dans « En cours » : ① 'premiere' (attend une 1re réponse) ; ② 'relance' (dossier partiel, réclamation envoyée). */
+export type CategorieEnCours = 'premiere' | 'relance';
+
+/**
+ * PART-B — CATÉGORIE d'affichage d'une demande dans « En cours ». 'relance' si elle est en « dossier partiel » (suspension ACTIVE :
+ * la mairie a répondu partiellement, la réclamation de pièces est partie, on attend son retour) ; sinon 'premiere' (attend une
+ * PREMIÈRE réponse — cas classique après une demande initiale, relances ordinaires comprises). Classement EXHAUSTIF et EXCLUSIF →
+ * chaque permis dans UNE SEULE catégorie (compteurs d'en-tête exacts, précédent 18/08). PUR. `suspension` non nul = marqueur actif.
+ */
+export function categorieEnCours(d: { suspension?: unknown }): CategorieEnCours {
+  return d.suspension != null ? 'relance' : 'premiere';
+}
+
+/** Libellés d'affichage des deux catégories (donnée pure, réutilisée par l'en-tête ET la colonne — une seule vérité). */
+export const CATEGORIE_EN_COURS_LIBELLE: Record<CategorieEnCours, string> = {
+  premiere: '1re demande',
+  relance: 'En relance',
+};
+
 /** Champs (rich `DemandeSuivi`) nécessaires pour trancher l'appartenance à « En cours ». */
 export interface DemandeEnCoursAffichable {
   statut: string;

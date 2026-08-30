@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
-import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, partitionnerAnnulationMasse, CHOIX_STATUT_DEFAUT } from '../../../../lib/sitadel/demandesListe';
+import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, partitionnerAnnulationMasse, CHOIX_STATUT_DEFAUT, categorieEnCours, CATEGORIE_EN_COURS_LIBELLE } from '../../../../lib/sitadel/demandesListe';
 import { dansProcess, horsProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, RetourMairie, etatRetourMairie, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
@@ -210,6 +210,14 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   // FUS — 2e registre NON RÉVÉLABLE : demandes à retour, foyer désormais « Réponses ». Même traitement visuel que les soldées.
   const exclusReponses = perimetre === 'en_cours' && aRetourIds.size > 0 ? { n: aRetourIds.size, libelle: 'suivie(s) dans l’onglet Réponses' } : undefined;
   const exclus = [exclusSoldees, exclusReponses].filter((x): x is { n: number; libelle: string } => x !== undefined);
+  // PART-B — décompte par CATÉGORIE de CE QUI EST AFFICHÉ (En cours seulement). Exhaustif ET exclusif (categorieEnCours) → la somme
+  //   vaut TOUJOURS dansVueAffiche.length : compteur exact, chaque permis dans une seule catégorie (précédent 18/08). La catégorie
+  //   vient de la donnée riche (suspension) ; défaut 'premiere' si la riche manque (chargement). Hors En cours → aucun décompte.
+  const categoriesVues = enCours && suivi
+    ? (['premiere', 'relance'] as const)
+        .map((c) => ({ c, n: dansVueAffiche.filter((d) => categorieEnCours(suivi.parId.get(d.id) ?? {}) === c).length }))
+        .filter((x) => x.n > 0)
+    : [];
 
   const nbPages = Math.max(1, Math.ceil(filtrees.length / PAGE_SIZE));
   const pageCourante = Math.min(page, nbPages);
@@ -376,9 +384,11 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   const aujourdhui = formaterDate(maintenant.toISOString()); // borne « refus le » (max) — la route reste l'autorité
   // T6-A — colonnes « Délai » (compte à rebours) + « Retour mairie », injectées dans TableDemandes UNIQUEMENT en « En cours ».
   const colonnesSuivi = enCours && suivi ? {
-    largeur: 3,
+    largeur: 4,
     entetes: (
       <>
+        {/* PART-B — CATÉGORIE : 1re demande vs en relance (dossier partiel), juste après Statut. */}
+        <th style={{ padding: '.4rem .5rem', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>Catégorie</th>
         <th style={{ padding: '.4rem .5rem', textAlign: 'center' as const, whiteSpace: 'nowrap' as const, minWidth: 150 }}>Délai</th>
         <th style={{ padding: '.4rem .5rem', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>Retour mairie</th>
         <th style={{ padding: '.4rem .5rem', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>Réf. mairie</th>
@@ -387,8 +397,17 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
     cellule: (d: { id: number }) => {
       const rich = suivi.parId.get(d.id);
       const e = etatParId.get(d.id);
+      const cat = categorieEnCours(rich ?? {}); // PART-B : 'relance' si suspension active, sinon 'premiere'
       return (
         <>
+          {/* PART-B — badge de catégorie (a11y : l'info est portée par le TEXTE, la couleur seule ne suffit pas). */}
+          <td style={{ padding: '.4rem .5rem', textAlign: 'center' as const, verticalAlign: 'middle' as const }}>
+            {rich
+              ? <span className="svv-pill" style={cat === 'relance'
+                  ? { background: '#fdecec', color: 'var(--color-svv-red)', padding: '.2rem .55rem', borderRadius: 999 }
+                  : { background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)', padding: '.2rem .55rem', borderRadius: 999 }}>{CATEGORIE_EN_COURS_LIBELLE[cat]}</span>
+              : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
+          </td>
           <td style={{ padding: '.4rem .5rem', textAlign: 'center' as const, verticalAlign: 'middle' as const }}>
             {rich && e ? <EtatDemande statut={rich.statut} dossiersActifs={rich.dossiersActifs} etat={e.etat} motif={e.motif} /> : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
           </td>
@@ -435,6 +454,12 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
       {liste && (
         <div className="svv-card" style={{ fontSize: 13 }}>
           <strong>{dansVueAffiche.length} demande(s)</strong> · {dossiersVus} dossier(s) couvert(s) — {compteursVus.map((x) => `${x.n} ${STATUT_LIBELLE[x.s]}`).join(' · ') || 'aucune'}.
+          {/* PART-B — ventilation en DEUX catégories (En cours seulement) : 1re demande vs en relance (dossier partiel). Somme = total affiché. */}
+          {enCours && categoriesVues.length > 0 && (
+            <div style={{ color: 'var(--color-svv-muted)', marginTop: '.3rem' }}>
+              Dont {categoriesVues.map((x) => `${x.n} en ${CATEGORIE_EN_COURS_LIBELLE[x.c].toLowerCase()}`).join(' · ')}.
+            </div>
+          )}
           <MentionMasquage morts={morts} onAfficherTout={() => majFiltre(() => setChoixStatut('tous'))} exclus={exclus} />
           <div style={{ color: 'var(--color-svv-muted)', marginTop: '.3rem' }}>
             Process <strong>{PROCESS_META[process].court}</strong> — {TEXTES[perimetre].intro}

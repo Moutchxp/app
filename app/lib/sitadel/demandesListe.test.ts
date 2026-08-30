@@ -4,6 +4,7 @@ import {
   correspondReference,
   dansPerimetre, statutsDuPerimetre, STATUTS_A_DEMANDER, STATUTS_EN_COURS,
   statutsVivants, statutsMorts, statutsAffiches, CHOIX_STATUT_DEFAUT, partitionnerParDus, visiblesEnCours,
+  categorieEnCours, CATEGORIE_EN_COURS_LIBELLE,
   type Tri, type LigneDemande,
 } from './demandesListe';
 
@@ -53,6 +54,28 @@ describe('T8 — visiblesEnCours : les soldées sont TOUJOURS exclues (non rév�
   it('une demande PARTIELLEMENT satisfaite (≥ 1 dossier dû) reste dans « En cours »', () => {
     expect(visiblesEnCours([vivante], true).map((d) => d.id)).toEqual([1]);
     expect(visiblesEnCours([vivante], false).map((d) => d.id)).toEqual([1]);
+  });
+});
+
+describe('PART-B — categorieEnCours : deux catégories exhaustives et exclusives (1re demande / en relance)', () => {
+  it('suspension active → « relance » (dossier partiel)', () => {
+    expect(categorieEnCours({ suspension: { le: '2026-08-30', familles: [], origine: 'outil' } })).toBe('relance');
+  });
+  it('sans suspension (null / absente) → « premiere » (attend une 1re réponse)', () => {
+    expect(categorieEnCours({ suspension: null })).toBe('premiere');
+    expect(categorieEnCours({})).toBe('premiere');
+  });
+  it('exhaustif ET exclusif : tout jeu se répartit dans les deux catégories, la somme = total (compteur exact)', () => {
+    const jeu = [{ suspension: null }, { suspension: {} }, {}, { suspension: { le: 'x', familles: [], origine: 'declaree' as const } }];
+    const relance = jeu.filter((d) => categorieEnCours(d) === 'relance').length;
+    const premiere = jeu.filter((d) => categorieEnCours(d) === 'premiere').length;
+    expect(relance).toBe(2);
+    expect(premiere).toBe(2);
+    expect(relance + premiere).toBe(jeu.length); // aucun permis hors catégorie, aucun compté deux fois
+  });
+  it('libellés d’affichage exposés (une seule vérité, réutilisée en-tête + colonne)', () => {
+    expect(CATEGORIE_EN_COURS_LIBELLE.premiere).toBe('1re demande');
+    expect(CATEGORIE_EN_COURS_LIBELLE.relance).toBe('En relance');
   });
 });
 
